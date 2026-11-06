@@ -499,6 +499,13 @@ def hold_release(st):
     bad = ['%s %s' % (c, r) for c, r in busy + block]
     if st.get('rollout_procs'):
         bad.append('a model rollout is running: %s' % '; '.join(st['rollout_procs'][:2]))
+    # Codex review r2: S5 lets a SILENT active unit pass (it started after the last decision); a release needs every
+    # active unit to have shown the declared build in a fresh row
+    nact = len([1 for a, _ in (st.get('units') or {}).values() if a == 'active'])
+    seen = sum((st.get('active_builds') or {}).values())
+    if st.get('silent_started_after') or seen != nact:
+        bad.append('%d of %d active units showed the declared build in a fresh row (silent: %s)'
+                   % (seen, nact, ', '.join((st.get('silent_started_after') or [])[:4]) or '-'))
     if bad:
         return False, 'not released: ' + ' | '.join(bad)[:400]
     return True, ('expired %s' % ih.get('until')) if expired else ('its holder pid %s is gone' % pid)
@@ -1805,7 +1812,7 @@ def _entry_facts(P, st, e, full, r10):
     """The per-entry facts decide() needs (the autorebase job, the variant checks + staging, R10), for entry e."""
     st['stage'], st['variant_checks'], st['r10'] = [], [], ''
     st['ar_job'] = None
-    st.pop('r10_ran', None); st.pop('r10_key', None)
+    st.pop('r10_key', None)        # r10_ran is NOT reset: an R10 run for ANY entry of the walk defers the launch
     if e is None:
         return
     if st['base_full'] and st['base_full'] not in (e.get('variants') or {}) and ar_token(e):
@@ -1816,12 +1823,14 @@ def _entry_facts(P, st, e, full, r10):
         busy, block = slot_blockers(st)
         if not busy and not block and not head_blockers(e, st) and entry_state(e, st) == 'ready':
             key = (e.get('run'), st['base_full'], v.get('registration_sha256'))
-            if r10 is None or r10[0] != key:
+            known = r10 if isinstance(r10, dict) else (dict([r10]) if r10 else {})
+            if key not in known:
                 st['r10'] = r10_check(P, e, v)      # the expensive check, only when it is the last thing standing
                 st['r10_ran'] = True
             else:
-                st['r10'] = r10[1]
+                st['r10'] = known[key]
             st['r10_key'] = key
+            st.setdefault('r10_results', {})[key] = st['r10']   # v42: every entry's answer is carried to the re-gather
 
 
 ROLLOUT_PROCS = ('modelrollout.py', 'matset-rollout.sh', 'servea-waiter.sh')
@@ -2044,7 +2053,7 @@ def _tick(P, no_act):
     d = decide(st)
     if d[0] == 'launch' and st.get('r10_ran') and not no_act:
         # R10 ran drawexposure (up to 15 min): re-gather everything cheap and decide again with its answer carried over
-        r10 = (st['r10_key'], st['r10'])        # bound to (run, base, registration sha256): another variant re-checks
+        r10 = dict(st.get('r10_results') or {})  # bound to (run, base, registration sha256): another variant re-checks
         st = gather(P, full=True, r10=r10)
         d = decide(st)
         if d[0] != 'launch':

@@ -1641,6 +1641,33 @@ def t_v42_skip_kinds_pure(CS, F):
     assert CS.skip_kind('H2', 'x-01: autorebase REFUSED at step repo', st, dict(e, bundle={'members': []})) is None
 
 
+def t_v42_skipped_lab_head_r10_is_not_rerun_and_the_launch_uses_fresh_facts(CS, F):
+    """Claude review r2: a lab head skipped on R10, then the target launches. Every entry's R10 answer is carried to the
+    re-gather, so drawexposure runs once per entry (not again during the re-gather, which would make the launch use
+    slot facts from before a 15-min check)."""
+    _two(CS, F)
+    q = json.load(open(F.queue))
+    lab = json.load(open(F.reg)); lab.update(lab=True, draw_exposure={'kind': 'x'}); json.dump(lab, open(F.reg, 'w'))
+    with Env(F.env()):
+        q['entries'][0] = dict(q['entries'][0]); q['entries'][0]['variants'][F.base].pop('registration_sha256', None)
+        bad = CS.validate_entry(CS.paths(), q['entries'][0], [])
+        assert not bad, bad
+    json.dump(q, open(F.queue, 'w'))
+    calls = os.path.join(F.d, 'de-calls')
+    de = os.path.join(F.d, 'de2.py')
+    open(de, 'w').write('import sys\nopen(%r, "a").write(sys.argv[1] + "\\n")\n' % calls + open(F.de).read())
+    with Env(F.env(SCHED_DRAWEXPOSURE=de, FIX_DE='few', FIX_LOOP='ok')):
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            CS.tick(CS.paths())
+    out = buf.getvalue()
+    time.sleep(0.5)
+    n = open(calls).read().split() if os.path.exists(calls) else []
+    assert 'LAUNCH bar-01' in out and 'past foo-01' in out, out
+    assert n.count('foo-01') == 1, 'the skipped head was exposure-checked %d times (re-run in the re-gather)' % n.count('foo-01')
+
+
 def _hold(F, until, **kw):
     json.dump(dict({'owner': 'servea-roll', 'until': Z(until), 'at': Z(NOW - dt.timedelta(hours=8))}, **kw),
               open(os.path.join(F.home, 'digest', 'INSTALL-HOLD'), 'w'))
@@ -1688,6 +1715,17 @@ def t_v42_expired_hold_kept_while_a_rollout_runs(CS, F):
     F.add_proc(4343, ['/usr/bin/python3', '/home/mike/w5alarms/scripts/host/modelrollout.py', 'resume'])
     d, st = decision(CS, F)
     assert not st['hold_release'][0] and 'rollout' in st['hold_release'][1], st['hold_release']
+
+
+def t_v42_expired_hold_kept_with_a_silent_active_unit(CS, F):
+    """Codex review r2: S5 lets a silent unit that started after the last decision pass; a release does not."""
+    F.enqueue(CS); _hold(F, NOW - dt.timedelta(minutes=30))
+    with Env(F.env()):
+        st = CS.gather(CS.paths())
+    st['silent_started_after'] = [BOTS[0]]
+    st['active_builds'] = {k: v - 1 for k, v in st['active_builds'].items()}
+    rel, why = CS.hold_release(st)
+    assert not rel and 'silent' in why, why
 
 
 def t_v42_expired_hold_kept_on_two_builds(CS, F):
@@ -1861,7 +1899,7 @@ MUTANTS = [
      "    if False:\n        append_state(P, {'state': 'launched-pid', 'run': run, 'pid': None"),
     ("    return len(a) >= 7 and len(b) >= 7 and (a.startswith(b) or b.startswith(a))",
      "    return bool(a) and bool(b) and (a.startswith(b[:7]) or b.startswith(a[:7]))"),
-    ("            if r10 is None or r10[0] != key:", "            if r10 is None:"),
+    ("            if key not in known:", "            if not known:"),
     ("    if not d:\n        return (run, 'its decision cannot be found", "    if False:\n        return (run, 'its decision cannot be found"),
     ("        elif imm:\n            regsha[run] = imm[0]", "        elif False:\n            regsha[run] = imm[0]"),
     ("        if not any(sha_match(sha_arg, v) for v in srcs.values()):", "        if False:"),
@@ -1957,6 +1995,7 @@ MUTANTS = [
     ("    if not (expired or dead):\n        return False, ''", "    if False:\n        return False, ''"),
     ("    if bad:\n        return False, 'not released: '", "    if False:\n        return False, 'not released: '"),
     ("    if st.get('rollout_procs'):\n        bad.append", "    if False:\n        bad.append"),
+    ("    if st.get('silent_started_after') or seen != nact:", "    if False:"),
     ("    st['hold_release'] = hold_release(st) if st['autorel_on'] else (False, '')", "    st['hold_release'] = hold_release(st)"),
     ("    if st.get('hold_release', (False, ''))[0]:", "    if False:"),
     ("            row.update(pid=pid, start=starttime(P, pid))", "            pass"),

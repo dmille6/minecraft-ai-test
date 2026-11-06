@@ -55,6 +55,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
@@ -474,6 +475,32 @@ CANARY_LOCK = os.environ.get('ROLLOUT_CANARY_LOCK', '/tmp/mcai-canary.lock')
 DEPLOY_REPO = os.environ.get('ROLLOUT_DEPLOY_REPO', '/opt/minecraft-ai')
 
 
+DEPLOY_QUIET_WAIT_S = 30 * 60
+DEPLOY_PROCS = ('deploy-fleet.sh', 'fleet-deploy', '/root/d.sh')
+
+
+def own_reasons_removed(slot, run, pid):
+    """PURE. canary-sched's slot reasons minus the two this deploy itself causes: its own install-hold and its own hold on
+    the canary lock."""
+    return [x for x in slot if not (x.startswith('S8 INSTALL-HOLD by owner-direct:%s ' % run) or
+                                    x == 'S3 the loop lock is held (pid %d)' % pid)]
+
+
+def deploys_quiet(wait_s=None, poll_s=20):
+    """True once no deploy process (canary-sched's own process scan) runs, waiting up to wait_s. False = one still runs."""
+    wait_s = DEPLOY_QUIET_WAIT_S if wait_s is None else wait_s
+    CS = _sched_module()
+    P = CS.paths()
+    t_end = time.time() + wait_s
+    while True:
+        hits = [h for h in CS.procs(P)[0] if h['name'] in DEPLOY_PROCS]
+        if not hits:
+            return True
+        if time.time() >= t_end:
+            return False
+        time.sleep(poll_s)
+
+
 def direct_plan(f):
     """PURE. facts -> [refusal]. Empty = the owner-direct deploy may go. f: tier, reviewer, showcase_evidence, sha, prev,
     ancestor (bool|None), protected ('not protected'|'tooling'|'protected'|'unknown: ...'), slot ([str] of canary-sched
@@ -580,12 +607,33 @@ def cmd_deploy(a):
     sd = os.path.expanduser(a.state_dir)
     log = os.path.join(sd, f'deploy-{a.run}-direct.log')
     try:
+        # Codex review r2: everything again UNDER the lock -- another deploy may have moved the base since the first check
+        f2 = direct_facts(a)
+        f2['slot'] = own_reasons_removed(f2.get('slot') or [], a.run, os.getpid())
+        bad = direct_plan(f2) + ([] if f2.get('prev') == f.get('prev') else
+                                 ['the fleet build moved from %s to %s since the first check' % (str(f.get('prev'))[:8],
+                                                                                                str(f2.get('prev'))[:8])])
+        if bad:
+            print('REFUSED under the lock:\n  ' + '\n  '.join(bad))
+            return 2
         notes = f'OWNER-DIRECT tier {a.tier} {a.run} (reviewer {a.reviewer}); rollback {str(f["prev"])[:8]}'
         with open(log, 'w') as out:
             subprocess.run([FLEET_DEPLOY, a.sha, f'{a.run}-direct', notes], stdout=out, stderr=subprocess.STDOUT,
                            timeout=3600)
         ok = 'VERIFIED' in open(log).read()
         t0 = dt.datetime.now(UTC).replace(microsecond=0)
+        if not ok and not deploys_quiet():
+            # Claude review r2: fleet-deploy gives up polling after ~20 min while /root/d.sh may still restart bots; a
+            # rollback now would run a SECOND deploy over the first (checkout + a new /root/d.sh under a running bash)
+            append_jsonl(JOURNAL, {'ts': AL._iso(t0), 'run': a.run, 'phase': 'owner-direct-failed',
+                                   'note': f'{a.sha[:8]} did not verify and its deploy is STILL RUNNING after '
+                                           f'{DEPLOY_QUIET_WAIT_S // 60} min: no rollback started; the install-hold stays'})
+            AL.one_shot('rollout-fleet', {f'direct:{a.run}': f'OWNER-DIRECT {a.run} {a.sha[:8]} did NOT verify and its deploy '
+                                                              f'is still running: NO rollback (two deploys must never overlap); '
+                                                              f'read {log}, then roll back by hand to {str(f["prev"])[:8]}'},
+                        t0, log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
+            print(f'NOT VERIFIED and the deploy is still running: no rollback; see {log}')
+            return 1
         if not ok:
             with open(log + '.rollback', 'w') as out:
                 subprocess.run([FLEET_DEPLOY, str(f['prev']), f'{a.run}-rollback', f'ROLLBACK of owner-direct {a.run}: '

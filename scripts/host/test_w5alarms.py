@@ -368,6 +368,10 @@ def t_direct(RO):
     check('direct: tier 3 refuses', any('tier must be 1 or 2' in x for x in bad(tier=3)))
     check('direct: no reviewer refuses', any('reviewer' in x for x in bad(reviewer=' ')))
     check('direct: a short sha refuses', any('full 40-hex' in x for x in bad(sha='bbbbbbb')))
+    check('own reasons: our hold and our lock are not a busy slot', RO.own_reasons_removed(
+        ['S8 INSTALL-HOLD by owner-direct:tidy-02 until x', 'S3 the loop lock is held (pid 77)', 'S1 canary declared: a on b',
+         'S8 INSTALL-HOLD by owner-direct:other-01 until y', 'S3 the loop lock is held (pid 78)'], 'tidy-02', 77)
+          == ['S1 canary declared: a on b', 'S8 INSTALL-HOLD by owner-direct:other-01 until y', 'S3 the loop lock is held (pid 78)'])
     check('protected class: not protected', RO.protected_class(0, 'not protected\n') == 'not protected')
     check('protected class: tooling', RO.protected_class(1, 'PROTECTED (tooling: two engines, no fleet canary):\n  x [tooling]\ntier=tooling\n') == 'tooling')
     check('protected class: tier 3', RO.protected_class(1, 'PROTECTED (tier 3):\n  bots/src/x\ntier=3\n') == 'protected')
@@ -381,6 +385,8 @@ def t_direct(RO):
         os.chmod(dep, 0o755)
         RO.SCHED, RO.FLEET_DEPLOY, RO.CANARY_LOCK, RO.JOURNAL = sched, dep, os.path.join(d, 'lock'), os.path.join(d, 'j.jsonl')
         RO.direct_facts = lambda a: dict(ok)
+        quiet = {'v': True}
+        RO.deploys_quiet = lambda *x, **k: quiet['v']
         args = ['deploy', '--run', 'tidy-02', '--sha', B, '--tier', '1', '--reviewer', 'codex', '--state-dir', d, '--no-push']
         with contextlib.redirect_stdout(io.StringIO()) as o:
             rc = RO.main(args + ['--dry-run'])
@@ -399,6 +405,24 @@ def t_direct(RO):
         rows = [json.loads(l) for l in open(RO.JOURNAL)]
         check('direct e2e: an unverified deploy rolls back to prev and writes no owner-direct row', rc == 1
               and ('%s tidy-02-rollback' % A) in calls and [r['phase'] for r in rows] == ['owner-direct-failed'], (rc, calls, rows))
+        seq = iter([dict(ok), dict(ok, prev='c' * 40)])
+        RO.direct_facts = lambda a: next(seq)
+        os.unlink(RO.JOURNAL); os.unlink(os.path.join(d, 'calls')); open(os.path.join(d, 'good'), 'w').close()
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            rc = RO.main(args)
+        check('direct e2e: the base moved between the check and the lock -> refused, nothing deployed', rc == 2
+              and not os.path.exists(os.path.join(d, 'calls')) and 'moved' in o.getvalue(), o.getvalue())
+        os.unlink(os.path.join(d, 'good'))
+        RO.direct_facts = lambda a: dict(ok)
+        open(RO.JOURNAL, 'w').close(); open(os.path.join(d, 'calls'), 'w').close()
+        quiet['v'] = False
+        with contextlib.redirect_stdout(io.StringIO()) as o:
+            rc = RO.main(args)
+        calls = open(os.path.join(d, 'calls')).read()
+        rows = [json.loads(l) for l in open(RO.JOURNAL)]
+        check('direct e2e: a deploy still running is never rolled back over (no second deploy)', rc == 1
+              and 'rollback' not in calls and rows[-1]['phase'] == 'owner-direct-failed' and 'STILL RUNNING' in rows[-1]['note'],
+              (rc, calls, rows))
         RO.direct_facts = lambda a: dict(ok, slot=['S1 canary declared'])
         with contextlib.redirect_stdout(io.StringIO()) as o:
             rc = RO.main(args)
@@ -480,6 +504,8 @@ MUTANTS = [
     ('rollout.py', "    if f.get('tier') == 2 and not str(f.get('showcase_evidence') or '').strip():", "    if False:", t_direct),
     ('rollout.py', "        ok = 'VERIFIED' in open(log).read()", "        ok = True", t_direct),
     ('rollout.py', "    if a.dry_run:\n        print('DRY RUN", "    if False:\n        print('DRY RUN", t_direct),
+    ('rollout.py', "        if not ok and not deploys_quiet():", "        if False:", t_direct),
+    ('rollout.py', "        f2 = direct_facts(a)\n", "        f2 = dict(f)\n", t_direct),
 ]
 
 
