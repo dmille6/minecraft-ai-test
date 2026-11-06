@@ -188,7 +188,31 @@ import { runVisit, cellDone as buildCellDone, workableSeg, segComplete as buildS
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
-import { SINK_WAIVE, sinkWaiveDue, sinkWaived } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
+import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
+/** sinkwaive-01 (Codex r1 BLOCKER): each holder's LIFETIME tally of the sink cells its visits deferred (never aged: the stuck files are)
+ *  -> the merged counts of every holder's tally and the stuck files, after this holder's own tally took `deferred`. Never throws. */
+const sinkDeferFile = (dir, key, holder) => path.join(dir, `${key}.sinkdefer.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function sinkDeferCounts (dir, key, me, deferred, keep, now = Date.now()) {
+  const maps = []
+  try {
+    const f = sinkDeferFile(dir, key, me)
+    let prev = {}
+    try { prev = JSON.parse(fs.readFileSync(f, 'utf8'))?.cells ?? {} } catch { prev = {} }
+    const next = sinkDeferTally(prev, deferred, now, keep)
+    const tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, holder: me, at: now, cells: next })); fs.renameSync(tmp, f)
+    const pre = `${key}.sinkdefer.`
+    for (const n of fs.readdirSync(dir)) {
+      if (!n.startsWith(pre) || !n.endsWith('.json')) continue
+      try { maps.push(Object.fromEntries(Object.entries(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))?.cells ?? {}).filter(([k]) => keep(k)))) } catch { /* one unreadable file */ }
+    }
+  } catch { /* the stuck files alone */ }
+  let stuck = {}
+  try { stuck = vfStuckRead(dir, key) } catch { stuck = {} }
+  const life = sinkDeferMerge(maps), out = { ...life }
+  for (const [k, v] of Object.entries(stuck)) { const o = out[k]; out[k] = o ? { visits: Math.max(o.visits, Number(v.visits) || 0), firstAt: Math.min(o.firstAt ?? Infinity, Number(v.firstAt) || Infinity) } : { visits: Number(v.visits) || 0, firstAt: Number(v.firstAt) || null } }
+  return out
+}
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -22827,9 +22851,10 @@ async function buildSink (ctx, args, signal, proj) {
     // deferrals over every holder, the first afterMs ago, is named on the record (an op=waived row with its reason); the next visit
     // reads it done and the instance can close (the wall's waiver, wallstuck-01)
     let waivedN = 0
-    if (SINK_WAIVE.on && (r.deferred ?? []).length) {
+    if (SINK_WAIVE.on && sinkWaiveKind(kind) && (r.deferred ?? []).length) {
       try {
-        const due = sinkWaiveDue(rec, r.deferred, vfStuckRead(dir, key), Date.now())
+        const open = new Set((rec.cells ?? []).filter(q => !sinkWaived(rec, q)).map(q => q.at.join(',')))
+        const due = sinkWaiveDue(rec, r.deferred, sinkDeferCounts(dir, key, me, r.deferred, k => open.has(k)), Date.now())
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || instancesOf(cur).length !== instancesOf(rec).length) return null

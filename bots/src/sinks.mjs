@@ -1057,6 +1057,35 @@ export function sinkWaiveDue (rec, deferred = [], counts = {}, now = Date.now(),
   }
   return out
 }
+/**
+ * THE LIFETIME TALLY (Codex r1 BLOCKER: buildrun's settleStuck rewrites a holder's own stuck file through the 24-h forget window, so
+ * the stuck files lose a holder's own old deferrals: one builder visiting 25 h apart read count 1, age 0, forever). Each holder keeps
+ * its own lifetime file of the cells its visits deferred (never aged, never pruned but by done/waived cells); the waiver reads their
+ * sum, merged with the stuck files' (the live state before this shipped). Pure.
+ *   sinkDeferTally(prev, deferred, now, keep) -> the holder's next map { k: { n, firstAt, lastAt } } (`keep(k)`: still an open cell)
+ *   sinkDeferMerge(maps)                     -> { k: { visits, firstAt } } summed over maps (visits added, firstAt the earliest)
+ */
+export function sinkDeferTally (prev = {}, deferred = [], now = Date.now(), keep = () => true) {
+  const out = {}
+  for (const [k, v] of Object.entries(prev ?? {})) if (keep(k) && v && Number.isFinite(Number(v.n))) out[k] = { n: Number(v.n), firstAt: Number(v.firstAt) || now, lastAt: Number(v.lastAt) || now }
+  for (const k of new Set((deferred ?? []).map(d => String(d?.k ?? '')).filter(Boolean))) {
+    if (!keep(k)) continue
+    const v = out[k] ?? { n: 0, firstAt: now }
+    out[k] = { n: v.n + 1, firstAt: v.firstAt, lastAt: now }
+  }
+  return out
+}
+export function sinkDeferMerge (maps = []) {
+  const out = {}
+  for (const m of maps ?? []) {
+    for (const [k, v] of Object.entries(m ?? {})) {
+      const n = Number(v?.visits ?? v?.n) || 0, f = Number(v?.firstAt)
+      const o = out[k] ?? { visits: 0, firstAt: null }
+      out[k] = { visits: o.visits + n, firstAt: Number.isFinite(f) ? (o.firstAt == null ? f : Math.min(o.firstAt, f)) : o.firstAt }
+    }
+  }
+  return out
+}
 /** Is a record cell waived (a stone sink's own list; SINKWAIVE=off: never)? Pure. */
 export const sinkWaived = (rec, c, on = SINK_WAIVE.on) => on && !!rec?.waived && isSinkBlueprint(rec?.blueprint) && sinkWaiveKind(sinkKindOf(rec.blueprint)) &&
   Object.prototype.hasOwnProperty.call(rec.waived, c.at.join(','))

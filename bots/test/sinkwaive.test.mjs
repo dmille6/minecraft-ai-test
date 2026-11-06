@@ -89,6 +89,28 @@ await t('the stone sinks only: road and shrine waive, dress and decor never (the
   assert.strictEqual(S.sinkWaived({ ...w, blueprint: 'wall@1' }, c), false, 'another blueprint\'s list is not this rule\'s')
   assert.strictEqual(S.sinkWaived({ ...w, blueprint: 'decor@1' }, c), false)
 })
+await t('ONE builder visiting 25 h apart (Codex r1 BLOCKER): the stuck file forgets its own old deferrals (count 1, age 0 every visit); the lifetime tally waives at the 3rd visit', () => {
+  const kk = '43,78,-11', rec = towerRec()
+  let stuck = {}, life = {}
+  const dues = []
+  for (let i = 0; i < 5; i++) {
+    const now = 1793790086867 + i * 25 * 3600_000
+    // buildrun settleStuck: this holder's own file through the 24-h window, then rewritten (stuckAfter)
+    const own = Object.fromEntries(Object.entries(stuck).filter(([, v]) => v.lastAt >= now - R.STUCK_FORGET_MS + 1))
+    stuck = R.stuckAfter(own, [kk], { now, by: 'A' }).cells
+    life = S.sinkDeferTally(life, [{ k: kk }], now)
+    const onStuck = S.sinkWaiveDue(rec, [{ k: kk, visits: stuck[kk].visits }], stuck, now)
+    const merged = S.sinkDeferMerge([life])
+    dues.push(`${onStuck.length}/${S.sinkWaiveDue(rec, [{ k: kk, visits: stuck[kk].visits }], merged, now).length}`)
+  }
+  assert.deepStrictEqual(dues, ['0/0', '0/0', '0/1', '0/1', '0/1'], 'the stuck file alone never waives; the tally waives from the 3rd deferral (50 h after the first)')
+  assert.deepStrictEqual(S.sinkDeferTally({ [kk]: { n: 2, firstAt: 5 } }, [], 9, k => k !== kk), {}, 'a cell no longer open leaves the tally')
+  assert.deepStrictEqual(S.sinkDeferMerge([{ a: { n: 1, firstAt: 7 } }, { a: { visits: 2, firstAt: 3 } }]), { a: { visits: 3, firstAt: 3 } })
+})
+await t('MUTANT KILLED: a tally that forgets (n reset each visit) never reaches 3 deferrals', async () => {
+  const third = M => { let life = {}; for (let i = 0; i < 3; i++) life = M.sinkDeferTally(life, [{ k: 'a' }], 1793790086867 + i * 25 * 3600_000); assert.strictEqual(M.sinkDeferMerge([life]).a.visits, 3) }
+  await killedBy(SINKS_PATH, '    out[k] = { n: v.n + 1, firstAt: v.firstAt, lastAt: now }', '    out[k] = { n: 1, firstAt: now, lastAt: now }', third)
+})
 await t('MUTANTS: the age rule cut, the deferral floor cut, dress let in -- each killed', async () => {
   const young = M => assert.deepStrictEqual(M.sinkWaiveDue(towerRec(), [{ k: '43,78,-11', visits: 3 }], { '43,78,-11': { visits: 9, firstAt: NOW - 60_000 } }, NOW), [])
   await killedBy(SINKS_PATH, 'if (visits < minVisits || !Number.isFinite(first) || now - first < afterMs) continue', 'if (visits < minVisits || !Number.isFinite(first)) continue', young)
@@ -152,7 +174,8 @@ console.log('WIRING (source, comments stripped)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const wiring = src => {
   const one = re => { const m = src.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
-  one("const due = sinkWaiveDue\\(rec, r\\.deferred, vfStuckRead\\(dir, key\\), Date\\.now\\(\\)\\)")
+  one("const due = sinkWaiveDue\\(rec, r\\.deferred, sinkDeferCounts\\(dir, key, me, r\\.deferred, k => open\\.has\\(k\\)\\), Date\\.now\\(\\)\\)")
+  one("const next = sinkDeferTally\\(prev, deferred, now, keep\\)")
   one("const leave = rec\\?\\.waived && SINK_WAIVE\\.on && kind !== 'dress' && kind !== 'decor' \\? \\{ \\.\\.\\.leave0, alsoDone: q => sinkWaived\\(rec, q\\) \\} : leave0")
   one("if \\(sinkWaived\\(r, c\\)\\) return true")
   one("if \\(sinkWaived\\(r, c\\)\\) continue")
