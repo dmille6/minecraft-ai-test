@@ -84,7 +84,7 @@ export const TIDY = Object.freeze({ on: tidyOn(process.env, process.env.MEMORY_P
  *  clerk's pattern) -- through the land plan's stages; GROUNDSKEEPER=off is tidy-01 exactly as before (3 builders). */
 export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.env.MEMORY_POOL ?? '') })
 /** FOREST-01 (forest.mjs forestOn): the managed forest outside the walls, the groundskeeper's (it needs the keeper: GROUNDS). FOREST=off
- *  is the rollback. On in FOREST_POOLS (default the showcase only: the canary's drop-in sets FOREST=on). */
+ *  is the rollback. On in every named pool (forest.mjs forestOn; FOREST_POOLS narrows it). */
 export const FORESTP = Object.freeze({ on: forestOn(process.env, process.env.MEMORY_POOL ?? '') && GROUNDS.on })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),

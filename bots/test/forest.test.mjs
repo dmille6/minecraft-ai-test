@@ -62,7 +62,8 @@ const grow = (w, c, n, sp = 'spruce_log') => { for (let k = 0; k < n; k++) w.set
 
 await t('the switch: on in the showcase pool by default, off in a fleet pool, FOREST=on|off wins', () => {
   assert.strictEqual(F.forestOn({}, 'showcase'), true)
-  assert.strictEqual(F.forestOn({}, 'hive-a'), false)
+  assert.strictEqual(F.forestOn({}, 'hive-a'), true, 'fleet: every named pool')
+  assert.strictEqual(F.forestOn({}, ''), false, 'an unnamed pool (a test bot) stays off')
   assert.strictEqual(F.forestOn({ FOREST: 'on' }, 'hive-a'), true)
   assert.strictEqual(F.forestOn({ FOREST: 'off' }, 'showcase'), false)
   assert.strictEqual(F.forestOn({ FOREST_POOLS: 'board-a,hive-b' }, 'hive-b'), true)

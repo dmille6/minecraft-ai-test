@@ -36,8 +36,8 @@
 // FOREST.rotateMs after the last harvest began, so the strips stagger. A felled plot is replanted at once (runVisit plants every open
 // plot with a sapling to hand). The leaves left decay by themselves (no log within 6); the aisles' feet and head leaves are dug.
 //
-// FOREST=off is the kill switch (never sited, never visited; a sited record stays a reservation). On only in FOREST_POOLS (default
-// 'showcase') until a fleet rollout.
+// FOREST=off is the kill switch (never sited, never visited; a sited record stays a reservation). FLEET: on in every named pool
+// (FOREST_POOLS narrows it).
 
 import { pathColumn } from './paths.mjs'
 import { plotState, FARM_SPECIES, PLANTABLE } from './treefarm.mjs'
@@ -45,13 +45,14 @@ import { plotState, FARM_SPECIES, PLANTABLE } from './treefarm.mjs'
 export const FOREST_PLOT = 'forest'
 export const FOREST_BLUEPRINT = 'forest@1'
 export const FOREST_BUILDERS = 1
-/** THE SWITCH -> bool. FOREST=on|off; unset = on only in the pools FOREST_POOLS names (default 'showcase'). Pure. */
+/** THE SWITCH -> bool. FOREST=on|off; unset = on in the pools FOREST_POOLS names (FLEET default '*': every named pool -- the fleet
+ *  build reaches only the canary's pools until its rollout; an unnamed pool, a test or scratch bot, stays off). Pure. */
 export function forestOn (env = process.env, pool = '') {
   const v = String(env?.FOREST ?? '').trim().toLowerCase()
   if (['on', '1', 'true', 'yes'].includes(v)) return true
   if (['off', '0', 'false', 'no'].includes(v)) return false
-  const pools = String(env?.FOREST_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
-  return pools.includes(String(pool))
+  const pools = String(env?.FOREST_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  return !!String(pool ?? '').trim() && (pools.includes('*') || pools.includes(String(pool)))
 }
 
 export const FOREST = Object.freeze({
