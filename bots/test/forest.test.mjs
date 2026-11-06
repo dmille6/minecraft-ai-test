@@ -122,6 +122,11 @@ await t('the siting: outside the walls by the gap, inside the ticking chunks, ev
   // inside the walls there is no site at all; no wall record: no forest
   assert.ok(!F.siteForest(w.read, { home: HOME, rings: [[-200, -200, 200, 200]] }).ok)
   assert.strictEqual(F.siteForest(w.read, { home: HOME, rings: [] }).why, 'no_wall')
+  // the build's walk covers the box (Claude + Codex r1: runVisit's stand search stopped at WALK_R 48)
+  assert.ok(F.boxReach(r.box, HOME) <= F.FOREST.rMax)
+  assert.ok(F.forestWalkR(r, HOME) >= F.boxReach(r.box, HOME) + 6)
+  const wide = F.siteForest(w.read, { home: HOME, rings: [[-40, -40, 40, 40]] })
+  assert.ok(wide.ok && F.boxReach(wide.record.box, HOME) <= F.FOREST.rMax && F.forestWalkR(wide.record, HOME) > 48, 'a wide town: a forest past 48, walked to')
 })
 await t('the siting keeps the land plan\'s sectors (treefarm or wild only) and every reservation, and refuses stone under a plot', () => {
   const w = world()
@@ -233,9 +238,9 @@ await t('the due test is PERPETUAL and honest: a ripe strip, an open plot only w
   assert.strictEqual(F.forestDue(w.read, rec, { now: 5000, skip: k => k.startsWith('plot:') }), null, 'this bot\'s failed trees are skipped')
   const ai = rec.aisles[0]
   w.set([ai[0], G + 2, ai[1]], 'spruce_leaves')
-  assert.strictEqual(F.forestDue(w.read, rec, { now: 5000, skip: k => k.startsWith('plot:') }), 'leaves')
-  w.set([ai[0], G + 2, ai[1]], 'air')
+  assert.strictEqual(F.forestDue(w.read, rec, { now: 5000, skip: k => k.startsWith('plot:') }), null, 'aisle leaves are no due of their own (a living crown fills the aisle for good: r1)')
   assert.strictEqual(F.forestDue(w.read, rec, { now: 5000, skip: k => k.startsWith('plot:'), drops: 2 }), 'sweep')
+  assert.strictEqual(F.forestDue(w.read, rec, { now: 5000, skip: () => true, retire: true }), 'retire', 'the in-wall farm\'s retirement keeps the forest due (Codex r1)')
 })
 await t('MUTANT KILLED: a due test that offers an open plot with no sapling to hand (the keeper would loop on a visit that can only wait)', async () => {
   await killed('  if (saplings > 0) for (const c of forestPlots(rec)) {', '  if (true) for (const c of forestPlots(rec)) {', M => {
@@ -278,9 +283,11 @@ await t('the groundskeeper\'s felled outside trees: replanted in the forest\'s o
   assert.deepStrictEqual(rp.slice(0, 2).map(q => q.cell.join(',')), fr.map(q => q.cell.join(',')))
   assert.ok(!rp[2].forest, 'the third goes to the land plan\'s zones')
   assert.deepStrictEqual(TIDY.replantCells(w.read, land, trees).map(q => !!q.forest), [false, false, false], 'no forest: exactly as before')
+  // only the plots the tidy's own walk reaches (forestR)
+  assert.deepStrictEqual(TIDY.replantCells(w.read, land, trees, { forest: rec, forestR: 5 }).map(q => !!q.forest), [false, false, false], 'a forest past the tidy\'s walk takes no debt')
 })
 await t('MUTANT KILLED: replantCells that ignores the forest (the owner\'s "replant in an clean organized way")', async () => {
-  await killed('  if (forest) {\n    const fr = forestReplantCells(read, forest, trees)', '  if (false) {\n    const fr = forestReplantCells(read, forest, trees)', async M => {
+  await killed('  if (forest) {\n    const fr = forestReplantCells(read, forest, trees, { home, maxR: forestR })', '  if (false) {\n    const fr = forestReplantCells(read, forest, trees, { home, maxR: forestR })', async M => {
     const { w, rec } = sited()
     w.set(plotsOf(rec)[0].at, 'air')
     const land = { home: HOME, zones: { E: 'treefarm', W: 'wild', N: 'wild', S: 'wild', NE: 'wild', NW: 'wild', SE: 'wild', SW: 'wild' }, ringR: 10, workR: 60, corridors: [] }
@@ -314,6 +321,16 @@ await t('the retirement: every grown tree felled from a stand (an 8-log tree on 
   assert.deepStrictEqual(t6.order.map(q => q[1] - (G + 1)), [5, 4, 3, 2, 1, 0], 'top down, the stump last')
   assert.deepStrictEqual(plan.saplings, [p[2].at])
   assert.deepStrictEqual(plan.lights, [[-28, G + 1, 8]])
+  // INTERRUPTED after the first side log (Claude + Codex r1): the column is scanned WHOLE, gaps and all -- never read done under its logs
+  w.set(t8.order[0], 'air')
+  const again = F.farmRetirePlan(w.read, farm)
+  const t8b = again.trees.find(x => x.cell[0] === -30 && x.cell[2] === 6)
+  assert.ok(t8b && t8b.order.length === 7 && again.done === false, 'the rest of the 8-log tree, resumed')
+  assert.deepStrictEqual(t8b.order.map(q => q[1] - (G + 1)), [2, 3, 4, 5, 6, 7, 0])
+  // the top log alone left floating over the gap: still listed
+  for (const q of t8b.order.slice(0, 5)) w.set(q, 'air')
+  assert.deepStrictEqual(F.farmRetirePlan(w.read, farm).trees.find(x => x.cell[0] === -30 && x.cell[2] === 6).order.map(q => q[1] - (G + 1)), [7, 0])
+  for (const tr of F.farmRetirePlan(w.read, farm).trees) for (const q of tr.order) w.set(q, 'air')
   for (const tr of plan.trees) for (const q of tr.order) w.set(q, 'air')
   w.set(p[2].at, 'air'); w.set([-28, G + 1, 8], 'air')
   assert.strictEqual(F.farmRetirePlan(w.read, farm).done, true)
@@ -327,6 +344,35 @@ await t('the retirement: every grown tree felled from a stand (an 8-log tree on 
   assert.deepStrictEqual(g.box, [-31, 5, -25, 11])
   const zs = LAND.landReservation({ corridors: [], garden: g }).zones
   assert.ok(zs.some(z => z.why === 'land:garden' && z.box[0] === -31 && z.box[5] === 11))
+})
+await t('the retirement KEEPS what it cannot fell whole: a branchy tree, a 9-log trunk, a tree the record waived -- never half felled; the garden keeps them', () => {
+  const w = world()
+  const farm = oldFarm(w)
+  const p = farm.cells.filter(c => c.role === 'plot')
+  grow(w, p[0], 5, 'oak_log'); w.set([p[0].at[0] + 1, p[0].at[1] + 3, p[0].at[2]], 'oak_log')     // a fancy oak's branch
+  grow(w, p[1], 9)                                                                                  // past the stump stance
+  grow(w, p[2], 6)
+  const plan = F.farmRetirePlan(w.read, { ...farm, waived: { [`farm:${p[2].at.join(',')}`]: { why: 'reach' } } })
+  assert.deepStrictEqual(plan.kept.map(k => k.why).sort(), ['branch', 'reach', 'tall'])
+  assert.strictEqual(plan.trees.length, 0)
+  assert.strictEqual(plan.done, true, 'nothing left the retirement can do: it retires with its garden trees')
+  const g = F.gardenOf(F.farmRetired(farm, 1), { kept: plan.kept })
+  assert.strictEqual(g.trees.length, 3, 'the kept trees are the garden\'s own')
+  // keepDue: FOREST.failMax failures, never the clock
+  const fails = new Map()
+  assert.ok(!F.keepDue(fails, 'k', 'reach') && !F.keepDue(fails, 'k', 'deadline') && !F.keepDue(fails, 'k', 'off_stand') && F.keepDue(fails, 'k', 'reach'), 'the third failure off the clock')
+})
+await t('MUTANT KILLED: a retirement scan that stops at the first gap (an interrupted felling read done under its floating logs)', async () => {
+  await killed("    for (let k = 0; k <= F.trunkMax + 2; k++) { const q = read(x, y + k, z); if (!q) { unread++; break } if (LOG.test(nm(q))) col.push([x, y + k, z]) }",
+    "    for (let k = 0; k <= F.trunkMax + 2; k++) { const q = read(x, y + k, z); if (!q) { unread++; break } if (!LOG.test(nm(q))) break; col.push([x, y + k, z]) }", M => {
+      const w = world()
+      const farm = oldFarm(w)
+      const c = farm.cells.find(q => q.role === 'plot')
+      grow(w, c, 8)
+      w.set([c.at[0], c.at[1] + 1, c.at[2]], 'air')
+      const plan = M.farmRetirePlan(w.read, farm)
+      assert.strictEqual(plan.trees[0].order.length, 7)
+    })
 })
 await t('MUTANT KILLED: a retirement whose 8-log tree is felled top down from the side (its top log would float)', async () => {
   await killed('    const step = far.length > 0', '    const step = false', M => {
@@ -382,6 +428,19 @@ await t('shop.mjs: with the forest on, the in-wall farm leaves the ORDER (never 
   assert.ok(g.includes('treefarm') && g.includes('forest'))
 })
 
+await t('with the forest ON, an open crop farm and cane bed are still offered (Claude + Codex r1: their `after` named the farm that left the order)', async () => {
+  const keep = { ...process.env }
+  Object.assign(process.env, { MEMORY_POOL: 'showcase', FOREST: 'on', GROUNDSKEEPER: 'on', TIDY: 'on', HOUSE: 'on', PATHS: 'on', TOWNWALL: 'on', TREEFARM: 'on', CROPFARM: 'on', CANEFARM: 'on' })
+  try {
+    const S2 = await import(`../src/shop.mjs?forest=${Date.now()}`)
+    assert.strictEqual(S2.FORESTP.on, true, 'the forest is on in this import')
+    assert.strictEqual(S2.FARM_AFTER, 'paths')
+    const list = S2.projectsOn().filter(p => ['shop', 'house1', 'paths', 'wall', 'cropfarm', 'canefarm', 'forest', 'tidy'].includes(p.plot))
+    assert.ok(list.some(p => p.plot === 'cropfarm') && !list.some(p => p.plot === 'treefarm'), list.map(p => p.plot).join(','))
+    const states = list.map(p => ({ plot: p.plot, exists: true, complete: !['cropfarm', 'canefarm'].includes(p.plot), damaged: false }))
+    assert.ok(['cropfarm', 'canefarm'].includes(S2.activeProject(states, list).plot), 'the open farm is offered')
+  } finally { for (const k of Object.keys(process.env)) if (!(k in keep)) delete process.env[k]; Object.assign(process.env, keep) }
+})
 // ---- built end to end by the real runner ---------------------------------------------------------------------------------------
 await t('BUILT END TO END by buildrun.mjs runVisit: the floor filled, each plot\'s ground dug and a sapling SUNK in it, every placement on the record; no sapling: no plot dug', async () => {
   // a 2-strip forest on the fake server (flat grass at G over dirt), a pit to fill in the box
@@ -455,12 +514,15 @@ await t('WIRED: the visit dispatched, the due upkeep read, the footprint priced,
   assert.ok(/reserved: I\.reserved, forest: forestRecNow\(\) \}\)/.test(s), 'the stage siting passes the forest')
   assert.ok(/if \(FORESTP\.on\) return out\('no_effect', 'retiring'/.test(s), 'the in-wall farm\'s own visit stands down')
   assert.ok(/function farmDueFor \(bot, rec\) \{\n\s*if \(FORESTP\.on\) return null/.test(s), 'no upkeep visit of the in-wall farm')
+  assert.ok(/domain: \(\) => true, walkR: forestWalkR\(rec, home\), foreign: FOREST_FOREIGN/.test(s), 'the build walks as far as the forest (r1)')
+  assert.ok(/retire: farmRetireDueNow\(\), skip: forestSkipOf\(bot\)/.test(s), 'the retirement keeps the forest due (r1)')
+  assert.ok((s.match(/keepDue\(\(bot\.forestFails \?\?= new Map\(\)\), t\.key, r\.why\)/g) ?? []).length === 2, 'a tree that keeps failing is kept, forest and farm alike (r1)')
   // the harvest digs with the build effects' dig, never collectManually (the footprint's veto)
   const fell = s.slice(s.indexOf('async function forestFell'), s.indexOf('async function buildForest'))
   assert.ok(fell.length > 200 && /await e\.dig\(p, b\.name\)/.test(fell) && !/collectManually/.test(fell))
   const tidy = code(TIDY_PATH)
-  assert.ok(/replantCells\(read, land, \[\.\.\.road\.trees, \.\.\.bandTrunks\], \{ avoid, cells, groves: !!band, busy, forest \}\)/.test(tidy), 'the outbands\' felled trees')
-  assert.ok(/replantCells\(read, land, pp\.trees\.map\(t => \(\{ col: t\.col, name: t\.name \}\)\), \{ avoid: avoidRp, cells, forest \}\)/.test(tidy), 'the plot prep\'s felled trees')
+  assert.ok(/replantCells\(read, land, \[\.\.\.road\.trees, \.\.\.bandTrunks\], \{ avoid, cells, groves: !!band, busy, forest, forestR: tidyWalkR\(record\) - 2 \}\)/.test(tidy), 'the outbands\' felled trees')
+  assert.ok(/replantCells\(read, land, pp\.trees\.map\(t => \(\{ col: t\.col, name: t\.name \}\)\), \{ avoid: avoidRp, cells, forest, forestR: tidyWalkR\(\{ r: rr \}\) - 2 \}\)/.test(tidy), 'the plot prep\'s felled trees')
   assert.ok(/\.\.\.parkZones\(land\), \.\.\.gardenZones\(land\),/.test(code(LAND_PATH)), 'the garden reserved')
   assert.ok(/p\.plot === TREEFARM_PLOT \? farm && paths && on && !forest :/.test(code(SHOP_PATH)), 'the in-wall farm leaves the order')
 })

@@ -70,12 +70,12 @@ export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot 
   const ti = states.findIndex(st => st.plot === tidyPlot)
   const tidyP = list.find(p => p.plot === tidyPlot)
   const shop = states.find(st => st.plot === shopPlot)
-  if (ti < 0 || !tidyP || !(shop?.exists && shop?.complete)) return { order: list, states }
-  // gkhelpers-01: a HELPER (a helper lease is mine or free) sees the tidy as any project -- free while it has a slot, in its own
-  // place in the order (last): only a bot with nothing else to build helps
   // FOREST-01: every bot but the keeper never sees the forest -- an unsited one reads WAITING, a sited one STANDING with nothing due
   // (activeProject would otherwise offer an open forest as any bot's `open[0]` fallback, a visit the keeper check turns away)
   const hideForest = sts => (forestPlot ? sts.map(st => (st?.plot === forestPlot ? (st.exists ? { ...st, complete: true, damaged: false, due: false, dueFirst: false, free: false } : { ...st, waiting: true, free: false }) : st)) : sts)
+  if (ti < 0 || !tidyP || !(shop?.exists && shop?.complete)) return { order: list, states: d === 'mine' ? states : hideForest(states) }
+  // gkhelpers-01: a HELPER (a helper lease is mine or free) sees the tidy as any project -- free while it has a slot, in its own
+  // place in the order (last): only a bot with nothing else to build helps
   if (d === 'helper') return { order: list, states: hideForest(states) }
   const out = states.slice()
   // FOREST-01: the managed forest is the keeper's too (owner 11-06: part of groundskeeping's outward work) -- FIRST while it wants work

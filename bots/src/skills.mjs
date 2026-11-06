@@ -188,7 +188,7 @@ import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantry
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
-import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint } from './forest.mjs'   // forest-01
+import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -17479,7 +17479,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // stepwell-01: an unsited stepwell whose siting found no site WAITS town-wide too (the canefarm rule: never a loop of no_site visits)
         // forest-01: an unsited forest whose siting found no site WAITS town-wide (siteWaitUntil), never the keeper's every order
-        if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir) && !farmRetireDueNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         if (p.plot === STEPWELL_PLOT && !rec && Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
@@ -23432,6 +23432,7 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
       const paths = projectHeads().find(x => x.plot === PATHS_PLOT)?.head?.rec
       const pathK = new Set((paths?.cells ?? []).map(q => `${q.at[0]},${q.at[2]}`))
       const road = corridorAt(land)
+      for (const tr of g.trees ?? []) if (Array.isArray(tr)) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) taken.add(`${tr[0] + dx},${tr[2] + dz}`)   // a kept farm tree: the garden's own, its column and round it left
       const segN = `G${Math.max(-1, ...(rec.segments ?? []).map(q => Number(/^T-PUG(\d+)-/.exec(q.seg)?.[1] ?? -1))) + 1}`
       const home = planHomeP()
       const t = parkTopUp(read, { park: g, have, taken: (x, z) => taken.has(`${x},${z}`), near: (x, z) => pathK.has(`${x},${z}`) || !!road(x, z), water: (x, y, z) => String(read(x, y, z)?.name ?? '') === 'water', segN, y0: home.y - 16, y1: home.y + 16 })
@@ -24427,7 +24428,7 @@ function forestDropsNow (bot, rec) {
 function forestDueFor (bot, rec) {
   try {
     if (Date.now() < (bot.forestIdleUntil ?? 0)) return null
-    return forestDue(farmRead(bot), rec, { now: Date.now(), saplings: forestSaplingsNow(bot), drops: forestDropsNow(bot, rec).length, skip: forestSkipOf(bot) })
+    return forestDue(farmRead(bot), rec, { now: Date.now(), saplings: forestSaplingsNow(bot), drops: forestDropsNow(bot, rec).length, retire: farmRetireDueNow(), skip: forestSkipOf(bot) })
   } catch { return null }
 }
 /** THE SITING INPUTS: every other project's record and zone (the land plan's corridors, park and garden through its reservation), the
@@ -24526,57 +24527,76 @@ async function buildForest (ctx, args, signal) {
     spawnedAt: () => bot.shopSpawnAt ?? 0,
   }))
   try {
-    // 0. THE IN-WALL FARM, RETIRED (owner 11-06): its trees felled, its saplings and torches dug, then the record retired and the garden sited
+    // 0. THE IN-WALL FARM, RETIRED (owner 11-06): its trees felled, its saplings and torches dug, then the record retired and the garden
+    // sited -- asked BEFORE and AFTER this visit's digs (Codex r1: the visit that dug the last of it retires it; a quiet forest is no
+    // reason to leave it), every tree it cannot fell KEPT as a garden tree (forest.mjs farmRetirePlan `kept`, keepDue)
     const fk = projKeyOf(TREEFARM_PLOT)
-    const fh = recordHead(dir, fk)
-    if (fh.ok && fh.head?.rec && !farmIsRetired(fh.head.rec)) {
+    const retireIfDone = () => {
+      const fh = recordHead(dir, fk)
+      if (!fh.ok || !fh.head?.rec) return { open: false }
       const farm = fh.head.rec
-      const read = farmRead(bot)
-      const plan = farmRetirePlan(read, farm)
-      if (plan.done) {
-        const pub = publishRecord(dir, fk, cur => (cur && !farmIsRetired(cur) ? farmRetired(cur, Date.now()) : null), { by: me })
-        if (pub.result === 'accepted') {
-          retired = 'farm'
-          rowLog({ project: TREEFARM_PLOT, op: 'retired', kind: TREEFARM_BLUEPRINT, gen: pub.gen })
-          // THE GARDEN on its ground (the land plan's second park: gkPlanAdditions tops it up with parkTopUp)
-          try {
-            const g = gardenOf(farm, { seed: Number(landHead(dir)?.seed) || 0, now: Date.now() })
-            if (g) {
-              const lp = publishRecord(dir, projKeyOf(LAND_PLOT), cur => (cur && !cur.garden ? { ...cur, garden: g } : null), { by: me })
-              if (lp.result === 'accepted') rowLog({ project: FOREST_PLOT, op: 'garden_sited', cell: [g.box[0], farm.level ?? home.y, g.box[1]], kind: g.box.join('_'), gen: lp.gen })
+      // retired, its garden sited (or none fits): nothing more
+      if (farmIsRetired(farm)) {
+        const land = landHead(dir)
+        if (!land || land.garden) return { open: false }
+        const g = gardenOf(farm, { seed: Number(land.seed) || 0, now: Date.now(), kept: farm.kept ?? [] })
+        if (!g) return { open: false }
+        const lp = publishRecord(dir, projKeyOf(LAND_PLOT), cur => (cur && !cur.garden ? { ...cur, garden: g } : null), { by: me })
+        if (lp.result === 'accepted') rowLog({ project: FOREST_PLOT, op: 'garden_sited', cell: [g.box[0], farm.level ?? home.y, g.box[1]], kind: g.box.join('_'), gen: lp.gen })
+        return { open: false }
+      }
+      const plan = farmRetirePlan(farmRead(bot), farm)
+      if (!plan.done) return { open: true, farm, plan }
+      const pub = publishRecord(dir, fk, cur => (cur && !farmIsRetired(cur) ? { ...farmRetired(cur, Date.now()), kept: plan.kept } : null), { by: me })
+      if (pub.result === 'accepted') {
+        retired = 'farm'
+        rowLog({ project: TREEFARM_PLOT, op: 'retired', kind: TREEFARM_BLUEPRINT, n: plan.kept.length, gen: pub.gen })
+        shopFootprintRefresh(bot)
+        return retireIfDone()   // the garden, the same visit
+      }
+      return { open: false }
+    }
+    let rt = { open: false }
+    try { rt = retireIfDone() } catch { rt = { open: false } }
+    if (rt.open) {
+      const lease = projTakeLease(dir, key, 'seg-retire', me, { now: Date.now() })
+      if (lease.ok) {
+        const e = e0()
+        try {
+          const skip = forestSkipOf(bot)
+          for (const t of rt.plan.trees) {
+            if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break
+            if (skip(t.key)) continue
+            // a stump-stance tree is started only with the time to finish it (an interrupted one is resumed, its column scanned whole)
+            if (t.step && deadline - 20_000 - Date.now() < 6_000 * ((t.logs ?? t.order.length) + 2)) continue
+            const r = t.stand ? await forestFell(bot, e, t, { signal, deadline: deadline - 20_000, log: rowLog, kind: 'retire', project: TREEFARM_PLOT }) : { n: 0, why: 'no_stand' }
+            felledAll += r.n
+            if (r.why) {
+              (bot.forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
+              rowLog({ project: TREEFARM_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: 'retire_failed', n: r.n, why: r.why })
+              // a tree no stand fells (none, or failed FOREST.failMax times): KEPT, a garden tree -- never a farm that never retires
+              if (!t.stand || keepDue((bot.forestFails ??= new Map()), t.key, r.why)) {
+                const pub = publishRecord(dir, fk, cur => (cur && !farmIsRetired(cur) && !cur.waived?.[t.key] ? { ...cur, waived: { ...(cur.waived ?? {}), [t.key]: { why: String(r.why).slice(0, 40), at: Date.now(), by: me } } } : null), { by: me })
+                if (pub.result === 'accepted') rowLog({ project: TREEFARM_PLOT, op: 'waived', cell: t.cell, kind: 'kept', why: String(r.why).slice(0, 40), gen: pub.gen })
+              }
             }
-          } catch { /* the next visit sites it */ }
-          shopFootprintRefresh(bot)
-        }
-      } else {
-        const lease = projTakeLease(dir, key, 'seg-retire', me, { now: Date.now() })
-        if (lease.ok) {
-          const e = e0()
-          try {
-            const skip = forestSkipOf(bot)
-            for (const t of plan.trees) {
-              if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break
-              if (skip(t.key)) continue
-              const r = await forestFell(bot, e, t, { signal, deadline: deadline - 20_000, log: rowLog, kind: 'retire', project: TREEFARM_PLOT })
-              felledAll += r.n
-              if (r.why) { (bot.forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS); rowLog({ project: TREEFARM_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: 'retire_failed', n: r.n, why: r.why }) }
-            }
-            // its saplings (the forest's to plant) and torches, dug from a reachable stand, the drop picked up where it fell
-            for (const at of [...plan.saplings, ...plan.lights]) {
-              if (Date.now() > deadline - 20_000) break
-              const b = farmRead(bot)(...at)
-              if (!b || !(/_sapling$/.test(b.name) || b.name === 'torch')) continue
-              await e.walkTo([at[0] + 1, at[1], at[2]])
-              check(signal)
-              if (!digReachFrom(e.feet(), at)) continue
-              const v = await e.dig(at, b.name)
-              if (v !== 'confirmed') continue
-              rowLog({ project: TREEFARM_PLOT, op: 'clear', cell: at, block: b.name, kind: 'retire' })
-              await e.walkTo(at)
-              await sleep(250, signal)
-            }
-          } finally { releaseLease(dir, key, 'seg-retire', me, lease.gen) }
-        }
+          }
+          // its saplings (the forest's to plant) and torches, dug from a reachable stand, the drop picked up where it fell
+          for (const at of [...rt.plan.saplings, ...rt.plan.lights]) {
+            if (Date.now() > deadline - 20_000) break
+            const b = farmRead(bot)(...at)
+            if (!b || !(/_sapling$/.test(b.name) || b.name === 'torch')) continue
+            await e.walkTo([at[0] + 1, at[1], at[2]])
+            check(signal)
+            if (!digReachFrom(e.feet(), at)) continue
+            const v = await e.dig(at, b.name)
+            if (v !== 'confirmed') continue
+            rowLog({ project: TREEFARM_PLOT, op: 'clear', cell: at, block: b.name, kind: 'retire' })
+            await e.walkTo(at)
+            await sleep(250, signal)
+          }
+        } finally { releaseLease(dir, key, 'seg-retire', me, lease.gen) }
+        try { retireIfDone() } catch { /* asked again next visit */ }
       }
     }
     check(signal)
@@ -24614,7 +24634,16 @@ async function buildForest (ctx, args, signal) {
             if (Date.now() > deadline - 40_000) break
             const r = await forestFell(bot, e, t, { signal, deadline: deadline - 30_000, log: rowLog, kind: t.kind })
             hv.felled += r.n
-            if (r.why) { hv.failed++; (bot.forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS); rowLog({ project: FOREST_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: `${t.kind}_failed`, n: r.n, why: r.why }) } else {
+            if (r.why) {
+              hv.failed++
+              ;(bot.forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
+              rowLog({ project: FOREST_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: `${t.kind}_failed`, n: r.n, why: r.why })
+              // a tree that keeps failing (never on the clock) is KEPT: its plot (or site tree) waived, so the strip's rotation goes on
+              if (keepDue((bot.forestFails ??= new Map()), t.key, r.why)) {
+                const pub = publishRecord(dir, key, cur => (cur && !cur.waived?.[t.key] ? { ...cur, waived: { ...(cur.waived ?? {}), [t.key]: { why: String(r.why).slice(0, 40), at: Date.now(), by: me } } } : null), { by: me })
+                if (pub.result === 'accepted') { hv.waived++; rowLog({ project: FOREST_PLOT, op: 'waived', cell: t.cell, kind: 'kept', why: String(r.why).slice(0, 40), gen: pub.gen }) }
+              }
+            } else {
               hv.trees++
               // the logs fell into the sunk plot: step into it so they are picked up, then back to the aisle
               if (t.kind === 'grown') { try { await e.walkTo(t.cell); await sleep(300, signal); await e.walkTo(t.stand) } catch (err) { if (err?.aborted || signal?.aborted) throw err } }
@@ -24660,7 +24689,7 @@ async function buildForest (ctx, args, signal) {
           try { const hh = heldMap(bot); for (const sp of FARM_SPECIES) sapsNow += Number(hh[sp]) || 0 } catch { sapsNow = 0 }
           const brec = forestBuildRecord(vrec, read, { saplings: sapsNow })
           r = await runVisit({ dir, key, me, home, stood: stoodRead(dir, stoodKey(), home), record: brec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.forestStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy: {},
-            domain: () => true, foreign: FOREST_FOREIGN, blockLayer: false, clearMax: 60, alsoDone: forestAlsoDone }, e, { deadline: deadline - 20_000, maxSteps: 300 })
+            domain: () => true, walkR: forestWalkR(rec, home), foreign: FOREST_FOREIGN, blockLayer: false, clearMax: 60, alsoDone: forestAlsoDone }, e, { deadline: deadline - 20_000, maxSteps: 300 })
           if (r.stop === 'complete' && !rec.structure_complete && !standing.length && !forestCutsLeft(read, rec).length) {
             const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'standing', completeAt: Date.now() } : null), { by: me })
             if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: FOREST_PLOT, op: 'complete', kind: FOREST_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
@@ -24671,9 +24700,14 @@ async function buildForest (ctx, args, signal) {
     }
     check(signal)
     // 4. THE AISLES' LEAVES (feet and head: the rows stay walkable), those within reach of where the bot stands, then along the aisle
-    let leaves = 0
+    let leaves = 0, aisleWalks = 0
     for (const q of aisleLeaves(read, rec)) {
       if (leaves >= FOREST.leafMax || Date.now() > deadline - 15_000) break
+      // out of reach: walk to the stand nearest it (at most 3 walks a visit; Claude r1: digging only from where the bot stood did nothing)
+      if (!digReachFrom(e.feet(), q) && aisleWalks < 3) {
+        const st = forestPlots(rec).map(c => c.stand).filter(Array.isArray).sort((a, b) => Math.hypot(a[0] - q[0], a[2] - q[2]) - Math.hypot(b[0] - q[0], b[2] - q[2]))[0]
+        if (st) { aisleWalks++; try { await e.walkTo(st) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
+      }
       if (!digReachFrom(e.feet(), q)) continue
       const lb = read(...q)?.name ?? null
       if (!lb || !/_leaves$/.test(lb)) continue
@@ -24734,6 +24768,18 @@ async function buildForest (ctx, args, signal) {
   }
 }
 const FOREST_NOSITE_MS = 6 * 60 * 60_000
+/** forest-01: is the in-wall farm's retirement (or its garden's siting) still the forest keeper's to do? -> bool. Never throws. */
+function farmRetireDueNow (dir = townDir()) {
+  try {
+    if (!FORESTP.on) return false
+    const fh = recordHead(dir, projKeyOf(TREEFARM_PLOT))
+    const farm = fh.ok ? fh.head?.rec ?? null : null
+    if (!farm) return false
+    if (!farmIsRetired(farm)) return true
+    const land = landHead(dir)
+    return !!land && !land.garden && !!gardenOf(farm)
+  } catch { return false }
+}
 /** forest-01: the standing forest record (a felled outside tree's replant goes to its rows: tidy.mjs replantCells) | null. Never throws. */
 function forestRecNow (dir = townDir()) {
   try { if (!FORESTP.on) return null; const h = recordHead(dir, projKeyOf(FOREST_PLOT)); return h.ok ? h.head?.rec ?? null : null } catch { return null }

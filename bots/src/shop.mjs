@@ -159,6 +159,8 @@ export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.
 /** FOREST-01 (forest.mjs forestOn): the managed forest outside the walls, the groundskeeper's (it needs the keeper: GROUNDS). With it on,
  *  the in-wall tree farm is RETIRED (never sited again, never harvested: the forest's keeper takes it down). FOREST=off is the rollback. */
 export const FORESTP = Object.freeze({ on: forestOn(process.env, process.env.MEMORY_POOL ?? '') && GROUNDS.on })
+/** The crop farm's and the cane bed's `after`: the tree farm, or the paths (the farm's own `after`) while the forest is on. */
+export const FARM_AFTER = FORESTP.on ? PATHS_PLOT : TREEFARM_PLOT
 /**
  * PICKER-01: THE TOWN SINKS (sinks.mjs; OWNER 11-02 resource model Q3 + 11-03 "do it"): three REPEATABLE projects -- road segments,
  * wall towers, ziggurat growth (shrines) -- each a growing record of seeded instances, offered only when no finite project has a
@@ -178,8 +180,10 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
-  Object.freeze({ plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CROPFARM_BUILDERS }),   // cropfarm-01
-  Object.freeze({ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: TREEFARM_PLOT, builders: CANEFARM_BUILDERS }),   // canefarm-01: the books' cane
+  // forest-01 (Claude + Codex r1 BLOCKER): with the forest on the in-wall farm leaves the order, so an `after` naming it never read
+  // complete and an open crop farm or cane bed was never offered -- they follow the paths then, as the farm did
+  Object.freeze({ plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: FARM_AFTER, builders: CROPFARM_BUILDERS }),   // cropfarm-01
+  Object.freeze({ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: FARM_AFTER, builders: CANEFARM_BUILDERS }),   // canefarm-01: the books' cane
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),

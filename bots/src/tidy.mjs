@@ -693,18 +693,18 @@ export function roadWork (read, cols, { home, cells = new Set(), lim, avoid = ()
  * `avoid` or a record cell's column; nearest home first. Fewer cells than trees: the rest are owed none (the visit fells a trunk
  * only once every listed replant stands: buildrun.mjs B4).
  */
-export function replantCells (read, land, trees, { avoid = () => null, cells = new Set(), r = LAND.workR, groves = false, busy = new Set(), forest = null, T = TIDY } = {}) {
+export function replantCells (read, land, trees, { avoid = () => null, cells = new Set(), r = LAND.workR, groves = false, busy = new Set(), forest = null, forestR = Infinity, T = TIDY } = {}) {
   const home = land?.home
   if (!home || !trees.length) return []
   // FOREST-01 (owner 11-06 "when they cut down a tree outside the walls replant in an clean organized way"): with a managed forest, a
   // felled tree's sapling goes into the forest's next open ROW plot first (forest.mjs forestReplantCells: row order, never the strip
   // being harvested); only the trees the forest has no open plot for go where they went before
   if (forest) {
-    const fr = forestReplantCells(read, forest, trees)
+    const fr = forestReplantCells(read, forest, trees, { home, maxR: forestR })   // only the plots the tidy's own walk reaches (forestR)
     if (fr.length >= trees.length) return fr
     if (fr.length) {
       const fcols = new Set(fr.map(q => `${q.cell[0]},${q.cell[2]}`))
-      const rest = replantCells(read, land, trees.slice(fr.length), { avoid: (x, z) => avoid(x, z) ?? (fcols.has(`${x},${z}`) ? 'forest' : null), cells, r, groves, busy, forest: null, T })
+      const rest = replantCells(read, land, trees.slice(fr.length), { avoid: (x, z) => avoid(x, z) ?? (fcols.has(`${x},${z}`) ? 'forest' : null), cells, r, groves, busy, forest: null, forestR, T })
       return [...fr, ...rest]
     }
   }
@@ -1472,7 +1472,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // zones have no room for keeps standing, its logs and its stand dropped (named)
     const plotBoxes = (terrace?.wallext?.plots ?? []).map(q => q?.box).filter(q => Array.isArray(q) && q.length === 4)
     const avoidRp = (x, z) => avoid(x, z) ?? (plotBoxes.some(q => x >= q[0] && x <= q[2] && z >= q[1] && z <= q[3]) ? 'land:plot' : null)
-    const rp = pp.trees.length ? (land ? replantCells(read, land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: avoidRp, cells, forest }) : []) : []
+    const rp = pp.trees.length ? (land ? replantCells(read, land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: avoidRp, cells, forest, forestR: tidyWalkR({ r: rr }) - 2 }) : []) : []
     const keptT = new Set(pp.trees.map((t, i) => i).filter(i => i >= rp.length))
     if (keptT.size) { sv.skipped = { ...sv.skipped, [land ? 'tree_no_replant' : 'tree_no_land']: keptT.size }; sv.clear = sv.clear.filter(c => !(c.kind === 'tree' && keptT.has(c.tree))) }
     const platsKept = pp.platforms.filter(q => !keptT.has(q.tree))
@@ -1575,7 +1575,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   for (const c of [...road.clear, ...bandClear]) if (!record.clear.some(q => q.at.join(',') === c.at.join(','))) record.clear.push(c)
   record.clear.sort((a, b) => a.at[1] - b.at[1])
   // outbands-01: the band's felled road trees owe their replants too; with the switch on every replant goes to a grove first
-  record.replant = replantCells(read, land, [...road.trees, ...bandTrunks], { avoid, cells, groves: !!band, busy, forest })
+  record.replant = replantCells(read, land, [...road.trees, ...bandTrunks], { avoid, cells, groves: !!band, busy, forest, forestR: tidyWalkR(record) - 2 })
   if (lightAt.length) {
     record.segments.push({ seg: 'T-L', deps: [] })
     for (const l of lightAt) record.cells.push({ at: l.at, role: 'light', seg: 'T-L' })

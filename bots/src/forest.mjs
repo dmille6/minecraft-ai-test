@@ -62,6 +62,8 @@ export const FOREST = Object.freeze({
   wallGap: 4,          // the box's nearest column at least this far outside every wall ring (Codex: 4-block buffer)
   chunkR: 5,           // every column of the box within this many chunks (Chebyshev) of home's chunk (simulation-distance 6, less 1)
   scanR: 96,           // the siting scan's half-width round home
+  rMax: 72,            // every column of the box within this of home (Chebyshev): the build's walk (forestWalkR) and the tidy's
+  failMax: 3,          // a tree this bot failed this often (never on the clock) is KEPT: its plot waived, a farm tree a garden tree
   scanStep: 2,         // the scan's stride (the box is 14-20 wide: a 2-block shift costs nothing)
   fillMax: 3,          // the floor fills a column at most this many cells
   cutMax: 3,           // ...and cuts one at most this many (the hills stay: a steeper site is no site)
@@ -156,6 +158,11 @@ export function boxTicks (box, home, r = FOREST.chunkR) {
   const hx = chunkOf(Math.floor(home.x)), hz = chunkOf(Math.floor(home.z))
   return [box[0], box[2]].every(x => Math.abs(chunkOf(x) - hx) <= r) && [box[1], box[3]].every(z => Math.abs(chunkOf(z) - hz) <= r)
 }
+/** The box's farthest column from home (Chebyshev). Pure. */
+export const boxReach = (box, home) => Math.max(Math.abs(box[0] - home.x), Math.abs(box[2] - home.x), Math.abs(box[1] - home.z), Math.abs(box[3] - home.z))
+/** THE BUILD'S WALK RADIUS for a forest record (buildrun.mjs runVisit `walkR`: its stand search stops there; WALK_R 48 would leave a
+ *  forest past it unbuildable -- Claude + Codex r1): the box's reach + 6 (the stands and the walk round the margin). Pure. */
+export const forestWalkR = (rec, home) => (Array.isArray(rec?.box) && home ? Math.max(48, boxReach(rec.box, home) + 6) : 48)
 /** THE WALL RINGS a town has -> [[x0, z0, x1, z1]] (the wall and every extension: wall.mjs records' `ring`). Pure. */
 export function wallRings (records = []) {
   return (records ?? []).filter(r => /^wall(ext)?@1$/.test(String(r?.blueprint ?? '')) && Array.isArray(r.ring) && r.ring.length === 4 && r.ring.every(Number.isFinite)).map(r => r.ring)
@@ -222,6 +229,7 @@ export function forestFitAt (read, { x0, z0, perRow, strips, home, col, blocked,
   const box = L.box
   if (!outsideRings(box, rings)) return { ok: false, why: 'walls' }
   if (!boxTicks(box, home)) return { ok: false, why: 'ticks' }
+  if (boxReach(box, home) > FOREST.rMax) return { ok: false, why: 'far' }
   let zoneCost = 0
   const gs = []
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
@@ -308,6 +316,7 @@ export function siteForest (read, { home, blocked = () => null, rings = [], zone
         const L = forestLayout(x0, z0, { perRow, strips })
         if (!outsideRings(L.box, rings)) { why.walls = (why.walls ?? 0) + 1; continue }
         if (!boxTicks(L.box, home)) { why.ticks = (why.ticks ?? 0) + 1; continue }
+        if (boxReach(L.box, home) > FOREST.rMax) { why.far = (why.far ?? 0) + 1; continue }
         tried++
         const f = forestFitAt(read, { x0, z0, perRow, strips, home, col, blocked: blk, rings, zone })
         if (!f.ok) { const w = String(f.why).split(':')[0]; why[w] = (why[w] ?? 0) + 1; continue }
@@ -492,7 +501,10 @@ export function forestCutsLeft (read, rec) {
  * plot while a sapling is to hand (`saplings`: the bag's and the town's), leaves in the aisles, a sapling dropped in the box to pick
  * up (`drops`). An open plot with no sapling anywhere is no visit (the visit could only wait); a big tree is (its plot is waived).
  */
-export function forestDue (read, rec, { now = 0, saplings = 0, drops = 0, skip = () => false, F = FOREST } = {}) {
+export function forestDue (read, rec, { now = 0, saplings = 0, drops = 0, retire = false, skip = () => false, F = FOREST } = {}) {
+  // the in-wall farm not yet retired (its trees, saplings or torches still stand, or only its record waits): the forest's keeper's,
+  // due until the farm is retired and its garden sited (Codex r1: else a quiet forest left the retirement for good)
+  if (retire) return 'retire'
   const h = forestHarvestList(read, rec, { now, skip, max: 1, F })
   if (h.trees.length) return 'harvest'
   if (h.big.length) return 'waive'
@@ -501,7 +513,8 @@ export function forestDue (read, rec, { now = 0, saplings = 0, drops = 0, skip =
     if (c.role === 'floor') { const b = read(...c.at); if (b && (AIRN(nm(b)) || b.boundingBox !== 'block')) return 'level' }
   }
   if (saplings > 0) for (const c of forestPlots(rec)) { if (!plotLive(rec, c)) continue; const s = plotState(read, c); if (s === 'open' || s === 'soil_lost' || (s === 'blocked' && FOREST_FOREIGN.test(nm(read(...c.at))))) return 'replant' }
-  if (aisleLeaves(read, rec).length) return 'leaves'
+  // (the aisles' leaves are no due of their own: a living spruce's crown fills the aisle's head height for good -- Claude r1 -- the
+  // visit digs them where it walks, the stands before each felling)
   if (drops > 0) return 'sweep'
   return null
 }
@@ -571,7 +584,7 @@ export function forestFootprint (rec, F = FOREST) {
  * the strip being harvested (its own replant is the forest's), none already `claimed` (another debt's, "x,y,z"). Fewer plots than
  * trees: the rest go where replantCells puts them. Pure.
  */
-export function forestReplantCells (read, rec, trees = [], { claimed = new Set(), now = 0 } = {}) {
+export function forestReplantCells (read, rec, trees = [], { claimed = new Set(), now = 0, home = null, maxR = Infinity } = {}) {
   if (!rec || !trees.length) return []
   const h = rec.rotation?.harvesting
   const hs = Number.isInteger(h) ? rec.strips?.[h]?.seg : null
@@ -579,6 +592,7 @@ export function forestReplantCells (read, rec, trees = [], { claimed = new Set()
   for (const c of openPlots(read, rec).filter(q => plotState(read, q) === 'open').sort((a, b) => stripOf(rec, a) - stripOf(rec, b) || a.at[2] - b.at[2] || a.at[0] - b.at[0])) {
     if (out.length >= trees.length) break
     if (c.seg === hs || claimed.has(c.at.join(','))) continue
+    if (home && Math.max(Math.abs(c.at[0] - home.x), Math.abs(c.at[2] - home.z)) > maxR) continue   // beyond the tidy's own walk
     const t = trees[out.length]
     const sap = /_log$|_wood$/.test(String(t?.name ?? '')) ? String(t.name).replace(/_(log|wood)$/, '_sapling') : null
     out.push({ cell: [...c.at], species: (sap && FARM_SPECIES.includes(sap) ? sap : rec.species ?? 'spruce_sapling').replace(/_sapling$/, ''), sapling: sap && FARM_SPECIES.includes(sap) ? sap : (rec.species ?? 'spruce_sapling'), state: 'pending', forest: true })
@@ -596,8 +610,9 @@ export function forestReplantCells (read, rec, trees = [], { claimed = new Set()
  * the forest), every torch dug. `done`: nothing of it is left in the world (unread is not done).
  */
 export function farmRetirePlan (read, farm, F = FOREST) {
-  const trees = [], saplings = [], lights = []
+  const trees = [], saplings = [], lights = [], kept = []
   let unread = 0
+  const waived = farm?.waived ?? {}
   for (const c of farm?.cells ?? []) {
     const [x, y, z] = c.at
     const b = read(x, y, z)
@@ -606,9 +621,18 @@ export function farmRetirePlan (read, farm, F = FOREST) {
     if (c.role === 'light' && n === 'torch') lights.push(c.at)
     if (c.role !== 'plot') continue
     if (SAPLING.test(n)) { saplings.push(c.at); continue }
-    if (!LOG.test(n)) continue
+    // THE WHOLE COLUMN, gaps and all (Claude + Codex r1: an interrupted stump-stance felling leaves its upper logs over air; a scan
+    // that stopped at the first gap read the tree done and retired the farm under them), up to trunkMax + 2
     const col = []
-    for (let k = 0; k <= F.trunkMax; k++) { const q = read(x, y + k, z); if (!q) { unread++; break } if (!LOG.test(nm(q))) break; col.push([x, y + k, z]) }
+    for (let k = 0; k <= F.trunkMax + 2; k++) { const q = read(x, y + k, z); if (!q) { unread++; break } if (LOG.test(nm(q))) col.push([x, y + k, z]) }
+    if (!col.length) continue
+    const key = `farm:${c.at.join(',')}`
+    if (waived[key]) { kept.push({ key, cell: c.at, why: waived[key]?.why ?? 'kept' }); continue }
+    // a BRANCH (a log beside the column: a fancy oak) or a trunk past the stump stance's reach (more than 8 logs) is never started: it
+    // stays, a garden tree (`kept`) -- never half felled
+    const branch = col.some(p => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dx, dz]) => [-1, 0, 1].some(dy => p[1] + dy >= y && LOG.test(nm(read(p[0] + dx, p[1] + dy, p[2] + dz))))))
+    const top = col.at(-1)[1]
+    if (branch || top - y > F.reachUp + 1) { kept.push({ key, cell: c.at, why: branch ? 'branch' : 'tall' }); continue }
     // the stand: a plot neighbour whose feet cell (the plot's level) and head are open or leaves, its ground solid
     let stand = null
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -616,15 +640,24 @@ export function farmRetirePlan (read, farm, F = FOREST) {
       if (!g || !f || !hd || g.boundingBox !== 'block' || LOG.test(nm(g))) continue
       if ([f, hd].every(q => AIRN(nm(q)) || LEAVES.test(nm(q)) || q.boundingBox === 'empty')) { stand = [x + dx, y, z + dz]; break }
     }
-    if (!stand) { trees.push({ key: `farm:${c.at.join(',')}`, cell: c.at, stand: null, order: [], step: false }); continue }
+    if (!stand) { trees.push({ key, cell: c.at, stand: null, order: [], step: false }); continue }
     const far = col.filter(p => !standReaches(stand, p, F))
-    // the side stand reaches all: top down, the stump last. Else the stump stance: the reachable logs above the stump from the side
-    // (lowest first, so the bot can step up into the column), then from on the stump the rest top down, then the stump itself
+    // the side stand reaches all: top down, the stump last. Else the STUMP STANCE: the logs the side stand reaches above the stump
+    // (lowest first, so the column opens over the stump), then from on the stump the rest top down, then the stump under its feet
+    const stump = col[0][1] === y ? col[0] : null
     const step = far.length > 0
-    const order = step ? [...col.slice(1).filter(p => standReaches(stand, p, F)), ...far.slice().reverse(), col[0]] : [...col].reverse()
-    trees.push({ key: `farm:${c.at.join(',')}`, cell: c.at, stand, order, step })
+    const order = step ? [...col.filter(p => p !== stump && standReaches(stand, p, F)), ...far.slice().reverse(), ...(stump ? [stump] : [])] : [...col].reverse()
+    trees.push({ key, cell: c.at, stand, order, step, logs: col.length })
   }
-  return { trees, saplings, lights, done: !unread && !trees.length && !saplings.length && !lights.length }
+  return { trees, saplings, lights, kept, done: !unread && !trees.length && !saplings.length && !lights.length }
+}
+/** A FARM TREE THIS BOT FAILED (forestFell's why, never the clock) -> true when it is due to be KEPT (waived on the farm record, a
+ *  garden tree): FOREST.failMax failures. Pure over `fails` (Map key -> n, the bot's own, mutated). The forest's own plots the same. */
+export function keepDue (fails, key, why, F = FOREST) {
+  if (!fails || !key || why === 'deadline' || why === 'no_time') return false
+  const n = (fails.get(key) ?? 0) + 1
+  fails.set(key, n)
+  return n >= F.failMax
 }
 /** THE RETIRED FARM RECORD (published once its trees, saplings and torches are gone): no cells, no zones, no box reservation, the
  *  old box kept as `was` (the garden's site), the old cells and clears kept as `retired` / `retiredClear` with `retiredAt` (the
@@ -636,10 +669,11 @@ export const farmIsRetired = farm => farm?.state === 'retired'
 /** THE GARDEN on the old farm's ground (the land plan's second park: terrace.mjs parkTopUp lays it, the groundskeeper builds it).
  *  -> { box, seed, placed, trees, at } | null. The box is the old farm's, less a 1-column margin inside (the hedge has its walk).
  *  Pure. */
-export function gardenOf (farm, { seed = 0, now = 0 } = {}) {
+export function gardenOf (farm, { seed = 0, now = 0, kept = [] } = {}) {
   const b = farm?.was ?? farm?.box
   if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite) || b[2] - b[0] < 6 || b[3] - b[1] < 6) return null
-  return { box: [b[0] + 1, b[1] + 1, b[2] - 1, b[3] - 1], seed: (Number(seed) >>> 0) ^ 0x6a09e667, placed: {}, skipped: {}, kinds: {}, trees: [], at: now }
+  // a farm tree KEPT (a branchy, too tall or unfellable one) is the garden's own tree: parkTopUp keeps every element off its column
+  return { box: [b[0] + 1, b[1] + 1, b[2] - 1, b[3] - 1], seed: (Number(seed) >>> 0) ^ 0x6a09e667, placed: {}, skipped: {}, kinds: {}, trees: (kept ?? []).map(k => [...(k.cell ?? k)]), at: now }
 }
 /** (The garden's reservation is landplan.mjs gardenZones, beside the park's.) */
 
