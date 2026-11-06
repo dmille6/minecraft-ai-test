@@ -118,6 +118,10 @@ const REQUIRED = [
   'bots/src/groundskeeper.mjs',
   'bots/test/groundskeeper.test.mjs',
   'bots/scripts/landplan-offline.mjs',
+  // gkforever-01 (owner 11-06): the grounds never run out (clock, dead carry, level, crew, the grounds lap)
+  'bots/src/gkforever.mjs',
+  'bots/test/gkforever.test.mjs',
+  'docs/reports/gkforever-design-2026-11-06.md',
   'docs/reports/groundskeeper-2026-11-02.md',
   'bots/scripts/tidy-offline.mjs',
   'docs/reports/tidy-01-2026-11-01.md',

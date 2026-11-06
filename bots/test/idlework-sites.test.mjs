@@ -77,7 +77,8 @@ const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'ut
 const once = (src, re, what) => { const m = src.match(new RegExp(re.source, 'g')) ?? []; assert.equal(m.length, 1, `${what}: ${m.length} matches`) }
 await t('WIRED: shopActive applies unsitedBackoff after the stuck back-off; build_shop stamps a no_site visit with no record', () => {
   once(SK, /const waitedU = unsitedWaitOn\(\) \? unsitedBackoff\(waited, unsitedOfPlot, now\) : waited/, 'the backoff in shopActive')
-  once(SK, /const pick = activeProject\(waitedU, list\)/, 'the pick reads it')
+  // gkforever-01 (groundskeeper-01 ported): the pick reads waitedU through the keeper's order
+  once(SK, /const pick = activeProject\(waitedU, (list|order)\)/, 'the pick reads it')
   once(SK, /if \(unsitedWaitOn\(\) && r\?\.stop === 'no_site'\) \{/, 'the stamp on no_site')
   once(SK, /if \(h\.ok && !h\.head && unsitedWrite\(dir, key, \{ plot: proj\.plot/, 'only with no record')
   once(SK, /build_shop: \{ run: buildShop, /, 'the skill runs the wrapper')

@@ -129,6 +129,10 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
+import { LAND as LAND_TABLE } from './landplan.mjs'   // gkforever-01: the bands out to GKF.radius
+import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMeans } from './gkforever.mjs'   // gkforever-01
+import { setGroundsMeans, groundsBatchOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
+import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -17122,6 +17126,17 @@ function projectHeads () {
 }
 /** GROUNDSKEEPER-01: the switch for the land plan (LANDPLAN=off: no plan sited or read). */
 const LANDP = Object.freeze({ on: GROUNDS.on && landOn() })
+/** GKFOREVER-01 (gkforever.mjs): the parts' switches, read once (GKFOREVER=0: groundskeeper-01 exactly). */
+const GKFS = Object.freeze(Object.fromEntries(['clock', 'dead', 'level', 'crew', 'idle'].map(p => [p, GROUNDS.on && gkfOn(p)])))
+/** The stage table the grounds work through: out to GKF.radius with the clock on, else groundskeeper-01's (to 80). */
+const gkLandL = () => (GKFS.clock ? gkfLand(LAND_TABLE) : LAND_TABLE)
+/** The last stage's number (0 with the land plan off: the town square alone). A town whose land plan is not sited yet reads the
+ *  whole table, so its stage 0 completing asks for stage 1 (the plan's own visit), as groundskeeper-01 did. Pure but for switches. */
+const gkLastK = () => (LANDP.on ? landStages(gkLandL()).at(-1).k : 0)
+/** gkforever-01 CLOCK: is this tidy record due a new generation now, and from which stage (gkforever.mjs gkfDue)? Never throws. */
+function gkfDueOf (r, now = Date.now()) {
+  try { return gkfDue(r, { now, lastK: gkLastK(), interiorAt: r?.gkf?.interiorAt ?? null }) } catch { return { due: false, from: null, why: 'error' } }
+}
 /** The town's land plan record (`project-<home>.land`) -> its body | null (none, off, or unreadable). Never throws. */
 function landHead (dir = townDir()) {
   if (!LANDP.on) return null
@@ -19277,6 +19292,9 @@ setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
 /** A complete tidy stage the land plan has a next stage after (the keeper's next band) -- due at once, not after 48 h. Pure but
  *  for the switches. */
 function gkStageDue (r) {
+  // gkforever-01 CLOCK: the grounds never complete -- the next band at once, the interior every GKF.interiorMs, the ring order again
+  // GKF.cycleMs after the last band (with or without a land plan)
+  if (GKFS.clock) return r?.blueprint === TIDY_BLUEPRINT && gkfDueOf(r).due
   if (!LANDP.on || !r?.structure_complete || tidyDue(r)) return false
   return nextStage(Number.isFinite(Number(r.stage)) ? Number(r.stage) : 0) != null
 }
@@ -19289,12 +19307,12 @@ function gkStageDue (r) {
 function keeperOrder (bot, states, list, now = Date.now()) {
   if (!GROUNDS.on) return list
   if (!list.some(p => p.plot === TIDY_PLOT)) return list
-  const work = keeperWanted(states, { shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT })
+  const work = keeperWanted(states, { shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, crew: GKFS.crew })
   const k = keeperState(bot, work, now)
   let d = k.d
   if (d === 'release') { releaseKeeper(bot, k.lease, work ? 'term' : 'no_work', now); d = 'none' }
   if (d === 'take' && now - (bot.gkTakeAt ?? -Infinity) >= GK.takeEveryMs) { bot.gkTakeAt = now; if (takeKeeper(bot, k.lease, now).ok) d = 'mine' }
-  const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT })
+  const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, crew: GKFS.crew, grounds: GKFS.idle && groundsBatchOpen() })
   for (let i = 0; i < states.length; i++) states[i] = r.states[i]
   return r.order
 }
@@ -19338,6 +19356,42 @@ export function gkExtraBill (rec, read, held = {}, done = () => false) {
   for (const [n, v] of Object.entries(want)) if (v > (held[n] ?? 0)) out[n] = v - (held[n] ?? 0)
   return out
 }
+/**
+ * GKFOREVER-01: THE GROUNDS CENSUS (the effect's world count, one `_grounds_census` row a new generation): the stage the survey
+ * started at and the one it sited, the holes (pits + one-deep dips), the bots' pillars and steps, the fills and cuts listed, the
+ * cells carried as given up, and -- on an interior audit -- the town square's roughness (4-adjacent read-ground column pairs that
+ * differ by 2+ and 5+: tidy.mjs tidyRoughness). Never throws.
+ */
+function groundsCensus (bot, { s, k0, sk, why, gen, read, home }) {
+  try {
+    const sv = s?.survey ?? {}
+    const pits = (sv.pits ?? []).filter(p => !p.dip).length, dips = (sv.pits ?? []).filter(p => p.dip).length
+    const rough = k0 === 0 ? tidyRoughness(read, home) : null
+    logEvent({ kind: 'grounds_census', status: 'success', snapshot: snapshot(bot),
+      args: { from: k0, stage: sk, why, gen, pits, dips, pillars: (sv.pillars ?? []).length, fill: s?.record?.cells?.length ?? 0, cut: s?.record?.cut?.length ?? 0,
+        clear: s?.record?.clear?.length ?? 0, dead: sv.skipped?.dead ?? 0, pairs: rough?.pairs ?? null, d2: rough?.d2 ?? null, d5: rough?.d5 ?? null },
+      detail: `grounds census from=${k0} stage=${sk} why=${why} pits=${pits} dips=${dips} pillars=${(sv.pillars ?? []).length} fill=${s?.record?.cells?.length ?? 0} cut=${s?.record?.cut?.length ?? 0} dead=${sv.skipped?.dead ?? 0}${rough ? ` rough=${rough.d2}/${rough.pairs}` : ''} gen=${gen}` })
+  } catch { /* telemetry never breaks the visit */ }
+}
+/**
+ * GKFOREVER-01 IDLE: may this bot take a grounds lap now (gkforever.mjs gkfMeans)? The town's tidy has work (no record yet, an open
+ * one, or one due now), a builder slot is free for this bot, and its last grounds visit did not find "no work" within GKF.barMs.
+ * Cached 60 s a bot; never throws (false).
+ */
+export function groundsMeansFor (bot, now = Date.now()) {
+  if (!GKFS.idle || !bot || !SHOP.on || !projectsOn().some(p => p.plot === TIDY_PLOT)) return false
+  if (bot.gkfMeansCache && now - bot.gkfMeansCache.at < 60_000) return bot.gkfMeansCache.v
+  let v = false
+  try {
+    const h = recordHead(townDir(), projKeyOf(TIDY_PLOT))
+    const rec = h.ok ? h.head?.rec ?? null : null
+    const work = h.ok && (!rec || !rec.structure_complete || gkfDueOf(rec, now).due)
+    v = gkfMeans({ on: true, work, slotFree: slotFreeFor(projectsOn().find(p => p.plot === TIDY_PLOT), bot.username ?? config.bot?.name ?? null, now), noWorkAt: bot.gkfNoWorkAt ?? null, now })
+  } catch { v = false }
+  bot.gkfMeansCache = { at: now, v }
+  return v
+}
+setGroundsMeans(b => groundsMeansFor(b))
 async function buildTidy (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -19345,6 +19399,8 @@ async function buildTidy (ctx, args, signal) {
   const f = { project: TIDY_PLOT }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    // gkforever-01 IDLE: the grounds lap counts this bot's visits that changed the ground, and ends on one that found no work
+    if (GKFS.idle) { try { if (gkfVisitWorked(extra)) bot.gkfWorked = (Number(bot.gkfWorked) || 0) + 1; else if (gkfNoWork(extra.stop ?? outcome)) { bot.gkfNoWorkAt = Date.now(); bot.gkfMeansCache = null } } catch { /* counters only */ } }
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
   }
@@ -19364,12 +19420,16 @@ async function buildTidy (ctx, args, signal) {
   if (GROUNDS.on) {
     const k = keeperState(bot, true)
     if (k.d === 'release') { releaseKeeper(bot, k.lease, 'term'); return out('no_effect', 'keeper_term', 'this bot\'s term as the town\'s groundskeeper is over; another bot of the town takes the grounds', { stop: 'keeper_term' }) }
-    if (k.d === 'other') return out('no_effect', 'keeper_held', `the town's grounds are ${k.lease?.rec?.holder ?? 'another bot'}'s (the groundskeeper lease); the other projects are this bot's`, { stop: 'keeper_held' })
-    if (k.d === 'none') return out('no_effect', 'keeper_rest', 'this bot rests from the groundskeeper lease; the other projects are its', { stop: 'keeper_rest' })
-    if (!takeKeeper(bot, k.lease).ok) return out('no_effect', 'keeper_held', 'the groundskeeper lease was taken first by another bot', { stop: 'keeper_held' })
+    // gkforever-01 CREW: a bot that is not the keeper works the grounds as a HELPER (the tidy's builder slot is its admission)
+    if (k.d === 'other' && !GKFS.crew) return out('no_effect', 'keeper_held', `the town's grounds are ${k.lease?.rec?.holder ?? 'another bot'}'s (the groundskeeper lease); the other projects are this bot's`, { stop: 'keeper_held' })
+    if (k.d === 'none' && !GKFS.crew) return out('no_effect', 'keeper_rest', 'this bot rests from the groundskeeper lease; the other projects are its', { stop: 'keeper_rest' })
+    if (k.d !== 'other' && k.d !== 'none' && !takeKeeper(bot, k.lease).ok && !GKFS.crew) return out('no_effect', 'keeper_held', 'the groundskeeper lease was taken first by another bot', { stop: 'keeper_held' })
   }
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
-  const gkNext = GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStage(Number(rh.head.rec.stage) || 0) : null
+  // gkforever-01 CLOCK: the record due (gkforever.mjs gkfDue) names the stage the survey starts from: the interior first when its
+  // audit is GKF.interiorMs old, else the next band; after the last band the ring order again
+  const gkD = GKFS.clock && rh.head ? gkfDueOf(rh.head.rec) : null
+  const gkNext = gkD ? (gkD.due ? { k: gkD.from } : null) : GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStage(Number(rh.head.rec.stage) || 0) : null
   if (!rh.head || tidyDue(rh.head.rec) || gkNext) {
     // THE SURVEY (tidy.mjs siteTidy): the bots' pillars and pits round home, and the paths' corridors graded when the paths have no
     // network; a re-survey (TIDY_RESURVEY_MS after a completion) is a new generation of the same record
@@ -19386,11 +19446,13 @@ async function buildTidy (ctx, args, signal) {
       I = tidyInputs(bot, c, h, dir)
       if (GROUNDS.on) {
         // the first stage from k0 with work (tidy.mjs siteStage; stage 0 is siteTidy itself)
-        const land = landHead(dir), read = planReader(bot), last = land ? landStages().at(-1).k : 0
+        const land = landHead(dir), read = planReader(bot), last = land ? landStages(gkLandL()).at(-1).k : 0
+        // gkforever-01 DEAD: the cells the record gave up on stay given up in every later generation for GKF.deadMs
+        const dead = GKFS.dead && rh.head ? gkfDeadCarry(rh.head.rec) : null
         let lights = 0
         try { lights = Math.min(8, lightsFor(matsTownStock(bot)?.stock?.torch, matsReserve().table?.torch)) } catch { lights = 0 }
         for (let k = k0; k <= Math.max(k0, last); k++) {
-          s = siteStage(read, { ...I, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home) })
+          s = siteStage(read, { ...I, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), L: gkLandL(), level: GKFS.level, dead })
           s.k = k
           if (!s.ok || s.record) break
         }
@@ -19398,10 +19460,15 @@ async function buildTidy (ctx, args, signal) {
     } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
     if (!s.ok) return out('no_effect', 'no_site', `no tidy (${s.why})`, { stop: 'no_site' })
     const sk = s.k ?? 0
-    const fresh = cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (Number(cur.stage) || 0) < sk)
-    const body = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: sk } : {}) }
+    // gkforever-01 CLOCK: any due record takes the new generation (the survey may start below the record's stage: the interior)
+    const fresh = GKFS.clock ? (cur => !cur || gkfDueOf(cur).due) : (cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (Number(cur.stage) || 0) < sk))
+    const body0 = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: sk } : {}) }
+    // gkforever-01: the record carries the interior's audit clock and the given-up cells
+    const now1 = Date.now(), prevG = rh.head?.rec?.gkf ?? null
+    const body = GKFS.clock || GKFS.dead ? { ...body0, gkf: { interiorAt: k0 === 0 ? now1 : (prevG?.interiorAt ?? null), from: k0, why: gkD?.why ?? 'first' }, ...(GKFS.dead && rh.head ? { gkfDead: gkfDeadCarry(rh.head.rec, { now: now1 }) } : {}) } : body0
     const pub = publishRecord(dir, key, cur => (fresh(cur) ? body : null), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted' && (GKFS.clock || GKFS.level)) groundsCensus(bot, { s, k0, sk, why: gkD?.why ?? 'first', gen: pub.gen, read: planReader(bot), home })
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], ...(GROUNDS.on ? { seg: `stage${sk}`, n: s.record?.replant?.length ?? 0 } : {}), kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')

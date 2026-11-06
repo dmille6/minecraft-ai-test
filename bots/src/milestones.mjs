@@ -20,6 +20,7 @@ import { RUNNER_DECLINED } from './declined.mjs'
 import { bankableInventory, depositPlan, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { depositVerdict, depositRungFixOn } from './depositoffer.mjs'   // decbundle-01: the gate's own deposit decision
 import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, SCOUT_DIST } from './idlework.mjs'
+import { idleRotation, groundsMeans, setGroundsOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
@@ -798,7 +799,7 @@ const homeDist = b => b.entity.position.distanceTo({ x: config.world.homeX, y: b
 export function idleMeans (b) {
   const items = b?.inventory?.items?.() ?? []
   const pick = items.some(it => /_pickaxe$/.test(it?.name ?? '') && usesLeft(it) >= 2)
-  return { iron: hasTripPickaxe(items), logs: true, coal: pick }
+  return { iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }
 }
 const bagCountsOf = b => { const c = {}; for (const it of b?.inventory?.items?.() ?? []) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (Number(it.count) || 0); return c }
 const idleNeed = () => IDLE_NEEDS[IDLE.state?.kind] ?? null
@@ -813,9 +814,11 @@ function idleRow (phase, extra = {}) {
 /** Advance the lap's batch for `cycle` on bot `b` -> the state. Opens (and rows) a new batch on a new cycle. */
 function idleAdvance (b, cycle) {
   const open = !IDLE.state || IDLE.state.cycle !== cycle
-  const kind = open ? idlePick(cycle, { means: idleMeans(b), barred: IDLE.barred }) : IDLE.state.kind
+  const kind = open ? idlePick(cycle, { means: idleMeans(b), barred: IDLE.barred, rotation: idleRotation() }) : IDLE.state.kind
   const need = IDLE_NEEDS[kind]
-  IDLE.state = idleStep(IDLE.state, cycle, kind, need ? countOf(bagCountsOf(b), need.count) : 0)
+  // gkforever-01: a grounds batch counts the bot's own visits that changed the ground (skills.mjs buildTidy), never the bag
+  const n = kind === 'grounds' ? (Number(b?.gkfWorked) || 0) : need ? countOf(bagCountsOf(b), need.count) : 0
+  IDLE.state = idleStep(IDLE.state, cycle, kind, n)
   if (open) { IDLE.metAt = null; idleRow('open') }
   return IDLE.state
 }
@@ -824,15 +827,17 @@ const idleDone = (b, cycle) => {
   const st = idleAdvance(b, cycle ?? 0)
   let dist = 0
   try { dist = homeDist(b) } catch { dist = 0 }
-  const met = idleMet(st, { dist })
+  const met = idleMet(st, { dist, noWorkAt: Number(b?.gkfNoWorkAt) || null })
   if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met') }
   return met
 }
+// gkforever-01: an open grounds batch (shop.mjs: the tidy order comes back at the keeper's cooldown; skills.mjs: the tidy first)
+setGroundsOpen(() => idleWorkOn() && IDLE.state?.kind === 'grounds' && IDLE.metAt == null)
 const IDLE_RUNG = {
   id: 'idle_work',
   noBar: true,
   get wants () { return idleWorkOn() ? idleNeed()?.wants ?? null : null },
-  get wantsAny () { return idleWorkOn() ? (idleNeed()?.wantsAny ?? null) : null },
+  get wantsAny () { return idleWorkOn() && idleNeed()?.wantsAny?.length ? idleNeed().wantsAny : null },   // gkforever-01: the grounds lap wants no item
   get hint () {
     if (IDLE.state?.kind === 'scout') return 'goto somewhere 80+ blocks from home, staying inside the border.'
     return idleNeed()?.hint ?? 'nothing to do here.'
@@ -841,13 +846,14 @@ const IDLE_RUNG = {
   progress: b => {
     const st = IDLE.state
     if (st?.kind === 'scout') { let d = 0; try { d = Math.round(homeDist(b)) } catch { d = 0 } return `${d}/${SCOUT_DIST} blocks out` }
+    if (st?.kind === 'grounds') return `${st?.gained ?? 0}/${idleNeed()?.n ?? 0} grounds visits this lap`
     return `${st?.gained ?? 0}/${idleNeed()?.n ?? 0} ${idleNeed()?.label ?? ''} gathered this trip`
   },
   done: (b, cycle) => idleDone(b, cycle),
   // a genuine batch: on, a work or scout kind, and met (the step-over when off or 'none' is not a completion)
   fulfilled: (b, cycle) => idleWorkOn() && IDLE.state?.cycle === (cycle ?? 0) && IDLE.state.kind !== 'none' && idleDone(b, cycle),
   // does an exhausted chain re-enter for the next lap? (as it did for the patrol, unless nothing is left to ask)
-  reopens: (b, cycle) => idleWorkOn() && idlePick((cycle ?? 0) + 1, { means: idleMeans(b), barred: IDLE.barred }) !== 'none',
+  reopens: (b, cycle) => idleWorkOn() && idlePick((cycle ?? 0) + 1, { means: idleMeans(b), barred: IDLE.barred, rotation: idleRotation() }) !== 'none',
   onSkip: (reason) => { idleRow('skip', { reason }); IDLE.barred = idleBar(IDLE.barred, IDLE.state?.kind) },
 }
 
