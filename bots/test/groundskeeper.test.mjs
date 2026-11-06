@@ -326,7 +326,7 @@ await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopAct
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true \} : \{\}\)/.test(s), 'runVisit knobs')
   assert.ok(/s = siteStage\(read, \{ \.\.\.I, land, stage: k,/.test(s), 'stage siting')
-  assert.ok(/const order = b \? keeperOrder\(b, waited, list, now\) : list\n\s*const pick = activeProject\(waited, order\)/.test(s), 'the keeper order')
+  assert.ok(/const order = b \? keeperOrder\(b, waitedU, list, now\) : list\n\s*const pick = activeProject\(waitedU, order\)/.test(s), 'the keeper order')
   assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land\) \} \}\)/.test(s), 'the reservation')
   assert.ok(/const recs = projectHeads\(\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
