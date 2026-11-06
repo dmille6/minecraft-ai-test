@@ -132,7 +132,11 @@ const leaseHeld = async Mod => {
   const base = { on: true, shared: true, atTown: true, holds: false, record: {}, planned: true, freeSlots: 30 }
   const now = Date.now()
   assert.strictEqual(S.buildOrder({ ...base, now, state: {}, stuckAt: n => PJ.stuckAt(pr.dir, pr.key, { before: n + 60_000 }) }).order?.skill, 'build_shop', 'B (no own stop) is not held off')
-  assert.strictEqual(S.buildOrder({ ...base, now: now + S.SHOP_COOLDOWN_MS + 1, state: { lastAt: now, lastStop: last.r.stop }, stuckAt: () => null }).skip, 'stuck_on_cell', 'A backs itself off by its own stop')
+  // A backs itself off by its own stop: BUILDNEXT=0 the unscoped hold; by default (buildnext-01) its project's, through the hook
+  process.env.BUILDNEXT = '0'
+  try { assert.strictEqual(S.buildOrder({ ...base, now: now + S.SHOP_COOLDOWN_MS + 1, state: { lastAt: now, lastStop: last.r.stop }, stuckAt: () => null }).skip, 'stuck_on_cell', 'A backs itself off by its own stop') } finally { delete process.env.BUILDNEXT }
+  S.setNextHoldOf(plot => S.nextHeld(plot, { stuck: { plot: 'shop', at: now }, now: now + S.SHOP_COOLDOWN_MS + 1 }))
+  try { assert.strictEqual(S.buildOrder({ ...base, record: { plot: 'shop' }, now: now + S.SHOP_COOLDOWN_MS + 1, state: { lastAt: now }, stuckAt: () => null }).skip, 'stuck_on_cell', 'A backs itself off its project (buildnext-01)') } finally { S.setNextHoldOf(() => null) }
 }
 await t('a loop-end stuck while B holds an independent segment: stuck_on_cell, NOT stalled, no project stamp; A backs itself off', () => leaseHeld(R))
 await t('MUTANT the r23 stamp (atEnd, not stalled): the project is stamped while B works', () => bothA(
