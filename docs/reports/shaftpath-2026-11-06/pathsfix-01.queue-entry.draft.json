@@ -12,7 +12,7 @@
    "registration": "/home/mike/mcai-analysis/pathsfix-01.f733b368.json",
    "canary_sha": "f733b36815eb493809c8e12487f4db6be55ae09b",
    "branch": "pathsfix-01-on-47b8342",
-   "approved": "Codex independent design reconciled (docs/reports/shaftpath-design-2026-11-06.md); Codex blockers-only r1 2 BLOCKERS fixed (f733b368), r2 both fixed, none new; tier 2 by protected.py; pathsfix.test 30 + pathsfix-runtime 4 + fleetpaths/tidy/paths/paths-wiring/wall-wiring/pathsclose/paths-build/treefarm/wall/shop/house/stuck* pass; eslint clean (lint:movement = base); offline 16 towns sited/built (design doc); full suite ci2 on f733b368: SEE DESIGN DOC",
+   "approved": "Codex independent design reconciled (docs/reports/shaftpath-design-2026-11-06.md); Codex blockers-only r1 2 BLOCKERS fixed (f733b368), r2 both fixed, none new; tier 2 by protected.py; pathsfix.test 30 + pathsfix-runtime 4 + fleetpaths/tidy/paths/paths-wiring/wall-wiring/pathsclose/paths-build/treefarm/wall/shop/house/stuck* pass; eslint clean (lint:movement = base); offline 16 towns sited/built (design doc); full suite ci2 on f733b368 405/405",
    "protected": false,
    "protected_why": "not protected",
    "reads_src": "/home/mike/mcai-analysis",

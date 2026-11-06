@@ -9,7 +9,7 @@ There are two fleet pieces, both built on the live fleet sha 47b8342d (decbundle
 
 | piece | tier | branch / sha | rollback |
 |---|---|---|---|
-| **stairuse-01**: the stair's way down | **3** (protected: `skills.mjs::stairDescend`, `stairDescendSteps`) | `stairuse-01-on-47b8342` 48b40493 | `STAIRUSE=off` |
+| **stairuse-01**: the stair's way down | **3** (protected: `skills.mjs::stairDescend`, `stairDescendSteps`) | `stairuse-01-on-47b8342` 2a88212b | `STAIRUSE=off` |
 | **pathsfix-01**: paths in sections, with their own earthwork | 2 (not protected) | `pathsfix-01-on-47b8342` f733b368 | `PATHSFIX=off` |
 | goalwatch: an unsited record is no open goal | tooling (main) | this commit | revert |
 
@@ -246,9 +246,33 @@ ships with pathsfix-01. The test is `scripts/host/test_goalwatch_unsited.py`, an
     against the original ground.
   - Codex r2: both fixed, none new.
 
-**Suites.** One per piece on ci2: `pathsfix-01-f733b368`, `stairuse-01-48b40493`. Results are under §6a.
+**Suites (ci2).** pathsfix-01 f733b368: **405/405**. stairuse-01 48b40493: **403/404**; the one was sandbox-registry, which pins the number of lock-checking Paper drivers (the new descent driver made 30). Fixed in **2a88212b** (test-only), which passes.
 
-**Offline paths builds** (r1 code, 16 towns): under §6b.
+**Offline paths (r1 code, 16 towns).** These are the bots' own `sitePaths`, then `runVisit` with 4 fake builders over each town's stood cells, 60 rounds:
+
+| town | required legs | cells | laid | missed (pending) |
+|---|---|---|---|---|
+| board-a | 3/5 | 133 | 131 | house1, shop |
+| board-b | 4/6 | 450 | 446 | house1, shop |
+| board-c | 2/2 at the hub | 0 | - | (nothing to lay: unsited) |
+| board-d | 5/6 | 1,036 | 822 | house1 |
+| hive-a | 3/5 | 1,151 | 1,145 | shop, house1 |
+| hive-b | 6/6 | 454 | 454 | - |
+| hive-c | 3/3 | 215 | 210 | - |
+| hive-d | 5/5 | 479 | 417 | - |
+| isolated-a | 2/5 | 59 | 56 | shaft, shop, house1 |
+| isolated-b | 4/5 | 427 | 419 | shop |
+| isolated-c | 4/5 | 346 | 325 | shaft |
+| isolated-d | 3/5 | 73 | 73 | shop, house1 |
+| placebo-a | 5/6 | 658 | 658 | shaft |
+| placebo-b | 4/6 | 249 | 246 | house1, shop |
+| placebo-c | 2/5 | 22 | 22 | shaft, shop, house1 |
+| placebo-d | 5/5 | 955 | 955 | - |
+| **total** | **60/80** | **6,707** | **6,379 (95%)** | 20 pending |
+
+**15 of 16 towns are sited**, against 1 today. The r1 approach-level rule (Codex blocker 2) routes fewer doorway fronts than r0's 70 legs. Those legs are pending and asked again every 6 h.
+The cells left unlaid stop `cell_deferred` / `stuck_on_cell`, or `blocked` on board-d. Those are the visit's own deferrals, and the pathsclose waiver closes them after 3 visits.
+Cobblestone fill per town is 20-829, which the towns hold in surplus.
 
 ## 7. Effects registered (what projectaudit measures)
 

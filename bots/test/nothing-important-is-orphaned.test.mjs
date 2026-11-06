@@ -89,7 +89,7 @@ const REQUIRED = [
   'docs/reports/stations-design-2026-11-06.md',   // stations-1106: tables and furnaces (design; the code is on branch stations-01)
   // shaftpath-1106: the common mineshaft used and the town paths laid (design + registrations + drafts; code on branches stairuse-01-on-47b8342 / pathsfix-01-on-47b8342)
   'docs/reports/shaftpath-design-2026-11-06.md',
-  'docs/reports/shaftpath-2026-11-06/stairuse-01.48b40493.json',
+  'docs/reports/shaftpath-2026-11-06/stairuse-01.2a88212b.json',
   'docs/reports/shaftpath-2026-11-06/stairuse-01.queue-entry.draft.json',
   'docs/reports/shaftpath-2026-11-06/pathsfix-01.f733b368.json',
   'docs/reports/shaftpath-2026-11-06/pathsfix-01.queue-entry.draft.json',

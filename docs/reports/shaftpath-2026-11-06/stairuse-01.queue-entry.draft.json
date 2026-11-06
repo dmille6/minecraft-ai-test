@@ -6,13 +6,13 @@
  ],
  "not_before": null,
  "hold": null,
- "note": "DRAFT (shaftpath agent 11-06; the control session queues it). Tier 3 (skills.mjs::stair*). The next slot after gkforever-01 (independent of the build-policy pieces; one variable). Draw: pools with a COMPLETE stair (14 of 16: not board-c, not hive-c); prefer isolated-d (55% surface success), board-d (66%), isolated-a/hive-b (most away starts). Install the registration as ~/mcai-analysis/stairuse-01.48b40493.json. NO patch block (the control session sets it).",
+ "note": "DRAFT (shaftpath agent 11-06; the control session queues it). Tier 3 (skills.mjs::stair*). The next slot after gkforever-01 (independent of the build-policy pieces; one variable). Draw: pools with a COMPLETE stair (14 of 16: not board-c, not hive-c); prefer isolated-d (55% surface success), board-d (66%), isolated-a/hive-b (most away starts). Install the registration as ~/mcai-analysis/stairuse-01.2a88212b.json. NO patch block (the control session sets it).",
  "variants": {
   "47b8342d0705e319dd0cfd3382dfe52a6d6c0a4d": {
-   "registration": "/home/mike/mcai-analysis/stairuse-01.48b40493.json",
-   "canary_sha": "48b40493615043c1769f0966c03448b1612c05fc",
+   "registration": "/home/mike/mcai-analysis/stairuse-01.2a88212b.json",
+   "canary_sha": "2a88212b87acdeeeef96505ad39e243dde6db5d6",
    "branch": "stairuse-01-on-47b8342",
-   "approved": "Codex independent design reconciled; Codex blockers-only none; Claude subagent none (5 notes taken in 48b40493); tier 3 by protected.py; Paper sandbox3 6/6 scenes; stair-descent.test 24 (5 anchored mutants) + town-stair-wiring 25 + stair-egress/town-stair/town-stair-stuck/stair-entry/stair-handoff/stair-claim/mine-staircase/deepmine/escape-stair pass; eslint clean; full suite ci2 on 48b40493: SEE DESIGN DOC",
+   "approved": "Codex independent design reconciled; Codex blockers-only none; Claude subagent none (5 notes taken in 48b40493); tier 3 by protected.py; Paper sandbox3 6/6 scenes; stair-descent.test 24 (5 anchored mutants) + town-stair-wiring 25 + stair-egress/town-stair/town-stair-stuck/stair-entry/stair-handoff/stair-claim/mine-staircase/deepmine/escape-stair pass; eslint clean; full suite ci2 on 48b40493 403/404 (sandbox-registry pinned count, fixed in 2a88212b test-only)",
    "protected": true,
    "protected_why": "skills.mjs::stairDescend, stairDescendSteps",
    "reads_src": "/home/mike/mcai-analysis",

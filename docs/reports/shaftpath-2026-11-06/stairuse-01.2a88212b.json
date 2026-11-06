@@ -1,0 +1,70 @@
+{
+ "run_id": "stairuse-01",
+ "sha": "2a88212b87acdeeeef96505ad39e243dde6db5d6",
+ "registered_at": "2026-11-06T17:00:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] stairuse-01 @ 2a88212b on fleet 47b8342d (branch stairuse-01-on-47b8342; TIER 3: protected.py skills.mjs::stairDescend / stairDescendSteps / STAIR_APPROACH_WAIT_MS). projectaudit 11-06: 13 of 14 finished town stairs UNDERUSED ('most attempts fail'). MEASURED (fleet 7 d full walk, 14.03 M lines, 80 bots, 13,827 `_shaft_use` rows): down 7,164 attempts = arrived 2,333 / walk 2,170 / stepN:blocked 2,373 / tread 279 / stub 8; up no_plan 6,282 (excluded by the audit). 3,702 of the 7,164 started in a MINE away from the stair (from < g-6, off the stair's box): mine calls stairDescend within 64 blocks of the pillar at any depth and the no-dig walk cannot leave a tunnel -- in the 52 h after shafttrap-02 1,011 such failures (walk 859 at a median 30 ms, blocked 107, tread 45). From the SURFACE: pre shafttrap-02 806 attempts 41.9% arrived (43.9% blocked); post 1,243 attempts 78.0% arrived, walk 11.6% (115 of 144 in <100 ms, no movement), blocked 7.9%, tread 2.6% (board-c 24%: stair not complete; isolated-d 55%, board-d 66%, rest 70-94%). Upkeep: 2,921 shaft visits, 1,001 walk_failed. World (11-06 region copies): 11 of 14 complete stairs clear top to bottom, 3 with one blocked bottom air cell. CHANGE: stairEntryClass (stair/surface/away): `away` is no attempt (`_shaft_skip`, nothing backed off); landingRoute (from the bot's step, a blocked air cell allowed); runStairDescent (the exit, then hops of <=3 stands on the reflex-safe hop walk, a foreign block in the next step's air dug unless it holds back a liquid or is a container; stop at a bad tread / liquid / unread cell; the landing's stub); approach failures back nothing off but wait 2 min per bot; the upkeep visit's long walk falls back to the way down (keeping the egress reserve). Rows: `_shaft_use` gains entry=/cleared=, `_shaft op=descent`, `op=descent_dig`, `_shaft_skip`. PAPER sandbox3 11-06 15:36Z (sandbox/stairuse/descent-e2e.mjs, real bot + real effects): before (the base's one walk arrives on a clean stair in 23 s; landingUsable refuses one dirt block, landingRoute allows it), clean (19 hops, 26 s), pillared (5 blocks dug by hand, arrived), lava (stop wet, nothing dug, no lava in the stair), tread (stops on step 19's stand), stair48 (from the 48 landing, 11 hops) -- 6/6 pass. ROLLBACK: STAIRUSE=off. Reviews: Codex blockers-only none; Claude subagent none (5 notes, all taken in 48b40493). Tests: stair-descent.test (24, real A*, 5 anchored mutants), town-stair-wiring (+7, 2 mutants), stair-egress/town-stair-stuck anchors kept unique. Full suite ci2 on 48b40493: 403/404 (sandbox-registry pinned the driver count; fixed in 2a88212b, test-only, passes).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "detail.share.v1",
+    "params": {
+     "key": "_shaft_use:1",
+     "of_name": "_shaft_use"
+    },
+    "direction": "increase",
+    "minimum": 0.15,
+    "scale": "relative",
+    "claim": "share of stair trips that succeed rises (33% of all _shaft_use rows in the 52 h after shafttrap-02; the away starts leave the denominator and blocked/walk descents arrive)",
+    "primary": true
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_shaft_use:1"
+    },
+    "direction": "increase",
+    "minimum": 0.1,
+    "scale": "relative",
+    "claim": "completed stair trips per bot-h rise (blocked steps dug on the way, deep upkeep reached)"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_shaft_use:0"
+    },
+    "direction": "decrease",
+    "minimum": 0.3,
+    "scale": "relative",
+    "claim": "failed stair attempts per bot-h fall (1,011 of 1,380 failures in 52 h were starts in a mine: now `_shaft_skip`)"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_needs_rescue"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build_visit:shaft:complete"
+    },
+    "direction": "increase"
+   }
+  ],
+  "exposure": "every canary town with a COMPLETE stair (14 of 16: not board-c, not hive-c); mine runs several times a bot-hour in every pool"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}
