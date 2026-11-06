@@ -1,0 +1,52 @@
+{
+ "run_id": "idlework-01",
+ "sha": "817704dd32627d727d580a6d599d6965c5ff5f02",
+ "registered_at": "2026-11-06T02:00:00Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] idlework-01 @ 817704dd on fleet 4f3b0f5c (branch idlework-01; design docs/reports/idlework-design-2026-11-06.md). MEASURED 11-05 01Z..11-06 01Z (80/80 bots, 1,906 decision bot-h): the sustaining lap patrol -> deposit_surplus (vacuous 80 out) -> return -> re-enter held 1,610 bot-h (84%; 11-04 57%) after dirtrung-01; value/bot-h 16.14 -> 9.90. 7 towns no open project: board-b/hive-b/placebo-a built everything; board-a/placebo-d monument no_site (41+57 visits, 217+180 skips), hive-c house1 no_site (23/189), board-c workshop no_site (31/146): activeProject returned the unsitable project and buildOrder held every bot 24 h on its own lastStop. CHANGE (3 flags, each =0 rollback): A IDLEWORK: idle_work rung in place of patrol, one bounded batch gained per lap (iron 6 / logs 16 / coal 8; scout 1 lap in 8), a skip bars the kind 3 h, never the rung; A2 IDLEWORK_RETURNFIRST: return before deposit_surplus, which is met when admission would refuse the deposit; B UNSITEDWAIT: a no_site visit with no record stamps the project (<key>.unsited.json); it waits behind the other open projects; the order's no-site day is the project's. Review: Codex blockers-only r1, 2 BLOCKERS fixed (211232c7; r1b c57a2952 keeps stuckwait's test anchor, no behaviour change; r1c 817704dd the dirtrung anchor). Tier 2 (protected.py: not protected). MODEL CONFOUND: 01:33Z the 4B left board-a, board-b, placebo-a, placebo-b (back on q7); hive-a/b/c, isolated-a stay 4B. DRAW board-c, placebo-d (q7 throughout, both projectless: the B case). CONTROL: q7 pools without a model change (board-d, hive-d, isolated-b, isolated-c, isolated-d, placebo-c); 4B pools a separate stratum. READ +90/+180: generic gate + OWN LINES: (1) MECHANISM (defect): _idlework open rows on canary bots >= 1/bot-h, kinds iron/logs/coal >= 70% of opens; met rows > 0, else REVERT; (2) EFFECT: explore rows/bot-h down (primary) and items/bot-h up vs control ratio-DiD, REPORTED; (3) GUARD: idle busy share not up > 5 pp; llm veto deposit_nothing_to_bank share not up; (4) B: project_unsited rows only in board-c/placebo-d-like towns; a NEW project record (shaft/tidy in board-c, paths in placebo-d) within 24 h -- report, reads after promotion. World: digs/places only through existing skills (gather/mine/build visits).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "explore"
+    },
+    "direction": "decrease",
+    "minimum": 0.2,
+    "scale": "relative",
+    "claim": "the 80-block patrol lap (explore 372 skill-h/day, 760 decision bot-h) becomes one scout lap in eight",
+    "primary": true
+   },
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase",
+    "minimum": 0.1,
+    "scale": "relative",
+    "claim": "iron/logs/coal batches instead of the walk (value/bot-h 9.90 on 11-05)"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "busy.share.v1",
+    "params": {
+     "cls": "idle"
+    },
+    "direction": "increase"
+   },
+   {
+    "metric": "llm.veto_share.v1",
+    "params": {
+     "error": "deposit_nothing_to_bank"
+    },
+    "direction": "increase"
+   }
+  ],
+  "exposure": "a canary bot whose role chain and stockpiles are met (the sustaining lap): ~84% of fleet decision time on 11-05"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}
