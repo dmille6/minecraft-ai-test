@@ -5267,7 +5267,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "SHOWCASE: forest-01show (branch forest-01show @ accd238a on the live release b1d5b17e; tier 2) is READY TO STAGE: the release agent folds it with main's shopread FR1-FR4 + RF1 rules installed beside it (the stage replay's R1: new row shapes). FLEET: forest-01 (branch forest-01-on-9e9284d7 @ 79f17f7e on gkforever-01; tier 2): the control session queues it P after gkforever-01 is KEPT+PROMOTED (draft docs/reports/forest-2026-11-06/forest-01.queue-entry.draft.json) and cancels treefarm-05 (superseded).",
+   "next_step": "2026-11-06: RELEASED 17:09:04Z in batch15 (forest@1 on, treefarm retired from the blueprints). First hour: NO forest/tidy visit -- the keeper lease holder showcase-Kite spent the hour mining iron at y 14-17 (entombed, short a tool). NEXT: read the forest's siting and the garden once the keeper works the grounds. SHOWCASE: forest-01show (branch forest-01show @ accd238a on the live release b1d5b17e; tier 2) is READY TO STAGE: the release agent folds it with main's shopread FR1-FR4 + RF1 rules installed beside it (the stage replay's R1: new row shapes). FLEET: forest-01 (branch forest-01-on-9e9284d7 @ 79f17f7e on gkforever-01; tier 2): the control session queues it P after gkforever-01 is KEPT+PROMOTED (draft docs/reports/forest-2026-11-06/forest-01.queue-entry.draft.json) and cancels treefarm-05 (superseded).",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
@@ -5296,7 +5296,7 @@
     "prodserve-1106.md"
    ],
    "state": "open",
-   "next_step": "prodserve-01show @ 955fb30d (r4: torn-claim fix, Codex NO BLOCKERS) on the live showcase release b1d5b17e: built, ready to stage (release agent folds it; shopread PS1 on main installs with it). Then read 24 h: projectaudit canefarm/cropfarm/storehub -> EFFECTIVE (cane >= 8/day, crops >= 8/day, clerk >= 2/day), dress 0 failed repairs; `_service` rows by plot. Follow-ups: cropseed-01 (seed gather), the forest's plot in SERVICE_PLOTS, the fleet port.",
+   "next_step": "2026-11-06: RELEASED 17:09:04Z as 3d985d36-6dd0ded8-fdd64ead (batch15, with forest-01; shopread PS1+PT1 installed; gate --reader replay PASS); restarted ~17:17Z (13 bots, Nova+Gale quarantined). First hour (17:15-18:20Z): cane harvest 7 (17:56Z) + replant, _service canefarm 5 / storehub 3 / cropfarm 2, _storehub_clerk 2, cropfarm replant; the L1-P3 dress waiver NOT yet (no dress visit). rollout-check PASS 18:10Z, deaths 0, tripwire OK. NEXT: 24 h projectaudit (canefarm, cropfarm, storehub EFFECTIVE). prodserve-01show @ 955fb30d (r4: torn-claim fix, Codex NO BLOCKERS) on the live showcase release b1d5b17e: built, ready to stage (release agent folds it; shopread PS1 on main installs with it). Then read 24 h: projectaudit canefarm/cropfarm/storehub -> EFFECTIVE (cane >= 8/day, crops >= 8/day, clerk >= 2/day), dress 0 failed repairs; `_service` rows by plot. Follow-ups: cropseed-01 (seed gather), the forest's plot in SERVICE_PLOTS, the fleet port.",
    "evidence": {
     "grep": [
      "prodserve-01"
