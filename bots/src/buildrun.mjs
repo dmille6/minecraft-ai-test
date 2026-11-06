@@ -79,7 +79,10 @@ const SAPLING = /_sapling$|^mangrove_propagule$/
 const AIR = n => n === 'air' || n === 'cave_air'
 // a foreign block in a record cell that the builder may dig (design 4.3 B4 "scaffold-class"; Claude r1 P3-9): terrain and the
 // fleet's scaffold. Never a container, a station or a part: those stall the segment and say so
-export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel)$/
+// gkunblock-01 (LIVE showcase 8b4ea9cc 11-04 23:10Z..): a SNOW LAYER in an open fill cell (the site prep SP2 at x -80, a snowy
+// slope) read neither clear (the plan readers carry no `layers`, so replaceableCell never admits it) nor diggable: the segment
+// stopped `blocked` every visit for good, and with it every crew visit (78 helper_idle in the first hour). It is terrain: dug.
+export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel|snow)$/
 // A TREE IN A RECORD CELL (fell-01, LIVE 10-27 showcase shop: a spruce grew into pad cell 25,72,28 after siting, trunk 72..76;
 // FOREIGN_CLEAR has no logs, so the pad read `blocked: 1 open, 0 placeable now` for good at 62/63). Any log species, or leaves.
 export const TREE_CLEAR = /_(log|leaves)$/
@@ -1320,6 +1323,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             for (const c of open) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'attempts_spent') }
             deferredSegs.add(seg)
             e.log('_build', { op: 'deferred', seg, cell: open[0].at, n: open.length, why: 'attempts_spent' })
+            break
+          }
+          // gkunblock-01 (`p.deferSpent`, the town tidy): a segment held by a block the visit may not dig (and no stand for the rest)
+          // is DEFERRED like the others -- counted (F4, the waiver) -- and the visit goes on; it never ends every crew visit here
+          if (p.deferSpent && open.length && !needSapling) {
+            for (const c of open) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), isClear(c.at) ? (cand.includes(c) ? 'no_stand' : 'attempts_spent') : `blocked ${nm(rd(...c.at))}`) }
+            deferredSegs.add(seg)
+            e.log('_build', { op: 'deferred', seg, cell: open[0].at, n: open.length, why: 'blocked' })
             break
           }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'

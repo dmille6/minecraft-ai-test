@@ -266,6 +266,7 @@ const REQUIRED = [
   // placeaudit-01 (owner 11-04 groundskeeper piece 2): who places blocks in town, why, where
   'bots/src/placeaudit.mjs',
   'bots/test/placeaudit.test.mjs',
+  'bots/test/gkunblock.test.mjs',   // gkunblock-01: a tidy segment held by snow (or any block it may not dig) never ends every crew visit
   // anvilapply-01 + enchant-01 (owner 11-04): the anvil / enchanting-table skills, their test, the Paper e2e
   'bots/src/enchant.mjs',
   'bots/test/enchant.test.mjs',
