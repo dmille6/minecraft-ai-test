@@ -117,7 +117,7 @@ await t('EVERY TARGET: its added roof is PROVEN on the standing building (chests
   }
 })
 await t('MUTANT the interior not filtered (reroof.mjs): the workshop\'s proof fails interior_unreachable', () => withSrcMutant('reroof.mjs',
-  "    interior: (bpOld.interior ?? []).filter(([u, v, y]) => !filled.has(`${u},${v},${y}`)),", "    interior: bpOld.interior ?? [],", async Rm => {
+  "    interior: (bpOld.interior ?? []).filter(([u, v, y]) => !filled.has(`${u},${v},${y}`) && !occupied(u, v, y)),", "    interior: bpOld.interior ?? [],", async Rm => {
     const bp = B.loadBlueprint('workshop@1')
     const srv = F.server()
     const site = B.siteBlueprint(srv.read, F.plan(), bp, { tries: 3, plot: 'shop' })
@@ -130,7 +130,7 @@ await t('WIRED: the planner waits during its town-wide wait (Claude r1 BLOCKER 2
   const fsm = await import('node:fs')
   const SK = fsm.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
   assert.ok(/if \(p\.plot === REROOF_PLOT\) return \{[^\n]*waiting: Date\.now\(\) < siteWaitUntil\(REROOF_PLOT, dir\) \|\| !reroofDueNow\(b, dir\)\.target \}/.test(SK))
-  assert.ok(/reroofNext\(records, \{ logs, damaged: r => !!bot && recordDamaged\(bot, r, \{ tidy: false \}\), failed: reroofFails\(dir\) \}\)/.test(SK))
+  assert.ok(/reroofNext\(records, \{ logs, damaged: r => !!bot && recordDamaged\(bot, r, \{ tidy: false \}\), failed: reroofFails\(dir\), fresh: REROOF_FIX\.fresh \}\)/.test(SK))
 })
 await t('MUTANT the retrofit without the old cells kept (restyleRoof keepFlat ignored): the old flat roof is dropped from the record', () => withSrcMutant('townstyle.mjs',
   "  const keep = keepFlat ? bp.cells : bp.cells.filter(", "  const keep = false ? bp.cells : bp.cells.filter(", async Tm => {
