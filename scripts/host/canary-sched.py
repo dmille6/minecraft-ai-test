@@ -204,6 +204,8 @@ def paths():
         'install_hold': os.path.join(D, 'INSTALL-HOLD'),
         'next_slot': os.path.join(D, 'NEXT-SLOT.json'),
         'fast_off': os.path.join(D, 'FAST-OFF'),         # v41: present = no fast read plan
+        'skip_off': os.path.join(D, 'SKIP-OFF'),         # v42: present = never skip a blocked head (strict head order)
+        'autorel_off': os.path.join(D, 'AUTORELEASE-OFF'),  # v42: present = never auto-release an install-hold
         'unread': os.path.join(D, 'CANARY-UNREAD.txt'),
         'regdir': g('SCHED_REGDIR', os.path.join(H, 'mcai-analysis', 'registrations')),
         'readdir': g('SCHED_READ_DIR', '/tmp'),
@@ -420,10 +422,96 @@ def reg_is_lab(st, e):
 
 
 def head_entry(st):
+    """The PHYSICAL head: the first entry not done / cancelled / bundled. decide() launches select_entry(st) instead."""
     for e in (st.get('queue') or {}).get('entries') or []:
         if entry_state(e, st) not in ('done', 'cancelled', 'bundled'):
             return e
     return None
+
+
+def target_entry(st):
+    """v42: the entry this tick works on -- the one gather() selected past skipped heads (st['target']), else the head."""
+    return st['target'] if st.get('target') is not None else head_entry(st)
+
+
+def waited_on(run, st):
+    """PURE. Unfinished entries whose `after` names `run` (OWNER 11-06: never skip past an entry another waits on)."""
+    return [x.get('run') for x in (st.get('queue') or {}).get('entries') or []
+            if run in (x.get('after') or []) and entry_state(x, st) not in ('done', 'cancelled')]
+
+
+def skip_kind(code, reason, st, e):
+    """PURE. One blocker -> its skippable kind, or None. Only these four (OWNER 11-06; Codex: typed subtypes, never a
+    whole code): H1 HELD (not a not_before, not a dependency), H3 a blocked attempt that never deployed, H2 an autorebase
+    that REFUSED or whose job died (pid gone), R10 an exposure wait/refusal."""
+    run = e.get('run')
+    r = reason.split(': ', 1)[1] if reason.startswith('%s: ' % run) else reason
+    if code == 'H1' and r.startswith('held: '):
+        return 'held'
+    if code == 'H3' and r.startswith('blocked since its last attempt') and journal_status(run, st) not in ('open', 'live'):
+        return 'blocked-attempt'
+    if code == 'H2' and e.get('bundle') is None:
+        if 'autorebase REFUSED at step' in r:
+            return 'autorebase-refused'
+        job = st.get('ar_job') or {}
+        if 'went silent' in r and str(job.get('pid') or '') not in (st.get('pid_alive') or {}):
+            return 'autorebase-dead'
+    if code == 'R10':
+        return 'exposure'
+    return None
+
+
+def skip_reason(e, blockers, st):
+    """PURE. blockers [(code, reason)] of entry e -> '' (do not skip) or why it is skipped. Every blocker must be a
+    skippable kind, and nothing unfinished may wait on e."""
+    if not blockers or e.get('bundle') is not None:
+        return ''
+    kinds = [skip_kind(c, r, st, e) for c, r in blockers]
+    if any(k is None for k in kinds):
+        return ''
+    if waited_on(e.get('run'), st):
+        return ''
+    return '%s skipped (%s): %s' % (e.get('run'), ', '.join(sorted(set(kinds))), blockers[0][1][:200])
+
+
+def hold_release(st):
+    """PURE. -> (release?, why). v42 (OWNER 11-06): an install-hold is released by the scheduler only when it EXPIRED (or
+    the pid it declared with --pid is gone) AND the fleet shows no installer and the baseline everywhere: every other slot
+    check (S1-S7) passes with the hold removed -- no slot process, the loop lock free, no canary drop-in, no canary
+    declared, one build on every active unit and it is the declared one, enough fresh bots, no open run -- and no
+    model-rollout process runs. Otherwise it stays, and the reason is said."""
+    ih = st.get('install_hold')
+    if ih is None:
+        return False, ''
+    until = ts(ih.get('until'))
+    expired = until is not None and until < st['now']
+    pid = str(ih.get('pid') or '')
+    dead = bool(pid) and (pid not in (st.get('pid_alive') or {}) or
+                          (ih.get('start') is not None and (st.get('pid_alive') or {}).get(pid) != ih.get('start')))
+    if not (expired or dead):
+        return False, ''
+    st2 = dict(st, install_hold=None, death_hold=None, pause=False)
+    busy, block = slot_blockers(st2)
+    bad = ['%s %s' % (c, r) for c, r in busy + block]
+    if st.get('rollout_procs'):
+        bad.append('a model rollout is running: %s' % '; '.join(st['rollout_procs'][:2]))
+    if bad:
+        return False, 'not released: ' + ' | '.join(bad)[:400]
+    return True, ('expired %s' % ih.get('until')) if expired else ('its holder pid %s is gone' % pid)
+
+
+def patch_repair_problem(pt, src):
+    """PURE. '' when a patch whose stored diff_sha256 disagrees with git may have it RECOMPUTED (v42, OWNER 11-06: dropdig's
+    hand-set hash idled the slot 4 h on 11-05): base and tip are full shas AND they are exactly the variant the reviewers
+    approved (the variant keyed on patch.base has canary_sha == patch.tip and names its reviewers). Both commits are
+    immutable, so the diff between them is what was reviewed; the stored hash is only derived from it."""
+    if not HEX40.match(str(pt.get('base') or '')) or not HEX40.match(str(pt.get('tip') or '')):
+        return 'base/tip are not full shas'
+    if (src or {}).get('canary_sha') != pt.get('tip'):
+        return 'the variant keyed on the patch base is not the patch tip'
+    if not str((src or {}).get('approved') or '').strip():
+        return 'that variant names no reviewer'
+    return ''
 
 
 def slot_blockers(st):
@@ -492,8 +580,10 @@ def slot_blockers(st):
     ih = st.get('install_hold')
     if ih is not None:
         stale = (ts(ih.get('until')) or st['now']) < st['now']
+        hr = (st.get('hold_release') or (False, ''))[1]
         (block if stale else busy).append(('S8', 'INSTALL-HOLD by %s until %s%s' % (
-            ih.get('owner'), ih.get('until'), ' -- STALE: the installer must release it' if stale else '')))
+            ih.get('owner'), ih.get('until'), (' -- STALE: the installer must release it' + (' (auto-release %s)' % hr
+                                                                                         if hr else '')) if stale else '')))
     if st.get('death_hold'):
         block.append(('R11', 'the last closed run %s was a death-driven REVERT (%s); the owner held after one before: '
                              '`canary-sched.py continue %s <why>` to go on' % (st['death_hold'][0], st['death_hold'][1],
@@ -631,8 +721,8 @@ def ar_view(e, st):
 def ar_should_start(st):
     """PURE. Start the head's autorebase build now? Only when the fleet base is settled (no canary declared, no drop-in,
     no loop/chain/deploy/install process, no pause or install-hold) and the missing variant is the ONLY thing between
-    the head and a launch."""
-    e = head_entry(st)
+    the head and a launch. v42: 'the head' is the SELECTED entry (past skipped ones), never the physical head."""
+    e = target_entry(st)
     base = st.get('base_full')
     if e is None or not base or base in (e.get('variants') or {}) or entry_state(e, st) != 'ready':
         return False
@@ -1098,16 +1188,20 @@ def decide(st):
         return ('block', block + busy)
     if busy:
         return ('busy', busy)
-    e = head_entry(st)
+    e = target_entry(st)
+    skipped = [('K', w) for _, w in st.get('skipped') or []]
     if e is None:
+        if skipped:
+            return ('block', [('Q', 'nothing in the queue can run: every entry is skipped')] + skipped)
         return ('idle', [('Q', 'queue empty, or every entry done/cancelled')])
     if entry_state(e, st) in ('launching', 'running'):
         return ('launching', [('L4', '%s: launched, waiting for its first journal line' % e.get('run'))])
     hb = head_blockers(e, st)
     if hb:
-        return ('wait' if all(w for _, _, w in hb) else 'block', [(c, '%s: %s' % (e.get('run'), r)) for c, r, _ in hb])
+        return ('wait' if all(w for _, _, w in hb) else 'block', [(c, '%s: %s' % (e.get('run'), r)) for c, r, _ in hb]
+                + skipped)
     if st.get('r10'):
-        return ('wait' if st['r10'].startswith('WAIT') else 'block', [('R10', '%s: %s' % (e.get('run'), st['r10']))])
+        return ('wait' if st['r10'].startswith('WAIT') else 'block', [('R10', '%s: %s' % (e.get('run'), st['r10']))] + skipped)
     return ('launch', e, e['variants'][st['base_full']])
 
 
@@ -1632,12 +1726,42 @@ def gather(P, full=True, r10=None):
     st['queue'] = load_queue(P)
     man = st['manifest'] if isinstance(st['manifest'], dict) else {}
     st['base_full'] = full_sha(P, man.get('declared_code_version'))
+    st['rollout_procs'] = rollout_procs(P)
+    st['skip_on'] = not os.path.exists(P['skip_off'])
+    st['autorel_on'] = not os.path.exists(P['autorel_off'])
+    st['hold_release'] = hold_release(st) if st['autorel_on'] else (False, '')
+    st['skipped'], st['target'] = [], None
+    # v42 (OWNER 11-06): the queue is walked in order; an entry whose blockers are ALL skippable kinds and that nothing
+    # waits on is skipped (skip_reason), and the next one gets the facts. Anything else stops the walk there, as before.
+    cands = [x for x in (st['queue'].get('entries') or []) if entry_state(x, st) not in ('done', 'cancelled', 'bundled')]
+    for i, e in enumerate(cands):
+        _entry_facts(P, st, e, full, r10)
+        if not st['skip_on'] or i == len(cands) - 1 or entry_state(e, st) in ('launching', 'running'):
+            break
+        hb = [(c, '%s: %s' % (e.get('run'), r)) for c, r, _ in head_blockers(e, st)]
+        if not hb and st.get('r10'):
+            hb = [('R10', '%s: %s' % (e.get('run'), st['r10']))]
+        why = skip_reason(e, hb, st)
+        if not why:
+            break
+        st['skipped'].append((e.get('run'), why))
+    if st['skipped']:
+        st['target'] = next((x for x in cands if x.get('run') not in {r for r, _ in st['skipped']}), None)
+        if st['target'] is None:
+            _entry_facts(P, st, None, full, r10)
+    return st
+
+
+def _entry_facts(P, st, e, full, r10):
+    """The per-entry facts decide() needs (the autorebase job, the variant checks + staging, R10), for entry e."""
     st['stage'], st['variant_checks'], st['r10'] = [], [], ''
-    e = head_entry(st)
     st['ar_job'] = None
-    if e and st['base_full'] and st['base_full'] not in (e.get('variants') or {}) and ar_token(e):
+    st.pop('r10_ran', None); st.pop('r10_key', None)
+    if e is None:
+        return
+    if st['base_full'] and st['base_full'] not in (e.get('variants') or {}) and ar_token(e):
         st['ar_job'] = ar_read_job(ar_job_path(P, e['run'], st['base_full'], ar_token(e)))
-    if full and e and st['base_full'] and st['base_full'] in (e.get('variants') or {}):
+    if full and st['base_full'] and st['base_full'] in (e.get('variants') or {}):
         v = e['variants'][st['base_full']]
         st['variant_checks'], st['stage'] = variant_checks(P, e, v, st['base_full'], st)
         busy, block = slot_blockers(st)
@@ -1649,7 +1773,23 @@ def gather(P, full=True, r10=None):
             else:
                 st['r10'] = r10[1]
             st['r10_key'] = key
-    return st
+
+
+ROLLOUT_PROCS = ('modelrollout.py', 'matset-rollout.sh', 'servea-waiter.sh')
+
+
+def rollout_procs(P):
+    """v42: model-rollout processes (an install-hold is never auto-released while one runs). '' entries = none."""
+    out = []
+    for d in glob.glob(os.path.join(P['proc'], '[0-9]*')):
+        try:
+            with open(os.path.join(d, 'cmdline'), 'rb') as f:
+                argv = [x for x in f.read().decode('utf-8', 'replace').split('\0') if x]
+        except Exception:
+            continue
+        if any(os.path.basename(x) in ROLLOUT_PROCS for x in argv[:3]):
+            out.append('pid %s: %s' % (os.path.basename(d), ' '.join(argv)[:80]))
+    return out
 
 
 # ------------------------------------------------------------------------------------------------------ act --
@@ -1675,6 +1815,37 @@ def page(P, st, level, key, msg):
         f.write(json.dumps({'ts': iso(t), 'run': key.split('|')[0], 'level': level, 'msg': 'canary-sched: ' + msg}) + '\n')
     append_state(P, {'state': 'paged', 'key': key, 'msg': msg[:300]})
     st.setdefault('state_rows', []).append({'state': 'paged', 'key': key, 'at': iso(t)})
+    return True
+
+
+def note_skips(P, st):
+    """v42: every skipped entry gets a state row (when its reason changed) and a flag page (deduplicated 3 h): the
+    owner's digest shows each skip; a skip never pages the phone (the queue is moving)."""
+    tgt = (target_entry(st) or {}).get('run')
+    for run, why in st.get('skipped') or []:
+        seen = [r for r in st.get('state_rows') or [] if r.get('state') == 'skipped' and r.get('run') == run]
+        if not seen or seen[-1].get('why') != why[:400] or seen[-1].get('target') != tgt:
+            append_state(P, {'state': 'skipped', 'run': run, 'why': why[:400], 'target': tgt})
+        page(P, st, 'flag', 'skip|%s|%s' % (run, why.split(':', 1)[0][-60:]), 'SKIPPED %s; the queue goes on with %s'
+             % (why, tgt or 'nothing'))
+
+
+def release_hold(P, st):
+    """v42: the scheduler releases an expired / ownerless install-hold that hold_release() cleared: the file is renamed aside
+    (kept as evidence), a state row and a page say why. Under the tick lock, like every tick write."""
+    ih = st.get('install_hold') or {}
+    why = st['hold_release'][1]
+    aside = '%s.auto-released-%s' % (P['install_hold'], iso(st['now']).replace(':', ''))
+    try:
+        os.replace(P['install_hold'], aside)
+    except OSError as x:
+        print('%s HOLD-RELEASE failed: %s' % (iso(st['now']), x))
+        return False
+    append_state(P, {'state': 'hold-auto-released', 'owner': ih.get('owner'), 'until': ih.get('until'), 'why': why,
+                     'aside': aside, 'evidence': 'S1-S7 clear with the hold removed; no rollout process; builds %s'
+                     % dict(sorted((st.get('active_builds') or {}).items())[:3])})
+    page(P, st, 'flag', 'holdrelease|%s|%s' % (ih.get('owner'), ih.get('until')), 'INSTALL-HOLD by %s until %s AUTO-RELEASED '
+         '(%s): no installer, no rollout, the fleet on the declared build everywhere' % (ih.get('owner'), ih.get('until'), why))
     return True
 
 
@@ -1809,6 +1980,13 @@ def tick(P, no_act=False):
 def _tick(P, no_act):
     st = gather(P, full=True)
     stamp = iso(st['now'])
+    if st.get('hold_release', (False, ''))[0]:
+        ih = st['install_hold']
+        print('%s HOLD-RELEASE: INSTALL-HOLD by %s until %s -- %s; the fleet is on the baseline%s' % (
+            stamp, ih.get('owner'), ih.get('until'), st['hold_release'][1], ' -- NO-ACT' if no_act else ''))
+        if not no_act:
+            release_hold(P, st)
+            st = gather(P, full=True)
     if st['queue'].get('error'):
         print('%s QUEUE UNREADABLE: %s' % (stamp, st['queue']['error']))
         if not no_act:
@@ -1828,24 +2006,30 @@ def _tick(P, no_act):
             print('%s RE-CHECK: the head/base changed during the exposure check; deferring to the next tick' % stamp)
             return 0
     if d[0] != 'launch' and ar_should_start(st):
-        e = head_entry(st)
+        e = target_entry(st)
         print('%s AUTOREBASE %s: no variant for %s; %s' % (stamp, e['run'], st['base_full'][:7],
                                                            'NO-ACT' if no_act else 'starting the background build'))
         if not no_act:
             ar_start(P, st, e)
     if d[0] == 'launch':
         e, v = d[1], d[2]
-        print('%s LAUNCH %s (variant on %s, canary %s)%s' % (stamp, e['run'], st['base_full'][:7],
-                                                            str(v.get('canary_sha'))[:7], ' -- NO-ACT' if no_act else ''))
+        print('%s LAUNCH %s (variant on %s, canary %s)%s%s' % (stamp, e['run'], st['base_full'][:7],
+                                                              str(v.get('canary_sha'))[:7],
+                                                              ' past %s' % ', '.join(r for r, _ in st['skipped'])
+                                                              if st.get('skipped') else '', ' -- NO-ACT' if no_act else ''))
         if not no_act:
+            note_skips(P, st)
             launch(P, st, e, v)
         return 0
     print('%s %s: %s' % (stamp, d[0].upper(), ' | '.join('%s %s' % (c, r) for c, r in d[1])))
     if st.get('inactive_units'):
         print('%s note: enabled but inactive units (no drop-in, so they start on baseline): %s'
               % (stamp, ', '.join(st['inactive_units'])))
+    for run, why in st.get('skipped') or []:
+        print('%s SKIP %s' % (stamp, why))
     if no_act:
         return 0
+    note_skips(P, st)
     settle(P, st)
     for run, reg, sha in st.get('reg_edited') or []:
         page(P, st, 'flag', '%s|regedited' % run, '%s: registrations/%s.json now names %s but it deployed %s (launch row / '
@@ -2709,8 +2893,27 @@ def _ar_steps(P, job, run, base, tip):
         raise ArRefuse(why)
     h0, files = diff_hash(R, pt['base'], tip)
     if h0 != pt['diff_sha256']:
-        raise ArRefuse('the source range %s..%s no longer has the queued diff (sha256 %s, queued %s)'
-                       % (pt['base'][:8], tip[:8], h0[:12], pt['diff_sha256'][:12]))
+        bad = patch_repair_problem(pt, src)
+        if bad:
+            raise ArRefuse('the source range %s..%s no longer has the queued diff (sha256 %s, queued %s), and it cannot be '
+                           'recomputed: %s' % (pt['base'][:8], tip[:8], h0[:12], pt['diff_sha256'][:12], bad))
+        old = pt['diff_sha256']
+
+        def fix(q):
+            hit = [x for x in q.get('entries') or [] if x.get('run') == run and (x.get('patch') or {}).get('tip') == tip
+                   and (x.get('patch') or {}).get('diff_sha256') == old]
+            for x in hit:
+                x['patch']['diff_sha256'] = h0
+                x['patch']['repaired'] = {'at': iso(now()), 'old': old, 'by': 'canary-sched v42 autorebase'}
+            return len(hit)
+        if with_queue(P, fix) != 1:
+            raise ArRefuse('the queued patch changed while its hash was being repaired: nothing written')
+        append_state(P, {'state': 'patch-hash-repaired', 'run': run, 'base': pt['base'], 'tip': tip, 'old': old, 'new': h0})
+        ar_page(P, 'flag', run, '%s patch diff_sha256 RECOMPUTED %s -> %s from the approved variant %s..%s (the '
+                'stored hash was not git\'s); the rebased diff must still equal it' % (run, old[:12], h0[:12],
+                                                                                     pt['base'][:8], tip[:8]))
+        S('reviewed-diff-repaired', 'stored %s, git %s: recomputed (approved variant %s..%s)' % (old[:12], h0[:12],
+                                                                                               pt['base'][:8], tip[:8]))
     S('reviewed-diff', '%d commit(s), %d file(s), normalized diff sha256 %s' % (len(commits), len(files), h0[:16]))
     # 4. a scratch worktree on the live base; node modules; the movement lint on the base (its own known state)
     W, B, npm, nice, rc_mb, out_mb = _ar_worktree(P, S, R, run, base)
@@ -3231,14 +3434,20 @@ def cmd_install_hold(P, args):
             if os.path.exists(P['install_hold']):
                 os.remove(P['install_hold'])
             print('install hold released'); return 0
+        pid = None
+        if len(args) == 4 and args[2] == '--pid' and args[3].isdigit():
+            pid, args = int(args[3]), args[:2]
         if len(args) != 2:
-            print('usage: install-hold <owner> <minutes>'); return 2
+            print('usage: install-hold <owner> <minutes> [--pid <installer pid>]'); return 2
         owner, minutes = args[0], int(args[1])
         until = iso(now() + dt.timedelta(minutes=minutes))
         tmp = P['install_hold'] + '.tmp'
         os.makedirs(os.path.dirname(tmp), exist_ok=True)
+        row = {'owner': owner, 'until': until, 'at': iso(now())}
+        if pid:      # v42: the installer's own long-lived pid; the scheduler may release the hold once it is gone
+            row.update(pid=pid, start=starttime(P, pid))
         with open(tmp, 'w') as f:
-            json.dump({'owner': owner, 'until': until, 'at': iso(now())}, f)
+            json.dump(row, f)
         os.replace(tmp, P['install_hold'])
         st = gather(P, full=False)
         # the installer that called us (and its shell ancestors) is not "another" slot owner
@@ -3525,6 +3734,11 @@ def cmd_status(P):
     if st.get('r11_expired'):
         print('R11 EXPIRED (v37): %s closed %s on an unlinked death-driven REVERT (%s); >= %.0f h ago, so no hold'
               % (st['r11_expired'][0], st['r11_expired'][2], st['r11_expired'][1], R11_EXPIRE_H))
+    for run, why in st.get('skipped') or []:
+        print('SKIP %s' % why)
+    if st.get('install_hold') is not None:
+        print('INSTALL-HOLD auto-release: %s' % ('YES, ' + st['hold_release'][1] if st['hold_release'][0]
+                                                 else (st['hold_release'][1] or 'no (live)')))
     d = decide(st)
     print('DECISION: %s %s' % (d[0], d[1].get('run') if d[0] == 'launch' else ' | '.join('%s %s' % x for x in d[1])))
     return 0

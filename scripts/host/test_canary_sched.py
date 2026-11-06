@@ -1539,6 +1539,198 @@ def t_v41_queue_add_refuses_bad_or_unjustified_plan(CS, F):
     bad, _ = _validate(CS, F, base2, ok, 'Claude + Codex APPROVE', {'fun_reads': '90 180'})
     assert not bad, bad
 
+# ------------------------------------------------------------------------------------- v42 (phase 1 item 1, 11-06) --
+def _two(CS, F, first=None, second=None):
+    """A queue of two entries: foo-01 (the head) and bar-01 (its own registration copy)."""
+    reg2 = os.path.join(F.home, 'mcai-analysis', 'bar-01.json')
+    shutil.copy(F.reg, reg2)
+    a = dict(json.loads(json.dumps(F.entry)), **(first or {}))
+    b = dict(json.loads(json.dumps(F.entry)), run='bar-01', **(second or {}))
+    b['variants'] = {F.base: {'registration': reg2, 'approved': 'test fixture: Claude APPROVE + Codex APPROVE'}}
+    with Env(F.env()):
+        for e in (a, b):
+            bad = CS.validate_entry(CS.paths(), e, [])
+            assert not bad, bad
+        json.dump({'version': 1, 'entries': [a, b]}, open(F.queue, 'w'))
+
+
+def t_v42_held_head_is_skipped(CS, F):
+    _two(CS, F, first={'hold': 'owner wants a pause'})
+    d, st = decision(CS, F)
+    assert d[0] == 'launch' and d[1]['run'] == 'bar-01', d
+    assert [r for r, _ in st['skipped']] == ['foo-01'] and 'held' in st['skipped'][0][1], st['skipped']
+    assert CS.head_entry(st)['run'] == 'foo-01', 'the physical head is unchanged'
+
+
+def t_v42_skip_launch_writes_rows_and_digest_page(CS, F):
+    _two(CS, F, first={'hold': 'owner wants a pause'})
+    with Env(F.env(FIX_LOOP='ok')):
+        assert CS.tick(CS.paths()) == 0
+    time.sleep(0.5)
+    rows = [json.loads(l) for l in open(os.path.join(F.home, 'digest', 'sched-state.jsonl'))]
+    assert any(r.get('state') == 'skipped' and r.get('run') == 'foo-01' and r.get('target') == 'bar-01' for r in rows), rows
+    assert any(r.get('state') == 'launching' and r.get('run') == 'bar-01' for r in rows), rows
+    pages = [json.loads(l) for l in open(os.path.join(F.home, 'digest', 'page.jsonl'))]
+    assert any(p['level'] == 'flag' and 'SKIPPED foo-01' in p['msg'] for p in pages), pages
+    assert not any(p['level'] == 'error' for p in pages), 'a skip is not an error page (the queue is moving)'
+
+
+def t_v42_never_past_an_entry_another_waits_on(CS, F):
+    _two(CS, F, first={'hold': 'owner wants a pause'}, second={'after': ['foo-01']})
+    d, st = expect(CS, F, 'block', 'H1', 'held')
+    assert not st['skipped'], st['skipped']
+
+
+def t_v42_unrelated_waiter_still_barriers(CS, F):
+    """The literal rule (both engines): an entry ANY unfinished entry waits on is never skipped, even for another one."""
+    _two(CS, F, first={'hold': 'x'})
+    q = json.load(open(F.queue))
+    third = dict(json.loads(json.dumps(q['entries'][1])), run='baz-01', after=['foo-01'])
+    q['entries'].append(third)
+    json.dump(q, open(F.queue, 'w'))
+    d, st = expect(CS, F, 'block', 'H1', 'held')
+    assert not st['skipped']
+
+
+def t_v42_not_before_is_not_skipped(CS, F):
+    _two(CS, F, first={'not_before': Z(NOW + dt.timedelta(hours=1))})
+    d, st = expect(CS, F, 'wait', 'H1', 'not before')
+    assert not st['skipped']
+
+
+def t_v42_skip_off_restores_strict_order(CS, F):
+    _two(CS, F, first={'hold': 'x'})
+    open(os.path.join(F.home, 'digest', 'SKIP-OFF'), 'w').close()
+    expect(CS, F, 'block', 'H1', 'held')
+
+
+def t_v42_blocked_attempt_is_skipped(CS, F):
+    _two(CS, F)
+    _launch(CS, F, 'refuse')                                  # foo-01 refused at launch -> H3 blocked, never deployed
+    d, st = decision(CS, F)
+    assert d[0] == 'launch' and d[1]['run'] == 'bar-01', (d[0], d[1] if d[0] != 'launch' else d[1]['run'])
+    assert 'blocked-attempt' in st['skipped'][0][1], st['skipped']
+
+
+def t_v42_all_skippable_pages_nothing_can_run(CS, F):
+    _two(CS, F, first={'hold': 'a'}, second={'hold': 'b'})
+    d, st = expect(CS, F, 'block', 'H1', 'bar-01: held')
+    assert any(c == 'K' and 'foo-01 skipped' in r for c, r in d[1]), d
+    with Env(F.env()):
+        CS.tick(CS.paths())
+    pages = [json.loads(l) for l in open(os.path.join(F.home, 'digest', 'page.jsonl'))]
+    assert any(p['level'] == 'error' and 'BLOCKED H1 bar-01' in p['msg'] for p in pages), pages
+
+
+def t_v42_skip_kinds_pure(CS, F):
+    e = {'run': 'x-01'}
+    st = {'pid_alive': {'77': '1'}, 'ar_job': {'pid': 99}, 'queue': {'entries': []}, 'journal': [], 'state_rows': [],
+          'humans': [], 'now': NOW}
+    k = lambda c, r: CS.skip_kind(c, 'x-01: ' + r, st, e)
+    assert k('H1', 'held: x') == 'held'
+    assert k('H1', 'not before 2026-11-07T00:00:00Z') is None
+    assert k('H1', 'waits for y-01 to close (live)') is None
+    assert k('H1', 'depends on y-01, which is cancelled (not a completion): edit the queue') is None
+    assert k('H2', 'no variant for the fleet base abc (have: d): autorebase REFUSED at step repo: x') == 'autorebase-refused'
+    assert k('H2', 'no variant ...: the autorebase job (pid 99) went silent at step suite (heartbeat x): it died') == 'autorebase-dead'
+    st['ar_job'] = {'pid': 77}
+    assert k('H2', 'no variant ...: the autorebase job (pid 77) went silent at step suite') is None, 'a live pid is not dead'
+    assert k('H2', 'no variant ...: autorebase of a..b is building (step suite)') is None
+    assert k('H3', 'registration x changed since it was queued') is None
+    assert k('R10', 'WAIT fewer than two pools') == 'exposure'
+    assert CS.skip_kind('H2', 'x-01: autorebase REFUSED at step repo', st, dict(e, bundle={'members': []})) is None
+
+
+def _hold(F, until, **kw):
+    json.dump(dict({'owner': 'servea-roll', 'until': Z(until), 'at': Z(NOW - dt.timedelta(hours=8))}, **kw),
+              open(os.path.join(F.home, 'digest', 'INSTALL-HOLD'), 'w'))
+
+
+def t_v42_expired_hold_released_on_a_baseline_fleet(CS, F):
+    F.enqueue(CS); _hold(F, NOW - dt.timedelta(minutes=30))
+    d, st = decision(CS, F)
+    assert st['hold_release'][0] and 'expired' in st['hold_release'][1], st['hold_release']
+    with Env(F.env(FIX_LOOP='ok')):
+        assert CS.tick(CS.paths()) == 0
+    time.sleep(0.5)
+    assert not os.path.exists(os.path.join(F.home, 'digest', 'INSTALL-HOLD')), 'the hold must be gone'
+    assert [f for f in os.listdir(os.path.join(F.home, 'digest')) if f.startswith('INSTALL-HOLD.auto-released-')], 'kept aside'
+    rows = [json.loads(l) for l in open(os.path.join(F.home, 'digest', 'sched-state.jsonl'))]
+    assert any(r.get('state') == 'hold-auto-released' and r.get('owner') == 'servea-roll' for r in rows), rows
+    assert any(r.get('state') == 'launching' for r in rows), 'the same tick goes on and launches'
+
+
+def t_v42_live_hold_kept(CS, F):
+    F.enqueue(CS); _hold(F, NOW + dt.timedelta(minutes=30))
+    d, st = expect(CS, F, 'busy', 'S8')
+    assert not st['hold_release'][0]
+
+
+def t_v42_expired_hold_kept_while_a_dropin_remains(CS, F):
+    F.enqueue(CS); _hold(F, NOW - dt.timedelta(minutes=30))
+    dd = os.path.join(F.unit, 'mcbot@%s.service.d' % BOTS[0]); os.makedirs(dd)
+    open(os.path.join(dd, '10-canary.conf'), 'w').close()
+    d, st = decision(CS, F)
+    assert not st['hold_release'][0] and 'S4' in st['hold_release'][1], st['hold_release']
+    assert any(c == 'S8' and 'not released' in r for c, r in d[1]), d
+
+
+def t_v42_expired_hold_kept_while_an_installer_holds_the_lock(CS, F):
+    F.enqueue(CS); _hold(F, NOW - dt.timedelta(minutes=30))
+    ino = os.stat(F.lock).st_ino
+    open(F.locks, 'w').write('1: FLOCK  ADVISORY  WRITE 4242 08:01:%d 0 EOF\n' % ino)
+    d, st = decision(CS, F)
+    assert not st['hold_release'][0] and 'S3' in st['hold_release'][1], st['hold_release']
+
+
+def t_v42_expired_hold_kept_while_a_rollout_runs(CS, F):
+    F.enqueue(CS); _hold(F, NOW - dt.timedelta(minutes=30))
+    F.add_proc(4343, ['/usr/bin/python3', '/home/mike/w5alarms/scripts/host/modelrollout.py', 'resume'])
+    d, st = decision(CS, F)
+    assert not st['hold_release'][0] and 'rollout' in st['hold_release'][1], st['hold_release']
+
+
+def t_v42_expired_hold_kept_on_two_builds(CS, F):
+    F.enqueue(CS); _hold(F, NOW - dt.timedelta(minutes=30))
+    F.log(BOTS[0], NOW - dt.timedelta(minutes=1), F.canary[:7] + '+abc123')
+    d, st = decision(CS, F)
+    assert not st['hold_release'][0] and 'S5' in st['hold_release'][1], st['hold_release']
+
+
+def t_v42_hold_with_dead_declared_pid_released_early(CS, F):
+    F.enqueue(CS); _hold(F, NOW + dt.timedelta(minutes=30), pid=31337, start='999')
+    d, st = decision(CS, F)
+    assert st['hold_release'][0] and '31337' in st['hold_release'][1], st['hold_release']
+    F.add_proc(31337, ['bash', '/home/mike/x.sh'], start='999')
+    d, st = decision(CS, F)
+    assert not st['hold_release'][0], 'its declared installer is alive'
+
+
+def t_v42_autorelease_off(CS, F):
+    F.enqueue(CS); _hold(F, NOW - dt.timedelta(minutes=30))
+    open(os.path.join(F.home, 'digest', 'AUTORELEASE-OFF'), 'w').close()
+    d, st = expect(CS, F, 'block', 'S8', 'STALE')
+    assert not st['hold_release'][0]
+
+
+def t_v42_install_hold_records_a_declared_pid(CS, F):
+    F.add_proc(5151, ['bash', '/home/mike/install-x.sh'], start='4321')
+    with Env(F.env()):
+        import io, contextlib
+        with contextlib.redirect_stdout(io.StringIO()):
+            CS.main(['install-hold', 'x-install', '30', '--pid', '5151'])
+    h = json.load(open(os.path.join(F.home, 'digest', 'INSTALL-HOLD')))
+    assert h['pid'] == 5151 and h['start'] == '4321', h
+
+
+def t_v42_patch_repair_rule_pure(CS, F):
+    A, B = 'a' * 40, 'b' * 40
+    assert CS.patch_repair_problem({'base': A, 'tip': B}, {'canary_sha': B, 'approved': 'Claude + Codex'}) == ''
+    assert 'not the patch tip' in CS.patch_repair_problem({'base': A, 'tip': B}, {'canary_sha': A, 'approved': 'x'})
+    assert 'no reviewer' in CS.patch_repair_problem({'base': A, 'tip': B}, {'canary_sha': B, 'approved': ' '})
+    assert 'full shas' in CS.patch_repair_problem({'base': 'abc', 'tip': B}, {'canary_sha': B, 'approved': 'x'})
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
 
 
@@ -1681,6 +1873,24 @@ MUTANTS = [
     ("    if hit:\n        return ('REFUSED: %s is reserved by bundle %s", "    if False:\n        return ('REFUSED: %s is reserved by bundle %s"),
     ("            if plan_hash(meta) != qb.get('plan_sha256'):", "            if False:"),
     ("            if held:\n                out.append(('H3', 'bundle member(s) %s are held", "            if False:\n                out.append(('H3', 'bundle member(s) %s are held"),
+    # v42 (phase 1 item 1): skip-head, hold auto-release
+    ("    if code == 'H1' and r.startswith('held: '):", "    if code == 'H1':"),
+    ("    if code == 'H3' and r.startswith('blocked since its last attempt') and journal_status(run, st) not in ('open', 'live'):",
+     "    if code == 'H3':"),
+    ("        if 'went silent' in r and str(job.get('pid') or '') not in (st.get('pid_alive') or {}):", "        if 'went silent' in r:"),
+    ("    if any(k is None for k in kinds):\n        return ''", "    if all(k is None for k in kinds):\n        return ''"),
+    ("    if waited_on(e.get('run'), st):\n        return ''", "    if False:\n        return ''"),
+    ("            if run in (x.get('after') or []) and entry_state(x, st) not in ('done', 'cancelled')]",
+     "            if run in (x.get('after') or []) and x.get('run') == 'bar-01']"),
+    ("        if not st['skip_on'] or i == len(cands) - 1", "        if i == len(cands) - 1"),
+    ("    if not (expired or dead):\n        return False, ''", "    if False:\n        return False, ''"),
+    ("    if bad:\n        return False, 'not released: '", "    if False:\n        return False, 'not released: '"),
+    ("    if st.get('rollout_procs'):\n        bad.append", "    if False:\n        bad.append"),
+    ("    st['hold_release'] = hold_release(st) if st['autorel_on'] else (False, '')", "    st['hold_release'] = hold_release(st)"),
+    ("    if st.get('hold_release', (False, ''))[0]:", "    if False:"),
+    ("            row.update(pid=pid, start=starttime(P, pid))", "            pass"),
+    ("    if (src or {}).get('canary_sha') != pt.get('tip'):", "    if False:"),
+    ("    if not str((src or {}).get('approved') or '').strip():", "    if False:"),
 ]
 
 

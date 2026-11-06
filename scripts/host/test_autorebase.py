@@ -262,6 +262,41 @@ def t_clean_builds_and_launches(CS):
         F.cleanup()
 
 
+def t_v42_handset_hash_is_recomputed(CS):
+    """dropdig-01 11-05: the queued diff_sha256 was set by hand and did not match git; the build refused and the slot idled
+    ~4 h. v42: the approved variant's (base, tip) is the reviewed identity, so the hash is recomputed and the build goes on."""
+    F = ArFix('clean')
+    try:
+        seed(CS, F)
+        q = json.load(open(F.queue))
+        good = q['entries'][0]['patch']['diff_sha256']
+        q['entries'][0]['patch']['diff_sha256'] = 'f' * 64
+        json.dump(q, open(F.queue, 'w'))
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        assert any(x['step'] == 'reviewed-diff-repaired' for x in job['steps']), [x['step'] for x in job['steps']]
+        q = json.load(open(F.queue))
+        assert q['entries'][0]['patch']['diff_sha256'] == good and q['entries'][0]['patch']['repaired']['old'] == 'f' * 64, q
+        assert any(s.get('state') == 'patch-hash-repaired' and s.get('new') == good for s in F.states())
+        assert any(p['level'] == 'flag' and 'RECOMPUTED' in p['msg'] for p in F.pages())
+    finally:
+        F.cleanup()
+
+
+def t_v42_handset_hash_without_an_approval_still_refuses(CS):
+    F = ArFix('clean')
+    try:
+        seed(CS, F)
+        q = json.load(open(F.queue))
+        q['entries'][0]['patch']['diff_sha256'] = 'f' * 64
+        q['entries'][0]['variants'][F.sb]['approved'] = ''
+        json.dump(q, open(F.queue, 'w'))
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'refused' and 'no reviewer' in job['why'], job
+    finally:
+        F.cleanup()
+
+
 def t_conflict_pages_and_blocks(CS):
     F = ArFix('conflict')
     try:
@@ -649,6 +684,7 @@ def t_fast_plan_written_and_switchable(CS):
 
 TESTS += [t_bundle_composes_and_launches, t_bundle_member_diff_changed_by_an_earlier_member_refuses,
           t_bundle_shared_rows_refused_at_make_and_at_build, t_fast_plan_written_and_switchable]
+TESTS += [t_v42_handset_hash_is_recomputed, t_v42_handset_hash_without_an_approval_still_refuses]
 
 MUTANTS = [
     ('never starts a build', "    return ar_view(e, st)[2]\n", "    return False\n"),
@@ -688,6 +724,9 @@ MUTANTS = [
     ('v41: related members are not refused at the build', "    if probs:\n        raise ArRefuse('the members are related",
      "    if False:\n        raise ArRefuse('the members are related"),
     ('v41: the fast plan is never written', "        reg['fun_reads'] = plan\n", "        reg['fun_reads'] = STD_READS\n"),
+    ('v42: a hand-set hash is never recomputed', "        bad = patch_repair_problem(pt, src)\n        if bad:",
+     "        bad = 'x'\n        if bad:"),
+    ('v42: a recomputed hash is not written back', "                x['patch']['diff_sha256'] = h0\n", "                pass\n"),
 ]
 
 
