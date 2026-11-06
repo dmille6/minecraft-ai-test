@@ -705,9 +705,9 @@ def stage_main(a, sha, feed, last, ledger):
     row = [r for r in rows if isinstance(r, dict) and r.get('run') and covers(r.get('sha'), sha)][-1]
     rec = gate_record(row, 'main', bool(pats), protected_hits(prot(rel_sha, sha), pats))
     rok, rrec = replay_admit(sha, rel_sha, a)
-    if not rok:
+    if not rok and replay_enforced():
         return refuse('PRE-ACTIVATION REPLAY: ' + '; '.join(rrec.get('why') or ['refused']))
-    rec['replay'] = rrec
+    rec['replay'] = dict(rrec, ok=rok, enforced=replay_enforced())
     if dry:
         print(f'DRY RUN -- WOULD STAGE {sha[:8]} on {str(rel_sha)[:8]}: {json.dumps(rec)}')
         return 0
@@ -766,9 +766,9 @@ def stage_piece(a, sha, feed, last):
                                                       protected_hits(prot(newest[r]['base'], newest[r]['sha']), pats))
                                        for r in runs}}
     rok, rrec = replay_admit(sha, rel_sha, a)
-    if not rok:
+    if not rok and replay_enforced():
         return refuse('PRE-ACTIVATION REPLAY: ' + '; '.join(rrec.get('why') or ['refused']))
-    rec['replay'] = rrec
+    rec['replay'] = dict(rrec, ok=rok, enforced=replay_enforced())
     if dry:
         print(f'DRY RUN -- WOULD STAGE {sha[:8]} ({",".join(runs)}) on {str(rel_sha)[:8]}: {json.dumps(rec)}')
         return 0
@@ -786,6 +786,13 @@ def stage_piece(a, sha, feed, last):
 # ------------------------------------------------------------------------------------------------ the pre-activation replay
 TRIP_HOME = f'{ROOT}/trip'
 INSTALLED_READER = f'{TRIP_HOME}/shopread.py'
+# The deploy switch (one piece at a time): present = a failed replay REFUSES the stage; absent = the replay still runs and is
+# recorded in the gate (ok: false), printed as a WARNING. Turned on once the release agent has seen it run.
+REPLAY_ENFORCE = f'{ROOT}/REPLAY_GATE'
+
+
+def replay_enforced():
+    return os.path.exists(REPLAY_ENFORCE)
 
 
 def replay_admit(sha, rel_sha, a):
@@ -806,7 +813,7 @@ def replay_admit(sha, rel_sha, a):
     except Exception as e:
         return False, {'why': [f'R3 the replay failed: {type(e).__name__}: {str(e)[:200]}']}
     rec['reader_sha256'] = hashlib.sha256(open(reader, 'rb').read()).hexdigest()[:16]
-    print(f"PRE-ACTIVATION REPLAY {'PASS' if ok else 'REFUSED'}: unknown shapes {rec.get('unknown')}, new defect items "
+    print(f"PRE-ACTIVATION REPLAY {'PASS' if ok else 'REFUSED' if replay_enforced() else 'WOULD REFUSE (not enforced: WARNING)'}: unknown shapes {rec.get('unknown')}, new defect items "
           f"{ {g: len(v) for g, v in (rec.get('new_defects') or {}).items()} }, items {rec.get('items')}")
     return ok, rec
 
@@ -1074,7 +1081,7 @@ def approved_readers(rel):
     piece -> gate.replay). Pure. [] when the release predates the replay gate."""
     g = (rel or {}).get('gate') or {}
     r = g.get('replay') if isinstance(g, dict) else None
-    return [r['reader_sha256']] if isinstance(r, dict) and r.get('reader_sha256') else []
+    return [r['reader_sha256']] if isinstance(r, dict) and r.get('reader_sha256') and r.get('ok', True) else []
 
 
 def reader_mismatch(rel, reader_path):

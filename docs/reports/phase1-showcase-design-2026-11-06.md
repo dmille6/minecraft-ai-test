@@ -230,7 +230,9 @@ control is the logged verdict counts.
 3. **Item 1.** `showcase_trip.py` plus trip-cron.sh. **Gale is trapped now: the first read after install quarantines Gale**
    (its unit stops; the world goes on).
 4. **Item 2.** `touch /srv/showcase/trip/AUTO_ROLLBACK`.
-5. **Item 4.** `replaygate.py` beside showcase_ops. The release agent then stages with `--reader` / `--reader-ok`.
+5. **Item 4.** `replaygate.py` beside showcase_ops (installed with step 2). The replay runs at every stage from then on and is
+   recorded in RELEASE.json's gate (`ok`, `enforced`). It refuses only once `/srv/showcase/REPLAY_GATE` exists; before that,
+   a failed replay is a printed WARNING. The release agent then stages with `--reader` / `--reader-ok`.
 
 Before each install: no `staged` row newer than the newest `activated` row in `/srv/showcase/ops/deploy.jsonl`, and
 `/srv/showcase/ops.lock` free (`flock -n`). Backups go to `/srv/showcase/backup-phase1-<T>/`. Never `showcase_trip.py ack`.

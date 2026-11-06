@@ -1084,7 +1084,7 @@ class StageCommandBase(unittest.TestCase):
         self.saved = {k: getattr(SO, k) for k in ('ROOT', 'OPS', 'LEDGER', 'FOLLOW', 'DEPLOY', 'HARNESS', 'RELEASES', 'REQUIRED', 'REVOKED',
                                                   'AUTO', 'LANE', 'PIECES', 'lock', 'fetch', 'resolve', 'git', 'is_anc', 'cherry_equivalent',
                                                   'current_release', 'stage', 'pieces_in', 'docs_only_change', 'revoked_patch_in',
-                                                  'read_protected', 'protected_diff', 'replay_admit')}
+                                                  'read_protected', 'protected_diff', 'replay_admit', 'replay_enforced')}
         SO.ROOT = self.d
         for k, v in (('OPS', 'ops'), ('LEDGER', 'ops/follow-ledger.jsonl'), ('FOLLOW', 'ops/follow.jsonl'), ('DEPLOY', 'ops/deploy.jsonl'),
                      ('HARNESS', 'harness'), ('RELEASES', 'releases'), ('REQUIRED', 'REQUIRED_KEPT'), ('REVOKED', 'REVOKED'),
@@ -1119,6 +1119,8 @@ class StageCommandBase(unittest.TestCase):
         self.replay = (True, {'unknown': [], 'new_defects': {}, 'why': []})
         self.replays = []
         SO.replay_admit = lambda sha, rel, a: (self.replays.append((sha, rel)), self.replay)[1]
+        self.enforce = True
+        SO.replay_enforced = lambda: self.enforce
 
     def tearDown(self):
         for k, v in self.saved.items():
@@ -1155,10 +1157,17 @@ class StagePieceCommand(StageCommandBase):
         self.assertEqual(self.calls, [], 'a refused replay stages nothing')
         self.assertIn('PRE-ACTIVATION REPLAY', self.refused_rows()[-1]['why'])
         self.assertEqual(self.replays[-1], (S2, R40), 'the candidate is replayed against the CURRENT release')
+        self.enforce = False
+        rc, out = self.run_stage()
+        self.assertEqual(rc, 0, 'not enforced (no REPLAY_GATE file): the stage goes on, the failed replay recorded')
+        self.assertEqual(self.calls[-1][1]['extra']['gate']['replay']['ok'], False)
+        self.assertEqual(self.calls[-1][1]['extra']['gate']['replay']['enforced'], False)
+        self.enforce = True
         self.replay = (True, {'unknown': [], 'new_defects': {}, 'why': []})
         rc, out = self.run_stage()
         self.assertEqual(rc, 0, out)
-        self.assertEqual(self.calls[-1][1]['extra']['gate']['replay'], self.replay[1], 'the replay record rides in RELEASE.json')
+        self.assertEqual(self.calls[-1][1]['extra']['gate']['replay'], dict(self.replay[1], ok=True, enforced=True),
+                         'the replay record rides in RELEASE.json')
 
     def test_stages_the_stack_with_its_piece_record(self):
         rc, out = self.run_stage()
@@ -2059,6 +2068,8 @@ class ReaderAtActivation(unittest.TestCase):
             self.assertIn('install the approved reader', SO.reader_mismatch(rel, p) or '')
             self.assertIsNone(SO.reader_mismatch({'gate': {'mode': 'piece'}}, p), 'a release before the replay gate')
             self.assertIn('unreadable', SO.reader_mismatch(rel, os.path.join(d, 'none.py')) or '')
+            failed = {'gate': {'mode': 'piece', 'replay': {'reader_sha256': dig, 'ok': False}}}
+            self.assertIsNone(SO.reader_mismatch(failed, p), 'a replay that did not pass approved no reader')
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
