@@ -19559,6 +19559,8 @@ export async function sweepFurnace (ctx, c, signal) {
     let win
     try { win = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} }) } catch (e) { if (e?.aborted) throw e; return left('window') }
     const seen = readFurnaceWindow(win)
+    // ledger-01's opener rule: every opened furnace window is an open-phase record, before any click (ledger.test STRUCTURAL)
+    if (LEDGER.on) { try { ledgerObserve(bot, pos, win, 'sweep', 'open', seen) } catch { /* the record is advisory here */ } }
     try { win.close() } catch { /* closed */ }
     const proof = furnaceEmpty(seen)
     if (!proof.ok) return left(proof.why)
