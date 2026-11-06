@@ -149,10 +149,10 @@ const rowFields = Sm => {
 await t('the row formatter keeps the F2/F4 fields the read reads (stalled/waiting/visits; replant_moved to/result/why; early/n)', () => rowFields(S))
 await t('MUTANT the r25 whitelist (shop.mjs): the stuck row reaches the logs without stalled/waiting', async () => {
   const src = fs.readFileSync(new URL('../src/shop.mjs', import.meta.url), 'utf8')
-  const old = "'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)"
+  const old = "'saplings', 'first', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)"   // fellfirst-01: + `first`
   assert.ok(src.includes(old) && src.split(old).length === 2, 'MUTATION ANCHOR missing or not unique')
   const out = new URL(`./_mutant-shop-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  fs.writeFileSync(out, src.replace(old, "'saplings', 'gen'], f)").replace(/from '\.\//g, "from '../src/"))
+  fs.writeFileSync(out, src.replace(old, "'saplings', 'first', 'gen'], f)").replace(/from '\.\//g, "from '../src/"))
   let why = null
   try { await rowFields(await import(out.href)) } catch (err) { why = err } finally { try { fs.unlinkSync(out) } catch {} }
   assert.ok(why instanceof assert.AssertionError, `the mutant survived or died for another reason: ${why}`)
