@@ -51,6 +51,26 @@ export const REPLANT_MOVES = 4      // a replant moves at most this often (each 
  * same `plot` when either names one). A clear with no tree index, or a record none of whose replants carries one, falls back to
  * EVERY replant (the old rule). A replant is settled when skipped or when `planted(cell)` reads a sapling there. Pure.
  */
+/**
+ * fellfirst-01: THE ONE TREE'S UNSETTLED REPLANTS -> [replant]. `c` a tree clear; tagged as treeReplanted reads them (same `tree`, same
+ * `plot`), else every replant; a replant is unsettled when not skipped and `planted(cell)` reads no sapling there. Pure.
+ */
+export function treeOwed (replant = [], c, planted) {
+  const open = r => r.state !== 'skipped' && !planted(r.cell)
+  const tagged = (replant ?? []).some(r => Number.isFinite(r?.tree))
+  const mine = !Number.isFinite(c?.tree) || !tagged ? (replant ?? []) : (replant ?? []).filter(r => r.tree === c.tree && (r.plot ?? null) === (c.plot ?? null))
+  return mine.filter(open)
+}
+/**
+ * fellfirst-01 (LIVE showcase 11-06: the stepwell's visits ended "felling complete, 17 logs left" for hours -- tree 5's replant waited
+ * on a spruce sapling no bag and no town chest held, and only felling a spruce yields one): MAY THIS TREE FALL BEFORE ITS SAPLING?
+ * -> bool. Pure. Only when the caller names `absent(sapling)` (no bag of the crew and no town chest holds that kind) and EVERY one of
+ * the tree's unsettled replants is of an absent kind the bag lacks too: the tree is felled first and its own leaves' drops replant it.
+ */
+export function fellFirstOk (owed = [], { has = () => false, absent = null } = {}) {
+  if (typeof absent !== 'function' || !owed.length) return false
+  return owed.every(r => !has(r.sapling) && absent(r.sapling))
+}
 export function treeReplanted (replant = [], c, planted) {
   const settled = r => r.state === 'skipped' || !!planted(r.cell)
   const tagged = (replant ?? []).some(r => Number.isFinite(r?.tree))
@@ -897,7 +917,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // list (monument-01) leaves the rest of the visit for the segments instead of ending it at max_steps in the clears
         if (tried >= (p.clearMax ?? Infinity)) return null
         if (e.aborted()) return 'aborted'
-        if (c.kind === 'tree' && !treeReady(c)) { needSapling ??= 'a sapling'; continue }   // never a tree before its sapling (B4)
+        // never a tree before its sapling (B4) -- fellfirst-01: unless no sapling of its kind exists anywhere the crew could draw it
+        // (`p.saplingAbsent`), when the tree is felled FIRST and its own drops replant it (its row says `first=1`)
+        let first = false
+        if (c.kind === 'tree' && !treeReady(c)) {
+          if (!fellFirstOk(treeOwed(record.replant ?? [], c, cell => SAPLING.test(nm(rd(...cell)))), { has: n => e.has(n), absent: p.saplingAbsent })) { needSapling ??= 'a sapling'; continue }
+          first = true
+        }
         if (unknown.has(kOf(c.at))) { const n = await resolveUnknown(c.at); if (n == null || n !== c.name) continue }
         if (nm(rd(...c.at)) !== c.name) continue
         // AT the dig (one guard for every path: an UNKNOWN cell resolved to a done one, r15 Codex P2) -- except a listed LOG: no
@@ -922,7 +948,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (v === 'fence') return 'fence:segment'
         if (v === 'aborted') return 'aborted'
         // a felled tree's row carries the replant cells reading a sapling AT the felling, of all of them (the read's G5)
-        if (v === 'confirmed') { out.cleared++; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind, ...(c.kind === 'tree' ? { saplings: `${(record.replant ?? []).filter(r => r.state !== 'skipped' && SAPLING.test(nm(rd(...r.cell)))).length}/${(record.replant ?? []).filter(r => r.state !== 'skipped').length}` } : {}) }) }
+        if (v === 'confirmed') { out.cleared++; if (first) out.felledFirst = (out.felledFirst ?? 0) + 1; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind, ...(c.kind === 'tree' ? { saplings: `${(record.replant ?? []).filter(r => r.state !== 'skipped' && SAPLING.test(nm(rd(...r.cell)))).length}/${(record.replant ?? []).filter(r => r.state !== 'skipped').length}` } : {}), ...(first ? { first: 1 } : {}) }) }
       }
       return null
     } finally { PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen) }

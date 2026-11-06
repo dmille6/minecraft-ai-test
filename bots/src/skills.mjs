@@ -24825,6 +24825,13 @@ function stepwellSite (bot, home, inp, t0, me) {
   }
   return { ok: false, why: `tried ${tried}, sites ${ok.length}: ${JSON.stringify(why)}`.slice(0, 160), tried, unread: !ok.length && Object.keys(why).every(k => k === 'unknown'), timedOut: !!why.time }
 }
+/** fellfirst-01: the stepwell felling's ABSENT test -> (sapling) -> bool: none in this bag and none in the town's chests (matsTownStock,
+ *  read once). An unreadable stock is never absent (the old wait). Never throws. */
+function swSaplingAbsent (bot) {
+  let stock = null
+  try { stock = matsTownStock(bot)?.stock ?? null } catch { stock = null }
+  return name => !!stock && countItem(bot, name) === 0 && !((Number(stock[name]) || 0) > 0)
+}
 async function buildStepwell (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -24967,7 +24974,9 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
       const r = await runVisit({ dir, key, me, home, stood, record: fellView(rec), recordGen: rh.head.gen, palette: FELL_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.stepwellStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
         // stepwell-04 (LIVE 11-05 20:58-22:02Z: sited, then 11 felling visits each ended `replanned` at one replant remedy, 0 of 50 logs
         // down): the groundskeeper's knobs -- a remedy does not end the visit, B4 per tree (buildrun.mjs plotprep-03)
-        domain: () => true, blockLayer: false, clearMax: 60, walkR, replantGoOn: true, replantPerTree: true }, effects, { deadline, maxSteps: 240 })
+        // fellfirst-01 (LIVE 11-06: 'felling complete, 17 logs left' every visit -- tree 5's spruce sapling in no bag, no chest): a kind
+        // the bag lacks AND the town's stock lacks (read once, after the draw above) is ABSENT -- its tree falls first, its drops replant it
+        domain: () => true, blockLayer: false, clearMax: 60, walkR, replantGoOn: true, replantPerTree: true, saplingAbsent: swSaplingAbsent(bot) }, effects, { deadline, maxSteps: 240 })
       const left = fellPending(stairRead(bot), rec)
       stepwellRow(bot, 'fell', { why: r.stop, n: `${r.cleared}c/${r.placed}p/${r.planted ?? 0}s/left${left ?? '?'}`, ms: Date.now() - t0 })
       const status = r.placed > 0 || r.cleared > 0 || (r.planted ?? 0) > 0 ? 'success' : 'no_effect'
