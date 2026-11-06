@@ -1086,8 +1086,10 @@ export function sinkDeferMerge (maps = []) {
   }
   return out
 }
-/** Is a record cell waived (a stone sink's own list; SINKWAIVE=off: never)? Pure. */
-export const sinkWaived = (rec, c, on = SINK_WAIVE.on) => on && !!rec?.waived && isSinkBlueprint(rec?.blueprint) && sinkWaiveKind(sinkKindOf(rec.blueprint)) &&
+/** Is a record cell waived (a stone sink's own list, or -- prodserve-01 -- a dress batch's host-gone lights: towndress.mjs dressOrphans;
+ *  SINKWAIVE=off: never)? Pure. */
+export const sinkWaivedKind = kind => sinkWaiveKind(kind) || kind === 'dress'
+export const sinkWaived = (rec, c, on = SINK_WAIVE.on) => on && !!rec?.waived && isSinkBlueprint(rec?.blueprint) && sinkWaivedKind(sinkKindOf(rec.blueprint)) &&
   Object.prototype.hasOwnProperty.call(rec.waived, c.at.join(','))
 /** The record's progress -> { done, open } over its cells (the caller's `done(cell)`). Pure. */
 export function sinkProgress (rec, done) {

@@ -215,10 +215,13 @@ import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, sitepre
 import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { cellGuard } from './towndress.mjs'   // decorator-01: the nursery's guard
+import { dressOrphans } from './towndress.mjs'   // prodserve-01: a light whose host is gone
 import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE, decorBagRole, decorHedgeRole, decorPostRole, leavesOf, fencesOf, HEDGE_LEAVES, decorPostsOn, decorHedgesOn } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off
 import { setCompostDrive } from './composter.mjs'   // decorator-02: the compost drive's hook (townOrder)
 import { SMALL_FLOWERS as DECOR_FLOWERS, gatherTargets as decorGatherTargets } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
 import { DECORATE } from './shop.mjs'   // decorator-01: its switch
+import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the service tier's switch; a stop that was no visit
+import { servicePick, isServicePlot, stampNext, stampRelease, serviceRowDetail } from './prodserve.mjs'   // prodserve-01
 import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
@@ -17497,7 +17500,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
         // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}) }
+        // prodserve-01: a finished production plot's OWN due test for this bot (prodserve.mjs servicePick reads it): the farms' harvest or
+        // replant, the hall's clerk -- the hall's whether or not one of its cells reads damaged (its repair stays a repair)
+        const serve = PRODSERVE.on && complete && b && isServicePlot(p.plot) ? serviceDueOf(b, p.plot, rec, hubDue, now) : null
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}) }
       })
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
       const sk = sinkStatesNow(b, states, now)
@@ -17516,14 +17522,17 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const waited = stuckBackoff(states, plot => projStuckLive(projKeyOf(plot), now), now)
     // sinkfix-01: this bot's own no-effect visits (shop.mjs idleMarks): such a project yields to a wanted sink for IDLE_MS
     const marked = idleMarks(waited, b?.shopIdle ?? null, now)
+    // PRODSERVE-01: a finished production plot due by the town's schedule and this bot's fair share goes first (prodserve.mjs)
+    const svc = PRODSERVE.on && b ? servicePick(marked, { now, stamps: serviceStampsNow(), botLastAt: b.serviceAt ?? -Infinity }) : null
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
     const order00 = b ? keeperOrder(b, marked, list, now) : list
     // DECORATOR-01: the town's decorator works the decor FIRST (behind repairs); every other bot never sees it (the lease)
     const order0 = b ? decorOrder(b, marked, order00, now) : order00
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK })
+    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
     if (visit) noteRepair(rmem, pick, states, now)
+    if (visit && b) serviceBegin(b, svc && pick?.plot === svc.plot ? svc : null, now)
     return pick
   } catch { return projectsOn()[0] }
 }
@@ -19792,6 +19801,55 @@ export const _hubUpkeep = Object.freeze({ hubClerkOne, hubClerkPlan, hubSignWork
  *  no_site visits, never the order's own 24-h no_site retry. Never throws (unreadable: no wait). */
 const siteWaitFile = (plot, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.sitewait.json`)
 function siteWaitUntil (plot, dir = townDir()) { try { return Number(JSON.parse(fs.readFileSync(siteWaitFile(plot, dir), 'utf8'))?.until) || 0 } catch { return 0 } }
+// ================================================================================================================================
+// PRODSERVE-01: THE SERVICE STAMPS (prodserve.mjs has every rule). One town file a service plot (`<key>.service.json`): the last
+// service visit's start and its bot -- the town's schedule and the claim. Written at the visit's start (shopActive's pick), given back
+// when the visit did not happen (buildShop: shop.mjs IDLE_NOT_A_VISIT). One `_service` row a service visit. Never throws.
+// ================================================================================================================================
+const serviceFile = (plot, dir = townDir()) => path.join(dir, `${projKeyOf(plot)}.service.json`)
+function serviceStampRead (plot, dir = townDir()) { try { return JSON.parse(fs.readFileSync(serviceFile(plot, dir), 'utf8')) } catch { return null } }
+function serviceStampWrite (plot, stamp, dir = townDir()) {
+  try { const f = serviceFile(plot, dir); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify(stamp)); fs.renameSync(tmp, f); return true } catch { return false }
+}
+/** The town's service stamps -> { plot: stamp }. Never throws. */
+function serviceStampsNow (dir = townDir()) {
+  const out = {}
+  for (const p of PROJECTS) if (isServicePlot(p.plot)) { const st = serviceStampRead(p.plot, dir); if (st) out[p.plot] = st }
+  return out
+}
+/** A plot's service reason for this bot (its own due test) -> string | null. Never throws. */
+function serviceDueOf (bot, plot, rec, hubDue = null, now = Date.now()) {
+  try {
+    if (plot === CROPFARM_PLOT) return cropDueFor(bot, rec)
+    if (plot === CANEFARM_PLOT) return caneDueFor(bot, rec)
+    if (plot === HUB_PLOT) return (hubDue ?? hubUpkeepDue(bot, rec, now)) ? 'clerk' : null
+    return null
+  } catch { return null }
+}
+/** THE VISIT'S START: a service pick stamps its plot (the claim), notes the bot's share and logs `_service`; any other pick clears the
+ *  bot's service mark. Never throws. */
+function serviceBegin (bot, svc, now = Date.now()) {
+  try {
+    if (!svc) { bot.serviceVisit = null; return }
+    const prev = serviceStampRead(svc.plot)
+    const stamp = stampNext(prev, { me: bot.username ?? 'bot', now, reason: svc.reason })
+    serviceStampWrite(svc.plot, stamp)
+    bot.serviceAt = now
+    bot.serviceVisit = { plot: svc.plot, at: now }
+    try { logEvent({ kind: 'service', status: 'success', snapshot: snapshot(bot), detail: serviceRowDetail({ ...svc, now }) }) } catch { /* telemetry */ }
+  } catch { /* the next pick reads the file again */ }
+}
+/** THE VISIT'S END: a service visit that was no visit (`stop` in IDLE_NOT_A_VISIT) gives the plot's stamp and the bot's share back.
+ *  Never throws. */
+function serviceEnd (bot, stop) {
+  try {
+    const sv = bot?.serviceVisit
+    if (!sv) return
+    bot.serviceVisit = null
+    const back = stampRelease(serviceStampRead(sv.plot), { me: bot.username ?? 'bot', at: sv.at, stop, notAVisit: IDLE_NOT_A_VISIT })
+    if (back) serviceStampWrite(sv.plot, back)   // the bot's own share stands (an interrupted bot never re-picks at once)
+  } catch { /* the stamp stands: the plot waits its gap */ }
+}
 function siteWaitSet (plot, ms, why = null) {
   try { const f = siteWaitFile(plot); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ until: Date.now() + ms, why: String(why ?? '').slice(0, 80), at: Date.now() })); fs.renameSync(tmp, f) } catch { /* no wait: the next visit tries again */ }
 }
@@ -20239,8 +20297,9 @@ async function buildShop (ctx, args, signal) {
   // yield only to a wanted sink, for IDLE_MS
   const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } }
   let r
-  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) note({ status: 'aborted', stop: 'aborted' }); throw e }
+  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e }
   note(r)
+  serviceEnd(ctx.bot, r?.stop)   // prodserve-01: a service visit that did not happen gives its stamp back
   // sinkfix-03: the plot whose siting failed (shop.mjs siteRetryHolds: the order's 24-h site retry holds only that plot)
   if (r?.stop === 'no_site') ctx.bot.shopNoSitePlot = ctx.bot.shopVisitPlot ?? null
   return r
@@ -20394,7 +20453,9 @@ async function buildShopVisit (ctx, args, signal) {
   // sortstore-01: a COMPLETE storehouse whose only want is its upkeep (labels, the tidy) gets the upkeep visit, not a build visit
   if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
   // storehub-01: a COMPLETE hall whose want is its upkeep (labels, the clerk) gets the upkeep visit, not a build visit
-  if (plot === HUB_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && hubUpkeepDue(bot, rec)) return hubUpkeepVisit(ctx, rec, signal, out)
+  // prodserve-01: ...and a SERVICE visit to it (shopActive's service pick) runs the upkeep even while one of its cells reads damaged (LIVE
+  // 11-05/06: one unreachable `earth` fill cell held the clerk off for a day; the repair stays a repair, its own tier)
+  if (plot === HUB_PLOT && rec.structure_complete && (!recordDamaged(bot, rec, { tidy: false }) || bot.serviceVisit?.plot === HUB_PLOT) && hubUpkeepDue(bot, rec)) return hubUpkeepVisit(ctx, rec, signal, out)
   // enchantshop-01: a COMPLETE workshop whose want is its upkeep (its labels, the fitter) gets the upkeep visit, not a build visit
   if (plot === ENCHANT_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && enchantUpkeepDue(bot, rec)) return enchantUpkeepVisit(ctx, rec, rh.head.gen, signal, out)
   // a COMPLETE workshop is judged against the world (r2): a damaged one is repaired by an ordinary visit
@@ -22895,6 +22956,30 @@ async function buildSink (ctx, args, signal, proj) {
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read back`)
   }
+  // PRODSERVE-01 (DRESSHOST: towndress.mjs dressOrphans): a dress light whose host is gone (its support dug by another project, e.g.
+  // the old wall's demolition) is WAIVED on the record before anything else -- no stand can ever place it, and as damage it headed the
+  // repair tier for good (LIVE 11-05/06: 5 failed repair visits in 12 h on L1-P3). One `op=waived why=host_gone` row a cell.
+  if (plot === SINK_PLOTS.dress && SINK_WAIVE.on && rh.head?.rec) {
+    try {
+      const r0 = rh.head.rec
+      const held = shopCellsNow()?.cells ?? null
+      const orphans = held ? dressOrphans(r0, planReader(bot), { held: c => held.has(c.join(',')) }).filter(c => !sinkWaived(r0, c)) : []
+      if (orphans.length) {
+        const pub = publishRecord(dir, key, cur => {
+          if (!cur || (cur.cells ?? []).length !== (r0.cells ?? []).length || instancesOf(cur).length !== instancesOf(r0).length) return null
+          const w = { ...(cur.waived ?? {}) }
+          for (const c of orphans) { const k = c.at.join(','); if (!w[k]) w[k] = { why: 'host_gone', at: Date.now(), by: me } }
+          return { ...cur, waived: w }
+        }, { by: me })
+        if (pub.result === 'accepted') {
+          for (const c of orphans) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'waived', cell: c.at, gen: pub.gen, why: 'host_gone' }) }) } catch { /* telemetry */ } }
+          bot.shopDamage = null
+          rh = recordHead(dir, key)
+          if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read back`)
+        }
+      }
+    } catch { /* read again next visit */ }
+  }
   shopFootprintRefresh(bot)
   const rec = rh.head.rec
   const palette = rec.palette ?? {}
@@ -22966,7 +23051,8 @@ async function buildSink (ctx, args, signal, proj) {
     // towndress-01: a dress batch's box spans the town (its fixtures are posts and torches: nothing to stand on), and its sign cells
     // are the label writer's -- runVisit reads them done
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
-    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}
+    // prodserve-01: ...and its waived (host-gone) lights
+    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : {}
     // sinkwaive-01: a waived stone-sink cell is done for the visit (runVisit alsoDone); dress keeps its own alsoDone
     const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of

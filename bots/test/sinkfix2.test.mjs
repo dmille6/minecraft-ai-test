@@ -125,7 +125,7 @@ await t('stoneOpenCount leaves dress out; two open stone sinks never hold a dres
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
 await t('skills.mjs: an aborted visit is noted, then rethrown; the keeper\'s own visits are no longer exempt; open counts are stone only', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/try \{ r = await buildShopVisit\(ctx, args, signal\) \} catch \(e\) \{ if \(e\?\.aborted \|\| signal\?\.aborted\) note\(\{ status: 'aborted', stop: 'aborted' \}\); throw e \}/.test(sk))
+  assert.ok(/try \{ r = await buildShopVisit\(ctx, args, signal\) \} catch \(e\) \{ if \(e\?\.aborted \|\| signal\?\.aborted\) \{ note\(\{ status: 'aborted', stop: 'aborted' \}\); serviceEnd\(ctx\.bot, 'aborted'\) \} throw e \}/.test(sk))
   assert.ok(!/pl === TIDY_PLOT && keeperNow\(ctx\.bot\)/.test(sk), 'the keeper exemption is gone')
   assert.strictEqual(sk.split('stoneOpenCount(recs)').length - 1, 2, 'both open counts')
 })

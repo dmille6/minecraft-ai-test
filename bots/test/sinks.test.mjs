@@ -406,7 +406,7 @@ const W = [
   /if \(isSinkPlot\(proj\.plot\)\) return buildSink\(ctx, args, signal, proj\)/,
   /if \(h\.ok && h\.head\?\.rec\?\.structure_complete && isSinkPlot\(h\.head\.rec\.plot\) && sinkNextNow\(h\.head\.rec\.plot\)\) return \{ \.\.\.h, head: null \}/,
   /: isSinkBlueprint\(r\.blueprint\) \? \{ palette: r\.palette \?\? \{\} \} : blueprintOf\(r\.blueprint \?\? SHOP_BLUEPRINT\)/,
-  /const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK \}\)/,
+  /const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK, service: svc\?\.plot \?\? null \}\)/,
   /\.\.\.sinkVisitOpts\(rec, home\), \.\.\.leave \}, effects/,
   /const others = guardRecords\(projectHeads\(\)\.map\(x => x\.head\.rec\)\.filter\(Boolean\), kind\)/,
   // siteprep-01: a pinned claim's own request id is the one zone its guard ignores (`prepExcept`)
@@ -416,7 +416,7 @@ await t('build_shop dispatches a sink plot to buildSink; a sink wanting its next
   for (const re of W) assert.ok(re.test(SK), String(re))
 })
 await t('mutants: each wiring line, once broken, fails its assertion', () => {
-  const breaks = ['if (isSinkPlot(proj.plot)) return buildSink(ctx, args, signal, proj)', 'sinkNextNow(h.head.rec.plot)) return { ...h, head: null }', '{ upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK }']
+  const breaks = ['if (isSinkPlot(proj.plot)) return buildSink(ctx, args, signal, proj)', 'sinkNextNow(h.head.rec.plot)) return { ...h, head: null }', '{ upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null }']
   for (const b of breaks) {
     assert.strictEqual(SK.split(b).length, 2, `anchor unique: ${b}`)
     const m = SK.replace(b, 'BROKEN')

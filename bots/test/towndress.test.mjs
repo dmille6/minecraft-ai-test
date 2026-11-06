@@ -295,7 +295,7 @@ const W = [
   /if \(kind === 'dress' && rec0\) \{/,
   /const sg = await dressSignsVisit\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
   /done: \(b, pal, role\) => dressSignRole\(role\) \|\| ((decorFlowerRole|decorBagRole)\(role\) \|\| )?buildCellDone\(b, pal, role\)/,
-  /kind === 'dress' \? \{ alsoDone: q => dressSignRole\(q\.role\) \} : \{\}/,
+  /kind === 'dress' \? \{ alsoDone: q => dressSignRole\(q\.role\) \|\| sinkWaived\(rec, q\) \} : \{\}/,
   /const r = await sortLabelOne\(ctx, sp, signal, deadline, \{ kind: 'town_sign' \}\)/,
   /if \(!item\) \{ const tr = \(bot\.sortSignTries \?\?= new Map\(\)\); for \(const sp of work\) tr\.set\(sp\.at\.join\(','\), \(tr\.get\(sp\.at\.join\(','\)\) \?\? 0\) \+ 1\) \}/,
   /buildRowDetail\(\{ project: SINK_PLOTS\.dress, op: 'place', seg: sp\.seg, cell: sp\.at,/,
@@ -304,7 +304,7 @@ await t('the dress sink is wired: sign cells are upkeep not damage, the gate rea
   for (const re of W) assert.ok(re.test(SK), String(re))
 })
 await t('mutants: each wiring line, once broken, fails its assertion', () => {
-  const breaks = ['if (dressSignRole(c.role)) continue', "kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) } : {}"]
+  const breaks = ['if (dressSignRole(c.role)) continue', "kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : {}"]
   for (const b of breaks) {
     assert.strictEqual(SK.split(b).length, 2, `anchor unique: ${b}`)
     const m = SK.replace(b, 'BROKEN')

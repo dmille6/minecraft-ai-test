@@ -384,6 +384,33 @@ export function siteDress (read, ctx = {}) {
   return { ok: true, inst, meta, tried, proofs }
 }
 
+// ---- the host gone (prodserve-01) ------------------------------------------------------------------------------------------------------
+/**
+ * DRESSHOST (prodserve-01; LIVE showcase 11-05/06): a LIGHT whose HOST is gone. L1-P3 was a wall-top torch (20,73,-20) on the old town
+ * wall; the wall's demolition (walldemo, 11-05) dug its support 20,72,-20, the torch dropped, and the cell floats 7 above the ground with
+ * nothing to stand on or place against: 5 repair visits failed over 12 h (stuck_on_cell x3, cell_deferred x2), every one first in the
+ * repair tier. Siting never offers such a light (wallTopCandidates: the support must read a full block), so it is the record's to give
+ * up: a light cell that reads unlit air over a support that reads loaded and not a full block, where the support is neither this
+ * record's own post cell (a post is a repair: the post goes back first) nor another record's live cell (`held`: its own repair restores
+ * the host -- a wall block a bot dug is the wall's). -> [cell]. An unread cell or support says nothing. Pure.
+ */
+export function dressOrphans (rec, read, { held = () => false } = {}) {
+  const own = new Set((rec?.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => kOf(c.at)))
+  const out = []
+  for (const c of rec?.cells ?? []) {
+    if (!dressLightRole(c?.role) || !Array.isArray(c?.at)) continue
+    const b = read(...c.at)
+    if (!b || LIGHT_BLOCK.test(nm(b)) || !AIRISH(b)) continue
+    const s = [c.at[0], c.at[1] - 1, c.at[2]]
+    if (own.has(kOf(s))) continue
+    const sb = read(...s)
+    if (!sb || sb.boundingBox === 'block') continue
+    if (held(s)) continue
+    out.push(c)
+  }
+  return out
+}
+
 // ---- the gate and the upkeep ------------------------------------------------------------------------------------------------------------
 /** THE DRESS "PRESSURE" for sinks.mjs sinkNextGate -> { p, torches, known }: a batch wants DRESS.torchMin spare torches (the town's
  *  above its reserve, read, + the bag's); p 1 when it has them, else -1. An unread town counts only the bag. Pure. */

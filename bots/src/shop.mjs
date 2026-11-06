@@ -11,6 +11,7 @@ import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS, wallextOn, WALLEXT_PL
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { cropfarmOn, CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROPFARM_BUILDERS } from './cropfarm.mjs'   // cropfarm-01
+import { prodserveOn } from './prodserve.mjs'   // prodserve-01: the service tier's switch
 import { canefarmOn, CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANEFARM_BUILDERS } from './canefarm.mjs'   // canefarm-01
 import { stepwellOn, STEPWELL_PLOT, STEPWELL_BLUEPRINT, STEPWELL_BUILDERS } from './stepwell.mjs'   // stepwell-01
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
@@ -166,6 +167,9 @@ export const SINKS = Object.freeze({ on: sinksOn(process.env, process.env.MEMORY
 /** DECORATOR-01 (decorator.mjs decorOn): the decor sink is offered only with its own switch on too (DECORATOR=off: no decor plot, no
  *  lease; a sited batch stays guarded: projectsGuarded keeps every sink plot). */
 export const DECORATE = Object.freeze({ on: decorOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** PRODSERVE-01 (prodserve.mjs): a finished production plot (the farms, the hall's clerk) is served on its own schedule, ahead of the
+ *  other tiers (activeProject `service`). PRODSERVE=off is the rollback; on in the showcase pool only. */
+export const PRODSERVE = Object.freeze({ on: prodserveOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -226,9 +230,13 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  * order (a missing state reads as no record). The first damaged complete project (repairs first), else the first not complete
  * whose `after` project is complete -- monument-01: the first such with an admission slot free for this bot (`free`, absent =
  * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
+ * prodserve-01: `service` (a plot, skills.mjs shopActive's servicePick) is returned first when it is in `list`.
  */
-export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false, noWait = NOWAIT.on } = {}) {
+export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false, noWait = NOWAIT.on, service = null } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
+  // PRODSERVE-01 (prodserve.mjs servicePick): a finished production plot whose service is due by the town's schedule and this bot's
+  // fair share goes FIRST -- ahead of the repairs, the open projects and the sinks, every one of which the showcase always has
+  if (service) { const sp = list.find(p => p.plot === service); if (sp) return sp }
   // sinkfix-01: the sink this bot may work now (see the sink tier below), read first -- a project this bot's own last visit found
   // nothing to do at (`idle`, idleMarks) yields to it, as a repair and as an open project
   // towndress-01 r1 (Codex r1 BLOCKER): a standing sink with upkeep DUE (a dress batch's unwritten signs) is offered too -- else, its next
