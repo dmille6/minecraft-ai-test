@@ -14526,6 +14526,8 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   // SHAFT-02: THE TOWN STAIR FIRST (design section 6). A real descent near the town's stair walks down it to a verified landing
   // -- no digging, so it comes BEFORE the home refusal (a walk from home to the collar digs nothing at home). Any failure leaves
   // mine exactly as it was (the checks below run from wherever the bot stands); a goal at the landing is the whole call.
+  // stairuse-01: the way down may now dig -- only a foreign block out of the stair's own AIR cells, 19-26 out from home (the
+  // stair's ring, beyond the home refusal's 12): the record says air, the dig restores it
   {
     const hop = await stairDescend(ctx, goalY, signal)
     if (hop?.done) return { status: 'success', detail: `reached the town stair's landing at y=${hop.landing} (the stair, no digging)`, via: 'town_stair' }
@@ -17876,7 +17878,8 @@ async function buildStair (ctx, args, signal) {
     const fence = () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } }
     const e = stairBotEffects(bot, effects, { signal, fence, log: (op, d) => stairRow(bot, op, { k: d.k, at: d.at, why: d.why, feet: d.feet ?? '-' }) })
     // stairuse-01: the visit's walk to a deep stand falls back to the stair's own way down (shaftvisit.mjs runStairVisit `e.descend`)
-    if (stairUseOn()) e.descend = k => visitDescend(bot, rec, signal, t0 + budget - STAIR_VISIT_TAIL_MS, k, e)
+    // (its deadline keeps the egress's reserve from step k: the visit's way out after it -- Claude r1 note 1)
+    if (stairUseOn()) e.descend = k => visitDescend(bot, rec, signal, t0 + budget - STAIR_VISIT_TAIL_MS - egressReserveMs(k), k, e)
     const now = () => Date.now()
     // shaft-03: the whole visit holds the 'stair' body claim (withStairClaim: the entombment reflex stands down inside the stair)
     // shafttrap-01: ...and so does the egress after it (the visit ends at the collar, never deep in the stair)
@@ -18139,6 +18142,7 @@ export async function stairDescend (ctx, goalY, signal) {
  * (the walk to the collar) does not. Rows: one `_shaft_use` per attempt (entry=, cleared=), one `_shaft op=descent`, one
  * `op=descent_dig` per block cleared; `_shaft_skip` for a start that is no attempt.
  */
+const STAIR_APPROACH_WAIT_MS = 2 * 60_000
 async function stairDescendSteps (ctx, rec, feet, goalY, signal) {
   const { bot } = ctx
   const p = bot.entity.position
@@ -18150,6 +18154,9 @@ async function stairDescendSteps (ctx, rec, feet, goalY, signal) {
     return null
   }
   const fromK = entry === 'stair' ? (stairStepOf(plan, here)?.k ?? -1) : -1
+  // an approach (the collar walk) that failed waits STAIR_APPROACH_WAIT_MS for this bot (Claude r1 note 2: a yard the walk cannot
+  // leave would otherwise cost every mine call a 90 s walk); no landing is backed off for it
+  if (entry === 'surface' && Date.now() - (bot.stairApproachFail ?? -Infinity) < STAIR_APPROACH_WAIT_MS) return null
   const t0 = Date.now()
   const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: here[1], to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, entry, ...extra }) }) } catch { /* telemetry */ } }
   const use = landingRoute(stairRead(bot), rec, feet, fromK)
@@ -18184,7 +18191,7 @@ async function stairDescendSteps (ctx, rec, feet, goalY, signal) {
   } finally { try { fx?.close() } catch { /* gone */ } }
   if (!r?.ok) {
     // ON THE STAIR (a hop, a tread, a liquid, a dig refused): this landing waits 10 min for this bot; the collar walk does not
-    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now())
+    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now()); else bot.stairApproachFail = Date.now()
     row(false, r?.why ?? 'none', { cleared: r?.cleared ?? 0 })
     return null
   }

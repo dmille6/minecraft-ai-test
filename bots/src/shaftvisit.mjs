@@ -63,6 +63,8 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
       if (!same(e.feet(), stand) && typeof e.descend === 'function') {
         const sk = plan.steps.findIndex((q, k) => same(standOf(plan, k), stand))
         if (sk >= 0) { await e.descend(sk); if (!same(e.feet(), stand)) await e.walkTo(stand) }
+        // the way down took time: the unit starts only with the way out still in the budget (Claude r1 note 1: the egress reserve)
+        if (same(e.feet(), stand) && typeof reserve === 'function' && e.now() >= deadline - (Number(reserve(w.k)) || 0)) return end('time', 'the way out is kept', w.k)
       }
       if (!same(e.feet(), stand)) return end('walk_failed', `did not reach ${kOf(stand)} (at ${kOf(e.feet())})`, w.k)
     }
@@ -231,6 +233,9 @@ export async function runStairDescent (plan, e, { to, landing = null, exit = nul
       if (e.now() >= deadline) return end(false, 'time', at.k)
       if (!(await e.walkTo(c))) return end(false, 'via', at.k)
     }
+    // one cell off its step's stand (stairStepAt reads Chebyshev 1 as the step): onto the stand first (Claude r1 note 5)
+    const s0 = standOf(plan, at.k), f0 = e.feet()
+    if (!at.via.length && !(f0[0] === s0[0] && f0[1] === s0[1] && f0[2] === s0[2]) && !(await e.walkTo(s0))) return end(false, 'via', at.k)
     i = at.k
   } else {
     // FROM THE SURFACE: the collar exit first (the walk the egress ends with, the other way)

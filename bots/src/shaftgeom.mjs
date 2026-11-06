@@ -755,6 +755,8 @@ export function handoffDetail ({ handler = '-', k = '-', h = '-', r = null, ms =
 // verified from where the bot stands, digging a foreign block out of the stair's own air cells on the way (the stair's record says
 // air: the dig restores it); a missing tread, a liquid or an unread cell next to the bot stops it (the visit's repair).
 
+/** What a descent never digs out of an air cell: a container, a station, a bed, a door, a sign (stops `container`). */
+export const STAIR_KEEP = /chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|_bed$|_door$|_trapdoor$|_sign$|^composter$|_fence_gate$|^anvil$|^lectern$|^enchanting_table$/
 /** stairuse-01's switch: STAIRUSE=0|off|false|no restores the base (the descent from anywhere near, verified from the top, one walk). */
 export const stairUseOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STAIRUSE ?? '').trim().toLowerCase())
 /**
@@ -810,6 +812,8 @@ export function descentNext (read, plan, i, goal, body = []) {
       if (isWet(b)) return near ? { op: 'stop', why: 'wet', at: c, k: j } : { op: 'hop', to: j - 1 }
       if (b.boundingBox === 'empty') continue   // open air: the next cell
       if (!near) return { op: 'hop', to: j - 1 }
+      // never a container, a station or a bed (Claude r1 note 4): somebody's, never dug out of the way
+      if (STAIR_KEEP.test(nm(b))) return { op: 'stop', why: 'container', at: c, k: j }
       for (const [dx, dy, dz] of N6) {
         const n = [c[0] + dx, c[1] + dy, c[2] + dz]
         const nb = read(...n)
