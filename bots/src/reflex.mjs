@@ -2051,8 +2051,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // lavastep-01: the relaxation's end conditions (no entity, death, the air rescue, in water, expiry, moved off, a new
     // DANGER cell) run FIRST, before every early return below (Codex code r2 P2); it never throws
     try { lavastepMover?.tick() } catch { /* the mover's own guard */ }
+    try { pinTick(bot) } catch { /* escdead-01: the pin clock never breaks the tick (no entity: no clock) */ }
     if (!bot.entity) return
-    try { pinTick(bot) } catch { /* escdead-01: the pin clock never breaks the tick */ }
 
     try {
       // THE AIR STATE + C3b, FIRST THING IN THE TICK (homefix-02 C3; before the release await below and every early
