@@ -7,9 +7,10 @@ import assert from 'node:assert/strict'
 import { runSkill, violationFromError, TRAPPED_GLOBALS } from '../src/sandbox.mjs'
 
 const calls = []
+let live = 0, maxLive = 0
 const handlers = {
   observe: async () => { calls.push('observe'); return { ok: true, pos: { x: 1, y: 64, z: 2 } } },
-  slowObserve: async () => { calls.push('observe'); await new Promise(r => setTimeout(r, 30)); return { ok: true } },
+  slowObserve: async () => { calls.push('observe'); live++; maxLive = Math.max(maxLive, live); await new Promise(r => setTimeout(r, 30)); live--; return { ok: true } },
   wait: async ([ms]) => { await new Promise(r => setTimeout(r, Math.min(Number(ms) || 0, 50))); return { ok: true } },
   slow: async () => { await new Promise(r => setTimeout(r, 2_000)); return { ok: true } },
   boom: async () => { throw new Error('host side failed') },
@@ -146,15 +147,17 @@ test('Promise.all of 1,000 calls runs ONE; the rest are refused', async () => {
     const rs = await Promise.allSettled(Array.from({ length: 1000 }, () => bot.slowObserve()));
     return { ok: rs.filter(x => x.status === 'fulfilled').length, refused: rs.filter(x => x.status === 'rejected').length }
   }`, { steps: 2000, refusals: 5000 })
+  // ONE AT A TIME is the guarantee: a call issued after the first one finished may run too (the flood takes longer than
+  // 30 ms to issue), but no two ever overlap
   assert.equal(r.status, 'ok')
-  assert.equal(r.value.ok, 1)
-  assert.equal(r.value.refused, 999)
-  assert.equal(calls.length, 1)
+  assert.equal(maxLive, 1)
+  assert.ok(r.value.ok >= 1 && r.value.ok <= 5, `ran ${r.value.ok}`)
+  assert.equal(r.value.ok + r.value.refused, 1000)
   calls.length = 0
   const r2 = await run(`async function flood3(bot) { await Promise.allSettled(Array.from({ length: 1000 }, () => bot.slowObserve())); return 1 }`, { steps: 2000 })
   assert.equal(r2.status, 'budget')            // with the default refusal budget the storm ends the run
   assert.equal(r2.budget, 'refusals')
-  assert.equal(calls.length, 1)
+  assert.ok(calls.length <= 5)
 })
 
 test('arguments are copied as JSON: functions and getters do not cross', async () => {

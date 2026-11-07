@@ -126,6 +126,9 @@ async function enterSlot (gname, group, name) {
     const m = cfg.arms[other]?.model
     if (!m) continue
     try {
+      // only a RESIDENT model is unloaded: keep_alive 0 on one that is not loaded makes Ollama load it first
+      const ps = await (await fetch(`${group.url}/api/ps`, { signal: AbortSignal.timeout(10_000) })).json()
+      if (!(ps.models ?? []).some(x => x.name === m)) continue
       const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30_000)
       await fetch(`${group.url}/api/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: m, keep_alive: 0 }), signal: ctl.signal })
       clearTimeout(t)
