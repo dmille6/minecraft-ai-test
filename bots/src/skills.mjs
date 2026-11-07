@@ -19058,12 +19058,16 @@ async function deepMine (ctx, args, signal) {
       const onUp = () => sub.abort()
       signal?.addEventListener?.('abort', onUp, { once: true })
       const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now()))
-      try { r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed', detail: e?.aborted ? 'this call\'s time' : String(e?.message ?? e).slice(0, 80) } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
+      // OBSIDIAN-01 (Paper 11-07: the deepen stopped at -50 -- DEEP_OK -- and the cast's own deepen then failed in place): a trip with
+      // the cast deepens on its own staircase to the cast level (mine stops at goal + 1: asked -54, feet -53)
+      const goalY = trip.obs && !trip.obs.off && !trip.obs.done ? OBS_FEET - 1 : DEEP_DEEP_FEET
+      try { r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: goalY }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed', detail: e?.aborted ? 'this call\'s time' : String(e?.message ?? e).slice(0, 80) } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
       const y1 = Math.floor(bot.entity.position.y)
       trip.deepenTries = (trip.deepenTries ?? 0) + 1
       const stalled = y1 >= y0 - 1
       trip.deepenStalls = stalled ? (trip.deepenStalls ?? 0) + 1 : 0
-      if (y1 <= DEEP_OK_Y || trip.deepenStalls >= 3 || trip.deepenTries >= 6) { trip.phase = 'work'; trip.arrivedAt = Date.now() }
+      const okY = goalY === DEEP_DEEP_FEET ? DEEP_OK_Y : OBS_FEET
+      if (y1 <= okY || trip.deepenStalls >= 3 || trip.deepenTries >= 6) { trip.phase = 'work'; trip.arrivedAt = Date.now() }
       deepRow(bot, 'deepen', { why: `${r?.status ?? '-'}:${String(r?.detail ?? '').slice(0, 60).replace(/\s+/g, '_')}`, n: `${y0}->${y1}` })
       return out(y1 < y0 ? 'success' : 'no_effect', `deepened from y=${y0} to y=${y1}`)
     }
