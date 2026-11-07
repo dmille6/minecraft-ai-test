@@ -43,6 +43,9 @@ const REQUIRED = [
   'bots/test/stuckproj.test.mjs',
   // dirtrung-01 (11-04): the dirt rung is met by a stack of dirt + stone family (gather_dirt_16 held 22.8% of decisions)
   'bots/test/dirtrung.test.mjs',
+  // sandrung-01 (11-07): the gatherer chain's sand rung retired (7.5% of fleet time, gather sand 11.7% ok, no sand reached a town)
+  'bots/src/sandrung.mjs',
+  'bots/test/sandrung.test.mjs',
   // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
   'bots/src/repeatwork.mjs',
   'bots/test/repeatwork.test.mjs',

@@ -7,7 +7,7 @@
 // diagnostic control became the entire fleet. The `miner` chain that does drive
 // tool progression is assigned to nobody, and even it stops at stone_pickaxe.
 import assert from 'node:assert'
-import { MILESTONES_BY_ROLE, SUSTAINING } from '../src/milestones.mjs'
+import { MILESTONES_BY_ROLE, SUSTAINING, gathererChain } from '../src/milestones.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -106,7 +106,13 @@ t('the gatherer chain keeps its DIAGNOSTIC SPREAD -- the thing the control is fo
   // rungs, same order, same counts, and the wood rung must still be a wood rung.
   // A verbatim id list would have to be edited by anyone changing anything, which
   // is how it came to be edited rather than examined.
-  const chain = MILESTONES_BY_ROLE.gatherer
+  // AMENDED 2026-11-07 (sandrung-01): the sand rung is RETIRED by default (sandrung.mjs: 7.5% of fleet time on a rung the
+  // gather skill refuses 66% of the time, whose sand never reached a town). SANDRUNG=1 restores the four-rung spread, so
+  // both shapes are pinned: the default is dirt, wood, cobblestone; the switch puts sand back in its old place.
+  const g3 = ids(gathererChain({ sand: false }))
+  assert.deepEqual([g3.length, g3[0], g3[2]], [3, 'gather_dirt_16', 'gather_cobblestone_8'], `default chain: ${g3.join(', ')}`)
+  assert.deepEqual(ids(MILESTONES_BY_ROLE.gatherer), g3, 'the module-load chain is the default (SANDRUNG unset)')
+  const chain = gathererChain({ sand: true })
   const g = ids(chain)
   assert.equal(g.length, 4, `the gatherer chain gained or lost a rung: ${g.join(', ')}`)
   assert.equal(g[0], 'gather_dirt_16', 'the dirt rung moved or changed')
