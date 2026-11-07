@@ -473,3 +473,17 @@ arm C from 01:51:20Z). Day-1 read **2026-11-08 01:30Z** and the success-bar read
 on the worlds host (`voyager-day1.timer`, `voyager-end.timer` → `voyager/watch/voyager_end.sh`): reports in
 `/srv/voyager/reports/`; the end stops every voyager bot and server and unloads `qwen3.6:35b-a3b`, `qwen2.5-coder:32b` and
 `qwen2.5:7b-instruct` on the Studio (keep_alive 0). The guard ends at 01:30Z the same day.
+
+**Owner GO 11-07 ~03:15Z: arm B back, served from the Blackwell (`:11438`, API only, testing only, auto-unload at the end).**
+Pre-load check (03:17Z, API only; SSH to CCU1 is only on the forbidden 192.168.19x network): `/api/ps` shows the three pinned
+models resident (qwen2.5:32b 38.5 GB, qwen2.5-coder:7b 9.0 GB, nomic-embed 0.3 GB = 47.8 GB of the card's 96 GB), so VRAM
+would hold coder:32b at 12k (~22 GB). **But Ollama 0.33.2 caps resident models at OLLAMA_MAX_LOADED_MODELS, default 3 per GPU,
+and 3 are resident on one GPU: loading a fourth would evict the least recently used pinned model.** The public API does not
+expose the setting, so "would not evict" cannot be shown. **Per the owner's rule, STOPPED before loading; nothing was sent to
+the Blackwell.** Ready for a go: arm B's proxy entry points at `:11438` (12k context, 8x duty gap, 30 calls/h, paused), its
+world is fresh (the Studio-era world is in `archive/stage3-b-studio`), `watch/blackwell_probe.py` does the 20-min latency
+probe against qwen2.5:32b (one tiny request a minute with `keep_alive: -1`, its current value) and the eviction check, and
+the end script unloads Blackwell `qwen2.5-coder:32b` only, and only if it is resident (keep_alive 0 on a model that is not
+loaded makes Ollama LOAD it first: the end script and the proxy's slot unload now check `/api/ps` before sending).
+Needed: someone on CCU1 confirms `OLLAMA_MAX_LOADED_MODELS` is 4 or more (or sets it), then arm B starts ~2 h+ late,
+normalised per bot-hour in the reads.
