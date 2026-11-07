@@ -74,14 +74,42 @@ export function zoneColumnHit ({ at = () => null, feet, zones = [], scan = COLUM
   if (!zone) return null
   const top = Math.min(zone.y1, fy + scan)
   for (let y = fy + 2; y <= top; y++) {
-    for (const [dx, dz] of [[0, 0]]) {
-      const b = at(fx + dx, y, fz + dz)
-      if (b == null) return { zone, cell: [fx + dx, y, fz + dz], name: 'unloaded' }
-      if (isStructure(b)) return { zone, cell: [fx + dx, y, fz + dz], name: b.name }
-    }
+    const b = at(fx, y, fz)
+    if (b == null) return { zone, cell: [fx, y, fz], name: 'unloaded' }
+    if (isStructure(b)) return { zone, cell: [fx, y, fz], name: b.name }
+    // THE SCAN STOPS AT THE FIRST LEVEL WITH A SIDE EXIT (escdead-02show, Codex fold blocker on handcap-01show): the climb only
+    // has to reach the level where the body (its own column, no structure in it) can walk or step out sideways; a roof far
+    // above that level is not on its way. handcap turns Gale's "need a pickaxe" into a climb through the stone cap: if a side
+    // exit lies under the village's roof, the climb is allowed up to it -- never past a structure block (checked first).
+    if (sideExitAt(at, fx, y - 1, fz, fy) || sideStepUpAt(at, fx, y - 2, fz, fy)) return null
   }
   return null
 }
+
+/**
+ * A WALKABLE SIDE EXIT for a body standing at feet level L in column (x, z) -> boolean. Pure. A neighbour column whose feet
+ * and head cells at L, L+1 are open (no collision box, no liquid) over a solid, dry floor at L-1. Only above the bot's own
+ * feet level `fy` (the gate is about a climb).
+ */
+export function sideExitAt (at, x, L, z, fy) {
+  if (L <= fy) return false
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const f = at(x + dx, L, z + dz), h = at(x + dx, L + 1, z + dz), fl = at(x + dx, L - 1, z + dz)
+    if (open(f) && open(h) && solid(fl) && !isLiquid(fl)) return true
+  }
+  return false
+}
+/** A SIDE STEP-UP for a body at feet L (its own head room L+2 already scanned free of structure by the caller): a neighbour
+ *  whose L+1, L+2 are open over a solid, dry block at L -- the one-block step a walk takes. Pure. */
+export function sideStepUpAt (at, x, L, z, fy) {
+  if (L <= fy) return false
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const f = at(x + dx, L + 1, z + dz), h = at(x + dx, L + 2, z + dz), fl = at(x + dx, L, z + dz)
+    if (open(f) && open(h) && solid(fl) && !isLiquid(fl)) return true
+  }
+  return false
+}
+const open = b => !!b && b.boundingBox !== 'block' && !isLiquid(b) && !/lava|fire|powder_snow|cobweb/.test(b.name ?? '')
 
 /** The four bearings out of the footprint, nearest side first -> [{ dx, dz, dist, side }]. Pure. */
 export function walkBearings (zone, feet) {
