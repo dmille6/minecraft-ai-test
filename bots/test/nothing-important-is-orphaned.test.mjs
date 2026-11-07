@@ -56,6 +56,10 @@ const REQUIRED = [
   // logcap-02 (11-08): the town log gathering cap (owner: logs 60k in town chests, 15,985 banked in a day)
   'bots/src/logcap.mjs',
   'bots/test/logcap2.test.mjs',
+  // gathermem-01 (11-07): per-bot memory of failed gather targets + same-spot refusal (93.7 bot-h/24 h of same-spot repeats)
+  'bots/src/gathermem.mjs',
+  'bots/test/gathermem.test.mjs',
+  'sandbox/gathermem/gathermem-e2e.mjs',
   // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
   'bots/src/repeatwork.mjs',
   'bots/test/repeatwork.test.mjs',
