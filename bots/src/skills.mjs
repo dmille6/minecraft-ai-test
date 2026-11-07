@@ -22130,6 +22130,15 @@ async function deepObsLegs (ctx, trip, legs, signal, deadline) {
     })
   } finally { try { B.close?.() } catch { /* gone */ } }
 }
+/** THE LAVA BACK TO THE LAKE (a cast that cannot use it): from S, into the cave cell over the lake (C1) -- the filled bucket's ray
+ *  passes the cave cells and lands in the lake; never kept for the next trip. -> poured. */
+async function deepObsLavaBack (bot, o, signal) {
+  const s = o.site
+  if (!s?.C1 || !(await deepObsGo(bot, s.S, signal)) || !(await deepObsCentre(bot, s.S, signal))) { deepObsRow(bot, 'lava_back', 'stand', o); return false }
+  const back = await obsPourInto(bot, new Vec3(s.C1[0], s.C1[1], s.C1[2]), 'lava_bucket', () => true)
+  deepObsRow(bot, 'lava_back', back.emptied ? 'poured' : String(back.why).slice(0, 30).replace(/\s+/g, '_'), o)
+  return back.emptied
+}
 /** Fill the basin (H, W) with blocks from P1: the tunnel's floor whole again (the trail walks over it). Never with lava in hand. */
 async function deepObsCleanup (bot, o, signal, trip) {
   const s = o.site
@@ -22151,6 +22160,8 @@ async function deepObsStep (ctx, trip, signal, deadline) {
   const out = (status, detail) => ({ status, detail })
   const end = async (how, why) => {
     if (how === 'done') o.done = true; else o.off = why
+    // a lava bucket never outlives the cast: back to the lake from S (into the cave cell over it: the ray lands in the lake)
+    try { if (deepObsKit(items()).lava > 0) await deepObsLavaBack(bot, o, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     try { await deepObsCleanup(bot, o, signal, trip) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     deepObsRow(bot, how, why, o)
     return null
@@ -22224,14 +22235,8 @@ async function deepObsStep (ctx, trip, signal, deadline) {
     const read = deepObsRead(bot)
     const H = read(...s.H), W = read(...s.W)
     const step = deepCastNext({ H, W, kit, justDug: !!o.justDug })
-    if (step.startsWith('stop:')) {
-      // holding lava with no water ready: the lava goes back to the lake (into the cave cell over it, from S), never kept
-      if (kit.lava > 0 && (await deepObsGo(bot, s.S, signal))) {
-        const back = await obsPourInto(bot, new Vec3(s.C1[0], s.C1[1], s.C1[2]), 'lava_bucket', () => true)
-        deepObsRow(bot, 'lava_back', back.emptied ? 'poured' : String(back.why).slice(0, 30).replace(/\s+/g, '_'), o)
-      }
-      return end('off', step.slice(5))
-    }
+    // holding lava with no water ready: end() takes the lava back to the lake first
+    if (step.startsWith('stop:')) return end('off', step.slice(5))
     worked = true
     if (step === 'basin') {
       if (!(await deepObsGo(bot, s.P1, signal))) { o.fails = (o.fails ?? 0) + 1; deepObsRow(bot, 'basin', 'walk', o); continue }
