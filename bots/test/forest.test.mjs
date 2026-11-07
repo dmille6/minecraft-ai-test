@@ -886,7 +886,7 @@ await t('WIRED: the visit dispatched, the due upkeep read, the footprint priced,
   assert.ok(/if \(proj\.plot === FOREST_PLOT\) return buildForest\(ctx, args, signal\)/.test(s), 'dispatch')
   assert.ok(/if \(r\.blueprint === FOREST_BLUEPRINT\) return tidy && !!forestDueFor\(bot, r\)/.test(s), 'the due upkeep')
   assert.ok(/else if \(r\.blueprint === FOREST_BLUEPRINT\) \{ for \(const k of forestFootprint\(r\)\) fp\.add\(k\) \}/.test(s), 'the footprint')
-  assert.ok(/keeperOrderPure\(states, list, \{ d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, forestPlot \}\)/.test(s), 'the keeper order')
+  assert.ok(/keeperOrderPure\(states, list, \{ d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, forestPlot(, tidyClosing: [^}]+)? \}\)/.test(s), 'the keeper order')   // gkclear-01: + tidyClosing
   assert.ok(/keeperWanted\(states, \{ shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, forestPlot \}\)/.test(s), 'the keeper lease kept')
   assert.ok(/reserved: I\.reserved, forest: forestRecNow\(\) \}\)/.test(s), 'the stage siting passes the forest')
   assert.ok(/if \(FORESTP\.on\) return out\('no_effect', 'retiring'/.test(s), 'the in-wall farm\'s own visit stands down')

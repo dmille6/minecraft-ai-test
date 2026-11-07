@@ -190,7 +190,7 @@ const wiring = src => {
   one(SHOWCASE ? ';\\(\\{ clearsOk, crewHolds \\} = softHoldsGive\\(\\{ clearsOk, crewHolds, close: gkw\\.close \\}\\)\\)' : ';\\(\\{ clearsOk \\} = softHoldsGive\\(\\{ clearsOk, close: gkw\\.close \\}\\)\\)')
   one("releaseKeeper\\(bot, k\\.lease, 'no_work_now'\\)")
   one("stallWaive\\(rec, (gkWaivable\\(rec, )?r\\.deferred \\?\\? \\[\\]\\)?, \\{ stalled: r\\.stop === 'stuck_on_cell'")
-  if (SHOWCASE) one('closing: GKW_ON && gkwClosing\\(b\\?\\.gkwPending \\?\\? null\\)')
+  if (SHOWCASE) one('closing: GKW_ON && \\(?gkwClosing\\(b\\?\\.gkwPending \\?\\? null\\)')   // gkclear-01: || the town's strikes
   // the strikes are read before the completion test that uses the soft holds
   const i = src.indexOf('gkw = gkwVisit('), j = src.indexOf(SHOWCASE ? 'if (caps.complete && !crewHolds && !platformUp(rw)' : 'if (!prog.cutLeft && !prog.fillLeft && !unread && clearsOk)')
   assert.ok(i > 0 && j > i, `gkwVisit ${i} before the completion test ${j}`)

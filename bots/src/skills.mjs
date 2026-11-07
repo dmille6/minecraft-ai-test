@@ -173,6 +173,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
+import { strikesClosing, strikesTotal, strikeReadAll, gkwSig, CLOSING_MS } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
@@ -24314,7 +24315,7 @@ setIdleNow(plot => {
   const b = activeMem?.bot ?? null
   const idle = (b?.shopIdle?.get?.(plot) ?? -Infinity) > Date.now()
   if (!idle || plot !== TIDY_PLOT) return idle
-  return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && gkwClosing(b?.gkwPending ?? null) })   // gkwork-01 rule 2
+  return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && (gkwClosing(b?.gkwPending ?? null) || gkwTownClosing(b)) })   // gkwork-01 rule 2; gkclear-01: the town's strikes
 })
 /** Does THIS bot hold the town's KEEPER lease itself (never a helper lease) now? Never throws. */
 // gkroom-01: the keeper's tidy read for shop.mjs roomFallback -- the lease itself (never a helper) and a tidy record open or due
@@ -24443,7 +24444,7 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   }
   // forest-01: a forest visit that did nothing rests the forest for this keeper (forestIdleUntil): the tidy goes on meanwhile
   if (forestPlot && now < (bot.forestIdleUntil ?? 0)) { const fi = states.findIndex(q => q?.plot === forestPlot); if (fi >= 0) states[fi] = { ...states[fi], idle: true } }
-  const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, forestPlot })
+  const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, forestPlot, tidyClosing: d === 'mine' && GKW_ON && gkwTownClosing(bot, now) })   // gkclear-01
   // gklease-01 rule 3: the keeper's grounds before the town's other repairs (every other bot keeps the repair tier)
   const st1 = GKL_ON && d === 'mine' && work ? keeperGroundsFirst(r.states, { grounds: [TIDY_PLOT, FOREST_PLOT] }) : r.states
   for (let i = 0; i < states.length; i++) states[i] = st1[i]
@@ -24452,6 +24453,18 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
 const GKW_ON = gkworkOn()   // gkwork-01
+/** gkclear-01: is the town's tidy stage collecting strikes (gkwork.mjs strikesClosing over every holder's file)? Cached 60 s a bot; never throws. */
+function gkwTownClosing (bot, now = Date.now()) {
+  if (!GKW_ON || !GROUNDS.on || !bot) return false
+  if (bot.gkwTown && now - bot.gkwTown.at < 60_000 && now >= bot.gkwTown.at) return bot.gkwTown.v
+  let v = false
+  try {
+    const dir = townDir(), key = projKeyOf(TIDY_PLOT), h = recordHead(dir, key), rec = h.ok ? h.head?.rec ?? null : null
+    v = !!rec && !rec.structure_complete && strikesClosing(strikesTotal(strikeReadAll(dir, key), { sig: gkwSig(rec), now, G: { ...GKW, windowMs: CLOSING_MS } }))
+  } catch { v = false }
+  bot.gkwTown = { at: now, v }
+  return v
+}
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
 /** gklease-01: why this bot cannot work the grounds from where it is (groundskeeper.mjs groundsUnfit) -> why | null (switch off: null). */
 function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } }) : null } catch { return null } }
@@ -25387,6 +25400,7 @@ async function buildTidyVisit (ctx, args, signal) {
     if (GKW_ON && GROUNDS.on && caps.complete) {
       const empty = visitEmpty({ cutLeft: prog.cutLeft, fillLeft: prog.fillLeft, placed: r.placed, cleared: r.cleared, planted: r.planted, unread })
       gkw = gkwVisit(dir, key, me, rw, { empty, worked: visitWorked(r) })
+      bot.gkwTown = null   // gkclear-01: the closing read sees this strike
       const held0 = { clearsOk, crewHolds }
       ;({ clearsOk, crewHolds } = softHoldsGive({ clearsOk, crewHolds, close: gkw.close }))
       if (empty) {

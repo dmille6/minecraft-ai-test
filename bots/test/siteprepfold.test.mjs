@@ -80,7 +80,7 @@ await t('MUTANT KILLED: a quiet order blind to the keeper\'s prep work holds its
 })
 await t('WIRED (skills.mjs): the idle hook asks tidyQuiet with the GK lease alone and the request record', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(sk.includes('return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && gkwClosing(b?.gkwPending ?? null) })'))
+  assert.ok(sk.includes('return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && (gkwClosing(b?.gkwPending ?? null) || gkwTownClosing(b)) })'))
   assert.ok(/function keeperLeaseNow[\s\S]{0,200}GK_LEASE/.test(sk), 'the keeper lease itself, never a helper lease')
 })
 console.log(`\n${pass} passed, ${fail} failed`)

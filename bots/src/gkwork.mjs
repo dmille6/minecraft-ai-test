@@ -75,6 +75,17 @@ export function strikesTotal (files = [], { sig, now = Date.now(), G = GKW } = {
   for (const f of mine) for (const t of f.strikes ?? []) if (Number.isFinite(t) && t > lastWork && t <= now && now - t < G.windowMs) n++
   return n
 }
+// GKCLEAR-01 (control session 11-07; the roughground 2-h read): THE TOWN'S STRIKES, NOT ONE BOT'S MEMORY, SAY A STAGE IS CLOSING. LIVE showcase
+// 19:43-21:53Z: one keeper tidy visit in 2 h (Lumen 21:07Z `stage_held clears:11` strike 1/3), then Lumen released `no_work_visit` and
+// the next keeper (Alpha 21:11Z) had no `gkwPending` -- its order led with the forest (keeperOrderPure: forest first while it wants
+// work) and never came back to the tidy. The 11 clears are trunk logs no stand reaches (buildrun.mjs clears: `digStand` false: skipped,
+// never counted), so only the town strikes close the stage -- and they need keeper tidy visits. While the town has 1..K-1 strikes against
+// the stage, the keeper's order leads with the TIDY and its tidy order is never quieted, whoever holds the lease.
+/** Is the stage collecting the town's strikes (some, not yet enough)? -> bool. Pure. */
+export const strikesClosing = (total, G = GKW) => Number(total) >= 1 && Number(total) < G.emptyVisits
+/** gkclear-01: the window the closing read counts strikes in (a stage that stopped collecting them -- an unread cell -- gives the forest
+ *  its turn back within the hour, never 6 h of empty tidy-first visits). */
+export const CLOSING_MS = 60 * 60_000
 /** Do the town's strikes close the stage? -> bool. Pure. */
 export const strikesClose = (total, G = GKW) => Number(total) >= G.emptyVisits
 

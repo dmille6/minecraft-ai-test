@@ -66,7 +66,7 @@ export const termStart = (lease, me, now = Date.now()) => (lease?.rec?.holder ==
  * for the KEEPER (`d` 'mine') the tidy comes first and a due stage reads open; for any other bot the tidy reads full (`free:
  * false`: the grounds are another's) and the other projects come first.
  */
-export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot = 'tidy', forestPlot = null } = {}) {
+export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot = 'tidy', forestPlot = null, tidyClosing = false } = {}) {
   const ti = states.findIndex(st => st.plot === tidyPlot)
   const tidyP = list.find(p => p.plot === tidyPlot)
   const shop = states.find(st => st.plot === shopPlot)
@@ -85,6 +85,11 @@ export function keeperOrderPure (states, list, { d, shopPlot = 'shop', tidyPlot 
   const forestP = fi >= 0 ? list.find(p => p.plot === forestPlot) : null
   if (d === 'mine') {
     if (out[ti].complete && out[ti].due) out[ti] = { ...out[ti], complete: false }
+    // gkclear-01: a tidy stage collecting the town's strikes (gkwork.mjs strikesClosing) goes first -- its visits close it, then the forest
+    if (forestP && forestWants(out[fi]) && tidyClosing) {
+      if (out[fi].complete && (out[fi].due || out[fi].damaged)) out[fi] = { ...out[fi], complete: false, damaged: false }
+      return { order: [tidyP, forestP, ...list.filter(p => p.plot !== tidyPlot && p.plot !== forestPlot)], states: out }
+    }
     if (forestP && forestWants(out[fi])) {
       if (out[fi].complete && (out[fi].due || out[fi].damaged)) out[fi] = { ...out[fi], complete: false, damaged: false }
       return { order: [forestP, tidyP, ...list.filter(p => p.plot !== tidyPlot && p.plot !== forestPlot)], states: out }
