@@ -19622,6 +19622,8 @@ function takeKeeper (bot, lease, now = Date.now()) {
   const renewal = lease?.rec?.holder === me && now < (lease.holdsUntil ?? 0)
   // gklease-01 (Codex r1 BLOCKER): the fitness gate at the ACQUISITION boundary -- every new take (the order's read and a visit's start)
   { const u = renewal ? null : gkUnfitNow(bot); if (u) return { ok: false, why: `unfit:${u}` } }
+  // gkstay-01 (Codex r1 BLOCKER): nor over an open idle batch that goes below -- every new take (the order's read and buildTidy's visit start)
+  if (!renewal && GKSTAY_ON && belowKind(idleKindNow())) return { ok: false, why: 'below_batch' }
   const r = projTakeLease(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, me, { now, ttl: GK.leaseTtlMs, meta: { term0: termStart(lease, me, now) } })
   if (r.ok && !renewal) { try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take', gen: r.gen }) }) } catch { /* telemetry */ } }
   bot.gkCache = null
