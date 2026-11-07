@@ -1,0 +1,1943 @@
+{
+ "uid": "mcai-overview",
+ "title": "Minecraft AI \u2014 Overview",
+ "description": "Fleet, showcase, tests, alerts, servers and videos at a glance.",
+ "tags": [
+  "mcai",
+  "home"
+ ],
+ "timezone": "browser",
+ "editable": false,
+ "graphTooltip": 1,
+ "refresh": "1m",
+ "schemaVersion": 41,
+ "version": 1,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "timepicker": {
+  "refresh_intervals": [
+   "30s",
+   "1m",
+   "5m",
+   "15m",
+   "1h"
+  ]
+ },
+ "links": [
+  {
+   "title": "Dashboards",
+   "type": "dashboards",
+   "tags": [
+    "mcai"
+   ],
+   "asDropdown": false,
+   "includeVars": false,
+   "keepTime": true,
+   "targetBlank": false,
+   "icon": "external link"
+  }
+ ],
+ "templating": {
+  "list": []
+ },
+ "annotations": {
+  "list": [
+   {
+    "name": "Canary decisions",
+    "enable": true,
+    "iconColor": "purple",
+    "datasource": {
+     "type": "yesoreyeram-infinity-datasource",
+     "uid": "mcai-infinity"
+    },
+    "target": {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/canaries.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "decided",
+       "text": "time",
+       "type": "timestamp"
+      },
+      {
+       "selector": "run",
+       "text": "title",
+       "type": "string"
+      },
+      {
+       "selector": "status",
+       "text": "text",
+       "type": "string"
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 19,
+   "type": "text",
+   "title": "Status report (12 AM / 6 AM / 12 PM / 6 PM Central)",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 4
+   },
+   "description": "scripts/host/statusreport.py on .31: the plain-language report. Full report: the Status Report dashboard, or /status/ on this host.",
+   "targets": [],
+   "options": {
+    "mode": "html",
+    "content": "<iframe src=\"/status/headline.html\" style=\"width:100%;height:100%;border:0;display:block\"></iframe>"
+   },
+   "transparent": false
+  },
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "Fleet bots",
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(mcai_bot_units_running{scope=\"fleet\"})",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 70
+       },
+       {
+        "color": "green",
+        "value": 80
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Showcase",
+   "gridPos": {
+    "x": 3,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(mcai_bot_units_running{scope=\"showcase\"})",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Fleet build",
+   "gridPos": {
+    "x": 6,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/manifest.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "fleet_build",
+       "text": "Fleet build",
+       "type": "string"
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "yesoreyeram-infinity-datasource",
+    "uid": "mcai-infinity"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "/.*/",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false,
+    "text": {
+     "valueSize": 24
+    }
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "In test now",
+   "gridPos": {
+    "x": 9,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/manifest.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "canary_run",
+       "text": "In test",
+       "type": "string"
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "yesoreyeram-infinity-datasource",
+    "uid": "mcai-infinity"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "purple",
+        "value": null
+       }
+      ]
+     },
+     "mappings": [
+      {
+       "type": "special",
+       "options": {
+        "match": "null+nan",
+        "result": {
+         "text": "nothing in test",
+         "color": "text",
+         "index": 98
+        }
+       }
+      },
+      {
+       "type": "special",
+       "options": {
+        "match": "empty",
+        "result": {
+         "text": "nothing in test",
+         "color": "text",
+         "index": 99
+        }
+       }
+      }
+     ],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "/.*/",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false,
+    "text": {
+     "valueSize": 22
+    }
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Alarms",
+   "gridPos": {
+    "x": 12,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(mcai_alarms_active_total)",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 1
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 6,
+   "type": "stat",
+   "title": "Deaths 24h",
+   "gridPos": {
+    "x": 15,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "skill.name:_death",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 40
+       },
+       {
+        "color": "red",
+        "value": 80
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "sum"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   },
+   "timeFrom": "24h",
+   "hideTimeOverride": true
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Worlds OK",
+   "gridPos": {
+    "x": 18,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "count(mcai_world_tps_5m{kind!=\"sandbox\"} >= 19) or vector(0)",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 15
+       },
+       {
+        "color": "green",
+        "value": 17
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 8,
+   "type": "stat",
+   "title": "Bags full",
+   "gridPos": {
+    "x": 21,
+    "y": 4,
+    "w": 3,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(mcai_bots_bag_full)",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 5
+       },
+       {
+        "color": "red",
+        "value": 15
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 9,
+   "type": "alertlist",
+   "title": "Firing alerts",
+   "gridPos": {
+    "x": 0,
+    "y": 8,
+    "w": 8,
+    "h": 10
+   },
+   "description": "Grafana alert rules (folder Minecraft AI). Dashboard-only: no notifications are sent.",
+   "targets": [],
+   "options": {
+    "viewMode": "list",
+    "groupMode": "default",
+    "groupBy": [],
+    "maxItems": 30,
+    "sortOrder": 1,
+    "dashboardAlerts": false,
+    "alertName": "",
+    "alertInstanceLabelFilter": "",
+    "showInstances": true,
+    "stateFilter": {
+     "firing": true,
+     "pending": true,
+     "noData": false,
+     "normal": false,
+     "error": true,
+     "recovering": true
+    }
+   }
+  },
+  {
+   "id": 10,
+   "type": "table",
+   "title": "Active alarms (fleet watchers)",
+   "gridPos": {
+    "x": 8,
+    "y": 8,
+    "w": 16,
+    "h": 10
+   },
+   "description": "The fleet's own watchers (goalwatch, flowledger, haltwatch, stallcheck, effectwatch...) via ALARMS.log.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/alarms-fleet.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "severity",
+       "text": "Severity",
+       "type": "string"
+      },
+      {
+       "selector": "source",
+       "text": "Source",
+       "type": "string"
+      },
+      {
+       "selector": "since",
+       "text": "Since",
+       "type": "timestamp"
+      },
+      {
+       "selector": "ts",
+       "text": "Last seen",
+       "type": "timestamp"
+      },
+      {
+       "selector": "text",
+       "text": "Alarm",
+       "type": "string"
+      }
+     ]
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.40:9188/alarms-showcase.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "severity",
+       "text": "Severity",
+       "type": "string"
+      },
+      {
+       "selector": "source",
+       "text": "Source",
+       "type": "string"
+      },
+      {
+       "selector": "since",
+       "text": "Since",
+       "type": "timestamp"
+      },
+      {
+       "selector": "ts",
+       "text": "Last seen",
+       "type": "timestamp"
+      },
+      {
+       "selector": "text",
+       "text": "Alarm",
+       "type": "string"
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "yesoreyeram-infinity-datasource",
+    "uid": "mcai-infinity"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Severity"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "critical": {
+            "color": "red",
+            "index": 0,
+            "text": "critical"
+           },
+           "warning": {
+            "color": "orange",
+            "index": 1,
+            "text": "warning"
+           },
+           "info": {
+            "color": "blue",
+            "index": 2,
+            "text": "info"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Source"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 150
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Since"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 150
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Last seen"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "dateTimeFromNow"
+       },
+       {
+        "id": "custom.width",
+        "value": 110
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    },
+    "sortBy": [
+     {
+      "displayName": "Since",
+      "desc": false
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "Severity": 0,
+       "Source": 1,
+       "Since": 2,
+       "Last seen": 3,
+       "Alarm": 4
+      },
+      "excludeByName": {},
+      "renameByName": {}
+     }
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "type": "table",
+   "title": "What was tested and how it went",
+   "gridPos": {
+    "x": 0,
+    "y": 18,
+    "w": 14,
+    "h": 11
+   },
+   "description": "One row per canary run from ~/canary-journal.jsonl.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/canaries.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "run",
+       "text": "Change",
+       "type": "string"
+      },
+      {
+       "selector": "status",
+       "text": "Result",
+       "type": "string"
+      },
+      {
+       "selector": "pools",
+       "text": "Test pools",
+       "type": "string"
+      },
+      {
+       "selector": "deployed",
+       "text": "Deployed",
+       "type": "timestamp"
+      },
+      {
+       "selector": "decided",
+       "text": "Decided",
+       "type": "timestamp"
+      },
+      {
+       "selector": "hours",
+       "text": "Hours",
+       "type": "number"
+      },
+      {
+       "selector": "last_phase",
+       "text": "Last step",
+       "type": "string"
+      },
+      {
+       "selector": "note",
+       "text": "Verdict",
+       "type": "string"
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "yesoreyeram-infinity-datasource",
+    "uid": "mcai-infinity"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Result"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "PROMOTED": {
+            "color": "green",
+            "index": 0,
+            "text": "PROMOTED"
+           },
+           "KEEP": {
+            "color": "green",
+            "index": 1,
+            "text": "KEEP"
+           },
+           "IN TEST": {
+            "color": "blue",
+            "index": 2,
+            "text": "IN TEST"
+           },
+           "INCONCLUSIVE": {
+            "color": "yellow",
+            "index": 3,
+            "text": "INCONCLUSIVE"
+           },
+           "CLOSED": {
+            "color": "text",
+            "index": 4,
+            "text": "CLOSED"
+           },
+           "ENDED": {
+            "color": "text",
+            "index": 5,
+            "text": "ENDED"
+           },
+           "REVERT": {
+            "color": "red",
+            "index": 6,
+            "text": "REVERT"
+           },
+           "ROLLED BACK": {
+            "color": "red",
+            "index": 7,
+            "text": "ROLLED BACK"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 120
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Change"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 170
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Hours"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 70
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Test pools"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 190
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Last step"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 120
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    },
+    "sortBy": [
+     {
+      "displayName": "Deployed",
+      "desc": true
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "Change": 0,
+       "Result": 1,
+       "Test pools": 2,
+       "Deployed": 3,
+       "Decided": 4,
+       "Hours": 5,
+       "Last step": 6,
+       "Verdict": 7
+      },
+      "excludeByName": {},
+      "renameByName": {}
+     }
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "type": "table",
+   "title": "Up next in the test queue",
+   "gridPos": {
+    "x": 14,
+    "y": 18,
+    "w": 10,
+    "h": 11
+   },
+   "description": "canary-sched.py status: entries not done or cancelled, in queue order.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/queue.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "run",
+       "text": "Change",
+       "type": "string"
+      },
+      {
+       "selector": "state",
+       "text": "State",
+       "type": "string"
+      },
+      {
+       "selector": "class",
+       "text": "Class",
+       "type": "string"
+      },
+      {
+       "selector": "after",
+       "text": "After",
+       "type": "string"
+      },
+      {
+       "selector": "not_before",
+       "text": "Not before",
+       "type": "string"
+      },
+      {
+       "selector": "hold",
+       "text": "Hold",
+       "type": "string"
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "yesoreyeram-infinity-datasource",
+    "uid": "mcai-infinity"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "State"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "running": {
+            "color": "blue",
+            "index": 0,
+            "text": "running"
+           },
+           "ready": {
+            "color": "green",
+            "index": 1,
+            "text": "ready"
+           },
+           "blocked": {
+            "color": "red",
+            "index": 2,
+            "text": "blocked"
+           },
+           "held": {
+            "color": "orange",
+            "index": 3,
+            "text": "held"
+           },
+           "waiting": {
+            "color": "yellow",
+            "index": 4,
+            "text": "waiting"
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 90
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Change"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 170
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Class"
+      },
+      "properties": [
+       {
+        "id": "custom.width",
+        "value": 130
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    }
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "Change": 0,
+       "State": 1,
+       "Class": 2,
+       "After": 3,
+       "Not before": 4,
+       "Hold": 5
+      },
+      "excludeByName": {},
+      "renameByName": {}
+     }
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "Bot actions per hour",
+   "gridPos": {
+    "x": 0,
+    "y": 29,
+    "w": 12,
+    "h": 8
+   },
+   "description": "Every non-internal skill row, by status.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "NOT skill.name:_*",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "terms",
+       "id": "3",
+       "field": "skill.status",
+       "settings": {
+        "size": "5",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "bars",
+      "lineWidth": 1,
+      "fillOpacity": 80,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "success"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "green"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "failure"
+      },
+      "properties": [
+       {
+        "id": "color",
+        "value": {
+         "mode": "fixed",
+         "fixedColor": "red"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Deaths by cause",
+   "gridPos": {
+    "x": 12,
+    "y": 29,
+    "w": 12,
+    "h": 8
+   },
+   "description": "_death rows by fail_class, hourly.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "elasticsearch",
+      "uid": "mcai-es"
+     },
+     "query": "skill.name:_death",
+     "alias": "",
+     "timeField": "@timestamp",
+     "metrics": [
+      {
+       "type": "count",
+       "id": "1"
+      }
+     ],
+     "bucketAggs": [
+      {
+       "type": "terms",
+       "id": "3",
+       "field": "skill.fail_class",
+       "settings": {
+        "size": "10",
+        "order": "desc",
+        "orderBy": "_count",
+        "min_doc_count": "1"
+       }
+      },
+      {
+       "type": "date_histogram",
+       "id": "2",
+       "field": "@timestamp",
+       "settings": {
+        "interval": "1h",
+        "min_doc_count": "0",
+        "trimEdges": "0"
+       }
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "elasticsearch",
+    "uid": "mcai-es"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "bars",
+      "lineWidth": 1,
+      "fillOpacity": 80,
+      "gradientMode": "none",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 15,
+   "type": "bargauge",
+   "title": "CPU",
+   "gridPos": {
+    "x": 0,
+    "y": 37,
+    "w": 8,
+    "h": 7
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "100 * (1 - avg by (host) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))",
+     "legendFormat": "{{host}}",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "max": 100,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 75
+       },
+       {
+        "color": "red",
+        "value": 90
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "displayMode": "gradient",
+    "orientation": "horizontal",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "left",
+    "sizing": "auto",
+    "minVizHeight": 16,
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 16,
+   "type": "bargauge",
+   "title": "Memory used",
+   "gridPos": {
+    "x": 8,
+    "y": 37,
+    "w": 8,
+    "h": 7
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+     "legendFormat": "{{host}}",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "max": 100,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 75
+       },
+       {
+        "color": "red",
+        "value": 90
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "displayMode": "gradient",
+    "orientation": "horizontal",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "left",
+    "sizing": "auto",
+    "minVizHeight": 16,
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 17,
+   "type": "bargauge",
+   "title": "Root disk used",
+   "gridPos": {
+    "x": 16,
+    "y": 37,
+    "w": 8,
+    "h": 7
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})",
+     "legendFormat": "{{host}}",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "max": 100,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 80
+       },
+       {
+        "color": "red",
+        "value": 90
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "displayMode": "gradient",
+    "orientation": "horizontal",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "left",
+    "sizing": "auto",
+    "minVizHeight": 16,
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 18,
+   "type": "text",
+   "title": "Latest world videos",
+   "gridPos": {
+    "x": 0,
+    "y": 44,
+    "w": 24,
+    "h": 22
+   },
+   "description": "",
+   "targets": [],
+   "options": {
+    "mode": "html",
+    "content": "<iframe src=\"/videos/\" style=\"width:100%;height:100%;border:0;display:block\" loading=\"lazy\"></iframe>"
+   },
+   "transparent": false
+  }
+ ]
+}

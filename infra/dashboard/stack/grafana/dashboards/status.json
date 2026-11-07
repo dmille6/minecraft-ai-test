@@ -1,0 +1,113 @@
+{
+ "uid": "mcai-status",
+ "title": "Minecraft AI \u2014 Status Report",
+ "description": "The owner's plain-language report, 4 times a day; the previous four are one click away at the top.",
+ "tags": [
+  "mcai",
+  "home"
+ ],
+ "timezone": "browser",
+ "editable": false,
+ "graphTooltip": 1,
+ "refresh": "15m",
+ "schemaVersion": 41,
+ "version": 1,
+ "time": {
+  "from": "now-24h",
+  "to": "now"
+ },
+ "timepicker": {
+  "refresh_intervals": [
+   "30s",
+   "1m",
+   "5m",
+   "15m",
+   "1h"
+  ]
+ },
+ "links": [
+  {
+   "title": "Dashboards",
+   "type": "dashboards",
+   "tags": [
+    "mcai"
+   ],
+   "asDropdown": false,
+   "includeVars": false,
+   "keepTime": true,
+   "targetBlank": false,
+   "icon": "external link"
+  }
+ ],
+ "templating": {
+  "list": []
+ },
+ "annotations": {
+  "list": [
+   {
+    "name": "Canary decisions",
+    "enable": true,
+    "iconColor": "purple",
+    "datasource": {
+     "type": "yesoreyeram-infinity-datasource",
+     "uid": "mcai-infinity"
+    },
+    "target": {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/canaries.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "decided",
+       "text": "time",
+       "type": "timestamp"
+      },
+      {
+       "selector": "run",
+       "text": "title",
+       "type": "string"
+      },
+      {
+       "selector": "status",
+       "text": "text",
+       "type": "string"
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "text",
+   "title": "",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 60
+   },
+   "description": "",
+   "targets": [],
+   "options": {
+    "mode": "html",
+    "content": "<iframe src=\"/status/\" style=\"width:100%;height:100%;border:0;display:block\"></iframe>"
+   },
+   "transparent": true
+  }
+ ]
+}

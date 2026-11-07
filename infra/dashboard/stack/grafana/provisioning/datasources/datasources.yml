@@ -1,0 +1,39 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: mcai-prom
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 30s
+
+  # The fleet's skill telemetry. Read-only API key (mcai-analysis-readonly: read + view_index_metadata
+  # on mcai-*), copied from 10.0.0.31 by deploy.sh into secrets/es.key; never in git.
+  - name: Elasticsearch
+    uid: mcai-es
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200     # docker-elk_elk network, see docker-compose.yml
+    jsonData:
+      index: mcai-skill-agents
+      timeField: "@timestamp"
+      maxConcurrentShardRequests: 5
+      logMessageField: skill.detail
+      httpHeaderName1: Authorization
+    secureJsonData:
+      httpHeaderValue1: ApiKey $__file{/etc/grafana/secrets/es.key}
+
+  # JSON tables served by mcai-dash-agent on each host.
+  - name: Agents
+    uid: mcai-infinity
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    jsonData:
+      allowedHosts:
+        - http://10.0.0.31:9188
+        - http://10.0.0.30:9188
+        - http://10.0.0.40:9188
+        - http://web

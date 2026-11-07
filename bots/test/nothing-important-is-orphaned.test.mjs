@@ -324,6 +324,14 @@ const REQUIRED = [
   // STATE is generated (11-02, Codex ops audit HIGH 1): the generator, its tests and the Mac relay that commits it
   'scripts/host/stategen.py',
   'scripts/host/test_stategen.py',
+  // the owner's status report 4x a day (11-06) and the dashboard it is served from (live since 11-04)
+  'scripts/host/statusreport.py',
+  'scripts/host/test_statusreport.py',
+  'scripts/host/install-statusreport.sh',
+  'infra/dashboard/agent/mcai-dash-agent.py',
+  'infra/dashboard/build_dashboards.py',
+  'infra/dashboard/deploy.sh',
+  'infra/dashboard/stack/nginx/default.conf',
   'scripts/mac/state-relay.sh',
   // the showcase restack after each fleet promotion (11-02, audit MEDIUM 3): prep job, record-compat harness, installer
   'infra/showcase/restack_prep.py',

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>World Videos</title>
+<style>
+  /* Colours follow Grafana's dark theme so the page sits inside a panel without a seam. */
+  :root {
+    --bg: #111217; --panel: #181b1f; --panel-2: #22252b; --border: #2c3036;
+    --text: #ccccdc; --muted: #8e8e9e; --accent: #6e9fff; --accent-2: #73bf69;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 Inter, "Helvetica Neue", Arial, sans-serif; }
+  .wrap { padding: 16px; max-width: 1600px; margin: 0 auto; }
+  .hero { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+  .player { background: #000; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+  .player video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+  .meta { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 16px; }
+  .meta h1 { margin: 0 0 4px; font-size: 20px; font-weight: 500; text-transform: capitalize; }
+  .meta .sub { color: var(--muted); margin-bottom: 14px; }
+  .meta dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; }
+  .meta dt { color: var(--muted); }
+  .meta dd { margin: 0; }
+  .meta a { color: var(--accent); text-decoration: none; }
+  .set { margin-top: 24px; }
+  .set h2 { font-size: 13px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 10px; display: flex; gap: 10px; align-items: baseline; }
+  .set h2 .badge { color: var(--accent-2); text-transform: none; letter-spacing: 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+    overflow: hidden; transition: border-color .12s, transform .12s; text-align: left; color: inherit; padding: 0; font: inherit; }
+  .card:hover, .card:focus-visible { border-color: var(--accent); transform: translateY(-1px); outline: none; }
+  .card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .card img, .card video { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; pointer-events: none; }
+  .card .cap { padding: 8px 10px; display: flex; justify-content: space-between; gap: 8px; }
+  .card .t { text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .d { color: var(--muted); white-space: nowrap; font-size: 12px; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; border: 1px dashed var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero" id="hero" hidden>
+    <div class="player"><video id="main" controls playsinline preload="metadata"></video></div>
+    <div class="meta">
+      <h1 id="m-title"></h1>
+      <div class="sub" id="m-sub"></div>
+      <dl>
+        <dt>Set</dt><dd id="m-set"></dd>
+        <dt>Rendered</dt><dd id="m-time"></dd>
+        <dt>Size</dt><dd id="m-size"></dd>
+        <dt>File</dt><dd><a id="m-link" target="_blank" rel="noopener">open / download</a></dd>
+      </dl>
+    </div>
+  </div>
+  <div id="sets"></div>
+</div>
+<script>
+// index.json comes from mcai-dash-agent on the showcase host (video_index), proxied by nginx:
+// {generated_at, sets: [{name, label, kind, newest, videos: [{path, title, bytes, mtime, duration_s}]}]}, newest set first.
+const SUBJECT = { reel: 'Highlight reel', iso: 'Isometric overview', angled: 'Angled overview', topdown: 'Top-down map',
+  town: 'Town', wall: 'Town wall', treefarm: 'Tree farm', ziggurat: 'Ziggurat', storehouse: 'Storehouse', paths: 'Paths',
+  stair: 'Mineshaft stair', copperhall: 'Copper hall', expeditions: 'Expeditions', house1: 'First house',
+  workshop: 'Workshop', grounds: 'Town grounds', patina: 'Copper patina' };
+const fmtDur = s => s ? (s >= 60 ? Math.floor(s / 60) + ' min ' + Math.round(s % 60) + ' s' : Math.round(s) + ' s') : '';
+const fmtSize = b => b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.round(b / 1e3) + ' kB';
+const fmtTime = s => new Date(s * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+const subject = v => SUBJECT[v.title] || v.title.replace(/[-_]/g, ' ');
+
+function play(set, v, card, autoplay) {
+  const main = document.getElementById('main');
+  main.src = 'files/' + v.path;
+  if (v.thumb) main.poster = 'thumbs/' + v.thumb;
+  if (autoplay) main.play().catch(() => {});
+  document.getElementById('m-title').textContent = subject(v);
+  document.getElementById('m-sub').textContent = [set.label, fmtDur(v.duration_s)].filter(Boolean).join(' · ');
+  document.getElementById('m-set').textContent = set.label;
+  document.getElementById('m-time').textContent = fmtTime(v.mtime);
+  document.getElementById('m-size').textContent = fmtSize(v.bytes);
+  document.getElementById('m-link').href = main.src;
+  document.querySelectorAll('.card.active').forEach(c => c.classList.remove('active'));
+  if (card) card.classList.add('active');
+}
+
+fetch('index.json', { cache: 'no-store' }).then(r => r.json()).then(idx => {
+  const root = document.getElementById('sets');
+  if (!idx.sets || !idx.sets.length) {
+    root.innerHTML = '<div class="empty">No videos synced yet.</div>';
+    return;
+  }
+  document.getElementById('hero').hidden = false;
+  let first = null;
+  for (const set of idx.sets) {
+    const sec = document.createElement('section');
+    sec.className = 'set';
+    const h = document.createElement('h2');
+    h.textContent = set.label;
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = set.videos.length + ' videos';
+    h.appendChild(badge);
+    sec.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    for (const v of set.videos) {
+      const card = document.createElement('button');
+      card.className = 'card';
+      // A thumbnail the agent rendered once; a muted video only until it exists (a fresh install).
+      let pv;
+      if (v.thumb) {
+        pv = document.createElement('img');
+        pv.loading = 'lazy'; pv.alt = ''; pv.src = 'thumbs/' + v.thumb;
+      } else {
+        pv = document.createElement('video');
+        pv.muted = true; pv.preload = 'none';
+      }
+      const cap = document.createElement('div');
+      cap.className = 'cap';
+      cap.innerHTML = '<span class="t"></span><span class="d"></span>';
+      cap.querySelector('.t').textContent = subject(v);
+      cap.querySelector('.d').textContent = fmtDur(v.duration_s);
+      card.append(pv, cap);
+      card.addEventListener('click', () => { play(set, v, card, true); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+      grid.appendChild(card);
+      // Lead with the newest set's first video: the agent sorts a set's reel first when it has one.
+      if (!first) first = { set, v, card };
+    }
+    sec.appendChild(grid);
+    root.appendChild(sec);
+  }
+  play(first.set, first.v, first.card, false);
+}).catch(e => {
+  document.getElementById('sets').innerHTML = '<div class="empty">Could not load the video index: ' + e + '</div>';
+});
+</script>
+</body>
+</html>

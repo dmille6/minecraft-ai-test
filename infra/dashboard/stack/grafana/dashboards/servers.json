@@ -1,0 +1,1700 @@
+{
+ "uid": "mcai-servers",
+ "title": "Minecraft AI \u2014 Servers & Worlds",
+ "description": "Lab hosts (node_exporter) and every Paper world (RCON).",
+ "tags": [
+  "mcai"
+ ],
+ "timezone": "browser",
+ "editable": false,
+ "graphTooltip": 1,
+ "refresh": "1m",
+ "schemaVersion": 41,
+ "version": 1,
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "timepicker": {
+  "refresh_intervals": [
+   "30s",
+   "1m",
+   "5m",
+   "15m",
+   "1h"
+  ]
+ },
+ "links": [
+  {
+   "title": "Dashboards",
+   "type": "dashboards",
+   "tags": [
+    "mcai"
+   ],
+   "asDropdown": false,
+   "includeVars": false,
+   "keepTime": true,
+   "targetBlank": false,
+   "icon": "external link"
+  }
+ ],
+ "templating": {
+  "list": []
+ },
+ "annotations": {
+  "list": [
+   {
+    "name": "Canary decisions",
+    "enable": true,
+    "iconColor": "purple",
+    "datasource": {
+     "type": "yesoreyeram-infinity-datasource",
+     "uid": "mcai-infinity"
+    },
+    "target": {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.31:9188/canaries.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "decided",
+       "text": "time",
+       "type": "timestamp"
+      },
+      {
+       "selector": "run",
+       "text": "title",
+       "type": "string"
+      },
+      {
+       "selector": "status",
+       "text": "text",
+       "type": "string"
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "stat",
+   "title": "Hosts up",
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(up{job=\"node\"})",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 4
+       },
+       {
+        "color": "green",
+        "value": 5
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Agents up",
+   "gridPos": {
+    "x": 4,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(up{job=\"mcai-agent\"})",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 2
+       },
+       {
+        "color": "green",
+        "value": 3
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Worlds up",
+   "gridPos": {
+    "x": 8,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(mcai_world_up{kind!=\"sandbox\"})",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 16
+       },
+       {
+        "color": "green",
+        "value": 17
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Slowest world TPS",
+   "gridPos": {
+    "x": 12,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "min(mcai_world_tps{kind!=\"sandbox\"})",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 15
+       },
+       {
+        "color": "green",
+        "value": 19
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Worst MSPT",
+   "gridPos": {
+    "x": 16,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "50 ms per tick = the server cannot keep 20 TPS.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "max(mcai_world_mspt{kind!=\"sandbox\"})",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 35
+       },
+       {
+        "color": "red",
+        "value": 50
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     },
+     "decimals": 1
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 6,
+   "type": "stat",
+   "title": "Bots in worlds",
+   "gridPos": {
+    "x": 20,
+    "y": 0,
+    "w": 4,
+    "h": 4
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum(mcai_world_players)",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false
+   }
+  },
+  {
+   "id": 7,
+   "type": "timeseries",
+   "title": "CPU used",
+   "gridPos": {
+    "x": 0,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "100 * (1 - avg by (host) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))",
+     "legendFormat": "{{host}}",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "max": 100
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": [
+      "mean",
+      "max",
+      "lastNotNull"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 8,
+   "type": "timeseries",
+   "title": "Memory used",
+   "gridPos": {
+    "x": 12,
+    "y": 4,
+    "w": 12,
+    "h": 8
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+     "legendFormat": "{{host}}",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "min": 0,
+     "max": 100
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": [
+      "mean",
+      "max",
+      "lastNotNull"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 9,
+   "type": "timeseries",
+   "title": "Load per core (5 m)",
+   "gridPos": {
+    "x": 0,
+    "y": 12,
+    "w": 8,
+    "h": 8
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "node_load5 / on(instance) group_left count by (instance) (node_cpu_seconds_total{mode=\"idle\"})",
+     "legendFormat": "{{host}}",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 10,
+   "type": "timeseries",
+   "title": "Network in + out",
+   "gridPos": {
+    "x": 8,
+    "y": 12,
+    "w": 8,
+    "h": 8
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "sum by (host) (rate(node_network_receive_bytes_total{device!~\"lo|docker.*|veth.*|br-.*\"}[5m]) + rate(node_network_transmit_bytes_total{device!~\"lo|docker.*|veth.*|br-.*\"}[5m]))",
+     "legendFormat": "{{host}}",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": []
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 11,
+   "type": "bargauge",
+   "title": "Root disk used",
+   "gridPos": {
+    "x": 16,
+    "y": 12,
+    "w": 8,
+    "h": 8
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})",
+     "legendFormat": "{{host}}",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "max": 100,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 80
+       },
+       {
+        "color": "red",
+        "value": 90
+       }
+      ]
+     },
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "displayMode": "gradient",
+    "orientation": "horizontal",
+    "showUnfilled": true,
+    "valueMode": "color",
+    "namePlacement": "left",
+    "sizing": "auto",
+    "minVizHeight": 16,
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "World TPS",
+   "gridPos": {
+    "x": 0,
+    "y": 20,
+    "w": 12,
+    "h": 9
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "mcai_world_tps{kind!=\"sandbox\"}",
+     "legendFormat": "{{world}}",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 15
+       },
+       {
+        "color": "green",
+        "value": 19
+       }
+      ]
+     },
+     "min": 0,
+     "max": 20
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": [
+      "min",
+      "mean"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 13,
+   "type": "timeseries",
+   "title": "World MSPT",
+   "gridPos": {
+    "x": 12,
+    "y": 20,
+    "w": 12,
+    "h": 9
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "mcai_world_mspt{kind!=\"sandbox\"}",
+     "legendFormat": "{{world}}",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "dashed"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 35
+       },
+       {
+        "color": "red",
+        "value": 50
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": [
+      "mean",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "table",
+   "title": "Worlds now",
+   "gridPos": {
+    "x": 0,
+    "y": 29,
+    "w": 14,
+    "h": 14
+   },
+   "description": "RCON tps/mspt/list each minute (read-only commands). Sandboxes are test servers.",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.30:9188/worlds.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "world",
+       "text": "World",
+       "type": "string"
+      },
+      {
+       "selector": "kind",
+       "text": "Kind",
+       "type": "string"
+      },
+      {
+       "selector": "up",
+       "text": "Up",
+       "type": "number"
+      },
+      {
+       "selector": "tps_1m",
+       "text": "TPS 1m",
+       "type": "number"
+      },
+      {
+       "selector": "tps_5m",
+       "text": "TPS 5m",
+       "type": "number"
+      },
+      {
+       "selector": "mspt",
+       "text": "MSPT",
+       "type": "number"
+      },
+      {
+       "selector": "players",
+       "text": "Bots online",
+       "type": "number"
+      },
+      {
+       "selector": "rss_gb",
+       "text": "Memory GB",
+       "type": "number"
+      },
+      {
+       "selector": "error",
+       "text": "Error",
+       "type": "string"
+      }
+     ]
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "yesoreyeram-infinity-datasource",
+      "uid": "mcai-infinity"
+     },
+     "type": "json",
+     "source": "url",
+     "format": "table",
+     "url": "http://10.0.0.40:9188/worlds.json",
+     "url_options": {
+      "method": "GET",
+      "data": ""
+     },
+     "parser": "backend",
+     "root_selector": "",
+     "filters": [],
+     "columns": [
+      {
+       "selector": "world",
+       "text": "World",
+       "type": "string"
+      },
+      {
+       "selector": "kind",
+       "text": "Kind",
+       "type": "string"
+      },
+      {
+       "selector": "up",
+       "text": "Up",
+       "type": "number"
+      },
+      {
+       "selector": "tps_1m",
+       "text": "TPS 1m",
+       "type": "number"
+      },
+      {
+       "selector": "tps_5m",
+       "text": "TPS 5m",
+       "type": "number"
+      },
+      {
+       "selector": "mspt",
+       "text": "MSPT",
+       "type": "number"
+      },
+      {
+       "selector": "players",
+       "text": "Bots online",
+       "type": "number"
+      },
+      {
+       "selector": "rss_gb",
+       "text": "Memory GB",
+       "type": "number"
+      },
+      {
+       "selector": "error",
+       "text": "Error",
+       "type": "string"
+      }
+     ]
+    }
+   ],
+   "datasource": {
+    "type": "yesoreyeram-infinity-datasource",
+    "uid": "mcai-infinity"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Up"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "1": {
+            "text": "UP",
+            "color": "green",
+            "index": 0
+           },
+           "0": {
+            "text": "DOWN",
+            "color": "red",
+            "index": 1
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "custom.width",
+        "value": 70
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "TPS 1m"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "red",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 15
+          },
+          {
+           "color": "green",
+           "value": 19
+          }
+         ]
+        }
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 20
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "MSPT"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "gauge",
+         "mode": "basic",
+         "valueDisplayMode": "text"
+        }
+       },
+       {
+        "id": "thresholds",
+        "value": {
+         "mode": "absolute",
+         "steps": [
+          {
+           "color": "green",
+           "value": null
+          },
+          {
+           "color": "orange",
+           "value": 35
+          },
+          {
+           "color": "red",
+           "value": 50
+          }
+         ]
+        }
+       },
+       {
+        "id": "min",
+        "value": 0
+       },
+       {
+        "id": "max",
+        "value": 50
+       },
+       {
+        "id": "color",
+        "value": {
+         "mode": "thresholds"
+        }
+       },
+       {
+        "id": "unit",
+        "value": "ms"
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    },
+    "sortBy": [
+     {
+      "displayName": "World",
+      "desc": false
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "merge",
+     "options": {}
+    },
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "World": 0,
+       "Kind": 1,
+       "Up": 2,
+       "TPS 1m": 3,
+       "TPS 5m": 4,
+       "MSPT": 5,
+       "Bots online": 6,
+       "Memory GB": 7,
+       "Error": 8
+      },
+      "excludeByName": {},
+      "renameByName": {}
+     }
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "type": "timeseries",
+   "title": "World memory",
+   "gridPos": {
+    "x": 14,
+    "y": 29,
+    "w": 10,
+    "h": 14
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "mcai_world_rss_bytes",
+     "legendFormat": "{{world}}",
+     "range": true,
+     "instant": false,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "bytes",
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 0,
+      "gradientMode": "opacity",
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "none",
+       "group": "A"
+      },
+      "axisSoftMin": 0,
+      "thresholdsStyle": {
+       "mode": "off"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "showLegend": true,
+     "calcs": [
+      "lastNotNull"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   }
+  },
+  {
+   "id": 16,
+   "type": "table",
+   "title": "Agent collectors",
+   "gridPos": {
+    "x": 0,
+    "y": 43,
+    "w": 12,
+    "h": 9
+   },
+   "description": "Each collector in mcai-dash-agent; 0 = its last run failed (see http://<host>:9188/health).",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "mcai_agent_collector_ok",
+     "legendFormat": "__auto",
+     "range": false,
+     "instant": true,
+     "editorMode": "code",
+     "format": "table"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "custom": {
+      "align": "auto",
+      "filterable": true,
+      "inspect": true,
+      "cellOptions": {
+       "type": "auto"
+      }
+     },
+     "mappings": [],
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       }
+      ]
+     }
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "Value"
+      },
+      "properties": [
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "1": {
+            "text": "OK",
+            "color": "green",
+            "index": 0
+           },
+           "0": {
+            "text": "FAILING",
+            "color": "red",
+            "index": 1
+           }
+          }
+         }
+        ]
+       },
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-background",
+         "mode": "basic"
+        }
+       },
+       {
+        "id": "displayName",
+        "value": "Status"
+       },
+       {
+        "id": "custom.width",
+        "value": 100
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm",
+    "footer": {
+     "show": false,
+     "reducer": [
+      "sum"
+     ],
+     "countRows": false
+    },
+    "sortBy": [
+     {
+      "displayName": "Host",
+      "desc": false
+     }
+    ]
+   },
+   "transformations": [
+    {
+     "id": "organize",
+     "options": {
+      "excludeByName": {
+       "Time": true,
+       "__name__": true,
+       "job": true,
+       "instance": true,
+       "role": true
+      },
+      "renameByName": {
+       "agent_role": "Agent",
+       "collector": "Collector",
+       "host": "Host"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "type": "stat",
+   "title": "Host uptime",
+   "gridPos": {
+    "x": 12,
+    "y": 43,
+    "w": 12,
+    "h": 9
+   },
+   "description": "",
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "mcai-prom"
+     },
+     "expr": "time() - node_boot_time_seconds",
+     "legendFormat": "{{host}}",
+     "range": false,
+     "instant": true,
+     "editorMode": "code"
+    }
+   ],
+   "datasource": {
+    "type": "prometheus",
+    "uid": "mcai-prom"
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "dtdurations",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "orange",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 3600
+       }
+      ]
+     },
+     "mappings": [],
+     "color": {
+      "mode": "thresholds"
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "value",
+    "graphMode": "none",
+    "textMode": "value",
+    "justifyMode": "center",
+    "orientation": "auto",
+    "wideLayout": true,
+    "showPercentChange": false,
+    "text": {
+     "valueSize": 20
+    }
+   }
+  }
+ ]
+}

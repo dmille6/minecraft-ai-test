@@ -1,0 +1,73 @@
+# MCAI dashboard stack on 10.0.0.186 (next to docker-elk). Installed to /opt/mcai-dash by ../deploy.sh.
+#   nginx       :80    THE entry point: Grafana at /, the video gallery at /videos/ -- one origin, so the
+#   (and :3000)        gallery iframe inside Grafana is same-origin. :3000 is nginx too (11-05: a phone opened the
+#                      dashboard on :3000, straight into Grafana, and the gallery's /videos/ 404'd: a white panel)
+#   Grafana            dashboards + alert rules (anonymous viewers, LAN only); reached only through nginx
+#   Prometheus  :9090  scrapes node_exporter (:9100) and mcai-dash-agent (:9188) on the lab hosts
+# Versions are pinned: a :latest pull must never change the dashboard under a running fleet.
+services:
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    container_name: mcai-grafana
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: http://10.0.0.186/
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /etc/grafana/secrets/admin.pw
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_DEFAULT_THEME: dark
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # The Videos panel embeds /videos/ in an iframe; Grafana strips iframes otherwise.
+      GF_PANELS_DISABLE_SANITIZE_HTML: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/overview.json
+      GF_PLUGINS_PREINSTALL: yesoreyeram-infinity-datasource
+      GF_UNIFIED_ALERTING_ENABLED: "true"
+      # Live (websocket push) is unused: every dashboard polls each minute.
+      GF_LIVE_MAX_CONNECTIONS: "0"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./secrets:/etc/grafana/secrets:ro
+    depends_on: [prometheus]
+    # Also on docker-elk's network: Elasticsearch is reached as http://elasticsearch:9200 container to
+    # container. Through the host port it is not reachable -- DOCKER-USER on this host accepts :9200 only
+    # from listed LAN subnets and drops the rest, this stack's bridge included (found 11-04; not changed).
+    networks: [default, elk]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: mcai-prometheus
+    restart: unless-stopped
+    ports: ["9090:9090"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=180d
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+
+  web:
+    image: nginx:1.27.5-alpine
+    container_name: mcai-web
+    restart: unless-stopped
+    ports: ["80:80", "3000:80", "8088:80"]
+    depends_on: [grafana]
+    volumes:
+      # The directory, not the file: rsync replaces files atomically and a single-file bind mount keeps the old inode.
+      - ./nginx:/etc/nginx/conf.d:ro
+      - ./web:/usr/share/nginx/html:ro
+
+networks:
+  elk:
+    name: docker-elk_elk
+    external: true
+
+volumes:
+  grafana-data:
+  prometheus-data:

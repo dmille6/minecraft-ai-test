@@ -12,7 +12,8 @@ of them was wrong somewhere on the first attempt.
 | `guard/` | the death circuit breaker and the experiment guard. Read raw events, never derived labels. |
 | `observer/` | server-side RCON sampling of position and health, independent of the agent stack. |
 | `control/` | the agent control node, and the constrained `agent` identity used for autonomous runs. |
-| `homepage/` | the dashboard: live fleet metrics from Elasticsearch, per-bot health, host stats, Minecraft theme. |
+| `dashboard/` | **the dashboard (http://10.0.0.186/)**: Grafana + Prometheus + node_exporter + per-host read-only agents; bots, bags, worlds, servers, canaries, town projects, alerts, timelapse videos. |
+| `homepage/` | the August homepage on the retired 192.168.19x lab: superseded by `dashboard/`. |
 | `evidence/` | the raw NDJSON archive and its pull-only collector. |
 | `bluemap/` | staged 3D world map, rendered off-host. Not started. |
 | `minecraft/` | RCON client. |

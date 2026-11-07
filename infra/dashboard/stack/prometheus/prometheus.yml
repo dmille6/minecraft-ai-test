@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+
+scrape_configs:
+  # Host metrics: CPU, memory, disk, network, load. prometheus-node-exporter from apt on each host.
+  - job_name: node
+    static_configs:
+      - targets: ["10.0.0.30:9100"]
+        labels: {host: block2-worlds, role: "16 fleet worlds + sandboxes"}
+      - targets: ["10.0.0.31:9100"]
+        labels: {host: block2-bots, role: "80 fleet bots + canary loop"}
+      - targets: ["10.0.0.40:9100"]
+        labels: {host: showcase, role: "showcase world + bots"}
+      - targets: ["10.0.0.34:9100"]
+        labels: {host: ci2, role: "test-suite host"}
+      - targets: ["10.0.0.186:9100"]
+        labels: {host: minecraftelk, role: "Elasticsearch + dashboard"}
+
+  # mcai-dash-agent (infra/dashboard/agent): bots, bags, worlds, canaries, alarms.
+  - job_name: mcai-agent
+    static_configs:
+      - targets: ["10.0.0.31:9188"]
+        labels: {host: block2-bots, agent_role: fleet}
+      - targets: ["10.0.0.30:9188"]
+        labels: {host: block2-worlds, agent_role: worlds}
+      - targets: ["10.0.0.40:9188"]
+        labels: {host: showcase, agent_role: showcase}

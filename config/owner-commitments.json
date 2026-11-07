@@ -5513,6 +5513,41 @@
    "next_step": "2026-11-07: market-01show READY TO STAGE (branch market-01show @ a55345de on the live release 9dfa85b9; tier 2, reviewed two engines: Codex r1 3 + Claude r1 1 blockers fixed, Codex r3 FIXED x4; sandbox3/4 e2e server-verified: trader sale 2 water buckets -> 4 emeralds, 32 cherry logs bought, kit bucket kept; smithing table placed outside a zone box, claimed toolsmith). Tripwire shopread MK1-MK3 on main (selftest ok, 219/219 mutants, live replay identical) -- NOT installed; the release agent installs it with the fold. Fleet market-01 @ 989119d5 on jobsite-01 (registration ~/mcai-analysis/market-01.989119d5.json, draft entry market-01.entry.draft.json; P lane after jobsite-01). Owner decisions D1 walk-in trading at 23_-20's librarian/cleric/shepherd, D2 feeding/beds for breeding, D3 decorative buying.",
    "max_quiet_hours": 48,
    "note": "Measured 11-06 showcase: 2,804 _merchant_seen rows = 7 penned jobless villagers (6_1) + 3 wandering traders; town iron 225, coal 83, emerald 0. Sandbox4 11-06: 1.21.8 tables (13 professions x 5 levels x 16), trader buys hay/milk/water bucket/water bottle/fermented eye (max 2), restock < 240 s at the job site, claim at 16/32/44 b in 9-17 s, fed adults + free beds breed (1 baby / 8 min), tossed bread not picked up. String and plain books are sold by no villager; lectern/loom/brewing stand cannot be made here."
+  },
+  {
+   "id": "statusreport-1106",
+   "title": "Owner status report 4x a day (12 AM / 6 AM / 12 PM / 6 PM Central): bots, wells, towns, buildings, projects, worlds, showcase, testing pipeline, what worked / didn't / stalled, what needs the owner; dashboard page + phone push + archive",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "statusreport-1106.md",
+    "owner-status-update-format.md",
+    "dashboard-1104.md"
+   ],
+   "kind": "host",
+   "lane": "ops",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "2026-11-07: BUILT + dashboard deployed (http://10.0.0.186/status/, Overview headline strip, 'Status Report' dashboard; agents: fleet /status/, worlds backups.json, showcase trip.json; nginx /agent/showcase/{releases,trip}.json). Cron '# statusreport' on .31 (3 0,5,6,11,12,17,18,23 * * *, due_slot keeps the Central slot). Narrative pass (Claude Haiku 5.5, numbers checked against the data report, fallback deterministic) proven from the Mac (~$0.001 per report); on .31 it stays OFF until the owner places ~/.config/mcai/anthropic.key (mode 600) there. NEXT: read the first 4 scheduled reports; owner: key on .31 yes/no.",
+   "max_quiet_hours": 24,
+   "depends_on": [
+    {
+     "cron": "host/statusreport.py run"
+    }
+   ],
+   "evidence": {
+    "paths": [
+     "scripts/host/statusreport.py",
+     "scripts/host/test_statusreport.py",
+     "scripts/host/install-statusreport.sh",
+     "infra/dashboard/README.md"
+    ],
+    "grep": [
+     "statusreport"
+    ],
+    "branches": []
+   },
+   "owner_pending": "statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports?",
+   "note": "Deterministic data report = source of truth; judge() rules tested with 20 mutants. One Codex review round: 5 blockers (unread sources read as reassurance, backup alarms lost, spelled-out numbers passed the guard, stale value cache shown as current, first ALARMS.log line dropped) all fixed. Also brought infra/dashboard (live since 11-04, commit fb5775d8 was never pushed) onto main."
   }
  ]
 }

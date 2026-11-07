@@ -1,0 +1,758 @@
+{
+ "apiVersion": 1,
+ "groups": [
+  {
+   "orgId": 1,
+   "name": "servers",
+   "folder": "Minecraft AI",
+   "interval": "1m",
+   "rules": [
+    {
+     "uid": "mcai-host-down",
+     "title": "Host down",
+     "condition": "C",
+     "for": "3m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "critical"
+     },
+     "annotations": {
+      "summary": "{{ $labels.host }} ({{ $labels.instance }}) is not answering node_exporter"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "up{job=\"node\"}",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "lt",
+           "params": [
+            1
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-disk",
+     "title": "Root disk above 85%",
+     "condition": "C",
+     "for": "30m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "{{ $labels.host }} root disk is {{ humanize $values.A.Value }}% full"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "gt",
+           "params": [
+            85
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-memory",
+     "title": "Memory nearly exhausted",
+     "condition": "C",
+     "for": "10m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "{{ $labels.host }} has {{ humanize $values.A.Value }}% memory available"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "lt",
+           "params": [
+            8
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-world-down",
+     "title": "World not answering",
+     "condition": "C",
+     "for": "3m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "critical"
+     },
+     "annotations": {
+      "summary": "Paper world {{ $labels.world }} did not answer RCON"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "mcai_world_up{kind!=\"sandbox\"}",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "lt",
+           "params": [
+            1
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-world-lag",
+     "title": "World lagging",
+     "condition": "C",
+     "for": "10m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "{{ $labels.world }} is at {{ humanize $values.A.Value }} TPS (5 m)"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "mcai_world_tps_5m{kind!=\"sandbox\"}",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "lt",
+           "params": [
+            18
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "orgId": 1,
+   "name": "bots",
+   "folder": "Minecraft AI",
+   "interval": "1m",
+   "rules": [
+    {
+     "uid": "mcai-fleet-units",
+     "title": "Fleet bots not running",
+     "condition": "C",
+     "for": "15m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "critical"
+     },
+     "annotations": {
+      "summary": "{{ humanize $values.A.Value }} of 80 fleet bot units are not running"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "max(mcai_bot_units_expected{scope=\"fleet\"}) - sum(mcai_bot_units_running{scope=\"fleet\"})",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "gt",
+           "params": [
+            0
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-bots-silent",
+     "title": "Bots running but not logging",
+     "condition": "C",
+     "for": "15m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "{{ humanize $values.A.Value }} {{ $labels.scope }} bots are running with no log row for 10 min"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "sum by (scope) (mcai_bot_units_running) - sum by (scope) (mcai_bots_reporting)",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "gt",
+           "params": [
+            2
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-bags-full",
+     "title": "Many bags full",
+     "condition": "C",
+     "for": "1h",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "{{ humanize $values.A.Value }} fleet bots are at >= 34 of 36 slots"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "sum(mcai_bots_bag_full{scope=\"fleet\"})",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "gt",
+           "params": [
+            15
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-death-spike",
+     "title": "Death spike",
+     "condition": "C",
+     "for": "0s",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "{{ humanize $values.B.Value }} fleet deaths in the last hour (baseline ~1.3/h)"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 3600,
+        "to": 0
+       },
+       "datasourceUid": "mcai-es",
+       "model": {
+        "refId": "A",
+        "datasource": {
+         "type": "elasticsearch",
+         "uid": "mcai-es"
+        },
+        "query": "skill.name:_death",
+        "alias": "",
+        "timeField": "@timestamp",
+        "metrics": [
+         {
+          "type": "count",
+          "id": "1"
+         }
+        ],
+        "bucketAggs": [
+         {
+          "type": "date_histogram",
+          "id": "2",
+          "field": "@timestamp",
+          "settings": {
+           "interval": "5m",
+           "min_doc_count": "0",
+           "trimEdges": "0"
+          }
+         }
+        ]
+       }
+      },
+      {
+       "refId": "B",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "B",
+        "type": "reduce",
+        "expression": "A",
+        "reducer": "sum",
+        "settings": {
+         "mode": "replaceNN",
+         "replaceWithValue": 0
+        }
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "B",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "gt",
+           "params": [
+            8
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "orgId": 1,
+   "name": "watchers",
+   "folder": "Minecraft AI",
+   "interval": "1m",
+   "rules": [
+    {
+     "uid": "mcai-watch-critical",
+     "title": "Critical fleet alarm",
+     "condition": "C",
+     "for": "5m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "critical"
+     },
+     "annotations": {
+      "summary": "{{ $labels.source }} raised a critical alarm: see Active alarms"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "sum by (source) (mcai_alarms_active{severity=\"critical\"})",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "gt",
+           "params": [
+            0
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-canary-overdue",
+     "title": "Canary running over 30 h",
+     "condition": "C",
+     "for": "10m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "The canary has been declared for {{ humanizeDuration $values.A.Value }}: reads go to +1680 min at most"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "max(mcai_canary_age_seconds)",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "gt",
+           "params": [
+            108000
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-agent-down",
+     "title": "Dashboard agent down",
+     "condition": "C",
+     "for": "5m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "mcai-dash-agent on {{ $labels.host }} is not answering: its panels are stale"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "up{job=\"mcai-agent\"}",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "lt",
+           "params": [
+            1
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "uid": "mcai-collector-failing",
+     "title": "Dashboard collector failing",
+     "condition": "C",
+     "for": "15m",
+     "noDataState": "OK",
+     "execErrState": "Error",
+     "labels": {
+      "severity": "warning"
+     },
+     "annotations": {
+      "summary": "Collector {{ $labels.collector }} on {{ $labels.host }} is failing: http://{{ $labels.instance }}/health"
+     },
+     "data": [
+      {
+       "refId": "A",
+       "relativeTimeRange": {
+        "from": 300,
+        "to": 0
+       },
+       "datasourceUid": "mcai-prom",
+       "model": {
+        "refId": "A",
+        "expr": "mcai_agent_collector_ok",
+        "instant": true,
+        "range": false
+       }
+      },
+      {
+       "refId": "C",
+       "datasourceUid": "__expr__",
+       "relativeTimeRange": {
+        "from": 0,
+        "to": 0
+       },
+       "model": {
+        "refId": "C",
+        "type": "threshold",
+        "expression": "A",
+        "conditions": [
+         {
+          "evaluator": {
+           "type": "lt",
+           "params": [
+            1
+           ]
+          }
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
