@@ -104,6 +104,7 @@ const REQUIRED = [
   // dropanddig-01 (11-04): the air pocket is dug STANDING over a floor within 2 (the time-budget drownings)
   // idlework-01 (11-06): the design (the code is on branch idlework-01 until it promotes)
   'docs/reports/idlework-design-2026-11-06.md',
+  'docs/reports/roughground-design-2026-11-07.md',   // roughground-01 (11-07): the owner's circled rough ground, mapped + the fix
   'docs/reports/market-design-2026-11-06.md',   // market-1106: live villager trading (code on branches market-01show / market-01)
   'docs/reports/market-2026-11-06/codex-design.txt',
   'docs/reports/market-2026-11-06/trade-tables-1.21.8.txt',

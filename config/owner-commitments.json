@@ -5670,6 +5670,33 @@
     ]
    },
    "note": "Showcase 24 h: 29 terms / 25.9 keeper-h, grounds 1.4%, inwall stage stuck at cuts 0 / fills 0 for 23 h (per-bot gkClears/gkParkWait x 20-min lease rotation). Fleet gkstay 2 h: 42 terms, grounds 7.3%, 11 stuck releases (waiver room spent)."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "roughground-1107",
+   "title": "Rough ground (owner 11-07, three circled renders + four target pictures): the groundskeeper takes the floating spoil/beams, clumps, wide holes, loose crafting tables and the bots' own ledgered scaffold the inside-the-wall rules miss, and re-surveys the inside before every band",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "roughground-1107.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-07: BUILT. SHOWCASE roughground-01show @ 80cf5d5c on the live release d8dbd32a: ready to stage after the gkwork-01show read (no shopread rule: tidy_clear_ok admits record-chain cells). FLEET roughground-01-on-63d28320 @ 9aa9b1c1 (survey only: the fleet has no inwall/terrace/ledger): registration + draft entry ~/mcai-analysis/roughground-01.* on the canary host, P after gkwork-01. Read: record.inwall.rough / record.band.rough census at each sited stage, tidy placed+cut per keeper-h up, and the circled-area census re-run on a mirror copy (offline 4 passes: clump cols 739->517, floating 117->75, stray tables 26->11, 1-col holes 27->13). NEXT pieces: 1b hollows (fill-before-cut dependency), 1c stands for float_high, 2 beauty (cobble lawn tops -> dirt, terrace stage in the cycle, clean banks), 3 features (flower-edged paths, landmark mound, lanterns).",
+   "evidence": {
+    "grep": [
+     "roughground-01"
+    ],
+    "branches": [
+     "roughground-01show",
+     "roughground-01-on-63d28320"
+    ],
+    "paths": [
+     "docs/reports/roughground-design-2026-11-07.md"
+    ]
+   },
+   "note": "Measured 11-07 07:00Z mirror copy: 29 circled areas ~4,300 columns; live inwall record sited 11-05 15:34Z read cuts 0/77 fills 0/1331 (24 h: 21 complete visits, 7 places, 0 stage_close); _place_town 24 h ~2,500 pathfinder/reflex scaffold blocks in town+margin, 823/1,418 ledgered climbs still stand."
   }
  ]
 }
