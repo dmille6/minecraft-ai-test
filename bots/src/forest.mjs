@@ -614,6 +614,27 @@ export function fellReserved ({ boxes = [], records = [], own = [] } = {}) {
   return (x, z) => cols.has(k2(x, z)) || rb.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) || bx.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
 }
 /**
+ * WHERE A FELLING MAY CLEAR LEAVES (the showcase batch20 fold, Codex BLOCKER: the approach line ran outside the record) -> (x, y, z) ->
+ * bool. Pure. Exactly the showcase tripwire's rules over the record being worked: the forest (FR2 forest_leaves_ok) -- its box + 1,
+ * from level - 3 to (levelMax ?? level) + 5; the retiring tree farm (RF1 farm_retire_ok) -- its box (or `was`) + 1, from its lowest
+ * plot cell to its highest + 3. No record, no box or no level: nowhere (the walk digs nothing; the felling still judges its feet).
+ */
+export function fellClearArea (rec, project = 'forest') {
+  const b = Array.isArray(rec?.box) && rec.box.length === 4 ? rec.box : (Array.isArray(rec?.was) && rec.was.length === 4 ? rec.was : null)
+  if (!b || !b.every(Number.isFinite)) return () => false
+  const inBox = (x, z) => x >= b[0] - 1 && x <= b[2] + 1 && z >= b[1] - 1 && z <= b[3] + 1
+  if (project === 'treefarm') {
+    const tops = [...(rec.cells ?? []), ...(rec.retired ?? [])].filter(c => c?.role === 'plot' && Array.isArray(c.at)).map(c => c.at[1])
+    if (!tops.length) return () => false
+    const lo = Math.min(...tops), hi = Math.max(...tops) + 3
+    return (x, y, z) => inBox(x, z) && y >= lo && y <= hi
+  }
+  const w = Number(rec.level)
+  if (!Number.isFinite(w)) return () => false
+  const wm = Number.isFinite(Number(rec.levelMax)) ? Number(rec.levelMax) : w
+  return (x, y, z) => inBox(x, z) && y >= w - 3 && y <= wm + 5
+}
+/**
  * forest-03 FELL ONE TREE -> { n, why, from }. The effects `e` (buildbot.mjs botBuildEffects: walkTo, dig, feet), the world `read`.
  * For each stand of fellStands (nearest the bot first after the recorded one, at most `tries`): already on a cell from which every
  * remaining log is reachable (feetFells) -- fell; else dig that stand's feet and head leaves within reach (never where `guard`
@@ -621,7 +642,7 @@ export function fellReserved ({ boxes = [], records = [], own = [] } = {}) {
  * equality with one cell. Then the logs top down, the stump last, each re-read and re-judged from the actual feet. A tree no stand
  * reaches ends `off_stand` (the visit's keepDue counts it).
  */
-export async function fellTree (e, read, t, { deadline = Infinity, guard = () => false, log = () => {}, check = () => {}, tries = 3, F = FOREST } = {}) {
+export async function fellTree (e, read, t, { deadline = Infinity, guard = () => false, area = () => true, log = () => {}, check = () => {}, tries = 3, F = FOREST } = {}) {
   let n = 0
   const feetAt = () => bodyFeet(read, e.feet())   // forest-04: the cell the body stands in (a dirt path, mud: one up)
   const left = () => (t.order ?? []).filter(p => LOG.test(nm(read(...p))))
@@ -637,7 +658,7 @@ export async function fellTree (e, read, t, { deadline = Infinity, guard = () =>
   const clearAt = async st => {
     for (const q of clearCells(st)) {
       if (Date.now() > deadline) return
-      if (guard(q[0], q[2])) continue
+      if (guard(q[0], q[2]) || !area(q[0], q[1], q[2])) continue   // the batch20 fold: only inside the worked record's leaf area
       const b = read(...q)
       if (!b || !LEAVES.test(nm(b)) || !clearLeafOk(read, feetAt(), q)) continue
       if ((await e.dig(q, nm(b))) === 'confirmed') log({ op: 'clear', cell: q, block: nm(b), kind: 'stand' })

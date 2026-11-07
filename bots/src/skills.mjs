@@ -192,7 +192,7 @@ import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantry
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
-import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved } from './forest.mjs'   // forest-01
+import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved, fellClearArea } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -25329,7 +25329,10 @@ async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', p
   if (!t.stand) return { n: 0, why: 'no_stand' }
   guarded ??= fellLeafGuard(bot, [FOREST_PLOT, project])
   if (!guarded) return { n: 0, why: 'zones_unknown' }
-  const r = await fellTree(e, farmRead(bot), t, { deadline, guard: guarded, check: () => check(signal),
+  // the batch20 fold (Codex BLOCKER): leaves are cleared only inside the worked record's tripwire area (forest.mjs fellClearArea)
+  let area = () => false
+  try { area = fellClearArea(projectHeads().find(x => x.plot === project)?.head?.rec ?? null, project === TREEFARM_PLOT ? 'treefarm' : 'forest') } catch { area = () => false }
+  const r = await fellTree(e, farmRead(bot), t, { deadline, guard: guarded, area, check: () => check(signal),
     log: d => log({ ...forestRow({ ...d, kind: d.op === 'harvest' ? kind : d.kind }), project }) })
   await sleep(300, signal)
   return { n: r.n, why: r.why }

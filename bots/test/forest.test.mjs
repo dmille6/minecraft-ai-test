@@ -335,6 +335,37 @@ await t('forest-03 fellTree: a leaf in the stand\'s head (the walk will not dig 
   assert.strictEqual(r3.why, 'off_stand')
   assert.strictEqual(w3.read(30, G + 2, 31).name, 'spruce_leaves')
 })
+await t('batch20 fold (Codex BLOCKER): the approach leaves are cleared only inside the record\'s tripwire area (FR2 box + 1, level band)', async () => {
+  const run = async area => {
+    const w = world(); const t1 = tree(w, [30, G, 30], 5)
+    w.set([22, G + 1, 31], 'oak_leaves')                        // on the line from the bot (x 20) to the stand, OUTSIDE box + 1
+    w.set([29, G + 1, 31], 'oak_leaves')                        // beside the stand, inside box + 1
+    const e = fakeE(w, { at: [20, G + 1, 31], land: s => s })
+    const rows = []
+    await F.fellTree(e, w.read, t1, { log: d => rows.push(d), ...(area ? { area } : {}) })
+    return rows.filter(d => d.op === 'clear').map(d => d.cell.join(','))
+  }
+  const free = await run(null)
+  assert.ok(free.includes(`22,${G + 1},31`), `POSITIVE: with no area the line leaf is dug (${free})`)
+  const A = F.fellClearArea({ box: [29, 29, 46, 46], level: G }, 'forest')
+  const got = await run(A)
+  assert.ok(!got.includes(`22,${G + 1},31`), `outside the box + 1: never cleared (${got})`)
+  assert.ok(got.every(c => { const [x, y, z] = c.split(',').map(Number); return A(x, y, z) }), 'every clear inside the area')
+  // the area itself: FR2 (box + 1, level - 3 .. levelMax + 5) and RF1 (box or was + 1, plot y .. + 3); no record: nowhere
+  assert.deepStrictEqual([A(28, G, 30), A(27, G, 30), A(30, G - 3, 30), A(30, G - 4, 30), A(30, G + 5, 30), A(30, G + 6, 30)], [true, false, true, false, true, false])
+  const B = F.fellClearArea({ was: [0, 0, 4, 4], retired: [{ role: 'plot', at: [1, 70, 1] }] }, 'treefarm')
+  assert.deepStrictEqual([B(5, 71, 5), B(6, 71, 0), B(1, 73, 1), B(1, 74, 1), B(1, 69, 1)], [true, false, true, false, false])
+  assert.strictEqual(F.fellClearArea(null)(30, G, 30), false)
+})
+await t('MUTANT KILLED: the clear without the area check digs outside the record', async () => {
+  await killed("      if (guard(q[0], q[2]) || !area(q[0], q[1], q[2])) continue", '      if (guard(q[0], q[2])) continue', async M => {
+    const w = world(); const t1 = tree(w, [30, G, 30], 5)
+    w.set([22, G + 1, 31], 'oak_leaves')
+    const e = fakeE(w, { at: [20, G + 1, 31], land: s => s })
+    await M.fellTree(e, w.read, t1, { area: F.fellClearArea({ box: [29, 29, 46, 46], level: G }, 'forest') })
+    assert.strictEqual(w.read(22, G + 1, 31).name, 'oak_leaves', 'the line leaf outside the area stays (the mutant digs it)')
+  })
+})
 await t('MUTANT KILLED: the felling judged by feet == the recorded stand again (the live off_stand)', async () => {
   const EQ = '(g => g[0] === t.stand[0] && g[1] === t.stand[1] && g[2] === t.stand[2])(e.feet())'
   await killed('  const fells = f => feetFells(f, left(), F) && standFooting(read, f, t.stand?.[1]) && !guard(f[0], f[2])', `  const fells = f => ${EQ.replace('(e.feet())', '(f)')}`, async M => {
@@ -919,8 +950,9 @@ await t('forest-02 release fold (Codex r3 BLOCKER): forestFell never digs a leaf
   const fsrc = strip(readFileSync(new URL('../src/forest.mjs', import.meta.url), 'utf8'))
   const wired = src => { const i = src.indexOf('async function forestFell ('); const body = src.slice(i, src.indexOf('\n}\n', i)); const g = src.slice(src.indexOf('function fellLeafGuard ('), i)
     return i > 0 && /guarded \?\?= fellLeafGuard\(bot, \[FOREST_PLOT, project\]\)/.test(body) && /fellTree\(e, farmRead\(bot\), t, \{ deadline, guard: guarded,/.test(body) && /fellReserved\(\{ boxes: \[\.\.\.townMarkerZones\(\), \.\.\.\(zv\.zones \?\? \[\]\)\], records: projectHeads\(\)\.map\(x => x\.head\?\.rec\)\.filter\(Boolean\), own \}\)/.test(g) && /if \(!zv\?\.known\) return null/.test(g) && /if \(!guarded\) return \{ n: 0, why: 'zones_unknown' \}/.test(body) }
-  assert.ok(wired(strip(raw)) && /if \(guard\(q\[0\], q\[2\]\)\) continue/.test(fsrc))
+  assert.ok(wired(strip(raw)) && /if \(guard\(q\[0\], q\[2\]\) \|\| !area\(q\[0\], q\[1\], q\[2\]\)\) continue/.test(fsrc))
   const old = 'fellTree(e, farmRead(bot), t, { deadline, guard: guarded,'
+  assert.ok(/fellTree\(e, farmRead\(bot\), t, \{ deadline, guard: guarded, area,/.test(strip(raw)) && /area = fellClearArea\(projectHeads\(\)\.find\(x => x\.plot === project\)/.test(strip(raw)), 'batch20: the record\'s leaf area rides in')
   assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   assert.ok(!wired(strip(raw.replace(old, 'fellTree(e, farmRead(bot), t, { deadline,'))), 'MUTANT: the guard cut is caught')
 })
