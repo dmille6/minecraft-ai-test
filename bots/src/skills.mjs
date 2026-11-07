@@ -18926,6 +18926,16 @@ async function mkWalkLegs (ctx, to, signal, until, { range = 3 } = {}) {
   }
   return Math.hypot(bot.entity.position.x - to.x, bot.entity.position.z - to.z) <= range + 4 ? 'arrived' : 'short'
 }
+/** THE TOWN'S RESERVATIONS AT THE CLICK (the batch19b fold r2, Codex BLOCKER 2): a fresh cutterRefusal over the cell's 3x3 columns (the
+ *  pick's fence: the cell and its 8 open neighbours, a bed's head among them) -> reason | null. Ground reserved during the walk is never
+ *  placed on. */
+function mkReservedNear (c) {
+  const rf = cutterRefusal()
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const why = rf(c.x + dx, c.z + dz); if (why) return String(why) }
+  return null
+}
+/** The beds in this bag. */
+const mkBeds = bot => bot.inventory.items().filter(i => /_bed$/.test(i.name)).reduce((a, i) => a + i.count, 0)
 async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity) {
   const { bot } = ctx
   if (Date.now() > deadline) return false
@@ -18952,6 +18962,7 @@ async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity
   const onIt = c => q.x === c.x && q.z === c.z
   if (!use || onIt(bc.foot) || onIt(use.head) || bot.entity.position.distanceTo(new Vec3(bc.foot.x + 0.5, bc.foot.y, bc.foot.z + 0.5)) > 4.5) { row('no_effect', { op: 'skip', why: `no_stand:bot=${q.x},${q.y},${q.z}`, block: it.name, cell: bc.foot }); return false }
   bc.head = use.head
+  { const why = mkReservedNear(bc.foot); if (why) { row('no_effect', { op: 'skip', why: `reserved:${why}`, block: it.name, cell: bc.foot }); return false } }
   await bot.equip(it, 'hand')
   // the head goes where the placer FACES: look along dir first, then place on the foot's floor
   await bot.lookAt(new Vec3(bc.head.x + 0.5, bc.head.y + 0.1, bc.head.z + 0.5), true)
@@ -18967,7 +18978,8 @@ async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity
   }
   // a head that landed anywhere but the planned (outside-the-pad) cell: report it; the tripwire's MK1 judges both cells
   const headAt = bc.head
-  mkWrite('beds', [...(Array.isArray(beds) ? beds : []), { x: bc.foot.x, y: bc.foot.y, z: bc.foot.z, at: Date.now(), bot: bot.username }].slice(-200))
+  const beds1 = mkRead('beds', [])   // re-read at the write (the fold r2: never a pre-walk snapshot)
+  mkWrite('beds', [...(Array.isArray(beds1) ? beds1 : []), { x: bc.foot.x, y: bc.foot.y, z: bc.foot.z, at: Date.now(), bot: bot.username }].slice(-200))
   row('success', { op: 'placed', block: fb.name, cell: bc.foot, cluster, d: bc.d })
   row('success', { op: 'placed', block: hb.name, cell: headAt, cluster, why: 'bed_head' })
   return true
@@ -18976,8 +18988,14 @@ async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity
 async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = {}, deadline = Infinity) {
   const { bot } = ctx
   if (Date.now() > deadline) return false
+  if (!bot.inventory.items().some(i => i.name === block)) return false
+  // the town's ONE job placer (the batch19b fold r2, Codex BLOCKER 3): market_job's lease, so the 2/day cap and the ledger hold
+  if (!mkLease(bot, Date.now(), { take: true, name: 'job' })) { row('no_effect', { op: 'skip', why: 'leased', block }); return false }
+  try { return await mkPlaceCarriedHeld(ctx, block, cluster, zones, signal, row, extra, deadline) } finally { mkLease(bot, Date.now(), { release: true, name: 'job' }) }
+}
+async function mkPlaceCarriedHeld (ctx, block, cluster, zones, signal, row, extra, deadline) {
+  const { bot } = ctx
   const it = bot.inventory.items().find(i => i.name === block)
-  if (!it) return false
   const led = mkRead('jobs', [])
   if ((Array.isArray(led) ? led : []).filter(e => Date.now() - (e.at ?? 0) < 24 * 3600_000).length >= MARKET.jobsPerDay) { row('no_effect', { op: 'skip', why: 'day_cap', block }); return false }
   const blockAt = (x, y, z) => { const b = bot.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name } : null }
@@ -18989,11 +19007,15 @@ async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = 
   try { await goto(ctx, { x: c.x, y: c.y, z: c.z, range: 3 }, signal, { until: Math.min(deadline, Date.now() + 45_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   check(signal)
   if (bot.entity.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) > 4.5) { row('no_effect', { op: 'skip', why: 'unreachable', block, cell: c }); return false }
+  { const why = mkReservedNear(c); if (why) { row('no_effect', { op: 'skip', why: `reserved:${why}`, block, cell: c }); return false } }
+  const led1 = mkRead('jobs', [])   // the ledger AT THE CLICK (the fold r2): the cap and the write never from the pre-walk read
+  if ((Array.isArray(led1) ? led1 : []).filter(e => Date.now() - (e.at ?? 0) < 24 * 3600_000).length >= MARKET.jobsPerDay) { row('no_effect', { op: 'skip', why: 'day_cap', block, cell: c }); return false }
   await bot.equip(it, 'hand')
   try { await bot.placeBlock(bot.blockAt(new Vec3(c.x, c.y - 1, c.z)), new Vec3(0, 1, 0)) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   await sleep(500, signal)
   if (bot.blockAt(new Vec3(c.x, c.y, c.z))?.name !== block) { row('failed', { op: 'place_failed', block, cell: c }); return false }
-  mkWrite('jobs', [...(Array.isArray(led) ? led : []), { x: c.x, y: c.y, z: c.z, block, at: Date.now(), bot: bot.username, cluster: cluster.n, uuids: cluster.uuids, ...extra }].slice(-200))
+  const led2 = mkRead('jobs', [])
+  mkWrite('jobs', [...(Array.isArray(led2) ? led2 : []), { x: c.x, y: c.y, z: c.z, block, at: Date.now(), bot: bot.username, cluster: cluster.n, uuids: cluster.uuids, ...extra }].slice(-200))
   row('success', { op: 'placed', block, cell: c, cluster, d: pick.d })
   return true
 }
@@ -19012,6 +19034,8 @@ async function marketTripPriced (ctx, args, signal) {
   if (args?.zone && plan.target.id !== args.zone) { tripRow('no_effect', { stop: 'plan:changed' }); return { status: 'no_effect', detail: 'market_trip: changed' } }
   if (!mkLease(bot, t0, { take: true, name: 'trip' })) { tripRow('no_effect', { stop: 'plan:leased' }); return { status: 'no_effect', detail: 'market_trip: leased' } }
   mkTripState.lastTripAt = t0
+  // the bot's own beds at the start are its KIT (the sleep skill): only beds this trip bought are placed (the fold r2, Codex BLOCKER 1)
+  const bedsKit = mkBeds(bot)
   const tgt = plan.target
   const out = { zone: tgt.id, visited: 0, earned: 0, spent: 0, beds: 0, dwell: 0, employed: 0 }
   const restTrip = ms => { const r = mkRead('trip-rest', {}); r[tgt.id] = Date.now() + ms; mkWrite('trip-rest', r) }
@@ -19096,7 +19120,7 @@ async function marketTripPriced (ctx, args, signal) {
     const vill = Object.values(bot.entities ?? {}).map(merchantOfAny).filter(m => m && m.profession !== 'wandering_trader' && m.x >= tgt.box[0] && m.x <= tgt.box[3] && m.z >= tgt.box[2] && m.z <= tgt.box[5])
     if (vill.length && Date.now() < t0 + WALKIN.homeBy - 50_000) {
       const cl = { n: vill.length, uuids: vill.map(v => v.uuid), members: vill, x: vill.reduce((a, v) => a + v.x, 0) / vill.length, y: Math.floor(Math.min(...vill.map(v => v.y))), z: vill.reduce((a, v) => a + v.z, 0) / vill.length }
-      for (let b = 0; b < 2 && bot.inventory.items().some(i => /_bed$/.test(i.name)); b++) { if (await mkPlaceBed(ctx, cl, zones, signal, jobRow, t0 + WALKIN.homeBy - 45_000)) out.beds++; else break }
+      for (let b = 0; b < 2 && mkBeds(bot) > bedsKit; b++) { if (await mkPlaceBed(ctx, cl, zones, signal, jobRow, t0 + WALKIN.homeBy - 45_000)) out.beds++; else break }
       // the composter beside the village's JOBLESS adults (a jobless villager takes it: a farmer), when it has any
       const jobless = vill.filter(v => v.profession === 'none' && !v.baby)
       if (jobless.length && (mkBag(bot).composter ?? 0) > 0 && Date.now() < t0 + WALKIN.homeBy - 35_000) {

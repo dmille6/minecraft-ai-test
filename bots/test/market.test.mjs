@@ -394,6 +394,19 @@ await t('fold wiring (structural): the ask yields first, all four placements pas
   for (const l of calls) assert.ok(l.includes('refuse: cutterRefusal()'), `without the town refusal: ${l.trim().slice(0, 80)}`)
   assert.ok(/setWellKeep\(marketKeeps\); setDepositExtra\(marketKeeps\)/.test(src))
 })
+await t('fold r2 wiring (structural): the click re-reads the reservations and the ledger, the walk-in takes the job lease and keeps the kit bed', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const body = (from, to) => src.slice(src.indexOf(from), src.indexOf(to, src.indexOf(from) + 1))
+  const bed = body('async function mkPlaceBed', 'async function mkPlaceCarried ')
+  const car = body('async function mkPlaceCarried ', 'async function mkPlaceCarriedHeld')
+  const held = body('async function mkPlaceCarriedHeld', 'async function marketTrip ')
+  for (const [n, b] of [['bed', bed], ['carried', held]]) {
+    assert.ok(b.indexOf('mkReservedNear(') > 0 && b.indexOf('mkReservedNear(') < b.indexOf('bot.placeBlock('), `${n}: the reservations re-read before the click`)
+  }
+  assert.ok(/mkLease\(bot, Date\.now\(\), \{ take: true, name: 'job' \}\)/.test(car) && /release: true, name: 'job'/.test(car), 'the walk-in composter holds the job lease')
+  assert.ok(held.indexOf("mkRead('jobs'", held.indexOf('mkReservedNear(')) > 0, 'the ledger read again at the click')
+  assert.ok(/mkBeds\(bot\) > bedsKit/.test(src) && /const bedsKit = mkBeds\(bot\)/.test(src), 'only beds beyond the kit are placed')
+})
 await t('MUTANT KILLED: without the town refusal in the fence the market cell lands on reserved ground', async () => {
   await withMutant(SRC, ' || refusedAt(refuse, x, z) ?', ' ?', async X => {
     const cl = M.unemployedClusters([{ uuid: 'a', x: 60.5, y: 64, z: 0.5, profession: 'none' }])[0]
