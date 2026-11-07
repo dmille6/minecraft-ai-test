@@ -397,5 +397,11 @@ await t('fold wiring (structural): every tidy cut is held at the dig by roughCut
   assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\) && !roughCutWaits\(\{ at: q\.at, read: rd, self: bot\.entity\?\.position \?\? null, others: playersSeen\(bot\) \}\)/.test(src))
 })
 
+await t('2 wiring (Codex r1): a topsoil cell reads done while the bag holds no dirt (its cobble is never dug out to a hole)', async () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
+  const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/const noSoil = q => q\.role === 'topsoil' && countItem\(bot, 'dirt'\) < 1/.test(sk))
+  assert.ok((sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 2, 'the visit (alsoDone) and the progress read')
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
