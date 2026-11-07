@@ -18781,7 +18781,8 @@ async function deepObsStep (ctx, trip, signal, deadline) {
     if (how === 'done') o.done = true; else o.off = why
     // a lava bucket never outlives the cast: back to the lake from S (into the cave cell over it: the ray lands in the lake)
     try { if (deepObsKit(items()).lava > 0) await deepObsLavaBack(bot, o, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-    if (o.spill) { trip.phase = 'return'; trip.returnWhy = 'obs_spill'; deepObsRow(bot, how, `${why}+spill_${o.spill}`, o); return null }
+    // a spill left open by the lava back (Codex r2 B2/B3): the trip turns home and THIS call ends here -- never the ore work beside it
+    if (o.spill) { trip.phase = 'return'; trip.returnWhy = 'obs_spill'; deepObsRow(bot, how, `${why}+spill_${o.spill}`, o); deepRow(bot, 'turn', { why: 'obs_spill' }); return { status: 'failed', detail: `lava left open by the cast (${o.spill}); going home` } }
     try { await deepObsCleanup(bot, o, signal, trip) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     deepObsRow(bot, how, why, o)
     return null
