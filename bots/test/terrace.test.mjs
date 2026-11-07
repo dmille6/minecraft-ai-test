@@ -586,7 +586,7 @@ await t('buildTidy: the terrace inputs, the work-time guard, the skip rule, the 
   assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k, lim: gradeLim\(read, 6\), lights, now: Date\.now\(\), walkFrom: townEdge\(I\.plan, I\.home\), terrace, reserved: I\.reserved, forest: forestRecNow\(\) \}\)/.test(s), 'siteStage gets them (the gkstage fold: the site-prep reservations too; forest-01: the forest for the replants)')
   // siteprep-01: nor a requested plot's prep cell (the keeper's own work in its own reservation)
   assert.ok(/\|\| \(isTerrace && !q\.floorFix && !q\.prep && !!guardNow\(q\.at\[0\], q\.at\[2\]\)\)\n/.test(s), 'the work-time guard waives (gkhelpers-01: never a storehouse floor repair; siteprep-01: never a prep cell)')
-  assert.ok(/alsoDone: q => waivedK\(q\) \|\| noTorch\(q\) \|\| !!skipV\(q\)/.test(s), 'the skip rule')
+  assert.ok(/alsoDone: q => waivedK\(q\) \|\| noTorch\(q\) \|\| noSoil\(q\) \|\| !!skipV\(q\)/.test(s), 'the skip rule (roughground: + a topsoil cell with no dirt held)')
   assert.ok(/useFor: q => \(q\.role === 'till' \? hoeUse : q\.role === 'meadow' \? mealUse : null\), openRole: role => OPEN_ROLES\.has\(role\)/.test(s), 'the tool uses')
   assert.ok(/Object\.assign\(extra, parkBill\(rec, read, \{ held: held0, stock: matsTownStock\(bot\)\?\.stock \?\? \{\}/.test(s), 'the park\'s bill')
   assert.ok(/nextStageCycle\(rh\.head\.rec\)/.test(s) && /return nextStageCycle\(r, now\) != null/.test(s), 'the ring order reads recStageK (gkstage-01: through landplan.mjs nextStageCycle, which reads it)')
