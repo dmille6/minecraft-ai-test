@@ -4,20 +4,20 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-07T13:20:02Z._
+_Generated 2026-11-07T14:20:02Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `e6a1ea2b` = escdead-01 `e6a1ea2b` (KEEP 11-07 08:21Z, promoted 11-07 08:31Z) on gkstay-01 `63d28320` (KEEP 11-07 04:15Z, promoted 11-07 04:25Z) on stations-01 `3924314a` (KEEP 11-07 01:58Z, promoted 11-07 02:08Z) on gklease-01 `e447b65b` (KEEP 11-06 22:43Z, promoted 11-06 22:53Z) on idlework-02 `ed2cc02b` (KEEP 11-06 20:39Z, promoted 11-06 20:50Z) on gkforever-01 `9e9284d7` (KEEP 11-06 17:08Z, promoted 11-06 17:18Z). Live builds: {'45defefa8042071ca652bdd0cb84134b80261272+998db9': 20, 'e6a1ea2b042ee9c776670868457ece91fd8789fc+278872': 60} |
-| **Canary in slot** | **buildfix-01** deployed 11-07 10:50Z; reads +90 11-07 12:20Z, +180 11-07 13:50Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Fleet** | `45defefa` = buildfix-01 `45defefa` (KEEP 11-07 13:50Z, promoted 11-07 14:00Z) on escdead-01 `e6a1ea2b` (KEEP 11-07 08:21Z, promoted 11-07 08:31Z) on gkstay-01 `63d28320` (KEEP 11-07 04:15Z, promoted 11-07 04:25Z) on stations-01 `3924314a` (KEEP 11-07 01:58Z, promoted 11-07 02:08Z) on gklease-01 `e447b65b` (KEEP 11-06 22:43Z, promoted 11-06 22:53Z) on idlework-02 `ed2cc02b` (KEEP 11-06 20:39Z, promoted 11-06 20:50Z) |
+| **Canary in slot** | EMPTY (last close buildfix-01 KEEP 11-07 13:50Z) |
 | **Queue (front)** | gkwork-01 -> roughground-01 -> roughground-02 -> stairuse-01 -> pathsfix-01 -> forest-01 -> stoneworks-01 -> pause30-01 -> bamboowalk-01 -> marks-01 -> +10 more |
-| **Scheduler** | busy S1 canary declared: 45defefa8042071ca652bdd0cb84134b80261272 on board-d,board-c,placebo-a,placebo-b / S6 open loop: canary 45defef is deployed on board-d,board-c,placebo-a,placebo-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it b |
-| **Showcase release** | `272288e1` (23,023 rows), `d8dbd32a` (3,897 rows); 13 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 272288e1's protected tree: restack by hand; row 11-07 12:25Z) |
+| **Scheduler** | busy S3 the loop lock is held (pid 1934620) / S8 INSTALL-HOLD by allowflight-1107 until 2026-11-07T15:15:42Z |
+| **Showcase release** | `272288e1` (23,173 rows), `c35b5675` (4,172 rows); 15 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 272288e1's protected tree: restack by hand; row 11-07 13:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | mobgrief-1106: owner-direct-check 11-07 03:10Z |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-07T12:05Z, 7 d, 165 projects, 13,340,403 lines / 80 bots): 11 underused, 83 effective, 43 unmeasured, 28 -; showcase: project audit showcase (11-07T12:05Z, 7 d, 33 projects, 1,665,447 lines / 15 bots): 2 broken, 1 underused, 13 effective, 11 unmeasured, 6 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-07T12:35:02Z STALLED: 86. OPSAUDIT 2026-11-06 FLAGS: 16 (1 high). 61 active alarm(s): stuck goals 13 (board-b/tidy@-249_65_144, board-c/shaft@355_73_147, hive-a/tidy@355_73_147, hive-c/tidy@-68_68_-68, isolated-c/tidy@355_73_147, isolated-d/tidy@355_73_147 ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-07T13:35:01Z STALLED: 88. OPSAUDIT 2026-11-06 FLAGS: 16 (1 high). 65 active alarm(s): stuck goals 17 (board-b/tidy@-249_65_144, board-c/shaft@355_73_147, board-c/tidy@355_73_147, hive-a/tidy@355_73_147, hive-c/tidy@-68_68_-68, hive-d/tidy@68_65_68 ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
