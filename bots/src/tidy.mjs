@@ -327,7 +327,7 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
       const k = f.at[1] - base.get(k2(f.at[0], f.at[2]))
       const seg = segOf(group, k)
       if (!segs.has(seg)) { segs.add(seg); segments.push({ seg, deps: k > 0 ? [segOf(group, k - 1)] : [] }) }
-      cells.push({ at: f.at, role: 'earth', seg })
+      cells.push({ at: f.at, role: 'earth', seg, ...(f.opener ? { opener: f.opener } : {}) })   // roughground-1b r1: a hollow's fill names its cut (never waived)
     }
   }
   // every group's ground layer first, then every group's next (a visit meets a layer whose dependency another builder holds only

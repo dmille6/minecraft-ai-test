@@ -108,6 +108,14 @@ await t('1b: a raised crust over a hollow is cut WITH the hollow filled under it
   assert.deepStrictEqual(c.hollow, [[12, G - 1, -3], [12, G, -3]])
   const segOf = at => st.record.cells.find(q => q.at.join(',') === at.join(',')).seg
   assert.ok(st.record.segments.find(q => q.seg === segOf([12, G, -3])).deps.includes(segOf([12, G - 1, -3])), 'bottom-up')
+  // Codex r1: the hollow's fills name their cut (`opener`) and are never waived -- neither the keeper's waiver nor the stall waiver
+  const hc = st.record.cells.filter(q => q.at[0] === 12 && q.at[2] === -3)
+  assert.ok(hc.length === 2 && hc.every(q => q.opener && q.opener.join(',') === xyz(12, G + 1, -3)), JSON.stringify(hc))
+  const deferred = hc.map(q => ({ k: q.at.join(','), visits: 9, why: 'no_stand' }))
+  assert.deepStrictEqual(T.gkWaivable(st.record, deferred), [], 'the keeper\'s waiver')
+  const GW = await import('../src/gkwork.mjs')
+  assert.deepStrictEqual(GW.stallWaive(st.record, deferred, { stalled: true }), [], 'the stall waiver')
+  assert.ok(GW.stallWaive({ cells: [{ at: [1, 2, 3], role: 'earth' }] }, [{ k: '1,2,3', visits: 9 }], { stalled: true }).length === 1, 'control: an ordinary fill is waivable')
   // the dig-time guard: a body in the hollow holds the cut; none -> clear; a cut with no hollow is never held here
   assert.strictEqual(RG.hollowClear(c, at => at[1] === G - 1), false)
   assert.strictEqual(RG.hollowClear(c, () => false), true)
@@ -131,7 +139,8 @@ await t('1b: a raised crust over a hollow is cut WITH the hollow filled under it
 await t('1b wiring: the tidy visit\'s cut check holds a crust cut while a body is in its hollow', async () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\) && hollowClear\(q, c => otherBodyOnCell\(bot, c\)\)/.test(sk))
+  assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\) && hollowClear\(q, c => otherBodyOnCell\(bot, c\) \|\| ownBodyIn\(bot, c\)\)/.test(sk), 'any body, the digger\'s own too (Codex r1)')
+  assert.ok(/const heldHollow = new Set\(\(r\.tidyWet \?\? \[\]\)\.filter\(k => Array\.isArray\(cutAt\.get\(k\)\?\.hollow\)\)\)/.test(sk) && /tidyNoteCuts\(mem, \(r\.tidied \?\? \[\]\)\.filter\(k => !heldHollow\.has\(k\)\)/.test(sk), 'a held crust cut is never a try (Codex r1)')
   const td = strip(readFileSync(new URL('../src/tidy.mjs', import.meta.url), 'utf8'))
   assert.ok(/\.\.\.\(c\.hollow \? \{ hollow: c\.hollow \} : \{\}\)/.test(td), 'tidyRecord keeps the hollow')
 })
