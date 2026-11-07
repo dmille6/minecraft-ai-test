@@ -2,6 +2,8 @@
 // the grounds lap; skills.mjs buildTidy / shopActive / groundsMeansFor). Behaviour on buildfake's flat world (stone below G, grass at
 // G) and on the pure deciders; structural assertions only for wiring; every mutant asserts its anchor is present and unique.
 import assert from 'node:assert'
+// roughground-01: these tests pin tidy-01's and gkforever's own rules; the rough survey (on by default) is roughground.test.mjs's
+process.env.ROUGH = 'off'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 const { G, HOME, server } = await import('./helpers/buildfake.mjs')
 const T = await import('../src/tidy.mjs')

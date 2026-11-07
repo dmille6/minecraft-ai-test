@@ -25,6 +25,7 @@
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND } from './landplan.mjs'   // groundskeeper-01
+import { surveyRough, roughOn } from './roughground.mjs'   // roughground-01: the ground the pillar/pit rules miss
 
 export const TIDY_PLOT = 'tidy'
 export const TIDY_BLUEPRINT = 'tidy@1'
@@ -99,7 +100,7 @@ export function tidyColumn (read, x, z, { yHi, yLo }) {
  *   cells       Set "x,y,z" never touched (every project's record cells: belt and braces under `avoid`)
  *   r           half-width of the tidied square (TIDY.r)
  */
-export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, rMin = -1, T = TIDY, level = false } = {}) {
+export function surveyTidy (read, { home, avoid = () => null, cells = new Set(), r = TIDY.r, rMin = -1, T = TIDY, level = false, rough = roughOn() } = {}) {
   const skipped = {}
   const skip = why => { skipped[why] = (skipped[why] ?? 0) + 1 }
   if (!home || ![home.x, home.y, home.z].every(Number.isFinite)) return { ok: false, why: 'no_home', cut: [], fill: [], pillars: [], pits: [], skipped }
@@ -223,7 +224,23 @@ export function surveyTidy (read, { home, avoid = () => null, cells = new Set(),
       for (const a of add) fill.push({ ...a, pit: id })
     }
   }
-  return { ok: true, why: 'ok', cut, fill, pillars, pits, skipped, cols: memo.size }
+  // roughground-01 (owner 11-07, the showcase's circled renders; the fleet's survey has the same gap): the ground the rules above miss
+  // -- floating spoil and beams, clumps of 2+ columns, holes wider than one, columns standing out of their median, a loose crafting
+  // table and its pillar -- over the same square or band, off every column they already work; every avoided column refused
+  // (buildWhy matches nothing here: the fleet's tidy never works a build's box). ROUGH=off is the survey as it was.
+  let roughSum = null
+  if (rough) {
+    const busy = new Set([...cut, ...fill].map(c => k2(c.at[0], c.at[2])))
+    const rs = surveyRough(read, { home, box: [home.x - r, home.z - r, home.x + r, home.z + r], within: inSq, col, spoil: SPOIL, avoid, cells, busy, yLo })
+    if (rs.ok) {
+      for (const c of rs.cut) cut.push({ ...c, pillar: `r:${c.pillar}` })
+      for (const f of rs.fill) fill.push({ ...f, pit: `r:${f.pit}` })
+      for (const q of rs.pillars) pillars.push({ ...q, id: `r:${q.id}` })
+      for (const q of rs.pits) pits.push({ ...q, id: `r:${q.id}` })
+      roughSum = { census: rs.census, skipped: rs.skipped }
+    }
+  }
+  return { ok: true, why: 'ok', cut, fill, pillars, pits, skipped, cols: memo.size, ...(roughSum ? { rough: roughSum } : {}) }
 }
 
 /**
@@ -484,6 +501,7 @@ export function siteTidy (read, { home, avoid = () => null, cells = new Set(), p
       }
     }
     const record = tidyRecord(s, { home, plan, now, r })
+    if (record && survey.rough) record.rough = survey.rough.census   // roughground-01: what the rough survey took
     if (record) record.grade = grade ? { ok: grade.ok, why: grade.why, n: grade.n ?? null, cut: grade.cut.length, fill: grade.fill.length, legs: grade.legs, skipped: grade.skipped } : null
     return record
   }
