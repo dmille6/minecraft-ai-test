@@ -142,7 +142,7 @@ import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './t
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
 import { REROOF_FIX, reroofObstacles, reroofClearsReached, reroofDoorstep, reroofFailBump, reroofPendingCells } from './reroof.mjs'   // reroof-02
-import { decorRetire } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
+import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
@@ -24228,6 +24228,7 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // wallext-02 (Claude hold r1 BLOCKER 1): the demolition's hold is `reserved` too -- read FIRST by every inwall rule and by the
   // access stairs' `free` (tidyAvoid's first reason could be a kept wall cell's `project:wall`, which reads as a build's box)
   const held = holdAt(recs.find(r => r?.plot === WALL_PLOT) ?? null)
+  rz.push(...lawnZonesOf(recs))   // the flowers fold (Codex BLOCKER): a decor lawn (flowers-02's scatter) is `reserved` too
   const reserved = (x, z) => held(x, z) || rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
   return { home, avoid, cells, pin, plan: P.plan, caps: P.caps, records: others, wall: others.find(r => r.plot === WALL_PLOT) ?? null, wallext: others.find(r => r.plot === WALLEXT_PLOT) ?? null, reserved }
 }

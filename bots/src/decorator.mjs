@@ -1101,6 +1101,16 @@ export function siteLawn (read, home, { guard, reserved = () => null, inside = (
   }
   return { ok: false, why: 'no_lawn', tried }
 }
+/** THE LAWNS AS THE TIDY'S RESERVATIONS (the showcase flowers fold, Codex BLOCKER: a later rough survey filled over a scattered lawn
+ *  or cut its soil) -> [zone]: every record's `lawns[].box` as a zone box [x0, -64, z0, x1, 320, z1] (why decor_lawn). Pure. */
+export function lawnZonesOf (records = []) {
+  const out = []
+  for (const r of records ?? []) for (const l of r?.lawns ?? []) {
+    const b = l?.box
+    if (Array.isArray(b) && b.length === 4 && b.every(Number.isFinite)) out.push({ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'decor_lawn' })
+  }
+  return out
+}
 /** THE LAWN ON THE RECORD (claimed before its one meal: never fed again) -> the new record. Pure. */
 export const withLawn = (cur, lawn, { now = Date.now(), by = null } = {}) => ({ ...cur, lawns: [...(cur?.lawns ?? []), { at: lawn.at.slice(), box: lawn.box.slice(), sitedAt: now, by, L: lawn.L, P: lawn.P }] })
 /**

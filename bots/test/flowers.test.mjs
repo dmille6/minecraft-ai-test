@@ -373,5 +373,23 @@ for (const [what, line] of WIRES) {
   })
 }
 
+// ---- the showcase flowers fold (Codex BLOCKER): a decor lawn is the tidy's reservation ----
+await t('fold BLOCKER: a lawn on the decor record is reserved -- the rough survey never fills or cuts in it', async () => {
+  const T = await import('../src/tidy.mjs'), RG = await import('../src/roughground.mjs')
+  const lawnRec = { plot: 'decor', lawns: [{ at: [6, G, 6], box: [3, 3, 9, 9] }] }
+  const zs = D.lawnZonesOf([lawnRec, { plot: 'paths' }, { lawns: [{ box: [1, 2] }] }])
+  assert.deepStrictEqual(zs, [{ box: [3, -64, 3, 9, 320, 9], why: 'decor_lawn' }])
+  const srv = server(); srv.set([6, G, 6], 'air')                       // a 1x1 hole at the lawn centre's ground
+  const col = (x, z) => T.tidyColumn(srv.read, x, z, { yHi: HOME.y + 14, yLo: HOME.y - 14 })
+  const base = { home: HOME, box: [-12, -12, 12, 12], col, spoil: T.SPOIL, yLo: HOME.y - 14 }
+  const free = RG.surveyRough(srv.read, base)
+  assert.ok(free.fill.some(f => f.at[0] === 6 && f.at[2] === 6), 'POSITIVE: without the reservation the hole is filled')
+  const inZ = (x, z) => zs.some(q => x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5])
+  const held = RG.surveyRough(srv.read, { ...base, reserved: (x, z) => (inZ(x, z) ? 'decor_lawn' : null) })
+  assert.ok(![...held.fill, ...held.cut].some(c => inZ(c.at[0], c.at[2])), 'no fill or cut inside the lawn box')
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  assert.ok(/rz\.push\(\.\.\.lawnZonesOf\(recs\)\)\s*\n\s*const reserved = \(x, z\) => held\(x, z\) \|\| rz\.some\(/.test(sk), 'wired into tidyInputs reserved (before reserved reads rz)')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
