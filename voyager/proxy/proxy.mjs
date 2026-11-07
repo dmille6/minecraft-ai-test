@@ -49,7 +49,9 @@ async function anthropicClient () {
 }
 
 async function ollamaChat (arm, { system, messages, max_tokens }) {
-  const body = { model: arm.model, stream: false, keep_alive: arm.keepAlive ?? '15m', think: arm.think ?? false,
+  // `think` only when the arm sets it (a non-thinking model may refuse the field); keepAlive may be -1 for a model that is
+  // not ours (arm B-general on the Blackwell: keep its current value, never change it)
+  const body = { model: arm.model, stream: false, keep_alive: arm.keepAlive ?? '15m', ...(arm.think != null ? { think: arm.think } : {}),
     messages: [...(system ? [{ role: 'system', content: system }] : []), ...messages],
     options: { num_ctx: arm.numCtx ?? 16384, num_predict: Math.min(max_tokens ?? 2048, arm.maxTokens ?? 4096), temperature: arm.temperature ?? 0.4 } }
   const ctl = new AbortController()

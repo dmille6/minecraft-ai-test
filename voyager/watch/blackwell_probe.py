@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""voyager-01 arm B on the Blackwell (owner 11-07 ~03:15Z): a latency probe of OUR OWN against the resident qwen2.5:32b as a
+"""voyager-01 arm B-general on the Blackwell (owner 11-07 ~03:30Z: the already-loaded qwen2.5:32b, nothing loaded or unloaded): a latency probe of OUR OWN against the resident qwen2.5:32b as a
 proxy for its other users, plus an eviction check. Read-only toward the other models except this one tiny request a minute,
 sent with keep_alive -1 (the value it already has), so nothing about them changes.
 
@@ -15,13 +15,14 @@ LOG = '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai-
 
 
 def ps():
+    """{name: (context_length, size_vram, expires_forever)} of the resident models."""
     with urllib.request.urlopen(f'{URL}/api/ps', timeout=10) as r:
-        return [m['name'] for m in json.load(r)['models']]
+        return {m['name']: (m.get('context_length'), m.get('size_vram'), str(m.get('expires_at', ''))[:4] >= '2300') for m in json.load(r)['models']}
 
 
 def ping():
     body = json.dumps({'model': 'qwen2.5:32b', 'prompt': 'Reply with the word ok.', 'stream': False, 'keep_alive': -1,
-                       'options': {'num_predict': 4, 'temperature': 0}}).encode()
+                       'options': {'num_predict': 4, 'temperature': 0, 'num_ctx': 8192}}).encode()   # = the loaded context: no reload
     t0 = time.time()
     with urllib.request.urlopen(urllib.request.Request(f'{URL}/api/generate', data=body, headers={'content-type': 'application/json'}), timeout=120) as r:
         d = json.load(r)
@@ -38,15 +39,18 @@ def main():
     minutes = int(sys.argv[sys.argv.index('--minutes') + 1]) if '--minutes' in sys.argv else 20
     base = int(sys.argv[sys.argv.index('--baseline-p95') + 1]) if '--baseline-p95' in sys.argv else None
     lat = []
+    first = ps()
     for i in range(minutes):
         res = ps()
         missing = [m for m in PINNED if m not in res]
-        if missing:
-            print(json.dumps({'kind': 'evicted', 'missing': missing, 'resident': res}), flush=True)
+        # expires_at moves on every use (now + forever), so the check is: still pinned forever, same context, same size
+        changed = [m for m in PINNED if m in res and m in first and (res[m][0] != first[m][0] or res[m][1] != first[m][1] or not res[m][2])]
+        if missing or changed:
+            print(json.dumps({'kind': 'evicted_or_changed', 'missing': missing, 'changed': changed, 'before': first, 'now': res}), flush=True)
             sys.exit(3)
         ms, load = ping()
         lat.append(ms)
-        row = {'kind': mode, 'i': i, 't': time.strftime('%H:%M:%S', time.gmtime()), 'ms': ms, 'load_ms': load, 'resident': res, 'p95': p95(lat)}
+        row = {'kind': mode, 'i': i, 't': time.strftime('%H:%M:%S', time.gmtime()), 'ms': ms, 'load_ms': load, 'resident': {k: v[:2] for k, v in res.items()}, 'p95': p95(lat)}
         open(LOG, 'a').write(json.dumps(row) + '\n')
         print(json.dumps(row), flush=True)
         if mode == 'during' and base and len(lat) >= 5 and p95(lat) > 1.25 * base:
