@@ -10,6 +10,7 @@
 // truncates.
 
 import { SKILLS } from './skills.mjs'
+import { gatherMemOn, areaLine } from './gathermem.mjs'
 import { fuelTicks, smeltRecipeFor } from './smelting.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
@@ -730,6 +731,15 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
+/** gathermem-01: the GATHER REFUSED HERE line (gathermem.mjs areaLine), '' when none or GATHERMEM=0. */
+export function gatherAreaLine (bot, now = Date.now()) {
+  try {
+    if (!gatherMemOn() || !Array.isArray(bot?.gatherAreas) || !bot.gatherAreas.length) return ''
+    const p = bot.entity?.position
+    return p ? areaLine(bot.gatherAreas, { pos: { x: p.x, y: p.y, z: p.z }, now }) : ''
+  } catch { return '' }
+}
+
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null, depositOffered = true }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
@@ -752,6 +762,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     depositOffered ? depositSituation(bot, memory) : '',   // DEPOSITOFFER-01: no CARRYING line when deposit is not offered
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
     actionable.line,
+    gatherAreaLine(bot),   // gathermem-01: the gathers that just found nothing takeable here, named BEFORE the decision
     waterSituation(bot),
     bucketSituation(bot),
     yContext(p.y),
