@@ -236,6 +236,8 @@ destructive counts exactly, 6 of 6):
   - Codex's attempt-ID and "uncertain" state machine is reduced to claim-then-meal, never retried.
 - **Review (one round):** 1 blocker, the park keep read before the walk. Fixed, with a test and its mutant.
 
+**Built:** `flowers-02show` @ **fb365702** on flowers-01show r4 `c9de8d6d`. Tier 2 (not protected). Targeted tests: flowers 31/31; decorator, sinks, sinkwaive, prodserve, towndress, reroof, sinkfix4, compost and decorhold all pass. Full suite on w30: 458/461, failing only on nothing-important-is-orphaned (the base's bagdiet), plinth-skill (a flake) and well (a known base failure). Ready to stage.
+
 **Read after activation:**
 
 - `_decor op=lawn` rows: sited, fed, why;
