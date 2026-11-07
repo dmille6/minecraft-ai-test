@@ -15746,18 +15746,6 @@ export function stairBearings (bot) {
 }
 
 /**
- * THE GUARD'S OWN TEST FOR "I WILL NOT DIG THIS".
- *
- * Exported and used by BOTH the chooser and the guard inside `mine`, because
- * the one way a chooser can make things worse is to disagree with the guard:
- * pick a bearing the guard then refuses and the livelock is rebuilt one layer
- * up, with a lookahead scan added to pay for it.
- *
- * Deliberately NOT a general wetness test. Widening `isWet()` from `water` to
- * kelp and seagrass on 2026-08-29 multiplied drownings sevenfold and was rolled
- * back; block name equality is the predicate that has held.
- */
-/**
  * UNDER THE NEXT TREAD -> { hollow, floored, lava }. Pure over below(d) (the block d under the tread's floor cell, d = 0..maxProbe):
  * open cells counted down to the first solid one; LAVA ends the probe as lava (obsidian-01, Claude r3: its empty box read as hollow).
  */
@@ -15771,6 +15759,18 @@ export function mineTreadProbe (below, maxProbe) {
   }
   return { hollow, floored: false, lava: false }
 }
+/**
+ * THE GUARD'S OWN TEST FOR "I WILL NOT DIG THIS".
+ *
+ * Exported and used by BOTH the chooser and the guard inside `mine`, because
+ * the one way a chooser can make things worse is to disagree with the guard:
+ * pick a bearing the guard then refuses and the livelock is rebuilt one layer
+ * up, with a lookahead scan added to pay for it.
+ *
+ * Deliberately NOT a general wetness test. Widening `isWet()` from `water` to
+ * kelp and seagrass on 2026-08-29 multiplied drownings sevenfold and was rolled
+ * back; block name equality is the predicate that has held.
+ */
 export function stairLiquid (b) {
   return !!b && (b.name === 'lava' || b.name === 'water')
 }
