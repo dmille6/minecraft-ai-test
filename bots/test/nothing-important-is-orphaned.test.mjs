@@ -36,6 +36,8 @@ const REQUIRED = [
   'sandbox/stair/stair-e2e.mjs',
   // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
+  'bots/src/zonewalk.mjs',  // escdead-01show (11-07): an escape under a protected zone walks out under its side
+  'bots/test/zonewalk.test.mjs',
   'bots/src/fewerdec.mjs',
   'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
   'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go

@@ -162,7 +162,10 @@ await t('guardOf: a record cell, an unreadable record near home, a zone structur
   assert.deepStrictEqual(guardOf({ cell: P(0, 42, 0), name: 'oak_planks', zones: [ZONE] }), { kind: 'zone', zone: ZONE.id, ordinary: false })
   assert.deepStrictEqual(guardOf({ cell: P(0, 42, 0), name: 'tuff', zones: [ZONE] }), { kind: 'zone', zone: ZONE.id, ordinary: true })
   const deep = { ...ZONE, floorY: Y0 }
-  assert.strictEqual(guardOf({ cell: P(0, Y0 - 2, 0), name: 'oak_planks', zones: [deep], feet: P(0, Y0 - 3, 0) }), null, 'below a zone floor, a bot below it digs out (protectzone deep exemption)')
+  assert.strictEqual(guardOf({ cell: P(0, Y0 - 2, 0), name: 'oak_planks', zones: [deep], feet: P(0, Y0 - 3, 0), zoneWalk: false }), null, 'ZONEWALK=off (the base): below a zone floor, a bot below it digs out (protectzone deep exemption)')
+  // escdead-01show (zonewalk.mjs rule 1): a STRUCTURE block is the zone's at every depth; deep ORDINARY rock stays open
+  assert.strictEqual(guardOf({ cell: P(0, Y0 - 2, 0), name: 'oak_planks', zones: [deep], feet: P(0, Y0 - 3, 0), zoneWalk: true })?.kind, 'zone')
+  assert.strictEqual(guardOf({ cell: P(0, Y0 - 2, 0), name: 'stone', zones: [deep], feet: P(0, Y0 - 3, 0), zoneWalk: true }), null)
   assert.ok(guardOf({ cell: P(0, Y0 - 2, 0), name: 'oak_planks', zones: [deep], feet: P(20, Y0 - 3, 0) }), 'control: a bot outside may not dig in')
   assert.strictEqual(guardOf({ cell: P(30, 42, 0), name: 'oak_planks', zones: [ZONE] }), null, 'outside the box')
 })
