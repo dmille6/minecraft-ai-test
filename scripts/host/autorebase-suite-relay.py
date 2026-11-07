@@ -13,7 +13,13 @@ has no ssh key to the test hosts; the Mac has both, so this relay does the hand-
   2. a started run: read its remote log's last line; `DONE rc=N` -> copy the log to .31 as <key>.out, THEN write
      <key>.done (the order .31 relies on), and rename <key>.req to <key>.req-done;
   3. a run older than GIVEUP_MIN (150) with no DONE -> <key>.done {rc: "timeout"} (.31 then runs the suite itself).
-A request .31 already gave up on (<key>.expired) is dropped. Light work only (ssh, scp, a fetch): a controller job.
+A request .31 already gave up on (<key>.expired) is dropped.
+
+INCIDENT 11-07: w30 could not prep node_modules for a new package-lock and the relay retried it every 2 min for 100 min,
+never ci2 and never telling anyone. suite-run now seeds/falls back itself; on top of that the relay counts the passes a
+request "did not start" (~/mcai-autorebase-suite/<key>.tries.json): from the 2nd, it forces a host that has not failed
+for this request (next_args, pure) and it raises ONE alarm (lib/alarm.py one_shot on .31, the promomerge copy) per request
+(should_alarm, pure), not one every 2 min. Light work only (ssh, scp, a fetch): a controller job.
 
     python3 scripts/host/autorebase-suite-relay.py            (one pass; launchd)
     python3 scripts/host/autorebase-suite-relay.py --install-launchd
@@ -64,8 +70,38 @@ def valid_request(key, req):
 
 def parse_detach(out):
     """PURE. suite-run --detach's output -> (host key, label, remote log) or None."""
-    m = re.search(r'host=(\w+) \(.*?\) label=(\S+) .*?remote_log=~/(\S+)', out or '')
+    m = re.search(r'(?m)^host=(\w+) \(.*?\) label=(\S+) .*?remote_log=~/(\S+)', out or '')
     return (m.group(1), m.group(2), m.group(3)) if m else None
+
+
+def failed_hosts(out):
+    """PURE. The hosts a suite-run that did not start says it tried and failed (`attempt host=<h> result=...` lines)."""
+    return re.findall(r'(?m)^attempt host=(\w+) result=', out or '')
+
+
+def next_args(tries, hosts=tuple(TEST_HOSTS)):
+    """PURE. The extra suite-run args for the next start of a request that failed `tries['fails']` times on the hosts in
+    tries['hosts']: none before the 2nd failure (suite-run's own plan and fallback); then --host <a host that has not
+    failed for it>, in order; none again once every host has failed (back to suite-run's plan)."""
+    if int(tries.get('fails') or 0) < 2:
+        return []
+    bad = set(tries.get('hosts') or [])
+    other = [h for h in hosts if h not in bad]
+    return ['--host', other[0]] if other else []
+
+
+def record_failure(tries, out, extra):
+    """PURE. tries after one more start that did not start: fails + 1, and the hosts it failed on (its attempt lines and a
+    host the relay forced)."""
+    t = dict(tries)
+    t['fails'] = int(t.get('fails') or 0) + 1
+    t['hosts'] = sorted(set(t.get('hosts') or []) | set(failed_hosts(out)) | set(extra[1:2] if extra[:1] == ['--host'] else []))
+    return t
+
+
+def should_alarm(tries):
+    """PURE. One alarm per request, raised at its 2nd failed start."""
+    return int(tries.get('fails') or 0) >= 2 and not tries.get('alarmed')
 
 
 def action(state, last_line, now):
@@ -103,6 +139,40 @@ def requests():
     return out, gone, r.returncode == 0
 
 
+def tries_path(key):
+    return os.path.join(STATE, key + '.tries.json')
+
+
+def load_tries(key):
+    try:
+        d = json.load(open(tries_path(key)))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_tries(key, d):
+    os.makedirs(STATE, exist_ok=True)
+    tmp = tries_path(key) + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(d, f)
+    os.replace(tmp, tries_path(key))
+
+
+ALARM_PY = (
+    'import sys, datetime as dt; sys.path.insert(0, "."); from lib import alarm as AL; '
+    'AL.one_shot("autorebase-suite-relay", {sys.argv[1]: sys.argv[2]}, dt.datetime.now(dt.timezone.utc))')
+
+
+def raise_alarm(key, line):
+    """ONE alarm through lib/alarm.py on the canary host (it has /etc/mcai-alert.conf; the Mac does not). -> ok."""
+    r = ssh(HOST, 'cd ~/promomerge/app/scripts && python3 -B -c ' + shlex.quote(ALARM_PY) + ' '
+            + shlex.quote('suite-start:' + key) + ' ' + shlex.quote(line[:600]), timeout=120)
+    if r.returncode != 0:
+        log(f'ALARM for {key} failed to raise ({(r.stderr or "").strip()[:160]}); will retry next pass')
+    return r.returncode == 0
+
+
 def put_state(key, d):
     os.makedirs(STATE, exist_ok=True)
     with open(os.path.join(STATE, key + '.json.tmp'), 'w') as f:
@@ -120,12 +190,24 @@ def start(key, req):
     if f.returncode != 0 or got != req['sha']:
         log(f'REFUSED {key}: fetched {req["ref"]} = {got or "nothing"} ({(f.stderr or "").strip()[:120]}), request says {req["sha"]}')
         return
-    s = subprocess.run(['python3', SUITE_RUN, R, '--ref', req['sha'], '--label', 'ar-' + key, '--detach'],
+    tries = load_tries(key)
+    extra = next_args(tries)
+    s = subprocess.run(['python3', SUITE_RUN, R, '--ref', req['sha'], '--label', 'ar-' + key, '--detach'] + extra,
                        capture_output=True, text=True, timeout=3600)
     p = parse_detach(s.stdout)
     if s.returncode != 0 or not p:
-        log(f'suite-run did not start for {key}: rc {s.returncode} {(s.stdout + s.stderr).strip()[-200:]}')
+        tail = (s.stdout + s.stderr).strip()[-200:]
+        tries = record_failure(tries, s.stdout, extra)
+        log(f'suite-run did not start for {key} (try {tries["fails"]}{" " + " ".join(extra) if extra else ""}): '
+            f'rc {s.returncode} {tail}')
+        if should_alarm(tries):
+            tries['alarmed'] = raise_alarm(key, f'suite-run did not start {tries["fails"]} times on the test hosts '
+                                                f'(failed: {", ".join(tries["hosts"]) or "?"}); the canary host runs '
+                                                f'the suite itself after 100 min. Last: {tail}')
+        save_tries(key, tries)
         return
+    if tries:
+        os.replace(tries_path(key), tries_path(key) + '.started')
     put_state(key, {'host': p[0], 'label': p[1], 'rlog': p[2], 'sha': req['sha'],
                     'started': dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')})
     log(f'started {key} on {p[0]} ({p[1]})')
@@ -173,7 +255,8 @@ def main(argv):
     if not ok:
         return 0
     now = dt.datetime.now(dt.timezone.utc)
-    started = {f[:-5] for f in os.listdir(STATE) if f.endswith('.json')} if os.path.isdir(STATE) else set()
+    started = ({f[:-5] for f in os.listdir(STATE) if f.endswith('.json') and not f.endswith('.tries.json')}
+               if os.path.isdir(STATE) else set())
     for key in sorted(gone & started):
         os.replace(os.path.join(STATE, key + '.json'), os.path.join(STATE, key + '.json.expired'))
         log(f'dropped {key}: the canary host gave up on it')

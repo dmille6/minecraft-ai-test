@@ -15,8 +15,9 @@ Usage (from the Mac, any worktree):
   WORKTREE   default: the current directory's git top level. The tree shipped is that worktree AS IT
              STANDS (tracked files with their uncommitted edits, plus untracked non-ignored files;
              .wt-*/, videos/ and .claude/ are left out). With --ref, `git archive REF` is shipped instead.
-  --host     force a host. Default: the first host whose ~/suite.lock is free (`flock -n`), ci2 first;
-             if both are busy, queue on the host with fewer flock holders+waiters (ties -> ci2).
+  --host     force a host. Default: host_plan -- lock-free hosts first (ci2 first), then busy ones by fewer flock
+             holders+waiters; a host without npm or this lock's node_modules cache is seeded from one that has it,
+             and a host whose seed or prep fails is skipped for the next (FALLBACK below).
   --filter   passed to run-tests.mjs as its file-name filter (argv[2]).
   --log      local copy of the log (default /tmp/suite-run/<label>.<host>.log). The remote log is
              ~/ci/<label>.log on the host; the tree is ~/ci/<label>/ (bots/node_modules removed after).
@@ -43,6 +44,14 @@ SUITE DEADLINE), the local wait = lock wait + suite + 10 min, and ssh unreachabl
 
 Old trees: a ~/ci/<label> directory whose log ended DONE more than PRUNE_MIN (12 h) ago, or whose log is over 24 h old, is removed at the next run on
 that host (ci2 held 40 GB of them, 12 GB free, on 11-06); the logs are kept.
+
+FALLBACK (incident 11-07). The fleet base moved to a new package-lock (ede0e5d23b1a); w30 has no npm and no seed tree, so
+its prep failed, and the old pick_host chose w30 every time ci2's lock was busy: 100 min of retries, then the autorebase ran the
+suite on the loaded fleet host. Now one probe per host reads (lock free, cache for THIS lock hash, npm, waiters), host_plan
+(PURE) orders the hosts and says which one needs its cache SEEDED from another host's (ssh src tar | ssh dst untar, over
+the Mac, into a .seed.tmp then mv, under the cache's flock), and a host whose seed or prep fails is skipped for the next
+one in the plan. Each failed try prints `attempt host=<h> result=<why>`; the `host=...` line is printed once, for the
+host that runs.
 
 node_modules: each host keeps ~/ci/.nm-cache/<sha256(package-lock)[:12]>/node_modules (made with
 `npm ci` where npm exists -- ci2 -- or seeded from an existing ~/ci/*/bots tree with an identical
@@ -75,27 +84,126 @@ def ssh(host, cmd, timeout=120, **kw):
         return subprocess.CompletedProcess(cmd, 255, '', f'ssh timed out after {timeout} s')
 
 
-def lock_free(host):
-    r = ssh(host, 'touch ~/suite.lock && flock -n ~/suite.lock true')
-    return r.returncode == 0
+def parse_probe(out):
+    """PURE. probe_cmd's stdout -> {'free', 'cache', 'npm': bool, 'waiters': int}, or None when the host did not answer."""
+    lines = (out or '').split()
+    if 'PROBED' not in lines:
+        return None
+    w = 0
+    for i, tok in enumerate(lines):
+        if tok == 'WAITERS' and i + 1 < len(lines) and lines[i + 1].isdigit():
+            w = int(lines[i + 1])
+    return {'free': 'FREE' in lines, 'cache': 'CACHE' in lines, 'npm': 'NPM' in lines, 'waiters': w}
 
 
-def lock_users(host):
-    # holders + waiters: every process whose argv starts with flock on this lock (grep's own argv starts with "grep")
-    r = ssh(host, "ps -eo args | grep -c '^flock .*suite\\.lock' || true")
+def probe_cmd(lock_hash):
+    h = lock_hash if lock_hash and re.match(r'^[0-9a-f]{12}$', lock_hash) else 'none'
+    return ('touch ~/suite.lock; flock -n ~/suite.lock true && echo FREE; '
+            f'test -d ~/ci/.nm-cache/{h}/node_modules && echo CACHE; '
+            '(PATH=$HOME/coopb5/node22/bin:$PATH; command -v npm >/dev/null) && echo NPM; '
+            "echo WAITERS $(ps -eo args | grep -c '^flock .*suite\\.lock'); echo PROBED")
+
+
+def host_plan(order, probes, forced=None):
+    """PURE. probes {host: parse_probe() or None} -> [(host, seed_from or None)], the order to try.
+    A host is READY when it holds the cache for this lock hash or has npm; otherwise it is tried with its cache seeded
+    from a host that holds it (busy or not: seeding reads the cache, not the lock). Lock-free hosts first (in `order`),
+    then busy ones by fewer waiters (ties in order). A host with neither is kept, LAST, with no seed (its prep may still
+    find a ~/ci tree to copy from). An unreachable host is left out. forced: only that host (seeded if it needs it)."""
+    up = {h: p for h, p in probes.items() if p is not None and h in order}
+    holders = [h for h in order if h in up and up[h]['cache']]
+
+    def seed(h):
+        if up[h]['cache'] or up[h]['npm']:
+            return None
+        return next((s for s in holders if s != h), False)
+    hosts = [forced] if forced else sorted(up, key=lambda h: (0, 0, order.index(h)) if up[h]['free']
+                                           else (1, up[h]['waiters'], order.index(h)))
+    plan, last = [], []
+    for h in hosts:
+        if h not in up:
+            continue
+        s = seed(h)
+        (last if s is False else plan).append((h, None if s is False else s))
+    return plan + last
+
+
+def one_line(why):
+    """PURE. A failure detail flattened to one line: it goes into the `host=...` record, which the relay parses per line."""
+    return ' '.join(str(why or '').split())
+
+
+def try_hosts(plan, seed, prep, failed=lambda h, what, why: None):
+    """Walk the plan: seed the host's cache when the plan says so, then prep it; a host whose seed or prep fails is skipped
+    for the next. seed(src, host) -> '' | why; prep(host) -> (result, '' | why); failed(host, 'seed-failed'|'prep-failed',
+    why) is told of each skip. -> (host, src, result, tried) -- host None when every host failed."""
+    tried = []
+    for host, src in plan:
+        bad = one_line(seed(src, host) if src else '')
+        if bad:
+            failed(host, 'seed-failed', bad)
+            tried.append(f'{host}: {bad}')
+            continue
+        res, bad = prep(host)
+        bad = one_line(bad)
+        if bad:
+            failed(host, 'prep-failed', bad)
+            tried.append(f'{host}: {bad}')
+            continue
+        return host, src, res, tried
+    return None, None, None, tried
+
+
+def lock_hash_of(wt, ref):
+    """sha256(bots/package-lock.json)[:12] as the run will see it (the ref's blob, or the worktree's file), or None."""
     try:
-        return int((r.stdout or '0').strip().splitlines()[-1])
-    except (ValueError, IndexError):
-        return 10 ** 6  # unreachable host sorts last
+        if ref:
+            data = subprocess.run(['git', '-C', wt, 'show', f'{ref}:bots/package-lock.json'], capture_output=True,
+                                  check=True).stdout
+        else:
+            data = open(os.path.join(wt, 'bots', 'package-lock.json'), 'rb').read()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    import hashlib
+    return hashlib.sha256(data).hexdigest()[:12]
 
 
-def pick_host():
-    for h in ORDER:
-        if lock_free(h):
-            return h, 'lock free'
-    counts = {h: lock_users(h) for h in ORDER}
-    h = min(ORDER, key=lambda x: (counts[x], ORDER.index(x)))
-    return h, f'both busy, queued on fewer waiters {counts}'
+def seed_dst_cmd(lock_hash):
+    """The destination half of a cache seed: untar into <hash>.seed.tmp under the cache flock, then mv into place. A cache
+    that appeared meanwhile is kept (the stream is drained)."""
+    h = lock_hash
+    return (f'set -e; mkdir -p ~/ci/.nm-cache; cd ~/ci/.nm-cache; exec 9>.lock; flock -w 1200 9; trap "rm -rf {h}.seed.tmp" EXIT; '
+            f'if [ -d {h}/node_modules ]; then cat >/dev/null; echo present; exit 0; fi; '
+            f'rm -rf {h}.seed.tmp; mkdir {h}.seed.tmp; tar -xzf - -C {h}.seed.tmp; test -d {h}.seed.tmp/{h}/node_modules; '
+            f'rm -rf {h}; mv {h}.seed.tmp/{h} {h}; rmdir {h}.seed.tmp; echo seeded')
+
+
+def seed_cache(src, dst, lock_hash, timeout_s=1200):
+    """Copy ~/ci/.nm-cache/<hash> from src to dst through this machine (the test hosts have no keys to each other).
+    -> '' on success, else why not."""
+    if not lock_hash or not re.match(r'^[0-9a-f]{12}$', lock_hash):
+        return 'no lock hash'
+    prod = subprocess.Popen(SSH + [HOSTS[src], f'tar -czf - -C ~/ci/.nm-cache {lock_hash}'], stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL)
+    try:
+        cons = subprocess.Popen(SSH + [HOSTS[dst], seed_dst_cmd(lock_hash)], stdin=prod.stdout, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        prod.stdout.close()
+        try:
+            out, err = cons.communicate(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            cons.kill(); prod.kill()
+            return f'seed took over {timeout_s // 60} min'
+        try:
+            prc = prod.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            prod.kill(); prc = -9
+    finally:
+        if prod.poll() is None:
+            prod.kill()
+    if cons.returncode != 0 or ('present' not in out and prc != 0):
+        return f'seed {src}->{dst} failed (tar {prc}, untar {cons.returncode}): {(err or "").strip()[:200]}'
+    return ''
 
 
 def tree_files(wt):
@@ -111,6 +219,7 @@ def tree_files(wt):
 
 
 MIRROR = 'ci/.git-mirror.git'
+RESERVED_LABELS = ('.nm-cache', '.git-mirror.git')   # ~/ci/<label> is rm -rf'd; these name the caches
 PRUNE_MIN = 720          # 11-06: ci2's 58 GB root reached 86% on 3 days of trees (44 GB, 183 dirs); 12 h fits
 PRUNE_STALE_MIN = 1440   # a tree whose log never ended DONE (killed / hung) is dead after the 60-min deadlines
 SSH_DOWN_S = 600
@@ -234,9 +343,11 @@ def remote_fixup(host, dest, deleted, added, timeout_s=300):
 
 def prune_cmd(done_min=PRUNE_MIN, stale_min=PRUNE_STALE_MIN):
     """PURE. The remote prune: a ~/ci/<label> tree goes when its log ended DONE over done_min minutes ago, or its log is
-    over stale_min minutes old whatever it says (a killed or hung run). Logs and the git mirror are kept."""
+    over stale_min minutes old whatever it says (a killed or hung run). Logs, the git mirror and the node_modules cache
+    (~/ci/.nm-cache) are kept, even if a stray .nm-cache.log / .git-mirror.git.log exists."""
     return (f'cd ~/ci 2>/dev/null || exit 0; find . -maxdepth 1 -name "*.log" -mmin +{done_min} -print0 | '
-            f'while IFS= read -r -d "" l; do d="${{l%.log}}"; [ -d "$d" ] || continue; '
+            f'while IFS= read -r -d "" l; do d="${{l%.log}}"; case "$d" in ./.nm-cache|./.git-mirror.git) continue;; esac; '
+            f'[ -d "$d" ] || continue; '
             f'if tail -n 1 "$l" | grep -q "^DONE rc=" || [ -n "$(find "$l" -mmin +{stale_min})" ]; then rm -rf -- "$d"; fi; done; true')
 
 
@@ -316,17 +427,54 @@ def main():
     label = a.label or f'{os.path.basename(wt)}-{sha}-{stamp}'
     label = ''.join(c if c.isalnum() or c in '-_.' else '-' for c in label)
 
-    if a.host:
-        host, why = a.host, 'forced'
-    else:
-        host, why = pick_host()
+    if label in RESERVED_LABELS:
+        sys.exit(f'suite-run: label {label!r} is reserved (it names a cache under ~/ci)')
     dest = f'ci/{label}'
     rlog = f'ci/{label}.log'
+    lh = lock_hash_of(wt, a.ref)
+    probes = {h: parse_probe(ssh(h, probe_cmd(lh), timeout=60).stdout) for h in ORDER}   # all: a forced host may need a seed
+    plan = host_plan(ORDER, probes, forced=a.host)
+    if not plan:
+        sys.exit(f'suite-run: no test host answered ({", ".join(ORDER if not a.host else [a.host])})')
+
+    def seed(src, host):
+        return seed_cache(src, host, lh)
+
+    def prep(host):
+        prune_remote(host)
+        return prepare(host, wt, a, sha_full, sha, label, dest)
+
+    def failed(host, what, bad):
+        print(f'attempt host={host} result={what} {bad}', flush=True)
+        if what == 'prep-failed':
+            ssh(host, f'rm -rf ~/{dest}', timeout=600)     # no log is written, so the prune would never find it
+    host, src, git_ctx, tried = try_hosts(plan, seed, prep, failed)
+    if host is None:
+        sys.exit('suite-run: no host could prepare the run -- ' + ' | '.join(tried))
+    why = 'forced' if a.host else (
+        'lock free' if probes[host]['free'] else
+        f'busy, queued on fewer waiters { {h: p["waiters"] for h, p in probes.items() if p} }')
+    if src:
+        why += f'; node_modules cache seeded from {src}'
+    if tried:
+        why += '; after ' + ' | '.join(tried)
     llog = a.log or f'/tmp/suite-run/{label}.{host}.log'
     print(f'host={host} ({HOSTS[host]}; {why}) label={label} sha={sha}{" (worktree as it stands)" if not a.ref else ""} '
           f'remote_log=~/{rlog} local_log={llog}', flush=True)
-    prune_remote(host)
+    return run_suite(host, a, label, dest, rlog, llog, git_ctx)
 
+
+def ship_or_why(host, wt, ref, dest, timeout_s, files):
+    """ship(), with its exit turned into a reason (an upload failure falls back to the next host, Codex r1)."""
+    try:
+        ship(host, wt, ref, dest, timeout_s=timeout_s, files=files)
+    except SystemExit as e:
+        return str(e) or 'shipping failed'
+    return ''
+
+
+def prepare(host, wt, a, sha_full, sha, label, dest):
+    """Ship the tree to one host and prep node_modules there. -> (git_ctx, '' or why it failed)."""
     git_ctx = not a.no_git
     if git_ctx:
         why_not = push_mirror(host, wt, sha_full, label) or remote_checkout(host, dest, sha_full)
@@ -336,20 +484,31 @@ def main():
     if git_ctx:
         if not a.ref:
             files, deleted, added = worktree_overlay(wt)
-            ship(host, wt, None, dest, timeout_s=a.upload_min * 60, files=files)
+            bad = ship_or_why(host, wt, None, dest, a.upload_min * 60, files)
+            if bad:
+                return git_ctx, bad
             bad = remote_fixup(host, dest, deleted, added)
             if bad:
-                sys.exit(f'suite-run: {bad}')
+                return git_ctx, bad
         print(f'git context: a checkout of {sha} on {host}' + ('' if a.ref else ' with this worktree laid over it'), flush=True)
     else:
         ssh(host, f'rm -rf {dest}', timeout=600)
-        ship(host, wt, a.ref, dest, timeout_s=a.upload_min * 60, files=None if a.ref else tree_files(wt))
-    r = subprocess.run(SSH + [HOSTS[host], 'bash -s -- ' + shlex.quote(f'/home/mike/{dest}')],
-                       input=REMOTE_PREP, text=True, capture_output=True, timeout=20 * 60)
+        bad = ship_or_why(host, wt, a.ref, dest, a.upload_min * 60, None if a.ref else tree_files(wt))
+        if bad:
+            return git_ctx, bad
+    try:
+        r = subprocess.run(SSH + [HOSTS[host], 'bash -s -- ' + shlex.quote(f'/home/mike/{dest}')],
+                           input=REMOTE_PREP, text=True, capture_output=True, timeout=20 * 60)
+    except subprocess.TimeoutExpired:
+        return git_ctx, 'node_modules prep took over 20 min'
     if r.returncode != 0:
-        sys.exit(f'suite-run: node_modules prep on {host} failed: {r.stderr.strip()}')
-    print(f'node {r.stdout.strip()} on {host}; tree ~/{dest}', flush=True)
+        print(f'suite-run: node_modules prep on {host} failed: {r.stderr.strip()}', flush=True)
+        return git_ctx, f'node_modules prep failed (rc {r.returncode}): {r.stderr.strip()[-200:]}'
+    print(f'node {r.stdout.strip()} on {host}', flush=True)
+    return git_ctx, ''
 
+
+def run_suite(host, a, label, dest, rlog, llog, git_ctx):
     filt = (' ' + shlex.quote(a.filter)) if a.filter else ''
     cleanup = '' if a.keep else f'; rm -rf ~/{dest}/bots/node_modules'
     lock_s, suite_s = a.lock_wait_min * 60, a.suite_min * 60
