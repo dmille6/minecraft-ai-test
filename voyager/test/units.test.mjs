@@ -230,3 +230,11 @@ test('an external stop disposes the run at once (Codex r2 B2)', async () => {
   assert.equal(killed, 'stopped')
   assert.ok(Date.now() - t0 < 2000)
 })
+
+test('the showcase guard backs off only guarded arms (owner 11-07)', async () => {
+  const { guardEffect } = await import('../proxy/proxy.mjs')
+  assert.deepEqual(guardEffect({ guarded: true }, 0), { paused: false, factor: 1 })
+  assert.deepEqual(guardEffect({ guarded: true }, 1), { paused: false, factor: 4 })
+  assert.deepEqual(guardEffect({ guarded: true }, 2), { paused: true, factor: 1 })
+  assert.deepEqual(guardEffect({}, 2), { paused: false, factor: 1 })
+})

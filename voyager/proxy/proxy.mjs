@@ -93,6 +93,28 @@ export function rebuildControl (arm, body) {
   return out
 }
 
+// THE STUDIO IS SHARED (owner 11-07): arms in the same `group` never run concurrently (they alternate), and the showcase
+// guard (watch/studio_guard.py writes cfg.guardFile) backs `guarded` arms off: level 1 = 4x the duty gap, level 2 = paused.
+// A guard file older than 5 min counts as level 1: if the guard dies, the local arms slow down rather than run free.
+const groupBusy = new Map()
+let guard = { level: 0, reason: 'no guard file yet' }
+function readGuard () {
+  if (!cfg.guardFile) return
+  try {
+    const g = JSON.parse(fs.readFileSync(cfg.guardFile, 'utf8'))
+    const age = Date.now() - Date.parse(g.at)
+    const next = age > 300_000 ? { level: Math.max(1, g.level ?? 0), reason: `guard stale (${Math.round(age / 1000)} s)` } : { level: g.level ?? 0, reason: g.reason ?? '' }
+    if (next.level !== guard.level) row({ event: 'guard_level', from: guard.level, to: next.level, reason: next.reason })
+    guard = next
+  } catch { if (guard.level < 1) { row({ event: 'guard_level', from: guard.level, to: 1, reason: 'guard file unreadable' }); guard = { level: 1, reason: 'guard file unreadable' } } }
+}
+if (cfg.guardFile) { readGuard(); setInterval(readGuard, 15_000).unref() }
+/** The guard's effect on one arm. Pure. */
+export function guardEffect (arm, level) {
+  if (!arm.guarded || !level) return { paused: false, factor: 1 }
+  return level >= 2 ? { paused: true, factor: 1 } : { paused: false, factor: 4 }
+}
+
 function serveArm (name, arm) {
   const dir = path.join(cfg.socketDir ?? '/run/voyager', name)
   const sock = path.join(dir, 'llm.sock')
@@ -119,6 +141,12 @@ function serveArm (name, arm) {
     if (hourCalls >= (arm.perHour ?? 300)) return send(429, { error: 'hourly call cap reached' })
     if (inflight >= (arm.inflight ?? 1)) return send(429, { error: 'one request at a time' })
     if (arm.paused) return send(503, { error: 'arm paused by the operator' })
+    if (inflight >= (arm.inflight ?? 1)) return send(429, { error: 'one request at a time' })
+    // a guard pause and the other arm's turn are WAITED out (bounded), so the loop does not burn its rounds on refusals
+    for (let w = 0; guardEffect(arm, guard.level).paused && w < 240; w++) await new Promise(r => setTimeout(r, 500))
+    if (guardEffect(arm, guard.level).paused) return send(503, { error: `paused by the showcase guard: ${guard.reason}` })
+    for (let w = 0; arm.group && groupBusy.get(arm.group) && w < 600; w++) await new Promise(r => setTimeout(r, 500))
+    if (arm.group && groupBusy.get(arm.group)) return send(429, { error: `another arm on ${arm.group} is still running` })
     // max_tokens must be a whole number 1..arm.maxTokens: a NaN or negative value must never reach the spend cap (review 11)
     const cap = arm.maxTokens ?? 4096
     const mt = body.max_tokens == null ? 2048 : Number(body.max_tokens)
@@ -126,6 +154,7 @@ function serveArm (name, arm) {
     body.max_tokens = mt
     if (body.messages != null && !Array.isArray(body.messages)) return send(400, { error: 'messages must be a list' })
     inflight++; hourCalls++          // counted BEFORE the duty-cycle wait, so a second request is refused meanwhile
+    if (arm.group) groupBusy.set(arm.group, name)
     const wait = nextFree - Date.now()
     if (wait > 0) await new Promise(r => setTimeout(r, Math.min(wait, 120_000)))
     const t0 = Date.now()
@@ -168,7 +197,9 @@ function serveArm (name, arm) {
       return send(502, { error: String(e?.message ?? e).slice(0, 200) })
     } finally {
       inflight--
-      if (arm.dutyFactor) nextFree = Date.now() + (Date.now() - t0) * arm.dutyFactor
+      if (arm.group && groupBusy.get(arm.group) === name) groupBusy.delete(arm.group)
+      const factor = (arm.dutyFactor ?? 0) * guardEffect(arm, guard.level).factor
+      if (factor) nextFree = Date.now() + (Date.now() - t0) * factor
     }
   })
   server.listen(sock, () => {
