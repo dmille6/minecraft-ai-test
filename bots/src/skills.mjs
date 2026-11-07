@@ -213,6 +213,7 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
+import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -17546,7 +17547,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const order0 = b ? decorOrder(b, marked, order00, now) : order00
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
+    const pick0 = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
+    // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, every read of the active project (the reserve, the draw, the bag)
+    // names the tidy the visit is on, never the forest the order skipped (shop.mjs roomFallbackPick)
+    const pick = (!visit && roomFallbackPick(b?.roomFallback ?? null, now, !!b?.shopVisitBusy) && list.find(p => p.plot === TIDY_PLOT)) || pick0
     if (visit) noteRepair(rmem, pick, states, now)
     if (visit && b) serviceBegin(b, svc, pick, now)
     return pick
@@ -21140,7 +21144,10 @@ async function buildShopVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
-  const proj = shopActive(bot, Date.now(), { visit: true })
+  // gkroom-01 (shop.mjs roomFallback): the keeper's room fallback names the tidy; every other order the active project, as before
+  const proj = (args?.why === 'room_fallback' && args?.plot === TIDY_PLOT && projectsOn().find(p => p.plot === TIDY_PLOT)) || shopActive(bot, Date.now(), { visit: true })
+  bot.roomFallback = proj.plot === TIDY_PLOT && args?.why === 'room_fallback' ? { at: Date.now() } : null   // gkroom-01: the visit's reads name it
+  if (bot.roomFallback && bot.projReserve) bot.projReserve.at = -Infinity   // gkroom-01 (Codex r1): the reserve is read again, for the tidy
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
   bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
   bot.shopVisitPlot = proj.plot   // sinkfix-01: the plot this visit's outcome is noted against (buildShop)
@@ -24070,6 +24077,12 @@ setIdleNow(plot => {
   return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && gkwClosing(b?.gkwPending ?? null) })   // gkwork-01 rule 2
 })
 /** Does THIS bot hold the town's KEEPER lease itself (never a helper lease) now? Never throws. */
+// gkroom-01: the keeper's tidy read for shop.mjs roomFallback -- the lease itself (never a helper) and a tidy record open or due
+setTidyWork(() => {
+  const b = activeMem?.bot ?? null
+  if (!b || !keeperLeaseNow(b)) return { keeper: false, tidyWork: false }
+  try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return { keeper: true, tidyWork: !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)) } } catch { return { keeper: true, tidyWork: false } }
+})
 function keeperLeaseNow (bot, now = Date.now()) {
   if (!GROUNDS.on || !bot) return false
   try { const l = projLeaseState(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, { ttl: GK.leaseTtlMs }); return !!l && l.rec?.holder === keeperMe(bot) && now < l.holdsUntil } catch { return false }
