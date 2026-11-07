@@ -20,6 +20,7 @@ import { bankableInventory, depositDue } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
+import { craftRoom, roomRecipe } from './craftroom.mjs'
 // The peaceful kit (peacefulkit.mjs): no sword is offered while the food policy's switch is active.
 import { peacefulFoodActive } from './foodskip.mjs'
 import { isSword } from './peacefulkit.mjs'
@@ -553,7 +554,8 @@ export function craftableNow (bot, milestone = null, wantedSet = null, noRoomIte
     // A carried table can be placed; a PLACED one within reach counts too.
     const access = tableAccess(bot)
     const hasTable = access.has
-    const made = []
+    const made = [], noRoom = []
+    const roomGate = craftOfferRoomOn()
     const peaceful = peacefulFoodActive()   // never advise a craft admission refuses (peacefulkit.mjs swordCraftRefusal)
     for (const name of CRAFT_TARGETS) {
       if (peaceful && isSword(name)) continue
@@ -564,10 +566,15 @@ export function craftableNow (bot, milestone = null, wantedSet = null, noRoomIte
       const it = bot.registry?.itemsByName?.[name]
       if (!it) continue
       const r = bot.recipesFor(it.id, null, 1, hasTable ? true : null)
-      if (r && r.length) made.push(name)
+      if (r && r.length) {
+        // CRAFTROOM-02: a craft the bag has no slot for is NOT ADVERTISED (offerFits): it is named as needing room instead
+        if (roomGate && !offerFits(items, bot.registry, r[0], name)) { if (noRoom.length < 4) noRoom.push(name); continue }
+        made.push(name)
+      }
       if (made.length >= 6) break
     }
-    if (!made.length) return ''
+    const roomNote = noRoom.length ? noRoomLine(noRoom) : ''
+    if (!made.length) return roomNote
     // SAY WHICH, because the two need different next actions: one is "put it
     // down", the other is "walk to it", and telling a bot to place a table it
     // does not carry is a remedy it cannot perform.
@@ -577,9 +584,33 @@ export function craftableNow (bot, milestone = null, wantedSet = null, noRoomIte
         ? ` (a crafting_table is already placed at ${access.near.position.x},` +
           `${access.near.position.y},${access.near.position.z} — craft will walk to it)`
         : ''
-    return `CAN CRAFT NOW: ${made.join(', ')}${how}`
+    return `CAN CRAFT NOW: ${made.join(', ')}${how}` + (roomNote ? `\n${roomNote}` : '')
   } catch { return '' }
 }
+
+/**
+ * CRAFTROOM-02 (wasted attempts 11-07, docs/reports/wasted-attempts-2026-11-07.md): DOES ONE CRAFT OF `name` FIT THE BAG?
+ * -> boolean. Pure over (items, registry, recipe). craftroom.mjs's own slot simulation (ingredients leave first, the result
+ * joins a non-full stack or takes a new slot) -- the check the craft skill runs after the decision, asked before it.
+ * Unknown answers fit (a recipe that cannot be read is the skill's to judge, as before).
+ * MEASURED (fleet .31, 24 h to 11-07): 300 craft runs failed for room ("home -- then deposit X: banking is refused out
+ * here" 209 decisions, "no slot can be freed from here" 91); CAN CRAFT NOW had LISTED the very item in 210 of them.
+ */
+export function offerFits (items, registry, recipe, name) {
+  try {
+    const plan = roomRecipe(registry, recipe, name)
+    if (!plan?.result) return true
+    const room = craftRoom(items, plan, 1)
+    return room.ok || room.reason !== 'no_room'
+  } catch { return true }
+}
+/** The line naming the crafts withheld for room, with remedies the bot can perform. Pure. */
+export function noRoomLine (names = []) {
+  return names.length ? `NO ROOM TO CRAFT: ${names.join(', ')} -- the bag has no free slot for the result; free one first ` +
+    `(place a block you carry, or deposit at the town chest: home then deposit)` : ''
+}
+/** CRAFTROOM_OFFER=0 is the rollback (the line lists every craft the recipes allow, as before). */
+export const craftOfferRoomOn = (env = process.env) => String(env?.CRAFTROOM_OFFER ?? '1').trim() !== '0'
 
 /**
  * CAN SMELT NOW -- the observation without which `smelt` is present, not shipped.
