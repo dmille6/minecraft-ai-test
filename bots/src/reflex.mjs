@@ -73,7 +73,7 @@ import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plu
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimNoPlanBackoffMs, swimUnderRowDetail, startCells } from './swimunder.mjs'
 import { escDeadOn, pinStep, pinnedFor, pinMinMs, swimSearchFor, breachPlan, breachAdmit, floodBreach, breachBackoffMs, breachRowDetail, BREACH_DIG_MS } from './escdead.mjs'   // escdead-01
-import { escPocketOn, pocketDigOk, pocketDigPlan, pocketDigDetail, POCKET_DIG_MS, trapSiteFrom, inTrap, swimTierFor } from './escdead.mjs'   // escpocket-01
+import { escPocketOn, pocketDigOk, pocketDigPlan, pocketDigDetail, pocketDig, POCKET_DIG_MS, trapSiteFrom, inTrap, swimTierFor } from './escdead.mjs'   // escpocket-01
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
@@ -1884,6 +1884,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // dig's kind, not guarded (a build record, a zone), and diggable from this floating stance inside POCKET_DIG_MS.
     let pocket = null
     if (!plan.ok && wide.radius && pocketOn && headAirNow) {
+      // the time is the ACTUATOR'S tool's: bestTool = applyToolPolicy = toolFor(block, items, { pinned: pinnedNow }) -- the same
+      // choice, read here without applyToolPolicy's hand swap (a planning read must not equip anything; Claude r1 note)
       const items = bot.inventory?.items?.() ?? []
       const pinned = pinnedNow(bot)
       const digOk = (b) => {
@@ -1954,29 +1956,23 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (res.outcome === 'out' && pocketOn) recordTrap(trapSiteFrom({ start, route: plan.route, via: pocket ? 'pocket_dig' : 'swim', by: bot.username }))
     return res
   }
-  // escpocket-01: the pocket dig's actuator -> null (dug, the swim plan re-made on the live world: go on) | a swim result
-  // ({ outcome: 'yielded' | 'failed', why }) that ends the firing. Ownership before every swing (the swim's own predicates).
+  // escpocket-01: the pocket dig (escdead.mjs pocketDig: the body floats in place, ownership and air every tick) -> null (dug,
+  // the swim re-planned on the live world: go on) | a swim result ({ outcome: 'yielded' | 'failed', why }) that ends the firing
   const pocketDigRun = async (pd, { alive, yieldTo, start, wide, at }) => {
-    const out = (outcome, why, dug = 0) => ({ outcome, why, len: pd.plan?.route?.length ?? 0, dug })
-    let dug = 0
-    for (const c of pd.dig) {
-      const b = at(...c)
-      if (!b || b.boundingBox !== 'block') continue                 // already open
-      if (!pocketDigOk(b) || !guardMay(bot, b)) return out('failed', `the pocket dig cell ${c.join(',')} is now ${b.name}`, dug)
+    // THE SWING: ownership before AND after the equip (Codex r1 BLOCKER 3: a yielded swing never changes the new owner's hand)
+    const dig = async (b, lost) => {
       const tool = bestTool(bot, b)
+      if (lost()) throw new Error('ownership lost before the equip')
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
-      if (!alive()) return out('yielded', 'ownership lost before the pocket dig', dug)
-      const y = yieldTo(); if (y) return out('yielded', `yielded: ${y} before the pocket dig`, dug)
-      const err = await digBounded(bot, b, POCKET_DIG_MS).then(() => null, e => e?.message ?? String(e))
-      const after = at(...c)
-      if (after && after.boundingBox === 'block') return out('failed', `the pocket dig left ${after.name} at ${c.join(',')}${err ? `: ${err}` : ''}`, dug)
-      dug++
+      if (!guardMay(bot, b)) throw new Error(`the ${b.name} is guarded`)
+      if (lost()) throw new Error('ownership lost after the equip')
+      await digBounded(bot, b, POCKET_DIG_MS)
     }
-    // the water comes in (a falling column refills in a tick or two; a side flow in ~5 ticks)
-    for (let w = 0; w < 10 && !pd.dig.every(c => isWaterCell(at(...c))); w++) await sleep(100)
-    if (!alive()) return out('yielded', 'ownership lost after the pocket dig', dug)
+    const r = await pocketDig(bot, { pd, dig, alive, yieldTo, oxygen: () => bot.oxygenLevel })
+    const len = pd.plan?.route?.length ?? 0
+    if (r.outcome !== 'dug') return { outcome: r.outcome, why: r.why, len, dug: r.dug }
     const re = swimUnderPlan({ at, start, ...wide })
-    if (!re.ok) return out('failed', `pocket dug (${dug}) but no swim out: ${re.reason}`, dug)
+    if (!re.ok) return { outcome: 'failed', why: `pocket dug (${r.dug}) but no swim out: ${re.reason}`, len, dug: r.dug }
     pd.plan = re
     return null
   }
@@ -6711,17 +6707,23 @@ export function restRoofFloodRisk (bot) {
  * pinned 5 h+ (swimunder: "3 water cells searched", narrow and wide). The early checks read only feet+2 (the head0 check,
  * restRoofFloodRisk); the cap was feet+4. So from a WET start the column is scanned up to the first block within the climb,
  * and that block is read with the same overheadBreakRisk the climb will ask at the top (submerged as the body will be there).
- * A cap at feet+2 or lower is the existing checks' (null here). Dry starts are unchanged.
+ * A cap at feet+2 or lower is the existing checks' (null here), and so is a column with a dry side opening below its cap (the
+ * climb stops there). Dry starts are unchanged.
  */
 export function columnCapRisk ({ at = () => null, feet, maxUp = PILLAR_MAX_BLOCKS } = {}) {
   if (!Array.isArray(feet) || feet.length !== 3) return null
   const [x, y, z] = feet
   if (!isWaterCell(at(x, y, z))) return null
+  // A SIDE WAY OUT BELOW THE CAP (Codex r1 BLOCKER 2): the climb stops wherever it can step off (pillarOut's canStartAPath), so a
+  // dry opening beside the column at the body's two heights, anywhere the climb passes under the cap, is no refusal here
+  const dry = b => !!b && bodyPassable(b) && !isWaterCell(b) && !isLavaCell(b)
+  const sideOut = fy => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => dry(at(x + dx, fy, z + dz)) && dry(at(x + dx, fy + 1, z + dz)))
   for (let cy = y + 1; cy <= y + 2 + maxUp; cy++) {
     const b = at(x, cy, z)
     if (!b) return null
     if (b.boundingBox !== 'block') continue
     if (cy <= y + 2) return null
+    for (let fy = y; fy <= cy - 2; fy++) if (sideOut(fy)) return null
     const sub = isWaterCell(at(x, cy - 1, z)) && isWaterCell(at(x, cy - 2, z))
     const reason = overheadBreakRisk({ at: (dx, dy, dz) => at(x + dx, cy + dy, z + dz), submerged: sub })
     return reason ? { cap: [x, cy, z], reason } : null

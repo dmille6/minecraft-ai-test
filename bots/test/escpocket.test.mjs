@@ -36,7 +36,7 @@ const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  $
 
 const ED = await import('../src/escdead.mjs')
 const { pocketDigPlan, pocketDigOk, trapSiteFrom, trapCellSet, trapStepCost, inTrap, swimTierFor, SU_WIDE, PIN_MIN_MS, TRAP_TTL_MS,
-  TRAP_STEP_COST, POCKET_DIG_MS, breachPlan, escPocketOn, pocketDigDetail, escPocketModeDetail } = ED
+  TRAP_STEP_COST, POCKET_DIG_MS, breachPlan, escPocketOn, pocketDigDetail, escPocketModeDetail, pocketDig, POCKET_ABORT_OXYGEN } = ED
 const { swimUnderPlan, swimUnder, startCells, exitKind, SU_MAX_WET_RUN } = await import('../src/swimunder.mjs')
 const { overheadBreakRisk } = await import('../src/scaffold.mjs')
 const { predictedDigMs } = await import('../src/digbudget.mjs')
@@ -97,7 +97,7 @@ function simBot (world, feet) {
     blockAt (p) { return world.getBlock(p) },
     once (ev, fn) { if (ev === 'physicsTick') ls.push(fn) },
     removeListener (ev, fn) { const i = ls.indexOf(fn); if (i >= 0) ls.splice(i, 1) },
-    ticks: 0, control,
+    ticks: 0, control, stopped: 0, stopDigging () { this.stopped++ },
   }
   bot.tick = () => {
     physics.simulatePlayer(new PlayerState(bot, control), world).apply(bot)
@@ -181,6 +181,54 @@ await t('P3 the dig is reachable and fits its bound from the floating stance: ey
   assert.ok(Number.isFinite(ms) && ms <= POCKET_DIG_MS, `dig ${ms} ms`)
   assert.equal(pocketDigOk(w.at(...PLUG)), true)
 })
+// drive an async actuator over the physics ticks
+async function drive (bot, promiseOf, maxTicks = 1500, each = () => {}) {
+  let done = false, res = null
+  const p = promiseOf().then(r => { done = true; res = r })
+  for (let i = 0; i < maxTicks && !done; i++) { await new Promise(r => setImmediate(r)); bot.tick(); each(bot) }
+  if (!done) throw new Error(`actuator still running after ${maxTicks} ticks`)
+  await p
+  return res
+}
+await t('P6 BEHAVIOUR (prismarine-physics): the pocket dig on LIVE floats the body in place for a 3.75 s swing (the head never under), the plug becomes falling water, and the re-planned swim reaches dry 356,55,177', async () => {
+  const w = worldOf(FX, LIVE)
+  const bot = simBot(w, [358.5, 58.2, 180.5]); settle(bot)
+  const pd = pocketDigPlan({ at: w.at, start: feetCell(bot), eye: [bot.entity.position.x, bot.entity.position.y + 1.62, bot.entity.position.z], ...SU_WIDE })
+  assert.deepEqual(pd.dig, [PLUG])
+  let wetTicks = 0, minFeet = 99, calls = 0
+  const dig = (b) => { calls++; const t0 = bot.ticks; return new Promise(resolve => { const poll = () => { if (bot.ticks - t0 >= 75) { w.edits.set(PLUG.join(','), 'minecraft:water[level=8]'); resolve() } else bot.once('physicsTick', poll) }; poll() }) }
+  const r = await drive(bot, () => pocketDig(bot, { pd, dig, oxygen: () => bot.oxygenLevel }), 400, b => {
+    const eye = w.getBlock(b.entity.position.offset(0, 1.62, 0)); if (/water/.test(eye.name)) wetTicks++; minFeet = Math.min(minFeet, b.entity.position.y)
+  })
+  assert.equal(r.outcome, 'dug', r.why); assert.equal(r.dug, 1); assert.equal(calls, 1)
+  assert.equal(wetTicks, 0, `the head was under water ${wetTicks} ticks (lowest feet y ${minFeet.toFixed(2)})`)
+  assert.ok(r.minAir >= 19, `min air ${r.minAir}`); assert.equal(bot.control.jump, false, 'jump released after the dig')
+  const plan = swimUnderPlan({ at: w.at, start: feetCell(bot), ...SU_WIDE })
+  assert.ok(plan.ok, plan.reason)
+  const s2 = await runSwim(bot, plan)
+  assert.equal(s2.outcome, 'out', `${s2.why} at ${feetCell(bot)}`); assert.deepEqual(feetCell(bot), [356, 55, 177]); assert.equal(bot.health, 20)
+})
+await t('P7 OWNERSHIP: a yield mid-swing stops the dig and ends the firing (jump left to the new owner); a yield after the first of two swings never starts the second; the swing gets lost() to check around its equip', async () => {
+  const w = worldOf(FX, LIVE)
+  const bot = simBot(w, [358.5, 58.2, 180.5]); settle(bot)
+  let owned = true, got = null
+  const pd = { dig: [PLUG], plan: { route: [] } }
+  const r = await drive(bot, () => pocketDig(bot, { pd, alive: () => owned, dig: (b, lost) => { got = lost; return new Promise(() => {}) } }), 200, b => { if (b.ticks > 20) owned = false })
+  assert.equal(r.outcome, 'yielded'); assert.equal(bot.stopped, 1); assert.equal(typeof got, 'function'); assert.equal(bot.control.jump, true, 'the new owner\'s controls are not touched')
+  // two cells: the first swing completes, ownership is lost, the second never starts
+  const two = synth((x, y, z) => (x === 0 && z === 0) ? (y === 10 ? 'minecraft:water[level=0]' : y === 11 ? 'minecraft:air' : 'minecraft:stone') : 'minecraft:dirt')
+  const b2 = { blockAt: p => two.getBlock(p), setControlState () {}, once (e, fn) { setTimeout(fn, 1) }, removeListener () {}, stopDigging () {} }
+  let calls = 0, own2 = true
+  const r2 = await pocketDig(b2, { pd: { dig: [[1, 9, 0], [1, 10, 0]] }, alive: () => own2, dig: async () => { calls++; own2 = false } })
+  assert.equal(r2.outcome, 'yielded'); assert.equal(calls, 1)
+})
+await t('P8 AIR: a swing that runs while the air falls under POCKET_ABORT_OXYGEN is stopped and the firing fails (the swim never starts on a short breath)', async () => {
+  const two = synth((x, y, z) => (x === 0 && z === 0) ? (y === 10 ? 'minecraft:water[level=0]' : y === 11 ? 'minecraft:air' : 'minecraft:stone') : 'minecraft:dirt')
+  let ox = 20, stopped = 0
+  const b = { blockAt: p => two.getBlock(p), setControlState () {}, once (e, fn) { ox -= 1; setTimeout(fn, 1) }, removeListener () {}, stopDigging () { stopped++ } }
+  const r = await pocketDig(b, { pd: { dig: [[1, 9, 0]] }, oxygen: () => ox, dig: () => new Promise(() => {}) })
+  assert.equal(r.outcome, 'failed'); assert.match(r.why, /air \d+ of 20/); assert.equal(stopped, 1); assert.ok(ox < POCKET_ABORT_OXYGEN)
+})
 // a synthetic pocket: feet water at y=10 (x=0,z=0), head air, stone everywhere; the way out is a water room at x=2 behind ONE
 // block at x=1 (feet level) -- or, in variants, behind a block at head height, far away, or of a kind never dug
 const room = (opener, { y = 10, roomX = 2 } = {}) => synth((x, yy, z) => {
@@ -241,6 +289,15 @@ await t('C1 THE COLUMN CAP: from the re-entry cell (feet y=56, water) the open c
   assert.equal(columnCapRisk({ at: dry.at, feet: [0, 10, 0], maxUp: 24 }), null, 'a dry start is unchanged')
   const open = synth((x, y, z) => (x === 0 && z === 0 && y >= 10 && y <= 11) ? 'minecraft:water[level=0]' : (x === 0 && z === 0 && y >= 12 && y <= 13) ? 'minecraft:air' : (x === 0 && z === 0 && y === 14) ? 'minecraft:stone' : 'minecraft:stone')
   assert.equal(columnCapRisk({ at: open.at, feet: [0, 10, 0], maxUp: 24 }), null, 'positive control: a dry cap (stone over stone) is no refusal')
+})
+await t('C1b A SIDE WAY OUT BELOW THE CAP is the climb\'s (it stops there): a wet shaft with a dry side passage 3 up and a wet cap 6 up is NOT refused; the same shaft without the passage is', () => {
+  const shaft = (passage) => synth((x, y, z) => {
+    if (x === 0 && z === 0) return y <= 9 ? 'minecraft:stone' : y <= 11 ? 'minecraft:water[level=0]' : y <= 15 ? 'minecraft:air' : y === 16 ? 'minecraft:stone' : y === 17 ? 'minecraft:water[level=0]' : 'minecraft:stone'
+    if (passage && x === 1 && z === 0 && (y === 13 || y === 14)) return 'minecraft:air'
+    return 'minecraft:stone'
+  })
+  assert.equal(columnCapRisk({ at: shaft(true).at, feet: [0, 10, 0], maxUp: 24 }), null)
+  assert.ok(columnCapRisk({ at: shaft(false).at, feet: [0, 10, 0], maxUp: 24 }), 'positive control: no passage -> refused')
 })
 await t('C2 BEHAVIOUR: the pillar at the re-entry cell is refused BEFORE it places anything; the base (ESCPOCKET=0) places the block that became the plug', async () => {
   const w = worldOf(FX, PRE)
@@ -392,5 +449,21 @@ await t('M7 MUTANT KILLED: the column cap read at feet+2 too refuses where the b
   })
 })
 
+await t('M8 MUTANT KILLED: the pocket dig without the float hold lets the body sink under during the swing (P6 catches it)', async () => {
+  await withMutant(SRC.escdead, "      set('jump', true)\n      let done = false, err = null", "      let done = false, err = null", async m => {
+    const w = worldOf(FX, LIVE)
+    const bot = simBot(w, [358.5, 58.2, 180.5]); settle(bot)
+    let wet = 0
+    const dig = () => { const t0 = bot.ticks; return new Promise(resolve => { const poll = () => { if (bot.ticks - t0 >= 75) resolve(); else bot.once('physicsTick', poll) }; poll() }) }
+    await drive(bot, () => m.pocketDig(bot, { pd: { dig: [PLUG] }, dig, oxygen: () => bot.oxygenLevel }), 400, b => { if (/water/.test(w.getBlock(b.entity.position.offset(0, 1.62, 0)).name)) wet++ })
+    assert.ok(wet > 0, 'the mutant body kept its head in air: P6 would not catch it')
+  })
+})
+await t('M9 MUTANT KILLED: the cap preflight without the side-exit read refuses a climb that steps off below the cap (C1b catches it)', async () => {
+  await withMutant(SRC.reflex, '    for (let fy = y; fy <= cy - 2; fy++) if (sideOut(fy)) return null\n', '', async m => {
+    const shaft = synth((x, y, z) => (x === 0 && z === 0) ? (y <= 9 ? 'minecraft:stone' : y <= 11 ? 'minecraft:water[level=0]' : y <= 15 ? 'minecraft:air' : y === 16 ? 'minecraft:stone' : y === 17 ? 'minecraft:water[level=0]' : 'minecraft:stone') : (x === 1 && z === 0 && (y === 13 || y === 14)) ? 'minecraft:air' : 'minecraft:stone')
+    assert.notEqual(m.columnCapRisk({ at: shaft.at, feet: [0, 10, 0], maxUp: 24 }), null)
+  })
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
