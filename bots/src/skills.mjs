@@ -18665,7 +18665,8 @@ async function marketRun (ctx, args, signal) {
         args: { stop, profession: merchant?.profession ?? null, uuid: merchant?.uuid ?? null, sold: res?.sold ?? {}, earned: res?.earned ?? 0, spent: res?.spent ?? 0, bought: res?.bought ?? {} } })
     } catch { /* telemetry */ }
     mkLease(bot, Date.now(), { release: true })
-    return { status, stop, detail: `market_run: ${stop}${res?.earned ? ` (+${res.earned} emerald)` : ''}` }
+    const failClass = status === 'failed' ? (s === 'unreachable' ? 'no_path' : s === 'error' ? 'skill_error' : 'other') : undefined
+    return { status, stop, ...(failClass ? { failClass } : {}), detail: `market_run: ${stop}${res?.earned ? ` (+${res.earned} emerald)` : ''}` }
   }
   const plan = marketRunPlan(bot, Date.now(), { freeSlots: 36 - bot.inventory.items().length, health: bot.health ?? 20 })
   if (!plan.ok) return end('no_effect', `plan:${plan.why}`)
@@ -18844,7 +18845,7 @@ async function marketJobHeld (ctx, plan, signal, row) {
     const c = pick.cell
     try { await goto(ctx, { x: c.x, y: c.y, z: c.z, range: 3 }, signal, { until: Date.now() + 60_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
-    if (bot.entity.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) > 4.5) { row('failed', { op: 'skip', why: 'unreachable', block, cell: c }); return { status: 'failed', detail: 'market_job: unreachable' } }
+    if (bot.entity.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) > 4.5) { row('failed', { op: 'skip', why: 'unreachable', block, cell: c }); return { status: 'failed', failClass: 'no_path', detail: 'market_job: unreachable' } }
     // the cell read again at the click: the same cell still chosen (empty, open ground, outside the zone)
     const exist2 = (bot.findBlocks?.({ matching: jobIds, maxDistance: 64, count: 64 }) ?? []).map(p => ({ x: p.x, z: p.z }))
     const re = marketCell(blockAt, plan.cluster, { zones: townPlanZones(bot).zones, existing: exist2 })
@@ -18855,7 +18856,7 @@ async function marketJobHeld (ctx, plan, signal, row) {
     await bot.equip(it, 'hand')
     try { await bot.placeBlock(bot.blockAt(new Vec3(c.x, c.y - 1, c.z)), new Vec3(0, 1, 0)) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     await sleep(500, signal)
-    if (bot.blockAt(new Vec3(c.x, c.y, c.z))?.name !== block) { row('failed', { op: 'place_failed', block, cell: c }); return { status: 'failed', detail: 'market_job: the place did not land' } }
+    if (bot.blockAt(new Vec3(c.x, c.y, c.z))?.name !== block) { row('failed', { op: 'place_failed', block, cell: c }); return { status: 'failed', failClass: 'unverified', detail: 'market_job: the place did not land' } }
     const ledger = mkRead('jobs', [])
     mkWrite('jobs', [...(Array.isArray(ledger) ? ledger : []), { x: c.x, y: c.y, z: c.z, block, at: Date.now(), bot: bot.username, cluster: plan.cluster.n, uuids: plan.cluster.uuids }].slice(-200))
     row('success', { op: 'placed', block, cell: c, cluster: plan.cluster, d: pick.d })
