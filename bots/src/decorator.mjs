@@ -1120,3 +1120,15 @@ export function lawnWork ({ border = 0, stalled = false, meal = 0, feed = 0, she
 /** Every lawn and nursery box of a decor record -> (x, z) -> reason | null: the fern gather, the wild pick and a new nursery keep off a
  *  lawn (its plants are the lawn's) and its 7-spread. Pure. */
 export const lawnReserved = rec => { const c = lawnCentres(rec); return (x, z) => (c.some(a => Math.max(Math.abs(x - a[0]), Math.abs(z - a[2])) <= LAWN.spread) ? 'lawn' : null) }
+/**
+ * flowers-02 (Codex r1 BLOCKER): THE TOWN DRAW OF BONE MEAL ABOVE THE PARK'S KEEP -> matsWithdraw's `allow` (n, want, { others, here,
+ * taking }): at most `cap`, never more than the container holds, and never below `keep` in the TOWN as it reads AT THE TRANSFER (this
+ * container + every other, less the other bots' outstanding draws) -- a reading taken before the walk is stale when another bot drew
+ * meanwhile. Any other name: 0. Pure.
+ */
+export const mealAllow = (keep = NURSERY.mealKeep, cap = 1) => (n, want, o = {}) => {
+  if (n !== 'bone_meal') return 0
+  const town = (Number(o?.others?.bone_meal) || 0) + (Number(o?.here?.bone_meal) || 0)
+  const out = Math.max(0, Number(o?.taking?.bone_meal) || 0)
+  return Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.bone_meal) || 0, Number(cap) || 0, town - keep - out))
+}

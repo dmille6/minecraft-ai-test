@@ -231,7 +231,7 @@ import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { cellGuard } from './towndress.mjs'   // decorator-01: the nursery's guard
 import { dressOrphans } from './towndress.mjs'   // prodserve-01: a light whose host is gone
-import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE, decorBagRole, decorHedgeRole, decorPostRole, leavesOf, fencesOf, HEDGE_LEAVES, decorPostsOn, decorHedgesOn, FLOWER, flowersOn, upgradeWaits, upgradeCandidates, withUpgrade, flowerTargets, nurseryClearing, flowerWork, feedFernNeed, flowersOf, decorUpgradeRole, LAWN, lawnsOn, lawnSurvey, lawnGate, siteLawn, withLawn, lawnWork, lawnCentres, lawnReserved } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off; flowers-01: the flower supply + the border upgrade
+import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE, decorBagRole, decorHedgeRole, decorPostRole, leavesOf, fencesOf, HEDGE_LEAVES, decorPostsOn, decorHedgesOn, FLOWER, flowersOn, upgradeWaits, upgradeCandidates, withUpgrade, flowerTargets, nurseryClearing, flowerWork, feedFernNeed, flowersOf, decorUpgradeRole, LAWN, lawnsOn, lawnSurvey, lawnGate, siteLawn, withLawn, lawnWork, lawnCentres, lawnReserved, mealAllow } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off; flowers-01: the flower supply + the border upgrade
 import { setCompostDrive, setDecorFeed } from './composter.mjs'   // decorator-02: the compost drive's hook (townOrder); flowers-01: the feed ferns
 import { SMALL_FLOWERS as DECOR_FLOWERS, gatherTargets as decorGatherTargets } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
 import { DECORATE } from './shop.mjs'   // decorator-01: its switch
@@ -23528,7 +23528,8 @@ async function decorNursery (ctx, rec0, signal, deadline, need = DECOR.batchMax)
   }
   // Codex decorator-02 review (the same trap as the shears' iron): the town draw's default allowance (mats.mjs takeAllowed) knows no
   // bone meal (reserveKeyOf: null -> 0 allowed), so the draw took nothing; the decorator's own cap does (decorAllow)
-  if (want > bagMeal) { try { await matsWithdraw(ctx, { bone_meal: want - bagMeal }, signal, 30_000, matsReserve().table, decorAllow({ bone_meal: want - bagMeal })) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
+  // flowers-02 (Codex r1 BLOCKER, the lawn's draw; the nursery's had the same race): the park's keep judged at the transfer
+  if (want > bagMeal) { try { await matsWithdraw(ctx, { bone_meal: want - bagMeal }, signal, 30_000, matsReserve().table, FLOWERS_ON ? mealAllow(NURSERY.mealKeep, want - bagMeal) : decorAllow({ bone_meal: want - bagMeal })) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
   const e = decorEffects(bot, signal)
   try {
     const dig = async (q, kind) => {
@@ -23668,7 +23669,8 @@ async function decorLawn (ctx, signal, deadline) {
   if (countItem(bot, 'bone_meal') < 1) {
     const t = matsTownStock(bot)
     const spare = t && (t.coverage ?? 0) >= 0.8 ? Math.max(0, (Number(t.stock?.bone_meal) || 0) - NURSERY.mealKeep) : 0
-    if (spare > 0) { try { await matsWithdraw(ctx, { bone_meal: 1 }, signal, 30_000, matsReserve().table, decorAllow({ bone_meal: 1 })) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
+    // Codex r1 BLOCKER: the park's keep judged at the transfer (decorator.mjs mealAllow), never from the reading before the walk
+    if (spare > 0) { try { await matsWithdraw(ctx, { bone_meal: 1 }, signal, 30_000, matsReserve().table, mealAllow(NURSERY.mealKeep, 1)) } catch (err) { if (err?.aborted || signal?.aborted) throw err } check(signal) }
   }
   if (countItem(bot, 'bone_meal') < 1) { row('no_effect', { why: 'no_meal' }); return { ...out, why: 'no_meal' } }
   const pub = publishRecord(dir, key, cur => (cur && !lawnCentres(cur).some(a => Math.max(Math.abs(a[0] - s.lawn.at[0]), Math.abs(a[2] - s.lawn.at[2])) < LAWN.gap) ? withLawn(cur, s.lawn, { by: me }) : null), { by: me })
