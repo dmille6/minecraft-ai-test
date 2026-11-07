@@ -172,6 +172,7 @@ import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
+import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
@@ -23984,7 +23985,7 @@ setIdleNow(plot => {
   const b = activeMem?.bot ?? null
   const idle = (b?.shopIdle?.get?.(plot) ?? -Infinity) > Date.now()
   if (!idle || plot !== TIDY_PLOT) return idle
-  return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()) })
+  return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && gkwClosing(b?.gkwPending ?? null) })   // gkwork-01 rule 2
 })
 /** Does THIS bot hold the town's KEEPER lease itself (never a helper lease) now? Never throws. */
 function keeperLeaseNow (bot, now = Date.now()) {
@@ -24115,6 +24116,7 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 }
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
+const GKW_ON = gkworkOn()   // gkwork-01
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
 /** gklease-01: why this bot cannot work the grounds from where it is (groundskeeper.mjs groundsUnfit) -> why | null (switch off: null). */
 function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } }) : null } catch { return null } }
@@ -24920,7 +24922,10 @@ async function buildTidyVisit (ctx, args, signal) {
     let rw = rec, waivedN = 0
     try {
       // gkstall-01: the keeper's grounds waive after GK_WAIVE_AFTER visits, with room for a tenth of the stage (tidy.mjs gkWaiveOpts)
-      const waive = !caps.waive ? [] : GROUNDS.on ? wallWaiveDue(rec, gkWaivable(rec, r.deferred ?? []), gkWaiveOpts(rec, WALL_WAIVE_MAX)) : wallWaiveDue(rec, r.deferred ?? [])
+      const waive0 = !caps.waive ? [] : GROUNDS.on ? wallWaiveDue(rec, gkWaivable(rec, r.deferred ?? []), gkWaiveOpts(rec, WALL_WAIVE_MAX)) : wallWaiveDue(rec, r.deferred ?? [])
+      // gkwork-01 rule 4: a STALLED stage (stuck_on_cell: nothing else open) whose waiver room is spent waives the cells the town's stuck
+      // map has counted past the tenth (gkwork.mjs stallWaive), so the cells waiting on them become work
+      const waive = GKW_ON && GROUNDS.on && caps.waive && !waive0.length ? stallWaive(rec, gkWaivable(rec, r.deferred ?? []), { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
@@ -24971,16 +24976,32 @@ async function buildTidyVisit (ctx, args, signal) {
     const pw = (bot.gkParkWait ??= new Map()), pwk = String(rw.sitedAt ?? rh.head.gen)
     const parkWaits = crewHeld && !(r.placed > 0) ? (pw.get(pwk) ?? 0) + 1 : 0
     pw.set(pwk, parkWaits)
-    const crewHolds = crewHeld > 0 && parkWaits <= GK_PARK_WAITS
+    let crewHolds = crewHeld > 0 && parkWaits <= GK_PARK_WAITS
     // siteprep-01 r2 (Codex + Claude r2 BLOCKER 1): never complete over a prepping request's open work (its cuts may be given up by
     // this bot): the prep is verified, or retired at its expiry, first
     const prepHold = SITEPREP.on && (prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), k => tidyGivenUp(mem, k), bot.prepStalls)?.hold ?? 'none') !== 'none'
     if (prepHold) f.prepHold = 1
+    // GKWORK-01 rules 1 and 5: the TOWN counts the empty visits (gkwork.mjs: one strike file per holder); at GKW.emptyVisits the soft
+    // holds (the per-bot clears and park waits the keeper rotation never lets reach their bound) give way and the stage completes
+    let gkw = null
+    if (GKW_ON && GROUNDS.on && caps.complete) {
+      const empty = visitEmpty({ cutLeft: prog.cutLeft, fillLeft: prog.fillLeft, placed: r.placed, cleared: r.cleared, planted: r.planted, unread })
+      gkw = gkwVisit(dir, key, me, rw, { empty, worked: visitWorked(r) })
+      const held0 = { clearsOk, crewHolds }
+      ;({ clearsOk, crewHolds } = softHoldsGive({ clearsOk, crewHolds, close: gkw.close }))
+      if (empty) {
+        f.strikes = `${gkw.total}/${GKW.emptyVisits}`
+        try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: gkw.close ? 'stage_close' : 'stage_held', kind: heldWhy({ clearsLeft: tidyClearsLeft(rw, read2), clearsOk: held0.clearsOk, crewHeld, crewHolds: held0.crewHolds, unread, prep: prepHold, platform: platformUp(rw) }), n: gkw.total, visits: GKW.emptyVisits }) }) } catch { /* telemetry */ }
+      }
+      bot.gkwPending = empty && !gkw.close ? { at: Date.now() } : null
+    }
     // plotprep-01: never complete over a felling stand still standing (the keeper tears it down first: gkPlanAdditions)
     if (caps.complete && !crewHolds && !platformUp(rw) && !prog.cutLeft && !prog.fillLeft && !unread && clearsOk && !prepHold) {
       const now = Date.now()
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
-      completed = true
+      // gkwork-01 (Codex review BLOCKER): complete only when the publish was accepted or the record reads complete (this stage), so a
+      // rejected publish never keeps a keeper with nothing to do from rule 3's release
+      completed = !GKW_ON || pub.result === 'accepted' || (() => { try { const h3 = recordHead(dir, key); return !!(h3.ok && h3.head?.rec?.structure_complete && h3.head.rec.sitedAt === rw.sitedAt) } catch { return false } })()
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
       if (pub.result === 'accepted') {
         try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'complete', kind: TIDY_BLUEPRINT, gen: pub.gen ?? '-', n: prog.cutDone + prog.fillDone }) }) } catch { /* telemetry */ }
@@ -24993,6 +25014,12 @@ async function buildTidyVisit (ctx, args, signal) {
           } catch { /* the paths' own 24 h retry stands */ }
         }
       }
+    }
+    // GKWORK-01 rule 3: a keeper whose empty visit could not complete the stage although the town's strikes are in (a hard hold it
+    // cannot work from here) lets the lease go now and rests (gkwork.mjs keeperAfterVisit) -- never 20 min idle with it
+    if (gkw && keeperAfterVisit({ keeper: role === 'keeper', empty: gkw.empty, completed, close: gkw.close }) === 'release') {
+      try { const k = keeperState(bot, true); if (k.lease?.rec?.holder === me) { releaseKeeper(bot, k.lease, 'no_work_now'); bot.gkRestUntil = Date.now() + GK_FIT.restMs } } catch { /* the lease lapses */ }
+      bot.gkwPending = null
     }
     // gkhelpers-01: THE PARK GATHER -- a helper whose visit placed nothing (no fill of the grounds is its now), or the keeper at most
     // every GK.gatherEveryMs when its visit moved nothing, gathers the park's plants (parkGather); a HELPER that neither placed nor
