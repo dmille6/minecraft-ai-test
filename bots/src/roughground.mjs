@@ -255,7 +255,12 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
           // a crust over a hollow: opened only with the hollow filled after it, and dug only while nobody stands in it (1b)
           const u = underFill(x, rimMax, z)
           if (!u) bad = 'clump_hollow'
-          else { for (const b of blocks) if (b.at[0] === x && b.at[2] === z) b.hollow = u.map(a => a.at); under.push(...u) }
+          else {
+            const mine = blocks.filter(b => b.at[0] === x && b.at[2] === z)
+            for (const b of mine) b.hollow = u.map(a => a.at)
+            for (const a of u) a.opener = mine[mine.length - 1].at   // Codex 1b r1: never waived (gkWaivable / stallWaive)
+            under.push(...u)
+          }
         }
         if (bad) break
       }
@@ -306,7 +311,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       // visit digs before it fills (Codex r1 BLOCKER) -- the column is left, named
       const under = solidAt(x, m, z) ? [] : underFill(x, m, z)
       if (!under) { skip('smooth_hollow'); continue }
-      if (under.length) for (const b of blocks) b.hollow = under.map(a => a.at)
+      if (under.length) { for (const b of blocks) b.hollow = under.map(a => a.at); for (const a of under) a.opener = blocks[blocks.length - 1].at }   // Codex 1b r1: the fill names the cut that opens it (gkWaivable / stallWaive never waive it)
       order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.smoothed++; const id = `rm${out.pillars.length}`; out.pillars.push({ id, col: [x, z], top: y, base: m, h: blocks.length, kind: 'smooth' }); for (const b of blocks) cuts.push({ ...b, pillar: id }); if (under.length) { census.hollows++; out.pits.push({ id: `${id}u`, cols: [[x, z]], n: under.length, kind: 'under' }); for (const a of under) fills.push({ ...a, pit: `${id}u` }) } }])
     } else {
       if (m - y > T.fillMax) { skip('smooth_deep'); continue }

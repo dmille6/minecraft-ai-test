@@ -102,7 +102,8 @@ export const gkwClosing = (pending, now = Date.now(), G = GKW) => !!pending && N
  */
 export function stallWaive (rec, deferred = [], { stalled = false, waivedNow = 0, G = GKW } = {}) {
   if (!stalled || Number(waivedNow) > 0) return []
-  const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light').map(c => c.at.join(',')))
+  // roughground-1b (Codex r1): a fill that names the cut opening it (`opener`: a hollow under a crust, a cave seal) is never waived
+  const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light' && !c.opener).map(c => c.at.join(',')))
   const have = rec?.waived ?? {}
   let room = Math.min(G.stallMax, Math.ceil(G.stallShare * cells.size) - Object.keys(have).length)
   const out = []

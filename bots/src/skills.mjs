@@ -24524,6 +24524,13 @@ async function prepTick (bot, dir, key, rec, me, signal) {
 }
 /** plotprep-01 (Codex r1 BLOCKER 3): does another body (a player, a mob) stand ON or IN the cell -> bool. A tidy cut (a felling stand's
  *  teardown above all) never digs out from under a bot: it waits. Never throws (no entities: false). */
+/** roughground-1b (Codex r1): does THIS bot's own body stand in the cell (feet in it or the cell its head is in)? -> bool. A crust cut
+ *  is never dug from inside the hollow it opens. */
+function ownBodyIn (bot, at) {
+  const p = bot?.entity?.position
+  if (!p) return false
+  return Math.floor(p.x) === at[0] && Math.floor(p.z) === at[2] && Math.floor(p.y) >= at[1] - 1 && Math.floor(p.y) <= at[1]
+}
 function otherBodyOnCell (bot, at) {
   try {
     for (const e of Object.values(bot?.entities ?? {})) {
@@ -24912,7 +24919,7 @@ async function buildTidyVisit (ctx, args, signal) {
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
-      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && hollowClear(q, c => otherBodyOnCell(bot, c)) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it
+      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it
       ...(parkish ? { useFor: q => (q.role === 'till' ? hoeUse : q.role === 'meadow' ? mealUse : null), openRole: role => OPEN_ROLES.has(role) } : {}),
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)
@@ -24924,7 +24931,9 @@ async function buildTidyVisit (ctx, args, signal) {
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
-    tidyNoteCuts(mem, r.tidied ?? [], k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
+    // roughground-1b (Codex r1): a crust cut held because a body stood in its hollow is not a try (never given up for it)
+    const heldHollow = new Set((r.tidyWet ?? []).filter(k => Array.isArray(cutAt.get(k)?.hollow)))
+    tidyNoteCuts(mem, (r.tidied ?? []).filter(k => !heldHollow.has(k)), k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
     // THE WAIVER (wall.mjs wallWaiveDue, generic over record cells): a fill this visit deferred, counted WALL_WAIVE_AFTER visits by
     // the stuck map, is named on the record so the tidy closes
     let rw = rec, waivedN = 0
