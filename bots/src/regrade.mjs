@@ -105,6 +105,14 @@ export function regradeWork (read, H, { home, open, solid, wet = () => false, R 
       for (const [dx, dz] of N4) { const nt = H.get(k2(x + dx, z + dz)); if (open(x + dx, yy, z + dz) && (!Number.isFinite(nt) || nt > yy)) return 'regrade_side_hollow' }
     }
     if (!solid(x, t, z)) return 'regrade_hollow'
+    // Codex r1 BLOCKER: the new top re-soiled when it is not soil -- the visit digs that block as a FOREIGN one (no tidyOk), so the
+    // replacement must be safe as a cut too: solid under it, no water and no hollow beside it; else the column is an anchor
+    const n0 = nmOf(read(x, t, z))
+    if (!SOIL.test(n0)) {
+      if (!RESOIL.test(n0)) return 'regrade_bare'
+      if (!solid(x, t - 1, z) || wet(x, t, z)) return 'regrade_resoil_unsafe'
+      for (const [dx, dz] of N4) { const nt = H.get(k2(x + dx, z + dz)); if (open(x + dx, t, z + dz) && (!Number.isFinite(nt) || nt > t)) return 'regrade_resoil_unsafe' }
+    }
     return null
   }
   let fit
@@ -129,7 +137,7 @@ export function regradeWork (read, H, { home, open, solid, wet = () => false, R 
       for (let yy = y; yy > t && !bad; yy--) cut.push({ at: [x, yy, z], name: nmOf(read(x, yy, z)) })
       // Codex (independent design): a cut never leaves bare stone on top -- the new top, when it is not soil, is laid again in dirt
       // (the visit's foreign dig takes it first: only what buildrun.mjs FOREIGN_CLEAR digs)
-      if (!bad) { const n = nmOf(read(x, t, z)); if (!SOIL.test(n)) { if (RESOIL.test(n)) fill.push({ at: [x, t, z], role: 'topsoil' }); else bad = 'regrade_bare' } }
+      if (!bad) { const n = nmOf(read(x, t, z)); if (!SOIL.test(n)) fill.push({ at: [x, t, z], role: 'topsoil' }) }   // cutBad: only a safe re-soil reaches here
     } else {
       for (let yy = y + 1; yy <= t; yy++) { if (!open(x, yy, z) || wet(x, yy, z)) { bad = 'regrade_blocked'; break } fill.push({ at: [x, yy, z], role: yy === t ? 'topsoil' : 'core' }) }
     }
