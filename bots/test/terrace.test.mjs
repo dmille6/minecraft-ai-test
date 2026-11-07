@@ -591,7 +591,7 @@ await t('buildTidy: the terrace inputs, the work-time guard, the skip rule, the 
   assert.ok(/Object\.assign\(extra, parkBill\(rec, read, \{ held: held0, stock: matsTownStock\(bot\)\?\.stock \?\? \{\}/.test(s), 'the park\'s bill')
   assert.ok(/nextStageCycle\(rh\.head\.rec\)/.test(s) && /return nextStageCycle\(r, now\) != null/.test(s), 'the ring order reads recStageK (gkstage-01: through landplan.mjs nextStageCycle, which reads it)')
   const lp = strip(readFileSync(LAND_PATH, 'utf8'))
-  assert.ok(/zones: \[\.\.\.\(land\.corridors \?\? \[\]\), \.\.\.parkZones\(land\), \.\.\.gardenZones\(land\), \.\.\.landPlotZones\(ext\)\]/.test(lp), 'the park reservation (wallext-01: and the extension\'s plots after it; forest-01: the garden beside the park)')
+  assert.ok(/zones: \[\.\.\.\(land\.corridors \?\? \[\]\), \.\.\.parkZones\(land\), \.\.\.gardenZones\(land\), \.\.\.landmarkZones\(land\), \.\.\.landPlotZones\(ext\)\]/.test(lp), 'the park reservation (wallext-01: and the extension\'s plots after it; forest-01: the garden beside the park; roughground-3: the landmark)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

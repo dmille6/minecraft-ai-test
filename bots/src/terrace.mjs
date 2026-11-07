@@ -735,7 +735,9 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   if (!home) return { ok: false, why: 'no_home', record: null }
   const box = wallInterior(wall, home)
   const road = corridorAt(land)
-  const guard = (x, z) => avoid(x, z) ?? road(x, z)
+  // roughground-3: the landmark mound is never graded flat again (nor its tree felled)
+  const lmB = Array.isArray(land?.landmark?.box) ? land.landmark.box : null
+  const guard = (x, z) => avoid(x, z) ?? road(x, z) ?? (lmB && x >= lmB[0] && x <= lmB[2] && z >= lmB[1] && z <= lmB[3] ? 'land:landmark' : null)
   const s0 = Number.isFinite(seed) ? seed >>> 0 : (Number(land?.seed) >>> 0)
   const parkPrev = land?.park ?? null
   // farmland and its water: no column within farmGuard of a farmland block

@@ -193,7 +193,10 @@ import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantry
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
-import { inwallFirst, stageTryOrder, inwallAtNext, roughCutWaits, hollowClear } from './roughground.mjs'   // roughground-01: inside the walls again before the next band   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
+import { landmarkOn, landmarkPlan, landmarkZones, hollowClear, inwallAtNext, inwallFirst, roughCutWaits, stageTryOrder } from './landmark.mjs'   // roughground-3: the town's landmark mound
+import { PARK_SAPLINGS } from './park.mjs'   // roughground-3: the crown's tree
+import { tidyColumn } from './tidy.mjs'   // roughground-3: the landmark's ground
+import { inwallFirst, stageTryOrder, inwallAtNext } from './roughground.mjs'   // roughground-01: inside the walls again before the next band   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved, fellClearArea } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
@@ -23987,7 +23990,10 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // outbands-01 (batch-14a replay, 11-06): the town's expedition MARKERS are `reserved` too -- read first by every survey rule, as the
   // site-prep zones are: `avoid`'s first reason over a marker beside the old wall is `project:wall`, which BUILD_WHY reads as a build,
   // so the band survey planned the marker's two cobblestone at -47,67..68,34 as spoil beside a build (the visit's guard kept them)
-  const rz = [...recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept)), ...townMarkerZones()]
+  // roughground-3: the town's landmark mound is `reserved` too -- no inwall, band or rough rule cuts or fills it
+  let lmz = []
+  try { lmz = landmarkZones(landHead(dir)) } catch { lmz = [] }
+  const rz = [...recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept)), ...townMarkerZones(), ...lmz]
   // wallext-02 (Claude hold r1 BLOCKER 1): the demolition's hold is `reserved` too -- read FIRST by every inwall rule and by the
   // access stairs' `free` (tidyAvoid's first reason could be a kept wall cell's `project:wall`, which reads as a build's box)
   const held = holdAt(recs.find(r => r?.plot === WALL_PLOT) ?? null)
@@ -24369,6 +24375,37 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
           try { publishRecord(dir, projKeyOf(LAND_PLOT), cur => (cur?.park ? { ...cur, park: { ...cur.park, kinds: tp.kinds, placed: tp.placed, skipped: tp.skipped, trees: tp.trees, topups: tp.topups } } : null), { by: me }) } catch { /* the next top-up syncs it */ }
           const els = [...new Set(t.cells.map(q => q.el))]
           try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'park_topup', kind: els.join('+'), n: t.cells.length, segs: t.segments.map(q => q.seg).join('+'), gen: pub.gen }) }) } catch { /* telemetry */ }
+        }
+      }
+    }
+  } catch { /* asked again next visit */ }
+  // ROUGHGROUND-3 (owner 11-07, the target pictures): THE LANDMARK -- a round terraced mound with one tree on its crown, sited ONCE
+  // inside the wall on open flat ground (landmark.mjs landmarkPlan) once the town holds a sapling, its fills and sapling new segments
+  // of this record, its site published on the land record (`landmark`: a reservation; never flattened or cut again)
+  try {
+    const land = landHead(dir)
+    if (landmarkOn() && land && !land.landmark && !rec.structure_complete && !(rec.segments ?? []).some(q => q.seg === 'T-LMS')) {
+      let have = {}
+      try { have = { ...(matsTownStock(bot)?.stock ?? {}) } } catch { have = {} }
+      for (const [n, v] of Object.entries({ ...heldMap(bot) })) have[n] = (Number(have[n]) || 0) + v
+      for (const [n, v] of Object.entries(crewPantry(dir, key, me))) have[n] = (Number(have[n]) || 0) + v
+      const I = tidyInputs(bot)
+      const home = planHomeP()
+      const taken0 = new Set([...(rec.cells ?? []), ...(rec.cut ?? [])].map(q => `${q.at[0]},${q.at[2]}`))
+      const paths = projectHeads().find(x => x.plot === PATHS_PLOT)?.head?.rec
+      const pathK = new Set((paths?.cells ?? []).map(q => `${q.at[0]},${q.at[2]}`))
+      const road = corridorAt(land)
+      const boxes = [land.park?.box, land.garden?.box].filter(b => Array.isArray(b) && b.length === 4)
+      const near = (x, z) => [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => pathK.has(`${x + dx},${z + dz}`) || !!road(x + dx, z + dz))
+      const taken = (x, z) => taken0.has(`${x},${z}`) || near(x, z) || !!I.avoid(x, z) || !!I.reserved(x, z) || boxes.some(b => x >= b[0] - 1 && x <= b[2] + 1 && z >= b[1] - 1 && z <= b[3] + 1)
+      const col = (x, z) => { const c = tidyColumn(read, x, z, { yHi: home.y + 14, yLo: home.y - 14 }); return c.why || c.tree ? null : c.y }
+      const t = landmarkPlan(read, { box: inwallBoxes(I.wall, home, I.wallext)[0], home, seed: Number(land.seed) >>> 0, have, col, taken, saplings: PARK_SAPLINGS })
+      if (t) {
+        const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && !(cur.segments ?? []).some(q => q.seg === 'T-LMS') ? { ...cur, cells: [...(cur.cells ?? []), ...t.cells], cut: [...(cur.cut ?? []), ...t.cut], segments: [...(cur.segments ?? []), ...t.segments] } : null), { by: me })
+        if (pub.result === 'accepted') {
+          changed = true
+          try { publishRecord(dir, projKeyOf(LAND_PLOT), cur => (cur && !cur.landmark ? { ...cur, landmark: { ...t.landmark, at: Date.now() } } : null), { by: me }) } catch { /* the reservation follows at the next addition */ }
+          try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'landmark_planned', cell: [t.landmark.centre[0], t.landmark.base, t.landmark.centre[1]], n: t.cells.length, segs: t.segments.map(q => q.seg).join('+'), gen: pub.gen }) }) } catch { /* telemetry */ }
         }
       }
     }

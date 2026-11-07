@@ -48,6 +48,8 @@ const REQUIRED = [
   'bots/src/regrade.mjs',   // roughground-4 (11-07): the wide-area regrade
   'bots/test/regrade.test.mjs',   // roughground-4 (11-07)
   'sandbox/roughground/rough-proof.mjs',   // roughground-1b/1c/2 (11-07): the Paper proofs
+  'bots/src/landmark.mjs',   // roughground-3 (11-07): the town's landmark mound
+  'bots/test/landmark.test.mjs',   // roughground-3 (11-07)
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/fewerdec.test.mjs',
   'bots/src/escapeguard.mjs',
