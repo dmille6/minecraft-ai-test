@@ -34,12 +34,17 @@ say "start $DAY spp=$SPP threads=$THREADS (world: tonight's pull)"
 mkdir -p $H/world/region
 rsync -a --delete $SRC/region/ $H/world/region/ && cp -p $SRC/level.dat $H/world/level.dat \
   || { say "FAIL $DAY: world copy"; exit 1; }
+# tonight's copy only (Codex r1: a failed pull must not leave yesterday's project framing in place)
+rm -f $H/views-tl.json $H/views-tl.json.part
 rsync -a -e "ssh -o BatchMode=yes -o ConnectTimeout=20 -i /home/mike/.ssh/id_showcase_tl" \
-  showbak@10.0.0.40:logs/views.json $H/views-tl.json 2>>$LOG || say "WARN: no views.json (the project view is skipped)"
+  showbak@10.0.0.40:logs/views.json $H/views-tl.json.part 2>>$LOG && mv $H/views-tl.json.part $H/views-tl.json \
+  || say "WARN: no views.json (the project view is skipped tonight)"
 rm -rf $H/scenes && mkdir -p $H/scenes
 python3 -I $H/bin/chunky_beauty.py scenes $H/scenes $H/world --views-json $H/views-tl.json --spp $SPP >> $LOG 2>&1 \
   || { say "FAIL $DAY: scenes"; exit 1; }
-OUT=$H/frames/$DAY; mkdir -p $OUT
+# a fresh day directory every run (Codex r1: a rerun never mixes an old frame with new captions)
+OUT=$H/frames/$DAY; rm -rf $OUT; mkdir -p $OUT
+rm -f $H/video/beauty-$DAY.mp4
 cp $H/scenes/views.json $OUT/views.json
 rc_all=0
 for v in $(python3 -c "import json;print(' '.join(x['view'] for x in json.load(open('$H/scenes/views.json'))))"); do
@@ -58,11 +63,17 @@ for v in $(python3 -c "import json;print(' '.join(x['view'] for x in json.load(o
 done
 ls $OUT/*.png >/dev/null 2>&1 || { say "FAIL $DAY: no frame rendered"; exit 1; }
 python3 -I $H/bin/chunky_beauty.py best $OUT >> $LOG 2>&1 || { say "FAIL $DAY: best"; rc_all=1; }
-python3 -I $H/bin/chunky_beauty.py video $H $DAY >> $LOG 2>&1 || { say "FAIL $DAY: video"; rc_all=1; }
-mkdir -p $H/publish/$DAY
+VID=0
+python3 -I $H/bin/chunky_beauty.py video $H $DAY >> $LOG 2>&1 && VID=1 || { say "FAIL $DAY: video"; rc_all=1; }
+rm -rf $H/publish/$DAY; mkdir -p $H/publish/$DAY
 cp $OUT/*.png $OUT/*.json $H/publish/$DAY/ 2>/dev/null
-cp $H/video/beauty-$DAY.mp4 $H/publish/$DAY/ 2>/dev/null
-cp $H/video/beauty-history-*.mp4 $H/publish/$DAY/ 2>/dev/null
+# videos only when THIS run built them (Codex r1: never yesterday's history under today's name)
+if [ $VID = 1 ]; then
+  cp $H/video/beauty-$DAY.mp4 $H/publish/$DAY/ 2>/dev/null
+  for v in $(python3 -c "import json;print(' '.join(x['view'] for x in json.load(open('$OUT/views.json'))))"); do
+    [ -f $OUT/$v.png ] && cp $H/video/beauty-history-$v.mp4 $H/publish/$DAY/ 2>/dev/null
+  done
+fi
 rsync -a -e "ssh -o BatchMode=yes -o ConnectTimeout=20 -i /home/mike/.ssh/chunky_push -o IdentitiesOnly=yes" \
   $H/publish/$DAY mike@10.0.0.40:./ \
   && say "published $DAY -> showcase video/stills/chunky/$DAY/" || { say "FAIL $DAY: publish"; rc_all=1; }

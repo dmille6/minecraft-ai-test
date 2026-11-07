@@ -607,12 +607,14 @@ def main():
                 sides.append(dict(json.load(open(out + '.json')), out=out))
         print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'))))
         return 0
+    # the deadline is fixed at the job's START, before waiting for the lock (Codex r1: a job that got the lock after
+    # 23:45 would otherwise get tomorrow's deadline and run into its service timeout)
+    sj = SmoothJob(a.kind in SMOOTH_KINDS, smooth_deadline(dt.datetime.now(dt.timezone.utc)))
     # ONE video job at a time (daily 00:20 and history 01:00 would otherwise share the night's CPU and deadline)
     if a.kind in SMOOTH_KINDS:
         os.makedirs(os.path.join(ROOT, 'logs'), exist_ok=True)
         lockf = open(os.path.join(ROOT, 'logs', 'video.lock'), 'a+')
         fcntl.flock(lockf, fcntl.LOCK_EX)
-    sj = SmoothJob(a.kind in SMOOTH_KINDS, smooth_deadline(dt.datetime.now(dt.timezone.utc)))
     rc, sides = 0, []
     for v in video_order(video_views()):
         if not all_stamps(v):
