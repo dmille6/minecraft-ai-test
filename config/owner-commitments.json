@@ -5853,7 +5853,7 @@
    "lane": "survival",
    "state": "open",
    "owner": "survival builder / control session",
-   "next_step": "BUILT, not queued. Branch escpocket-01 on fleet 45defefa: code 8d899a0a, tip 97d1b179 (pushed). Tier 3. Codex r1-r3 6 blockers fixed, r4/r5 none; independent Claude r2 1 fixed, r3/r4 none. Paper (11-07 cut + live edits): sealed base stayed 1/1, cand escaped 6/6 (pocket dig + swim); column base stayed 1/1, cand escaped 7/7 (final 8d899a0a 3/3 column + 2/2 sealed). Registration ~/mcai-analysis/escpocket-01.8d899a0a.json (effectwatch validate: valid) + DRAFT entry ~/mcai-analysis/escpocket-01.queue-entry.json: the control session queues it (S lane; draw MUST include isolated-d). Full suite escpocket-8d899a0a (suite-run, w30) queued at commit time: check its summary before queueing.",
+   "next_step": "BUILT, not queued. Branch escpocket-01 on fleet 45defefa: code 8d899a0a, tip 97d1b179 (pushed). Tier 3. Codex r1-r3 6 blockers fixed, r4/r5 none; independent Claude r2 1 fixed, r3/r4 none. Paper (11-07 cut + live edits): sealed base stayed 1/1, cand escaped 6/6 (pocket dig + swim); column base stayed 1/1, cand escaped 7/7 (final 8d899a0a 3/3 column + 2/2 sealed). Registration ~/mcai-analysis/escpocket-01.8d899a0a.json (effectwatch validate: valid) + DRAFT entry ~/mcai-analysis/escpocket-01.queue-entry.json: the control session queues it (S lane; draw MUST include isolated-d). Full suite escpocket-8d899a0a (suite-run, w30): 409/416; failing lavastep, plinth-skill (known flakes), nothing-important-is-orphaned, well (known base) and leasegen, ziggurat-tidy, ziggurat-v2-build -- all three pass re-run alone (the ziggurat pair hit the 300 s per-file timeout on a loaded w30).",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
