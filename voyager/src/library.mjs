@@ -36,19 +36,12 @@ export function libraryPrelude (skills) {
     let ast
     try { ast = acorn.parse(s.code, { ecmaVersion: 2023, sourceType: 'script' }) } catch { continue }
     const fn = ast.body[0]
-    if (!fn || fn.type !== 'FunctionDeclaration' || fn.id.name !== s.name || !/^[a-z][a-zA-Z0-9]{2,47}$/.test(s.name)) continue
-    parts.push(s.code.slice(0, fn.id.start) + `__impl_${s.name}` + s.code.slice(fn.id.end))
-    parts.push(`async function ${s.name}(b) { try { mark(${JSON.stringify(s.name)}) } catch (e) {} return __impl_${s.name}(b) }`)
+    if (ast.body.length !== 1 || !fn || fn.type !== 'FunctionDeclaration' || !fn.async || fn.id.name !== s.name || !/^[a-z][a-zA-Z0-9]{2,47}$/.test(s.name)) continue
+    // a named function EXPRESSION assigned to a temporary global: the sandbox's trusted publish step wraps and removes it
+    parts.push(`globalThis.__vy_impl_${s.name} = (${s.code.slice(fn.start, fn.end)});`)
     names.push(s.name)
   }
-  if (!names.length) return ''
-  // ONE IIFE: the mark callback is captured and removed from the global before any skill code runs; the wrappers are
-  // published as non-writable globals so the skill can call them by name, and nothing else of the library is global.
-  return `(function () {
-  const mark = globalThis.__vy_mark; delete globalThis.__vy_mark;
-${parts.join('\n')}
-  for (const [n, f] of [${names.map(n => `[${JSON.stringify(n)}, ${n}]`).join(', ')}]) Object.defineProperty(globalThis, n, { value: f, writable: false, configurable: false, enumerable: false });
-})();`
+  return names.length ? { source: parts.join('\n'), names } : null
 }
 
 export class Library {

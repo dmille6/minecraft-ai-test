@@ -164,6 +164,7 @@ export async function vyPlace (ctx, { item, x, y, z }, signal) {
   if (signal?.aborted) return { status: 'aborted', detail: 'interrupted' }
   try {
     await bot.equip(held, 'hand')
+    if (signal?.aborted) return { status: 'aborted', detail: 'interrupted' }   // Codex r2 B1: no side effect after an abort
     await bot.placeBlock(ref, face)
   } catch (e) {
     // placeBlock can time out waiting for the update while the block did land: the read-back below decides
@@ -210,7 +211,10 @@ export async function vyDig (ctx, { x, y, z }, signal) {
   if (signal?.aborted) return { status: 'aborted', detail: 'interrupted' }
   try {
     if (best) await bot.equip(best, 'hand')
-    await bot.dig(b, true)
+    if (signal?.aborted) return { status: 'aborted', detail: 'interrupted' }
+    const stop = () => { try { bot.stopDigging() } catch {} }
+    signal?.addEventListener?.('abort', stop, { once: true })
+    try { await bot.dig(b, true) } finally { signal?.removeEventListener?.('abort', stop) }
   } catch (e) {
     if (signal?.aborted) return { status: 'aborted', detail: 'interrupted' }
   }
@@ -237,6 +241,7 @@ export async function vyChest (ctx, { x, y, z, mode, item, count }, signal) {
   let win = null
   try {
     win = await bot.openContainer(b)
+    if (signal?.aborted) { try { win.close() } catch {} return { status: 'aborted', detail: 'interrupted' } }
     if (mode === 'put') await win.deposit(it.id, null, count)
     else await win.withdraw(it.id, null, count)
   } catch (e) {

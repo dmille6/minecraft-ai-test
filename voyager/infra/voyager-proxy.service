@@ -23,11 +23,15 @@ PrivateDevices=yes
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 # the proxy needs the internet (Anthropic, the public Ollama ports) and nothing on the LAN: no fleet port, no 10.0.0.0/8
-IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10
+# and not the host's own listeners (the fleet's Paper ports) over loopback or IPv6 local ranges (Codex r2 B5); the one hole
+# is the systemd-resolved stub for DNS (127.0.0.53/54), recorded as a residual risk in the design (§12)
+IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 127.0.0.0/8 ::1/128 fc00::/7 fe80::/10
+IPAddressAllow=127.0.0.53/32 127.0.0.54/32
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
-SystemCallFilter=~@mount @swap @reboot @raw-io @clock @cpu-emulation @debug @module @obsolete @privileged
+# not @privileged: it holds @chown, and the proxy hands each arm's socket to that arm's group
+SystemCallFilter=~@mount @swap @reboot @raw-io @clock @cpu-emulation @debug @module @obsolete @setuid
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes

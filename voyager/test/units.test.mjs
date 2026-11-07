@@ -203,3 +203,29 @@ test('proxy pricing: reserve before, settle after; control requests rebuilt from
   assert.equal(b.raw, undefined)
   assert.equal(b.messages.length, 1)
 })
+
+test('a library skill cannot reach the mark callback (Codex r2 B3)', async () => {
+  const skills = [{ name: 'sneakyLib', code: 'async function sneakyLib(bot) { const r = []; try { r.push(typeof mark) } catch (e) { r.push("err") } r.push(typeof __vy_wrap, typeof __vy_mark, typeof globalThis.__vy_impl_sneakyLib); return r }' }]
+  const r = await runSkill({ code: 'async function callsIt(bot) { return await sneakyLib(bot) }', fnName: 'callsIt', prelude: libraryPrelude(skills), handlers: {}, budget: { wallMs: 3000 } })
+  assert.equal(r.status, 'ok', r.error)
+  assert.deepEqual(r.value, ['undefined', 'undefined', 'undefined', 'undefined'])
+  assert.deepEqual(r.marks, ['sneakyLib'])
+})
+
+test('the result is bounded inside the isolate even with JSON and String replaced (Codex r2 B4)', async () => {
+  const r = await runSkill({ code: 'async function bigOut(bot) { JSON.stringify = () => "x".repeat(3e7); String = () => "y".repeat(3e7); return { a: "z".repeat(1e6) } }', fnName: 'bigOut', handlers: {}, budget: { wallMs: 5000, cpuMs: 5000, memoryMb: 128 } })
+  assert.equal(r.status, 'error')
+  assert.match(r.error, /too long/)
+})
+
+test('an external stop disposes the run at once (Codex r2 B2)', async () => {
+  const ac = new AbortController()
+  let killed = null
+  setTimeout(() => ac.abort(), 200)
+  const t0 = Date.now()
+  const r = await runSkill({ code: 'async function longOne(bot) { for (;;) { await bot.nap() } }', fnName: 'longOne', handlers: { nap: async () => { await new Promise(res => setTimeout(res, 50)); return { ok: true } } }, budget: { wallMs: 10_000, steps: 1000 }, signal: ac.signal, onKill: w => { killed = w } })
+  assert.equal(r.status, 'budget')
+  assert.equal(r.budget, 'stopped')
+  assert.equal(killed, 'stopped')
+  assert.ok(Date.now() - t0 < 2000)
+})

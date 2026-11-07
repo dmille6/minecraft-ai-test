@@ -21,11 +21,13 @@ const row = (o) => { try { fs.appendFileSync(LOG, JSON.stringify({ t: new Date()
 // SPEND: reserved before dispatch at the worst case, settled to the real usage after, persisted across restarts.
 let spend = {}
 try { spend = JSON.parse(fs.readFileSync(SPEND, 'utf8')) } catch { spend = {} }
-const saveSpend = () => { try { fs.writeFileSync(`${SPEND}.tmp`, JSON.stringify(spend)); fs.renameSync(`${SPEND}.tmp`, SPEND) } catch { /* next save */ } }
+// throws: a reservation that cannot be persisted is not dispatched (fail closed, Codex r2 B7)
+const saveSpend = () => { fs.writeFileSync(`${SPEND}.tmp`, JSON.stringify(spend)); fs.renameSync(`${SPEND}.tmp`, SPEND) }
 
 /** Worst-case dollars for a request before it is sent. Pure. */
 export function reserveUsd (arm, inputChars, maxTokens) {
-  const inTok = Math.ceil(inputChars / 3)          // conservative: ~3 chars a token
+  // an UPPER bound (Codex r2 B7): at most one token per character of the request body, priced at the cache-WRITE rate
+  const inTok = Math.ceil(inputChars) * 1.25
   return (inTok * arm.inUsdPerMTok + maxTokens * arm.outUsdPerMTok) / 1e6
 }
 /** Dollars from a response's usage (cache reads priced at the input rate: an overestimate). Pure. */
@@ -76,9 +78,12 @@ async function anthropicChat (arm, { system, messages, max_tokens }) {
 export function rebuildControl (arm, body) {
   const o = body?.options ?? {}
   const keep = {}
-  for (const k of ['temperature', 'num_ctx', 'num_predict', 'top_p']) if (typeof o[k] === 'number') keep[k] = o[k]
-  keep.num_ctx = Math.min(keep.num_ctx ?? 8192, 8192)
-  keep.num_predict = Math.min(keep.num_predict ?? 512, 1024)
+  const pos = (v, max, dflt) => (Number.isInteger(v) && v >= 1 && v <= max) ? v : dflt      // -1 means unlimited in Ollama: refused (Codex r2 B6)
+  const unit = (v, max, dflt) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max) ? v : dflt
+  keep.num_ctx = pos(o.num_ctx, 8192, 8192)
+  keep.num_predict = pos(o.num_predict, 1024, 512)
+  keep.temperature = unit(o.temperature, 2, 0.7)
+  if (o.top_p != null) keep.top_p = unit(o.top_p, 1, 0.9)
   const messages = Array.isArray(body?.messages) ? body.messages.filter(m => m && typeof m.content === 'string' && ['system', 'user', 'assistant'].includes(m.role)).map(m => ({ role: m.role, content: m.content })) : []
   const out = { model: arm.model, stream: false, keep_alive: arm.keepAlive ?? '15m', messages, options: keep }
   if (body?.format && typeof body.format === 'object') out.format = body.format
@@ -128,17 +133,24 @@ function serveArm (name, arm) {
         reserved = reserveUsd(arm, raw.length, body.max_tokens)
         if (!Number.isFinite(spend[name].usd)) spend[name].usd = arm.capUsd   // a corrupted total fails closed
         if (!(reserved > 0) || spend[name].usd + reserved > arm.capUsd) { row({ arm: name, purpose, refused: 'spend_cap', usd_total: spend[name].usd }); return send(402, { error: `spend cap $${arm.capUsd} reached` }) }
-        spend[name].usd += reserved; saveSpend()
+        spend[name].usd += reserved
+        try { saveSpend() } catch (e) { spend[name].usd -= reserved; reserved = 0; row({ arm: name, purpose, refused: 'spend_not_persisted', error: String(e.message).slice(0, 80) }); return send(503, { error: 'spend record not writable; refusing' }) }
         const r = await anthropicChat(arm, body)
         const usd = usageUsd(arm, r.usage)
-        spend[name].usd += usd - reserved; spend[name].calls++; saveSpend()
+        spend[name].usd += usd - reserved; spend[name].calls++   // settle the reservation to the real usage
+        try { saveSpend() } catch { /* the reservation already covered it */ }
         row({ arm: name, purpose, model: arm.model, paid: true, ms: Date.now() - t0, usage: r.usage, usd: Math.round(usd * 1e6) / 1e6, usd_total: Math.round(spend[name].usd * 1e4) / 1e4, stop: r.stop })
         return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0 })
       }
       if (arm.backend === 'ollama-raw') {
         const fwd = rebuildControl(arm, body)
-        const r = await fetch(`${arm.url}${req.url === '/api/chat' ? '/api/chat' : '/api/chat'}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(fwd) })
-        const text = await r.text()
+        const ctl = new AbortController()
+        const tm = setTimeout(() => ctl.abort(), arm.timeoutMs ?? 60_000)
+        let r, text
+        try {
+          r = await fetch(`${arm.url}/api/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(fwd), signal: ctl.signal })
+          text = await r.text()
+        } finally { clearTimeout(tm) }
         let d = null; try { d = JSON.parse(text) } catch {}
         row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, status: r.status, usage: d ? { input_tokens: d.prompt_eval_count ?? 0, output_tokens: d.eval_count ?? 0 } : null })
         res.writeHead(r.status, { 'content-type': 'application/json' }); res.end(text); return

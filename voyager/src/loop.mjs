@@ -41,7 +41,13 @@ export class VoyagerLoop {
     } catch { /* state only */ }
   }
 
-  stop () { this.running = false }
+  // Codex r2 B2: stopping revokes the running skill at once (its isolate disposed, the runner interrupted), and no new
+  // execution starts after any await once running is false.
+  stop () {
+    this.running = false
+    try { this.active?.abort() } catch {}
+    try { this.getRunner()?.interrupt('voyager_stopped') } catch {}
+  }
 
   async start () {
     if (this.running) return
@@ -115,7 +121,7 @@ export class VoyagerLoop {
       }
       await this.idle()
       const b = this.getBot(), rn = this.getRunner()
-      if (!b?.entity || !rn) return
+      if (!b?.entity || !rn || !this.running) return
       const start = this.snapshot()
       const rec = { placed: [], dug: [], chestTaken: {}, crafted: {}, chat: [] }
       const record = e => {
@@ -129,10 +135,12 @@ export class VoyagerLoop {
       const token = { revoked: false }
       const handlers = makeHandlers({ getBot: this.getBot, getRunner: this.getRunner, token, record })
       const fnCode = lint.fnName === /async function ([A-Za-z0-9]+)/.exec(code)[1] ? code : code.replace(/async function [A-Za-z0-9]+/, `async function ${lint.fnName}`)
-      const res = await runSkill({ code: fnCode, fnName: lint.fnName, prelude: libraryPrelude(this.library.closure(lint.calls)), handlers, budget: this.budget,
+      this.active = new AbortController()
+      const res = await runSkill({ code: fnCode, fnName: lint.fnName, prelude: libraryPrelude(this.library.closure(lint.calls)), handlers, budget: this.budget, signal: this.active.signal,
         onEvent: e => { if (e.kind === 'violation') this.log('sandbox_violation', { iteration: it, round, name: e.name }) },
         onKill: why => { token.revoked = true; try { this.getRunner()?.interrupt(`voyager_${why}`) } catch {} } })
       token.revoked = true
+      this.active = null
       const used = new Set(res.marks ?? [])
       if (!(await this.idle())) {
         // the body did not come back within 20 s of the run's end: restart the process rather than act on top of it (§12 R1)

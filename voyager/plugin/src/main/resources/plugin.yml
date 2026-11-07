@@ -1,5 +1,5 @@
 name: VoyagerGuard
-version: 0.1.0
+version: 0.1.1
 main: ai.mcai.voyager.VoyagerGuard
 api-version: '1.21'
 description: voyager-01 -- no player commands; the server-side record of places, breaks, deaths and 24 h survival

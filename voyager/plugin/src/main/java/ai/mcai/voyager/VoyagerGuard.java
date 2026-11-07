@@ -10,6 +10,7 @@ package ai.mcai.voyager;
 
 import com.destroystokyo.paper.event.server.AsyncTabCompleteEvent;
 import org.bukkit.Bukkit;
+import org.bukkit.GameRule;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -49,6 +50,16 @@ public final class VoyagerGuard extends JavaPlugin implements Listener {
         events = new File(getDataFolder(), "events.jsonl");
         survival = new File(getDataFolder(), "survival.jsonl");
         reloadPending();
+        // the fleet's gamerules (11-06 internal research §1), set in code at every start: no console needed
+        for (World w : Bukkit.getWorlds()) {
+            w.setGameRule(GameRule.KEEP_INVENTORY, true);
+            w.setGameRule(GameRule.MOB_GRIEFING, false);
+            w.setGameRule(GameRule.DO_FIRE_TICK, false);
+            w.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
+            w.setGameRule(GameRule.DO_INSOMNIA, false);
+            w.setGameRule(GameRule.DO_IMMEDIATE_RESPAWN, true);
+            w.setGameRule(GameRule.PLAYERS_SLEEPING_PERCENTAGE, 100);
+        }
         getServer().getPluginManager().registerEvents(this, this);
         // every 10 minutes: read back placements that are now 24 h old
         Bukkit.getScheduler().runTaskTimer(this, this::checkSurvival, 20L * 60L, 20L * 600L);

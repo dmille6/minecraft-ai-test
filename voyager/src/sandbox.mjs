@@ -26,6 +26,7 @@ export const TRAPPED_GLOBALS = Object.freeze(['require', 'process', 'module', 'e
 // The prelude runs first, in its own script, inside an IIFE so its locals (the dispatcher, the saved JSON functions) are
 // closure-private: a later script cannot name them. It removes the raw dispatcher globals, installs the traps, and
 // defines `bot` as a frozen, non-writable, non-configurable global whose methods are plain async functions.
+const OUT_BYTES = 20_000
 function preludeSource (names) {
   return `(function () {
   'use strict';
@@ -61,6 +62,17 @@ function preludeSource (names) {
     };
   }
   defineProperty(globalThis, 'bot', { value: freeze(facade), writable: false, enumerable: true, configurable: false });
+  // THE RESULT IS BOUNDED INSIDE THE ISOLATE, with the intrinsics captured above, before anything is copied out
+  // (Codex r2 B4): whatever the skill does to JSON or String, what crosses is one short string.
+  const S = String, MAX = ${OUT_BYTES};
+  const finish = function (ok, v) {
+    let s;
+    try { s = ok ? stringify({ ok: true, value: v === undefined ? null : v }) : stringify({ ok: false, name: S(v && v.name).slice(0, 40), message: S(v && v.message).slice(0, 600) }) } catch (e) { s = null }
+    if (typeof s !== 'string') return ok ? '{"ok":true,"value":"<unserialisable>"}' : '{"ok":false,"name":"Error","message":"<unserialisable error>"}';
+    if (s.length > MAX) return '{"ok":false,"name":"Error","message":"the skill\'s result or error was too long; keep it short"}';
+    return s;
+  };
+  defineProperty(globalThis, '__vy_finish', { value: freeze(finish), writable: false, enumerable: false, configurable: false });
 })();`
 }
 
@@ -68,8 +80,8 @@ function preludeSource (names) {
 // changes its own report: the verifier never reads the return value (verifier.mjs reads the world).
 function epilogueSource (fnName) {
   return `(async function () {
-  try { const v = await ${fnName}(bot); let s; try { s = JSON.stringify({ ok: true, value: v === undefined ? null : v }) } catch (e) { s = '{"ok":true,"value":"<unserialisable>"}' } return s; }
-  catch (e) { let s; try { s = JSON.stringify({ ok: false, name: String(e && e.name), message: String(e && e.message).slice(0, 600) }) } catch (e2) { s = '{"ok":false,"name":"Error","message":"<unserialisable error>"}' } return s; }
+  const fin = __vy_finish;
+  try { const v = await ${fnName}(bot); return fin(true, v) } catch (e) { return fin(false, e) }
 })()`
 }
 
@@ -91,7 +103,7 @@ export function violationFromError (message) {
  * @param {()=>void} [o.onKill]           called once when a budget kills the run (the caller interrupts the runner)
  * @returns {Promise<{status:string, budget?:string, error?:string, value?:any, steps:number, violations:string[], log:string[], ms:number, cpuMs:number}>}
  */
-export async function runSkill ({ code, fnName, prelude = '', handlers, budget = {}, onEvent = () => {}, onKill = () => {} }) {
+export async function runSkill ({ code, fnName, prelude = null, handlers, budget = {}, onEvent = () => {}, onKill = () => {}, signal = null }) {
   const B = { ...BUDGET_DEFAULTS, ...budget }
   const names = Object.keys(handlers).filter(n => /^[a-zA-Z][a-zA-Z0-9]*$/.test(n))
   const started = Date.now()
@@ -164,6 +176,8 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
   }, { ignored: true })
 
   const wall = setTimeout(() => kill('wall'), B.wallMs)
+  const onStop = () => kill('stopped')
+  if (signal) { if (signal.aborted) setImmediate(onStop); else signal.addEventListener('abort', onStop, { once: true }) }
   const poll = setInterval(() => {
     try { if (!disposed && Number(isolate.cpuTime) / 1e6 > B.cpuMs) kill('cpu') } catch { /* disposed */ }
   }, B.pollMs)
@@ -172,6 +186,7 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
     // a call still running after the skill returned (an un-awaited action) is stopped like a budget breach (review finding 3)
     if (inFlight > 0 && !killed) kill('returned_early')
     clearTimeout(wall); clearInterval(poll)
+    if (signal) signal.removeEventListener('abort', onStop)
     let cpuMs = 0
     try { cpuMs = Math.round(Number(isolate.cpuTime) / 1e6) } catch { /* disposed */ }
     if (!disposed) { try { isolate.dispose(); disposed = true } catch { /* gone */ } }
@@ -188,11 +203,18 @@ export async function runSkill ({ code, fnName, prelude = '', handlers, budget =
     await (await isolate.compileScript(preludeSource(names), { filename: 'voyager:prelude' })).run(context, { timeout: 1000 })
     settleRef = await jail.get('__vy_settle', { reference: true })
     await jail.delete('__vy_settle')
-    if (prelude) {
-      // the library script takes the private mark callback from the global and deletes it before any skill code runs
+    if (prelude && prelude.source) {
+      // THREE SCRIPTS (Codex r2 B3): (1) trusted: capture the mark callback inside a wrapper-maker; (2) the library's
+      // generated code, defining only implementations, OUTSIDE that closure (no script runs any of it now); (3) trusted:
+      // wrap each implementation and publish only the wrappers. Then the maker is removed: no generated code ever shares
+      // a scope with the mark callback.
       await jail.set('__vy_mark', new ivm.Callback(n => { const k = String(n).slice(0, 48); if (!marks.includes(k) && marks.length < 64) marks.push(k) }, { ignored: true }))
-      await (await isolate.compileScript(prelude, { filename: 'voyager:library' })).run(context, { timeout: 1000 })
-      await jail.delete('__vy_mark')
+      await (await isolate.compileScript(`(function () { const mark = globalThis.__vy_mark; delete globalThis.__vy_mark;
+        globalThis.__vy_wrap = function (name, impl) { return async function (b) { try { mark(name) } catch (e) {} return impl(b) } } })();`, { filename: 'voyager:wrap' })).run(context, { timeout: 1000 })
+      await (await isolate.compileScript(prelude.source, { filename: 'voyager:library' })).run(context, { timeout: 1000 })
+      await (await isolate.compileScript(`(function () { const W = globalThis.__vy_wrap; delete globalThis.__vy_wrap;
+        for (const n of ${JSON.stringify(prelude.names)}) { const impl = globalThis['__vy_impl_' + n]; delete globalThis['__vy_impl_' + n];
+          if (typeof impl === 'function') Object.defineProperty(globalThis, n, { value: W(n, impl), writable: false, configurable: false, enumerable: false }) } })();`, { filename: 'voyager:publish' })).run(context, { timeout: 1000 })
     }
     await (await isolate.compileScript(code, { filename: `skill:${fnName}` })).run(context, { timeout: 1000 })
     const script = await isolate.compileScript(epilogueSource(fnName), { filename: 'voyager:run' })
