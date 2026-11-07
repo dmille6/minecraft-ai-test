@@ -145,7 +145,7 @@ await t('1b: a raised crust over a hollow is cut WITH the hollow filled under it
 await t('1b wiring: the tidy visit\'s cut check holds a crust cut while a body is in its hollow', async () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\) && hollowClear\(q, c => otherBodyOnCell\(bot, c\) \|\| ownBodyIn\(bot, c\)\)/.test(sk), 'any body, the digger\'s own too (Codex r1)')
+  assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\)( && !roughCutWaits\(\{ at: q\.at, read: rd, self: bot\.entity\?\.position \?\? null, others: playersSeen\(bot\) \}\))? && hollowClear\(q, c => otherBodyOnCell\(bot, c\) \|\| ownBodyIn\(bot, c\)\)/.test(sk), 'any body, the digger\'s own too (Codex r1)')
   assert.ok(/const heldHollow = new Set\(\(r\.tidyWet \?\? \[\]\)\.filter\(k => Array\.isArray\(cutAt\.get\(k\)\?\.hollow\)\)\)/.test(sk) && /tidyNoteCuts\(mem, \(r\.tidied \?\? \[\]\)\.filter\(k => !heldHollow\.has\(k\)\)/.test(sk), 'a held crust cut is never a try (Codex r1)')
   const td = strip(readFileSync(new URL('../src/tidy.mjs', import.meta.url), 'utf8'))
   assert.ok(/\.\.\.\(c\.hollow \? \{ hollow: c\.hollow \} : \{\}\)/.test(td), 'tidyRecord keeps the hollow')
