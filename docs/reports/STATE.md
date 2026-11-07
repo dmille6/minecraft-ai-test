@@ -4,20 +4,20 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-07T05:20:02Z._
+_Generated 2026-11-07T06:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `63d28320` = gkstay-01 `63d28320` (KEEP 11-07 04:15Z, promoted 11-07 04:25Z) on stations-01 `3924314a` (KEEP 11-07 01:58Z, promoted 11-07 02:08Z) on gklease-01 `e447b65b` (KEEP 11-06 22:43Z, promoted 11-06 22:53Z) on idlework-02 `ed2cc02b` (KEEP 11-06 20:39Z, promoted 11-06 20:50Z) on gkforever-01 `9e9284d7` (KEEP 11-06 17:08Z, promoted 11-06 17:18Z) on decbundle-01 `47b8342d` (KEEP 11-06 13:40Z, promoted 11-06 13:50Z). Live builds: {'63d283208e08676c9a344d105d938efbc5461e2a+0cf398': 70, 'e6a1ea2b042ee9c776670868457ece91fd8789fc+278872': 10} |
 | **Canary in slot** | **escdead-01** deployed 11-07 05:19Z; reads +90 11-07 06:49Z, +180 11-07 08:19Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | buildfix-01 -> stairuse-01 -> pathsfix-01 -> stoneworks-01 -> pause30-01 -> bamboowalk-01 -> marks-01 -> towngate-01 -> bucketfix-01 -> kittrim-01 -> +7 more. Held: forest-01 (HELD: showcase fold review 11-07: 5 Codex blockers in forest.mjs (reserved filter on alt stands,...) |
+| **Queue (front)** | buildfix-01 -> gkwork-01 -> stairuse-01 -> pathsfix-01 -> forest-01 -> stoneworks-01 -> pause30-01 -> bamboowalk-01 -> marks-01 -> towngate-01 -> +9 more |
 | **Scheduler** | busy S1 canary declared: e6a1ea2b042ee9c776670868457ece91fd8789fc on isolated-d,hive-c / S6 open loop: canary e6a1ea2 is deployed on isolated-d,hive-c with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 esc |
-| **Showcase release** | `af3b9a8b` (19,236 rows), `60828536` (16,577 rows); 13 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release af3b9a8b's protected tree: restack by hand; row 11-07 04:25Z) |
+| **Showcase release** | `af3b9a8b` (31,205 rows), `60828536` (5,469 rows); 13 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release af3b9a8b's protected tree: restack by hand; row 11-07 05:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | mobgrief-1106: owner-direct-check 11-07 03:10Z |
 | **Pending owner decisions** | **enchantshop-1104**: O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?; **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-06T14:02Z, 7 d, 153 projects, 12,956,789 lines / 80 bots): 13 underused, 70 effective, 40 unmeasured, 30 -; showcase: project audit showcase (11-06T14:04Z, 7 d, 32 projects, 1,508,346 lines / 15 bots): 2 broken, 1 dormant, 3 underused, 10 effective, 10 unmeasured, 1 not judged, 5 - -- showcase/cropfarm DORMANT; showcase/dress BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-07T04:35:01Z STALLED: 78. OPSAUDIT 2026-11-06 FLAGS: 16 (1 high). 58 active alarm(s): stuck goals 12 (board-b/tidy@-249_65_144, hive-b/tidy@355_73_147, hive-c/tidy@-68_68_-68, isolated-a/tidy@355_73_147, isolated-a/wall@355_73_147, placebo-b/tidy@282_65_-388 ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-07T05:35:01Z STALLED: 80. OPSAUDIT 2026-11-06 FLAGS: 16 (1 high). 60 active alarm(s): stuck goals 14 (board-b/tidy@-249_65_144, hive-b/tidy@355_73_147, hive-c/tidy@-68_68_-68, isolated-a/tidy@355_73_147, isolated-a/wall@355_73_147, placebo-a/tidy@249_75_-144 ...); driftwatch drift:deaths_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72, effectwatch effect:smeltgate-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
