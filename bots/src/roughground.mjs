@@ -32,7 +32,9 @@
 // zone, a well, the farm, the tree farm), the stock yard or the tree farm (noLitter), a site-prep reservation, a column a cut, fill or
 // staircase of this stage already uses, a cell beside liquid. ROUGH=off is the rollback (the stage as it was).
 
-export const ROUGH = Object.freeze({ floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, banks: true, topsoil: true, lawnMin: 4, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
+import { regradeWork, REGRADE } from './regrade.mjs'   // roughground-4: the wide-area regrade
+
+export const ROUGH = Object.freeze({ regrade: true, floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, banks: true, topsoil: true, lawnMin: 4, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
 /** THE SWITCH: ROUGH=off|0|false|no -> no rough survey, no inside-the-wall re-survey; on by default. Pure. */
 export const roughOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.ROUGH ?? '').trim())
 
@@ -98,7 +100,7 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
 export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, T = ROUGH } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
-  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, topsoil: 0, banks: 0 }
+  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, topsoil: 0, banks: 0, regraded: 0 }
   const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], skipped, census }
   if (!home || !Array.isArray(box) || typeof col !== 'function' || !spoil) return { ...out, ok: false, why: 'no_box' }
   const colsOf = set => new Set([...set].map(k => { const [x, , z] = String(k).split(','); return `${x},${z}` }))
@@ -349,6 +351,28 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
   for (const [, fn] of order) {
     if (cuts.length + fills.length >= T.cap) { skip('cap'); continue }
     fn()
+  }
+  // ---- ROUGHGROUND-4: THE WIDE-AREA REGRADE over every open column no rule above took (regrade.mjs): rough ground wider than a
+  // clump blended into 1-block steps toward the median ground round it, natural relief kept, in tiles nearest home first ----
+  if (T.regrade) {
+    const Hr = new Map()
+    for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+      const k = k2(x, z), y = g(x, z)
+      if (!Number.isFinite(y) || flo.has(k) || used.has(k) || keep.has(k) || refuse(x, z)) continue
+      if (LOG.test(nm(read(x, y + 1, z)))) continue   // a trunk on the column: the tree stands
+      Hr.set(k, y)
+    }
+    const room = Math.max(0, T.cap - cuts.length - fills.length)
+    if (room > 0 && Hr.size) {
+      const openR = (x, y, z) => { const b = read(x, y, z); return !!b && !cells.has(`${x},${y},${z}`) && (AIR.test(nm(b)) || (b.boundingBox === 'empty' && !liquid(b))) }
+      const rw = regradeWork(read, Hr, { home, open: openR, solid: solidAt, wet: sideLiquid, R: { ...REGRADE, cap: Math.min(REGRADE.cap, room) } })
+      for (const tl of rw.tiles) { out.pillars.push({ id: `rg${tl}`, kind: 'regrade' }); out.pits.push({ id: `rg${tl}`, cols: [...new Set(rw.fill.filter(f => f.tile === tl).map(f => k2(f.at[0], f.at[2])))].map(q => q.split(',').map(Number)), kind: 'regrade' }) }
+      out.pits = out.pits.filter(p => p.kind !== 'regrade' || p.cols.length)
+      for (const c of rw.cut) { cuts.push({ at: c.at, name: c.name, pillar: `rg${c.tile}` }); used.add(k2(c.at[0], c.at[2])) }
+      for (const f of rw.fill) { fills.push({ at: f.at, pit: `rg${f.tile}`, role: f.role }); used.add(k2(f.at[0], f.at[2])) }
+      census.regraded = rw.census.columns
+      for (const [k, v] of Object.entries(rw.skipped)) skip(k, v)
+    }
   }
   const seenCut = new Set()
   out.cut = cuts.filter(c => { const k = c.at.join(','); if (seenCut.has(k)) return false; seenCut.add(k); return true })
