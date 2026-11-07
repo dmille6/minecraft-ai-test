@@ -15422,12 +15422,16 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
     // An UNMEASURED void (deeper than the probe) is still refused -- the point is
     // to stop guessing, not to start falling.
     const maxProbe = Math.max(4, survivableDrop(bot.health) + 2)
-    let hollow = 0
-    let floored = false
-    for (let d = 0; d <= maxProbe; d++) {
-      const b = bot.blockAt(treadFloor.offset(0, -d, 0))
-      if (!b || b.name === 'air' || b.name === 'cave_air' || b.boundingBox === 'empty') hollow++
-      else { floored = true; break }
+    // OBSIDIAN-01 (Claude r3 BLOCKER): lava has an empty box, so it counted as hollow and a 1-2 deep pit over a lava lake under cave
+    // air passed (hollow < 3): the bot stepped onto a floorless tread into the lake. Lava anywhere in the probed column refuses.
+    const { hollow, floored, lava: lavaBelow } = mineTreadProbe(d => bot.blockAt(treadFloor.offset(0, -d, 0)), maxProbe)
+    if (lavaBelow) {
+      return {
+        status: 'failed', failClass: 'hazard_interrupt',
+        gap: `at_y${Math.round(bot.entity.position.y)}`,
+        detail: `stopped at y=${Math.round(bot.entity.position.y)}: lava under the next step (${hollow} open above it) -- ` +
+                'that is a fall into lava, not a stair; mine down from somewhere else',
+      }
     }
     const depth = floored ? hollow : null      // null = deeper than we can see
     if (hollow >= 3 && !mayStepDown(depth, bot.health)) {
@@ -15753,6 +15757,20 @@ export function stairBearings (bot) {
  * kelp and seagrass on 2026-08-29 multiplied drownings sevenfold and was rolled
  * back; block name equality is the predicate that has held.
  */
+/**
+ * UNDER THE NEXT TREAD -> { hollow, floored, lava }. Pure over below(d) (the block d under the tread's floor cell, d = 0..maxProbe):
+ * open cells counted down to the first solid one; LAVA ends the probe as lava (obsidian-01, Claude r3: its empty box read as hollow).
+ */
+export function mineTreadProbe (below, maxProbe) {
+  let hollow = 0
+  for (let d = 0; d <= maxProbe; d++) {
+    const b = below(d)
+    if (b && /lava/.test(String(b.name ?? ''))) return { hollow, floored: false, lava: true }
+    if (!b || b.name === 'air' || b.name === 'cave_air' || b.boundingBox === 'empty') hollow++
+    else return { hollow, floored: true, lava: false }
+  }
+  return { hollow, floored: false, lava: false }
+}
 export function stairLiquid (b) {
   return !!b && (b.name === 'lava' || b.name === 'water')
 }
