@@ -191,7 +191,7 @@ export function reroofPendingCells (records = {}, { bpOf = () => null, targets =
 const nmOf = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 const LEAVES_RX = /_leaves$/
 /** A decorator ornament role (decorator.mjs: D<n>-f<k>, D<n>-g, D<n>-pot, D<n>-h, D<n>-post, D<n>-lamp). */
-export const DECOR_ORNAMENT_RX = /^D\d+-(f\d|g|pot|h|post|lamp)$/
+export const DECOR_ORNAMENT_RX = /^D\d+-(f\d|g|u\d|pot|h|post|lamp)$/   // flowers-01: an upgraded border cell (u) too
 /**
  * (b) WHAT STANDS IN THE ADDED CELLS, AND WHAT MAY GO -> { clear: [{ at, name, kind }], retire: [[x, y, z]], blocker: { at, name } | null }.
  * Pure. `cells` the added cells' world positions; `decor` the decor HEAD record (its cells: { at, role }); `recordAt(x, y, z)` -> a plot

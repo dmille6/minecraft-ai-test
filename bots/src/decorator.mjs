@@ -451,7 +451,8 @@ export function assignKinds (border, design, { flowers = 0, ferns = 0 } = {}) {
 /** Is a role a decor pot (`D3-pot`)? a decor border plant (`D3-f2`, a fern cluster's `D3-g`)? Pure. */
 export const decorPotRole = role => /^D\d+-pot$/.test(String(role ?? ''))
 // decorator-02: a fern cluster's cell (`D3-g`) is a border plant too (the bill, the owed count, the walk-through role read it)
-export const decorFlowerRole = role => /^D\d+-(f\d|g)$/.test(String(role ?? ''))
+// flowers-01: an upgraded cell (`D3-u1`) is a border flower too
+export const decorFlowerRole = role => /^D\d+-(f\d|g|u\d)$/.test(String(role ?? ''))
 export const decorFernRole = role => /^D\d+-g$/.test(String(role ?? ''))
 /** decorator-03: a hedge cell (`D3-h`), a lantern post's fence (`D3-post`) and its lantern (`D3-lamp`); every decor role the bag
  *  supplies (never billed from a chest: the border's plants, the hedge's leaves, the post's fence and lantern). Pure. */
@@ -796,3 +797,178 @@ export function decorRetire (rec, keys = [], { by = 'reroof', now = Date.now() }
     retiredAt: now,
   }
 }
+
+// ==== FLOWERS-01: THE FLOWER SUPPLY AND THE BORDER UPGRADE (OWNER 11-07: "lawns with flowers and tall grass scattered, paths edged with
+// flowers"; design docs/reports/flowers-design-2026-11-07.md, Claude + Codex reconciled). MEASURED 11-07: all 61 live border cells were
+// ferns (role D<n>-g) because the town had NO flowers -- 2 in 13 bags, 0 in 27 chests, bone meal 4 (the park's reserve); 7 days: 8 meals,
+// 2 flowers. Paper (sandbox5 11-07, flower-proof.cjs): a meal on open taiga grass grows 2.75 flowers (poppy, dandelion) + 17 short grass
+// + 2.5 tall grass; on half-broken ground 1.25; a SECOND meal on a centre whose top a plant now covers is REFUSED (the meal is not spent);
+// bone meal on a small flower does nothing (the meal is kept); a fern cell takes a flower placed on its soil (the fern is replaced).
+// THE UPGRADE: a fern border cell is re-roled to a flower role `D<n>-u<k>` (the batch's scheme, NO fern in its palette) when the bag holds
+// the flower for it -- two cells in three of a run (one in three stays a fern: the green between the flowers). A `u` cell holding its
+// fern while the bag holds no flower is DONE for that visit (upgradeWaits): nothing is ever dug for a flower the bot does not hold, and
+// no record reads damaged for want of flowers (the refusal chain: no flowers -> the ferns stay, nobody stalls).
+export const FLOWER = Object.freeze({
+  keepEvery: 3,      // one cell in three of a fern run stays a fern (Codex design: two flowers per retained fern)
+  upgradeMax: 8,     // fern cells re-roled a visit (never more than the bag's flowers)
+  wildR: 128,        // the wild pick's reach from home (Chebyshev; the decor visit's walk)
+  wildMax: 12,       // wild picks a visit
+  wildWant: 16,      // the bag's flowers a wild pick fills to
+  feedKeep: 8,       // ferns the bag keeps from the compost drive (a fern cell's repair)
+  feedMax: 12,       // feed-fern digs a visit (shears: a large fern is two)
+  feedWant: 24,      // the bag's feed ferns the gather fills to (~2.3 bone meal: 1 + 6/0.65 ferns a meal)
+  coreOpen: 0.8,     // a meal waits until this share of the nursery's core landing cells is open (Paper: a covered centre refuses it)
+  harvestMax: 40,    // nursery digs a visit (the whole spread is cleared before a meal: was NURSERY.harvestMax 24, clearR 2)
+})
+/** THE SWITCH: FLOWERS=on|off, default on (the decorator's own pools only: decorOn decides whether any decor runs). Pure. */
+export const flowersOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.FLOWERS ?? '').trim())
+/** An upgraded border cell (`D3-u1`): a flower cell whose fern waits for a flower. Pure. */
+export const decorUpgradeRole = role => /^D\d+-u\d$/.test(String(role ?? ''))
+const SMALL_SET2 = new Set(SMALL_FLOWERS)
+/** The bag's small flowers -> n (never a fern). Pure. */
+export const flowersOf = (held = {}) => SMALL_FLOWERS.reduce((t, n) => t + Math.max(0, Number(held?.[n]) || 0), 0)
+/**
+ * IS AN UPGRADED CELL DONE FOR THIS VISIT ALTHOUGH IT HOLDS NO FLOWER? -> bool. Pure. A `u` cell standing a fern (or nothing a flower
+ * could replace: air, short grass) while `held` has no small flower: it waits -- never damage, never an item the visit lacks. With a
+ * flower in the bag it is open (the visit's placement replaces the fern: Paper P2). Anything else is the cell's ordinary done test.
+ */
+export function upgradeWaits (cell, block, held = {}) {
+  if (!decorUpgradeRole(cell?.role)) return false
+  const n = nm(block)
+  if (SMALL_SET2.has(n)) return false
+  if (!(n === 'fern' || AIRN(n) || n === 'short_grass')) return false
+  return flowersOf(held) <= 0
+}
+/** The instance id of a decor role (`D3-g` -> 'D3'). Pure. */
+const instOf = role => String(role ?? '').replace(/-.*$/, '')
+/** The keep phase of a run (its segment's name): which cell in FLOWER.keepEvery stays a fern. Pure. */
+export const keepPhase = seg => fnv1a(`flowers@1|${seg ?? ''}`) % FLOWER.keepEvery
+/**
+ * THE FERN CELLS AN UPGRADE MAY TAKE -> [{ cell, i, k }] in the record's order (the walls first: the batches' own order). Pure.
+ * A fern cluster's cell (role D<n>-g) standing its FERN now (`read`), never a held column (`held(x, z)`: the wall demolition), and not
+ * the run's kept fern: within its segment the cells are counted in the record's order and the (i % keepEvery) === keepPhase(seg) one
+ * stays. `k` the flower role's rotation (i % 4: neighbours differ).
+ */
+export function upgradeCandidates (rec, read, { held = () => false } = {}) {
+  const bySeg = new Map()
+  for (const c of rec?.cells ?? []) {
+    if (!decorFernRole(c?.role) || !Array.isArray(c.at)) continue
+    const s = String(c.seg ?? instOf(c.role))
+    if (!bySeg.has(s)) bySeg.set(s, [])
+    bySeg.get(s).push(c)
+  }
+  const out = []
+  for (const c of rec?.cells ?? []) {
+    if (!decorFernRole(c?.role) || !Array.isArray(c.at)) continue
+    const s = String(c.seg ?? instOf(c.role))
+    const i = bySeg.get(s).indexOf(c)
+    if (i % FLOWER.keepEvery === keepPhase(s)) continue
+    if (held(c.at[0], c.at[2])) continue
+    if (nm(read(...c.at)) !== 'fern') continue
+    out.push({ cell: c, i, k: i % 4 })
+  }
+  return out
+}
+/** The flower palette of an upgraded role: the batch's scheme rotated (decorInstance's f roles) WITHOUT the fern. Pure. */
+export function upgradePalette (rec, id, k) {
+  const inst = (rec?.instances ?? []).find(q => q?.id === id)
+  const list = SCHEMES[inst?.design?.scheme] ?? SCHEMES.mixed
+  return rotList(list, k * 3)
+}
+/**
+ * THE UPGRADE -> the new record | null (nothing to do). Pure. At most min(`flowers`, FLOWER.upgradeMax) candidates (upgradeCandidates,
+ * in order) are re-roled `D<n>-u<k>` (their palette upgradePalette: added once per role), each kept in `upgraded` ({ at, from, role,
+ * at time }) so the read can judge the cell's history; the cells keep their seg (the batch's runs) and zones (their own columns).
+ */
+export function withUpgrade (rec, cands, { flowers = 0, now = Date.now(), max = FLOWER.upgradeMax } = {}) {
+  const take = (cands ?? []).slice(0, Math.max(0, Math.min(Math.floor(Number(flowers) || 0), max)))
+  if (!rec || !take.length) return null
+  const want = new Map(take.map(q => [kOf(q.cell.at), q]))
+  const palette = { ...(rec.palette ?? {}) }
+  const log = []
+  const cells = (rec.cells ?? []).map(c => {
+    const q = Array.isArray(c?.at) ? want.get(kOf(c.at)) : null
+    if (!q || !decorFernRole(c.role)) return c
+    const id = instOf(c.role), role = `${id}-u${q.k}`
+    palette[role] ??= upgradePalette(rec, id, q.k)
+    log.push({ at: c.at.slice(), from: c.role, role, upgradedAt: now })
+    return { ...c, role }
+  })
+  if (!log.length) return null
+  return { ...rec, cells, palette, upgraded: [...(rec.upgraded ?? []), ...log], upgradedAt: now }
+}
+/**
+ * THE WILD FLOWER PICK'S TARGETS -> [{ at, name }] nearest `from` first, at most `max` and `want`. Pure (decorator-02 fernTargets'
+ * rule for a small flower). A small flower standing on soil, picked in its own cell (no collision: the picker stands in it); never a
+ * reserved column (zones, the plan, the park), a record's column or cell (the decor's own borders, the park's beds), inside the town's
+ * walls (`inside`: the lawns are the town's), within NURSERY.spread of a nursery centre (`nurseries`: the nursery's own harvest), or
+ * beyond `r` of home.
+ */
+export function flowerTargets (cands, { read, reserved = () => null, guard = { cols: new Set(), cells: new Set() }, home, from = null, inside = () => false, nurseries = [], max = FLOWER.wildMax, want = FLOWER.wildWant, r = FLOWER.wildR } = {}) {
+  const f = from ?? [home.x, home.y, home.z]
+  const order = (cands ?? []).filter(c => Array.isArray(c?.at)).slice().sort((a, b) => (Math.abs(a.at[0] - f[0]) + Math.abs(a.at[1] - f[1]) + Math.abs(a.at[2] - f[2])) - (Math.abs(b.at[0] - f[0]) + Math.abs(b.at[1] - f[1]) + Math.abs(b.at[2] - f[2])) || a.at[0] - b.at[0] || a.at[2] - b.at[2] || a.at[1] - b.at[1])
+  const out = [], seen = new Set()
+  for (const c of order) {
+    if (out.length >= Math.min(max, want)) break
+    const [x, y, z] = c.at
+    const here = nm(read(x, y, z))
+    if (!SMALL_SET2.has(here) || here !== nm({ name: c.name })) continue
+    if (Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) > r) continue
+    if (!BORDER_SOIL.test(nm(read(x, y - 1, z)))) continue
+    if (reserved(x, z) || inside(x, z)) continue
+    if (guard.cols?.has?.(k2(x, z)) || guard.cells?.has?.(kOf([x, y, z]))) continue
+    if ((nurseries ?? []).some(a => Array.isArray(a) && Math.max(Math.abs(x - a[0]), Math.abs(z - a[2])) <= NURSERY.spread)) continue
+    const k = kOf([x, y, z])
+    if (seen.has(k)) continue
+    seen.add(k)
+    out.push({ at: [x, y, z], name: here })
+  }
+  return out
+}
+/**
+ * THE NURSERY'S CLEARING BEFORE A MEAL -> { digs: [{ at, name, d }], open, landing, ready }. Pure. Paper 11-07: a meal lands only on
+ * open cells over grass and is refused outright when the centre's top is covered, so the WHOLE spread is cleared (was NURSERY.clearR 2):
+ * every flower and short/tall grass standing on grass within NURSERY.spread (never a record cell), the core's first (nearest the centre).
+ * `ready`: the centre's top is open and at least FLOWER.coreOpen of the core's landing cells are open.
+ */
+export function nurseryClearing (read, nursery, { guard = { cells: new Set() } } = {}) {
+  const [cx, cy, cz] = nursery.at
+  const R = NURSERY.spread
+  const digs = []
+  let open = 0, landing = 0, centreOpen = false
+  for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) {
+    const x = cx + dx, z = cz + dz
+    const g = grassTop(read, x, z, cy)
+    if (g == null) continue
+    const at = [x, g + 1, z]
+    const n = nm(read(...at))
+    const d = Math.max(Math.abs(dx), Math.abs(dz))
+    const plant = BLOOM_SET.has(n) && !guard.cells.has(kOf(at))
+    if (d <= NURSERY.core) { landing++; if (AIRN(n)) open++ }
+    if (!dx && !dz) centreOpen = AIRN(n)
+    if (plant) digs.push({ at, name: n, d })
+  }
+  digs.sort((a, b) => a.d - b.d || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+  return { digs, open, landing, ready: centreOpen && landing > 0 && open >= FLOWER.coreOpen * landing }
+}
+/**
+ * THE DECORATOR'S FLOWER WORK -> { want, why }. Pure. Is there a border to upgrade (`cands` upgrade candidates, `owed` upgraded cells
+ * still holding their fern) AND a supply step this visit can take: flowers in the bag (place them), bone meal to use (the bag's, the
+ * town's above NURSERY.mealKeep), composter feed in the bag (DRIVE.feedMin), wild flowers in reach (`wild`), or feed ferns to cut
+ * (shears or iron for them, `wildFerns`, the town's meal under DRIVE.target)? A visit that then changes nothing is the decor's stall
+ * (decorStalled: the no-site wait) -- the decorator is let go; the ferns stay.
+ */
+export function flowerWork ({ cands = 0, owed = 0, flowers = 0, meal = 0, feed = 0, wild = 0, wildFerns = 0, shears = false, townMeal = null } = {}) {
+  if (!(Number(cands) > 0 || Number(owed) > 0)) return { want: false, why: 'no_border' }
+  if (Number(flowers) > 0) return { want: true, why: 'flowers' }
+  if (Number(meal) > 0) return { want: true, why: 'meal' }
+  if (Number(feed) >= DRIVE.feedMin) return { want: true, why: 'feed' }
+  if (Number(wild) > 0) return { want: true, why: 'wild' }
+  if (shears && Number(wildFerns) > 0 && Number.isFinite(townMeal) && townMeal < DRIVE.target) return { want: true, why: 'fern_feed' }
+  return { want: false, why: 'no_supply' }
+}
+/** The feed ferns the gather fills the bag to -> n: FLOWER.feedKeep (kept for fern repairs) + FLOWER.feedWant while the town's bone
+ *  meal (read) is under DRIVE.target and there is a border to upgrade; else 0. Pure. */
+export const feedFernNeed = ({ held = {}, townMeal = null, work = false } = {}) => (work && Number.isFinite(townMeal) && townMeal < DRIVE.target ? Math.max(0, FLOWER.feedKeep + FLOWER.feedWant - (Number(held?.fern) || 0)) : 0)
+/** THE COMPOST DRIVE'S FERN ALLOWANCE -> the ferns above FLOWER.feedKeep go in (the rest stay the border's). Pure. */
+export const feedFerns = (held = {}) => Math.max(0, (Number(held?.fern) || 0) - FLOWER.feedKeep)
