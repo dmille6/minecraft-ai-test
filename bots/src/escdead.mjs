@@ -21,7 +21,7 @@
 //     protectzone.mjs): every call site then runs the base line unchanged.
 import { Vec3 } from 'vec3'
 import { isWaterCell, isLavaCell } from './scaffold.mjs'
-import { swimFits, swimUnderStep, airEstimate } from './swimunder.mjs'
+import { swimFits, swimUnderStep, airEstimate, swimUnderPlan } from './swimunder.mjs'
 import { escDeadOn } from './toolfor.mjs'
 
 /** ESCDEAD=0|off|false|no turns escdead-01 off (the one-setting rollback); anything else, or unset, leaves it on. Pure.
@@ -110,7 +110,10 @@ export function breachPlan ({ at = () => null, feet, maxWater = BREACH_MAX_WATER
   if (water > maxWater || yy > y + 2 + maxWater + 1) return no(`more than ${maxWater} cells of water over the roof: too deep to swim up on one breath`)
   if (!top1 || !top2) return no(`terrain not loaded at the surface (y=${yy})`)
   if (!(swimFits(top1) && !isWaterCell(top1) && swimFits(top2) && !isWaterCell(top2))) {
-    return no(`the water over the roof is closed by ${top1.name} at y=${yy}: a breach would flood the pocket and open nothing`)
+    // escpocket-01: NAME THE CELL THAT CLOSES IT (live 11-07, isolated-d-Echo: "closed by air at y=62" for 5 h -- y62 was the
+    // one air cell of a bubble, the lid was the diorite at y63; the refusal was right, its reason pointed at the wrong cell)
+    const open1 = swimFits(top1) && !isWaterCell(top1)
+    return no(`the water over the roof is closed by ${open1 ? top2.name : top1.name} at y=${open1 ? yy + 1 : yy}${open1 ? ` (one ${top1.name} cell under it)` : ''}: a breach would flood the pocket and open nothing`)
   }
   // NO LAVA NEAR THE POCKET OR THE COLUMN (the breach adds a falling water column; water on lava is obsidian or stone, and a
   // flow can also open a lava face beside the bot)
@@ -166,6 +169,150 @@ export function breachRowDetail (r = {}) {
   return `outcome=${r.outcome} roof=${r.roof ?? '-'} water=${r.water ?? 0} top=${r.top ?? '-'} rose=${(r.rose ?? 0).toFixed(1)} ` +
          `dig_ms=${r.digMs ?? 0} min_air=${r.minAir ?? '-'} hp=${r.hp0 ?? '-'}->${r.hp1 ?? '-'} ms=${r.ms ?? 0}${r.why ? ` -- ${r.why}` : ''}`
 }
+
+// ---- ESCPOCKET-01: the self-sealed pocket and the way back in (docs/reports/escpocket-2026-11-07.md) -----------------------
+//
+// MEASURED (live 11-07, isolated-d-Echo, 358,58,180): the wide swim got Delta, Bravo and Echo out at 05:52Z (canary). At 07:16Z
+// Echo fell 12 into the lake on a gather walk, was moved up the falling-water column under the pocket, and at feet y=56 the
+// marooned arm PILLARED: one dirt went into the column (358,55,180) and the body rose into the pocket, where the flood guard
+// refused the granite roof. That dirt is the only way out: the 11-07 03:16Z cut with dirt at 358,55,180 and air at 358,62,180
+// reproduces every live row (narrow AND wide "3 water cells searched", startCells, the breach "closed by air at y=62").
+// Pinned 5 h+, every rung refusing, none able to dig the plug it had placed itself. Three moves, all pure here:
+//   - the POCKET DIG: when the (wide) swim finds no way out, one block that borders the reachable water, at feet level or
+//     below (never the pocket's own air), within reach of the eye, is dug FROM THE POCKET with the head in air; the swim is then
+//     planned on the world as it is and run as before. A dirt plug the bot placed is exactly such a block;
+//   - the TRAP SITE: a pocket a bot swam out of is recorded (its cells + the column it rose in by), pool-wide, for 12 h; the
+//     pathfinder prices those cells out (101 deletes the move) and a bot found in one gets the wide search at once;
+//   - ESCPOCKET=0 turns all three (and the pillar's column-cap preflight in reflex.mjs) off.
+
+/** ESCPOCKET=0|off|false|no turns escpocket-01 off; anything else, or unset, leaves it on. Pure. */
+export const escPocketOn = (env = typeof process !== 'undefined' ? process.env : {}) =>
+  !/^(0|off|false|no)$/i.test(String(env?.ESCPOCKET ?? '1').trim())
+
+export const POCKET_REACH = 4.5             // eye to the block's centre (mineflayer canDigBlock allows 5.1; Paper 4.5 + 1)
+export const POCKET_MAX_CANDIDATES = 24     // re-plans per firing, nearest first (each a <= 17 x 17 x 11 search)
+export const POCKET_MAX_DIGS = 2            // a sideways opening needs the feet AND head cells
+export const POCKET_DIG_MS = 12_000           // one swing's bound, floating (the breach's BREACH_DIG_MS)
+const GRAVITY = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*concrete_powder|anvil|chipped_anvil|damaged_anvil|pointed_dripstone|scaffolding|dragon_egg)$/
+// town furniture and build parts are never a pocket dig (a station sweep owns stations; a build record is guardMay's)
+const FURNITURE = /(chest|barrel|furnace|smoker|crafting_table|shulker_box|hopper|dispenser|dropper|_bed$|sign|banner|anvil|lectern|brewing_stand|enchanting_table|beacon|spawner|door|trapdoor|ladder|torch|lantern|rail|bell|cauldron|composter|jukebox|note_block|grindstone|stonecutter|loom|cartography_table|fletching_table|smithing_table|campfire|chain|bookshelf|glass|pane|fence|wall$|_slab$|_stairs$)/
+/** May a pocket dig break this block (by its kind) -> boolean. Pure. Solid, breakable, not a falling block, not furniture. */
+export function pocketDigOk (b) {
+  if (!solid(b)) return false
+  const n = b.name ?? ''
+  if (UNBREAKABLE.test(n) || GRAVITY.test(n) || FURNITURE.test(n) || isWaterCell(b) || isLavaCell(b)) return false
+  return true
+}
+const DIRS6 = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
+const lavaAround = (at, [x, y, z]) => DIRS6.some(([dx, dy, dz]) => isLavaCell(at(x + dx, y + dy, z + dz)))
+
+/**
+ * THE POCKET DIG -> { ok, dig: [[x,y,z],...] | null, names, plan, tried, reason }. Pure.
+ *   at, start, ...opts  swimUnderPlan's (opts = the tier's search: {} or SU_WIDE)
+ *   eye                 [x,y,z] the eye now (default: the start column's centre, feet + 0.2 + 1.62)
+ *   digOk(block, cell)  the caller's per-block rule (the reflex adds the guard and the dig-time bound)
+ * A swim plan that exists without digging is returned as it is (dig null). Otherwise each block that borders a searched water
+ * cell -- below it or beside it, never above (water does not flow up into it), at the start's feet level or lower (the pocket's
+ * air is the breath: a dig at head height could let water into it), within POCKET_REACH of the eye, no lava on any face -- is
+ * replaced by water in a copy of the world and the swim planned again; a sideways opening whose head cell is a block too digs
+ * both. The best plan (fewest digs, then fewest head-wet cells, then length) wins; nothing found -> the swim's own refusal, with the count tried.
+ */
+export function pocketDigPlan ({ at = () => null, start, eye = null, reach = POCKET_REACH, digOk = pocketDigOk,
+  maxCandidates = POCKET_MAX_CANDIDATES, ...opts } = {}) {
+  const base = swimUnderPlan({ at, start, ...opts })
+  if (base.ok) return { ok: true, dig: null, names: [], plan: base, tried: 0, reason: null }
+  const nodes = Array.isArray(base.nodes) ? base.nodes : []
+  if (!nodes.length || !Array.isArray(start)) return { ok: false, dig: null, names: [], plan: base, tried: 0, reason: base.reason }
+  const [sx, sy, sz] = start
+  const e = Array.isArray(eye) && eye.every(Number.isFinite) ? eye : [sx + 0.5, sy + 0.2 + 1.62, sz + 0.5]
+  const inReach = c => Math.hypot(c[0] + 0.5 - e[0], c[1] + 0.5 - e[1], c[2] + 0.5 - e[2]) <= reach
+  const may = c => { if (c[1] > sy || !inReach(c)) return false; const b = at(...c); return !!b && digOk(b, c) && !lavaAround(at, c) }
+  const nodeSet = new Set(nodes)
+  const seen = new Set(), cands = []
+  for (const k of nodes) {
+    const n = k.split(',').map(Number)
+    for (const [dx, dy, dz] of DIRS6) {
+      if (dy === 1) continue
+      const c = [n[0] + dx, n[1] + dy, n[2] + dz], ck = c.join(','), sk = `${ck}:${dy === 0 ? 'side' : 'down'}`
+      if (seen.has(sk) || nodeSet.has(ck)) continue
+      seen.add(sk)
+      if (!may(c)) continue
+      const cells = [c]
+      // a sideways opening: the head cell over it must let the body in too (a block there is dug as well, if it may be)
+      if (dy === 0) {
+        const h = [c[0], c[1] + 1, c[2]], hb = at(...h)
+        if (!hb) continue
+        if (!swimFits(hb)) { if (cells.length >= POCKET_MAX_DIGS || !may(h)) continue; cells.push(h) }
+      }
+      cands.push({ cells, d: Math.hypot(c[0] + 0.5 - e[0], c[1] + 0.5 - e[1], c[2] + 0.5 - e[2]) })
+    }
+  }
+  cands.sort((a, b) => (a.cells.length - b.cells.length) || (a.d - b.d))
+  let best = null, tried = 0
+  for (const cd of cands.slice(0, maxCandidates)) {
+    tried++
+    const dug = new Set(cd.cells.map(c => c.join(',')))
+    const atV = (x, y, z) => (dug.has(`${x},${y},${z}`) ? { name: 'water', boundingBox: 'empty', position: { x, y, z }, virtual: true } : at(x, y, z))
+    const p = swimUnderPlan({ at: atV, start, ...opts })
+    if (!p.ok) continue
+    // FEWEST DIGS FIRST (the least change to the world, the fewest swings floating), then head-wet cells, then length
+    if (!best || cd.cells.length < best.dig.length || (cd.cells.length === best.dig.length && (p.wet < best.plan.wet ||
+        (p.wet === best.plan.wet && p.route.length < best.plan.route.length)))) best = { dig: cd.cells, plan: p }
+  }
+  if (!best) return { ok: false, dig: null, names: [], plan: base, tried, reason: `${base.reason}; no pocket dig opens one (${tried} of ${cands.length} block(s) tried)` }
+  return { ok: true, dig: best.dig, names: best.dig.map(c => at(...c)?.name ?? '?'), plan: best.plan, tried, reason: null }
+}
+
+// ---- the trap site ----------------------------------------------------------------------------------------------------------
+export const TRAP_KIND = 'trap:pocket'
+export const TRAP_TTL_MS = 12 * 60 * 60_000
+export const TRAP_STEP_COST = 101           // mineflayer-pathfinder deletes a move whose cost is over 100
+/**
+ * A POCKET A BOT SWAM OUT OF -> the site the pool records. Pure. Its cells: the start's feet and head cells, and every cell of
+ * the route in the start's own column (the shaft the body rose into the pocket by: Echo's 358,54..57,180). The route's cells
+ * beyond that column are the way OUT and are not priced.
+ */
+export function trapSiteFrom ({ start, route = [], via = 'swim', by = null, now = Date.now() } = {}) {
+  if (!Array.isArray(start) || start.length !== 3 || !start.every(Number.isFinite)) return null
+  const [x, y, z] = start
+  const cells = new Set([`${x},${y},${z}`, `${x},${y + 1},${z}`])
+  for (const c of route) {
+    if (!Array.isArray(c) || c[0] !== x || c[2] !== z) continue
+    if (c[1] > y) continue
+    for (let cy = c[1]; cy < y; cy++) cells.add(`${x},${cy},${z}`)
+  }
+  return { kind: TRAP_KIND, x, y, z, cells: [...cells].sort(), via, by, last: now, count: 1 }
+}
+/** Live trap sites -> a Set of 'x,y,z' cell keys. Pure. A site older than TRAP_TTL_MS (since its last escape) is gone. */
+export function trapCellSet (sites, now = Date.now(), ttl = TRAP_TTL_MS) {
+  const out = new Set()
+  for (const s of Array.isArray(sites) ? sites : []) {
+    if (s?.kind !== TRAP_KIND || !Array.isArray(s.cells) || !(now - (s.last ?? 0) <= ttl)) continue
+    for (const k of s.cells) out.add(k)
+  }
+  return out
+}
+/** exclusionAreasStep price of a cell -> 101 inside a live trap, else 0; never for a body already inside one (`selfIn`). Pure. */
+export function trapStepCost (cellSet, block, selfIn = false) {
+  const p = block?.position
+  if (!p || selfIn || !cellSet || !cellSet.size) return 0
+  return cellSet.has(`${p.x},${p.y},${p.z}`) ? TRAP_STEP_COST : 0
+}
+/** Is this feet cell inside a live trap -> boolean. Pure. */
+export const inTrap = (cellSet, cell) => !!cellSet && Array.isArray(cell) && cellSet.has(cell.join(','))
+/** The wide search's tier with a recorded trap -> {} | SU_WIDE. Pure: a body in a pocket the pool escaped by the wide swim
+ *  does not wait the 30-min pin for it (the record is the evidence the pin clock waits for). */
+export function swimTierFor (pinnedMs, { known = false, on = escDeadOn(), pocketOn = escPocketOn(), minMs = pinMinMs() } = {}) {
+  if (on && pocketOn && known) return SU_WIDE
+  return swimSearchFor(pinnedMs, { on, minMs })
+}
+/** The `_escpocket_mode` licence row, once per spawn (features.mjs). Pure. */
+export function escPocketModeDetail (env = typeof process !== 'undefined' ? process.env : {}) {
+  return `on=${escPocketOn(env) ? 1 : 0} dig=wide_tier reach=${POCKET_REACH} max_digs=${POCKET_MAX_DIGS} dig_ms<=${POCKET_DIG_MS} ` +
+         `trap_ttl_h=${TRAP_TTL_MS / 3_600_000} trap_cost=${TRAP_STEP_COST} pillar_cap=1`
+}
+/** The `_swim_under_start` row's dig part. Pure. */
+export const pocketDigDetail = pd => (pd?.dig?.length ? ` dig=${pd.dig.map((c, i) => `${c.join(',')}:${pd.names?.[i] ?? '?'}`).join('+')}` : '')
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 const nextTick = bot => new Promise(resolve => {

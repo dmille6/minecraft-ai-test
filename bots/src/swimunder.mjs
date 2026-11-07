@@ -155,7 +155,8 @@ export function swimUnderPlan ({ at = () => null, start, radius = SU_RADIUS, max
     }
   }
   const pick = found ?? openExit
-  if (!pick) return { ...no(`no way out within ${radius} cells (${best.size} water cells searched${unloaded ? `, ${unloaded} cell reads not loaded` : ''})`), unloaded }
+  // escpocket-01: the searched water cells ride on a refusal (pocketDigPlan reads which blocks border the reachable water)
+  if (!pick) return { ...no(`no way out within ${radius} cells (${best.size} water cells searched${unloaded ? `, ${unloaded} cell reads not loaded` : ''})`), unloaded, nodes: [...best.keys()] }
   const route = []
   let wetRun = 0
   for (let n = pick; n && n.prev; n = n.prev) { route.unshift(n.c); wetRun = Math.max(wetRun, n.run) }
