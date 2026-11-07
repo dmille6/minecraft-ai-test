@@ -502,3 +502,13 @@ the pilot just stops calling it.
   - The probe keeps running to the end of stage 3 (Mac controller `bw-guard.sh`): a trip pauses arm B in the proxy.
 - Arm B-general started on a fresh world at **03:46:35Z** (bot connected 03:47:09Z), ~2 h 20 min after the others:
   every read compares arms **per bot-hour**.
+- **First hour of B-general (03:47-04:48Z): only 0.28 bot-h connected**, because the watcher stopped it at 04:05Z as a "crash
+  loop". The cause was ours: after a run, the fleet watchdog's `home` rescue held the body for minutes, and the loop treated
+  that as a stuck runner and restarted the process (03:52Z, 04:05Z). Fixed 04:49Z: a rescue or reflex-owned run is waited out
+  (up to 5 min); only our own skill not coming back in 20 s restarts. In its 0.28 bot-h: 3 tasks proposed, 0 verified, 31
+  blocks placed (server), 16 model calls, 0 deaths, 0 violations.
+- **Arm A lost 03:27-04:49Z to empty replies**: when the proxy stopped sending `think` unless set (for B-general), Qwen3.6
+  thought through its token budget and answered nothing (39 proposals refused). `think: false` is now explicit for arm A.
+- **The control was stopped at 04:29Z** on the 2-deaths rule (two lava deaths of the fleet harness). The control runs no
+  generated code and its deaths are the comparison's denominator, so the rule now counts the control's deaths but never stops
+  it. All four arms running again from 04:49Z.
