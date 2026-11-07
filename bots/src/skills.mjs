@@ -18515,14 +18515,17 @@ const mkFile = name => path.join(townDir(), `market-${indexHk()}.${name}.json`)
 function mkRead (name, dflt) { try { const v = JSON.parse(fs.readFileSync(mkFile(name), 'utf8')); return v && typeof v === 'object' ? v : dflt } catch { return dflt } }
 function mkWrite (name, obj) { try { fs.mkdirSync(townDir(), { recursive: true }); const f = mkFile(name), tmp = `${f}.${config.bot.name}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify(obj)); fs.renameSync(tmp, f) } catch { /* advisory */ } }
 /** The town's stock { name: n } from its index (containers not mid-change), or null with no index. Never throws. */
-function mkTownStock (bot) {
+function mkTownStock (bot, { known = false } = {}) {
   try {
     const entries = townIndexEntries(bot)
     if (!entries) return null
     const out = {}
-    // every container's LAST observation, a mid-change one too (as trade.mjs townItemTotal): a withdraw leaves its chest `dirty`
-    // until the next look (sandbox4 11-06: both town chests read dirty after the first draws), and the draw itself re-checks
+    // PLANNING reads every container's LAST observation, a mid-change one too (as trade.mjs townItemTotal): a withdraw leaves its
+    // chest `dirty` until the next look. THE KEEPS (known: true) read only containers whose observation is current (Codex m2 r2: a
+    // dirty observation can be higher than the chest, and withdraw does not enforce the market's keeps) -- the showcase's 27 are
+    // all `known` (11-07), so this only ever draws less
     for (const e of Object.values(entries)) {
+      if (known && indexStateOf(e) !== 'known') continue
       for (const [k, v] of Object.entries(e?.obs?.names ?? {})) out[k] = (out[k] ?? 0) + Math.max(0, Number(v?.[0]) || 0)
     }
     return out
@@ -18681,9 +18684,9 @@ async function marketRun (ctx, args, signal) {
   const restFor = ms => { rest[merchant.uuid] = Date.now() + ms; mkWrite('rest', rest) }
   // THE TOWN AS THIS RUN LEAVES IT (Codex r2 BLOCKER 2: a withdraw marks its chest dirty and leaves the old observation, so a
   // re-read alone still saw the iron this run took): the lower of the index now and the plan's stock less this run's own draws
-  const stock0 = mkTownStock(bot) ?? {}
+  const stock0 = mkTownStock(bot, { known: true }) ?? {}
   const took = {}
-  const townLeft = item => Math.min((mkTownStock(bot) ?? {})[item] ?? 0, (stock0[item] ?? 0) - (took[item] ?? 0))
+  const townLeft = item => Math.min((mkTownStock(bot, { known: true }) ?? {})[item] ?? 0, (stock0[item] ?? 0) - (took[item] ?? 0))
   const draw = async (item, count) => {
     const before = mkBag(bot)[item] ?? 0
     const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
@@ -18772,7 +18775,7 @@ async function marketRun (ctx, args, signal) {
 }
 /** OPEN ONE MERCHANT and trade (market_run and market_trip): the window's offers recorded, the sale of what was DRAWN, the town's
  *  wants bought with <= spendPerRun, every trade row written. -> { res } | { res: null, fail } (no window). Never leaves a window open. */
-async function mkOpenAndTrade (ctx, e, merchant, drawn, signal, { spend = MARKET.spendPerRun } = {}) {
+async function mkOpenAndTrade (ctx, e, merchant, drawn, signal, { spend = MARKET.spendPerRun, tradeMs = 20_000 } = {}) {
   const { bot } = ctx
   let res = null
     let v = null
@@ -18798,10 +18801,10 @@ async function mkOpenAndTrade (ctx, e, merchant, drawn, signal, { spend = MARKET
       // at most 3 sales and 3 purchases a window: with tradeMs 20 s a window is <= 2 min (the walk-in's inside-a-zone bound)
       const sells = sellOffers(v.trades, have).slice(0, 3)
       const wantsNow = townWants(mkTownStock(bot) ?? {}, mkBag(bot))
-      res = await runTrades(v, { sells, buys: [] }, { sleep: ms => sleep(ms, signal), stackOf })
+      res = await runTrades(v, { sells, buys: [] }, { sleep: ms => sleep(ms, signal), stackOf, tradeMs })
       if (!res.halt) {
         const buys = buyOffers(v.trades, { emeralds: Math.min(winCount(v, 'emerald'), spend), wants: wantsNow }).slice(0, 3)
-        const r2 = await runTrades(v, { sells: [], buys }, { sleep: ms => sleep(ms, signal), stackOf })
+        const r2 = await runTrades(v, { sells: [], buys }, { sleep: ms => sleep(ms, signal), stackOf, tradeMs })
         res.spent += r2.spent; Object.assign(res.bought, r2.bought); res.halt = r2.halt; res.why = r2.why
       }
       if (res.halt) {
@@ -18916,8 +18919,9 @@ async function mkWalkLegs (ctx, to, signal, until, { range = 3 } = {}) {
   }
   return Math.hypot(bot.entity.position.x - to.x, bot.entity.position.z - to.z) <= range + 4 ? 'arrived' : 'short'
 }
-async function mkPlaceBed (ctx, cluster, zones, signal, row) {
+async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity) {
   const { bot } = ctx
+  if (Date.now() > deadline) return false
   const it = bot.inventory.items().find(i => /_bed$/.test(i.name))
   if (!it) return false
   const beds = mkRead('beds', [])
@@ -18929,12 +18933,12 @@ async function mkPlaceBed (ctx, cluster, zones, signal, row) {
   if (!bc.foot) { row('no_effect', { op: 'skip', why: bc.why, block: it.name }); return false }
   // walk near the foot, then the head goes where the bot FACES (its approach): that direction if it is a valid one, else walk to the
   // stand of a valid one; the bot never stands on the foot or the head
-  try { await goto(ctx, { x: bc.foot.x, y: bc.foot.y, z: bc.foot.z, range: 3 }, signal, { until: Date.now() + 45_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  try { await goto(ctx, { x: bc.foot.x, y: bc.foot.y, z: bc.foot.z, range: 3 }, signal, { until: Math.min(deadline, Date.now() + 45_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   check(signal)
   let use = bedDirFrom(bc, bot.entity.position)
   if (!use) {
     const d0 = bc.dirs[0]
-    try { await goto(ctx, { x: d0.stand.x, y: d0.stand.y, z: d0.stand.z, range: 1 }, signal, { until: Date.now() + 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    try { await goto(ctx, { x: d0.stand.x, y: d0.stand.y, z: d0.stand.z, range: 1 }, signal, { until: Math.min(deadline, Date.now() + 30_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     use = bedDirFrom(bc, bot.entity.position)
   }
   const q = bot.entity.position.floored()
@@ -18962,8 +18966,9 @@ async function mkPlaceBed (ctx, cluster, zones, signal, row) {
   return true
 }
 /** Place a CARRIED job block on a market cell beside `cluster` (outside the zone + pad), into the jobs ledger (the 2/day cap). */
-async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = {}) {
+async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = {}, deadline = Infinity) {
   const { bot } = ctx
+  if (Date.now() > deadline) return false
   const it = bot.inventory.items().find(i => i.name === block)
   if (!it) return false
   const led = mkRead('jobs', [])
@@ -18974,7 +18979,7 @@ async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = 
   const pick = marketCell(blockAt, cluster, { zones, existing, from: bot.entity.position })
   if (!pick.cell) { row('no_effect', { op: 'skip', why: pick.why, block }); return false }
   const c = pick.cell
-  try { await goto(ctx, { x: c.x, y: c.y, z: c.z, range: 3 }, signal, { until: Date.now() + 45_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  try { await goto(ctx, { x: c.x, y: c.y, z: c.z, range: 3 }, signal, { until: Math.min(deadline, Date.now() + 45_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   check(signal)
   if (bot.entity.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) > 4.5) { row('no_effect', { op: 'skip', why: 'unreachable', block, cell: c }); return false }
   await bot.equip(it, 'hand')
@@ -18986,7 +18991,12 @@ async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = 
   return true
 }
 /** market_trip: the walk-in trip, one call. One `_market_trip` row at the end; one `_market_run walkin=1` row per merchant visited. */
+/** market_trip under the farmland price for the WHOLE trip (every walk and every fallback profile: in place), town fields included. */
 async function marketTrip (ctx, args, signal) {
+  const { bot } = ctx
+  return withStepPrice(bot.pathfinder?.movements, farmStep(p => bot.blockAt(new Vec3(p.x, p.y, p.z))), () => marketTripPriced(ctx, args, signal))
+}
+async function marketTripPriced (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now(), until = t0 + WALKIN.leaveBy
   const plan = walkinPlan(bot, t0, { freeSlots: 36 - bot.inventory.items().length, health: bot.health ?? 20 })
@@ -19001,14 +19011,14 @@ async function marketTrip (ctx, args, signal) {
   const jobRow = (status, o) => { try { logEvent({ kind: 'market_job', status, snapshot: snapshot(bot), detail: jobDetail(o), args: { op: o.op, block: o.block ?? null, why: o.why ?? null, at: o.cell ? `${o.cell.x},${o.cell.y},${o.cell.z}` : null } }) } catch { /* telemetry */ } }
   try {
     // STOCK: the village's likely buyers' goods above the keeps, the emeralds for the wants, one composter if the town's planks allow
-    const stock0 = mkTownStock(bot) ?? {}
+    const stock0 = mkTownStock(bot, { known: true }) ?? {}
     const goods = walkinGoods(spareGoods(stock0, mkBag(bot)))
     const drawn = {}
     const took = {}
     for (const [item, n] of Object.entries(goods)) {
       const keep = GOODS[item]?.keep ?? 0
       // the town read AGAIN, less this trip's own draws (Codex m2 BLOCKER 2: another bot may have drawn since stock0)
-      const left = Math.min((mkTownStock(bot) ?? {})[item] ?? 0, (stock0[item] ?? 0) - (took[item] ?? 0))
+      const left = Math.min((mkTownStock(bot, { known: true }) ?? {})[item] ?? 0, (stock0[item] ?? 0) - (took[item] ?? 0))
       const can = Math.min(n, Math.max(0, left - keep), Math.max(0, 36 - bot.inventory.items().length - 8) * 64)
       const before = mkBag(bot)[item] ?? 0
       if (can > 0) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item, count: Math.min(64, can) }, signal, rs) }
@@ -19037,7 +19047,7 @@ async function marketTrip (ctx, args, signal) {
     let lastMove = Date.now(), lastPos = bot.entity.position.clone(), why = null
     const inside = () => { const p = bot.entity.position; return p.x >= tgt.box[0] && p.x <= tgt.box[3] + 1 && p.z >= tgt.box[2] && p.z <= tgt.box[5] + 1 }
     // INSIDE, every walk prices farmland and crops out (a drop onto farmland tramples it; protectzone cannot refuse that)
-    await withStepPrice(bot.pathfinder?.movements, farmStep(p => bot.blockAt(new Vec3(p.x, p.y, p.z))), async () => {
+    await (async () => {
     for (let k = 0; k < 12; k++) {
       if (inside()) out.dwell = Date.now() - tIn
       if (bot.entity.position.distanceTo(lastPos) >= 3) { lastPos = bot.entity.position.clone(); lastMove = Date.now() }
@@ -19056,11 +19066,11 @@ async function marketTrip (ctx, args, signal) {
       const mc = bot.blockAt(new Vec3(Math.floor(m.x), Math.floor(m.y), Math.floor(m.z))), mb = bot.blockAt(new Vec3(Math.floor(m.x), Math.floor(m.y) - 1, Math.floor(m.z)))
       if ((mc && FARM_BLOCKS.test(mc.name)) || (mb && FARM_BLOCKS.test(mb.name))) continue
       out.employed++
-      try { await goto(ctx, { x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z), range: 2 }, signal, { until: Math.min(until, Date.now() + 20_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      try { await goto(ctx, { x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z), range: 2 }, signal, { until: Math.min(until, Date.now() + 15_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       const e = Object.values(bot.entities ?? {}).find(x => (x.uuid ?? String(x.id)) === m.uuid)
       if (!e || e.position.distanceTo(bot.entity.position) > 3.2) continue
       const merchant = { ...m, x: e.position.x, y: e.position.y, z: e.position.z }
-      const tr = await mkOpenAndTrade(ctx, e, merchant, drawn, signal, { spend: Math.max(0, MARKET.spendPerRun - out.spent) })
+      const tr = await mkOpenAndTrade(ctx, e, merchant, drawn, signal, { spend: Math.max(0, MARKET.spendPerRun - out.spent), tradeMs: 8_000 })
       out.visited++
       const r = tr.res ?? { sold: {}, earned: 0, spent: 0, bought: {} }
       out.earned += r.earned; out.spent += r.spent
@@ -19072,19 +19082,19 @@ async function marketTrip (ctx, args, signal) {
       } catch { /* telemetry */ }
       if (r.halt) { why = 'halted'; return }
     }
-    })
+    })()
     out.stop = why ?? 'done'
     // OUTSIDE AGAIN: the edge, then beds and the composter for the village (open ground outside the zone + 3)
-    try { await withStepPrice(bot.pathfinder?.movements, farmStep(p => bot.blockAt(new Vec3(p.x, p.y, p.z))), () => goto(ctx, { x: edge.x, y: Math.floor(bot.entity.position.y), z: edge.z, range: 3 }, signal, { until: Date.now() + 20_000 })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    try { await goto(ctx, { x: edge.x, y: Math.floor(bot.entity.position.y), z: edge.z, range: 3 }, signal, { until: Date.now() + 20_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     const vill = Object.values(bot.entities ?? {}).map(merchantOfAny).filter(m => m && m.profession !== 'wandering_trader' && m.x >= tgt.box[0] && m.x <= tgt.box[3] && m.z >= tgt.box[2] && m.z <= tgt.box[5])
     if (vill.length && Date.now() < t0 + WALKIN.homeBy - 50_000) {
       const cl = { n: vill.length, uuids: vill.map(v => v.uuid), members: vill, x: vill.reduce((a, v) => a + v.x, 0) / vill.length, y: Math.floor(Math.min(...vill.map(v => v.y))), z: vill.reduce((a, v) => a + v.z, 0) / vill.length }
-      for (let b = 0; b < 2 && bot.inventory.items().some(i => /_bed$/.test(i.name)); b++) { if (await mkPlaceBed(ctx, cl, zones, signal, jobRow)) out.beds++; else break }
+      for (let b = 0; b < 2 && bot.inventory.items().some(i => /_bed$/.test(i.name)); b++) { if (await mkPlaceBed(ctx, cl, zones, signal, jobRow, t0 + WALKIN.homeBy - 45_000)) out.beds++; else break }
       // the composter beside the village's JOBLESS adults (a jobless villager takes it: a farmer), when it has any
       const jobless = vill.filter(v => v.profession === 'none' && !v.baby)
       if (jobless.length && (mkBag(bot).composter ?? 0) > 0 && Date.now() < t0 + WALKIN.homeBy - 35_000) {
         const jc = { n: jobless.length, uuids: jobless.map(v => v.uuid), members: jobless, x: jobless.reduce((a, v) => a + v.x, 0) / jobless.length, y: Math.floor(Math.min(...jobless.map(v => v.y))), z: jobless.reduce((a, v) => a + v.z, 0) / jobless.length }
-        if (await mkPlaceCarried(ctx, 'composter', jc, zones, signal, jobRow, { zone: tgt.id })) out.composter = 1
+        if (await mkPlaceCarried(ctx, 'composter', jc, zones, signal, jobRow, { zone: tgt.id }, t0 + WALKIN.homeBy - 45_000)) out.composter = 1
       }
     }
     restTrip(out.employed ? WALKIN.perZoneMs : 6 * 3600_000)

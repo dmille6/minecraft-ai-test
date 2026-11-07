@@ -44,7 +44,10 @@ const REF_DZ = 120   // the zone's copy, 120 b south, for the integrity test
 // field's FARMLAND counted cell by cell (a trampled cell turns to dirt; a farmer's harvest leaves the farmland)
 const PARTS = [[ZB[0], 3483], [3493, ZB[3]]]
 const zoneSame = () => PARTS.map(([a, b]) => r1(`execute if blocks ${a} ${Y - 1} ${ZB[2]} ${b} ${Y + 6} ${ZB[5]} ${a} ${Y - 1} ${ZB[2] + REF_DZ} all`)).join(' | ')
-const farmland = () => { const cmds = []; for (let x = 3484; x <= 3492; x++) for (let z = 3692; z <= 3712; z++) cmds.push(`execute if block ${x} ${Y - 1} ${z} minecraft:farmland`); return rcon(...cmds).split('\n').filter(l => /passed/i.test(l)).length }
+// the field's FARMLAND cells, by position (a trampled cell turns to dirt); the bot's own feet are sampled through the trip, so a lost
+// cell is the bot's only if the bot stood in it (AI villagers drop into a sunken field too: mobGriefing is on)
+const FIELD = []; for (let x = 3484; x <= 3492; x++) for (let z = 3692; z <= 3712; z++) FIELD.push([x, z])
+const farmland = () => { const out = rcon(...FIELD.map(([x, z]) => `execute if block ${x} ${Y - 1} ${z} minecraft:farmland`)).split('\n'); const ok = new Set(); let ci = -1; for (const l of out) { if (l.startsWith('> ')) ci++; else if (/passed/i.test(l)) ok.add(FIELD[ci].join(',')) } return ok }
 const offer = (buy, sell, extra = '') => `{buy:${buy},sell:${sell}${extra},maxUses:12,xp:1,priceMultiplier:0.05f}`
 
 async function main () {
@@ -76,7 +79,8 @@ async function main () {
   // the zone's copy BEFORE the trip (blocks only)
   R.cloned = PARTS.map(([a, b]) => r1(`clone ${a} ${Y - 1} ${ZB[2]} ${b} ${Y + 6} ${ZB[5]} ${a} ${Y - 1} ${ZB[2] + REF_DZ}`)).join(' | ')
   R.zoneSameBefore = zoneSame()
-  R.farmlandBefore = farmland()
+  const fieldBefore = farmland()
+  R.farmlandBefore = fieldBefore.size
   const bot = mineflayer.createBot({ host: REG.host, port: PORT, username: NAME, auth: 'offline', version: '1.21.8' })
   bot.loadPlugin(pathfinder)
   await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); setTimeout(() => rej(new Error('no spawn')), 60000) })
@@ -97,7 +101,10 @@ async function main () {
     P('ask', ask)
     if (ask?.order) {
       const t = Date.now()
-      R.run = await SK.SKILLS[ask.order.skill].run({ bot }, ask.order.args, ac.signal)
+      const feet = new Set()
+      const sampler = setInterval(() => { const p = bot.entity?.position; if (p) feet.add(`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`) }, 100)
+      try { R.run = await SK.SKILLS[ask.order.skill].run({ bot }, ask.order.args, ac.signal) } finally { clearInterval(sampler) }
+      R.botInField = [...feet].filter(k => { const [x, y, z] = k.split(',').map(Number); return y <= Y && x >= 3484 && x <= 3492 && z >= 3692 && z <= 3712 })
       R.ms = Date.now() - t
     }
     P('run', R.run, R.ms)
@@ -106,7 +113,9 @@ async function main () {
     R.after = { emerald: countIn('emerald'), lantern: countIn('lantern'), glass: countIn('glass'), redstone: countIn('redstone'), bed: countIn('white_bed'), composter: countIn('composter'), at: bot.entity.position.floored().toString() }
     R.before = before
     R.zoneSameAfter = zoneSame()
-    R.farmlandAfter = farmland()
+    const fieldAfter = farmland()
+    R.farmlandAfter = fieldAfter.size
+    R.farmlandLost = [...fieldBefore].filter(k => !fieldAfter.has(k))
     // what the trip placed outside the zone (beds, the composter), and whether a villager took them
     const scan = []
     for (let x = 3440; x <= 3530; x++) for (let z = Z0 + 1; z < Z1; z++) scan.push([x, z])
@@ -121,7 +130,7 @@ async function main () {
       `data get entity @e[type=villager,tag=wkJ,limit=1,sort=nearest] VillagerData.profession`, `data get entity @e[type=villager,tag=wkJ,limit=1,sort=furthest] VillagerData.profession`)
       .split('\n').filter(l => !l.startsWith('> ')).map(l => l.slice(0, 200))
     R.records = recs
-    P('result', { after: R.after, before: R.before, same: [R.zoneSameBefore, R.zoneSameAfter], farmland: [R.farmlandBefore, R.farmlandAfter], placed: R.placed, inPad: R.placedInZonePad, claims: R.claims, refused: R.refused.slice(0, 10) })
+    P('result', { after: R.after, before: R.before, same: [R.zoneSameBefore, R.zoneSameAfter], farmland: [R.farmlandBefore, R.farmlandAfter, R.farmlandLost, 'bot in field', R.botInField], placed: R.placed, inPad: R.placedInZonePad, claims: R.claims, refused: R.refused.slice(0, 10) })
   } finally {
     bot.quit(); await sleep(500)
     const clean = []

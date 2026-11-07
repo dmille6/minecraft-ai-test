@@ -414,9 +414,9 @@ export const WALKIN = Object.freeze({
   outMs: 45_000,               // the way out at most this long
   dwellMs: 60_000,             // inside a zone at most this long per trip (far under the tripwire Z1's 15 min)
   stillMs: 40_000,             // never stand still inside a zone longer than this
-  leaveBy: 105_000,            // out of the village by this (the beds and the walk home need the rest)
+  leaveBy: 95_000,             // no visit starts within 20 s of this (a visit: goto <= 15 s + a window <= 6 trades x 8 s)
   homeBy: 160_000,             // home by this
-  // INSIDE a zone at most dwellMs + one visit (goto <= 20 s, a window <= 6 trades x tradeMs) + the walk out: ~3.5 min worst case,
+  // INSIDE a zone at most dwellMs + one visit (goto <= 15 s, a window <= 6 trades x 8 s) + the walk out: ~3.5 min worst case,
   // so the tripwire's Z1 (>= 15 min still inside with a refusal) cannot fire on a trading visit; an abort at 180 s leaves the bot
   // within ~200 b of home, free to walk (never held)
   perBotMs: 60 * 60_000,       // one trip per bot per hour
@@ -480,7 +480,7 @@ export function walkinLeave ({ dwell = 0, still = 0, timeOfDay = 0, health = 20,
   if (timeOfDay >= WALKIN.leaveAt) return 'dusk'
   if (health <= 12) return 'health'
   if (freeSlots < 3) return 'bag_full'
-  if (tripLeft <= 0) return 'time'
+  if (tripLeft < 20_000) return 'time'
   return null
 }
 /** Candidates INSIDE one village zone (a walk-in): employed adults, awake, in that box; nearest first. Pure. */
@@ -510,15 +510,14 @@ export function farmStep (blockAt) {
   f.marketFarm = true
   return f
 }
-/** Run fn with an extra step price on `movements` (a NEW array; the old one back on every exit if still ours; buildbot.mjs's rule). */
+/** Run fn with an extra step price on `movements`, IN PLACE (Claude m2 r2: index.mjs builds the ascent / descent fallback profiles with
+ *  Object.assign, so they share THIS array object -- a new array would leave the fallbacks unpriced): pushed, and spliced out on every
+ *  exit by identity. */
 export async function withStepPrice (movements, price, fn) {
-  if (!movements || !Array.isArray(movements.exclusionAreasStep) || !price) return fn()
-  const prev = movements.exclusionAreasStep, mine = [...prev, price]
-  movements.exclusionAreasStep = mine
-  try { return await fn() } finally {
-    if (movements.exclusionAreasStep === mine) movements.exclusionAreasStep = prev
-    else if (Array.isArray(movements.exclusionAreasStep) && movements.exclusionAreasStep.includes(price)) movements.exclusionAreasStep = movements.exclusionAreasStep.filter(g => g !== price)
-  }
+  const arr = movements?.exclusionAreasStep
+  if (!Array.isArray(arr) || !price) return fn()
+  arr.push(price)
+  try { return await fn() } finally { const k = arr.indexOf(price); if (k >= 0) arr.splice(k, 1) }
 }
 /** The goods a walk-in carries: what the village's likely professions buy (the catalogue's level-1/2 offers), at most maxGoods. */
 export function walkinGoods (spare = {}) {
