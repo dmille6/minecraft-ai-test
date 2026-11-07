@@ -663,6 +663,251 @@
    "guardrails": [],
    "none_reason": "INERT by design: the oai+ llama-server client changes no request, order, record or behaviour for any bot without an oai+ OLLAMA_BASE_URLS entry (registration aea83708: 'no own lines (nothing to expose)'). Its effect is the 4B rollout's (modelrollout), read there. Control session 11-05.",
    "retrospective": true
+  },
+  "idlework-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "explore"
+     },
+     "direction": "decrease",
+     "minimum": 0.2,
+     "scale": "relative",
+     "claim": "the 80-block patrol lap (explore 372 skill-h/day, 760 decision bot-h) becomes one scout lap in eight",
+     "primary": true
+    },
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase",
+     "minimum": 0.1,
+     "scale": "relative",
+     "claim": "iron/logs/coal batches instead of the walk (value/bot-h 9.90 on 11-05)"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "busy.share.v1",
+     "params": {
+      "cls": "idle"
+     },
+     "direction": "decrease"
+    },
+    {
+     "metric": "llm.veto_share.v1",
+     "params": {
+      "error": "deposit_nothing_to_bank"
+     },
+     "direction": "decrease"
+    }
+   ],
+   "exposure": "a canary bot whose role chain and stockpiles are met (the sustaining lap): ~84% of fleet decision time on 11-05",
+   "correction": "effectfix-01 11-07 (docs/reports/effect-audit-2026-11-07.md): both guardrails said direction increase -- idle share and the deposit_nothing_to_bank veto share would have been read as GOOD when they rose. A direction is the good direction (effectwatch: WORSE = moved against it); both set to decrease. Targets unchanged."
+  },
+  "idlework-02": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "llm.veto_share.v1",
+     "params": {
+      "error": "bad_args"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "mine bad_args at iron depth (2,028 of 6,936 mine calls 10:40-13:40Z) mostly gone: the hint names a target the gate accepts",
+     "primary": true
+    },
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_idlework:met:bag_stop"
+     },
+     "direction": "increase",
+     "minimum": 1.0,
+     "scale": "relative",
+     "claim": "idle batches end at a full bag (base cannot write reason=bag_stop)"
+    },
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_well_dispose"
+     },
+     "direction": "increase",
+     "minimum": 0.2,
+     "scale": "relative",
+     "claim": "the 29-33 band sheds at town (794 whole cobble stacks left town in band bags in 3 h)"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    },
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "drowning"
+     },
+     "direction": "decrease"
+    }
+   ],
+   "exposure": "a canary bot on an idle batch (idle_work: ~70-80% of fleet time 11-06) or arriving at a capped town in the 29-33 band (38% of departures)",
+   "correction": "effectfix-01 11-07 (docs/reports/effect-audit-2026-11-07.md): target 2 named kind well_dispose, which never occurs (the rows are _well_dispose); renamed. _idlework:met:bag_stop is unchanged: it was never countable (not in DETAIL_KEYS) and is now a generic key the cache counts. Its +100% relative on a zero baseline stays UNREADABLE by design."
+  },
+  "gkstay-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_keeper:keeper_take"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "claim": "keeper lease takes per bot-h down (102 in 1.18 h on 80 bots): the holder stays on the surface",
+     "primary": true
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_build:tidy:place"
+     },
+     "direction": "increase",
+     "claim": "tidy placements no worse"
+    },
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    },
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "drowning"
+     },
+     "direction": "decrease"
+    }
+   ],
+   "exposure": "every town with a keeper lease; the holder's idle lap (the iron/coal batches it no longer opens)",
+   "correction": "effectfix-01 11-07 (docs/reports/effect-audit-2026-11-07.md): target 2 \"tidy placements no worse\" had minimum 0.0, which the schema refuses (minimum > 0), so the WHOLE effect read as invalid; a \"no worse\" claim is a guardrail, moved there. _keeper:keeper_take (never countable: not in DETAIL_KEYS) is now a generic key the cache counts."
+  },
+  "escdead-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_swim_under_refused"
+     },
+     "direction": "decrease",
+     "minimum": 0.5,
+     "scale": "relative",
+     "claim": "pinned bot-hours down for the wet-ceiling pin: 60 `_swim_under_refused` rows on 11-06 00:00-11:31Z, all on the 3 target bots (isolated-d-Delta/Echo 'no way out within 4 cells (12 water cells searched)', hive-c-Bravo); the 11-06 backup cut has a 10-cell dry exit at radius 8 / descent 4 (wide=1 after 30 min pinned)",
+     "primary": true
+    },
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_climb_flood_refused"
+     },
+     "direction": "decrease",
+     "minimum": 0.25,
+     "scale": "relative",
+     "claim": "the climb-flood chain held 335.7 of 457.1 pinned bot-h (73%) in 7 d; 460 `_climb_flood_refused` rows on 31 bots 11-06 00:00-11:31Z: the wide swim and the breach end the refusal cycles at the pins they free"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_death"
+     },
+     "direction": "decrease"
+    },
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "_death",
+      "fail_class": "drowning"
+     },
+     "direction": "decrease"
+    },
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "note": "EFFECT = pinned bot-hours down (no pinned_bot_h metric exists in effectmetrics.py: the row rates above are its proxies; the hand measure is docs/reports/escdead-design-2026-11-06.md section 1's pin walk, 3.4% of online bot-h, to be re-run at +24 h / +72 h). DROWNING is the breach's risk: `_death` drowned is a guardrail and every `_flood_breach` row names min_air and hp. `_swim_under` status success is 0/1,102 bot-h in the last 24 h (effectwatch validate refuses a zero baseline), so it is the read's OWN line, not an effect target: the +90/+180 read counts `_swim_under` success and `_flood_breach` success on the target bots.",
+   "correction": "effectfix-01 11-07 (docs/reports/effect-audit-2026-11-07.md): guardrail kind death never occurs (the kind is _death) and fail_class drowned never occurs (the class is drowning); renamed. Target 0 (_swim_under_refused, the pin the change was built for) marked primary."
+  },
+  "stuckproj-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_build:tidy:deferred"
+     },
+     "direction": "increase",
+     "minimum": 1.0,
+     "scale": "relative",
+     "claim": "tidy defers the dead cells it used to spend every attempt on (audit: deferrals 43 -> 1,065 / 24 h)",
+     "primary": true
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    },
+    {
+     "metric": "detail.rate.v1",
+     "params": {
+      "key": "_build:monument:place"
+     },
+     "direction": "increase"
+    }
+   ],
+   "none_reason": null,
+   "retrospective": true,
+   "note": "effectfix-01 11-07: stuckproj-01 promoted with no effect field. Written after the fact from docs/reports/effect-audit-2026-11-07.md; retrospective. Its sharpest line, _build_visit:tidy:attempts_spent 404 -> 0 per ~1,665 bot-h, is not a target: a count that falls to 0 reads UNREADABLE (\"the target event vanished\") by design."
+  },
+  "leasegen-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_tool_hygiene",
+      "status": "success"
+     },
+     "direction": "decrease",
+     "minimum": 0.1,
+     "scale": "relative",
+     "claim": "one _tool_hygiene row per connection = reconnects; fewer event-loop stalls past the keepalive (CONFIRM the kind name convention before queueing)",
+     "primary": true
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    }
+   ],
+   "exposure": "a canary bot in a pool whose town directory holds > 5,000 lease generations, doing build/project visits",
+   "correction": "effectfix-01 11-07: the primary named kind tool_hygiene, which never occurs (the rows are _tool_hygiene: its own claim said \"CONFIRM the kind name convention before queueing\"); renamed. Found by the new registration check."
   }
  }
 }

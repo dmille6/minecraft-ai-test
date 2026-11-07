@@ -798,6 +798,40 @@ def t_queue_add_refusals(CS, F):
         assert any('one deployment' in b for b in CS.validate_entry(P, json.loads(json.dumps(F.entry)), j))
 
 
+def t_queue_add_effect_validated(CS, F):
+    """effectfix-01: a registration whose effect the validator calls INVALID (exit 1) is refused with its lines; a valid
+    one passes; no effect field never runs it; a missing or crashing validator only warns."""
+    stub = os.path.join(F.d, 'effectwatch-stub.py')
+    open(stub, 'w').write('import json, sys\nr = json.load(open(sys.argv[2]))\n'
+                          'if "crash" in json.dumps(r): raise RuntimeError("an uncaught exception exits 1")\n'
+                          'if "cannot" in json.dumps(r): print("CANNOT CHECK: empty"); sys.exit(3)\n'
+                          'if \'"well_dispose"\' in json.dumps(r):\n'
+                          '    print("window: last 7 d"); print("INVALID:"); print("  target 0 kind.rate.v1: skill.name '
+                          '\'well_dispose\' never occurs (nearest: _well_dispose)"); sys.exit(1)\nprint("valid")\n')
+    eff = lambda n: {'version': 1, 'targets': [{'metric': 'kind.rate.v1', 'params': {'name': n}, 'direction': 'increase',
+                                                'minimum': 0.2, 'scale': 'relative'}]}
+    base = {'sha': F.canary[:7], 'reads': ['fooread', 'immobiledid']}
+    with Env(F.env(SCHED_EFFECT_VALIDATOR=stub)):
+        P = CS.paths()
+        F.write_reg(dict(base, effect=eff('well_dispose')))
+        bad = CS.validate_entry(P, json.loads(json.dumps(F.entry)), [])
+        assert any('effect field INVALID' in b and 'nearest: _well_dispose' in b for b in bad), bad
+        F.write_reg(dict(base, effect=eff('_well_dispose')))
+        assert not CS.validate_entry(P, json.loads(json.dumps(F.entry)), [])
+        F.write_reg(dict(base, effect=eff('crash')))
+        assert not CS.validate_entry(P, json.loads(json.dumps(F.entry)), [])            # validator crash (exit 1): warn only
+        F.write_reg(dict(base, effect=eff('cannot')))
+        assert not CS.validate_entry(P, json.loads(json.dumps(F.entry)), [])            # cannot check: warn only
+    with Env(F.env(SCHED_EFFECT_VALIDATOR=os.path.join(F.d, 'nope.py'))):
+        F.write_reg(dict(base, effect=eff('well_dispose')))
+        assert not CS.validate_entry(CS.paths(), json.loads(json.dumps(F.entry)), [])   # missing validator: warn only
+    with Env(F.env(SCHED_EFFECT_VALIDATOR=stub)):
+        F.write_reg(dict(base, bundle={'members': [{'run': 'a-01', 'effect': eff('well_dispose')}]}))
+        bad = CS.validate_entry(CS.paths(), json.loads(json.dumps(F.entry)), [])
+        assert any('effect field INVALID' in b for b in bad), bad         # a bundle member's effect is checked too
+        assert CS.effect_problem(CS.paths(), F.reg, {'bundle': {'members': [{'effect': {}}]}}) == ''
+
+
 def t_w_drawstall_pages_from_first_draw(CS, F):
     F.enqueue(CS)
     F.state({'state': 'launching', 'run': 'foo-01', 't0': Z(NOW - dt.timedelta(hours=5)), 'base': F.base,
@@ -1879,6 +1913,11 @@ def run_suite(path, quiet=False):
 
 # Each mutant removes or inverts ONE decision. The anchor must be present exactly once.
 MUTANTS = [
+    ("    if cp.returncode == 1 and i is not None:\n", "    if False:\n"),
+    ("    if cp.returncode == 1 and i is not None:\n", "    if cp.returncode == 1:\n"),
+    ("        ep = effect_problem(P, reg, r)\n", "        ep = ''\n"),
+    ("    if not isinstance(r.get('effect'), dict) and not any(isinstance(m, dict) and m.get('effect') for m in members):",
+     "    if not isinstance(r.get('effect'), dict):"),
     ("elif man.get('canary_pool') or man.get('canary_code_version'):", "elif False:"),
     ("    if st.get('procs'):\n        busy.append(('S2'", "    if False:\n        busy.append(('S2'"),
     ("    elif lk:\n", "    elif False:\n"),

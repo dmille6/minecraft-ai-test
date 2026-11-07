@@ -44,14 +44,88 @@ DETAIL_KEYS = (
 )
 
 
-def detail_keys(name, detail):
+HAND_NAMES = frozenset(n for n, _ in DETAIL_KEYS)
+# GENERIC KEYS (effectfix-01, 11-07: gkstay-01 `_keeper:keeper_take` and idlework-02 `_idlework:met:bag_stop` read 0 forever
+# because nobody added them here). A key '<name>:<tok>[:<tok>...]' whose name is NOT one of the hand-listed names above counts
+# a row when skill.name == name and the tokens occur IN ORDER among the detail's word tokens ('project=tidy op=keeper_take'
+# -> project tidy op keeper_take). The cache counts every generic key a registration or config/effect-targets.json names
+# (effectcache.wanted_keys) and records the set it counted per hour (`dk_keys`); an hour that did not count a key is a cache
+# hole for it, never a zero. The hand-listed names keep their exact regexes (cache compatibility).
+TOKEN_RX = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+
+
+def parse_key(key):
+    """'<name>:<tok>:...' -> (name, [tokens]); the name is everything before the first ':'."""
+    parts = str(key or '').split(':')
+    return parts[0], [t for t in parts[1:] if t]
+
+
+def is_generic_key(key):
+    n, toks = parse_key(key)
+    return bool(n) and n not in HAND_NAMES and bool(toks)
+
+
+def detail_tokens(detail):
+    return TOKEN_RX.findall(detail or '')
+
+
+def generic_match(tokens, detail):
+    """PURE. The tokens occur in order among the detail's word tokens."""
+    it = iter(detail_tokens(detail))
+    return all(any(t == x for x in it) for t in tokens)
+
+
+def detail_keys(name, detail, wanted=()):
     out = []
     for n, rx in DETAIL_KEYS:
         if n == name:
             m = rx.search(detail or '')
             if m:
                 out.append(n + ':' + ':'.join(g for g in m.groups() if g))
+    if name not in HAND_NAMES:
+        for k in wanted:
+            kn, toks = parse_key(k)
+            if kn == name and toks and generic_match(toks, detail):
+                out.append(k)
     return out
+
+
+def effect_keys(effect):
+    """-> every detail key a detail.* metric of this effect (targets + guardrails) names."""
+    out = set()
+    if not isinstance(effect, dict):
+        return out
+    for t in (effect.get('targets') or []) + (effect.get('guardrails') or []):
+        if isinstance(t, dict) and str(t.get('metric') or '').startswith('detail.') and isinstance(t.get('params'), dict):
+            if t['params'].get('key'):
+                out.add(str(t['params']['key']))
+    return out
+
+
+def exposure_model(expo):
+    """PURE. effect.exposure is EITHER a dict (a model-env run: {'model': 'qwen3.5'} -- post cells are those whose dominant
+    model contains it) OR a string describing the exposed population (every registration since leasegen-01, 11-05; the
+    11-07 crash `(expo or {}).get('model')` on a str). Only a dict's non-empty string 'model' filters by model."""
+    if isinstance(expo, dict):
+        m = expo.get('model')
+        return m if isinstance(m, str) and m else None
+    return None
+
+
+VOCAB_TOKENS = 40          # word tokens of one detail folded into the hour's vocabulary (the validator's name list)
+
+
+def add_vocab(vocab, row):
+    """Fold one skill row into an HOUR-level vocabulary {name: {token: rows}} (fleet-wide, not per cell): what the
+    registration validator calls "seen in the last 7 days" and draws the nearest names from."""
+    sk = row.get('skill') or {}
+    n = sk.get('name')
+    if not n:
+        return
+    d = vocab.setdefault(n, {})
+    for t in set(detail_tokens(sk.get('detail'))[:VOCAB_TOKENS]):
+        if len(t) <= 40:
+            d[t] = d.get(t, 0) + 1
 
 
 def gather_key(args):
@@ -70,8 +144,8 @@ def _inc(d, k, v=1):
     d[k] = d.get(k, 0) + v
 
 
-def add_skill_row(cell, row):
-    """Fold one skill-stream row (the raw dict) into a cell. PURE."""
+def add_skill_row(cell, row, wanted=()):
+    """Fold one skill-stream row (the raw dict) into a cell. PURE. wanted: the generic detail keys to count."""
     sk = row.get('skill') or {}
     n = sk.get('name')
     if not n:
@@ -81,7 +155,7 @@ def add_skill_row(cell, row):
     _inc(cell['k'], f'{n}|{st}')
     if sk.get('fail_class'):
         _inc(cell['fc'], f'{n}|{sk["fail_class"]}')
-    for key in detail_keys(n, sk.get('detail')):
+    for key in detail_keys(n, sk.get('detail'), wanted):
         _inc(cell['dk'], key)
     if n == 'gather':
         g = gather_key(sk.get('args'))
@@ -222,7 +296,8 @@ def validate(effect):
         return ['effect must be an object']
     if effect.get('version') != SCHEMA_VERSION:
         bad.append(f'version must be {SCHEMA_VERSION}')
-    extra = set(effect) - {'version', 'targets', 'guardrails', 'none_reason', 'note', 'retrospective', 'exposure'}
+    extra = set(effect) - {'version', 'targets', 'guardrails', 'none_reason', 'note', 'retrospective', 'exposure',
+                           'correction'}
     if extra:
         bad.append(f'unknown keys {sorted(extra)}')
     tg = effect.get('targets') or []
@@ -251,6 +326,10 @@ def validate(effect):
                 bad.append(f'{w}: {t["metric"]} needs params {sorted(need - set(p))}')
             if set(p) - allow:
                 bad.append(f'{w}: {t["metric"]} does not take {sorted(set(p) - allow)}')
+            if t.get('metric', '').startswith('detail.') and 'key' in p:
+                kn, toks = parse_key(p['key'])
+                if not kn or (kn not in HAND_NAMES and not toks):
+                    bad.append(f'{w}: detail key {p["key"]!r} needs <name>:<token>[:<token>...] (a bare name is kind.rate.v1)')
             if t.get('direction') not in ('increase', 'decrease'):
                 bad.append(f'{w}: direction must be increase or decrease')
             if kind == 'target':
@@ -280,3 +359,113 @@ def measure(cells, metric, params):
         pn[1] += b
     return {'num': num, 'den': den, 'value': (num / den) if den > 0 else None, 'bots': len(bots), 'bot_h': bh,
             'pools': pools, 'kind': m['kind']}
+
+
+# ---- seen in the logs (effectfix-01: the ZeroLooksWrong rule applied to a registration) ---------------------------------
+SEEN_DAYS = 7
+
+
+def _near(word, pool, n=3):
+    import difflib
+    pool = sorted(set(pool))
+    out = [x for x in pool if x != word and (x == '_' + word or x.lstrip('_') == word.lstrip('_'))]
+    out += [x for x in difflib.get_close_matches(word, pool, n=n + 2, cutoff=0.5) if x not in out and x != word]
+    return out[:n]
+
+
+def seen_index(hours):
+    """hours: iterable of cache hour objects (effectcache.load_hour). -> the names the window holds: skill names, name|status,
+    name|fail_class, detail keys counted, veto errors, busy classes, the hour vocabularies, and how many hours had one."""
+    ix = {'hours': 0, 'rows': 0, 'names': set(), 'status': set(), 'fc': set(), 'dk': {}, 'err': set(), 'busy': set(),
+          'vocab': {}, 'vocab_hours': 0, 'counted': set(), 'counted_hours': {}}
+    for hd in hours:
+        if not hd:
+            continue
+        ix['hours'] += 1
+        ix['counted'] |= set(hd.get('dk_keys') or [])
+        for k in set(hd.get('dk_keys') or []):
+            ix['counted_hours'][k] = ix['counted_hours'].get(k, 0) + 1
+        if isinstance(hd.get('vocab'), dict):
+            ix['vocab_hours'] += 1
+            for n, toks in hd['vocab'].items():
+                v = ix['vocab'].setdefault(n, {})
+                for t, c in toks.items():
+                    v[t] = v.get(t, 0) + c
+        for builds in (hd.get('bots') or {}).values():
+            for c in builds.values():
+                ix['rows'] += c.get('rows', 0)
+                for k, v in (c.get('k') or {}).items():
+                    if v:
+                        ix['status'].add(k)
+                        ix['names'].add(k.rsplit('|', 1)[0])
+                ix['fc'] |= {k for k, v in (c.get('fc') or {}).items() if v}
+                for k, v in (c.get('dk') or {}).items():
+                    ix['dk'][k] = ix['dk'].get(k, 0) + v
+                ix['err'] |= {k for k, v in ((c.get('llm') or {}).get('err') or {}).items() if v}
+                ix['busy'] |= {k for k, v in (c.get('busy') or {}).items() if v}
+    return ix
+
+
+def new_instrument_ok(kind, t):
+    """An ABSOLUTE INCREASE target may count a row the base build cannot write (a new instrument: delta = post - base
+    reads from a zero baseline). Its never-seen name is a warning, not a refusal (Claude review r1 BLOCKER 2)."""
+    return kind == 'target' and t.get('scale') == 'absolute' and t.get('direction') == 'increase'
+
+
+def seen_problems(effect, ix):
+    return seen_report(effect, ix)[0]
+
+
+def seen_report(effect, ix):
+    """PURE. -> (problems, warnings): every name a target or guardrail counts must occur somewhere in the window (default
+    the last SEEN_DAYS days), with the nearest names that DO occur. A window with no rows is itself a problem (a positive
+    control: an empty cache never passes a registration)."""
+    if ix['hours'] == 0 or ix['rows'] == 0:
+        return [f'the cache window holds {ix["hours"]} hour(s) and {ix["rows"]} rows: nothing can be checked'], []
+    out, warn = [], []
+    names = ix['names']
+    for kind, lst in (('target', effect.get('targets') or []), ('guardrail', effect.get('guardrails') or [])):
+        for i, t in enumerate(lst):
+            bad = warn if new_instrument_ok(kind, t) else out
+            w = f'{kind} {i} {t.get("metric")}'
+            p = t.get('params') or {}
+            m = t.get('metric', '')
+            for pk in ('name', 'of_name'):
+                if pk in p and p[pk] not in names:
+                    bad.append(f'{w}: skill.name {p[pk]!r} never occurs (nearest: {", ".join(_near(p[pk], names)) or "-"})')
+            if m in ('kind.rate.v1', 'skill.share.v1') and p.get('name') in names and p.get('status') is not None:
+                for st in ([p['status']] if not isinstance(p['status'], list) else p['status']):
+                    if f'{p["name"]}|{st}' not in ix['status']:
+                        have = sorted(k.rsplit('|', 1)[1] for k in ix['status'] if k.rsplit('|', 1)[0] == p['name'])
+                        bad.append(f'{w}: {p["name"]} never has status {st!r} (it has: {", ".join(have[:8])})')
+            if m.startswith('failclass.') and p.get('name') in names:
+                if f'{p["name"]}|{p.get("fail_class")}' not in ix['fc']:
+                    have = [k.split('|', 1)[1] for k in ix['fc'] if k.split('|', 1)[0] == p['name']]
+                    bad.append(f'{w}: {p["name"]} never has fail_class {p.get("fail_class")!r} '
+                               f'(nearest: {", ".join(_near(str(p.get("fail_class")), have)) or "-"})')
+            if m.startswith('detail.') and p.get('key'):
+                key = p['key']
+                kn, toks = parse_key(key)
+                if ix['dk'].get(key):
+                    continue
+                if kn not in names:
+                    bad.append(f'{w}: key {key!r}: skill.name {kn!r} never occurs (nearest: {", ".join(_near(kn, names)) or "-"})')
+                elif kn in HAND_NAMES or ix['counted_hours'].get(key, 0) >= ix['hours']:
+                    # a hand key, or a generic key EVERY hour of the window counted (Codex review r1 BLOCKER 4: one rebuilt
+                    # hour with no match must not refuse a key the hours not yet rebuilt hold): it truly never occurred
+                    have = sorted((k for k in ix['dk'] if k.startswith(kn + ':')), key=lambda k: -ix['dk'][k])
+                    bad.append(f'{w}: key {key!r} was never counted (nearest: {", ".join(_near(key, have)) or "-"})')
+                elif ix['vocab_hours'] == 0:
+                    bad.append(f'{w}: generic key {key!r}: no cache hour in the window has a vocabulary yet (rebuild)')
+                else:
+                    voc = ix['vocab'].get(kn) or {}
+                    miss = [x for x in toks if x not in voc]
+                    if miss:
+                        top = sorted(voc, key=lambda x: -voc[x])
+                        bad.append(f'{w}: key {key!r}: token(s) {miss} never occur in {kn} details '
+                                   f'(nearest: {", ".join(sorted({y for x in miss for y in _near(x, top[:400])})) or "-"})')
+            if m == 'llm.veto_share.v1' and p.get('error') and p['error'] not in ix['err']:
+                bad.append(f'{w}: veto error {p["error"]!r} never occurs (nearest: {", ".join(_near(p["error"], ix["err"])) or "-"})')
+            if m == 'busy.share.v1' and not any(c in ix['busy'] for c in _busy_classes(p.get('cls'))):
+                bad.append(f'{w}: busy class {p.get("cls")!r} never occurs (classes: {", ".join(sorted(ix["busy"]))})')
+    return out, warn

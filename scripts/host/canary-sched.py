@@ -210,6 +210,8 @@ def paths():
         'autorel_off': os.path.join(D, 'AUTORELEASE-OFF'),  # v42: present = never auto-release an install-hold
         'unread': os.path.join(D, 'CANARY-UNREAD.txt'),
         'regdir': g('SCHED_REGDIR', os.path.join(H, 'mcai-analysis', 'registrations')),
+        # effectfix-01 (11-07): `queue add` / add-variant runs `effectwatch.py validate` on a registration's effect field
+        'effect_validator': g('SCHED_EFFECT_VALIDATOR', os.path.join(H, 'effectwatch', 'app', 'scripts', 'host', 'effectwatch.py')),
         'readdir': g('SCHED_READ_DIR', '/tmp'),
         'unitdir': g('SCHED_UNIT_DIR', '/etc/systemd/system'),
         'units_file': g('SCHED_UNITS_FILE', ''),          # fixture: `systemctl list-units --plain` lines; live: systemctl
@@ -3241,6 +3243,9 @@ def validate_entry(P, e, journal):
         v['registration_sha256'] = h
         if (r.get('class') or '') != (e.get('class') or ''):
             bad.append('variant %s: registration class %r != queued class %r' % (k[:7], r.get('class') or '', e.get('class') or ''))
+        ep = effect_problem(P, reg, r)
+        if ep:
+            bad.append('variant %s: %s' % (k[:7], ep))
         # brain-01: a MODEL/ENV canary must say what env it sets, how many pools it may take (the Studio serves ~10-12
         # bots, not 20), and that a KEEP keeps it on that subset -- never a fleet-wide model swap.
         if (r.get('class') or '') == 'model-env':
@@ -3284,6 +3289,39 @@ def validate_entry(P, e, journal):
             bad.append('variant %s: reads %s are not in the registration' % (k[:7], sorted(extra)))
         v['reads'] = reads
     return bad
+
+
+EFFECT_VALIDATE_TIMEOUT_S = 300
+
+
+def effect_problem(P, reg_path, r):
+    """effectfix-01 (11-07): the registration's `effect` (or a bundle member's) must name metrics that occur in the last
+    7 days of logs -- `effectwatch.py validate` (schema + every name seen, with the nearest names that are). The 11-07
+    audit found idlework-02 `well_dispose`, escdead-01 `death` / `drowned`, and two keys no cache counted: each read
+    UNREADABLE (or 0) forever and nothing said so. '' = valid, or no effect field (none_reason runs carry one too).
+    A validator that is MISSING, times out or crashes does not block the queue: it prints a WARNING (the reads still
+    alarm a bad name at +24 h); only its explicit INVALID verdict (exit 1) refuses."""
+    members = ((r.get('bundle') or {}).get('members') or []) if isinstance(r.get('bundle'), dict) else []
+    if not isinstance(r.get('effect'), dict) and not any(isinstance(m, dict) and m.get('effect') for m in members):
+        return ''
+    v = P.get('effect_validator') or ''
+    if not v or not os.path.exists(v):
+        print('WARNING: effect field not checked: no validator at %r' % v)
+        return ''
+    try:
+        cp = subprocess.run([sys.executable, '-B', v, 'validate', reg_path], capture_output=True, text=True,
+                            timeout=EFFECT_VALIDATE_TIMEOUT_S, cwd=os.path.dirname(os.path.dirname(v)))
+    except Exception as x:      # noqa: BLE001
+        print('WARNING: effect field not checked: validator %s' % str(x)[:160])
+        return ''
+    out = [l.strip() for l in (cp.stdout or '').splitlines() if l.strip()]
+    i = next((n for n, l in enumerate(out) if l == 'INVALID:'), None)
+    # BOTH exit 1 and the validator's own 'INVALID:' line (Codex + Claude review r1: an uncaught exception also exits 1)
+    if cp.returncode == 1 and i is not None:
+        return 'effect field INVALID (effectwatch.py validate): ' + ' | '.join(out[i:][:8])[:900]
+    if cp.returncode != 0:
+        print('WARNING: effect field not checked: validator exit %d: %s' % (cp.returncode, (cp.stderr or '')[-200:]))
+    return ''
 
 
 def reserved_problem(P, run):

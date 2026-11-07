@@ -58,6 +58,7 @@ import os
 import statistics
 import subprocess
 import sys
+import traceback
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, '..'))
@@ -90,6 +91,9 @@ ANCHORS = 7
 MIN_POOLS = 8
 POOL_AGREE = 0.75
 FLOOR = {'relative': {'rate': 0.10, 'share': 0.05, 'mean': 0.05}, 'absolute': {'rate': 0.0, 'share': 0.01, 'mean': 0.0}}
+# a crash (the whole run, or one read) PAGES once through lib/alarm (11-07: 11 hourly runs died on one read and nothing
+# said so); re-pushed at most daily while it lasts, CLEARED by the first clean run
+CRASH_REPUSH = dt.timedelta(hours=24)
 
 
 def ts(s):
@@ -172,25 +176,18 @@ def promotions(journal):
 def load_targets(path=None, repo=None):
     """-> the `runs` map. An explicit path is read as a file. Else origin/main of `repo` (default TARGETS_REPO, fetched
     first), and the installed copy TARGETS only when the clone cannot be read."""
-    repo = TARGETS_REPO if repo is None else repo
-    if path is None and repo:
-        r = os.path.expanduser(repo)
-        try:
-            subprocess.run(['git', '-C', r, 'fetch', '-q', 'origin'], timeout=60, check=False, capture_output=True)
-            out = subprocess.run(['git', '-C', r, 'show', 'origin/main:config/effect-targets.json'],
-                                 capture_output=True, text=True, timeout=30, check=True).stdout
-            return json.loads(out).get('runs') or {}
-        except Exception:       # noqa: BLE001
-            pass
-    try:
-        with open(path or TARGETS) as f:
-            return json.load(f).get('runs') or {}
-    except (OSError, ValueError):
-        return {}
+    EC.TARGETS, EC.TARGETS_REPO = TARGETS, TARGETS_REPO
+    return EC.load_targets(path, repo)
 
 
 def effect_for(run, regdir=REGDIR, sidecar=None):
-    """-> (effect dict or None, source). The registration's own `effect` wins; else the backfill sidecar."""
+    """-> (effect dict or None, source). The registration's own `effect` wins; else the backfill sidecar -- EXCEPT a
+    sidecar entry carrying a `correction` (why the registration's field is wrong: a misnamed kind, a reversed direction),
+    which wins over the registration. Registrations are hashed by the scheduler and never edited after the fact."""
+    sc = load_targets() if sidecar is None else sidecar
+    ent = sc.get(run)
+    if isinstance(ent, dict) and ent.get('correction'):
+        return ent, 'config/effect-targets.json correction'
     try:
         with open(os.path.join(os.path.expanduser(regdir), f'{run}.json')) as f:
             reg = json.load(f)
@@ -198,7 +195,6 @@ def effect_for(run, regdir=REGDIR, sidecar=None):
             return reg['effect'], 'registration'
     except (OSError, ValueError):
         pass
-    sc = load_targets() if sidecar is None else sidecar
     if run in sc:
         return sc[run], 'config/effect-targets.json'
     return None, 'none'
@@ -229,14 +225,23 @@ def dominant_model(c):
     return max(m, key=m.get) if m else None
 
 
-def select(cache, hours, ok, expo_model=None, want_expo=None):
+def needed_keys(t):
+    """the generic detail keys a target reads: an hour that did not count one is a cache hole for it, never a zero."""
+    return {k for k in EM.effect_keys({'targets': [t]}) if EM.is_generic_key(k)}
+
+
+def select(cache, hours, ok, expo_model=None, want_expo=None, need=()):
     """-> (cells [(meta, cell)], controls). ok(sha, hour) decides the build. expo_model / want_expo: a model-env run's
-    exposure (post wants cells whose dominant model is expo_model, the baseline the others)."""
-    cells, holes, nominal, rows, bh = [], [], 0, 0, 0.0
+    exposure (post wants cells whose dominant model is expo_model, the baseline the others). need: generic detail keys
+    the hour must have counted (else it is a hole)."""
+    cells, holes, uncounted, nominal, rows, bh = [], [], [], 0, 0, 0.0
     for h in hours:
         hd = cache.hour(h)
         if hd is None or hd['controls'].get('bots_with_rows', 0) < hd['controls'].get('bot_dirs', 0) / 2:
             holes.append(iso(h))
+            continue
+        if need and not set(need) <= set(hd.get('dk_keys') or []):
+            uncounted.append(iso(h))
             continue
         nominal += hd['controls'].get('bot_dirs', 0)
         maj = majority_model(hd)
@@ -254,7 +259,8 @@ def select(cache, hours, ok, expo_model=None, want_expo=None):
                 cells.append(({'bot': bot, 'pool': c['pool'], 'hour': h, 'sha': sha}, c))
                 rows += c['rows']
                 bh += EM.obs_h(c)
-    return cells, {'hours': len(hours), 'holes': holes, 'nominal_bot_h': nominal, 'bot_h': bh, 'rows': rows,
+    return cells, {'hours': len(hours), 'holes': holes, 'uncounted': uncounted, 'nominal_bot_h': nominal, 'bot_h': bh,
+                   'rows': rows,
                    'coverage': (bh / nominal) if nominal else 0.0, 'rows_per_bot_h': (rows / bh) if bh else 0.0}
 
 
@@ -390,16 +396,21 @@ def read_target(cache, lin, promos, ti, t, horizon, expo=None, guard=False, side
         res.update(verdict='UNREADABLE', why='rare-event metric: read on 72-h windows at +72 h only', pending72=True)
         return res
     bh, ph = w
-    em = (expo or {}).get('model')
-    cb, kb = select(cache, bh, lin.before(ti), em, False if em else None)
-    cp, kp = select(cache, ph, lin.from_(ti), em, True if em else None)
+    em = EM.exposure_model(expo)
+    nk = needed_keys(t)
+    cb, kb = select(cache, bh, lin.before(ti), em, False if em else None, nk)
+    cp, kp = select(cache, ph, lin.from_(ti), em, True if em else None, nk)
     res['controls'] = {'baseline': kb, 'post': kp}
     res['windows'] = {'baseline': [iso(bh[0]), iso(bh[-1] + H1)] if bh else None,
                       'post': [iso(ph[0]), iso(ph[-1] + H1)]}
     why = []
+    res['uncounted'] = len(kb['uncounted']) + len(kp['uncounted'])
     for nm, k in (('baseline', kb), ('post', kp)):
         if k['holes']:
             why.append(f'{nm}: {len(k["holes"])} cache hole(s) from {k["holes"][0]}')
+        elif k['uncounted']:
+            why.append(f'{nm}: cache hole: {len(k["uncounted"])} hour(s) from {k["uncounted"][0]} did not count {sorted(nk)} '
+                       f'(effectcache rebuilds them)')
         elif k['coverage'] < MIN_COVERAGE:
             why.append(f'{nm}: coverage {k["coverage"]:.0%} of {k["nominal_bot_h"]} nominal bot-h < {MIN_COVERAGE:.0%}')
     if not why and kb['rows_per_bot_h'] and not (ROWS_BAND[0] <= kp['rows_per_bot_h'] / kb['rows_per_bot_h'] <= ROWS_BAND[1]):
@@ -430,9 +441,11 @@ def read_target(cache, lin, promos, ti, t, horizon, expo=None, guard=False, side
     for k in range(1, ANCHORS + 1):
         sh = dt.timedelta(hours=24 * k)
         b2, p2 = [h - sh for h in bh], [h - sh for h in ph]
-        c1, k1 = select(cache, b2, lin.before(ti), em, False if em else None)
-        c2, k2 = select(cache, p2, lin.before(ti), em, False if em else None)
-        if k1['holes'] or k2['holes']:
+        c1, k1 = select(cache, b2, lin.before(ti), em, False if em else None, nk)
+        c2, k2 = select(cache, p2, lin.before(ti), em, False if em else None, nk)
+        if k1['uncounted'] or k2['uncounted']:
+            res['uncounted'] += len(k1['uncounted']) + len(k2['uncounted'])
+        if k1['holes'] or k2['holes'] or k1['uncounted'] or k2['uncounted']:
             in_holes += 1
             continue
         if min(k1['coverage'], k2['coverage']) < MIN_COVERAGE:
@@ -456,6 +469,7 @@ def read_target(cache, lin, promos, ti, t, horizon, expo=None, guard=False, side
     v, why1 = decide(s, tau, half_minimum(t.get('minimum'), t['direction'], scale), el, ag, an, scale, sign)
     # the canary DiD
     res['did'] = canary_did(cache, lin, p, ti, t, scale, sign)
+    res['uncounted'] += res['did'].pop('uncounted', 0)
     if v in ('EFFECT', 'WORSE') and res['did'].get('signed') is not None and res['did']['signed'] * (1 if v == 'EFFECT' else -1) <= -tau:
         v, why1 = 'UNREADABLE', f'{why1}; but the canary DiD points the other way ({fmt_d(res["did"]["signed"], scale)})'
     # same-family promotions after the target and before the post window ends (Codex review r1 BLOCKER 1: including
@@ -474,7 +488,8 @@ def read_target(cache, lin, promos, ti, t, horizon, expo=None, guard=False, side
             v, why1 = 'UNREADABLE', (f'{why1}; joint with {q["run"]} (same metric, promoted '
                                      f'{(q["P"] - p["P"]).total_seconds() / 3600:+.1f} h): {len(cut)} uncontaminated post h < 8')
             continue
-        cq, _ = select(cache, cut, lin.from_(ti), em, True if em else None)
+        cq, kq = select(cache, cut, lin.from_(ti), em, True if em else None, nk)
+        res['uncounted'] += len(kq['uncounted'])
         mq = EM.measure(cq, t['metric'], t.get('params') or {})
         dq = delta(mb['value'], mq['value'], scale)
         vq = 'UNREADABLE' if dq is None or enough(mb, mq) else decide(sign * dq, tau, half_minimum(t.get('minimum'), t['direction'], scale),
@@ -498,12 +513,17 @@ def canary_did(cache, lin, p, ti, t, scale, sign):
     tre = lambda sha, h: sha == p['sha']
     ctl = lin.before(ti)
 
+    unc = []
+
     def m(hours, ok, inpool):
-        cells, k = select(cache, hours, ok)
+        cells, k = select(cache, hours, ok, need=needed_keys(t))
+        unc.extend(k['uncounted'])
         cells = [(a, c) for a, c in cells if (a['pool'] in pools) == inpool]
         return EM.measure(cells, t['metric'], t.get('params') or {})
     t1, t0 = m(hrs, tre, True), m(prev, ctl, True)
     c1, c0 = m(hrs, ctl, False), m(prev, ctl, False)
+    if unc:
+        return {'why': f'{len(set(unc))} hour(s) did not count the key', 'uncounted': len(set(unc))}
     lim = 5 if t1['kind'] == 'rate' else MIN_DEN
     key = 'num' if t1['kind'] == 'rate' else 'den'
     if min(x[key] for x in (t1, t0, c1, c0)) < lim:
@@ -554,6 +574,16 @@ def read_run(cache, promos, ti, horizon, sidecar=None):
     rs += [read_target(cache, lin, promos, ti, t, horizon, eff.get('exposure'), True, sidecar)
            for t in eff.get('guardrails') or []]
     v, why = overall(rs)
+    unc = sum(r.get('uncounted') or 0 for r in rs)
+    if unc:
+        # Codex review r1 BLOCKERS 1-2: ANY target, guardrail, placebo anchor, DiD or joint window reading hours that did not
+        # count a generic key makes the WHOLE read UNREADABLE (a partial rebuild must never yield a committed EFFECT/WORSE
+        # from the readable rest or from a placebo set thinned by the missing hours); retried like a cache hole, committed
+        # (as UNREADABLE only) after HOLE_GRACE
+        keys = sorted({k for x in (eff['targets'] + (eff.get('guardrails') or [])) for k in needed_keys(x)})
+        v, why = 'UNREADABLE', (f'cache hole: {unc} cache hour read(s) did not count {keys} yet (effectcache rebuilds the '
+                                f'last {EC.REKEY_DAYS} d); the read waits for them')
+        out['rekey'] = True
     if v == 'UNREADABLE' and all(r.get('pending72') for r in rs if not r['guardrail']):
         out['pending72'] = True
     lo = min(iso(promos[ti]['D'] - dt.timedelta(hours=72)), iso(promos[ti]['D']))
@@ -569,6 +599,8 @@ def is_hole_only(v):
     (which are skipped for holes)."""
     if v.get('verdict') != 'UNREADABLE' or not v.get('targets'):
         return False
+    if v.get('rekey'):
+        return True
     tg = [r for r in v['targets'] if not r['guardrail'] and r['verdict'] == 'UNREADABLE' and not r.get('pending72')]
     return bool(tg) and all('cache hole' in r.get('why', '') for r in tg)
 
@@ -633,7 +665,7 @@ def cmd_run(a):
     final = hfloor(now - EC.FINAL_AFTER)
     since = ts(a.since)
     side = load_targets()
-    verdicts, new = [], []
+    verdicts, new, crashes = [], [], {}
     for ti, p in enumerate(promos):
         if p['P'] < since:
             continue
@@ -651,7 +683,16 @@ def cmd_run(a):
                 pass
             if end > final or now < end + EC.FINAL_AFTER + DUE_AFTER:
                 continue
-            v = read_run(cache, promos, ti, hz, sidecar=side)
+            try:
+                v = read_run(cache, promos, ti, hz, sidecar=side)
+            except Exception as e:      # noqa: BLE001 -- one bad read never stops the others (11-07)
+                crashes[f'effectwatch:read-crash:{p["run"]}:{hz}'] = (
+                    f'EFFECTWATCH read {p["run"]} {hz} CRASHED: {type(e).__name__}: {str(e)[:160]} at '
+                    f'{traceback.extract_tb(e.__traceback__)[-1].lineno} -- not committed; retried every run')
+                verdicts.append({'run': p['run'], 'sha': p['sha'], 'horizon': hz, 'promoted': iso(p['P']),
+                                 'verdict': 'UNREADABLE', 'why': f'read crashed: {type(e).__name__}: {str(e)[:160]}',
+                                 'retrying': True, 'crashed': True, 'targets': []})
+                continue
             if v.get('undeclared'):
                 verdicts.append(v)
                 continue
@@ -707,6 +748,7 @@ def cmd_run(a):
     # log (11-03 install self-test left 6 fixture x-01 rows in .31's ~/digest/ALARMS.log)
     AL.raise_alarms('effectwatch', alarms, now, os.path.join(sd, 'effect.pushstate.json'),
                     log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
+    crash_alarms(sd, crashes, now, push=not a.no_push)      # {} CLEARS a crash of an earlier run
     if a.print:
         print(summary)
         print(bl)
@@ -714,7 +756,36 @@ def cmd_run(a):
             print('  ' + one_line(v))
         for k, l in alarms.items():
             print('!! ' + l)
-    print(f'{iso(now)} effectwatch OK: {len(new)} new read(s), {len(verdicts)} total, {len(alarms)} alarm(s)')
+    print(f'{iso(now)} effectwatch OK: {len(new)} new read(s), {len(verdicts)} total, {len(alarms)} alarm(s)'
+          + (f', {len(crashes)} read(s) CRASHED' if crashes else ''))
+
+
+def crash_alarms(sd, active, now, push=True):
+    """The crash keys, on their OWN dedup state so a crashed run never CLEARS the verdict alarms. Tier PAGE (effectwatch's
+    own alarms are digest-only): pushed once, re-pushed at most every CRASH_REPUSH while it lasts."""
+    return AL.raise_alarms('effectwatch', active, now, os.path.join(sd, 'effect.crashstate.json'),
+                           log_path=os.path.join(sd, 'ALARMS.log'), push=push, repush=CRASH_REPUSH, tier=AL.TIER_PAGE)
+
+
+def on_crash(a, e):
+    """The whole run died: page once, and keep the header honest (the last verdict alarms stay, a crash line is added)."""
+    sd = os.path.expanduser(a.state_dir)
+    now = ts(a.now) if getattr(a, 'now', None) else dt.datetime.now(UTC)
+    tb = traceback.extract_tb(e.__traceback__)
+    where = f'{os.path.basename(tb[-1].filename)}:{tb[-1].lineno}' if tb else '?'
+    line = (f'EFFECTWATCH CRASHED ({type(e).__name__}: {str(e)[:200]} at {where}): no effect verdict is being read; '
+            f'cron.log has the traceback')
+    try:
+        old = json.load(open(os.path.join(sd, 'effect-fleet.json')))
+    except (OSError, ValueError):
+        old = {}
+    al = dict(old.get('alarms') or {})
+    al['effectwatch:crash'] = line
+    try:
+        AL.write_json_atomic(os.path.join(sd, 'effect-fleet.json'),
+                             {'generated_at': iso(now), 'summary': '!! ' + line[:300], 'alarms': al, 'new': []})
+    finally:
+        crash_alarms(sd, {'effectwatch:crash': line}, now, push=not a.no_push)
 
 
 def ledger_row(v, now):
@@ -759,26 +830,92 @@ def cmd_report(a):
     print(json.dumps(v, indent=1, default=str)[:20000])
 
 
+def validate_effects(effects, cache, end, days=EM.SEEN_DAYS):
+    """-> (problems, lines). Schema first (lib/effectmetrics.validate), then every name a target or guardrail counts must
+    occur in the last `days` days of the cache (rows of every build, canaries included), with the nearest names that do;
+    then the counted metrics' numerators on that window (a ZERO there is a problem too: the metric cannot see a baseline)."""
+    bad, lines = [], []
+    hrs = [end - (i + 1) * H1 for i in range(24 * days)]
+    hours = [cache.hour(h) for h in hrs]
+    ix = EM.seen_index(hours)
+    lines.append(f'window: last {days} d ({ix["hours"]}/{len(hrs)} cache hours, {ix["rows"]:,} skill rows, '
+                 f'{ix["vocab_hours"]} with a vocabulary)')
+    if ix['hours'] == 0 or ix['rows'] == 0:
+        raise CannotCheck(f'the cache window holds {ix["hours"]} hour(s) and {ix["rows"]} rows')
+    for n, eff in effects:
+        pre = f'{n}: ' if n else ''
+        sb = EM.validate(eff)
+        if sb:
+            bad += [pre + x for x in sb]
+            continue
+        sp, sw = EM.seen_report(eff, ix)
+        bad += [pre + x for x in sp]
+        lines += [f'  WARN {pre}{x} -- accepted: an absolute increase may count a row the base cannot write' for x in sw]
+        if sp:
+            continue
+        cells, k = select(cache, hrs, lambda sha, h: True)
+        for kind, lst in (('target', eff.get('targets') or []), ('guardrail', eff.get('guardrails') or [])):
+            for t in lst:
+                nk = needed_keys(t)
+                if nk and any(ix['counted_hours'].get(x, 0) < ix['hours'] for x in nk):
+                    lines.append(f'  wait {kind} {t["metric"]} {t.get("params") or {}}: tokens seen; the cache counts the key '
+                                 f'from its next hourly build (it rebuilds the last {EC.REKEY_DAYS} d)')
+                    continue
+                m = EM.measure(cells, t['metric'], t.get('params') or {})
+                ok = m['num'] > 0 and m['den'] > 0
+                lines.append(f'  {"ok  " if ok else "ZERO"} {kind} {t["metric"]} {t.get("params") or {}}: '
+                             f'{m["num"]:,.0f}/{m["den"]:,.0f} on the window ({k["bot_h"]:,.0f} bot-h)')
+                if not ok and EM.new_instrument_ok(kind, t):
+                    lines.append(f'  WARN {pre}{kind} {t["metric"]}: ZERO on the window -- accepted (absolute increase)')
+                elif not ok:
+                    bad.append(f'{pre}{kind} {t["metric"]} {t.get("params") or {}} reads ZERO on the last {days} d: it cannot '
+                               f'see a baseline (wrong name/key, or a new instrument) -- pick one that exists before the change')
+    return bad, lines
+
+
+class CannotCheck(Exception):
+    pass
+
+
+# exit codes of `validate`: 0 valid, 1 INVALID (stdout has an 'INVALID:' line; the ONLY code canary-sched refuses on),
+# 3 cannot check (an empty cache window), 4 the validator itself failed (canary-sched warns; it never refuses on a crash)
+EXIT_INVALID, EXIT_CANNOT, EXIT_ERROR = 1, 3, 4
+
+
 def cmd_validate(a):
+    try:
+        _cmd_validate(a)
+    except CannotCheck as e:
+        print(f'CANNOT CHECK: {e}')
+        raise SystemExit(EXIT_CANNOT)
+    except SystemExit:
+        raise
+    except Exception as e:      # noqa: BLE001
+        print(f'VALIDATOR ERROR: {type(e).__name__}: {str(e)[:200]}')
+        raise SystemExit(EXIT_ERROR)
+
+
+def _cmd_validate(a):
     reg = json.load(open(a.target))
-    eff = reg.get('effect', reg)
-    bad = EM.validate(eff)
+    if isinstance(reg.get('effect'), dict) or 'bundle' in reg:
+        effects = [('', reg['effect'])] if isinstance(reg.get('effect'), dict) else []
+        for m in ((reg.get('bundle') or {}).get('members') or []):
+            if isinstance(m, dict) and m.get('effect') is not None:
+                effects.append((str(m.get('run') or '?'), m['effect']))
+    else:
+        effects = [('', reg)]          # a bare effect object
+    if not effects:
+        print('no effect field (and no bundle member effect): nothing to validate')
+        return
+    end = hfloor(ts(a.now) if a.now else dt.datetime.now(UTC)) - EC.FINAL_AFTER
+    bad, lines = validate_effects(effects, Cache(a.cache), hfloor(end), a.days)
+    for l in lines:
+        print(l)
     if bad:
-        print('INVALID: ' + '; '.join(bad))
-        raise SystemExit(1)
-    cache = Cache(a.cache)
-    end = hfloor(dt.datetime.now(UTC) - EC.FINAL_AFTER)
-    hrs = [end - (i + 1) * H1 for i in range(24)]
-    cells, k = select(cache, hrs, lambda sha, h: True)
-    for t in eff.get('targets') or []:
-        m = EM.measure(cells, t['metric'], t.get('params') or {})
-        ok = m['num'] > 0 and m['den'] > 0
-        print(f'{"ok  " if ok else "ZERO"} {t["metric"]} {t.get("params") or {}}: {m["num"]:,.0f}/{m["den"]:,.0f} '
-              f'on the last 24 h ({k["bot_h"]:,.0f} bot-h)')
-        if not ok:
-            print('  a zero on the last 24 h: the metric cannot see a baseline (wrong name/key, or a new instrument) -- '
-                  'pick one that exists before the change')
-            raise SystemExit(1)
+        print('INVALID:')
+        for b in bad:
+            print('  ' + b)
+        raise SystemExit(EXIT_INVALID)
     print('valid')
 
 
@@ -814,8 +951,16 @@ def main(argv=None):
     ap.add_argument('--cache', default=EC.OUT)
     ap.add_argument('--state-dir', default=STATE)
     ap.add_argument('--ledger', help='a local ledger file instead of origin/main of ~/stallcheck/repo')
+    ap.add_argument('--days', type=int, default=EM.SEEN_DAYS, help='validate: the window names must occur in')
     a = ap.parse_args(argv)
-    {'run': cmd_run, 'report': cmd_report, 'validate': cmd_validate, 'busy': cmd_busy}[a.cmd](a)
+    if a.cmd == 'run':
+        try:
+            cmd_run(a)
+        except Exception as e:      # noqa: BLE001
+            on_crash(a, e)
+            raise
+        return
+    {'report': cmd_report, 'validate': cmd_validate, 'busy': cmd_busy}[a.cmd](a)
 
 
 if __name__ == '__main__':

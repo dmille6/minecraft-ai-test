@@ -134,7 +134,13 @@ There is **one canary slot**. The tripper matches `canary_pool` literally and
   and rerun live.
 - **Every new registration names its effect** (OWNER 11-03): an `effect` field with a metric from
   `scripts/lib/effectmetrics.py`, its direction and minimum (or a `none_reason`); check it with
-  `effectwatch.py validate <registration.json>`. The scheduler ignores the field. `effectwatch.py` (canary host,
+  `effectwatch.py validate <registration.json>`: the schema, and every kind, status, fail class, detail key and veto
+  name must occur in the last 7 days of logs (it prints the nearest names that do). `queue add` / `add-variant` run it
+  and refuse an INVALID field (effectfix-01, 11-07: `well_dispose`, `death`, `drowned`, `tool_hygiene` and two
+  uncountable keys had read zero for days). A detail key `<name>:<token>...` on a name outside the hand list in
+  `effectmetrics.DETAIL_KEYS` is counted generically (tokens in order) and the cache rebuilds its last 10 days for a
+  new one by itself. A wrong field on an already-registered run is fixed by a `correction` entry in
+  `config/effect-targets.json` (it wins over the registration). The scheduler never reads the field otherwise. `effectwatch.py` (canary host,
   hourly) reads that metric fleet-wide at +24 h and +72 h after the promotion against the pre-canary baseline
   and alarms NO-EFFECT / WORSE into the fleetstatus header until a ledger row `effect-<run>` says fix or remove.
   A run without the field reads from `config/effect-targets.json`, else it alarms "no effect declared".

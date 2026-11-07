@@ -166,7 +166,7 @@ P_TIME = dt.datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 D_TIME = P_TIME - dt.timedelta(hours=3)
 
 
-def fake_fleet(M, cache_dir, post_factor, hole=None, seed=1, ab=False):
+def fake_fleet(M, cache_dir, post_factor, hole=None, seed=1, ab=False, dk_key=None, counted=True, uncount=None):
     """16 pools x 5 bots, hourly cells from P-11 d to P+4 d. Metric: furnace_drain rows per bot-hour ~2 (Poisson-ish),
     times post_factor on the promoted build after P. A canary build (SHAC) in two pools during the baseline with a huge
     count is the lineage control; with ab=True, three pools run another model with a huge count (the model control)."""
@@ -201,13 +201,19 @@ def fake_fleet(M, cache_dir, post_factor, hole=None, seed=1, ab=False):
                 if ab and pool in ('isolated-a', 'isolated-c', 'placebo-c'):
                     model, n = 'qwen3.5', 400
                 c['k'] = {'furnace_drain|no_effect': n}
+                if dk_key:
+                    c['k'][dk_key.split(':')[0] + '|success'] = n
+                    c['dk'] = {dk_key: n} if counted else {}
                 c['rows'] = 900
                 c['llm']['n'] = 100
                 c['llm']['model'] = {model: 100}
                 c['busy'] = {'productive': 1000.0, 'between': 2600.0}
                 bots[bot] = {sha: c}
         EC.write_hour(cache_dir, h, {'bots': bots, 'controls': {'bot_dirs': 80, 'bots_with_rows': 80,
-                                                              'skill_rows': 72000, 'llm_rows': 8000}}, h)
+                                                              'skill_rows': 72000, 'llm_rows': 8000},
+                                     'dk_keys': [dk_key] if dk_key and counted and not (uncount and uncount(h)) else [],
+                                     'vocab': {dk_key.split(':')[0]: {x: 9 for x in dk_key.split(':')[1:]}} if dk_key else {}},
+                      h)
         h += dt.timedelta(hours=1)
 
 
@@ -228,13 +234,306 @@ SIDE = {'x-01': {'version': 1, 'targets': [{'metric': 'kind.rate.v1', 'params': 
                  'guardrails': [], 'none_reason': None}}
 
 
-def read(M, factor, hole=None, ab=False, horizon='h24'):
+def read(M, factor, hole=None, ab=False, horizon='h24', side=None, **kw):
     d = tempfile.mkdtemp()
-    fake_fleet(M, d, factor, hole=hole, ab=ab)
+    fake_fleet(M, d, factor, hole=hole, ab=ab, **kw)
     EW = M.ew
     promos = EW.promotions(journal())
     ti = [p['run'] for p in promos].index('x-01')
-    return EW.read_run(EW.Cache(d), promos, ti, horizon, sidecar=SIDE)
+    return EW.read_run(EW.Cache(d), promos, ti, horizon, sidecar=side or SIDE)
+
+def side_with(**eff):
+    return {'x-01': dict(SIDE['x-01'], **eff)}
+
+
+# ------------------------------------------------------------------------------------------- effectfix-01 (11-07) ---
+def t_exposure(M):
+    """effect.exposure is a STRING (every registration since leasegen-01) or a dict {'model': ...} (a model-env run).
+    A string never filters (and never crashes: 11 hourly runs died on `(expo or {}).get`); a dict filters by model."""
+    EM = M.em
+    ok = EM.exposure_model('a canary bot in a pool ...') is None and EM.exposure_model(None) is None
+    ok &= EM.exposure_model({'model': 'qwen3.5'}) == 'qwen3.5' and EM.exposure_model({'pools': 2}) is None
+    ok &= EM.exposure_model(['x']) is None
+    v_str = read(M, 0.4, side=side_with(exposure='every canary bot on the idle lap (81% of fleet bot time)'))
+    v_none = read(M, 0.4)
+    ok &= v_str['verdict'] == v_none['verdict'] == 'EFFECT'
+    ok &= abs(v_str['targets'][0]['post']['value'] - v_none['targets'][0]['post']['value']) < 1e-9
+    # the dict shape still filters: with a 3-pool qwen3.5 A/B (400 events a cell) the post holds ONLY qwen3.5 cells
+    v_dict = read(M, 1.0, ab=True, side=side_with(exposure={'model': 'qwen3.5'}))
+    t = (v_dict.get('targets') or [{}])[0]
+    ok &= (t.get('post') or {}).get('value', 0) > 50 and (t.get('baseline') or {}).get('value', 99) < 5
+    return bool(ok), (v_str['verdict'], v_none['verdict'], t.get('baseline'), t.get('post'))
+
+
+def t_generic_keys(M):
+    """A key '<name>:<tok>...' on a name the hand list does not know counts rows whose detail holds the tokens in order;
+    the hand-listed names keep their regexes."""
+    EM = M.em
+    W = ['_keeper:keeper_take', '_idlework:met:bag_stop', '_build:tidy:place']
+    k = lambda n, d: EM.detail_keys(n, d, W)
+    ok = k('_keeper', 'project=tidy op=keeper_take gen=29') == ['_keeper:keeper_take']
+    ok &= k('_keeper', 'project=tidy op=keeper_release gen=30 why=underground') == []
+    ok &= k('_idlework', 'idle_work met: iron 0/6, bag_stop') == ['_idlework:met:bag_stop']
+    ok &= k('_idlework', 'idle_work met: grounds 1/3') == []
+    ok &= k('_idlework', 'idle_work open: bag_stop then met') == []                   # order matters
+    ok &= k('_build', 'project=tidy op=clear place=3') == ['_build:tidy:clear']       # hand name: regex only
+    ok &= EM.is_generic_key('_keeper:keeper_take') and not EM.is_generic_key('_build:tidy:place')
+    ok &= not EM.is_generic_key('_keeper')
+    c = EM.new_cell('p')
+    EM.add_skill_row(c, {'skill': {'name': '_keeper', 'status': 'success', 'detail': 'project=tidy op=keeper_take gen=2'}}, W)
+    EM.add_skill_row(c, {'skill': {'name': '_keeper', 'status': 'success', 'detail': 'project=tidy op=keeper_take gen=3'}})
+    ok &= c['dk'] == {'_keeper:keeper_take': 1}                                       # only when wanted
+    bad = EM.validate({'version': 1, 'targets': [{'metric': 'detail.rate.v1', 'params': {'key': '_keeper'},
+                                                  'direction': 'decrease', 'minimum': 0.3, 'scale': 'relative'}]})
+    ok &= any('kind.rate.v1' in b for b in bad)
+    return bool(ok), (k('_idlework', 'idle_work open: bag_stop then met'), c['dk'], bad)
+
+
+def t_cache_keys(M):
+    """effectcache counts the wanted generic keys, records them per hour (dk_keys) with a vocabulary, and rebuilds a
+    recent hour that did not count a newly wanted key; wanted_keys comes from registrations (bundle members too) and the
+    effect targets."""
+    EC = M.ec
+    h = dt.datetime(2026, 11, 7, 3, tzinfo=UTC)
+    row = lambda m, n, d: (h + dt.timedelta(minutes=m), {'skill': {'name': n, 'status': 'success', 'detail': d},
+                                                          'code': {'version': 'abc'}, 'exp': {'pool': 'board-a'}})
+    voc = {}
+    out = EC.bot_cells([row(1, '_keeper', 'project=tidy op=keeper_take gen=1'), row(2, '_keeper', 'op=keeper_release')],
+                       [], [h], ['_keeper:keeper_take'], voc)
+    ok = out[h]['abc']['dk'] == {'_keeper:keeper_take': 1} and voc[h]['_keeper'].get('keeper_take') == 1
+    d = tempfile.mkdtemp()
+    EC.write_hour(d, h, {'bots': {'b': out[h]}, 'controls': {}, 'dk_keys': ['_keeper:keeper_take'], 'vocab': voc[h]}, h)
+    hd = EC.load_hour(d, h)
+    ok &= hd['dk_keys'] == ['_keeper:keeper_take'] and hd['vocab']['_keeper']['keeper_take'] == 1
+    rk = h - dt.timedelta(days=2)
+    ok &= EC.needs_build(hd, h, ['_keeper:keeper_take'], rk) == ''
+    ok &= EC.needs_build(hd, h, ['_keeper:keeper_take', '_idlework:met:bag_stop'], rk).startswith('rekey')
+    ok &= EC.needs_build(hd, h, ['_idlework:met:bag_stop'], h + dt.timedelta(hours=1)) == ''      # older than the window
+    ok &= EC.needs_build(None, h, [], rk) == 'missing'
+    rd = tempfile.mkdtemp()
+    json.dump({'effect': {'targets': [{'metric': 'detail.rate.v1', 'params': {'key': '_keeper:keeper_take'}}],
+                          'guardrails': [{'metric': 'detail.rate.v1', 'params': {'key': '_build:tidy:place'}}]}},
+              open(os.path.join(rd, 'a-01.json'), 'w'))
+    json.dump({'bundle': {'members': [{'run': 'b-01', 'effect': {'targets': [
+        {'metric': 'detail.share.v1', 'params': {'key': '_idlework:met:bag_stop', 'of_name': '_idlework'}}]}}]}},
+        open(os.path.join(rd, 'bundle-01.json'), 'w'))
+    wk = EC.wanted_keys(rd, {'c-01': {'targets': [{'metric': 'detail.rate.v1', 'params': {'key': '_foo:bar'}}]}})
+    ok &= wk == ['_foo:bar', '_idlework:met:bag_stop', '_keeper:keeper_take']
+    return bool(ok), (out[h]['abc']['dk'], wk)
+
+
+def t_uncounted_hole(M):
+    """A generic key the cache hours did not count is a CACHE HOLE (retried, never committed), not a zero; counted, the
+    same fleet reads EFFECT."""
+    key = '_keeper:keeper_take'
+    side = side_with(targets=[{'metric': 'detail.rate.v1', 'params': {'key': key}, 'direction': 'decrease',
+                               'minimum': 0.3, 'scale': 'relative'}])
+    v1 = read(M, 0.4, side=side, dk_key=key, counted=True)
+    v0 = read(M, 0.4, side=side, dk_key=key, counted=False)
+    ok = v1['verdict'] == 'EFFECT' and v0['verdict'] == 'UNREADABLE' and M.ew.is_hole_only(v0)
+    return bool(ok), (v1['verdict'], v1.get('why'), v0['verdict'], v0.get('why'))
+
+
+def t_rekey_whole_read(M):
+    """Codex review r1 BLOCKERS 1-2: hours that did not count a generic key -- in a SECOND target, a guardrail, or only in a
+    placebo anchor day -- make the whole read UNREADABLE and hole-only (retried), never a committed EFFECT."""
+    key = '_keeper:keeper_take'
+    gt = {'metric': 'detail.rate.v1', 'params': {'key': key}, 'direction': 'decrease', 'minimum': 0.3, 'scale': 'relative'}
+    two = side_with(targets=[SIDE['x-01']['targets'][0], gt])
+    v1 = read(M, 0.4, side=two, dk_key=key, counted=False)
+    v2 = read(M, 0.4, side=side_with(guardrails=[dict(gt, direction='decrease')]), dk_key=key, counted=False)
+    day = (P_TIME - dt.timedelta(days=4)).date()
+    v3 = read(M, 0.4, side=side_with(targets=[gt]), dk_key=key, uncount=lambda h: h.date() == day)
+    v4 = read(M, 0.4, side=side_with(targets=[gt]), dk_key=key)
+    ok = all(v['verdict'] == 'UNREADABLE' and v.get('rekey') and M.ew.is_hole_only(v) for v in (v1, v2, v3))
+    ok &= v4['verdict'] == 'EFFECT' and not v4.get('rekey')
+    return bool(ok), [(v['verdict'], v.get('why', '')[:120]) for v in (v1, v2, v3, v4)]
+
+
+def seen_hour(M):
+    EM = M.em
+    c = EM.new_cell('board-a')
+    for r in ({'skill': {'name': '_well_dispose', 'status': 'success', 'detail': 'slots=29->28 cap=at_cap'}},
+              {'skill': {'name': '_death', 'status': 'failed', 'fail_class': 'drowning'}},
+              {'skill': {'name': '_idlework', 'status': 'success', 'detail': 'idle_work met: iron 0/6, bag_stop'}},
+              {'skill': {'name': '_build', 'status': 'success', 'detail': 'project=tidy op=place'}}):
+        EM.add_skill_row(c, r)
+    c['busy'] = {'productive': 100.0, 'between': 50.0}
+    c['llm']['err'] = {'bad_args': 3, '-': 10}
+    voc = {}
+    EM.add_vocab(voc, {'skill': {'name': '_idlework', 'detail': 'idle_work met: iron 0/6, bag_stop'}})
+    return {'bots': {'b': {'abc': c}}, 'controls': {'bot_dirs': 1, 'bots_with_rows': 1}, 'dk_keys': [], 'vocab': voc}
+
+
+def t_seen(M):
+    """The registration check: a name never seen in the window is refused WITH the nearest seen names (the 11-07 audit's
+    misnames: well_dispose, death, drowned); real names pass; an empty window never passes."""
+    EM = M.em
+    ix = EM.seen_index([seen_hour(M)])
+    T = lambda m, p: {'metric': m, 'params': p, 'direction': 'decrease', 'minimum': 0.2, 'scale': 'relative'}
+    badeff = {'version': 1, 'targets': [T('kind.rate.v1', {'name': 'well_dispose'}),
+                                        T('detail.rate.v1', {'key': '_idlework:met:bagstop'})],
+              'guardrails': [T('kind.rate.v1', {'name': 'death'}),
+                             T('failclass.rate.v1', {'name': '_death', 'fail_class': 'drowned'}),
+                             T('detail.rate.v1', {'key': '_build:tidy:clear'}), T('llm.veto_share.v1', {'error': 'bad_arg'})]}
+    bad = EM.seen_problems(badeff, ix)
+    j = ' | '.join(bad)
+    ok = len(bad) == 6 and 'nearest: _well_dispose' in j and 'nearest: _death' in j and 'nearest: drowning' in j
+    ok &= 'bag_stop' in j and '_build:tidy:place' in j and 'bad_args' in j
+    good = {'version': 1, 'targets': [T('kind.rate.v1', {'name': '_well_dispose'}),
+                                      T('detail.rate.v1', {'key': '_idlework:met:bag_stop'}),
+                                      T('detail.rate.v1', {'key': '_build:tidy:place'}), T('busy.share.v1', {'cls': 'decision'})],
+            'guardrails': [T('failclass.rate.v1', {'name': '_death', 'fail_class': 'drowning'}),
+                           T('llm.veto_share.v1', {'error': 'bad_args'}),
+                           T('skill.share.v1', {'name': '_build', 'status': 'success'})]}
+    g = EM.seen_problems(good, ix)
+    ok &= g == []
+    ok &= any('nothing can be checked' in x for x in EM.seen_problems(good, EM.seen_index([])))   # positive control
+    ok &= bool(EM.seen_problems({'targets': [T('skill.share.v1', {'name': '_build', 'status': 'refused'})]}, ix))
+    ok &= bool(EM.seen_problems({'targets': [T('skill.share.v1', {'name': '_build', 'status': 3})]}, ix))   # no TypeError
+    # Codex review r1 BLOCKER 4: one rebuilt hour that counted the key with no match does not refuse a key whose tokens
+    # the hours not yet rebuilt hold; every hour counting it with no match does
+    gk = {'targets': [T('detail.rate.v1', {'key': '_idlework:met:bag_stop'})]}
+    h0 = {'bots': {'b': {'abc': EM.new_cell('p')}}, 'controls': {}, 'dk_keys': ['_idlework:met:bag_stop'], 'vocab': {}}
+    h0['bots']['b']['abc']['rows'] = 5
+    h0['bots']['b']['abc']['k'] = {'_idlework|success': 5}
+    ok &= EM.seen_problems(gk, EM.seen_index([h0, seen_hour(M)])) == []
+    ok &= bool(EM.seen_problems(gk, EM.seen_index([h0, h0])))
+    # an ABSOLUTE INCREASE target may name a row the base cannot write: a warning, not a problem (Claude review r1)
+    newi = {'targets': [dict(T('kind.rate.v1', {'name': '_brand_new'}), direction='increase', scale='absolute', minimum=0.1)]}
+    pr, wr = EM.seen_report(newi, ix)
+    ok &= pr == [] and len(wr) == 1 and EM.seen_problems({'targets': [T('kind.rate.v1', {'name': '_brand_new'})]}, ix) != []
+    return bool(ok), (bad, g, pr, wr)
+
+
+def t_validate_cmd(M):
+    """`effectwatch.py validate` exits 1 on a misnamed metric (printing the nearest name) and passes a real one."""
+    import contextlib
+    import io
+    EW = M.ew
+    d = tempfile.mkdtemp()
+    now = dt.datetime(2026, 11, 7, 14, tzinfo=UTC)
+    for i in range(3, 30):
+        M.ec.write_hour(d, now - dt.timedelta(hours=i), seen_hour(M), now)
+    T = lambda n: {'version': 1, 'targets': [{'metric': 'kind.rate.v1', 'params': {'name': n}, 'direction': 'increase',
+                                              'minimum': 0.2, 'scale': 'relative'}]}
+    rd = tempfile.mkdtemp()
+    res = {}
+    for nm, eff in (('bad', T('well_dispose')), ('good', T('_well_dispose'))):
+        p = os.path.join(rd, nm + '.json')
+        json.dump({'run_id': 'x', 'effect': eff}, open(p, 'w'))
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                EW.main(['validate', p, '--cache', d, '--now', now.strftime('%Y-%m-%dT%H:%M:%SZ')])
+            res[nm] = (0, buf.getvalue())
+        except SystemExit as e:
+            res[nm] = (e.code, buf.getvalue())
+    ok = res['bad'][0] == 1 and '_well_dispose' in res['bad'][1] and res['good'][0] == 0 and 'valid' in res['good'][1]
+    ok &= 'INVALID:' in res['bad'][1].splitlines()
+    # an empty cache window: exit 3 (cannot check); a validator failure: exit 4 -- neither is the INVALID exit 1
+    p = os.path.join(rd, 'good.json')
+    for nm, cache_dir, patch in (('empty', tempfile.mkdtemp(), None), ('error', d, 'boom')):
+        real = EW.validate_effects
+        if patch:
+            def boom(*a, **k):
+                raise ValueError('a bug')
+            EW.validate_effects = boom
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                EW.main(['validate', p, '--cache', cache_dir, '--now', now.strftime('%Y-%m-%dT%H:%M:%SZ')])
+            res[nm] = (0, buf.getvalue())
+        except SystemExit as e:
+            res[nm] = (e.code, buf.getvalue())
+        finally:
+            EW.validate_effects = real
+    ok &= res['empty'][0] == 3 and 'CANNOT CHECK' in res['empty'][1] and res['error'][0] == 4
+    ok &= 'INVALID:' not in res['empty'][1] + res['error'][1]
+    return bool(ok), res
+
+
+def t_correction(M):
+    """A config/effect-targets.json entry with `correction` wins over the registration's own field; without one the
+    registration wins."""
+    EW = M.ew
+    rd = tempfile.mkdtemp()
+    json.dump({'effect': dict(SIDE['x-01'], note='reg')}, open(os.path.join(rd, 'x-01.json'), 'w'))
+    e1, s1 = EW.effect_for('x-01', regdir=rd, sidecar={'x-01': dict(SIDE['x-01'], note='side')})
+    e2, s2 = EW.effect_for('x-01', regdir=rd, sidecar={'x-01': dict(SIDE['x-01'], note='side', correction='misnamed kind')})
+    ok = e1.get('note') == 'reg' and s1 == 'registration' and e2.get('note') == 'side' and 'correction' in s2
+    ok &= M.em.validate(dict(SIDE['x-01'], correction='why')) == []
+    return bool(ok), (s1, s2)
+
+
+def run_args(sd, d, jp, lp, now):
+    return ['run', '--no-push', '--since', '2026-11-01T00:00:00Z', '--now', now, '--journal', jp, '--cache', d,
+            '--state-dir', sd, '--ledger', lp]
+
+
+def t_crash(M):
+    """One read that raises does not stop the others and pages ONCE (its own dedup state); the next clean run CLEARS it.
+    A crash of the whole run pages once, keeps the earlier verdict alarms in the header and re-raises."""
+    EW = M.ew
+    d, sd = tempfile.mkdtemp(), tempfile.mkdtemp()
+    fake_fleet(M, d, 0.4)
+    j = journal() + [{'ts': (P_TIME + dt.timedelta(minutes=30)).strftime('%Y-%m-%dT%H:%M:%SZ'), 'run': 'z-01',
+                      'phase': 'promoted', 'note': 'e' * 40 + ' fleet-wide'}]
+    jp = os.path.join(sd, 'journal.jsonl')
+    open(jp, 'w').write('\n'.join(json.dumps(r) for r in j) + '\n')
+    lp = os.path.join(sd, 'ledger.json')
+    json.dump({'items': []}, open(lp, 'w'))
+    tp = os.path.join(sd, 'targets.json')
+    side = dict(SIDE, **{'z-01': dict(SIDE['x-01'], exposure='a string')})
+    json.dump({'runs': side}, open(tp, 'w'))
+    EW.TARGETS, EW.TARGETS_REPO = tp, None
+    EW.EC.FINAL_AFTER = dt.timedelta(hours=2)
+    now = (P_TIME + dt.timedelta(hours=30)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    real = EW.read_run
+
+    def boom(cache, promos, ti, hz, sidecar=None):
+        if promos[ti]['run'] == 'x-01':
+            raise AttributeError("'str' object has no attribute 'get'")
+        return real(cache, promos, ti, hz, sidecar=sidecar)
+    EW.read_run = boom
+    try:
+        EW.main(run_args(sd, d, jp, lp, now))
+        EW.main(run_args(sd, d, jp, lp, now))
+    finally:
+        EW.read_run = real
+    log = open(os.path.join(sd, 'ALARMS.log')).read()
+    zfile = os.path.exists(os.path.join(sd, 'effect', 'z-01', 'h24.json'))
+    xfile = os.path.exists(os.path.join(sd, 'effect', 'x-01', 'h24.json'))
+    ok = zfile and not xfile and log.count('NEW     effectwatch effectwatch:read-crash:x-01:h24') == 1
+    ok &= 'STILL   effectwatch effectwatch:read-crash' not in log
+    EW.main(run_args(sd, d, jp, lp, now))
+    log = open(os.path.join(sd, 'ALARMS.log')).read()
+    ok &= 'CLEARED effectwatch effectwatch:read-crash:x-01:h24' in log
+    ok &= os.path.exists(os.path.join(sd, 'effect', 'x-01', 'h24.json'))
+    # the whole run dies: header keeps its alarms + the crash line; paged once over two crashed runs
+    st0 = json.load(open(os.path.join(sd, 'effect-fleet.json')))
+    st0['alarms']['effect:old-01:h24'] = 'an earlier verdict alarm'
+    EW.AL.write_json_atomic(os.path.join(sd, 'effect-fleet.json'), st0)
+    realp = EW.promotions
+
+    def dead(j):
+        raise KeyError('ts')
+    EW.promotions = dead
+    died = 0
+    try:
+        for _ in range(2):
+            try:
+                EW.main(run_args(sd, d, jp, lp, now))
+            except KeyError:
+                died += 1
+    finally:
+        EW.promotions = realp
+    st = json.load(open(os.path.join(sd, 'effect-fleet.json')))
+    log = open(os.path.join(sd, 'ALARMS.log')).read()
+    ok &= died == 2 and 'effectwatch:crash' in st['alarms'] and 'effect:old-01:h24' in st['alarms']
+    ok &= st['summary'].startswith('!! EFFECTWATCH CRASHED') and log.count('NEW     effectwatch effectwatch:crash ') == 1
+    ok &= EW.AL.tier_of('effectwatch', 'effectwatch:crash') == EW.AL.TIER_DIGEST      # why tier= is passed explicitly
+    return bool(ok), (zfile, xfile, died, sorted(st['alarms']), log[-600:])
 
 
 def t_read_effect(M):
@@ -439,7 +738,16 @@ TESTS = [('busy-time classes, END stamps, holes', t_busy), ('metrics: keys, rati
          ('an UNDECLARED read is re-read until declared, then committed', t_undeclared_reread),
          ('effect targets come from origin/main of the clone', t_targets_main),
          ('a vanished target event is UNREADABLE, not EFFECT', t_vanished),
-         ('a same-metric promotion inside the post window: joint -> UNREADABLE', t_joint), ('wiring', t_wiring)]
+         ('a same-metric promotion inside the post window: joint -> UNREADABLE', t_joint), ('wiring', t_wiring),
+         ('exposure: a string never filters or crashes; a dict filters by model', t_exposure),
+         ('generic detail keys: tokens in order; hand names keep their regex', t_generic_keys),
+         ('cache: wanted keys counted + recorded, recent uncounted hour rebuilt', t_cache_keys),
+         ('an uncounted generic key is a cache hole, not a zero', t_uncounted_hole),
+         ('registration check: never-seen names refused with the nearest', t_seen),
+         ('validate command: exit 1 on a misname, 0 on a real name', t_validate_cmd),
+         ('a correction in effect-targets wins over the registration', t_correction),
+         ('a crash pages once, never stops the other reads, clears', t_crash),
+         ('uncounted hours anywhere in a read: UNREADABLE, retried', t_rekey_whole_read)]
 
 MUTANTS = [
     ('bt', "        return (t - d, t, 'productive')            # logEvent: stamped at the END",
@@ -469,7 +777,40 @@ MUTANTS = [
     ('ew', "    if mp['num'] == 0 and mb['num'] > 0:          # any kind (Codex review r1 BLOCKER 2)", "    if False:", t_vanished),
     ('ew', "        if not (q['P'] < ph[-1] + H1):", "        if not (ph[0] <= q['P'] < ph[-1] + H1):", t_joint),
     ('ew', "                if not old.get('undeclared'):", "                if True:", t_undeclared_reread),
-    ('ew', "    if path is None and repo:", "    if False:", t_targets_main),
+    ('ec', "    if path is None and repo:", "    if False:", t_targets_main),
+    ('em', "    if isinstance(expo, dict):\n        m = expo.get('model')", "    if True:\n        m = expo.get('model')", t_exposure),
+    ('em', "        return m if isinstance(m, str) and m else None", "        return None", t_exposure),
+    ('ew', "    em = EM.exposure_model(expo)", "    em = None", t_exposure),
+    ('em', "    return all(any(t == x for x in it) for t in tokens)", "    return all(t in detail_tokens(detail) for t in tokens)",
+     t_generic_keys),
+    ('em', "    if name not in HAND_NAMES:\n        for k in wanted:", "    if True:\n        for k in wanted:", t_generic_keys),
+    ('ec', "        miss = set(wanted) - set(hd.get('dk_keys') or [])", "        miss = set()", t_cache_keys),
+    ('ec', "           'dk_keys': list(data.get('dk_keys') or []), 'vocab': data.get('vocab') or {}}", "           }", t_cache_keys),
+    ('ec', "            for e in reg_effects(reg):", "            for e in [reg.get('effect') or {}]:", t_cache_keys),
+    ('ew', "        if need and not set(need) <= set(hd.get('dk_keys') or []):", "        if False:", t_uncounted_hole),
+    ('em', "                if pk in p and p[pk] not in names:", "                if False:", t_seen),
+    ('em', "                if f'{p[\"name\"]}|{p.get(\"fail_class\")}' not in ix['fc']:", "                if False:", t_seen),
+    ('em', "                    miss = [x for x in toks if x not in voc]", "                    miss = []", t_seen),
+    ('em', "    if ix['hours'] == 0 or ix['rows'] == 0:", "    if False:", t_seen),
+    ('ew', "    if bad:\n        print('INVALID:')", "    if False:\n        print('INVALID:')", t_validate_cmd),
+    ('ew', "    if isinstance(ent, dict) and ent.get('correction'):", "    if False:", t_correction),
+    ('ew', "            except Exception as e:      # noqa: BLE001 -- one bad read never stops the others (11-07)",
+     "            except ZeroDivisionError as e:", t_crash),
+    ('ew', "    return AL.raise_alarms('effectwatch', active, now, os.path.join(sd, 'effect.crashstate.json'),",
+     "    return AL.raise_alarms('effectwatch', active, now, os.path.join(sd, 'effect.pushstate.json'),", t_crash),
+    ('ew', "            on_crash(a, e)\n", "            pass\n", t_crash),
+    ('ew', "    al = dict(old.get('alarms') or {})", "    al = {}", t_crash),
+    ('ew', "    if v.get('rekey'):\n        return True", "    if False:\n        return True", t_rekey_whole_read),
+    ('ew', "    if unc:\n        # Codex review r1 BLOCKERS 1-2", "    if False:\n        # Codex review r1 BLOCKERS 1-2", t_rekey_whole_read),
+    ('ew', "            res['uncounted'] += len(k1['uncounted']) + len(k2['uncounted'])", "            pass", t_rekey_whole_read),
+    ('em', "                elif kn in HAND_NAMES or ix['counted_hours'].get(key, 0) >= ix['hours']:",
+     "                elif kn in HAND_NAMES or key in ix['counted']:", t_seen),
+    ('em', "    return kind == 'target' and t.get('scale') == 'absolute' and t.get('direction') == 'increase'", "    return False", t_seen),
+    ('em', "                for st in ([p['status']] if not isinstance(p['status'], list) else p['status']):",
+     "                for st in ([p['status']] if isinstance(p['status'], str) else p['status']):", t_seen),
+    ('ew', "    except CannotCheck as e:\n        print(f'CANNOT CHECK: {e}')\n        raise SystemExit(EXIT_CANNOT)",
+     "    except CannotCheck as e:\n        print(f'CANNOT CHECK: {e}')\n        raise SystemExit(1)", t_validate_cmd),
+    ('ew', "        raise SystemExit(EXIT_ERROR)", "        raise", t_validate_cmd),
 ]
 
 

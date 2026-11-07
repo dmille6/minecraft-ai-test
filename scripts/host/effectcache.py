@@ -21,9 +21,11 @@ refuses a window with a missing hour, and treats an hour with rows from fewer th
 """
 import argparse
 import datetime as dt
+import glob
 import gzip
 import json
 import os
+import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,6 +40,59 @@ OUT = '~/effectwatch/cache'
 FINAL_AFTER = dt.timedelta(hours=2)
 MARGIN_BEFORE = dt.timedelta(minutes=30)
 MARGIN_AFTER = dt.timedelta(minutes=15)
+REGDIR = '~/mcai-analysis/registrations'
+TARGETS = os.path.join(HERE, '..', '..', 'config', 'effect-targets.json')
+TARGETS_REPO = '~/stallcheck/repo'
+# an hour this recent that did not count a generic key some registration now names is REBUILT by the hourly build (the
+# baseline and the 7 placebo days of a read starting at the deploy, read as late as the +72 h horizon: deploy - 8 d seen
+# from promotion + 74 h + grace is ~11.5 d back): a new key never needs a hand rebuild
+REKEY_DAYS = 14
+
+
+def load_targets(path=None, repo=None):
+    """-> the `runs` map of config/effect-targets.json. An explicit path is read as a file. Else origin/main of `repo`
+    (default TARGETS_REPO, fetched first), and the installed copy TARGETS only when the clone cannot be read."""
+    repo = TARGETS_REPO if repo is None else repo
+    if path is None and repo:
+        r = os.path.expanduser(repo)
+        try:
+            subprocess.run(['git', '-C', r, 'fetch', '-q', 'origin'], timeout=60, check=False, capture_output=True)
+            out = subprocess.run(['git', '-C', r, 'show', 'origin/main:config/effect-targets.json'],
+                                 capture_output=True, text=True, timeout=30, check=True).stdout
+            return json.loads(out).get('runs') or {}
+        except Exception:       # noqa: BLE001
+            pass
+    try:
+        with open(path or TARGETS) as f:
+            return json.load(f).get('runs') or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def reg_effects(reg):
+    """A registration's effect fields: its own, and each bundle member's (v41 bundles keep them under bundle.members)."""
+    out = [reg.get('effect')] if isinstance(reg.get('effect'), dict) else []
+    for m in ((reg.get('bundle') or {}).get('members') or []) if isinstance(reg.get('bundle'), dict) else []:
+        if isinstance(m, dict) and isinstance(m.get('effect'), dict):
+            out.append(m['effect'])
+    return out
+
+
+def wanted_keys(regdir=REGDIR, targets=None):
+    """-> sorted generic detail keys (lib/effectmetrics.is_generic_key) that any registration or effect-targets entry names."""
+    keys = set()
+    for p in glob.glob(os.path.join(os.path.expanduser(regdir), '*.json')):
+        try:
+            with open(p) as f:
+                reg = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(reg, dict):
+            for e in reg_effects(reg):
+                keys |= EM.effect_keys(e)
+    for e in (load_targets() if targets is None else targets).values():
+        keys |= EM.effect_keys(e)
+    return sorted(k for k in keys if EM.is_generic_key(k))
 
 
 def ep(t):
@@ -60,8 +115,9 @@ def pool_of(row):
     return str((row.get('exp') or {}).get('pool') or '-')
 
 
-def bot_cells(srows, lrows, hours):
+def bot_cells(srows, lrows, hours, wanted=(), vocab=None):
     """PURE. srows / lrows: [(t, raw)] for one bot, any order, spanning the hours plus margins. hours: [hour start].
+    wanted: the generic detail keys to count; vocab: {hour: {name: {token: rows}}} filled when given.
     -> {hour: {build: cell}}."""
     srows = sorted(srows, key=lambda x: x[0])
     lrows = sorted(lrows, key=lambda x: x[0])
@@ -107,7 +163,9 @@ def bot_cells(srows, lrows, hours):
             return cells[build]
         for t, r in srows:
             if h <= t < h + dt.timedelta(hours=1):
-                EM.add_skill_row(cell(build_of(r), pool_of(r)), r)
+                EM.add_skill_row(cell(build_of(r), pool_of(r)), r, wanted)
+                if vocab is not None:
+                    EM.add_vocab(vocab.setdefault(h, {}), r)
         for t, r in lrows:
             if h <= t < h + dt.timedelta(hours=1):
                 EM.add_llm_row(cell(build_of(r), pool_of(r)), r)
@@ -135,16 +193,18 @@ def bot_cells(srows, lrows, hours):
     return out
 
 
-def build_chunk(root, hours, bots=None):
-    """-> {hour: {'bots': {bot: {build: cell}}, 'controls': {...}}} for consecutive hours, one bot at a time."""
+def build_chunk(root, hours, bots=None, wanted=()):
+    """-> {hour: {'bots': {bot: {build: cell}}, 'controls': {...}, 'dk_keys': [...], 'vocab': {...}}} for consecutive
+    hours, one bot at a time."""
     bots = bots or bots_in(root)
     lo, hi = hours[0] - MARGIN_BEFORE, hours[-1] + dt.timedelta(hours=1) + MARGIN_AFTER
-    res = {h: {'bots': {}, 'controls': {'bot_dirs': len(bots), 'bots_with_rows': 0, 'skill_rows': 0, 'llm_rows': 0}}
-           for h in hours}
+    res = {h: {'bots': {}, 'controls': {'bot_dirs': len(bots), 'bots_with_rows': 0, 'skill_rows': 0, 'llm_rows': 0},
+               'dk_keys': sorted(wanted), 'vocab': {}} for h in hours}
+    vocab = {}
     for bot in bots:
         s = list(TM.stream_rows(root, bot, lo, hi, 'skill'))
         l_ = list(TM.stream_rows(root, bot, lo, hi, 'llm'))
-        per = bot_cells(s, l_, hours)
+        per = bot_cells(s, l_, hours, wanted, vocab)
         for h, cells in per.items():
             if not cells:
                 continue
@@ -156,6 +216,8 @@ def build_chunk(root, hours, bots=None):
             res[h]['controls']['skill_rows'] += n_s
             res[h]['controls']['llm_rows'] += n_l
         del s, l_
+    for h in hours:
+        res[h]['vocab'] = vocab.get(h, {})
     return res
 
 
@@ -163,10 +225,25 @@ def write_hour(out, h, data, now):
     p = hour_path(out, h)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     obj = {'hour': h.strftime('%Y-%m-%dT%H:00:00Z'), 'built_at': now.strftime('%Y-%m-%dT%H:%M:%SZ'),
-           'cell_schema': EM.CELL_SCHEMA, 'bots': data['bots'], 'controls': data['controls']}
+           'cell_schema': EM.CELL_SCHEMA, 'bots': data['bots'], 'controls': data['controls'],
+           'dk_keys': list(data.get('dk_keys') or []), 'vocab': data.get('vocab') or {}}
     with gzip.open(p + '.tmp', 'wt') as f:
         json.dump(obj, f, separators=(',', ':'))
     os.replace(p + '.tmp', p)
+
+
+def needs_build(hd, h, wanted, rekey_from, rebuild=False):
+    """PURE. -> why the hour must be (re)built, or ''. Missing / older schema always; an hour from rekey_from on that did
+    not count every wanted generic key (a registration named a new one) is rebuilt too."""
+    if rebuild:
+        return 'rebuild'
+    if hd is None:
+        return 'missing'
+    if h >= rekey_from:
+        miss = set(wanted) - set(hd.get('dk_keys') or [])
+        if miss:
+            return 'rekey ' + ','.join(sorted(miss))[:120]
+    return ''
 
 
 def load_hour(out, h):
@@ -187,6 +264,7 @@ def main(argv=None):
     ap.add_argument('--rebuild', action='store_true')
     ap.add_argument('--root', default=ROOT)
     ap.add_argument('--out', default=OUT)
+    ap.add_argument('--regdir', default=REGDIR)
     ap.add_argument('--days-back', type=float, default=2.0, help='without --from: hours this far back are filled if missing')
     a = ap.parse_args(argv)
     import fcntl
@@ -202,11 +280,20 @@ def main(argv=None):
     to = min(last, dt.datetime.fromisoformat(a.to.replace('Z', '+00:00'))) if a.to else last
     frm = (dt.datetime.fromisoformat(a.frm.replace('Z', '+00:00')) if a.frm
            else now - dt.timedelta(days=a.days_back)).replace(minute=0, second=0, microsecond=0)
-    hours, h = [], frm
+    wanted = wanted_keys(a.regdir)
+    rekey_from = (now - dt.timedelta(days=REKEY_DAYS)).replace(minute=0, second=0, microsecond=0)
+    if not a.frm and wanted:
+        frm = min(frm, rekey_from)
+    hours, h, why = [], frm, {}
     while h < to:
-        if a.rebuild or load_hour(a.out, h) is None:
+        w = needs_build(load_hour(a.out, h), h, wanted, rekey_from, a.rebuild)
+        if w:
             hours.append(h)
+            why[w.split(' ')[0]] = why.get(w.split(' ')[0], 0) + 1
         h += dt.timedelta(hours=1)
+    if why:
+        print(f'{now:%Y-%m-%dT%H:%M:%SZ} to build: ' + ', '.join(f'{k} {v}' for k, v in sorted(why.items()))
+              + f'; generic keys counted: {", ".join(wanted) or "-"}', flush=True)
     # consecutive runs of missing hours, built a UTC day at a time (one bot-day of rows in memory at once)
     runs, cur = [], []
     for h in hours:
@@ -219,7 +306,7 @@ def main(argv=None):
     built = 0
     for r in runs:
         t0 = dt.datetime.now(UTC)
-        res = build_chunk(a.root, r)
+        res = build_chunk(a.root, r, wanted=wanted)
         for h in r:
             write_hour(a.out, h, res[h], dt.datetime.now(UTC))
             built += 1
