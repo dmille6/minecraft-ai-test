@@ -10,6 +10,7 @@
 // you can query in Kibana.
 
 import { cooldownHit, KEEPOUT_COOLDOWN_MS, KEEPOUT_COOLDOWN_NEAR } from './keepout.mjs'
+import { gatherMemOn, areaRefusal, areaRefusalDetail } from './gathermem.mjs'
 import { SKILLS, actionKey, foodSkipNow, stockRefusedRow } from './skills.mjs'
 import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
@@ -166,6 +167,13 @@ export function depositItemArg (items, item) {
   return held ? { item: name, missing: false } : { item: name, missing: true }
 }
 
+/** gathermem-01: the area entry refusing (gather, block) where `bot` stands -> entry | null. GATHERMEM=0: never. */
+function gatherAreaHit (bot, block, now = Date.now()) {
+  if (!gatherMemOn() || !block || !Array.isArray(bot?.gatherAreas) || !bot.gatherAreas.length) return null
+  const p = bot.entity?.position
+  return p ? areaRefusal(bot.gatherAreas, { block, pos: { x: p.x, y: p.y, z: p.z }, now }) : null
+}
+
 export class AdmissionControl {
   constructor(lessons = null) {
     this.lessons = lessons
@@ -237,6 +245,8 @@ export class AdmissionControl {
     const key = AdmissionControl.key(skill, args)
     const until = this.failedCooldowns.get(key)
     if (until && now < until) return 'cooldown'
+    // GATHERMEM-01: a (gather, block) that found nothing takeable where the bot now stands -- an order is not issued into it
+    if (skill === 'gather' && gatherAreaHit(this.lastBot, args?.block, now)) return 'gather_area'
     if ((this.lessons?.failCount?.(skill, args) ?? 0) >= 4) return 'learned_avoid'
     // REPEATWORK-01: the same decision check() makes (repeatwork.mjs repeatDecision)
     if (this.#repeat(skill, key).refuse) return 'repeat_loop'
@@ -319,6 +329,7 @@ export class AdmissionControl {
    * @returns {{ok: true, skill, args} | {ok: false, reason: string, detail: string}}
    */
   check(proposal, bot, wanted = null) {
+    this.lastBot = bot ?? this.lastBot   // gathermem-01: memoryRefuses reads where the bot stands (it is not passed one)
     const out = this.#check(proposal, bot, wanted)
     // REPEATWORK-01: EVERY admission -- normal, milestone_critical, forced, bootstrap, the safety orders -- starts the key's
     // run with no gain on this rung (both reviews r1: an early return used to keep an older run's verdict). Only the run's
@@ -411,6 +422,15 @@ export class AdmissionControl {
                          `every candidate near is in the column above a marked lava pool (${hit.site.x},${hit.site.y},${hit.site.z}); ` +
                          `walk ${KEEPOUT_COOLDOWN_NEAR}+ blocks from it, or do something else (${Math.ceil((hit.until - Date.now()) / 1000)}s left)` }
       }
+    }
+
+    // GATHERMEM-01: A GATHER THAT JUST FOUND NOTHING TAKEABLE HERE IS NOT RUN AGAIN HERE FOR A FEW MINUTES (gathermem.mjs).
+    // The run that wrote the entry scanned this spot and found every candidate unsafe, buried, refused or just failed; the
+    // same scan from the same spot returns the same answer, and 8,411 same-spot repeats cost the fleet 93.7 bot-h a day.
+    // The detail names a remedy executable from here (mine for an ore, another block, or walk away), and the entry expires.
+    if (skill === 'gather') {
+      const hit = gatherAreaHit(bot, args.block)
+      if (hit) return { ok: false, reason: 'gather_area', detail: areaRefusalDetail(hit) }
     }
 
     // SWIM_TO IS FOR WATER, AND SAYING SO HERE SAVES A WHOLE DECISION.
