@@ -5730,6 +5730,32 @@
     ]
    },
    "note": "Measured 11-07: 61/65 decor cells ferns, 0 flowers; 2 flowers in 13 bags, 0 in 27 chests, town bone meal 4 (= park reserve); 7 d nursery 8 meals -> 2 flowers; composter 55 runs 0 meal; wild flowers outside villages 7 within 160, 147 within 320 (poppy/dandelion only). Paper sandbox5: open taiga meal 2.75 flowers + 17 short + 2.5 tall grass; covered centre refuses the meal; composter ~9.7 ferns / ~20 short grass a meal."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "bagfull-1107",
+   "title": "Full bags block every showcase build order (control 11-07): the room refusal orders a room bank (stacks no build needs into the town's chests), then the build -- unblocks the keeper's grounds work",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "bagfull-1107.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-07: bagfull-01show built on 272288e1, READY TO STAGE (control folds; recommended ahead of other showcase pieces: it gates every grounds read). Read after release: `_room_bank then=build` rows, `_shop_skip why=room` per bot-h (442/24 h before), keeper tidy visits > 0, build visits per 3 h (~60 before). Piece 2 (Codex): the keeper's forest-first fallback to the tidy when the forest's 8 slots are short. No fleet variant (fleet room skips 17 of 312 in 3 h).",
+   "evidence": {
+    "grep": [
+     "bagfull-01"
+    ],
+    "branches": [
+     "bagfull-01show"
+    ],
+    "paths": [
+     "docs/reports/bagfull-design-2026-11-07.md"
+    ]
+   },
+   "note": "Measured 24 h: room skips 442 (lower bound), 5-7 free; bags ~30 slots, cobble 3.4; town containers 196/729 used; town deposit planned only cobble:20 (cap-refused) on a real bag. Offline 412 real bags: 366 reach 8 free, 412 reach 2."
   }
  ]
 }
