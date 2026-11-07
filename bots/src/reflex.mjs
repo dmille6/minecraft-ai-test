@@ -1968,7 +1968,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
       if (!guardMay(bot, b)) throw new Error(`the ${b.name} is guarded`)
       if (lost()) throw new Error('ownership lost after the equip')
-      await digBounded(bot, b, POCKET_DIG_MS)
+      // THE LOOK FIRST, THEN OWNERSHIP, THEN THE SWING WITH NO AWAIT BEFORE block_dig (Codex r3 BLOCKER: mineflayer's dig awaits
+      // its own lookAt before it sets targetDigBlock, so a yield during that look left an abandoned swing that later cancelled
+      // the new owner's dig and mined this cell anyway)
+      await bot.lookAt(b.position.offset(0.5, 0.5, 0.5), true).catch(() => {})
+      if (lost()) throw new Error('ownership lost after the look')
+      await digBounded(bot, b, POCKET_DIG_MS, { noLook: true })
     }
     const r = await pocketDig(bot, { pd, dig, alive, yieldTo, oxygen: () => bot.oxygenLevel })
     const len = pd.plan?.route?.length ?? 0
@@ -7219,11 +7224,13 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
   return ok ? out(true, `plugged ${placed} (${what})`) : out(false, `the ${what} stayed wet after the plugs`)
 }
 
-async function digBounded(bot, block, ms = 8000) {
+async function digBounded(bot, block, ms = 8000, { noLook = false } = {}) {
   let t
   try {
     await Promise.race([
-      bot.dig(block),
+      // escpocket-01: noLook = the caller already looked; mineflayer's dig then reaches block_dig with no await in between, so
+      // an ownership check made just before it still holds when the swing starts (Codex r3)
+      noLook ? bot.dig(block, 'ignore') : bot.dig(block),
       new Promise((_, rej) => { t = setTimeout(() => {
         try { bot.stopDigging?.() } catch { /* not digging */ }
         rej(new Error(`dig exceeded ${ms}ms`))
