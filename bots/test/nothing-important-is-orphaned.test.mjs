@@ -41,6 +41,8 @@ const tGit = (n, f) => { if (CTX.ok) return t(n, f); skipped++; console.log(`  S
 const REQUIRED = [
   // voyager-01 (11-06): the creative-bot pilot -- design, the sandbox and its adversarial tests, the proxy, watcher, plugin, units
   'docs/reports/voyager-01-design-2026-11-06.md',
+  'docs/reports/effect-audit-2026-11-07.md',
+  'docs/reports/queue-plan-2026-11-07.md',
   'voyager/src/sandbox.mjs',
   'voyager/src/facade.mjs',
   'voyager/src/loop.mjs',
