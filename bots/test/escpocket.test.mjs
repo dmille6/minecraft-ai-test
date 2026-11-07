@@ -325,6 +325,16 @@ await t('C2b BEHAVIOUR: a pillar that began on dry ground and finds the body mov
   const out = await Promise.race([pillarOut(bot, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))])
   assert.equal(bot.placed.length, 0, `placed ${bot.placed} (${out})`); assert.equal(out, 'flood_risk')
 })
+// a DRY shaft under a wet roof (a plinth's / tower's pillar on dry ground): feet stone-floored air, the cap 5 up has water over it
+const DRYSHAFT = synth((x, y, z) => (x === 0 && z === 0) ? (y <= 9 ? 'minecraft:stone' : y <= 14 ? 'minecraft:air' : y === 15 ? 'minecraft:stone' : y === 16 ? 'minecraft:water[level=0]' : 'minecraft:stone') : 'minecraft:stone')
+await t('C2c A DRY PILLAR IS NEVER THE CAP CHECK\'S (coordinator 11-07: the plinth-skill autorebase refusal): from a dry start under a wet cap the candidate pillar places exactly what the base (ESCPOCKET=0) places, and the cap check answers null', async () => {
+  assert.equal(columnCapRisk({ at: DRYSHAFT.at, feet: [0, 10, 0], maxUp: 24 }), null)
+  const run = async () => { const b = pillarBot(DRYSHAFT, [0.5, 10, 0.5]); b.entity.isInWater = false; const out = await Promise.race([pillarOut(b, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))]); return { out, placed: b.placed.length } }
+  const cand = await run()
+  const base = await withEnv('ESCPOCKET', '0', run)
+  assert.deepEqual(cand, base, `cand ${JSON.stringify(cand)} vs base ${JSON.stringify(base)}`)
+  assert.ok(cand.placed >= 1, `positive control: the dry pillar places (${JSON.stringify(cand)})`)
+})
 await t('C3 COMPOSED CHAIN at the re-entry cell: the cap refuses the pillar, and the next rung (the swim, narrow, from y=56) has a way out -- the remedy is executable from there', () => {
   const w = worldOf(FX, PRE)
   assert.ok(columnCapRisk({ at: w.at, feet: [358, 56, 180], maxUp: 24 }))
@@ -493,6 +503,11 @@ await t('M10 MUTANT KILLED: without the in-loop cap read the displaced pillar pl
     bot.equip = async it => { bot.entity.position = new Vec3(...REENTRY); return eq(it) }
     await Promise.race([m.pillarOut(bot, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))])
     assert.ok(bot.placed.length >= 1, 'the mutant still refused')
+  })
+})
+await t('M11 MUTANT KILLED: the cap check without its wet-start gate refuses a dry pillar under a wet cap (C2c catches it)', async () => {
+  await withMutant(SRC.reflex, '  if (!isWaterCell(at(x, y, z))) return null\n  // A SIDE WAY OUT BELOW THE CAP', '  // A SIDE WAY OUT BELOW THE CAP', async m => {
+    assert.notEqual(m.columnCapRisk({ at: DRYSHAFT.at, feet: [0, 10, 0], maxUp: 24 }), null, 'the mutant still passed the dry pillar')
   })
 })
 console.log(`\n${pass} passed, ${fail} failed`)
