@@ -186,3 +186,88 @@ The reads ran from a mktemp copy of `git archive origin/main scripts/lib` on eac
 lead. `analyze.py` ranks causes per skill, and also measures target redundancy, triggers, interrupters, and repeats
 within 10 min and 16 blocks. `task2.py` and `sim2.py` measure decision-stream time per TASK and the what-if for a rung
 yield. They are kept in the control session scratchpad, not committed (read-once reads).
+
+## Stage 3, continued (coordinator 11-07): gathermem-01, craftroom-02, irongap-01
+
+sandrung-01 was queued by the coordinator (P, after stairuse-01, autorebased onto 45defefa). The three pieces below are
+built on the live fleet sha 45defefa8042071ca652bdd0cb84134b80261272. Each has a registration and a draft entry in
+`~/mcai-analysis` on the canary host. The queue itself was not edited.
+
+### gathermem-01: per-bot memory of failed gather targets (tier 3)
+
+- **Branch** `gathermem-01-on-45defefa`, tip `d19376c3`.
+- **Module.** `bots/src/gathermem.mjs` holds the rules as pure functions. They are wired into `skills.mjs` gather and
+  gatherRun, `admission.mjs` and `prompt.mjs`. Rollback is `GATHERMEM=0`.
+- **The rule.**
+  - `gatherRun` puts the cells this bot just failed last in its candidate order. "Failed" means the collect threw or
+    the round gathered nothing, within 8 blocks of where the run was asked and within the last 6 min. These cells are
+    never dropped.
+  - The A* reach probe's 4-cell slate is taken from the fresh cells. Source and cover fallback lists are ranked the
+    same way.
+  - If every candidate on the first round is one it just failed, the run ends without walking.
+  - A run that found nothing it could take writes an area entry covering 16 blocks for 4 min. "Nothing it could take"
+    means the run ended unsafe, buried, all refused, or all remembered. While the entry lasts, admission refuses the
+    same (gather, block) there (`gather_area`) and names a remedy: mine for an ore, another block, or walk 16+ blocks.
+    No work order is issued into it, and the observation names it.
+  - Nothing is written from an abort (tagged or untagged), from a full bag, or when a tunnel failed for
+    `inventory_full`. A success clears its cell.
+- **Reviews** (two engines, blockers only).
+  - Round 1: Codex found 3 blockers (an untagged abort wrote memory; a full bag or tunnel fall-through wrote an area;
+    the fallback lists were not ranked). The independent Claude subagent found 1 (the untagged abort). All were fixed
+    in 7c1abfd8.
+  - Round 2: both engines report the blockers fixed and no new ones.
+- **Paper drill fix.** The sandbox run caught a design flaw: "from about here" was each attempt's set-out position,
+  which drifted 5-9 blocks within a run. It is now anchored where the run was asked from (r1b).
+- **Paper proof** (sandbox2, real mineflayer with the real Runner, gather and AdmissionControl). The arena is
+  synthetic: the 3 nearest dirt cells sit on an island across a 16-deep moat. Results are in
+  `sandbox/gathermem/gathermem-e2e.jsonl`.
+
+| scene | GATHERMEM=1 | GATHERMEM=0 (the base behaviour) |
+|---|---|---|
+| skip: island + 1 reachable cell west; run 1, then run 2 from the same spot | run 2's first goal was **west** (2 of 2 runs). 1 run collected; in the other the cell was dug but the drop was not counted. | run 2's first goal was the **island** again; it failed in 9.4 s |
+| expire: island only; run 1, run 2, gate checks, wait the real 6-min TTL, run 3 | run 2 ended in **0.6 s with 0 goals** (all remembered). The area entry was written. Admission refused gather dirt (`gather_area`, remedy named) and **admitted** gather oak_log and explore. After the TTL, admission admitted gather dirt again and run 3 walked the island (the retry). | runs 2 and 3 walked the island again (16.9 s, 17.2 s) |
+
+- **Showcase: not built.** The showcase's same-spot repeats are about 4.7 of 360 bot-h (1.3%, against 4.9% on the
+  fleet), and the code is protected, which needs an owner decision for the showcase. It reaches the showcase through
+  the restack once it is kept on the fleet.
+
+### craftroom-02: CAN CRAFT NOW stops advertising a craft the bag has no slot for (tier 1/2)
+
+- **Branch** `craftroom-02-on-45defefa`, tip `e203ee11`.
+- **The rule.** CAN CRAFT NOW runs the same slot simulation the craft skill's room check runs (`craftroom.mjs`
+  craftRoom). A craft with no slot for its result is withheld from the list and named in a NO ROOM TO CRAFT line.
+- **Why.** 300 room failures in 24 h, and the observation had listed the very item in 210 of them.
+- **Review.** Codex round 1 raised 3 blockers. One applied here: the remedies in the line were unconditional, so the
+  line now asserts no remedy (fixed). A second, "it withholds a craft that would fit", was judged not a blocker, and
+  Codex round 2 confirmed it: the withheld craft is exactly one the skill's `admitRoom` refuses. Rollback is
+  `CRAFTROOM_OFFER=0`.
+
+### irongap-01 (the craftplan-offer piece): the iron pickaxe's gap, named before the decision (tier 1, stacked on craftroom-02)
+
+- **Branch** `irongap-01-on-craftroom-02`, tip `c4c33d5d`.
+- **The rule.** On an iron task with fewer than 3 iron_ingot, the observation says `IRON PICKAXE NOT YET`, with the
+  next step taken from the bag. If smelting is the next step, the line names a missing fuel or furnace.
+- **Why.** 213 iron_pickaxe whole-tree failures in 24 h, which CAN CRAFT NOW never listed.
+- **Review.** Codex round 1 raised one blocker here (it advised a bare smelt with no fuel); fixed. Round 2 found
+  nothing new. Rollback is `IRONGAP=0`.
+
+### Suites (`suite-run.py --ref`, git context)
+
+- **gathermem-01** at dace68d0, on ci2: 413/416.
+  - nothing-important-is-orphaned and well.test fail on the base 45defefa too.
+  - sandbox-registry failed because it counts the drivers that check the sandbox lock, and this piece adds one. The
+    count was updated in d19376c3, a test-only change, and the test passes.
+- **craftroom-02 + irongap-01** at c4c33d5d, on ci2: 413/417.
+  - craftsync and lavastep are known flakes; craftsync passes 7/7 when re-run on both tips.
+  - nothing-important-is-orphaned and well.test fail on the base too.
+
+### Queue placement (recommendation; the coordinator decides)
+
+| piece | lane | tier | rollback |
+|---|---|---|---|
+| sandrung-01 | already queued (P) | 1/2 | `SANDRUNG=1` |
+| gathermem-01 | fleet canary, P | 3 | `GATHERMEM=0` |
+| craftroom-02, then irongap-01 (stacked) | owner-direct with a 60-min tripwire, or a P entry | 1/2 and 1 | `CRAFTROOM_OFFER=0`, `IRONGAP=0` |
+
+- gathermem-01 can go any time after sandrung-01. The two touch different code, but each one's read is cleaner alone.
+- craftroom-02 and irongap-01 are small: about 3.4 and 2 bot-h a day are at stake.
