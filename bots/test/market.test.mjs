@@ -160,6 +160,15 @@ await t('runTrades: never trades into a full bag (putAway would DROP the output)
   assert.equal(M.freeSlotsIn({}), 36, 'a window with no slots reads as room (the fake windows above)')
 })
 
+await t('runTrades: a trade the server never answers ends the window at tradeMs (a walk-in never waits 15 min in a village)', async () => {
+  const v = { trades: [T('emerald', 1, 'lantern', 1)], items: () => [{ name: 'emerald', count: 5 }], trade: () => new Promise(() => {}) }
+  const t0 = Date.now()
+  const r = await M.runTrades(v, { buys: [{ i: 0, times: 1, what: 'lantern', per: 1 }] }, { sleep: async () => {}, tradeMs: 50 })
+  assert.deepEqual([r.halt, /timed out/.test(r.why)], [true, true]); assert.ok(Date.now() - t0 < 1000)
+  const ok = fakeWindow({ emerald: 2 }, [T('emerald', 1, 'lantern', 1)])
+  assert.deepEqual((await M.runTrades(ok, { buys: [{ i: 0, times: 2, what: 'lantern', per: 1 }] }, { sleep: async () => {}, tradeMs: 50 })).bought, { lantern: 2 }, 'POSITIVE: an answered trade')
+})
+
 await t('nextJobBlock: one of each profession, the town\'s surplus first; present / placed skipped; unmakeable never', () => {
   const stock = { iron_ingot: 225, spruce_log: 125, coal: 83, stone: 2 }
   assert.deepEqual(M.nextJobBlock({ stock }), { block: 'smithing_table', profession: 'toolsmith' })
@@ -205,18 +214,20 @@ await t('marketCell: a free cluster inside the zone -> an open cell just OUTSIDE
 // ---- market-02: walk-in trips, beds, the decor tier -----------------------------------------------------------------
 const Z23 = { id: 'village-taiga-23_-20', box: [301, -64, -404, 447, 86, -265] }
 const TRIAL = { id: 'trial-chambers-home-se', box: [-20, -64, 65, 88, 31, 164] }
-await t('walkinTargets: village zones only, beyond 96 b and within 600 b of home, nearest first; a resting village skipped', () => {
+await t('walkinTargets: village zones only, beyond 96 b and within 200 b of home (one runner call), nearest first; resting skipped', () => {
   const far = { id: 'village-snowy-1_54', box: [-56, -64, 782, 86, 91, 942] }
-  assert.deepEqual(M.walkinTargets([ZONE, Z23, far, TRIAL], HOME).map(z => [z.id, z.dist]), [['village-taiga-6_1', 103], ['village-taiga-23_-20', 502]])
-  assert.deepEqual(M.walkinTargets([Z23], HOME, { now: 10, rest: { [Z23.id]: 11 } }), [], 'resting')
+  assert.deepEqual(M.walkinTargets([ZONE, Z23, far, TRIAL], HOME).map(z => [z.id, z.dist]), [['village-taiga-6_1', 103]], '23_-20 (502 b) needs a cut trip: not one call')
+  assert.deepEqual(M.walkinTargets([ZONE], HOME, { now: 10, rest: { [ZONE.id]: 11 } }), [], 'resting')
 })
-await t('walkinAdmit / walkinLeave: morning starts only; inside a zone at most 8 min and never still 4 min (Z1 needs 15)', () => {
+await t('walkinAdmit / walkinLeave: work hours only; inside a zone at most 60 s, never still 40 s, out by leaveBy (Z1 needs 15 min)', () => {
   const base = { on: true, atTown: true, now: 1e12, timeOfDay: 1000, targets: [{ id: 'v' }] }
   assert.equal(M.walkinAdmit(base).ok, true)
-  for (const [k, v, why] of [['timeOfDay', 6000, 'not_morning'], ['atTown', false, 'away'], ['targets', [], 'no_village'], ['leased', true, 'leased'], ['health', 14, 'health']]) assert.equal(M.walkinAdmit({ ...base, [k]: v }).why, why)
-  assert.equal(M.walkinLeave({ dwell: 7 * 60_000, still: 3 * 60_000, timeOfDay: 5000 }), null, 'POSITIVE: a short visit stays')
-  assert.equal(M.walkinLeave({ dwell: 8 * 60_000 }), 'dwell')
-  assert.equal(M.walkinLeave({ still: 4 * 60_000 }), 'still')
+  for (const [k, v, why] of [['timeOfDay', 10000, 'not_morning'], ['atTown', false, 'away'], ['targets', [], 'no_village'], ['leased', true, 'leased'], ['health', 14, 'health']]) assert.equal(M.walkinAdmit({ ...base, [k]: v }).why, why)
+  assert.equal(M.walkinLeave({ dwell: 50_000, still: 30_000, timeOfDay: 5000, tripLeft: 1 }), null, 'POSITIVE: a short visit stays')
+  assert.equal(M.walkinLeave({ dwell: 60_000 }), 'dwell')
+  assert.equal(M.walkinLeave({ still: 40_000 }), 'still')
+  assert.equal(M.walkinLeave({ tripLeft: 0 }), 'time')
+  assert.ok(M.WALKIN.callMs < 180_000 && M.WALKIN.homeBy < M.WALKIN.callMs, 'one call inside the runner\'s 180 s watchdog')
   assert.equal(M.walkinLeave({ timeOfDay: 11600 }), 'dusk')
   assert.ok(M.WALKIN.dwellMs < 15 * 60_000 && M.WALKIN.stillMs < 15 * 60_000, 'both under the showcase tripwire Z1 15-min still-in-a-zone rule')
 })
@@ -226,7 +237,7 @@ await t('walkinCandidates: employed adults INSIDE the village box only; legsTo /
   const e = M.edgeOf(Z23.box, HOME)
   assert.deepEqual(e, { x: 296, z: -260 }, 'the corner nearest home, 5 b out')
   const legs = M.legsTo(HOME, e)
-  assert.ok(legs.length === Math.ceil(Math.hypot(296, 260) / 48) && legs.at(-1).x === 296 && legs.at(-1).z === -260)
+  assert.ok(legs.length === Math.ceil(Math.hypot(296, 260) / 32) && legs.at(-1).x === 296 && legs.at(-1).z === -260)
 })
 await t('bedCells: foot and head outside the zone + pad, the stand behind the foot (the head goes where the placer faces)', () => {
   const cl = M.unemployedClusters([{ uuid: 'a', x: 60.5, y: 64, z: 0.5, profession: 'none' }])[0]
@@ -240,6 +251,13 @@ await t('the decor tier is LAST: an owner want before a cheaper decoration, and 
   const plan = M.buyOffers([T('emerald', 1, 'poppy', 1), T('emerald', 1, 'brick', 10), T('emerald', 1, 'lantern', 1)], { emeralds: 13, wants })
   assert.deepEqual(plan.map(p => [p.what, p.times]), [['lantern', 12], ['brick', 1]], 'lanterns (owner) to their 12 uses, then bricks (build); the poppy gets nothing')
   assert.deepEqual([M.tierOf({ why: 'owner' }), M.tierOf({ why: 'breeding' }), M.tierOf({ why: 'build' }), M.tierOf({ why: 'palette' }), M.tierOf({ why: 'decor' })], [0, 0, 1, 2, 2])
+})
+await t('farmStep: farmland, a crop, or a cell over farmland is priced out (101); a grass step is free', () => {
+  const W = { '0,63,0': 'farmland', '1,63,0': 'grass_block' }
+  const at = p => ({ name: W[`${p.x},${p.y},${p.z}`] ?? 'air' })
+  const f = M.farmStep(at)
+  const B = (x, y, z, name) => ({ name, position: { x, y, z } })
+  assert.deepEqual([f(B(0, 64, 0, 'wheat')), f(B(0, 64, 0, 'air')), f(B(0, 63, 0, 'farmland')), f(B(1, 64, 0, 'air'))], [101, 101, 101, 0])
 })
 await t('MUTANT KILLED: without the dwell cap a trip could stand in a village past the tripwire\'s 15 min', async () => {
   await withMutant(SRC, "  if (dwell >= WALKIN.dwellMs) return 'dwell'\n", '', async X => {

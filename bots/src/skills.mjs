@@ -211,7 +211,7 @@ import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail } from './bagroom.mjs'   // bagroom-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
-import { MARKET, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment, bedDirFrom, WALKIN, walkinSwitch, walkinTargets, walkinAdmit, legsTo, edgeOf, walkinLeave, walkinCandidates, walkinGoods, bedCells } from './market.mjs'   // market-01
+import { MARKET, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment, bedDirFrom, WALKIN, walkinSwitch, walkinTargets, walkinAdmit, legsTo, edgeOf, walkinLeave, walkinCandidates, walkinGoods, bedCells, farmStep, withStepPrice, FARM_BLOCKS } from './market.mjs'   // market-01
 import { pickStation } from './enchant.mjs'   // stationzone-01: never a station inside a protected zone; the workshop's own first
 import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
@@ -18795,11 +18795,12 @@ async function mkOpenAndTrade (ctx, e, merchant, drawn, signal, { spend = MARKET
       const stackOf = name => bot.registry?.itemsByName?.[name]?.stackSize ?? 64
       const have = {}
       for (const [item, n] of Object.entries(drawn)) have[item] = Math.min(n, winCount(v, item))
-      const sells = sellOffers(v.trades, have)
+      // at most 3 sales and 3 purchases a window: with tradeMs 20 s a window is <= 2 min (the walk-in's inside-a-zone bound)
+      const sells = sellOffers(v.trades, have).slice(0, 3)
       const wantsNow = townWants(mkTownStock(bot) ?? {}, mkBag(bot))
       res = await runTrades(v, { sells, buys: [] }, { sleep: ms => sleep(ms, signal), stackOf })
       if (!res.halt) {
-        const buys = buyOffers(v.trades, { emeralds: Math.min(winCount(v, 'emerald'), spend), wants: wantsNow })
+        const buys = buyOffers(v.trades, { emeralds: Math.min(winCount(v, 'emerald'), spend), wants: wantsNow }).slice(0, 3)
         const r2 = await runTrades(v, { sells: [], buys }, { sleep: ms => sleep(ms, signal), stackOf })
         res.spent += r2.spent; Object.assign(res.bought, r2.bought); res.halt = r2.halt; res.why = r2.why
       }
@@ -18987,7 +18988,7 @@ async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = 
 /** market_trip: the walk-in trip, one call. One `_market_trip` row at the end; one `_market_run walkin=1` row per merchant visited. */
 async function marketTrip (ctx, args, signal) {
   const { bot } = ctx
-  const t0 = Date.now(), until = t0 + WALKIN.tripMs
+  const t0 = Date.now(), until = t0 + WALKIN.leaveBy
   const plan = walkinPlan(bot, t0, { freeSlots: 36 - bot.inventory.items().length, health: bot.health ?? 20 })
   const tripRow = (status, o) => { try { logEvent({ kind: 'market_trip', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: `stop=${o.stop} zone=${o.zone ?? '-'} visited=${o.visited ?? 0} earned=${o.earned ?? 0} spent=${o.spent ?? 0} beds=${o.beds ?? 0} composter=${o.composter ?? 0} dwell_s=${Math.round((o.dwell ?? 0) / 1000)} min=${Math.round((Date.now() - t0) / 60_000)}`, args: { stop: o.stop, zone: o.zone ?? null, visited: o.visited ?? 0, earned: o.earned ?? 0, spent: o.spent ?? 0, beds: o.beds ?? 0 } }) } catch { /* telemetry */ } }
   if (!plan.ok) { tripRow('no_effect', { stop: `plan:${plan.why}` }); return { status: 'no_effect', detail: `market_trip: ${plan.why}` } }
@@ -19003,10 +19004,15 @@ async function marketTrip (ctx, args, signal) {
     const stock0 = mkTownStock(bot) ?? {}
     const goods = walkinGoods(spareGoods(stock0, mkBag(bot)))
     const drawn = {}
+    const took = {}
     for (const [item, n] of Object.entries(goods)) {
       const keep = GOODS[item]?.keep ?? 0
-      const can = Math.min(n, Math.max(0, (stock0[item] ?? 0) - keep), Math.max(0, 36 - bot.inventory.items().length - 8) * 64)
+      // the town read AGAIN, less this trip's own draws (Codex m2 BLOCKER 2: another bot may have drawn since stock0)
+      const left = Math.min((mkTownStock(bot) ?? {})[item] ?? 0, (stock0[item] ?? 0) - (took[item] ?? 0))
+      const can = Math.min(n, Math.max(0, left - keep), Math.max(0, 36 - bot.inventory.items().length - 8) * 64)
+      const before = mkBag(bot)[item] ?? 0
       if (can > 0) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item, count: Math.min(64, can) }, signal, rs) }
+      took[item] = (took[item] ?? 0) + Math.max(0, (mkBag(bot)[item] ?? 0) - before)
       drawn[item] = Math.min(n, mkBag(bot)[item] ?? 0)
     }
     // the village's composter (OWNER 11-07 D2: a farmer feeds the village): made at town once per village, from 6 planks
@@ -19021,30 +19027,36 @@ async function marketTrip (ctx, args, signal) {
     if ((mkBag(bot).emerald ?? 0) < MARKET.spendPerRun && (stock0.emerald ?? 0) > 0) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item: 'emerald', count: Math.min(MARKET.spendPerRun - (mkBag(bot).emerald ?? 0), stock0.emerald) }, signal, rs) }
     check(signal)
     // OUT: to the zone's edge nearest home, in legs
+    // the way out may take at most outMs: the walk home is always left its own time (Codex m2 BLOCKER 1)
     const edge = edgeOf(tgt.box, mkHome())
-    const w = await mkWalkLegs(ctx, edge, signal, until)
-    if (w !== 'arrived') { restTrip(WALKIN.perZoneMs); out.stop = `walk_${w}`; return finishTrip('no_effect') }
+    const w = await mkWalkLegs(ctx, edge, signal, t0 + WALKIN.outMs)
+    if (w !== 'arrived') { restTrip(WALKIN.perZoneMs); out.stop = `walk_${w}`; return await goHome('no_effect') }
     // IN: walk to each employed adult in the box (walking only), trade, never past the dwell / still caps
     const zones = townPlanZones(bot).zones
     const tIn = Date.now(), tried = []
     let lastMove = Date.now(), lastPos = bot.entity.position.clone(), why = null
     const inside = () => { const p = bot.entity.position; return p.x >= tgt.box[0] && p.x <= tgt.box[3] + 1 && p.z >= tgt.box[2] && p.z <= tgt.box[5] + 1 }
+    // INSIDE, every walk prices farmland and crops out (a drop onto farmland tramples it; protectzone cannot refuse that)
+    await withStepPrice(bot.pathfinder?.movements, farmStep(p => bot.blockAt(new Vec3(p.x, p.y, p.z))), async () => {
     for (let k = 0; k < 12; k++) {
       if (inside()) out.dwell = Date.now() - tIn
       if (bot.entity.position.distanceTo(lastPos) >= 3) { lastPos = bot.entity.position.clone(); lastMove = Date.now() }
       why = walkinLeave({ dwell: out.dwell, still: inside() ? Date.now() - lastMove : 0, timeOfDay: bot.time?.timeOfDay ?? 0, health: bot.health ?? 20, tripLeft: until - Date.now(), freeSlots: 36 - bot.inventory.items().length })
-      if (why) break
+      if (why) return
       const cands = walkinCandidates(bot.entities, bot.entity.position, { id: tgt.id, box: tgt.box }, tried)
       if (!cands.length) {
         // nobody employed in sight yet: walk toward the village centre once (the chunks load, jobless villagers take free sites)
-        if (k === 0) { try { await goto(ctx, { x: tgt.x, y: Math.floor(bot.entity.position.y), z: tgt.z, range: 12 }, signal, { until: Math.min(until, Date.now() + 60_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } continue }
-        if (k < 4) { await sleep(20_000, signal); continue }
-        why = 'nobody'; break
+        if (k === 0) { try { await goto(ctx, { x: tgt.x, y: Math.floor(bot.entity.position.y), z: tgt.z, range: 12 }, signal, { until: Math.min(until, Date.now() + 25_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } continue }
+        if (k < 3) { await sleep(8_000, signal); continue }
+        why = 'nobody'; return
       }
       const m = cands[0]
       tried.push(m.uuid)
+      // a merchant standing in a field is not walked to (its cell or the one under it is farmland / a crop)
+      const mc = bot.blockAt(new Vec3(Math.floor(m.x), Math.floor(m.y), Math.floor(m.z))), mb = bot.blockAt(new Vec3(Math.floor(m.x), Math.floor(m.y) - 1, Math.floor(m.z)))
+      if ((mc && FARM_BLOCKS.test(mc.name)) || (mb && FARM_BLOCKS.test(mb.name))) continue
       out.employed++
-      try { await goto(ctx, { x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z), range: 2 }, signal, { until: Math.min(until, Date.now() + 40_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      try { await goto(ctx, { x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z), range: 2 }, signal, { until: Math.min(until, Date.now() + 20_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       const e = Object.values(bot.entities ?? {}).find(x => (x.uuid ?? String(x.id)) === m.uuid)
       if (!e || e.position.distanceTo(bot.entity.position) > 3.2) continue
       const merchant = { ...m, x: e.position.x, y: e.position.y, z: e.position.z }
@@ -19058,35 +19070,41 @@ async function marketTrip (ctx, args, signal) {
           detail: `${runDetail({ stop: tr.res ? 'traded' : 'no_window', merchant, goods: drawn, sold: r.sold, earned: r.earned, spent: r.spent, bought: r.bought, why: r.why ?? tr.fail })} walkin=1 zone=${tgt.id}`,
           args: { stop: tr.res ? 'traded' : 'no_window', walkin: 1, zone: tgt.id, profession: merchant.profession, sold: r.sold, earned: r.earned, spent: r.spent, bought: r.bought } })
       } catch { /* telemetry */ }
-      if (r.halt) { why = 'halted'; break }
+      if (r.halt) { why = 'halted'; return }
     }
+    })
     out.stop = why ?? 'done'
     // OUTSIDE AGAIN: the edge, then beds and the composter for the village (open ground outside the zone + 3)
-    try { await goto(ctx, { x: edge.x, y: Math.floor(bot.entity.position.y), z: edge.z, range: 3 }, signal, { until: Math.min(until, Date.now() + 60_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    try { await withStepPrice(bot.pathfinder?.movements, farmStep(p => bot.blockAt(new Vec3(p.x, p.y, p.z))), () => goto(ctx, { x: edge.x, y: Math.floor(bot.entity.position.y), z: edge.z, range: 3 }, signal, { until: Date.now() + 20_000 })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     const vill = Object.values(bot.entities ?? {}).map(merchantOfAny).filter(m => m && m.profession !== 'wandering_trader' && m.x >= tgt.box[0] && m.x <= tgt.box[3] && m.z >= tgt.box[2] && m.z <= tgt.box[5])
-    if (vill.length && Date.now() < until - 3 * 60_000) {
+    if (vill.length && Date.now() < t0 + WALKIN.homeBy - 50_000) {
       const cl = { n: vill.length, uuids: vill.map(v => v.uuid), members: vill, x: vill.reduce((a, v) => a + v.x, 0) / vill.length, y: Math.floor(Math.min(...vill.map(v => v.y))), z: vill.reduce((a, v) => a + v.z, 0) / vill.length }
       for (let b = 0; b < 2 && bot.inventory.items().some(i => /_bed$/.test(i.name)); b++) { if (await mkPlaceBed(ctx, cl, zones, signal, jobRow)) out.beds++; else break }
       // the composter beside the village's JOBLESS adults (a jobless villager takes it: a farmer), when it has any
       const jobless = vill.filter(v => v.profession === 'none' && !v.baby)
-      if (jobless.length && (mkBag(bot).composter ?? 0) > 0 && Date.now() < until - 2 * 60_000) {
+      if (jobless.length && (mkBag(bot).composter ?? 0) > 0 && Date.now() < t0 + WALKIN.homeBy - 35_000) {
         const jc = { n: jobless.length, uuids: jobless.map(v => v.uuid), members: jobless, x: jobless.reduce((a, v) => a + v.x, 0) / jobless.length, y: Math.floor(Math.min(...jobless.map(v => v.y))), z: jobless.reduce((a, v) => a + v.z, 0) / jobless.length }
         if (await mkPlaceCarried(ctx, 'composter', jc, zones, signal, jobRow, { zone: tgt.id })) out.composter = 1
       }
     }
     restTrip(out.employed ? WALKIN.perZoneMs : 6 * 3600_000)
-    // HOME, in legs
-    await mkWalkLegs(ctx, mkHome(), signal, until + 4 * 60_000, { range: 6 })
-    return finishTrip(out.visited ? 'success' : 'no_effect')
+    return await goHome(out.visited ? 'success' : 'no_effect')
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out.stop = 'aborted'; finishTrip('no_effect'); throw e }
     out.stop = 'error'
-    return finishTrip('failed', String(e?.message ?? e))
+    // an error far from home still walks home (Codex m2 BLOCKER 1)
+    try { return await goHome('failed', String(e?.message ?? e)) } catch (e2) { if (e2?.aborted || signal?.aborted) { finishTrip('no_effect'); throw e2 } return finishTrip('failed', String(e?.message ?? e)) }
   }
-  function finishTrip (status, err = null) {
+  /** HOME in legs, inside the contract (homeBy), the arrival CHECKED: not home = a failed trip (travel_incomplete), never a success. */
+  async function goHome (status, err = null) {
+    const r = await mkWalkLegs(ctx, mkHome(), signal, t0 + WALKIN.homeBy, { range: 6 })
+    if (r !== 'arrived') { out.stop = `${out.stop}+home_${r}`; return finishTrip('failed', err, 'travel_incomplete') }
+    return finishTrip(status, err)
+  }
+  function finishTrip (status, err = null, failClass = 'skill_error') {
     tripRow(status, out)
     mkLease(bot, Date.now(), { release: true, name: 'trip' })
-    return { status, ...(status === 'failed' ? { failClass: 'skill_error' } : {}), detail: `market_trip: ${out.stop}${err ? ` ${err.slice(0, 60)}` : ''} (${out.visited} visited, +${out.earned} emerald)` }
+    return { status, ...(status === 'failed' ? { failClass } : {}), detail: `market_trip: ${out.stop}${err ? ` ${err.slice(0, 60)}` : ''} (${out.visited} visited, +${out.earned} emerald)` }
   }
 }
 /** MARKET-01, once per spawn (features.mjs): the ask wired and the licence row. Never throws. */
@@ -26616,9 +26634,9 @@ export const SKILL_CONTRACTS = {
   // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
-  market_run: { expects: ['inventory_loss', 'inventory_gain'], maxMs: 300_000 },   // market-01: goods go, emeralds come; the `_market_run` row
+  market_run: { expects: ['inventory_loss', 'inventory_gain'], maxMs: 180_000 },   // market-01: goods go, emeralds come; the `_market_run` row
   market_job: { expects: ['world_change'], maxMs: 240_000 },   // market-01: a job block placed in the market
-  market_trip: { expects: ['position', 'inventory_loss', 'inventory_gain'], maxMs: 1_200_000 },   // market-02: a walk-in trip, one call (its own 18-min clock)
+  market_trip: { expects: ['position', 'inventory_loss', 'inventory_gain'], maxMs: 180_000 },   // market-02: a walk-in trip, one call (WALKIN.callMs 165 s < the runner's 180 s watchdog)
   anvil_apply: { expects: ['inventory_loss'], maxMs: 120_000 },   // anvilapply-01: the book goes; its evidence is the `_anvil_apply` row
   enchant_tool: { expects: ['inventory_loss'], maxMs: 120_000 },   // enchant-01: the lapis goes; its evidence is the `_enchant_tool` row
   deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip

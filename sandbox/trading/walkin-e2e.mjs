@@ -40,7 +40,11 @@ const R = {}
 const countIn = n => +(r1(`clear ${NAME} minecraft:${n} 0`).match(/Found (\d+)/)?.[1] ?? 0)
 const X0 = 3390, X1 = 3530, Z0 = 3680, Z1 = 3720
 const REF_DZ = 120   // the zone's copy, 120 b south, for the integrity test
-const zoneSame = () => r1(`execute if blocks ${ZB[0]} ${Y - 1} ${ZB[2]} ${ZB[3]} ${Y + 6} ${ZB[5]} ${ZB[0]} ${Y - 1} ${ZB[2] + REF_DZ} all`)
+// the zone's blocks against its copy, in the two parts either side of the wheat field (a copied field dries out: no water), and the
+// field's FARMLAND counted cell by cell (a trampled cell turns to dirt; a farmer's harvest leaves the farmland)
+const PARTS = [[ZB[0], 3483], [3493, ZB[3]]]
+const zoneSame = () => PARTS.map(([a, b]) => r1(`execute if blocks ${a} ${Y - 1} ${ZB[2]} ${b} ${Y + 6} ${ZB[5]} ${a} ${Y - 1} ${ZB[2] + REF_DZ} all`)).join(' | ')
+const farmland = () => { const cmds = []; for (let x = 3484; x <= 3492; x++) for (let z = 3692; z <= 3712; z++) cmds.push(`execute if block ${x} ${Y - 1} ${z} minecraft:farmland`); return rcon(...cmds).split('\n').filter(l => /passed/i.test(l)).length }
 const offer = (buy, sell, extra = '') => `{buy:${buy},sell:${sell}${extra},maxUses:12,xp:1,priceMultiplier:0.05f}`
 
 async function main () {
@@ -54,6 +58,8 @@ async function main () {
     `fill ${X0} ${F} ${Z0} ${X0} ${F + 3} ${Z1} minecraft:glass`, `fill ${X1} ${F} ${Z0} ${X1} ${F + 3} ${Z1} minecraft:glass`,
     // the village's own blocks: a lectern by the librarian, a brewing stand by the cleric, a path, a few beds INSIDE the zone
     `setblock 3501 ${F} 3700 minecraft:lectern`, `setblock 3506 ${F} 3706 minecraft:brewing_stand`, `fill 3482 ${Y} 3699 3518 ${Y} 3701 minecraft:dirt_path`,
+    // a SUNKEN wheat field across the way in (a drop onto farmland tramples it): farmland at Y - 1, wheat on it
+    `fill 3484 ${Y - 1} 3692 3492 ${Y - 1} 3712 minecraft:farmland[moisture=7]`, `fill 3484 ${Y} 3692 3492 ${Y} 3712 minecraft:wheat[age=7]`,
     `setblock ${X - 3} ${F} ${Z - 3} minecraft:chest`, `setblock ${X - 3} ${F} ${Z - 1} minecraft:chest`, `setblock ${X + 2} ${F} ${Z - 3} minecraft:crafting_table`,
     `item replace block ${X - 3} ${F} ${Z - 3} container.0 with minecraft:iron_ingot 64`, `item replace block ${X - 3} ${F} ${Z - 3} container.1 with minecraft:iron_ingot 36`,
     `item replace block ${X - 3} ${F} ${Z - 3} container.2 with minecraft:emerald 8`,
@@ -68,8 +74,9 @@ async function main () {
     `summon villager 3497.5 ${F} 3711.5 {Tags:["wkJ"],VillagerData:{profession:"minecraft:none",level:1,type:"minecraft:plains"}}`,
     'time set 1000', 'gamerule doDaylightCycle false', 'gamerule mobGriefing true')
   // the zone's copy BEFORE the trip (blocks only)
-  R.cloned = r1(`clone ${ZB[0]} ${Y - 1} ${ZB[2]} ${ZB[3]} ${Y + 6} ${ZB[5]} ${ZB[0]} ${Y - 1} ${ZB[2] + REF_DZ}`)
+  R.cloned = PARTS.map(([a, b]) => r1(`clone ${a} ${Y - 1} ${ZB[2]} ${b} ${Y + 6} ${ZB[5]} ${a} ${Y - 1} ${ZB[2] + REF_DZ}`)).join(' | ')
   R.zoneSameBefore = zoneSame()
+  R.farmlandBefore = farmland()
   const bot = mineflayer.createBot({ host: REG.host, port: PORT, username: NAME, auth: 'offline', version: '1.21.8' })
   bot.loadPlugin(pathfinder)
   await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); setTimeout(() => rej(new Error('no spawn')), 60000) })
@@ -94,10 +101,12 @@ async function main () {
       R.ms = Date.now() - t
     }
     P('run', R.run, R.ms)
+    R.underWatchdog = R.ms < 180000   // the runner aborts every skill at SKILL_TIMEOUT_MS 180 s on the showcase
     await sleep(2000)
     R.after = { emerald: countIn('emerald'), lantern: countIn('lantern'), glass: countIn('glass'), redstone: countIn('redstone'), bed: countIn('white_bed'), composter: countIn('composter'), at: bot.entity.position.floored().toString() }
     R.before = before
     R.zoneSameAfter = zoneSame()
+    R.farmlandAfter = farmland()
     // what the trip placed outside the zone (beds, the composter), and whether a villager took them
     const scan = []
     for (let x = 3440; x <= 3530; x++) for (let z = Z0 + 1; z < Z1; z++) scan.push([x, z])
@@ -112,7 +121,7 @@ async function main () {
       `data get entity @e[type=villager,tag=wkJ,limit=1,sort=nearest] VillagerData.profession`, `data get entity @e[type=villager,tag=wkJ,limit=1,sort=furthest] VillagerData.profession`)
       .split('\n').filter(l => !l.startsWith('> ')).map(l => l.slice(0, 200))
     R.records = recs
-    P('result', { after: R.after, before: R.before, same: [R.zoneSameBefore, R.zoneSameAfter], placed: R.placed, inPad: R.placedInZonePad, claims: R.claims, refused: R.refused.slice(0, 10) })
+    P('result', { after: R.after, before: R.before, same: [R.zoneSameBefore, R.zoneSameAfter], farmland: [R.farmlandBefore, R.farmlandAfter], placed: R.placed, inPad: R.placedInZonePad, claims: R.claims, refused: R.refused.slice(0, 10) })
   } finally {
     bot.quit(); await sleep(500)
     const clean = []

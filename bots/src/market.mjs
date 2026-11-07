@@ -27,7 +27,7 @@ export const MARKET = Object.freeze({
   dayFrom: 1000, dayTo: 11000,   // villagers trade while awake; the run starts in daylight only
   spendPerRun: 8,                // emeralds a run may spend
   emeraldKeep: 0,                // the town keeps none back: emeralds are for spending
-  callMs: 240_000,               // one market_run inside its contract's maxMs (300 s)
+  callMs: 165_000,               // one market_run inside the runner's 180 s watchdog (SKILL_TIMEOUT_MS; the contract's maxMs is not read)
   leaseMs: 15 * 60_000,          // one run per town at a time (a pool lease)
   maxGoods: 3,                   // at most three goods drawn for one run
   offersFreshMs: 24 * 3600_000,  // a merchant's last-read offers are trusted this long (a window is the only truth)
@@ -351,7 +351,17 @@ const winCountWhere = (v, pred) => { try { return (v.items?.() ?? []).filter(x =
  * (never raced: a raced trade kept clicking after the close -- coalsale-01 Codex re-check). The first trade that throws ends the
  * window (`halt`). -> { sold: {item: n}, earned, spent, bought: {item: n}, halt, why }
  */
-export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms => new Promise(r => setTimeout(r, ms)), stackOf = () => 64 } = {}) {
+/** One trade, bounded: v.trade raced against tradeMs (Codex m2 BLOCKER: an unanswered trade must not hold a bot in a village zone
+ *  for the tripwire's 15 min). On a timeout the trade's own promise is left to fail when the caller closes the window (its rejection
+ *  is caught here) and the window halts. -> null | the error. */
+async function tradeOnce (v, i, n, tradeMs) {
+  const p = Promise.resolve().then(() => v.trade(i, n))
+  if (!tradeMs) { try { await p; return null } catch (e) { return e } }
+  let tm = null
+  const late = new Promise(resolve => { tm = setTimeout(() => resolve(new Error('trade timed out')), tradeMs) })
+  try { return await Promise.race([p.then(() => null, e => e), late]) } finally { clearTimeout(tm); p.catch(() => {}) }
+}
+export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms => new Promise(r => setTimeout(r, ms)), stackOf = () => 64, tradeMs = 20_000 } = {}) {
   const res = { sold: {}, earned: 0, spent: 0, bought: {}, halt: false, why: null }
   // ROOM FIRST (Codex review r1 BLOCKER 3): mineflayer's trade puts the output and any leftover inputs away with putAway, which
   // DROPS what does not fit -- every trade needs MIN_FREE empty slots in the window's player section, else the window stops
@@ -359,8 +369,7 @@ export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms
   for (const s of sells) {
     if (!roomy()) { res.halt = true; res.why = 'bag_full'; return res }
     const c0 = winCount(v, s.item), e0 = winCount(v, 'emerald')
-    let bad = null
-    try { await v.trade(s.i, s.times) } catch (e) { bad = e }
+    const bad = await tradeOnce(v, s.i, s.times, tradeMs)
     await sleep(300)
     const gone = Math.max(0, c0 - winCount(v, s.item))
     if (gone) res.sold[s.item] = (res.sold[s.item] ?? 0) + gone
@@ -375,8 +384,7 @@ export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms
     if (fit < b.times) b = { ...b, times: Math.max(0, fit) }
     if (b.times <= 0) continue
     const e0 = winCount(v, 'emerald'), n0 = winCount(v, b.what)
-    let bad = null
-    try { await v.trade(b.i, b.times) } catch (e) { bad = e }
+    const bad = await tradeOnce(v, b.i, b.times, tradeMs)
     await sleep(300)
     const got = Math.max(0, winCount(v, b.what) - n0)
     res.spent += Math.max(0, e0 - winCount(v, 'emerald'))
@@ -394,17 +402,28 @@ export { winCountWhere, storedEnchants, offersDetail }
 // use inside; the pathfinder never digs or scaffolds there), trades with the employed adults, places beds / a composter on open
 // ground OUTSIDE the zone + 3, and walks home. INSIDE a zone at most dwellMs per trip and never still for stillMs: the showcase
 // tripwire's Z1 needs >= 15 min still inside a box with a refusal, so a trading visit can never look like a trapped bot.
+// ONE RUNNER CALL (Claude m2 BLOCKER 1: the runner aborts EVERY skill at SKILL_TIMEOUT_MS -- 180 s on the showcase -- whatever its
+// contract says; expedition.mjs sizes its trip the same way): the whole trip, out + inside + beds + home, fits in callMs. So a walk-in
+// reaches villages whose box centre is within radius 200 b (showcase: village-taiga-6_1, its edge 45 b from home). A FAR village
+// (23_-20, 502 b) needs a trip cut into calls that a caller re-issues while the bot is away -- cognitive.mjs's trip continuation
+// (coalsale-01's trade_trip, tier 3): the showcase gets it when that is kept on the fleet (market-03).
 export const WALKIN = Object.freeze({
-  radius: 600,                 // a village zone whose box centre is at most this far from home (showcase: 23_-20 at 502 b)
-  minDist: 96,                 // nearer villages are market_run's (6_1)
-  dwellMs: 8 * 60_000,         // inside a zone at most this long per trip (< Z1's 15 min)
-  stillMs: 4 * 60_000,         // never stand still inside a zone longer than this
-  tripMs: 18 * 60_000,         // the whole trip inside one market_trip call (contract maxMs 20 min)
-  perBotMs: 3 * 3600_000,      // one trip per bot per 3 h
-  perZoneMs: 90 * 60_000,      // one trip per village per 90 min (its stock restocks at work, twice a day)
-  startFrom: 0, startTo: 3000, // leave in the early morning: ~3 min of walking, then the villagers' work hours (2000-9000)
-  leaveAt: 11500,              // leave the village by dusk (villagers go to bed at 12000)
-  leg: 48,                     // walk in legs of this length
+  radius: 200,                 // a village zone whose box centre is at most this far from home
+  minDist: 96,                 // nearer villages are market_run's
+  callMs: 165_000,             // the whole trip (< the 180 s watchdog)
+  outMs: 45_000,               // the way out at most this long
+  dwellMs: 60_000,             // inside a zone at most this long per trip (far under the tripwire Z1's 15 min)
+  stillMs: 40_000,             // never stand still inside a zone longer than this
+  leaveBy: 105_000,            // out of the village by this (the beds and the walk home need the rest)
+  homeBy: 160_000,             // home by this
+  // INSIDE a zone at most dwellMs + one visit (goto <= 20 s, a window <= 6 trades x tradeMs) + the walk out: ~3.5 min worst case,
+  // so the tripwire's Z1 (>= 15 min still inside with a refusal) cannot fire on a trading visit; an abort at 180 s leaves the bot
+  // within ~200 b of home, free to walk (never held)
+  perBotMs: 60 * 60_000,       // one trip per bot per hour
+  perZoneMs: 30 * 60_000,      // one trip per village per 30 min (6 h when nobody there was employed)
+  startFrom: 1000, startTo: 9000, // in the villagers' working hours
+  leaveAt: 11500,              // never after dusk (villagers go to bed at 12000)
+  leg: 32,                     // walk in legs of this length
   bedsPerDay: 2,               // beds placed per town per day (their own cap; a composter counts as a market job block)
 })
 export function walkinSwitch (env = process.env) {
@@ -455,13 +474,13 @@ export function edgeOf (box, p, pad = MARKET.zonePad + 2) {
   return { x: Math.round(x), z: Math.round(z) }
 }
 /** STAY INSIDE? -> null | why to leave. Pure. dwell: ms inside so far; still: ms since the last >= 3 b move inside. */
-export function walkinLeave ({ dwell = 0, still = 0, timeOfDay = 0, health = 20, tripLeft = Infinity, freeSlots = 36 } = {}) {
+export function walkinLeave ({ dwell = 0, still = 0, timeOfDay = 0, health = 20, tripLeft = Infinity, freeSlots = 36 } = {}) {  // tripLeft: ms to leaveBy
   if (dwell >= WALKIN.dwellMs) return 'dwell'
   if (still >= WALKIN.stillMs) return 'still'
   if (timeOfDay >= WALKIN.leaveAt) return 'dusk'
   if (health <= 12) return 'health'
   if (freeSlots < 3) return 'bag_full'
-  if (tripLeft < 6 * 60_000) return 'time'
+  if (tripLeft <= 0) return 'time'
   return null
 }
 /** Candidates INSIDE one village zone (a walk-in): employed adults, awake, in that box; nearest first. Pure. */
@@ -475,6 +494,31 @@ export function walkinCandidates (entities, at, zone, tried = []) {
     out.push({ ...m, dist: Math.hypot(m.x - at.x, m.z - at.z) })
   }
   return out.sort((a, b2) => a.dist - b2.dist)
+}
+/** A STEP PRICE for walking inside a village (Claude m2 BLOCKER 2: a drop onto farmland tramples it -- not a dig, so protectzone cannot
+ *  refuse it): a destination that IS farmland or a crop, or stands on farmland, costs 101 (mineflayer-pathfinder drops a move over
+ *  100). Pure but for blockAt(pos) -> { name } | null. */
+export const FARM_BLOCKS = /^(farmland|wheat|carrots|potatoes|beetroots|melon_stem|pumpkin_stem|attached_melon_stem|attached_pumpkin_stem|torchflower_crop|pitcher_crop)$/
+export function farmStep (blockAt) {
+  const f = b => {
+    const p = b?.position
+    if (!p) return 0
+    if (FARM_BLOCKS.test(bare(b.name))) return 101
+    const below = blockAt({ x: p.x, y: p.y - 1, z: p.z })
+    return below && FARM_BLOCKS.test(bare(below.name)) ? 101 : 0
+  }
+  f.marketFarm = true
+  return f
+}
+/** Run fn with an extra step price on `movements` (a NEW array; the old one back on every exit if still ours; buildbot.mjs's rule). */
+export async function withStepPrice (movements, price, fn) {
+  if (!movements || !Array.isArray(movements.exclusionAreasStep) || !price) return fn()
+  const prev = movements.exclusionAreasStep, mine = [...prev, price]
+  movements.exclusionAreasStep = mine
+  try { return await fn() } finally {
+    if (movements.exclusionAreasStep === mine) movements.exclusionAreasStep = prev
+    else if (Array.isArray(movements.exclusionAreasStep) && movements.exclusionAreasStep.includes(price)) movements.exclusionAreasStep = movements.exclusionAreasStep.filter(g => g !== price)
+  }
 }
 /** The goods a walk-in carries: what the village's likely professions buy (the catalogue's level-1/2 offers), at most maxGoods. */
 export function walkinGoods (spare = {}) {
