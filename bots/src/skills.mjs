@@ -211,7 +211,7 @@ import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail } from './bagroom.mjs'   // bagroom-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
-import { MARKET, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail } from './market.mjs'   // market-01
+import { MARKET, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment } from './market.mjs'   // market-01
 import { pickStation } from './enchant.mjs'   // stationzone-01: never a station inside a protected zone; the workshop's own first
 import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
@@ -18632,11 +18632,11 @@ async function mkFillBucket (ctx, signal) {
   const aim = b.position.offset(0.5, 0.8, 0.5)
   const eye = bot.entity.position.offset(0, bot.entity.eyeHeight ?? 1.62, 0)
   const pond = new Set([[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].map(([dx, dz]) => `${b.position.x + dx},${b.position.y},${b.position.z + dz}`))
-  for (let i = 1; i < 60; i++) {
-    const q = eye.plus(aim.minus(eye).scaled(i / 60)).floored()
+  // EVERY voxel the segment crosses, exactly (Amanatides-Woo traversal; Codex r2: point samples could skip a clipped corner)
+  for (const q of voxelsOnSegment(eye, aim)) {
     const k = `${q.x},${q.y},${q.z}`
     if (k === `${b.position.x},${b.position.y},${b.position.z}`) break
-    const c = bot.blockAt(q)
+    const c = bot.blockAt(new Vec3(q.x, q.y, q.z))
     if (!c) return false
     if (c.type === wid && !pond.has(k)) return false
     if (c.type !== wid && c.boundingBox === 'block') return false
@@ -18674,6 +18674,19 @@ async function marketRun (ctx, args, signal) {
   merchant = plan.merchant; goods = plan.goods
   const rest = mkRead('rest', {})
   const restFor = ms => { rest[merchant.uuid] = Date.now() + ms; mkWrite('rest', rest) }
+  // THE TOWN AS THIS RUN LEAVES IT (Codex r2 BLOCKER 2: a withdraw marks its chest dirty and leaves the old observation, so a
+  // re-read alone still saw the iron this run took): the lower of the index now and the plan's stock less this run's own draws
+  const stock0 = mkTownStock(bot) ?? {}
+  const took = {}
+  const townLeft = item => Math.min((mkTownStock(bot) ?? {})[item] ?? 0, (stock0[item] ?? 0) - (took[item] ?? 0))
+  const draw = async (item, count) => {
+    const before = mkBag(bot)[item] ?? 0
+    const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
+    await withdrawVerb(ctx, { item, count }, signal, rs)
+    const got = Math.max(0, (mkBag(bot)[item] ?? 0) - before)
+    took[item] = (took[item] ?? 0) + got
+    return got
+  }
   try {
     // STOCK: each good from the town (withdraw moves a stack at most per call), the bag's own counted first
     const drawn = {}
@@ -18688,11 +18701,9 @@ async function marketRun (ctx, args, signal) {
           const bk = mkBag(bot), w = bk.water_bucket ?? 0, e0 = bk.bucket ?? 0, all = w + e0
           if (e0 >= 1 && Math.min(w + 1, all - 1) > sellable()) { if (!(await mkFillBucket(ctx, signal))) break; continue }
           if ((bk.iron_ingot ?? 0) < 3) {
-            const town = mkTownStock(bot) ?? {}
             const need = 3 - (bk.iron_ingot ?? 0)
-            if ((town.iron_ingot ?? 0) - need < GOODS.iron_ingot.keep) break
-            const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
-            await withdrawVerb(ctx, { item: 'iron_ingot', count: need }, signal, rs)
+            if (townLeft('iron_ingot') - need < GOODS.iron_ingot.keep) break
+            await draw('iron_ingot', need)
           }
           if ((mkBag(bot).iron_ingot ?? 0) < 3) break
           const before = mkBag(bot).bucket ?? 0
@@ -18707,15 +18718,11 @@ async function marketRun (ctx, args, signal) {
       let need = Math.max(0, n - (mkBag(bot)[item] ?? 0))
       for (let k = 0; k < 3 && need > 0; k++) {
         // the town read AGAIN at each draw: never below its keep (another bot may have drawn since the plan)
-        const fresh = (mkTownStock(bot) ?? {})[item] ?? 0
-        need = Math.min(need, Math.max(0, fresh - (GOODS[item]?.keep ?? 0)))
+        need = Math.min(need, Math.max(0, townLeft(item) - (GOODS[item]?.keep ?? 0)))
         // room: the trades' outputs and leftovers need free slots (mineflayer's putAway DROPS what does not fit: Codex BLOCKER 3)
         need = Math.min(need, Math.max(0, 36 - bot.inventory.items().length - 4) * 64)
         if (need <= 0) break
-        const before = mkBag(bot)[item] ?? 0
-        const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
-        await withdrawVerb(ctx, { item, count: Math.min(64, need) }, signal, rs)
-        const got = (mkBag(bot)[item] ?? 0) - before
+        const got = await draw(item, Math.min(64, need))
         if (got <= 0) break
         need -= got
       }
@@ -18761,14 +18768,15 @@ async function marketRun (ctx, args, signal) {
       mkWrite('offers', all)
       try { logEvent({ kind: 'trade_seen', status: 'success', snapshot: snapshot(bot), detail: `${merchant.profession}${merchant.level ? ` L${merchant.level}` : ''} at ${Math.floor(e.position.x)},${Math.floor(e.position.y)},${Math.floor(e.position.z)}: ${offersDetail(v.trades)}`, args: { profession: merchant.profession, level: merchant.level ?? null, uuid: merchant.uuid } }) } catch { /* telemetry */ }
       // sell only what this run drew (never the bag's kit): the kit's bucket stays
+      const stackOf = name => bot.registry?.itemsByName?.[name]?.stackSize ?? 64
       const have = {}
       for (const [item, n] of Object.entries(drawn)) have[item] = Math.min(n, winCount(v, item))
       const sells = sellOffers(v.trades, have)
       const wantsNow = townWants(mkTownStock(bot) ?? {}, mkBag(bot))
-      res = await runTrades(v, { sells, buys: [] }, { sleep: ms => sleep(ms, signal) })
+      res = await runTrades(v, { sells, buys: [] }, { sleep: ms => sleep(ms, signal), stackOf })
       if (!res.halt) {
         const buys = buyOffers(v.trades, { emeralds: Math.min(winCount(v, 'emerald'), MARKET.spendPerRun), wants: wantsNow })
-        const r2 = await runTrades(v, { sells: [], buys }, { sleep: ms => sleep(ms, signal) })
+        const r2 = await runTrades(v, { sells: [], buys }, { sleep: ms => sleep(ms, signal), stackOf })
         res.spent += r2.spent; Object.assign(res.bought, r2.bought); res.halt = r2.halt; res.why = r2.why
       }
       if (res.halt) {

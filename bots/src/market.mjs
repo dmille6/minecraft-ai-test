@@ -311,6 +311,24 @@ export function openMerchant (bot, e) {
   const view = e?.entityType === vt || vt == null ? e : Object.assign(Object.create(e), { entityType: vt })
   return bot.openVillager(view)
 }
+/** Every voxel a segment a -> b crosses, in order (Amanatides-Woo), as {x,y,z} integer cells, the start cell first. Pure. */
+export function voxelsOnSegment (a, b, { max = 64 } = {}) {
+  const out = []
+  let x = Math.floor(a.x), y = Math.floor(a.y), z = Math.floor(a.z)
+  const ex = Math.floor(b.x), ey = Math.floor(b.y), ez = Math.floor(b.z)
+  const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z
+  const sx = Math.sign(dx), sy = Math.sign(dy), sz = Math.sign(dz)
+  const tD = d => (d === 0 ? Infinity : Math.abs(1 / d))
+  const tN = (p, d, s0) => (d === 0 ? Infinity : ((s0 > 0 ? Math.floor(p) + 1 - p : p - Math.floor(p)) / Math.abs(d)))
+  let tx = tN(a.x, dx, sx), ty = tN(a.y, dy, sy), tz = tN(a.z, dz, sz)
+  const ddx = tD(dx), ddy = tD(dy), ddz = tD(dz)
+  out.push({ x, y, z })
+  while ((x !== ex || y !== ey || z !== ez) && out.length < max) {
+    if (tx <= ty && tx <= tz) { if (tx > 1) break; x += sx; tx += ddx } else if (ty <= tz) { if (ty > 1) break; y += sy; ty += ddy } else { if (tz > 1) break; z += sz; tz += ddz }
+    out.push({ x, y, z })
+  }
+  return out
+}
 /** Empty slots of the window's PLAYER section (inventoryStart..inventoryEnd), or 36 when the window gives no slots. Never throws. */
 export const MIN_FREE = 2
 export function freeSlotsIn (v) {
@@ -330,7 +348,7 @@ const winCountWhere = (v, pred) => { try { return (v.items?.() ?? []).filter(x =
  * (never raced: a raced trade kept clicking after the close -- coalsale-01 Codex re-check). The first trade that throws ends the
  * window (`halt`). -> { sold: {item: n}, earned, spent, bought: {item: n}, halt, why }
  */
-export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms => new Promise(r => setTimeout(r, ms)), stackOf = () => 64 } = {}) {
   const res = { sold: {}, earned: 0, spent: 0, bought: {}, halt: false, why: null }
   // ROOM FIRST (Codex review r1 BLOCKER 3): mineflayer's trade puts the output and any leftover inputs away with putAway, which
   // DROPS what does not fit -- every trade needs MIN_FREE empty slots in the window's player section, else the window stops
@@ -349,7 +367,8 @@ export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms
   for (let b of buys) {
     if (!roomy()) { res.halt = true; res.why = 'bag_full'; return res }
     // a purchase's output may need more than one stack: at most what the free slots hold, past MIN_FREE
-    const per = Math.max(1, b.per ?? 1), fit = Math.floor(((freeSlotsIn(v) - MIN_FREE + 1) * 64) / per)
+    // by the item's OWN stack size (Codex r2 BLOCKER 3: a bed stacks to 1, so 4 beds need 4 slots)
+    const per = Math.max(1, b.per ?? 1), fit = Math.floor(((freeSlotsIn(v) - MIN_FREE + 1) * Math.max(1, stackOf(b.what) || 64)) / per)
     if (fit < b.times) b = { ...b, times: Math.max(0, fit) }
     if (b.times <= 0) continue
     const e0 = winCount(v, 'emerald'), n0 = winCount(v, b.what)
@@ -438,18 +457,26 @@ export function noteJobless (seen, merchants, now) {
 export function marketCell (blockAt, cluster, { zones = [], existing = [], groundY = null } = {}) {
   if (!cluster?.members?.length) return { cell: null, why: 'no_cluster' }
   const cx = cluster.x, cz = cluster.z
-  let ax = cx, az = cz
   const zid = zoneNear(zones, Math.floor(cx), Math.floor(cz), 0)
-  if (zid) {
-    const q = zones.find(z => (z.id ?? 'unnamed') === zid)
-    const b = Array.isArray(q?.box) ? q.box : [q.x0, q.y0, q.z0, q.x1, q.y1, q.z1]
-    const pad = MARKET.zonePad + 2
-    const opts = [[b[0] - pad, cz], [b[3] + pad, cz], [cx, b[2] - pad], [cx, b[5] + pad]]
-    ;[ax, az] = opts.sort((p, q2) => Math.hypot(p[0] - cx, p[1] - cz) - Math.hypot(q2[0] - cx, q2[1] - cz))[0]
+  if (!zid) return marketCellAt(blockAt, cluster, cx, cz, false, { zones, existing, groundY })
+  const q = zones.find(z => (z.id ?? 'unnamed') === zid)
+  const b = Array.isArray(q?.box) ? q.box : [q.x0, q.y0, q.z0, q.x1, q.y1, q.z1]
+  const pad = MARKET.zonePad + 2
+  // each side of the box, the nearest first: a side with no ground (water, a cliff) or no open cell gives way to the next
+  const opts = [[b[0] - pad, cz], [b[3] + pad, cz], [cx, b[2] - pad], [cx, b[5] + pad]]
+    .map(([x, z]) => ({ x, z, d: Math.hypot(x - cx, z - cz) })).sort((p, q2) => p.d - q2.d)
+  let last = { cell: null, why: 'zone_too_deep' }
+  for (const o of opts) {
+    if (o.d > MARKET.claimReach - 3) break
+    const r = marketCellAt(blockAt, cluster, o.x, o.z, Math.abs(o.z - cz) > Math.abs(o.x - cx), { zones, existing, groundY })
+    if (r.cell) return r
+    last = r
   }
-  if (Math.hypot(ax - cx, az - cz) > MARKET.claimReach - 3) return { cell: null, why: 'zone_too_deep' }
+  return last
+}
+function marketCellAt (blockAt, cluster, ax, az, alongX, { zones = [], existing = [], groundY = null } = {}) {
+  const cx = cluster.x, cz = cluster.z
   // the market is a ROW of anchors along the edge (every 4 b, +-8 b): one job block near each, slotSpacing apart
-  const alongX = zid ? Math.abs(az - cz) > Math.abs(ax - cx) : false
   const isAir = n => /^(air|cave_air|short_grass|grass|tall_grass|fern|snow)$/.test(bare(n))
   const groundAt = (x, z) => {
     const y0 = Math.floor(groundY ?? cluster.y)

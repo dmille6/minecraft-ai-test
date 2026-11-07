@@ -191,6 +191,12 @@ await t('marketCell: a free cluster inside the zone -> an open cell just OUTSIDE
   assert.equal(r.cell.y, 64)
   const deep = M.unemployedClusters([{ uuid: 'c', x: 100.5, y: 64, z: 0.5, profession: 'none' }])[0]
   assert.equal(M.marketCell(world(), deep, { zones: [ZONE] }).why, 'zone_too_deep', 'a cluster 51 b inside: no market within reach')
+  // the nearest side (west) is open water: the next side within reach (south, z 45 + 5) takes the market
+  const wet = {}
+  for (let x = 30; x <= 48; x++) for (let z = -40; z <= 70; z++) wet[`${x},63,${z}`] = 'water'
+  const cl2 = M.unemployedClusters([{ uuid: 'w', x: 55.5, y: 64, z: 30.5, profession: 'none' }])[0]
+  const r2 = M.marketCell(world(wet), cl2, { zones: [ZONE] })
+  assert.ok(r2.cell && r2.cell.z > 45 + 3, `another side: ${JSON.stringify(r2)}`)
   const second = M.marketCell(world(), cl, { zones: [ZONE], existing: [r.cell] })
   assert.ok(second.cell && Math.hypot(second.cell.x - r.cell.x, second.cell.z - r.cell.z) >= M.MARKET.slotSpacing, 'the next block a slot apart')
 })
