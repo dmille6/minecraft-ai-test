@@ -257,8 +257,8 @@ def judge(f, prev=None):
     for x in (g.get('stuck') or [])[:8]:
         S.append((20 if x['hours'] >= 12 else 35,
                   f'{x["town"]} {plot_word(x["plot"])} stuck {x["hours"]:.0f} h' + (f' ({x["why"]})' if x.get('why') else '')))
-    for t in g.get('blocked_towns') or []:
-        S.append((15, f'{t}: no town work any bot can do (every open project stuck)'))
+    for t, plots in blocked_list(g):
+        S.append(blocked_text(t, plots))
     pnow = {x['key'] for x in g.get('stuck') or []}
     unstuck = sorted({x['key'] for x in ((prev or {}).get('goals') or {}).get('stuck') or []} - pnow)
     if unstuck and g.get('read'):
@@ -317,8 +317,8 @@ def judge(f, prev=None):
             W.append((10, f'kept {x["run"]}' + (f' ({x["title"]})' if x.get('title') else '') + ' -- it goes to every bot'))
         elif x['verdict'] == 'REVERT':
             D.append((8, f'reverted {x["run"]}' + (f' ({x["title"]})' if x.get('title') else '') + ': the test did worse'))
-    for x in c.get('effect_worse') or []:
-        D.append((20, effect_text(x)))
+    for cat, prio, text in effect_items(c.get('effects') or []):
+        (W if cat == 'worked' else D).append((prio, text))
     if c.get('slot_empty') and c.get('next'):
         S.append((25, f'no test running although {len(c["next"])}+ are ready'))
     if c.get('stalled_items'):
@@ -328,16 +328,96 @@ def judge(f, prev=None):
             'unread': sorted(U, key=key)}
 
 
-EFFECT_RE = re.compile(r'EFFECT (\S+) h(\d+) WORSE: [\w.]+\{"name": "(\w+)"[^}]*\} ([\d.]+) \([^)]*\) -> ([\d.]+) \([^)]*\) ([-+][\d.]+%)')
+METRIC_WORDS = {'items.per_bot_hour.v1': 'items brought in per bot-hour'}
 
 
-def effect_text(line):
-    """PURE. An effectwatch WORSE line -> plain words."""
-    m = EFFECT_RE.search(str(line))
-    if not m:
-        return f'a kept change made things worse: {plain(line, 110)}'
-    return (f'kept change {m.group(1)} made things worse: {m.group(3).replace("_", " ")} rate {m.group(4)} -> '
-            f'{m.group(5)} ({m.group(6)}) in the {m.group(2)} h after it')
+def metric_words(t):
+    """PURE. An effectwatch target -> what it measures, in words."""
+    m, pr = str(t.get('metric') or ''), t.get('params') or {}
+    name = str(pr.get('name') or '').lstrip('_').replace('_', ' ')
+    fc, st = str(pr.get('fail_class') or '').replace('_', ' '), str(pr.get('status') or '').replace('_', ' ')
+    if m in METRIC_WORDS:
+        return METRIC_WORDS[m]
+    if m.startswith('failclass.rate'):
+        return f'{fc} deaths per bot-hour' if name == 'death' else f'{name} failures ({fc}) per bot-hour'
+    if m.startswith('failclass.share'):
+        return f'share of {name} runs failing with {fc}'
+    if m.startswith('skill.share'):
+        return f'share of {name} runs ending {st}'
+    if m.startswith(('kind.rate', 'detail.rate')):
+        return f'{name} actions per bot-hour' + (f' ({st})' if st else '')
+    return m
+
+
+def effect_change(t):
+    """PURE. 'gather actions per bot-hour 19.83 -> 6.12 (-69.1%)' from the target's own baseline and post values."""
+    b, q = (t.get('baseline') or {}).get('value'), (t.get('post') or {}).get('value')
+    if b is None or q is None:
+        return metric_words(t)
+    ch = f' ({(q / b - 1) * 100:+.1f}%)' if b else ''
+    return f'{metric_words(t)} {b:.4g} -> {q:.4g}{ch}'
+
+
+def effect_items(reads):
+    """PURE. effectwatch reads (~/digest/effect/<run>/<h>.json) -> [(category, prio, text)]. Judged by EFFECTWATCH'S OWN
+    verdict and each target's declared direction, never by a raw before/after: EFFECT with no guard breached = worked;
+    NO-EFFECT = missed its goal; WORSE because a target moved the wrong way = didn't work; WORSE only because a guardrail
+    (items / deaths / value per bot-h, ...) got worse = didn't work, said as 'hit its goal but its guard got worse'.
+    UNREADABLE says nothing either way."""
+    out = []
+    for r in reads:
+        run, h, v = r.get('run'), str(r.get('horizon') or '').lstrip('h'), r.get('verdict')
+        tg = [t for t in r.get('targets') or [] if not t.get('guardrail')]
+        gd = [t for t in r.get('targets') or [] if t.get('guardrail')]
+        met = [t for t in tg if t.get('verdict') == 'EFFECT']
+        wrong = [t for t in tg if t.get('verdict') == 'WORSE']
+        breach = [t for t in gd if t.get('verdict') == 'WORSE']
+        goal = lambda t: (f'{effect_change(t)}, meant to go {"down" if t.get("direction") == "decrease" else "up"}'
+                          + (f' by {t["minimum"] * 100:.0f}%+' if t.get('minimum') and t.get('scale') == 'relative' else ''))
+        when = f'in the {h} h after it' if h else ''
+        if v == 'WORSE' and wrong:
+            out.append(('didnt', 18, f'kept change {run} went the wrong way {when}: ' + '; '.join(goal(t) for t in wrong)))
+        elif v == 'WORSE' and breach:
+            out.append(('didnt', 22, f'kept change {run} hit its goal ({"; ".join(effect_change(t) for t in met) or "target met"}) '
+                                     f'but a guard check got worse {when}: ' + '; '.join(effect_change(t) for t in breach)))
+        elif v == 'NO-EFFECT':
+            missed = [t for t in tg if t.get('verdict') == 'NO-EFFECT'] or tg
+            out.append(('didnt', 24, f'kept change {run} missed its goal {when}: ' + '; '.join(goal(t) for t in missed)))
+        elif v == 'EFFECT' and met and not breach:
+            out.append(('worked', 22, f'kept change {run} did what it was meant to {when}: '
+                                      + '; '.join(effect_change(t) for t in met)))
+    return out
+
+
+GROUNDS_PLOTS = ('tidy', 'grounds', 'land')
+
+
+def blocked_plots(text):
+    """PURE. goalwatch's TOWN BLOCKED text '... (2: tidy, wall) ...' -> ['tidy', 'wall'] ([] when it does not say)."""
+    m = re.search(r'\(\d+: ([^)]*)\)', str(text or ''))
+    return [x.strip() for x in m.group(1).split(',')] if m else []
+
+
+def blocked_list(g):
+    """[(town, plots)] from goals.blocked_towns (a list of [town, plots], or of plain town names in older facts)."""
+    return [(x, []) if isinstance(x, str) else (x[0], list(x[1] or [])) for x in g.get('blocked_towns') or []]
+
+
+def blocked_text(town, plots):
+    """PURE. A town whose every open project is stuck -> (prio, words). Since gkforever-01 (11-06) the grounds clean-up is
+    perpetual work and the bots gather between grounds visits, so a town whose only stuck project is grounds work is NOT
+    a town with no work: it reads 'only grounds work open, and it is stuck'."""
+    if plots and all(p in GROUNDS_PLOTS for p in plots):
+        return (40, f'{town}: no building project open; only its grounds clean-up, which is stuck (the bots gather meanwhile)')
+    return (15, f'{town}: every open building project is stuck' + (f' ({", ".join(plot_word(p) for p in plots)})' if plots else '')
+                + ', so its bots have no building work')
+
+
+def owner_text(src, key, text):
+    """PURE. An owner-tier alarm in plain words (goalwatch's grounds-only TOWN BLOCKED is reworded, not hidden)."""
+    if str(key).startswith('town:'):
+        return blocked_text(key.split(':', 1)[1], blocked_plots(text))[1]
+    return plain(text, 170)
 
 
 def rollout_text(why):
@@ -747,8 +827,8 @@ def render(f, j, now):
         L.append(f'- Open projects: {g["open"]} of {g["records"]} on record; stuck 3 h+: {len(g.get("stuck") or [])}.')
         for x in g.get('stuck') or []:
             L.append(f'  - {x["town"]} {plot_word(x["plot"])}: stuck {x["hours"]:.0f} h ({x["why"]})')
-        for t in g.get('blocked_towns') or []:
-            L.append(f'  - {t}: every open project is stuck, so its bots have no town work')
+        for t, plots in blocked_list(g):
+            L.append(f'  - {blocked_text(t, plots)[1]}')
     if not (bnow or g.get('read') or bt.get('completed') is not None):
         L.append('- could not read the town numbers')
     L.append('')
@@ -876,7 +956,7 @@ def render(f, j, now):
         if 'owner decisions' in errs:
             L.append('- could not read the list of decisions waiting for you (STATE.json)')
         items = [f'decision waiting: {plain(q, 200)}' for _, q in a.get('pending') or []]
-        items += [f'{plain(t, 170)}' for _, _, t in a.get('owner') or []]
+        items += [owner_text(s_, k_, t) for s_, k_, t in a.get('owner') or []]
         L += [f'- {x}' for x in items] or (['- nothing needs you right now'] if 'owner decisions' not in errs else [])
         if a.get('operator'):
             L.append(f'- (Handled by the control session, already paged: '
@@ -1181,7 +1261,7 @@ def c_goals(f, now):
     if now - ts(g['generated_at']) > dt.timedelta(minutes=50):
         raise RuntimeError(f'goalwatch-fleet.json is stale ({g["generated_at"]})')
     stuck = [x for x in (parse_stuck(v) for k, v in (g.get('alarms') or {}).items() if k.startswith('goal:')) if x]
-    blocked = sorted(k.split(':', 1)[1] for k in (g.get('alarms') or {}) if k.startswith('town:'))
+    blocked = sorted([k.split(':', 1)[1], blocked_plots(v)] for k, v in (g.get('alarms') or {}).items() if k.startswith('town:'))
     f['goals'] = {'read': True, 'open': g.get('open'), 'records': g.get('records_scanned'),
                   'stuck': sorted(stuck, key=lambda x: -x['hours']), 'blocked_towns': blocked}
 
@@ -1388,17 +1468,34 @@ def c_canary(f, now, since):
     except (ValueError, OSError, subprocess.SubprocessError):
         pass
     c = canary_facts(rows, status, since, now, titles)
-    try:
-        e = jload(f'{DIGEST}/effect-fleet.json')
-        c['effect_worse'] = [v for k, v in (e.get('alarms') or {}).items() if 'WORSE' in str(v)]
-    except (OSError, ValueError):
-        c['effect_worse'] = []
+    c['effects'] = effect_reads(since)
     try:
         s = jload(f'{DIGEST}/stallcheck-fleet.json')
         c['stalled_items'] = sum((s.get('counts') or {}).values()) if isinstance(s.get('counts'), dict) else None
     except (OSError, ValueError, TypeError):
         pass
     f['canary'] = c
+
+
+def effect_reads(since):
+    """effectwatch's committed reads that matter now: computed since the last report, or still an open effect alarm."""
+    try:
+        open_ = set((jload(f'{DIGEST}/effect-fleet.json').get('alarms') or {}))
+    except (OSError, ValueError):
+        open_ = set()
+    out = []
+    for pth in sorted(glob.glob(f'{DIGEST}/effect/*/h*.json')):
+        try:
+            r = jload(pth)
+        except (OSError, ValueError):
+            continue
+        key = f'effect:{r.get("run")}:{r.get("horizon")}'
+        if key in open_ or (ts(r.get('computed_at')) or since) > since:
+            out.append({'run': r.get('run'), 'horizon': r.get('horizon'), 'verdict': r.get('verdict'),
+                        'computed_at': r.get('computed_at'),
+                        'targets': [{k: t.get(k) for k in ('metric', 'params', 'direction', 'scale', 'minimum', 'guardrail',
+                                                           'verdict', 'baseline', 'post')} for t in r.get('targets') or []]})
+    return out
 
 
 def c_alarms(f, now):

@@ -56,7 +56,7 @@ def base():
         'projects': {'counts': {'EFFECTIVE': 5}, 'attention': []},
         'worlds': {'worlds': [{'world': 'a', 'up': True}], 'down': [], 'slow': {}, 'disk_high': {}, 'backup_bad': []},
         'showcase': {'units': [13, 13], 'rollouts': [], 'halts': [], 'stuck': []},
-        'canary': {'closed': [], 'running': [{'run': 'x-01'}], 'next': [], 'slot_empty': False, 'effect_worse': []},
+        'canary': {'closed': [], 'running': [{'run': 'x-01'}], 'next': [], 'slot_empty': False, 'effects': []},
         'alarms': {'owner': [], 'operator': {}, 'acked': 0, 'pending': []},
     }
 
@@ -161,9 +161,9 @@ def ck_stuck_and_unstuck(M):
                               {'key': 'goal:hive-a/wall@1_2_3', 'town': 'hive-a', 'plot': 'wall', 'hours': 20, 'why': ''}]
     f = base()
     f['goals']['stuck'] = [prev['goals']['stuck'][1]]
-    f['goals']['blocked_towns'] = ['hive-a']
+    f['goals']['blocked_towns'] = [['hive-a', ['wall']]]
     j = M.judge(f, prev)
-    return ('hive-a town wall stuck 20 h' in texts(j['stalled']) and 'hive-a: no town work' in texts(j['stalled'])
+    return ('hive-a town wall stuck 20 h' in texts(j['stalled']) and 'hive-a: every open building project is stuck' in texts(j['stalled'])
             and 'moving again: board-b town clean-up' in texts(j['worked']))
 
 
@@ -271,14 +271,13 @@ def ck_parsers(M):
                        '28,123)_at_step_51:_dug_0,_placed_0_--_the_stair_is_blocked_above_the_work;_the_next_vi; visits')
     pin = M.parse_pinned('2026-11-06T23:47:01Z 2 of 80 bots PINNED for >= 240 min (x):\n  isolated-d-Delta       at '
                          '(359, 58, 180)     items 1 | y\n')
-    eff = M.effect_text('EFFECT dirtrung-01 h24 WORSE: kind.rate.v1{"name": "gather"} 19.83 (25,892/1,305) -> 6.12 '
-                        '(5,633/920) -69.1% (noise x/1.16)')
+    eff = 'skip'
     led = {'items': [{'id': 'idlework2-1106', 'title': 'Bags full after idlework-01 (Grafana): idle batches stop'},
                      {'id': 'stations-1106', 'title': "Crafting tables and furnaces (owner 11-06: 'pick up')"}]}
     return (st and st['town'] == 'board-c' and st['plot'] == 'shaft' and st['hours'] == 4.6
             and st['why'] == 'the stair is blocked above the work'
             and pin == {'n': 2, 'of': 80, 'at': '2026-11-06T23:47:01Z', 'bots': [('isolated-d-Delta', '359, 58, 180')]}
-            and eff == 'kept change dirtrung-01 made things worse: gather rate 19.83 -> 6.12 (-69.1%) in the 24 h after it'
+            and eff == 'skip'
             and M.title_of('idlework-02', led) == 'Bags full after idlework-01'
             and M.title_of('stations-01', led) == 'Crafting tables and furnaces' and M.title_of('nope-01', led) is None)
 
@@ -320,6 +319,56 @@ def ck_backups(M):
             and 'show ALARM' in bad2 and 'world backup ALARM old' in bad3)
 
 
+# dirtrung-01's real h24 read (~/digest/effect/dirtrung-01/h24.json, 11-06 03:12Z): its target (gather rows DOWN >= 30%,
+# a stand-in for the dirt loop it removed) was MET at -69.1%; the overall WORSE comes only from the items/bot-h guardrail.
+DIRTRUNG = {'run': 'dirtrung-01', 'horizon': 'h24', 'verdict': 'WORSE', 'targets': [
+    {'metric': 'kind.rate.v1', 'params': {'name': 'gather'}, 'direction': 'decrease', 'scale': 'relative', 'minimum': 0.3,
+     'guardrail': False, 'verdict': 'EFFECT', 'baseline': {'value': 19.834299049177567}, 'post': {'value': 6.119894491194001}},
+    {'metric': 'items.per_bot_hour.v1', 'params': {}, 'direction': 'increase', 'scale': 'relative', 'minimum': None,
+     'guardrail': True, 'verdict': 'WORSE', 'baseline': {'value': 112.09611650178634}, 'post': {'value': 70.15878334064176}}]}
+
+
+def ck_effects(M):
+    f = base()
+    f['canary']['effects'] = [DIRTRUNG]
+    d = texts(M.judge(f)['didnt'])
+    # the goal is reported as MET and in its intended direction; only the guardrail lands it under "didn't work"
+    met_ok = ('kept change dirtrung-01 hit its goal (gather actions per bot-hour 19.83 -> 6.12 (-69.1%))' in d
+              and 'guard check got worse in the 24 h after it: items brought in per bot-hour 112.1 -> 70.16 (-37.4%)' in d
+              and 'wrong way' not in d)
+    # no guardrail breached: the same met target is a WIN
+    clean = copy.deepcopy(DIRTRUNG)
+    clean['verdict'] = 'EFFECT'
+    clean['targets'][1]['verdict'] = 'NO-EFFECT'
+    g = base()
+    g['canary']['effects'] = [clean]
+    win = 'kept change dirtrung-01 did what it was meant to' in texts(M.judge(g)['worked'])
+    # positive control: a MISSED target still lands under "didn't work"
+    miss = {'run': 'kitmulti-01', 'horizon': 'h72', 'verdict': 'NO-EFFECT', 'targets': [
+        {'metric': 'failclass.share.v1', 'params': {'name': 'toolkit', 'fail_class': 'kit_no_iron'}, 'direction': 'decrease',
+         'scale': 'relative', 'minimum': 0.3, 'guardrail': False, 'verdict': 'NO-EFFECT',
+         'baseline': {'value': 0.643}, 'post': {'value': 0.61}}]}
+    unread = {'run': 'u-01', 'horizon': 'h24', 'verdict': 'UNREADABLE', 'targets': []}
+    h = base()
+    h['canary']['effects'] = [miss, unread]
+    j = M.judge(h)
+    missed = ('kept change kitmulti-01 missed its goal in the 72 h after it: share of toolkit runs failing with kit no iron '
+              '0.643 -> 0.61 (-5.1%), meant to go down by 30%+' in texts(j['didnt']) and 'u-01' not in texts(j['didnt'] + j['worked']))
+    return met_ok and win and missed
+
+
+def ck_grounds_town(M):
+    f = base()
+    f['goals']['blocked_towns'] = [['board-b', ['tidy']], ['hive-c', ['wall', 'tidy']]]
+    s_ = texts(M.judge(f)['stalled'])
+    owner = M.owner_text('goalwatch-fleet', 'town:board-b', 'TOWN BLOCKED: every open project of board-b is stuck >= 3 h '
+                         '(1: tidy) -- no bot there has workable town work')
+    return ('board-b: no building project open; only its grounds clean-up, which is stuck' in s_
+            and 'board-b: every open' not in s_ and 'hive-c: every open building project is stuck (town wall, town clean-up)' in s_
+            and 'no bot there has workable' not in owner and 'only its grounds clean-up' in owner
+            and M.blocked_plots('x (2: tidy, wall) y') == ['tidy', 'wall'])
+
+
 def ck_render(M):
     f = base()
     j = M.judge(f)
@@ -335,7 +384,7 @@ def ck_render(M):
 CHECKS = [ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window, ck_healthy_quiet, ck_death_spike, ck_fewer_deaths, ck_value,
           ck_unread_no_verdict, ck_bots_down, ck_world_down_first, ck_canary, ck_stuck_and_unstuck, ck_bags,
           ck_showcase_halt, ck_showcase_deaths, ck_finished, ck_narrative_ok, ck_narrative_new_number, ck_narrative_parts, ck_numbers,
-          ck_narrative_words, ck_unread_mood, ck_owner_alarms, ck_parsers, ck_windows_of_time, ck_backups, ck_render]
+          ck_effects, ck_grounds_town, ck_narrative_words, ck_unread_mood, ck_owner_alarms, ck_parsers, ck_windows_of_time, ck_backups, ck_render]
 
 # (name, old, new, the check it must break)
 MUTANTS = [
@@ -353,6 +402,13 @@ MUTANTS = [
     ('narrative parts check off', "    if miss:\n", "    if False:\n", ck_narrative_parts),
     ('acked alarms listed', "        if find_ack(acks, src, key, now) is not None:", "        if False:", ck_owner_alarms),
     ('operator alarms listed as the owner\'s', "        if src in OPERATOR_SOURCES:", "        if False:", ck_owner_alarms),
+    ('effects judged by a raw before/after (a met target read as worse)', "        elif v == 'WORSE' and breach:",
+     "        elif v == 'WORSE' and breach and not met:", ck_effects),
+    ('a missed target never reported', "        elif v == 'NO-EFFECT':", "        elif v == 'NO-EFFECTS':", ck_effects),
+    ('a met goal never reported as a win', "        elif v == 'EFFECT' and met and not breach:",
+     "        elif v == 'EFFECTS' and met and not breach:", ck_effects),
+    ('grounds-only town reads as no work', "    if plots and all(p in GROUNDS_PLOTS for p in plots):", "    if False:",
+     ck_grounds_town),
     ('a recovered showcase halt ranks as urgent', "D.append((35 if back else 7,", "D.append((7,", ck_showcase_halt),
     ('a world down is not first', "        D.append((1, f'world {x} is DOWN'))", "        D.append((50, f'world {x} is DOWN'))",
      ck_world_down_first),
