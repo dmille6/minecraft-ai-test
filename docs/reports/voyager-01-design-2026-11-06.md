@@ -520,3 +520,12 @@ the pilot just stops calling it.
   prompts are small because its library is empty. So the context is not the cause; the model is: the same seed's arms A and C
   got stone from the same spawn (C in 31 min, A by 03:20Z). If anything changes it, it is the coder model, not a smaller
   prompt. (3) **Spawn not unfair:** same seed, same spawn as A and C; B ranged x -36..90, z -49..32, y 44-76. No reroll.
+- **11-07 15:17Z owner restarted the Blackwell's Ollama with OLLAMA_MAX_LOADED_MODELS=4.** bw-guard tripped on the restart
+  (every watched model vanished at 15:17:49Z) and paused arm B, as designed.
+- **Arm B-qwen3.8 (qwen3.8:27b, Blackwell)** replaces B-general (its world, 9.6 bot-h with 0 verified, is in
+  `archive/stage3-b-general`; the general qwen2.5:32b is no longer called). Before loading (15:24Z) `/api/ps`: theirs only,
+  3 models (qwen2.5:32b 8192 / 38.5 GB, qwen2.5-coder:7b-hp 8192 / 9.0 GB, nomic-embed 2048 / 0.3 GB), so ours made 4 = the
+  cap, no eviction. First call 15:27:46Z: load 9.5 s, no HTTP 412 on 0.33.2; after it, all four resident, ours at num_ctx
+  12288 / 17.5 GB, theirs unchanged. Requests: `num_ctx` 12288, `think: false`, `keep_alive: -1`, Haiku's pace (400/h). The
+  end unloads qwen3.8:27b only, and only if resident. bw-guard re-armed on a fresh 6-min baseline (p50 71 ms, p95 73 ms;
+  stop at +25 % = 91 ms, or if any of their models disappears). Fresh world; started 15:27:02Z; per bot-hour as before.
