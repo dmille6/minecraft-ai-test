@@ -197,7 +197,6 @@ import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTar
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
 import { OBSIDIAN, OBS_FEET, OBS_DIG_MS, OBS_FAILS_MAX, OBS_CYCLES_MAX, OBS_DEEPEN_TRIES, obsKit as deepObsKit, obsidianWant as deepObsWant, findSites as deepObsSites, castNext as deepCastNext, looseLava as deepLooseLava, spilledWater as deepSpilledWater, waterFill as deepWaterFill, isSourceOf as deepIsSourceOf, isAir as deepIsAir, castGate as deepCastGate, obsDetail as deepObsDetail } from './deepmine.mjs'   // obsidian-01
 import { fillWater as obsFillWater, scoopLava as obsScoopLava, pourInto as obsPourInto } from './bucket.mjs'   // obsidian-01: the cast's own bucket uses
-import { indexHolding as obsIndexHolding } from './townindex.mjs'   // obsidian-01: the town's obsidian
 import { isFull as obsIsFull } from './shaftgeom.mjs'   // obsidian-01: a basin cell still rock
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { stairStepAt, stairTrapOn, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   // shafttrap-02: the reflexes hand a bot on the stair to the egress
@@ -18629,13 +18628,20 @@ function deepObsZone (bot, { townToo = true } = {}) {
     return stair.has(c.join(','))
   }
 }
-/** THE TOWN'S OBSIDIAN in its index -> n | null (null: the index is off or unreadable, or no container is known). */
+/** THE TOWN'S OBSIDIAN in its index -> n | null (null: the index is off or unreadable, or no container was ever observed). Every
+ *  container's LAST OBSERVATION counts, fresh, stale or dirty (sandbox 11-07: a withdraw leaves the chest `dirty` until its next
+ *  read, and a fresh-only count read the town as unknown -- no cast ever). An estimate of a need, never a withdrawal. */
 function deepObsTown (bot) {
   const ents = townIndexEntries(bot)
   if (!ents) return null
-  let n = 0, known = 0
-  for (const e of Object.values(ents)) { const h = obsIndexHolding(e, 'obsidian'); if (h) { known++; n += h.n } }
-  return known > 0 ? n : null
+  let n = 0, seen = 0
+  for (const e of Object.values(ents)) {
+    const names = e?.obs?.names
+    if (!names) continue
+    seen++
+    n += Number(names.obsidian?.[0]) || 0
+  }
+  return seen > 0 ? n : null
 }
 const deepObsRow = (bot, step, why, o, n = '-') => deepRow(bot, 'obs', { why: deepObsDetail({ step, why, site: o?.site, got: o?.got ?? 0, want: o?.want ?? '-', n }) })
 /** Stand on the cell's centre, sneaking (a sneaking body never walks off an edge: the basin is beside P1). -> centred. */
