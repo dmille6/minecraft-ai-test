@@ -278,7 +278,7 @@ import { withDigScope } from './digtown.mjs'
 import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress, legSealTargets as deepLegSealTargets } from './deepmine.mjs'   // deepminer-01 r1
 import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
-import { OBSIDIAN, OBS_FEET, OBS_DIG_MS, OBS_FAILS_MAX, OBS_CYCLES_MAX, OBS_DEEPEN_TRIES, obsKit as deepObsKit, obsidianWant as deepObsWant, findSites as deepObsSites, castNext as deepCastNext, looseLava as deepLooseLava, spilledWater as deepSpilledWater, waterFill as deepWaterFill, isSourceOf as deepIsSourceOf, isAir as deepIsAir, castGate as deepCastGate, obsDetail as deepObsDetail } from './deepmine.mjs'   // obsidian-01
+import { OBSIDIAN, OBS_FEET, OBS_DIG_MS, OBS_FAILS_MAX, OBS_CYCLES_MAX, OBS_DEEPEN_TRIES, obsKit as deepObsKit, obsidianWant as deepObsWant, findSites as deepObsSites, castNext as deepCastNext, looseLava as deepLooseLava, spilledWater as deepSpilledWater, waterFill as deepWaterFill, isSourceOf as deepIsSourceOf, isAir as deepIsAir, castGate as deepCastGate, spillState as deepSpillState, obsDetail as deepObsDetail } from './deepmine.mjs'   // obsidian-01
 import { fillWater as obsFillWater, scoopLava as obsScoopLava, pourInto as obsPourInto } from './bucket.mjs'   // obsidian-01: the cast's own bucket uses
 import { isFull as obsIsFull } from './shaftgeom.mjs'   // obsidian-01: a basin cell still rock
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
@@ -22136,6 +22136,22 @@ async function deepObsLegs (ctx, trip, legs, signal, deadline) {
     })
   } finally { try { B.close?.() } catch { /* gone */ } }
 }
+/**
+ * SEAL WHAT A POUR LET LOOSE AND READ IT AGAIN -> 'clear' | 'basin' | 'tunnel' (deepmine.mjs spillState over what is left). Lava
+ * cells first (looseLava), then water out of the basin for a water pour. Anything left open is the caller's to escalate.
+ */
+async function deepObsContain (bot, o, signal, trip, { water = false } = {}) {
+  const s = o.site
+  const body = () => { const f = deepFeet(bot); return [f, [f[0], f[1] + 1, f[2]]] }
+  const notBody = cs => cs.filter(c => !body().some(b => b.join(',') === c.join(',')))
+  const lava = deepLooseLava(deepObsRead(bot), s, body())
+  const wet = water ? notBody(deepSpilledWater(deepObsRead(bot), s)) : []
+  if (lava.length || wet.length) await deepObsSeal(bot, [...lava, ...wet], signal, trip)
+  const left = deepLooseLava(deepObsRead(bot), s, body())
+  const st = deepSpillState(left, s.f)
+  if (st !== 'clear') deepObsRow(bot, 'spill', `${st}_${left.length}`, o, left.map(c => c.join(':')).join('|').slice(0, 60))
+  return { state: st, sealed: lava.length + wet.length, left: left.length }
+}
 /** THE LAVA BACK TO THE LAKE (a cast that cannot use it): from S, into the cave cell over the lake (C1) -- the filled bucket's ray
  *  passes the cave cells and lands in the lake; never kept for the next trip. -> poured. */
 async function deepObsLavaBack (bot, o, signal) {
@@ -22143,6 +22159,8 @@ async function deepObsLavaBack (bot, o, signal) {
   if (!s?.C1 || !(await deepObsGo(bot, s.S, signal)) || !(await deepObsCentre(bot, s.S, signal))) { deepObsRow(bot, 'lava_back', 'stand', o); return false }
   const back = await obsPourInto(bot, new Vec3(s.C1[0], s.C1[1], s.C1[2]), 'lava_bucket', () => true)
   deepObsRow(bot, 'lava_back', back.emptied ? 'poured' : String(back.why).slice(0, 30).replace(/\s+/g, '_'), o)
+  // read where it went (Codex r1 B2): loose lava at S's side or in the tunnel is sealed; one left open sends the trip home
+  if (back.emptied) { const c = await deepObsContain(bot, o, signal, bot.deepTrip ?? {}); if (c.state !== 'clear') o.spill = c.state }
   return back.emptied
 }
 /** Fill the basin (H, W) with blocks from P1: the tunnel's floor whole again (the trail walks over it). Never with lava in hand. */
@@ -22168,6 +22186,7 @@ async function deepObsStep (ctx, trip, signal, deadline) {
     if (how === 'done') o.done = true; else o.off = why
     // a lava bucket never outlives the cast: back to the lake from S (into the cave cell over it: the ray lands in the lake)
     try { if (deepObsKit(items()).lava > 0) await deepObsLavaBack(bot, o, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    if (o.spill) { trip.phase = 'return'; trip.returnWhy = 'obs_spill'; deepObsRow(bot, how, `${why}+spill_${o.spill}`, o); return null }
     try { await deepObsCleanup(bot, o, signal, trip) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     deepObsRow(bot, how, why, o)
     return null
@@ -22176,6 +22195,7 @@ async function deepObsStep (ctx, trip, signal, deadline) {
   let worked = false
   for (let guard = 0; guard < 12; guard++) {
     check(signal)
+    if (o.spill) break
     const kit = deepObsKit(items())
     o.got = Math.max(0, kit.obsidian - (o.got0 ?? 0))
     const feet = deepFeet(bot)
@@ -22261,12 +22281,13 @@ async function deepObsStep (ctx, trip, signal, deadline) {
       const at = lava ? s.H : s.W
       const accept = lava ? () => { const q = deepObsRead(bot); return q(...s.H)?.name === 'obsidian' || q(...s.W)?.name === 'obsidian' } : () => deepIsSourceOf(deepObsRead(bot)(...s.W), 'water')
       const r = await obsPourInto(bot, new Vec3(at[0], at[1], at[2]), lava ? 'lava_bucket' : 'water_bucket', accept)
-      // READ IT BACK, whatever the pour said: loose lava sealed at once, water out of the basin sealed (the tunnel stays dry)
-      const body = (() => { const f = deepFeet(bot); return [f, [f[0], f[1] + 1, f[2]]] })()
-      const loose = lava ? deepLooseLava(deepObsRead(bot), s, body) : deepSpilledWater(deepObsRead(bot), s).filter(c => !body.some(b => b.join(',') === c.join(',')))
-      const sealed = await deepObsSeal(bot, loose, signal, trip)
-      if (!r.ok || loose.length) o.fails = (o.fails ?? 0) + 1
-      deepObsRow(bot, step, r.ok ? (loose.length ? `ok_sealed${sealed}/${loose.length}` : 'ok') : String(r.why).slice(0, 30).replace(/\s+/g, '_'), o, `${r.aims}a`)
+      // READ IT BACK, whatever the pour said: loose lava sealed at once, water out of the basin sealed (the tunnel stays dry); lava
+      // still open after the seals (Codex r1 B3) ends the cast and sends the trip home along its trail -- never another step here
+      const c = await deepObsContain(bot, o, signal, trip, { water: !lava })
+      if (!r.ok || c.sealed) o.fails = (o.fails ?? 0) + 1
+      deepObsRow(bot, step, r.ok ? (c.sealed ? `ok_sealed${c.sealed}` : 'ok') : String(r.why).slice(0, 30).replace(/\s+/g, '_'), o, `${r.aims}a`)
+      if (c.state !== 'clear') o.spill = c.state
+      if (o.spill) break
       continue
     }
     if (step === 'lava') {
@@ -22316,6 +22337,14 @@ async function deepObsStep (ctx, trip, signal, deadline) {
       continue
     }
     return end('off', `step_${step}`)
+  }
+  if (o.spill) {
+    // LAVA LEFT OPEN after its seals: the cast is over and the trip goes home now (its trail; the trail walk seals and refuses lava)
+    o.off = `spill_${o.spill}`
+    trip.phase = 'return'; trip.returnWhy = 'obs_spill'
+    deepObsRow(bot, 'off', o.off, o)
+    deepRow(bot, 'turn', { why: 'obs_spill' })
+    return out('failed', `lava left open by the cast (${o.spill}); going home`)
   }
   return out(worked ? 'success' : 'no_effect', 'the cast goes on')
 }

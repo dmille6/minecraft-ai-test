@@ -592,6 +592,15 @@ export function castNext ({ H = null, W = null, kit = {}, justDug = false } = {}
   return 'stop:no_water'
 }
 /**
+ * IS A SPILL STILL OPEN after its seals? -> 'clear' | 'basin' | 'tunnel'. Pure over looseLava's cells: lava at or above the feet's
+ * level (the tunnel row, the cave cells beside S) is 'tunnel' -- the trip goes home along its trail at once; lava only below the
+ * feet (the basin) is 'basin' -- never walked over (the trail's walk refuses lava), the trip goes home the same way.
+ */
+export function spillState (cells = [], f) {
+  if (!cells.length) return 'clear'
+  return cells.some(c => c[1] >= f) ? 'tunnel' : 'basin'
+}
+/**
  * LOOSE LAVA round the site after a pour -> [[x,y,z]] to seal, nearest the stand first. Pure. Every lava cell in the box over the
  * basin and the tunnel row (one block of margin, f-2..f+2), never the lake's own column beyond S (it is the lake) and never the
  * bot's cells.
@@ -611,6 +620,9 @@ export function looseLava (read, site, body = []) {
     if (skip.has(key(c))) continue
     if (isLava(read(x, y, z))) out.push(c)
   }
+  // ...and the cave cells beside the stand at the feet's and head's level (Codex r1 B2: a lava put back toward the lake must
+  // never be left at S's side)
+  for (const c of [site.C, off(site.C, 0, 1, 0)]) if (c && !skip.has(key(c)) && isLava(read(c[0], c[1], c[2]))) out.push(c)
   const P1 = site.P1
   return out.sort((a, b2) => (Math.abs(a[0] - P1[0]) + Math.abs(a[1] - P1[1]) + Math.abs(a[2] - P1[2])) - (Math.abs(b2[0] - P1[0]) + Math.abs(b2[1] - P1[1]) + Math.abs(b2[2] - P1[2])))
 }
@@ -647,6 +659,7 @@ export function waterFill (read, feet, { r = OBS_WATER_SCAN, dy = 10, inZone = (
   return best
 }
 export const OBS_SEEKS_MAX = 3               // work calls with no site in the box before the cast is off for the trip
+export const OBS_SEAL_MIN = 6                 // blocks in the bag to start a pour: a spill's seals and the basin's fill
 export const OBS_LAVA_FAILS = OBS_FAILS_MAX + 2   // failed steps while holding lava before it goes back to the lake and the cast ends
 /**
  * THE CAST'S GATE at the top of each step -> 'idle' | 'done:goal' | 'off:<why>' | 'deepen' | 'seek:lava' | 'seek:water' | 'cast'.
@@ -660,6 +673,7 @@ export function castGate ({ obs = null, kit = {}, feet = null } = {}) {
   if (got >= (obs.want ?? 0) && !lava) return 'done:goal'
   if ((obs.fails ?? 0) >= OBS_FAILS_MAX && !lava) return 'off:fails'
   if ((obs.fails ?? 0) >= OBS_LAVA_FAILS) return 'off:lava_held'   // never a whole trip of failed pours: the lava goes back first
+  if ((kit.seal ?? 0) < OBS_SEAL_MIN && !lava) return 'off:seal_blocks'
   if ((obs.cycles ?? 0) >= OBS_CYCLES_MAX && !lava) return 'off:cycles'
   if (obs.site) return 'cast'
   if (!Array.isArray(feet)) return 'off:no_position'
