@@ -44,6 +44,7 @@ test('siteWhy: the lake with a dry shore and rock behind it is a site; each brok
   assert.equal(why({ '10,-54,0': ROCK }), 'no_cave', 'the ray from S needs the cave cells')
   assert.equal(why({ '9,-54,0': LAVA(0) }), 'shore')
   assert.equal(why({ '7,-52,1': WATER(0) }), 'tunnel_wet', 'water beside the tunnel row')
+  assert.equal(why({ '7,-53,0': LAVA(2) }), 'tunnel_wet', 'lava IN a tunnel cell (its box is empty: isOpen alone would pass it)')
   assert.equal(why({ '7,-55,0': AIR }), 'basin_floor')
   assert.equal(why({ '6,-54,1': CAVE }), 'basin_wall')
   assert.equal(why({ '5,-54,0': LAVA(0) }), 'basin_wall', 'beyond W')
@@ -124,6 +125,7 @@ test('THE REFUSAL CHAIN: every missing piece is a different job (an ordinary dia
   assert.equal(M.castGate({ obs: o({ fails: 3 }), kit: kit({ water: 1 }), feet: [0, -53, 0] }), 'off:fails')
   assert.equal(M.castGate({ obs: o({ fails: 3, site: site }), kit: kit({ lava: 1 }), feet: [0, -53, 0] }), 'cast', 'never off while holding lava: the step returns it first')
   assert.equal(M.castGate({ obs: o(), kit: kit({ obsidian: 4 }), feet: [0, -53, 0] }), 'done:goal')
+  assert.equal(M.castGate({ obs: o({ fails: 5, site: site }), kit: kit({ lava: 1 }), feet: [0, -53, 0] }), 'off:lava_held', 'but never a whole trip of failed pours while holding it')
   assert.equal(M.castGate({ obs: o({ off: 'x' }), kit: kit(), feet: [0, -53, 0] }), 'idle')
 })
 
