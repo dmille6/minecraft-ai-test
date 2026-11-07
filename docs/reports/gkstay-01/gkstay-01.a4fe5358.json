@@ -1,0 +1,53 @@
+{
+ "run_id": "gkstay-01",
+ "sha": "a4fe5358481067ca7cc880eaccb7de1d3a924b7d",
+ "registered_at": null,
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] gkstay-01 @ a4fe5358 ON the live fleet e447b65b1e0556c497ec61f36a3a68c72ae1bcc6 (gklease-01; branch gkstay-01-on-e447b65b). Coordinator 11-06 ~24:00Z: the keeper lease churned after gklease-01. MEASURED fleet e447b65b 1.18 h (109,699 rows, 80 bots, 16 towns): 102 keeper takes (2.5-8.5 per town-hour), 91 `keeper_release why=underground`, 251 tidy visits; first skill below in the traced terms `mine y=16` 9 of 22 (idle_work's iron hint), deep_mine 3. CHANGE (tier 2, not protected): groundskeeper.mjs unfitPersist (a holder released as unfit only after 5 min without a break; a take still needs fit now); idlework.mjs holderMeans (a keeper-lease holder's idle lap opens no iron/coal batch: grounds, logs, scout); milestones.mjs idleMeans wraps it; skills.mjs: no take over an open below batch (keeperOrder and takeKeeper: Codex r1 BLOCKER), a holder whose open batch goes below hands over (`keeper_release why=handoff`). ROLLBACK env: GKSTAY=0 (the lap rule); GKLEASE=off (the whole lease check). READ +90/+180: generic gates; OWN LINES: keeper takes per town-hour (down, from ~6.4), `why=underground` releases per town-hour (down), keeper grounds visits per keeper-hour (up), handoff count (REPORTED), iron gained per bot-h (no collapse: non-holders still run iron laps).",
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_keeper:keeper_take"
+    },
+    "direction": "decrease",
+    "minimum": 0.3,
+    "scale": "relative",
+    "claim": "keeper lease takes per bot-h down (102 in 1.18 h on 80 bots): the holder stays on the surface",
+    "primary": true
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:tidy:place"
+    },
+    "direction": "increase",
+    "minimum": 0.0,
+    "scale": "relative",
+    "claim": "tidy placements no worse"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   }
+  ],
+  "exposure": "every town with a keeper lease; the holder's idle lap (the iron/coal batches it no longer opens)"
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

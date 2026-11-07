@@ -5578,6 +5578,34 @@
     "when": "2026-11-06",
     "why": "guardrail waived as a measurement artifact (the removed dirt loop's own items); target met"
    }
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "gkstay-1107",
+   "title": "The keeper lease stops churning after gklease-01: a holder released as unfit only after 5 min of it; on the fleet a holder's idle lap never opens a mine batch (handoff if one is open)",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "gklease-1106.md"
+   ],
+   "state": "open",
+   "next_step": "SHOWCASE gkstay-01show @ 60828536 on the live release 9dfa85b9: ready to stage (no reader change; ci2 456/457, the known bagdiet orphan). FLEET gkstay-01-on-e447b65b @ a4fe5358: registration + draft queue entry in docs/reports/gkstay-01/ (control session queues; ci2 406/408: well fails on the base too, lavastep flake). Read: keeper takes per town-hour (from ~6.4) and why=underground releases down, grounds visits per keeper-hour up.",
+   "evidence": {
+    "grep": [
+     "gkstay-01"
+    ],
+    "branches": [
+     "gkstay-01show",
+     "gkstay-01-on-e447b65b"
+    ],
+    "paths": [
+     "docs/reports/gkstay-design-2026-11-07.md",
+     "docs/reports/gkstay-01"
+    ]
+   },
+   "note": "Showcase 9dfa85b9 1.25 h: 6 takes, 5 underground, 1 grounds visit (model's gather dirt to y 50-54). Fleet e447b65b 1.18 h: 102 takes, 91 underground (idle_work iron hint mine y=16 the commonest first skill below)."
   }
  ]
 }

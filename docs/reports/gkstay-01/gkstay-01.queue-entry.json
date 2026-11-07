@@ -1,0 +1,20 @@
+{
+ "run": "gkstay-01",
+ "class": "",
+ "after": [],
+ "not_before": null,
+ "hold": null,
+ "note": "PROGRESS (P) entry DRAFT (coordinator 11-06: keeper lease churn after gklease-01). On the live fleet e447b65b. Draw: towns with an open tidy (a keeper lease is taken). Rollback env-only: GKSTAY=0 / GKLEASE=off. NO patch block (control session sets it).",
+ "variants": {
+  "e447b65b1e0556c497ec61f36a3a68c72ae1bcc6": {
+   "registration": "/home/mike/mcai-analysis/gkstay-01.a4fe5358.json",
+   "canary_sha": "a4fe5358481067ca7cc880eaccb7de1d3a924b7d",
+   "branch": "gkstay-01-on-e447b65b",
+   "approved": "gkstay-1107 agent 2026-11-07: diff e447b65b..a4fe5358 -- Codex (codex exec read-only, blockers-only) r1 1 BLOCKER (buildTidy's takeKeeper bypassed the below-batch guard) fixed in a4fe5358, r2 NO BLOCKERS; tier 2 (not protected); gkstay/gklease/gkforever/groundskeeper/idlework/milestones pass; eslint src clean; full suite ci2 (git context) 406/408 (FAIL well.test: fails on the base e447b65b too; FAIL lavastep: the known flake, passes alone) (~/ci/gkstay-01.log)",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": false,
+   "protected_why": "not protected (protected.py --base e447b65b --head gkstay-01-on-e447b65b): tier 2"
+  }
+ }
+}
