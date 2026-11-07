@@ -117,7 +117,7 @@ await t('COMPOSED CHAIN (handcap -> climb -> exit): the cap the hand breaks is a
   // and with the cap a tool problem (the base, no handcap) the state is need_pickaxe: the walk-out hook's case, not the gate's
   assert.equal(maroonState({ upIsOpen: true, haveBlocks: true, blockCount: 64, climbNeed: 5, entombed: false, canStartPath: false, cappedNeedsTool: true, y: 58 }), 'need_pickaxe')
 })
-await t('r1 (Codex): a SEALED 2-high ALCOVE is not an exit -- the climb under the roof stays refused; a cave that reaches the zone\'s side, or 48 cells, is one', () => {
+await t('r1 (Codex): a SEALED 2-high ALCOVE is not an exit -- the climb under the roof stays refused; a cave that reaches the zone\'s side is one (a sealed big cave is not: Codex r2)', () => {
   const alcove = (x, y, z) => {
     if (x === 64 && z === 38 && y >= 58 && y <= 62) return 'air'
     if (x === 65 && z === 38 && (y === 67 || y === 68)) return 'air'      // a 1x2 pocket beside the column, sealed
@@ -129,6 +129,10 @@ await t('r1 (Codex): a SEALED 2-high ALCOVE is not an exit -- the climb under th
   const tunnel = (x, y, z) => (x === 65 && z >= 38 && z <= 47 && (y === 67 || y === 68) ? 'air' : alcove(x, y, z))
   assert.equal(ZW.zoneColumnHit({ at: world(tunnel).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES }), null)
   assert.equal(ZW.exitLeads(world(alcove).at, [65, 67, 38], Z, [64, 38]), false)
+  // Codex r2: a SEALED BIG CAVE (8 x 6, two high) is no exit either
+  const cave = (x, y, z) => (x >= 65 && x <= 72 && z >= 36 && z <= 41 && (y === 67 || y === 68) ? 'air' : alcove(x, y, z))
+  assert.equal(ZW.exitLeads(world(cave).at, [65, 67, 38], Z, [64, 38]), false)
+  assert.equal(ZW.zoneColumnHit({ at: world(cave).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES })?.name, 'spruce_planks')
   assert.equal(ZW.exitLeads(world(galeExit).at, [65, 67, 38], Z, [64, 38]), true, 'galeExit\'s cave reaches past the side')
 })
 await t('MUTANT KILLED: an exit that need not lead anywhere admits the climb into the sealed alcove', async () => {

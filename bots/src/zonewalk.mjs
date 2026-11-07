@@ -100,14 +100,14 @@ export function sideExitAt (at, x, L, z, fy, zone = null) {
   }
   return false
 }
-export const EXIT_MIN_REACH = 48      // a walkable space this big is somewhere to go (the pathfinder plans from it)
-export const EXIT_MAX_NODES = 400
+export const EXIT_MAX_NODES = 600     // the walk's bound; a cave that leaves neither the footprint nor reaches the sky in it is no exit
 /**
  * DOES THIS EXIT LEAD SOMEWHERE -> boolean. Pure. A bounded walk (feet + head open, a solid dry floor; steps of one level up or
  * down) from `start`, never back into the bot's own column `own` [x, z]: true once it reaches a cell outside the zone's
- * footprint, a cell under open sky (nothing solid above it to the box top), or EXIT_MIN_REACH cells; false for a sealed pocket.
+ * footprint, or a cell under open sky (nothing solid above it to the box top); false for a sealed pocket of ANY size (Codex r2:
+ * a sealed 8x6 cave is no more an exit than an alcove) and for a walk that runs out of its bound.
  */
-export function exitLeads (at, start, zone, own = null, { minReach = EXIT_MIN_REACH, maxNodes = EXIT_MAX_NODES } = {}) {
+export function exitLeads (at, start, zone, own = null, { maxNodes = EXIT_MAX_NODES } = {}) {
   const k = c => c.join(',')
   const stand = (x, y, z) => open(at(x, y, z)) && open(at(x, y + 1, z)) && solid(at(x, y - 1, z)) && !isLiquid(at(x, y - 1, z))
   const sky = (x, y, z) => { const top = zone ? zone.y1 + 1 : y + 32; for (let yy = y + 2; yy <= top; yy++) { const b = at(x, yy, z); if (b == null || solid(b) || isLiquid(b)) return false } return true }
@@ -116,7 +116,6 @@ export function exitLeads (at, start, zone, own = null, { minReach = EXIT_MIN_RE
     const [x, y, z] = q.shift()
     if (zone && outOfFootprint(zone, x, z)) return true
     if (sky(x, y, z)) return true
-    if (seen.size >= minReach) return true
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz
       if (own && nx === own[0] && nz === own[1]) continue
