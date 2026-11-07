@@ -75,7 +75,7 @@ gate scanned the column to the box top (y 90), so a roof far above the cap refus
 exit. **Fix** (zonewalk `zoneColumnHit`): walk up the bot's own column; at each level a structure block refuses FIRST; the scan
 stops (climb allowed) at the first level with a walkable side exit -- a neighbour with open feet + head over a solid dry floor
 that LEADS somewhere (`exitLeads`: a bounded walk reaching out of the footprint or open sky; a sealed alcove or a sealed cave of
-any size is not an exit). Never past a structure block. Tests: zonewalk 28/28 incl. the composed chain (handcap's answer ->
+any size is not an exit). Never past a structure block. Tests: zonewalk 27/27 incl. the composed chain (handcap's answer ->
 maroonState 'climb' -> the gate admits it to the cave) and anchored mutants (no side-exit stop; the exit asked before the
 structure test; no exitLeads).
 
