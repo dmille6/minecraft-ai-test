@@ -74,6 +74,7 @@ import { Vec3 } from 'vec3'
 import { requestsOn, requestsModeDetail, makeBoard } from './requests.mjs'   // requests-01: the town's requests board
 import { merchantScoutInstall } from './merchantscout.mjs'   // trading-scout-01: read-only merchant sightings + XP rows
 import { enchantInstall } from './skills.mjs'   // anvilapply-01 + enchant-01: the anvil / table ask + licence rows
+import { marketInstall } from './skills.mjs'   // market-01: the market ask + licence row
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -188,6 +189,8 @@ export function installFeatures (bot) {
   try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
   // anvilapply-01 + enchant-01: `_anvilapply_mode` / `_enchanttool_mode` and the ask (enchant.mjs; ANVILAPPLY=off / ENCHANTTOOL=off)
   try { enchantInstall(bot) } catch (e) { log('warn', 'enchant not installed', { error: e.message }) }
+  // market-01: `_market_mode` and the market ask (market.mjs; MARKET=off / MARKET_JOBS=off)
+  try { marketInstall(bot) } catch (e) { log('warn', 'market not installed', { error: e.message }) }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
   // requests-01: the town's requests board (`_requests_mode`; on=0 outside REQUESTS_POOLS, default the showcase)

@@ -466,6 +466,14 @@ export function setRoomAsk (fn) { roomAskOf = typeof fn === 'function' ? fn : nu
  */
 let enchantAskOf = null
 export function setEnchantAsk (fn) { enchantAskOf = typeof fn === 'function' ? fn : null }
+/**
+ * MARKET-01: the market's ask (skills.mjs marketAsk -> market.mjs marketRunAdmit / nextJobBlock), set at install. Asked in the
+ * IDLE branch (a bot the projects cannot use), after the copper run and before the expedition: a short town walk to a merchant
+ * near home (a wandering trader, or a villager working at the market), or a job block for the market. -> { order } | null.
+ * Unset (or MARKET=off): never asked.
+ */
+let marketAskOf = null
+export function setMarketAsk (fn) { marketAskOf = typeof fn === 'function' ? fn : null }
 /** groundskeeper-01: does THIS bot hold its town's keeper lease now (skills.mjs keeperNow; no cognitive change)? */
 let keeperOf = () => false
 export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn }
@@ -801,6 +809,12 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
     let cr = null
     try { cr = copperAskOf({ now, health, freeSlots }) } catch { cr = null }
     if (cr?.order) return { order: cr.order, skip: null }
+  }
+  // market-01: a market run or a market job block before the expedition (a short town walk; its own skips say why not)
+  if ((sinkNow || buildIdle({ complete, record, lastStop: state.lastStop })) && marketAskOf) {
+    let mk = null
+    try { mk = marketAskOf({ now, health, freeSlots }) } catch { mk = null }
+    if (mk?.order) return { order: mk.order, skip: null }
   }
   if ((sinkNow || buildIdle({ complete, record, lastStop: state.lastStop })) && expeditionAskOf) {
     let ex = null
