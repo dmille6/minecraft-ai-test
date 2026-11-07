@@ -256,7 +256,7 @@ M = [
  ("                if f.get('item') not in MARKET_GOODS:", "                if False:"),
  ("            elif name == '_trade' and f.get('op') == 'sell':", "            elif name == '_trade':"),
  ("            if arm != 'canary' or per != 'post':\n                continue\n            padded = ", "            if False:\n                continue\n            padded = "),
- ("+ HUB_KINDS + MARKET_KINDS\n", "+ HUB_KINDS\n"),
+ ("+ HUB_KINDS + MARKET_KINDS + OBS_KINDS\n", "+ HUB_KINDS + OBS_KINDS\n"),   # obsidian-01 (a79d9ea9) appended OBS_KINDS: the market mutant keeps its meaning
  # market-02: the walk-in allowance without its walkin=1 test; the bed cap off; a bed head counted toward the cap; composter dropped
  ("                    if f.get('walkin') == '1':\n", "                    if True:\n"),
  ("                    if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > (MARKET_BEDS_PER_DAY if bed else MARKET_PER_DAY):", "                    if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > (MARKET_BEDS_PER_DAY + 1 if bed else MARKET_PER_DAY):"),
