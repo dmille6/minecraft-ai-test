@@ -41,6 +41,7 @@
 
 import { pathColumn } from './paths.mjs'
 import { plotState, FARM_SPECIES, PLANTABLE } from './treefarm.mjs'
+import { digReachFrom } from './buildrun.mjs'   // forest-03: the stand leaves a bot may dig from where it stands
 
 export const FOREST_PLOT = 'forest'
 export const FOREST_BLUEPRINT = 'forest@1'
@@ -242,9 +243,11 @@ export function standingTree (read, x, z, ground, { max = FOREST.trunkMax * 3, t
 }
 /** A SITE TREE's felling stand -> [x, y, z] feet | null: an orthogonal neighbour column whose ground is within 1 of the trunk's,
  *  feet and head open (air, a plant, or leaves -- dug first), from which every log is within standReaches. Pure. */
-export function siteTreeStand (read, tree, col) {
+export function siteTreeStand (read, tree, col, free = () => true) {
   const [bx, by, bz] = tree.base
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    // forest-02 release fold (Codex r2 BLOCKER): a stand never on a reserved column (a marker's margin outside the checked box)
+    if (!free(bx + dx, bz + dz)) continue
     const c = col(bx + dx, bz + dz)
     if (!c || c.why || c.y == null || Math.abs(c.y + 1 - by) > 1) continue
     const feet = [bx + dx, c.y + 1, bz + dz]
@@ -328,7 +331,7 @@ export function forestFitAt (read, { x0, z0, perRow, strips, home, col, blocked,
     for (const p of t.logs) seen.add(p.join(','))
     if (t.big || !t.straight) return { ok: false, why: 'tree_big' }
     if (t.logs.some(p => p[0] < box[0] || p[0] > box[2] || p[2] < box[1] || p[2] > box[3])) return { ok: false, why: 'tree_edge' }
-    const stand = siteTreeStand(read, t, col)
+    const stand = siteTreeStand(read, t, col, (x, z) => !(typeof blocked === 'function' && blocked(x, z)))
     if (!stand) return { ok: false, why: 'tree_tall' }
     trees.push({ base: t.base, logs: t.logs, stand, name: nm(read(...t.base)) })
     logs += t.logs.length
@@ -527,6 +530,94 @@ export function standLeaves (read, stand, { from = null } = {}) {
   }
   add(stand[0], stand[1], stand[2]); add(stand[0], stand[1] + 1, stand[2])
   return out
+}
+/**
+ * forest-03 THE STANDS A TREE CAN BE FELLED FROM -> [[x, y, z] feet], the recorded stand first, then every other orthogonal neighbour
+ * of the trunk column at the same feet height whose ground is solid (LIVE showcase 11-06 22:58-23:00Z: every felling failed
+ * `off_stand` -- 7 of 7 retirement trees and 1 of 1 site tree: the walk to the recorded stand stopped 1-3 blocks short, its head
+ * cell a leaf the walk does not dig, and the felling then required the feet to equal that one cell). Pure.
+ */
+export function fellStands (read, t) {
+  const st = t?.stand, base = t?.cell ?? t?.base
+  if (!Array.isArray(st) || !Array.isArray(base)) return []
+  const out = [st]
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const c = [base[0] + dx, st[1], base[2] + dz]
+    if (c[0] === st[0] && c[2] === st[2]) continue
+    const g = read(c[0], c[1] - 1, c[2]), f = read(...c), h = read(c[0], c[1] + 1, c[2])
+    if (!g || !f || !h || g.boundingBox !== 'block' || LOG.test(nm(g))) continue
+    if (![f, h].every(q => AIRN(nm(q)) || LEAVES.test(nm(q)) || q.boundingBox === 'empty')) continue
+    out.push(c)
+  }
+  return out
+}
+/** Can feet at `feet` fell every log of `logs` without moving (forest-01's measured rule, from wherever the bot actually stands)? */
+export const feetFells = (feet, logs, F = FOREST) => Array.isArray(feet) && (logs ?? []).length > 0 && logs.every(p => standReaches(feet, p, F))
+/**
+ * forest-03 FELL ONE TREE -> { n, why, from }. The effects `e` (buildbot.mjs botBuildEffects: walkTo, dig, feet), the world `read`.
+ * For each stand of fellStands (nearest the bot first after the recorded one, at most `tries`): already on a cell from which every
+ * remaining log is reachable (feetFells) -- fell; else dig that stand's feet and head leaves within reach (never where `guard`
+ * refuses), walk to it, dig what the walk brought within reach, walk again, and judge the ACTUAL feet by feetFells -- never by
+ * equality with one cell. Then the logs top down, the stump last, each re-read and re-judged from the actual feet. A tree no stand
+ * reaches ends `off_stand` (the visit's keepDue counts it).
+ */
+export async function fellTree (e, read, t, { deadline = Infinity, guard = () => false, log = () => {}, check = () => {}, tries = 3, F = FOREST } = {}) {
+  let n = 0
+  const left = () => (t.order ?? []).filter(p => LOG.test(nm(read(...p))))
+  // the leaves a walk to `st` may need gone (Paper 11-07: a walk that digs no leaf stopped 1-3 short 5 of 11 times): the stand's
+  // feet and head, the ring round it at feet and head, and the cells on the straight line from the bot to it -- those within reach
+  const clearCells = st => {
+    const f = e.feet(), out = [[st[0], st[1], st[2]], [st[0], st[1] + 1, st[2]]]
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) for (const dy of [0, 1]) out.push([st[0] + dx, st[1] + dy, st[2] + dz])
+    const steps = Math.max(Math.abs(st[0] - f[0]), Math.abs(st[2] - f[2]))
+    for (let i = 1; i < steps; i++) { const x = Math.round(f[0] + (st[0] - f[0]) * i / steps), z = Math.round(f[2] + (st[2] - f[2]) * i / steps); for (const dy of [0, 1]) out.push([x, st[1] + dy, z]) }
+    return out
+  }
+  const clearAt = async st => {
+    for (const q of clearCells(st)) {
+      if (Date.now() > deadline) return
+      if (guard(q[0], q[2])) continue
+      const b = read(...q)
+      if (!b || !LEAVES.test(nm(b)) || !digReachFrom(e.feet(), q)) continue
+      if ((await e.dig(q, nm(b))) === 'confirmed') log({ op: 'clear', cell: q, block: nm(b), kind: 'stand' })
+    }
+  }
+  const dist = st => { const f = e.feet(); return Math.abs(f[0] - st[0]) + Math.abs(f[2] - st[2]) + Math.abs(f[1] - st[1]) }
+  const all = fellStands(read, t)
+  const cands = [all[0], ...all.slice(1).sort((a, b) => dist(a) - dist(b))].filter(Boolean).slice(0, tries)
+  let ok = feetFells(e.feet(), left(), F)
+  for (const st of cands) {
+    if (ok || Date.now() > deadline) break
+    await clearAt(st)
+    await e.walkTo(st)
+    check()
+    ok = feetFells(e.feet(), left(), F)
+    if (ok) break
+    await clearAt(st)
+    await e.walkTo(st)
+    check()
+    ok = feetFells(e.feet(), left(), F)
+    if (ok) break
+    await clearAt(st)   // a third try: each walk brings more of the way's leaves within reach
+    await e.walkTo(st)
+    check()
+    ok = feetFells(e.feet(), left(), F)
+  }
+  if (!left().length) return { n, why: null, from: e.feet() }
+  if (!ok) return { n, why: Date.now() > deadline ? 'deadline' : 'off_stand', from: e.feet() }
+  const from = e.feet()
+  for (const p of t.order) {
+    check()
+    if (Date.now() > deadline) return { n, why: 'deadline', from }
+    const b = read(...p)
+    if (!b || !LOG.test(nm(b))) continue
+    if (!standReaches(e.feet(), p, F)) return { n, why: 'reach', from }
+    const v = await e.dig(p, nm(b))
+    if (v !== 'confirmed') return { n, why: v, from }
+    n++
+    log({ op: 'harvest', cell: p, block: nm(b) })
+  }
+  return { n, why: null, from }
 }
 /**
  * THE VISIT'S HARVEST LIST -> { strip, trees: [{ key, cell, stand, order }], big: [cell] }. Pure. The site trees first (the forest's
