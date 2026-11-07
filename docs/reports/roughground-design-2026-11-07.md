@@ -337,3 +337,127 @@ How each piece's first pass changes the work, town-wide (inside the wall and ban
 push and the test files. The resolutions are mechanical; the simulation's stack used them (local tags sim-1b to
 sim-3, not pushed). That stack predates the visit-time fixes (noSoil, the dirt bill, the landmark's r1 shape fixes); the
 survey rules it measures are the same.
+
+## Piece 4: wide-area regrade (owner GO, 11-07 ~13:10Z)
+
+Branches:
+- Showcase: `roughground-4-show` @ d2dcb64f, built on roughground-2-show.
+- Fleet: `roughground-4-on-63d28320` @ c643406e, built on roughground-02 6819822c. It is the survey only, because the
+  fleet has no terrace stage and no inside-the-wall stage.
+
+Both are tier 2 (not protected). Rollback is `REGRADE=off` or `ROUGH.regrade`.
+
+### Why
+
+Pieces 01-3 leave rough ground that is wider than any clump the per-column rules take. In the owner's circled areas,
+after all those pieces: about 400 clump columns and about 630 ragged-edge columns.
+
+### The design (`bots/src/regrade.mjs`, pure)
+
+It runs last in the rough survey, over every open column no earlier rule took, with the same refusals. So it works
+both inside the wall and in every band.
+
+**Fitting the target surface**
+- A column is **rough** if it has a step of 2 or more to a 4-neighbour, or sits 2 or more off the median of the 7x7
+  ground around it. Rough columns start at that median.
+- Every other column is an **anchor** at its own height. Gentle slopes, terrace steps and meadows therefore never move.
+- The surface is relaxed until every solved pair of neighbours differs by at most 1 (a 1-block clamp).
+- **Natural relief is kept as an anchor:** any column that would need more than 3 blocks of cut or fill, and both sides
+  of a cliff (a step of 4 or more, which covers a hill's edge and its foot).
+
+**When the ground refuses a cut** (not the town's own ground, water beside it, a crust over a hollow, a hollow beside
+it, or an unsafe re-soil), that column becomes an anchor and the surface is fitted again. The ground around it is
+filled up to meet it instead, which suits the showcase's tunnelled ground.
+
+**The work**
+- Cuts go top first. A new top that is not soil is laid again in dirt.
+- Fills put topsoil on top (dirt only, so it greens; held back while no dirt is in the bag, and billed from the town),
+  with earth or core underneath.
+- Work is done in 8x8 tiles, nearest home first, at most 600 cells per survey. The rest waits for the next survey.
+
+### Codex's independent design, reconciled
+
+**Agreed and adopted:**
+- one classifier shared by the inside and the bands;
+- fixed anchors for kept ground;
+- hills preserved together with their foot;
+- unsafe cuts anchored, never relaxed;
+- every exposed top re-soiled;
+- topsoil billed from the town;
+- the per-column rules run first.
+
+**Not adopted:**
+- **A 9x9 median plus a radius-4 weighted mean.** Mine anchors only the columns that are not rough, which changes less
+  ground.
+- **Hill detection by footprint of 256 columns or more and relief of 8 or more, against a radius-16 baseline.** Mine
+  keeps cliffs and any change over 3 blocks. This is simpler, and it is tested on a 10x10 rise.
+- **32x32 tiles with a persisted campaign solution and a cap of 4 blocks of change against the first snapshot.** Mine
+  re-surveys each cycle, with the cap of 3 applying per survey. Codex's version would guard better against slow erosion
+  over many passes; that is noted for a follow-up.
+- **Material-balanced target choice.** The existing bill covers it.
+
+### Codex review
+
+- r1 found one blocker: a re-soiled top is dug by the visit as a foreign block and could open a hollow. Fixed: the
+  re-soil is checked like a cut, otherwise the column is an anchor.
+- r2: "fixed, no new blocker". The fleet composition review found no blockers.
+
+**Full suites (ci2, git context).**
+- Showcase d2dcb64f: 460/461. The one failure is the base's bagdiet orphan.
+- Fleet c643406e: 409/411. well.test also fails on the base; lavastep is a known flake.
+
+**Fleet registration.** `~/mcai-analysis/roughground-04.c643406e.json` (valid) and its draft entry, P lane after
+roughground-02.
+
+### Paper (sandbox6, `rough-proof.mjs SCENE=regrade`): PASS
+
+The test used the bots' own siteStage, runVisit and botBuildEffects on a 14x14 patch of rough ground, with a 2-high
+tunnel under its edge.
+
+| measure | result |
+|---|---|
+| visits | 3 |
+| steep (2+) pairs | 122 → 14 |
+| holes left | 0 |
+| tunnel cells opened to the sky | 0 |
+| fill tops green | 36 of 36, 9.9 min after the work |
+
+### Offline, all pieces stacked (the mirror copy, 4 passes)
+
+Steep ground-to-ground pairs (a step of 2 or more):
+
+| stage | inside the wall (of ~8,200 pairs) | band ±80 (of ~43,800 pairs) |
+|---|---|---|
+| now | 1904 | 9184 |
+| piece 01 | 1145 | 5859 |
+| pieces 01-3 | 1058 | 5219 |
+| **+ piece 4** | **977** | **4897** |
+
+The regrade works on 304 columns in the first pass, and 90 by the fourth.
+
+Of the 977 steep pairs left inside the wall:
+- 604 are beside a build, whose footprint ring is kept by design.
+- 180 are natural cliffs of 4 or more, kept.
+- 193 are open ground: tunnels, anchors, and work for later passes.
+
+Circled-area census with piece 4 stacked (from the "now" column):
+
+| class | now | all pieces with 4 |
+|---|---|---|
+| clump columns | 739 | 397 |
+| ragged edges | 969 | 635 |
+| one-column pillars | 94 | 58 |
+| wide holes | 120 | 80 |
+| one-column holes | 27 | 13 |
+| loose cobble tops | 194 | 77 |
+
+0 zone, record-cell, well, avoided or reserved touches.
+
+### Renders (`videos/roughground-1107/`)
+
+The heightmaps are shaded by height. Red marks a ground step of 2 or more; grey is a build.
+
+| view | before | after piece 01 | after all pieces |
+|---|---|---|---|
+| the town | `heightmap-town-now.png` | `heightmap-town-piece01.png` | `heightmap-town-allpieces.png` |
+| the band | `heightmap-band-now.png` | `heightmap-band-piece01.png` | `heightmap-band-allpieces.png` |

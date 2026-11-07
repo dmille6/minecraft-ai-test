@@ -5684,7 +5684,7 @@
     "roughground-1107.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07: piece 1 roughground-01 QUEUED (fleet, after gkwork-01) and handed to the showcase release after batch20's read. PIECES BUILT, each on roughground-01show 80cf5d5c and ready to stage: 1b roughground-1b-show 31c6d5eb (fill under crust cuts, cut held while any body is in the hollow; Paper PASS); 1c roughground-1c-show f655a52b (stone stands for blocks out of reach, torn down after; Paper PASS: 6 cells up, target cut, 0 left); 2 roughground-2-show 28016120 (cobble lawn tops -> dirt, dry bank holes, the cycle wraps to the terrace stage; Paper: grass spreads in a median 1.1 min, 6/6 topsoil green in 4.8 min); 3 roughground-3-show 6e71edd0 (the landmark mound + one tree, land record first). FLEET roughground-2-on-63d28320 6819822c (topsoil + banks, on 9aa9b1c1): registration + draft entry ~/mcai-analysis/roughground-02.* (P after roughground-01). 1b/1c/3 have no fleet counterpart (no tidyOk gate / stands / park on 63d28320). Stacked sim, circled areas: clumps 739 -> 517 (01) -> 470 (+1b) -> 396 (+1c); cobble lawn tops 194 -> 81 (+2). NEXT: reads after release; the flower supply for the decorator's borders (all 61 are ferns); stands beyond 3 steps for the canopy beams.",
+   "next_step": "2026-11-07: piece 1 roughground-01 QUEUED (fleet, after gkwork-01) and handed to the showcase release after batch20's read. PIECES BUILT, each on roughground-01show 80cf5d5c and ready to stage: 1b roughground-1b-show 31c6d5eb (fill under crust cuts, cut held while any body is in the hollow; Paper PASS); 1c roughground-1c-show f655a52b (stone stands for blocks out of reach, torn down after; Paper PASS: 6 cells up, target cut, 0 left); 2 roughground-2-show 28016120 (cobble lawn tops -> dirt, dry bank holes, the cycle wraps to the terrace stage; Paper: grass spreads in a median 1.1 min, 6/6 topsoil green in 4.8 min); 3 roughground-3-show 6e71edd0 (the landmark mound + one tree, land record first). FLEET roughground-2-on-63d28320 6819822c (topsoil + banks, on 9aa9b1c1): registration + draft entry ~/mcai-analysis/roughground-02.* (P after roughground-01). 1b/1c/3 have no fleet counterpart (no tidyOk gate / stands / park on 63d28320). Stacked sim, circled areas: clumps 739 -> 517 (01) -> 470 (+1b) -> 396 (+1c); cobble lawn tops 194 -> 81 (+2). PIECE 4 (owner GO ~13:10Z) BUILT: roughground-4-show d2dcb64f (the wide-area regrade, on roughground-2-show; Paper PASS: steep pairs 122 -> 14, 0 holes, 0 tunnel cells exposed, 36/36 tops green) + fleet roughground-4-on-63d28320 c643406e (survey only; registration ~/mcai-analysis/roughground-04.*, P after roughground-02). All pieces stacked, offline: steep ground pairs inside the wall 1904 -> 977, band +-80 9184 -> 4897. NEXT: reads after release; the flower supply for the decorator's borders (all 61 are ferns); stands beyond 3 steps for the canopy beams.",
    "evidence": {
     "grep": [
      "roughground-01"
@@ -5697,7 +5697,9 @@
      "roughground-1c-show",
      "roughground-2-on-63d28320",
      "roughground-2-show",
-     "roughground-3-show"
+     "roughground-3-show",
+     "roughground-4-on-63d28320",
+     "roughground-4-show"
     ],
     "paths": [
      "docs/reports/roughground-design-2026-11-07.md"
