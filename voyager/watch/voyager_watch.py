@@ -79,7 +79,10 @@ def decide_arm(vrows, grows, t):
     hb = [r for r in vrows if r.get('kind') == 'heartbeat' and r.get('connected') and ts(r['t']) >= win]
     exe = [r for r in vrows if r.get('kind') == 'execution' and ts(r['t']) >= win]
     world = [r for r in grows if r.get('kind') in ('place', 'break') and ts(r['t']) >= win]
-    if len(hb) >= STILL_MIN - 1 and exe and not world:
+    # the bot must actually be EXECUTING through the window (runner busy in the heartbeats), not waiting on a paused or
+    # off-slot model (stage 3, 11-07 01:48Z: arm A was stopped while its proxy held it paused)
+    busy = [h for h in hb if h.get('doing') not in (None, 'idle')]
+    if len(hb) >= STILL_MIN - 1 and exe and not world and len(busy) >= STILL_MIN - 2:
         xs = [h['pos'] for h in hb if h.get('pos')]
         moved = max((abs(a['x'] - b['x']) + abs(a['y'] - b['y']) + abs(a['z'] - b['z'])) for a in xs for b in xs) if xs else 0
         bags = {h.get('inv_hash') for h in hb}
@@ -200,7 +203,7 @@ def run(dry=False):
 def selftest():
     t = now()
     iso = lambda m: (t - dt.timedelta(minutes=m)).isoformat()
-    hb = lambda m, x=0, h=1: {'t': iso(m), 'kind': 'heartbeat', 'connected': True, 'pos': {'x': x, 'y': 64, 'z': 0}, 'inv_hash': h}
+    hb = lambda m, x=0, h=1, d='gather {}': {'t': iso(m), 'kind': 'heartbeat', 'connected': True, 'pos': {'x': x, 'y': 64, 'z': 0}, 'inv_hash': h, 'doing': d}
     ok = 0
     assert decide_arm([], [], t) is None; ok += 1
     assert decide_arm([], [{'t': iso(100), 'kind': 'death', 'message': 'a'}], t) is None; ok += 1
@@ -215,7 +218,8 @@ def selftest():
     assert decide_arm(still, [{'t': iso(2), 'kind': 'place'}], t) is None; ok += 1              # placed a block: changing
     assert decide_arm([hb(m, x=m) for m in range(0, 10)] + [{'t': iso(3), 'kind': 'execution'}], [], t) is None; ok += 1  # moving
     assert decide_arm([hb(m, h=m) for m in range(0, 10)] + [{'t': iso(3), 'kind': 'execution'}], [], t) is None; ok += 1  # bag changing
-    assert decide_arm([hb(m) for m in range(0, 10)], [], t) is None; ok += 1                      # idle, not looping
+    assert decide_arm([hb(m) for m in range(0, 10)], [], t) is None; ok += 1                      # no execution rows
+    assert decide_arm([hb(m, d='idle') for m in range(0, 10)] + [{'t': iso(3), 'kind': 'execution'}], [], t) is None; ok += 1  # waiting on the model
     assert decide_host({'load5': 3, 'mem_avail_gb': 40, 'root_free_gb': 200, 'voyager_gb': 2}) is None; ok += 1
     assert 'load5' in decide_host({'load5': 30}); ok += 1
     assert 'memory' in decide_host({'mem_avail_gb': 5}); ok += 1
