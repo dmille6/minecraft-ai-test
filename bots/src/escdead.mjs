@@ -337,7 +337,15 @@ export async function pocketDig (bot, { pd, dig, alive = () => true, yieldTo = (
   const at = (x, y, z) => { try { return bot.blockAt?.(new Vec3(x, y, z)) ?? null } catch { return null } }
   const set = (k, v) => { try { bot.setControlState(k, v) } catch {} }
   const lost = () => { if (!alive()) return 'ownership lost'; const y = yieldTo(); return y ? `yielded: ${y}` : null }
-  const stop = () => { try { bot.stopDigging?.() } catch {} }
+  // STOP ONLY OUR OWN SWING (Codex r2 BLOCKER 1): mineflayer's stopDigging cancels whatever dig is current, and after a yield
+  // that may be the new owner's -- so it runs only while our swing is unfinished and the current target is our cell (none
+  // current: a no-op in mineflayer)
+  const stop = (c, done) => {
+    if (done) return
+    const t = bot.targetDigBlock?.position
+    if (t && !(t.x === c[0] && t.y === c[1] && t.z === c[2])) return
+    try { bot.stopDigging?.() } catch {}
+  }
   let yielded = false
   const yieldOut = why => { yielded = true; res.outcome = 'yielded'; res.why = why; return res }
   try {
@@ -352,10 +360,10 @@ export async function pocketDig (bot, { pd, dig, alive = () => true, yieldTo = (
       const p = Promise.resolve().then(() => dig(b, lost)).then(() => { done = true }, e => { done = true; err = e?.message ?? String(e) })
       while (!done) {
         await nextTick(bot)
-        const l = lost(); if (l) { stop(); return yieldOut(`${l} during the pocket dig`) }
+        const l = lost(); if (l) { stop(c, done); return yieldOut(`${l} during the pocket dig`) }
         const ox = oxygen()
         if (Number.isFinite(ox)) res.minAir = Math.min(Number.isFinite(res.minAir) ? res.minAir : 20, ox)
-        if (Number.isFinite(ox) && ox < POCKET_ABORT_OXYGEN) { stop(); res.why = `air ${ox} of 20 during the pocket dig: stopped`; return res }
+        if (Number.isFinite(ox) && ox < POCKET_ABORT_OXYGEN) { stop(c, done); res.why = `air ${ox} of 20 during the pocket dig: stopped`; return res }
       }
       await p
       const after = at(...c)

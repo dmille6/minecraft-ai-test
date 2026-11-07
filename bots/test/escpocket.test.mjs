@@ -221,6 +221,11 @@ await t('P7 OWNERSHIP: a yield mid-swing stops the dig and ends the firing (jump
   let calls = 0, own2 = true
   const r2 = await pocketDig(b2, { pd: { dig: [[1, 9, 0], [1, 10, 0]] }, alive: () => own2, dig: async () => { calls++; own2 = false } })
   assert.equal(r2.outcome, 'yielded'); assert.equal(calls, 1)
+  // the new owner's own dig is never cancelled: ownership moves and another dig target is current -> no stopDigging
+  const b3 = { blockAt: p => two.getBlock(p), setControlState () {}, once (e, fn) { setTimeout(fn, 1) }, removeListener () {}, stops: 0, stopDigging () { this.stops++ }, targetDigBlock: null }
+  let own3 = true, n = 0
+  const r3 = await pocketDig(b3, { pd: { dig: [[1, 9, 0]] }, alive: () => { if (++n > 2) { own3 = false; b3.targetDigBlock = { position: { x: 5, y: 5, z: 5 } } } return own3 }, dig: () => new Promise(() => {}) })
+  assert.equal(r3.outcome, 'yielded'); assert.equal(b3.stops, 0, 'the new owner\'s dig was stopped')
 })
 await t('P8 AIR: a swing that runs while the air falls under POCKET_ABORT_OXYGEN is stopped and the firing fails (the swim never starts on a short breath)', async () => {
   const two = synth((x, y, z) => (x === 0 && z === 0) ? (y === 10 ? 'minecraft:water[level=0]' : y === 11 ? 'minecraft:air' : 'minecraft:stone') : 'minecraft:dirt')
