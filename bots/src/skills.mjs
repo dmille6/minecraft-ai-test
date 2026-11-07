@@ -22073,6 +22073,10 @@ const deepObsAt = (bot, c) => { const f = deepFeet(bot); return f[0] === c[0] &&
 async function deepObsGo (bot, c, signal) {
   if (deepObsAt(bot, c)) return true
   await stairWalk(bot, c, DEEP_HOP_MS, signal)
+  if (deepObsAt(bot, c)) return true
+  // stairWalk arrives WITHIN 1 (Paper 11-07 run 5: one cell short): the last cell is walked SNEAKING (never off an edge) on its level
+  const f = deepFeet(bot)
+  if (f[1] === c[1] && Math.abs(f[0] - c[0]) + Math.abs(f[2] - c[2]) === 1) await deepObsCentre(bot, c, signal, 2_500)
   return deepObsAt(bot, c)
 }
 /** Seal every cell in `cells` with a block (deepmine's SEAL: e.place fills liquid too). -> placed. */
@@ -22102,7 +22106,9 @@ async function deepObsLegs (ctx, trip, legs, signal, deadline) {
       for (const leg of legs) {
         const start = deepFeet(bot)
         if (start[0] !== leg.start[0] || start[1] !== leg.start[1] || start[2] !== leg.start[2]) {
-          if (!(await deepTrailWalk(bot, leg.start, DEEP_HOP_MS, signal)) || !deepObsAt(bot, leg.start)) return { cells: total, stop: 'leg_start' }
+          await deepTrailWalk(bot, leg.start, DEEP_HOP_MS, signal)
+          if (!deepObsAt(bot, leg.start)) await deepObsGo(bot, leg.start, signal)
+          if (!deepObsAt(bot, leg.start)) return { cells: total, stop: 'leg_start' }
         }
         const cells = deepBranchCells(leg.start, leg.b, leg.len)
         const open = new Set([leg.start.join(','), [leg.start[0], leg.start[1] + 1, leg.start[2]].join(',')])
@@ -22240,6 +22246,9 @@ async function deepObsStep (ctx, trip, signal, deadline) {
       const r = await deepObsLegs(ctx, trip, o.legs, signal, deadline)
       worked = worked || r.cells > 0
       if (r.stop === 'time') return out(worked ? 'success' : 'no_effect', `digging to the lake (${r.cells} cells)`)
+      // the leg's last step lands within 1 of S (stairWalk's arrival): the stand is walked onto exactly (Paper 11-07 run 5: three
+      // `arrived` approaches read as failed one cell short)
+      if (r.stop === 'arrived' && !deepObsAt(bot, s.S)) await deepObsGo(bot, s.S, signal)
       if (r.stop !== 'arrived' || !deepObsAt(bot, s.S)) {
         o.skip = [...(o.skip ?? []), s.lq.join(',')]; o.fails = (o.fails ?? 0) + 1
         deepObsRow(bot, 'approach', r.stop, o, r.cells)
