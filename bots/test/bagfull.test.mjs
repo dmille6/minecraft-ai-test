@@ -164,10 +164,14 @@ await t('MUTANT KILLED: the kit rule loses its tools', async () => {
     assert.equal(BR.roomBankSteps([{ name: 'shears', count: 1, slot: 4 }], { eligible: () => true }).length, 0)
   })
 })
-await t('MUTANT KILLED: the drawn-share exclusion dropped', async () => {
+await t('the drawn-share exclusion holds in two layers (the room eligibility; the batch22 fold\'s plan-wide filter): either alone keeps the share', async () => {
   await withMutant(TD_PATH, ' && !(roomExclude?.has?.(n)) &&', ' &&', async m => {
     const n = m.townDepositPlan(bagOf({ spruce_stairs: 16 }), { wanted: [], room: true, roomExclude: new Set(['spruce_stairs']) }).steps.filter(s => s.room).length
-    assert.equal(n, 1, 'the mutant banks the share (killed)')
+    assert.equal(n, 0, 'without the eligibility clause the plan-wide filter still keeps it')
+  })
+  await withMutant(TD_PATH, '  if (room && roomExclude?.size) {', '  if (false) {', async m => {
+    const n = m.townDepositPlan(bagOf({ spruce_stairs: 16 }), { wanted: [], room: true, roomExclude: new Set(['spruce_stairs']) }).steps.filter(s => s.room).length
+    assert.equal(n, 0, 'without the filter the eligibility clause still keeps it')
   })
 })
 await t('MUTANT KILLED: the target-0 groups admitted (dirt banked against its town target)', async () => {
@@ -218,6 +222,42 @@ await t('MUTANT KILLED (wiring): the dispatch without the room visit', () => {
   assert.equal(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   const mut = strip(src.replace(old, '  if (false) return roomBankVisit(ctx, args, signal)'))
   assert.equal(mut.split(old).length, 1, 'the structural check fails on the mutant (killed)')
+})
+
+// ---- the showcase batch22 fold (Codex BLOCKERS 1 + 2) ---------------------------------------------------------------------
+await t('fold BLOCKER 1: a room bank never moves a bed (the sleep kit)', () => {
+  const items = bagOf({ red_bed: 1, spruce_planks: 128, cobblestone: 64 })
+  const st = roomSteps(items)
+  assert.ok(st.some(x => x.name === 'spruce_planks'), `POSITIVE: planks are room-banked (${JSON.stringify(st)})`)
+  assert.ok(!st.some(x => x.name === 'red_bed'), 'the bed stays')
+  assert.strictEqual(BR.roomKitAlways('white_bed'), true)
+})
+await t('fold BLOCKER 2: a ROOM visit banks no drawn share name through any part, the base plan included', async () => {
+  const B = await import('../src/bankable.mjs')
+  try {
+    B.setDepositExtra(n => n === 'glass' || n === 'oak_sign')   // the market's wants hook (glass, a sign) as installed live
+    const items = bagOf({ glass: 20, oak_sign: 1, spruce_planks: 128 })
+    const all = TD.townDepositPlan(items, { wanted: [], room: true }).steps.map(x => x.name)
+    assert.ok(all.includes('glass'), `POSITIVE: without the share, the base plan banks the glass (${all})`)
+    const held = TD.townDepositPlan(items, { wanted: [], room: true, roomExclude: new Set(['glass']) }).steps.map(x => x.name)
+    assert.ok(!held.includes('glass'), `the held share's glass stays (${held})`)
+    assert.ok(held.includes('spruce_planks'), 'the rest of the room bank goes on')
+    const plain = TD.townDepositPlan(items, { wanted: [], roomExclude: new Set(['glass']) }).steps.map(x => x.name)
+    assert.ok(plain.includes('glass'), 'an ordinary (non-room) deposit is unchanged')
+  } finally { B.setDepositExtra(null) }
+})
+await t('MUTANTS KILLED: the bed rule and the share filter', async () => {
+  await withMutant(BAGROOM_PATH, " || /bucket$/.test(name) || /_bed$/.test(name)", " || /bucket$/.test(name)", async X => {
+    assert.strictEqual(X.roomKitAlways('red_bed'), false)
+  })
+  await withMutant(TD_PATH, '  if (room && roomExclude?.size) {', '  if (false) {', async X => {
+    const B = await import('../src/bankable.mjs')
+    try {
+      B.setDepositExtra(n => n === 'glass')
+      const held = X.townDepositPlan(bagOf({ glass: 20, spruce_planks: 128 }), { wanted: [], room: true, roomExclude: new Set(['glass']) }).steps.map(x => x.name)
+      assert.ok(held.includes('glass'), 'the mutant banks the share')
+    } finally { B.setDepositExtra(null) }
+  })
 })
 
 if (failed) { console.log(`# ${failed} failed`); process.exit(1) }

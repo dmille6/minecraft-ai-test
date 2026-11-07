@@ -111,7 +111,8 @@ const FOOD_RE = /^(bread|apple|golden_apple|enchanted_golden_apple|baked_potato|
 const ARMOUR_RE = /_(helmet|chestplate|leggings|boots)$|^(shield|elytra|totem_of_undying|compass|clock|map|filled_map|spyglass|name_tag|lead|saddle)$/
 /** Is `name` part of the kit whatever the counts (never a room step)? Pure. */
 const TOOLISH_RE = /_(pickaxe|axe|shovel|sword|hoe)$|^(shears|flint_and_steel|fishing_rod|bow|crossbow|trident|brush|carrot_on_a_stick)$/
-export const roomKitAlways = name => typeof name !== 'string' || TOOLISH_RE.test(name) || FOOD_RE.test(name) || ARMOUR_RE.test(name) || /bucket$/.test(name)
+// the batch22 fold (Codex BLOCKER 1): a bed is the sleep kit (and a walk-in's beds are drawn for the village): never a room step
+export const roomKitAlways = name => typeof name !== 'string' || TOOLISH_RE.test(name) || FOOD_RE.test(name) || ARMOUR_RE.test(name) || /bucket$/.test(name) || /_bed$/.test(name)
 
 /**
  * THE ROOM BANK'S STEPS -> [{ slot, name, count }]: whole stacks, smallest first per name, of every name the room may move, while
