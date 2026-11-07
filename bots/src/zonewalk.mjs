@@ -74,14 +74,65 @@ export function zoneColumnHit ({ at = () => null, feet, zones = [], scan = COLUM
   if (!zone) return null
   const top = Math.min(zone.y1, fy + scan)
   for (let y = fy + 2; y <= top; y++) {
-    for (const [dx, dz] of [[0, 0]]) {
-      const b = at(fx + dx, y, fz + dz)
-      if (b == null) return { zone, cell: [fx + dx, y, fz + dz], name: 'unloaded' }
-      if (isStructure(b)) return { zone, cell: [fx + dx, y, fz + dz], name: b.name }
-    }
+    const b = at(fx, y, fz)
+    if (b == null) return { zone, cell: [fx, y, fz], name: 'unloaded' }
+    if (isStructure(b)) return { zone, cell: [fx, y, fz], name: b.name }
+    // THE SCAN STOPS AT THE FIRST LEVEL WITH A SIDE EXIT (escdead-02show, Codex fold blocker on handcap-01show): the climb only
+    // has to reach the level where the body (its own column, no structure in it) can walk or step out sideways; a roof far
+    // above that level is not on its way. handcap turns Gale's "need a pickaxe" into a climb through the stone cap: if a side
+    // exit lies under the village's roof, the climb is allowed up to it -- never past a structure block (checked first).
+    if (sideExitAt(at, fx, y - 1, fz, fy, zone)) return null
   }
   return null
 }
+
+/**
+ * A WALKABLE SIDE EXIT for a body standing at feet level L in column (x, z) -> boolean. Pure. A neighbour column whose feet
+ * and head cells at L, L+1 are open (no collision box, no liquid) over a solid, dry floor at L-1 -- AND that LEADS somewhere
+ * (Codex r1: a sealed 2-high alcove is not an exit; climbing to it parks the bot under the roof): exitLeads. Only above the
+ * bot's own feet level `fy` (the gate is about a climb).
+ */
+export function sideExitAt (at, x, L, z, fy, zone = null) {
+  if (L <= fy) return false
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const f = at(x + dx, L, z + dz), h = at(x + dx, L + 1, z + dz), fl = at(x + dx, L - 1, z + dz)
+    if (open(f) && open(h) && solid(fl) && !isLiquid(fl) && exitLeads(at, [x + dx, L, z + dz], zone, [x, z])) return true
+  }
+  return false
+}
+export const EXIT_MAX_NODES = 600     // the walk's bound; a cave that leaves neither the footprint nor reaches the sky in it is no exit
+/**
+ * DOES THIS EXIT LEAD SOMEWHERE -> boolean. Pure. A bounded walk (feet + head open, a solid dry floor; steps of one level up or
+ * down) from `start`, never back into the bot's own column `own` [x, z]: true once it reaches a cell outside the zone's
+ * footprint, or a cell under open sky (nothing solid above it to the box top); false for a sealed pocket of ANY size (Codex r2:
+ * a sealed 8x6 cave is no more an exit than an alcove) and for a walk that runs out of its bound.
+ */
+export function exitLeads (at, start, zone, own = null, { maxNodes = EXIT_MAX_NODES } = {}) {
+  const k = c => c.join(',')
+  const stand = (x, y, z) => open(at(x, y, z)) && open(at(x, y + 1, z)) && solid(at(x, y - 1, z)) && !isLiquid(at(x, y - 1, z))
+  const sky = (x, y, z) => { const top = zone ? zone.y1 + 1 : y + 32; for (let yy = y + 2; yy <= top; yy++) { const b = at(x, yy, z); if (b == null || solid(b) || isLiquid(b)) return false } return true }
+  const seen = new Set([k(start)]), q = [start]
+  while (q.length && seen.size <= maxNodes) {
+    const [x, y, z] = q.shift()
+    if (zone && outOfFootprint(zone, x, z)) return true
+    if (sky(x, y, z)) return true
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz
+      if (own && nx === own[0] && nz === own[1]) continue
+      for (const dy of [0, 1, -1]) {
+        const c = [nx, y + dy, nz]
+        if (seen.has(k(c))) continue
+        if (dy === 1 && !open(at(x, y + 2, z))) continue          // the step up needs head room over the current cell
+        if (dy === -1 && !open(at(nx, y + 1, nz))) continue       // the step down needs the cell above the landing open
+        if (!stand(...c)) continue
+        seen.add(k(c)); q.push(c)
+        break
+      }
+    }
+  }
+  return false
+}
+const open = b => !!b && b.boundingBox !== 'block' && !isLiquid(b) && !/lava|fire|powder_snow|cobweb/.test(b.name ?? '')
 
 /** The four bearings out of the footprint, nearest side first -> [{ dx, dz, dist, side }]. Pure. */
 export function walkBearings (zone, feet) {
