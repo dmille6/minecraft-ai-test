@@ -15,7 +15,8 @@
 // WHAT IT ADDS (cuts and fills on the same record, the same visit code, buildrun.mjs `p.tidy`):
 //   FLOATING  a column's spoil standing >= floatMin over the median ground of the 24 round it with an open cell (air, leaves, a
 //             plant) under it -- a block or a beam left in the air -- is cut, top first, while it is within floatReach of the ground
-//             under it (a bot on the ground reaches it); higher is named `float_high`. A spoil run that ends on a log or natural ground
+//             under it (a bot on the ground reaches it); higher gets a STAND (roughground-1c: a stone staircase beside the column, at
+//             most platMax 3 steps, torn down once the blocks are cut); no side for one: named `float_high`. A spoil run that ends on a log or natural ground
 //             is attached, never floating.
 //   CLUMPS    4-connected columns >= 1 over their median ground, at most clumpMax of them: each cut down to the HIGHEST ground round
 //             the clump (never below a neighbour: no new pit), spoil only, at most cutMax a column; a log standing on a column (a
@@ -32,7 +33,7 @@
 // zone, a well, the farm, the tree farm), the stock yard or the tree farm (noLitter), a site-prep reservation, a column a cut, fill or
 // staircase of this stage already uses, a cell beside liquid. ROUGH=off is the rollback (the stage as it was).
 
-export const ROUGH = Object.freeze({ floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
+export const ROUGH = Object.freeze({ floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, stands: true, platMax: 3, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
 /** THE SWITCH: ROUGH=off|0|false|no -> no rough survey, no inside-the-wall re-survey; on by default. Pure. */
 export const roughOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.ROUGH ?? '').trim())
 
@@ -98,8 +99,8 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
 export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, T = ROUGH } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
-  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0 }
-  const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], skipped, census }
+  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, stands: 0 }
+  const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], platforms: [], clear: [], skipped, census }
   if (!home || !Array.isArray(box) || typeof col !== 'function' || !spoil) return { ...out, ok: false, why: 'no_box' }
   const colsOf = set => new Set([...set].map(k => { const [x, , z] = String(k).split(','); return `${x},${z}` }))
   const cellCols = colsOf(cells), nearCols = colsOf(nearCells)
@@ -141,6 +142,34 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
   const dist = (x, z) => Math.max(Math.abs(x - home.x), Math.abs(z - home.z))
   const solidAt = (x, y, z) => { const b = read(x, y, z); return !!b && !openCell(b) && !liquid(b) }
   const sideLiquid = (x, y, z) => N4.some(([dx, dz]) => liquid(read(x + dx, y, z + dz))) || liquid(read(x, y + 1, z))
+  // ROUGHGROUND-1C: A STAND to reach `top` over a column whose ground is `g` -> { cells, clears, cols } | null. The plotprep stand's
+  // shape (tidy.mjs plotPrep): need = top - g - floatReach steps (<= platMax) running away from the column on one side, step i
+  // need - i + 1 blocks high from the ground up, each column ground at g and free (`refuse`: no record, plan, zone, well, reservation),
+  // its cells and two of head room open (leaves are cleared), step 1's column open up to the top (the bot's sight), a landing at
+  // its foot. null: no side fits -- the blocks are named float_high.
+  function standFor (x, z, gy, top) {
+    const need = top - gy - T.floatReach
+    if (need < 1 || need > T.platMax) return null
+    const open = (cx, cy, cz) => { const b = read(cx, cy, cz); return !!b && (AIR.test(nm(b)) || (b.boundingBox === 'empty' && !liquid(b))) }
+    const leaf = (cx, cy, cz) => /_leaves$/.test(nm(read(cx, cy, cz)))
+    for (const [dx, dz] of N4) {
+      const cs = [], clears = [], cols = []
+      let ok = true
+      for (let i = 1; i <= need + 1 && ok; i++) {
+        const cx = x + dx * i, cz = z + dz * i, h = i <= need ? need - i + 1 : 0
+        if (g(cx, cz) !== gy || refuse(cx, cz) || used.has(k2(cx, cz)) || nearCell(cx, cz)) { ok = false; break }
+        const upTo = i === 1 ? top + 1 : gy + h + 2
+        for (let y = gy + 1; y <= upTo; y++) {
+          if (leaf(cx, y, cz)) clears.push({ at: [cx, y, cz], kind: 'leaves', name: nm(read(cx, y, cz)) })
+          else if (!open(cx, y, cz)) { ok = false; break }
+          if (y <= gy + h) cs.push([cx, y, cz])
+        }
+        cols.push(k2(cx, cz))
+      }
+      if (ok) return { cells: cs, clears, cols }
+    }
+    return null
+  }
   // ---- FLOATING ----
   for (const [k, f] of flo) {
     const [x, z] = k.split(',').map(Number)
@@ -149,18 +178,36 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
     if (why && !(why === 'build' && earthOnly && !cellCols.has(k)) ) { if (why !== 'outside') skip(`float_${why}`); continue }
     const base = f.ground
     if (base == null) { skip('float_unread'); continue }
-    const blocks = []
-    let high = 0
+    const blocks = [], highs = []
+    let bad = false
     for (const seg of f.segs) for (const b of seg) {
-      if (cells.has(b.at.join(','))) { high = -1; break }
-      if (b.at[1] - base > T.floatReach) { high++; continue }
+      if (cells.has(b.at.join(','))) { bad = true; break }
+      if (b.at[1] - base > T.floatReach) { highs.push(b); continue }
       blocks.push(b)
     }
-    if (high < 0) { skip('float_cell'); continue }
-    if (high) { skip('float_high', high); census.float_high += high }
+    if (bad) { skip('float_cell'); continue }
+    // ROUGHGROUND-1C: blocks out of a ground stand's reach get a STAND -- a staircase of the town's stone beside the column, at most
+    // platMax steps, torn down once they are cut (tidy.mjs platformTeardown, `targets`)
+    let stand = null
+    if (highs.length) {
+      stand = T.stands ? standFor(x, z, base, Math.max(...highs.map(b => b.at[1]))) : null
+      if (stand) blocks.push(...highs)
+      else { skip('float_high', highs.length); census.float_high += highs.length }
+    }
     if (!blocks.length) continue
     if (blocks.some(b => sideLiquid(...b.at))) { skip('float_water'); continue }
-    order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.floating += blocks.length; const id = `rf${out.pillars.length}`; out.pillars.push({ id, col: [x, z], top: blocks[0].at[1], base, h: blocks.length, kind: 'floating' }); for (const b of blocks) cuts.push({ ...b, pillar: id }) }])
+    order.push([dist(x, z), () => {
+      if (used.has(k) || (stand && stand.cols.some(c => used.has(c)))) return
+      used.add(k); census.floating += blocks.length
+      const id = `rf${out.pillars.length}`; out.pillars.push({ id, col: [x, z], top: Math.max(...blocks.map(b => b.at[1])), base, h: blocks.length, kind: 'floating' })
+      for (const b of blocks) cuts.push({ ...b, pillar: id })
+      if (stand) {
+        for (const c of stand.cols) used.add(c)
+        census.stands++
+        out.platforms.push({ targets: highs.map(b => b.at), cells: stand.cells, phase: 'up', kind: 'float' })
+        for (const c of stand.clears) if (!out.clear.some(q => q.at.join(',') === c.at.join(','))) out.clear.push(c)
+      }
+    }])
   }
   // ---- STATIONS (a loose crafting table, and the spoil pillar under it) ----
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {

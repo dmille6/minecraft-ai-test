@@ -805,7 +805,7 @@ export function roughIn (read, { home, boxes = [], within = () => true, avoid, c
   const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
   const memo = new Map()
   const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
-  const sum = { census: {}, skipped: {} }
+  const sum = { census: {}, skipped: {}, platforms: [], clear: [] }   // roughground-1c: the stands and their leaves
   const used = new Set(busy)
   boxes.forEach((box, i) => {
     const r = surveyRough(read, { home, box, within, col, spoil: SPOIL, buildWhy: BUILD_WHY, avoid, cells, nearCells, noLitter, reserved, busy: used, climbs, yLo })
@@ -815,6 +815,8 @@ export function roughIn (read, { home, boxes = [], within = () => true, avoid, c
     for (const f of r.fill) { into.fill.push({ ...f, pit: ns(f.pit) }); used.add(k2(f.at[0], f.at[2])) }
     for (const q of r.pillars) into.pillars.push({ ...q, id: ns(q.id) })
     for (const q of r.pits) into.pits.push({ ...q, id: ns(q.id) })
+    for (const p of r.platforms ?? []) { sum.platforms.push(p); for (const c of p.cells) used.add(k2(c[0], c[2])) }
+    for (const c of r.clear ?? []) sum.clear.push(c)
     for (const [k, v] of Object.entries(r.census)) sum.census[k] = (sum.census[k] ?? 0) + v
     for (const [k, v] of Object.entries(r.skipped)) sum.skipped[k] = (sum.skipped[k] ?? 0) + v
   })
@@ -955,11 +957,12 @@ export function platformTeardown (rec, read, now = Date.now(), T = PLOTPREP) {
   const down = []
   for (const p of ps) {
     if (p.phase !== 'up') continue
-    const logs = (rec.clear ?? []).filter(c => c.kind === 'tree' && c.tree === p.tree)
+    // roughground-1c: a stand for floating blocks (`targets`) is done when every target is cut (open now); a tree's when its logs are
+    const logs = p.targets ? p.targets.map(at => ({ at })) : (rec.clear ?? []).filter(c => c.kind === 'tree' && c.tree === p.tree)
     // Codex r1 BLOCKER 1: an UNREAD cell (an unloaded chunk) is never a felled log, and a stand with an unread cell waits (its cuts
     // would be lost): retired only on what the world says
     if (p.cells.some(c => !read(...c)) || logs.some(c => !read(...c.at))) continue
-    const felled = logs.every(c => !LOG_RE.test(nm(read(...c.at))))
+    const felled = p.targets ? logs.every(c => { const b = read(...c.at); return AIRN(nm(b)) || /_leaves$/.test(nm(b)) || b.boundingBox === 'empty' }) : logs.every(c => !LOG_RE.test(nm(read(...c.at))))
     if (felled || now - (Number(rec.sitedAt) || 0) >= T.teardownMs) down.push(p)
   }
   if (!down.length) return null
@@ -1497,10 +1500,12 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       sv0.rough = roughIn(read, { home, boxes, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [] }, sv0)
     }
     // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
-    const plat = pp.platforms.map((q, i) => ({ id: `pp${i}`, cells: q.cells }))
+    // roughground-1c: the rough survey's stands are platforms too (laid as access fills, torn down by platformTeardown)
+    const roughPlat = sv0.rough?.platforms ?? []
+    const plat = [...pp.platforms, ...roughPlat].map((q, i) => ({ id: `pp${i}`, cells: q.cells }))
     const sv = { ...sv0, cut: [...sv0.cut, ...pp.cut], fill: [...sv0.fill, ...pp.fill, ...plat.flatMap(q => q.cells.map(at => ({ at, pit: q.id, access: true, stand: true })))],
       pits: [...sv0.pits, ...[...new Set(pp.fill.map(f => f.pit))].map(id => ({ id, cols: [pp.fill.find(f => f.pit === id).at].map(a => [a[0], a[2]]) })), ...plat.map(q => ({ id: q.id, cols: [...new Set(q.cells.map(c => k2(c[0], c[2])))].map(k => k.split(',').map(Number)), access: true }))],
-      pillars: [...sv0.pillars, ...[...new Set(pp.cut.map(c => c.pillar))].map(id => ({ id }))], clear: [...(sv0.clear ?? []), ...pp.clear] }
+      pillars: [...sv0.pillars, ...[...new Set(pp.cut.map(c => c.pillar))].map(id => ({ id }))], clear: [...(sv0.clear ?? []), ...pp.clear, ...(sv0.rough?.clear ?? [])] }
     const rr = Math.max(TIDY.r, ...boxes.map(b => Math.max(Math.abs(b[0] - home.x), Math.abs(b[2] - home.x), Math.abs(b[1] - home.z), Math.abs(b[3] - home.z))))
     // plotprep-01: a felled tree is owed its sapling (replantCells: the tree farm, else the wild zone; the read's G5) -- a tree the
     // zones have no room for keeps standing, its logs and its stand dropped (named)
@@ -1509,8 +1514,8 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     const rp = pp.trees.length ? (land ? replantCells(read, land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: avoidRp, cells, forest, forestR: tidyWalkR({ r: rr }) - 2 }) : []) : []
     const keptT = new Set(pp.trees.map((t, i) => i).filter(i => i >= rp.length))
     if (keptT.size) { sv.skipped = { ...sv.skipped, [land ? 'tree_no_replant' : 'tree_no_land']: keptT.size }; sv.clear = sv.clear.filter(c => !(c.kind === 'tree' && keptT.has(c.tree))) }
-    const platsKept = pp.platforms.filter(q => !keptT.has(q.tree))
-    const standK = new Set(pp.platforms.filter(q => keptT.has(q.tree)).flatMap(q => q.cells.map(c => c.join(','))))
+    const platsKept = [...pp.platforms.filter(q => !keptT.has(q.tree)), ...roughPlat]
+    const standK = new Set(pp.platforms.filter(q => q.tree != null && keptT.has(q.tree)).flatMap(q => q.cells.map(c => c.join(','))))
     if (standK.size) sv.fill = sv.fill.filter(f => !standK.has(f.at.join(',')))
     let record = tidyRecord(sv, { home, plan, now, r: rr })
     if (!record && sv.clear.length) record = { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: rr, cells: [], clear: [...sv.clear].sort((p, q) => p.at[1] - q.at[1]), cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }
@@ -1530,7 +1535,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     const acc = new Set((sv.fill ?? []).filter(f => f.access).map(f => f.at.join(',')))
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
     record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
-      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: sv.rough } : {}) }
+      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: { census: sv.rough.census, skipped: sv.rough.skipped } } : {}) }
     return { ok: true, why: 'ok', record, survey: sv, road: null }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
@@ -1574,7 +1579,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   }
   // outbands-01: the band's own clean-up (strays, holes, litter, climbs), its stumps and its road trees (bandTrees), over the band's
   // columns less the walls' insides and every column this stage already works
-  let band = null
+  let band = null, bandPlat = []   // roughground-1c: the band's stands
   const bandClear = [], bandTrunks = [], busy = new Set()
   if (outbandsOn(env) && st.rMax > 0) {
     const boxes = inwallBoxes(terrace?.wall ?? null, home, terrace?.wallext ?? null)
@@ -1605,11 +1610,15 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       for (const f of acc.fill) { s.fill.push({ ...f, pit: `o${f.pit}` }); busy.add(k2(f.at[0], f.at[2])) }
       for (const q of acc.pillars) s.pillars.push({ ...q, id: `o${q.id}` })
       for (const q of acc.pits) s.pits.push({ ...q, id: `o${q.id}` })
+      // roughground-1c: the band's stands (access fills, layered), their leaves cleared; torn down by platformTeardown
+      roughB.platforms.forEach((q, i) => { const id = `ost${i}`; s.pits.push({ id, cols: [...new Set(q.cells.map(c => k2(c[0], c[2])))].map(v => v.split(',').map(Number)), access: true }); for (const at of q.cells) { s.fill.push({ at, pit: id, access: true, stand: true }); busy.add(k2(at[0], at[2])) } })
+      for (const c of roughB.clear) bandClear.push(c)
     }
     for (const t of [...tr.stumps, ...tr.fells]) { bandClear.push(...t.logs); for (const [x, z] of t.cols) busy.add(k2(x, z)) }
     for (const f of tr.fells) bandTrunks.push({ col: f.cols[0], name: f.name })
     band = { strays: sv.ok ? sv.pillars.filter(q => !q.onBuild).length : 0, holes: sv.ok ? sv.pits.length : 0, litter: sv.ok ? sv.litter : 0,
-      stumps: tr.stumps.length, fells: tr.fells.length, ...(sv.ok ? {} : { why: sv.why }), skipped: { ...(sv.skipped ?? {}), ...tr.skipped }, ...(roughB ? { rough: roughB } : {}) }
+      stumps: tr.stumps.length, fells: tr.fells.length, ...(sv.ok ? {} : { why: sv.why }), skipped: { ...(sv.skipped ?? {}), ...tr.skipped }, ...(roughB ? { rough: { census: roughB.census, skipped: roughB.skipped } } : {}) }
+    bandPlat = roughB?.platforms ?? []
   }
   const lightAt = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) || busy.has(k2(x, z)) ? 'road' : null), n: lights, cells })
   let record = tidyRecord(s, { home, plan, now, r: Math.max(st.rMax, st.upto ?? -1, TIDY.r) })
@@ -1628,6 +1637,11 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   record.stageId = st.id
   record.terraceV = 1   // townterrace-01: sited in the ring order that has the terrace stage (landplan.mjs recStageK)
   record.land = { seed: land.seed, sitedAt: land.sitedAt ?? null }
+  if (bandPlat.length) {
+    const accB = new Set(bandPlat.flatMap(q => q.cells.map(c => c.join(','))))
+    record.cells = record.cells.map(c => (accB.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
+    record.plotprep = { plots: [], platforms: bandPlat, skipped: {} }
+  }
   record.road = { cols: rcols.length, cut: road.cut.length, fill: road.fill.length, trees: road.trees.length, replant: record.replant.length, lights: lightAt.length, skipped: road.skipped, walk: road.walk ?? null }
   if (band) record.band = band
   record.r = Math.max(record.r ?? 0, st.upto ?? -1, st.rMax ?? -1)

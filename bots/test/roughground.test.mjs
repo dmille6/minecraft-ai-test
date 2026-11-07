@@ -110,6 +110,48 @@ await t('a raised crust over a hollow (a bot tunnel under the grass) is left, na
   assert.deepStrictEqual(rough(solid).cut.map(c => c.at.join(',')), [xyz(12, G + 1, -3)], 'control: over solid ground it is cut')
 })
 
+console.log('1C: STANDS FOR FLOATING BLOCKS OUT OF REACH')
+await t('1c: a dirt block 8 over the grass gets a stone stand beside it (access fills, layered), is cut, and the stand comes down once it is gone', async () => {
+  const srv = server()
+  srv.set([6, G + 8, 4], 'dirt')
+  const r = site(srv)
+  assert.ok(r.record, r.why)
+  const ps = r.record.plotprep?.platforms ?? []
+  assert.strictEqual(ps.length, 1); assert.deepStrictEqual(ps[0].targets, [[6, G + 8, 4]]); assert.strictEqual(ps[0].phase, 'up')
+  assert.ok(cutAt(r.record).includes(xyz(6, G + 8, 4)), 'the target is a cut')
+  const standK = new Set(ps[0].cells.map(c => c.join(',')))
+  const sc = r.record.cells.filter(c => standK.has(c.at.join(',')))
+  assert.strictEqual(sc.length, ps[0].cells.length); assert.ok(sc.every(c => c.role === 'access'), 'stone, never dirt')
+  assert.strictEqual(ps[0].cells.length, 6, 'need = 8 - floatReach 5 = 3 steps: 3 + 2 + 1 cells')
+  // the stand stands, the target is not cut yet: no teardown
+  const built = T.tidyOverlay(srv.read, { cut: [], clear: [], cells: sc })
+  assert.strictEqual(T.platformTeardown(r.record, built, Date.now()), null, 'the target still stands')
+  // the target cut: the teardown turns the stand into cuts, top first, and no stand cell is left after them
+  const cutDone = (x, y, z) => (x === 6 && y === G + 8 && z === 4 ? { name: 'air', boundingBox: 'empty' } : built(x, y, z))
+  const down = T.platformTeardown(r.record, cutDone, Date.now())
+  assert.ok(down, 'torn down'); assert.strictEqual(down.plotprep.platforms[0].phase, 'down')
+  const tcuts = down.cut.filter(c => c.teardown).map(c => c.at.join(',')).sort()
+  assert.deepStrictEqual(tcuts, [...standK].sort())
+  assert.ok(!down.cells.some(c => standK.has(c.at.join(','))), 'the stand leaves the fills')
+  const after = T.tidyOverlay(cutDone, { cut: down.cut.filter(c => c.teardown), clear: [], cells: [] })
+  assert.ok([...standK].every(k => after(...k.split(',').map(Number)).name === 'air'), 'nothing left')
+  // the mutant: a target stand torn down by the tree rule (no logs: at once) -> taken down before the block is cut
+  await withMutant(new URL('../src/tidy.mjs', import.meta.url), "const logs = p.targets ? p.targets.map(at => ({ at })) : (rec.clear ?? []).filter(c => c.kind === 'tree' && c.tree === p.tree)", "const logs = (rec.clear ?? []).filter(c => c.kind === 'tree' && c.tree === p.tree)", async M => {
+    assert.ok(M.platformTeardown(r.record, built, Date.now()), 'mutant tears the stand down under a standing target')
+  })
+})
+await t('1c: no side for a stand (a wall of trunks round it) -> the block is named float_high, no stand; ROUGH stands off -> named', async () => {
+  const srv = server()
+  srv.set([6, G + 8, 4], 'dirt')
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (let y = G + 1; y <= G + 3; y++) srv.set([6 + dx, y, 4 + dz], 'oak_log')
+  const r = rough(srv)
+  assert.strictEqual(r.platforms.length, 0); assert.ok(r.census.float_high >= 1)
+  const free = server(); free.set([6, G + 8, 4], 'dirt')
+  const off = rough(free, { T: { ...RG.ROUGH, stands: false } })
+  assert.strictEqual(off.platforms.length, 0); assert.strictEqual(off.census.float_high, 1)
+  const on = rough(free)
+  assert.strictEqual(on.platforms.length, 1); assert.strictEqual(on.census.stands, 1)
+})
 console.log('STATIONS')
 await t('a loose crafting table on a 2-dirt pillar is cut with its pillar; a record-cell table and a plan cell are kept', async () => {
   const srv = server()
