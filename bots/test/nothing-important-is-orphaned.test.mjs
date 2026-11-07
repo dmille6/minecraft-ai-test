@@ -42,6 +42,7 @@ const REQUIRED = [
   'bots/test/gkwork.test.mjs',   // gkwork-01 (11-07)
   'bots/src/roughground.mjs',   // roughground-01 (11-07): the ground the inside-the-wall rules miss + the bots' scaffold taken back
   'bots/test/roughground.test.mjs',   // roughground-01 (11-07)
+  'sandbox/roughground/rough-proof.mjs',   // roughground-1b/1c/2 (11-07): the Paper proofs
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/fewerdec.test.mjs',
   'bots/src/escapeguard.mjs',

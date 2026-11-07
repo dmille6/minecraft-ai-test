@@ -502,7 +502,8 @@ await t('the stage order: inside the wall right after the roads; the cycle wraps
   const last = st.at(-1)
   const rec = { stageId: last.id, terraceV: 1, structure_complete: true, completeAt: 1000 }
   assert.strictEqual(LPm.nextStageCycle(rec, 1000 + 60_000), null, 'not yet')
-  assert.strictEqual(LPm.nextStageCycle(rec, 1000 + LPm.LAND_CYCLE_MS).id, 'inwall', 'the cycle')
+  assert.strictEqual(LPm.nextStageCycle(rec, 1000 + LPm.LAND_CYCLE_MS, { env: { TERRACE_CYCLE: 'off' } }).id, 'inwall', 'the cycle (TERRACE_CYCLE=off: the old wrap)')
+  assert.strictEqual(LPm.nextStageCycle(rec, 1000 + LPm.LAND_CYCLE_MS, { env: {} }).id, 'terrace', 'roughground-2: the cycle wraps to the terrace stage')
   assert.strictEqual(LPm.nextStageCycle({ ...rec, structure_complete: false }, 1e12), null)
 })
 await t('siteStage inwall on the wall\'s interior: a record with the stage id; nothing to do -> null record', async () => {

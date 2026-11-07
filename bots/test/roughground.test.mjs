@@ -90,9 +90,15 @@ await t('a 2x1 hole 1 deep is filled to the ground; water in its rim keeps it', 
   const r = site(srv)
   assert.deepStrictEqual(fillAt(r.record), [xyz(-5, G, 5), xyz(-4, G, 5)].sort())
   assert.strictEqual(site(srv, { env: OFF }).record, null, 'control: not below all 8')
+  // roughground-2 (clean banks): a DRY hole beside water is filled to the bank's ground (the water is not its level)
   srv.set([-6, G, 5], 'water')
   const w = rough(srv)
-  assert.deepStrictEqual(w.fill.filter(f => f.at[2] === 5), [], 'water in the rim')
+  assert.deepStrictEqual(w.fill.filter(f => f.at[2] === 5).map(f => f.at.join(',')).sort(), [xyz(-5, G, 5), xyz(-4, G, 5)].sort(), 'a bank hole filled')
+  assert.strictEqual(w.census.banks, 1)
+  // ... never one with water in it, never with T.banks off (the old refusal)
+  const wet = server(); wet.set([-5, G, 5], 'water'); wet.set([-4, G, 5], 'water'); wet.set([-6, G, 5], 'water')
+  assert.deepStrictEqual(rough(wet).fill.filter(f => f.at[2] === 5), [], 'a wet hole: left')
+  assert.deepStrictEqual(rough(srv, { T: { ...RG.ROUGH, banks: false } }).fill.filter(f => f.at[2] === 5), [], 'banks off')
 })
 await t('a raised crust over a hollow (a bot tunnel under the grass) is left, named: a cut would open it with a bot maybe inside (Codex r1 BLOCKER); solid under it, it is cut', async () => {
   const srv = server()
@@ -110,6 +116,41 @@ await t('a raised crust over a hollow (a bot tunnel under the grass) is left, na
   assert.deepStrictEqual(rough(solid).cut.map(c => c.at.join(',')), [xyz(12, G + 1, -3)], 'control: over solid ground it is cut')
 })
 
+console.log('ROUGHGROUND-2: TOPSOIL AND THE TERRACE CYCLE')
+await t('2: a cobblestone top in a lawn is cut and laid again in dirt (role topsoil, dirt only); on a path, a plan plot or by water it is left', async () => {
+  const srv = server()
+  srv.set([7, G, 7], 'cobblestone')                 // rubble at ground level in the grass
+  srv.set([-7, G, 7], 'cobblestone')                // under a path's box
+  srv.set([7, G, -7], 'cobblestone'); srv.set([8, G, -7], 'water')
+  const avoid = (x, z) => (x === -7 && z === 7 ? 'project:paths' : null)
+  const r = site(srv, { avoid })
+  assert.deepStrictEqual(cutAt(r.record), [xyz(7, G, 7)])
+  const cell = r.record.cells.find(c => c.at.join(',') === xyz(7, G, 7))
+  assert.strictEqual(cell?.role, 'topsoil')
+  assert.deepStrictEqual(T.TIDY_PALETTE.topsoil, ['dirt', 'grass_block'])
+  assert.strictEqual(r.record.inwall.rough.census.topsoil, 1)
+  // control: ROUGH topsoil off -> nothing; a cobble patch with too little grass round it (a floor) -> left
+  assert.strictEqual(rough(srv, { T: { ...RG.ROUGH, topsoil: false } }).census.topsoil, 0)
+  const floor = server(); for (let x = 2; x <= 6; x++) for (let z = 2; z <= 6; z++) floor.set([x, G, z], 'cobblestone')
+  assert.strictEqual(rough(floor).cut.filter(c => c.at[0] === 4 && c.at[2] === 4).length, 0, 'the centre of a cobble floor is not a lawn')
+  await withMutant(RG_PATH, '    if (grassN < T.lawnMin) continue\n', '', async M => {
+    const col = (x, z) => T.tidyColumn(floor.read, x, z, { yHi: HOME.y + 14, yLo: HOME.y - 14 })
+    const m = M.surveyRough(floor.read, { home: HOME, box: [-20, -20, 20, 20], col, spoil: T.SPOIL, yLo: HOME.y - 14 })
+    assert.ok(m.cut.some(c => c.at[0] === 4 && c.at[2] === 4), 'mutant takes a cobble floor for a lawn')
+  })
+})
+await t('2: the cycle wraps to the TERRACE stage (re-graded every cycle); TERRACE_CYCLE=off wraps inside the wall as before', async () => {
+  const rec = { stageId: 'rim80', terraceV: 1, structure_complete: true, completeAt: 0 }
+  assert.strictEqual(LP.nextStageCycle(rec, 1e12, { env: {} }).id, 'terrace')
+  assert.strictEqual(LP.nextStageCycle(rec, 1e12, { env: { TERRACE_CYCLE: 'off' } }).id, 'inwall')
+  assert.strictEqual(LP.cycleWrapId({}), 'terrace'); assert.strictEqual(LP.cycleWrapId({ TERRACE_CYCLE: '0' }), 'inwall')
+  await withMutant(new URL('../src/landplan.mjs', import.meta.url), "return landStages(L).find(s => s.id === cycleWrapId(env)) ?? null", "return landStages(L).find(s => s.id === INWALL_STAGE) ?? null", async M => {
+    assert.strictEqual(M.nextStageCycle(rec, 1e12, { env: {} }).id, 'inwall', 'mutant: the old wrap')
+  })
+  // after the terrace, the ring order goes on: roads, then the inside (inwallFirst is not asked before it)
+  assert.strictEqual(LP.nextStage(LP.landStages().find(q => q.id === 'terrace').k).id, 'roads')
+  assert.strictEqual(RG.inwallFirst({ rec: { stageId: 'terrace', sitedAt: 0 }, nextK: LP.landStages().find(q => q.id === 'roads').k, inwallK: INWALL.k, now: 1e12, env: ON }), false)
+})
 console.log('STATIONS')
 await t('a loose crafting table on a 2-dirt pillar is cut with its pillar; a record-cell table and a plan cell are kept', async () => {
   const srv = server()

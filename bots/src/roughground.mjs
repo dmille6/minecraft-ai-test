@@ -32,7 +32,7 @@
 // zone, a well, the farm, the tree farm), the stock yard or the tree farm (noLitter), a site-prep reservation, a column a cut, fill or
 // staircase of this stage already uses, a cell beside liquid. ROUGH=off is the rollback (the stage as it was).
 
-export const ROUGH = Object.freeze({ floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
+export const ROUGH = Object.freeze({ floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, banks: true, topsoil: true, lawnMin: 4, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
 /** THE SWITCH: ROUGH=off|0|false|no -> no rough survey, no inside-the-wall re-survey; on by default. Pure. */
 export const roughOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.ROUGH ?? '').trim())
 
@@ -98,7 +98,7 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
 export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, T = ROUGH } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
-  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0 }
+  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, topsoil: 0, banks: 0 }
   const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], skipped, census }
   if (!home || !Array.isArray(box) || typeof col !== 'function' || !spoil) return { ...out, ok: false, why: 'no_box' }
   const colsOf = set => new Set([...set].map(k => { const [x, , z] = String(k).split(','); return `${x},${z}` }))
@@ -216,8 +216,12 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
     const inC = new Set(comp), ring = new Map()
     for (const [x, z] of cs) for (const [dx, dz] of N8) { const n = k2(x + dx, z + dz); if (!inC.has(n) && !nearCell(x + dx, z + dz)) ring.set(n, [x + dx, z + dz]) }
     const ringC = [...ring.values()].map(([x, z]) => ({ c: at(x, z), y: g(x, z) }))
-    if (ringC.some(r => r.c?.why === 'water' || r.c?.why === 'unknown' || !r.c)) { skip(`${kind}_rim`); for (const k of comp) keep.add(k); continue }
-    const ys = ringC.map(r => r.y).filter(Number.isFinite)
+    // ROUGHGROUND-2 (clean banks): a dry HOLE beside water is filled to the bank's ground round it (the water rim columns are not
+    // its level, and nothing is placed into the water); a clump by water, or anything by an unread rim, is left as before
+    const wet = ringC.some(r => r.c?.why === 'water')
+    if (ringC.some(r => r.c?.why === 'unknown' || !r.c) || (wet && !(sign < 0 && T.banks))) { skip(`${kind}_rim`); for (const k of comp) keep.add(k); continue }
+    if (wet && cs.some(([x, z]) => { for (let yy = g(x, z) + 1; yy <= g(x, z) + T.fillMax + 1; yy++) if (liquid(read(x, yy, z))) return true; return false })) { skip('hole_wet'); for (const k of comp) keep.add(k); continue }
+    const ys = ringC.filter(r => r.c?.why !== 'water').map(r => r.y).filter(Number.isFinite)
     if (ys.length < Math.ceil(ring.size / 2)) { skip(`${kind}_rim`); continue }
     if (sign > 0) {
       const rimMax = Math.max(...ys)
@@ -259,7 +263,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       if (bad) { skip(bad); continue }
       if (!add.length) continue
       const d = Math.min(...cs.map(([x, z]) => dist(x, z)))
-      order.push([d, () => { if (comp.some(k => used.has(k))) return; for (const k of comp) used.add(k); census.holes++; const id = `rh${out.pits.length}`; out.pits.push({ id, cols: cs, n: add.length, kind: 'hole' }); for (const a of add) fills.push({ ...a, pit: id }) }])
+      order.push([d, () => { if (comp.some(k => used.has(k))) return; for (const k of comp) used.add(k); census.holes++; if (wet) census.banks++; const id = `rh${out.pits.length}`; out.pits.push({ id, cols: cs, n: add.length, kind: 'hole' }); for (const a of add) fills.push({ ...a, pit: id }) }])
     }
   }
   // ---- SMOOTH: a column standing out of the ground round it where the clump/hole rule could not take it (rough ground wider than a
@@ -292,6 +296,20 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       if (bad || !add.length) { if (bad) skip('smooth_blocked'); continue }
       order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.smoothed++; const id = `rn${out.pits.length}`; out.pits.push({ id, cols: [[x, z]], n: add.length, kind: 'smooth' }); for (const a of add) fills.push({ ...a, pit: id }) }])
     }
+  }
+  // ---- ROUGHGROUND-2 TOPSOIL: a cobblestone top in a LAWN (lawnMin of its 8 neighbours grass) -- the bots' rubble at ground level --
+  // is cut and the cell laid again in DIRT (role `topsoil`), which the grass round it greens (Paper 11-07: bare dirt beside grass in
+  // daylight at the default tick, 24 of 24 green within 7.4 min, median 1.1). Only open ground: no avoid reason at all (never a
+  // build's box, a path, the plaza), never a record cell or its ring, never a column this survey already works. ----
+  if (T.topsoil) for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
+    const k = k2(x, z)
+    const c = at(x, z)
+    if (!c || c.why || c.y == null || !/^(cobblestone|mossy_cobblestone|cobbled_deepslate)$/.test(String(c.name)) || dev.has(k) || flo.has(k)) continue
+    if (refuse(x, z) || avoid(x, z)) continue
+    const grassN = N8.filter(([dx, dz]) => { const n = at(x + dx, z + dz); return n && !n.why && n.name === 'grass_block' }).length
+    if (grassN < T.lawnMin) continue
+    if (cells.has(`${x},${c.y},${z}`) || sideLiquid(x, c.y, z) || !openCell(read(x, c.y + 1, z))) { skip('topsoil_guarded'); continue }
+    order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.topsoil++; const id = `rt${out.pits.length}`; cuts.push({ at: [x, c.y, z], name: String(c.name), pillar: id }); out.pillars.push({ id, col: [x, z], kind: 'topsoil' }); out.pits.push({ id: `${id}f`, cols: [[x, z]], n: 1, kind: 'topsoil' }); fills.push({ at: [x, c.y, z], pit: `${id}f`, role: 'topsoil' }) }])
   }
   // ---- SCAFFOLD: the ledgered climbs still standing above the ground round them ----
   const seenC = new Set()
