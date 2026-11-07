@@ -267,6 +267,9 @@ def t_relay_retry(_S=None):
     check('relay: 2nd failure on w30 -> try ci2', R.next_args({'fails': 2, 'hosts': ['w30']}) == ['--host', 'ci2'])
     check('relay: 2nd failure on ci2 -> try w30', R.next_args({'fails': 2, 'hosts': ['ci2']}) == ['--host', 'w30'])
     check('relay: every host failed -> suite-run picks', R.next_args({'fails': 5, 'hosts': ['ci2', 'w30']}) == [])
+    k = 'gkwork-01--e6a1ea2b042e--76db6dd20bb6'
+    check('relay: a retried key with a stale .expired is LIVE (11-07 drop/start cycle)', R.gone_keys({k: {}}, {k}) == set())
+    check('relay: an .expired with no .req is gone', R.gone_keys({}, {k}) == {k})
     t = R.record_failure({}, out, [])
     check('relay: a failure is counted with its hosts', t == {'fails': 1, 'hosts': ['ci2', 'w30']}, t)
     t = R.record_failure({'fails': 1, 'hosts': ['w30']}, 'suite-run: no test host answered', ['--host', 'ci2'])
@@ -330,6 +333,7 @@ RELAY_MUTANTS = [
     ("    if int(tries.get('fails') or 0) < 2:\n        return []", "    if False:\n        return []"),
     ("    return int(tries.get('fails') or 0) >= 2 and not tries.get('alarmed')", "    return int(tries.get('fails') or 0) >= 2"),
     ("    other = [h for h in hosts if h not in bad]", "    other = list(hosts)"),
+    ("    return set(expired) - set(live)", "    return set(expired)"),
     ("    t['fails'] = int(t.get('fails') or 0) + 1", "    t['fails'] = int(t.get('fails') or 0)"),
 ]
 

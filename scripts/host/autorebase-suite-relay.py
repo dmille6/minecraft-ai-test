@@ -74,6 +74,14 @@ def parse_detach(out):
     return (m.group(1), m.group(2), m.group(3)) if m else None
 
 
+def gone_keys(live, expired):
+    """PURE. The requests the canary host gave up on: a <key>.expired with NO live <key>.req. canary-sched renames .req to
+    .expired when it gives up and never removes the .expired, so a RETRY of the same key (same run/base/sha) leaves the
+    old .expired beside the new .req. 11-07 10:46-12:21Z: the relay read that live request as given up, dropped the run it
+    had just started, started it again next pass -- 24 cycles in 100 min -- and .31 ran the suite itself."""
+    return set(expired) - set(live)
+
+
 def failed_hosts(out):
     """PURE. The hosts a suite-run that did not start says it tried and failed (`attempt host=<h> result=...` lines)."""
     return re.findall(r'(?m)^attempt host=(\w+) result=', out or '')
@@ -251,9 +259,10 @@ def main(argv):
         subprocess.run(['launchctl', 'load', pl], check=False)
         log(f'loaded {pl}')
         return 0
-    reqs, gone, ok = requests()
+    reqs, expired, ok = requests()
     if not ok:
         return 0
+    gone = gone_keys(reqs, expired)
     now = dt.datetime.now(dt.timezone.utc)
     started = ({f[:-5] for f in os.listdir(STATE) if f.endswith('.json') and not f.endswith('.tries.json')}
                if os.path.isdir(STATE) else set())
