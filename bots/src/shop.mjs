@@ -503,7 +503,9 @@ export function setIdleNow (fn) { if (typeof fn === 'function') idleOf = fn }
  *  bot's own idle mark holds -- but the KEEPER's prep ticks run as grounds visits, and a tick that grades and chooses nothing yet is a
  *  no-effect visit that marks it: the next tick waited an hour (LIVE 11-04 12:10-12:41Z: one SP1 tick in 30 min, three an hour
  *  before). The keeper (the GK lease itself, never a helper) with a site request to search or prepare is never quiet. */
-export const tidyQuiet = ({ idle = false, keeper = false, prepWork = false } = {}) => !!idle && !(keeper && prepWork)
+// gkwork-01 rule 2: nor the keeper whose empty visits are collecting the town's strikes (`closing`, gkwork.mjs gkwClosing): its order
+// comes back at GK.cooldownMs, so the stage closes in minutes, not one strike an hour
+export const tidyQuiet = ({ idle = false, keeper = false, prepWork = false, closing = false } = {}) => !!idle && !(keeper && (prepWork || closing))
 let prepClaimedOf = () => false
 export function setPrepClaimed (fn) { if (typeof fn === 'function') prepClaimedOf = fn }
 const prepClaimed = plot => { try { return !!prepClaimedOf(plot) } catch { return false } }

@@ -38,6 +38,8 @@ const REQUIRED = [
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
   'bots/src/fewerdec.mjs',
   'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
+  'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
+  'bots/test/gkwork.test.mjs',   // gkwork-01 (11-07)
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/fewerdec.test.mjs',
   'bots/src/escapeguard.mjs',

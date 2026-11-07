@@ -74,13 +74,13 @@ await t('the composition: the keeper\'s quiet order through buildOrder -- ordere
   assert.notStrictEqual(run(SH.tidyQuiet({ idle: true, keeper: true, prepWork: true })).skip, 'idle')
 })
 await t('MUTANT KILLED: a quiet order blind to the keeper\'s prep work holds its next tick', async () => {
-  await withMutant('!!idle && !(keeper && prepWork)', '!!idle', async M => {
+  await withMutant('!!idle && !(keeper && (prepWork || closing))', '!!idle', async M => {
     assert.strictEqual(M.tidyQuiet({ idle: true, keeper: true, prepWork: true }), true)
   })
 })
 await t('WIRED (skills.mjs): the idle hook asks tidyQuiet with the GK lease alone and the request record', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(sk.includes('return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()) })'))
+  assert.ok(sk.includes('return tidyQuiet({ idle, keeper: keeperLeaseNow(b), prepWork: prepKeeperWork(siteprepHead()), closing: GKW_ON && gkwClosing(b?.gkwPending ?? null) })'))
   assert.ok(/function keeperLeaseNow[\s\S]{0,200}GK_LEASE/.test(sk), 'the keeper lease itself, never a helper lease')
 })
 console.log(`\n${pass} passed, ${fail} failed`)
