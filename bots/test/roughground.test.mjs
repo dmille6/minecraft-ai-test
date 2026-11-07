@@ -186,6 +186,10 @@ await t('1c: no side for a stand (a wall of trunks round it) -> the block is nam
   assert.strictEqual(off.platforms.length, 0); assert.strictEqual(off.census.float_high, 1)
   const on = rough(free)
   assert.strictEqual(on.platforms.length, 1); assert.strictEqual(on.census.stands, 1)
+  // Codex r1 BLOCKER: never on a reserved plot -- a wall extension's plot box beside the block refuses every side there
+  const plotted = T.siteStage(free.read, { home: HOME, land: { seed: 1 }, stage: INWALL, env: ON, terrace: { wall: WALL, records: [], wallext: { plots: [{ id: 'X9', kind: 'house', box: [3, 1, 9, 7] }] } } })
+  assert.strictEqual(plotted.record?.plotprep?.platforms?.filter(p => p.targets)?.length ?? 0, 0, 'no stand on the plot')
+  assert.ok(!(plotted.record?.cells ?? []).some(c => c.role === 'access' && c.at[0] >= 3 && c.at[0] <= 9 && c.at[2] >= 1 && c.at[2] <= 7))
 })
 console.log('STATIONS')
 await t('a loose crafting table on a 2-dirt pillar is cut with its pillar; a record-cell table and a plan cell are kept', async () => {
