@@ -133,7 +133,7 @@ MUTANTS = [
      'test_a_cached_plain_release_is_never_reused_as_a_piece_release'),
     ('showcase_ops.py', "if k in ('piece', 'prev', 'prev_release', 'mode')):", "if k in ('piece', 'prev', 'mode')):",
      'test_a_piece_release_from_another_predecessor_is_not_reused'),
-    ('tl_showcase.py', "    out, deferred = list(VIEWS), []\n", "    out, deferred = [], []\n",
+    ('tl_showcase.py', "    out, deferred, heavy = list(VIEWS), [], []\n", "    out, deferred, heavy = [], [], []\n",
      'test_plan_pair_first_due_by_interval_active_first_inside_budget'),
     ('tl_showcase.py', "        if age + 2 >= iv:\n", "        if age >= iv:\n",
      'test_plan_pair_first_due_by_interval_active_first_inside_budget'),
@@ -145,6 +145,21 @@ MUTANTS = [
      'test_raw_frame_retention_keeps_hourly_and_recent'),
     ('tl_showcase.py', "    bad = [s for s in staged if not exists(s) or size(s) < min_bytes or not content_ok(s)]",
      "    bad = [s for s in staged if not exists(s) or size(s) < min_bytes]", 'test_pair_publish_all_or_nothing'),
+    # tlpolish-1106: 4K hero cameras one per slot, follow camera hysteresis, the smoothing deadline/fallback
+    ('tl_showcase.py', "        if est(v) <= left and (not is_heavy or heavy_left > 0):", "        if est(v) <= left:",
+     'test_heavy_cameras_one_per_slot_and_shot_last'),
+    ('tl_showcase.py', "    return out + heavy, why, deferred", "    return out[:2] + heavy + out[2:], why, deferred",
+     'test_heavy_cameras_one_per_slot_and_shot_last'),
+    ('tl_showcase.py', "    if prev in cands and cands[prev] >= lim:\n        return prev", "    if False:\n        return prev",
+     'test_follow_target_sticks_while_active_else_newest'),
+    ('tl_showcase.py', "    cands = {n: progress[n] for n in sites if n not in excl and progress.get(n)}",
+     "    cands = {n: progress[n] for n in sites if progress.get(n)}", 'test_follow_target_sticks_while_active_else_newest'),
+    ('tl_showcase.py', "            cams[v] = dict(cam, off=True)", "            cams[v] = dict(cam)", 'test_resolve_cameras_and_sidecar'),
+    ('tl_video.py', "    if fell_back:\n        return False, 'fallback: an earlier clip of this job fell back'", "    if False:\n        pass",
+     'test_smoothing_choice_deadline_and_fallback'),
+    ('tl_video.py', "    if est_s * margin > left:", "    if est_s > left:", 'test_smoothing_choice_deadline_and_fallback'),
+    ('tl_video.py', "    who = ''.join(ch for ch in str(who) if ch.isalnum() or ch in ' -_')[:40] or view", "    who = str(who)",
+     'test_smooth_encode_and_text_scale'),
 ]
 
 

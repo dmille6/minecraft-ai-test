@@ -1885,10 +1885,138 @@ class Timelapse(unittest.TestCase):
         self.assertNotIn('minterpolate', ' '.join(cmd))
         cmd = TV.encode_cmd('/t/s%06d.png', 2.0, '/o.mp4', text_glob='/t/o%06d.png')
         fc = cmd[cmd.index('-filter_complex') + 1]
-        self.assertIn('[0:v]framerate=fps=30', fc, 'the picture dissolves')
+        self.assertIn('[0:v]eq=', fc, 'the picture is graded first (tlpolish-1106)')
+        self.assertIn('vignette=angle=PI/7,framerate=fps=30', fc, 'then it dissolves')
         self.assertIn('[1:v]fps=30[t]', fc, 'the text layer is duplicated, never blended (no ghosted captions)')
         self.assertIn('[b][t]overlay', fc)
         self.assertEqual(cmd.count('-framerate'), 2)
+
+    # ---- tlpolish-1106: quality knobs, 4K hero cameras, follow camera, smoothing deadline ----
+    def test_cam_quality_camera_then_default_then_absent(self):
+        cfg = {'hires': 500, 'sun': 1}
+        self.assertEqual(TL.cam_quality(cfg, {}), {'hires': 500, 'sun': 1}, 'the tl.conf defaults reach every camera')
+        self.assertEqual(TL.cam_quality(cfg, {'dpr': 2, 'hires': 600}), {'dpr': 2, 'hires': 600, 'sun': 1})
+        self.assertEqual(TL.cam_quality({}, None), {}, 'nothing set: capture.mjs keeps the page defaults')
+
+    def test_heavy_cameras_one_per_slot_and_shot_last(self):
+        now = dt.datetime(2026, 11, 7, 3, 0, tzinfo=dt.timezone.utc)
+        cfg = {'cameras': {'topdown': {}, 'angled': {}, 'iso': {'interval_min': 15},
+                           'hero4k': {'heavy': True, 'interval_min': 30, 'est_s': 150},
+                           'project4k': {'heavy': True, 'interval_min': 30, 'est_s': 150}},
+               'interval_min': 15}
+        st = {'topdown': {'frame_s': 30}, 'angled': {'frame_s': 30}, 'iso': {'frame_s': 30}}
+        views, why, deferred = TL.plan_views(cfg, st, now, {}, 690)
+        self.assertEqual(views[:3], ['topdown', 'angled', 'iso'])
+        self.assertEqual(len([v for v in views if v.endswith('4k')]), 1, 'one 4K camera per slot')
+        self.assertTrue(views[-1].endswith('4k'), 'the 4K camera is shot last (a scale change costs a fresh page)')
+        self.assertEqual([v for v in deferred if v.endswith('4k')], ['project4k' if views[-1] == 'hero4k' else 'hero4k'])
+        # the next slot: the shot one is not due, the deferred one is -> they alternate
+        shot = views[-1]
+        st2 = dict(st, **{shot: {'frame_s': 140, 'last': '2026-11-07T03:00:00Z'}})
+        views2, _, _ = TL.plan_views(cfg, st2, now + dt.timedelta(minutes=15), {}, 690)
+        self.assertNotIn(shot, views2)
+        self.assertIn(deferred[0], views2)
+        # heavy_per_slot 2 lets both in when the budget allows
+        views3, _, _ = TL.plan_views(dict(cfg, heavy_per_slot=2), st, now, {}, 690)
+        self.assertEqual(sorted(v for v in views3 if v.endswith('4k')), ['hero4k', 'project4k'])
+        # the budget still rules: est_s 150 each does not fit 120 s left
+        views4, _, d4 = TL.plan_views(cfg, st, now, {}, 30 * 2 + 100)
+        self.assertFalse([v for v in views4 if v.endswith('4k')])
+
+    def test_follow_target_sticks_while_active_else_newest(self):
+        now = dt.datetime(2026, 11, 7, 3, 0, tzinfo=dt.timezone.utc)
+        h = lambda x: now - dt.timedelta(hours=x)
+        sites = {'hall': {'box': [0, 0, 10, 10]}, 'shaft': {'box': [0, 0, 4, 4]}, 'tidy': {'box': [0, 0, 1, 1]}}
+        prog = {'hall': h(2), 'shaft': h(0.1), 'tidy': h(0.01), 'paths': h(0.01)}
+        cam = {'exclude': ['tidy']}
+        self.assertEqual(TL.follow_target(cam, sites, prog, 'hall', now, 3), 'hall', 'prev still active: kept')
+        self.assertEqual(TL.follow_target(cam, sites, prog, 'hall', now, 1), 'shaft', 'prev quiet: the newest')
+        self.assertEqual(TL.follow_target(cam, sites, prog, None, now, 3), 'shaft', 'excluded and boxless never')
+        self.assertEqual(TL.follow_target(cam, sites, {'hall': h(50)}, None, now, 3), 'hall',
+                         'nothing active: the last one that placed (the camera keeps a subject)')
+        self.assertIsNone(TL.follow_target(cam, sites, {}, 'hall', now, 3), 'no boxed site ever placed')
+
+    def test_follow_camera_frames_the_box(self):
+        cam = {'rotation': 0.7854, 'angle': 0.85, 'fov': 32, 'heavy': True, 'ortho': 0, 'mode': 'perspective', 'follow': True, 'exclude': ['x'],
+               'sites': {'hall': {'label': 'copper hall', 'angle': 0.8}}}
+        c = TL.follow_camera(cam, 'hall', {'box': [-21, 21, -7, 33], 'g': None})
+        self.assertEqual((c['x'], c['z'], c['y']), (-13.5, 27.5, 69))
+        self.assertEqual(c['distance'], 45, '15-block box x 2.6 = 39 -> the 45 minimum')
+        self.assertEqual((c['label'], c['project'], c['angle'], c['fov']), ('copper hall', ['hall'], 0.8, 32))
+        self.assertTrue(c['heavy'])
+        self.assertNotIn('follow', c)
+        c = TL.follow_camera(cam, 'storehub', {'box': [28, -49, 10, -59], 'g': 64})
+        self.assertEqual((c['x'], c['z'], c['y'], c['distance'], c['label']), (19.5, -53.5, 64, 49, 'storehub'),
+                         'reversed corners; 19-block side x 2.6')
+        h = TL.camera_hash('showcase', c)
+        self.assertTrue(h.startswith('#showcase:19.5:64:-53.5:49:'))
+
+    def test_resolve_cameras_and_sidecar(self):
+        now = dt.datetime(2026, 11, 7, 3, 0, tzinfo=dt.timezone.utc)
+        cfg = {'cameras': {'iso': {'x': 0}, 'project4k': {'follow': True, 'heavy': True}}, 'active_hours': 3}
+        sites = {'hall': {'box': [0, 0, 9, 9]}}
+        cams, t = TL.resolve_cameras(cfg, {}, now, {'hall': now}, sites)
+        self.assertEqual(t, {'project4k': 'hall'})
+        self.assertEqual(cams['iso'], {'x': 0})
+        self.assertEqual(cams['project4k']['project'], ['hall'])
+        cams, t = TL.resolve_cameras(cfg, {}, now, {}, sites)
+        self.assertTrue(cams['project4k'].get('off'), 'no project ever placed: the camera sits the slot out')
+        views, _, _ = TL.plan_views(dict(cfg, cameras=cams), {}, now, {}, 690)
+        self.assertNotIn('project4k', views)
+        self.assertEqual(TL.frame_sidecar({'label': 'town'}, None), {'label': 'town', 'project': None})
+        self.assertEqual(TL.frame_sidecar({'label': 'copper hall'}, 'hall'), {'label': 'copper hall', 'project': 'hall'})
+        self.assertIsNone(TL.frame_sidecar({}, None), 'an old camera: no sidecar, the old caption')
+
+    def test_project_sites_reads_the_newest_boxed_live_record(self):
+        d = tempfile.mkdtemp()
+        try:
+            w = lambda n, j: json.dump(j, open(os.path.join(d, n), 'w'))
+            w('project-0_70_0.hall.g3.json', {'box': [1, 2, 3, 4]})
+            w('project-0_70_0.hall.g10.json', {'box': [5, 6, 7, 8], 'site': {'g': 66}})
+            w('project-0_70_0.hall.g11.json.released', {'box': [0, 0, 0, 0]})
+            w('project-0_70_0.paths.g2.json', {'maxStep': 1})
+            w('project-0_70_0.hall.barrier.g100.json', {'box': [9, 9, 9, 9]})
+            open(os.path.join(d, 'project-0_70_0.bad.g1.json'), 'w').write('{')
+            self.assertEqual(TL.project_sites({'project_dir': d}), {'hall': {'box': [5, 6, 7, 8], 'g': 66}})
+        finally:
+            shutil.rmtree(d)
+
+    def test_smoothing_choice_deadline_and_fallback(self):
+        now = dt.datetime(2026, 11, 7, 0, 20, tzinfo=dt.timezone.utc)
+        dl = TV.smooth_deadline(now)
+        self.assertEqual(dt.datetime.fromtimestamp(dl, dt.timezone.utc), dt.datetime(2026, 11, 7, 23, 45, tzinfo=dt.timezone.utc))
+        late = dt.datetime(2026, 11, 7, 23, 50, tzinfo=dt.timezone.utc)
+        self.assertEqual(dt.datetime.fromtimestamp(TV.smooth_deadline(late), dt.timezone.utc).date(), dt.date(2026, 11, 8))
+        self.assertAlmostEqual(TV.smooth_estimate_s(600, 1920, 1080, 1.0), 600 * 2.0736, places=3)
+        t = now.timestamp()
+        self.assertEqual(TV.smooth_choice(False, 10, t, dl, False)[0], False, 'weekly/monthly dissolve')
+        self.assertEqual(TV.smooth_choice(True, 10, t, dl, False), (True, 'minterpolate'))
+        ok, why = TV.smooth_choice(True, 10, t, dl, True)
+        self.assertFalse(ok)
+        self.assertTrue(why.startswith('fallback'), 'after one fallback the job stays on the dissolve')
+        ok, why = TV.smooth_choice(True, (dl - t) / 1.2, t, dl, False)
+        self.assertFalse(ok, 'an estimate that fits only without the margin falls back')
+        self.assertTrue(why.startswith('fallback: estimate'))
+        self.assertEqual(TV.smooth_rate_update(None, 0.7), 0.7)
+        self.assertEqual(TV.smooth_rate_update(1.0, 0.6), 0.8)
+
+    def test_smooth_encode_and_text_scale(self):
+        cmd = TV.encode_cmd('/t/s%06d.png', 4.0, '/o.mp4', text_glob='/t/o%06d.png', smooth=True)
+        fc = cmd[cmd.index('-filter_complex') + 1]
+        self.assertIn('vignette=angle=PI/7,minterpolate=fps=30:mi_mode=mci', fc)
+        self.assertNotIn('framerate=fps', fc)
+        self.assertIn('[1:v]fps=30[t]', fc, 'captions are never interpolated or graded')
+        self.assertEqual(cmd[cmd.index('-crf') + 1], '17')
+        self.assertEqual(TV.text_scale(1440), 1.0)
+        self.assertEqual(TV.text_scale(2160), 2.0)
+        self.assertIn('fontsize=72', TV.overlay_filter('x', [], '', tempfile.gettempdir(), 0, scale=2.0))
+        self.assertEqual(TV.stamp_text('project4k', '20261107T0315Z', {'label': 'copper hall'}),
+                         'showcase copper hall  2026-11-07 03\\:15 UTC')
+        self.assertEqual(TV.stamp_text('iso', '20261107T0315Z'), 'showcase iso  2026-11-07 03\\:15 UTC')
+        self.assertEqual(TV.stamp_text('x', '20261107T0315Z', {'label': "a'b:c"}), 'showcase abc  2026-11-07 03\\:15 UTC',
+                         'a label can never break the drawtext quoting')
+        self.assertEqual(TV.video_order(('angled', 'topdown', 'iso', 'project4k', 'hero4k')),
+                         ['hero4k', 'project4k', 'angled', 'topdown', 'iso'])
 
     def test_activity_and_reel_plan(self):
         frames = {'a': bytes([0]) * 100, 'b': bytes([0]) * 50 + bytes([99]) * 50, 'c': bytes([0]) * 50 + bytes([99]) * 50,

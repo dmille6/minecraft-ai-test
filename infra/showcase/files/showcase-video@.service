@@ -9,5 +9,8 @@ ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_video.py %i
 Nice=19
 IOSchedulingClass=idle
 CPUQuota=200%
-CPUWeight=20
-TimeoutStartSec=3h
+# tlpolish-1106: daily/history run motion interpolation all night against tl_video's own deadline (23:45 UTC); weight
+# 1 (was 20) so the 15-min capture (weight 20), Paper and the bots always win the CPU first
+CPUWeight=1
+# a backstop only: tl_video ends smoothing by 23:45 and falls back to the dissolve (was 3h)
+TimeoutStartSec=23h55min

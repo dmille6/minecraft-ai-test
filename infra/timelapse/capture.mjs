@@ -9,6 +9,11 @@
 // the same render differed in ~40% of pixels; pinned, 0%). With `pin`, the controls are detached once the camera is
 // placed and the height is the hash's y: the same render always gives the same frame, fresh page or reused.
 // Each `ok` line carries ms=<job wall time>.
+// QUALITY (tlpolish-1106, owner 11-07): a job may carry `dpr` (device scale factor: 2 on a 1920x1080 viewport = a
+// 3840x2160 frame), `hires`/`lowres` (BlueMap's loaded view distances in blocks: past `hires` the map is drawn from the
+// low-detail tiles, the smeared background of the 11-06 samples), `sun` and `ambient` (BlueMap's sunlight/ambient
+// uniforms: a fixed daytime light). A job that leaves one out gets the page's own default back (read once per page),
+// so a reused page never carries one camera's settings into the next.
 // The URL hash carries the whole camera (map:x:y:z:distance:rotation:angle:tilt:ortho:mode),
 // so the same site config always produces the same view.
 // Software WebGL (SwiftShader): this host has no GPU. --no-sandbox because Ubuntu 24.04
@@ -63,6 +68,29 @@ const pinTo = y => {
   return cm.position.y;
 };
 const hashY = url => +url.slice(url.indexOf('#') + 1).split(':')[2];
+// the page's own render defaults, read once when the page is created
+const readDefaults = () => {
+  const mv = window.bluemap?.mapViewer;
+  if (!mv?.data?.uniforms?.sunlightStrength || !mv.data.uniforms.ambientLight) return null;   // an older BlueMap (.30)
+  return { hires: mv.data.loadedHiresViewDistance, lowres: mv.data.loadedLowresViewDistance,
+           sun: mv.data.uniforms.sunlightStrength.value, ambient: mv.data.uniforms.ambientLight.value };
+};
+// apply one job's render settings (absent -> the page default); -> what the page now holds
+const applyQuality = (q) => {
+  const mv = window.bluemap.mapViewer;
+  const d = window.__tlDefaults;
+  const pick = (k) => (q[k] ?? d[k]);
+  const area = mv.data.loadedHiresViewDistance !== pick('hires') || mv.data.loadedLowresViewDistance !== pick('lowres');
+  mv.data.loadedHiresViewDistance = pick('hires');
+  mv.data.loadedLowresViewDistance = pick('lowres');
+  mv.data.uniforms.sunlightStrength.value = pick('sun');
+  mv.data.uniforms.ambientLight.value = pick('ambient');
+  if (area) mv.updateLoadedMapArea();
+  mv.redraw?.();
+  return { hires: mv.data.loadedHiresViewDistance, lowres: mv.data.loadedLowresViewDistance,
+           sun: mv.data.uniforms.sunlightStrength.value, ambient: mv.data.uniforms.ambientLight.value };
+};
+const quality = (j) => ({ hires: j.hires ?? null, lowres: j.lowres ?? null, sun: j.sun ?? null, ambient: j.ambient ?? null });
 const close = (a, b) => a && b && a.every((x, i) => Math.abs(x - b[i]) <= (i < 3 ? 0.6 : 0.01));
 
 let failed = 0;
@@ -78,11 +106,17 @@ try {
     const errs = [];
     try {
       let moved = false;
+      if (j.reuse && shared && (shared.viewport().deviceScaleFactor ?? 1) !== (j.dpr ?? 1)) {
+        // a resize event is what makes BlueMap re-read devicePixelRatio; a dpr change alone may not fire one, so a
+        // camera at another scale gets a fresh page (the planner shoots such cameras last)
+        await shared.close().catch(() => {});
+        shared = null;
+      }
       if (j.reuse && shared) {
         page = shared;
         const vp = page.viewport();
         if (vp.width !== j.width || vp.height !== j.height) {
-          await page.setViewport({ width: j.width, height: j.height, deviceScaleFactor: 1 });
+          await page.setViewport({ width: j.width, height: j.height, deviceScaleFactor: j.dpr ?? 1 });
         }
         await page.evaluate(() => {           // back to the defaults a previous camera may have changed
           const cam = window.bluemap.mapViewer.camera;
@@ -103,9 +137,11 @@ try {
       if (!moved) {
         page = await browser.newPage();
         page.on('pageerror', e => errs.push(String(e)));
-        await page.setViewport({ width: j.width, height: j.height, deviceScaleFactor: 1 });
+        await page.setViewport({ width: j.width, height: j.height, deviceScaleFactor: j.dpr ?? 1 });
         await page.goto(j.url, { waitUntil: 'networkidle0', timeout: 120000 });
         await page.addStyleTag({ content: HIDE_UI });
+        const d = await page.evaluate(readDefaults);
+        await page.evaluate(x => { window.__tlDefaults = x; }, d);
         if (j.reuse) shared = page;
       }
       if (j.pin) {
@@ -127,6 +163,14 @@ try {
       if (Array.isArray(j.markers)) {
         const bad = await page.evaluate(applyMarkers, j.markers);
         if (bad.length) throw new Error(`marker visibility not applied: ${bad.join(',')}`);
+      }
+      const want_q = quality(j);
+      const asked = Object.values(want_q).some(x => x !== null);
+      const hasDefaults = await page.evaluate(() => !!window.__tlDefaults);
+      if (asked && !hasDefaults) throw new Error('render settings asked of a page without BlueMap 5 uniforms');
+      const got_q = hasDefaults ? await page.evaluate(applyQuality, want_q) : want_q;
+      for (const k of Object.keys(want_q)) {
+        if (want_q[k] !== null && got_q[k] !== want_q[k]) throw new Error(`could not set ${k} (got ${got_q[k]})`);
       }
       // tiles stream in after the first idle; wait for a second quiet period, then settle
       await page.waitForNetworkIdle({ idleTime: 2000, timeout: 120000 }).catch(() => {});
@@ -150,6 +194,12 @@ try {
         if (bad.length) throw new Error(`marker visibility drifted: ${bad.join(',')}`);
         await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
       }
+      const canvas = await page.evaluate(() => {
+        const c = window.bluemap.mapViewer.renderer.domElement;
+        return [c.width, c.height];
+      });
+      const wantPx = [Math.round(j.width * (j.dpr ?? 1)), Math.round(j.height * (j.dpr ?? 1))];
+      if (canvas[0] !== wantPx[0] || canvas[1] !== wantPx[1]) throw new Error(`canvas ${canvas} is not ${wantPx}`);
       await page.screenshot({ path: j.out, type: 'png' });
       console.log(`ok ${j.out} ms=${Date.now() - t0}${moved ? ' reused' : ''}${errs.length ? ' pageerrors=' + errs.length : ''}`);
     } catch (e) {

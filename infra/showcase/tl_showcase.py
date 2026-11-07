@@ -83,6 +83,104 @@ def camera_markers(cam):
     return [str(x) for x in m] if isinstance(m, list) else list(DEFAULT_MARKERS)
 
 
+# QUALITY + HERO CAMERAS (tlpolish-1106, owner 11-07 "as nice as possible"; picks: 4K hero cameras only, the other
+# cameras keep their size with BlueMap's hi-detail distance raised to 500).
+#   Per camera (else the tl.conf top-level default): `dpr` (device scale factor), `hires`/`lowres` (BlueMap's loaded
+#   view distances), `sun`/`ambient` (a fixed daytime light). capture.mjs applies them per job.
+#   `heavy`: a 4K camera. At most heavy_per_slot of them per slot (two 4K cameras alternate instead of doubling one
+#   slot), and they are shot after every other camera (a scale change costs a fresh page).
+#   `follow`: the camera frames the ACTIVE PROJECT -- the boxed project record that placed a block most recently,
+#   kept while it is still active (no flip-flop between two busy sites), framed from its box (follow_camera).
+#   Each published frame of a follow/labelled camera gets a <stamp>.json sidecar {label, project} for the video captions.
+DEFAULT_HEAVY_PER_SLOT = 1
+QUALITY_KEYS = ('dpr', 'hires', 'lowres', 'sun', 'ambient')
+
+
+def cam_quality(cfg, cam):
+    """The render settings capture.mjs gets for one camera: the camera's own value, else tl.conf's top-level default,
+    else absent (the page default). Pure (tested)."""
+    out = {}
+    for k in QUALITY_KEYS:
+        v = (cam or {}).get(k, cfg.get(k))
+        if v is not None:
+            out[k] = v
+    return out
+
+
+def follow_target(cam, sites, progress, prev, now, hours):
+    """The project a `follow` camera frames this slot. sites: {name: {'box': [x0, z0, x1, z1], ...}} (boxed project
+    records only); progress: {name: last placement datetime}. Keep `prev` while it placed within `hours`; otherwise the
+    boxed site with the most recent placement (names in cam['exclude'] never). None when no boxed site ever placed.
+    Pure (tested)."""
+    lim = now - dt.timedelta(hours=hours)
+    excl = set((cam or {}).get('exclude') or ())
+    cands = {n: progress[n] for n in sites if n not in excl and progress.get(n)}
+    if prev in cands and cands[prev] >= lim:
+        return prev
+    if not cands:
+        return None
+    return max(sorted(cands), key=lambda n: cands[n])
+
+
+def follow_camera(cam, name, site):
+    """The concrete camera for a follow camera on one site: the box centre at ground level, a distance that fits the
+    box in the frame (fov 32: about 2.6x its larger side, never closer than min_distance), the camera's own rotation /
+    angle / fov, and any per-site override from cam['sites'][name]. Pure (tested)."""
+    x0, z0, x1, z1 = site['box']
+    lo_x, hi_x, lo_z, hi_z = min(x0, x1), max(x0, x1), min(z0, z1), max(z0, z1)
+    size = max(hi_x - lo_x, hi_z - lo_z) + 1
+    c = {k: v for k, v in cam.items() if k not in ('follow', 'sites', 'exclude')}
+    c.update(x=round((lo_x + hi_x + 1) / 2, 1), z=round((lo_z + hi_z + 1) / 2, 1),
+             y=int(site.get('g') or cam.get('y') or 69),
+             distance=int(max(cam.get('min_distance', 45), round(cam.get('fit', 2.6) * size))))
+    c.update(((cam.get('sites') or {}).get(name) or {}))
+    c['label'] = (((cam.get('sites') or {}).get(name) or {}).get('label')) or name
+    c['project'] = [name]
+    return c
+
+
+def project_sites(cfg):
+    """{name: {'box': [...], 'g': ground}} from the newest live (not .released) project-<town>.<name>.g<N>.json record
+    that carries a box (read-only). Unreadable or boxless records are absent."""
+    import glob, re
+    d = cfg.get('project_dir', '/var/lib/mcai/_pool-showcase')
+    best = {}
+    for p in glob.glob(os.path.join(d, 'project-*.g*.json')):
+        m = re.match(r'project-[^.]+\.([^.]+)\.g(\d+)\.json$', os.path.basename(p))
+        if not m:
+            continue
+        name, gen = m.group(1), int(m.group(2))
+        if name in best and best[name][0] >= gen:
+            continue
+        try:
+            j = json.load(open(p))
+        except (OSError, ValueError):
+            continue
+        box = j.get('box') if isinstance(j, dict) else None
+        if isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) for v in box):
+            g = (j.get('site') or {}).get('g') if isinstance(j.get('site'), dict) else None
+            best[name] = (gen, {'box': box, 'g': g})
+    return {n: v for n, (_, v) in best.items()}
+
+
+def resolve_cameras(cfg, state, now, progress, sites):
+    """tl.conf's cameras with every `follow` camera made concrete for this slot (follow_target + follow_camera); a follow
+    camera with no target is `off` this slot. -> (cameras, {view: target}). Pure (tested)."""
+    hours = float(cfg.get('active_hours') or DEFAULT_ACTIVE_HOURS)
+    cams, targets = {}, {}
+    for v, cam in (cfg.get('cameras') or {}).items():
+        if not (cam or {}).get('follow'):
+            cams[v] = cam
+            continue
+        t = follow_target(cam, sites, progress, (state.get(v) or {}).get('target'), now, hours)
+        if t is None:
+            cams[v] = dict(cam, off=True)
+            continue
+        cams[v] = follow_camera(cam, t, sites[t])
+        targets[v] = t
+    return cams, targets
+
+
 def cam_interval(cfg, cam, active):
     """Minutes between frames for one camera: interval_min while active, idle_min otherwise. A legacy `every` N
     (slots of 15 min) is the idle interval when idle_min is absent. Pure (tested)."""
@@ -128,7 +226,9 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0):
     since its last frame, 2 min of slack for timer jitter), active before idle, most overdue first, until the estimated
     cost reaches the budget. -> (views, why {view: reason}, deferred [views]). Pure (tested)."""
     cams = cfg.get('cameras') or {}
-    est = lambda v: float((state.get(v) or {}).get('frame_s') or cfg.get('frame_s') or DEFAULT_FRAME_S)
+    est = lambda v: float((state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') or cfg.get('frame_s')
+                          or DEFAULT_FRAME_S)
+    heavy_left = int(cfg.get('heavy_per_slot', DEFAULT_HEAVY_PER_SLOT))
     left = budget_s - spent_s - sum(est(v) for v in VIEWS)
     due, why = [], {v: 'pair' for v in VIEWS}
     for v in sorted(cams):
@@ -142,15 +242,17 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0):
         if age + 2 >= iv:
             due.append((0 if act else 1, -age / iv, v, f'{"active" if act else "idle"} every {iv:g} min; '
                                                        f'{"never shot" if not last else f"last {age:.0f} min ago"}; {aw}'))
-    out, deferred = list(VIEWS), []
+    out, deferred, heavy = list(VIEWS), [], []
     for _, _, v, w in sorted(due):
-        if est(v) <= left:
-            out.append(v)
+        is_heavy = bool((cams[v] or {}).get('heavy'))
+        if est(v) <= left and (not is_heavy or heavy_left > 0):
+            (heavy if is_heavy else out).append(v)
             why[v] = w
             left -= est(v)
+            heavy_left -= is_heavy
         else:
             deferred.append(v)
-    return out, why, deferred
+    return out + heavy, why, deferred
 
 
 def project_progress(cfg):
@@ -452,6 +554,7 @@ def capture(cfg, stamp, views=None, deadline=None, est=None):
                      'width': cam.get('width', cfg['width']), 'height': cam.get('height', cfg['height']), 'fov': cam.get('fov'),
                      'settle_ms': cam.get('settle_ms', cfg.get('settle_ms', 6000)), 'markers': camera_markers(cam),
                      'reuse': bool(cfg.get('reuse_page', True)), 'pin': bool(cfg.get('pin_height', True)),
+                     **cam_quality(cfg, cam),
                      'deadline_ms': int(deadline * 1000) if deadline else None,
                      'est_ms': int(1000 * float((est or {}).get(v) or DEFAULT_FRAME_S))})
     env = dict(os.environ, PUPPETEER_CACHE_DIR=os.path.join(cfg['capture_dir'], '.cache'))
@@ -494,6 +597,15 @@ def capture(cfg, stamp, views=None, deadline=None, est=None):
         if os.path.exists(s['out']):
             os.remove(s['out'])
     return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1), extra, extra_err, raw_rc
+
+
+def frame_sidecar(cam, target):
+    """The <stamp>.json written beside a published frame: the camera's caption label and the followed project, or None
+    for a camera with neither (no file: the video draws its old caption). Pure (tested)."""
+    label = (cam or {}).get('label')
+    if not label and not target:
+        return None
+    return {'label': label or target, 'project': target}
 
 
 def job_timings(stdout):
@@ -580,9 +692,12 @@ def _capture_locked(cfg, a, t, stamp):
         heartbeat(cfg, dict(row, ok=False, step='render', why=f'bluemap rc={rc} (see logs/render.log)'))
         return 0
     state = load_state(cfg)
-    views, why, deferred = plan_views(cfg, state, t, project_progress(cfg), budget, time.time() - start)
-    est = {v: (state.get(v) or {}).get('frame_s') for v in views}
-    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(cfg, stamp, views, deadline=start + budget, est=est)
+    progress = project_progress(cfg)
+    cams, targets = resolve_cameras(cfg, state, t, progress, project_sites(cfg))
+    rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot
+    views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start)
+    est = {v: (state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') for v in views}
+    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(rcfg, stamp, views, deadline=start + budget, est=est)
     timings = getattr(capture, 'timings', {})
     for p in got + extra:             # the schedule's memory: last frame, last change, per-frame cost
         v = os.path.basename(os.path.dirname(os.path.dirname(p)))
@@ -595,6 +710,14 @@ def _capture_locked(cfg, a, t, stamp):
             prev_gray = b''
         sec = timings.get(v) if isinstance(timings.get(v), (int, float)) else None
         state[v] = update_view_state(prev, t, gray, prev_gray, sec)
+        if v in targets:
+            state[v]['target'] = targets[v]
+            # the framing, for the nightly Chunky beauty render of the same project (chunky_beauty.project_view)
+            state[v]['camera'] = {k: cams[v].get(k) for k in ('x', 'y', 'z', 'distance', 'rotation', 'angle', 'fov', 'label')}
+        side = frame_sidecar(cams.get(v), targets.get(v))
+        if side:
+            with open(p[:-4] + '.json', 'w') as f:
+                json.dump(side, f)
         if gray:
             os.makedirs(os.path.dirname(gpath), exist_ok=True)
             with open(gpath + '.part', 'wb') as f:
@@ -669,7 +792,9 @@ def cmd_shoot(cfg, a):
                     print(json.dumps({'shoot': 'render', 'rc': rc}))
                     return 1
             stamp = stamp_of(now_utc())
-            vcfg = dict(cfg, root=a.out)          # staging + "frames" land under --out, never the timelapse root
+            cams, _ = resolve_cameras(cfg, load_state(cfg), now_utc(), project_progress(cfg), project_sites(cfg))
+            vcfg = dict(cfg, root=a.out, cameras=cams)   # staging + "frames" land under --out, never the timelapse root
+            views = [v for v in views if not (cams.get(v) or {}).get('off')]     # a follow camera with no project
             crc, msg, got, cs, _, extra, err, _ = capture(vcfg, stamp, views, deadline=time.time() + a.budget_s)
     except RendererBusy as e:
         print(json.dumps({'shoot': 'busy', 'why': str(e)}))
@@ -681,9 +806,11 @@ def cmd_shoot(cfg, a):
 
 def cmd_plan(cfg, a):
     t = now_utc()
-    views, why, deferred = plan_views(cfg, load_state(cfg), t, project_progress(cfg),
+    state, progress = load_state(cfg), project_progress(cfg)
+    cams, targets = resolve_cameras(cfg, state, t, progress, project_sites(cfg))
+    views, why, deferred = plan_views(dict(cfg, cameras=cams), state, t, progress,
                                       float(cfg.get('budget_s') or DEFAULT_BUDGET_S), 75.0)
-    print(json.dumps({'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred}, indent=1))
+    print(json.dumps({'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred, 'follow': targets}, indent=1))
     return 0
 
 

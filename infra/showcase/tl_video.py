@@ -21,12 +21,21 @@ Frames on disk are untouched; no lines (or no file) -> the frame is drawn exactl
 PLAYBACK (tlvideo-01, owner 11-03 "better showcase videos"): each clip runs at OUT_FPS with a short linear DISSOLVE between
 stored frames (ffmpeg `framerate` blend, no optical flow: building changes would grow invented motion). The source rate
 fits the clip to about TARGET_S seconds (src_fps_for: never faster than MAX_SRC_FPS, never slower than MIN_SRC_FPS).
+LOOK (tlpolish-1106, owner 11-07): every clip is colour graded at encode time (GRADE; the stored frames stay raw) and
+encoded at CRF 17 / preset slow. SMOOTHING: `daily` and `history` use ffmpeg motion interpolation (minterpolate, owner
+pick "C") instead of the dissolve, at night, under the video lock (the two jobs never run at once) and against a
+DEADLINE (smooth_deadline: 23:45 UTC, before the next day's daily job). A clip that would not finish by then -- its
+estimate (output frames x the measured seconds per megapixel-frame, logs/video-smooth.json) passes the deadline, or its
+encode is cut at the deadline -- is encoded with the dissolve ("B") instead, and so is every clip after it in that
+job; each fallback is a row in logs/video-smooth.log and in the clip's sidecar (`smoothing`). weekly/monthly dissolve.
+CAPTIONS name the camera: a frame's <stamp>.json sidecar (tl_showcase: the camera's label, the followed project) is
+drawn in the stamp line; text scales with the frame height (a 4K frame gets 2x).
 REEL: `daily` also builds daily/<day>-reel.mp4, the angled overview plus the most active views of the day (plan_reel), each
 sped to fit REEL_SEG_S with a title. RETENTION: `tl_video.py thin [--apply]` keeps every frame of the last RETAIN_FULL_DAYS
 days and the first frame of each UTC hour (what weekly/history/monthly sample) before that; it acts only below
 THIN_BELOW_FREE_GB free, and the NAS keeps every frame (showcase-pull.sh, nightly).
 """
-import argparse, datetime as dt, json, os, subprocess, sys, tempfile
+import argparse, datetime as dt, fcntl, json, os, subprocess, sys, tempfile, time
 
 ROOT = os.environ.get('TL_ROOT', '/srv/showcase/timelapse')
 VIEWS = ('angled', 'topdown')
@@ -44,6 +53,16 @@ THIN_BELOW_FREE_GB = 80
 LEVEL = 12
 MIN_CHANGED_FRAC = 0.002
 SMALL = (320, 180)
+GRADE = ('eq=contrast=1.06:saturation=1.15:gamma=0.98,colorbalance=rh=0.035:gh=0.01:bh=-0.035:rs=-0.01:bs=0.02,'
+         'vignette=angle=PI/7')
+MINTERP = 'minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=none'
+SMOOTH_KINDS = ('daily', 'history')
+SMOOTH_DEADLINE_HM = (23, 45)        # UTC; the next daily job starts 00:20
+SMOOTH_S_PER_MPX = 0.9               # first guess, seconds per output megapixel-frame (measured .30, 4 threads: ~0.6)
+SMOOTH_MARGIN = 1.25                 # an estimate must fit the time left with this much slack
+SMOOTH_LOG = 'video-smooth.log'
+SMOOTH_STATE = 'video-smooth.json'
+CRF, PRESET = '17', 'slow'
 NICE = ['nice', '-n', '19', 'ionice', '-c3']
 FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf'
 CAPTION_FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
@@ -110,24 +129,47 @@ def tally(lines, t):
     return f"{t.strftime('%b %d')} so far: " + ', '.join(parts) if parts else ''
 
 
-def overlay_filter(stamp_text, cap, day, tmp, i):
+def text_scale(height):
+    """Caption size factor for a frame height: 1 up to 1440 px (the cameras the captions were tuned on), height/1080
+    above (a 3840x2160 frame gets 2). Pure (tested)."""
+    return 1.0 if height <= 1440 else round(height / 1080.0, 3)
+
+
+def overlay_filter(stamp_text, cap, day, tmp, i, scale=1.0):
     """The -vf chain for one frame: the stamp (as before) + the caption lines + the tally, each from a TEXT FILE (no escaping of
-    the bots' words; expansion=none so a '%' is literal). Writes the files into tmp. -> filter string."""
-    vf = [f"drawtext=fontfile={FONT}:text='{stamp_text}':x=w-tw-28:y=h-th-28:fontsize=36:"
-          "fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=12"]
+    the bots' words; expansion=none so a '%' is literal). Writes the files into tmp. scale: text_scale. -> filter string."""
+    k = lambda n: int(round(n * scale))
+    vf = [f"drawtext=fontfile={FONT}:text='{stamp_text}':x=w-tw-{k(28)}:y=h-th-{k(28)}:fontsize={k(36)}:"
+          f"fontcolor=white:box=1:boxcolor=black@0.55:boxborderw={k(12)}"]
     for j, line in enumerate(reversed(cap)):          # the newest line sits lowest
         f = os.path.join(tmp, f'cap{i:06d}_{j}.txt')
         with open(f, 'w') as fh:
             fh.write(line)
-        vf.append(f"drawtext=fontfile={CAPTION_FONT}:textfile={f}:expansion=none:x=28:y=h-th-{110 + 62 * j}:fontsize=34:"
-                  "fontcolor=white:box=1:boxcolor=black@0.6:boxborderw=12")
+        vf.append(f"drawtext=fontfile={CAPTION_FONT}:textfile={f}:expansion=none:x={k(28)}:y=h-th-{k(110 + 62 * j)}:"
+                  f"fontsize={k(34)}:fontcolor=white:box=1:boxcolor=black@0.6:boxborderw={k(12)}")
     if day:
         f = os.path.join(tmp, f'tally{i:06d}.txt')
         with open(f, 'w') as fh:
             fh.write(day)
-        vf.append(f"drawtext=fontfile={CAPTION_FONT}:textfile={f}:expansion=none:x=28:y=28:fontsize=30:"
-                  "fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=10")
+        vf.append(f"drawtext=fontfile={CAPTION_FONT}:textfile={f}:expansion=none:x={k(28)}:y={k(28)}:fontsize={k(30)}:"
+                  f"fontcolor=white:box=1:boxcolor=black@0.5:boxborderw={k(10)}")
     return ','.join(vf)
+
+
+def stamp_text(view, stamp, side=None):
+    """The stamp line: the camera's caption label (the frame's sidecar: e.g. 'town' or the followed project) or the
+    view name, then the UTC time. Colons escaped for drawtext. Pure (tested)."""
+    who = (side or {}).get('label') or view
+    who = ''.join(ch for ch in str(who) if ch.isalnum() or ch in ' -_')[:40] or view
+    return f"showcase {who}  {stamp[0:4]}-{stamp[4:6]}-{stamp[6:8]} {stamp[9:11]}\\:{stamp[11:13]} UTC"
+
+
+def frame_side(view, stamp):
+    """The frame's <stamp>.json sidecar (tl_showcase frame_sidecar) or None."""
+    try:
+        return json.load(open(frame_path(ROOT, view, stamp)[:-4] + '.json'))
+    except (OSError, ValueError):
+        return None
 
 
 def parse_stamp(s):
@@ -198,19 +240,82 @@ def src_fps_for(n, target_s=TARGET_S, lo=MIN_SRC_FPS, hi=MAX_SRC_FPS):
     return round(min(hi, max(lo, n / float(target_s))), 3)
 
 
-def encode_cmd(frames_glob, src_fps, out, out_fps=OUT_FPS, blend=BLEND, text_glob=None):
-    """The ffmpeg command for one clip: stored frames at src_fps, linear dissolve up to out_fps (no scene-cut detection:
-    a project appearing is the point, not a cut); text_glob, a transparent text layer per step, is laid over the
-    dissolved picture WITHOUT blending (fps duplicates; it switches at the step's midpoint). Pure (tested)."""
-    dis = f'framerate=fps={out_fps}:interp_start={blend[0]}:interp_end={blend[1]}:scene=100'
+def encode_cmd(frames_glob, src_fps, out, out_fps=OUT_FPS, blend=BLEND, text_glob=None, smooth=False, grade=GRADE):
+    """The ffmpeg command for one clip: stored frames at src_fps, colour graded (grade), then a linear dissolve up to
+    out_fps (no scene-cut detection: a project appearing is the point, not a cut) or, with smooth, motion
+    interpolation (MINTERP); text_glob, a transparent text layer per step, is laid over the moving picture WITHOUT
+    blending (fps duplicates; it switches at the step's midpoint) and is never graded. Pure (tested)."""
+    dis = (MINTERP.format(fps=out_fps) if smooth else
+           f'framerate=fps={out_fps}:interp_start={blend[0]}:interp_end={blend[1]}:scene=100')
+    if grade:
+        dis = f'{grade},{dis}'
     cmd = NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-framerate', str(src_fps), '-i', frames_glob]
     if text_glob:
         cmd += ['-framerate', str(src_fps), '-i', text_glob, '-filter_complex',
                 f'[0:v]{dis}[b];[1:v]fps={out_fps}[t];[b][t]overlay=shortest=1:format=auto,format=yuv420p[v]', '-map', '[v]']
     else:
         cmd += ['-vf', dis]
-    return cmd + ['-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-threads', '2', '-pix_fmt', 'yuv420p',
+    return cmd + ['-c:v', 'libx264', '-preset', PRESET, '-crf', CRF, '-threads', '2', '-pix_fmt', 'yuv420p',
                   '-movflags', '+faststart', out]
+
+
+def smooth_deadline(now, hm=SMOOTH_DEADLINE_HM):
+    """The epoch second a night's smoothing must end by: the next hm UTC after now (a job that starts at 00:20 gets
+    until 23:45 the same day). Pure (tested)."""
+    d = now.replace(hour=hm[0], minute=hm[1], second=0, microsecond=0)
+    if d <= now:
+        d += dt.timedelta(days=1)
+    return d.timestamp()
+
+
+def smooth_estimate_s(n_out_frames, w, h, s_per_mpx):
+    """Seconds a minterpolate encode of n_out_frames at w x h should take. Pure (tested)."""
+    return n_out_frames * (w * h / 1e6) * s_per_mpx
+
+
+def smooth_choice(enabled, est_s, now_s, deadline_s, fell_back, margin=SMOOTH_MARGIN):
+    """-> (smooth?, reason). Motion interpolation only when the job allows it, no earlier clip of this job fell back,
+    and the estimate (with margin) fits before the deadline. Pure (tested)."""
+    if not enabled:
+        return False, 'dissolve (weekly/monthly)'
+    if fell_back:
+        return False, 'fallback: an earlier clip of this job fell back'
+    left = deadline_s - now_s
+    if est_s * margin > left:
+        return False, f'fallback: estimate {est_s:.0f} s x {margin} > {left:.0f} s to the deadline'
+    return True, 'minterpolate'
+
+
+def smooth_rate_update(old, measured, w=0.5):
+    """EWMA of the measured seconds per megapixel-frame. Pure (tested)."""
+    return round(measured if not old else (1 - w) * old + w * measured, 4)
+
+
+def smooth_log(row):
+    p = os.path.join(ROOT, 'logs', SMOOTH_LOG)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, 'a') as f:
+        f.write(json.dumps(dict(row, t=dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))) + '\n')
+
+
+def smooth_rate():
+    try:
+        return float(json.load(open(os.path.join(ROOT, 'logs', SMOOTH_STATE))).get('s_per_mpx') or SMOOTH_S_PER_MPX)
+    except (OSError, ValueError, TypeError):
+        return SMOOTH_S_PER_MPX
+
+
+def save_smooth_rate(v):
+    p = os.path.join(ROOT, 'logs', SMOOTH_STATE)
+    with open(p + '.part', 'w') as f:
+        json.dump({'s_per_mpx': v}, f)
+    os.replace(p + '.part', p)
+
+
+class SmoothJob:
+    """One video job's smoothing budget: enabled (daily/history), the deadline, and whether a clip already fell back."""
+    def __init__(self, enabled, deadline_s):
+        self.enabled, self.deadline_s, self.fell_back = enabled, deadline_s, False
 
 
 def png_size(path):
@@ -227,7 +332,7 @@ def small_gray(path):
     return p.stdout if p.returncode == 0 else b''
 
 
-def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS):
+def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS, smooth_job=None):
     os.makedirs(os.path.dirname(out_mp4), exist_ok=True)
     side = {'view': view, 'label': label, 'candidates': len(stamps), 'fps': OUT_FPS, 'level': LEVEL,
             'min_changed_frac': MIN_CHANGED_FRAC}
@@ -243,9 +348,9 @@ def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS):
         # the TEXT is drawn on a transparent layer of its own and laid over AFTER the dissolve, so the stamp, captions
         # and tally switch crisply instead of ghosting through each other (11-03 proof clip)
         for i, s in enumerate(kept, 1):
-            text = f"showcase {view}  {s[0:4]}-{s[4:6]}-{s[6:8]} {s[9:11]}\\:{s[11:13]} UTC"
-            vf = overlay_filter(text, caps[i - 1], tally(lines, parse_stamp(s)), tmp, i)
+            text = stamp_text(view, s, frame_side(view, s))
             w, h = png_size(frame_path(ROOT, view, s))
+            vf = overlay_filter(text, caps[i - 1], tally(lines, parse_stamp(s)), tmp, i, scale=text_scale(h))
             subprocess.run(NICE + ['ffmpeg', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i',
                                    f'color=c=black@0.0:s={w}x{h},format=rgba', '-vf', vf, '-frames:v', '1',
                                    os.path.join(tmp, 't%06d.png' % i)], check=True)
@@ -254,9 +359,32 @@ def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS):
             os.symlink(frame_path(ROOT, view, kept[i - 1]), os.path.join(tmp, 's%06d.png' % k))
             os.symlink(os.path.join(tmp, 't%06d.png' % i), os.path.join(tmp, 'o%06d.png' % k))
         part = out_mp4 + '.part.mp4'
-        subprocess.run(encode_cmd(os.path.join(tmp, 's%06d.png'), src, part, text_glob=os.path.join(tmp, 'o%06d.png')),
-                       check=True)
+        n_out = int(round(len(seq) / src * OUT_FPS))
+        w0, h0 = png_size(frame_path(ROOT, view, kept[-1]))
+        sj = smooth_job or SmoothJob(False, 0)
+        rate = smooth_rate()
+        est = smooth_estimate_s(n_out, w0, h0, rate)
+        use, why = smooth_choice(sj.enabled, est, time.time(), sj.deadline_s, sj.fell_back)
+        args = (os.path.join(tmp, 's%06d.png'), src, part)
+        kw = dict(text_glob=os.path.join(tmp, 'o%06d.png'))
+        t0 = time.time()
+        if use:
+            try:
+                subprocess.run(encode_cmd(*args, smooth=True, **kw), check=True,
+                               timeout=max(1.0, sj.deadline_s - time.time()))
+                took = time.time() - t0
+                save_smooth_rate(smooth_rate_update(rate, took / max(1, n_out) / (w0 * h0 / 1e6)))
+            except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+                use, why = False, f'fallback: minterpolate {type(e).__name__} after {time.time() - t0:.0f} s'
+        if not use:
+            if sj.enabled and why.startswith('fallback'):
+                sj.fell_back = True
+                smooth_log({'view': view, 'label': label, 'why': why, 'est_s': round(est), 'n_out': n_out,
+                            'size': [w0, h0]})
+            subprocess.run(encode_cmd(*args, smooth=False, **kw), check=True)
         os.replace(part, out_mp4)
+    side.update(smoothing='minterpolate' if use else 'dissolve', smoothing_why=why, encode_s=round(time.time() - t0, 1),
+                est_smooth_s=round(est))
     side.update(included=len(kept), skipped_nochange=skipped, first=kept[0], last=kept[-1], src_fps=src,
                 duration_s=round(len(seq) / src, 1), activity=activity,
                 bytes=os.path.getsize(out_mp4), captioned=sum(1 for c in caps if c), chat_lines=len(lines))
@@ -274,11 +402,13 @@ def hold_sequence(n, src_fps, first_s=HOLD_FIRST_S, last_s=HOLD_LAST_S):
     return [1] * a + list(range(2, n)) + [n] * b if n > 1 else [1] * (a + b)
 
 
-def plan_reel(sides, overview='angled', n=REEL_VIEWS, min_included=4):
-    """The daily reel's views, in order: the overview first (when it has frames), then the n other views with the most
-    ACTIVITY (summed changed fraction) among those with >= min_included kept frames; topdown never (it is the overview
-    again from above). Pure (tested)."""
+def plan_reel(sides, overview=('hero4k', 'angled'), n=REEL_VIEWS, min_included=4):
+    """The daily reel's views, in order: the overview first (the first of `overview` that has frames: the 4K town hero
+    since tlpolish-1106, else angled), then the n other views with the most ACTIVITY (summed changed fraction) among
+    those with >= min_included kept frames; topdown never (it is the overview again from above). Pure (tested)."""
     ok = {s['view']: s for s in sides if s.get('included', 0) >= min_included and os.path.exists(s.get('out') or '')}
+    prefs = (overview,) if isinstance(overview, str) else tuple(overview)
+    overview = next((v for v in prefs if v in ok), prefs[-1])
     rest = sorted((v for v in ok if v not in (overview, 'topdown')), key=lambda v: (-ok[v].get('activity', 0), v))
     return ([overview] if overview in ok else []) + [v for v in rest if ok[v].get('activity', 0) > 0][:n]
 
@@ -365,6 +495,15 @@ def thin(apply=False, today=None, below_gb=THIN_BELOW_FREE_GB):
     return 0
 
 
+HERO_VIEWS = ('hero4k', 'project4k')     # tlpolish-1106: the 4K cameras get the night's smoothing first
+
+
+def video_order(views, hero=HERO_VIEWS):
+    """The build order: the hero cameras first (the showpieces get motion interpolation before the deadline runs
+    out), then the rest in their usual order. Pure (tested)."""
+    return [v for v in hero if v in views] + [v for v in views if v not in hero]
+
+
 def video_views(root=None):
     """The pair, then every extra camera: the EXTRA list plus any frames/<view>/ directory (a new camera in tl.conf needs
     no edit here). Hidden dirs (.staging) are not views. Pure given the filesystem."""
@@ -435,8 +574,9 @@ def frame_one(view, stamp, out):
     lines = load_lines()
     cap = captions([stamp], lines)[0]
     with tempfile.TemporaryDirectory() as tmp:
-        text = f"showcase {view}  {stamp[0:4]}-{stamp[4:6]}-{stamp[6:8]} {stamp[9:11]}\\:{stamp[11:13]} UTC"
-        vf = overlay_filter(text, cap, tally(lines, parse_stamp(stamp)), tmp, 0)
+        text = stamp_text(view, stamp, frame_side(view, stamp))
+        vf = overlay_filter(text, cap, tally(lines, parse_stamp(stamp)), tmp, 0,
+                            scale=text_scale(png_size(frame_path(ROOT, view, stamp))[1]))
         subprocess.run(['ffmpeg', '-loglevel', 'error', '-y', '-i', frame_path(ROOT, view, stamp), '-vf', vf, out], check=True)
     print(json.dumps({'view': view, 'stamp': stamp, 'out': out, 'caption': cap, 'tally': tally(lines, parse_stamp(stamp))}))
     return 0
@@ -467,14 +607,20 @@ def main():
                 sides.append(dict(json.load(open(out + '.json')), out=out))
         print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'))))
         return 0
+    # ONE video job at a time (daily 00:20 and history 01:00 would otherwise share the night's CPU and deadline)
+    if a.kind in SMOOTH_KINDS:
+        os.makedirs(os.path.join(ROOT, 'logs'), exist_ok=True)
+        lockf = open(os.path.join(ROOT, 'logs', 'video.lock'), 'a+')
+        fcntl.flock(lockf, fcntl.LOCK_EX)
+    sj = SmoothJob(a.kind in SMOOTH_KINDS, smooth_deadline(dt.datetime.now(dt.timezone.utc)))
     rc, sides = 0, []
-    for v in video_views():
+    for v in video_order(video_views()):
         if not all_stamps(v):
             continue
         st = sample(paired_stamps() if v in VIEWS else all_stamps(v), lo, hi, bucket)
         out = os.path.join(ROOT, 'video', f'{name}-{v}.mp4')
         try:
-            side = build(v, st, out, name, max_src_fps=MAX_SRC_FPS if bucket is None else FPS)
+            side = build(v, st, out, name, max_src_fps=MAX_SRC_FPS if bucket is None else FPS, smooth_job=sj)
             print(json.dumps(side))
             sides.append(dict(side, out=out))
         except subprocess.CalledProcessError as e:
