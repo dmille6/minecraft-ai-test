@@ -337,6 +337,8 @@ test('wiring: every pour is read back (contain: seal, read again) and an open sp
   assert.equal(fn.split(home).length, 3, 'the spill turns the trip home from the loop and from end()')
   const con = /\nasync function deepObsContain \([\s\S]*?\n\}\n/.exec(SK)?.[0] ?? ''
   assert.ok(con.indexOf('await deepObsSeal(') > 0 && con.indexOf('const left = deepLooseLava(') > con.indexOf('await deepObsSeal('), 'sealed, then read again')
+  // end() on a spill returns a RESULT (the work phase returns it: no ore work this call beside open lava -- Codex r2)
+  assert.ok(/if \(o\.spill\) \{ trip\.phase = 'return'; trip\.returnWhy = 'obs_spill';[^\n]*return \{ status: 'failed'/.test(fn), 'end() returns a result on a spill, never null')
   const back = /\nasync function deepObsLavaBack \([\s\S]*?\n\}\n/.exec(SK)?.[0] ?? ''
   assert.ok(back.includes('await deepObsContain(bot, o, signal'), 'the lava put back is read back too (Codex r1 B2)')
 })
