@@ -2191,6 +2191,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let escalated = false
   let mineSaid = null
   let memoBagSaid = false   // gathermem-01: a tunnel refused for a full bag -- the run's answer writes no area entry
+  const runFrom = bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null   // gathermem-01
   const maxRounds = count * 4 + 8
 
   while (collected < count && rounds < maxRounds) {
@@ -2698,7 +2699,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     }
     const target = bot.blockAt(nextUp)
     if (!target || target.name !== (viaSource ?? blockName)) { excluded.add(key(nextUp)); continue }
-    const setOutFrom = bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null
+    // "FROM ABOUT HERE" IS WHERE THE RUN WAS ASKED FROM, not where this attempt set out: a run walks between attempts (to the
+    // moat's edge, the barren reposition), and the next run starts where the decision was taken (Paper drill 11-07: per-attempt
+    // positions 5-9 blocks apart left 1 of 3 failed cells remembered)
+    const setOutFrom = runFrom
     // a full bag says nothing about the cell (Codex design: never learn from bag saturation)
     const noteFailed = why => { if (gatherMemOn() && setOutFrom && !signal?.aborted && !((bot.inventory?.emptySlotCount?.() ?? 1) === 0)) bot.gatherTargets = noteTargetFailure(bot.gatherTargets, { block: target.name, cell: target.position, from: setOutFrom, why }) }
 
