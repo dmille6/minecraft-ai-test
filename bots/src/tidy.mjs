@@ -316,8 +316,11 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
   for (const p of pits) {
     const mine = s.fill.filter(f => f.pit === p.id)
     if (!mine.length) continue
-    if (n + mine.length > T.segCells) { group++; n = 0 }
+    // roughground-1b: a hollow under a crust cut is its OWN group (Paper 11-07: a held hollow -- a body in it -- kept another
+    // column's layer above it waiting, the other tunnel left open a whole visit)
+    if (n + mine.length > T.segCells || p.kind === 'under') { group++; n = 0 }
     n += mine.length
+    if (p.kind === 'under') n = Infinity
     const base = new Map()
     for (const f of mine) { const k = k2(f.at[0], f.at[2]); base.set(k, Math.min(base.get(k) ?? Infinity, f.at[1])) }
     for (const f of mine.sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])) {
@@ -331,7 +334,7 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
   // after every ground layer: runVisit stops `deps_open` there)
   const lk = sg => { const m = /^T-(\d+)-(\d+)$/.exec(sg); return [Number(m[2]), Number(m[1])] }
   segments.sort((a, b) => { const [ka, ga] = lk(a.seg), [kb, gb] = lk(b.seg); return ka - kb || ga - gb })
-  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name }))
+  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name, ...(c.hollow ? { hollow: c.hollow } : {}) }))   // roughground-1b: the hollow under a crust cut rides on it
   return {
     v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r,
     cells, clear: [...(s.clear ?? [])].sort((a, b) => a.at[1] - b.at[1]), cut, replant: [], segments, zones: [],
@@ -784,7 +787,7 @@ export function roadLights (read, cols, { home, avoid = () => null, n = 0, cells
 // interior): 93 stray SPOIL blocks standing above every neighbour (16 one high), 4 on a build (paths, the wall), 201 columns lower
 // than every neighbour (153 one deep) -- tidy-01's survey takes pillars from 2 high and pits from 2 deep, and never in a build's box.
 // ================================================================================================================================
-export const INWALL = Object.freeze({ pillarMax: 6, holeMax: 4, litterMax: 3 })
+export const INWALL = Object.freeze({ pillarMax: 6, holeMax: 4, litterMax: 3, hollowRough: true })   // roughground-1b: hollowRough
 /**
  * wallext-01: INSIDE THE WALLS -> [[x0, z0, x1, z1]]: the wall's interior box (inwallBox) and, when the town has one, the wall
  * EXTENSION's interior (its record's `interior`: the rectangle less its own line, up to the shared line) -- the owner's "inside the
@@ -1286,6 +1289,9 @@ export function surveyInwall (read, { home, box, avoid = () => null, cells = new
         blocks.push({ at: [x, y, z], name: n })
       }
       if (bad) { skip(bad); continue }
+      // roughground-1b: a stray whose cut would leave its column open under it (a crust over the bots' tunnels) is the rough survey's
+      // (cut with the hollow filled after it, dug only while nobody is in it); never opened here
+      if (T.hollowRough && (() => { const b = read(x, base, z); return !b || AIRN(nm(b)) || /_leaves$/.test(nm(b)) || b.boundingBox === 'empty' })()) { skip('stray_hollow'); continue }
       const id = `s${pillars.length}`
       pillars.push({ id, col: [x, z], top: c.y, base, h: blocks.length })
       for (const b of blocks) cut.push({ ...b, pillar: id })
@@ -1452,7 +1458,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // plotprep-01: the extension's reserved plots first (their trees, their stands, their level); the other inwall rules keep off them
     const pp = plotPrep(read, { plots: terrace?.wallext?.plots ?? [], home, records: terrace?.records ?? [], avoid, cells, noStair })
     const reservedP = (x, z) => pp.cols.has(k2(x, z)) || reserved(x, z)
-    const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk }))
+    const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk, T: { ...INWALL, hollowRough: roughOn(env) } }))
     const bad = parts.find(q => !q.ok)
     if (bad) return { ok: false, why: bad.why, record: null, survey: bad, road: null }
     const sv00 = parts.length === 1 ? parts[0] : mergeSurveys(parts)
@@ -1588,7 +1594,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     const noLitter = inwallNoLitter(terrace?.records ?? [])
     const tr = bandTrees(read, { home, box: bx, inBand, corridor: corridorAt(land), avoid, noLitter, cells })
     const treeK = new Set([...tr.stumps, ...tr.fells].flatMap(t => t.cols.map(([x, z]) => k2(x, z))))
-    const sv = surveyInwall(read, { home, box: bx, within: (x, z) => inBand(x, z) && !treeK.has(k2(x, z)), avoid, cells, noLitter, reserved, water, waterOk, T: { ...INWALL, access: false } })
+    const sv = surveyInwall(read, { home, box: bx, within: (x, z) => inBand(x, z) && !treeK.has(k2(x, z)), avoid, cells, noLitter, reserved, water, waterOk, T: { ...INWALL, access: false, hollowRough: roughOn(env) } })
     if (sv.ok) {
       const ns = v => `o${v}`
       for (const c of sv.cut) { s.cut.push({ ...c, pillar: ns(c.pillar) }); busy.add(k2(c.at[0], c.at[2])) }

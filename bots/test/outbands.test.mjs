@@ -76,7 +76,7 @@ await t('a dirt climb against a build OUTSIDE the wall is cut, never made a stai
   assert.ok(!r.record.cells.some(c => c.role === 'access'), 'no staircase')
   assert.strictEqual(r.record.cells.length, 0)
   // the mutant: the band's survey allowed staircases -> a stair outside the wall
-  await withMutant(TIDY_PATH, "reserved, water, waterOk, T: { ...INWALL, access: false } })", 'reserved, water, waterOk, T: { ...INWALL } })', async M => {
+  await withMutant(TIDY_PATH, "reserved, water, waterOk, T: { ...INWALL, access: false, hollowRough: roughOn(env) } })", 'reserved, water, waterOk, T: { ...INWALL, hollowRough: roughOn(env) } })', async M => {
     const m = M.siteStage(srv.read, { home: HOME, land: LAND(), stage: BAND1, env: ON, L: SMALL, terrace: { wall: WALL, records: [] }, avoid, cells })
     assert.ok(m.record.cells.length > 0, 'mutant: stair cells')
   })
