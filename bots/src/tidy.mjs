@@ -800,7 +800,7 @@ export function inwallBoxes (wall, home, ext = null, r = TIDY.r) {
  * roughground-01: THE ROUGH SURVEY OVER SOME BOXES, merged into `into` ({ cut, fill, pillars, pits }: mutated, ids namespaced `r<i>:`)
  * -> { census, skipped } summed. Pure over `read` (roughground.mjs surveyRough with the tidy's column, SPOIL and build reasons).
  */
-export function roughIn (read, { home, boxes = [], within = () => true, avoid, cells, records = null, noLitter, reserved, busy = new Set(), climbs = [] } = {}, into) {
+export function roughIn (read, { home, boxes = [], within = () => true, avoid, cells, records = null, noLitter, reserved, busy = new Set(), climbs = [], standOff = () => false } = {}, into) {
   const nearCells = records ? nearCellsOf(records) : cells
   const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
   const memo = new Map()
@@ -808,7 +808,7 @@ export function roughIn (read, { home, boxes = [], within = () => true, avoid, c
   const sum = { census: {}, skipped: {}, platforms: [], clear: [] }   // roughground-1c: the stands and their leaves
   const used = new Set(busy)
   boxes.forEach((box, i) => {
-    const r = surveyRough(read, { home, box, within, col, spoil: SPOIL, buildWhy: BUILD_WHY, avoid, cells, nearCells, noLitter, reserved, busy: used, climbs, yLo })
+    const r = surveyRough(read, { home, box, within, col, spoil: SPOIL, buildWhy: BUILD_WHY, avoid, cells, nearCells, noLitter, reserved, busy: used, climbs, yLo, standOff })
     if (!r.ok) return
     const ns = v => `r${i}:${v}`
     for (const c of r.cut) { into.cut.push({ ...c, pillar: ns(c.pillar) }); used.add(k2(c.at[0], c.at[2])) }
@@ -1497,7 +1497,9 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       const busyR = new Set([...sv0.cut, ...sv0.fill, ...pp.cut, ...pp.fill].map(q => k2(q.at[0], q.at[2])))
       for (const a of sv0.access ?? []) for (const c of a.cells) busyR.add(k2(c[0], c[2]))
       sv0.cut = [...sv0.cut]; sv0.pillars = [...sv0.pillars]
-      sv0.rough = roughIn(read, { home, boxes, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [] }, sv0)
+      // Codex 1c r1 BLOCKER: a stand never stands on a wall extension's reserved plot (the whole box)
+      const plotBoxesR = (terrace?.wallext?.plots ?? []).map(q => q?.box).filter(b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite))
+      sv0.rough = roughIn(read, { home, boxes, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [], standOff: (x, z) => plotBoxesR.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }, sv0)
     }
     // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
     // roughground-1c: the rough survey's stands are platforms too (laid as access fills, torn down by platformTeardown)

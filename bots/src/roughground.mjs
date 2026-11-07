@@ -96,7 +96,7 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
  *   nearCells the cells whose column's RING is kept too (the standing builds': FLAT_PLOTS' cells are not in it)
  *   climbs    the bots' ledgered scaffold ([{ x, y, z, shape }], placeaudit.mjs);  home  nearest-first order
  */
-export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, T = ROUGH } = {}) {
+export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, standOff = () => false, T = ROUGH } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
   const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, stands: 0 }
@@ -157,7 +157,8 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       let ok = true
       for (let i = 1; i <= need + 1 && ok; i++) {
         const cx = x + dx * i, cz = z + dz * i, h = i <= need ? need - i + 1 : 0
-        if (g(cx, cz) !== gy || refuse(cx, cz) || used.has(k2(cx, cz)) || nearCell(cx, cz)) { ok = false; break }
+        // Codex 1c r1 BLOCKER: never on a reserved plot (`standOff`: the wall extension's plots, whole boxes)
+        if (g(cx, cz) !== gy || refuse(cx, cz) || used.has(k2(cx, cz)) || nearCell(cx, cz) || standOff(cx, cz)) { ok = false; break }
         const upTo = i === 1 ? top + 1 : gy + h + 2
         for (let y = gy + 1; y <= upTo; y++) {
           if (leaf(cx, y, cz)) clears.push({ at: [cx, y, cz], kind: 'leaves', name: nm(read(cx, y, cz)) })
