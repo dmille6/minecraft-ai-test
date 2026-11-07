@@ -100,11 +100,11 @@ function gatherWorld ({ dirt, bad = [], at = [400.5, 64, 200.5] }) {
     return { name: t.name, type: t.id, position: new Vec3(x, y, z), boundingBox: (isDirt || isRock) ? 'block' : 'empty', diggable: isDirt,
              canHarvest: () => true, digTime: () => 50, material: 'mineable/shovel', hardness: isDirt ? 0.5 : 0 }
   }
-  let abortOn = null
+  let abortOn = null, untagged = null, full = false
   const bot = {
     entity: { position: new Vec3(...at), velocity: new Vec3(0, 0, 0), onGround: true, yaw: 0 },
     health: 20, food: 20,
-    inventory: { items: () => bag, emptySlotCount: () => 30 },
+    inventory: { items: () => bag, emptySlotCount: () => (full ? 0 : 30) },
     registry: { blocksByName: mcData.blocksByName, blocks: mcData.blocks, itemsByName: mcData.itemsByName },
     blockAt: p => blk(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)),
     findBlocks ({ matching, maxDistance = 16, count = 1 }) {
@@ -120,6 +120,7 @@ function gatherWorld ({ dirt, bad = [], at = [400.5, 64, 200.5] }) {
       const k = `${b.position.x},${b.position.y},${b.position.z}`
       tried.push(k)
       if (abortOn) { const e = new Error('aborted by the reflex'); e.aborted = true; abortOn = null; throw e }
+      if (untagged) { const ac = untagged; untagged = null; ac.abort(); throw new Error('The goal was changed before it could be completed!') }
       if (badSet.has(k)) throw new Error('Digging aborted: no line of sight')
       digs.push(k); set.delete(k); bag.push({ name: 'dirt', count: 1, slot: 9 + bag.length })
     },
@@ -127,7 +128,7 @@ function gatherWorld ({ dirt, bad = [], at = [400.5, 64, 200.5] }) {
     withGatherMovements: async fn => fn(),
     fireSitesNow: () => [],
   }
-  return { bot, digs, tried, abortNext: () => { abortOn = true } }
+  return { bot, digs, tried, abortNext: () => { abortOn = true }, abortUntagged: ac => { untagged = ac }, fillBag: () => { full = true } }
 }
 const NEAR = [[402, 63, 200], [403, 63, 200], [403, 63, 201]]    // the three nearest: every dig of them fails
 const FAR = [[410, 63, 200]]                                       // one more, further, that would yield
@@ -167,13 +168,15 @@ test('CHAIN (all remembered -> a different job, never a stall): no walk, unreach
   assert.match(g.detail, /gather another block, or walk 16\+ blocks/)
   assert.equal(gate.memoryRefuses('gather', { block: 'dirt', count: 4 }), 'gather_area', 'no order is issued into it either')
   // the remedies are admitted from where it stands
-  assert.notEqual(gate.check({ skill: 'gather', args: { block: 'oak_log', count: 4 } }, bot).reason, 'gather_area', 'another block')
-  assert.notEqual(gate.check({ skill: 'explore', args: {} }, bot).reason, 'gather_area', 'explore (walk away)')
+  const other = gate.check({ skill: 'gather', args: { block: 'oak_log', count: 4 } }, bot)
+  assert.equal(other.ok, true, `another block is ADMITTED: ${JSON.stringify(other)}`)
+  const walk = gate.check({ skill: 'explore', args: {} }, bot)
+  assert.equal(walk.ok, true, `explore (walk away) is ADMITTED: ${JSON.stringify(walk)}`)
   bot.entity.position = new Vec3(430.5, 64, 200.5)
-  assert.notEqual(gate.check({ skill: 'gather', args: { block: 'dirt', count: 4 } }, bot).reason, 'gather_area', 'the same block 30 blocks away')
+  assert.equal(gate.check({ skill: 'gather', args: { block: 'dirt', count: 4 } }, bot).ok, true, 'the same block 30 blocks away is ADMITTED')
   bot.entity.position = new Vec3(400.5, 64, 200.5)
   bot.gatherAreas = bot.gatherAreas.map(e => ({ ...e, until: Date.now() - 1 }))
-  assert.notEqual(gate.check({ skill: 'gather', args: { block: 'dirt', count: 4 } }, bot).reason, 'gather_area', 'after expiry it is tried again')
+  assert.equal(new AdmissionControl(null).check({ skill: 'gather', args: { block: 'dirt', count: 4 } }, bot).ok, true, 'after expiry it is ADMITTED again')
 })
 
 test('AN INTERRUPTION IS NEVER REMEMBERED: a reflex abort mid-dig writes no target and no area', async () => {
@@ -181,6 +184,23 @@ test('AN INTERRUPTION IS NEVER REMEMBERED: a reflex abort mid-dig writes no targ
   abortNext()
   const r = await run(bot)
   assert.equal(r.aborted, true, JSON.stringify(r))
+  assert.equal((bot.gatherTargets ?? []).length, 0)
+  assert.equal((bot.gatherAreas ?? []).length, 0)
+})
+
+test('AN UNTAGGED INTERRUPTION (the signal aborted, the library threw a plain error) writes nothing (Claude + Codex r1 BLOCKER)', async () => {
+  const { bot, abortUntagged } = gatherWorld({ dirt: NEAR, bad: NEAR })
+  const ac = new AbortController()
+  abortUntagged(ac)
+  const r = await SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, ac.signal).catch(e => ({ status: 'threw', aborted: !!e.aborted }))
+  assert.ok(ac.signal.aborted, 'positive control: the signal was aborted mid-dig')
+  assert.equal((bot.gatherTargets ?? []).length, 0, JSON.stringify({ r, t: bot.gatherTargets }))
+  assert.equal((bot.gatherAreas ?? []).length, 0)
+})
+test('A FULL BAG writes nothing (Codex r1 BLOCKER): the bag is the answer, not the place', async () => {
+  const { bot, fillBag } = gatherWorld({ dirt: NEAR, bad: NEAR })
+  fillBag()
+  await run(bot); await run(bot)
   assert.equal((bot.gatherTargets ?? []).length, 0)
   assert.equal((bot.gatherAreas ?? []).length, 0)
 })
@@ -216,8 +236,16 @@ test('MUTANT: admission ignores the area -> the repeat is admitted', async () =>
     assert.notEqual(new M.AdmissionControl(null).check({ skill: 'gather', args: { block: 'dirt', count: 4 } }, bot).reason, 'gather_area', 'the CHAIN test kills this mutant')
   })
 })
+test('MUTANT: the target write ignores the signal -> the UNTAGGED INTERRUPTION test sees a target', async () => {
+  await withMutant('skills.mjs', [['if (gatherMemOn() && setOutFrom && !signal?.aborted && ', 'if (gatherMemOn() && setOutFrom && ']], async (M) => {
+    const { bot, abortUntagged } = gatherWorld({ dirt: NEAR, bad: NEAR })
+    const ac = new AbortController(); abortUntagged(ac)
+    await M.SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, ac.signal).catch(() => null)
+    assert.ok((bot.gatherTargets ?? []).length > 0, 'the UNTAGGED INTERRUPTION test kills this mutant')
+  })
+})
 test('MUTANT: interruptions written as areas -> the AREAS test sees one', async () => {
   await withMutant('gathermem.mjs', [["new Set(['no_safe_target', 'unreachable', 'nothing_found'])", "new Set(['no_safe_target', 'unreachable', 'nothing_found', 'interrupted'])"]], async (M) => {
-    assert.equal(M.noteAreaRefusal([], { block: 'iron_ore', pos: here, failClass: 'interrupted', now: T }).length, 1, 'the AREAS test kills this mutant')
+    assert.equal(M.noteAreaRefusal([], { block: 'iron_ore', pos: here, failClass: 'interrupted', now: T }).length, 1, 'the AREAS test (interrupted writes nothing) kills this mutant')
   })
 })
