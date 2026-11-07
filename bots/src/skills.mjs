@@ -154,7 +154,7 @@ import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs' 
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf } from './shop.mjs'   // idlework-01 B: an unsited project yields its turn
 import { FORESTP } from './shop.mjs'   // forest-01: its switch
-import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree } from './forest.mjs'   // forest-01
+import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
 import { zoneAt } from './landplan.mjs'   // forest-01: the land plan's sectors
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
@@ -19354,20 +19354,23 @@ function forestInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townD
  *  (top down, the stump last) with the build effects' dig, re-read first (gone: passed), the bot never moving; a log the stand does not
  *  reach ends the tree (a shorter tree is left, never a floating log). */
 /** forest-03 (the showcase's release fold, Codex r3 BLOCKER): the columns a felling's leaf clearing never touches -> (x, z) -> bool: the
- *  protected zones (the fleet has no expedition markers). Unreadable: every column (no leaf dug). Never throws. */
-function fellLeafGuard (bot) {
+ *  protected zones (the fleet has no expedition markers) and, forest-04, every other record's ground (forest.mjs fellReserved).
+ *  Unreadable: null (forestFell fells nothing: `zones_unknown`, never counted by keepDue). Never throws. */
+function fellLeafGuard (bot, own = [FOREST_PLOT]) {
   try {
     const zv = townPlanZones(bot)
-    if (!zv?.known) return () => true
-    const boxes = (zv.zones ?? []).map(q => q?.box ?? q).filter(b => Array.isArray(b) && b.length === 6)
-    return (x, z) => boxes.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
-  } catch { return () => true }
+    if (!zv?.known) return null   // forest-04 (Claude review): unread zones -> no felling this visit, never a failure counted to keep
+    // forest-04 (Codex fold BLOCKERS 1, 4): the stands too, and every other record's ground (its box, its cells' columns: a hedge's
+    // leaves) -- forest.mjs fellReserved; `own` the records the felling works (the forest)
+    return fellReserved({ boxes: zv.zones ?? [], records: projectHeads().map(x => x.head?.rec).filter(Boolean), own })
+  } catch { return null }
 }
-async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', project = FOREST_PLOT }) {
+async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', project = FOREST_PLOT, guarded = null }) {
   // forest-03 (LIVE showcase 11-06 22:58Z: every felling off_stand): forest.mjs fellTree -- any orthogonal stand from which every log is
   // reached, judged from the bot's ACTUAL feet; the leaves within reach round the stand and on the way dug before each walk
   if (!t.stand) return { n: 0, why: 'no_stand' }
-  const guarded = fellLeafGuard(bot)
+  guarded ??= fellLeafGuard(bot, [FOREST_PLOT, project])
+  if (!guarded) return { n: 0, why: 'zones_unknown' }
   const r = await fellTree(e, farmRead(bot), t, { deadline, guard: guarded, check: () => check(signal),
     log: d => log({ ...forestRow({ ...d, kind: d.op === 'harvest' ? kind : d.kind }), project }) })
   await sleep(300, signal)
@@ -19438,9 +19441,10 @@ async function buildForest (ctx, args, signal) {
       if (lease.ok) {
         try {
           hv.strip = hl.strip
+          const hguard = fellLeafGuard(bot, [FOREST_PLOT])   // forest-04: the felling's reserved columns, read once a phase
           for (const t of hl.trees) {
             if (Date.now() > deadline - 40_000) break
-            const r = await forestFell(bot, e, t, { signal, deadline: deadline - 30_000, log: rowLog, kind: t.kind })
+            const r = await forestFell(bot, e, t, { signal, deadline: deadline - 30_000, log: rowLog, kind: t.kind, guarded: hguard })
             hv.felled += r.n
             if (r.why) {
               hv.failed++

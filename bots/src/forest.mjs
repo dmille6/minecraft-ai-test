@@ -537,15 +537,18 @@ export function standLeaves (read, stand, { from = null } = {}) {
  * `off_stand` -- 7 of 7 retirement trees and 1 of 1 site tree: the walk to the recorded stand stopped 1-3 blocks short, its head
  * cell a leaf the walk does not dig, and the felling then required the feet to equal that one cell). Pure.
  */
-export function fellStands (read, t) {
+export function fellStands (read, t, reserved = () => false) {
   const st = t?.stand, base = t?.cell ?? t?.base
   if (!Array.isArray(st) || !Array.isArray(base)) return []
-  const out = [st]
+  // forest-04 (Codex fold BLOCKER 1): every stand, the recorded one too, off the reserved columns (siteTreeStand's `free` filter: a
+  // marker's margin, a protected zone, another record's ground); (BLOCKER 5) its ground footing that stays (standGround)
+  const out = reserved(st[0], st[2]) || !standGround(read(st[0], st[1] - 1, st[2])) ? [] : [st]
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const c = [base[0] + dx, st[1], base[2] + dz]
     if (c[0] === st[0] && c[2] === st[2]) continue
+    if (reserved(c[0], c[2])) continue
     const g = read(c[0], c[1] - 1, c[2]), f = read(...c), h = read(c[0], c[1] + 1, c[2])
-    if (!g || !f || !h || g.boundingBox !== 'block' || LOG.test(nm(g))) continue
+    if (!g || !f || !h || !standGround(g)) continue
     if (![f, h].every(q => AIRN(nm(q)) || LEAVES.test(nm(q)) || q.boundingBox === 'empty')) continue
     out.push(c)
   }
@@ -553,6 +556,64 @@ export function fellStands (read, t) {
 }
 /** Can feet at `feet` fell every log of `logs` without moving (forest-01's measured rule, from wherever the bot actually stands)? */
 export const feetFells = (feet, logs, F = FOREST) => Array.isArray(feet) && (logs ?? []).length > 0 && logs.every(p => standReaches(feet, p, F))
+const LAVA = n => n === 'lava' || n === 'flowing_lava'
+/** forest-04: ground a felling stand may stand on -> bool. Pure. A full solid block that stays: never leaves (they decay once the tree
+ *  is down: the bot drops), never a log (a felling may take it), never unread. */
+export const standGround = g => !!g && g.boundingBox === 'block' && !LEAVES.test(nm(g)) && !LOG.test(nm(g)) && !LAVA(nm(g))
+/** forest-04 (Claude review note): ground lower than a full block that a bot stands ON inside its floored cell (buildbot.mjs feet
+ *  floors the body's y: on a dirt path at y 64 the body is at 64.94, its feet cell 64) -- the feet are the cell above. */
+export const PARTIAL_GROUND = /^(dirt_path|farmland|mud|soul_sand|[a-z_]+_slab|chest|trapped_chest|ender_chest|enchanting_table|stonecutter|[a-z_]+_bed|composter|lectern|honey_block)$/
+/** The feet a body stands at -> [x, y, z]: `feet` (floored), one up when its floored cell is PARTIAL_GROUND it stands on. Pure. */
+export function bodyFeet (read, feet) {
+  if (!Array.isArray(feet) || feet.length < 3 || !feet.every(Number.isFinite)) return feet
+  const b = read(feet[0], feet[1], feet[2])
+  return b && b.boundingBox === 'block' && PARTIAL_GROUND.test(nm(b)) ? [feet[0], feet[1] + 1, feet[2]] : feet
+}
+/** forest-04 (Codex fold BLOCKER 5): may a bot whose feet are at `feet` fell from there, the tree's stands at feet height `standY`?
+ *  -> bool. Pure. Reach alone (feetFells) admitted a 2-deep pit beside the trunk (the town walk cannot dig or tower out of it) and a
+ *  perch on leaves. The feet at the stands' floor or one above it, on standGround. */
+export function standFooting (read, feet, standY) {
+  if (!Array.isArray(feet) || feet.length < 3 || !feet.every(Number.isFinite) || !Number.isFinite(standY)) return false
+  const dy = feet[1] - standY
+  if (dy < 0 || dy > 1) return false
+  return standGround(read(feet[0], feet[1] - 1, feet[2]))
+}
+/** forest-04 (Codex fold BLOCKER 3): is lava on a face of the cell (or a face unread)? -> bool. Pure. A leaf or log that holds back
+ *  lava is never dug: the lava flows into the hole, at the bot's feet or head. */
+export function lavaBeside (read, q) {
+  for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+    const b = read(q[0] + dx, q[1] + dy, q[2] + dz)
+    if (!b || LAVA(nm(b))) return true
+  }
+  return false
+}
+/** forest-04 (Codex fold BLOCKERS 2, 3): may a stand's leaf clearing dig the leaf at `q`, the bot's feet at `feet`? -> bool. Pure.
+ *  Never a cell under the bot (below its feet in the 3x3 round it: the leaf it stands on, or the one its edge rests on -- the ring's
+ *  dig dropped a bot perched above the stand), never one beside lava, never out of reach. */
+export function clearLeafOk (read, feet, q) {
+  if (!Array.isArray(feet) || feet.length < 3 || !feet.every(Number.isFinite)) return false
+  if (q[1] < feet[1] && Math.abs(q[0] - feet[0]) <= 1 && Math.abs(q[2] - feet[2]) <= 1) return false
+  if (lavaBeside(read, q)) return false
+  return digReachFrom(feet, q)
+}
+/**
+ * forest-04 (Codex fold BLOCKERS 1, 4): THE COLUMNS A FELLING NEVER STANDS ON OR CLEARS -> (x, z) -> bool. Pure.
+ *   boxes    zone boxes [x0, y0, z0, x1, y1, z1] (the town's expedition markers' margins, the protected zones)
+ *   records  every project record; `own` the plots whose ground the felling may work (the forest; the farm being retired)
+ * Another record's box (its x/z box) and every column of its cells (a decorator's hedge leaves, a light post, a path): never cleared,
+ * never a stand. A record's own `zones` (a path's columns + 1, a wall's margin) are siting gaps, not ground, and are not read here.
+ */
+export function fellReserved ({ boxes = [], records = [], own = [] } = {}) {
+  const bx = (boxes ?? []).map(q => q?.box ?? q).filter(b => Array.isArray(b) && b.length === 6 && b.every(Number.isFinite))
+  const ownSet = new Set(own ?? [])
+  const rb = [], cols = new Set()
+  for (const r of records ?? []) {
+    if (!r || ownSet.has(r.plot)) continue
+    if (Array.isArray(r.box) && r.box.length === 4 && r.box.every(Number.isFinite)) rb.push(r.box)
+    for (const c of r.cells ?? []) if (Array.isArray(c?.at) && c.at.length === 3) cols.add(k2(c.at[0], c.at[2]))
+  }
+  return (x, z) => cols.has(k2(x, z)) || rb.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) || bx.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
+}
 /**
  * forest-03 FELL ONE TREE -> { n, why, from }. The effects `e` (buildbot.mjs botBuildEffects: walkTo, dig, feet), the world `read`.
  * For each stand of fellStands (nearest the bot first after the recorded one, at most `tries`): already on a cell from which every
@@ -563,11 +624,12 @@ export const feetFells = (feet, logs, F = FOREST) => Array.isArray(feet) && (log
  */
 export async function fellTree (e, read, t, { deadline = Infinity, guard = () => false, log = () => {}, check = () => {}, tries = 3, F = FOREST } = {}) {
   let n = 0
+  const feetAt = () => bodyFeet(read, e.feet())   // forest-04: the cell the body stands in (a dirt path, mud: one up)
   const left = () => (t.order ?? []).filter(p => LOG.test(nm(read(...p))))
   // the leaves a walk to `st` may need gone (Paper 11-07: a walk that digs no leaf stopped 1-3 short 5 of 11 times): the stand's
   // feet and head, the ring round it at feet and head, and the cells on the straight line from the bot to it -- those within reach
   const clearCells = st => {
-    const f = e.feet(), out = [[st[0], st[1], st[2]], [st[0], st[1] + 1, st[2]]]
+    const f = feetAt(), out = [[st[0], st[1], st[2]], [st[0], st[1] + 1, st[2]]]
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) for (const dy of [0, 1]) out.push([st[0] + dx, st[1] + dy, st[2] + dz])
     const steps = Math.max(Math.abs(st[0] - f[0]), Math.abs(st[2] - f[2]))
     for (let i = 1; i < steps; i++) { const x = Math.round(f[0] + (st[0] - f[0]) * i / steps), z = Math.round(f[2] + (st[2] - f[2]) * i / steps); for (const dy of [0, 1]) out.push([x, st[1] + dy, z]) }
@@ -578,40 +640,45 @@ export async function fellTree (e, read, t, { deadline = Infinity, guard = () =>
       if (Date.now() > deadline) return
       if (guard(q[0], q[2])) continue
       const b = read(...q)
-      if (!b || !LEAVES.test(nm(b)) || !digReachFrom(e.feet(), q)) continue
+      if (!b || !LEAVES.test(nm(b)) || !clearLeafOk(read, feetAt(), q)) continue
       if ((await e.dig(q, nm(b))) === 'confirmed') log({ op: 'clear', cell: q, block: nm(b), kind: 'stand' })
     }
   }
-  const dist = st => { const f = e.feet(); return Math.abs(f[0] - st[0]) + Math.abs(f[2] - st[2]) + Math.abs(f[1] - st[1]) }
-  const all = fellStands(read, t)
+  const dist = st => { const f = feetAt(); return Math.abs(f[0] - st[0]) + Math.abs(f[2] - st[2]) + Math.abs(f[1] - st[1]) }
+  // forest-04 (Codex fold BLOCKER 3): a log that holds back lava is never dug -- the tree is not started (a skip, then kept: keepDue)
+  if (left().some(p => lavaBeside(read, p))) return { n, why: 'lava', from: feetAt() }
+  // forest-04 (BLOCKERS 1, 5): the stands off the reserved columns (`guard`), on ground that stays; the actual feet judged by reach,
+  // footing and the same columns -- never a pit beside the trunk, a leaf perch, or a marker's margin
+  const all = fellStands(read, t, guard)
   const cands = [all[0], ...all.slice(1).sort((a, b) => dist(a) - dist(b))].filter(Boolean).slice(0, tries)
-  let ok = feetFells(e.feet(), left(), F)
+  const fells = f => feetFells(f, left(), F) && standFooting(read, f, t.stand?.[1]) && !guard(f[0], f[2])
+  let ok = fells(feetAt())
   for (const st of cands) {
     if (ok || Date.now() > deadline) break
     await clearAt(st)
     await e.walkTo(st)
     check()
-    ok = feetFells(e.feet(), left(), F)
+    ok = fells(feetAt())
     if (ok) break
     await clearAt(st)
     await e.walkTo(st)
     check()
-    ok = feetFells(e.feet(), left(), F)
+    ok = fells(feetAt())
     if (ok) break
     await clearAt(st)   // a third try: each walk brings more of the way's leaves within reach
     await e.walkTo(st)
     check()
-    ok = feetFells(e.feet(), left(), F)
+    ok = fells(feetAt())
   }
-  if (!left().length) return { n, why: null, from: e.feet() }
-  if (!ok) return { n, why: Date.now() > deadline ? 'deadline' : 'off_stand', from: e.feet() }
-  const from = e.feet()
+  if (!left().length) return { n, why: null, from: feetAt() }
+  if (!ok) return { n, why: Date.now() > deadline ? 'deadline' : 'off_stand', from: feetAt() }
+  const from = feetAt()
   for (const p of t.order) {
     check()
     if (Date.now() > deadline) return { n, why: 'deadline', from }
     const b = read(...p)
     if (!b || !LOG.test(nm(b))) continue
-    if (!standReaches(e.feet(), p, F)) return { n, why: 'reach', from }
+    if (!standReaches(feetAt(), p, F) || !standFooting(read, feetAt(), t.stand?.[1])) return { n, why: 'reach', from }
     const v = await e.dig(p, nm(b))
     if (v !== 'confirmed') return { n, why: v, from }
     n++
@@ -839,7 +906,7 @@ export function farmRetirePlan (read, farm, F = FOREST) {
 /** A FARM TREE THIS BOT FAILED (forestFell's why, never the clock) -> true when it is due to be KEPT (waived on the farm record, a
  *  garden tree): FOREST.failMax failures. Pure over `fails` (Map key -> n, the bot's own, mutated). The forest's own plots the same. */
 export function keepDue (fails, key, why, F = FOREST) {
-  if (!fails || !key || why === 'deadline' || why === 'no_time') return false
+  if (!fails || !key || why === 'deadline' || why === 'no_time' || why === 'zones_unknown') return false   // forest-04: unread zones are no failure
   const n = (fails.get(key) ?? 0) + 1
   fails.set(key, n)
   return n >= F.failMax
