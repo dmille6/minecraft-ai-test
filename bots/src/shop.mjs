@@ -848,12 +848,14 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   let plot = record?.plot ?? null
   if (!record) { try { plot = activePlotOf() } catch { plot = null } }
   // stockyard-01: the yard's visit EMPTIES a bag (its piles take the bag's surplus): a full bag is the reason for it, never a refusal
-  if (plot !== YARD_PLOT && freeSlots < (LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN)) {
+  const need = LIGHT_PLOTS.has(plot) ? MONUMENT_BAG_SLOTS_MIN : SHOP_BAG_SLOTS_MIN
+  if (plot !== YARD_PLOT && freeSlots < need) {
     // bagroom-01: the refusal names a remedy the bot performs here -- a drawn share of whole stacks in the bag is banked into the
-    // materials chests (skills.mjs shareBankAsk; bagroom.mjs shareBankPlan). No ask, or nothing to bank: the skip, as before
+    // materials chests (skills.mjs shareBankAsk; bagroom.mjs shareBankPlan); bagfull-01: else the stacks no build needs are banked in
+    // the town's chests, and the visit builds (skills.mjs roomAsk; bagroom.mjs roomBankAsk). No ask, or nothing to bank: the skip
     if (roomAskOf) {
       let ra = null
-      try { ra = roomAskOf({ now, freeSlots, plot }) } catch { ra = null }
+      try { ra = roomAskOf({ now, freeSlots, plot, need }) } catch { ra = null }   // bagfull-01: the plot's own room (8, or 2 light)
       if (ra?.order) return { order: ra.order, skip: null }
     }
     return { order: null, skip: 'room' }

@@ -213,7 +213,7 @@ import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterR
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
-import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail } from './bagroom.mjs'   // bagroom-01
+import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
 import { MARKET, marketYield, marketKeeps, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment, bedDirFrom, WALKIN, walkinSwitch, walkinTargets, walkinAdmit, legsTo, edgeOf, walkinLeave, walkinCandidates, walkinGoods, bedCells, farmStep, withStepPrice, FARM_BLOCKS } from './market.mjs'   // market-01
@@ -8477,9 +8477,9 @@ async function openTown (bot, block, ms) {
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, room = null } = {}) {
   const bag = windowBag(bot, win)
-  const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail })
+  const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail, ...(room ?? {}) })
   // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
   const plan = accept ? { ...plan0, steps: plan0.steps.filter(st => accept(st.name)) } : plan0
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
@@ -8575,6 +8575,9 @@ async function townDeposit (ctx, _args, signal) {
   // junkout-01: the NOT-FULL visit's tail order (towndeposit.mjs tailOrder) banks the bag allowance's rows ONLY -- no base
   // plan, no count step, no valve; every plan of the run reads the same mode
   const tail = _args?.tail === true ? 'only' : null
+  // bagfull-01: the ROOM BANK's run (build_shop { roomBank }: bagroom.mjs roomBankAsk) -- every plan of the run adds the room steps
+  // (towndeposit.mjs townDepositPlan `room`), a drawn share's names excluded (the share bank's); never with a tail
+  const room = _args?.room === true && !tail && BAGROOM.bank ? { room: true, roomExclude: roomShareNames(bot) } : null
   let counted = null
   // logbank-01 r2: a tail order for LOGS may count first too -- over the bag's logs only (no other name's count rides along)
   const tailLogs = !!tail && _args?.logs === true && LOGBANK.on
@@ -8600,8 +8603,8 @@ async function townDeposit (ctx, _args, signal) {
   // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target keeps out of this visit, named
   stockRefusedRow(bot, 'town_deposit', before, { wants: wanted, noSwords: foodSkipNow(bot).active })
   // THE VALVE: only with the proof, re-taken here (design 3.2)
-  const valve = !tail && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.some(st => !st.half) && valveProof(bot, before)
-  const startPlan = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, tail })
+  const valve = !tail && !room && !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.some(st => !st.half) && valveProof(bot, before)
+  const startPlan = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve, tail, ...(room ?? {}) })
   const planned = startPlan.steps.length
   // the allowance rows' own stacks at the start (junkout-01's bank row: what they planned, and what the server showed banked)
   const allowPlanned = startPlan.steps.filter(st => st.allowance).map(st => ({ name: st.name, row: st.allowance }))
@@ -8669,7 +8672,7 @@ async function townDeposit (ctx, _args, signal) {
       const sk = sortH ? sortKeys(bot, c) : null
       if (sortH && c0.any && tried.some(t => t.at === at && t.result === 'full')) continue
       const accept = sortH ? (c0.any ? () => true : acceptsFor(sortH, sk.k, bankGroups, sk.alt)) : null
-      if (accept && !townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail }).steps.some(st => accept(st.name))) continue
+      if (accept && !townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail, ...(room ?? {}) }).steps.some(st => accept(st.name))) continue
       if (left() <= 1000) { stop = 'budget'; break }
       check(signal)
       if (bot.entity.position.distanceTo(c.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) {
@@ -8698,7 +8701,7 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
@@ -8736,7 +8739,7 @@ async function townDeposit (ctx, _args, signal) {
       // the next visit's townContainers and the recovery's sweep skip it until FULL_TTL_MS or a `took`
       if (v.ok && !r.done.length && r.noRoom) { rememberTown(bot, c.position, 'full'); const q = chestPartner(bot, c.position); if (q) rememberTown(bot, q, 'full') }
       if (!v.ok) { stop = 'unverified'; break }
-      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail }).steps.length) break
+      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail, ...(room ?? {}) }).steps.length) break
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
@@ -18292,7 +18295,7 @@ function shareBankAsk ({ now = Date.now(), freeSlots = 36 } = {}) {
 /** BAGROOM-01, once per spawn (features.mjs): the ask is wired where the switch is on, and `_bagroom_mode` written. Never throws. */
 export function bagRoomInstall (bot) {
   sbBot = bot
-  if (BAGROOM.share) setRoomAsk(shareBankAsk)
+  if (BAGROOM.share || BAGROOM.bank) setRoomAsk(roomAsk)
   try { logEvent({ kind: 'bagroom_mode', status: 'success', snapshot: snapshot(bot), detail: bagRoomModeDetail(BAGROOM) }) } catch { /* telemetry */ }
 }
 /** THE SHARE-BANK VISIT (build_shop { shareBank }): each held share banked (materials chests first: matsBank's `prefer`), its drawn
@@ -18327,6 +18330,82 @@ async function shareBankVisit (ctx, _args, signal) {
 }
 function shareBankRow (bot, per, slotsBefore, stop) {
   try { logEvent({ kind: 'share_bank', status: per.some(p => Object.keys(p.banked).length) ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shareBankDetail({ per, slotsBefore, slotsAfter: (bot.inventory?.items?.() ?? []).length, stop }) }) } catch { /* telemetry */ }
+}
+// BAGFULL-01 (bagroom.mjs: the room bank): the build order's room refusal asks roomAsk -- the share bank first (bagroom-01, unchanged),
+// else a ROOM-BANK visit when the town deposit's room plan frees at least one slot. The visit banks (townDeposit { room }) and then
+// builds in the same visit when the bag now has the build's room (the order's cooldown was charged at issue: no wasted turn).
+/** The drawn shares' names this bot holds (the share bank's, never the room bank's) -> Set. Never throws. */
+function roomShareNames (bot) {
+  try { return new Set(heldShares(bot).flatMap(sh => Object.keys(sh.share ?? {}))) } catch { return new Set() }
+}
+/** How many whole stacks the room bank would move from this bag now -> n. Never throws (0). */
+function roomBankSlots (bot) {
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    const plan = townDepositPlan(items, { wanted: Array.isArray(bot.townDepositWanted) ? bot.townDepositWanted : [], noSwords: foodSkipNow(bot).active, room: true, roomExclude: roomShareNames(bot) })
+    return plan.steps.filter(st => st.room).length
+  } catch { return 0 }
+}
+/** shop.mjs buildOrder's room ask (bagroom-01 + bagfull-01) -> { order } | null. Never throws. */
+function roomAsk ({ now = Date.now(), freeSlots = 36, plot = null, need = BUILD_ROOM_SLOTS } = {}) {
+  if (BAGROOM.share) { const sb = shareBankAsk({ now, freeSlots }); if (sb) return sb }
+  try {
+    const bot = sbBot
+    if (!bot || !SHOP.on || !BAGROOM.bank) return null
+    // the cheap gates first (switch, room, rate limit): the plan is read only when a bank could be asked
+    if (!roomBankAsk({ freeSlots, need, slots: 1, now, lastAt: bot.roomBankAt ?? null }).ok) return null
+    const a = roomBankAsk({ freeSlots, need, slots: roomBankSlots(bot), now, lastAt: bot.roomBankAt ?? null })
+    if (!a.ok) return null
+    bot.roomBankAt = now
+    return { order: { skill: 'build_shop', args: { roomBank: true, plot: plot ?? null, need }, why: `the build needs ${need} free slots and ${a.slots} whole stack(s) in the bag are not the kit's: bank them in the town's chests, then build` } }
+  } catch { return null }
+}
+/** The nearest town container within ROOM_WALK_R (the town's zone) -> Vec3 | null. Never throws. */
+const ROOM_WALK_R = 48
+function roomContainerNear (bot) {
+  try {
+    const me = bot.entity?.position
+    if (!me) return null
+    const home = homeVec()
+    const found = (bot.findBlocks?.({ matching: b => isTownContainer(bot, b), maxDistance: ROOM_WALK_R, count: 64 }) ?? []).filter(p => inTownZone(p, home))
+    found.sort((a, b) => me.distanceTo(a) - me.distanceTo(b) || a.x - b.x || a.y - b.y || a.z - b.z)
+    return found[0] ?? null
+  } catch { return null }
+}
+/** BAGFULL-01: THE ROOM-BANK VISIT (build_shop { roomBank }). Walks into a town container's reach when none is in it, runs the town
+ *  deposit with the room plan, writes one `_room_bank` row, and -- the bag now short of nothing, inside ROOM_BUILD_AFTER_MS -- goes
+ *  on into the build visit itself. */
+const ROOM_BUILD_AFTER_MS = 90_000
+async function roomBankVisit (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const need = Number.isFinite(Number(args?.need)) ? Number(args.need) : BUILD_ROOM_SLOTS
+  const used = () => (bot.inventory?.items?.() ?? []).length
+  const slotsBefore = used()
+  const planned = roomBankSlots(bot)
+  let r = { status: 'no_effect', detail: 'not run' }, then = 'stop'
+  const before = heldMap(bot)
+  try {
+    if (!townContainers(bot, 1).length) {
+      const c = roomContainerNear(bot)
+      if (c) {
+        try {
+          const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
+          await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(c.x, c.y, c.z, 2)), 20_000, bot))
+        } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
+      check(signal)
+    }
+    r = await townDeposit(ctx, { room: true }, signal)
+  } finally {
+    const after = heldMap(bot)
+    const banked = {}
+    for (const [n, c] of Object.entries(before)) if ((after[n] ?? 0) < c) banked[n] = c - (after[n] ?? 0)
+    then = 36 - used() >= need && Date.now() - t0 <= ROOM_BUILD_AFTER_MS && !signal?.aborted ? 'build' : 'stop'
+    try { logEvent({ kind: 'room_bank', status: r?.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: roomBankDetail({ plot: args?.plot ?? '-', need, planned, slotsBefore, slotsAfter: used(), banked, status: r?.status ?? '-', then }) }) } catch { /* telemetry */ }
+  }
+  if (then === 'build') return buildShop(ctx, {}, signal)
+  return r?.status === 'success' ? { status: 'success', detail: `${r.detail}; the bag has ${36 - used()} free slot(s) of the build's ${need}` } : { status: 'no_effect', detail: `the room bank moved nothing (${String(r?.detail ?? '').slice(0, 120)})` }
 }
 // ANVILAPPLY-01 + ENCHANT-01 (OWNER 11-04; enchant.mjs decides, docs/reports/anvilproof-2026-11-03.md is the method): at town,
 // shop.mjs buildOrder asks enchantAsk FIRST (one ask per kind per bot per ASK_EVERY_MS, and only when there is work): a book
@@ -21037,6 +21116,8 @@ async function buildShop (ctx, args, signal) {
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
   // bagroom-01: the share-bank visit the room refusal asked for (bagroom.mjs shareBankPlan)
   if (args?.shareBank === true) return shareBankVisit(ctx, args, signal)
+  // bagfull-01: the room-bank visit the room refusal asked for (bagroom.mjs roomBankAsk), then the build when the bag has room
+  if (args?.roomBank === true) return roomBankVisit(ctx, args, signal)
   // SINKFIX-01: every visit's outcome marks (or clears) its plot idle for this bot (shop.mjs noteIdle); an abort throws past it
   // sinkfix-02: an ABORT is noted too (a sink's marks it: shop.mjs noteIdle), then rethrown; and the KEEPER's own no-effect grounds
   // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
