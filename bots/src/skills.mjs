@@ -2064,7 +2064,10 @@ async function gather(ctx, args, signal) {
     // throws past this line, so an interruption never writes one
     try {
       const at = ctx.bot?.entity?.position
-      if (gatherMemOn() && r?.status !== 'success' && args?.block && at) {
+      // never from a cancelled run (a reflex took the body: Claude + Codex r1 BLOCKER), never with a full bag or a run that
+      // marked its answer as the bag's (Codex r1 BLOCKER: tunnelToOre's inventory_full falls through to `unreachable`)
+      const bagFull = (ctx.bot?.inventory?.emptySlotCount?.() ?? 1) === 0
+      if (gatherMemOn() && !signal?.aborted && !bagFull && r?.memoClass !== 'none' && r?.status !== 'success' && args?.block && at) {
         const fc = r?.memoClass ?? r?.failClass
         const before = (ctx.bot.gatherAreas ?? []).length
         ctx.bot.gatherAreas = noteAreaRefusal(ctx.bot.gatherAreas, { block: args.block, pos: { x: at.x, y: at.y, z: at.z }, failClass: fc })
@@ -2218,6 +2221,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   // gather that tunnels on every round is a gather that never returns.
   let escalated = false
   let mineSaid = null
+  let memoBagSaid = false   // gathermem-01: a tunnel refused for a full bag -- the run's answer writes no area entry
   const maxRounds = count * 4 + 8
 
   while (collected < count && rounds < maxRounds) {
@@ -2653,6 +2657,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         if (dug?.status === 'success') continue     // rescan: the tunnel exposed the ore; gather's own collection takes it
         // inventory_full FALLS THROUGH (Claude review): its remedy, deposit, cannot be performed while the chests are full.
         if (dug?.need || dug?.failClass === 'pickaxe_short') return dug   // the remedy is the answer
+        if (dug?.failClass === 'inventory_full') memoBagSaid = true        // gathermem-01: the answer below is the bag's, not the place's
       }
       if (WORTH_TUNNELLING.test(viaSource ?? blockName) && !escalated) {
         escalated = true
@@ -2665,7 +2670,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel may have exposed one
       }
-      return { status: 'failed', failClass: 'unreachable',
+      return { status: 'failed', failClass: 'unreachable', ...(memoBagSaid ? { memoClass: 'none' } : {}),
                detail: `${blockName} found but every candidate is buried — use mine to dig down` +
                        belowGroundHint(bot) +
                        (mineSaid ? ` [mine said: ${String(mineSaid).slice(0, 110)}]` : '') }
@@ -2690,6 +2695,19 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // once the bot has moved, so this must not become a persistent blacklist.
     // The lessons store is where a durable claim would belong, and a transient
     // geometric fact is not one.
+    // GATHERMEM-01 (Codex r1 BLOCKER): a FALLBACK list (another block that yields it, or foliage-covered logs) is built after
+    // the ranking above -- rank it here, by its own block, with the same all-remembered rule
+    if ((viaSource || viaCover) && gatherMemOn() && (bot.gatherTargets ?? []).length) {
+      const here = bot.entity.position, fb = viaSource ?? blockName
+      const ranked = rankByMemory(reachable.filter(q => !excluded.has(key(q))), q => !!rememberedTarget(bot.gatherTargets, { block: fb, cell: q, pos: here }))
+      if (allRemembered({ fresh: ranked.fresh, remembered: ranked.remembered, collected, rounds })) {
+        try { logEvent({ kind: 'gathermem', status: 'no_effect', snapshot: snapshot(bot), detail: `op=all_remembered block=${fb} candidates=${ranked.remembered} via=${viaSource ? 'source' : 'cover'}` }) } catch { /* telemetry */ }
+        return { status: 'failed', failClass: 'unreachable', memoClass: 'remembered',
+                 detail: `${blockName}: all ${ranked.remembered} candidate(s) within reach of here failed you in the last ` +
+                         `few minutes -- not walking to them again; gather another block, or walk away and gather it there` }
+      }
+      if (ranked.remembered && ranked.fresh) reachable = ranked.list
+    }
     const nextUp = reachable.find(q => !excluded.has(key(q)))
     if (!nextUp) {
       // Every candidate has already refused us this run. Re-scanning cannot
@@ -2716,7 +2734,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     if (!target || target.name !== (viaSource ?? blockName)) { excluded.add(key(nextUp)); continue }
     const setOutFrom = bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null
     // a full bag says nothing about the cell (Codex design: never learn from bag saturation)
-    const noteFailed = why => { if (gatherMemOn() && setOutFrom && !((bot.inventory?.emptySlotCount?.() ?? 1) === 0)) bot.gatherTargets = noteTargetFailure(bot.gatherTargets, { block: target.name, cell: target.position, from: setOutFrom, why }) }
+    const noteFailed = why => { if (gatherMemOn() && setOutFrom && !signal?.aborted && !((bot.inventory?.emptySlotCount?.() ?? 1) === 0)) bot.gatherTargets = noteTargetFailure(bot.gatherTargets, { block: target.name, cell: target.position, from: setOutFrom, why }) }
 
     try {
       // The budget has to cover PLANNING PLUS DOING. It was 10000ms while
