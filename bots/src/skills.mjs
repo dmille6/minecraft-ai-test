@@ -20447,7 +20447,7 @@ async function marketRun (ctx, args, signal) {
 }
 /** OPEN ONE MERCHANT and trade (market_run and market_trip): the window's offers recorded, the sale of what was DRAWN, the town's
  *  wants bought with <= spendPerRun, every trade row written. -> { res } | { res: null, fail } (no window). Never leaves a window open. */
-async function mkOpenAndTrade (ctx, e, merchant, drawn, signal, { spend = MARKET.spendPerRun, tradeMs = 20_000 } = {}) {
+async function mkOpenAndTrade (ctx, e, merchant, drawn, signal, { spend = MARKET.spendPerRun, tradeMs = 20_000, perSide = 3 } = {}) {
   const { bot } = ctx
   let res = null
     let v = null
@@ -20471,11 +20471,11 @@ async function mkOpenAndTrade (ctx, e, merchant, drawn, signal, { spend = MARKET
       const have = {}
       for (const [item, n] of Object.entries(drawn)) have[item] = Math.min(n, winCount(v, item))
       // at most 3 sales and 3 purchases a window: with tradeMs 20 s a window is <= 2 min (the walk-in's inside-a-zone bound)
-      const sells = sellOffers(v.trades, have).slice(0, 3)
+      const sells = sellOffers(v.trades, have).slice(0, perSide)
       const wantsNow = townWants(mkTownStock(bot) ?? {}, mkBag(bot))
       res = await runTrades(v, { sells, buys: [] }, { sleep: ms => sleep(ms, signal), stackOf, tradeMs })
       if (!res.halt) {
-        const buys = buyOffers(v.trades, { emeralds: Math.min(winCount(v, 'emerald'), spend), wants: wantsNow }).slice(0, 3)
+        const buys = buyOffers(v.trades, { emeralds: Math.min(winCount(v, 'emerald'), spend), wants: wantsNow }).slice(0, perSide)
         const r2 = await runTrades(v, { sells: [], buys }, { sleep: ms => sleep(ms, signal), stackOf, tradeMs })
         res.spent += r2.spent; Object.assign(res.bought, r2.bought); res.halt = r2.halt; res.why = r2.why
       }
@@ -20742,7 +20742,7 @@ async function marketTripPriced (ctx, args, signal) {
       const e = Object.values(bot.entities ?? {}).find(x => (x.uuid ?? String(x.id)) === m.uuid)
       if (!e || e.position.distanceTo(bot.entity.position) > 3.2) continue
       const merchant = { ...m, x: e.position.x, y: e.position.y, z: e.position.z }
-      const tr = await mkOpenAndTrade(ctx, e, merchant, drawn, signal, { spend: Math.max(0, MARKET.spendPerRun - out.spent), tradeMs: 8_000 })
+      const tr = await mkOpenAndTrade(ctx, e, merchant, drawn, signal, { spend: Math.max(0, MARKET.spendPerRun - out.spent), tradeMs: 8_000, perSide: 2 })
       out.visited++
       const r = tr.res ?? { sold: {}, earned: 0, spent: 0, bought: {} }
       out.earned += r.earned; out.spent += r.spent
