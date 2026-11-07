@@ -132,6 +132,8 @@ const REQUIRED = [
   'bots/src/gkforever.mjs',
   'bots/src/roughground.mjs',   // roughground-01 (11-07)
   'bots/test/roughground.test.mjs',   // roughground-01 (11-07)
+  'bots/src/regrade.mjs',   // roughground-4 (11-07): the wide-area regrade
+  'bots/test/regrade.test.mjs',   // roughground-4 (11-07)
   'bots/test/gkforever.test.mjs',
   'docs/reports/gkforever-design-2026-11-06.md',
   // stations-01 (owner 11-06): the town's tables and furnaces (take-back, the groundskeepers' sweep, town stations, chest first, spare fuel)
