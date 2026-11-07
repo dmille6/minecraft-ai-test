@@ -22,8 +22,10 @@ PLAYBACK (tlvideo-01, owner 11-03 "better showcase videos"): each clip runs at O
 stored frames (ffmpeg `framerate` blend, no optical flow: building changes would grow invented motion). The source rate
 fits the clip to about TARGET_S seconds (src_fps_for: never faster than MAX_SRC_FPS, never slower than MIN_SRC_FPS).
 LOOK (tlpolish-1106, owner 11-07): every clip is colour graded at encode time (GRADE; the stored frames stay raw) and
-encoded at CRF 17 / preset slow. SMOOTHING: `daily` and `history` use ffmpeg motion interpolation (minterpolate, owner
-pick "C") instead of the dissolve, at night, under the video lock (the two jobs never run at once) and against a
+encoded at CRF 17 / preset slow. SMOOTHING is OFF by default (owner 11-07 04:25Z: "if video smoothing takes that long
+let's not do it" -- he runs minterpolate on a faster machine himself): every clip dissolves ("B"). tl.conf
+`"smooth": "on"` brings it back: then `daily` and `history` use ffmpeg motion interpolation (minterpolate) instead of
+the dissolve, at night, under the video lock (the two jobs never run at once) and against a
 DEADLINE (smooth_deadline: 23:45 UTC, before the next day's daily job). A clip that would not finish by then -- its
 estimate (output frames x the measured seconds per megapixel-frame, logs/video-smooth.json) passes the deadline, or its
 encode is cut at the deadline -- is encoded with the dissolve ("B") instead, and so is every clip after it in that
@@ -57,6 +59,20 @@ GRADE = ('eq=contrast=1.06:saturation=1.15:gamma=0.98,colorbalance=rh=0.035:gh=0
          'vignette=angle=PI/7')
 MINTERP = 'minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=none'
 SMOOTH_KINDS = ('daily', 'history')
+TL_CONF = os.environ.get('TL_CONF', '/srv/showcase/timelapse/tl.conf')
+
+
+def smooth_on(cfg, kind):
+    """Motion interpolation for this video job? Only when tl.conf says `"smooth": "on"` (default OFF, owner 11-07) and
+    the job is daily/history. Pure (tested)."""
+    return str((cfg or {}).get('smooth', 'off')).strip().lower() == 'on' and kind in SMOOTH_KINDS
+
+
+def load_tl_conf(path=None):
+    try:
+        return json.load(open(path or TL_CONF))
+    except (OSError, ValueError):
+        return {}
 SMOOTH_DEADLINE_HM = (23, 45)        # UTC; the next daily job starts 00:20
 SMOOTH_S_PER_MPX = 0.9               # first guess, seconds per output megapixel-frame (measured .30, 4 threads: ~0.6)
 SMOOTH_MARGIN = 1.25                 # an estimate must fit the time left with this much slack
@@ -277,7 +293,7 @@ def smooth_choice(enabled, est_s, now_s, deadline_s, fell_back, margin=SMOOTH_MA
     """-> (smooth?, reason). Motion interpolation only when the job allows it, no earlier clip of this job fell back,
     and the estimate (with margin) fits before the deadline. Pure (tested)."""
     if not enabled:
-        return False, 'dissolve (weekly/monthly)'
+        return False, 'dissolve (smoothing off, or weekly/monthly)'
     if fell_back:
         return False, 'fallback: an earlier clip of this job fell back'
     left = deadline_s - now_s
@@ -609,7 +625,7 @@ def main():
         return 0
     # the deadline is fixed at the job's START, before waiting for the lock (Codex r1: a job that got the lock after
     # 23:45 would otherwise get tomorrow's deadline and run into its service timeout)
-    sj = SmoothJob(a.kind in SMOOTH_KINDS, smooth_deadline(dt.datetime.now(dt.timezone.utc)))
+    sj = SmoothJob(smooth_on(load_tl_conf(), a.kind), smooth_deadline(dt.datetime.now(dt.timezone.utc)))
     # ONE video job at a time (daily 00:20 and history 01:00 would otherwise share the night's CPU and deadline)
     if a.kind in SMOOTH_KINDS:
         os.makedirs(os.path.join(ROOT, 'logs'), exist_ok=True)

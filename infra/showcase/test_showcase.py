@@ -2000,6 +2000,67 @@ class Timelapse(unittest.TestCase):
         self.assertEqual(TV.smooth_rate_update(None, 0.7), 0.7)
         self.assertEqual(TV.smooth_rate_update(1.0, 0.6), 0.8)
 
+    def test_smoothing_is_off_unless_tl_conf_says_on(self):
+        self.assertFalse(TV.smooth_on({}, 'daily'), 'default OFF (owner 11-07)')
+        self.assertFalse(TV.smooth_on({'smooth': 'off'}, 'history'))
+        self.assertFalse(TV.smooth_on(None, 'daily'))
+        self.assertTrue(TV.smooth_on({'smooth': 'on'}, 'daily'))
+        self.assertTrue(TV.smooth_on({'smooth': 'ON '}, 'history'))
+        self.assertFalse(TV.smooth_on({'smooth': 'on'}, 'weekly'), 'weekly/monthly always dissolve')
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, 'tl.conf')
+            json.dump({'smooth': 'on'}, open(p, 'w'))
+            self.assertEqual(TV.load_tl_conf(p), {'smooth': 'on'})
+            self.assertEqual(TV.load_tl_conf(os.path.join(d, 'missing')), {}, 'no tl.conf -> default (off)')
+        finally:
+            shutil.rmtree(d)
+
+    def test_off_build_never_calls_minterpolate(self):
+        """A real build() with smoothing off, ffmpeg faked: no command it runs carries minterpolate."""
+        import struct, zlib
+        def png(w, h):
+            raw = b''.join(b'\x00' + b'\x00' * (w * 3) for _ in range(h))
+            chunk = lambda t, b: struct.pack('>I', len(b)) + t + b + struct.pack('>I', zlib.crc32(t + b) & 0xffffffff)
+            return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+                    + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+        d = tempfile.mkdtemp()
+        old = (TV.ROOT, TV.subprocess.run, TV.small_gray, TV.load_lines)
+        cmds = []
+        def fake_run(cmd, *a, **k):
+            cmds.append(' '.join(map(str, cmd)))
+            out = cmd[-1]
+            if isinstance(out, str) and (out.endswith('.mp4') or out.endswith('.png')):
+                open(out, 'wb').close()
+            return subprocess.CompletedProcess(cmd, 0, b'', b'')
+        try:
+            os.makedirs(os.path.join(d, 'frames', 'iso', '20261107'))
+            os.makedirs(os.path.join(d, 'video', 'daily'))
+            os.makedirs(os.path.join(d, 'logs'))
+            stamps = ['20261107T0000Z', '20261107T0015Z', '20261107T0030Z']
+            for i, st in enumerate(stamps):
+                open(os.path.join(d, 'frames', 'iso', '20261107', st + '.png'), 'wb').write(png(8, 8))
+            TV.ROOT = d
+            TV.subprocess.run = fake_run
+            TV.small_gray = lambda p: bytes([stamps.index(os.path.basename(p)[:-4]) * 100]) * 64
+            TV.load_lines = lambda *a: []
+            sj = TV.SmoothJob(TV.smooth_on({}, 'daily'), time.time() + 86400)
+            side = TV.build('iso', stamps, os.path.join(d, 'video', 'daily', 'x-iso.mp4'), 'daily/x', smooth_job=sj)
+            enc = [c for c in cmds if 'libx264' in c]
+            self.assertEqual(len(enc), 1, 'one encode')
+            self.assertFalse([c for c in cmds if 'minterpolate' in c], 'smoothing off: never minterpolate')
+            self.assertIn('framerate=fps=30', enc[0], 'the dissolve ("B")')
+            self.assertIn('eq=contrast=1.06', enc[0], 'graded')
+            self.assertEqual(side['smoothing'], 'dissolve')
+            # the same build with smoothing on does call it (the test can see the difference)
+            cmds.clear()
+            sj = TV.SmoothJob(TV.smooth_on({'smooth': 'on'}, 'daily'), time.time() + 86400)
+            TV.build('iso', stamps, os.path.join(d, 'video', 'daily', 'y-iso.mp4'), 'daily/y', smooth_job=sj)
+            self.assertTrue([c for c in cmds if 'minterpolate' in c])
+        finally:
+            TV.ROOT, TV.subprocess.run, TV.small_gray, TV.load_lines = old
+            shutil.rmtree(d)
+
     def test_smooth_encode_and_text_scale(self):
         cmd = TV.encode_cmd('/t/s%06d.png', 4.0, '/o.mp4', text_glob='/t/o%06d.png', smooth=True)
         fc = cmd[cmd.index('-filter_complex') + 1]
