@@ -24047,16 +24047,17 @@ async function buildSink (ctx, args, signal, proj) {
     // are the label writer's -- runVisit reads them done
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
     // prodserve-01: ...and its waived (host-gone) lights
-    // flowers-01: an upgraded border cell standing its fern while the bag holds no flower is done for the visit (decorator.mjs upgradeWaits)
-    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : kind === 'decor' ? { alsoDone: (q, rd2) => upgradeWaits(q, (rd2 ?? read)(...q.at), heldMap(bot)) } : {}
+    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : {}
     // sinkwaive-01: a waived stone-sink cell is done for the visit (runVisit alsoDone); dress keeps its own alsoDone
     const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
+    // flowers-01: an upgraded border cell standing its fern while the bag holds no flower is done for the visit (decorator.mjs upgradeWaits)
+    const leaveF = kind === 'decor' ? { ...leave, alsoDone: (q, rd2) => upgradeWaits(q, (rd2 ?? read)(...q.at), heldMap(bot)) } : leave
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
     // its cells or clears was left out for a hold
     const vrecD = kind === 'decor' ? decorUnheld(rec) : rec
     const heldOut = kind === 'decor' ? ((rec.cells ?? []).length - (vrecD.cells ?? []).length) + ((rec.clear ?? []).length - (vrecD.clear ?? []).length) : 0
     const r = await runVisit({ dir, key, me, home, stood, record: vrecD, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      ...sinkVisitOpts(rec, home), ...leaveF }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // sinkwaive-01: THE WAIVER (sinks.mjs sinkWaiveDue) -- a cell this visit deferred that the stuck files have counted minVisits
     // deferrals over every holder, the first afterMs ago, is named on the record (an op=waived row with its reason); the next visit
     // reads it done and the instance can close (the wall's waiver, wallstuck-01)
