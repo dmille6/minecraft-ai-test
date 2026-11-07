@@ -5703,6 +5703,33 @@
     ]
    },
    "note": "Measured 11-07 07:00Z mirror copy: 29 circled areas ~4,300 columns; live inwall record sited 11-05 15:34Z read cuts 0/77 fills 0/1331 (24 h: 21 complete visits, 7 places, 0 stage_close); _place_town 24 h ~2,500 pathfinder/reflex scaffold blocks in town+margin, 823/1,418 ledgered climbs still stand."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "flowers-1107",
+   "title": "Flower supply (owner 11-07 'yes, go ahead and start'): bots get flowers themselves (nursery fed by composted ferns + its own grass, wild picks) and the decorator upgrades its all-fern path borders to flowers (2 in 3), keeping the ferns when no flower is held",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "flowers-1107.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-07: flowers-01show BUILT on the live release 272288e1 (branch flowers-01show), ready to stage; tripwire DC6 kind=wild on main shopread.py.txt (selftest + 3 harness mutants), NOT installed -- install with the fold. Fleet: does not apply (no decorator/park/dress at e6a1ea2b). NEXT: read +2 h/+24 h after activation (upgrades n, meals spent, flowers/meal, compost bone meal, stall stamp lifts); then flowers-02 lawn scatter (meals on lawn centres), flowers-03 flower trips 160-320 (atlas finds), flowers-04 tall-flower stock.",
+   "evidence": {
+    "grep": [
+     "flowers-01show"
+    ],
+    "branches": [
+     "flowers-01show"
+    ],
+    "paths": [
+     "docs/reports/flowers-design-2026-11-07.md",
+     "sandbox/flowers/flower-proof.cjs"
+    ]
+   },
+   "note": "Measured 11-07: 61/65 decor cells ferns, 0 flowers; 2 flowers in 13 bags, 0 in 27 chests, town bone meal 4 (= park reserve); 7 d nursery 8 meals -> 2 flowers; composter 55 runs 0 meal; wild flowers outside villages 7 within 160, 147 within 320 (poppy/dandelion only). Paper sandbox5: open taiga meal 2.75 flowers + 17 short + 2.5 tall grass; covered centre refuses the meal; composter ~9.7 ferns / ~20 short grass a meal."
   }
  ]
 }

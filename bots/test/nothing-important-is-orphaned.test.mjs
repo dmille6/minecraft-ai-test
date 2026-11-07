@@ -105,6 +105,9 @@ const REQUIRED = [
   // idlework-01 (11-06): the design (the code is on branch idlework-01 until it promotes)
   'docs/reports/idlework-design-2026-11-06.md',
   'docs/reports/roughground-design-2026-11-07.md',   // roughground-01 (11-07): the owner's circled rough ground, mapped + the fix
+  'docs/reports/flowers-design-2026-11-07.md',   // flowers-01 (11-07): the flower supply + the border upgrade (code on branch flowers-01show)
+  'sandbox/flowers/flower-proof.cjs',   // flowers-01: the Paper proofs (bone meal in taiga, the composter, a fern cell replaced)
+  'sandbox/flowers/flower-proof2.cjs',
   'docs/reports/market-design-2026-11-06.md',   // market-1106: live villager trading (code on branches market-01show / market-01)
   'docs/reports/market-2026-11-06/codex-design.txt',
   'docs/reports/market-2026-11-06/trade-tables-1.21.8.txt',

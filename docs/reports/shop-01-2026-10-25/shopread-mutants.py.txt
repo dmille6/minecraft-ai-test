@@ -263,6 +263,10 @@ M = [
  ("                if not (bed and f.get('why') == 'bed_head'):\n", "                if True:\n"),
  ("'cartography_table', 'grindstone', 'composter'])", "'cartography_table', 'grindstone'])"),
  ("(MARKET_BEDS_PER_DAY if bed else MARKET_PER_DAY):", "(MARKET_BEDS_PER_DAY if bed else MARKET_PER_DAY + 1):"),
+ # flowers-01 DC6: the wild pick's kind dispatched to the generic sink clear; its reach the fern's; its names the ferns
+ ("                    elif plot == DECOR and f.get('kind') in ('fern', 'leaves', 'wild'):", "                    elif plot == DECOR and f.get('kind') in ('fern', 'leaves'):"),
+ ("                                                r=DECOR_WILD_R if wd else DECOR_FERN_R)", "                                                r=DECOR_FERN_R)"),
+ ("names=DECOR_LEAVES if lv else DECOR_SMALL if wd else DECOR_FERNS,", "names=DECOR_LEAVES if lv else DECOR_BLOOMS if wd else DECOR_FERNS,"),
 ]
 bad = 0
 for old, new in M:

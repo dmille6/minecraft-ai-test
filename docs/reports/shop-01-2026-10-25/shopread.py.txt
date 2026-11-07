@@ -108,7 +108,9 @@
 #                      in force (` tidy_cell`), else clear_outside (` bloom`); DC4 fern (decorator-02, owner 11-05) -- a `_build op=clear
 #                      kind=fern` (the fern gather, shears) only a fern or a large fern within DECOR_FERN_R columns of the decor record's
 #                      home, never guarded, in the park + 1 or a tidy head cell, else clear_outside (` fern_rule`); DC5 leaves (decorator-03)
-#                      -- a `_build op=clear kind=leaves` (the hedge's leaves, shears) the same rule over DECOR_LEAVES (` leaves_rule`). Every
+#                      -- a `_build op=clear kind=leaves` (the hedge's leaves, shears) the same rule over DECOR_LEAVES (` leaves_rule`); DC6 wild
+#                      (flowers-01, owner 11-07) -- a `_build op=clear kind=wild` (the wild flower pick, by hand) the same rule over the
+#                      small flowers (DECOR_SMALL) within DECOR_WILD_R of home (` wild_rule`); the protected villages are G3's. Every
 #                      decor refusal ENDS in a tag the showcase tripwire's tree-debris split cannot read as a block (Claude r1 BLOCKER: ` fern`
 #                      made a stone cleared under kind=fern a WATCH); the selftest checks every tag against showcase_trip.py's TREE_DEBRIS; DC3 pot -- a `_build op=place kind=pot_fill` only
 #                      on a POT cell (role D<n>-pot) of a generation in force with a potted block (potted_*), else off_record (` pot`).
@@ -654,6 +656,9 @@ DECOR_BLOOMS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'az
                           'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'short_grass', 'tall_grass'])
 DECOR_POT_ROLE = re.compile(r'^D\d+-pot$')
 DECOR_FERN_R = 48   # decorator.mjs DECOR.fernR (decorator-02: the fern gather's reach from home)
+# flowers-01 (DC6): the wild flower pick -- the small flowers (DECOR_BLOOMS less the grass), within decorator.mjs FLOWER.wildR of home
+DECOR_WILD_R = 128
+DECOR_SMALL = frozenset(DECOR_BLOOMS - {'short_grass', 'tall_grass'})
 DECOR_FERNS = frozenset(['fern', 'large_fern'])
 # decorator-03: the hedge's leaves (decorator.mjs HEDGE_LEAVES), cut by the same gather rule within DECOR_FERN_R of home (DC5)
 DECOR_LEAVES = frozenset(['spruce_leaves', 'oak_leaves', 'birch_leaves', 'dark_oak_leaves', 'jungle_leaves', 'acacia_leaves', 'cherry_leaves', 'mangrove_leaves', 'azalea_leaves', 'flowering_azalea_leaves'])
@@ -789,7 +794,7 @@ def decor_bloom_ok(chain, cell, block, t_ms, guard, park_box=None, tidy_chain=()
     return (True, '') if ok else (False, ' bloom')
 
 
-def decor_fern_ok(chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(), names=DECOR_FERNS, tag=' fern_rule'):
+def decor_fern_ok(chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(), names=DECOR_FERNS, tag=' fern_rule', r=DECOR_FERN_R):
     """decorator-02 DC4: is a fern gather's cut a fern or a large fern within DECOR_FERN_R columns of the decor record's home (a
     generation in force names it), never a record cell or marker that stood then, never in the park's box + 1, never a tidy head
     cell? -> (bool, why). Pure."""
@@ -805,7 +810,7 @@ def decor_fern_ok(chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(),
     # Claude r1 BLOCKER: the town's home from ANY generation (it is the town's config, constant) -- never only the ones in force (a
     # first visit's ferns may precede the record's first `at`); a home without numeric x and z is none (fail closed)
     homes = [g['home'] for g in chain or [] if isinstance(g.get('home'), dict) and all(isinstance(g['home'].get(a), (int, float)) for a in ('x', 'z'))]
-    ok = any(max(abs(cell[0] - h['x']), abs(cell[2] - h['z'])) <= DECOR_FERN_R for h in homes)
+    ok = any(max(abs(cell[0] - h['x']), abs(cell[2] - h['z'])) <= r for h in homes)
     return (True, '') if ok else (False, tag)
 
 
@@ -1704,16 +1709,18 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         # stepwell-02 SW1: its digs over the chain (a portal cell was a wall cell, then a cut)
                         ok = stepwell_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('kind'))
                         why = '' if ok else ' stepwell'
-                    elif plot == DECOR and f.get('kind') in ('fern', 'leaves'):
+                    elif plot == DECOR and f.get('kind') in ('fern', 'leaves', 'wild'):
                         # decorator-02 DC4: the fern gather -- a fern near home, off every record cell, marker, the park and the tidy head
                         if pool not in guards:
                             guards[pool] = tidy_guard(projects.get(pool))
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         lrec = project_of(projects.get(pool), LAND).get('record') or {}
                         lv = f.get('kind') == 'leaves'   # decorator-03 DC5: the hedge's leaves, the fern rule over DECOR_LEAVES
+                        wd = f.get('kind') == 'wild'     # flowers-01 DC6: the wild flower pick, the fern rule over DECOR_SMALL within DECOR_WILD_R
                         ok, why = decor_fern_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool],
                                                 (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms),
-                                                names=DECOR_LEAVES if lv else DECOR_FERNS, tag=' leaves_rule' if lv else ' fern_rule')
+                                                names=DECOR_LEAVES if lv else DECOR_SMALL if wd else DECOR_FERNS, tag=' leaves_rule' if lv else ' wild_rule' if wd else ' fern_rule',
+                                                r=DECOR_WILD_R if wd else DECOR_FERN_R)
                     elif plot == DECOR and f.get('kind') == 'bloom':
                         # decorator-01 DC2: the nursery's harvest -- a bloom near a nursery centre in force, off every record cell and marker
                         if pool not in guards:
@@ -2146,7 +2153,17 @@ def selftest():
     assert lo['clear_outside'] == 1 and lo['_lists'].get('clear_outside') == ['board-a-Alpha 40,74,-40 leaves fern leaves_rule'], ('a fern under the leaves rule', lo['_lists'].get('clear_outside'))
     assert CT('op=clear cell=49,74,0 block=spruce_leaves kind=leaves')['clear_outside'] == 1 and CT('op=clear cell=33,74,28 block=spruce_leaves kind=leaves')['clear_outside'] == 1, 'past 48; the park'
     assert CT('op=clear cell=40,74,-40 block=spruce_leaves kind=fern')['clear_outside'] == 1, 'leaves under the fern rule'
-    for name, mut, scen in (('decor_fern_ok', lambda chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(), names=DECOR_FERNS, tag=' fern_rule': (block in names, ''), lambda: CT('op=clear cell=49,71,0 block=fern kind=fern n=1')['clear_outside'] == 1),
+    # flowers-01 DC6: the wild flower pick -- a small flower within DECOR_WILD_R of home, never a record cell, the park or a tidy cell
+    assert CT('op=clear cell=120,71,-90 block=poppy kind=wild')['clear_outside'] == 0 and CT('op=clear cell=-128,71,5 block=dandelion kind=wild')['clear_outside'] == 0, 'wild flowers in reach'
+    wo = CT('op=clear cell=129,71,0 block=poppy kind=wild')
+    assert wo['clear_outside'] == 1 and wo['_lists'].get('clear_outside') == ['board-a-Alpha 129,71,0 wild poppy wild_rule'], ('past wildR', wo['_lists'].get('clear_outside'))
+    assert CT('op=clear cell=40,71,-40 block=fern kind=wild')['clear_outside'] == 1 and CT('op=clear cell=40,71,-40 block=short_grass kind=wild')['clear_outside'] == 1, 'positive control: a fern or grass is no wild flower'
+    assert CT('op=clear cell=33,71,28 block=poppy kind=wild')['clear_outside'] == 1 and CT('op=clear cell=28,71,33 block=poppy kind=wild')['clear_outside'] == 1, 'the park and a tidy cell'
+    assert CJ('op=clear cell=31,71,31 block=poppy kind=wild', s_=3_700)['clear_outside'] == 1, 'the decor\'s own border flower once sited'
+    assert CT('op=clear cell=60,71,0 block=poppy kind=fern n=1')['clear_outside'] == 1, 'a flower under the fern rule: still fern_rule'
+    assert CJ('op=clear cell=120,71,-90 block=poppy kind=wild', zones={'board-a': [[120, 0, -90, 120, 200, -90]]})['zone'] == 1, 'G3 judges a pick in a protected zone (the villages)'
+    for name, mut, scen in (('decor_fern_ok', lambda chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(), names=DECOR_FERNS, tag=' fern_rule', r=DECOR_FERN_R: (block in names, ''), lambda: CT('op=clear cell=49,71,0 block=fern kind=fern n=1')['clear_outside'] == 1),
+                            ('decor_fern_ok', lambda chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(), names=DECOR_FERNS, tag=' fern_rule', r=DECOR_FERN_R: (block in names, ''), lambda: CT('op=clear cell=129,71,0 block=poppy kind=wild')['clear_outside'] == 1),
                             ('decor_bloom_ok', lambda chain, cell, block, t_ms, guard, park_box=None, tidy_chain=(): (block in DECOR_BLOOMS, ''), lambda: CJ('op=clear cell=38,71,30 block=poppy kind=bloom')['clear_outside'] == 1),
                             ('decor_meal_ok', lambda chain, cell, t_ms: True, lambda: CJ('op=meal cell=31,70,30 block=bone_meal kind=use')['off_record'] == 1),
                             ('decor_pot_ok', lambda chain, cell, block, t_ms: True, lambda: CJ('op=place seg=D1-P cell=3,71,3 block=poppy kind=pot_fill', s_=3_700)['off_record'] == 1)):
@@ -2748,6 +2765,12 @@ def selftest():
         assert m and int(m.group(1)) == DECOR_SPREAD, 'DECOR_SPREAD differs from decorator.mjs NURSERY.spread'
         m = re.search(r"  fernR: (\d+),", js)
         assert m and int(m.group(1)) == DECOR_FERN_R, 'DECOR_FERN_R differs from decorator.mjs DECOR.fernR'
+        # flowers-01: FLOWER.wildR, when this decorator.mjs carries it (main before the flowers-01 fold does not)
+        m = re.search(r"  wildR: (\d+),", js)
+        if m:
+            assert int(m.group(1)) == DECOR_WILD_R, 'DECOR_WILD_R differs from decorator.mjs FLOWER.wildR'
+        else:
+            print('shopread selftest: SKIPPED the DECOR_WILD_R copy check (this decorator.mjs has no FLOWER.wildR: set SHOPREAD_DECORATOR)')
         m = re.search(r"export const HEDGE_LEAVES = Object\.freeze\(\[(.*?)\]\)", js, re.S)
         assert m and set(re.findall(r"'([a-z_]+)'", m.group(1))) == set(DECOR_LEAVES), 'DECOR_LEAVES differs from decorator.mjs HEDGE_LEAVES'
         m = re.search(r"export const SMALL_FLOWERS = Object\.freeze\(\[(.*?)\]\)", open(os.path.join(os.path.dirname(mod), 'park.mjs')).read(), re.S)
@@ -2762,7 +2785,7 @@ def selftest():
         assert m, 'TREE_DEBRIS not found in showcase_trip.py'
         td = re.compile(eval(''.join(re.findall(r"r'((?:[^'\\]|\\.)*)'", m.group(1))).join(["r'", "'"])))
         assert td.match('poppy') and td.match('fern'), 'positive control: the debris regex reads flowers and ferns'
-        for tag in ('fern_rule', 'leaves_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post', 'forest_fell', 'forest_leafrule', 'forest_meal', 'farm_retire'):
+        for tag in ('fern_rule', 'leaves_rule', 'wild_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post', 'forest_fell', 'forest_leafrule', 'forest_meal', 'farm_retire'):
             assert not td.match(tag), 'a decor refusal tag reads as tree debris: %s' % tag
     # sinkwaive-01 SK1 (11-06; bots/src/sinks.mjs sinkWaiveDue, skills.mjs buildSink): a stone sink's WAIVER row -- `_build
     # project=tower|road|shrine op=waived cell=.. why=.. gen=..` -- names a record cell the build gives up (no stand reached it); it
