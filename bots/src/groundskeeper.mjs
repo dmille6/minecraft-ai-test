@@ -134,3 +134,17 @@ export function groundsLeaseCheck ({ d, unfit = null, idle = false } = {}) {
 export function keeperGroundsFirst (states = [], { grounds = [] } = {}) {
   return states.map(st => (st && st.complete && st.damaged && !grounds.includes(st.plot) ? { ...st, damaged: false, due: true } : st))
 }
+
+// GKSTAY-01 (coordinator 11-06 ~00:00Z; LIVE after gklease-01): THE LEASE CHURNED. A keeper took the lease at the surface, the decision
+// loop sent it below between grounds visits, and gklease released it at the first read below: showcase 9dfa85b9 22:56-23:57Z, 6 takes
+// / 5 `why=underground` in 1.25 h and 1 grounds visit (the dips: `gather dirt` to y 50-54); fleet e447b65b, 1.18 h, 80 bots: 102 takes,
+// 91 underground releases (the first skill below: `mine y=16` 9 -- idle_work's iron hint --, deep_mine 3, other mines 5, dirt 3).
+// THE PERSISTENCE: a holder is released as unfit only once it has been unfit for GK_FIT.unfitMs without a break (a dirt pit or the
+// stepwell's descent is no hand-off); a TAKE still needs the bot fit now.
+export const UNFIT_HOLD_MS = 5 * 60_000
+/** -> { since, held }: `since` the start of this unfit run (null when fit), `held` unfit for at least `ms`. Pure. */
+export function unfitPersist (since, unfit, now = Date.now(), ms = UNFIT_HOLD_MS) {
+  if (!unfit) return { since: null, held: false }
+  const s = Number.isFinite(Number(since)) && since != null && since <= now ? Number(since) : now
+  return { since: s, held: now - s >= ms }
+}
