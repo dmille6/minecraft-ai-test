@@ -5450,7 +5450,11 @@
      "infra/showcase/showcase_trip.py"
     ]
    },
-   "note": "Measured 11-06: S4 palette has 0 crop/farmland/air cells of 155,229 baseline cells (villager farming never could trip S4). 61 villagers in 7 village zones (11-06 04:15Z stage), 0 employed; only village-taiga-6_1 is ever loaded (7 villagers, 5 beds, no farm). Remote risk (Codex): llama spit / snow-golem snowball breaks a decorated_pot -> a real S4 BREACH. Reviews: Codex + Claude subagent, 2 rounds, BLOCKERS none; 45/45 mutants; replay 17 world states old==new."
+   "note": "Measured 11-06: S4 palette has 0 crop/farmland/air cells of 155,229 baseline cells (villager farming never could trip S4). 61 villagers in 7 village zones (11-06 04:15Z stage), 0 employed; only village-taiga-6_1 is ever loaded (7 villagers, 5 beds, no farm). Remote risk (Codex): llama spit / snow-golem snowball breaks a decorated_pot -> a real S4 BREACH. Reviews: Codex + Claude subagent, 2 rounds, BLOCKERS none; 45/45 mutants; replay 17 world states old==new.",
+   "done": {
+    "when": "2026-11-07",
+    "evidence": "mobGriefing true on showcase + 16/16 fleet worlds (fleet 02:09:17Z); showcase 2-h watch all WATCH, S4 INTACT; fleet rollout 1 h: 0 deaths / 80 active bot-h"
+   }
   },
   {
    "kind": "showcase",
