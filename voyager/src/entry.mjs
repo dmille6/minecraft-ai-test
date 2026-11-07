@@ -94,7 +94,7 @@ setInterval(() => {
   for (let i = 0; i < inv.length; i++) h = (h * 31 + inv.charCodeAt(i)) | 0
   const p = b.entity.position
   log('heartbeat', { connected: true, pos: { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: Math.round(p.z * 10) / 10 },
-    inv_hash: h, items: (b.inventory?.items?.() ?? []).length, health: b.health, food: b.food, doing: r?.describe?.() ?? null, loop: !!loop?.running })
+    inv_hash: h, items: (b.inventory?.items?.() ?? []).length, inv: [...new Set((b.inventory?.items?.() ?? []).map(i => i.name))].sort(), health: b.health, food: b.food, doing: r?.describe?.() ?? null, loop: !!loop?.running })
 }, 60_000).unref()
 
 process.on('SIGTERM', () => { try { loop?.stop() } catch {} })

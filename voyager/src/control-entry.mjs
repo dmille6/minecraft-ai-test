@@ -27,8 +27,19 @@ mineflayer.createBot = function (opts) {
   installChatGuard(bot, e => log('command_attempt', e))
   bot.once('spawn', () => log('connected', { spawn: bot.spawnPoint ? { x: bot.spawnPoint.x, y: bot.spawnPoint.y, z: bot.spawnPoint.z } : null }))
   bot.on('death', () => log('death', {}))
-  bot.once('end', r => log('disconnected', { reason: String(r ?? '') }))
+  bot.once('end', r => { log('disconnected', { reason: String(r ?? '') }); if (current === bot) current = null })
+  bot.once('spawn', () => { current = bot })
   return bot
 }
+// the same pulse as the LLM arms (unique items and tool tiers for the metrics)
+let current = null
+setInterval(() => {
+  const b = current
+  if (!b?.entity) { log('heartbeat', { connected: false }); return }
+  const p = b.entity.position
+  const items = b.inventory?.items?.() ?? []
+  log('heartbeat', { connected: true, pos: { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10, z: Math.round(p.z * 10) / 10 },
+    items: items.length, inv: [...new Set(items.map(i => i.name))].sort(), health: b.health, food: b.food })
+}, 60_000).unref()
 log('process_start', { pid: process.pid, node: process.version })
 await import('../../bots/src/index.mjs')
