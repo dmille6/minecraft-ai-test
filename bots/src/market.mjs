@@ -31,7 +31,7 @@ export const MARKET = Object.freeze({
   leaseMs: 15 * 60_000,          // one run per town at a time (a pool lease)
   maxGoods: 3,                   // at most three goods drawn for one run
   offersFreshMs: 24 * 3600_000,  // a merchant's last-read offers are trusted this long (a window is the only truth)
-  claimWaitMs: 12_000,           // a placed job block's claim is read this long after (sandbox 11-03: 5.5 s)
+  claimWaitMs: 20_000,           // a placed job block's claim is read this long after (sandbox 11-06: 8.7-17.3 s at 16-44 b)
   claimReach: 40,                // a market cell within this of the free cluster (a job site is sought within 48 b; reachable)
   jobsPerDay: 2,                 // job blocks per town per day
   slotSpacing: 3,                // market job blocks this far apart (each keeps its 8 neighbours open)
@@ -259,7 +259,7 @@ export function buyOffers (trades, { emeralds = 0, wants = [] } = {}) {
     const per = Math.max(1, r.t.outputItem?.count ?? 1)
     const times = Math.min(usesLeft(r.t), Math.floor(em / r.price), Math.ceil(need[r.w.key] / per))
     if (times <= 0) continue
-    plan.push({ i: r.i, times, price: r.price, what: r.out, want: r.w.key })
+    plan.push({ i: r.i, times, price: r.price, what: r.out, want: r.w.key, per })
     em -= times * r.price
     need[r.w.key] -= times * per
   }
@@ -311,6 +311,17 @@ export function openMerchant (bot, e) {
   const view = e?.entityType === vt || vt == null ? e : Object.assign(Object.create(e), { entityType: vt })
   return bot.openVillager(view)
 }
+/** Empty slots of the window's PLAYER section (inventoryStart..inventoryEnd), or 36 when the window gives no slots. Never throws. */
+export const MIN_FREE = 2
+export function freeSlotsIn (v) {
+  try {
+    if (!Array.isArray(v?.slots) || !Number.isInteger(v.inventoryStart)) return 36
+    const end = Number.isInteger(v.inventoryEnd) ? v.inventoryEnd : v.inventoryStart + 36
+    let n = 0
+    for (let i = v.inventoryStart; i < end; i++) if (!v.slots[i]) n++
+    return n
+  } catch { return 36 }
+}
 /** The bag as the OPEN window shows it (bot.inventory is stale inside a window: sandbox4 11-04). Never throws. */
 export const winCount = (v, name) => { try { return (v.items?.() ?? []).filter(x => x?.name === name).reduce((n, x) => n + (x.count ?? 0), 0) } catch { return 0 } }
 const winCountWhere = (v, pred) => { try { return (v.items?.() ?? []).filter(x => pred(x?.name)).reduce((n, x) => n + (x.count ?? 0), 0) } catch { return 0 } }
@@ -321,7 +332,11 @@ const winCountWhere = (v, pred) => { try { return (v.items?.() ?? []).filter(x =
  */
 export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
   const res = { sold: {}, earned: 0, spent: 0, bought: {}, halt: false, why: null }
+  // ROOM FIRST (Codex review r1 BLOCKER 3): mineflayer's trade puts the output and any leftover inputs away with putAway, which
+  // DROPS what does not fit -- every trade needs MIN_FREE empty slots in the window's player section, else the window stops
+  const roomy = () => freeSlotsIn(v) >= MIN_FREE
   for (const s of sells) {
+    if (!roomy()) { res.halt = true; res.why = 'bag_full'; return res }
     const c0 = winCount(v, s.item), e0 = winCount(v, 'emerald')
     let bad = null
     try { await v.trade(s.i, s.times) } catch (e) { bad = e }
@@ -331,7 +346,12 @@ export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms
     res.earned += Math.max(0, winCount(v, 'emerald') - e0)
     if (bad) { res.halt = true; res.why = `sell:${String(bad?.message ?? bad).slice(0, 40)}`; return res }
   }
-  for (const b of buys) {
+  for (let b of buys) {
+    if (!roomy()) { res.halt = true; res.why = 'bag_full'; return res }
+    // a purchase's output may need more than one stack: at most what the free slots hold, past MIN_FREE
+    const per = Math.max(1, b.per ?? 1), fit = Math.floor(((freeSlotsIn(v) - MIN_FREE + 1) * 64) / per)
+    if (fit < b.times) b = { ...b, times: Math.max(0, fit) }
+    if (b.times <= 0) continue
     const e0 = winCount(v, 'emerald'), n0 = winCount(v, b.what)
     let bad = null
     try { await v.trade(b.i, b.times) } catch (e) { bad = e }

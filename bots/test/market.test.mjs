@@ -145,6 +145,21 @@ await t('runTrades: counts what the window moved; buys after sells; the first th
   assert.equal(r2.halt, true); assert.deepEqual(r2.bought, {}, 'no purchase after a failed sale')
 })
 
+await t('runTrades: never trades into a full bag (putAway would DROP the output); a purchase capped by the room it has', async () => {
+  const trades = [T('iron_ingot', 4, 'emerald', 1), T('emerald', 1, 'cherry_log', 8, { left: 4 })]
+  const full = fakeWindow({ iron_ingot: 12, emerald: 2 }, trades)
+  full.inventoryStart = 3; full.inventoryEnd = 39; full.slots = Array.from({ length: 39 }, (_, i) => (i >= 3 && i < 38 ? { name: 'dirt' } : null))
+  assert.equal(M.freeSlotsIn(full), 1)
+  const r = await M.runTrades(full, { sells: [{ i: 0, times: 3, item: 'iron_ingot' }] }, { sleep: async () => {} })
+  assert.deepEqual([r.halt, r.why, r.sold], [true, 'bag_full', {}], 'one free slot < MIN_FREE: no trade')
+  const roomy = fakeWindow({ emerald: 4 }, trades)
+  roomy.inventoryStart = 3; roomy.inventoryEnd = 39; roomy.slots = Array.from({ length: 39 }, (_, i) => (i >= 3 && i < 36 ? { name: 'dirt' } : null))
+  assert.equal(M.freeSlotsIn(roomy), 3, 'POSITIVE: three free')
+  const r2 = await M.runTrades(roomy, { buys: [{ i: 1, times: 4, what: 'cherry_log', per: 8 }] }, { sleep: async () => {} })
+  assert.deepEqual([r2.halt, r2.bought], [false, { cherry_log: 32 }], '32 logs fit one slot past the two kept free')
+  assert.equal(M.freeSlotsIn({}), 36, 'a window with no slots reads as room (the fake windows above)')
+})
+
 await t('nextJobBlock: one of each profession, the town\'s surplus first; present / placed skipped; unmakeable never', () => {
   const stock = { iron_ingot: 225, spruce_log: 125, coal: 83, stone: 2 }
   assert.deepEqual(M.nextJobBlock({ stock }), { block: 'smithing_table', profession: 'toolsmith' })
