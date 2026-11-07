@@ -329,7 +329,7 @@ await t('MUTANT KILLED: a free test that accepts any sighting places job blocks 
   })
 })
 await t('MUTANT KILLED: without the zone fence the market cell may fall inside the box', async () => {
-  await withMutant(SRC, "  const fenced = (x, y, z) => (zoneNear(zones, x, z, MARKET.zonePad + 1) ? { name: 'bedrock' } : blockAt(x, y, z))", '  const fenced = blockAt', async X => {
+  await withMutant(SRC, "  const fenced = (x, y, z) => (zoneNear(zones, x, z, MARKET.zonePad + 1) || refusedAt(refuse, x, z) ? { name: 'bedrock' } : blockAt(x, y, z))", '  const fenced = blockAt', async X => {
     // the ground west of the pad is leaf canopy (no floor a job block may stand on): only cells in the pad (x 46..48) are open
     const over = {}
     for (let x = 30; x <= 45; x++) for (let z = -14; z <= 14; z++) over[`${x},64,${z}`] = 'oak_leaves'
@@ -343,6 +343,70 @@ await t('MUTANT KILLED: dropping the market ask from buildOrder', async () => {
   await withMutant(new URL('../src/shop.mjs', import.meta.url), '    try { mk = marketAskOf({ now, health, freeSlots }) } catch { mk = null }', '    mk = null', async X => {
     X.setMarketAsk(() => ({ order: { skill: 'market_run', args: {} } }))
     assert.notEqual(X.buildOrder({ on: true, shared: true, atTown: true, planned: true, now: 1e12, state: {}, complete: true }).order?.skill, 'market_run')
+  })
+})
+
+// ---- the showcase batch19b fold (Codex fold review, 4 blockers) ------------------------------------------------------------
+await t('fold BLOCKER 1: a market cell, a bed foot and head never on the town\'s reserved ground (refuse), nor beside it', () => {
+  const cl = M.unemployedClusters([{ uuid: 'a', x: 60.5, y: 64, z: 0.5, profession: 'none' }])[0]
+  const free = M.marketCell(world(), cl, { zones: [ZONE] })
+  assert.ok(free.cell, 'POSITIVE: an unreserved world gives a cell')
+  // reserve a 9x9 square round the free answer: the cell moves off it and its 8 neighbours are off it too
+  const R = (x, z) => (Math.abs(x - free.cell.x) <= 4 && Math.abs(z - free.cell.z) <= 4 ? 'project:forest' : null)
+  const r = M.marketCell(world(), cl, { zones: [ZONE], refuse: R })
+  assert.ok(r.cell, r.why)
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) assert.equal(R(r.cell.x + dx, r.cell.z + dz), null, `reserved at ${r.cell.x + dx},${r.cell.z + dz}`)
+  assert.equal(M.marketCell(world(), cl, { zones: [ZONE], refuse: () => 'unreadable' }).cell, null, 'an all-refusing reader: no cell')
+  assert.equal(M.marketCell(world(), cl, { zones: [ZONE], refuse: () => { throw new Error('x') } }).cell, null, 'a refuser that throws refuses (fail closed)')
+  const b0 = M.bedCells(world(), cl, { zones: [ZONE] })
+  const RB = (x, z) => (x === b0.head.x && z === b0.head.z ? 'marker' : null)
+  const b = M.bedCells(world(), cl, { zones: [ZONE], refuse: RB })
+  assert.ok(b.foot, b.why)
+  assert.equal(RB(b.head.x, b.head.z), null, 'the head never on a reserved column')
+})
+await t('fold BLOCKERS 2 + 4: the market yields to a held share, the keeper\'s lease and a standing service offer', () => {
+  assert.equal(M.marketYield({}), null, 'POSITIVE: nothing held -> the market may ask')
+  assert.equal(M.marketYield({ shareHeld: true }), 'share_held')
+  assert.equal(M.marketYield({ keeper: true }), 'keeper')
+  assert.equal(M.marketYield({ serviceLive: true }), 'service_due')
+})
+await t('fold BLOCKER 3: a bought want is banked and never disposal junk while the market is on; beds and the fleet unchanged', async () => {
+  const W = await import('../src/well.mjs'), B = await import('../src/bankable.mjs')
+  const bag = [{ name: 'white_wool', count: 18 }, { name: 'lantern', count: 2 }, { name: 'red_bed', count: 1 }, { name: 'iron_ingot', count: 3 }]
+  try {
+    W.setWellKeep(null); B.setDepositExtra(null)
+    assert.equal(W.isWellJunk('white_wool'), true, 'POSITIVE: wool is owner-listed junk (10-07) without the market')
+    assert.deepEqual(B.depositPlan(bag).map(e => e.name).sort(), ['iron_ingot'], 'POSITIVE: unwanted wool / lantern stay out of the deposit without it')
+    W.setWellKeep(M.marketKeeps); B.setDepositExtra(M.marketKeeps)
+    assert.equal(W.isWellJunk('white_wool'), false, 'the market\'s wool is never thrown')
+    assert.equal(W.isWellJunk('lever'), W.WELL_JUNK.has('lever'), 'a name the market never buys: as before')
+    assert.deepEqual(B.depositPlan(bag).map(e => e.name).sort(), ['iron_ingot', 'lantern', 'white_wool'], 'bought wants banked; the bed (kit) stays')
+    W.setWellKeep(() => { throw new Error('x') })
+    assert.equal(W.isWellJunk('white_wool'), false, 'a keep that throws keeps')
+  } finally { W.setWellKeep(null); B.setDepositExtra(null) }
+})
+await t('fold wiring (structural): the ask yields first, all four placements pass the town refusal, install sets both keeps', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const ask = src.slice(src.indexOf('export function marketAsk'), src.indexOf('async function mkFillBucket'))
+  assert.ok(ask.indexOf('marketYield(') > 0 && ask.indexOf('marketYield(') < ask.indexOf('marketJobPlan('), 'marketYield before any market plan')
+  const calls = src.split('\n').filter(l => /\b(marketCell|bedCells)\(/.test(l))
+  assert.equal(calls.length, 4, 'four market placement picks')
+  for (const l of calls) assert.ok(l.includes('refuse: cutterRefusal()'), `without the town refusal: ${l.trim().slice(0, 80)}`)
+  assert.ok(/setWellKeep\(marketKeeps\); setDepositExtra\(marketKeeps\)/.test(src))
+})
+await t('MUTANT KILLED: without the town refusal in the fence the market cell lands on reserved ground', async () => {
+  await withMutant(SRC, ' || refusedAt(refuse, x, z) ?', ' ?', async X => {
+    const cl = M.unemployedClusters([{ uuid: 'a', x: 60.5, y: 64, z: 0.5, profession: 'none' }])[0]
+    const free = M.marketCell(world(), cl, { zones: [ZONE] })
+    const R = (x, z) => (Math.abs(x - free.cell.x) <= 4 && Math.abs(z - free.cell.z) <= 4 ? 'project:forest' : null)
+    const r = X.marketCell(world(), cl, { zones: [ZONE], refuse: R })
+    assert.ok(r.cell && R(r.cell.x, r.cell.z), 'the mutant keeps the reserved cell')
+  })
+})
+await t('MUTANT KILLED: the well keep removed throws the bought wool', async () => {
+  await withMutant(new URL('../src/well.mjs', import.meta.url), ' && !isCompostJunk(name) && !wellKept(name)', ' && !isCompostJunk(name)', async X => {
+    X.setWellKeep(M.marketKeeps)
+    assert.equal(X.isWellJunk('white_wool'), true)
   })
 })
 

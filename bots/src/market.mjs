@@ -47,6 +47,22 @@ export function marketJobsSwitch (env = process.env) {
   const v = String(env.MARKET_JOBS ?? '').toLowerCase()
   return !(v === '0' || v === 'off' || v === 'false')
 }
+/**
+ * THE MARKET YIELDS (the batch19b fold, Codex BLOCKERS 2 + 4) -> why | null. Pure. The ask sits in the build order's IDLE branch,
+ * which reads the bot's LAST stop (`no_material` may be stale), so it yields to the work that stop never saw:
+ *  - share_held: the bot holds a building share (skills.mjs shopShareHeld): a market craft or sale would spend the project's
+ *    materials. The share's own visit (or the bag-room share bank) returns them; the market is asked again after;
+ *  - keeper: the bot holds its town's keeper lease (keeperNow): the order's tidy is its work, never a walk out with the lease held;
+ *  - service_due: a production service offer stands for it (prodserve.mjs serviceOffer): the order's service visit comes first, so
+ *    the offer never lapses (and charges the bot's share) during a market walk.
+ * Each falls through to the ordinary build order, which issues that work.
+ */
+export function marketYield ({ shareHeld = false, keeper = false, serviceLive = false } = {}) {
+  if (shareHeld) return 'share_held'
+  if (keeper) return 'keeper'
+  if (serviceLive) return 'service_due'
+  return null
+}
 export const marketModeDetail = (on, jobs) => `on=${on ? 1 : 0} jobs=${jobs ? 1 : 0} radius=${MARKET.radius} spend=${MARKET.spendPerRun} rest_min=${MARKET.restMs / 60_000} per_bot_min=${MARKET.perBotMs / 60_000} claim_reach=${MARKET.claimReach}`
 
 // ---- the 1.21.8 catalogue (sandbox4 11-06; N=16 villagers per profession and level; the server's own Offers record) ----------
@@ -129,6 +145,10 @@ const matches = (want, name) => typeof want.item === 'string' ? want.item === na
 /** The want an item answers, or null. Pure. */
 export const wantOf = name => WANTS.find(w => matches(w, bare(name))) ?? null
 
+/** THE MARKET'S KEEPS (the batch19b fold, Codex BLOCKER 3) -> bool. Pure. A name the town buys is banked by the ordinary deposit
+ *  (bankable.mjs setDepositExtra) and is never disposal junk (well.mjs setWellKeep). Beds excepted: a bot's own bed is its kit (the
+ *  sleep skill) and a walk-in's beds are drawn for the village -- the bed is never well junk anyway (NEVER_DISPOSE `_bed$`). */
+export const marketKeeps = name => { const w = wantOf(name); return !!w && w.key !== 'bed' }
 /** Count of every item matching `pred` in a { name: n } map. Pure. */
 const countWhere = (stock, pred) => Object.entries(stock ?? {}).reduce((n, [k, v]) => n + (pred(k) ? Math.max(0, Number(v) || 0) : 0), 0)
 /**
@@ -529,13 +549,15 @@ export function walkinGoods (spare = {}) {
   delete want.water_bucket
   return Object.fromEntries(Object.entries(want).slice(0, MARKET.maxGoods))
 }
+/** A permanent block's refusal at (x, z) -> truthy (a reason). No refuser: never. A refuser that throws: refused (fail closed). */
+const refusedAt = (refuse, x, z) => { if (typeof refuse !== 'function') return false; try { return !!refuse(Math.floor(x), Math.floor(z)) } catch { return true } }
 /**
  * A BED's cells -> { foot, head, stand, dir } | { foot: null, why }. Pure. The foot is a marketCell (open ground outside the zone +
  * pad, the 8 neighbours open); the head the open, floored neighbour in `dir` whose own cell is outside the zone + pad + 1; the bot
  * stands two cells BEHIND the foot (a bed's head goes where the placer faces). existing: beds and job blocks there (spacing).
  */
-export function bedCells (blockAt, cluster, { zones = [], existing = [], from = null } = {}) {
-  const pick = marketCell(blockAt, cluster, { zones, existing, from })
+export function bedCells (blockAt, cluster, { zones = [], existing = [], from = null, refuse = null } = {}) {
+  const pick = marketCell(blockAt, cluster, { zones, existing, from, refuse })
   if (!pick.cell) return { foot: null, why: pick.why }
   const f = pick.cell
   const isAir = n => /^(air|cave_air|short_grass|grass|tall_grass|fern|snow)$/.test(bare(n))
@@ -627,11 +649,11 @@ export function noteJobless (seen, merchants, now) {
  * bed / chest / job block beside it), with every cell in or within 1 of a zone (+ pad) reading as solid so it is never chosen.
  * The cell must be within claimReach of the cluster centre. existing: job blocks already there (slotSpacing apart).
  */
-export function marketCell (blockAt, cluster, { zones = [], existing = [], groundY = null, from = null } = {}) {
+export function marketCell (blockAt, cluster, { zones = [], existing = [], groundY = null, from = null, refuse = null } = {}) {
   if (!cluster?.members?.length) return { cell: null, why: 'no_cluster' }
   const cx = cluster.x, cz = cluster.z
   const zid = zoneNear(zones, Math.floor(cx), Math.floor(cz), 0)
-  if (!zid) return marketCellAt(blockAt, cluster, cx, cz, false, { zones, existing, groundY })
+  if (!zid) return marketCellAt(blockAt, cluster, cx, cz, false, { zones, existing, groundY, refuse })
   const q = zones.find(z => (z.id ?? 'unnamed') === zid)
   const b = Array.isArray(q?.box) ? q.box : [q.x0, q.y0, q.z0, q.x1, q.y1, q.z1]
   const pad = MARKET.zonePad + 2
@@ -643,13 +665,13 @@ export function marketCell (blockAt, cluster, { zones = [], existing = [], groun
   let last = { cell: null, why: 'zone_too_deep' }
   for (const o of opts) {
     if (o.d > MARKET.claimReach - 3) continue
-    const r = marketCellAt(blockAt, cluster, o.x, o.z, Math.abs(o.z - cz) > Math.abs(o.x - cx), { zones, existing, groundY })
+    const r = marketCellAt(blockAt, cluster, o.x, o.z, Math.abs(o.z - cz) > Math.abs(o.x - cx), { zones, existing, groundY, refuse })
     if (r.cell) return r
     last = r
   }
   return last
 }
-function marketCellAt (blockAt, cluster, ax, az, alongX, { zones = [], existing = [], groundY = null } = {}) {
+function marketCellAt (blockAt, cluster, ax, az, alongX, { zones = [], existing = [], groundY = null, refuse = null } = {}) {
   const cx = cluster.x, cz = cluster.z
   // the market is a ROW of anchors along the edge (every 4 b, +-8 b): one job block near each, slotSpacing apart
   const isAir = n => /^(air|cave_air|short_grass|grass|tall_grass|fern|snow)$/.test(bare(n))
@@ -669,7 +691,9 @@ function marketCellAt (blockAt, cluster, ax, az, alongX, { zones = [], existing 
     if (y != null) anchors.push({ uuid: `anchor${off}`, x: x + 0.5, y, z: z + 0.5, profession: 'none', baby: false })
   }
   if (!anchors.length) return { cell: null, why: 'no_ground' }
-  const fenced = (x, y, z) => (zoneNear(zones, x, z, MARKET.zonePad + 1) ? { name: 'bedrock' } : blockAt(x, y, z))
+  // the town's reservations (`refuse`: skills.mjs cutterRefusal -- a record's zone, a reserved plot, a marker, a way in, the demolition's
+  // hold) read as solid too, so neither the cell nor its 8 open neighbours is ever reserved ground (the batch19b fold, Codex BLOCKER 1)
+  const fenced = (x, y, z) => (zoneNear(zones, x, z, MARKET.zonePad + 1) || refusedAt(refuse, x, z) ? { name: 'bedrock' } : blockAt(x, y, z))
   const pick = pickJobCell(fenced, { n: anchors.length, uuids: anchors.map(a => a.uuid), members: anchors, x: ax, y: anchors[0].y, z: az }, { existing, spacing: MARKET.slotSpacing })
   if (!pick.cell) return { cell: null, why: pick.why }
   const d = Math.hypot(pick.cell.x + 0.5 - cx, pick.cell.z + 0.5 - cz)

@@ -455,7 +455,19 @@ export const DEPOSIT_ALWAYS = ['iron_ore', 'deepslate_iron_ore', 'raw_copper', '
  * is not a standing target -- hence DEPOSIT_ALWAYS.)
  */
 function depositView (items, { wants = [], ...opts } = {}) {
-  return bankableInventory(items, { ...opts, wants: [...wants, ...DEPOSIT_ALWAYS] })
+  return bankableInventory(items, { ...opts, wants: [...wants, ...DEPOSIT_ALWAYS, ...depositExtraOf(items)] })
+}
+/**
+ * THE MARKET'S BUYS ARE BANKED (the showcase batch19b fold, Codex BLOCKER 3): the names in this bag the town's market buys
+ * (market.mjs wantOf) join the wants, as DEPOSIT_ALWAYS's do -- a want bought at a merchant reaches the town's chests through the
+ * ordinary deposit instead of riding in the bag. Set at install (skills.mjs marketInstall); unset (the fleet, MARKET=off): none.
+ * A hook that throws adds none (the deposit exactly as before).
+ */
+let depositExtra = null
+export function setDepositExtra (fn) { depositExtra = typeof fn === 'function' ? fn : null }
+function depositExtraOf (items) {
+  if (!depositExtra) return []
+  try { return [...new Set((Array.isArray(items) ? items : []).map(it => it?.name).filter(n => typeof n === 'string' && depositExtra(n)))] } catch { return [] }
 }
 
 /**

@@ -130,9 +130,18 @@ export const WELL_JUNK = Object.freeze(new Set([...OWNER_JUNK_1004, ...DECORATIO
  *  10-07 "yes"; STONE_GUARD holds them back instead.) */
 const NEVER_DISPOSE = /(^(stone_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$|^(stone_bricks|smooth_stone)$|_(pickaxe|axe|shovel|hoe|sword)$|_log$|_wood$|_stem$|_planks$|_sapling$|_propagule$|_ore$|^raw_|_ingot$|_slab$|_trapdoor$|_bed$|^(cobblestone|cobbled_deepslate|stone|dirt|tuff|gravel|sand|netherrack|calcite|deepslate|sandstone|red_sandstone)$|^(apple|bread|carrot|potato|baked_potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie)$|^(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$|^(stick|coal|charcoal|torch|crafting_table|chest|bone_meal|bamboo)$)/
 
-/** May this item go down the well? On the list, AND not a guarded kind, AND not something the composter takes. */
+/**
+ * THE MARKET'S KEEP (the showcase batch19b fold, Codex BLOCKER 3): a name the town BUYS (market.mjs wantOf -- wool for the owner,
+ * dyes, flowers...) is never disposal junk while the market is on: a runner that bought the town's wool must not throw it down the
+ * well (and the hub clerk and the prune must not throw it from a chest). Set at install (skills.mjs marketInstall); unset (the fleet,
+ * MARKET=off): nothing kept, isWellJunk exactly as before. A keep that throws keeps (fail closed: an item kept is never lost).
+ */
+let wellKeepOf = null
+export function setWellKeep (fn) { wellKeepOf = typeof fn === 'function' ? fn : null }
+const wellKept = name => { if (!wellKeepOf) return false; try { return !!wellKeepOf(name) } catch { return true } }
+/** May this item go down the well? On the list, AND not a guarded kind, AND not something the composter takes, AND not kept. */
 export function isWellJunk (name) {
-  return typeof name === 'string' && WELL_JUNK.has(name) && !NEVER_DISPOSE.test(name) && !isCompostJunk(name)
+  return typeof name === 'string' && WELL_JUNK.has(name) && !NEVER_DISPOSE.test(name) && !isCompostJunk(name) && !wellKept(name)
 }
 
 /**

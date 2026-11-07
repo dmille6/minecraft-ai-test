@@ -94,6 +94,8 @@ import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, 
 import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH_LOST_PATIENCE_MS, PLINTH_STRUCT_CONFIRM_MS } from './plinth.mjs'
 // plinthfirst-01: every new junk well is a raised one (its own statement)
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
+import { setWellKeep } from './well.mjs'   // the batch19b fold: the market's keeps
+import { setDepositExtra } from './bankable.mjs'   // the batch19b fold: the market's buys banked
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
@@ -212,7 +214,7 @@ import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail } from './bagroom.mjs'   // bagroom-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
-import { MARKET, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment, bedDirFrom, WALKIN, walkinSwitch, walkinTargets, walkinAdmit, legsTo, edgeOf, walkinLeave, walkinCandidates, walkinGoods, bedCells, farmStep, withStepPrice, FARM_BLOCKS } from './market.mjs'   // market-01
+import { MARKET, marketYield, marketKeeps, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment, bedDirFrom, WALKIN, walkinSwitch, walkinTargets, walkinAdmit, legsTo, edgeOf, walkinLeave, walkinCandidates, walkinGoods, bedCells, farmStep, withStepPrice, FARM_BLOCKS } from './market.mjs'   // market-01
 import { pickStation } from './enchant.mjs'   // stationzone-01: never a station inside a protected zone; the workshop's own first
 import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
@@ -18602,6 +18604,10 @@ function marketJobPlan (bot, now = Date.now()) {
 export function marketAsk ({ now = Date.now(), health = 20, freeSlots = 36 } = {}, bot = mkBot) {
   try {
     if (!bot || !MARKET_ON.on) return null
+    // the batch19b fold (Codex BLOCKERS 2 + 4): a held building share, the keeper's lease, a standing service offer -> the build order's own work
+    const so = bot.serviceOffer ?? null
+    const y = marketYield({ shareHeld: shopShareHeld(bot), keeper: keeperNow(bot, now), serviceLive: !!(so && serviceOffer(so, { plot: so.plot }, now).svc) })
+    if (y) { mkSkip(bot, 'market_run', y, now); return null }
     const j = marketJobPlan(bot, now)
     if (j.ok) return { order: { skill: 'market_job', args: { block: j.block } } }
     mkSkip(bot, 'market_job', j.why, now)
@@ -18838,7 +18844,7 @@ async function marketJobHeld (ctx, plan, signal, row) {
   const blockAt = (x, y, z) => { const b = bot.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name } : null }
   const jobIds = Object.values(PROFESSION_BLOCK).map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
   const existing = (bot.findBlocks?.({ matching: jobIds, maxDistance: 64, count: 64 }) ?? []).map(p => ({ x: p.x, z: p.z }))
-  const pick = marketCell(blockAt, plan.cluster, { zones: plan.zones, existing })
+  const pick = marketCell(blockAt, plan.cluster, { zones: plan.zones, existing, refuse: cutterRefusal() })   // the town's reservations (Codex fold BLOCKER 1)
   if (!pick.cell) { row('no_effect', { op: 'skip', why: pick.why, block, cluster: plan.cluster }); return { status: 'no_effect', detail: `market_job: ${pick.why}` } }
   try {
     if ((mkBag(bot)[block] ?? 0) < 1) {
@@ -18867,7 +18873,7 @@ async function marketJobHeld (ctx, plan, signal, row) {
     if (bot.entity.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) > 4.5) { row('failed', { op: 'skip', why: 'unreachable', block, cell: c }); return { status: 'failed', failClass: 'no_path', detail: 'market_job: unreachable' } }
     // the cell read again at the click: the same cell still chosen (empty, open ground, outside the zone)
     const exist2 = (bot.findBlocks?.({ matching: jobIds, maxDistance: 64, count: 64 }) ?? []).map(p => ({ x: p.x, z: p.z }))
-    const re = marketCell(blockAt, plan.cluster, { zones: townPlanZones(bot).zones, existing: exist2 })
+    const re = marketCell(blockAt, plan.cluster, { zones: townPlanZones(bot).zones, existing: exist2, refuse: cutterRefusal() })
     if (!re.cell || re.cell.x !== c.x || re.cell.y !== c.y || re.cell.z !== c.z) { row('no_effect', { op: 'skip', why: 'changed', block, cell: c }); return { status: 'no_effect', detail: 'market_job: the cell changed' } }
     const led0 = mkRead('jobs', [])
     if ((Array.isArray(led0) ? led0 : []).filter(e => Date.now() - (e.at ?? 0) < 24 * 3600_000).length >= MARKET.jobsPerDay) { row('no_effect', { op: 'skip', why: 'day_cap', block, cell: c }); return { status: 'no_effect', detail: 'market_job: the day cap' } }
@@ -18930,7 +18936,7 @@ async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity
   const blockAt = (x, y, z) => { const b = bot.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name } : null }
   const ids = [...Object.values(PROFESSION_BLOCK), ...Object.keys(bot.registry?.blocksByName ?? {}).filter(n => /_bed$/.test(n))].map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
   const existing = (bot.findBlocks?.({ matching: ids, maxDistance: 64, count: 64 }) ?? []).map(p => ({ x: p.x, z: p.z }))
-  const bc = bedCells(blockAt, cluster, { zones, existing, from: bot.entity.position })
+  const bc = bedCells(blockAt, cluster, { zones, existing, from: bot.entity.position, refuse: cutterRefusal() })
   if (!bc.foot) { row('no_effect', { op: 'skip', why: bc.why, block: it.name }); return false }
   // walk near the foot, then the head goes where the bot FACES (its approach): that direction if it is a valid one, else walk to the
   // stand of a valid one; the bot never stands on the foot or the head
@@ -18977,7 +18983,7 @@ async function mkPlaceCarried (ctx, block, cluster, zones, signal, row, extra = 
   const blockAt = (x, y, z) => { const b = bot.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name } : null }
   const jobIds = Object.values(PROFESSION_BLOCK).map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
   const existing = (bot.findBlocks?.({ matching: jobIds, maxDistance: 64, count: 64 }) ?? []).map(p => ({ x: p.x, z: p.z }))
-  const pick = marketCell(blockAt, cluster, { zones, existing, from: bot.entity.position })
+  const pick = marketCell(blockAt, cluster, { zones, existing, from: bot.entity.position, refuse: cutterRefusal() })
   if (!pick.cell) { row('no_effect', { op: 'skip', why: pick.why, block }); return false }
   const c = pick.cell
   try { await goto(ctx, { x: c.x, y: c.y, z: c.z, range: 3 }, signal, { until: Math.min(deadline, Date.now() + 45_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -19121,7 +19127,7 @@ async function marketTripPriced (ctx, args, signal) {
 /** MARKET-01, once per spawn (features.mjs): the ask wired and the licence row. Never throws. */
 export function marketInstall (bot) {
   mkBot = bot
-  if (MARKET_ON.on) setMarketAsk(marketAsk)
+  if (MARKET_ON.on) { setMarketAsk(marketAsk); setWellKeep(marketKeeps); setDepositExtra(marketKeeps) }   // the batch19b fold (Codex BLOCKER 3): bought wants are banked, never thrown
   try { logEvent({ kind: 'market_mode', status: 'success', snapshot: snapshot(bot), detail: `${marketModeDetail(MARKET_ON.on, MARKET_ON.jobs)} walkin=${WALKIN_ON.on ? 1 : 0}` }) } catch { /* telemetry */ }
 }
 export const _marketTest = { marketRunPlan, marketJobPlan, mkFillBucket, mkState, mkFile, walkinPlan, mkTripState }
