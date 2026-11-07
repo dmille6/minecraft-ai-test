@@ -47,16 +47,16 @@ await t('with the markers `reserved` (skills.mjs tidyInputs), no cut on the mark
 })
 await t('the wiring (structural): tidyInputs\' reserved zones include townMarkerZones()', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/const rz = \[\.\.\.recordZones\(recs\.filter\(r => r\?\.plot === SITEPREP_PLOT\)\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\), \.\.\.townMarkerZones\(\)\]/.test(src))
+  assert.ok(/const rz = \[\.\.\.recordZones\(recs\.filter\(r => r\?\.plot === SITEPREP_PLOT\)\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\), \.\.\.townMarkerZones\(\), \.\.\.lmz\]/.test(src), 'roughground-3: + the landmark')
   assert.ok(/const reserved = \(x, z\) => held\(x, z\) \|\| rz\.some\(/.test(src))
 })
 await t('MUTANT: the markers dropped from reserved -- the wiring check fails for that reason (anchor present and unique)', () => {
   const p = new URL('../src/skills.mjs', import.meta.url)
   const src = readFileSync(p, 'utf8')
-  const old = ', ...townMarkerZones()]\n  // wallext-02 (Claude hold r1 BLOCKER 1)'
+  const old = ', ...townMarkerZones(), ...lmz]\n  // wallext-02 (Claude hold r1 BLOCKER 1)'
   assert.strictEqual(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  const mut = strip(src.replace(old, ']\n  // wallext-02 (Claude hold r1 BLOCKER 1)'))
-  assert.ok(!/const rz = \[\.\.\.recordZones\(recs\.filter\(r => r\?\.plot === SITEPREP_PLOT\)\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\), \.\.\.townMarkerZones\(\)\]/.test(mut), 'the mutant still wires the markers')
+  const mut = strip(src.replace(old, ', ...lmz]\n  // wallext-02 (Claude hold r1 BLOCKER 1)'))
+  assert.ok(!/const rz = \[\.\.\.recordZones\(recs\.filter\(r => r\?\.plot === SITEPREP_PLOT\)\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\), \.\.\.townMarkerZones\(\), \.\.\.lmz\]/.test(mut), 'the mutant still wires the markers')
 })
 
 console.log(`\ngkmarker: ${pass} passed, ${fail} failed`)
