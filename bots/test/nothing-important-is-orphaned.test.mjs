@@ -273,6 +273,10 @@ const REQUIRED = [
   'scripts/host/test_shopconform_states.py',
   'sandbox/enchant/obsidian-proof.cjs',
   'docs/reports/obsidian-2026-11-04/bucketfix-01.88c981a1.json',
+  // obsidian-01 (11-07, owner "Both at once"): the cast's whole-bot Paper driver, its registration and draft queue entry
+  'sandbox/enchant/obsidian-e2e.mjs',
+  'docs/reports/obsidian-2026-11-04/obsidian-01.c5a33c08.json',
+  'docs/reports/obsidian-2026-11-04/obsidian-01.entry.draft.json',
   // copperhall-01 (11-02): the showcase copper hall, its blueprint and its test over the showcase terrace's own region export
   'bots/src/copperhall.mjs',
   'bots/src/blueprints/hall@1.json',

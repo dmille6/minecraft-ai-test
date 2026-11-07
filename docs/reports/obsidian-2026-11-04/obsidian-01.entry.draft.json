@@ -1,0 +1,22 @@
+{
+ "run": "obsidian-01",
+ "after": [],
+ "patch": {
+  "base": "45defefa8042071ca652bdd0cb84134b80261272",
+  "tip": "c5a33c08838999ef2e5f52a565b8c2df879f0c3f",
+  "note": "set with queue set-patch 45defefa..c5a33c08 (autorebase onto the live tip)"
+ },
+ "variants": {
+  "45defefa8042071ca652bdd0cb84134b80261272": {
+   "registration": "/home/mike/mcai-analysis/obsidian-01.c5a33c08.json",
+   "registration_sha256": "3cdd4ed21b48c97080f160fb68ecae9bbf1d1fe01262192a58a382ce10a5a9d4",
+   "canary_sha": "c5a33c08838999ef2e5f52a565b8c2df879f0c3f",
+   "approved": "obsidian agent 2026-11-07: ONE bundle bucketfix-01 + obsidian-01 + mine tread probe on fleet 45defefa; tier 3; Codex r1-r5 + Claude subagent r1-r4 to no blockers; Paper sandbox3 e2e 3 casts / 3 obsidian banked / 0 deaths; full suite on ci2/w30"
+  }
+ },
+ "supersedes": [
+  "bucketfix-01"
+ ],
+ "note": "P lane (a tech-tree step: obsidian for the enchanting table; owner 11-07 'Both at once'). Cancel the queued bucketfix-01 entry (variant 3a7bade, patch 3a7bade..88c981a): its two commits are this bundle's first two. The canary pool must hold the population: deep miners on diamond trips with a diamond pickaxe (any pool with a finished town stair).",
+ "hold": null
+}

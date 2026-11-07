@@ -79,3 +79,78 @@ casts. The trip banks the obsidian with its diamonds; the workshop's fitter craf
 **O-L (owner):** protected code reaches the showcase only through a fleet KEEP (process: "protected code follows the fleet line"). Read
 "showcase only" as: the code rides a fleet canary with the job switched off outside the showcase pool (an unexposed fleet KEEP is "goal
 unverified"), and the job runs only on the showcase. Or allow a protected delta on the showcase for this one piece?
+
+## 7. Revision 11-07: OWNER "Both at once" -- obsidian-01 built for the fleet AND the showcase
+
+**Owner 11-07 ~13:20Z (in chat):** obsidian mining "Both at once": fleet and showcase together (overrides O-L's "showcase only via a
+fleet KEEP" for this piece). Goal: obsidian for the enchanting table.
+
+**Measured first (showcase region copy, +-150 of home, 11-07; the census scripts are in the 11-07 memory file):**
+
+| Population at the cast level (lake surface y -55, miner feet -53) | Count |
+|---|---|
+| top-layer lava sources at -55 | 1,734 |
+| ...the section-3 ISOLATED source (four sides + floor solid) | 5 (0.3%) |
+| ...with a solid rock hole cell over it and walls (the 11-04 design's site, liquid sides sealable) | **6** in 90,000 m2 |
+| ...under open cave air (a lake in a cave) | 998 |
+| ...with a dry shore a stand two above it can use AND rock behind the shore for a basin | **237 lake cells, 48 distinct 16x16 areas** |
+| natural obsidian at -55 (where lava met water) | 78; with a solid floor and no liquid side 14, all under water |
+| water sources -55..-31 (aquifers) | ~4,300, mostly infinite |
+| fleet 48 h (80 bots): diamond trips started / banked home | 439 / 405; work rows at y -60..-50: 585; bucket rows 3,261, all `failed` (point.minus) |
+
+So section 3's isolated in-place cast has no population. **The cast is made in a basin the miner digs itself** (the 11-04 O6 proof's
+geometry, but with the lava brought to it): the tunnel at feet f = -53 toward the lake (bearing d), cells P3 P2 P1 S; the lake source Lq
+two below the cave cell C ahead of S; the basin H under P2 and W under P3 (f-1), in rock the miner has read (every wall and floor full,
+dry, natural). ONE bucket in turn: (1) water into W from P1 (two out: the ray crosses the open H) -> a contained source; (2) the empty
+bucket takes ONE lava source from the lake from S (two below, one ahead: the lake refills it with flowing lava, nothing rises);
+(3) the lava into H from P1 (one out: every aim hits H's floor) -> obsidian the instant it lands beside W's water (no open lava stands);
+(4) W's water back; (5) H dug with the diamond pickaxe (75 s with mineflayer's digTime); (6) the drop picked up by stepping into H and
+out. Repeat to the town's need (4, the table), then H and W are filled with blocks. The first water: an INFINITE source (>= 2 source
+neighbours: the fill takes nothing) within 40 of the stair top before the descent, else a water lake at depth by the same cave-edge
+geometry. Everything is read back after each step: loose lava is sealed at once; lava still open at the feet's level after its seals
+turns the trip home at once (and that call ends there); a lava bucket never outlives the cast (back into the lake from S).
+
+**The refusal chain (each a different job, never a wait):** OBSIDIAN off / an iron trip / the town index unreadable / the town (+bag)
+holds 4 / no diamond pickaxe with 8 uses (the bank phase makes one from 3 diamonds) / no bucket / under 8 seal blocks -> an ordinary
+diamond trip; at depth: not at feet -53 after 3 deepen tries, no site in +-24 after 3 looks, 3 failed steps, 8 casts -> the cast is off
+and the ore and branches go on.
+
+**Codex's 11-04 points kept:** contained casts, no lava to town, water recovered before the dig, one harvest a call (the dig starts
+only with 95 s of the call's 140 s left), the deep trip's lease, trail, credit, reserves and return limits reused, the board is not a
+command channel (the need is the town index's count). **Changed from 11-04:** lava IS scooped (one source, by the cast only; owner
+11-01 allows buckets on lava; the model's `bucket` verb still refuses lava); the job runs on BOTH lines (owner 11-07).
+
+Built: section 8.
+
+## 8. Built 11-07 (both lines; NOT queued, NOT staged)
+
+| Line | Branch @ sha | Base | Contents |
+|---|---|---|---|
+| fleet | `obsidian-01b` @ `c5a33c08` | live fleet `45defefa` (buildfix-01 promoted 14:00Z) | bucketfix-01 (2 commits, patch identical to 88c981a1) + obsidian-01 + mine's tread probe |
+| showcase | `obsidian-01show` @ `5a3f0558` | live release `272288e1` | the same commits, cherry-picked clean (deepMine identical on both lines) |
+
+Earlier builds: `bucketfix-02` @ `ee078a2c` (bucketfix rebuilt on e6a1ea2b, identical patch), `obsidian-01` @ `29a11d69` (on e6a1ea2b, superseded by 01b).
+
+- **Code:** `bots/src/deepmine.mjs` (obsidian section: obsidianWant, obsKit, siteCells, siteWhy, approachLegs, findSites, castNext, castGate,
+  looseLava, spillState, spilledWater, waterFill; returnWhy `obsidian`), `bots/src/bucket.mjs` (fillWater, scoopLava, pourInto, castPourRefusal,
+  fillRefusal, lavaScoopRefusal; the model's verb unchanged), `bots/src/skills.mjs` (deepObs* executor; the trip-start hook; the work hook;
+  the cast trip's deepen to the cast level; `mineTreadProbe` -- lava under the next tread refuses), `bots/src/bankable.mjs` (obsidian in
+  DEPOSIT_ALWAYS). Kill switch `OBSIDIAN=off`. Tests `bots/test/obsidian.test.mjs` (30: behaviour over a synthetic deep layer, the refusal
+  chain composed, 7 anchored mutants, wiring).
+- **Paper (sandbox3, the whole bot, `sandbox/enchant/obsidian-e2e.mjs`):** fleet run 8 -- 3 casts at two sites, **3 obsidian in the town
+  chest** (server count), 0 deaths, no lava/water in the site rows, water kept; run 7 -- 2 casts, 2 banked. Showcase run -- 2 casts, 2
+  banked, 0 deaths, clean; its second site's approach refused by the branch probe (void), a clean stop. Runs 1-6 found the fixes: the town
+  count read a `dirty` chest as unknown; DEEP_OK stopped the deepen at -50; stairWalk arrives within 1; a diagonal lava aim clipped S's wall;
+  a cast that stopped sealed its water; a spent lake was not left.
+- **Reviews (protected scope, two engines):** Codex r1 BLOCK 3 (lava held forever; lava-back unchecked; failed seals went on) -> r2 BLOCK 1
+  (a spill fell through to the ore work) -> r3 APPROVE -> r4 APPROVE (the Paper fixes) -> r5 APPROVE (the probe fix). Claude subagent r1
+  APPROVE (5 notes, 3 taken) -> r2 APPROVE -> r3 BLOCK 1 (mine's tread probe read lava as hollow: a 1-2 deep pit over a lake let the bot
+  step in; the cast trip deepens exactly there) -> r4 APPROVE. Not taken: Claude's note to aim the lava-back at the shore's face (the ray
+  hits the shore's top and lands in S; the reviewer withdrew it).
+- **Full suites (suite-run, w30, git context):** fleet c5a33c08 413/417 (lavastep flake; nothing-important-is-orphaned, plinth-skill, well: known
+  base); showcase 5a3f0558 459/462 (orphaned bagdiet as on the live release, plinth-skill, well). An earlier run caught evidence-gate (a spill
+  return with no failClass) -> fixed in c5a33c08.
+- **Tripwire:** OB1/OB2 in main's `docs/reports/shop-01-2026-10-25/shopread.py.txt` (selftest + 3 mutants + the row-shape copy check),
+  NOT installed.
+- **Fleet:** registration `obsidian-01.c5a33c08.json` (effect: none_reason -- a new instrument) and draft entry `obsidian-01.entry.draft.json`
+  here and in `~/mcai-analysis` on the canary host. ONE bundle; it supersedes the queued `bucketfix-01`.

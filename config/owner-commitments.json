@@ -4605,8 +4605,7 @@
     ]
    },
    "note": "Measured 11-04 16:20Z: town iron 197, diamond 18, obsidian/book/paper/cane/leather 0; bags cane 61 (the park's), 0 leather ever; toolkit drew 379 town iron / 7 d with 268 no_iron searches. Codex designed child records per furnishing; chosen one fit list on the shell record. Codex code r1: 1 BLOCKER (stranded drawn materials), fixed 7763c704.",
-   "owner_answers": "OWNER 2026-11-04: E1 \"a dedicated cane bed like the tree farm\" -> canefarm piece modelled on the tree farm (own sited plot by water, planted from bag cane, harvested above the bottom block, cane to town for paper; never the park's cane); E2 \"obsidian on showcase only for now\" -> obsidian piece showcase-only, tier 3, Paper sandbox proof first, two engines; E3 \"lecturn later\" -> lectern deferred.",
-   "owner_pending": "O-L: obsidian-01 is protected code (deep miner + bucket): ride a fleet canary with the job off outside the showcase pool (recommended), or allow a protected delta on the showcase?"
+   "owner_answers": "OWNER 2026-11-04: E1 \"a dedicated cane bed like the tree farm\" -> canefarm piece modelled on the tree farm (own sited plot by water, planted from bag cane, harvested above the bottom block, cane to town for paper; never the park's cane); E2 \"obsidian on showcase only for now\" -> obsidian piece showcase-only, tier 3, Paper sandbox proof first, two engines; E3 \"lecturn later\" -> lectern deferred. | 11-07 ~13:20Z O-L ANSWERED: obsidian \"Both at once\" -- fleet AND showcase together (row obsidian-1107)."
   },
   {
    "id": "decorator-1104",
@@ -5903,6 +5902,40 @@
     ]
    },
    "note": "16 keeper room skips 06:40-15:01Z, all with 2-7 free slots; forest needs 8, tidy 2."
+  },
+  {
+   "id": "obsidian-1107",
+   "title": "Obsidian for the enchanting table, fleet AND showcase together (owner 11-07 ~13:20Z \"Both at once\"; enchantshop E2 / O-L)",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "obsidian-1107.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "2026-11-07: BUILT, not queued, not staged. Fleet: ONE bundle obsidian-01 = bucketfix-01 + obsidian-01 + mine tread probe @ c5a33c08 on fleet 45defefa (branch obsidian-01b); registration + draft entry in ~/mcai-analysis (supersedes the queued bucketfix-01: cancel it). Showcase: obsidian-01show @ 5a3f0558 on 272288e1 -- ready to stage with tripwire OB1/OB2 (main shopread.py.txt, not installed). Paper sandbox3 whole-bot e2e: 3 casts / 3 obsidian banked / 0 deaths (fleet), 2/2/0 (showcase). Reviews to no blockers (Codex r5, Claude r4). NEXT: the control session queues the fleet entry and folds the showcase piece; read `_deepmine op=obs` rows after release.",
+   "max_quiet_hours": 48,
+   "depends_on": [
+    {
+     "item": "enchantshop-1104"
+    }
+   ],
+   "evidence": {
+    "grep": [
+     "obsidian-01"
+    ],
+    "branches": [
+     "origin/obsidian-01b",
+     "origin/obsidian-01show"
+    ],
+    "paths": [
+     "docs/reports/obsidian-design-2026-11-04.md",
+     "docs/reports/obsidian-2026-11-04/obsidian-01.c5a33c08.json",
+     "sandbox/enchant/obsidian-e2e.mjs"
+    ]
+   },
+   "note": "Measured 11-07: the 11-04 isolated-source design had no population (5 of 1,734 lava sources; 6 sites in 90,000 m2); lakes under cave air with a shore + rock behind: 237 cells / 48 areas -> a self-dug basin, one bucket in turn (water, one lake lava source, water back)."
   }
  ]
 }

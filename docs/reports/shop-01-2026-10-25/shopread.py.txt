@@ -199,6 +199,18 @@
 #                      against MARKET_BEDS_PER_DAY, apart from the job blocks' MARKET_PER_DAY; a composter is a market job block. A
 #                      WALK-IN trade (`_market_run ... walkin=1 zone=<id>`, a market_trip's) may stand INSIDE a village zone: counted
 #                      (market_walkins), never zone -- presence is not a change; a run without walkin=1 there is still zone (TRIP).
+#   OB1-OB2 the obsidian cast (obsidian-01, 11-07, OWNER "Both at once"; bots/src/deepmine.mjs obsidian section, skills.mjs deepObs*):
+#                      the deep miner's cast at feet -53 (a basin dug behind a lava lake's shore, water and the lake's lava from one
+#                      bucket in turn, the obsidian dug) writes `_deepmine op=obs ... why=step=<step> why=<why> lake=<x,y,z> got= ...`
+#                      rows; its digs, seals and fills are NOT `_build` rows (no record: the cast is underground, off every project).
+#                      Judged ahead of every build-row rule on the canary arm after the cut (the showcase: every row); every other
+#                      `_deepmine` row is skipped. OB1 zone -- a cast row whose LAKE cell lies inside a protected zone box grown by
+#                      OBS_PAD (the bucket's reach 6 + the site's four cells back from the lake) on each side, or whose row position
+#                      lies inside a zone box: zone (` obs_zone`, H3: TRIP). OB2 spill -- `step=spill why=tunnel_<n>` (lava left
+#                      open at the feet's level after the seals: the bot turns home at once): clear_outside (` obs_spill`, H2: TRIP --
+#                      lava left in a tunnel is harm); `why=basin_<n>` (lava below the feet, in the basin only) is REPORTED
+#                      (obs_spill_basin), never a gate. Counted: obs_rows, obs_digs (step=dig why=confirmed), obs_got (pickup got).
+#                      The water fill at the surface takes an infinite source (two source neighbours: it refills): no rule.
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -236,7 +248,11 @@ MARKET_PAD = 3
 MARKET_PER_DAY = 2
 MARKET_BEDS_PER_DAY = 2                 # market-02 WALKIN.bedsPerDay (beds, by their FOOT rows)
 MARKET_SPEND = 8
-BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete') + HUB_KINDS + MARKET_KINDS
+# obsidian-01 OB1-OB2: the deep miner's cast rows (`_deepmine op=obs`); in BUILD_KINDS so the showcase tripwire loads them
+OBS_KINDS = ('_deepmine',)
+OBS_PAD = 10                            # skills.mjs BUCKET_ZONE_REACH 6 + the site's cells up to 4 back from the lake (siteCells)
+OBS_ROW = re.compile(r'\bop=obs\b.*?\bwhy=step=(\S+) why=(\S+) lake=(-?\d+,-?\d+,-?\d+|-)')
+BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete') + HUB_KINDS + MARKET_KINDS + OBS_KINDS
 ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
 # storehub-01 (bots/src/storehub.mjs HUB_THROWABLE, HUB_NEVER_THROW, copied; the selftest asserts the copy)
 HUB_PLOT = 'storehub'
@@ -1385,6 +1401,32 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
     for r in rows:
         f = kv(r['detail'])
         arm, per, name, pool, bot = r['arm'], r['per'], r['name'], pool_of(r['bot']), r['bot']
+        if name in OBS_KINDS:
+            # obsidian-01 OB1-OB2, judged on the canary arm after the cut (the showcase: every row), then done; every other
+            # `_deepmine` row (the trip's own phases) is skipped
+            if arm != 'canary' or per != 'post':
+                continue
+            m = OBS_ROW.search(r['detail'] or '')
+            if not m:
+                continue
+            step, why, lake = m.group(1), m.group(2), m.group(3)
+            out['obs_rows'] += 1
+            if step == 'dig' and why == 'confirmed':
+                out['obs_digs'] += 1
+            if step == 'pickup' and why == 'got':
+                out['obs_got'] += 1
+            cell = xyz_of(lake) if lake != '-' else None
+            boxes = zones_by_pool.get(pool) or []
+            padded = [[b[0] - OBS_PAD, b[1] - OBS_PAD, b[2] - OBS_PAD, b[3] + OBS_PAD, b[4] + OBS_PAD, b[5] + OBS_PAD] for b in boxes]
+            at = r.get('feet')
+            if (cell is not None and any(in_box(b, cell) for b in padded)) or (at is not None and any(in_box(b, at) for b in boxes)):
+                lists['zone'].append('%s %s %s obs_zone' % (bot, lake, step)); out['zone'] += 1
+            if step == 'spill':
+                if why.startswith('tunnel'):
+                    lists['clear_outside'].append('%s %s %s obs_spill' % (bot, lake, why)); out['clear_outside'] += 1
+                else:
+                    lists['obs_spill_basin'].append('%s %s %s' % (bot, lake, why)); out['obs_spill_basin'] += 1
+            continue
         if name in MARKET_KINDS:
             # market-01 MK1-MK3, judged on the canary arm after the cut (the showcase: every row), then done
             if arm != 'canary' or per != 'post':
@@ -3073,6 +3115,52 @@ def selftest():
     assert o['off_record'] == 1 and l['off_record'] == ['board-a-Alpha 40,70,8 red_bed market_cap'], 'the third bed in 24 h'
     o, l = mk([R('_market_job', 'op=placed block=white_bed at=40,70,0'), R('_market_job', 'op=placed block=white_bed at=46,70,0 why=bed_head', s=1)])
     assert o['zone'] == 1 and l['zone'] == ['board-a-Alpha 46,70,0 white_bed market_job'], 'a bed half in the pad'
+    # obsidian-01 OB1-OB2: the cast's rows reach the judge (positive control first); a lake within OBS_PAD of a zone is zone; a
+    # tunnel spill is clear_outside (TRIP), a basin spill reported; the trip's other `_deepmine` rows and the control arm skipped
+    assert set(OBS_KINDS) <= set(BUILD_KINDS), 'the showcase tripwire loads BUILD_KINDS rows: the cast rows must be among them'
+    D = lambda step, why, lake='300,-55,40', **kw: R('_deepmine', 'op=obs phase=work target=diamond why=step=%s why=%s lake=%s got=0/4 n=- y=-53 trip=t1 found=- n=- ms=- end=-' % (step, why, lake), **kw)
+    ob = lambda rows_, zones=mz: judge(rows_, proj, zones)
+    o, l = ob([D('site', 'lava'), D('arrived', 'lava', s=5), D('basin', 'confirmed', s=9), D('water', 'ok', s=12), D('lava', 'scooped', s=15),
+               D('pour_lava', 'ok', s=18), D('scoop_water', 'ok', s=20), D('dig', 'confirmed', s=100), D('pickup', 'got', s=102),
+               R('_deepmine', 'op=branch phase=work target=diamond why=end y=-53 trip=t1 found=- n=12 ms=- end=-', s=110)])
+    assert o['obs_rows'] == 9 and o['obs_digs'] == 1 and o['obs_got'] == 1, ('POSITIVE: the cast rows reach the judge', dict(o))
+    assert o['zone'] == 0 and o['clear_outside'] == 0 and o['off_record'] == 0, (dict(o), dict(l))
+    o, l = ob([D('pour_lava', 'ok', lake='45,-55,0')])
+    assert o['zone'] == 1 and l['zone'] == ['board-a-Alpha 45,-55,0 pour_lava obs_zone'], ('a lake within OBS_PAD of the village (49 - 10 = 39)', dict(l))
+    o, l = ob([D('pour_lava', 'ok', lake='38,-55,0')])
+    assert o['zone'] == 0, 'just outside the pad'
+    o, l = ob([D('dig', 'confirmed', lake='-', feet=[60, 64, 0])])
+    assert o['zone'] == 1, 'a cast row standing in a zone (no lake named)'
+    o, l = ob([D('spill', 'tunnel_1')])
+    assert o['clear_outside'] == 1 and l['clear_outside'] == ['board-a-Alpha 300,-55,40 tunnel_1 obs_spill'], dict(l)
+    o, l = ob([D('spill', 'basin_2')])
+    assert o['clear_outside'] == 0 and o['obs_spill_basin'] == 1, 'a basin spill is reported, never a gate'
+    o, l = ob([D('spill', 'tunnel_1', arm='control'), D('pour_lava', 'ok', lake='45,-55,0', per='pre')])
+    assert o['clear_outside'] == 0 and o['zone'] == 0 and o['obs_rows'] == 0, 'the canary arm after the cut only'
+    # mutants (anchor present and unique): the pad dropped -> the lake by the village passes; the spill gate dropped -> a tunnel spill passes
+    for anch, mut, check, msg in (
+            ("            padded = [[b[0] - OBS_PAD, b[1] - OBS_PAD, b[2] - OBS_PAD, b[3] + OBS_PAD, b[4] + OBS_PAD, b[5] + OBS_PAD] for b in boxes]\n",
+             "            padded = boxes\n",
+             lambda ns: ns['judge']([D('pour_lava', 'ok', lake='45,-55,0')], proj, mz)[0]['zone'] == 1, 'OBS_PAD'),
+            ("                    lists['clear_outside'].append('%s %s %s obs_spill' % (bot, lake, why)); out['clear_outside'] += 1\n",
+             "                    pass\n",
+             lambda ns: ns['judge']([D('spill', 'tunnel_1')], proj, mz)[0]['clear_outside'] == 1, 'the tunnel spill gate'),
+            ("            if arm != 'canary' or per != 'post':\n                continue\n            m = OBS_ROW.search(r['detail'] or '')\n",
+             "            m = OBS_ROW.search(r['detail'] or '')\n",
+             lambda ns: ns['judge']([D('spill', 'tunnel_1', arm='control')], proj, mz)[0]['clear_outside'] == 0, 'the arm filter')):
+        src_o = open(os.path.abspath(__file__)).read()
+        assert src_o.count(anch) == 1, ('ANCHOR MISSING OR NOT UNIQUE', anch[:60])
+        ns_o = {'__name__': 'shopread_mutant', '__file__': os.path.abspath(__file__)}
+        exec(compile(src_o.replace(anch, mut), 'shopread_mutant', 'exec'), ns_o)
+        assert not check(ns_o), 'MUTANT SURVIVED: %s' % msg
+    # THE COPY: deepmine.mjs's row shape and skills.mjs's bucket reach, when the bots tree is beside this file's repo
+    dmj = os.path.join(here, '..', '..', '..', 'bots', 'src', 'deepmine.mjs')
+    skj = os.path.join(here, '..', '..', '..', 'bots', 'src', 'skills.mjs')
+    if os.path.exists(dmj) and 'export function obsDetail' in open(dmj).read():
+        assert "`step=${step} why=${why} lake=${at} got=${got}/${want} n=${n}`" in open(dmj).read(), 'deepmine.mjs obsDetail is not the shape OBS_ROW reads'
+        assert re.search(r'const BUCKET_ZONE_REACH = 6\b', open(skj).read()), 'OBS_PAD assumes BUCKET_ZONE_REACH 6'
+    else:
+        print('shopread selftest: SKIPPED the obsidian row shape vs bots/src/deepmine.mjs check (no obsidian-01 deepmine.mjs beside)')
     # THE COPY: market.mjs's lists, when the bots tree is beside this file's repo
     mjs = os.environ.get('SHOPREAD_MARKET') or os.path.join(here, '..', '..', '..', 'bots', 'src', 'market.mjs')
     if os.path.exists(mjs):
