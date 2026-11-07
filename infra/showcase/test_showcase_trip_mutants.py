@@ -20,6 +20,10 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 SHOPREAD_DOC = 'docs/reports/shop-01-2026-10-25/shopread.py.txt'
 
 MUTANTS = [
+    # Z1G progress: the walk-out's progress rows ignored
+    ("        if any(0 <= (end - t).total_seconds() / 60 <= GUARD_PROGRESS_MIN for t in (progress or {}).get(b, [])):\n", "        if False:\n", 'reporting progress in the last 5 min'),
+    # Z1G progress: any progress ever excuses
+    ("        if any(0 <= (end - t).total_seconds() / 60 <= GUARD_PROGRESS_MIN for t in (progress or {}).get(b, [])):\n", "        if (progress or {}).get(b):\n", 'progress 14 min ago'),
     # Z1G (escdead-01show): the guard's hold rows ignored -> a pinned bot is never Z1
     ("    now, earlier = trapped_now(spells, holds, end)\n", "    now, earlier = {}, {}\n", 'a guard hold inside a 16-min deep spell is Z1'),
     ("        if lastpos.get(b) is not None and ends and max(ends) < lastpos[b]:\n", "        if False:\n", 'walked out after its held spell'),

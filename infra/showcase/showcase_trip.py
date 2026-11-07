@@ -241,7 +241,10 @@ def stuck_now(by_bot, end, min_min=STUCK_MIN, move=STUCK_MOVE, slack_min=10):
 GUARD_HOLD_KINDS = ('_needs_rescue', '_zone_climb_refused')
 
 
-def guard_held(by_bot, boxes, holds, end):
+GUARD_PROGRESS_MIN = 5   # a `_zone_walk outcome=progress` row this recent: the bot is walking itself out (a ~50-stone tunnel ~12 min)
+
+
+def guard_held(by_bot, boxes, holds, end, progress=None):
     """by_bot {bot: [(t, pos)] sorted}; boxes: every zone box WHOLE (closed + deep); holds {bot: [(t, 1)]} from GUARD_HOLD_KINDS
     rows. -> (now, earlier) Z1 spells, as trapped_now. Pure."""
     spells = {b: still_spells(v, boxes, TRAP_MIN, TRAP_MOVE, max_gap_min=5) for b, v in by_bot.items() if holds.get(b)}
@@ -251,6 +254,10 @@ def guard_held(by_bot, boxes, holds, end):
     for b in list(now):
         ends = [e for s_, e, m in spells.get(b, []) if any(s_ <= t <= e for t, _ in holds.get(b, []))]
         if lastpos.get(b) is not None and ends and max(ends) < lastpos[b]:
+            earlier.setdefault(b, []).extend(now.pop(b))
+    # a bot whose escape guard reported PROGRESS toward the zone edge in the last GUARD_PROGRESS_MIN is walking out, not pinned
+    for b in list(now):
+        if any(0 <= (end - t).total_seconds() / 60 <= GUARD_PROGRESS_MIN for t in (progress or {}).get(b, [])):
             earlier.setdefault(b, []).extend(now.pop(b))
     return now, earlier
 
@@ -944,6 +951,7 @@ def cmd_read(a):
     ev = Events.load(paths=LOGS, since=since)
     rows, by_bot, mins, builds = [], collections.defaultdict(list), collections.defaultdict(list), collections.Counter()
     holds = collections.defaultdict(list)   # Z1G: the escape guard's hold rows by bot
+    walking = collections.defaultdict(list)   # Z1G: its walk-out progress rows by bot
     death_rows, refused_by_op, newest = [], collections.Counter(), {}
     for r in ev.rows:
         b = (r.get('bot') or {}).get('name')
@@ -960,6 +968,8 @@ def cmd_read(a):
             death_rows.append((r['t'], b, (r.get('detail') or '')[:90]))
         if r['name'] in GUARD_HOLD_KINDS:
             holds[b].append((r['t'], 1))
+        if r['name'] == '_zone_walk' and 'outcome=progress' in (r.get('detail') or ''):
+            walking[b].append(r['t'])
         if r['name'] == '_protect_zone':
             kvs = dict(re.findall(r'(?:^| )([a-z_]+)=(\d+)', r.get('detail') or ''))
             n = sum(int(kvs.get(k, 0)) for k in ('dig', 'place', 'use', 'open', 'sleep', 'craft'))
@@ -984,7 +994,7 @@ def cmd_read(a):
     _, still_in_zone = split_trapped(spells, mins)
     trapped, trapped_earlier = trapped_now(spells, mins, end)
     # Z1G: the escape guard's holds (escdead-01), judged over the WHOLE boxes (the deep part included)
-    g_now, g_earlier = guard_held(by_bot, [list(b) for _, b in boxes], holds, end)
+    g_now, g_earlier = guard_held(by_bot, [list(b) for _, b in boxes], holds, end, walking)
     for b, v in g_now.items():
         trapped.setdefault(b, []).extend(x for x in v if x not in trapped.get(b, []))
         trapped_earlier.pop(b, None)
@@ -1341,6 +1351,10 @@ def selftest():
     assert guard_held({'n': [(t, P(40, 40, y=20)) for t, _ in pinned]}, [deepbox], {'n': [(T(6), 1)]}, T(16)) == ({}, {}), 'outside every box: not Z1G'
     assert set(GUARD_HOLD_KINDS) == {'_needs_rescue', '_zone_climb_refused'}
     freed = pinned + [(T(17), P(40, 40, y=64)), (T(18), P(41, 40, y=64))]
+    walk = guard_held({'n': pinned}, [deepbox], {'n': [(T(6), 1)]}, T(16), {'n': [T(13)]})
+    assert walk[0] == {} and list(walk[1]) == ['n'], 'a hand-dug walk-out reporting progress in the last 5 min is not pinned NOW'
+    stale = guard_held({'n': pinned}, [deepbox], {'n': [(T(6), 1)]}, T(16), {'n': [T(2)]})
+    assert list(stale[0]) == ['n'], 'POSITIVE: progress 14 min ago does not excuse a still bot'
     gf = guard_held({'n': freed}, [deepbox], {'n': [(T(6), 1)]}, T(18))
     assert gf[0] == {} and list(gf[1]) == ['n'], 'a bot that walked out after its held spell is not held NOW (reported earlier)'
     # phase 1 item 4, the Gale gap: half the rows carry no bot.pos; a position-less row is not a sample (it neither ends a
