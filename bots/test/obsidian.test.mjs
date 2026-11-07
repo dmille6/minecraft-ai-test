@@ -126,6 +126,7 @@ test('THE REFUSAL CHAIN: every missing piece is a different job (an ordinary dia
   assert.equal(M.castGate({ obs: o({ fails: 3, site: site }), kit: kit({ lava: 1 }), feet: [0, -53, 0] }), 'cast', 'never off while holding lava: the step returns it first')
   assert.equal(M.castGate({ obs: o(), kit: kit({ obsidian: 4 }), feet: [0, -53, 0] }), 'done:goal')
   assert.equal(M.castGate({ obs: o({ fails: 5, site: site }), kit: kit({ lava: 1 }), feet: [0, -53, 0] }), 'off:lava_held', 'but never a whole trip of failed pours while holding it')
+  assert.equal(M.castGate({ obs: o(), kit: kit({ water: 1, seal: 4 }), feet: [0, -53, 0] }), 'off:seal_blocks', 'blocks for the seals and the fill first')
   assert.equal(M.castGate({ obs: o({ off: 'x' }), kit: kit(), feet: [0, -53, 0] }), 'idle')
 })
 
@@ -145,6 +146,16 @@ test('looseLava: lava in the basin or the tunnel after a pour is sealed; the lak
   assert.ok(!cells.some(c => c.startsWith('10,') || c.startsWith('11,')), 'the lake is the lake')
   assert.deepEqual(M.looseLava(world().read, site, body), [], 'positive control: a dry site has none')
   assert.ok(!M.looseLava(world({ '8,-53,0': LAVA(0) }).read, site, body).some(c => c.join(',') === '8,-53,0'), 'never the bot\'s own cell')
+})
+
+test('spillState: lava left at the feet\'s level or above is the tunnel (go home now); below it the basin; none is clear', () => {
+  assert.equal(M.spillState([], -53), 'clear')
+  assert.equal(M.spillState([[7, -54, 0]], -53), 'basin')
+  assert.equal(M.spillState([[7, -54, 0], [10, -53, 0]], -53), 'tunnel')
+  // the lava put back toward the lake landing in C (beside S at the feet's level) is loose (Codex r1 B2)
+  const cells = M.looseLava(world({ '10,-53,0': LAVA(0) }).read, site, [site.S, [9, -52, 0]]).map(c => c.join(','))
+  assert.ok(cells.includes('10,-53,0'))
+  assert.equal(M.spillState(M.looseLava(world({ '10,-53,0': LAVA(0) }).read, site, []), site.f), 'tunnel')
 })
 
 test('spilledWater: water at the tunnel\'s level after the water pour; none while it stays in the basin', () => {
@@ -315,11 +326,17 @@ test('wiring: the sub-goal is taken only through obsidianWant at a trip\'s start
   assert.equal(SK.split('bot.deepTrip.obs =').length, 2, 'one place sets it')
   assert.ok(/const w = deepObsWant\(\{ target, kit: ok, town: OBSIDIAN\.on \? deepObsTown\(bot\) : null \}\)\n\s*if \(w\.want > 0\) \{\n\s*bot\.deepTrip\.obs =/.test(SK))
 })
-test('wiring: every pour is read back for loose lava / spilled water and sealed in the same step', () => {
+test('wiring: every pour is read back (contain: seal, read again) and an open spill ends the cast and turns the trip home', () => {
   const fn = /\nasync function deepObsStep \([\s\S]*?\n\}\n/.exec(SK)?.[0] ?? ''
   assert.ok(fn.length > 1000)
   const a = fn.indexOf("const r = await obsPourInto(bot, new Vec3(at[0], at[1], at[2]), lava ? 'lava_bucket' : 'water_bucket', accept)")
-  const b = fn.indexOf('const loose = lava ? deepLooseLava(deepObsRead(bot), s, body)')
-  const c = fn.indexOf('const sealed = await deepObsSeal(bot, loose, signal, trip)')
-  assert.ok(a > 0 && b > a && c > b, 'pour -> read back -> seal')
+  const b = fn.indexOf('const c = await deepObsContain(bot, o, signal, trip, { water: !lava })')
+  const c = fn.indexOf("if (c.state !== 'clear') o.spill = c.state")
+  assert.ok(a > 0 && b > a && c > b, 'pour -> contain -> escalate')
+  const home = "trip.phase = 'return'; trip.returnWhy = 'obs_spill'"
+  assert.equal(fn.split(home).length, 3, 'the spill turns the trip home from the loop and from end()')
+  const con = /\nasync function deepObsContain \([\s\S]*?\n\}\n/.exec(SK)?.[0] ?? ''
+  assert.ok(con.indexOf('await deepObsSeal(') > 0 && con.indexOf('const left = deepLooseLava(') > con.indexOf('await deepObsSeal('), 'sealed, then read again')
+  const back = /\nasync function deepObsLavaBack \([\s\S]*?\n\}\n/.exec(SK)?.[0] ?? ''
+  assert.ok(back.includes('await deepObsContain(bot, o, signal'), 'the lava put back is read back too (Codex r1 B2)')
 })
