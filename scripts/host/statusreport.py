@@ -1046,7 +1046,9 @@ def headline_html(lines, when, mood_word):
     """PURE. The 4-row strip on the dashboard's Overview: the three headline lines and a link to the full report."""
     col = {'GOOD': 'var(--good)', 'MIXED': 'var(--accent)'}.get(mood_word, 'var(--bad)')
     rows = ''.join(f'<div>{html.escape(x)}</div>' for x in lines)
-    return ('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    # dark like the Grafana it sits in (GF_USERS_DEFAULT_THEME dark); a light iframe in a dark page paints a white box
+    return ('<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><meta name="color-scheme" content="dark">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<style>{PAGE_CSS} body{{background:transparent;font-size:14px}} .h{{padding:2px 6px}} '
             f'.h b{{color:{col}}} a{{color:var(--accent)}}</style></head><body><div class="h">'
             f'<div><b>{html.escape(mood_word)}</b> &middot; {html.escape(when)} CT &middot; '
