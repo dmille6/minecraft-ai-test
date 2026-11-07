@@ -611,6 +611,29 @@ export function noRoomLine (names = []) {
   return names.length ? `NO ROOM TO CRAFT: ${names.join(', ')} -- the bag has no free slot for the result, so craft would be ` +
     `refused for room; making room comes first` : ''
 }
+/**
+ * IRONGAP-01 (wasted attempts 11-07): ON AN IRON TASK, SAY WHAT THE IRON PICKAXE STILL NEEDS -> line | ''. Pure over the bag.
+ * MEASURED (fleet .31, 24 h to 11-07): 223 craft runs failed "short Nx iron_ingot for the whole tree", 213 of them
+ * iron_pickaxe, 76% repeats, 184 of them on the two iron rungs; CAN CRAFT NOW never listed it (the bag cannot make it), so
+ * the model asked for it from the TASK's own words ("an iron pickaxe costs 3"). The recipe is fixed: 3 iron_ingot + 2
+ * stick. Silent when the pickaxe can be made (CAN CRAFT NOW says so), off an iron task, or with IRONGAP=0.
+ */
+export function ironGapLine (bot, milestone = null) {
+  try {
+    if (!ironGapOn()) return ''
+    const want = [milestone?.wants, ...(Array.isArray(milestone?.wantsAny) ? milestone.wantsAny : [])].filter(x => typeof x === 'string')
+    const iron = want.some(w => /^(raw_iron|iron_ore|deepslate_iron_ore|iron_ingot|iron_pickaxe)$/.test(w)) || /iron pickaxe|iron_pickaxe/i.test(String(milestone?.describe ?? ''))
+    if (!iron) return ''
+    const n = name => (bot.inventory?.items?.() ?? []).filter(i => i?.name === name).reduce((a, i) => a + (Number(i.count) || 0), 0)
+    const ingots = n('iron_ingot'), raw = n('raw_iron')
+    if (ingots >= 3) return ''
+    const short = 3 - ingots
+    const how = raw >= short ? `smelt ${short} raw_iron first (you carry ${raw})` : raw > 0 ? `smelt your ${raw} raw_iron and get ${short - raw} more` : `get ${short} raw_iron (mine or gather iron ore), then smelt it`
+    return `IRON PICKAXE NOT YET: it needs 3 iron_ingot + 2 stick and you have ${ingots} iron_ingot -- craft iron_pickaxe fails until then; ${how}`
+  } catch { return '' }
+}
+/** IRONGAP=0 is the rollback (no line). */
+export const ironGapOn = (env = process.env) => String(env?.IRONGAP ?? '1').trim() !== '0'
 /** CRAFTROOM_OFFER=0 is the rollback (the line lists every craft the recipes allow, as before). */
 export const craftOfferRoomOn = (env = process.env) => String(env?.CRAFTROOM_OFFER ?? '1').trim() !== '0'
 
@@ -781,6 +804,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
     craftableNow(bot, milestone, wanted, noRoom?.item ?? null),
+    ironGapLine(bot, milestone),   // irongap-01: an iron pickaxe the bag cannot make yet, said before the decision
     smeltableNow(bot),
     depositOffered ? depositSituation(bot, memory) : '',   // DEPOSITOFFER-01: no CARRYING line when deposit is not offered
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
