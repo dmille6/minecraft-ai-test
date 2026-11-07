@@ -10,7 +10,7 @@ Each minute also reads /api/ps and records the resident set.
 import json, sys, time, urllib.request
 
 URL = 'http://ai.ticrcorp.com:11438'
-OURS = {'qwen3.8:27b'}            # arm B-qwen3.8 (owner 11-07 15:17Z); everything else resident at the start is THEIRS
+OURS = {'qwen3.8:27b', 'qwen3-coder:30b', 'devstral-small-2:24b', 'laguna-xs-2.1:latest'}   # stage 3 B + stage 4; all else = THEIRS
 TARGET = 'qwen2.5:32b'              # the latency stand-in for their users; pinged ONLY while it is resident (a ping would load it)
 LOG = '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/voy/blackwell-probe.jsonl'
 

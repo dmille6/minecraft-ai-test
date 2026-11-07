@@ -529,3 +529,34 @@ the pilot just stops calling it.
   12288 / 17.5 GB, theirs unchanged. Requests: `num_ctx` 12288, `think: false`, `keep_alive: -1`, Haiku's pace (400/h). The
   end unloads qwen3.8:27b only, and only if resident. bw-guard re-armed on a fresh 6-min baseline (p50 71 ms, p95 73 ms;
   stop at +25 % = 91 ms, or if any of their models disappears). Fresh world; started 15:27:02Z; per bot-hour as before.
+- **B-qwen3.8, first hour (15:27-16:28Z, 0.97 bot-h): 0 of 42 tasks verified**, 0 items held, 26 blocks broken, 207 calls (p50
+  2.9 s), 0 deaths, 0 violations. The curriculum went straight for "mine 1 stone" (37 of 42 were `have` tasks) with no wood or
+  pickaxe; by 16:28Z the bot was at y=30 underground, empty-handed, at night. Its theirs-unchanged check held all hour
+  (4 resident: qwen2.5:32b, qwen2.5-coder:7b-hp, nomic-embed, ours); bw-guard p95 74 ms.
+
+## 16. Stage 4 plan: three local coders head-to-head on the Blackwell (owner "Yes, all three", 11-07 ~16:00Z)
+
+**Models (Ollama library tags resolved 11-07 16:10Z):** `qwen3-coder:30b` (q4_K_M, 19 GB, A3B MoE coder),
+`devstral-small-2:24b` (q4_K_M, 15 GB; its page says Ollama >= 0.13.3), `laguna-xs-2.1:latest` (= q4_K_M, 20 GB; poolside;
+no version note). 54 GB in total. None is on the Blackwell yet (its 16 models checked via `/api/tags`).
+
+**Pulls (pre-stage-3 end, if bw-guard stays green):** one at a time through `POST /api/pull` on `:11438`, smallest first
+(devstral, qwen3-coder, laguna), each confirmed by `/api/show` (capabilities, context) on 0.33.2; bw-guard's +25 % stop and
+their-models check live throughout. **Held on one question: the free space on CCU1's model drive** (the API does not report
+it, and a pull that fills the disk could hurt the other project). Needs >= ~70 GB free (54 GB + margin).
+
+**Runs:** arm slot b, one model at a time, fresh world each (same seed, harness and prompts), Haiku's pace (400 calls/h, no
+gap), `num_ctx` 12288, `keep_alive: -1` while running, `think: false` only for a model whose `/api/show` lists thinking.
+
+| Window (UTC) | Arm | Model |
+|---|---|---|
+| 11-09 01:40 - 09:40 | S4-qwen3-coder | qwen3-coder:30b |
+| 11-09 09:50 - 17:50 | S4-devstral | devstral-small-2:24b |
+| 11-09 18:00 - 11-10 02:00 | S4-laguna | laguna-xs-2.1:latest |
+
+`voyager/watch/stage4.sh start|stop <model> <label>` (systemd timers on the worlds host): `start` reads `/api/ps` and REFUSES
+if 4 models are already resident (ours would evict one of theirs) or the model is not pulled; it archives slot b's world, points
+the proxy at the model, and starts Paper + the bot. `stop` writes `reports/stage4-<label>.txt/.json`, stops the bot and Paper,
+and unloads the model **only if resident**. A refused start skips that window and is logged in `reports/stage4.log`.
+**Comparison:** per bot-hour against stage 3's Haiku (arm C) and B-qwen3.8 numbers (final.txt), with the stage-3 local arms'
+handicaps stated (A throttled for the Studio; B-qwen3.8 started 14 h late).
