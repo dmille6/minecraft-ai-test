@@ -430,3 +430,46 @@ From `voyager/watch/voyager_metrics.py --since 2026-11-07T00:03Z --arms c` (deno
 - Unique items were under-counted (only from verified tasks): heartbeats now carry the item names.
 - Reuse is 0: an observation for the pilot, not a defect. The retrieved skills are in the coder's prompt; whether later
   runs call them is part of what the pilot measures.
+
+## 15. Stage 3: owner decisions (11-07) and the start
+
+**Owner 11-07:** nothing on the Blackwell: arm A moves to the Studio; YES to the Studio probe with the guard (stop at the first
+minute the showcase p95 rises > 10 %), then per-arm rate limits, plus a CONTINUOUS guard for the 48 h (throttle both local arms
+when the rolling p95 is > 10 % over the baseline, logged); check Studio memory and alternate the two coders if tight; the
+control's 7B may run on the 3090 or the Studio.
+
+**What was done:**
+- **The baseline was wrong.** The 11-06 figure (p50 2.0 s / p95 4.1 s, 87 calls in "3 h") crossed the 23:59Z log rotation and
+  saw only the 9 minutes after it. Re-read across the rotation (`showcase_latency.py` now opens the `.gz`): **4 h, 2,943 timed
+  calls, p50 2.26 s, p95 5.66 s**, with nothing of voyager's on the Studio GPU. Threshold 6.22 s (+10 %); hard stop 9 s.
+- **Memory:** with both coders and the control's 7B in Ollama (coder-32B 37 GB at 16k context, 35B-A3B 22 GB, 7B 6.5 GB)
+  next to LM Studio's showcase brain, the Studio had **25 % memory free**: tight. The coders now ALTERNATE (an hourly slot per
+  arm in the proxy; at a slot change the other coder is unloaded), context 12k: 61 % free with one coder loaded.
+- **Probes** (`studio_guard.py probe`, Mac controller, reading the showcase VM):
+
+  | Probe (start) | Load on the Studio | Result |
+  |---|---|---|
+  | 1 (01:26Z) | all three models loading + arms A and B | **abort** in minute 1: minute p95 7.6 s |
+  | 2 (01:28Z) | arm B (dense 32B), 2x duty gap | **abort**: a minute at 12.7 s during B's 25-s code call; pooled 6.7 s |
+  | 3 (01:30Z) | arm A (35B-A3B), 2x gap | **abort** at 8 min: a minute at 12.3 s; pooled 8.1 s (+44 %) |
+  | control only (01:41-02:01Z) | qwen2.5:7b, fleet cadence | **no slowdown**: p95 5.52 s over 208 calls |
+  | 4 (02:01-02:22Z) | arm A, 8x gap, 30 calls/h, continuous guard | **pass**: pooled p95 4.84 s over 257 calls (A made 9 calls; the guard held it at level 1-2 until 02:19Z) |
+  | 5 (02:22Z) | arm B, 8x gap, 30 calls/h | **abort** at 3 min: pooled p95 13.6 s over 39 calls |
+
+  The per-minute rule fires on noise: **19 % of baseline minutes** already exceed 6.22 s on their own (16 of 86 sampled), so
+  probes 4-5 use the POOLED p95 since the probe began (>= 3 min, >= 20 calls) plus any single minute over 9 s.
+- **Decision under the owner's rule:** **arm B (Qwen2.5-Coder-32B, dense) is dropped from this run**: at full rate and at
+  an 8x duty gap it slowed the showcase brain (p95 6.7-13.6 s). **Arm A runs** at an 8x duty gap, 30 calls/h, under the
+  continuous guard (level 1 = 4x more gap; level 2 = paused; a guard silent for 5 min counts as level 1). **The control's
+  7B stays on the Studio** (measured harmless); the 3090 is not used.
+- **A false start:** the first stage-3 start of arm C reused its stage-2 world: the archive move ran as a user that could
+  not see the world dir and silently skipped it (bot spawned with an iron pickaxe). Caught from the first heartbeat; arm C
+  restarted on a fresh world at **01:51:20Z**; both worlds are kept in `/srv/voyager/archive/`.
+- **A false stop:** the watcher stopped arm A at 01:48Z for "10 min with no world change" while the proxy held it paused.
+  The rule now needs the runner busy through the window.
+
+**The 48-h run:** stage 3 start **2026-11-07 01:25:52Z** (control and arm A; arm A ran from 02:01Z at the guarded rate;
+arm C from 01:51:20Z). Day-1 read **2026-11-08 01:30Z** and the success-bar read + stop **2026-11-09 01:26Z** are scheduled
+on the worlds host (`voyager-day1.timer`, `voyager-end.timer` → `voyager/watch/voyager_end.sh`): reports in
+`/srv/voyager/reports/`; the end stops every voyager bot and server and unloads `qwen3.6:35b-a3b`, `qwen2.5-coder:32b` and
+`qwen2.5:7b-instruct` on the Studio (keep_alive 0). The guard ends at 01:30Z the same day.
