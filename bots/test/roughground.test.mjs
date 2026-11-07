@@ -402,6 +402,7 @@ await t('2 wiring (Codex r1): a topsoil cell reads done while the bag holds no d
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/const noSoil = q => q\.role === 'topsoil' && countItem\(bot, 'dirt'\) < 1/.test(sk))
   assert.ok((sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 2, 'the visit (alsoDone) and the progress read')
+  assert.ok(/const openSoil = \(visitRec\.cells \?\? \[\]\)\.filter\(q => q\.role === 'topsoil'/.test(sk) && /if \(wantSoil > 0\) extra\.dirt = \(extra\.dirt \?\? 0\) \+ wantSoil/.test(sk) && /q\.role !== 'topsoil' && !PARK_ROLES\.has\(q\.role\)/.test(sk), 'topsoil billed as DIRT, drawn from the town (Codex 3 r2)')
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
