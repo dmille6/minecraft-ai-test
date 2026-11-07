@@ -81,31 +81,55 @@ export function zoneColumnHit ({ at = () => null, feet, zones = [], scan = COLUM
     // has to reach the level where the body (its own column, no structure in it) can walk or step out sideways; a roof far
     // above that level is not on its way. handcap turns Gale's "need a pickaxe" into a climb through the stone cap: if a side
     // exit lies under the village's roof, the climb is allowed up to it -- never past a structure block (checked first).
-    if (sideExitAt(at, fx, y - 1, fz, fy) || sideStepUpAt(at, fx, y - 2, fz, fy)) return null
+    if (sideExitAt(at, fx, y - 1, fz, fy, zone)) return null
   }
   return null
 }
 
 /**
  * A WALKABLE SIDE EXIT for a body standing at feet level L in column (x, z) -> boolean. Pure. A neighbour column whose feet
- * and head cells at L, L+1 are open (no collision box, no liquid) over a solid, dry floor at L-1. Only above the bot's own
- * feet level `fy` (the gate is about a climb).
+ * and head cells at L, L+1 are open (no collision box, no liquid) over a solid, dry floor at L-1 -- AND that LEADS somewhere
+ * (Codex r1: a sealed 2-high alcove is not an exit; climbing to it parks the bot under the roof): exitLeads. Only above the
+ * bot's own feet level `fy` (the gate is about a climb).
  */
-export function sideExitAt (at, x, L, z, fy) {
+export function sideExitAt (at, x, L, z, fy, zone = null) {
   if (L <= fy) return false
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const f = at(x + dx, L, z + dz), h = at(x + dx, L + 1, z + dz), fl = at(x + dx, L - 1, z + dz)
-    if (open(f) && open(h) && solid(fl) && !isLiquid(fl)) return true
+    if (open(f) && open(h) && solid(fl) && !isLiquid(fl) && exitLeads(at, [x + dx, L, z + dz], zone, [x, z])) return true
   }
   return false
 }
-/** A SIDE STEP-UP for a body at feet L (its own head room L+2 already scanned free of structure by the caller): a neighbour
- *  whose L+1, L+2 are open over a solid, dry block at L -- the one-block step a walk takes. Pure. */
-export function sideStepUpAt (at, x, L, z, fy) {
-  if (L <= fy) return false
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const f = at(x + dx, L + 1, z + dz), h = at(x + dx, L + 2, z + dz), fl = at(x + dx, L, z + dz)
-    if (open(f) && open(h) && solid(fl) && !isLiquid(fl)) return true
+export const EXIT_MIN_REACH = 48      // a walkable space this big is somewhere to go (the pathfinder plans from it)
+export const EXIT_MAX_NODES = 400
+/**
+ * DOES THIS EXIT LEAD SOMEWHERE -> boolean. Pure. A bounded walk (feet + head open, a solid dry floor; steps of one level up or
+ * down) from `start`, never back into the bot's own column `own` [x, z]: true once it reaches a cell outside the zone's
+ * footprint, a cell under open sky (nothing solid above it to the box top), or EXIT_MIN_REACH cells; false for a sealed pocket.
+ */
+export function exitLeads (at, start, zone, own = null, { minReach = EXIT_MIN_REACH, maxNodes = EXIT_MAX_NODES } = {}) {
+  const k = c => c.join(',')
+  const stand = (x, y, z) => open(at(x, y, z)) && open(at(x, y + 1, z)) && solid(at(x, y - 1, z)) && !isLiquid(at(x, y - 1, z))
+  const sky = (x, y, z) => { const top = zone ? zone.y1 + 1 : y + 32; for (let yy = y + 2; yy <= top; yy++) { const b = at(x, yy, z); if (b == null || solid(b) || isLiquid(b)) return false } return true }
+  const seen = new Set([k(start)]), q = [start]
+  while (q.length && seen.size <= maxNodes) {
+    const [x, y, z] = q.shift()
+    if (zone && outOfFootprint(zone, x, z)) return true
+    if (sky(x, y, z)) return true
+    if (seen.size >= minReach) return true
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz
+      if (own && nx === own[0] && nz === own[1]) continue
+      for (const dy of [0, 1, -1]) {
+        const c = [nx, y + dy, nz]
+        if (seen.has(k(c))) continue
+        if (dy === 1 && !open(at(x, y + 2, z))) continue          // the step up needs head room over the current cell
+        if (dy === -1 && !open(at(nx, y + 1, nz))) continue       // the step down needs the cell above the landing open
+        if (!stand(...c)) continue
+        seen.add(k(c)); q.push(c)
+        break
+      }
+    }
   }
   return false
 }

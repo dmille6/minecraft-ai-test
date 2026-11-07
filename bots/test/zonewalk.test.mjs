@@ -78,18 +78,19 @@ await t('CLIMB GATE (Nova, 70,36,-9 class): the column over the bot rises to the
 
 // ---- escdead-02show: the gate stops at the first side exit (Codex fold blocker, handcap-01show) ---------------------------
 // GALE'S SHAPE, with an exit: a shaft 64,58..62,38 under a stone cap 63..66; at y 67..68 a cave opens to the east (65..68,67..68,38
-// air over stone); the village's roof (spruce_planks) far above at y 85. handcap makes the cap a climb; the climb only has to
+// air over stone) and runs south past the zone's side; the village's roof (spruce_planks) far above at y 85. handcap makes the cap a climb; the climb only has to
 // reach y 67 and step east -- the roof is not on its way.
 const galeExit = (x, y, z) => {
   if (x === 64 && z === 38 && y >= 58 && y <= 62) return 'air'
   if (z === 38 && x >= 65 && x <= 68 && (y === 67 || y === 68)) return 'air'
+  if (x === 68 && z >= 38 && z <= 47 && (y === 67 || y === 68)) return 'air'   // the cave runs on south past the zone's side (z 45)
   if (x === 64 && z === 38 && y === 85) return 'spruce_planks'
   return y > 85 ? 'air' : 'stone'
 }
 await t('GATE STOPS AT A SIDE EXIT: Gale\'s climb through the cap to a cave at y 67 is allowed although the village roof is 23 above', () => {
   assert.equal(ZW.zoneColumnHit({ at: world(galeExit).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES }), null)
   // positive control: the same column without the cave -> the roof refuses the climb
-  const noCave = (x, y, z) => (z === 38 && x >= 65 && (y === 67 || y === 68) ? 'stone' : galeExit(x, y, z))
+  const noCave = (x, y, z) => (x >= 65 && (y === 67 || y === 68) ? 'stone' : galeExit(x, y, z))
   assert.equal(ZW.zoneColumnHit({ at: world(noCave).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES })?.name, 'spruce_planks')
 })
 await t('...NEVER PAST A STRUCTURE BLOCK: a plank in the column below the exit level still refuses; a step-up exit needs its own head room free of structure', () => {
@@ -103,8 +104,8 @@ await t('...NEVER PAST A STRUCTURE BLOCK: a plank in the column below the exit l
     return y > 85 ? 'air' : 'stone'
   }
   assert.equal(ZW.zoneColumnHit({ at: world(ledge).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES })?.name, 'oak_planks')
-  assert.equal(ZW.sideExitAt(world(galeExit).at, 64, 67, 38, 58), true)
-  assert.equal(ZW.sideExitAt(world(galeExit).at, 64, 66, 38, 58), false)
+  assert.equal(ZW.sideExitAt(world(galeExit).at, 64, 67, 38, 58, Z), true)
+  assert.equal(ZW.sideExitAt(world(galeExit).at, 64, 66, 38, 58, Z), false)
 })
 await t('COMPOSED CHAIN (handcap -> climb -> exit): the cap the hand breaks is a climb (maroonState), the gate admits it up to the cave, and the shaft\'s climb need is the cap\'s', async () => {
   const { maroonState, climbNeedAbove } = await import('../src/reflex.mjs')
@@ -116,14 +117,39 @@ await t('COMPOSED CHAIN (handcap -> climb -> exit): the cap the hand breaks is a
   // and with the cap a tool problem (the base, no handcap) the state is need_pickaxe: the walk-out hook's case, not the gate's
   assert.equal(maroonState({ upIsOpen: true, haveBlocks: true, blockCount: 64, climbNeed: 5, entombed: false, canStartPath: false, cappedNeedsTool: true, y: 58 }), 'need_pickaxe')
 })
+await t('r1 (Codex): a SEALED 2-high ALCOVE is not an exit -- the climb under the roof stays refused; a cave that reaches the zone\'s side, or 48 cells, is one', () => {
+  const alcove = (x, y, z) => {
+    if (x === 64 && z === 38 && y >= 58 && y <= 62) return 'air'
+    if (x === 65 && z === 38 && (y === 67 || y === 68)) return 'air'      // a 1x2 pocket beside the column, sealed
+    if (x === 64 && z === 38 && y === 72) return 'spruce_planks'
+    return y > 85 ? 'air' : 'stone'
+  }
+  assert.equal(ZW.zoneColumnHit({ at: world(alcove).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES })?.name, 'spruce_planks')
+  // a tunnel from the cave level to past the zone's south side (z 46): an exit
+  const tunnel = (x, y, z) => (x === 65 && z >= 38 && z <= 47 && (y === 67 || y === 68) ? 'air' : alcove(x, y, z))
+  assert.equal(ZW.zoneColumnHit({ at: world(tunnel).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES }), null)
+  assert.equal(ZW.exitLeads(world(alcove).at, [65, 67, 38], Z, [64, 38]), false)
+  assert.equal(ZW.exitLeads(world(galeExit).at, [65, 67, 38], Z, [64, 38]), true, 'galeExit\'s cave reaches past the side')
+})
+await t('MUTANT KILLED: an exit that need not lead anywhere admits the climb into the sealed alcove', async () => {
+  await withMutant(SRC.zw, ' && exitLeads(at, [x + dx, L, z + dz], zone, [x, z])) return true', ') return true', async m => {
+    const alcove = (x, y, z) => {
+      if (x === 64 && z === 38 && y >= 58 && y <= 62) return 'air'
+      if (x === 65 && z === 38 && (y === 67 || y === 68)) return 'air'
+      if (x === 64 && z === 38 && y === 72) return 'spruce_planks'
+      return y > 85 ? 'air' : 'stone'
+    }
+    assert.equal(m.zoneColumnHit({ at: world(alcove).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES }), null)
+  })
+})
 await t('MUTANT KILLED: the gate without the side-exit stop refuses Gale\'s climb to the cave', async () => {
-  await withMutant(SRC.zw, '    if (sideExitAt(at, fx, y - 1, fz, fy) || sideStepUpAt(at, fx, y - 2, fz, fy)) return null\n', '', async m => {
+  await withMutant(SRC.zw, '    if (sideExitAt(at, fx, y - 1, fz, fy, zone)) return null\n', '', async m => {
     assert.equal(m.zoneColumnHit({ at: world(galeExit).at, feet: { x: 64.5, y: 58, z: 38.5 }, zones: ZONES })?.name, 'spruce_planks')
   })
 })
 await t('MUTANT KILLED: the exit asked BEFORE the structure test climbs past a plank at the exit level', async () => {
   await withMutant(SRC.zw, `    if (isStructure(b)) return { zone, cell: [fx, y, fz], name: b.name }
-    // THE SCAN STOPS`, `    if (sideExitAt(at, fx, y - 1, fz, fy)) return null
+    // THE SCAN STOPS`, `    if (sideExitAt(at, fx, y - 1, fz, fy, zone)) return null
     if (isStructure(b)) return { zone, cell: [fx, y, fz], name: b.name }
     // THE SCAN STOPS`, async m => {
     const plankAtExit = (x, y, z) => (x === 64 && z === 38 && y === 68 ? 'oak_planks' : galeExit(x, y, z))
