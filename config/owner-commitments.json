@@ -5474,6 +5474,45 @@
     ]
    },
    "note": "Jar: Modrinth CoreProtect-CE-24.0.jar 1,102,175 B, sha512 f9547639..0d9b (Modrinth API), sha256 66cd3620 = sandbox1's jar on the same Paper 1.21.8-60 jar (8de7c52c). Config from sandbox1's 24.0 config: check-updates/error-reporting off, water-flow/lava-flow off. Owner declined it for the fleet (Q9 10-23)."
+  },
+  {
+   "id": "market-1106",
+   "title": "The market: live villager trading (OWNER 11-06 'what should the bots unlock first?' -> live villager trading; mobGriefing ON): turn the stone/cobble/coal/iron glut into emeralds and buy what the towns lack; job blocks beside unemployed villagers in a market by the village edge; never break or trap the village",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "market-1106.md",
+    "trading-1103.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "trading-1103"
+    }
+   ],
+   "evidence": {
+    "branches": [
+     "origin/market-01show",
+     "origin/market-01"
+    ],
+    "grep": [
+     "market-01show",
+     "market-01"
+    ],
+    "paths": [
+     "docs/reports/market-design-2026-11-06.md",
+     "docs/reports/market-2026-11-06/codex-design.txt",
+     "sandbox/trading/market-proof.cjs"
+    ],
+    "runs": [
+     "market-01"
+    ]
+   },
+   "next_step": "2026-11-07: market-01show READY TO STAGE (branch market-01show @ a55345de on the live release 9dfa85b9; tier 2, reviewed two engines: Codex r1 3 + Claude r1 1 blockers fixed, Codex r3 FIXED x4; sandbox3/4 e2e server-verified: trader sale 2 water buckets -> 4 emeralds, 32 cherry logs bought, kit bucket kept; smithing table placed outside a zone box, claimed toolsmith). Tripwire shopread MK1-MK3 on main (selftest ok, 219/219 mutants, live replay identical) -- NOT installed; the release agent installs it with the fold. Fleet market-01 @ 989119d5 on jobsite-01 (registration ~/mcai-analysis/market-01.989119d5.json, draft entry market-01.entry.draft.json; P lane after jobsite-01). Owner decisions D1 walk-in trading at 23_-20's librarian/cleric/shepherd, D2 feeding/beds for breeding, D3 decorative buying.",
+   "max_quiet_hours": 48,
+   "note": "Measured 11-06 showcase: 2,804 _merchant_seen rows = 7 penned jobless villagers (6_1) + 3 wandering traders; town iron 225, coal 83, emerald 0. Sandbox4 11-06: 1.21.8 tables (13 professions x 5 levels x 16), trader buys hay/milk/water bucket/water bottle/fermented eye (max 2), restock < 240 s at the job site, claim at 16/32/44 b in 9-17 s, fed adults + free beds breed (1 baby / 8 min), tossed bread not picked up. String and plain books are sold by no villager; lectern/loom/brewing stand cannot be made here."
   }
  ]
 }

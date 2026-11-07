@@ -98,6 +98,22 @@
    "expect_per_day": null, "dormant_days": 3, "presence": true,
    "emitters": ["kind: 'enchant_tool'"]
   },
+  "market": {
+   "plots": ["market"],
+   "inventory": "market-{home}.offers.json",
+   "purpose": "the market (market-01): idle bots trade town surplus (iron, coal, sticks, panes, water buckets) with merchants near town for emeralds, then buy the town's wants; job blocks beside free jobless villagers",
+   "unit": "trades (sales + purchases)",
+   "use": [{"row": "_trade", "where": {"op": "sell"}, "qty": 1, "label": "trades_sold"},
+           {"row": "_trade", "where": {"op": "buy"}, "qty": 1, "label": "trades_bought"},
+           {"row": "_market_run", "where": {"stop": ["traded", "halted"]}, "qty": "earned", "label": "emeralds_earned"},
+           {"row": "_trade", "where": {"op": "buy"}, "qty": "n", "label": "items_bought"},
+           {"row": "_market_job", "where": {"op": "placed"}, "qty": 1, "label": "job_blocks"}],
+   "fail": [{"row": "_market_run", "where": {"status": "failed"}, "label": "run_failed"},
+            {"row": "_market_job", "where": {"status": "failed"}, "label": "job_failed"}],
+   "expect_per_day": 2, "dormant_days": 2,
+   "emitters": ["kind: 'market_run'", "kind: 'trade'"],
+   "note": "trades/day = trades_sold + trades_bought; emeralds_earned sums the run rows' earned=; items_bought sums _trade op=buy n=. The offers file appears at the first window read; until then the kind is absent, never dormant. Design docs/reports/market-design-2026-11-06.md"
+  },
   "yard": {
    "plots": ["yard*"],
    "purpose": "the cobble stockpile: surplus cobble stored on the ground, drawn back for building bills",

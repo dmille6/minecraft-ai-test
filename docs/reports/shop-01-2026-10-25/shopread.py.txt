@@ -175,6 +175,20 @@
 #                      tunnel's digs are gather's own, never `_build` rows) and one `_copper_trip` row (not a ROW_KIND: never judged).
 #                      NO NEW RULE: a `gather` row feeds only the arms counters (gather_<per>_<arm>), never H1-H7. The selftest pins
 #                      it (the rows reach the judge, no gate moves) with a mutant that judges a gather row.
+#   MK1-MK3 the market (market-01, 11-06, OWNER "what should the bots unlock first?" -> live villager trading; bots/src/market.mjs,
+#                      skills.mjs marketRun / marketJob): THE MARKET'S rows are judged ahead of every build-row rule (never G6, never the
+#                      arms line), on the canary arm after the cut (the showcase: every row). MK1 job -- `_market_job op=placed block= at=`
+#                      (a job block a bot crafted and placed beside free jobless villagers; claim / skip rows place nothing): the block one
+#                      of MARKET_BLOCKS (the six makeable job sites), else off_record (` market_block`); the cell OUTSIDE every protected
+#                      zone box grown by MARKET_PAD on each side, else zone (` market_job`); at most MARKET_PER_DAY placements per pool in
+#                      any 24 h, else off_record (` market_cap`). MK2 run -- `_market_run ... at=` (the merchant where the window opened):
+#                      outside every zone box + MARKET_PAD (a run never walks into the village), else zone (` market_run`); spent= at most
+#                      MARKET_SPEND emeralds, else bag_loss (` MK2 market_spend`). MK3 sale -- `_trade op=sell item=` only one of
+#                      MARKET_GOODS (renewable or surplus goods; never diamonds, lapis, redstone, tools, books), else bag_loss
+#                      (` MK3 market_sold`, a kept material sold: H6, which the showcase tripwire REPORTS; a zone line TRIPS). `_trade op=buy` and the
+#                      `_trade_seen` row change nothing (not a ROW_KIND). The water bucket a run fills takes one source of open water whose
+#                      8 neighbours are sources (it refills at once): no record cell, no rule. The lists are copied from market.mjs; the
+#                      selftest asserts the copy when bots/src/market.mjs is beside this file's repo.
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -201,7 +215,16 @@ SURVEY_DIR = os.path.expanduser('~/shopconform/surveys')
 # storehub-01: the hall clerk's rows and the hall's labels (SH1, G1 for signs); in BUILD_KINDS so the showcase tripwire loads them
 # (showcase_trip.py shop_kinds), judged ahead of every build-row rule (never G6, never the arms line)
 HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign', '_enchantshop_sign')   # enchantshop-01 EF1: the workshop's labels too
-BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete') + HUB_KINDS
+# market-01 MK1-MK3 (bots/src/market.mjs MARKET / GOODS / JOB_RECIPES, copied; the selftest asserts the copy)
+MARKET_KINDS = ('_market_job', '_market_run', '_trade')
+MARKET_BLOCKS = frozenset(['smithing_table', 'barrel', 'fletching_table', 'stonecutter', 'cartography_table', 'grindstone'])
+MARKET_GOODS = frozenset(['iron_ingot', 'coal', 'stone', 'stick', 'paper', 'glass_pane', 'wheat', 'potato', 'carrot', 'beetroot', 'pumpkin',
+                          'melon', 'flint', 'clay_ball', 'andesite', 'granite', 'diorite', 'dried_kelp_block', 'sweet_berries', 'hay_block',
+                          'water_bucket'])
+MARKET_PAD = 3
+MARKET_PER_DAY = 2
+MARKET_SPEND = 8
+BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete') + HUB_KINDS + MARKET_KINDS
 ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
 # storehub-01 (bots/src/storehub.mjs HUB_THROWABLE, HUB_NEVER_THROW, copied; the selftest asserts the copy)
 HUB_PLOT = 'storehub'
@@ -1333,9 +1356,45 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
     stalled_pools = {}                  # pool -> the cells waiting on its stuck cell (F4, a stalled project: reported)
     guards = {}                         # pool -> tidy_guard (tidyread-01)
     mutating, cans = set(), set()
+    market_days = {}                    # pool -> [t] of market job placements (MK1's cap)
     for r in rows:
         f = kv(r['detail'])
         arm, per, name, pool, bot = r['arm'], r['per'], r['name'], pool_of(r['bot']), r['bot']
+        if name in MARKET_KINDS:
+            # market-01 MK1-MK3, judged on the canary arm after the cut (the showcase: every row), then done
+            if arm != 'canary' or per != 'post':
+                continue
+            padded = [[b[0] - MARKET_PAD, b[1], b[2] - MARKET_PAD, b[3] + MARKET_PAD, b[4], b[5] + MARKET_PAD] for b in zones_by_pool.get(pool) or []]
+            if name == '_market_job' and f.get('op') == 'placed':
+                cell = xyz_of(f.get('at'))
+                if cell is None:
+                    lists['bag_unjudged'].append('MK1 %s placed with no at=' % bot); out['bag_unjudged'] += 1
+                    continue
+                out['market_places'] += 1
+                if f.get('block') not in MARKET_BLOCKS:
+                    lists['off_record'].append('%s %s %s market_block' % (bot, ck(cell), f.get('block'))); out['off_record'] += 1
+                if any(in_box(b, cell) for b in padded):
+                    lists['zone'].append('%s %s %s market_job' % (bot, ck(cell), f.get('block'))); out['zone'] += 1
+                ts = market_days.setdefault(pool, [])
+                ts.append(r['t'])
+                if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > MARKET_PER_DAY:
+                    lists['off_record'].append('%s %s %s market_cap' % (bot, ck(cell), f.get('block'))); out['off_record'] += 1
+            elif name == '_market_run':
+                out['market_runs'] += 1
+                cell = xyz_of(f.get('at'))
+                if cell is not None and any(in_box([b[0], -10 ** 6, b[2], b[3], 10 ** 6, b[5]], cell) for b in padded):
+                    lists['zone'].append('%s %s %s market_run' % (bot, ck(cell), f.get('with'))); out['zone'] += 1
+                try:
+                    spent = int(f.get('spent') or 0)
+                except ValueError:
+                    spent = 0
+                if spent > MARKET_SPEND:
+                    lists['bag_loss'].append('MK2 market_spend %s spent=%d' % (bot, spent)); out['bag_loss'] += 1
+            elif name == '_trade' and f.get('op') == 'sell':
+                out['market_sales'] += 1
+                if f.get('item') not in MARKET_GOODS:
+                    lists['bag_loss'].append('MK3 market_sold %s %s:%s' % (bot, f.get('item'), f.get('n'))); out['bag_loss'] += 1
+            continue
         if name in HUB_KINDS:
             # storehub-01 SH1 and the hall's signs, judged on the canary arm after the cut (the showcase: every row), then done
             if arm != 'canary' or per != 'post':
@@ -2901,6 +2960,58 @@ def selftest():
         ns_f = {'__name__': 'shopread_mutant', '__file__': os.path.abspath(__file__)}
         exec(compile(src_f.replace(anch, mut), 'shopread_mutant', 'exec'), ns_f)
         assert not check(ns_f), 'MUTANT SURVIVED: %s' % msg
+    # market-01 MK1-MK3: the market's job blocks outside the zone (+ MARKET_PAD), the six makeable blocks, two a day; a run's merchant
+    # outside the zone, at most MARKET_SPEND spent; a sale only of MARKET_GOODS. Positive controls first: the rows reach the judge.
+    mz = {'board-a': [[49, -64, -59, 157, 320, 45]]}
+    assert set(MARKET_KINDS) <= set(BUILD_KINDS), 'the showcase tripwire loads BUILD_KINDS rows: the market rows must be among them'
+    def mk(rows_, zones=mz):
+        o, l = judge(rows_, proj, zones)
+        return o, l
+    o, l = mk([R('_market_job', 'op=placed block=smithing_table at=44,70,-3 cluster=2@60,0 d=16.2'),
+               R('_market_job', 'op=claim block=smithing_table at=44,70,-3 cluster=2@60,0 claimed:toolsmith', s=12),
+               R('_market_job', 'op=skip why=no_free_jobless', s=20),
+               R('_market_run', 'stop=traded with=toolsmith L1 at=44,70,-2 goods=coal:15 sold=coal:15 earned=1 spent=1 bought=brick:10 ms=19000', s=30),
+               R('_trade', 'op=sell item=coal n=15 with=toolsmith', s=31), R('_trade', 'op=buy item=brick n=10 with=toolsmith', s=32),
+               R('_trade', 'op=sell item=water_bucket n=2 with=wandering_trader', s=33)])
+    assert o['market_places'] == 1 and o['market_runs'] == 1 and o['market_sales'] == 2, ('POSITIVE: the rows reach the judge', dict(o))
+    assert o['off_record'] == 0 and o['zone'] == 0 and o['bag_loss'] == 0, (dict(o), dict(l))
+    o, l = mk([R('_market_job', 'op=placed block=smithing_table at=46,70,-3 cluster=2@60,0 d=14')])
+    assert o['zone'] == 1 and l['zone'] == ['board-a-Alpha 46,70,-3 smithing_table market_job'], 'inside the pad (49 - 3 = 46)'
+    o, l = mk([R('_market_job', 'op=placed block=smithing_table at=60,70,0 cluster=2@60,0 d=1')])
+    assert o['zone'] == 1, 'inside the village'
+    o, l = mk([R('_market_job', 'op=placed block=lectern at=40,70,0 cluster=2@60,0 d=20')])
+    assert o['off_record'] == 1 and l['off_record'] == ['board-a-Alpha 40,70,0 lectern market_block'], 'not a makeable job block'
+    o, l = mk([R('_market_job', 'op=placed block=barrel at=40,70,%d' % i, s=i * 3600) for i in range(3)])
+    assert o['off_record'] == 1 and l['off_record'] == ['board-a-Alpha 40,70,2 barrel market_cap'], 'the third in 24 h'
+    o, l = mk([R('_market_job', 'op=placed block=barrel at=40,70,%d' % i, s=i * 13 * 3600) for i in range(3)])
+    assert o['off_record'] == 0, 'two a day: the third is 26 h after the first'
+    o, l = mk([R('_market_job', 'op=placed block=barrel cluster=2@60,0')])
+    assert o['bag_unjudged'] == 1 and o['market_places'] == 0, 'no at=: reported, never judged on a guess'
+    o, l = mk([R('_market_run', 'stop=traded with=fletcher L1 at=50,70,0 goods=stick:32 sold=stick:32 earned=1 spent=0 bought=none')])
+    assert o['zone'] == 1 and l['zone'] == ['board-a-Alpha 50,70,0 fletcher market_run'], 'a run inside the village'
+    o, l = mk([R('_market_run', 'stop=traded with=wandering_trader at=-28,67,9 goods=water_bucket:2 sold=water_bucket:2 earned=4 spent=9 bought=cherry_log:72')])
+    assert o['bag_loss'] == 1 and l['bag_loss'] == ['MK2 market_spend board-a-Alpha spent=9'], 'over the run budget'
+    o, l = mk([R('_market_run', 'stop=skip:night')])
+    assert o['zone'] == 0 and o['bag_loss'] == 0 and o['market_runs'] == 1, 'a skip row: no merchant, nothing judged'
+    o, l = mk([R('_trade', 'op=sell item=diamond n=1 with=toolsmith'), R('_trade', 'op=sell item=lapis_lazuli n=12 with=cleric'), R('_trade', 'op=buy item=diamond_pickaxe n=1 with=toolsmith')])
+    assert o['bag_loss'] == 2 and l['bag_loss'] == ['MK3 market_sold board-a-Alpha diamond:1', 'MK3 market_sold board-a-Alpha lapis_lazuli:12'], dict(l)
+    o, l = mk([R('_trade', 'op=sell item=diamond n=1 with=toolsmith', arm='control'), R('_market_job', 'op=placed block=lectern at=60,70,0', per='pre')])
+    assert o['bag_loss'] == 0 and o['zone'] == 0 and o['off_record'] == 0, 'the canary arm after the cut only (the showcase: every bot)'
+    o, l = mk([R('_market_job', 'op=placed block=smithing_table at=46,70,-3'), R('_build', 'project=shop op=unknown cell=5,71,14', s=1)], zones={})
+    assert o['zone'] == 0, 'no zones: no zone line'
+    # THE COPY: market.mjs's lists, when the bots tree is beside this file's repo
+    mjs = os.environ.get('SHOPREAD_MARKET') or os.path.join(here, '..', '..', '..', 'bots', 'src', 'market.mjs')
+    if os.path.exists(mjs):
+        src_m = open(mjs).read()
+        gm = re.search(r'export const GOODS = Object\.freeze\(\{(.*?)\n\}\)', src_m, re.S)
+        jm = re.search(r'export const JOB_RECIPES = Object\.freeze\(\{(.*?)\n\}\)', src_m, re.S)
+        assert gm and jm, 'market.mjs GOODS / JOB_RECIPES not found'
+        assert set(re.findall(r'(\w+): \{ keep', gm.group(1))) == set(MARKET_GOODS), 'MARKET_GOODS is not market.mjs GOODS'
+        assert set(re.findall(r'^  (\w+): \{', jm.group(1), re.M)) == set(MARKET_BLOCKS), 'MARKET_BLOCKS is not market.mjs JOB_RECIPES'
+        for k, v in (('zonePad', MARKET_PAD), ('jobsPerDay', MARKET_PER_DAY), ('spendPerRun', MARKET_SPEND)):
+            assert re.search(r'\b%s: %d,' % (k, v), src_m), 'MARKET.%s is not %d' % (k, v)
+    else:
+        print('shopread selftest: SKIPPED the market lists vs bots/src/market.mjs check (no market.mjs: set SHOPREAD_MARKET)')
     print('shopread selftest: ok')
 
 

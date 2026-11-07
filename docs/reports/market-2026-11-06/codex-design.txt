@@ -1,0 +1,59 @@
+Unlock the nearby villagers first, then prove one sale and a deposit at home. Another scouting day will not remove their physical barriers.
+
+A. Market design
+
+Use surveyed open ground west of village-taiga-6_1, outside its x49 boundary with placement clearance, near the freed villagers’ walking routes. Keep it loaded from town. No stalls with gates or confinement; place one workstation, observe its claimant, then expand. Existing village workstations may claim villagers first; do not remove them.
+
+Assume default Java 1.21.8 trades; check experimental trade-rebalance settings. Each following trade fact is “must verify in a sandbox”:
+
+- Fletcher, fletching table: buys 32 sticks/emerald at novice; sells arrows/bows. First renewable income, using forest wood and obtainable flint.
+- Mason, stonecutter: buys clay at novice, 20 stone/emerald at apprentice; sells bricks and later decorative blocks. Cobble needs smelting. Bootstrap apprentice with clay gathered outside villages, or budgeted brick purchases funded by sticks. Placing a stonecutter alone does not unlock stone sales.
+- Toolsmith, smithing table: may buy 15 coal/emerald at novice; sells tools. Use existing coal buyers before creating another.
+- Librarian, lectern: buys paper; sells bookshelves/enchanted books, apprentice lanterns, journeyman glass. Offers vary. Lecterns require a bookshelf, so obtain leather/books first or visit an existing librarian.
+- Shepherd, loom: buys wool/dyes; sells colored wool at apprentice. Looms require two string: this cannot bootstrap string.
+- Cleric, brewing stand: buys rotten flesh/gold; sells novice redstone and apprentice lapis. No Nether means no craftable blaze-rod supply: visit an existing cleric or employ one at an existing stand.
+- Later farmer/composter and cartographer/cartography table monetize crops and paper/panes respectively.
+
+These are candidate offers, never executable promises. [Trade reference](https://minecraft.wiki/w/Trading)
+
+B. Trade-run skill
+
+Phases: lease town worker → reserve stock → withdraw → walk → inspect window → sell/level/buy → return → deposit/reconcile.
+
+Extend the catalogue with world, UUID, fresh position, actual offers, customer bot, prices and stock. Scout “trades=yes” only means profession eligibility.
+
+Recheck chest contents at withdrawal. Preserve committed materials and fuel; initially retain at least 64 coal and 192 stone, carrying at most 60 coal or 128 stone. Prefer renewable sticks/stone; calculate smelting fuel costs.
+
+Select actual input/output identities, both inputs, realPrice, remaining uses, inventory room and price ceilings. Execute one transaction at a time; reconcile inventory before retrying after interruption.
+
+Restocking requires access to the claimed workstation during work time, at most twice per Minecraft day; Java does not require beds. Keep chunks ticking and revisit after observed work, not a fixed sleep. Demand can raise prices; trading reputation and gossip affect customer-specific prices. Never budget curing or raid discounts in peaceful. These mechanics are “must verify in a sandbox.” [Villager reference](https://minecraft.wiki/w/Villager)
+
+Return when stock/budget is exhausted, offers unavailable, dusk, danger, full bags or errors. Preserve expedition breadcrumb/crossing safeguards and stranded recovery. Deposit all proceeds and unused stock into town chests; verify receipt before releasing reservations.
+
+C. Town wants
+
+Compute deficit = capped target + committed demand − fresh available stock − reserved incoming deliveries. Separate quantities by color and book enchantment.
+
+Initial targets: wool 32, plain books 12, lanterns 16, redstone 32, glass 64, string 16, lapis 32. Existing lapis surplus means zero purchases.
+
+Prioritize blocked projects, then replenishment; prefer crafting when cheaper. Cap purchases at eight emeralds/trip, retain eight town emeralds, and cap each item at its deficit. Permit a separately logged bootstrap budget. Disable speculative decorative purchases.
+
+D. Safety
+
+Walk-only village access: no digging, scaffolding, pushing, boats or pens. Preserve paths, beds and workstation access. protectzone currently blocks activation; retain exact-cell unlock scopes, never survival exemptions as routine permission.
+
+Tell the tripwire exact authorized coordinates, block identities and state transitions. The rings need vertical OPEN trapdoors CLOSED flat to free villagers. Allow those transitions, not removed/replaced blocks or arbitrary state changes. Register market placements separately and distinguish natural farmer crop changes from bot damage.
+
+E. Breeding
+
+mobGriefing enables food pickup and farmer harvesting/replanting; it was not the employment blocker. Seven adults suffice initially. Later add accessible beds outside protection and bounded feeding: three bread or twelve carrots/potatoes/beetroots per parent, plus an available baby bed with headroom—“must verify in a sandbox.” Stop expansion at ten local villagers. [Breeding reference](https://minecraft.wiki/w/Villager)
+
+F. Shipping and queued branches
+
+First ship villageunlock-01 on showcase, with two protected-scope reviews and monitored egress. Immediately follow with one observed sale and verified emerald deposit; success requires both.
+
+Keep coalsale-01/02 as foundations; merge their stacked functionality once, replacing census-only targeting and unrestricted buying. Adapt jobsite-01: retain open-ground checks, replace its stonecutter-only, 32-block spacing/cluster policy with market slots and claim tracking. Then ship mason leveling, restock proof, wants-driven purchases, breeding. Fleet rollout follows through its single canary slot.
+
+G. Unbuyable items
+
+String is not sold by villagers. Obtain initial string from permitted cobwebs/chest loot, then fishing or cat gifts. Plain books are not directly sold: buy bookshelves and break them at town, or craft paper plus leather. Wool is purchasable; shearing sheep is another renewable route. [String alternatives](https://www.minecraft.net/en-us/article/taking-inventory--string)

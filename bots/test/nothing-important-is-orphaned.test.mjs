@@ -99,6 +99,9 @@ const REQUIRED = [
   // dropanddig-01 (11-04): the air pocket is dug STANDING over a floor within 2 (the time-budget drownings)
   // idlework-01 (11-06): the design (the code is on branch idlework-01 until it promotes)
   'docs/reports/idlework-design-2026-11-06.md',
+  'docs/reports/market-design-2026-11-06.md',   // market-1106: live villager trading (code on branches market-01show / market-01)
+  'docs/reports/market-2026-11-06/codex-design.txt',
+  'docs/reports/market-2026-11-06/trade-tables-1.21.8.txt',
   'docs/reports/forest-design-2026-11-06.md',   // forest-1106: the managed forest outside the walls; the in-wall farm retired (code on branches forest-01show / forest-01-on-9e9284d7)
   'docs/reports/forest-2026-11-06/codex-design.txt',
   'docs/reports/gkforever-design-2026-11-06.md',   // gkforever-1106: the grounds never run out (design; the code is on branch gkforever-01)
@@ -448,6 +451,7 @@ const REQUIRED = [
   'sandbox/trading/census/vdump.py',
   'sandbox/trading/census/blocks.py',
   'sandbox/trading/unlock-proof.cjs',
+  'sandbox/trading/market-proof.cjs',   // market-1106: the 1.21.8 trade tables, trader, restock, claim reach, breeding (sandbox4 11-06)
   'sandbox/trading/unlock-e2e.mjs',
   'infra/showcase/test_trip_unlock_mutants.py',
   'sandbox/trading/coalsale-e2e.mjs',

@@ -247,6 +247,17 @@ M = [
  ("        owed = n if owed is None else max(owed, n)", "        owed = n"),
  # PT1 (Codex r2 BLOCKER): the first matching clear only
  ("        for hit in hits:\n", "        for hit in hits[:1]:\n"),
+ # market-01 MK1-MK3: the zone, the pad, the block list, the day cap; the run's zone and budget; the sale list; the arm; the kinds
+ ("                if any(in_box(b, cell) for b in padded):\n", "                if False:\n"),
+ ("[[b[0] - MARKET_PAD, b[1], b[2] - MARKET_PAD, b[3] + MARKET_PAD, b[4], b[5] + MARKET_PAD] for b in", "[list(b) for b in"),
+ ("                if f.get('block') not in MARKET_BLOCKS:", "                if False:"),
+ ("                if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > MARKET_PER_DAY:", "                if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > MARKET_PER_DAY + 1:"),
+ ("                if cell is not None and any(in_box([b[0], -10 ** 6, b[2], b[3], 10 ** 6, b[5]], cell) for b in padded):", "                if False:"),
+ ("                if spent > MARKET_SPEND:", "                if spent > MARKET_SPEND + 1:"),
+ ("                if f.get('item') not in MARKET_GOODS:", "                if False:"),
+ ("            elif name == '_trade' and f.get('op') == 'sell':", "            elif name == '_trade':"),
+ ("            if arm != 'canary' or per != 'post':\n                continue\n            padded = ", "            if False:\n                continue\n            padded = "),
+ ("+ HUB_KINDS + MARKET_KINDS\n", "+ HUB_KINDS\n"),
 ]
 bad = 0
 for old, new in M:
