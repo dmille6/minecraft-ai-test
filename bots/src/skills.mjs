@@ -274,6 +274,10 @@ import { withDigScope } from './digtown.mjs'
 import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress, legSealTargets as deepLegSealTargets } from './deepmine.mjs'   // deepminer-01 r1
 import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
+import { OBSIDIAN, OBS_FEET, OBS_DIG_MS, OBS_FAILS_MAX, OBS_CYCLES_MAX, OBS_DEEPEN_TRIES, obsKit as deepObsKit, obsidianWant as deepObsWant, findSites as deepObsSites, castNext as deepCastNext, looseLava as deepLooseLava, spilledWater as deepSpilledWater, waterFill as deepWaterFill, isSourceOf as deepIsSourceOf, isAir as deepIsAir, castGate as deepCastGate, obsDetail as deepObsDetail } from './deepmine.mjs'   // obsidian-01
+import { fillWater as obsFillWater, scoopLava as obsScoopLava, pourInto as obsPourInto } from './bucket.mjs'   // obsidian-01: the cast's own bucket uses
+import { indexHolding as obsIndexHolding } from './townindex.mjs'   // obsidian-01: the town's obsidian
+import { isFull as obsIsFull } from './shaftgeom.mjs'   // obsidian-01: a basin cell still rock
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
@@ -21904,6 +21908,308 @@ function deepClose (bot, end, why) {
   t.end = end
   bot.deepTrip = null
 }
+// OBSIDIAN-01 (deepmine.mjs decides the cast; this walks, digs, pours, scoops and reads it back). The diamond trip's sub-goal:
+// a basin dug in rock the miner has read, water and lava from one bucket in turn, the obsidian dug with the diamond pickaxe and
+// picked up, the basin filled at the end. Every step is read back; loose lava is sealed at once; any surprise ends the cast for
+// the trip and the trip works on as a diamond trip.
+/** A reader with the liquids' level (mineflayer's metadata is a liquid's level: 0 = source). Fresh per call. */
+function deepObsRead (bot) {
+  const base = stairRead(bot)
+  return (x, y, z) => {
+    const v = base(x, y, z)
+    if (!v || !/^(water|lava)$/.test(v.name)) return v
+    try { const b = bot.blockAt(new Vec3(x, y, z)); return { ...v, level: b?.metadata ?? null } } catch { return v }
+  }
+}
+/** Cells no cast may touch: a protected zone within the bucket's reach, the town box (+4), the town stair's cells. Never throws
+ *  (an unreadable zone list refuses everything). */
+function deepObsZone (bot, { townToo = true } = {}) {
+  let zones = null
+  try { zones = bot.protectZones?.() ?? [] } catch { zones = null }
+  const rec = stairRecordNow()
+  const stair = isStairRecord(rec) ? new Set(stairCellKeys(rec)) : new Set()
+  const home = townHome()
+  return c => {
+    if (zones == null) return true
+    const p = { x: c[0], y: c[1], z: c[2] }
+    try { if (zoneWithin(zones, p, BUCKET_ZONE_REACH)) return true } catch { return true }
+    if (townToo && inTownBox(p, home, { margin: 4 })) return true
+    return stair.has(c.join(','))
+  }
+}
+/** THE TOWN'S OBSIDIAN in its index -> n | null (null: the index is off or unreadable, or no container is known). */
+function deepObsTown (bot) {
+  const ents = townIndexEntries(bot)
+  if (!ents) return null
+  let n = 0, known = 0
+  for (const e of Object.values(ents)) { const h = obsIndexHolding(e, 'obsidian'); if (h) { known++; n += h.n } }
+  return known > 0 ? n : null
+}
+const deepObsRow = (bot, step, why, o, n = '-') => deepRow(bot, 'obs', { why: deepObsDetail({ step, why, site: o?.site, got: o?.got ?? 0, want: o?.want ?? '-', n }) })
+/** Stand on the cell's centre, sneaking (a sneaking body never walks off an edge: the basin is beside P1). -> centred. */
+async function deepObsCentre (bot, c, signal, ms = 1_600) {
+  const t0 = Date.now()
+  try {
+    bot.setControlState('sneak', true)
+    while (Date.now() - t0 < ms) {
+      check(signal)
+      const p = bot.entity.position
+      const ex = c[0] + 0.5 - p.x, ez = c[2] + 0.5 - p.z
+      if (Math.abs(ex) <= 0.2 && Math.abs(ez) <= 0.2) return true
+      await bot.look(Math.atan2(-ex, -ez), 0, true)
+      bot.setControlState('forward', true)
+      await new Promise(r => setTimeout(r, 120))
+      bot.setControlState('forward', false)
+      await new Promise(r => setTimeout(r, 80))
+    }
+    const p = bot.entity.position
+    return Math.abs(c[0] + 0.5 - p.x) <= 0.3 && Math.abs(c[2] + 0.5 - p.z) <= 0.3
+  } finally { try { bot.setControlState('forward', false); bot.setControlState('sneak', false) } catch { /* gone */ } }
+}
+const deepObsAt = (bot, c) => { const f = deepFeet(bot); return f[0] === c[0] && f[1] === c[1] && f[2] === c[2] }
+async function deepObsGo (bot, c, signal) {
+  if (deepObsAt(bot, c)) return true
+  await stairWalk(bot, c, DEEP_HOP_MS, signal)
+  return deepObsAt(bot, c)
+}
+/** Seal every cell in `cells` with a block (deepmine's SEAL: e.place fills liquid too). -> placed. */
+async function deepObsSeal (bot, cells, signal, trip) {
+  if (!cells.length) return 0
+  const fx = deepEffects(bot, signal)
+  let n = 0
+  try { for (const c of cells) if ((await fx.e.place(c)) === 'confirmed') { n++; trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: `obs:${c.join(',')}` }) } } finally { try { fx.B.close?.() } catch { /* gone */ } }
+  return n
+}
+/** The water before the descent: an INFINITE source near the stair top (the fill takes nothing). -> 'filled' | why. */
+async function deepObsFill (ctx, trip, signal) {
+  const { bot } = ctx
+  const spot = deepWaterFill(deepObsRead(bot), deepFeet(bot), { inZone: deepObsZone(bot, { townToo: false }) })
+  if (!spot) return 'no_water_near'
+  if (!(await stairWalk(bot, spot.stand, 40_000, signal))) return 'walk'
+  const r = await obsFillWater(bot, new Vec3(spot.at[0], spot.at[1], spot.at[2]))
+  return r.ok ? 'filled' : `fill:${String(r.reason).slice(0, 40).replace(/\s+/g, '_')}`
+}
+/** Dig the approach's legs (deepBranch's probe, seal and trail, along given cells) -> { cells, stop }. */
+async function deepObsLegs (ctx, trip, legs, signal, deadline) {
+  const { bot } = ctx
+  const { B, e } = deepEffects(bot, signal)
+  let total = 0
+  try {
+    return await withStairClaim(ctx.runner, async () => {
+      for (const leg of legs) {
+        const start = deepFeet(bot)
+        if (start[0] !== leg.start[0] || start[1] !== leg.start[1] || start[2] !== leg.start[2]) {
+          if (!(await deepTrailWalk(bot, leg.start, DEEP_HOP_MS, signal)) || !deepObsAt(bot, leg.start)) return { cells: total, stop: 'leg_start' }
+        }
+        const cells = deepBranchCells(leg.start, leg.b, leg.len)
+        const open = new Set([leg.start.join(','), [leg.start[0], leg.start[1] + 1, leg.start[2]].join(',')])
+        let i = 0, tries = 0
+        for (let guard = 0; guard < leg.len * 4 + 4 && i < cells.length; guard++) {
+          check(signal)
+          if (Date.now() > deadline) return { cells: total, stop: 'time' }
+          const op = deepBranchNext(stairRead(bot), cells, i, open)
+          if (op.op === 'stop') return { cells: total, stop: op.why === 'end' ? 'end' : op.why }
+          if (op.op === 'dig') {
+            if (!e.toolOk()) return { cells: total, stop: 'pickaxe' }
+            const r = await withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => e.dig(op.at))
+            if (r !== 'confirmed') { if (++tries >= 2) return { cells: total, stop: `dig_${r}` }; continue }
+            open.add(op.at.join(','))
+            const me3 = deepFeet(bot)
+            for (const sc of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)), [me3, [me3[0], me3[1] + 1, me3[2]]])) {
+              const pr = await e.place(sc)
+              if (pr !== 'confirmed') return { cells: total, stop: `seal_${pr}` }
+              trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: sc.join(',') })
+            }
+            continue
+          }
+          if (!(await stairWalk(bot, op.to, DEEP_HOP_MS, signal))) return { cells: total, stop: 'step' }
+          trip.trail = deepTrailPush(trip.trail, deepFeet(bot))
+          trip.cells = (trip.cells ?? 0) + 1
+          i = op.i + 1; tries = 0; total++
+        }
+        if (i < cells.length) return { cells: total, stop: 'guard' }
+      }
+      return { cells: total, stop: 'arrived' }
+    })
+  } finally { try { B.close?.() } catch { /* gone */ } }
+}
+/** Fill the basin (H, W) with blocks from P1: the tunnel's floor whole again (the trail walks over it). Never with lava in hand. */
+async function deepObsCleanup (bot, o, signal, trip) {
+  const s = o.site
+  if (!s || !o.basin || o.cleaned) return
+  o.cleaned = true
+  if (!(await deepObsGo(bot, s.P1, signal))) return
+  const read = deepObsRead(bot)
+  const fill = [s.H, s.W].filter(c => { const q = read(...c); return q && !obsIsFull(q) })
+  await deepObsSeal(bot, fill, signal, trip)
+}
+/**
+ * ONE OBSIDIAN STEP OF A DIAMOND TRIP'S WORK -> a skill result, or null (the cast is not running: the work goes on as before).
+ * Steps loop inside the call while its budget lasts; the 75 s dig starts only with OBS_DIG_MS left.
+ */
+async function deepObsStep (ctx, trip, signal, deadline) {
+  const { bot } = ctx
+  const o = trip.obs
+  if (!o || o.done || o.off) return null
+  const out = (status, detail) => ({ status, detail })
+  const end = async (how, why) => {
+    if (how === 'done') o.done = true; else o.off = why
+    try { await deepObsCleanup(bot, o, signal, trip) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    deepObsRow(bot, how, why, o)
+    return null
+  }
+  const items = () => bot.inventory?.items?.() ?? []
+  let worked = false
+  for (let guard = 0; guard < 12; guard++) {
+    check(signal)
+    const kit = deepObsKit(items())
+    o.got = Math.max(0, kit.obsidian - (o.got0 ?? 0))
+    const feet = deepFeet(bot)
+    const gate = deepCastGate({ obs: o, kit, feet })
+    if (gate === 'done:goal') return (await end('done', 'goal')) ?? out('success', `obsidian ${o.got}/${o.want}: the cast is done`)
+    if (gate.startsWith('off:')) return (await end('off', gate.slice(4))) ?? out(worked ? 'success' : 'no_effect', `the cast is off (${gate.slice(4)}); the trip works on`)
+    if (gate === 'idle') return null
+    if (deadline - Date.now() < 15_000) return out(worked ? 'success' : 'no_effect', 'the cast goes on at the next call')
+    // ---- deeper first: the cast stands two over the lake surface (feet -53) ----
+    if (gate === 'deepen') {
+      o.deepens = (o.deepens ?? 0) + 1
+      const sub = new AbortController(), onUp = () => sub.abort()
+      signal?.addEventListener?.('abort', onUp, { once: true })
+      const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now() - 5_000))
+      let r = null
+      const credit = { ...ctx, deepCredit: DEEP_IRON_FEET }
+      try { r = await mineGuarded(credit, { y: DEEP_DEEP_FEET }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: 'cut' } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
+      deepObsRow(bot, 'deepen', `${r?.status ?? '-'}`, o, `${feet[1]}->${deepFeet(bot)[1]}`)
+      return out('success', `deepened toward the cast level (y=${deepFeet(bot)[1]})`)
+    }
+    // ---- no site yet: the nearest lake with a basin behind its shore (a water lake first with no water in the bag) ----
+    if (gate.startsWith('seek:')) {
+      const kind = gate.slice(5)
+      const sites = deepObsSites(deepObsRead(bot), feet, { kind, inZone: deepObsZone(bot), skip: new Set(o.skip ?? []) })
+      if (!sites.length) {
+        o.seeks = (o.seeks ?? 0) + 1
+        deepObsRow(bot, 'seek', `none_${kind}`, o, o.seeks)
+        // the work's own branch moves the search: the next work call looks again from there
+        return null
+      }
+      const st = sites[0]
+      o.site = { lq: st.lq, b: st.b, f: st.f, S: st.S, C: st.C, C1: st.C1, P1: st.P1, P2: st.P2, P3: st.P3, H: st.H, W: st.W }
+      o.kind = kind; o.legs = st.legs; o.arrived = false; o.basin = false; o.cleaned = false
+      deepObsRow(bot, 'site', kind, o, st.cost)
+      continue
+    }
+    const s = o.site
+    // ---- the approach: two probed legs into S ----
+    if (!o.arrived) {
+      const r = await deepObsLegs(ctx, trip, o.legs, signal, deadline)
+      worked = worked || r.cells > 0
+      if (r.stop === 'time') return out(worked ? 'success' : 'no_effect', `digging to the lake (${r.cells} cells)`)
+      if (r.stop !== 'arrived' || !deepObsAt(bot, s.S)) {
+        o.skip = [...(o.skip ?? []), s.lq.join(',')]; o.fails = (o.fails ?? 0) + 1
+        deepObsRow(bot, 'approach', r.stop, o, r.cells)
+        o.site = null
+        continue
+      }
+      o.arrived = true
+      deepObsRow(bot, 'arrived', o.kind, o, r.cells)
+      continue
+    }
+    // ---- a water lake: fill the bucket from the shore, then look for lava ----
+    if (o.kind === 'water') {
+      const r = await obsFillWater(bot, new Vec3(s.lq[0], s.lq[1], s.lq[2]))
+      deepObsRow(bot, 'fill', r.ok ? 'filled' : String(r.reason).slice(0, 30).replace(/\s+/g, '_'), o)
+      o.skip = [...(o.skip ?? []), s.lq.join(',')]
+      if (!r.ok) o.fails = (o.fails ?? 0) + 1
+      o.site = null
+      continue
+    }
+    // ---- the cast ----
+    const read = deepObsRead(bot)
+    const H = read(...s.H), W = read(...s.W)
+    const step = deepCastNext({ H, W, kit, justDug: !!o.justDug })
+    if (step.startsWith('stop:')) {
+      // holding lava with no water ready: the lava goes back to the lake (into the cave cell over it, from S), never kept
+      if (kit.lava > 0 && (await deepObsGo(bot, s.S, signal))) {
+        const back = await obsPourInto(bot, new Vec3(s.C1[0], s.C1[1], s.C1[2]), 'lava_bucket', () => true)
+        deepObsRow(bot, 'lava_back', back.emptied ? 'poured' : String(back.why).slice(0, 30).replace(/\s+/g, '_'), o)
+      }
+      return end('off', step.slice(5))
+    }
+    worked = true
+    if (step === 'basin') {
+      if (!(await deepObsGo(bot, s.P1, signal))) { o.fails = (o.fails ?? 0) + 1; deepObsRow(bot, 'basin', 'walk', o); continue }
+      const { B, e } = deepEffects(bot, signal)
+      let r1 = 'confirmed'
+      try { for (const c of [s.H, s.W]) { if (obsIsFull(deepObsRead(bot)(...c))) { r1 = await withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => e.dig(c)); if (r1 !== 'confirmed') break } } } finally { try { B.close?.() } catch { /* gone */ } }
+      o.basin = true
+      if (r1 !== 'confirmed') o.fails = (o.fails ?? 0) + 1
+      deepObsRow(bot, 'basin', r1, o)
+      continue
+    }
+    if (step === 'water' || step === 'pour_lava') {
+      if (!(await deepObsGo(bot, s.P1, signal)) || !(await deepObsCentre(bot, s.P1, signal))) { o.fails = (o.fails ?? 0) + 1; deepObsRow(bot, step, 'stand', o); continue }
+      const lava = step === 'pour_lava'
+      const at = lava ? s.H : s.W
+      const accept = lava ? () => { const q = deepObsRead(bot); return q(...s.H)?.name === 'obsidian' || q(...s.W)?.name === 'obsidian' } : () => deepIsSourceOf(deepObsRead(bot)(...s.W), 'water')
+      const r = await obsPourInto(bot, new Vec3(at[0], at[1], at[2]), lava ? 'lava_bucket' : 'water_bucket', accept)
+      // READ IT BACK, whatever the pour said: loose lava sealed at once, water out of the basin sealed (the tunnel stays dry)
+      const body = (() => { const f = deepFeet(bot); return [f, [f[0], f[1] + 1, f[2]]] })()
+      const loose = lava ? deepLooseLava(deepObsRead(bot), s, body) : deepSpilledWater(deepObsRead(bot), s).filter(c => !body.some(b => b.join(',') === c.join(',')))
+      const sealed = await deepObsSeal(bot, loose, signal, trip)
+      if (!r.ok || loose.length) o.fails = (o.fails ?? 0) + 1
+      deepObsRow(bot, step, r.ok ? (loose.length ? `ok_sealed${sealed}/${loose.length}` : 'ok') : String(r.why).slice(0, 30).replace(/\s+/g, '_'), o, `${r.aims}a`)
+      continue
+    }
+    if (step === 'lava') {
+      if (!(await deepObsGo(bot, s.S, signal)) || !(await deepObsCentre(bot, s.S, signal))) { o.fails = (o.fails ?? 0) + 1; deepObsRow(bot, 'lava', 'stand', o); continue }
+      // the lake's own cell, else a lake source beside it within reach (an earlier scoop leaves flowing lava there)
+      const rd = deepObsRead(bot)
+      const cand = [s.lq, ...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => [s.lq[0] + dx, s.lq[1], s.lq[2] + dz])]
+        .filter(c => deepIsSourceOf(rd(...c), 'lava') && deepIsAir(rd(c[0], c[1] + 1, c[2])) && deepIsAir(rd(c[0], c[1] + 2, c[2])))
+      let r = { ok: false, reason: 'no lava source in reach' }
+      for (const c of cand) { r = await obsScoopLava(bot, new Vec3(c[0], c[1], c[2])); if (r.ok || /something else/.test(r.reason ?? '')) break }
+      if (!r.ok) o.fails = (o.fails ?? 0) + 1
+      deepObsRow(bot, 'lava', r.ok ? 'scooped' : String(r.reason).slice(0, 30).replace(/\s+/g, '_'), o, cand.length)
+      continue
+    }
+    if (step === 'scoop_water') {
+      if (!(await deepObsGo(bot, s.P1, signal))) { o.fails = (o.fails ?? 0) + 1; deepObsRow(bot, step, 'stand', o); continue }
+      const r = await scoopLiquid(bot, new Vec3(s.W[0], s.W[1], s.W[2]))
+      if (!r.ok) o.fails = (o.fails ?? 0) + 1
+      deepObsRow(bot, step, r.ok ? 'ok' : String(r.reason).slice(0, 30).replace(/\s+/g, '_'), o)
+      // a failed scoop leaves the water in W (contained in rock): the dig goes on beside it now, the basin fill at the end closes it
+      if (r.ok) continue
+    }
+    if (step === 'dig' || step === 'scoop_water') {
+      if (deadline - Date.now() < OBS_DIG_MS) return out('success', 'the obsidian dig starts at the next call (75 s)')
+      if (!(await deepObsGo(bot, s.P1, signal))) { o.fails = (o.fails ?? 0) + 1; deepObsRow(bot, 'dig', 'stand', o); continue }
+      const rd = deepObsRead(bot)
+      const at = rd(...s.H)?.name === 'obsidian' ? s.H : s.W
+      const { B, e } = deepEffects(bot, signal)
+      let r = null
+      const t1 = Date.now()
+      try { r = await withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => e.dig(at)) } finally { try { B.close?.() } catch { /* gone */ } }
+      o.cycles = (o.cycles ?? 0) + 1
+      if (r === 'confirmed') o.justDug = at; else o.fails = (o.fails ?? 0) + 1
+      deepObsRow(bot, 'dig', r, o, `${Date.now() - t1}ms`)
+      continue
+    }
+    if (step === 'pickup') {
+      const at = o.justDug
+      o.justDug = null
+      const before = deepObsKit(items()).obsidian
+      await stairWalk(bot, at, DEEP_HOP_MS, signal)
+      await new Promise(r => setTimeout(r, 900))
+      await deepObsGo(bot, s.P1, signal)
+      const got = deepObsKit(items()).obsidian - before
+      if (got < 1) o.fails = (o.fails ?? 0) + 1
+      deepObsRow(bot, 'pickup', got > 0 ? 'got' : 'none', o, got)
+      continue
+    }
+    return end('off', `step_${step}`)
+  }
+  return out(worked ? 'success' : 'no_effect', 'the cast goes on')
+}
 /** deep_mine -- ONE PHASE STEP OF THE TOWN DEEP MINER'S TRIP (cognitive.mjs issues it; chatOnly, housekeeping). */
 async function deepMine (ctx, args, signal) {
   const { bot } = ctx
@@ -21928,6 +22234,17 @@ async function deepMine (ctx, args, signal) {
       try { await matsWithdraw(ctx, { ...(kit.torches < 8 ? { torch: 16 } : {}), ...(kit.seal < 48 ? { cobblestone: 64 } : {}) }, signal, 30_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     }
     deepRow(bot, 'start', { why: `uses${kit.uses}/iron${kit.ironUses}/seal${kit.seal}/free${kit.free}/torch${deepTripKit(bot.inventory?.items?.() ?? []).torches}` })
+    // OBSIDIAN-01: THE SUB-GOAL (deepmine.mjs obsidianWant: a diamond trip, a diamond pickaxe, a bucket, the town short of OBS_GOAL);
+    // the water first, from an infinite source near the stair top. A refusal is one row and an ordinary diamond trip.
+    try {
+      const ok = deepObsKit(bot.inventory?.items?.() ?? [])
+      const w = deepObsWant({ target, kit: ok, town: OBSIDIAN.on ? deepObsTown(bot) : null })
+      if (w.want > 0) {
+        bot.deepTrip.obs = { want: w.want, got0: ok.obsidian, got: 0, fails: 0, cycles: 0, skip: [] }
+        let water = ok.water > 0 || ok.lava > 0 ? 'held' : await deepObsFill(ctx, bot.deepTrip, signal)
+        deepObsRow(bot, 'start', `water_${water}`, bot.deepTrip.obs, `town${w.want}`)
+      } else if (w.skip !== 'off') deepObsRow(bot, 'skip', w.skip, null)
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e; deepRow(bot, 'obs', { why: `start_error:${String(e?.message ?? e).slice(0, 60).replace(/\s+/g, '_')}`, status: 'failed' }) }
   }
   const trip = bot.deepTrip
   trip.calls = (trip.calls ?? 0) + 1
@@ -22018,6 +22335,8 @@ async function deepMine (ctx, args, signal) {
     }
     // ---- work: the ore in reach (gather's tunnel), else a branch ------------------------------------------------------------------
     if (trip.phase === 'work') {
+      // OBSIDIAN-01: the cast first while it runs (null: not running, or it just stopped -- the ore and the branches as before)
+      if (trip.obs && !trip.obs.done && !trip.obs.off) { const r = await deepObsStep(ctx, trip, signal, deadline); if (r) return r }
       const y = Math.floor(bot.entity.position.y)
       const kinds = deepWorkKinds(trip, y)
       const before = deepOre(bot)

@@ -380,6 +380,8 @@ const REQUIRED = [
   'bots/test/lavatarget.test.mjs',
   // bucketfix-01 (11-04): the bucket's aims as Vec3 (every pour and scoop threw point.minus on mineflayer 4.37)
   'bots/test/bucket-aim.test.mjs',
+  // obsidian-01 (11-07): the deep miner's cast (a basin, one bucket in turn, the lake's lava, the diamond pickaxe)
+  'bots/test/obsidian.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
