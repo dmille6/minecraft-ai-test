@@ -354,6 +354,16 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       why[st.name] = 'room'
     }
   }
+  // the batch22 fold (Codex BLOCKER 2): a ROOM visit never banks a drawn share's name through ANY part (the base plan banks a
+  // market want -- bankable.mjs setDepositExtra -- or a standing target too): the build it unblocks keeps its held materials
+  if (room && roomExclude?.size) {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const n = steps[i].name
+      if (!roomExclude.has(n)) continue
+      banked[n] = Math.max(0, (banked[n] ?? 0) - steps[i].count); if (!banked[n]) { delete banked[n]; why[n] = 'share_held' }
+      steps.splice(i, 1)
+    }
+  }
   // THE BASE PLAN'S STACKS FIRST (bagbudget-01, Claude design r1 P2-3): fitToContainer takes the first free container slots in
   // step order, so a short chest takes the coal, iron and cobble before a torch; within each part, by bag slot as before
   // logbank-01: a log half after every whole stack, the rows' included (it frees no slot, so a short chest takes the
