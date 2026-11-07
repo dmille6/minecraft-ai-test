@@ -5641,6 +5641,33 @@
     ]
    },
    "note": "Installed 11-07 ~02:55Z on .40 (backups *.bak-20261107-tlpolish: tl_showcase.py, tl_video.py, capture.mjs, tl.conf, showcase-video@.service). Samples: videos/timelapse-samples-1106/. Measured: 4K frame 130 s on a fresh page, 54 s on a reused 4K page (1080p today 44-48 s fresh); hires 500 adds ~+25 s to each wide pair camera (topdown 51.6->76.4, angled 40->63 s), close-ups unchanged; first slot 03:00Z done in 417 s of 690 (render 28 + capture 389, project4k 76 s, hero4k deferred by heavy_per_slot 1). Chunky 1080p at 12 threads: ~3.5-4.5 min per 80 spp; 320 spp ~16 min/view, PSNR 41 dB vs 1024. minterpolate ~45x the dissolve encode (.30, 4 threads: 361 s vs 8-15 s for a 9-s 1440^2 clip). OWNER 11-07 ~04:25Z withdrew motion smoothing ('let's not do it'; he smooths on a faster machine): tl.conf \"smooth\": \"off\" (default off; \"on\" restores it), installed 04:37Z (backups *.bak-20261107-smoothoff); scratch daily iso 11-06 clip 33.6 s vs 463 s minterp; export note + exact ffmpeg line in docs/reports/tlpolish-2026-11-07.md. ~/tlpolish-1106 on .40 removed."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "gkwork-1107",
+   "title": "Groundskeepers always have work: the town counts a stage's empty visits (the per-bot waits give way and the stage completes), the keeper is not quieted while it closes, a keeper with nothing workable releases no_work_now, a stalled stage waives its stuck cells past the tenth",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "gkwork-1107.md"
+   ],
+   "state": "open",
+   "next_step": "BUILT 2026-11-07. SHOWCASE gkwork-01show @ 72cdeb60 on the live release af3b9a8b: ready to stage (ci2 458/459: the known bagdiet orphan; no reader change: new rows are _build op=stage_held/stage_close/waived and _keeper keeper_release why=no_work_now). FLEET gkwork-01-on-63d28320 @ d37319a5: registration ~/mcai-analysis/gkwork-01.d37319a5.json + draft entry ~/mcai-analysis/gkwork-01.queue-entry.json on the canary host (ci2 409/410: well.test fails on the base too) (control session queues). Read showcase: stage_close on the inwall stage within ~10 min, next band sited, keeper grounds share of term time (from 1.4%) and placed per keeper-h; fleet: keeper_release why=stuck (from 11/42 terms), stalled stuck_on_cell visits down.",
+   "evidence": {
+    "grep": [
+     "gkwork-01"
+    ],
+    "branches": [
+     "gkwork-01show",
+     "gkwork-01-on-63d28320"
+    ],
+    "paths": [
+     "docs/reports/gkwork-design-2026-11-07.md"
+    ]
+   },
+   "note": "Showcase 24 h: 29 terms / 25.9 keeper-h, grounds 1.4%, inwall stage stuck at cuts 0 / fills 0 for 23 h (per-bot gkClears/gkParkWait x 20-min lease rotation). Fleet gkstay 2 h: 42 terms, grounds 7.3%, 11 stuck releases (waiver room spent)."
   }
  ]
 }
