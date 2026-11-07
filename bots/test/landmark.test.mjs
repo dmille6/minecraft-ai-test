@@ -43,7 +43,8 @@ await t('a round mound, 1-block steps, grass tops (dirt on top, cobble under), O
   assert.strictEqual(s.worst, 1, 'every step one block'); assert.strictEqual(s.crown, G + 3); assert.strictEqual(s.lawn, G)
   // tops dirt (it greens), buried cells the town's cobblestone
   const top = new Map(); for (const c of fills) { const k = `${c.at[0]},${c.at[2]}`; top.set(k, Math.max(top.get(k) ?? -1e9, c.at[1])) }
-  assert.ok(fills.every(c => (c.at[1] === top.get(`${c.at[0]},${c.at[2]}`)) === (c.role === 'earth')))
+  assert.ok(fills.every(c => (c.at[1] === top.get(`${c.at[0]},${c.at[2]}`)) === (c.role === 'topsoil')), 'every top DIRT only (Codex r1: an earth cell may take cobble, and the crown carries the tree)')
+  assert.deepStrictEqual(T.TIDY_PALETTE.topsoil, ['dirt', 'grass_block'])
   assert.ok(fills.some(c => c.role === 'core'))
   const sap = lm.cells.filter(c => c.role === 'sapling0')
   assert.strictEqual(sap.length, 1); assert.deepStrictEqual(sap[0].at, [lm.landmark.centre[0], G + 4, lm.landmark.centre[1]])
@@ -93,11 +94,38 @@ await t('a mound partly standing is repaired (only the missing cells), never reb
   const moved = plan(tree)
   assert.ok(!moved || moved.landmark.centre.join(',') !== low.landmark.centre.join(','), 'not under leaves')
 })
+await t('Codex r1: a cut never opens a hollow sideways; the crown is soil for the tree; the repair lists only what is missing, nothing on a whole mound', async () => {
+  const srv = server()
+  const lm = plan(srv)
+  const site = { centre: lm.landmark.centre, base: lm.landmark.base, box: lm.landmark.box }
+  // a whole mound (laid as dirt): the repair has nothing to do but the sapling; with the sapling grown, nothing at all
+  for (const c of lm.cells.filter(q => q.role !== 'sapling0')) srv.set(c.at, c.role === 'topsoil' ? 'dirt' : 'cobblestone')
+  const rep = LM.landmarkRepair(srv.read, lm.landmark, { col: col(srv) })
+  assert.ok(rep && rep.cells.length === 1 && rep.cells[0].role === 'sapling0', JSON.stringify(rep?.cells))
+  srv.set(lm.landmark.tree, 'spruce_sapling')
+  assert.strictEqual(LM.landmarkRepair(srv.read, lm.landmark, { col: col(srv) }), null)
+  // a crown of stone (shaped there before): made soil for the tree
+  const stone = server(); const lmS = plan(stone)
+  for (const c of lmS.cells.filter(q => q.role !== 'sapling0')) stone.set(c.at, 'stone')
+  const repS = LM.landmarkRepair(stone.read, lmS.landmark, { col: col(stone) })
+  assert.ok(repS.cells.some(c => c.role === 'topsoil' && c.at.join(',') === [lmS.landmark.centre[0], lmS.landmark.base + 3, lmS.landmark.centre[1]].join(',')), 'the crown laid again in dirt')
+  // a hump to cut beside a tunnel under the neighbour's ground: that site passed
+  const tun = server()
+  for (let x = -20; x <= 20; x++) for (let z = -20; z <= 20; z++) { tun.set([x, G + 1, z], 'dirt'); tun.set([x, G + 2, z], 'dirt') }
+  const base = LM.landmarkCells({ centre: [0, 0], base: G + 2 - 0, box: LM.landmarkBox([0, 0]) }, { top: col(tun), open: (x, y, z) => tun.read(x, y, z)?.name === 'air', read: tun.read })
+  assert.ok(base, 'control: shaped')
+  tun.set([5, G + 2, 0], 'dirt'); tun.set([5, G + 3, 0], 'dirt')   // a 2-high hump over the rise-0 ring? (outer ring: no cut) -- use the +1 ring
+  tun.set([3, G + 4, 0], 'dirt')                                     // a block over the +1 ring (target G + 3): cut
+  tun.set([4, G + 4, 0], 'dirt'); tun.set([4, G + 3, 0], 'air')       // the neighbour: ground at G + 4 with an open cell under it, at the cut's height
+  const blocked = LM.landmarkCells({ centre: [0, 0], base: G + 2, box: LM.landmarkBox([0, 0]) }, { top: col(tun), open: (x, y, z) => tun.read(x, y, z)?.name === 'air', read: tun.read })
+  assert.strictEqual(blocked, null, 'the cut would open the neighbour\'s hollow sideways')
+})
 await t('the wiring: the keeper plans it once (land.landmark), every tidy rule and the terrace keep off it, the land plan reserves it', async () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/if \(landmarkOn\(\) && land && !land\.landmark && !rec\.structure_complete && !\(rec\.segments \?\? \[\]\)\.some\(q => q\.seg === 'T-LMS'\)\) \{/.test(sk), 'once, on the open record')
-  assert.ok(/cur && !cur\.landmark \? \{ \.\.\.cur, landmark: \{ \.\.\.t\.landmark, at: Date\.now\(\) \} \} : null/.test(sk), 'published on the land record')
+  assert.ok(/if \(landmarkOn\(\) && land && !rec\.structure_complete && !\(rec\.segments \?\? \[\]\)\.some\(q => \/\^T-LM\/\.test\(q\.seg\)\)\) \{/.test(sk), 'on the open record without the mound\'s work')
+  assert.ok(/if \(land\.landmark\?\.centre\) t = landmarkRepair\(read, land\.landmark, \{ col \}\)/.test(sk), 'sited: its missing cells again (repair)')
+  assert.ok(/cur && !cur\.landmark \? \{ \.\.\.cur, landmark: \{ \.\.\.t\.landmark, at: Date\.now\(\) \} \} : null/.test(sk) && /if \(lp\.result !== 'accepted'\) t = null/.test(sk), 'the land record FIRST, or nothing (Codex r1)')
   assert.ok(/try \{ lmz = landmarkZones\(landHead\(dir\)\) \} catch \{ lmz = \[\] \}/.test(sk) && /\.\.\.townMarkerZones\(\), \.\.\.lmz\]/.test(sk), 'every tidy rule: reserved')
   const tr = strip(readFileSync(new URL('../src/terrace.mjs', import.meta.url), 'utf8'))
   assert.ok(/const guard = \(x, z\) => avoid\(x, z\) \?\? road\(x, z\) \?\? \(lmB && x >= lmB\[0\]/.test(tr), 'the terrace never grades it')

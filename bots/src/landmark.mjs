@@ -93,7 +93,12 @@ export function landmarkCells (site, { top, open = () => true, read = null, L = 
     // over the mound's shape: cut, top first, only the town's own ground; the ground under the cut must be solid (no hollow opened)
     if (t > want) {
       if (!read) return null
-      for (let y = t; y > want; y--) { const n = nmOf(read(x, y, z)); if (!LEVEL.test(n)) return null; cut.push({ at: [x, y, z], name: n }) }
+      for (let y = t; y > want; y--) {
+        const n = nmOf(read(x, y, z)); if (!LEVEL.test(n)) return null
+        // Codex 3 r1 BLOCKER: never opening a hollow SIDEWAYS -- an open cell beside the cut under its own column's ground is enclosed
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nt = top(x + dx, z + dz); if (open(x + dx, y, z + dz) && (!Number.isFinite(nt) || nt > y)) return null }
+        cut.push({ at: [x, y, z], name: n })
+      }
       if (open(x, want, z)) return null
     }
   }
@@ -131,14 +136,51 @@ export function landmarkPlan (read, { box, home, seed = 0, have = {}, col, taken
     if (sh && (sh.fill.length || sh.cut.length)) { site = s0; shaped = sh; break }
   }
   if (!site) return null
+  const out = moundRecord(read, site, shaped, { air })
+  return out ? { ...out, landmark: { centre: site.centre, base: site.base, box: site.box, tree: shaped.sapling, seed } } : null
+}
+/**
+ * THE MOUND AS RECORD WORK -> { cells, segments, cut } | null (nothing to do). Pure over `read`. Fills layered T-LM<k> (each layer on
+ * the one below), every column's top `topsoil` (DIRT only: it greens, and the crown's carries the tree -- Codex 3 r1 BLOCKER: an
+ * `earth` cell may take cobblestone), the cells under it `core` (cobblestone); the crown's own top made soil when it is not (cut and
+ * laid again); the sapling (`sapling0`) on it after the top layer, unless the crown already carries a sapling or a trunk.
+ */
+export function moundRecord (read, site, shaped, { air }) {
+  const nmOf = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
   const { fill, cut, sapling } = shaped
-  const minY = Math.min(...fill.map(f => f.at[1]), site.base + 1)
+  const [cx, cz] = site.centre, crownY = site.base + 3
   const topOf = new Map()
   for (const f of fill) { const k = k2(f.at[0], f.at[2]); topOf.set(k, Math.max(topOf.get(k) ?? -Infinity, f.at[1])) }
-  const cells = fill.map(f => ({ at: f.at, role: f.at[1] === topOf.get(k2(f.at[0], f.at[2])) ? 'earth' : 'core', seg: `T-LM${f.at[1] - minY}`, landmark: true }))
+  const cells = fill.map(f => ({ at: f.at, role: f.at[1] === topOf.get(k2(f.at[0], f.at[2])) ? 'topsoil' : 'core', landmark: true }))
+  const cuts = cut.map(c => ({ at: c.at, kind: 'tidy', name: c.name, landmark: true }))
+  // the crown's soil: a crown column not filled (it stood at the shape already, or was cut to it) whose top is not dirt or grass
+  if (!topOf.has(k2(cx, cz))) {
+    const n = nmOf(read(cx, crownY, cz))
+    if (!/^(dirt|grass_block|podzol|coarse_dirt|rooted_dirt)$/.test(n)) { if (!LEVEL.test(n)) return null; cells.push({ at: [cx, crownY, cz], role: 'topsoil', landmark: true }) }
+  }
+  const above = nmOf(read(...sapling))
+  const treeThere = /_sapling$|_log$|_propagule$/.test(above)
+  if (!cells.length && !cuts.length && (treeThere || !air(...sapling))) return null
+  const minY = Math.min(...cells.map(c => c.at[1]), site.base + 1)
+  for (const c of cells) c.seg = `T-LM${c.at[1] - minY}`
   const layers = [...new Set(cells.map(c => c.seg))].sort((a, b) => Number(a.slice(4)) - Number(b.slice(4)))
   const segments = layers.map((seg, i) => ({ seg, deps: i ? [layers[i - 1]] : [] }))
-  cells.push({ at: sapling, role: 'sapling0', seg: 'T-LMS', el: 'trees', landmark: true })
-  segments.push({ seg: 'T-LMS', deps: layers.length ? [layers[layers.length - 1]] : [] })
-  return { cells, segments, cut: cut.map(c => ({ at: c.at, kind: 'tidy', name: c.name, landmark: true })), landmark: { centre: site.centre, base: site.base, box: site.box, tree: sapling, seed } }
+  if (!treeThere && air(...sapling)) {
+    cells.push({ at: sapling, role: 'sapling0', seg: 'T-LMS', el: 'trees', landmark: true })
+    segments.push({ seg: 'T-LMS', deps: layers.length ? [layers[layers.length - 1]] : [] })
+  }
+  return { cells, segments, cut: cuts }
+}
+/**
+ * THE LANDMARK KEPT (Codex 3 r1 BLOCKER: the land record is published FIRST, so a record that never got the mound's work -- a lost
+ * publish, a later stage's new generation -- gets it again): the mound's MISSING cells from the land record's site -> { cells,
+ * segments, cut } | null. Pure over `read`.
+ */
+export function landmarkRepair (read, landmark, { col, L = LANDMARK } = {}) {
+  if (!Array.isArray(landmark?.centre) || !Number.isFinite(landmark?.base) || typeof col !== 'function') return null
+  const nmOf = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
+  const air = (x, y, z) => { const b = read(x, y, z); return !!b && (/^(air|cave_air)$/.test(nmOf(b)) || b.boundingBox === 'empty') && !/water|lava/.test(nmOf(b)) }
+  const site = { centre: landmark.centre, base: landmark.base, box: landmark.box ?? landmarkBox(landmark.centre, L) }
+  const shaped = landmarkCells(site, { top: col, open: air, read, L })
+  return shaped ? moundRecord(read, site, shaped, { air }) : null
 }
