@@ -5272,7 +5272,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "SHOWCASE: forest-02 is LIVE (release 9dfa85b9; sited 22:59:48Z -91,65,17 3x2x3); every felling failed off_stand. forest-03show (branch forest-03show @ 1f445266 on 9dfa85b9; tier 2) fixes the felling -- READY TO STAGE (no new row kinds, no tripwire change). FLEET: forest-01-on-9e9284d7 @ dee6050d carries the siting + felling fixes and the release fold's guards; update the queued variant to it (draft docs/reports/forest-2026-11-06/forest-01.queue-entry.draft.json); cancel treefarm-05.",
+   "next_step": "2026-11-07: forest-03show 1f445266 (the off_stand felling fix) NOT released: my Codex fold review found 5 BLOCKERS -- alternative stands skip the reserved-column filter (forest.mjs:544); the ring clearing can dig the leaf under the bot's feet (:580, reproduced); a leaf holding lava back can be dug (:581); another record's leaves (a hedge) in the ring/approach (:578); reach alone accepts stranded feet (a 2-deep pit, a leaf perch) (:587). Back to the author. SHOWCASE: forest-02 is LIVE (release 9dfa85b9; sited 22:59:48Z -91,65,17 3x2x3); every felling failed off_stand. forest-03show (branch forest-03show @ 1f445266 on 9dfa85b9; tier 2) fixes the felling -- READY TO STAGE (no new row kinds, no tripwire change). FLEET: forest-01-on-9e9284d7 @ dee6050d carries the siting + felling fixes and the release fold's guards; update the queued variant to it (draft docs/reports/forest-2026-11-06/forest-01.queue-entry.draft.json); cancel treefarm-05.",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
@@ -5591,7 +5591,7 @@
     "gklease-1106.md"
    ],
    "state": "open",
-   "next_step": "SHOWCASE gkstay-01show @ 60828536 on the live release 9dfa85b9: ready to stage (no reader change; ci2 456/457, the known bagdiet orphan). FLEET gkstay-01-on-e447b65b @ a4fe5358: registration + draft queue entry in docs/reports/gkstay-01/ (control session queues; ci2 406/408: well fails on the base too, lavastep flake). Read: keeper takes per town-hour (from ~6.4) and why=underground releases down, grounds visits per keeper-hour up.",
+   "next_step": "RELEASED 2026-11-07 01:56:16Z as 60828536-6dd0ded8-fdd64ead (ci2 456/457; Codex NO BLOCKERS). NEXT: keeper takes/h (was ~4.8/h), underground releases, grounds/forest visits per keeper-hour. SHOWCASE gkstay-01show @ 60828536 on the live release 9dfa85b9: ready to stage (no reader change; ci2 456/457, the known bagdiet orphan). FLEET gkstay-01-on-e447b65b @ a4fe5358: registration + draft queue entry in docs/reports/gkstay-01/ (control session queues; ci2 406/408: well fails on the base too, lavastep flake). Read: keeper takes per town-hour (from ~6.4) and why=underground releases down, grounds visits per keeper-hour up.",
    "evidence": {
     "grep": [
      "gkstay-01"
