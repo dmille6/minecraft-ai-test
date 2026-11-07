@@ -162,7 +162,7 @@ the iron_ore, log and coal repeats that remain (about 65 bot-h).
 
 - **Branch** `sandrung-01-on-e6a1ea2b` on the live fleet sha e6a1ea2b042ee9c776670868457ece91fd8789fc. Commit `b7b2a530`
   (b7b2a530a60c5aef26576df9bc22f6c1d96bd456). Review: Codex (read-only, blockers-only, one round): **no blockers**.
-  Full suite (`suite-run.py --ref`): pending when this was written; the queue entry carries the result.
+  Full suite (`suite-run.py --ref`, ci2): 412/413. The one failure is `well.test`, which fails on the base too.
 - **Change.** `bots/src/sandrung.mjs` holds the one switch (`SANDRUNG`, default retired). `milestones.mjs`
   `gathererChain()` builds the chain dirt -> wood -> cobblestone. `SANDRUNG=1` puts the old rung back, word for word,
   between wood and cobblestone. The controller builds its chain from `gathererChain()`. `towndeposit.mjs`
