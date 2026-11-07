@@ -977,3 +977,146 @@ export function flowerWork ({ cands = 0, owed = 0, flowers = 0, meal = 0, feed =
 export const feedFernNeed = ({ held = {}, townMeal = null, work = false } = {}) => (work && Number.isFinite(townMeal) && townMeal < DRIVE.target ? Math.max(0, FLOWER.feedKeep + FLOWER.feedWant - (Number(held?.fern) || 0)) : 0)
 /** THE COMPOST DRIVE'S FERN ALLOWANCE -> the ferns above FLOWER.feedKeep go in (the rest stay the border's). Pure. */
 export const feedFerns = (held = {}) => Math.max(0, (Number(held?.fern) || 0) - FLOWER.feedKeep)
+
+// ==== FLOWERS-02: THE LAWN SCATTER (OWNER 11-07: "lawns with flowers and tall grass scattered"; coordinator 11-07: "never on paths/
+// plots/farms/records; density cap so lawns aren't overgrown; supply from the fixed nursery/composter"). Design
+// docs/reports/flowers-design-2026-11-07.md section 8 (Claude + Codex reconciled). MEASURED 11-07: inside the wall ring 1,661 grass-
+// topped columns, 68 with a plant (4.1%, 52 of them the border's ferns), ONE flower. Paper (sandbox8, flower-proof3.cjs): one meal on a
+// taiga lawn with a dirt path and a cobble path through its spread grows 18-23 plants (short grass, 1-4 tall grass, 0-6 flowers), ALL
+// within 4 columns of the centre, NONE on a path and none beyond the dirt path (the walk steps only onto grass): density 0.09-0.12 over
+// the spread's grass, ~0.25 over its core. THE MECHANISM: the decorator's bone meal on a LAWN CENTRE -- the vanilla scatter is the
+// natural density -- ONE meal a centre for good, the centre published on the decor record (`lawns`) before the meal (the read's DC7),
+// only inside the walls, only on a window the survey proves clear of every record, reservation, path, park and nursery, only while the
+// window is still sparse (the gate), and only when the border wants no flower (its upgrade first: the bone meal's priority).
+export const LAWN = Object.freeze({
+  spread: 7,          // the meal's reach (NURSERY.spread: the walk's 7 steps)
+  core: 4,            // where the plants land (Paper: all within 4)
+  coreMin: 60,        // grass supports a lawn's core needs (of 81)
+  spreadMin: 150,     // ...and its spread (of 225)
+  coreMax: 0.10,      // the gate: plants per grass support in the core (the vanilla meal leaves ~0.25 there: a lawn is fed once)
+  spreadMax: 0.12,    // ...in the spread (a neighbour's scatter, ~0.10, passes; two meals on one window do not)
+  flowersMax: 4,      // ...flowers standing in the spread
+  gap: 10,            // centres at least this far apart (Chebyshev): the cores never overlap
+  searchR: 64,        // the search's reach from home (inside the walls only)
+  step: 2,            // the search grid
+  stallMs: 2 * 60 * 60_000,
+})
+/** The lawn scatter's switch: LAWNS=on|off, default on (under FLOWERS and the decorator's own switch). Pure. */
+export const lawnsOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.LAWNS ?? '').trim())
+const PLANT_ANY = new Set([...SMALL_FLOWERS, 'short_grass', 'tall_grass', 'fern', 'large_fern', 'bush', 'sweet_berry_bush', 'dead_bush', 'firefly_bush'])
+const TALL_ANY = new Set(['tall_grass', 'large_fern', 'lilac', 'rose_bush', 'peony', 'sunflower'])
+/**
+ * ONE COLUMN FOR THE LAWN -> 'refused:<why>' | 'unread' | { y, plant: name | null } | null (no grass support: nothing lands there).
+ * Pure. The reservations FIRST, whatever the ground (Codex design: a refused column is refused even when nothing could land on it now):
+ * outside the walls (`inside`), reserved (zones, the plan, corridors, the park, wells, the farm, markers: decorReservedFor), a record's
+ * column or a record cell on it (`guard`), a nursery's or another lawn's box (`avoid(x, z)`). Then its ground: the highest grass block
+ * within LAWN.spread of the centre's height with an open cell or a plant above (a plant counts: the support is the lawn's).
+ */
+export function lawnColumn (read, x, z, y, { guard, reserved = () => null, inside = () => true, avoid = () => false } = {}) {
+  if (!inside(x, z)) return 'refused:outside'
+  const why = reserved(x, z)
+  if (why) return `refused:${String(why).slice(0, 24)}`
+  if (guard?.cols?.has?.(k2(x, z))) return 'refused:record'
+  if (avoid(x, z)) return 'refused:avoid'
+  for (let g = y + LAWN.spread; g >= y - LAWN.spread; g--) {
+    const b = read(x, g, z)
+    if (!b) return 'unread'
+    if (GRASS(b)) {
+      const a = read(x, g + 1, z)
+      if (!a) return 'unread'
+      const n = nm(a)
+      if (guard?.cells?.has?.(kOf([x, g + 1, z])) || guard?.cells?.has?.(kOf([x, g, z]))) return 'refused:record_cell'
+      if (AIRN(n)) return { y: g, plant: null }
+      if (PLANT_ANY.has(n)) return { y: g, plant: n }
+      return null
+    }
+    if (b.boundingBox === 'block' && !/leaves$/.test(nm(b))) return null
+  }
+  return null
+}
+/**
+ * THE LAWN SURVEY OF A CENTRE -> { ok, why, L, P, F, T, coreL, coreP }. Pure. Every column within LAWN.spread (lawnColumn): any refusal
+ * or an unread column refuses the window; L the grass supports, P those carrying a plant, F flowers, T tall plants, and the core's L and P.
+ * The centre must be a grass support with an OPEN top (Paper: a covered centre refuses the meal).
+ */
+export function lawnSurvey (read, centre, opts = {}) {
+  const [cx, cy, cz] = centre
+  const c0 = lawnColumn(read, cx, cz, cy, opts)
+  if (typeof c0 === 'string') return { ok: false, why: c0 }
+  if (!c0 || c0.y !== cy || c0.plant) return { ok: false, why: 'centre' }
+  let L = 0, P = 0, F = 0, T = 0, coreL = 0, coreP = 0
+  for (let dx = -LAWN.spread; dx <= LAWN.spread; dx++) for (let dz = -LAWN.spread; dz <= LAWN.spread; dz++) {
+    const v = lawnColumn(read, cx + dx, cz + dz, cy, opts)
+    if (typeof v === 'string') return { ok: false, why: v }
+    if (!v) continue
+    const core = Math.max(Math.abs(dx), Math.abs(dz)) <= LAWN.core
+    L++; if (core) coreL++
+    if (v.plant) { P++; if (core) coreP++; if (SMALL_SET2.has(v.plant)) F++; if (TALL_ANY.has(v.plant)) T++ }
+  }
+  return { ok: true, why: 'ok', L, P, F, T, coreL, coreP }
+}
+/** THE GATE: is a surveyed window a sparse lawn a meal may scatter on? -> { ok, why }. Pure. */
+export function lawnGate (s) {
+  if (!s?.ok) return { ok: false, why: s?.why ?? 'unsurveyed' }
+  if (s.coreL < LAWN.coreMin) return { ok: false, why: `thin_core:${s.coreL}` }
+  if (s.L < LAWN.spreadMin) return { ok: false, why: `thin:${s.L}` }
+  if (s.coreP / s.coreL > LAWN.coreMax) return { ok: false, why: 'dense_core' }
+  if (s.P / s.L > LAWN.spreadMax) return { ok: false, why: 'dense' }
+  if (s.F >= LAWN.flowersMax) return { ok: false, why: 'flowered' }
+  return { ok: true, why: 'ok' }
+}
+/** The lawns' and nurseries' centres on a decor record -> [[x, y, z]]. Pure. */
+export const lawnCentres = rec => (rec?.lawns ?? []).map(q => q?.at).filter(a => Array.isArray(a) && a.length === 3)
+/** A box of a centre at radius r -> (x, z) -> bool. Pure. */
+const nearAny = (centres, r) => (x, z) => centres.some(a => Math.max(Math.abs(x - a[0]), Math.abs(z - a[2])) <= r)
+/**
+ * SITE THE NEXT LAWN -> { ok, lawn: { at, box, L, P }, tried } | { ok: false, why, tried }. Pure. The centres on a LAWN.step grid by ring
+ * from home (out to LAWN.searchR), each at least LAWN.gap from every lawn on the record and clear of every nursery's spread (its window
+ * keeps 2 x spread off a nursery centre: no plant of a lawn is ever the nursery's harvest), whose survey passes the gate; the first wins.
+ * `ground(x, z)` the centre's grass height (grassTop at home's height: the caller's).
+ */
+export function siteLawn (read, home, { guard, reserved = () => null, inside = () => true, lawns = [], nurseries = [], ground = null, searchR = LAWN.searchR } = {}) {
+  const tried = {}
+  const nearLawn = nearAny(lawns, LAWN.gap - 1), nearNursery = nearAny(nurseries, NURSERY.spread * 2)
+  const avoid = nearAny(nurseries, NURSERY.spread)
+  const gnd = ground ?? ((x, z) => grassTop(read, x, z, home.y))
+  for (let r = 0; r <= searchR; r += LAWN.step) {
+    const ring = []
+    for (let d = -r; d <= r; d += LAWN.step) ring.push([d, -r], [d, r], ...(Math.abs(d) < r ? [[-r, d], [r, d]] : []))
+    if (r === 0) ring.splice(0, ring.length, [0, 0])
+    ring.sort((a, b) => a[0] - b[0] || a[1] - b[1])
+    for (const [dx, dz] of ring) {
+      const x = home.x + dx, z = home.z + dz
+      if (!inside(x, z)) continue
+      if (nearLawn(x, z)) { tried.gap = (tried.gap ?? 0) + 1; continue }
+      if (nearNursery(x, z)) { tried.nursery = (tried.nursery ?? 0) + 1; continue }
+      const g = gnd(x, z)
+      if (g == null) { tried.ground = (tried.ground ?? 0) + 1; continue }
+      const s = lawnSurvey(read, [x, g, z], { guard, reserved, inside, avoid })
+      const v = lawnGate(s)
+      if (v.ok) return { ok: true, lawn: { at: [x, g, z], box: [x - LAWN.spread, z - LAWN.spread, x + LAWN.spread, z + LAWN.spread], L: s.L, P: s.P }, tried }
+      const k = String(v.why).replace(/:.*$/, '')
+      tried[k] = (tried[k] ?? 0) + 1
+    }
+  }
+  return { ok: false, why: 'no_lawn', tried }
+}
+/** THE LAWN ON THE RECORD (claimed before its one meal: never fed again) -> the new record. Pure. */
+export const withLawn = (cur, lawn, { now = Date.now(), by = null } = {}) => ({ ...cur, lawns: [...(cur?.lawns ?? []), { at: lawn.at.slice(), box: lawn.box.slice(), sitedAt: now, by, L: lawn.L, P: lawn.P }] })
+/**
+ * THE LAWN WORK -> { want, why }. Pure. Only when the border wants no flower (`border`: its upgrade candidates or upgraded cells still
+ * standing a fern -- the nursery's meals go there first) and the lawn search is not stalled; then a meal to use (the bag's, the town's
+ * above NURSERY.mealKeep), or the composter's feed to make one (the bag's feed, or a feed fern to cut while the town's meal is under
+ * DRIVE.target).
+ */
+export function lawnWork ({ border = 0, stalled = false, meal = 0, feed = 0, shears = false, wildFerns = 0, townMeal = null } = {}) {
+  if (Number(border) > 0) return { want: false, why: 'border_first' }
+  if (stalled) return { want: false, why: 'stalled' }
+  if (Number(meal) > 0) return { want: true, why: 'lawn_meal' }
+  if (Number(feed) >= DRIVE.feedMin) return { want: true, why: 'lawn_feed' }
+  if (shears && Number(wildFerns) > 0 && Number.isFinite(townMeal) && townMeal < DRIVE.target) return { want: true, why: 'lawn_fern_feed' }
+  return { want: false, why: 'no_supply' }
+}
+/** Every lawn and nursery box of a decor record -> (x, z) -> reason | null: the fern gather, the wild pick and a new nursery keep off a
+ *  lawn (its plants are the lawn's) and its 7-spread. Pure. */
+export const lawnReserved = rec => { const c = lawnCentres(rec); return (x, z) => (c.some(a => Math.max(Math.abs(x - a[0]), Math.abs(z - a[2])) <= LAWN.spread) ? 'lawn' : null) }

@@ -238,6 +238,7 @@ const REQUIRED = [
   'bots/test/flowers.test.mjs',
   'sandbox/flowers/flower-proof.cjs',
   'sandbox/flowers/flower-proof2.cjs',
+  'sandbox/flowers/flower-proof3.cjs',   // flowers-02: the lawn density proof
   // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
   'bots/src/blueprints/yard@2.json',
   'bots/scripts/yard-offline.mjs',
