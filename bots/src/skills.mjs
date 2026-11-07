@@ -18787,7 +18787,8 @@ async function deepObsStep (ctx, trip, signal, deadline) {
       const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now() - 5_000))
       let r = null
       const credit = { ...ctx, deepCredit: DEEP_IRON_FEET }
-      try { r = await mineGuarded(credit, { y: DEEP_DEEP_FEET }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: 'cut' } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
+      // mine stops within one of its target (success at goal + 1): asked one below the cast level it ends at feet -53 (or one lower: then the level gate turns the cast off)
+      try { r = await mineGuarded(credit, { y: OBS_FEET - 1 }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: 'cut' } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
       deepObsRow(bot, 'deepen', `${r?.status ?? '-'}`, o, `${feet[1]}->${deepFeet(bot)[1]}`)
       return out('success', `deepened toward the cast level (y=${deepFeet(bot)[1]})`)
     }
