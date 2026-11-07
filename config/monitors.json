@@ -617,6 +617,18 @@
    "consumer": "fleetstatus header on .31 (alarmhead ES_KINDS 'showcase project audit'); STATE row 'Projects (daily audit)' (showcase part); BROKEN/DORMANT page from .40's pager; the weekly owner summary rides Monday's .40 digest",
    "kind": "monitor",
    "note": "projectaudit-1106: showcase VM 10.0.0.40 mike crontab 12:05Z; not on the canary host, so stallcheck's (h) crontab pass does not see it. Rollback: delete the '# projectaudit' cron line"
+  },
+  {
+   "id": "coreprotect-purge-showcase",
+   "host": "40",
+   "cron": "rcon.py \"co purge t:30d\"",
+   "outputs": [
+    "/srv/showcase/ops/coreprotect-1106/purge.log (the purge answer, a timestamp, the database.db size)"
+   ],
+   "fresh_hours": 26,
+   "consumer": "operator / daily Codex ops audit: database.db size trend (expected bounded at ~30 days of rows)",
+   "kind": "maintenance",
+   "note": "coreprotect-1106 (OWNER 11-06, logging only): showcase VM root crontab 03:50Z, before the 04:15Z backup stage. Rollback: delete the '# coreprotect-1106' cron line (backup /srv/showcase/ops/root-crontab.bak-coreprotect-*)"
   }
  ]
 }
