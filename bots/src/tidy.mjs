@@ -49,7 +49,7 @@ export const TIDY_PALETTE = Object.freeze({ earth: ['dirt', 'cobblestone', 'coar
   // access-01 (owner 11-04 "no dirt steps"): a proper step where bots climbed -- the town's stone, never dirt, never `*solid` (a dirt
   // block left in an access cell reads open: the runner digs it out and lays stone)
   access: ['cobblestone', 'stone_bricks', 'cobbled_deepslate', 'mossy_cobblestone', 'stone', 'andesite'],
-  // roughground-2: a lawn cell laid again where the bots' cobble stood -- dirt (the grass round it greens it), done once dirt or grass
+  // roughground-2/3: soil laid on a lawn or a landmark's terraces -- dirt only (it greens; the crown's carries the tree), done once dirt or grass
   topsoil: ['dirt', 'grass_block'],
   // townterrace-01: the park's plantings and tool uses (park.mjs PARK_PALETTE)
   ...PARK_PALETTE })
