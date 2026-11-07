@@ -81,6 +81,10 @@ const cellOf = p => (finite3(p) ? { x: Math.floor(p.x), y: Math.floor(p.y), z: M
 export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt = null, home = null, zoneWalk = zoneWalkOn() } = {}) {
   const c = cellOf(cell)
   if (!c) return null
+  // ESCDEAD-01SHOW: A ZONE'S STRUCTURE BLOCK IS THE ZONE'S FIRST (Codex r1 blocker 2): a plank inside a village box that a build
+  // record also covers is answered as the zone's, so the last-resort prohibition (escapeDigDecision) reaches it
+  const zs = zoneWalk ? zoneStructureAt(zones, c, name) : null
+  if (zs) return zs
   let rec = false
   if (typeof recordAt === 'function') { try { rec = recordAt(c) } catch { rec = null } }
   if (typeof rec === 'string' && rec) return { kind: 'record', what: rec }
@@ -93,12 +97,24 @@ export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt 
   let z = null
   try { z = zones?.length ? blocked(zones, c.x, c.y, c.z, feet) : null } catch { z = null }
   if (z) return { kind: 'zone', zone: z.id ?? '?', ordinary: isOrdinary(name) }
-  // ESCDEAD-01SHOW rule 1: A STRUCTURE BLOCK IS THE ZONE'S AT EVERY DEPTH. The deep exemption (blocked's) opens the deep part to
-  // a deep bot; for ordinary rock that stays, but a mineshaft's planks and rails under a village (showcase-Alpha 11-07 05:39Z,
-  // 3 oak_planks at 55,18..20,29) are guarded like the village's own blocks.
-  if (zoneWalk && typeof name === 'string' && name && !/(^|_)air$/.test(name) && !isOrdinary(name)) {
-    for (const q of (Array.isArray(zones) ? zones : [])) {
-      if (c.x >= q.x0 && c.x <= q.x1 && c.y >= q.y0 && c.y <= q.y1 && c.z >= q.z0 && c.z <= q.z1) return { kind: 'zone', zone: q.id ?? '?', ordinary: false, deep: true }
+  return null
+}
+
+/**
+ * ESCDEAD-01SHOW rule 1: A STRUCTURE BLOCK IS THE ZONE'S AT EVERY DEPTH -> { kind: 'zone', zone, ordinary: false, deep } | null.
+ * Pure. The deep exemption (blocked's) opens the deep part to a deep bot; for ordinary rock that stays, but a mineshaft's planks
+ * and rails under a village (showcase-Alpha 11-07 05:39Z, 3 oak_planks at 55,18..20,29) are guarded like the village's own.
+ */
+/** BELOW a zone's floor only THESE count as its structure (Claude r1 note 1): the built palette of villages, mineshafts and
+ *  chambers -- wood, rails, torches, bricks, glass, wool, terracotta, doors, beds, containers. Natural cave blocks (sculk,
+ *  dripstone, amethyst, obsidian) and the bots' own cobblestone pillars stay open in the deep part, as before. */
+export const DEEP_STRUCTURE = /(_planks|_log|_wood|_fence|_fence_gate|rail|torch|lantern|chain|bricks|^bricks|_brick_.*|terracotta|glass|glass_pane|wool|carpet|_door|_trapdoor|_bed|chest|barrel|bookshelf|ladder|^polished_.*|^chiseled_.*|_grate|_bulb|^vault|spawner|crafter|lectern|bell|hay_block|_slab|_stairs|_wall|_sign|banner|^cobweb)$/
+export function zoneStructureAt (zones, c, name) {
+  if (typeof name !== 'string' || !name || /(^|_)air$/.test(name) || isOrdinary(name)) return null
+  for (const q of (Array.isArray(zones) ? zones : [])) {
+    if (c.x >= q.x0 && c.x <= q.x1 && c.y >= q.y0 && c.y <= q.y1 && c.z >= q.z0 && c.z <= q.z1) {
+      if (q.floorY != null && c.y < q.floorY && !DEEP_STRUCTURE.test(name.replace(/^minecraft:/, ''))) continue
+      return q.floorY != null && c.y < q.floorY ? { kind: 'zone', zone: q.id ?? '?', ordinary: false, deep: true } : { kind: 'zone', zone: q.id ?? '?', ordinary: false }
     }
   }
   return null

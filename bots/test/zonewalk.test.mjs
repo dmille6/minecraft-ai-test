@@ -128,6 +128,50 @@ await t('TUNNEL STEP refusals: a structure block, water at the head, no floor wi
   assert.deepEqual(ZW.tunnelStep({ at: gap.at, from: [0, 31, 0], dx: 1, dz: 0, canPlace: true }).place, [1, 30, 0])
 })
 
+// ---- r1 blocker fixes (Codex 1-7, Claude 1) -----------------------------------------------------------------------------
+await t('r1: WATER on a face of the cut, a RAIL standing on the head cut, a GRAVEL block over the head -> each refuses the bearing', () => {
+  const base = (x, y, z) => (y <= 30 ? 'stone' : y <= 33 ? 'stone' : 'air')
+  const open0 = (w) => { w.set(0, 31, 0, 'air'); w.set(0, 32, 0, 'air') }
+  const wet = world(base); open0(wet); wet.set(1, 33, 0, 'water')
+  assert.match(ZW.tunnelStep({ at: wet.at, from: [0, 31, 0], dx: 1, dz: 0 }).why, /water beside/)
+  const rail = world(base); open0(rail); rail.set(1, 33, 0, 'rail[shape=north_south,waterlogged=false]')
+  assert.match(ZW.tunnelStep({ at: rail.at, from: [0, 31, 0], dx: 1, dz: 0 }).why, /rail hangs on/)
+  const grav = world(base); open0(grav); grav.set(1, 33, 0, 'gravel')
+  assert.match(ZW.tunnelStep({ at: grav.at, from: [0, 31, 0], dx: 1, dz: 0 }).why, /gravel over the head cut/)
+  const ok = world(base); open0(ok)
+  assert.equal(ZW.tunnelStep({ at: ok.at, from: [0, 31, 0], dx: 1, dz: 0 }).ok, true, 'positive control: plain stone')
+})
+await t('r1: the gate scans to the BOX TOP (feet y 12, a plank at y 72) and only the bot\'s own column', () => {
+  const w = world((x, y, z) => (x === 60 && z === 0 && y === 72 ? 'oak_planks' : x === 61 && z === 0 && y === 40 ? 'oak_planks' : 'stone'))
+  assert.equal(ZW.zoneColumnHit({ at: w.at, feet: { x: 60.5, y: 12, z: 0.5 }, zones: ZONES })?.cell?.[1], 72)
+  assert.equal(ZW.zoneColumnHit({ at: w.at, feet: { x: 62.5, y: 12, z: 0.5 }, zones: ZONES }), null, 'a neighbour column\'s plank does not gate this one')
+})
+await t('r1: a SEALED CORRIDOR is no progress -- walking it end to end twice reports no_exit the second time (best carried)', async () => {
+  const corr = (x, y, z) => {
+    if (z === 0 && y >= 30 && y <= 31 && x >= 100 && x <= 104) return 'air'
+    if (y >= 29 && y <= 32 && z >= -1 && z <= 1 && x >= 99 && x <= 105) return 'oak_planks'
+    return 'stone'
+  }
+  const w = world(corr)
+  const f = fakeBot(w, [102, 30, 0])
+  const r1 = await ZW.zoneWalkOut(f.bot, { zone: Z, ...f })
+  const r2 = await ZW.zoneWalkOut(f.bot, { zone: Z, ...f, best: r1.best })
+  assert.equal(r2.outcome, 'no_exit', JSON.stringify(r2)); assert.equal(f.bot.dug.length, 0)
+})
+await t('r1: OWNERSHIP before every effect -- a rescue taking the body during the first dig meets no second dig', async () => {
+  const w = world(novaFn)
+  const f = fakeBot(w, [79, 36, -10])
+  let digs = 0, taken = false
+  const res = await ZW.zoneWalkOut(f.bot, { zone: Z, ...f, dig: async b => { digs++; taken = true; await f.dig(b) }, yieldTo: () => (taken ? 'drowning rescue' : null) })
+  assert.equal(res.outcome, 'yielded'); assert.equal(digs, 1)
+})
+await t('r1: a structure block a BUILD RECORD also covers is the zone\'s -- the last resort still refuses it', () => {
+  const g = EG.guardOf({ cell: { x: 79, y: 72, z: -10 }, name: 'spruce_planks', zones: ZONES, feet: { x: 79.5, y: 70, z: -9.5 }, recordAt: () => 'house', zoneWalk: true })
+  assert.equal(g.kind, 'zone')
+  assert.equal(EG.escapeDigDecision({ guard: g, lastResort: true, zoneWalk: true }).allow, false)
+  assert.equal(EG.guardOf({ cell: { x: 79, y: 72, z: -10 }, name: 'spruce_planks', zones: ZONES, recordAt: () => 'house', zoneWalk: false }).kind, 'record', 'the base: the record first')
+})
+
 // ---- the escape guard ---------------------------------------------------------------------------------------------------
 await t('GUARD (Alpha, 11-07 05:39Z): a mineshaft plank deep under the village is guarded for a deep bot; ordinary deep rock is not; ZONEWALK=off = the base exemption', () => {
   const feet = { x: 53.3, y: 12, z: 31.5 }
@@ -135,6 +179,9 @@ await t('GUARD (Alpha, 11-07 05:39Z): a mineshaft plank deep under the village i
   assert.equal(g?.kind, 'zone'); assert.equal(g.ordinary, false); assert.equal(g.deep, true)
   assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: 'stone', zones: ZONES, feet, zoneWalk: true }), null, 'deep ordinary rock: open (as before)')
   assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: 'rail', zones: ZONES, feet, zoneWalk: true })?.kind, 'zone')
+  for (const n of ['cobblestone', 'pointed_dripstone', 'amethyst_block', 'sculk', 'obsidian']) {
+    assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: n, zones: ZONES, feet, zoneWalk: true }), null, `deep ${n} (natural, or a bot's own pillar): open as before (Claude r1 note 1)`)
+  }
   assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: 'oak_planks', zones: ZONES, feet, zoneWalk: false }), null, 'the base: the deep exemption')
   assert.equal(EG.guardOf({ cell: { x: 30, y: 19, z: 29 }, name: 'oak_planks', zones: ZONES, feet: { x: 30, y: 12, z: 29 }, zoneWalk: true }), null, 'outside the box: unguarded')
 })
@@ -171,7 +218,7 @@ await t('WIRING: both arms gate the climb; the guarded branch walks out first; t
 
 // ---- mutants ------------------------------------------------------------------------------------------------------------
 await t('MUTANT KILLED: the guard without the every-depth structure rule lets Alpha\'s plank through', async () => {
-  await withMutant(SRC.eg, "  if (zoneWalk && typeof name === 'string' && name && !/(^|_)air$/.test(name) && !isOrdinary(name)) {", '  if (false) {', async m => {
+  await withMutant(SRC.eg, "  const zs = zoneWalk ? zoneStructureAt(zones, c, name) : null", '  const zs = null', async m => {
     assert.equal(m.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: 'oak_planks', zones: ZONES, feet: { x: 53.3, y: 12, z: 31.5 }, zoneWalk: true }), null)
   })
 })
@@ -192,7 +239,7 @@ await t('MUTANT KILLED: the climb gate without its structure test lets Nova clim
   })
 })
 await t('MUTANT KILLED: the walk-out without the down step tunnels at y 60 above the floor', async () => {
-  await withMutant(SRC.zw, '    while (zone.floorY != null && here()[1] >= zone.floorY && res.down < DOWN_MAX) {', '    while (false) {', async m => {
+  await withMutant(SRC.zw, "    while (zone.kind === 'village' && zone.floorY != null && here()[1] >= zone.floorY && res.down < DOWN_MAX) {", '    while (false) {', async m => {
     const w = world((x, y, z) => (y >= 72 ? 'air' : 'stone')); w.set(100, 60, 0, 'air'); w.set(100, 61, 0, 'air')
     const f = fakeBot(w, [100, 60, 0])
     const r = await m.zoneWalkOut(f.bot, { zone: Z, ...f })

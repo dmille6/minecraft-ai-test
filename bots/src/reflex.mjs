@@ -24,6 +24,7 @@ import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          chooseFloodSidestep, floodSidestep, isWaterCell, isLavaCell } from './scaffold.mjs'
 import { FLOOD_RISK, ESCAPE_GUARDED, climbOutcomeRoute, floodChainStep, submergedAt, logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { guardMay, GUARD_BACKOFF_CAP_MS } from './escapeguard.mjs'   // escapeguard-01: an escape planner passes over a guarded cell (another bearing)
+import { isOrdinary } from './escapeguard.mjs'   // escdead-01show: the walk-out's bridge is ordinary ground only
 import { zoneWalkOn, zoneColumnHit, zoneBoxAt, zoneWalkOut, zoneWalkRowDetail, WALK_DIG_MS, WALK_STEP_MS } from './zonewalk.mjs'   // escdead-01show
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan } from './digbudget.mjs'
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
@@ -2881,6 +2882,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: climbNeedAbove(bmap(bot), bot.entity.position), entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
+        // ESCDEAD-01SHOW (zonewalk.mjs): A MAROONED BOT INSIDE A PROTECTED ZONE WHOSE COLUMN RISES INTO THE ZONE'S STRUCTURE
+        // walks out under the zone's side FIRST -- before the scaffold self-source, the ramp or a tool ask (Claude r1 note 5) --
+        // before anything else asks for a tool or a climb (showcase-Gale 11-05/06: 22 h at
+        // 64.5,58,38.5 in 6_1's box, a shaft capped by stone under the village's trees, asking for a pickaxe no table could make).
+        // It holds the body like the pool escape's hook; a firing that moved nothing waits ZONE_WALK_RETRY_MS.
+        if (mstate !== 'none' && mstate !== 'climb' && !marooned && !pocketing && !pocketPending && !inDanger &&
+            Date.now() >= zoneWalkNextAt && zoneClimbGate(bot, `marooned_${mstate}`)) {
+          marooned = true
+          const g = await takeBody(bot, runner, 'marooned', PRIORITY.escape)
+          try {
+            const res = g ? await zoneWalkTry(bot, { handler: `marooned_${mstate}`, yieldTo: () => drowningOwnsBody() || arbiterYield(() => g) }) : null
+            zoneWalkNextAt = Date.now() + (res && (res.outcome === 'out' || res.outcome === 'progress') ? 0 : ZONE_WALK_RETRY_MS)
+            if (res?.outcome === 'out') bot.pendingPrereq = null
+          } catch (e) { log('warn', 'zone walk failed', { err: e.message }) }
+          finally { marooned = false; giveBody(runner, g, 'zone walk ended') }
+        }
         if (!pocketing && !pocketPending && mstate === 'need_scaffold' && !inDanger &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
@@ -3062,21 +3079,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               }
             }
           }
-        }
-        // ESCDEAD-01SHOW (zonewalk.mjs): A MAROONED BOT INSIDE A PROTECTED ZONE WHOSE COLUMN RISES INTO THE ZONE'S STRUCTURE
-        // walks out under the zone's side before anything else asks for a tool or a climb (showcase-Gale 11-05/06: 22 h at
-        // 64.5,58,38.5 in 6_1's box, a shaft capped by stone under the village's trees, asking for a pickaxe no table could make).
-        // It holds the body like the pool escape's hook; a firing that moved nothing waits ZONE_WALK_RETRY_MS.
-        if (mstate !== 'none' && mstate !== 'climb' && !marooned && !pocketing && !pocketPending && !inDanger &&
-            Date.now() >= zoneWalkNextAt && zoneClimbGate(bot, `marooned_${mstate}`)) {
-          marooned = true
-          const g = await takeBody(bot, runner, 'marooned', PRIORITY.escape)
-          try {
-            const res = g ? await zoneWalkTry(bot, { handler: `marooned_${mstate}`, yieldTo: () => drowningOwnsBody() || arbiterYield(() => g) }) : null
-            zoneWalkNextAt = Date.now() + (res && (res.outcome === 'out' || res.outcome === 'progress') ? 0 : ZONE_WALK_RETRY_MS)
-            if (res?.outcome === 'out') bot.pendingPrereq = null
-          } catch (e) { log('warn', 'zone walk failed', { err: e.message }) }
-          finally { marooned = false; giveBody(runner, g, 'zone walk ended') }
         }
         if (mstate === 'need_pickaxe' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
@@ -6219,6 +6221,7 @@ export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo =
  * per place per 5 min.
  */
 const zoneGateSaid = new WeakMap()
+const zoneWalkBest = new WeakMap()
 export const ZONE_WALK_RETRY_MS = 2 * 60_000
 export function zoneClimbGate (bot, handler = '?', { on = zoneWalkOn() } = {}) {
   if (!on) return null
@@ -6255,8 +6258,10 @@ export async function zoneWalkTry (bot, { handler = '?', yieldTo = () => null, o
     if (tool) await bot.equip(tool, 'hand').catch(() => {})
     await digBounded(bot, block, WALK_DIG_MS)
   }
+  // A BRIDGE IS ORDINARY GROUND ONLY (Codex r1 blocker 1): never cobblestone, planks or logs -- the zone's own palette
+  const bridgeItem = () => (bot.inventory?.items?.() ?? []).find(it => isOrdinary(it?.name ?? '') && !/^(sand|red_sand|gravel|suspicious_.*|snow|ice|packed_ice|snow_block)$/.test(it.name)) ?? null
   const place = async (cell, dir) => {
-    const item = scaffoldFor(bot, 'zone_walk')
+    const item = bridgeItem()
     if (!item) return false
     await bot.equip(item, 'hand').catch(() => {})
     const here = bot.entity.position.floored()
@@ -6284,8 +6289,14 @@ export async function zoneWalkTry (bot, { handler = '?', yieldTo = () => null, o
       }
     } finally { bot.setControlState('forward', false) }
   }
-  const res = await zoneWalkOut(bot, { zone, dig, place, walk, yieldTo, canPlace: () => !!scaffoldFor(bot, 'zone_walk_check'),
+  // THE BEST THIS EPISODE REACHED (Codex r1 blocker 5): carried across firings, so walking a sealed corridor is not progress
+  const memo = zoneWalkBest.get(bot)
+  const fresh = !memo || memo.zone !== zone.id || Math.hypot(p.x - memo.x, p.z - memo.z) > 24 || Date.now() - memo.t > 30 * 60_000
+  const best = fresh ? null : memo.best
+  const res = await zoneWalkOut(bot, { zone, dig, place, walk, yieldTo, canPlace: () => !!bridgeItem(), best,
                                        alive: () => !!bot.entity && bot.health > 0 })
+  if (res.outcome === 'out') zoneWalkBest.delete(bot)
+  else zoneWalkBest.set(bot, { zone: zone.id, x: fresh ? p.x : memo.x, z: fresh ? p.z : memo.z, t: fresh ? Date.now() : memo.t, best: res.best ?? best })
   logEvent({ kind: 'zone_walk', status: res.outcome === 'out' ? 'success' : res.outcome === 'progress' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
              snapshot: snapshot(bot), detail: `handler=${handler} ${zoneWalkRowDetail(res)}` })
   if (res.outcome === 'no_exit') {

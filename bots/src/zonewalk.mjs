@@ -28,11 +28,12 @@
 // that case: they no longer climb into it.
 import { Vec3 } from 'vec3'
 import { isOrdinary, zoneWalkOn } from './escapeguard.mjs'
+import { isFallingBlock } from './scaffold.mjs'
 
 /** ZONEWALK=off (0/false/no) turns all three rules off: the base escape guard, climbs and last resort. Default on. */
 export { zoneWalkOn }
 
-export const COLUMN_SCAN = 48          // how far up the climb gate looks (capped at the box top)
+export const COLUMN_SCAN = 448         // the climb gate scans to the BOX TOP (Codex r1 blocker 6: a 48 cap missed a roof 60 up)
 export const WALK_PAD = 1              // a tunnel is out once its feet column is this far beyond the footprint
 export const WALK_MAX_STEPS = 140      // one firing (a 108-wide village box: the farthest side is 54 from the middle)
 export const WALK_BUDGET_MS = 150_000  // one firing; the arm re-fires after its back-off and the tunnel continues
@@ -47,6 +48,11 @@ const isLava = b => !!b && /lava/.test(b.name ?? '')
 /** A block a survival dig may not break inside a zone: anything solid that is not ordinary terrain (escapeguard ORDINARY). */
 export const isStructure = b => solid(b) && !isOrdinary(b.name ?? '')
 
+/** Blocks that hang on or stand on another block (Claude r1 blocker 1): digging their support drops them -- a rail on a mineshaft
+ *  floor, a torch, a lantern, a door, a sign, a carpet. A dug cell with one of these on top or beside it is not a tunnel cell. */
+export const ATTACHED = /(rail|torch|lantern|sign|pressure_plate|button|lever|carpet|flower_pot|potted_|bell|chain|ladder|door|banner|candle|_head|skull|tripwire|string|bed)$|^(rail|redstone_wire|lever|vine|cobweb)$/
+const attached = b => !!b && ATTACHED.test(b.name ?? '')
+
 /** The zone whose BOX holds this cell -> zone | null. Pure. */
 export function zoneBoxAt (zones, x, y, z) {
   for (const q of (Array.isArray(zones) ? zones : [])) {
@@ -57,8 +63,9 @@ export function zoneBoxAt (zones, x, y, z) {
 
 /**
  * THE CLIMB GATE'S QUESTION -> { zone, cell, name } | null. Pure over at(x,y,z) (null = unloaded: treated as a hit -- an
- * unseen column under a village is not a safe climb). The bot's feet cell inside a zone box; the 3x3 columns around it, from
- * feet+2 up to the box top (at most COLUMN_SCAN): the first structure block found.
+ * unseen column under a village is not a safe climb). The bot's feet cell inside a zone box; its OWN column (the pillar's: Codex
+ * r1 -- a neighbour's roof must not suppress a clear climb the base could take; the ramp, which climbs diagonally, passes over
+ * guarded cells itself), from feet+2 up to the box top: the first structure block found.
  */
 export function zoneColumnHit ({ at = () => null, feet, zones = [], scan = COLUMN_SCAN } = {}) {
   if (!feet) return null
@@ -67,7 +74,7 @@ export function zoneColumnHit ({ at = () => null, feet, zones = [], scan = COLUM
   if (!zone) return null
   const top = Math.min(zone.y1, fy + scan)
   for (let y = fy + 2; y <= top; y++) {
-    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    for (const [dx, dz] of [[0, 0]]) {
       const b = at(fx + dx, y, fz + dz)
       if (b == null) return { zone, cell: [fx + dx, y, fz + dz], name: 'unloaded' }
       if (isStructure(b)) return { zone, cell: [fx + dx, y, fz + dz], name: b.name }
@@ -104,9 +111,18 @@ export function tunnelStep ({ at = () => null, from, dx, dz, canPlace = false } 
   }
   for (const cy of [y, y + 1]) {
     for (const [ex, ey, ez] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
-      if (isLava(at(nx + ex, cy + ey, nz + ez))) return { ok: false, dig: [], place: null, why: `lava beside ${nx},${cy},${nz}` }
+      const nb = at(nx + ex, cy + ey, nz + ez)
+      if (nb == null) return { ok: false, dig: [], place: null, why: 'unloaded beside the cut' }
+      if (isLava(nb)) return { ok: false, dig: [], place: null, why: `lava beside ${nx},${cy},${nz}` }
+      // WATER ON A FACE (Codex r1 blocker 3): a cut beside or under water floods the 2-high tunnel the bot breathes in
+      if (isLiquid(nb)) return { ok: false, dig: [], place: null, why: `${nb.name} beside ${nx},${cy},${nz}` }
+      // A HANGING OR STANDING BLOCK on the cut (Claude r1 blocker 1): digging its support drops a zone block
+      if (attached(nb)) return { ok: false, dig: [], place: null, why: `${nb.name} hangs on ${nx},${cy},${nz}` }
     }
   }
+  // A FALLING BLOCK OVER THE HEAD CUT (Codex r1 blocker 4): it drops into the tunnel and whatever was above it (lava, water,
+  // a structure) follows; never cut under one
+  if (isFallingBlock(at(nx, y + 2, nz))) return { ok: false, dig: [], place: null, why: `${at(nx, y + 2, nz).name} over the head cut` }
   // a block that falls into the cut (sand/gravel over the head) is ordinary but refills it: dig it later as the step reads it
   const dig = [[nx, y + 1, nz], [nx, y, nz]].filter(c => solid(at(...c)))
   if (isLiquid(floorB)) return { ok: false, dig: [], place: null, why: `${floorB.name} under the next cell` }
@@ -126,10 +142,19 @@ export function downStep ({ at = () => null, from } = {}) {
   if (below == null || floor == null) return { ok: false, dig: null, why: 'unloaded' }
   if (isStructure(below)) return { ok: false, dig: null, why: `structure ${below.name} under the feet` }
   if (isLiquid(below) || isLiquid(floor)) return { ok: false, dig: null, why: 'liquid under the feet' }
-  for (const [ex, ez] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (isLava(at(x + ex, y - 1, z + ez)) || isLava(at(x + ex, y - 2, z + ez))) return { ok: false, dig: null, why: 'lava beside the drop' }
+  for (const [ex, ez] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const a = at(x + ex, y - 1, z + ez), b = at(x + ex, y - 2, z + ez)
+    if (a == null || b == null) return { ok: false, dig: null, why: 'unloaded beside the drop' }
+    if (isLava(a) || isLava(b)) return { ok: false, dig: null, why: 'lava beside the drop' }
+    if (isLiquid(a)) return { ok: false, dig: null, why: `${a.name} beside the drop` }
+    if (attached(a)) return { ok: false, dig: null, why: `${a.name} hangs on the cell under the feet` }
+  }
   if (!solid(floor)) return { ok: false, dig: null, why: 'no floor two below (a drop, not a step)' }
   return { ok: true, dig: solid(below) ? [x, y - 1, z] : null, why: null }
 }
+
+/** How far the feet column is from leaving the footprint -> cells (0 = out). Pure. */
+export const distanceOut = (zone, x, z) => (outOfFootprint(zone, x, z) ? 0 : Math.min(x - zone.x0 + 1, zone.x1 - x + 1, z - zone.z0 + 1, zone.z1 - z + 1))
 
 /** The `_zone_walk` row's detail. Pure. */
 export function zoneWalkRowDetail (r = {}) {
@@ -146,25 +171,44 @@ export function zoneWalkRowDetail (r = {}) {
  *   alive() -> bool               yieldTo() -> reason | null          canPlace() -> bool
  */
 export async function zoneWalkOut (bot, { zone, dig, place = async () => false, walk, canPlace = () => false, alive = () => true,
-  yieldTo = () => null, now = Date.now, budgetMs = WALK_BUDGET_MS } = {}) {
+  yieldTo = () => null, now = Date.now, budgetMs = WALK_BUDGET_MS, best = null } = {}) {
   const t0 = now()
   const at = (x, y, z) => { try { return bot.blockAt?.(new Vec3(x, y, z)) ?? null } catch { return null } }
   const here = () => { const p = bot.entity.position; return [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] }
   const start = here()
   const res = { outcome: 'failed', zone: zone?.id ?? '?', from: start.join(','), to: null, steps: 0, down: 0, dug: 0, placed: 0, side: null, ms: 0, stops: [] }
-  const fin = o => { res.outcome = o; res.to = here().join(','); res.ms = now() - t0; return res }
+  // PROGRESS IS GETTING NEARER THE WAY OUT (Codex r1 blocker 5), never walking: a firing that ends no nearer the footprint's
+  // side (and no lower, from above the floor) than the best this episode reached is no progress -- so a sealed corridor walked
+  // end to end reports no_exit and calls for help instead of resetting the arm forever. `best` = { dist, y } carried by the
+  // caller across firings (null: this firing's start).
+  const b0 = best && Number.isFinite(best.dist) ? best : { dist: distanceOut(zone, start[0], start[2]), y: start[1] }
+  const settle = o => {
+    const h = here(), d = distanceOut(zone, h[0], h[2])
+    const nearer = d < b0.dist || (zone.floorY != null && b0.y >= zone.floorY && h[1] < b0.y)
+    res.best = { dist: Math.min(d, b0.dist), y: Math.min(h[1], b0.y) }
+    if (o === 'progress' && !nearer) return 'no_exit'
+    if (o === 'out' || d === 0) return 'out'
+    return o
+  }
+  const fin = o => { res.outcome = settle(o); res.to = here().join(','); res.ms = now() - t0; return res }
   const gone = () => { if (!alive()) return 'ownership lost'; return yieldTo() }
-  const digCell = async c => { const b = at(...c); if (!solid(b)) return; await dig(b); res.dug++; if (solid(at(...c))) throw new Error(`${b.name} at ${c.join(',')} still stands after the dig`) }
+  class Gone extends Error {}
+  // OWNERSHIP BEFORE EVERY EFFECT (Codex r1 blocker 7): a rescue that took the body during a dig never meets a second dig,
+  // an equip or a placement from this firing
+  const own = () => { const g = gone(); if (g) throw new Gone(g) }
+  const digCell = async c => { const b = at(...c); if (!solid(b)) return; own(); await dig(b); res.dug++; if (solid(at(...c))) throw new Error(`${b.name} at ${c.join(',')} still stands after the dig`) }
   try {
     if (outOfFootprint(zone, start[0], start[2])) return fin('out')
-    // 1. DOWN, from above the floor: the village is above; leave it from below
-    while (zone.floorY != null && here()[1] >= zone.floorY && res.down < DOWN_MAX) {
+    // 1. DOWN, from above the floor of a VILLAGE (its structures stand on the surface: leave them from below). Not for a zone
+    // whose structure is underground (Claude r1 note 4: trial chambers under the town) -- there, down is toward it.
+    while (zone.kind === 'village' && zone.floorY != null && here()[1] >= zone.floorY && res.down < DOWN_MAX) {
       if (gone()) return fin('yielded')
       if (now() - t0 > budgetMs) return fin(res.steps || res.down ? 'progress' : 'failed')
       const d = downStep({ at, from: here() })
       if (!d.ok) { res.stops.push(`down: ${d.why}`); break }
       const y0 = here()[1]
       if (d.dig) await digCell(d.dig)
+      own()
       await walk([here()[0], y0 - 1, here()[2]])
       if (here()[1] >= y0) { res.stops.push('down: did not drop'); break }
       res.down++
@@ -180,8 +224,12 @@ export async function zoneWalkOut (bot, { zone, dig, place = async () => false, 
         const s = tunnelStep({ at, from: f, dx: b.dx, dz: b.dz, canPlace: canPlace() })
         if (!s.ok) { res.stops.push(`${b.side} at ${f.join(',')}: ${s.why}`); break }
         for (const c of s.dig) await digCell(c)
-        if (s.place) { if (!(await place(s.place, [b.dx, 0, b.dz]))) { res.stops.push(`${b.side}: the bridge block did not take`); break } res.placed++ }
+        // RE-READ AFTER THE DIGS (Codex r1 blocker 4): a block that fell in, or a liquid that arrived, ends the bearing
+        const again = tunnelStep({ at, from: f, dx: b.dx, dz: b.dz, canPlace: canPlace() })
         const target = [f[0] + b.dx, f[1], f[2] + b.dz]
+        if (!again.ok || again.dig.length) { res.stops.push(`${b.side}: the cut changed after the dig (${again.why ?? 'refilled'})`); break }
+        if (s.place) { own(); if (!(await place(s.place, [b.dx, 0, b.dz]))) { res.stops.push(`${b.side}: the bridge block did not take`); break } res.placed++ }
+        own()
         await walk(target)
         const g = here()
         if (g[0] !== target[0] || g[2] !== target[2]) { res.stops.push(`${b.side}: the step to ${target.join(',')} was not taken`); break }
@@ -190,6 +238,7 @@ export async function zoneWalkOut (bot, { zone, dig, place = async () => false, 
     }
     return fin(res.steps || res.down ? 'progress' : 'no_exit')
   } catch (e) {
+    if (e instanceof Gone) { res.stops.push(`yielded: ${e.message}`); res.outcome = 'yielded'; res.to = here().join(','); res.ms = now() - t0; return res }
     res.stops.push(`threw: ${e?.message ?? e}`)
     return fin(res.steps || res.down ? 'progress' : 'failed')
   }
