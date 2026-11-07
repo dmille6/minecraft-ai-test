@@ -24841,15 +24841,20 @@ async function buildTidyVisit (ctx, args, signal) {
       segYield: sg => { const L = liveNow(true); return !L || crewYield({ cols: crewCols, seg: sg, me, live: L }) },
     }
     if (floorOnly) f.floor = floorNow.length
-    const open = (visitRec.cells ?? []).filter(q => q.role !== 'light' && q.role !== 'access' && !PARK_ROLES.has(q.role) && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
+    const open = (visitRec.cells ?? []).filter(q => q.role !== 'light' && q.role !== 'access' && q.role !== 'topsoil' && !PARK_ROLES.has(q.role) && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
+    // roughground-2/3 (Codex 3 r2 BLOCKER): a topsoil cell takes DIRT only (a lawn, a landmark's terraces and crown): billed as dirt on
+    // its own, drawn from the town when the bag is short -- never offset by cobblestone
+    const openSoil = (visitRec.cells ?? []).filter(q => q.role === 'topsoil' && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
+    const wantSoil = Math.max(0, openSoil - spare('dirt'))
     // access-01 (Codex r1 BLOCKER 1): a staircase's cells take the town's STONE only (TIDY_PALETTE.access) -- billed as cobblestone
     // on their own, never offset by the bag's spare dirt
     const openAccess = (visitRec.cells ?? []).filter(q => q.role === 'access' && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
-    const want = fillWant({ open, openAccess, dirt: spare('dirt'), cobble: spare('cobblestone') })
+    const want = fillWant({ open, openAccess, dirt: Math.max(0, spare('dirt') - openSoil), cobble: spare('cobblestone') })
     // groundskeeper-01: a stage's road lights (torches) and its felled trunks' saplings, less what the bag holds
     const extra = GROUNDS.on ? gkExtraBill(rec, read, held0, q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)) : {}
     // townterrace-01: the park's plants, a hoe for its tilled plots, bone meal for its meadow -- only what the town holds
     if (parkish) { try { Object.assign(extra, parkBill(rec, read, { held: held0, stock: matsTownStock(bot)?.stock ?? {}, done: q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role) })) } catch { /* the park waits for its bill */ } }
+    if (wantSoil > 0) extra.dirt = (extra.dirt ?? 0) + wantSoil
     const need = want > 0 || Object.keys(extra).length ? needFromTown({ ...(want > 0 ? { cobblestone: want } : {}), ...extra }, {}, SHOP_BILL_CAP) : {}
     let took = {}
     bag0 = held0
