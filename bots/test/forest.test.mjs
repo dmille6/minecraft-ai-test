@@ -446,7 +446,7 @@ await t('MUTANT KILLED: the clearing without the lava test (the lava\'s leaf is 
     await M.fellTree(e, w.read, t1)
     assert.strictEqual(w.read(30, G + 2, 31).name, 'spruce_leaves')
   })
-  await killed("  if (left().some(p => lavaBeside(read, p))) return { n, why: 'lava', from: e.feet() }\n", '', async M => {
+  await killed("  if (left().some(p => lavaBeside(read, p))) return { n, why: 'lava', from: feetAt() }\n", '', async M => {
     const w = world(); const t1 = tree(w, [30, G, 30], 5); w.set([30, G + 3, 29], 'lava')
     const r = await M.fellTree(traceE(w, { at: [30, G + 1, 31], land: s => s }), w.read, t1)
     assert.strictEqual(r.n, 0)
@@ -495,6 +495,23 @@ await t('MUTANT KILLED: the felling judged by reach alone again (fells from the 
     const w = world(); const t1 = tree(w, [30, G, 30], 6); for (const y of [G, G - 1]) w.set([29, y, 30], 'air')
     const r = await M.fellTree(traceE(w, { at: [29, G - 1, 30], land: s => s }), w.read, t1)
     assert.deepStrictEqual(r.from, t1.stand)
+  })
+})
+
+await t('forest-04 (Claude review): a body on a dirt path / mud (lower than a full block) stands in the cell above its floored feet -- it fells from there; unread zones are no failure keepDue counts', async () => {
+  const w0 = world(); w0.set([29, G, 30], 'dirt_path')
+  assert.deepStrictEqual([F.bodyFeet(w0.read, [29, G, 30]), F.bodyFeet(w0.read, [28, G + 1, 30])], [[29, G + 1, 30], [28, G + 1, 30]])
+  const w = world(); const t1 = tree(w, [30, G, 30], 6); w.set([29, G, 30], 'dirt_path')
+  const r = await F.fellTree(traceE(w, { at: [29, G, 30], land: () => null }), w.read, t1)   // the walk goes nowhere: it is already there
+  assert.deepStrictEqual([r.n, r.why], [6, null])
+  const fails = new Map()
+  assert.ok([1, 2, 3, 4].every(() => !F.keepDue(fails, 'plot:1,2,3', 'zones_unknown')) && F.keepDue(new Map([['k', 2]]), 'k', 'off_stand'))
+})
+await t('MUTANT KILLED: the floored feet taken as the body\'s on a dirt path (off_stand)', async () => {
+  await killed("  return b && b.boundingBox === 'block' && PARTIAL_GROUND.test(nm(b)) ? [feet[0], feet[1] + 1, feet[2]] : feet", '  return feet', async M => {
+    const w = world(); const t1 = tree(w, [30, G, 30], 6); w.set([29, G, 30], 'dirt_path')
+    const r = await M.fellTree(traceE(w, { at: [29, G, 30], land: () => null }), w.read, t1)
+    assert.strictEqual(r.why, null)
   })
 })
 
@@ -901,7 +918,7 @@ await t('forest-02 release fold (Codex r3 BLOCKER): forestFell never digs a leaf
   // behaviour: the fellTree guard test above)
   const fsrc = strip(readFileSync(new URL('../src/forest.mjs', import.meta.url), 'utf8'))
   const wired = src => { const i = src.indexOf('async function forestFell ('); const body = src.slice(i, src.indexOf('\n}\n', i)); const g = src.slice(src.indexOf('function fellLeafGuard ('), i)
-    return i > 0 && /guarded \?\?= fellLeafGuard\(bot, \[FOREST_PLOT, project\]\)/.test(body) && /fellTree\(e, farmRead\(bot\), t, \{ deadline, guard: guarded,/.test(body) && /fellReserved\(\{ boxes: \[\.\.\.townMarkerZones\(\), \.\.\.\(zv\.zones \?\? \[\]\)\], records: projectHeads\(\)\.map\(x => x\.head\?\.rec\)\.filter\(Boolean\), own \}\)/.test(g) && /if \(!zv\?\.known\) return \(\) => true/.test(g) }
+    return i > 0 && /guarded \?\?= fellLeafGuard\(bot, \[FOREST_PLOT, project\]\)/.test(body) && /fellTree\(e, farmRead\(bot\), t, \{ deadline, guard: guarded,/.test(body) && /fellReserved\(\{ boxes: \[\.\.\.townMarkerZones\(\), \.\.\.\(zv\.zones \?\? \[\]\)\], records: projectHeads\(\)\.map\(x => x\.head\?\.rec\)\.filter\(Boolean\), own \}\)/.test(g) && /if \(!zv\?\.known\) return null/.test(g) && /if \(!guarded\) return \{ n: 0, why: 'zones_unknown' \}/.test(body) }
   assert.ok(wired(strip(raw)) && /if \(guard\(q\[0\], q\[2\]\)\) continue/.test(fsrc))
   const old = 'fellTree(e, farmRead(bot), t, { deadline, guard: guarded,'
   assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')

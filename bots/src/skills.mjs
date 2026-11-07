@@ -24646,21 +24646,23 @@ function forestInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townD
  *  (top down, the stump last) with the build effects' dig, re-read first (gone: passed), the bot never moving; a log the stand does not
  *  reach ends the tree (a shorter tree is left, never a floating log). */
 /** forest-02 release fold (Codex r3 BLOCKER): the columns a felling's leaf clearing must never touch -> (x, z) -> bool: the town's
- *  expedition markers (their reserved margin) and the protected zones. Unreadable: every column (no leaf dug). Never throws. */
+ *  expedition markers (their reserved margin) and the protected zones. Unreadable: null (forestFell fells nothing: `zones_unknown`,
+ *  never counted by keepDue). Never throws. */
 function fellLeafGuard (bot, own = [FOREST_PLOT]) {
   try {
     const zv = townPlanZones(bot)
-    if (!zv?.known) return () => true
+    if (!zv?.known) return null   // forest-04 (Claude review): unread zones -> no felling this visit, never a failure counted to keep
     // forest-04 (Codex fold BLOCKERS 1, 4): the stands too, and every other record's ground (its box, its cells' columns: a hedge's
     // leaves) -- forest.mjs fellReserved; `own` the records the felling works (the forest; the farm being retired)
     return fellReserved({ boxes: [...townMarkerZones(), ...(zv.zones ?? [])], records: projectHeads().map(x => x.head?.rec).filter(Boolean), own })
-  } catch { return () => true }
+  } catch { return null }
 }
 async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', project = FOREST_PLOT, guarded = null }) {
   // forest-03 (LIVE 11-06 22:58Z: every felling off_stand): forest.mjs fellTree -- any orthogonal stand from which every log is reached,
   // judged from the bot's ACTUAL feet; the stand leaves dug within reach before and after each walk
   if (!t.stand) return { n: 0, why: 'no_stand' }
   guarded ??= fellLeafGuard(bot, [FOREST_PLOT, project])
+  if (!guarded) return { n: 0, why: 'zones_unknown' }
   const r = await fellTree(e, farmRead(bot), t, { deadline, guard: guarded, check: () => check(signal),
     log: d => log({ ...forestRow({ ...d, kind: d.op === 'harvest' ? kind : d.kind }), project }) })
   await sleep(300, signal)
