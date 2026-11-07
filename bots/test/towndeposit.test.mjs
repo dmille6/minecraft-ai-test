@@ -9,6 +9,9 @@ process.env.BOT_NAME = process.env.BOT_NAME || 'TownBot'
 process.env.MEMORY_SCOPE = process.env.MEMORY_SCOPE || 'isolated'
 process.env.LOG_LEVEL = 'error'
 process.env.BOT_ROLE = 'gatherer'
+// sandrung-01: these fixtures model the four-rung gatherer chain (bags carry the rung's 8 sand, held by HELD_TARGETS), so the
+// file pins the switch ON; the retired default (no sand rung, no held sand) is asserted in sandrung.test.mjs.
+process.env.SANDRUNG = '1'
 process.env.LLM_DECISION_COOLDOWN_MS = '50'
 process.env.POOL_STATE_DIR = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'td-pool-'))
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
