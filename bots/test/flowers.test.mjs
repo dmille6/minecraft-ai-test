@@ -331,6 +331,21 @@ await t('lawnWork (THE PRIORITY + REFUSAL CHAIN): the border first; stalled -> n
   await killed(DEC_PATH, "  if (Number(border) > 0) return { want: false, why: 'border_first' }\n", '', scenario)
 })
 
+await t('Codex r1 BLOCKER: mealAllow judges the park\'s keep AT THE TRANSFER (this chest + the others, less outstanding draws): a stale 5 that is now 4 takes none', async () => {
+  const scenario = M => {
+    const a = M.mealAllow(4, 1)
+    assert.strictEqual(a('bone_meal', 1, { here: { bone_meal: 5 }, others: {} }), 1, 'POSITIVE CONTROL: 5 in town, one above the keep')
+    assert.strictEqual(a('bone_meal', 1, { here: { bone_meal: 4 }, others: {} }), 0, 'another bot drew meanwhile: the keep is whole')
+    assert.strictEqual(a('bone_meal', 1, { here: { bone_meal: 2 }, others: { bone_meal: 3 } }), 1, 'the other chests count')
+    assert.strictEqual(a('bone_meal', 1, { here: { bone_meal: 2 }, others: { bone_meal: 3 }, taking: { bone_meal: 1 } }), 0, 'an outstanding draw counts')
+    assert.strictEqual(M.mealAllow(4, 3)('bone_meal', 3, { here: { bone_meal: 9 }, others: {} }), 3); assert.strictEqual(a('fern', 1, { here: { fern: 9 } }), 0)
+  }
+  await killed(DEC_PATH, '  return Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.bone_meal) || 0, Number(cap) || 0, town - keep - out))\n', '  return Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.bone_meal) || 0, Number(cap) || 0))\n', scenario)
+})
+await t('wired: the lawn and the nursery draw bone meal through mealAllow', () => {
+  for (const line of ['matsReserve().table, mealAllow(NURSERY.mealKeep, 1))', 'FLOWERS_ON ? mealAllow(NURSERY.mealKeep, want - bagMeal) : decorAllow({ bone_meal: want - bagMeal })']) { assert.strictEqual(SK.split(line).length, 2, line); assert.strictEqual(SK.replace(line, '').split(line).length, 1) }
+})
+
 console.log('THE WIRING (structural: skills.mjs; each assertion proven by a mutant of the source text)')
 const WIRES = [
   ['the damage loop waives a waiting upgraded cell', "if (b && r.plot === SINK_PLOTS.decor && upgradeWaits(c, b, heldMap(bot))) continue"],

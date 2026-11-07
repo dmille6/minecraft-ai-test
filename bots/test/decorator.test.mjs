@@ -704,7 +704,7 @@ const W = [
   /if \(kind === 'decor' && decorStalled\(\{ \.\.\.f, placed: r\.placed, cleared: r\.cleared \}\)\) decorStall\(bot, `visit:\$\{r\.stop\}`\)/,
   /const work = decorWanted\(states\[i\]\) && !stalled/,
   /await matsWithdraw\(ctx, \{ iron_ingot: k \}, signal, 20_000, matsReserve\(\)\.table, decorAllow\(\{ iron_ingot: k \}\)\)/,
-  /await matsWithdraw\(ctx, \{ bone_meal: want - bagMeal \}, signal, 30_000, matsReserve\(\)\.table, decorAllow\(\{ bone_meal: want - bagMeal \}\)\)/,
+  /await matsWithdraw\(ctx, \{ bone_meal: want - bagMeal \}, signal, 30_000, matsReserve\(\)\.table, FLOWERS_ON \? mealAllow\(NURSERY\.mealKeep, want - bagMeal\) : decorAllow\(\{ bone_meal: want - bagMeal \}\)\)/,
   /if \(rec0 && DECOR_POTS_ON\) \{ const pf = await decorPotFill\(/,
   /if \(leafNeed > 0 && based\) \{ const lg = await decorLeaves\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, leafNeed\)/,
   /if \(postNeed > 0\) \{ const pk = await decorPostKit\(ctx, signal, postNeed, rec0, postOwed\)/,
