@@ -134,6 +134,7 @@ await t('the wiring: the keeper plans it once (land.landmark), every tidy rule a
   assert.ok(res.zones.some(z => z.why === 'land:landmark' && z.box[0] === 1 && z.box[5] === 10), 'a reservation other builds keep off')
   assert.strictEqual(LM.landmarkOn({ LANDMARK: 'off' }), false); assert.strictEqual(LM.landmarkOn({}), true)
   assert.ok(/const noSoil = q => q\.role === 'topsoil' && countItem\(bot, 'dirt'\) < 1/.test(sk) && (sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 2, 'a top with no dirt held waits (never cobble)')
+  assert.ok(/const openSoil = \(visitRec\.cells \?\? \[\]\)\.filter\(q => q\.role === 'topsoil'/.test(sk) && /if \(wantSoil > 0\) extra\.dirt = \(extra\.dirt \?\? 0\) \+ wantSoil/.test(sk) && /q\.role !== 'topsoil' && !PARK_ROLES\.has\(q\.role\)/.test(sk), 'topsoil billed as DIRT, drawn from the town (Codex 3 r2)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
