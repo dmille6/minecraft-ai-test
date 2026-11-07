@@ -72,7 +72,7 @@ if [ ! -f /etc/voyager/proxy.json ]; then
  "guardFile": "/etc/voyager/guard.json",
  "groups": {"studio": {"arms": ["a", "b"], "slotMinutes": 60, "url": "http://ai.ticrcorp.com:11436"}},
  "arms": {
-  "a":   {"backend": "ollama", "url": "http://ai.ticrcorp.com:11436", "model": "qwen3.6:35b-a3b", "numCtx": 12288, "keepAlive": "15m", "inflight": 1, "perHour": 60, "maxTokens": 4096, "group": "studio", "guarded": true, "dutyFactor": 2, "gid": $(G a), "paused": true},
+  "a":   {"backend": "ollama", "url": "http://ai.ticrcorp.com:11436", "model": "qwen3.6:35b-a3b", "think": false, "numCtx": 12288, "keepAlive": "15m", "inflight": 1, "perHour": 60, "maxTokens": 4096, "group": "studio", "guarded": true, "dutyFactor": 2, "gid": $(G a), "paused": true},
   "b":   {"backend": "ollama", "url": "http://ai.ticrcorp.com:11436", "model": "qwen2.5-coder:32b", "numCtx": 12288, "keepAlive": "15m", "inflight": 1, "perHour": 60, "maxTokens": 4096, "group": "studio", "guarded": true, "dutyFactor": 2, "gid": $(G b), "paused": true},
   "c":   {"backend": "anthropic", "model": "claude-haiku-5-5", "inUsdPerMTok": 0.10, "outUsdPerMTok": 0.50, "capUsd": 20, "effort": "low", "inflight": 1, "perHour": 400, "maxTokens": 4096, "gid": $(G c)},
   "ctl": {"backend": "ollama-raw", "url": "http://ai.ticrcorp.com:11436", "model": "qwen2.5:7b-instruct", "keepAlive": "15m", "inflight": 1, "perHour": 300, "gid": $(G ctl), "paused": true}
