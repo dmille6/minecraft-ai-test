@@ -3204,7 +3204,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // escdead-01show (zonewalk.mjs rule 2): a climb whose column rises into a protected zone's structure never starts; it
           // is a guarded ceiling, and the guarded branch walks the bot out under the zone's side first
           if (zoneClimbGate(bot, 'marooned')) pillarOutcome = ESCAPE_GUARDED
-          else try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: () => ownsBody(() => maroonGrant)() && !airPocketWanted() }) }
+          else try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: () => ownsBody(() => maroonGrant)() && !airPocketWanted() && !zoneClimbGate(bot, 'marooned_climbing') }) }
           catch (e) { log('warn', 'maroon escape failed', { err: e.message }); pillarOutcome = 'threw' }
 
           if (pillarOutcome === 'needs_blocks' || pillarOutcome === 'exhausted') {
@@ -3375,7 +3375,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           const climbFrom = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z }
           // escdead-01show (zonewalk.mjs rule 2): the same climb gate as the marooned arm
           if (zoneClimbGate(bot, 'entombed')) climbed = ESCAPE_GUARDED
-          else try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: () => ownsBody(() => entombedGrant)() && !airPocketWanted() }) }
+          // ...and EVERY STEP of the climb asks it again (Paper 11-07: a climb begun outside the box -- or before a column cleared --
+          // must stop the step it would rise into a zone's column with structure overhead; the next firing walks out)
+          else try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: () => ownsBody(() => entombedGrant)() && !airPocketWanted() && !zoneClimbGate(bot, 'entombed_climbing') }) }
           catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
           noteReflexInventory(bot, invBefore, 'entombed_escape')
           // Verify the postcondition. "I ran the recovery" and "the bot is no
