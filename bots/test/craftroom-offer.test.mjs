@@ -51,10 +51,13 @@ async function withMutant (file, pairs, fn) {
   try { return await fn(await import(`${out.href}?${Date.now()}_${Math.random()}`)) } finally { try { unlinkSync(out) } catch {} }
 }
 
-test('FULL BAG: the pickaxe is not advertised; it is named as needing room, with remedies the bot can perform', () => {
+test('FULL BAG: the pickaxe is not advertised; it is named as needing room (the skill would refuse it)', async () => {
   const line = P.craftableNow(botWith(bag()))
   assert.doesNotMatch(line, /CAN CRAFT NOW:.*stone_pickaxe/, line)
-  assert.match(line, /NO ROOM TO CRAFT: stone_pickaxe -- the bag has no free slot .*place a block you carry, or deposit at the town chest/)
+  assert.match(line, /NO ROOM TO CRAFT: stone_pickaxe -- the bag has no free slot for the result, so craft would be refused for room/)
+  // THE SAME SIMULATION AS THE SKILL'S ROOM CHECK (craftRoomNow -> admitRoom -> craftRoom): withheld here == refused there
+  const { admitRoom, roomRecipe } = await import('../src/craftroom.mjs')
+  assert.equal(admitRoom(bag(), roomRecipe(mcData, PICK, 'stone_pickaxe')).ok, false, 'the skill refuses this bag too')
 })
 test('ROOM: one free slot -> advertised; an ingredient stack the craft empties (2 sticks) -> advertised (the slot it frees)', () => {
   assert.match(P.craftableNow(botWith(bag({ free: 1 }))), /^CAN CRAFT NOW: stone_pickaxe/)

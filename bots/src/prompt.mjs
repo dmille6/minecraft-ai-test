@@ -606,8 +606,10 @@ export function offerFits (items, registry, recipe, name) {
 }
 /** The line naming the crafts withheld for room, with remedies the bot can perform. Pure. */
 export function noRoomLine (names = []) {
-  return names.length ? `NO ROOM TO CRAFT: ${names.join(', ')} -- the bag has no free slot for the result; free one first ` +
-    `(place a block you carry, or deposit at the town chest: home then deposit)` : ''
+  // NO REMEDY IS ASSERTED HERE (Codex r1 BLOCKER): which one frees a slot from where the bot stands is the craft room check's
+  // own answer (roomAdvice) -- this line only stops advertising the craft as ready
+  return names.length ? `NO ROOM TO CRAFT: ${names.join(', ')} -- the bag has no free slot for the result, so craft would be ` +
+    `refused for room; making room comes first` : ''
 }
 /** CRAFTROOM_OFFER=0 is the rollback (the line lists every craft the recipes allow, as before). */
 export const craftOfferRoomOn = (env = process.env) => String(env?.CRAFTROOM_OFFER ?? '1').trim() !== '0'
