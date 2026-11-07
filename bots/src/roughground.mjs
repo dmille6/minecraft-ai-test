@@ -44,6 +44,28 @@ const LOG = /_(log|wood)$|^mangrove_roots$|_stem$/
 const AIR = /^(air|cave_air|void_air)$/
 const LIQ = /^(water|lava|bubble_column)$/
 export const STATION = /^crafting_table$/
+/**
+ * AT THE DIG (the showcase release fold, Codex BLOCKERS 1 + 2) -> why | null: a rough cut waits. Pure.
+ *  - own_footing: the digging bot itself stands ON (or in) the cell with open air under it (a floating block: its walk off it failed or
+ *    timed out) -- digging it drops the bot; it waits until the bot has stepped off (otherBodyOnCell covers every OTHER body);
+ *  - station_in_use: the cell is a loose crafting table and another player stands within STATION_USE_R (a bot crafting at its own
+ *    temporary table: runCraftPlan places one off every record) -- the table stays until nobody is at it.
+ * self: the digging bot's position { x, y, z } | null; others: other players' positions.
+ */
+export const STATION_USE_R = 8
+export function roughCutWaits ({ at, read, self = null, others = [] } = {}) {
+  if (!Array.isArray(at) || at.length !== 3 || typeof read !== 'function') return null
+  const [x, y, z] = at
+  if (self && [self.x, self.y, self.z].every(Number.isFinite)) {
+    const w = 0.3
+    const over = self.x + w > x && self.x - w < x + 1 && self.z + w > z && self.z - w < z + 1
+    const below = read(x, y - 1, z)
+    if (over && self.y >= y && self.y < y + 2.01 && (!below || openCell(below))) return 'own_footing'
+  }
+  const b = read(x, y, z)
+  if (b && STATION.test(nm(b)) && (others ?? []).some(p => p && Math.hypot(p.x - (x + 0.5), p.y - y, p.z - (z + 0.5)) <= STATION_USE_R)) return 'station_in_use'
+  return null
+}
 /** Earth no build is made of: floating beside a build's ring, it is still the bots' (a build's planks or cobble may not be). */
 export const EARTH = /^(dirt|coarse_dirt|grass_block)$/
 /** The records whose cells lie flat on the ground (a path, a road, the dress's lights, crops, decor plantings, the forest's rows): only

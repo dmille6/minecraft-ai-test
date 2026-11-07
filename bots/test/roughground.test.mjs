@@ -242,5 +242,33 @@ await t('the wiring: buildTidy tries the inside first, restarts the clock on an 
   assert.ok(/if \(roughOn\(env\)\) \{\s*const busyR/.test(td) && /roughB = roughIn\(read, \{ home, boxes: \[bx\]/.test(td), 'both stages call the survey')
 })
 
+// ---- the showcase release fold (Codex BLOCKERS 1 + 2) ----------------------------------------------------------------------
+const W = cells => (x, y, z) => { const n = cells[`${x},${y},${z}`] ?? (y < 64 ? 'stone' : 'air'); return { name: n, boundingBox: n === 'air' ? 'empty' : 'block' } }
+await t('fold BLOCKER 2: a floating cut under the digging bot\'s own feet waits (own_footing); off it, or solid under, it goes', () => {
+  const read = W({ '5,69,5': 'dirt' })                          // a floating dirt block 5 over the ground, air under it
+  assert.strictEqual(RG.roughCutWaits({ at: [5, 69, 5], read, self: { x: 5.5, y: 70, z: 5.5 } }), 'own_footing')
+  assert.strictEqual(RG.roughCutWaits({ at: [5, 69, 5], read, self: { x: 7.5, y: 70, z: 5.5 } }), null, 'POSITIVE: the bot stepped off -> cut')
+  const solid = W({ '5,64,5': 'dirt', '5,63,5': 'stone' })
+  assert.strictEqual(RG.roughCutWaits({ at: [5, 64, 5], read: solid, self: { x: 5.5, y: 65, z: 5.5 } }), null, 'ground with solid under: not a fall, not held')
+})
+await t('fold BLOCKER 1: a loose crafting table with another player within 8 waits (station_in_use); nobody near, it goes', () => {
+  const read = W({ '3,64,3': 'crafting_table' })
+  assert.strictEqual(RG.roughCutWaits({ at: [3, 64, 3], read, others: [{ x: 5, y: 64, z: 3 }] }), 'station_in_use')
+  assert.strictEqual(RG.roughCutWaits({ at: [3, 64, 3], read, others: [{ x: 30, y: 64, z: 3 }] }), null, 'POSITIVE: nobody at it -> cut')
+  assert.strictEqual(RG.roughCutWaits({ at: [3, 64, 3], read: W({ '3,64,3': 'dirt' }), others: [{ x: 4, y: 64, z: 3 }] }), null, 'only a table is held for a player')
+})
+await t('MUTANTS KILLED: without the footing test / the station test the cut goes', async () => {
+  await withMutant(RG_PATH, "return 'own_footing'", 'return null', async X => {
+    assert.strictEqual(X.roughCutWaits({ at: [5, 69, 5], read: W({ '5,69,5': 'dirt' }), self: { x: 5.5, y: 70, z: 5.5 } }), null)
+  })
+  await withMutant(RG_PATH, "return 'station_in_use'", 'return null', async X => {
+    assert.strictEqual(X.roughCutWaits({ at: [3, 64, 3], read: W({ '3,64,3': 'crafting_table' }), others: [{ x: 5, y: 64, z: 3 }] }), null)
+  })
+})
+await t('fold wiring (structural): every tidy cut is held at the dig by roughCutWaits with the bot itself and the players seen', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\) && !roughCutWaits\(\{ at: q\.at, read: rd, self: bot\.entity\?\.position \?\? null, others: playersSeen\(bot\) \}\)/.test(src))
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
