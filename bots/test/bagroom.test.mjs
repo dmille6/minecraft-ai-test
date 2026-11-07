@@ -40,14 +40,15 @@ await t('the restated room equals the build order\'s own (shop.mjs SHOP_BAG_SLOT
 
 await t('SWITCHES: on in the showcase pool by default, off elsewhere; BAGROOM=off rolls back both, each half has its own off', () => {
   // batch-14c release (owner stoneworks plan): the WELL half is off unless BAGROOM_WELL=on
-  assert.deepEqual(BR.bagRoomSwitches({}, 'showcase'), { on: true, well: false, share: true })
-  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_WELL: 'on' }, 'showcase'), { on: true, well: true, share: true })
-  assert.deepEqual(BR.bagRoomSwitches({}, 'board-a'), { on: false, well: false, share: false })
-  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM: 'off' }, 'showcase'), { on: false, well: false, share: false })
-  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM: 'on' }, 'board-a'), { on: true, well: false, share: true })
-  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_WELL: 'off' }, 'showcase'), { on: true, well: false, share: true })
-  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_SHARE: '0' }, 'showcase'), { on: true, well: false, share: false })
-  assert.match(BR.bagRoomModeDetail({ on: true, well: true, share: false }), /^on=1 well=1 share=0 room=8 /)
+  assert.deepEqual(BR.bagRoomSwitches({}, 'showcase'), { on: true, well: false, share: true, bank: true })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_WELL: 'on' }, 'showcase'), { on: true, well: true, share: true, bank: true })
+  assert.deepEqual(BR.bagRoomSwitches({}, 'board-a'), { on: false, well: false, share: false, bank: false })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM: 'off' }, 'showcase'), { on: false, well: false, share: false, bank: false })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM: 'on' }, 'board-a'), { on: true, well: false, share: true, bank: true })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_WELL: 'off' }, 'showcase'), { on: true, well: false, share: true, bank: true })
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_SHARE: '0' }, 'showcase'), { on: true, well: false, share: false, bank: true })
+  assert.match(BR.bagRoomModeDetail({ on: true, well: true, share: false, bank: true }), /^on=1 well=1 share=0 bank=1 room=8 /)
+  assert.deepEqual(BR.bagRoomSwitches({ BAGROOM_BANK: 'off' }, 'showcase'), { on: true, well: false, share: true, bank: false })
 })
 
 await t('WELL: due in the dead band (free < 8, a whole stack the well would take); never with room, never with nothing to throw, never off', () => {
@@ -158,7 +159,8 @@ await t('MUTANT KILLED: the share bank ignores its rate limit', async () => {
 await t('WIRED: the ask is installed under the switch, the dispatch reaches the visit, the licence row is written once per spawn', () => {
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
   const one = (src, s) => assert.equal(src.split(s).length, 2, `exactly one: ${s}`)
-  one(sk, "  if (BAGROOM.share) setRoomAsk(shareBankAsk)")
+  one(sk, "  if (BAGROOM.share || BAGROOM.bank) setRoomAsk(roomAsk)")
+  one(sk, "  if (BAGROOM.share) { const sb = shareBankAsk({ now, freeSlots }); if (sb) return sb }")
   one(sk, "  if (args?.shareBank === true) return shareBankVisit(ctx, args, signal)")
   one(sk, "logEvent({ kind: 'bagroom_mode'")
   one(sk, "logEvent({ kind: 'share_bank'")
@@ -172,9 +174,9 @@ await t('WIRED: the ask is installed under the switch, the dispatch reaches the 
 
 await t('MUTANT KILLED (wiring): the install without the ask', async () => {
   const src = readFileSync(SKILLS_PATH, 'utf8')
-  const old = '  if (BAGROOM.share) setRoomAsk(shareBankAsk)'
+  const old = '  if (BAGROOM.share || BAGROOM.bank) setRoomAsk(roomAsk)'
   assert.equal(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  const mut = strip(src.replace(old, '  if (false) setRoomAsk(shareBankAsk)'))
+  const mut = strip(src.replace(old, '  if (false) setRoomAsk(roomAsk)'))
   assert.equal(mut.split(old).length, 1, 'the structural check fails on the mutant (killed)')
 })
 
