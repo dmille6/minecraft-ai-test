@@ -487,3 +487,18 @@ the end script unloads Blackwell `qwen2.5-coder:32b` only, and only if it is res
 loaded makes Ollama LOAD it first: the end script and the proxy's slot unload now check `/api/ps` before sending).
 Needed: someone on CCU1 confirms `OLLAMA_MAX_LOADED_MODELS` is 4 or more (or sets it), then arm B starts ~2 h+ late,
 normalised per bot-hour in the reads.
+
+**Owner GO 11-07 ~03:30Z, option 2: arm "B-general (qwen2.5:32b, Blackwell)"** on the ALREADY-LOADED general model: nothing
+loaded, nothing unloaded; every request `keep_alive: -1` (its current value) and `num_ctx: 8192` (its loaded context);
+`maxTokens` 2048 (the 8k context); same pace as A (8x gap, 30 calls/h). The end does NOT unload it (it is not ours): at the end
+the pilot just stops calling it.
+- **Before** (03:24Z, `/api/ps`): qwen2.5:32b ctx 8192 / 38,500,009,246 B, qwen2.5-coder:7b 8192 / 8,950,864,936 B,
+  nomic-embed 2048 / 323,150,151 B, all pinned (expires 2319). **After arm B's first call (03:47:18Z, load 17 ms): identical**
+  context and sizes, still pinned: nothing reloaded or changed.
+- **Probe of our own** (`blackwell_probe.py`: 4 tokens from qwen2.5:32b at num_ctx 8192 once a minute):
+  - baseline 03:24-03:44Z, 20 pings: p50 71 ms, p95 108 ms over the 19 warm pings (the first, 1,026 ms, was a cold prompt cache);
+  - during arm B 03:47-04:06Z, 20 pings: **p50 69 ms, p95 74 ms**, limit 135 ms (+25 %): **PASS**; no pinned model missing or
+    changed in any of the 40 reads. Arm B made 16 calls in that window (126 s of generation, ~10 % of the time).
+  - The probe keeps running to the end of stage 3 (Mac controller `bw-guard.sh`): a trip pauses arm B in the proxy.
+- Arm B-general started on a fresh world at **03:46:35Z** (bot connected 03:47:09Z), ~2 h 20 min after the others:
+  every read compares arms **per bot-hour**.
