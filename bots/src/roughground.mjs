@@ -20,6 +20,7 @@
 //   CLUMPS    4-connected columns >= 1 over their median ground, at most clumpMax of them: each cut down to the HIGHEST ground round
 //             the clump (never below a neighbour: no new pit), spoil only, at most cutMax a column; a log standing on a column (a
 //             trunk) keeps the whole clump. Leaves overhead do not matter. A bigger raised area is a hill (the terrace's).
+//             A crust over a hollow (the bots' 2-high tunnels under the grass) is never cut open: named `*_hollow`.
 //   HOLES     4-connected columns <= -1 under their median, at most holeMax in a box of holeBox: filled to the LOWEST ground round
 //             them (never above a neighbour), at most fillMax deep; never with liquid or an unread cell in the rim.
 //   STATIONS  a crafting table standing loose (not a record or plan cell): cut, with the spoil pillar under it down to the highest
@@ -139,19 +140,6 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
   const order = []   // [d, kind, fn] -- nearest home first, under the cap
   const dist = (x, z) => Math.max(Math.abs(x - home.x), Math.abs(z - home.z))
   const solidAt = (x, y, z) => { const b = read(x, y, z); return !!b && !openCell(b) && !liquid(b) }
-  // UNDER A CUT: a cut down to `top` over a hollow leaves the hollow open -- the open cells from the hollow's floor up to `top` are
-  // filled (at most fillMax, never a record cell, never beside liquid) -> [{ at }] | null (cannot: the cut is skipped)
-  const underFill = (x, top, z) => {
-    const add = []
-    for (let yy = top; yy > top - T.fillMax - 1; yy--) {
-      const b = read(x, yy, z)
-      if (!b) return null
-      if (solidAt(x, yy, z)) return add.reverse()
-      if (liquid(b) || cells.has(`${x},${yy},${z}`) || sideLiquid(x, yy, z)) return null
-      add.push({ at: [x, yy, z] })
-    }
-    return null
-  }
   const sideLiquid = (x, y, z) => N4.some(([dx, dz]) => liquid(read(x + dx, y, z + dz))) || liquid(read(x, y + 1, z))
   // ---- FLOATING ----
   for (const [k, f] of flo) {
@@ -233,7 +221,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
     if (ys.length < Math.ceil(ring.size / 2)) { skip(`${kind}_rim`); continue }
     if (sign > 0) {
       const rimMax = Math.max(...ys)
-      const blocks = [], under = []
+      const blocks = []
       let bad = null
       for (const [x, z] of cs) {
         const y = g(x, z)
@@ -246,13 +234,13 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
           if (sideLiquid(x, yy, z)) { bad = 'clump_water'; break }
           blocks.push({ at: [x, yy, z], name: nm(b) })
         }
-        if (!bad && !solidAt(x, rimMax, z)) { const u = underFill(x, rimMax, z); if (!u) bad = 'clump_hollow'; else under.push(...u) }
+        if (!bad && !solidAt(x, rimMax, z)) bad = 'clump_hollow'   // a crust over a hollow: never opened (Codex r1 BLOCKER)
         if (bad) break
       }
-      if (bad) { skip(bad); if (bad === 'clump_tree' || bad === 'clump_water' || bad === 'clump_natural') for (const k of comp) keep.add(k); continue }
+      if (bad) { skip(bad); if (bad === 'clump_tree' || bad === 'clump_water' || bad === 'clump_natural' || bad === 'clump_hollow') for (const k of comp) keep.add(k); continue }
       if (!blocks.length) continue
       const d = Math.min(...cs.map(([x, z]) => dist(x, z)))
-      order.push([d, () => { if (comp.some(k => used.has(k))) return; for (const k of comp) used.add(k); census.clumps++; const id = `rc${out.pillars.length}`; out.pillars.push({ id, col: cs[0], cols: cs, base: rimMax, h: blocks.length, kind: 'clump' }); for (const b of blocks.sort((p, q) => q.at[1] - p.at[1])) cuts.push({ ...b, pillar: id }); if (under.length) { out.pits.push({ id: `${id}u`, cols: [...new Set(under.map(a => k2(a.at[0], a.at[2])))].map(q => q.split(',').map(Number)), n: under.length, kind: 'under' }); for (const a of under) fills.push({ ...a, pit: `${id}u` }) } }])
+      order.push([d, () => { if (comp.some(k => used.has(k))) return; for (const k of comp) used.add(k); census.clumps++; const id = `rc${out.pillars.length}`; out.pillars.push({ id, col: cs[0], cols: cs, base: rimMax, h: blocks.length, kind: 'clump' }); for (const b of blocks.sort((p, q) => q.at[1] - p.at[1])) cuts.push({ ...b, pillar: id }) }])
     } else {
       const rimMin = Math.min(...ys)
       const floor = Math.min(...cs.map(([x, z]) => g(x, z)))
@@ -292,11 +280,10 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       let bad = false
       for (let yy = y; yy > m; yy--) { const b = read(x, yy, z); if (!b || cells.has(`${x},${yy},${z}`) || !spoil.test(nm(b)) || sideLiquid(x, yy, z)) { bad = true; break } blocks.push({ at: [x, yy, z], name: nm(b) }) }
       if (bad || !blocks.length) { if (bad) skip('smooth_natural'); continue }
-      // a crust over a hollow (the bots' 2-high tunnels under the town): cutting it would open the hollow -- the hollow under the
-      // cut is filled up to the new ground (underFill), else the column is left
-      const under = solidAt(x, m, z) ? [] : underFill(x, m, z)
-      if (!under) { skip('smooth_hollow'); continue }
-      order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.smoothed++; const id = `rm${out.pillars.length}`; out.pillars.push({ id, col: [x, z], top: y, base: m, h: blocks.length, kind: 'smooth' }); for (const b of blocks) cuts.push({ ...b, pillar: id }); if (under.length) { out.pits.push({ id: `${id}u`, cols: [[x, z]], n: under.length, kind: 'under' }); for (const a of under) fills.push({ ...a, pit: `${id}u` }) } }])
+      // a crust over a hollow (the bots' 2-high tunnels under the town): a cut would open the hollow, a bot may be in it, and the
+      // visit digs before it fills (Codex r1 BLOCKER) -- the column is left, named
+      if (!solidAt(x, m, z)) { skip('smooth_hollow'); continue }
+      order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.smoothed++; const id = `rm${out.pillars.length}`; out.pillars.push({ id, col: [x, z], top: y, base: m, h: blocks.length, kind: 'smooth' }); for (const b of blocks) cuts.push({ ...b, pillar: id }) }])
     } else {
       if (m - y > T.fillMax) { skip('smooth_deep'); continue }
       const add = []

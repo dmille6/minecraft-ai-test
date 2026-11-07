@@ -94,23 +94,20 @@ await t('a 2x1 hole 1 deep is filled to the ground; water in its rim keeps it', 
   const w = rough(srv)
   assert.deepStrictEqual(w.fill.filter(f => f.at[2] === 5), [], 'water in the rim')
 })
-await t('a raised crust over a hollow (a bot tunnel under the grass) is cut AND the hollow under it filled to the new ground; deeper than fillMax it is left', async () => {
+await t('a raised crust over a hollow (a bot tunnel under the grass) is left, named: a cut would open it with a bot maybe inside (Codex r1 BLOCKER); solid under it, it is cut', async () => {
   const srv = server()
-  // the crust at G+1 over air at G, G-1 (a tunnel), the ground round at G
   srv.set([12, G + 1, -3], 'grass_block'); srv.set([12, G, -3], 'air'); srv.set([12, G - 1, -3], 'air')
   const r = rough(srv)
-  assert.deepStrictEqual(r.cut.map(c => c.at.join(',')), [xyz(12, G + 1, -3)])
-  assert.deepStrictEqual(r.fill.map(c => c.at.join(',')).sort(), [xyz(12, G - 1, -3), xyz(12, G, -3)])
-  // the mutant: no hollow guard -> the cut leaves the tunnel open (no fill under it)
-  await withMutant(RG_PATH, "if (!bad && !solidAt(x, rimMax, z)) { const u = underFill(x, rimMax, z); if (!u) bad = 'clump_hollow'; else under.push(...u) }", '', async M => {
+  assert.deepStrictEqual(r.cut, []); assert.deepStrictEqual(r.fill, [])
+  assert.ok(r.skipped.clump_hollow >= 1, JSON.stringify(r.skipped))
+  // the mutant: no hollow guard -> the roof is cut open
+  await withMutant(RG_PATH, "if (!bad && !solidAt(x, rimMax, z)) bad = 'clump_hollow'", '', async M => {
     const col = (x, z) => T.tidyColumn(srv.read, x, z, { yHi: HOME.y + 14, yLo: HOME.y - 14 })
     const m = M.surveyRough(srv.read, { home: HOME, box: [-20, -20, 20, 20], col, spoil: T.SPOIL, yLo: HOME.y - 14 })
-    assert.strictEqual(m.fill.length, 0, 'mutant opens the hollow')
+    assert.ok(m.cut.some(c => c.at[0] === 12 && c.at[2] === -3), 'mutant opens the hollow')
   })
-  const deep = server()
-  deep.set([12, G + 1, -3], 'grass_block'); for (let y = G; y >= G - 6; y--) deep.set([12, y, -3], 'air')
-  const d = rough(deep)
-  assert.deepStrictEqual(d.cut, [], 'a hollow too deep to fill: the crust stays')
+  const solid = server(); solid.set([12, G + 1, -3], 'grass_block')
+  assert.deepStrictEqual(rough(solid).cut.map(c => c.at.join(',')), [xyz(12, G + 1, -3)], 'control: over solid ground it is cut')
 })
 
 console.log('STATIONS')
