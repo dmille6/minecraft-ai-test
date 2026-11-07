@@ -226,7 +226,9 @@ function serveArm (name, arm) {
       }
       if (grp) await enterSlot(arm.group, grp, name)
       const r = await ollamaChat(arm, body)
-      row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, usage: r.usage })
+      // in_bytes: the request's size, because Ollama's prompt_eval_count leaves out tokens reused from its KV cache and so
+      // cannot show a prompt that outgrew num_ctx
+      row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, usage: r.usage, in_bytes: Buffer.byteLength(raw, 'utf8'), num_ctx: arm.numCtx })
       return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0 })
     } catch (e) {
       // the reservation stays charged: a failed or timed-out paid request may still have been billed (design §12 R3)
