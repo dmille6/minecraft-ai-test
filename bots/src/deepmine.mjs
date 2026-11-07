@@ -508,6 +508,7 @@ export function siteWhy (read, site, { kind = 'lava', inZone = () => false } = {
   const tkeys = new Set(tunnel.map(key))
   for (const c of tunnel) {
     const q = r(c)
+    if (liquid(q)) return 'tunnel_wet'   // isOpen is true of lava (an empty box): never a tunnel cell
     if (!(isOpen(q) || isNatural(q))) return 'tunnel_not_natural'
     for (const d of N6O) {
       const n = off(c, ...d)
@@ -646,6 +647,7 @@ export function waterFill (read, feet, { r = OBS_WATER_SCAN, dy = 10, inZone = (
   return best
 }
 export const OBS_SEEKS_MAX = 3               // work calls with no site in the box before the cast is off for the trip
+export const OBS_LAVA_FAILS = OBS_FAILS_MAX + 2   // failed steps while holding lava before it goes back to the lake and the cast ends
 /**
  * THE CAST'S GATE at the top of each step -> 'idle' | 'done:goal' | 'off:<why>' | 'deepen' | 'seek:lava' | 'seek:water' | 'cast'.
  * Pure. Never ends while lava is in the bag (the step's own stop returns it to the lake first). Every 'off' is a different job
@@ -657,6 +659,7 @@ export function castGate ({ obs = null, kit = {}, feet = null } = {}) {
   const got = Math.max(0, (kit.obsidian ?? 0) - (obs.got0 ?? 0))
   if (got >= (obs.want ?? 0) && !lava) return 'done:goal'
   if ((obs.fails ?? 0) >= OBS_FAILS_MAX && !lava) return 'off:fails'
+  if ((obs.fails ?? 0) >= OBS_LAVA_FAILS) return 'off:lava_held'   // never a whole trip of failed pours: the lava goes back first
   if ((obs.cycles ?? 0) >= OBS_CYCLES_MAX && !lava) return 'off:cycles'
   if (obs.site) return 'cast'
   if (!Array.isArray(feet)) return 'off:no_position'
