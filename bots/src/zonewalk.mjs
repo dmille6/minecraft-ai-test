@@ -141,6 +141,8 @@ export function downStep ({ at = () => null, from } = {}) {
   const below = at(x, y - 1, z), floor = at(x, y - 2, z)
   if (below == null || floor == null) return { ok: false, dig: null, why: 'unloaded' }
   if (isStructure(below)) return { ok: false, dig: null, why: `structure ${below.name} under the feet` }
+  // a torch or carpet standing on the block it digs (in the bot's own feet cell) would drop (Claude r2 note)
+  if (attached(at(x, y, z))) return { ok: false, dig: null, why: `${at(x, y, z).name} stands on the block under the feet` }
   if (isLiquid(below) || isLiquid(floor)) return { ok: false, dig: null, why: 'liquid under the feet' }
   for (const [ex, ez] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const a = at(x + ex, y - 1, z + ez), b = at(x + ex, y - 2, z + ez)
