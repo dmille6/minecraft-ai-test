@@ -258,6 +258,79 @@ await t('MUTANT KILLED: without the wait, a flowerless visit over an upgraded ru
   })
 })
 
+console.log('FLOWERS-02: THE LAWN SCATTER (siting, the survey, the gate, the work, the reservations)')
+// a walled lawn: inside x -30..30, z -30..30 (the fake server is all grass); a path along z = 0 x -30..30 (a record)
+const lawnInside = (x, z) => Math.abs(x) <= 30 && Math.abs(z) <= 30
+const pathGuard = () => ({ cols: new Set(Array.from({ length: 61 }, (_, i) => `${i - 30},0`)), cells: new Set() })
+await t('lawnSurvey/lawnGate: a clear sparse window passes; a path column, a reservation, the walls\' outside, a nursery\'s box or an unread column anywhere in the 7-spread refuses; a covered centre refuses', async () => {
+  const scenario = M => {
+    const srv = server()
+    const o = { guard: pathGuard(), inside: lawnInside }
+    const ok = M.lawnSurvey(srv.read, [10, G, 15], o)
+    assert.ok(ok.ok && M.lawnGate(ok).ok, `POSITIVE CONTROL ${JSON.stringify(ok)}`)
+    assert.strictEqual(ok.L, 225); assert.strictEqual(ok.coreL, 81)
+    assert.strictEqual(M.lawnSurvey(srv.read, [10, G, 7], o).why, 'refused:record', 'the path at z=0 is 7 away: in the spread')
+    assert.ok(M.lawnSurvey(srv.read, [10, G, 8], o).ok, 'one further: clear')
+    assert.match(M.lawnSurvey(srv.read, [10, G, 15], { ...o, reserved: (x, z) => (x === 16 && z === 20 ? 'zone:village' : null) }).why, /^refused:zone/)
+    assert.strictEqual(M.lawnSurvey(srv.read, [25, G, 15], o).why, 'refused:outside', 'the spread past the wall')
+    assert.strictEqual(M.lawnSurvey(srv.read, [10, G, 15], { ...o, avoid: (x, z) => x === 4 && z === 9 }).why, 'refused:avoid')
+    assert.strictEqual(M.lawnSurvey(srv.read, [10, G, 15], { ...o, guard: { cols: new Set(), cells: new Set([`12,${G + 1},16`]) } }).why, 'refused:record_cell')
+    srv.set([10, G + 1, 15], 'short_grass')
+    assert.strictEqual(M.lawnSurvey(srv.read, [10, G, 15], o).why, 'centre', 'a covered centre refuses (Paper: the meal would be refused)')
+    assert.strictEqual(M.lawnSurvey((x, y, z) => (x === 14 && z === 18 ? null : srv.read(x, y, z)), [0, G, -15], o).ok, true)
+    assert.strictEqual(M.lawnSurvey((x, y, z) => (x === 3 && z === -12 ? null : srv.read(x, y, z)), [0, G, -15], o).why, 'unread', 'an unread column refuses')
+  }
+  await killed(DEC_PATH, "  if (guard?.cols?.has?.(k2(x, z))) return 'refused:record'\n  if (avoid(x, z)) return 'refused:avoid'\n", "  if (avoid(x, z)) return 'refused:avoid'\n", scenario)
+})
+await t('lawnGate (THE DENSITY CAP): sparse passes; a core over 10% planted, a spread over 12%, 4 flowers, or a thin lawn refuses -- a fed lawn (Paper ~25% core) is never fed again', async () => {
+  const scenario = M => {
+    const base = { ok: true, L: 225, P: 9, F: 1, T: 0, coreL: 81, coreP: 4 }
+    assert.ok(M.lawnGate(base).ok, 'the showcase\'s measured 4% passes')
+    assert.strictEqual(M.lawnGate({ ...base, coreP: 9 }).why, 'dense_core')
+    assert.strictEqual(M.lawnGate({ ...base, coreP: 8 }).ok, true, 'at 9.9%: passes')
+    assert.strictEqual(M.lawnGate({ ...base, P: 28 }).why, 'dense')
+    assert.strictEqual(M.lawnGate({ ...base, F: 4 }).why, 'flowered')
+    assert.strictEqual(M.lawnGate({ ...base, coreL: 59 }).why, 'thin_core:59')
+    assert.strictEqual(M.lawnGate({ ...base, L: 149 }).why, 'thin:149')
+    assert.strictEqual(M.lawnGate({ ...base, P: 23, coreP: 20 }).ok, false, 'after one vanilla meal (Paper L1: 20 plants, all in the core)')
+  }
+  await killed(DEC_PATH, "  if (s.coreP / s.coreL > LAWN.coreMax) return { ok: false, why: 'dense_core' }\n", '', scenario)
+})
+await t('siteLawn: by ring from home, inside the walls only, never within LAWN.gap of a lawn or 2 x spread of a nursery; nothing fits -> no_lawn with the reasons', async () => {
+  const scenario = M => {
+    const srv = server()
+    const o = { guard: pathGuard(), inside: lawnInside }
+    const a = M.siteLawn(srv.read, HOME, o)
+    assert.ok(a.ok, JSON.stringify(a.tried))
+    assert.ok(Math.abs(a.lawn.at[2]) >= 8 && lawnInside(a.lawn.at[0] - 7, a.lawn.at[2] - 7) && lawnInside(a.lawn.at[0] + 7, a.lawn.at[2] + 7), 'clear of the path, inside the walls')
+    const b = M.siteLawn(srv.read, HOME, { ...o, lawns: [a.lawn.at] })
+    assert.ok(b.ok && Math.max(Math.abs(b.lawn.at[0] - a.lawn.at[0]), Math.abs(b.lawn.at[2] - a.lawn.at[2])) >= M.LAWN.gap, 'the next keeps the gap')
+    const c = M.siteLawn(srv.read, HOME, { ...o, nurseries: [a.lawn.at] })
+    assert.ok(c.ok && Math.max(Math.abs(c.lawn.at[0] - a.lawn.at[0]), Math.abs(c.lawn.at[2] - a.lawn.at[2])) > 14, 'a nursery keeps twice its spread')
+    const none = M.siteLawn(srv.read, HOME, { ...o, inside: (x, z) => Math.abs(x) <= 5 && Math.abs(z) <= 5 })
+    assert.strictEqual(none.ok, false); assert.strictEqual(none.why, 'no_lawn')
+  }
+  await killed(DEC_PATH, '      if (nearLawn(x, z)) { tried.gap = (tried.gap ?? 0) + 1; continue }\n', '', scenario)
+})
+await t('withLawn claims the lawn on the record (kept by every later generation); lawnReserved keeps the fern gather / wild pick / a nursery off its spread', async () => {
+  const rec = D.withLawn({ cells: [], lawns: [] }, { at: [10, G, 15], box: [3, 8, 17, 22], L: 225, P: 0 }, { now: 5, by: 'A' })
+  assert.deepStrictEqual(rec.lawns, [{ at: [10, G, 15], box: [3, 8, 17, 22], sitedAt: 5, by: 'A', L: 225, P: 0 }])
+  assert.deepStrictEqual(D.lawnCentres(rec), [[10, G, 15]])
+  const r = D.lawnReserved(rec)
+  assert.strictEqual(r(17, 22), 'lawn'); assert.strictEqual(r(18, 15), null)
+})
+await t('lawnWork (THE PRIORITY + REFUSAL CHAIN): the border first; stalled -> no; a meal, feed, or a feed fern -> work; nothing -> no_supply', async () => {
+  const scenario = M => {
+    assert.deepStrictEqual(M.lawnWork({ border: 3, meal: 9 }), { want: false, why: 'border_first' })
+    assert.deepStrictEqual(M.lawnWork({ stalled: true, meal: 9 }), { want: false, why: 'stalled' })
+    assert.strictEqual(M.lawnWork({ meal: 1 }).why, 'lawn_meal')
+    assert.strictEqual(M.lawnWork({ feed: 8 }).why, 'lawn_feed')
+    assert.strictEqual(M.lawnWork({ shears: true, wildFerns: 5, townMeal: 4 }).why, 'lawn_fern_feed')
+    assert.deepStrictEqual(M.lawnWork({}), { want: false, why: 'no_supply' })
+  }
+  await killed(DEC_PATH, "  if (Number(border) > 0) return { want: false, why: 'border_first' }\n", '', scenario)
+})
+
 console.log('THE WIRING (structural: skills.mjs; each assertion proven by a mutant of the source text)')
 const WIRES = [
   ['the damage loop waives a waiting upgraded cell', "if (b && r.plot === SINK_PLOTS.decor && upgradeWaits(c, b, heldMap(bot))) continue"],
@@ -269,6 +342,14 @@ const WIRES = [
   ['a meal the server did not spend stops the nursery', "if (FLOWERS_ON) { await sleep(300, signal); if (countItem(bot, 'bone_meal') >= m0) { out.why = 'meal_refused'; break } }"],
   ['the nursery is asked for flowers, never ferns', "if ((FLOWERS_ON ? flowersOf(held0) : borderPlantsOf(held0)) >= need) return { ...out, why: 'enough' }"],
   ['the upgrade is published from the record read inside the publish', 'withUpgrade(cur, upgradeCandidates(cur, tidyRead(bot), { held: decorHeldNow() }), { flowers: fl })'],
+  ['flowers-02: the lawn work only with no border work', 'if (LAWNS_ON && !w.want && !cands.length && !owed) {'],
+  ['flowers-02: the lawn is claimed on the record before its meal', 'withLawn(cur, s.lawn, { by: me }) : null), { by: me })'],
+  ['flowers-02: the gate is asked again just before the click', "if (!again.ok) { out.why = `gate_${again.why}`; return out }"],
+  ['flowers-02: a lawn meal counts only when spent', "if (countItem(bot, 'bone_meal') >= m0) { out.why = 'meal_refused'; return out }"],
+  ['flowers-02: no lawn site stamps the lawn stall', 'if (!s.ok) { townNoSiteWrite(LAWN_STALL);'],
+  ['flowers-02: the nursery keeps off the lawns', 'reserved = decorReservedLawns(c, { ...h.head.plan, gen: h.head.gen }, rec0)'],
+  ['flowers-02: the fern gather keeps off the lawns', 'reserved = decorReservedLawns(c, { ...h.head.plan, gen: h.head.gen }, decorRecNow())'],
+  ['flowers-02: the visit runs the lawn after the upgrade', 'if (LAWNS_ON && rec0 && fw.lawn) { const lw = await decorLawn(ctx, signal, t0 + budget - ZIG_VISIT_TAIL_MS);'],
 ]
 for (const [what, line] of WIRES) {
   await t(`wired: ${what}`, () => {
