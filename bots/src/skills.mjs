@@ -25017,7 +25017,9 @@ async function buildTidyVisit (ctx, args, signal) {
     }
     // GKWORK-01 rule 3: a keeper whose empty visit could not complete the stage although the town's strikes are in (a hard hold it
     // cannot work from here) lets the lease go now and rests (gkwork.mjs keeperAfterVisit) -- never 20 min idle with it
-    if (gkw && keeperAfterVisit({ keeper: role === 'keeper', empty: gkw.empty, completed, close: gkw.close }) === 'release') {
+    // the showcase batch20 fold (Codex BLOCKER): never while the FOREST is due (the keeper's other grounds work: a harvest ripened, an idle
+    // rest ended during this tidy visit) -- the next order sends the keeper to it with the lease (forestDemandNow)
+    if (gkw && keeperAfterVisit({ keeper: role === 'keeper', empty: gkw.empty, completed, close: gkw.close, forestDue: gkw.empty && gkw.close && role === 'keeper' ? !!forestDemandNow(bot) : false }) === 'release') {
       try { const k = keeperState(bot, true); if (k.lease?.rec?.holder === me) { releaseKeeper(bot, k.lease, 'no_work_now'); bot.gkRestUntil = Date.now() + GK_FIT.restMs } } catch { /* the lease lapses */ }
       bot.gkwPending = null
     }
@@ -25307,6 +25309,16 @@ function forestDropsNow (bot, rec) {
     return Object.values(bot.entities ?? {}).filter(e => e?.name === 'item' && e.position).map(e => { const d = spawnedItem(e); return { id: e.id, name: d.name, count: d.count, pos: e.position } })
       .filter(d => /_sapling$/.test(String(d.name ?? '')) && d.pos.x >= b[0] && d.pos.x < b[2] + 1 && d.pos.z >= b[1] && d.pos.z < b[3] + 1 && Math.abs(d.pos.y - (rec.level ?? d.pos.y)) <= 8)
   } catch { return [] }
+}
+/** THE BATCH20 FOLD: has the town's forest (a sited record) work due for this bot now (forestDueFor)? -> reason | null. Never throws:
+ *  unreadable is due (the lease is kept: fail closed, the 20-min idle release still applies). */
+function forestDemandNow (bot) {
+  try {
+    if (!projectsOn().some(p => p.plot === FOREST_PLOT)) return null
+    const rec = projectHeads().find(x => x.plot === FOREST_PLOT)?.head?.rec ?? null
+    if (!rec || !Array.isArray(rec.box)) return null
+    return forestDueFor(bot, rec)
+  } catch { return 'unread' }
 }
 /** IS THE FOREST DUE A VISIT for this bot (forest.mjs forestDue)? -> reason | null. Its own idle rest and failed trees skipped. */
 function forestDueFor (bot, rec) {

@@ -87,8 +87,9 @@ export const softHoldsGive = ({ clearsOk = true, crewHolds = false, close = fals
  * in (a hard hold the keeper cannot work from here) lets the lease go now (`no_work_now`); a visit that worked, completed, or is still
  * collecting the town's strikes keeps it (its order comes back at the keeper's cooldown, not quieted: tidyQuiet `closing`).
  */
-export function keeperAfterVisit ({ keeper = false, empty = false, completed = false, close = false } = {}) {
-  if (!keeper || completed || !empty) return 'keep'
+export function keeperAfterVisit ({ keeper = false, empty = false, completed = false, close = false, forestDue = false } = {}) {
+  // the showcase batch20 fold (Codex BLOCKER): the keeper's OTHER grounds work -- the forest due -- keeps the lease (its order comes next)
+  if (!keeper || completed || !empty || forestDue) return 'keep'
   return close ? 'release' : 'keep'
 }
 /** Is this bot's grounds order collecting the town's strikes (not to be quieted)? -> bool. Pure. `pending` = { at } | null. */
