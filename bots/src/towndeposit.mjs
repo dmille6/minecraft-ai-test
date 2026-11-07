@@ -38,12 +38,13 @@ import { depositPlan, scaffoldKeep, withdrawHolds, setStockKeeps, NEVER_BANKABLE
 import { remaining, FLOOR, tier, isPickaxe } from './toolfor.mjs'
 import { TRIGGER_SLOTS, NEVER_KEEP } from './hygiene.mjs'
 // THE SLIM BAG ALLOWANCE (junkout-01, bagallowance.mjs): the rows' surplus leaves at the town deposit, at any bag size
-import { ALLOWANCE, BAG_ALLOWANCE, allowanceSteps, visitId, visitLatchIssue, visitArmed } from './bagallowance.mjs'
+import { ALLOWANCE, BAG_ALLOWANCE, allowanceSteps, visitId, visitLatchIssue, visitArmed, allowanceRow } from './bagallowance.mjs'
+import { roomBankSteps } from './bagroom.mjs'   // bagfull-01: the room bank's steps
 // junk never enters a chest (owner 10-04): the well's list and the composter's own judgement, not a copy of them
 import { WELL_JUNK } from './well.mjs'
 import { isCompostJunk } from './composter.mjs'
 import { PEACEFUL_COMPOST } from './peacefulkit.mjs'
-import { groupOf } from './stocktarget.mjs'
+import { groupOf, targetOf } from './stocktarget.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
 import { peacefulFoodActive } from './foodskip.mjs'
@@ -238,7 +239,8 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *              slot emptied, so freed = steps.length.
  */
 export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false,
-                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on } = {}) {
+                                               tail = null, peaceful = noSwords, bagAllowance = BAG_ALLOWANCE.on, halves = LOGBANK.on, coalSplit = COALFIRST.on,
+                                               room = false, roomExclude = null } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -335,11 +337,28 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
       }
     }
   }
+  // BAGFULL-01 THE ROOM BANK (`room`: the build order's room refusal asked it, bagroom.mjs roomBankAsk): AFTER every other part, the
+  // whole stacks of every name no other layer moves and the kit does not need (bagroom.mjs roomBankSteps: tools, food, armour and
+  // buckets never; ROOM_KIT_KEEP and every townKeeps floor kept). Never a tail run's. Not: cobble (its cap, the yard, the well), a
+  // row's name (stations, torch, bone meal), junk / saplings / compost (notForChest), the iron ladder, the standing targets and the
+  // always-banked ores (the base plan's), a withdraw hold, a drawn share's name (`roomExclude`: the share bank's), a targeted group
+  // the town never holds (target 0: dirt, gravel ... go down the well). A targeted name (wood, sand) still needs the town's claim.
+  if (room && baseOn) {
+    const taken = new Set(steps.map(st => st.slot))
+    const eligible = n => !COBBLE.includes(n) && !allowanceRow(n) && !notForChest(n, { peaceful }) && !((holds[n] ?? 0) > 0) &&
+      !IRON_LADDER.includes(n) && !STANDING_TARGETS.has(n) && !DEPOSIT_ALWAYS.includes(n) && !(roomExclude?.has?.(n)) &&
+      !(groupOf(n) && !(targetOf(groupOf(n)) > 0))
+    for (const st of roomBankSteps(list, { eligible, keep, taken })) {
+      steps.push({ slot: st.slot, name: st.name, count: st.count, room: true })
+      banked[st.name] = (banked[st.name] ?? 0) + st.count
+      why[st.name] = 'room'
+    }
+  }
   // THE BASE PLAN'S STACKS FIRST (bagbudget-01, Claude design r1 P2-3): fitToContainer takes the first free container slots in
   // step order, so a short chest takes the coal, iron and cobble before a torch; within each part, by bag slot as before
   // logbank-01: a log half after every whole stack, the rows' included (it frees no slot, so a short chest takes the
   // slot-freeing stacks first); the halves of one slot keep their order (a stable sort), the second reading the slot the first left
-  const rank = st => (st.half ? 2 : st.allowance ? 1 : 0)   // halves LAST: every slot-freeing stack takes chest room first (Codex r1 P2)
+  const rank = st => (st.half ? 3 : st.room ? 2 : st.allowance ? 1 : 0)   // bagfull-01: the room bank's after the base and the rows   // halves LAST: every slot-freeing stack takes chest room first (Codex r1 P2)
   steps.sort((a, b) => rank(a) - rank(b) || a.slot - b.slot)
   return { steps, freed: steps.filter(st => !st.half).length, slots: list.length, keep, why, banked, keepPicks }
 }

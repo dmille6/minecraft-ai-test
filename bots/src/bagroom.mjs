@@ -41,11 +41,12 @@ export function bagRoomSwitches (env = process.env, pool = '') {
   const on = onOff(env?.BAGROOM) ?? pools.includes(String(pool))
   // batch-14c release (coordinator 11-06, the owner's stoneworks plan): the WELL half is OFF unless BAGROOM_WELL=on -- the band's early
   // dispose throws away cobble the stoneworks smelts; the share banking stays on
-  return { on, well: on && onOff(env?.BAGROOM_WELL) === true, share: on && onOff(env?.BAGROOM_SHARE) !== false }
+  // bagfull-01: the ROOM BANK half (BAGROOM_BANK=off its own rollback) is on wherever bagroom is
+  return { on, well: on && onOff(env?.BAGROOM_WELL) === true, share: on && onOff(env?.BAGROOM_SHARE) !== false, bank: on && onOff(env?.BAGROOM_BANK) !== false }
 }
 export const BAGROOM = Object.freeze(bagRoomSwitches(typeof process !== 'undefined' ? process.env : {}, typeof process !== 'undefined' ? (process.env.MEMORY_POOL ?? '') : ''))
 /** `_bagroom_mode` row detail (once per spawn). Pure. */
-export const bagRoomModeDetail = (sw = BAGROOM) => `on=${sw.on ? 1 : 0} well=${sw.well ? 1 : 0} share=${sw.share ? 1 : 0} room=${BUILD_ROOM_SLOTS} every_min=${SHARE_BANK_EVERY_MS / 60_000} min_slots=${SHARE_BANK_MIN_SLOTS}`
+export const bagRoomModeDetail = (sw = BAGROOM) => `on=${sw.on ? 1 : 0} well=${sw.well ? 1 : 0} share=${sw.share ? 1 : 0} bank=${sw.bank ? 1 : 0} room=${BUILD_ROOM_SLOTS} every_min=${SHARE_BANK_EVERY_MS / 60_000} min_slots=${SHARE_BANK_MIN_SLOTS} bank_every_min=${ROOM_BANK_EVERY_MS / 60_000}`
 
 /**
  * IS THE WELL'S DISPOSE ORDER DUE FOR THE BUILD'S ROOM? -> bool. Pure. `freeSlots` the bag's, `junkStacks` the whole stacks the
@@ -79,4 +80,83 @@ export function shareBankDetail ({ per = [], slotsBefore = '-', slotsAfter = '-'
   const m = o => Object.entries(o ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   const parts = (Array.isArray(per) ? per : []).map(p => `${p.plot}=${m(p.banked)}/left=${m(p.left)}`)
   return `slots=${slotsBefore}->${slotsAfter} stop=${stop} ${parts.join(' ') || 'none'}`.slice(0, 290)
+}
+
+// ================================================================================================================================
+// BAGFULL-01: THE ROOM BANK -- a full bag at town banks what no build needs, then builds (showcase; control session 11-07).
+//
+// MEASURED (showcase, 15 bots, 24 h to 11-07 13:00Z, 255,666 skill rows): `_shop_skip why=room` 442 rows from 14 bots (one per bot
+// per 30 min: a lower bound), 396 of 412 sampled inside the town, at 5-7 free slots (real, matched to `_mats_skip free=`). Build
+// visits fell ~150 -> ~60 per 3 h; 29 of 31 keeper terms released `no_work_visit` (the keeper's order puts the forest first, which
+// is not a light plot, and its room refusal skipped the tidy behind it). The bags (~30 slots) were not cobble: cobble 3.4 slots,
+// tools 7.1, building blocks + stations 4.5, earth 4.1, wood 3.9, plants 3.5, other 2.5 (mean per refusal). The town deposit
+// banks only its standing targets and wants: on a real 29-slot bag it planned ONE step (cobblestone:20), refused at the town's
+// cobble cap. The town's 27 containers held 196 of 729 slots (0 full; the storehub hall mostly empty). Two correct guards (the
+// build's room rule, the deposit's "standing targets only") composed into a dead end: a full bag at town with an empty hall.
+//
+// THE REMEDY, executable where the refusal is made (at town): the room refusal orders a ROOM-BANK visit (build_shop { roomBank })
+// when the town deposit's room plan (towndeposit.mjs townDepositPlan `room`) would free at least one slot: every whole stack the
+// bot's kit does not need goes into the town's containers (the sorted homes first: sortstore), then the visit builds if the bag
+// now has the room. THE KIT never moves: tools, cobble (its own cap / yard / well rules), stations, torches and bone meal (the
+// allowance rows), junk, saplings and compost (the well's and the composter's), the iron ladder and the standing targets (the
+// base plan's), withdraw holds, drawn shares (the share bank's), food, armour, and roomKitKeep below. Targeted names (wood, sand,
+// dirt, gravel ...) go only under the town's stock claim (skills.mjs bankInto), so a town at its target refuses them as today.
+// BAGROOM_BANK=off is the rollback (the share ask and the skip, as before).
+
+/** One room-bank ask per bot at most this often (a bank that freed too little is not retried at once). */
+export const ROOM_BANK_EVERY_MS = 10 * 60_000
+/** THE ROOM KIT: what a bag keeps of a name the room bank could move (a whole stack is moved only while this much stays). */
+export const ROOM_KIT_KEEP = Object.freeze({ ladder: 64, scaffolding: 64, wheat_seeds: 64, beetroot_seeds: 64, sugar_cane: 64 })
+const FOOD_RE = /^(bread|apple|golden_apple|enchanted_golden_apple|baked_potato|potato|carrot|golden_carrot|beetroot|melon_slice|sweet_berries|glow_berries|cookie|pumpkin_pie|dried_kelp|honey_bottle|cod|salmon|tropical_fish|pufferfish|beef|porkchop|chicken|mutton|rabbit|(cooked|rotten)_\w+|\w+_stew|\w+_soup)$/
+const ARMOUR_RE = /_(helmet|chestplate|leggings|boots)$|^(shield|elytra|totem_of_undying|compass|clock|map|filled_map|spyglass|name_tag|lead|saddle)$/
+/** Is `name` part of the kit whatever the counts (never a room step)? Pure. */
+const TOOLISH_RE = /_(pickaxe|axe|shovel|sword|hoe)$|^(shears|flint_and_steel|fishing_rod|bow|crossbow|trident|brush|carrot_on_a_stick)$/
+export const roomKitAlways = name => typeof name !== 'string' || TOOLISH_RE.test(name) || FOOD_RE.test(name) || ARMOUR_RE.test(name) || /bucket$/.test(name)
+
+/**
+ * THE ROOM BANK'S STEPS -> [{ slot, name, count }]: whole stacks, smallest first per name, of every name the room may move, while
+ * what stays of the name is >= its keep. Pure over mineflayer Items ({ name, count, slot }).
+ *   eligible(name)  the caller's layer rules (towndeposit.mjs: not a tool, cobble, a row's, junk, the base plan's, held, a share)
+ *   keep            { name: n } the town deposit's keeps (townKeeps); ROOM_KIT_KEEP adds to them
+ *   taken           slots another step of the same plan already moves (never planned twice)
+ */
+export function roomBankSteps (items = [], { eligible = () => false, keep = {}, taken = new Set() } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
+  const by = new Map()
+  for (const it of list) { if (!by.has(it.name)) by.set(it.name, []); by.get(it.name).push(it) }
+  const out = []
+  for (const [name, copies] of [...by.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (roomKitAlways(name)) continue
+    let ok = false
+    try { ok = !!eligible(name) } catch { ok = false }
+    if (!ok) continue
+    const total = copies.reduce((t, it) => t + (Number(it.count) || 0), 0)
+    const k = Math.max(Number(keep?.[name]) || 0, ROOM_KIT_KEEP[name] ?? 0)
+    let room = total - k
+    for (const it of [...copies].sort((a, b) => (a.count - b.count) || a.slot - b.slot)) {
+      if (taken.has(it.slot)) { room -= it.count; continue }
+      if (it.count > room) continue
+      out.push({ slot: it.slot, name, count: it.count }); room -= it.count
+    }
+  }
+  return out
+}
+
+/**
+ * MAY THE ROOM REFUSAL ORDER A ROOM BANK NOW? -> { ok, why, slots }. Pure. `slots` the whole stacks the room plan moves (each frees
+ * one bag slot). ok only when switched on, the bag is short of the build's room (`need` free slots: 8, or 2 for a light plot), the
+ * last ask is ROOM_BANK_EVERY_MS old, and the plan frees at least one slot.
+ */
+export function roomBankAsk ({ on = BAGROOM.bank, freeSlots = 36, need = BUILD_ROOM_SLOTS, slots = 0, now = 0, lastAt = null, every = ROOM_BANK_EVERY_MS } = {}) {
+  if (!on) return { ok: false, why: 'off', slots: 0 }
+  if (!(Number(freeSlots) < Number(need))) return { ok: false, why: 'room_ok', slots: 0 }
+  if (Number.isFinite(lastAt) && lastAt + every > now) return { ok: false, why: 'recent', slots: 0 }
+  if (!(Number(slots) >= 1)) return { ok: false, why: 'nothing_bankable', slots: 0 }
+  return { ok: true, why: 'bank', slots: Number(slots) }
+}
+
+/** `_room_bank` row detail. Pure. */
+export function roomBankDetail ({ plot = '-', need = BUILD_ROOM_SLOTS, planned = 0, slotsBefore = '-', slotsAfter = '-', banked = {}, status = '-', then = '-' } = {}) {
+  const m = Object.entries(banked ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'
+  return `plot=${plot} need=${need} planned=${planned} slots=${slotsBefore}->${slotsAfter} deposit=${status} then=${then} banked=${m}`.slice(0, 300)
 }
