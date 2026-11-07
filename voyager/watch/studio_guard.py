@@ -6,7 +6,9 @@ showcase bots), decide a level, and write it to the worlds host's /etc/voyager/g
   level 0  normal
   level 1  backed off: the guarded arms wait 4x their duty gap between calls
   level 2  paused: the guarded arms get no model calls
-Baseline (11-06 21:09-00:09Z, 87 timed calls): p50 2.0 s, p95 4.1 s. Threshold = baseline p95 x 1.10 = 4.51 s.
+Baseline (11-06 21:24 - 11-07 01:24Z, 4 h across the rotation, 2,943 timed calls, nothing of voyager's on the Studio GPU):
+p50 2.26 s, p95 5.66 s. Threshold = baseline p95 x 1.10 = 6.22 s. (The 11-06 figure p95 4.1 s was a READ ERROR: its "3 h" window crossed the
+23:59Z log rotation and saw only 9 minutes, 87 calls. Re-measured over the rotation-free hour before the run.)
 Rolling window 20 min; under 5 timed calls it widens to 60 min (the showcase makes ~0.5 timed calls a minute).
 Up: p95 over the threshold -> level 1; still over 3 checks later, or over 6 s -> level 2.
 Down: one level after 10 consecutive checks at or under the baseline p95.
@@ -25,9 +27,9 @@ import time
 SHOWCASE = 'mike@10.0.0.40'
 WORLDS = 'mike@10.0.0.30'
 READER = '/tmp/showcase_latency.py'
-BASE_P95, BASE_P50 = 4055, 2017
+BASE_P95, BASE_P50 = 5656, 2260
 THRESH = int(BASE_P95 * 1.10)
-HARD = 6000
+HARD = 9000      # 1.5x the baseline p95: straight to a pause
 LOG = '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/voy/studio-guard.jsonl'
 
 
@@ -113,15 +115,16 @@ def probe(minutes):
 
 
 def selftest():
-    assert decide(0, 3000, 10, 0, 0)[0] == 0
-    assert decide(0, 4600, 10, 0, 0)[0] == 1
-    assert decide(1, 4600, 10, 1, 0)[0] == 1
-    assert decide(1, 4600, 10, 2, 0)[0] == 2
-    assert decide(0, 6500, 10, 0, 0)[0] == 2
-    assert decide(1, 4000, 10, 0, 9)[0] == 0
-    assert decide(1, 4000, 10, 0, 3)[0] == 1
-    assert decide(1, 4300, 10, 0, 0)[0] == 1          # between baseline and threshold: hold
-    assert decide(2, None, 0, 0, 0)[0] == 2            # no data: hold
+    T, B = THRESH, BASE_P95
+    assert decide(0, B - 500, 10, 0, 0)[0] == 0
+    assert decide(0, T + 100, 10, 0, 0)[0] == 1
+    assert decide(1, T + 100, 10, 1, 0)[0] == 1
+    assert decide(1, T + 100, 10, 2, 0)[0] == 2
+    assert decide(0, HARD + 1, 10, 0, 0)[0] == 2
+    assert decide(1, B - 100, 10, 0, 9)[0] == 0
+    assert decide(1, B - 100, 10, 0, 3)[0] == 1
+    assert decide(1, (B + T) // 2, 10, 0, 0)[0] == 1          # between baseline and threshold: hold
+    assert decide(2, None, 0, 0, 0)[0] == 2                    # no data: hold
     print('studio_guard selftest: 9 checks passed')
 
 

@@ -5,7 +5,7 @@
   showcase_latency.py --minutes 10 --by-minute  per-minute p95 (the probe's abort test)
 Full walk of the current files (+ .1 rotation is not needed for windows under a day after 00:00Z).
 """
-import argparse, datetime as dt, glob, json, collections
+import argparse, datetime as dt, glob, gzip, json, collections
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--minutes', type=int, default=180)
@@ -14,8 +14,16 @@ a = ap.parse_args()
 since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=a.minutes)
 lat, per = [], collections.defaultdict(list)
 rows = 0
-for p in glob.glob('/var/log/mcai/showcase-*/llm-*.jsonl'):
-    with open(p, 'rb') as f:
+# the current files AND the newest rotation (logs rotate ~23:59Z to llm-*.jsonl-YYYYMMDD.gz): a window across midnight
+# must read both, or it sees only the minutes since the rotation (the 11-06 baseline's read error)
+files = glob.glob('/var/log/mcai/showcase-*/llm-*.jsonl')
+if since.date() < dt.datetime.now(dt.timezone.utc).date() or since.hour == 23:
+    for cur in list(files):
+        rot = sorted(glob.glob(cur + '-*.gz'))
+        if rot:
+            files.append(rot[-1])
+for p in files:
+    with (gzip.open(p, 'rb') if p.endswith('.gz') else open(p, 'rb')) as f:
         for line in f:
             if b'latency_ms' not in line:
                 continue
