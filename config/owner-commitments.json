@@ -5936,6 +5936,32 @@
     ]
    },
    "note": "Measured 11-07: the 11-04 isolated-source design had no population (5 of 1,734 lava sources; 6 sites in 90,000 m2); lakes under cave air with a shore + rock behind: 237 cells / 48 areas -> a self-dug basin, one bucket in turn (water, one lake lava source, water back)."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "gkclear-1107",
+   "title": "gkclear-01show: the town's gkwork strikes say a tidy stage is closing -- the keeper works the tidy before the forest until it closes (the inwall stage held by 11 unreachable clears)",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "gkwork-1107.md"
+   ],
+   "state": "open",
+   "next_step": "BUILT 2026-11-07: gkclear-01show @ 01c6debf on the live release 191445b8: ready to stage (no reader change). Read: stage_close on the inwall stage within ~10 min of release, the next stage sited with the rough survey (hollows/stands/topsoil/regrade > 0), keeper tidy visits per keeper-hour.",
+   "evidence": {
+    "grep": [
+     "gkclear-01"
+    ],
+    "branches": [
+     "gkclear-01show"
+    ],
+    "paths": [
+     "docs/reports/gkwork-design-2026-11-07.md"
+    ]
+   },
+   "note": "One keeper tidy visit in 2 h (strike 1/3); the next keeper's order led with the forest; 11 clears no stand reaches are skipped uncounted."
   }
  ]
 }

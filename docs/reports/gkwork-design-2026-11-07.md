@@ -121,3 +121,16 @@ visit in 2 days, 0 `_station_swept` rows (stations-01 is fleet-only).
 Station hoarding in bags (fleet 220 -> 539): `bankable.mjs` KEEP_ONE keeps one table/furnace and the town deposit banks spares only at a
 34+ bag. The fix is a spare-station bank on every town visit (junkout-style, or a bagfull room-bank kind): about 40-80 lines in
 towndeposit/stations + one test file, tier 2 if it stays out of bankable.mjs's protected scaffoldKeep/isScaffoldItem/SCAFFOLD_SET.
+
+## gkclear-01show (11-07, roughground's 2-h read: the stage held `clears:11`)
+
+Live 191445b8, 19:43-21:53Z: the inwall tidy stage (g91, sited 11-05, 48 plot-prep trunk/leaf clears) is held by 11 standing clears.
+buildrun.mjs clears() skips a log no stand reaches without counting it (0 clear rows today; the replants of X2/X4/X5 are settled, so it
+is not the sapling wait). The per-bot clears give-up (5 same-bot visits) never trips under rotation, so only gkwork-01's town strikes close
+it -- and they need keeper tidy visits: ONE in 2 h (Lumen 21:07Z, strike 1/3). Lumen released `no_work_visit` 21:11Z; the next keeper had
+no per-bot `gkwPending`, its order led with the forest (forest first while it wants work), and the tidy never came back. With no completion
+there is no next stage, and the rough survey's inside-the-wall re-survey runs only when a next stage is sited (inwallFirst), so the rough
+work stayed 0. Helpers' tidy visits never strike (they cannot complete). Fix `gkclear-01show` @ 01c6debf (on 191445b8; ci2 467/468, the known bagdiet orphan): the TOWN's strikes (60-min
+window) say the stage is closing; while 1-2 are in, the keeper's order leads with the tidy and its tidy order is never quieted. Codex: no
+blockers. Not done: counting no-stand clears per cell town-wide (a cleaner signal than strikes), and a rough re-survey that does not wait
+for the stage to close.
