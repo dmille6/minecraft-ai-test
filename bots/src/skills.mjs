@@ -189,7 +189,7 @@ import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantry
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
-import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree } from './forest.mjs'   // forest-01
+import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -24647,19 +24647,20 @@ function forestInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townD
  *  reach ends the tree (a shorter tree is left, never a floating log). */
 /** forest-02 release fold (Codex r3 BLOCKER): the columns a felling's leaf clearing must never touch -> (x, z) -> bool: the town's
  *  expedition markers (their reserved margin) and the protected zones. Unreadable: every column (no leaf dug). Never throws. */
-function fellLeafGuard (bot) {
+function fellLeafGuard (bot, own = [FOREST_PLOT]) {
   try {
     const zv = townPlanZones(bot)
     if (!zv?.known) return () => true
-    const boxes = [...townMarkerZones(), ...(zv.zones ?? [])].map(q => q?.box ?? q).filter(b => Array.isArray(b) && b.length === 6)
-    return (x, z) => boxes.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
+    // forest-04 (Codex fold BLOCKERS 1, 4): the stands too, and every other record's ground (its box, its cells' columns: a hedge's
+    // leaves) -- forest.mjs fellReserved; `own` the records the felling works (the forest; the farm being retired)
+    return fellReserved({ boxes: [...townMarkerZones(), ...(zv.zones ?? [])], records: projectHeads().map(x => x.head?.rec).filter(Boolean), own })
   } catch { return () => true }
 }
-async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', project = FOREST_PLOT }) {
+async function forestFell (bot, e, t, { signal, deadline, log, kind = 'grown', project = FOREST_PLOT, guarded = null }) {
   // forest-03 (LIVE 11-06 22:58Z: every felling off_stand): forest.mjs fellTree -- any orthogonal stand from which every log is reached,
   // judged from the bot's ACTUAL feet; the stand leaves dug within reach before and after each walk
   if (!t.stand) return { n: 0, why: 'no_stand' }
-  const guarded = fellLeafGuard(bot)
+  guarded ??= fellLeafGuard(bot, [FOREST_PLOT, project])
   const r = await fellTree(e, farmRead(bot), t, { deadline, guard: guarded, check: () => check(signal),
     log: d => log({ ...forestRow({ ...d, kind: d.op === 'harvest' ? kind : d.kind }), project }) })
   await sleep(300, signal)
@@ -24735,10 +24736,11 @@ async function buildForest (ctx, args, signal) {
         const e = e0()
         try {
           const skip = forestSkipOf(bot)
+          let rguard = null   // forest-04: the felling's reserved columns, read once a phase
           for (const t of rt.plan.trees) {
             if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break
             if (skip(t.key)) continue
-            const r = t.stand ? await forestFell(bot, e, t, { signal, deadline: deadline - 20_000, log: rowLog, kind: 'retire', project: TREEFARM_PLOT }) : { n: 0, why: 'no_stand' }
+            const r = t.stand ? await forestFell(bot, e, t, { signal, deadline: deadline - 20_000, log: rowLog, kind: 'retire', project: TREEFARM_PLOT, guarded: (rguard ??= fellLeafGuard(bot, [FOREST_PLOT, TREEFARM_PLOT])) }) : { n: 0, why: 'no_stand' }
             felledAll += r.n
             if (r.why) {
               (bot.forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
@@ -24799,9 +24801,10 @@ async function buildForest (ctx, args, signal) {
       if (lease.ok) {
         try {
           hv.strip = hl.strip
+          const hguard = fellLeafGuard(bot, [FOREST_PLOT])   // forest-04: the felling's reserved columns, read once a phase
           for (const t of hl.trees) {
             if (Date.now() > deadline - 40_000) break
-            const r = await forestFell(bot, e, t, { signal, deadline: deadline - 30_000, log: rowLog, kind: t.kind })
+            const r = await forestFell(bot, e, t, { signal, deadline: deadline - 30_000, log: rowLog, kind: t.kind, guarded: hguard })
             hv.felled += r.n
             if (r.why) {
               hv.failed++
