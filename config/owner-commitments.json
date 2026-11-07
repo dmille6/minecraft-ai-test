@@ -5839,6 +5839,38 @@
     ]
    },
    "note": "Fleet tidy places 916/h -> 198-491/h after gklease-01; the stopped towns had 0 visits by any bot for 6 h after a stalled visit's stamp (waived tidy cells were not done for it)."
+  },
+  {
+   "id": "escpocket-1107",
+   "title": "escpocket-01: free the self-sealed pocket (isolated-d-Echo 358,58,180 behind its own pillar plug) and keep bots from re-entering an escaped pocket",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "escpocket-1107.md",
+    "phase2-build-1106.md",
+    "dropdig-1103.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "survival builder / control session",
+   "next_step": "BUILT, not queued. Branch escpocket-01 on fleet 45defefa: code 8d899a0a, tip 97d1b179 (pushed). Tier 3. Codex r1-r3 6 blockers fixed, r4/r5 none; independent Claude r2 1 fixed, r3/r4 none. Paper (11-07 cut + live edits): sealed base stayed 1/1, cand escaped 6/6 (pocket dig + swim); column base stayed 1/1, cand escaped 7/7 (final 8d899a0a 3/3 column + 2/2 sealed). Registration ~/mcai-analysis/escpocket-01.8d899a0a.json (effectwatch validate: valid) + DRAFT entry ~/mcai-analysis/escpocket-01.queue-entry.json: the control session queues it (S lane; draw MUST include isolated-d). Full suite escpocket-8d899a0a (suite-run, w30) queued at commit time: check its summary before queueing.",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "runs": [
+     "escpocket-01"
+    ],
+    "branches": [
+     "escpocket-01"
+    ],
+    "grep": [
+     "escpocket"
+    ],
+    "paths": [
+     "docs/reports/escpocket-2026-11-07.md"
+    ]
+   },
+   "note": "11-07: escdead's wide arm DID arm (audit's wide=0 was the first 30 min of each episode); Echo's own maroon pillar dirt at 358,55,180 (07:16:58Z) sealed the column; the cut + that dirt + air 358,62 reproduces every live row. Breach 'closed by air at y=62' = wrong cell named (lid diorite y63), fixed. Supersedes the 'price the escaped pocket out of pathing' chip."
   }
  ]
 }
