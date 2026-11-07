@@ -111,7 +111,12 @@ await t('climbOf: placed, in town, pathfinder or reflex, a pillar or a step, at 
   const ok = { outcome: 'placed', zone: 'town', reason: 'pathfinder', shape: 'pillar', y: 70 }
   assert.strictEqual(PA.climbOf(ok, HOME), true)
   assert.strictEqual(PA.climbOf({ ...ok, y: HOME.y - 5 }, HOME), false, 'in a mine under town (the LIVE rows: most at y 58-65)')
-  for (const bad of [{ outcome: 'failed' }, { zone: 'margin' }, { reason: 'skill' }, { shape: 'bridge' }]) assert.strictEqual(PA.climbOf({ ...ok, ...bad }, HOME), false, JSON.stringify(bad))
+  for (const bad of [{ outcome: 'failed' }, { zone: null }, { reason: 'skill' }, { shape: 'ladder' }]) assert.strictEqual(PA.climbOf({ ...ok, ...bad }, HOME), false, JSON.stringify(bad))
+  // roughground-01: the town's margin and the bridges are ledgered too (the keeper takes back what still stands of them) ...
+  for (const more of [{ zone: 'margin' }, { shape: 'bridge' }]) assert.strictEqual(PA.climbOf({ ...ok, ...more }, HOME), true, JSON.stringify(more))
+  // ... and a bridge is never a climb spot (no staircase is planned from it)
+  assert.deepStrictEqual(climbSpots([{ x: 5, y: 70, z: 5, shape: 'bridge', t: 100 }, { x: 5, y: 70, z: 6, shape: 'bridge', t: 100 }], { now: 200 }), [])
+  assert.strictEqual(climbSpots([{ x: 5, y: 70, z: 5, shape: 'step', t: 100 }, { x: 5, y: 70, z: 6, shape: 'pillar', t: 100 }], { now: 200 }).length, 1, 'control: two climbs make a spot')
 })
 await t('the ledger: appended per bot, read across bots by time, trimmed to its newest lines past the bound', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'climbs-'))
@@ -188,7 +193,7 @@ await t('mutant: the ledger taking a mine\'s pillars (no surface band) is caught
   const f = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))
   assert.ok(/if \(climbOf\(args, configuredHome\(config\.world\)\)\) climbEnqueue\(poolStateDir\(config\.memory\.pool\)/.test(f), 'the feed (queued: Codex r1)')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/climbs = climbRead\(dir, \{ since: Date\.now\(\) - 48 \* 60 \* 60_000 \}\)/.test(sk) && /caps: I\.caps, climbs, have,/.test(sk), 'the read')
+  assert.ok(/climbs = climbRead\(dir, \{ since: Date\.now\(\) - 7 \* 24 \* 60 \* 60_000 \}\)/.test(sk) && /caps: I\.caps, climbs, have,/.test(sk), 'the read (roughground-01: 7 days; climbSpots keeps 48 h)')
 })
 
 await t('mutant: the stair planner never reached (the climb always cut) is caught', async () => {

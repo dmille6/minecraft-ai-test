@@ -192,7 +192,8 @@ import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from '
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
-import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
+import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
+import { inwallFirst, stageTryOrder, inwallAtNext } from './roughground.mjs'   // roughground-01: inside the walls again before the next band   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved, fellClearArea } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
@@ -24650,7 +24651,7 @@ async function buildTidyVisit (ctx, args, signal) {
   if (!rh.head || tidyDue(rh.head.rec) || gkNext) {
     // THE SURVEY (tidy.mjs siteTidy): the bots' pillars and pits round home, and the paths' corridors graded when the paths have no
     // network; a re-survey (TIDY_RESURVEY_MS after a completion) is a new generation of the same record
-    let I, s
+    let I, s, firstIn = false, inChecked = null
     const k0 = gkNext ? gkNext.k : 0
     // the stages past the town need the land plan: sited once, in a visit of its own (its routing yields between legs)
     if (GROUNDS.on && k0 >= 1 && !landHead(dir)) {
@@ -24672,11 +24673,17 @@ async function buildTidyVisit (ctx, args, signal) {
         try { have = { ...(matsTownStock(bot)?.stock ?? {}) }; for (const [n, v] of Object.entries(heldMap(bot))) have[n] = (Number(have[n]) || 0) + v } catch { have = heldMap(bot) }
         // access-02: the bots' own climbs (placeaudit.mjs's ledger, every bot's, 48 h) for the inwall stage's staircases
         let climbs = []
-        try { climbs = climbRead(dir, { since: Date.now() - 48 * 60 * 60_000 }) } catch { climbs = [] }
+        // roughground-01: 7 days of them -- the survey takes back the bots' scaffold still standing (climbSpots keeps its own 48 h)
+        try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
         const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
-        for (let k = k0; k <= Math.max(k0, last); k++) {
+        // roughground-01 (owner 11-07): before a band after the inside-the-wall stage, the inside again when it was last surveyed an
+        // hour ago or more (roughground.mjs inwallFirst) -- a survey with work there is sited there
+        const inK = landStages().find(q => q.id === 'inwall')?.k
+        firstIn = !!gkNext && inwallFirst({ rec: rh.head?.rec, nextK: k0, inwallK: inK })
+        for (const k of stageTryOrder(k0, last, firstIn, inK)) {
           s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace, reserved: I.reserved, forest: forestRecNow() })
           s.k = k
+          if (firstIn && k === inK && s.ok && !s.record) inChecked = Date.now()   // surveyed, nothing inside: the clock restarts
           if (!s.ok || s.record) break
         }
       } else s = siteTidy(planReader(bot), { ...I, now: Date.now() })
@@ -24688,10 +24695,11 @@ async function buildTidyVisit (ctx, args, signal) {
     if (!s.ok) return out('no_effect', 'no_site', `no tidy (${s.why})`, { stop: 'no_site' })
     const sk = s.k ?? 0
     // gkstage-01: a stage BEFORE the head's is fresh only when the head ends the ring order (the cycle wraps to the wall's inside)
-    const fresh = cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (recStageK(cur) < sk || nextStage(recStageK(cur)) == null))
+    const fresh = cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (recStageK(cur) < sk || nextStage(recStageK(cur)) == null || (firstIn && landStages().find(q => q.k === sk)?.id === 'inwall')))
     const body = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: legacyStage(landStages().find(q => q.k === sk)), stageId: landStages().find(q => q.k === sk)?.id ?? null, terraceV: 1 } : {}) }
     // townterrace-01: the stage before's cells carried on (tidy.mjs stageCarry: the tripwire judges a placement against the head)
-    const pub = publishRecord(dir, key, cur => (fresh(cur) ? (GROUNDS.on ? stageCarry(body, cur) : body) : null), { by: me })
+    // roughground-01: the inside-the-wall clock rides on every stage's record (inwallAtNext)
+    const pub = publishRecord(dir, key, cur => (fresh(cur) ? (GROUNDS.on ? { ...stageCarry(body, cur), inwallAt: inChecked ?? inwallAtNext(cur, body) } : body) : null), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], ...(GROUNDS.on ? { seg: `stage${sk}`, n: s.record?.replant?.length ?? 0 } : {}), kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     // townterrace-01: the park is a land-plan zone -- published once on the land record (a reservation every later siting keeps

@@ -31,7 +31,8 @@ import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
 import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
-import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'   // townterrace-01: the terrace stage; plotprep-01: the plots' trees
+import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'
+import { surveyRough, roughOn, nearCellsOf } from './roughground.mjs'   // roughground-01: the ground the inside rules miss   // townterrace-01: the terrace stage; plotprep-01: the plots' trees
 
 export const TIDY_PLOT = 'tidy'
 export const TIDY_BLUEPRINT = 'tidy@1'
@@ -795,6 +796,30 @@ export function inwallBoxes (wall, home, ext = null, r = TIDY.r) {
   if (Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[2] >= b[0] && b[3] >= b[1]) out.push([...b])
   return out
 }
+/**
+ * roughground-01: THE ROUGH SURVEY OVER SOME BOXES, merged into `into` ({ cut, fill, pillars, pits }: mutated, ids namespaced `r<i>:`)
+ * -> { census, skipped } summed. Pure over `read` (roughground.mjs surveyRough with the tidy's column, SPOIL and build reasons).
+ */
+export function roughIn (read, { home, boxes = [], within = () => true, avoid, cells, records = null, noLitter, reserved, busy = new Set(), climbs = [] } = {}, into) {
+  const nearCells = records ? nearCellsOf(records) : cells
+  const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
+  const memo = new Map()
+  const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
+  const sum = { census: {}, skipped: {} }
+  const used = new Set(busy)
+  boxes.forEach((box, i) => {
+    const r = surveyRough(read, { home, box, within, col, spoil: SPOIL, buildWhy: BUILD_WHY, avoid, cells, nearCells, noLitter, reserved, busy: used, climbs, yLo })
+    if (!r.ok) return
+    const ns = v => `r${i}:${v}`
+    for (const c of r.cut) { into.cut.push({ ...c, pillar: ns(c.pillar) }); used.add(k2(c.at[0], c.at[2])) }
+    for (const f of r.fill) { into.fill.push({ ...f, pit: ns(f.pit) }); used.add(k2(f.at[0], f.at[2])) }
+    for (const q of r.pillars) into.pillars.push({ ...q, id: ns(q.id) })
+    for (const q of r.pits) into.pits.push({ ...q, id: ns(q.id) })
+    for (const [k, v] of Object.entries(r.census)) sum.census[k] = (sum.census[k] ?? 0) + v
+    for (const [k, v] of Object.entries(r.skipped)) sum.skipped[k] = (sum.skipped[k] ?? 0) + v
+  })
+  return sum
+}
 // ================================================================================================================================
 // PLOTPREP-01 (coordinator 11-04, the owner's "they can leave trees, or cut down trees and replant in better spots"): the wall
 // extension's RESERVED PLOTS (wall.mjs wallExtPlots: the record's `plots` [{ id, kind, box, y }]) are made ready for their buildings
@@ -1099,6 +1124,7 @@ export function climbSpots (climbs = [], { now = Date.now(), keepMs = 48 * 60 * 
   const cnt = new Map(), own = new Map()
   for (const c of climbs ?? []) {
     if (!(now - c.t <= keepMs)) continue
+    if (c.shape === 'bridge') continue   // roughground-01: a bridge is the keeper's to take back, never a climb spot
     own.set(k2(c.x, c.z), (own.get(k2(c.x, c.z)) ?? 0) + 1)
     for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) { const k = k2(c.x + dx, c.z + dz); cnt.set(k, (cnt.get(k) ?? 0) + 1) }
   }
@@ -1462,6 +1488,14 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       }
       sv0.ledger = spotsTried
     }
+    // roughground-01 (owner 11-07): the ground the rules above miss -- clumps, floating spoil and beams, wide holes, loose crafting
+    // tables, the bots' own ledgered scaffold -- off every column this stage already works and the plots' levelling
+    if (roughOn(env)) {
+      const busyR = new Set([...sv0.cut, ...sv0.fill, ...pp.cut, ...pp.fill].map(q => k2(q.at[0], q.at[2])))
+      for (const a of sv0.access ?? []) for (const c of a.cells) busyR.add(k2(c[0], c[2]))
+      sv0.cut = [...sv0.cut]; sv0.pillars = [...sv0.pillars]
+      sv0.rough = roughIn(read, { home, boxes, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [] }, sv0)
+    }
     // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
     const plat = pp.platforms.map((q, i) => ({ id: `pp${i}`, cells: q.cells }))
     const sv = { ...sv0, cut: [...sv0.cut, ...pp.cut], fill: [...sv0.fill, ...pp.fill, ...plat.flatMap(q => q.cells.map(at => ({ at, pit: q.id, access: true, stand: true })))],
@@ -1496,7 +1530,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     const acc = new Set((sv.fill ?? []).filter(f => f.access).map(f => f.at.join(',')))
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
     record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
-      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}) }
+      access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: sv.rough } : {}) }
     return { ok: true, why: 'ok', record, survey: sv, road: null }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
@@ -1562,10 +1596,20 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       for (const q of sv.pillars) s.pillars.push({ ...q, id: ns(q.id) })
       for (const q of sv.pits) s.pits.push({ ...q, id: ns(q.id) })
     }
+    // roughground-01: the band's rough ground (the same survey as inside the wall, over the band's own columns)
+    let roughB = null
+    if (roughOn(env)) {
+      const acc = { cut: [], fill: [], pillars: [], pits: [] }
+      roughB = roughIn(read, { home, boxes: [bx], within: (x, z) => inBand(x, z) && !treeK.has(k2(x, z)), avoid, cells, records: terrace?.records ?? null, noLitter, reserved, busy, climbs: terrace?.climbs ?? [] }, acc)
+      for (const c of acc.cut) { s.cut.push({ ...c, pillar: `o${c.pillar}` }); busy.add(k2(c.at[0], c.at[2])) }
+      for (const f of acc.fill) { s.fill.push({ ...f, pit: `o${f.pit}` }); busy.add(k2(f.at[0], f.at[2])) }
+      for (const q of acc.pillars) s.pillars.push({ ...q, id: `o${q.id}` })
+      for (const q of acc.pits) s.pits.push({ ...q, id: `o${q.id}` })
+    }
     for (const t of [...tr.stumps, ...tr.fells]) { bandClear.push(...t.logs); for (const [x, z] of t.cols) busy.add(k2(x, z)) }
     for (const f of tr.fells) bandTrunks.push({ col: f.cols[0], name: f.name })
     band = { strays: sv.ok ? sv.pillars.filter(q => !q.onBuild).length : 0, holes: sv.ok ? sv.pits.length : 0, litter: sv.ok ? sv.litter : 0,
-      stumps: tr.stumps.length, fells: tr.fells.length, ...(sv.ok ? {} : { why: sv.why }), skipped: { ...(sv.skipped ?? {}), ...tr.skipped } }
+      stumps: tr.stumps.length, fells: tr.fells.length, ...(sv.ok ? {} : { why: sv.why }), skipped: { ...(sv.skipped ?? {}), ...tr.skipped }, ...(roughB ? { rough: roughB } : {}) }
   }
   const lightAt = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) || busy.has(k2(x, z)) ? 'road' : null), n: lights, cells })
   let record = tidyRecord(s, { home, plan, now, r: Math.max(st.rMax, st.upto ?? -1, TIDY.r) })

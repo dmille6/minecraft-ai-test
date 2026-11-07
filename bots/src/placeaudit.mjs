@@ -148,6 +148,9 @@ export const CLIMB = Object.freeze({ band: 4, keepMs: 48 * 60 * 60_000, maxLines
 /** Is a `_place_town` placement a CLIMB the ledger keeps? -> bool. Pure. Placed, in the town, by the pathfinder or a reflex, a pillar or
  *  a step, at the surface band (no deeper than home.y - CLIMB.band: a mine under the town is no climb). */
 export function climbOf (args, home, T = CLIMB) {
-  return !!args && args.outcome === 'placed' && args.zone === 'town' && (args.reason === 'pathfinder' || args.reason === 'reflex') &&
-    (args.shape === 'pillar' || args.shape === 'step') && Number.isFinite(args.y) && !!home && args.y >= Math.floor(home.y) - T.band
+  // roughground-01 (owner 11-07: floating dirt beams in the trees round the town): the bridges too, and the town's MARGIN (the first
+  // band outside the wall): the keeper takes back what still stands of them (roughground.mjs surveyRough's SCAFFOLD); climbSpots
+  // keeps building its staircases from the town's pillars and steps only
+  return !!args && args.outcome === 'placed' && (args.zone === 'town' || args.zone === 'margin') && (args.reason === 'pathfinder' || args.reason === 'reflex') &&
+    (args.shape === 'pillar' || args.shape === 'step' || args.shape === 'bridge') && Number.isFinite(args.y) && !!home && args.y >= Math.floor(home.y) - T.band
 }
