@@ -11,6 +11,7 @@ import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { noteLavaFinding } from './lavatarget.mjs'   // lavatarget-01: the corridor guard's lava cells feed explore's heading
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
+import { escPocketOn, trapCellSet, trapStepCost, inTrap } from './escdead.mjs'   // escpocket-01: trap sites priced
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
 import { knownWellCells, installWellWatch } from './skills.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
@@ -585,7 +586,27 @@ function connect() {
     // callback (Codex pass 2: a file read inside an A* step). The callback only scans the cached array.
     const deathSitesTimer = setInterval(refreshDeathSites, 20_000); deathSitesTimer.unref?.()
     bot.once('end', () => clearInterval(deathSitesTimer))
-    const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block) + keepoutStepPenalty(block)   // + keepout-01's route (0 outside a keep-out scope)
+    // ESCPOCKET-01: A POCKET A BOT SWAM OUT OF IS NEVER A PATH'S CELL (escdead.mjs trapSiteFrom: the pocket and the column the
+    // body rose into it by; live 11-07 isolated-d: Bravo walked back in within a minute of its escape, Echo 84 min later and
+    // sealed itself in). The pool's sites (world facts) and this bot's own, cached on the death sites' 20 s timer; 101 deletes
+    // the move. A body already inside one is never priced out of it (its way out is the swim, but a path must not be vetoed).
+    // ESCPOCKET=0 -> none.
+    let trapCells = new Set()
+    const refreshTrapCells = () => {
+      try { trapCells = escPocketOn() ? trapCellSet([...(worldFacts?.trapSites?.() ?? []), ...(bot.ownTrapSites?.() ?? [])]) : new Set() } catch { trapCells = new Set() }
+    }
+    const trapsTimer = setInterval(refreshTrapCells, 20_000); trapsTimer.unref?.()
+    bot.once('end', () => clearInterval(trapsTimer))
+    bot.trapCellsNow = () => trapCells
+    bot.refreshTrapCells = refreshTrapCells
+    const trapPenalty = (block) => {
+      if (!trapCells.size) return 0
+      const c = trapStepCost(trapCells, block)
+      if (!c) return 0
+      const f = bot.entity?.position
+      return f && inTrap(trapCells, [Math.floor(f.x), Math.floor(f.y), Math.floor(f.z)]) ? 0 : c
+    }
+    const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block) + keepoutStepPenalty(block) + trapPenalty(block)   // + keepout-01's route (0 outside a keep-out scope) + escpocket-01's traps
     bot.deathSitesNow = () => deathSites
     bot.refreshDeathSites = refreshDeathSites
     // KEEPOUT-01 (keepout.mjs). THE FIRE SITES that keep bots out, from the same 20 s cache (live, class fire, not disputed).

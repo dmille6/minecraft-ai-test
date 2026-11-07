@@ -73,6 +73,7 @@ import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plu
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimNoPlanBackoffMs, swimUnderRowDetail, startCells } from './swimunder.mjs'
 import { escDeadOn, pinStep, pinnedFor, pinMinMs, swimSearchFor, breachPlan, breachAdmit, floodBreach, breachBackoffMs, breachRowDetail, BREACH_DIG_MS } from './escdead.mjs'   // escdead-01
+import { escPocketOn, pocketDigOk, pocketDigPlan, pocketDigDetail, POCKET_DIG_MS, trapSiteFrom, inTrap, swimTierFor } from './escdead.mjs'   // escpocket-01
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
@@ -1864,13 +1865,35 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (poolEscaping || swimmingUnder || strandedRunning > 0) return null
     if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
     const key = poolSpotKey(p)
+    const start = [o.x, o.y, o.z]
     // escdead-01 (a): on a pin of 30 min or more the search widens (radius 8, descent 4; the breath bound unchanged). A
     // no-plan back-off earned by the NARROW search is not a fact about the wide one (Codex design): it does not hold it.
-    const wide = swimSearchFor(pinnedMsOf(bot))
+    // escpocket-01: a pocket the pool has swum out of (a live trap site) gets the wide search at once -- the record is the
+    // evidence the 30-min pin clock waits for.
+    const pocketOn = escPocketOn()
+    const trapHere = pocketOn && inTrap(bot.trapCellsNow?.(), start)
+    const wide = swimTierFor(pinnedMsOf(bot), { known: trapHere })
     const st0 = swimSpots.get(key), st = st0 && (!wide.radius || st0.wide) ? st0 : null
     if (st && Date.now() < st.until) return null
-    const plan = swimUnderPlan({ at, start: [o.x, o.y, o.z], ...wide })
+    let plan = swimUnderPlan({ at, start, ...wide })
     const eye = at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))
+    const headAirNow = !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block'
+    // escpocket-01: NO SWIM OUT ON THE WIDE TIER -> THE POCKET DIG (escdead.mjs pocketDigPlan). One block (two for a sideways
+    // opening) bordering the reachable water, at feet level or below, within reach, dug from here with the head in air: a
+    // plug the bot placed itself (Echo 11-07: dirt at 358,55,180 under its own pillar) is the case. The block must be a pocket
+    // dig's kind, not guarded (a build record, a zone), and diggable from this floating stance inside POCKET_DIG_MS.
+    let pocket = null
+    if (!plan.ok && wide.radius && pocketOn && headAirNow) {
+      const items = bot.inventory?.items?.() ?? []
+      const pinned = pinnedNow(bot)
+      const digOk = (b) => {
+        if (!pocketDigOk(b) || !guardMay(bot, b)) return false
+        const ms = predictedDigMs(b, toolFor(b, items, { pinned }).item ?? null, digEnv(bot))
+        return Number.isFinite(ms) && ms <= POCKET_DIG_MS
+      }
+      const pd = pocketDigPlan({ at, start, eye: [p.x, p.y + 1.62, p.z], digOk, ...wide })
+      if (pd.ok && pd.dig) { plan = pd.plan; pocket = pd } else if (!pd.ok) plan = { ...plan, reason: pd.reason }
+    }
     const adm = swimUnderAdmit({ plan, oxygen: bot.oxygenLevel, health: bot.health, headAir: !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block' })
     if (!adm.ok) {
       // no way out within reach is a fact of this place: back off like a failed firing. Air or health is a wait, not a fact.
@@ -1878,7 +1901,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (!plan.ok) swimSpots.set(key, { failures: plan.unloaded > 0 ? (st?.failures ?? 0) : tries, until: Date.now() + swimNoPlanBackoffMs(tries, plan), wide: !!wide.radius })
       if (!plan.ok || throttled('swim_under_wait', 60_000)) {
         logEvent({ kind: 'swim_under_refused', status: 'no_effect', snapshot: snapshot(bot),
-                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} wide=${wide.radius ? 1 : 0} -- ${adm.why} | ${startCells(at, [o.x, o.y, o.z])}` })
+                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} wide=${wide.radius ? 1 : 0}${trapHere ? ' trap=1' : ''} -- ${adm.why} | ${startCells(at, [o.x, o.y, o.z])}` })
       }
       return null
     }
@@ -1899,13 +1922,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const held = runner?.activeReservation?.() ?? null
       if (held && held.owner !== 'swimunder') return null
       logEvent({ kind: 'swim_under_start', status: 'success', snapshot: snapshot(bot),
-                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} wide=${wide.radius ? 1 : 0} ` +
+                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} wide=${wide.radius ? 1 : 0}${trapHere ? ' trap=1' : ''}${pocketDigDetail(pocket)} ` +
                          `wet=${plan.wet} run=${plan.wetRun} air=${bot.oxygenLevel} hp=${bot.health} via ${plan.route.map(c => c.join(',')).join(' ')}` })
       renew()
       keep = setInterval(renew, 5_000)
       for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
       try { bot.pathfinder?.setGoal?.(null) } catch {}
-      res = await swimUnder(bot, { plan, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
+      // escpocket-01: THE POCKET DIG, from here, head in air; then the swim is planned on the world as it now is
+      if (pocket) res = await pocketDigRun(pocket, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
+                                                     yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), start, wide, at })
+      if (pocket && !res) plan = pocket.plan
+      if (!res) res = await swimUnder(bot, { plan, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
                                    yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), oxygen: () => bot.oxygenLevel, renew })
     } catch (e) {
       res = { outcome: 'failed', why: `threw: ${e.message}`, len: plan.route.length }
@@ -1921,8 +1948,52 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (swimSpots.size > 32) swimSpots.delete(swimSpots.keys().next().value)
     }
     logEvent({ kind: 'swim_under', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
-               snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}` })
+               snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}${pocketDigDetail(pocket)}${res.dug != null ? ` dug=${res.dug}` : ''}` })
+    // escpocket-01: THE POCKET IS RECORDED (pool-wide, 12 h): its cells and the column the body rose in by are priced out of
+    // every path, and a bot found in it gets the wide search at once (Bravo re-entered within a minute; Echo 84 min later)
+    if (res.outcome === 'out' && pocketOn) recordTrap(trapSiteFrom({ start, route: plan.route, via: pocket ? 'pocket_dig' : 'swim', by: bot.username }))
     return res
+  }
+  // escpocket-01: the pocket dig's actuator -> null (dug, the swim plan re-made on the live world: go on) | a swim result
+  // ({ outcome: 'yielded' | 'failed', why }) that ends the firing. Ownership before every swing (the swim's own predicates).
+  const pocketDigRun = async (pd, { alive, yieldTo, start, wide, at }) => {
+    const out = (outcome, why, dug = 0) => ({ outcome, why, len: pd.plan?.route?.length ?? 0, dug })
+    let dug = 0
+    for (const c of pd.dig) {
+      const b = at(...c)
+      if (!b || b.boundingBox !== 'block') continue                 // already open
+      if (!pocketDigOk(b) || !guardMay(bot, b)) return out('failed', `the pocket dig cell ${c.join(',')} is now ${b.name}`, dug)
+      const tool = bestTool(bot, b)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      if (!alive()) return out('yielded', 'ownership lost before the pocket dig', dug)
+      const y = yieldTo(); if (y) return out('yielded', `yielded: ${y} before the pocket dig`, dug)
+      const err = await digBounded(bot, b, POCKET_DIG_MS).then(() => null, e => e?.message ?? String(e))
+      const after = at(...c)
+      if (after && after.boundingBox === 'block') return out('failed', `the pocket dig left ${after.name} at ${c.join(',')}${err ? `: ${err}` : ''}`, dug)
+      dug++
+    }
+    // the water comes in (a falling column refills in a tick or two; a side flow in ~5 ticks)
+    for (let w = 0; w < 10 && !pd.dig.every(c => isWaterCell(at(...c))); w++) await sleep(100)
+    if (!alive()) return out('yielded', 'ownership lost after the pocket dig', dug)
+    const re = swimUnderPlan({ at, start, ...wide })
+    if (!re.ok) return out('failed', `pocket dug (${dug}) but no swim out: ${re.reason}`, dug)
+    pd.plan = re
+    return null
+  }
+  // escpocket-01: the pool's trap record (worldfacts) and this bot's own (a busy pool lock never loses the bot's own record)
+  const ownTraps = []
+  bot.ownTrapSites = () => ownTraps
+  const recordTrap = (site) => {
+    if (!site) return
+    try {
+      const i = ownTraps.findIndex(t => t.x === site.x && t.y === site.y && t.z === site.z)
+      if (i >= 0) ownTraps.splice(i, 1)
+      ownTraps.push(site); if (ownTraps.length > 16) ownTraps.shift()
+      const pooled = worldFacts?.reportTrap?.(site) ?? null
+      bot.refreshTrapCells?.()
+      logEvent({ kind: 'trap_site_recorded', status: 'success', snapshot: snapshot(bot),
+                 detail: `at=${site.x},${site.y},${site.z} via=${site.via} cells=${site.cells.length} pool=${pooled ? 1 : 0} ${site.cells.join(' ')}` })
+    } catch (e) { log('warn', 'trap record failed', { err: e.message }) }
   }
   // ESCDEAD-01 (a): THE FLOOD-IN BREACH (escdead.mjs). After the flood refusal and a swim-under that did not get out, a body
   // pinned 30 min or more with its head in air, full air and health >= 18 breaks its roof when the water over the roof is
@@ -6632,6 +6703,40 @@ export function restRoofFloodRisk (bot) {
   return reason
 }
 
+/**
+ * ESCPOCKET-01: THE CAP OF A WET PILLAR'S COLUMN -> { cap: [x,y,z], reason } | null. Pure.
+ * LIVE 11-07 07:16:58Z, isolated-d-Echo at feet y=56 in the falling-water column under the 358,58,180 pocket: the marooned
+ * arm pillared (`_marooned` "an open column above"), one dirt went into the column at 358,55,180, the body rose to y=58 and
+ * the flood guard refused the granite roof at y=60 (water at y=61) one jump later -- and that dirt was the plug that kept it
+ * pinned 5 h+ (swimunder: "3 water cells searched", narrow and wide). The early checks read only feet+2 (the head0 check,
+ * restRoofFloodRisk); the cap was feet+4. So from a WET start the column is scanned up to the first block within the climb,
+ * and that block is read with the same overheadBreakRisk the climb will ask at the top (submerged as the body will be there).
+ * A cap at feet+2 or lower is the existing checks' (null here). Dry starts are unchanged.
+ */
+export function columnCapRisk ({ at = () => null, feet, maxUp = PILLAR_MAX_BLOCKS } = {}) {
+  if (!Array.isArray(feet) || feet.length !== 3) return null
+  const [x, y, z] = feet
+  if (!isWaterCell(at(x, y, z))) return null
+  for (let cy = y + 1; cy <= y + 2 + maxUp; cy++) {
+    const b = at(x, cy, z)
+    if (!b) return null
+    if (b.boundingBox !== 'block') continue
+    if (cy <= y + 2) return null
+    const sub = isWaterCell(at(x, cy - 1, z)) && isWaterCell(at(x, cy - 2, z))
+    const reason = overheadBreakRisk({ at: (dx, dy, dz) => at(x + dx, cy + dy, z + dz), submerged: sub })
+    return reason ? { cap: [x, cy, z], reason } : null
+  }
+  return null
+}
+/** columnCapRisk on the live world, with the flood guard's row (caller=pillar_cap) on a refusal -> reason | null. */
+export function capFloodRisk (bot, maxBlocks = PILLAR_MAX_BLOCKS) {
+  const fp = bot.entity.position
+  const r = columnCapRisk({ at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)), feet: [Math.floor(fp.x), Math.floor(fp.y), Math.floor(fp.z)], maxUp: maxBlocks })
+  if (!r) return null
+  logFloodGuard(bot, { caller: 'pillar_cap', reason: r.reason, cell: new Vec3(...r.cap), submerged: false })
+  return r.reason
+}
+
 export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
   // THE GATE (arbiter, Codex final pass): every actuator step asks whether this
   // climb still owns the body. A refused or revoked grant ends the climb at the
@@ -6648,6 +6753,9 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
         upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK
     // SWIMUNDER-01: the wet roof is also read from where a floating body rests (restRoofFloodRisk, below)
     if (swimUnderOn() && restRoofFloodRisk(bot)) return FLOOD_RISK
+    // escpocket-01: ...and the CAP OF THE OPEN COLUMN this pillar would climb (columnCapRisk, below): from a wet start every
+    // block placed goes into the water the swim out needs, and the climb ends at that cap's flood refusal anyway
+    if (escPocketOn() && capFloodRisk(bot, maxBlocks)) return FLOOD_RISK
     // escapeguard-01: A GUARDED CEILING IS NOT A SHORTAGE EITHER. Asked before the block count, for the flood check's reason:
     // the climb's first dig would be refused, so the bot goes to the ramp (another bearing), not for 26 dirt
     if (head0 && head0.boundingBox === 'block' && !guardMay(bot, head0)) return ESCAPE_GUARDED
