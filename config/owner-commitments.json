@@ -5742,7 +5742,7 @@
     "flowers-1107.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07: flowers-01show BUILT on the live release 272288e1 (branch flowers-01show), ready to stage; tripwire DC6 kind=wild on main shopread.py.txt (selftest + 3 harness mutants), NOT installed -- install with the fold. Fleet: does not apply (no decorator/park/dress at e6a1ea2b). NEXT: read +2 h/+24 h after activation (upgrades n, meals spent, flowers/meal, compost bone meal, stall stamp lifts); then flowers-02 lawn scatter (meals on lawn centres), flowers-03 flower trips 160-320 (atlas finds), flowers-04 tall-flower stock.",
+   "next_step": "2026-11-07: flowers-01show BUILT @ e841547a on the live release 272288e1 (branch flowers-01show; ci2 457/461 + w30 456/461, base/flake failures only), ready to stage; tripwire DC6 kind=wild on main shopread.py.txt (selftest + 3 harness mutants), NOT installed -- install with the fold. Fleet: does not apply (no decorator/park/dress at e6a1ea2b). NEXT: read +2 h/+24 h after activation (upgrades n, meals spent, flowers/meal, compost bone meal, stall stamp lifts); then flowers-02 lawn scatter (meals on lawn centres), flowers-03 flower trips 160-320 (atlas finds), flowers-04 tall-flower stock.",
    "evidence": {
     "grep": [
      "flowers-01show"

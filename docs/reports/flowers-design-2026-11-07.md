@@ -132,7 +132,7 @@ small-flower collection plus border upgrades with four cells a visit: `flowerDem
 
 | Piece | Lane | Tier | State |
 |---|---|---|---|
-| flowers-01show (this) | showcase | 2 (protected.py: not protected) | built: branch `flowers-01show` on 272288e1; ready to stage |
+| flowers-01show (this) | showcase | 2 (protected.py: not protected) | built: branch `flowers-01show` @ **e841547a** on 272288e1; ready to stage |
 | flowers-02 lawn scatter (meals on lawn centres) | showcase | 2 | after flowers-01's read shows bone meal flowing |
 | flowers-03 flower trips (atlas flower finds, expedition to 160-320) | showcase | 3 if it touches goto | design |
 | flowers-04 tall-flower stock (lilac, rose, peony beyond 640; one meal per copy) | showcase | 2 | design |
@@ -152,6 +152,17 @@ small-flower collection plus border upgrades with four cells a visit: `flowerDem
   - `_compost` bone meal out;
   - town bone meal;
   - `_decor op=stall` count, and the `decor_flowers` stamp (it must lift).
+
+**Tests and suites:**
+
+- Targeted: flowers 21/21 (16 behaviour tests incl. two real-runVisit scenarios and 7 anchored mutants, plus 10 wiring
+  assertions each with its text mutant), decorator 55/55, sinks, sinkwaive, prodserve, towndress, reroof and sinkfix4
+  all pass.
+- ci2 @ 07450d08: 457/461. prodserve and towndress failed on anchors, fixed in r2/r3 (the decor arm is now leave0's
+  first arm). lavastep is a known flake. nothing-important-is-orphaned fails on the live base (bagdiet).
+- w30 @ e841547a: 456/461. The failures are lavastep and plinth-skill (known flakes), nothing-important-is-orphaned
+  (the base's bagdiet), well (a known base failure), and ziggurat-v2-build (`killed: timeout` on the loaded w30; it
+  passed on ci2 r1, and that code is untouched).
 
 ## 7. Risks
 
