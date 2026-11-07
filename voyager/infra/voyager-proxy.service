@@ -24,7 +24,9 @@ NoNewPrivileges=yes
 CapabilityBoundingSet=
 # the proxy needs the internet (Anthropic, the public Ollama ports) and nothing on the LAN: no fleet port, no 10.0.0.0/8
 # and not the host's own listeners (the fleet's Paper ports) over loopback or IPv6 local ranges (Codex r2 B5); the one hole
-# is the systemd-resolved stub for DNS (127.0.0.53/54), recorded as a residual risk in the design (§12)
+# is the systemd-resolved stub for DNS (127.0.0.53/54). Any port there is reachable, so a COMPROMISED proxy could reach
+# a wildcard-bound host listener through it: accepted for the pilot (the proxy is our code; bots reach it only through its
+# fixed HTTP API), recorded in the design §12 (Codex r3 5)
 IPAddressDeny=10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10 127.0.0.0/8 ::1/128 fc00::/7 fe80::/10
 IPAddressAllow=127.0.0.53/32 127.0.0.54/32
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

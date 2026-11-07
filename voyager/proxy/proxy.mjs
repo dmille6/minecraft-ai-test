@@ -19,15 +19,18 @@ const MAX_BODY = 48 * 1024
 const row = (o) => { try { fs.appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), ...o }) + '\n') } catch { /* logging must not stop the proxy */ } }
 
 // SPEND: reserved before dispatch at the worst case, settled to the real usage after, persisted across restarts.
+// a MISSING record starts at zero; an UNREADABLE one fails closed: no paid call until an operator repairs it (Codex r3 7)
 let spend = {}
-try { spend = JSON.parse(fs.readFileSync(SPEND, 'utf8')) } catch { spend = {} }
+let spendCorrupt = false
+if (fs.existsSync(SPEND)) { try { spend = JSON.parse(fs.readFileSync(SPEND, 'utf8')) } catch { spend = {}; spendCorrupt = true } }
 // throws: a reservation that cannot be persisted is not dispatched (fail closed, Codex r2 B7)
 const saveSpend = () => { fs.writeFileSync(`${SPEND}.tmp`, JSON.stringify(spend)); fs.renameSync(`${SPEND}.tmp`, SPEND) }
 
 /** Worst-case dollars for a request before it is sent. Pure. */
 export function reserveUsd (arm, inputChars, maxTokens) {
-  // an UPPER bound (Codex r2 B7): at most one token per character of the request body, priced at the cache-WRITE rate
-  const inTok = Math.ceil(inputChars) * 1.25
+  // an UPPER bound (Codex r2 B7, r3 7): byte-level BPE gives at most one token per UTF-8 byte of the body, plus a fixed
+  // allowance for the message framing, all priced at the cache-WRITE rate. `inputChars` is the body's byte length.
+  const inTok = (Math.ceil(inputChars) + 512) * 1.25
   return (inTok * arm.inUsdPerMTok + maxTokens * arm.outUsdPerMTok) / 1e6
 }
 /** Dollars from a response's usage (cache reads priced at the input rate: an overestimate). Pure. */
@@ -101,9 +104,9 @@ function serveArm (name, arm) {
 
   const server = http.createServer(async (req, res) => {
     const send = (code, obj) => { const s = JSON.stringify(obj); res.writeHead(code, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(s) }); res.end(s) }
-    if (arm.backend === 'ollama-raw' && req.method === 'GET' && ['/api/version', '/api/tags'].includes(req.url)) {
-      try { const r = await fetch(`${arm.url}${req.url}`); return send(r.status, await r.json()) } catch (e) { return send(502, { error: String(e.message) }) }
-    }
+    // the control's health probes are answered HERE, never forwarded (Codex r3 6: no unbounded fetch outside the limits)
+    if (arm.backend === 'ollama-raw' && req.method === 'GET' && req.url === '/api/version') return send(200, { version: 'voyager-proxy' })
+    if (arm.backend === 'ollama-raw' && req.method === 'GET' && req.url === '/api/tags') return send(200, { models: [{ name: arm.model, model: arm.model }] })
     if (req.method !== 'POST') return send(405, { error: 'POST only' })
     let raw = ''
     let tooBig = false
@@ -130,8 +133,9 @@ function serveArm (name, arm) {
     const purpose = String(body.purpose ?? (arm.backend === 'ollama-raw' ? 'control' : '?')).slice(0, 16)
     try {
       if (arm.backend === 'anthropic') {
-        reserved = reserveUsd(arm, raw.length, body.max_tokens)
+        reserved = reserveUsd(arm, Buffer.byteLength(raw, 'utf8'), body.max_tokens)
         if (!Number.isFinite(spend[name].usd)) spend[name].usd = arm.capUsd   // a corrupted total fails closed
+        if (spendCorrupt) { row({ arm: name, purpose, refused: 'spend_record_unreadable' }); return send(503, { error: 'spend record unreadable; refusing paid calls' }) }
         if (!(reserved > 0) || spend[name].usd + reserved > arm.capUsd) { row({ arm: name, purpose, refused: 'spend_cap', usd_total: spend[name].usd }); return send(402, { error: `spend cap $${arm.capUsd} reached` }) }
         spend[name].usd += reserved
         try { saveSpend() } catch (e) { spend[name].usd -= reserved; reserved = 0; row({ arm: name, purpose, refused: 'spend_not_persisted', error: String(e.message).slice(0, 80) }); return send(503, { error: 'spend record not writable; refusing' }) }

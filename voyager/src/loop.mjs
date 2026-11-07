@@ -110,7 +110,7 @@ export class VoyagerLoop {
       const code = extractCode(r.text)
       const lint = lintSkill(code, { known: this.library.names() })
       if (!lint.ok) {
-        this.log('lint_refused', { iteration: it, round, errors: lint.errors.slice(0, 6), code: code.slice(0, 2000) })
+        this.log('lint_refused', { iteration: it, round, errors: lint.errors.slice(0, 6), src: code.slice(0, 2000) })
         previous = { round, code, outcome: `refused before running: ${lint.errors.join('; ')}`, log: [], delta: 'nothing ran' }
         lastWhy = previous.outcome
         continue
@@ -157,7 +157,7 @@ export class VoyagerLoop {
       const v = verify(task.success, start, end, { standing, chestTaken: rec.chestTaken, crafted: rec.crafted, earlierStructures: this.library.structures })
       this.log('execution', { iteration: it, round, fn: lint.fnName, status: res.status, budget: res.budget ?? null, error: res.error ?? null,
         steps: res.steps, ms: res.ms, cpu_ms: res.cpuMs, violations: res.violations, verified: v.ok, why: v.why, placed: rec.placed.length,
-        standing: standing.length, dug: rec.dug.length, used: [...used], code: code.slice(0, 4000), log: res.log.slice(-40) })
+        standing: standing.length, dug: rec.dug.length, used: [...used], src: code.slice(0, 4000), log: res.log.slice(-40) })
       if (v.ok) {
         const ownCalls = lint.facadeCalls.filter(n => !QUIET_FACADE.has(n)).length
         const add = this.library.addVerified({ name: lint.fnName, code: fnCode, task, model: this.model, calls: lint.calls, ownCalls, at: new Date().toISOString() })
