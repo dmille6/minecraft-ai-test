@@ -55,15 +55,14 @@ await t('never: an avoided column, a record cell\'s column or its ring, natural 
   assert.deepStrictEqual(r.cut, [], JSON.stringify(r.cut.slice(0, 4)))
   assert.deepStrictEqual(r.fill, [], JSON.stringify(r.fill.slice(0, 4)))
 })
-await t('a raised crust over a hollow is cut and the hollow filled under it; the mutant without the hollow fill opens it', async () => {
+await t('a raised crust over a hollow is left (a cut would open it, a bot maybe inside: Codex r1 BLOCKER); the mutant without the guard cuts it', async () => {
   const srv = server()
   srv.set([12, G + 1, -3], 'grass_block'); srv.set([12, G, -3], 'air'); srv.set([12, G - 1, -3], 'air')
   const r = rough(srv)
-  assert.deepStrictEqual(r.cut.map(c => c.at.join(',')), [xyz(12, G + 1, -3)])
-  assert.deepStrictEqual(r.fill.map(c => c.at.join(',')).sort(), [xyz(12, G - 1, -3), xyz(12, G, -3)])
-  await withMutant(RG_PATH, "if (!bad && !solidAt(x, rimMax, z)) { const u = underFill(x, rimMax, z); if (!u) bad = 'clump_hollow'; else under.push(...u) }", '', async M => {
+  assert.deepStrictEqual(r.cut, []); assert.deepStrictEqual(r.fill, [])
+  await withMutant(RG_PATH, "if (!bad && !solidAt(x, rimMax, z)) bad = 'clump_hollow'", '', async M => {
     const m = M.surveyRough(srv.read, { home: HOME, box: [-20, -20, 20, 20], col: col(srv), spoil: T.SPOIL, yLo: HOME.y - 14 })
-    assert.strictEqual(m.fill.length, 0, 'mutant opens the hollow')
+    assert.ok(m.cut.some(c => c.at[0] === 12 && c.at[2] === -3), 'mutant opens the hollow')
   })
 })
 await t('mutants: the floating run without its open-cell end, the plan\'s cells read as a build', async () => {
