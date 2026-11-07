@@ -43,13 +43,13 @@ await t('a dirt beam in the air, a 2-column clump, a 2x1 hole and a crafting tab
   const off = await withEnv('off', () => site(srv))
   assert.strictEqual(off.record, null, 'control: tidy-01 takes none of it')
 })
-await t('never: an avoided column, a record cell\'s column or its ring, natural stone, a hill, water in a hole\'s rim', async () => {
+await t('never: an avoided column, a record cell\'s column or its ring, natural stone, a hill, a hole with water in it', async () => {
   const srv = server(); const cells = new Set([xyz(10, G + 1, 10)])
   srv.set([0, G + 1, 15], 'dirt'); srv.set([1, G + 1, 15], 'dirt')            // avoided
   srv.set([10, G + 1, 10], 'cobblestone'); srv.set([11, G + 1, 10], 'dirt'); srv.set([11, G + 1, 11], 'dirt')   // a record cell + its ring
   srv.set([-12, G + 1, -2], 'stone'); srv.set([-12, G + 1, -3], 'stone')       // natural
   for (let x = -12; x <= -4; x++) for (let z = 8; z <= 16; z++) srv.set([x, G + 1, z], 'grass_block')   // a 9x9 hill
-  srv.set([14, G, -5], 'air'); srv.set([15, G, -5], 'air'); srv.set([16, G, -5], 'water')
+  srv.set([14, G, -5], 'water'); srv.set([15, G, -5], 'water'); srv.set([16, G, -5], 'water')   // roughground-2: a DRY bank hole is filled now; a wet one never
   const avoid = (x, z) => (z === 15 && x >= -1 && x <= 2 ? 'zone' : null)
   const r = rough(srv, { avoid, cells })
   assert.deepStrictEqual(r.cut, [], JSON.stringify(r.cut.slice(0, 4)))
@@ -89,6 +89,25 @@ await t('idempotent: the record laid, a re-survey finds nothing more', async () 
   const after = T.tidyOverlay(srv.read, r.record)
   const r2 = await withEnv('on', () => T.siteTidy(after, { home: HOME, r: 30 }))
   assert.strictEqual(r2.record, null)
+})
+await t('2: a cobblestone top in a lawn is cut and laid again in dirt (role topsoil); a dry hole beside water is filled to the bank; ROUGH off: neither', async () => {
+  const srv = server()
+  srv.set([7, G, 7], 'cobblestone')
+  srv.set([-5, G, 5], 'air'); srv.set([-4, G, 5], 'air'); srv.set([-6, G, 5], 'water')
+  const r = await withEnv('on', () => site(srv))
+  const cell = r.record.cells.find(c => c.at.join(',') === xyz(7, G, 7))
+  assert.strictEqual(cell?.role, 'topsoil'); assert.deepStrictEqual(T.TIDY_PALETTE.topsoil, ['dirt', 'grass_block'])
+  assert.ok(cutAt(r.record).includes(xyz(7, G, 7)))
+  assert.deepStrictEqual(fillAt(r.record).filter(k => k.endsWith(',5')).sort(), [xyz(-5, G, 5), xyz(-4, G, 5)].sort(), 'the bank hole')
+  const R = await import('../src/buildrun.mjs')
+  assert.ok(R.FOREIGN_CLEAR.test('cobblestone') && R.FOREIGN_CLEAR.test('cobbled_deepslate'), 'the visit digs the cell before it lays the dirt')
+  assert.strictEqual((await withEnv('off', () => site(srv))).record, null)
+  await withMutant(RG_PATH, '    if (grassN < T.lawnMin) continue\n', '', async M => {
+    const floor = server(); for (let x = 2; x <= 6; x++) for (let z = 2; z <= 6; z++) floor.set([x, G, z], 'cobblestone')
+    const m = M.surveyRough(floor.read, { home: HOME, box: [-20, -20, 20, 20], col: col(floor), spoil: T.SPOIL, yLo: HOME.y - 14 })
+    assert.ok(m.cut.some(c => c.at[0] === 4 && c.at[2] === 4), 'mutant takes a cobble floor for a lawn')
+  })
+  assert.strictEqual(rough((() => { const f = server(); for (let x = 2; x <= 6; x++) for (let z = 2; z <= 6; z++) f.set([x, G, z], 'cobblestone'); return f })()).cut.filter(c => c.at[0] === 4 && c.at[2] === 4).length, 0, 'control')
 })
 await t('the wiring: surveyTidy runs the rough survey under ROUGH, over its own square or band (inSq), off the columns it already works', async () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
