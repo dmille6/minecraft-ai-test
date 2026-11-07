@@ -12,6 +12,7 @@ import { createRequire } from 'node:module'
 const requireBots = createRequire(new URL('../../bots/src/index.mjs', import.meta.url))
 const { Vec3 } = requireBots('vec3')
 export { Vec3 }
+const { resyncPacket } = await import('../../bots/src/craftsync.mjs')
 
 export const NAME_RE = /^[a-z0-9_]{1,48}$/
 export const SPAWN_GUARD = 8           // no place/dig within this many blocks (x and z) of world spawn
@@ -19,7 +20,8 @@ export const REACH = 4.5
 export const WAIT_MAX_MS = 10_000
 export const WORLD_LIMIT = 1000        // max-world-size in server.properties (design §12 B5)
 const REPLACEABLE = new Set(['air', 'cave_air', 'void_air', 'water', 'short_grass', 'tall_grass', 'grass', 'fern', 'large_fern',
-  'snow', 'dead_bush', 'vine', 'seagrass', 'tall_seagrass', 'glow_lichen', 'lava'])
+  'snow', 'dead_bush', 'vine', 'seagrass', 'tall_seagrass', 'glow_lichen', 'lava', 'leaf_litter', 'short_dry_grass',
+  'tall_dry_grass', 'bush', 'firefly_bush', 'pink_petals', 'wildflowers'])
 
 const round1 = v => Math.round(v * 10) / 10
 const posOf = p => p ? { x: round1(p.x), y: round1(p.y), z: round1(p.z) } : null
@@ -139,8 +141,25 @@ function bodyCells (bot) {
 }
 const sameCell = (a, b) => a.x === b.x && a.y === b.y && a.z === b.z
 
+// THE BAG CAN LIE (stage 2, 11-07 00:27-00:40Z): a crafting table left in the world by a craft stayed in mineflayer's
+// inventory, and 12 placements of it came back "air". One no-op click with stateId -1 (craftsync.mjs resyncPacket) makes
+// Paper send the whole inventory again. Only sent with an empty cursor, where it is a no-op.
+export async function resyncInventory (bot, ms = 1000) {
+  if (!bot._client || bot.inventory?.selectedItem) return false
+  const got = new Promise(res => {
+    const t = setTimeout(() => { bot._client.removeListener('window_items', on); res(false) }, ms)
+    const on = p => { if (p.windowId === 0) { clearTimeout(t); bot._client.removeListener('window_items', on); res(true) } }
+    bot._client.on('window_items', on)
+  })
+  try { bot._client.write('window_click', resyncPacket(0)) } catch { return false }
+  const ok = await got
+  await new Promise(r => setTimeout(r, 100))   // mineflayer applies the refresh on the same packet
+  return ok
+}
+
 export async function vyPlace (ctx, { item, x, y, z }, signal) {
   const { bot } = ctx
+  await resyncInventory(bot)
   const t = cell(x, y, z)
   const vy = bot.voyager
   if (nearSpawn(vy?.spawn, t.x, t.z)) return { status: 'failed', failClass: 'spawn_zone', detail: `(${t.x}, ${t.z}) is within ${SPAWN_GUARD} of spawn; build at least ${SPAWN_GUARD + 1} blocks away from spawn (${Math.floor(vy.spawn.x)}, ${Math.floor(vy.spawn.z)})` }
