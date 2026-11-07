@@ -20,7 +20,9 @@
 //   CLUMPS    4-connected columns >= 1 over their median ground, at most clumpMax of them: each cut down to the HIGHEST ground round
 //             the clump (never below a neighbour: no new pit), spoil only, at most cutMax a column; a log standing on a column (a
 //             trunk) keeps the whole clump. Leaves overhead do not matter. A bigger raised area is a hill (the terrace's).
-//             A crust over a hollow (the bots' 2-high tunnels under the grass) is never cut open: named `*_hollow`.
+//             A crust over a hollow (the bots' 2-high tunnels under the grass): cut only with the hollow under it filled after the cut
+//             (at most fillMax deep, else named `*_hollow`), the cut carrying the hollow's cells (`hollow`) so the visit digs it only
+//             while no body stands in them (hollowClear; roughground-1b).
 //   HOLES     4-connected columns <= -1 under their median, at most holeMax in a box of holeBox: filled to the LOWEST ground round
 //             them (never above a neighbour), at most fillMax deep; never with liquid or an unread cell in the rim.
 //   STATIONS  a crafting table standing loose (not a record or plan cell): cut, with the spoil pillar under it down to the highest
@@ -32,7 +34,7 @@
 // zone, a well, the farm, the tree farm), the stock yard or the tree farm (noLitter), a site-prep reservation, a column a cut, fill or
 // staircase of this stage already uses, a cell beside liquid. ROUGH=off is the rollback (the stage as it was).
 
-export const ROUGH = Object.freeze({ floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
+export const ROUGH = Object.freeze({ floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, hollow: true, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
 /** THE SWITCH: ROUGH=off|0|false|no -> no rough survey, no inside-the-wall re-survey; on by default. Pure. */
 export const roughOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.ROUGH ?? '').trim())
 
@@ -98,7 +100,7 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
 export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, T = ROUGH } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
-  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0 }
+  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, hollows: 0 }
   const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], skipped, census }
   if (!home || !Array.isArray(box) || typeof col !== 'function' || !spoil) return { ...out, ok: false, why: 'no_box' }
   const colsOf = set => new Set([...set].map(k => { const [x, , z] = String(k).split(','); return `${x},${z}` }))
@@ -140,6 +142,21 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
   const order = []   // [d, kind, fn] -- nearest home first, under the cap
   const dist = (x, z) => Math.max(Math.abs(x - home.x), Math.abs(z - home.z))
   const solidAt = (x, y, z) => { const b = read(x, y, z); return !!b && !openCell(b) && !liquid(b) }
+  // ROUGHGROUND-1B: UNDER A CUT over a hollow (the bots' 2-high tunnels under the grass crust) -> the open cells from the hollow's
+  // floor up to the cut's new ground `top`, bottom first: filled after the cut (the record's layered segments), the cut itself dug only
+  // while no body stands in them (the cut entry's `hollow`, hollowClear at the dig) -> [{ at }] | null (cannot: the column is left)
+  const underFill = (x, top, z) => {
+    if (!T.hollow) return null
+    const add = []
+    for (let yy = top; yy > top - T.fillMax - 1; yy--) {
+      const b = read(x, yy, z)
+      if (!b) return null
+      if (solidAt(x, yy, z)) return add.length ? add.reverse() : null
+      if (liquid(b) || cells.has(`${x},${yy},${z}`) || sideLiquid(x, yy, z) || !(AIR.test(nm(b)) || b.boundingBox === 'empty')) return null
+      add.push({ at: [x, yy, z] })
+    }
+    return null
+  }
   const sideLiquid = (x, y, z) => N4.some(([dx, dz]) => liquid(read(x + dx, y, z + dz))) || liquid(read(x, y + 1, z))
   // ---- FLOATING ----
   for (const [k, f] of flo) {
@@ -221,7 +238,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
     if (ys.length < Math.ceil(ring.size / 2)) { skip(`${kind}_rim`); continue }
     if (sign > 0) {
       const rimMax = Math.max(...ys)
-      const blocks = []
+      const blocks = [], under = []
       let bad = null
       for (const [x, z] of cs) {
         const y = g(x, z)
@@ -234,13 +251,18 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
           if (sideLiquid(x, yy, z)) { bad = 'clump_water'; break }
           blocks.push({ at: [x, yy, z], name: nm(b) })
         }
-        if (!bad && !solidAt(x, rimMax, z)) bad = 'clump_hollow'   // a crust over a hollow: never opened (Codex r1 BLOCKER)
+        if (!bad && !solidAt(x, rimMax, z)) {
+          // a crust over a hollow: opened only with the hollow filled after it, and dug only while nobody stands in it (1b)
+          const u = underFill(x, rimMax, z)
+          if (!u) bad = 'clump_hollow'
+          else { for (const b of blocks) if (b.at[0] === x && b.at[2] === z) b.hollow = u.map(a => a.at); under.push(...u) }
+        }
         if (bad) break
       }
       if (bad) { skip(bad); if (bad === 'clump_tree' || bad === 'clump_water' || bad === 'clump_natural' || bad === 'clump_hollow') for (const k of comp) keep.add(k); continue }
       if (!blocks.length) continue
       const d = Math.min(...cs.map(([x, z]) => dist(x, z)))
-      order.push([d, () => { if (comp.some(k => used.has(k))) return; for (const k of comp) used.add(k); census.clumps++; const id = `rc${out.pillars.length}`; out.pillars.push({ id, col: cs[0], cols: cs, base: rimMax, h: blocks.length, kind: 'clump' }); for (const b of blocks.sort((p, q) => q.at[1] - p.at[1])) cuts.push({ ...b, pillar: id }) }])
+      order.push([d, () => { if (comp.some(k => used.has(k))) return; for (const k of comp) used.add(k); census.clumps++; const id = `rc${out.pillars.length}`; out.pillars.push({ id, col: cs[0], cols: cs, base: rimMax, h: blocks.length, kind: 'clump' }); for (const b of blocks.sort((p, q) => q.at[1] - p.at[1])) cuts.push({ ...b, pillar: id }); if (under.length) { census.hollows++; out.pits.push({ id: `${id}u`, cols: [...new Set(under.map(a => k2(a.at[0], a.at[2])))].map(q => q.split(',').map(Number)), n: under.length, kind: 'under' }); for (const a of under) fills.push({ ...a, pit: `${id}u` }) } }])
     } else {
       const rimMin = Math.min(...ys)
       const floor = Math.min(...cs.map(([x, z]) => g(x, z)))
@@ -282,8 +304,10 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       if (bad || !blocks.length) { if (bad) skip('smooth_natural'); continue }
       // a crust over a hollow (the bots' 2-high tunnels under the town): a cut would open the hollow, a bot may be in it, and the
       // visit digs before it fills (Codex r1 BLOCKER) -- the column is left, named
-      if (!solidAt(x, m, z)) { skip('smooth_hollow'); continue }
-      order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.smoothed++; const id = `rm${out.pillars.length}`; out.pillars.push({ id, col: [x, z], top: y, base: m, h: blocks.length, kind: 'smooth' }); for (const b of blocks) cuts.push({ ...b, pillar: id }) }])
+      const under = solidAt(x, m, z) ? [] : underFill(x, m, z)
+      if (!under) { skip('smooth_hollow'); continue }
+      if (under.length) for (const b of blocks) b.hollow = under.map(a => a.at)
+      order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.smoothed++; const id = `rm${out.pillars.length}`; out.pillars.push({ id, col: [x, z], top: y, base: m, h: blocks.length, kind: 'smooth' }); for (const b of blocks) cuts.push({ ...b, pillar: id }); if (under.length) { census.hollows++; out.pits.push({ id: `${id}u`, cols: [[x, z]], n: under.length, kind: 'under' }); for (const a of under) fills.push({ ...a, pit: `${id}u` }) } }])
     } else {
       if (m - y > T.fillMax) { skip('smooth_deep'); continue }
       const add = []
@@ -356,3 +380,9 @@ export function inwallFirst ({ rec, nextK, inwallK, now = Date.now(), env = proc
 export const stageTryOrder = (k0, last, first, inwallK) => [...(first ? [inwallK] : []), ...Array.from({ length: Math.max(k0, last) - k0 + 1 }, (_, i) => k0 + i)]
 /** The record's inside-the-wall clock after this siting -> ms | null. Pure: the inwall stage's own siting time, else the one carried. */
 export const inwallAtNext = (cur, body, inwallId = 'inwall') => (body?.stageId === inwallId ? (Number(body?.sitedAt) || null) : (inwallAtOf(cur, inwallId) ?? (Number(body?.inwallAt) || null)))
+/**
+ * ROUGHGROUND-1B: MAY THIS CUT BE DUG NOW? -> bool. Pure. A cut over a hollow (`cut.hollow`: the open cells under it the record fills
+ * after it) only while no body stands in any of them (`bodyAt(cell)`: skills.mjs otherBodyOnCell) -- opening a tunnel a bot is in is
+ * what Codex r1 refused; a cut with no hollow is always clear here (the caller's other checks stand).
+ */
+export const hollowClear = (cut, bodyAt = () => false) => !(Array.isArray(cut?.hollow) && cut.hollow.some(c => Array.isArray(c) && bodyAt(c)))

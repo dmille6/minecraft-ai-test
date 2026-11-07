@@ -94,20 +94,46 @@ await t('a 2x1 hole 1 deep is filled to the ground; water in its rim keeps it', 
   const w = rough(srv)
   assert.deepStrictEqual(w.fill.filter(f => f.at[2] === 5), [], 'water in the rim')
 })
-await t('a raised crust over a hollow (a bot tunnel under the grass) is left, named: a cut would open it with a bot maybe inside (Codex r1 BLOCKER); solid under it, it is cut', async () => {
+await t('1b: a raised crust over a hollow is cut WITH the hollow filled under it, the cut carrying the hollow (dug only while nobody is in it); deeper than fillMax it is left', async () => {
   const srv = server()
   srv.set([12, G + 1, -3], 'grass_block'); srv.set([12, G, -3], 'air'); srv.set([12, G - 1, -3], 'air')
   const r = rough(srv)
-  assert.deepStrictEqual(r.cut, []); assert.deepStrictEqual(r.fill, [])
-  assert.ok(r.skipped.clump_hollow >= 1, JSON.stringify(r.skipped))
-  // the mutant: no hollow guard -> the roof is cut open
-  await withMutant(RG_PATH, "if (!bad && !solidAt(x, rimMax, z)) bad = 'clump_hollow'", '', async M => {
+  assert.deepStrictEqual(r.cut.map(c => c.at.join(',')), [xyz(12, G + 1, -3)])
+  assert.deepStrictEqual(r.fill.map(c => c.at.join(',')).sort(), [xyz(12, G - 1, -3), xyz(12, G, -3)].sort())
+  assert.deepStrictEqual(r.cut[0].hollow, [[12, G - 1, -3], [12, G, -3]])
+  assert.strictEqual(r.census.hollows, 1)
+  // through the stage: the record's cut keeps its hollow, the fills are layered bottom-up after it
+  const st = site(srv)
+  const c = st.record.cut.find(q => q.at.join(',') === xyz(12, G + 1, -3))
+  assert.deepStrictEqual(c.hollow, [[12, G - 1, -3], [12, G, -3]])
+  const segOf = at => st.record.cells.find(q => q.at.join(',') === at.join(',')).seg
+  assert.ok(st.record.segments.find(q => q.seg === segOf([12, G, -3])).deps.includes(segOf([12, G - 1, -3])), 'bottom-up')
+  // the dig-time guard: a body in the hollow holds the cut; none -> clear; a cut with no hollow is never held here
+  assert.strictEqual(RG.hollowClear(c, at => at[1] === G - 1), false)
+  assert.strictEqual(RG.hollowClear(c, () => false), true)
+  assert.strictEqual(RG.hollowClear({ at: [0, G, 0] }, () => true), true)
+  // the mutant: no under-fill -> the crust is left (the 80cf5d5c rule), the hollow never closed
+  await withMutant(RG_PATH, "          const u = underFill(x, rimMax, z)\n", "          const u = null\n", async M => {
     const col = (x, z) => T.tidyColumn(srv.read, x, z, { yHi: HOME.y + 14, yLo: HOME.y - 14 })
     const m = M.surveyRough(srv.read, { home: HOME, box: [-20, -20, 20, 20], col, spoil: T.SPOIL, yLo: HOME.y - 14 })
-    assert.ok(m.cut.some(c => c.at[0] === 12 && c.at[2] === -3), 'mutant opens the hollow')
+    assert.strictEqual(m.fill.length, 0, 'mutant leaves the hollow')
   })
-  const solid = server(); solid.set([12, G + 1, -3], 'grass_block')
-  assert.deepStrictEqual(rough(solid).cut.map(c => c.at.join(',')), [xyz(12, G + 1, -3)], 'control: over solid ground it is cut')
+  // the mutant: the guard ignores the hollow -> a body in it does not hold the cut
+  await withMutant(RG_PATH, "export const hollowClear = (cut, bodyAt = () => false) => !(Array.isArray(cut?.hollow) && cut.hollow.some(c => Array.isArray(c) && bodyAt(c)))", 'export const hollowClear = () => true', async M => {
+    assert.strictEqual(M.hollowClear(c, () => true), true, 'mutant digs over a body')
+  })
+  const deep = server()
+  deep.set([12, G + 1, -3], 'grass_block'); for (let y = G; y >= G - 6; y--) deep.set([12, y, -3], 'air')
+  const d = rough(deep)
+  assert.deepStrictEqual(d.cut, [], 'a hollow deeper than fillMax: the crust stays')
+  assert.ok(d.skipped.clump_hollow >= 1)
+})
+await t('1b wiring: the tidy visit\'s cut check holds a crust cut while a body is in its hollow', async () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
+  const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.ok(/tidyOk: \(q, rd\) => cutSafeNow\(rd, q\.at, tidyWater\(\)\) && !otherBodyOnCell\(bot, q\.at\) && hollowClear\(q, c => otherBodyOnCell\(bot, c\)\)/.test(sk))
+  const td = strip(readFileSync(new URL('../src/tidy.mjs', import.meta.url), 'utf8'))
+  assert.ok(/\.\.\.\(c\.hollow \? \{ hollow: c\.hollow \} : \{\}\)/.test(td), 'tidyRecord keeps the hollow')
 })
 
 console.log('STATIONS')

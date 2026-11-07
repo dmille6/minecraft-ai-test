@@ -43,7 +43,7 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/g
 await t('WIRED: siteStage passes `reserved` to surveyInwall; skills.mjs builds it from the siteprep reservation and hands it to siteStage', () => {
   const td = strip(readFileSync(SRC, 'utf8'))
   // the wallext + access fold: one survey per box inside the walls, each with the reservations and access-01's noStair
-  assert.ok(td.includes('noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk }))'), 'access-01: + noStair, every box')
+  assert.ok(td.includes('noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk, T: { ...INWALL, hollowRough: roughOn(env) } }))'), 'access-01: + noStair, every box (roughground-1b: + hollowRough)')
   assert.ok(td.includes('const reservedP = (x, z) => pp.cols.has(k2(x, z)) || reserved(x, z)'), 'plotprep-01: the site-prep reservation still reaches every rule')
   assert.ok(td.includes('const noStair = accessNoStair(terrace?.records ?? [], { plan, land })'), 'access-01: the refusals built once')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
