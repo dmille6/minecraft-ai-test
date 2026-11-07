@@ -628,7 +628,13 @@ export function ironGapLine (bot, milestone = null) {
     const ingots = n('iron_ingot'), raw = n('raw_iron')
     if (ingots >= 3) return ''
     const short = 3 - ingots
-    const how = raw >= short ? `smelt ${short} raw_iron first (you carry ${raw})` : raw > 0 ? `smelt your ${raw} raw_iron and get ${short - raw} more` : `get ${short} raw_iron (mine or gather iron ore), then smelt it`
+    // A SMELT NEEDS FUEL AND A FURNACE (Codex r1 BLOCKER): name what is missing instead of a smelt that returns no_fuel
+    const items = bot.inventory?.items?.() ?? []
+    const fuel = items.some(i => i?.name !== 'raw_iron' && fuelTicks(i?.name) > 0)
+    const furnace = items.some(i => i?.name === 'furnace')
+    const needs = [fuel ? null : 'fuel (coal, charcoal, logs or planks)', furnace ? null : 'a furnace (carried, or the town\'s)'].filter(Boolean)
+    const smeltNote = needs.length ? ` -- smelting needs ${needs.join(' and ')}` : ''
+    const how = raw >= short ? `smelt ${short} raw_iron first (you carry ${raw})${smeltNote}` : raw > 0 ? `smelt your ${raw} raw_iron and get ${short - raw} more${smeltNote}` : `get ${short} raw_iron (mine or gather iron ore), then smelt it`
     return `IRON PICKAXE NOT YET: it needs 3 iron_ingot + 2 stick and you have ${ingots} iron_ingot -- craft iron_pickaxe fails until then; ${how}`
   } catch { return '' }
 }

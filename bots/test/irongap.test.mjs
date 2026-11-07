@@ -22,6 +22,9 @@ test('ON AN IRON TASK: the gap and the next step are named, from what the bag ho
     assert.match(P.ironGapLine(bag({}), m), /^IRON PICKAXE NOT YET: .*you have 0 iron_ingot .*get 3 raw_iron \(mine or gather iron ore\), then smelt it$/, m.id)
   }
   assert.match(P.ironGapLine(bag({ iron_ingot: 1, raw_iron: 5 }), LAP), /you have 1 iron_ingot .*smelt 2 raw_iron first \(you carry 5\)/)
+  assert.match(P.ironGapLine(bag({ iron_ingot: 1, raw_iron: 5 }), LAP), /smelting needs fuel \(coal, charcoal, logs or planks\) and a furnace/, 'no fuel, no furnace: named')
+  assert.doesNotMatch(P.ironGapLine(bag({ iron_ingot: 1, raw_iron: 5, coal: 4, furnace: 1 }), LAP), /smelting needs/, 'fuel and furnace carried: nothing missing')
+  assert.match(P.ironGapLine(bag({ raw_iron: 5, coal: 4 }), LAP), /smelting needs a furnace/)
   assert.match(P.ironGapLine(bag({ raw_iron: 1 }), LAP), /smelt your 1 raw_iron and get 2 more/)
 })
 test('SILENT: with 3 ingots (CAN CRAFT NOW speaks), off an iron task, and with IRONGAP=0', () => {
