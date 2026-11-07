@@ -5811,6 +5811,32 @@
     ]
    },
    "note": "Fleet .31 24 h to 11-07 13:25Z, 1,920 bot-h, 2,227,473 skill rows, 211,218 decisions. The craft skill does check ingredients (0.5 s); the cost is the decision cycle (veto 17.8 s vs failed gather 23.4 s median to the next decision), and craft repeats 76-88% because the remedy is advice. Gather repeats same bot/block/class within 16 blocks + 10 min: iron_ore 43.2, sand 23.5, oak_log 9.7, coal 7.7 bot-h."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "gklease2-1107",
+   "title": "gklease-02: the tidy's 6-h stuck stamp goes stale once its cells are waived (the fleet tidy collapse after gklease-01), open sky is the surface, the stray sweep's give-up is the town's",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "gkwork-1107.md"
+   ],
+   "state": "open",
+   "next_step": "BUILT 2026-11-07: gklease-02-on-45defefa @ bce7d783 on the live fleet 45defefa; registration ~/mcai-analysis/gklease-02.bce7d783.json + draft entry ~/mcai-analysis/gklease-02.queue-entry.json on the canary host (effectwatch validate: valid). Recommend before or bundled with gkwork-01. Read: towns with 0 tidy visits an hour, tidy placed per bot-h, underground releases, _station_swept per bot-h.",
+   "evidence": {
+    "grep": [
+     "gklease-02"
+    ],
+    "branches": [
+     "gklease-02-on-45defefa"
+    ],
+    "paths": [
+     "docs/reports/gkwork-design-2026-11-07.md"
+    ]
+   },
+   "note": "Fleet tidy places 916/h -> 198-491/h after gklease-01; the stopped towns had 0 visits by any bot for 6 h after a stalled visit's stamp (waived tidy cells were not done for it)."
   }
  ]
 }

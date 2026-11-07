@@ -91,3 +91,20 @@ Showcase: `stage_close` within ~10 min of release, `structure_complete` on the i
 grounds-visit share of term time (from 1.4% / 5.4%) and placed per keeper-h (from 0), `no_work_visit` releases (from 15/24 h),
 `no_work_now` releases named. Fleet: `why=stuck` releases (from 11 of 42 terms), board-b/placebo-b/placebo-d stuck_on_cell
 visits, `op=waived why=stalled:*` counts, tidy placed per bot-h no worse.
+
+## gklease-02 (coordinator question 11-07: does gklease-01's fit rule starve towns?)
+
+Measured fleet 11-06 12Z..11-07 06Z (full walk, 1,647,278 skill rows, 80 bots, 16 towns): tidy places 916/h (17-22Z) ->
+485/491/477/286/198 (23-03Z). Keeper lease held 959 of 960 town-minutes an hour before the promotion, 428-649 after; takes 13-24/h ->
+52-116/h; underground releases 0-5/h -> 33-77/h. **But the collapse is not keeper starvation.** The towns that stopped (hive-d,
+isolated-a, board-c, placebo-c, hive-b) had ZERO tidy visits by ANY bot, keeper or crew, for ~6 h, each right after one STALLED visit
+(stuck_on_cell, nothing else open) wrote the town's 6-h tidy stuck stamp (stamps on disk: hive-d 22:17Z, isolated-a 22:38Z, then
+6-h cycles: placebo-c 04:38Z, board-c 04:16Z). The stamp held although its cells were waived: `recordCellDone` read a waived paths or
+wall cell done, never a waived tidy cell. Positive control: towns with no stamp kept or raised their tidy visits across the same hour
+(board-a 7 -> 197 in 4 h, isolated-c 84 -> 176, placebo-a 0 -> 114, board-d 151 -> 233). The fit rule's own cost is churn: 141 of
+392 underground releases were 9-12 below a plinth-high home (y 73) under open sky (board-c-Alpha afloat in a lake at y 62).
+stations-01: 1,868 failed sweep tries on 342 strays 06-14Z (179 successes), board-a strays 54-58 tries each; the give-up was per bot.
+Branch `gklease-02-on-45defefa` @ bce7d783 (tier 2, rollback GKLEASE2=0): a waived tidy cell is done for the stamp; open sky is the
+surface down to 24 below; the sweep give-up is the town's. gkwork-01 is complementary: its stall waiver past the tenth needs this rule
+to lift the stamp; this rule alone lifts it only where the ordinary waiver still had room. Not fixed: stations hoarded in bags
+(220 -> 539; the town deposit's bank of spares does not keep up) -- not small.
