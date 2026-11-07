@@ -112,5 +112,8 @@ export function lintSkill (code, { known = [] } = {}) {
 export function extractCode (text) {
   const s = String(text ?? '')
   const m = /```(?:javascript|js)?[ \t]*\n([\s\S]*?)```/i.exec(s)
-  return (m ? m[1] : s).trim()
+  if (m) return m[1].trim()
+  // an opening fence whose closing fence never came (the reply hit max_tokens): everything after the opening fence
+  const open = /```(?:javascript|js)?[ \t]*\n([\s\S]*)$/i.exec(s)
+  return (open ? open[1] : s).trim()
 }

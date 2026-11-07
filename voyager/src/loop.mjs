@@ -104,7 +104,7 @@ export class VoyagerLoop {
     const related = this.library.retrieve(task, 5)
     let previous = null, lastWhy = 'no attempt ran'
     for (let round = 1; round <= MAX_ROUNDS && this.running; round++) {
-      const r = await this.llm({ purpose: 'code', system: CODER_SYSTEM, maxTokens: 2500,
+      const r = await this.llm({ purpose: 'code', system: CODER_SYSTEM, maxTokens: 4000,
         messages: [{ role: 'user', content: coderUser({ task, state: this.getBot()?.entity ? observeState(this.getBot()) : state, related, previous }) }] })
       if (!r.ok) { this.log('llm_error', { purpose: 'code', iteration: it, round, error: r.error }); lastWhy = `model error: ${r.error}`; await sleep(20_000); continue }
       const code = extractCode(r.text)

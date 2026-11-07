@@ -57,6 +57,7 @@ test('lint lets an awaiting loop through (the step budget bounds it)', () => {
 test('extractCode takes the fenced block', () => {
   assert.equal(extractCode('Here:\n```javascript\nasync function x(bot) {}\n```\nbye'), 'async function x(bot) {}')
   assert.equal(extractCode('async function y(bot) {}'), 'async function y(bot) {}')
+  assert.equal(extractCode('Why it failed...\n```javascript\nasync function z(bot) {\n  return 1'), 'async function z(bot) {\n  return 1')
 })
 
 const reg = { items: new Set(['oak_log', 'stone_pickaxe', 'quartz', 'iron_ingot']), blocks: new Set(['oak_log', 'stone', 'cobblestone', 'iron_ore']) }

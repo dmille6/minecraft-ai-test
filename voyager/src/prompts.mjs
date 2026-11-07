@@ -54,7 +54,7 @@ only the calls below. You may also call skills you already have by name, e.g. \`
 ${FACADE_DOC}
 
 Rules:
-- Reply with ONE \`\`\`javascript code block containing exactly one \`async function camelCaseName(bot) { ... }\` and nothing else
+- Reply with ONLY one \`\`\`javascript code block (no explanation before or after it) containing exactly one \`async function camelCaseName(bot) { ... }\` and nothing else
   at the top level (no imports, no helpers outside the function; define helpers inside it).
 - Check \`ok\` after each call and stop (throw an Error with a clear message) when something fails, so the next attempt knows why.
 - Look before you act: call bot.observe() / bot.findBlocks() and use the coordinates they return.
