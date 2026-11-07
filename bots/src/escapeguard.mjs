@@ -105,15 +105,16 @@ export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt 
  * Pure. The deep exemption (blocked's) opens the deep part to a deep bot; for ordinary rock that stays, but a mineshaft's planks
  * and rails under a village (showcase-Alpha 11-07 05:39Z, 3 oak_planks at 55,18..20,29) are guarded like the village's own.
  */
-/** BELOW a zone's floor only THESE count as its structure (Claude r1 note 1): the built palette of villages, mineshafts and
- *  chambers -- wood, rails, torches, bricks, glass, wool, terracotta, doors, beds, containers. Natural cave blocks (sculk,
- *  dripstone, amethyst, obsidian) and the bots' own cobblestone pillars stay open in the deep part, as before. */
-export const DEEP_STRUCTURE = /(_planks|_log|_wood|_fence|_fence_gate|rail|torch|lantern|chain|bricks|^bricks|_brick_.*|terracotta|glass|glass_pane|wool|carpet|_door|_trapdoor|_bed|chest|barrel|bookshelf|ladder|^polished_.*|^chiseled_.*|_grate|_bulb|^vault|spawner|crafter|lectern|bell|hay_block|_slab|_stairs|_wall|_sign|banner|^cobweb)$/
+/** BELOW a zone's floor, every non-ordinary block is the zone's EXCEPT these (Claude r1 note 1, Codex r2: an allow-list, not a
+ *  palette -- a palette missed copper and iron bars): natural cave blocks (sculk, dripstone, amethyst, obsidian, magma, lichen,
+ *  roots, cave plants) and the bots' own pillar blocks (cobblestone, cobbled deepslate). They stay open in the deep part, as
+ *  before; everything else built (wood, rails, copper, bars, bricks, glass ...) is guarded at every depth. */
+export const DEEP_NATURAL = /^(cobblestone|cobbled_deepslate|sculk|sculk_vein|sculk_catalyst|sculk_sensor|sculk_shrieker|pointed_dripstone|amethyst_block|budding_amethyst|(small|medium|large)_amethyst_bud|amethyst_cluster|obsidian|crying_obsidian|magma_block|glow_lichen|moss_carpet|hanging_roots|cave_vines|cave_vines_plant|spore_blossom|azalea|flowering_azalea|big_dripleaf|big_dripleaf_stem|small_dripleaf|glow_berries|short_grass|tall_grass|fern|large_fern|dead_bush|vine|seagrass|tall_seagrass|kelp|kelp_plant)$/
 export function zoneStructureAt (zones, c, name) {
   if (typeof name !== 'string' || !name || /(^|_)air$/.test(name) || isOrdinary(name)) return null
   for (const q of (Array.isArray(zones) ? zones : [])) {
     if (c.x >= q.x0 && c.x <= q.x1 && c.y >= q.y0 && c.y <= q.y1 && c.z >= q.z0 && c.z <= q.z1) {
-      if (q.floorY != null && c.y < q.floorY && !DEEP_STRUCTURE.test(name.replace(/^minecraft:/, ''))) continue
+      if (q.floorY != null && c.y < q.floorY && DEEP_NATURAL.test(name.replace(/^minecraft:/, ''))) continue
       return q.floorY != null && c.y < q.floorY ? { kind: 'zone', zone: q.id ?? '?', ordinary: false, deep: true } : { kind: 'zone', zone: q.id ?? '?', ordinary: false }
     }
   }

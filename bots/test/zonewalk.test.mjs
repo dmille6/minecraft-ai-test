@@ -179,6 +179,9 @@ await t('GUARD (Alpha, 11-07 05:39Z): a mineshaft plank deep under the village i
   assert.equal(g?.kind, 'zone'); assert.equal(g.ordinary, false); assert.equal(g.deep, true)
   assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: 'stone', zones: ZONES, feet, zoneWalk: true }), null, 'deep ordinary rock: open (as before)')
   assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: 'rail', zones: ZONES, feet, zoneWalk: true })?.kind, 'zone')
+  for (const n of ['copper_block', 'cut_copper', 'iron_bars', 'stone_bricks', 'oak_fence']) {
+    assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: n, zones: ZONES, feet, zoneWalk: true })?.kind, 'zone', `deep built ${n} is guarded (Codex r2)`)
+  }
   for (const n of ['cobblestone', 'pointed_dripstone', 'amethyst_block', 'sculk', 'obsidian']) {
     assert.equal(EG.guardOf({ cell: { x: 55, y: 19, z: 29 }, name: n, zones: ZONES, feet, zoneWalk: true }), null, `deep ${n} (natural, or a bot's own pillar): open as before (Claude r1 note 1)`)
   }

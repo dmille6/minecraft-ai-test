@@ -6255,9 +6255,12 @@ export async function zoneWalkTry (bot, { handler = '?', yieldTo = () => null, o
   if (!p) return null
   const zone = zoneBoxAt(bot.protectZones?.() ?? [], Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
   if (!zone) return null
+  // OWNERSHIP AFTER EVERY AWAIT (Codex r2): an equip is an await too -- a rescue that took the body during it meets no dig/place
+  const stillOwn = () => !!bot.entity && bot.health > 0 && !yieldTo()
   const dig = async (block) => {
     const tool = bestTool(bot, block)
     if (tool) await bot.equip(tool, 'hand').catch(() => {})
+    if (!stillOwn()) throw new Error('ownership lost before the dig')
     await digBounded(bot, block, WALK_DIG_MS)
   }
   // A BRIDGE IS ORDINARY GROUND ONLY (Codex r1 blocker 1): never cobblestone, planks or logs -- the zone's own palette
@@ -6266,6 +6269,9 @@ export async function zoneWalkTry (bot, { handler = '?', yieldTo = () => null, o
     const item = bridgeItem()
     if (!item) return false
     await bot.equip(item, 'hand').catch(() => {})
+    // THE HELD ITEM IS CHECKED, not assumed (Codex r2): a failed equip must never place whatever was in the hand (planks)
+    if (bot.heldItem?.name !== item.name || !isOrdinary(bot.heldItem?.name ?? '')) return false
+    if (!stillOwn()) return false
     const here = bot.entity.position.floored()
     const ref = bot.blockAt(here.offset(0, -1, 0))
     if (!ref || ref.boundingBox !== 'block') return false
