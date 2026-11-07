@@ -342,3 +342,9 @@ test('wiring: every pour is read back (contain: seal, read again) and an open sp
   const back = /\nasync function deepObsLavaBack \([\s\S]*?\n\}\n/.exec(SK)?.[0] ?? ''
   assert.ok(back.includes('await deepObsContain(bot, o, signal'), 'the lava put back is read back too (Codex r1 B2)')
 })
+test('wiring: a cast trip deepens on its own staircase to the cast level (Paper 11-07: DEEP_OK stopped it at -50)', () => {
+  const a = "const goalY = trip.obs && !trip.obs.off && !trip.obs.done ? OBS_FEET - 1 : DEEP_DEEP_FEET"
+  const b = 'const okY = goalY === DEEP_DEEP_FEET ? DEEP_OK_Y : OBS_FEET'
+  assert.equal(SK.split(a).length, 2, 'ANCHOR MISSING OR NOT UNIQUE'); assert.equal(SK.split(b).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(SK.includes('if (y1 <= okY || trip.deepenStalls >= 3'))
+})
