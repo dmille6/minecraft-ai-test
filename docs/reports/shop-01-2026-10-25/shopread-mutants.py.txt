@@ -250,14 +250,19 @@ M = [
  # market-01 MK1-MK3: the zone, the pad, the block list, the day cap; the run's zone and budget; the sale list; the arm; the kinds
  ("                if any(in_box(b, cell) for b in padded):\n", "                if False:\n"),
  ("[[b[0] - MARKET_PAD, b[1], b[2] - MARKET_PAD, b[3] + MARKET_PAD, b[4], b[5] + MARKET_PAD] for b in", "[list(b) for b in"),
- ("                if f.get('block') not in MARKET_BLOCKS:", "                if False:"),
- ("                if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > MARKET_PER_DAY:", "                if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > MARKET_PER_DAY + 1:"),
+ ("                if f.get('block') not in MARKET_BLOCKS and not bed:", "                if False:"),
  ("                if cell is not None and any(in_box([b[0], -10 ** 6, b[2], b[3], 10 ** 6, b[5]], cell) for b in padded):", "                if False:"),
  ("                if spent > MARKET_SPEND:", "                if spent > MARKET_SPEND + 1:"),
  ("                if f.get('item') not in MARKET_GOODS:", "                if False:"),
  ("            elif name == '_trade' and f.get('op') == 'sell':", "            elif name == '_trade':"),
  ("            if arm != 'canary' or per != 'post':\n                continue\n            padded = ", "            if False:\n                continue\n            padded = "),
  ("+ HUB_KINDS + MARKET_KINDS\n", "+ HUB_KINDS\n"),
+ # market-02: the walk-in allowance without its walkin=1 test; the bed cap off; a bed head counted toward the cap; composter dropped
+ ("                    if f.get('walkin') == '1':\n", "                    if True:\n"),
+ ("                    if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > (MARKET_BEDS_PER_DAY if bed else MARKET_PER_DAY):", "                    if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > (MARKET_BEDS_PER_DAY + 1 if bed else MARKET_PER_DAY):"),
+ ("                if not (bed and f.get('why') == 'bed_head'):\n", "                if True:\n"),
+ ("'cartography_table', 'grindstone', 'composter'])", "'cartography_table', 'grindstone'])"),
+ ("(MARKET_BEDS_PER_DAY if bed else MARKET_PER_DAY):", "(MARKET_BEDS_PER_DAY if bed else MARKET_PER_DAY + 1):"),
 ]
 bad = 0
 for old, new in M:

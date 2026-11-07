@@ -1289,6 +1289,16 @@ def selftest():
     inside = [(T(m), P(15, 15)) for m in range(0, 20)]
     assert still_spells(inside, [box], TRAP_MIN, TRAP_MOVE), 'still inside a box >= 15 min: trapped'
     assert not still_spells([(t, P(30, 30)) for t, _ in inside], [box], TRAP_MIN, TRAP_MOVE), 'still OUTSIDE is not trapped'
+    # market-02 (OWNER 11-07 D1): a WALK-IN TRADING visit -- inside a village zone at most 8 min per trip, never still 4 min
+    # (bots/src/market.mjs WALKIN dwellMs / stillMs) -- is never Z1, even with a refusal inside it (a door the guard would not
+    # open); the rule itself is unchanged: 15 min still with a refusal is trapped (positive control)
+    visit = [(T(m), P(15, 15)) for m in range(0, 4)] + [(T(m), P(18, 15)) for m in range(4, 8)]
+    vref = {'v': [(T(2), 1)]}
+    vsp = {'v': still_spells(visit, [box], TRAP_MIN, TRAP_MOVE, max_gap_min=5)}
+    assert vsp['v'] == [] and trapped_now(vsp, vref, T(8)) == ({}, {}), 'a market visit (<= 8 min, moving every < 4 min) is not trapped'
+    held = [(T(m), P(15, 15)) for m in range(0, 17)]
+    hsp = {'v': still_spells(held, [box], TRAP_MIN, TRAP_MOVE, max_gap_min=5)}
+    assert list(trapped_now(hsp, {'v': [(T(5), 1)]}, T(16))[0]) == ['v'], 'POSITIVE: 16 min still inside with a refusal is trapped'
     # phase 1 item 4, the Gale gap: half the rows carry no bot.pos; a position-less row is not a sample (it neither ends a
     # spell nor counts as "outside"), so a bot standing 40 min at one cell inside the box IS a spell
     gale = sorted([(T(m), P(15, 15)) for m in range(0, 41)] + [(T(m + 0.5), None) for m in range(0, 41)] + [(T(m + 0.7), {}) for m in range(0, 41, 7)])

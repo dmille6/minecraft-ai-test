@@ -189,6 +189,11 @@
 #                      `_trade_seen` row change nothing (not a ROW_KIND). The water bucket a run fills takes one source of open water whose
 #                      8 neighbours are sources (it refills at once): no record cell, no rule. The lists are copied from market.mjs; the
 #                      selftest asserts the copy when bots/src/market.mjs is beside this file's repo.
+#   MK1-MK2 market-02 (11-07, OWNER D1-D2): beds at a village's edge are market job rows too (`block=<colour>_bed`, one row per half,
+#                      the head's `why=bed_head`): outside the zone + MARKET_PAD like every market cell (zone); beds count by their foot
+#                      against MARKET_BEDS_PER_DAY, apart from the job blocks' MARKET_PER_DAY; a composter is a market job block. A
+#                      WALK-IN trade (`_market_run ... walkin=1 zone=<id>`, a market_trip's) may stand INSIDE a village zone: counted
+#                      (market_walkins), never zone -- presence is not a change; a run without walkin=1 there is still zone (TRIP).
 # REPORTED, NOT A GATE: G7 placed_twice (a cell placed twice within 10 min: physically a re-placement after the cell was emptied
 #   -- a repair or a survival dig -- never two blocks in one cell; read r1 both engines).
 #   F2/F4 rows (owner 10-26: every replant skip a counted row): replants moved / deferred / skipped, cells deferred, STUCK ON CELL,
@@ -217,12 +222,14 @@ SURVEY_DIR = os.path.expanduser('~/shopconform/surveys')
 HUB_KINDS = ('_well_dispose', '_storehub_clerk', '_hub_sign', '_enchantshop_sign')   # enchantshop-01 EF1: the workshop's labels too
 # market-01 MK1-MK3 (bots/src/market.mjs MARKET / GOODS / JOB_RECIPES, copied; the selftest asserts the copy)
 MARKET_KINDS = ('_market_job', '_market_run', '_trade')
-MARKET_BLOCKS = frozenset(['smithing_table', 'barrel', 'fletching_table', 'stonecutter', 'cartography_table', 'grindstone'])
+MARKET_BLOCKS = frozenset(['smithing_table', 'barrel', 'fletching_table', 'stonecutter', 'cartography_table', 'grindstone', 'composter'])
+MARKET_BED = re.compile(r'^[a-z_]+_bed$')   # market-02: beds at a village's edge (both halves are rows: the head's says why=bed_head)
 MARKET_GOODS = frozenset(['iron_ingot', 'coal', 'stone', 'stick', 'paper', 'glass_pane', 'wheat', 'potato', 'carrot', 'beetroot', 'pumpkin',
                           'melon', 'flint', 'clay_ball', 'andesite', 'granite', 'diorite', 'dried_kelp_block', 'sweet_berries', 'hay_block',
                           'water_bucket'])
 MARKET_PAD = 3
 MARKET_PER_DAY = 2
+MARKET_BEDS_PER_DAY = 2                 # market-02 WALKIN.bedsPerDay (beds, by their FOOT rows)
 MARKET_SPEND = 8
 BUILD_KINDS = ('_build_mode', '_build', '_build_seg', '_build_visit', '_build_bag', '_structure_complete') + HUB_KINDS + MARKET_KINDS
 ROW_KINDS = BUILD_KINDS + ('craft', 'gather')
@@ -1371,19 +1378,27 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     lists['bag_unjudged'].append('MK1 %s placed with no at=' % bot); out['bag_unjudged'] += 1
                     continue
                 out['market_places'] += 1
-                if f.get('block') not in MARKET_BLOCKS:
+                bed = bool(MARKET_BED.match(f.get('block') or ''))
+                if f.get('block') not in MARKET_BLOCKS and not bed:
                     lists['off_record'].append('%s %s %s market_block' % (bot, ck(cell), f.get('block'))); out['off_record'] += 1
                 if any(in_box(b, cell) for b in padded):
                     lists['zone'].append('%s %s %s market_job' % (bot, ck(cell), f.get('block'))); out['zone'] += 1
-                ts = market_days.setdefault(pool, [])
-                ts.append(r['t'])
-                if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > MARKET_PER_DAY:
-                    lists['off_record'].append('%s %s %s market_cap' % (bot, ck(cell), f.get('block'))); out['off_record'] += 1
+                # the day caps: job blocks (MARKET_PER_DAY) and beds by their foot (MARKET_BEDS_PER_DAY); a bed's head row is its own half
+                if not (bed and f.get('why') == 'bed_head'):
+                    ts = market_days.setdefault((pool, 'bed' if bed else 'job'), [])
+                    ts.append(r['t'])
+                    if len([x for x in ts if (r['t'] - x).total_seconds() < 86400]) > (MARKET_BEDS_PER_DAY if bed else MARKET_PER_DAY):
+                        lists['off_record'].append('%s %s %s market_cap' % (bot, ck(cell), f.get('block'))); out['off_record'] += 1
             elif name == '_market_run':
                 out['market_runs'] += 1
                 cell = xyz_of(f.get('at'))
+                # market-02 (OWNER 11-07 D1): a WALK-IN trade (`walkin=1`, a market_trip's merchant) stands in the village by design --
+                # PRESENCE, never a block change (every block change in a zone stays G3 / S4 / MK1's); a run without it never enters
                 if cell is not None and any(in_box([b[0], -10 ** 6, b[2], b[3], 10 ** 6, b[5]], cell) for b in padded):
-                    lists['zone'].append('%s %s %s market_run' % (bot, ck(cell), f.get('with'))); out['zone'] += 1
+                    if f.get('walkin') == '1':
+                        out['market_walkins'] += 1
+                    else:
+                        lists['zone'].append('%s %s %s market_run' % (bot, ck(cell), f.get('with'))); out['zone'] += 1
                 try:
                     spent = int(f.get('spent') or 0)
                 except ValueError:
@@ -2999,6 +3014,19 @@ def selftest():
     assert o['bag_loss'] == 0 and o['zone'] == 0 and o['off_record'] == 0, 'the canary arm after the cut only (the showcase: every bot)'
     o, l = mk([R('_market_job', 'op=placed block=smithing_table at=46,70,-3'), R('_build', 'project=shop op=unknown cell=5,71,14', s=1)], zones={})
     assert o['zone'] == 0, 'no zones: no zone line'
+    # market-02: a walk-in trade inside the village is PRESENCE (walkin=1), never zone; beds outside the pad, 2 a day by the foot
+    o, l = mk([R('_market_run', 'stop=traded with=librarian L2 at=380,70,-330 goods=coal:15 sold=none earned=0 spent=8 bought=lantern:8 walkin=1 zone=village-taiga-23_-20')], zones={'board-a': [[301, -64, -404, 447, 86, -265]]})
+    assert o['zone'] == 0 and o['market_walkins'] == 1, ('a walk-in trade in the village', dict(o), dict(l))
+    o, l = mk([R('_market_run', 'stop=traded with=librarian L2 at=380,70,-330 goods=coal:15 sold=none earned=0 spent=8 bought=lantern:8 zone=village-taiga-23_-20')], zones={'board-a': [[301, -64, -404, 447, 86, -265]]})
+    assert o['zone'] == 1 and o['market_walkins'] == 0, 'POSITIVE: the same row without walkin=1 is a run inside the village'
+    o, l = mk([R('_market_job', 'op=placed block=white_bed at=40,70,0 cluster=4@60,0 d=20'), R('_market_job', 'op=placed block=white_bed at=41,70,0 cluster=4@60,0 why=bed_head', s=1),
+               R('_market_job', 'op=placed block=white_bed at=40,70,4 cluster=4@60,0 d=20', s=60), R('_market_job', 'op=placed block=white_bed at=41,70,4 cluster=4@60,0 why=bed_head', s=61),
+               R('_market_job', 'op=placed block=composter at=40,70,8 cluster=1@60,0 d=20', s=90), R('_market_job', 'op=placed block=smithing_table at=40,70,12 cluster=1@60,0 d=20', s=95)])
+    assert o['off_record'] == 0 and o['zone'] == 0 and o['market_places'] == 6, ('two beds (four halves) + two job blocks in a day', dict(o), dict(l))
+    o, l = mk([R('_market_job', 'op=placed block=red_bed at=40,70,%d' % (i * 4), s=i * 60) for i in range(3)])
+    assert o['off_record'] == 1 and l['off_record'] == ['board-a-Alpha 40,70,8 red_bed market_cap'], 'the third bed in 24 h'
+    o, l = mk([R('_market_job', 'op=placed block=white_bed at=40,70,0'), R('_market_job', 'op=placed block=white_bed at=46,70,0 why=bed_head', s=1)])
+    assert o['zone'] == 1 and l['zone'] == ['board-a-Alpha 46,70,0 white_bed market_job'], 'a bed half in the pad'
     # THE COPY: market.mjs's lists, when the bots tree is beside this file's repo
     mjs = os.environ.get('SHOPREAD_MARKET') or os.path.join(here, '..', '..', '..', 'bots', 'src', 'market.mjs')
     if os.path.exists(mjs):
@@ -3008,7 +3036,7 @@ def selftest():
         assert gm and jm, 'market.mjs GOODS / JOB_RECIPES not found'
         assert set(re.findall(r'(\w+): \{ keep', gm.group(1))) == set(MARKET_GOODS), 'MARKET_GOODS is not market.mjs GOODS'
         assert set(re.findall(r'^  (\w+): \{', jm.group(1), re.M)) == set(MARKET_BLOCKS), 'MARKET_BLOCKS is not market.mjs JOB_RECIPES'
-        for k, v in (('zonePad', MARKET_PAD), ('jobsPerDay', MARKET_PER_DAY), ('spendPerRun', MARKET_SPEND)):
+        for k, v in (('zonePad', MARKET_PAD), ('jobsPerDay', MARKET_PER_DAY), ('spendPerRun', MARKET_SPEND), ('bedsPerDay', MARKET_BEDS_PER_DAY)):
             assert re.search(r'\b%s: %d,' % (k, v), src_m), 'MARKET.%s is not %d' % (k, v)
     else:
         print('shopread selftest: SKIPPED the market lists vs bots/src/market.mjs check (no market.mjs: set SHOPREAD_MARKET)')
