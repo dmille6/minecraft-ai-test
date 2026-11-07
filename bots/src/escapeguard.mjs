@@ -51,6 +51,11 @@ export const TREEFARM_BAND = [-4, 24]               // a tree-farm column is gua
 /** A row per (cell, why) at most this often per bot (the refusal rows; the counts ride in `_escape_guard` each minute). */
 export const ROW_EVERY_MS = 60_000
 
+/** ESCDEAD-01SHOW (zonewalk.mjs): ZONEWALK=off (0/false/no) restores the base guard -- the deep exemption for structure blocks
+ *  and the last resort's zone digs. Default on. Defined here (zonewalk.mjs imports this file). */
+export const zoneWalkOn = (env = typeof process !== 'undefined' ? process.env : {}) =>
+  !/^(off|0|false|no)$/i.test(String(env?.ZONEWALK ?? 'on').trim())
+
 /** The kill switch. ESCAPEGUARD=off (or 0/false) -> off. Default on. */
 export const escapeGuardOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.ESCAPEGUARD ?? 'on').trim())
 
@@ -73,7 +78,7 @@ const cellOf = p => (finite3(p) ? { x: Math.floor(p.x), y: Math.floor(p.y), z: M
  *   zones          protectzone.mjs's live list; feet the bot's position (the zone's deep exemption)
  *   home           { x, y, z } | null: where an unknown record matters
  */
-export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt = null, home = null } = {}) {
+export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt = null, home = null, zoneWalk = zoneWalkOn() } = {}) {
   const c = cellOf(cell)
   if (!c) return null
   let rec = false
@@ -88,6 +93,14 @@ export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt 
   let z = null
   try { z = zones?.length ? blocked(zones, c.x, c.y, c.z, feet) : null } catch { z = null }
   if (z) return { kind: 'zone', zone: z.id ?? '?', ordinary: isOrdinary(name) }
+  // ESCDEAD-01SHOW rule 1: A STRUCTURE BLOCK IS THE ZONE'S AT EVERY DEPTH. The deep exemption (blocked's) opens the deep part to
+  // a deep bot; for ordinary rock that stays, but a mineshaft's planks and rails under a village (showcase-Alpha 11-07 05:39Z,
+  // 3 oak_planks at 55,18..20,29) are guarded like the village's own blocks.
+  if (zoneWalk && typeof name === 'string' && name && !/(^|_)air$/.test(name) && !isOrdinary(name)) {
+    for (const q of (Array.isArray(zones) ? zones : [])) {
+      if (c.x >= q.x0 && c.x <= q.x1 && c.y >= q.y0 && c.y <= q.y1 && c.z >= q.z0 && c.z <= q.z1) return { kind: 'zone', zone: q.id ?? '?', ordinary: false, deep: true }
+    }
+  }
   return null
 }
 
@@ -96,12 +109,16 @@ export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt 
  *   why on allow:  off | not_survival | unguarded | ordinary | air | last_resort
  *   why on refuse: record | unknown | zone
  */
-export function escapeDigDecision ({ on = true, purpose = 'survival', guard = null, air = false, lastResort = false } = {}) {
+export function escapeDigDecision ({ on = true, purpose = 'survival', guard = null, air = false, lastResort = false, zoneWalk = zoneWalkOn() } = {}) {
   if (!on) return { allow: true, why: 'off' }
   if (purpose !== 'survival') return { allow: true, why: 'not_survival' }
   if (!guard) return { allow: true, why: 'unguarded' }
   if (guard.kind === 'zone' && guard.ordinary) return { allow: true, why: 'ordinary' }
   if (air) return { allow: true, why: 'air' }
+  // ESCDEAD-01SHOW: THE LAST RESORT NEVER DIGS A ZONE'S STRUCTURE (showcase-Nova 11-06: 79,72,-10 plank, 80,77,-8 log). The wait
+  // runs on, the arm retries the walk-out each firing (zonewalk.mjs), `needs_rescue` calls for help; a build record keeps its
+  // last resort. Air first is above this line and unchanged.
+  if (lastResort && zoneWalk && guard.kind === 'zone') return { allow: false, why: 'zone' }
   if (lastResort) return { allow: true, why: 'last_resort' }
   return { allow: false, why: guard.kind }
 }

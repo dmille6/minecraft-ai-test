@@ -182,6 +182,14 @@ function launchBot (llm) {
   if (stopping) throw new Error('stopping: no bot is launched once the cleanup has begun')
   const dir = path.join(RUN, bname)
   for (const d of ['log', 'state', 'pool']) fs.mkdirSync(path.join(dir, d), { recursive: true })
+  // escdead-01show: FM_ZONES = a protected-zones.json in FLEET coordinates (the scene's world): translated by the arena's DX/DZ
+  // into the bot's own pool dir, so the zone guards run over the arena exactly where the scene's zone was (said in the result)
+  if (process.env.FM_ZONES) {
+    const zf = JSON.parse(fs.readFileSync(process.env.FM_ZONES, 'utf8'))
+    const zones = (zf.zones || []).map(q => ({ ...q, box: [q.box[0] + DX, q.box[1], q.box[2] + DZ, q.box[3] + DX, q.box[4], q.box[5] + DZ] }))
+    fs.writeFileSync(path.join(dir, 'pool', 'protected-zones.json'), JSON.stringify({ version: 1, world: 'sandbox', zones }))
+    P_(`zones: ${zones.map(q => `${q.id} box=${q.box.join(',')} floor_y=${q.floor_y}`).join('; ')}`)
+  }
   const env = { ...process.env,
     BOT_NAME: bname, BOT_ROLE: 'gatherer', EXP_INSTANCE: 'sandbox', EXP_BLOCK: 'sandbox', EXP_ARM: 'sandbox', MEMORY_SCOPE: 'checkpoint',
     MEMORY_POOL: `sbxfm-${LABEL}-${slot}`, POOL_STATE_DIR: path.join(dir, 'pool'), MINECRAFT_HOST: '10.0.0.30', MINECRAFT_PORT: String(PORTS[SERVER]),
