@@ -109,10 +109,16 @@ export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
  * peaceful kit, the same switch) -- every one of the kit's plants (peacefulkit.mjs PEACEFUL_COMPOST: no reserve, a
  * peaceful world has no use for them). NEVER_COMPOST still wins over every list.
  */
-export function compostAllowance (items = [], { apples = false, plants = false, saplings = true, farmKeeps = FARM_KEEPS, decorKeeps = DECOR_KEEPS } = {}) {
+// FLOWERS-01 (owner 11-07): THE DECORATOR'S FEED -- a name the decorator keeps (decorKeeps) goes in ABOVE the keep its hook names
+// ({ fern: 8 }: decorator.mjs FLOWER.feedKeep -- the ferns past a fern cell's repair are the bone meal's feed, ~10 a meal). Set by
+// skills.mjs only where the decorator and FLOWERS are on; unset (the fleet, FLOWERS=off) -> null: every kept name stays out, as before.
+let decorFeedNow = () => null
+export const setDecorFeed = fn => { decorFeedNow = typeof fn === 'function' ? fn : () => null }
+export function compostAllowance (items = [], { apples = false, plants = false, saplings = true, farmKeeps = FARM_KEEPS, decorKeeps = DECOR_KEEPS, decorFeed = decorFeedNow() } = {}) {
   const totals = {}
+  const fed = n => !!decorFeed && Number.isFinite(decorFeed[n]) && !!decorKeeps?.has?.(n)
   for (const it of (Array.isArray(items) ? items : [])) {
-    if (decorKeeps?.has?.(it?.name)) continue   // decorator-01: the decorator's flowers
+    if (decorKeeps?.has?.(it?.name) && !fed(it?.name)) continue   // decorator-01: the decorator's flowers (flowers-01: but its feed)
     // `saplings: false` (junkout-01's VISIT fill, Claude r1 P2-5): no sapling goes in -- planting needs > 8 of a species
     if (!it?.name || !(isCompostJunk(it.name) || (saplings && isSapling(it.name)) || (apples && it.name === 'apple') ||
                        (plants && isPeacefulCompost(it.name) && !NEVER_COMPOST.test(it.name)))) continue
@@ -124,7 +130,7 @@ export function compostAllowance (items = [], { apples = false, plants = false, 
     // treefarm-04: where the town tree farm is on, its species keep SAPLING_RESERVE too (the peaceful kit composted every spruce
     // sapling: the showcase's native species, the farm's planting stock)
     const keep = isSapling(name) ? (plants && !(farmKeeps && isFarmSapling(name)) ? peacefulSaplingReserve(name, SAPLING_RESERVE) : SAPLING_RESERVE) : 0
-    const a = isSapling(name) ? n - keep : name === 'apple' ? n - APPLE_RESERVE : n
+    const a = isSapling(name) ? n - keep : name === 'apple' ? n - APPLE_RESERVE : fed(name) ? n - decorFeed[name] : n
     if (a > 0) out[name] = a
   }
   return out

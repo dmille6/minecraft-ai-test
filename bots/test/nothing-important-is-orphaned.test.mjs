@@ -234,6 +234,10 @@ const REQUIRED = [
   'bots/src/decorator.mjs',
   'bots/scripts/decor-offline.mjs',
   'bots/test/decorator.test.mjs',
+  // flowers-01 (11-07): the flower supply + the border upgrade, its test and its Paper proofs
+  'bots/test/flowers.test.mjs',
+  'sandbox/flowers/flower-proof.cjs',
+  'sandbox/flowers/flower-proof2.cjs',
   // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
   'bots/src/blueprints/yard@2.json',
   'bots/scripts/yard-offline.mjs',

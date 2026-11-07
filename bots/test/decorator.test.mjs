@@ -506,7 +506,7 @@ await t('with the decorator on, the flowers leave NEVER_KEEP and the composter n
   assert.ok(off.allium === 2, `POSITIVE CONTROL: the peaceful kit composts flowers with the decorator off ${JSON.stringify(off)}`)
 })
 await t('MUTANT KILLED: a composter that forgets the decorator\'s keep eats the nursery\'s harvest', async () => {
-  await killed(CM_PATH, '    if (decorKeeps?.has?.(it?.name)) continue   // decorator-01: the decorator\'s flowers\n', '', M => {
+  await killed(CM_PATH, '    if (decorKeeps?.has?.(it?.name) && !fed(it?.name)) continue   // decorator-01: the decorator\'s flowers (flowers-01: but its feed)\n', '', M => {
     const on = M.compostAllowance([{ name: 'allium', count: 2 }], { plants: true, decorKeeps: CK.decorKeeps({}, 'showcase') })
     assert.ok(!on.allium)
   })
@@ -717,7 +717,8 @@ const W = [
   /buildRowDetail\(\{ project: SINK_PLOTS\.decor, op: 'clear', cell: t\.at, block: t\.name, kind: 'fern', n: t\.n, gen: decorGen\(\) \}\)/,
   /setCompostDrive\(junk => \{\n\s*if \(!DECORATE\.on\) return false/,
   /if \(!DECOR_POTS_ON \|\| !decorLeaseNow\(bot\) \|\| !potPlantFor\(heldMap\(bot\)\)\) return false/,
-  /if \(g0\?\.want \|\| owed > borderPlantsOf\(heldMap\(bot\)\)\) \{ const nu = await decorNursery\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, g0\?\.want \? DECOR\.batchMax : owed\)/,
+  // flowers-01: the nursery is asked for FLOWERS (the open batch's and the upgrade's), the bag's ferns never answering it
+  /if \(g0\?\.want \|\| flNeed > \(FLOWERS_ON \? flowersOf\(heldMap\(bot\)\) : borderPlantsOf\(heldMap\(bot\)\)\)\) \{ const nu = await decorNursery\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, g0\?\.want \? DECOR\.batchMax : flNeed\)/,
   /if \(tidy && r\.plot === SINK_PLOTS\.decor && decorPotWork\(bot, r\)\) return true/,
   /pressure: kind === 'dress' \? dressPressureNow\(bot\) : kind === 'decor' \? decorPressureNow\(bot\) : pr, openCount/,
   /if \(r\.ok && kind !== 'dress' && kind !== 'decor' && !sinkFundable\(/,

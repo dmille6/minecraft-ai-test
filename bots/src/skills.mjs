@@ -227,8 +227,8 @@ import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { cellGuard } from './towndress.mjs'   // decorator-01: the nursery's guard
 import { dressOrphans } from './towndress.mjs'   // prodserve-01: a light whose host is gone
-import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE, decorBagRole, decorHedgeRole, decorPostRole, leavesOf, fencesOf, HEDGE_LEAVES, decorPostsOn, decorHedgesOn } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off
-import { setCompostDrive } from './composter.mjs'   // decorator-02: the compost drive's hook (townOrder)
+import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure, decorRowDetail, decorSeed, doorwayOf, emptyPots, potPlantFor, borderPlantsOf, localStands, harvestWants, siteNursery, nurseryStill, nurseryDigs, withNursery, decorBase, decorFlowerRole, flowersOwed, decorStalled, decorFernRole, fernTargets, FERN_BLOCKS, decorPotsOn, driveWants, DRIVE, decorBagRole, decorHedgeRole, decorPostRole, leavesOf, fencesOf, HEDGE_LEAVES, decorPostsOn, decorHedgesOn, FLOWER, flowersOn, upgradeWaits, upgradeCandidates, withUpgrade, flowerTargets, nurseryClearing, flowerWork, feedFernNeed, flowersOf, decorUpgradeRole } from './decorator.mjs'   // decorator-01; decorator-02: ferns, the compost drive, pots off; flowers-01: the flower supply + the border upgrade
+import { setCompostDrive, setDecorFeed } from './composter.mjs'   // decorator-02: the compost drive's hook (townOrder); flowers-01: the feed ferns
 import { SMALL_FLOWERS as DECOR_FLOWERS, gatherTargets as decorGatherTargets } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
 import { DECORATE } from './shop.mjs'   // decorator-01: its switch
 import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the service tier's switch; a stop that was no visit
@@ -18026,6 +18026,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
       if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell (wallext-01: the extension's too)
       if (sinkWaived(r, c)) continue   // sinkwaive-01: nor a waived stone-sink cell
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
+      // flowers-01: an upgraded border cell standing its fern while this bot holds no flower waits (decorator.mjs upgradeWaits): no damage
+      if (b && r.plot === SINK_PLOTS.decor && upgradeWaits(c, b, heldMap(bot))) continue
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox, props: c.ws ? b.getProperties?.() ?? null : null }, bp.palette, c.role, c.ws) && !(mon && zigHidden(c, read))) return true
     }
     // stockyard-01 (Claude r1 BLOCK 1): a standing yard with WORK for this bot (yard.mjs yardWork: a bag surplus, the clerk, a
@@ -18036,6 +18038,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (tidy && r.plot === SINK_PLOTS.dress && dressSignWork(bot, r).length) return true
     // decorator-01: a decor record with an empty pot the decorator can fill wants its visit (upkeep: `tidy: false` judges the cells alone)
     if (tidy && r.plot === SINK_PLOTS.decor && decorPotWork(bot, r)) return true
+    // flowers-01: ...and one whose border can be upgraded with a supply step this bot can take (decorFlowerWorkNow) -- upkeep too
+    if (tidy && r.plot === SINK_PLOTS.decor && decorFlowerDue(bot, r)) return true
     // zigtidy-01: a finished ziggurat with climbing pillars on its treads wants a visit too (the tidy), until each pillar block has
     // been offered ZIG_TIDY_VISITS visits of this bot
     if (tidy && mon && zigTidyNow(bot, r, read).length) return true
@@ -23137,8 +23141,10 @@ export function decorLeaseNow (bot, now = Date.now()) {
  *  (SINK.noSiteMs) and the town's (sinks.mjs TOWN_NOSITE_MS), the no-site stamps every sink reads; while it holds the decor wants no
  *  decorator (decorOrder: the lease is let go, no other bot takes it). One `_decor op=stall` row. */
 function decorStall (bot, why) {
-  bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [SINK_PLOTS.decor]: Date.now() + SINK.noSiteMs }
+  bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [SINK_PLOTS.decor]: Date.now() + SINK.noSiteMs, [FLOWER_STALL]: Date.now() + FLOWER_STALL_MS }
   townNoSiteWrite(SINK_PLOTS.decor)
+  townNoSiteWrite(FLOWER_STALL)   // flowers-01: the flower work's own stamp (decorFlowerWorkNow reads it): the decorator is let go
+  bot.decorFlowerCache = null
   try { logEvent({ kind: 'decor', status: 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'stall', why }) }) } catch { /* telemetry */ }
 }
 function decorOrder (bot, states, list, now = Date.now()) {
@@ -23146,7 +23152,9 @@ function decorOrder (bot, states, list, now = Date.now()) {
   const i = states.findIndex(s => s?.plot === SINK_PLOTS.decor)
   if (i < 0) return list
   // a stalled decor (decorStall: this bot's or the town's stamp) wants no decorator until it lapses
-  const stalled = now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), SINK_PLOTS.decor)
+  // flowers-01: ...but the FLOWER work (an upgrade with a supply step: decorFlowerDue, under its own stall stamp FLOWER_STALL) is not
+  // held by the siting's wait -- the paths' sides are all used (LIVE 11-07: no_site_wait 3,870 of 4,535 picks in 7 d), the upgrade is not
+  const stalled = now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), SINK_PLOTS.decor) && !(states[i]?.due && decorFlowerDue(bot, decorRecNow()))
   const work = decorWanted(states[i]) && !stalled
   const k = decorState(bot, work, now)
   let d = k.d
@@ -23184,6 +23192,7 @@ function decorWildFerns (bot, now = Date.now()) {
 }
 /** decorator-02: the bag's flowers and ferns apart (the batch's flower runs and fern clusters). Pure over the map. */
 const decorFlowersOf = held => DECOR_FLOWERS.reduce((t, n) => t + Math.max(0, Number(held?.[n]) || 0), 0)
+const FLOWER_SET_SK = new Set(DECOR_FLOWERS)   // flowers-01: a nursery dig that is a bloom (the rest is its grass)
 // decorator-02: THE COMPOST DRIVE (composter.mjs townOrder's hook): any bot at town whose bag holds DRIVE.feedMin composter junk
 // composts it, whatever its fullness, while the town's bone meal is under DRIVE.target (decorator.mjs driveWants). Only with the
 // decorator on in this pool (the fleet: the hook answers false, townOrder exactly as before).
@@ -23191,6 +23200,74 @@ setCompostDrive(junk => {
   if (!DECORATE.on) return false
   try { const b = activeMem?.bot ?? null; const t = b ? matsTownStock(b) : null; return driveWants({ junk, townMeal: t ? Number(t.stock?.bone_meal) || 0 : null, coverage: t?.coverage ?? 0 }) } catch { return false }
 })
+// FLOWERS-01 (OWNER 11-07: "lawns with flowers and tall grass scattered, paths edged with flowers"; decorator.mjs FLOWER): the switch
+// (FLOWERS, default on -- only where the decorator is on), the compost drive's FEED (the bag's ferns above FLOWER.feedKeep go in: ~10 a
+// bone meal), the wild flowers in reach, and the decor's FLOWER WORK for this bot (the border upgrade wanting a supply step it can take).
+const FLOWERS_ON = flowersOn(process.env)
+setDecorFeed(() => (DECORATE.on && FLOWERS_ON ? { fern: FLOWER.feedKeep } : null))
+/** The decor's flower-work stall (a flower visit that changed nothing): the town stamp of this pseudo-kind (sinks.mjs TOWN_NOSITE_MS). */
+const FLOWER_STALL = 'decor_flowers'
+const FLOWER_STALL_MS = 2 * 60 * 60_000   // the bot's own copy of the town's stamp (sinks.mjs TOWN_NOSITE_MS) when the file cannot be written
+/** The decor record now (its head). Never throws (null). */
+const decorRecNow = () => { try { return recordHead(townDir(), decorKey()).head?.rec ?? null } catch { return null } }
+/** flowers-01: the wild small flowers within FLOWER.wildR of home the bot sees -> [{ at, name }] (findBlocks, at most 64), the bot's own
+ *  scan cached 10 min (the count) -- the pick itself scans again. Never throws ([]). */
+function decorWildFlowerCands (bot) {
+  try {
+    const ids = DECOR_FLOWERS.map(x => bot.registry?.blocksByName?.[x]?.id).filter(Number.isFinite)
+    const home = planHomeP()
+    const found = ids.length ? (bot.findBlocks?.({ matching: ids, maxDistance: FLOWER.wildR + 8, count: 64, point: new Vec3(home.x, home.y, home.z) }) ?? []) : []
+    return found.map(v => ({ at: [v.x, v.y, v.z], name: bot.blockAt?.(v)?.name })).filter(q => q.name)
+  } catch { return [] }
+}
+/** flowers-01: the decor's nurseries now and before (their centres: the wild pick leaves their spread to the nursery's harvest). Pure. */
+const decorNurseryCentres = rec => [rec?.nursery?.at, ...(rec?.nurseries ?? []).map(q => q?.at)].filter(a => Array.isArray(a) && a.length === 3)
+/** flowers-01: the wild flowers a pick may take now (decorator.mjs flowerTargets over the bot's view) -> [{ at, name }]. Never throws ([]). */
+function decorWildTargets (bot, rec, { from = null, want = FLOWER.wildWant } = {}) {
+  try {
+    const c = shopCtx(bot), h = townPlanHead(bot)
+    if (!c.zonesKnown || !h.ok || !h.head) return []
+    const guard = cellGuard(projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head?.rec).filter(Boolean))
+    const reserved = decorReservedFor(c, { ...h.head.plan, gen: h.head.gen })
+    return flowerTargets(decorWildFlowerCands(bot), { read: tidyRead(bot), reserved, guard, home: planHomeP(), from, inside: decorInside(), nurseries: decorNurseryCentres(rec), want })
+  } catch { return [] }
+}
+/**
+ * flowers-01: THE DECOR'S FLOWER WORK FOR THIS BOT -> { want, why, cands, owed } (decorator.mjs flowerWork over the record's upgrade
+ * candidates and upgraded cells still standing their fern, the bag's flowers, the bone meal it can use, its composter feed, the wild
+ * flowers in reach, the feed ferns it could cut). Off (FLOWERS / the decorator), or under the town's flower-stall stamp: no work.
+ * Cached 60 s on the bot per record generation. Never throws.
+ */
+function decorFlowerWorkNow (bot, rec, now = Date.now()) {
+  const none = why => ({ want: false, why, cands: [], owed: 0 })
+  if (!FLOWERS_ON || !DECORATE.on || !bot || !rec) return none('off')
+  const c0 = bot.decorFlowerCache
+  if (c0 && c0.gen === rec.gen && now - c0.at < 60_000) return c0.v
+  let v
+  try {
+    if (now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), FLOWER_STALL)) v = none('stalled')
+    else {
+      const read = tidyRead(bot)
+      const cands = upgradeCandidates(rec, read, { held: decorHeldNow() })
+      const owed = (rec.cells ?? []).filter(q => decorUpgradeRole(q.role) && !DECOR_FLOWERS.includes(String(read(...q.at)?.name ?? ''))).length
+      const h = heldMap(bot)
+      const t = matsTownStock(bot)
+      const townMeal = t && (t.coverage ?? 0) >= 0.8 ? Number(t.stock?.bone_meal) || 0 : null
+      const meal = (Number(h.bone_meal) || 0) + (townMeal != null ? Math.max(0, townMeal - NURSERY.mealKeep) : 0)
+      const feed = compostPlan(bot.inventory?.items?.() ?? [], { apples: false, plants: false, saplings: false }).junk
+      const shears = countItem(bot, 'shears') > 0 || countItem(bot, 'iron_ingot') + (Number(t?.stock?.iron_ingot) || 0) >= 2
+      // the wild flowers in reach: the bot's own scan, cached 10 min (decorWildFerns' rule)
+      if (!(bot.decorWildScan && now - bot.decorWildScan.at < 10 * 60_000)) bot.decorWildScan = { at: now, n: cands.length || owed ? decorWildTargets(bot, rec, { want: 1 }).length : 0 }
+      const wild = bot.decorWildScan.n
+      const w = flowerWork({ cands: cands.length, owed, flowers: flowersOf(h), meal, feed, wild, wildFerns: decorWildFerns(bot), shears, townMeal })
+      v = { ...w, cands, owed }
+    }
+  } catch { v = none('unread') }
+  bot.decorFlowerCache = { at: now, gen: rec.gen, v }
+  return v
+}
+/** flowers-01: the decor wants its decorator for its flower work (recordDamaged's `due`; decorOrder's stall bypass). Never throws. */
+const decorFlowerDue = (bot, rec) => { try { return decorFlowerWorkNow(bot, rec).want } catch { return false } }
 /** WHERE AN ORNAMENT (or the nursery's reach) MAY NOT BE -> reserved(x, z) -> reason | null: the dress's reservations (towndress-01
  *  dressReservedFor: zones, wells, the farm, the plan's cells and keepouts, the land plan's corridors, the markers, a hall pad, a prep
  *  plot) and the land plan's PARK (+1: the groundskeeper's garden). Throws on an unreadable file (the visit stops). */
@@ -23314,7 +23391,8 @@ async function decorNursery (ctx, rec0, signal, deadline, need = DECOR.batchMax)
   const { bot } = ctx
   const out = { meals: 0, blooms: 0, grass: 0, sited: 0, why: null }
   const held0 = heldMap(bot)
-  if (borderPlantsOf(held0) >= need) return { ...out, why: 'enough' }
+  // flowers-01 (Codex design): the bag's FLOWERS answer the need -- its ferns never did (the fern gather ran first and filled it)
+  if ((FLOWERS_ON ? flowersOf(held0) : borderPlantsOf(held0)) >= need) return { ...out, why: 'enough' }
   const dir = townDir(), key = decorKey(), home = planHomeP(), me = keeperMe(bot)
   const c = shopCtx(bot), h = townPlanHead(bot)
   if (!c.zonesKnown || !h.ok || !h.head) return { ...out, why: 'no_plan' }
@@ -23343,7 +23421,7 @@ async function decorNursery (ctx, rec0, signal, deadline, need = DECOR.batchMax)
   const e = decorEffects(bot, signal)
   try {
     const dig = async (q, kind) => {
-      if (out.blooms + out.grass >= NURSERY.harvestMax || deadline - Date.now() < 20_000) return false
+      if (out.blooms + out.grass >= (FLOWERS_ON ? FLOWER.harvestMax : NURSERY.harvestMax) || deadline - Date.now() < 20_000) return false
       if (kind === 'bloom' && !harvestWants(heldMap(bot), q.name)) return true
       await e.walkTo(q.at)
       check(signal)
@@ -23362,14 +23440,23 @@ async function decorNursery (ctx, rec0, signal, deadline, need = DECOR.batchMax)
     const meals = Math.min(want, countItem(bot, 'bone_meal'))
     for (let i = 0; i < meals; i++) {
       if (deadline - Date.now() < 30_000) break
-      for (const q of nurseryDigs(tidyRead(bot), nursery, { guard }).grass) if (!(await dig(q, 'grass'))) break
+      // flowers-01 (Paper 11-07: a meal lands only on open cells over grass and a covered centre REFUSES it): the WHOLE spread is cleared
+      // first (decorator.mjs nurseryClearing: every bloom and grass within NURSERY.spread, the core first; the grass cut with shears is the
+      // composter's feed) and the meal waits until the centre and FLOWER.coreOpen of the core are open
+      if (FLOWERS_ON) {
+        for (const q of nurseryClearing(tidyRead(bot), nursery, { guard }).digs) if (!(await dig(q, FLOWER_SET_SK.has(q.name) ? 'bloom' : 'grass'))) break
+        if (!nurseryClearing(tidyRead(bot), nursery, { guard }).ready) { out.why = 'not_clear'; break }
+      } else for (const q of nurseryDigs(tidyRead(bot), nursery, { guard }).grass) if (!(await dig(q, 'grass'))) break
       const ctr = nursery.at
       if (String(tidyRead(bot)(...ctr)?.name ?? '') !== 'grass_block') { out.why = 'centre_gone'; break }
       await e.walkTo([ctr[0], ctr[1] + 1, ctr[2]])
       check(signal)
       if (!digReachFrom(e.feet(), ctr)) { out.why = 'unreached'; break }
+      const m0 = countItem(bot, 'bone_meal')
       const v = await decorClick(e, ctr, 'bone_meal')
       if (v !== 'acked') { out.why = `meal_${v}`; break }
+      // flowers-01: a meal is one the server SPENT (Paper: a refused meal is acked and kept) -- else the visit stops, no meal row
+      if (FLOWERS_ON) { await sleep(300, signal); if (countItem(bot, 'bone_meal') >= m0) { out.why = 'meal_refused'; break } }
       out.meals++
       try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'meal', cell: ctr, block: 'bone_meal', kind: 'use', gen: decorGen() }) }) } catch { /* telemetry */ }
       await sleep(600, signal)
@@ -23440,6 +23527,40 @@ async function decorFerns (ctx, signal, deadline, need) {
   } finally { try { e.close() } catch { /* gone */ } }
   try { logEvent({ kind: 'decor', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'ferns', want: need, n, targets: targets.length, why: `cands:${cands.length}`, ferns: countItem(bot, 'fern') }) }) } catch { /* telemetry */ }
   return { n, why: n ? 'gathered' : 'unreached' }
+}
+/**
+ * flowers-01: THE WILD FLOWER PICK (the cheapest flower: one dig, no meal) -> { n, why }. The small flowers in the bot's view within
+ * FLOWER.wildR of home (decorator.mjs flowerTargets: never a reserved column -- the protected villages, the plan, the park --, a record's
+ * column or cell, inside the walls, or a nursery's spread), nearest first, at most FLOWER.wildMax and `need`; each walked into (no
+ * collision), dug by hand (a flower drops itself), `_build op=clear project=decor kind=wild` (the read's DC6). Never throws but an abort.
+ */
+async function decorWildPick (ctx, rec, signal, deadline, need) {
+  const { bot } = ctx
+  if (need <= 0 || deadline - Date.now() < 40_000) return { n: 0, why: 'no_time' }
+  const e = decorEffects(bot, signal)
+  const targets = decorWildTargets(bot, rec, { from: e.feet(), want: need })
+  if (!targets.length) { try { e.close() } catch { /* gone */ } return { n: 0, why: 'none' } }
+  const read = tidyRead(bot)
+  let reserved = () => null
+  try { const c = shopCtx(bot), h = townPlanHead(bot); if (h.ok && h.head) reserved = decorReservedFor(c, { ...h.head.plan, gen: h.head.gen }) } catch { return { n: 0, why: 'guard_unread' } }
+  let n = 0
+  try {
+    for (const t of targets) {
+      if (deadline - Date.now() < 25_000) break
+      await e.walkTo(t.at)
+      check(signal)
+      if (reserved(t.at[0], t.at[2]) || String(read(...t.at)?.name ?? '') !== t.name || !digReachFrom(e.feet(), t.at)) continue
+      const before = countItem(bot, t.name)
+      const v = await e.dig(t.at, t.name)
+      if (v !== 'confirmed') continue
+      await sleep(450, signal)   // the drop is picked up where the bot stands
+      n += Math.max(0, countItem(bot, t.name) - before)
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'clear', cell: t.at, block: t.name, kind: 'wild', gen: decorGen() }) }) } catch { /* telemetry */ }
+    }
+  } finally { try { e.close() } catch { /* gone */ } }
+  try { logEvent({ kind: 'decor', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'wild', want: need, n, targets: targets.length, flowers: flowersOf(heldMap(bot)) }) }) } catch { /* telemetry */ }
+  bot.decorWildScan = null   // scanned again at the next work read
+  return { n, why: n ? 'picked' : 'unreached' }
 }
 /**
  * decorator-03: THE HEDGE'S LEAVES -> { n }. Shears (decorShears); natural (persistent=false) leaf blocks the ground reaches, within
@@ -23625,7 +23746,15 @@ async function buildSink (ctx, args, signal, proj) {
       // decorator-02 (OWNER 11-05 "yes"): the FERN GATHER first -- the ferns the open batch's clusters owe, or the bag filled to
       // DECOR.fernWant before a next batch -- with shears (crafted from 2 of the town's iron)
       const owedFerns = rec0 ? (rec0.cells ?? []).filter(q => decorFernRole(q.role) && !buildCellDone(rd0(...q.at), rec0.palette ?? {}, q.role)).length : 0
-      const fernNeed = Math.max(owedFerns - (Number(heldMap(bot).fern) || 0), g0?.want ? DECOR.fernWant - (Number(heldMap(bot).fern) || 0) : 0)
+      // flowers-01: THE FLOWER WORK (decorFlowerWorkNow: the border's upgrade candidates, its upgraded cells still standing a fern) -- the
+      // flowers it can take, the WILD PICK first (the cheapest: one dig a flower), and the FEED FERNS for the composter's bone meal (the
+      // nursery's meals) while the town's meal is under DRIVE.target
+      const fw = FLOWERS_ON && rec0 ? decorFlowerWorkNow(bot, rec0) : { want: false, cands: [], owed: 0 }
+      const flWant = fw.cands.length + fw.owed
+      if (flWant > flowersOf(heldMap(bot)) && rec0) { const wp = await decorWildPick(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, Math.min(FLOWER.wildWant, flWant - flowersOf(heldMap(bot)))); if (wp.n) f.blooms = (f.blooms ?? 0) + wp.n }
+      const tFeed = flWant > 0 ? matsTownStock(bot) : null
+      const feedNeed = flWant > 0 ? feedFernNeed({ held: heldMap(bot), townMeal: tFeed && (tFeed.coverage ?? 0) >= 0.8 ? Number(tFeed.stock?.bone_meal) || 0 : null, work: true }) : 0
+      const fernNeed = Math.max(owedFerns - (Number(heldMap(bot).fern) || 0), g0?.want ? DECOR.fernWant - (Number(heldMap(bot).fern) || 0) : 0, feedNeed)
       // Claude tripwire r1 BLOCKER: the record (and its home) is published BEFORE the first fern is cut (decorator.mjs decorBase), so the
       // read's DC4 finds a generation in force at every fern row; an unpublishable record cuts nothing
       let based = !!rec0
@@ -23639,11 +23768,31 @@ async function buildSink (ctx, args, signal, proj) {
       const postOwed = Math.ceil(owedOf(decorPostRole) / 2)
       const postNeed = DECOR_POSTS_ON ? Math.max(postOwed, g0?.want ? DECOR.postsMax : 0) : 0
       if (postNeed > 0) { const pk = await decorPostKit(ctx, signal, postNeed, rec0, postOwed); if (pk) f.pots = (f.pots ?? 0) + pk }
-      if (g0?.want || owed > borderPlantsOf(heldMap(bot))) { const nu = await decorNursery(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, g0?.want ? DECOR.batchMax : owed); f.meals = nu.meals; f.blooms = (f.blooms ?? 0) + nu.blooms }
+      // flowers-01 (Codex design: "fern gathering precedes nursery work and satisfies its enough test"): the nursery is asked for FLOWERS
+      // -- the open batch's flower cells and the upgrade's -- never satisfied by the bag's ferns
+      const owedFl = rec0 ? (rec0.cells ?? []).filter(q => decorFlowerRole(q.role) && !decorFernRole(q.role) && !buildCellDone(rd0(...q.at), rec0.palette ?? {}, q.role)).length : 0
+      const flNeed = FLOWERS_ON ? Math.max(owedFl, flWant) : owed
+      if (g0?.want || flNeed > (FLOWERS_ON ? flowersOf(heldMap(bot)) : borderPlantsOf(heldMap(bot)))) { const nu = await decorNursery(ctx, rec0, signal, t0 + budget - ZIG_VISIT_TAIL_MS, g0?.want ? DECOR.batchMax : flNeed); f.meals = nu.meals; f.blooms = (f.blooms ?? 0) + nu.blooms }
       // decorator-02: THE COMPOST DRIVE -- the nursery's grass (cut with shears: items) and any other composter junk in the bag goes
       // into the town composter now, whatever the bag's fullness (the composter's own skill, its own rows)
       if (deadline0(t0, budget) && compostPlan(bot.inventory?.items?.() ?? [], { apples: false, plants: false, saplings: false }).junk >= DRIVE.feedMin) {
         try { const cr = await compost(ctx, { drive: true }, signal); if (cr?.status === 'success') f.composted = 1 } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
+      // flowers-01: THE UPGRADE -- as many fern cells as the bag's flowers cover (the upgraded cells still waiting take the first), at most
+      // FLOWER.upgradeMax, re-roled on the record (decorator.mjs withUpgrade, read again inside the publish); the record reads damaged for
+      // this bot now (it holds the flowers) and the visit's build below places them -- each flower replacing its fern (Paper P2)
+      if (FLOWERS_ON && rec0 && fw.cands.length) {
+        const fl = flowersOf(heldMap(bot)) - fw.owed
+        if (fl > 0) {
+          let n = 0
+          const pub = publishRecord(dir, key, cur => { const nx = cur ? withUpgrade(cur, upgradeCandidates(cur, tidyRead(bot), { held: decorHeldNow() }), { flowers: fl }) : null; n = nx ? nx.cells.filter((q, i) => q.role !== cur.cells[i]?.role).length : 0; return nx }, { by: me })
+          if (pub.result === 'accepted' && n) {
+            f.upgraded = n
+            bot.shopDamage = null
+            bot.decorFlowerCache = null
+            try { logEvent({ kind: 'decor', status: 'success', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'upgrade', n, flowers: flowersOf(heldMap(bot)), gen: pub.gen }) }) } catch { /* telemetry */ }
+          }
+        }
       }
     } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
     check(signal)
@@ -23805,7 +23954,8 @@ async function buildSink (ctx, args, signal, proj) {
     // are the label writer's -- runVisit reads them done
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
     // prodserve-01: ...and its waived (host-gone) lights
-    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : {}
+    // flowers-01: an upgraded border cell standing its fern while the bag holds no flower is done for the visit (decorator.mjs upgradeWaits)
+    const leave0 = kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : kind === 'decor' ? { alsoDone: (q, rd2) => upgradeWaits(q, (rd2 ?? read)(...q.at), heldMap(bot)) } : {}
     // sinkwaive-01: a waived stone-sink cell is done for the visit (runVisit alsoDone); dress keeps its own alsoDone
     const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
