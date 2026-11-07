@@ -37,6 +37,7 @@ const REQUIRED = [
   // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
   'bots/src/fewerdec.mjs',
+  'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/fewerdec.test.mjs',
   'bots/src/escapeguard.mjs',

@@ -169,6 +169,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
+import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
@@ -23424,10 +23425,15 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   // GKLEASE-01 (groundskeeper.mjs groundsLeaseCheck): a holder that cannot work the grounds from where it is (in a mine, away), or
   // that has done no grounds work for GK_FIT.idleMs, lets the lease go and rests; an unfit bot never takes it
   const unfit = gkUnfitNow(bot)
+  // GKSTAY-01: a HOLDER is released as unfit only after GK_FIT's UNFIT_HOLD_MS of it without a break (a dirt pit, the stepwell's
+  // descent: no hand-off); a take still needs the bot fit now
+  const up = unfitPersist(bot.gkUnfitSince ?? null, unfit, now)
+  bot.gkUnfitSince = up.since
+  const unfitHeld = up.held ? unfit : null
   // (release fold, Codex BLOCKER) never while this holder is IN a grounds visit: the visit ends first, the next check decides
   const inGrounds = !!bot.shopVisitBusy && (bot.shopVisitPlot === TIDY_PLOT || bot.shopVisitPlot === FOREST_PLOT)
   if (GKL_ON && (d === 'mine' || d === 'take') && !(d === 'mine' && inGrounds)) {
-    const c = groundsLeaseCheck({ d, unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
+    const c = groundsLeaseCheck({ d, unfit: d === 'mine' ? unfitHeld : unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
     if (c.release) { releaseKeeper(bot, k.lease, c.release, now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' } else if (d === 'take' && !c.take) d = 'none'
   }
   // decorator-01: the decorator never takes a grounds lease (one role a bot)
@@ -23436,8 +23442,9 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   // gkhelpers-01: another bot keeps the grounds -- this one helps when a helper lease is its own or free (build_shop takes it)
   // gklease-01: an unfit helper lets its helper lease go (and rests); an unfit bot never helps
   if (d === 'other') {
+    // gkstay-01: a holding helper keeps its role until the persisted release
     const h = crewState(bot, work, now)
-    if (GKL_ON && unfit && h.d === 'mine' && !inGrounds) { releaseHelper(bot, h.name, h.helpers?.[h.name]?.gen ?? null, unfit, now); bot.gkHelpRestUntil = now + GK_FIT.restMs } else if (!(GKL_ON && unfit) && (h.d === 'mine' || (h.d === 'take' && !decorHeld))) d = 'helper'
+    if (GKL_ON && unfitHeld && h.d === 'mine' && !inGrounds) { releaseHelper(bot, h.name, h.helpers?.[h.name]?.gen ?? null, unfitHeld, now); bot.gkHelpRestUntil = now + GK_FIT.restMs } else if (h.d === 'mine' || (h.d === 'take' && !decorHeld && !(GKL_ON && unfit))) d = 'helper'
   }
   // forest-01: a forest visit that did nothing rests the forest for this keeper (forestIdleUntil): the tidy goes on meanwhile
   if (forestPlot && now < (bot.forestIdleUntil ?? 0)) { const fi = states.findIndex(q => q?.plot === forestPlot); if (fi >= 0) states[fi] = { ...states[fi], idle: true } }

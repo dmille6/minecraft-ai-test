@@ -103,7 +103,7 @@ console.log('WIRING (source, comments stripped)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const wiring = src => {
   const one = re => { const m = src.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
-  one("const c = groundsLeaseCheck\\(\\{ d, unfit, idle: d === 'mine' && groundsIdle\\(\\{ term0: Number\\(k\\.lease\\?\\.rec\\?\\.meta\\?\\.term0 \\?\\? k\\.lease\\?\\.rec\\?\\.at\\), workAt: bot\\.gkWorkAt \\?\\? null, spawnAt: bot\\.shopSpawnAt \\?\\? null, now \\}\\) \\}\\)")
+  one("const c = groundsLeaseCheck\\(\\{ d, unfit: d === 'mine' \\? unfitHeld : unfit, idle: d === 'mine' && groundsIdle\\(\\{ term0: Number\\(k\\.lease\\?\\.rec\\?\\.meta\\?\\.term0 \\?\\? k\\.lease\\?\\.rec\\?\\.at\\), workAt: bot\\.gkWorkAt \\?\\? null, spawnAt: bot\\.shopSpawnAt \\?\\? null, now \\}\\) \\}\\)")
   one("if \\(c\\.release\\) \\{ releaseKeeper\\(bot, k\\.lease, c\\.release, now\\); bot\\.gkRestUntil = now \\+ GK_FIT\\.restMs; d = 'none' \\} else if \\(d === 'take' && !c\\.take\\) d = 'none'")
   one("const st1 = GKL_ON && d === 'mine' && work \\? keeperGroundsFirst\\(r\\.states, \\{ grounds: \\[TIDY_PLOT[^\\]]*\\] \\}\\) : r\\.states")
   one("for \\(let i = 0; i < states\\.length; i\\+\\+\\) states\\[i\\] = st1\\[i\\]")
@@ -135,7 +135,7 @@ await t('release fold (Codex BLOCKER): the lease is never released under a RUNNI
   const wired = src => /ctx\.bot\.shopVisitBusy = true\n\s*try \{ r = await buildShopVisit\(ctx, args, signal\) \}[^\n]*finally \{ ctx\.bot\.shopVisitBusy = false \}/.test(src) &&
     /const inGrounds = !!bot\.shopVisitBusy && \(bot\.shopVisitPlot === TIDY_PLOT \|\| bot\.shopVisitPlot === FOREST_PLOT\)/.test(src) &&
     /if \(GKL_ON && \(d === 'mine' \|\| d === 'take'\) && !\(d === 'mine' && inGrounds\)\) \{/.test(src) &&
-    /if \(GKL_ON && unfit && h\.d === 'mine' && !inGrounds\) \{/.test(src)
+    /if \(GKL_ON && unfitHeld && h\.d === 'mine' && !inGrounds\) \{/.test(src)
   assert.ok(wired(strip(raw)), 'the busy mark and both guards are wired')
   const old = " && !(d === 'mine' && inGrounds)) {"
   assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
