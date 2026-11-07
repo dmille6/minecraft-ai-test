@@ -105,6 +105,8 @@ const REQUIRED = [
   'bots/test/handcap.test.mjs',
   'bots/src/escdead.mjs',  // escdead-01 (11-06): the wide swim, the flood-in breach, the pin clock (phase 2.3)
   'bots/test/escdead.test.mjs',
+  'bots/test/escpocket.test.mjs',
+  'bots/test/fixtures/escpocket-isolated-d-358_58_180-1107.json',
   'bots/test/fixtures/escdead-isolated-d-358_58_180-1106.json',
   'bots/test/fixtures/escdead-hive-c-124_52_64-1106.json',
   'docs/reports/escdead-design-2026-11-06.md',

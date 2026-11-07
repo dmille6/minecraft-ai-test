@@ -45,6 +45,7 @@ import path from 'node:path'
 import { config } from './config.mjs'
 import { log } from './logger.mjs'
 import { DEATH_KIND_PREFIX, isDeathSite, effectiveCount, DEATH_SITE_RADIUS, DEATH_SITE_DY } from './deathsites.mjs'
+import { TRAP_KIND, TRAP_TTL_MS } from './escdead.mjs'   // escpocket-01: the pool's trap sites
 
 const SCHEMA = 1
 const FILE = 'world-facts.json'
@@ -459,6 +460,34 @@ export class WorldFacts {
       if (s && !s.disputed) { s.disputed = { at: Date.now(), by }; hit = s }
     })
     return wrote === WF_LOCK_BUSY ? null : hit
+  }
+
+  /**
+   * ESCPOCKET-01: A POCKET A BOT SWAM OUT OF (escdead.mjs trapSiteFrom) -> the stored site, or null (lock busy / bad site).
+   * One site per pocket (its start cell): a later escape renews `last` and merges the cells. count stays 1, so the 12 h decay
+   * in #prune removes it 12 h after its last escape -- the same TTL the readers apply (TRAP_TTL_MS).
+   */
+  reportTrap(site, by = config.bot.name) {
+    if (!site || site.kind !== TRAP_KIND || !Array.isArray(site.cells) || ![site.x, site.y, site.z].every(Number.isFinite)) return null
+    let hit = null
+    const wrote = this.#update(d => {
+      const s = d.sites.find(q => q.kind === TRAP_KIND && q.x === site.x && q.y === site.y && q.z === site.z)
+      if (s) {
+        s.cells = [...new Set([...(s.cells ?? []), ...site.cells])].sort().slice(0, 64)
+        s.last = Date.now(); s.count = 1; delete s.decayedAt; s.via = site.via
+        if (!s.by.includes(by)) s.by.push(by)
+        hit = s
+      } else {
+        hit = { kind: TRAP_KIND, x: site.x, y: site.y, z: site.z, cells: site.cells.slice(0, 64), via: site.via, count: 1, last: Date.now(), by: [by] }
+        d.sites.push(hit)
+      }
+    })
+    return wrote === WF_LOCK_BUSY ? null : hit
+  }
+
+  /** ESCPOCKET-01: every live trap site on file (the cache) -> [site]. */
+  trapSites(now = Date.now()) {
+    return this.read().sites.filter(s => s.kind === TRAP_KIND && now - (s.last ?? 0) <= TRAP_TTL_MS)
   }
 
   /** Every death site on file (the cache; re-read every 20 s). Cheap enough for the pathfinder's per-node price. */

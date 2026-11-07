@@ -25,7 +25,7 @@ import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { handCapModeDetail } from './handcap.mjs'   // handcap-01's licence row
-import { escDeadModeDetail } from './escdead.mjs'   // escdead-01's licence row
+import { escDeadModeDetail, escPocketModeDetail } from './escdead.mjs'   // escdead-01's + escpocket-01's licence rows
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
 import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
 import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
@@ -68,6 +68,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'handcap_mode', status: 'success', snapshot: snapshot(bot), detail: handCapModeDetail() }) } catch { /* telemetry */ }
   // escdead-01: the licence row (escdead.mjs; ESCDEAD=0 is the rollback)
   try { logEvent({ kind: 'escdead_mode', status: 'success', snapshot: snapshot(bot), detail: escDeadModeDetail() }) } catch { /* telemetry */ }
+  // escpocket-01: the licence row (escdead.mjs; ESCPOCKET=0 is the rollback)
+  try { logEvent({ kind: 'escpocket_mode', status: 'success', snapshot: snapshot(bot), detail: escPocketModeDetail() }) } catch { /* telemetry */ }
   // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)
   try { logEvent({ kind: 'plinth021_mode', status: 'success', snapshot: snapshot(bot), detail: plinth021ModeDetail({ shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
   // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail); CONFIGURATION only
