@@ -164,6 +164,9 @@ The stage converges: the inside's work per pass goes 1593 → 564 → 211 → 99
   hollow guard, plan cells, build ring, and the band and clock wiring).
 - `access.test.mjs` is updated for the ledger's bridges and margin.
 - Codex review: r1 found 1 blocker (the hollow, fixed in 80cf5d5c); r2 says "fixed, no new blocker".
+- Full suites (ci2, git context): showcase 80cf5d5c 459/460 (the one failure is nothing-important-is-orphaned on
+  bagdiet.test, an orphan already on the base); fleet 9aa9b1c1 408/410 (well.test also fails on the base 63d28320;
+  craftsync is a known flake).
 
 **Fleet.** The fleet (63d28320) has no inside-the-wall stage, terrace, outer-band cleanup or climbs ledger. Its
 `surveyTidy` has the same gap: one column at least 2 above all 8, floating blocks read natural. The same module, byte
