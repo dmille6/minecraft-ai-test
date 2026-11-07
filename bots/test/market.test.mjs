@@ -223,10 +223,10 @@ await t('walkinAdmit / walkinLeave: work hours only; inside a zone at most 60 s,
   const base = { on: true, atTown: true, now: 1e12, timeOfDay: 1000, targets: [{ id: 'v' }] }
   assert.equal(M.walkinAdmit(base).ok, true)
   for (const [k, v, why] of [['timeOfDay', 10000, 'not_morning'], ['atTown', false, 'away'], ['targets', [], 'no_village'], ['leased', true, 'leased'], ['health', 14, 'health']]) assert.equal(M.walkinAdmit({ ...base, [k]: v }).why, why)
-  assert.equal(M.walkinLeave({ dwell: 50_000, still: 30_000, timeOfDay: 5000, tripLeft: 1 }), null, 'POSITIVE: a short visit stays')
+  assert.equal(M.walkinLeave({ dwell: 50_000, still: 30_000, timeOfDay: 5000, tripLeft: 20_000 }), null, 'POSITIVE: a short visit stays')
   assert.equal(M.walkinLeave({ dwell: 60_000 }), 'dwell')
   assert.equal(M.walkinLeave({ still: 40_000 }), 'still')
-  assert.equal(M.walkinLeave({ tripLeft: 0 }), 'time')
+  assert.equal(M.walkinLeave({ tripLeft: 19_000 }), 'time', 'no visit starts within 20 s of leaveBy')
   assert.ok(M.WALKIN.callMs < 180_000 && M.WALKIN.homeBy < M.WALKIN.callMs, 'one call inside the runner\'s 180 s watchdog')
   assert.equal(M.walkinLeave({ timeOfDay: 11600 }), 'dusk')
   assert.ok(M.WALKIN.dwellMs < 15 * 60_000 && M.WALKIN.stillMs < 15 * 60_000, 'both under the showcase tripwire Z1 15-min still-in-a-zone rule')
