@@ -27,7 +27,7 @@ export const MARKET = Object.freeze({
   dayFrom: 1000, dayTo: 11000,   // villagers trade while awake; the run starts in daylight only
   spendPerRun: 8,                // emeralds a run may spend
   emeraldKeep: 0,                // the town keeps none back: emeralds are for spending
-  callMs: 240_000,               // one market_run inside its contract's maxMs (300 s)
+  callMs: 165_000,               // one market_run inside the runner's 180 s watchdog (SKILL_TIMEOUT_MS; the contract's maxMs is not read)
   leaseMs: 15 * 60_000,          // one run per town at a time (a pool lease)
   maxGoods: 3,                   // at most three goods drawn for one run
   offersFreshMs: 24 * 3600_000,  // a merchant's last-read offers are trusted this long (a window is the only truth)
@@ -104,7 +104,7 @@ export const WANTS = Object.freeze([
   { key: 'glass', item: 'glass', target: 64, ceiling: 2, why: 'owner' },
   { key: 'lapis_lazuli', item: 'lapis_lazuli', target: 64, ceiling: 2, why: 'owner' },
   { key: 'bookshelf', item: 'bookshelf', target: 4, ceiling: 10, why: 'owner:books' },
-  { key: 'bed', item: /^[a-z_]+_bed$/, target: 4, ceiling: 3, why: 'respawn' },
+  { key: 'bed', item: /^[a-z_]+_bed$/, target: 4, ceiling: 3, why: 'breeding' },   // market-02 D2: beds at the village edge
   { key: 'brick', item: 'brick', target: 256, ceiling: 1, why: 'build' },
   { key: 'chiseled_stone_bricks', item: 'chiseled_stone_bricks', target: 32, ceiling: 1, why: 'build' },
   { key: 'polished', item: /^polished_(andesite|diorite|granite)$/, target: 64, ceiling: 1, why: 'build' },
@@ -122,6 +122,8 @@ export const WANTS = Object.freeze([
   { key: 'pumpkin', item: 'pumpkin', target: 4, ceiling: 1, why: 'decor' },
 ])
 
+/** THE TIER of a want (OWNER 11-07 D3: decorative buying YES, ranked LAST, inside the run's 8-emerald cap): owner < build < decor. */
+export const tierOf = w => (String(w?.why ?? '').startsWith('owner') || w?.why === 'breeding' ? 0 : w?.why === 'build' ? 1 : 2)
 const bare = n => String(n ?? '').replace(/^minecraft:/, '')
 const matches = (want, name) => typeof want.item === 'string' ? want.item === name : want.item.test(name)
 /** The want an item answers, or null. Pure. */
@@ -253,7 +255,8 @@ export function buyOffers (trades, { emeralds = 0, wants = [] } = {}) {
     if (!(price > 0) || price > w.ceiling) continue
     rows.push({ i, t, out, w, price, rank: WANTS.indexOf(w) })
   }
-  rows.sort((a, b) => a.rank - b.rank || a.price - b.price)
+  // the owner's list (and the breeding beds) first, then building blocks, then decoration LAST (OWNER 11-07 D3); within a tier the table order
+  rows.sort((a, b) => tierOf(a.w) - tierOf(b.w) || a.rank - b.rank || a.price - b.price)
   const plan = []
   for (const r of rows) {
     const per = Math.max(1, r.t.outputItem?.count ?? 1)
@@ -348,7 +351,17 @@ const winCountWhere = (v, pred) => { try { return (v.items?.() ?? []).filter(x =
  * (never raced: a raced trade kept clicking after the close -- coalsale-01 Codex re-check). The first trade that throws ends the
  * window (`halt`). -> { sold: {item: n}, earned, spent, bought: {item: n}, halt, why }
  */
-export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms => new Promise(r => setTimeout(r, ms)), stackOf = () => 64 } = {}) {
+/** One trade, bounded: v.trade raced against tradeMs (Codex m2 BLOCKER: an unanswered trade must not hold a bot in a village zone
+ *  for the tripwire's 15 min). On a timeout the trade's own promise is left to fail when the caller closes the window (its rejection
+ *  is caught here) and the window halts. -> null | the error. */
+async function tradeOnce (v, i, n, tradeMs) {
+  const p = Promise.resolve().then(() => v.trade(i, n))
+  if (!tradeMs) { try { await p; return null } catch (e) { return e } }
+  let tm = null
+  const late = new Promise(resolve => { tm = setTimeout(() => resolve(new Error('trade timed out')), tradeMs) })
+  try { return await Promise.race([p.then(() => null, e => e), late]) } finally { clearTimeout(tm); p.catch(() => {}) }
+}
+export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms => new Promise(r => setTimeout(r, ms)), stackOf = () => 64, tradeMs = 20_000 } = {}) {
   const res = { sold: {}, earned: 0, spent: 0, bought: {}, halt: false, why: null }
   // ROOM FIRST (Codex review r1 BLOCKER 3): mineflayer's trade puts the output and any leftover inputs away with putAway, which
   // DROPS what does not fit -- every trade needs MIN_FREE empty slots in the window's player section, else the window stops
@@ -356,8 +369,7 @@ export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms
   for (const s of sells) {
     if (!roomy()) { res.halt = true; res.why = 'bag_full'; return res }
     const c0 = winCount(v, s.item), e0 = winCount(v, 'emerald')
-    let bad = null
-    try { await v.trade(s.i, s.times) } catch (e) { bad = e }
+    const bad = await tradeOnce(v, s.i, s.times, tradeMs)
     await sleep(300)
     const gone = Math.max(0, c0 - winCount(v, s.item))
     if (gone) res.sold[s.item] = (res.sold[s.item] ?? 0) + gone
@@ -372,8 +384,7 @@ export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms
     if (fit < b.times) b = { ...b, times: Math.max(0, fit) }
     if (b.times <= 0) continue
     const e0 = winCount(v, 'emerald'), n0 = winCount(v, b.what)
-    let bad = null
-    try { await v.trade(b.i, b.times) } catch (e) { bad = e }
+    const bad = await tradeOnce(v, b.i, b.times, tradeMs)
     await sleep(300)
     const got = Math.max(0, winCount(v, b.what) - n0)
     res.spent += Math.max(0, e0 - winCount(v, 'emerald'))
@@ -384,6 +395,166 @@ export async function runTrades (v, { sells = [], buys = [] } = {}, { sleep = ms
 }
 export { winCountWhere, storedEnchants, offersDetail }
 
+// ---- walk-in trips (market-02, OWNER 11-07 D1: "bots may enter protected village 23_-20 (and other villages) to trade with
+// existing librarian / cleric / shepherd sites: walking, doors and trapdoors only, never digging or placing inside") ---------------
+// The far villages hold the job sites bots cannot make (lectern, loom, brewing stand): the owner's list (books, lanterns, glass,
+// redstone, lapis, wool, beds). A trip walks there, ENTERS the zone on foot (protectzone still refuses every dig, place and block
+// use inside; the pathfinder never digs or scaffolds there), trades with the employed adults, places beds / a composter on open
+// ground OUTSIDE the zone + 3, and walks home. INSIDE a zone at most dwellMs per trip and never still for stillMs: the showcase
+// tripwire's Z1 needs >= 15 min still inside a box with a refusal, so a trading visit can never look like a trapped bot.
+// ONE RUNNER CALL (Claude m2 BLOCKER 1: the runner aborts EVERY skill at SKILL_TIMEOUT_MS -- 180 s on the showcase -- whatever its
+// contract says; expedition.mjs sizes its trip the same way): the whole trip, out + inside + beds + home, fits in callMs. So a walk-in
+// reaches villages whose box centre is within radius 200 b (showcase: village-taiga-6_1, its edge 45 b from home). A FAR village
+// (23_-20, 502 b) needs a trip cut into calls that a caller re-issues while the bot is away -- cognitive.mjs's trip continuation
+// (coalsale-01's trade_trip, tier 3): the showcase gets it when that is kept on the fleet (market-03).
+export const WALKIN = Object.freeze({
+  radius: 200,                 // a village zone whose box centre is at most this far from home
+  minDist: 96,                 // nearer villages are market_run's
+  callMs: 165_000,             // the whole trip (< the 180 s watchdog)
+  outMs: 45_000,               // the way out at most this long
+  dwellMs: 60_000,             // inside a zone at most this long per trip (far under the tripwire Z1's 15 min)
+  stillMs: 40_000,             // never stand still inside a zone longer than this
+  leaveBy: 105_000,            // out of the village by this (the beds and the walk home need the rest)
+  homeBy: 160_000,             // home by this
+  // INSIDE a zone at most dwellMs + one visit (goto <= 20 s, a window <= 6 trades x tradeMs) + the walk out: ~3.5 min worst case,
+  // so the tripwire's Z1 (>= 15 min still inside with a refusal) cannot fire on a trading visit; an abort at 180 s leaves the bot
+  // within ~200 b of home, free to walk (never held)
+  perBotMs: 60 * 60_000,       // one trip per bot per hour
+  perZoneMs: 30 * 60_000,      // one trip per village per 30 min (6 h when nobody there was employed)
+  startFrom: 1000, startTo: 9000, // in the villagers' working hours
+  leaveAt: 11500,              // never after dusk (villagers go to bed at 12000)
+  leg: 32,                     // walk in legs of this length
+  bedsPerDay: 2,               // beds placed per town per day (their own cap; a composter counts as a market job block)
+})
+export function walkinSwitch (env = process.env) {
+  const v = String(env.MARKET_WALKIN ?? '').toLowerCase()
+  return !(v === '0' || v === 'off' || v === 'false')
+}
+const boxOf = q => (Array.isArray(q?.box) ? q.box : (q && Number.isFinite(q.x0) ? [q.x0, q.y0, q.z0, q.x1, q.y1, q.z1] : null))
+/** A VILLAGE zone (the zone file's kind is not carried by townPlanZones: the id says it). Pure. */
+export const isVillageZone = q => /^village-/.test(String(q?.id ?? '')) || q?.kind === 'village'
+/** Villages a trip may go to -> [{ id, box, x, z, dist }] nearest first. Pure. rest: { id: until }. */
+export function walkinTargets (zones, home, { now = 0, rest = {} } = {}) {
+  const out = []
+  for (const q of zones ?? []) {
+    const b = boxOf(q)
+    if (!b || !isVillageZone(q)) continue
+    const x = (b[0] + b[3]) / 2, z = (b[2] + b[5]) / 2, dist = Math.hypot(x - home.x, z - home.z)
+    if (dist <= WALKIN.minDist || dist > WALKIN.radius || now < (rest[q.id] ?? -Infinity)) continue
+    out.push({ id: q.id, box: b, x: Math.round(x), z: Math.round(z), dist: Math.round(dist) })
+  }
+  return out.sort((a, b) => a.dist - b.dist)
+}
+/** START A WALK-IN TRIP? -> { ok, why, target }. Pure. */
+export function walkinAdmit ({ on = true, atTown = false, now = 0, timeOfDay = 0, health = 20, freeSlots = 36, state = {}, targets = [], leased = false } = {}) {
+  if (!on) return { ok: false, why: 'off' }
+  if (!atTown) return { ok: false, why: 'away' }
+  if (now - (state.lastTripAt ?? -Infinity) < WALKIN.perBotMs) return { ok: false, why: 'cooldown' }
+  if (timeOfDay < WALKIN.startFrom || timeOfDay > WALKIN.startTo) return { ok: false, why: 'not_morning' }
+  if (health <= 16) return { ok: false, why: 'health' }
+  if (freeSlots < MARKET.maxGoods + 6) return { ok: false, why: 'bag' }
+  if (!targets.length) return { ok: false, why: 'no_village' }
+  if (leased) return { ok: false, why: 'leased' }
+  return { ok: true, why: 'go', target: targets[0] }
+}
+/** The legs from a point to the target, every `leg` blocks (the last one the target). Pure. */
+export function legsTo (from, to, leg = WALKIN.leg) {
+  const d = Math.hypot(to.x - from.x, to.z - from.z), n = Math.max(1, Math.ceil(d / leg)), out = []
+  for (let i = 1; i <= n; i++) out.push({ x: Math.round(from.x + (to.x - from.x) * i / n), z: Math.round(from.z + (to.z - from.z) * i / n) })
+  return out
+}
+/** The nearest point just OUTSIDE a box (pad b out), from a point. Pure. */
+export function edgeOf (box, p, pad = MARKET.zonePad + 2) {
+  const x = Math.min(Math.max(p.x, box[0] - pad), box[3] + pad), z = Math.min(Math.max(p.z, box[2] - pad), box[5] + pad)
+  if (x > box[0] - pad && x < box[3] + pad && z > box[2] - pad && z < box[5] + pad) {
+    const opts = [[box[0] - pad, z], [box[3] + pad, z], [x, box[2] - pad], [x, box[5] + pad]]
+    const [ex, ez] = opts.sort((a, b) => Math.hypot(a[0] - p.x, a[1] - p.z) - Math.hypot(b[0] - p.x, b[1] - p.z))[0]
+    return { x: Math.round(ex), z: Math.round(ez) }
+  }
+  return { x: Math.round(x), z: Math.round(z) }
+}
+/** STAY INSIDE? -> null | why to leave. Pure. dwell: ms inside so far; still: ms since the last >= 3 b move inside. */
+export function walkinLeave ({ dwell = 0, still = 0, timeOfDay = 0, health = 20, tripLeft = Infinity, freeSlots = 36 } = {}) {  // tripLeft: ms to leaveBy
+  if (dwell >= WALKIN.dwellMs) return 'dwell'
+  if (still >= WALKIN.stillMs) return 'still'
+  if (timeOfDay >= WALKIN.leaveAt) return 'dusk'
+  if (health <= 12) return 'health'
+  if (freeSlots < 3) return 'bag_full'
+  if (tripLeft <= 0) return 'time'
+  return null
+}
+/** Candidates INSIDE one village zone (a walk-in): employed adults, awake, in that box; nearest first. Pure. */
+export function walkinCandidates (entities, at, zone, tried = []) {
+  const b = boxOf(zone), out = []
+  for (const e of Object.values(entities ?? {})) {
+    const m = merchantOfAny(e)
+    if (!m || m.baby || m.sleeping || tried.includes(m.uuid) || m.profession === 'wandering_trader') continue
+    if (['none', 'nitwit', 'unknown'].includes(m.profession)) continue
+    if (!(b && m.x >= b[0] && m.x <= b[3] + 1 && m.z >= b[2] && m.z <= b[5] + 1)) continue
+    out.push({ ...m, dist: Math.hypot(m.x - at.x, m.z - at.z) })
+  }
+  return out.sort((a, b2) => a.dist - b2.dist)
+}
+/** A STEP PRICE for walking inside a village (Claude m2 BLOCKER 2: a drop onto farmland tramples it -- not a dig, so protectzone cannot
+ *  refuse it): a destination that IS farmland or a crop, or stands on farmland, costs 101 (mineflayer-pathfinder drops a move over
+ *  100). Pure but for blockAt(pos) -> { name } | null. */
+export const FARM_BLOCKS = /^(farmland|wheat|carrots|potatoes|beetroots|melon_stem|pumpkin_stem|attached_melon_stem|attached_pumpkin_stem|torchflower_crop|pitcher_crop)$/
+export function farmStep (blockAt) {
+  const f = b => {
+    const p = b?.position
+    if (!p) return 0
+    if (FARM_BLOCKS.test(bare(b.name))) return 101
+    const below = blockAt({ x: p.x, y: p.y - 1, z: p.z })
+    return below && FARM_BLOCKS.test(bare(below.name)) ? 101 : 0
+  }
+  f.marketFarm = true
+  return f
+}
+/** Run fn with an extra step price on `movements` (a NEW array; the old one back on every exit if still ours; buildbot.mjs's rule). */
+export async function withStepPrice (movements, price, fn) {
+  if (!movements || !Array.isArray(movements.exclusionAreasStep) || !price) return fn()
+  const prev = movements.exclusionAreasStep, mine = [...prev, price]
+  movements.exclusionAreasStep = mine
+  try { return await fn() } finally {
+    if (movements.exclusionAreasStep === mine) movements.exclusionAreasStep = prev
+    else if (Array.isArray(movements.exclusionAreasStep) && movements.exclusionAreasStep.includes(price)) movements.exclusionAreasStep = movements.exclusionAreasStep.filter(g => g !== price)
+  }
+}
+/** The goods a walk-in carries: what the village's likely professions buy (the catalogue's level-1/2 offers), at most maxGoods. */
+export function walkinGoods (spare = {}) {
+  const want = {}
+  for (const p of ['weaponsmith', 'toolsmith', 'armorer', 'librarian', 'cartographer', 'fletcher', 'farmer']) {
+    for (const [item, n] of Object.entries(goodsFor({ profession: p, level: 2 }, { spare }))) if (!(item in want)) want[item] = n
+    if (Object.keys(want).length >= MARKET.maxGoods) break
+  }
+  delete want.water_bucket
+  return Object.fromEntries(Object.entries(want).slice(0, MARKET.maxGoods))
+}
+/**
+ * A BED's cells -> { foot, head, stand, dir } | { foot: null, why }. Pure. The foot is a marketCell (open ground outside the zone +
+ * pad, the 8 neighbours open); the head the open, floored neighbour in `dir` whose own cell is outside the zone + pad + 1; the bot
+ * stands two cells BEHIND the foot (a bed's head goes where the placer faces). existing: beds and job blocks there (spacing).
+ */
+export function bedCells (blockAt, cluster, { zones = [], existing = [], from = null } = {}) {
+  const pick = marketCell(blockAt, cluster, { zones, existing, from })
+  if (!pick.cell) return { foot: null, why: pick.why }
+  const f = pick.cell
+  const isAir = n => /^(air|cave_air|short_grass|grass|tall_grass|fern|snow)$/.test(bare(n))
+  const dirs = []
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const h = { x: f.x + dx, y: f.y, z: f.z + dz }, st = { x: f.x - 2 * dx, y: f.y, z: f.z - 2 * dz }
+    if (zoneNear(zones, h.x, h.z, MARKET.zonePad + 1) || zoneNear(zones, st.x, st.z, MARKET.zonePad)) continue
+    const hb = blockAt(h.x, h.y, h.z), hu = blockAt(h.x, h.y + 1, h.z), hf = blockAt(h.x, h.y - 1, h.z)
+    const sb = blockAt(st.x, st.y, st.z), su = blockAt(st.x, st.y + 1, st.z), sf = blockAt(st.x, st.y - 1, st.z)
+    if (!hb || !hu || !hf || !sb || !su || !sf) continue
+    if (!isAir(hb.name) || !isAir(hu.name) || isAir(hf.name) || /water|lava/.test(bare(hf.name))) continue
+    if (!isAir(sb.name) || !isAir(su.name) || isAir(sf.name) || /water|lava/.test(bare(sf.name))) continue
+    dirs.push({ head: h, stand: st, dir: [dx, dz] })
+  }
+  if (!dirs.length) return { foot: null, why: 'no_head_room' }
+  return { foot: f, ...dirs[0], dirs, d: pick.d }
+}
+
 // ---- the market's job blocks ---------------------------------------------------------------------------------------------------
 /** Job blocks a bot can make from town stock, with what each needs (crafted with a table). Unmakeable ones are absent. */
 export const JOB_RECIPES = Object.freeze({
@@ -393,6 +564,7 @@ export const JOB_RECIPES = Object.freeze({
   stonecutter: { iron_ingot: 1, stone: 3 },         // mason: clay 10 (L1), stone 20 (L2); sells bricks, terracotta, quartz
   cartography_table: { paper: 2, planks: 4 },       // cartographer: paper 24 (L1), panes 11 (L2); sells banners, frames
   grindstone: { stick: 2, stone_slab: 1, planks: 2 },   // weaponsmith: coal 15 (L1), iron 4 (L2, 16/16), flint 24 (L3)
+  composter: { slab: 7 },                           // farmer (market-02, OWNER 11-07 D2): a farmer harvests and SHARES food -- the village breeds
 })
 /** Which job block the market wants next, given the professions already THERE (seen at the market or in its ledger) and what
  *  the town holds -> { block, profession } | null. Pure. One of each profession first; the town's best surplus decides the order. */
@@ -407,9 +579,11 @@ export function nextJobBlock ({ present = [], stock = {}, placed = [] } = {}) {
     stonecutter: have('iron_ingot') >= GOODS.iron_ingot.keep + 1 && have('stone') >= 3,
     cartography_table: have('paper') >= 2 && planks >= 4,
     grindstone: have('stick') + planks >= 4 && have('stone') >= 3 && planks >= 2,
+    composter: planks >= 6,
   }
   // order: what the town can SELL to the profession it makes (iron 225 / coal / sticks from logs / stone / paper)
-  const order = ['smithing_table', 'barrel', 'fletching_table', 'stonecutter', 'grindstone', 'cartography_table']
+  // market-02 (OWNER 11-07 D2): the composter second -- a farmer feeds the village, and fed villagers with free beds breed
+  const order = ['smithing_table', 'composter', 'barrel', 'fletching_table', 'stonecutter', 'grindstone', 'cartography_table']
   const prof = Object.fromEntries(Object.entries(PROFESSION_BLOCK).map(([p, b]) => [b, p]))
   for (const block of order) {
     if (!can[block]) continue
@@ -454,7 +628,7 @@ export function noteJobless (seen, merchants, now) {
  * bed / chest / job block beside it), with every cell in or within 1 of a zone (+ pad) reading as solid so it is never chosen.
  * The cell must be within claimReach of the cluster centre. existing: job blocks already there (slotSpacing apart).
  */
-export function marketCell (blockAt, cluster, { zones = [], existing = [], groundY = null } = {}) {
+export function marketCell (blockAt, cluster, { zones = [], existing = [], groundY = null, from = null } = {}) {
   if (!cluster?.members?.length) return { cell: null, why: 'no_cluster' }
   const cx = cluster.x, cz = cluster.z
   const zid = zoneNear(zones, Math.floor(cx), Math.floor(cz), 0)
@@ -464,10 +638,12 @@ export function marketCell (blockAt, cluster, { zones = [], existing = [], groun
   const pad = MARKET.zonePad + 2
   // each side of the box, the nearest first: a side with no ground (water, a cliff) or no open cell gives way to the next
   const opts = [[b[0] - pad, cz], [b[3] + pad, cz], [cx, b[2] - pad], [cx, b[5] + pad]]
-    .map(([x, z]) => ({ x, z, d: Math.hypot(x - cx, z - cz) })).sort((p, q2) => p.d - q2.d)
+    .map(([x, z]) => ({ x, z, d: Math.hypot(x - cx, z - cz), w: from ? Math.hypot(x - from.x, z - from.z) : 0 }))
+    // the side nearest the bot when it says where it stands (a walk-in at the village's edge: no walk round the village), else the cluster's
+    .sort((p, q2) => (p.w - q2.w) || (p.d - q2.d))
   let last = { cell: null, why: 'zone_too_deep' }
   for (const o of opts) {
-    if (o.d > MARKET.claimReach - 3) break
+    if (o.d > MARKET.claimReach - 3) continue
     const r = marketCellAt(blockAt, cluster, o.x, o.z, Math.abs(o.z - cz) > Math.abs(o.x - cx), { zones, existing, groundY })
     if (r.cell) return r
     last = r
@@ -500,6 +676,14 @@ function marketCellAt (blockAt, cluster, ax, az, alongX, { zones = [], existing 
   const d = Math.hypot(pick.cell.x + 0.5 - cx, pick.cell.z + 0.5 - cz)
   if (d > MARKET.claimReach) return { cell: null, why: 'too_far' }
   return { ...pick, anchor: { x: Math.floor(ax), y: anchors[0].y, z: Math.floor(az) }, d: Math.round(d * 10) / 10 }
+}
+/** The bed direction a bot standing at `p` faces when it clicks the foot (its dominant axis toward the foot), among the valid
+ *  ones -> that entry | null. Pure. */
+export function bedDirFrom (bc, p) {
+  if (!bc?.foot || !p) return null
+  const dx = bc.foot.x + 0.5 - p.x, dz = bc.foot.z + 0.5 - p.z
+  const want = Math.abs(dx) >= Math.abs(dz) ? [Math.sign(dx) || 1, 0] : [0, Math.sign(dz) || 1]
+  return (bc.dirs ?? []).find(d => d.dir[0] === want[0] && d.dir[1] === want[1]) ?? null
 }
 export { unemployedClusters, JOB_BLOCKS }
 
