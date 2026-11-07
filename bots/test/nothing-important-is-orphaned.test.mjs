@@ -130,6 +130,8 @@ const REQUIRED = [
   'bots/scripts/landplan-offline.mjs',
   // gkforever-01 (owner 11-06): the grounds never run out (clock, dead carry, level, crew, the grounds lap)
   'bots/src/gkforever.mjs',
+  'bots/src/roughground.mjs',   // roughground-01 (11-07)
+  'bots/test/roughground.test.mjs',   // roughground-01 (11-07)
   'bots/test/gkforever.test.mjs',
   'docs/reports/gkforever-design-2026-11-06.md',
   // stations-01 (owner 11-06): the town's tables and furnaces (take-back, the groundskeepers' sweep, town stations, chest first, spare fuel)

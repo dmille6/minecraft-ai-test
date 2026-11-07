@@ -4,6 +4,8 @@
 // the paths' corridors (the legs the paths' router finds with fill/cut 4 and spoil cuttable), then asks the paths again.
 // Behaviour on buildfake's flat world (stone below G, grass at G); structural assertions only for wiring.
 import assert from 'node:assert'
+// roughground-01: these tests pin tidy-01's and gkforever's own rules; the rough survey (on by default) is roughground.test.mjs's
+process.env.ROUGH = 'off'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 const { G, HOME, server, plan, bot, PJ, R } = await import('./helpers/buildfake.mjs')
 const T = await import('../src/tidy.mjs')
