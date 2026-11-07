@@ -34,6 +34,7 @@ async function withMutant (file, old, neu, fn) {
   writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
+const SK = strip(readFileSync(SKILLS_PATH, 'utf8'))
 const MODS = new Map([[DEC_PATH.href, D], [CM_PATH.href, CM]])
 /** BOTH WAYS: the scenario passes on the real module and throws on the mutant. */
 const killed = async (file, old, neu, scenario) => {
@@ -184,6 +185,20 @@ await t('the composter\'s FEED: with the hook (the decorator\'s pools) the ferns
   await killed(CM_PATH, '    const a = isSapling(name) ? n - keep : name === \'apple\' ? n - APPLE_RESERVE : fed(name) ? n - decorFeed[name] : n\n', '    const a = isSapling(name) ? n - keep : name === \'apple\' ? n - APPLE_RESERVE : n\n', scenario)
 })
 
+await t('flowers-01 r4: the fern gather never cuts within FLOWER.fernMinR (32) of home -- 33..48 only; minR 0 (FLOWERS off) as before', async () => {
+  const scenario = M => {
+    const srv = server()
+    const f = (x, z) => { srv.set([x, G + 1, z], 'fern'); return { at: [x, G + 1, z], name: 'fern' } }
+    const c = [f(10, 10), f(32, 0), f(33, 5), f(-40, 40)]
+    assert.deepStrictEqual(M.fernTargets(c, { read: srv.read, home: HOME, from: [0, G + 1, 0], minR: M.FLOWER.fernMinR }).map(q => q.at[0]), [33, -40])
+    assert.strictEqual(M.fernTargets(c, { read: srv.read, home: HOME, from: [0, G + 1, 0] }).length, 4, 'POSITIVE CONTROL: no minR, all four')
+  }
+  await killed(DEC_PATH, '    if (dh > r || dh <= minR) continue\n', '    if (dh > r) continue\n', scenario)
+})
+await t('wired: the fern gather passes FLOWER.fernMinR', () => {
+  const line = 'want: need, minR: FLOWERS_ON ? FLOWER.fernMinR : 0 })'
+  assert.strictEqual(SK.split(line).length, 2); assert.strictEqual(SK.replace(line, '').split(line).length, 1)
+})
 console.log('THE REAL VISIT RUNNER (buildrun.mjs runVisit on the fake server; the server replaces a fern with a flower, Paper P2)')
 /** One visit of the decorator over the upgraded record: alsoDone is skills.mjs's decor alsoDone (upgradeWaits over the live bag). */
 async function visit (rec, srv, inv) {
@@ -244,7 +259,6 @@ await t('MUTANT KILLED: without the wait, a flowerless visit over an upgraded ru
 })
 
 console.log('THE WIRING (structural: skills.mjs; each assertion proven by a mutant of the source text)')
-const SK = strip(readFileSync(SKILLS_PATH, 'utf8'))
 const WIRES = [
   ['the damage loop waives a waiting upgraded cell', "if (b && r.plot === SINK_PLOTS.decor && upgradeWaits(c, b, heldMap(bot))) continue"],
   ['the decor upkeep is due for its flower work', "if (tidy && r.plot === SINK_PLOTS.decor && decorFlowerDue(bot, r)) return true"],

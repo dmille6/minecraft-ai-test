@@ -23598,7 +23598,7 @@ async function decorFerns (ctx, signal, deadline, need) {
   const cands = found.map(v => ({ at: [v.x, v.y, v.z], name: bot.blockAt?.(v)?.name })).filter(q => q.name)
   const read = tidyRead(bot)
   const e = decorEffects(bot, signal)
-  const targets = fernTargets(cands, { read, reserved, guard, home, from: e.feet(), want: need })
+  const targets = fernTargets(cands, { read, reserved, guard, home, from: e.feet(), want: need, minR: FLOWERS_ON ? FLOWER.fernMinR : 0 })   // flowers-01 r4: not within 32 of home
   bot.decorFernScan = { at: Date.now(), n: cands.length }
   let n = 0
   try {
