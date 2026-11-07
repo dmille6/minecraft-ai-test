@@ -361,3 +361,47 @@ Its verdicts and the reconciliation follow. **Where this section and the text ab
   `chat_command` and `chat_command_signed` packets outright. Generated code has no route to either; this covers our own code.
 - `SystemCallFilter=@system-service` is broad: add `~@mount @swap @reboot @raw-io @clock @cpu-emulation @debug @module
   @obsolete @privileged`; `NoExecPaths=` above is the exec control. `MemoryDenyWriteExecute=no` is simply what V8 needs.
+
+## 13. Stage 1 result (11-06 23:50Z - 11-07 00:07Z): the harness and the sandbox, proven
+
+**Code:** `voyager/` (branch `voyager-01`). Built on ci2; installed on the worlds host under `/srv/voyager` by
+`voyager/infra/setup.sh` (users `voyager-mc`, `-proxy`, `-a/-b/-c/-ctl`; units `voyager-paper@`, `voyager-bot@`,
+`voyager-proxy`, `voyager-watch.timer`, `voyager.slice`). The fleet's units, worlds and ports were not touched.
+
+**Tests (ci2, Node 22.23.4, isolated-vm 6.2.0): 48/48.** The adversarial suite runs generated code straight into the sandbox
+with no lint in front: `require`/`process`/`fetch`/`Buffer`/timers/`module`/`global` (trapped, reported even when caught, and
+the run ends); the dispatcher gone from the global; `Function('return process')` constructor walks (isolate only); host
+errors come back as data; dynamic `import()`; prototype pollution (host unaffected); `bot` cannot be replaced; a synchronous
+`while(true)` after an await and before one (CPU budget; host timers kept ticking); an awaiting infinite loop (steps); a stuck
+call (wall); a memory bomb (heap limit); 1,000 concurrent calls (one runs; a refusal storm ends the run); JSON-only arguments;
+oversized arguments; a trap-read flood (one report, run ended); 30 MB errors and 5 MB results (bounded inside the isolate,
+also with `JSON.stringify`/`String` replaced); an un-awaited action at return (killed); an external stop (disposed at once);
+a library skill hunting the reuse-mark callback (unreachable); no vy_ side effect after an abort. Plus the lint, verifier,
+library, chat filter, proxy pricing and control-request rebuild.
+
+**From inside the real bot unit on the worlds host:**
+- `host-probe.mjs` **39/39**: its own Paper server reachable (control); every fleet port on loopback (25570/71/99, 25670/706),
+  sshd, node-exporter refused; 10.0.0.30/31/1, 1.1.1.1, the Blackwell's and Anthropic's public IPs unreachable; DNS fails; the
+  key file and the proxy config unreadable; the only unix socket visible is its own arm's; D-Bus, systemd and journal sockets
+  absent; `/srv` shows only its own voyager dirs; `/srv/block2` absent; code tree and `/etc` read-only; `/bin/sh`, python3,
+  curl, sudo and a file it wrote itself all refuse to execute; the isolated-vm addon loads (control).
+- `cmd-probe.mjs` **9/9**, on a live connection: 14 raw `chat_command` packets plus a signed one (`/op`, `/give`,
+  `/gamemode`, `/tp`, `/time`, `/gamerule`, `/kill`, `/help`, `/list`, `/me`, `/msg`, `/spark`, `/plugins`, `/version`)
+  changed nothing: not op (`ops.json` still `[]`), no item, still survival, not moved; VoyagerGuard logged each as
+  `command_denied`; no tab completion. With our guard installed, `bot.chat('/…')`, a fullwidth-solidus look-alike, a whisper
+  and a raw `chat_command` write never reached the wire; a plain line did.
+
+**Reviews (two engines, the sandbox being a security boundary):**
+- *Independent Claude subagent*: **no blockers**; 12 findings, all fixed: trap-read floods, unbounded result text, un-awaited
+  calls outliving the run, a fakeable reuse metric (`bot.useSkill` removed; marks through a private callback), refusal storms,
+  `equip` during a reflex, bot not revived after a Paper restart (`PartOf` + the watcher's RUNNING marker), proxy LAN egress,
+  proxy `max_tokens` NaN/negative and the in-flight check before the duty-cycle wait. Accepted: isolated-vm's process-wide OOM
+  mode (restart + crash-loop stop); the spawn guard covers placeAt/digAt only.
+- *Codex r1* (one run refused as "cyber risk" and was re-asked as a correctness review); *r2*: 7 blockers, all fixed — vy_
+  skills acting after an abort; `stop()` not revoking the running skill; library code sharing the mark callback's scope (now
+  three scripts: trusted wrap-maker, untrusted implementations, trusted publish); result size checked only after the copy
+  (now bounded inside the isolate with captured intrinsics); proxy loopback/IPv6 egress; control `num_predict: -1` and fetch
+  timeouts; spend reservation not an upper bound. *r3 re-check*: 1-4 FIXED; 5-7 fixed further (control health probes answered
+  locally; reservation by UTF-8 bytes + framing; an unreadable spend record fails closed). **Accepted residual:** the proxy
+  keeps the systemd-resolved stub (127.0.0.53/54) for DNS, and any port there is reachable, so a *compromised proxy* could
+  reach a wildcard-bound host listener. The proxy is our code and bots reach it only through its fixed HTTP API.
