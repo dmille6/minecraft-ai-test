@@ -5414,7 +5414,7 @@
     "owner-blackwell-testing-only-1031.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07 00:07Z: stage 1 DONE (48/48 tests, host-probe 39/39 and cmd-probe 9/9 inside the bot unit on the worlds host; Claude review no blockers + Codex r2 7 blockers fixed, r3 re-check). Stage 2 (arm C alone, 1 h) running from 00:07Z. NEXT: read stage 2; owner decisions before stage 3: the Blackwell has 3 pinned models (Ollama default cap 3) so arm A + control likely evict one; the Studio arm B shares the showcase brain's GPU (10-min probe + duty cycle); then all arms 48 h with daily metrics; at the end unload qwen3.6:35b-a3b and qwen2.5:7b-instruct (keep_alive 0).",
+   "next_step": "2026-11-07 01:08Z: stage 1 DONE (48/48 tests; host-probe 39/39 + cmd-probe 9/9 inside the bot unit; Claude review no blockers, Codex r2 7 blockers fixed, r3 re-check). Stage 2 DONE: arm C (Haiku) 1.05 bot-h: 13 verified self-chosen tasks, 11 invented skills (0 reused), stone pickaxe in 9 min, iron ingot 13 min, 5 structures, 0 deaths, 0 violations/commands, $0.205/h. NEXT (owner decisions before stage 3): Blackwell holds 3 pinned models (Ollama default cap 3) so arm A + control likely evict one; Studio arm B shares the showcase brain's GPU (qwen2.5-coder:32b pulled; 10-min probe + duty cycle). Then all arms 48 h on fresh copies of the seed, daily metrics, unload qwen3.6:35b-a3b + qwen2.5:7b-instruct at the end.",
    "evidence": {
     "branches": [
      "voyager-01"

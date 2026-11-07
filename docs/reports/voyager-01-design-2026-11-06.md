@@ -405,3 +405,28 @@ library, chat filter, proxy pricing and control-request rebuild.
   locally; reservation by UTF-8 bytes + framing; an unreadable spend record fails closed). **Accepted residual:** the proxy
   keeps the systemd-resolved stub (127.0.0.53/54) for DNS, and any port there is reachable, so a *compromised proxy* could
   reach a wildcard-bound host listener. The proxy is our code and bots reach it only through its fixed HTTP API.
+
+## 14. Stage 2 result: arm C (Haiku 5.5) alone, 00:03-01:08Z 11-07 (1.05 bot-h connected)
+
+From `voyager/watch/voyager_metrics.py --since 2026-11-07T00:03Z --arms c` (denominator: 63 heartbeats = 1.05 bot-h):
+
+| | |
+|---|---|
+| Tasks | 37 proposed by the bot itself, 2 refused by the filter (bad JSON), **13 verified**, 21 failed; types: craft 16, have 10, structure 6, reach 3, placed 2 |
+| Executions | 109 isolate runs; 5 lint refusals (unclosed code fences: fixed) |
+| Tech tree | wooden pickaxe 00:04Z (1 min), **stone pickaxe 00:12Z (9 min)**, iron ingot 00:16Z; iron pickaxe not reached (below) |
+| Skills | **11 invented**, 2 variants; **0 reused** by later runs (the coder rewrote rather than called) |
+| Projects | 8 proposed, **5 finished** (connected walls/towers of 8-18 blocks); server record: 134 placed, 74 standing, largest cluster 18 |
+| Survival | **0 deaths** |
+| Safety | **0 sandbox violations, 0 command attempts, 0 server-denied commands** (positive control: the same counters read 15 denied commands from the stage-1 probe); the watcher ran every minute and stopped nothing |
+| Cost | 156 calls, 0 errors, **$0.205** for the hour, $0.019 per invented skill; p50 6.7 s, p95 16.0 s |
+| Host | voyager slice ~0.4 core, 1.6 GB. (Host load 17 at the time was another session's Chunky render at nice 19, not voyager.) |
+
+**What went wrong and what changed:**
+- 00:27-01:06Z the bot spent ~40 min failing to place a crafting table: a craft left the table in the world while
+  mineflayer's bag still listed one, so 12 placements came back "air" (VoyagerGuard's log shows the last table placed and
+  never broken). `vy_place` now sends the fleet's resync click (craftsync.mjs `resyncPacket`) before every placement.
+- `leaf_litter` and the other 1.21.5+ ground plants were "occupied": now replaceable.
+- Unique items were under-counted (only from verified tasks): heartbeats now carry the item names.
+- Reuse is 0: an observation for the pilot, not a defect. The retrieved skills are in the coder's prompt; whether later
+  runs call them is part of what the pilot measures.
