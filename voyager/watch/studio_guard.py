@@ -81,9 +81,9 @@ def log(o):
     print(json.dumps(o), flush=True)
 
 
-def run():
+def run(until=None):
     level, over, under = 0, 0, 0
-    while True:
+    while until is None or now() < until:
         try:
             head, _ = read(20)
             if (head.get('timed') or 0) < 5:
@@ -139,7 +139,8 @@ def selftest():
 if __name__ == '__main__':
     c = sys.argv[1] if len(sys.argv) > 1 else 'selftest'
     if c == 'run':
-        run()
+        u = sys.argv[sys.argv.index('--until') + 1] if '--until' in sys.argv else None
+        run(dt.datetime.fromisoformat(u.replace('Z', '+00:00')) if u else None)
     elif c == 'probe':
         probe(int(sys.argv[sys.argv.index('--minutes') + 1]) if '--minutes' in sys.argv else 10)
     else:
