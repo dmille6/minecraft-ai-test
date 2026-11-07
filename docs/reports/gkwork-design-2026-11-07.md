@@ -108,3 +108,16 @@ Branch `gklease-02-on-45defefa` @ bce7d783 (tier 2, rollback GKLEASE2=0): a waiv
 surface down to 24 below; the sweep give-up is the town's. gkwork-01 is complementary: its stall waiver past the tenth needs this rule
 to lift the stamp; this rule alone lifts it only where the ordinary waiver still had room. Not fixed: stations hoarded in bags
 (220 -> 539; the town deposit's bank of spares does not keep up) -- not small.
+
+## gkroom-01show (bagfull-01 piece 2) and the showcase checks (11-07)
+
+The showcase keeper's grounds order was skipped for room: since 06:40Z, 0 keeper tidy visits; 16 keeper `_shop_skip why=room` rows
+(rate-limited 30 min a bot) 06:40-15:01Z, every one with 2-7 free slots. The keeper's order leads with the forest (needs 8 free); the
+tidy needs 2. bagfull-01show (dd0a4489, live 15:01Z) banks the stacks no build needs first; `gkroom-01show` @ 835e493b on it (ci2 462/463, the known bagdiet orphan): when that
+finds nothing to bank, the KEEPER (the lease itself) with 2-7 free slots and a tidy open or due (not quiet) is ordered the TIDY, and the
+visit's reserve/draw/bag reads name the tidy while it runs (Codex r1 blocker, fixed). Rollback GKROOM=0.
+gklease-02's rules are not needed on the showcase now: all 15 tidy stuck-stamp files have no stamp (stuckAt none), 1 tidy stuck_on_cell
+visit in 2 days, 0 `_station_swept` rows (stations-01 is fleet-only).
+Station hoarding in bags (fleet 220 -> 539): `bankable.mjs` KEEP_ONE keeps one table/furnace and the town deposit banks spares only at a
+34+ bag. The fix is a spare-station bank on every town visit (junkout-style, or a bagfull room-bank kind): about 40-80 lines in
+towndeposit/stations + one test file, tier 2 if it stays out of bankable.mjs's protected scaffoldKeep/isScaffoldItem/SCAFFOLD_SET.
