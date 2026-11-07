@@ -315,6 +315,16 @@ await t('C2 BEHAVIOUR: the pillar at the re-entry cell is refused BEFORE it plac
     assert.ok(b0.placed.length >= 1, 'the base placed nothing: the live seal would not be reproduced')
   })
 })
+await t('C2b BEHAVIOUR: a pillar that began on dry ground and finds the body moved into the wet column (Paper, the column scene) is refused before its first placement there', async () => {
+  const w = worldOf(FX, PRE)
+  const dryPad = synth((x, y, z) => y < 100 ? 'minecraft:stone' : y <= 104 ? 'minecraft:air' : 'minecraft:stone')
+  const world = { getBlock: p => (p.y >= 100 && p.x < 0) ? dryPad.getBlock(p) : w.getBlock(p) }
+  const bot = pillarBot(world, [-10.5, 100, -10.5])
+  const eq = bot.equip.bind(bot)
+  bot.equip = async it => { bot.entity.position = new Vec3(...REENTRY); return eq(it) }   // displaced at the first equip
+  const out = await Promise.race([pillarOut(bot, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))])
+  assert.equal(bot.placed.length, 0, `placed ${bot.placed} (${out})`); assert.equal(out, 'flood_risk')
+})
 await t('C3 COMPOSED CHAIN at the re-entry cell: the cap refuses the pillar, and the next rung (the swim, narrow, from y=56) has a way out -- the remedy is executable from there', () => {
   const w = worldOf(FX, PRE)
   assert.ok(columnCapRisk({ at: w.at, feet: [358, 56, 180], maxUp: 24 }))
@@ -432,8 +442,8 @@ await t('M3 MUTANT KILLED: pocketDigOk without the furniture rule digs the furna
     assert.equal(m.pocketDigOk(b), true, 'the mutant still refused')
   })
 })
-await t('M4 MUTANT KILLED: pillarOut without the cap preflight places the plug at the re-entry cell (C2 catches it)', async () => {
-  await withMutant(SRC.reflex, '    if (escPocketOn() && capFloodRisk(bot, maxBlocks)) return FLOOD_RISK\n', '', async m => {
+await t('M4 MUTANT KILLED: pillarOut with a cap check that never refuses places the plug at the re-entry cell (C2 catches it; the preflight and the per-placement read are both this check)', async () => {
+  await withMutant(SRC.reflex, "  if (!r) return null\n  logFloodGuard(bot, { caller: 'pillar_cap'", "  return null\n  logFloodGuard(bot, { caller: 'pillar_cap'", async m => {
     const bot = pillarBot(worldOf(FX, PRE), REENTRY)
     await Promise.race([m.pillarOut(bot, 24), new Promise(r => setTimeout(() => r('timeout'), 3000))])
     assert.ok(bot.placed.length >= 1, 'the mutant still refused before placing')
@@ -471,6 +481,18 @@ await t('M9 MUTANT KILLED: the cap preflight without the side-exit read refuses 
   await withMutant(SRC.reflex, '    for (let fy = y; fy <= cy - 2; fy++) if (sideOut(fy)) return null\n', '', async m => {
     const shaft = synth((x, y, z) => (x === 0 && z === 0) ? (y <= 9 ? 'minecraft:stone' : y <= 11 ? 'minecraft:water[level=0]' : y <= 15 ? 'minecraft:air' : y === 16 ? 'minecraft:stone' : y === 17 ? 'minecraft:water[level=0]' : 'minecraft:stone') : (x === 1 && z === 0 && (y === 13 || y === 14)) ? 'minecraft:air' : 'minecraft:stone')
     assert.notEqual(m.columnCapRisk({ at: shaft.at, feet: [0, 10, 0], maxUp: 24 }), null)
+  })
+})
+await t('M10 MUTANT KILLED: without the in-loop cap read the displaced pillar places into the column (C2b catches it)', async () => {
+  await withMutant(SRC.reflex, "    if (escPocketOn() && capFloodRisk(bot, maxBlocks - i)) return FLOOD_RISK\n", '', async m => {
+    const w = worldOf(FX, PRE)
+    const dryPad = synth((x, y, z) => y < 100 ? 'minecraft:stone' : y <= 104 ? 'minecraft:air' : 'minecraft:stone')
+    const world = { getBlock: p => (p.y >= 100 && p.x < 0) ? dryPad.getBlock(p) : w.getBlock(p) }
+    const bot = pillarBot(world, [-10.5, 100, -10.5])
+    const eq = bot.equip.bind(bot)
+    bot.equip = async it => { bot.entity.position = new Vec3(...REENTRY); return eq(it) }
+    await Promise.race([m.pillarOut(bot, 3), new Promise(r => setTimeout(() => r('timeout'), 3000))])
+    assert.ok(bot.placed.length >= 1, 'the mutant still refused')
   })
 })
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -6852,6 +6852,10 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     if (!alive()) return 'preempted'
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
+    // escpocket-01: THE CAP AGAIN BEFORE EVERY PLACEMENT (Paper 11-07, the column scene on d5dcceab: an entombed arm that began on
+    // dry ground had the body moved into the wet column, and its pillar then placed the plug) -- a wet body never pillars into
+    // a column its climb will be refused at the top of
+    if (escPocketOn() && capFloodRisk(bot, maxBlocks - i)) return FLOOD_RISK
     bot.setControlState('jump', true)
     await sleep(300)
     if (!alive()) { bot.setControlState('jump', false); return 'preempted' }   // airpocket-01 (Codex r3): never place after a yield
