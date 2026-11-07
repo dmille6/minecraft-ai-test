@@ -76,6 +76,18 @@ await t('upgradeCandidates: every standing fern of a fern run but ONE IN THREE (
   }
   await killed(DEC_PATH, '    if (i % FLOWER.keepEvery === keepPhase(s)) continue\n', '', scenario)
 })
+await t('Codex r1 BLOCKER: REPEATED upgrades (one flower a visit) keep the same third of each run a fern -- never the last ferns', async () => {
+  const scenario = M => {
+    const rec0 = fernRec(), srv = fernWorld(rec0)
+    const keptAt = new Set(rec0.cells.filter(q => { const cells = rec0.cells.filter(x => x.seg === q.seg); return cells.indexOf(q) % M.FLOWER.keepEvery === M.keepPhase(q.seg) }).map(q => q.at.join()))
+    assert.ok(keptAt.size >= 2, 'POSITIVE CONTROL: both runs keep a fern')
+    let rec = rec0
+    for (let v = 0; v < 20; v++) { const nx = M.withUpgrade(rec, M.upgradeCandidates(rec, srv.read), { flowers: 1 }); if (!nx) break; rec = nx; for (const c of rec.cells) if (D.decorUpgradeRole(c.role)) srv.set(c.at, 'poppy') }
+    const ferns = rec.cells.filter(q => D.decorFernRole(q.role)).map(q => q.at.join())
+    assert.deepStrictEqual(new Set(ferns), keptAt, 'the kept third, no more, no less')
+  }
+  await killed(DEC_PATH, '    if (!(decorFernRole(c?.role) || decorUpgradeRole(c?.role)) || !Array.isArray(c.at)) continue\n    const s = String(c.seg ?? instOf(c.role))\n    if (!bySeg.has(s))', '    if (!decorFernRole(c?.role) || !Array.isArray(c.at)) continue\n    const s = String(c.seg ?? instOf(c.role))\n    if (!bySeg.has(s))', scenario)
+})
 await t('withUpgrade: as many candidates as the bag\'s flowers (at most upgradeMax) re-roled D1-u<k>, the palette the batch\'s scheme WITHOUT a fern, the history kept; no flower -> null', async () => {
   const scenario = M => {
     const rec = fernRec(), srv = fernWorld(rec)
