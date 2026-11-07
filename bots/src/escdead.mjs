@@ -323,6 +323,56 @@ const nextTick = bot => new Promise(resolve => {
 })
 
 /**
+ * ESCPOCKET-01: THE POCKET DIG'S ACTUATOR -> { outcome: 'dug'|'failed'|'yielded', why, dug, minAir }. The swim's owner runs it
+ * before the swim (reflex.mjs swimUnderTry); `dig(block, lost)` is the caller's swing (the escape tool policy, the guard, a
+ * bounded dig) and checks `lost()` before and after its equip. While a swing runs the body FLOATS IN PLACE: the float hold
+ * stands aside for this owner, so jump is held here (Codex r1 BLOCKER 1: without it Echo's body sank y58.2 -> y56 in a 3.75 s
+ * dig and the head went under); every tick re-checks ownership and the air, and a yield or air under POCKET_ABORT_OXYGEN stops
+ * the swing. After the last swing the water is given up to 20 ticks to come in. Controls: jump is released on every exit but a
+ * yield (the new owner's body).
+ */
+export const POCKET_ABORT_OXYGEN = 16
+export async function pocketDig (bot, { pd, dig, alive = () => true, yieldTo = () => null, oxygen = () => bot.oxygenLevel } = {}) {
+  const res = { outcome: 'failed', why: null, dug: 0, minAir: oxygen() ?? null }
+  const at = (x, y, z) => { try { return bot.blockAt?.(new Vec3(x, y, z)) ?? null } catch { return null } }
+  const set = (k, v) => { try { bot.setControlState(k, v) } catch {} }
+  const lost = () => { if (!alive()) return 'ownership lost'; const y = yieldTo(); return y ? `yielded: ${y}` : null }
+  const stop = () => { try { bot.stopDigging?.() } catch {} }
+  let yielded = false
+  const yieldOut = why => { yielded = true; res.outcome = 'yielded'; res.why = why; return res }
+  try {
+    for (const c of pd?.dig ?? []) {
+      const b = at(...c)
+      if (!b) { res.why = `the pocket dig cell ${c.join(',')} is not loaded`; return res }
+      if (b.boundingBox !== 'block') continue                         // already open
+      if (!pocketDigOk(b)) { res.why = `the pocket dig cell ${c.join(',')} is now ${b.name}`; return res }
+      const l0 = lost(); if (l0) return yieldOut(`${l0} before the pocket dig`)
+      set('jump', true)
+      let done = false, err = null
+      const p = Promise.resolve().then(() => dig(b, lost)).then(() => { done = true }, e => { done = true; err = e?.message ?? String(e) })
+      while (!done) {
+        await nextTick(bot)
+        const l = lost(); if (l) { stop(); return yieldOut(`${l} during the pocket dig`) }
+        const ox = oxygen()
+        if (Number.isFinite(ox)) res.minAir = Math.min(Number.isFinite(res.minAir) ? res.minAir : 20, ox)
+        if (Number.isFinite(ox) && ox < POCKET_ABORT_OXYGEN) { stop(); res.why = `air ${ox} of 20 during the pocket dig: stopped`; return res }
+      }
+      await p
+      const after = at(...c)
+      if (!after || after.boundingBox === 'block') { res.why = `the pocket dig left ${after?.name ?? 'unloaded'} at ${c.join(',')}${err ? `: ${err}` : ''}`; return res }
+      res.dug++
+      const l1 = lost(); if (l1) return yieldOut(`${l1} after the pocket dig`)
+    }
+    for (let w = 0; w < 20 && !(pd?.dig ?? []).every(c => isWaterCell(at(...c))); w++) await nextTick(bot)
+    const l2 = lost(); if (l2) return yieldOut(`${l2} after the pocket dig`)
+    res.outcome = 'dug'
+    return res
+  } finally {
+    if (!yielded) set('jump', false)
+  }
+}
+
+/**
  * THE ACTUATOR -> { outcome: 'out'|'failed'|'yielded', ... }. Breaks the roof with `dig(block)` (the caller's: the escape's
  * tool policy, the escape guard and a bounded dig), then rises straight up the column with swimunder's own vertical
  * controller (centre in the column, then jump held), until the eye is in air at the surface. There is NO turning back: the
