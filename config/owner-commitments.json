@@ -5742,13 +5742,15 @@
     "flowers-1107.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07: flowers-01show BUILT @ e841547a on the live release 272288e1 (branch flowers-01show; ci2 457/461 + w30 456/461, base/flake failures only), ready to stage; tripwire DC6 kind=wild on main shopread.py.txt (selftest + 3 harness mutants), NOT installed -- install with the fold. Fleet: does not apply (no decorator/park/dress at e6a1ea2b). NEXT: read +2 h/+24 h after activation (upgrades n, meals spent, flowers/meal, compost bone meal, stall stamp lifts); then flowers-02 lawn scatter (meals on lawn centres), flowers-03 flower trips 160-320 (atlas finds), flowers-04 tall-flower stock.",
+   "next_step": "2026-11-07: flowers-01show QUEUED by the coordinator (after the roughground fold); r4 c9de8d6d adds fernMinR 32 (no fern cut within 32 of home, pending the owner). flowers-02show (lawn scatter, stacked on c9de8d6d) BUILT fb365702, ready to stage; tripwire DC6 (wild pick) + DC7 (lawn meal) on main shopread.py.txt, NOT installed -- install with the folds. Fleet: does not apply. flowers-03 (trips 160-320): design only (180-s skill limit; protected travel) -- after the 01/02 reads. NEXT: reads +2 h/+24 h (upgrades, meals spent, flowers/meal, lawn rows, inwall plant share 4.1% -> , stamps lift).",
    "evidence": {
     "grep": [
-     "flowers-01show"
+     "flowers-01show",
+     "flowers-02show"
     ],
     "branches": [
-     "flowers-01show"
+     "flowers-01show",
+     "flowers-02show"
     ],
     "paths": [
      "docs/reports/flowers-design-2026-11-07.md",

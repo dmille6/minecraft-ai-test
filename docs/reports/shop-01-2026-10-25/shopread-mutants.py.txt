@@ -267,6 +267,10 @@ M = [
  ("                    elif plot == DECOR and f.get('kind') in ('fern', 'leaves', 'wild'):", "                    elif plot == DECOR and f.get('kind') in ('fern', 'leaves'):"),
  ("                                                r=DECOR_WILD_R if wd else DECOR_FERN_R)", "                                                r=DECOR_FERN_R)"),
  ("names=DECOR_LEAVES if lv else DECOR_SMALL if wd else DECOR_FERNS,", "names=DECOR_LEAVES if lv else DECOR_BLOOMS if wd else DECOR_FERNS,"),
+ # flowers-02 DC7: a lawn meal judged as a nursery meal; any lawn centre in force accepted for a nursery meal too; the lawns' generation test off
+ ("                meal_ok = decor_lawn_meal_ok if lawn else decor_meal_ok\n", "                meal_ok = decor_meal_ok\n"),
+ ("                meal_ok = decor_lawn_meal_ok if lawn else decor_meal_ok\n", "                meal_ok = lambda c_, x_, t_: decor_lawn_meal_ok(c_, x_, t_) or decor_meal_ok(c_, x_, t_)\n"),
+ ("    return [n['at'] for g in sink_in_force(chain, t_ms) for n in g.get('lawns') or []", "    return [n['at'] for g in chain or [] for n in g.get('lawns') or []"),
 ]
 bad = 0
 for old, new in M:

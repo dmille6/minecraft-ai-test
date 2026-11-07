@@ -169,3 +169,91 @@ small-flower collection plus border upgrades with four cells a visit: `flowerDem
 - **Ferns near home get cut.** Feed ferns are cut within 48 of home (DC4's reach). About 470 ferns stand within 64.
   That is a visible change to the forest floor by the town; the grass recycling is the renewable part.
 - **Clearing takes time.** About 20 digs before each meal, so there is one meal per decor visit in practice.
+
+## 8. flowers-02: lawn scatter (coordinator 11-07: "go ahead with flowers-02")
+
+**Fern rule (coordinator, pending the owner).** No fern is cut within 32 of home: `FLOWER.fernMinR`, which applies to
+the border's ferns and the compost feed alike, so the gather takes only the 33-48 ring. This is flowers-01show r4
+`c9de8d6d`. The coordinator had already queued `e841547a`; r4 adds this rule on top of it.
+
+**Measured.** Inside the wall ring (x -46..35, z -20..39, 4,920 columns), 1,661 columns are topped with grass. 68 of
+them carry a plant (4.1%), and 52 of those are the border's ferns. **One flower.** Another 1,736 columns sit under
+spruce leaves. In short, the lawns are bare grass.
+
+**Paper** (sandbox8, `sandbox/flowers/flower-proof3.cjs`; the counts from the bot's view matched the server's
+destructive counts exactly, 6 of 6):
+
+- **L1:** a taiga lawn with a dirt path and a cobble path through the spread, 6 meals.
+  - Each meal gave 18-23 plants: mostly short grass, 1-4 tall grass, 0-6 flowers.
+  - **All of them stood within 4 of the centre.**
+  - **None on a path, none beyond the dirt path:** the walk only steps onto grass, so a path is a barrier.
+  - Density was 0.10 over the spread's grass and about 0.25 over the core.
+- **L2:** a sparse lawn (9 plants, about 4%) gained 24 plants, ending at 0.15.
+- **L3:** a second meal on the same centre, with the centre dug first, added only about 9 (0.10 to 0.14). One meal a
+  centre is enough.
+- **L4:** two centres 8 apart gave a density of 0.20 between them. In 1 of 20 meals in this run the meal was acked but
+  not spent; the spent-check covers that.
+
+**Design.**
+
+- **Where:** inside the walls only.
+- **Window rules:**
+  - every column of the 7-spread is checked against the reservations first, whatever the ground: outside the walls,
+    zones, the plan, corridors, the park, wells, the farm, markers, a record column or cell (paths are records), or a
+    nursery's box;
+  - the core needs at least 60 grass supports and the spread at least 150;
+  - centres stand at least 10 apart, so cores never overlap, and more than 14 from a nursery.
+- **The cap (lawnGate):** a meal is allowed only while the core is at most 10% planted and the spread at most 12%, with
+  fewer than 4 flowers. A fed lawn is at about 25% in the core, so it is never fed again. On top of that, a lawn is
+  claimed on the record (`lawns[]`) **before** its one meal and is never fed a second time.
+- **Priority:** lawns only when the border wants no flower (no upgrade candidates and no waiting upgraded cells). The
+  park's 4 bone meal stay; the town draw checks that keep at the moment of transfer (`mealAllow`, Codex r1 blocker).
+  The nursery's draw had the same race and is fixed too.
+- **Feed:** ferns for the composter keep being cut while lawn work remains.
+- **Other decor work keeps off the lawns:** the nursery, the fern gather and the wild pick all honour `lawnReserved`.
+- **Refusals:**
+  - no site stamps the town's `decor_lawn` stall (2 h);
+  - a meal not spent, or a gate that fails at the click, means no row and no second try at that lawn;
+  - a visit that changes nothing stamps both decor stalls.
+- **Tripwire DC7** (main, not installed):
+  - a `_build op=meal kind=lawn` is allowed only on a lawn centre named by a generation in force; otherwise it reads
+    off_record ` lawn_meal`;
+  - a nursery centre never counts as a lawn, and a lawn never as a nursery;
+  - the selftest covers these cases, and the mutant harness killed all 229 mutants, 3 of them DC7's.
+
+**Codex's independent design (flowers-02) and the reconciliation.**
+
+- **Agreed:** inside the walls only; reservations checked on every column whatever its ground; claim the lawn on the
+  record before the meal; one meal per click, counted only when spent; the border goes first; the park's 4 kept;
+  lawns excluded from the fern gather, the wild pick and the nursery; a separate lawn stall.
+- **Different:**
+  - Codex proposed gaps of 15 and up to two meals per centre, 24 h apart. Paper put every plant within 4 of the centre
+    and showed a second meal adds little, so this uses a gap of 10 and **one meal per centre for good**.
+  - The gate thresholds were Codex's core 0.10 / spread 0.08. A neighbour's scatter alone reaches 0.10 over the
+    spread, so the spread threshold here is 0.12.
+  - There is no thinning. Codex noted a hard settled cap would need thinning; one meal per centre plus the gate is the
+    cap here.
+  - Codex's attempt-ID and "uncertain" state machine is reduced to claim-then-meal, never retried.
+- **Review (one round):** 1 blocker, the park keep read before the walk. Fixed, with a test and its mutant.
+
+**Read after activation:**
+
+- `_decor op=lawn` rows: sited, fed, why;
+- `_build op=meal kind=lawn` rows against meals spent;
+- grass-topped columns inside the walls that carry a plant (4.1% now) and the flower count (1 now);
+- the `decor_lawn` stamp: it must lift.
+
+## 9. flowers-03: flower trips to the 160-320 ring. Not cheap; design only
+
+The stock out there is 16 flowers between 160 and 200 and 124 between 200 and 320. A round trip to 250 and back is
+about 500 blocks, roughly 115 s of walking. The runner aborts every skill at 180 s, so one call reaches only the
+160-200 band (market-02's walk-in has the same limit). Going further needs one of:
+
+- an expedition-style continuation;
+- a new skill row (protected: two engines plus a search);
+- or opportunistic picks inside `gather`, which is a protected travel/gather function.
+
+The cheap first step is to add the small flowers to the atlas's `plant` finds (atlas.mjs, not protected), so the map
+learns where they are. Then a trip piece rides on the expedition machinery. **Recommendation:** build it after the
+flowers-01/02 reads show whether the nursery and composter keep up. If they do, the trips are not needed for the
+borders. The trips would only matter for colour variety, which grows only beyond 640.

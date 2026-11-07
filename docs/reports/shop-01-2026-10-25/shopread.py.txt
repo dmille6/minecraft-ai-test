@@ -110,7 +110,10 @@
 #                      home, never guarded, in the park + 1 or a tidy head cell, else clear_outside (` fern_rule`); DC5 leaves (decorator-03)
 #                      -- a `_build op=clear kind=leaves` (the hedge's leaves, shears) the same rule over DECOR_LEAVES (` leaves_rule`); DC6 wild
 #                      (flowers-01, owner 11-07) -- a `_build op=clear kind=wild` (the wild flower pick, by hand) the same rule over the
-#                      small flowers (DECOR_SMALL) within DECOR_WILD_R of home (` wild_rule`); the protected villages are G3's. Every
+#                      small flowers (DECOR_SMALL) within DECOR_WILD_R of home (` wild_rule`); the protected villages are G3's; DC7 lawn
+#                      (flowers-02, owner 11-07) -- a `_build op=meal kind=lawn` (the lawn scatter's one bone meal) only ON a lawn centre
+#                      (`lawns[].at`) of a generation in force, never a nursery's, else off_record (` lawn_meal`); a nursery meal
+#                      (no kind=lawn) is never a lawn's. Every
 #                      decor refusal ENDS in a tag the showcase tripwire's tree-debris split cannot read as a block (Claude r1 BLOCKER: ` fern`
 #                      made a stone cleared under kind=fern a WATCH); the selftest checks every tag against showcase_trip.py's TREE_DEBRIS; DC3 pot -- a `_build op=place kind=pot_fill` only
 #                      on a POT cell (role D<n>-pot) of a generation in force with a potted block (potted_*), else off_record (` pot`).
@@ -769,6 +772,16 @@ def decor_nurseries(chain, t_ms):
             if isinstance(n, dict) and isinstance(n.get('at'), list) and len(n['at']) == 3:
                 out.append(n['at'])
     return out
+
+
+def decor_lawns(chain, t_ms):
+    """flowers-02 DC7: every lawn centre a generation in force names (its `lawns`) -> [[x, y, z]]. Pure."""
+    return [n['at'] for g in sink_in_force(chain, t_ms) for n in g.get('lawns') or [] if isinstance(n, dict) and isinstance(n.get('at'), list) and len(n['at']) == 3]
+
+
+def decor_lawn_meal_ok(chain, cell, t_ms):
+    """flowers-02 DC7: is a lawn meal ON a lawn centre in force? -> bool. Pure."""
+    return any(ck(a) == ck(cell) for a in decor_lawns(chain, t_ms))
 
 
 def decor_meal_ok(chain, cell, t_ms):
@@ -1624,8 +1637,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 # decorator-01 DC1: bone meal used ON a nursery centre of a generation in force, nothing else (any other project: off)
                 out['decor_meals'] += 1
                 t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
-                if rec is not None and not (plot == DECOR and decor_meal_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)):
-                    out['off_record'] += 1; lists['off_record'].append('%s %s %s meal' % (bot, k, f.get('block')))
+                lawn = f.get('kind') == 'lawn'   # flowers-02 DC7: a lawn's one meal, on a lawn centre in force only
+                meal_ok = decor_lawn_meal_ok if lawn else decor_meal_ok
+                if rec is not None and not (plot == DECOR and meal_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)):
+                    out['off_record'] += 1; lists['off_record'].append('%s %s %s %s' % (bot, k, f.get('block'), 'lawn_meal' if lawn else 'meal'))
             elif op == 'harvest' and plot == CROPFARM:
                 # cropfarm-01 G9: a crop dug on a crop cell of the farm's record, nothing else (counted with G2's clear_outside)
                 out['harvests'] += 1
@@ -2094,7 +2109,8 @@ def selftest():
     cg2 = dict(cg1, gen=2, prev=1, at=T0MS + 3_600_000, structure_complete=False, instances=[{'id': 'D1'}],
                cells=[{'at': [5, 71, 1], 'role': 'D1-f0', 'seg': 'D1-B0'}, {'at': [6, 71, 1], 'role': 'D1-f1', 'seg': 'D1-B0'}, {'at': [3, 71, 3], 'role': 'D1-pot', 'seg': 'D1-P'},
                       {'at': [31, 71, 31], 'role': 'D1-f2', 'seg': 'D1-B1'}],
-               nursery={'at': [60, 70, 60], 'box': [53, 53, 67, 67]}, nurseries=[{'at': [30, 70, 30], 'box': [23, 23, 37, 37]}])
+               nursery={'at': [60, 70, 60], 'box': [53, 53, 67, 67]}, nurseries=[{'at': [30, 70, 30], 'box': [23, 23, 37, 37]}],
+               lawns=[{'at': [-20, 70, 15], 'box': [-27, 8, -13, 22], 'sitedAt': T0MS + 3_600_000}])
     cf = [(1, json.dumps(cg1).encode())]
     cf.append((2, json.dumps(dict(cg2, prevSha=hashlib.sha256(cf[0][1]).hexdigest())).encode()))
     cchain = record_chain(cf)
@@ -2118,6 +2134,13 @@ def selftest():
     assert CJ('op=meal cell=31,70,30 block=bone_meal kind=use')['off_record'] == 1, 'beside the centre'
     assert J(base + [R('_build', 'project=shop op=meal cell=30,70,30 block=bone_meal', s=14)], CP_)['off_record'] == 1, 'another project\'s meal'
     assert CJ('op=meal cell=30,70,30 block=bone_meal kind=use', zones={'board-a': [[30, 0, 30, 30, 200, 30]]})['zone'] == 1, 'G3 judges a meal'
+    # flowers-02 DC7: a lawn's meal on a lawn centre in force, nothing else -- never a nursery centre, never before the lawn is claimed
+    assert CJ('op=meal cell=-20,70,15 block=bone_meal kind=lawn', s_=3_700)['off_record'] == 0, 'the claimed lawn'
+    lm = CJ('op=meal cell=-20,70,15 block=bone_meal kind=lawn')
+    assert lm['off_record'] == 1 and lm['_lists'].get('off_record') == ['board-a-Alpha -20,70,15 bone_meal lawn_meal'], ('before its claim', lm['_lists'].get('off_record'))
+    assert CJ('op=meal cell=30,70,30 block=bone_meal kind=lawn', s_=3_700)['off_record'] == 1, 'a nursery centre is no lawn'
+    assert CJ('op=meal cell=-20,70,15 block=bone_meal kind=use', s_=3_700)['off_record'] == 1, 'a lawn centre is no nursery'
+    assert CJ('op=meal cell=-19,70,15 block=bone_meal kind=lawn', s_=3_700)['off_record'] == 1, 'beside the lawn centre'
     # DC2 the harvest: a bloom within 7 of a nursery centre in force, never a record cell
     assert CJ('op=clear cell=33,71,28 block=poppy kind=bloom')['clear_outside'] == 0 and CJ('op=clear cell=37,71,30 block=short_grass kind=bloom')['clear_outside'] == 0, 'a flower and the grass at 7'
     bo = CJ('op=clear cell=38,71,30 block=poppy kind=bloom')
@@ -2785,7 +2808,7 @@ def selftest():
         assert m, 'TREE_DEBRIS not found in showcase_trip.py'
         td = re.compile(eval(''.join(re.findall(r"r'((?:[^'\\]|\\.)*)'", m.group(1))).join(["r'", "'"])))
         assert td.match('poppy') and td.match('fern'), 'positive control: the debris regex reads flowers and ferns'
-        for tag in ('fern_rule', 'leaves_rule', 'wild_rule', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post', 'forest_fell', 'forest_leafrule', 'forest_meal', 'farm_retire'):
+        for tag in ('fern_rule', 'leaves_rule', 'wild_rule', 'lawn_meal', 'bloom', 'meal', 'pot', 'guarded', 'in_park', 'tidy_cell', 'decor_post', 'forest_fell', 'forest_leafrule', 'forest_meal', 'farm_retire'):
             assert not td.match(tag), 'a decor refusal tag reads as tree debris: %s' % tag
     # sinkwaive-01 SK1 (11-06; bots/src/sinks.mjs sinkWaiveDue, skills.mjs buildSink): a stone sink's WAIVER row -- `_build
     # project=tower|road|shrine op=waived cell=.. why=.. gen=..` -- names a record cell the build gives up (no stand reached it); it
