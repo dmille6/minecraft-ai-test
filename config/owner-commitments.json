@@ -5757,6 +5757,35 @@
     ]
    },
    "note": "Measured 24 h: room skips 442 (lower bound), 5-7 free; bags ~30 slots, cobble 3.4; town containers 196/729 used; town deposit planned only cobble:20 (cap-refused) on a real bag. Offline 412 real bags: 366 reach 8 free, 412 reach 2."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "wastedattempts-1107",
+   "title": "Wasted craft/gather attempts (owner 11-07 'why arent we checking for ingredients before crafting attempts? gathering ... where do we begin?'): rank failures by bot-time, then fix in stages",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "wastedattempts-1107.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-07: Stage 1 measured (docs/reports/wasted-attempts-2026-11-07.md): craft failures 10.9 bot-h/24 h (0.57% of fleet time), gather failures 263.5 (13.7%), same-spot repeats 93.7; the gatherer chain's sand rung alone 140.9 bot-h (7.5%). Stage 3 piece 1 sandrung-01 BUILT b7b2a530 on fleet e6a1ea2b (branch sandrung-01-on-e6a1ea2b; tier 1/2; Codex r1 no blockers); registration + draft entry in ~/mcai-analysis on the canary host -- the control session queues it or rolls it out owner-direct. NEXT: read it (no_safe_target/bot-h -30%, gather ok share up, sand-rung decisions 0); then gathermem-01 (tier 3, Codex design in the report), craftroom-02, craftplan-offer.",
+   "evidence": {
+    "grep": [
+     "sandrung-01"
+    ],
+    "branches": [
+     "sandrung-01-on-e6a1ea2b"
+    ],
+    "paths": [
+     "docs/reports/wasted-attempts-2026-11-07.md"
+    ],
+    "runs": [
+     "sandrung-01"
+    ]
+   },
+   "note": "Fleet .31 24 h to 11-07 13:25Z, 1,920 bot-h, 2,227,473 skill rows, 211,218 decisions. The craft skill does check ingredients (0.5 s); the cost is the decision cycle (veto 17.8 s vs failed gather 23.4 s median to the next decision), and craft repeats 76-88% because the remedy is advice. Gather repeats same bot/block/class within 16 blocks + 10 min: iron_ore 43.2, sand 23.5, oak_log 9.7, coal 7.7 bot-h."
   }
  ]
 }
