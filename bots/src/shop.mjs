@@ -513,6 +513,12 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
 }
 
 /**
+ * MARKET-01: the market's ask (skills.mjs marketAsk -> market.mjs marketRunAdmit / nextJobBlock), set at install; asked when the
+ * build order has no use for the bot. -> { order } | null. Unset (or MARKET=off): never asked.
+ */
+let marketAskOf = null
+export function setMarketAsk (fn) { marketAskOf = typeof fn === 'function' ? fn : null }
+/**
  * THE TOWN ORDER (host part of buildEligible, design 4.1/A8) -> { order, skip }. Pure. At town only, shared towns only, no
  * milestone holding, after the cooldown; the record complete is no order; S1 (no site) waits a day; a full slot set, low health,
  * or a bag without room is a skip with its reason.
@@ -522,6 +528,13 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  // market-01: a bot the projects cannot use (all complete, or its last visit found no material) -- a market run or a market job
+  // block first (a short town walk; its own skips say why not)
+  if ((complete || state.lastStop === 'no_material') && marketAskOf) {
+    let mk = null
+    try { mk = marketAskOf({ now, health, freeSlots }) } catch { mk = null }
+    if (mk?.order) return { order: mk.order, skip: null }
+  }
   if (complete) return { order: null, skip: 'complete' }
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null
