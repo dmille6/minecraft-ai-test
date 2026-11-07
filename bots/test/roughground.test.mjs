@@ -210,6 +210,11 @@ await t('2: a cobblestone top in a lawn is cut and laid again in dirt (role tops
   assert.strictEqual(cell?.role, 'topsoil')
   assert.deepStrictEqual(T.TIDY_PALETTE.topsoil, ['dirt', 'grass_block'])
   assert.strictEqual(r.record.inwall.rough.census.topsoil, 1)
+  // Codex r1 BLOCKER: every topsoil block is one the visit's foreign dig takes (FOREIGN_CLEAR); mossy cobblestone is left
+  const R = await import('../src/buildrun.mjs')
+  assert.ok(R.FOREIGN_CLEAR.test('cobblestone') && R.FOREIGN_CLEAR.test('cobbled_deepslate'))
+  const mossy = server(); mossy.set([7, G, 7], 'mossy_cobblestone')
+  assert.strictEqual(rough(mossy).census.topsoil, 0, 'mossy: not a block the visit digs in a record cell')
   // control: ROUGH topsoil off -> nothing; a cobble patch with too little grass round it (a floor) -> left
   assert.strictEqual(rough(srv, { T: { ...RG.ROUGH, topsoil: false } }).census.topsoil, 0)
   const floor = server(); for (let x = 2; x <= 6; x++) for (let z = 2; z <= 6; z++) floor.set([x, G, z], 'cobblestone')
