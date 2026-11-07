@@ -422,7 +422,7 @@ await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells
 })
 await t('wiring (gkstall-01): the tidy visit waives with gkWaiveOpts, reports the mapped stop, and a stuck keeper lets the lease go', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/const waive = wallWaiveDue\(rec, r\.deferred \?\? \[\], GROUNDS\.on \? gkWaiveOpts\(rec, WALL_WAIVE_MAX\) : \{\}\)/.test(s), 'the tidy waiver options')
+  assert.ok(/const waive0 = wallWaiveDue\(rec, r\.deferred \?\? \[\], GROUNDS\.on \? gkWaiveOpts\(rec, WALL_WAIVE_MAX\) : \{\}\)/.test(s), 'the tidy waiver options')
   assert.ok(/const stop1 = GROUNDS\.on \? gkStopAfterWaive\(r\.stop, waivedN\) : r\.stop/.test(s), 'the mapped stop')
   assert.ok(/return out\(status, completed \? 'complete' : stop1,/.test(s), 'the visit reports it')
   assert.ok(/if \(GROUNDS\.on && stop1 === 'stuck_on_cell'\) \{ try \{ const k = keeperState\(bot, true\); if \(k\.lease\?\.rec\?\.holder === me\) \{ releaseKeeper\(bot, k\.lease, 'stuck'\)/.test(s), 'the stuck keeper releases')
