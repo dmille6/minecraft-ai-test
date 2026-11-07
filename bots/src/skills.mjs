@@ -24933,6 +24933,9 @@ async function buildTidyVisit (ctx, args, signal) {
     // siteprep-01: a prep's cuts in LAYERS, the highest across the plot first (Codex review r1 BLOCKER 5: never a shaft mid-way)
     const cuts = !caps.digs || floorOnly ? [] : prepNow ? prepCutOrder(cuts0.filter(q => q.prep === prepNow), fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
     const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
+    // roughground-2/3 (Codex r1 BLOCKER): a topsoil cell (DIRT only) with no dirt in the bag reads done now -- its cobble is never dug
+    // out to leave a hole; the next visit with dirt (or the next survey) lays it
+    const noSoil = q => q.role === 'topsoil' && countItem(bot, 'dirt') < 1
     // townterrace-01: the park's cells and the cave seals a visit passes over now (park.mjs terraceSkip: no material, no tool, the
     // ground under a planting not laid yet, a seal's cut still standing) read done -- an element the town cannot make never blocks
     const tools = { get hoe () { return (bot.inventory?.items?.() ?? []).some(i => HOE_RE.test(i.name)) }, get boneMeal () { return countItem(bot, 'bone_meal') > 0 } }
@@ -24955,7 +24958,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // a previous fill under one of this stage's cuts would hide the cut from clears())
     const recV = isTerrace ? { ...visitRec, cells: (visitRec.cells ?? []).filter(q => !q.prev), clear: (visitRec.clear ?? []).filter(q => (q.prep || !guardNow(q.at[0], q.at[2])) && !keptLogK.has(q.at.join(','))) } : visitRec
     const r = await runVisit({ dir, key, me, home, stood, record: recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || !!skipV(q), stuckStalledOnly: true,
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
@@ -25001,7 +25004,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
+    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
       const why = {}

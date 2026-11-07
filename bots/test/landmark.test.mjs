@@ -133,6 +133,7 @@ await t('the wiring: the keeper plans it once (land.landmark), every tidy rule a
   const res = LP.landReservation({ corridors: [], landmark: { box: [1, 2, 9, 10] } })
   assert.ok(res.zones.some(z => z.why === 'land:landmark' && z.box[0] === 1 && z.box[5] === 10), 'a reservation other builds keep off')
   assert.strictEqual(LM.landmarkOn({ LANDMARK: 'off' }), false); assert.strictEqual(LM.landmarkOn({}), true)
+  assert.ok(/const noSoil = q => q\.role === 'topsoil' && countItem\(bot, 'dirt'\) < 1/.test(sk) && (sk.match(/noTorch\(q\) \|\| noSoil\(q\)/g) ?? []).length === 2, 'a top with no dirt held waits (never cobble)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
