@@ -459,6 +459,25 @@ export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn 
 /** BAGROOM-01: the build order's room refusal asks this (skills.mjs shareBankAsk) for a remedy order; null when unset. */
 let roomAskOf = null
 export function setRoomAsk (fn) { roomAskOf = typeof fn === 'function' ? fn : null }
+// GKROOM-01 (bagfull-01's piece 2; control session 11-07): THE KEEPER WITH 2-7 FREE SLOTS WORKS THE TIDY WHEN THE FOREST IS REFUSED FOR
+// ROOM. MEASURED showcase 06:40-15:01Z: 16 `_shop_skip why=room` rows from the keeper lease holder (rate-limited: 30 min a bot), every one
+// with 2-7 free slots; the keeper's order leads with the forest (groundskeeper.mjs keeperOrderPure: forest first while it wants work),
+// which needs SHOP_BAG_SLOTS_MIN (8); the tidy needs MONUMENT_BAG_SLOTS_MIN (2). After bagfull-01's room bank found nothing to bank, the
+// keeper's visit goes to the TIDY instead of no visit. Only the KEEPER (the lease itself), only a tidy with work that is not quiet for it.
+// GKROOM=0 is the rollback.
+export const gkroomOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.GKROOM ?? '1').trim().toLowerCase())
+/** The room fallback -> TIDY_PLOT | null. Pure. */
+export function roomFallback ({ on = gkroomOn(), plot = null, freeSlots = 36, need = SHOP_BAG_SLOTS_MIN, keeper = false, tidyWork = false, tidyQuiet = false } = {}) {
+  if (!on || plot !== FOREST_PLOT || !keeper || !tidyWork || tidyQuiet) return null
+  if (!(freeSlots >= MONUMENT_BAG_SLOTS_MIN && freeSlots < need)) return null
+  return TIDY_PLOT
+}
+/** Is a room-fallback tidy visit running (its reads must name the tidy)? -> bool. Pure. `mark` = { at } set at the visit's start, cleared
+ *  at its end; bounded by SHOP_SKILL_MS so a mark a crash left never outlives a visit. */
+export const roomFallbackPick = (mark, now = Date.now(), busy = false) => !!busy && !!mark && Number.isFinite(mark.at) && now >= mark.at && now - mark.at < SHOP_SKILL_MS
+let tidyWorkOf = () => ({ keeper: false, tidyWork: false })
+/** skills.mjs installs the keeper's tidy read (the lease itself; the tidy record open or due). */
+export function setTidyWork (fn) { if (typeof fn === 'function') tidyWorkOf = fn }
 /**
  * ANVILAPPLY-01 + ENCHANT-01: the anvil / enchanting-table ask (skills.mjs enchantAsk -> enchant.mjs anvilAskPlan / tableAskPlan),
  * set at install. Asked FIRST at town (a short, bounded visit, only when there is work: its own cooldown per bot per kind).
@@ -858,6 +877,10 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
       try { ra = roomAskOf({ now, freeSlots, plot, need }) } catch { ra = null }   // bagfull-01: the plot's own room (8, or 2 light)
       if (ra?.order) return { order: ra.order, skip: null }
     }
+    // gkroom-01: the keeper whose forest is refused for room works the tidy (2 free slots) instead
+    let fb = null
+    try { const tw = tidyWorkOf() ?? {}; fb = roomFallback({ plot, freeSlots, need, keeper: !!tw.keeper, tidyWork: !!tw.tidyWork, tidyQuiet: !!idleOf(TIDY_PLOT) }) } catch { fb = null }
+    if (fb) return { order: { skill: 'build_shop', args: { plot: fb, why: 'room_fallback' } }, skip: null }
     return { order: null, skip: 'room' }
   }
   return { order: { skill: 'build_shop', args: {} }, skip: null }

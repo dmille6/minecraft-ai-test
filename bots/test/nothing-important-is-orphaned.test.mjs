@@ -40,6 +40,7 @@ const REQUIRED = [
   'bots/test/zonewalk.test.mjs',
   'bots/src/fewerdec.mjs',
   'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
+  'bots/test/gkroom.test.mjs',   // gkroom-01 (11-07): the keeper refused the forest for room works the tidy
   'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
   'bots/test/gkwork.test.mjs',   // gkwork-01 (11-07)
   'bots/src/roughground.mjs',   // roughground-01 (11-07): the ground the inside-the-wall rules miss + the bots' scaffold taken back
