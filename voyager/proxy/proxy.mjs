@@ -186,8 +186,8 @@ function serveArm (name, arm) {
     // max_tokens must be a whole number 1..arm.maxTokens: a NaN or negative value must never reach the spend cap (review 11)
     const cap = arm.maxTokens ?? 4096
     const mt = body.max_tokens == null ? 2048 : Number(body.max_tokens)
-    if (!Number.isInteger(mt) || mt < 1 || mt > cap) return send(400, { error: `max_tokens must be a whole number 1-${cap}` })
-    body.max_tokens = mt
+    if (!Number.isInteger(mt) || mt < 1) return send(400, { error: `max_tokens must be a whole number 1-${cap}` })
+    body.max_tokens = Math.min(mt, cap)    // over the arm's cap: clamped (arm B-general's 8k context allows 2048)
     if (body.messages != null && !Array.isArray(body.messages)) return send(400, { error: 'messages must be a list' })
     inflight++; hourCalls++          // counted BEFORE the duty-cycle wait, so a second request is refused meanwhile
     if (arm.group) groupBusy.set(arm.group, name)
