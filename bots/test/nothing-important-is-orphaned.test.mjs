@@ -39,6 +39,20 @@ const tGit = (n, f) => { if (CTX.ok) return t(n, f); skipped++; console.log(`  S
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // voyager-01 (11-06): the creative-bot pilot -- design, the sandbox and its adversarial tests, the proxy, watcher, plugin, units
+  'docs/reports/voyager-01-design-2026-11-06.md',
+  'voyager/src/sandbox.mjs',
+  'voyager/src/facade.mjs',
+  'voyager/src/loop.mjs',
+  'voyager/src/entry.mjs',
+  'voyager/test/sandbox-adversarial.test.mjs',
+  'voyager/test/host-probe.mjs',
+  'voyager/test/cmd-probe.mjs',
+  'voyager/proxy/proxy.mjs',
+  'voyager/watch/voyager_watch.py',
+  'voyager/plugin/src/main/java/ai/mcai/voyager/VoyagerGuard.java',
+  'voyager/infra/voyager-bot@.service',
+  'voyager/infra/setup.sh',
   'scripts/host/indexsearch2read.py',   // storehub piece C's watch read
   // wholemap-s0 (11-01): the whole-map coverage instrument (seen% / stood% / reach / tiles), its BlueMap route layer + installer
   // phase1 item 4 (11-06): the showcase stops only for harm -- the pre-activation replay gate and the 14-day history replay

@@ -5399,6 +5399,34 @@
     ]
    },
    "note": "Showcase 30 h: 38 keeper takes, 11 with no grounds visit; fleet 3 h: 26 takes, 7 with none; batch15 17:09-18:20Z: 0 tidy/forest visits (Alpha x2 then Kite at y 14-17). Also prodserve `_service last_min` for a never-served plot prints never."
+  },
+  {
+   "kind": "host",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 24,
+   "id": "voyager-01-1106",
+   "title": "voyager-01 pilot: Voyager-style creative bots (self-proposed tasks, LLM-written skills in isolated-vm, verified library) on a BRAND-NEW seed; arms A Qwen3.6-35B-A3B (Blackwell), B Qwen2.5-Coder-32B (Studio), C Haiku 5.5, control = fleet harness; 48 h first run",
+   "owner_date": "2026-11-06",
+   "memory": [
+    "voyager-01-1106.md",
+    "owner-freshworld-1106.md",
+    "owner-blackwell-testing-only-1031.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-07 00:07Z: stage 1 DONE (48/48 tests, host-probe 39/39 and cmd-probe 9/9 inside the bot unit on the worlds host; Claude review no blockers + Codex r2 7 blockers fixed, r3 re-check). Stage 2 (arm C alone, 1 h) running from 00:07Z. NEXT: read stage 2; owner decisions before stage 3: the Blackwell has 3 pinned models (Ollama default cap 3) so arm A + control likely evict one; the Studio arm B shares the showcase brain's GPU (10-min probe + duty cycle); then all arms 48 h with daily metrics; at the end unload qwen3.6:35b-a3b and qwen2.5:7b-instruct (keep_alive 0).",
+   "evidence": {
+    "branches": [
+     "voyager-01"
+    ],
+    "grep": [
+     "voyager-01"
+    ],
+    "paths": [
+     "docs/reports/voyager-01-design-2026-11-06.md",
+     "voyager/src/sandbox.mjs"
+    ]
+   }
   }
  ]
 }
