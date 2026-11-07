@@ -134,6 +134,8 @@ import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation,
 import { LAND as LAND_TABLE } from './landplan.mjs'   // gkforever-01: the bands out to GKF.radius
 import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMeans } from './gkforever.mjs'   // gkforever-01
 import { setGroundsMeans, groundsBatchOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
+import { setHoldsGrounds, idleKindNow, belowKind, gkstayOn } from './idlework.mjs'   // gkstay-01
+import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -19666,8 +19668,15 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   if (d === 'release') { releaseKeeper(bot, k.lease, work ? 'term' : 'no_work', now); d = 'none' }
   // GKLEASE-01 (groundskeeper.mjs groundsLeaseCheck): a holder that cannot work the grounds from where it is (in a mine, away), or
   // that has done no grounds work for GK_FIT.idleMs, lets the lease go and rests; an unfit bot never takes it
+  // GKSTAY-01: a HOLDER is released as unfit only after UNFIT_HOLD_MS of it without a break (a dirt pit: no hand-off); a take still
+  // needs the bot fit now -- and no open idle batch that goes below (iron, coal); a holder whose open batch goes below hands over
+  const unfitNow = GKL_ON ? gkUnfitNow(bot) : null
+  const up = unfitPersist(bot.gkUnfitSince ?? null, unfitNow, now)
+  bot.gkUnfitSince = up.since
+  const below = GKSTAY_ON && belowKind(idleKindNow())
+  if (GKSTAY_ON && d === 'mine' && below) { releaseKeeper(bot, k.lease, 'handoff', now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' }
   if (GKL_ON && (d === 'mine' || d === 'take')) {
-    const unfit = gkUnfitNow(bot)
+    const unfit = d === 'mine' ? (up.held ? unfitNow : null) : (unfitNow ?? (below ? 'below_batch' : null))
     const c = groundsLeaseCheck({ d, unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
     if (c.release) { releaseKeeper(bot, k.lease, c.release, now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' } else if (d === 'take' && !c.take) d = 'none'
   }
@@ -19680,6 +19689,8 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 }
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
+const GKSTAY_ON = gkstayOn()   // gkstay-01
+setHoldsGrounds(b => keeperNow(b))   // gkstay-01: the idle lap reads whether this bot holds the keeper lease
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
 /** gklease-01: why this bot cannot work the grounds from where it is (groundskeeper.mjs groundsUnfit) -> why | null (switch off: null). */
 function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } }) : null } catch { return null } }

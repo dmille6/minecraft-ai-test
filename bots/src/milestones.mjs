@@ -22,6 +22,7 @@ import { depositVerdict, depositRungFixOn } from './depositoffer.mjs'   // decbu
 import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, SCOUT_DIST } from './idlework.mjs'
 import { idleRotation, groundsMeans, setGroundsOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
 import { idleBagMeans, idleBagFull, idleDepthHint } from './idlework.mjs'   // idlework-02: the bag stop, the depth-aware hint
+import { holderMeans, holdsGrounds, setIdleKindNow } from './idlework.mjs'   // gkstay-01: a lease holder's lap stays on the surface
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
@@ -803,10 +804,12 @@ export function idleMeans (b) {
   const items = b?.inventory?.items?.() ?? []
   const pick = items.some(it => /_pickaxe$/.test(it?.name ?? '') && usesLeft(it) >= 2)
   // idlework-02: a bag at the stop opens no bag-filling batch (idlework.mjs idleBagMeans): its lap is a grounds or scout lap
-  return idleBagMeans({ iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }, items.length)
+  // gkstay-01: a grounds lease holder's lap opens no batch that goes below (idlework.mjs holderMeans)
+  return holderMeans(idleBagMeans({ iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }, items.length), holdsGrounds(b))
 }
 const bagCountsOf = b => { const c = {}; for (const it of b?.inventory?.items?.() ?? []) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (Number(it.count) || 0); return c }
 const idleNeed = () => IDLE_NEEDS[IDLE.state?.kind] ?? null
+setIdleKindNow(() => IDLE.state?.kind ?? null)   // gkstay-01: the open batch's kind, for the keeper lease (skills.mjs keeperOrder)
 function idleRow (phase, extra = {}) {
   try {
     const st = IDLE.state

@@ -178,3 +178,30 @@ export function idleBar (barred = new Map(), kind, now = Date.now(), ms = IDLE_B
   if (kind && kind !== 'none') out.set(kind, now + ms)
   return out
 }
+
+// GKSTAY-01 (coordinator 11-06 ~00:00Z; LIVE fleet e447b65b, 1.18 h, 80 bots: 102 keeper takes, 91 `keeper_release why=underground`; the
+// first skill below in those terms `mine y=16` 9 of 22 -- this rung's iron hint): A GROUNDS LEASE HOLDER'S LAP STAYS ON THE SURFACE.
+// While the bot holds the keeper lease (setHoldsGrounds: skills.mjs keeperNow), its lap opens no batch that goes below (iron, coal):
+// the grounds lap first, else logs, else the scout lap -- never a mine batch. A batch of a mine kind already open when it would take
+// the lease keeps it from taking (skills.mjs keeperOrder: `idleKindNow`), and a holder whose open batch is a mine kind hands the lease
+// over deliberately (`keeper_release why=handoff`). GKSTAY=0 is the rollback.
+export const gkstayOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.GKSTAY ?? '1').trim().toLowerCase())
+/** The kinds whose batch goes below the surface. */
+export const BELOW_KINDS = Object.freeze(['iron', 'coal'])
+/** A holder's means -> the same with every below-surface kind off (not a holder, or the switch off: unchanged). Pure. */
+export function holderMeans (means = {}, holds = false, on = gkstayOn()) {
+  if (!on || !holds) return means
+  const out = { ...means }
+  for (const k of BELOW_KINDS) out[k] = false
+  return out
+}
+let holdsOf = () => false
+/** skills.mjs installs the lease read (keeperNow). */
+export function setHoldsGrounds (fn) { if (typeof fn === 'function') holdsOf = fn }
+export const holdsGrounds = b => { try { return !!holdsOf(b) } catch { return false } }
+let idleKindOf = () => null
+/** milestones.mjs installs the open batch's kind. */
+export function setIdleKindNow (fn) { if (typeof fn === 'function') idleKindOf = fn }
+export const idleKindNow = () => { try { return idleKindOf() ?? null } catch { return null } }
+/** Is the open batch one that goes below? Pure over the kind. */
+export const belowKind = kind => BELOW_KINDS.includes(String(kind ?? ''))
