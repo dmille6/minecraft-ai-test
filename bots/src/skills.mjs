@@ -18741,6 +18741,9 @@ async function deepObsCleanup (bot, o, signal, trip) {
   if (!s || !o.basin || o.cleaned) return
   o.cleaned = true
   if (!(await deepObsGo(bot, s.P1, signal))) return
+  // the water back into the bucket first when W still holds it (Paper 11-07 run 6: a cast that stopped after its water pour sealed the
+  // water in W and the bot went on with an empty bucket)
+  try { if (deepIsSourceOf(deepObsRead(bot)(...s.W), 'water') && deepObsKit(bot.inventory?.items?.() ?? []).buckets > 0) { const r = await scoopLiquid(bot, new Vec3(s.W[0], s.W[1], s.W[2])); deepObsRow(bot, 'water_back', r.ok ? 'ok' : 'failed', o) } } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   const read = deepObsRead(bot)
   const fill = [s.H, s.W].filter(c => { const q = read(...c); return q && !obsIsFull(q) })
   await deepObsSeal(bot, fill, signal, trip)
@@ -18868,10 +18871,13 @@ async function deepObsStep (ctx, trip, signal, deadline) {
     }
     if (step === 'lava') {
       if (!(await deepObsGo(bot, s.S, signal)) || !(await deepObsCentre(bot, s.S, signal))) { o.fails = (o.fails ?? 0) + 1; deepObsRow(bot, 'lava', 'stand', o); continue }
-      // the lake's own cell, else a lake source beside it within reach (an earlier scoop leaves flowing lava there)
+      // the lake's own cell, else the lake sources STRAIGHT AHEAD along the bearing (an earlier scoop leaves flowing lava in the
+      // first; Paper 11-07 run 6: a source beside it, diagonal from S, clipped S's own wall -- every aim missed) within reach
       const rd = deepObsRead(bot)
-      const cand = [s.lq, ...[[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => [s.lq[0] + dx, s.lq[1], s.lq[2] + dz])]
-        .filter(c => deepIsSourceOf(rd(...c), 'lava') && deepIsAir(rd(c[0], c[1] + 1, c[2])) && deepIsAir(rd(c[0], c[1] + 2, c[2])))
+      const [bx, bz] = s.b === 0 ? [1, 0] : s.b === 1 ? [0, 1] : s.b === 2 ? [-1, 0] : [0, -1]
+      const eye = bot.entity.position.offset(0, 1.62, 0)
+      const cand = [0, 1, 2].map(k => [s.lq[0] + bx * k, s.lq[1], s.lq[2] + bz * k])
+        .filter(c => deepIsSourceOf(rd(...c), 'lava') && deepIsAir(rd(c[0], c[1] + 1, c[2])) && deepIsAir(rd(c[0], c[1] + 2, c[2])) && eye.distanceTo(new Vec3(c[0] + 0.5, c[1] + 0.5, c[2] + 0.5)) <= 4.4)
       let r = { ok: false, reason: 'no lava source in reach' }
       for (const c of cand) { r = await obsScoopLava(bot, new Vec3(c[0], c[1], c[2])); if (r.ok || /something else/.test(r.reason ?? '')) break }
       if (!r.ok) o.fails = (o.fails ?? 0) + 1
