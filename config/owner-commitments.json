@@ -5683,14 +5683,15 @@
     "roughground-1107.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07: BUILT. SHOWCASE roughground-01show @ 80cf5d5c on the live release d8dbd32a: ready to stage after the gkwork-01show read (no shopread rule: tidy_clear_ok admits record-chain cells). FLEET roughground-01-on-63d28320 @ 9aa9b1c1 (survey only: the fleet has no inwall/terrace/ledger): registration + draft entry ~/mcai-analysis/roughground-01.* on the canary host, P after gkwork-01. Read: record.inwall.rough / record.band.rough census at each sited stage, tidy placed+cut per keeper-h up, and the circled-area census re-run on a mirror copy (offline 4 passes: clump cols 739->517, floating 117->75, stray tables 26->11, 1-col holes 27->13). NEXT pieces: 1b hollows (fill-before-cut dependency), 1c stands for float_high, 2 beauty (cobble lawn tops -> dirt, terrace stage in the cycle, clean banks), 3 features (flower-edged paths, landmark mound, lanterns).",
+   "next_step": "2026-11-07: roughground-01show RELEASED to the showcase 10:38:40Z as 272288e1 (release 272288e1-6dd0ded8-fdd64ead, branch showcase-rough-on-d8dbd32a: 80cf5d5c + fold e09ee921 + test anchor 272288e1). Release agent's Codex fold review: r1 2 blockers (a stray crafting table taken while another bot crafts at it; a floating cut dug under the keeper's own feet -- reproduced 5-block fall) fixed e09ee921 roughground.mjs roughCutWaits held at every tidy dig; r2 NO BLOCKERS; ci2 459/460 (bagdiet known); replay gate PASS; Nova + Gale re-quarantined. CAVEAT: on d8dbd32a the keepers made 0 tidy visits in 2 h -- every bot's build order skips why=room (bags full), so the rough survey may not be exercised until bag room is fixed. NEXT: 2-h read ~12:38Z. Before: 2026-11-07: BUILT. SHOWCASE roughground-01show @ 80cf5d5c on the live release d8dbd32a: ready to stage after the gkwork-01show read (no shopread rule: tidy_clear_ok admits record-chain cells). FLEET roughground-01-on-63d28320 @ 9aa9b1c1 (survey only: the fleet has no inwall/terrace/ledger): registration + draft entry ~/mcai-analysis/roughground-01.* on the canary host, P after gkwork-01. Read: record.inwall.rough / record.band.rough census at each sited stage, tidy placed+cut per keeper-h up, and the circled-area census re-run on a mirror copy (offline 4 passes: clump cols 739->517, floating 117->75, stray tables 26->11, 1-col holes 27->13). NEXT pieces: 1b hollows (fill-before-cut dependency), 1c stands for float_high, 2 beauty (cobble lawn tops -> dirt, terrace stage in the cycle, clean banks), 3 features (flower-edged paths, landmark mound, lanterns).",
    "evidence": {
     "grep": [
      "roughground-01"
     ],
     "branches": [
-     "roughground-01show",
-     "roughground-01-on-63d28320"
+     "origin/showcase-rough-on-d8dbd32a",
+     "roughground-01-on-63d28320",
+     "roughground-01show"
     ],
     "paths": [
      "docs/reports/roughground-design-2026-11-07.md"
