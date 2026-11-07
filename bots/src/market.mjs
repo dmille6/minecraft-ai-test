@@ -410,12 +410,12 @@ export { winCountWhere, storedEnchants, offersDetail }
 export const WALKIN = Object.freeze({
   radius: 200,                 // a village zone whose box centre is at most this far from home
   minDist: 96,                 // nearer villages are market_run's
-  callMs: 165_000,             // the whole trip (< the 180 s watchdog)
+  callMs: 170_000,             // the whole trip (< the 180 s watchdog)
   outMs: 45_000,               // the way out at most this long
   dwellMs: 60_000,             // inside a zone at most this long per trip (far under the tripwire Z1's 15 min)
   stillMs: 40_000,             // never stand still inside a zone longer than this
-  leaveBy: 95_000,             // no visit starts within 20 s of this (a visit: goto <= 15 s + a window <= 6 trades x 8 s)
-  homeBy: 160_000,             // home by this
+  leaveBy: 80_000,             // no visit starts within 20 s of this: a visit is <= 60 s (goto 15 + open 10 + 2 + 2 trades x 8 s + 3)
+  homeBy: 168_000,             // home by this (a late visit ends by ~120 s, the exit ~140 s: the walk home keeps >= 28 s)
   // INSIDE a zone at most dwellMs + one visit (goto <= 15 s, a window <= 6 trades x 8 s) + the walk out: ~3.5 min worst case,
   // so the tripwire's Z1 (>= 15 min still inside with a refusal) cannot fire on a trading visit; an abort at 180 s leaves the bot
   // within ~200 b of home, free to walk (never held)
