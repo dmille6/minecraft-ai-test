@@ -77,6 +77,7 @@ const wiring = (src, ms) => {
     one("if \\(GKSTAY_ON && d === 'mine' && below\\) \\{ releaseKeeper\\(bot, k\\.lease, 'handoff', now\\); bot\\.gkRestUntil = now \\+ GK_FIT\\.restMs; d = 'none' \\}")
     one("const unfit = d === 'mine' \\? \\(up\\.held \\? unfitNow : null\\) : \\(unfitNow \\?\\? \\(below \\? 'below_batch' : null\\)\\)")
     one('setHoldsGrounds\\(b => keeperNow\\(b\\)\\)')
+    one("if \\(!renewal && GKSTAY_ON && belowKind\\(idleKindNow\\(\\)\\)\\) return \\{ ok: false, why: 'below_batch' \\}")
     one('return holderMeans\\(idleBagMeans\\(', ms)
     one('setIdleKindNow\\(\\(\\) => IDLE\\.state\\?\\.kind \\?\\? null\\)', ms)
   } else {
