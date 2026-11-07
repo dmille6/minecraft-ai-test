@@ -69,7 +69,7 @@ function preludeSource (names) {
     let s;
     try { s = ok ? stringify({ ok: true, value: v === undefined ? null : v }) : stringify({ ok: false, name: S(v && v.name).slice(0, 40), message: S(v && v.message).slice(0, 600) }) } catch (e) { s = null }
     if (typeof s !== 'string') return ok ? '{"ok":true,"value":"<unserialisable>"}' : '{"ok":false,"name":"Error","message":"<unserialisable error>"}';
-    if (s.length > MAX) return '{"ok":false,"name":"Error","message":"the skill\'s result or error was too long; keep it short"}';
+    if (s.length > MAX) return '{"ok":false,"name":"Error","message":"the result or error of the skill was too long; keep it short"}';
     return s;
   };
   defineProperty(globalThis, '__vy_finish', { value: freeze(finish), writable: false, enumerable: false, configurable: false });
