@@ -5548,6 +5548,32 @@
    },
    "owner_pending": "statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports?",
    "note": "Deterministic data report = source of truth; judge() rules tested with 20 mutants. One Codex review round: 5 blockers (unread sources read as reassurance, backup alarms lost, spelled-out numbers passed the guard, stale value cache shown as current, first ALARMS.log line dropped) all fixed. Also brought infra/dashboard (live since 11-04, commit fb5775d8 was never pushed) onto main."
+  },
+  {
+   "covers_alarms": [
+    "effect:dirtrung-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-dirtrung-01"
+    ],
+    "runs": [
+     "dirtrung-01"
+    ]
+   },
+   "id": "effect-dirtrung-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 168,
+   "memory": [
+    "owner-codeeval-phases-1106.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-06",
+   "state": "done",
+   "title": "dirtrung-01 effect: target MET (gather actions/bot-h -69.1%); the items/bot-h guardrail drop (112.1 -> 70.16) is an ARTIFACT",
+   "next_step": "none: waived 11-06. The removed 'gather 16 dirt' loop itself produced most of the counted items (dirt weighs 0 in valuescore); value per bot-h rose (16.1 -> 50.0 over 6 h after idlework-01). Re-judge items/bot-h only with dirt excluded.",
+   "note": "control session 11-06 (owner delegated 'do what you think is right'): guardrail waived as a measurement artifact, not a harm."
   }
  ]
 }
