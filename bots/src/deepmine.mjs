@@ -174,6 +174,8 @@ export function returnWhy (trip, { now = Date.now(), kit = null, health = 20 } =
     if (trip.target === 'diamond' && kit.diamonds - (trip.diamonds0 ?? 0) >= DIAMOND_GOAL) return 'goal'
     if (trip.target === 'iron' && kit.rawIron - (trip.rawIron0 ?? 0) >= IRON_GOAL) return 'goal'
   }
+  // OBSIDIAN-01: a finished cast goes home to bank what it made (the town's table waits on it)
+  if (trip.obs?.done && (trip.obs.got ?? 0) > 0) return 'obsidian'
   if (trip.arrivedAt != null && now - trip.arrivedAt > WORK_MS) return 'work_time'
   if ((trip.misses ?? 0) >= MISSES_MAX) return 'no_ore'
   if ((trip.branches ?? 0) >= BRANCHES_MAX && (trip.misses ?? 0) > 0) return 'branches'
@@ -381,4 +383,291 @@ export function deepRowDetail ({ op = '-', phase = '-', target = '-', why = '-',
 }
 export function deepModeDetail () {
   return `on=${DEEPMINE.on ? 1 : 0} slots=${DEEPMINE.slots} feet=${IRON_FEET}/${DEEP_FEET} trip_min=${TRIP_MAX_MS / 60_000}`
+}
+
+// ================================================================================================================================
+// OBSIDIAN-01 (owner 11-07 ~13:20Z "Both at once": obsidian for the enchanting table, fleet AND showcase; enchantshop-1104 E2;
+// design docs/reports/obsidian-design-2026-11-04.md + its 11-07 revision). A DIAMOND TRIP'S SUB-GOAL, never a trip of its own.
+//
+// MEASURED 11-07 (showcase region copy, +-150 of home): the 11-04 design's ISOLATED lava source (four sides and floor solid under
+// a rock cell) is 5 of 1,734 top-layer lava sources at y -55 (0.3%); with a solid rock hole over it, 6 in 90,000 m2 -- a feature
+// with no population. What the deep layer HAS is lava LAKES at -55 under open cave air (998 of 1,734), 237 of them with a dry
+// shore a miner at feet -53 can stand on and solid rock behind it for a basin (48 distinct 16x16 areas). So the cast is made in a
+// BASIN THE MINER DIGS ITSELF, in rock it has read, with ONE bucket used in turn:
+//
+//   the tunnel at feet f (-53), d = the bearing toward the lake:   P3  P2  P1  S | C (cave air)
+//                                                         f-1:   W   H   rock shore| C1 (cave air)
+//                                                         f-2:  rock rock rock rock| Lq (lava source, the lake)
+//   1. water into W (from P1: two cells out) -> W a water source, flowing water in H; contained by rock (no spread at f)
+//   2. the empty bucket takes ONE lava source from the lake (from S: two below, one ahead; the lake refills it, nothing rises)
+//   3. that lava into H (from P1: one out) -> beside W's water it is obsidian the instant it lands (no open lava stands)
+//   4. W's water back into the bucket (the same bucket: one bucket per bot is enough), 5. H dug with the diamond pickaxe (75 s
+//      on Paper 11-04), 6. the drop picked up by stepping into H and out (1 down, 1 up). Repeat; at the end W and H are filled.
+// Any read that is not what the step expects stops the cast where it stands; loose lava anywhere in the site is sealed with a
+// block at once (deepmine's SEAL), never walked past. No lava site, no bucket, no water, no diamond pickaxe: the trip simply
+// works as a diamond trip (the refusal chain is tested). The water comes from an INFINITE source (two or more source
+// neighbours: the fill takes nothing from the world) near the stair top before the descent, or from a water lake at depth by
+// the same cave-edge geometry. KILL SWITCH: OBSIDIAN=off (or OBSIDIAN_POOLS not naming the pool). Pure: no bot, no world.
+// ================================================================================================================================
+export function obsidianOn (env = process.env, pool = '') {
+  const v = String(env?.OBSIDIAN ?? '').trim().toLowerCase()
+  if (v === 'off' || v === '0' || v === 'false' || v === 'no') return false
+  if (v === 'on' || v === '1' || v === 'true') return true
+  const pools = String(env?.OBSIDIAN_POOLS ?? '*').split(',').map(q => q.trim()).filter(Boolean)
+  return pools.includes('*') || pools.includes(String(pool))
+}
+export const OBSIDIAN = Object.freeze({
+  on: obsidianOn(typeof process !== 'undefined' ? process.env : {}, typeof process !== 'undefined' ? (process.env.MEMORY_POOL ?? '') : ''),
+})
+export const OBS_GOAL = 4                    // the enchanting table's obsidian (2 diamonds, 4 obsidian, 1 book): the town keeps 4
+export const OBS_PICK_USES = 8               // a diamond (or netherite) pickaxe with this many uses: 1 a block, and a margin
+export const OBS_SCAN = 24                   // the lake search box round the miner (+-24: one site area per ~1,900 m2 measured)
+export const OBS_APPROACH_MAX = 40           // tunnel cells the approach may dig
+export const OBS_CYCLES_MAX = 8              // casts a trip tries
+export const OBS_FAILS_MAX = 3               // failed steps before the cast is given up for the trip
+export const OBS_DIG_MS = 95_000             // a call starts the obsidian dig only with this much of its budget left (75 s measured)
+export const OBS_WATER_SCAN = 40             // the water search at the stair top (+-40, +-10 in y)
+export const OBS_DEEPEN_TRIES = 3            // extra deepen calls toward feet -53 when the trip stopped above it
+export const OBS_FEET = DEEP_FEET            // the cave-edge stand is two over the lake surface (-55 + 2)
+
+const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
+const lvlOf = b => { const v = b?.level ?? b?.metadata; return v == null ? NaN : Number(v) }
+/** A liquid SOURCE of this kind ('lava' | 'water'): name and level 0 (mineflayer's metadata on a liquid is its level). Pure. */
+export const isSourceOf = (b, kind) => !!b && nm(b) === kind && lvlOf(b) === 0
+/** Real air (never a plant, a torch or a liquid: the rays and the water must pass it). Pure. */
+export const isAir = b => !!b && /^(air|cave_air|void_air)$/.test(nm(b))
+const liquid = b => !!b && (isLava(b) || isWet(b))
+const fullDry = b => isFull(b) && !liquid(b)
+
+/** WHAT THE BAG HOLDS FOR A CAST -> { pickUses, buckets, water, lava, obsidian, seal }. Pure. */
+export function obsKit (items = []) {
+  let pickUses = 0, buckets = 0, water = 0, lava = 0, obsidian = 0, seal = 0
+  for (const it of items) {
+    if (!it) continue
+    const n = String(it.name ?? ''), c = it.count ?? 1
+    if (/^(diamond|netherite)_pickaxe$/.test(n)) pickUses = Math.max(pickUses, usesLeft(it))
+    else if (n === 'bucket') buckets += c
+    else if (n === 'water_bucket') water += c
+    else if (n === 'lava_bucket') lava += c
+    else if (n === 'obsidian') obsidian += c
+    if (LINING_ITEMS.includes(n)) seal += c
+  }
+  return { pickUses, buckets, water, lava, obsidian, seal }
+}
+/**
+ * DOES THIS DIAMOND TRIP TAKE THE OBSIDIAN SUB-GOAL? -> { want, skip }. Pure. `town` = the town index's known obsidian count (null:
+ * unreadable -> no sub-goal: the need is never guessed). Every refusal leaves an ordinary diamond trip (a different job, never a
+ * wait): no diamond pickaxe (the bank phase makes one from 3 diamonds), no bucket, the town stocked.
+ */
+export function obsidianWant ({ on = OBSIDIAN.on, target = 'diamond', kit = null, town = null, goal = OBS_GOAL } = {}) {
+  const no = skip => ({ want: 0, skip })
+  if (!on) return no('off')
+  if (target !== 'diamond') return no('iron_trip')
+  if (!kit) return no('bag')
+  if (!Number.isFinite(town)) return no('town_unknown')
+  if (town + (kit.obsidian ?? 0) >= goal) return no('stocked')
+  if ((kit.pickUses ?? 0) < OBS_PICK_USES) return no('no_diamond_pickaxe')
+  if ((kit.buckets ?? 0) + (kit.water ?? 0) + (kit.lava ?? 0) < 1) return no('no_bucket')
+  if ((kit.seal ?? 0) < 8) return no('seal_blocks')
+  return { want: goal - town - (kit.obsidian ?? 0), skip: null }
+}
+
+const D = b => BEARINGS[((b % 4) + 4) % 4]
+const off = (c, dx, dy, dz) => [c[0] + dx, c[1] + dy, c[2] + dz]
+/**
+ * THE SITE'S CELLS for a lake source `lq` reached along bearing b (S -> lake) -> { S, C, C1, P1, P2, P3, H, W, under1, beyond }.
+ * Pure: S is two over the lake surface and one back from its column; the basin is under P2 (H) and P3 (W).
+ */
+export function siteCells (lq, b) {
+  const [dx, dz] = D(b)
+  const f = lq[1] + 2
+  const S = [lq[0] - dx, f, lq[2] - dz]
+  const back = k => [S[0] - dx * k, f, S[2] - dz * k]
+  const P1 = back(1), P2 = back(2), P3 = back(3)
+  return { S, C: [lq[0], f, lq[2]], C1: [lq[0], f - 1, lq[2]], P1, P2, P3, H: off(P2, 0, -1, 0), W: off(P3, 0, -1, 0),
+    under1: off(P1, 0, -1, 0), shore: off(S, 0, -1, 0), beyond: off(back(4), 0, -1, 0), b: ((b % 4) + 4) % 4, lq, f }
+}
+const N6O = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+const key = c => c.join(',')
+/**
+ * IS THIS A CAST SITE? -> null (yes) | the reason. Pure over read(x,y,z) -> { name, boundingBox, full, level } | null. `kind` the
+ * lake's liquid ('lava' to cast, 'water' to fill the bucket). `inZone(cell)` true for a cell no cast may touch (a protected zone
+ * with its bucket reach, the town box, the stair's cells). Unknown is refusal.
+ */
+export function siteWhy (read, site, { kind = 'lava', inZone = () => false } = {}) {
+  const r = c => read(c[0], c[1], c[2])
+  const { S, C, C1, P1, P2, P3, H, W, under1, shore, beyond, lq, b } = site
+  const all = [lq, C, C1, S, off(S, 0, 1, 0), P1, off(P1, 0, 1, 0), P2, off(P2, 0, 1, 0), P3, off(P3, 0, 1, 0), H, W, under1, shore, beyond]
+  if (all.some(c => r(c) == null)) return 'unknown'
+  if (all.some(c => inZone(c))) return 'zone'
+  if (!isSourceOf(r(lq), kind)) return 'no_source'
+  if (!isAir(r(C)) || !isAir(r(C1))) return 'no_cave'          // the ray from S to the lake passes C and C1
+  if (!fullDry(r(shore))) return 'shore'
+  // the tunnel cells (dug or open), feet and head, and nothing wet beside any of them except the cave cell C ahead of S
+  const tunnel = [S, P1, P2, P3].flatMap(c => [c, off(c, 0, 1, 0)])
+  const tkeys = new Set(tunnel.map(key))
+  for (const c of tunnel) {
+    const q = r(c)
+    if (!(isOpen(q) || isNatural(q))) return 'tunnel_not_natural'
+    for (const d of N6O) {
+      const n = off(c, ...d)
+      if (tkeys.has(key(n)) || key(n) === key(C)) continue
+      const nb = r(n)
+      if (nb == null) return 'unknown'
+      if (liquid(nb)) return 'tunnel_wet'
+    }
+  }
+  // the floor under P1 (the bot's stand for the pours), the shore under S: full. The basin H, W: natural rock to dig, held in by
+  // full dry blocks on every side but each other, and a full floor
+  if (!fullDry(r(under1))) return 'stand_floor'
+  const [dx, dz] = D(b)
+  const lat = c => [off(c, dz, 0, dx), off(c, -dz, 0, -dx)]
+  for (const c of [H, W]) {
+    const q = r(c)
+    if (!(isFull(q) && isNatural(q))) return 'basin_not_rock'
+    if (!fullDry(r(off(c, 0, -1, 0)))) return 'basin_floor'
+    for (const w of lat(c)) if (!fullDry(r(w))) return 'basin_wall'
+  }
+  if (!fullDry(r(beyond))) return 'basin_wall'
+  return null
+}
+/**
+ * THE WAY TO A SITE'S STAND -> [{ start, b, len }] (at most two straight legs: across, then along the site's bearing into S) |
+ * null. Pure. The last leg must run through P3, P2 and P1 (the basin's row), so it starts at least 3 cells behind S; the feet must
+ * be at S's level (the deepen puts the miner at -53). A leg of length 0 is left out.
+ */
+export function approachLegs (feet, site, max = OBS_APPROACH_MAX) {
+  if (!Array.isArray(feet) || feet[1] !== site.f) return null
+  const [dx, dz] = D(site.b)
+  const S = site.S
+  // the corner K: the feet moved across the bearing onto S's line
+  const K = dx !== 0 ? [feet[0], feet[1], S[2]] : [S[0], feet[1], feet[2]]
+  const along = (S[0] - K[0]) * dx + (S[2] - K[2]) * dz
+  if (along < 3) return null
+  const across = dx !== 0 ? S[2] - feet[2] : S[0] - feet[0]
+  const legs = []
+  if (across !== 0) {
+    const ab = dx !== 0 ? (across > 0 ? 1 : 3) : (across > 0 ? 0 : 2)
+    legs.push({ start: feet, b: ab, len: Math.abs(across) })
+  }
+  legs.push({ start: K, b: site.b, len: along })
+  const total = legs.reduce((s, l) => s + l.len, 0)
+  return total <= max ? legs : null
+}
+/**
+ * THE SITES ROUND THE MINER -> [site + { legs, cost }], cheapest approach first. Pure. Scans the box +-r at the lake surface's level
+ * (feet - 2) for sources of `kind`, each from the four bearings.
+ */
+export function findSites (read, feet, { kind = 'lava', r = OBS_SCAN, inZone = () => false, max = 6, skip = new Set() } = {}) {
+  if (!Array.isArray(feet)) return []
+  const y = feet[1] - 2, out = []
+  for (let x = feet[0] - r; x <= feet[0] + r; x++) for (let z = feet[2] - r; z <= feet[2] + r; z++) {
+    if (skip.has(`${x},${y},${z}`)) continue
+    const q = read(x, y, z)
+    if (!isSourceOf(q, kind)) continue
+    for (let b = 0; b < 4; b++) {
+      const s = siteCells([x, y, z], b)
+      if (siteWhy(read, s, { kind, inZone })) continue
+      const legs = approachLegs(feet, s)
+      if (!legs) continue
+      out.push({ ...s, legs, cost: legs.reduce((a, l) => a + l.len, 0) })
+    }
+  }
+  return out.sort((a, b) => a.cost - b.cost).slice(0, max)
+}
+/**
+ * THE CAST'S NEXT STEP -> 'basin' | 'water' | 'lava' | 'pour_lava' | 'scoop_water' | 'dig' | 'pickup' | 'stop:<why>'. Pure over the
+ * site's reads now and the bag. One bucket in turn: water into W, the empty bucket to the lake, the lava into H, W back.
+ */
+export function castNext ({ H = null, W = null, kit = {}, justDug = false } = {}) {
+  if (justDug) return 'pickup'
+  // the obsidian is in H (the cast) or, when the lava landed in W's water instead, in W: either is dug; W's water goes back first
+  if (nm(H) === 'obsidian' || nm(W) === 'obsidian') return isSourceOf(W, 'water') && (kit.buckets ?? 0) > 0 ? 'scoop_water' : 'dig'
+  if (isFull(H) || isFull(W)) return (kit.lava ?? 0) > 0 ? 'stop:basin_closed_holding_lava' : 'basin'
+  if (isLava(H) || isLava(W)) return 'stop:loose_lava'
+  if ((kit.lava ?? 0) > 0) return isSourceOf(W, 'water') ? 'pour_lava' : 'stop:holding_lava_no_water'
+  if (isSourceOf(W, 'water')) return (kit.buckets ?? 0) > 0 ? 'lava' : 'stop:no_empty_bucket'
+  if ((kit.water ?? 0) > 0) return 'water'
+  return 'stop:no_water'
+}
+/**
+ * LOOSE LAVA round the site after a pour -> [[x,y,z]] to seal, nearest the stand first. Pure. Every lava cell in the box over the
+ * basin and the tunnel row (one block of margin, f-2..f+2), never the lake's own column beyond S (it is the lake) and never the
+ * bot's cells.
+ */
+export function looseLava (read, site, body = []) {
+  const { P3, S, b } = site
+  const [dx, dz] = D(b)
+  const xs = [P3[0], S[0]], zs = [P3[2], S[2]]
+  const x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 1, z0 = Math.min(...zs) - 1, z1 = Math.max(...zs) + 1
+  const skip = new Set(body.map(key))
+  const out = []
+  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = site.f - 2; y <= site.f + 2; y++) {
+    // the lake side: cells at or beyond the cave column along the bearing belong to the lake
+    const along = (x - S[0]) * dx + (z - S[2]) * dz
+    if (along >= 1) continue
+    const c = [x, y, z]
+    if (skip.has(key(c))) continue
+    if (isLava(read(x, y, z))) out.push(c)
+  }
+  const P1 = site.P1
+  return out.sort((a, b2) => (Math.abs(a[0] - P1[0]) + Math.abs(a[1] - P1[1]) + Math.abs(a[2] - P1[2])) - (Math.abs(b2[0] - P1[0]) + Math.abs(b2[1] - P1[1]) + Math.abs(b2[2] - P1[2])))
+}
+/** Water out of the basin: any water at the tunnel's level (feet or head of S..P3) after the water pour -> [[x,y,z]]. Pure. */
+export function spilledWater (read, site) {
+  return [site.S, site.P1, site.P2, site.P3].flatMap(c => [c, off(c, 0, 1, 0)]).filter(c => isWet(read(c[0], c[1], c[2])))
+}
+/**
+ * AN INFINITE WATER SOURCE TO FILL FROM -> { at, stand } | null, nearest first. Pure. A water source with REFILL (>= 2 source
+ * neighbours: the fill takes nothing from the world), air over it, and a dry stand beside it (full floor, open feet and head) on
+ * its own level + 1. `inZone(cell)` refuses.
+ */
+export function waterFill (read, feet, { r = OBS_WATER_SCAN, dy = 10, inZone = () => false } = {}) {
+  if (!Array.isArray(feet)) return null
+  let best = null, bd = Infinity
+  for (let x = feet[0] - r; x <= feet[0] + r; x++) for (let z = feet[2] - r; z <= feet[2] + r; z++) for (let y = feet[1] - dy; y <= feet[1] + dy; y++) {
+    const q = read(x, y, z)
+    if (!isSourceOf(q, 'water')) continue
+    const d2 = (x - feet[0]) ** 2 + (y - feet[1]) ** 2 + (z - feet[2]) ** 2
+    if (d2 >= bd) continue
+    if (!isAir(read(x, y + 1, z))) continue
+    let src = 0
+    for (const [ax, az] of BEARINGS) if (isSourceOf(read(x + ax, y, z + az), 'water')) src++
+    if (src < 2) continue
+    for (const [ax, az] of BEARINGS) {
+      const st = [x + ax, y + 1, z + az]
+      const fl = read(st[0], y, st[2]), ft = read(...st), hd = read(st[0], y + 2, st[2])
+      if (!fullDry(fl) || !isOpen(ft) || !isOpen(hd)) continue
+      if (inZone([x, y, z]) || inZone(st)) continue
+      best = { at: [x, y, z], stand: st }; bd = d2
+      break
+    }
+  }
+  return best
+}
+export const OBS_SEEKS_MAX = 3               // work calls with no site in the box before the cast is off for the trip
+/**
+ * THE CAST'S GATE at the top of each step -> 'idle' | 'done:goal' | 'off:<why>' | 'deepen' | 'seek:lava' | 'seek:water' | 'cast'.
+ * Pure. Never ends while lava is in the bag (the step's own stop returns it to the lake first). Every 'off' is a different job
+ * for the trip: the ore and the branches go on (the refusal chain the tests compose).
+ */
+export function castGate ({ obs = null, kit = {}, feet = null } = {}) {
+  if (!obs || obs.done || obs.off) return 'idle'
+  const lava = (kit.lava ?? 0) > 0
+  const got = Math.max(0, (kit.obsidian ?? 0) - (obs.got0 ?? 0))
+  if (got >= (obs.want ?? 0) && !lava) return 'done:goal'
+  if ((obs.fails ?? 0) >= OBS_FAILS_MAX && !lava) return 'off:fails'
+  if ((obs.cycles ?? 0) >= OBS_CYCLES_MAX && !lava) return 'off:cycles'
+  if (obs.site) return 'cast'
+  if (!Array.isArray(feet)) return 'off:no_position'
+  if (feet[1] > OBS_FEET && (obs.deepens ?? 0) < OBS_DEEPEN_TRIES) return 'deepen'
+  if (feet[1] !== OBS_FEET) return `off:level_${feet[1]}`
+  if ((obs.seeks ?? 0) >= OBS_SEEKS_MAX) return `off:no_${(kit.water ?? 0) + (kit.lava ?? 0) > 0 ? 'lava' : 'water'}_site`
+  if ((kit.water ?? 0) + (kit.lava ?? 0) > 0) return 'seek:lava'
+  return (kit.buckets ?? 0) > 0 ? 'seek:water' : 'off:no_bucket'
+}
+/** The `_deepmine op=obs*` row's detail fields. Pure. */
+export function obsDetail ({ step = '-', why = '-', site = null, got = '-', want = '-', n = '-' } = {}) {
+  const at = site?.lq ? site.lq.join(',') : '-'
+  return `step=${step} why=${why} lake=${at} got=${got}/${want} n=${n}`.slice(0, 160)
 }
