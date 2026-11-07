@@ -60,11 +60,16 @@ export class VoyagerLoop {
     this.log('loop_stop', {})
   }
 
-  async idle (ms = 20_000) {
+  // A RESCUE OWNS THE BODY (stage 3, 11-07 03:52Z): the fleet watchdog's `home` rescue can run minutes after a skill, and
+  // treating it as a stuck runner restarted arm B three times (a crash-loop stop). Our own skill gets `ms`; a rescue or a
+  // reflex-owned run gets up to `rescueMs` more before the body counts as stuck.
+  async idle (ms = 20_000, rescueMs = 300_000) {
     const t0 = Date.now()
-    while (Date.now() - t0 < ms) {
+    while (Date.now() - t0 < ms + rescueMs) {
       const r = this.getRunner()
       if (r && !r.current) return true
+      const theirs = r?.current && (r.current.rescue || r.current.owner)
+      if (!theirs && Date.now() - t0 >= ms) return false
       await sleep(250)
     }
     return false

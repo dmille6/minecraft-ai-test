@@ -60,10 +60,12 @@ def rows(path, since):
 
 
 # ---- decisions (pure) -----------------------------------------------------------------------------------------
-def decide_arm(vrows, grows, t):
-    """The stop reason for one arm, or None. vrows: voyager log rows (last 6 h); grows: VoyagerGuard rows (last 6 h)."""
+def decide_arm(vrows, grows, t, control=False):
+    """The stop reason for one arm, or None. vrows: voyager log rows (last 6 h); grows: VoyagerGuard rows (last 6 h).
+    The CONTROL runs no generated code: its deaths are the comparison's denominator, so they are counted, never a stop
+    (stage 3, 11-07 04:29Z: the control was stopped after two lava deaths of the fleet's own harness)."""
     deaths = [r for r in grows if r.get('kind') == 'death']
-    if len(deaths) >= DEATHS_6H:
+    if len(deaths) >= DEATHS_6H and not control:
         return f'{len(deaths)} deaths in 6 h (server record): ' + '; '.join(str(d.get('message'))[:60] for d in deaths[-2:])
     cmd = [r for r in grows if r.get('kind') == 'command_denied'] + [r for r in vrows if r.get('kind') == 'command_attempt']
     if cmd:
@@ -191,7 +193,7 @@ def run(dry=False):
                 grows = [r for r in grows if ts(r['t']) >= rs]
         except FileNotFoundError:
             pass
-        why = decide_arm(vrows, grows, t)
+        why = decide_arm(vrows, grows, t, control=(a == 'ctl'))
         if why:
             stop([unit], dry)
             if not dry:
@@ -208,6 +210,8 @@ def selftest():
     assert decide_arm([], [], t) is None; ok += 1
     assert decide_arm([], [{'t': iso(100), 'kind': 'death', 'message': 'a'}], t) is None; ok += 1
     assert 'deaths' in decide_arm([], [{'t': iso(100), 'kind': 'death'}, {'t': iso(5), 'kind': 'death'}], t); ok += 1
+    assert decide_arm([], [{'t': iso(100), 'kind': 'death'}, {'t': iso(5), 'kind': 'death'}], t, control=True) is None; ok += 1
+    assert 'command' in decide_arm([], [{'t': iso(1), 'kind': 'command_denied', 'command': '/op x'}], t, control=True); ok += 1
     assert 'command' in decide_arm([], [{'t': iso(1), 'kind': 'command_denied', 'command': '/op x'}], t); ok += 1
     assert 'command' in decide_arm([{'t': iso(1), 'kind': 'command_attempt', 'source': 'facade.say', 'text': '/give'}], [], t); ok += 1
     assert 'violation' in decide_arm([{'t': iso(1), 'kind': 'sandbox_violation', 'name': 'require'}], [], t); ok += 1
