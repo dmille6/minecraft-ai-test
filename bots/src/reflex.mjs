@@ -6858,6 +6858,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
   // cannot make this dig safe, so asking for one is the wrong remedy.
   if (blocking && blocking.name !== 'air' && upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK
   if (blocking && blocking.boundingBox === 'block' && !guardMay(bot, blocking)) return ESCAPE_GUARDED   // escapeguard-01
+  if (zoneClimbGate(bot, 'dig_straight_up')) return ESCAPE_GUARDED   // escdead-01show: the climb gate (Codex r5: pillarOut's fallback too)
   if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking)) {
     logEvent({ kind: 'maroon_dig_refused', status: 'failed',
                detail: `will not dig out on the last pickaxe: ${blocking?.name ?? 'the ceiling'} ` +
@@ -6870,6 +6871,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
     // YIELD WHEN TOLD (airpocket-01, Codex r2): pillarOut hands its `alive` down, so a pre-empted climb stops here and
     // after every await below rather than finishing its loop.
     if (!alive()) return 'preempted'
+    if (zoneClimbGate(bot, 'dig_straight_up_step')) return ESCAPE_GUARDED   // escdead-01show: every step of the fallback climb too
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (!above || above.name === 'air') {
       // Ceiling clear -- try to gain the block, otherwise walk toward the gap.

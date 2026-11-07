@@ -214,6 +214,7 @@ await t('WIRING: both arms gate the climb; the guarded branch walks out first; t
   const s = stripComments(readFileSync(SRC.reflex, 'utf8'))
   assert.equal(s.split("if (zoneClimbGate(bot, 'pillar_out')) return ESCAPE_GUARDED").length, 2, 'pillarOut refuses before it starts')
   assert.equal(s.split("if (zoneClimbGate(bot, 'pillar_out_step')) return ESCAPE_GUARDED").length, 2, 'every climb step re-asks the gate')
+  assert.equal(s.split("if (zoneClimbGate(bot, 'dig_straight_up_step')) return ESCAPE_GUARDED").length, 2, 'the fallback climb (digStraightUp) too (Codex r5)')
   assert.ok(s.includes('if (isWaterCell(head) || (Number.isFinite(bot.oxygenLevel) && bot.oxygenLevel < 20)) return null'), 'air first: the gate never holds a body short of air')
   assert.equal(s.split("const walked = await walkOut(bot, { handler, yieldTo })").length, 2)
   assert.equal(s.split("Date.now() >= zoneWalkNextAt && zoneClimbGate(bot, `marooned_${mstate}`)").length, 2, 'the marooned need_pickaxe/scaffold states walk out first (Gale)')
