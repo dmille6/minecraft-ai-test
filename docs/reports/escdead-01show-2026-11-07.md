@@ -26,8 +26,9 @@ say plainly where no exit exists. PROTECTED scope (reflex.mjs; escapeguard.mjs):
    plants). Mineshaft planks and rails, copper, bars, bricks are guarded deep too. Deep ordinary rock stays open.
 2. **The last resort never digs a zone's structure** (escapeDigDecision); a build record keeps its last resort; AIR FIRST
    unchanged (suffocating/drowning: anything).
-3. **The climb gate** (zonewalk `zoneColumnHit`): inside a zone's box, a pillar climb whose OWN column holds a structure block
-   up to the box top is refused before it starts AND at every step of the climb (pillarOut's `alive`) -> ESCAPE_GUARDED.
+3. **The climb gate** (zonewalk `zoneColumnHit`, asked inside pillarOut and its digStraightUp fallback, at entry and every
+   step): inside a zone's box, a climb whose OWN column holds a structure block up to the box top is refused -> ESCAPE_GUARDED
+   (every pillar caller gets it). Air first: a body with its head in water or short of air is never held by the gate.
 4. **The walk-out** (zonewalk `zoneWalkOut`, guardBranch's first move; and the marooned non-climb states' first move, Gale's
    need_pickaxe): from above a VILLAGE's floor, down through ordinary rock; then a straight 2-high tunnel through ordinary rock
    to the nearest footprint side, then the next. A bearing ends at a structure block, any liquid or lava on a face, a block
@@ -50,11 +51,15 @@ asks for a pickaxe. Prevention of falls into caves under villages (expedition de
 |---|---|---|
 | Nova shape in the real 6_1 box (synthetic cells: a shaft 79,36..71,-10 under a spruce_planks floor at y 72) | base d8dbd32a, 16 min | pillared to y 70, 8 guard refusals, `needs_rescue` 2 min, **last resort 10 min: dug spruce_planks 79,72,-10** (= the 11-06 breach) |
 | same | cand 1f4399ac x2 | gate at y 36, **walk-out west 31 cells, 62 digs all ordinary, out at x 48**, held 23.9 s, hp 20, no plank/log gained |
-| same (oracle: >= 30 out or 40 up) | cand ff8a969f x1 | (final sha; see the commit) |
+| same (oracle: >= 30 out or 40 up) | cand ff8a969f x1, 7f4acf7f x1 | both escaped: gate (7f4acf7f: inside pillarOut, `pillar_out_step` at y 37), walk-out west 31, out at x 48, hp 20, no plank/log |
 | Gale, real cut of the 06:41Z snapshot (64,58,38: shaft, stone cap, village spruce above) | base d8dbd32a, 12 min | stayed; `_marooned_needs_pickaxe` x6 |
 | same | cand 1f4399ac x2 | gate (spruce leaves @72), **walk-out south 8 cells, out of the footprint at z 46**, then `_marooned_needs_pickaxe` (andesite cap, 1-use pickaxe): handcap's trap, outside the zone |
 
-## 4. Reviews
+## 4. Reviews and suite
+
+ci2 full suite at the final sha daf950ed: **459/460**, the one failure nothing-important-is-orphaned (bots/test/bagdiet.test.mjs
+missing: the showcase line's known base failure). An earlier run (4496ab0d) caught 4 source-text wiring tests; fixed in r5.
+Codex r5 (the restructure): 1 blocker (the digStraightUp fallback ungated) fixed in r6; r6 re-check: fixed, no new blocker.
 
 Codex r1: 7 blockers (bridge material, record overlap, water faces, falling blocks, sealed-corridor progress, 48-cell scan,
 ownership mid-step), all fixed with tests; r2: 5 fixed, 2 partly + 1 new (deep palette missed copper/bars) -> r3 fixes.
