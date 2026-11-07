@@ -87,6 +87,11 @@ async function main () {
   if (SCENE === 'hollow') {
     for (const [x, z] of [A, B]) scene.push(`setblock ${x} ${HY - 1} ${z} minecraft:air`, `setblock ${x} ${HY - 2} ${z} minecraft:air`, `setblock ${x} ${HY} ${z} minecraft:grass_block`)
     scene.push(`summon minecraft:armor_stand ${B[0] + 0.5} ${HY - 2} ${B[1] + 0.5} {NoGravity:1b,Invulnerable:1b,Tags:["roughproof"]}`)
+  } else if (SCENE === 'regrade') {
+    // (4) the bots' rough ground, 14 x 14 east of home: columns 0..3 over the grass (dirt), and a 2-high tunnel under its south
+    // edge (the grass crust over it), the showcase's honeycomb
+    for (let x = HX + 4; x <= HX + 17; x++) for (let z = HZ + 4; z <= HZ + 17; z++) { const h = (((x * 7 + z * 3) % 4) + 4) % 4; if (h) scene.push(`fill ${x} ${HY} ${z} ${x} ${HY + h - 1} ${z} minecraft:dirt`) }
+    scene.push(`fill ${HX + 2} ${HY - 3} ${HZ + 18} ${HX + 19} ${HY - 2} ${HZ + 18} minecraft:air`)
   } else if (SCENE === 'topsoil') {
     // (2) the bots' cobble rubble at ground level in a lawn: four single cobblestone tops and one 2x1
     for (const [x, z] of [[HX + 6, HZ], [HX - 6, HZ], [HX, HZ + 6], [HX, HZ - 6], [HX + 8, HZ + 8], [HX + 9, HZ + 8]]) scene.push(`setblock ${x} ${HY - 1} ${z} minecraft:cobblestone`)
@@ -148,6 +153,34 @@ async function main () {
     out.Bafter = col(B); out.Aafter = col(A)
     P('B after the stand left:', out.Bafter)
     out.pass = !out.A.crust && out.A.y1 && out.A.y2 && out.Bheld.crust && !out.Bafter.crust && out.Bafter.y1 && out.Bafter.y2 && out.Aafter.y1 && out.Aafter.y2
+  } else if (SCENE === 'regrade') {
+    rcon('gamerule randomTickSpeed 3')
+    const box = [HX + 2, HZ + 2, HX + 19, HZ + 19]
+    const topOf = (x, z) => { for (let y = HY + 6; y >= HY - 6; y--) { const b = read(x, y, z); if (b && b.boundingBox === 'block' && !/leaves/.test(b.name)) return y } return null }
+    const steep = () => { let n = 0; for (let x = box[0]; x < box[2]; x++) for (let z = box[1]; z < box[3]; z++) for (const [dx, dz] of [[1, 0], [0, 1]]) if (Math.abs(topOf(x, z) - topOf(x + dx, z + dz)) >= 2) n++; return n }
+    out.steepBefore = steep()
+    const rec0 = PJ.recordHead(dir, key).head.rec
+    out.regraded = rec0.inwall?.rough?.census?.regraded ?? 0
+    await visit(8)
+    await sleep(2000)
+    out.steepAfter = steep()
+    // holes: a column lower than all 8 neighbours inside the patch
+    out.holes = 0
+    for (let x = box[0] + 1; x < box[2]; x++) for (let z = box[1] + 1; z < box[3]; z++) { const y = topOf(x, z); let lower = 0; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) if (topOf(x + dx, z + dz) > y) lower++; if (lower === 8) out.holes++ }
+    // the tunnel: every cell still enclosed (air with solid over it, or filled)
+    out.tunnelOpen = 0
+    for (let x = HX + 2; x <= HX + 19; x++) for (const y of [HY - 3, HY - 2]) { const b = read(x, y, HZ + 18); if (b?.name === 'air') { let sky = true; for (let yy = y + 1; yy <= HY + 8; yy++) { const q = read(x, yy, HZ + 18); if (q && q.boundingBox === 'block') { sky = false; break } } if (sky) out.tunnelOpen++ } }
+    // the fills' tops: dirt then grass (a few minutes at the default tick)
+    // every fill column's TOP cell (the regrade's topsoil, the other rules' earth tops: dirt first) -- each must green
+    const cellsR = PJ.recordHead(dir, key).head.rec.cells ?? []
+    const topK = new Map(); for (const c of cellsR) { const k = `${c.at[0]},${c.at[2]}`; if (!topK.has(k) || topK.get(k)[1] < c.at[1]) topK.set(k, c.at) }
+    out.roles = cellsR.reduce((m, c) => ((m[c.role] = (m[c.role] ?? 0) + 1), m), {})
+    const tops = [...topK.values()].filter(a => isBlock(...a, 'minecraft:dirt') || isBlock(...a, 'minecraft:grass_block'))
+    const t0 = Date.now()
+    while (Date.now() - t0 < 10 * 60_000) { out.green = tops.filter(a => isBlock(...a, 'minecraft:grass_block')).length; if (out.green === tops.length) break; await sleep(30_000) }
+    out.tops = tops.length; out.greenMin = (Date.now() - t0) / 60_000
+    P('regrade: steep pairs', out.steepBefore, '->', out.steepAfter, 'holes', out.holes, 'tunnel cells opened to the sky', out.tunnelOpen, 'green tops', out.green, '/', out.tops, 'after', out.greenMin.toFixed(1), 'min')
+    out.pass = out.regraded > 0 && out.steepAfter <= out.steepBefore / 4 && out.holes === 0 && out.tunnelOpen === 0 && out.green >= Math.ceil(0.9 * out.tops)
   } else if (SCENE === 'topsoil') {
     rcon('gamerule randomTickSpeed 3')
     const cols = [[HX + 6, HZ], [HX - 6, HZ], [HX, HZ + 6], [HX, HZ - 6], [HX + 8, HZ + 8], [HX + 9, HZ + 8]]
