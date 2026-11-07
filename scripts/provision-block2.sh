@@ -160,7 +160,9 @@ max-players=20
 level-type=minecraft:normal
 generate-structures=true
 allow-nether=false
-allow-flight=false
+# OWNER 11-07 (allowflight-1107): true. Bots cannot fly; Paper's anti-fly kicked a bot that hung
+# ~4 s in the air (pillaring, scaffolds): 61 kicks / 24 h on the 16 worlds, each a lost task + reconnect.
+allow-flight=true
 spawn-monsters=false
 motd=block2-$ARM
 EOF

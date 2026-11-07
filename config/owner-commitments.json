@@ -5461,6 +5461,29 @@
    }
   },
   {
+   "kind": "direct",
+   "lane": "ops",
+   "owner": "control session",
+   "max_quiet_hours": 24,
+   "id": "allowflight-1107",
+   "title": "allow-flight=true on the 16 fleet worlds (showcase: its own agent, next planned restart) so Paper's anti-fly stops kicking bots that hang in the air",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "allowflight-1107.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-07: APPLIED 16/16. Before (24 h to 13:28Z): 61 'Flying is not enabled' kicks / 1,320 joins (isolated-b 35, hive-a 7, hive-b 5, placebo-c 4, isolated-c 4, board-c 3; 7 worlds 0). Restarted staggered 14:00:58-14:43:24Z on .30 in the empty slot after buildfix-01 promote (install-hold allowflight-1107 + canary lock, released 14:47Z); property true after Paper rewrote the file; 80/80 bot units active. Journal run allowflight-1107 phase owner-direct. Provisioning default scripts/provision-block2.sh now true. NEXT: read .30 ~/allowflight-1107-read.txt (scheduled 20:48Z: fly kicks + joins + 'Timed out' per world since restart); expect fly=0; then state done with done.when. Note: board-b/hive-a/placebo-b/board-a 'Timed out' churn is pre-existing (hive-a 293, board-b 84 earlier on 11-07).",
+   "evidence": {
+    "grep": [
+     "allowflight-1107"
+    ],
+    "paths": [
+     "scripts/provision-block2.sh"
+    ]
+   },
+   "note": "Paper kicks 'X was kicked for floating too long!' / 'lost connection: Flying is not enabled on this server' after ~4 s airborne (pillaring, scaffolds). Bots cannot fly; each kick costs the task + a reconnect. Showcase had 93 kicks in ~1.5 days. Rollback: allow-flight=false + world restart (backups server.properties.bak-20261107T14*Z-allowflight)."
+  },
+  {
    "kind": "showcase",
    "lane": "ops",
    "owner": "control session",
