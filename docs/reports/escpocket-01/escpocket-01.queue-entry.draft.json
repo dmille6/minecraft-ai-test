@@ -1,0 +1,20 @@
+{
+ "run": "escpocket-01",
+ "class": "",
+ "after": [],
+ "not_before": null,
+ "hold": "needs a pinned draw incl. isolated-d (Echo at 358,58,180)",
+ "note": "DRAFT (escpocket-01 builder, 11-07; the control session queues it -- this file does NOT edit ~/canary-queue.json and carries NO patch block: use `queue set-patch`). SURVIVAL entry (S lane), tier 3 (canary slot). Built on the live fleet 45defefa. DRAW must contain isolated-d (else unexposed -> INCONCLUSIVE). Supersedes the 'price the escaped pocket out of pathing' chip (escdead follow-up).",
+ "variants": {
+  "45defefa8042071ca652bdd0cb84134b80261272": {
+   "registration": "/home/mike/mcai-analysis/escpocket-01.8d899a0a.json",
+   "approved": "Codex (codex exec read-only) r1 3 BLOCKERS, r2 2, r3 1 -- all fixed; r4 + r5 no blockers. Independent Claude subagent r1 none, r2 1 (same race as Codex r3) fixed, r3 + r4 none. Tier 3 by protected.py. escpocket 31/31 (10 anchored mutants). Paper (11-07 cut + live edits): sealed base stayed 1/1, cand escaped 5/5 by pocket dig + swim; column base stayed 1/1 (pillar plug), cand escaped 4/4 (+ final re-runs). FULL SUITE: see ledger.",
+   "canary_sha": "8d899a0a95730a9ab5948ef09257dcb4cf8c9014",
+   "branch": "escpocket-01",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/escdead.mjs bots/src/index.mjs bots/src/reflex.mjs bots/src/swimunder.mjs bots/src/worldfacts.mjs"
+  }
+ }
+}
