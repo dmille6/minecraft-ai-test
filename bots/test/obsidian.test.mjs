@@ -348,3 +348,32 @@ test('wiring: a cast trip deepens on its own staircase to the cast level (Paper 
   assert.equal(SK.split(a).length, 2, 'ANCHOR MISSING OR NOT UNIQUE'); assert.equal(SK.split(b).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   assert.ok(SK.includes('if (y1 <= okY || trip.deepenStalls >= 3'))
 })
+
+// ---- mine's tread probe (Claude r3 BLOCKER): lava under the next step is a fall into lava, never "hollow" ----------------------
+// skills.mjs needs the bot's env to import, so the pure function is evaluated from its own source (comments stripped)
+const probeSrc = /\nexport function mineTreadProbe \([\s\S]*?\n\}\n/.exec(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))?.[0] ?? ''
+const mkProbe = src => new Function(`${src.replace('export function', 'function')}; return mineTreadProbe`)()
+test('mineTreadProbe: an air floor over lava (a shallow lake under cave air) is lava -- refused; rock and plain drops as before', () => {
+  assert.ok(probeSrc.length > 100, 'mineTreadProbe found')
+  const P = mkProbe(probeSrc)
+  const col = names => d => (d < names.length ? { name: names[d], boundingBox: /air|lava|water/.test(names[d]) ? 'empty' : 'block' } : { name: 'deepslate', boundingBox: 'block' })
+  assert.deepEqual(P(col(['cave_air', 'lava']), 6), { hollow: 1, floored: false, lava: true }, 'the r3 case: -54 air, -55 lava')
+  assert.deepEqual(P(col(['lava']), 6), { hollow: 0, floored: false, lava: true })
+  assert.deepEqual(P(col(['deepslate']), 6), { hollow: 0, floored: true, lava: false }, 'positive control: a solid tread floor')
+  assert.deepEqual(P(col(['air', 'air', 'stone']), 6), { hollow: 2, floored: true, lava: false }, 'a 2-block drop onto rock is a drop, as before')
+  assert.deepEqual(P(col(['air', 'water', 'stone']), 6), { hollow: 2, floored: true, lava: false }, 'water stays terrain (owner: swimming is travel)')
+})
+test('MUTANT: without the lava rule the shallow lake reads as a 2-hollow drop (the step the r3 blocker fell through)', () => {
+  const old = "    if (b && /lava/.test(String(b.name ?? ''))) return { hollow, floored: false, lava: true }\n"
+  assert.equal(probeSrc.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const P = mkProbe(probeSrc.replace(old, ''))
+  const r = P(d => (d === 0 ? { name: 'cave_air', boundingBox: 'empty' } : d === 1 ? { name: 'lava', boundingBox: 'empty' } : { name: 'deepslate', boundingBox: 'block' }), 6)
+  assert.equal(r.lava, false); assert.equal(r.hollow, 2)
+})
+test('wiring: mine refuses the step on lava below before the drop is priced', () => {
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const a = sk.indexOf('const { hollow, floored, lava: lavaBelow } = mineTreadProbe(')
+  const b = sk.indexOf('if (lavaBelow) {', a)
+  const c = sk.indexOf('if (hollow >= 3 && !mayStepDown(depth, bot.health))', a)
+  assert.ok(a > 0 && b > a && c > b)
+})
