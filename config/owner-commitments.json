@@ -5573,7 +5573,11 @@
    "state": "done",
    "title": "dirtrung-01 effect: target MET (gather actions/bot-h -69.1%); the items/bot-h guardrail drop (112.1 -> 70.16) is an ARTIFACT",
    "next_step": "none: waived 11-06. The removed 'gather 16 dirt' loop itself produced most of the counted items (dirt weighs 0 in valuescore); value per bot-h rose (16.1 -> 50.0 over 6 h after idlework-01). Re-judge items/bot-h only with dirt excluded.",
-   "note": "control session 11-06 (owner delegated 'do what you think is right'): guardrail waived as a measurement artifact, not a harm."
+   "note": "control session 11-06 (owner delegated 'do what you think is right'): guardrail waived as a measurement artifact, not a harm.",
+   "done": {
+    "when": "2026-11-06",
+    "why": "guardrail waived as a measurement artifact (the removed dirt loop's own items); target met"
+   }
   }
  ]
 }
