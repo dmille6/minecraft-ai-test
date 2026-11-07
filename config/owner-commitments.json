@@ -5769,7 +5769,7 @@
     "bagfull-1107.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07: bagfull-01show built on 272288e1, READY TO STAGE (control folds; recommended ahead of other showcase pieces: it gates every grounds read). Read after release: `_room_bank then=build` rows, `_shop_skip why=room` per bot-h (442/24 h before), keeper tidy visits > 0, build visits per 3 h (~60 before). Piece 2 (Codex): the keeper's forest-first fallback to the tidy when the forest's 8 slots are short. No fleet variant (fleet room skips 17 of 312 in 3 h).",
+   "next_step": "2026-11-07: bagfull-01show RELEASED to the showcase 15:01:37Z as dd0a4489 (release dd0a4489-6dd0ded8-fdd64ead: 2c6b8540 + fold fix af39afb9, re-stacked linearly on escdead c35b5675; same tree as the merge 8aa0e002). Release Codex fold review r1 2 blockers (the only bed banked; a held share banked via the base plan's market wants) fixed, r2 NO BLOCKERS; ci2 461/462 (bagdiet). NEXT: 2-h read ~17:01Z: _room_bank then=build rows, room skips per bot-h, keeper tidy visits, build visits per 3 h. Before: 2026-11-07: bagfull-01show built on 272288e1, READY TO STAGE (control folds; recommended ahead of other showcase pieces: it gates every grounds read). Read after release: `_room_bank then=build` rows, `_shop_skip why=room` per bot-h (442/24 h before), keeper tidy visits > 0, build visits per 3 h (~60 before). Piece 2 (Codex): the keeper's forest-first fallback to the tidy when the forest's 8 slots are short. No fleet variant (fleet room skips 17 of 312 in 3 h).",
    "evidence": {
     "grep": [
      "bagfull-01"
