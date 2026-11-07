@@ -154,6 +154,8 @@ import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
+import { sweepTownGiven } from './stations.mjs'   // gklease-02: the sweep's give-up is the town's
+import { columnCovered, tidyWaived } from './groundskeeper.mjs'   // gklease-02: open sky is the surface; a waived tidy cell is done
 import { stnOn, STN, SWEEP, STATION_NAMES, inTownSurface, townStations, townKeep, designatedCell, smeltRetake, furnaceEmpty, strayStations, noteSweep, sweepGivenUp, withdrawFirst, spareTables, stationRowDetail, sweepVisitDetail } from './stations.mjs'   // stations-01
 import { SPARE_FUEL_TICKS } from './smelting.mjs'   // stations-01 SURPLUS: a spare table burns in the bot's own smelt
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
@@ -17472,6 +17474,9 @@ function recordCellDone (bot, r, c) {
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
     if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done
+    // gklease-02: a waived TIDY cell is done, so the 6-h stuck stamp a stalled visit wrote before its waiver goes stale (shop.mjs
+    // stuckStale) -- LIVE 11-06 22-23Z: hive-d, isolated-a, board-c, placebo-c, hive-b had 0 tidy visits by any bot for 6 h after one
+    if (GKL2_ON && r.blueprint === TIDY_BLUEPRINT && tidyWaived(r, c)) return true
     const b = read(...c.at)
     if (!b) return false
     const extra = stuckCellsDone(r)
@@ -19554,8 +19559,9 @@ function strayNow (bot) {
   const bells = (bot.findBlocks?.({ point: centre, maxDistance: reach, count: 32, matching: b => nameOf(b) === 'bell' }) ?? []).map(p => [p.x, p.y, p.z])
   const hopper = k => { const v = keyVec(k); return [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]].some(([dx, dy, dz]) => bot.blockAt?.(v.offset(dx, dy, dz))?.name === 'hopper') }
   const mem = bot.stnSweepGiven
+  const townMaps = GKL2_ON ? sweepMapsRead() : []   // gklease-02
   const pos = bot.entity?.position
-  return { ...strayStations(found, { home, from: pos ? { x: pos.x, y: pos.y, z: pos.z } : null, cells, keep, zone: (x, y, z) => !!zoneAtPos(zv.zones, { x, y, z }), bells, hopper, leased: k => furnaceLeasedNow(k), given: k => sweepGivenUp(mem, k) }), found: found.length }
+  return { ...strayStations(found, { home, from: pos ? { x: pos.x, y: pos.y, z: pos.z } : null, cells, keep, zone: (x, y, z) => !!zoneAtPos(zv.zones, { x, y, z }), bells, hopper, leased: k => furnaceLeasedNow(k), given: k => sweepGivenUp(mem, k) || (GKL2_ON && sweepTownGiven(townMaps, k)) }), found: found.length }
 }
 /** Does the town have a stray to sweep (the tidy's order: a complete tidy with strays is a repair visit)? Cached SWEEP.cacheMs;
  *  never throws (unreadable = no). */
@@ -19614,7 +19620,8 @@ async function sweepStrays (ctx, signal, { deadline = Date.now() + SWEEP.ms } = 
   if (!stnOn('sweep')) return { tried: 0, back: 0, s: null }
   let s
   try { s = strayNow(bot) } catch { return { tried: 0, back: 0, s: null } }
-  const mem = (bot.stnSweepGiven ??= new Map())
+  // gklease-02 (Codex r1 BLOCKER): a restarted bot starts from its own persisted tries (unexpired), so the town's count survives it
+  const mem = (bot.stnSweepGiven ??= GKL2_ON ? sweepMapSeed(bot.username ?? 'bot') : new Map())
   const end = Math.min(deadline, Date.now() + SWEEP.ms)
   let back = 0, leftN = 0
   const tried = []
@@ -19627,6 +19634,7 @@ async function sweepStrays (ctx, signal, { deadline = Date.now() + SWEEP.ms } = 
     else leftN++
   }
   noteSweep(mem, tried, k => STATION_NAMES.includes(bot.blockAt?.(keyVec(k))?.name))
+  if (GKL2_ON && tried.length) sweepMapWrite(bot.username ?? 'bot', mem)   // gklease-02: the town's give-up
   bot.stnStrayCache = null
   if (s.found || tried.length) { try { logEvent({ kind: 'station_sweep', status: back > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: sweepVisitDetail({ found: s.found, strays: s.sweep.length, tried: tried.length, back, left: leftN, skipped: s.skipped }) }) } catch { /* telemetry */ } }
   return { tried: tried.length, back, s }
@@ -19724,7 +19732,27 @@ const GKSTAY_ON = gkstayOn()   // gkstay-01
 setHoldsGrounds(b => keeperNow(b))   // gkstay-01: the idle lap reads whether this bot holds the keeper lease
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
 /** gklease-01: why this bot cannot work the grounds from where it is (groundskeeper.mjs groundsUnfit) -> why | null (switch off: null). */
-function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } }) : null } catch { return null } }
+function gkUnfitNow (bot) { try { if (!GKL_ON) return null; const feet = gkFeet(bot); return groundsUnfit({ feet, home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, covered: GKL2_ON ? gkCovered(bot, feet) : null }) } catch { return null } }
+/** gklease-02: the switch (GKLEASE2=0: the rules before it), a roof over the bot (groundskeeper.mjs columnCovered), the tidy's waived cells,
+ *  and the town's sweep maps (stations.mjs sweepTownGiven). Never throw. */
+const GKL2_ON = !['0', 'off', 'false', 'no'].includes(String(process.env.GKLEASE2 ?? '1').trim().toLowerCase())
+function gkCovered (bot, feet) { try { return columnCovered((x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }, feet) } catch { return null } }
+const sweepMapFile = holder => path.join(townDir(), `stations.sweep.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function sweepMapsRead () {
+  const out = []
+  try { for (const n of fs.readdirSync(townDir())) if (n.startsWith('stations.sweep.') && n.endsWith('.json')) { try { out.push(JSON.parse(fs.readFileSync(path.join(townDir(), n), 'utf8'))?.tries ?? {}) } catch { /* skipped */ } } } catch { /* none */ }
+  return out
+}
+function sweepMapSeed (holder, now = Date.now()) {
+  try { const j = JSON.parse(fs.readFileSync(sweepMapFile(holder), 'utf8')); return new Map(Object.entries(j?.tries ?? {}).filter(([, v]) => v && Number.isFinite(v.at) && now - v.at < SWEEP.giveUpMs && v.at <= now + 60_000)) } catch { return new Map() }
+}
+function sweepMapWrite (holder, mem) {
+  try {
+    const f = sweepMapFile(holder), tmp = `${f}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, holder, tries: Object.fromEntries([...mem].filter(([, v]) => v && Number.isFinite(v.at))) }))
+    fs.renameSync(tmp, f)
+  } catch { /* the bot's own memory still holds */ }
+}
 /** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
  *  laid path) and their reservations. Throws on an unreadable file. */
 function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {

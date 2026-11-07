@@ -206,6 +206,18 @@ export function noteSweep (mem, tried = [], standing = () => true, now = Date.no
   }
   return mem
 }
+// GKLEASE-02 (control session 11-07; the stations-01 effect audit): THE SWEEP'S GIVE-UP IS THE TOWN'S. MEASURED fleet 11-07 06-14Z:
+// 1,868 failed sweep tries on 342 strays (179 successes), the worst board-a strays 54-58 tries each ("floor dig", "arrived out of
+// reach", "unreachable"): the give-up was each bot's memory (5 bots x 2 tries, and every restart forgot it). Each bot writes its own
+// tries to `<dir>/stations.sweep.<holder>.json`; a stray is given up when the town's tries (summed over holders, each inside
+// SWEEP.giveUpMs) reach SWEEP.tries.
+/** The town's tries on stray `k` -> int. Pure over the holders' maps ({ k: { n, at } }). */
+export function sweepTownTries (maps = [], k, now = Date.now(), { ms = SWEEP.giveUpMs } = {}) {
+  let n = 0
+  for (const m of maps ?? []) { const v = m?.[k]; if (v && Number.isFinite(v.at) && now - v.at < ms && v.at <= now + 60_000) n += Number(v.n) || 0 }
+  return n
+}
+export const sweepTownGiven = (maps, k, now = Date.now(), { tries = SWEEP.tries, ms = SWEEP.giveUpMs } = {}) => sweepTownTries(maps, k, now, { ms }) >= tries
 /** Has this bot given the stray up (SWEEP.tries tries, the last within SWEEP.giveUpMs)? Pure. */
 export function sweepGivenUp (mem, k, now = Date.now(), { tries = SWEEP.tries, ms = SWEEP.giveUpMs } = {}) {
   const v = mem?.get?.(k)

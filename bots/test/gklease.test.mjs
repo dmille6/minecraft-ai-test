@@ -90,7 +90,7 @@ await t('the switch: GKLEASE=off is the rollback; on by default', () => {
 })
 await t('MUTANTS: the underground rule, the idle clock, the take gate, the repair downgrade -- each killed', async () => {
   const deep = M => assert.strictEqual(M.groundsUnfit({ feet: [26, 15, 6], home: HOME }), 'underground')
-  await killedBy(GK_PATH, GK, "  if (feet[1] < home.y - G.surfaceDy) return 'underground'\n", '', deep)
+  await killedBy(GK_PATH, GK, "  if (feet[1] < home.y - G.surfaceDy && (covered !== false || feet[1] < home.y - (G.deepDy ?? Infinity))) return 'underground'\n", '', deep)   // gklease-02: the open-sky clause
   const idle = M => assert.strictEqual(M.groundsIdle({ term0: NOW - 25 * MIN, now: NOW }), true)
   await killedBy(GK_PATH, GK, '  return now - t0 >= G.idleMs\n', '  return false\n', idle)
   const take = M => assert.strictEqual(M.groundsLeaseCheck({ d: 'take', unfit: 'underground' }).take, false)
@@ -108,7 +108,7 @@ const wiring = src => {
   one("const st1 = GKL_ON && d === 'mine' && work \\? keeperGroundsFirst\\(r\\.states, \\{ grounds: \\[TIDY_PLOT[^\\]]*\\] \\}\\) : r\\.states")
   one("for \\(let i = 0; i < states\\.length; i\\+\\+\\) states\\[i\\] = st1\\[i\\]")
   one("\\.gkWorkAt = Date\\.now\\(\\)")
-  one("groundsUnfit\\(\\{ feet: gkFeet\\(bot\\), home: \\{ x: config\\.world\\.homeX, y: config\\.world\\.homeY, z: config\\.world\\.homeZ \\} \\}\\)")
+  one("groundsUnfit\\(\\{ feet, home: \\{ x: config\\.world\\.homeX, y: config\\.world\\.homeY, z: config\\.world\\.homeZ \\}, covered: GKL2_ON \\? gkCovered\\(bot, feet\\) : null \\}\\)")   // gklease-02
   // Codex r1 BLOCKER: the gate at the ACQUISITION boundary -- takeKeeper (the order's read AND buildTidy's visit start) refuses a new
   // take by an unfit bot; on the showcase takeHelper too
   one("function takeKeeper \\(bot, lease, now = Date\\.now\\(\\)\\) \\{\\n\\s*const me = keeperMe\\(bot\\)\\n\\s*const renewal = [^\\n]*\\n\\s*\\{ const u = renewal \\? null : gkUnfitNow\\(bot\\); if \\(u\\) return \\{ ok: false, why: `unfit:\\$\\{u\\}` \\} \\}")

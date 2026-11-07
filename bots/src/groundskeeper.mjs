@@ -100,7 +100,7 @@ export const keeperWanted = (states, { shopPlot = 'shop', tidyPlot = 'tidy', cre
 //      repair tier is every other bot's) -- else the keeper never reaches its tidy or forest.
 // GKLEASE=off is the rollback (as before).
 // ================================================================================================================================
-export const GK_FIT = Object.freeze({ idleMs: 20 * 60_000, restMs: 30 * 60_000, surfaceDy: 8, awayR: 128 })
+export const GK_FIT = Object.freeze({ idleMs: 20 * 60_000, restMs: 30 * 60_000, surfaceDy: 8, awayR: 128, deepDy: 24, coverN: 16 })
 /** THE SWITCH -> bool. GKLEASE=on|off; unset = on wherever the groundskeeper is. Pure. */
 export function gkleaseOn (env = process.env) {
   const v = String(env?.GKLEASE ?? '').trim().toLowerCase()
@@ -108,11 +108,30 @@ export function gkleaseOn (env = process.env) {
 }
 /** Why this bot cannot work the grounds from where it is -> 'underground' | 'away' | null. Pure.
  *  feet [x, y, z] | null; home { x, y, z } (y: the town's ground); townR the grounds' reach (horizontal; the forest lies outside the walls). */
-export function groundsUnfit ({ feet = null, home = null, G = GK_FIT, townR = G.awayR } = {}) {
+// GKLEASE-02 (control session 11-07): `covered` -- is there a roof over the bot (gklease2 columnCovered)? MEASURED fleet 11-06 22:53Z..
+// 11-07 06Z: 392 `keeper_release why=underground`; 141 of them only 9-12 below the town's ground, most where the town's home is a plinth at
+// y 73 and the land round it is a lake shore or beach at sea level (board-c-Alpha released at y 62 while afloat in a lake). A bot under
+// open sky is on the surface whatever its height; `covered` false (open sky) keeps it fit down to G.deepDy below. Unknown (null or not
+// passed): covered, the rule as before.
+export function groundsUnfit ({ feet = null, home = null, G = GK_FIT, townR = G.awayR, covered = null } = {}) {
   if (!Array.isArray(feet) || !home || !feet.every(Number.isFinite) || !Number.isFinite(home.y)) return null
   if (Math.hypot(feet[0] - home.x, feet[2] - home.z) > townR) return 'away'
-  if (feet[1] < home.y - G.surfaceDy) return 'underground'
+  if (feet[1] < home.y - G.surfaceDy && (covered !== false || feet[1] < home.y - (G.deepDy ?? Infinity))) return 'underground'
   return null
+}
+/** GKLEASE-02: is this tidy cell on the record's own waived list (then it is DONE for the stuck stamp: shop.mjs stuckStale)? Pure. */
+export const tidyWaived = (r, c) => !!r?.waived && typeof r.waived === 'object' && Array.isArray(c?.at) && Object.prototype.hasOwnProperty.call(r.waived, c.at.join(','))
+/** GKLEASE-02: is there a roof over the feet -> true | false | null (unknown)? Pure over `read(x, y, z)` -> { name, boundingBox } | null:
+ *  any full block (not leaves) in the G.coverN cells above the head is a roof; an unread cell before one is unknown. */
+export function columnCovered (read, feet, G = GK_FIT) {
+  if (typeof read !== 'function' || !Array.isArray(feet) || !feet.every(Number.isFinite)) return null
+  for (let dy = 2; dy < 2 + G.coverN; dy++) {
+    const b = read(feet[0], feet[1] + dy, feet[2])
+    if (!b) return null
+    const n = String(b.name ?? '')
+    if (b.boundingBox === 'block' && !/_leaves$/.test(n)) return true
+  }
+  return false
 }
 /** Has the holder done no grounds work for G.idleMs? -> bool. Pure. The clock runs from the latest of the term's start, the last
  *  grounds work and the spawn (a restart grants a fresh window); an unknown term start is never idle. */
