@@ -35,7 +35,7 @@
 // zone, a well, the farm, the tree farm), the stock yard or the tree farm (noLitter), a site-prep reservation, a column a cut, fill or
 // staircase of this stage already uses, a cell beside liquid. ROUGH=off is the rollback (the stage as it was).
 
-import { regradeWork, REGRADE } from './regrade.mjs'   // roughground-4: the wide-area regrade
+import { regradeWork, REGRADE, regradeOn } from './regrade.mjs'   // roughground-4: the wide-area regrade
 
 export const ROUGH = Object.freeze({ regrade: true, floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, hollow: true, stands: true, platMax: 3, banks: true, topsoil: true, lawnMin: 4, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
 /** THE SWITCH: ROUGH=off|0|false|no -> no rough survey, no inside-the-wall re-survey; on by default. Pure. */
@@ -122,7 +122,7 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
  *   nearCells the cells whose column's RING is kept too (the standing builds': FLAT_PLOTS' cells are not in it)
  *   climbs    the bots' ledgered scaffold ([{ x, y, z, shape }], placeaudit.mjs);  home  nearest-first order
  */
-export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, standOff = () => false, T = ROUGH } = {}) {
+export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, standOff = () => false, T = ROUGH , env = process.env } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
   const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, hollows: 0, stands: 0, topsoil: 0, banks: 0, regraded: 0 }
@@ -453,7 +453,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
   }
   // ---- ROUGHGROUND-4: THE WIDE-AREA REGRADE over every open column no rule above took (regrade.mjs): rough ground wider than a
   // clump blended into 1-block steps toward the median ground round it, natural relief kept, in tiles nearest home first ----
-  if (T.regrade) {
+  if (T.regrade && regradeOn(env)) {   // the release fold (Codex BLOCKER): REGRADE=off is the rollback
     const Hr = new Map()
     for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
       const k = k2(x, z), y = g(x, z)
