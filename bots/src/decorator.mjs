@@ -850,9 +850,11 @@ export const keepPhase = seg => fnv1a(`flowers@1|${seg ?? ''}`) % FLOWER.keepEve
  * stays. `k` the flower role's rotation (i % 4: neighbours differ).
  */
 export function upgradeCandidates (rec, read, { held = () => false } = {}) {
+  // Codex r1 BLOCKER: the run's positions count its UPGRADED cells too (every u cell was a fern cell: withUpgrade converts only g), so
+  // the kept third is the same cell at every visit -- counting the ferns left alone shifted it and the last ferns went too
   const bySeg = new Map()
   for (const c of rec?.cells ?? []) {
-    if (!decorFernRole(c?.role) || !Array.isArray(c.at)) continue
+    if (!(decorFernRole(c?.role) || decorUpgradeRole(c?.role)) || !Array.isArray(c.at)) continue
     const s = String(c.seg ?? instOf(c.role))
     if (!bySeg.has(s)) bySeg.set(s, [])
     bySeg.get(s).push(c)
