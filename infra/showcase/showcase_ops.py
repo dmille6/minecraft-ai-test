@@ -347,7 +347,26 @@ def make_covers(is_anc, docs_only):
     return covers
 
 
-def evidence_refusal(name, row, psha, hits, covers, fleet_kept):
+def owner_authorized(row, psha):
+    """THE OWNER'S AUTHORIZATION of ONE protected sha in place of a fleet KEEP (OWNER 11-07 14:05Z, escdead-01show: the fleet has no
+    protected zones, so no fleet canary can exercise a zone escape) -> (True, why) | (False, why). Pure. The release-log line's
+    `owner_authorized` {"who": "owner", "sha": <40 hex>, "when", "quote", "reason"} counts ONLY for that exact sha (never an
+    ancestor, never a re-stack: a new sha needs a new authorization), only with the owner's words quoted and a reason. Never a
+    general bypass: tests, both engines and Paper still apply."""
+    oa = row.get('owner_authorized') if isinstance(row, dict) else None
+    if not isinstance(oa, dict):
+        return False, 'no owner authorization'
+    if oa.get('who') != 'owner':
+        return False, f"owner_authorized.who must be 'owner', got {oa.get('who')!r}"
+    if not (HEX40.fullmatch(str(oa.get('sha') or '')) and oa.get('sha') == psha):
+        return False, f'the owner authorized {str(oa.get("sha"))[:8]}, not {psha[:8]} (exact sha only)'
+    for k in ('when', 'quote', 'reason'):
+        if not str(oa.get(k) or '').strip():
+            return False, f'owner_authorized.{k} is empty'
+    return True, f'owner-authorized {oa["when"]}: "{str(oa["quote"])[:60]}"'
+
+
+def evidence_refusal(name, row, psha, hits, covers, fleet_kept, owner_ok=False):
     """ONE release-log line's evidence for the code at psha -> None | why. Pure.
       tests    {"result": "PASS", "sha": <40 hex>, "runner": "npm test", "summary": "..."} covering psha
       reviews  >= ONE {"engine": "codex"|"claude", "verdict": "APPROVE", "sha": <40 hex>} covering psha (free text never counts)
@@ -372,7 +391,11 @@ def evidence_refusal(name, row, psha, hits, covers, fleet_kept):
             return f'{name}: touches protected paths ({what}) -- needs BOTH engines; no {missing[0].capitalize()} APPROVE of {psha[:8]}'
         ok, why = fleet_kept(psha)
         if not ok:
-            return f'{name}: touches protected paths ({what}) -- needs a fleet KEEP first ({why})'
+            # the owner path: a PIECE stack only (owner_ok), never --main (Codex r1: its row is chosen by covers(), so an
+            # authorization of B would pass a docs-only descendant C)
+            oa, owhy = owner_authorized(row, psha) if owner_ok else (False, 'no owner path for this mode')
+            if not oa:
+                return f'{name}: touches protected paths ({what}) -- needs a fleet KEEP first ({why}; {owhy})'
     return None
 
 
@@ -426,7 +449,7 @@ def piece_stack_refusal(sha, release_sha, runs, rows, commits, is_anc, revoked_i
         if not HEX40.fullmatch(psha) or not HEX40.fullmatch(base):
             return f'{run}: its line needs a 40-hex sha and base ({psha[:12]!r}, {base[:12]!r})'
         hits = protected_hits(protected(base, psha) if protected else None, patterns)
-        why = evidence_refusal(run, r, psha, hits, covers, lambda s, run=run: fleet_kept(run, s))
+        why = evidence_refusal(run, r, psha, hits, covers, lambda s, run=run: fleet_kept(run, s), owner_ok=True)
         if why:
             return why
         if not is_anc(psha, sha):
@@ -664,7 +687,8 @@ def gate_record(row, mode, list_readable, hits):
     rv = [x for x in (row.get('reviews') or []) if isinstance(x, dict) and x.get('verdict') == 'APPROVE']
     return {'mode': mode, 'evidence': row.get('run'), 'evidence_sha': row.get('sha'),
             'reviewers': sorted({f"{x.get('engine')}{':' + str(x['reviewer']) if x.get('reviewer') else ''}" for x in rv}),
-            'tests': row.get('tests'), 'protected': hits[:10], 'protected_list': list_readable}
+            'tests': row.get('tests'), 'protected': hits[:10], 'protected_list': list_readable,
+            **({'owner_authorized': row['owner_authorized']} if isinstance(row.get('owner_authorized'), dict) else {})}
 
 
 def stage_main(a, sha, feed, last, ledger):
@@ -779,6 +803,11 @@ def stage_piece(a, sha, feed, last):
         return refuse(out)   # a conflicting cached release included (Codex r2 P3)
     append(PIECES, {'event': 'staged', 't': FR.iso(now_utc()), 'sha': sha, 'release': os.path.basename(out), 'prev': rel_sha,
                     'piece': runs})
+    for r in runs:   # an owner-authorized protected piece is journalled where every release is (ops/deploy.jsonl)
+        oa = newest[r].get('owner_authorized')
+        if isinstance(oa, dict) and rec['pieces'][r].get('protected'):
+            append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'owner-authorized-protected', 'release': os.path.basename(out), 'run': r,
+                            'sha': newest[r]['sha'], **{k: oa.get(k) for k in ('who', 'when', 'quote', 'reason')}})
     print('STAGED ' + out)
     return 0
 
@@ -819,7 +848,7 @@ def replay_admit(sha, rel_sha, a):
 
 
 # ------------------------------------------------------------------------------------------------ record (the release log)
-def release_line(run, sha, tests, reviews, kind='release', base=None, paper=None, note=None, t=None):
+def release_line(run, sha, tests, reviews, kind='release', base=None, paper=None, note=None, t=None, owner=None):
     """A release-log line for PIECES.jsonl -> (row, None) | (None, why). Pure. tests 'PASS|FAIL:<40 hex>:<summary>'; each review
     '<engine>:<verdict>:<40 hex>[:<reviewer>]'. The log is APPEND-ONLY: a corrected record is a new line (the newest speaks)."""
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', run or ''):
@@ -851,6 +880,12 @@ def release_line(run, sha, tests, reviews, kind='release', base=None, paper=None
         row['paper'] = {'result': pp[0], 'sha': pp[1], 'record': pp[2] if len(pp) == 3 else ''}
     if note:
         row['notes'] = note[:500]
+    if owner:
+        # owner = (when, quote, reason): the owner's authorization of THIS sha in place of a fleet KEEP (owner_authorized)
+        when, quote, reason = (str(x or '').strip() for x in owner)
+        if not (when and quote and reason):
+            return None, '--owner-when, --owner-quote and --owner-reason go together, none empty'
+        row['owner_authorized'] = {'who': 'owner', 'sha': sha, 'when': when, 'quote': quote[:300], 'reason': reason[:300]}
     return row, None
 
 
@@ -858,7 +893,8 @@ def cmd_record(a):
     lk = lock()
     fetch()
     full = lambda h: resolve(h) or h if h else h
-    row, why = release_line(a.run, full(a.sha), a.tests, a.review, kind=a.kind, base=full(a.base), paper=a.paper, note=a.note)
+    own = (a.owner_when, a.owner_quote, a.owner_reason) if (a.owner_when or a.owner_quote or a.owner_reason) else None
+    row, why = release_line(a.run, full(a.sha), a.tests, a.review, kind=a.kind, base=full(a.base), paper=a.paper, note=a.note, owner=own)
     if why:
         print(f'REFUSED: {why}')
         return 1
@@ -1508,6 +1544,9 @@ def main():
     r.add_argument('--base', default=None, help='the piece base (for --piece stacking)')
     r.add_argument('--paper', default=None, help='optional: <RESULT>:<40 hex>[:<record>]')
     r.add_argument('--note', default=None)
+    r.add_argument('--owner-when', default=None, help="the owner's authorization of THIS protected sha in place of a fleet KEEP: when (ISO)")
+    r.add_argument('--owner-quote', default=None, help="... the owner's words, verbatim")
+    r.add_argument('--owner-reason', default=None, help='... why a fleet KEEP cannot be had')
     w = sub.add_parser('world-edit', help='snapshot, then journal an owner-direct-world-edit')
     w.add_argument('--why', required=True)
     sub.add_parser('gate')

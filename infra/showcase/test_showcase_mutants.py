@@ -15,6 +15,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
+    # OWNER 11-07: the owner's authorization counts for its exact sha only, from the owner only, with a quote
+    ('showcase_ops.py', "    if not (HEX40.fullmatch(str(oa.get('sha') or '')) and oa.get('sha') == psha):", "    if False:",
+     'test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only'),
+    ('showcase_ops.py', "    if oa.get('who') != 'owner':", "    if False:", 'test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only'),
+    ('showcase_ops.py', "            if not oa:\n", "            if False:\n", 'test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only'),
+    ('showcase_ops.py', "owner_authorized(row, psha) if owner_ok else (False, 'no owner path for this mode')", "owner_authorized(row, psha)",
+     'test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only'),
     # phase 1 item 4: the tripwire's remedies (showcase_ops.remedy_plan, follow_record)
     ('showcase_ops.py', "    if age < dt.timedelta(0) or age > window:", "    if age < dt.timedelta(0):", 'test_the_window_is_three_hours'),
     ('showcase_ops.py', "    if act.get('cause') == 'auto-rollback':", "    if False:", 'test_never_a_second_rollback'),

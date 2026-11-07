@@ -685,9 +685,9 @@ class ProtectedList(unittest.TestCase):
 
 class Evidence(unittest.TestCase):
     """evidence_refusal: tests + ONE named review; protected -> both engines + a fleet KEEP; Paper optional."""
-    def ev(self, row, hits=(), kept=(True, 'kept'), psha=S2):
+    def ev(self, row, hits=(), kept=(True, 'kept'), psha=S2, owner_ok=True):
         cov = SO.make_covers(anc2, docs_d)
-        return SO.evidence_refusal('shop-01', row, psha, list(hits), cov, lambda s: kept) or ''
+        return SO.evidence_refusal('shop-01', row, psha, list(hits), cov, lambda s: kept, owner_ok=owner_ok) or ''
 
     def test_tests_and_one_review_suffice(self):
         self.assertEqual(self.ev(piece('shop-01', S2, M2, reviews=only_codex(S2))), '')
@@ -722,6 +722,26 @@ class Evidence(unittest.TestCase):
         self.assertIn('no Codex APPROVE', self.ev(piece('shop-01', S2, M2, reviews=rv(S2, codex='CHANGES')), hits))
         self.assertIn('fleet KEEP first', self.ev(piece('shop-01', S2, M2), hits, kept=(False, 'never kept')))
         self.assertEqual(self.ev(piece('shop-01', S2, M2), hits, kept=(True, 'kept')), '')
+
+    def test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only(self):
+        # OWNER 11-07 (escdead-01show): no fleet canary can exercise a zone escape; the owner authorizes ONE exact sha
+        hits = ['bots/src/reflex.mjs']
+        oa = {'who': 'owner', 'sha': S2, 'when': '2026-11-07T14:05Z', 'quote': 'Release on showcase', 'reason': 'fleet has no zones'}
+        row = dict(piece('shop-01', S2, M2), owner_authorized=oa)
+        nokeep = (False, 'never kept')
+        self.assertIn('fleet KEEP first', self.ev(piece('shop-01', S2, M2), hits, kept=nokeep), 'POSITIVE control: no authorization -> refused')
+        self.assertEqual(self.ev(row, hits, kept=nokeep), '', 'the owner authorization of this sha stands in for the KEEP')
+        for bad in (dict(oa, sha=S1), dict(oa, who='coordinator'), dict(oa, quote=' '), dict(oa, reason=''), dict(oa, when=''), 'yes'):
+            self.assertIn('fleet KEEP first', self.ev(dict(piece('shop-01', S2, M2), owner_authorized=bad), hits, kept=nokeep), bad)
+        self.assertIn('fleet KEEP first', self.ev(dict(piece('shop-01', D40, M2, reviews=rv(S2), tests=tests_ok(S2)), owner_authorized=oa), hits, kept=nokeep, psha=D40),
+                      'never an ancestor: a docs-only descendant needs its own authorization')
+        self.assertIn('no Claude APPROVE', self.ev(dict(piece('shop-01', S2, M2, reviews=only_codex(S2)), owner_authorized=oa), hits, kept=nokeep),
+                      'both engines still required')
+        self.assertIn('fleet KEEP first', self.ev(row, hits, kept=nokeep, owner_ok=False), 'never on the --main path (owner_ok False)')
+        r, why = SO.release_line('esc', S2, 'PASS:' + S2 + ':ok', ['codex:APPROVE:' + S2], owner=('2026-11-07T14:05Z', 'Release on showcase', 'no zones'))
+        self.assertIsNone(why)
+        self.assertEqual(r['owner_authorized'], {'who': 'owner', 'sha': S2, 'when': '2026-11-07T14:05Z', 'quote': 'Release on showcase', 'reason': 'no zones'})
+        self.assertIn('go together', SO.release_line('esc', S2, 'PASS:' + S2 + ':ok', ['codex:APPROVE:' + S2], owner=('w', '', 'r'))[1])
 
 
 class PieceStack(unittest.TestCase):
