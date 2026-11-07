@@ -120,6 +120,21 @@ await t('bounded: the tiles nearest home first, under the cap (the rest: the nex
   const ws = RD.regradeWork(st.read, Hs, { home: HOME, open: (x, y, z) => st.read(x, y, z)?.name === 'air', solid: (x, y, z) => st.read(x, y, z)?.name !== 'air' })
   const resoil = ws.fill.filter(f => f.role === 'topsoil' && st.read(...f.at)?.name === 'stone')
   assert.ok(resoil.length > 0, 'bare stone tops re-soiled')
+  // Codex r1 BLOCKER: a re-soil over a hollow (stone roof, air under it) is never planned -- the column is an anchor
+  const ho = server()
+  for (let x = 4; x <= 19; x++) for (let z = 4; z <= 19; z++) { const h = (((x * 7 + z * 3) % 4) + 4) % 4; for (let y = G + 1; y <= G + h; y++) ho.set([x, y, z], y <= G + 1 ? 'stone' : 'dirt') }
+  for (let x = 4; x <= 19; x++) for (let z = 4; z <= 19; z++) if ((((x * 7 + z * 3) % 4) + 4) % 4 >= 1) ho.set([x, G, z], 'air')   // a hollow under every stone roof
+  const Hh = new Map(); const ch = col(ho)
+  for (let x = 0; x <= 24; x++) for (let z = 0; z <= 24; z++) { const y = ch(x, z).y; if (Number.isFinite(y)) Hh.set(`${x},${z}`, y) }
+  const wh = RD.regradeWork(ho.read, Hh, { home: HOME, open: (x, y, z) => ho.read(x, y, z)?.name === 'air', solid: (x, y, z) => ho.read(x, y, z)?.name !== 'air' })
+  const fk = new Set(wh.fill.map(f => f.at.join(',')))
+  assert.ok(!wh.fill.some(f => f.role === 'topsoil' && ho.read(...f.at)?.name === 'stone' && ho.read(f.at[0], f.at[1] - 1, f.at[2])?.name === 'air' && !fk.has([f.at[0], f.at[1] - 1, f.at[2]].join(','))), 'no re-soil over a hollow')
+  assert.ok((wh.skipped.regrade_resoil_unsafe_anchored ?? 0) > 0, JSON.stringify(wh.skipped))
+  await withMutant(RD_PATH, "      if (!solid(x, t - 1, z) || wet(x, t, z)) return 'regrade_resoil_unsafe'\n", '', async M => {
+    const m = M.regradeWork(ho.read, Hh, { home: HOME, open: (x, y, z) => ho.read(x, y, z)?.name === 'air', solid: (x, y, z) => ho.read(x, y, z)?.name !== 'air' })
+    const mk = new Set(m.fill.map(f => f.at.join(',')))
+    assert.ok(m.fill.some(f => f.role === 'topsoil' && ho.read(...f.at)?.name === 'stone' && ho.read(f.at[0], f.at[1] - 1, f.at[2])?.name === 'air' && !mk.has([f.at[0], f.at[1] - 1, f.at[2]].join(','))), 'mutant re-soils over the hollow')
+  })
 })
 await t('never a record cell, a build\'s ring, a zone: the regrade keeps to the rough survey\'s refusals; REGRADE off (T.regrade) does nothing', async () => {
   const srv = server(); const cells = new Set()
