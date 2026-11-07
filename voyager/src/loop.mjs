@@ -91,7 +91,13 @@ export class VoyagerLoop {
     for (let ask = 0; ask < 3 && !task; ask++) {
       const r = await this.llm({ purpose: 'curriculum', system: CURRICULUM_SYSTEM, maxTokens: 700,
         messages: [{ role: 'user', content: curriculumUser({ state, skills, done: this.hist.done, failed: this.hist.failed, refusal }) }] })
-      if (!r.ok) { this.log('llm_error', { purpose: 'curriculum', iteration: it, error: r.error }); await sleep(30_000); return }
+      if (!r.ok) {
+        this.log('llm_error', { purpose: 'curriculum', iteration: it, error: r.error })
+        // off-slot or paused by the showcase guard: wait longer between asks (the proxy says when the slot comes back)
+        await sleep(/slot|paused/.test(String(r.error)) ? 120_000 : 30_000)
+        this.hist.iterations--
+        return
+      }
       const t = parseJsonObject(r.text)
       let chk = checkTask(t, reg)
       if (chk.ok && alreadyMet(t.success, this.snapshot())) chk = { ok: false, reason: 'that check is already true right now; propose something you cannot do yet' }

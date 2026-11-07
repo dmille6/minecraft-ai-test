@@ -101,15 +101,23 @@ def run():
 
 
 def probe(minutes):
-    t_end = time.time() + minutes * 60
+    """POOLED test (11-07): the showcase makes ~10 timed calls a minute, and at baseline 19 % of single minutes already
+    have a p95 over the threshold, so the first probe's per-minute rule fired on its first (model-loading) minute. Here:
+    abort when the p95 POOLED since the probe began is over the threshold after >= 3 min and >= 20 calls, or any single
+    minute is over HARD."""
+    t0 = time.time()
+    t_end = t0 + minutes * 60
     while time.time() < t_end:
         time.sleep(60)
-        head, mins = read(2, by_minute=True)
+        elapsed = int((time.time() - t0) / 60) + 1
+        head, mins = read(elapsed, by_minute=True)
         last = mins[-1] if mins else None
-        o = {'kind': 'probe_minute', 'at': now().isoformat(), 'window2': head, 'last_minute': last}
-        log(o)
-        if last and int(last[2]) > THRESH:
-            log({'kind': 'probe_abort', 'at': now().isoformat(), 'minute': last, 'threshold_ms': THRESH})
+        log({'kind': 'probe_minute', 'at': now().isoformat(), 'pooled': head, 'last_minute': last})
+        if last and int(last[2]) > HARD:
+            log({'kind': 'probe_abort', 'at': now().isoformat(), 'why': f'minute p95 {last[2]} > {HARD}'})
+            sys.exit(3)
+        if elapsed >= 3 and (head.get('timed') or 0) >= 20 and (head.get('p95') or 0) > THRESH:
+            log({'kind': 'probe_abort', 'at': now().isoformat(), 'why': f"pooled p95 {head['p95']} > {THRESH} over {head['timed']} calls"})
             sys.exit(3)
     log({'kind': 'probe_pass', 'at': now().isoformat(), 'minutes': minutes})
 

@@ -238,3 +238,12 @@ test('the showcase guard backs off only guarded arms (owner 11-07)', async () =>
   assert.deepEqual(guardEffect({ guarded: true }, 2), { paused: true, factor: 1 })
   assert.deepEqual(guardEffect({}, 2), { paused: false, factor: 1 })
 })
+
+test('the Studio slot alternates the two local arms by the hour', async () => {
+  const { slotArm } = await import('../proxy/proxy.mjs')
+  const g = { arms: ['a', 'b'], slotMinutes: 60 }
+  assert.equal(slotArm(g, 0), 'a')
+  assert.equal(slotArm(g, 59 * 60_000), 'a')
+  assert.equal(slotArm(g, 60 * 60_000), 'b')
+  assert.equal(slotArm(g, 120 * 60_000), 'a')
+})

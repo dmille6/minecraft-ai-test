@@ -109,6 +109,32 @@ function readGuard () {
   } catch { if (guard.level < 1) { row({ event: 'guard_level', from: guard.level, to: 1, reason: 'guard file unreadable' }); guard = { level: 1, reason: 'guard file unreadable' } } }
 }
 if (cfg.guardFile) { readGuard(); setInterval(readGuard, 15_000).unref() }
+// ALTERNATE BY SLOT (owner 11-07: "if memory is tight, run the two local arms alternately"). With both coders and the
+// showcase brain loaded the Studio had 25 % memory free, and the 10-minute probe's first minute was over the threshold.
+// cfg.groups.<g> = {arms:[...], slotMinutes, url}: only the slot's arm is served; at a slot change the proxy first
+// unloads the other arms' models (keep_alive 0), so ONE coder is resident at a time.
+/** Which arm owns the group now. Pure. */
+export function slotArm (group, nowMs) {
+  const ms = (group.slotMinutes ?? 60) * 60_000
+  return group.arms[Math.floor(nowMs / ms) % group.arms.length]
+}
+const groupResident = new Map()
+async function enterSlot (gname, group, name) {
+  if (groupResident.get(gname) === name) return
+  for (const other of group.arms) {
+    if (other === name) continue
+    const m = cfg.arms[other]?.model
+    if (!m) continue
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 30_000)
+      await fetch(`${group.url}/api/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: m, keep_alive: 0 }), signal: ctl.signal })
+      clearTimeout(t)
+      row({ event: 'slot_unload', group: gname, model: m, for: name })
+    } catch (e) { row({ event: 'slot_unload_failed', group: gname, model: m, error: String(e?.message ?? e).slice(0, 100) }) }
+  }
+  groupResident.set(gname, name)
+}
+
 /** The guard's effect on one arm. Pure. */
 export function guardEffect (arm, level) {
   if (!arm.guarded || !level) return { paused: false, factor: 1 }
@@ -145,6 +171,11 @@ function serveArm (name, arm) {
     // a guard pause and the other arm's turn are WAITED out (bounded), so the loop does not burn its rounds on refusals
     for (let w = 0; guardEffect(arm, guard.level).paused && w < 240; w++) await new Promise(r => setTimeout(r, 500))
     if (guardEffect(arm, guard.level).paused) return send(503, { error: `paused by the showcase guard: ${guard.reason}` })
+    const grp = arm.group ? cfg.groups?.[arm.group] : null
+    if (grp && slotArm(grp, Date.now()) !== name) {
+      const ms = (grp.slotMinutes ?? 60) * 60_000
+      return send(503, { error: `not this arm's slot on ${arm.group}; it runs again in about ${Math.ceil((ms - (Date.now() % ms)) / 60000)} min` })
+    }
     for (let w = 0; arm.group && groupBusy.get(arm.group) && w < 600; w++) await new Promise(r => setTimeout(r, 500))
     if (arm.group && groupBusy.get(arm.group)) return send(429, { error: `another arm on ${arm.group} is still running` })
     // max_tokens must be a whole number 1..arm.maxTokens: a NaN or negative value must never reach the spend cap (review 11)
@@ -188,6 +219,7 @@ function serveArm (name, arm) {
         row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, status: r.status, usage: d ? { input_tokens: d.prompt_eval_count ?? 0, output_tokens: d.eval_count ?? 0 } : null })
         res.writeHead(r.status, { 'content-type': 'application/json' }); res.end(text); return
       }
+      if (grp) await enterSlot(arm.group, grp, name)
       const r = await ollamaChat(arm, body)
       row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, usage: r.usage })
       return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0 })
