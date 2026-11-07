@@ -17547,10 +17547,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const order0 = b ? decorOrder(b, marked, order00, now) : order00
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    const pick0 = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
-    // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, every read of the active project (the reserve, the draw, the bag)
-    // names the tidy the visit is on, never the forest the order skipped (shop.mjs roomFallbackPick)
-    const pick = (!visit && roomFallbackPick(b?.roomFallback ?? null, now, !!b?.shopVisitBusy) && list.find(p => p.plot === TIDY_PLOT)) || pick0
+    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
+    // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, the visit's pick and every read of the active project (the
+    // reserve, the draw, the bag) name the tidy the order sent it to, never the forest the order skipped (shop.mjs roomFallbackPick)
+    const fbPick = roomFallbackPick(b?.roomFallback ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
+    if (fbPick) return fbPick
     if (visit) noteRepair(rmem, pick, states, now)
     if (visit && b) serviceBegin(b, svc, pick, now)
     return pick
@@ -21130,6 +21131,10 @@ async function buildShop (ctx, args, signal) {
   let r
   // gklease-01 (release fold, Codex BLOCKER): a visit IN PROGRESS is marked, so the footprint timer's keeperOrder never releases the
   // grounds lease under a running tidy/forest visit (a replacement keeper would work beside the old one)
+  // gkroom-01 (shop.mjs roomFallback): the keeper's room-fallback order names the tidy -- the visit's pick and its reads follow it
+  // (shopActive: roomFallbackPick); every other order the active project, as before; the reserve is read again, for the tidy
+  ctx.bot.roomFallback = args?.why === 'room_fallback' && args?.plot === TIDY_PLOT ? { at: Date.now() } : null
+  if (ctx.bot.roomFallback && ctx.bot.projReserve) ctx.bot.projReserve.at = -Infinity
   ctx.bot.shopVisitBusy = true
   try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e } finally { ctx.bot.shopVisitBusy = false }
   note(r)
@@ -21144,10 +21149,7 @@ async function buildShopVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
-  // gkroom-01 (shop.mjs roomFallback): the keeper's room fallback names the tidy; every other order the active project, as before
-  const proj = (args?.why === 'room_fallback' && args?.plot === TIDY_PLOT && projectsOn().find(p => p.plot === TIDY_PLOT)) || shopActive(bot, Date.now(), { visit: true })
-  bot.roomFallback = proj.plot === TIDY_PLOT && args?.why === 'room_fallback' ? { at: Date.now() } : null   // gkroom-01: the visit's reads name it
-  if (bot.roomFallback && bot.projReserve) bot.projReserve.at = -Infinity   // gkroom-01 (Codex r1): the reserve is read again, for the tidy
+  const proj = shopActive(bot, Date.now(), { visit: true })
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
   bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
   bot.shopVisitPlot = proj.plot   // sinkfix-01: the plot this visit's outcome is noted against (buildShop)

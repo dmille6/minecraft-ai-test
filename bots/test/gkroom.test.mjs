@@ -78,10 +78,11 @@ console.log('WIRING (skills.mjs, comments stripped)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const wiring = s => {
   const one = re => { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
-  one("const proj = \\(args\\?\\.why === 'room_fallback' && args\\?\\.plot === TIDY_PLOT && projectsOn\\(\\)\\.find\\(p => p\\.plot === TIDY_PLOT\\)\\) \\|\\| shopActive\\(bot, Date\\.now\\(\\), \\{ visit: true \\}\\)")
+  one("ctx\\.bot\\.roomFallback = args\\?\\.why === 'room_fallback' && args\\?\\.plot === TIDY_PLOT \\? \\{ at: Date\\.now\\(\\) \\} : null")
   one('setTidyWork\\(\\(\\) => \\{')
-  one('const pick = \\(!visit && roomFallbackPick\\(b\\?\\.roomFallback \\?\\? null, now, !!b\\?\\.shopVisitBusy\\) && list\\.find\\(p => p\\.plot === TIDY_PLOT\\)\\) \\|\\| pick0')
-  one('if \\(bot\\.roomFallback && bot\\.projReserve\\) bot\\.projReserve\\.at = -Infinity')
+  one('const fbPick = roomFallbackPick\\(b\\?\\.roomFallback \\?\\? null, now, !!b\\?\\.shopVisitBusy\\) \\? list\\.find\\(p => p\\.plot === TIDY_PLOT\\) \\?\\? null : null')
+  one('if \\(fbPick\\) return fbPick')
+  one('if \\(ctx\\.bot\\.roomFallback && ctx\\.bot\\.projReserve\\) ctx\\.bot\\.projReserve\\.at = -Infinity')
   one('if \\(!b \\|\\| !keeperLeaseNow\\(b\\)\\) return \\{ keeper: false, tidyWork: false \\}')
 }
 await t('the visit honours the fallback; the keeper read is the lease itself; a cut line fails', () => {
