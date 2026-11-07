@@ -297,14 +297,16 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       order.push([dist(x, z), () => { if (used.has(k)) return; used.add(k); census.smoothed++; const id = `rn${out.pits.length}`; out.pits.push({ id, cols: [[x, z]], n: add.length, kind: 'smooth' }); for (const a of add) fills.push({ ...a, pit: id }) }])
     }
   }
-  // ---- ROUGHGROUND-2 TOPSOIL: a cobblestone top in a LAWN (lawnMin of its 8 neighbours grass) -- the bots' rubble at ground level --
+  // ---- ROUGHGROUND-2 TOPSOIL: a cobblestone (or cobbled deepslate) top in a LAWN (lawnMin of its 8 neighbours grass) -- the bots' rubble at ground level --
   // is cut and the cell laid again in DIRT (role `topsoil`), which the grass round it greens (Paper 11-07: bare dirt beside grass in
   // daylight at the default tick, 24 of 24 green within 7.4 min, median 1.1). Only open ground: no avoid reason at all (never a
   // build's box, a path, the plaza), never a record cell or its ring, never a column this survey already works. ----
   if (T.topsoil) for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) {
     const k = k2(x, z)
     const c = at(x, z)
-    if (!c || c.why || c.y == null || !/^(cobblestone|mossy_cobblestone|cobbled_deepslate)$/.test(String(c.name)) || dev.has(k) || flo.has(k)) continue
+    // Codex 2 r1 BLOCKER: only what the segment's own foreign dig takes (buildrun.mjs FOREIGN_CLEAR: the visit digs the cell's block
+    // before it lays the dirt -- a tidy cut on a record cell is never in the visit's cut list); mossy cobblestone is not, so it is left
+    if (!c || c.why || c.y == null || !/^(cobblestone|cobbled_deepslate)$/.test(String(c.name)) || dev.has(k) || flo.has(k)) continue
     if (refuse(x, z) || avoid(x, z)) continue
     const grassN = N8.filter(([dx, dz]) => { const n = at(x + dx, z + dz); return n && !n.why && n.name === 'grass_block' }).length
     if (grassN < T.lawnMin) continue
