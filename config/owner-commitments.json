@@ -5439,8 +5439,8 @@
    "memory": [
     "mobgrief-1106.md"
    ],
-   "state": "open",
-   "next_step": "2026-11-06: tripwire mobgrief-01 (main cb613369) installed on .40 23:34Z (backup showcase_trip.py.bak-20261106T2334Z-mobgrief; first cron read 23:35Z WATCH, S4 INTACT); showcase gamerule true 23:36:58Z (deploy.jsonl owner-direct-setting). FLEET: applied in the first empty canary slot under install-hold mobgrief-1106 (journal phase owner-direct run mobgrief-1106) -- see the journal. NEXT: 2-h watch (villager counts read-only, tripwire not TRIP); then villager breeding needs beds > villagers and fed/employed villagers (mobGriefing alone: ~0 births expected).",
+   "state": "done",
+   "next_step": "DONE 11-07 02:09Z, watch read. Showcase: tripwire mobgrief-01 (main cb613369) installed 23:34Z (backup showcase_trip.py.bak-20261106T2334Z-mobgrief); gamerule true 23:36:58Z, still true after the 00:06Z CoreProtect restart. Fleet: true on 16/16 at 02:09:17Z in the empty slot after stations-01 KEEP (install-hold mobgrief-1106, released; journal run mobgrief-1106 phase owner-direct). 2-h watch 23:37-01:57Z: tripwire 23:35/00:35/01:35 all WATCH, S4 INTACT; loaded villagers 7 -> 7 (only village-taiga-6_1 loaded; 7 villagers, 5 beds), 0 births; CoreProtect shows no #villager/#sheep/#rabbit block change in 65 min. NEXT (needs a design, not this row): breeding needs beds > villagers + food/employed farmers in a LOADED village -- mobGriefing alone gives ~0.",
    "evidence": {
     "grep": [
      "mobgrief-01",
@@ -5464,7 +5464,7 @@
     "mobgrief-1106.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07 00:06Z installed in a planned restart (after the forest-02 60-min PASS); enabled, logging (99 co_block rows by bots in 4 min); purge cron 03:50Z t:30d. NEXT: measure database.db growth/day (estimate 15-25 MB/day, ~0.5-0.8 GB at 30 d); then design the tripwire/audit reads (S4 BREACH attribution: bot vs #entity vs natural; server-side placements/digs for S6; container/item rows for H6 bag_loss; projectaudit use rows) -- read sqlite mode=ro, never co rollback/restore. RCON `co lookup` answers only 'searching' (the async result goes to a closed RCON sender), so reads go to SQLite.",
+   "next_step": "2026-11-07 00:06Z installed in a planned restart (after the forest-02 60-min PASS); enabled, logging (99 co_block rows by bots in 4 min); purge cron 03:50Z t:30d. Measured: 1.09 MB in the first 65 min with 13 bots (~24 MB/day, ~0.7 GB at 30 d; 190 GB free). NEXT: design the tripwire/audit reads (S4 BREACH attribution: bot vs #entity vs natural; server-side placements/digs for S6; container/item rows for H6 bag_loss; projectaudit use rows) -- read sqlite mode=ro, never co rollback/restore. RCON `co lookup` answers only 'searching' (the async result goes to a closed RCON sender), so reads go to SQLite.",
    "evidence": {
     "grep": [
      "coreprotect-1106"
