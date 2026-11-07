@@ -227,3 +227,113 @@ Where we differ:
 
 Owner decisions: none needed for piece 1. Piece 1c builds temporary stone stands next to trees in the forest. That is
 in line with "bots changing the world is fine".
+
+## Pieces 1b, 1c, 2 and 3 (built 2026-11-07, coordinator's follow-up)
+
+Each piece branches from roughground-01show 80cf5d5c, so each can ship alone. Two fleet pieces sit on
+roughground-01-on-63d28320 9aa9b1c1. All are tier 2: `protected.py` says not protected for every branch.
+
+### What each piece does and what proves it
+
+**1b: tunnels under the crust** (`roughground-1b-show` @ 31c6d5eb)
+- A crust over a hollow is now cut, and the hollow under it is filled after the cut.
+- The cut carries the list of hollow cells (`hollow`). It is dug only while no body stands in them, including the
+  digger's own (`hollowClear`).
+- The hollow's fills name the cut that opens them (`opener`), so neither the keeper's waiver nor the stall waiver
+  skips them.
+- A cut held back because a body stood in the hollow does not count toward the keeper giving up on it.
+- Each hollow is its own segment group.
+- The old inside-the-wall stray rule used to cut such a crust open with no fill. It now hands the column to the rough
+  survey (`stray_hollow`).
+- **Paper (sandbox6, SCENE=hollow): PASS.** A: the crust was cut and both cells filled. B: with an armor stand in the
+  hollow, the crust was kept for 4 visits; once the stand was removed, it was cut and filled.
+- **Codex:** r1 found 3 blockers (fixed in 7c762349); r2 says "fixed, no new blocker".
+- **Fleet:** not applicable. The fleet's tidy visit has no dig-time check (`tidyOk`), so its rough survey keeps leaving
+  crusts alone, which is safe.
+
+**1c: stands for high floating blocks** (`roughground-1c-show` @ f655a52b)
+- A floating block out of reach from the ground gets a stand: a stone staircase of up to 3 steps beside its column.
+  The stand is built like plotprep's (access fills, cobblestone first) and never stands on a reserved plot.
+- The block is cut from the stand. `platformTeardown` takes the stand down once every target reads open.
+- **Paper (SCENE=stand): PASS.** A dirt block 8 over the grass got a 6-cell cobblestone stand. The block was cut and the
+  teardown visit cut all 6 cells: none left.
+- **Codex:** r1 found 1 blocker (a stand on a wall-extension plot, fixed in f655a52b); r2 says "fixed, no new blocker".
+- **Fleet:** not applicable. The fleet has no plotprep stands or teardown.
+
+**2: lawns, banks and terraces** (`roughground-2-show` @ 28016120)
+- A cobblestone or cobbled-deepslate top in a lawn (at least 4 grass neighbours, open ground only) is laid again as
+  dirt (`topsoil`).
+- A topsoil cell reads done while the bag has no dirt (`noSoil`), so the cobble is never dug out to a hole. The keeper
+  bills its dirt from the town on its own.
+- A dry hole beside water is filled to the bank's ground.
+- After the last band, the cycle wraps to the TERRACE stage (`TERRACE_CYCLE=off` restores the old wrap).
+- **Paper:** grass spread was measured. Bare dirt beside grass greened in a median of 1.1 min (24 of 24 within 7.4 min).
+  The centres of 3x3 dirt patches greened within 5.9 min. SCENE=topsoil: 6 cobble lawn tops became dirt in one visit,
+  and all 6 were green 4.8 min later. PASS.
+- **Terrace re-run, offline:** 162 cuts, 229 fills and 119 seals. Rough pairs drop from 2024 to 1744, steep pairs from
+  770 to 710, and walk traps from 251 to 176.
+- **Codex:** r1 found 1 blocker (mossy cobble is not dug by the visit's foreign-block dig, so topsoil is now
+  cobble/cobbled deepslate only); r2 says "fixed, no new blocker". It also takes the fleet blocker's fix (noSoil) and
+  piece 3's (dirt billing).
+- **Fleet:** `roughground-2-on-63d28320` @ 6819822c covers topsoil and banks only, since the fleet has no terrace stage.
+  Codex r1 found 1 blocker (the cobble was dug out with no dirt held, fixed by noSoil); r2 says "fixed, no new blocker".
+
+**3: the landmark** (`roughground-3-show` @ 6e71edd0)
+- The keeper sites ONE round terraced mound, once, with 1-block steps, dirt tops, buried cobble and a sapling on the
+  crown.
+- It goes on open ground inside the wall. Rough ground is shaped by cut and fill (spread up to 3, cuts at most 3,
+  never a hollow opened sideways).
+- The land record is published first (the reservation). Every tidy rule, the terrace and other builds keep off the
+  mound. A later record gets only its missing cells (`landmarkRepair`).
+- Its tops take dirt only, billed from the town.
+- Flower-edged paths and lantern posts already exist in the decorator, so they are reused unchanged. The live decor has
+  61 border plants, all ferns, and 2 lantern posts. Their limit is the flower supply, not code.
+- **Offline:** sited at 25,-3 (base 68), with 64 fills and the tree, in the owner's area D.
+- **Codex:** r1 found 3 blockers, r2 found 1, all fixed; r3 says "fixed, no new blocker".
+
+**Full suites (ci2, git context).** The only failure in the showcase suites is the base's known orphan, bagdiet.test.
+- 1b 31c6d5eb: 458/460 (+ the lavastep flake)
+- 1c f655a52b: 459/460
+- 2 28016120: 459/460
+- 3 6e71edd0: 460/461
+- fleet 2 6819822c: 409/410 (well.test, which fails on 63d28320 too)
+
+**Fleet registration.** The registration and draft entry are written in `~/mcai-analysis` on the canary host:
+- `roughground-02.6819822c.json` (`effectwatch validate`: valid)
+- `roughground-02.queue-entry.json` (P lane, after roughground-01; the control session queues it)
+
+### Before and after, per piece stacked
+
+Unique defect columns in the owner's 29 circled areas, after four simulated keeper passes. Each column adds one piece
+to the ones before it.
+
+| class | now | 01 | +1b | +1c | +2 | +3 |
+|---|---|---|---|---|---|---|
+| clump columns | 739 | 517 | 470 | 396 | 393 | 399 |
+| one-column pillars | 94 | 75 | 56 | 57 | 56 | 56 |
+| floating blocks | 117 | 75 | 81 | 81 | 78 | 79 |
+| one-column holes | 27 | 13 | 12 | 12 | 12 | 12 |
+| wide holes | 120 | 97 | 85 | 88 | 94 | 90 |
+| stray tables | 26 | 11 | 11 | 11 | 11 | 11 |
+| loose cobble lawn tops | 194 | 181 | 175 | 175 | 81 | 79 |
+| ragged edges (step of 2 or more) | 969 | 708 | 705 | 681 | 657 | 681 |
+
+How each piece's first pass changes the work, town-wide (inside the wall and bands rim48-80):
+- **01:** 3,191 cuts and fills; 933 floating blocks out of reach; 299 crusts over hollows left.
+- **+1b:** 4,101; 295 hollows filled under their cuts, and only 17 crusts left.
+- **+1c:** 4,612; 158 stands, which cut 165 more floating blocks (out of reach: 933 to 745).
+- **+2:** 4,949; 233 topsoil cells and 3 bank holes, plus the terrace re-run above.
+- **+3:** the landmark's 65 cells.
+
+0 zone, record-cell, well, avoided or reserved touches at every level.
+
+**Reading the table.**
+- 1c's stands reach blocks within 3 steps. The floating blocks in the circles are mostly 6-10 over the ground, in the
+  canopy, or in reserved areas, so the circled floating count barely moves even though 165 more come down town-wide.
+- With the mound in place, ragged edges rise by about 24 in area D, where its base meets the lower honeycomb ground.
+- **Still left:** wide rough ground (more than 9 columns), the expedition markers, and blocks beyond any stand.
+
+**Merging.** The pieces conflict with each other only on the `ROUGH` constant, the census line, `tidyRecord`'s cell
+push and the test files. The resolutions are mechanical; the simulation's stack used them (local tags sim-1b to
+sim-3, not pushed). That stack predates the visit-time fixes (noSoil, the dirt bill, the landmark's r1 shape fixes); the
+survey rules it measures are the same.
