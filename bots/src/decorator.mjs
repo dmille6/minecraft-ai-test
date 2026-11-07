@@ -673,7 +673,7 @@ export const FERN_BLOCKS = Object.freeze(['fern', 'large_fern'])
  * fern at its LOWER half (its upper half above it), counted 2. Never a reserved column, a record's column or cell, never beyond
  * DECOR.fernR of home.
  */
-export function fernTargets (cands, { read, reserved = () => null, guard = { cols: new Set(), cells: new Set() }, home, from = null, max = DECOR.fernMax, want = DECOR.fernWant, r = DECOR.fernR } = {}) {
+export function fernTargets (cands, { read, reserved = () => null, guard = { cols: new Set(), cells: new Set() }, home, from = null, max = DECOR.fernMax, want = DECOR.fernWant, r = DECOR.fernR, minR = 0 } = {}) {
   const f = from ?? [home.x, home.y, home.z]
   const order = (cands ?? []).filter(c => Array.isArray(c?.at)).slice().sort((a, b) => (Math.abs(a.at[0] - f[0]) + Math.abs(a.at[1] - f[1]) + Math.abs(a.at[2] - f[2])) - (Math.abs(b.at[0] - f[0]) + Math.abs(b.at[1] - f[1]) + Math.abs(b.at[2] - f[2])) || a.at[0] - b.at[0] || a.at[2] - b.at[2] || a.at[1] - b.at[1])
   const out = [], seen = new Set()
@@ -681,7 +681,9 @@ export function fernTargets (cands, { read, reserved = () => null, guard = { col
   for (const c of order) {
     if (out.length >= max || got >= want) break
     let [x, y, z] = c.at
-    if (Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) > r) continue
+    // flowers-01 r4 (coordinator 11-07, the owner asked): no fern is cut within minR of home (FLOWER.fernMinR) -- the town's own green
+    const dh = Math.max(Math.abs(x - home.x), Math.abs(z - home.z))
+    if (dh > r || dh <= minR) continue
     const here = nm(read(x, y, z))
     if (!FERN_BLOCKS.includes(here)) continue
     if (here === 'large_fern' && nm(read(x, y - 1, z)) === 'large_fern') y--
@@ -815,6 +817,7 @@ export const FLOWER = Object.freeze({
   wildMax: 12,       // wild picks a visit
   wildWant: 16,      // the bag's flowers a wild pick fills to
   feedKeep: 8,       // ferns the bag keeps from the compost drive (a fern cell's repair)
+  fernMinR: 32,      // no fern is cut within this of home (coordinator 11-07, pending the owner: the town's ferns stay): the gather takes 33..DECOR.fernR
   feedMax: 12,       // feed-fern digs a visit (shears: a large fern is two)
   feedWant: 24,      // the bag's feed ferns the gather fills to (~2.3 bone meal: 1 + 6/0.65 ferns a meal)
   coreOpen: 0.8,     // a meal waits until this share of the nursery's core landing cells is open (Paper: a covered centre refuses it)
