@@ -20,6 +20,12 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 SHOPREAD_DOC = 'docs/reports/shop-01-2026-10-25/shopread.py.txt'
 
 MUTANTS = [
+    # Z1G (escdead-01show): the guard's hold rows ignored -> a pinned bot is never Z1
+    ("    now, earlier = trapped_now(spells, holds, end)\n", "    now, earlier = {}, {}\n", 'a guard hold inside a 16-min deep spell is Z1'),
+    ("        if lastpos.get(b) is not None and ends and max(ends) < lastpos[b]:\n", "        if False:\n", 'walked out after its held spell'),
+    # Z1G: no hold needed -> every still deep bot is Z1 (the positive control catches it)
+    ("    spells = {b: still_spells(v, boxes, TRAP_MIN, TRAP_MOVE, max_gap_min=5) for b, v in by_bot.items() if holds.get(b)}\n    now, earlier = trapped_now(spells, holds, end)\n",
+     "    spells = {b: still_spells(v, boxes, TRAP_MIN, TRAP_MOVE, max_gap_min=5) for b, v in by_bot.items()}\n    now, earlier = trapped_now(spells, {b: [(v[0][0], 1)] for b, v in by_bot.items() if v}, end)\n", 'POSITIVE control: still and deep'),
     # the verdict: an S6 zone defect (H3) no longer HARM
     ("            (harm if k in HARM_GATES else report).append('S6 %s %d' % (k, v))", "            report.append('S6 %s %d' % (k, v))",
      'protected box is HARM'),

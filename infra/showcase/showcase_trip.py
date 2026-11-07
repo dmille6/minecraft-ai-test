@@ -233,6 +233,28 @@ def stuck_now(by_bot, end, min_min=STUCK_MIN, move=STUCK_MOVE, slack_min=10):
     return out
 
 
+# Z1G (escdead-01show release fold, Codex BLOCKER 11-07): the escape guard's HOLD. escdead-01 (bots/src/zonewalk.mjs, reflex.mjs
+# guardBranch) stops an escape before protectzone's wrapper ever sees a dig -- so no `_protect_zone` refusal row -- and a bot it
+# cannot walk or ramp out writes `_needs_rescue` / `_zone_climb_refused` and holds. Those rows are the guard's refusals: a bot still
+# inside ANY part of a zone box (the deep part too: the guard holds there as well) for TRAP_MIN with one of them inside the spell is
+# Z1 -- the designed stop (the quarantine), never a silent pin.
+GUARD_HOLD_KINDS = ('_needs_rescue', '_zone_climb_refused')
+
+
+def guard_held(by_bot, boxes, holds, end):
+    """by_bot {bot: [(t, pos)] sorted}; boxes: every zone box WHOLE (closed + deep); holds {bot: [(t, 1)]} from GUARD_HOLD_KINDS
+    rows. -> (now, earlier) Z1 spells, as trapped_now. Pure."""
+    spells = {b: still_spells(v, boxes, TRAP_MIN, TRAP_MOVE, max_gap_min=5) for b, v in by_bot.items() if holds.get(b)}
+    now, earlier = trapped_now(spells, holds, end)
+    # a bot with a POSITIONED sample after its held spell ended has moved off or out (a spell ends only so): not held NOW (Codex r1)
+    lastpos = {b: max((t for t, p in v if isinstance(p, dict) and all(p.get(k) is not None for k in ('x', 'y', 'z'))), default=None) for b, v in by_bot.items()}
+    for b in list(now):
+        ends = [e for s_, e, m in spells.get(b, []) if any(s_ <= t <= e for t, _ in holds.get(b, []))]
+        if lastpos.get(b) is not None and ends and max(ends) < lastpos[b]:
+            earlier.setdefault(b, []).extend(now.pop(b))
+    return now, earlier
+
+
 def split_trapped(spells, refusals):
     """spells {bot: [(start, end, min)]} still inside a zone; refusals {bot: [(t, n)]} from `_protect_zone` minute rows.
     -> (trapped, still): a spell with a refusal inside it is a bot the guard is holding (Z1, TRIP); a spell with none is a bot
@@ -921,6 +943,7 @@ def cmd_read(a):
     since = ts(a.since) if a.since else max([now - dt.timedelta(minutes=a.minutes)] + ([run_since] if run_since else []))
     ev = Events.load(paths=LOGS, since=since)
     rows, by_bot, mins, builds = [], collections.defaultdict(list), collections.defaultdict(list), collections.Counter()
+    holds = collections.defaultdict(list)   # Z1G: the escape guard's hold rows by bot
     death_rows, refused_by_op, newest = [], collections.Counter(), {}
     for r in ev.rows:
         b = (r.get('bot') or {}).get('name')
@@ -935,6 +958,8 @@ def cmd_read(a):
         newest[b] = max(newest.get(b, r['t']), r['t'])
         if r['name'] == '_death':
             death_rows.append((r['t'], b, (r.get('detail') or '')[:90]))
+        if r['name'] in GUARD_HOLD_KINDS:
+            holds[b].append((r['t'], 1))
         if r['name'] == '_protect_zone':
             kvs = dict(re.findall(r'(?:^| )([a-z_]+)=(\d+)', r.get('detail') or ''))
             n = sum(int(kvs.get(k, 0)) for k in ('dig', 'place', 'use', 'open', 'sleep', 'craft'))
@@ -958,6 +983,14 @@ def cmd_read(a):
     spells = {b: still_spells(v, closed, TRAP_MIN, TRAP_MOVE, max_gap_min=5) for b, v in by_bot.items()}
     _, still_in_zone = split_trapped(spells, mins)
     trapped, trapped_earlier = trapped_now(spells, mins, end)
+    # Z1G: the escape guard's holds (escdead-01), judged over the WHOLE boxes (the deep part included)
+    g_now, g_earlier = guard_held(by_bot, [list(b) for _, b in boxes], holds, end)
+    for b, v in g_now.items():
+        trapped.setdefault(b, []).extend(x for x in v if x not in trapped.get(b, []))
+        trapped_earlier.pop(b, None)
+    for b, v in g_earlier.items():
+        if b not in trapped:
+            trapped_earlier.setdefault(b, []).extend(x for x in v if x not in trapped_earlier.get(b, []))
     deep = {b: sum(1 for _, p in v if p and any(in_box(p, x) for x in deepb)) for b, v in by_bot.items()}
     deep = {b: n for b, n in deep.items() if n}
     loops = {b: refusal_peak(v) for b, v in mins.items() if refusal_peak(v) >= LOOP_N}
@@ -1299,6 +1332,17 @@ def selftest():
     held = [(T(m), P(15, 15)) for m in range(0, 17)]
     hsp = {'v': still_spells(held, [box], TRAP_MIN, TRAP_MOVE, max_gap_min=5)}
     assert list(trapped_now(hsp, {'v': [(T(5), 1)]}, T(16))[0]) == ['v'], 'POSITIVE: 16 min still inside with a refusal is trapped'
+    # Z1G (escdead-01show): the escape guard's hold rows are refusals, over the WHOLE box -- the deep part (below floor_y) too
+    deepbox = [10, -64, 10, 20, 80, 20]
+    pinned = [(T(m), P(15, 15, y=20)) for m in range(0, 17)]
+    assert guard_held({'n': pinned}, [deepbox], {}, T(16)) == ({}, {}), 'POSITIVE control: still and deep with no hold row is not Z1G'
+    assert list(guard_held({'n': pinned}, [deepbox], {'n': [(T(6), 1)]}, T(16))[0]) == ['n'], 'a guard hold inside a 16-min deep spell is Z1'
+    assert guard_held({'n': pinned[:10]}, [deepbox], {'n': [(T(6), 1)]}, T(9)) == ({}, {}), 'under TRAP_MIN: not yet'
+    assert guard_held({'n': [(t, P(40, 40, y=20)) for t, _ in pinned]}, [deepbox], {'n': [(T(6), 1)]}, T(16)) == ({}, {}), 'outside every box: not Z1G'
+    assert set(GUARD_HOLD_KINDS) == {'_needs_rescue', '_zone_climb_refused'}
+    freed = pinned + [(T(17), P(40, 40, y=64)), (T(18), P(41, 40, y=64))]
+    gf = guard_held({'n': freed}, [deepbox], {'n': [(T(6), 1)]}, T(18))
+    assert gf[0] == {} and list(gf[1]) == ['n'], 'a bot that walked out after its held spell is not held NOW (reported earlier)'
     # phase 1 item 4, the Gale gap: half the rows carry no bot.pos; a position-less row is not a sample (it neither ends a
     # spell nor counts as "outside"), so a bot standing 40 min at one cell inside the box IS a spell
     gale = sorted([(T(m), P(15, 15)) for m in range(0, 41)] + [(T(m + 0.5), None) for m in range(0, 41)] + [(T(m + 0.7), {}) for m in range(0, 41, 7)])
