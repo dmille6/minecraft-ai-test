@@ -1961,6 +1961,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   const pocketDigRun = async (pd, { alive, yieldTo, start, wide, at }) => {
     // THE SWING: ownership before AND after the equip (Codex r1 BLOCKER 3: a yielded swing never changes the new owner's hand)
     const dig = async (b, lost) => {
+      // before bestTool too (Codex r2 BLOCKER 2): applyToolPolicy may swap the hand itself
+      if (lost()) throw new Error('ownership lost before the tool choice')
       const tool = bestTool(bot, b)
       if (lost()) throw new Error('ownership lost before the equip')
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
