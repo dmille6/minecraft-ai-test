@@ -22313,6 +22313,15 @@ async function deepObsStep (ctx, trip, signal, deadline) {
       const eye = bot.entity.position.offset(0, 1.62, 0)
       const cand = [0, 1, 2].map(k => [s.lq[0] + bx * k, s.lq[1], s.lq[2] + bz * k])
         .filter(c => deepIsSourceOf(rd(...c), 'lava') && deepIsAir(rd(c[0], c[1] + 1, c[2])) && deepIsAir(rd(c[0], c[1] + 2, c[2])) && eye.distanceTo(new Vec3(c[0] + 0.5, c[1] + 0.5, c[2] + 0.5)) <= 4.4)
+      if (!cand.length) {
+        // THIS SITE'S LAKE IS SPENT within reach (each cast takes one source; Paper 11-07 run 7: two casts, then none ahead): the
+        // water back, the basin filled, the site skipped -- the next step looks for another site (a lake cell from another side)
+        await deepObsCleanup(bot, o, signal, trip)
+        deepObsRow(bot, 'spent', 'no_lava_in_reach', o)
+        o.skip = [...(o.skip ?? []), s.lq.join(',')]
+        o.site = null
+        continue
+      }
       let r = { ok: false, reason: 'no lava source in reach' }
       for (const c of cand) { r = await obsScoopLava(bot, new Vec3(c[0], c[1], c[2])); if (r.ok || /something else/.test(r.reason ?? '')) break }
       if (!r.ok) o.fails = (o.fails ?? 0) + 1
