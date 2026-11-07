@@ -136,6 +136,7 @@ import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMea
 import { setGroundsMeans, groundsBatchOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
 import { setHoldsGrounds, idleKindNow, belowKind, gkstayOn } from './idlework.mjs'   // gkstay-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
+import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -19720,6 +19721,7 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 }
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
+const GKW_ON = gkworkOn()   // gkwork-01
 const GKSTAY_ON = gkstayOn()   // gkstay-01
 setHoldsGrounds(b => keeperNow(b))   // gkstay-01: the idle lap reads whether this bot holds the keeper lease
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
@@ -19971,7 +19973,10 @@ async function buildTidy (ctx, args, signal) {
     let rw = rec, waivedN = 0
     try {
       // gkstall-01: the keeper's grounds waive after GK_WAIVE_AFTER visits, with room for a tenth of the stage (tidy.mjs gkWaiveOpts)
-      const waive = wallWaiveDue(rec, r.deferred ?? [], GROUNDS.on ? gkWaiveOpts(rec, WALL_WAIVE_MAX) : {})
+      const waive0 = wallWaiveDue(rec, r.deferred ?? [], GROUNDS.on ? gkWaiveOpts(rec, WALL_WAIVE_MAX) : {})
+      // gkwork-01 rule 4: a STALLED stage (stuck_on_cell: nothing else open) whose waiver room is spent waives the cells the town's stuck
+      // map has counted past the tenth (gkwork.mjs stallWaive), so the cells waiting on them become work
+      const waive = GKW_ON && GROUNDS.on && !waive0.length ? stallWaive(rec, r.deferred ?? [], { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || !tidySameGen(cur, rec)) return null
@@ -20004,6 +20009,16 @@ async function buildTidy (ctx, args, signal) {
         if (clearsOk) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'clears_given_up', n: left, visits: n }) }) } catch { /* telemetry */ } }
       }
     }
+    // GKWORK-01 rules 1 and 5: the TOWN counts the empty visits (gkwork.mjs: one strike file per holder); at GKW.emptyVisits the soft
+    // hold (the per-bot clears wait, which the keeper rotation never lets reach its bound) gives way and the stage completes
+    let gkw = null
+    if (GKW_ON && GROUNDS.on) {
+      const empty = visitEmpty({ cutLeft: prog.cutLeft, fillLeft: prog.fillLeft, placed: r.placed, cleared: r.cleared, planted: r.planted, unread })
+      gkw = gkwVisit(dir, key, me, rw, { empty, worked: visitWorked(r) })
+      const clears0 = clearsOk
+      ;({ clearsOk } = softHoldsGive({ clearsOk, close: gkw.close }))
+      if (empty) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: gkw.close ? 'stage_close' : 'stage_held', kind: heldWhy({ clearsLeft: tidyClearsLeft(rw, read2), clearsOk: clears0, unread }), n: gkw.total, visits: GKW.emptyVisits }) }) } catch { /* telemetry */ } }
+    }
     if (!prog.cutLeft && !prog.fillLeft && !unread && clearsOk) {
       const now = Date.now()
       // gkforever-01 (Codex r1 BLOCKER 1): with a crew, another builder may have finished this stage and sited the next while this
@@ -20022,6 +20037,11 @@ async function buildTidy (ctx, args, signal) {
           } catch { /* the paths' own 24 h retry stands */ }
         }
       }
+    }
+    // GKWORK-01 rule 3: a keeper whose empty visit could not complete the stage although the town's strikes are in (a hard hold it
+    // cannot work from here) lets the lease go now and rests (gkwork.mjs keeperAfterVisit) -- never 20 min idle with it
+    if (gkw?.empty && !completed) {
+      try { const k = keeperState(bot, true); if (keeperAfterVisit({ keeper: k.lease?.rec?.holder === me, empty: gkw.empty, completed, close: gkw.close }) === 'release') { releaseKeeper(bot, k.lease, 'no_work_now'); bot.gkRestUntil = Date.now() + GK_FIT.restMs } } catch { /* the lease lapses */ }
     }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
