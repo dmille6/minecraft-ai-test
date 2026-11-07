@@ -67,3 +67,32 @@ re-anchored (the deep plank case is now the zone's under ZONEWALK on, the base u
 No shopread / showcase_trip rule needed: no new `_build` kind or record; the walk-out digs only ordinary rock (the same class
 escapeguard's `ordinary` survival digs already produce). New rows: `_zone_climb_refused`, `_zone_walk`, `_needs_rescue
 arm=zone_walk` (a needs_rescue row the tripwire's Z1 already reads).
+
+## 6. escdead-02show (11-07, on showcase-batch21a c35b5675): the gate stops at a side exit -- Codex fold blocker with handcap-01show
+
+**Blocker** (Codex, fold of escdead-01show + handcap-01show 116f5350): handcap turns Gale's "need a pickaxe" into a climb; the
+gate scanned the column to the box top (y 90), so a roof far above the cap refused a climb whose cap break would reach a side
+exit. **Fix** (zonewalk `zoneColumnHit`): walk up the bot's own column; at each level a structure block refuses FIRST; the scan
+stops (climb allowed) at the first level with a walkable side exit -- a neighbour with open feet + head over a solid dry floor
+that LEADS somewhere (`exitLeads`: a bounded walk reaching out of the footprint or open sky; a sealed alcove or a sealed cave of
+any size is not an exit). Never past a structure block. Tests: zonewalk 28/28 incl. the composed chain (handcap's answer ->
+maroonState 'climb' -> the gate admits it to the cave) and anchored mutants (no side-exit stop; the exit asked before the
+structure test; no exitLeads).
+
+**Reviews**: Codex r1 1 blocker (a sealed alcove counted as an exit) -> exitLeads; r1 re-check 1 new (a sealed 8x6 cave reached
+the 48-cell clause) -> out-of-footprint or sky only; r2 re-check: fixed, no new blocker. Claude independent r1: no blockers
+(note taken: the duplicate step-up check removed); r1 re-check: fixed, no new blocker. **Suite** ci2 72cdf589: 460/461, the one
+failure the line's known missing bagdiet.test.mjs.
+
+**Paper** (sandbox5/7/8, Gale's real 06:41Z cut, a 1-use iron pickaxe, MAROON_HANDCAP=on, both arms carry handcap-01show):
+
+| scene | before = c35b5675 + handcap | after = escdead-02show + handcap |
+|---|---|---|
+| Gale real cut (village spruce at y 72 straight above; no side exit under it) | handcap climb -> gate refused (leaves @72) -> walk-out south 8 cells, out of the footprint at z 46 in ~2 min | the same (3 runs), and once a climb in the next column to open sky at 66,71,38 -- nothing dug but ordinary rock and ground |
+| Gale cut + a synthetic cave at the cap's top running south past z 45, goal `goto 68,67,50` | refused -> tunnelled out at y 58 (escaped) | **the climb is admitted through the cap to the cave level (y 67), stops there (`pillar_out_step` at the exit level), and the goto walks out through the cave to 68,67,48** (3 runs) |
+
+The fold blocker's "sits in the zone past 15 min" was not reproduced on Paper with c35b5675 + handcap in Gale's cut: the walk-out
+took the bot out in ~2 min both before and after. With a reachable side exit the fix lets the climb use it instead of tunnelling.
+**Tripwire Z1G** (main a032d241: 15 min in a zone box with `_needs_rescue` / `_zone_climb_refused` rows -> quarantine): a long
+hand-dug walk-out (no pickaxe, ~50 cells of stone at 7.5 s a cell twice) can run past 15 min while still making progress
+(`_zone_walk outcome=progress` rows) -- worth Z1G discounting a bot whose `_zone_walk` rows show progress.
