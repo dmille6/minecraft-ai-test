@@ -512,3 +512,11 @@ the pilot just stops calling it.
 - **The control was stopped at 04:29Z** on the 2-deaths rule (two lava deaths of the fleet harness). The control runs no
   generated code and its deaths are the comparison's denominator, so the rule now counts the control's deaths but never stops
   it. All four arms running again from 04:49Z.
+- **11-07 14:08Z, B-general at 9.55 bot-h: 0 of 62 tasks verified** (55 were "have stone": unreachable / water in the path /
+  fluid beside the block). (1) Its pace was the Studio's (8x gap, 30/h: 154 "hourly cap" refusals) although the Blackwell
+  probe was green: raised to Haiku's (400/h, no gap) at 14:08Z, bw-guard's +25 % stop still live (p95 74 ms at 14:23Z over 615
+  pings). (2) **Not truncated:** request bodies p50 6.5-7.0 KB, max 10.5 KB (about 3.5k tokens) + 2,048 output < 8,192 (the
+  proxy now logs `in_bytes`; Ollama's prompt_eval_count leaves out KV-cache reuse, so it alone could not show this). The
+  prompts are small because its library is empty. So the context is not the cause; the model is: the same seed's arms A and C
+  got stone from the same spawn (C in 31 min, A by 03:20Z). If anything changes it, it is the coder model, not a smaller
+  prompt. (3) **Spawn not unfair:** same seed, same spawn as A and C; B ranged x -36..90, z -49..32, y 44-76. No reroll.
