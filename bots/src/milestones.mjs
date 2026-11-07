@@ -27,6 +27,7 @@ import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
+import { sandRungOn } from './sandrung.mjs'
 import { log, logEvent } from './logger.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 
@@ -444,9 +445,24 @@ export const MILESTONES_BY_ROLE = {
     // within 180 s: oak 13.9% success over 3,302 runs, birch 38.6% over 132 --
     // 2.8x, while the fleet asked oak 25:1.
     M.gatherAny(LOGS, 12, 'Wood too.', 'log', 'gather_oak_log_12'),
-    M.gather('sand', 8, 'Found near water.'),
+    // SANDRUNG-01 (sandrung.mjs): the sand rung is in the chain only with SANDRUNG=1 -- see gathererChain below.
+    ...(sandRungOn() ? [SAND_RUNG()] : []),
     M.gather('cobblestone', 8, 'Needs a pickaxe; expect this to be hard without one.'),
   ],
+}
+
+/** SANDRUNG-01: the retired rung, exactly as it was (SANDRUNG=1 restores it in place, between wood and cobblestone). */
+function SAND_RUNG () { return M.gather('sand', 8, 'Found near water.') }
+/**
+ * THE GATHERER CHAIN AS THE SWITCH SAYS NOW -> rung[]. The controller builds its chain from this at construction, so the
+ * switch is read where the chain is made (MILESTONES_BY_ROLE.gatherer is the same list at module load). `sand` true puts
+ * the sand rung back between wood and cobblestone; false (the default) leaves dirt -> wood -> cobblestone.
+ */
+export function gathererChain ({ sand = sandRungOn() } = {}) {
+  const base = MILESTONES_BY_ROLE.gatherer.filter(m => m.id !== 'gather_sand_8')
+  if (!sand) return base
+  const i = base.findIndex(m => m.id === 'gather_cobblestone_8')
+  return [...base.slice(0, i), SAND_RUNG(), ...base.slice(i)]
 }
 
 export const MILESTONES = MILESTONES_BY_ROLE.scout   // default / back-compat
@@ -1025,7 +1041,7 @@ export class MilestoneController {
     // nothing to switch TO: current() returned null off the end of the fixed
     // chain and the bot idled with "Nothing to do" permanently. All five bots
     // reached that state. Appending it is what those messages always meant.
-    this.chain = [...(MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout), ...SUSTAINING_RUN]
+    this.chain = [...(role === 'gatherer' ? gathererChain() : (MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout)), ...SUSTAINING_RUN]
     this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}

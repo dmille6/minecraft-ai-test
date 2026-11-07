@@ -44,6 +44,7 @@ import { WELL_JUNK } from './well.mjs'
 import { isCompostJunk } from './composter.mjs'
 import { PEACEFUL_COMPOST } from './peacefulkit.mjs'
 import { groupOf } from './stocktarget.mjs'
+import { sandRungOn } from './sandrung.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
 import { peacefulFoodActive } from './foodskip.mjs'
@@ -96,7 +97,8 @@ export const CREDIT_CAP = 64
 /** The stone family kept as a total by the stockpile_stone rung (milestones.mjs STOCKPILE_MAX). Wood keeps WOOD_KEEP. */
 export const STOCKPILE_KEEP = 64
 /** The gatherer chain's held counts for items that are never bankable anyway (asserted against the chain). */
-export const HELD_TARGETS = Object.freeze({ dirt: 16, sand: 8 })
+// SANDRUNG-01 (sandrung.mjs): the 8 sand are held only while the sand rung is in the chain (SANDRUNG=1).
+export const HELD_TARGETS = Object.freeze({ dirt: 16, ...(sandRungOn() ? { sand: 8 } : {}) })
 /** Planks kept whatever the logs: the pickaxe rungs' `stick >= 2 || planks >= 2` and the table's `planks >= 4`. */
 export const PLANKS_MEANS = 4
 /** A wanted item (active rung + ingredients) is kept up to one stack. */
