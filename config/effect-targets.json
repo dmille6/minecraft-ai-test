@@ -908,6 +908,50 @@
    ],
    "exposure": "a canary bot in a pool whose town directory holds > 5,000 lease generations, doing build/project visits",
    "correction": "effectfix-01 11-07: the primary named kind tool_hygiene, which never occurs (the rows are _tool_hygiene: its own claim said \"CONFIRM the kind name convention before queueing\"); renamed. Found by the new registration check."
+  },
+  "sandrung-01": {
+   "version": 1,
+   "targets": [
+    {
+     "metric": "failclass.rate.v1",
+     "params": {
+      "name": "gather",
+      "fail_class": "no_safe_target"
+     },
+     "direction": "decrease",
+     "minimum": 0.3,
+     "scale": "relative",
+     "primary": true,
+     "claim": "gather no_safe_target 6,879/24 h fleet (3.58/bot-h); 3,132 of them were sand on the sand rung (46%) -> ~-45% on the canary"
+    },
+    {
+     "metric": "skill.share.v1",
+     "params": {
+      "name": "gather",
+      "status": "success"
+     },
+     "direction": "increase",
+     "minimum": 0.05,
+     "scale": "relative",
+     "claim": "gather ok 15,129/39,349 = 38.4%; without the 4,758 sand runs (558 ok) = 42.1% (+9.6% relative)"
+    }
+   ],
+   "guardrails": [
+    {
+     "metric": "items.per_bot_hour.v1",
+     "params": {},
+     "direction": "increase"
+    },
+    {
+     "metric": "kind.rate.v1",
+     "params": {
+      "name": "_death"
+     },
+     "direction": "decrease"
+    }
+   ],
+   "note": "Bot-time is the owner's unit: the sand rung held 140.9 of 1,875 decision-gap bot-h (7.5%), 78.4 failed or vetoed. The +180 read also reports failed gather bot-time (dur+lead) per bot-h, canary vs control (fleet 24 h: 263.5 bot-h / 1,920 = 8.2 bot-min/bot-h), and what the freed time went to (TASK shares).",
+   "correction": "effectfix-01 11-07: registration sandrung-01.b7b2a530 (queued, not yet launched) names guardrail kind death, which never occurs (the kind is _death); renamed. Found by the new registration check over the ready queue."
   }
  }
 }

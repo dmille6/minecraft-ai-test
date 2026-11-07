@@ -431,6 +431,17 @@ def t_validate_cmd(M):
             res[nm] = (e.code, buf.getvalue())
     ok = res['bad'][0] == 1 and '_well_dispose' in res['bad'][1] and res['good'][0] == 0 and 'valid' in res['good'][1]
     ok &= 'INVALID:' in res['bad'][1].splitlines()
+    # a registration with no effect field is not a bare effect object (the 11-07 ready queue: kittrim/pause30/forest)
+    p0 = os.path.join(rd, 'noeffect.json')
+    json.dump({'run_id': 'x', 'sha': 'abc', 'notes': 'n'}, open(p0, 'w'))
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            EW.main(['validate', p0, '--cache', d, '--now', now.strftime('%Y-%m-%dT%H:%M:%SZ')])
+        res['noeffect'] = (0, buf.getvalue())
+    except SystemExit as e:
+        res['noeffect'] = (e.code, buf.getvalue())
+    ok &= res['noeffect'][0] in (0, None) and 'no effect field' in res['noeffect'][1]
     # an empty cache window: exit 3 (cannot check); a validator failure: exit 4 -- neither is the INVALID exit 1
     p = os.path.join(rd, 'good.json')
     for nm, cache_dir, patch in (('empty', tempfile.mkdtemp(), None), ('error', d, 'boom')):
@@ -811,6 +822,7 @@ MUTANTS = [
     ('ew', "    except CannotCheck as e:\n        print(f'CANNOT CHECK: {e}')\n        raise SystemExit(EXIT_CANNOT)",
      "    except CannotCheck as e:\n        print(f'CANNOT CHECK: {e}')\n        raise SystemExit(1)", t_validate_cmd),
     ('ew', "        raise SystemExit(EXIT_ERROR)", "        raise", t_validate_cmd),
+    ('ew', "    elif 'targets' in reg or 'none_reason' in reg:", "    elif True:", t_validate_cmd),
 ]
 
 

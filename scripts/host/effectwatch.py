@@ -902,8 +902,10 @@ def _cmd_validate(a):
         for m in ((reg.get('bundle') or {}).get('members') or []):
             if isinstance(m, dict) and m.get('effect') is not None:
                 effects.append((str(m.get('run') or '?'), m['effect']))
-    else:
+    elif 'targets' in reg or 'none_reason' in reg:
         effects = [('', reg)]          # a bare effect object
+    else:
+        effects = []                   # a registration without an effect field
     if not effects:
         print('no effect field (and no bundle member effect): nothing to validate')
         return
