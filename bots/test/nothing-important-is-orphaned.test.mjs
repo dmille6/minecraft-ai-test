@@ -76,6 +76,7 @@ const REQUIRED = [
   'bots/scripts/forest-offline.mjs',   // forest-02: the forest's siting on copies of a world
   'sandbox/forest/forest-proof.cjs',
   'sandbox/forest/forest-proof2.cjs',
+  'sandbox/forest/forest-proof3.cjs',
   'bots/src/storehouse.mjs',
   'bots/test/storehouse.test.mjs',
   // showchat-01 (11-01): the showcase's templated chat announcements (comms stage 2) + the timelapse captions

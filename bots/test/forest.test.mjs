@@ -284,6 +284,68 @@ await t('forest-02 badCounter: the box\'s bad-column count equals a brute-force 
   assert.strictEqual(cnt([15, 15, 25, 25]), Infinity)
 })
 
+// ---- forest-03: the felling judged from where the bot actually stands (LIVE 11-06 22:58Z: every felling off_stand) ---------------
+/** Fake effects: a walk lands where `land(target, i)` says (the live walks stopped 1-3 short); digs clear the named block. */
+const fakeE = (w, { at, land }) => {
+  let feet = at.slice(), i = 0
+  return { feet: () => feet.slice(), walkTo: async s => { feet = land(s, i++, feet) ?? feet; return true }, dig: async (c, expect) => { if (expect && w.read(...c)?.name !== expect) return 'refused'; w.set(c, 'air'); return 'confirmed' } }
+}
+const tree = (w, cell, n, sp = 'spruce_log') => { for (let k = 0; k < n; k++) w.set([cell[0], cell[1] + k, cell[2]], sp); return { cell, stand: [cell[0], cell[1] + 1, cell[2] + 1], order: Array.from({ length: n }, (_, k) => [cell[0], cell[1] + n - 1 - k, cell[2]]) } }
+await t('forest-03 fellStands: the recorded stand first, then every orthogonal neighbour of the trunk at its feet height on solid ground', () => {
+  const w = world()
+  const t1 = tree(w, [30, G, 30], 6)            // a sunk plot: the stump at G, the stand's feet at G + 1
+  w.set([30, G, 30], 'spruce_log')
+  const st = F.fellStands(w.read, t1)
+  assert.deepStrictEqual(st[0], [30, G + 1, 31])
+  assert.deepStrictEqual(st.slice(1).map(q => q.join(',')).sort(), [`29,${G + 1},30`, `31,${G + 1},30`, `30,${G + 1},29`].sort())
+  w.set([31, G + 1, 30], 'stone')               // a solid block in one neighbour's feet: not a stand
+  assert.ok(!F.fellStands(w.read, t1).some(q => q[0] === 31 && q[2] === 30))
+  assert.ok(F.feetFells([29, G + 1, 30], t1.order) && !F.feetFells([29, G + 1, 31], t1.order), 'orthogonal yes, diagonal no')
+})
+await t('forest-03 fellTree: a walk that stops BESIDE the recorded stand fells from where it stopped (the live off_stand); a walk that never gets beside the trunk is off_stand', async () => {
+  const w = world()
+  const t1 = tree(w, [30, G, 30], 7)
+  // the walk to any stand lands on the trunk's WEST neighbour (the live bots stopped one cell off the recorded stand)
+  const e = fakeE(w, { at: [26, G + 1, 30], land: s => (s[0] === 30 && s[2] === 31 ? [29, G + 1, 30] : [20, G + 1, 20]) })
+  const r = await F.fellTree(e, w.read, t1)
+  assert.deepStrictEqual([r.n, r.why], [7, null])
+  assert.deepStrictEqual(r.from, [29, G + 1, 30])
+  assert.ok(t1.order.every(p => w.read(...p).name === 'air'), 'every log down')
+  // a walk that stops diagonally, then two off: no stand reaches -- off_stand, nothing dug
+  const w2 = world(); const t2 = tree(w2, [30, G, 30], 5)
+  const e2 = fakeE(w2, { at: [26, G + 1, 26], land: (s, i) => (i % 2 ? [s[0] + 2, s[1], s[2] + 2] : [31, G + 1, 31]) })
+  const r2 = await F.fellTree(e2, w2.read, t2)
+  assert.deepStrictEqual([r2.n, r2.why], [0, 'off_stand'])
+  assert.ok(t2.order.every(p => w2.read(...p).name === 'spruce_log'))
+})
+await t('forest-03 fellTree: a leaf in the stand\'s head (the walk will not dig it) is dug from where the first walk stopped, then the second walk arrives', async () => {
+  const w = world()
+  const t1 = tree(w, [30, G, 30], 5)
+  w.set([30, G + 2, 31], 'spruce_leaves')
+  const e = fakeE(w, { at: [24, G + 1, 31], land: (s, i, feet) => (w.read(s[0], s[1] + 1, s[2]).name === 'air' ? s : [28, G + 1, 31]) })
+  const rows = []
+  const r = await F.fellTree(e, w.read, t1, { log: d => rows.push(d) })
+  assert.deepStrictEqual([r.n, r.why], [5, null])
+  assert.ok(rows.some(d => d.op === 'clear' && d.kind === 'stand' && d.cell.join(',') === `30,${G + 2},31`))
+  // never a leaf where the guard refuses (a marker's margin, a protected zone)
+  const w3 = world(); const t3 = tree(w3, [30, G, 30], 5); w3.set([30, G + 2, 31], 'spruce_leaves')
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, -1]]) w3.set([30 + dx, G + 2, 30 + dz], 'spruce_leaves')
+  const e3 = fakeE(w3, { at: [24, G + 1, 31], land: (s) => (w3.read(s[0], s[1] + 1, s[2]).name === 'air' ? s : [28, G + 1, 31]) })
+  const r3 = await F.fellTree(e3, w3.read, t3, { guard: () => true })
+  assert.strictEqual(r3.why, 'off_stand')
+  assert.strictEqual(w3.read(30, G + 2, 31).name, 'spruce_leaves')
+})
+await t('MUTANT KILLED: the felling judged by feet == the recorded stand again (the live off_stand)', async () => {
+  const EQ = '(f => f[0] === st[0] && f[1] === st[1] && f[2] === st[2])(e.feet())'
+  await killed('    ok = feetFells(e.feet(), left(), F)\n    if (ok) break\n    await clearAt(st)\n    await e.walkTo(st)\n    check()\n    ok = feetFells(e.feet(), left(), F)\n    if (ok) break\n    await clearAt(st)   // a third try: each walk brings more of the way\'s leaves within reach\n    await e.walkTo(st)\n    check()\n    ok = feetFells(e.feet(), left(), F)', `    ok = ${EQ}\n    if (ok) break\n    await clearAt(st)\n    await e.walkTo(st)\n    check()\n    ok = ${EQ}\n    if (ok) break\n    await clearAt(st)\n    await e.walkTo(st)\n    check()\n    ok = ${EQ}`, async M => {
+    const w = world()
+    const t1 = tree(w, [30, G, 30], 7)
+    const e = fakeE(w, { at: [26, G + 1, 30], land: s => (s[0] === 30 && s[2] === 31 ? [29, G + 1, 30] : [20, G + 1, 20]) })
+    const r = await M.fellTree(e, w.read, t1)
+    assert.strictEqual(r.why, null)
+  })
+})
+
 // ---- the rotation ---------------------------------------------------------------------------------------------------------------
 const sited = (w = world()) => ({ w, rec: F.siteForest(w.read, { home: HOME, rings: [WALL.ring], now: 1000 }).record })
 const plantAll = (w, rec) => { for (const c of plotsOf(rec)) w.set(c.at, 'spruce_sapling') }
@@ -634,8 +696,10 @@ await t('WIRED: the visit dispatched, the due upkeep read, the footprint priced,
   assert.ok((s.match(/keepDue\(\(bot\.forestFails \?\?= new Map\(\)\), t\.key, r\.why\)/g) ?? []).length === 2, 'a tree that keeps failing is kept, forest and farm alike (r1)')
   // the harvest digs with the build effects' dig, never collectManually (the footprint's veto)
   const fell = s.slice(s.indexOf('async function forestFell'), s.indexOf('async function buildForest'))
+  assert.ok(/const r = await fellTree\(e, farmRead\(bot\), t,/.test(fell), 'forest-03: the felling is forest.mjs fellTree')
   assert.ok(/siteHeldCols\(siteTreesHolding\(read, rec\)\)/.test(s), 'kept site trees hold their columns (r2)')
-  assert.ok(fell.length > 200 && /await e\.dig\(p, b\.name\)/.test(fell) && !/collectManually/.test(fell))
+  assert.ok(fell.length > 100 && !/collectManually/.test(fell))
+  assert.ok(/const v = await e\.dig\(p, nm\(b\)\)/.test(readFileSync(FOREST_PATH, 'utf8')), 'the felling digs with the build effects\' dig (forest.mjs fellTree)')
   const tidy = code(TIDY_PATH)
   assert.ok(/replantCells\(read, land, \[\.\.\.road\.trees, \.\.\.bandTrunks\], \{ avoid, cells, groves: !!band, busy, forest, forestR: tidyWalkR\(record\) - 2 \}\)/.test(tidy), 'the outbands\' felled trees')
   assert.ok(/replantCells\(read, land, pp\.trees\.map\(t => \(\{ col: t\.col, name: t\.name \}\)\), \{ avoid: avoidRp, cells, forest, forestR: tidyWalkR\(\{ r: rr \}\) - 2 \}\)/.test(tidy), 'the plot prep\'s felled trees')
@@ -681,12 +745,15 @@ await t('forest-02 release fold (Codex r2 BLOCKER): a site tree\'s stand is neve
 await t('forest-02 release fold (Codex r3 BLOCKER): forestFell never digs a leaf on a marker margin or in a protected zone (wiring, comments stripped; the guard cut is caught)', () => {
   const strip = x => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
   const raw = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  // forest-03: the felling is forest.mjs fellTree; the guard rides in as `guard: guarded` and fellTree skips a guarded leaf (its
+  // behaviour: the fellTree guard test above)
+  const fsrc = strip(readFileSync(new URL('../src/forest.mjs', import.meta.url), 'utf8'))
   const wired = src => { const i = src.indexOf('async function forestFell ('); const body = src.slice(i, src.indexOf('\n}\n', i)); const g = src.slice(src.indexOf('function fellLeafGuard ('), i)
-    return i > 0 && /const guarded = fellLeafGuard\(bot\)/.test(body) && /if \(guarded\(q\[0\], q\[2\]\)\) continue/.test(body) && /\.\.\.townMarkerZones\(\), \.\.\.\(zv\.zones \?\? \[\]\)/.test(g) && /if \(!zv\?\.known\) return \(\) => true/.test(g) }
-  assert.ok(wired(strip(raw)))
-  const old = '    if (guarded(q[0], q[2])) continue'
+    return i > 0 && /const guarded = fellLeafGuard\(bot\)/.test(body) && /fellTree\(e, farmRead\(bot\), t, \{ deadline, guard: guarded,/.test(body) && /\.\.\.townMarkerZones\(\), \.\.\.\(zv\.zones \?\? \[\]\)/.test(g) && /if \(!zv\?\.known\) return \(\) => true/.test(g) }
+  assert.ok(wired(strip(raw)) && /if \(guard\(q\[0\], q\[2\]\)\) continue/.test(fsrc))
+  const old = 'fellTree(e, farmRead(bot), t, { deadline, guard: guarded,'
   assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  assert.ok(!wired(strip(raw.replace(old, '    if (false) continue'))), 'MUTANT: the guard cut is caught')
+  assert.ok(!wired(strip(raw.replace(old, 'fellTree(e, farmRead(bot), t, { deadline,'))), 'MUTANT: the guard cut is caught')
 })
 
 await t('forest-02 release fold (Codex r4 BLOCKER): the sapling pickup walk is the town walk (withTownDepositWalk) -- wiring, comments stripped', () => {
