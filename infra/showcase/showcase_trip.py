@@ -1289,8 +1289,8 @@ def selftest():
     inside = [(T(m), P(15, 15)) for m in range(0, 20)]
     assert still_spells(inside, [box], TRAP_MIN, TRAP_MOVE), 'still inside a box >= 15 min: trapped'
     assert not still_spells([(t, P(30, 30)) for t, _ in inside], [box], TRAP_MIN, TRAP_MOVE), 'still OUTSIDE is not trapped'
-    # market-02 (OWNER 11-07 D1): a WALK-IN TRADING visit -- inside a village zone at most 8 min per trip, never still 4 min
-    # (bots/src/market.mjs WALKIN dwellMs / stillMs) -- is never Z1, even with a refusal inside it (a door the guard would not
+    # market-02 (OWNER 11-07 D1): a WALK-IN TRADING visit -- one runner call (< 180 s), inside a village zone at most 60 s + one
+    # visit (~3.5 min worst case), never still 40 s (bots/src/market.mjs WALKIN) -- is never Z1; the fixture is the generous 8-min shape, even with a refusal inside it (a door the guard would not
     # open); the rule itself is unchanged: 15 min still with a refusal is trapped (positive control)
     visit = [(T(m), P(15, 15)) for m in range(0, 4)] + [(T(m), P(18, 15)) for m in range(4, 8)]
     vref = {'v': [(T(2), 1)]}
