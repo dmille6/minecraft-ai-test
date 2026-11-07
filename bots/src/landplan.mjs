@@ -25,6 +25,7 @@
 //             spokes through it). Nature beyond the band being worked is never touched.
 
 import { pathColumn, pathGrid, routeLeg, pathZones, gridUnread, PATH_DY } from './paths.mjs'
+import { landmarkZones } from './landmark.mjs'   // roughground-3: the landmark mound, a reservation
 
 export const LAND_PLOT = 'land'
 export const LAND_BLUEPRINT = 'land@1'
@@ -491,7 +492,7 @@ export function zoneAt (land, x, z) {
   return land.zones?.[SECTORS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]] ?? 'wild'
 }
 /** THE LAND RECORD AS A RESERVATION (the pseudo-record skills.mjs projectHeads appends): its corridors as zones, no cells. Pure. */
-export const landReservation = (land, ext = null) => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land), ...gardenZones(land), ...landPlotZones(ext)], cells: [], structure_complete: true, state: 'plan' } : null)
+export const landReservation = (land, ext = null) => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land), ...gardenZones(land), ...landmarkZones(land), ...landPlotZones(ext)], cells: [], structure_complete: true, state: 'plan' } : null)
 /**
  * wallext-01 (owner 11-04: "extend the wall around the new building leaving room for additional buildings"): THE RESERVED PLOTS inside
  * a wall extension (wall.mjs siteWallExt's record `plots`) as the land plan's zones [{ box, why: 'land:plot', id }]: every siting
