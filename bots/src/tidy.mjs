@@ -49,6 +49,8 @@ export const TIDY_PALETTE = Object.freeze({ earth: ['dirt', 'cobblestone', 'coar
   // access-01 (owner 11-04 "no dirt steps"): a proper step where bots climbed -- the town's stone, never dirt, never `*solid` (a dirt
   // block left in an access cell reads open: the runner digs it out and lays stone)
   access: ['cobblestone', 'stone_bricks', 'cobbled_deepslate', 'mossy_cobblestone', 'stone', 'andesite'],
+  // roughground-2: a lawn cell laid again where the bots' cobble stood -- dirt (the grass round it greens it), done once dirt or grass
+  topsoil: ['dirt', 'grass_block'],
   // townterrace-01: the park's plantings and tool uses (park.mjs PARK_PALETTE)
   ...PARK_PALETTE })
 /** A complete tidy is surveyed again after this long (the bots keep digging and climbing). */
@@ -327,7 +329,7 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
       const k = f.at[1] - base.get(k2(f.at[0], f.at[2]))
       const seg = segOf(group, k)
       if (!segs.has(seg)) { segs.add(seg); segments.push({ seg, deps: k > 0 ? [segOf(group, k - 1)] : [] }) }
-      cells.push({ at: f.at, role: 'earth', seg, ...(f.opener ? { opener: f.opener } : {}) })   // roughground-1b r1: a hollow's fill names its cut (never waived)
+      cells.push({ at: f.at, role: f.role === 'topsoil' ? 'topsoil' : 'earth', seg, ...(f.opener ? { opener: f.opener } : {}) })   // roughground-1b r1: a hollow's fill names its cut (never waived); roughground-2: a lawn's topsoil is dirt only
     }
   }
   // every group's ground layer first, then every group's next (a visit meets a layer whose dependency another builder holds only

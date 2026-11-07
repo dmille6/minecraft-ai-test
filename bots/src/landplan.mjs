@@ -425,13 +425,19 @@ export const nextStage = (k, L = LAND) => landStages(L).find(s => s.k === (Numbe
  * anywhere publishes a complete `nothing` record and waits `cycleMs` again.
  */
 export const LAND_CYCLE_MS = 30 * 60_000
-export function nextStageCycle (rec, now = Date.now(), { cycleMs = LAND_CYCLE_MS, L = LAND } = {}) {
+export function nextStageCycle (rec, now = Date.now(), { cycleMs = LAND_CYCLE_MS, L = LAND, env = process.env } = {}) {
   const n = nextStage(recStageK(rec, L), L)
   if (n) return n
   const at = Number(rec?.completeAt)
-  if (rec?.structure_complete && Number.isFinite(at) && now - at >= cycleMs) return landStages(L).find(s => s.id === INWALL_STAGE) ?? null
+  if (rec?.structure_complete && Number.isFinite(at) && now - at >= cycleMs) return landStages(L).find(s => s.id === cycleWrapId(env)) ?? null
   return null
 }
+/**
+ * ROUGHGROUND-2 (owner 11-07: "slopes as 1-block terrace steps", the target pictures): the stage the cycle wraps to -> stage id. Pure.
+ * The TERRACE stage by default (graded again every cycle: the ground the bots roughed up since is re-terraced, then roads, then the
+ * inside, then the bands); TERRACE_CYCLE=off|0|false|no is the old wrap straight to the inside of the wall.
+ */
+export const cycleWrapId = (env = process.env) => (/^(off|0|false|no)$/i.test(String(env?.TERRACE_CYCLE ?? '').trim()) ? INWALL_STAGE : 'terrace')
 /** A stage by number -> its entry (stage 0 when unknown). Pure. */
 export const stageOf = (k, L = LAND) => landStages(L).find(s => s.k === k) ?? landStages(L)[0]
 /**

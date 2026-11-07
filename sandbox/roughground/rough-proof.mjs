@@ -87,6 +87,9 @@ async function main () {
   if (SCENE === 'hollow') {
     for (const [x, z] of [A, B]) scene.push(`setblock ${x} ${HY - 1} ${z} minecraft:air`, `setblock ${x} ${HY - 2} ${z} minecraft:air`, `setblock ${x} ${HY} ${z} minecraft:grass_block`)
     scene.push(`summon minecraft:armor_stand ${B[0] + 0.5} ${HY - 2} ${B[1] + 0.5} {NoGravity:1b,Invulnerable:1b,Tags:["roughproof"]}`)
+  } else if (SCENE === 'topsoil') {
+    // (2) the bots' cobble rubble at ground level in a lawn: four single cobblestone tops and one 2x1
+    for (const [x, z] of [[HX + 6, HZ], [HX - 6, HZ], [HX, HZ + 6], [HX, HZ - 6], [HX + 8, HZ + 8], [HX + 9, HZ + 8]]) scene.push(`setblock ${x} ${HY - 1} ${z} minecraft:cobblestone`)
   } else if (SCENE === 'stand') {
     scene.push(`setblock ${A[0]} ${HY + 7} ${A[1]} minecraft:dirt`)   // 8 over the grass top (HY - 1): out of a ground stand's reach
   }
@@ -145,6 +148,18 @@ async function main () {
     out.Bafter = col(B); out.Aafter = col(A)
     P('B after the stand left:', out.Bafter)
     out.pass = !out.A.crust && out.A.y1 && out.A.y2 && out.Bheld.crust && !out.Bafter.crust && out.Bafter.y1 && out.Bafter.y2 && out.Aafter.y1 && out.Aafter.y2
+  } else if (SCENE === 'topsoil') {
+    rcon('gamerule randomTickSpeed 3')
+    const cols = [[HX + 6, HZ], [HX - 6, HZ], [HX, HZ + 6], [HX, HZ - 6], [HX + 8, HZ + 8], [HX + 9, HZ + 8]]
+    await visit(4)
+    out.cobbleLeft = cols.filter(([x, z]) => isBlock(x, HY - 1, z, 'minecraft:cobblestone')).length
+    out.dirtOrGrass = cols.filter(([x, z]) => isBlock(x, HY - 1, z, 'minecraft:dirt') || isBlock(x, HY - 1, z, 'minecraft:grass_block')).length
+    P('after the visit: cobble left', out.cobbleLeft, 'dirt/grass', out.dirtOrGrass, '/', cols.length)
+    const t0 = Date.now()
+    while (Date.now() - t0 < 12 * 60_000) { out.green = cols.filter(([x, z]) => isBlock(x, HY - 1, z, 'minecraft:grass_block')).length; if (out.green === cols.length) break; await sleep(30_000) }
+    out.greenMin = (Date.now() - t0) / 60_000
+    P('green', out.green, '/', cols.length, 'after', out.greenMin.toFixed(1), 'min')
+    out.pass = out.cobbleLeft === 0 && out.dirtOrGrass === cols.length && out.green === cols.length
   } else if (SCENE === 'stand') {
     const target = [A[0], HY + 7, A[1]]
     const plats = PJ.recordHead(dir, key).head.rec.plotprep?.platforms ?? []
