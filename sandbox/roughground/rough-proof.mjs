@@ -18,7 +18,8 @@ import { createRequire } from 'node:module'
 
 const BOT_ROOT = path.resolve(process.env.BOT_ROOT || '.')
 const req = createRequire(path.join(BOT_ROOT, 'bots', 'package.json'))
-const sbx = req(path.join(BOT_ROOT, 'sandbox/lib/sbxlock.cjs'))
+const require = createRequire(import.meta.url)
+const sbx = require('../lib/sbxlock.cjs')
 const imp = f => import(path.join(BOT_ROOT, 'bots/src', f))
 const SERVER = process.env.SBX || 'sandbox6'
 const PORT = Number(process.env.PORT || 25604)
