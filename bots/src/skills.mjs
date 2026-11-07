@@ -224,6 +224,8 @@ import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, ke
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs: the pure rules; index.mjs: the dig guard + route)
 import { columnAt, sitesNear, keepOutPart, KEEPOUT_KIND, KEEPOUT_SEARCH, KEEPOUT_RADIUS, KEEPOUT_HEIGHT, KEEPOUT_COOLDOWN_MS,
          addCooldown, noteKeepout, exitTargets, outwardBearings, encodeCells, cellsInColumns, siteKey, routeForbids } from './keepout.mjs'
+// gathermem-01: a bot remembers the gather targets that just failed it, and the places a gather just found nothing takeable
+import { gatherMemOn, noteTargetFailure, clearTarget, rememberedTarget, rankByMemory, allRemembered, noteAreaRefusal, AREA_CLASSES } from './gathermem.mjs'
 // wellcare-01 fix 3 (its own statement): a station never on a junk well's cells
 import { stationKeepOut, stationWellDetail, nearWell } from './wellcare.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
@@ -2056,6 +2058,20 @@ function keepoutCooldown (bot, skill, block, site) {
 async function gather(ctx, args, signal) {
   return withKeepout(ctx, 'gather', async ko => {
     const r = await gatherRun(ctx, args ?? {}, signal, ko)
+    // GATHERMEM-01: a run that found nothing takeable HERE is refused here for a few minutes (admission reads it); an abort
+    // throws past this line, so an interruption never writes one
+    try {
+      const at = ctx.bot?.entity?.position
+      if (gatherMemOn() && r?.status !== 'success' && args?.block && at) {
+        const fc = r?.memoClass ?? r?.failClass
+        const before = (ctx.bot.gatherAreas ?? []).length
+        ctx.bot.gatherAreas = noteAreaRefusal(ctx.bot.gatherAreas, { block: args.block, pos: { x: at.x, y: at.y, z: at.z }, failClass: fc })
+        if (fc === 'remembered' || AREA_CLASSES.has(fc)) {
+          logEvent({ kind: 'gathermem', status: 'no_effect', snapshot: snapshot(ctx.bot),
+                     detail: `op=area block=${args.block} class=${fc} areas=${before}->${ctx.bot.gatherAreas.length}` })
+        }
+      }
+    } catch { /* the memory may never cost the skill its answer */ }
     if (!ko || !ko.skipped || r?.status === 'success') return r
     // ONLY A FAILURE KEEP-OUT CAN HAVE CAUSED (Claude r1 P3-4): no candidate left, none reachable, none safe -- never a full bag,
     // a budget or an interruption, which say nothing about the column
@@ -2413,7 +2429,27 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // the probe walks and collectblock digs, so `noPath` here would be an
     // over-broad refusal, and refusals that outrun their evidence are the most
     // repeated mistake in this file.
-    const probe = probeReachable(bot, reachable, { goals })
+    // GATHERMEM-01: the cells this bot failed from about here in the last few minutes are tried LAST, never dropped
+    // (gathermem.mjs rankByMemory); when every candidate is one of them, the run ends without walking the same failing
+    // routes again, and the wrapper refuses this (gather, block) here for a few minutes
+    const memBlock = viaSource ?? blockName
+    let probeFrom = reachable
+    if (gatherMemOn() && (bot.gatherTargets ?? []).length) {
+      const here = bot.entity.position
+      const ranked = rankByMemory(reachable.filter(q => !excluded.has(key(q))), q => !!rememberedTarget(bot.gatherTargets, { block: memBlock, cell: q, pos: here }))
+      if (allRemembered({ fresh: ranked.fresh, remembered: ranked.remembered, collected, rounds })) {
+        try { logEvent({ kind: 'gathermem', status: 'no_effect', snapshot: snapshot(bot), detail: `op=all_remembered block=${memBlock} candidates=${ranked.remembered}` }) } catch { /* telemetry */ }
+        return { status: 'failed', failClass: 'unreachable', memoClass: 'remembered',
+                 detail: `${blockName}: all ${ranked.remembered} candidate(s) within reach of here failed you in the last ` +
+                         `few minutes -- not walking to them again; gather another block, or walk away and gather it there` }
+      }
+      if (ranked.remembered && ranked.fresh) {
+        if (rounds === 1) { try { logEvent({ kind: 'gathermem', status: 'success', detail: `op=rank block=${memBlock} fresh=${ranked.fresh} remembered=${ranked.remembered}` }) } catch { /* telemetry */ } }
+        reachable = ranked.list
+        probeFrom = reachable.slice(0, ranked.fresh)   // the A* slate is the nearest FRESH candidates (its slate is 4, by distance)
+      }
+    }
+    const probe = probeReachable(bot, probeFrom, { goals })
     if (probe) {
       if (probe.hit) {
         const i = reachable.findIndex(q =>
@@ -2676,6 +2712,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     }
     const target = bot.blockAt(nextUp)
     if (!target || target.name !== (viaSource ?? blockName)) { excluded.add(key(nextUp)); continue }
+    const setOutFrom = bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null
+    // a full bag says nothing about the cell (Codex design: never learn from bag saturation)
+    const noteFailed = why => { if (gatherMemOn() && setOutFrom && !((bot.inventory?.emptySlotCount?.() ?? 1) === 0)) bot.gatherTargets = noteTargetFailure(bot.gatherTargets, { block: target.name, cell: target.position, from: setOutFrom, why }) }
 
     try {
       // The budget has to cover PLANNING PLUS DOING. It was 10000ms while
@@ -2766,6 +2805,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // yield, and re-picking it is what produced streaks of up to 58 attempts
       // on a single position.
       excluded.add(key(target.position))
+      noteFailed('threw')   // gathermem-01 (an abort rethrew above: an interruption is never remembered)
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     } finally {
       // A CANCELLED SKILL MUST CANCEL THE LIBRARY TOO.
@@ -2823,6 +2863,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // A barren round means this target gave nothing even though nothing threw.
       // Same reasoning as the catch above: do not come back to it this run.
       excluded.add(key(target.position))
+      noteFailed('barren')   // gathermem-01: ...nor first, on the next run from about here
       if (barren >= BARREN_LIMIT) {
         // Name the actual cause. "Unreachable" and "ran out of time getting
         // there" call for different responses -- the first means go somewhere
@@ -2867,6 +2908,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         bot.entity.position.z + (Math.random() * 10 - 5), 2)).catch(() => {})
     } else {
       barren = 0
+      if (gatherMemOn()) bot.gatherTargets = clearTarget(bot.gatherTargets, { block: target.name, cell: target.position })   // gathermem-01
     }
     collected = gained
   }
