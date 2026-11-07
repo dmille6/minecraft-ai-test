@@ -72,6 +72,11 @@ const REQUIRED = [
   'infra/showcase/visuals/rollback-sr-q.sh',
   'infra/showcase/visuals/livewatch.sh',
   'infra/showcase/visuals/skinprobe.mjs',
+  // tlpolish-1106 (11-07): nightly Chunky golden-hour beauty renders on .30 + the tracked live tl.conf
+  'infra/showcase/visuals/chunky_beauty.py',
+  'infra/showcase/visuals/chunky-beauty-nightly.sh',
+  'infra/showcase/visuals/test_chunky_beauty.py',
+  'infra/showcase/files/tl.conf',
   'bots/test/wholemap.test.mjs',
   // B5 (10-31): the cooperation tier's role leases (bot side), the host assigner, the spend guard + caller, the Paper arms
   'bots/src/roles.mjs',

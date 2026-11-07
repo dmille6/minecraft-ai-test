@@ -5608,6 +5608,32 @@
     ]
    },
    "note": "Showcase 9dfa85b9 1.25 h: 6 takes, 5 underground, 1 grounds visit (model's gather dirt to y 50-54). Fleet e447b65b 1.18 h: 102 takes, 91 underground (idle_work iron hint mine y=16 the commonest first skill below)."
+  },
+  {
+   "id": "tlpolish-1106",
+   "title": "Timelapses 'as nice as possible' (owner 11-06): polished BlueMap 15-min timelapse (2 new 4K hero cameras: town + the active project; hires 500 on every camera; fixed daytime light; graded, motion-smoothed videos) AND a nightly Chunky golden-hour beauty video on .30 -- owner picks 11-07 (both / 4K heroes only / minterpolate C)",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "tlpolish-1106.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "Read the first night: (a) 11-08 00:20Z daily video -- logs/video-smooth.log fallbacks, each clip's sidecar `smoothing`, whether daily+history finished before 23:45; (b) 04:40Z Chunky beauty run on .30 (~/chunky-beauty/render.log ok lines, best.json); (c) slot heartbeats: capture_s + render_s stay under budget_s 690 with hero4k/project4k alternating. Close KEEP/REVERT/INCONCLUSIVE.",
+   "max_quiet_hours": 36,
+   "evidence": {
+    "grep": [
+     "tlpolish-1106"
+    ],
+    "paths": [
+     "infra/showcase/visuals/chunky_beauty.py",
+     "infra/showcase/visuals/chunky-beauty-nightly.sh",
+     "infra/showcase/visuals/test_chunky_beauty.py",
+     "infra/showcase/files/tl.conf"
+    ]
+   },
+   "note": "Installed 11-07 ~02:55Z on .40 (backups *.bak-20261107-tlpolish: tl_showcase.py, tl_video.py, capture.mjs, tl.conf, showcase-video@.service). Samples: videos/timelapse-samples-1106/. Measured: 4K frame 130 s on a fresh page, 54 s on a reused 4K page (1080p today 44-48 s fresh); hires 500 adds ~+25 s to each wide pair camera (topdown 51.6->76.4, angled 40->63 s), close-ups unchanged; first slot 03:00Z done in 417 s of 690 (render 28 + capture 389, project4k 76 s, hero4k deferred by heavy_per_slot 1). Chunky 1080p at 12 threads: ~3.5-4.5 min per 80 spp; 320 spp ~16 min/view, PSNR 41 dB vs 1024. minterpolate ~45x the dissolve encode (.30, 4 threads: 361 s vs 8-15 s for a 9-s 1440^2 clip)."
   }
  ]
 }

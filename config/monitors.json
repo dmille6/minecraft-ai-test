@@ -575,17 +575,18 @@
   },
   {
    "id": "chunky-nightly",
-   "host": "34",
-   "cron": "chunky/bin/render-nightly.sh",
+   "host": "30",
+   "cron": "chunky-beauty/bin/chunky-beauty-nightly.sh",
    "outputs": [
-    "~/chunky/render.log",
-    "~/chunky/out/<date>/{town,hallwall,ziggurat}.png",
-    "showcase VM /srv/showcase/timelapse/video/stills/chunky/<date>/*.png"
+    "~/chunky-beauty/render.log",
+    "~/chunky-beauty/frames/<date>/{town,project,best}.png",
+    "~/chunky-beauty/video/beauty-<date>.mp4 + beauty-history-<view>.mp4",
+    "showcase VM /srv/showcase/timelapse/video/stills/chunky/<date>/"
    ],
    "fresh_hours": 26,
-   "consumer": "the owner (hero stills beside the daily videos, video/stills/chunky/<date>/) and the control session's read of ledger row visuals-1105 (ok/SKIP/FAIL lines in ~/chunky/render.log on ci2)",
+   "consumer": "the owner (daily golden-hour beauty video + best-of-day frame beside the daily videos, video/stills/chunky/<date>/) and the control session's read of ledger row tlpolish-1106 (ok/SKIP/FAIL lines in ~/chunky-beauty/render.log on .30)",
    "kind": "monitor",
-   "note": "visuals-1105: ci2 (10.0.0.34) mike crontab 08:30Z; flock -n ~/suite.lock (SKIP when a suite holds it), nice 19, 75-min cap per view; pulls the BlueMap mirror world read-only (rrsync -ro key), publishes via an rrsync -wo key. Not on the canary host, so stallcheck's (h) crontab pass does not see it. Rollback: crontab -e on ci2, delete the visuals-1105 line."
+   "note": "tlpolish-1106 (11-07): moved from ci2 (visuals-1105's job never produced a frame after its first manual run: 11-05 mirror pull refused -- the mirror is 0600 -- and 11-06 suite lock busy; its ci2 cron line is commented RETIRED and its two .40 keys removed). 10.0.0.30 mike crontab 04:40Z: waits for the 04:15Z showcase pull ('good <day>'), renders from that copy (no new read path into the VM), nice 19 / ionice idle / 12 of 32 threads / 60-min cap per view, 320 spp; publishes with a from=10.0.0.30 rrsync -wo key. Rollback: crontab -e on .30, delete the tlpolish-1106 line."
   },
   {
    "id": "projectaudit-fleet",
