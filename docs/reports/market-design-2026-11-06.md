@@ -315,3 +315,82 @@ These rules are on main in `docs/reports/shop-01-2026-10-25/shopread.py.txt`. **
    edge?
 3. **D3. Decorative buying.** The trader's foreign logs, dyes and flowers are bought only when nothing on the owner's list is on offer,
    with at most 8 emeralds a run. Keep this, or save every emerald for the list?
+
+## 10. market-02 (owner decisions 11-07)
+
+**Owner, 11-07:**
+
+- **D1 yes:** walk-in trading at villages' own librarian, cleric and shepherd sites. Walking only, doors and trapdoors allowed;
+  never dig or place inside.
+- **D2 yes:** a market composter, so a farmer feeds the village, plus beds at the village edge on open ground **outside the
+  zone + 3**.
+- **D3 yes:** decorative buying, ranked last, inside the 8-emerald run cap.
+
+### What was built
+
+**market-02show `8a70fb5e`** (on market-01show `ed29ef8b`):
+
+- **`market_trip`, one runner call.**
+  - The runner aborts every skill at `SKILL_TIMEOUT_MS`, 180 s on the showcase. It never reads a contract's maxMs (Claude r1, confirmed).
+  - The trip therefore fits **170 s**: out ≤ 45 s, visits start by 60 s, home by 168 s.
+  - Inside a village zone it stays ≤ 60 s, plus one visit, and is never still for 40 s. Each visit is at most 2 sales and 2 purchases,
+    8 s each.
+  - It reaches village zones within **200 b** of home. On the showcase that is village-taiga-6_1.
+- **The far village (23_-20, 502 b) needs a trip cut into calls.** Something must re-issue each call while the bot is away; that is
+  cognitive.mjs's continuation, protected code, which coalsale-01's `trade_trip` brings. → **market-03**: the walk-in rides that trip
+  once coalsale-01 is kept on the fleet and restacked into the showcase.
+- **Farmland protection.** During the whole trip, farmland, crops and cells over farmland cost 101.
+  - The price is pushed **in place**, so index.mjs's ascent and descent fallback profiles, which share the array, are priced too
+    (Claude r2).
+  - A merchant standing in a field is not walked to.
+- **Keeps** read only `known` index containers, less the call's own draws.
+- **Trades** are bounded at 8 to 20 s each. Every exit walks home and checks it arrived.
+- **Village edge:**
+  - beds: 2 a day, their own cap, foot and head outside the zone + 3;
+  - the composter: the second market job block, in the 2/day job cap, beside the jobless.
+- **`tierOf`:** purchases sort owner (and breeding beds) < build < decor.
+
+**Fleet `market-02` `ccbd80b1`** (on market-01 `0addb9f0`): the same code. Fleet worlds have no protected zones, so a walk-in has no
+target there.
+
+### Paper proof
+
+`sandbox/trading/walkin-e2e.mjs`, sandbox3, with protectzone attached as index.mjs attaches it:
+
+- **The walk-in trade.** The real ask → market_trip walked into a protected village 100 b out and bought from its librarian
+  (8 lanterns) or cleric (16 redstone).
+- **No block changed.** The zone's blocks were identical before and after (`execute if blocks` against a copy: 992 + 6,944 cells
+  either side of a sunken wheat field). The field's farmland was intact: the bot's feet, sampled every 100 ms, never stood in it, and
+  0 cells were lost. There were 0 guard refusals.
+- **Beds and composter.** 2 beds and a composter were placed outside the zone + 3.
+- **Claims.** A villager **claimed a bed** (`Brain.memories."minecraft:home"` = the bed's head). A jobless villager **took the
+  composter** (farmer).
+- **Timing.** 52 to 64 s per trip, under 180 s.
+
+### Tripwire
+
+On main `789c1f01` and `3b3e6011`. **Not installed.**
+
+- **shopread MK2:** a `_market_run ... walkin=1` (only marketTrip writes it) inside a village zone is **presence**, counted as
+  `market_walkins`, never `zone`. The same row without `walkin=1` still trips.
+- **shopread MK1:** bed halves and the composter are market job rows. They must be outside the zone + 3. Beds count against a cap of
+  2 a day by their foot.
+- **Mutants:** 223 of 223 killed.
+- **showcase_trip.py:** no rule change. Z1 needs ≥ 15 min still inside a zone *with* a guard refusal; a trip is inside ≤ ~2 min.
+  The selftest now locks it in: a visit shape is not trapped, 16 min held is trapped, and tightening TRAP_MIN to 3 fails the selftest.
+- **Live replay** on the showcase host, both copies at once: VERDICT, S3 and S6 identical.
+
+### Reviews
+
+| Round | Codex | Claude |
+|---|---|---|
+| r1 | 3 blockers: home after failed travel, keeps, unanswered trades | 2 blockers: the 180 s watchdog, farmland |
+| r2 | 3 of those NOT FIXED | farmland NOT FIXED: the fallback profiles |
+| r3 | 1 NOT FIXED: late-visit timing | FIXED |
+| r4 | FIXED (worst case 123 s of visits + a 20 s exit, home by 168 s), no new blocker | — |
+
+### Queue
+
+- **market-02show** folds with market-01show, with MK1, MK2 and the showcase_trip selftest installed alongside.
+- **6_1's villagers become trading partners once villageunlock-01 is on the showcase.**
+- **Fleet:** market-02 after market-01, progress lane.
