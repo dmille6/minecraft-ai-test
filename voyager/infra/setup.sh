@@ -45,7 +45,7 @@ systemctl daemon-reload
 echo "setup done: $(ls /srv/voyager/worlds | tr '\n' ' ')"
 # per-arm env files (rewritten each setup: CODE_VERSION follows the staged sha)
 SHA="$(cat "$STAGE/SHA")"
-declare -A MODEL=( [a]='qwen3.6:35b-a3b' [b]='qwen2.5:32b' [c]='claude-haiku-5-5' [ctl]='qwen2.5:7b-instruct' )
+declare -A MODEL=( [a]='qwen3.6:35b-a3b' [b]='qwen3.8:27b' [c]='claude-haiku-5-5' [ctl]='qwen2.5:7b-instruct' )
 for a in $ARMS; do
   if [ "$a" = ctl ]; then E=control-entry.mjs; L=true; MF=3; else E=entry.mjs; L=false; MF=1000; fi
   sed -e "s/__ARM__/$a/g" -e "s#__ENTRY__#$E#" -e "s/__LLM__/$L/" -e "s/__MODEL__/${MODEL[$a]}/g" -e "s/__SHA__/$SHA/" -e "s/__MAXFAIL__/$MF/" \

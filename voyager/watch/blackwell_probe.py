@@ -10,7 +10,8 @@ Each minute also reads /api/ps and records the resident set.
 import json, sys, time, urllib.request
 
 URL = 'http://ai.ticrcorp.com:11438'
-PINNED = ['qwen2.5:32b', 'qwen2.5-coder:7b', 'nomic-embed-text:latest']
+OURS = {'qwen3.8:27b'}            # arm B-qwen3.8 (owner 11-07 15:17Z); everything else resident at the start is THEIRS
+TARGET = 'qwen2.5:32b'              # the latency stand-in for their users; pinged ONLY while it is resident (a ping would load it)
 LOG = '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/voy/blackwell-probe.jsonl'
 
 
@@ -40,6 +41,8 @@ def main():
     base = int(sys.argv[sys.argv.index('--baseline-p95') + 1]) if '--baseline-p95' in sys.argv else None
     lat = []
     first = ps()
+    PINNED = sorted(m for m in first if m not in OURS)
+    print(json.dumps({'kind': 'watching', 'theirs': PINNED, 'ours': sorted(OURS)}), flush=True)
     for i in range(minutes):
         res = ps()
         missing = [m for m in PINNED if m not in res]
@@ -48,15 +51,18 @@ def main():
         if missing or changed:
             print(json.dumps({'kind': 'evicted_or_changed', 'missing': missing, 'changed': changed, 'before': first, 'now': res}), flush=True)
             sys.exit(3)
-        ms, load = ping()
-        lat.append(ms)
+        if TARGET in res:
+            ms, load = ping()
+            lat.append(ms)
+        else:
+            ms, load = 0, 0
         row = {'kind': mode, 'i': i, 't': time.strftime('%H:%M:%S', time.gmtime()), 'ms': ms, 'load_ms': load, 'resident': {k: v[:2] for k, v in res.items()}, 'p95': p95(lat)}
         open(LOG, 'a').write(json.dumps(row) + '\n')
         print(json.dumps(row), flush=True)
         if mode == 'during' and base and len(lat) >= 5 and p95(lat) > 1.25 * base:
             print(json.dumps({'kind': 'abort', 'p95': p95(lat), 'limit': 1.25 * base}), flush=True)
             sys.exit(3)
-        time.sleep(max(0, 60 - ms / 1000))
+        time.sleep(max(0, 60 - ms / 1000))   # one reading a minute
     print(json.dumps({'kind': f'{mode}_done', 'n': len(lat), 'p50': sorted(lat)[len(lat) // 2], 'p95': p95(lat)}), flush=True)
 
 
