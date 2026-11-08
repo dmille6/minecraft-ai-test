@@ -23,6 +23,7 @@ import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, 
 import { idleRotation, groundsMeans, setGroundsOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
 import { idleBagMeans, idleBagFull, idleDepthHint } from './idlework.mjs'   // idlework-02: the bag stop, the depth-aware hint
 import { holderMeans, holdsGrounds, setIdleKindNow } from './idlework.mjs'   // gkstay-01: a lease holder's lap stays on the surface
+import { logCapMeans, logCapMet, townLogCapped } from './logcap.mjs'   // logcap-02: the town log gathering cap
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
@@ -821,7 +822,8 @@ export function idleMeans (b) {
   const pick = items.some(it => /_pickaxe$/.test(it?.name ?? '') && usesLeft(it) >= 2)
   // idlework-02: a bag at the stop opens no bag-filling batch (idlework.mjs idleBagMeans): its lap is a grounds or scout lap
   // gkstay-01: a grounds lease holder's lap opens no batch that goes below (idlework.mjs holderMeans)
-  return holderMeans(idleBagMeans({ iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }, items.length), holdsGrounds(b))
+  // logcap-02: a town whose store holds its log cap has no `logs` batch (logcap.mjs logCapMeans): the lap walks to its next kind
+  return logCapMeans(holderMeans(idleBagMeans({ iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }, items.length), holdsGrounds(b)), townLogCapped(b))
 }
 const bagCountsOf = b => { const c = {}; for (const it of b?.inventory?.items?.() ?? []) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (Number(it.count) || 0); return c }
 const idleNeed = () => IDLE_NEEDS[IDLE.state?.kind] ?? null
@@ -851,9 +853,12 @@ const idleDone = (b, cycle) => {
   let dist = 0
   try { dist = homeDist(b) } catch { dist = 0 }
   const slots = b?.inventory?.items?.()?.length ?? null
-  const met = idleMet(st, { dist, noWorkAt: Number(b?.gkfNoWorkAt) || null, slots })
+  const base = idleMet(st, { dist, noWorkAt: Number(b?.gkfNoWorkAt) || null, slots })
+  // logcap-02: a logs batch open when its town is capped is met at once (logcap.mjs logCapMet): the lap goes on to `return`
+  const capMet = !base && logCapMet(st.kind, townLogCapped(b))
+  const met = base || capMet
   // idlework-02: the met row says when the bag stop ended the batch (the read's mechanism line: `bag_stop`)
-  if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met', idleBagFull(st, slots) ? { slots, reason: 'bag_stop' } : { slots }) }
+  if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met', capMet ? { slots, reason: 'logcap' } : idleBagFull(st, slots) ? { slots, reason: 'bag_stop' } : { slots }) }
   return met
 }
 // gkforever-01: an open grounds batch (shop.mjs: the tidy order comes back at the keeper's cooldown; skills.mjs: the tidy first)

@@ -23,6 +23,8 @@ import { redundantCraft } from './toolhygiene.mjs'
 // The peaceful kit (peacefulkit.mjs): no sword is offered while the food policy's switch is active.
 import { peacefulFoodActive } from './foodskip.mjs'
 import { isSword } from './peacefulkit.mjs'
+import { townLogCapState, logCapLine } from './logcap.mjs'   // logcap-02: the TOWN WOOD line
+import { WOOD_KEEP } from './woodkeep.mjs'
 
 const MAX_EVENTS = 12
 // Rough but adequate: we only need to know when we are near the ceiling, and
@@ -730,6 +732,16 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
+/** LOGCAP-02: the TOWN WOOD line (logcap.mjs logCapLine) for this bot -> a line or ''. Never throws. */
+export function townWoodSituation (bot) {
+  try {
+    const items = bot?.inventory?.items?.() ?? []
+    let wood = 0
+    for (const it of items) { const n = it?.name ?? ''; if (/_(log|stem)$/.test(n)) wood += it.count ?? 0; else if (/_planks$/.test(n)) wood += (it.count ?? 0) / 4 }
+    return logCapLine(townLogCapState(bot), wood, { keep: WOOD_KEEP })
+  } catch { return '' }
+}
+
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null, depositOffered = true }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
@@ -750,6 +762,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     craftableNow(bot, milestone, wanted, noRoom?.item ?? null),
     smeltableNow(bot),
     depositOffered ? depositSituation(bot, memory) : '',   // DEPOSITOFFER-01: no CARRYING line when deposit is not offered
+    townWoodSituation(bot),   // logcap-02: the town store is at its log cap (only for a bot already holding its own wood)
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
     actionable.line,
     waterSituation(bot),
