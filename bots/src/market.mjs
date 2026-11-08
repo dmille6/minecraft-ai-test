@@ -103,7 +103,7 @@ export const GOODS = Object.freeze({
   wheat: { keep: 16, carry: 80 }, potato: { keep: 16, carry: 104 }, carrot: { keep: 16, carry: 88 }, beetroot: { keep: 16, carry: 60 },
   pumpkin: { keep: 4, carry: 24 }, melon: { keep: 4, carry: 16 }, flint: { keep: 16, carry: 78 }, clay_ball: { keep: 0, carry: 40 },
   andesite: { keep: 32, carry: 64 }, granite: { keep: 32, carry: 64 }, diorite: { keep: 32, carry: 64 },
-  dried_kelp_block: { keep: 8, carry: 40 }, sweet_berries: { keep: 16, carry: 40 }, hay_block: { keep: 0, carry: 4 },
+  dried_kelp_block: { keep: 8, carry: 40 }, sweet_berries: { keep: 16, carry: 40 }, hay_block: { keep: 0, carry: 2 },   // a trader takes 2 (maxUses)
   water_bucket: { keep: 0, carry: 2 },
 })
 /**
@@ -148,7 +148,7 @@ export const wantOf = name => WANTS.find(w => matches(w, bare(name))) ?? null
 /** THE MARKET'S KEEPS (the batch19b fold, Codex BLOCKER 3) -> bool. Pure. A name the town buys is banked by the ordinary deposit
  *  (bankable.mjs setDepositExtra) and is never disposal junk (well.mjs setWellKeep). Beds excepted: a bot's own bed is its kit (the
  *  sleep skill) and a walk-in's beds are drawn for the village -- the bed is never well junk anyway (NEVER_DISPOSE `_bed$`). */
-export const marketKeeps = name => { const w = wantOf(name); return !!w && w.key !== 'bed' }
+export const marketKeeps = name => { if (bare(name) === 'hay_block') return true; const w = wantOf(name); return !!w && w.key !== 'bed' }   // market-03show: unsold hay is banked
 /** Count of every item matching `pred` in a { name: n } map. Pure. */
 const countWhere = (stock, pred) => Object.entries(stock ?? {}).reduce((n, [k, v]) => n + (pred(k) ? Math.max(0, Number(v) || 0) : 0), 0)
 /**
@@ -165,13 +165,37 @@ export function townWants (stock = {}, bag = {}) {
   }
   return out
 }
-/** Goods the town can spare -> { name: n } (above the keep, at most `carry`). Pure. */
+/**
+ * HAY FOR THE WANDERING TRADER (market-03show). MEASURED 11-07 03:44Z -> 11-08 20:10Z (showcase, 40.5 h, 439,091 rows, 15 bots): 7
+ * trader windows opened (7 `_trade_seen`), 0 trades: every run carried `goods=water_bucket:2` and sold nothing -- each crafted a
+ * bucket from 3 town iron and never filled it (bags end with `bucket: 2`). The town has no hay and no bucket of water, but 141
+ * wheat; 6 of the 7 traders BUY hay_block 1 -> 1 emerald (2 uses), so the run MAKES hay from wheat above the town's keep.
+ */
+export const HAY = Object.freeze({ wheatKeep: 32, per: 9 })
+/** Hay blocks the town can make from wheat above HAY.wheatKeep, plus the bag's own wheat -> n. Pure. */
+export const hayMakeable = (stock = {}, bag = {}) =>
+  Math.floor((Math.max(0, (Number(stock.wheat) || 0) - HAY.wheatKeep) + Math.max(0, Number(bag.wheat) || 0)) / HAY.per)
+/**
+ * A HAY DRAW for n blocks -> { drawHay, drawWheat, craft }. Pure. The bag's hay first, then banked hay, then crafted from wheat
+ * (the bag's own first; the town's only above HAY.wheatKeep). Never more than n.
+ */
+export function hayPlan ({ n = 0, bagHay = 0, bagWheat = 0, townHay = 0, townWheat = 0 } = {}) {
+  let short = Math.max(0, Math.floor(n) - Math.max(0, bagHay))
+  const drawHay = Math.min(short, Math.max(0, Math.floor(townHay)))
+  short -= drawHay
+  const bw = Math.max(0, Math.floor(bagWheat))
+  const craft = Math.min(short, Math.floor((bw + Math.max(0, Math.floor(townWheat) - HAY.wheatKeep)) / HAY.per))
+  return { drawHay, drawWheat: Math.max(0, craft * HAY.per - bw), craft }
+}
+/** Goods the town can spare -> { name: n } (above the keep, at most `carry`). Pure. Hay counts what the wheat can make. */
 export function spareGoods (stock = {}, bag = {}) {
   const out = {}
   for (const [name, g] of Object.entries(GOODS)) {
     const spare = Math.max(0, (Number(stock[name]) || 0) - g.keep) + Math.max(0, Number(bag[name]) || 0)
     if (spare > 0) out[name] = Math.min(spare, g.carry)
   }
+  const hay = (out.hay_block ?? 0) + hayMakeable(stock, bag)
+  if (hay > 0) out.hay_block = Math.min(hay, GOODS.hay_block.carry)
   return out
 }
 

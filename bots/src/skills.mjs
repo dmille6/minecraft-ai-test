@@ -224,7 +224,7 @@ import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the k
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
-import { MARKET, marketYield, marketKeeps, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment, bedDirFrom, WALKIN, walkinSwitch, walkinTargets, walkinAdmit, legsTo, edgeOf, walkinLeave, walkinCandidates, walkinGoods, bedCells, farmStep, withStepPrice, FARM_BLOCKS } from './market.mjs'   // market-01
+import { MARKET, marketYield, marketKeeps, GOODS, HAY, hayPlan, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, winCount, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, unemployedClusters, runDetail, jobDetail, offersDetail, voxelsOnSegment, bedDirFrom, WALKIN, walkinSwitch, walkinTargets, walkinAdmit, legsTo, edgeOf, walkinLeave, walkinCandidates, walkinGoods, bedCells, farmStep, withStepPrice, FARM_BLOCKS } from './market.mjs'   // market-01
 import { pickStation } from './enchant.mjs'   // stationzone-01: never a station inside a protected zone; the workshop's own first
 import { ANVILAPPLY, ENCHANTTOOL, ANVIL_BLOCKS, TABLE_BLOCK as EN_TABLE_BLOCK, STATION_FIND as EN_STATION_FIND, STATION_REACH as EN_STATION_REACH, ASK_EVERY_MS as EN_ASK_EVERY_MS, TABLE_MIN_LEVEL as EN_TABLE_MIN_LEVEL, LAPIS_TAKE as EN_LAPIS_TAKE, anvilAskPlan, tableAskPlan, anvilPlan, enchantTarget, enchantsOf, anvilCombine, enchantAtTable, anvilDetail, tableDetail, anvilModeDetail, tableModeDetail } from './enchant.mjs'
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaimed, setIdleNow, tidyQuiet } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
@@ -18788,20 +18788,28 @@ export function marketAsk ({ now = Date.now(), health = 20, freeSlots = 36 } = {
 }
 /** Fill ONE empty bucket at open water within 24 b: a source whose 8 neighbours are sources too (it refills at once; never a
  *  well or a pond of fewer than 9 sources). -> true when the bag gained a water_bucket. */
+/** THE POND a bucket fills at (mkFillBucket's choice) -> the water block | null. Never throws. market-03show: asked BEFORE a bucket
+ *  is crafted -- 7 of 7 trader runs 11-07/08 crafted one from 3 town iron and never filled it. */
+function mkFindPond (bot) {
+  try {
+    const wid = bot.registry?.blocksByName?.water?.id
+    if (wid == null) return null
+    const src = b => b && b.type === wid && Number(b.getProperties?.().level ?? b.metadata ?? 0) === 0
+    const spots = (bot.findBlocks?.({ matching: wid, maxDistance: 24, count: 64 }) ?? []).map(p => bot.blockAt(p)).filter(src)
+      .filter(b => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].every(([dx, dz]) => src(bot.blockAt(b.position.offset(dx, 0, dz)))))
+      .filter(b => { const up = bot.blockAt(b.position.offset(0, 1, 0)); return up && /^(air|cave_air)$/.test(up.name) })
+      .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
+    const zones = townPlanZones(bot)
+    if (!zones?.known) return null
+    return spots.find(q => !zoneNear(zones.zones, q.position.x, q.position.z, 8)) ?? null
+  } catch { return null }
+}
 async function mkFillBucket (ctx, signal) {
   const { bot } = ctx
   const wid = bot.registry?.blocksByName?.water?.id
   if (wid == null) return false
-  // a SOURCE: level 0 (prismarine-block gives the property as the STRING "0": sandbox4 11-06)
-  const src = b => b && b.type === wid && Number(b.getProperties?.().level ?? b.metadata ?? 0) === 0
-  const spots = (bot.findBlocks?.({ matching: wid, maxDistance: 24, count: 64 }) ?? []).map(p => bot.blockAt(p)).filter(src)
-    .filter(b => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].every(([dx, dz]) => src(bot.blockAt(b.position.offset(dx, 0, dz)))))
-    .filter(b => { const up = bot.blockAt(b.position.offset(0, 1, 0)); return up && /^(air|cave_air)$/.test(up.name) })
-    .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
-  // never near a protected zone: every cell the ray can cross is >= 8 b from a zone box (Codex review r1 BLOCKER 1)
-  const zones = townPlanZones(bot)
-  if (!zones?.known) return false
-  const b = spots.find(q => !zoneNear(zones.zones, q.position.x, q.position.z, 8))
+  // the pond: a level-0 source whose 8 neighbours are sources, air above, >= 8 b from every zone box (Codex review r1 BLOCKER 1)
+  const b = mkFindPond(bot)
   if (!b) return false
   try { await goto(ctx, { x: b.position.x, y: b.position.y + 1, z: b.position.z, range: 3 }, signal, { until: Date.now() + 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   check(signal)
@@ -18872,7 +18880,26 @@ async function marketRun (ctx, args, signal) {
     const drawn = {}
     for (const [item, n] of Object.entries(goods)) {
       check(signal)
+      if (item === 'hay_block') {
+        // market-03show: banked hay first, then hay crafted from wheat (the town's only above HAY.wheatKeep, read again here)
+        const bk0 = mkBag(bot)
+        const hp = hayPlan({ n, bagHay: bk0.hay_block ?? 0, bagWheat: bk0.wheat ?? 0, townHay: townLeft('hay_block'), townWheat: townLeft('wheat') })
+        if (hp.drawHay > 0) await draw('hay_block', hp.drawHay)
+        if (hp.craft > 0 && hp.drawWheat > 0) await draw('wheat', Math.min(64, hp.drawWheat))
+        const can = Math.min(hp.craft, Math.max(0, n - (mkBag(bot).hay_block ?? 0)), Math.floor((mkBag(bot).wheat ?? 0) / HAY.per))
+        if (can > 0) { try { await craft(ctx, { item: 'hay_block', count: can }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+        drawn.hay_block = Math.min(n, mkBag(bot).hay_block ?? 0)
+        if (!drawn.hay_block) why = why ?? 'no_hay'
+        continue
+      }
       if (item === 'water_bucket') {
+        // market-03show: no pond to fill at -> no bucket is crafted (only buckets of water already in the bag are sellable)
+        if (!mkFindPond(bot)) {
+          const bk = mkBag(bot)
+          drawn.water_bucket = Math.max(0, Math.min(n, bk.water_bucket ?? 0, (bk.water_bucket ?? 0) + (bk.bucket ?? 0) - 1))
+          if (!drawn.water_bucket) why = why ?? 'no_pond'
+          continue
+        }
         // keep the kit's bucket: of every bucket the bag holds (empty or full) one is never sold, so sellable = min(full, all - 1).
         // Each step does what RAISES that: fill an empty bucket when one is spare, else craft one from 3 iron -- the iron only
         // while the town, read again, keeps GOODS.iron_ingot.keep after the draw (Codex review r1 BLOCKER 2)

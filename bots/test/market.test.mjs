@@ -423,5 +423,64 @@ await t('MUTANT KILLED: the well keep removed throws the bought wool', async () 
   })
 })
 
+// ---- market-03show: hay for the wandering trader (MEASURED 11-07/08: 7 trader windows, 0 trades, every run carried water_bucket:2
+// and crafted an empty bucket; the town: wheat 141, iron 122, hay 0; 6 of 7 traders bought hay_block 1 -> 1 emerald) ----------------
+const TOWN = { stone: 312, wheat: 141, iron_ingot: 122, coal: 91, cobblestone: 52, glass_pane: 40, sugar_cane: 37, redstone: 31, stick: 6 }
+await t('market-03show spareGoods: the town\'s wheat above HAY.wheatKeep is hay (2, a trader\'s uses); below the keep none; the bag\'s wheat counts', () => {
+  assert.equal(M.spareGoods(TOWN, {}).hay_block, 2, '141 wheat -> 12 makeable, carried 2')
+  assert.equal(M.spareGoods({ wheat: M.HAY.wheatKeep + 8 }, {}).hay_block, undefined, '8 above the keep makes no block')
+  assert.equal(M.spareGoods({ wheat: M.HAY.wheatKeep + 9 }, {}).hay_block, 1, 'POSITIVE: 9 above the keep makes one')
+  assert.equal(M.spareGoods({}, { wheat: 18 }).hay_block, 2, 'the bag\'s own wheat')
+  assert.equal(M.spareGoods({ hay_block: 1 }, {}).hay_block, 1, 'banked hay')
+})
+await t('market-03show goodsFor: an UNREAD trader near the measured town gets hay first; a KNOWN one with a hay offer gets its 2 uses', () => {
+  const spare = M.spareGoods(TOWN, {})
+  spare.water_bucket = 2
+  const g = M.goodsFor({ profession: 'wandering_trader' }, { spare })
+  assert.equal(g.hay_block, 2)
+  assert.equal(Object.keys(g)[0], 'hay_block', 'the likeliest offer (4/6) first')
+  const known = [{ in: 'hay_block', n: 1, out: 'emerald', out_n: 1, left: 2 }, { in: 'milk_bucket', n: 1, out: 'emerald', out_n: 2, left: 2 }]
+  assert.deepEqual(M.goodsFor({ profession: 'wandering_trader' }, { known, spare }), { hay_block: 2 }, 'milk is no good (no cows milked)')
+})
+await t('market-03show: the window sells both hay uses for 2 emeralds, then buys 2 x 8 logs (palette) with them', async () => {
+  const trades = [T('hay_block', 1, 'emerald', 1, { left: 2 }), T('milk_bucket', 1, 'emerald', 2, { left: 2 }), T('emerald', 1, 'jungle_log', 8, { left: 8 })]
+  const sells = M.sellOffers(trades, { hay_block: 2 })
+  assert.deepEqual(sells.map(s => [s.item, s.times, s.earn]), [['hay_block', 2, 2]])
+  const buys = M.buyOffers(trades, { emeralds: 2, wants: M.townWants(TOWN, {}) })
+  assert.deepEqual(buys.map(b => [b.what, b.times]), [['jungle_log', 2]])
+})
+await t('market-03show hayPlan: bag hay first, then banked hay, then crafted from wheat (bag wheat first, the town only above its keep)', () => {
+  assert.deepEqual(M.hayPlan({ n: 2, townWheat: 141 }), { drawHay: 0, drawWheat: 18, craft: 2 })
+  assert.deepEqual(M.hayPlan({ n: 2, bagHay: 2, townWheat: 141 }), { drawHay: 0, drawWheat: 0, craft: 0 })
+  assert.deepEqual(M.hayPlan({ n: 2, townHay: 1, townWheat: 141 }), { drawHay: 1, drawWheat: 9, craft: 1 })
+  assert.deepEqual(M.hayPlan({ n: 2, bagWheat: 12, townWheat: 141 }), { drawHay: 0, drawWheat: 6, craft: 2 })
+  assert.deepEqual(M.hayPlan({ n: 2, townWheat: M.HAY.wheatKeep + 9 }), { drawHay: 0, drawWheat: 9, craft: 1 }, 'never below the keep')
+  assert.deepEqual(M.hayPlan({ n: 2, townWheat: M.HAY.wheatKeep }), { drawHay: 0, drawWheat: 0, craft: 0 })
+})
+await t('market-03show marketKeeps: unsold hay is banked, never well junk', async () => {
+  const W = await import('../src/well.mjs')
+  try { W.setWellKeep(M.marketKeeps); assert.equal(M.marketKeeps('hay_block'), true); assert.equal(W.isWellJunk('hay_block'), false) } finally { W.setWellKeep(null) }
+})
+await t('MUTANT KILLED: without the hay in spareGoods the measured town carries water only (the 11-07/08 failure)', async () => {
+  await withMutant(SRC, '  if (hay > 0) out.hay_block = Math.min(hay, GOODS.hay_block.carry)\n', '', async X => {
+    const spare = X.spareGoods(TOWN, {}); spare.water_bucket = 2
+    assert.deepEqual(X.goodsFor({ profession: 'wandering_trader' }, { spare }), { water_bucket: 2 })
+  })
+})
+await t('MUTANT KILLED: hayPlan without the wheat keep draws the town below it', async () => {
+  await withMutant(SRC, 'Math.max(0, Math.floor(townWheat) - HAY.wheatKeep)', 'Math.max(0, Math.floor(townWheat))', async X => {
+    assert.deepEqual(X.hayPlan({ n: 2, townWheat: M.HAY.wheatKeep }), { drawHay: 0, drawWheat: 18, craft: 2 })
+  })
+})
+await t('market-03show wiring (structural): market_run makes hay through hayPlan + craft, and asks mkFindPond before any bucket is crafted', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const run = src.slice(src.indexOf('async function marketRun ('), src.indexOf('async function mkOpenAndTrade'))
+  const hay = run.slice(run.indexOf("if (item === 'hay_block')"), run.indexOf("if (item === 'water_bucket')"))
+  assert.ok(hay.includes('hayPlan(') && /craft\(ctx, \{ item: 'hay_block', count: can \}/.test(hay), 'hay drawn and crafted')
+  const water = run.slice(run.indexOf("if (item === 'water_bucket')"))
+  assert.ok(water.indexOf('mkFindPond(bot)') > 0 && water.indexOf('mkFindPond(bot)') < water.indexOf("item: 'bucket'"), 'the pond is found before a bucket is crafted')
+  assert.ok(/const b = mkFindPond\(bot\)/.test(src.slice(src.indexOf('async function mkFillBucket'))), 'the fill uses the same pond')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)
