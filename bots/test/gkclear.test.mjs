@@ -74,14 +74,52 @@ await t('three keepers, one empty tidy visit each, minutes apart: every reader s
   assert.strictEqual(closing(T0 + 9 * MIN), false, 'closed: the forest first again')
 })
 
+console.log('THE STALE STRIKE (gkwork.mjs tidyFirstNow; gkclear-02)')
+await t('LIVE 23:55Z: Lumen\'s 21:07Z strike is 3 h old -- the keeper still leads with the tidy (gkclear-01: never); once per 30 min per unchanged count', async () => {
+  const NOW = Date.parse('2026-11-08T00:10:00Z')
+  const lumen = W.strikeNext(null, { sig: SIG, empty: true, now: T0 })
+  const total = W.strikesTotal([lumen], { sig: SIG, now: NOW })
+  assert.strictEqual(total, 1, 'the 6-h window still holds it')
+  await killedBy(W_PATH, W, '  if (!strikesClosing(total, G)) return false\n  if (tried', '  if (!strikesClosing(total, G) || total < 99) return false\n  if (tried', M => {
+    assert.strictEqual(M.tidyFirstNow({ total, sig: SIG, tried: null, now: NOW }), true)
+  })
+  const tried = { sig: SIG, total: 1, at: NOW }
+  assert.strictEqual(W.tidyFirstNow({ total: 1, sig: SIG, tried, now: NOW + 5 * MIN }), false, 'its visit laid no strike: the forest\'s turn')
+  assert.strictEqual(W.tidyFirstNow({ total: 2, sig: SIG, tried, now: NOW + 5 * MIN }), true, 'its visit laid a strike: the tidy again at once')
+  assert.strictEqual(W.tidyFirstNow({ total: 1, sig: SIG, tried, now: NOW + 31 * MIN }), true, 'after RETRY_MS: once more')
+  assert.strictEqual(W.tidyFirstNow({ total: 1, sig: SIG, tried: { ...tried, sig: 'other' }, now: NOW + 5 * MIN }), true, 'a new stage: no stamp')
+  assert.strictEqual(W.tidyFirstNow({ total: 3, sig: SIG, now: NOW }), false, 'closed')
+  assert.strictEqual(W.tidyFirstNow({ total: 0, sig: SIG, now: NOW }), false, 'no strike: the forest first')
+})
+await t('the chain from the stale strike: keepers rotate, each tidy visit strikes, the third closes -- no deadlock, no endless tidy-first', async () => {
+  await killedBy(W_PATH, W, '  if (tried && tried.sig === sig && tried.total === total &&', '  if (false && tried && tried.sig === sig && tried.total === total &&', M => {
+    // the starvation bound: a keeper whose tidy visit lays nothing (unread) is not sent back at once
+    assert.strictEqual(M.tidyFirstNow({ total: 1, sig: SIG, tried: { sig: SIG, total: 1, at: 0 }, now: 60_000 }), false)
+  })
+  const NOW = Date.parse('2026-11-08T00:10:00Z')
+  const files = new Map([['Lumen', W.strikeNext(null, { sig: SIG, empty: true, now: T0 })]])
+  let tried = null, n = 0
+  for (const [who, dt] of [['Kite', 0], ['Kite', 3]]) {
+    const now = NOW + dt * MIN, total = W.strikesTotal([...files.values()], { sig: SIG, now })
+    assert.strictEqual(W.tidyFirstNow({ total, sig: SIG, tried: tried?.[who] ?? null, now }), true, `${who} leads with the tidy at +${dt} min`)
+    tried = { ...(tried ?? {}), [who]: { sig: SIG, total, at: now } }   // the visit's start stamp
+    files.set(who, W.strikeNext(files.get(who) ?? null, { sig: SIG, empty: true, now }))
+    n = W.strikesTotal([...files.values()], { sig: SIG, now })
+  }
+  assert.strictEqual(W.strikesClose(n), true, 'closed by the third strike')
+  assert.strictEqual(W.tidyFirstNow({ total: n, sig: SIG, tried: null, now: NOW + 6 * MIN }), false, 'closed: Echo leads with the forest again')
+})
+
 console.log('WIRING (skills.mjs, comments stripped)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const wiring = s => {
   const one = re => { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
   one("tidyClosing: d === 'mine' && GKW_ON && gkwTownClosing\\(bot, now\\)")
   one('closing: GKW_ON && \\(gkwClosing\\(b\\?\\.gkwPending \\?\\? null\\) \\|\\| gkwTownClosing\\(b\\)\\)')
-  one('strikesClosing\\(strikesTotal\\(strikeReadAll\\(dir, key\\), \\{ sig: gkwSig\\(rec\\), now, G: \\{ \\.\\.\\.GKW, windowMs: CLOSING_MS \\} \\}\\)\\)')
-  one('bot\\.gkwTown = null')
+  one('return !!t\\.sig && tidyFirstNow\\(\\{ total: t\\.total, sig: t\\.sig, tried: bot\\.gkwTried \\?\\? null, now \\}\\)')   // gkclear-02
+  one('v = \\{ sig, total: strikesTotal\\(strikeReadAll\\(dir, key\\), \\{ sig, now \\}\\) \\}')
+  one("if \\(GKW_ON && role === 'keeper'\\) \\{ try \\{ bot\\.gkwTown = null; const t = gkwTownRead\\(bot\\); if \\(t\\.sig\\) bot\\.gkwTried = \\{ sig: t\\.sig, total: t\\.total, at: Date\\.now\\(\\) \\}")
+  one('bot\\.gkwTown = null   ')
 }
 await t('keeperOrder and the quiet hook read the town; the visit drops the cache after its strike; a cut line fails', () => {
   const s = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))

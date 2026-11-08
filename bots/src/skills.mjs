@@ -173,7 +173,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
-import { strikesClosing, strikesTotal, strikeReadAll, gkwSig, CLOSING_MS } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
+import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
@@ -24863,12 +24863,18 @@ const GKW_ON = gkworkOn()   // gkwork-01
 /** gkclear-01: is the town's tidy stage collecting strikes (gkwork.mjs strikesClosing over every holder's file)? Cached 60 s a bot; never throws. */
 function gkwTownClosing (bot, now = Date.now()) {
   if (!GKW_ON || !GROUNDS.on || !bot) return false
+  const t = gkwTownRead(bot, now)
+  // gkclear-02: the whole strike window, and this bot's own retry bound (gkwork.mjs tidyFirstNow) -- never a stale-strike deadlock
+  return !!t.sig && tidyFirstNow({ total: t.total, sig: t.sig, tried: bot.gkwTried ?? null, now })
+}
+/** gkclear-02: the town's strikes on the open tidy stage -> { sig, total } (sig null: no open stage). Cached 60 s a bot; never throws. */
+function gkwTownRead (bot, now = Date.now()) {
   if (bot.gkwTown && now - bot.gkwTown.at < 60_000 && now >= bot.gkwTown.at) return bot.gkwTown.v
-  let v = false
+  let v = { sig: null, total: 0 }
   try {
     const dir = townDir(), key = projKeyOf(TIDY_PLOT), h = recordHead(dir, key), rec = h.ok ? h.head?.rec ?? null : null
-    v = !!rec && !rec.structure_complete && strikesClosing(strikesTotal(strikeReadAll(dir, key), { sig: gkwSig(rec), now, G: { ...GKW, windowMs: CLOSING_MS } }))
-  } catch { v = false }
+    if (rec && !rec.structure_complete) { const sig = gkwSig(rec); v = { sig, total: strikesTotal(strikeReadAll(dir, key), { sig, now }) } }
+  } catch { v = { sig: null, total: 0 } }
   bot.gkwTown = { at: now, v }
   return v
 }
@@ -25444,6 +25450,8 @@ async function buildTidyVisit (ctx, args, signal) {
     }
   }
   const caps = crewCaps(role)
+  // gkclear-02: a keeper's tidy visit is stamped at its start with the town's count (an interrupted visit still spends its turn)
+  if (GKW_ON && role === 'keeper') { try { bot.gkwTown = null; const t = gkwTownRead(bot); if (t.sig) bot.gkwTried = { sig: t.sig, total: t.total, at: Date.now() } } catch { /* the stamp is advisory */ } }
   // gksweep-01: the crew bot's role, for the sweep after this visit (buildTidy)
   bot.gkSweepRole = GROUNDS.on ? role : null
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it

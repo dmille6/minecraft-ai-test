@@ -86,6 +86,19 @@ export const strikesClosing = (total, G = GKW) => Number(total) >= 1 && Number(t
 /** gkclear-01: the window the closing read counts strikes in (a stage that stopped collecting them -- an unread cell -- gives the forest
  *  its turn back within the hour, never 6 h of empty tidy-first visits). */
 export const CLOSING_MS = 60 * 60_000
+// GKCLEAR-02 (control session 11-08; LIVE gkclear-01show 23:55-00:31Z: 0 tidy visits, no stage_close): THE STALE STRIKE. The only strike was
+// Lumen's 21:07Z, older than CLOSING_MS, so the closing read never fired, the keeper kept the forest first, and no tidy visit came to lay a
+// fresh strike -- chicken and egg. Now the closing read counts the strikes of the whole window (GKW.windowMs, 6 h), and the starvation
+// bound is per bot and per strike count instead: a keeper leads with the tidy at most once per RETRY_MS while the town's count for the
+// stage is unchanged (`tried`: stamped with the town's count at the START of each of its tidy visits). A visit that lays a strike changes the count -> the next order is the
+// tidy again (the close comes in minutes); one that cannot (an unread cell, an interrupt) costs the forest one turn per keeper per 30 min.
+export const RETRY_MS = 30 * 60_000
+/** May the keeper's order lead with the tidy now? -> bool. Pure. `tried` = { sig, total, at } | null: this bot's last tidy visit's stamp. */
+export function tidyFirstNow ({ total = 0, sig = null, tried = null, now = Date.now(), G = GKW, retryMs = RETRY_MS } = {}) {
+  if (!strikesClosing(total, G)) return false
+  if (tried && tried.sig === sig && tried.total === total && Number.isFinite(tried.at) && now >= tried.at && now - tried.at < retryMs) return false
+  return true
+}
 /** Do the town's strikes close the stage? -> bool. Pure. */
 export const strikesClose = (total, G = GKW) => Number(total) >= G.emptyVisits
 
