@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-08T18:20:01Z._
+_Generated 2026-11-08T19:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-08T18:20:01Z._
 | **Canary in slot** | **hivedrop-01** deployed 11-08 18:17Z; reads +90 11-08 19:47Z, +180 11-08 21:17Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | scaftown-01b -> gathermem-01 -> roughground-01 -> irongap-01 -> obsidian-01 -> roughground-02 -> roughground-04 -> bamboowalk-01 -> kittrim-01 -> pathsfix-01 -> +5 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); villageunlock-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); jobsite-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: ef774d02a6fde8e2d0ed0c9256dab66ce357bd3d on hive-a,board-a / S6 open loop: canary ef774d0 is deployed on hive-a,board-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 hivedrop- |
-| **Showcase release** | `0d560d4b` (18,642 rows), `9084e69a` (8,468 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 0d560d4b's protected tree: restack by hand; row 11-08 17:25Z) |
+| **Showcase release** | `0d560d4b` (19,319 rows), `63bc4795` (8,545 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 0d560d4b's protected tree: restack by hand; row 11-08 18:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-08T12:05Z, 7 d, 169 projects, 13,793,865 lines / 80 bots): 5 underused, 87 effective, 51 unmeasured, 26 -; showcase: project audit showcase (11-08T12:05Z, 7 d, 33 projects, 1,795,088 lines / 15 bots): 2 broken, 1 underused, 13 effective, 12 unmeasured, 5 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-08T17:35:01Z STALLED: 110. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 80 active alarm(s): stuck goals 20 (board-a/paths@355_73_147, board-a/tidy@355_73_147, board-c/tidy@355_73_147, hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-08T18:35:01Z STALLED: 111. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 82 active alarm(s): stuck goals 22 (board-a/paths@355_73_147, board-a/tidy@355_73_147, board-c/shaft@355_73_147, board-c/tidy@355_73_147, hive-a/monument@355_73_147, hive-a/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
