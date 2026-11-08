@@ -1084,7 +1084,7 @@ export function fillWant ({ open = 0, openAccess = 0, dirt = 0, cobble = 0, visi
   // tidy visit time, while bags held a median 52 spare cobblestone): the bill is ONE VISIT's fills, never the stage's
   const cap = Math.max(0, Number(visitCap) || 0)
   const o = Math.min(Math.max(0, open), cap)
-  const oa = Math.min(Math.max(0, openAccess), Math.max(0, cap - o))
+  const oa = Math.min(Math.max(0, openAccess), cap)   // Codex r1 BLOCKER: the stairs' stone is billed on its own cap, never squeezed out by the earth
   const earthCobble = Math.max(0, o - dirt)
   return Math.max(0, earthCobble - cobble) + Math.max(0, oa - Math.max(0, cobble - earthCobble))
 }

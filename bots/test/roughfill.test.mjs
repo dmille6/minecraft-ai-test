@@ -33,7 +33,8 @@ await t('a bag short of one visit draws only the visit\'s shortfall', () => {
   assert.strictEqual(T.fillWant({ open: 5, dirt: 0, cobble: 0, visitCap: 32 }), 5, 'fewer open than the cap: the open count')
 })
 await t('the stairs share the visit cap after the earth (stone only, never the spare dirt)', () => {
-  assert.strictEqual(T.fillWant({ open: 30, openAccess: 10, dirt: 30, cobble: 0, visitCap: 32 }), 2, 'earth 30 on dirt; 2 steps of the cap left')
+  assert.strictEqual(T.fillWant({ open: 32, openAccess: 6, dirt: 32, cobble: 0, visitCap: 32 }), 6, 'a full visit of earth on dirt: the 6 steps still billed (Codex r1)')
+  assert.strictEqual(T.fillWant({ open: 100, openAccess: 6, dirt: 0, cobble: 0, visitCap: 32 }), 38, 'earth 32 + steps 6')
   assert.strictEqual(T.fillWant({ open: 0, openAccess: 3, dirt: 3, cobble: 0, visitCap: 32 }), 3)
 })
 await t('no cap given: the bill as before (access tests)', () => {
@@ -42,6 +43,9 @@ await t('no cap given: the bill as before (access tests)', () => {
 })
 await t('mutant: the cap dropped -> the live stage bill comes back', async () => {
   await withMutant(TIDY, 'const o = Math.min(Math.max(0, open), cap)', 'const o = Math.max(0, open)', W => assert.strictEqual(billFor(W, 32), 2567))
+})
+await t('mutant: the stairs squeezed by the earth (the r1 shape) -> a full visit bills no steps', async () => {
+  await withMutant(TIDY, 'const oa = Math.min(Math.max(0, openAccess), cap)', 'const oa = Math.min(Math.max(0, openAccess), Math.max(0, cap - o))', W => assert.strictEqual(W.fillWant({ open: 32, openAccess: 6, dirt: 32, cobble: 0, visitCap: 32 }), 0))
 })
 await t('topsoil: a bag sparing no topsoil block reads the cell done; one spare dirt (or grass) lays it', () => {
   const q = { role: 'topsoil', at: [0, 64, 0] }
