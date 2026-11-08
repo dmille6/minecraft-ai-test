@@ -397,8 +397,8 @@ export function variantOf (style, id, { species = 'oak', woodOk = false, palette
   if (style === 'foot') return { mat: woodOk ? 'wood' : 'stone', species, palette: pal, piles: pick('piles', ['every', 'alt']), lamps: pick('lamps', ['both', 'one']) }
   return null
 }
-/** The styles a span's shape allows, best first -> [style]. Pure. Footbridge to 8; arch 9..21 (no islets); covered 4..16 on low banks;
- *  trestle 4..40 and wherever there are islets. */
+/** The styles a span's shape allows, best first -> [style]. Pure. Footbridge to 8; arch 9..21 (no islets); covered 9..16 on two equal
+ *  banks of 0 or 1 (its floor flush with both); trestle 4..40 and wherever there are islets. */
 export function stylesFor (span) {
   const { w } = span, { nb, fb } = spanBanks(span), isl = Number(span?.islets ?? 0) > 0
   if (nb < 0 || fb < 0 || nb > 2 || fb > 2 || !(w >= 1) || w > DESIGN_MAX) return []
@@ -406,7 +406,9 @@ export function stylesFor (span) {
   if (w <= 8) return ['foot']
   const out = []
   if (w <= 21) out.push('arch')
-  if (w <= 16 && nb <= 1 && fb <= 1) out.push('covered')
+  // the covered bridge's floor is flush with BOTH banks (Paper 11-08: a bank one up from the floor at a portal is a jump under the
+  // tie beam at D + 3 -- the pathfinder finds no path out)
+  if (w <= 16 && nb === fb && nb <= 1) out.push('covered')
   out.push('trestle')
   return out
 }
