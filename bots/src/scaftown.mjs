@@ -154,7 +154,7 @@ export function makeScafTownPrice ({ area = () => null, on = true, now = () => D
     if (v > 0) { price.hits++; if (s) s.hits++ }
     return v
   }
-  Object.assign(price, { off: 0, cur: null, hits: 0, chosen: 0, searches: 0, pricedSearches: 0, cuts: 0, restarts: 0, latches: 0, capped: 0, latched: 0, stuckLatches: 0, latch: new Map(), stalls: new Map(), T })
+  Object.assign(price, { off: 0, cur: null, hits: 0, chosen: 0, searches: 0, pricedSearches: 0, cuts: 0, restarts: 0, latches: 0, capped: 0, latched: 0, stuckLatches: 0, stuckSkipped: 0, latch: new Map(), stalls: new Map(), touched: new Map(), T })
   /** A search starts -> its scope { mode, t0, hits, key }. */
   price.begin = ({ goal = null, radius = -1 } = {}) => {
     const t = now(), key = goalKey(goal)
@@ -175,6 +175,12 @@ export function makeScafTownPrice ({ area = () => null, on = true, now = () => D
   price.stuck = (goal) => {
     const key = goalKey(goal), t = now()
     if (!key || !on) return false
+    // scaftown-02 (LIVE 11-08 03:33Z first hour: latches == stuck_latches on every bot, 28 in 10 min on one bot whose price
+    // never bit -- hits=0 -- because 'stuck' resets are routine: ~1,100-2,300/h over 15 bots). Only a goal whose route THE
+    // PRICE SHAPED (a priced search for it that the price touched, settled less than latchMs ago) counts a stall; any other
+    // stall is the base's own and the price has nothing to fall back from.
+    const tu = price.touched.get(key)
+    if (!(tu > t)) { price.stuckSkipped++; return false }
     const st = price.stalls.get(key)
     const n = st && st.until > t ? st.n + 1 : 1
     price.stalls.set(key, { n, until: t + T.latchMs })
@@ -191,7 +197,14 @@ export function makeScafTownPrice ({ area = () => null, on = true, now = () => D
   }
   /** A search slice returned `result` -> latch its goal when a priced search that the price touched ended without a path. */
   price.settle = (s, result) => {
-    if (!s || s.done || !result || result.status === 'partial') return
+    if (!s || s.done || !result) return
+    // the touch is recorded on EVERY slice, partial ones too: goto walks a partial path while its search goes on, and a
+    // 'stuck' reset drops the search (index.js resetPath: astarContext = null) before it ever settles
+    if (s.mode === 'priced' && s.hits > 0 && s.key) {
+      price.touched.set(s.key, now() + T.latchMs)
+      if (price.touched.size > 64) { const t = now(); for (const [k, u] of price.touched) if (u <= t) price.touched.delete(k) }
+    }
+    if (result.status === 'partial') return
     s.done = true
     if (latchesGoal(s, result.status) && s.key) { price.latch.set(s.key, now() + T.latchMs); price.latches++ }
   }
@@ -285,10 +298,10 @@ export function chosenScafTown (path) {
 export function scafTownHitsDetail (p, prev = {}) {
   const d = k => (p?.[k] ?? 0) - (prev?.[k] ?? 0)
   return `hits=${d('hits')} chosen=${d('chosen')} searches=${d('searches')} priced=${d('pricedSearches')} cuts=${d('cuts')} restarts=${d('restarts')} latches=${d('latches')} ` +
-         `latched=${d('latched')} capped=${d('capped')} stuck_latches=${d('stuckLatches')} total_hits=${p?.hits ?? 0} off=${p?.off ?? 0}`
+         `latched=${d('latched')} capped=${d('capped')} stuck_latches=${d('stuckLatches')} stuck_skipped=${d('stuckSkipped')} total_hits=${p?.hits ?? 0} off=${p?.off ?? 0}`
 }
 /** The counters to diff against next time. Pure. */
-export const scafTownSnap = p => ({ hits: p?.hits ?? 0, chosen: p?.chosen ?? 0, searches: p?.searches ?? 0, pricedSearches: p?.pricedSearches ?? 0, cuts: p?.cuts ?? 0, restarts: p?.restarts ?? 0, latches: p?.latches ?? 0, latched: p?.latched ?? 0, capped: p?.capped ?? 0, stuckLatches: p?.stuckLatches ?? 0 })
+export const scafTownSnap = p => ({ hits: p?.hits ?? 0, chosen: p?.chosen ?? 0, searches: p?.searches ?? 0, pricedSearches: p?.pricedSearches ?? 0, cuts: p?.cuts ?? 0, restarts: p?.restarts ?? 0, latches: p?.latches ?? 0, latched: p?.latched ?? 0, capped: p?.capped ?? 0, stuckLatches: p?.stuckLatches ?? 0, stuckSkipped: p?.stuckSkipped ?? 0 })
 /** The licence row (`_scaftown_mode`, once per spawn). Pure. */
 export const scafTownModeDetail = (env = process.env, area = null, T = SCAF_TOWN) =>
   `on=${scafTownOn(env) ? 1 : 0} cost=${T.cost} workR=${T.workR} dy=${T.dy} budget_ms=${T.budgetMs} latch_ms=${T.latchMs} home=${area ? `${area.hx},${area.hy},${area.hz}` : '-'} rings=${area?.rings?.length ?? 0}`
