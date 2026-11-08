@@ -36,6 +36,8 @@ const REQUIRED = [
   'bots/test/gklease2.test.mjs',   // gklease-02 (11-07): the stale tidy stamp, open sky, the town's sweep give-up
   'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
   'bots/test/gkwork.test.mjs',   // gkwork-01 (11-07)
+  'bots/src/stuckfleet.mjs',   // stuckfleet-01 (11-08): road lights, held monument cells and capped cells no remedy reached
+  'bots/test/stuckfleet.test.mjs',   // stuckfleet-01 (11-08)
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/tidydead.test.mjs',
   'bots/src/stuckclose.mjs',   // stuckclose-01 (11-08): a tidy stage whose last cuts the town cannot reach closes
