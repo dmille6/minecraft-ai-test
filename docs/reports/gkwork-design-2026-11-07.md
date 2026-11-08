@@ -134,3 +134,12 @@ work stayed 0. Helpers' tidy visits never strike (they cannot complete). Fix `gk
 window) say the stage is closing; while 1-2 are in, the keeper's order leads with the tidy and its tidy order is never quieted. Codex: no
 blockers. Not done: counting no-stand clears per cell town-wide (a cleaner signal than strikes), and a rough re-survey that does not wait
 for the stage to close.
+
+## gkclear-02show (11-08: the stale-strike deadlock)
+
+Live gkclear-01show 23:55-00:31Z: 0 tidy visits. Its closing read counted strikes < 60 min old; the only strike was 3 h old, so the keeper
+kept the forest first and no tidy visit laid a fresh strike. `gkclear-02show` @ d7306d0d (on dc293197; ci2 467/470: craftsync and lavastep
+flakes pass alone, the bagdiet orphan): the closing read counts the whole strike window (6 h); each keeper's tidy-first is bounded by its
+own retry stamp (taken at its tidy visit's start): unchanged town count -> the forest's turn for 30 min; a visit that laid a strike ->
+the tidy again at once. Codex: no blockers. Not built: counting unreachable clears per cell town-wide (it needs the same keeper tidy
+visits; the strike close already lets the clears give way after 3).
