@@ -185,8 +185,12 @@ export function leftWaiveDue (rec, town, openNow = [], { G = GKL, share = GKW.st
   const size = (rec?.cells ?? []).length + (rec?.clear ?? []).length
   let room = Math.min(G.leftMax, Math.ceil(share * size) - Object.keys(have).length)
   const out = []
+  // the release fold (Codex BLOCKER): a fill that names the cut opening it (roughground-1b `opener`: a hollow under a crust) is
+  // never waived here either -- as gkWaivable and stallWaive keep it -- or the crust could come off with the hollow left open
+  const sealed = new Set((rec?.cells ?? []).filter(c => c?.opener && Array.isArray(c.at)).map(c => c.at.join(',')))
   for (const k of openNow ?? []) {
     if (room <= 0) break
+    if (sealed.has(k)) continue
     if (Object.prototype.hasOwnProperty.call(have, k) || out.some(o => o.k === k)) continue
     const n = town?.get?.(k) ?? 0
     if (n < G.leftVisits) continue

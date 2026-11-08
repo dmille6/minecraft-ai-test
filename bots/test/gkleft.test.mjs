@@ -118,5 +118,13 @@ await t('buildTidy counts and waives before the completion; a cut line fails', (
   assert.throws(() => wiring(s.replace(cut, '')), assert.AssertionError)
 })
 
+await t('fold BLOCKER: a hollow fill that names its opener is never waived by the left count', async () => {
+  const W = await import('../src/gkwork.mjs')
+  const rec = { cells: [{ at: [1, 64, 1], role: 'earth', opener: [1, 65, 1] }, { at: [2, 64, 2], role: 'earth' }], clear: [], waived: {} }
+  const town = new Map([['1,64,1', 5], ['2,64,2', 5]])
+  const due = W.leftWaiveDue(rec, town, ['1,64,1', '2,64,2'], { G: { leftVisits: 3, leftMax: 12 }, share: 1 })
+  assert.deepStrictEqual(due.map(d => d.k), ['2,64,2'], 'POSITIVE: the plain cell is waived; the opener-sealed fill is not')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exitCode = 1
