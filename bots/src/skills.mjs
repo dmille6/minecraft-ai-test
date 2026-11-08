@@ -138,7 +138,7 @@ import { ENCHANTSHOP, COTTAGE as COTTAGE_SW, COTTAGE2 as COTTAGE2_SW, TOWNHALL a
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
          ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottageStyle, styledBlueprint, cottageRecordOf, cottageVisitOpts, isCottageBlueprint, recordPalette } from './cottage.mjs'   // townstyle-01
-import { isCottagePlot, COTTAGE_PLOTS, cottage2Styles, furnishWaits, bedColourFor, cottageChestKeys, SHEAR, sheepWool, shearDue, bedsOwed } from './cottage.mjs'   // cottage2-01
+import { isCottagePlot, COTTAGE_PLOTS, cottage2Styles, furnitureCrafted, furnishWaits, bedColourFor, cottageChestKeys, SHEAR, sheepWool, shearDue, bedsOwed } from './cottage.mjs'   // cottage2-01
 import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
@@ -21959,7 +21959,7 @@ async function buildShopVisit (ctx, args, signal) {
     if (cot2 && (rec.segments ?? []).some(sg => sg.seg === 'furnish' && (sg.deps ?? []).every(d => buildSegComplete(read, rec, pal, d, c => cottageCellWaits(bot, rec, c))) && !buildSegComplete(read, rec, pal, 'furnish', c => cottageCellWaits(bot, rec, c)))) {
       const fdraw = async (name, n) => { const w = await matsWithdraw(ctx, { [name]: n }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); for (const [k, v] of Object.entries(w.took ?? {})) took[k] = (took[k] ?? 0) + v; return Number(w.took?.[name]) || 0 }
       const preF = heldMap(bot), tookBeforeF = { ...took }
-      try { await cottageFurnitureCrafts(ctx, rec, pal, read, signal, fdraw) } finally { const postF = heldMap(bot); for (const k of new Set([...Object.keys(preF), ...Object.keys(postF)])) { const d = (postF[k] ?? 0) - (preF[k] ?? 0) - (Number(took[k] ?? 0) - Number(tookBeforeF[k] ?? 0)); if (d) crafted[k] = (crafted[k] ?? 0) + d } persist() }
+      try { await cottageFurnitureCrafts(ctx, rec, pal, read, signal, fdraw) } finally { const fc = furnitureCrafted(preF, heldMap(bot), took, tookBeforeF); for (const [k, d] of Object.entries(fc)) crafted[k] = (crafted[k] ?? 0) + d; persist() }   // Codex r1 BLOCKER: a withdrawn name fully crafted away is booked
     }
     // the stations the town did not supply are crafted (found-01's means: 8 cobble a furnace, 4 planks a table); the bag's change
     // across the crafts is booked (`crafted`: the stations up, their inputs down) for the visit's bag balance
