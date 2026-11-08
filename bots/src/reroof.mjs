@@ -625,12 +625,12 @@ export function reroofNoLeafFloor (read) {
 export const FALL_DROP = 12        // how far a fall is followed down
 export const FALL_PAD = 1          // the building's box + this: where its ledges, wall tops and roof are
 /**
- * reroof-04 r5 (Paper sandbox4 11-08: the enchanting workshop's builder walked its 1-wide east course ledge, fell east to 32,68,-70 and
- * every walk back timed out): THE LEDGES WHOSE FALL HAS NO WALK BACK -> Set of feet keys. Pure. `walked` the town walk (walkFrom's Set).
- * A walked feet cell over the building (its pad box + FALL_PAD) with a side where no walk step goes (no node at dy -1, 0, +1) but the
- * body could go (feet and head open): a body that slips there falls to the first full cube below (within FALL_DROP); when that landing's
- * feet cell is not walked from town (or there is none), the ledge is AVOIDED -- never a stand, never a step (walkFrom `avoid`), in the
- * proof and in the visit. A fall that lands on the town walk is a short way round, not a stranding.
+ * reroof-04 r5: THE LEDGES WHOSE FALL HAS NO WALK BACK -> Set of feet keys. Pure. `walked` the town walk (walkFrom's Set). A walked
+ * feet cell over the building (its pad box + FALL_PAD) with a side where no walk step goes but the body could go (feet and head open):
+ * a body that slips there falls to the first full cube below (within FALL_DROP); when that landing's feet cell is not walked from town
+ * (or there is none, or it is a liquid), the ledge is AVOIDED -- never a stand, never a step, in the proof and in the visit (walkFrom
+ * `avoid`; every walk's step fence). The building's own ledges stay usable (the proofs need them as stands); their falls are made
+ * recoverable by reroofExitLeaves.
  */
 export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP } = {}) {
   const out = new Set()
@@ -651,6 +651,34 @@ export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FA
     }
   }
   return out
+}
+/**
+ * reroof-04 r5 (Paper sandbox4 11-08, twice: the enchanting workshop's builder slid off its 1-wide east course ledge 27,70,z onto the
+ * terrace below and never got back: the spruces' NATURAL LEAVES hang over every step up there -- at the walk's head room over the step
+ * (one above the lower cell's head) and at the jump's apex over the upper cell (one above ITS head: a jump from feet y peaks at y + 3.05,
+ * so a leaf two above the upper floor stops the body -- the pathfinder plans the step and the bot jumps in place, 25 s timeouts; probed
+ * on Paper 32,68,-71 -> 31,69,-71 with a leaf at 31,71,-71): THE WAYS BACK UP -> [{ at, name, kind: 'leaves' }] to list as clears.
+ * Pure. Every pair of standing cells round the building (box + pad: a full floor, feet and head open) one above the other side by side:
+ * natural leaves (persistent false; unread: never) at the lower cell's y + 2 and at the upper cell's y + 2, never a record's cell.
+ */
+export function reroofExitLeaves (read, walked = new Set(), { box = null, pad = FALL_PAD + 5, recordAt = () => null } = {}) {
+  const out = new Map()
+  if (!Array.isArray(box) || box.length < 4) return []
+  const near = (x, z) => x >= box[0] - pad && x <= box[2] + pad && z >= box[1] - pad && z <= box[3] + pad
+  const stands = (x, y, z) => { const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z); return !!f && fullCube(f) && !!a && isPassable(a) && !!h && isPassable(h) }
+  const take = at => { const b = read(...at); if (b && LEAVES_RX.test(nmOf(b)) && naturalLeafBlock(b) && !recordAt(...at)) out.set(at.join(','), { at, name: nmOf(b), kind: 'leaves' }) }
+  for (const key of walked) {
+    const [x, y, z] = key.split(',').map(Number)
+    if (!near(x, z)) continue
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz
+      // the upper cell is this walked one; the lower a standing cell beside it one below (a slip's landing, or the walk's own step)
+      if (!stands(nx, y - 1, nz)) continue
+      take([nx, y + 1, nz])     // the walk's head room over the step (one above the lower cell's head)
+      take([x, y + 2, z])       // the jump's apex over the upper cell
+    }
+  }
+  return [...out.values()]
 }
 /** (SEEDS) The stood cells outside the building's pad box (x/z) -> [[x, y, z]]. Pure. */
 export function reroofSeeds (stood = [], box) {
@@ -745,7 +773,10 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   // (LEAVES, below) and (FALL, r5): the ledges whose fall lands off the town walk are never a stand or a step (reroofFallRisk)
   const PR0 = fx.access ? reroofNoLeafFloor(read) : read
   if (fx.access) await tick()
-  const avoid = fx.access && fx.fallSafe ? reroofFallRisk(PR0, walkFrom(PR0, home, new Set(), walkR, { stood }), { box: rec.box }) : null
+  const walk0 = fx.access && fx.fallSafe ? walkFrom(PR0, home, new Set(), walkR, { stood }) : null
+  const avoid = walk0 ? reroofFallRisk(PR0, walk0, { box: rec.box }) : null
+  // ...and the way back up from a one-block slip off the building's own ledges: the natural leaves over the step, listed (reroofExitLeaves)
+  const exits = walk0 ? reroofExitLeaves(read, walk0, { box: rec.box, recordAt: (x, y, z) => recordAt(x, y, z) || own.has(`${x},${y},${z}`) || addedAt.some(a => a[0] === x && a[1] === y && a[2] === z) }) : []
   const now = fx.access ? walkFrom(read, home, new Set(), walkR, { stood, avoid }) : null
   // (LEAVES) the proof walks on no natural leaves (fx.access): a canopy is dug, or decays once its trunk is gone (Paper sandbox4 11-08: the
   // workshop's builder reached its roof over a spruce crown, dug the crown, dropped and never got back) -- an obstacle, never a floor
@@ -776,7 +807,8 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
     }
     return { ok: false, clear: clear0, p: p0, rc }
   }
-  const clear = [...ob.clear, ...(approach?.cuts ?? []).filter(c => !ob.clear.some(d => d.at.join(',') === c.at.join(','))).map(c => ({ at: c.at.slice(), name: c.name, kind: 'cut' }))].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+  const extra0 = [...(approach?.cuts ?? []).map(c => ({ at: c.at.slice(), name: c.name, kind: 'cut' })), ...exits.map(c => ({ at: c.at.slice(), name: c.name, kind: 'leaves' }))]
+  const clear = [...ob.clear, ...extra0.filter((c, i, a) => !ob.clear.some(d => d.at.join(',') === c.at.join(',')) && a.findIndex(d => d.at.join(',') === c.at.join(',')) === i)].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
   await tick()
   const p = proveWith(clear, null)
   const unreached = r => `${r.rc.unreached.length}/${r.clear.length} first ${r.clear.find(c => c.at.join(',') === r.rc.unreached[0].join(','))?.name}@${r.rc.unreached[0].join(',')}`
