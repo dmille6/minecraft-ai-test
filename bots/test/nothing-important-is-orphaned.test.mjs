@@ -192,6 +192,7 @@ const REQUIRED = [
   'bots/test/plotprep03.test.mjs',
   'bots/test/levelfall.test.mjs',
   'bots/test/gkmarker.test.mjs',
+  'bots/test/claim.test.mjs',  // claim-01 (11-08): a sited town hall / cottage owns its volume; the tidy yields it
   'bots/test/thprep.test.mjs',  // thprep-01 (11-08): the town hall's volume (leaves, slope within its cut) and the built reach
   'bots/test/reroof3.test.mjs',  // reroof-03 (11-08): roof trees and floating remains dug; digs reached from the new roof's own cells
   'bots/src/sitecanopy.mjs', 'bots/test/sitecanopy.test.mjs',  // sitecanopy-01 (11-08): a styled building's site lists the natural leaves in its own cells

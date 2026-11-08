@@ -1011,6 +1011,54 @@ export function plotRetire (rec, sited) {
     replant: rec.replant ?? [],
     plotprep: { ...rec.plotprep, plots: (rec.plotprep.plots ?? []).map(p => (sited.has(String(p.id)) ? { ...p, retired: true } : p)), platforms: (rec.plotprep.platforms ?? []).map(p => (sited.has(String(p.plot)) ? { ...p, phase: 'retired' } : p)) } }
 }
+// ---- CLAIM-01 (11-08, showcase): A SITED BUILDING OWNS ITS VOLUME; THE TIDY YIELDS IT ----------------------------------------
+// LIVE showcase 11-08: the in-wall stage (tidy g96, 2,619 cells, 1,106 cuts, untagged by plot) holds 47 cells and 110 cuts (66 not dug)
+// over plot X2 -- where the town hall now sites (thprep-01) -- and 78 cells / 60 cuts over the cottage's X3. Both would work the same
+// ground: the tidy fills dirt into the hall's interior and re-fills what the hall's own earth cuts dig; plotprep-02's retirement takes
+// only entries TAGGED with a plot (5 of the 110). The rule: once a CLAIM plot's record exists (the town hall, the cottage), its VOLUME
+// -- the x/z box of every cell, fill and clear it lists, + CLAIM_RING -- is the building's: the tidy passes every cell, cut and clear
+// there at work time (whoever's visit) and the keeper retires them from the record (claimRetire), so no count, no stuck map and no
+// re-survey sees them. Its replants stay (G5, as plotRetire). CLAIM=off is the rollback.
+export const claimOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.CLAIM ?? '').trim().toLowerCase())
+export const CLAIM_PLOTS = Object.freeze(['townhall', 'cottage1'])
+export const CLAIM_RING = 1
+/** THE CLAIMS -> [{ plot, box: [x0, z0, x1, z1] }]: one per record of a CLAIM plot that lists anything. Pure. */
+export function buildingClaims (records = [], { plots = CLAIM_PLOTS, ring = CLAIM_RING } = {}) {
+  const out = []
+  for (const r of records ?? []) {
+    if (!r || !plots.includes(String(r.plot ?? ''))) continue
+    const pts = [...(r.cells ?? []).map(c => c?.at), ...(r.fill ?? []), ...(r.clear ?? []).map(c => c?.at)].filter(a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite))
+    if (!pts.length) continue
+    const xs = pts.map(a => a[0]), zs = pts.map(a => a[2])
+    out.push({ plot: String(r.plot), box: [Math.min(...xs) - ring, Math.min(...zs) - ring, Math.max(...xs) + ring, Math.max(...zs) + ring] })
+  }
+  return out
+}
+/** The claim a world cell [x, y, z] falls in -> plot | null (every height of the box's columns). Pure. */
+export function claimedAt (claims = [], at) {
+  if (!Array.isArray(at)) return null
+  const c = (claims ?? []).find(q => at[0] >= q.box[0] && at[0] <= q.box[2] && at[2] >= q.box[1] && at[2] <= q.box[3])
+  return c ? c.plot : null
+}
+/** A tidy entry (a cell, a cut, a clear) inside a claim? Pure. */
+export const claimEntry = (q, claims) => !!claimedAt(claims, q?.at)
+/**
+ * THE CLAIMED ENTRIES RETIRED -> the tidy's next generation | null (nothing inside a claim). Pure. Every cell, cut and clear inside a
+ * claim leaves the record (segments emptied by it too), its replants stay (G5: the head's sapling count under rows already logged),
+ * `claimed` notes the plots and counts.
+ */
+export function claimRetire (rec, claims) {
+  if (!rec || !claims?.length) return null
+  const gone = q => claimEntry(q, claims)
+  const n = { cells: (rec.cells ?? []).filter(gone).length, cut: (rec.cut ?? []).filter(gone).length, clear: (rec.clear ?? []).filter(gone).length }
+  if (!n.cells && !n.cut && !n.clear) return null
+  const cells = (rec.cells ?? []).filter(q => !gone(q))
+  const keepSeg = new Set(cells.map(q => q.seg))
+  const note = { ...(rec.claimed ?? {}) }
+  for (const c of claims) note[c.plot] = { box: c.box, n: (note[c.plot]?.n ?? 0) + [...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])].filter(q => claimedAt([c], q?.at)).length }
+  return { ...rec, cells, segments: (rec.segments ?? []).filter(sg => keepSeg.has(sg.seg)), cut: (rec.cut ?? []).filter(q => !gone(q)), clear: (rec.clear ?? []).filter(q => !gone(q)),
+    replant: rec.replant ?? [], claimed: note }
+}
 /** Does a stand still stand on the record (its stage never completes over it)? Pure. */
 export const platformUp = rec => (rec?.plotprep?.platforms ?? []).some(p => p.phase === 'up')
 
