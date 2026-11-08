@@ -160,6 +160,8 @@ import { beyondGain, lineClear as exLineClear } from './expedition.mjs'   // bri
 import { bridgeOn, bridgeSite, bridgeSites, bridgeToBuild, bridgesDone, bridgePlan, bridgeIntact, bridgeNeed, buildBridge, bridgeZones, bridgeCellKeys, spanDetail, BRIDGE_CARRY } from './bridge.mjs'   // bridgepost-01
 import { bridgeMaterial, bridgeBuildable, sitePlan, bridgeWood, bridgeWoodOn } from './bridge.mjs'   // boardwalk-01: wooden bridges
 import { bridgeIo } from './bridgeio.mjs'   // bridgepost-01
+import { bridgeDesignOn, bridgeTrafficOn, chooseDesign, designFits, designBill, designBase, designCellKeys, designDetail, designIntact, lightOk, crossStep, trafficDue, trafficSpan, bearingTo, DESIGN_V } from './bridgedesign.mjs'   // bridges-01
+import { siteKey as bridgeSiteKey, stepDone } from './bridge.mjs'   // bridges-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
@@ -18463,6 +18465,12 @@ const exTripsFile = () => path.join(townDir(), `${exKey()}.trips.jsonl`)
 const exMarkersFile = () => path.join(townDir(), `${exKey()}.markers.jsonl`)
 // bridgepost-01: the town's bridge sites (bridge.mjs bridgeSites: `sight` lines from refused crossings, `state` lines)
 const exBridgesFile = () => path.join(townDir(), `${exKey()}.bridges.jsonl`)
+// bridges-01: the crossings the bots swim near town (the crossing watch), and the switches
+const exCrossFile = () => path.join(townDir(), `${exKey()}.crossings.jsonl`)
+const BRIDGE_DESIGN_ON = bridgeDesignOn(process.env)
+const BRIDGE_TRAFFIC_ON = bridgeTrafficOn(process.env)
+const CROSS_SAMPLE_MS = 2_000
+const TRAFFIC_R_LOG = 176
 const exBridgeKey = () => `${exKey()}.bridge`
 /** The town's bridge sites. Never throws (unreadable: none). */
 function exBridgeSites () { try { return bridgeSites(exLines(exBridgesFile(), 4000)) } catch { return [] } }
@@ -18497,7 +18505,8 @@ const exReader = bot => (x, y, z) => {
   if (!b) return null
   let wl = false
   try { wl = b.getProperties?.()?.waterlogged === true } catch { wl = false }
-  return { name: b.name, boundingBox: b.boundingBox, waterlogged: wl }
+  // bridges-01: the properties ride along, read only when asked (a designed bridge's stairs are judged by their facing and half)
+  return { name: b.name, boundingBox: b.boundingBox, waterlogged: wl, get props () { try { return b.getProperties?.() ?? null } catch { return null } } }
 }
 const exRow = (bot, op, detail, status = 'success') => { try { logEvent({ kind: 'expedition', status, snapshot: snapshot(bot), detail: `op=${op} ${detail}`.slice(0, 295) }) } catch { /* telemetry */ } }
 /** Other bots' trips still OPEN (out of town, or not yet seen back), younger than TRAIL_TTL_MS -> n. They hold a place among
@@ -19615,6 +19624,29 @@ export const _marketTest = { marketRunPlan, marketJobPlan, mkFillBucket, mkState
 export function expeditionInstall (bot) {
   exBot = bot
   if (EXPEDITION.on) setExpeditionAsk(expeditionAsk)
+  // bridges-01: THE CROSSING WATCH -- every CROSS_SAMPLE_MS the bot's feet, wet or dry (bridgedesign.mjs crossStep); a swim from one
+  // shore to another near town is a `cross` line in the town's crossings file (the traffic a designed bridge is sited from)
+  if (EXPEDITION.on && EXPEDITION.bridge && BRIDGE_TRAFFIC_ON) {
+    try {
+      let st = {}
+      const timer = setInterval(() => {
+        try {
+          const e = bot.entity
+          if (!e?.position) return
+          const p = e.position
+          const r = crossStep(st, { t: Date.now(), cell: [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], wet: !!e.isInWater, ground: !!e.onGround && !e.isInWater })
+          st = r.state
+          if (r.transit) {
+            const h = exHome()
+            const mx = (r.transit.from[0] + r.transit.to[0]) / 2, mz = (r.transit.from[2] + r.transit.to[2]) / 2
+            if (Math.hypot(mx - h.x, mz - h.z) <= TRAFFIC_R_LOG) exAppend(exCrossFile(), { op: 'cross', from: r.transit.from, to: r.transit.to, wetMs: r.transit.wetMs, by: bot.username ?? 'bot', t: Date.now() })
+          }
+        } catch { /* a sample is telemetry-grade */ }
+      }, CROSS_SAMPLE_MS)
+      timer.unref?.()
+      bot.once?.('end', () => clearInterval(timer))
+    } catch { /* not installed: no traffic sites */ }
+  }
   try { logEvent({ kind: 'expedition_mode', status: 'success', snapshot: snapshot(bot), detail: `${expeditionModeDetail(EXPEDITION.on, EXPEDITION.markers, EXPEDITION.swim)} bridge=${EXPEDITION.bridge ? 1 : 0}` }) } catch { /* telemetry */ }
 }
 /** THE WAY BACK over a trip's breadcrumbs (expedition.mjs nextCrumb / markerHome), then the direct walk -> { home, via, hops }. */
@@ -19810,14 +19842,29 @@ async function exBridgeWork (ctx, signal, trip, site, until) {
   const read = exReader(bot)
   // boardwalk-01 (Codex r2 BLOCKER 1): the material is named BEFORE the first block (a cobble build names cobble), so no later trip can
   // read an unloaded half-built cobble deck as unstarted and turn it wood
-  if (!site.mat) { exAppend(exBridgesFile(), { op: 'state', id: site.id, mat: 'cobble', trip: trip.id, by: bot.username ?? 'bot', t: Date.now() }); site.mat = 'cobble' }
-  const plan = sitePlan(site)   // boardwalk-01: the site's material (planks + fences when its first trip chose wood)
+  // bridges-01: A DESIGN IS NAMED HERE, at the site, once its whole body is read to fit (water, air or a soft plant in every cell, a
+  // support's own ground, natural ground the build digs); with its cells, so the tidy and the tripwire guard them from now. A design
+  // that does not fit is refused for good (`nodesign`: the next trip builds the legacy bridge); an unread cell refuses nothing
+  if (site.pendingDesign && !site.design) {
+    const steps = sitePlan({ id: site.id, span: site.span, design: site.pendingDesign })
+    const fit = steps.length ? designFits(read, steps) : { ok: false, why: 'plan_unsolved' }
+    if (!fit.ok) {
+      if (fit.why !== 'unread') { exAppend(exBridgesFile(), { op: 'state', id: site.id, nodesign: fit.why, trip: trip.id, by: bot.username ?? 'bot', t: Date.now() }); site.nodesign = fit.why }
+      exRow(bot, 'bridge_design', `trip=${trip.id} id=${site.id} ok=0 why=${fit.why}${fit.cell ? ` cell=${fit.cell.join(',')}` : ''} ${designDetail(site.pendingDesign)}`, 'no_effect')
+      return { stop: fit.why === 'unread' ? 'unread' : 'nodesign', placed: 0, steps: 0, intact: false }
+    }
+    exAppend(exBridgesFile(), { op: 'state', id: site.id, design: site.pendingDesign, dv: DESIGN_V, cells: designCellKeys(steps), clear: fit.clear ?? 0, trip: trip.id, by: bot.username ?? 'bot', t: Date.now() })
+    site.design = site.pendingDesign
+    exRow(bot, 'bridge_design', `trip=${trip.id} id=${site.id} ok=1 cells=${steps.length} clear=${fit.clear ?? 0} ${designDetail(site.design)}`)
+  }
+  if (!site.mat && !site.design) { exAppend(exBridgesFile(), { op: 'state', id: site.id, mat: 'cobble', trip: trip.id, by: bot.username ?? 'bot', t: Date.now() }); site.mat = 'cobble' }
+  const plan = sitePlan(site)   // boardwalk-01: the site's material (planks + fences when its first trip chose wood); bridges-01: its design
   const io = bridgeIo(bot, {
     Vec3,
     walkTo: async c => { try { await chestWalk(bot, new goals.GoalBlock(c[0], c[1], c[2]), Math.max(1_000, Math.min(20_000, until - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e } },
     sleep: ms => sleep(ms, signal),
     aborted: () => !!signal?.aborted,
-    torchOk: st => torchSafe(read, st.cell),
+    torchOk: st => (site.design ? lightOk(read, st.cell) : torchSafe(read, st.cell)),   // bridges-01: no lantern within 3 of ice
     onPlace: (st, ok, why) => exRow(bot, 'bridge_place', `trip=${trip.id} site=${site.id} cell=${st.cell.join(',')} kind=${st.kind} ok=${ok ? 1 : 0}${why ? ` why=${why}` : ''}`, ok ? 'success' : 'no_effect'),
   })
   const need0 = bridgeNeed(read, plan)
@@ -19826,8 +19873,8 @@ async function exBridgeWork (ctx, signal, trip, site, until) {
   const need1 = bridgeNeed(read, plan)
   if (intact) exAppend(exBridgesFile(), { op: 'state', id: site.id, complete: true, trip: trip.id, by: bot.username ?? 'bot', t: Date.now() })
   else if (/^(place_failed|stand|blocked)/.test(r.stop) || r.stop === 'done') exAppend(exBridgesFile(), { op: 'state', id: site.id, failed: true, why: r.stop, trip: trip.id, t: Date.now() })
-  const needOf = n => (site.mat === 'wood' ? Object.entries(n).filter(([k]) => /_(planks|fence)$/.test(k)).reduce((t, [, v]) => t + v, 0) : n.cobblestone)
-  exRow(bot, intact ? 'bridge_done' : 'bridge_build', `trip=${trip.id} id=${site.id} stop=${r.stop} placed=${r.placed} steps=${r.steps} need0=${needOf(need0)} need=${needOf(need1)} w=${site.span.w} intact=${intact ? 1 : 0} mat=${site.mat === 'wood' ? 'wood' : 'cobble'}`, r.placed > 0 || intact ? 'success' : 'no_effect')
+  const needOf = n => (site.design ? Object.entries(n).reduce((t, [, v]) => t + v, 0) : site.mat === 'wood' ? Object.entries(n).filter(([k]) => /_(planks|fence)$/.test(k)).reduce((t, [, v]) => t + v, 0) : n.cobblestone)
+  exRow(bot, intact ? 'bridge_done' : 'bridge_build', `trip=${trip.id} id=${site.id} stop=${r.stop} placed=${r.placed} steps=${r.steps} need0=${needOf(need0)} need=${needOf(need1)} w=${site.span.w} intact=${intact ? 1 : 0} mat=${site.design ? `design:${site.design.style}` : site.mat === 'wood' ? 'wood' : 'cobble'}${r.cell ? ` at=${r.cell.join(',')}:${r.kind ?? '-'}${r.why ? `:${r.why}` : ''}` : ''}`, r.placed > 0 || intact ? 'success' : 'no_effect')
   return { ...r, intact }
 }
 /** boardwalk-01: BRIDGE_WOOD=off builds every new bridge of cobble, as before (bridge.mjs bridgeWoodOn). */
@@ -19865,6 +19912,132 @@ async function exBridgeWoodKit (ctx, signal, site, sp) {
     out.why = out.ok ? 'ok' : 'short'
   } catch (e) { if (e?.aborted || signal?.aborted) throw e; out.why = String(e?.message ?? e).slice(0, 40) }
   return out
+}
+// ---- BRIDGES-01: DESIGNED BRIDGES (bridgedesign.mjs decides; these read the town, make the kit and site the traffic) --------------
+/** What the town keeps of each design material whatever a bridge wants (the rest is the bridges'). */
+const DESIGN_KEEP = Object.freeze({ stone_bricks: 64, deepslate_bricks: 64, cobbled_deepslate: 128, iron_ingot: 32, torch: 32, glass_pane: 0 })
+/** The design materials this bot may spend -> { avail: { name: n }, woodAvail, species }: the bag's own plus the town's above
+ *  DESIGN_KEEP (stone, iron, torches) and the town's logs above the owner's reserve (woodworks.mjs woodPressure). Never throws. */
+function exDesignStock (bot) {
+  const avail = {}
+  try {
+    const t = matsTownStock(bot)?.stock ?? {}
+    const b = heldMap(bot)
+    for (const [n, keep] of Object.entries(DESIGN_KEEP)) avail[n] = Math.max(0, (Number(t[n]) || 0) - keep) + (Number(b[n]) || 0)
+  } catch { /* unread: the bag alone below */ }
+  return { avail, woodAvail: woodPressureNow(bot).avail ?? 0, species: woodSpeciesNow(bot) }
+}
+/**
+ * THE DESIGN A SITE WOULD TAKE NOW -> { design, plan, bill, base, named } | { why }. A site that named a design keeps it; a site that
+ * named a material (a legacy cobble or plank bridge), was refused a design, or whose deck already has a block is no design site; else
+ * the style its shape allows and the town can pay for (bridgedesign.mjs chooseDesign: the fit beside the line is read AT the site,
+ * before the first block). Never throws.
+ */
+function exDesignFor (bot, site, read) {
+  try {
+    if (site?.design) { const named = sitePlan(site); return named.length ? { design: site.design, plan: { steps: named }, named: true } : { why: 'plan_unsolved' } }
+    if (!BRIDGE_DESIGN_ON) return { why: 'design_off' }
+    if (site?.mat || site?.nodesign) return { why: site.mat ? `mat_${site.mat}` : 'nodesign' }
+    // a deck already started (or an old unread one) is the legacy bridge's (bridge.mjs bridgeMaterial's own reading)
+    if (bridgeMaterial(site, read, { on: true, woodAvail: Infinity }) !== 'wood') return { why: 'started' }
+    const st = exDesignStock(bot)
+    const c = chooseDesign(site.span, { id: site.id, avail: st.avail, woodAvail: st.woodAvail, species: st.species })
+    if (!c.ok) return { why: c.why, tried: c.tried }
+    return { design: c.design, plan: c.plan, bill: c.bill, base: c.base, named: false }
+  } catch (e) { return { why: String(e?.message ?? e).slice(0, 40) } }
+}
+/**
+ * THE DESIGN KIT -> { ok, parts, short, why }: the parts the plan still needs that the bag lacks, their base materials drawn from town
+ * above DESIGN_KEEP (stone bricks, cobbled deepslate, an iron ingot and a torch a lantern) and the logs above the reserve, then crafted
+ * at a table (stairs, slabs, walls, fences, planks, polished deepslate, nuggets and lanterns). ok once the bag holds every part of the
+ * first DESIGN_KIT_STEPS required steps not yet built (a trip builds what it carries; the next brings the rest). Never throws but on
+ * an abort.
+ */
+const DESIGN_KIT_STEPS = 40
+async function exDesignKit (ctx, signal, steps) {
+  const { bot } = ctx
+  const out = { ok: false, parts: 0, short: '', why: 'none' }
+  try {
+    const read = exReader(bot)
+    const todo = steps.filter(q => !stepDone(read, q))
+    const want = designBill(todo)
+    const held = () => heldMap(bot)
+    const lack = () => { const h = held(); const l = {}; for (const [n, c] of Object.entries(want)) if (c > (h[n] ?? 0)) l[n] = c - (h[n] ?? 0); return l }
+    const base = designBase(lack()).base
+    const h0 = held()
+    const take = {}
+    const t = matsTownStock(bot)?.stock ?? {}
+    for (const [n, c] of Object.entries(base)) {
+      const need = c - (h0[n] ?? 0)
+      if (need <= 0) continue
+      const town = /_log$/.test(n) ? Math.floor(woodPressureNow(bot).avail ?? 0) : Math.max(0, (Number(t[n]) || 0) - (DESIGN_KEEP[n] ?? 0))
+      const k = Math.min(need, town, 256)
+      if (k > 0) take[n] = k
+    }
+    if (Object.keys(take).length) await matsWithdraw(ctx, take, signal, 20_000, matsReserve().table, decorAllow(take))
+    check(signal)
+    // the parts, nuggets before lanterns, planks before what is made of them
+    const order = Object.keys(lack()).sort((a, b) => (a === 'lantern') - (b === 'lantern') || /_planks$/.test(b) - /_planks$/.test(a))
+    for (const n of order) {
+      const miss = (want[n] ?? 0) - (held()[n] ?? 0)
+      if (miss <= 0) continue
+      if (n === 'lantern') {
+        const nug = Math.max(0, miss * 8 - (held().iron_nugget ?? 0))
+        if (nug > 0) await craft(ctx, { item: 'iron_nugget', count: Math.ceil(nug / 9) * 9 }, signal)
+        check(signal)
+      }
+      if (/^(stone_bricks|deepslate_bricks|cobbled_deepslate|glass_pane|.*_log)$/.test(n)) continue   // a base: drawn, never crafted
+      try { await craft(ctx, { item: n, count: miss }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      check(signal)
+    }
+    const h = held()
+    const first = todo.filter(q => !q.opt && q.kind !== 'light').slice(0, DESIGN_KIT_STEPS)
+    const firstBill = designBill(first)
+    const short = Object.entries(firstBill).filter(([n, c]) => (h[n] ?? 0) < c).map(([n, c]) => `${n}:${h[n] ?? 0}/${c}`)
+    out.parts = Object.entries(want).reduce((a, [n, c]) => a + Math.min(c, h[n] ?? 0), 0)
+    out.short = short.slice(0, 3).join(',')
+    out.ok = first.length > 0 && short.length === 0
+    out.why = out.ok ? 'ok' : first.length ? 'short' : 'nothing'
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e; out.why = String(e?.message ?? e).slice(0, 40) }
+  return out
+}
+/**
+ * A TRAFFIC SITE (bridges-01): the busiest crossing cluster near town with no site yet (bridgedesign.mjs trafficDue over the crossings
+ * file), its span read where the bot is (the chunks near town are loaded: trafficSpan), the first candidate a design fits and the town
+ * can pay for -> a `sight` line carrying every bot-day that crossed there (src=traffic). A cluster with no fitting span is recorded
+ * (`tsite` ok 0) and not tried again for TRAFFIC_RETRY_MS. One cluster a call. Never throws.
+ */
+const TRAFFIC_RETRY_MS = 24 * 3600_000
+function exTrafficSite (bot, sites, zones) {
+  try {
+    if (!BRIDGE_TRAFFIC_ON || !BRIDGE_DESIGN_ON) return null
+    const home = exHome()
+    const lines = exLines(exCrossFile(), 6000)
+    const now = Date.now()
+    const refused = lines.filter(l => l?.op === 'tsite' && now - (Number(l.t) || 0) < TRAFFIC_RETRY_MS)
+    const due = trafficDue(lines, { now, home, sites }).filter(d => !refused.some(r => Array.isArray(r.mid) && Math.hypot(r.mid[0] - d.mid[0], r.mid[1] - d.mid[1]) <= 8))[0]
+    if (!due) return null
+    const read = exReader(bot)
+    const t = trafficSpan(read, due, { zones })
+    const st = exDesignStock(bot)
+    let pick = null
+    for (const sp of t.ok ? t.spans : []) {
+      const id = bridgeSiteKey(sp)
+      const c = chooseDesign(sp, { id, avail: st.avail, woodAvail: st.woodAvail, species: st.species, read })
+      if (c.ok) { pick = { sp, id, c }; break }
+    }
+    if (!pick) {
+      exAppend(exCrossFile(), { op: 'tsite', mid: due.mid, ok: 0, why: t.ok ? 'no_fit' : t.why, n: due.n, t: now, by: bot.username ?? 'bot' })
+      exRow(bot, 'bridge_site', `src=traffic ok=0 mid=${due.mid.join(',')} n=${due.n} botdays=${due.botDays.length} why=${t.ok ? 'no_fit' : t.why} tried=${Object.entries(t.tried ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, v]) => `${k}:${v}`).join(',') || '-'}`, 'no_effect')
+      return null
+    }
+    const { sp, id, c } = pick
+    const b = bearingTo(home, sp.near)
+    exAppend(exBridgesFile(), { op: 'sight', id, span: sp, bearing: b, aim: b, src: 'traffic', trips: due.botDays.map(x => `traffic:${x}`), by: bot.username ?? 'bot', t: now, woodv: 1 })
+    exAppend(exCrossFile(), { op: 'tsite', mid: due.mid, ok: 1, id, n: due.n, t: now, by: bot.username ?? 'bot' })
+    exRow(bot, 'bridge_site', `src=traffic ok=1 id=${id} mid=${due.mid.join(',')} n=${due.n} botdays=${due.botDays.length} w=${sp.w} islets=${sp.islets} ${designDetail(c.design)}`)
+    return id
+  } catch (e) { exRow(bot, 'bridge_site', `src=traffic ok=0 error=${String(e?.message ?? e).slice(0, 80)}`, 'failed'); return null }
 }
 export const BRIDGE_AT = 24   // a bridge trip turns to its work within this of the site's near end
 async function expeditionVisit (ctx, args, signal) {
@@ -19927,15 +20100,26 @@ async function expeditionVisit (ctx, args, signal) {
     const trips = exLines(exTripsFile())
     // bridgepost-01: A SITE SEEN BY >= SITE_SEEN TRIPS and not yet built takes this trip, on its bearing (one builder at a time: the
     // bridge lease), when the bag holds the cobble -- even on a day every bearing is blocked (that is when a site matters)
+    // bridges-01: a busy crossing near town becomes a site (one cluster a call; read here, in town, where its chunks are loaded)
+    if (EXPEDITION.bridge) exTrafficSite(bot, exBridgeSites(), zones)
     const bSites = EXPEDITION.bridge ? exBridgeSites() : []
     if (EXPEDITION.bridge) {
-      const cand = bridgeToBuild(bridgeBuildable(bSites, BRIDGE_WOOD_ON), Date.now())   // boardwalk fold: BRIDGE_WOOD=off builds no wooden site
+      const cand = bridgeToBuild(bridgeBuildable(bSites, BRIDGE_WOOD_ON, BRIDGE_DESIGN_ON), Date.now())   // boardwalk fold: BRIDGE_WOOD=off builds no wooden site; bridges-01: BRIDGE_DESIGN=off no designed one
       const cost = cand ? 5 * cand.span.w : 0
       // boardwalk-01: A NEW SITE IS BUILT OF WOOD while the town's logs are surplus (bridge.mjs bridgeMaterial: a site keeps its
       // material; a half-built cobble one stays cobble) -- the planks and fences crafted here from logs above the reserve, the material
       // named on the site's index once its lease is taken
       const mat = cand && Number.isInteger(cand.bearing) ? bridgeMaterial(cand, exReader(bot), { on: BRIDGE_WOOD_ON, woodAvail: woodPressureNow(bot).avail }) : 'cobble'
-      if (cand && Number.isInteger(cand.bearing) && mat === 'wood') {
+      // bridges-01: A DESIGNED BRIDGE before either (bridgedesign.mjs: the style the span's shape allows and the town can pay for; a
+      // site that named a design keeps it). Its kit is made here; the design is named at the site once its body is read to fit there
+      const dsg = cand && Number.isInteger(cand.bearing) ? exDesignFor(bot, cand, exReader(bot)) : null
+      if (dsg?.design) {
+        const steps = dsg.named ? sitePlan(cand) : sitePlan({ id: cand.id, span: cand.span, design: dsg.design })
+        const kit = await exDesignKit(ctx, signal, steps)
+        const l = kit.ok ? takeSlot(dir, exBridgeKey(), me, 1, { ttl: budget + 60_000 }) : { ok: false, why: kit.why }
+        exRow(bot, 'bridge_pick', `trip=${trip.id} id=${cand.id} seen=${cand.seen.size} w=${cand.span.w} ${designDetail(dsg.design)} named=${dsg.named ? 1 : 0} parts=${kit.parts} short=${kit.short || '-'} lease=${l.ok ? 1 : 0}${l.ok ? '' : ` why=${l.why}`}`, l.ok ? 'success' : 'no_effect')
+        if (l.ok) { if (!dsg.named) cand.pendingDesign = dsg.design; bsite = cand; blease = l }
+      } else if (cand && Number.isInteger(cand.bearing) && mat === 'wood') {
         const sp = cand.species ?? woodSpeciesNow(bot)
         const kit = await exBridgeWoodKit(ctx, signal, cand, sp)
         const l = kit.ok ? takeSlot(dir, exBridgeKey(), me, 1, { ttl: budget + 60_000 }) : { ok: false, why: kit.why }
