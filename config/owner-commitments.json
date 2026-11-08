@@ -6059,7 +6059,7 @@
     "stuck-1108.md"
    ],
    "state": "open",
-   "next_step": "2026-11-08 (2): stepcanopy-01show to the release agent; stuckfleet-01 QUEUED; torch waiver kept for unreachable lights only (coordinator). READY TO STAGE (both on 2849dfa5, fold together): thprep-01show f14f53fe (town hall sites on X2 via its own siting -- whole-volume natural leaves, floor-then-reach order, terrain cuts within its 160 limit; siteprep.mjs unchanged; replay sites -5,-46 W; Codex r2 none; suite 470/476 known+load) and reroof3-01show cb122d46 (roof trees/floating remains dug as kind=remains, ordered build-order reach; storehub PROVES in replay; hall and enchantshop still fail: slab-roof edges need a builder ON the roof -- roof-access design + Paper proof next; Codex r2 none; suite 473/476 known). FLEET draft stuckfleet-02-on-d65154c0 d6d5e535 (board-c: waive a stuck cell made faceless by earlier waivers, <=6/visit, never past half the stage; Codex r2 none; suite 422/423) reg + draft entry after stuckfleet-01 in ~/mcai-analysis, not queued.",
+   "next_step": "2026-11-08 (3): stuckfleet-02 QUEUED after stuckfleet-01. READY TO STAGE as ONE piece buildsite-01show ec3774e8 (= 2849dfa5 + thprep-01show + reroof3-01show + claim-01: a sited town hall/cottage owns its volume; the tidy skips and retires its 46 cells/83 cuts inside it, CLAIM=off; Codex none on 2849dfa5..ec3774e8; suite 475/478 known). reroof4-01show d03222dc on c3c2b1ff (roof access, OWNER-approved: own roof slabs as floor + temporary cobble stair torn down; Paper sandbox4: hall PASS x2 200/200, storehub 221/221 but 4 dirt_path under the stair turned to dirt, enchantshop FAIL (fell off a 1-wide ledge, path never recovered); Codex r2 none + Claude second engine none; suite 474/478 known) -- NOT ready for the enchantshop; tripwire RT3 on branch shopread-rt3-reroof4 ed832f3c (merge to main to install, never copy: branch lacks H4). reroof4 must be restacked on buildsite-01show ec3774e8 before staging.",
    "evidence": {
     "grep": [
      "fellcanopy-01show",
@@ -6067,14 +6067,20 @@
      "stuckfleet-01",
      "thprep-01show",
      "reroof3-01show",
-     "stuckfleet-02"
+     "stuckfleet-02",
+     "buildsite-01show",
+     "reroof4-01show",
+     "shopread-rt3-reroof4"
     ],
     "branches": [
      "stepcanopy-01show",
      "stuckfleet-01-on-1e593b9b",
      "thprep-01show",
      "reroof3-01show",
-     "stuckfleet-02-on-d65154c0"
+     "stuckfleet-02-on-d65154c0",
+     "buildsite-01show",
+     "reroof4-01show",
+     "shopread-rt3-reroof4"
     ],
     "paths": []
    },
