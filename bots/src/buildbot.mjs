@@ -69,6 +69,14 @@ export function cornerCut (start, path, read) {
       if (!(okX && okZ)) {
         const side = okX ? sx : okZ ? sz : null
         if (side && floor(side[0], a.y - 1, side[1])) return { i, via: [side[0], a.y, side[1]] }
+        // reroof-04 r5 (Paper sandbox4 11-08: a builder dropped into a cavity by the storage hub, 14,67,-47; the pathfinder's plan out was
+        // ONE diagonal jump-up to 15,68,-46 with BOTH side columns blocked -- the body never left the cell, every walk timed out; nudged
+        // onto 15,68,-47 by hand it walked out in 4.9 s): with neither side column clear, a side that is a STANDING cell at the step's
+        // other height (a full floor, feet and head open) is the via -- the step is taken square, up (or down) then across
+        if (!side && b.y !== a.y) {
+          const stand = (x, y, z) => floor(x, y - 1, z) && clear(x, y, z) && clear(x, y + 1, z) && clear(a.x, Math.max(a.y, y) + 1, a.z)
+          for (const q of [sx, sz]) if (stand(q[0], b.y, q[1])) return { i, via: [q[0], b.y, q[1]] }
+        }
       }
     }
     a = b

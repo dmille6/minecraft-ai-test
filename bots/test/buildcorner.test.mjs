@@ -128,5 +128,26 @@ await t('WIRED: the build walk refuses a crossing plan before walking; the click
   assert.ok(/step = kept \?\? stepFor\(rd, home, c\.at, nodes, domain(, w)?\); if \(step\) \{ picked = c; fellBack = bans\.size > 0 && !kept; break \}/.test(br), 'fellBack marks the all-banned pick')
 })
 
+// reroof-04 r5: THE LIVE CAVITY by the storage hub (Paper sandbox4 11-08, the region pasted): the pathfinder's plan out of 14,67,-47 is ONE
+// diagonal jump-up to 15,68,-46 with BOTH side columns blocked (grass at 15,67,-47 and 14,68,-46): the body never left the cell
+const cav = new Set(['15,67,-47', '14,68,-46', '15,67,-46', '14,66,-47', '15,66,-47', '14,66,-46', '15,66,-46', '16,67,-46', '16,67,-47'])
+const cread = (x, y, z) => (y <= 65 || cav.has(`${x},${y},${z}`) ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+await t('r5 the live cavity: a diagonal jump-up with BOTH sides blocked is taken square -- up onto 15,68,-47, then across', () => {
+  assert.deepStrictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread), { i: 0, via: [15, 68, -47] })
+  // positive control: the same step with a clear side is the old rule (round by the clear side at the start's height)
+  const open1 = (x, y, z) => (x === 15 && z === -47 && y >= 67 ? { name: 'air', boundingBox: 'empty' } : cread(x, y, z))
+  assert.deepStrictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], open1), { i: 0, via: [15, 67, -47] })
+  // a level diagonal with both sides blocked: no square step to take (as before: left alone)
+  assert.strictEqual(cornerCut({ x: 14, y: 68, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], (x, y, z) => (y <= 67 || (x === 15 && z === -47) || (x === 14 && z === -46) ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })), null)
+})
+await t('r5 MUTANT: the square step off -- the cavity\'s diagonal is left alone again (killed for that reason)', async () => {
+  const src = fs.readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8')
+  const old = '        if (!side && b.y !== a.y) {\n'
+  assert.ok(src.split(old).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-${process.pid}-bb.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, '        if (false) {\n').replace(/from '\.\//g, "from '../src/"))
+  try { const M = await import(out.href); assert.strictEqual(M.cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread), null) } finally { try { fs.unlinkSync(out) } catch {} }
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

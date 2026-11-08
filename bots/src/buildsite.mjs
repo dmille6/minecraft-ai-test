@@ -368,8 +368,10 @@ export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z))
  * cell inside the town circle that is a node here. Never "every plaza cell" (Codex r1 P2: a moat inside the plaza), never "beside
  * a chest" (Codex r2/r3 P2: a chest in a wall is opened from either side).
  */
-export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null } = {}) {
+export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null, avoid = null } = {}) {
   const isNode = (x, y, z) => {
+    // reroof-04 r5 (`avoid`: feet keys never a node -- a ledge whose fall lands off the town walk, reroof.mjs reroofFallRisk)
+    if (avoid?.has(k3(x, y, z))) return false
     if (block.has(k3(x, y, z)) || block.has(k3(x, y + 1, z)) || block.has(k3(x, y - 1, z))) return false
     if (noFloor?.has(k3(x, y - 1, z))) return false             // monument-01: an open fill cell is never a floor
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
@@ -518,7 +520,7 @@ const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; cons
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
  * the bottom up), then the blueprint's segments in order. `stood` = the walk's seeds, cells a bot stood on (D3).
  */
-export function proveSite (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null } = {}) {
+export function proveSite (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null, avoid = null } = {}) {
   // storehouse-01: a building inside the town (its plan plot beside the plaza) names its stands' domain (stepFor's), as the visit does
   const over = new Map()
   for (const c of site.clear) over.set(k3(...c.at), AIR)
@@ -539,7 +541,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
     // was placed since the last walk (a builder walks onto the pad it has laid); with nothing new, the cell is no_step.
     const mine = cells.filter(c => c.seg === sg.seg)
     const left = mine.slice().sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
-    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), walkR, { stood, floors }))
+    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), walkR, { stood, floors, avoid }))
     let nodes = walkNow(), fresh = true, walks = 1
     while (left.length) {
       let pick = -1, step = null
@@ -558,7 +560,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
   }
   // the finished building: EVERY open interior floor cell is walked to from town through the open doorway
   // reroof-04 (`gone`: fill keys a temporary stand holds -- torn down once the roof stands): the finished building is walked WITHOUT them
-  const final = walkFrom(gone?.size ? overlay(R, new Map([...gone].map(k => [k, AIR]))) : R, home, new Set(), walkR, { stood, floors })
+  const final = walkFrom(gone?.size ? overlay(R, new Map([...gone].map(k => [k, AIR]))) : R, home, new Set(), walkR, { stood, floors, avoid })
   const solidInside = new Set(cells.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))
   const interior = bp.interior.filter(([, , y]) => y === 1).map(([u, v]) => { const { dx, dz } = rot(site.orient, u, v); return k3(site.anchor.x + dx, site.s + 1, site.anchor.z + dz) })
   // reroof-04 (`interiorNow(key)`, a retrofit: NEVER WORSE) only the interior cells the town walks to NOW must stay walked (LIVE 11-08: a

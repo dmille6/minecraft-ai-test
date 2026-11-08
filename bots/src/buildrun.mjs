@@ -521,7 +521,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // reroof-04 (`p.floors`: a Set of this record's cell keys whose top slab is a floor -- reroof.mjs reroofFloors)
   // reroof-04 (`p.walkRead(read)`: the walk's own view -- a retrofit walks on no natural leaves, as its proof did: reroof.mjs reroofNoLeafFloor)
   const walkRd = typeof p.walkRead === 'function' ? p.walkRead(rd) : rd
-  const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null }))
+  // reroof-04 r5 (`p.avoid`: a Set of feet keys, or (read) -> Set computed ONCE a visit: reroof.mjs reroofFallRisk -- a ledge whose fall
+  // lands off the town walk is never a stand or a step)
+  let avoidSet = null
+  try { avoidSet = typeof p.avoid === 'function' ? p.avoid(walkRd) : (p.avoid ?? null) } catch { avoidSet = null }
+  const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null, avoid: avoidSet }))
   const conn = e.conn?.() ?? null
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
   // the mutex's holder RETIRED (offline RETIRE_MS as this bot has seen it): it cannot send (Codex r2 P2: a reused pid kept a dead
