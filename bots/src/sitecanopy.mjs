@@ -17,6 +17,7 @@
 
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 export const sitecanopyOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SITECANOPY ?? '').trim().toLowerCase())
+export const sitePadOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SITEPAD ?? '').trim().toLowerCase())   // thprep-01's rollback
 export const SITECANOPY_MAX = 160   // leaves a site may list (the live cottage lists 96)
 
 /** Natural leaves by a reader's block (`props.persistent` false; unread properties: never). Pure. */
@@ -45,20 +46,102 @@ export function cellLeafClears (read, cells = [], { listed = new Set(), max = SI
 }
 
 /**
+ * thprep-01: THE BUILDING'S VOLUME -> [[x, y, z]]: every position in the bounding box of its cells (x, z and y). Pure. Natural leaves in
+ * the INTERIOR are no cell (a room is air), yet they stand in the building and hide its upper cells from the laid floor (LIVE X2: 4 of
+ * the town hall's in-cell leaves at y 69-70 stay unseen behind interior leaves at 66-68); a room full of leaves is never a building.
+ */
+export function volumeOf (cells = []) {
+  const at = cells.map(c => (Array.isArray(c) ? c : c?.at)).filter(Array.isArray)
+  if (!at.length) return []
+  const lo = [0, 1, 2].map(i => Math.min(...at.map(a => a[i]))), hi = [0, 1, 2].map(i => Math.max(...at.map(a => a[i])))
+  const out = []
+  for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++) out.push([x, y, z])
+  return out
+}
+/** thprep-01: NATURAL TERRAIN a building's volume may cut (never cobblestone, planks or anything placed-looking). */
+export const SITE_EARTH = /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mycelium|stone|andesite|diorite|granite|tuff|gravel|sand|red_sand|clay|moss_block|snow_block)$/
+/**
+ * thprep-01: THE TERRAIN IN A BUILDING'S VOLUME ABOVE ITS FLOOR -> [{ at, kind: 'cut', name }] high before low within a column, low
+ * columns first overall (runVisit digs clears low before high: the whole list is sorted by the caller). Pure. `above` the floor's y (the
+ * pad): only positions at y >= above + 1 (the pad cell itself is the building's); never a listed cell; a stray sapling there only when
+ * `owned(at)` says no record owes it.
+ */
+export function cellEarthClears (read, vol = [], { above, listed = new Set(), owned = null } = {}) {
+  const out = []
+  for (const at of vol) {
+    if (!Array.isArray(at) || !(at[1] > above) || listed.has(at.join(','))) continue
+    const b = read(...at)
+    if (b && SITE_EARTH.test(nm(b))) {
+      // Codex r1 BLOCKER: never another record's cell (`owned`), and never the ground under a sapling this list does not take (an owed
+      // replant, or one with no `owned` test): digging its support would uproot it
+      if (typeof owned === 'function' && owned(at)) continue
+      const up = read(at[0], at[1] + 1, at[2])
+      if (up && /_sapling$|^mangrove_propagule$/.test(nm(up)) && !(typeof owned === 'function' && !owned([at[0], at[1] + 1, at[2]]))) continue
+      out.push({ at: at.slice(), kind: 'cut', name: nm(b) })
+    }
+    // a STRAY sapling on that slope (LIVE X2 -12,69,-61: no record lists it as a replant or a cell) goes with its ground; one a record
+    // owes (`owned(at)`: a replant cell, any record's cell) never -- and with no `owned` test, never
+    else if (b && /_sapling$|^mangrove_propagule$/.test(nm(b)) && typeof owned === 'function' && !owned(at)) out.push({ at: at.slice(), kind: 'plant', name: nm(b) })
+  }
+  return out.sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+}
+/**
  * THE SITING HOOK -> (site) -> null | { clear } | { fail }. `cellsOf(site)` the candidate's world cells; `reached(clears)` -> { ok }
  * (the caller's reach test over the town walk, given every clear of the site plus the listed leaves, low before high). Nothing to list: null (the proof as before). Never throws (a throw: no listing).
  */
-export function cellClearsHook (read, { cellsOf, reached, max = SITECANOPY_MAX } = {}) {
+export function cellClearsHook (read, { cellsOf, reached, max = SITECANOPY_MAX, earth = null } = {}) {
   return site => {
     try {
       const listed = new Set((site?.clear ?? []).map(c => (c?.at ?? []).join(',')))
-      const cl = cellLeafClears(read, cellsOf(site), { listed, max })
-      if (cl == null) return { fail: 'leaves_too_many' }
+      const vol = cellsOf(site)
+      const lv = cellLeafClears(read, vol, { listed, max })
+      if (lv == null) return { fail: 'leaves_too_many' }
+      // thprep-01 (`earth` = { cut }: the building's own earthwork limit): the terrain left in its volume ABOVE its floor (a slope the
+      // screen's level cut never reaches: LIVE X2, dirt at y 70 over a floor at 64) is listed too, while the site's cut stays in budget
+      let ea = []
+      if (earth && Number.isFinite(site?.s)) {
+        ea = cellEarthClears(read, vol, { above: site.s, listed, owned: earth.owned })
+        if ((site.cut?.length ?? 0) + ea.length > (Number(earth.cut) || 0)) return { fail: 'earth_over' }
+      }
+      const cl = [...lv, ...ea]
       if (!cl.length) return null
       // the reach test runs over EVERY clear the visit digs (the site's own trees and litter with these leaves, low before high, as
       // runVisit's clears() digs them): a site leaf dug first opens the sight line to a listed one behind it
       const all = [...(site?.clear ?? []), ...cl].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
-      return reached(all)?.ok ? { clear: cl } : { fail: 'leaves_unreached' }
+      return reached(all, site)?.ok ? { clear: cl } : { fail: 'leaves_unreached' }
     } catch { return null }
   }
+}
+
+/**
+ * thprep-01 (11-08): ARE THE CLEARS DUG AS THE VISIT DIGS THEM? -> { ok, unreached: [[x, y, z]], rounds, padLaid }. Pure but for the
+ * injected `walk(read) -> Set('x,y,z' feet)` and `stand(read, cell, nodes)` (buildsite walkFrom / buildrun digStand, by the caller).
+ * runVisit digs the record's clears before its segments and AGAIN after each segment it completes ("a log no ground stand reaches
+ * comes down once the pad gives it an eye"): so the clears are dug from the town walk (low before high), then the building's FLOOR
+ * (its `padSeg` cells, and the site's earth fills) is laid where it is free, and the rest are dug from the walk over the laid floor --
+ * repeated while anything moves (at most `rounds`). LIVE showcase 11-08, the town hall's one home-facing candidate on X2 (-5,-46 W):
+ * 10 of its 26 in-cell leaves (y 69-70, over the pad's middle) no stand of the town walk reaches; the floor is laid at 64.
+ */
+export function clearsReachedBuilt (read, clears = [], { cells = [], fill = [], padSeg = 'pad', walk, stand, rounds = 4 } = {}) {
+  const k = a => a.join(',')
+  const AIR = Object.freeze({ name: 'air', boundingBox: 'empty' }), S = Object.freeze({ name: 'cobblestone', boundingBox: 'block' })
+  const pad = [...cells.filter(c => c?.seg === padSeg && Array.isArray(c.at)).map(c => c.at), ...fill.filter(Array.isArray)]
+  const dug = new Map(), laid = new Set()
+  const rd = (x, y, z) => { const q = `${x},${y},${z}`; return dug.get(q) ?? (laid.has(q) ? S : read(x, y, z)) }
+  const free = b => !b || b.boundingBox === 'empty' || /^(air|cave_air|short_grass|tall_grass|fern|large_fern|snow)$/.test(nm(b))
+  let left = [...clears].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+  let r = 0
+  for (; r < rounds && left.length; r++) {
+    let moved = false, nodes = null
+    const still = []
+    for (const c of left) {
+      if (!nodes) { const m = new Map(); for (const q of walk(rd)) { const [x, y, z] = q.split(',').map(Number); const col = `${x},${z}`; if (!m.has(col)) m.set(col, []); m.get(col).push(y) } nodes = m }
+      if (!stand(rd, c.at, nodes)) { still.push(c); continue }
+      dug.set(k(c.at), AIR); nodes = null; moved = true
+    }
+    for (const a of pad) if (!laid.has(k(a)) && free(rd(...a))) { laid.add(k(a)); moved = true }
+    left = still
+    if (!moved) break
+  }
+  return { ok: !left.length, unreached: left.map(c => c.at.slice()), rounds: r, padLaid: laid.size }
 }
