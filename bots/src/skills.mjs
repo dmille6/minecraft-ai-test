@@ -19447,7 +19447,8 @@ function exSiteBridge (bot, trip, read, zones, home) {
       beyond: s => beyondGain(read, s, { home, bearing: trip.aim ?? trip.bearing, zones, swim: EXPEDITION.swim }),
       reach: n => exLineClear(read, pos, { x: n[0], y: n[1], z: n[2] }, { zones }).ok })
     if (!r.ok) { exRow(bot, 'bridge_site', `trip=${trip.id} ok=0 at=${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)} tried=${Object.entries(r.tried ?? {}).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, v]) => `${k}:${v}`).join(',') || '-'}`, 'no_effect'); return null }
-    exAppend(exBridgesFile(), { op: 'sight', id: r.key, span: r.span, bearing: trip.bearing, aim: trip.aim ?? trip.bearing, trip: trip.id, by: bot.username ?? 'bot', t: Date.now(), gain: r.gain })
+    // boardwalk-01: `woodv` -- sighted under the code that names a bridge's material before its first block (bridge.mjs bridgeMaterial)
+    exAppend(exBridgesFile(), { op: 'sight', id: r.key, span: r.span, bearing: trip.bearing, aim: trip.aim ?? trip.bearing, trip: trip.id, by: bot.username ?? 'bot', t: Date.now(), gain: r.gain, woodv: 1 })
     exRow(bot, 'bridge_site', `trip=${trip.id} ok=1 id=${r.key} ${spanDetail(r.span)} gain=${r.gain}`)
     return r
   } catch (e) { exRow(bot, 'bridge_site', `trip=${trip.id} ok=0 error=${String(e?.message ?? e).slice(0, 80)}`, 'failed'); return null }
@@ -19477,6 +19478,9 @@ function exBridgesNow (bot, sites, read, trip) {
 async function exBridgeWork (ctx, signal, trip, site, until) {
   const { bot } = ctx
   const read = exReader(bot)
+  // boardwalk-01 (Codex r2 BLOCKER 1): the material is named BEFORE the first block (a cobble build names cobble), so no later trip can
+  // read an unloaded half-built cobble deck as unstarted and turn it wood
+  if (!site.mat) { exAppend(exBridgesFile(), { op: 'state', id: site.id, mat: 'cobble', trip: trip.id, by: bot.username ?? 'bot', t: Date.now() }); site.mat = 'cobble' }
   const plan = sitePlan(site)   // boardwalk-01: the site's material (planks + fences when its first trip chose wood)
   const io = bridgeIo(bot, {
     Vec3,
@@ -19515,7 +19519,9 @@ async function exBridgeWoodKit (ctx, signal, site, sp) {
     const logsHeld = countItem(bot, `${sp}_log`)
     const logsWant = Math.max(0, Math.ceil(wantPlanks / 4 + (Math.ceil(wantFences / 3) * 5) / 4) - logsHeld)
     if (logsWant > 0) {
-      const avail = woodPressureNow(bot).avail
+      // Codex r2 BLOCKER 2: what may leave the town's chests is the TOWN's wood above its reserve, never the bag's surplus
+      const t = matsTownStock(bot)
+      const avail = woodPressure({ town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: {}, reserve: Number(matsReserve().table?.logs) || 512 }).avail
       const take = Math.min(logsWant, avail)
       if (take > 0) await matsWithdraw(ctx, { [`${sp}_log`]: take }, signal, 20_000, matsReserve().table, decorAllow({ [`${sp}_log`]: take }))
       check(signal)
