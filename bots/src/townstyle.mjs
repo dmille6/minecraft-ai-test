@@ -22,6 +22,7 @@
 //      log corner posts, a stone foundation course, sills, porches, lights) and the per-building SEEDED choices. See the second half.
 
 import { rot } from './townplan.mjs'
+import { windowPalette } from './glass.mjs'   // glass-01: the window palette blueprints share
 
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 
@@ -322,9 +323,9 @@ export function cottageBlueprint (variant = 's') {
       post: ['%wood_log'],
       wall: ['%wood_planks', '$planks'],
       // glass when the town has it, else the wall's planks (house@1's rule: a window never stalls the house)
-      window: ['glass_pane', '$wall'],
+      window: windowPalette('$wall'),   // glass-01: glass, else a trapdoor of the walls' wood, else the wall
       gable: ['%wood_planks', '$planks'],
-      gablewin: ['glass_pane', '$gable'],
+      gablewin: windowPalette('$gable'),
       roof: ['%roof_stairs'],
       ridge: ['%roof_slab'],
       sill: ['%wood_trapdoor'],
@@ -526,7 +527,7 @@ export function townhallBlueprint () {
     interior,
     palette: {
       base: ['%stone', 'cobblestone', 'stone_bricks'], course: ['stone_bricks', 'cobblestone'], post: ['%wood_log'],
-      wall: ['%wood_planks', '$planks'], window: ['glass_pane', '$wall'], gable: ['%wood_planks', '$planks'], gablewin: ['glass_pane', '$gable'],
+      wall: ['%wood_planks', '$planks'], window: windowPalette('$wall'), gable: ['%wood_planks', '$planks'], gablewin: windowPalette('$gable'),
       roofslab: ['%roof_slab'], ridgebeam: ['%roof_planks', '$planks'], canopy: ['%roof_slab'], pew: ['%wood_stairs'], sill: ['%wood_trapdoor'], light: ['torch'],
     },
     segments: [

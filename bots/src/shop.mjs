@@ -22,6 +22,8 @@ import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   
 import { hubSwitches, HUB_PLOT, HUB_BLUEPRINT, HUB_BUILDERS } from './storehub.mjs'   // storehub-01
 import { enchantSwitches, ENCHANT_PLOT, ENCHANT_BLUEPRINT, ENCHANT_BUILDERS } from './enchantshop.mjs'   // enchantshop-01
 import { cottageSwitches, COTTAGE_PLOT, COTTAGE_BUILDERS, COTTAGE_AFTER, cottageBlueprintId } from './cottage.mjs'   // townstyle-01
+import { WOODS } from './townstyle.mjs'   // glass-01: the wood parts a visit crafts
+import { GLASS } from './glass.mjs'   // glass-01
 import { townhallSwitches, TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_BUILDERS, TOWNHALL_AFTER } from './townhall.mjs'   // townstyle-02
 import { noWaitSwitches, afterMet } from './ordernowait.mjs'   // ordernowait-01: the town hall and the cottage stop waiting for the workshop
 import { reroofSwitches, REROOF_PLOT } from './reroof.mjs'   // townstyle-03
@@ -635,8 +637,12 @@ export function roleNames (palette, role, planks = 'oak_planks', seen = new Set(
 /** The block a bill counts for a role: the first of its names the town stocks, else its first name. Pure. */
 function resolve (palette, role, inTown, planks) {
   const names = roleNames(palette, role, planks)
-  return names.find(n => inTown(n)) ?? names[0] ?? null
+  // glass-01: a wood part (stairs, slab, trapdoor of a species) is never in town but the visit crafts it (townstyle.mjs
+  // woodPartsPlan): it counts as had, so a window bills its TRAPDOOR when the town holds no glass pane (never the pane it cannot get)
+  return names.find(n => inTown(n) || (GLASS.on && isWoodPart(n))) ?? names[0] ?? null
 }
+/** A wood part the build visit crafts from its species' planks (townstyle.mjs WOOD_PART). Pure. */
+export const isWoodPart = n => new RegExp(`^(${WOODS.join('|')})_(stairs|slab|trapdoor)$`).test(String(n ?? ''))
 /**
  * THE PROJECT'S SHARE OF THE BAG (Paper 10-25, SHOP-KILL and CHAIN-1: a deadlock) -> { name: n }: the drawn record clamped to
  * what the bag holds now. Pure. Why: the visit's keeps (towndeposit townKeeps: STOCKPILE_KEEP wood, the stone family) are
