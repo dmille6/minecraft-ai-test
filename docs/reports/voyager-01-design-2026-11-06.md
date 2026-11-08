@@ -560,3 +560,15 @@ the proxy at the model, and starts Paper + the bot. `stop` writes `reports/stage
 and unloads the model **only if resident**. A refused start skips that window and is logged in `reports/stage4.log`.
 **Comparison:** per bot-hour against stage 3's Haiku (arm C) and B-qwen3.8 numbers (final.txt), with the stage-3 local arms'
 handicaps stated (A throttled for the Studio; B-qwen3.8 started 14 h late).
+
+**Day-1 read (11-08 01:30Z, `reports/day-1.txt`) notes:**
+- **Arm A's one command attempt (11-08 01:23:55Z, iteration 59, round 2):** Qwen3.6 decided that "peaceful difficulty prevents
+  crafting" a stone sword (it does not) and wrote `await bot.say('/difficulty easy')`. The facade's chat filter refused it
+  (`chat commands are not allowed; say plain text`) and logged `command_attempt`; nothing went on the wire: VoyagerGuard has 0
+  `command_denied` rows for arm A and the server log has no "issued server command". The watcher stopped arm A at 01:24:03Z as
+  designed. **No tightening needed:** the attempt never left the facade, and the server-side deny is a second wall. Operator
+  read the cause and restarted arm A at 01:46:53Z (RESTARTED-a).
+- **Arm B split:** B-general (qwen2.5:32b, 03:46Z-15:17Z, archived log): 10.67 bot-h, 92 proposed, **0 verified**.
+  B-qwen3.8 (15:27Z-01:30Z): 9.98 bot-h, 151 verified (**15.1 / bot-h**), 37 projects finished (**3.7 / bot-h**), 27 invented,
+  34 unique items, iron by 17:12Z (1 h 45 min), largest structure 78 blocks. Haiku (arm C, 23.43 bot-h): 407 verified
+  (**17.4 / bot-h**), 144 projects (**6.1 / bot-h**), 113 invented, 91 unique items, iron in 1 h 34 min.
