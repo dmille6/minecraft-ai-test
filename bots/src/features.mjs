@@ -12,12 +12,12 @@ import { log, logEvent } from './logger.mjs'
 import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's licence row
 import { snapshot } from './state.mjs'
 import { attachPlaceAudit, placeAuditOn, climbOf, CLIMB } from './placeaudit.mjs'   // placeaudit-01; access-02: the climbs ledger
-import { climbEnqueue } from './buildproj.mjs'   // access-02: queued, written off the placement's continuation
+import { climbEnqueue, prunePool, poolPruneMode } from './buildproj.mjs'   // access-02: queued, written off the placement's continuation; showdrop-01: the prune
 import { configuredHome } from './townground.mjs'   // placeaudit-01
 import { config } from './config.mjs'
 import { kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
 import { townPlanModeDetail } from './townplan.mjs'   // townplan-01's licence row
-import { townPlanZones, townPlanSeed } from './skills.mjs'
+import { townPlanZones, townPlanSeed, shopActivePrime, SHOP_PRIME_MS } from './skills.mjs'
 import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
@@ -144,6 +144,28 @@ export function installAtlasFeature (bot, { env = process.env, pool = config.mem
 }
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
+/**
+ * SHOWDROP-01: THE TOWN DIRECTORY'S SUPERSEDED LEASE AND BARRIER GENERATIONS (buildproj.mjs prunePool: never a newest generation,
+ * never a record). The first pass of a connection, PRUNE_FIRST_MS after the spawn, is a DRY count; later passes, every PRUNE_EVERY_MS,
+ * delete (at most PRUNE_MAX a pass). One `_pool_prune` row a pass. POOLPRUNE=off: no pass; POOLPRUNE=dry: counts only.
+ */
+export const PRUNE_FIRST_MS = 10 * 60_000
+export const PRUNE_EVERY_MS = 6 * 3600_000
+export function installPoolPrune (bot, { dir = poolStateDir(config.memory.pool), first = PRUNE_FIRST_MS, every = PRUNE_EVERY_MS, env = process.env } = {}) {
+  if (poolPruneMode(env) === 'off') return null
+  let passes = 0
+  const pass = () => {
+    try {
+      const r = prunePool(dir, { dry: passes++ === 0, env })
+      logEvent({ kind: 'pool_prune', status: r.deleted > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `mode=${r.mode} pass=${passes} candidates=${r.candidates} deleted=${r.deleted} errors=${r.errors}` })
+      return r
+    } catch { return null }
+  }
+  const t1 = setTimeout(pass, first); t1.unref?.()
+  const t2 = setInterval(pass, every); t2.unref?.()
+  bot.once?.('end', () => { clearTimeout(t1); clearInterval(t2) })
+  return { pass, stop: () => { clearTimeout(t1); clearInterval(t2) } }
+}
 export function installFeatures (bot) {
   try { installAtlasFeature(bot) } catch (e) { log('warn', 'atlas not installed', { error: e.message }) }
   // placeaudit-01: the `_place_town` instrument (placeaudit.mjs; TELEMETRY ONLY) and its licence row `_placeaudit_mode`
@@ -267,6 +289,10 @@ export function installFeatures (bot) {
     try { shopFootprintRefresh(bot) } catch {}
     const shopTimer = setInterval(() => { try { shopStoodTick(bot) } catch {} }, STOOD_EVERY_MS); shopTimer.unref?.()
     const shopFpTimer = setInterval(() => { try { shopFootprintRefresh(bot) } catch {} }, 60_000); shopFpTimer.unref?.()
-    bot.once('end', () => { clearInterval(shopTimer); clearInterval(shopFpTimer) })
+    // showdrop-01: the order's project states, one project a turn, off the decision (skills.mjs shopActivePrime; SHOPPRIME=off)
+    let priming = false
+    const primeTimer = setInterval(() => { if (priming) return; priming = true; shopActivePrime(bot).catch(() => false).finally(() => { priming = false }) }, SHOP_PRIME_MS); primeTimer.unref?.()
+    bot.once('end', () => { clearInterval(shopTimer); clearInterval(shopFpTimer); clearInterval(primeTimer) })
+    if (config.memory.scope !== 'isolated') installPoolPrune(bot)
   }
 }
