@@ -97,6 +97,8 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { stoneForTrip, townItemTotal, stoneOfferOpen, readLive, mergeLive, LIVE_FILE } from './trade.mjs'
 import { JOB, jobsiteSwitch, jobsiteModeDetail, unemployedClusters, jobsiteAdmit, pickJobCell, claimOf, jobsiteDetail } from './jobsite.mjs'   // jobsite-01: make jobs   // coalsale-02: stone for apprentice masons
+import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
+import { MARKET, GOODS, PROFESSION_BLOCK, JOB_RECIPES, marketSwitch, marketJobsSwitch, marketModeDetail, townWants, spareGoods, runCandidates, marketRunAdmit, merchantOfAny, zoneNear, offersRecord, sellOffers, buyOffers, openMerchant, runTrades, nextJobBlock, freeJobless, noteJobless, marketCell, runDetail, jobDetail, voxelsOnSegment } from './market.mjs'   // market-01
 import { TRADE, tradeSwitch, tradeModeDetail, censusOf, pickDestination, coalForTrip, tripAdmit, newTrip, turnHome, roamPoint, dropCrumb, nextCrumbHome, merchantOf, tradeCandidates, sellPlan, buyPlan, storedEnchants, offersDetail, tripDetail } from './trade.mjs'   // coalsale-01 (T2) + T4 buying
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
@@ -21014,6 +21016,388 @@ async function tradeTrip (ctx, _args, signal) {
   }
 }
 /** COALSALE-01, once per spawn (features.mjs): the licence row. Never throws. */
+// MARKET-01 (OWNER 11-06 "what should the bots unlock first?" -> live villager trading; market.mjs decides, the design is
+// docs/reports/market-design-2026-11-06.md). shop.mjs buildOrder asks marketAsk in its IDLE branch (a bot the projects cannot
+// use), before the expedition:
+//  - market_run: draw what one merchant near town buys (above the town's keeps), walk to it, open its window (a wandering
+//    trader too), sell, buy the town's wants with the emeralds, walk home; the ordinary town deposit banks the emeralds
+//    (bankable DEPOSIT_ALWAYS) and the goods. A merchant must stand OUTSIDE every protected zone (+3): a run never walks into
+//    the village. One run per bot per 40 min, per merchant per 20 min, one per town at a time (a pool lease).
+//  - market_job: a job block (smithing table, barrel, fletching table, stonecutter, grindstone, cartography table) crafted at
+//    town and placed in the MARKET -- open ground just outside the village zone nearest a cluster of FREE jobless villagers
+//    (seen to move >= 6 b; 6_1's penned villagers never qualify). At most 2 a day; the claim is read 12 s later.
+// MARKET=off: never asked (no run, no job). MARKET_JOBS=off: runs only.
+const MARKET_ON = { on: marketSwitch(), jobs: marketJobsSwitch() }
+let mkBot = null
+const mkState = { skipAt: {}, lastRunAt: -Infinity, lastJobAt: -Infinity }
+const mkFile = name => path.join(townDir(), `market-${indexHk()}.${name}.json`)
+function mkRead (name, dflt) { try { const v = JSON.parse(fs.readFileSync(mkFile(name), 'utf8')); return v && typeof v === 'object' ? v : dflt } catch { return dflt } }
+function mkWrite (name, obj) { try { fs.mkdirSync(townDir(), { recursive: true }); const f = mkFile(name), tmp = `${f}.${config.bot.name}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify(obj)); fs.renameSync(tmp, f) } catch { /* advisory */ } }
+/** The town's stock { name: n } from its index (containers not mid-change), or null with no index. Never throws. */
+function mkTownStock (bot) {
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return null
+    const out = {}
+    // every container's LAST observation, a mid-change one too (as trade.mjs townItemTotal): a withdraw leaves its chest `dirty`
+    // until the next look (sandbox4 11-06: both town chests read dirty after the first draws), and the draw itself re-checks
+    for (const e of Object.values(entries)) {
+      for (const [k, v] of Object.entries(e?.obs?.names ?? {})) out[k] = (out[k] ?? 0) + Math.max(0, Number(v?.[0]) || 0)
+    }
+    return out
+  } catch { return null }
+}
+const mkBag = bot => { const o = {}; for (const it of bot.inventory?.items?.() ?? []) o[it.name] = (o[it.name] ?? 0) + it.count; return o }
+const mkHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+/** One lease per town (announce with O_EXCL, a stale one older than leaseMs is taken over). -> true when held by this bot. */
+function mkLease (bot, now = Date.now(), { take = false, release = false, name = 'run' } = {}) {
+  const f = mkFile(`${name}.lease`)
+  let h = null
+  try { h = JSON.parse(fs.readFileSync(f, 'utf8')) } catch { h = null }
+  if (release) { try { if (h?.bot === bot.username) fs.unlinkSync(f) } catch { /* gone */ } return true }
+  const live = h && h.bot !== bot.username && now - (h.at ?? 0) < MARKET.leaseMs
+  if (!take) return !live
+  if (live) return false
+  try { if (h) fs.unlinkSync(f) } catch { /* raced */ }
+  try { fs.writeFileSync(f, JSON.stringify({ bot: bot.username, at: now }), { flag: 'wx' }); return true } catch { return false }
+}
+const mkSkip = (bot, kind, why, now, extra = '') => {
+  if (!why || ['off', 'away', 'cooldown', 'night', 'no_merchant'].includes(why)) return
+  const k = `${kind}:${why}`
+  if (now - (mkState.skipAt[k] ?? -Infinity) < 60 * 60_000) return
+  mkState.skipAt[k] = now
+  try { logEvent({ kind, status: 'no_effect', snapshot: snapshot(bot), detail: `stop=skip:${why}${extra ? ` ${extra}` : ''}` }) } catch { /* telemetry */ }
+}
+/** The run's admission over the bot's own readings -> { ok, ... } (market.mjs marketRunAdmit). Never throws. */
+function marketRunPlan (bot, now = Date.now(), { atTown = true, health = 20, freeSlots = 36 } = {}) {
+  const zv = townPlanZones(bot)
+  if (!zv?.known) return { ok: false, why: 'zones_unknown' }
+  const stock = mkTownStock(bot)
+  if (!stock) return { ok: false, why: 'no_index' }
+  const bag = mkBag(bot)
+  const spare = spareGoods(stock, bag)
+  // water buckets for a wandering trader are MADE (3 iron each, filled at open water): spare while the town's iron allows two
+  const ironSpare = Math.max(0, (stock.iron_ingot ?? 0) - GOODS.iron_ingot.keep) + (bag.iron_ingot ?? 0)
+  const extraBuckets = Math.max(0, (bag.bucket ?? 0) - 1) + (bag.water_bucket ?? 0)
+  spare.water_bucket = Math.min(GOODS.water_bucket.carry, extraBuckets + Math.floor(ironSpare / 3))
+  if (!spare.water_bucket) delete spare.water_bucket
+  const offers = mkRead('offers', {})
+  const rest = mkRead('rest', {})
+  return marketRunAdmit({ on: true, atTown, now, timeOfDay: bot.time?.timeOfDay ?? 0, health, freeSlots, state: mkState,
+    candidates: runCandidates(bot.entities, mkHome(), zv.zones), offersOf: u => offers[u] ?? null, restOf: u => rest[u] ?? -Infinity,
+    spare, emeralds: (stock.emerald ?? 0) + (bag.emerald ?? 0), wants: townWants(stock, bag), leased: !mkLease(bot, now) })
+}
+/** The job block's admission -> { ok, why, block, cluster } . Never throws. */
+function marketJobPlan (bot, now = Date.now()) {
+  if (!MARKET_ON.jobs) return { ok: false, why: 'off' }
+  if (now - mkState.lastJobAt < 30 * 60_000) return { ok: false, why: 'cooldown' }
+  const zv = townPlanZones(bot)
+  if (!zv?.known) return { ok: false, why: 'zones_unknown' }
+  const merchants = Object.values(bot.entities ?? {}).map(merchantOfAny).filter(Boolean)
+  const seen = noteJobless(mkRead('seen', {}), merchants, now)
+  mkWrite('seen', seen)
+  const free = new Set(freeJobless(seen, now))
+  const home = mkHome()
+  const jobless = merchants.filter(m => m.profession === 'none' && !m.baby && free.has(m.uuid) && Math.hypot(m.x - home.x, m.z - home.z) <= MARKET.radius + 48)
+  if (!jobless.length) return { ok: false, why: 'no_free_jobless' }
+  const ledger = Array.isArray(mkRead('jobs', [])) ? mkRead('jobs', []) : []
+  if (ledger.filter(e => now - (e.at ?? 0) < 24 * 3600_000).length >= MARKET.jobsPerDay) return { ok: false, why: 'day_cap' }
+  // ONE JOB AT A TIME per town (Claude review r1 BLOCKER: the ledger gains its row only after the place, so several idle bots
+  // asked in the same minute each crafted and placed one, past jobsPerDay)
+  if (!mkLease(bot, now, { name: 'job' })) return { ok: false, why: 'leased' }
+  const stock = mkTownStock(bot)
+  if (!stock) return { ok: false, why: 'no_index' }
+  const cluster = unemployedClusters(jobless)[0]
+  const present = merchants.filter(m => !['none', 'nitwit', 'unknown', 'wandering_trader'].includes(m.profession) && Math.hypot(m.x - cluster.x, m.z - cluster.z) <= 48).map(m => m.profession)
+  const next = nextJobBlock({ present, stock, placed: ledger.map(e => e.block) })
+  if (!next) return { ok: false, why: 'no_block' }
+  return { ok: true, why: 'go', block: next.block, profession: next.profession, cluster, zones: zv.zones }
+}
+/** shop.mjs buildOrder's market ask (idle branch). -> { order } | null. Never throws. */
+export function marketAsk ({ now = Date.now(), health = 20, freeSlots = 36 } = {}, bot = mkBot) {
+  try {
+    if (!bot || !MARKET_ON.on) return null
+    const j = marketJobPlan(bot, now)
+    if (j.ok) return { order: { skill: 'market_job', args: { block: j.block } } }
+    mkSkip(bot, 'market_job', j.why, now)
+    const r = marketRunPlan(bot, now, { health, freeSlots })
+    if (r.ok) return { order: { skill: 'market_run', args: { uuid: r.merchant.uuid } } }
+    mkSkip(bot, 'market_run', r.why, now)
+    return null
+  } catch { return null }
+}
+/** Fill ONE empty bucket at open water within 24 b: a source whose 8 neighbours are sources too (it refills at once; never a
+ *  well or a pond of fewer than 9 sources). -> true when the bag gained a water_bucket. */
+async function mkFillBucket (ctx, signal) {
+  const { bot } = ctx
+  const wid = bot.registry?.blocksByName?.water?.id
+  if (wid == null) return false
+  // a SOURCE: level 0 (prismarine-block gives the property as the STRING "0": sandbox4 11-06)
+  const src = b => b && b.type === wid && Number(b.getProperties?.().level ?? b.metadata ?? 0) === 0
+  const spots = (bot.findBlocks?.({ matching: wid, maxDistance: 24, count: 64 }) ?? []).map(p => bot.blockAt(p)).filter(src)
+    .filter(b => [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].every(([dx, dz]) => src(bot.blockAt(b.position.offset(dx, 0, dz)))))
+    .filter(b => { const up = bot.blockAt(b.position.offset(0, 1, 0)); return up && /^(air|cave_air)$/.test(up.name) })
+    .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
+  // never near a protected zone: every cell the ray can cross is >= 8 b from a zone box (Codex review r1 BLOCKER 1)
+  const zones = townPlanZones(bot)
+  if (!zones?.known) return false
+  const b = spots.find(q => !zoneNear(zones.zones, q.position.x, q.position.z, 8))
+  if (!b) return false
+  try { await goto(ctx, { x: b.position.x, y: b.position.y + 1, z: b.position.z, range: 3 }, signal, { until: Date.now() + 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  check(signal)
+  if (bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5)) > 4.5) return false
+  // THE RAY: the server takes the FIRST source the look ray meets (Paper BucketItem, fluid SOURCE_ONLY), so the eye -> aim segment
+  // must cross no water outside the pond (the target and its 8 sources) and no solid block before the target
+  const aim = b.position.offset(0.5, 0.8, 0.5)
+  const eye = bot.entity.position.offset(0, bot.entity.eyeHeight ?? 1.62, 0)
+  const pond = new Set([[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]].map(([dx, dz]) => `${b.position.x + dx},${b.position.y},${b.position.z + dz}`))
+  // EVERY voxel the segment crosses, exactly (Amanatides-Woo traversal; Codex r2: point samples could skip a clipped corner)
+  for (const q of voxelsOnSegment(eye, aim)) {
+    const k = `${q.x},${q.y},${q.z}`
+    if (k === `${b.position.x},${b.position.y},${b.position.z}`) break
+    const c = bot.blockAt(new Vec3(q.x, q.y, q.z))
+    if (!c) return false
+    if (c.type === wid && !pond.has(k)) return false
+    if (c.type !== wid && c.boundingBox === 'block') return false
+  }
+  const n0 = mkBag(bot).water_bucket ?? 0
+  const bucket = bot.inventory.items().find(i => i.name === 'bucket')
+  if (!bucket) return false
+  await bot.equip(bucket, 'hand')
+  await bot.lookAt(aim, true)
+  bot.activateItem()
+  await sleep(600, signal)
+  try { bot.deactivateItem() } catch { /* not held */ }
+  return (mkBag(bot).water_bucket ?? 0) > n0
+}
+/** market_run: draw, walk, open, sell, buy, walk home; one `_market_run` row and one `_trade_seen` row. */
+async function marketRun (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now(), until = t0 + MARKET.callMs
+  let merchant = null, goods = {}, res = null, stop = null, why = null
+  const end = (status, s, w = null) => {
+    stop = s; why = w ?? why
+    mkState.lastRunAt = Date.now()
+    try {
+      logEvent({ kind: 'market_run', status, snapshot: snapshot(bot), durationMs: Date.now() - t0,
+        detail: runDetail({ stop, merchant, goods, sold: res?.sold, earned: res?.earned ?? 0, spent: res?.spent ?? 0, bought: res?.bought, why, ms: Date.now() - t0 }),
+        args: { stop, profession: merchant?.profession ?? null, uuid: merchant?.uuid ?? null, sold: res?.sold ?? {}, earned: res?.earned ?? 0, spent: res?.spent ?? 0, bought: res?.bought ?? {} } })
+    } catch { /* telemetry */ }
+    mkLease(bot, Date.now(), { release: true })
+    const failClass = status === 'failed' ? (s === 'unreachable' ? 'no_path' : s === 'error' ? 'skill_error' : 'other') : undefined
+    return { status, stop, ...(failClass ? { failClass } : {}), detail: `market_run: ${stop}${res?.earned ? ` (+${res.earned} emerald)` : ''}` }
+  }
+  const plan = marketRunPlan(bot, Date.now(), { freeSlots: 36 - bot.inventory.items().length, health: bot.health ?? 20 })
+  if (!plan.ok) return end('no_effect', `plan:${plan.why}`)
+  if (args?.uuid && plan.merchant.uuid !== args.uuid) return end('no_effect', 'plan:changed')
+  if (!mkLease(bot, Date.now(), { take: true })) return end('no_effect', 'plan:leased')
+  merchant = plan.merchant; goods = plan.goods
+  const rest = mkRead('rest', {})
+  const restFor = ms => { rest[merchant.uuid] = Date.now() + ms; mkWrite('rest', rest) }
+  // THE TOWN AS THIS RUN LEAVES IT (Codex r2 BLOCKER 2: a withdraw marks its chest dirty and leaves the old observation, so a
+  // re-read alone still saw the iron this run took): the lower of the index now and the plan's stock less this run's own draws
+  const stock0 = mkTownStock(bot) ?? {}
+  const took = {}
+  const townLeft = item => Math.min((mkTownStock(bot) ?? {})[item] ?? 0, (stock0[item] ?? 0) - (took[item] ?? 0))
+  const draw = async (item, count) => {
+    const before = mkBag(bot)[item] ?? 0
+    const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
+    await withdrawVerb(ctx, { item, count }, signal, rs)
+    const got = Math.max(0, (mkBag(bot)[item] ?? 0) - before)
+    took[item] = (took[item] ?? 0) + got
+    return got
+  }
+  try {
+    // STOCK: each good from the town (withdraw moves a stack at most per call), the bag's own counted first
+    const drawn = {}
+    for (const [item, n] of Object.entries(goods)) {
+      check(signal)
+      if (item === 'water_bucket') {
+        // keep the kit's bucket: of every bucket the bag holds (empty or full) one is never sold, so sellable = min(full, all - 1).
+        // Each step does what RAISES that: fill an empty bucket when one is spare, else craft one from 3 iron -- the iron only
+        // while the town, read again, keeps GOODS.iron_ingot.keep after the draw (Codex review r1 BLOCKER 2)
+        const sellable = () => { const bk = mkBag(bot); return Math.max(0, Math.min(bk.water_bucket ?? 0, (bk.water_bucket ?? 0) + (bk.bucket ?? 0) - 1)) }
+        for (let k = 0; k < 2 * n + 2 && sellable() < n && Date.now() < until - 90_000; k++) {
+          const bk = mkBag(bot), w = bk.water_bucket ?? 0, e0 = bk.bucket ?? 0, all = w + e0
+          if (e0 >= 1 && Math.min(w + 1, all - 1) > sellable()) { if (!(await mkFillBucket(ctx, signal))) break; continue }
+          if ((bk.iron_ingot ?? 0) < 3) {
+            const need = 3 - (bk.iron_ingot ?? 0)
+            if (townLeft('iron_ingot') - need < GOODS.iron_ingot.keep) break
+            await draw('iron_ingot', need)
+          }
+          if ((mkBag(bot).iron_ingot ?? 0) < 3) break
+          const before = mkBag(bot).bucket ?? 0
+          try { await craft(ctx, { item: 'bucket', count: 1 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+          if ((mkBag(bot).bucket ?? 0) <= before) break
+        }
+        // THE KIT KEEPS ONE: of every bucket the bag holds (empty or full), one is never sold
+        const bk = mkBag(bot)
+        drawn.water_bucket = Math.max(0, Math.min(n, bk.water_bucket ?? 0, (bk.water_bucket ?? 0) + (bk.bucket ?? 0) - 1))
+        continue
+      }
+      let need = Math.max(0, n - (mkBag(bot)[item] ?? 0))
+      for (let k = 0; k < 3 && need > 0; k++) {
+        // the town read AGAIN at each draw: never below its keep (another bot may have drawn since the plan)
+        need = Math.min(need, Math.max(0, townLeft(item) - (GOODS[item]?.keep ?? 0)))
+        // room: the trades' outputs and leftovers need free slots (mineflayer's putAway DROPS what does not fit: Codex BLOCKER 3)
+        need = Math.min(need, Math.max(0, 36 - bot.inventory.items().length - 4) * 64)
+        if (need <= 0) break
+        const got = await draw(item, Math.min(64, need))
+        if (got <= 0) break
+        need -= got
+      }
+      drawn[item] = Math.min(n, mkBag(bot)[item] ?? 0)
+    }
+    // EMERALDS to spend: only when the merchant's last-read offers sell a want
+    if (plan.spend > 0 && (mkBag(bot).emerald ?? 0) < plan.spend) {
+      const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }
+      await withdrawVerb(ctx, { item: 'emerald', count: plan.spend - (mkBag(bot).emerald ?? 0) }, signal, rs)
+    }
+    check(signal)
+    // a merchant with known offers is visited only with something to trade; an unread one is worth one look
+    if (plan.why === 'trade' && !Object.values(drawn).some(n => n > 0) && !((mkBag(bot).emerald ?? 0) > 0)) return end('no_effect', 'no_goods')
+    // WALK to it (it moves: follow it by uuid, a few legs)
+    let e = null
+    for (let leg = 0; leg < 4 && Date.now() < until - 30_000; leg++) {
+      e = Object.values(bot.entities ?? {}).find(x => (x.uuid ?? String(x.id)) === merchant.uuid) ?? null
+      if (!e) break
+      if (e.position.distanceTo(bot.entity.position) <= 3) break
+      try { await goto(ctx, { x: Math.floor(e.position.x), y: Math.floor(e.position.y), z: Math.floor(e.position.z), range: 2 }, signal, { until: Math.min(until - 30_000, Date.now() + 45_000) }) } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+      check(signal)
+    }
+    e = Object.values(bot.entities ?? {}).find(x => (x.uuid ?? String(x.id)) === merchant.uuid) ?? null
+    if (!e) { restFor(MARKET.restMs); return end('no_effect', 'gone') }
+    if (zoneNear(townPlanZones(bot).zones, Math.floor(e.position.x), Math.floor(e.position.z))) { restFor(MARKET.restMs); return end('no_effect', 'in_zone') }
+    if (e.position.distanceTo(bot.entity.position) > 3.2) { restFor(MARKET.failBackoffMs); return end('failed', 'unreachable') }
+    // the row's at= is where the window opens (shopread MK2 judges it against the zones)
+    merchant = { ...merchant, x: e.position.x, y: e.position.y, z: e.position.z }
+    let v = null
+    const opening = openMerchant(bot, e)
+    let tm = null
+    try { v = await Promise.race([opening, new Promise((_, rej) => { tm = setTimeout(() => rej(new Error('open timed out')), 10_000) })]) } catch (err) {
+      // a window that opens AFTER the timeout is closed when it opens (Claude review r1 note), never left open on the walk home
+      opening.then(w => { try { w.close() } catch { /* closed */ } }, () => {})
+      try { if (bot.currentWindow) bot.closeWindow(bot.currentWindow) } catch { /* none */ }
+      restFor(MARKET.failBackoffMs); return end('failed', 'no_window', String(err?.message ?? err))
+    } finally { clearTimeout(tm) }
+    try {
+      const rec = offersRecord(v.trades)
+      const all = mkRead('offers', {})
+      all[merchant.uuid] = { at: Date.now(), profession: merchant.profession, level: merchant.level ?? null, x: Math.floor(e.position.x), y: Math.floor(e.position.y), z: Math.floor(e.position.z), offers: rec }
+      for (const [u, r] of Object.entries(all)) if (Date.now() - (r?.at ?? 0) > 3 * MARKET.offersFreshMs) delete all[u]
+      mkWrite('offers', all)
+      try { logEvent({ kind: 'trade_seen', status: 'success', snapshot: snapshot(bot), detail: `${merchant.profession}${merchant.level ? ` L${merchant.level}` : ''} at ${Math.floor(e.position.x)},${Math.floor(e.position.y)},${Math.floor(e.position.z)}: ${offersDetail(v.trades)}`, args: { profession: merchant.profession, level: merchant.level ?? null, uuid: merchant.uuid } }) } catch { /* telemetry */ }
+      // sell only what this run drew (never the bag's kit): the kit's bucket stays
+      const stackOf = name => bot.registry?.itemsByName?.[name]?.stackSize ?? 64
+      const have = {}
+      for (const [item, n] of Object.entries(drawn)) have[item] = Math.min(n, winCount(v, item))
+      const sells = sellOffers(v.trades, have)
+      const wantsNow = townWants(mkTownStock(bot) ?? {}, mkBag(bot))
+      res = await runTrades(v, { sells, buys: [] }, { sleep: ms => sleep(ms, signal), stackOf })
+      if (!res.halt) {
+        const buys = buyOffers(v.trades, { emeralds: Math.min(winCount(v, 'emerald'), MARKET.spendPerRun), wants: wantsNow })
+        const r2 = await runTrades(v, { sells: [], buys }, { sleep: ms => sleep(ms, signal), stackOf })
+        res.spent += r2.spent; Object.assign(res.bought, r2.bought); res.halt = r2.halt; res.why = r2.why
+      }
+      if (res.halt) {
+        try { await settleCursor(bot, v, { budgetMs: 5_000 }) } catch { /* bounded */ }
+        try { invalidateClicks(bot, 'market_run halt') } catch { /* none */ }
+      }
+    } finally { try { v.close() } catch { /* closed */ } }
+    restFor(MARKET.restMs)
+    for (const [item, n] of Object.entries(res.sold)) try { logEvent({ kind: 'trade', status: 'success', snapshot: snapshot(bot), detail: `op=sell item=${item} n=${n} with=${merchant.profession}`, args: { op: 'sell', item, n, profession: merchant.profession } }) } catch { /* telemetry */ }
+    for (const [item, n] of Object.entries(res.bought)) try { logEvent({ kind: 'trade', status: 'success', snapshot: snapshot(bot), detail: `op=buy item=${item} n=${n} with=${merchant.profession}`, args: { op: 'buy', item, n, profession: merchant.profession } }) } catch { /* telemetry */ }
+    // HOME (the town deposit banks the emeralds and the goods)
+    const h = mkHome()
+    if (Date.now() < until) { try { await goto(ctx, { x: h.x, y: h.y, z: h.z, range: 6 }, signal, { until: Math.min(until, Date.now() + 60_000) }) } catch (err) { if (err?.aborted || signal?.aborted) throw err } }
+    const traded = Object.keys(res.sold).length + Object.keys(res.bought).length > 0
+    return end(traded ? 'success' : 'no_effect', res.halt ? 'halted' : traded ? 'traded' : 'looked', res.why)
+  } catch (err) {
+    if (err?.aborted || signal?.aborted) { end('no_effect', 'aborted'); throw err }
+    return end('failed', 'error', String(err?.message ?? err))
+  }
+}
+/** market_job: craft the job block at town, walk to the market cell, place it, read the claim. One `_market_job` row per step. */
+async function marketJob (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const row = (status, o) => { try { logEvent({ kind: 'market_job', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: jobDetail(o), args: { op: o.op, block: o.block ?? null, why: o.why ?? null, claim: o.claim ?? null, at: o.cell ? `${o.cell.x},${o.cell.y},${o.cell.z}` : null } }) } catch { /* telemetry */ } }
+  const plan = marketJobPlan(bot, Date.now())
+  // the cooldown starts AFTER the plan (sandbox4 11-06: stamped first, the skill's own re-plan refused itself `cooldown`)
+  mkState.lastJobAt = Date.now()
+  if (!plan.ok) { row('no_effect', { op: 'skip', why: plan.why }); return { status: 'no_effect', detail: `market_job: ${plan.why}` } }
+  const block = plan.block
+  if (args?.block && args.block !== block) { row('no_effect', { op: 'skip', why: 'changed', block }); return { status: 'no_effect', detail: 'market_job: changed' } }
+  if (!mkLease(bot, Date.now(), { take: true, name: 'job' })) { row('no_effect', { op: 'skip', why: 'leased', block }); return { status: 'no_effect', detail: 'market_job: leased' } }
+  try { return await marketJobHeld(ctx, plan, signal, row) } finally { mkLease(bot, Date.now(), { release: true, name: 'job' }) }
+}
+async function marketJobHeld (ctx, plan, signal, row) {
+  const { bot } = ctx
+  const block = plan.block
+  // the cell first (no craft for a market with no room)
+  const blockAt = (x, y, z) => { const b = bot.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name } : null }
+  const jobIds = Object.values(PROFESSION_BLOCK).map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
+  const existing = (bot.findBlocks?.({ matching: jobIds, maxDistance: 64, count: 64 }) ?? []).map(p => ({ x: p.x, z: p.z }))
+  const pick = marketCell(blockAt, plan.cluster, { zones: plan.zones, existing })
+  if (!pick.cell) { row('no_effect', { op: 'skip', why: pick.why, block, cluster: plan.cluster }); return { status: 'no_effect', detail: `market_job: ${pick.why}` } }
+  try {
+    if ((mkBag(bot)[block] ?? 0) < 1) {
+      // the inputs from town, then the craft (craft makes the planks / slabs / sticks it needs from what the bag holds)
+      const need = JOB_RECIPES[block] ?? {}
+      for (const [item, n] of Object.entries(need)) {
+        check(signal)
+        if (item === 'planks' || item === 'slab') {
+          const logs = Object.entries(mkBag(bot)).filter(([k]) => /_log$/.test(k)).reduce((a, [, c]) => a + c, 0)
+          const planks = Object.entries(mkBag(bot)).filter(([k]) => /_planks$/.test(k)).reduce((a, [, c]) => a + c, 0)
+          // the town's most plentiful log (4 planks each; 9 planks cover a barrel's 6 + its 2 slabs)
+          const logName = Object.entries(mkTownStock(bot) ?? {}).filter(([k]) => /_log$/.test(k) && !/stripped/.test(k)).sort((a, b) => b[1] - a[1])[0]?.[0]
+          if (planks + 4 * logs < 10 && logName) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item: logName, count: 3 }, signal, rs) }
+          continue
+        }
+        if (item === 'stone_slab') { if ((mkBag(bot).stone ?? 0) < 3) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item: 'stone', count: 3 }, signal, rs) } continue }
+        const have = mkBag(bot)[item] ?? 0
+        if (have < n) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item, count: n - have }, signal, rs) }
+      }
+      try { await craft(ctx, { item: block, count: 1 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    if ((mkBag(bot)[block] ?? 0) < 1) { row('no_effect', { op: 'skip', why: 'no_craft', block }); return { status: 'no_effect', detail: `market_job: could not make ${block}` } }
+    const c = pick.cell
+    try { await goto(ctx, { x: c.x, y: c.y, z: c.z, range: 3 }, signal, { until: Date.now() + 60_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    if (bot.entity.position.distanceTo(new Vec3(c.x + 0.5, c.y, c.z + 0.5)) > 4.5) { row('failed', { op: 'skip', why: 'unreachable', block, cell: c }); return { status: 'failed', failClass: 'no_path', detail: 'market_job: unreachable' } }
+    // the cell read again at the click: the same cell still chosen (empty, open ground, outside the zone)
+    const exist2 = (bot.findBlocks?.({ matching: jobIds, maxDistance: 64, count: 64 }) ?? []).map(p => ({ x: p.x, z: p.z }))
+    const re = marketCell(blockAt, plan.cluster, { zones: townPlanZones(bot).zones, existing: exist2 })
+    if (!re.cell || re.cell.x !== c.x || re.cell.y !== c.y || re.cell.z !== c.z) { row('no_effect', { op: 'skip', why: 'changed', block, cell: c }); return { status: 'no_effect', detail: 'market_job: the cell changed' } }
+    const led0 = mkRead('jobs', [])
+    if ((Array.isArray(led0) ? led0 : []).filter(e => Date.now() - (e.at ?? 0) < 24 * 3600_000).length >= MARKET.jobsPerDay) { row('no_effect', { op: 'skip', why: 'day_cap', block, cell: c }); return { status: 'no_effect', detail: 'market_job: the day cap' } }
+    const it = bot.inventory.items().find(i => i.name === block)
+    await bot.equip(it, 'hand')
+    try { await bot.placeBlock(bot.blockAt(new Vec3(c.x, c.y - 1, c.z)), new Vec3(0, 1, 0)) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    await sleep(500, signal)
+    if (bot.blockAt(new Vec3(c.x, c.y, c.z))?.name !== block) { row('failed', { op: 'place_failed', block, cell: c }); return { status: 'failed', failClass: 'unverified', detail: 'market_job: the place did not land' } }
+    const ledger = mkRead('jobs', [])
+    mkWrite('jobs', [...(Array.isArray(ledger) ? ledger : []), { x: c.x, y: c.y, z: c.z, block, at: Date.now(), bot: bot.username, cluster: plan.cluster.n, uuids: plan.cluster.uuids }].slice(-200))
+    row('success', { op: 'placed', block, cell: c, cluster: plan.cluster, d: pick.d })
+    await sleep(MARKET.claimWaitMs, signal)
+    const nowSeen = Object.values(bot.entities ?? {}).map(merchantOfAny).filter(Boolean)
+    const ids = new Set(plan.cluster.uuids)
+    const took = nowSeen.find(m => ids.has(m.uuid) && m.profession === plan.profession)
+    row('success', { op: 'claim', block, cell: c, cluster: plan.cluster, claim: took ? `claimed:${took.profession}` : 'unclaimed' })
+    return { status: 'success', detail: `market_job: ${block} placed${took ? `, a ${took.profession} now` : ''}` }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row('failed', { op: 'error', block, why: String(e?.message ?? e).slice(0, 60) })
+    return { status: 'failed', failClass: 'skill_error', detail: `market_job: ${String(e?.message ?? e).slice(0, 80)}` }
+  }
+}
+/** MARKET-01, once per spawn (features.mjs): the ask wired and the licence row. Never throws. */
+export function marketInstall (bot) {
+  mkBot = bot
+  if (MARKET_ON.on) setMarketAsk(marketAsk)
+  try { logEvent({ kind: 'market_mode', status: 'success', snapshot: snapshot(bot), detail: marketModeDetail(MARKET_ON.on, MARKET_ON.jobs) }) } catch { /* telemetry */ }
+}
+export const _marketTest = { marketRunPlan, marketJobPlan, mkFillBucket, mkState, mkFile }
 export function tradeInstall (bot) {
   // a death ends the trip (Claude review 11-04 note 2): the bag is gone and the crumbs lead from where it died, not from spawn
   try { bot.on?.('death', () => { if (bot.tradeTrip) { try { logEvent({ kind: 'trade_trip', status: 'failed', snapshot: snapshot(bot), detail: tripDetail(bot.tradeTrip, 'end=death') }) } catch { /* telemetry */ } bot.tradeTrip = null; tradeLeaseRelease(bot) } }) } catch { /* no events */ }
@@ -21073,7 +21457,9 @@ export const SKILL_CONTRACTS = {
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
   deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip
-  trade_trip: { expects: ['position', 'inventory_gain', 'inventory_loss'], maxMs: 180_000 },   // coalsale-01: one phase step of a trade trip
+  trade_trip: { expects: ['position', 'inventory_gain', 'inventory_loss'], maxMs: 180_000 },
+  market_run: { expects: ['inventory_loss', 'inventory_gain'], maxMs: 300_000 },   // market-01: goods go, emeralds come; the `_market_run` row
+  market_job: { expects: ['world_change'], maxMs: 240_000 },   // market-01: a job block placed in the market   // coalsale-01: one phase step of a trade trip
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
@@ -22269,7 +22655,9 @@ export const SKILLS = {
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
   build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
   deep_mine: { run: deepMine, usage: 'deep_mine', args: [], chatOnly: true },   // deepminer-01 (cognitive.mjs issues it; never the model's)
-  trade_trip: { run: tradeTrip, usage: 'trade_trip', args: [], chatOnly: true },   // coalsale-01 (cognitive.mjs issues it; never the model's)
+  trade_trip: { run: tradeTrip, usage: 'trade_trip', args: [], chatOnly: true },
+  market_run: { run: marketRun, usage: 'market_run', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)
+  market_job: { run: marketJob, usage: 'market_job', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)   // coalsale-01 (cognitive.mjs issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:
