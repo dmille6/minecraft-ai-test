@@ -151,6 +151,8 @@ test('STUCK: a goal whose walk resets stuck twice within latchMs is latched to t
   let t = 0
   const p = ST.makeScafTownPrice({ now: () => t })
   const g = new goals.GoalBlock(1, 2, 3), h = new goals.GoalBlock(4, 5, 6)
+  // both goals' routes were shaped by the price (a priced, touched search settled for each)
+  for (const q of [g, h]) { const s = p.begin({ goal: q }); s.hits = 1; p.settle(s, { status: 'success' }) }
   assert.equal(p.stuck(g), false)
   assert.equal(p.stuck(h), false)
   t += 1000
@@ -161,6 +163,16 @@ test('STUCK: a goal whose walk resets stuck twice within latchMs is latched to t
   t += ST.SCAF_TOWN.latchMs + 1
   assert.equal(p.stuck(h), false, 'the first stall expired: this is a new first')
   assert.equal(p.begin({ goal: g }).mode, 'priced', 'the latch expired')
+  // LIVE 11-08 (scaftown-02): a goal the price never touched never counts a stall, however often the walk resets 'stuck'
+  const u = ST.makeScafTownPrice({ now: () => t })
+  const k = new goals.GoalBlock(7, 8, 9)
+  const s0 = u.begin({ goal: k }); u.settle(s0, { status: 'success' })   // priced search, hits 0: the base's route
+  for (let i = 0; i < 30; i++) assert.equal(u.stuck(k), false)
+  assert.equal(u.latches, 0); assert.equal(u.stuckSkipped, 30)
+  const s1 = u.begin({ goal: k }); s1.hits = 2; u.settle(s1, { status: 'success' })
+  assert.equal(u.stuck(k), false); assert.equal(u.stuck(k), true, 'once the price shaped its route, two stalls latch it')
+  t += ST.SCAF_TOWN.latchMs + 1
+  assert.equal(u.stuck(new goals.GoalBlock(7, 8, 9)), false, 'the touch expires with the latch window')
   const off = ST.makeScafTownPrice({ on: false })
   assert.equal(off.stuck(g), false); assert.equal(off.stuck(g), false)
   assert.equal(p.stuck(null), false)
@@ -413,6 +425,13 @@ test('MUTANTS: the exemption, the post-legality price, the cap, the budget and t
     const r = driveLikeGoto(pf, m, goal, { timeout: 60000, afterFirst: () => { step = 50 } })
     assert.equal(m.__scafPrice.restarts, 0, 'M6 killed: no restart')
     assert.ok(r.status === 'success' && r.cost !== b.cost, `M6 killed: without the restart the search does not end at the base's cost (${r.cost} vs ${b.cost})`)
+  })
+  // M7 (scaftown-02) the touched check removed: a goal the price never shaped latches on routine stalls
+  await withMutant(ST_URL, 'if (!(tu > t)) { price.stuckSkipped++; return false }', '', async mod => {
+    const u = mod.makeScafTownPrice({ now: () => 0 })
+    const k = new goals.GoalBlock(7, 8, 9)
+    u.stuck(k); u.stuck(k)
+    assert.equal(u.latches, 1, 'M7 killed: an untouched goal latched')
   })
   // M5 the price as a pre-legality exclusion (what lidplace.mjs rejects): the near-100 tower-under-obsidian move disappears
   const wo = world({ '0,72,0': 'iron_block' })
