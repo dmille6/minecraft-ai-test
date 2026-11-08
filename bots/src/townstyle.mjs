@@ -22,7 +22,7 @@
 //      log corner posts, a stone foundation course, sills, porches, lights) and the per-building SEEDED choices. See the second half.
 
 import { rot } from './townplan.mjs'
-import { windowPalette } from './glass.mjs'   // glass-01: the window palette blueprints share
+import { windowPalette, GLASS } from './glass.mjs'   // glass-01: the window palette blueprints share
 
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 
@@ -179,11 +179,12 @@ export const WOODS = Object.freeze(['oak', 'spruce', 'birch', 'jungle', 'acacia'
 /** The foundation stones a style may pick (each has its own stairs and slab). */
 export const STONES = Object.freeze(['cobblestone', 'stone_bricks'])
 /** A palette with its style tokens resolved -> a new palette. Pure. '%wood_planks' -> 'spruce_planks'; '%stone' -> 'cobblestone'. */
-export function stylePalette (palette, style = {}) {
+export function stylePalette (palette, style = {}, { glass = GLASS.on } = {}) {
   const wood = style.wood ?? 'oak', roof = style.roof ?? wood, stone = style.stone ?? 'cobblestone'
   const sub = s => String(s).replace(/%roof/g, roof).replace(/%wood/g, wood).replace(/%stone/g, stone)
   const out = {}
-  for (const [k, v] of Object.entries(palette ?? {})) out[k] = [...new Set((v ?? []).map(sub))]
+  // glass-01 (Codex show r1 BLOCKER): GLASS=off sites a window as before -- glass, else the wall (no trapdoor fallback)
+  for (const [k, v] of Object.entries(palette ?? {})) out[k] = [...new Set((v ?? []).filter(c => glass || !(v[0] === 'glass_pane' && c === '%wood_trapdoor')).map(sub))]
   return out
 }
 /** A small stable hash of a string -> uint32 (FNV-1a). Pure. The seeded choices' coin. */
