@@ -281,6 +281,12 @@ M = [
  ("                meal_ok = decor_lawn_meal_ok if lawn else decor_meal_ok\n", "                meal_ok = decor_meal_ok\n"),
  ("                meal_ok = decor_lawn_meal_ok if lawn else decor_meal_ok\n", "                meal_ok = lambda c_, x_, t_: decor_lawn_meal_ok(c_, x_, t_) or decor_meal_ok(c_, x_, t_)\n"),
  ("    return [n['at'] for g in sink_in_force(chain, t_ms) for n in g.get('lawns') or []", "    return [n['at'] for g in chain or [] for n in g.get('lawns') or []"),
+ # boardwalk-03 WW1/WW2: the water walk's placement (a plank on a deck cell in force) and its digs (a listed bot cell, its material)
+ ("    if not str(block or '').replace('minecraft:', '').endswith('_planks'):\n        return False\n", ""),
+ ("(c[3] == b or (c[3] in WW_DIRT and b in WW_DIRT))", "True"),
+ ("                    elif plot == WATERWALK:\n", "                    elif False:\n"),
+ ("                elif plot == WATERWALK and rec is not None:\n", "                elif False and rec is not None:\n"),
+ ("    for g in sink_in_force(chain, t_ms):\n        for c in g.get('listed') or []:", "    for g in chain:\n        for c in g.get('listed') or []:"),
 ]
 bad = 0
 for old, new in M:

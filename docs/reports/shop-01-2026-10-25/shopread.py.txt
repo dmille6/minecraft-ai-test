@@ -747,6 +747,38 @@ def sink_place_ok(chain, cell, t_ms):
     return any(ck(c.get('at')) == k for g in sink_in_force(chain, t_ms) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at'))
 
 
+# BOARDWALK-03 (11-08): THE WATER WALK (bots/src/boardwalk.mjs, project=waterwalk): the bots' dirt and cobble standing in the town's
+# water -- dug out, or replaced IN PLACE by planks on a line the bots cross. Its record lists every genesis-proven bot cell of the pool's
+# evidence file (`listed`: [x, y, z, name]; scripts/host/waterstrays.py) and the walk lines' deck cells (`cells`, role deck).
+#   WW1 a placement is a DECK cell of a generation in force, planks only (` deck`);
+#   WW2 a dig (kind=tidy: a cut; kind=foreign: a deck cell's listed block taken out for its plank) is a LISTED cell of a generation in
+#       force, and the block dug is a bot material (WW_MAT; the dirt family stands for a listed dirt) -- else clear_outside (` waterwalk`).
+WATERWALK = 'waterwalk'
+WW_MAT = re.compile(r'^(dirt|coarse_dirt|rooted_dirt|grass_block|cobblestone|mossy_cobblestone|cobbled_deepslate|netherrack|stone|andesite|diorite|granite|deepslate|tuff|sandstone|red_sandstone|dripstone_block)$')
+WW_DIRT = frozenset(['dirt', 'coarse_dirt', 'rooted_dirt', 'grass_block'])
+
+
+def waterwalk_place_ok(chain, cell, block, t_ms):
+    """boardwalk-03 WW1: a deck cell of a generation in force, a plank. -> bool. Pure."""
+    k = ck(cell)
+    if not str(block or '').replace('minecraft:', '').endswith('_planks'):
+        return False
+    return any(ck(c.get('at')) == k for g in sink_in_force(chain, t_ms) for c in g.get('cells') or [] if isinstance(c, dict) and c.get('at'))
+
+
+def waterwalk_clear_ok(chain, cell, block, t_ms):
+    """boardwalk-03 WW2: a listed cell of a generation in force, the block a bot material matching the listing (the dirt family as
+    one). -> bool. Pure."""
+    k, b = ck(cell), str(block or '').replace('minecraft:', '')
+    if not WW_MAT.match(b):
+        return False
+    for g in sink_in_force(chain, t_ms):
+        for c in g.get('listed') or []:
+            if isinstance(c, list) and len(c) >= 4 and ck(c[:3]) == k and (c[3] == b or (c[3] in WW_DIRT and b in WW_DIRT)):
+                return True
+    return False
+
+
 WALLDEMO = 'walldemo'
 WALLDEMO_DEPTH = 3
 
@@ -1680,6 +1712,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     if not off and plot == DECOR and f.get('kind') == 'pot_fill' and not decor_pot_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms):
                         off = True
                         pwhy = ' pot'
+                elif plot == WATERWALK and rec is not None:
+                    # boardwalk-03 WW1: a plank on a deck cell of a generation in force
+                    t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                    off = not waterwalk_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms)
+                    pwhy = ' deck' if off else ''
                 elif plot == YARD and rec is not None:
                     # any generation of the yard's chain (a re-sited yard's earlier stock stays the yard's -- Claude r1 note)
                     off = not any(yard_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
@@ -1764,6 +1801,11 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         else:
                             ok = tidy_clear_ok(chain_t, cell, f.get('kind'), t_ms, guards[pool])
                             why = ' guarded' if tidy_guarded(cell, t_ms, guards[pool]) else ''
+                    elif plot == WATERWALK:
+                        # boardwalk-03 WW2: a listed (genesis-proven) bot cell, its bot material, of a generation in force -- a cut or a deck dig
+                        t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
+                        ok = rec is not None and waterwalk_clear_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms)
+                        why = '' if ok else ' waterwalk'
                     elif plot == CROPFARM and f.get('kind') == 'seedgrass':
                         # cropfarm-01 G9: the seed gather -- a grass plant, off every record and marker, outside the park, near the farm
                         if pool not in guards:
@@ -2189,6 +2231,21 @@ def selftest():
     assert wpl('40,71,40') == 0 and wpl('41,71,40', block='spruce_fence_gate') == 0, 'the ring\'s fence and gate on their cells'
     assert wpl('40,71,40', s_=14) == 1, 'positive control: before W1 is sited its fence is off the record'
     assert wpl('42,71,40') == 1 and wpl('40,72,40') == 1, 'positive control: a fence beside or above its cell trips'
+    # boardwalk-03 (11-08): the water walk -- sited an hour in: a walk line's deck cell 50,62,10 (listed dirt) and a listed cut 52,62,12
+    vg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'waterwalk', 'blueprint': 'waterwalk@1', 'at': T0MS + 3_600_000, 'structure_complete': False, 'home': {'x': 0, 'y': 70, 'z': 0},
+           'cells': [{'at': [50, 62, 10], 'role': 'deck', 'seg': 'W000-0-50_10'}], 'segments': [{'seg': 'W000-0-50_10', 'deps': []}], 'clear': [], 'cut': [],
+           'listed': [[50, 62, 10, 'dirt'], [52, 62, 12, 'cobblestone']]}
+    vchain = record_chain([(1, json.dumps(vg1).encode())])
+    VP_ = {'board-a': {**PR(), 'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}, 'chain': [rec]},
+                                            'waterwalk': {'record': vchain[-1], 'records_files': 1, 'leases': {}, 'chain': vchain}}}, 'board-b': PR()}
+    vrow = lambda op, c, block, kind='', s_=3_700: J(base + [R('_build', ('project=waterwalk op=%s seg=W000-0-50_10 cell=%s block=%s' % (op, c, block)) + (' kind=%s' % kind if kind else ''), s=s_)], VP_)
+    assert vrow('place', '50,62,10', 'spruce_planks')['off_record'] == 0, 'WW1: a plank on its deck cell'
+    assert vrow('place', '50,62,10', 'spruce_planks', s_=14)['off_record'] == 1, 'WW1 positive control: before the record is sited, off the record'
+    assert vrow('place', '51,62,10', 'spruce_planks')['off_record'] == 1 and vrow('place', '50,62,10', 'dirt')['off_record'] == 1, 'WW1 positive controls: beside the deck, or not a plank'
+    assert vrow('clear', '52,62,12', 'cobblestone', 'tidy')['clear_outside'] == 0 and vrow('clear', '50,62,10', 'grass_block', 'foreign')['clear_outside'] == 0, 'WW2: a listed cut, a deck cell\'s greened dirt'
+    assert vrow('clear', '53,62,12', 'cobblestone', 'tidy')['clear_outside'] == 1, 'WW2 positive control: an unlisted cell trips'
+    assert vrow('clear', '52,62,12', 'stone', 'tidy')['clear_outside'] == 1 and vrow('clear', '52,62,12', 'oak_log', 'foreign')['clear_outside'] == 1, 'WW2 positive controls: another block on a listed cell trips'
+    assert vrow('clear', '52,62,12', 'cobblestone', 'tidy', s_=14)['clear_outside'] == 1, 'WW2 positive control: before the record is sited'
     # decorator-01 (11-04): the decor sink -- a nursery-only generation (centre 30,70,30) before the window, D1 (two border flowers and a
     # pot) and a moved nursery (centre 60,70,60; the first kept in `nurseries`) an hour in. DC1 meal, DC2 bloom, DC3 pot fill.
     cg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'decor', 'blueprint': 'decor@1', 'builders_max': 3, 'at': T0MS - 60_000, 'structure_complete': True, 'home': {'x': 0, 'y': 70, 'z': 0},

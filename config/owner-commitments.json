@@ -6113,6 +6113,36 @@
     ]
    },
    "note": "Measured 11-08: fleet 77 window cells, 74 planks; town sand 161/12 towns (10 hold 0), panes 61; safe surface sand ~0-53 cells within 96 a town (hive-d a desert; board-b 0, placebo-d 2); drowning 2/13 deaths 24 h, both underground. Showcase 66 windows, 32 planks, panes 35."
+  },
+  {
+   "kind": "fleet",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "boardwalk-03-1108",
+   "title": "boardwalk-03 (owner 11-08): replace the bots' dirt and cobble lines standing in water with plank walkways where bots cross; remove the stray bot dirt and cobble in water (only blocks the bots placed)",
+   "owner_date": "2026-11-08",
+   "memory": [
+    "boardwalk3-1108.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-08: BUILT fleet boardwalk-03-on-1e593b9b 70a410c9 (tier 2, protected.py not protected; Codex r1 3 + r2 1 blockers fixed, r3 none) -- queue entry ~/mcai-analysis/boardwalk-03.queue-entry.json + registration boardwalk-03.70a410c9.json (effectwatch validate: valid) for the CONTROL SESSION to `queue add` (pin placebo-b / hive-c); showcase boardwalk-03show 8dcfdcd0 on live dd79b56a READY TO STAGE, NOT RELEASED -- install main's shopread WW1/WW2 (project=waterwalk) on .40 with the stage. Evidence files expire 2026-12-08 (re-run scripts/host/waterstrays.py).",
+   "evidence": {
+    "grep": [
+     "boardwalk-03",
+     "waterwalk"
+    ],
+    "branches": [
+     "boardwalk-03-on-1e593b9b",
+     "boardwalk-03show"
+    ],
+    "paths": [
+     "scripts/host/waterstrays.py",
+     "sandbox/woodworks/boardwalk3-proof.cjs",
+     "docs/reports/boardwalk-03-2026-11-08.md"
+    ]
+   },
+   "note": "Genesis proof (Paper 1.21.8 b60 from each world's seed): fleet 12,180 bot cells standing in water in 16 pools (357 walk lines, 1,777 cells); showcase 139 (0 walk lines; CoreProtect confirms 6, all by showcase bots). Controls: non-stone genesis/live 93.7-96.4%, wrong seed 4.4%."
   }
  ]
 }
