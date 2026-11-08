@@ -170,6 +170,17 @@ export function bw3Work (lines, read, { guard = () => false, walkOn = true, home
   return { cuts, record: { v: 1, blueprint: 'waterwalk@1', plot: BW3_PLOT, cells, segments, clear: [], cut: [], replant: [], zones: [] }, stats: st }
 }
 
+/**
+ * THE DECK A VISIT MAY OPEN (Codex r2 BLOCKER: one plank in the bag and three open deck cells dug the second cell and stopped
+ * no_material) -> the record with every DONE deck cell and only the first `planks` OPEN ones (in the record's order: nearest a bank
+ * first, so each kept cell's parent is kept), their segments only. No cell is dug that the bag cannot plank in the same visit. Pure.
+ */
+export function bw3DeckFor (record, planks, isDone) {
+  let left = Math.max(0, Math.floor(Number(planks) || 0))
+  const cells = (record?.cells ?? []).filter(c => { if (isDone(c)) return true; if (left > 0) { left--; return true } return false })
+  const segs = new Set(cells.map(c => c.seg))
+  return { ...record, cells, segments: (record?.segments ?? []).filter(s => segs.has(s.seg)) }
+}
 /** Is there work a visit can do now? (a cut still standing, or a deck cell not yet planks). Pure. */
 export const bw3HasWork = w => !!w && (w.cuts.length > 0 || w.stats.deck > w.stats.deckDone)
 /** The planks a visit still owes its open deck cells (less the bag's spare), at most `cap`. Pure. */
