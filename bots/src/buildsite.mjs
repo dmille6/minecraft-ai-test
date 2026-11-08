@@ -34,6 +34,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell, sectorOf, keepouts, boxMeetsZones, cellInZones, rot } from './townplan.mjs'
 import { worldState, orientAim, slabMerges } from './townstyle.mjs'
+import { isCottage2Blueprint, cottage2Blueprint, lookOf } from './cottage2.mjs'   // cottage2-01: the generated cottage family
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const k2 = (x, z) => `${x},${z}`
@@ -59,7 +60,8 @@ const STEM = /(_stem|_hyphae|^mushroom_stem|_mushroom_block)$/
 // bot furniture and fittings that refuse a site when they stand in its span (fitc.py's STATION list, plus the plan's FURNITURE)
 const BUILT = /(chest|barrel|furnace|smoker|crafting_table|_bed$|lectern|composter|torch|lantern|ladder|_door$|_sign$|_hanging_sign$|rail$|_trapdoor$|_fence_gate$|hopper|anvil|bell|brewing_stand|_button$|lever|_pressure_plate$|campfire|_carpet$|_banner$|flower_pot)/
 // a block the click would USE (it opens or toggles): never a support -- builder.mjs refUsable at eb407fa0, verbatim
-const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$/
+// cottage2-01: a BED is used, never a support (Paper 11-08: a bed clicked beside a placed bed was a sleep, 8 of 8 clicks; nothing placed)
+const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|_bed$/
 // a 'block' bounding box that is NOT a full cube a bot stands on as one step: fences and walls are 1.5 high, slabs and stairs
 // are not one step, the rest are short or hollow (Codex siting r1 P2: a fence was walked as a floor)
 const PARTIAL = /(_fence$|_wall$|_fence_gate$|_slab$|_stairs$|_carpet$|_pane$|^iron_bars$|^chain$|_trapdoor$|_bed$|^chest$|^trapped_chest$|^ender_chest$|^lantern$|^soul_lantern$|^ladder$|^flower_pot$|^potted_|^cocoa$|^chorus_plant$|^end_portal_frame$|^pitcher_crop$|^dried_ghast$|_hanging_sign$|^repeater$|^comparator$|^turtle_egg$|^sniffer_egg$|sculk_sensor$|^sculk_shrieker$|^frogspawn$|^lightning_rod$|^heavy_core$|^bell$|_head$|_skull$|^cake$|candle|^lectern$|^enchanting_table$|^stonecutter$|^daylight_detector$|^hopper$|anvil$|^brewing_stand$|^composter$|cauldron$|^snow$|^scaffolding$|_door$|^conduit$|_rod$|^grindstone$|campfire$|^bamboo$|^cactus$|^honey_block$|^dragon_egg$|_pressure_plate$|_button$|^sea_pickle$|_coral$|_coral_fan$|_coral_wall_fan$|^lily_pad$|^pointed_dripstone$|azalea$|_bud$|^amethyst_cluster$|^big_dripleaf$|^decorated_pot$|^pitcher_plant$)/
@@ -71,7 +73,7 @@ const NEEDS_2X2 = new Set(['dark_oak', 'pale_oak'])
 const PLACED_MAT = /(_planks$|^cobblestone$|^mossy_cobblestone$|^stone_bricks$|^cobbled_deepslate$|glass|_wool$|_slab$|_stairs$|_wall$|_fence$|_concrete$|^bricks$|^smooth_stone$|copper|_bricks$|^stripped_)/
 const AIR = Object.freeze({ name: 'air', boundingBox: 'empty' })
 const SOLID = name => Object.freeze({ name, boundingBox: 'block' })
-const ROLE_BOX = { light: 'empty' }
+const ROLE_BOX = { light: 'empty', flower: 'empty' }   // cottage2-01: a window box's flower is walked through
 
 /** A full cube a bot stands on: a 'block' box that is not one of the PARTIAL shapes. Pure. */
 export const fullCube = b => isSolid(b) && !PARTIAL.test(nm(b))
@@ -100,7 +102,11 @@ export function groundOf (read, x, z, hy) {
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 /** A blueprint by id ('workshop@1') from bots/src/blueprints/. */
-export function loadBlueprint (id) { return JSON.parse(fs.readFileSync(`${here}blueprints/${id}.json`, 'utf8')) }
+export function loadBlueprint (id) {
+  // cottage2-01: the cottage@2 family is GENERATED per look (cottage2.mjs), never a file
+  if (isCottage2Blueprint(id)) return cottage2Blueprint(lookOf(id))
+  return JSON.parse(fs.readFileSync(`${here}blueprints/${id}.json`, 'utf8'))
+}
 
 /** The cardinal unit vector a local direction (du, dv) points to under an orientation. */
 const dirOf = (orient, du, dv) => { const { dx, dz } = rot(orient, du, dv); return [Math.sign(dx), Math.sign(dz)] }
@@ -468,7 +474,10 @@ const SUPPORTS = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
 export function stepFor (read, home, cell, nodes, domain = null, want = null) {
   const [cx, cy, cz] = cell
   let best = null, bd = Infinity
-  for (const [fx, fy, fz] of SUPPORTS) {
+  // cottage2-01: a HANGING lantern is clicked on the underside of the block above it (Paper 11-08: under a bottom stair and a bottom slab;
+  // under a top slab vanilla stands it on the floor instead -- the state check then digs it): only such a cell takes the face above
+  const hanging = want?.ws?.hanging === true || want?.ws?.hanging === 'true'
+  for (const [fx, fy, fz] of hanging ? [...SUPPORTS, [0, 1, 0]] : SUPPORTS) {
     const sup = [cx + fx, cy + fy, cz + fz]
     if (!refUsable(read(...sup))) continue
     const normal = [0 - fx, 0 - fy, 0 - fz]   // never -0 (a record compares and serialises cleanly)
@@ -488,6 +497,8 @@ export function stepFor (read, home, cell, nodes, domain = null, want = null) {
       if (!ys || !(domain ? domain(sx, sz) : inDomain(home, sx, sz))) continue
       for (const sy of ys) {
         if (sx === cx && sz === cz && (sy === cy || sy + 1 === cy)) continue
+        // cottage2-01: never a stand in a cell the click also fills (a bed's head: `want.also`)
+        if (want?.also?.some(([ax, ay, az]) => sx === ax && sz === az && (sy === ay || sy + 1 === ay))) continue
         const eye = [sx + 0.5, sy + EYE, sz + 0.5]
         const v = [eye[0] - fc[0], eye[1] - fc[1], eye[2] - fc[2]]
         const d = Math.hypot(...v)
@@ -533,13 +544,16 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
     // one's so far) is in the overlay: a wall, and a floor. The walk is recomputed only when no cell has a step and something
     // was placed since the last walk (a builder walks onto the pad it has laid); with nothing new, the cell is no_step.
     const mine = cells.filter(c => c.seg === sg.seg)
-    const left = mine.slice().sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
+    // cottage2-01: a bed's HEAD is never clicked -- the foot's click puts it there (it rides with its foot, below)
+    const left = mine.filter(c => !c.byFoot).sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
+    const headOf = c => (c.role === 'bed' && c.bed ? mine.find(h => h.byFoot && h.bed === c.bed) ?? null : null)
     const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), walkR, { stood }))
     let nodes = walkNow(), fresh = true, walks = 1
     while (left.length) {
       let pick = -1, step = null
       for (let i = 0; i < left.length; i++) {
-        step = stepFor(R, home, left[i].at, nodes, domain, left[i].ws || left[i].blind ? { name: blockFor(bp, left[i].role), ws: left[i].ws ?? null, blind: !!left[i].blind } : null)
+        const hd = headOf(left[i])
+        step = stepFor(R, home, left[i].at, nodes, domain, left[i].ws || left[i].blind || hd ? { name: blockFor(bp, left[i].role), ws: left[i].ws ?? null, blind: !!left[i].blind, ...(hd ? { also: [hd.at] } : {}) } : null)
         if (step) { pick = i; break }
       }
       if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; continue }
@@ -547,7 +561,12 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
       fresh = false
       const c = left.splice(pick, 1)[0]
       over.set(k3(...c.at), Object.freeze({ name: blockFor(bp, c.role), boundingBox: ROLE_BOX[c.role] ?? 'block', ...(c.ws ? { props: c.ws } : {}) }))   // townstyle-02: a placed state cell's state (a slab's half)
-      out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++, ...(c.ws ? { ws: c.ws } : {}), ...(c.blind ? { blind: true } : {}) })
+      out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++, ...(c.ws ? { ws: c.ws } : {}), ...(c.blind ? { blind: true } : {}), ...(c.bed ? { bed: c.bed } : {}) })
+      const hd = headOf(c)
+      if (hd) {
+        over.set(k3(...hd.at), Object.freeze({ name: blockFor(bp, hd.role), boundingBox: 'block', ...(hd.ws ? { props: hd.ws } : {}) }))
+        out.push({ at: hd.at, role: hd.role, seg: hd.seg, stand: step.stand, support: c.at, face: [0, 0, 0], order: order++, ...(hd.ws ? { ws: hd.ws } : {}), bed: hd.bed, byFoot: true })
+      }
     }
     segOut.push({ seg: sg.seg, layer: sg.layer, deps: sg.deps, cells: mine.length, walks, stands: new Set(out.filter(o => o.seg === sg.seg).map(o => k3(...o.stand))).size })
   }
