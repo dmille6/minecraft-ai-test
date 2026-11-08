@@ -168,6 +168,8 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf } from './shop.mjs'   // idlework-01 B: an unsited project yields its turn
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { buildNextOn, nextBreakerOn, nextNote, nextHeld, nextBackoff, setNextHoldOf, NEXT_K, NEXT_HOLD_MS } from './shop.mjs'   // buildnext-01: never idle on a blocked project
+import { LIGHT_PLOTS } from './shop.mjs'   // workboard-01: the job's bag rule
+import { boardJob, jobBlocked, WB as WORKBOARD_T } from './townwork.mjs'   // workboard-01: the town work board (phase A)
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -17233,10 +17235,12 @@ const stoodKey = () => projKeyOf(SHOP_PLOT)
  * an unreadable state is the workshop (the job as before).
  */
 let activeMem = null
-export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) {
+export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) { return shopActiveAll(bot, now, { visit }).pick }
+/** workboard-01: shopActive's pick AND the marked states it chose from -> { pick, states } (states null: one project, or a throw). */
+export function shopActiveAll (bot = null, now = Date.now(), { visit = false } = {}) {
   try {
     const list = projectsOn()
-    if (list.length === 1) return list[0]
+    if (list.length === 1) return { pick: list[0], states: null }
     const dir = townDir()
     if (bot) activeMem = { ...(activeMem ?? {}), bot }
     const sig = `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
@@ -17293,6 +17297,13 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const lastTake = plot => { const c0 = sc.get(plot); if (c0 && now - c0.at < STARVE_READ_MS && now >= c0.at) return c0.v; const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }
     const marked = starve ? starveMark(waitedN, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedN
     let pick = activeProject(marked, order)
+    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
+    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
+    const bp = b?.boardPick
+    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
+      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+      if (sp && st && jobBlocked(st) == null) pick = sp
+    }
     if (starve && visit) {
       const st = marked.find(x => x?.plot === pick.plot)
       if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null
@@ -17301,9 +17312,40 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
       if (sp && st && !st.complete) pick = sp
     }
     if (visit) noteRepair(rmem, pick, states, now)
-    return pick
-  } catch { return projectsOn()[0] }
+    return { pick, states: marked }
+  } catch { return { pick: projectsOn()[0], states: null } }
 }
+/**
+ * WORKBOARD-01 (townwork.mjs): THE TOWN'S JOB FOR THIS BOT NOW -> townwork.mjs boardJob ({ plot, workable, why, starved, cands }), or
+ * null when the board cannot read the town (the shop off, no town plan, a single project, a throw): then the board stands aside.
+ * The job IS shopActive's pick (one rule: keeper/crew, repairs, starve, stuck, unsited, buildnext), workable or not. Never throws.
+ */
+export function boardJobNow (bot, now = Date.now()) {
+  try {
+    if (!SHOP.on || !bot || !townPlanNow(bot)) return null
+    const { pick, states } = shopActiveAll(bot, now)
+    if (!states) return null
+    return boardJob(pick, states)
+  } catch { return null }
+}
+/** WORKBOARD-01: claim one of `plot`'s admission slots BEFORE the walk (buildproj.mjs takeSlot: the visit's own takeSlot renews
+ *  it in place, so a traveller holds the slot it will build in) -> { ok, slot, gen } | { ok: false, why }. Never throws. */
+export function boardClaim (bot, plot, now = Date.now()) {
+  try {
+    const p = projectsOn().find(q => q.plot === plot)
+    if (!p) return { ok: false, why: 'no_project' }
+    return takeSlot(townDir(), projKeyOf(plot), bot?.username ?? config.bot?.name ?? 'bot', buildersOf(p), { now, ttl: WORKBOARD_T.claimTtlMs })
+  } catch { return { ok: false, why: 'claim_failed' } }
+}
+/** WORKBOARD-01: give a claim back (ours by name and generation: a visit that renewed it moved the generation, so this is a no-op
+ *  then). Never throws. */
+export function boardRelease (bot, plot, claim) {
+  try { if (claim && Number.isFinite(claim.slot)) releaseLease(townDir(), projKeyOf(plot), `slot${claim.slot}`, bot?.username ?? config.bot?.name ?? 'bot', claim.gen) } catch { /* it lapses at its ttl */ }
+}
+/** WORKBOARD-01: pin the job's project for this bot's next visit (shopActiveAll honours it WB.claimTtlMs). */
+export function boardPin (bot, plot, now = Date.now()) { if (bot) bot.boardPick = plot ? { plot, at: now } : null }
+/** WORKBOARD-01: the job's bag rule: a light plot needs 2 free slots, every other 8 (shop.mjs LIGHT_PLOTS). */
+export const boardLight = plot => LIGHT_PLOTS.has(plot)
 /** buildnext-01: is `plot` held for bot `b` now (its breaker, its own last stuck_on_cell)? -> reason | null. Never throws. */
 function buildNextHeld (b, plot, now = Date.now()) {
   try { return nextHeld(plot, { mem: b?.shopNext ?? null, stuck: b?.shopStuckPlot ?? null, now, breaker: nextBreakerOn() }) } catch { return null }
@@ -17798,7 +17840,8 @@ function stuckCellsPublish (bot, dir, key, rec, r, me, plot) {
 }
 async function buildShop (ctx, args, signal) {
   // starve-01: a starved pick is held for this visit only (shopActive `starvePick`)
-  try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) ctx.bot.starvePick = null } catch { /* the window ends it */ } }
+  // workboard-01: the board's pin is for ONE visit too (the next board order pins again)
+  try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) { ctx.bot.starvePick = null; ctx.bot.boardPick = null } } catch { /* the window ends it */ } }
 }
 /**
  * idlework-01 B: a visit that ends `no_site` and leaves no record stamps that PROJECT unsited (shop.mjs unsitedWrite), so the next

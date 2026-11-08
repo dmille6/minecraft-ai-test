@@ -29,6 +29,9 @@ import { townPlinthState } from './skills.mjs'
 import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys, matsTownHasRoom } from './skills.mjs'
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
 import { shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt } from './skills.mjs'
+import { boardJobNow, boardClaim, boardRelease, boardPin, boardLight } from './skills.mjs'   // workboard-01: the town work board
+import { workboardMode, boardEligible, boardStep, boardAfter, boardDetail, rowDue, WB } from './townwork.mjs'   // workboard-01
+import { groundsBatchOpen } from './idlework.mjs'   // workboard-01: phase A's population (a grounds lap)
 import { SHOP, buildOrder } from './shop.mjs'
 // coalfirst-01 (OWNER 10-29): the coal run (coalrun.mjs decides; this supplies readings and keeps the state)
 import { coalRunOrder, coalRunOutcome, coalRunDetail, COAL_KINDS, COAL_ORE_RADIUS } from './coalrun.mjs'
@@ -422,6 +425,10 @@ export class CognitiveLoop {
     this.fdTally = null        // one fewerdec_tally row per 10 min: what the three rules did
     // VETO REMEDY (vetoremedy.mjs; idlegap): a model veto on `return` / `deposit_surplus` queues the rung's own skill for the next tick
     this.vetoRemedy = vetoRemedyConfig(process.env)
+    // WORKBOARD-01 (townwork.mjs): the switch, this bot's per-job back-offs, the rows' rate limit
+    this.wbMode = workboardMode(process.env)
+    this.boardMem = { jobs: {}, travelUntil: 0 }
+    this.boardRows = {}
     this.pendingRemedy = null  // { order, at, milestoneId }: used once, by the very next tick
     this.remedyHistory = []    // [{ rule, at }] the last hour's queued remedies: the exposure budget
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
@@ -1125,6 +1132,73 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /**
+   * WORKBOARD-01: THE BOARD'S TURN -> townwork.mjs boardStep ({ order, owns, why }). Only on a grounds lap of the idle_work rung
+   * (phase A's population); reads the town's job (skills.mjs boardJobNow), the bot's fitness (boardEligible) and the gate's memory
+   * (memoryRefuses, a READ), claims the job's slot before a walk, pins the job's project, and writes the `workboard` row.
+   */
+  #boardOrder(milestone, ready) {
+    const lap = String(milestone?.id ?? '').startsWith('idle_work') && groundsBatchOpen()
+    if (!lap) return { order: null, owns: false, why: 'not_grounds_lap' }
+    const bot = this.bot
+    const now = Date.now()
+    const p = bot.entity?.position
+    const job = boardJobNow(bot, now)
+    const dist = p ? Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) : Infinity
+    const elig = boardEligible({ lap, holds: milestoneHolds({ order: null, ready }), health: bot.health ?? 20,
+      freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, light: !!job?.plot && boardLight(job.plot), dist,
+      dy: p ? p.y - config.world.homeY : 0, travelHeldUntil: this.boardMem?.travelUntil ?? 0, now })
+    const st = boardStep({ mode: this.wbMode, elig, job, mem: this.boardMem, now, refuses: (s, a) => this.admission.memoryRefuses(s, a) })
+    const f = { mode: this.wbMode, plot: job?.plot ?? '-', dist: Number.isFinite(dist) ? Math.round(dist) : '-', cands: job?.cands ?? 0, starved: job?.starved ? 1 : 0 }
+    if (st.order) {
+      const b = st.order.board
+      if (b.travel) {
+        const c = boardClaim(bot, b.plot, now)
+        if (!c?.ok) {
+          this.boardMem = boardAfter(this.boardMem, { plot: b.plot, travel: true, declined: true, now }).mem
+          this.#boardRow('yield', 'claim_failed', f, now)
+          return { order: null, owns: true, why: 'claim_failed' }
+        }
+        b.claim = { slot: c.slot, gen: c.gen }
+        f.slot = c.slot; f.gen = c.gen
+      }
+      boardPin(bot, b.plot, now)
+      try { logEvent({ kind: 'workboard', status: 'success', detail: boardDetail({ op: 'issue', skill: st.order.skill, why: st.why, ...f }) }) } catch { /* telemetry only */ }
+      return st
+    }
+    this.#boardRow(this.wbMode === 'shadow' && String(st.why).startsWith('shadow') ? 'shadow' : 'yield', st.why, f, now)
+    return st
+  }
+
+  /** WORKBOARD-01: a yield/shadow row, at most once per reason per WB.rowEveryMs. Never throws. */
+  #boardRow(op, why, f, now) {
+    try {
+      const rd = rowDue(this.boardRows, `${op}:${why}`, now)
+      this.boardRows = rd.last
+      if (rd.emit) logEvent({ kind: 'workboard', status: 'no_effect', detail: boardDetail({ op, why, ...f }) })
+    } catch { /* telemetry only */ }
+  }
+
+  /** WORKBOARD-01: a board order's outcome -> its back-offs (townwork.mjs boardAfter), the claim back when the walk did not
+   *  arrive (or never ran), the pin dropped when nothing follows, and the `end` row. Never throws. */
+  #boardAfter(order, r, { declined = false, refused = false } = {}) {
+    try {
+      const b = order.board
+      const now = Date.now()
+      const p = this.bot.entity?.position
+      const arrived = !!b.travel && !refused && !declined && !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= WB.townR
+      const out = boardAfter(this.boardMem, { plot: b.plot, travel: !!b.travel, refused, declined, arrived, r, now })
+      this.boardMem = out.mem
+      if (b.travel && !arrived) { boardRelease(this.bot, b.plot, b.claim); boardPin(this.bot, null, now) }
+      if (!b.travel && (refused || declined)) boardPin(this.bot, null, now)
+      logEvent({ kind: 'workboard', status: out.worked || arrived ? 'success' : 'no_effect',
+        detail: boardDetail({ op: 'end', mode: this.wbMode, skill: order.skill, plot: b.plot,
+          status: refused ? 'refused' : declined ? 'declined' : (r?.status ?? '-'),
+          stop: b.travel ? (arrived ? 'arrived' : 'not_arrived') : (r?.stop ?? '-'), placed: Number(r?.placed) || 0,
+          worked: b.travel ? null : (out.worked ? 'yes' : 'no'), backoff_s: Math.round(out.backoffMs / 1000) }) })
+    } catch { /* the board's memory only */ }
+  }
+
   async #tick(trigger) {
     { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
@@ -1503,10 +1577,18 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    // WORKBOARD-01 (townwork.mjs; codeeval phase 3 item 1): THE TOWN WORK BOARD, phase A. On a grounds lap the town's build/tidy job
+    // (shopActive's pick, when workable) is ORDERED -- a claimed slot and `home` when away, `build_shop` pinned to the job at town --
+    // and the model is asked only when no job fits. It OWNS the workshop slot for that population (the shop step below stands
+    // down, so the shop's per-bot cooldown and the board's per-job back-offs never both decide). WORKBOARD=off: exactly as before.
+    let boardOwns = false
+    if (!order && this.wbMode !== 'off') {
+      try { const wb = this.#boardOrder(milestone, ready); boardOwns = !!wb.owns; if (wb.order) order = wb.order } catch { /* a world read must never break the decision loop */ }
+    }
     // THE WORKSHOP (shop-01; shop.mjs buildOrder decides, this supplies readings and keeps the state). After the materials job,
     // only with NOTHING chosen above: at town, shared towns only, never a trip; SHOP=off switches it off. The cooldown is charged
     // at issue and refunded on a decline (refundDeclined).
-    if (!order && SHOP.on) {
+    if (!order && SHOP.on && !boardOwns) {
       try {
         const bot = this.bot
         const p = bot.entity?.position
@@ -1717,6 +1799,8 @@ export class CognitiveLoop {
       if (doKeys && !check.ok) doKeys.push('model_refused', ...(res.proposal?.skill === 'deposit' ? ['deposit_refused'] : []))
       // coalfirst-01: a coal run the gate refused never ran -- its pending mark goes (the cooldown charged at issue stands)
       if (!check.ok && order?.args?.coalrun === true) this.coalRunState = { ...(this.coalRunState ?? {}), pending: false }
+      // workboard-01: a board order the gate refused backs that job off for this bot (townwork.mjs boardAfter) -- never re-issued
+      if (!check.ok && order?.board) this.#boardAfter(order, null, { refused: true })
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
       // snapshot is the bag the refusal judged; `wanted` and `source` must always read 0 / model).
       if (rejection?.reason === 'redundant_craft' && rejection.redundant) {
@@ -1784,6 +1868,8 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'make_material') this.matsState = matsOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.matsState ?? {})
       // THE WORKSHOP (shop-01): the visit's stop rides with the cooldown (S1: no_site waits a day)
       if (!declined && admitted.skill === 'build_shop') this.shopState = { ...(this.shopState ?? {}), lastAt: Date.now(), lastStop: r.stop ?? r.failClass ?? r.status }
+      // workboard-01: the board order's outcome into its back-offs and its `end` row (a decline included: it never ran)
+      if (order?.board && admitted.skill === order.skill) this.#boardAfter(order, r, { declined })
       // coalfirst-01: the coal run's outcome (a decline refunds the cooldown; no coal gained backs off)
       if (admitted.skill === 'gather' && admitted.args?.coalrun === true) {
         const coalNow = (this.bot.inventory?.items?.() ?? []).filter(it => it?.name === 'coal').reduce((n, it) => n + (it.count ?? 0), 0)
