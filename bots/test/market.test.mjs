@@ -329,7 +329,7 @@ await t('MUTANT KILLED: a free test that accepts any sighting places job blocks 
   })
 })
 await t('MUTANT KILLED: without the zone fence the market cell may fall inside the box', async () => {
-  await withMutant(SRC, "  const fenced = (x, y, z) => (zoneNear(zones, x, z, MARKET.zonePad + 1) ? { name: 'bedrock' } : blockAt(x, y, z))", '  const fenced = blockAt', async X => {
+  await withMutant(SRC, "  const fenced = (x, y, z) => (zoneNear(zones, x, z, MARKET.zonePad + 1) || refusedAt(refuse, x, z) ? { name: 'bedrock' } : blockAt(x, y, z))", '  const fenced = blockAt', async X => {
     // the ground west of the pad is leaf canopy (no floor a job block may stand on): only cells in the pad (x 46..48) are open
     const over = {}
     for (let x = 30; x <= 45; x++) for (let z = -14; z <= 14; z++) over[`${x},64,${z}`] = 'oak_leaves'
@@ -344,6 +344,142 @@ await t('MUTANT KILLED: dropping the market ask from buildOrder', async () => {
     X.setMarketAsk(() => ({ order: { skill: 'market_run', args: {} } }))
     assert.notEqual(X.buildOrder({ on: true, shared: true, atTown: true, planned: true, now: 1e12, state: {}, complete: true }).order?.skill, 'market_run')
   })
+})
+
+// ---- the showcase batch19b fold (Codex fold review, 4 blockers) ------------------------------------------------------------
+await t('fold BLOCKER 1: a market cell, a bed foot and head never on the town\'s reserved ground (refuse), nor beside it', () => {
+  const cl = M.unemployedClusters([{ uuid: 'a', x: 60.5, y: 64, z: 0.5, profession: 'none' }])[0]
+  const free = M.marketCell(world(), cl, { zones: [ZONE] })
+  assert.ok(free.cell, 'POSITIVE: an unreserved world gives a cell')
+  // reserve a 9x9 square round the free answer: the cell moves off it and its 8 neighbours are off it too
+  const R = (x, z) => (Math.abs(x - free.cell.x) <= 4 && Math.abs(z - free.cell.z) <= 4 ? 'project:forest' : null)
+  const r = M.marketCell(world(), cl, { zones: [ZONE], refuse: R })
+  assert.ok(r.cell, r.why)
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) assert.equal(R(r.cell.x + dx, r.cell.z + dz), null, `reserved at ${r.cell.x + dx},${r.cell.z + dz}`)
+  assert.equal(M.marketCell(world(), cl, { zones: [ZONE], refuse: () => 'unreadable' }).cell, null, 'an all-refusing reader: no cell')
+  assert.equal(M.marketCell(world(), cl, { zones: [ZONE], refuse: () => { throw new Error('x') } }).cell, null, 'a refuser that throws refuses (fail closed)')
+  const b0 = M.bedCells(world(), cl, { zones: [ZONE] })
+  const RB = (x, z) => (x === b0.head.x && z === b0.head.z ? 'marker' : null)
+  const b = M.bedCells(world(), cl, { zones: [ZONE], refuse: RB })
+  assert.ok(b.foot, b.why)
+  assert.equal(RB(b.head.x, b.head.z), null, 'the head never on a reserved column')
+})
+await t('fold BLOCKERS 2 + 4: the market yields to a held share, the keeper\'s lease and a standing service offer', () => {
+  assert.equal(M.marketYield({}), null, 'POSITIVE: nothing held -> the market may ask')
+  assert.equal(M.marketYield({ shareHeld: true }), 'share_held')
+  assert.equal(M.marketYield({ keeper: true }), 'keeper')
+  assert.equal(M.marketYield({ serviceLive: true }), 'service_due')
+})
+await t('fold BLOCKER 3: a bought want is banked and never disposal junk while the market is on; beds and the fleet unchanged', async () => {
+  const W = await import('../src/well.mjs'), B = await import('../src/bankable.mjs')
+  const bag = [{ name: 'white_wool', count: 18 }, { name: 'lantern', count: 2 }, { name: 'red_bed', count: 1 }, { name: 'iron_ingot', count: 3 }]
+  try {
+    W.setWellKeep(null); B.setDepositExtra(null)
+    assert.equal(W.isWellJunk('white_wool'), true, 'POSITIVE: wool is owner-listed junk (10-07) without the market')
+    assert.deepEqual(B.depositPlan(bag).map(e => e.name).sort(), ['iron_ingot'], 'POSITIVE: unwanted wool / lantern stay out of the deposit without it')
+    W.setWellKeep(M.marketKeeps); B.setDepositExtra(M.marketKeeps)
+    assert.equal(W.isWellJunk('white_wool'), false, 'the market\'s wool is never thrown')
+    assert.equal(W.isWellJunk('lever'), W.WELL_JUNK.has('lever'), 'a name the market never buys: as before')
+    assert.deepEqual(B.depositPlan(bag).map(e => e.name).sort(), ['iron_ingot', 'lantern', 'white_wool'], 'bought wants banked; the bed (kit) stays')
+    W.setWellKeep(() => { throw new Error('x') })
+    assert.equal(W.isWellJunk('white_wool'), false, 'a keep that throws keeps')
+  } finally { W.setWellKeep(null); B.setDepositExtra(null) }
+})
+await t('fold wiring (structural): the ask yields first, all four placements pass the town refusal, install sets both keeps', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const ask = src.slice(src.indexOf('export function marketAsk'), src.indexOf('async function mkFillBucket'))
+  assert.ok(ask.indexOf('marketYield(') > 0 && ask.indexOf('marketYield(') < ask.indexOf('marketJobPlan('), 'marketYield before any market plan')
+  const calls = src.split('\n').filter(l => /\b(marketCell|bedCells)\(/.test(l))
+  assert.equal(calls.length, 4, 'four market placement picks')
+  for (const l of calls) assert.ok(l.includes('refuse: cutterRefusal()'), `without the town refusal: ${l.trim().slice(0, 80)}`)
+  assert.ok(/setWellKeep\(marketKeeps\); setDepositExtra\(marketKeeps\)/.test(src))
+})
+await t('fold r2 wiring (structural): the click re-reads the reservations and the ledger, the walk-in takes the job lease and keeps the kit bed', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const body = (from, to) => src.slice(src.indexOf(from), src.indexOf(to, src.indexOf(from) + 1))
+  const bed = body('async function mkPlaceBed', 'async function mkPlaceCarried ')
+  const car = body('async function mkPlaceCarried ', 'async function mkPlaceCarriedHeld')
+  const held = body('async function mkPlaceCarriedHeld', 'async function marketTrip ')
+  for (const [n, b] of [['bed', bed], ['carried', held]]) {
+    assert.ok(b.indexOf('mkReservedNear(') > 0 && b.indexOf('mkReservedNear(') < b.indexOf('bot.placeBlock('), `${n}: the reservations re-read before the click`)
+  }
+  assert.ok(/mkLease\(bot, Date\.now\(\), \{ take: true, name: 'job' \}\)/.test(car) && /release: true, name: 'job'/.test(car), 'the walk-in composter holds the job lease')
+  assert.ok(held.indexOf("mkRead('jobs'", held.indexOf('mkReservedNear(')) > 0, 'the ledger read again at the click')
+  assert.ok(/mkBeds\(bot\) > bedsKit/.test(src) && /const bedsKit = mkBeds\(bot\)/.test(src), 'only beds beyond the kit are placed')
+})
+await t('MUTANT KILLED: without the town refusal in the fence the market cell lands on reserved ground', async () => {
+  await withMutant(SRC, ' || refusedAt(refuse, x, z) ?', ' ?', async X => {
+    const cl = M.unemployedClusters([{ uuid: 'a', x: 60.5, y: 64, z: 0.5, profession: 'none' }])[0]
+    const free = M.marketCell(world(), cl, { zones: [ZONE] })
+    const R = (x, z) => (Math.abs(x - free.cell.x) <= 4 && Math.abs(z - free.cell.z) <= 4 ? 'project:forest' : null)
+    const r = X.marketCell(world(), cl, { zones: [ZONE], refuse: R })
+    assert.ok(r.cell && R(r.cell.x, r.cell.z), 'the mutant keeps the reserved cell')
+  })
+})
+await t('MUTANT KILLED: the well keep removed throws the bought wool', async () => {
+  await withMutant(new URL('../src/well.mjs', import.meta.url), ' && !isCompostJunk(name) && !wellKept(name)', ' && !isCompostJunk(name)', async X => {
+    X.setWellKeep(M.marketKeeps)
+    assert.equal(X.isWellJunk('white_wool'), true)
+  })
+})
+
+// ---- market-03show: hay for the wandering trader (MEASURED 11-07/08: 7 trader windows, 0 trades, every run carried water_bucket:2
+// and crafted an empty bucket; the town: wheat 141, iron 122, hay 0; 6 of 7 traders bought hay_block 1 -> 1 emerald) ----------------
+const TOWN = { stone: 312, wheat: 141, iron_ingot: 122, coal: 91, cobblestone: 52, glass_pane: 40, sugar_cane: 37, redstone: 31, stick: 6 }
+await t('market-03show spareGoods: the town\'s wheat above HAY.wheatKeep is hay (2, a trader\'s uses); below the keep none; the bag\'s wheat counts', () => {
+  assert.equal(M.spareGoods(TOWN, {}).hay_block, 2, '141 wheat -> 12 makeable, carried 2')
+  assert.equal(M.spareGoods({ wheat: M.HAY.wheatKeep + 8 }, {}).hay_block, undefined, '8 above the keep makes no block')
+  assert.equal(M.spareGoods({ wheat: M.HAY.wheatKeep + 9 }, {}).hay_block, 1, 'POSITIVE: 9 above the keep makes one')
+  assert.equal(M.spareGoods({}, { wheat: 18 }).hay_block, 2, 'the bag\'s own wheat')
+  assert.equal(M.spareGoods({ hay_block: 1 }, {}).hay_block, 1, 'banked hay')
+})
+await t('market-03show goodsFor: an UNREAD trader near the measured town gets hay first; a KNOWN one with a hay offer gets its 2 uses', () => {
+  const spare = M.spareGoods(TOWN, {})
+  spare.water_bucket = 2
+  const g = M.goodsFor({ profession: 'wandering_trader' }, { spare })
+  assert.equal(g.hay_block, 2)
+  assert.equal(Object.keys(g)[0], 'hay_block', 'the likeliest offer (4/6) first')
+  const known = [{ in: 'hay_block', n: 1, out: 'emerald', out_n: 1, left: 2 }, { in: 'milk_bucket', n: 1, out: 'emerald', out_n: 2, left: 2 }]
+  assert.deepEqual(M.goodsFor({ profession: 'wandering_trader' }, { known, spare }), { hay_block: 2 }, 'milk is no good (no cows milked)')
+})
+await t('market-03show: the window sells both hay uses for 2 emeralds, then buys 2 x 8 logs (palette) with them', async () => {
+  const trades = [T('hay_block', 1, 'emerald', 1, { left: 2 }), T('milk_bucket', 1, 'emerald', 2, { left: 2 }), T('emerald', 1, 'jungle_log', 8, { left: 8 })]
+  const sells = M.sellOffers(trades, { hay_block: 2 })
+  assert.deepEqual(sells.map(s => [s.item, s.times, s.earn]), [['hay_block', 2, 2]])
+  const buys = M.buyOffers(trades, { emeralds: 2, wants: M.townWants(TOWN, {}) })
+  assert.deepEqual(buys.map(b => [b.what, b.times]), [['jungle_log', 2]])
+})
+await t('market-03show hayPlan: bag hay first, then banked hay, then crafted from wheat (bag wheat first, the town only above its keep)', () => {
+  assert.deepEqual(M.hayPlan({ n: 2, townWheat: 141 }), { drawHay: 0, drawWheat: 18, craft: 2 })
+  assert.deepEqual(M.hayPlan({ n: 2, bagHay: 2, townWheat: 141 }), { drawHay: 0, drawWheat: 0, craft: 0 })
+  assert.deepEqual(M.hayPlan({ n: 2, townHay: 1, townWheat: 141 }), { drawHay: 1, drawWheat: 9, craft: 1 })
+  assert.deepEqual(M.hayPlan({ n: 2, bagWheat: 12, townWheat: 141 }), { drawHay: 0, drawWheat: 6, craft: 2 })
+  assert.deepEqual(M.hayPlan({ n: 2, townWheat: M.HAY.wheatKeep + 9 }), { drawHay: 0, drawWheat: 9, craft: 1 }, 'never below the keep')
+  assert.deepEqual(M.hayPlan({ n: 2, townWheat: M.HAY.wheatKeep }), { drawHay: 0, drawWheat: 0, craft: 0 })
+})
+await t('market-03show marketKeeps: unsold hay is banked, never well junk', async () => {
+  const W = await import('../src/well.mjs')
+  try { W.setWellKeep(M.marketKeeps); assert.equal(M.marketKeeps('hay_block'), true); assert.equal(W.isWellJunk('hay_block'), false) } finally { W.setWellKeep(null) }
+})
+await t('MUTANT KILLED: without the hay in spareGoods the measured town carries water only (the 11-07/08 failure)', async () => {
+  await withMutant(SRC, '  if (hay > 0) out.hay_block = Math.min(hay, GOODS.hay_block.carry)\n', '', async X => {
+    const spare = X.spareGoods(TOWN, {}); spare.water_bucket = 2
+    assert.deepEqual(X.goodsFor({ profession: 'wandering_trader' }, { spare }), { water_bucket: 2 })
+  })
+})
+await t('MUTANT KILLED: hayPlan without the wheat keep draws the town below it', async () => {
+  await withMutant(SRC, 'Math.max(0, Math.floor(townWheat) - HAY.wheatKeep)', 'Math.max(0, Math.floor(townWheat))', async X => {
+    assert.deepEqual(X.hayPlan({ n: 2, townWheat: M.HAY.wheatKeep }), { drawHay: 0, drawWheat: 18, craft: 2 })
+  })
+})
+await t('market-03show wiring (structural): market_run makes hay through hayPlan + craft, and asks mkFindPond before any bucket is crafted', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const run = src.slice(src.indexOf('async function marketRun ('), src.indexOf('async function mkOpenAndTrade'))
+  const hay = run.slice(run.indexOf("if (item === 'hay_block')"), run.indexOf("if (item === 'water_bucket')"))
+  assert.ok(hay.includes('hayPlan(') && /craft\(ctx, \{ item: 'hay_block', count: can \}/.test(hay), 'hay drawn and crafted')
+  const water = run.slice(run.indexOf("if (item === 'water_bucket')"))
+  assert.ok(water.indexOf('mkFindPond(bot)') > 0 && water.indexOf('mkFindPond(bot)') < water.indexOf("item: 'bucket'"), 'the pond is found before a bucket is crafted')
+  assert.ok(/const b = mkFindPond\(bot\)/.test(src.slice(src.indexOf('async function mkFillBucket'))), 'the fill uses the same pond')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
