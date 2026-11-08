@@ -269,10 +269,19 @@ export function floorView (rec, done = () => false) {
  *   waive    publish a waiver                                               digs      the record's clears, trees, replants, cuts
  *   topup    add park elements, the storehouse floor                         donate   bank its own bag's spare park plants
  */
-export function crewCaps (role) {
+export function crewCaps (role, cutsOn = crewCutsOn()) {
   const k = role === 'keeper'
-  return Object.freeze({ site: k, complete: k, waive: k, digs: k, topup: k, donate: !k, gather: true })
+  // gkcrewcut-01: `cuts` -- the tidy's own cuts (the pillars, bumps and spoil the survey lists: buildrun.mjs `p.tidy`, dug under the one
+  // seg-clear lease) are a HELPER's work too; the record's clears (trees), siting, waivers and completion stay the keeper's
+  return Object.freeze({ site: k, complete: k, waive: k, digs: k, cuts: k || !!cutsOn, topup: k, donate: !k, gather: true })
 }
+// GKCREWCUT-01 (control session 11-08, the grounds pace): MEASURED showcase 04:47-08:50Z (45,949 rows, 14 bots) on the re-surveyed inside
+// stage (2,619 fills, 1,106 cuts): 17 cuts and 4 fills an hour -- 48 of the 69 cuts by the keeper (4.7 visits/h, 2.5 cuts a visit), helpers
+// 16 cuts (as keeper-to-be visits) and 15 fills in 27 visits; helper visits end "nothing of the grounds is this helper's now" and let the
+// lease go while 1,040 cuts wait for the one bot allowed to dig them. Tidy visits were 2.8% of the bots' time. GKCREWCUT=0 is the rollback.
+export const crewCutsOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.GKCREWCUT ?? '1').trim().toLowerCase())
+/** A helper visit that dug a cut did grounds work (it keeps its helper lease). Pure. */
+export const helperWorked = (r, gathered = 0) => (Number(r?.placed) || 0) > 0 || (Number(r?.cleared) || 0) > 0 || (Number(gathered) || 0) > 0
 /**
  * GKHANDOVER-01: IS MY LEASE LET GO, AS THE DISK SAYS -> bool. Pure over buildproj leaseState's answer READ AGAIN after the release.
  * LIVE showcase 11-04 15:12Z (batch 3, the tripwire's H4): showcase-Frost logged its helper2 release (why=keeper) at :40.806 but no

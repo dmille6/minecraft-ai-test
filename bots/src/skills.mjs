@@ -192,6 +192,7 @@ import { accessNoStair } from './tidy.mjs'   // the showcase batch fold: the sto
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
+import { helperWorked } from './groundskeeper.mjs'   // gkcrewcut-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
@@ -25703,7 +25704,8 @@ async function buildTidyVisit (ctx, args, signal) {
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
     // siteprep-01: a prep's cuts in LAYERS, the highest across the plot first (Codex review r1 BLOCKER 5: never a shaft mid-way)
-    const cuts = !caps.digs || floorOnly ? [] : prepNow ? prepCutOrder(cuts0.filter(q => q.prep === prepNow), fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
+    // gkcrewcut-01: a helper digs the tidy's cuts too (groundskeeper.mjs crewCaps `cuts`) -- never a terrace's or a site prep's (the keeper's)
+    const cuts = !(caps.digs || (caps.cuts && !isTerrace && !prepNow)) || floorOnly ? [] : prepNow ? prepCutOrder(cuts0.filter(q => q.prep === prepNow), fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
     const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
     // roughground-2/3 (Codex r1 BLOCKER): a topsoil cell (DIRT only) with no dirt in the bag reads done now -- its cobble is never dug
     // out to leave a hole; the next visit with dirt (or the next survey) lays it
@@ -25889,7 +25891,7 @@ async function buildTidyVisit (ctx, args, signal) {
       try { gathered = await parkGather(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, effects }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; gathered = { n: 0, why: 'error' } }
       f.gathered = gathered?.n ?? 0
     }
-    if (helper && r.placed === 0 && !(gathered?.n > 0)) { releaseHelper(bot, helper.name, helper.gen, 'idle'); helper = null; idleHelper = true }
+    if (helper && !helperWorked(r, gathered?.n ?? 0)) { releaseHelper(bot, helper.name, helper.gen, 'idle'); helper = null; idleHelper = true }   // gkcrewcut-01: a dug cut is work
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }

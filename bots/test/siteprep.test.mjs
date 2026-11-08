@@ -366,7 +366,7 @@ const W = [
   /const fd = prepFileDecision\(\{ on: true, kind, rec: cur, rejects: r\.rejects \?\? \{\}, now \}\)/,
   /if \(r\.meta\.prep\) \{ const hp = prepPublish\(dir, r\.meta\.prep, \{ type: 'handed', inst: r\.meta\.id \}, me\)/,
   /const r3 = await prepTick\(bot, dir, key, rec, me, signal\)/,
-  /const cuts = !caps\.digs \|\| floorOnly \? \[\] : prepNow \? prepCutOrder\(/,
+  /const cuts = !\(caps\.digs \|\| \(caps\.cuts && !isTerrace && !prepNow\)\) \|\| floorOnly \? \[\] : prepNow \? prepCutOrder\(/,   // gkcrewcut-01
   /if \(q\.state === 'prepping' && !retire\(q\.id\)\) continue/,
   /given: k => guard\.has\(k\) \|\| tidyGivenUp\(mem, k\) \|\| \(isTerrace && !cutAt\.get\(k\)\?\.prep && /,
   /if \(caps\.complete && !crewHolds && !platformUp\(rw\) && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
