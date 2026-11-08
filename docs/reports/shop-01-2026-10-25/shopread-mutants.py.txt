@@ -108,7 +108,7 @@ M = [
  ("    name = 'cells' if kind in ('foreign', 'cover') else 'clear'", "    name = 'clear'"),
  ("                elif plot in SINK_PLOTS and rec is not None:", "                elif False:"),
  # towndress-01 (11-03): the dress sink is a sink plot (its growing chain judged by the generations in force)
- ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor')", "SINK_PLOTS = ('road', 'tower', 'shrine', 'decor')"),
+ ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor', 'wood')", "SINK_PLOTS = ('road', 'tower', 'shrine', 'decor', 'wood')"),
  # cropfarm-01 (11-03): G9 farm_dig -- the harvest and the seed gather
  ("    if block not in CROP_BLOCKS:\n        return False\n", "    if False:\n        return False\n"),
  ("    return any(c.get('role') == 'wheat' and ck(c['at']) == k for rec in chain or []", "    return any(ck(c['at']) == k for rec in chain or []"),
