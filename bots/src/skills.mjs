@@ -19339,6 +19339,8 @@ export function expeditionInstall (bot) {
   // shore to another near town is a `cross` line in the town's crossings file (the traffic a designed bridge is sited from)
   if (EXPEDITION.on && EXPEDITION.bridge && BRIDGE_TRAFFIC_ON) {
     try {
+      // one watch a bot: a respawn re-runs the spawn work on the same bot (its old timer goes first)
+      if (bot._bridgeCrossWatch) clearInterval(bot._bridgeCrossWatch)
       let st = {}
       const timer = setInterval(() => {
         try {
@@ -19355,6 +19357,7 @@ export function expeditionInstall (bot) {
         } catch { /* a sample is telemetry-grade */ }
       }, CROSS_SAMPLE_MS)
       timer.unref?.()
+      bot._bridgeCrossWatch = timer
       bot.once?.('end', () => clearInterval(timer))
     } catch { /* not installed: no traffic sites */ }
   }
@@ -19665,6 +19668,14 @@ function exDesignFor (bot, site, read) {
  * an abort.
  */
 const DESIGN_KIT_STEPS = 40
+/** How much of a design material one take may draw -> n. Logs: the owner's reserve (takeAllowed over the town's others + here); any
+ *  other: what the visited container shows, above DESIGN_KEEP of the town's others + here (an unknown name: nothing). */
+export function designAllow (name, want, o = {}) {
+  if (reserveKeyOf(name) === 'logs') return takeAllowed(name, want, o)
+  if (!(name in DESIGN_KEEP)) return 0
+  const town = (Number(o?.others?.[name]) || 0) + (Number(o?.here?.[name]) || 0)
+  return Math.max(0, Math.min(Number(want) || 0, Number(o?.here?.[name]) || 0, town - DESIGN_KEEP[name]))
+}
 async function exDesignKit (ctx, signal, steps) {
   const { bot } = ctx
   const out = { ok: false, parts: 0, short: '', why: 'none' }
@@ -19677,15 +19688,10 @@ async function exDesignKit (ctx, signal, steps) {
     const base = designBase(lack()).base
     const h0 = held()
     const take = {}
-    const t = matsTownStock(bot)?.stock ?? {}
-    for (const [n, c] of Object.entries(base)) {
-      const need = c - (h0[n] ?? 0)
-      if (need <= 0) continue
-      const town = /_log$/.test(n) ? Math.floor(woodPressureNow(bot).avail ?? 0) : Math.max(0, (Number(t[n]) || 0) - (DESIGN_KEEP[n] ?? 0))
-      const k = Math.min(need, town, 256)
-      if (k > 0) take[n] = k
-    }
-    if (Object.keys(take).length) await matsWithdraw(ctx, take, signal, 20_000, matsReserve().table, decorAllow(take))
+    for (const [n, c] of Object.entries(base)) { const need = Math.min(c - (h0[n] ?? 0), 256); if (need > 0) take[n] = need }
+    // Codex r1 BLOCKER 2: what leaves the town's chests is judged AT EACH TAKE on the town's own stock (never the bag's): logs keep the
+    // owner's reserve (mats.mjs takeAllowed), every other material its DESIGN_KEEP (designAllow)
+    if (Object.keys(take).length) await matsWithdraw(ctx, take, signal, 20_000, matsReserve().table, designAllow)
     check(signal)
     // the parts, nuggets before lanterns, planks before what is made of them
     const order = Object.keys(lack()).sort((a, b) => (a === 'lantern') - (b === 'lantern') || /_planks$/.test(b) - /_planks$/.test(a))
@@ -19707,8 +19713,10 @@ async function exDesignKit (ctx, signal, steps) {
     const short = Object.entries(firstBill).filter(([n, c]) => (h[n] ?? 0) < c).map(([n, c]) => `${n}:${h[n] ?? 0}/${c}`)
     out.parts = Object.entries(want).reduce((a, [n, c]) => a + Math.min(c, h[n] ?? 0), 0)
     out.short = short.slice(0, 3).join(',')
-    out.ok = first.length > 0 && short.length === 0
-    out.why = out.ok ? 'ok' : first.length ? 'short' : 'nothing'
+    // Codex r1 BLOCKER 3: a bridge whose every required block stands (a trip that ran out of time after its last block) still gets a
+    // visit -- the build then reads `done` and records the bridge complete
+    out.ok = short.length === 0
+    out.why = !out.ok ? 'short' : first.length ? 'ok' : 'complete_only'
   } catch (e) { if (e?.aborted || signal?.aborted) throw e; out.why = String(e?.message ?? e).slice(0, 40) }
   return out
 }
@@ -19815,7 +19823,19 @@ async function expeditionVisit (ctx, args, signal) {
     if (EXPEDITION.bridge) exTrafficSite(bot, exBridgeSites(), zones)
     const bSites = EXPEDITION.bridge ? exBridgeSites() : []
     if (EXPEDITION.bridge) {
-      const cand = bridgeToBuild(bridgeBuildable(bSites, BRIDGE_WOOD_ON, BRIDGE_DESIGN_ON), Date.now())   // boardwalk fold: BRIDGE_WOOD=off builds no wooden site; bridges-01: BRIDGE_DESIGN=off no designed one
+      // bridges-01: with designs on, a NEW site that has no design yet (none fits it or the town cannot pay) WAITS -- and gives its turn
+      // to the next due site (up to 4), so one waiting site never holds every other one back
+      const due = bridgeBuildable(bSites, BRIDGE_WOOD_ON, BRIDGE_DESIGN_ON)
+      let cand = bridgeToBuild(due, Date.now())   // boardwalk fold: BRIDGE_WOOD=off builds no wooden site; bridges-01: BRIDGE_DESIGN=off no designed one
+      for (let k = 0; BRIDGE_DESIGN_ON && cand && k < 4; k++) {
+        if (cand.design || cand.mat || !Number.isInteger(cand.bearing)) break
+        const d0 = exDesignFor(bot, cand, exReader(bot))
+        if (d0.design || d0.why === 'started') break
+        exRow(bot, 'bridge_pick', `trip=${trip.id} id=${cand.id} seen=${cand.seen.size} w=${cand.span.w} design=0 why=${d0.why ?? '-'}${d0.tried ? ` tried=${Object.entries(d0.tried).slice(0, 3).map(([q, v]) => `${q}:${v}`).join(',')}` : ''} lease=0 next=1`, 'no_effect')
+        const skip = cand
+        cand = bridgeToBuild(due.filter(q => q !== skip), Date.now())
+        due.splice(due.indexOf(skip), 1)
+      }
       const cost = cand ? 5 * cand.span.w : 0
       // boardwalk-01: A NEW SITE IS BUILT OF WOOD while the town's logs are surplus (bridge.mjs bridgeMaterial: a site keeps its
       // material; a half-built cobble one stays cobble) -- the planks and fences crafted here from logs above the reserve, the material
@@ -19830,6 +19850,10 @@ async function expeditionVisit (ctx, args, signal) {
         const l = kit.ok ? takeSlot(dir, exBridgeKey(), me, 1, { ttl: budget + 60_000 }) : { ok: false, why: kit.why }
         exRow(bot, 'bridge_pick', `trip=${trip.id} id=${cand.id} seen=${cand.seen.size} w=${cand.span.w} ${designDetail(dsg.design)} named=${dsg.named ? 1 : 0} parts=${kit.parts} short=${kit.short || '-'} lease=${l.ok ? 1 : 0}${l.ok ? '' : ` why=${l.why}`}`, l.ok ? 'success' : 'no_effect')
         if (l.ok) { if (!dsg.named) cand.pendingDesign = dsg.design; bsite = cand; blease = l }
+      } else if (cand && Number.isInteger(cand.bearing) && BRIDGE_DESIGN_ON && !cand.mat && dsg?.why !== 'started') {
+        // Codex r1 BLOCKER 1: with designs on, a NEW site no design fits (or the town cannot pay for yet) WAITS -- never the plain plank
+        // or cobble bridge (owner 11-08: a bridge that is built is a showcase-worthy one); legacy sites already started are finished
+        exRow(bot, 'bridge_pick', `trip=${trip.id} id=${cand.id} seen=${cand.seen.size} w=${cand.span.w} design=0 why=${dsg?.why ?? '-'}${dsg?.tried ? ` tried=${Object.entries(dsg.tried).slice(0, 3).map(([k, v]) => `${k}:${v}`).join(',')}` : ''} lease=0`, 'no_effect')
       } else if (cand && Number.isInteger(cand.bearing) && mat === 'wood') {
         const sp = cand.species ?? woodSpeciesNow(bot)
         const kit = await exBridgeWoodKit(ctx, signal, cand, sp)

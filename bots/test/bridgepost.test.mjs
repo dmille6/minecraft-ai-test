@@ -234,7 +234,7 @@ await t('wiring (structural): the switch, the siting at a dry water turn, the br
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
   one(/bridge: bridgeOn\(process\.env\)/g, 'the switch')
   one(/if \(EXPEDITION\.bridge && !bsite && trip\.reason === 'water' && \/water\|swim_\/\.test\(String\(trip\.whys \?\? ''\)\) && !bot\.entity\?\.isInWater\) exSiteBridge\(bot, trip, read, keepOff, home\)/g, 'siting at a refused crossing')
-  one(/const cand = bridgeToBuild\(bridgeBuildable\(bSites, BRIDGE_WOOD_ON, BRIDGE_DESIGN_ON\), Date\.now\(\)\)/g, 'the site to build (boardwalk fold: the buildable sites; bridges-01: and the design switch)')
+  one(/const due = bridgeBuildable\(bSites, BRIDGE_WOOD_ON, BRIDGE_DESIGN_ON\)\s+let cand = bridgeToBuild\(due, Date\.now\(\)\)/g, 'the site to build (boardwalk fold: the buildable sites; bridges-01: and the design switch)')
   // boardwalk-01: the wooden pick and the cobble pick each take the same one-builder lease; bridges-01: the designed pick too
   assert.equal((src.match(/takeSlot\(dir, exBridgeKey\(\), me, 1, \{ ttl: budget \+ 60_000 \}\)/g) ?? []).length, 3, 'one builder: the lease (design, wood or cobble)')
   one(/releaseLease\(dir, exBridgeKey\(\), `slot\$\{blease\.slot\}`, me, blease\.gen\)/g, 'released in finally')
@@ -326,8 +326,10 @@ await t('fold (Codex BLOCKER): BRIDGE_WOOD=off builds no wooden site -- a site n
   assert.deepEqual(B.bridgeBuildable(null, false), [])
   for (const s of B.bridgeBuildable(sites, false)) assert.equal(B.bridgeMaterial(s, r, { on: false, woodAvail: 999 }), 'cobble', 'what is left off is built of cobble')
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.equal((src.match(/const cand = bridgeToBuild\(bridgeBuildable\(bSites, BRIDGE_WOOD_ON, BRIDGE_DESIGN_ON\), Date\.now\(\)\)/g) ?? []).length, 1, 'the trip picks from the buildable sites (bridges-01: and the design switch)')
-  assert.equal((src.match(/bridgeToBuild\(/g) ?? []).length, 1, 'no other pick')
+  assert.equal((src.match(/const due = bridgeBuildable\(bSites, BRIDGE_WOOD_ON, BRIDGE_DESIGN_ON\)/g) ?? []).length, 1, 'the trip picks from the buildable sites (bridges-01: and the design switch)')
+  // bridges-01: the pick, and the next due site when a new site waits for its design -- both from the buildable list
+  assert.equal((src.match(/bridgeToBuild\(/g) ?? []).length, 2, 'no other pick')
+  assert.equal((src.match(/cand = bridgeToBuild\(due\.filter\(q => q !== skip\), Date\.now\(\)\)/g) ?? []).length, 1, 'the next one is from the same list')
 })
 await t('boardwalk-01 wiring (structural): the expedition builds and judges a site by its own plan; the wooden pick names the material once its lease is taken', async () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
