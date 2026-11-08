@@ -202,8 +202,8 @@ await t('mutant: the execution-time test blind to a later siting is caught (the 
 })
 await t('WIRED: the visit passes sited plots\' entries (cells, cuts, clears) whoever visits; the keeper retires them first; a complete stage with a next one holds no stuck back-off; a completing visit is no idle mark', async () => {
   const s = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(/const waivedK = q => plotEntryRetired\(q, plotsSited\) \|\|/.test(s), 'cells (fills, stands) passed')
-  assert.ok(/const cuts0 = tidyCuts\(rec, read, mem\)\.filter\(q => !plotEntryRetired\(q, plotsSited\) &&/.test(s), 'cuts never dug')
+  assert.ok(/const waivedK = q => claimedQ\(q\) \|\| plotEntryRetired\(q, plotsSited\) \|\|/.test(s), 'cells (fills, stands) passed')
+  assert.ok(/const cuts0 = tidyCuts\(rec, read, mem\)\.filter\(q => !claimedQ\(q\) && !plotEntryRetired\(q, plotsSited\) &&/.test(s), 'cuts never dug')
   assert.ok(/if \(plotsSited\.size\) visitRec = \{ \.\.\.visitRec, clear: \(visitRec\.clear \?\? \[\]\)\.filter\(q => !plotEntryRetired\(q, plotsSited\)\) \}/.test(s), 'trees never felled')
   assert.ok(/plotRetire\(cur, plotsSitedNow\(cur, pr\)\)/.test(s), 'the keeper retires them')
   assert.ok(/const pr = plotRecordsNow\(\); plotsSited = pr \? plotsSitedNow\(rec, pr\) : new Set\(\(rec\.plotprep\.plots \?\? \[\]\)\.map\(p => String\(p\.id\)\)\)/.test(s), 'Codex r1: an unreadable record passes every plot (fail closed)')

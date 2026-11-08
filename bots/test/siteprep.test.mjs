@@ -368,7 +368,7 @@ const W = [
   /const r3 = await prepTick\(bot, dir, key, rec, me, signal\)/,
   /const cuts = !\(caps\.digs \|\| \(caps\.cuts && !isTerrace && !prepNow\)\) \|\| floorOnly \? \[\] : prepNow \? prepCutOrder\(/,   // gkcrewcut-01
   /if \(q\.state === 'prepping' && !retire\(q\.id\)\) continue/,
-  /given: k => guard\.has\(k\) \|\| tidyGivenUp\(mem, k\) \|\| \(isTerrace && !cutAt\.get\(k\)\?\.prep && /,
+  /given: k => guard\.has\(k\) \|\| claimedQ\(\{ at: k\.split\(','\)\.map\(Number\) \}\) \|\| tidyGivenUp\(mem, k\) \|\| \(isTerrace && !cutAt\.get\(k\)\?\.prep && /,
   /if \(caps\.complete && !crewHolds && !platformUp\(rw\) && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/,
   /if \(hold === 'stuck'\) \{\n\s*if \(!retire\(q\.id\)\) return head\(\)/,
   /const prepNow = prepSt\?\.hold === 'work' \? prepSt\.id : null/,
