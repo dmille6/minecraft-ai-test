@@ -106,6 +106,8 @@ export function stuckAfter (prev = {}, deferred = [], { done = () => false, now 
 }
 const SAPLING = /_sapling$|^mangrove_propagule$/
 const AIR = n => n === 'air' || n === 'cave_air'
+/** A dug cell is GONE when it reads air -- or water that flowed in (boardwalk-03: a block dug out of a lake). */
+export const DUG = n => AIR(n) || n === 'water'
 // a foreign block in a record cell that the builder may dig (design 4.3 B4 "scaffold-class"; Claude r1 P3-9): terrain and the
 // fleet's scaffold. Never a container, a station or a part: those stall the segment and say so
 // gkunblock-01 (LIVE showcase 8b4ea9cc 11-04 23:10Z..): a SNOW LAYER in an open fill cell (the site prep SP2 at x -80, a snowy
@@ -635,7 +637,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // townterrace-01 (Codex water r1 BLOCKER 1): the caller's safety check re-read AFTER the walk, nothing awaited from here to the dig
     if (safe && !safe()) return 'unsafe'
     let v = await e.dig(at, name)
-    for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
+    for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = DUG(n) ? 'confirmed' : 'standing' }
     if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++; e.log('_build', { op: 'unknown', cell: at, block: name }) }
     return v
   }

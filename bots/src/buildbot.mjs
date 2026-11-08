@@ -346,7 +346,8 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       if (b.name === 'air' || b.name === 'cave_air') return 'confirmed'
       blocks.watch(c)
       try { await bot.dig(b, true) } catch (e) { if (e?.aborted || aborted()) throw e; return 'refused' }
-      const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS)
+      // boardwalk-03: a block dug out of water reads WATER once the lake flows back in: gone either way
+      const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS)
       return n ? 'confirmed' : 'unconfirmed'
     },
     probe: async c => {
