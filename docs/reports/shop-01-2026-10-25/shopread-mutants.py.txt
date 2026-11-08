@@ -215,6 +215,11 @@ M = [
  ("                        ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), plot)", "                        ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), 'shop')"),
  ("    name = re.sub(r'^minecraft:', '', str(block or ''))\n", "    name = str(block or '')\n"),
  ("                        why = '' if ok else ' decor_post'\n", "                        why = ''\n"),
+ # reroof-04 RT3: the torn-down stair's placements are the head's (kind=temp clears); its digs only on those, with their block
+ (" and k not in reroof_temp_cells(rr) and not (f.get('kind') == 'footing'", " and not (f.get('kind') == 'footing'"),
+ ("                        ok = reroof_temp_cells(rec).get(k) == re.sub(r'^minecraft:', '', str(f.get('block') or ''))", "                        ok = k in reroof_temp_cells(rec)"),
+ ("                        ok = reroof_temp_cells(rec).get(k) == re.sub(r'^minecraft:', '', str(f.get('block') or ''))", "                        ok = True"),
+ ("c.get('at') and c.get('kind') == REROOF_TEMP_KIND}", "c.get('at')}"),
  # copperrun-02 CR2: the copper trip's gather rows reach the judge (the counter), and move no gate
  ("        if name == 'gather':\n", "        if name == 'gather_':\n"),
  # FF1 (fellfirst-01): a fell-first felling read as H5 again (the trip the stepwell's fix would cause)

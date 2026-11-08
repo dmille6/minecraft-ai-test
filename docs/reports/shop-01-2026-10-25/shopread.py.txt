@@ -175,6 +175,14 @@
 #                      new rule: a listed clear (G2's list), a foreign dig of the head's own open cell (G2 as before). The decor
 #                      record's `_build op=retired project=decor` row judges nothing. A DOORSTEP (`seg=reroof-earth`, role fill,
 #                      cobblestone) is a cell of the head (G1). The selftest pins each and its positive control.
+#   RT3 roof access (reroof-04, 11-08; bots/src/reroof.mjs reroofProve / reroofDismantle): a retrofit's TEMPORARY STAIR is cobblestone
+#                      cells of its own generation (`seg=reroof-earth`, role fill, `temp: 1`): placed as G1's like every head cell; once
+#                      the roof stands, the NEXT generation takes them out of `cells` into `clear` as kind=temp (name cobblestone) and a
+#                      visit digs them. So (a) a PLACEMENT on a cell the head lists as a kind=temp clear (the stair, placed under the
+#                      generation before) is on the record, nothing else new; (b) a `_build op=clear kind=temp` is clean ONLY on a cell the
+#                      head lists as kind=temp with that block, else clear_outside (` temp`): the teardown digs its own stair, nothing
+#                      else. The roof's own slabs as floors and the door-side eave notch (fewer cells) change no row. kind=remains (a roof
+#                      tree, reroof-03) stays G2's list. The selftest pins each and its positive control.
 #   CR2 copper trips (copperrun-02, 11-06; bots/src/copperhall.mjs copperRunOrder, skills.mjs copperTripVisit): the copper hall's
 #                      trip to a known copper find logs `gather` rows of copper_ore / deepslate_copper_ore far from town (the
 #                      tunnel's digs are gather's own, never `_build` rows) and one `_copper_trip` row (not a ROW_KIND: never judged).
@@ -295,6 +303,12 @@ def role_names(palette, role, seen=None):
 
 
 REROOF_DECOR_KIND = 'decor_post'
+REROOF_TEMP_KIND = 'temp'             # reroof-04 RT3: a retrofit's temporary stair, torn down (bots/src/reroof.mjs reroofDismantle)
+
+
+def reroof_temp_cells(rec):
+    """reroof-04 RT3: the cells a head record lists as its torn-down stair (kind=temp clears) -> {key: name}. Pure."""
+    return {ck(c['at']): str(c.get('name') or '') for c in (rec or {}).get('clear') or [] if isinstance(c, dict) and c.get('at') and c.get('kind') == REROOF_TEMP_KIND}
 
 
 def reroof_decor_ok(rec, decor_chain, cell, block, plot=None):
@@ -1677,7 +1691,8 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     # enchantshop-01 EF1: a shell cell, or a fit slot with its own item, of any generation of the workshop's chain
                     off = not any(enchant_place_ok(g, cell, f.get('block')) for g in (project_of(projects.get(pool), plot).get('chain') or [rec]))
                 else:
-                    off_of = lambda rr: k not in {ck(c['at']) for c in rr.get('cells') or []} and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rr, cell))
+                    # reroof-04 RT3: a cell the head lists as its torn-down stair (kind=temp) was a cell of the generation before
+                    off_of = lambda rr: k not in {ck(c['at']) for c in rr.get('cells') or []} and k not in reroof_temp_cells(rr) and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rr, cell))
                     off = rec is not None and off_of(rec) and (rec_pre is None or off_of(rec_pre))
                 if off:
                     out['off_record'] += 1; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))
@@ -1805,6 +1820,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         dchain = project_of(pr, DECOR).get('chain') or ([project_of(pr, DECOR)['record']] if project_of(pr, DECOR).get('record') else [])
                         ok = reroof_decor_ok(rec, dchain, cell, f.get('block'), plot)
                         why = '' if ok else ' decor_post'
+                    elif f.get('kind') == REROOF_TEMP_KIND:
+                        # reroof-04 RT3: the teardown digs its own stair -- a head kind=temp clear, that block -- and nothing else
+                        ok = reroof_temp_cells(rec).get(k) == re.sub(r'^minecraft:', '', str(f.get('block') or ''))
+                        why = '' if ok else ' temp'
                     elif f.get('kind') == 'reorient':
                         # townstyle-01 RO1: the builder's own block in the wrong state, on a state-bearing cell of the chain
                         ok = reorient_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))
@@ -2615,6 +2634,21 @@ def selftest():
     assert rd('63,73,59', 'lantern')['_lists']['clear_outside'] == ['board-a-Alpha 63,73,59 decor_post lantern decor_post'], rd('63,73,59', 'lantern')['_lists']
     assert rd('62,74,60', 'spruce_leaves', kind='leaves')['clear_outside'] == 0 and rd('62,75,60', 'spruce_leaves', kind='leaves')['clear_outside'] == 1, 'canopy leaves: G2\'s list (listed clean, unlisted outside)'
     assert rd('60,74,60', 'dirt', kind='foreign')['clear_outside'] == 0 and rd('60,76,60', 'dirt', kind='foreign')['clear_outside'] == 1, 'clutter in a head roof cell: the foreign rule (its own cell clean, off it outside)'
+    # reroof-04 RT3: the temporary stair -- placed as head cells (gen 4), torn down into kind=temp clears (gen 5), dug only there
+    htemp = dict(hnew, gen=4, prev=2, cells=hnew['cells'] + [{'at': [58, 71, 60], 'role': 'fill', 'seg': 'reroof-earth', 'temp': 1}, {'at': [58, 72, 60], 'role': 'fill', 'seg': 'reroof-earth', 'temp': 1}])
+    hdown = dict(htemp, gen=5, prev=4, cells=hnew['cells'], clear=[{'at': [58, 71, 60], 'kind': 'temp', 'name': 'cobblestone'}, {'at': [58, 72, 60], 'kind': 'temp', 'name': 'cobblestone'}, {'at': [62, 74, 60], 'kind': 'leaves', 'name': 'spruce_leaves'}])
+    tdn = PP(house1={'record': hdown, 'records_files': 5, 'leases': {}, 'chain': [hold, hnew, htemp, hdown]})
+    tup = PP(house1={'record': htemp, 'records_files': 4, 'leases': {}, 'chain': [hold, hnew, htemp]})
+    rt = lambda c, block, op='place', kind=None, pp=tdn: J(base + [R('_build', 'project=house1 op=%s seg=reroof-earth cell=%s block=%s%s' % (op, c, block, (' kind=%s' % kind) if kind else ''), s=14)], pp)
+    assert rt('58,71,60', 'cobblestone', pp=tup)['off_record'] == 0, 'RT3: the stair while it stands: a head cell (G1)'
+    assert rt('58,71,60', 'cobblestone')['off_record'] == 0 and rt('58,72,60', 'cobblestone')['off_record'] == 0, 'RT3: the stair\'s placements judged after the teardown: the head lists them as kind=temp'
+    assert rt('58,73,60', 'cobblestone')['off_record'] == 1, 'RT3 positive control: one above the stair is off the record'
+    assert rt('62,74,60', 'spruce_leaves')['off_record'] == 1, 'RT3: a kind=leaves clear is no place to put a block'
+    assert rt('58,71,60', 'cobblestone', op='clear', kind='temp')['clear_outside'] == 0 and rt('58,72,60', 'minecraft:cobblestone', op='clear', kind='temp')['clear_outside'] == 0, 'RT3: the teardown digs its own stair'
+    assert rt('62,74,60', 'spruce_leaves', op='clear', kind='temp')['clear_outside'] == 1, 'RT3: a listed clear of another kind is no stair'
+    assert rt('58,71,60', 'dirt', op='clear', kind='temp')['clear_outside'] == 1, 'RT3: the stair cell holding another block is never dug as the stair'
+    assert rt('60,73,60', 'oak_planks', op='clear', kind='temp')['_lists']['clear_outside'] == ['board-a-Alpha 60,73,60 temp oak_planks temp'], rt('60,73,60', 'oak_planks', op='clear', kind='temp')['_lists']
+    assert rt('58,71,60', 'cobblestone', op='clear', kind='temp', pp=tup)['clear_outside'] == 1, 'RT3: no teardown generation yet: never dug'
     assert rd('60,71,58', 'cobblestone', op='place', seg='reroof-earth', kind='fill')['off_record'] == 0 and rd('60,71,57', 'cobblestone', op='place', seg='reroof-earth', kind='fill')['off_record'] == 1, 'the doorstep: a head cell (G1)'
     rr2 = J(base + [R('_build', 'project=decor op=retired cell=61,73,59 kind=reroof:house1 gen=2', s=14)], dbk)
     m00 = J(base, dbk)['mutations']
