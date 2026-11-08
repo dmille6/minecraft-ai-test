@@ -140,7 +140,12 @@ async function main () {
   const moves = new Movements(bot); moves.canDig = false; moves.allow1by1towers = false; moves.scafoldingBlocks = []; moves.allowParkour = false
   bot.pathfinder.setMovements(moves)
   const PROPS = /slab|stairs|leaves|_log|_wood|trapdoor|lantern|torch|snow|water/
-  const read = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox, shapes: b.shapes, props: PROPS.test(b.name) ? b.getProperties() : null } : null }
+  const read0 = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox, shapes: b.shapes, props: PROPS.test(b.name) ? b.getProperties() : null } : null }
+  // r5: the PROOF reads through a memo, as skills.mjs buildReroof's planReader does (an unmemoised bot read held the event loop past the
+  // 30 s keep-alive on Paper: the bot was kicked mid-proof); the visits read live
+  const memo = new Map()
+  const readMemo = (x, y, z) => { const k = `${x},${y},${z}`; if (memo.has(k)) return memo.get(k); const v = read0(x, y, z); memo.set(k, v); return v }
+  const read = read0
   // THE PROOF: reroofProve on the bot's own read of the pasted world (the planner's call, skills.mjs buildReroof)
   const tg = TARGETS[PLOT]
   const bpOld = B.loadBlueprint(tg.bp), bpNew = RR.reroofBlueprint(bpOld, tg.form)
@@ -151,7 +156,9 @@ async function main () {
   const stood = [[home.x, home.y, home.z], ...stoodAt]
   const recCells = new Set(others.flatMap(r => (r.cells ?? []).map(c => k3(c.at))))
   const fx = RR.reroofFixes(process.env)
-  const pr = await RR.reroofProve(read, home, rec0, bpOld, bpAdd, { stood, walkR: Number.isFinite(rec0.walkR) ? rec0.walkR : 90, domain, decor, recordAt: (x, y, z) => recCells.has(`${x},${y},${z}`), fx })
+  const tP = Date.now()
+  const pr = await RR.reroofProve(readMemo, home, rec0, bpOld, bpAdd, { stood, walkR: Number.isFinite(rec0.walkR) ? rec0.walkR : 90, domain, decor, recordAt: (x, y, z) => recCells.has(`${x},${y},${z}`), fx })
+  P('proof took', Date.now() - tP, 'ms')
   P('proof', pr.ok ? `OK cells ${pr.p.cells.length} clears ${pr.clear.length} notch ${pr.notch} temp ${pr.temp?.size ?? 0} step ${pr.step ? k3(pr.step) : '-'} approach ${JSON.stringify(pr.approach ?? null)}` : `${pr.why} ${pr.detail}`)
   if (!pr.ok) { finish({ stop: 'unproven', why: pr.why, detail: pr.detail }, 1); return }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reroof4-e2e-'))
