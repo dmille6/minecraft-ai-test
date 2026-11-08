@@ -69,7 +69,7 @@ await t('the threshold is LIGHT_WAIVE_AFTER visits -- killed with the visits tes
 })
 await t('buildTidy composes the light waiver with its waivers, behind STUCKFLEET (source, comments stripped)', () => {
   const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  assert.strictEqual(src.split("const waive = stuckFleetOn() ? [...waive1, ...lightWaiveDue(rec, r.deferred ?? []).filter(l => !waive1.some(w => w.k === l.k))] : waive1").length, 2)
+  assert.strictEqual(src.split("const waive2 = stuckFleetOn() ? [...waive1, ...lightWaiveDue(rec, r.deferred ?? []).filter(l => !waive1.some(w => w.k === l.k))] : waive1").length, 2)
   assert.ok(/if \(waive\.length\) \{\s*const pub = publishRecord\(dir, key, cur => \{\s*if \(!cur \|\| cur\.structure_complete/.test(src), 'the composed list is what is published')
   assert.strictEqual(SF.stuckFleetOn({ STUCKFLEET: 'off' }), false)
   assert.strictEqual(SF.stuckFleetOn({}), true)
