@@ -108,6 +108,7 @@ const REQUIRED = [
   'docs/reports/idlework-design-2026-11-06.md',
   'docs/reports/scaffold-design-2026-11-07.md',   // scaftown-01 (11-07): who places the scaffold, and the town price
   'docs/reports/roughground-design-2026-11-07.md',   // roughground-01 (11-07): the owner's circled rough ground, mapped + the fix
+  'docs/reports/logs-design-2026-11-08.md',   // logcap-02 (11-08): the town log gathering cap; charcoal designed, not built
   'docs/reports/bagfull-design-2026-11-07.md',   // bagfull-01 (11-07): full bags block showcase build orders; the room bank
   'docs/reports/flowers-design-2026-11-07.md',   // flowers-01 (11-07): the flower supply + the border upgrade (code on branch flowers-01show)
   'sandbox/flowers/flower-proof.cjs',   // flowers-01: the Paper proofs (bone meal in taiga, the composter, a fern cell replaced)

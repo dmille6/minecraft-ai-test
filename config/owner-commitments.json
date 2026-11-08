@@ -5990,6 +5990,32 @@
     ]
    },
    "note": "Showcase 24 h to 11-08 00:43Z (CoreProtect-matched 2,609/2,615): pathfinder 1,945 movement blocks in town+margin (pillar 1,048, step 877), 409 cells standing, 137 on top; pillarOut 576, 9 on top. Fleet has no placement instrument (placeaudit-fleet-01 adds it)."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "logs-1108",
+   "title": "Logs (owner 11-08: town chests hold ~61k logs, 15,985 banked in a day): (1) a log gathering cap like the cobble cap -- above a limit bots stop choosing 'gather logs', tree-clear logs still bank; (2) charcoal from surplus logs as stoneworks fuel",
+   "owner_date": "2026-11-08",
+   "memory": [
+    "logs-1108.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-08: (1) logcap-02 BUILT on fleet 1e593b9b (branch logcap-02-on-1e593b9b; tier 1/2 not protected; Codex r1 BLOCKERS none; logcap2.test 14 behaviour + 6 anchored mutants); registration + draft entry ~/mcai-analysis/logcap-02.* on the canary host, NOT queued -- control session queues it (P lane, any capped pool: not hive-d) or rolls it owner-direct. Showcase: none (0.2 bot-h of log gathering in 48 h, 635 logs). (2) charcoal-01 DESIGNED, NOT BUILT: fuel is not short (town coal 232-1,047 everywhere; the stoneworks-01 ladder already burns surplus logs as planks; charcoal = +1 smelt a log for a second furnace pass) -- OWNER DECISION: charcoal now, or as the coal-for-trading fuel after coalsale (recommended). NEXT: read logcap-02 (+90/+180: `_idlework open kind=logs` 0 in capped pools, gather_log/bot-h down); logcap-03 (admission check, protected) only if the free-choice share does not move.",
+   "evidence": {
+    "grep": [
+     "logcap-02"
+    ],
+    "branches": [
+     "logcap-02-on-1e593b9b"
+    ],
+    "paths": [
+     "docs/reports/logs-design-2026-11-08.md"
+    ]
+   },
+   "note": "Fleet 48 h to 11-08 13:35Z (3,838 bot-h): gather 31,124 of 33,387 logs gained (93%); the idle rung's 'Cut 16 logs' 18,011 of 31,014 gathered logs (58%), 187.6 bot-h of decision time; 3,043 logs down the junk well (oak at its 4,000 bank target); town draw ~40-85/town/day; 16-town index: logs 65,335, coal 10,447, charcoal 1."
   }
  ]
 }
