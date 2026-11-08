@@ -173,7 +173,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
-import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
+import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
@@ -192,7 +192,7 @@ import { accessNoStair } from './tidy.mjs'   // the showcase batch fold: the sto
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
-import { helperWorked } from './groundskeeper.mjs'   // gkcrewcut-01
+import { helperWorked, helpersCap } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
@@ -24712,7 +24712,7 @@ export function keeperNow (bot, now = Date.now()) {
   if (bot.gkCache && now - bot.gkCache.at < 30_000) return bot.gkCache.v
   let v = false
   try {
-    for (const n of [GK_LEASE, ...HELPER_LEASES.slice(0, GK.helpersMax)]) {
+    for (const n of [GK_LEASE, ...HELPER_LEASES]) {   // gkcrew4-01: every helper lease (a helper3/4 holder is crew)
       const l = projLeaseState(townDir(), projKeyOf(TIDY_PLOT), n, { ttl: n === GK_LEASE ? GK.leaseTtlMs : GK.helperTtlMs })
       if (l && l.rec?.holder === keeperMe(bot) && now < l.holdsUntil) { v = true; break }
     }
@@ -24753,13 +24753,22 @@ function townNoSiteWrite (kind) {
 setPrepClaimed(plot => isSinkPlot(plot) && !!prepClaimFor(siteprepHead(), sinkKindOf(plot)))
 // ---- gkhelpers-01: THE GROUNDS CREW (groundskeeper.mjs helperDecision; owner 11-03 A) -------------------------------------------
 /** The keeper and helper leases now and this bot's helper decision. Never throws: unreadable reads 'full' (never a third). */
+/** gkcrew4-01: the tidy stage's open cells, the newest visit's count -> int | null. Cached 60 s a bot; never throws. */
+function gkOpenNow (bot, dir, key, now = Date.now()) {
+  if (bot?.gkOpen && now - bot.gkOpen.at < 60_000 && now >= bot.gkOpen.at) return bot.gkOpen.v
+  let v = null
+  try { const h = recordHead(dir, key), rec = h.ok ? h.head?.rec ?? null : null; if (rec && !rec.structure_complete) v = openNewest(openReadAll(dir, key), gkwSig(rec), now) } catch { v = null }
+  if (bot) bot.gkOpen = { at: now, v }
+  return v
+}
 function crewState (bot, work, now = Date.now()) {
   try {
     const dir = townDir(), key = projKeyOf(TIDY_PLOT)
     const keeper = projLeaseState(dir, key, GK_LEASE, { ttl: GK.leaseTtlMs })
     const helpers = {}
-    for (const n of HELPER_LEASES.slice(0, GK.helpersMax)) helpers[n] = projLeaseState(dir, key, n, { ttl: GK.helperTtlMs })
-    return { ...helperDecision({ keeper, helpers, me: keeperMe(bot), now, work, restUntil: bot?.gkHelpRestUntil ?? 0 }), helpers }
+    for (const n of HELPER_LEASES) helpers[n] = projLeaseState(dir, key, n, { ttl: GK.helperTtlMs })
+    // gkcrew4-01: the cap scales with the stage's open cells (groundskeeper.mjs helpersCap)
+    return { ...helperDecision({ keeper, helpers, me: keeperMe(bot), now, work, restUntil: bot?.gkHelpRestUntil ?? 0, G: { ...GK, helpersMax: helpersCap(gkOpenNow(bot, dir, key, now)) } }), helpers }
   } catch { return { d: 'full', name: null, helpers: {} } }
 }
 /** Take or renew helper lease `name` -> { ok, gen }. One `_keeper` row op=helper_take on a new term. */
@@ -24958,7 +24967,7 @@ export function gkExtraBill (rec, read, held = {}, done = () => false) {
 /** The crew bots holding a crew lease now (the keeper's and the helpers') -> Set of names. Never throws (unread: empty). */
 function crewNow (dir, key, now = Date.now()) {
   const out = new Set()
-  try { for (const n of [GK_LEASE, ...HELPER_LEASES.slice(0, GK.helpersMax)]) { const l = projLeaseState(dir, key, n, { ttl: n === GK_LEASE ? GK.leaseTtlMs : GK.helperTtlMs }); if (l?.rec?.holder && now < l.holdsUntil) out.add(l.rec.holder) } } catch { /* none */ }
+  try { for (const n of [GK_LEASE, ...HELPER_LEASES]) { const l = projLeaseState(dir, key, n, { ttl: n === GK_LEASE ? GK.leaseTtlMs : GK.helperTtlMs }); if (l?.rec?.holder && now < l.holdsUntil) out.add(l.rec.holder) } } catch { /* none */ }
   return out
 }
 /** The other live crew bots' park plants (park.mjs pantrySum over buildproj pantryRead). Never throws. */
@@ -25823,6 +25832,7 @@ async function buildTidyVisit (ctx, args, signal) {
       try {
         const left = tidyLeftKeys(rw, read2, progOpts)
         const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' })
+        openWrite(dir, key, me, rw, left.length + prog.cutLeft)   // gkcrew4-01: this visit's open count (fills + clears left, cuts)
         const due = caps.waive ? leftWaiveDue(rw, town, left) : []
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {

@@ -20,7 +20,7 @@ export const GK = Object.freeze({ leaseTtlMs: 30 * 60_000, termMs: 4 * 60 * 60_0
   // gkhelpers-01 (owner 11-03 A): at most `helpersMax` HELPER bots a town on the keeper's grounds, each on its own lease (helper1,
   // helper2), `helperTtlMs` (longer than one visit's budget), renewed at every helper visit; a helper whose visit found nothing to do
   // lets it go and rests `helperRestMs`. Two bots' fill segments never come within `segGap` columns of each other.
-  helpersMax: 2, helperTtlMs: 12 * 60_000, helperRestMs: 10 * 60_000, segGap: 2,
+  helpersMax: 2, helpersBig: 4, bigOpen: 500, helperTtlMs: 12 * 60_000, helperRestMs: 10 * 60_000, segGap: 2,
   // gkhelpers-01 (owner 11-03 B): THE PARK GATHER -- at most `gatherMax` plant blocks a visit, within `gatherR` of home; the keeper
   // gathers at most every `gatherEveryMs` (its plan work comes first)
   // (96: the LIVE showcase's nearest free sugar cane stands 65-96 from home; its flowers are all inside the protected village)
@@ -124,7 +124,14 @@ export const keeperWanted = (states, { shopPlot = 'shop', tidyPlot = 'tidy', for
 // raced into one after its own take yields it at once (crewYield): no two bots ever work overlapping or adjacent cells. A helper with nothing to fill
 // gathers the park's plants (park.mjs gatherTargets); with nothing to gather either it lets its lease go and rests.
 // ================================================================================================================================
-export const HELPER_LEASES = Object.freeze(['helper1', 'helper2'])
+export const HELPER_LEASES = Object.freeze(['helper1', 'helper2', 'helper3', 'helper4'])
+// GKCREW4-01 (OWNER 11-08 in chat: "Yes, up to 4"): up to G.helpersBig helpers while the town's tidy stage has more than G.bigOpen open
+// cells, back to G.helpersMax (the owner's 1-2) when it is smaller. MEASURED with gkcrewcut-01 live (09:47Z on): tidy cuts 41.4/h (from
+// ~17) with two helpers. `open` is the newest visit's own count (cuts + fills left) for this stage (gkwork.mjs openWrite / openRead);
+// unknown -> the small cap. GKCREW4=0 is the rollback.
+export const crew4On = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.GKCREW4 ?? '1').trim().toLowerCase())
+/** The helper cap for a stage with `open` open cells -> int. Pure. */
+export const helpersCap = (open, { G = GK, on = crew4On() } = {}) => (on && Number.isFinite(Number(open)) && Number(open) > G.bigOpen ? G.helpersBig : G.helpersMax)
 /** Is a lease state live for someone (held now)? Pure. */
 const liveOf = (st, now) => !!st && now < (st.holdsUntil ?? 0) && !!st.rec?.holder
 /**
@@ -140,7 +147,8 @@ const liveOf = (st, now) => !!st && now < (st.holdsUntil ?? 0) && !!st.rec?.hold
 export function helperDecision ({ keeper = null, helpers = {}, me, now = Date.now(), work = true, restUntil = 0, G = GK } = {}) {
   if (liveOf(keeper, now) && keeper.rec.holder === me) return { d: 'keeper', name: null }
   const names = HELPER_LEASES.slice(0, G.helpersMax)
-  const mine = names.find(n => liveOf(helpers[n], now) && helpers[n].rec.holder === me)
+  // gkcrew4-01: a lease of mine past a shrunk cap is still mine (it runs out at its own release or TTL); the cap limits new takes
+  const mine = HELPER_LEASES.find(n => liveOf(helpers[n], now) && helpers[n].rec.holder === me)
   if (mine) return { d: 'mine', name: mine }
   if (!liveOf(keeper, now)) return { d: 'no_keeper', name: null }
   if (!work || now < restUntil) return { d: 'none', name: null }

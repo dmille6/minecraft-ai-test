@@ -584,7 +584,7 @@ await t('buildTidy: the crew role, helpers never site, the keeper\'s plan additi
   assert.ok(/if \(d === 'other'\) \{\n\s*const h = crewState\(bot, work, now\)\n[^\n]*else if \(h\.d === 'mine' \|\| \(h\.d === 'take' && !decorHeld && !\(GKL_ON && unfit\)\)\) d = 'helper'\n\s*\}/.test(s), 'shopActive offers the tidy to a helper')
   assert.ok(/if \(!renewal\) \{\n\s*const hl = dropHelperLeases\(bot\)/.test(s), 'a helper becoming keeper lets its helper lease go first')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
-  assert.ok(/builders: GROUNDS\.on \? 1 \+ GK\.helpersMax : TIDY_BUILDERS/.test(sh), 'the keeper and its helpers have slots')
+  assert.ok(/builders: GROUNDS\.on \? 1 \+ Math\.max\(GK\.helpersMax, GK\.helpersBig \?\? 0\) : TIDY_BUILDERS/.test(sh), 'the keeper and its helpers have slots (gkcrew4-01: the big cap)')
   assert.ok(/'crew', 'gathered', 'floor'/.test(sh), 'the visit row names the crew')
   // the helper's idle stop is an IDLE stop (the copper run and the expedition are asked as before)
   const SH = await import('../src/shop.mjs')

@@ -231,6 +231,22 @@ export function leftVisit (dir, key, holder, rec, keys, { now = Date.now(), coun
     return leftTown(files, { sig, now })
   } catch { return new Map() }
 }
+// gkcrew4-01: the stage's open cells as the newest visit counted them (any holder) -> one file per holder, the newest read
+const openFile = (dir, key, holder) => path.join(dir, `${key}.gkopen.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+export function openWrite (dir, key, holder, rec, open, now = Date.now()) {
+  try { const f = openFile(dir, key, holder), tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ v: 1, sig: gkwSig(rec), open: Number(open) || 0, at: now })); fs.renameSync(tmp, f); return true } catch { return false }
+}
+/** The newest count for stage `sig` inside `ms` -> int | null. Pure over the holders' files. */
+export function openNewest (files = [], sig, now = Date.now(), ms = 2 * 60 * 60_000) {
+  let best = null
+  for (const f of files ?? []) if (f && f.sig === sig && Number.isFinite(f.at) && f.at <= now + 60_000 && now - f.at < ms && (!best || f.at > best.at)) best = f
+  return best ? Number(best.open) : null
+}
+export function openReadAll (dir, key) {
+  const out = []
+  try { for (const n of fs.readdirSync(dir)) if (n.startsWith(`${key}.gkopen.`) && n.endsWith('.json')) { try { out.push(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))) } catch { /* skipped */ } } } catch { /* none */ }
+  return out
+}
 export function strikeRead (dir, key, holder) { try { return JSON.parse(fs.readFileSync(strikeFile(dir, key, holder), 'utf8')) } catch { return null } }
 /** Write this holder's strike file -> true | false (never throws). */
 export function strikeWrite (dir, key, holder, rec) {
