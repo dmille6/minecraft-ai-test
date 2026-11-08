@@ -165,3 +165,17 @@ the tidy's cuts too (not terrace/prep cuts, not tree clears), and a helper visit
 to ~40-50/h (keeper ~12 + two busy helpers ~14-16 visits/h at ~2 cuts), the cuts done in ~20-25 h and the stage in ~45-60 h (2-2.5x).
 The rest of a 3x needs an owner decision (helpers cap 1-2 -> 3-4) or keeping the keeper at town while its stage has >500 open cells
 (the patrol milestone; a vacuous patrol rung would churn the sustaining cycle's targets, so it needs its own design).
+
+## gkcrew4-01show (11-08, OWNER "Yes, up to 4") and the roughground row names
+
+`gkcrew4-01show` @ 9fda5dea (on ef40871b; ci2 473/474, the bagdiet orphan; Codex: no blockers): up to 4 helpers (helper1..4) while the
+stage has > 500 open cells (the newest visit's own count, per-holder `<key>.gkopen.<holder>.json`, 2 h), the owner's 2 otherwise; a holder
+keeps its lease past a shrunk cap; the tidy has 5 slots. GKCREW4=0. Estimate: cuts 41.4/h (2 helpers, measured) -> ~60-70/h (4 helpers;
+the one seg-clear lease serializes the digging, so less than linear); the ~1,000 open cuts in ~15 h instead of ~24 h, the stage
+(~2,400 cells) in ~25-30 h instead of ~45 h.
+Roughground's work is NOT a row kind of its own. Its survey output lands in the tidy record: cuts `kind: 'tidy'` (155 of them carry
+`hollow`, 6 `teardown`: stand cells), fills as cells with role `topsoil` (228) and `opener` (322, hollow fills); the stage's census is
+`inwall` on the record (pillars/holes/cut/fill) and the `_build op=sited` row (`kind=pillars996/cut1100/pits812/fill1622/...`). A worked
+rough cell logs the generic tidy rows: a cut `_build project=tidy op=clear ... kind=tidy` (the record's tree clears are `kind=tree`),
+a fill `_build project=tidy op=place seg=... block=...` (no role in the row). Reads should count those, and join `cell=` against the
+record's cell roles / cut fields for the per-kind split.
