@@ -61,6 +61,9 @@ export const woodOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(
  * BLOCKER: off only stopped new siting, and the open one still drew logs, crafted its kit and placed fences): never offered, never
  * built; its record stays a protected record. A stalled kit (no surplus logs, no table) waits out its stamp.
  */
+/** The picker's state of a HELD-OFF wood record -> state. Pure. Off, its damage and upkeep are no one's work either (Codex fold r2
+ *  BLOCKER: a damaged standing wood record stayed a repair pick that buildSink always refuses -- a repeated unrepairable visit). */
+export const woodHeldState = (state, held) => (held === 'wood_off' ? { ...state, damaged: false, due: false } : state)
 export function woodHold ({ on = true, now = 0, stallUntil = 0 } = {}) {
   if (!on) return 'wood_off'
   if (Number(now) < Number(stallUntil)) return 'wood_stall'
