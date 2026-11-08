@@ -14522,7 +14522,7 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null, fromBag
 // sand is DEPOSIT_ALWAYS), and the glaze order's panes left in the bag are banked at its end or by the next deposit.
 
 /** A world read for glass.mjs: { name, boundingBox, props } | null (an unloaded cell). */
-function glassRead (bot) {
+export function glassRead (bot) {
   return (x, y, z) => {
     let b = null
     try { b = bot.blockAt(new Vec3(x, y, z)) } catch { b = null }
@@ -14575,6 +14575,46 @@ function glassReserved (bot) {
 }
 const glassRow = (bot, status, f) => { try { logEvent({ kind: 'glass', status, snapshot: snapshot(bot), detail: glassDetail(f).slice(0, 600) }) } catch { /* telemetry */ } }
 
+/** THE DIG WALK (glass-01): stand on each planned cell, dig it from on top, drop into the one-deep hole and pick the sand up there.
+ *  Every cell is judged again live (glass.mjs sandCellOk) before its walk. Counts into `f` (walkfail, dug, got, nopick, digfail,
+ *  refused, stop). Exported for the Paper proof (sandbox/glass/glass-proof.mjs). */
+export async function sandDigs (bot, plan, { home, read, reserved = () => false, deadline = Date.now() + 120_000, signal = null, f = {} } = {}) {
+  for (const k of ['walkfail', 'dug', 'got', 'nopick', 'digfail']) f[k] ??= 0
+  f.refused ??= {}
+  const sandHeld = () => { const h = heldMap(bot); return (h.sand ?? 0) + (h.red_sand ?? 0) }
+  for (const p of plan) {
+    check(signal)
+    if (Date.now() > deadline - 45_000) { f.stop = 'late'; break }
+    const [x, y, z] = p.at
+    if (!sandCellOk(read, p.at, { home, reserved }).ok) { f.refused.live = (f.refused.live ?? 0) + 1; continue }
+    // STAND ON IT (glass.mjs sandCellOk: a dry stand, a one-deep hole with a floor, no deep water near)
+    try { await chestWalk(bot, new goals.GoalBlock(x, y + 1, z), Math.max(1, Math.min(40_000, deadline - 45_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const pos = bot.entity?.position
+    if (!pos || Math.floor(pos.x) !== x || Math.floor(pos.z) !== z || Math.abs(pos.y - (y + 1)) > 0.6) {
+      f.walkfail++; glassMemNote({ badCell: p.at.join(',') })
+      if (f.walkfail >= 3) { f.stop = 'walkfail'; break }
+      continue
+    }
+    if (bot.entity?.isInWater) { f.stop = 'wet'; glassMemNote({ badCell: p.at.join(',') }); break }
+    const blk = bot.blockAt(new Vec3(x, y, z))
+    if (!blk || !/^(sand|red_sand)$/.test(blk.name)) { f.refused.gone = (f.refused.gone ?? 0) + 1; continue }
+    const before = sandHeld()
+    try {
+      const tool = bestTool(bot, blk)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      await withTimeout(bot.dig(blk, true), 8000, bot, { what: 'sand dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } })
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      f.digfail++; glassMemNote({ badCell: p.at.join(',') }); continue
+    }
+    f.dug++
+    // the drop lands in the hole the body just fell into: picked up there
+    for (let i = 0; i < 10 && sandHeld() <= before; i++) await sleep(150, signal)
+    if (sandHeld() > before) f.got++
+    else { f.nopick++; if (f.nopick >= 3) { f.stop = 'nopick'; break } }
+  }
+  return f
+}
 /** make_material item=sand: dig up to SAND_PER_ORDER shore sand (glass.mjs sandPlan) and bank it. -> a skill result with `made`. */
 async function glassSand (ctx, signal) {
   const { bot } = ctx
@@ -14611,37 +14651,7 @@ async function glassSand (ctx, signal) {
     lease = matsLease(bot)
     if (lease.unleased || !lease.ok) { f.stop = lease.unleased ? 'lease_unavailable' : 'lease_busy'; lease = null; return (result = { status: 'no_effect', detail: 'another bot is on the town materials job now' }) }
     const bag0 = heldMap(bot)
-    for (const p of pl.plan) {
-      check(signal)
-      if (Date.now() > deadline - 45_000) { f.stop = 'late'; break }
-      const [x, y, z] = p.at
-      if (!sandCellOk(read, p.at, { home, reserved }).ok) { f.refused.live = (f.refused.live ?? 0) + 1; continue }
-      // STAND ON IT (glass.mjs sandCellOk: a dry stand, a one-deep hole with a floor, no deep water near)
-      try { await chestWalk(bot, new goals.GoalBlock(x, y + 1, z), Math.max(1, Math.min(40_000, deadline - 45_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-      const pos = bot.entity?.position
-      if (!pos || Math.floor(pos.x) !== x || Math.floor(pos.z) !== z || Math.abs(pos.y - (y + 1)) > 0.6) {
-        f.walkfail++; glassMemNote({ badCell: p.at.join(',') })
-        if (f.walkfail >= 3) { f.stop = 'walkfail'; break }
-        continue
-      }
-      if (bot.entity?.isInWater) { f.stop = 'wet'; glassMemNote({ badCell: p.at.join(',') }); break }
-      const blk = bot.blockAt(new Vec3(x, y, z))
-      if (!blk || !/^(sand|red_sand)$/.test(blk.name)) { f.refused.gone = (f.refused.gone ?? 0) + 1; continue }
-      const before = sandHeld()
-      try {
-        const tool = bestTool(bot, blk)
-        if (tool) await bot.equip(tool, 'hand').catch(() => {})
-        await withTimeout(bot.dig(blk, true), 8000, bot, { what: 'sand dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } })
-      } catch (e) {
-        if (e?.aborted || signal?.aborted) throw e
-        f.digfail++; glassMemNote({ badCell: p.at.join(',') }); continue
-      }
-      f.dug++
-      // the drop lands in the hole the body just fell into: picked up there
-      for (let i = 0; i < 10 && sandHeld() <= before; i++) await sleep(150, signal)
-      if (sandHeld() > before) f.got++
-      else { f.nopick++; if (f.nopick >= 3) { f.stop = 'nopick'; break } }
-    }
+    await sandDigs(bot, pl.plan, { home, read, reserved, deadline, signal, f })
     // BANK what this order dug (matsBank: only the sand above the bag's opening count)
     if (sandHeld() > ((bag0.sand ?? 0) + (bag0.red_sand ?? 0))) {
       try {
@@ -14665,6 +14675,55 @@ async function glassSand (ctx, signal) {
   }
 }
 
+/** THE GLAZE WALK (glass-01): for each planned window, walk within reach, dig its fallback block and place a glass pane in the cell
+ *  (glass.mjs paneRefs: the course under it first); a pane that does not land puts the fallback back when the bag has one. Counts into
+ *  `f` (placed, dugwin, placefail, walkfail, stop). Exported for the Paper proof. */
+export async function glazeCells (bot, plan, { read, deadline = Date.now() + 120_000, signal = null, f = {} } = {}) {
+  for (const k of ['placed', 'dugwin', 'placefail', 'walkfail']) f[k] ??= 0
+  const panesHeld = () => heldMap(bot).glass_pane ?? 0
+  for (const t of plan) {
+    check(signal)
+    if (panesHeld() <= 0) { f.stop = f.stop ?? 'panes_out'; break }
+    if (Date.now() > deadline - 30_000) { f.stop = 'late'; break }
+    const [x, y, z] = t.at
+    const cell = new Vec3(x, y, z)
+    const now0 = bot.blockAt(cell)
+    if (!now0 || now0.name !== t.name) continue          // changed since the reading: the build owns it
+    try { await chestWalk(bot, new goals.GoalNear(x, y, z, 2), Math.max(1, Math.min(25_000, deadline - 30_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const eye = bot.entity?.position?.offset?.(0, 1.62, 0)
+    if (!eye || eye.distanceTo(cell.offset(0.5, 0.5, 0.5)) > 4.5) { f.walkfail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
+    // DIG THE FALLBACK, THEN THE PANE IN ITS PLACE (glass.mjs paneRefs: the course under it first)
+    try {
+      const tool = bestTool(bot, now0)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      await withTimeout(bot.dig(now0, true), 8000, bot, { what: 'window dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } })
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e; f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
+    if (bot.blockAt(cell)?.name !== 'air') { f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
+    f.dugwin++
+    let ok = false
+    for (const r of paneRefs(read, t.at)) {
+      const ref = bot.blockAt(new Vec3(...r.ref))
+      if (!ref) continue
+      try {
+        const it = bot.inventory.items().find(i => i.name === 'glass_pane')
+        if (!it) break
+        await bot.equip(it, 'hand')
+        await withTimeout(bot.placeBlock(ref, new Vec3(...r.face)), 4000, bot, { what: 'pane place', needsDrop: false })
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      await sleep(150, signal)
+      if (bot.blockAt(cell)?.name === 'glass_pane') { ok = true; break }
+    }
+    if (ok) { f.placed++; continue }
+    // NOT PLACED: the fallback goes back if the bag has one (else the record reads damaged and its own repair visit places it)
+    f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') })
+    try {
+      const back = bot.inventory.items().find(i => i.name === t.name)
+      const r0 = paneRefs(read, t.at)[0]
+      if (back && r0) { await bot.equip(back, 'hand'); await withTimeout(bot.placeBlock(bot.blockAt(new Vec3(...r0.ref)), new Vec3(...r0.face)), 4000, bot, { what: 'window back', needsDrop: false }) }
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+  return f
+}
 /** make_material item=glaze: swap finished buildings' fallback window blocks for glass panes from town (glass.mjs glazePlan). */
 async function glassGlaze (ctx, signal) {
   const { bot } = ctx
@@ -14690,47 +14749,7 @@ async function glassGlaze (ctx, signal) {
       f.took = Number(w?.took?.glass_pane) || 0
     }
     if (panesHeld() <= 0) { f.stop = 'no_panes'; glassMemNote({ glazeNone: true }); return (result = { status: 'no_effect', detail: 'no glass pane could be taken from the town containers looked in' }) }
-    for (const t of plan) {
-      check(signal)
-      if (panesHeld() <= 0) { f.stop = f.stop ?? 'panes_out'; break }
-      if (Date.now() > deadline - 30_000) { f.stop = 'late'; break }
-      const [x, y, z] = t.at
-      const cell = new Vec3(x, y, z)
-      const now0 = bot.blockAt(cell)
-      if (!now0 || now0.name !== t.name) continue          // changed since the reading: the build owns it
-      try { await chestWalk(bot, new goals.GoalNear(x, y, z, 2), Math.max(1, Math.min(25_000, deadline - 30_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-      const eye = bot.entity?.position?.offset?.(0, 1.62, 0)
-      if (!eye || eye.distanceTo(cell.offset(0.5, 0.5, 0.5)) > 4.5) { f.walkfail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
-      // DIG THE FALLBACK, THEN THE PANE IN ITS PLACE (glass.mjs paneRefs: the course under it first)
-      try {
-        const tool = bestTool(bot, now0)
-        if (tool) await bot.equip(tool, 'hand').catch(() => {})
-        await withTimeout(bot.dig(now0, true), 8000, bot, { what: 'window dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } })
-      } catch (e) { if (e?.aborted || signal?.aborted) throw e; f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
-      if (bot.blockAt(cell)?.name !== 'air') { f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
-      f.dugwin++
-      let ok = false
-      for (const r of paneRefs(read, t.at)) {
-        const ref = bot.blockAt(new Vec3(...r.ref))
-        if (!ref) continue
-        try {
-          const it = bot.inventory.items().find(i => i.name === 'glass_pane')
-          if (!it) break
-          await bot.equip(it, 'hand')
-          await withTimeout(bot.placeBlock(ref, new Vec3(...r.face)), 4000, bot, { what: 'pane place', needsDrop: false })
-        } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-        await sleep(150, signal)
-        if (bot.blockAt(cell)?.name === 'glass_pane') { ok = true; break }
-      }
-      if (ok) { f.placed++; continue }
-      // NOT PLACED: the fallback goes back if the bag has one (else the record reads damaged and its own repair visit places it)
-      f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') })
-      try {
-        const back = bot.inventory.items().find(i => i.name === t.name)
-        const r0 = paneRefs(read, t.at)[0]
-        if (back && r0) { await bot.equip(back, 'hand'); await withTimeout(bot.placeBlock(bot.blockAt(new Vec3(...r0.ref)), new Vec3(...r0.face)), 4000, bot, { what: 'window back', needsDrop: false }) }
-      } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-    }
+    await glazeCells(bot, plan, { read, deadline, signal, f })
     // the panes this order did not place go back to town
     if (panesHeld() > (bag0.glass_pane ?? 0)) {
       try { const b = await matsBank(ctx, ['glass_pane'], bag0, signal); f.banked = Number(b?.glass_pane) || 0 } catch (e) { if (e?.aborted || signal?.aborted) throw e }
