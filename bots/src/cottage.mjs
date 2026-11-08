@@ -200,3 +200,16 @@ export function shearDue ({ owed = 0, waiting = false, shears = false, sheep = 0
   if (now - (Number(lastAt) || 0) < SHEAR.everyMs) return { due: false, why: 'rested' }
   return { due: true, why: 'ok' }
 }
+/**
+ * THE FURNITURE CRAFTS' BOOKING (the visit's bag balance: shop.mjs bagBalance, shopread G8) -> { name: delta }: the bag's change across the
+ * crafts LESS what was withdrawn meanwhile (a take is booked as took). Every name in the bag before, after, OR withdrawn is counted --
+ * Codex r1 BLOCKER: 6 wool drawn and crafted into 2 beds is in neither bag snapshot, and was never booked (G8 white_wool -6). Pure.
+ */
+export function furnitureCrafted (pre = {}, post = {}, took = {}, tookBefore = {}) {
+  const out = {}
+  for (const k of new Set([...Object.keys(pre), ...Object.keys(post), ...Object.keys(took)])) {
+    const d = (Number(post[k]) || 0) - (Number(pre[k]) || 0) - ((Number(took[k]) || 0) - (Number(tookBefore[k]) || 0))
+    if (d) out[k] = d
+  }
+  return out
+}
