@@ -6202,6 +6202,33 @@
      "docs/reports/cottage2-design-2026-11-08.md"
     ]
    }
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "bridges-1108",
+   "title": "Designed bridges (owner 11-08: 'if a bridge is built i want it to be something really nice looking, professional and creative. something showcase worthy'): stone arch, covered timber, trestle, footbridge -- sited where the bots cross, built by their own clicks",
+   "owner_date": "2026-11-08",
+   "memory": [
+    "bridges-1108.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-08: bridges-01show bf540795 READY TO STAGE on showcase-wood-on-buildsite f11e6f0e (supersedes boardwalk-01's plain plank bridges where a design fits; a new site with no design waits); tier 2; Codex r1 4 blockers fixed, r2 none; Paper sandbox7 14 bridges (every style, 2,102 blocks, every cell in its state, 108/112 crossings -- covered 0/1 banks found and ruled out); tripwire read_bridges design cells on main (NOT installed: install before staging). NEXT: stage with/after the wood batch, read bridge_site src=traffic / bridge_design / bridge_done mat=design; fleet port (traffic site + a bridge visit outside expeditions) after the showcase shows one built.",
+   "evidence": {
+    "grep": [
+     "bridges-01show"
+    ],
+    "branches": [
+     "bridges-01show"
+    ],
+    "paths": [
+     "docs/reports/bridges-design-2026-11-08.md",
+     "sandbox/bridges/design-proof.cjs"
+    ]
+   },
+   "note": "Measured 11-08: showcase 1,779 real crossings in 13 days (780 at the SW shore strip -- a wade along the bank, no bridge fits), N shore footbridge w6 (89), W shore trestle w24; fleet 189-722 crossings/day in hive-d, placebo-b, hive-c, placebo-a, placebo-d. Showcase logs 307 < 512 reserve: stone styles only there."
   }
  ]
 }

@@ -117,6 +117,8 @@ const REQUIRED = [
   'docs/reports/woodworks-design-2026-11-08.md',   // woodworks-1108: fences, gates, wooden bridges (code on fences-01show / boardwalk-01show)
   'sandbox/woodworks/fence-proof.cjs',   // fences-01: the Paper ring/walk/gate proof
   'sandbox/woodworks/boardwalk-proof.cjs',   // boardwalk-01: the Paper wooden-bridge proof
+  'sandbox/bridges/design-proof.cjs',   // bridges-01: the Paper designed-bridge proof (every style)
+  'docs/reports/bridges-design-2026-11-08.md',   // bridges-01: the design, measurements and pictures
   'scripts/host/waterstrays.py',   // boardwalk-03: the genesis evidence of the bots' blocks standing in water (bots/src/waterstrays/*.json)
   'sandbox/woodworks/boardwalk3-proof.cjs',   // boardwalk-03: the Paper walkway-in-place / removal proof
   'docs/reports/boardwalk-03-2026-11-08.md',   // boardwalk-03: the design, the evidence and the pieces
