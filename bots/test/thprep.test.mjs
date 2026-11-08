@@ -42,8 +42,16 @@ await t('cellEarthClears: natural terrain ABOVE the floor only; never cobbleston
   const at = o => o.map(c => `${c.kind}@${c.at.join(',')}`)
   assert.deepStrictEqual(at(SC.cellEarthClears(read, vol, { above: 4 })), ['cut@0,5,0', 'cut@0,7,0'], 'the floor (4) stays; cobble and an unjudged sapling stay')
   assert.deepStrictEqual(at(SC.cellEarthClears(read, vol, { above: 4, owned: () => false })), ['cut@0,5,0', 'plant@2,6,0', 'cut@0,7,0'])
-  assert.deepStrictEqual(at(SC.cellEarthClears(read, vol, { above: 4, owned: () => true })), ['cut@0,5,0', 'cut@0,7,0'], 'an owed sapling never')
+  assert.deepStrictEqual(at(SC.cellEarthClears(read, vol, { above: 4, owned: a => a.join(',') === '2,6,0' })), ['cut@0,5,0', 'cut@0,7,0'], 'an owed sapling never')
   assert.deepStrictEqual(at(SC.cellEarthClears(read, vol, { above: 4, listed: new Set(['0,5,0']) })), ['cut@0,7,0'])
+  // Codex r1 BLOCKER: the ground under a sapling that stays (owed, or unjudged) stays too; a record's own cell is never cut
+  const w2 = { '3,5,0': { name: 'dirt' }, '3,6,0': { name: 'oak_sapling' }, '4,5,0': { name: 'dirt' } }
+  const r2 = (x, y, z) => w2[`${x},${y},${z}`] ?? { name: 'air' }
+  const v2 = Object.keys(w2).map(k => k.split(',').map(Number))
+  assert.deepStrictEqual(at(SC.cellEarthClears(r2, v2, { above: 4, owned: a => a.join(',') === '3,6,0' })), ['cut@4,5,0'], 'an owed sapling keeps its ground')
+  assert.deepStrictEqual(at(SC.cellEarthClears(r2, v2, { above: 4 })), ['cut@4,5,0'], 'unjudged: kept with its ground')
+  assert.deepStrictEqual(at(SC.cellEarthClears(r2, v2, { above: 4, owned: () => false })), ['cut@3,5,0', 'cut@4,5,0', 'plant@3,6,0'], 'a stray one goes with it')
+  assert.deepStrictEqual(at(SC.cellEarthClears(r2, v2, { above: 4, owned: a => a.join(',') === '4,5,0' })), ['cut@3,5,0', 'plant@3,6,0'], 'a record\'s cell is never cut')
 })
 await t('the hook: the earth is listed within the building\'s cut limit, else earth_over; no `earth`, no terrain listed', () => {
   const read = (x, y, z) => (y === 6 && x === 0 ? { name: 'dirt' } : { name: 'air' })
@@ -112,7 +120,7 @@ await t('a dirt pillar in the building refuses every candidate (cell_not_free); 
   assert.ok(Object.assign({}, ...off.sectors.map(r => r.proofFails ?? {})).cell_not_free > 0, JSON.stringify(off.sectors.map(r => r.proofFails)))
   const hook = SC.cellClearsHook(read, { cellsOf: s => SC.volumeOf(B.placeBlueprint(bp, s.anchor, s.s, s.orient)),
     reached: (cl, s) => SC.clearsReachedBuilt(read, cl, { cells: B.placeBlueprint(bp, s.anchor, s.s, s.orient), fill: s.fill ?? [], walk: r => B.walkFrom(r, HOME, new Set(), sp.walkR, { stood: [] }), stand: R.digStand }),
-    earth: { ...C.COTTAGE_EARTH, owned: () => true } })
+    earth: { ...C.COTTAGE_EARTH, owned: () => false } })
   const on = B.siteBlueprint(read, plan(), bp, { ...base, cellClears: hook })
   assert.ok(on.ok, JSON.stringify(on.sectors?.map(r => [r.proofFails, r.proofEx])))
   const cuts = on.record.clear.filter(c => c.kind === 'cut' && c.at[0] === 25 && c.at[2] === 0)
