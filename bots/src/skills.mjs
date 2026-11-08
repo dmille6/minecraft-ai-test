@@ -179,6 +179,7 @@ import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
+import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
@@ -27089,6 +27090,20 @@ async function buildStepwell (ctx, args, signal) {
   }
   return buildStepwellRun(ctx, { t0, budget, f, out, dir, key, me, home, rh, rec: rh.head?.rec ?? rec }, signal)
 }
+/**
+ * fellcanopy-01: LIST THE CANOPY round the standing logs no stand saw -> a short why for the visit row ('listed N' | 'none' | the
+ * publish result). The natural leaves are read from the bot's world (stairRead carries a leaf's `persistent`); the generation is
+ * published only while the head is still a stepwell record with logs to fell, and only with entries not yet listed. Never throws.
+ */
+function swListCanopy (bot, { dir, key, me, rec, left }) {
+  try {
+    const entries = fellCanopy(rec, stairRead(bot))
+    if (!entries.length) { stepwellRow(bot, 'canopy', { why: 'none', n: `0/left${left}` }); return 'none' }
+    const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT && !cur.structure_complete ? withFellCanopy(cur, entries, { left }) : null), { by: me })
+    stepwellRow(bot, 'canopy', { why: pub.result, n: `${entries.length}/left${left}`, gen: pub.gen ?? '-' })
+    return pub.result === 'accepted' ? `listed ${entries.length}` : String(pub.result)
+  } catch { return 'error' }
+}
 /** THE STEPWELL VISIT'S WORK on its record (the felling, then the tank and its descent): buildStepwell's second half. */
 async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh: rh0, rec: rec0 }, signal) {
   let rh = rh0, rec = rec0   // stepwell-05: the crew's generation is read back
@@ -27180,8 +27195,12 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
         domain: () => true, blockLayer: false, clearMax: 60, walkR, replantGoOn: true, replantPerTree: true, saplingAbsent: swSaplingAbsent(bot), saplingUnobtained: n => countItem(bot, n) === 0 }, effects, { deadline, maxSteps: 240 })
       const left = fellPending(stairRead(bot), rec)
       stepwellRow(bot, 'fell', { why: r.stop, n: `${r.cleared}c/${r.placed}p/${r.planted ?? 0}s/left${left ?? '?'}`, ms: Date.now() - t0 })
+      // fellcanopy-01 (LIVE showcase 11-08: 'felling complete, 17 logs left' on 221 of 240 visits for 63 h -- every standing log wrapped in
+      // its spruce's natural leaves, no stand sees one, clears() skips it uncounted): a visit that ended complete with logs left and nothing
+      // cleared LISTS the natural leaves round them as the next generation's kind=leaves clears; the next visit digs them like any clear
+      const canopy = fellCanopyOn() && fellCanopyDue(rec, { stop: r.stop, left, cleared: r.cleared }) ? swListCanopy(bot, { dir, key, me, rec, left }) : null
       const status = r.placed > 0 || r.cleared > 0 || (r.planted ?? 0) > 0 ? 'success' : 'no_effect'
-      return out(status, r.stop, `felling: ${r.why ?? r.stop}; ${left ?? '?'} log(s) left`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+      return out(status, r.stop, `felling: ${r.why ?? r.stop}; ${left ?? '?'} log(s) left${canopy ? `; canopy ${canopy}` : ''}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
     }
     // 2. THE TANK: stone in the bag (the cobble the bags carry; the town's above its reserve), its posts crafted from cobble (6 -> 6)
     const plan = planOfRecord(rec)
