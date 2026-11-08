@@ -145,7 +145,7 @@ import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, tow
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
 import { REROOF_FIX, reroofObstacles, reroofClearsReached, reroofDoorstep, reroofFailBump, reroofPendingCells, reroofOrderedReach, reroofCanopyGrow } from './reroof.mjs'   // reroof-02, reroof-03
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
-import { woodOn, woodHold, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
+import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
@@ -24097,7 +24097,7 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       let next = false, why = open ? 'open' : sinkOpen(rec) ? held : 'no_bot'
       if (!open && !sinkOpen(rec) && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : kind === WOOD_KIND ? woodPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
-      return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
+      return woodHeldState({ ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }, held)   // fold r2: an off wood record is no repair pick
     })
     const order = sinkOrder(st, lastSitedKind(recs))
     if (bot && now - (bot.sinkPickAt ?? -Infinity) >= 10 * 60_000) {
