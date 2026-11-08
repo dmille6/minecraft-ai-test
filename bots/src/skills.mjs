@@ -160,6 +160,7 @@ import { hallPadZone } from './copperhall.mjs'   // groundskeeper-01 on the show
 import { markerZones, markerCellKeys } from './expedition.mjs'   // groundskeeper-01 on the showcase: the markers are reserved
 import { beyondGain, lineClear as exLineClear } from './expedition.mjs'   // bridgepost-01
 import { bridgeOn, bridgeSite, bridgeSites, bridgeToBuild, bridgesDone, bridgePlan, bridgeIntact, bridgeNeed, buildBridge, bridgeZones, bridgeCellKeys, spanDetail, BRIDGE_CARRY } from './bridge.mjs'   // bridgepost-01
+import { bridgeMaterial, sitePlan, bridgeWood, bridgeWoodOn } from './bridge.mjs'   // boardwalk-01: wooden bridges
 import { bridgeIo } from './bridgeio.mjs'   // bridgepost-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
@@ -19809,7 +19810,7 @@ function exBridgesNow (bot, sites, read, trip) {
     for (const b of bridgesDone(sites)) {
       if (Math.hypot(b.near[0] - p.x, b.near[2] - p.z) <= 64) {
         const s = sites.find(q => q.id === b.id)
-        const plan = s ? bridgePlan(s.span) : []
+        const plan = s ? sitePlan(s) : []   // boardwalk-01: a wooden bridge judged by its own palette
         // a cell not loaded (null) says nothing: the bridge is offered, bridgeLeg reads its ends again (Claude review r1 note 2)
         if (s && plan.every(q => read(...q.cell) != null) && !bridgeIntact(read, plan)) {
           if (!s.brokenSeen) { s.brokenSeen = true; s.complete = false; exAppend(exBridgesFile(), { op: 'state', id: s.id, complete: false, why: 'broken', trip: trip.id, t: Date.now() }); exRow(bot, 'bridge_broken', `trip=${trip.id} id=${s.id}`, 'no_effect') }
@@ -19825,7 +19826,7 @@ function exBridgesNow (bot, sites, read, trip) {
 async function exBridgeWork (ctx, signal, trip, site, until) {
   const { bot } = ctx
   const read = exReader(bot)
-  const plan = bridgePlan(site.span)
+  const plan = sitePlan(site)   // boardwalk-01: the site's material (planks + fences when its first trip chose wood)
   const io = bridgeIo(bot, {
     Vec3,
     walkTo: async c => { try { await chestWalk(bot, new goals.GoalBlock(c[0], c[1], c[2]), Math.max(1_000, Math.min(20_000, until - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e } },
@@ -19840,8 +19841,43 @@ async function exBridgeWork (ctx, signal, trip, site, until) {
   const need1 = bridgeNeed(read, plan)
   if (intact) exAppend(exBridgesFile(), { op: 'state', id: site.id, complete: true, trip: trip.id, by: bot.username ?? 'bot', t: Date.now() })
   else if (/^(place_failed|stand|blocked)/.test(r.stop) || r.stop === 'done') exAppend(exBridgesFile(), { op: 'state', id: site.id, failed: true, why: r.stop, trip: trip.id, t: Date.now() })
-  exRow(bot, intact ? 'bridge_done' : 'bridge_build', `trip=${trip.id} id=${site.id} stop=${r.stop} placed=${r.placed} steps=${r.steps} need0=${need0.cobblestone} need=${need1.cobblestone} w=${site.span.w} intact=${intact ? 1 : 0}`, r.placed > 0 || intact ? 'success' : 'no_effect')
+  const needOf = n => (site.mat === 'wood' ? Object.entries(n).filter(([k]) => /_(planks|fence)$/.test(k)).reduce((t, [, v]) => t + v, 0) : n.cobblestone)
+  exRow(bot, intact ? 'bridge_done' : 'bridge_build', `trip=${trip.id} id=${site.id} stop=${r.stop} placed=${r.placed} steps=${r.steps} need0=${needOf(need0)} need=${needOf(need1)} w=${site.span.w} intact=${intact ? 1 : 0} mat=${site.mat === 'wood' ? 'wood' : 'cobble'}`, r.placed > 0 || intact ? 'success' : 'no_effect')
   return { ...r, intact }
+}
+/** boardwalk-01: BRIDGE_WOOD=off builds every new bridge of cobble, as before (bridge.mjs bridgeWoodOn). */
+const BRIDGE_WOOD_ON = bridgeWoodOn(process.env)
+/**
+ * boardwalk-01: THE WOODEN BRIDGE'S KIT -> { ok, planks, fences, why }: the planks and fences the site's plan still needs (bridgeNeed over
+ * the wooden plan), the logs drawn from town ABOVE the reserve (woodworks.mjs woodPressure's avail) when the bag's wood is short, the
+ * planks and fences crafted (craft: the plan's tree, the table). ok once the bag holds the first rows' worth (6 planks, 4 fences: a
+ * trip builds what it carries; the next trip brings the rest). Never throws but on an abort.
+ */
+async function exBridgeWoodKit (ctx, signal, site, sp) {
+  const { bot } = ctx
+  const out = { ok: false, planks: 0, fences: 0, why: 'no_wood' }
+  try {
+    const wood = bridgeWood(sp)
+    const plan = bridgePlan(site.span, { wood })
+    const need = bridgeNeed(exReader(bot), plan)
+    const wantPlanks = Math.max(0, (need[wood.deck] ?? 0) - countItem(bot, wood.deck)), wantFences = Math.max(0, (need[wood.rail] ?? 0) - countItem(bot, wood.rail))
+    const logsHeld = countItem(bot, `${sp}_log`)
+    const logsWant = Math.max(0, Math.ceil(wantPlanks / 4 + (Math.ceil(wantFences / 3) * 5) / 4) - logsHeld)
+    if (logsWant > 0) {
+      const avail = woodPressureNow(bot).avail
+      const take = Math.min(logsWant, avail)
+      if (take > 0) await matsWithdraw(ctx, { [`${sp}_log`]: take }, signal, 20_000, matsReserve().table, decorAllow({ [`${sp}_log`]: take }))
+      check(signal)
+    }
+    if (wantFences > 0) await craft(ctx, { item: wood.rail, count: Math.ceil(wantFences / 3) * 3 }, signal)
+    check(signal)
+    const plankShort = Math.max(0, wantPlanks - countItem(bot, wood.deck))
+    if (plankShort > 0) await craft(ctx, { item: wood.deck, count: Math.ceil(plankShort / 4) * 4 }, signal)
+    out.planks = countItem(bot, wood.deck); out.fences = countItem(bot, wood.rail)
+    out.ok = out.planks >= Math.min(6, need[wood.deck] ?? 0) && out.fences >= Math.min(4, need[wood.rail] ?? 0) && (out.planks > 0 || out.fences > 0)
+    out.why = out.ok ? 'ok' : 'short'
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e; out.why = String(e?.message ?? e).slice(0, 40) }
+  return out
 }
 export const BRIDGE_AT = 24   // a bridge trip turns to its work within this of the site's near end
 async function expeditionVisit (ctx, args, signal) {
@@ -19908,7 +19944,20 @@ async function expeditionVisit (ctx, args, signal) {
     if (EXPEDITION.bridge) {
       const cand = bridgeToBuild(bSites, Date.now())
       const cost = cand ? 5 * cand.span.w : 0
-      if (cand && Number.isInteger(cand.bearing)) {
+      // boardwalk-01: A NEW SITE IS BUILT OF WOOD while the town's logs are surplus (bridge.mjs bridgeMaterial: a site keeps its
+      // material; a half-built cobble one stays cobble) -- the planks and fences crafted here from logs above the reserve, the material
+      // named on the site's index once its lease is taken
+      const mat = cand && Number.isInteger(cand.bearing) ? bridgeMaterial(cand, exReader(bot), { on: BRIDGE_WOOD_ON, woodAvail: woodPressureNow(bot).avail }) : 'cobble'
+      if (cand && Number.isInteger(cand.bearing) && mat === 'wood') {
+        const sp = cand.species ?? woodSpeciesNow(bot)
+        const kit = await exBridgeWoodKit(ctx, signal, cand, sp)
+        const l = kit.ok ? takeSlot(dir, exBridgeKey(), me, 1, { ttl: budget + 60_000 }) : { ok: false, why: kit.why }
+        exRow(bot, 'bridge_pick', `trip=${trip.id} id=${cand.id} seen=${cand.seen.size} w=${cand.span.w} mat=wood sp=${sp} planks=${kit.planks} fences=${kit.fences} lease=${l.ok ? 1 : 0}${l.ok ? '' : ` why=${l.why}`}`, l.ok ? 'success' : 'no_effect')
+        if (l.ok) {
+          if (cand.mat !== 'wood') { exAppend(exBridgesFile(), { op: 'state', id: cand.id, mat: 'wood', species: sp, trip: trip.id, by: me, t: Date.now() }); cand.mat = 'wood'; cand.species = sp }
+          bsite = cand; blease = l
+        }
+      } else if (cand && Number.isInteger(cand.bearing)) {
         let cob = heldMap(bot).cobblestone ?? 0
         if (cob < cost + EX_KIT.cobblestone) {
           try { await matsWithdraw(ctx, { cobblestone: Math.min(BRIDGE_CARRY, cost + EX_KIT.cobblestone - cob) }, signal, 20_000, matsReserve().table, shopAllow) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
