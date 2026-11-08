@@ -91,6 +91,8 @@ await t('THE STYLE BY SHAPE: footbridge to 8, arch 9..21, covered 9..16 on low b
   assert.deepEqual(D.stylesFor(mkSpan(6)), ['foot'])
   assert.deepEqual(D.stylesFor(mkSpan(12)), ['arch', 'covered', 'trestle'])
   assert.deepEqual(D.stylesFor(mkSpan(12, 2, 0)), ['arch', 'trestle'], 'a 2-high bank: no covered bridge (its deck is at the water)')
+  assert.deepEqual(D.stylesFor(mkSpan(12, 0, 1)), ['arch', 'trestle'], 'banks 0/1: no covered bridge (Paper: the step up at the portal is under the tie beam)')
+  assert.deepEqual(D.stylesFor(mkSpan(12, 1, 1)), ['arch', 'covered', 'trestle'])
   assert.deepEqual(D.stylesFor(mkSpan(18)), ['arch', 'trestle'])
   assert.deepEqual(D.stylesFor(mkSpan(30)), ['trestle'])
   assert.deepEqual(D.stylesFor(mkSpan(12, 0, 0, [1, 0], [5])), ['trestle'], 'islets: a trestle with stone piers on them')

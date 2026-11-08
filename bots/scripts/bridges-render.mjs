@@ -55,6 +55,8 @@ let design, plan
 if (opt('style')) {
   design = { style: opt('style'), v: BD.variantOf(opt('style'), id, { species, woodOk: flag('wood') }), dv: BD.DESIGN_V }
   plan = BD.designPlan(span, design)
+  // a forced style says whether it fits the ground (the bot would not build one that does not)
+  if (plan.ok) console.log('fit', JSON.stringify(BD.designFits(read, plan.steps)))
 } else {
   const c = BD.chooseDesign(span, { id, species, read, woodAvail: flag('wood') ? 1e9 : 0, avail: { stone_bricks: 1e9, deepslate_bricks: 1e9, cobbled_deepslate: 1e9, iron_ingot: 1e9, torch: 1e9, glass_pane: 1e9 } })
   if (!c.ok) { console.error('no design:', JSON.stringify(c)); process.exit(1) }
