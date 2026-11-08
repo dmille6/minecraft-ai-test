@@ -6098,14 +6098,15 @@
     "glass-1108.md"
    ],
    "state": "open",
-   "next_step": "2026-11-08: BUILT, not queued. Fleet glass-01-on-1e593b9b 7dcab440 (stacked on stoneworks-01 = 565f115e), registration ~/mcai-analysis/glass-01.7dcab440.json (effectwatch validate: valid) + draft entry glass-01.queue-entry.json (after stoneworks-01). Showcase glass-01show 36a36ce5 on buildsite-01show ec3774e8 (ready to stage; 35 panes in town glaze its 32 planks windows with no sand). Codex r1 1 blocker fixed, r2 FIXED; Paper sandbox8 7/7. Control session places the queue entry and stages the showcase piece.",
+   "next_step": "2026-11-08: BUILT, not queued. FLEET glass-01-on-1e593b9b e6e29cfb (stoneworks-01 cherry-picked on 1e593b9b = 565f115e, + glass-01): registration ~/mcai-analysis/glass-01.e6e29cfb.json (effectwatch validate: valid) + draft entry ~/mcai-analysis/glass-01.queue-entry.json (after stoneworks-01; patch 565f115e..e6e29cfb). SHOWCASE glass-01show-on-24408081 32cdb9d4 on the re-stacked buildsite-01show 24408081 (ready to stage; 35 panes in town glaze its 32 planks windows with no sand). Codex r1 1 blocker fixed, r2 FIXED; showcase part Codex r1 1 blocker (GLASS=off kept the trapdoor) fixed, r2 FIXED. Paper sandbox8 7/7. Suites: ci2 fleet 419/424, w30 showcase 478/483 (base failures body-claim, place-airborne, well, bagdiet orphan; lavastep flake; sandbox-registry pin fixed test-only). Control session places the queue entry and stages the showcase piece.",
    "evidence": {
     "grep": [
      "glass-01"
     ],
     "branches": [
-     "glass-01show",
-     "glass-01-on-1e593b9b"
+     "glass-01show-on-24408081",
+     "glass-01-on-1e593b9b",
+     "glass-01show"
     ],
     "paths": [
      "docs/reports/glass-2026-11-08.md",
