@@ -91,6 +91,52 @@ await t('reroofAccess: a cobblestone stair out from an eave, a pillar per step d
   assert.deepStrictEqual(RR.reroofAccess(read, { eaves: [[10, 4, 5]], box: [0, 0, 10, 10], walked, recordAt: (x, y, z) => x === 12 && y === 2 }), [], 'a record cell in the way: none')
   assert.deepStrictEqual(RR.reroofAccess(read, { eaves: [[10, 4, 10]], box: [0, 0, 10, 10], walked }), [], 'a corner eave names no side')
 })
+await t('r5 stairSupportOk / reroofAccess: a pillar never stands on a dirt path, farmland or ANY record\'s cell (the storehub\'s path P-storehub-2)', () => {
+  const air = { name: 'air', boundingBox: 'empty' }
+  assert.strictEqual(RR.stairSupportOk({ name: 'dirt_path', boundingBox: 'block' }, [0, 0, 0]), false)
+  assert.strictEqual(RR.stairSupportOk({ name: 'farmland', boundingBox: 'block' }, [0, 0, 0]), false)
+  assert.strictEqual(RR.stairSupportOk({ name: 'stone', boundingBox: 'block' }, [0, 0, 0]), true)
+  assert.strictEqual(RR.stairSupportOk({ name: 'stone', boundingBox: 'block' }, [1, 2, 3], (x, y, z) => x === 1 && y === 2 && z === 3), false, 'a record cell')
+  const walked = a => a[1] === 1 && a[0] >= 11
+  const path = (x, y, z) => (y < 0 ? { name: 'stone', boundingBox: 'block' } : y === 0 ? { name: x <= 13 ? 'dirt_path' : 'stone', boundingBox: 'block' } : air)
+  assert.deepStrictEqual(RR.reroofAccess(path, { eaves: [[10, 4, 5]], box: [0, 0, 10, 10], walked }), [], 'every step would stand on the path: no stair')
+  const stone = (x, y, z) => (y <= 0 ? { name: 'stone', boundingBox: 'block' } : air)
+  assert.strictEqual(RR.reroofAccess(stone, { eaves: [[10, 4, 5]], box: [0, 0, 10, 10], walked }).length, 1, 'positive control: on stone the stair stands')
+  assert.deepStrictEqual(RR.reroofAccess(stone, { eaves: [[10, 4, 5]], box: [0, 0, 10, 10], walked, recordAt: (x, y, z) => y === 0 && x === 12 }), [], 'a record cell under a pillar: none')
+})
+await t('r5 reroofApproach: the cheapest fills+cuts from the door front to the town walk, never into the pad, never a record cell, never under the roof', () => {
+  // ground y 0 (feet 1) except a TRENCH at z -1 (ground y -2: feet -1) between the door front (z 0, feet 1) and the walk (z <= -2)
+  const air = { name: 'air', boundingBox: 'empty' }, grass = { name: 'grass_block', boundingBox: 'block' }, stone = { name: 'stone', boundingBox: 'block' }
+  const ground = (x, z) => (z === -1 ? -2 : 0)
+  const read = (x, y, z) => (y > ground(x, z) ? air : y === ground(x, z) ? grass : stone)
+  const walked = new Set(); for (let x = -5; x <= 5; x++) for (let z = -6; z <= -2; z++) walked.add(`${x},1,${z}`)
+  const box = [-3, 1, 3, 7]
+  const a = RR.reroofApproach(read, { from: [[0, 1, 0]], walked, box })
+  assert.deepStrictEqual(a, { fills: [[0, -1, -1]], cuts: [], cost: 1 }, 'one fill in the trench: down 1, up 1 to the walk')
+  const rec = RR.reroofApproach(read, { from: [[0, 1, 0]], walked, box, recordAt: (x, y, z) => z === -1 })
+  assert.ok(rec && rec.fills.every(f => f[2] !== -1) && rec.cuts.every(c => c.at[2] !== -1), 'the trench is a record\'s: nothing placed or cut in it ' + JSON.stringify(rec))
+  assert.strictEqual(RR.reroofApproach(read, { from: [[0, 1, 0]], walked, box, max: 0 }), null, 'bounded')
+  const block = new Set(); for (let x = -12; x <= 12; x++) for (const y of [-1, 0, 1, 2]) block.add(`${x},${y},-1`)
+  assert.strictEqual(RR.reroofApproach(read, { from: [[0, 1, 0]], walked, box, block }), null, 'never through a cell of the new roof')
+  assert.deepStrictEqual(RR.reroofApproach(read, { from: [], walked, box }), null)
+})
+await t('r5 reroofFallRisk + walkFrom `avoid`: a ledge whose fall lands off the town walk is avoided; a fall onto the walk or a wall side is not', () => {
+  // a 1-wide ledge (x 0, z 0..4, feet 6 on a pillar of stone) beside the building box; east of it a pit to y 0 (feet 1) NOT walked;
+  // west of it the walk at feet 5 (a step down: an ordinary step, no fall)
+  const air = { name: 'air', boundingBox: 'empty' }, stone = { name: 'stone', boundingBox: 'block' }
+  const read = (x, y, z) => (x === 0 && y <= 5 ? stone : x < 0 && y <= 4 ? stone : x > 0 && y <= 0 ? stone : air)
+  const walked = new Set(); for (let z = 0; z <= 4; z++) walked.add(`0,6,${z}`)
+  for (let z = -4; z <= 8; z++) for (let x = -6; x <= -1; x++) walked.add(`${x},5,${z}`)
+  const risk = RR.reroofFallRisk(read, walked, { box: [-1, 0, 0, 4] })
+  for (let z = 0; z <= 4; z++) assert.ok(risk.has(`0,6,${z}`), `the ledge 0,6,${z} is avoided: ${[...risk].join(' ')}`)
+  assert.ok(![...risk].some(k => k.startsWith('-')), 'the walk beside it (its falls land on the walk, or it has none) is not')
+  const walked2 = new Set([...walked]); for (let z = -4; z <= 8; z++) { walked2.add(`1,1,${z}`); walked2.add(`0,6,${z}`) }
+  const risk2 = RR.reroofFallRisk(read, walked2, { box: [-1, 0, 0, 4] })
+  for (let z = 0; z <= 4; z++) assert.ok(!risk2.has(`0,6,${z}`), 'the landing is walked: a way back exists ' + [...risk2].join(' '))
+  assert.strictEqual(RR.reroofFallRisk(read, walked, { box: [20, 20, 30, 30] }).size, 0, 'far from the building: not judged')
+  const w = B.walkFrom(read, { x: -1, y: 5, z: 2 }, new Set(), 20, { stood: [[0, 6, 2]] }), wa = B.walkFrom(read, { x: -1, y: 5, z: 2 }, new Set(), 20, { stood: [[0, 6, 2]], avoid: risk })
+  assert.ok(w.has('0,6,2') && !wa.has('0,6,2'), 'walkFrom avoid takes the ledge out')
+})
 await t('reroofRecord marks the stair `temp`; reroofDismantleDue only once every other new cell is done; reroofDismantle moves it to kind=temp clears', () => {
   const rec = { cells: [{ at: [0, 1, 0], role: 'wall', seg: 'walls' }], segments: [{ seg: 'walls', deps: [] }], palette: {} }
   const added = [{ at: [9, 1, 9], role: 'fill', seg: 'earth' }, { at: [1, 5, 1], role: 'roofslab', seg: 'roof-edge', ws: { type: 'top' } }]
@@ -116,10 +162,13 @@ await t('POSITIVE CONTROL (the live answer): REROOF_ACCESS=off -> no_step roof-e
   assert.strictEqual(r.ok, false)
   assert.strictEqual(`${r.why} ${r.detail}`, 'no_step roof-edge 5 left, first roofslab@-18,70,23')
 })
-await t('the access remedies: the hall PROVES -- the new roof\'s slabs as floors, its door-side eave notched over the walked porch row', async () => {
+await t('the access remedies: the hall PROVES with its WHOLE roof -- slabs as floors, the door-side eave kept over a one-cut approach (r5)', async () => {
   const r = await prove()
   assert.ok(r.ok, `${r.why} ${r.detail}`)
-  assert.strictEqual(r.notch, 15)
+  assert.strictEqual(r.notch, 0, 'the overhang stays (owner: looks matter)')
+  assert.deepStrictEqual(r.approach, { fills: 0, cuts: 1 })
+  assert.ok(r.clear.some(c => c.kind === 'cut' && c.at.join(',') === '-13,66,20'), 'the approach cut is a listed clear of the head')
+  assert.strictEqual(r.p.cells.filter(c => c.seg !== 'earth').length, bpAdd.cells.length, 'every cell of the new roof, the eave included')
   const floors = RR.reroofFloors(r.p.cells)
   const onRoof = r.p.cells.filter(c => floors.has(`${c.stand[0]},${c.stand[1] - 1},${c.stand[2]}`))
   assert.ok(onRoof.length > 20, `cells placed from a stand on the roof's own slabs: ${onRoof.length}`)
@@ -131,10 +180,18 @@ await t('MUTANT: the slab floor rule dropped (walkFrom) -- the hall is unproven 
     assert.strictEqual(r.ok, false); assert.strictEqual(r.why, 'no_step')
   })
 })
-await t('MUTANT: no eave notch -- the finished roof cuts the door off (interior_unreachable): the notch is what keeps the hall walked', async () => {
+await t('FALLBACK ONLY: REROOF_APPROACH=off -> the door-side eave is notched (15) as before; with no notch either the door is cut off', async () => {
+  const r = await prove(RR, { REROOF_APPROACH: 'off' })
+  assert.ok(r.ok, `${r.why} ${r.detail}`); assert.strictEqual(r.notch, 15); assert.strictEqual(r.approach, undefined)
   await withMutant(RR_PATH, "  if (!notch.size) return { ...full, notch: 0 }\n", '  return { ...full, notch: 0 }\n', async M => {
+    const q = await prove(M, { REROOF_APPROACH: 'off' })
+    assert.strictEqual(q.ok, false); assert.strictEqual(q.why, 'interior_unreachable', `${q.why} ${q.detail}`)
+  })
+})
+await t('MUTANT: the approach never found (reroofApproach null) -- the hall falls back to the notch and loses its overhang (killed for that reason)', async () => {
+  await withMutant(RR_PATH, "  const starts = from.filter(a => Array.isArray(a) && a.length === 3)\n  if (!starts.length) return null\n", '  return null\n', async M => {
     const r = await prove(M)
-    assert.strictEqual(r.ok, false); assert.strictEqual(r.why, 'interior_unreachable', `${r.why} ${r.detail}`)
+    assert.ok(r.ok); assert.strictEqual(r.notch, 15, 'the mutant cuts the overhang')
   })
 })
 
@@ -190,12 +247,13 @@ await t('wired (structural, comments stripped): buildReroof asks reroofProve and
   const sk = strip('../src/skills.mjs')
   assert.strictEqual(sk.split('const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX })').length, 2)
   assert.ok(sk.includes('reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch })'))
-  assert.ok(sk.includes("    Object.assign(storeOpts, reroofVisitOpts(rec, stood))"))
+  assert.ok(sk.includes("    Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))"))
+  assert.ok(sk.includes('...(REROOF_FIX.fallSafe && home ? { avoid: rd => reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90,'), 'the visit avoids the risky ledges')
   assert.ok(sk.includes('walkRead: reroofNoLeafFloor, stairFirst: true, ...(Array.isArray(stood) ? { stood: reroofSeeds(stood, rec.box) } : {}) } : {})'))
   assert.ok(sk.includes("    if (reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)"), 'the teardown on any stop (Codex r1 BLOCKER)')
   assert.ok(sk.includes('    if (r?.restyle && reroofTempState(bot, r)) return true'))
   const br = strip('../src/buildrun.mjs')
-  assert.ok(br.includes('walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null })'))
+  assert.ok(br.includes('walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null, avoid: avoidSet })'))
   assert.ok(br.includes('  if (!stairOpen) { const s = await clears(); if (s) { out.stop = s; return out } }'))
   assert.strictEqual(RR.reroofFixes({ REROOF_ACCESS: 'off' }).access, false)
 })

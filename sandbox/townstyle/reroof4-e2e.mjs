@@ -152,7 +152,7 @@ async function main () {
   const recCells = new Set(others.flatMap(r => (r.cells ?? []).map(c => k3(c.at))))
   const fx = RR.reroofFixes(process.env)
   const pr = await RR.reroofProve(read, home, rec0, bpOld, bpAdd, { stood, walkR: Number.isFinite(rec0.walkR) ? rec0.walkR : 90, domain, decor, recordAt: (x, y, z) => recCells.has(`${x},${y},${z}`), fx })
-  P('proof', pr.ok ? `OK cells ${pr.p.cells.length} clears ${pr.clear.length} notch ${pr.notch} temp ${pr.temp?.size ?? 0} step ${pr.step ? k3(pr.step) : '-'}` : `${pr.why} ${pr.detail}`)
+  P('proof', pr.ok ? `OK cells ${pr.p.cells.length} clears ${pr.clear.length} notch ${pr.notch} temp ${pr.temp?.size ?? 0} step ${pr.step ? k3(pr.step) : '-'} approach ${JSON.stringify(pr.approach ?? null)}` : `${pr.why} ${pr.detail}`)
   if (!pr.ok) { finish({ stop: 'unproven', why: pr.why, detail: pr.detail }, 1); return }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reroof4-e2e-'))
   const key = PJ.projKey({ x: 0, y: 70, z: 0 }, PLOT)
@@ -172,15 +172,22 @@ async function main () {
   const sampler = setInterval(() => { try { const p = bot.entity.position; const fx0 = Math.floor(p.x), fz0 = Math.floor(p.z); const below = [fx0, Math.floor(p.y - 0.01), fz0]; const b = bot.blockAt(new Vec3(...below)); if (b && /_slab$/.test(b.name) && newKeys.has(k3(below))) onSlab.set(k3(below), `${b.getProperties().type}@y${p.y.toFixed(2)}`) } catch { /* sample */ } }, 250)
   const logs = []
   const e = BB.botBuildEffects(bot, { log: (k, d) => { logs.push([k, d]); if (k === '_build' && /clear|deferred|stuck|temp/.test(String(d.op) + String(d.kind))) P(k, d) } })
+  // r5: every cell the bot dug (the stray check tells the bot's changes from the world's own: a mushroom or a leaf that pops)
+  const touched = new Set()
+  { const d1 = e.dig; e.dig = async (c, ...a) => { touched.add(k3(c)); return d1(c, ...a) } }
   if (process.env.WALKLOG) { const w0 = e.walkTo; e.walkTo = async (st, ...a) => { const t1 = Date.now(); const ok = await w0(st, ...a); P('walkTo', st, ok, `${Date.now() - t1} ms`, 'at', bot.entity.position.floored()); return ok }; const d0 = e.dig; e.dig = async (c, ...a) => { const t1 = Date.now(); const v = await d0(c, ...a); P('dig', c, v, `${Date.now() - t1} ms`); return v } }
-  let r = null, torn = null
+  let r = null, torn = null, fallFrom = null, fallLeft = null
   for (let visit = 0; visit < Number(process.env.VISITS ?? 14); visit++) {
     head = PJ.recordHead(dir, key).head.rec
     const h = PJ.recordHead(dir, key)
     const slot = PJ.takeSlot(dir, key, NAME, 2)
     const floors = RR.reroofFloors(head.cells.filter(q => /^reroof-/.test(String(q.seg))))
-    r = await R.runVisit({ dir, key, me: NAME, home, stood, record: head, recordGen: h.head.gen, palette: head.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, domain, walkR: 90, floors, walkRead: RR.reroofNoLeafFloor, stairFirst: true, stood: RR.reroofSeeds(stood, head.box) }, e, { deadline: Date.now() + 20 * 60_000 })
+    r = await R.runVisit({ dir, key, me: NAME, home, stood, record: head, recordGen: h.head.gen, palette: head.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, domain, walkR: 90, floors, walkRead: RR.reroofNoLeafFloor, stairFirst: true, stood: RR.reroofSeeds(stood, head.box), ...(fx.fallSafe ? { avoid: rd => RR.reroofFallRisk(rd, B.walkFrom(rd, home, new Set(), 90, { stood: RR.reroofSeeds(stood, head.box) }), { box: head.box }) } : {}) }, e, { deadline: Date.now() + 20 * 60_000 })
     PJ.releaseLease(dir, key, `slot${slot.slot}`, NAME, slot.gen)
+    // FALL_AT=x,y,z (r5, the fall-recovery test): after the first visit the bot is dropped into that cell (the storage hub's cavity
+    // 14,67,-47: Paper 11-08 a builder fell there and every walk out timed out); the next visits must walk out and finish
+    if (process.env.FALL_AT && visit === 0) { const [qx, qy, qz] = process.env.FALL_AT.split(',').map(Number); rcon(`tp ${NAME} ${qx + 0.5} ${qy} ${qz + 0.5}`); await sleep(2500); fallFrom = bot.entity.position.floored(); P('FALL: dropped at', fallFrom) }
+    if (fallFrom && !fallLeft) { const q = bot.entity.position.floored(); if (q.x !== fallFrom.x || q.y !== fallFrom.y || q.z !== fallFrom.z) { fallLeft = q; P('FALL: walked out to', q) } }
     P(`visit ${visit}: stop ${r.stop} ${r.why ?? ''} placed ${r.placed} refused ${r.refused} silent ${r.silent} cleared ${r.cleared}`)
     // the teardown (skills.mjs reroofTempState/reroofTempDown): the roof stands -> the stair's cells become kind=temp clears
     const done = c => { const b = read(...c.at); return !!b && R.cellDone({ name: b.name, boundingBox: b.boundingBox, props: b.props ?? null }, head.palette, c.role, c.ws) }
@@ -206,10 +213,15 @@ async function main () {
   const okCells = new Set(); res.forEach((x, i) => { if (/passed/i.test(x.reply)) okCells.add(idx[i]) })
   const bad = newCells.filter(c => !okCells.has(c))
   // the listed clears gone, the stair gone and out of the record, no stray block in the pasted box
-  const clearsLeft = (head.clear ?? []).filter(c => { const b = read(...c.at); return b && String(b.name) === c.name })
+  const standing = (head.clear ?? []).filter(c => { const b = read(...c.at); return b && String(b.name) === c.name })
+  // r5: listed natural leaves / plants left standing OUTSIDE every new cell are an untouched canopy (listed for sight lines the roof's own
+  // stands made unneeded): reported apart; any other listed dig still standing fails
+  const sightLeft = standing.filter(c => ['leaves', 'plant'].includes(c.kind) && !touched.has(k3(c.at)))
+  const clearsLeft = standing.filter(c => !sightLeft.includes(c))
   const tempCellsLeft = RR.reroofTempCells(head).length, tempStanding = RR.reroofTempStanding(head, read).length
   const allowed = new Set([...head.cells.map(c => k3(c.at)), ...(head.clear ?? []).map(c => k3(c.at))])
-  const stray = []
+  const stray = [], env = []
+  const placedAt = new Set(logs.filter(([k, d]) => k === '_build' && d.op === 'place' && Array.isArray(d.cell)).map(([, d]) => k3(d.cell)))
   for (const [kk, n0] of before) {
     const [x, y, z] = kk.split(',').map(Number)
     const b = bot.blockAt(new Vec3(x, y, z))
@@ -220,13 +232,16 @@ async function main () {
     // leaves decay and fluids flow on their own (a felled tree's crown): not the bot's blocks
     if (/_leaves$/.test(n0) && /^(air|cave_air)$/.test(n1)) continue
     if (/^(water|lava)$/.test(n0) || /^(water|lava)$/.test(n1)) continue
-    stray.push(`${kk}:${n0}->${n1}`)
+    // r5: a change no bot action came near (no dig, no placement within 1) is the world's own (a mushroom popping, a leaf decaying):
+    // reported apart, never hidden
+    const nearBot = [-1, 0, 1].some(dx => [-1, 0, 1].some(dy => [-1, 0, 1].some(dz => touched.has(k3([x + dx, y + dy, z + dz])) || placedAt.has(k3([x + dx, y + dy, z + dz])))))
+    ;(nearBot ? stray : env).push(`${kk}:${n0}->${n1}`)
   }
   const slabStands = [...onSlab.values()]
   const summary = { plot: PLOT, stop: r?.stop, newCells: newCells.length, serverOk: newCells.length - bad.length, bad: bad.slice(0, 8).map(c => `${c.role}@${c.at}${c.ws ? JSON.stringify(c.ws) : ''}`),
-    clears: (head.clear ?? []).length, clearsLeft: clearsLeft.length, notch: pr.notch, temp: pr.temp?.size ?? 0, torn: torn?.result ?? '-', tempCellsLeft, tempStanding, stray: stray.length, strayEx: stray.slice(0, 8),
-    slabStands: slabStands.length, slabBottom: slabStands.filter(s => s.startsWith('bottom')).length, slabTop: slabStands.filter(s => s.startsWith('top')).length, places: logs.filter(([k, d]) => k === '_build' && d.op === 'place').length }
-  const pass = r?.stop === 'complete' && !bad.length && !clearsLeft.length && !tempCellsLeft && !tempStanding && !stray.length
+    clears: (head.clear ?? []).length, clearsLeft: clearsLeft.length, clearsLeftEx: clearsLeft.slice(0, 6).map(c => `${c.kind}:${c.name}@${c.at}`), sightLeft: sightLeft.length, notch: pr.notch, temp: pr.temp?.size ?? 0, torn: torn?.result ?? '-', tempCellsLeft, tempStanding, stray: stray.length, strayEx: stray.slice(0, 8), env: env.length, envEx: env.slice(0, 6),
+    fall: process.env.FALL_AT ? (fallLeft ? `left ${fallLeft}` : 'STUCK') : '-', slabStands: slabStands.length, slabBottom: slabStands.filter(s => s.startsWith('bottom')).length, slabTop: slabStands.filter(s => s.startsWith('top')).length, places: logs.filter(([k, d]) => k === '_build' && d.op === 'place').length }
+  const pass = r?.stop === 'complete' && !bad.length && !clearsLeft.length && !tempCellsLeft && !tempStanding && !stray.length && (!process.env.FALL_AT || !!fallLeft)
   e.close(); bot.quit(); await sleep(500)
   finish(summary, pass ? 0 : 1)
 }

@@ -141,7 +141,7 @@ import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottage
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
-import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
+import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
@@ -20878,11 +20878,13 @@ async function buildReroof (ctx, args, signal) {
   const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && !cur.style && cur.cells?.length === rec.cells.length ? reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch }) : null), { by: me })
   if (pub.result === 'accepted') bot.shopDamage = null   // the building's damage read is fresh: its open roof is its repair now
   if (pub.result !== 'accepted') return out('no_effect', 'lost_record', `${t.plot}: the new generation was not published (${pub.result})`)
-  try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: t.plot, op: 'reroof', kind: `${bpNew.id}/${t.form}/${style.roof}/${added.length}cells${clear.length ? `/clear${clear.length}` : ''}${step ? '/doorstep' : ''}${pr.notch ? `/notch${pr.notch}` : ''}${pr.temp ? `/temp${pr.temp.size}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: t.plot, op: 'reroof', kind: `${bpNew.id}/${t.form}/${style.roof}/${added.length}cells${clear.length ? `/clear${clear.length}` : ''}${step ? '/doorstep' : ''}${pr.notch ? `/notch${pr.notch}` : ''}${pr.temp ? `/temp${pr.temp.size}` : ''}${pr.approach ? `/approach${pr.approach.fills}f${pr.approach.cuts}c` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
   return out('success', 'published', `${t.plot}: ${bpNew.id} (${t.form}, ${style.roof}) gen ${pub.gen}, ${p.cells.length} cells to build${clear.length ? `, ${clear.length} to dig first` : ''}${step ? ', a doorstep' : ''}`)
 }
 /** reroof-04: a re-roofed record's visit options -- its new roof's slab cells are floors to the walk (REROOF_ACCESS). Pure over rec, stood. */
-const reroofVisitOpts = (rec, stood) => (REROOF_FIX.access && rec?.restyle ? { floors: reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))),
+const reroofVisitOpts = (rec, stood, home = null) => (REROOF_FIX.access && rec?.restyle ? { floors: reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))),
+  // r5: the ledges whose fall lands off the town walk are never a stand or a step (computed once a visit over the visit's own walk view)
+  ...(REROOF_FIX.fallSafe && home ? { avoid: rd => reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90, { stood: Array.isArray(stood) ? reroofSeeds(stood, rec.box) : [] }), { box: rec.box }) } : {}),
   // ...and the walk its proof walked: no natural leaves underfoot, no seed a bot once stood on inside the building's own box (its roof)
   walkRead: reroofNoLeafFloor, stairFirst: true, ...(Array.isArray(stood) ? { stood: reroofSeeds(stood, rec.box) } : {}) } : {})
 /**
@@ -21606,7 +21608,7 @@ async function buildShopVisit (ctx, args, signal) {
     // townstyle-01: the cottage's stands are its own pad + 3, its walk the record's radius (cottage.mjs cottageVisitOpts)
     if (isCottageBlueprint(rec.blueprint)) Object.assign(storeOpts, cottageVisitOpts(rec))
     if (rec.blueprint === TOWNHALL_BLUEPRINT) Object.assign(storeOpts, townhallVisitOpts(rec))   // townstyle-02
-    Object.assign(storeOpts, reroofVisitOpts(rec, stood))   // reroof-04: a re-roofed record's new roof slabs are floors to its walk
+    Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))   // reroof-04: a re-roofed record's new roof slabs are floors to its walk
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
     // reroof-04: the new roof stands -- its temporary stair comes down (the next generation lists it as kind=temp clears; the next visit
     // digs them), whatever this visit stopped on: an old cell it cannot repair never keeps the stair up (Codex r1 BLOCKER)
