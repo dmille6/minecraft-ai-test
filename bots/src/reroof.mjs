@@ -14,7 +14,7 @@ import { restyleRoof, styleOf, stylePalette } from './townstyle.mjs'
 import { placeBlueprint } from './buildsite.mjs'   // reroof-02: the pending retrofits' world cells (the decorator keeps off them)
 import { replaceableCell, rot } from './townplan.mjs'
 import { digStand, foreignKind } from './buildrun.mjs'   // reroof-02 (b): the visit's own dig rules, asked by the proof
-import { walkFrom, overlay } from './buildsite.mjs'
+import { walkFrom, overlay, stepFor } from './buildsite.mjs'
 
 export const REROOF_PLOT = 'reroof'
 /** The targets in order (smallest first: a stalled roof costs least there) and their roof form. */
@@ -143,11 +143,14 @@ const offs = v => /^(off|0|false|no)$/i.test(String(v ?? '').trim())
 /** THE FIXES' SWITCHES -> { avoid, decor, leaves, fresh, doorstep }. Default on. Pure. */
 export function reroofFixes (env = process.env) {
   return { avoid: !offs(env?.REROOF_DECOR_AVOID), decor: !offs(env?.REROOF_DECOR_CLEAR), clutter: !offs(env?.REROOF_CLUTTER_CLEAR),
-    fresh: !offs(env?.REROOF_FAILS_FRESH), doorstep: !offs(env?.REROOF_DOORSTEP) }
+    fresh: !offs(env?.REROOF_FAILS_FRESH), doorstep: !offs(env?.REROOF_DOORSTEP),
+    // reroof-03 (11-08): a log on the building (a tree rooted on its own roof, a felled tree's floating remains) is dug (e); a dig no
+    // ground stand reaches is proven reachable from the new roof's own placed cells, in the build's order (f)
+    roofTree: !offs(env?.REROOF_ROOFTREE), ordered: !offs(env?.REROOF_ORDERED) }
 }
 export const REROOF_FIX = Object.freeze(reroofFixes(typeof process !== 'undefined' ? process.env : {}))
 /** The `_reroof_mode` licence row. Pure. */
-export const reroofModeDetail = (on, fx) => `on=${on ? 1 : 0} v=2 avoid=${fx.avoid ? 1 : 0} decor=${fx.decor ? 1 : 0} clutter=${fx.clutter ? 1 : 0} fresh=${fx.fresh ? 1 : 0} doorstep=${fx.doorstep ? 1 : 0} fails_max=${REROOF_FAILS_MAX} fails_ttl_h=${REROOF_FAILS_TTL_MS / 3_600_000}`
+export const reroofModeDetail = (on, fx) => `on=${on ? 1 : 0} v=2 avoid=${fx.avoid ? 1 : 0} decor=${fx.decor ? 1 : 0} clutter=${fx.clutter ? 1 : 0} fresh=${fx.fresh ? 1 : 0} doorstep=${fx.doorstep ? 1 : 0} rooftree=${fx.roofTree ? 1 : 0} ordered=${fx.ordered ? 1 : 0} fails_max=${REROOF_FAILS_MAX} fails_ttl_h=${REROOF_FAILS_TTL_MS / 3_600_000}`
 
 /** (c) A pass-over lasts this long after the building's LAST failed proof: the world around it changes (a tree felled, a post moved). */
 export const REROOF_FAILS_TTL_MS = 6 * 60 * 60_000
@@ -192,6 +195,144 @@ const nmOf = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 const LEAVES_RX = /_leaves$/
 /** A decorator ornament role (decorator.mjs: D<n>-f<k>, D<n>-g, D<n>-pot, D<n>-h, D<n>-post, D<n>-lamp). */
 export const DECOR_ORNAMENT_RX = /^D\d+-(f\d|g|u\d|pot|h|post|lamp)$/   // flowers-01: an upgraded border cell (u) too
+const LOG_RX = /_(log|wood)$/
+/** reroof-03: the clear kind of a roof tree's or a felled tree's remains' logs. NOT `tree`: no sapling is owed (a sapling that took on a
+ *  roof, a trunk already felled) -- runVisit's clears() never holds it for a replant, and the tripwire's G5 counts only kind=tree; it is
+ *  a listed clear of the head (G2's default rule). */
+export const REROOF_REMAINS = 'remains'
+const AIR_RX = /^(air|cave_air)$/
+/** A reader's block is NATURAL leaves (persistent false; unread properties: not natural, never listed). Pure. */
+export function naturalLeafBlock (b) {
+  if (!b || !LEAVES_RX.test(nmOf(b))) return false
+  const p = b.props
+  return p?.persistent === false || p?.persistent === 'false'
+}
+export const ROOFTREE_MAX = 16     // logs a roof tree may have (the hall's spruce: 6; a giant is no roof tree)
+export const ROOFTREE_R = 2        // its canopy: natural leaves within 2 (x/z) of a trunk log, from its bottom to two above its top
+/**
+ * reroof-03 (e): THE TREE ON THE BUILDING at a log -> { logs: [[x,y,z]] bottom up, leaves: [[x,y,z]], why: 'rooted'|'floating' } | null.
+ * Pure. The log's column down to its lowest log; under it either one of the building's OWN cells (`own`: Set of 'x,y,z' -- the flat
+ * roof a sapling took on: LIVE 11-08 the hall's spruce -11,70..75,29 on its roof planks at 69) or AIR (a felled tree's remains left
+ * floating: the enchanting workshop's 26,73..75,-69 over air at 72) -- anything else (the ground: a living tree beside the building,
+ * whose felling owes a sapling) -> null. The column up to its top log; more than ROOFTREE_MAX -> null. Its canopy: natural leaves
+ * (naturalLeafBlock) within ROOFTREE_R of the trunk, from its bottom to 2 above its top, that are no record's cell.
+ */
+export function roofTree (read, at, { own = new Set(), recordAt = () => null, max = ROOFTREE_MAX, r = ROOFTREE_R } = {}) {
+  const isLog = (x, y, z) => LOG_RX.test(nmOf(read(x, y, z)))
+  if (!Array.isArray(at) || !isLog(...at)) return null
+  const [x, , z] = at
+  let lo = at[1], hi = at[1]
+  while (isLog(x, lo - 1, z) && hi - lo < max) lo--
+  while (isLog(x, hi + 1, z) && hi - lo < max) hi++
+  if (hi - lo + 1 > max || isLog(x, lo - 1, z) || isLog(x, hi + 1, z)) return null
+  // Codex r1 BLOCKER 1: never a log that is a record's cell (this building's or another's: a log post, a log wall) anywhere in the trunk
+  for (let y = lo; y <= hi; y++) if (own.has(`${x},${y},${z}`) || recordAt(x, y, z)) return null
+  const under = read(x, lo - 1, z)
+  const why = own.has(`${x},${lo - 1},${z}`) ? 'rooted' : under && AIR_RX.test(nmOf(under)) ? 'floating' : null
+  if (!why) return null
+  const logs = []
+  for (let y = lo; y <= hi; y++) logs.push([x, y, z])
+  const leaves = []
+  for (let y = lo; y <= hi + 2; y++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+    const q = [x + dx, y, z + dz]
+    if (own.has(q.join(',')) || recordAt(...q)) continue
+    if (naturalLeafBlock(read(...q))) leaves.push(q)
+  }
+  return { logs, leaves, why }
+}
+export const REROOF_GROW_MAX = 160   // digs the canopy round unreached ones may add (the live storehub's spruce remains: ~70)
+export const REROOF_GROW_ROUNDS = 4
+/**
+ * reroof-03 (g): THE CANOPY ROUND DIGS NO STAND REACHES -> { clear, added, rounds, rc }. Pure. LIVE 11-08: the storehub's 5 unreached
+ * leaves sit inside the canopy of a felled spruce's FLOATING remains beside its west wall (logs 9,72,-53 and 9,75..76,-53 over air):
+ * the canopy outside the new roof's cells is never listed and hides them from every stand. While `reach(list)` leaves digs unreached,
+ * round each one (within `r`): a log of a tree on the building or a floating remains (roofTree) is listed whole (kind remains) with its
+ * leaves, and
+ * the natural leaves within 1 are listed; never a record's cell (`recordAt`, `own`); at most REROOF_GROW_MAX added.
+ */
+export function reroofCanopyGrow (read, clear = [], reach, { own = new Set(), recordAt = () => null, r = 2, max = REROOF_GROW_MAX, rounds = REROOF_GROW_ROUNDS, roofTrees = true } = {}) {
+  const k = a => a.join(',')
+  let list = clear.slice(), added = 0, i = 0
+  let rc = reach(list)
+  for (; i < rounds && !rc.ok && added < max; i++) {
+    const have = new Set(list.map(c => k(c.at))), add = []
+    const put = (q, kind) => { if (have.has(k(q)) || own.has(k(q)) || recordAt(...q) || added + add.length >= max) return; const b = read(...q); if (!b) return; have.add(k(q)); add.push({ at: q.slice(), name: nmOf(b), kind }) }
+    for (const u of rc.unreached) {
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        const q = [u[0] + dx, u[1] + dy, u[2] + dz]
+        const b = read(...q)
+        if (roofTrees && LOG_RX.test(nmOf(b)) && !have.has(k(q)) && !recordAt(...q)) {   // Codex r1 BLOCKER 4: REROOF_ROOFTREE=off lists no log
+          const tr = roofTree(read, q, { own, recordAt })
+          if (tr) { for (const l of tr.logs) put(l, REROOF_REMAINS); for (const l of tr.leaves) put(l, 'leaves') }
+        } else if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) <= 1 && naturalLeafBlock(b)) put(q, 'leaves')
+      }
+    }
+    if (!add.length) break
+    added += add.length
+    list = [...list, ...add].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+    rc = reach(list)
+  }
+  return { clear: list, added, rounds: i, rc }
+}
+/**
+ * reroof-03 (f): CAN EVERY LISTED DIG BE MADE IN THE BUILD'S OWN ORDER? -> { ok, unreached: [[x,y,z]], placed, passes }. Pure.
+ * LIVE 11-08: storehub `clear_unreached 5/32` (leaves under the canopy over its flat roof) and, with (e), the hall's roof tree: no
+ * GROUND stand reaches them, but the new roof's own cells do once they stand. The visit works the same way (buildrun.mjs runVisit:
+ * clears() first, then the segments -- a cell still holding a listed block waits, the cells beside it are placed, the visit ends
+ * `blocked`, and the next visit's clears() digs from the cells now standing). Simulated: passes of (1) every listed dig a stand
+ * reaches now (digStand over the town walk, low before high), then (2) the proven roof cells (`cells`: proveSite's) of the FIRST
+ * unfinished segment, then the next once it finishes, each free now, with no open cell below it in its column, and a step now (stepFor over the walk with the placed cells as
+ * floors and the cells still to place as obstacles; the digs' walk, like runVisit clears()', blocks nothing) -- until nothing moves. ok: every dig made (the cells left are the proof's own).
+ *   wantOf(c) -> stepFor's `want` for a state-bearing or reach-only cell (null: any face)
+ */
+export function reroofOrderedReach (read, home, clear = [], cells = [], { stood = [], walkR = 90, domain = null, wantOf = () => null, blockOf = () => null, passes = 40 } = {}) {
+  const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
+  const SOLIDB = Object.freeze({ name: 'cobblestone', boundingBox: 'block' })
+  const k = a => a.join(',')
+  const over = new Map(), R = overlay(read, over)
+  const undug = new Map(clear.map(c => [k(c.at), c]))
+  const open = new Map(cells.map(c => [k(c.at), c]))
+  // the segments in the proof's order (runVisit works them in order: a segment that cannot finish ends the visit -- `blocked` --
+  // and no later segment is placed until it does: Codex r1 BLOCKER 2)
+  const segs = []
+  for (const c of cells) if (!segs.includes(c.seg)) segs.push(c.seg)
+  const free = at => { const b = R(...at); return !b || AIR_RX.test(nmOf(b)) || replaceableCell(b) }
+  const nodesNow = (block = new Set()) => { const m = new Map(); for (const q of walkFrom(R, home, block, walkR, { stood })) { const [x, y, z] = q.split(',').map(Number); const c = `${x},${z}`; if (!m.has(c)) m.set(c, []); m.get(c).push(y) } return m }
+  let placed = 0, pass = 0
+  for (; pass < passes && (undug.size || open.size); pass++) {
+    let moved = false
+    // (1) the clears, low before high (the walk re-planned only when a dig finds no stand after one landed since the last walk)
+    let nodes = nodesNow(), fresh = true
+    for (const c of [...undug.values()].sort((a, b) => a.at[1] - b.at[1])) {
+      if (!digStand(R, c.at, nodes)) {
+        if (fresh) continue
+        nodes = nodesNow(); fresh = true
+        if (!digStand(R, c.at, nodes)) continue
+      }
+      over.set(k(c.at), AIRB); undug.delete(k(c.at)); moved = true; fresh = false
+    }
+    // (2) the segments in order: the first unfinished one is swept (the walk re-planned between sweeps) while any of its cells can be
+    // placed; the next segment only once it is finished. A placed cell is its OWN block (Codex r1 BLOCKER 3: a slab or a stair is no
+    // floor to walkFrom, as on the server; `blockOf(c)` -> { name, boundingBox }, else a full block)
+    for (const sg of segs) {
+      const mine = cells.filter(c => c.seg === sg)
+      for (let progress = true; progress;) {
+        progress = false
+        nodes = nodesNow(new Set(open.keys()))
+        for (const c of mine) {
+          const key = k(c.at)
+          if (!open.has(key) || !free(c.at)) continue
+          if (mine.some(o => o !== c && open.has(k(o.at)) && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1])) continue
+          if (!stepFor(R, home, c.at, nodes, domain, wantOf(c))) continue
+          over.set(key, blockOf(c) ?? SOLIDB); open.delete(key); placed++; progress = true; moved = true
+        }
+      }
+      if (mine.some(c => open.has(k(c.at)))) break
+    }
+    if (!moved) break
+  }
+  return { ok: undug.size === 0, unreached: [...undug.values()].map(c => c.at.slice()), placed, passes: pass }
+}
 /**
  * (b) WHAT STANDS IN THE ADDED CELLS, AND WHAT MAY GO -> { clear: [{ at, name, kind }], retire: [[x, y, z]], blocker: { at, name } | null }.
  * Pure. `cells` the added cells' world positions; `decor` the decor HEAD record (its cells: { at, role }); `recordAt(x, y, z)` -> a plot
@@ -204,7 +345,7 @@ export const DECOR_ORNAMENT_RX = /^D\d+-(f\d|g|u\d|pot|h|post|lamp)$/   // flowe
  *   - anything else: the blocker (the first, in the cells' order): the proof fails as before, naming it
  * The clear list is ordered low before high (runVisit digs it so).
  */
-export function reroofObstacles (read, cells = [], { decor = null, recordAt = () => null, fx = reroofFixes({}) } = {}) {
+export function reroofObstacles (read, cells = [], { decor = null, recordAt = () => null, fx = reroofFixes({}), own = null } = {}) {
   const k = a => a.join(',')
   // ...and its cells a RETROFIT already retired (Codex r1 BLOCKER: the decor generation is published first; a visit that stopped before
   // the building's was published must find the same ornament again on the next try, else it is a blocker for good)
@@ -229,6 +370,12 @@ export function reroofObstacles (read, cells = [], { decor = null, recordAt = ()
       continue
     }
     if (fx.clutter && !recordAt(...at) && (LEAVES_RX.test(nmOf(b)) || foreignKind(nmOf(b)) === 'scaffold')) { take(at, LEAVES_RX.test(nmOf(b)) ? 'leaves' : 'foreign'); continue }
+    // reroof-03 (e): a LOG ON THE BUILDING -- a tree rooted on one of its own cells, or a felled tree's floating remains -- goes whole
+    // (kind remains: its trunk bottom up, then its natural leaves); a tree rooted in the ground stays a blocker (felling it owes a sapling)
+    if (fx.roofTree && own && LOG_RX.test(nmOf(b)) && !recordAt(...at)) {
+      const tr = roofTree(read, at, { own, recordAt })
+      if (tr) { for (const l of tr.logs) take(l, REROOF_REMAINS); for (const l of tr.leaves) take(l, 'leaves'); continue }
+    }
     return { clear: [], retire: [], blocker: { at: at.slice(), name: nmOf(b) } }
   }
   const order = (a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]
