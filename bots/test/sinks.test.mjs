@@ -45,7 +45,7 @@ await t('SINKS: on in the showcase pool only by default; on/off override; SINK_K
   assert.strictEqual(S.sinksOn({ SINKS: 'off' }, 'showcase'), false)
   assert.strictEqual(S.sinksOn({ SINKS: 'on' }, 'hive-a'), true)
   assert.strictEqual(S.sinksOn({ SINKS_POOLS: '*' }, 'hive-a'), true)
-  assert.deepStrictEqual(S.sinkKindsOn({}), ['road', 'tower', 'shrine', 'dress', 'decor'])   // towndress-01: the fourth sink; decorator-01: the fifth
+  assert.deepStrictEqual(S.sinkKindsOn({}), ['road', 'tower', 'shrine', 'dress', 'decor', 'wood'])   // towndress-01: the fourth sink; decorator-01: the fifth; fences-01: the sixth
   assert.deepStrictEqual(S.sinkKindsOn({ SINK_KINDS: 'tower, shrine' }), ['tower', 'shrine'])
 })
 await t('projectsOn: the sinks before the tidy only when on (each kind its own); projectsGuarded keeps every sink plot when off', () => {
@@ -410,7 +410,8 @@ const W = [
   /\.\.\.sinkVisitOpts\(rec, home\), \.\.\.leave \}, effects/,
   /const others = guardRecords\(projectHeads\(\)\.map\(x => x\.head\.rec\)\.filter\(Boolean\), kind\)/,
   // siteprep-01: a pinned claim's own request id is the one zone its guard ignores (`prepExcept`)
-  /guard: kind === 'dress' \|\| kind === 'decor' \? \(\) => null : sinkGuardFor\(c, plan, \{ kind, prepExcept: pe \}\), guardShrine: kind === 'dress' \|\| kind === 'decor' \? \(\) => null : sinkGuardFor\(c, plan, \{ noZ0: true, kind, prepExcept: pe \}\)/,
+  // fences-01: the ornament kinds (dress, decor, wood: sinks.mjs ornamentKind) take no stone guard
+  /guard: ornamentKind\(kind\) \? \(\) => null : sinkGuardFor\(c, plan, \{ kind, prepExcept: pe \}\), guardShrine: ornamentKind\(kind\) \? \(\) => null : sinkGuardFor\(c, plan, \{ noZ0: true, kind, prepExcept: pe \}\)/,
 ]
 await t('build_shop dispatches a sink plot to buildSink; a sink wanting its next instance reads unsited; its palette judges damage; the picker\'s order and upkeep turn reach activeProject; the visit takes the sink options', () => {
   for (const re of W) assert.ok(re.test(SK), String(re))
