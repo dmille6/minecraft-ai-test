@@ -71,7 +71,14 @@ export function cellEarthClears (read, vol = [], { above, listed = new Set(), ow
   for (const at of vol) {
     if (!Array.isArray(at) || !(at[1] > above) || listed.has(at.join(','))) continue
     const b = read(...at)
-    if (b && SITE_EARTH.test(nm(b))) out.push({ at: at.slice(), kind: 'cut', name: nm(b) })
+    if (b && SITE_EARTH.test(nm(b))) {
+      // Codex r1 BLOCKER: never another record's cell (`owned`), and never the ground under a sapling this list does not take (an owed
+      // replant, or one with no `owned` test): digging its support would uproot it
+      if (typeof owned === 'function' && owned(at)) continue
+      const up = read(at[0], at[1] + 1, at[2])
+      if (up && /_sapling$|^mangrove_propagule$/.test(nm(up)) && !(typeof owned === 'function' && !owned([at[0], at[1] + 1, at[2]]))) continue
+      out.push({ at: at.slice(), kind: 'cut', name: nm(b) })
+    }
     // a STRAY sapling on that slope (LIVE X2 -12,69,-61: no record lists it as a replant or a cell) goes with its ground; one a record
     // owes (`owned(at)`: a replant cell, any record's cell) never -- and with no `owned` test, never
     else if (b && /_sapling$|^mangrove_propagule$/.test(nm(b)) && typeof owned === 'function' && !owned(at)) out.push({ at: at.slice(), kind: 'plant', name: nm(b) })
