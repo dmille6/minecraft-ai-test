@@ -306,6 +306,8 @@ test('SEARCH restart (Codex r1 BLOCKER): a priced search past its budget that ha
   assert.equal(ST.restartsSearch({ cut: true, mode: 'priced', hits: 1, restarted: true }, 'partial'), false, 'once per search')
   assert.equal(ST.restartsSearch({ cut: true, mode: 'priced', hits: 1 }, 'success'), false)
   assert.equal(ST.restartsSearch({ cut: false, mode: 'priced', hits: 1 }, 'timeout'), false)
+  assert.equal(ST.restartsSearch({ cut: true, mode: 'priced', hits: 1 }, 'noPath'), false, 'an exhausted heap is the base\'s answer too')
+  assert.equal(ST.restartsSearch({ cut: true, mode: 'priced', hits: 1 }, 'timeout'), true)
 })
 
 test('SEARCH restart, real clock (Codex r1 repro: a goal on a 20-high column): the base succeeds within thinkTimeout, so the candidate does too', () => {
@@ -438,7 +440,7 @@ function wiringProblems (src) {
   for (const p of ['gatherMoves', 'ascendMoves', 'descendMoves', 'deckMoves', 'waterMoves']) at(`${p}.scafTown = false`, `${p} exempt`)
   at("if (r.status === 'success') bot.scafTownPrice.chosen += chosenScafTown(r.path)", 'the chosen counter')
   at("logEvent({ kind: 'scaftown_hits'", 'the positive-control row')
-  at("if (reason === 'stuck') { try { bot.scafTownPrice?.stuck?.(bot.pathfinder?.goal ?? null) }", 'the stall fallback')
+  at("if (reason === 'stuck' && bot.pathfinder?.movements?.scafTown !== false) { try { bot.scafTownPrice?.stuck?.(bot.pathfinder?.goal ?? null) }", 'the stall fallback')
   if (/\bmoves\.scafTown = false/.test(src)) bad.push('the walk itself exempt')
   return bad
 }

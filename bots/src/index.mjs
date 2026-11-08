@@ -1125,7 +1125,7 @@ function connect() {
       pathResets[reason] = (pathResets[reason] ?? 0) + 1
       logEvent({ kind: 'path_reset', detail: reason, snapshot: snapshot(bot) })
       // scaftown-01: a priced route the walk keeps getting stuck on falls back to the base's costs (price.stuck: 2 'stuck' resets)
-      if (reason === 'stuck') { try { bot.scafTownPrice?.stuck?.(bot.pathfinder?.goal ?? null) } catch { /* the fallback is a preference */ } }
+      if (reason === 'stuck' && bot.pathfinder?.movements?.scafTown !== false) { try { bot.scafTownPrice?.stuck?.(bot.pathfinder?.goal ?? null) } catch { /* the fallback is a preference */ } }
     })
     bot.on('path_update', (r) => {
       if (!r || !r.status) return

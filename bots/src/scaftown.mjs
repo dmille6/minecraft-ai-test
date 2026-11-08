@@ -118,8 +118,9 @@ export function searchMode ({ on = true, off = 0, radius = -1, key = null, latch
 /** Does a finished search latch its goal? -> bool. Pure: a priced search whose prices touched it and that ended without a path. */
 export const latchesGoal = (s, status) => !!s && s.mode === 'priced' && s.hits > 0 && (status === 'timeout' || status === 'noPath')
 /** Does a slice's result send its search back to the start at the base's costs? -> bool. Pure: the budget ran out (cut), the
- *  price touched the search (hits: otherwise it IS the base's search already) and the slice did not find the path; once per search. */
-export const restartsSearch = (s, status) => !!s && s.cut === true && !s.restarted && s.mode === 'priced' && s.hits > 0 && status !== 'success'
+ *  price touched the search (hits: otherwise it IS the base's search already) and the slice did not find the path; once per search.
+ *  Never on noPath: an exhausted open heap is the base's answer too (a price never removes a move) -- Claude r2 note. */
+export const restartsSearch = (s, status) => !!s && s.cut === true && !s.restarted && s.mode === 'priced' && s.hits > 0 && status !== 'success' && status !== 'noPath'
 /**
  * RESTART AN A* IN PLACE -> bool: the same context object, its state replaced by a fresh search from its own start node (the root
  * of the best node's parent chain) with its own movements, goal, timeout and tick budget, uncapped (a capped search is never
