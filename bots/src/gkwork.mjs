@@ -151,6 +151,50 @@ export function heldWhy ({ clearsLeft = 0, clearsOk = true, crewHeld = 0, crewHo
   return w.join(',') || '-'
 }
 
+// GKLEFT-01 (control session 11-08; LIVE gkclear-02show 01:54-04:34Z): A CELL NOBODY CAN WORK IS WAIVED BY THE TOWN. The keeper's visits
+// worked (2 logs felled 03:50Z, 3 floor fills 04:05Z) -- each a visit that changed the ground, so it cleared the strikes -- then ended
+// `complete; fills left 1/1372` with the clears still standing: never EMPTY (a fill left), never a strike, the stage never closed. Per
+// cell instead: a visit that RAN OUT OF WORK (stop `complete`, any bot) counts every fill and clear it left open in its own file
+// (`<key>.gkleft.<holder>.json`); a cell left by GKW.leftVisits such visits town-wide (summed over holders, inside GKW.leftMs) is waived
+// by the next keeper visit that still reads it open -- at most GKW.leftMax a visit and GKW.stallShare of the stage -- so the stage
+// completes on its own, whatever order the visits come in.
+export const GKL = Object.freeze({ leftVisits: 3, leftMs: 24 * 60 * 60_000, leftMax: 12, keep: 2000 })
+/** This holder's left-cells file after a visit -> { v, sig, cells: { k: { ts: [ms] } } }. Pure. A new stage starts it again. */
+export function leftNext (prev, { sig, keys = [], now = Date.now(), G = GKL } = {}) {
+  // Codex r1 BLOCKER: each visit's own stamp is kept (at most G.leftVisits a cell), expired one by one -- never a refreshed old count
+  const live = t => Number.isFinite(t) && t <= now + 60_000 && now - t < G.leftMs
+  const cells = {}
+  if (prev && prev.sig === sig && prev.cells && typeof prev.cells === 'object') for (const [k, v] of Object.entries(prev.cells)) { const ts = (Array.isArray(v?.ts) ? v.ts : []).filter(live); if (ts.length) cells[k] = { ts } }
+  for (const k of new Set(keys)) cells[k] = { ts: [...(cells[k]?.ts ?? []), now].slice(-G.leftVisits) }
+  const fresh = Object.entries(cells).sort((a, b) => Math.max(...b[1].ts) - Math.max(...a[1].ts)).slice(0, G.keep)
+  return { v: 2, sig, cells: Object.fromEntries(fresh) }
+}
+/** The town's count of visits that left each cell -> Map k -> n. Pure over every holder's file. */
+export function leftTown (files = [], { sig, now = Date.now(), G = GKL } = {}) {
+  const out = new Map()
+  for (const f of files ?? []) {
+    if (!f || f.sig !== sig || !f.cells) continue
+    for (const [k, v] of Object.entries(f.cells)) { const n = (Array.isArray(v?.ts) ? v.ts : []).filter(t => Number.isFinite(t) && t <= now + 60_000 && now - t < G.leftMs).length; if (n) out.set(k, (out.get(k) ?? 0) + n) }
+  }
+  return out
+}
+/** The cells to waive now -> [{ k, why }]. Pure. Left by G.leftVisits+ visits town-wide, still open now (`openNow`), not yet waived, at most
+ *  G.leftMax, and the stage's waived total at most ceil(GKW.stallShare * (cells + clears)). */
+export function leftWaiveDue (rec, town, openNow = [], { G = GKL, share = GKW.stallShare } = {}) {
+  const have = rec?.waived ?? {}
+  const size = (rec?.cells ?? []).length + (rec?.clear ?? []).length
+  let room = Math.min(G.leftMax, Math.ceil(share * size) - Object.keys(have).length)
+  const out = []
+  for (const k of openNow ?? []) {
+    if (room <= 0) break
+    if (Object.prototype.hasOwnProperty.call(have, k) || out.some(o => o.k === k)) continue
+    const n = town?.get?.(k) ?? 0
+    if (n < G.leftVisits) continue
+    out.push({ k, why: `unreachable:${n}` }); room--
+  }
+  return out
+}
+
 // ---- the strike files (one per holder; a temp file renamed into place) ----------------------------------------------------------
 const strikeFile = (dir, key, holder) => path.join(dir, `${key}.gkwork.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 /** Every holder's strike file for `key` -> [file]. Never throws (unreadable: skipped). */
@@ -164,6 +208,24 @@ export function strikeReadAll (dir, key) {
     }
   } catch { /* none */ }
   return out
+}
+const leftFile = (dir, key, holder) => path.join(dir, `${key}.gkleft.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+/** gkleft-01: count this visit's left cells in its holder's file, then read the town's -> Map k -> n. Never throws (empty on failure). */
+export function leftVisit (dir, key, holder, rec, keys, { now = Date.now(), count = true } = {}) {
+  const sig = gkwSig(rec)
+  try {
+    if (count && keys.length) {
+      let prev = null
+      try { prev = JSON.parse(fs.readFileSync(leftFile(dir, key, holder), 'utf8')) } catch { prev = null }
+      const next = leftNext(prev, { sig, keys, now })
+      fs.mkdirSync(dir, { recursive: true })
+      const f = leftFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify(next)); fs.renameSync(tmp, f)
+    }
+    const files = []
+    for (const n of fs.readdirSync(dir)) if (n.startsWith(`${key}.gkleft.`) && n.endsWith('.json')) { try { files.push(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))) } catch { /* skipped */ } }
+    return leftTown(files, { sig, now })
+  } catch { return new Map() }
 }
 export function strikeRead (dir, key, holder) { try { return JSON.parse(fs.readFileSync(strikeFile(dir, key, holder), 'utf8')) } catch { return null } }
 /** Write this holder's strike file -> true | false (never throws). */

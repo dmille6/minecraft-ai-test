@@ -1705,7 +1705,19 @@ export function townEdge (plan, home = plan?.home) {
  *  when none still stands (unread = standing), or when this bot's visits made no clear progress GK_CLEAR_VISITS times (a trunk
  *  no stand reaches, a sapling the town lacks: named, the stage moves on). -> how many still stand. Pure. */
 export const GK_CLEAR_VISITS = 5
-export const tidyClearsLeft = (rec, read) => (rec?.clear ?? []).filter(c => { const b = read(...c.at); return !b || nm(b) === c.name }).length
+// gkleft-01: a clear on the record's own waived list is not left (an unreachable trunk log the town gave up: gkwork.mjs leftWaiveDue)
+const clearWaived = (rec, c) => !!rec?.waived && typeof rec.waived === 'object' && Object.prototype.hasOwnProperty.call(rec.waived, c.at.join(','))
+export const tidyClearsLeft = (rec, read) => (rec?.clear ?? []).filter(c => { if (clearWaived(rec, c)) return false; const b = read(...c.at); return !b || nm(b) === c.name }).length
+/** gkleft-01 (Codex r1 BLOCKER): the record a visit works, without the clears the town waived -> rec (unchanged when none). Pure. */
+export const dropWaivedClears = rec => ((rec?.clear ?? []).some(c => clearWaived(rec, c)) ? { ...rec, clear: rec.clear.filter(c => !clearWaived(rec, c)) } : rec)
+/** gkleft-01: what a visit LEFT open -> [key]: every fill not done (the completion's own fillDone) and every clear still standing (not
+ *  waived) that the visit READ -- an unread cell is no evidence and is never counted. Pure. */
+export function tidyLeftKeys (rec, read, { fillDone = () => false } = {}) {
+  const out = []
+  for (const c of rec?.cells ?? []) if (read(...c.at) && !fillDone(c)) out.push(c.at.join(','))   // unread: no evidence, never counted
+  for (const c of rec?.clear ?? []) { if (clearWaived(rec, c)) continue; const b = read(...c.at); if (b && nm(b) === c.name) out.push(c.at.join(',')) }
+  return out
+}
 /**
  * GKSTALL-01 (LIVE showcase 11-03 04:27-06:07Z: stage 0 held 1 h 40 min on ONE pit cell, 21,66,0, two cells waiting on it, no land
  * plan published and no road graded). The cell was a 1x1 hole two deep (its fill tops at 66, the ground round it at 67): the only
