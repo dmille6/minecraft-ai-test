@@ -14555,6 +14555,8 @@ export async function sandDigs (bot, plan, { home, read, reserved = () => false,
       continue
     }
     if (bot.entity?.isInWater) { f.stop = 'wet'; glassMemNote({ badCell: p.at.join(',') }); break }
+    // THE RULE AGAIN, STANDING ON IT (Codex r1 BLOCKER: the exit is judged right before the dig, after whatever the walk changed)
+    { const again = sandCellOk(read, p.at, { home, reserved }); if (!again.ok) { f.refused[`live_${again.why}`] = (f.refused[`live_${again.why}`] ?? 0) + 1; glassMemNote({ badCell: p.at.join(',') }); continue } }
     const blk = bot.blockAt(new Vec3(x, y, z))
     if (!blk || !/^(sand|red_sand)$/.test(blk.name)) { f.refused.gone = (f.refused.gone ?? 0) + 1; continue }
     const before = sandHeld()

@@ -7,7 +7,8 @@
 //
 // MEASURED 11-08 (read-only: live region files, the town index, the bots' records; report docs/reports/glass-2026-11-08.md):
 //   - windows: 22 fleet buildings (house@1 3 + workshop@1 4 in 11 towns) = 77 window cells: 3 glass (hive-c house1), 74 PLANKS
-//     (the `$wall` fallback); showcase house1 3 planks, workshop 4 glass, cottage1 5 not built.
+//     (the `$wall` fallback). Showcase: 66 window cells in 7 buildings, 29 glass, 32 spruce planks (storehub 23, enchantshop 5,
+//     house1 3, storehouse 1), cottage1 5 not built -- its 35 panes in stock cover them all with no sand.
 //   - town stock (12 shared/board/placebo towns): sand 161 (10 of 12 hold 0; hive-d 126, hive-c 30), glass_pane 61 (hive-c 29,
 //     hive-d 32), glass 6; showcase sand 92, panes 35. The panes kind works where sand exists: sand is the bottleneck.
 //   - where the sand is (R 128 round each home, surface columns): dry or shore surface sand with a dry stand, ~20-90 cells per
@@ -48,7 +49,7 @@ export const GLAZE_PER_ORDER = 8
 export const GLAZE_NONE_MS = 60 * 60 * 1000
 
 /** The building plots whose records may name window cells (fleet: shop, house1; the showcase's styled buildings too). */
-export const GLASS_PLOTS = Object.freeze(['shop', 'house1', 'house2', 'house3', 'cottage1', 'cottage2', 'cottage3', 'hall', 'townhall', 'storehub', 'enchantshop'])
+export const GLASS_PLOTS = Object.freeze(['shop', 'house1', 'house2', 'house3', 'cottage1', 'cottage2', 'cottage3', 'hall', 'townhall', 'storehub', 'enchantshop', 'storehouse'])
 
 /** THE WINDOW PALETTE (glass-01): glass when the town has it, else a wood TRAPDOOR of the building's species (crafted by the
  *  build visit, townstyle.mjs woodPartsPlan), else the wall itself -- a window never stalls a building. Blueprints share it. */
@@ -171,6 +172,7 @@ export function waterDepth (read, x, y, z, max = 6) {
  *     no falling block comes down after it
  *   - the cell below is a solid floor (the hole is ONE deep: the landing), never liquid
  *   - no liquid beside the cell or the stand (4 sides, at the cell's level and the stand's two): the hole stays dry
+ *   - a way out: a side column whose floor is the cell's level with room over it (one step up from the landing)
  *   - no water SAND_DEEP deep within SAND_DEEP_R of it: shallows only, never deep water (the drowning rule)
  *   - inside the ring [rMin, rMax] of home, never `reserved(x, z, y)` (a record, a protect zone)
  */
@@ -196,6 +198,10 @@ export function sandCellOk (read, at, { home = null, rMin = SAND_R_MIN, rMax = S
       if (isLiquid(n)) return { ok: false, why: 'wet' }
     }
   }
+  // A WAY OUT OF THE HOLE (Codex r1 BLOCKER): from the landing (feet y) one step up onto a side column whose floor is the cell's own
+  // level -- a solid block at y with two passable cells over it. A sand cell at the bottom of a dry dip would leave the bot two below
+  // every side, and sand is no scaffold: never dug.
+  if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => solidFloor(read(x + dx, y, z + dz)) && passable(read(x + dx, y + 1, z + dz)) && passable(read(x + dx, y + 2, z + dz)))) return { ok: false, why: 'no_exit' }
   for (let dx = -SAND_DEEP_R; dx <= SAND_DEEP_R; dx++) {
     for (let dz = -SAND_DEEP_R; dz <= SAND_DEEP_R; dz++) {
       if (waterDepth(read, x + dx, y, z + dz, SAND_DEEP + 2) >= SAND_DEEP) return { ok: false, why: 'deep_water' }
