@@ -1138,16 +1138,34 @@ export class CognitiveLoop {
    * (memoryRefuses, a READ), claims the job's slot before a walk, pins the job's project, and writes the `workboard` row.
    */
   #boardOrder(milestone, ready) {
-    const lap = String(milestone?.id ?? '').startsWith('idle_work') && groundsBatchOpen()
-    if (!lap) return { order: null, owns: false, why: 'not_grounds_lap' }
     const bot = this.bot
     const now = Date.now()
+    // A CLAIM NOTHING USES GOES BACK (Claude code review r1 note 1): a walk that arrived, or a board order an exit displaced, left a
+    // claim (and a pin) that only this tick's own build_shop for the same job may keep -- the visit's takeSlot renews it in place
+    const held = this.boardHeldClaim
+    this.boardHeldClaim = null
+    const lap = String(milestone?.id ?? '').startsWith('idle_work') && groundsBatchOpen()
     const p = bot.entity?.position
-    const job = boardJobNow(bot, now)
     const dist = p ? Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) : Infinity
+    const dy = p ? p.y - config.world.homeY : 0
+    // the cheap reads first: off the lap, or where no job could be taken, the town's job is never read (a lease listing per project)
+    const pre = lap ? boardEligible({ lap, health: 20, freeSlots: 36, light: true, dist, dy, now }) : { ok: false, why: 'not_grounds_lap' }
+    const st = pre.ok ? this.#boardStep(milestone, ready, { now, p, dist, dy }) : { order: null, owns: false, why: pre.why }
+    if (held && st.order?.board?.plot !== held.plot) { boardRelease(bot, held.plot, held.claim); if (bot.boardPick?.plot === held.plot) boardPin(bot, null, now) }
+    // the arrived walk's claim rides on the build_shop it was for (Codex code review r1 BLOCKER: a visit that re-picked another project
+    // would leave it held to its ttl): #boardAfter gives it back -- a no-op when the visit's own takeSlot renewed it (the generation moved)
+    else if (held && st.order && !st.order.board.claim) { st.order.board.claim = held.claim; this.boardHeldClaim = held }
+    return st
+  }
+
+  /** WORKBOARD-01: the board's step once the bot could take a job -> boardStep's answer, the claim and pin on an order, the rows. */
+  #boardStep(milestone, ready, { now, p, dist, dy }) {
+    const bot = this.bot
+    const lap = true
+    const job = boardJobNow(bot, now)
     const elig = boardEligible({ lap, holds: milestoneHolds({ order: null, ready }), health: bot.health ?? 20,
       freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, light: !!job?.plot && boardLight(job.plot), dist,
-      dy: p ? p.y - config.world.homeY : 0, travelHeldUntil: this.boardMem?.travelUntil ?? 0, now })
+      dy, travelHeldUntil: this.boardMem?.travelUntil ?? 0, now })
     const st = boardStep({ mode: this.wbMode, elig, job, mem: this.boardMem, now, refuses: (s, a) => this.admission.memoryRefuses(s, a) })
     const f = { mode: this.wbMode, plot: job?.plot ?? '-', dist: Number.isFinite(dist) ? Math.round(dist) : '-', cands: job?.cands ?? 0, starved: job?.starved ? 1 : 0 }
     if (st.order) {
@@ -1163,6 +1181,9 @@ export class CognitiveLoop {
         f.slot = c.slot; f.gen = c.gen
       }
       boardPin(bot, b.plot, now)
+      // until its outcome is read (#boardAfter), the order's claim is held here: an order the descent / keep-out exit displaced
+      // never reaches #boardAfter, so the next board turn gives its claim back
+      this.boardHeldClaim = b.claim ? { plot: b.plot, claim: b.claim } : null
       try { logEvent({ kind: 'workboard', status: 'success', detail: boardDetail({ op: 'issue', skill: st.order.skill, why: st.why, ...f }) }) } catch { /* telemetry only */ }
       return st
     }
@@ -1189,8 +1210,12 @@ export class CognitiveLoop {
       const arrived = !!b.travel && !refused && !declined && !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= WB.townR
       const out = boardAfter(this.boardMem, { plot: b.plot, travel: !!b.travel, refused, declined, arrived, r, now })
       this.boardMem = out.mem
+      this.boardHeldClaim = null
       if (b.travel && !arrived) { boardRelease(this.bot, b.plot, b.claim); boardPin(this.bot, null, now) }
+      // a walk that arrived keeps its claim for ONE more board turn: that turn's build_shop for the job keeps it, anything else gives it back
+      if (b.travel && arrived) this.boardHeldClaim = { plot: b.plot, claim: b.claim }
       if (!b.travel && (refused || declined)) boardPin(this.bot, null, now)
+      if (!b.travel && b.claim) boardRelease(this.bot, b.plot, b.claim)
       logEvent({ kind: 'workboard', status: out.worked || arrived ? 'success' : 'no_effect',
         detail: boardDetail({ op: 'end', mode: this.wbMode, skill: order.skill, plot: b.plot,
           status: refused ? 'refused' : declined ? 'declined' : (r?.status ?? '-'),

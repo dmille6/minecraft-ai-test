@@ -113,8 +113,13 @@ export function boardStep ({ mode = 'off', elig = null, job = null, mem = null, 
   if (mode === 'off') return { order: null, owns: false, why: 'off' }
   if (!job) return { order: null, owns: false, why: 'no_board' }   // the board cannot read the town: the chain as before
   if (!elig?.ok) return { order: null, owns: false, why: elig?.why ?? 'ineligible' }
+  // a pick phase A never dispatches (the stair) is the chain's as before: owning it would starve the stair's own order (Claude code
+  // review r1 BLOCKER: the town stair is the active pick for every bot while it is open)
+  if (job?.why === 'skip_plot') return { order: null, owns: false, why: 'no_job:skip_plot' }
   if (!job?.workable) return { order: null, owns: true, why: `no_job:${job?.why ?? '-'}` }
-  if (boardHeld(mem, job.plot, now) != null) return { order: null, owns: true, why: 'job_backoff' }
+  // this bot's back-off on the job: the chain's own workshop step decides (its cooldown and gates, exactly as before) -- never
+  // worse than the base, and never an order on the same back-off clock twice (Claude code review r1 note 2)
+  if (boardHeld(mem, job.plot, now) != null) return { order: null, owns: false, why: 'job_backoff' }
   const skill = elig.travel ? 'home' : 'build_shop'
   let r = null
   try { r = refuses(skill, {}) } catch { r = 'read_failed' }

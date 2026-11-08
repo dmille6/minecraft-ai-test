@@ -87,6 +87,10 @@ test('boardStep: at town -> build_shop; away -> home; both carry the job; the bo
   const b = TW.boardStep({ mode: 'on', elig: OK_WALK, job: JOB, now: NOW })
   assert.equal(b.order.skill, 'home'); assert.equal(b.order.board.travel, true)
 })
+test('boardStep: a pick phase A never dispatches (the town stair) leaves the turn to the chain (review r1 BLOCKER: owning it starved the stair)', () => {
+  const sh = TW.boardStep({ mode: 'on', elig: OK_TOWN, job: TW.boardJob({ plot: 'shaft' }, [{ plot: 'shaft', exists: true, complete: false }]), now: NOW })
+  assert.equal(sh.order, null); assert.equal(sh.owns, false); assert.equal(sh.why, 'no_job:skip_plot')
+})
 test('boardStep: the chain stands as before when off, not a grounds lap, or the town unreadable (owns false); shadow issues nothing', () => {
   assert.deepEqual(TW.boardStep({ mode: 'off', elig: OK_TOWN, job: JOB }), { order: null, owns: false, why: 'off' })
   assert.equal(TW.boardStep({ mode: 'on', elig: { ok: false, why: 'not_grounds_lap' }, job: JOB }).owns, false)
@@ -99,6 +103,7 @@ test('boardStep: no workable job, a job in back-off, or a refusal the gate\'s me
   assert.equal(nj.order, null); assert.equal(nj.owns, true); assert.equal(nj.why, 'no_job:stuck')
   const held = TW.boardStep({ mode: 'on', elig: OK_TOWN, job: JOB, mem: { jobs: { monument: { n: 1, until: NOW + 5 } } }, now: NOW })
   assert.equal(held.order, null); assert.equal(held.why, 'job_backoff')
+  assert.equal(held.owns, false, 'a job in back-off: the chain\'s own workshop step decides, as in the base (review r1 note 2)')
   for (const r of ['cooldown', 'learned_avoid', 'repeat_loop']) {
     const asked = []
     const x = TW.boardStep({ mode: 'on', elig: OK_WALK, job: JOB, now: NOW, refuses: (sk, a) => { asked.push([sk, a]); return r } })
@@ -194,6 +199,20 @@ test('REAL FILES: the job is shopActive\'s pick with its marked states; a travel
   assert.equal(SK.shopActiveAll(bot('Late'), now + 3).pick.plot, 'monument', 'a released claim frees the slot at once')
   for (let i = 1; i < claims.length; i++) SK.boardRelease(bot(`C${i}`), 'monument', claims[i])
 })
+test('REAL FILES: a claim given back after the visit renewed it is a no-op (generation moved); one the visit never used is freed', () => {
+  setup()
+  const now = Date.now()
+  const c = SK.boardClaim(bot('Renew'), 'wall', now)
+  assert.equal(c.ok, true)
+  const v = PJ.takeSlot(dir(), key('wall'), 'Renew', 2, { now: now + 5 })
+  assert.equal(v.ok, true); assert.equal(v.slot, c.slot, 'the visit renews the claimed slot in place'); assert.ok(v.gen > c.gen)
+  SK.boardRelease(bot('Renew'), 'wall', c)
+  assert.equal(PJ.holdsLease(dir(), key('wall'), `slot${v.slot}`, 'Renew', v.gen, now + 6), true, 'the visit still holds its slot')
+  PJ.releaseLease(dir(), key('wall'), `slot${v.slot}`, 'Renew', v.gen)
+  const c2 = SK.boardClaim(bot('Unused'), 'wall', now + 7)
+  SK.boardRelease(bot('Unused'), 'wall', c2)
+  assert.equal(PJ.holdsLease(dir(), key('wall'), `slot${c2.slot}`, 'Unused', c2.gen, now + 8), false, 'an unused claim is freed')
+})
 test('REAL FILES: the pin holds the visit on the claimed project while it is workable and fresh, and never past its ttl', () => {
   setup()
   const now = Date.now()
@@ -220,6 +239,9 @@ test('WIRING (cognitive.mjs): the board runs before the workshop step, the step 
   assert.equal(COG.split('if (order?.board && admitted.skill === order.skill) this.#boardAfter(order, r, { declined })').length, 2, 'its outcome is read')
   assert.ok(/refuses: \(s, a\) => this\.admission\.memoryRefuses\(s, a\)/.test(COG), 'the gate\'s memory is asked before an order is issued')
   assert.ok(/startsWith\('idle_work'\) && groundsBatchOpen\(\)/.test(COG), 'phase A population: a grounds lap of the idle_work rung')
+  assert.ok(/if \(held && st\.order\?\.board\?\.plot !== held\.plot\) \{ boardRelease\(bot, held\.plot, held\.claim\)/.test(COG), 'a claim nothing uses goes back at the next board turn')
+  assert.ok(/else if \(held && st\.order && !st\.order\.board\.claim\) \{ st\.order\.board\.claim = held\.claim/.test(COG), 'an arrived claim rides on its build_shop')
+  assert.ok(/if \(!b\.travel && b\.claim\) boardRelease\(this\.bot, b\.plot, b\.claim\)/.test(COG), 'and is given back after the visit (a no-op once renewed)')
 })
 
 // ---- anchored mutants (each anchor present and unique; each must change behaviour) ---------------------------------------------------
@@ -238,7 +260,7 @@ test('MUTANT KILLED: without the memoryRefuses pre-check the board issues an ord
   })
 })
 test('MUTANT KILLED: without the job back-off an always-empty job is re-issued every tick', async () => {
-  await withMutant('../src/townwork.mjs', "  if (boardHeld(mem, job.plot, now) != null) return { order: null, owns: true, why: 'job_backoff' }\n", '', M => {
+  await withMutant('../src/townwork.mjs', "  if (boardHeld(mem, job.plot, now) != null) return { order: null, owns: false, why: 'job_backoff' }\n", '', M => {
     let mem = { jobs: {}, travelUntil: 0 }, n = 0
     for (let i = 0; i < 10; i++) { const s = M.boardStep({ mode: 'on', elig: OK_TOWN, job: JOB, mem, now: NOW + i * 30_000 }); if (s.order) { n++; mem = M.boardAfter(mem, { plot: 'monument', r: { status: 'no_effect' }, now: NOW + i * 30_000 }).mem } }
     assert.equal(n, 10, 'every tick')
@@ -249,6 +271,12 @@ test('MUTANT KILLED: a walk that did not arrive without its back-off sends the b
     const o = M.boardAfter({ jobs: {}, travelUntil: 0 }, { plot: 'monument', travel: true, arrived: false, now: NOW })
     assert.equal(o.mem.travelUntil, 0)
     assert.equal(M.boardEligible({ lap: true, health: 20, freeSlots: 20, light: true, dist: 90, travelHeldUntil: o.mem.travelUntil, now: NOW + 1 }).ok, true)
+  })
+})
+test('MUTANT KILLED: owning the stair pick would stand the workshop step down for the stair\'s whole build', async () => {
+  await withMutant('../src/townwork.mjs', "  if (job?.why === 'skip_plot') return { order: null, owns: false, why: 'no_job:skip_plot' }\n", '', M => {
+    const sh = M.boardStep({ mode: 'on', elig: OK_TOWN, job: M.boardJob({ plot: 'shaft' }, [{ plot: 'shaft', exists: true, complete: false }]), now: NOW })
+    assert.equal(sh.owns, true)
   })
 })
 test('MUTANT KILLED: without the stair skip the board would dispatch shaft excavation', async () => {
