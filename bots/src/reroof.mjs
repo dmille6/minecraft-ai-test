@@ -202,9 +202,6 @@ const LEAVES_RX = /_leaves$/
 /** A decorator ornament role (decorator.mjs: D<n>-f<k>, D<n>-g, D<n>-pot, D<n>-h, D<n>-post, D<n>-lamp). */
 export const DECOR_ORNAMENT_RX = /^D\d+-(f\d|g|u\d|pot|h|post|lamp)$/   // flowers-01: an upgraded border cell (u) too
 const LOG_RX = /_(log|wood)$/
-// reroof-04: a block a stair must never stand on -- the server turns a dirt path or farmland under a placed block into dirt (Paper sandbox4
-// 11-08: the storehub's stair left 4 path blocks as dirt after its teardown)
-const TURNS_DIRT = /^(dirt_path|grass_path|farmland)$/
 /** reroof-03: the clear kind of a roof tree's or a felled tree's remains' logs. NOT `tree`: no sapling is owed (a sapling that took on a
  *  roof, a trunk already felled) -- runVisit's clears() never holds it for a replant, and the tripwire's G5 counts only kind=tree; it is
  *  a listed clear of the head (G2's default rule). */
@@ -490,7 +487,7 @@ export function reroofAccess (read, { eaves = [], box, walked = () => false, rec
       // the pillar: down from the step to the first solid block (the ground it stands on)
       const pil = []
       let y = top, grounded = false
-      for (; y > top - 8; y--) { if (solid([x, y, z])) { grounded = !TURNS_DIRT.test(nmOf(read(x, y, z))); break } if (!free([x, y, z]) || !clean([x, y, z])) break; pil.push([x, y, z]) }
+      for (; y > top - 8; y--) { if (solid([x, y, z])) { grounded = true; break } if (!free([x, y, z]) || !clean([x, y, z])) break; pil.push([x, y, z]) }
       if (!grounded) break
       for (const c of pil.reverse()) cells.push(c)
       // the foot: the next column out holds a walked feet cell within one of this step's feet (or this step is on the ground already)
