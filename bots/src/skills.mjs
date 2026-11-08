@@ -17486,68 +17486,103 @@ const stoodKey = () => projKeyOf(SHOP_PLOT)
  * an unreadable state is the workshop (the job as before).
  */
 let activeMem = null
+const activeSig = (dir, list) => `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
+/** HOUSE-01's per-project state for the order (shopActive's memo): one project's record, its wait, damage and upkeep. */
+function activeStateOf (p, dir, b, now) {
+  const h = recordHead(dir, projKeyOf(p.plot))
+  const rec0 = h.ok ? h.head?.rec ?? null : null
+  // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
+  const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
+  const complete = !!rec?.structure_complete
+  // wallext-01: the unsited extension WAITS on its opening rule (wall.mjs wallextOpening: a complete wall, the hall beyond one side)
+  if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  // wallext-02: the demolition WAITS until the extension stands (wall.mjs walldemoOpening)
+  if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  // enchantshop-01: the unsited workshop WAITS until the extension's hall-size plot exists (enchantshop.mjs enchantOpening); a
+  // sited one says its furnishings' needs (`_enchantshop_gate`, town-wide cadence: the requests board's input)
+  if (p.plot === ENCHANT_PLOT && !rec && !enchantOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  if (p.plot === ENCHANT_PLOT && rec && b) enchantGateRows(b, rec, now)
+  // townstyle-01: the unsited cottage WAITS until the extension has a free house-size plot (cottage.mjs cottageOpening)
+  if (p.plot === COTTAGE_PLOT && !rec && !cottageOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  // townstyle-02: the unsited town hall WAITS until the extension's X2 exists (townhall.mjs townhallOpening)
+  // townstyle-03: the retrofit's planner WAITS until a standing building is due (reroof.mjs reroofNext: one at a time, logs known)
+  // (Claude r1 BLOCKER 2: its town-wide wait after a failed proof is a WAIT here too, never an always-free open project)
+  if (p.plot === REROOF_PLOT) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: Date.now() < siteWaitUntil(REROOF_PLOT, dir) || !reroofDueNow(b, dir).target }
+  if (p.plot === TOWNHALL_PLOT && !rec && !townhallOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
+  if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  // stepwell-01: an unsited stepwell whose siting found no site WAITS town-wide too (the canefarm rule: never a loop of no_site visits)
+  // forest-01: an unsited forest whose siting found no site WAITS town-wide (siteWaitUntil), never the keeper's every order
+  if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir) && !farmRetireDueNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  if (p.plot === STEPWELL_PLOT && !rec && Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+  // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
+  // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
+  // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
+  // tidy that is only due waits behind every open project (shop.mjs activeProject `due`)
+  // zigtidy-02: ...except for TIDY_AFTER_REPAIR_MS after the record's last repair completion (shop.mjs tidyIsRepair): then the
+  // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
+  // storehub-01: a standing hall's upkeep for THIS bot (its labels, owed cargo, a clerk move-set) is `due` (recordDamaged's upkeep
+  // read) and FIRST among the upkeeps (`dueFirst`)
+  const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
+  const enchDue = complete && b && p.plot === ENCHANT_PLOT ? enchantUpkeepDue(b, rec, now) : false
+  // prodserve-01: a finished production plot's OWN due test for this bot (prodserve.mjs servicePick reads it): the farms' harvest or
+  // replant, the hall's clerk -- the hall's whether or not one of its cells reads damaged (its repair stays a repair)
+  const serve = PRODSERVE.on && complete && b && isServicePlot(p.plot) ? serviceDueOf(b, p.plot, rec, hubDue, now) : null
+  const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
+  // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
+  // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
+  const yw = complete && b && p.plot === YARD_PLOT ? yardWorkNow(b, rec) : null
+  const damaged = complete && b ? (recordDamaged(b, rec, { tidy: tidyFirst }) || !!yw?.urgent) : false
+  const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind) : false
+  // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
+  // never offers it early and works the next project meanwhile
+  const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
+  // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
+  // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
+  return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}) }
+}
+/**
+ * SHOWDROP-01: THE ORDER'S PROJECT STATES, ONE PROJECT A TURN (LIVE showcase 11-08: shopActive's per-project pass, 20-odd records,
+ * their upkeep reads and the world reads behind them, ran inside one 13-17 s busy run of the decision; with the host loaded a bot
+ * missed Paper's 30 s keepalive -- 57 "Timed out" that day). Run off the decision (features.mjs, every SHOP_PRIME_MS): the same
+ * states shopActive would compute, with a setImmediate pause between projects, stored in its memo ONLY when no project's record
+ * generation moved during the pauses (the same signature at both ends; generations only grow), so the decision's own call finds a
+ * memo it would have written itself and skips the pass. Fresh memo (< SHOP_PRIME_FRESH_MS, same signature): nothing to do.
+ * SHOPPRIME=off is the rollback: the decision computes the pass itself, as before. -> true when the memo was written. Never throws.
+ */
+export const SHOP_PRIME_MS = 15_000
+export const SHOP_PRIME_FRESH_MS = 40_000
+export const shopPrimeOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SHOPPRIME ?? '').trim().toLowerCase())
+export async function shopActivePrime (bot = null, now = Date.now(), { pause = () => new Promise(r => setImmediate(r)) } = {}) {
+  if (!shopPrimeOn()) return false
+  try {
+    const list = projectsOn()
+    if (list.length === 1) return false
+    const dir = townDir()
+    if (bot) activeMem = { ...(activeMem ?? {}), bot }
+    const sig = activeSig(dir, list)
+    if (activeMem?.states && activeMem.sig === sig && now - activeMem.at < SHOP_PRIME_FRESH_MS) return false
+    const b = activeMem?.bot ?? null
+    const states = []
+    for (const p of list) { await pause(); states.push(activeStateOf(p, dir, b, now)) }
+    if (activeSig(dir, list) !== sig) return false        // a record moved during the pauses: the decision reads it fresh
+    const sk = sinkStatesNow(b, states, now)
+    activeMem = { ...(activeMem ?? {}), sig, at: now, states: sk.states, sinkOrder: sk.order }
+    return true
+  } catch { return false }
+}
+/** Test hook: forget shopActive's memo. */
+export function shopActiveForget () { activeMem = null }
 export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) {
   try {
     const list = projectsOn()
     if (list.length === 1) return list[0]
     const dir = townDir()
     if (bot) activeMem = { ...(activeMem ?? {}), bot }
-    const sig = `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
+    const sig = activeSig(dir, list)
     const b = activeMem?.bot ?? null
     if (!(activeMem?.states && activeMem.sig === sig && now - activeMem.at < 60_000)) {
-      const states = list.map(p => {
-        const h = recordHead(dir, projKeyOf(p.plot))
-        const rec0 = h.ok ? h.head?.rec ?? null : null
-        // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
-        const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
-        const complete = !!rec?.structure_complete
-        // wallext-01: the unsited extension WAITS on its opening rule (wall.mjs wallextOpening: a complete wall, the hall beyond one side)
-        if (p.plot === WALLEXT_PLOT && !rec && !wallextOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        // wallext-02: the demolition WAITS until the extension stands (wall.mjs walldemoOpening)
-        if (p.plot === WALLDEMO_PLOT && !rec && !walldemoOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        // enchantshop-01: the unsited workshop WAITS until the extension's hall-size plot exists (enchantshop.mjs enchantOpening); a
-        // sited one says its furnishings' needs (`_enchantshop_gate`, town-wide cadence: the requests board's input)
-        if (p.plot === ENCHANT_PLOT && !rec && !enchantOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        if (p.plot === ENCHANT_PLOT && rec && b) enchantGateRows(b, rec, now)
-        // townstyle-01: the unsited cottage WAITS until the extension has a free house-size plot (cottage.mjs cottageOpening)
-        if (p.plot === COTTAGE_PLOT && !rec && !cottageOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        // townstyle-02: the unsited town hall WAITS until the extension's X2 exists (townhall.mjs townhallOpening)
-        // townstyle-03: the retrofit's planner WAITS until a standing building is due (reroof.mjs reroofNext: one at a time, logs known)
-        // (Claude r1 BLOCKER 2: its town-wide wait after a failed proof is a WAIT here too, never an always-free open project)
-        if (p.plot === REROOF_PLOT) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: Date.now() < siteWaitUntil(REROOF_PLOT, dir) || !reroofDueNow(b, dir).target }
-        if (p.plot === TOWNHALL_PLOT && !rec && !townhallOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
-        if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        // stepwell-01: an unsited stepwell whose siting found no site WAITS town-wide too (the canefarm rule: never a loop of no_site visits)
-        // forest-01: an unsited forest whose siting found no site WAITS town-wide (siteWaitUntil), never the keeper's every order
-        if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir) && !farmRetireDueNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        if (p.plot === STEPWELL_PLOT && !rec && Date.now() < siteWaitUntil(STEPWELL_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
-        // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
-        // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
-        // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
-        // tidy that is only due waits behind every open project (shop.mjs activeProject `due`)
-        // zigtidy-02: ...except for TIDY_AFTER_REPAIR_MS after the record's last repair completion (shop.mjs tidyIsRepair): then the
-        // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
-        // storehub-01: a standing hall's upkeep for THIS bot (its labels, owed cargo, a clerk move-set) is `due` (recordDamaged's upkeep
-        // read) and FIRST among the upkeeps (`dueFirst`)
-        const hubDue = complete && b && p.plot === HUB_PLOT ? hubUpkeepDue(b, rec, now) : false
-        const enchDue = complete && b && p.plot === ENCHANT_PLOT ? enchantUpkeepDue(b, rec, now) : false
-        // prodserve-01: a finished production plot's OWN due test for this bot (prodserve.mjs servicePick reads it): the farms' harvest or
-        // replant, the hall's clerk -- the hall's whether or not one of its cells reads damaged (its repair stays a repair)
-        const serve = PRODSERVE.on && complete && b && isServicePlot(p.plot) ? serviceDueOf(b, p.plot, rec, hubDue, now) : null
-        const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
-        // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
-        // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
-        const yw = complete && b && p.plot === YARD_PLOT ? yardWorkNow(b, rec) : null
-        const damaged = complete && b ? (recordDamaged(b, rec, { tidy: tidyFirst }) || !!yw?.urgent) : false
-        const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind) : false
-        // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
-        // never offers it early and works the next project meanwhile
-        const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
-        // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
-        // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}) }
-      })
+      const states = list.map(p => activeStateOf(p, dir, b, now))
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
       const sk = sinkStatesNow(b, states, now)
       activeMem = { ...(activeMem ?? {}), sig, at: now, states: sk.states, sinkOrder: sk.order }

@@ -401,6 +401,8 @@ const REQUIRED = [
   'bots/test/bucket-aim.test.mjs',
   // obsidian-01 (11-07): the deep miner's cast (a basin, one bucket in turn, the lake's lava, the diamond pickaxe)
   'bots/test/obsidian.test.mjs',
+  // showdrop-01show (11-08): one listing a stretch, the order primer, the pool prune; the evictor's end stop
+  'bots/test/showdrop.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

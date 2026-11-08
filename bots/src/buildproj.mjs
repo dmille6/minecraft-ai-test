@@ -56,16 +56,59 @@ export const projKey = (home, plot) => `project-${home.x}_${home.y}_${home.z}.${
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const sha = buf => crypto.createHash('sha256').update(buf).digest('hex')
 const readJ = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null } }
+// ---- SHOWDROP-01: ONE DIRECTORY LISTING A SYNCHRONOUS STRETCH ---------------------------------------------------------------
+// LIVE showcase 11-08 (release 0d560d4b): 57 "Timed out" a day. A CPU profile of showcase-Delta / -Gale: 13-17 s busy runs, 55-87%
+// in the decision's shopActive, 38-40% of it readdirSync of the town directory (6,777 files): every recordHead / recordGenNow /
+// leaseState / stuckAt / openIntents listed the whole directory again, once per project per check. A listing is now kept for the
+// rest of the synchronous stretch: dropped at the next turn of the event loop (setImmediate), after LIST_MAX_MS, whenever the
+// directory's mtime moved (another process created or removed a file), and after every write this module makes (wfs). Every
+// exclusive create ('wx', the lease / barrier / record race) is still decided by the filesystem, never by a listing.
+// LISTCACHE=off is the rollback: a fresh readdirSync every call, as before.
+export const listCacheOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.LISTCACHE ?? '').trim().toLowerCase())
+export const LIST_MAX_MS = 1000
+const listMem = new Map()        // dir -> { names, at, mtime, matched: Map(re -> names) }
+let listDropQueued = false
+export const listStats = { reads: 0, hits: 0 }
+/** Forget every kept listing (a write, a turn of the event loop). */
+export function dropListings () { listMem.clear() }
+const dirMtime = dir => { try { return fs.statSync(dir, { bigint: true }).mtimeNs } catch { return null } }
+/** The directory's names: fs.readdirSync's result (and its throw), kept for the synchronous stretch. Callers never mutate it. */
+export function listDir (dir) {
+  if (!listCacheOn()) { listStats.reads++; return fs.readdirSync(dir) }
+  const now = Date.now()
+  const mt = dirMtime(dir)
+  const m = listMem.get(dir)
+  if (m && mt != null && m.mtime === mt && now - m.at < LIST_MAX_MS) { listStats.hits++; return m.names }
+  listStats.reads++
+  const names = fs.readdirSync(dir)
+  listMem.set(dir, { names, at: now, mtime: mt, matched: new Map() })
+  if (!listDropQueued) { listDropQueued = true; setImmediate(() => { listDropQueued = false; listMem.clear() }) }
+  return names
+}
+/** The names `re` matches (a regex without the g flag), from the kept listing; the filtered list is kept with it. */
+export function listMatch (dir, re) {
+  const names = listDir(dir)
+  const m = listCacheOn() ? listMem.get(dir) : null
+  if (!m || m.names !== names) return names.filter(n => re.test(n))
+  const k = `${re.source}/${re.flags}`
+  let v = m.matched.get(k)
+  if (!v) { v = names.filter(n => re.test(n)); m.matched.set(k, v) }
+  return v
+}
+// every mutating fs call of this module drops the kept listings (its own write is seen by its next listing, at once)
+const WFS_MUTATORS = new Set(['writeFileSync', 'renameSync', 'unlinkSync', 'linkSync', 'appendFileSync', 'openSync', 'mkdirSync', 'rmSync'])
+const wfs = new Proxy(fs, { get: (t, k) => (WFS_MUTATORS.has(k) ? (...a) => { try { return t[k](...a) } finally { dropListings() } } : t[k]) })
+
 function gensOf (dir, re) {
   let names
-  try { names = fs.readdirSync(dir) } catch (e) { if (e?.code === 'ENOENT') return []; throw e }
+  try { names = listMatch(dir, re) } catch (e) { if (e?.code === 'ENOENT') return []; throw e }
   return names.map(n => re.exec(n)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
 }
 function writeSynced (f, data, flag = 'wx') {
-  const fd = fs.openSync(f, flag)
+  const fd = wfs.openSync(f, flag)
   try { fs.writeSync(fd, data); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
 }
-function syncDir (dir) { try { const fd = fs.openSync(dir, 'r'); try { fs.fsyncSync(fd) } finally { fs.closeSync(fd) } } catch { /* best effort */ } }
+function syncDir (dir) { try { const fd = wfs.openSync(dir, 'r'); try { fs.fsyncSync(fd) } finally { fs.closeSync(fd) } } catch { /* best effort */ } }
 
 // ---- the record --------------------------------------------------------------------------------------------------------------
 
@@ -129,11 +172,11 @@ export function publishRecord (dir, key, mutate, { now = Date.now(), by = null, 
     const buf = Buffer.from(JSON.stringify({ ...body, gen: n, prev: base ? base.gen : null, prevSha: base ? base.sha : null, at: now, by }))
     const f = recFile(dir, key, n), tmp = `${f}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
     try {
-      fs.mkdirSync(dir, { recursive: true })
+      wfs.mkdirSync(dir, { recursive: true })
       writeSynced(tmp, buf)
-      try { fs.linkSync(tmp, f) } catch (e) { if (e?.code === 'EEXIST') continue; return { result: 'error', gen: null, head: base } }
+      try { wfs.linkSync(tmp, f) } catch (e) { if (e?.code === 'EEXIST') continue; return { result: 'error', gen: null, head: base } }
       syncDir(dir)
-    } catch { return { result: 'error', gen: null, head: base } } finally { try { fs.unlinkSync(tmp) } catch { /* gone */ } }
+    } catch { return { result: 'error', gen: null, head: base } } finally { try { wfs.unlinkSync(tmp) } catch { /* gone */ } }
     const after = recordHead(dir, key)
     if (after.ok && after.head?.gen === n) return { result: 'accepted', gen: n, head: after.head }
   }
@@ -169,7 +212,7 @@ export function leaseState (dir, key, name, { ttl = LEASE_TTL_MS } = {}) {
  */
 export function liveLeases (dir, key, prefix, now = Date.now()) {
   let names
-  try { names = fs.readdirSync(dir) } catch (e) { return e?.code === 'ENOENT' ? {} : null }
+  try { names = listDir(dir) } catch (e) { return e?.code === 'ENOENT' ? {} : null }
   const re = new RegExp(`^${esc(key)}\\.(${esc(prefix)}[^.]*)\\.lease\\.g(\\d+)\\.json$`)
   const top = new Map()
   for (const n of names) { const m = re.exec(n); if (m && Number(m[2]) > (top.get(m[1]) ?? -1)) top.set(m[1], Number(m[2])) }
@@ -201,7 +244,7 @@ export function takeLease (dir, key, name, holder, { now = Date.now(), ttl = LEA
   // new generation is stamped no earlier than the release it follows, and its `until` runs from that stamp.
   const at = Math.max(now, Number(cur?.releasedAt) || -Infinity)
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     writeSynced(leaseFile(dir, key, name, n), JSON.stringify({ holder, at, until: at + ttl, ...(meta ? { meta } : {}) }))
   } catch { return { ok: false, why: 'lost the race for the lease' } }
   if (gensOf(dir, LEASE_RE(key, name)).at(-1) !== n) return { ok: false, why: 'a later lease generation exists' }
@@ -220,7 +263,7 @@ export function renewLease (dir, key, name, holder, gen, { now = Date.now(), ttl
 }
 /** Release (a marker; the generation is never deleted). Ours by name and generation, whatever the clock. Never throws. */
 export function releaseLease (dir, key, name, holder, gen) {
-  try { const cur = leaseState(dir, key, name); if (cur && cur.gen === gen && cur.rec?.holder === holder) fs.writeFileSync(`${leaseFile(dir, key, name, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
+  try { const cur = leaseState(dir, key, name); if (cur && cur.gen === gen && cur.rec?.holder === holder) wfs.writeFileSync(`${leaseFile(dir, key, name, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
 }
 /** AN ADMISSION SLOT (k = 1..max) -> { ok, slot, gen } | { ok: false, why }. Ours already: renewed in place. */
 export function takeSlot (dir, key, holder, max, opts = {}) {
@@ -270,11 +313,11 @@ export function mutexTake (dir, key, holder, { now = Date.now(), pid = process.p
   try { st = mutexState(dir, key, { now, alive, gone }) } catch { return { ok: false, why: 'busy (unreadable)' } }
   if (st.held) return { ok: false, why: `busy (${st.rec?.holder ?? 'torn'})` }
   const n = st.gen + 1, f = mutexFile(dir, key, n)
-  try { fs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, conn, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
+  try { wfs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, conn, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
   let gens = []
   try { gens = gensOf(dir, MUTEX_RE(key)) } catch { /* judged below */ }
-  if (gens.at(-1) !== n) { try { fs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
-  for (const g of gens) if (g <= n - MUTEX_KEEP) { for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { fs.unlinkSync(x) } catch { /* gone */ } } }
+  if (gens.at(-1) !== n) { try { wfs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
+  for (const g of gens) if (g <= n - MUTEX_KEEP) { for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { wfs.unlinkSync(x) } catch { /* gone */ } } }
   return { ok: true, gen: n, ...(['dead', 'superseded', 'torn', 'retired'].includes(st.why) ? { reclaimed: st.rec?.holder ?? 'torn' } : {}) }
 }
 /** Release the mutex: our own generation only (holder and pid; `gen` omitted: the newest). A marker, never a delete. Never throws. */
@@ -284,7 +327,7 @@ export function mutexRelease (dir, key, holder, { pid = process.pid, gen = null 
     if (g == null) return
     const f = mutexFile(dir, key, g)
     const rec = readJ(f)
-    if (rec && rec.holder === holder && rec.pid === pid) fs.writeFileSync(`${f}.released`, String(Date.now()))
+    if (rec && rec.holder === holder && rec.pid === pid) wfs.writeFileSync(`${f}.released`, String(Date.now()))
   } catch { /* lapses only with the process */ }
 }
 
@@ -294,11 +337,11 @@ const presenceFile = (dir, key, holder) => path.join(dir, `${key}.presence.${Str
 /** Write the holder's current connection (at every login): a temp file renamed into place. Never throws. */
 export function presenceWrite (dir, key, holder, { conn, pid = process.pid, now = Date.now(), beat = null, sync = true } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = presenceFile(dir, key, holder), tmp = `${f}.${pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
     const body = JSON.stringify({ holder, conn, pid, at: now, beat: beat ?? now })   // at: the connection's login; beat: now
-    if (sync) writeSynced(tmp, body); else fs.writeFileSync(tmp, body)
-    fs.renameSync(tmp, f)
+    if (sync) writeSynced(tmp, body); else wfs.writeFileSync(tmp, body)
+    wfs.renameSync(tmp, f)
   } catch { /* the other retirement evidence still applies */ }
 }
 /** The holder's presence -> { holder, conn, pid, at } | null. */
@@ -310,7 +353,7 @@ export function presenceRead (dir, key, holder) { return readJ(presenceFile(dir,
 // writes only its own file, so no update is lost; a reader SUMS the holders' visits per cell.
 const stuckFile = (dir, key, holder) => path.join(dir, `${key}.stuck.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 const stuckNames = (dir, key) => {
-  try { const re = new RegExp(`^${esc(key)}\\.stuck\\..+\\.json$`); return fs.readdirSync(dir).filter(x => re.test(x)) } catch { return [] }
+  try { const re = new RegExp(`^${esc(key)}\\.stuck\\..+\\.json$`); return listMatch(dir, re) } catch { return [] }
 }
 const stuckCells = j => {
   const out = {}
@@ -355,10 +398,10 @@ export function stuckAt (dir, key, { holder = null, before = Infinity, stale = n
 /** Replace THIS HOLDER's stuck map (temp + rename, fsynced) -> true | false (never throws; the caller fails closed on false). */
 export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt = null } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = stuckFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
     writeSynced(tmp, JSON.stringify({ v: 2, holder, at: now, stuckAt: Number.isFinite(stuckAt) ? stuckAt : null, cells: cells ?? {} }))
-    fs.renameSync(tmp, f)
+    wfs.renameSync(tmp, f)
     return true
   } catch { return false }
 }
@@ -378,11 +421,11 @@ export function drawnRead (dir, key, holder) {
  *  throws; the caller counts a failure). */
 export function drawnWrite (dir, key, holder, drawn, { bag = {}, now = Date.now() } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = drawnFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
     const d = counts(drawn)
     writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, drawn: d, bag: Object.fromEntries(Object.keys(d).map(n => [n, Math.max(0, Math.floor(Number(bag?.[n]) || 0))])) }))
-    fs.renameSync(tmp, f)
+    wfs.renameSync(tmp, f)
     return true
   } catch { return false }
 }
@@ -395,10 +438,10 @@ const PANTRY_RE = key => new RegExp(`^${esc(key)}\\.pantry\\.[A-Za-z0-9_-]+\\.js
 /** Replace the holder's pantry (a temp file renamed into place). -> true | false (never throws). */
 export function pantryWrite (dir, key, holder, items, { now = Date.now() } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = pantryFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
     writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, items: counts(items) }))
-    fs.renameSync(tmp, f)
+    wfs.renameSync(tmp, f)
     return true
   } catch { return false }
 }
@@ -406,7 +449,7 @@ export function pantryWrite (dir, key, holder, items, { now = Date.now() } = {})
 export function pantryRead (dir, key) {
   const out = {}
   let names = []
-  try { names = fs.readdirSync(dir).filter(n => PANTRY_RE(key).test(n)) } catch { return out }
+  try { names = listMatch(dir, PANTRY_RE(key)) } catch { return out }
   for (const n of names) { const r = readJ(path.join(dir, n)); if (r?.holder && r.items && typeof r.items === 'object') out[r.holder] = { at: Number(r.at) || 0, items: r.items } }
   return out
 }
@@ -418,14 +461,14 @@ const CLIMB_RE = /^climbs-[A-Za-z0-9_-]+\.jsonl$/
  *  `keepLines`. -> true | false. Never throws. */
 export function climbAppend (dir, holder, c, { maxLines = 2000, keepLines = 1000 } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = climbFile(dir, holder)
-    fs.appendFileSync(f, JSON.stringify({ x: c.x, y: c.y, z: c.z, shape: c.shape, reason: c.reason, t: c.t, by: holder }) + '\n')
+    wfs.appendFileSync(f, JSON.stringify({ x: c.x, y: c.y, z: c.z, shape: c.shape, reason: c.reason, t: c.t, by: holder }) + '\n')
     let n = 0
     try { n = fs.statSync(f).size } catch { n = 0 }
     if (n > maxLines * 50) {   // a line is >= 60 bytes: past this the lines are counted, and trimmed past maxLines
       const lines = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean)
-      if (lines.length > maxLines) { const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, lines.slice(-keepLines).join('\n') + '\n'); fs.renameSync(tmp, f) }
+      if (lines.length > maxLines) { const tmp = `${f}.${process.pid}.tmp`; wfs.writeFileSync(tmp, lines.slice(-keepLines).join('\n') + '\n'); wfs.renameSync(tmp, f) }
     }
     return true
   } catch { return false }
@@ -476,7 +519,7 @@ export async function climbFlush () {
 export function climbRead (dir, { since = -Infinity } = {}) {
   const out = []
   let names = []
-  try { names = fs.readdirSync(dir).filter(n => CLIMB_RE.test(n)) } catch { return out }
+  try { names = listMatch(dir, CLIMB_RE) } catch { return out }
   for (const n of names) {
     let txt = ''
     try { txt = fs.readFileSync(path.join(dir, n), 'utf8') } catch { continue }
@@ -488,11 +531,11 @@ export function climbRead (dir, { since = -Infinity } = {}) {
 // ---- intents ------------------------------------------------------------------------------------------------------------------
 
 const intentFile = (dir, key, holder) => path.join(dir, `${key}.intents.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
-const appendSynced = (f, line) => { const fd = fs.openSync(f, 'a'); try { fs.writeSync(fd, line); fs.fsyncSync(fd) } finally { fs.closeSync(fd) } }
+const appendSynced = (f, line) => { const fd = wfs.openSync(f, 'a'); try { fs.writeSync(fd, line); fs.fsyncSync(fd) } finally { fs.closeSync(fd) } }
 /** APPEND AN OPEN INTENT and fsync it (step 1, before the mutex) -> its id. Throws on a write failure: no intent, no click. */
 export function intentOpen (dir, key, holder, { cell, block, lease, seq, conn = null, now = Date.now() }) {
   const id = `${now.toString(36)}-${crypto.randomBytes(3).toString('hex')}`
-  fs.mkdirSync(dir, { recursive: true })
+  wfs.mkdirSync(dir, { recursive: true })
   appendSynced(intentFile(dir, key, holder), JSON.stringify({ op: 'open', id, holder, cell, block, lease, seq, conn, at: now }) + '\n')
   return id
 }
@@ -504,9 +547,9 @@ export function intentClose (dir, key, holder, id, op, { state = null, now = Dat
 export function openIntents (dir, key) {
   const out = []
   let names = []
-  try { names = fs.readdirSync(dir) } catch { return out }
   const re = new RegExp(`^${esc(key)}\\.intents\\..+\\.jsonl$`)
-  for (const n of names.filter(x => re.test(x))) {
+  try { names = listMatch(dir, re) } catch { return out }
+  for (const n of names) {
     const open = new Map()
     let text = ''
     try { text = fs.readFileSync(path.join(dir, n), 'utf8') } catch { continue }
@@ -559,6 +602,70 @@ export function holderGone (since, { conn = null, presence = null, online = true
   return !online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS
 }
 
+// ---- SHOWDROP-01: PRUNING SUPERSEDED LEASE AND BARRIER GENERATIONS ---------------------------------------------------------------
+// The showcase's town directory held 6,777 files on 11-08, most of them lease and barrier generations no reader ever opens again:
+// leaseState, liveLeases, takeLease and barrierState read only a family's NEWEST generation (gensOf(...).at(-1)). A generation is
+// pruned (its file and its `.released` marker) only when ALL hold: it is a lease (`<key>.<name>.lease.g<N>.json`) or a barrier
+// (`<key>.barrier.g<N>.json`); a NEWER generation of the same family exists (the newest is never touched: the next take numbers
+// from it); it is released (a marker) or, a lease, expired (`until`); and its file and marker are older than PRUNE_AGE_MS by mtime.
+// NEVER a record generation (`<key>.g<N>.json`: recordHead walks every one from the root), a mutex (its own MUTEX_KEEP), an intent,
+// presence, stuck, drawn, pantry or climb file. POOLPRUNE=off: nothing; POOLPRUNE=dry: count only; on: the caller's first pass of a
+// process is a dry count (logged), later passes delete at most PRUNE_MAX files each.
+export const PRUNE_AGE_MS = 48 * 3600_000
+export const PRUNE_MAX = 500
+export const poolPruneMode = (env = process.env) => {
+  const v = String(env?.POOLPRUNE ?? '').trim().toLowerCase()
+  return ['off', '0', 'false', 'no'].includes(v) ? 'off' : v === 'dry' ? 'dry' : 'on'
+}
+const PRUNE_RE = /^(.+)\.(lease|barrier)\.g(\d+)\.json$/
+/** The pruneable generations -> [{ file, marker, fam, gen }] (oldest first). Pure over the listing and the stat/read callbacks. */
+export function pruneCandidates (names, { now = Date.now(), age = PRUNE_AGE_MS, mtime, read } = {}) {
+  const set = new Set(names)
+  const fams = new Map()
+  for (const n of names) {
+    const m = PRUNE_RE.exec(n)
+    if (!m) continue
+    // a barrier is `<key>.barrier.g<N>`; a lease is `<key>.<name>.lease.g<N>` -- the family is everything before `.g<N>.json`
+    const fam = `${m[1]}.${m[2]}`
+    if (!fams.has(fam)) fams.set(fam, [])
+    fams.get(fam).push({ gen: Number(m[3]), file: n, kind: m[2] })
+  }
+  const out = []
+  for (const [fam, gens] of fams) {
+    const top = Math.max(...gens.map(g => g.gen))
+    for (const g of gens) {
+      if (g.gen >= top) continue                                   // the newest generation: never
+      const marker = `${g.file}.released`
+      const released = set.has(marker)
+      const t1 = mtime(g.file), t2 = released ? mtime(marker) : null
+      if (t1 == null || now - t1 < age || (released && (t2 == null || now - t2 < age))) continue
+      if (!released) {
+        if (g.kind !== 'lease') continue                           // an unreleased barrier: kept
+        const rec = read(g.file)
+        if (!rec || !Number.isFinite(Number(rec.until)) || now - Number(rec.until) < age) continue   // unreadable or not long expired: kept
+      }
+      out.push({ file: g.file, marker: released ? marker : null, fam, gen: g.gen })
+    }
+  }
+  return out.sort((a, b) => a.gen - b.gen)
+}
+/** One pass over `dir` -> { mode, candidates, deleted, errors }. `dry` (or POOLPRUNE=dry) deletes nothing. Never throws. */
+export function prunePool (dir, { now = Date.now(), dry = false, max = PRUNE_MAX, env = process.env } = {}) {
+  const mode = poolPruneMode(env)
+  if (mode === 'off') return { mode, candidates: 0, deleted: 0, errors: 0 }
+  let names
+  try { names = fs.readdirSync(dir) } catch { return { mode, candidates: 0, deleted: 0, errors: 1 } }
+  const st = f => { try { return fs.statSync(path.join(dir, f)).mtimeMs } catch { return null } }
+  const cands = pruneCandidates(names, { now, mtime: st, read: f => readJ(path.join(dir, f)) })
+  if (dry || mode === 'dry') return { mode: 'dry', candidates: cands.length, deleted: 0, errors: 0 }
+  let deleted = 0, errors = 0
+  for (const c of cands.slice(0, max)) {
+    // the marker first: a generation whose file is gone but whose marker stays is still nothing any reader opens
+    for (const f of [c.marker, c.file]) { if (!f) continue; try { wfs.unlinkSync(path.join(dir, f)); deleted++ } catch (e) { if (e?.code !== 'ENOENT') errors++ } }
+  }
+  return { mode, candidates: cands.length, deleted, errors }
+}
+
 // ---- the barrier ------------------------------------------------------------------------------------------------------------
 
 const barFile = (dir, key, n) => path.join(dir, `${key}.barrier.g${n}.json`)
@@ -579,12 +686,12 @@ export function barrierTake (dir, key, holder, { why = 'closer', cell = null, no
   if (cur?.active && cur.rec?.holder !== holder) return { ok: false, why: `barrier held by ${cur.rec?.holder ?? 'unreadable'}` }
   if (cur?.active && cur.rec?.holder === holder) return { ok: true, gen: cur.gen }
   const n = (cur?.gen ?? 0) + 1
-  try { fs.mkdirSync(dir, { recursive: true }); writeSynced(barFile(dir, key, n), JSON.stringify({ holder, why, cell, at: now })) } catch { return { ok: false, why: 'lost the race for the barrier' } }
+  try { wfs.mkdirSync(dir, { recursive: true }); writeSynced(barFile(dir, key, n), JSON.stringify({ holder, why, cell, at: now })) } catch { return { ok: false, why: 'lost the race for the barrier' } }
   return gensOf(dir, BAR_RE(key)).at(-1) === n ? { ok: true, gen: n } : { ok: false, why: 'a later barrier exists' }
 }
 /** Release our barrier. Never throws. */
 export function barrierRelease (dir, key, holder, gen) {
-  try { const cur = barrierState(dir, key); if (cur && cur.gen === gen && cur.rec?.holder === holder) fs.writeFileSync(`${barFile(dir, key, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
+  try { const cur = barrierState(dir, key); if (cur && cur.gen === gen && cur.rec?.holder === holder) wfs.writeFileSync(`${barFile(dir, key, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
 }
 /**
  * MAY THE BARRIER'S HOLDER CLICK? -> { clear, waiting: [intent] }. Every OTHER holder's open intent must be settled or cancelled,
