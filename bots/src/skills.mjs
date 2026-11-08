@@ -21224,7 +21224,8 @@ async function buildShop (ctx, args, signal) {
   ctx.bot.roomFallback = args?.why === 'room_fallback' && args?.plot === TIDY_PLOT ? { at: Date.now() } : null
   if (ctx.bot.roomFallback && ctx.bot.projReserve) ctx.bot.projReserve.at = -Infinity
   ctx.bot.shopVisitBusy = true
-  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e } finally { ctx.bot.shopVisitBusy = false; ctx.bot.boardPick = null }   // workboard-01: the pin is for ONE visit
+  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e } finally { ctx.bot.shopVisitBusy = false }
+  ctx.bot.boardPick = null   // workboard-01: the pin is for ONE visit (a throw above leaves it to its ttl)
   note(r)
   serviceEnd(ctx.bot, r?.stop)   // prodserve-01: a service visit that did not happen gives its stamp back
   // gklease-01: a grounds visit that did something is the holder's work (groundsIdle's clock)
