@@ -28,6 +28,12 @@ test('the styled blueprints\' windows: glass, then a trapdoor of the walls\' woo
   const pal = T.stylePalette(T.cottageBlueprint('s').palette, { wood: 'spruce' })
   assert.deepEqual(pal.window, ['glass_pane', 'spruce_trapdoor', '$wall'])
   assert.equal(G.isFallback('spruce_trapdoor', pal, 'window'), true, 'the glaze swaps it later')
+  // GLASS=off sites the old window exactly (Codex show r1 BLOCKER): glass, else the wall
+  const off = T.stylePalette(T.cottageBlueprint('s').palette, { wood: 'spruce' }, { glass: false })
+  assert.deepEqual(off.window, ['glass_pane', '$wall']); assert.deepEqual(off.gablewin, ['glass_pane', '$gable'])
+  assert.deepEqual(off.sill, pal.sill, 'the sill trapdoor is no window: kept')
+  const thOff = T.stylePalette(th.palette, { wood: 'oak' }, { glass: false })
+  assert.deepEqual(thOff.window, ['glass_pane', '$wall'])
 })
 
 const pal = T.stylePalette(T.cottageBlueprint('s').palette, { wood: 'spruce' })
