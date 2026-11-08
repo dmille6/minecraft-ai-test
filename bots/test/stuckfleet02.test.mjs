@@ -55,6 +55,9 @@ await t('POSITIVE CONTROL: the same cell over a support NOT waived is never an o
   const w = { ...F.record.waived }; delete w['372,65,152']
   assert.deepStrictEqual(S.orphanWaiveDue({ ...F.record, waived: w }, deferred, worldRead()), [])
 })
+await t('Codex r1 BLOCKER: a WAIVED support that holds a block is a face -- never an orphan (a waiver removes nothing)', () => {
+  assert.deepStrictEqual(S.orphanWaiveDue(F.record, deferred, worldRead({ '372,65,152': 'cobblestone' })), [])
+})
 await t('a solid side face: no orphan (a stand may still place it)', () => {
   assert.deepStrictEqual(S.orphanWaiveDue(F.record, deferred, worldRead({ '373,66,152': 'stone' })), [])
 })
@@ -79,7 +82,7 @@ await t('the ceiling: a stage already half waived waives nothing more; the per-v
   assert.deepStrictEqual(out.map(o => o.k), ['0,1,0', '0,2,0', '0,3,0', '0,4,0', '0,5,0', '0,6,0'], 'the orphan and the open column over it')
 })
 await t('MUTANT: the support test dropped -- the positive control is waived (killed for that reason)', async () => {
-  await withMutant('    if (!cells.has(below) || !waived(below) || !isOpen(c.at) || hasFace(read, c.at, gone)) continue\n', '    if (!isOpen(c.at) || hasFace(read, c.at, gone)) continue\n', async M => {
+  await withMutant('    if (!cells.has(below) || !waived(below) || !isOpen(c.at) || hasFace(read, c.at)) continue\n', '    if (!isOpen(c.at) || hasFace(read, c.at)) continue\n', async M => {
     const w = { ...F.record.waived }; delete w['372,65,152']
     assert.strictEqual(M.orphanWaiveDue({ ...F.record, waived: w }, deferred, worldRead()).length, 1)
   })
