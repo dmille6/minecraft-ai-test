@@ -26,6 +26,7 @@ let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 6).join('\n        ')}`) } }
 const withEnv = async (name, v, fn) => { const prev = process.env[name]; if (v == null) delete process.env[name]; else process.env[name] = v; try { return await fn() } finally { if (prev === undefined) delete process.env[name]; else process.env[name] = prev } }
 const turn = () => new Promise(r => setImmediate(r))
+const still = () => new Promise(r => setTimeout(r, 120))   // the directory still for longer than LIST_RACY_MS
 const SRC = new URL('../src/', import.meta.url)
 /** A mutant of a src module: the anchor asserted present and unique, the copy (and the modules it imports) loaded fresh. */
 async function withModMutant (file, old, neu, fn) {
@@ -74,7 +75,7 @@ await t('the switch: LISTCACHE=off|0|false|no is the rollback; unset is on', () 
   for (const v of [undefined, '', 'on', '1']) assert.strictEqual(P.listCacheOn({ LISTCACHE: v }), true, String(v))
 })
 await t('BEFORE / AFTER: one decision tick of directory reads lists the directory once, not once per read; the same answers', async () => {
-  await turn()
+  await still()
   const r0 = P.listStats.reads
   const offT = await withEnv('LISTCACHE', 'off', async () => { const a = performance.now(); decisionReads(P); return performance.now() - a })
   const offReads = P.listStats.reads - r0
@@ -114,7 +115,7 @@ await t('the listing is dropped at the next turn: the same directory, unchanged,
   const scenario = async B => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'showdrop-turn-'))
     fs.writeFileSync(path.join(d, 'k.g1.json'), '{}')
-    await turn()
+    await still()
     const r0 = B.listStats.reads
     B.listDir(d); B.listDir(d)
     assert.strictEqual(B.listStats.reads - r0, 1, 'POSITIVE CONTROL: the second read of the stretch was not served from the listing')
@@ -123,6 +124,20 @@ await t('the listing is dropped at the next turn: the same directory, unchanged,
     assert.strictEqual(B.listStats.reads - r0, 2, 'the listing outlived the turn')
   }
   await killedBy('buildproj.mjs', 'setImmediate(() => { listDropQueued = false; listMem.clear() })', 'setImmediate(() => { listDropQueued = false })', scenario, P)
+})
+await t('RACILY CLEAN: a file written by another writer in the same mtime tick as the listing is seen by the very next read', async () => {
+  const scenario = async B => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'showdrop-racy-'))
+    await still()
+    fs.writeFileSync(path.join(d, 'k.g1.json'), '{}')                  // the directory moved just now
+    const tick = new Date(Date.now())                                    // one exact mtime (whole ms) for both reads
+    fs.utimesSync(d, tick, tick)
+    assert.strictEqual(B.listDir(d).length, 1)
+    fs.writeFileSync(path.join(d, 'k.g2.json'), '{}')                  // a foreign create (past this module's wfs)
+    fs.utimesSync(d, tick, tick)                                         // ...in the same coarse tick: the mtime does not move
+    assert.strictEqual(B.listDir(d).length, 2, 'a racy listing was served')
+  }
+  await killedBy('buildproj.mjs', '  if (m && !m.racy && mt != null', '  if (m && mt != null', scenario, P)
 })
 console.log('SHOWDROP-01 (2): THE ORDER\'S PROJECT STATES, ONE PROJECT A TURN (shopActivePrime)')
 await t('the switch: SHOPPRIME=off is the rollback', () => {

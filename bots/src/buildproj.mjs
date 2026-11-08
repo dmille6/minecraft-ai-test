@@ -66,22 +66,27 @@ const readJ = f => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch
 // LISTCACHE=off is the rollback: a fresh readdirSync every call, as before.
 export const listCacheOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.LISTCACHE ?? '').trim().toLowerCase())
 export const LIST_MAX_MS = 1000
+// RACILY CLEAN (git's rule): a directory's mtime has coarse granularity (a jiffy), so a file created in the same tick as the listing
+// leaves the mtime unchanged. A listing taken within LIST_RACY_MS of the directory's own mtime is never served again: only a listing
+// of a directory that has been still for longer is (a later create then moves the mtime past the listing's).
+export const LIST_RACY_MS = 50
 const listMem = new Map()        // dir -> { names, at, mtime, matched: Map(re -> names) }
 let listDropQueued = false
 export const listStats = { reads: 0, hits: 0 }
 /** Forget every kept listing (a write, a turn of the event loop). */
 export function dropListings () { listMem.clear() }
 const dirMtime = dir => { try { return fs.statSync(dir, { bigint: true }).mtimeNs } catch { return null } }
+const racy = (mt, now) => mt == null || now - Number(mt / 1_000_000n) < LIST_RACY_MS
 /** The directory's names: fs.readdirSync's result (and its throw), kept for the synchronous stretch. Callers never mutate it. */
 export function listDir (dir) {
   if (!listCacheOn()) { listStats.reads++; return fs.readdirSync(dir) }
   const now = Date.now()
   const mt = dirMtime(dir)
   const m = listMem.get(dir)
-  if (m && mt != null && m.mtime === mt && now - m.at < LIST_MAX_MS) { listStats.hits++; return m.names }
+  if (m && !m.racy && mt != null && m.mtime === mt && now - m.at < LIST_MAX_MS) { listStats.hits++; return m.names }
   listStats.reads++
   const names = fs.readdirSync(dir)
-  listMem.set(dir, { names, at: now, mtime: mt, matched: new Map() })
+  listMem.set(dir, { names, at: now, mtime: mt, racy: racy(mt, now), matched: new Map() })
   if (!listDropQueued) { listDropQueued = true; setImmediate(() => { listDropQueued = false; listMem.clear() }) }
   return names
 }
@@ -89,7 +94,7 @@ export function listDir (dir) {
 export function listMatch (dir, re) {
   const names = listDir(dir)
   const m = listCacheOn() ? listMem.get(dir) : null
-  if (!m || m.names !== names) return names.filter(n => re.test(n))
+  if (!m || m.names !== names || m.racy) return names.filter(n => re.test(n))
   const k = `${re.source}/${re.flags}`
   let v = m.matched.get(k)
   if (!v) { v = names.filter(n => re.test(n)); m.matched.set(k, v) }
