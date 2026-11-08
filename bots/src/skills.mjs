@@ -180,6 +180,7 @@ import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
+import { sitecanopyOn, cellClearsHook } from './sitecanopy.mjs'   // sitecanopy-01
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
@@ -17014,6 +17015,8 @@ function planReader (bot) {
         // townstyle-01: and a block whose placement decides its state (stairs, slabs, logs, trapdoors, lanterns): the state cells' done rule
         if (name === 'snow' || name === 'water') { try { props = b.getProperties?.() ?? null } catch { props = null } }
         else if (orientedBlock(name)) { try { props = b.getProperties?.() ?? null } catch { props = null } }
+        // sitecanopy-01: a leaf's `persistent` (grown or placed: only grown leaves are listed for digging)
+        else if (/_leaves$/.test(name)) { try { props = b.getProperties?.() ?? null } catch { props = null } }
         v = { name, boundingBox: b.boundingBox, shapes: b.shapes, props }
       }
     } catch { v = null }
@@ -20835,7 +20838,8 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     if (!stock || !Object.entries(stock).some(([n, v]) => /_log$/.test(n) && Number(v) > 0)) return { ok: false, why: 'stock_unknown', tried }
     const ts = townhallStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
     const bp = styledBlueprint(blueprintOf(TOWNHALL_BLUEPRINT), ts.style)
-    const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT,
+    const prd = planReader(bot)
+    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
       earth: sp.earth ?? TOWNHALL_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -20845,6 +20849,12 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
     return { ok: true, why: 'ok', record: townhallRecordOf(s.record, bp, ts.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
+}
+/** sitecanopy-01: the styled building's siting hook -- the natural leaves in a candidate's own cells listed (each reached from the town
+ *  walk, reroof.mjs reroofClearsReached), or null with SITECANOPY=off. */
+function siteCanopyCtx (read, bp, home, stood, walkR) {
+  if (!sitecanopyOn()) return {}
+  return { cellClears: cellClearsHook(read, { cellsOf: site => placeBlueprint(bp, site.anchor, site.s, site.orient).map(c => c.at), reached: cl => reroofClearsReached(read, home, cl, { stood, walkR }) }) }
 }
 /** The plot ids every record but `plot`'s holds. Never throws. */
 const plotsTakenBy = (plot, dir = townDir()) => { try { return projectHeads().filter(x => x.plot !== plot).map(x => x.head?.rec?.plotId).filter(Boolean) } catch { return [] } }
@@ -20870,7 +20880,8 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null) {
     if (!stock || !Object.entries(stock).some(([n, v]) => /_log$/.test(n) && Number(v) > 0)) return { ok: false, why: 'stock_unknown', tried }
     const cs = cottageStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
     const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
-    const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: COTTAGE_PLOT,
+    const prd = planReader(bot)
+    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: COTTAGE_PLOT, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
       earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
