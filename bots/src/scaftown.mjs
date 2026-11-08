@@ -197,12 +197,15 @@ export function makeScafTownPrice ({ area = () => null, on = true, now = () => D
   }
   /** A search slice returned `result` -> latch its goal when a priced search that the price touched ended without a path. */
   price.settle = (s, result) => {
-    if (!s || s.done || !result || result.status === 'partial') return
-    s.done = true
+    if (!s || s.done || !result) return
+    // the touch is recorded on EVERY slice, partial ones too: goto walks a partial path while its search goes on, and a
+    // 'stuck' reset drops the search (index.js resetPath: astarContext = null) before it ever settles
     if (s.mode === 'priced' && s.hits > 0 && s.key) {
       price.touched.set(s.key, now() + T.latchMs)
       if (price.touched.size > 64) { const t = now(); for (const [k, u] of price.touched) if (u <= t) price.touched.delete(k) }
     }
+    if (result.status === 'partial') return
+    s.done = true
     if (latchesGoal(s, result.status) && s.key) { price.latch.set(s.key, now() + T.latchMs); price.latches++ }
   }
   return price

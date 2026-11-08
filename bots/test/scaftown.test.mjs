@@ -171,6 +171,10 @@ test('STUCK: a goal whose walk resets stuck twice within latchMs is latched to t
   assert.equal(u.latches, 0); assert.equal(u.stuckSkipped, 30)
   const s1 = u.begin({ goal: k }); s1.hits = 2; u.settle(s1, { status: 'success' })
   assert.equal(u.stuck(k), false); assert.equal(u.stuck(k), true, 'once the price shaped its route, two stalls latch it')
+  // a search still PARTIAL when the walk stalls (goto walks partial paths; a stuck reset drops the search unsettled) counts too
+  const pk = new goals.GoalBlock(1, 1, 1)
+  const sp = u.begin({ goal: pk }); sp.hits = 3; u.settle(sp, { status: 'partial' })
+  assert.equal(u.stuck(pk), false); assert.equal(u.stuck(pk), true, 'a partial priced search marks its goal touched')
   t += ST.SCAF_TOWN.latchMs + 1
   assert.equal(u.stuck(new goals.GoalBlock(7, 8, 9)), false, 'the touch expires with the latch window')
   const off = ST.makeScafTownPrice({ on: false })
