@@ -958,7 +958,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (c.kind === 'tidy') (out.tidied ??= []).push(kOf(c.at))
         // no stand reaches it now: nothing tried, nothing counted (it costs nothing, and a pad or a stair built later may give it one:
         // fell-01's log felled from the pad -- buildretry-01 counts the dig WALKS that fail, below)
-        if (!digStand(rd, c.at, nodes)) continue
+        // stuckclose-01 (`p.tidyTownCount`, the town tidy): a stand-less tidy cut IS counted in the town's retry ledger, so the town
+        // gives it up (stuckclose.mjs townGivenCuts) instead of it waiting on one bot's connection to evaluate it TIDY_CUT_TRIES times
+        if (!digStand(rd, c.at, nodes)) { if (p.tidyTownCount && c.kind === 'tidy') fail(c.at, 'no_stand'); continue }
         const g = guard(); if (g) return g
         tried++
         const v = await digNamed(c.at, c.name, held, nodes)
