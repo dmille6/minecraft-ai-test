@@ -140,7 +140,7 @@ import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeper
 import { stuckcloseOn, townGivenCuts, givenWaivers } from './stuckclose.mjs'   // stuckclose-01
 import { retryRead } from './buildretry.mjs'   // stuckclose-01: the town's retry ledger, read by the tidy
 import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
-import { BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
+import { BOT_MAT as BOT_MAT_RE, BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -19973,7 +19973,7 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
   let guard
   try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return no('record_unreadable') }
   const read = planReader(bot)
-  const w = bw3Work(ev.lines, read, { guard: k => guard.has(k), walkOn: BW3S.walk })
+  const w = bw3Work(ev.lines, read, { guard: k => guard.has(k), walkOn: BW3S.walk, home })
   const mem = (bot.bw3Given ??= new Map())
   const cuts = w.cuts.filter(q => !tidyGivenUp(mem, q.at.join(',')))
   if (!cuts.length && !(w.stats.deck > w.stats.deckDone)) return no(bw3HasWork(w) ? 'given_up' : 'nothing')
@@ -20018,6 +20018,9 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
       planks = Object.entries(heldMap(bot)).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
     }
     check(signal)
+    // NO PLANKS, NO DECK THIS VISIT (Codex r1 BLOCKER 2): the deck's foreign dig is never opened without a plank to lay after it
+    const hasPlanks = Object.entries(heldMap(bot)).some(([n, c]) => /_planks$/.test(n) && c > 0)
+    const rec = hasPlanks ? w.record : { ...w.record, cells: [], segments: [] }
     effects = botBuildEffects(bot, {
       acks,
       withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
@@ -20027,7 +20030,7 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     })
     bot.shopUnknown ??= new Set()
     const stood = stoodRead(dir, stoodKey(), home)
-    const r = await runVisit({ dir, key, me, home, stood, record: w.record, tidy: cuts, tidyKeepOrder: true, recordGen: rh.head.gen, palette: BW3_PALETTE, res: null, resFailed: false,
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, tidyKeepOrder: true, recordGen: rh.head.gen, foreign: BOT_MAT_RE, palette: BW3_PALETTE, res: null, resFailed: false,
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.bw3Stands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, wet: true, alsoDone: q => guard.has(q.at.join(',')) },
     effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
