@@ -137,6 +137,8 @@ import { setGroundsMeans, groundsBatchOpen } from './idlework.mjs'   // gkforeve
 import { setHoldsGrounds, idleKindNow, belowKind, gkstayOn } from './idlework.mjs'   // gkstay-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
+import { stuckcloseOn, townGivenCuts, givenWaivers } from './stuckclose.mjs'   // stuckclose-01
+import { retryRead } from './buildretry.mjs'   // stuckclose-01: the town's retry ledger, read by the tidy
 import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
@@ -19827,6 +19829,13 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
 const GKW_ON = gkworkOn()   // gkwork-01
+const SCL_ON = stuckcloseOn()   // stuckclose-01
+/** stuckclose-01: the cuts of `rec` the TOWN gives up now (stuckclose.mjs townGivenCuts over the tidy's buildretry ledger) -> Map.
+ *  Never throws (unreadable: none given). */
+function tidyTownGiven (dir, key, rec, read) {
+  if (!SCL_ON) return new Map()
+  try { return townGivenCuts(rec, retryRead(dir, key), { standing: c => cutStanding(read, c) }) } catch { return new Map() }
+}
 const GKSTAY_ON = gkstayOn()   // gkstay-01
 setHoldsGrounds(b => keeperNow(b))   // gkstay-01: the idle lap reads whether this bot holds the keeper lease
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
@@ -20076,7 +20085,9 @@ async function buildTidy (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')))
+    // stuckclose-01: nor a cut the town has given up (the retry ledger holds it: no walk would be made to it anyway)
+    const tg0 = tidyTownGiven(dir, key, rec, read)
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !tg0.has(q.at.join(',')))
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     const cuts = GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
@@ -20084,6 +20095,7 @@ async function buildTidy (ctx, args, signal) {
     const r = await runVisit({ ...canopyOf(bot, c, TIDY_PLOT), dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
+      ...(SCL_ON ? { tidyTownCount: true } : {}),
       // tidydead-01: a hard cell (a block no dig stand reaches, a fill no click lands on) is deferred, so the waiver below can name it
       ...(tidyDeadOn() ? { hardDefers: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     let swept = null
@@ -20119,7 +20131,9 @@ async function buildTidy (ctx, args, signal) {
     if (GROUNDS.on && stop1 === 'stuck_on_cell') { try { const k = keeperState(bot, true); if (k.lease?.rec?.holder === me) { releaseKeeper(bot, k.lease, 'stuck'); bot.gkRestUntil = Date.now() + SHOP_STUCK_RETRY_MS } } catch { /* the lease lapses */ } }
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
-    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) })
+    // stuckclose-01: a cut the TOWN has failed RETRY_VISITS visits (the ledger read after this visit settled it) is given up too
+    const tg = tidyTownGiven(dir, key, rw, read2)
+    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) || tg.has(k) })
     const unread = [...(rw.cut ?? []), ...(rw.cells ?? [])].some(q => !read2(...q.at))
     // groundskeeper-01 (Codex r1 BLOCKER 2): the record's clears (a felled road trunk, head-room leaves) are work too -- left
     // standing, the stage stays open until this bot's visits have made no clear progress GK_CLEAR_VISITS times (then named)
@@ -20148,7 +20162,8 @@ async function buildTidy (ctx, args, signal) {
       const now = Date.now()
       // gkforever-01 (Codex r1 BLOCKER 1): with a crew, another builder may have finished this stage and sited the next while this
       // visit ran: only THIS generation is completed (tidySameGen), and the visit is complete only when it is
-      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && tidySameGen(cur, rec) ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
+      // stuckclose-01: the cuts the town gave up are named on `waived`, so gkfDeadCarry keeps them out of the next generations a while
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && tidySameGen(cur, rec) ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length, ...(tg.size ? { waived: givenWaivers(cur.waived, tg, { now, by: me }), townGiven: tg.size } : {}) } : null), { by: me })
       completed = pub.result === 'accepted' || (() => { try { const h3 = recordHead(dir, key); return !!(h3.ok && h3.head?.rec?.structure_complete && tidySameGen(h3.head.rec, rec)) } catch { return false } })()
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
       if (pub.result === 'accepted') {
@@ -20172,7 +20187,7 @@ async function buildTidy (ctx, args, signal) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
-    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${swept?.tried ? `; took up ${swept.back} of ${swept.tried} stray station(s)` : ''}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${tg.size ? `; town gave up ${tg.size} cut(s)` : ''}${swept?.tried ? `; took up ${swept.back} of ${swept.tried} stray station(s)` : ''}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
