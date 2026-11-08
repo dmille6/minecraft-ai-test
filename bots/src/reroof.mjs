@@ -225,6 +225,8 @@ export function roofTree (read, at, { own = new Set(), recordAt = () => null, ma
   while (isLog(x, lo - 1, z) && hi - lo < max) lo--
   while (isLog(x, hi + 1, z) && hi - lo < max) hi++
   if (hi - lo + 1 > max || isLog(x, lo - 1, z) || isLog(x, hi + 1, z)) return null
+  // Codex r1 BLOCKER 1: never a log that is a record's cell (this building's or another's: a log post, a log wall) anywhere in the trunk
+  for (let y = lo; y <= hi; y++) if (own.has(`${x},${y},${z}`) || recordAt(x, y, z)) return null
   const under = read(x, lo - 1, z)
   const why = own.has(`${x},${lo - 1},${z}`) ? 'rooted' : under && AIR_RX.test(nmOf(under)) ? 'floating' : null
   if (!why) return null
@@ -248,7 +250,7 @@ export const REROOF_GROW_ROUNDS = 4
  * leaves, and
  * the natural leaves within 1 are listed; never a record's cell (`recordAt`, `own`); at most REROOF_GROW_MAX added.
  */
-export function reroofCanopyGrow (read, clear = [], reach, { own = new Set(), recordAt = () => null, r = 2, max = REROOF_GROW_MAX, rounds = REROOF_GROW_ROUNDS } = {}) {
+export function reroofCanopyGrow (read, clear = [], reach, { own = new Set(), recordAt = () => null, r = 2, max = REROOF_GROW_MAX, rounds = REROOF_GROW_ROUNDS, roofTrees = true } = {}) {
   const k = a => a.join(',')
   let list = clear.slice(), added = 0, i = 0
   let rc = reach(list)
@@ -259,7 +261,7 @@ export function reroofCanopyGrow (read, clear = [], reach, { own = new Set(), re
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
         const q = [u[0] + dx, u[1] + dy, u[2] + dz]
         const b = read(...q)
-        if (LOG_RX.test(nmOf(b)) && !have.has(k(q)) && !recordAt(...q)) {
+        if (roofTrees && LOG_RX.test(nmOf(b)) && !have.has(k(q)) && !recordAt(...q)) {   // Codex r1 BLOCKER 4: REROOF_ROOFTREE=off lists no log
           const tr = roofTree(read, q, { own, recordAt })
           if (tr) { for (const l of tr.logs) put(l, REROOF_REMAINS); for (const l of tr.leaves) put(l, 'leaves') }
         } else if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) <= 1 && naturalLeafBlock(b)) put(q, 'leaves')
@@ -278,25 +280,28 @@ export function reroofCanopyGrow (read, clear = [], reach, { own = new Set(), re
  * GROUND stand reaches them, but the new roof's own cells do once they stand. The visit works the same way (buildrun.mjs runVisit:
  * clears() first, then the segments -- a cell still holding a listed block waits, the cells beside it are placed, the visit ends
  * `blocked`, and the next visit's clears() digs from the cells now standing). Simulated: passes of (1) every listed dig a stand
- * reaches now (digStand over the town walk, low before high), then (2) every proven roof cell (`cells`: proveSite's, in its order)
- * that is free now, has no open cell below it in its column, and has a step now (stepFor over the walk with the placed cells as
+ * reaches now (digStand over the town walk, low before high), then (2) the proven roof cells (`cells`: proveSite's) of the FIRST
+ * unfinished segment, then the next once it finishes, each free now, with no open cell below it in its column, and a step now (stepFor over the walk with the placed cells as
  * floors and the cells still to place as obstacles; the digs' walk, like runVisit clears()', blocks nothing) -- until nothing moves. ok: every dig made (the cells left are the proof's own).
  *   wantOf(c) -> stepFor's `want` for a state-bearing or reach-only cell (null: any face)
  */
-export function reroofOrderedReach (read, home, clear = [], cells = [], { stood = [], walkR = 90, domain = null, wantOf = () => null, passes = 40 } = {}) {
+export function reroofOrderedReach (read, home, clear = [], cells = [], { stood = [], walkR = 90, domain = null, wantOf = () => null, blockOf = () => null, passes = 40 } = {}) {
   const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
   const SOLIDB = Object.freeze({ name: 'cobblestone', boundingBox: 'block' })
   const k = a => a.join(',')
   const over = new Map(), R = overlay(read, over)
   const undug = new Map(clear.map(c => [k(c.at), c]))
   const open = new Map(cells.map(c => [k(c.at), c]))
+  // the segments in the proof's order (runVisit works them in order: a segment that cannot finish ends the visit -- `blocked` --
+  // and no later segment is placed until it does: Codex r1 BLOCKER 2)
+  const segs = []
+  for (const c of cells) if (!segs.includes(c.seg)) segs.push(c.seg)
   const free = at => { const b = R(...at); return !b || AIR_RX.test(nmOf(b)) || replaceableCell(b) }
   const nodesNow = (block = new Set()) => { const m = new Map(); for (const q of walkFrom(R, home, block, walkR, { stood })) { const [x, y, z] = q.split(',').map(Number); const c = `${x},${z}`; if (!m.has(c)) m.set(c, []); m.get(c).push(y) } return m }
   let placed = 0, pass = 0
   for (; pass < passes && (undug.size || open.size); pass++) {
     let moved = false
-    // (1) the clears, low before high
-    // (the walk is re-planned only when a dig finds no stand after one landed since the last walk: proveSite's `fresh` rule)
+    // (1) the clears, low before high (the walk re-planned only when a dig finds no stand after one landed since the last walk)
     let nodes = nodesNow(), fresh = true
     for (const c of [...undug.values()].sort((a, b) => a.at[1] - b.at[1])) {
       if (!digStand(R, c.at, nodes)) {
@@ -306,17 +311,23 @@ export function reroofOrderedReach (read, home, clear = [], cells = [], { stood 
       }
       over.set(k(c.at), AIRB); undug.delete(k(c.at)); moved = true; fresh = false
     }
-    // (2) the roof cells in the proof's order, sweep after sweep (the walk re-planned between sweeps) while any can be placed
-    for (let progress = true; progress;) {
-      progress = false
-      nodes = nodesNow(new Set(open.keys()))
-      for (const c of cells) {
-        const key = k(c.at)
-        if (!open.has(key) || !free(c.at)) continue
-        if ([...open.values()].some(o => o !== c && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1])) continue
-        if (!stepFor(R, home, c.at, nodes, domain, wantOf(c))) continue
-        over.set(key, SOLIDB); open.delete(key); placed++; progress = true; moved = true
+    // (2) the segments in order: the first unfinished one is swept (the walk re-planned between sweeps) while any of its cells can be
+    // placed; the next segment only once it is finished. A placed cell is its OWN block (Codex r1 BLOCKER 3: a slab or a stair is no
+    // floor to walkFrom, as on the server; `blockOf(c)` -> { name, boundingBox }, else a full block)
+    for (const sg of segs) {
+      const mine = cells.filter(c => c.seg === sg)
+      for (let progress = true; progress;) {
+        progress = false
+        nodes = nodesNow(new Set(open.keys()))
+        for (const c of mine) {
+          const key = k(c.at)
+          if (!open.has(key) || !free(c.at)) continue
+          if (mine.some(o => o !== c && open.has(k(o.at)) && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1])) continue
+          if (!stepFor(R, home, c.at, nodes, domain, wantOf(c))) continue
+          over.set(key, blockOf(c) ?? SOLIDB); open.delete(key); placed++; progress = true; moved = true
+        }
       }
+      if (mine.some(c => open.has(k(c.at)))) break
     }
     if (!moved) break
   }

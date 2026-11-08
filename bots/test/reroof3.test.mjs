@@ -106,8 +106,28 @@ await t('reroofOrderedReach: cells that never stand (no support anywhere) -> the
   const o = RR.reroofOrderedReach(s.read, HOME, s.clear, floating, { stood: [], walkR: 40, domain: () => true })
   assert.strictEqual(o.ok, false); assert.deepStrictEqual(o.unreached, [LEAF_AT])
 })
+await t('Codex r1 BLOCKER 2: a dig only a LATER segment\'s cells reach is unreached while an earlier segment cannot finish (runVisit stops there)', () => {
+  const s = scene()
+  // an earlier segment with one cell that never stands (high in the air), the stair after it
+  const cells = [{ at: [30, G + 30, 30], role: 'roof', seg: 'roof-edge' }, ...s.cells.map(c => ({ ...c, seg: 'roof-inner' }))]
+  const o = RR.reroofOrderedReach(s.read, HOME, s.clear, cells, { stood: [], walkR: 40, domain: () => true })
+  assert.strictEqual(o.ok, false); assert.strictEqual(o.placed, 0)
+})
+await t('Codex r1 BLOCKER 3: a placed cell is its own block -- a stair of SLABS is no floor to the walk, the leaf stays unreached', () => {
+  const s = scene()
+  const o = RR.reroofOrderedReach(s.read, HOME, s.clear, s.cells, { stood: [], walkR: 40, domain: () => true, blockOf: () => ({ name: 'spruce_slab', boundingBox: 'block', props: { type: 'bottom' } }) })
+  assert.strictEqual(o.ok, false)
+})
+await t('Codex r1 BLOCKERS 1 + 4: a trunk with a record\'s log cell is never a roof tree; roofTrees off lists no log', () => {
+  const m = { '0,69,0': PLANK, '0,70,0': LOG, '0,71,0': LOG }
+  assert.strictEqual(RR.roofTree(world(m), [0, 70, 0], { own: new Set(['0,69,0']), recordAt: (x, y, z) => y === 71 }), null, 'another record\'s log in the trunk')
+  assert.strictEqual(RR.roofTree(world(m), [0, 70, 0], { own: new Set(['0,69,0', '0,71,0']) }), null, 'the building\'s own log cell in the trunk')
+  const fl = { '5,10,5': LEAF(), '7,10,5': LOG, '7,11,5': LOG }
+  const g = RR.reroofCanopyGrow(world(fl), [{ at: [5, 10, 5], kind: 'leaves', name: 'spruce_leaves' }], () => ({ ok: false, unreached: [[5, 10, 5]] }), { roofTrees: false })
+  assert.ok(!g.clear.some(c => c.kind === RR.REROOF_REMAINS), 'REROOF_ROOFTREE=off: no log listed')
+})
 await t('MUTANT: the placement pass never places -- the ordered reach answers like the ground test (killed for that reason)', async () => {
-  await withRrMutant('        over.set(key, SOLIDB); open.delete(key); placed++; progress = true; moved = true\n', '        continue\n', async M => {
+  await withRrMutant('          over.set(key, blockOf(c) ?? SOLIDB); open.delete(key); placed++; progress = true; moved = true\n', '          continue\n', async M => {
     const s = scene()
     assert.strictEqual(M.reroofOrderedReach(s.read, HOME, s.clear, s.cells, { stood: [], walkR: 40, domain: () => true }).ok, false)
   })
@@ -122,7 +142,8 @@ await t('wired (structural, comments stripped): buildReroof passes its own cells
   const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   assert.ok(sk.includes('reroofObstacles(read, addedAt, { decor: decorRec, recordAt, fx: REROOF_FIX, own })'))
   assert.ok(sk.includes('if (!rc.ok && REROOF_FIX.ordered && p.ok) {'))
-  assert.ok(sk.includes('const g = reroofCanopyGrow(read, clear, list => ordered(list, p.cells), { own, recordAt })'))
+  assert.ok(sk.includes('const g = reroofCanopyGrow(read, clear, list => ordered(list, p.cells), { own, recordAt, roofTrees: REROOF_FIX.roofTree })'))
+  assert.ok(sk.includes("blockOf: c => ({ name: nameOf(c.role), boundingBox: c.role === 'light' ? 'empty' : 'block'"))
   assert.ok(sk.includes('reroofRecord(cur, p.cells, bpNew, style, { clear })'))
   assert.ok(RR.reroofModeDetail(true, RR.reroofFixes({})).includes('rooftree=1 ordered=1'))
   assert.strictEqual(RR.reroofFixes({ REROOF_ORDERED: 'off' }).ordered, false)
