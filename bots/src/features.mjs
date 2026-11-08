@@ -50,6 +50,8 @@ import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
 import { furnaceSeenModeDetail } from './smeltjob.mjs'   // furnaceseen-01's mode row
 import { sortSwitches, sortModeDetail } from './sortstore.mjs'   // sortstore-01's mode row
 import { matsModeDetail, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'   // mats-01's licence row (its own statement)
+import { GLASS, glassModeDetail, setGlassReading } from './glass.mjs'   // glass-01's licence row and its reading
+import { glassReading } from './skills.mjs'   // glass-01: the windows + memory reading materialOrder's glass kinds use
 import { createHash as shopHash } from 'node:crypto'
 import { shopStoodTick, shopFootprintRefresh } from './skills.mjs'   // shop-01: the walks' seeds, the footprint
 import { SHOP, buildModeDetail, STOOD_EVERY_MS } from './shop.mjs'   // shop-01's licence row
@@ -275,6 +277,8 @@ export function installFeatures (bot) {
   // mats-01: the licence row, once per spawn -- `_mats_mode`, a kind the base cannot write (mats.mjs)
   try { matsHoldNote(bot, readMatsNote(bot)) } catch {}   // holds live in memory: an open note's are set again at spawn
   try { const sw = matsEnabled(process.env, config.memory.scope); logEvent({ kind: 'mats_mode', status: 'success', snapshot: snapshot(bot), detail: matsModeDetail({ on: sw.on, why: sw.why, reserve: matsReserve(), buffers: matsBuffers() }) }) } catch {}
+  // glass-01: the glass kinds' reading (materialOrder reads it lazily; its caller's arguments are fixed) and the licence row `_glass_mode`
+  try { setGlassReading(GLASS.on ? () => glassReading(bot) : null); logEvent({ kind: 'glass_mode', status: 'success', snapshot: snapshot(bot), detail: glassModeDetail(GLASS.on) }) } catch {}
   // shaft-02: the licence row, once per spawn -- `_shaft_mode`, a kind the base cannot write (on=0 under SHAFT=off: the rollback is
   // visible too)
   try { logEvent({ kind: 'shaft_mode', status: 'success', snapshot: snapshot(bot), detail: `on=${SHAFT.on ? 1 : 0} blueprint=${SHAFT_BLUEPRINT} landings=${LANDING_FEET.join('+')} cooldown_s=${SHAFT_COOLDOWN_MS / 1000}` }) } catch {}
