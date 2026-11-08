@@ -5914,7 +5914,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "2026-11-07: BUILT, not queued, not staged. Fleet: ONE bundle obsidian-01 = bucketfix-01 + obsidian-01 + mine tread probe @ c5a33c08 on fleet 45defefa (branch obsidian-01b); registration + draft entry in ~/mcai-analysis (supersedes the queued bucketfix-01: cancel it). Showcase: obsidian-01show @ 5a3f0558 on 272288e1 -- ready to stage with tripwire OB1/OB2 (main shopread.py.txt, not installed). Paper sandbox3 whole-bot e2e: 3 casts / 3 obsidian banked / 0 deaths (fleet), 2/2/0 (showcase). Reviews to no blockers (Codex r5, Claude r4). NEXT: the control session queues the fleet entry and folds the showcase piece; read `_deepmine op=obs` rows after release.",
+   "next_step": "2026-11-08: obsidian-01show RELEASED to the showcase 00:48:15Z as dc293197 (5a3f0558 re-stacked on flowers 191445b8 then gkclear 01c6debf), OWNER-AUTHORIZED (\"Both at once\", 11-07 ~13:20Z; gate owner_authorized); Codex + independent Claude NO BLOCKERS; Paper sandbox3 whole-bot e2e PASS on 25e921cc (3 casts, 3 banked, 0 deaths, 0 spill); ci2 469/470; tripwire OB1/OB2 (main a79d9ea9; mutant anchor fixed c34f9767, 229/229) installed. NEXT: read _deepmine op=obs (step=spill why=tunnel_* = defect; step=pickup why=got + obsidian banked = progress), 0 zone touches. 2026-11-07: BUILT, not queued, not staged. Fleet: ONE bundle obsidian-01 = bucketfix-01 + obsidian-01 + mine tread probe @ c5a33c08 on fleet 45defefa (branch obsidian-01b); registration + draft entry in ~/mcai-analysis (supersedes the queued bucketfix-01: cancel it). Showcase: obsidian-01show @ 5a3f0558 on 272288e1 -- ready to stage with tripwire OB1/OB2 (main shopread.py.txt, not installed). Paper sandbox3 whole-bot e2e: 3 casts / 3 obsidian banked / 0 deaths (fleet), 2/2/0 (showcase). Reviews to no blockers (Codex r5, Claude r4). NEXT: the control session queues the fleet entry and folds the showcase piece; read `_deepmine op=obs` rows after release.",
    "max_quiet_hours": 48,
    "depends_on": [
     {
@@ -5949,7 +5949,7 @@
     "gkwork-1107.md"
    ],
    "state": "open",
-   "next_step": "BUILT 2026-11-07: gkclear-01show @ 01c6debf on the live release 191445b8: ready to stage (no reader change). Read: stage_close on the inwall stage within ~10 min of release, the next stage sited with the rough survey (hollows/stands/topsoil/regrade > 0), keeper tidy visits per keeper-hour.",
+   "next_step": "2026-11-07: gkclear-01show RELEASED 23:55:04Z as 01c6debf (Codex NO BLOCKERS; ci2 467/468). First 36 min: 0 tidy visits, 1 keeper take released no_work_visit, no stage_close -- the strike files had no strike < 60 min old (last stage_held 21:07Z), so the closing signal never fired. BUILT 2026-11-07: gkclear-01show @ 01c6debf on the live release 191445b8: ready to stage (no reader change). Read: stage_close on the inwall stage within ~10 min of release, the next stage sited with the rough survey (hollows/stands/topsoil/regrade > 0), keeper tidy visits per keeper-hour.",
    "evidence": {
     "grep": [
      "gkclear-01"
