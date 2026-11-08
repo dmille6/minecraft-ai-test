@@ -207,8 +207,8 @@ await t('a BRIDGE trip says nothing about the ring (ringOf skips it); the row na
 
 await t('MUTANTS: the plan without rails-first, the site without the reach check, the leg without the near-side rule are caught', async () => {
   // 1. the rails placed AFTER the step forward: the plan test's stand rule fails
-  await withMutant(BR_PATH, "    for (const s of [-1, 1]) out.push({ cell: [cx + lx * s, wy + 1, cz + lz * s], kind: 'rail', stand,",
-    "    for (const s of [-1, 1]) out.push({ cell: [cx + lx * s, wy + 1, cz + lz * s], kind: 'rail', stand: [cx, wy + 1, cz],", async M => {
+  await withMutant(BR_PATH, "    for (const s of [-1, 1]) out.push(w({ cell: [cx + lx * s, wy + 1, cz + lz * s], kind: 'rail', stand,",
+    "    for (const s of [-1, 1]) out.push(w({ cell: [cx + lx * s, wy + 1, cz + lz * s], kind: 'rail', stand: [cx, wy + 1, cz],", async M => {
       const plan = M.bridgePlan(M.bridgeSpan(world(), NEAR, [1, 0]))
       assert.ok(plan.some(p => p.kind === 'rail' && p.stand[0] === p.cell[0]), 'the mutant stands on the row it rails')
     })
@@ -235,7 +235,8 @@ await t('wiring (structural): the switch, the siting at a dry water turn, the br
   one(/bridge: bridgeOn\(process\.env\)/g, 'the switch')
   one(/if \(EXPEDITION\.bridge && !bsite && trip\.reason === 'water' && \/water\|swim_\/\.test\(String\(trip\.whys \?\? ''\)\) && !bot\.entity\?\.isInWater\) exSiteBridge\(bot, trip, read, keepOff, home\)/g, 'siting at a refused crossing')
   one(/const cand = bridgeToBuild\(bSites, Date\.now\(\)\)/g, 'the site to build')
-  one(/takeSlot\(dir, exBridgeKey\(\), me, 1, \{ ttl: budget \+ 60_000 \}\)/g, 'one builder: the lease')
+  // boardwalk-01: the wooden pick and the cobble pick each take the same one-builder lease
+  assert.equal((src.match(/takeSlot\(dir, exBridgeKey\(\), me, 1, \{ ttl: budget \+ 60_000 \}\)/g) ?? []).length, 2, 'one builder: the lease (wood or cobble)')
   one(/releaseLease\(dir, exBridgeKey\(\), `slot\$\{blease\.slot\}`, me, blease\.gen\)/g, 'released in finally')
   one(/const bw = await exBridgeWork\(ctx, signal, trip, bsite, deadline - 12_000\)/g, 'the build')
   one(/bridges: EXPEDITION\.bridge \? exBridgesNow\(bot, bSites, read, trip\) : \[\]/g, 'the planner walks finished bridges')
@@ -246,6 +247,72 @@ await t('wiring (structural): the switch, the siting at a dry water turn, the br
   one(/for \(const k of bridgeCellKeys\(exBridgeSites\(\)\)\) guard\.add\(k\)/g, 'the tidy dig guard')
   const v = src.indexOf('async function expeditionVisit'), f = src.indexOf('} finally {', src.indexOf('const bw = await exBridgeWork'))
   assert.ok(v > 0 && f > v && src.indexOf('releaseLease(dir, exBridgeKey()', f) > f, 'the lease is released in the visit\'s finally')
+})
+
+// ---- boardwalk-01: WOODEN BRIDGES (owner 11-08: "wooden bridges at water edges, instead of dirt bridges") ---------------------------
+/** The simulator placing each step's OWN item (planks, a fence, a torch). */
+const simItem = (r, o = {}) => {
+  const io = sim(r, o), place0 = io.place
+  io.place = async st => { const ok = await place0(st); if (ok) r.set(st.cell, st.kind === 'torch' ? { name: 'torch', boundingBox: 'empty' } : { name: st.item, boundingBox: 'block' }); return ok }
+  return io
+}
+await t('boardwalk-01: a WOODEN plan is the cobble plan cell for cell, click for click -- planks on the deck and sides, fences on the rails', async () => {
+  const s = B.bridgeSpan(world(), NEAR, [1, 0])
+  const c = B.bridgePlan(s), w = B.bridgePlan(s, { wood: B.bridgeWood('spruce') })
+  assert.deepEqual(w.map(p => [p.cell, p.kind, p.stand, p.ref, p.face]), c.map(p => [p.cell, p.kind, p.stand, p.ref, p.face]))
+  assert.ok(w.filter(p => p.kind === 'deck' || p.kind === 'side').every(p => p.item === 'spruce_planks'))
+  assert.ok(w.filter(p => p.kind === 'rail').every(p => p.item === 'spruce_fence'))
+  assert.ok(c.every(p => p.kind === 'torch' || p.item === 'cobblestone'), 'the cobble plan is unchanged')
+})
+await t('boardwalk-01: a wooden deck reads done only as PLANKS (the bots\' dirt never stands for it); sides and rails take any solid (a bank\'s rock is kept)', async () => {
+  const s = B.bridgeSpan(world(), NEAR, [1, 0])
+  const w = B.bridgePlan(s, { wood: B.bridgeWood('oak') })
+  const deck = w.find(p => p.kind === 'deck'), side = w.find(p => p.kind === 'side')
+  const r = world()
+  r.set(deck.cell, { name: 'dirt', boundingBox: 'block' })
+  assert.equal(B.stepDone(r, deck), false, 'dirt in a wooden deck cell is not the deck')
+  r.set(deck.cell, { name: 'birch_planks', boundingBox: 'block' })
+  assert.equal(B.stepDone(r, deck), true, 'any planks are')
+  r.set(side.cell, { name: 'stone', boundingBox: 'block' })
+  assert.equal(B.stepDone(r, side), true)
+  const scenario = M => { const r2 = world(); const d2 = M.bridgePlan(s, { wood: M.bridgeWood('oak') }).find(p => p.kind === 'deck'); r2.set(d2.cell, { name: 'dirt', boundingBox: 'block' }); assert.equal(M.stepDone(r2, d2), false) }
+  scenario(B)
+  let k = false
+  await withMutant(BR_PATH, '  return blockDone(b) && familyOk(b, s.want)\n', '  return blockDone(b)\n', async M => { try { scenario(M) } catch { k = true } })
+  assert.ok(k, 'the mutant survived')
+})
+await t('boardwalk-01: the BUILDER finishes a wooden bridge over the simulated lake; it reads intact by its own palette and crosses as a deck', async () => {
+  const r = world()
+  const span = B.bridgeSpan(r, NEAR, [1, 0])
+  const plan = B.bridgePlan(span, { wood: B.bridgeWood('spruce') })
+  const res = await B.buildBridge(simItem(r), plan)
+  assert.equal(res.stop, 'done'); assert.equal(B.bridgeIntact(r, plan), true)
+  assert.ok(plan.filter(p => p.kind === 'rail').every(p => r(...p.cell).name === 'spruce_fence'))
+  assert.equal(B.bridgeIntact(r, B.bridgePlan(span)), true, 'a wooden bridge is a bridge to the cobble reading too (legTarget walks it)')
+})
+await t('boardwalk-01: THE MATERIAL -- wood for a new site when the wood pays the bill; cobble when it cannot, when the switch is off, or when a cobble deck already stands; a named material is kept', async () => {
+  const r = world()
+  const span = B.bridgeSpan(r, NEAR, [1, 0])
+  const bill = B.bridgeWoodBill(span)
+  assert.deepEqual([bill.planks, bill.fences], [36, 24]); assert.equal(bill.logs, Math.ceil((36 + 4 * 8 + 2 * 4) / 4))
+  const site = { span }
+  assert.equal(B.bridgeMaterial(site, r, { on: true, woodAvail: bill.logs }), 'wood')
+  assert.equal(B.bridgeMaterial(site, r, { on: true, woodAvail: bill.logs - 1 }), 'cobble')
+  assert.equal(B.bridgeMaterial(site, r, { on: false, woodAvail: 999 }), 'cobble')
+  const r2 = world(); r2.set(B.bridgePlan(span)[0].cell, { name: 'cobblestone', boundingBox: 'block' })
+  assert.equal(B.bridgeMaterial(site, r2, { on: true, woodAvail: 999 }), 'cobble', 'a half-built cobble bridge stays cobble')
+  assert.equal(B.bridgeMaterial({ span, mat: 'wood' }, r2, { on: false, woodAvail: 0 }), 'wood', 'a wooden site stays wood')
+  const sites = B.bridgeSites([{ op: 'sight', id: 'a', span, trip: 't1' }, { op: 'state', id: 'a', mat: 'wood', species: 'spruce' }, { op: 'state', id: 'a', mat: 'wood', species: 'oak' }])
+  assert.equal(sites[0].mat, 'wood'); assert.equal(sites[0].species, 'spruce', 'the first named species is kept')
+  assert.ok(B.sitePlan(sites[0]).some(p => p.item === 'spruce_fence'))
+})
+await t('boardwalk-01 wiring (structural): the expedition builds and judges a site by its own plan; the wooden pick names the material once its lease is taken', async () => {
+  const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
+  one(/const plan = sitePlan\(site\)/g, 'the build by the site\'s plan')
+  one(/const plan = s \? sitePlan\(s\) : \[\]/g, 'the intact check by the site\'s plan')
+  one(/const mat = cand && Number\.isInteger\(cand\.bearing\) \? bridgeMaterial\(cand, exReader\(bot\), \{ on: BRIDGE_WOOD_ON, woodAvail: woodPressureNow\(bot\)\.avail \}\) : 'cobble'/g, 'the material pick')
+  one(/if \(cand\.mat !== 'wood'\) \{ exAppend\(exBridgesFile\(\), \{ op: 'state', id: cand\.id, mat: 'wood', species: sp/g, 'named once')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
