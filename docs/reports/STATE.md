@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-08T13:20:01Z._
+_Generated 2026-11-08T14:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,12 +12,12 @@ _Generated 2026-11-08T13:20:01Z._
 | **Canary in slot** | **scaftown-01** deployed 11-08 13:01Z; reads +90 11-08 14:31Z, +180 11-08 16:01Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | gathermem-01 -> roughground-01 -> irongap-01 -> obsidian-01 -> roughground-02 -> roughground-04 -> bamboowalk-01 -> kittrim-01 -> pathsfix-01 -> stoneworks-01 -> +1 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); villageunlock-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); jobsite-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: 01dc970779e07efe7e7bf07ef43c8901fb6d6dab on hive-b,hive-a / S6 open loop: canary 01dc970 is deployed on hive-b,hive-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 scaftown-01 |
-| **Showcase release** | `ef40871b` (30,548 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release ef40871b's protected tree: restack by hand; row 11-08 12:25Z) |
+| **Showcase release** | `ef40871b` (25,023 rows), `9084e69a` (5,448 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release ef40871b's protected tree: restack by hand; row 11-08 13:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | allowflight-1107: owner-direct-check 11-07 15:50Z |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-08T12:05Z, 7 d, 169 projects, 13,793,865 lines / 80 bots): 5 underused, 87 effective, 51 unmeasured, 26 -; showcase: project audit showcase (11-08T12:05Z, 7 d, 33 projects, 1,795,088 lines / 15 bots): 2 broken, 1 underused, 13 effective, 12 unmeasured, 5 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-08T12:35:01Z STALLED: 98. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 77 active alarm(s): stuck goals 18 (board-a/paths@355_73_147, board-a/tidy@355_73_147, board-c/tidy@355_73_147, hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-08T13:35:02Z STALLED: 99. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 72 active alarm(s): stuck goals 13 (board-c/tidy@355_73_147, hive-a/monument@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-c/tidy@-68_68_-68, hive-d/tidy@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
