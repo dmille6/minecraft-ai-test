@@ -90,6 +90,8 @@ await t('reroofAccess: a cobblestone stair out from an eave, a pillar per step d
   assert.deepStrictEqual(RR.reroofAccess(read, { eaves: [[10, 4, 5]], box: [0, 0, 10, 10], walked, max: 9 }), [], 'over the stone bound (10 > 9): none')
   assert.deepStrictEqual(RR.reroofAccess(read, { eaves: [[10, 4, 5]], box: [0, 0, 10, 10], walked, recordAt: (x, y, z) => x === 12 && y === 2 }), [], 'a record cell in the way: none')
   assert.deepStrictEqual(RR.reroofAccess(read, { eaves: [[10, 4, 10]], box: [0, 0, 10, 10], walked }), [], 'a corner eave names no side')
+  const pathRead = (x, y, z) => (y < 0 ? solid : y === 0 ? (x === 12 ? { name: 'dirt_path', boundingBox: 'block' } : solid) : air)
+  assert.deepStrictEqual(RR.reroofAccess(pathRead, { eaves: [[10, 4, 5]], box: [0, 0, 10, 10], walked }), [], 'never a pillar on a dirt path (Paper: the server turns it to dirt)')
 })
 await t('reroofRecord marks the stair `temp`; reroofDismantleDue only once every other new cell is done; reroofDismantle moves it to kind=temp clears', () => {
   const rec = { cells: [{ at: [0, 1, 0], role: 'wall', seg: 'walls' }], segments: [{ seg: 'walls', deps: [] }], palette: {} }
