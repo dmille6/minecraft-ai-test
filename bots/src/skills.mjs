@@ -17657,6 +17657,10 @@ function plotRecordsNow () {
   } catch { return null }
 }
 /** Every project's record head that exists -> [{ plot, key, head }]. Never throws. */
+/** scaftown-01 (index.mjs's 60 s area refresh): the town's project records -> [rec] (the wall rings come from these). Never throws. */
+export function scafTownRecords () {
+  try { return projectHeads().map(x => x?.head?.rec).filter(Boolean) } catch { return [] }
+}
 function projectHeads () {
   const out = []
   try {

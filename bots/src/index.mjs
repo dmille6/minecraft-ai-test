@@ -63,6 +63,9 @@ import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
 import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
 import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   // escapeguard-01
 import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
+import { performance } from 'node:perf_hooks'   // scaftown-01: the search clock
+import { scafTownRecords } from './skills.mjs'   // scaftown-01: the town's records, for the wall rings
+import { SCAF_TOWN, scafTownOn, scafAreaOf, wallRingsOf, makeScafTownPrice, installScafTownPrice, installScafTownSearch, chosenScafTown, scafTownHitsDetail, scafTownSnap, scafTownModeDetail } from './scaftown.mjs'   // scaftown-01: no dirt towers where the town has a way
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
 import { tombexitModeDetail } from './tombexit.mjs'   // tombexit-01
@@ -677,6 +680,34 @@ function connect() {
     }, LIDPLACE_HITS_MS)
     lidHitsTimer.unref?.()
     bot.once('end', () => clearInterval(lidHitsTimer))
+    // SCAFTOWN-01 (scaftown.mjs; owner 11-07 "dirt as a cheap way to get around"): a walk's placement in the town's area (the
+    // walls' boxes + 80 of home, at y >= home.y - 4) costs 20 more, AFTER legality (never a veto: a pit inside the town still
+    // towers out). The area is cached here and refreshed every 60 s (the wall rings from the records: never a read in the A*
+    // step). Installed on `moves` after the lid price, BEFORE the clones below copy it; the gather and escape clones set
+    // `scafTown = false`. The search wrapper bounds it: capped searches unpriced, 1 s preference budget, a failed priced goal
+    // latched to the base's costs for 120 s. SCAFTOWN=off -> nothing installed.
+    const SCAF_ON = scafTownOn(process.env)
+    let scafArea = null
+    const refreshScafArea = () => {
+      let rings = []
+      try { rings = wallRingsOf(scafTownRecords()) } catch { rings = [] }
+      try { scafArea = scafAreaOf({ home: configuredHome(config.world), rings }) } catch { scafArea = null }
+    }
+    const scafPrice = makeScafTownPrice({ area: () => scafArea, on: SCAF_ON, now: () => performance.now() })
+    bot.scafTownPrice = scafPrice
+    if (SCAF_ON) {
+      refreshScafArea()
+      installScafTownPrice(moves, scafPrice)
+      installScafTownSearch(bot.pathfinder, scafPrice)
+      const scafAreaTimer = setInterval(refreshScafArea, 60_000); scafAreaTimer.unref?.()
+      let scafPrev = scafTownSnap(scafPrice)
+      const scafHitsTimer = setInterval(() => {
+        try { logEvent({ kind: 'scaftown_hits', status: 'success', detail: scafTownHitsDetail(scafPrice, scafPrev) }); scafPrev = scafTownSnap(scafPrice) } catch { /* a row never breaks the bot */ }
+      }, SCAF_TOWN.hitsMs)
+      scafHitsTimer.unref?.()
+      bot.once('end', () => { clearInterval(scafAreaTimer); clearInterval(scafHitsTimer) })
+    }
+    try { logEvent({ kind: 'scaftown_mode', status: 'success', detail: scafTownModeDetail(process.env, scafArea) }) } catch { /* telemetry */ }
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
@@ -733,6 +764,7 @@ function connect() {
     // one thing the observer cannot log, because a bot that dies mid-walk
     // never reaches the log line.
     gatherMoves.dontCreateFlow = true
+    gatherMoves.scafTown = false       // scaftown-01: gather's approach admission is a capped search (digapproach): exempt in piece 1
     // KEEPOUT-01: the dig-capable approach (and the ore tunnel built from it) never breaks a cell in a fire column while a
     // keep-out scope holds the body -- its OWN array (a copy), so the walk, ascent, descent and water profiles never see it
     gatherMoves.exclusionAreasBreak = [...moves.exclusionAreasBreak, (block) => keepoutBreakPenalty(block)]
@@ -806,6 +838,7 @@ function connect() {
     ascendMoves.noBridge = false      // nobridge-01: an escape keeps every placement
     ascendMoves.cornerRule = false    // cornerwalk-01: an escape keeps every diagonal
     ascendMoves.allow1by1towers = true
+    ascendMoves.scafTown = false      // scaftown-01: an escape keeps every placement at the base's price
     ascendMoves.dontCreateFlow = true
     ascendMoves.allowParkour = false
     ascendMoves.maxDropDown = 6
@@ -854,6 +887,7 @@ function connect() {
     descendMoves.noBridge = false     // nobridge-01: an escape keeps every placement
     descendMoves.cornerRule = false   // cornerwalk-01: an escape keeps every diagonal
     descendMoves.allow1by1towers = false
+    descendMoves.scafTown = false     // scaftown-01: an escape keeps the base's prices
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
     bot.descentMovements = descendMoves
@@ -866,6 +900,7 @@ function connect() {
     deckMoves.cornerRule = false      // cornerwalk-01: an escape keeps every diagonal
     deckMoves.canDig = false
     deckMoves.allow1by1towers = false
+    deckMoves.scafTown = false        // scaftown-01: an escape keeps the base's prices
     deckMoves.allowParkour = false
     deckMoves.allowSprinting = false
     deckMoves.maxDropDown = SKY_SAFE_DROP
@@ -922,6 +957,7 @@ function connect() {
     // 1x1 tower built from a boat is not a thing. Both off.
     waterMoves.canDig = false
     waterMoves.allow1by1towers = false
+    waterMoves.scafTown = false       // scaftown-01: an escape keeps the base's prices
     waterMoves.allowParkour = false
     waterMoves.dontCreateFlow = true
     bot.waterMovements = waterMoves
@@ -1105,6 +1141,8 @@ function connect() {
           if (Date.now() - lavaCorridorLoggedAt > 5_000) { lavaCorridorLoggedAt = Date.now(); logEvent({ kind: 'lava_corridor', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')} after ${v.samples} samples; the leg is refused`, snapshot: snapshot(bot) }) }
           return
         }
+        // SCAFTOWN-01's INSTRUMENT: the priced moves of a route the planner FINISHED (a partial re-yields every tick: not counted)
+        try { if (r.status === 'success') bot.scafTownPrice.chosen += chosenScafTown(r.path) } catch { /* a counter never breaks the route */ }
         // LIDPLACE-01's INSTRUMENT: the CHOSEN route places on a lid or in a plan cell (the price is a preference, not a veto,
         // so this is how often it was outbid) -- one row per distinct set of cells per 30 s, the cells named
         // an instrument never breaks the route it watches (Codex rebase r1 P2: snapshot() reads the inventory)

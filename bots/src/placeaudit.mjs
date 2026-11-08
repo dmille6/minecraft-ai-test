@@ -100,7 +100,7 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, timers = 
     const frames = String(new Error().stack ?? '').split('\n').slice(1)
     const { reason, by } = placeReason({ frames, building, scope: currentDigScope() })
     const zone = placeZone(cell, home)
-    return { cell, feet, block: bot.heldItem?.name ?? '?', reason, by, shape: placeShape(cell, feet), zone, t0: now() }
+    return { cell, feet, block: bot.heldItem?.name ?? '?', reason, by, shape: placeShape(cell, feet), zone, profile: String(bot.movementProfile ?? '?'), t0: now() }
   }
   const settle = (rec, err) => {
     if (closed || !rec) return
@@ -111,8 +111,8 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, timers = 
       const k = `${rec.zone ?? 'out'}.${rec.reason}.${rec.shape}.${outcome}`
       sum.by[k] = (sum.by[k] ?? 0) + 1
       if (rec.zone) {
-        const args = { x: rec.cell[0], y: rec.cell[1], z: rec.cell[2], block: rec.block, reason: rec.reason, by: rec.by, shape: rec.shape, zone: rec.zone, outcome, feet: rec.feet, ms: now() - rec.t0 }
-        try { emitPlace({ detail: `pos=${rec.cell.join(',')} block=${rec.block} reason=${rec.reason} by=${rec.by} shape=${rec.shape} zone=${rec.zone} outcome=${outcome}`, args }) } catch { sum.ierr++ }
+        const args = { x: rec.cell[0], y: rec.cell[1], z: rec.cell[2], block: rec.block, reason: rec.reason, by: rec.by, shape: rec.shape, zone: rec.zone, outcome, feet: rec.feet, profile: rec.profile, ms: now() - rec.t0 }
+        try { emitPlace({ detail: `pos=${rec.cell.join(',')} block=${rec.block} reason=${rec.reason} by=${rec.by} shape=${rec.shape} zone=${rec.zone} outcome=${outcome} profile=${rec.profile}`, args }) } catch { sum.ierr++ }
       }
     } catch { sum.ierr++ }
   }
