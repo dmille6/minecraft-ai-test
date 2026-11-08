@@ -234,7 +234,7 @@ await t('wiring (structural): the switch, the siting at a dry water turn, the br
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
   one(/bridge: bridgeOn\(process\.env\)/g, 'the switch')
   one(/if \(EXPEDITION\.bridge && !bsite && trip\.reason === 'water' && \/water\|swim_\/\.test\(String\(trip\.whys \?\? ''\)\) && !bot\.entity\?\.isInWater\) exSiteBridge\(bot, trip, read, keepOff, home\)/g, 'siting at a refused crossing')
-  one(/const cand = bridgeToBuild\(bSites, Date\.now\(\)\)/g, 'the site to build')
+  one(/const cand = bridgeToBuild\(bridgeBuildable\(bSites, BRIDGE_WOOD_ON\), Date\.now\(\)\)/g, 'the site to build (boardwalk fold: the buildable sites)')
   // boardwalk-01: the wooden pick and the cobble pick each take the same one-builder lease
   assert.equal((src.match(/takeSlot\(dir, exBridgeKey\(\), me, 1, \{ ttl: budget \+ 60_000 \}\)/g) ?? []).length, 2, 'one builder: the lease (wood or cobble)')
   one(/releaseLease\(dir, exBridgeKey\(\), `slot\$\{blease\.slot\}`, me, blease\.gen\)/g, 'released in finally')
@@ -316,6 +316,18 @@ await t('boardwalk-01: THE MATERIAL -- wood for a new site when the wood pays th
   const sites = B.bridgeSites([{ op: 'sight', id: 'a', span, trip: 't1' }, { op: 'state', id: 'a', mat: 'wood', species: 'spruce' }, { op: 'state', id: 'a', mat: 'wood', species: 'oak' }])
   assert.equal(sites[0].mat, 'wood'); assert.equal(sites[0].species, 'spruce', 'the first named species is kept')
   assert.ok(B.sitePlan(sites[0]).some(p => p.item === 'spruce_fence'))
+})
+await t('fold (Codex BLOCKER): BRIDGE_WOOD=off builds no wooden site -- a site named wood is left as it stands, every other site is built of cobble', async () => {
+  const r = world()
+  const span = B.bridgeSpan(r, NEAR, [1, 0])
+  const sites = [{ id: 'w', span, mat: 'wood' }, { id: 'c', span, mat: 'cobble' }, { id: 'n', span }]
+  assert.deepEqual(B.bridgeBuildable(sites, false).map(s => s.id), ['c', 'n'])
+  assert.deepEqual(B.bridgeBuildable(sites, true).map(s => s.id), ['w', 'c', 'n'], 'positive control: on, the wooden site is buildable')
+  assert.deepEqual(B.bridgeBuildable(null, false), [])
+  for (const s of B.bridgeBuildable(sites, false)) assert.equal(B.bridgeMaterial(s, r, { on: false, woodAvail: 999 }), 'cobble', 'what is left off is built of cobble')
+  const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.equal((src.match(/const cand = bridgeToBuild\(bridgeBuildable\(bSites, BRIDGE_WOOD_ON\), Date\.now\(\)\)/g) ?? []).length, 1, 'the trip picks from the buildable sites')
+  assert.equal((src.match(/bridgeToBuild\(/g) ?? []).length, 1, 'no other pick')
 })
 await t('boardwalk-01 wiring (structural): the expedition builds and judges a site by its own plan; the wooden pick names the material once its lease is taken', async () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
