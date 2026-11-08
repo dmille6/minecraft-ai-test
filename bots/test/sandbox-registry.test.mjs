@@ -172,7 +172,7 @@ t('WIRED: no driver reads the lock by hand any more; every lock-checking driver 
   // + shafttrap/egress-e2e (shafttrap-01, 11-03, tag shafttrap)
   // + stepwell/stepwell-e2e (stepwell-01, 11-05, tag stepwell)
   // + roughground/rough-proof (roughground-1b/1c/2, 11-07, tag roughground)
-  assert.equal(wired.length, 33, `expected the 33 lock-checking drivers (forest-01: forest-proof + forest-proof2; forest-03: forest-proof3; roughground: rough-proof), saw ${wired.map(f => path.basename(f))}`)
+  assert.equal(wired.length, 34, `expected the 34 lock-checking drivers (glass-01 glass-proof, forest-01: forest-proof + forest-proof2; forest-03: forest-proof3; roughground: rough-proof), saw ${wired.map(f => path.basename(f))}`)
   // + townplan/townplan-e2e (townplan-01's and found-01's, moved onto the shared check at their JIT 10-23c re-stack)
   // + lavastep/lavastep-e2e (lavastep-01's, written on the shared check from the start)
   for (const f of wired) assert.match(code(f), /require\('\.\.\/lib\/sbxlock\.cjs'\)|from '\.\.\/lib\/sbxlock\.cjs'/, `${path.basename(f)} never imports sbx`)
