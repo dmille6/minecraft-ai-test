@@ -148,6 +148,7 @@
   ],
   "window": [
    "glass_pane",
+   "%wood_trapdoor",
    "$wall"
   ],
   "gable": [
@@ -156,6 +157,7 @@
   ],
   "gablewin": [
    "glass_pane",
+   "%wood_trapdoor",
    "$gable"
   ],
   "roof": [
