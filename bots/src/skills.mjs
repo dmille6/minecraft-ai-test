@@ -23709,7 +23709,8 @@ function woodSpeciesNow (bot) {
 async function woodKit (ctx, rec, signal) {
   const { bot } = ctx
   const rd = planReader(bot)
-  const owed = woodOwed(rec, q => buildCellDone(rd(...q.at), rec.palette ?? {}, q.role, q.ws))
+  // Codex r1 BLOCKER 2: a waived cell is done, as runVisit reads it (sinkWaived) -- never a kit owed for a cell no visit will place
+  const owed = woodOwed(rec, q => sinkWaived(rec, q) || buildCellDone(rd(...q.at), rec.palette ?? {}, q.role, q.ws))
   const out = { ok: true, fences: 0, gates: 0, why: 'held' }
   if (!owed.fences && !owed.gates) return out
   const sp = woodSpeciesOf(rec) ?? 'oak'
@@ -23737,8 +23738,10 @@ async function woodKit (ctx, rec, signal) {
     check(signal)
     if (need.gates > 0) { const c0 = countItem(bot, `${spNow}_fence_gate`); await craft(ctx, { item: `${spNow}_fence_gate`, count: need.gates }, signal); out.gates = countItem(bot, `${spNow}_fence_gate`) - c0 }
   } catch (err) { if (err?.aborted || signal?.aborted) throw err; out.why = String(err?.message ?? err).slice(0, 60) }
+  // Codex r1 BLOCKER 1: the kit is whole or the visit does not run -- runVisit picks its next cell by height and distance, not by what
+  // the bag holds, so a bag with gates but no fence (or the other way) would end every visit no_material with nothing placed
   const after = woodKitNeed(owed, heldMap(bot))
-  const any = after.fences < owed.fences || after.gates < owed.gates
+  const any = after.fences === 0 && after.gates === 0
   out.ok = any
   if (!any) { out.why = out.why === 'held' ? 'no_wood' : out.why; bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [WOOD_STALL]: Date.now() + SINK.noSiteMs }; townNoSiteWrite(WOOD_STALL) }
   try { logEvent({ kind: 'wood', status: out.fences || out.gates ? 'success' : any ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: woodRowDetail({ op: 'kit', owed_f: owed.fences, owed_g: owed.gates, logs: need.logs, fences: out.fences, gates: out.gates, sp, why: out.why }) }) } catch { /* telemetry */ }
@@ -24664,6 +24667,8 @@ async function buildSink (ctx, args, signal, proj) {
     // sinkfix-02: a FRESH read (planReader memoises: the bill's read was taken before the visit, so a finished road said 17/23)
     const done = (() => { try { const rd = planReader(bot); const p = sinkProgress(rec, q => sinkWaived(rec, q) || buildCellDone(rd(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    // fences-01 (Codex r1 BLOCKER 1): a wood visit that ran out of fences or gates with nothing placed holds the structure for the stamp
+    if (kind === WOOD_KIND && r.stop === 'no_material' && !(r.placed > 0)) { bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [WOOD_STALL]: Date.now() + SINK.noSiteMs }; townNoSiteWrite(WOOD_STALL) }
     // decorator-01 (Codex r1 BLOCKER 2): a decor visit that changed nothing stamps the decor stalled (the decorator lets it go)
     if (kind === 'decor' && decorStalled({ ...f, placed: r.placed, cleared: r.cleared })) decorStall(bot, `visit:${r.stop}`)
     // sinkwaive-01: a visit that waived ends cell_waived (tidy.mjs gkStopAfterWaive), never this bot's own 6-h stuck_on_cell back-off
