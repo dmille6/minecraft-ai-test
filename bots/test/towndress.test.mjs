@@ -190,7 +190,7 @@ await t('MUTANT KILLED: appendInstance without the dress zones fences a whole bo
   }
   scen(S)
   let k = false
-  await withMutant(SINKS_PATH, "(kind === 'dress' || kind === 'decor') && Array.isArray(meta.zones) ? meta.zones :", 'false ? meta.zones :', async M => { try { scen(M) } catch { k = true } })
+  await withMutant(SINKS_PATH, 'const zs = ornamentKind(kind) && Array.isArray(meta.zones) ? meta.zones :', 'const zs = false ? meta.zones :', async M => { try { scen(M) } catch { k = true } })
   assert.ok(k, 'the mutant survived')
 })
 await t('siteDress on the fake town: the storehouse\'s signpost and lamps / wall tops, every one proven, spaced, off every record cell; no torches: no batch', () => {
@@ -290,11 +290,11 @@ const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'ut
 const W = [
   /if \(dressSignRole\(c\.role\)\) continue/,
   /if \(tidy && r\.plot === SINK_PLOTS\.dress && dressSignWork\(bot, r\)\.length\) return true/,
-  /pressure: kind === 'dress' \? dressPressureNow\(bot\) : (kind === 'decor' \? decorPressureNow\(bot\) : )?pr, openCount/,
-  /const pr = kind === 'dress' \? dressPressureNow\(bot\) : (kind === 'decor' \? decorPressureNow\(bot\) : )?sinkPressureNow\(bot\)/,
+  /pressure: kind === 'dress' \? dressPressureNow\(bot\) : (kind === 'decor' \? decorPressureNow\(bot\) : )?(kind === WOOD_KIND \? woodPressureNow\(bot\) : )?pr, openCount/,
+  /const pr = kind === 'dress' \? dressPressureNow\(bot\) : (kind === 'decor' \? decorPressureNow\(bot\) : )?(kind === WOOD_KIND \? woodPressureNow\(bot\) : )?sinkPressureNow\(bot\)/,
   /if \(kind === 'dress' && rec0\) \{/,
   /const sg = await dressSignsVisit\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS\)/,
-  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| ((decorFlowerRole|decorBagRole)\(role\) \|\| )?buildCellDone\(b, pal, role\)/,
+  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| ((decorFlowerRole|decorBagRole)\(role\) \|\| )?(woodBagRole\(role\) \|\| )?buildCellDone\(b, pal, role\)/,
   /kind === 'dress' \? \{ alsoDone: q => dressSignRole\(q\.role\) \|\| sinkWaived\(rec, q\) \} : \{\}/,
   /const r = await sortLabelOne\(ctx, sp, signal, deadline, \{ kind: 'town_sign' \}\)/,
   /if \(!item\) \{ const tr = \(bot\.sortSignTries \?\?= new Map\(\)\); for \(const sp of work\) tr\.set\(sp\.at\.join\(','\), \(tr\.get\(sp\.at\.join\(','\)\) \?\? 0\) \+ 1\) \}/,
