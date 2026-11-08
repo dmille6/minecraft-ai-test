@@ -1105,7 +1105,10 @@ def bridge_cells(span):
 def read_bridges(d):
     """A town dir -> {cell key: ms first sighted} for every block of every bridge site ever sighted there (expedition-*.bridges.jsonl
     `sight` lines; bridgepost-01). Built or not, complete or broken, a site's cells are never the tidy's to dig (the bot's own guard,
-    skills.mjs bridgeCellKeys: fail closed). An unparseable line is skipped. Never raises."""
+    skills.mjs bridgeCellKeys: fail closed). An unparseable line is skipped. Never raises.
+    bridges-01 (bots/src/bridgedesign.mjs): a DESIGNED site names its design once, before its first block, in a `state` line that carries
+    every cell its plan places (`cells`, "x,y,z" keys: skills.mjs exBridgeWork); those cells are guarded too, from the site's first
+    sighting (the span's own cells stay guarded as well: fail closed)."""
     out = {}
     try:
         names = sorted(f for f in os.listdir(d) if BRIDGES_RE.match(f))
@@ -1114,6 +1117,7 @@ def read_bridges(d):
     # the bot's sites (bridge.mjs bridgeSites): a sighting on the same axis whose near end is within BRIDGE_MERGE_R of a site's is that
     # site, and the site keeps its FIRST span -- only those cells are planned and guarded
     sites = []
+    designed = {}
     for f in names:
         try:
             lines = open(os.path.join(d, f), encoding='utf-8', errors='replace').read().split('\n')
@@ -1123,6 +1127,11 @@ def read_bridges(d):
             try:
                 m = json.loads(ln) if ln.strip() else None
             except ValueError:
+                continue
+            # bridges-01: the design's cells (the first design line of a site; a malformed key is skipped)
+            if isinstance(m, dict) and m.get('op') == 'state' and isinstance(m.get('design'), dict) and isinstance(m.get('cells'), list) and isinstance(m.get('id'), str):
+                if m['id'] not in designed:
+                    designed[m['id']] = [c for c in m['cells'] if isinstance(c, str) and re.match(r'^-?\d+,-?\d+,-?\d+$', c)]
                 continue
             if not isinstance(m, dict) or m.get('op') != 'sight':
                 continue
@@ -1134,10 +1143,12 @@ def read_bridges(d):
             if same:
                 same[0]['t'] = min(same[0]['t'], t)
                 continue
-            sites.append({'axis': sp['axis'], 'near': sp['near'], 'span': sp, 't': t})
+            sites.append({'axis': sp['axis'], 'near': sp['near'], 'span': sp, 't': t, 'id': m.get('id') if isinstance(m.get('id'), str) else None})
     for q in sites:
         for c in bridge_cells(q['span']):
             k = ck(c)
+            out[k] = min(out.get(k, q['t']), q['t'])
+        for k in designed.get(q['id'], []) if q['id'] else []:
             out[k] = min(out.get(k, q['t']), q['t'])
     return out
 
@@ -2501,6 +2512,17 @@ def selftest():
         rbd = read_bridges(pd)
         assert rbd['20,70,1'] == 7 and '30,69,0' not in rbd and rbd['50,69,0'] == 11 and len(rbd) == 11 + 6, rbd
         assert merge_guards({'20,70,1': 5}, {'20,70,1': 100, '9,9,9': 3}) == {'20,70,1': 5, '9,9,9': 3}, 'the earliest time wins'
+        # bridges-01: a DESIGNED site's own cells (its design line's `cells`) guard from its first sighting; the first design line only, a
+        # malformed key skipped, a design line for no site and a state line with no design guard nothing (positive control: the cells)
+        with open(os.path.join(pd, 'expedition-0_70_0.bridges.jsonl'), 'a') as fh:
+            fh.write(json.dumps({'op': 'state', 'id': 's', 'design': {'style': 'arch'}, 'cells': ['20,72,0', '21,73,-2', 'x,1,2', 5], 't': 20}) + '\n' +
+                     json.dumps({'op': 'state', 'id': 's', 'design': {'style': 'foot'}, 'cells': ['40,40,40'], 't': 21}) + '\n' +
+                     json.dumps({'op': 'state', 'id': 'nosuch', 'design': {'style': 'foot'}, 'cells': ['60,60,60'], 't': 22}) + '\n' +
+                     json.dumps({'op': 'state', 'id': 's', 'cells': ['61,61,61'], 't': 23}) + '\n')
+        rbd2 = read_bridges(pd)
+        assert rbd2['20,72,0'] == 7 and rbd2['21,73,-2'] == 7, 'the design\'s cells guard from the first sighting'
+        assert all(k not in rbd2 for k in ('40,40,40', '60,60,60', '61,61,61', 'x,1,2')), rbd2
+        assert len(rbd2) == len(rbd) + 2, 'only the two design cells are new'
         rb_ = read_projects(td)
         assert '20,69,0' in rb_['board-a']['markers'] and '12,72,52' in rb_['board-a']['markers'], 'the bridge cells join the markers'
         cut_b = lambda c: tc(c, pp={'board-a': dict(rb_['board-a'], projects=dict(rb_['board-a']['projects'], tidy=dict(rb_['board-a']['projects']['tidy'], chain=[dict(tg1, cut=[{'at': [int(v) for v in c.split(',')]}])])))})['clear_outside']
