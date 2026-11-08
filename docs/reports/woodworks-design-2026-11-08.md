@@ -184,8 +184,8 @@ Pictures, top down (brown = fence, orange = gate, pale = opening):
 
 | Piece | Lane | Tier (protected.py) | State |
 |---|---|---|---|
-| **fences-01show** | showcase | 2 (not protected) | branch `fences-01show` @ **a53ff322** on the live release ef40871b; Codex r1 2 blockers fixed, r2 none; READY TO STAGE |
-| **boardwalk-01show** (wooden bridges) | showcase | 2 (not protected) | branch `boardwalk-01show` @ **3e94b323** on fences-01show; Codex r1 2 blockers fixed, r2 none; READY TO STAGE (with or after fences-01) |
+| **fences-01show** | showcase | 2 (not protected) | branch `fences-01show` @ **f378fde2** on the live release ef40871b; Codex r1 2 blockers fixed, r2 none; READY TO STAGE |
+| **boardwalk-01show** (wooden bridges) | showcase | 2 (not protected) | branch `boardwalk-01show` @ **1fde1536** on fences-01show; Codex r1 2 blockers fixed, r2 none; READY TO STAGE (with or after fences-01) |
 | gates-01 (walked gates: an OPEN gate in each path opening, the plain gap kept beside it) | showcase then fleet | 2 if the bots' walk profile walks an open gate as the Paper run did; else 3 (watermoves getBlock) | design; needs its own Paper proof with the bots' Movements |
 | boardwalk-02 docks / shore boardwalks (a dock = a bridge span with no far shore: 3 wide, 4-6 rows, fenced end; sited from a shore the town walk reaches through a wall gate) | showcase | 2 | design |
 | boardwalk-03 replace the bots' dirt lines in water with plank walkways and clean the banks (evidence: placed rows or a straight 1-wide line of bot material; build the replacement, walk it both ways, then dig the old line from retained stands) | fleet first (2,718 candidates), showcase (51) | 2 (3 if it touches the walk) | design |
@@ -199,6 +199,15 @@ Pictures, top down (brown = fence, orange = gate, pale = opening):
   - The fleet has no expedition bridges.
   - The fleet's logs are better spent once pathsfix-01 and forest-01 land (fleet-wood-01). The other big log user is the logcap
     work (logs-1108).
+
+**Full suites:**
+
+- fences-01show a53ff322 on ci2: 471/474. The three failures:
+  - lavastep, a known flake;
+  - nothing-important-is-orphaned (bagdiet), which fails on the live base too;
+  - showcase-on-fleet, the project-list expectation, fixed in test-only commit f378fde2 and passing alone.
+- boardwalk-01show 3e94b323 on w30: 469/474. The same three, plus plinth-skill (a flake) and well (a known base failure).
+- 1fde1536 is 3e94b323 rebased onto f378fde2.
 
 ## 7. Tripwire (showcase), on main, NOT installed
 
