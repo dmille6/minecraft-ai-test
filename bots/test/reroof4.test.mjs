@@ -137,6 +137,20 @@ await t('r5 reroofFallRisk + walkFrom `avoid`: a ledge whose fall lands off the 
   const w = B.walkFrom(read, { x: -1, y: 5, z: 2 }, new Set(), 20, { stood: [[0, 6, 2]] }), wa = B.walkFrom(read, { x: -1, y: 5, z: 2 }, new Set(), 20, { stood: [[0, 6, 2]], avoid: risk })
   assert.ok(w.has('0,6,2') && !wa.has('0,6,2'), 'walkFrom avoid takes the ledge out')
 })
+await t('r5 reroofExitLeaves: the natural leaves over the step back up from a one-block slip are listed; a placed hedge, a record cell, no landing: never', () => {
+  // the ledge: feet 6 at x 0 (floor y 5); east a terrace one below (floor y 4, feet 5); the spruce's leaves at the step's head room 1,7,z
+  const air = { name: 'air', boundingBox: 'empty' }, stone = { name: 'stone', boundingBox: 'block' }
+  const mk = persistent => (x, y, z) => (x === 0 && y <= 5 ? stone : x > 0 && y <= 4 ? stone : x === 1 && y === 7 ? { name: 'spruce_leaves', boundingBox: 'block', props: { persistent } } : air)
+  const walked = new Set(); for (let z = 0; z <= 2; z++) { walked.add(`0,6,${z}`) }
+  const ex = RR.reroofExitLeaves(mk('false'), walked, { box: [-3, 0, 0, 2] })
+  assert.deepStrictEqual(ex.map(c => c.at.join(',')).sort(), ['1,7,0', '1,7,1', '1,7,2'])
+  assert.ok(ex.every(c => c.kind === 'leaves' && c.name === 'spruce_leaves'))
+  assert.deepStrictEqual(RR.reroofExitLeaves(mk('true'), walked, { box: [-3, 0, 0, 2] }), [], 'a placed hedge stays')
+  assert.deepStrictEqual(RR.reroofExitLeaves(mk('false'), walked, { box: [-3, 0, 0, 2], recordAt: (x, y, z) => z === 1 }).map(c => c.at.join(',')).sort(), ['1,7,0', '1,7,2'], 'a record cell stays')
+  const deep = (x, y, z) => (x === 0 && y <= 5 ? stone : x > 0 && y <= 1 ? stone : x === 1 && y === 7 ? { name: 'spruce_leaves', boundingBox: 'block', props: { persistent: 'false' } } : air)
+  assert.deepStrictEqual(RR.reroofExitLeaves(deep, walked, { box: [-3, 0, 0, 2] }), [], 'no one-block landing: nothing listed (the fall guard judges deeper drops)')
+  assert.deepStrictEqual(RR.reroofExitLeaves(mk('false'), walked, { box: [20, 20, 30, 30] }), [], 'far from the building: nothing')
+})
 await t('reroofRecord marks the stair `temp`; reroofDismantleDue only once every other new cell is done; reroofDismantle moves it to kind=temp clears', () => {
   const rec = { cells: [{ at: [0, 1, 0], role: 'wall', seg: 'walls' }], segments: [{ seg: 'walls', deps: [] }], palette: {} }
   const added = [{ at: [9, 1, 9], role: 'fill', seg: 'earth' }, { at: [1, 5, 1], role: 'roofslab', seg: 'roof-edge', ws: { type: 'top' } }]
@@ -178,6 +192,14 @@ await t('MUTANT: the slab floor rule dropped (walkFrom) -- the hall is unproven 
   await withBuildsiteMutant("const floor = fullCube(f) || (!!floors && floors.has(k3(x, y - 1, z)) && slabTopFloor(f))", 'const floor = fullCube(f)', async M => {
     const r = await prove(M)
     assert.strictEqual(r.ok, false); assert.strictEqual(r.why, 'no_step')
+  })
+})
+await t('r5 the live hall lists its way back up (exit leaves) as clears; MUTANT without them the list shrinks (killed for that reason)', async () => {
+  const r = await prove()
+  const real = r.clear.length
+  await withMutant(RR_PATH, "  const take = at => { const b = read(...at); if (b && LEAVES_RX.test(nmOf(b)) && naturalLeafBlock(b) && !recordAt(...at)) out.set(at.join(','), { at, name: nmOf(b), kind: 'leaves' }) }\n", '  const take = () => {}\n', async M => {
+    const q = await prove(M)
+    assert.ok(q.ok && q.clear.length < real, `real ${real}, mutant ${q.clear.length}`)
   })
 })
 await t('FALLBACK ONLY: REROOF_APPROACH=off -> the door-side eave is notched (15) as before; with no notch either the door is cut off', async () => {
