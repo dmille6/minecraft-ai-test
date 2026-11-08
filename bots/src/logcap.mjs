@@ -3,7 +3,7 @@
 // target raise 64 -> 4000 in stocktarget.mjs; this is the gathering side.)
 //
 // MEASURED (fleet .31, 80 bots / 16 towns, 48 h to 11-08 13:35Z, 3,838 bot-h): the town chests hold 2,817-5,180 logs in 15 of
-// 16 towns (hive-d 860), ~69k in all, and the oak_log bank target (4,000 a type) is reached in ~9 towns, so 3,043 logs went DOWN
+// 16 towns (hive-d 860), ~65k in all, and the oak_log bank target (4,000 a type) is reached in ~9 towns, so 3,043 logs went DOWN
 // THE JUNK WELL in 48 h. 31,124 of 33,387 logs gained came from the gather skill (93%); 15,209 were banked on 11-07 alone. The
 // draw is small: ~2,650 logs spent in 48 h fleet-wide (bags' own fuel, tables, sticks, scaffold) and 1,329 withdrawn from towns --
 // ~40-85 logs a town a day. The idle rung's "Cut 16 logs (any kind) for the town store" was the TASK of 12,059 of the 21,724
@@ -27,14 +27,15 @@
 // LOGCAP=0|off is the rollback (the means are untouched). LOGCAP_HIGH / LOGCAP_LOW override the limits (whole numbers, LOW < HIGH,
 // LOW >= the build reserve's 512 logs; anything else -> the defaults, said in the row as src=invalid).
 
-import { BUILD_RESERVE } from './stocktarget.mjs'
-
 // THE LIMITS (Codex design 11-08, adopted over Claude's 1,536/1,024: the chests are near full, and the charcoal piece converts only
 // above 1,536 so the two never form a gather -> charcoal treadmill): stop at 1,024 = twice the build reserve, ~10 days of the
 // measured town draw above it; resume at <= 768 (a 256-log band = sixteen idle batches).
 export const LOGCAP_HIGH = 1024
 export const LOGCAP_LOW = 768
 export const LOGCAP_MIN_COVERAGE = 0.8
+/** LOW may not go under the build reserve's logs (stocktarget.mjs BUILD_RESERVE.logs, 512 -- restated, not imported: mats.mjs is
+ *  the reserve's only reader, matset.test.mjs; logcap2.test.mjs proves the two agree). */
+export const LOGCAP_MIN_LOW = 512
 export const LOGCAP_HOLD_MS = 30 * 60_000
 export const LOGCAP_TTL_MS = 5 * 60_000   // the reader's cache per bot (skills.mjs): the band is days wide; the index is MBs
 const OFF = ['0', 'off', 'false', 'no']
@@ -46,7 +47,7 @@ export function logCapConfig (env = process.env) {
   const rawH = String(env?.LOGCAP_HIGH ?? '').trim(), rawL = String(env?.LOGCAP_LOW ?? '').trim()
   if (!rawH && !rawL) return { on, high: LOGCAP_HIGH, low: LOGCAP_LOW, src: 'default' }
   const high = rawH ? whole(rawH) : LOGCAP_HIGH, low = rawL ? whole(rawL) : LOGCAP_LOW
-  if (high == null || low == null || !(low < high) || low < (Number(BUILD_RESERVE.logs) || 0)) return { on, high: LOGCAP_HIGH, low: LOGCAP_LOW, src: 'invalid' }
+  if (high == null || low == null || !(low < high) || low < LOGCAP_MIN_LOW) return { on, high: LOGCAP_HIGH, low: LOGCAP_LOW, src: 'invalid' }
   return { on, high, low, src: 'env' }
 }
 
