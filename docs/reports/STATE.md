@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-08T06:20:02Z._
+_Generated 2026-11-08T07:20:02Z._
 
 | | Now |
 |---|---|
@@ -12,12 +12,12 @@ _Generated 2026-11-08T06:20:02Z._
 | **Canary in slot** | **placeaudit-fleet-01** deployed 11-08 06:05Z; reads +90 11-08 07:35Z, +180 11-08 09:05Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | sandrung-01 -> scaftown-01 -> gathermem-01 -> roughground-01 -> irongap-01 -> obsidian-01 -> roughground-02 -> roughground-04 -> bamboowalk-01 -> kittrim-01 -> +3 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); villageunlock-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); jobsite-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: 17df15e28da5d7fb94070815c59ce5fe19a1bd78 on placebo-a,hive-c,hive-d / S6 open loop: canary 17df15e is deployed on placebo-a,hive-c,hive-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything  |
-| **Showcase release** | `81d1894f` (20,943 rows), `afd36d69` (13,689 rows), `d7306d0d` (3,749 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release afd36d69's protected tree: restack by hand; row 11-08 05:25Z) |
+| **Showcase release** | `afd36d69` (23,607 rows), `81d1894f` (10,925 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release afd36d69's protected tree: restack by hand; row 11-08 06:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | allowflight-1107: owner-direct-check 11-07 15:50Z |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-07T12:05Z, 7 d, 165 projects, 13,340,403 lines / 80 bots): 11 underused, 83 effective, 43 unmeasured, 28 -; showcase: project audit showcase (11-07T12:05Z, 7 d, 33 projects, 1,665,447 lines / 15 bots): 2 broken, 1 underused, 13 effective, 11 unmeasured, 6 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-08T05:35:01Z STALLED: 94. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 78 active alarm(s): stuck goals 17 (board-d/tidy@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-c/tidy@-68_68_-68, hive-d/monument@68_65_68, hive-d/tidy@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-08T06:35:01Z STALLED: 95. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 79 active alarm(s): stuck goals 18 (board-d/tidy@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-c/tidy@-68_68_-68, hive-d/monument@68_65_68, hive-d/tidy@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
