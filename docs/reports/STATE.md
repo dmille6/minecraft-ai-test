@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-08T03:20:01Z._
+_Generated 2026-11-08T04:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,12 +12,12 @@ _Generated 2026-11-08T03:20:01Z._
 | **Canary in slot** | **escpocket-01** deployed 11-08 02:33Z; reads +90 11-08 04:03Z, +180 11-08 05:33Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | placeaudit-fleet-01 -> sandrung-01 -> scaftown-01 -> gathermem-01 -> roughground-01 -> irongap-01 -> obsidian-01 -> roughground-02 -> roughground-04 -> bamboowalk-01 -> +4 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); villageunlock-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); jobsite-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: de538429d6dd0d572603f4ec250df2db3c1b8bff on isolated-d / S6 open loop: canary de53842 is deployed on isolated-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 escpocket-01 is l |
-| **Showcase release** | `d7306d0d` (17,490 rows), `dc293197` (14,689 rows), `01c6debf` (5,385 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release d7306d0d's protected tree: restack by hand; row 11-08 02:25Z) |
+| **Showcase release** | `d7306d0d` (21,278 rows), `81d1894f` (10,008 rows), `dc293197` (7,951 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release d7306d0d's protected tree: restack by hand; row 11-08 03:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | allowflight-1107: owner-direct-check 11-07 15:50Z |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-07T12:05Z, 7 d, 165 projects, 13,340,403 lines / 80 bots): 11 underused, 83 effective, 43 unmeasured, 28 -; showcase: project audit showcase (11-07T12:05Z, 7 d, 33 projects, 1,665,447 lines / 15 bots): 2 broken, 1 underused, 13 effective, 11 unmeasured, 6 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-08T02:35:01Z STALLED: 90. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 68 active alarm(s): stuck goals 10 (board-c/shaft@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-c/tidy@-68_68_-68, hive-d/monument@68_65_68, isolated-c/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24, effectwatch effect:kitmulti-01:h72 |
+| **Open alarms** | STALLCHECK 2026-11-08T03:35:01Z STALLED: 92. OPSAUDIT 2026-11-07 FLAGS: 14 (2 high). 70 active alarm(s): stuck goals 10 (board-c/shaft@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-c/tidy@-68_68_-68, hive-d/monument@68_65_68, isolated-c/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24, effectwatch effect:kitmulti-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
