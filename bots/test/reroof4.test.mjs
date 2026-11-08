@@ -97,6 +97,7 @@ await t('reroofRecord marks the stair `temp`; reroofDismantleDue only once every
   const r2 = RR.reroofRecord(rec, added, { id: 'x@1r', palette: {}, segments: [{ seg: 'roof-edge', deps: [] }] }, {}, { temp: new Set(['9,1,9']), notch: 3 })
   assert.deepStrictEqual(RR.reroofTempCells(r2).map(c => c.at), [[9, 1, 9]])
   assert.strictEqual(r2.restyle.notch, 3); assert.strictEqual(r2.restyle.temp, 1)
+  assert.deepStrictEqual(r2.palette.fill, ['cobblestone', 'cobbled_deepslate', 'stone'], 'a blueprint with no fill role still names the stair\'s block (Paper storehub: no_material fill)')
   assert.strictEqual(RR.reroofDismantleDue(r2, c => c.seg !== 'reroof-roof-edge'), false, 'the roof is open: the stair stays')
   assert.strictEqual(RR.reroofDismantleDue(r2, () => true), true)
   const r3 = RR.reroofDismantle(r2, { now: 7 })

@@ -104,7 +104,10 @@ export function reroofRecord (rec, added, bpNew, style, { now = Date.now(), clea
   // reroof-02 (d): a proven DOORSTEP is the proof's `earth` segment (role fill, cobblestone): built first, every roof segment after it
   const step = added.some(c => c.seg === 'earth') ? [{ seg: ren('earth'), layer: -1, deps: [] }] : []
   const newSegs = [...step, ...(bpNew.segments ?? []).filter(s => ['gable', 'roof-edge', 'roof-inner'].includes(s.seg)).map(s => ({ ...s, seg: ren(s.seg), deps: [...(s.seg === 'gable' ? flat : (s.deps ?? []).map(ren)), ...step.map(x => x.seg)] }))]
-  const palette = { ...stylePalette(bpNew.palette, style) }
+  // reroof-04: the doorstep's and the temporary stair's role (fill) is always in the palette -- a blueprint without one (storehub@1)
+  // left the stair `no_material fill` on Paper 11-08 with 64 cobblestone in the bag
+  const styled = stylePalette(bpNew.palette, style)
+  const palette = { ...styled, fill: styled.fill ?? ['cobblestone', 'cobbled_deepslate', 'stone'] }
   return {
     ...rec,
     // reroof-04: a TEMPORARY stand's cells (`temp`: a Set of keys) are marked; reroofDismantle takes them out once the roof stands
