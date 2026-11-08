@@ -239,3 +239,18 @@ averaged about 38. The server log shows 0 "Can't keep up" lines on any hive worl
 
 **Requeue:** use a new run id on b52603ec (scaftown-01 plus the stall-latch fix), pinned to hive-b plus one healthy pool
 (hive-c or hive-d: 0 drops in all three windows). Keep hive-a and board-a out of the draw until their disconnects are fixed.
+
+**Follow-up: does the bot's heap grow under scaftown?** No.
+- **Off-line test**, with the real A* and the real price plus search wrapper: 120 hard searches (the ledge, the 20-high
+  column, a GoalNear) on each code. Base 18.9 → 18.1 MB of heap after GC. Priced 18.9 → 23.1 to 25.3 MB, flat across 30,
+  60, 90 and 120 searches (30 restarts). The latch, stall and touched maps stay under 64 entries, so there is no leak.
+- **The cost is CPU.** The priced runs took 154 s against 108 s. The A* still yields every 40 ms tick, and a restart
+  spends two slices, about 80 ms, once per search.
+- **hive-a-Bravo's journal shows the drops come before the memory.** On 11-08, with scaftown, it sat at 297-312 MB and
+  0 drops until 13:42Z. The drops came first (22 by 14:24Z), and only then did RSS climb, to 687 and then 926 MB. On
+  11-07, with no scaftown, it ran at 962-1,047 MB with drops all afternoon.
+- **hive-a-Echo after the revert,** back on base code (16:02Z on): 5 drops already, RSS 573 → 612 MB.
+- **hive-b,** the heaviest priced work in the canary: heap 109-125 MB and RSS about 300 MB, flat.
+
+Conclusion: the reconnect loop grows memory (each reconnect logs `MaxListenersExceededWarning`); scaftown does not.
+The hive-a disconnects are pre-existing and are the cause.
