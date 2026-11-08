@@ -114,6 +114,9 @@ const REQUIRED = [
   'sandbox/flowers/flower-proof.cjs',   // flowers-01: the Paper proofs (bone meal in taiga, the composter, a fern cell replaced)
   'sandbox/flowers/flower-proof2.cjs',
   'sandbox/flowers/flower-proof3.cjs',   // flowers-02: the lawn density proof
+  'docs/reports/woodworks-design-2026-11-08.md',   // woodworks-1108: fences, gates, wooden bridges (code on fences-01show / boardwalk-01show)
+  'sandbox/woodworks/fence-proof.cjs',   // fences-01: the Paper ring/walk/gate proof
+  'sandbox/woodworks/boardwalk-proof.cjs',   // boardwalk-01: the Paper wooden-bridge proof
   'docs/reports/market-design-2026-11-06.md',   // market-1106: live villager trading (code on branches market-01show / market-01)
   'docs/reports/market-2026-11-06/codex-design.txt',
   'docs/reports/market-2026-11-06/trade-tables-1.21.8.txt',

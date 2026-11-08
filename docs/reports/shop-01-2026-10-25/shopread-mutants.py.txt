@@ -2,6 +2,8 @@ import subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(D, 'shopread.py')).read()
 M = [
+ # fences-01: the wood sink's placements are judged by the generations in force (a placement before its siting is off the record)
+ ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor', 'wood')", "SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor')"),
  # coverread-01: the tidy / stepwell / sink helpers judge a cover as a foreign dig
  ("    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut', 'clear')", "    lists = ('cells',) if kind == 'foreign' else ('cut', 'clear')"),
  ("    field = 'cells' if kind in ('foreign', 'cover') else 'clear'", "    field = 'cells' if kind == 'foreign' else 'clear'"),

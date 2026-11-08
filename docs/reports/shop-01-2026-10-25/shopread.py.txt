@@ -668,7 +668,10 @@ def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
 # DECORATOR-01 (11-04): the fifth sink, `decor` (bots/src/decorator.mjs), and its own rules DC1 (the nursery's meal), DC2 (its harvest),
 # DC3 (a pot's fill). DECOR_SPREAD is decorator.mjs NURSERY.spread (bone meal's walk: at most 7 steps of one column); DECOR_BLOOMS its
 # BLOOM_BLOCKS (the small flowers and the grass a meal leaves). --selftest asserts both against bots/src/decorator.mjs when it is beside.
-SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor')
+# FENCES-01 (11-08): the sixth sink, `wood` (bots/src/woodworks.mjs): fence rings round the forest and the crop farm with gates beside
+# their openings, and rails on path shoulders. Every fence and gate is a cell of its instance (roles W<n>-f / W<n>-g), judged by G1
+# against the generations in force like every sink's; its foreign digs (runVisit clearing an open cell) are G2's against the cells.
+SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor', 'wood')
 DECOR = 'decor'
 DECOR_SPREAD = 7
 DECOR_BLOOMS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'blue_orchid', 'lily_of_the_valley',
@@ -2144,6 +2147,18 @@ def selftest():
     assert dpl('5,71,0', block='spruce_wall_sign', kind='sign') == 0, 'a sign the label writer placed on its record cell'
     assert dpl('6,71,0', block='spruce_wall_sign', kind='sign') == 1 and dpl('5,73,1') == 1, 'positive control: a sign or a torch off the record trips'
     assert dpl('17,73,-20') == 1 and dpl('17,73,-20', s_=3_700) == 0, 'L2\'s wall-top torch: off the record before L2 is sited, on it after'
+    # fences-01 (11-08): the wood sink -- W1 (a fence and a gate) sited an hour in; a placement is judged by the generation in force
+    wg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'wood', 'blueprint': 'wood@1', 'builders_max': 3, 'at': T0MS + 3_600_000, 'structure_complete': False, 'home': {'x': 0, 'y': 70, 'z': 0},
+           'instances': [{'id': 'W1', 'type': 'ring', 'target': 'forest'}], 'cells': [{'at': [40, 71, 40], 'role': 'W1-f', 'seg': 'W1-R0'}, {'at': [41, 71, 40], 'role': 'W1-g', 'seg': 'W1-R0', 'ws': {'facing': 'north'}}],
+           'clear': [], 'replant': [], 'palette': {'W1-f': ['spruce_fence'], 'W1-g': ['spruce_fence_gate']}}
+    wf = [(1, json.dumps(wg1).encode())]
+    wchain = record_chain(wf)
+    WP_ = {'board-a': {**PR(), 'projects': {'shop': {'record': rec, 'records_files': 1, 'leases': {}, 'chain': [rec]},
+                                            'wood': {'record': wchain[-1], 'records_files': 1, 'leases': {}, 'chain': wchain}}}, 'board-b': PR()}
+    wpl = lambda c, s_=3_700, block='spruce_fence': J(base + [R('_build', 'project=wood op=place seg=W1-R0 cell=%s block=%s' % (c, block), s=s_)], WP_)['off_record']
+    assert wpl('40,71,40') == 0 and wpl('41,71,40', block='spruce_fence_gate') == 0, 'the ring\'s fence and gate on their cells'
+    assert wpl('40,71,40', s_=14) == 1, 'positive control: before W1 is sited its fence is off the record'
+    assert wpl('42,71,40') == 1 and wpl('40,72,40') == 1, 'positive control: a fence beside or above its cell trips'
     # decorator-01 (11-04): the decor sink -- a nursery-only generation (centre 30,70,30) before the window, D1 (two border flowers and a
     # pot) and a moved nursery (centre 60,70,60; the first kept in `nurseries`) an hour in. DC1 meal, DC2 bloom, DC3 pot fill.
     cg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'decor', 'blueprint': 'decor@1', 'builders_max': 3, 'at': T0MS - 60_000, 'structure_complete': True, 'home': {'x': 0, 'y': 70, 'z': 0},

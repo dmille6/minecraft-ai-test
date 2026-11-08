@@ -6016,6 +6016,36 @@
     ]
    },
    "note": "Fleet 48 h to 11-08 13:35Z (3,838 bot-h): gather 31,124 of 33,387 logs gained (93%); the idle rung's 'Cut 16 logs' 18,011 of 31,014 gathered logs (58%), 187.6 bot-h of decision time; 3,043 logs down the junk well (oak at its 4,000 bank target); town draw ~40-85/town/day; 16-town index: logs 65,335, coal 10,447, charcoal 1."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "woodworks-1108",
+   "title": "Woodworks (owner 11-08: ~60k surplus logs): fences and gates round farms, pens, path edges and the managed forest; boardwalks, docks and wooden bridges at water edges instead of dirt bridges, clean banks",
+   "owner_date": "2026-11-08",
+   "memory": [
+    "woodworks-1108.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-08: fences-01show a53ff322 (wood sink: forest/farm rings with openings + gate ornaments, path-shoulder rails; tier 2) and boardwalk-01show 3e94b323 (wooden expedition bridges, on fences-01) READY TO STAGE on ef40871b; Codex r1 blockers fixed, r2 none; Paper sandbox7 PASS (fence ring 38/38, walk lost 0, 12/12 crossings; wooden bridge 12 and 24 wide intact, 16/16 dry crossings). Install main's shopread SINK_PLOTS+wood with the stage. NEXT: gates-01 (walked open gates: Paper saw pathfinder 2.4.5 route through an OPEN gate -- prove with the bots' walk profile), boardwalk-02 docks, boardwalk-03 dirt lines -> plank walkways (fleet 2,718 candidates), fleet-wood-01 after pathsfix-01 + forest-01 (no fleet town has a record to ring today).",
+   "evidence": {
+    "grep": [
+     "fences-01show",
+     "boardwalk-01show"
+    ],
+    "branches": [
+     "fences-01show",
+     "boardwalk-01show"
+    ],
+    "paths": [
+     "docs/reports/woodworks-design-2026-11-08.md",
+     "sandbox/woodworks/fence-proof.cjs",
+     "sandbox/woodworks/boardwalk-proof.cjs"
+    ]
+   },
+   "note": "Measured 11-08: showcase logs 635 (101 above reserve+64), 0 fences/gates; fleet logs 65,320 over 16 towns, 0 farm/forest/pen records, paths in 2 towns; bot dirt/cobble in water: showcase 51, fleet 2,718."
   }
  ]
 }
