@@ -1,0 +1,19 @@
+{
+ "run": "workboard-01",
+ "class": "",
+ "after": [],
+ "not_before": null,
+ "hold": null,
+ "note": "workboard-01 agent 11-08 (codeeval phase 3 item 1, phase A): DRAFT, NOT QUEUED. Tier 3 (cognitive.mjs): a P canary in the one slot. Built ON the live fleet 1e593b9b (variant keyed on it); if the fleet moves first the control session autorebases (townwork.mjs is new; the cognitive.mjs hunk sits just before the workshop step and at two outcome lines). Draw: any SHARED pools (grounds laps need gkforever's crew in shared towns; isolated pools excluded). NO patch block (the control session sets it).",
+ "variants": {
+  "1e593b9bc74e5a33df84c4a5587c1b4f796db46a": {
+   "registration": "/home/mike/mcai-analysis/workboard-01.141b975a.json",
+   "canary_sha": "141b975a8b18098df7b13ebcb27cf22c9f51961c",
+   "approved": "workboard-01 agent 2026-11-08: design Claude + Codex independent + OSS/forum search, reconciled (docs/reports/workboard-design-2026-11-08.md); code Claude r1 1 BLOCKER + Codex r1 1 BLOCKER fixed 0360f43e, r2 both NO BLOCKERS; townwork.test 22/22, stuckproj.test 19/19 (6 anchored mutants); eslint clean (lint:movement fails on the base too: buildbot.mjs, pathhalt/pickuplog tests); full suite ci2 on 0360f43e 418/422 (stuckproj.test wiring anchor -> fixed 141b975a; well.test known base; craftsync D25b + lavastep timing: base control queued); r2 full suite on 141b975a queued on w30 (label workboard-01-r2)",
+   "protected": true,
+   "protected_why": "bots/src/cognitive.mjs",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {}
+  }
+ }
+}

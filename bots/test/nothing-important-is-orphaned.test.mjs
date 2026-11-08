@@ -145,6 +145,10 @@ const REQUIRED = [
   'docs/reports/idletowns-farm-hub-design-2026-11-06.md',
   'docs/reports/treefarm-05/treefarm-05.946c8aaa.json',
   'docs/reports/treefarm-05/treefarm-05.queue-entry.json',
+  // workboard-01 (11-08): the town work board, phase A (design + registration + draft entry; code on branches workboard-01 / workboard-01show)
+  'docs/reports/workboard-design-2026-11-08.md',
+  'docs/reports/workboard-01/workboard-01.141b975a.json',
+  'docs/reports/workboard-01/workboard-01.queue-entry.draft.json',
   // idlework-02 (11-06): bag stop, 29-33 band dispose, depth-aware iron hint (design + registration; code on branch idlework-02-on-9e9284d7)
   'docs/reports/idlework2-design-2026-11-06.md',
   'docs/reports/idlework-02/idlework-02.ed2cc02b.json',
