@@ -358,7 +358,7 @@ TIDY = 'tidy'                         # bots/src/tidy.mjs TIDY_PLOT
 LAND = 'land'                         # bots/src/landplan.mjs LAND_PLOT (a reservation: no cells)
 PATHS = 'paths'                       # bots/src/paths.mjs PATHS_PLOT (outbands-01: a replant never on a path)
 # gkhelpers-01 (bots/src/groundskeeper.mjs GK.helpersMax / GK.segGap; park.mjs GATHER_NAMES)
-CREW_HELPERS_MAX = 2
+CREW_HELPERS_MAX = 4   # gkcrew4-01 (owner 11-08 "up to 4" while the tidy stage has > 500 open cells; the bot's own rule drops to 2 below)
 CREW_SEG_GAP = 2
 CREW_YIELD_MS = 10_000
 CREW_EPOCH_MS = 1793664000000          # 2026-11-03T00:00Z: before any helper existed (the showcase's tidy had one builder: slot1)
@@ -2346,7 +2346,9 @@ def selftest():
     race = {'seg-T-00-0': [(1, LL('K', 1_000, 241_000), None)], 'seg-T-01-0': [(1, LL('H', 1_000, 241_000), None)]}
     assert crew_overlaps(race, [cg], now_ms=E0 + 1_020) == [], 'mid-race: clean'
     assert len(crew_overlaps(race, [cg], now_ms=E0 + 30_000)) == 1, 'control: both still held 29 s on: a real overlap'
-    assert cr({'helper3': [(1, LL('X', 0, 700_000), None)]})['lease_overlap'] == 1, 'a third helper'
+    assert cr({'helper3': [(1, LL('X', 0, 700_000), None)]})['lease_overlap'] == 0, 'gkcrew4-01: a third helper is within the crew cap'
+    assert cr({'helper4': [(1, LL('X', 0, 700_000), None)]})['lease_overlap'] == 0, 'gkcrew4-01: a fourth helper is within the crew cap'
+    assert cr({'helper5': [(1, LL('X', 0, 700_000), None)]})['lease_overlap'] == 1, 'a fifth helper is beyond the cap'
     old = {'seg-T-00-0': [(1, {'holder': 'K', 'at': CREW_EPOCH_MS - 600_000, 'until': CREW_EPOCH_MS - 300_000}, None)], 'seg-T-01-0': [(1, {'holder': 'H', 'at': CREW_EPOCH_MS - 600_000, 'until': CREW_EPOCH_MS - 300_000}, None)]}
     assert crew_overlaps(old, [cg], since_ms=CREW_EPOCH_MS) == [] and len(crew_overlaps(old, [cg])) == 1, 'leases before the crew epoch are not judged (control: they would be)'
     assert cr(dict(old, keeper=kh['keeper'], helper1=kh['helper1']))['lease_overlap'] == 0, 'through judge: the epoch holds'
