@@ -351,7 +351,7 @@ const WIRES = [
   ['the damage loop waives a waiting upgraded cell', "if (b && r.plot === SINK_PLOTS.decor && upgradeWaits(c, b, heldMap(bot))) continue"],
   ['the decor upkeep is due for its flower work', "if (tidy && r.plot === SINK_PLOTS.decor && decorFlowerDue(bot, r)) return true"],
   ['the siting stall does not hold the flower work', "&& !(states[i]?.due && decorFlowerDue(bot, decorRecNow()))"],
-  ['the decor visit\'s runner reads an upgraded cell\'s wait', "const leave0 = kind === 'decor' ? { alsoDone: (q, rd2) => upgradeWaits(q, (rd2 ?? read)(...q.at), heldMap(bot)) } : kind !== 'dress'"],
+  ['the decor visit\'s runner reads an upgraded cell\'s wait', "const leave0 = kind === 'decor' ? { alsoDone: (q, rd2) => upgradeWaits(q, (rd2 ?? read)(...q.at), heldMap(bot)) } : !ornamentKind(kind)"],
   ['a stall stamps the flower work too', 'townNoSiteWrite(FLOWER_STALL)'],
   ['the composter feed is wired where the decorator and FLOWERS are on', 'setDecorFeed(() => (DECORATE.on && FLOWERS_ON ? { fern: FLOWER.feedKeep } : null))'],
   ['a meal the server did not spend stops the nursery', "if (FLOWERS_ON) { await sleep(300, signal); if (countItem(bot, 'bone_meal') >= m0) { out.why = 'meal_refused'; break } }"],
