@@ -63,6 +63,8 @@ function visitP (record, name = 'A', extra = {}) {
 }
 const deckDone = (srv, rec) => rec.cells.every(c => R.cellDone(srv.read(...c.at), W.BW3_PALETTE, c.role))
 
+const strip = s => s.split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, '')).join('\n')
+const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 console.log('THE EVIDENCE FILE')
 const DOC = () => ({ v: 1, pool: 'hive-c', home: [0, G + 1, 0], generated: new Date().toISOString(), lines: [{ id: 'L000', walk: true, cells: [[5, G, 0, 'dirt'], [6, G, 0, 'grass_block', 1]] }] })
 await t('a valid file reads ok; another pool, another home, a stale or future file, a non-bot material: refused WHOLE', async () => {
@@ -161,7 +163,7 @@ await t('A REMOVAL LINE comes out whole, far end first, the digger always on the
   await removal(W)
 })
 await t('MUTANT KILLED: cut NEAR end first -> the line beyond the first cut has no stand (cut off from town) and stays', async () => {
-  assert.ok(await withMutant('live.sort((a, b) => b.d - a.d ||', 'live.sort((a, b) => a.d - b.d ||', M => killedBy(removal, M)), 'the mutant survived')
+  assert.ok(await withMutant('live.sort((a, b) => b.dr - a.dr ||', 'live.sort((a, b) => a.dr - b.dr ||', M => killedBy(removal, M)), 'the mutant survived')
 })
 const walkway = async (Rm = R) => {
   const srv = lake(lineCells(5, 14))
@@ -219,9 +221,52 @@ await t('MUTANT KILLED: the stale-file check removed -> an old file (a reseeded 
   assert.ok(await withMutant('if (!Number.isFinite(at) || now - at > maxAgeMs || at - now > 60 * 60_000)', 'if (!Number.isFinite(at))', M => killedBy(stale, M)), 'the mutant survived')
 })
 
+console.log('CODEX R1 BLOCKERS')
+// a crossing in a lake that spans the whole map north to south: the far bank (x >= 15) is reached ONLY over the line
+const crossing = async (M, Rm = R) => {
+  const cells = {}
+  for (let x = 5; x <= 14; x++) for (let z = -60; z <= 60; z++) for (const y of [G - 1, G]) cells[`${x},${y},${z}`] = 'water'
+  const srv = server({ ...cells, ...lineCells(5, 14) })
+  const w = M.bw3Work([asLine(5, 14)], srv.read, { home: HOME })
+  assert.deepStrictEqual(w.cuts.map(c => c.at[0]), [14, 13, 12, 11, 10, 9, 8, 7, 6, 5], 'from the far bank back to town')
+  const e = lakeBot(srv)
+  for (let i = 0; i < 2; i++) await Rm.runVisit(visitP(w.record, 'A', { tidy: M.bw3Work([asLine(5, 14)], srv.read, { home: HOME }).cuts }), e, { maxSteps: 400 })
+  for (let x = 5; x <= 14; x++) assert.strictEqual(srv.read(x, G, 0).name, 'water', `x ${x} dug out`)
+}
+await t('BLOCKER 3: a removal line joining BOTH banks is dug from the far bank back toward town (rooted), and comes out whole', async () => {
+  await crossing(W)
+})
+await t('MUTANT KILLED: unrooted (both banks start) -> the middle goes first and the far half is stranded', async () => {
+  assert.ok(await withMutant('live.sort((a, b) => b.dr - a.dr ||', 'live.sort((a, b) => b.d - a.d ||', M => killedBy(crossing, M)), 'the mutant survived')
+})
+await t('BLOCKER 2: a deck cell dug but not yet planked (WATER) stays a deck cell, and the next visit lays it', async () => {
+  const srv = lake({ ...lineCells(5, 14), [`9,${G},0`]: 'water', [`10,${G},0`]: 'spruce_planks' })
+  const w = W.bw3Work([asLine(5, 14, { walk: true })], srv.read)
+  assert.strictEqual(w.record.cells.length, 10); assert.strictEqual(w.stats.deckDone, 1)
+  // every other cell planked already: only the hole is open, and it is still work
+  const srv2 = lake({ ...lineCells(5, 14, 'oak_planks'), [`9,${G},0`]: 'water' })
+  const w2 = W.bw3Work([asLine(5, 14, { walk: true })], srv2.read)
+  assert.strictEqual(W.bw3HasWork(w2), true)
+  await R.runVisit(visitP(w2.record), lakeBot(srv2), { maxSteps: 200 })
+  assert.strictEqual(srv2.read(9, G, 0).name, 'oak_planks')
+})
+await t('MUTANT KILLED: the deck kept only while its listed block stands -> a dug, unplanked hole is forgotten', async () => {
+  const hole = M => { const srv = lake({ ...lineCells(5, 14, 'oak_planks'), [`9,${G},0`]: 'water' }); assert.strictEqual(M.bw3HasWork(M.bw3Work([asLine(5, 14, { walk: true })], srv.read)), true) }
+  hole(W)
+  assert.ok(await withMutant("if (!(standingAs(read(...c.at), c.name) || /_planks$/.test(n) || WATERN.test(n))) low.delete(k)", 'if (!standingAs(read(...c.at), c.name)) low.delete(k)', M => killedBy(hole, M)), 'the mutant survived')
+})
+await t('BLOCKER 1: a listed deck cell that holds anything else now (a log) is no deck cell: never dug, nothing above it touched', async () => {
+  const srv = lake({ ...lineCells(5, 14), [`8,${G},0`]: 'oak_log', [`8,${G + 1},0`]: 'oak_log' })
+  const w = W.bw3Work([asLine(5, 14, { walk: true })], srv.read)
+  assert.ok(!w.record.cells.some(c => c.at[0] === 8)); assert.ok(!w.cuts.some(c => c.at[0] === 8))
+  await R.runVisit(visitP(w.record), lakeBot(srv), { maxSteps: 400 })
+  assert.strictEqual(srv.read(8, G, 0).name, 'oak_log'); assert.strictEqual(srv.read(8, G + 1, 0).name, 'oak_log')
+})
+await t('BLOCKER 2 (no planks): the visit opens no deck cell without a plank in the bag (structural: the record handed to runVisit)', async () => {
+  const v = SK.slice(SK.indexOf('async function waterWalkVisit ('), SK.indexOf('async function buildTidy ('))
+  assert.ok(/const rec = hasPlanks \? w\.record : \{ \.\.\.w\.record, cells: \[\], segments: \[\] \}/.test(v)); assert.ok(/record: rec, tidy: cuts/.test(v)); assert.ok(/foreign: BOT_MAT_RE/.test(v))
+})
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
-const strip = s => s.split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, '')).join('\n')
-const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 await t('buildTidy runs the water visit when due, BEFORE the stage siting; the visit passes wet, the evidence file and the guard', async () => {
   const bt = SK.slice(SK.indexOf('async function buildTidy ('))
   const hook = bt.indexOf('if (bw3Due(bot)) {'), site = bt.indexOf("if (!rh.head || tidyDue(rh.head.rec) || gkNext) {")
