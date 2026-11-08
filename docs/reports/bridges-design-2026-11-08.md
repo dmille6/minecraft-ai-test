@@ -65,7 +65,7 @@ crossing clusters, and magenta lines are expedition sites.
   | hive-d | (5,134) | w 21 **arch** |
   | hive-d | (13,126) | w 29 **trestle** with 2 islets |
   | hive-d | (24,133) | w 9 arch |
-  | hive-c | (-142,-122) | w 12 **covered** |
+  | hive-c | (-142,-122) | w 12 **arch** ([`fleet-arch2-sheet.png`](bridges-design-2026-11-08/fleet-arch2-sheet.png); banks 1/0 rule out the covered bridge) |
   | placebo-b | several | footbridges |
 
 - The 9 towns on the shared seed need only footbridges.
@@ -98,8 +98,10 @@ shows exactly the cells a bot would place.
   alternate), crown lamps (centre, every bay or none).
 - Bill: w 13 ≈ 180 bricks + 6 lanterns. w 18 ≈ 265 bricks.
 
-**COVERED: a timber covered bridge** (spans 9-16, banks ≤ 1, logs above the reserve). Picture:
-[`fleet-covered-sheet.png`](bridges-design-2026-11-08/fleet-covered-sheet.png) (hive-c, w 12).
+**COVERED: a timber covered bridge** (spans 9-16, both banks equal at 0 or 1 so the floor is flush with both, logs above the reserve). Picture:
+[`fleet-covered-sheet.png`](bridges-design-2026-11-08/fleet-covered-sheet.png) (hive-d (24,133), w 9). This is a style picture: the bot would not build it there
+yet, because one of the bots' own cobblestone blocks stands in a floor cell. Bot fill in water is not natural ground, so the build never
+digs it (it could be another structure's).
 
 - The floor is 5 wide at the water: log sills along the bridge, cross beams at the bents, and a plank floor.
 - The frame:
@@ -137,7 +139,7 @@ shows exactly the cells a bot would place.
 1. The **shape** decides which styles are allowed (`stylesFor`):
    - footbridge up to 8 wide;
    - arch 9-21;
-   - covered 9-16, on banks ≤ 1;
+   - covered 9-16, on two equal banks of 0 or 1 (Paper r3: a bank one up at a portal is a jump under the tie beam, so the pathfinder finds no path out);
    - trestle beyond 21, or wherever there are islets.
 2. Where arch and covered both fit, a seeded coin picks which is tried first.
 3. **What the town can pay** decides the material:
@@ -218,14 +220,21 @@ Driver: `sandbox/bridges/design-proof.cjs`. Results: `sandbox/bridges/design-pro
 | foot w5 stone | 36 (7 s) | 31/31 + 3 | 2 | 8/8 | 2/2 | 31/31 |
 | foot w4 wood, banks 1/2 | 31 (6 s) | 26/26 + 3 | 14 | 8/8 | 2/2 | 26/26 |
 | foot w6 stone, **natural dirt in 2 of its cells** | 51 (11 s) | 44/44 + 3 (the dirt dug, the bridge's blocks in place) | 2 | 8/8 | 4/4 | 44/44 |
+| arch w15, banks 0/0 (r3, final code) | 217 (40 s) | all | | 8/8 | yes | yes |
+| trestle w18 timber, banks 2/0, 1 islet (r3) | 155 (30 s) | all | | 8/8 | yes | yes |
+| foot w3 stone + natural dirt (r3) | 30 (7 s) | all | | 8/8 | yes | yes |
+| covered w10, banks **0/1** (r3) | 218 (38 s) | all | | **4/8**: out-bound walks found no path (the step up to the 1-high far bank is under the portal's tie beam) | 3/3 | yes |
 | **K1 crafting** | stone_brick_stairs 4, slab 6, wall 6, deepslate_brick_stairs 4, cobbled_deepslate_wall 6, polished_deepslate 4, iron_nugget 9, lantern 1 | | | | | |
 
 **Totals:**
 
-- 10 bridges, 1,482 blocks placed by the bot, 0 misses.
+- 14 bridges, 2,102 blocks placed by the bot, 0 misses.
+- **One finding, fixed in the rule:** a covered bridge with banks 0/1 cannot be walked out over the 1-high bank, because the tie
+  beam blocks the jump. `stylesFor` now offers the covered bridge only on two equal banks, so the floor is flush at both portals.
+  Every other case crossed 8/8.
 - Every cell in its state, including 590 oriented cells. Stair facings were checked in all four directions and both halves; slab
   types, log axes on all three axes, and hanging and standing lanterns were checked too.
-- 80/80 crossings arrived dry.
+- 108/112 crossings arrived dry. The 4 that failed are the covered 0/1 case above; none fell in the water.
 - 0 deaths.
 
 **Not proven on Paper:**
@@ -303,6 +312,8 @@ The fleet has no expedition code at its tip, and no bridges at all. A port needs
 Candidates measured above:
 
 - hive-d: an arch w 21, a trestle w 29, an arch w 9;
-- hive-c: a covered bridge w 12;
+- hive-c: an arch w 12;
+- a covered bridge wherever both banks are level with each other. The fleet's lakes hold 2,718 bot fill blocks; boardwalk-03's
+  clean-up, or a fill rule, would free more covered sites;
 - placebo-b: footbridges;
 - the shared-seed river: footbridges.
