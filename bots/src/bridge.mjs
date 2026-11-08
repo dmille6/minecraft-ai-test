@@ -184,23 +184,30 @@ export const siteKey = s => `${s.near.join(',')}:${s.axis.join(',')}`
  * rail (ref: the rail, face up). Every step of row i is clicked STANDING on the previous row's centre (row 0: the near stand). A cell
  * already solid in the world is still listed (bridgeNext skips it).
  */
-export function bridgePlan (span, { torches = true } = {}) {
+export function bridgePlan (span, { torches = true, wood = null } = {}) {
   const [ax, az] = span.axis, lx = -az, lz = ax
   const wy = span.wy
   const out = []
+  // boardwalk-01: A WOODEN BRIDGE (`wood` { deck, rail }: the species' planks and fence) -- the same cells, the same order and the same
+  // clicks (a fence's ref is the side deck below it, face up, as the cobble rail's). The walkway's CENTRE names its family (`want`):
+  // it reads done only as planks (stepDone) -- the bots' dirt never stands for a wooden deck. The sides and rails take any solid as
+  // done, as the cobble bridge's do (a bank's own rock in a side cell is kept, never dug: bridgeNext only places into water and air)
+  const deckItem = wood?.deck ?? 'cobblestone', railItem = wood?.rail ?? 'cobblestone'
+  const deckWant = wood ? 'planks' : null, railWant = null
   for (const row of span.rows) {
     const i = row.i
     const [cx, , cz] = row.centre
     const stand = i === 0 ? [...span.near] : [cx - ax, wy + 1, cz - az]
     const prev = [cx - ax, wy, cz - az]
-    out.push({ cell: [cx, wy, cz], kind: 'deck', stand, ref: prev, face: [ax, 0, az], item: 'cobblestone', row: i })
-    for (const s of [-1, 1]) out.push({ cell: [cx + lx * s, wy, cz + lz * s], kind: 'side', stand, ref: [cx, wy, cz], face: [lx * s, 0, lz * s], item: 'cobblestone', row: i })
-    for (const s of [-1, 1]) out.push({ cell: [cx + lx * s, wy + 1, cz + lz * s], kind: 'rail', stand, ref: [cx + lx * s, wy, cz + lz * s], face: [0, 1, 0], item: 'cobblestone', row: i })
+    const w = (o, fam) => (fam ? { ...o, want: fam } : o)
+    out.push(w({ cell: [cx, wy, cz], kind: 'deck', stand, ref: prev, face: [ax, 0, az], item: deckItem, row: i }, deckWant))
+    for (const s of [-1, 1]) out.push(w({ cell: [cx + lx * s, wy, cz + lz * s], kind: 'side', stand, ref: [cx, wy, cz], face: [lx * s, 0, lz * s], item: deckItem, row: i }, null))
+    for (const s of [-1, 1]) out.push(w({ cell: [cx + lx * s, wy + 1, cz + lz * s], kind: 'rail', stand, ref: [cx + lx * s, wy, cz + lz * s], face: [0, 1, 0], item: railItem, row: i }, railWant))
     if (torches && i % TORCH_EVERY === 0) out.push({ cell: [cx + lx, wy + 2, cz + lz], kind: 'torch', stand, ref: [cx + lx, wy + 1, cz + lz], face: [0, 1, 0], item: 'torch', row: i })
   }
   return out
 }
-/** Blocks the plan still needs, by item (the cells not yet done in the world) -> { cobblestone, torch }. Pure. */
+/** Blocks the plan still needs, by item (the cells not yet done in the world) -> { cobblestone, torch, <planks>, <fence> }. Pure. */
 export function bridgeNeed (read, plan) {
   const out = { cobblestone: 0, torch: 0 }
   for (const s of plan) if (!stepDone(read, s)) out[s.item] = (out[s.item] ?? 0) + 1
@@ -210,8 +217,10 @@ export function bridgeNeed (read, plan) {
 export function stepDone (read, s) {
   const b = read(...s.cell)
   if (s.kind === 'torch') return /torch$/.test(nm(b)) || !AIRISH(b)
-  return blockDone(b)
+  return blockDone(b) && familyOk(b, s.want)
 }
+/** boardwalk-01: does the block belong to the step's family (`want`: 'planks' | 'fence'; none: any done block)? Pure. */
+export const familyOk = (b, want) => !want || (want === 'planks' ? /_planks$/.test(nm(b)) : want === 'fence' ? /_fence$/.test(nm(b)) : true)
 /**
  * THE NEXT STEP from the world -> { step, index } | { done: true } | { blocked: why, index }. Pure. The first step not done; its
  * reference must be done (the plan's order guarantees it once the steps before are), its cell clickable into. A torch step is
@@ -224,7 +233,7 @@ export function bridgeNext (read, plan, { torchOk = () => true, haveTorch = true
     if (s.kind === 'torch' && (!haveTorch || !torchOk(s))) continue
     const c = read(...s.cell)
     if (c == null) return { blocked: 'unread', index: k }
-    if (!placeableInto(c)) return { blocked: `cell_${nm(c)}`, index: k }
+    if (!placeableInto(c)) return { blocked: `cell_${nm(c)}`, index: k }   // boardwalk-01: a foreign block in a wooden cell too: never dug here
     if (!blockDone(read(...s.ref))) return { blocked: 'no_ref', index: k }
     return { step: s, index: k }
   }
@@ -234,7 +243,7 @@ export function bridgeNext (read, plan, { torchOk = () => true, haveTorch = true
 export function bridgeIntact (read, plan) {
   for (const s of plan) {
     if (s.kind === 'torch') continue
-    if (!blockDone(read(...s.cell))) return false
+    if (!stepDone(read, s)) return false
     if (s.kind === 'deck') { const [x, y, z] = s.cell; if (!passable(read(x, y + 1, z)) || !passable(read(x, y + 2, z))) return false }
   }
   return true
@@ -305,6 +314,8 @@ export function bridgeSites (lines = []) {
       if (!s) continue
       if (typeof l.complete === 'boolean') s.complete = l.complete
       if (l.failed) s.failed.push(Number(l.t) || 0)
+      // boardwalk-01: the bridge's material, named once when its first wooden trip starts (never changed after)
+      if (l.mat === 'wood' && !s.mat) { s.mat = 'wood'; s.species = String(l.species ?? 'oak') }
     }
   }
   return sites
@@ -333,3 +344,33 @@ export const bridgeCellKeys = (sites = []) => sites.flatMap(s => bridgePlan(s.sp
 
 /** `_expedition op=bridge_*` details. Pure. */
 export const spanDetail = s => `near=${s.near.join(',')} far=${s.far.join(',')} axis=${s.axis.join(',')} w=${s.w} wy=${s.wy} cost=${5 * s.w}`
+
+// ---- boardwalk-01: WOODEN BRIDGES (owner 11-08: "boardwalks, docks and wooden bridges at water edges instead of dirt bridges") ------
+/** BRIDGE_WOOD=on|off (default on): a NEW bridge is built of planks with fence rails while the town's logs are surplus. Off: cobble, as
+ *  before. A bridge keeps the material it was started in (its `mat` line), whatever the switch says later. Pure. */
+export const bridgeWoodOn = (env = process.env) => !OFF.includes(String(env?.BRIDGE_WOOD ?? '').trim().toLowerCase())
+/** The wooden palette of a species -> { deck, rail }. Pure. */
+export const bridgeWood = (species = 'oak') => ({ deck: `${species}_planks`, rail: `${species}_fence` })
+/** The wooden bill of a span -> { planks, fences, logs }: 3 planks a row (deck + sides), 2 fences a row; 4 planks a log, 3 fences a
+ *  craft of 4 planks + 2 sticks (2 planks make 4 sticks). Pure. */
+export function bridgeWoodBill (span) {
+  const w = Math.max(0, Number(span?.w) || 0)
+  const planks = 3 * w, fences = 2 * w
+  const crafts = Math.ceil(fences / 3)
+  const fencePlanks = 4 * crafts + 2 * Math.ceil((2 * crafts) / 4)
+  return { planks, fences, logs: Math.ceil((planks + fencePlanks) / 4) }
+}
+/**
+ * WHICH MATERIAL A SITE IS BUILT OF -> 'wood' | 'cobble'. Pure. A site that named its material keeps it; a site whose cobble plan has a
+ * cell standing already (a half-built cobble bridge) stays cobble; else wood when the switch is on and the wood this bot may spend
+ * (`woodAvail`, log units above the town's reserve: woodworks.mjs woodPressure) pays the whole bill.
+ */
+export function bridgeMaterial (site, read, { on = true, woodAvail = 0 } = {}) {
+  if (site?.mat === 'wood') return 'wood'
+  if (!on || !site?.span) return 'cobble'
+  const started = bridgePlan(site.span, { torches: false }).some(st => st.kind === 'deck' && blockDone(read(...st.cell)))
+  if (started) return 'cobble'
+  return Number(woodAvail) >= bridgeWoodBill(site.span).logs ? 'wood' : 'cobble'
+}
+/** The plan a site is built (and judged intact) by: its material's palette. Pure. */
+export const sitePlan = site => bridgePlan(site.span, site?.mat === 'wood' ? { wood: bridgeWood(site.species ?? 'oak') } : {})
