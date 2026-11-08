@@ -262,9 +262,24 @@ await t('BLOCKER 1: a listed deck cell that holds anything else now (a log) is n
   await R.runVisit(visitP(w.record), lakeBot(srv), { maxSteps: 400 })
   assert.strictEqual(srv.read(8, G, 0).name, 'oak_log'); assert.strictEqual(srv.read(8, G + 1, 0).name, 'oak_log')
 })
-await t('BLOCKER 2 (no planks): the visit opens no deck cell without a plank in the bag (structural: the record handed to runVisit)', async () => {
-  const v = SK.slice(SK.indexOf('async function waterWalkVisit ('), SK.indexOf('async function buildTidy ('))
-  assert.ok(/const rec = hasPlanks \? w\.record : \{ \.\.\.w\.record, cells: \[\], segments: \[\] \}/.test(v)); assert.ok(/record: rec, tidy: cuts/.test(v)); assert.ok(/foreign: BOT_MAT_RE/.test(v))
+const deckFor = async (M) => {
+  // three open deck cells, ONE plank: the visit lays one and digs nothing else
+  const srv = lake({ ...lineCells(5, 7) })
+  const w = M.bw3Work([asLine(5, 7, { walk: true })], srv.read)
+  const rec = M.bw3DeckFor(w.record, 1, q => R.cellDone(srv.read(...q.at), M.BW3_PALETTE, q.role))
+  assert.strictEqual(rec.cells.length, 1); assert.deepStrictEqual(rec.cells[0].at, [5, G, 0]); assert.strictEqual(rec.segments.length, 1)
+  const e = lakeBot(srv, 'A', { inv: { oak_planks: 1 } })
+  await R.runVisit(visitP(rec), e, { maxSteps: 200 })
+  assert.strictEqual(srv.read(5, G, 0).name, 'oak_planks'); assert.strictEqual(srv.read(6, G, 0).name, 'dirt'); assert.strictEqual(srv.read(7, G, 0).name, 'dirt')
+  assert.strictEqual(M.bw3DeckFor(w.record, 0, () => false).cells.length, 0)
+}
+await t('BLOCKER 2 (r2): the visit opens only as many deck cells as the bag holds planks -- no cell is dug it cannot plank', async () => {
+  await deckFor(W)
+  const v = SK.slice(SK.indexOf('async function waterWalkVisit ('))
+  assert.ok(/const rec = bw3DeckFor\(w\.record, planksNow,/.test(v)); assert.ok(/record: rec, tidy: cuts/.test(v)); assert.ok(/foreign: BOT_MAT_RE/.test(v))
+})
+await t('MUTANT KILLED: the plank budget ignored -> every open deck cell is opened and dug', async () => {
+  assert.ok(await withMutant('if (left > 0) { left--; return true } return false', 'return true', M => killedBy(deckFor, M)), 'the mutant survived')
 })
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 await t('buildTidy runs the water visit when due, BEFORE the stage siting; the visit passes wet, the evidence file and the guard', async () => {
