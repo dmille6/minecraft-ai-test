@@ -43,6 +43,7 @@ import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { deepModeDetail } from './deepmine.mjs'   // deepminer-01's licence row
 import { configuredHome } from './townground.mjs'   // placeaudit-fleet-01
 import { attachPlaceAudit, placeAuditOn } from './placeaudit.mjs'   // placeaudit-fleet-01 (scaftown-01's instrument, from the showcase's placeaudit-01)
+import { tradeInstall } from './skills.mjs'   // coalsale-01's licence row
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
@@ -60,6 +61,8 @@ export function installFeatures (bot) {
       if (pa) bot.once?.('end', () => { try { pa.final() } catch { /* telemetry */ } })
     }
   } catch (e) { log('warn', 'place audit not attached', { error: e?.message }) }
+  // coalsale-01: the trade trip's licence row (`_coalsale_mode`; COALSALE=off -> on=0)
+  try { tradeInstall(bot) } catch (e) { log('warn', 'coalsale not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)

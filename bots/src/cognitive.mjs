@@ -33,6 +33,7 @@ import { SHOP, buildOrder } from './shop.mjs'
 // coalfirst-01 (OWNER 10-29): the coal run (coalrun.mjs decides; this supplies readings and keeps the state)
 import { coalRunOrder, coalRunOutcome, coalRunDetail, COAL_KINDS, COAL_ORE_RADIUS } from './coalrun.mjs'
 import { townCoalStock } from './skills.mjs'
+import { tradeTripOrder, tradeStartOrder } from './skills.mjs'   // coalsale-01: the trade trip's next call / its start
 // deepminer-01 (OWNER 11-01 item 2): the town deep miner (deepmine.mjs decides; skills.mjs deepMine walks and digs)
 import { deepMineOrder, deepTripOrder, tripKit as deepTripKit, TRIP_NEXT_MS as DEEP_TRIP_NEXT_MS } from './deepmine.mjs'
 import { deepLeaseNow, deepStairNow } from './skills.mjs'
@@ -664,6 +665,7 @@ export class CognitiveLoop {
     // DEEPMINER-01: an open deep trip's next call comes at once (one job cut into 180 s calls, not a decision; Paper 11-01: the
     // gap between calls is when the reflexes read a miner in its own tunnel as stuck)
     if (deepTripOrder(this.bot?.deepTrip)) delay = Math.min(delay, DEEP_TRIP_NEXT_MS)
+    if (this.bot?.tradeTrip) delay = Math.min(delay, DEEP_TRIP_NEXT_MS)   // coalsale-01: an open trade trip's next call, the same way
     clearTimeout(this.nextTimer)
     this.nextTimer = setTimeout(() => {
       if (this.stopped || !this.running) return
@@ -1268,6 +1270,9 @@ export class CognitiveLoop {
     // model (the trip bounds itself: CALLS_MAX, TRIP_MAX_MS, RETURN_TRIES; its bank phase runs the town deposit itself). The
     // keep-out exit and the sky descent below still override it.
     { const o = deepTripOrder(this.bot?.deepTrip); if (o) order = o }
+    // COALSALE-01: AN OPEN TRADE TRIP GOES ON (skills.mjs tradeTripOrder: one trade_trip call per phase step), never over a deep
+    // trip (a trip starts only without one). It bounds itself: reasons to turn home, the 45 min stranded cap, 60 min dropped.
+    if (!this.bot?.deepTrip) { const o = tradeTripOrder(this.bot); if (o) order = o }
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1526,6 +1531,16 @@ export class CognitiveLoop {
             logEvent({ kind: 'shop_skip', status: 'no_effect', detail: `why=${r.skip}`, snapshot: snap })
           }
         }
+      } catch { /* a world read must never break the decision loop */ }
+    }
+    // COALSALE-01: START A TRADE TRIP (skills.mjs tradeStartOrder decides from trade.mjs: at town, in the morning, coal above the
+    // town's keep, a census buyer within 700 b, one trip per town and per bot per 2 h). After every town job, like the coal run.
+    if (!order) {
+      try {
+        const p = this.bot?.entity?.position
+        const atTown = !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= TOWN_RADIUS
+        const o = tradeStartOrder(this.bot, { now: Date.now(), atTown })
+        if (o) order = o
       } catch { /* a world read must never break the decision loop */ }
     }
     // THE COAL RUN (coalfirst-01; coalrun.mjs coalRunOrder decides, this supplies readings and keeps the state). After every
