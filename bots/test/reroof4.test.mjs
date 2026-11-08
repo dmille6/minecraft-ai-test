@@ -191,7 +191,7 @@ await t('wired (structural, comments stripped): buildReroof asks reroofProve and
   assert.ok(sk.includes('reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch })'))
   assert.ok(sk.includes("    Object.assign(storeOpts, reroofVisitOpts(rec, stood))"))
   assert.ok(sk.includes('walkRead: reroofNoLeafFloor, stairFirst: true, ...(Array.isArray(stood) ? { stood: reroofSeeds(stood, rec.box) } : {}) } : {})'))
-  assert.ok(sk.includes("    if (r.stop === 'complete' && reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)"))
+  assert.ok(sk.includes("    if (reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)"), 'the teardown on any stop (Codex r1 BLOCKER)')
   assert.ok(sk.includes('    if (r?.restyle && reroofTempState(bot, r)) return true'))
   const br = strip('../src/buildrun.mjs')
   assert.ok(br.includes('walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null })'))
