@@ -96,5 +96,15 @@ export function startChunkEvictor(bot, { radius = KEEP_CHUNK_RADIUS, everyMs = S
 
   const t = setInterval(sweep, everyMs)
   t.unref?.()
-  return () => clearInterval(t)
+  const stop = () => clearInterval(t)
+  // HIVEDROP-01: THE SWEEP ENDS WITH ITS CONNECTION. index.mjs builds a new bot on every reconnect and dropped this function's
+  // stop, so every old bot's sweep ran on for the life of the process -- and its closure held that bot, its WorldSync and every
+  // chunk column it still had (a dead bot never moves, so nothing beyond the radius was ever evicted). Measured on .31 11-08:
+  // hive-a-Echo, 18 connects in one process -> 18 live World and 18 live Client objects (hive-b-Alpha, 1 connect -> 1 and 1);
+  // a heap snapshot's retaining path for the old World runs setInterval 60000 -> sweep -> bot. RSS grew a world a reconnect
+  // (external_mb 317 -> 384 in 5 min). EVICTOR_END=off is the rollback: the sweep outlives its bot again, as before.
+  if (evictorEndOn()) { try { bot.once?.('end', stop) } catch { /* a bare bot: the caller's stop still works */ } }
+  return stop
 }
+
+export const evictorEndOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.EVICTOR_END ?? '').trim().toLowerCase())

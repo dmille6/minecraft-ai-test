@@ -481,6 +481,14 @@ export function retrySettle (rt, p, e) {
 }
 /** BODY WAITS a visit spends on a cell another builder stands in before it stops (`body_wait`) instead of spending its steps. */
 export const BODY_WAITS = 20
+/**
+ * HIVEDROP-01: THE LONGEST A VISIT RUNS ON THE EVENT LOOP BEFORE IT YIELDS (setImmediate: the socket's reads, the keepalive answer,
+ * physics and the reflexes run). The visit's loops (segments, clears, the canopy) plan walks with whole-town floods (walkFrom) that
+ * await nothing when no stand is found, and Paper drops a client that leaves its keepalive unanswered for 30 s. The yields are at
+ * loop heads only, never between a fence and its send. LOOPYIELD=off is the rollback: no yields, a fresh canopy plan every leaf.
+ */
+export const BREATHE_MS = 200
+export const loopYieldOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.LOOPYIELD ?? '').trim().toLowerCase())
 async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS } = {}, rt = null) {
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
@@ -542,6 +550,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // holder's lock alive for good)
   const gone = rec => (!!rec?.holder && rec.holder !== me && PJ.holderGone(Number(rec.at), { ...(e.seen?.(rec.holder, now()) ?? {}), conn: rec.conn ?? null, presence: PJ.presenceRead(dir, key, rec.holder), now: now() }))
   const mutex = () => PJ.mutexTake(dir, key, me, { now: now(), conn, gone })
+  // HIVEDROP-01: THE VISIT LETS THE CONNECTION BREATHE (breathe below). -> true when it yielded (the world may have moved)
+  let breathedAt = Date.now()
+  const breathe = async () => {
+    if (!loopYieldOn() || Date.now() - breathedAt < BREATHE_MS) return false
+    await new Promise(r => setImmediate(r))
+    breathedAt = Date.now()
+    return true
+  }
 
   // ---- 0. our own leftovers (an earlier connection's intents; acknowledgements that came after the click stopped waiting) ------
   PJ.closeOwn(dir, key, me, { conn, acked: e.acked?.() ?? 0, now: now() })
@@ -922,6 +938,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     let nodes = null, tried = 0
     try {
       for (const c of todo) {
+        if (await breathe()) nodes = null                           // hivedrop-01: a yield may have moved the world
         // the step guard counts the entries a dig is TRIED for (below the skips), and `p.clearMax` bounds them per call: a long
         // list (monument-01) leaves the rest of the visit for the segments instead of ending it at max_steps in the clears
         if (tried >= (p.clearMax ?? Infinity)) return null
@@ -996,13 +1013,23 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       }
       if (!pass) seen = list.size
       let progress = false
+      // HIVEDROP-01: ONE WALK PLAN FOR A RUN OF LEAVES NO STAND REACHES. It was re-planned for every leaf, and a leaf with no stand
+      // awaits nothing, so a big canopy (hive-a's open ziggurat 11-08) ran hundreds of whole-town floods back to back on the event
+      // loop: 47-54 s busy runs in a CPU profile of hive-a-Echo, the server's 30 s keepalive missed, "Timed out" 33-45 an hour.
+      // Nothing between two stand-less leaves changes the world, so the plan is the same; it is re-planned after every dig (the
+      // walk and the dig moved the bot and the world) and after every yield, exactly where the old code could see a change.
+      // LOOPYIELD=off is the rollback: a fresh plan for every leaf, as before.
+      let nodes = null
       for (const q of [...list.values()].sort((a, b) => b.at[1] - a.at[1])) {
         if (canopyDug >= max) break
+        if (await breathe()) nodes = null
         const g = guard(); if (g) return { dug, stop: g }
-        const nodes = nodesFor()
+        if (!loopYieldOn()) nodes = null
+        nodes ??= nodesFor()
         if (!digStand(rd, q.at, nodes)) continue                 // not from here yet: a later pass, once the outer leaves are gone
         tried.add(kOf(q.at))
         const v = await digNamed(q.at, q.name, held, nodes)
+        nodes = null
         if (v === 'fence') return { dug, stop: 'fence:segment' }
         if (v === 'aborted') return { dug, stop: 'aborted' }
         last = v
@@ -1085,6 +1112,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   }
   try {
   for (const { seg, deps } of segmentsOf(record)) {
+    await breathe()                                                  // hivedrop-01: a segment's flood never follows another unbroken
     if (segComplete(rd, record, palette, seg, alsoDoneV)) continue
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
     if (!deps.every(d => segComplete(rd, record, palette, d, alsoDoneV))) { out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d, alsoDoneV)).join(',')}`; return out }
@@ -1095,6 +1123,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     let finished = false
     try {
       for (;;) {
+        await breathe()
         const g = guard(); if (g) { out.stop = g; return out }
         const mine = record.cells.filter(c => c.seg === seg)
         const open = mine.filter(c => !isDone(c))
