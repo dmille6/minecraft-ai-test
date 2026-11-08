@@ -203,6 +203,7 @@ import { tidyColumn } from './tidy.mjs'   // roughground-3: the landmark's groun
 import { inwallFirst, stageTryOrder, inwallAtNext, roughCutWaits, hollowClear } from './roughground.mjs'   // roughground-01: inside the walls again before the next band   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved, fellClearArea } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
+import { BOT_MAT as BOT_MAT_RE, BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -25478,6 +25479,112 @@ export async function gkSweep (bot, signal, { until = Date.now() + GKSWEEP.budge
   try { logEvent({ kind: 'build', status: took > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'sweep', n: took, kind: kinds.slice(0, 120), why: why.slice(0, 160), result: took > 0 ? 'took' : 'none' }) }) } catch { /* telemetry */ }
   return { took, kinds, picks: sel.picks.length, skipped: sel.skipped }
 }
+// ================================================================================================================================
+// BOARDWALK-03 (OWNER 11-08, boardwalk.mjs): the bots' dirt and cobble standing in the town's water -- a plank walkway in place where
+// the bots cross, dug out everywhere else. Only cells the evidence file proves the bots placed (genesis: the world's own jar and
+// seed made water there), only while the world still shows them. The keeper's tidy visit runs it every BW3.everyMs (before its
+// stage work, so it always happens: a lap of its own, not the tail of a full visit). BOARDWALK3=off: nothing.
+// ================================================================================================================================
+const BW3S = { on: bw3On(), walk: bw3WalkOn() }
+const bw3Docs = new Map()
+/** The pool's evidence file (bots/src/waterstrays/<pool>.json), read once a process -> the parsed doc | null. Never throws. */
+function bw3Doc (pool) {
+  if (bw3Docs.has(pool)) return bw3Docs.get(pool)
+  let d = null
+  try { if (/^[a-z0-9-]+$/.test(String(pool))) d = JSON.parse(fs.readFileSync(new URL(`./waterstrays/${pool}.json`, import.meta.url), 'utf8')) } catch { d = null }
+  bw3Docs.set(pool, d)
+  return d
+}
+/** Is the water visit due for this bot now (switch, clock)? Pure but for the switch. */
+export const bw3Due = (bot, now = Date.now(), every = BW3.everyMs) => BW3S.on && now - (Number(bot?.bw3At) || 0) >= every
+/** One water visit -> { tried, status, why, placed, cleared, stop }. `tried` false: nothing was walked to or dug (no file, no work). */
+async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL_MS } = {}) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const no = why => ({ tried: false, why })
+  const home = planHomeP()
+  const ev = bw3Evidence(bw3Doc(config.memory.pool), { pool: config.memory.pool, home })
+  if (!ev.ok) return no(ev.why)
+  let guard
+  try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return no('record_unreadable') }
+  const read = planReader(bot)
+  const w = bw3Work(ev.lines, read, { guard: k => guard.has(k), walkOn: BW3S.walk, home })
+  const mem = (bot.bw3Given ??= new Map())
+  const cuts = w.cuts.filter(q => !tidyGivenUp(mem, q.at.join(',')))
+  if (!cuts.length && !(w.stats.deck > w.stats.deckDone)) return no(bw3HasWork(w) ? 'given_up' : 'nothing')
+  if (deadline - t0 < BW3.minVisitMs) return no('late')
+  const dir = townDir(), key = projKeyOf(BW3_PLOT), me = bot.username ?? 'bot'
+  // THE RECORD (the fence's generation): the deck cells as sited; written again only when that cell list changes
+  const sig = w.record.cells.map(q => `${q.at.join(',')}@${q.seg}`).join(' ')
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return no('record_unreadable')
+  if (!rh.head || rh.head.rec?.sig !== sig) {
+    const pub = publishRecord(dir, key, cur => (cur?.sig === sig ? null : { ...w.record, home: { x: home.x, y: home.y, z: home.z }, sig, sitedAt: Date.now(), sitedBy: me, structure_complete: false, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return no('lost_record')
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return no('record_unreadable')
+  }
+  const slot = takeSlot(dir, key, me, BW3.builders)
+  if (!slot.ok) return no('slots_full')
+  const slotRef = { gen: slot.gen }
+  const placedBy = {}
+  let effects = null, planks = 0
+  const row = (status, extra) => { try { logEvent({ kind: 'waterwalk', status, snapshot: snapshot(bot), detail: bw3Detail({ stats: w.stats, cuts: cuts.length, planks, ...extra }) }) } catch { /* telemetry */ } }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    // THE PLANKS: the open deck cells less the bag's planks, drawn as the town's logs above the reserve (the project draw) and
+    // crafted here; a town with no spare logs leaves the deck cells for a later visit (the cuts go on)
+    const held0 = heldMap(bot)
+    const spare = Object.entries(held0).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
+    const owe = bw3PlanksOwed(w, spare)
+    if (owe > 0) {
+      try {
+        const town = matsTownStock(bot)?.stock ?? {}
+        const pf = planksFromLogs({ oak_planks: owe }, { spare: () => 0, town })
+        if (pf) {
+          const R0 = matsReserve().table
+          const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow })
+          const wd = await matsWithdraw(ctx, { [pf.log]: pf.logs }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain)
+          const got = Number(wd.took?.[pf.log]) || 0
+          if (got > 0) { try { await craft(ctx, { item: pf.planks, count: got * 4 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+        }
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      planks = Object.entries(heldMap(bot)).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
+    }
+    check(signal)
+    // NO PLANKS, NO DECK THIS VISIT (Codex r1 BLOCKER 2): the deck's foreign dig is never opened without a plank to lay after it
+    const hasPlanks = Object.entries(heldMap(bot)).some(([n, c]) => /_planks$/.test(n) && c > 0)
+    const rec = hasPlanks ? w.record : { ...w.record, cells: [], segments: [] }
+    effects = botBuildEffects(bot, {
+      acks,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: BW3_PLOT, ...d }) : buildRowDetail({ project: BW3_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const stood = stoodRead(dir, stoodKey(), home)
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, tidyKeepOrder: true, recordGen: rh.head.gen, foreign: BOT_MAT_RE, palette: BW3_PALETTE, res: null, resFailed: false,
+      slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.bw3Stands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, intoWater: true, alsoDone: q => guard.has(q.at.join(',')) },
+    effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
+    // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts: TIDY_CUT_TRIES visits)
+    const read2 = tidyRead(bot)
+    const cutAt = new Map(cuts.map(q => [q.at.join(','), q]))
+    tidyNoteCuts(mem, r.tidied ?? [], k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
+    const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    row(status, { placed: r.placed, cleared: r.cleared, stop: r.stop, why: r.why })
+    return { tried: true, status, why: `water: ${r.cleared} dug, ${r.placed} planks laid (${r.stop})`, placed: r.placed, cleared: r.cleared, stop: r.stop }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row('failed', { stop: 'error', why: String(e?.message ?? e) })
+    return { tried: true, status: 'failed', why: String(e?.message ?? e).slice(0, 100), placed: 0, cleared: 0, stop: 'error' }
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
 async function buildTidyVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -25524,6 +25631,12 @@ async function buildTidyVisit (ctx, args, signal) {
   bot.gkSweepRole = GROUNDS.on ? role : null
   // gkclear-02: a keeper's tidy visit is stamped at its start with the town's count (an interrupted visit still spends its turn)
   if (GKW_ON && role === 'keeper') { try { bot.gkwTown = null; const t = gkwTownRead(bot); if (t.sig) bot.gkwTried = { sig: t.sig, total: t.total, at: Date.now() } } catch { /* the stamp is advisory */ } }
+  // BOARDWALK-03: the town's water, every BW3.everyMs, before the stage (the keeper's; a visit with no water work goes on to the grounds)
+  if (role === 'keeper' && bw3Due(bot)) {
+    bot.bw3At = Date.now()
+    const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+    if (ww.tried) return out(ww.status, 'waterwalk', ww.why, { stop: 'waterwalk', placed: ww.placed, cleared: ww.cleared })
+  }
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
   const gkNext = GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStageCycle(rh.head.rec) : null
   // gkhelpers-01: the siting is the keeper's (its plan): a helper finding a stage to site leaves it for the keeper's next visit
