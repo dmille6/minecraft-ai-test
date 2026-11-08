@@ -106,6 +106,7 @@ const REQUIRED = [
   // dropanddig-01 (11-04): the air pocket is dug STANDING over a floor within 2 (the time-budget drownings)
   // idlework-01 (11-06): the design (the code is on branch idlework-01 until it promotes)
   'docs/reports/idlework-design-2026-11-06.md',
+  'docs/reports/scaffold-design-2026-11-07.md',   // scaftown-01 (11-07): who places the scaffold, and the town price
   'docs/reports/roughground-design-2026-11-07.md',   // roughground-01 (11-07): the owner's circled rough ground, mapped + the fix
   'docs/reports/bagfull-design-2026-11-07.md',   // bagfull-01 (11-07): full bags block showcase build orders; the room bank
   'docs/reports/flowers-design-2026-11-07.md',   // flowers-01 (11-07): the flower supply + the border upgrade (code on branch flowers-01show)

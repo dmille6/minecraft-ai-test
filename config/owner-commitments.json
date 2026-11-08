@@ -5962,6 +5962,34 @@
     ]
    },
    "note": "One keeper tidy visit in 2 h (strike 1/3); the next keeper's order led with the forest; 11 clears no stand reaches are skipped uncounted."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "scaffold-1107",
+   "title": "Scaffold at the source (owner 11-07: 'we're still using dirt as a cheap way to get around and get over obstacles ... a cheap poor man's path finding solution?'): a walk's placement in and around a town costs +20 after legality, so bots use the town's stairs, paths and gates instead of dirt towers; never a veto",
+   "owner_date": "2026-11-07",
+   "memory": [
+    "scaffold-1107.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-08: BUILT, ready to stage / queue. Showcase scaftown-01show c523bc53 on live 01c6debf (Paper sandbox6: ledge 6->0 dirt left, wall+gate 9->0, pit-in-town 3/3 out, far unchanged). Fleet: placeaudit-fleet-01 3b85ebd9 (tier 2, instrument; FIRST) then scaftown-01 2366d466 (tier 3, P); registrations + draft entries ~/mcai-analysis/{placeaudit-fleet-01,scaftown-01}.*. Suites: show ci2 467/469 (craftsync flake, orphan base), fleet .30 417/419 (plinth-skill flake, well base). Reviews: Codex r1 1 BLOCKER fixed (restart-in-place), r2 none; Claude r1/r2 none. NEXT: control session stages/queues; read _scaftown_hits + _place_town pathfinder rate; pieces 2 (take-back + gather) and 3 (access at hot spots) designed.",
+   "evidence": {
+    "grep": [
+     "scaftown-01"
+    ],
+    "branches": [
+     "scaftown-01show",
+     "placeaudit-fleet-on-de9fe23d",
+     "scaftown-01-on-placeaudit-fleet"
+    ],
+    "paths": [
+     "docs/reports/scaffold-design-2026-11-07.md"
+    ]
+   },
+   "note": "Showcase 24 h to 11-08 00:43Z (CoreProtect-matched 2,609/2,615): pathfinder 1,945 movement blocks in town+margin (pillar 1,048, step 877), 409 cells standing, 137 on top; pillarOut 576, 9 on top. Fleet has no placement instrument (placeaudit-fleet-01 adds it)."
   }
  ]
 }
