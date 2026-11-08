@@ -744,6 +744,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   // never worse: the interior cells walked NOW stay walked (fx.access; else every open interior cell, as before)
   // (LEAVES, below) and (FALL, r5): the ledges whose fall lands off the town walk are never a stand or a step (reroofFallRisk)
   const PR0 = fx.access ? reroofNoLeafFloor(read) : read
+  if (fx.access) await tick()
   const avoid = fx.access && fx.fallSafe ? reroofFallRisk(PR0, walkFrom(PR0, home, new Set(), walkR, { stood }), { box: rec.box }) : null
   const now = fx.access ? walkFrom(read, home, new Set(), walkR, { stood, avoid }) : null
   // (LEAVES) the proof walks on no natural leaves (fx.access): a canopy is dug, or decays once its trunk is gone (Paper sandbox4 11-08: the
@@ -752,29 +753,36 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   const proveWith = (cl, extra = null) => proveSite(PR, home, bpAdd, { anchor, s: rec.s, orient: rec.orient, clear: cl, fill: fillOf(extra) }, { stood, ...(domain ? { domain } : {}), walkR, floors, avoid, gone: extra ?? null, ...(now ? { interiorNow: k => now.has(k) } : {}) })
   // the listed digs' reach over a proven roof: the ground walk, else the build order (the proof's cells: a stair first, then the
   // roof, its slabs floors), else the canopy round them grown -> { ok, clear, p, rc }
-  const reach = (clear0, p0, extra) => {
+  // r5: async, the event loop's turn between its expensive steps (Paper 11-08: a proof that held the loop 38 s got the bot kicked)
+  const reach = async (clear0, p0, extra) => {
     if (!clear0.length) return { ok: true, clear: clear0, p: p0 }
+    await tick()
     let rc = reroofClearsReached(PR, home, clear0, { stood, walkR, avoid })
     if (rc.ok || !fx.ordered) return { ok: rc.ok, clear: clear0, p: p0, rc }
     const nameOf = role => { const n = (bpAdd.palette?.[role] ?? ['stone'])[0]; return String(n).startsWith('$') ? 'oak_planks' : n }
     const ordered = (list, cells) => reroofOrderedReach(PR, home, list, cells, { stood, walkR, domain, floors, avoid, wantOf: c => (c.ws || c.blind ? { name: nameOf(c.role), ws: c.ws ?? null, blind: !!c.blind } : null),
       blockOf: c => ({ name: nameOf(c.role), boundingBox: c.role === 'light' ? 'empty' : 'block', ...(c.ws ? { props: c.ws } : {}) }) })
+    await tick()
     rc = ordered(clear0, p0.cells)
     if (rc.ok) return { ok: true, clear: clear0, p: p0, rc }
+    await tick()
     const g = reroofCanopyGrow(read, clear0, list => ordered(list, p0.cells), { own, recordAt, roofTrees: fx.roofTree })
     if (g.rc.ok) {
+      await tick()
       const p2 = proveWith(g.clear, extra)
+      await tick()
       const o2 = p2.ok ? ordered(g.clear, p2.cells) : null
       if (o2?.ok) return { ok: true, clear: g.clear, p: p2, rc: o2 }
     }
     return { ok: false, clear: clear0, p: p0, rc }
   }
   const clear = [...ob.clear, ...(approach?.cuts ?? []).filter(c => !ob.clear.some(d => d.at.join(',') === c.at.join(','))).map(c => ({ at: c.at.slice(), name: c.name, kind: 'cut' }))].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
+  await tick()
   const p = proveWith(clear, null)
   const unreached = r => `${r.rc.unreached.length}/${r.clear.length} first ${r.clear.find(c => c.at.join(',') === r.rc.unreached[0].join(','))?.name}@${r.rc.unreached[0].join(',')}`
   let fail0 = null
   if (p.ok) {
-    const r = reach(clear, p, null)
+    const r = await reach(clear, p, null)
     if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: r.clear, retire: ob.retire, step, temp: null }
     fail0 = { ok: false, why: 'clear_unreached', detail: unreached(r) }
   } else fail0 = { ok: false, why: p.why, detail: p.detail }
@@ -804,7 +812,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  stair', set.map(st => JSON.stringify(st.eave)).join('+'), keys.size, q.ok ? 'OK' : `${q.why} ${q.detail}`)
     if (!q.ok) continue
     await tick()
-    const r = reach(clear, q, keys)
+    const r = await reach(clear, q, keys)
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    reach', r.ok ? 'OK' : unreached(r))
     if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: r.clear, retire: ob.retire, step, temp: keys }
   }
