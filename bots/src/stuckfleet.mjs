@@ -87,3 +87,56 @@ export function capDigs (at, { read, isOpenAbove = () => false, scaffold = /^$/,
   }
   return []
 }
+
+// ---- STUCKFLEET-02 (11-08): A CELL ORPHANED BY THE WAIVER BELOW IT -------------------------------------------------------------
+// LIVE board-c tidy (fleet 1e593b9b, 11-08; stuck since 10:14Z): core 372,66,152 of a filled pit column (63 laid; 64 and 65 WAIVED
+// `attempts stand`; 66 open; 67 earth over it). The region read: 64..68 of the column and every side cell at 66 are AIR -- the cell
+// has no face to click, so no stand ever places it (stuck map 26 visits summed over 5 bots); 12 of the stage's 36 cells are waived,
+// past gkwork's stall share (ceil(0.25 x 36) = 9), so nothing waives it and the stage holds for good. Two correct guards composing:
+// the waiver gave the support up, and the stall share keeps the ground from being given up wholesale.
+// REMEDY orphanWaiveDue: a deferred record cell whose cell BELOW is a waived record cell of this stage and which has NO solid face
+// (all six neighbours read open; an unread one counts as solid: never on no evidence) is waived `orphan`, and so is each open record
+// cell straight above it that is left with no solid face the same way (the column already given up below). It is the waiver's own
+// consequence, not new ground given up: outside the stall share, but at most ORPHAN_MAX a visit and never past ORPHAN_CEIL of the
+// stage waived in all (a stage never closes with more than half its cells undone). Never a light (stuckfleet-01 owns them).
+export const ORPHAN_AFTER = 2        // deferring visits, summed over builders (= LIGHT_WAIVE_AFTER)
+export const ORPHAN_MAX = 6          // cells waived a visit
+export const ORPHAN_CEIL = 0.5       // the stage's waived share this remedy never passes
+export const stuckFleet2On = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STUCKFLEET2 ?? '').trim().toLowerCase())
+const N6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+/** A neighbour a placement could click -> bool: a solid block, or UNREAD (never "open" on no evidence). Pure. */
+const faceSolid = b => !b || (b.boundingBox === 'block' && !AIRN(nm(b)))
+/** Does the cell at `at` have any face to place against? -> bool. `gone(k)` cells counted open (waived this pass). Pure. */
+export function hasFace (read, at, gone = () => false) {
+  return N6.some(([dx, dy, dz]) => { const q = [at[0] + dx, at[1] + dy, at[2] + dz]; return !gone(kOf(q)) && faceSolid(read(...q)) })
+}
+/**
+ * REMEDY 4 -> [{ k, why }]. Pure. `rec` the tidy stage (cells, waived), `deferred` runVisit's out.deferred ({ k, why, visits }),
+ * `read` the world. The rules above; the cells straight above an orphan are taken only while each is open, a record cell, not a
+ * light, and itself without a face.
+ */
+export function orphanWaiveDue (rec, deferred = [], read, { after = ORPHAN_AFTER, max = ORPHAN_MAX, ceil = ORPHAN_CEIL } = {}) {
+  if (typeof read !== 'function') return []
+  const cells = new Map((rec?.cells ?? []).filter(c => Array.isArray(c?.at) && c.role !== 'light').map(c => [kOf(c.at), c]))
+  const have = rec?.waived ?? {}
+  const waived = k => Object.prototype.hasOwnProperty.call(have, k)
+  let room = Math.min(max, Math.floor(ceil * cells.size) - Object.keys(have).length)
+  const out = [], taken = new Set()
+  const gone = k => waived(k) || taken.has(k)
+  const isOpen = at => { const b = read(...at); return !!b && (AIRN(nm(b)) || b.boundingBox === 'empty') }
+  for (const d of deferred ?? []) {
+    if (room <= 0) break
+    const k = String(d?.k ?? '')
+    const c = cells.get(k)
+    if (!c || gone(k) || (Number(d?.visits) || 0) < after) continue
+    const below = kOf([c.at[0], c.at[1] - 1, c.at[2]])
+    if (!cells.has(below) || !waived(below) || !isOpen(c.at) || hasFace(read, c.at, gone)) continue
+    out.push({ k, why: `orphan:below_waived ${String(d?.why ?? 'no_stand').slice(0, 40)}` }); taken.add(k); room--
+    for (let y = c.at[1] + 1; room > 0; y++) {
+      const q = [c.at[0], y, c.at[2]], kq = kOf(q)
+      if (!cells.has(kq) || gone(kq) || !isOpen(q) || hasFace(read, q, gone)) break
+      out.push({ k: kq, why: 'orphan:column_above' }); taken.add(kq); room--
+    }
+  }
+  return out
+}
