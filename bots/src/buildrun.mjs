@@ -525,6 +525,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // lands off the town walk is never a stand or a step)
   let avoidSet = null
   try { avoidSet = typeof p.avoid === 'function' ? p.avoid(walkRd) : (p.avoid ?? null) } catch { avoidSet = null }
+  // ...and the pathfinder never walks over one either (Codex r5 BLOCKER: the guard filtered the stands only; a walk to a safe stand could
+  // still cross a risky ledge): every walk of this visit carries the set in its step fence (buildbot.mjs walkTo `avoid`)
+  if (avoidSet?.size) { const e0 = e; e = { ...e0, walkTo: (s, o = {}) => e0.walkTo(s, { ...o, avoid: o?.avoid?.size ? new Set([...o.avoid, ...avoidSet]) : avoidSet }) } }
   const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null, avoid: avoidSet }))
   const conn = e.conn?.() ?? null
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })

@@ -229,6 +229,41 @@ async function stairFirstScene (M) {
   const rows = e.logs.filter(([k, d]) => k === '_build' && (d.op === 'place' || d.op === 'clear')).map(([, d]) => d.op)
   return { rows, srv, stair }
 }
+await t('r5 runVisit `p.avoid` (Codex r5 BLOCKER): every walk of the visit carries the avoided ledges in its step fence, and no stand is one', async () => {
+  const { R, PJ, G, server, bot, SITE, project } = await import('./helpers/buildfake.mjs')
+  const srv = server()
+  const stair = [[20, G + 1, 0], [20, G + 2, 0]]
+  const rec = { ...SITE.record, cells: stair.map(at => ({ at, role: 'fill', seg: 'reroof-earth' })), segments: [{ seg: 'reroof-earth', layer: -1, deps: [] }], clear: [], restyle: { id: 'x@1r' } }
+  const run = async (avoid, M = R) => {
+    const pr = project(rec), h = PJ.recordHead(pr.dir, pr.key)
+    srv.cells.clear()
+    const e = bot(srv, 'A', { feet: [10, G + 1, 0] })
+    const walks = [], w0 = e.walkTo
+    e.walkTo = async (st, o = {}) => { walks.push({ st, avoid: o.avoid ?? null }); return w0(st, o) }
+    const r = await M.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, palette: { fill: ['cobblestone'] }, ...(avoid ? { avoid } : {}) }, e, { maxSteps: 200 })
+    return { r, walks }
+  }
+  const risky = new Set([`21,${G + 1},0`, `19,${G + 1},0`])
+  const a = await run(() => risky)
+  assert.ok(a.walks.length > 0, 'it walked')
+  assert.ok(a.walks.every(w => w.avoid && [...risky].every(k => w.avoid.has(k))), 'every walk fences the ledges')
+  assert.ok(a.walks.every(w => !risky.has(w.st.join(','))), 'no stand is an avoided cell')
+  const b = await run(null)
+  assert.ok(b.walks.length > 0 && b.walks.every(w => ![...risky].some(k => w.avoid?.has(k))), 'positive control: without the guard no walk fences them')
+})
+await t('r5 MUTANT: the walk fence dropped -- a walk no longer carries the avoided ledges (killed for that reason)', async () => {
+  const { R, PJ, G, server, bot, SITE, project, withMutant: wm } = await import('./helpers/buildfake.mjs')
+  await wm("  if (avoidSet?.size) { const e0 = e; e = {", "  if (false) { const e0 = e; e = {", async M => {
+    const srv = server()
+    const rec = { ...SITE.record, cells: [[20, G + 1, 0]].map(at => ({ at, role: 'fill', seg: 'reroof-earth' })), segments: [{ seg: 'reroof-earth', layer: -1, deps: [] }], clear: [], restyle: { id: 'x@1r' } }
+    const pr = project(rec), h = PJ.recordHead(pr.dir, pr.key)
+    const e = bot(srv, 'A', { feet: [10, G + 1, 0] })
+    const walks = [], w0 = e.walkTo
+    e.walkTo = async (st, o = {}) => { walks.push(o.avoid ?? null); return w0(st, o) }
+    await M.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen, palette: { fill: ['cobblestone'] }, avoid: () => new Set([`21,${G + 1},0`]) }, e, { maxSteps: 200 })
+    assert.ok(walks.length && walks.every(a => !a?.has(`21,${G + 1},0`)), 'the mutant walks unfenced')
+  })
+})
 await t('runVisit `stairFirst`: an open temporary stair is built BEFORE any listed clear is dug (the proof reached the digs over it)', async () => {
   const { R } = await import('./helpers/buildfake.mjs')
   const { rows, srv, stair } = await stairFirstScene(R)
