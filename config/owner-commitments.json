@@ -6085,6 +6085,34 @@
     "paths": []
    },
    "note": "Measured 11-08 with telemetry.py full walks on the showcase (816 k rows / 15 bots, 72 h; 1.80 M / 7 d) and the fleet (3.43 M rows / 80 bots, 36 h), region reads and offline replays of the live code on region dumps. Roofs: 2 of 7 showcase buildings have pitched roofs (house1 57/57 and the workshop 72/72 retrofit cells built 11-06); hall, storehub, enchantshop retrofits refused every try; cottage and town hall never sited."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "glass-1108",
+   "title": "Glass windows (owner 11-08): a sand-to-glass line -- capped, project-driven shore sand -> the panes kind -> glaze the buildings' plank windows; trapdoor fallback in styled blueprints",
+   "owner_date": "2026-11-08",
+   "memory": [
+    "glass-1108.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-08: BUILT, not queued. Fleet glass-01-on-1e593b9b 7dcab440 (stacked on stoneworks-01 = 565f115e), registration ~/mcai-analysis/glass-01.7dcab440.json (effectwatch validate: valid) + draft entry glass-01.queue-entry.json (after stoneworks-01). Showcase glass-01show 36a36ce5 on buildsite-01show ec3774e8 (ready to stage; 35 panes in town glaze its 32 planks windows with no sand). Codex r1 1 blocker fixed, r2 FIXED; Paper sandbox8 7/7. Control session places the queue entry and stages the showcase piece.",
+   "evidence": {
+    "grep": [
+     "glass-01"
+    ],
+    "branches": [
+     "glass-01show",
+     "glass-01-on-1e593b9b"
+    ],
+    "paths": [
+     "docs/reports/glass-2026-11-08.md",
+     "sandbox/glass/glass-proof.mjs"
+    ]
+   },
+   "note": "Measured 11-08: fleet 77 window cells, 74 planks; town sand 161/12 towns (10 hold 0), panes 61; safe surface sand ~0-53 cells within 96 a town (hive-d a desert; board-b 0, placebo-d 2); drowning 2/13 deaths 24 h, both underground. Showcase 66 windows, 32 planks, panes 35."
   }
  ]
 }

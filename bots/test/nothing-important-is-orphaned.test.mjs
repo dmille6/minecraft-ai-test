@@ -117,6 +117,10 @@ const REQUIRED = [
   'docs/reports/woodworks-design-2026-11-08.md',   // woodworks-1108: fences, gates, wooden bridges (code on fences-01show / boardwalk-01show)
   'sandbox/woodworks/fence-proof.cjs',   // fences-01: the Paper ring/walk/gate proof
   'sandbox/woodworks/boardwalk-proof.cjs',   // boardwalk-01: the Paper wooden-bridge proof
+  'docs/reports/glass-2026-11-08.md',   // glass-1108: sand -> glass -> windows (code on glass-01show / glass-01-on-1e593b9b)
+  'sandbox/glass/glass-proof.mjs',   // glass-01: the Paper proof (the bot's own sandDigs / glazeCells)
+  'sandbox/glass/glass-proof.jsonl',
+  'scripts/host/sandsurvey.py',   // glass-01: the read-only sand survey (region files)
   'docs/reports/market-design-2026-11-06.md',   // market-1106: live villager trading (code on branches market-01show / market-01)
   'docs/reports/market-2026-11-06/codex-design.txt',
   'docs/reports/market-2026-11-06/trade-tables-1.21.8.txt',
