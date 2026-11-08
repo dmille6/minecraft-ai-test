@@ -35,7 +35,7 @@ await t('buildingClaims: a claim plot\'s x/z box over its cells, fills and clear
   assert.deepStrictEqual(T.buildingClaims([hall]), [{ plot: 'townhall', box: [8, 9, 16, 17] }])
   assert.deepStrictEqual(T.buildingClaims([{ ...hall, plot: 'monument' }, { plot: 'townhall', cells: [] }, null]), [])
   assert.deepStrictEqual(T.buildingClaims([{ plot: 'cottage1', cells: [{ at: [0, 1, 0] }] }], { ring: 0 }), [{ plot: 'cottage1', box: [0, 0, 0, 0] }])
-  assert.deepStrictEqual([...T.CLAIM_PLOTS], ['townhall', 'cottage1'])
+  assert.deepStrictEqual([...T.CLAIM_PLOTS], ['townhall', 'cottage1', 'cottage2', 'cottage3'])   // cottage2-01: every cottage owns its volume
 })
 await t('claimedAt / claimEntry: every height of the box\'s columns; outside, unread: none', () => {
   const cl = T.buildingClaims([hall])
