@@ -106,7 +106,8 @@ export const stuckFleet2On = (env = process.env) => !['off', '0', 'false', 'no']
 const N6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
 /** A neighbour a placement could click -> bool: a solid block, or UNREAD (never "open" on no evidence). Pure. */
 const faceSolid = b => !b || (b.boundingBox === 'block' && !AIRN(nm(b)))
-/** Does the cell at `at` have any face to place against? -> bool. `gone(k)` cells counted open (waived this pass). Pure. */
+/** Does the cell at `at` have any face to place against? -> bool. The WORLD decides (Codex r1 BLOCKER: a waived neighbour may hold a
+ *  block -- a waiver removes nothing); `gone(k)` is for a caller's what-if only (the visit never passes it). Pure. */
 export function hasFace (read, at, gone = () => false) {
   return N6.some(([dx, dy, dz]) => { const q = [at[0] + dx, at[1] + dy, at[2] + dz]; return !gone(kOf(q)) && faceSolid(read(...q)) })
 }
@@ -130,11 +131,11 @@ export function orphanWaiveDue (rec, deferred = [], read, { after = ORPHAN_AFTER
     const c = cells.get(k)
     if (!c || gone(k) || (Number(d?.visits) || 0) < after) continue
     const below = kOf([c.at[0], c.at[1] - 1, c.at[2]])
-    if (!cells.has(below) || !waived(below) || !isOpen(c.at) || hasFace(read, c.at, gone)) continue
+    if (!cells.has(below) || !waived(below) || !isOpen(c.at) || hasFace(read, c.at)) continue
     out.push({ k, why: `orphan:below_waived ${String(d?.why ?? 'no_stand').slice(0, 40)}` }); taken.add(k); room--
     for (let y = c.at[1] + 1; room > 0; y++) {
       const q = [c.at[0], y, c.at[2]], kq = kOf(q)
-      if (!cells.has(kq) || gone(kq) || !isOpen(q) || hasFace(read, q, gone)) break
+      if (!cells.has(kq) || gone(kq) || !isOpen(q) || hasFace(read, q)) break
       out.push({ k: kq, why: 'orphan:column_above' }); taken.add(kq); room--
     }
   }
