@@ -37,6 +37,7 @@ const REQUIRED = [
   'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
   'bots/test/gkwork.test.mjs',   // gkwork-01 (11-07)
   'bots/src/stuckfleet.mjs',   // stuckfleet-01 (11-08): road lights, held monument cells and capped cells no remedy reached
+  'bots/test/stuckfleet02.test.mjs', 'bots/test/fixtures/stuckfleet02-boardc.json',  // stuckfleet-02 (11-08): a cell orphaned by the waiver below it
   'bots/test/stuckfleet.test.mjs',   // stuckfleet-01 (11-08)
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/tidydead.test.mjs',
