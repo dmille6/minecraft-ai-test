@@ -33,6 +33,7 @@ import { STOREHUB } from './shop.mjs'
 import { enchantModeDetail } from './enchantshop.mjs'   // enchantshop-01's licence row
 import { ENCHANTSHOP } from './shop.mjs'
 import { NOWAIT } from './shop.mjs'   // ordernowait-01's licence row
+import { COTTAGE2 } from './shop.mjs'   // cottage2-01's licence row
 import { noWaitModeDetail } from './ordernowait.mjs'
 import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
 import { CANEFARM } from './shop.mjs'
@@ -176,6 +177,8 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'storehub_mode', status: 'success', snapshot: snapshot(bot), detail: hubModeDetail(STOREHUB) }) } catch { /* telemetry */ }
   // enchantshop-01: the workshop's licence row (on=0 outside ENCHANTSHOP_POOLS or under ENCHANTSHOP=off: the rollback is visible too)
   try { logEvent({ kind: 'enchantshop_mode', status: 'success', snapshot: snapshot(bot), detail: enchantModeDetail(ENCHANTSHOP) }) } catch { /* telemetry */ }
+  // cottage2-01: the later cottages' licence row (on=0 outside COTTAGE2_POOLS or under COTTAGE2=off: the rollback is visible too)
+  try { logEvent({ kind: 'cottage2_mode', status: 'success', snapshot: snapshot(bot), detail: `on=${COTTAGE2.on ? 1 : 0} plots=cottage2,cottage3 family=cottage@2 furnish=beds,chests,lanterns,flowers shear=1` }) } catch { /* telemetry */ }
   // ordernowait-01: the town hall and the cottage stop waiting for the workshop (on=0 outside ENCHANT_NOWAIT_POOLS or under ENCHANT_NOWAIT=off)
   try { logEvent({ kind: 'ordernowait_mode', status: 'success', snapshot: snapshot(bot), detail: noWaitModeDetail(NOWAIT) }) } catch { /* telemetry */ }
   // reroof-02: the retrofit's licence row (reroof.mjs; on=0 under REROOF=off or outside REROOF_POOLS; each fix's own switch)

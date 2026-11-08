@@ -139,6 +139,16 @@ const REQUIRED = [
   'bots/test/storehub.test.mjs',
   // wallext-01 (11-04): the wall extension round the storage hall and its test (the design is main's: docs/reports/wallext-design-2026-11-04.md)
   'bots/test/wallext.test.mjs',
+  // cottage2-01 (11-08, owner "charm and uniqueness ... chests and beds"): the generated cottage family, its tests, the Paper proofs and
+  // their records, the design note
+  'bots/src/cottage2.mjs',
+  'bots/test/cottage2.test.mjs',
+  'sandbox/cottage2/furnish-proof.mjs',
+  'sandbox/cottage2/furnish-proof.jsonl',
+  'sandbox/cottage2/shear-e2e.mjs',
+  'sandbox/cottage2/shear-e2e.jsonl',
+  'sandbox/cottage2/paper-cottage2.jsonl',
+  'docs/reports/cottage2-design-2026-11-08.md',
   // townstyle-01 (11-04): the style library, the cottage and its blueprints + generator, the renderer, the Paper orientation proof and its
   // record, the test (the design and the tripwire rule are main's)
   'bots/src/townstyle.mjs',

@@ -21,7 +21,7 @@ import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copper
 import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   // stockyard-01
 import { hubSwitches, HUB_PLOT, HUB_BLUEPRINT, HUB_BUILDERS } from './storehub.mjs'   // storehub-01
 import { enchantSwitches, ENCHANT_PLOT, ENCHANT_BLUEPRINT, ENCHANT_BUILDERS } from './enchantshop.mjs'   // enchantshop-01
-import { cottageSwitches, COTTAGE_PLOT, COTTAGE_BUILDERS, COTTAGE_AFTER, cottageBlueprintId } from './cottage.mjs'   // townstyle-01
+import { cottageSwitches, COTTAGE_PLOT, COTTAGE_BUILDERS, COTTAGE_AFTER, cottageBlueprintId, COTTAGE_PLOTS, isCottagePlot, cottageAfterOf, cottage2Switches } from './cottage.mjs'   // townstyle-01; cottage2-01
 import { townhallSwitches, TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_BUILDERS, TOWNHALL_AFTER } from './townhall.mjs'   // townstyle-02
 import { noWaitSwitches, afterMet } from './ordernowait.mjs'   // ordernowait-01: the town hall and the cottage stop waiting for the workshop
 import { reroofSwitches, REROOF_PLOT } from './reroof.mjs'   // townstyle-03
@@ -136,6 +136,10 @@ export const ENCHANTSHOP = Object.freeze(enchantSwitches(process.env, process.en
  *  house-size plot, after the enchanting workshop. COTTAGE=off is the rollback (a sited record stays guarded); on in the showcase pool
  *  only. Needs the extension and the enchanting workshop on. */
 export const COTTAGE = Object.freeze(cottageSwitches(process.env, process.env.MEMORY_POOL ?? ''))
+/** COTTAGE2-01 (cottage.mjs / cottage2.mjs; OWNER 11-08 "charm and uniqueness ... chests and beds"): the later cottages (cottage2, cottage3)
+ *  on the extension's next house plots, each its own seeded look, furnished. COTTAGE2=off is the rollback (a sited record stays guarded);
+ *  on in the showcase pool only. Needs COTTAGE on. */
+export const COTTAGE2 = Object.freeze(cottage2Switches(process.env, process.env.MEMORY_POOL ?? ''))
 /** TOWNSTYLE-02 (townhall.mjs): the town hall on the extension's X2, after the enchanting workshop. TOWNHALL=off is the rollback. */
 export const TOWNHALL = Object.freeze(townhallSwitches(process.env, process.env.MEMORY_POOL ?? ''))
 /** TOWNSTYLE-03 (reroof.mjs): the retrofit's planner -- publishes the next standing building's roof generation, one at a time. REROOF=off. */
@@ -197,6 +201,8 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: ENCHANT_PLOT, blueprint: ENCHANT_BLUEPRINT, after: HUB_PLOT, builders: ENCHANT_BUILDERS }),   // enchantshop-01: on the extension's hall-size plot (WAITS until it is sited)
   Object.freeze({ plot: TOWNHALL_PLOT, blueprint: TOWNHALL_BLUEPRINT, after: TOWNHALL_AFTER, builders: TOWNHALL_BUILDERS }),   // townstyle-02: the town hall on X2 (WAITS for it)
   Object.freeze({ plot: COTTAGE_PLOT, blueprint: cottageBlueprintId('s'), after: COTTAGE_AFTER, builders: COTTAGE_BUILDERS }),
+  // cottage2-01: the later cottages, each after the one before stands (the blueprint is the record's: its look is chosen at siting)
+  ...COTTAGE_PLOTS.filter(p => p !== COTTAGE_PLOT).map(p => Object.freeze({ plot: p, blueprint: 'cottage@2-Csg0-', after: cottageAfterOf(p), builders: COTTAGE_BUILDERS })),
   Object.freeze({ plot: REROOF_PLOT, blueprint: 'reroof@1', builders: 1, planner: true }),   // townstyle-03: the retrofit's planner (WAITS until a building is due; places nothing itself)   // townstyle-01: the variant is the record's (`s` names the family; WAITS for a house plot)
   Object.freeze({ plot: STEPWELL_PLOT, blueprint: STEPWELL_BLUEPRINT, builders: STEPWELL_BUILDERS }),   // stepwell-01: one builder (one frontier), after the town's buildings
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
@@ -204,7 +210,7 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: FOREST_PLOT, blueprint: FOREST_BLUEPRINT, after: WALL_PLOT, builders: FOREST_BUILDERS }),   // forest-01: the keeper's (groundskeeper.mjs keeperOrderPure)
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + GK.helpersMax : TIDY_BUILDERS }),   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, decor = DECORATE.on, cot = COTTAGE.on, th = TOWNHALL.on, rr = REROOF.on, well = STEPWELL.on, forest = FORESTP.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === FOREST_PLOT ? forest && wall && paths && on : p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) && (sinkKindOf(p.plot) !== 'decor' || decor) : p.plot === STEPWELL_PLOT ? well : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === COTTAGE_PLOT ? cot && ench && ext && wall && hub && store && paths && on : p.plot === TOWNHALL_PLOT ? th && ench && ext && wall && hub && store && paths && on : p.plot === REROOF_PLOT ? rr && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on && !forest : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, decor = DECORATE.on, cot = COTTAGE.on, th = TOWNHALL.on, rr = REROOF.on, well = STEPWELL.on, forest = FORESTP.on, cot2 = COTTAGE2.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === FOREST_PLOT ? forest && wall && paths && on : p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) && (sinkKindOf(p.plot) !== 'decor' || decor) : p.plot === STEPWELL_PLOT ? well : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : isCottagePlot(p.plot) ? cot && (p.plot === COTTAGE_PLOT || cot2) && ench && ext && wall && hub && store && paths && on : p.plot === TOWNHALL_PLOT ? th && ench && ext && wall && hub && store && paths && on : p.plot === REROOF_PLOT ? rr && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on && !forest : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -232,7 +238,7 @@ export const projectsGuarded = (list = projectsOn()) => {
   // enchantshop-01: a sited workshop stays guarded whatever its switch (its cells, its fit-out cells inside its box)
   for (const p of PROJECTS) if (p.plot === ENCHANT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // townstyle-01: a sited cottage stays guarded whatever its switch
-  for (const p of PROJECTS) if (p.plot === COTTAGE_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  for (const p of PROJECTS) if (isCottagePlot(p.plot) && !out.some(q => q.plot === p.plot)) out.push(p)   // cottage2-01: every cottage
   for (const p of PROJECTS) if (p.plot === TOWNHALL_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)   // townstyle-02
   return out
 }
