@@ -162,6 +162,11 @@
 #                      no palette authorizes nothing: Codex r1 BLOCKER -- a post cell never authorizes digging a trapdoor or another wood).
 #                      Anything else is clear_outside (` reorient`): a reorient of a stateless cell, of another block, or off the record.
 #                      Its placements are G1's like every record's (the cell); the place row's `st=` (the state made) is reported only.
+#   CT1 bed_head (cottage2-01, 11-08; bots/src/cottage2.mjs, bots/src/buildrun.mjs headAt): A FURNISHED COTTAGE's bed is ONE click on its
+#                      FOOT cell; the server puts the HEAD (the record cell `byFoot: true` of the same `bed`) there itself, so a `_build
+#                      op=place` row ON a head cell (a bed clicked into its head: the bed would stand one cell off) is off_record (` bed_head`).
+#                      RO1 also accepts a bed (`*_bed`, its foot or head cell's palette) and a chest (`chest`, `trapped_chest`) as oriented
+#                      blocks: a bed or chest placed in the wrong facing is dug (`reorient`) and placed again, as a stair is.
 #   RT1 retrofit (townstyle-03, 11-05; bots/src/reroof.mjs): A RE-ROOFED BUILDING is a new generation of ITS OWN record that keeps every
 #                      old cell (the flat roof stays, as the ceiling) and adds the pitched roof above it -- nothing is dug, so no new
 #                      rule: its placements are G1's against the head record (the new roof's cells and the old cells both on it), a
@@ -285,7 +290,13 @@ ENCHANT = 'enchantshop'
 
 
 # townstyle-01 RO1: the blocks a click orients (bots/src/townstyle.mjs STAIRS SLAB AXIS TRAPDOOR LANTERN)
-ORIENTED_RE = re.compile(r'^(minecraft:)?([a-z_]+_(stairs|slab|log|wood|stem|hyphae|trapdoor)|(soul_)?lantern)$')
+ORIENTED_RE = re.compile(r'^(minecraft:)?([a-z_]+_(stairs|slab|log|wood|stem|hyphae|trapdoor|bed)|(soul_)?lantern|chest|trapped_chest)$')   # cottage2-01: beds, chests
+
+
+def bed_head_cell(rec, cell):
+    """cottage2-01 CT1: is `cell` a bed HEAD of the record (a `byFoot` cell: the server's half of its foot's click)? -> bool. Pure."""
+    k = ck(cell)
+    return any(isinstance(c, dict) and c.get('byFoot') is True and isinstance(c.get('at'), list) and ck(c['at']) == k for c in (rec or {}).get('cells') or [])
 
 
 def role_names(palette, role, seen=None):
@@ -1731,6 +1742,10 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                     # reroof-04 RT3: a cell the head lists as its torn-down stair (kind=temp) was a cell of the generation before
                     off_of = lambda rr: k not in {ck(c['at']) for c in rr.get('cells') or []} and k not in reroof_temp_cells(rr) and not (f.get('kind') == 'footing' and plot in WALL_PLOTS and footing_ok(rr, cell))
                     off = rec is not None and off_of(rec) and (rec_pre is None or off_of(rec_pre))
+                    # cottage2-01 CT1: a click INTO a bed's head cell is never a placement of the record (its foot's click makes it)
+                    if not off and rec is not None and bed_head_cell(rec, cell):
+                        off = True
+                        pwhy = ' bed_head'
                 if off:
                     out['off_record'] += 1; lists['off_record'].append('%s %s %s%s' % (bot, k, f.get('block'), pwhy))
                 if [t for t in placed[(pool, plot, k)] if (r['t'] - t).total_seconds() < PLACE_TWICE_MIN * 60]:
@@ -2653,6 +2668,20 @@ def selftest():
     assert ro('50,71,50', 'dark_oak_stairs')['_lists'].get('clear_outside', []) == [] and ro('51,71,50', 'spruce_stairs')['_lists']['clear_outside'] == ['board-a-Alpha 51,71,50 reorient spruce_stairs reorient'], ro('51,71,50', 'spruce_stairs')['_lists']['clear_outside']
     assert J(base + [R('_build', 'project=cottage1 op=place seg=roof-edge cell=50,71,50 block=dark_oak_stairs st=north/bottom', s=14)], cbk)['off_record'] == 1, 'positive control: a place is judged on the HEAD record (G1 as before): gen 1\'s cell is off it'
     assert J(base + [R('_build', 'project=cottage1 op=place seg=wall-F cell=52,71,50 block=spruce_log st=y', s=14)], cbk)['off_record'] == 0
+    # cottage2-01 CT1 + RO1: a bed's foot is placed, never its head; a bed / chest in the wrong facing is reoriented like a stair
+    bpal = {'bed': ['white_bed', 'black_bed'], 'bedhead': ['white_bed', 'black_bed'], 'chest': ['chest'], 'wall': ['spruce_planks']}
+    brec = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'cottage@2-Csg0-', 'plot': 'cottage2', 'clear': [], 'replant': [], 'palette': bpal,
+            'cells': [{'at': [60, 71, 50], 'role': 'bed', 'seg': 'furnish', 'bed': 'b1', 'byFoot': False, 'ws': {'facing': 'south', 'part': 'foot'}},
+                      {'at': [60, 71, 51], 'role': 'bedhead', 'seg': 'furnish', 'bed': 'b1', 'byFoot': True, 'ws': {'facing': 'south', 'part': 'head'}},
+                      {'at': [62, 71, 50], 'role': 'chest', 'seg': 'furnish', 'ws': {'facing': 'north'}}, {'at': [63, 71, 50], 'role': 'wall', 'seg': 'wall-F'}]}
+    bpp = PP(cottage2={'record': brec, 'records_files': 1, 'leases': {}, 'chain': [brec]})
+    bp_ = lambda c, block: J(base + [R('_build', 'project=cottage2 op=place seg=furnish cell=%s block=%s' % (c, block), s=14)], bpp)
+    assert bp_('60,71,50', 'black_bed')['off_record'] == 0 and bp_('62,71,50', 'chest')['off_record'] == 0, 'the foot and the chest are the record\'s placements'
+    assert bp_('60,71,51', 'white_bed')['off_record'] == 1 and bp_('60,71,51', 'white_bed')['_lists']['off_record'] == ['board-a-Alpha 60,71,51 white_bed bed_head'], 'CT1: a click into the head'
+    assert bp_('61,71,50', 'white_bed')['off_record'] == 1, 'positive control: off the record'
+    bro = lambda c, block: J(base + [R('_build', 'project=cottage2 op=clear seg=furnish cell=%s block=%s kind=reorient' % (c, block), s=14)], bpp)
+    assert bro('60,71,50', 'black_bed')['clear_outside'] == 0 and bro('60,71,51', 'black_bed')['clear_outside'] == 0 and bro('62,71,50', 'chest')['clear_outside'] == 0, 'RO1: a bed (foot or head) and a chest are reoriented'
+    assert bro('62,71,50', 'white_bed')['clear_outside'] == 1 and bro('63,71,50', 'spruce_planks')['clear_outside'] == 1 and bro('60,71,50', 'barrel')['clear_outside'] == 1, 'never another role\'s block, a stateless cell, nor a block a click does not orient'
     # townstyle-03 RT1: a retrofit generation (old cells kept + the new roof) judged by the existing rules
     hold = {'v': 1, 'gen': 1, 'prev': None, 'blueprint': 'house@1', 'plot': 'house1', 'clear': [], 'replant': [], 'structure_complete': True,
             'cells': [{'at': [60, 73, 60], 'role': 'roof', 'seg': 'roof-inner'}, {'at': [60, 72, 60], 'role': 'wall', 'seg': 'wall-F'}]}
