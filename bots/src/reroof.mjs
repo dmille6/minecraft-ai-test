@@ -661,7 +661,7 @@ export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FA
  * Pure. Every pair of standing cells round the building (box + pad: a full floor, feet and head open) one above the other side by side:
  * natural leaves (persistent false; unread: never) at the lower cell's y + 2 and at the upper cell's y + 2, never a record's cell.
  */
-export function reroofExitLeaves (read, walked = new Set(), { box = null, pad = FALL_PAD + 5, recordAt = () => null } = {}) {
+export function reroofExitLeaves (read, walked = new Set(), { box = null, pad = FALL_PAD + 2, recordAt = () => null } = {}) {
   const out = new Map()
   if (!Array.isArray(box) || box.length < 4) return []
   const near = (x, z) => x >= box[0] - pad && x <= box[2] + pad && z >= box[1] - pad && z <= box[3] + pad

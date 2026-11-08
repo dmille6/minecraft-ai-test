@@ -176,7 +176,7 @@ async function main () {
   // THE EVIDENCE: the block under the bot's feet, every 250 ms -- a slab of the new roof means it stood on its own placed sections
   const newKeys = new Set(head.cells.filter(q => /^reroof-/.test(String(q.seg))).map(q => k3(q.at)))
   const onSlab = new Map()
-  const sampler = setInterval(() => { try { if (fallFrom && !fallLeft) { const q = bot.entity.position.floored(); if (q.y >= fallFrom.y + 2) { fallLeft = q; P('FALL: climbed back out to', q) } } const p = bot.entity.position; const fx0 = Math.floor(p.x), fz0 = Math.floor(p.z); const below = [fx0, Math.floor(p.y - 0.01), fz0]; const b = bot.blockAt(new Vec3(...below)); if (b && /_slab$/.test(b.name) && newKeys.has(k3(below))) onSlab.set(k3(below), `${b.getProperties().type}@y${p.y.toFixed(2)}`) } catch { /* sample */ } }, 250)
+  const sampler = setInterval(() => { try { if (fallFrom && !fallLeft) { const q = bot.entity.position.floored(); if (q.y >= fallFrom.y + Number(process.env.FALL_UP ?? 2)) { fallLeft = q; P("FALL: climbed back out to", q) } } const p = bot.entity.position; const fx0 = Math.floor(p.x), fz0 = Math.floor(p.z); const below = [fx0, Math.floor(p.y - 0.01), fz0]; const b = bot.blockAt(new Vec3(...below)); if (b && /_slab$/.test(b.name) && newKeys.has(k3(below))) onSlab.set(k3(below), `${b.getProperties().type}@y${p.y.toFixed(2)}`) } catch { /* sample */ } }, 250)
   const logs = []
   const e = BB.botBuildEffects(bot, { log: (k, d) => { logs.push([k, d]); if (k === '_build' && /clear|deferred|stuck|temp/.test(String(d.op) + String(d.kind))) P(k, d) } })
   // r5: every cell the bot dug (the stray check tells the bot's changes from the world's own: a mushroom or a leaf that pops)
