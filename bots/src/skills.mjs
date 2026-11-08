@@ -135,6 +135,7 @@ import { LAND as LAND_TABLE } from './landplan.mjs'   // gkforever-01: the bands
 import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMeans } from './gkforever.mjs'   // gkforever-01
 import { setGroundsMeans, groundsBatchOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
 import { setHoldsGrounds, idleKindNow, belowKind, gkstayOn } from './idlework.mjs'   // gkstay-01
+import { logCapConfig, logCapNext, townLogsIn, logCapDetail, setLogCapState, LOGCAP_TTL_MS } from './logcap.mjs'   // logcap-02
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
@@ -19928,6 +19929,33 @@ export function groundsMeansFor (bot, now = Date.now()) {
   return v
 }
 setGroundsMeans(b => groundsMeansFor(b))
+/**
+ * LOGCAP-02: THE TOWN LOG CAP'S READER (logcap.mjs) -> the decision { capped, why, logs, coverage, at } for this bot's town, or
+ * null. The town index's log count (matsTownStock: a LOWER BOUND) and its coverage, decided with the cap's hysteresis on the
+ * bot (bot.logCapPrev), cached LOGCAP_TTL_MS. A `_logcap` row at the first decision and at every change of `capped`: the
+ * licence and the mechanism line. Never throws (null: the base).
+ */
+export function logCapStateFor (bot, now = Date.now()) {
+  if (!bot) return null
+  try {
+    const c = bot.logCapCache
+    if (c && now - c.at < LOGCAP_TTL_MS) return c.d
+    const cfg = logCapConfig()
+    let read = null
+    if (cfg.on) {
+      try { const t = matsTownStock(bot); read = t ? { ok: true, logs: townLogsIn(t.stock), coverage: t.coverage } : { ok: false } } catch { read = { ok: false } }
+    }
+    const prev = bot.logCapPrev ?? null
+    const d = logCapNext(prev, read, cfg, now)
+    bot.logCapPrev = d
+    bot.logCapCache = { at: now, d }
+    if (!prev || !!prev.capped !== !!d.capped) {
+      try { logEvent({ kind: 'logcap', status: 'success', snapshot: snapshot(bot), args: { capped: d.capped ? 1 : 0, why: d.why, logs: d.logs, high: cfg.high, low: cfg.low, coverage: d.coverage, src: cfg.src }, detail: logCapDetail(d, cfg) }) } catch { /* telemetry */ }
+    }
+    return d
+  } catch { return null }
+}
+setLogCapState(b => logCapStateFor(b))
 /** gkforever-01: are two tidy records the SAME generation (one siting: its `sitedAt` and stage, and its cell and cut counts)? Pure. */
 export const tidySameGen = (a, b) => !!a && !!b && a.sitedAt === b.sitedAt && (Number(a.stage) || 0) === (Number(b.stage) || 0) && (a.cells?.length ?? 0) === (b.cells?.length ?? 0) && (a.cut?.length ?? 0) === (b.cut?.length ?? 0)
 async function buildTidy (ctx, args, signal) {

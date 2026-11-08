@@ -46,6 +46,9 @@ const REQUIRED = [
   // sandrung-01 (11-07): the gatherer chain's sand rung retired (7.5% of fleet time, gather sand 11.7% ok, no sand reached a town)
   'bots/src/sandrung.mjs',
   'bots/test/sandrung.test.mjs',
+  // logcap-02 (11-08): the town log gathering cap (owner: logs 60k in town chests, 15,985 banked in a day)
+  'bots/src/logcap.mjs',
+  'bots/test/logcap2.test.mjs',
   // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
   'bots/src/repeatwork.mjs',
   'bots/test/repeatwork.test.mjs',
