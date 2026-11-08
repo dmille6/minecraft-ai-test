@@ -145,7 +145,7 @@ import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BU
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
-import { stuckFleetOn, lightWaiveDue } from './stuckfleet.mjs'   // stuckfleet-01
+import { stuckFleetOn, lightWaiveDue, stuckFleet2On, orphanWaiveDue } from './stuckfleet.mjs'   // stuckfleet-01, stuckfleet-02
 import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock, tidyDeadOn } from './stuckcells.mjs'   // stuckcells-01, tidydead-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { canopyOn, naturalProps } from './canopy.mjs'   // canopy-01
@@ -20105,7 +20105,10 @@ async function buildTidy (ctx, args, signal) {
       const waive1 = GKW_ON && GROUNDS.on && !waive0.length ? stallWaive(rec, r.deferred ?? [], { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
       // stuckfleet-01 (stuckfleet.mjs lightWaiveDue; LIVE hive-a/hive-c/isolated-a/isolated-d tidy, 3-33 h on ONE road light): a road
       // light no stand reaches is waived after LIGHT_WAIVE_AFTER deferring visits -- neither waiver above ever takes a light
-      const waive = stuckFleetOn() ? [...waive1, ...lightWaiveDue(rec, r.deferred ?? []).filter(l => !waive1.some(w => w.k === l.k))] : waive1
+      const waive2 = stuckFleetOn() ? [...waive1, ...lightWaiveDue(rec, r.deferred ?? []).filter(l => !waive1.some(w => w.k === l.k))] : waive1
+      // stuckfleet-02 (stuckfleet.mjs orphanWaiveDue; LIVE board-c tidy: 372,66,152 over two waived cells, no face to click, the stall
+      // share spent): a cell orphaned by the waiver below it -- and the open column over it -- is waived, at most half the stage in all
+      const waive = stuckFleet2On() ? [...waive2, ...orphanWaiveDue(rec, r.deferred ?? [], read2).filter(o => !waive2.some(w => w.k === o.k))] : waive2
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || !tidySameGen(cur, rec)) return null
