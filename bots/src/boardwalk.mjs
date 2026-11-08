@@ -77,7 +77,7 @@ export function bw3Evidence (doc, { pool, home, now = Date.now(), maxAgeMs = BW3
  * Land: a 4-neighbour column, not one of the line's, whose block at the line's level (or one above) is a full solid that is not
  * water -- the bank a digger stands on.
  */
-export function shoreSteps (cells, read) {
+export function shoreSteps (cells, read, { home = null } = {}) {
   const top = new Map()
   for (const c of cells) { const k = `${c.at[0]},${c.at[2]}`; if (!top.has(k) || c.at[1] > top.get(k).at[1]) top.set(k, c) }
   const low = new Map()
@@ -89,6 +89,15 @@ export function shoreSteps (cells, read) {
     const [x, , z] = c.at, y = c.at[1]
     const shore = N4.some(([dx, dz]) => !top.has(`${x + dx},${z + dz}`) && (land(x + dx, y, z + dz) || land(x + dx, y + 1, z + dz)))
     if (shore) { d.set(k, 0); q.push(k) }
+  }
+  // ROOTED (Codex r1 BLOCKER 3, the removal order): with `home`, only the bank cell NEAREST HOME is a start -- a crossing whose far
+  // bank the town reaches only over this line is dug back from that far bank toward town, never cut in the middle (which strands
+  // the far half: no dry stand reaches it). Every cell is then dug only after every cell whose shortest way back runs through it.
+  if (home && q.length > 1) {
+    const dh = k => { const [x, z] = k.split(',').map(Number); return Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) }
+    const best = [...q].sort((a, b) => dh(a) - dh(b) || (a < b ? -1 : 1))[0]
+    for (const k of q) if (k !== best) d.delete(k)
+    q.length = 0; q.push(best)
   }
   for (let i = 0; i < q.length; i++) {
     const [x, z] = q[i].split(',').map(Number)
@@ -108,28 +117,24 @@ export function shoreSteps (cells, read) {
  *   guard(key) -> true for a cell another project's record names (never dug, never laid)
  *   walkOn  WALKWAYS switch: off, every line is cut
  */
-export function bw3Work (lines, read, { guard = () => false, walkOn = true } = {}) {
+export function bw3Work (lines, read, { guard = () => false, walkOn = true, home = null } = {}) {
   const cuts = [], cells = [], segments = []
   const st = { lines: lines.length, walk: 0, standing: 0, gone: 0, guarded: 0, islands: 0, deck: 0, deckDone: 0 }
   lines.forEach((l, li) => {
     const steps = shoreSteps(l.cells, read)
+    const rooted = home ? shoreSteps(l.cells, read, { home }) : steps
     const live = []
     for (const c of l.cells) {
       if (guard(k3(c.at))) { st.guarded++; continue }
       const n = standingAs(read(...c.at), c.name)
       if (!n) { st.gone++; continue }
       st.standing++
-      live.push({ ...c, name: n, d: steps.get(`${c.at[0]},${c.at[2]}`) ?? Infinity })
+      live.push({ ...c, name: n, d: steps.get(`${c.at[0]},${c.at[2]}`) ?? Infinity, dr: rooted.get(`${c.at[0]},${c.at[2]}`) ?? Infinity })
     }
     if (live.length && live.every(c => c.d === Infinity)) st.islands++
-    const walk = walkOn && l.walk && live.some(c => c.d !== Infinity)
-    if (!walk) {
-      // far end first (an island's Infinity first: no stand reaches it, nothing is tried), top first in a column
-      for (const c of live.sort((a, b) => b.d - a.d || b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])) cuts.push({ at: c.at, kind: 'tidy', name: c.name })
-      return
-    }
-    st.walk++
-    // THE DECK: the line's lowest listed cell in each reached column (whether it still stands or is laid already)
+    // THE DECK'S CELLS (Codex r1 BLOCKERS 1 and 2): the line's lowest listed cell in each reached column, kept while it holds the
+    // listed block, planks (laid), or WATER (dug, its plank not laid yet: the next visit lays it) -- never anything else (a log, a
+    // station: the runner's foreign dig would take it, and a trunk above it)
     const low = new Map()
     for (const c of l.cells) {
       if (guard(k3(c.at))) continue
@@ -137,6 +142,17 @@ export function bw3Work (lines, read, { guard = () => false, walkOn = true } = {
       if ((steps.get(k) ?? Infinity) === Infinity) continue
       if (!low.has(k) || c.at[1] < low.get(k).at[1]) low.set(k, c)
     }
+    for (const [k, c] of [...low]) {
+      const n = nm(read(...c.at))
+      if (!(standingAs(read(...c.at), c.name) || /_planks$/.test(n) || WATERN.test(n))) low.delete(k)
+    }
+    const walk = walkOn && l.walk && low.size > 0
+    if (!walk) {
+      // far end first (an island's Infinity first: no stand reaches it, nothing is tried), top first in a column
+      for (const c of live.sort((a, b) => b.dr - a.dr || b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])) cuts.push({ at: c.at, kind: 'tidy', name: c.name })
+      return
+    }
+    st.walk++
     const deckK = new Set([...low.values()].map(c => k3(c.at)))
     for (const c of live.filter(q => !deckK.has(k3(q.at))).sort((a, b) => b.at[1] - a.at[1] || b.d - a.d)) cuts.push({ at: c.at, kind: 'tidy', name: c.name })
     // ONE CELL A SEGMENT, each waiting on the cell it is reached from (its BFS parent, one step nearer a bank): the foreign dig and the
