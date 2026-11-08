@@ -143,3 +143,12 @@ flakes pass alone, the bagdiet orphan): the closing read counts the whole strike
 own retry stamp (taken at its tidy visit's start): unchanged town count -> the forest's turn for 30 min; a visit that laid a strike ->
 the tidy again at once. Codex: no blockers. Not built: counting unreachable clears per cell town-wide (it needs the same keeper tidy
 visits; the strike close already lets the clears give way after 3).
+
+## gkleft-01show (11-08: the stage still not closed under gkclear-02)
+
+Live 01:54-04:34Z: the keeper's visits WORKED (Onyx felled 2 logs 03:50Z, laid 3 floor fills 04:05Z -- each resets gkwork's strikes),
+then ended `complete; fills left 1/1372` with trunk clears standing (04:16Z): never empty, so never a strike. Its 2 aborted visits were
+the stuck reflex. `gkleft-01show` @ a3d6b03d (on 81d1894f; ci2 471/472, the bagdiet orphan): per cell, every visit that ran out of work
+(stop `complete`, any bot) stamps the fills and clears it left open and READ in its own file; a cell the town left 3 times (24 h, each
+visit's stamp expiring on its own) is waived by the next keeper visit that still reads it open (<= 12 a visit, <= 25% of the stage); a
+waived clear is never dug again and no longer counts as left. Codex r1: 2 blockers fixed, r2 fixed.
