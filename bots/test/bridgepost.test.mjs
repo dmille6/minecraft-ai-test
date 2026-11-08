@@ -302,6 +302,17 @@ await t('boardwalk-01: THE MATERIAL -- wood for a new site when the wood pays th
   const r2 = world(); r2.set(B.bridgePlan(span)[0].cell, { name: 'cobblestone', boundingBox: 'block' })
   assert.equal(B.bridgeMaterial(site, r2, { on: true, woodAvail: 999 }), 'cobble', 'a half-built cobble bridge stays cobble')
   assert.equal(B.bridgeMaterial({ span, mat: 'wood' }, r2, { on: false, woodAvail: 0 }), 'wood', 'a wooden site stays wood')
+  // Codex r2 BLOCKER 1: an UNLOADED deck says nothing -- an old site (no woodv) stays cobble; one sighted under boardwalk-01 (woodv: every
+  // build names its material first) may go wood; a named cobble site stays cobble
+  const unread = () => null
+  assert.equal(B.bridgeMaterial({ span }, unread, { on: true, woodAvail: 999 }), 'cobble', 'an old site, deck unread: cobble')
+  assert.equal(B.bridgeMaterial({ span, woodv: 1 }, unread, { on: true, woodAvail: 999 }), 'wood', 'a new site, deck unread: wood')
+  assert.equal(B.bridgeMaterial({ span, woodv: 1, mat: 'cobble' }, r, { on: true, woodAvail: 999 }), 'cobble', 'a named cobble site stays cobble')
+  const s2 = B.bridgeSites([{ op: 'sight', id: 'b', span, trip: 't1', woodv: 1 }, { op: 'state', id: 'b', mat: 'cobble' }])
+  assert.equal(s2[0].woodv, 1); assert.equal(s2[0].mat, 'cobble')
+  let k = false
+  await withMutant(BR_PATH, "  if (!site.woodv && decks.some(b => b == null)) return 'cobble'\n", '', async M => { try { assert.equal(M.bridgeMaterial({ span }, unread, { on: true, woodAvail: 999 }), 'cobble') } catch { k = true } })
+  assert.ok(k, 'the mutant survived')
   const sites = B.bridgeSites([{ op: 'sight', id: 'a', span, trip: 't1' }, { op: 'state', id: 'a', mat: 'wood', species: 'spruce' }, { op: 'state', id: 'a', mat: 'wood', species: 'oak' }])
   assert.equal(sites[0].mat, 'wood'); assert.equal(sites[0].species, 'spruce', 'the first named species is kept')
   assert.ok(B.sitePlan(sites[0]).some(p => p.item === 'spruce_fence'))
@@ -313,6 +324,9 @@ await t('boardwalk-01 wiring (structural): the expedition builds and judges a si
   one(/const plan = s \? sitePlan\(s\) : \[\]/g, 'the intact check by the site\'s plan')
   one(/const mat = cand && Number\.isInteger\(cand\.bearing\) \? bridgeMaterial\(cand, exReader\(bot\), \{ on: BRIDGE_WOOD_ON, woodAvail: woodPressureNow\(bot\)\.avail \}\) : 'cobble'/g, 'the material pick')
   one(/if \(cand\.mat !== 'wood'\) \{ exAppend\(exBridgesFile\(\), \{ op: 'state', id: cand\.id, mat: 'wood', species: sp/g, 'named once')
+  one(/if \(!site\.mat\) \{ exAppend\(exBridgesFile\(\), \{ op: 'state', id: site\.id, mat: 'cobble'/g, 'a cobble build names its material before its first block')
+  one(/gain: r\.gain, woodv: 1 \}\)/g, 'a sighting is marked woodv')
+  one(/const avail = woodPressure\(\{ town: t\?\.stock \?\? null, coverage: t\?\.coverage \?\? 0, bag: \{\}, reserve:/g, 'the kit draws the town above its reserve only')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -308,14 +308,14 @@ export function bridgeSites (lines = []) {
     if (l?.op === 'sight' && l.span?.near && l.span?.axis) {
       const s = sites.find(q => q.span.axis.join(',') === l.span.axis.join(',') && Math.hypot(q.span.near[0] - l.span.near[0], q.span.near[2] - l.span.near[2]) <= SITE_MERGE_R)
       if (s) { if (l.trip) s.seen.add(l.trip); s.t = Math.max(s.t, Number(l.t) || 0); continue }
-      sites.push({ key: siteKey(l.span), id: l.id ?? siteKey(l.span), span: l.span, bearing: l.bearing ?? null, aim: Number.isFinite(l.aim) ? l.aim : null, seen: new Set(l.trip ? [l.trip] : []), complete: false, failed: [], t: Number(l.t) || 0 })
+      sites.push({ key: siteKey(l.span), id: l.id ?? siteKey(l.span), span: l.span, bearing: l.bearing ?? null, aim: Number.isFinite(l.aim) ? l.aim : null, seen: new Set(l.trip ? [l.trip] : []), complete: false, failed: [], t: Number(l.t) || 0, ...(l.woodv ? { woodv: 1 } : {}) })
     } else if (l?.op === 'state' && l.id) {
       const s = sites.find(q => q.id === l.id)
       if (!s) continue
       if (typeof l.complete === 'boolean') s.complete = l.complete
       if (l.failed) s.failed.push(Number(l.t) || 0)
       // boardwalk-01: the bridge's material, named once when its first wooden trip starts (never changed after)
-      if (l.mat === 'wood' && !s.mat) { s.mat = 'wood'; s.species = String(l.species ?? 'oak') }
+      if ((l.mat === 'wood' || l.mat === 'cobble') && !s.mat) { s.mat = l.mat; if (l.mat === 'wood') s.species = String(l.species ?? 'oak') }
     }
   }
   return sites
@@ -361,15 +361,18 @@ export function bridgeWoodBill (span) {
   return { planks, fences, logs: Math.ceil((planks + fencePlanks) / 4) }
 }
 /**
- * WHICH MATERIAL A SITE IS BUILT OF -> 'wood' | 'cobble'. Pure. A site that named its material keeps it; a site whose cobble plan has a
- * cell standing already (a half-built cobble bridge) stays cobble; else wood when the switch is on and the wood this bot may spend
- * (`woodAvail`, log units above the town's reserve: woodworks.mjs woodPressure) pays the whole bill.
+ * WHICH MATERIAL A SITE IS BUILT OF -> 'wood' | 'cobble'. Pure. A site that named its material keeps it (every build since boardwalk-01
+ * names it BEFORE its first block: skills.mjs exBridgeWork); a site whose deck already has a block stands as it was started (cobble);
+ * an OLD site (sighted before boardwalk-01: no `woodv`) may have been started by a builder that named nothing, so it takes wood only
+ * when every deck cell is READ and none is built (Codex r2 BLOCKER 1: an unloaded deck says nothing -- cobble); then wood when the switch
+ * is on and the wood this bot may spend (`woodAvail`, log units above the town's reserve: woodworks.mjs woodPressure) pays the bill.
  */
 export function bridgeMaterial (site, read, { on = true, woodAvail = 0 } = {}) {
-  if (site?.mat === 'wood') return 'wood'
+  if (site?.mat === 'wood' || site?.mat === 'cobble') return site.mat
   if (!on || !site?.span) return 'cobble'
-  const started = bridgePlan(site.span, { torches: false }).some(st => st.kind === 'deck' && blockDone(read(...st.cell)))
-  if (started) return 'cobble'
+  const decks = bridgePlan(site.span, { torches: false }).filter(st => st.kind === 'deck').map(st => read(...st.cell))
+  if (decks.some(b => b != null && blockDone(b))) return 'cobble'
+  if (!site.woodv && decks.some(b => b == null)) return 'cobble'
   return Number(woodAvail) >= bridgeWoodBill(site.span).logs ? 'wood' : 'cobble'
 }
 /** The plan a site is built (and judged intact) by: its material's palette. Pure. */
