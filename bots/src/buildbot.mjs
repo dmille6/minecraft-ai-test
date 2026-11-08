@@ -278,7 +278,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       blocks.watch(c)
       mark('dig', c)
       try { await bot.dig(b, true) } catch (e) { if (e?.aborted || aborted()) throw e; return 'refused' }
-      const n = await within('confirm', DIG_CONFIRM_MS + 250, () => blocks.wait(c, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS))
+      // boardwalk-03: a block dug out of water reads WATER once the lake flows back in (the air update may come first or be folded
+      // into the same tick's multi-block change): gone either way
+      const n = await within('confirm', DIG_CONFIRM_MS + 250, () => blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS))
       if (n) progress()
       return n ? 'confirmed' : 'unconfirmed'
     },
