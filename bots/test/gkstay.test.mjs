@@ -78,7 +78,7 @@ const wiring = (src, ms) => {
     one("const unfit = d === 'mine' \\? \\(up\\.held \\? unfitNow : null\\) : \\(unfitNow \\?\\? \\(below \\? 'below_batch' : null\\)\\)")
     one('setHoldsGrounds\\(b => keeperNow\\(b\\)\\)')
     one("if \\(!renewal && GKSTAY_ON && belowKind\\(idleKindNow\\(\\)\\)\\) return \\{ ok: false, why: 'below_batch' \\}")
-    one('return holderMeans\\(idleBagMeans\\(', ms)
+    one('return (logCapMeans\\()?holderMeans\\(idleBagMeans\\(', ms)   // logcap-02 wraps the line (logCapMeans)
     one('setIdleKindNow\\(\\(\\) => IDLE\\.state\\?\\.kind \\?\\? null\\)', ms)
   } else {
     one("const c = groundsLeaseCheck\\(\\{ d, unfit: d === 'mine' \\? unfitHeld : unfit, idle:")
