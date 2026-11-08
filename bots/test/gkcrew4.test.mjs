@@ -44,10 +44,12 @@ await t('LIVE 2,500 open: a 3rd and 4th helper take helper3/helper4; a 5th is fu
   assert.strictEqual(GK.helperDecision({ keeper, helpers: { ...helpers, helper3: L('Iris'), helper4: L('Alpha') }, me: 'Bravo', now: NOW, G: big }).d, 'full')
   assert.strictEqual(GK.helperDecision({ keeper, helpers, me: 'Iris', now: NOW, G: { ...GK.GK, helpersMax: 2 } }).d, 'full')
 })
-await t('the cap shrinks to 2: a helper4 holder keeps its own lease to its release (never a second take); new takes stop at 2', async () => {
-  await killedBy(GK_PATH, GK, '  const mine = HELPER_LEASES.find(n => liveOf(helpers[n], now) && helpers[n].rec.holder === me)', '  const mine = names.find(n => liveOf(helpers[n], now) && helpers[n].rec.holder === me)', M => {
-    const r = M.helperDecision({ keeper: L('Echo'), helpers: { helper1: L('Juno'), helper4: L('Alpha') }, me: 'Alpha', now: NOW, G: { ...M.GK, helpersMax: 2 } })
-    assert.deepStrictEqual(r, { d: 'mine', name: 'helper4' })
+await t('the release fold (Codex BLOCKER): the cap shrinks to 2 -> a helper4 holder stops (never renewed, runs out at its TTL); new takes stop at 2', async () => {
+  const at2 = { keeper: L('Echo'), helpers: { helper1: L('Juno'), helper4: L('Alpha') }, me: 'Alpha', now: NOW, G: { ...GK.GK, helpersMax: 2 } }
+  assert.deepStrictEqual(GK.helperDecision(at2), { d: 'none', name: null, over: 'helper4' })
+  assert.deepStrictEqual(GK.helperDecision({ ...at2, G: { ...GK.GK, helpersMax: 4 } }), { d: 'mine', name: 'helper4' }, 'POSITIVE: at the big cap it is still mine')
+  await killedBy(GK_PATH, GK, "  if (mine && !names.includes(mine)) return { d: 'none', name: null, over: mine }\n", '', M => {
+    assert.deepStrictEqual(M.helperDecision(at2), { d: 'none', name: null, over: 'helper4' })
   })
 })
 await t('openNewest: the newest count for this stage within 2 h; another stage or a stale count is unknown', () => {

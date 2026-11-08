@@ -24768,7 +24768,10 @@ function crewState (bot, work, now = Date.now()) {
     const helpers = {}
     for (const n of HELPER_LEASES) helpers[n] = projLeaseState(dir, key, n, { ttl: GK.helperTtlMs })
     // gkcrew4-01: the cap scales with the stage's open cells (groundskeeper.mjs helpersCap)
-    return { ...helperDecision({ keeper, helpers, me: keeperMe(bot), now, work, restUntil: bot?.gkHelpRestUntil ?? 0, G: { ...GK, helpersMax: helpersCap(gkOpenNow(bot, dir, key, now)) } }), helpers }
+    const hd = helperDecision({ keeper, helpers, me: keeperMe(bot), now, work, restUntil: bot?.gkHelpRestUntil ?? 0, G: { ...GK, helpersMax: helpersCap(gkOpenNow(bot, dir, key, now)) } })
+    // the gkcrew4 release fold (Codex BLOCKER): a helper lease past the shrunk cap is let go now (never renewed: helperDecision `over`)
+    if (hd.over) releaseHelper(bot, hd.over, helpers?.[hd.over]?.gen ?? null, 'over_cap', now)
+    return { ...hd, helpers }
   } catch { return { d: 'full', name: null, helpers: {} } }
 }
 /** Take or renew helper lease `name` -> { ok, gen }. One `_keeper` row op=helper_take on a new term. */

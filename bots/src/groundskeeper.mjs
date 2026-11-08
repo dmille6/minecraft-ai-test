@@ -147,8 +147,10 @@ const liveOf = (st, now) => !!st && now < (st.holdsUntil ?? 0) && !!st.rec?.hold
 export function helperDecision ({ keeper = null, helpers = {}, me, now = Date.now(), work = true, restUntil = 0, G = GK } = {}) {
   if (liveOf(keeper, now) && keeper.rec.holder === me) return { d: 'keeper', name: null }
   const names = HELPER_LEASES.slice(0, G.helpersMax)
-  // gkcrew4-01: a lease of mine past a shrunk cap is still mine (it runs out at its own release or TTL); the cap limits new takes
   const mine = HELPER_LEASES.find(n => liveOf(helpers[n], now) && helpers[n].rec.holder === me)
+  // the release fold (Codex BLOCKER): a lease of mine PAST the current cap (the stage shrank to <= bigOpen, its count went stale, or
+  // GKCREW4=0) is never renewed -- the helper stops helping and the lease runs out at its TTL, so the crew is back to helpersMax
+  if (mine && !names.includes(mine)) return { d: 'none', name: null, over: mine }
   if (mine) return { d: 'mine', name: mine }
   if (!liveOf(keeper, now)) return { d: 'no_keeper', name: null }
   if (!work || now < restUntil) return { d: 'none', name: null }
