@@ -18,6 +18,7 @@
 
 import { BUILD_RESERVE, PROJECT_PARTS } from './stocktarget.mjs'
 import { scaffoldKeep } from './bankable.mjs'   // stoneworks-01: the deposit's own scaffold rule (stoneScaffoldHeld)
+import { GLASS, glassOrder, glassReadingNow } from './glass.mjs'   // glass-01: the sand and glaze kinds (glass.mjs decides)
 
 export const MATS_V = 1
 const WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak']
@@ -328,7 +329,8 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  */
 export function materialOrder ({ now = 0, on = true, shared = true, atTown = false, holds = false, noteOpen = false, freeSlots = 0,
                                  bagSpare = {}, town = null, furnace = () => true, table = () => true, lease = () => true, unknown = () => 0, bankRoom = () => true,
-                                 bodyMs = 0, reserve = BUILD_RESERVE, partReserve = null, buffers = MATS_BUFFERS_DEFAULT, state = {}, stoneworks = STONEWORKS.on } = {}) {
+                                 bodyMs = 0, reserve = BUILD_RESERVE, partReserve = null, buffers = MATS_BUFFERS_DEFAULT, state = {}, stoneworks = STONEWORKS.on,
+                                 glass = GLASS.on, glassReading = glassReadingNow } = {}) {
   const s = { ...state }
   const no = (skip, more = {}) => ({ order: null, kind: null, state: s, skip, ...more })
   if (!on) return no('off')
@@ -355,6 +357,17 @@ export function materialOrder ({ now = 0, on = true, shared = true, atTown = fal
   // NO ROOM IN TOWN, NO ORDER: a part made with nowhere in town to bank it would sit in a bag until its note was given up
   if (!lazy(bankRoom)) return no('town_full', { coverage: t.coverage })
   const reasons = []
+  // GLASS-01 (glass.mjs glassOrder): the town's windows first -- a finished building's fallback window glazed from the town's panes,
+  // then shore sand dug ONLY for the windows the panes cannot cover (capped). The reading (records + world) is read only here, after
+  // every cheap gate; unreadable or off = no glass order and the part kinds exactly as before.
+  if (glass) {
+    const g = glassOrder({ on: true, now, stock: t.stock, reading: glassReading, reserveSand: Number(reserve?.sand) || 0, freeSlots })
+    if (g.order) {
+      if (!lazy(lease)) return no('lease_busy', { coverage: t.coverage, kinds: `${g.kind}:lease` })
+      return { order: g.order, kind: g.kind, state: s, skip: null, n: g.n }
+    }
+    if (g.why && g.why !== 'unreadable') reasons.push(`glass:${g.why}`)
+  }
   for (const kind of kindOrder(stoneworks)) {
     const k = KINDS[kind]
     const why = r => reasons.push(`${kind}:${r}`)
