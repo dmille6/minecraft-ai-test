@@ -20807,11 +20807,12 @@ async function buildReroof (ctx, args, signal) {
     // canopy round it (a felled tree's floating remains, its leaves) is listed too and the order is asked again
     if (!rc.ok && REROOF_FIX.ordered && p.ok) {
       const nameOf = role => { const n = (bpAdd.palette?.[role] ?? ['stone'])[0]; return String(n).startsWith('$') ? 'oak_planks' : n }
-      const ordered = (list, cells) => reroofOrderedReach(read, home, list, cells, { stood, walkR, domain, wantOf: c => (c.ws || c.blind ? { name: nameOf(c.role), ws: c.ws ?? null, blind: !!c.blind } : null) })
+      const ordered = (list, cells) => reroofOrderedReach(read, home, list, cells, { stood, walkR, domain, wantOf: c => (c.ws || c.blind ? { name: nameOf(c.role), ws: c.ws ?? null, blind: !!c.blind } : null),
+        blockOf: c => ({ name: nameOf(c.role), boundingBox: c.role === 'light' ? 'empty' : 'block', ...(c.ws ? { props: c.ws } : {}) }) })
       const o = ordered(clear, p.cells)
       if (o.ok) rc = o
       else {
-        const g = reroofCanopyGrow(read, clear, list => ordered(list, p.cells), { own, recordAt })
+        const g = reroofCanopyGrow(read, clear, list => ordered(list, p.cells), { own, recordAt, roofTrees: REROOF_FIX.roofTree })
         if (g.rc.ok) {
           const p2 = proveWith(g.clear)
           const o2 = p2.ok ? ordered(g.clear, p2.cells) : null
