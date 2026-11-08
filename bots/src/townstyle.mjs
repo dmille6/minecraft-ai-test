@@ -75,11 +75,12 @@ export const STAIRS = /_stairs$/
 export const SLAB = /_slab$/
 export const AXIS = /(_log|_wood|_stem|_hyphae)$|^(quartz_pillar|purpur_pillar|hay_block|bone_block|basalt|polished_basalt|chain|bamboo_block|stripped_bamboo_block)$/
 export const TRAPDOOR = /_trapdoor$/
+export const GATE = /_fence_gate$/
 export const LANTERN = /^(soul_)?lantern$/
 export const BED = /_bed$/
 export const CHEST = /^(chest|trapped_chest)$/
 /** Does a click decide this block's state (so a cell of it should carry one)? Pure. */
-export const oriented = name => STAIRS.test(name) || SLAB.test(name) || AXIS.test(name) || TRAPDOOR.test(name) || LANTERN.test(name) || BED.test(name) || CHEST.test(name)
+export const oriented = name => STAIRS.test(name) || SLAB.test(name) || AXIS.test(name) || TRAPDOOR.test(name) || LANTERN.test(name) || BED.test(name) || CHEST.test(name) || GATE.test(name)
 /** The world direction opposite a world facing. */
 export const OPP_FACING = Object.freeze({ north: 'south', south: 'north', east: 'west', west: 'east' })
 
@@ -131,6 +132,12 @@ export function orientAim (name, ws, face) {
     if (ws.open === true || ws.open === 'true') return null
     const cursor = halfCursor(ws.half)
     return cursor ? { yaw: null, cursor } : null
+  }
+  // fences-01: A FENCE GATE faces the way the placer looks (Paper: the player's horizontal facing, as a stair's); in line with a fence
+  // along x it faces north or south. Any face: the yaw alone sets it
+  if (GATE.test(n)) {
+    if (ws.facing && YAW_OF[ws.facing] == null) return null
+    return { yaw: ws.facing ? YAW_OF[ws.facing] : null, cursor: centre }
   }
   if (LANTERN.test(n)) {
     const hanging = ws.hanging === true || ws.hanging === 'true'

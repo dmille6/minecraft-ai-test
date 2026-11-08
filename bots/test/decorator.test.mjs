@@ -230,7 +230,7 @@ await t('decorInstance: one segment a run, the pots their own; roles rotate (nei
   assert.strictEqual(rec.plot, 'decor'); assert.strictEqual(rec.blueprint, 'decor@1')
 })
 await t('MUTANT KILLED: appendInstance without the decor zones fences the box over the batch', async () => {
-  await killed(SINKS_PATH, "(kind === 'dress' || kind === 'decor') && Array.isArray(meta.zones) ? meta.zones :", "kind === 'dress' && Array.isArray(meta.zones) ? meta.zones :", M => {
+  await killed(SINKS_PATH, "export const ORNAMENT_KINDS = Object.freeze(['dress', 'decor', 'wood'])", "export const ORNAMENT_KINDS = Object.freeze(['dress', 'wood'])", M => {
     const inst = D.decorInstance('D1', { border: [{ at: [-30, G + 1, 1] }, { at: [30, G + 1, -1] }], pots: [], design: { pattern: 'solid', n: 1, scheme: 'mixed' } })
     const rec = M.appendInstance(null, { kind: 'decor', home: HOME, inst, meta: { id: 'D1', n: 1, box: inst.box, zones: inst.zones, cols: inst.cols, sitedAt: 1 } })
     assert.ok(rec.zones.every(z => z.box[3] - z.box[0] <= 2))
@@ -390,7 +390,7 @@ await t('decorPressure: the bag\'s plants + what the bone meal grows (the town\'
   assert.strictEqual(S.stoneOpenCount({ decor: { instances: [{}], structure_complete: false } }), 0)
 })
 await t('MUTANT KILLED: a gate that counts the stone sinks holds the decorator back', async () => {
-  await killed(SINKS_PATH, "  if (kind !== 'dress' && kind !== 'decor' && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }", "  if (kind !== 'dress' && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }", M => {
+  await killed(SINKS_PATH, "  if (!ornamentKind(kind) && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }", "  if (kind !== 'dress' && kind !== 'wood' && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }", M => {
     assert.strictEqual(M.sinkNextGate({ kind: 'decor', pressure: { p: 1 }, openCount: 9 }).want, true)
   })
 })
@@ -709,7 +709,7 @@ const W = [
   /if \(leafNeed > 0 && based\) \{ const lg = await decorLeaves\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, leafNeed\)/,
   /if \(postNeed > 0\) \{ const pk = await decorPostKit\(ctx, signal, postNeed, rec0, postOwed\)/,
   /const want = Math\.max\(owed, Math\.min\(need, owed \+ Math\.max\(0, DECOR_POSTS_TOWN - posts\)\)\)/,
-  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| decorBagRole\(role\) \|\| buildCellDone\(b, pal, role\)/,
+  /done: \(b, pal, role\) => dressSignRole\(role\) \|\| decorBagRole\(role\) \|\| (woodBagRole\(role\) \|\| )?buildCellDone\(b, pal, role\)/,
   /buildRowDetail\(\{ project: SINK_PLOTS\.decor, op: 'clear', cell: t\.at, block: t\.name, kind: 'leaves', gen: decorGen\(\) \}\)/,
   /if \(fernNeed > 0 && based\) \{ const fg = await decorFerns\(ctx, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, fernNeed\)/,
   /if \(fernNeed > 0 && !based\) \{ const pb = publishRecord\(dir, key, cur => \(cur \? null : decorBase\(null,/,
@@ -720,9 +720,9 @@ const W = [
   // flowers-01: the nursery is asked for FLOWERS (the open batch's and the upgrade's), the bag's ferns never answering it
   /if \(g0\?\.want \|\| flNeed > \(FLOWERS_ON \? flowersOf\(heldMap\(bot\)\) : borderPlantsOf\(heldMap\(bot\)\)\)\) \{ const nu = await decorNursery\(ctx, rec0, signal, t0 \+ budget - ZIG_VISIT_TAIL_MS, g0\?\.want \? DECOR\.batchMax : flNeed\)/,
   /if \(tidy && r\.plot === SINK_PLOTS\.decor && decorPotWork\(bot, r\)\) return true/,
-  /pressure: kind === 'dress' \? dressPressureNow\(bot\) : kind === 'decor' \? decorPressureNow\(bot\) : pr, openCount/,
-  /if \(r\.ok && kind !== 'dress' && kind !== 'decor' && !sinkFundable\(/,
-  /if \(SITEPREP\.on && r\.why !== 'unfunded' && kind !== 'decor'\) \{/,
+  /pressure: kind === 'dress' \? dressPressureNow\(bot\) : kind === 'decor' \? decorPressureNow\(bot\) : (kind === WOOD_KIND \? woodPressureNow\(bot\) : )?pr, openCount/,
+  /if \(r\.ok && !ornamentKind\(kind\) && !sinkFundable\(/,
+  /if \(SITEPREP\.on && r\.why !== 'unfunded' && kind !== 'decor'( && kind !== WOOD_KIND)?\) \{/,
   /if \(d === 'take' && !decorHeld && now - \(bot\.gkTakeAt \?\? -Infinity\) >= GK\.takeEveryMs\)/,
   /if \(d === 'take' && now - \(bot\.decorTakeAt \?\? -Infinity\) >= DECOR\.takeEveryMs && !keeperNow\(bot, now\)\)/,
   /buildRowDetail\(\{ project: SINK_PLOTS\.decor, op: 'meal', cell: ctr, block: 'bone_meal', kind: 'use', gen: decorGen\(\) \}\)/,
