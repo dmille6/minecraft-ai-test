@@ -69,7 +69,7 @@ export function bw3Evidence (doc, { pool, home, now = Date.now(), maxAgeMs = BW3
     }
     lines.push({ id: String(l.id ?? `L${lines.length}`), walk: l.walk === true, cells })
   }
-  return { ok: true, why: 'ok', lines }
+  return { ok: true, why: 'ok', lines, generated: String(doc.generated) }
 }
 
 /**
@@ -180,6 +180,14 @@ export function bw3DeckFor (record, planks, isDone) {
   const cells = (record?.cells ?? []).filter(c => { if (isDone(c)) return true; if (left > 0) { left--; return true } return false })
   const segs = new Set(cells.map(c => c.seg))
   return { ...record, cells, segments: (record?.segments ?? []).filter(s => segs.has(s.seg)) }
+}
+/** THE RECORD the visit publishes (the fence's generation; the tripwire's WW1/WW2 read it): the deck cells, and every LISTED cell
+ *  with its listed block (`listed`: [x, y, z, name]), so a dig is judged against the evidence itself. `sig` changes with the deck or
+ *  the evidence file. Pure. */
+export function bw3RecordBody (w, ev, { home, now = Date.now(), by = null } = {}) {
+  const listed = ev.lines.flatMap(l => l.cells.map(c => [...c.at, c.name]))
+  const sig = `${ev.generated}|${listed.length}|` + w.record.cells.map(q => `${q.at.join(',')}@${q.seg}`).join(' ')
+  return { ...w.record, home: { x: home.x, y: home.y, z: home.z }, listed, sig, sitedAt: now, sitedBy: by, structure_complete: false, state: 'open' }
 }
 /** Is there work a visit can do now? (a cut still standing, or a deck cell not yet planks). Pure. */
 export const bw3HasWork = w => !!w && (w.cuts.length > 0 || w.stats.deck > w.stats.deckDone)

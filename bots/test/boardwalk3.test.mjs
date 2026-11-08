@@ -274,6 +274,17 @@ await t('BLOCKER 2 (r2): the visit opens only as many deck cells as the bag hold
 await t('MUTANT KILLED: the plank budget ignored -> every open deck cell is opened and dug', async () => {
   assert.ok(await withMutant('if (left > 0) { left--; return true } return false', 'return true', M => killedBy(deckFor, M)), 'the mutant survived')
 })
+await t('THE RECORD carries every listed cell with its block (the tripwire WW2 judges a dig against it) and a sig that moves with the file', async () => {
+  const srv = lake(lineCells(5, 14))
+  const H = { x: 0, y: G + 1, z: 0 }
+  const ev = W.bw3Evidence({ ...DOC(), home: [0, G + 1, 0], lines: [{ id: 'L000', walk: true, cells: Array.from({ length: 10 }, (_, i) => [5 + i, G, 0, 'dirt']) }] }, { pool: 'hive-c', home: H })
+  const w = W.bw3Work(ev.lines, srv.read, { home: H })
+  const b = W.bw3RecordBody(w, ev, { home: H, by: 'A' })
+  assert.strictEqual(b.listed.length, 10); assert.deepStrictEqual(b.listed[0], [5, G, 0, 'dirt']); assert.strictEqual(b.cells.length, 10)
+  assert.notStrictEqual(W.bw3RecordBody(w, { ...ev, generated: '2026-11-09T00:00:00Z' }, { home: H }).sig, b.sig)
+  const v = SK.slice(SK.indexOf('async function waterWalkVisit ('))
+  assert.ok(/const body = bw3RecordBody\(w, ev, \{ home, by: me \}\)/.test(v))
+})
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 await t('buildTidy runs the water visit when due, BEFORE the stage siting; the visit passes wet, the evidence file and the guard', async () => {
   const bt = SK.slice(SK.indexOf('async function buildTidyVisit ('))
