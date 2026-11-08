@@ -209,7 +209,7 @@ import { tidyColumn } from './tidy.mjs'   // roughground-3: the landmark's groun
 import { inwallFirst, stageTryOrder, inwallAtNext, roughCutWaits, hollowClear } from './roughground.mjs'   // roughground-01: inside the walls again before the next band   // gkhelpers-01: the segment leases in one listing, the chain, the crew's pantry
 import { FOREST_PLOT, FOREST_BLUEPRINT, FOREST, forestBuildRecord, forestDue, forestPalette, forestAlsoDone, FOREST_FOREIGN, siteForest, wallRings, forestHarvestList, standLeaves, standReaches, stripCensus, rotationAfter, siteTreesStanding, siteTreesHolding, siteHeldCols, aisleLeaves, forestCutsLeft, bonemealCells, bonemealBudget, forestRow, farmRetirePlan, farmRetired, farmIsRetired, gardenOf, forestFootprint, forestWalkR, keepDue, forestPlots, fellTree, fellReserved, fellClearArea } from './forest.mjs'   // forest-01
 import { FARM_SPECIES } from './treefarm.mjs'   // forest-01: the straight-trunk saplings
-import { BOT_MAT as BOT_MAT_RE, BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3DeckFor, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
+import { BOT_MAT as BOT_MAT_RE, BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3DeckFor, bw3RecordBody, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -26417,11 +26417,11 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
   if (deadline - t0 < BW3.minVisitMs) return no('late')
   const dir = townDir(), key = projKeyOf(BW3_PLOT), me = bot.username ?? 'bot'
   // THE RECORD (the fence's generation): the deck cells as sited; written again only when that cell list changes
-  const sig = w.record.cells.map(q => `${q.at.join(',')}@${q.seg}`).join(' ')
+  const body = bw3RecordBody(w, ev, { home, by: me })
   let rh = recordHead(dir, key)
   if (!rh.ok) return no('record_unreadable')
-  if (!rh.head || rh.head.rec?.sig !== sig) {
-    const pub = publishRecord(dir, key, cur => (cur?.sig === sig ? null : { ...w.record, home: { x: home.x, y: home.y, z: home.z }, sig, sitedAt: Date.now(), sitedBy: me, structure_complete: false, state: 'open' }), { by: me })
+  if (!rh.head || rh.head.rec?.sig !== body.sig) {
+    const pub = publishRecord(dir, key, cur => (cur?.sig === body.sig ? null : body), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return no('lost_record')
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return no('record_unreadable')
