@@ -13,6 +13,10 @@
 //        logs      axis = the clicked face's axis (a top face: y; an east/west face: x; a north/south face: z)
 //        trapdoor  a side face click: facing = the clicked face's outward direction, half by the cursor's height; open = false
 //        lantern   hanging when clicked on an underside, standing on a top face
+//        bed       cottage2-01: facing = the player's yaw (the head goes one cell that way: the head cell must be free); part = foot
+//                  is the clicked cell, the server places the head itself (one click, two cells)
+//        chest     cottage2-01: facing = OPPOSITE the player's yaw (a chest faces the one who places it); a chest beside another of the
+//                  same facing, along the axis across that facing, JOINS it into a double chest (type left/right is the server's)
 //      The yaw a stair needs is SENT AS ITS OWN LOOK PACKET immediately before the block_place, synchronously (buildbot.mjs send with an
 //      `aim`): mineflayer's lookAt(force) only queues the look for its next physics tick, so a click sent in the same tick would be
 //      judged with the OLD yaw (the proof's control arm shows it). A state that no support face of the cell can make is no step
@@ -72,8 +76,12 @@ export const SLAB = /_slab$/
 export const AXIS = /(_log|_wood|_stem|_hyphae)$|^(quartz_pillar|purpur_pillar|hay_block|bone_block|basalt|polished_basalt|chain|bamboo_block|stripped_bamboo_block)$/
 export const TRAPDOOR = /_trapdoor$/
 export const LANTERN = /^(soul_)?lantern$/
+export const BED = /_bed$/
+export const CHEST = /^(chest|trapped_chest)$/
 /** Does a click decide this block's state (so a cell of it should carry one)? Pure. */
-export const oriented = name => STAIRS.test(name) || SLAB.test(name) || AXIS.test(name) || TRAPDOOR.test(name) || LANTERN.test(name)
+export const oriented = name => STAIRS.test(name) || SLAB.test(name) || AXIS.test(name) || TRAPDOOR.test(name) || LANTERN.test(name) || BED.test(name) || CHEST.test(name)
+/** The world direction opposite a world facing. */
+export const OPP_FACING = Object.freeze({ north: 'south', south: 'north', east: 'west', west: 'east' })
 
 const faceName = f => (f[1] > 0 ? 'up' : f[1] < 0 ? 'down' : FACING_OF[`${f[0]},${f[2]}`])
 const axisOfFace = f => (f[1] !== 0 ? 'y' : f[0] !== 0 ? 'x' : 'z')
@@ -128,6 +136,19 @@ export function orientAim (name, ws, face) {
     const hanging = ws.hanging === true || ws.hanging === 'true'
     if (hanging ? fn !== 'down' : fn !== 'up') return null
     return plain
+  }
+  // cottage2-01: a bed's facing is the yaw (vanilla BedBlock: the clicked cell is the foot, the head one cell along the look); only a
+  // foot is ever clicked (a cell naming part=head is the server's, never a click: cottage2.mjs bedhead)
+  if (BED.test(n)) {
+    if (ws.part && ws.part !== 'foot') return null
+    if (ws.facing && YAW_OF[ws.facing] == null) return null
+    return { yaw: ws.facing ? YAW_OF[ws.facing] : null, cursor: centre }
+  }
+  // cottage2-01: a chest faces the player (vanilla ChestBlock: facing = the look's opposite); never sneaking, so it joins a neighbour of
+  // its own facing by itself (a double chest is the blueprint's when it names two such cells)
+  if (CHEST.test(n)) {
+    if (ws.facing && OPP_FACING[ws.facing] == null) return null
+    return { yaw: ws.facing ? YAW_OF[OPP_FACING[ws.facing]] : null, cursor: centre }
   }
   return plain
 }
@@ -351,8 +372,9 @@ export function cottageBlueprint (variant = 's') {
 
 // ---- 3. THE WOOD PARTS A VISIT CRAFTS ------------------------------------------------------------------------------------------
 /** What one craft makes and takes: stairs 6 planks -> 4, slabs 3 planks -> 6, trapdoors 6 planks -> 2 (all at a table). */
-export const WOOD_PART = Object.freeze({ stairs: Object.freeze({ planks: 6, makes: 4 }), slab: Object.freeze({ planks: 3, makes: 6 }), trapdoor: Object.freeze({ planks: 6, makes: 2 }) })
-const WOOD_PART_RE = new RegExp(`^(${WOODS.join('|')})_(stairs|slab|trapdoor)$`)
+// cottage2-01: fences (4 planks + 2 sticks -> 3; the sticks' 2 planks make 4, so a craft is booked at 6 planks) -- the lamp and awning posts
+export const WOOD_PART = Object.freeze({ stairs: Object.freeze({ planks: 6, makes: 4 }), slab: Object.freeze({ planks: 3, makes: 6 }), trapdoor: Object.freeze({ planks: 6, makes: 2 }), fence: Object.freeze({ planks: 6, makes: 3 }) })
+const WOOD_PART_RE = new RegExp(`^(${WOODS.join('|')})_(stairs|slab|trapdoor|fence)$`)
 /**
  * THE WOOD PARTS THE VISIT MUST MAKE -> { crafts: [{ item, count }], planks: { 'spruce_planks': n } } | null. Pure. `want` the visit's
  * needs { name: n }; `have(name)` what the bag (above its keeps) and the town can give of a name. For every wood stairs / slab /

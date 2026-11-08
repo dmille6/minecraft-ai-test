@@ -513,7 +513,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role, c.ws) || (!!alsoDone && alsoDone(c, r))
   // townstyle-01: what a state-bearing cell's step must make ({ name, ws }; the name only says WHICH KIND of block: stairs, slab, log),
   // and whether its cell holds its own block in the wrong state
-  const wantOf = c => (c.ws || c.blind ? { name: blockFor(palette, c.role, e.has) ?? roleFirst(palette, c.role), ws: c.ws ?? null, blind: !!c.blind } : null)
+  // cottage2-01: a bed foot's click also fills its HEAD (the record cell `byFoot` of the same `bed`): never a stand there, never a click
+  // while it is not clear or a body is in it
+  const headAt = c => (c.role === 'bed' && c.bed ? record.cells.find(h => h.byFoot && h.bed === c.bed)?.at ?? null : null)
+  const wantOf = c => { const h = headAt(c); return (c.ws || c.blind || h ? { name: blockFor(palette, c.role, e.has) ?? roleFirst(palette, c.role), ws: c.ws ?? null, blind: !!c.blind, ...(h ? { also: [h] } : {}) } : null) }
   const misorientedAt = c => { if (!c.ws) return false; const b = rd(...c.at); return !!b && cellDone(b, palette, c.role) && !cellDone(b, palette, c.role, c.ws) }
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
@@ -545,16 +548,17 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand'
   // townstyle-01: `ws` -- the cell's world state: the re-proof takes only a face that makes it, and the look and the send are AIMED
   // (here.aim: the yaw packet written with the click, the cursor at the state's half)
-  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false } = {}) => {
+  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false, also = null } = {}) => {
     if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
     await e.walkTo(step.stand, avoid ? { avoid } : undefined)
     if (e.aborted()) return 'aborted'          // the pending walk stays: the next visit bans its stand (settlePendingStand)
     if (stands) stands.pending = null
     // RE-PROVED WHERE THE BOT IS: the same stand rules from the feet it actually has
     const feet = e.feet()
-    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), domain, ws || blind ? { name: block, ws, blind } : null)
+    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), domain, ws || blind || also ? { name: block, ws, blind, ...(also ? { also } : {}) } : null)
     if (!here) { banStand(stands, kOf(cell), kOf(step.stand), now()); return 'stand' }
-    if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]))) return 'body'
+    if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]) || (also ?? []).some(a => inCell(b, a)))) return 'body'
+    if (also && e.self && also.some(a => inCell(e.self(), a))) return 'body'
     // ...AND ITS OWN: a jump or a step-up puts the builder's head into the cell above it for a moment -- wait for it to land
     for (let i = 0; i < 5 && e.self && inCell(e.self(), cell); i++) await e.sleep(100)
     if (e.self && inCell(e.self(), cell)) return 'body'
@@ -595,6 +599,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, beatConn: p.beat ? conn : null, now: now() })
         if (why) { cancel(); return `fence:${why}` }
         if (!isClear(cell)) { cancel(); return 'refused' }   // (isClear: air, a replaceable plant, or -- p.intoWater -- water)
+        if (also && !also.every(a => isClear(a))) { cancel(); return 'refused' }   // cottage2-01: a bed's head cell must be free too
         e.send(here.support, here.face, seq, here.aim ?? null)   // SYNCHRONOUS after the fence: no await between them (an aim's yaw packet is in the same write)
         const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
         release()
@@ -1284,7 +1289,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // builders each standing in the other's next cell spent both cells' attempts every visit: the fake server, 10-29)
         const bodies = feetIn ? (e.bodies?.() ?? []) : []
         const occupied = c => bodies.some(b => inCell(b, c.at) || inCell(b, [c.at[0], c.at[1] + 1, c.at[2]]))
-        const cand = open.filter(c => (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at) && !occupied(c))
+        // cottage2-01: a bed's head (`byFoot`) is never a candidate: its foot's click places it
+        const cand = open.filter(c => !c.byFoot && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at) && !occupied(c))
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
         if (!cand.length && bodies.length && open.some(c => occupied(c) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))) {
           if (++bodyWaits > BODY_WAITS) { out.stop = 'body_wait'; out.why = `${seg}: the open cells left are under another builder`; return out }
@@ -1401,7 +1407,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         }
         const block = blockFor(palette, picked.role, e.has)
         if (!block) { out.stop = 'no_material'; out.why = `${picked.role} for ${seg}`; return out }
-        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role, picked.ws), avoid: fellBack || feetIn ? null : blocking, ws: picked.ws ?? null, blind: !!picked.blind })
+        const pickedHead = headAt(picked)
+        const v = await click(picked.at, block, step, seg, segGen, { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, picked.role, picked.ws), avoid: fellBack || feetIn ? null : blocking, ws: picked.ws ?? null, blind: !!picked.blind, also: pickedHead ? [pickedHead] : null })
         if (v === 'placed') { out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: picked.at, block, ...(picked.ws ? { st: stateTag(picked.ws) } : {}) }); continue }
         if (v === 'misplaced') { out.placed++; out.misplaced = (out.misplaced ?? 0) + 1; tally(block); bump(picked.at); e.log('_build', { op: 'place', seg, cell: picked.at, block, st: stateTag(Object.fromEntries(Object.keys(picked.ws).map(k => [k, propsOf(rd(...picked.at))?.[k] ?? '?']))), result: 'misplaced' }); continue }
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }

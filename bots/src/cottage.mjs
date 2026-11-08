@@ -18,13 +18,14 @@
 // 'showcase').
 
 import { rot } from './townplan.mjs'
-import { styleOf, stylePalette } from './townstyle.mjs'
+import { styleOf, stylePalette, seedOf, WOODS, DARKNESS, logOf } from './townstyle.mjs'
+import { isCottage2Blueprint, lookOf, frameOf, cottage2Id, cottageLooksFor, recordLook, lookCode, COTTAGE2_NEED, BEDS, WOOLS, BOX_PLANTS } from './cottage2.mjs'
 
 export const COTTAGE_PLOT = 'cottage1'
 /** The blueprint family: `cottage@1s` (eaves to the front) and `cottage@1f` (gable to the front). */
 export const COTTAGE_VARIANTS = Object.freeze(['s', 'f'])
 export const cottageBlueprintId = v => `cottage@1${v}`
-export const isCottageBlueprint = id => /^cottage@1[sf]$/.test(String(id ?? ''))
+export const isCottageBlueprint = id => /^cottage@1[sf]$/.test(String(id ?? '')) || isCottage2Blueprint(id)   // cottage2-01: the @2 family too
 export const COTTAGE_BUILDERS = 2
 /** The project it waits for (the owner's order: the enchanting workshop first; the town hall, second in that order, has no design). */
 export const COTTAGE_AFTER = 'enchantshop'
@@ -103,9 +104,99 @@ export const COTTAGE_APPROACH = 3
 export function cottageEntranceCols (rec, { depth = COTTAGE_APPROACH } = {}) {
   if (!isCottageBlueprint(rec?.blueprint) || !Array.isArray(rec.anchor) || !rec.orient) return []
   const out = []
-  for (let u = 2; u <= 4; u++) for (let v = -depth; v <= 1; v++) { const { dx, dz } = rot(rec.orient, u, v); out.push([rec.anchor[0] + dx, rec.anchor[1] + dz]) }
+  // cottage2-01: the doorway's u is the look's (a long eave-front cottage's door is at u 4); the first cottage's at u 3
+  const l = lookOf(rec.blueprint), door = l ? frameOf(l.body, l.front).door : 3
+  for (let u = door - 1; u <= door + 1; u++) for (let v = -depth; v <= 1; v++) { const { dx, dz } = rot(rec.orient, u, v); out.push([rec.anchor[0] + dx, rec.anchor[1] + dz]) }
   return out
 }
 /** THE PALETTE A RECORD IS BUILT AND JUDGED BY: its own (a styled record), else its blueprint's. Pure. */
 export const recordPalette = (rec, bp) => (rec?.palette && typeof rec.palette === 'object' && (isCottageBlueprint(rec.blueprint) || (rec.style && typeof rec.style === 'object')) ? rec.palette : bp?.palette ?? {})
 // townstyle-02: ANY STYLED record (a `style` chosen at siting: the town hall, a re-roofed generation) is judged by its own palette too
+
+// ---- COTTAGE2-01: MORE COTTAGES, EACH ITS OWN LOOK; THE FURNISHING; THE WOOL ---------------------------------------------------
+// (OWNER 11-08 "charm and uniqueness ... chests and beds"; cottage2.mjs is the blueprint family; design docs/reports/cottage2-design-2026-11-08.md)
+/** The cottage projects in order: the first (its @1 blueprint, sited before cottage2-01) and two more on the extension's next house plots. */
+export const COTTAGE_PLOTS = Object.freeze([COTTAGE_PLOT, 'cottage2', 'cottage3'])
+export const isCottagePlot = plot => COTTAGE_PLOTS.includes(String(plot ?? ''))
+/** The project each later cottage waits for (the order: one at a time, each after the one before stands). */
+export const cottageAfterOf = plot => { const i = COTTAGE_PLOTS.indexOf(plot); return i > 0 ? COTTAGE_PLOTS[i - 1] : COTTAGE_AFTER }
+/** THE SWITCH -> { on } for the LATER cottages (cottage2, cottage3) and their furnishing. COTTAGE2=on|off; unset = on only in
+ *  COTTAGE2_POOLS (default 'showcase'). COTTAGE2=off: never offered, never sited; a sited record stays guarded. Pure. */
+export function cottage2Switches (env = process.env, pool = '') {
+  const pools = String(env?.COTTAGE2_POOLS ?? 'showcase').split(',').map(s => s.trim()).filter(Boolean)
+  return { on: onOff(env?.COTTAGE2) ?? pools.includes(String(pool)) }
+}
+/**
+ * THE STYLE AND LOOK OF A LATER COTTAGE -> { style, id } | null. Pure. `town` the indexed stock; `others` the sited cottage records (their
+ * looks and woods: cottage2.mjs recordLook). THE WALL WOOD: a species the town holds COTTAGE2_NEED.wall logs of, chosen WITH the look so
+ * the new cottage differs from every neighbour in two axes (cottageLookFor); THE ROOF: the darkest species darker than the walls the
+ * town holds COTTAGE2_NEED.roof of, else the wall wood; THE STONE: stone bricks when held and the seed says so. null: no wood to build.
+ */
+export function cottage2Style (town = {}, opts = {}) {
+  return cottage2Styles(town, { ...opts, n: 1 })[0] ?? null
+}
+/** The ranked styles (cottage2.mjs cottageLooksFor: up to `n`, each a different footprint or face) -> [{ style, id }]. Pure. */
+export function cottage2Styles (town = {}, { pool = '', plot = 'cottage2', plotId = '', others = [], n = 3 } = {}) {
+  const key = `${pool}/${plot}/${plotId}`
+  const woods = WOODS.filter(w => (Number(town?.[logOf(w)]) || 0) >= COTTAGE2_NEED.wall)
+  return cottageLooksFor(key, woods, others.map(recordLook).filter(Boolean), n).map(pick => styleOfPick(town, key, pick))
+}
+function styleOfPick (town, key, pick) {
+  const n = name => Number(town?.[name]) || 0
+  const wood = pick.wood
+  const darker = DARKNESS.slice(0, Math.max(0, DARKNESS.indexOf(wood)))
+  const roof = darker.find(w => n(logOf(w)) >= COTTAGE2_NEED.roof) ?? wood
+  const stone = n('stone_bricks') >= COTTAGE2_NEED.stone && (seedOf(key) & 1) ? 'stone_bricks' : 'cobblestone'
+  return { style: { wood, roof, stone, variant: lookCode(pick.look) }, id: cottage2Id(pick.look) }
+}
+/**
+ * DOES A FURNISHING CELL WAIT? -> bool. Pure. A cell of a cottage's `furnish` segment whose material neither the bag nor the town can
+ * supply (`have(name)` -> what the two hold): a BED (or its head) while there is no bed and no 3 wool of one colour; a window-box FLOWER
+ * while there is no flower or fern; a LANTERN while there is no lantern and no iron (an ingot or 8 nuggets) with a torch. A waiting cell
+ * counts DONE for the visit's completion and is never damage: the cottage stands without it, and the first bot that can supply it
+ * places it (a damaged read for that bot). A chest never waits (the bags carry them; the visit crafts one from planks).
+ */
+export function furnishWaits (cell, have = () => 0) {
+  if (cell?.seg !== 'furnish') return false
+  const h = nm => Math.max(0, Number(have(nm)) || 0)
+  if (cell.role === 'bed' || cell.role === 'bedhead') return !(BEDS.some(b => h(b) >= 1) || WOOLS.some(w => h(w) >= 3))
+  if (cell.role === 'flower') return !BOX_PLANTS.some(f => h(f) >= 1)
+  if (cell.role === 'lamp') return !(h('lantern') >= 1 || ((h('iron_ingot') >= 1 || h('iron_nugget') >= 8) && h('torch') >= 1))
+  return false
+}
+/** The beds a record owes (its bed FOOT cells not done) -> n. `done(cell)` the world's read. Pure. */
+export const bedsOwed = (rec, done = () => false) => (rec?.cells ?? []).filter(c => c.role === 'bed' && !done(c)).length
+/** THE WOOL a bed craft needs: the colour the bag + town hold at least 3 of, most first -> { colour, wool, bed } | null. Pure. */
+export function bedColourFor (have = () => 0) {
+  let best = null
+  for (const w of WOOLS) { const n = Number(have(w)) || 0; if (n >= 3 && (!best || n > best.n)) best = { n, wool: w } }
+  return best ? { colour: best.wool.replace(/_wool$/, ''), wool: best.wool, bed: best.wool.replace(/_wool$/, '_bed') } : null
+}
+/** THE COTTAGE'S CHESTS as town containers (chestfull.mjs setTownExtra: the stock view, the withdraw and kit searches, the index) ->
+ *  ["x,y,z"]. Pure. */
+export const cottageChestKeys = rec => (isCottageBlueprint(rec?.blueprint) ? (rec.cells ?? []).filter(c => c.role === 'chest' && Array.isArray(c.at)).map(c => c.at.join(',')) : [])
+// ---- THE WOOL: SHEARING A SHEEP IN SIGHT ------------------------------------------------------------------------------------
+/** The shear errand's bounds: a sheep within `seeR` of the bot and `homeR` of home; at most `max` sheep a visit; a bot asks at most every
+ *  `everyMs`. Measured 11-08 (showcase, 20 h): 242 bot x 5-min windows saw a sheep within 40 b; 3 sheep within 200 b of home. */
+export const SHEAR = Object.freeze({ seeR: 48, homeR: 128, max: 3, everyMs: 10 * 60_000, walkMs: 40_000, pickupMs: 4_000 })
+/** A sheep entity's wool (mineflayer metadata index 17: the Sheep byte, colour in the low 4 bits, SHEARED 0x10) -> { sheared, colour } |
+ *  null. Pure. Paper 11-08 (sandbox/cottage2/shear-e2e.mjs): a WHITE unsheared sheep sends NO byte (the default, 0, is never sent), so an
+ *  absent index 17 is white and woolly; a non-number there is no read. */
+export const SHEEP_WOOL_INDEX = 17
+export function sheepWool (meta) {
+  if (!Array.isArray(meta)) return null
+  const b = meta[SHEEP_WOOL_INDEX] === undefined ? 0 : meta[SHEEP_WOOL_INDEX]
+  if (!Number.isInteger(b)) return null
+  return { sheared: (b & 0x10) !== 0, colour: b & 0x0f }
+}
+/** IS THE SHEAR ERRAND DUE for this bot? -> { due, why }. Pure. The cottage owes a bed that WAITS (no bed, no 3 wool of a colour), the bot
+ *  holds shears, a woolly adult sheep is in sight (within SHEAR.seeR of the bot and SHEAR.homeR of home), and its last errand is older
+ *  than SHEAR.everyMs. */
+export function shearDue ({ owed = 0, waiting = false, shears = false, sheep = 0, lastAt = 0, now = Date.now() } = {}) {
+  if (!(owed > 0)) return { due: false, why: 'no_bed_owed' }
+  if (!waiting) return { due: false, why: 'wool_in_town' }
+  if (!shears) return { due: false, why: 'no_shears' }
+  if (!(sheep > 0)) return { due: false, why: 'no_sheep_in_sight' }
+  if (now - (Number(lastAt) || 0) < SHEAR.everyMs) return { due: false, why: 'rested' }
+  return { due: true, why: 'ok' }
+}
