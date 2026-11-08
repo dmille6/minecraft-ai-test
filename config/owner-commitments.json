@@ -6059,16 +6059,22 @@
     "stuck-1108.md"
    ],
    "state": "open",
-   "next_step": "2026-11-08: SHOWCASE branch stepcanopy-01show READY TO STAGE on ef40871b: fellcanopy-01show 18105ded (stepwell felling lists the natural leaves round logs no stand sees; offline replay: 0/17 logs had a stand, all 17 fall in 2 rounds) + sitecanopy-01show 2849dfa5 (cottage/town-hall siting lists natural leaves in its own cells; replay: cottage sites on X3 at -3,-32 W). Codex r1 BLOCKERS none on both; no new tripwire rule (SW1 / G2 listed clears). FLEET stuckfleet-01-on-1e593b9b d65154c0 (light waiver, held-cell waiver, cap dig; tier 2; Codex none; ci2 420/422) registration + draft entry in ~/mcai-analysis on the canary host, NOT queued. OPEN: reroof of hall/enchantshop/storehub (tree on the hall roof, floating log over the enchantshop eave, storehub canopy over its roof: needs a proof that digs from the new roof's own stands), town hall X2 (earthwork: site prep for townhall), fleet board-c (waiver cap dead end).",
+   "next_step": "2026-11-08 (2): stepcanopy-01show to the release agent; stuckfleet-01 QUEUED; torch waiver kept for unreachable lights only (coordinator). READY TO STAGE (both on 2849dfa5, fold together): thprep-01show f14f53fe (town hall sites on X2 via its own siting -- whole-volume natural leaves, floor-then-reach order, terrain cuts within its 160 limit; siteprep.mjs unchanged; replay sites -5,-46 W; Codex r2 none; suite 470/476 known+load) and reroof3-01show cb122d46 (roof trees/floating remains dug as kind=remains, ordered build-order reach; storehub PROVES in replay; hall and enchantshop still fail: slab-roof edges need a builder ON the roof -- roof-access design + Paper proof next; Codex r2 none; suite 473/476 known). FLEET draft stuckfleet-02-on-d65154c0 d6d5e535 (board-c: waive a stuck cell made faceless by earlier waivers, <=6/visit, never past half the stage; Codex r2 none; suite 422/423) reg + draft entry after stuckfleet-01 in ~/mcai-analysis, not queued.",
    "evidence": {
     "grep": [
      "fellcanopy-01show",
      "sitecanopy-01show",
-     "stuckfleet-01"
+     "stuckfleet-01",
+     "thprep-01show",
+     "reroof3-01show",
+     "stuckfleet-02"
     ],
     "branches": [
      "stepcanopy-01show",
-     "stuckfleet-01-on-1e593b9b"
+     "stuckfleet-01-on-1e593b9b",
+     "thprep-01show",
+     "reroof3-01show",
+     "stuckfleet-02-on-d65154c0"
     ],
     "paths": []
    },
