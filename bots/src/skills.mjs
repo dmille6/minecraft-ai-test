@@ -134,6 +134,8 @@ import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's
 import { HUB_PLOT, HUB_BLUEPRINT, hubSitingPlan, hubRecordOf, hubChestKeys, hubHomes, hubSignSpots, hubVisitOpts, clerkMoves, clerkRoute, clerkTargets, cargoOwed, cargoKeeps, clerkWork, clerkRowDetail, hubThrowable,
          CLERK_STACKS, CLERK_BAG_SPARE, CLERK_GAP_MS, CLERK_IDLE_MS, CLERK_BACKOFF_MS, CLERK_LEASE_MS, CLERK_TERM_MS, CLERK_REST_MS } from './storehub.mjs'   // storehub-01
 import { STOREHUB } from './shop.mjs'   // storehub-01's switches
+import { LIGHT_PLOTS } from './shop.mjs'   // workboard-01: the job's bag rule
+import { boardJob, jobBlocked, WB as WORKBOARD_T } from './townwork.mjs'   // workboard-01: the town work board (phase A)
 import { ENCHANTSHOP, COTTAGE as COTTAGE_SW, TOWNHALL as TOWNHALL_SW, REROOF as REROOF_SW } from './shop.mjs'   // enchantshop-01's switches; townstyle-01's
 import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS, FIT_VISIT_MS, GATE_ROW_MS, enchantOpening, enchantSitingPlan, enchantRecordOf, enchantVisitOpts,
          ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
@@ -17490,10 +17492,12 @@ const stoodKey = () => projKeyOf(SHOP_PLOT)
  * an unreadable state is the workshop (the job as before).
  */
 let activeMem = null
-export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) {
+export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) { return shopActiveAll(bot, now, { visit }).pick }
+/** workboard-01: shopActive's pick AND the marked states it chose from -> { pick, states } (states null: one project, or a throw). */
+export function shopActiveAll (bot = null, now = Date.now(), { visit = false } = {}) {
   try {
     const list = projectsOn()
-    if (list.length === 1) return list[0]
+    if (list.length === 1) return { pick: list[0], states: null }
     const dir = townDir()
     if (bot) activeMem = { ...(activeMem ?? {}), bot }
     const sig = `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
@@ -17577,16 +17581,54 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     const order0 = b ? decorOrder(b, marked, order00, now) : order00
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
+    let pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
+    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
+    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
+    const bp = b?.boardPick
+    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
+      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+      if (sp && st && jobBlocked(st) == null) pick = sp
+    }
     // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, the visit's pick and every read of the active project (the
     // reserve, the draw, the bag) name the tidy the order sent it to, never the forest the order skipped (shop.mjs roomFallbackPick)
     const fbPick = roomFallbackPick(b?.roomFallback ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
-    if (fbPick) return fbPick
+    if (fbPick) return { pick: fbPick, states: marked }
     if (visit) noteRepair(rmem, pick, states, now)
     if (visit && b) serviceBegin(b, svc, pick, now)
-    return pick
-  } catch { return projectsOn()[0] }
+    return { pick, states: marked }
+  } catch { return { pick: projectsOn()[0], states: null } }
 }
+/**
+ * WORKBOARD-01 (townwork.mjs): THE TOWN'S JOB FOR THIS BOT NOW -> townwork.mjs boardJob ({ plot, workable, why, starved, cands }), or
+ * null when the board cannot read the town (the shop off, no town plan, a single project, a throw): then the board stands aside.
+ * The job IS shopActive's pick (one rule: keeper/crew, repairs, starve, stuck, unsited, buildnext), workable or not. Never throws.
+ */
+export function boardJobNow (bot, now = Date.now()) {
+  try {
+    if (!SHOP.on || !bot || !townPlanNow(bot)) return null
+    const { pick, states } = shopActiveAll(bot, now)
+    if (!states) return null
+    return boardJob(pick, states)
+  } catch { return null }
+}
+/** WORKBOARD-01: claim one of `plot`'s admission slots BEFORE the walk (buildproj.mjs takeSlot: the visit's own takeSlot renews
+ *  it in place, so a traveller holds the slot it will build in) -> { ok, slot, gen } | { ok: false, why }. Never throws. */
+export function boardClaim (bot, plot, now = Date.now()) {
+  try {
+    const p = projectsOn().find(q => q.plot === plot)
+    if (!p) return { ok: false, why: 'no_project' }
+    return takeSlot(townDir(), projKeyOf(plot), bot?.username ?? config.bot?.name ?? 'bot', buildersOf(p), { now, ttl: WORKBOARD_T.claimTtlMs })
+  } catch { return { ok: false, why: 'claim_failed' } }
+}
+/** WORKBOARD-01: give a claim back (ours by name and generation: a visit that renewed it moved the generation, so this is a no-op
+ *  then). Never throws. */
+export function boardRelease (bot, plot, claim) {
+  try { if (claim && Number.isFinite(claim.slot)) releaseLease(townDir(), projKeyOf(plot), `slot${claim.slot}`, bot?.username ?? config.bot?.name ?? 'bot', claim.gen) } catch { /* it lapses at its ttl */ }
+}
+/** WORKBOARD-01: pin the job's project for this bot's next visit (shopActiveAll honours it WB.claimTtlMs). */
+export function boardPin (bot, plot, now = Date.now()) { if (bot) bot.boardPick = plot ? { plot, at: now } : null }
+/** WORKBOARD-01: the job's bag rule: a light plot needs 2 free slots, every other 8 (shop.mjs LIGHT_PLOTS). */
+export const boardLight = plot => LIGHT_PLOTS.has(plot)
 /**
  * COPPERHALL-01: may the hall open now? -> copperhall.mjs hallOpening over the town index's copper (matsTownStock) and the reserve
  * table's copper_ingot. No bot, an unread index or a throw: not open (an unknown count never opens). One `_copperhall_gate` row per
@@ -21182,7 +21224,7 @@ async function buildShop (ctx, args, signal) {
   ctx.bot.roomFallback = args?.why === 'room_fallback' && args?.plot === TIDY_PLOT ? { at: Date.now() } : null
   if (ctx.bot.roomFallback && ctx.bot.projReserve) ctx.bot.projReserve.at = -Infinity
   ctx.bot.shopVisitBusy = true
-  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e } finally { ctx.bot.shopVisitBusy = false }
+  try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e } finally { ctx.bot.shopVisitBusy = false; ctx.bot.boardPick = null }   // workboard-01: the pin is for ONE visit
   note(r)
   serviceEnd(ctx.bot, r?.stop)   // prodserve-01: a service visit that did not happen gives its stamp back
   // gklease-01: a grounds visit that did something is the holder's work (groundsIdle's clock)
