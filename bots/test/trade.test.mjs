@@ -47,7 +47,7 @@ await t('tripAdmit: each refusal, then go', () => {
   const base = { on: true, census: 10, dest: { x: 1, z: 1 }, now: 1e9, state: {}, atTown: true, timeOfDay: 1000, health: 20, freeSlots: 20, take: 30, held: 0, leased: false }
   assert.deepEqual(T.tripAdmit(base), { ok: true, why: 'go' })
   for (const [k, v, why] of [['on', false, 'off'], ['census', 0, 'no_census'], ['dest', null, 'no_destination'], ['atTown', false, 'away'],
-    ['timeOfDay', 13000, 'not_morning'], ['health', 12, 'health'], ['freeSlots', 2, 'bag'], ['take', 0, 'no_coal'], ['leased', true, 'leased']]) {
+    ['timeOfDay', 13000, 'not_morning'], ['health', 12, 'health'], ['freeSlots', 2, 'bag'], ['take', 0, 'no_goods'], ['leased', true, 'leased']]) {
     assert.equal(T.tripAdmit({ ...base, [k]: v }).why, why, k)
   }
   assert.equal(T.tripAdmit({ ...base, state: { lastTripAt: 1e9 - 1000 } }).why, 'cooldown')
@@ -63,10 +63,10 @@ await t('turnHome: reasons, never a timer except the stranded cap (45 min)', () 
   assert.equal(r({ timeOfDay: 13000 }), 'night')
   assert.equal(r({ health: 9 }), 'health')
   assert.equal(r({ freeSlots: 0 }), 'bag_full')
-  assert.equal(r({ coal: 5 }), 'no_coal')
+  assert.equal(r({ coal: 5 }), 'no_goods')
   trip.sold = 60; assert.equal(r({ coal: 0 }), 'sold')
   assert.equal(r({ coal: 0, emeralds: 4, buyLeft: true }), null, 'still emeralds to spend at a mason')
-  trip.earned = 4; assert.equal(r({ coal: 30 }), 'goal')
+  trip.earned = 8; assert.equal(r({ coal: 30 }), 'goal')
 })
 
 await t('breadcrumbs: dropped every 24 b; home walks them back nearest first; null at home', () => {
@@ -98,8 +98,8 @@ await t('merchantOf / tradeCandidates: coal buyers first, then mason/librarian; 
 
 await t('sellPlan: only coal -> emerald offers still open, limited by uses and the coal held; never a two-input or disabled offer', () => {
   const trades = [tr(it('emerald'), it('stone_axe')), tr(it('coal', 15), it('emerald'), { uses: 14, max: 16 }), tr(it('coal', 15), it('emerald'), { off: true }), tr(it('coal', 10), it('emerald'))]
-  assert.deepEqual(T.sellPlan(trades, { coal: 60 }), [{ i: 1, times: 2, price: 15 }, { i: 3, times: 3, price: 10 }])
-  assert.deepEqual(T.sellPlan(trades, { coal: 14 }), [{ i: 3, times: 1, price: 10 }])
+  assert.deepEqual(T.sellPlan(trades, { coal: 60 }), [{ i: 1, times: 2, price: 15, item: 'coal' }, { i: 3, times: 3, price: 10, item: 'coal' }])
+  assert.deepEqual(T.sellPlan(trades, { coal: 14 }), [{ i: 3, times: 1, price: 10, item: 'coal' }])
   assert.deepEqual(T.sellPlan([tr(it('emerald'), it('bread', 6))], { coal: 60 }), [], 'POSITIVE: a farmer novice buys no coal')
 })
 
@@ -127,6 +127,62 @@ await t('STRUCTURAL: cognitive.mjs issues the open trip (after the deep trip, ne
     assert.equal(src.split(a).length - 1, 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + a)
     assert.equal(wired(src.replace(a, '// ' + a)), false, 'mutant (commented out) must fail: ' + a)
   }
+})
+
+await t('COALSALE-02 stoneForTrip: only stone above the town keep (192), at most two stacks (128), whole trades of 20', () => {
+  assert.equal(T.stoneForTrip({ townStone: 1000, held: 0 }), 120, '128 -> 6 whole trades = 120')
+  assert.equal(T.stoneForTrip({ townStone: 250, held: 0 }), 40, '58 above the keep -> 2 trades')
+  assert.equal(T.stoneForTrip({ townStone: 192, held: 0 }), 0, 'POSITIVE: the keep itself is never drawn')
+  assert.equal(T.stoneForTrip({ townStone: 1000, held: 30 }), 90, '30 held + 90 = 120')
+  assert.equal(T.townItemTotal({ a: { obs: { names: { stone: [300, 5] } } }, b: { obs: { names: { coal: [9, 1] } } }, c: {} }, 'stone'), 300)
+})
+
+await t('COALSALE-02 sellPlan: STONE first in whole trades of 20 within the window stock (uses left); coal only while coalOk', () => {
+  const trades = [tr(it('coal', 15), it('emerald'), { max: 16 }), tr(it('stone', 20), it('emerald'), { uses: 14, max: 16 }), tr(it('emerald'), it('bricks', 10))]
+  assert.deepEqual(T.sellPlan(trades, { coal: 60, stone: 128 }), [{ i: 1, times: 2, price: 20, item: 'stone' }, { i: 0, times: 4, price: 15, item: 'coal' }], 'stock: only 2 stone uses left')
+  assert.deepEqual(T.sellPlan(trades, { coal: 60, stone: 128, coalOk: false }), [{ i: 1, times: 2, price: 20, item: 'stone' }])
+  assert.deepEqual(T.sellPlan([tr(it('stone', 20), it('emerald'), { uses: 16, max: 16 })], { stone: 128 }), [], 'out of stock: nothing')
+  assert.equal(T.stoneOfferOpen(trades), true)
+  assert.equal(T.stoneOfferOpen([tr(it('stone', 20), it('emerald'), { uses: 16, max: 16 })]), false)
+  assert.equal(T.stoneOfferOpen([tr(it('clay_ball', 10), it('emerald'))]), false, 'a NOVICE mason (clay) does not buy stone')
+})
+
+await t('COALSALE-02 trip rules: masons first when carrying stone; coal stops counting once a stone buyer is found; stone keeps a trip on only while a mason may still buy', () => {
+  const V = (id, prof, x) => { const m = []; m[18] = { villagerProfession: prof, level: 2 }; return { id, uuid: `u${id}`, name: 'villager', position: { x, y: 64, z: 0 }, metadata: m } }
+  const ents = { 1: V(1, 13, 2), 2: V(2, 10, 9) }
+  assert.deepEqual(T.tradeCandidates(ents, { x: 0, z: 0 }, [], { stone: true }).map(m => m.profession), ['mason', 'toolsmith'])
+  assert.deepEqual(T.tradeCandidates(ents, { x: 0, z: 0 }).map(m => m.profession), ['toolsmith', 'mason'])
+  const trip = T.newTrip({ now: 0, home: HOME, dest: { x: 900, y: 70, z: 147 }, take: 0, stoneTake: 100 })
+  assert.equal(trip.phase, 'stock')
+  const r = (o = {}) => T.turnHome(trip, { now: 60_000, timeOfDay: 3000, coal: 0, stone: 0, ...o })
+  assert.equal(r({ stone: 100 }), null, 'stone and no mason opened yet: carry on')
+  trip.masonOpened = true
+  assert.equal(r({ stone: 100 }), 'no_goods', 'a mason opened with no stone offer: stone is not a reason to stay')
+  trip.stoneOffer = trip.stoneOpen = true
+  assert.equal(r({ stone: 100 }), null)
+  trip.stoneOpen = false
+  assert.equal(r({ stone: 100 }), 'no_goods', 'its stock used up: stone is no reason to stay (sandbox4 STONE run: the trip roamed on with 88 stone)')
+  trip.stoneOpen = true
+  assert.equal(r({ coal: 60, stone: 0 }), 'no_goods', 'a stone buyer found: coal is kept as fuel, not a reason to stay')
+  assert.equal(T.tripAdmit({ on: true, census: 5, dest: { x: 1, z: 1 }, now: 1e9, atTown: true, timeOfDay: 1000, freeSlots: 5, stoneTake: 120, masonKnown: true }).why, 'bag', 'two stacks need their slots')
+  assert.equal(T.tripAdmit({ on: true, census: 5, dest: { x: 1, z: 1 }, now: 1e9, atTown: true, timeOfDay: 1000, freeSlots: 10, stoneTake: 120, masonKnown: true }).ok, true)
+  assert.equal(T.tripAdmit({ on: true, census: 5, dest: { x: 1, z: 1 }, now: 1e9, atTown: true, timeOfDay: 1000, freeSlots: 10, stoneTake: 120, masonKnown: false }).why, 'no_goods', 'no mason in the census: stone is no reason')
+  assert.equal(T.pickDestination([{ p: 'toolsmith', x: 400, y: 70, z: 147 }, { p: 'mason', x: 500, y: 70, z: 147 }], HOME, { want: 'stone' }).p, 'mason')
+  const adm = o => T.tripAdmit({ on: true, census: 5, dest: { x: 1, z: 1 }, now: 1e9, atTown: true, timeOfDay: 1000, freeSlots: 10, masonKnown: true, ...o }).why
+  assert.equal(adm({ stoneHeld: 192 }), 'heavy_bag', 'Codex review: a bag already over two stacks of stone does not leave')
+  assert.equal(adm({ held: 61, take: 0 }), 'heavy_bag', 'nor over 60 coal')
+  assert.equal(adm({ stoneHeld: 128 }), 'go', 'POSITIVE: exactly the limit goes')
+})
+
+await t('COALSALE-02 live sightings: employed adults merged by uuid into the pool list, joined to the census (no duplicate of a census villager)', () => {
+  const now = 5
+  const l = T.mergeLive([], [{ uuid: 'm1', profession: 'mason', level: 2, x: 900.5, y: 70, z: 147.2 }, { uuid: 'n', profession: 'none', x: 1, y: 1, z: 1 }, { uuid: 'b', profession: 'mason', baby: true, x: 1, y: 1, z: 1 }], now)
+  assert.deepEqual(l, [{ uuid: 'm1', p: 'mason', level: 2, x: 900, y: 70, z: 147, at: 5 }])
+  const c = T.censusOf('board-a', { live: l })
+  assert.equal(c.filter(v => v.p === 'mason').length, 1)
+  assert.equal(T.censusOf('board-a').some(v => v.p === 'mason'), false, 'MEASURED 11-05: no fleet census holds a mason')
+  assert.equal(T.pickDestination(c, HOME, { want: 'stone' }).p, 'mason')
+  assert.deepEqual(T.mergeLive(l, [{ uuid: 'm1', profession: 'mason', level: 3, x: 900, y: 70, z: 147 }], 9)[0].level, 3, 'newest wins')
 })
 
 await t('Claude review BLOCKER: the gate admits every call of an open trip (same args each time) -- no repeat window, cooldown or learned rule strands it; housekeeping', async () => {

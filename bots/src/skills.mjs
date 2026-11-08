@@ -95,6 +95,7 @@ import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: importe
 import { WELL_BAND, WELL_BAND_SLOTS } from './well.mjs'   // idlework-02: the band dispose
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
+import { stoneForTrip, townItemTotal, stoneOfferOpen, readLive, mergeLive, LIVE_FILE } from './trade.mjs'   // coalsale-02: stone for apprentice masons
 import { TRADE, tradeSwitch, tradeModeDetail, censusOf, pickDestination, coalForTrip, tripAdmit, newTrip, turnHome, roamPoint, dropCrumb, nextCrumbHome, merchantOf, tradeCandidates, sellPlan, buyPlan, storedEnchants, offersDetail, tripDetail } from './trade.mjs'   // coalsale-01 (T2) + T4 buying
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
@@ -20709,30 +20710,41 @@ export const tradeTripOrder = bot => (bot?.tradeTrip ? { skill: 'trade_trip', ar
 export function tradeStartOrder (bot, { now = Date.now(), atTown = false } = {}) {
   try {
     if (!TRADE_ON.on || !bot || bot.tradeTrip || bot.deepTrip) return null
-    const census = censusOf(config.memory.pool)
+    const census = censusOf(config.memory.pool, { live: readLive(poolStateDir(config.memory.pool)) })
     const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
     const st = bot.tradeState ??= {}
-    const dest = pickDestination(census, home, { avoid: st.failed ?? [] })
-    let take = 0, held = 0
-    if (atTown && dest) {
+    let dest = pickDestination(census, home, { avoid: st.failed ?? [] })
+    const mason = pickDestination(census, home, { avoid: st.failed ?? [], want: 'stone' })
+    const masonKnown = !!mason?.buyer
+    let take = 0, held = 0, stoneTake = 0, stoneHeld = 0
+    if (atTown && (dest || mason)) {
       held = bagCount(bot, 'coal')
       const town = townCoalStock(bot)
       take = town.ok ? coalForTrip({ townCoal: town.total, held }) : 0
+      // the bag's own stone counts for the carry limit on EVERY trip (Codex re-check), the draw only with a mason known
+      stoneHeld = bagCount(bot, 'stone')
+      // COALSALE-02: stone above the town's stone keep, when the census knows a mason
+      if (masonKnown) {
+        const ent = townIndexEntries(bot)
+        stoneTake = ent ? stoneForTrip({ townStone: townItemTotal(ent, 'stone'), held: stoneHeld }) : 0
+      }
+      // no coal to sell but stone: go to the mason
+      if (held + take < TRADE.minSell && masonKnown && stoneHeld + stoneTake >= TRADE.stonePer) dest = mason
     }
     const items = bot.inventory?.items?.() ?? []
     const a = tripAdmit({ on: true, census: census.length, dest, now, state: st, atTown, timeOfDay: bot.time?.timeOfDay ?? 0,
-      health: bot.health ?? 20, freeSlots: 36 - items.length, take, held, leased: !!(dest && atTown && tradeLease(bot, now)) })
+      health: bot.health ?? 20, freeSlots: 36 - items.length, take, held, stoneTake, stoneHeld, masonKnown, leased: !!(dest && atTown && tradeLease(bot, now)) })
     if (!a.ok) {
       st.skipAt ??= {}
-      if (['no_census', 'no_destination', 'no_coal', 'leased', 'backoff'].includes(a.why) && now - (st.skipAt[a.why] ?? -Infinity) >= 30 * 60_000) {
+      if (['no_census', 'no_destination', 'no_goods', 'leased', 'backoff', 'heavy_bag'].includes(a.why) && now - (st.skipAt[a.why] ?? -Infinity) >= 30 * 60_000) {
         st.skipAt[a.why] = now
-        try { logEvent({ kind: 'trade_trip', status: 'no_effect', snapshot: snapshot(bot), detail: `skip=${a.why} census=${census.length}${dest ? ` dest=${dest.x},${dest.z} ${dest.p} ${dest.dist}b` : ''} take=${take} held=${held}` }) } catch { /* telemetry */ }
+        try { logEvent({ kind: 'trade_trip', status: 'no_effect', snapshot: snapshot(bot), detail: `skip=${a.why} census=${census.length}${dest ? ` dest=${dest.x},${dest.z} ${dest.p} ${dest.dist}b` : ''} take=${take} held=${held} stone_take=${stoneTake} stone_held=${stoneHeld}` }) } catch { /* telemetry */ }
       }
       return null
     }
     if (!tradeLease(bot, now, { take: true })) return null
     st.lastTripAt = now
-    bot.tradeTrip = newTrip({ now, home, dest, take })
+    bot.tradeTrip = newTrip({ now, home, dest, take, stoneTake })
     try { logEvent({ kind: 'trade_trip', status: 'success', snapshot: snapshot(bot), detail: tripDetail(bot.tradeTrip, `start take=${take} held=${held} dist=${dest.dist}`) }) } catch { /* telemetry */ }
     return tradeTripOrder(bot)
   } catch { return null }
@@ -20786,16 +20798,25 @@ async function tradeWith (ctx, trip, m, signal) {
   try {
     res.offers = offersDetail(v.trades)
     try { logEvent({ kind: 'trade_seen', status: 'success', snapshot: snapshot(bot), detail: `${m.profession} L${m.level ?? '?'} at ${Math.floor(m.x)},${Math.floor(m.y)},${Math.floor(m.z)}: ${res.offers}`, args: { profession: m.profession, level: m.level, uuid: m.uuid, x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z) } }) } catch { /* telemetry */ }
-    // the owner's 60: never sell more than the trip's coal budget, whatever else the bag holds
-    for (const s of sellPlan(v.trades, { coal: Math.min(winCount(v, 'coal'), Math.max(0, (trip.coalBudget ?? TRADE.carryMax) - trip.sold)) })) {
+    // COALSALE-02: a mason window decides whether stone sells on this trip (the offer with uses left: its stock)
+    if (m.profession === 'mason') { trip.masonOpened = true; if (stoneOfferOpen(v.trades)) trip.stoneOffer = trip.stoneOpen = true }
+    // the owner's 60: never sell more than the trip's coal budget; stone within its own budget; STONE first, and coal only
+    // while no stone buyer has been found (coal is worth ~6x more as fuel than as a trade good)
+    const coalAllow = Math.min(winCount(v, 'coal'), Math.max(0, (trip.coalBudget ?? TRADE.carryMax) - trip.sold))
+    const stoneAllow = Math.min(winCount(v, 'stone'), Math.max(0, (trip.stoneBudget ?? TRADE.stoneCarryMax) - (trip.stoneSold ?? 0)))
+    for (const s of sellPlan(v.trades, { coal: coalAllow, stone: stoneAllow, coalOk: !trip.stoneOffer })) {
       check(signal)
-      const c0 = winCount(v, 'coal'), e0 = winCount(v, 'emerald')
+      const c0 = winCount(v, s.item), e0 = winCount(v, 'emerald')
       let bad = null
       try { await v.trade(s.i, s.times) } catch (e) { bad = e }   // AWAITED WHOLE, never raced (Codex re-check: a raced trade kept clicking after the close); a server that never answers is the runner's hard stop, as for every window skill
       await sleep(300, signal)
-      res.sold += Math.max(0, c0 - winCount(v, 'coal')); res.earned += Math.max(0, winCount(v, 'emerald') - e0)
+      const gone = Math.max(0, c0 - winCount(v, s.item))
+      if (s.item === 'stone') res.stoneSold = (res.stoneSold ?? 0) + gone; else res.sold += gone
+      res.earned += Math.max(0, winCount(v, 'emerald') - e0)
       if (bad) { res.why = `trade:${String(bad?.message ?? bad).slice(0, 40)}`; res.halt = true; break }
     }
+    // after the sale: does this mason still buy stone (mineflayer counts each use on the window's trade list)?
+    if (m.profession === 'mason') trip.stoneOpen = stoneOfferOpen(v.trades)
     if (res.halt) { await tradeSettle(bot, v); return res }
     const booksLeft = trip.books >= 1 ? 0 : 1
     for (const b of buyPlan(v.trades, { emeralds: winCount(v, 'emerald'), booksLeft, enchName: it => storedEnchants(it, bot.registry) })) {
@@ -20823,7 +20844,7 @@ async function tradeTrip (ctx, _args, signal) {
   const row = (status, extra = '') => { try { logEvent({ kind: 'trade_trip', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: tripDetail(trip, extra), args: { phase: trip.phase, sold: trip.sold, earned: trip.earned, bought: trip.bought, books: trip.books, roam: trip.roam, stop: trip.stop, calls: trip.calls } }) } catch { /* telemetry */ } }
   const finish = (stop, status = 'success') => {
     trip.stop ??= stop
-    if (trip.sold === 0 && ['no_buyer', 'no_offer', 'unreachable'].includes(trip.stop)) { st.backoffUntil = Date.now() + TRADE.failBackoffMs; (st.failed ??= []).push({ x: trip.dest.x, z: trip.dest.z }) }
+    if (trip.sold + (trip.stoneSold ?? 0) === 0 && ['no_buyer', 'no_offer', 'unreachable'].includes(trip.stop)) { st.backoffUntil = Date.now() + TRADE.failBackoffMs; (st.failed ??= []).push({ x: trip.dest.x, z: trip.dest.z }) }
     row(status, `end=${stop}`)
     tradeLeaseRelease(bot)
     bot.tradeTrip = null
@@ -20831,7 +20852,7 @@ async function tradeTrip (ctx, _args, signal) {
   }
   if (Date.now() - trip.startedAt >= TRADE.lostMs) return finish('lost', 'failed')
   const read = () => ({ now: Date.now(), timeOfDay: bot.time?.timeOfDay ?? 0, health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length,
-    coal: bagCount(bot, 'coal'), emeralds: bagCount(bot, 'emerald'), buyLeft: trip.phase === 'trade' })
+    coal: bagCount(bot, 'coal'), stone: bagCount(bot, 'stone'), emeralds: bagCount(bot, 'emerald'), buyLeft: trip.phase === 'trade' })
   if (!['home', 'stock'].includes(trip.phase)) { const why = turnHome(trip, read()); if (why) { trip.stop = why; trip.phase = 'home' } }
   try {
     if (trip.phase === 'stock') {
@@ -20842,11 +20863,25 @@ async function tradeTrip (ctx, _args, signal) {
         const town = townCoalStock(bot)
         const take = town.ok ? coalForTrip({ townCoal: town.total, held: bagCount(bot, 'coal') }) : 0
         if (take > 0) { try { await withdraw(ctx, { item: 'coal', count: take }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+        // COALSALE-02: the stone draw, the same once-only rule (stone above the town's stone keep, at most two stacks)
+        if (trip.stoneTake > 0) {
+          const ent = townIndexEntries(bot)
+          const st = ent ? stoneForTrip({ townStone: townItemTotal(ent, 'stone'), held: bagCount(bot, 'stone') }) : 0
+          // withdraw moves at most a stack per call (Codex note): the two stacks are two calls, each recounted
+          for (let k = 0, left = st; k < 2 && left > 0; k++) {
+            const before = bagCount(bot, 'stone')
+            try { await withdraw(ctx, { item: 'stone', count: Math.min(64, left) }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+            const got = bagCount(bot, 'stone') - before
+            if (got <= 0) break
+            left -= got
+          }
+        }
       }
       trip.coalBudget = Math.min(TRADE.carryMax, bagCount(bot, 'coal'))
-      trip.phase = bagCount(bot, 'coal') >= TRADE.minSell ? 'out' : 'home'
-      if (trip.phase === 'home') trip.stop = 'no_coal'
-      row('success', `coal=${bagCount(bot, 'coal')}`)
+      trip.stoneBudget = Math.min(TRADE.stoneCarryMax, bagCount(bot, 'stone'))
+      trip.phase = bagCount(bot, 'coal') >= TRADE.minSell || bagCount(bot, 'stone') >= TRADE.stonePer ? 'out' : 'home'
+      if (trip.phase === 'home') trip.stop = 'no_goods'
+      row('success', `coal=${bagCount(bot, 'coal')} stone=${bagCount(bot, 'stone')}`)
       return { status: 'success', detail: `trade_trip: stocked ${bagCount(bot, 'coal')} coal` }
     }
     if (trip.phase === 'out' || trip.phase === 'roam') {
@@ -20855,7 +20890,7 @@ async function tradeTrip (ctx, _args, signal) {
       if (r === 'arrived') trip.phase = 'trade'
       else if (r === 'stuck') {
         const pt = roamPoint(trip)
-        if (pt) { trip.roam++; trip.roamTarget = pt; trip.phase = 'roam' } else { trip.stop = trip.sold ? 'sold' : 'unreachable'; trip.phase = 'home' }
+        if (pt) { trip.roam++; trip.roamTarget = pt; trip.phase = 'roam' } else { trip.stop = trip.sold + (trip.stoneSold ?? 0) ? 'sold' : 'unreachable'; trip.phase = 'home' }
       }
       row('success', `walk=${r}`)
       return { status: 'success', detail: `trade_trip: ${r}` }
@@ -20863,22 +20898,24 @@ async function tradeTrip (ctx, _args, signal) {
     if (trip.phase === 'trade') {
       const at = bot.entity.position
       const near = Object.values(bot.entities ?? {}).map(merchantOf).filter(m => m && Math.hypot(m.x - at.x, m.z - at.z) <= 48)
+      // COALSALE-02: every employed villager this trip sees joins the pool's live list (a later stone trip finds the mason)
+      try { const dir = poolStateDir(config.memory.pool), f = path.join(dir, LIVE_FILE), tmp = `${f}.${bot.username}.tmp`; fs.writeFileSync(tmp, JSON.stringify(mergeLive(readLive(dir), near, Date.now()))); fs.renameSync(tmp, f) } catch { /* advisory */ }
       for (const m of near) if (!trip.seen.includes(m.uuid)) { trip.seen.push(m.uuid); try { logEvent({ kind: 'merchant_seen', status: 'success', snapshot: snapshot(bot), detail: `villager ${m.profession} L${m.level ?? '?'}${m.baby ? ' baby' : ''}${m.sleeping ? ' asleep' : ''} at ${Math.floor(m.x)},${Math.floor(m.y)},${Math.floor(m.z)} via=trade_trip`, args: { profession: m.profession, level: m.level, uuid: m.uuid, x: Math.floor(m.x), y: Math.floor(m.y), z: Math.floor(m.z), baby: m.baby, via: 'trade_trip' } }) } catch { /* telemetry */ } }
-      const cands = tradeCandidates(bot.entities, at, trip.tried).slice(0, 3)
+      const cands = tradeCandidates(bot.entities, at, trip.tried, { stone: bagCount(bot, 'stone') >= TRADE.stonePer }).slice(0, 3)
       for (const m of cands) {
         if (Date.now() > until - 20_000) break
         trip.tried.push(m.uuid)
         const r = await tradeWith(ctx, trip, m, signal)
-        trip.sold += r.sold; trip.earned += r.earned; trip.books += r.books
+        trip.sold += r.sold; trip.stoneSold = (trip.stoneSold ?? 0) + (r.stoneSold ?? 0); trip.earned += r.earned; trip.books += r.books
         for (const [k, n] of Object.entries(r.bought)) trip.bought[k] = (trip.bought[k] ?? 0) + n
-        row('success', `with=${m.profession} sold=${r.sold} earned=${r.earned} spent=${r.spent}${r.why ? ` why=${r.why}` : ''}`)
+        row('success', `with=${m.profession} L${m.level ?? '?'} sold=${r.sold} stone=${r.stoneSold ?? 0} earned=${r.earned} spent=${r.spent}${r.why ? ` why=${r.why}` : ''}`)
         if (r.halt) { trip.stop = 'trade_timeout'; trip.phase = 'home'; return { status: 'success', detail: 'trade_trip: a trade timed out; heading home' } }
       }
-      if (!tradeCandidates(bot.entities, bot.entity.position, trip.tried).length) {
+      if (!tradeCandidates(bot.entities, bot.entity.position, trip.tried, { stone: bagCount(bot, 'stone') >= TRADE.stonePer }).length) {
         const why = turnHome(trip, { ...read(), buyLeft: false })
         if (why) { trip.stop = why; trip.phase = 'home' } else {
           const pt = roamPoint(trip)
-          if (pt) { trip.roam++; trip.roamTarget = pt; trip.phase = 'roam' } else { trip.stop = trip.sold ? 'offers_used' : 'no_buyer'; trip.phase = 'home' }
+          if (pt) { trip.roam++; trip.roamTarget = pt; trip.phase = 'roam' } else { trip.stop = trip.sold + (trip.stoneSold ?? 0) ? 'offers_used' : 'no_buyer'; trip.phase = 'home' }
         }
       }
       return { status: 'success', detail: `trade_trip: traded (sold ${trip.sold}, earned ${trip.earned})` }
