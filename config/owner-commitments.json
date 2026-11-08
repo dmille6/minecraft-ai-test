@@ -6046,6 +6046,33 @@
     ]
    },
    "note": "Measured 11-08: showcase logs 635 (101 above reserve+64), 0 fences/gates; fleet logs 65,320 over 16 towns, 0 farm/forest/pen records, paths in 2 towns; bot dirt/cobble in water: showcase 51, fleet 2,718."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "stuck-1108",
+   "title": "Owner 11-08 'anything stalled or stuck? slanted roofs? stepwells?': unstick the showcase stepwell (63 h) and the cottage (never sited), classify and fix the 10 stuck fleet projects",
+   "owner_date": "2026-11-08",
+   "memory": [
+    "stuck-1108.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-08: SHOWCASE branch stepcanopy-01show READY TO STAGE on ef40871b: fellcanopy-01show 18105ded (stepwell felling lists the natural leaves round logs no stand sees; offline replay: 0/17 logs had a stand, all 17 fall in 2 rounds) + sitecanopy-01show 2849dfa5 (cottage/town-hall siting lists natural leaves in its own cells; replay: cottage sites on X3 at -3,-32 W). Codex r1 BLOCKERS none on both; no new tripwire rule (SW1 / G2 listed clears). FLEET stuckfleet-01-on-1e593b9b d65154c0 (light waiver, held-cell waiver, cap dig; tier 2; Codex none; ci2 420/422) registration + draft entry in ~/mcai-analysis on the canary host, NOT queued. OPEN: reroof of hall/enchantshop/storehub (tree on the hall roof, floating log over the enchantshop eave, storehub canopy over its roof: needs a proof that digs from the new roof's own stands), town hall X2 (earthwork: site prep for townhall), fleet board-c (waiver cap dead end).",
+   "evidence": {
+    "grep": [
+     "fellcanopy-01show",
+     "sitecanopy-01show",
+     "stuckfleet-01"
+    ],
+    "branches": [
+     "stepcanopy-01show",
+     "stuckfleet-01-on-1e593b9b"
+    ],
+    "paths": []
+   },
+   "note": "Measured 11-08 with telemetry.py full walks on the showcase (816 k rows / 15 bots, 72 h; 1.80 M / 7 d) and the fleet (3.43 M rows / 80 bots, 36 h), region reads and offline replays of the live code on region dumps. Roofs: 2 of 7 showcase buildings have pitched roofs (house1 57/57 and the workshop 72/72 retrofit cells built 11-06); hall, storehub, enchantshop retrofits refused every try; cottage and town hall never sited."
   }
  ]
 }
