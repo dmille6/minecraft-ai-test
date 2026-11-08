@@ -34,6 +34,8 @@ export const TORCH_EVERY = 8
 export const BUILD_FAILS_MAX = 2             // a step that failed this often in one visit ends the visit (the next trip reads the world again)
 export const BRIDGE_CARRY = 192              // cobblestone a bridge trip carries at most (3 stacks: a 32-wide bridge is ~160)
 
+import { designDone, designInto, designMisoriented, designClearable, designPlan, designCellKeys, designZone, designIntact } from './bridgedesign.mjs'   // bridges-01
+
 const OFF = ['off', '0', 'false', 'no']
 /** THE SWITCH -> bool. EXPEDITION_BRIDGE=off: no siting, no building, no bridge legs. Unset: on (expeditions themselves are pooled). */
 export const bridgeOn = (env = process.env) => !OFF.includes(String(env?.EXPEDITION_BRIDGE ?? '').trim().toLowerCase())
@@ -216,6 +218,8 @@ export function bridgeNeed (read, plan) {
 /** Is a plan step done in the world? A torch step is done by a torch, or skipped for good when no torch can stand (not lit). Pure. */
 export function stepDone (read, s) {
   const b = read(...s.cell)
+  // bridges-01: a DESIGNED step is done when its block stands in its state (bridgedesign.mjs designDone); a lantern once one stands
+  if (s.d) return designDone(b, s)
   if (s.kind === 'torch') return /torch$/.test(nm(b)) || !AIRISH(b)
   return blockDone(b) && familyOk(b, s.want)
 }
@@ -226,13 +230,28 @@ export const familyOk = (b, want) => !want || (want === 'planks' ? /_planks$/.te
  * reference must be done (the plan's order guarantees it once the steps before are), its cell clickable into. A torch step is
  * skipped (done) when `torchOk(step)` says no (ice near) or no torch is held (`haveTorch` false): the bridge is complete without it.
  */
-export function bridgeNext (read, plan, { torchOk = () => true, haveTorch = true } = {}) {
+export function bridgeNext (read, plan, { torchOk = () => true, haveTorch = true, haveLight = true } = {}) {
   for (let k = 0; k < plan.length; k++) {
     const s = plan[k]
     if (stepDone(read, s)) continue
     if (s.kind === 'torch' && (!haveTorch || !torchOk(s))) continue
+    // bridges-01: a designed lantern needs one held and no ice near (torchOk: bridgedesign.mjs lightOk); the bridge is whole without it
+    if (s.d && s.kind === 'light' && (!haveLight || !torchOk(s))) continue
     const c = read(...s.cell)
     if (c == null) return { blocked: 'unread', index: k }
+    if (s.d) {
+      // the step's own block in the WRONG state: dug and placed again (a stair facing the wrong way is the bridge's own block)
+      if (designMisoriented(c, s)) return { fix: s, index: k }
+      // an optional cell the world holds something in (a pile into the bed's rock, a brace into a bank) is left out
+      if (!designInto(c)) {
+        if (s.opt) continue
+        // natural ground in a required cell (a bank where a ramp goes): dug first, from the step's stand (designFits capped it)
+        if (designClearable(c)) return { fix: s, index: k, why: 'clear' }
+        return { blocked: `cell_${nm(c)}`, index: k }
+      }
+      if (!blockDone(read(...s.ref)) && !solid(read(...s.ref))) return { blocked: 'no_ref', index: k }
+      return { step: s, index: k }
+    }
     if (!placeableInto(c)) return { blocked: `cell_${nm(c)}`, index: k }   // boardwalk-01: a foreign block in a wooden cell too: never dug here
     if (!blockDone(read(...s.ref))) return { blocked: 'no_ref', index: k }
     return { step: s, index: k }
@@ -241,8 +260,10 @@ export function bridgeNext (read, plan, { torchOk = () => true, haveTorch = true
 }
 /** Is the bridge WALKABLE end to end: every deck, side and rail cell done, every walkway cell clear? Pure (the torch is decoration). */
 export function bridgeIntact (read, plan) {
+  if (!plan?.length) return false   // bridges-01: a design whose plan did not solve is no bridge
+  if (plan[0]?.d) return designIntact(read, plan)   // bridges-01: a designed bridge: every required block in its state, the treads clear
   for (const s of plan) {
-    if (s.kind === 'torch') continue
+    if (s.kind === 'torch' || (s.d && (s.kind === 'light' || s.opt))) continue
     if (!stepDone(read, s)) return false
     if (s.kind === 'deck') { const [x, y, z] = s.cell; if (!passable(read(x, y + 1, z)) || !passable(read(x, y + 2, z))) return false }
   }
@@ -261,6 +282,9 @@ export function bridgeIntact (read, plan) {
  * (it could not stand where the step needs it, twice), 'no_material', 'place_failed' (one step failed BUILD_FAILS_MAX times),
  * 'blocked:<why>' (the next cell cannot take a block), 'aborted'.
  */
+/** bridges-01: is the feet height `y` the stand's? A designed stand on a STAIR may read one lower (the body on the stair's low step,
+ *  feet in the stair's cell) -- the same stand. Pure. */
+export const standY = (read, y, stand) => y === stand[1] || (y === stand[1] - 1 && /_stairs$/.test(nm(read?.(stand[0], stand[1] - 1, stand[2]))))
 export async function buildBridge (io, plan, { until = Infinity } = {}) {
   let placed = 0, steps = 0
   const fails = new Map()
@@ -269,18 +293,29 @@ export async function buildBridge (io, plan, { until = Infinity } = {}) {
     if (io.aborted?.()) return { stop: 'aborted', placed, steps }
     if (io.now() >= until) return { stop: 'time', placed, steps }
     if (io.inWater()) return { stop: 'wet', placed, steps }
-    const n = bridgeNext(io.read, plan, { torchOk: io.torchOk ?? (() => true), haveTorch: (io.has('torch') ?? 0) > 0 })
+    const n = bridgeNext(io.read, plan, { torchOk: io.torchOk ?? (() => true), haveTorch: (io.has('torch') ?? 0) > 0, haveLight: (io.has('lantern') ?? 0) > 0 })
     if (n.done) return { stop: 'done', placed, steps }
     if (n.blocked) return { stop: `blocked:${n.blocked}`, placed, steps, index: n.index }
+    if (n.fix) {
+      // bridges-01: a misoriented block of the bridge's own, or natural ground in a cell, is dug (from its step's stand); twice and
+      // the visit ends
+      const k = n.fix.cell.join(',')
+      fails.set(k, (fails.get(k) ?? 0) + 1)
+      if (fails.get(k) > BUILD_FAILS_MAX || !io.dig) return { stop: 'place_failed', placed, steps, cell: n.fix.cell, kind: n.fix.kind, why: n.why ?? 'state' }
+      const f0 = io.feet()
+      if (!(f0[0] === n.fix.stand[0] && f0[2] === n.fix.stand[2])) await io.walkTo(n.fix.stand)
+      await io.dig(n.fix.cell)
+      continue
+    }
     const s = n.step
     steps++
     if ((io.has(s.item) ?? 0) < 1) return { stop: 'no_material', placed, steps, item: s.item }
     const f = io.feet()
-    if (!(f[0] === s.stand[0] && f[2] === s.stand[2] && Math.abs(f[1] - s.stand[1]) <= 0)) {
+    if (!(f[0] === s.stand[0] && f[2] === s.stand[2] && standY(io.read, f[1], s.stand))) {
       await io.walkTo(s.stand)
       const g = io.feet()
       if (io.inWater()) return { stop: 'wet', placed, steps }
-      if (!(g[0] === s.stand[0] && g[2] === s.stand[2] && g[1] === s.stand[1])) {
+      if (!(g[0] === s.stand[0] && g[2] === s.stand[2] && standY(io.read, g[1], s.stand))) {
         if (++standFails >= 2) return { stop: 'stand', placed, steps, at: g, want: s.stand }
         continue
       }
@@ -308,14 +343,19 @@ export function bridgeSites (lines = []) {
     if (l?.op === 'sight' && l.span?.near && l.span?.axis) {
       const s = sites.find(q => q.span.axis.join(',') === l.span.axis.join(',') && Math.hypot(q.span.near[0] - l.span.near[0], q.span.near[2] - l.span.near[2]) <= SITE_MERGE_R)
       if (s) { if (l.trip) s.seen.add(l.trip); s.t = Math.max(s.t, Number(l.t) || 0); continue }
-      sites.push({ key: siteKey(l.span), id: l.id ?? siteKey(l.span), span: l.span, bearing: l.bearing ?? null, aim: Number.isFinite(l.aim) ? l.aim : null, seen: new Set(l.trip ? [l.trip] : []), complete: false, failed: [], t: Number(l.t) || 0, ...(l.woodv ? { woodv: 1 } : {}) })
+      // bridges-01: a TRAFFIC sighting carries every bot-day that crossed there (`trips`); it counts as that many sightings
+      sites.push({ key: siteKey(l.span), id: l.id ?? siteKey(l.span), span: l.span, bearing: l.bearing ?? null, aim: Number.isFinite(l.aim) ? l.aim : null, seen: new Set([...(l.trip ? [l.trip] : []), ...(Array.isArray(l.trips) ? l.trips.map(String) : [])]), complete: false, failed: [], t: Number(l.t) || 0, ...(l.woodv ? { woodv: 1 } : {}), ...(l.src ? { src: String(l.src) } : {}) })
     } else if (l?.op === 'state' && l.id) {
       const s = sites.find(q => q.id === l.id)
       if (!s) continue
       if (typeof l.complete === 'boolean') s.complete = l.complete
       if (l.failed) s.failed.push(Number(l.t) || 0)
       // boardwalk-01: the bridge's material, named once when its first wooden trip starts (never changed after)
-      if ((l.mat === 'wood' || l.mat === 'cobble') && !s.mat) { s.mat = l.mat; if (l.mat === 'wood') s.species = String(l.species ?? 'oak') }
+      if ((l.mat === 'wood' || l.mat === 'cobble') && !s.mat && !s.design) { s.mat = l.mat; if (l.mat === 'wood') s.species = String(l.species ?? 'oak') }
+      // bridges-01: the site's DESIGN, named once before its first block (never changed after); its span may be the design's own
+      // (designSpan: islets, banks) when the site was sighted for a design
+      if (l.design?.style && !s.design && !s.mat) s.design = l.design
+      if (l.nodesign && !s.design) s.nodesign = String(l.nodesign)   // bridges-01: the design did not fit at the site: the legacy bridge
     }
   }
   return sites
@@ -333,6 +373,8 @@ export const bridgesDone = (sites = []) => sites.filter(s => s.complete).map(s =
 export function bridgeZones (sites = [], m = 1) {
   const out = []
   for (const s of sites) {
+    // bridges-01: a designed site's footprint is its plan's (ramps, eaves, lamp posts: up to 3 off the centre line), + 2
+    if (s.design) { const z = designZone(sitePlan(s), m + 1); if (z) { out.push(z); continue } }
     const pts = [s.span.near, s.span.far, ...s.span.rows.flatMap(r => r.sides.map(c => c.deck))]
     const xs = pts.map(p => p[0]), zs = pts.map(p => p[2])
     out.push({ box: [Math.min(...xs) - m, -64, Math.min(...zs) - m, Math.max(...xs) + m, 320, Math.max(...zs) + m], why: 'expedition:bridge' })
@@ -340,7 +382,7 @@ export function bridgeZones (sites = [], m = 1) {
   return out
 }
 /** Every planned block of every site ("x,y,z") -- the tidy's dig-time guard. Pure. */
-export const bridgeCellKeys = (sites = []) => sites.flatMap(s => bridgePlan(s.span).map(p => p.cell.join(',')))
+export const bridgeCellKeys = (sites = []) => sites.flatMap(s => [...(s.span?.rows?.some(r => r.isl != null) ? [] : bridgePlan(s.span).map(p => p.cell.join(','))), ...(s.design ? designCellKeys(sitePlan(s)) : [])])   // bridges-01: and the design's
 
 /** `_expedition op=bridge_*` details. Pure. */
 export const spanDetail = s => `near=${s.near.join(',')} far=${s.far.join(',')} axis=${s.axis.join(',')} w=${s.w} wy=${s.wy} cost=${5 * s.w}`
@@ -380,6 +422,14 @@ export function bridgeMaterial (site, read, { on = true, woodAvail = 0 } = {}) {
  * kept drawing the wood kit and building planks while off): a wooden site is left as it stands (its footprint still kept off by
  * bridgeZones), every other site is built of cobble as before.
  */
-export const bridgeBuildable = (sites, on = true) => (on ? (sites ?? []) : (sites ?? []).filter(s => s?.mat !== 'wood'))
+export const bridgeBuildable = (sites, on = true, designOn = true) => (sites ?? []).filter(s => (on || s?.mat !== 'wood') && (designOn || !s?.design))   // bridges-01: BRIDGE_DESIGN=off builds no designed site
 /** The plan a site is built (and judged intact) by: its material's palette. Pure. */
-export const sitePlan = site => bridgePlan(site.span, site?.mat === 'wood' ? { wood: bridgeWood(site.species ?? 'oak') } : {})
+export function sitePlan (site) {
+  // bridges-01: a DESIGNED site is built (and judged) by its design's solved plan, every step marked `d` (bridgedesign.mjs designDone)
+  if (site?.design?.style) {
+    const ck = JSON.stringify([site.span?.near, site.span?.axis, site.span?.w, site.design])
+    if (site._planKey !== ck) { const p = designPlan(site.span, site.design); site._plan = p.ok ? p.steps.map(q => ({ ...q, d: 1 })) : []; site._planKey = ck }
+    return site._plan
+  }
+  return bridgePlan(site.span, site?.mat === 'wood' ? { wood: bridgeWood(site.species ?? 'oak') } : {})
+}
