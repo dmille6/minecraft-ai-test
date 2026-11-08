@@ -120,6 +120,11 @@ const REQUIRED = [
   'bots/src/bridge.mjs',
   'bots/src/bridgeio.mjs',
   'bots/test/bridgepost.test.mjs',
+  // bridges-01show (11-08): designed bridges (arch, covered, trestle, footbridge), the traffic sites, the Paper proof, the pictures
+  'bots/src/bridgedesign.mjs',
+  'bots/test/bridges-design.test.mjs',
+  'bots/scripts/bridges-render.mjs',
+  'sandbox/bridges/design-proof.cjs',
   'bots/test/expwater.test.mjs',
   'bots/scripts/expwater-offline.mjs',
   'sandbox/swim/swim.mjs',
