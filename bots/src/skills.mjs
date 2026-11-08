@@ -140,7 +140,7 @@ import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeper
 import { stuckcloseOn, townGivenCuts, givenWaivers } from './stuckclose.mjs'   // stuckclose-01
 import { retryRead } from './buildretry.mjs'   // stuckclose-01: the town's retry ledger, read by the tidy
 import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
-import { BOT_MAT as BOT_MAT_RE, BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
+import { BOT_MAT as BOT_MAT_RE, BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3DeckFor, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -20061,9 +20061,9 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
       planks = Object.entries(heldMap(bot)).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
     }
     check(signal)
-    // NO PLANKS, NO DECK THIS VISIT (Codex r1 BLOCKER 2): the deck's foreign dig is never opened without a plank to lay after it
-    const hasPlanks = Object.entries(heldMap(bot)).some(([n, c]) => /_planks$/.test(n) && c > 0)
-    const rec = hasPlanks ? w.record : { ...w.record, cells: [], segments: [] }
+    // NO DIG WITHOUT ITS PLANK (Codex r1 BLOCKER 2, r2): the visit opens only as many deck cells as the bag holds planks
+    const planksNow = Object.entries(heldMap(bot)).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
+    const rec = bw3DeckFor(w.record, planksNow, q => buildCellDone(read(...q.at), BW3_PALETTE, q.role))
     effects = botBuildEffects(bot, {
       acks,
       withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
