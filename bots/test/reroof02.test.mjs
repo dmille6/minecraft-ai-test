@@ -27,12 +27,12 @@ const worldOf = (cells, dflt = y => (y < 70 ? 'stone' : 'air')) => (x, y, z) => 
 
 console.log('THE SWITCHES')
 await t('reroofFixes: every fix on by default, each REROOF_<X>=off its own rollback; the licence row names them', () => {
-  assert.deepStrictEqual(RR.reroofFixes({}), { avoid: true, decor: true, clutter: true, fresh: true, doorstep: true, roofTree: true, ordered: true })   // reroof-03 adds two
+  assert.deepStrictEqual(RR.reroofFixes({}), { avoid: true, decor: true, clutter: true, fresh: true, doorstep: true, roofTree: true, ordered: true, access: true })   // reroof-03 adds two, reroof-04 one
   for (const [env, key] of [['REROOF_DECOR_AVOID', 'avoid'], ['REROOF_DECOR_CLEAR', 'decor'], ['REROOF_CLUTTER_CLEAR', 'clutter'], ['REROOF_FAILS_FRESH', 'fresh'], ['REROOF_DOORSTEP', 'doorstep'], ['REROOF_ROOFTREE', 'roofTree'], ['REROOF_ORDERED', 'ordered']]) {
     const f = RR.reroofFixes({ [env]: 'off' })
     assert.strictEqual(f[key], false, env); assert.strictEqual(Object.values(f).filter(v => !v).length, 1, `${env} turns off only ${key}`)
   }
-  assert.match(RR.reroofModeDetail(true, RR.reroofFixes({ REROOF_DOORSTEP: '0' })), /^on=1 v=2 avoid=1 decor=1 clutter=1 fresh=1 doorstep=0 rooftree=1 ordered=1 fails_max=3 fails_ttl_h=6$/)
+  assert.match(RR.reroofModeDetail(true, RR.reroofFixes({ REROOF_DOORSTEP: '0' })), /^on=1 v=2 avoid=1 decor=1 clutter=1 fresh=1 doorstep=0 rooftree=1 ordered=1 access=1 fails_max=3 fails_ttl_h=6$/)
 })
 
 console.log('(c) THE FAILURE COUNTS')
@@ -226,10 +226,14 @@ await t('skills.mjs buildReroof asks the obstacles, the reach, the doorstep and 
   const body = SK.slice(SK.indexOf('async function buildReroof'), SK.indexOf('const reroofFailFile'))
   const at = re => { const m = body.match(re); assert.ok(m, String(re)); return m.index }
   // reroof-03: the proof of the listed digs first (the ordered reach needs its cells), then the reach over the same list (`clear`)
-  assert.ok(at(/reroofObstacles\(read, addedAt, \{ decor: decorRec/) < at(/let p = proveWith\(clear\)/))
-  assert.ok(at(/const proveWith = cl => proveSite\(read, home, bpAdd, \{[^\n]*clear: cl, fill: step \? \[step\] : \[\] \}/) < at(/let rc = reroofClearsReached\(read, home, clear/))
-  assert.ok(at(/let rc = reroofClearsReached\(read, home, clear/) < at(/if \(!p\.ok\) return fail\(p\.why, p\.detail\)/))
-  assert.ok(at(/publishRecord\(dir, decorKey\(\), cur => decorRetire\(cur, keys/) < at(/reroofRecord\(cur, p\.cells, bpNew, style, \{ clear \}\)/), 'the decor cells retired before the roof is published')
+  // reroof-04: the obstacles, the proof and the reach are reroof.mjs reroofProve's (in that order); buildReroof asks it first
+  const RRS = strip(fs.readFileSync(new URL('../src/reroof.mjs', import.meta.url), 'utf8'))
+  const pw = RRS.slice(RRS.indexOf('function reroofProveWith'))
+  const atR = re => { const m = pw.match(re); assert.ok(m, String(re)); return m.index }
+  assert.ok(atR(/reroofObstacles\(read, addedAt, \{ decor, recordAt/) < atR(/const p = proveWith\(clear, null\)/))
+  assert.ok(atR(/const proveWith = \(cl, extra = null\) => proveSite\(PR, home, bpAdd, \{[^\n]*clear: cl, fill: fillOf\(extra\) \}/) < atR(/let rc = reroofClearsReached\(PR, home, clear0/))
+  assert.ok(at(/const pr = await reroofProve\(read, home, rec, bpOld, bpAdd/) < at(/if \(!pr\.ok\) return fail\(pr\.why, pr\.detail\)/))
+  assert.ok(at(/publishRecord\(dir, decorKey\(\), cur => decorRetire\(cur, keys/) < at(/reroofRecord\(cur, p\.cells, bpNew, style, \{ clear, temp: pr\.temp, notch: pr\.notch \}\)/), 'the decor cells retired before the roof is published')
   assert.ok(/avoid: REROOF_FIX\.avoid && REROOF_SW\.on \? reroofPendingCells\(/.test(SK), 'the decor siting ctx carries the pending cells')
   assert.ok(/f\[plot\] = reroofFailBump\(f\[plot\], \{ fresh: REROOF_FIX\.fresh \}\)/.test(SK) && /failed: reroofFails\(dir\), fresh: REROOF_FIX\.fresh \}/.test(SK))
   const FE = strip(fs.readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))

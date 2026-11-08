@@ -141,7 +141,7 @@ import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottage
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
-import { REROOF_FIX, reroofObstacles, reroofClearsReached, reroofDoorstep, reroofFailBump, reroofPendingCells, reroofOrderedReach, reroofCanopyGrow } from './reroof.mjs'   // reroof-02, reroof-03
+import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
@@ -18077,6 +18077,8 @@ export function shopDamaged (bot, rec = null) {
 /** A complete record's loaded cells: any no longer done (its own blueprint's palette)? -> bool. Never throws. */
 function recordDamaged (bot, r, { tidy = true } = {}) {
   try {
+    // reroof-04: a re-roofed building whose temporary stair is due down or still standing wants its visit (it digs the stair)
+    if (r?.restyle && reroofTempState(bot, r)) return true
     // treefarm-04: a standing farm is never DAMAGED (its harvest and replant are upkeep: `due`, after every open project, when the
     // caller asks with the tidy) -- a grown tree, an empty plot, a lost torch (treefarm.mjs farmDue)
     if (r.blueprint === TREEFARM_BLUEPRINT) return tidy && !!farmDueFor(bot, r)
@@ -20857,40 +20859,13 @@ async function buildReroof (ctx, args, signal) {
   const heads = projectHeads()
   const decorRec = heads.find(x => x.plot === SINK_PLOTS.decor)?.head?.rec ?? null
   const recCells = new Set(heads.flatMap(x => (x.head?.rec?.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => c.at.join(','))))
-  const addedAt = placeBlueprint(bpAdd, { x: rec.anchor[0], z: rec.anchor[1] }, rec.s, rec.orient).map(c => c.at)
   const recordAt = (x, y, z) => recCells.has(`${x},${y},${z}`)
-  // reroof-03 (e): the building's own cells -- a tree rooted on them (or a felled tree's floating remains) is dug whole, kind remains
-  const own = new Set(rec.cells.filter(c => Array.isArray(c?.at)).map(c => c.at.join(',')))
-  const ob = (REROOF_FIX.decor || REROOF_FIX.clutter) ? reroofObstacles(read, addedAt, { decor: decorRec, recordAt, fx: REROOF_FIX, own }) : { clear: [], retire: [], blocker: null }
-  if (ob.blocker) return fail('cell_not_free', `${ob.blocker.name}@${ob.blocker.at.join(',')}`)
-  // reroof-02 (d): a doorway 2 above the walk in front of it gets a doorstep (the proof's first segment, a fill cell)
-  const step = REROOF_FIX.doorstep ? reroofDoorstep(read, rec, bpOld) : null
-  const proveWith = cl => proveSite(read, home, bpAdd, { anchor: { x: rec.anchor[0], z: rec.anchor[1] }, s: rec.s, orient: rec.orient, clear: cl, fill: step ? [step] : [] },
-    { stood, ...(domain ? { domain } : {}), walkR })
-  let clear = ob.clear
-  let p = proveWith(clear)
-  if (clear.length) {
-    let rc = reroofClearsReached(read, home, clear, { stood, walkR })
-    // reroof-03 (f, g): a dig no ground stand reaches may be made from the new roof's own cells, in the build's order; failing that, the
-    // canopy round it (a felled tree's floating remains, its leaves) is listed too and the order is asked again
-    if (!rc.ok && REROOF_FIX.ordered && p.ok) {
-      const nameOf = role => { const n = (bpAdd.palette?.[role] ?? ['stone'])[0]; return String(n).startsWith('$') ? 'oak_planks' : n }
-      const ordered = (list, cells) => reroofOrderedReach(read, home, list, cells, { stood, walkR, domain, wantOf: c => (c.ws || c.blind ? { name: nameOf(c.role), ws: c.ws ?? null, blind: !!c.blind } : null),
-        blockOf: c => ({ name: nameOf(c.role), boundingBox: c.role === 'light' ? 'empty' : 'block', ...(c.ws ? { props: c.ws } : {}) }) })
-      const o = ordered(clear, p.cells)
-      if (o.ok) rc = o
-      else {
-        const g = reroofCanopyGrow(read, clear, list => ordered(list, p.cells), { own, recordAt, roofTrees: REROOF_FIX.roofTree })
-        if (g.rc.ok) {
-          const p2 = proveWith(g.clear)
-          const o2 = p2.ok ? ordered(g.clear, p2.cells) : null
-          if (o2?.ok) { clear = g.clear; p = p2; rc = o2 }
-        }
-      }
-    }
-    if (!rc.ok) return fail('clear_unreached', `${rc.unreached.length}/${clear.length} first ${clear.find(c => c.at.join(',') === rc.unreached[0].join(','))?.name}@${rc.unreached[0].join(',')}`)
-  }
-  if (!p.ok) return fail(p.why, p.detail)
+  // reroof-04: the whole proof in reroof.mjs (reroofProve: obstacles, doorstep, roof-slab floors, the door-side eave notch, a temporary
+  // stair, the digs' reach in the build order) -- the Paper driver and the offline replays run the same function
+  const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX })
+  if (!pr.ok) return fail(pr.why, pr.detail)
+  const { p, clear, step } = pr
+  const ob = { retire: pr.retire ?? [] }
   const me = bot.username ?? 'bot'
   // THE DECORATOR'S CELLS FIRST (b): retired from the decor record, so no decor visit re-places what this roof's visit digs; a decor
   // generation that is not published ends the visit (nothing of the roof is published either)
@@ -20900,11 +20875,40 @@ async function buildReroof (ctx, args, signal) {
     if (dp.result !== 'accepted' && dp.result !== 'nothing') return out('no_effect', 'lost_record', `${t.plot}: the decor cells were not retired (${dp.result})`)
     if (dp.result === 'accepted') for (const a of ob.retire) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'retired', cell: a, kind: `reroof:${t.plot}`, gen: dp.gen ?? '-' }) }) } catch { /* telemetry */ } }
   }
-  const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && !cur.style && cur.cells?.length === rec.cells.length ? reroofRecord(cur, p.cells, bpNew, style, { clear }) : null), { by: me })
+  const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && !cur.style && cur.cells?.length === rec.cells.length ? reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch }) : null), { by: me })
   if (pub.result === 'accepted') bot.shopDamage = null   // the building's damage read is fresh: its open roof is its repair now
   if (pub.result !== 'accepted') return out('no_effect', 'lost_record', `${t.plot}: the new generation was not published (${pub.result})`)
-  try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: t.plot, op: 'reroof', kind: `${bpNew.id}/${t.form}/${style.roof}/${added.length}cells${clear.length ? `/clear${clear.length}` : ''}${step ? '/doorstep' : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: t.plot, op: 'reroof', kind: `${bpNew.id}/${t.form}/${style.roof}/${added.length}cells${clear.length ? `/clear${clear.length}` : ''}${step ? '/doorstep' : ''}${pr.notch ? `/notch${pr.notch}` : ''}${pr.temp ? `/temp${pr.temp.size}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
   return out('success', 'published', `${t.plot}: ${bpNew.id} (${t.form}, ${style.roof}) gen ${pub.gen}, ${p.cells.length} cells to build${clear.length ? `, ${clear.length} to dig first` : ''}${step ? ', a doorstep' : ''}`)
+}
+/** reroof-04: a re-roofed record's visit options -- its new roof's slab cells are floors to the walk (REROOF_ACCESS). Pure over rec, stood. */
+const reroofVisitOpts = (rec, stood) => (REROOF_FIX.access && rec?.restyle ? { floors: reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))),
+  // ...and the walk its proof walked: no natural leaves underfoot, no seed a bot once stood on inside the building's own box (its roof)
+  walkRead: reroofNoLeafFloor, stairFirst: true, ...(Array.isArray(stood) ? { stood: reroofSeeds(stood, rec.box) } : {}) } : {})
+/**
+ * reroof-04: THE TEMPORARY STAIR'S STATE on a re-roofed record -> 'due' (every other new cell reads built: tear it down) | 'standing'
+ * (listed as kind=temp clears, still in the world: dig it) | null. Never throws. recordDamaged asks it, so a building with its stair up
+ * keeps its visits until the stair is gone.
+ */
+function reroofTempState (bot, r) {
+  try {
+    if (!REROOF_FIX.access || !r?.restyle) return null
+    if (!reroofTempCells(r).length && !(r.clear ?? []).some(c => c?.kind === 'temp')) return null
+    const read = planReader(bot)
+    const pal = recordPalette(r, blueprintOf(r.blueprint ?? SHOP_BLUEPRINT))
+    const done = c => { const b = read(...c.at); return !!b && buildCellDone({ name: b.name, boundingBox: b.boundingBox, props: b.props ?? null }, pal, c.role, c.ws) }
+    if (reroofDismantleDue(r, done)) return 'due'
+    if (reroofTempStanding(r, read).length) return 'standing'
+    return null
+  } catch { return null }
+}
+/** reroof-04: the generation without the stair's cells (its blocks become kind=temp clears) -> publishRecord's answer. Never throws. */
+function reroofTempDown (bot, dir, key, me, plot) {
+  try {
+    const pub = publishRecord(dir, key, cur => (cur && reroofTempState(bot, cur) === 'due' ? reroofDismantle(cur) : null), { by: me })
+    try { logEvent({ kind: 'build', status: pub.result === 'accepted' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'temp_down', kind: pub.result, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ }
+    return pub
+  } catch { return { result: 'error' } }
 }
 /** TOWNSTYLE-03: the retrofit's failed proofs per building (town-wide file; reroof.mjs REROOF_FAILS_MAX passes a building over). */
 const reroofFailFile = (dir = townDir()) => path.join(dir, `${projKeyOf(REROOF_PLOT)}.failed.json`)
@@ -21602,7 +21606,10 @@ async function buildShopVisit (ctx, args, signal) {
     // townstyle-01: the cottage's stands are its own pad + 3, its walk the record's radius (cottage.mjs cottageVisitOpts)
     if (isCottageBlueprint(rec.blueprint)) Object.assign(storeOpts, cottageVisitOpts(rec))
     if (rec.blueprint === TOWNHALL_BLUEPRINT) Object.assign(storeOpts, townhallVisitOpts(rec))   // townstyle-02
+    Object.assign(storeOpts, reroofVisitOpts(rec, stood))   // reroof-04: a re-roofed record's new roof slabs are floors to its walk
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    // reroof-04: the roof stands -- its temporary stair comes down (the next generation lists it as kind=temp clears; the next visit digs)
+    if (r.stop === 'complete' && reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)
     // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
     if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)
     if (r.stop === 'complete') {

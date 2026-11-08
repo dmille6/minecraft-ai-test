@@ -624,7 +624,7 @@ await t('MUTANT the fill span\'s refusals ignored (a chest under the pad)', () =
   const [x, , z] = cellOf(4, 3, 0)
   assert.strictEqual(M.screenSite(world({ [`${x},${G},${z}`]: 'chest' }), HOME, BP, A, O, M.reservations(plan(), {}), { sector: 'E' }).why, 'built_in_volume')
 }))
-await t('MUTANT the walk\'s full-cube floor rule relaxed to any solid (a fence)', () => mutantKilled('return !!f && !!a && !!h && fullCube(f) && isPassable(a)', 'return !!f && !!a && !!h && isSolid(f) && isPassable(a)', M => {
+await t('MUTANT the walk\'s full-cube floor rule relaxed to any solid (a fence)', () => mutantKilled('const floor = fullCube(f) || (!!floors', 'const floor = isSolid(f) || (!!floors', M => {
   assert.ok(!M.walkFrom(world({ [`30,${G},0`]: 'oak_fence', [`30,${G - 1},0`]: 'stone' }), HOME).has(`30,${G + 1},0`))
 }))
 

@@ -518,7 +518,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
   const byY = p.blockLayer ? record.cells.reduce((m, c) => (m.has(c.at[1]) ? m.get(c.at[1]).push(c) : m.set(c.at[1], [c]), m), new Map()) : null
-  const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(rd, home, block, walkR, { stood, noFloor }))
+  // reroof-04 (`p.floors`: a Set of this record's cell keys whose top slab is a floor -- reroof.mjs reroofFloors)
+  // reroof-04 (`p.walkRead(read)`: the walk's own view -- a retrofit walks on no natural leaves, as its proof did: reroof.mjs reroofNoLeafFloor)
+  const walkRd = typeof p.walkRead === 'function' ? p.walkRead(rd) : rd
+  const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null }))
   const conn = e.conn?.() ?? null
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
   // the mutex's holder RETIRED (offline RETIRE_MS as this bot has seen it): it cannot send (Codex r2 P2: a reused pid kept a dead
@@ -972,7 +975,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       return null
     } finally { PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen) }
   }
-  { const s = await clears(); if (s) { out.stop = s; return out } }
+  // reroof-04 (`p.stairFirst`): a record whose TEMPORARY stair (cells marked temp) still stands open builds it before any clear -- its
+  // proof reached the digs over the stair; clears() runs again once that segment finishes (the `finished` pass below)
+  const stairOpen = !!p.stairFirst && record.cells.some(c => c?.temp === 1 && !isDone(c))
+  if (!stairOpen) { const s = await clears(); if (s) { out.stop = s; return out } }
 
   // ---- 3. segments ------------------------------------------------------------------------------------------------------------
   // F4 (Paper 10-26 SHOP-TERRAIN hive-c: `no_step earth: 1 open` every visit): a cell no stand reaches is DEFERRED -- the visit
