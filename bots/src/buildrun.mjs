@@ -32,6 +32,7 @@ import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
 import { waivePick, monuStuckOn, hardDeferrals } from './stuckcells.mjs'
+import { stuckFleetOn, heldWaiveCand, capDigs } from './stuckfleet.mjs'   // stuckfleet-01
 import { canopyCuts, CANOPY_MAX } from './canopy.mjs'
 import * as RT from './buildretry.mjs'
 
@@ -1019,6 +1020,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // cell's canopy once a visit (`canopied`), at most `max` digs a visit; passes repeat while a pass dug something (the outer leaves
   // open the stands for the inner ones). -> { dug, stop? }
   const canopied = new Set()
+  const capTried = new Set()   // stuckfleet-01: the cells whose cap this visit judged
+  let capCells = null
   let canopyDug = 0, canopyCells = null
   const cutCanopy = async (cells, held, seg) => {
     if (!p.canopy) return { dug: 0 }
@@ -1371,6 +1374,31 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             if (cc.stop) { out.stop = cc.stop; return out }
             if (cc.dug) continue
           }
+          // stuckfleet-01 (stuckfleet.mjs capDigs; LIVE placebo-c monument 327,72,106): a placeable cell no stand reaches whose top is
+          // an open cell of a segment waiting on this one, holding a scaffold-class block, has that cap dug (once a cell a visit,
+          // CAP_MAX a cell), then the segment is read again -- its top face is seen; the upper segment places its cell later
+          if (p.sealed && stuckFleetOn() && cand.length) {
+            const sg = segGen, heldS = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now())
+            capCells ??= new Map(record.cells.map(q => [kOf(q.at), q]))
+            const openAbove = q => { const x = capCells.get(kOf(q)); return !!x && x.seg !== seg && dependsOn(record, x.seg, seg) && !isDone(x) }
+            let capDug = 0, capStop = null
+            for (const c of cand.slice(0, 8)) {
+              if (capTried.has(kOf(c.at))) continue
+              capTried.add(kOf(c.at))
+              const digs = capDigs(c.at, { read: rd, isOpenAbove: openAbove, scaffold: scaffoldRe, mayDig: p.sealed.mayDig ?? (() => true) })
+              for (const d of digs) {
+                const g = guard(); if (g) { capStop = g; break }
+                const v = await digNamed(d.at, d.name, heldS)
+                if (v === 'fence') { capStop = 'fence:segment'; break }
+                if (v === 'aborted') { capStop = 'aborted'; break }
+                if (v !== 'confirmed') break
+                capDug++; out.cleared++; e.log('_build', { op: 'clear', seg, cell: d.at, block: d.name, kind: 'cap' })
+              }
+              if (capStop) break
+            }
+            if (capStop) { out.stop = capStop; return out }
+            if (capDug) continue
+          }
           // VOIDFILL-01: the cells no stand reaches, deferred in earlier visits too (the stuck map), may be a SEALED VOID: one access
           // per visit (voidfill.mjs), done -> this segment is read again; anything else -> deferred as before
           if (access && !accessTried && cand.length && !open.some(c => !isClear(c.at))) {
@@ -1415,11 +1443,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // monustuck-01: a SEALED cell beside them (a foreign block whose column could not be opened: deferred below, never waived
           // -- its block stays in the cell) no longer holds the clear ones back (LIVE hive-a: two core cells, air and no stand,
           // waited 35 h behind one bamboo cell in F-E; the waiver ran only with every open cell clear)
-          if (p.waive && cand.length && (monuStuckOn() ? open.every(c => isClear(c.at) || sealed.has(kOf(c.at))) : !open.some(c => !isClear(c.at)))) {
+          // stuckfleet-01 (stuckfleet.mjs heldWaiveCand; LIVE isolated-d monument F-S, 6 HELD core cells, 0 of 12 waivers used): the
+          // segment's held cells that read clear are the waiver's candidates too (a held cell starts with its attempts spent: never in `cand`)
+          const wcand = stuckFleetOn() && rt ? heldWaiveCand(open, cand, { held: k => rt.held.has(k), clear: at => isClear(at), below }) : cand
+          if (p.waive && wcand.length && (monuStuckOn() ? open.every(c => isClear(c.at) || sealed.has(kOf(c.at))) : !open.some(c => !isClear(c.at)))) {
             const counts = PJ.stuckRead(dir, key, { since: now() - STUCK_FORGET_MS + 1 })
             const have = p.waive.have ?? {}
             const cellMap = (p.waive._cells ??= new Map(record.cells.map(q => [kOf(q.at), q])))
-            const due = waivePick(cand, { counts, after: p.waive.after, mayWaive: p.waive.mayWaive ?? (() => false), cellAt: k => cellMap.get(k) ?? null,
+            const due = waivePick(wcand, { counts, after: p.waive.after, mayWaive: p.waive.mayWaive ?? (() => false), cellAt: k => cellMap.get(k) ?? null,
               waived: k => waivedNow.has(k) || Object.prototype.hasOwnProperty.call(have, k), room: Math.max(0, (p.waive.max ?? 0) - Object.keys(have).length - waivedNow.size) })
             if (due.length) {
               for (const d of due) { waivedNow.set(kOf(d.c.at), d.why); e.log('_build', { op: 'waived', seg, cell: d.c.at, why: d.why }) }
