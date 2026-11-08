@@ -14,7 +14,7 @@ import { restyleRoof, styleOf, stylePalette } from './townstyle.mjs'
 import { placeBlueprint } from './buildsite.mjs'   // reroof-02: the pending retrofits' world cells (the decorator keeps off them)
 import { replaceableCell, rot } from './townplan.mjs'
 import { digStand, foreignKind } from './buildrun.mjs'   // reroof-02 (b): the visit's own dig rules, asked by the proof
-import { walkFrom, overlay, stepFor } from './buildsite.mjs'
+import { walkFrom, overlay, stepFor, proveSite } from './buildsite.mjs'   // reroof-04: proveSite for the whole proof (reroofProve)
 
 export const REROOF_PLOT = 'reroof'
 /** The targets in order (smallest first: a stalled roof costs least there) and their roof form. */
@@ -95,7 +95,7 @@ export const reroofStyle = (town = {}, { pool = '', plot = '', form = 'gable' } 
  * (its cells keep their old segment names: they are done), then the new roof's; the record's own palette (the old roles exactly as the
  * blueprint had them, the new roles resolved); `restyle` the tag; open again.
  */
-export function reroofRecord (rec, added, bpNew, style, { now = Date.now(), clear = [] } = {}) {
+export function reroofRecord (rec, added, bpNew, style, { now = Date.now(), clear = [], temp = null, notch = 0 } = {}) {
   // the old segments stay as they are (their cells are done, the flat roof's included); the NEW roof's segments are `reroof-*`, the
   // first after the old flat roof (complete in the world), so the two never mix
   const segs = (rec.segments ?? []).map(s => ({ ...s }))
@@ -107,14 +107,15 @@ export function reroofRecord (rec, added, bpNew, style, { now = Date.now(), clea
   const palette = { ...stylePalette(bpNew.palette, style) }
   return {
     ...rec,
-    cells: [...rec.cells, ...added.map(c => ({ ...c, seg: ren(c.seg) }))],
+    // reroof-04: a TEMPORARY stand's cells (`temp`: a Set of keys) are marked; reroofDismantle takes them out once the roof stands
+    cells: [...rec.cells, ...added.map(c => ({ ...c, seg: ren(c.seg), ...(temp?.has(c.at.join(',')) ? { temp: 1 } : {}) }))],
     // reroof-02 (b): what stands in the new roof's cells, dug first by the building's own visit (runVisit's clears: low before high)
     ...(clear.length ? { clear: [...(rec.clear ?? []), ...clear.map(c => ({ at: c.at.slice(), kind: c.kind, name: c.name }))] } : {}),
     segments: [...segs, ...newSegs],
     // still COMPLETE (Claude r1 note 1: an open record turns off the workshop's stations, the hall's clerk, the enchanting fitter and
     // every project `after` it): the added cells read open, so the record reads DAMAGED and the building's own visit repairs it -- the
     // order's repairs-first
-    palette, style: { ...style }, restyle: { id: bpNew.id, at: now, added: added.length },
+    palette, style: { ...style }, restyle: { id: bpNew.id, at: now, added: added.length, ...(notch ? { notch } : {}), ...(temp?.size ? { temp: temp.size } : {}) },
   }
 }
 
@@ -146,11 +147,13 @@ export function reroofFixes (env = process.env) {
     fresh: !offs(env?.REROOF_FAILS_FRESH), doorstep: !offs(env?.REROOF_DOORSTEP),
     // reroof-03 (11-08): a log on the building (a tree rooted on its own roof, a felled tree's floating remains) is dug (e); a dig no
     // ground stand reaches is proven reachable from the new roof's own placed cells, in the build's order (f)
-    roofTree: !offs(env?.REROOF_ROOFTREE), ordered: !offs(env?.REROOF_ORDERED) }
+    roofTree: !offs(env?.REROOF_ROOFTREE), ordered: !offs(env?.REROOF_ORDERED),
+    // reroof-04 (11-08): a placed top slab of the new roof is a floor; a temporary cobblestone stair to the roof, torn down after
+    access: !offs(env?.REROOF_ACCESS) }
 }
 export const REROOF_FIX = Object.freeze(reroofFixes(typeof process !== 'undefined' ? process.env : {}))
 /** The `_reroof_mode` licence row. Pure. */
-export const reroofModeDetail = (on, fx) => `on=${on ? 1 : 0} v=2 avoid=${fx.avoid ? 1 : 0} decor=${fx.decor ? 1 : 0} clutter=${fx.clutter ? 1 : 0} fresh=${fx.fresh ? 1 : 0} doorstep=${fx.doorstep ? 1 : 0} rooftree=${fx.roofTree ? 1 : 0} ordered=${fx.ordered ? 1 : 0} fails_max=${REROOF_FAILS_MAX} fails_ttl_h=${REROOF_FAILS_TTL_MS / 3_600_000}`
+export const reroofModeDetail = (on, fx) => `on=${on ? 1 : 0} v=2 avoid=${fx.avoid ? 1 : 0} decor=${fx.decor ? 1 : 0} clutter=${fx.clutter ? 1 : 0} fresh=${fx.fresh ? 1 : 0} doorstep=${fx.doorstep ? 1 : 0} rooftree=${fx.roofTree ? 1 : 0} ordered=${fx.ordered ? 1 : 0} access=${fx.access ? 1 : 0} fails_max=${REROOF_FAILS_MAX} fails_ttl_h=${REROOF_FAILS_TTL_MS / 3_600_000}`
 
 /** (c) A pass-over lasts this long after the building's LAST failed proof: the world around it changes (a tree felled, a post moved). */
 export const REROOF_FAILS_TTL_MS = 6 * 60 * 60_000
@@ -285,7 +288,7 @@ export function reroofCanopyGrow (read, clear = [], reach, { own = new Set(), re
  * floors and the cells still to place as obstacles; the digs' walk, like runVisit clears()', blocks nothing) -- until nothing moves. ok: every dig made (the cells left are the proof's own).
  *   wantOf(c) -> stepFor's `want` for a state-bearing or reach-only cell (null: any face)
  */
-export function reroofOrderedReach (read, home, clear = [], cells = [], { stood = [], walkR = 90, domain = null, wantOf = () => null, blockOf = () => null, passes = 40 } = {}) {
+export function reroofOrderedReach (read, home, clear = [], cells = [], { stood = [], walkR = 90, domain = null, wantOf = () => null, blockOf = () => null, passes = 40, floors = null } = {}) {
   const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
   const SOLIDB = Object.freeze({ name: 'cobblestone', boundingBox: 'block' })
   const k = a => a.join(',')
@@ -297,7 +300,7 @@ export function reroofOrderedReach (read, home, clear = [], cells = [], { stood 
   const segs = []
   for (const c of cells) if (!segs.includes(c.seg)) segs.push(c.seg)
   const free = at => { const b = R(...at); return !b || AIR_RX.test(nmOf(b)) || replaceableCell(b) }
-  const nodesNow = (block = new Set()) => { const m = new Map(); for (const q of walkFrom(R, home, block, walkR, { stood })) { const [x, y, z] = q.split(',').map(Number); const c = `${x},${z}`; if (!m.has(c)) m.set(c, []); m.get(c).push(y) } return m }
+  const nodesNow = (block = new Set()) => { const m = new Map(); for (const q of walkFrom(R, home, block, walkR, { stood, floors })) { const [x, y, z] = q.split(',').map(Number); const c = `${x},${z}`; if (!m.has(c)) m.set(c, []); m.get(c).push(y) } return m }
   let placed = 0, pass = 0
   for (; pass < passes && (undug.size || open.size); pass++) {
     let moved = false
@@ -424,4 +427,246 @@ export function reroofClearsReached (read, home, clear = [], { stood = [], walkR
     over.set(c.at.join(','), AIRB); nodes = null
   }
   return { ok: !unreached.length, unreached }
+}
+
+// ---- REROOF-04 (11-08, owner-approved via the control session: "the builder stands on the roof's own placed sections or on a temporary
+// stand that gets torn down afterwards; no bot dirt is left behind") -------------------------------------------------------------------
+// LIVE showcase 11-08: the hall's retrofit failed `no_step roof-edge 5 left` and the enchanting workshop's `no_step roof-inner 27 left`
+// on every try: a slab roof's courses climb in half steps over the old flat roof, and no eye on the ground (4-5 below the roof) reaches
+// the inner courses; a placed slab was no floor to the walk (buildsite.mjs fullCube). Two remedies, both on the record:
+//   FLOORS  a placed TOP slab of this record's new roof is a floor (buildsite.mjs walkFrom `floors`, slabTopFloor) in the proof AND the
+//           visit (runVisit `p.floors`): its top face is a full block's; never a bottom slab, never another record's cell
+//   TEMP    when the proof still fails `no_step`, a TEMPORARY STAIR of cobblestone pillars (the bag's scaffold stone) is tried: straight out
+//           from an eave of the new roof, one step down a column, until the town walk meets it; the stair's cells are the proof's first
+//           segment (built first, from the ground), marked `temp`; once every other new cell reads built, reroofDismantle moves them
+//           from `cells` to `clear` (kind temp) and a visit digs them -- the record never keeps them, no bot block is left behind
+// REROOF_ACCESS=off is the rollback (both).
+export const REROOF_TEMP_COLS = 6       // stair columns at most (one step each)
+export const REROOF_TEMP_MAX = 18       // cobblestone a stair may take (its pillars), the bag's scaffold
+export const REROOF_TEMP_TRIES = 10     // stairs a proof tries (nearest the failing cell first)
+export const REROOF_TEMP_PAIRS = 5      // the first few stairs are also tried in pairs (a roof whose two slopes each need one)
+
+/** The record's own cells a placed slab would make a floor -> Set of keys (role cells whose state is a top or double slab). Pure. */
+export function reroofFloors (cells = []) {
+  return new Set((cells ?? []).filter(c => Array.isArray(c?.at) && ['top', 'double', ...(process.env.REROOF_BOTTOM_FLOOR === '0' ? [] : ['bottom'])].includes(String(c.ws?.type ?? ''))).map(c => c.at.join(',')))
+}
+
+/**
+ * THE TEMPORARY STAIRS a proof may try -> [{ cells: [[x, y, z]] bottom up, cost, eave: [x, y, z] }] cheapest, then nearest `near`. Pure.
+ *   read     the world with the listed clears applied
+ *   eaves    the new roof's lowest TOP slab cells (its eave course; the stair arrives beside one, at its top face's height)
+ *   box      the building's pad box [x0, z0, x1, z1] (an eave outside it names its side)
+ *   walked   'x,y,z' -> the town walk has that feet cell now (the stair's foot must meet it, dy within 1)
+ *   recordAt (x, y, z) -> a record holds that cell (never built into); `taken` keys never used (the new roof's own cells)
+ * One stair: straight out from a landing on (or one inside) an edge of the pad box (never a corner) along that side's normal, column i's step top at eave.y - (i - 1) (feet one above), each column
+ * a PILLAR of free cells from its ground up to its step, its feet and head cells free; it ends at the first column whose next column
+ * holds a walked feet cell within one of its feet. Bounded: REROOF_TEMP_COLS columns, REROOF_TEMP_MAX blocks.
+ */
+export function reroofAccess (read, { eaves = [], box, walked = () => false, recordAt = () => null, taken = new Set(), near = null, cols = REROOF_TEMP_COLS, max = REROOF_TEMP_MAX } = {}) {
+  if (!Array.isArray(box) || box.length < 4) return []
+  const free = at => { const b = read(...at); return !!b && (AIR_RX.test(nmOf(b)) || replaceableCell(b)) && !/^(water|lava)$/.test(nmOf(b)) }
+  const solid = at => { const b = read(...at); return !!b && b.boundingBox === 'block' && !/^(water|lava)$/.test(nmOf(b)) }
+  const clean = at => !recordAt(...at) && !taken.has(at.join(','))
+  const out = []
+  for (const e of eaves) {
+    const [ex, ey, ez] = e
+    // the landing's side: the one edge of the pad box it lies on, beyond, or one inside (the old flat roof's own edge row) -- two edges
+    // at once (a corner) name no single side
+    const dW = ex - box[0], dE = box[2] - ex, dN = ez - box[1], dS = box[3] - ez
+    const near1 = [[dW, [-1, 0]], [dE, [1, 0]], [dN, [0, -1]], [dS, [0, 1]]].filter(([d]) => d <= 1)
+    if (near1.length !== 1) continue
+    const n = near1[0][1]
+    const cells = []
+    let ok = false
+    for (let i = 1; i <= cols; i++) {
+      const x = ex + n[0] * i, z = ez + n[1] * i, top = ey - (i - 1), feet = top + 1
+      if (!free([x, feet, z]) || !free([x, feet + 1, z]) || !clean([x, feet, z]) || !clean([x, feet + 1, z])) break
+      // the pillar: down from the step to the first solid block (the ground it stands on)
+      const pil = []
+      let y = top, grounded = false
+      for (; y > top - 8; y--) { if (solid([x, y, z])) { grounded = true; break } if (!free([x, y, z]) || !clean([x, y, z])) break; pil.push([x, y, z]) }
+      if (!grounded) break
+      for (const c of pil.reverse()) cells.push(c)
+      // the foot: the next column out holds a walked feet cell within one of this step's feet (or this step is on the ground already)
+      const nx = x + n[0], nz = z + n[1]
+      // (a step whose top is already the ground: its own feet cell walked)
+      if (walked([x, feet, z]) || [feet - 1, feet, feet + 1].some(f => walked([nx, f, nz]))) { ok = true; break }
+      if (cells.length > max) break
+    }
+    if (!ok || !cells.length || cells.length > max) continue
+    const d = near ? Math.hypot(ex - near[0], ez - near[2]) : 0
+    out.push({ cells, cost: cells.length, eave: e.slice(), d })
+  }
+  const seen = new Set()
+  return out.filter(s => { const k = s.cells.map(c => c.join(',')).join(';'); if (seen.has(k)) return false; seen.add(k); return true })
+    .sort((a, b) => a.d - b.d || a.cost - b.cost).map(({ d, ...s }) => s)
+}
+
+/**
+ * (NOTCH) THE EAVE CELLS LEFT OUT -> Set of indexes into `placed`. Pure. The new roof's LOWEST course (its eave), cells of which stand
+ * one or two above a feet cell the town walks now (`walked`: walkFrom's Set of 'x,y,z'): a slab at the head leaves no walk, one above
+ * it no step down into that cell.
+ */
+export function reroofEaveNotch (placed = [], walked = new Set(), { box = null, side = null } = {}) {
+  const ys = placed.map(c => c.at[1])
+  if (!ys.length) return new Set()
+  const low = Math.min(...ys)
+  // `side` [nx, nz] with `box`: only the eave on that edge of the pad box (the doorway's side)
+  const onSide = at => !side || !Array.isArray(box) || (side[0] < 0 ? at[0] <= box[0] : side[0] > 0 ? at[0] >= box[2] : side[1] < 0 ? at[2] <= box[1] : at[2] >= box[3])
+  const out = new Set()
+  // a walked feet cell right under it (its head there), or two under it (a step down into it passes there: walkFrom's head-room rule)
+  placed.forEach((c, i) => { if (c.at[1] === low && onSide(c.at) && [1, 2].some(d => walked.has(`${c.at[0]},${c.at[1] - d},${c.at[2]}`))) out.add(i) })
+  return out
+}
+/** THE SIDE THE DOORWAY FACES -> [nx, nz] (world) | null. Pure. A blueprint's doorway opens toward local v < 0 (buildsite facesHome). */
+export function reroofDoorSide (rec) {
+  if (!rec?.orient) return null
+  const a = rot(rec.orient, 0, 0), b = rot(rec.orient, 0, -1)
+  const n = [Math.sign(b.dx - a.dx), Math.sign(b.dz - a.dz)]
+  return n[0] || n[1] ? n : null
+}
+/** The event loop's turn between two expensive proof steps (a bot answers its keep-alives: reroofProve is async for that alone). */
+const tick = () => new Promise(r => setImmediate(r))
+/** (LEAVES) A reader whose NATURAL leaves are an obstacle but no floor (a fence's box: blocks the walk, the sight line, the head) -> reader.
+ *  Unread properties count as natural (the safe side for a floor). Pure. */
+export function reroofNoLeafFloor (read) {
+  const OB = Object.freeze({ name: 'oak_fence', boundingBox: 'block', props: null })
+  return (x, y, z) => { const b = read(x, y, z); if (!b || !LEAVES_RX.test(nmOf(b))) return b; const p = b.props?.persistent; return p === true || p === 'true' ? b : OB }
+}
+/** (SEEDS) The stood cells outside the building's pad box (x/z) -> [[x, y, z]]. Pure. */
+export function reroofSeeds (stood = [], box) {
+  if (!Array.isArray(box) || box.length < 4) return stood
+  return (stood ?? []).filter(c => Array.isArray(c) && !(c[0] >= box[0] && c[0] <= box[2] && c[2] >= box[1] && c[2] <= box[3]))
+}
+/** The record's temporary stand cells still in `cells` -> [cell]. Pure. */
+export const reroofTempCells = rec => (rec?.cells ?? []).filter(c => c?.temp === 1)
+/**
+ * IS THE STAND'S TEARDOWN DUE? -> bool. Pure. The record holds temp cells and every OTHER cell of the new roof (`reroof-*` segments)
+ * reads done (`done(cell)`): the stair is no longer needed. While any roof cell is open the stair stays (a visit that dies mid-way leaves
+ * it listed: the next visit uses it).
+ */
+export function reroofDismantleDue (rec, done = () => false) {
+  const temp = reroofTempCells(rec)
+  if (!temp.length) return false
+  return (rec.cells ?? []).filter(c => c?.temp !== 1 && /^reroof-/.test(String(c?.seg ?? ''))).every(c => done(c))
+}
+/** THE TEARDOWN GENERATION -> a record: the temp cells out of `cells`, into `clear` (kind temp, cobblestone) for the dig. Pure. */
+export function reroofDismantle (rec, { now = Date.now() } = {}) {
+  const temp = reroofTempCells(rec)
+  if (!temp.length) return null
+  const keys = new Set(temp.map(c => c.at.join(',')))
+  const have = new Set((rec.clear ?? []).map(c => (c?.at ?? []).join(',')))
+  return { ...rec, cells: rec.cells.filter(c => !keys.has(c.at.join(','))), clear: [...(rec.clear ?? []), ...temp.filter(c => !have.has(c.at.join(','))).map(c => ({ at: c.at.slice(), kind: 'temp', name: 'cobblestone' }))],
+    restyle: { ...(rec.restyle ?? {}), tempDown: now } }
+}
+/** The temp clears still standing -> [clear]. Pure over `read`. */
+export const reroofTempStanding = (rec, read) => (rec?.clear ?? []).filter(c => c?.kind === 'temp' && nmOf(read(...c.at)) === c.name)
+/** THE TEARDOWN'S VISIT RECORD (runVisit digs its clears; no cell to place). Pure. */
+export const reroofTempView = rec => ({ ...rec, cells: [], clear: (rec?.clear ?? []).filter(c => c?.kind === 'temp'), segments: [] })
+
+/**
+ * reroof-04: THE RETROFIT'S WHOLE PROOF -> Promise<{ ok, why, detail, p, clear, retire, step, temp: Set | null, notch }>. Pure over `read`
+ * (async only to give the event loop its turn between the expensive steps: a stair try, the notched roof). What
+ * skills.mjs buildReroof ran inline (reroof-02/03) plus the access remedies; the Paper driver and the offline replays run this same code.
+ *   rec     the building's head record; bpOld its blueprint; bpAdd reroofProofBlueprint's; ctx { stood, walkR, domain, decor, recordAt, fx }
+ * Order: the obstacles (a blocker fails `cell_not_free`), the doorstep, the proof (with the new roof's TOP slabs as floors when
+ * fx.access); a `no_step` proof tries the temporary stairs (reroofAccess, nearest the failing cell first, REROOF_TEMP_TRIES); then the
+ * listed digs' reach (the ground walk, else the build order with the canopy grown -- reroof-03), re-proven with the chosen stair.
+ */
+export async function reroofProve (read, home, rec, bpOld, bpAdd0, { stood: stood0 = [], walkR = 90, domain = null, decor = null, recordAt = () => null, fx = reroofFixes({}) } = {}) {
+  const anchor = { x: rec.anchor[0], z: rec.anchor[1] }
+  // (SEEDS) a cell a bot once STOOD on inside the building's own box -- on its flat roof, LIVE: bots that pillared up -- seeds no walk
+  // here: a visit's pathfinder cannot get there from the ground (Paper sandbox4 11-08: the workshop's builder dropped off the roof and
+  // every walk back timed out); the roof is reached from the ground or by the temporary stair
+  const stood = fx.access && Array.isArray(rec.box) ? reroofSeeds(stood0, rec.box) : stood0
+  // (NOTCH) the eave course never hangs at head height over a cell the town walks now (LIVE 11-08: the hall's and the enchanting
+  // workshop's front rows are walked at one above the pad -- an eave there cut every path to the door: interior 0/95, 0/88)
+  // -- only when the full roof's proof fails, and only the DOOR side's eave (the side the doorway faces: reroofDoorSide)
+  const run = bpAdd => reroofProveWith(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor, recordAt, fx })
+  const full = await run(bpAdd0)
+  if (full.ok || !fx.access || !['interior_unreachable', 'no_step'].includes(full.why)) return { ...full, notch: 0 }
+  const side = reroofDoorSide(rec)
+  const notch = side ? reroofEaveNotch(placeBlueprint(bpAdd0, anchor, rec.s, rec.orient), walkFrom(read, home, new Set(), walkR, { stood }), { box: rec.box, side }) : new Set()
+  if (!notch.size) return { ...full, notch: 0 }
+  await tick()
+  const cut = await run({ ...bpAdd0, cells: bpAdd0.cells.filter((c, i) => !notch.has(i)) })
+  if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  notch', notch.size, cut.ok ? 'OK' : `${cut.why} ${cut.detail}`)
+  return cut.ok ? { ...cut, notch: notch.size } : { ...full, notch: 0 }
+}
+/** reroofProve's proof over one proof blueprint (the full roof, or the roof with its door-side eave notched). Pure. */
+async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], walkR = 90, domain = null, decor = null, recordAt = () => null, fx = reroofFixes({}) } = {}) {
+  const anchor = { x: rec.anchor[0], z: rec.anchor[1] }
+  const placed = placeBlueprint(bpAdd, anchor, rec.s, rec.orient)
+  const addedAt = placed.map(c => c.at)
+  const own = new Set(rec.cells.filter(c => Array.isArray(c?.at)).map(c => c.at.join(',')))
+  const ob = (fx.decor || fx.clutter) ? reroofObstacles(read, addedAt, { decor, recordAt, fx, own }) : { clear: [], retire: [], blocker: null }
+  if (ob.blocker) return { ok: false, why: 'cell_not_free', detail: `${ob.blocker.name}@${ob.blocker.at.join(',')}` }
+  const step = fx.doorstep ? reroofDoorstep(read, rec, bpOld) : null
+  const floors = fx.access ? reroofFloors(placed) : null
+  const fillOf = extra => [...(step ? [step] : []), ...(extra ? [...extra].map(k => k.split(',').map(Number)) : [])]
+  // never worse: the interior cells walked NOW stay walked (fx.access; else every open interior cell, as before)
+  const now = fx.access ? walkFrom(read, home, new Set(), walkR, { stood }) : null
+  // (LEAVES) the proof walks on no natural leaves (fx.access): a canopy is dug, or decays once its trunk is gone (Paper sandbox4 11-08: the
+  // workshop's builder reached its roof over a spruce crown, dug the crown, dropped and never got back) -- an obstacle, never a floor
+  const PR = fx.access ? reroofNoLeafFloor(read) : read
+  const proveWith = (cl, extra = null) => proveSite(PR, home, bpAdd, { anchor, s: rec.s, orient: rec.orient, clear: cl, fill: fillOf(extra) }, { stood, ...(domain ? { domain } : {}), walkR, floors, gone: extra ?? null, ...(now ? { interiorNow: k => now.has(k) } : {}) })
+  // the listed digs' reach over a proven roof: the ground walk, else the build order (the proof's cells: a stair first, then the
+  // roof, its slabs floors), else the canopy round them grown -> { ok, clear, p, rc }
+  const reach = (clear0, p0, extra) => {
+    if (!clear0.length) return { ok: true, clear: clear0, p: p0 }
+    let rc = reroofClearsReached(PR, home, clear0, { stood, walkR })
+    if (rc.ok || !fx.ordered) return { ok: rc.ok, clear: clear0, p: p0, rc }
+    const nameOf = role => { const n = (bpAdd.palette?.[role] ?? ['stone'])[0]; return String(n).startsWith('$') ? 'oak_planks' : n }
+    const ordered = (list, cells) => reroofOrderedReach(PR, home, list, cells, { stood, walkR, domain, floors, wantOf: c => (c.ws || c.blind ? { name: nameOf(c.role), ws: c.ws ?? null, blind: !!c.blind } : null),
+      blockOf: c => ({ name: nameOf(c.role), boundingBox: c.role === 'light' ? 'empty' : 'block', ...(c.ws ? { props: c.ws } : {}) }) })
+    rc = ordered(clear0, p0.cells)
+    if (rc.ok) return { ok: true, clear: clear0, p: p0, rc }
+    const g = reroofCanopyGrow(read, clear0, list => ordered(list, p0.cells), { own, recordAt, roofTrees: fx.roofTree })
+    if (g.rc.ok) {
+      const p2 = proveWith(g.clear, extra)
+      const o2 = p2.ok ? ordered(g.clear, p2.cells) : null
+      if (o2?.ok) return { ok: true, clear: g.clear, p: p2, rc: o2 }
+    }
+    return { ok: false, clear: clear0, p: p0, rc }
+  }
+  const clear = ob.clear
+  const p = proveWith(clear, null)
+  const unreached = r => `${r.rc.unreached.length}/${r.clear.length} first ${r.clear.find(c => c.at.join(',') === r.rc.unreached[0].join(','))?.name}@${r.rc.unreached[0].join(',')}`
+  let fail0 = null
+  if (p.ok) {
+    const r = reach(clear, p, null)
+    if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: r.clear, retire: ob.retire, step, temp: null }
+    fail0 = { ok: false, why: 'clear_unreached', detail: unreached(r) }
+  } else fail0 = { ok: false, why: p.why, detail: p.detail }
+  // (TEMP) a roof cell with no step, or a dig no stand reaches: a temporary stair from an eave down to the town walk, proven whole (the
+  // proof's first segment), its digs reached in the build order -- one stair nearest the failing cell first, then the best pairs
+  if (!fx.access || !['no_step', 'clear_unreached'].includes(fail0.why)) return fail0
+  const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
+  const R = overlay(PR, new Map(clear.map(c => [c.at.join(','), AIRB])))
+  const walked = walkFrom(R, home, new Set(), walkR, { stood })
+  const tops = placed.filter(c => c.ws?.type === 'top')
+  const lowEave = tops.length ? Math.min(...tops.map(c => c.at[1])) : null
+  // the stair's LANDINGS: the new eave's cells, and the old flat roof's own edge cells (a full block, walked onto at once: Paper MOAT
+  // 11-08 -- a stair beside an eave still to place leaves a gap the gable segment, placed first, cannot be built across)
+  const oldTop = Math.max(...rec.cells.filter(c => Array.isArray(c?.at)).map(c => c.at[1]))
+  const solidAt = a => { const b = read(...a); return !!b && b.boundingBox === 'block' && !LEAVES_RX.test(nmOf(b)) }
+  const roofEdge = rec.cells.filter(c => Array.isArray(c?.at) && c.at[1] === oldTop && Math.min(c.at[0] - rec.box[0], rec.box[2] - c.at[0], c.at[2] - rec.box[1], rec.box[3] - c.at[2]) <= 1 && solidAt(c.at)).map(c => c.at)
+  const eaves = [...roofEdge, ...tops.filter(c => c.at[1] === lowEave).map(c => c.at)]
+  const m = String(fail0.detail ?? '').match(/@(-?\d+),(-?\d+),(-?\d+)/)
+  const taken = new Set([...addedAt.map(a => a.join(',')), ...(step ? [step.join(',')] : [])])
+  const stairs = reroofAccess(R, { eaves, box: rec.box, walked: a => walked.has(a.join(',')), recordAt, taken, near: m ? m.slice(1).map(Number) : null }).slice(0, REROOF_TEMP_TRIES)
+  const tries = [...stairs.map(st => [st]), ...stairs.slice(0, REROOF_TEMP_PAIRS).flatMap((a, i) => stairs.slice(i + 1, REROOF_TEMP_PAIRS).map(b => [a, b]))]
+  for (const set of tries) {
+    const keys = new Set(set.flatMap(st => st.cells.map(c => c.join(','))))
+    if (keys.size > REROOF_TEMP_MAX * 2) continue
+    await tick()
+    const q = proveWith(clear, keys)
+    if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  stair', set.map(st => JSON.stringify(st.eave)).join('+'), keys.size, q.ok ? 'OK' : `${q.why} ${q.detail}`)
+    if (!q.ok) continue
+    await tick()
+    const r = reach(clear, q, keys)
+    if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    reach', r.ok ? 'OK' : unreached(r))
+    if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: r.clear, retire: ob.retire, step, temp: keys }
+  }
+  return fail0
 }
