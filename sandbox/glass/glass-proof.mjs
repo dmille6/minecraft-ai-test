@@ -103,6 +103,11 @@ async function main () {
   const pos = bot.entity.position
   rec('sand_digs', f.got === 6 && inBag === 6 && dugCells === 6 && !bot.entity.isInWater && bot.health > 0,
     { f, server_sand_in_bag: inBag, cells_now_air: dugCells, pos: [pos.x, pos.y, pos.z].map(v => Math.round(v * 10) / 10), health: bot.health, oxygen: bot.oxygenLevel })
+  // OUT OF THE LAST HOLE on the bot's own pathfinder (Codex r1 BLOCKER: every dug cell keeps a step out)
+  const { goals } = req('mineflayer-pathfinder')
+  try { await bot.pathfinder.goto(new goals.GoalBlock(3005, 100, 3001)) } catch (e) { P('walk out', e.message) }
+  const p2 = bot.entity.position
+  rec('out_of_the_hole', Math.floor(p2.x) === 3005 && Math.floor(p2.z) === 3001 && Math.abs(p2.y - 100) < 0.6, { pos: [p2.x, p2.y, p2.z].map(v => Math.round(v * 10) / 10) })
   const refusedStill = isBlock(3013, 99, 2996, 'sand') && isBlock(3013, 99, 3006, 'sand')
   rec('refused_cells_untouched', refusedStill, { deep_row: isBlock(3013, 99, 2996, 'sand'), wet_cell: isBlock(3013, 99, 3006, 'sand') })
   // ---- 3. THE GLAZE WALK (skills.mjs glazeCells) ----

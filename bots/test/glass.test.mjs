@@ -153,6 +153,16 @@ test('sandCellOk: a dry beach cell is dug from on top; water beside, deep water 
   assert.equal(G.sandCellOk(beach(), [100, 63, 0], { home: HOME, reserved: () => true }).why, 'reserved')
   assert.equal(G.sandCellOk(beach(), [100, 64, 0], { home: HOME }).why, 'not_sand')
   assert.equal(G.sandCellOk(world({ '100,63,0': sand }, () => null), [100, 63, 0], { home: HOME }).why, 'unknown', 'an unloaded neighbour is no yes')
+  // a sand cell at the bottom of a dry dip: every side two up after the dig -- no way out (Codex r1 BLOCKER)
+  const dip = {}
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) { dip[`${100 + dx},64,${dz}`] = { name: 'stone', ...SOLID }; dip[`${100 + dx},63,${dz}`] = { name: 'stone', ...SOLID } }
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) dip[`${100 + dx},65,${dz}`] = { name: 'stone', ...SOLID }
+  assert.equal(G.sandCellOk(beach({ extra: { ...dip, '100,64,0': air, '100,65,0': air } }), [100, 63, 0], { home: HOME }).why, 'no_exit', 'the bottom of a dry dip: every side two up after the dig')
+  const dip2 = {}
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { dip2[`${100 + dx},63,${dz}`] = air; dip2[`${100 + dx},62,${dz}`] = { name: 'stone', ...SOLID } }
+  assert.equal(G.sandCellOk(beach({ extra: dip2 }), [100, 63, 0], { home: HOME }).why, 'no_exit', 'a sand pillar: every side is a drop, nothing to step up onto')
+  // one side at the cell's level is enough
+  assert.equal(G.sandCellOk(beach({ extra: { ...dip2, '101,63,0': sand } }), [100, 63, 0], { home: HOME }).ok, true)
   // waterlogged and kelp read as water
   assert.equal(G.sandCellOk(beach({ extra: { '101,63,0': { name: 'kelp', boundingBox: 'empty' } } }), [100, 63, 0], { home: HOME }).why, 'wet')
 })
@@ -161,6 +171,13 @@ test('the deep-water rule is load-bearing (mutant: no deep-water check -> the de
   const anchor = "      if (waterDepth(read, x + dx, y, z + dz, SAND_DEEP + 2) >= SAND_DEEP) return { ok: false, why: 'deep_water' }\n"
   assert.ok(await killed(() => withMutant(GLASS_PATH, anchor, '', async G2 => {
     assert.equal(G2.sandCellOk(beach({ seaFrom: 102, depth: 3 }), [100, 63, 0], { home: HOME }).why, 'deep_water')
+  })))
+  // and the exit rule (mutant: no exit check -> a cell with no step out passes)
+  const exitA = "  if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => solidFloor(read(x + dx, y, z + dz)) && passable(read(x + dx, y + 1, z + dz)) && passable(read(x + dx, y + 2, z + dz)))) return { ok: false, why: 'no_exit' }\n"
+  const dip2 = {}
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { dip2[`${100 + dx},63,${dz}`] = air; dip2[`${100 + dx},62,${dz}`] = { name: 'stone', ...SOLID } }
+  assert.ok(await killed(() => withMutant(GLASS_PATH, exitA, '', async G2 => {
+    assert.equal(G2.sandCellOk(beach({ extra: dip2 }), [100, 63, 0], { home: HOME }).why, 'no_exit')
   })))
   // and the floor rule (mutant: no floor check -> a two-deep hole passes)
   const floor = "  if (!solidFloor(below)) return { ok: false, why: 'no_floor' }\n"
