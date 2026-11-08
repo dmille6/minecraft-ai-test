@@ -205,6 +205,13 @@ await t('fold (Codex BLOCKER): WOODWORKS=off holds an OPEN structure too -- neve
   assert.equal(W.woodHold({ on: true, now: 100, stallUntil: undefined }), null)
   assert.equal(W.woodHold({ on: W.woodOn({ WOODWORKS: 'off' }) }), 'wood_off')
   assert.equal(W.woodHold({ on: W.woodOn({}) }), null)
+  // fold r2: off, a damaged / due standing wood record is no repair or upkeep pick (shop.mjs reads st.damaged / st.due)
+  const st = { plot: 'wood', exists: true, complete: true, damaged: true, due: true, sink: true }
+  assert.deepEqual(W.woodHeldState(st, 'wood_off'), { ...st, damaged: false, due: false })
+  assert.equal(W.woodHeldState(st, 'wood_stall'), st, 'positive control: a stall keeps its repair')
+  assert.equal(W.woodHeldState(st, null), st)
+  const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.strictEqual(src.split('return woodHeldState({ ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }, held)').length, 2, 'the sink states pass through it')
 })
 await t('skills wiring (structural): the wood kit runs before a slot is taken, an unfunded open structure is not offered under its stamp, fences are never billed to town', () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
