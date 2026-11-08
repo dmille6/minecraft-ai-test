@@ -36,15 +36,22 @@
 // (pathfinder.getPathFromTo, and each continuation of the A* it starts: the monitor calls astarContext.compute directly):
 //   1. A CAPPED search (searchRadius >= 0: digapproach's 400, reachprobe's 96, the ore tunnel) is never priced: a price there
 //      spends the cap and loses a route the base keeps.
-//   2. THE PREFERENCE BUDGET: a search prices only its first budgetMs (1000) of compute; after that the same search runs on at
-//      the base's costs, so a priced search is never more than ~1 s slower than the base's. Every move stays legal.
+//   2. THE PREFERENCE BUDGET: a search prices only its first budgetMs (1000) of compute. A search that has not found its path
+//      when the budget runs out is RESTARTED from its start node at the base's costs, with the full timeout again (restartInPlace:
+//      the same astarContext object, so goto's monitor and every caller keep their reference). Zeroing the price for the rest of
+//      the SAME search is not enough (Codex r1 BLOCKER, reproduced with the real A*: a goal on a 20-high column, base success in
+//      1,565 ms / 59,862 nodes, the priced search still timed out at 5,000 ms / 180,642 nodes after its cut -- the inflated g of
+//      every closed node is kept and A* never reopens a closed node). So a priced search costs at most budgetMs + one slice more
+//      than the base's, and then IS the base's search. A first slice that already failed after its cut (a probe whose single
+//      slice is longer than the budget) is re-run whole, unpriced, by the generator wrapper.
 //   3. THE LATCH: a priced search that ends `timeout` or `noPath` latches its goal for latchMs (120 s): every later search for
-//      that goal (goto's retry, the next leg, the caller's re-issue) runs at the base's costs.
+//      that goal (goto's retry, the next leg, the caller's re-issue) runs at the base's costs. So does a goal whose WALK resets
+//      'stuck' stuckLatch (2) times (price.stuck, index.mjs's path_reset): a priced route the executor cannot walk falls back too.
 //
 // Never a veto, never a new dead end: the price changes the ORDER of legal moves, and under each bound the search is the base's.
 // SCAFTOWN=off -> nothing is installed: every profile and every search is exactly the base's (the rollback without a deploy).
 
-export const SCAF_TOWN = Object.freeze({ cost: 20, workR: 80, dy: 4, ringGrow: 2, budgetMs: 1000, latchMs: 120_000, hitsMs: 10 * 60_000 })
+export const SCAF_TOWN = Object.freeze({ cost: 20, workR: 80, dy: 4, ringGrow: 2, budgetMs: 1000, latchMs: 120_000, stuckLatch: 2, hitsMs: 10 * 60_000 })
 /** THE SWITCH: SCAFTOWN=off|0|false|no -> not installed. On by default. Pure. */
 export const scafTownOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.SCAFTOWN ?? '').trim())
 
@@ -92,7 +99,9 @@ export function scafTownSurcharge (toPlace, area, cost = SCAF_TOWN.cost) {
 /** A goal's latch key -> string | null (a goal with no position is never latched: it has nothing to fall back FOR). Pure. */
 export function goalKey (goal) {
   if (!goal) return null
-  const x = Number(goal.x), y = Number(goal.y), z = Number(goal.z)
+  // GoalLookAtBlock / GoalPlaceBlock / GoalBreakBlock hold `pos`, the rest x/y/z (Claude r1 note)
+  const at = (goal.pos && typeof goal.pos === 'object') ? goal.pos : goal
+  const x = Number(at.x), y = Number(at.y), z = Number(at.z)
   if (fin(x) && fin(z)) return `${goal.constructor?.name ?? 'Goal'}:${Math.floor(x)},${fin(y) ? Math.floor(y) : '-'},${Math.floor(z)}`
   return null
 }
@@ -108,6 +117,23 @@ export function searchMode ({ on = true, off = 0, radius = -1, key = null, latch
 }
 /** Does a finished search latch its goal? -> bool. Pure: a priced search whose prices touched it and that ended without a path. */
 export const latchesGoal = (s, status) => !!s && s.mode === 'priced' && s.hits > 0 && (status === 'timeout' || status === 'noPath')
+/** Does a slice's result send its search back to the start at the base's costs? -> bool. Pure: the budget ran out (cut), the
+ *  price touched the search (hits: otherwise it IS the base's search already) and the slice did not find the path; once per search. */
+export const restartsSearch = (s, status) => !!s && s.cut === true && !s.restarted && s.mode === 'priced' && s.hits > 0 && status !== 'success'
+/**
+ * RESTART AN A* IN PLACE -> bool: the same context object, its state replaced by a fresh search from its own start node (the root
+ * of the best node's parent chain) with its own movements, goal, timeout and tick budget, uncapped (a capped search is never
+ * priced). The caller then computes again. False (nothing changed) when the start cannot be found.
+ */
+export function restartInPlace (ctx) {
+  let n = ctx?.bestNode, guard = 0
+  while (n && n.parent && guard++ < 1e7) n = n.parent
+  const start = n?.data
+  if (!start || typeof ctx.constructor !== 'function') return false
+  const fresh = new ctx.constructor(start, ctx.movements, ctx.goal, ctx.timeout, ctx.tickTimeout, -1)
+  for (const k of Object.keys(fresh)) ctx[k] = fresh[k]
+  return true
+}
 
 /**
  * THE PRICE index.mjs installs -> (toPlace) => surcharge, with its counters and its search scope. `area()` returns the current
@@ -127,7 +153,7 @@ export function makeScafTownPrice ({ area = () => null, on = true, now = () => D
     if (v > 0) { price.hits++; if (s) s.hits++ }
     return v
   }
-  Object.assign(price, { off: 0, cur: null, hits: 0, chosen: 0, searches: 0, pricedSearches: 0, cuts: 0, latches: 0, capped: 0, latched: 0, latch: new Map(), T })
+  Object.assign(price, { off: 0, cur: null, hits: 0, chosen: 0, searches: 0, pricedSearches: 0, cuts: 0, restarts: 0, latches: 0, capped: 0, latched: 0, stuckLatches: 0, latch: new Map(), stalls: new Map(), T })
   /** A search starts -> its scope { mode, t0, hits, key }. */
   price.begin = ({ goal = null, radius = -1 } = {}) => {
     const t = now(), key = goalKey(goal)
@@ -138,6 +164,29 @@ export function makeScafTownPrice ({ area = () => null, on = true, now = () => D
     else if (mode === 'capped') price.capped++
     else if (mode === 'latched') price.latched++
     return { mode, t0: t, hits: 0, key, cut: false, done: false }
+  }
+  /**
+   * THE EXECUTOR'S STALL (Claude r1 note): a priced route the planner FINISHED can still stall in the walking (a gate it cannot
+   * get through, a wedged corner) -- the pathfinder resets 'stuck' and re-plans the SAME priced route, where the base would have
+   * towered. A goal whose walk resets 'stuck' T.stuckLatch times within latchMs is latched to the base's costs like a failed search.
+   * -> true when this reset latched it.
+   */
+  price.stuck = (goal) => {
+    const key = goalKey(goal), t = now()
+    if (!key || !on) return false
+    const st = price.stalls.get(key)
+    const n = st && st.until > t ? st.n + 1 : 1
+    price.stalls.set(key, { n, until: t + T.latchMs })
+    if (price.stalls.size > 64) for (const [k, v] of price.stalls) if (v.until <= t) price.stalls.delete(k)
+    if (n < T.stuckLatch) return false
+    price.stalls.delete(key)
+    price.latch.set(key, t + T.latchMs); price.latches++; price.stuckLatches++
+    return true
+  }
+  /** The budget, judged after a slice too (a search whose late expansions place nothing would never call the price): -> s.cut. */
+  price.checkCut = (s) => {
+    if (s && s.mode === 'priced' && !s.cut && now() - s.t0 > T.budgetMs) { s.cut = true; price.cuts++ }
+    return !!s?.cut
   }
   /** A search slice returned `result` -> latch its goal when a priced search that the price touched ended without a path. */
   price.settle = (s, result) => {
@@ -186,14 +235,32 @@ export function installScafTownSearch (pathfinder, price) {
   const wrapCompute = (ctx, s) => {
     if (!ctx || typeof ctx.compute !== 'function' || ctx.__scafTown) return
     const oc = ctx.compute
-    ctx.compute = function () { return scoped(s, () => { const r = oc.call(this); try { price.settle(s, r) } catch { /* a counter never breaks a search */ } return r }) }
+    ctx.compute = function () {
+      return scoped(s, () => {
+        let r = oc.call(this)
+        price.checkCut(s)
+        // the budget ran out before the path was found: from the start again at the base's costs, full timeout (Codex r1 BLOCKER)
+        if (restartsSearch(s, r?.status) && restartInPlace(this)) { s.restarted = true; s.mode = 'fallback'; price.restarts++; r = oc.call(this) }
+        try { price.settle(s, r) } catch { /* a counter never breaks a search */ }
+        return r
+      })
+    }
     ctx.__scafTown = true
   }
   pathfinder.getPathFromTo = function * (movements, startPos, goal, options = {}) {
     const radius = options?.searchRadius ?? pathfinder.searchRadius
-    const s = price.begin({ goal, radius })
-    const g = orig.call(this, movements, startPos, goal, options)
+    let s = price.begin({ goal, radius })
+    let g = orig.call(this, movements, startPos, goal, options)
     let step = scoped(s, () => g.next())
+    price.checkCut(s)
+    // a FIRST slice that ran past the budget and failed (a probe whose one slice outlasts budgetMs): the whole search again,
+    // unpriced, through the library's own generator (its post-processing and its continuation protocol unchanged)
+    if (!step.done && restartsSearch(s, step.value?.result?.status)) {
+      price.restarts++
+      s = { ...s, mode: 'fallback', restarted: true, hits: 0, done: false }
+      g = orig.call(this, movements, startPos, goal, options)
+      step = scoped(s, () => g.next())
+    }
     while (!step.done) {
       const v = step.value
       try { if (v?.astarContext) wrapCompute(v.astarContext, s); price.settle(s, v?.result) } catch { /* counters only */ }
@@ -216,11 +283,11 @@ export function chosenScafTown (path) {
 /** THE POSITIVE CONTROL (`_scaftown_hits`, every hitsMs): the price's counters since the last row and in total. Pure. */
 export function scafTownHitsDetail (p, prev = {}) {
   const d = k => (p?.[k] ?? 0) - (prev?.[k] ?? 0)
-  return `hits=${d('hits')} chosen=${d('chosen')} searches=${d('searches')} priced=${d('pricedSearches')} cuts=${d('cuts')} latches=${d('latches')} ` +
-         `latched=${d('latched')} capped=${d('capped')} total_hits=${p?.hits ?? 0} off=${p?.off ?? 0}`
+  return `hits=${d('hits')} chosen=${d('chosen')} searches=${d('searches')} priced=${d('pricedSearches')} cuts=${d('cuts')} restarts=${d('restarts')} latches=${d('latches')} ` +
+         `latched=${d('latched')} capped=${d('capped')} stuck_latches=${d('stuckLatches')} total_hits=${p?.hits ?? 0} off=${p?.off ?? 0}`
 }
 /** The counters to diff against next time. Pure. */
-export const scafTownSnap = p => ({ hits: p?.hits ?? 0, chosen: p?.chosen ?? 0, searches: p?.searches ?? 0, pricedSearches: p?.pricedSearches ?? 0, cuts: p?.cuts ?? 0, latches: p?.latches ?? 0, latched: p?.latched ?? 0, capped: p?.capped ?? 0 })
+export const scafTownSnap = p => ({ hits: p?.hits ?? 0, chosen: p?.chosen ?? 0, searches: p?.searches ?? 0, pricedSearches: p?.pricedSearches ?? 0, cuts: p?.cuts ?? 0, restarts: p?.restarts ?? 0, latches: p?.latches ?? 0, latched: p?.latched ?? 0, capped: p?.capped ?? 0, stuckLatches: p?.stuckLatches ?? 0 })
 /** The licence row (`_scaftown_mode`, once per spawn). Pure. */
 export const scafTownModeDetail = (env = process.env, area = null, T = SCAF_TOWN) =>
   `on=${scafTownOn(env) ? 1 : 0} cost=${T.cost} workR=${T.workR} dy=${T.dy} budget_ms=${T.budgetMs} latch_ms=${T.latchMs} home=${area ? `${area.hx},${area.hy},${area.hz}` : '-'} rings=${area?.rings?.length ?? 0}`
