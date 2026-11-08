@@ -187,3 +187,55 @@ The towers were also slower: each placed block costs a jump and a click.
   - The registrations and draft entries are in `~/mcai-analysis/{placeaudit-fleet-01,scaftown-01}.*` on the canary host.
   - Effect: `detail.rate.v1 _place_town:reason:pathfinder:outcome:placed` down >= 30%. Guardrails: `_path_timeout`
     (18.55/bot-h), `_reflex_stuck`, `_death`, items.
+
+## 5. Fleet canary REVERT 11-08 16:01Z (01dc970, pools hive-a and hive-b): the price did not cause it
+
+The canary was reverted only because a canary unit was not running: hive-a-Bravo had been flapping (it joined, then got
+"Timed out" after about 35 s) at a 1.0 G RSS. Every count below comes from the bot journals on .31 (`socketClosed`, the
+`memory rss_mb=`/`heap_used_mb=` rows) and the hive-* server logs on .30.
+
+**Disconnects and peak memory per bot.** The 11-07 window is the same hours a day earlier, with no scaftown on any pool.
+The 11-08 06:00-09:00Z window is the morning before the canary started.
+
+| bot | 11-07 13:00-16:04Z: drops, peak RSS | 11-08 06:00-09:00Z: drops, peak RSS | 11-08 13:00-16:04Z (canary): drops, peak RSS |
+|---|---|---|---|
+| hive-a-Alpha (canary) | 5, 422 MB | 2, 402 MB | 45, 995 MB |
+| **hive-a-Bravo** (canary) | **68, 1,061 MB** | 18, 742 MB | 42, 1,060 MB |
+| hive-a-Comet (canary) | 7, 521 MB | 31, 755 MB | 10, 766 MB |
+| hive-a-Echo (canary) | 6, 351 MB | 49, 943 MB | 28, 700 MB |
+| hive-b, 5 bots (canary) | 2-6, about 300 MB | 0, about 300 MB | **0**, about 300 MB |
+| board-a-Bravo (control) | 4, 493 MB | 0, 294 MB | 23, 1,066 MB |
+| hive-c-Alpha / hive-d-Alpha (control) | 5 / 3 | 0 / 0 | 0 / 0 |
+
+**How hard the price worked**, from the 10-minute counter rows summed over 06:00-16:05Z:
+
+| pool | priced neighbours | priced searches | budget cuts | restarts |
+|---|---|---|---|---|
+| hive-a | 68 k to 186 k per bot | 859 to 1,636 per bot | 195 to 345 per bot | 23 to 78 per bot |
+| hive-b | 89 k to 458 k per bot | 1,783 to 2,166 per bot | 260 to 481 per bot | 31 to 166 per bot |
+
+**The hive-a server**, "Timed out" lines in its log on .30:
+
+| day | timed-out lines |
+|---|---|
+| 11-05 | 0 |
+| 11-06 | 124 |
+| 11-07 | 385 (no scaftown anywhere) |
+| 11-08 | 615 |
+
+On 11-08 the count runs flat at 33 to 45 an hour, all day. The three canary hours were 43, 45 and 42; the hours before
+averaged about 38. The server log shows 0 "Can't keep up" lines on any hive world, so the server tick is fine.
+
+**Reading:**
+- **The positive control is hive-b.** It is in the same canary, and its price did more work than hive-a's: more priced
+  neighbours, searches and restarts. It had 0 disconnects, and its memory stayed flat at about 300 MB.
+- **hive-a-Bravo did the same thing the day before.** It had 68 drops at 1,061 MB with no scaftown anywhere.
+- **The control flapped too.** board-a-Bravo had 23 drops at 1,066 MB over the same three hours.
+- **The disconnects started 11-06** on hive-a's server and have run at a flat rate since. The cause is likely the hive-a
+  world or server, or this host's per-bot memory.
+- **A likely link to the memory growth:** every reconnect logs `MaxListenersExceededWarning: 11 end listeners`, so each
+  reconnect may leak handlers. That was not measured here.
+- **Verdict: the pre-existing hive-a problem, not scaftown.** I did not build a cap for the search.
+
+**Requeue:** use a new run id on b52603ec (scaftown-01 plus the stall-latch fix), pinned to hive-b plus one healthy pool
+(hive-c or hive-d: 0 drops in all three windows). Keep hive-a and board-a out of the draw until their disconnects are fixed.
