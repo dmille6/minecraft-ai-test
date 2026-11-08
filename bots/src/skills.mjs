@@ -168,12 +168,12 @@ import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YAR
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
 import { fillWant, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
-import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
+import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
-import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
+import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { recStageK, corridorAt } from './landplan.mjs'   // townterrace-01
 import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
@@ -25729,7 +25729,8 @@ async function buildTidyVisit (ctx, args, signal) {
     // (the record's own skip, above: Claude r2 BLOCKER 2) -- and the PREV cells never reach the visit (Codex + Claude r2 BLOCKER 1:
     // a previous fill under one of this stage's cuts would hide the cut from clears())
     const recV = isTerrace ? { ...visitRec, cells: (visitRec.cells ?? []).filter(q => !q.prev), clear: (visitRec.clear ?? []).filter(q => (q.prep || !guardNow(q.at[0], q.at[2])) && !keptLogK.has(q.at.join(','))) } : visitRec
-    const r = await runVisit({ dir, key, me, home, stood, record: recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    // gkleft-01 (Codex r1 BLOCKER): a clear the town waived is never dug again (tidy.mjs dropWaivedClears)
+    const r = await runVisit({ dir, key, me, home, stood, record: GKW_ON ? dropWaivedClears(recV) : recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
@@ -25778,7 +25779,8 @@ async function buildTidyVisit (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) })
+    const progOpts = { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) }
+    let prog = tidyProgress(rw, read2, progOpts)
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
       const why = {}
@@ -25813,6 +25815,28 @@ async function buildTidyVisit (ctx, args, signal) {
     // this bot): the prep is verified, or retired at its expiry, first
     const prepHold = SITEPREP.on && (prepWorking(dir, rw, read2, q => !!q.prev || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), k => tidyGivenUp(mem, k), bot.prepStalls)?.hold ?? 'none') !== 'none'
     if (prepHold) f.prepHold = 1
+    // GKLEFT-01 (gkwork.mjs leftWaiveDue): a visit that ran out of work counts the cells it left open, town-wide; a cell left by GKL.leftVisits
+    // such visits is waived by the keeper's visit (caps.waive) that still reads it open, and the progress is read again
+    if (GKW_ON && GROUNDS.on && (r.stop === 'complete' || caps.waive)) {
+      try {
+        const left = tidyLeftKeys(rw, read2, progOpts)
+        const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' })
+        const due = caps.waive ? leftWaiveDue(rw, town, left) : []
+        if (due.length) {
+          const pub = publishRecord(dir, key, cur => {
+            if (!cur || cur.structure_complete || cur.cells.length !== rw.cells.length || gkwSig(cur) !== gkwSig(rw)) return null
+            const w = { ...(cur.waived ?? {}) }
+            for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
+            return { ...cur, waived: w }
+          }, { by: me })
+          if (pub.result === 'accepted') {
+            for (const d of due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+            const h4 = recordHead(dir, key); if (h4.ok && h4.head) { rw = h4.head.rec; prog = tidyProgress(rw, read2, progOpts); if (!tidyClearsLeft(rw, read2)) clearsOk = true }
+            f.leftWaived = due.length
+          }
+        }
+      } catch { /* counted again next visit */ }
+    }
     // GKWORK-01 rules 1 and 5: the TOWN counts the empty visits (gkwork.mjs: one strike file per holder); at GKW.emptyVisits the soft
     // holds (the per-bot clears and park waits the keeper rotation never lets reach their bound) give way and the stage completes
     let gkw = null
