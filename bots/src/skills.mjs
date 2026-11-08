@@ -166,7 +166,7 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
-import { fillWant, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
+import { fillWant, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -20917,7 +20917,9 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
 function recordOwned () {
   try {
     const keys = new Set()
-    for (const h of projectHeads()) { const r = h.head?.rec; for (const c of r?.cells ?? []) if (Array.isArray(c?.at)) keys.add(c.at.join(',')); for (const q of r?.replant ?? []) if (Array.isArray(q?.cell)) keys.add(q.cell.join(',')) }
+    // claim-01: the tidy's and the land plan's CELLS yield to a building sited over them (the tidy retires them: tidy.mjs claimRetire);
+    // their replants stay owned (a sapling the tidy owes is never uprooted)
+    for (const h of projectHeads()) { const r = h.head?.rec; const soft = claimOn() && [TIDY_PLOT, LAND_PLOT].includes(h.plot); if (!soft) for (const c of r?.cells ?? []) if (Array.isArray(c?.at)) keys.add(c.at.join(',')); for (const q of r?.replant ?? []) if (Array.isArray(q?.cell)) keys.add(q.cell.join(',')) }
     return at => keys.has(at.join(','))
   } catch { return () => true }
 }
@@ -25093,6 +25095,15 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
       if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'plot_retired', kind: [...sited].join('+'), gen: pub.gen }) }) } catch { /* telemetry */ } }
     }
   } catch { /* asked again next visit */ }
+  // claim-01: a sited town hall / cottage owns its volume -- the tidy's cells, cuts and clears there leave the record (tidy.mjs claimRetire)
+  try {
+    const pr = claimOn() ? plotRecordsNow() : null
+    const claims = pr ? buildingClaims(pr) : []
+    if (claims.length) {
+      const pub = publishRecord(dir, key, cur => (cur ? claimRetire(cur, claims) : null), { by: me })
+      if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'claim_retired', kind: claims.map(c => c.plot).join('+'), gen: pub.gen }) }) } catch { /* telemetry */ } }
+    }
+  } catch { /* asked again next visit */ }
   // plotprep-01: a felling stand whose tree is down (or that has stood its time) is taken back down -- its cells become cuts
   try {
     if (platformUp(rec)) {
@@ -25698,7 +25709,12 @@ async function buildTidyVisit (ctx, args, signal) {
   // retirement was written yet or not
   let plotsSited = new Set()
   if (GROUNDS.on && rec.plotprep) { const pr = plotRecordsNow(); plotsSited = pr ? plotsSitedNow(rec, pr) : new Set((rec.plotprep.plots ?? []).map(p => String(p.id))) }
-  const waivedK = q => plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
+  // claim-01: at EXECUTION time too, every entry inside a sited claim plot's volume is passed (whoever's visit, whether the keeper's
+  // retirement is written yet or not); a records read that fails passes nothing extra (the record's own cell guard still holds)
+  let claimsNow = []
+  if (claimOn()) { try { const pr = plotRecordsNow(); claimsNow = pr ? buildingClaims(pr) : [] } catch { claimsNow = [] } }
+  const claimedQ = q => claimsNow.length > 0 && claimEntry(q, claimsNow)
+  const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -25736,6 +25752,7 @@ async function buildTidyVisit (ctx, args, signal) {
     let visitRec = fv.visitRec
     // plotprep-02: a sited plot's trees are never felled by this visit (its replants stay as the head has them: the read's G5 counts)
     if (plotsSited.size) visitRec = { ...visitRec, clear: (visitRec.clear ?? []).filter(q => !plotEntryRetired(q, plotsSited)) }
+    if (claimsNow.length) visitRec = { ...visitRec, clear: (visitRec.clear ?? []).filter(q => !claimedQ(q)) }
     // siteprep-01: while a requested plot's prep is open the visit works ONLY it (the floor's pattern): a plot in a few visits
     // Codex r5 BLOCKER: ONE open-work predicate for the selection, the tick and the completion -- the world and the record's
     // persisted waivers; the visit's transient guards (farm water, a cell another project took) only skip a cell inside the visit, so a
@@ -25798,7 +25815,7 @@ async function buildTidyVisit (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])))
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])))
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
@@ -25880,7 +25897,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const progOpts = { fillDone: q => !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) }
+    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) }
     let prog = tidyProgress(rw, read2, progOpts)
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
