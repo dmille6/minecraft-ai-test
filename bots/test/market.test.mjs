@@ -160,13 +160,23 @@ await t('runTrades: never trades into a full bag (putAway would DROP the output)
   assert.equal(M.freeSlotsIn({}), 36, 'a window with no slots reads as room (the fake windows above)')
 })
 
+await t('runTrades: a trade the server never answers ends the window at tradeMs (a walk-in never waits 15 min in a village)', async () => {
+  const v = { trades: [T('emerald', 1, 'lantern', 1)], items: () => [{ name: 'emerald', count: 5 }], trade: () => new Promise(() => {}) }
+  const t0 = Date.now()
+  const r = await M.runTrades(v, { buys: [{ i: 0, times: 1, what: 'lantern', per: 1 }] }, { sleep: async () => {}, tradeMs: 50 })
+  assert.deepEqual([r.halt, /timed out/.test(r.why)], [true, true]); assert.ok(Date.now() - t0 < 1000)
+  const ok = fakeWindow({ emerald: 2 }, [T('emerald', 1, 'lantern', 1)])
+  assert.deepEqual((await M.runTrades(ok, { buys: [{ i: 0, times: 2, what: 'lantern', per: 1 }] }, { sleep: async () => {}, tradeMs: 50 })).bought, { lantern: 2 }, 'POSITIVE: an answered trade')
+})
+
 await t('nextJobBlock: one of each profession, the town\'s surplus first; present / placed skipped; unmakeable never', () => {
   const stock = { iron_ingot: 225, spruce_log: 125, coal: 83, stone: 2 }
   assert.deepEqual(M.nextJobBlock({ stock }), { block: 'smithing_table', profession: 'toolsmith' })
-  assert.deepEqual(M.nextJobBlock({ stock, present: ['toolsmith'] }), { block: 'barrel', profession: 'fisherman' })
-  assert.equal(M.nextJobBlock({ stock, placed: ['smithing_table', 'barrel'] }), null, 'no flint, no stone, no paper: nothing else')
-  assert.deepEqual(M.nextJobBlock({ stock: { ...stock, flint: 4 }, placed: ['smithing_table', 'barrel'] }).block, 'fletching_table')
-  assert.equal(M.nextJobBlock({ stock: { iron_ingot: 60, spruce_log: 3 } })?.block, 'barrel', 'iron at its keep: no smithing table')
+  assert.deepEqual(M.nextJobBlock({ stock, present: ['toolsmith'] }), { block: 'composter', profession: 'farmer' }, 'market-02 D2: the farmer second')
+  assert.deepEqual(M.nextJobBlock({ stock, present: ['toolsmith', 'farmer'] }), { block: 'barrel', profession: 'fisherman' })
+  assert.equal(M.nextJobBlock({ stock, placed: ['smithing_table', 'composter', 'barrel'] }), null, 'no flint, no stone, no paper: nothing else')
+  assert.deepEqual(M.nextJobBlock({ stock: { ...stock, flint: 4 }, placed: ['smithing_table', 'composter', 'barrel'] }).block, 'fletching_table')
+  assert.equal(M.nextJobBlock({ stock: { iron_ingot: 60, spruce_log: 3 } })?.block, 'composter', 'iron at its keep: no smithing table')
   assert.ok(!Object.values(M.JOB_RECIPES).length || !('lectern' in M.JOB_RECIPES || 'loom' in M.JOB_RECIPES || 'brewing_stand' in M.JOB_RECIPES))
 })
 
@@ -201,6 +211,71 @@ await t('marketCell: a free cluster inside the zone -> an open cell just OUTSIDE
   assert.ok(second.cell && Math.hypot(second.cell.x - r.cell.x, second.cell.z - r.cell.z) >= M.MARKET.slotSpacing, 'the next block a slot apart')
 })
 
+// ---- market-02: walk-in trips, beds, the decor tier -----------------------------------------------------------------
+const Z23 = { id: 'village-taiga-23_-20', box: [301, -64, -404, 447, 86, -265] }
+const TRIAL = { id: 'trial-chambers-home-se', box: [-20, -64, 65, 88, 31, 164] }
+await t('walkinTargets: village zones only, beyond 96 b and within 200 b of home (one runner call), nearest first; resting skipped', () => {
+  const far = { id: 'village-snowy-1_54', box: [-56, -64, 782, 86, 91, 942] }
+  assert.deepEqual(M.walkinTargets([ZONE, Z23, far, TRIAL], HOME).map(z => [z.id, z.dist]), [['village-taiga-6_1', 103]], '23_-20 (502 b) needs a cut trip: not one call')
+  assert.deepEqual(M.walkinTargets([ZONE], HOME, { now: 10, rest: { [ZONE.id]: 11 } }), [], 'resting')
+})
+await t('walkinAdmit / walkinLeave: work hours only; inside a zone at most 60 s, never still 40 s, out by leaveBy (Z1 needs 15 min)', () => {
+  const base = { on: true, atTown: true, now: 1e12, timeOfDay: 1000, targets: [{ id: 'v' }] }
+  assert.equal(M.walkinAdmit(base).ok, true)
+  for (const [k, v, why] of [['timeOfDay', 10000, 'not_morning'], ['atTown', false, 'away'], ['targets', [], 'no_village'], ['leased', true, 'leased'], ['health', 14, 'health']]) assert.equal(M.walkinAdmit({ ...base, [k]: v }).why, why)
+  assert.equal(M.walkinLeave({ dwell: 50_000, still: 30_000, timeOfDay: 5000, tripLeft: 20_000 }), null, 'POSITIVE: a short visit stays')
+  assert.equal(M.walkinLeave({ dwell: 60_000 }), 'dwell')
+  assert.equal(M.walkinLeave({ still: 40_000 }), 'still')
+  assert.equal(M.walkinLeave({ tripLeft: 19_000 }), 'time', 'no visit starts within 20 s of leaveBy')
+  assert.ok(M.WALKIN.callMs < 180_000 && M.WALKIN.homeBy < M.WALKIN.callMs, 'one call inside the runner\'s 180 s watchdog')
+  assert.equal(M.walkinLeave({ timeOfDay: 11600 }), 'dusk')
+  assert.ok(M.WALKIN.dwellMs < 15 * 60_000 && M.WALKIN.stillMs < 15 * 60_000, 'both under the showcase tripwire Z1 15-min still-in-a-zone rule')
+})
+await t('walkinCandidates: employed adults INSIDE the village box only; legsTo / edgeOf walk to just outside it', () => {
+  const ents = { 1: VIL(1, 370, -330, 'librarian'), 2: VIL(2, 372, -332, 'none'), 3: VIL(3, 200, -330, 'cleric'), 4: VIL(4, 380, -300, 'shepherd', { baby: true }) }
+  assert.deepEqual(M.walkinCandidates(ents, { x: 300, z: -260 }, Z23).map(m => m.uuid), ['u1'])
+  const e = M.edgeOf(Z23.box, HOME)
+  assert.deepEqual(e, { x: 296, z: -260 }, 'the corner nearest home, 5 b out')
+  const legs = M.legsTo(HOME, e)
+  assert.ok(legs.length === Math.ceil(Math.hypot(296, 260) / 32) && legs.at(-1).x === 296 && legs.at(-1).z === -260)
+})
+await t('bedCells: foot and head outside the zone + pad, the stand behind the foot (the head goes where the placer faces)', () => {
+  const cl = M.unemployedClusters([{ uuid: 'a', x: 60.5, y: 64, z: 0.5, profession: 'none' }])[0]
+  const b = M.bedCells(world(), cl, { zones: [ZONE] })
+  assert.ok(b.foot && b.head && b.stand, b.why)
+  for (const c of [b.foot, b.head]) assert.equal(M.zoneNear([ZONE], c.x, c.z, M.MARKET.zonePad), null, `outside the pad: ${JSON.stringify(c)}`)
+  assert.deepEqual([b.stand.x - b.foot.x, b.stand.z - b.foot.z], [-2 * b.dir[0], -2 * b.dir[1]])
+})
+await t('the decor tier is LAST: an owner want before a cheaper decoration, and a build block before decor (OWNER 11-07 D3)', () => {
+  const wants = M.townWants({}, {})
+  const plan = M.buyOffers([T('emerald', 1, 'poppy', 1), T('emerald', 1, 'brick', 10), T('emerald', 1, 'lantern', 1)], { emeralds: 13, wants })
+  assert.deepEqual(plan.map(p => [p.what, p.times]), [['lantern', 12], ['brick', 1]], 'lanterns (owner) to their 12 uses, then bricks (build); the poppy gets nothing')
+  assert.deepEqual([M.tierOf({ why: 'owner' }), M.tierOf({ why: 'breeding' }), M.tierOf({ why: 'build' }), M.tierOf({ why: 'palette' }), M.tierOf({ why: 'decor' })], [0, 0, 1, 2, 2])
+})
+await t('farmStep: farmland, a crop, or a cell over farmland is priced out (101); a grass step is free', () => {
+  const W = { '0,63,0': 'farmland', '1,63,0': 'grass_block' }
+  const at = p => ({ name: W[`${p.x},${p.y},${p.z}`] ?? 'air' })
+  const f = M.farmStep(at)
+  const B = (x, y, z, name) => ({ name, position: { x, y, z } })
+  assert.deepEqual([f(B(0, 64, 0, 'wheat')), f(B(0, 64, 0, 'air')), f(B(0, 63, 0, 'farmland')), f(B(1, 64, 0, 'air'))], [101, 101, 101, 0])
+})
+await t('MUTANT KILLED: without the dwell cap a trip could stand in a village past the tripwire\'s 15 min', async () => {
+  await withMutant(SRC, "  if (dwell >= WALKIN.dwellMs) return 'dwell'\n", '', async X => {
+    assert.equal(X.walkinLeave({ dwell: 16 * 60_000 }), null)
+  })
+})
+await t('MUTANT KILLED: a walk-in that trades with merchants OUTSIDE the target box', async () => {
+  await withMutant(SRC, '    if (!(b && m.x >= b[0] && m.x <= b[3] + 1 && m.z >= b[2] && m.z <= b[5] + 1)) continue\n', '', async X => {
+    assert.equal(X.walkinCandidates({ 3: VIL(3, 200, -330, 'cleric') }, { x: 300, z: -260 }, Z23).length, 1)
+  })
+})
+await t('MUTANT KILLED: the decor tier ignored (table order only)', async () => {
+  await withMutant(SRC, '  rows.sort((a, b) => tierOf(a.w) - tierOf(b.w) || a.rank - b.rank || a.price - b.price)', '  rows.sort((a, b) => b.rank - a.rank || a.price - b.price)', async X => {
+    const plan = X.buyOffers([T('emerald', 1, 'poppy', 1), T('emerald', 1, 'lantern', 1)], { emeralds: 1, wants: X.townWants({}, {}) })
+    assert.deepEqual(plan.map(p => p.what), ['poppy'])
+  })
+})
+
 // ---- buildOrder's idle branch ----------------------------------------------------------------------------------------
 const S = await import('../src/shop.mjs')
 await t('buildOrder: the market ask in the idle branch (projects complete), not while the projects have work', () => {
@@ -221,7 +296,7 @@ const INSTALL_LINE = "try { marketInstall(bot) } catch (e) { log('warn', 'market
 await t('STRUCTURAL: installFeatures calls marketInstall; market_run / market_job are registered chatOnly with contracts', async () => {
   assert.equal(strip(readFileSync(FEATURES, 'utf8')).split(INSTALL_LINE).length, 2)
   const K = await import('../src/skills.mjs')
-  for (const k of ['market_run', 'market_job']) {
+  for (const k of ['market_run', 'market_job', 'market_trip']) {
     assert.equal(typeof K.SKILLS[k]?.run, 'function', k)
     assert.equal(K.SKILLS[k].chatOnly, true, k)
     assert.ok(K.SKILL_CONTRACTS[k]?.maxMs > 0, k)
