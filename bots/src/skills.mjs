@@ -186,6 +186,7 @@ import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS, SMELT_MS_PER_ITEM } from './smelting.mjs'
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
+import { GLASS, GLASS_PLOTS, SAND_PER_ORDER, SAND_R_MAX, GLAZE_PER_ORDER, windowsOf, sandWant, sandPlan, sandCellOk, glazePlan, paneRefs, glassDetail, glassMem, glassMemNote } from './glass.mjs'   // glass-01
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
   STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting, stoneScaffoldHeld,   // stoneworks-01
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
@@ -14345,6 +14346,243 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) 
   return above(KINDS[kind].part)
 }
 
+// ----------------------------------------------------- glass-01: the sand and glaze kinds of make_material -----
+// glass.mjs decides (glassOrder, sandCellOk, sandPlan, glazePlan, paneRefs); these walk, dig, place and bank. Neither takes a carry
+// note: the sand order takes nothing from town (what it dug and could not bank is the bag's, banked by the next town deposit:
+// sand is DEPOSIT_ALWAYS), and the glaze order's panes left in the bag are banked at its end or by the next deposit.
+
+/** A world read for glass.mjs: { name, boundingBox, props } | null (an unloaded cell). */
+function glassRead (bot) {
+  return (x, y, z) => {
+    let b = null
+    try { b = bot.blockAt(new Vec3(x, y, z)) } catch { b = null }
+    if (!b) return null
+    let props = null
+    try { props = typeof b.getProperties === 'function' ? b.getProperties() : null } catch { props = null }
+    return { name: b.name, boundingBox: b.boundingBox, props }
+  }
+}
+const glassBpCache = new Map()
+/** The town's buildings that may have windows -> [{ plot, rec, palette, complete }]. A record's own palette (a styled build's,
+ *  resolved at siting) over its blueprint's. Never throws. */
+export function glassBuildings (bot) {
+  const out = []
+  for (const plot of GLASS_PLOTS) {
+    try {
+      const h = recordHead(townDir(), projKeyOf(plot))
+      const rec = h?.ok ? h.head?.rec : null
+      if (!rec || !Array.isArray(rec.cells)) continue
+      let palette = rec.palette ?? null
+      if (!palette && rec.blueprint) {
+        if (!glassBpCache.has(rec.blueprint)) { try { glassBpCache.set(rec.blueprint, loadBlueprint(rec.blueprint)?.palette ?? null) } catch { glassBpCache.set(rec.blueprint, null) } }
+        palette = glassBpCache.get(rec.blueprint)
+      }
+      if (palette) out.push({ plot, rec, palette, complete: !!rec.structure_complete })
+    } catch { /* the next plot */ }
+  }
+  return out
+}
+/** THE GLASS READING (materialOrder's `glassReading`, glass.mjs glassOrder) -> { unglazed, fallback, fallbackCells, mem, cells } | null.
+ *  Cached 60 s on the bot (`fresh` reads again: the skill's own). Never throws. */
+export function glassReading (bot, { fresh = false } = {}) {
+  try {
+    const now = Date.now()
+    const c = bot.glassReadingCache
+    if (!fresh && c && now - c.at < 60_000) return { ...c.r, mem: glassMem(now) }
+    const w = windowsOf(glassBuildings(bot), glassRead(bot))
+    const r = { cells: w.cells, glazed: w.glazed, unglazed: w.unglazed, unknown: w.unknown, fallback: w.fallback.length, fallbackCells: w.fallback }
+    bot.glassReadingCache = { at: now, r }
+    return { ...r, mem: glassMem(now) }
+  } catch { return null }
+}
+/** A cell the sand dig never takes: a protect zone (protectzone-01), a workshop record cell. */
+function glassReserved (bot) {
+  return (x, z, y) => {
+    try { if (blocked(bot.protectZones?.() ?? [], x, y, z, null)) return true } catch { return true }
+    for (const yy of [y, y + 1, y + 2]) if (bot.shopCells?.has?.(`${x},${yy},${z}`)) return true
+    return false
+  }
+}
+const glassRow = (bot, status, f) => { try { logEvent({ kind: 'glass', status, snapshot: snapshot(bot), detail: glassDetail(f).slice(0, 600) }) } catch { /* telemetry */ } }
+
+/** make_material item=sand: dig up to SAND_PER_ORDER shore sand (glass.mjs sandPlan) and bank it. -> a skill result with `made`. */
+async function glassSand (ctx, signal) {
+  const { bot } = ctx
+  const f = { op: 'sand', stop: null, want: 0, eligible: 0, planned: 0, dug: 0, got: 0, banked: 0, walkfail: 0, digfail: 0, nopick: 0, refused: {}, dist: '-', t0: Date.now() }
+  let lease = null, result = null
+  const home = homeVec()
+  const read = glassRead(bot)
+  const reserved = glassReserved(bot)
+  const sandHeld = () => { const h = heldMap(bot); return (h.sand ?? 0) + (h.red_sand ?? 0) }
+  try {
+    const { deadline } = withdrawClock(ctx)
+    const town = matsTownStock(bot)
+    if (!town || !(town.coverage >= MATS_MIN_COVERAGE)) { f.stop = 'index_coverage'; return (result = { status: 'no_effect', detail: 'the town index does not know enough of the town to count its sand' }) }
+    const rd = glassReading(bot, { fresh: true })
+    if (!rd) { f.stop = 'unreadable'; return (result = { status: 'no_effect', detail: 'the town\'s windows could not be read' }) }
+    const st = town.stock ?? {}
+    f.unglazed = rd.unglazed; f.panes = Number(st.glass_pane) || 0; f.sand = (Number(st.sand) || 0) + (Number(st.red_sand) || 0)
+    const w = sandWant({ unglazed: rd.unglazed, panes: f.panes, sand: f.sand, reserveSand: Number(matsReserve().table?.sand) || 0 })
+    f.want = Math.min(w.want, SAND_PER_ORDER)
+    if (f.want <= 0) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: 'the town holds the sand its windows need' }) }
+    // THE CANDIDATES: the loaded sand round home, nearest first (mineflayer findBlocks), judged by the pure rule
+    const ids = ['sand', 'red_sand'].map(n => bot.registry?.blocksByName?.[n]?.id).filter(x => x != null)
+    let found = []
+    try { found = bot.findBlocks({ point: home, matching: ids, maxDistance: SAND_R_MAX, count: 4000 }) ?? [] } catch { found = [] }
+    const me = bot.entity?.position
+    const pl = sandPlan(found.map(v => [v.x, v.y, v.z]), { read, home, from: me ? [Math.floor(me.x), Math.floor(me.y), Math.floor(me.z)] : null, bad: glassMem().bad, max: f.want, reserved })
+    f.eligible = pl.eligible; f.planned = pl.plan.length; f.refused = pl.refused
+    if (!pl.plan.length) {
+      glassMemNote({ sandNone: true })
+      f.stop = found.length ? 'no_safe_sand' : 'no_sand'
+      return (result = { status: 'no_effect', detail: `no sand within ${SAND_R_MAX} of town that can be dug from a dry stand away from deep water (${found.length} sand block(s) loaded); the windows keep their wood until panes come` })
+    }
+    f.dist = Math.round(Math.hypot(pl.plan[0].at[0] - home.x, pl.plan[0].at[2] - home.z))
+    lease = matsLease(bot)
+    if (lease.unleased || !lease.ok) { f.stop = lease.unleased ? 'lease_unavailable' : 'lease_busy'; lease = null; return (result = { status: 'no_effect', detail: 'another bot is on the town materials job now' }) }
+    const bag0 = heldMap(bot)
+    for (const p of pl.plan) {
+      check(signal)
+      if (Date.now() > deadline - 45_000) { f.stop = 'late'; break }
+      const [x, y, z] = p.at
+      if (!sandCellOk(read, p.at, { home, reserved }).ok) { f.refused.live = (f.refused.live ?? 0) + 1; continue }
+      // STAND ON IT (glass.mjs sandCellOk: a dry stand, a one-deep hole with a floor, no deep water near)
+      try { await chestWalk(bot, new goals.GoalBlock(x, y + 1, z), Math.max(1, Math.min(40_000, deadline - 45_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      const pos = bot.entity?.position
+      if (!pos || Math.floor(pos.x) !== x || Math.floor(pos.z) !== z || Math.abs(pos.y - (y + 1)) > 0.6) {
+        f.walkfail++; glassMemNote({ badCell: p.at.join(',') })
+        if (f.walkfail >= 3) { f.stop = 'walkfail'; break }
+        continue
+      }
+      if (bot.entity?.isInWater) { f.stop = 'wet'; glassMemNote({ badCell: p.at.join(',') }); break }
+      const blk = bot.blockAt(new Vec3(x, y, z))
+      if (!blk || !/^(sand|red_sand)$/.test(blk.name)) { f.refused.gone = (f.refused.gone ?? 0) + 1; continue }
+      const before = sandHeld()
+      try {
+        const tool = bestTool(bot, blk)
+        if (tool) await bot.equip(tool, 'hand').catch(() => {})
+        await withTimeout(bot.dig(blk, true), 8000, bot, { what: 'sand dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } })
+      } catch (e) {
+        if (e?.aborted || signal?.aborted) throw e
+        f.digfail++; glassMemNote({ badCell: p.at.join(',') }); continue
+      }
+      f.dug++
+      // the drop lands in the hole the body just fell into: picked up there
+      for (let i = 0; i < 10 && sandHeld() <= before; i++) await sleep(150, signal)
+      if (sandHeld() > before) f.got++
+      else { f.nopick++; if (f.nopick >= 3) { f.stop = 'nopick'; break } }
+    }
+    // BANK what this order dug (matsBank: only the sand above the bag's opening count)
+    if (sandHeld() > ((bag0.sand ?? 0) + (bag0.red_sand ?? 0))) {
+      try {
+        const b = await matsBank(ctx, ['sand', 'red_sand'], bag0, signal)
+        f.banked = Object.values(b ?? {}).reduce((t, c) => t + (Number(c) || 0), 0)
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e; f.stop = f.stop ?? 'bank_error' }
+    }
+    f.stop = f.stop ?? (f.got > 0 ? 'done' : 'nothing_dug')
+    return (result = f.banked > 0
+      ? { status: 'success', detail: `dug ${f.got} shore sand ${f.dist} blocks out and banked ${f.banked} in town for the windows' glass` }
+      : { status: 'no_effect', detail: `no sand was banked (${f.stop}: dug ${f.dug}, picked up ${f.got})` })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.stop = f.stop ?? 'interrupted'; throw e }
+    f.stop = f.stop ?? 'error'
+    return (result = { status: 'failed', failClass: 'other', detail: `the sand order stopped: ${String(e?.message ?? e).slice(0, 120)}` })
+  } finally {
+    try { lease?.release?.() } catch { /* TTL */ }
+    f.ms = Date.now() - f.t0
+    glassRow(bot, result?.status ?? 'aborted', f)
+    if (result) { result.made = f.banked; result.stop = f.stop }
+  }
+}
+
+/** make_material item=glaze: swap finished buildings' fallback window blocks for glass panes from town (glass.mjs glazePlan). */
+async function glassGlaze (ctx, signal) {
+  const { bot } = ctx
+  const f = { op: 'glaze', stop: null, targets: 0, took: 0, placed: 0, dugwin: 0, placefail: 0, walkfail: 0, banked: 0, t0: Date.now() }
+  let lease = null, result = null
+  const read = glassRead(bot)
+  const panesHeld = () => heldMap(bot).glass_pane ?? 0
+  try {
+    const { deadline } = withdrawClock(ctx)
+    const rd = glassReading(bot, { fresh: true })
+    if (!rd) { f.stop = 'unreadable'; return (result = { status: 'no_effect', detail: 'the town\'s windows could not be read' }) }
+    const me = bot.entity?.position
+    const plan = glazePlan(rd.fallbackCells, { from: me ? [me.x, me.y, me.z] : [0, 0, 0], max: GLAZE_PER_ORDER, bad: glassMem().glazeBad })
+    f.targets = plan.length; f.fallback = rd.fallback
+    if (!plan.length) { glassMemNote({ glazeNone: true }); f.stop = 'no_target'; return (result = { status: 'no_effect', detail: 'no finished building\'s window stands a fallback block now' }) }
+    lease = matsLease(bot)
+    if (lease.unleased || !lease.ok) { f.stop = lease.unleased ? 'lease_unavailable' : 'lease_busy'; lease = null; return (result = { status: 'no_effect', detail: 'another bot is on the town materials job now' }) }
+    const bag0 = heldMap(bot)
+    const need = Math.max(0, plan.length - panesHeld())
+    if (need > 0) {
+      const allow = (name, want, { here = {} } = {}) => (name === 'glass_pane' ? Math.max(0, Math.min(Number(want) || 0, Number(here?.glass_pane) || 0)) : 0)
+      const w = await matsWithdraw(ctx, { glass_pane: need }, signal, 60_000, matsReserve().table, allow)
+      f.took = Number(w?.took?.glass_pane) || 0
+    }
+    if (panesHeld() <= 0) { f.stop = 'no_panes'; glassMemNote({ glazeNone: true }); return (result = { status: 'no_effect', detail: 'no glass pane could be taken from the town containers looked in' }) }
+    for (const t of plan) {
+      check(signal)
+      if (panesHeld() <= 0) { f.stop = f.stop ?? 'panes_out'; break }
+      if (Date.now() > deadline - 30_000) { f.stop = 'late'; break }
+      const [x, y, z] = t.at
+      const cell = new Vec3(x, y, z)
+      const now0 = bot.blockAt(cell)
+      if (!now0 || now0.name !== t.name) continue          // changed since the reading: the build owns it
+      try { await chestWalk(bot, new goals.GoalNear(x, y, z, 2), Math.max(1, Math.min(25_000, deadline - 30_000 - Date.now()))) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      const eye = bot.entity?.position?.offset?.(0, 1.62, 0)
+      if (!eye || eye.distanceTo(cell.offset(0.5, 0.5, 0.5)) > 4.5) { f.walkfail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
+      // DIG THE FALLBACK, THEN THE PANE IN ITS PLACE (glass.mjs paneRefs: the course under it first)
+      try {
+        const tool = bestTool(bot, now0)
+        if (tool) await bot.equip(tool, 'hand').catch(() => {})
+        await withTimeout(bot.dig(now0, true), 8000, bot, { what: 'window dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } })
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e; f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
+      if (bot.blockAt(cell)?.name !== 'air') { f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') }); continue }
+      f.dugwin++
+      let ok = false
+      for (const r of paneRefs(read, t.at)) {
+        const ref = bot.blockAt(new Vec3(...r.ref))
+        if (!ref) continue
+        try {
+          const it = bot.inventory.items().find(i => i.name === 'glass_pane')
+          if (!it) break
+          await bot.equip(it, 'hand')
+          await withTimeout(bot.placeBlock(ref, new Vec3(...r.face)), 4000, bot, { what: 'pane place', needsDrop: false })
+        } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        await sleep(150, signal)
+        if (bot.blockAt(cell)?.name === 'glass_pane') { ok = true; break }
+      }
+      if (ok) { f.placed++; continue }
+      // NOT PLACED: the fallback goes back if the bag has one (else the record reads damaged and its own repair visit places it)
+      f.placefail++; glassMemNote({ glazeBadCell: t.at.join(',') })
+      try {
+        const back = bot.inventory.items().find(i => i.name === t.name)
+        const r0 = paneRefs(read, t.at)[0]
+        if (back && r0) { await bot.equip(back, 'hand'); await withTimeout(bot.placeBlock(bot.blockAt(new Vec3(...r0.ref)), new Vec3(...r0.face)), 4000, bot, { what: 'window back', needsDrop: false }) }
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    // the panes this order did not place go back to town
+    if (panesHeld() > (bag0.glass_pane ?? 0)) {
+      try { const b = await matsBank(ctx, ['glass_pane'], bag0, signal); f.banked = Number(b?.glass_pane) || 0 } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    try { bot.glassReadingCache = null } catch { /* a bare bot */ }
+    if (!f.placed) glassMemNote({ glazeNone: true })
+    f.stop = f.stop ?? (f.placed ? 'done' : 'nothing_placed')
+    return (result = f.placed > 0
+      ? { status: 'success', detail: `glazed ${f.placed} window(s) of the town's buildings with glass panes from town stock` }
+      : { status: 'no_effect', detail: `no window was glazed (${f.stop})` })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.stop = f.stop ?? 'interrupted'; throw e }
+    f.stop = f.stop ?? 'error'
+    return (result = { status: 'failed', failClass: 'other', detail: `the glaze order stopped: ${String(e?.message ?? e).slice(0, 120)}` })
+  } finally {
+    try { lease?.release?.() } catch { /* TTL */ }
+    f.ms = Date.now() - f.t0
+    glassRow(bot, result?.status ?? 'aborted', f)
+    if (result) { result.made = f.placed; result.stop = f.stop }
+  }
+}
+
 /**
  * make_material -- the town order (mats.mjs materialOrder): one part kind, made from town stock above the BUILD_RESERVE
  * (stocktarget.mjs, MATS_RESERVE overrides) and banked. One `_make_material` row, ALWAYS, with the balance by family and by
@@ -14353,6 +14591,9 @@ async function matsCrafts (ctx, kind, bag0, signal, { planksName = null } = {}) 
 async function makeMaterial (ctx, args, signal) {
   const { bot } = ctx
   const kind = String(args?.item ?? args?.kind ?? '')     // `item` is the arg the grammar has (args-sayable.test)
+  // glass-01: the sand and glaze kinds are their own walks (no note, no furnace, no balance): glass.mjs, glassSand/glassGlaze above
+  if (kind === 'sand' && GLASS.on) return glassSand(ctx, signal)
+  if (kind === 'glaze' && GLASS.on) return glassGlaze(ctx, signal)
   const K = KINDS[kind]
   const f = { kind, stop: null, made: 0, part: K?.part ?? '-', log: '-', took: {}, fromBag: {}, smelted: 0, burned: 0, expected: 0,
               deposited: {}, furnaceLeft: {}, prior: {}, families: {}, forbidden: {}, verdict: null, furnace: '-', lease: '-',
