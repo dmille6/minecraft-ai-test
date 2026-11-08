@@ -5,6 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
+import { fileURLToPath } from 'node:url'
 import { cottageBlueprint, stylePalette, gableRoof, slabRoof } from '../src/townstyle.mjs'
 
 const OUT = process.argv[2] ?? '.'
@@ -12,13 +13,13 @@ const OUT = process.argv[2] ?? '.'
 const CRC = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c })
 const crc32 = buf => { let c = -1; for (const b of buf) c = CRC[(c ^ b) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0 }
 const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc32(td)); return Buffer.concat([len, td, c]) }
-function png (w, h, px) {
+export function png (w, h, px) {
   const raw = Buffer.alloc((w * 4 + 1) * h)
   for (let y = 0; y < h; y++) { raw[y * (w * 4 + 1)] = 0; px.copy(raw, y * (w * 4 + 1) + 1, y * w * 4, (y + 1) * w * 4) }
   const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
-class Canvas {
+export class Canvas {
   constructor (w, h, bg = [245, 242, 235]) { this.w = w; this.h = h; this.px = Buffer.alloc(w * h * 4); for (let i = 0; i < w * h; i++) this.px.set([...bg, 255], i * 4) }
   set (x, y, c) { x = Math.round(x); y = Math.round(y); if (x < 0 || y < 0 || x >= this.w || y >= this.h) return; const a = (c[3] ?? 255) / 255, i = (y * this.w + x) * 4; for (let k = 0; k < 3; k++) this.px[i + k] = Math.round(this.px[i + k] * (1 - a) + c[k] * a); this.px[i + 3] = 255 }
   poly (pts, c) {   // scanline fill of a convex polygon
@@ -36,9 +37,18 @@ class Canvas {
 // ---- materials ----------------------------------------------------------------------------------------------------------------
 const WOOD = { oak: [184, 148, 95], spruce: [122, 90, 52], dark_oak: [72, 47, 23], birch: [214, 200, 140], jungle: [170, 120, 85], acacia: [170, 92, 50], mangrove: [118, 54, 48], cherry: [226, 178, 172], pale_oak: [230, 222, 215] }
 const BARK = { oak: [102, 81, 50], spruce: [58, 40, 22], dark_oak: [60, 46, 26], birch: [216, 215, 210], jungle: [85, 67, 25], acacia: [103, 96, 86], mangrove: [84, 66, 50], cherry: [54, 33, 44], pale_oak: [80, 74, 72] }
-function colorOf (name) {
+export function colorOf (name) {
   const n = String(name)
   let m
+  // cottage2-01: the furnishing and the trims
+  if ((m = /^([a-z_]+)_(bed|wool)$/.exec(n))) return { white: [235, 235, 235], red: [170, 40, 40], black: [40, 40, 45], blue: [50, 70, 170], yellow: [230, 200, 60] }[m[1]] ?? [200, 60, 60]
+  if (/lantern/.test(n)) return [240, 180, 60]
+  if (/moss|grass_block/.test(n)) return [90, 130, 50]
+  if (/^(poppy|red_tulip|rose)/.test(n)) return [220, 30, 30]
+  if (/^(dandelion|sunflower)/.test(n)) return [250, 220, 40]
+  if (/^(cornflower|blue_orchid)/.test(n)) return [70, 110, 230]
+  if (/fern|flower|tulip|daisy|bluet|allium|lily/.test(n)) return [230, 120, 200]
+  if ((m = /^([a-z_]+?)_fence$/.exec(n))) return (WOOD[m[1]] ?? [120, 90, 50]).map(v => v * 0.9)
   if (/glass/.test(n)) return [168, 216, 234, 170]
   if (/torch/.test(n)) return [255, 204, 51]
   if (/copper/.test(n)) return [192, 107, 79]
@@ -53,7 +63,11 @@ function colorOf (name) {
   return [180, 60, 180]
 }
 // a cell -> its half-block sub-voxels [[sx, sy, sz]] (0/1 each) in RENDER coordinates (x = u, z = D - 1 - v: the front nearest)
-function subsOf (name, st) {
+export function subsOf (name, st) {
+  if (/_fence$/.test(String(name))) return [[0, 0, 0], [0, 1, 0], [1, 0, 1], [1, 1, 1]].map(([x, y]) => [x, y, x])   // cottage2-01: a post
+  if (/lantern/.test(String(name))) return [[0, st?.hanging === true || st?.hanging === 'true' ? 1 : 0, 1]]
+  if (/^(poppy|dandelion|cornflower|fern|azure_bluet|allium|oxeye_daisy|blue_orchid|lily_of_the_valley|[a-z]+_tulip)$/.test(String(name))) return [[0, 0, 1]]
+  if (/_bed$/.test(String(name))) return [[0, 0, 0], [1, 0, 0], [0, 0, 1], [1, 0, 1]]
   const all = []; for (let x = 0; x < 2; x++) for (let y = 0; y < 2; y++) for (let z = 0; z < 2; z++) all.push([x, y, z])
   const n = String(name)
   if (/torch/.test(n)) return [[0, 0, 1]]
@@ -69,7 +83,7 @@ function subsOf (name, st) {
   return all
 }
 const HIDDEN = new Set(['base'])   // the pad is drawn (it is part of the building); nothing hidden for now
-function iso (cells, palette, { a = 7, title = '' } = {}) {
+export function iso (cells, palette, { a = 7, title = '' } = {}) {
   const pick = role => (palette[role] ?? ['magenta']).find(x => !x.startsWith('$') && !x.startsWith('*')) ?? 'oak_planks'
   const D = Math.max(...cells.map(c => c.v)) + 1
   const subs = []
@@ -99,7 +113,7 @@ function iso (cells, palette, { a = 7, title = '' } = {}) {
 }
 // a 3x5 pixel font for the captions (upper case, digits and a few signs)
 const FONT = { A: '7d7d5', B: '6d6d6', C: '74447', D: '6555 6', E: '74647', F: '74644', G: '74557', H: '55755', I: '72227', J: '11157', K: '55655', L: '44447', M: '57755', N: '75555', O: '75557', P: '75744', Q: '7557 1', R: '75765', S: '74717', T: '72222', U: '55557', V: '55552', W: '55775', X: '55255', Y: '55222', Z: '71247', 0: '75557', 1: '26227', 2: '71747', 3: '71717', 4: '55711', 5: '74717', 6: '74757', 7: '71111', 8: '75757', 9: '75711', '@': '75747', '-': '00700', '>': '42124', '(': '24442', ')': '42224', '/': '11244', ':': '02020', '.': '00002', ',': '00024', ' ': '00000', '=': '07070' }
-function text (cv, x, y, s, c = [40, 40, 40]) {
+export function text (cv, x, y, s, c = [40, 40, 40]) {
   let cx = x
   for (const ch of String(s).toUpperCase()) {
     const g = (FONT[ch] ?? '77777').replace(/ /g, '0')
@@ -108,6 +122,8 @@ function text (cv, x, y, s, c = [40, 40, 40]) {
   }
 }
 // ---- the designs ------------------------------------------------------------------------------------------------------------
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) main()
+function main () {
 const STYLE = { wood: 'spruce', roof: 'dark_oak', stone: 'cobblestone' }
 const designs = []
 const load = id => JSON.parse(fs.readFileSync(new URL(`../src/blueprints/${id}.json`, import.meta.url), 'utf8'))
@@ -139,3 +155,4 @@ let y = 40
 for (const r of rows) { let x = 10; for (const p of r) { sheet.blit(p, x, y); x += p.w + 10 } y += Math.max(...r.map(p => p.h)) + 10 }
 fs.writeFileSync(path.join(OUT, 'townstyle-sheet.png'), png(sheet.w, sheet.h, sheet.px))
 console.log(`wrote ${path.join(OUT, 'townstyle-sheet.png')} ${sheet.w}x${sheet.h}`)
+}
