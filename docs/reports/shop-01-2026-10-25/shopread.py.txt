@@ -1228,6 +1228,12 @@ def zones_valid(raw):
     return True
 
 
+def tidy_slots_max(plot, bmax):
+    """The tidy's builder slots: the keeper and its crew (bots/src/shop.mjs PROJECTS: tidy builders 1 + max(helpersMax, helpersBig)
+    under GROUNDSKEEPER, gkcrew4-01), whatever builders_max its record was sited with (siteTidy writes 3). Every other plot: its own."""
+    return max(bmax, 1 + CREW_HELPERS_MAX) if plot == TIDY else bmax
+
+
 def lease_overlaps(leases, builders_max=BUILDERS_MAX):
     """{ name: [(gen, rec, released_ms)] } -> [(name, gen, why)]: a generation taken by ANOTHER holder while the one before it
     still blocked (unreleased and inside until + RECLAIM_MS), and any slot name beyond `builders_max` (the record's own: the
@@ -1873,6 +1879,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
             out['lease_names'] += len(leases)
             bmax = (pj.get('record') or {}).get('builders_max')
             bmax = bmax if isinstance(bmax, int) and not isinstance(bmax, bool) and bmax > 0 else BUILDERS_MAX
+            bmax = tidy_slots_max(plot, bmax)
             for name, gen, why in lease_overlaps(leases, bmax):
                 # the workshop's items keep their old words: the tripwire's acknowledgements (ACK.json) match an item by its text
                 where = pool if plot == SHOP else '%s %s' % (pool, plot)
@@ -2130,6 +2137,10 @@ def selftest():
     assert scl('61,71,60', 'cut', block='dirt') == 1 and scl('61,71,60', 'cut', s_=3_700, block='dirt') == 0, 'T2\'s cut: only once T2 is sited'
     assert scl('45,72,40', 'leaves') == 1 and scl('41,72,40', 'foreign', block='dirt') == 1, 'positive control: off the list, or a clear dug as foreign'
     assert lease_overlaps({'slot3': [], 'slot4': []}, 3) == [('slot4', None, 'slot beyond builders_max')], 'three builder slots, never a fourth'
+    # gkcrew4-01 (11-08 live REPORT 'showcase tidy slot4 gNone'): the tidy has the keeper + CREW_HELPERS_MAX slots over its record's 3
+    assert tidy_slots_max(TIDY, 3) == 5 and lease_overlaps({'slot4': [], 'slot5': []}, tidy_slots_max(TIDY, 3)) == [], 'the keeper and four helpers'
+    assert lease_overlaps({'slot6': []}, tidy_slots_max(TIDY, 3)) == [('slot6', None, 'slot beyond builders_max')], 'positive control: a sixth tidy slot trips'
+    assert tidy_slots_max('tower', 3) == 3, 'positive control: another plot keeps its own builders_max'
     assert sink_place_ok(schain, [40, 70, 40], None) and not sink_place_ok([], [40, 70, 40], 0) and sink_in_force(schain, T0MS) == schain[:2]
     # towndress-01 (11-03): the dress sink -- L1 (a signpost: post, torch, sign) sited before the window, L2 (a wall-top torch) an hour in
     dg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'dress', 'blueprint': 'dress@1', 'builders_max': 3, 'at': T0MS - 60_000, 'structure_complete': False,

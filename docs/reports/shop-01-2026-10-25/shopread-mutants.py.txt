@@ -2,6 +2,9 @@ import subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(D, 'shopread.py')).read()
 M = [
+ # gkcrew4-01: the tidy's slots are the keeper and its crew
+ ("    return max(bmax, 1 + CREW_HELPERS_MAX) if plot == TIDY else bmax", "    return bmax"),
+ ("    return max(bmax, 1 + CREW_HELPERS_MAX) if plot == TIDY else bmax", "    return max(bmax, 1 + CREW_HELPERS_MAX)"),
  # fences-01: the wood sink's placements are judged by the generations in force (a placement before its siting is off the record)
  ("SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor', 'wood')", "SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor')"),
  # coverread-01: the tidy / stepwell / sink helpers judge a cover as a foreign dig
