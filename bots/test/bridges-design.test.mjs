@@ -292,5 +292,23 @@ await t('WIRING (structural): the design named at the site before the first bloc
   assert.equal(D.bridgeTrafficOn({ BRIDGE_TRAFFIC: '0' }), false); assert.equal(D.bridgeTrafficOn({}), true)
 })
 
+await t('THE KIT\'S TOWN DRAW (Codex r1 BLOCKER 2): logs keep the owner\'s reserve at each take, stone its DESIGN_KEEP, on the town\'s own stock; an unknown name nothing', async () => {
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path')
+  process.env.LOG_DIR ??= fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-bridges-logs-'))
+  process.env.POOL_STATE_DIR ??= fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-bridges-pool-'))
+  process.env.BOT_NAME ??= 'BridgeBot'; process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
+  const SK = await import('../src/skills.mjs')
+  const reserve = { logs: 512 }
+  // 576 town logs, 100 wanted: 64 may go (512 kept); a bag's surplus never counts (it is not in others/here)
+  assert.equal(SK.designAllow('oak_log', 100, { others: { oak_log: 400 }, here: { oak_log: 176 }, reserve }), 64)
+  assert.equal(SK.designAllow('stone_bricks', 200, { others: { stone_bricks: 100 }, here: { stone_bricks: 150 } }), 150, '250 in town, 64 kept: 186, 150 here')
+  assert.equal(SK.designAllow('stone_bricks', 200, { others: { stone_bricks: 20 }, here: { stone_bricks: 50 } }), 6, '70 in town: 6 above the keep')
+  assert.equal(SK.designAllow('diamond', 5, { here: { diamond: 9 } }), 0)
+  const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.equal((src.match(/await matsWithdraw\(ctx, take, signal, 20_000, matsReserve\(\)\.table, designAllow\)/g) ?? []).length, 1, 'the kit draws by designAllow')
+  // Codex r1 BLOCKER 1: with designs on, a new site with no design waits (never the plain plank or cobble bridge)
+  assert.equal((src.match(/\} else if \(cand && Number\.isInteger\(cand\.bearing\) && BRIDGE_DESIGN_ON && !cand\.mat && dsg\?\.why !== 'started'\) \{/g) ?? []).length, 1, 'a new site waits for its design')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
