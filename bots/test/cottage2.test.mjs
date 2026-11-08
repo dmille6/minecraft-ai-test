@@ -174,6 +174,20 @@ await t('the cottage chests are town containers (chestfull setTownExtra keys); w
   assert.strictEqual(W.isWellJunk('white_stained_glass'), true, 'positive control: a decoration is still junk')
 })
 
+await t('the furniture crafts are booked: a withdrawn name crafted away entirely is booked crafted (Codex r1 BLOCKER: G8 white_wool -6)', async () => {
+  const S = await import('../src/shop.mjs')
+  // the bag: nothing; drawn 6 white wool + 2 spruce logs; crafted 8 planks, 2 beds (6 wool + 6 planks); left 2 planks, 2 beds
+  const pre = {}, post = { white_bed: 2, spruce_planks: 2 }, took = { white_wool: 6, spruce_log: 2 }
+  const fc = C.furnitureCrafted(pre, post, took, {})
+  assert.deepStrictEqual(fc, { white_bed: 2, spruce_planks: 2, white_wool: -6, spruce_log: -2 })
+  if (typeof S.bagBalance === 'function') {
+    const bb = S.bagBalance({ bag0: pre, took, crafted: fc, placed: {}, back: {}, bag1: post })
+    for (const [n, v] of Object.entries(bb ?? {})) if (v && typeof v === 'object' && 'unexplained' in v) assert.strictEqual(v.unexplained, 0, `${n} unexplained ${v.unexplained}`)
+  }
+  // the control: the old union (bag snapshots only) leaves the wool and the logs unbooked
+  const old = {}; for (const k of new Set([...Object.keys(pre), ...Object.keys(post)])) { const d = (post[k] ?? 0) - (pre[k] ?? 0) - (took[k] ?? 0); if (d) old[k] = d }
+  assert.strictEqual(old.white_wool, undefined, 'positive control: the old booking misses the wool')
+})
 // ---- OFFLINE BUILDS on the fake vanilla ----------------------------------------------------------------------------------------
 const STYLE = { wood: 'spruce', roof: 'dark_oak', stone: 'cobblestone' }
 /** The fake vanilla with BEDS (the head one cell along the yaw's facing, refused when that cell is not air) and CHESTS (facing the
