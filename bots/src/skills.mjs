@@ -143,6 +143,7 @@ import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, tow
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
 import { REROOF_FIX, reroofObstacles, reroofClearsReached, reroofDoorstep, reroofFailBump, reroofPendingCells, reroofOrderedReach, reroofCanopyGrow } from './reroof.mjs'   // reroof-02, reroof-03
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
+import { woodOn, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
@@ -242,6 +243,7 @@ import { DECORATE } from './shop.mjs'   // decorator-01: its switch
 import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the service tier's switch; a stop that was no visit
 import { servicePick, isServicePlot, stampNext, stampReleaseDue, stampOfHead, serviceOffer, serviceRowDetail, SERVICE_PLOTS } from './prodserve.mjs'   // prodserve-01
 import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
+import { ornamentKind } from './sinks.mjs'   // fences-01: dress, decor and wood spend their own supply, never the stone
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
 import { fnv1a as decorHash } from './zigdesign.mjs'   // decorator-01: a pot's plant by its cell
@@ -23834,6 +23836,8 @@ function sinkReady (kind) {
     if (kind === 'dress') return [PATHS_PLOT, WALL_PLOT].some(pl => !!recordHead(townDir(), projKeyOf(pl)).head?.rec?.structure_complete)
     // decorator-01: a decor batch borders the laid paths and pots the finished buildings' doors (its switch on)
     if (kind === 'decor') return DECORATE.on && !!recordHead(townDir(), projKeyOf(PATHS_PLOT)).head?.rec?.structure_complete
+    // fences-01: a wood structure fences a standing forest or farm, or rails the laid paths (its switch on)
+    if (kind === WOOD_KIND) return WOOD_ON && (ringTargets(['forest', 'cropfarm', 'pens', 'pen'].map(pl => ({ plot: pl, rec: recordHead(townDir(), projKeyOf(pl)).head?.rec ?? null }))).length > 0 || !!recordHead(townDir(), projKeyOf(PATHS_PLOT)).head?.rec?.structure_complete)
     return true
   } catch { return false }
 }
@@ -23857,9 +23861,11 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       if (!s?.sink) return s
       const kind = sinkKindOf(s.plot), rec = recs[kind]
       const { rec: _rec, ...rest } = s
-      const open = sinkOpen(rec)
-      let next = false, why = open ? 'open' : 'no_bot'
-      if (!open && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
+      // fences-01: an OPEN wood structure whose kit could not be made (no surplus logs, no table) waits out the town's stamp -- never
+      // offered first to every bot meanwhile (woodworks.mjs: no materials -> skip, never a stall)
+      const open = sinkOpen(rec) && !(kind === WOOD_KIND && bot && now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), WOOD_STALL))
+      let next = false, why = open ? 'open' : sinkOpen(rec) ? 'wood_stall' : 'no_bot'
+      if (!open && !sinkOpen(rec) && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : kind === WOOD_KIND ? woodPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
       return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
     })
@@ -24068,6 +24074,64 @@ function decorPressureNow (bot) {
     const t = matsTownStock(bot)
     return decorPressure({ held: heldMap(bot), townMeal: t ? Number(t.stock?.bone_meal) || 0 : null, townPots: t ? Number(t.stock?.flower_pot) || 0 : 0, coverage: t?.coverage ?? 0, potsOn: DECOR_POTS_ON, wildFerns: decorWildFerns(bot) })
   } catch { return { p: -1, plants: 0, meal: 0, pots: 0, grow: 0 } }
+}
+// ---- fences-01: the woodworks sink's readings and its kit (woodworks.mjs) -------------------------------------------------------
+/** WOODWORKS=off: no wood instance is sited (woodworks.mjs woodOn); a sited one stays a protected record. */
+const WOOD_ON = woodOn(process.env)
+/** The town no-site stamp's key for an open wood structure whose kit could not be made (sinks.mjs TOWN_NOSITE_MS: 2 h). */
+const WOOD_STALL = 'wood_kit'
+/** This bot's wood pressure (woodworks.mjs woodPressure over the town index, its bag and the owner's logs reserve). Never throws: unread
+ *  is the bag's surplus alone. */
+function woodPressureNow (bot) {
+  try { const t = matsTownStock(bot); return woodPressure({ town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot), reserve: Number(matsReserve().table?.logs) || 512 }) } catch { return { p: -1, avail: 0, known: false, town: null, bag: 0 } }
+}
+/** The species a NEW wood structure is made of: what the town and the bag hold most of. Never throws. */
+function woodSpeciesNow (bot) {
+  try { const t = matsTownStock(bot)?.stock ?? {}; const b = heldMap(bot); const m = { ...t }; for (const [n, v] of Object.entries(b)) m[n] = (Number(m[n]) || 0) + (Number(v) || 0); return woodSpeciesPick(m) } catch { return 'oak' }
+}
+/**
+ * THE WOOD KIT (fences-01): the fences and gates the open structure still owes, crafted from the bag's wood and -- short of it -- the
+ * town's logs ABOVE the owner's reserve + TOWN_WOOD_KEEP (woodworks.mjs woodKitNeed / woodPressure: never below it). One bounded attempt;
+ * -> { ok, fences, gates, why }. A kit that leaves the bag holding nothing for an owed cell stamps the town's WOOD_STALL (2 h) and the
+ * visit ends no_material (never a stall: the picker offers the structure again only after the stamp). Never throws but on an abort.
+ */
+async function woodKit (ctx, rec, signal) {
+  const { bot } = ctx
+  const rd = planReader(bot)
+  const owed = woodOwed(rec, q => buildCellDone(rd(...q.at), rec.palette ?? {}, q.role, q.ws))
+  const out = { ok: true, fences: 0, gates: 0, why: 'held' }
+  if (!owed.fences && !owed.gates) return out
+  const sp = woodSpeciesOf(rec) ?? 'oak'
+  let need = woodKitNeed(owed, heldMap(bot))
+  try {
+    if (need.logs > 0) {
+      const t = matsTownStock(bot)
+      const pr = woodPressure({ town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: {}, reserve: Number(matsReserve().table?.logs) || 512 })
+      const take = Math.min(need.logs, pr.avail)
+      // the species first, any other log for the rest (the craft planner makes the planks; any fence reads done)
+      if (take > 0) {
+        const stock = t?.stock ?? {}
+        const order = [`${sp}_log`, ...Object.keys(stock).filter(n => /_log$/.test(n) && n !== `${sp}_log`).sort((a, b) => (Number(stock[b]) || 0) - (Number(stock[a]) || 0))]
+        let left = take
+        const want = {}
+        for (const n of order) { if (left <= 0) break; const k = Math.min(left, Number(stock[n]) || 0); if (k > 0) { want[n] = k; left -= k } }
+        if (Object.keys(want).length) await matsWithdraw(ctx, want, signal, 20_000, matsReserve().table, decorAllow(want))
+        check(signal)
+      }
+      need = woodKitNeed(owed, heldMap(bot))
+    }
+    const logs = Object.entries(heldMap(bot)).filter(([n]) => /_log$/.test(n)).sort((a, b) => b[1] - a[1])
+    const spNow = logs.find(([n]) => n === `${sp}_log`) ? sp : (logs[0]?.[0]?.replace(/_log$/, '') ?? sp)
+    if (need.fences > 0) { const c0 = countItem(bot, `${spNow}_fence`); await craft(ctx, { item: `${spNow}_fence`, count: Math.ceil(need.fences / 3) * 3 }, signal); out.fences = countItem(bot, `${spNow}_fence`) - c0 }
+    check(signal)
+    if (need.gates > 0) { const c0 = countItem(bot, `${spNow}_fence_gate`); await craft(ctx, { item: `${spNow}_fence_gate`, count: need.gates }, signal); out.gates = countItem(bot, `${spNow}_fence_gate`) - c0 }
+  } catch (err) { if (err?.aborted || signal?.aborted) throw err; out.why = String(err?.message ?? err).slice(0, 60) }
+  const after = woodKitNeed(owed, heldMap(bot))
+  const any = after.fences < owed.fences || after.gates < owed.gates
+  out.ok = any
+  if (!any) { out.why = out.why === 'held' ? 'no_wood' : out.why; bot.sinkNoSite = { ...(bot.sinkNoSite ?? {}), [WOOD_STALL]: Date.now() + SINK.noSiteMs }; townNoSiteWrite(WOOD_STALL) }
+  try { logEvent({ kind: 'wood', status: out.fences || out.gates ? 'success' : any ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: woodRowDetail({ op: 'kit', owed_f: owed.fences, owed_g: owed.gates, logs: need.logs, fences: out.fences, gates: out.gates, sp, why: out.why }) }) } catch { /* telemetry */ }
+  return out
 }
 /** decorator-02 (OWNER 11-05): pots are skipped -- DECOR_POTS=on brings them back (decorator.mjs decorPotsOn). */
 const DECOR_POTS_ON = decorPotsOn(process.env)
@@ -24650,10 +24714,14 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
       reserved: decorReservedFor(c, plan), inside: decorInside(), doorOf: decorDoorOf, seed: decorSeed(config.memory.pool, planHomeP(), n),
       // reroof-02 (a, REROOF_DECOR_AVOID): never an ornament on a cell a pending retrofit will add
       avoid: REROOF_FIX.avoid && REROOF_SW.on ? reroofPendingCells(Object.fromEntries(projectHeads().map(x => [x.plot, x.head?.rec ?? null])), { bpOf: blueprintOf }) : null } : {}
+    // fences-01: a wood structure reads every other record (its targets, the paths, the cell guard), the decor's reservations, and
+    // the logs this bot may spend (the wood pressure's `avail`) in the species the town holds most
+    const wood = kind === WOOD_KIND ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.wood && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), reserved: decorReservedFor(c, plan),
+      wood: { avail: woodPressureNow(bot).avail, species: woodSpeciesNow(bot) } } : {}
     // siteprep-01: `prep` pins the claim of a prepared plot (one spot, its base), `read` an after-world (the keeper's choosing)
     const pe = prep?.id ?? null
     return siteSink(read ?? planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
-      guard: kind === 'dress' || kind === 'decor' ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: kind === 'dress' || kind === 'decor' ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...(prep ? { prep } : {}) })
+      guard: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...wood, ...(prep ? { prep } : {}) })
   }
 }
 /** sinkwaive-01 (Codex r1 BLOCKER): each holder's LIFETIME tally of the sink cells its visits deferred (never aged: the stuck files are)
@@ -24784,7 +24852,7 @@ async function buildSink (ctx, args, signal, proj) {
   // THE NEXT INSTANCE (the picker): no record, or a standing one that is not damaged -- the gate asked again with this bot's readings
   if (!rec0 || (rec0.structure_complete && !shopDamaged(bot, rec0))) {
     const recs = Object.fromEntries(SINK_KINDS.map(k => [k, k === kind ? rec0 : (recordHead(dir, projKeyOf(SINK_PLOTS[k])).head?.rec ?? null)]))
-    const pr = kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : sinkPressureNow(bot)
+    const pr = kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : kind === WOOD_KIND ? woodPressureNow(bot) : sinkPressureNow(bot)
     // SITEPREP-01: a plot the keeper PREPARED for this kind is claimed first -- one pinned spot, this bot's no-site wait bypassed; an
     // instance already tagged with the request (the claim's second write lost) only marks it handed
     const sp = siteprepHead(dir)
@@ -24796,7 +24864,7 @@ async function buildSink (ctx, args, signal, proj) {
     check(signal)
     const tried = (r.tried ?? []).join(' ')
     const t = matsTownStock(bot)
-    if (r.ok && kind !== 'dress' && kind !== 'decor' && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
+    if (r.ok && !ornamentKind(kind) && !sinkFundable(r.inst.cells.length, { town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) })) { r.ok = false; r.why = 'unfunded' }
     if (!r.ok) {
       // siteprep-01: a claim that failed for the PLOT counts toward a re-prep (an unfunded bill is the town's, never the plot's: it
       // waits out the claim deadline)
@@ -24807,7 +24875,8 @@ async function buildSink (ctx, args, signal, proj) {
       try { logEvent({ kind: 'sink', status: 'no_effect', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'no_site', kind, n: instancesOf(rec0).length + 1, p: pr.p, tried, why: r.why }) }) } catch { /* telemetry */ }
       // siteprep-01: a refusal the earth can fix files a SITE REQUEST (one live a kind; the keeper prepares a plot)
       // decorator-01: a decor batch never files a site request (its refusal is flowers and pots, never earth)
-      if (SITEPREP.on && r.why !== 'unfunded' && kind !== 'decor') {
+      // fences-01: nor a wood structure (its refusal is logs and the walk, never earth)
+      if (SITEPREP.on && r.why !== 'unfunded' && kind !== 'decor' && kind !== WOOD_KIND) {
         try {
           const now = Date.now()
           let req = null
@@ -24862,6 +24931,15 @@ async function buildSink (ctx, args, signal, proj) {
   const rec = rh.head.rec
   const palette = rec.palette ?? {}
   if (rec.structure_complete && !shopDamaged(bot, rec)) return out('no_effect', 'complete', `the ${plot} sink stands`)
+  // fences-01: THE WOOD KIT -- the fences and gates the structure still owes, crafted before a slot is taken; nothing to place with ->
+  // the visit ends no_material and the town's wood stamp holds the structure 2 h (never a stall)
+  if (kind === WOOD_KIND) {
+    try {
+      const kit = await woodKit(ctx, rec, signal)
+      if (!kit.ok) return out('no_effect', 'no_material', `no fence or gate to place (${kit.why}); the wood waits ${Math.round(SINK.noSiteMs / 3_600_000)} h`, { stop: 'no_material' })
+    } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
+    check(signal)
+  }
   const slot = takeSlot(dir, key, me, buildersOf(proj))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -24893,7 +24971,8 @@ async function buildSink (ctx, args, signal, proj) {
     // towndress-01: a sign cell is the label writer's (no bill: there is no wall-sign item)
     // decorator-01: a decor flower is the bag's (the nursery's harvest: never a chest's) -- billed nothing
     // decorator-03: every decor role the bag supplies (plants, leaves, fences, lanterns) -- billed nothing
-    const bill = billOf(rec, palette, read, { done: (b, pal, role) => dressSignRole(role) || decorBagRole(role) || buildCellDone(b, pal, role), inTown: zigBillInTown(bot, town) })
+    // fences-01: a wood fence or gate is the bag's (the wood kit crafted it above) -- billed nothing
+    const bill = billOf(rec, palette, read, { done: (b, pal, role) => dressSignRole(role) || decorBagRole(role) || woodBagRole(role) || buildCellDone(b, pal, role), inTown: zigBillInTown(bot, town) })
     const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
     let took = {}
     bag0 = held0
@@ -24931,7 +25010,8 @@ async function buildSink (ctx, args, signal, proj) {
     // decorator-01: a decor batch's box spans the town too (flowers and pots: nothing to stand on)
     // prodserve-01: ...and its waived (host-gone) lights
     // flowers-01: an upgraded border cell standing its fern while the bag holds no flower is done for the visit (decorator.mjs upgradeWaits)
-    const leave0 = kind === 'decor' ? { alsoDone: (q, rd2) => upgradeWaits(q, (rd2 ?? read)(...q.at), heldMap(bot)) } : kind !== 'dress' && kind !== 'decor' && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : {}
+    // fences-01: a wood structure's box spans a ring round a farm or the forest (its fences are posts: nothing to stand on) -- no leave
+    const leave0 = kind === 'decor' ? { alsoDone: (q, rd2) => upgradeWaits(q, (rd2 ?? read)(...q.at), heldMap(bot)) } : !ornamentKind(kind) && Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : kind === 'dress' ? { alsoDone: q => dressSignRole(q.role) || sinkWaived(rec, q) } : {}
     // sinkwaive-01: a waived stone-sink cell is done for the visit (runVisit alsoDone); dress keeps its own alsoDone
     const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
