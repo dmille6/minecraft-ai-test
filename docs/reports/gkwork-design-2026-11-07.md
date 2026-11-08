@@ -152,3 +152,16 @@ the stuck reflex. `gkleft-01show` @ a3d6b03d (on 81d1894f; ci2 471/472, the bagd
 (stop `complete`, any bot) stamps the fills and clears it left open and READ in its own file; a cell the town left 3 times (24 h, each
 visit's stamp expiring on its own) is waived by the next keeper visit that still reads it open (<= 12 a visit, <= 25% of the stage); a
 waived clear is never dug again and no longer counts as left. Codex r1: 2 blockers fixed, r2 fixed.
+
+## gkcrewcut-01show (11-08: the grounds pace)
+
+Showcase 04:47-08:50Z (45,949 rows, 14 bots), the re-surveyed inside stage (2,619 fills, 1,106 cuts, 228 topsoil): 17 cuts + 4 fills an
+hour. Keeper (Echo, holding since 07:22Z): 4.7 tidy visits/h, ~135 s each, 2.5 cuts a visit; build_shop 21% of its time, explore 14.7%
+(the patrol milestone: buildOrder fires only at town). Helpers: 27 visits, 15 fills, 16 cuts (as keepers-to-be); they end "nothing of
+the grounds is this helper's now" and release, because the cuts -- 43% of the open work -- are keeper-only. Tidy visits: 2.8% of the
+bots' time; explore 10.5%. Visits are capped at 120 s of work by the runner's 180 s skill watchdog (SKILL_TIMEOUT_MS, all skills).
+Hours to finish (~2,500 open cells): ~120 h. `gkcrewcut-01show` @ ef40871b (on 9801f7ec; ci2 472/473, the bagdiet orphan): helpers dig
+the tidy's cuts too (not terrace/prep cuts, not tree clears), and a helper visit that dug one keeps its lease. Expected: cuts from ~17/h
+to ~40-50/h (keeper ~12 + two busy helpers ~14-16 visits/h at ~2 cuts), the cuts done in ~20-25 h and the stage in ~45-60 h (2-2.5x).
+The rest of a 3x needs an owner decision (helpers cap 1-2 -> 3-4) or keeping the keeper at town while its stage has >500 open cells
+(the patrol milestone; a vacuous patrol rung would churn the sustaining cycle's targets, so it needs its own design).
