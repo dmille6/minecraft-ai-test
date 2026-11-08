@@ -68,6 +68,10 @@ export function stuckAfter (prev = {}, deferred = [], { done = () => false, now 
 }
 const SAPLING = /_sapling$|^mangrove_propagule$/
 const AIR = n => n === 'air' || n === 'cave_air'
+/** boardwalk-03: what a placement may go into when the visit lays into water (`p.wet`): water and its plants. */
+export const WET_CLEAR = /^(water|bubble_column|seagrass|tall_seagrass)$/
+/** A dug cell is GONE when it reads air -- or water that flowed in (boardwalk-03: a block dug out of a lake). */
+export const DUG = n => AIR(n) || n === 'water'
 // a foreign block in a record cell that the builder may dig (design 4.3 B4 "scaffold-class"; Claude r1 P3-9): terrain and the
 // fleet's scaffold. Never a container, a station or a part: those stall the segment and say so
 export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel)$/
@@ -622,7 +626,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       try {
         const why = PJ.fenceRefusal(dir, key, me, { slot: p.slot, slotGen, seg, segGen, recordGen: p.recordGen, beatConn: p.beat ? conn : null, now: now() })
         if (why) { cancel(); return `fence:${why}` }
-        if (!replaceableCell(rd(...cell)) && nm(rd(...cell)) !== 'air') { cancel(); return 'refused' }
+        if (!replaceableCell(rd(...cell)) && nm(rd(...cell)) !== 'air' && !(p.wet && WET_CLEAR.test(nm(rd(...cell))))) { cancel(); return 'refused' }
         e.send(here.support, here.face, seq)   // SYNCHRONOUS after the fence: no await between them
         const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
         release()
@@ -663,7 +667,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (nm(rd(...at)) !== name) return 'gone'
     if (!renewSlot() || !held()) return 'fence'
     let v = await e.dig(at, name)
-    for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
+    for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = DUG(n) ? 'confirmed' : 'standing' }
     if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++; e.log('_build', { op: 'unknown', cell: at, block: name }) }
     return v
   }
@@ -916,7 +920,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // ---- 2. clears, low before high; logs only once every replant reads planted ---------------------------------------------------
   // Re-run after every segment that completes: a log no ground stand reaches comes down once the pad gives it an eye
   const replanted = () => (record.replant ?? []).every(r => r.state === 'skipped' || SAPLING.test(nm(rd(...r.cell))))
-  const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b)) }
+  // boardwalk-03 (`p.wet`): a WATER cell is clear too -- a deck laid into a lake (the server places into water: it is replaceable)
+  const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b) || (!!p.wet && WET_CLEAR.test(nm(b)))) }
   const clears = async () => {
     // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug;
     // an UNKNOWN cell is asked again first. AND NEVER A RECORD CELL THAT READS DONE (Paper 10-25 SHOP-TERRAIN board-a: a town's
