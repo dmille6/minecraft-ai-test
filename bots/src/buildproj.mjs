@@ -75,6 +75,8 @@ let listDropQueued = false
 export const listStats = { reads: 0, hits: 0 }
 /** Forget every kept listing (a write, a turn of the event loop). */
 export function dropListings () { listMem.clear() }
+/** Is a listing of `dir` kept now (the tests' window on the cache)? */
+export const listKept = dir => listMem.has(dir)
 const dirMtime = dir => { try { return fs.statSync(dir, { bigint: true }).mtimeNs } catch { return null } }
 const racy = (mt, now) => mt == null || now - Number(mt / 1_000_000n) < LIST_RACY_MS
 /** The directory's names: fs.readdirSync's result (and its throw), kept for the synchronous stretch. Callers never mutate it. */

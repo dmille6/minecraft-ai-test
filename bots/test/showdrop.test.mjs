@@ -96,8 +96,12 @@ await t('BEFORE / AFTER: one decision tick of directory reads lists the director
 await t('an OWN write is seen by the next read at once (two lease takes in one stretch: gens 1 then 2), and the listing is dropped at the next turn', async () => {
   const scenario = async B => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'showdrop-own-'))
-    await turn()
+    fs.writeFileSync(path.join(d, 'other.json'), '{}')
+    await still()
     B.leaseState(d, 'project-0_64_0.wall', 'slot1')              // a listing kept
+    assert.ok(B.listKept(d), 'POSITIVE CONTROL: no listing was kept')
+    B.presenceWrite(d, 'project-0_64_0.wall', 'A', { conn: 'c1' })   // an own write (a presence: no lease protocol read follows)
+    assert.ok(!B.listKept(d), 'an own write left the listing kept (the mtime alone misses a create in the same coarse tick)')
     const a = B.takeLease(d, 'project-0_64_0.wall', 'slot1', 'A')
     assert.ok(a.ok && a.gen === 1, JSON.stringify(a))
     B.releaseLease(d, 'project-0_64_0.wall', 'slot1', 'A', 1)
