@@ -187,7 +187,7 @@ await t('SHOPPRIME=off: the primer does nothing', async () => {
 
 console.log('SHOWDROP-01 (3): THE PRUNE (prunePool)')
 await t('the switch: POOLPRUNE=off|dry; unset is on', () => {
-  assert.strictEqual(P.poolPruneMode({ POOLPRUNE: 'off' }), 'off'); assert.strictEqual(P.poolPruneMode({ POOLPRUNE: 'dry' }), 'dry'); assert.strictEqual(P.poolPruneMode({}), 'dry', 'first window: the default counts only'); assert.strictEqual(P.poolPruneMode({ POOLPRUNE: 'on' }), 'on')
+  assert.strictEqual(P.poolPruneMode({ POOLPRUNE: 'off' }), 'off'); assert.strictEqual(P.poolPruneMode({ POOLPRUNE: 'dry' }), 'dry'); assert.strictEqual(P.poolPruneMode({}), 'on')
 })
 await t('pruneCandidates: never a newest generation, never a record, never young, never an unreleased barrier, a lease only when long expired', () => {
   const now = 1e12, old = now - 72 * 3600_000, young = now - 3600_000
@@ -218,15 +218,14 @@ await t('THE SCENE: the first pass is dry (counts, deletes nothing); the next de
   assert.strictEqual(P.prunePool(d, { env: { POOLPRUNE: 'off' } }).candidates, 0)
   const dry = P.prunePool(d, { dry: true, env: {} })
   assert.ok(dry.candidates > 1000 && dry.deleted === 0 && fs.readdirSync(d).length === before, JSON.stringify(dry))
-  assert.strictEqual(P.prunePool(d, { env: {}, max: 100000 }).deleted, 0, 'first window: the default env deletes nothing')
-  const wet = P.prunePool(d, { env: { POOLPRUNE: 'on' }, max: 100000 })
+  const wet = P.prunePool(d, { env: {}, max: 100000 })
   console.log(`        (prune scene: ${before} files, dry count ${dry.candidates}, deleted ${wet.deleted}, left ${fs.readdirSync(d).length})`)
   assert.ok(wet.deleted > 0 && wet.errors === 0)
   assert.deepStrictEqual(top(), top0, 'a newest generation was pruned')
   for (const k of ks) assert.ok(top().has(`${k}.barrier`) || ![...top0.keys()].includes(`${k}.barrier`))
   // the records stay (none in the scene's families: a record file is never a candidate)
   fs.writeFileSync(path.join(d, `${ks[0]}.g1.json`), '{}'); const old = Date.now() / 1000 - 72 * 3600; fs.utimesSync(path.join(d, `${ks[0]}.g1.json`), old, old)
-  P.prunePool(d, { env: { POOLPRUNE: 'on' }, max: 100000 })
+  P.prunePool(d, { env: {}, max: 100000 })
   assert.ok(fs.existsSync(path.join(d, `${ks[0]}.g1.json`)), 'a record generation was pruned')
 })
 await t('installPoolPrune: the first pass of a connection is DRY and logged; the second deletes', async () => {
@@ -234,7 +233,7 @@ await t('installPoolPrune: the first pass of a connection is DRY and logged; the
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'showdrop-inst-'))
   scene(d, { gens: 200 })
   const n0 = fs.readdirSync(d).length
-  const h = F.installPoolPrune({ once: () => {} }, { dir: d, first: 1e9, every: 1e9, env: { POOLPRUNE: 'on' } })
+  const h = F.installPoolPrune({ once: () => {} }, { dir: d, first: 1e9, every: 1e9, env: {} })
   const r1 = h.pass(); assert.ok(r1.mode === 'dry' && r1.deleted === 0 && fs.readdirSync(d).length === n0, JSON.stringify(r1))
   const r2 = h.pass(); assert.ok(r2.deleted > 0, JSON.stringify(r2))
   h.stop()

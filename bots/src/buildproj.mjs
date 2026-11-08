@@ -622,8 +622,7 @@ export const PRUNE_AGE_MS = 48 * 3600_000
 export const PRUNE_MAX = 500
 export const poolPruneMode = (env = process.env) => {
   const v = String(env?.POOLPRUNE ?? '').trim().toLowerCase()
-  // showdrop-01show first window (coordinator 11-08): the DEFAULT is dry (count only) until the 2-h read; POOLPRUNE=on deletes
-  return ['off', '0', 'false', 'no'].includes(v) ? 'off' : ['on', '1', 'true', 'yes'].includes(v) ? 'on' : 'dry'
+  return ['off', '0', 'false', 'no'].includes(v) ? 'off' : v === 'dry' ? 'dry' : 'on'
 }
 const PRUNE_RE = /^(.+)\.(lease|barrier)\.g(\d+)\.json$/
 /** The pruneable generations -> [{ file, marker, fam, gen }] (oldest first). Pure over the listing and the stat/read callbacks. */
