@@ -375,5 +375,11 @@ export function bridgeMaterial (site, read, { on = true, woodAvail = 0 } = {}) {
   if (!site.woodv && decks.some(b => b == null)) return 'cobble'
   return Number(woodAvail) >= bridgeWoodBill(site.span).logs ? 'wood' : 'cobble'
 }
+/**
+ * THE SITES A TRIP MAY BUILD -> sites. Pure. BRIDGE_WOOD=off builds no wood (Codex fold BLOCKER: a site that had named `mat: 'wood'`
+ * kept drawing the wood kit and building planks while off): a wooden site is left as it stands (its footprint still kept off by
+ * bridgeZones), every other site is built of cobble as before.
+ */
+export const bridgeBuildable = (sites, on = true) => (on ? (sites ?? []) : (sites ?? []).filter(s => s?.mat !== 'wood'))
 /** The plan a site is built (and judged intact) by: its material's palette. Pure. */
 export const sitePlan = site => bridgePlan(site.span, site?.mat === 'wood' ? { wood: bridgeWood(site.species ?? 'oak') } : {})
