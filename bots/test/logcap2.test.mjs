@@ -28,6 +28,11 @@ await t('logCapConfig: defaults 1024/768; a valid env pair; anything else -> the
   for (const v of ['0', 'off', 'OFF', ' no ', 'false']) assert.equal(LC.logCapConfig({ LOGCAP: v }).on, false, v)
   assert.equal(LC.logCapConfig({ LOGCAP: '1' }).on, true)
 })
+await t('LOGCAP_MIN_LOW is the build reserve\'s logs (restated, so mats.mjs stays the reserve\'s only reader)', async () => {
+  const { BUILD_RESERVE } = await import('../src/stocktarget.mjs')
+  assert.equal(LC.LOGCAP_MIN_LOW, BUILD_RESERVE.logs)
+  assert.ok(LC.LOGCAP_LOW >= LC.LOGCAP_MIN_LOW && LC.LOGCAP_LOW < LC.LOGCAP_HIGH)
+})
 await t('townLogsIn: every species and stems; planks, saplings and wood blocks are not logs', () => {
   assert.equal(LC.townLogsIn({ oak_log: 900, birch_log: 100, jungle_log: 30, crimson_stem: 2, oak_planks: 400, oak_sapling: 50, oak_wood: 7, stripped_oak_log: 3 }), 1035)
   assert.equal(LC.townLogsIn({}), 0)
