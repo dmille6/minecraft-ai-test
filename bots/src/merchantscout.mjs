@@ -92,7 +92,7 @@ export const sightingDetail = (s, zone) => `${s.kind} ${s.profession}${s.level !
   `(${s.dist}b) trades=${tradesPossible(s) ? 'yes' : 'no'} zone=${zone ?? 'none'} why=${s.why}`
 
 /** Once per spawn (features.mjs). Never throws; the timer goes with this bot's `end`. */
-export function merchantScoutInstall (bot, { env = process.env, zonesOf = () => [], now = () => Date.now(), every = SCAN_MS } = {}) {
+export function merchantScoutInstall (bot, { env = process.env, zonesOf = () => [], now = () => Date.now(), every = SCAN_MS, onSightings = null } = {}) {
   const on = scoutSwitch(env)
   try { logEvent({ kind: 'merchantscout_mode', status: 'success', snapshot: snapshot(bot), detail: scoutModeDetail(on) }) } catch {}
   if (!on) return null
@@ -101,9 +101,12 @@ export function merchantScoutInstall (bot, { env = process.env, zonesOf = () => 
   const tick = () => {
     const t = now()
     const here = bot.entity?.position
-    const rows = dueRows(seen, merchantSightings(bot.entities, here, { self: bot.entity }), t)
+    const all = merchantSightings(bot.entities, here, { self: bot.entity })
+    const rows = dueRows(seen, all, t)
     let zones = []
-    if (rows.length) { try { zones = zonesOf(bot) ?? [] } catch { zones = [] } }
+    if (rows.length || onSightings) { try { zones = zonesOf(bot) ?? [] } catch { zones = [] } }
+    // villageunlock-01: every scan's sightings (with their zone) to the stuck tracker; the scout itself still only reads
+    if (onSightings) { try { onSightings(all.map(s => ({ ...s, zone: zoneIdAt(zones, s.x, s.y, s.z) })), t) } catch { /* hook */ } }
     for (const s of rows) {
       let zone = null
       try { zone = zoneIdAt(zones, s.x, s.y, s.z) } catch {}

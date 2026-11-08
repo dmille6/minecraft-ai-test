@@ -99,6 +99,15 @@ await t('zoneIdAt: both zone shapes (townPlanZones {id, box} and parsed x0..z1);
   assert.equal(M.zoneIdAt(null, 1, 1, 1), null)
 })
 
+await t('onSightings gets EVERY scan sightings with their zone (the villageunlock stuck feed), even when no row is due', () => {
+  const got = []
+  const bot = { entity: { position: HERE }, entities: { 1: V(1, 'villager', 30, 0, vd(0)) }, inventory: { items: () => [], slots: [] } }
+  const h = M.merchantScoutInstall(bot, { env: {}, zonesOf: () => [{ id: 'village-x', box: [20, 0, -10, 40, 100, 10] }], onSightings: (s, t) => got.push([s.map(x => x.zone), t]), now: () => 5, every: 1e9 })
+  h.tick(); h.tick()
+  assert.deepEqual(got, [[['village-x'], 5], [['village-x'], 5]])
+  h.stop()
+})
+
 await t('a throwing zone reader or a missing experience never throws out of the tick', () => {
   const bot = { entity: { position: HERE }, entities: { 1: V(1, 'villager', 1, 1, vd(4)) }, inventory: { items: () => [], slots: [] } }
   const h = M.merchantScoutInstall(bot, { env: {}, zonesOf: () => { throw new Error('boom') }, every: 1e9 })
@@ -111,9 +120,9 @@ await t('STRUCTURAL: features.mjs installFeatures calls merchantScoutInstall (mu
   const src = fs.readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8')
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
   const body = s => { const i = s.indexOf('export function installFeatures'); assert.ok(i >= 0, 'installFeatures present'); return s.slice(i) }
-  const wired = s => /\n\s*try \{ merchantScoutInstall\(bot, \{ zonesOf: b => townPlanZones\(b\)\.zones \}\) \}/.test(body(strip(s)))
+  const wired = s => /\n\s*try \{ merchantScoutInstall\(bot, \{ zonesOf: b => townPlanZones\(b\)\.zones, onSightings: unlockSee \}\) \}/.test(body(strip(s)))
   assert.equal(wired(src), true)
-  const anchor = "try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones }) }"
+  const anchor = "try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones, onSightings: unlockSee }) }"
   assert.equal(src.split(anchor).length - 1, 1, 'ANCHOR MISSING OR NOT UNIQUE')
   assert.equal(wired(src.replace(anchor, 'try { }')), false, 'mutant (call removed) must fail')
   assert.equal(wired(src.replace(anchor, '// ' + anchor)), false, 'mutant (call commented out) must fail')

@@ -219,6 +219,9 @@ import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
+import { setUnlockAsk } from './shop.mjs'   // villageunlock-01 (T3a): the order's ask
+import { VU, unlockSwitch, unlockModeDetail, penAround, trackStill, stuckCandidates, nextToggle, reachOf, toggleable, unlockDetail, barrierExits, villagerStillPenned, penKey, takeLease } from './villageunlock.mjs'
+import { withUnlockScope } from './protectzone.mjs'
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
@@ -18300,6 +18303,87 @@ export function copperRunInstall (bot) {
   if (COPPERRUN.on && COPPERHALL_ON.on) setCopperAsk(copperAsk)
   try { logEvent({ kind: 'copperrun_mode', status: 'success', snapshot: snapshot(bot), detail: copperRunModeDetail(COPPERRUN.on, COPPERHALL_ON.on) }) } catch { /* telemetry */ }
 }
+// VILLAGEUNLOCK-01 (T3a, trading design 2026-11-03; OWNER 11-03 "we can edit the world when it comes to opening doors etc"):
+// a jobless villager standing in one cell for 20 min inside a small pen of OPEN trapdoors / CLOSED fence gates gets the pen's
+// barriers toggled (villageunlock.mjs penAround decides; sandbox4 11-03: the whole ring closed -> a job in 5.7 s). The merchant
+// scout's sightings feed the stuck tracker (unlockSee); buildOrder asks unlockAsk in its idle branch; village_unlock walks there
+// and toggles, each activation inside protectzone's withUnlockScope naming that one cell. Never a dig, a placement, a door, a
+// bed, a job site. VILLAGEUNLOCK=off -> no ask.
+const VUON = { on: unlockSwitch() }
+const vuStill = new Map(), vuTried = new Map()
+let vuBot = null, vuLastAt = -Infinity
+/** The scout's hook (merchantscout.mjs onSightings): every scan's sightings. Never throws. */
+export function unlockSee (sightings, now = Date.now()) { try { trackStill(vuStill, sightings, now) } catch { /* telemetry */ } }
+const vuBlockAt = bot => (x, y, z) => { const b = bot?.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name, props: b.getProperties?.() ?? {} } : null }
+/** shop.mjs buildOrder's unlock ask (set at install). -> { order } | null. Never throws. */
+export function unlockAsk ({ now = Date.now(), health = 20 } = {}, bot = vuBot) {
+  try {
+    if (!VUON.on || !bot || health <= 10 || now - vuLastAt < VU.perBotMs) return null
+    for (const c of stuckCandidates(vuStill, vuTried, now, bot.entity?.position)) {
+      const pen = penAround(vuBlockAt(bot), c)
+      if (!pen.pen) { if (pen.why !== 'unloaded') vuTried.set(c.uuid, now); continue }
+      vuLastAt = now; vuTried.set(c.uuid, now)
+      return { order: { skill: 'village_unlock', args: { x: c.x, y: c.y, z: c.z, uuid: c.uuid, zone: c.zone ?? null } } }
+    }
+    return null
+  } catch { return null }
+}
+/** village_unlock: walk to the villager, re-read its pen, toggle each barrier still toggleable, nearest first; one row. */
+async function villageUnlock (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const v = { x: Number(args?.x), y: Number(args?.y), z: Number(args?.z) }
+  const done = []
+  let pen = null
+  const end = (status, stop) => {
+    try { logEvent({ kind: 'village_unlock', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: unlockDetail({ villager: v, zone: args?.zone ?? null, pen, done, stop }), args: { villager: `${Math.floor(v.x)},${Math.floor(v.y)},${Math.floor(v.z)}`, uuid: args?.uuid ?? null, zone: args?.zone ?? null, toggles: pen?.toggles?.length ?? 0, done, stop } }) } catch { /* telemetry */ }
+    return { status, detail: `village_unlock: ${stop} (${done.length} toggled)` }
+  }
+  if (![v.x, v.y, v.z].every(Number.isFinite)) return end('failed', 'bad_args')
+  let gerr = '', leaseFile = null
+  const release = () => { if (leaseFile) { try { if (JSON.parse(fs.readFileSync(leaseFile, 'utf8')).bot === bot.username) fs.unlinkSync(leaseFile) } catch { /* gone */ } leaseFile = null } }
+  try { await goto(ctx, { x: Math.floor(v.x), y: Math.floor(v.y), z: Math.floor(v.z), range: 4 }, signal, { until: Date.now() + 90_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; gerr = String(e?.message ?? e).slice(0, 50) }
+  check(signal)
+  pen = penAround(vuBlockAt(bot), v)
+  if (!pen.pen) return end('no_effect', `no_pen:${pen.why}`)
+  // THE VILLAGER IS STILL THERE, jobless, in this pen (Codex r1 blocker 3): never change an empty enclosure
+  const ve = Object.values(bot.entities ?? {}).find(e => e?.uuid && e.uuid === args?.uuid)
+  const still = villagerStillPenned(ve, pen)
+  if (still !== 'ok') return end('no_effect', still)
+  // ONE BOT PER PEN (Codex r1 blocker 1; re-check: a stale-lease takeover raced): villageunlock.mjs takeLease, announce then check
+  const lease = takeLease({ dir: poolStateDir(config.memory.pool), key: penKey(pen), name: bot.username })
+  if (!lease.ok) return end('no_effect', lease.why)
+  leaseFile = lease.file
+  const skip = new Set()
+  try {
+  for (let i = 0; i <= pen.toggles.length; i++) {
+    check(signal)
+    const nt = nextToggle(pen.toggles.filter(q => !skip.has(`${q.x},${q.y},${q.z}`)), vuBlockAt(bot), bot.entity.position)
+    if (!nt) break
+    if (reachOf(nt, bot.entity.position) > VU.reach) {
+      try { await goto(ctx, { x: nt.x, y: nt.y, z: nt.z, range: 3 }, signal, { until: Date.now() + 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; gerr = String(e?.message ?? e).slice(0, 50) }
+      check(signal)
+      if (reachOf(nt, bot.entity.position) > VU.reach + 0.5) return end(done.length ? 'success' : 'failed', `unreachable:${nt.x},${nt.y},${nt.z}${gerr ? ` goto:${gerr}` : ''}`)
+    }
+    // RE-READ JUST BEFORE THE CLICK (Codex r1 blocker 1): after the walk it must still be an open barrier that leads out
+    const b = bot.blockAt(new Vec3(nt.x, nt.y, nt.z))
+    const cell = pen.cells.find(c => Math.abs(c.x - nt.x) + Math.abs(c.z - nt.z) === 1)
+    if (!b || !cell || !toggleable(vuBlockAt(bot)(nt.x, nt.y, nt.z)) || !barrierExits(vuBlockAt(bot), nt.x, nt.y, nt.z, nt.x - cell.x, nt.z - cell.z)) { skip.add(`${nt.x},${nt.y},${nt.z}`); continue }
+    try { await withUnlockScope([nt], () => bot.activateBlock(b)) } catch (e) { return end(done.length ? 'success' : 'failed', `refused:${String(e?.message ?? e).slice(0, 60)}`) }
+    await sleep(400, signal)
+    const after = vuBlockAt(bot)(nt.x, nt.y, nt.z)
+    if (!after || toggleable(after)) return end(done.length ? 'success' : 'failed', `unchanged:${nt.x},${nt.y},${nt.z}`)
+    done.push(`${nt.x},${nt.y},${nt.z}`)
+  }
+  return end(done.length ? 'success' : 'no_effect', 'done')
+  } finally { release() }
+}
+/** VILLAGEUNLOCK-01, once per spawn (features.mjs): the ask is wired and the licence row written. Never throws. */
+export function villageUnlockInstall (bot) {
+  vuBot = bot
+  if (VUON.on) setUnlockAsk(unlockAsk)
+  try { logEvent({ kind: 'villageunlock_mode', status: 'success', snapshot: snapshot(bot), detail: unlockModeDetail(VUON.on) }) } catch { /* telemetry */ }
+}
 // BAGROOM-01 (bagroom.mjs; the share half): the build order's `room` refusal asks shareBankAsk, which answers a share-bank visit
 // when this bot's bag holds a drawn share of whole stacks (the hall's bricks and planks a killed or interrupted visit left).
 let sbBot = null
@@ -27608,6 +27692,7 @@ export const SKILL_CONTRACTS = {
   // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
+  village_unlock: { expects: ['position'], maxMs: 180_000 },   // villageunlock-01: its evidence is the `_village_unlock` row
   market_run: { expects: ['inventory_loss', 'inventory_gain'], maxMs: 180_000 },   // market-01: goods go, emeralds come; the `_market_run` row
   market_job: { expects: ['world_change'], maxMs: 240_000 },   // market-01: a job block placed in the market
   market_trip: { expects: ['position', 'inventory_loss', 'inventory_gain'], maxMs: 180_000 },   // market-02: a walk-in trip, one call (WALKIN.callMs 165 s < the runner's 180 s watchdog)
@@ -28811,6 +28896,7 @@ export const SKILLS = {
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
   build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
+  village_unlock: { run: villageUnlock, usage: 'village_unlock', args: [], chatOnly: true },   // villageunlock-01 (buildOrder issues it; never the model's)
   market_run: { run: marketRun, usage: 'market_run', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)
   market_job: { run: marketJob, usage: 'market_job', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)
   market_trip: { run: marketTrip, usage: 'market_trip', args: [], chatOnly: true },   // market-02 (buildOrder issues it; never the model's)

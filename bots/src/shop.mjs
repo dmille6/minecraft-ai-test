@@ -456,6 +456,10 @@ export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'functio
  */
 let copperAskOf = null
 export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn : null }
+/** VILLAGEUNLOCK-01 (T3a): the village unlock's ask (skills.mjs unlockAsk), asked FIRST in the idle branch (a one-off, bounded
+ *  visit: a stuck villager's pen). -> { order } | null. Unset (or VILLAGEUNLOCK=off): never asked. */
+let unlockAskOf = null
+export function setUnlockAsk (fn) { unlockAskOf = typeof fn === 'function' ? fn : null }
 /** BAGROOM-01: the build order's room refusal asks this (skills.mjs shareBankAsk) for a remedy order; null when unset. */
 let roomAskOf = null
 export function setRoomAsk (fn) { roomAskOf = typeof fn === 'function' ? fn : null }
@@ -826,6 +830,11 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
   // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
   // copperrun-01: the waiting hall's copper first (its own skips say why not); then the expedition exactly as before
+  if ((sinkNow || buildIdle({ complete, record, lastStop: state.lastStop })) && unlockAskOf) {
+    let ul = null
+    try { ul = unlockAskOf({ now, health }) } catch { ul = null }
+    if (ul?.order) return { order: ul.order, skip: null }
+  }
   if ((sinkNow || buildIdle({ complete, record, lastStop: state.lastStop })) && copperAskOf) {
     let cr = null
     try { cr = copperAskOf({ now, health, freeSlots }) } catch { cr = null }

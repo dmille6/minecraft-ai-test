@@ -74,6 +74,7 @@ import { zoneHit as atlasZoneHit } from './expedition.mjs'
 import { Vec3 } from 'vec3'
 import { requestsOn, requestsModeDetail, makeBoard } from './requests.mjs'   // requests-01: the town's requests board
 import { merchantScoutInstall } from './merchantscout.mjs'   // trading-scout-01: read-only merchant sightings + XP rows
+import { villageUnlockInstall, unlockSee } from './skills.mjs'   // villageunlock-01 (T3a): the ask + the scout's stuck feed
 import { enchantInstall } from './skills.mjs'   // anvilapply-01 + enchant-01: the anvil / table ask + licence rows
 import { marketInstall } from './skills.mjs'   // market-01: the market ask + licence row
 import fs from 'node:fs'
@@ -187,7 +188,8 @@ export function installFeatures (bot) {
   // picker-01: the town sinks' licence row (sinks.mjs; the plots are shop.mjs PROJECTS' sink entries, the visit skills.mjs buildSink)
   try { logEvent({ kind: 'sink_mode', status: 'success', snapshot: snapshot(bot), detail: sinkModeDetail(SINKS.on, SINKS.kinds) }) } catch { /* telemetry */ }
   // trading-scout-01: `_merchantscout_mode` + `_merchant_seen` / `_xp` rows (merchantscout.mjs; read-only, MERCHANTSCOUT=off -> on=0)
-  try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
+  try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones, onSightings: unlockSee }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
+  try { villageUnlockInstall(bot) } catch (e) { log('warn', 'village unlock not installed', { error: e.message }) }
   // anvilapply-01 + enchant-01: `_anvilapply_mode` / `_enchanttool_mode` and the ask (enchant.mjs; ANVILAPPLY=off / ENCHANTTOOL=off)
   try { enchantInstall(bot) } catch (e) { log('warn', 'enchant not installed', { error: e.message }) }
   // market-01: `_market_mode` and the market ask (market.mjs; MARKET=off / MARKET_JOBS=off)
