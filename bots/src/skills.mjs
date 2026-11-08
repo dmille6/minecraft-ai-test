@@ -143,7 +143,7 @@ import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, tow
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
 import { REROOF_FIX, reroofObstacles, reroofClearsReached, reroofDoorstep, reroofFailBump, reroofPendingCells, reroofOrderedReach, reroofCanopyGrow } from './reroof.mjs'   // reroof-02, reroof-03
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
-import { woodOn, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
+import { woodOn, woodHold, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
@@ -158,7 +158,7 @@ import { hallPadZone } from './copperhall.mjs'   // groundskeeper-01 on the show
 import { markerZones, markerCellKeys } from './expedition.mjs'   // groundskeeper-01 on the showcase: the markers are reserved
 import { beyondGain, lineClear as exLineClear } from './expedition.mjs'   // bridgepost-01
 import { bridgeOn, bridgeSite, bridgeSites, bridgeToBuild, bridgesDone, bridgePlan, bridgeIntact, bridgeNeed, buildBridge, bridgeZones, bridgeCellKeys, spanDetail, BRIDGE_CARRY } from './bridge.mjs'   // bridgepost-01
-import { bridgeMaterial, sitePlan, bridgeWood, bridgeWoodOn } from './bridge.mjs'   // boardwalk-01: wooden bridges
+import { bridgeMaterial, bridgeBuildable, sitePlan, bridgeWood, bridgeWoodOn } from './bridge.mjs'   // boardwalk-01: wooden bridges
 import { bridgeIo } from './bridgeio.mjs'   // bridgepost-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
@@ -19640,7 +19640,7 @@ async function expeditionVisit (ctx, args, signal) {
     // bridge lease), when the bag holds the cobble -- even on a day every bearing is blocked (that is when a site matters)
     const bSites = EXPEDITION.bridge ? exBridgeSites() : []
     if (EXPEDITION.bridge) {
-      const cand = bridgeToBuild(bSites, Date.now())
+      const cand = bridgeToBuild(bridgeBuildable(bSites, BRIDGE_WOOD_ON), Date.now())   // boardwalk fold: BRIDGE_WOOD=off builds no wooden site
       const cost = cand ? 5 * cand.span.w : 0
       // boardwalk-01: A NEW SITE IS BUILT OF WOOD while the town's logs are surplus (bridge.mjs bridgeMaterial: a site keeps its
       // material; a half-built cobble one stays cobble) -- the planks and fences crafted here from logs above the reserve, the material
@@ -23618,8 +23618,9 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       const { rec: _rec, ...rest } = s
       // fences-01: an OPEN wood structure whose kit could not be made (no surplus logs, no table) waits out the town's stamp -- never
       // offered first to every bot meanwhile (woodworks.mjs: no materials -> skip, never a stall)
-      const open = sinkOpen(rec) && !(kind === WOOD_KIND && bot && now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), WOOD_STALL))
-      let next = false, why = open ? 'open' : sinkOpen(rec) ? 'wood_stall' : 'no_bot'
+      const held = kind === WOOD_KIND ? woodHold({ on: WOOD_ON, now, stallUntil: bot ? noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), WOOD_STALL) : 0 }) : null
+      const open = sinkOpen(rec) && !held
+      let next = false, why = open ? 'open' : sinkOpen(rec) ? held : 'no_bot'
       if (!open && !sinkOpen(rec) && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : kind === WOOD_KIND ? woodPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
       return { ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }
@@ -24518,6 +24519,8 @@ async function buildSink (ctx, args, signal, proj) {
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
   }
   if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === plot)) return out('no_effect', 'off', `the ${plot} sink is switched off (SINKS, SINK_KINDS, SHOP or TOWNPLAN)`)
+  // fences-01 fold (Codex BLOCKER): WOODWORKS=off builds no wood -- an open instance neither draws logs nor places a fence
+  if (kind === WOOD_KIND && woodHold({ on: WOOD_ON }) === 'wood_off') return out('no_effect', 'off', 'the wood sink is switched off (WOODWORKS=off); its open structure stays protected')
   const c = shopCtx(bot)
   if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
   const h = townPlanHead(bot)
