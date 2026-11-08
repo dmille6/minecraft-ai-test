@@ -138,12 +138,32 @@ test('MODES: off (switch or holder), capped (searchRadius >= 0), latched (its go
   assert.equal(ST.goalKey(new goals.GoalBlock(1.5, 2, 3.7)), 'GoalBlock:1,2,3')
   assert.equal(ST.goalKey(new goals.GoalNearXZ(4, 5, 1)), 'GoalNearXZ:4,-,5')
   assert.equal(ST.goalKey({}), null)
+  assert.equal(ST.goalKey(new goals.GoalLookAtBlock(V(7, 8, 9), null)), 'GoalLookAtBlock:7,8,9', 'a goal holding `pos` latches too')
   const s = { mode: 'priced', hits: 3 }
   assert.equal(ST.latchesGoal(s, 'timeout'), true); assert.equal(ST.latchesGoal(s, 'noPath'), true)
   assert.equal(ST.latchesGoal(s, 'success'), false); assert.equal(ST.latchesGoal(s, 'partial'), false)
   assert.equal(ST.latchesGoal({ mode: 'priced', hits: 0 }, 'noPath'), false, 'a failure the price never touched is the base\'s own: no latch')
   assert.equal(ST.latchesGoal({ mode: 'capped', hits: 3 }, 'noPath'), false)
   assert.equal(ST.scafTownOn({}), true); assert.equal(ST.scafTownOn({ SCAFTOWN: 'off' }), false); assert.equal(ST.scafTownOn({ SCAFTOWN: '0' }), false)
+})
+
+test('STUCK: a goal whose walk resets stuck twice within latchMs is latched to the base\'s costs; once is not; another goal is not; off never latches', () => {
+  let t = 0
+  const p = ST.makeScafTownPrice({ now: () => t })
+  const g = new goals.GoalBlock(1, 2, 3), h = new goals.GoalBlock(4, 5, 6)
+  assert.equal(p.stuck(g), false)
+  assert.equal(p.stuck(h), false)
+  t += 1000
+  assert.equal(p.stuck(g), true, 'the second stall latches')
+  assert.equal(p.begin({ goal: g }).mode, 'latched')
+  assert.equal(p.begin({ goal: h }).mode, 'priced')
+  assert.equal(p.stuckLatches, 1)
+  t += ST.SCAF_TOWN.latchMs + 1
+  assert.equal(p.stuck(h), false, 'the first stall expired: this is a new first')
+  assert.equal(p.begin({ goal: g }).mode, 'priced', 'the latch expired')
+  const off = ST.makeScafTownPrice({ on: false })
+  assert.equal(off.stuck(g), false); assert.equal(off.stuck(g), false)
+  assert.equal(p.stuck(null), false)
 })
 
 // ---- the real A* --------------------------------------------------------------------------------------------------------
@@ -257,6 +277,66 @@ test('SEARCH budget: a search prices only its first budgetMs; past it the same s
   assert.equal(m.__scafPrice.cuts, 1, 'the cut is counted once per search')
 })
 
+/** Drive a search the way goto does: ONE next() (getPathTo), then the context's compute directly, tick by tick (index.js:442). */
+function driveLikeGoto (pf, m, goal, { tickTimeout = 2, timeout = 5000, max = 1e6, afterFirst = () => {} } = {}) {
+  const gen = pf.getPathFromTo(m, V(0, 70, 0), goal, { tickTimeout, timeout })
+  const first = gen.next().value
+  afterFirst()
+  let r = first.result, n = 0
+  while (r.status === 'partial' && n++ < max) r = first.astarContext.compute()
+  return r
+}
+const columnCells = () => { const c = {}; for (let y = 70; y <= 89; y++) c[`6,${y},0`] = 'stone'; return c }
+
+test('SEARCH restart (Codex r1 BLOCKER): a priced search past its budget that has not found the path starts again from its start at the base\'s costs, in the SAME context, and ends where the base ends', () => {
+  // deterministic: a fake clock 50 ms per read, so the budget runs out inside the first slices; tiny tick slices (partial)
+  const w = world(columnCells())
+  const goal = new goals.GoalBlock(6, 90, 0)
+  const base = plan(moves(w), [0, 70, 0], goal, { timeout: 60000 })
+  assert.equal(base.status, 'success', 'positive control: the base reaches the top of the column')
+  let t = 0, step = 0   // the clock runs from the SECOND slice (goto's first slice is 40 ms: the live cut is in a continuation)
+  const m = moves(w, { town: { now: () => (t += step) } })
+  const pf = fakePathfinder(); ST.installScafTownSearch(pf, m.__scafPrice)
+  const r = driveLikeGoto(pf, m, goal, { timeout: 60000, afterFirst: () => { step = 50 } })
+  assert.equal(r.status, 'success')
+  assert.equal(m.__scafPrice.cuts, 1); assert.equal(m.__scafPrice.restarts, 1, 'restarted once')
+  assert.equal(r.cost, base.cost, 'the restarted search IS the base\'s search: the same cost')
+  assert.equal(m.__scafPrice.latches, 0, 'a fallback that succeeds latches nothing')
+  assert.equal(ST.restartsSearch({ cut: true, mode: 'priced', hits: 0 }, 'partial'), false, 'untouched by the price: already the base\'s search')
+  assert.equal(ST.restartsSearch({ cut: true, mode: 'priced', hits: 1, restarted: true }, 'partial'), false, 'once per search')
+  assert.equal(ST.restartsSearch({ cut: true, mode: 'priced', hits: 1 }, 'success'), false)
+  assert.equal(ST.restartsSearch({ cut: false, mode: 'priced', hits: 1 }, 'timeout'), false)
+})
+
+test('SEARCH restart, real clock (Codex r1 repro: a goal on a 20-high column): the base succeeds within thinkTimeout, so the candidate does too', () => {
+  const w = world(columnCells())
+  const goal = new goals.GoalBlock(6, 90, 0)
+  const t0 = Date.now()
+  const pfb = fakePathfinder()
+  const base = driveLikeGoto(pfb, moves(w), goal)
+  const baseMs = Date.now() - t0
+  if (base.status !== 'success') return   // a host too slow for the base itself proves nothing here
+  const m = moves(w, { town: { now: () => performance.now() } })
+  const pf = fakePathfinder(); ST.installScafTownSearch(pf, m.__scafPrice)
+  const t1 = Date.now()
+  const r = driveLikeGoto(pf, m, goal)
+  assert.equal(r.status, 'success', `the candidate reaches it too (base ${baseMs} ms, candidate ${Date.now() - t1} ms, restarts ${m.__scafPrice.restarts})`)
+})
+
+test('SEARCH first slice longer than the budget that FAILED (a probe with one long slice): the generator re-runs the whole search unpriced', () => {
+  const w = world(columnCells())
+  const goal = new goals.GoalBlock(6, 90, 0)
+  let t = 0
+  const m = moves(w, { town: { now: () => (t += 50) } })
+  const pf = fakePathfinder(); ST.installScafTownSearch(pf, m.__scafPrice)
+  // one slice, a node budget too small for either: the priced slice times out past its cut -> re-run unpriced (also times out)
+  const gen = pf.getPathFromTo(m, V(0, 70, 0), goal, { tickTimeout: 30, timeout: 30 })
+  const v = gen.next().value
+  assert.ok(v && v.result && v.astarContext, 'the protocol is unchanged: { result, astarContext }')
+  assert.equal(m.__scafPrice.restarts, 1, 'the first-slice failure was re-run')
+  assert.equal(m.__scafPrice.latches, 0, 'the fallback\'s own failure is the base\'s: no latch')
+})
+
 test('SEARCH latch: a priced search the price touched that ends noPath latches its goal; the next search for it runs at the base\'s costs, and the latch expires', () => {
   // the goal is unreachable for both (sealed in bedrock): the base fails too, so this only proves the bookkeeping
   const cells = {}
@@ -322,6 +402,16 @@ test('MUTANTS: the exemption, the post-legality price, the cap, the budget and t
     runSearch(pf, m, new goals.GoalBlock(20, 71, 0), { timeout: 300, tickTimeout: 300 })
     assert.equal(m.__scafPrice.latches, 0, 'M4 killed: no latch')
   })
+  // M6 the restart removed: the priced search past its budget keeps its inflated nodes and does not end where the base ends
+  await withMutant(ST_URL, "if (restartsSearch(s, r?.status) && restartInPlace(this)) { s.restarted = true; s.mode = 'fallback'; price.restarts++; r = oc.call(this) }", '', async mod => {
+    const wc = world(columnCells()), goal = new goals.GoalBlock(6, 90, 0)
+    const b = plan(moves(wc), [0, 70, 0], goal, { timeout: 60000 })
+    let t = 0, step = 0
+    const m = moves(wc, { town: { mod, now: () => (t += step) } }), pf = fakePathfinder(); mod.installScafTownSearch(pf, m.__scafPrice)
+    const r = driveLikeGoto(pf, m, goal, { timeout: 60000, afterFirst: () => { step = 50 } })
+    assert.equal(m.__scafPrice.restarts, 0, 'M6 killed: no restart')
+    assert.ok(r.status === 'success' && r.cost !== b.cost, `M6 killed: without the restart the search does not end at the base's cost (${r.cost} vs ${b.cost})`)
+  })
   // M5 the price as a pre-legality exclusion (what lidplace.mjs rejects): the near-100 tower-under-obsidian move disappears
   const wo = world({ '0,72,0': 'iron_block' })
   const m0 = moves(wo, { canDig: true })
@@ -348,6 +438,7 @@ function wiringProblems (src) {
   for (const p of ['gatherMoves', 'ascendMoves', 'descendMoves', 'deckMoves', 'waterMoves']) at(`${p}.scafTown = false`, `${p} exempt`)
   at("if (r.status === 'success') bot.scafTownPrice.chosen += chosenScafTown(r.path)", 'the chosen counter')
   at("logEvent({ kind: 'scaftown_hits'", 'the positive-control row')
+  at("if (reason === 'stuck') { try { bot.scafTownPrice?.stuck?.(bot.pathfinder?.goal ?? null) }", 'the stall fallback')
   if (/\bmoves\.scafTown = false/.test(src)) bad.push('the walk itself exempt')
   return bad
 }
