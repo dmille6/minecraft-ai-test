@@ -21540,8 +21540,9 @@ async function buildShopVisit (ctx, args, signal) {
     if (rec.blueprint === TOWNHALL_BLUEPRINT) Object.assign(storeOpts, townhallVisitOpts(rec))   // townstyle-02
     Object.assign(storeOpts, reroofVisitOpts(rec, stood))   // reroof-04: a re-roofed record's new roof slabs are floors to its walk
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
-    // reroof-04: the roof stands -- its temporary stair comes down (the next generation lists it as kind=temp clears; the next visit digs)
-    if (r.stop === 'complete' && reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)
+    // reroof-04: the new roof stands -- its temporary stair comes down (the next generation lists it as kind=temp clears; the next visit
+    // digs them), whatever this visit stopped on: an old cell it cannot repair never keeps the stair up (Codex r1 BLOCKER)
+    if (reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)
     // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
     if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)
     if (r.stop === 'complete') {
