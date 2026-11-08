@@ -781,6 +781,13 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
       let site = ok[i]
       row.tried = i + 1
       const proveOpts = { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}) }
+      // sitecanopy-01 (`ctx.cellClears(site)` -> null | { clear } | { fail }): the caller may list more clears for this candidate (the
+      // natural leaves in a styled building's own cells, sitecanopy.mjs), or fail it by name (they would never be reached)
+      if (typeof ctx.cellClears === 'function') {
+        const xc = ctx.cellClears(site)
+        if (xc?.fail) { proofFails[xc.fail] = (proofFails[xc.fail] ?? 0) + 1; continue }
+        if (xc?.clear?.length) site = { ...site, clear: [...site.clear, ...xc.clear] }
+      }
       let p = proveSite(read, home, bp, site, proveOpts)
       // levelfall-01 (LIVE showcase 11-05, the workshop on X1: its one anchor's proof failed `no_step earth` -- a cave pocket y 65..68
       // under the plot's grass at 69, the fill at 65 out of every stand's reach): a caller naming `ctx.levelAlts` has the SAME anchor
