@@ -5949,7 +5949,7 @@
     "gkwork-1107.md"
    ],
    "state": "open",
-   "next_step": "2026-11-07: gkclear-01show RELEASED 23:55:04Z as 01c6debf (Codex NO BLOCKERS; ci2 467/468). First 36 min: 0 tidy visits, 1 keeper take released no_work_visit, no stage_close -- the strike files had no strike < 60 min old (last stage_held 21:07Z), so the closing signal never fired. BUILT 2026-11-07: gkclear-01show @ 01c6debf on the live release 191445b8: ready to stage (no reader change). Read: stage_close on the inwall stage within ~10 min of release, the next stage sited with the rough survey (hollows/stands/topsoil/regrade > 0), keeper tidy visits per keeper-hour.",
+   "next_step": "2026-11-08: gkclear-02show RELEASED 01:54:34Z as d7306d0d; first hour: 0 keeper takes, helpers only (11 tidy visits), no stage_close. 2026-11-07: gkclear-01show RELEASED 23:55:04Z as 01c6debf (Codex NO BLOCKERS; ci2 467/468). First 36 min: 0 tidy visits, 1 keeper take released no_work_visit, no stage_close -- the strike files had no strike < 60 min old (last stage_held 21:07Z), so the closing signal never fired. BUILT 2026-11-07: gkclear-01show @ 01c6debf on the live release 191445b8: ready to stage (no reader change). Read: stage_close on the inwall stage within ~10 min of release, the next stage sited with the rough survey (hollows/stands/topsoil/regrade > 0), keeper tidy visits per keeper-hour.",
    "evidence": {
     "grep": [
      "gkclear-01"
