@@ -127,7 +127,7 @@ import { TOWNPLAN, PLAN_TICK_MS, FIT_R, parseZones, parseSeed, fitTown, maintain
 import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-01: the plan's place guard, read by index.mjs's place price
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
-import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
+import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint, walkFrom as siteWalkFrom } from './buildsite.mjs'
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
 import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's keep
@@ -180,7 +180,7 @@ import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
-import { sitecanopyOn, cellClearsHook } from './sitecanopy.mjs'   // sitecanopy-01
+import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
@@ -20839,7 +20839,7 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     const ts = townhallStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
     const bp = styledBlueprint(blueprintOf(TOWNHALL_BLUEPRINT), ts.style)
     const prd = planReader(bot)
-    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
+    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, { ...(sp.earth ?? TOWNHALL_EARTH), owned: recordOwned() }),
       earth: sp.earth ?? TOWNHALL_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -20850,11 +20850,23 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     return { ok: true, why: 'ok', record: townhallRecordOf(s.record, bp, ts.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
 }
+/** thprep-01: is a cell some record's (a cell or a replant it owes)? -> (at) -> bool. Read once; unreadable heads: every cell owned. */
+function recordOwned () {
+  try {
+    const keys = new Set()
+    for (const h of projectHeads()) { const r = h.head?.rec; for (const c of r?.cells ?? []) if (Array.isArray(c?.at)) keys.add(c.at.join(',')); for (const q of r?.replant ?? []) if (Array.isArray(q?.cell)) keys.add(q.cell.join(',')) }
+    return at => keys.has(at.join(','))
+  } catch { return () => true }
+}
 /** sitecanopy-01: the styled building's siting hook -- the natural leaves in a candidate's own cells listed (each reached from the town
  *  walk, reroof.mjs reroofClearsReached), or null with SITECANOPY=off. */
-function siteCanopyCtx (read, bp, home, stood, walkR) {
+function siteCanopyCtx (read, bp, home, stood, walkR, earth = null) {
   if (!sitecanopyOn()) return {}
-  return { cellClears: cellClearsHook(read, { cellsOf: site => placeBlueprint(bp, site.anchor, site.s, site.orient).map(c => c.at), reached: cl => reroofClearsReached(read, home, cl, { stood, walkR }) }) }
+  // thprep-01: the leaves are reached from the town walk OR from the building's own laid floor (runVisit re-runs its clears after the pad)
+  return { cellClears: cellClearsHook(read, { cellsOf: site => (sitePadOn() ? volumeOf : c => c.map(q => q.at))(placeBlueprint(bp, site.anchor, site.s, site.orient)),
+    reached: (cl, site) => (sitePadOn() && site
+      ? clearsReachedBuilt(read, cl, { cells: placeBlueprint(bp, site.anchor, site.s, site.orient), fill: site.fill ?? [], walk: r => siteWalkFrom(r, home, new Set(), walkR, { stood }), stand: digStand })
+      : reroofClearsReached(read, home, cl, { stood, walkR })), ...(sitePadOn() && earth ? { earth } : {}) }) }
 }
 /** The plot ids every record but `plot`'s holds. Never throws. */
 const plotsTakenBy = (plot, dir = townDir()) => { try { return projectHeads().filter(x => x.plot !== plot).map(x => x.head?.rec?.plotId).filter(Boolean) } catch { return [] } }
