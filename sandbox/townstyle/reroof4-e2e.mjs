@@ -184,7 +184,7 @@ async function main () {
     P(`visit ${visit}: stop ${r.stop} ${r.why ?? ''} placed ${r.placed} refused ${r.refused} silent ${r.silent} cleared ${r.cleared}`)
     // the teardown (skills.mjs reroofTempState/reroofTempDown): the roof stands -> the stair's cells become kind=temp clears
     const done = c => { const b = read(...c.at); return !!b && R.cellDone({ name: b.name, boundingBox: b.boundingBox, props: b.props ?? null }, head.palette, c.role, c.ws) }
-    if (r.stop === 'complete' && RR.reroofDismantleDue(head, done)) { torn = PJ.publishRecord(dir, key, cur => RR.reroofDismantle(cur)); P('teardown generation', torn.result, torn.gen); continue }
+    if (RR.reroofDismantleDue(head, done)) { torn = PJ.publishRecord(dir, key, cur => RR.reroofDismantle(cur)); P('teardown generation', torn.result, torn.gen); continue }
     if (r.stop === 'complete' && !RR.reroofTempStanding(head, read).length) break
     await sleep(1500)
   }
