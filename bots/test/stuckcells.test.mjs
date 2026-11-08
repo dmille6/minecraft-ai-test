@@ -141,7 +141,7 @@ await t('the hole: its bottom cell waived after WAIVE_AFTER visits, the chain up
     assert.strictEqual(srv.read(11, G + 1, 10).name, 'cobblestone', 'the layer over it is built')
     assert.strictEqual(Object.keys(cur.waived).length, waived.length, 'the record names every waived cell')
   }
-  await killedBy('          if (p.waive && cand.length && (monuStuckOn() ? open.every(c => isClear(c.at) || sealed.has(kOf(c.at))) : !open.some(c => !isClear(c.at)))) {', '          if (false) {', scenario)   // monustuck-01 re-anchored
+  await killedBy('          if (p.waive && wcand.length && (monuStuckOn() ? open.every(c => isClear(c.at) || sealed.has(kOf(c.at))) : !open.some(c => !isClear(c.at)))) {', '          if (false) {', scenario)   // monustuck-01, stuckfleet-01 re-anchored
 })
 await t('CONTROL (no waiver, the live stall): deferred, stuck_on_cell, the layer never starts', async () => {
   const { srv, stops } = await holeRun(R, () => ({}))
