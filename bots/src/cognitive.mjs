@@ -1601,7 +1601,9 @@ export class CognitiveLoop {
           const rec = h.ok ? (h.head?.rec ?? null) : null
           const r = buildOrder({ on: SHOP.on, shared: config.memory.scope !== 'isolated', atTown, holds: milestoneHolds({ order, ready }), now,
             // workboard-01 (showcase): after a visit that worked, on the patrol rung, the next order is not held by the cooldown
-            state: boardChains({ mode: this.wbMode, lap: String(milestone?.id ?? '').startsWith('patrol'), chainAt: this.boardChainAt ?? 0, now }) ? { ...(this.shopState ?? {}), lastAt: -Infinity } : (this.shopState ?? {}),
+            // ...and only while the gate's memory would admit it (Claude code review r1 BLOCKER: a lifted cooldown re-issued a build_shop
+            // the gate kept refusing repeat_loop, every tick, until chainMs ran out -- the model never got the turn)
+            state: boardChains({ mode: this.wbMode, lap: String(milestone?.id ?? '').startsWith('patrol'), chainAt: this.boardChainAt ?? 0, now }) && !this.admission.memoryRefuses('build_shop', {}) ? { ...(this.shopState ?? {}), lastAt: -Infinity } : (this.shopState ?? {}),
             record: rec, complete: !!rec?.structure_complete && !shopDamaged(bot, rec), slotsFree: shopSlotsFree(bot),
             health: bot.health ?? 20, freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, planned: !!townPlanNow(bot), stuckAt: shopStuckAt,
             feet: [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], groundY: config.world.homeY })   // shaft-03: the stair starts at the surface
@@ -1793,6 +1795,8 @@ export class CognitiveLoop {
       if (!check.ok && order?.args?.coalrun === true) this.coalRunState = { ...(this.coalRunState ?? {}), pending: false }
       // workboard-01: a board order the gate refused backs that job off for this bot (townwork.mjs boardAfter) -- never re-issued
       if (!check.ok && order?.board) this.#boardAfter(order, null, { refused: true })
+      // workboard-01 (showcase): a refused build_shop ends the chain -- the next one waits the cooldown, as in the base
+      if (!check.ok && order?.skill === 'build_shop') this.boardChainAt = 0
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
       // snapshot is the bag the refusal judged; `wanted` and `source` must always read 0 / model).
       if (rejection?.reason === 'redundant_craft' && rejection.redundant) {
