@@ -96,7 +96,7 @@ async function main () {
     const key = PJ.projKey(home, BW.BW3_PLOT)
     const runs = []
     for (let k = 0; k < 8; k++) {
-      const w = BW.bw3Work(ev.lines, read)
+      const w = BW.bw3Work(ev.lines, read, { home })
       if (!BW.bw3HasWork(w)) break
       if (k === 0) R.work = { cuts: w.cuts.length, deck: w.record.cells.length, segs: w.record.segments.length, stats: w.stats }
       const sig = w.record.cells.map(q => q.at.join(',')).join(' ')
