@@ -119,7 +119,7 @@ await t('MUTANT: naturalLeafAt never true -- the hook lists nothing and the cott
   })
 })
 await t('MUTANT: the hook skips its reach test -- an unreached canopy would be sited blind (the test above fails for that reason)', async () => {
-  await withScMutant("      return reached(all)?.ok ? { clear: cl } : { fail: 'leaves_unreached' }", '      return { clear: cl }', async M => {
+  await withScMutant("      return reached(all, site)?.ok ? { clear: cl } : { fail: 'leaves_unreached' }", '      return { clear: cl }', async M => {
     const read = scene()
     const h = M.cellClearsHook(read, { cellsOf: x => x.cells, reached: () => ({ ok: false }) })
     assert.ok(h({ cells: [[20, LEAF_Y, 0]], clear: [] }).clear, 'the mutant lists leaves it never reaches')
@@ -128,7 +128,8 @@ await t('MUTANT: the hook skips its reach test -- an unreached canopy would be s
 await t('wired (structural: comments stripped): the cottage and the town hall siting pass the hook; siteBlueprint asks it before the proof', () => {
   const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const sk = strip('../src/skills.mjs')
-  assert.strictEqual(sk.split('...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),').length, 3, 'cottage + town hall')
+  assert.strictEqual(sk.split('...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),').length, 2, 'the cottage')
+  assert.strictEqual(sk.split('...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, { ...(sp.earth ?? TOWNHALL_EARTH), owned: recordOwned() }),').length, 2, 'the town hall (thprep-01: its earth limit too)')
   assert.ok(/else if \(\/_leaves\$\/\.test\(name\)\) \{ try \{ props = b\.getProperties\?\.\(\) \?\? null \}/.test(sk), 'planReader reads a leaf\'s persistent')
   const bs = strip('../src/buildsite.mjs')
   assert.ok(/const xc = ctx\.cellClears\(site\)\n\s+if \(xc\?\.fail\) \{ proofFails\[xc\.fail\] = \(proofFails\[xc\.fail\] \?\? 0\) \+ 1; continue \}\n\s+if \(xc\?\.clear\?\.length\) site = \{ \.\.\.site, clear: \[\.\.\.site\.clear, \.\.\.xc\.clear\] \}\n\s+\}\n\s+let p = proveSite/.test(bs))
