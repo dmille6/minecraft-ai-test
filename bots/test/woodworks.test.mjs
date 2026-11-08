@@ -205,6 +205,10 @@ await t('skills wiring (structural): the wood kit runs before a slot is taken, a
   assert.strictEqual(src.split("const open = sinkOpen(rec) && !(kind === WOOD_KIND && bot && now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), WOOD_STALL))").length, 2)
   assert.ok(/dressSignRole\(role\) \|\| decorBagRole\(role\) \|\| woodBagRole\(role\) \|\| buildCellDone/.test(src))
   assert.ok(/if \(kind === WOOD_KIND\) return WOOD_ON && /.test(src), 'sinkReady names the wood')
+  // Codex r1 blockers: the kit is whole or the visit does not run; a waived cell is never owed; an empty-handed visit stamps the stall
+  assert.strictEqual(src.split('  const any = after.fences === 0 && after.gates === 0\n').length, 2)
+  assert.strictEqual(src.split('  const owed = woodOwed(rec, q => sinkWaived(rec, q) || buildCellDone(').length, 2)
+  assert.strictEqual(src.split("if (kind === WOOD_KIND && r.stop === 'no_material' && !(r.placed > 0)) { bot.sinkNoSite = ").length, 2)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
