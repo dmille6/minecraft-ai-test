@@ -1079,10 +1079,21 @@ export function accessNoStair (records = [], { plan = null, land = null } = {}) 
 export const STAIR_FROM = /^(dirt|coarse_dirt|cobblestone|cobbled_deepslate)$/
 /** THE FILL BILL -> cobblestone to draw. Pure. Earth fills take the bag's spare dirt, then its cobblestone; a staircase's cells take
  *  STONE only (Codex r1 BLOCKER 1: spare dirt never offsets them) from the cobblestone the earth fills leave. */
-export function fillWant ({ open = 0, openAccess = 0, dirt = 0, cobble = 0 } = {}) {
-  const earthCobble = Math.max(0, open - dirt)
-  return Math.max(0, earthCobble - cobble) + Math.max(0, openAccess - Math.max(0, cobble - earthCobble))
+export function fillWant ({ open = 0, openAccess = 0, dirt = 0, cobble = 0, visitCap = Infinity } = {}) {
+  // roughfill-01 (LIVE 11-08 showcase: 2,619 open fills billed every visit, 74 yard draws of ~5 blocks at ~45 s each, a quarter of the
+  // tidy visit time, while bags held a median 52 spare cobblestone): the bill is ONE VISIT's fills, never the stage's
+  const cap = Math.max(0, Number(visitCap) || 0)
+  const o = Math.min(Math.max(0, open), cap)
+  const oa = Math.min(Math.max(0, openAccess), Math.max(0, cap - o))
+  const earthCobble = Math.max(0, o - dirt)
+  return Math.max(0, earthCobble - cobble) + Math.max(0, oa - Math.max(0, cobble - earthCobble))
 }
+/** roughfill-01: the fills one tidy visit bills for (a visit places well under this in its ~2 min; YARD_DRAW_MAX is 32). */
+export const TIDY_VISIT_FILLS = 32
+/** roughfill-01: a topsoil cell the placer cannot lay now (no topsoil block the bag SPARES: effects.has, the placer's own read) reads done.
+ *  Pure. LIVE 11-08: the raw count said "dirt held" while the placer's keep said none, so the visit reached the cell and stopped
+ *  no_material "topsoil for T-00-0" (3 visits, 8 helper_idle rows) -- every later fill of that visit lost. */
+export function soilSkip (q, has, soil = TIDY_PALETTE.topsoil) { return !!q && q.role === 'topsoil' && !soil.some(n => has(n)) }
 /**
  * A STAIRCASE FOR A CLIMB -> { cells: [[x, y, z]], dir: [dx, dz], cols: ["x,z"] } | null. Pure over `read`.
  *   x, z, top, base  the climb's column, its top block's y and the ground beside it (the climb is h = top - base blocks)

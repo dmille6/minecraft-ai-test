@@ -166,7 +166,7 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
-import { fillWant, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
+import { fillWant, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -25672,11 +25672,11 @@ async function buildTidyVisit (ctx, args, signal) {
     // roughground-2/3 (Codex 3 r2 BLOCKER): a topsoil cell takes DIRT only (a lawn, a landmark's terraces and crown): billed as dirt on
     // its own, drawn from the town when the bag is short -- never offset by cobblestone
     const openSoil = (visitRec.cells ?? []).filter(q => q.role === 'topsoil' && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
-    const wantSoil = Math.max(0, openSoil - spare('dirt'))
+    const wantSoil = Math.max(0, Math.min(openSoil, TIDY_VISIT_FILLS) - spare('dirt'))
     // access-01 (Codex r1 BLOCKER 1): a staircase's cells take the town's STONE only (TIDY_PALETTE.access) -- billed as cobblestone
     // on their own, never offset by the bag's spare dirt
     const openAccess = (visitRec.cells ?? []).filter(q => q.role === 'access' && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
-    const want = fillWant({ open, openAccess, dirt: Math.max(0, spare('dirt') - openSoil), cobble: spare('cobblestone') })
+    const want = fillWant({ open, openAccess, dirt: Math.max(0, spare('dirt') - openSoil), cobble: spare('cobblestone'), visitCap: TIDY_VISIT_FILLS })
     // groundskeeper-01: a stage's road lights (torches) and its felled trunks' saplings, less what the bag holds
     const extra = GROUNDS.on ? gkExtraBill(rec, read, held0, q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)) : {}
     // townterrace-01: the park's plants, a hoe for its tilled plots, bone meal for its meadow -- only what the town holds
@@ -25721,7 +25721,7 @@ async function buildTidyVisit (ctx, args, signal) {
     const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
     // roughground-2/3 (Codex r1 BLOCKER): a topsoil cell (DIRT only) with no dirt in the bag reads done now -- its cobble is never dug
     // out to leave a hole; the next visit with dirt (or the next survey) lays it
-    const noSoil = q => q.role === 'topsoil' && countItem(bot, 'dirt') < 1
+    const noSoil = q => soilSkip(q, n => !!effects?.has?.(n))   // roughfill-01: the placer's availability, never the raw count
     // townterrace-01: the park's cells and the cave seals a visit passes over now (park.mjs terraceSkip: no material, no tool, the
     // ground under a planting not laid yet, a seal's cut still standing) read done -- an element the town cannot make never blocks
     const tools = { get hoe () { return (bot.inventory?.items?.() ?? []).some(i => HOE_RE.test(i.name)) }, get boneMeal () { return countItem(bot, 'bone_meal') > 0 } }
