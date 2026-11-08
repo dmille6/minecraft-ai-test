@@ -197,12 +197,25 @@ await t('sinks: `wood` is a sink kind (plot wood, W), an ORNAMENT kind -- never 
   await killed(SINKS_PATH, "export const ORNAMENT_KINDS = Object.freeze(['dress', 'decor', 'wood'])", "export const ORNAMENT_KINDS = Object.freeze(['dress', 'decor'])", scenario)
   assert.ok(S.sinkWaiveKind('wood'))
 })
+await t('fold (Codex BLOCKER): WOODWORKS=off holds an OPEN structure too -- never offered, never built; a stalled kit waits out its stamp', () => {
+  assert.equal(W.woodHold({ on: false, now: 5, stallUntil: 0 }), 'wood_off')
+  assert.equal(W.woodHold({ on: false, now: 5, stallUntil: 99 }), 'wood_off', 'off wins over a stall')
+  assert.equal(W.woodHold({ on: true, now: 5, stallUntil: 99 }), 'wood_stall')
+  assert.equal(W.woodHold({ on: true, now: 100, stallUntil: 99 }), null, 'positive control: on and past the stamp, the open structure is offered')
+  assert.equal(W.woodHold({ on: true, now: 100, stallUntil: undefined }), null)
+  assert.equal(W.woodHold({ on: W.woodOn({ WOODWORKS: 'off' }) }), 'wood_off')
+  assert.equal(W.woodHold({ on: W.woodOn({}) }), null)
+})
 await t('skills wiring (structural): the wood kit runs before a slot is taken, an unfunded open structure is not offered under its stamp, fences are never billed to town', () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.strictEqual(src.split('      const kit = await woodKit(ctx, rec, signal)\n').length, 2)
   const bs = src.indexOf('async function buildSink (')
   assert.ok(bs > 0 && src.indexOf('const kit = await woodKit(ctx, rec, signal)', bs) < src.indexOf('const slot = takeSlot(dir, key, me, buildersOf(proj))', bs))
-  assert.strictEqual(src.split("const open = sinkOpen(rec) && !(kind === WOOD_KIND && bot && now < noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), WOOD_STALL))").length, 2)
+  assert.strictEqual(src.split("const held = kind === WOOD_KIND ? woodHold({ on: WOOD_ON, now, stallUntil: bot ? noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), WOOD_STALL) : 0 }) : null").length, 2)
+  assert.strictEqual(src.split('const open = sinkOpen(rec) && !held\n').length, 2)
+  // fold (Codex BLOCKER): WOODWORKS=off -- buildSink refuses a wood visit before any withdraw or kit
+  const off = src.indexOf("if (kind === WOOD_KIND && woodHold({ on: WOOD_ON }) === 'wood_off') return out('no_effect', 'off',", bs)
+  assert.ok(off > bs && off < src.indexOf('const kit = await woodKit(ctx, rec, signal)', bs), 'the off refusal stands before the kit')
   assert.ok(/dressSignRole\(role\) \|\| decorBagRole\(role\) \|\| woodBagRole\(role\) \|\| buildCellDone/.test(src))
   assert.ok(/if \(kind === WOOD_KIND\) return WOOD_ON && /.test(src), 'sinkReady names the wood')
   // Codex r1 blockers: the kit is whole or the visit does not run; a waived cell is never owed; an empty-handed visit stamps the stall

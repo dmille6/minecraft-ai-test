@@ -56,6 +56,16 @@ export const GATES = Object.freeze(FENCES.map(n => n.replace(/_fence$/, '_fence_
 export const SPECIES = Object.freeze(['spruce', 'oak', 'birch', 'dark_oak', 'jungle', 'acacia', 'cherry', 'mangrove', 'pale_oak'])
 /** WOODWORKS=on|off (default on where the sinks are on). The rollback: no wood instance is ever sited; a sited one stays protected. Pure. */
 export const woodOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.WOODWORKS ?? '').trim())
+/**
+ * IS AN OPEN WOOD STRUCTURE HELD? -> 'wood_off' | 'wood_stall' | null. Pure. WOODWORKS=off holds an OPEN instance too (Codex fold
+ * BLOCKER: off only stopped new siting, and the open one still drew logs, crafted its kit and placed fences): never offered, never
+ * built; its record stays a protected record. A stalled kit (no surplus logs, no table) waits out its stamp.
+ */
+export function woodHold ({ on = true, now = 0, stallUntil = 0 } = {}) {
+  if (!on) return 'wood_off'
+  if (Number(now) < Number(stallUntil)) return 'wood_stall'
+  return null
+}
 
 // ---- the bill and the pressure -------------------------------------------------------------------------------------------------
 /**
