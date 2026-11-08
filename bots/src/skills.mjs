@@ -17841,7 +17841,7 @@ function stuckCellsPublish (bot, dir, key, rec, r, me, plot) {
 async function buildShop (ctx, args, signal) {
   // starve-01: a starved pick is held for this visit only (shopActive `starvePick`)
   // workboard-01: the board's pin is for ONE visit too (the next board order pins again)
-  try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) { ctx.bot.starvePick = null; ctx.bot.boardPick = null } } catch { /* the window ends it */ } }
+  try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) ctx.bot.starvePick = null } catch { /* the window ends it */ } try { if (ctx?.bot) ctx.bot.boardPick = null } catch { /* its ttl ends it */ } }
 }
 /**
  * idlework-01 B: a visit that ends `no_site` and leaves no record stamps that PROJECT unsited (shop.mjs unsitedWrite), so the next
