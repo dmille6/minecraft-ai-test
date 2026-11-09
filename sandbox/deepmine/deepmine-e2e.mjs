@@ -14,6 +14,8 @@
 //             the first diamond trip's end after the mine is complete (or 240 min).
 //   gallery   TOWNMINE-01: an iron trip on a stair whose mine is not sited (ext no_site): the IRON GALLERY from the 16 stub's end face
 //             (LIVE: 2,030 iron branches in 3 d started inside the stub and dug nothing)
+//   hall      TOWNMINE-01: the mine already standing (carved from the bots' own extended plan, fixtures set): a diamond trip walks
+//             DOWN THE MINE to the hall (no `mine` staircase of its own), digs the diamond gallery, and climbs back
 //   hazard    as diamond, plus a HAZARD FIELD at the work depth: a lava or water source every 4 blocks in x and z at y -53..-51
 //             (outside the stair's skirt), so every branch and tunnel meets liquid; the server's truth must still show 0 breaches
 // THE ARENA (181 x 181, rebuilt every run): bedrock -64, deepslate -63..-1, stone 0..69, grass 70, air above; a lava LAKE at
@@ -32,7 +34,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import sbx from '../lib/sbxlock.cjs'
 
 const [BOT_ROOT, SCENE = 'diamond', SERVER = 'sandbox3', SEED_S = '11'] = process.argv.slice(2)
-if (!BOT_ROOT || !['diamond', 'iron', 'blocked', 'hazard', 'mine', 'gallery'].includes(SCENE)) throw new Error('usage: deepmine-e2e.mjs <botRoot> <diamond|iron|blocked|hazard|mine|gallery> [server] [seed]')
+if (!BOT_ROOT || !['diamond', 'iron', 'blocked', 'hazard', 'mine', 'gallery', 'hall'].includes(SCENE)) throw new Error('usage: deepmine-e2e.mjs <botRoot> <diamond|iron|blocked|hazard|mine|gallery|hall> [server] [seed]')
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 sbx.requireSandboxLock(SERVER, 'deepmine')
@@ -187,6 +189,17 @@ try {
   rec.landings_built = [...rec.landings]
   // townmine-01 gallery scene: the mine is refused (no_site), so the trip is an iron trip on the stair as it stands
   if (SCENE === 'gallery') rec.ext = { v: 1, blueprint: 'townmine@1', state: 'no_site', why: 'scene' }
+  if (SCENE === 'hall') {
+    const TM = await import(pathToFileURL(path.join(BOT_ROOT, 'bots/src/townmine.mjs')))
+    rec = TM.withMine(rec, { ...G.mineExt(GY, { now: Date.now(), by: 'sandbox-Builder' }), state: 'complete', completeAt: Date.now(), furnished: Date.now() })
+    const full = G.planOf(rec)
+    const extAir = full.cells.filter(c => c.role === 'air' && !airSet.has(c.at.join(','))).map(c => c.at)
+    const fx = full.rooms.find(r => r.kind === 'hall').fixtures
+    const hb2 = bad(await rconBatch([...extAir.map(c => set(c, 'air')), ...fx.map(f => set(f.at, f.item))]))
+    if (hb2.length) throw new Error('hall: ' + hb2[0].cmd + ' => ' + hb2[0].reply)
+    st.air.push(...extAir)
+    P_('hall', { extAir: extAir.length, K: full.K })
+  }
   if (SCENE === 'blocked') {
     // THE FLEET'S FAILURE (11-01): dirt pillared into three air cells (steps 12, 30 and 47)
     const blocks = [12, 30, 47].map(k => G.planOf(rec).steps[k].air[0])
@@ -218,7 +231,7 @@ try {
   if (!rcon('list')[0]?.reply?.includes(NAME)) throw new Error('the bot never joined')
   const kitCmds = [`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${rec.exit[0] + 0.5} ${rec.exit[1]} ${rec.exit[2] + 0.5}`, `spawnpoint ${NAME} ${HOME.x} ${HOME.y} ${HOME.z}`,
     `effect give ${NAME} minecraft:saturation 7200 1 true`,
-    ...(['iron', 'gallery'].includes(SCENE) ? [] : [`give ${NAME} minecraft:iron_pickaxe ${SCENE === 'mine' ? 3 : 1}`]), `give ${NAME} minecraft:stone_pickaxe ${SCENE === 'mine' ? 4 : 2}`,
+    ...(['iron', 'gallery'].includes(SCENE) ? [] : [`give ${NAME} minecraft:iron_pickaxe ${SCENE === 'mine' ? 3 : SCENE === 'hall' ? 2 : 1}`]), `give ${NAME} minecraft:stone_pickaxe ${SCENE === 'mine' ? 4 : 2}`,
     `give ${NAME} minecraft:cobblestone ${SCENE === 'mine' ? 192 : 64}`, `give ${NAME} minecraft:torch ${SCENE === 'mine' ? 64 : 24}`, `give ${NAME} minecraft:stick 4`, `give ${NAME} minecraft:oak_planks 8`,
     ...(SCENE === 'mine' ? [`give ${NAME} minecraft:chest 1`, `give ${NAME} minecraft:crafting_table 1`, `give ${NAME} minecraft:furnace 1`] : [])]
   rcon(...kitCmds)
@@ -282,6 +295,8 @@ try {
   const stairCells = deep.filter(e => /op=branch .*why=stair_cells/.test(e.d)).length
   const ok = SCENE === 'mine'
     ? mineDone && !!fixtures?.length && fixtures.every(f => f.ok) && viaHall && deaths === 0 && !!truth && truth.breach_n === 0
+    : SCENE === 'hall'
+      ? !!end && /end=home/.test(end.d) && viaHall && galleryCells > 0 && deaths === 0 && !!truth && truth.breach_n === 0
     : SCENE === 'gallery'
       ? !!end && /end=home/.test(end.d) && galleryCells > 0 && stairCells === 0 && deaths === 0 && !!truth && truth.breach_n === 0
       : !!end && /end=home/.test(end.d) && found > 0 && deaths === 0 && !!truth && truth.breach_n === 0 && truth.flowing === 0
