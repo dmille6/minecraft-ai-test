@@ -91,8 +91,10 @@ export function roadsOn (env = process.env, pool = '') {
   const v = String(env?.ROADS2 ?? '').trim().toLowerCase()
   if (v === 'on' || v === '1' || v === 'true') return true
   if (v === 'off' || v === '0' || v === 'false' || v === 'no') return false
-  // the FLEET line: every pool by default (the canary's code runs only on its pools, so the variant IS the rollout: paths' zigfleet-02)
+  // the FLEET line: every fleet pool by default (the canary's code runs only on its pools, so the variant IS the rollout: paths'
+  // zigfleet-02); never the showcase by default (its line has its own: the road sink), never a process with no pool named
   const pools = String(env?.ROADS2_POOLS ?? '*').split(',').map(s => s.trim()).filter(Boolean)
+  if (!env?.ROADS2_POOLS && (!String(pool) || String(pool) === 'showcase')) return false   // and never a process with no pool (the tests' default)
   return pools.includes('*') || pools.includes(String(pool))
 }
 /** LAMPS-01 (the paths' and the wall's dress lamps as lantern posts): LAMPS2=on|off; unset = on in LAMPS2_POOLS (default 'showcase'). Pure. */

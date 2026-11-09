@@ -99,6 +99,7 @@ await t('the switch: ROADS2 on in every pool on the fleet line by default (the v
   assert.strictEqual(RD.roadsOn({}, 'hive-a'), true)
   assert.strictEqual(RD.roadsOn({ ROADS2: 'off' }, 'hive-a'), false)
   assert.strictEqual(RD.roadsOn({ ROADS2_POOLS: 'hive-b' }, 'hive-a'), false)
+  assert.strictEqual(RD.roadsOn({}, 'showcase'), false, 'never the showcase by default (its line has the road sink)')
   assert.ok(SH.projectsOn(true, true, true, true, true, true, true, true).some(p => p.plot === 'road'), 'the road is a project with ROADS2 on')
   assert.ok(!SH.projectsOn(true, true, true, true, true, true, true, false).some(p => p.plot === 'road'), 'and none with it off')
   assert.ok(!SH.projectsOn(true, true, false, true, true, true, true, true).some(p => p.plot === 'road'), 'and none without the paths')
