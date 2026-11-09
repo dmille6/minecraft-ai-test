@@ -71,6 +71,30 @@ export const HEURISTIC_WEIGHT = 5
 export const HOME_RADIUS = 12
 export const nearHome = (p, home) => !!(home && p && Math.hypot(p.x + 0.5 - home.x, p.z + 0.5 - home.z) <= HOME_RADIUS)
 
+// IRONCHAIN-01 (B): THE TUNNEL AIMS ONLY AT ORE GATHER MAY TAKE.
+//
+// MEASURED (fleet .31, 6 h to 11-09 13:10Z, 80 bots): 609 gather runs ended "every candidate is buried" and 117 of them carried
+// "[mine said: tunnelled to iron at X]" -- the tunnel ARRIVED (median 0 planned breaks: the bot already stood beside it) and the
+// rescan still found nothing to take. Of the 246 such rows in the live logs, 184 (75%) named a `lining` cell of the town
+// stair's record (project-<home>.shaft): an ore in the stair's wall, read by RCON as plain iron_ore with three air faces.
+// gather never takes a record cell (skills.mjs shopCellsNow: "the town stair's cells are gather targets never"), but the
+// tunnel picked its target with its own filter (hazard + HOME_RADIUS), so the stair's ore -- always the nearest from the
+// landing -- won every time and the real ore behind it was never tunnelled to. Bots at the landing re-asked up to 13 times.
+//
+// So the tunnel takes gather's own per-cell rule as `eligible` (the round's enumeration conjunction: town ground, record
+// cells, keep-out columns, cave floors). Pure. -> { safe, unsafe, ineligible }: `unsafe` keeps the old count (hazard or the
+// home radius), `ineligible` counts what gather's rule refused, so the refusal can say which.
+export function tunnelTargets (found = [], { hazard = () => 0, home = null, eligible = null } = {}) {
+  const safe = []
+  let unsafe = 0, ineligible = 0
+  for (const q of found) {
+    if (hazard(q) !== 0 || nearHome(q, home)) { unsafe++; continue }
+    if (typeof eligible === 'function' && !eligible(q)) { ineligible++; continue }
+    safe.push(q)
+  }
+  return { safe, unsafe, ineligible }
+}
+
 const F6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
 const LIQUID = /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|[a-z_]+_concrete_powder|anvil|chipped_anvil|damaged_anvil|pointed_dripstone)$/

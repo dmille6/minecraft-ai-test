@@ -61,6 +61,9 @@ const REQUIRED = [
   'bots/src/gathermem.mjs',
   'bots/test/gathermem.test.mjs',
   'sandbox/gathermem/gathermem-e2e.mjs',
+  // ironchain-01 (11-09): the ore tunnel aims only at ore gather may take (184 of 246 'tunnelled, still buried' were the town stair's lining)
+  'bots/src/ironchain.mjs',
+  'bots/test/ironchain.test.mjs',
   // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
   'bots/src/repeatwork.mjs',
   'bots/test/repeatwork.test.mjs',
