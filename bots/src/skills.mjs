@@ -20044,7 +20044,7 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
     row('failed', { stop: 'error', why: String(e?.message ?? e) })
-    return { tried: true, status: 'failed', why: String(e?.message ?? e).slice(0, 100), placed: 0, cleared: 0, stop: 'error' }
+    return { tried: true, status: 'failed', failClass: 'other', why: String(e?.message ?? e).slice(0, 100), placed: 0, cleared: 0, stop: 'error' }
   } finally {
     releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
     try { effects?.close() } catch { /* gone */ }
@@ -20087,7 +20087,7 @@ async function buildTidy (ctx, args, signal) {
   if (bw3Due(bot)) {
     bot.bw3At = Date.now()
     const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
-    if (ww.tried) return out(ww.status, 'waterwalk', ww.why, { stop: 'waterwalk', placed: ww.placed, cleared: ww.cleared })
+    if (ww.tried) return out(ww.status, 'waterwalk', ww.why, { stop: 'waterwalk', placed: ww.placed, cleared: ww.cleared }, ww.failClass ?? null)
   }
   // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
   // gkforever-01 CLOCK: the record due (gkforever.mjs gkfDue) names the stage the survey starts from: the interior first when its
