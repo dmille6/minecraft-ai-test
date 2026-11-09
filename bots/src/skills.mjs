@@ -201,7 +201,8 @@ import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellc
 import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
-import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone } from './stepwell.mjs'   // stepwell-02: the descent
+import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
+import { mineKeep } from './townmine.mjs'   // townmine-01: the stepwell's descent stops above the town mine (owner 11-09)
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
 import { stepwellCrew, stepwellBuildersNow, stepwellCrewDue, crewSector } from './stepwell.mjs'   // stepwell-05: the tank's crew
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
@@ -29223,7 +29224,7 @@ function stepwellSite (bot, home, inp, t0, me) {
     const pp = plotPrep(read, { plots: [{ id: 'SW', kind: 'stepwell', box: [bx0, bz0, bx1, bz1] }], home, records: inp.records, avoid: inp.blocked, cells, T: { ...PLOTPREP, platMax: SWELL.standMax } })
     if (Object.entries(pp.skipped ?? {}).some(([k, v]) => /^tree/.test(k) && v > 0)) { why.trees_kept = (why.trees_kept ?? 0) + 1; continue }
     // stepwell-02: THE DESCENT, surveyed with the site (its bottom rises above any lava or flooded air; none when no flight fits)
-    if (descentOn()) { try { const sd = surveyDescent(read, sv.site); if (sd.ok) sv.site.descent = { bottom: sd.bottom } } catch { /* the tank alone; a later visit adds it */ } }
+    if (descentOn()) { try { const sd = surveyDescent(read, sv.site, { keep: stepwellMineKeep() }); if (sd.ok) sv.site.descent = { bottom: sd.bottom } } catch { /* the tank alone; a later visit adds it */ } }
     const sf = standsFit(sv.site, pp.platforms)
     if (sf) { why[sf] = (why[sf] ?? 0) + 1; continue }
     const rp = pp.trees.length ? (inp.land ? replantCells(read, inp.land, pp.trees.map(t => ({ col: t.col, name: t.name })), { avoid: (x, z) => inp.blocked(x, z) ?? (x >= bx0 - 2 && x <= bx1 + 2 && z >= bz0 - 2 && z <= bz1 + 2 ? 'stepwell' : null), cells }) : []) : []
@@ -29286,7 +29287,7 @@ async function buildStepwell (ctx, args, signal) {
   // generation (open again until the descent stands); a survey with no room or only hazards is noted for 24 h, an unread one waits
   if (descentOn() && !rec.site?.descent && !(rec.descentNone && Date.now() - (rec.descentNone.at ?? 0) < 24 * 3600_000)) {
     let sd = null
-    try { sd = surveyDescent(stairRead(bot), rec.site) } catch { sd = null }
+    try { sd = surveyDescent(stairRead(bot), rec.site, { keep: stepwellMineKeep() }) } catch { sd = null }
     if (sd?.ok) {
       const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT ? stepwellWithDescent(cur, sd) : null), { by: me })
       stepwellRow(bot, 'descent', { why: pub.result, n: `bottom${sd.bottom}/feet${sd.bottomFeet}/cells${sd.counts.cells}/cave${sd.counts.cave}/water${sd.counts.water}`, gen: pub.gen ?? '-' })
@@ -29298,8 +29299,25 @@ async function buildStepwell (ctx, args, signal) {
       rh = recordHead(dir, key)
     }
   }
+  // townmine-01 (OWNER 11-09 option A: the town mine is the showcase's working way down): a sited descent that touches a mine cell is
+  // raised over it (or dropped) before any of it is cut
+  {
+    const keep = stepwellMineKeep()
+    const cur0 = rh.head?.rec ?? rec
+    if (keep && cur0?.site?.descent) {
+      const nx = stepwellClearOfMine(cur0, keep)
+      if (nx) {
+        const pub = publishRecord(dir, key, cur => (cur && cur.blueprint === STEPWELL_BLUEPRINT ? stepwellClearOfMine(cur, keep) : null), { by: me })
+        stepwellRow(bot, 'descent', { why: `mine:${pub.result}`, n: `bottom${nx.site?.descent?.bottom ?? 'none'}`, gen: pub.gen ?? '-' })
+        rh = recordHead(dir, key)
+        if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the stepwell record could not be read back')
+      }
+    }
+  }
   return buildStepwellRun(ctx, { t0, budget, f, out, dir, key, me, home, rh, rec: rh.head?.rec ?? rec }, signal)
 }
+/** The town mine's keep predicate for the stepwell (null: no mine, or TOWNMINE off). Never throws. */
+function stepwellMineKeep () { try { return TOWNMINE.on ? mineKeep(stairRecordNow()) : null } catch { return null } }
 /**
  * fellcanopy-01: LIST THE CANOPY round the standing logs no stand saw -> a short why for the visit row ('listed N' | 'none' | the
  * publish result). The natural leaves are read from the bot's world (stairRead carries a leaf's `persistent`); the generation is
