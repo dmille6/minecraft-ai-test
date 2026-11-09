@@ -472,7 +472,8 @@ test('MUTANT (index): the place price moved after the clones, or the guard insta
   assert.notEqual(m2, IDX, 'MUTATION DID NOT APPLY'); assert.throws(() => idxWired(m2), /AFTER the instrument/)
 })
 test('MUTANT KILLED (protectzone.mjs): findBlocks wrapper judging the palette block (position null) as a cell would starve every search', async () => {
-  await withMutant(PZ_URL, '        if (p && blocked(list, p.x, p.y, p.z, feet)) { filtered++; return false }\n', '        if (!p || blocked(list, p.x, p.y, p.z, feet)) { filtered++; return false }\n', async mod => {
+  // zoneguard-01show: the filter line also asks the no-baseline name rule; the anchor is its start
+  await withMutant(PZ_URL, '        if (p && (blocked(list, p.x, p.y, p.z, feet) ||', '        if (!p || (blocked(list, p.x, p.y, p.z, feet) ||', async mod => {
     const T = mcData.blocksByName.chest.id
     const bot = { entity: { position: V(60.5, 70, 0.5) }, findBlocks (o) { const fn = o.matching; if (!fn({ type: T, position: null })) return []; return [V(40, 70, 0)].filter(p => fn({ type: T, position: p })) } }
     mod.attachProtectZone(bot, { zones: () => Z })
@@ -695,7 +696,9 @@ test('DEEP (Claude r2 P2): a bot ALREADY under a village\'s floor may dig/place 
   const calls = []
   const bot = { entity: { position: V(deep.x, deep.y, deep.z) }, pathfinder: {}, dig: async b => { calls.push(b.position.x); return 'dig-ok' } }
   attachProtectZone(bot, { zones: () => zs })
-  assert.equal(await bot.dig(blk(101, 30, 0)), 'dig-ok')
+  // zoneguard-01show: deep ROCK is the deep bot's way out; a deep structure block by name (no baseline) is no longer
+  assert.equal(await bot.dig(blk(101, 30, 0, 'stone')), 'dig-ok')
+  await assert.rejects(bot.dig(blk(101, 30, 0, 'spruce_planks')), ProtectedZoneError)
   await assert.rejects(bot.dig(blk(100, 60, 0)), ProtectedZoneError)
   const price = zoneCost(() => zs, { feet: () => bot.entity.position })
   assert.equal(price({ position: V(101, 30, 0) }), 0); assert.equal(price({ position: V(100, 60, 0) }), ZONE_COST)

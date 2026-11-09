@@ -288,16 +288,18 @@ test('MUTANT KILLED: the guard without supports -- the stone holding the wall_to
   })
 })
 test('MUTANT KILLED: the place wrapper without roles -- the pillar ON the mineshaft plank is refused (the reference judged as a destination: a dead end)', async () => {
-  await withMutant(URLS.pz, "    const mask = structMask(op, cell.role)\n", "    const mask = structMask(op, op === 'place' ? 'dest' : cell.role)\n", async m => {
+  await withMutant(URLS.pz, "  return role === 'ref' ? 0 : role === 'above' ? S_CELL : PLACE_MASK", "  return role === 'ref' ? PLACE_MASK : role === 'above' ? S_CELL : PLACE_MASK", async m => {
     const zg = m.withBaseline(m.parseZones(ZFILE).zones, m.parseBaseline(BASELINE)).zones
     const bot = { entity: { position: DEEP }, dig: async () => 'dig-ok', _genericPlace: async () => 'place-ok', pathfinder: { isMining: () => false, movements: {} } }
     m.attachProtectZone(bot, { zones: () => zg, context: () => ENTOMBED })
     await assert.rejects(bot._genericPlace(blk(58, 18, 5, 'oak_planks'), V(0, 1, 0)))
   })
 })
-test('MUTANT KILLED: escapeguard without its baseline line -- the planners would dig the deep cobblestone', async () => {
+test('MUTANT KILLED: escapeguard without its baseline line -- the planners would dig the ORDINARY stone that holds the wall_torch (blocked() alone calls it ordinary rock)', async () => {
+  const g = EG.guardOf({ cell: { x: 60, y: 20, z: 6 }, name: 'stone', zones: ZG, feet: DEEP })
+  assert.equal(EG.escapeDigDecision({ guard: g }).allow, false, 'the real one refuses the support')
   await withMutant(URLS.eg, "  if (sz) return { kind: 'zone', zone: sz.id ?? '?', ordinary: false, struct: true }\n", '', async m => {
-    const g = m.guardOf({ cell: { x: 56, y: 19, z: 5 }, name: 'cobblestone', zones: ZG, feet: DEEP })
-    assert.equal(m.escapeDigDecision({ guard: g }).allow, true)
+    const gm = m.guardOf({ cell: { x: 60, y: 20, z: 6 }, name: 'stone', zones: ZG, feet: DEEP })
+    assert.equal(m.escapeDigDecision({ guard: gm }).allow, true)
   })
 })
