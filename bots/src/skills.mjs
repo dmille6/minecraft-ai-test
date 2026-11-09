@@ -150,7 +150,7 @@ import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell 
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
 import { CIVIC_PLOTS } from './civic.mjs'   // civic-01: the landmarks' plots are sited apart
 import { isCivicPlot, civicKindOf, civicNear, civicLookForStock, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
-import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, CITYWALL_WAIVE_MORE, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
+import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallWaiveMore, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
@@ -24445,7 +24445,7 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
         const due = wallWaiveDue(rec, r.deferred ?? [])
         // citywall-01: an upgraded ring's swapped cells no stand sees are waived past the wall's own bound (each stays its old block:
         // the wall whole, never a gap), so a phase closes
-        if (isCitywall(rec) && !due.length) due.push(...wallWaiveDue(rec, r.deferred ?? [], { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE }))
+        if (isCitywall(rec) && !due.length) due.push(...wallWaiveDue(rec, r.deferred ?? [], { max: WALL_WAIVE_MAX + citywallWaiveMore(rec) }))
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too

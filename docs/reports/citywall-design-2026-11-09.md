@@ -158,7 +158,14 @@ proofs, the rim-first pad, the enclosed cells, the spiral, the bills and the anc
   tops the kit up per visit, as the wall visit draws its bill from the town.
 
 **Offline on the showcase** (`bots/scripts/citywall-offline.mjs --build`, four fake builders over the region copy, every phase, the bots' own
-visit): OFFLINE_SHOW_RESULT
+visit, the wall's waiver as `buildWall` runs it): **both rings complete, every phase**. The extension 657 cells, 42 waived (each stays its
+old block or air), **0 gap violations**; the old ring 706 cells, 67 waived, **0 gap violations**; the walk reaches 40,655 and 22,642 cells
+after (none cut off, nobody trapped). Two stalls found on the way and fixed (Codex r6: NO BLOCKERS):
+- a spruce leaf listed as a clear in a gate-deck cell, no stand for it: the segment ended `blocked` every visit and held the gate's phase
+  (and so every later phase) for good. In a swap visit such a segment is now DEFERRED (counted for the waiver) and the visit goes on; a
+  dug swap hole is never deferred (`buildrun.mjs`, `why: 'swap_blocked'`; test with a mutant);
+- the waived list lives on the record across every phase, so the fixed bound (12 + 64) would have run out on a long ring: the bound is
+  now 12 + max(64, a quarter of the design's cells) (`citywall.mjs citywallWaiveMore`).
 
 ## 6. Owner decisions
 
@@ -187,7 +194,7 @@ swapped cells of one segment open at once: DEFECT), deaths near the wall, waived
 
 Offline on board-b's region copy (11-09; its home is inside the town's chest room, so every walk is seeded from the bots' stood cells):
 64 wall columns, design 253 swapped + 140 added (121 underpinning, 19 torches), escape cut 0 / trapped 0 over 20,897 cells; four fake
-builders, four rounds: 318 of 393 cells done, the rest deferred for the waiver (the fake server runs no waiver), **0 gap violations**.
+builders with the waiver: **every phase complete**, 393 cells, 72 waived, **0 gap violations**.
 Picture: [`fleet-boardb-sheet.png`](citywall-2026-11-09/fleet-boardb-sheet.png). The landmarks wait for townstyle-01's machinery on the
 fleet (block states, reach-only clicks): every look uses stairs, slabs or reach-only cells.
 
