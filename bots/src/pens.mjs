@@ -48,7 +48,8 @@ export const PEN_FOREIGN = /^(short_grass|tall_grass|fern|large_fern|dandelion|p
 export function penPalette (wood = 'spruce') {
   const w = WOODS.includes(wood) ? wood : 'oak'
   const all = suf => [`${w}_${suf}`, ...WOODS.filter(x => x !== w).map(x => `${x}_${suf}`)]
-  return Object.freeze({ floor: Object.freeze(['dirt', '*solid']), fence: Object.freeze(all('fence')), gate: Object.freeze(all('fence_gate')) })
+  // the floor's fill: dirt, else the town's cobblestone (Codex pens r1: '*solid' only reads a standing block done, it names nothing to place)
+  return Object.freeze({ floor: Object.freeze(['dirt', 'cobblestone', '*solid']), fence: Object.freeze(all('fence')), gate: Object.freeze(all('fence_gate')) })
 }
 
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
