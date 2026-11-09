@@ -337,7 +337,7 @@ await t('wiring: a stray table is dug through retakeStation (collectManually), a
   assert.match(CODE, /c\.name === 'furnace' \? await sweepFurnace\(ctx, c, signal\) : await retakeStation\(ctx, \{ at: new Vec3\(\.\.\.c\.at\), name: c\.name, stray: true/)
   // stationsback-01: the dig runs through retryDig (one retry of a cancelled dig); its first try is collectManually under the guard
   assert.match(CODE, /if \(!again\) return collectManually\(bot, block, signal, \{ beforeDig \}\)/)
-  assert.match(CODE, /await digWithRetry\(\{ bot, sleep, signal, dig: again => retryDig\(bot, again, block, signal, beforeDig, at, name\)/)
+  assert.match(CODE, /await digWithRetry\(\{ bot, sleep, signal, dig: again => retryDig\(bot, again, block, signal, beforeDig, at, name, rw\)/)
   assert.match(CODE, /if \(!zv\.known\) throw new Error\('zones unknown'\)/, 'unknown zones: no sweep (fail closed)')
 })
 await t('wiring: in town craft and smelt look up the town\'s stations; the first station of a plan town goes to the designated cell', () => {
