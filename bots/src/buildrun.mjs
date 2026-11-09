@@ -1341,6 +1341,17 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // townstyle-01: a state-bearing cell's step takes only a face that makes its state (wantOf: the role's block, its state)
         for (const c of cand) { const w = wantOf(c); const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain, w) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain, w); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
         if (!picked) {
+          // citywall-01 (`p.swap`): an ADDED clear cell no stand fills now (an underpinning under a hanging run) never holds the swap: it
+          // is spent and DEFERRED (counted for the waiver), and the swap of the run's standing cells goes on (offline on board-b 11-09:
+          // a `blocked` run for good, every later run of the phase behind it)
+          if (p.swap && open.some(c => c.sw && !isClear(c.at))) {
+            const spent = cand.filter(c => !c.sw)
+            if (spent.length) {
+              for (const c of spent) { tries.set(kOf(c.at), BUILD_ATTEMPTS); deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
+              e.log('_build', { op: 'deferred', seg, cell: spent[0].at, n: spent.length, why: 'swap_hole' })
+              continue
+            }
+          }
           // VOIDFILL-01: the cells no stand reaches, deferred in earlier visits too (the stuck map), may be a SEALED VOID: one access
           // per visit (voidfill.mjs), done -> this segment is read again; anything else -> deferred as before
           if (access && !accessTried && cand.length && !open.some(c => !isClear(c.at))) {
