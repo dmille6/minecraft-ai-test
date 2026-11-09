@@ -380,6 +380,20 @@ await t('a build trip holds the body between its calls; coal joins the work kind
   assert.deepStrictEqual(D.workKinds({ target: 'iron' }, 16), ['iron_ore', 'deepslate_iron_ore'])
   assert.deepStrictEqual(D.workKinds({ target: 'iron', coal: true }, 16), ['iron_ore', 'deepslate_iron_ore', 'coal_ore', 'deepslate_coal_ore'])
 })
+await t('two deep miners a town with the mine on (owner M8): DEEPMINE_SLOTS still decides; without the mine one (O13)', () => {
+  assert.strictEqual(D.slotsOf({}, true), 2)
+  assert.strictEqual(D.slotsOf({}, false), 1, 'POSITIVE CONTROL: the mine off, one miner as before')
+  assert.strictEqual(D.slotsOf({ DEEPMINE_SLOTS: '1' }, true), 1)
+  assert.strictEqual(D.slotsOf({ DEEPMINE_SLOTS: '9' }, true), 2)
+})
+await t('WIRED: one builder a town -- a build trip takes the build lease, the second miner falls back to an ore trip, the lease is renewed and released', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  for (const a of ["build = takeSlot(dir, projKeyOf(DEEP_MINE_BUILD_PLOT), me, 1, { ttl: DEEPMINE_LEASE_TTL_MS })",
+    'if (!build.ok) { build = null; target = deepTripTarget(kit, null) }',
+    "const bg = projRenewLease(dir, projKeyOf(DEEP_MINE_BUILD_PLOT), `slot${trip.buildSlot}`, me, trip.buildGen, { ttl: DEEPMINE_LEASE_TTL_MS })",
+    "releaseLease(townDir(), projKeyOf(DEEP_MINE_BUILD_PLOT), `slot${t.buildSlot}`, bot.username ?? 'bot', t.buildGen)"]) assert.strictEqual(src.split(a).length, 2, a)
+})
 await t('the switch: on in the showcase pool by default, off in a fleet pool, TOWNMINE decides', () => {
   assert.strictEqual(M.townMineOn({}, 'showcase'), true)
   assert.strictEqual(M.townMineOn({}, 'hive-a'), false)
