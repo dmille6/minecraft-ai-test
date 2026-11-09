@@ -163,7 +163,7 @@ import { bridgeOn, bridgeSite, bridgeSites, bridgeToBuild, bridgesDone, bridgePl
 import { bridgeMaterial, bridgeBuildable, sitePlan, bridgeWood, bridgeWoodOn } from './bridge.mjs'   // boardwalk-01: wooden bridges
 import { bridgeIo } from './bridgeio.mjs'   // bridgepost-01
 import { bridgeDesignOn, bridgeTrafficOn, chooseDesign, designFits, designBill, designBase, designCellKeys, designDetail, designIntact, lightOk, crossStep, trafficDue, trafficSpan, bearingTo, DESIGN_V } from './bridgedesign.mjs'   // bridges-01
-import { siteKey as bridgeSiteKey, stepDone } from './bridge.mjs'   // bridges-01
+import { siteKey as bridgeSiteKey, stepDone, designWaits } from './bridge.mjs'   // bridges-01
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
@@ -19869,7 +19869,7 @@ async function exBridgeWork (ctx, signal, trip, site, until) {
     const steps = sitePlan({ id: site.id, span: site.span, design: site.pendingDesign })
     const fit = steps.length ? designFits(read, steps) : { ok: false, why: 'plan_unsolved' }
     if (!fit.ok) {
-      if (fit.why !== 'unread') { exAppend(exBridgesFile(), { op: 'state', id: site.id, nodesign: fit.why, trip: trip.id, by: bot.username ?? 'bot', t: Date.now() }); site.nodesign = fit.why }
+      if (fit.why !== 'unread') { exAppend(exBridgesFile(), { op: 'state', id: site.id, nodesign: fit.why, trip: trip.id, by: bot.username ?? 'bot', t: Date.now() }); site.nodesign = fit.why; site.nodesignAt = Date.now() }
       exRow(bot, 'bridge_design', `trip=${trip.id} id=${site.id} ok=0 why=${fit.why}${fit.cell ? ` cell=${fit.cell.join(',')}` : ''} ${designDetail(site.pendingDesign)}`, 'no_effect')
       return { stop: fit.why === 'unread' ? 'unread' : 'nodesign', placed: 0, steps: 0, intact: false }
     }
@@ -19957,7 +19957,8 @@ function exDesignFor (bot, site, read) {
   try {
     if (site?.design) { const named = sitePlan(site); return named.length ? { design: site.design, plan: { steps: named }, named: true } : { why: 'plan_unsolved' } }
     if (!BRIDGE_DESIGN_ON) return { why: 'design_off' }
-    if (site?.mat || site?.nodesign) return { why: site.mat ? `mat_${site.mat}` : 'nodesign' }
+    if (site?.mat) return { why: `mat_${site.mat}` }
+    if (designWaits(site, Date.now())) return { why: 'nodesign' }   // fold: past its wait, the fit is read again
     // a deck already started (or an old unread one) is the legacy bridge's (bridge.mjs bridgeMaterial's own reading)
     if (bridgeMaterial(site, read, { on: true, woodAvail: Infinity }) !== 'wood') return { why: 'started' }
     const st = exDesignStock(bot)
