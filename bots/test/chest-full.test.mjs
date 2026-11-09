@@ -480,12 +480,19 @@ await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not co
   assert.equal(w.bag.find(i => i.name === 'chest').count, 1, 'the second chest stays in the bag')
 })
 
-await t('the day\'s budget: four new chests in 24 h and no fifth, said plainly', async () => {
-  const w = town([stack('oak_log', 64), stack('chest', 1)])
+// chestcarry-01 (owner 11-09): the four-a-day budget binds a chest that would be CRAFTED; a chest already in the bag has its own,
+// larger day (NEW_CHESTS_PER_DAY_CARRIED) -- chestcarry.test.mjs drives the carried fifth chest through the deposit
+await t('the day\'s budget: four new chests in 24 h and no fifth CRAFTED one; sixteen and no carried one; said plainly', async () => {
+  const w = town([stack('oak_log', 64)])
   for (let n = 1; n <= 4; n++) pastClaim(process.env.POOL_STATE_DIR, n, Date.now() - n * 3600_000)
   const r = await run(w.bot)
   assert.match(r.detail, /used its new-chest budget \(4 in 24 h\)/)
   assert.equal(w.spy.placed.length, 0)
+  const v = town([stack('oak_log', 64), stack('chest', 1)])
+  for (let n = 1; n <= CF.NEW_CHESTS_PER_DAY_CARRIED; n++) pastClaim(process.env.POOL_STATE_DIR, n, Date.now() - n * 1200_000)
+  const r2 = await run(v.bot)
+  assert.match(r2.detail, /used its new-chest budget \(16 in 24 h\)/)
+  assert.equal(v.spy.placed.length, 0)
 })
 
 await t('another container in town WITH ROOM is used before anything is placed; a container found full is not re-opened for 30 min', async () => {
