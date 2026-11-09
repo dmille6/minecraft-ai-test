@@ -6313,6 +6313,182 @@
      "pipeline-01"
     ]
    }
+  },
+  {
+   "covers_alarms": [
+    "effect:gklease-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-gklease-01"
+    ],
+    "runs": [
+     "gklease-01",
+     "hivedrop-02"
+    ]
+   },
+   "id": "effect-gklease-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 168,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-09",
+   "state": "done",
+   "title": "gklease-01 ACCEPT: tidy places/bot-h +9.1% at h24 (2,094/990 bot-h -> 2,307/1,001; NO-EFFECT, noise x/52.7); interim h72 -35.6% (722/530 bot-h, 0 placebo anchors: UNREADABLE) confounded by hivedrop-01's start-kill regression (tidy start interruptions 1 -> 200)",
+   "next_step": "none for gklease-01: the tidy-place goal is carried by gkwork-01/stuckclose-01 and by hivedrop-02 (the regression that halves tidy visits). Read effect-hivedrop-02.",
+   "note": "OWNER 2026-11-09 ~13:30Z course correction item 2 (act on kept changes that missed their goals): re-read with effectwatch on .31 (committed h24/h72 reads; interim +48..+68 h reads by the same code on the hours the cache has) and telemetry.py full walks with denominators. No harm: items/bot-h guardrail +38.1% h24 (12/12 pools), +8.5% interim h72; drowning 2 -> 4 (too few). Side benefit kept: a keeper underground or away releases the lease (24 h to 11-09 13Z: 1,015 keeper_take, releases 648 no_work_visit / 290 underground / 27 away / 28 stuck) instead of holding the grounds from a mine.",
+   "done": {
+    "when": "2026-11-09",
+    "why": "ACCEPT: no harm, side benefit (unfit holders release); its metric is now confounded by hivedrop-01's regression, fixed by hivedrop-02"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:idlework-02*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-idlework-02"
+    ],
+    "runs": [
+     "idlework-02",
+     "minegate-01"
+    ]
+   },
+   "id": "effect-idlework-02",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-09",
+   "state": "open",
+   "title": "idlework-02 FIX (decided, not built): mine bad_args at iron depth -- the literal y=16 target fell 5,223 -> 2,072/day (-60%) but proposals at the bot's own y (offset 0/-1) stayed 4,072 -> 3,607; llm.veto_share bad_args +78.4% h24 (4,520/91,038 -> 7,795/88,013 calls) is mostly a NEW source: place dirt 'no dirt in inventory' 45 -> 4,675/day under gkforever-01's grounds TASK line",
+   "next_step": "Build minegate-01 (tier 3: admission.mjs): a `mine` whose y is at or above the ceiling becomes a deterministic remedy the bot can perform (the ceiling target, or gather of the ore in sight) instead of a refusal the model repeats (3,402 in 13 h today: 'Mine iron ore at current depth'); separately the grounds lap's TASK line (idlework.mjs IDLE_NEEDS.grounds, tier 1) must not invite hand-placing dirt. Two engines.",
+   "note": "OWNER 2026-11-09 ~13:30Z course correction item 2 (act on kept changes that missed their goals): re-read with effectwatch on .31 (committed h24/h72 reads; interim +48..+68 h reads by the same code on the hours the cache has) and telemetry.py full walks with denominators. Windows: base 11-05 18Z..11-06 17Z (199,702 calls) vs 11-08 09Z..11-09 09Z (210,626 calls), llm-<bot>.jsonl full walk. Side goals MET: bag_stop 0 -> 212/24 h (zero baseline, UNREADABLE by design); _well_dispose +70.2% h24 (397/920 -> 885/1,016 bot-h, 12/12 pools; DiD veto), interim h72 +80.2% (506/650). Guardrails: items/bot-h +58.8% h24; drowning 2/2 too few."
+  },
+  {
+   "covers_alarms": [
+    "effect:leasegen-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-leasegen-01"
+    ],
+    "runs": [
+     "leasegen-01"
+    ]
+   },
+   "id": "effect-leasegen-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 168,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-09",
+   "state": "done",
+   "title": "leasegen-01 ACCEPT: _tool_hygiene rows (one per connection = reconnects) +28.6% h24 (262/1,058 -> 336/1,055 bot-h) and -28.0% h72 (203/1,139), both inside the noise (x/12.6, x/4.1): a proxy with no direction",
+   "next_step": "none: keep. Lease/mutex/barrier lookups probe from a hint instead of listing the town directory and superseded generations are swept (a host-load benefit no fleet metric reads).",
+   "note": "OWNER 2026-11-09 ~13:30Z course correction item 2 (act on kept changes that missed their goals): re-read with effectwatch on .31 (committed h24/h72 reads; interim +48..+68 h reads by the same code on the hours the cache has) and telemetry.py full walks with denominators. No harm: items/bot-h guardrail +46.1% h24 (12/12 pools), +82.1% h72 (joint with idlework-01). Reconnects today (743 _tool_hygiene rows / 24 h, 80 bots) are dominated by promotions and canary restarts (4 fleet restarts in 24 h).",
+   "done": {
+    "when": "2026-11-09",
+    "why": "ACCEPT: no harm, infrastructure benefit; its proxy metric cannot show it"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:monustuck-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-monustuck-01"
+    ],
+    "runs": [
+     "monustuck-01",
+     "hivedrop-02"
+    ]
+   },
+   "id": "effect-monustuck-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 168,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-09",
+   "state": "done",
+   "title": "monustuck-01 ACCEPT: monument stuck_on_cell -21.0% at h72 (119/3,997 -> 73/3,104 bot-h; claim -30%; noise x/8.6, 5/8 pools)",
+   "next_step": "none for monustuck-01: the monuments' current blocker is hivedrop-01's start-kill regression (85% of monument visits aborted on its builds) -> hivedrop-02.",
+   "note": "OWNER 2026-11-09 ~13:30Z course correction item 2 (act on kept changes that missed their goals): re-read with effectwatch on .31 (committed h24/h72 reads; interim +48..+68 h reads by the same code on the hours the cache has) and telemetry.py full walks with denominators. Its mechanism fires: stalks felled 2 (pre) / 17 (post hivedrop builds, 34 h), stand bans 380/107, waivers 46/0. No harm: monument place guardrail +45.9% h24; -21.2% h72 (2 anchors, unreadable).",
+   "done": {
+    "when": "2026-11-09",
+    "why": "ACCEPT: mechanism working, no harm, -21% of a 30% claim"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:swimunder-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-swimunder-01"
+    ],
+    "runs": [
+     "swimunder-01"
+    ]
+   },
+   "id": "effect-swimunder-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 168,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-09",
+   "state": "done",
+   "title": "swimunder-01 ACCEPT: _climb_flood_refused -5.9% at h72 (2,467/4,053 -> 1,728/3,018 bot-h; claim -30%; noise x/2.63)",
+   "next_step": "none: keep. It frees bots by swimming (24 h to 11-09 13Z: 17 _swim_under, 8 out to dry ground, 6 turned back, 3 yielded; 0 drownings near a swim).",
+   "note": "OWNER 2026-11-09 ~13:30Z course correction item 2 (act on kept changes that missed their goals): re-read with effectwatch on .31 (committed h24/h72 reads; interim +48..+68 h reads by the same code on the hours the cache has) and telemetry.py full walks with denominators. The pin heartbeat it targeted has since fallen fleet-wide: 322 flood refusals in 24 h on 59 bots (302 entombed handler) vs 2,467 in 72 h before; drowning guardrail 3 -> 2 (too few).",
+   "done": {
+    "when": "2026-11-09",
+    "why": "ACCEPT: no harm, side benefit (8 swims out a day); the heartbeat is now low for other reasons"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:buildfix-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-buildfix-01"
+    ],
+    "runs": [
+     "buildfix-01",
+     "hivedrop-02"
+    ]
+   },
+   "id": "effect-buildfix-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "owner-gaps-1103.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-09",
+   "state": "open",
+   "title": "buildfix-01 FIX via hivedrop-02: 2.1 tidy `blocked` visits 414/1,036 -> 0/1,077 bot-h h24, 8/958 at +24..48 h (MET -98%, 1,432 retry deferrals/24 h; read UNREADABLE on 3 pools); 2.2 _shop_skip flat (+0.3% h24, +9.5% interim); 2.4 aborted monument visits +2% h24, +64.5% at +24..48 h; busy share -2.5% h24, -14.4% interim",
+   "next_step": "Queue hivedrop-02 (branch hivedrop-02-on-bcdba35f 9199621f): hivedrop-01 (promoted 11-08 21:28Z, inside buildfix's read) re-plans the walk at every 200-ms yield, so monument/tidy visits stand still >35 s and the stuck reflex kills them at `start` (monument aborted 155/520 before -> 467/549 after; places 24/427/39 -> 7/48/1 by build). Re-read buildfix-01's 2.4 + busy share after hivedrop-02 promotes. 2.2: the shop_skip row is rate-limited to one per bot per 30 min and also counts the legitimate 'nothing else workable' hold (1,616 stuck_on_cell skips / 69 bots in 24 h, towns whose last open project is stuck): no separate fix.",
+   "note": "OWNER 2026-11-09 ~13:30Z course correction item 2 (act on kept changes that missed their goals): re-read with effectwatch on .31 (committed h24/h72 reads; interim +48..+68 h reads by the same code on the hours the cache has) and telemetry.py full walks with denominators."
   }
  ]
 }
