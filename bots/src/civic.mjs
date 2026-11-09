@@ -54,6 +54,14 @@ export function civicLooks (kind) {
 const fnv = s => { let h = 0x811c9dc5; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0 } return h >>> 0 }
 /** THE SEEDED LOOK of a kind for a town (`key`: pool/kind/instance) -> its blueprint id. Pure. */
 export const civicLookFor = (kind, key) => { const all = civicLooks(kind); return all[fnv(`${key}|${kind}`) % all.length] }
+/** THE LOOK THE TOWN CAN BUILD NOW -> an id: the kind's looks in the town's seeded order (civicLookFor's first), the first whose bill the
+ *  stock covers (`ok(id)`), else the seeded one (its siting then waits on the stock). Pure. */
+export function civicLookForStock (kind, key, ok = () => true) {
+  const all = civicLooks(kind)
+  const i0 = fnv(`${key}|${kind}`) % all.length
+  for (let j = 0; j < all.length; j++) { const id = all[(i0 + j) % all.length]; if (ok(id)) return id }
+  return all[i0]
+}
 
 // ---- the parts ------------------------------------------------------------------------------------------------------------------------
 const OUT = { '+u': '+u', '-u': '-u', '+v': '+v', '-v': '-v' }

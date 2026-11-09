@@ -148,7 +148,7 @@ import { stepFor as siteStepFor } from './buildsite.mjs'   // citywall-01: can a
 import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a stand dig a swapped cell (the visit's own rule)
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
-import { isCivicPlot, civicKindOf, civicNear, civicLookFor, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
+import { isCivicPlot, civicKindOf, civicNear, civicLookForStock, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
 import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, CITYWALL_WAIVE_MORE, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
@@ -21861,10 +21861,11 @@ async function civicSiteFor (bot, plan, c, stood, plot, signal = null) {
     const land = landHead(dir)
     const near = civicNear(kind, { home: plan.home, recs, park: land?.park?.box ?? null, well: c.wells?.[0] ?? null })
     if (!near) return { ok: false, why: 'no_anchor' }
-    const id = civicLookFor(kind, `${process.env.MEMORY_POOL ?? ''}/${plot}`)
-    const bp = blueprintOf(id)
     const stock = matsTownStock(bot)?.stock ?? null
     if (!stock) return { ok: false, why: 'stock_unknown' }
+    // the town's seeded look, else the next look of the kind its stock covers now (a plaza of blocks while the stonecutter has no stairs)
+    const id = civicLookForStock(kind, `${process.env.MEMORY_POOL ?? ''}/${plot}`, i => civicStockOk(blueprintOf(i), stock).ok)
+    const bp = blueprintOf(id)
     const st = civicStockOk(bp, stock)
     if (!st.ok) return { ok: false, why: 'stock', detail: Object.entries(st.short).map(([k, v]) => `${k}:${v}`).join(',') }
     const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)

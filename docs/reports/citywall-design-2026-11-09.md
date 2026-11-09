@@ -88,11 +88,19 @@ escape proof (`wallEscape`: nothing cut off, nobody trapped).
 
 | ring | swapped | added | underpin | towers | gate | lamps | bill | escape |
 |---|---|---|---|---|---|---|---|---|
-| wallext | 365 | 370 | 65 | 2 (NE run ends) | 12 wide (road, inset) | 27 | stone bricks 308, deepslate 330, lanterns 27, walls 12, stairs 4 | cut 0, trapped 0 |
-| wall | 478 | 261 | 195 | 1 (SW corner) | none (its gateways were on the retired line) | 22 | stone bricks 207, deepslate 478, lanterns 22 | cut 0, trapped 0 |
+| wallext | 356 | 301 | 50 | 1 (NE run end; the other NE site has an in-line cell no stand digs) | 12 wide (road, inset) | 27 | stone bricks 261 (+24 mossy), deepslate 307, lanterns 27, walls 12, stairs 4 | cut 0, trapped 0 (40,727 cells walked) |
+| wall | 470 | 236 | 170 | 1 (SW corner) | none (its gateways were on the retired line) | 22 | stone bricks 206 (+26 mossy), deepslate 446, lanterns 22 | cut 0, trapped 0 (22,792) |
 
-Total about 515 stone bricks and 808 deepslate bricks: inside the town's 582 + 312 stone and 288 + 1,010 cobbled deepslate. Lanterns:
-49 wanted, 12 held (the lamp role falls back to a torch; the stoneworks/lantern crafts top it up).
+Left out by the bots' own reach rules (counted, never a stall): 17 O cells no stand can dig (they stay cobblestone), 33 underpinning
+columns no stand can fill. Total about 517 stone bricks and 753 deepslate bricks: inside the town's 582 + 312 stone and 288 + 1,010
+cobbled deepslate. Lanterns: 49 wanted, 12 held (the lamp role falls back to a torch; the lantern crafts top it up).
+
+**What the swap does when a cell cannot be reached** (each found offline or by review, each tested): a swapped cell no stand sees at the
+visit is deferred (no chain of digs from the top: Codex r1) and the wall's waiver closes it as its old block (the waiver's bound is
+raised by 64 for an upgraded ring); a standing swapped cell below never holds the cell above (Codex r3: a sealed lower swap stranded the
+hole dug over it); an added cell no stand fills now is spent and deferred so the run's swap goes on; a cell is never dug over an open hole
+in its own column. The design asks the same rules first (`buildrun.mjs digStand` and `buildsite.mjs stepFor` over the town walk with the
+ring's own cells open, seeded from the bots' stood cells).
 
 Pictures (drawn from the design cells over the region copy; trees left out):
 [`wallext-sheet.png`](citywall-2026-11-09/wallext-sheet.png) (the road gatehouse, the NE towers, a north run),
@@ -133,7 +141,9 @@ proofs, the rim-first pad, the enclosed cells, the spiral, the bills and the anc
 
 **Paper** (sandbox4, a real bot, the bots' own visit, every cell and state read back by the server):
 
-- Landmarks (`sandbox/civic/civic-e2e.mjs`): PAPER_CIVIC_RESULT
+- Landmarks (`sandbox/civic/civic-e2e.mjs`): **all 22 looks PASS** facing east (every cell and state read back by the server: 2,282
+  cells), and seven looks with stairs, slabs, logs and the spiral (Frs, M23, Bpd, Hl, Pd, Sud, L3) **PASS facing north, west and south**
+  too: 43 builds by a real bot, 0 bad cells (results in `sandbox/civic/civic-e2e.jsonl`).
 - Four fixes found on Paper and kept: a pad laid from the middle out walled its builder off its outside stands (the pad's rim is now its
   own first segment); the statue's top inside its ring of steps had no visible face (enclosed cells are reach-only); the well house's
   open shaft inside a 1.5-high curb was a pit the builder could not leave (the mouth is a dark floor with a lantern); the belfry's 2-high
@@ -143,7 +153,8 @@ proofs, the rim-first pad, the enclosed cells, the spiral, the bills and the anc
 - The wall upgrade (`sandbox/citywall/wall-e2e.mjs`): a 25 x 19 cobble ring laid by /fill with a 5-wide gateway, a sally port, a gapped
   corner and three hanging columns; the bot builds every phase (gate, 5 towers, the runs) with `swap`. PAPER_WALL_RESULT
 
-**Offline on the showcase** (`bots/scripts/citywall-offline.mjs --build`, fake builders over the region copy, every phase): OFFLINE_SHOW_RESULT
+**Offline on the showcase** (`bots/scripts/citywall-offline.mjs --build`, four fake builders over the region copy, every phase, the bots' own
+visit): OFFLINE_SHOW_RESULT
 
 ## 6. Owner decisions
 
@@ -153,9 +164,25 @@ proofs, the rim-first pad, the enclosed cells, the spiral, the bills and the anc
 - **D2 the style.** Grey (stone face, dark plinth and band) on the showcase; dark on the fleet. `CITYWALL_STYLE=grey|dark`.
 - **D3 lanterns.** 49 on the walls + ~20 in the landmarks against 12 held; torches stand in until the lantern crafts catch up.
 
-## 7. Fleet port
+## 7. Reviews
 
-The fleet's walls are the same `wall@1` design (no extension), so the same code applies with `CITYWALL_POOLS`/`CIVIC_POOLS` naming the
-canary pool; the dark style comes from the fleet's cobbled deepslate (14k). The fleet branch is the same commits on the live fleet sha;
-its registration reads `_build op=citywall`, swap digs (`op=clear kind=foreign` on a citywall record) and holes (any two `sw` cells of
-one segment open at once from the canary's own rows: DEFECT), and the landmarks' `op=sited project=civic*`.
+Codex blockers-only: r1 3 blockers (the sealed-column remedy dug a swapped column from the top; waived cells read open by the next phase;
+the gate's and towers' added cells never asked the veto) fixed, r2 FIXED; r3 (both branches) 1 blocker (a sealed lower swap stranded the
+hole above it) fixed, r4 FIXED / none new. Tier 2 (`protected.py`: not protected).
+
+## 8. Fleet port
+
+Branch `citywall-01-on-bcdba35f` on the live fleet sha. The fleet base has no reach-only click and no block states (townstyle-01 is not
+shipped there), so the port is the **FLAT** design: the courses swapped in place, the underpinning, a torch on each run end's merlon
+(inner face, over the walk); no towers, no gatehouse. No planner plot either: the wall's own visit publishes the next phase (a due phase
+reads as wall upkeep after every open project). The style is chosen from the town's stock: **dark** (deepslate bricks, which cobbled
+deepslate makes with no fuel) where the town holds under 200 stone bricks and over 1,000 deepslate. Registration
+`~/mcai-analysis/citywall-01.<sha>.json` (effectwatch `valid`), draft entry `citywall-01.queue-entry.draft.json` (pins board-b, hive-b;
+`drawrec` DRAW 2 pools = 10 bots); NOT queued. Read: `_citywall` rows, `_build project=wall` place / `clear kind=foreign`, holes (two
+swapped cells of one segment open at once: DEFECT), deaths near the wall, waived cells.
+
+Offline on board-b's region copy (11-09; its home is inside the town's chest room, so every walk is seeded from the bots' stood cells):
+64 wall columns, design 253 swapped + 140 added (121 underpinning, 19 torches), escape cut 0 / trapped 0 over 20,897 cells; four fake
+builders, four rounds: 318 of 393 cells done, the rest deferred for the waiver (the fake server runs no waiver), **0 gap violations**.
+Picture: [`fleet-boardb-sheet.png`](citywall-2026-11-09/fleet-boardb-sheet.png). The landmarks wait for townstyle-01's machinery on the
+fleet (block states, reach-only clicks): every look uses stairs, slabs or reach-only cells.
