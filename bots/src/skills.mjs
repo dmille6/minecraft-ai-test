@@ -26405,7 +26405,7 @@ function bw3GuardStrict () {
     const out = new Set()
     for (const pl of plots) {
       const h = recordHead(dir, projKeyOf(pl))
-      if (!h.ok) return null
+      if (!h.ok || (h.rejected?.length ?? 0) > 0) return null   // fold r2: a rejected generation file is an unread record
       for (const q of h.head?.rec?.cells ?? []) if (Array.isArray(q?.at)) out.add(q.at.join(','))
     }
     const bs = exBridgeSitesStrict()
@@ -26428,7 +26428,9 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
   // the tidy's own cells (its fills: a helper's dirt at a listed cell is the tidy's, never dug back), every bridge site's planned
   // cells (bridgepost/boardwalk-01/bridges-01 decks, piers, supports, rails; an unreadable bridges file: no visit); and it is read
   // AGAIN before each dig (tidyOk), so a cell a project or the tidy claims during the visit is never dug
-  const guardNow = () => bw3GuardStrict()
+  // fold r2: re-read at most every 2 s (alsoDone is asked per cell); a failed read fails closed (every cell treated as owned)
+  let gAt = 0, gLast = null
+  const guardNow = () => { if (Date.now() - gAt >= 2_000) { gLast = bw3GuardStrict(); gAt = Date.now() } return gLast }
   let guard = guardNow()
   if (!guard) return no('record_unreadable')
   const read = planReader(bot)
@@ -26491,8 +26493,8 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     const stood = stoodRead(dir, stoodKey(), home)
     const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, tidyKeepOrder: true, recordGen: rh.head.gen, foreign: BOT_MAT_RE, palette: BW3_PALETTE, res: null, resFailed: false,
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.bw3Stands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, intoWater: true, alsoDone: q => guard.has(q.at.join(',')),
-      tidyOk: q => { const g = guardNow(); if (g) guard = g; return !!g && !g.has(q.at.join(',')) } },
+      domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, intoWater: true, alsoDone: q => { const g = guardNow(); return !g || g.has(q.at.join(',')) },
+      tidyOk: q => { const g = guardNow(); return !!g && !g.has(q.at.join(',')) } },
     effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts: TIDY_CUT_TRIES visits)
     const read2 = tidyRead(bot)
