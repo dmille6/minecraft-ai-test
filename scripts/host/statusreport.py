@@ -735,6 +735,14 @@ def render(f, j, now):
         L.append('## Headline numbers (weekly)')
         L.append(f'- could not read the headline numbers: {plain((f.get("errors") or {}).get("headline numbers") or "no data", 140)}')
     L.append('')
+    fin = f.get('finish')
+    if fin:
+        import finishline as FL
+        L += FL.render(fin)
+    else:
+        L.append('## Finish line')
+        L.append(f'- could not read the finish line: {plain((f.get("errors") or {}).get("finish line") or "no data", 140)}')
+    L.append('')
     L.append('## 1. Headline')
     L += [f'- {x}' for x in headline(f, j)]
     L.append('')
@@ -1483,6 +1491,16 @@ def c_headline(f, now):
     f['headline'] = HL.collect(now)
 
 
+def c_finish(f, now):
+    import finishline as FL
+    try:
+        rel = http_json(f'{SHOW_PROXY}/releases.json')
+    except Exception:  # noqa: BLE001 -- admin edits then read as unread, never as none
+        rel = None
+    fin = FL.collect(now, f, rel if isinstance(rel, list) else None)
+    f['finish'] = fin
+
+
 def c_canary(f, now, since):
     import stategen as G
     rows = []
@@ -1575,6 +1593,7 @@ def collect(now, since, wh, prev):
     attempt(f, 'showcase release log', lambda: c_showcase_ops(f, since))
     attempt(f, 'testing pipeline', lambda: c_canary(f, now, since))
     attempt(f, 'alarms', lambda: c_alarms(f, now))
+    attempt(f, 'finish line', lambda: c_finish(f, now))
     for k in [k for k in f if k.startswith('_')]:
         f.pop(k)
     return f

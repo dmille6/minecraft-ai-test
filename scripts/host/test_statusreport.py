@@ -387,13 +387,15 @@ def ck_headline_block(M):
     f['headline'] = {'weeks': [['2026-10-12T00:00:00Z', '2026-10-19T00:00:00Z'], ['2026-10-19T00:00:00Z', '2026-10-26T00:00:00Z'],
                                ['2026-10-26T00:00:00Z', '2026-11-02T00:00:00Z'], ['2026-11-02T00:00:00Z', '2026-11-09T00:00:00Z']],
                      'days': {}, 'errors': []}
+    f['finish'] = {'fleet': {}, 'showcase': {}, 'errors': []}
     md = M.render(f, M.judge(f), NOW)
     f2 = base()
     f2['errors']['headline numbers'] = 'ES down'
     md2 = M.render(f2, M.judge(f2), NOW)
     h = M.md_to_html(md)
     return (md.index('## Headline numbers (weekly)') < md.index('## 1. Headline') and '<table>' in h and '|---|' not in h
-            and 'could not read the headline numbers: ES down' in md2 and M.WEEKLY_LINK in md)
+            and 'could not read the headline numbers: ES down' in md2 and M.WEEKLY_LINK in md
+            and md.index('## Finish line -- current worlds') < md.index('## 1. Headline') and 'could not read the finish line' in md2)
 
 
 CHECKS = [ck_headline_block, ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window, ck_healthy_quiet, ck_death_spike, ck_fewer_deaths, ck_value,
@@ -405,6 +407,7 @@ CHECKS = [ck_headline_block, ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window,
 MUTANTS = [
     ('table lines rendered as paragraphs', "        if line.startswith('|') and line.rstrip().endswith('|'):", "        if False:",
      ck_headline_block),
+    ('the finish line block dropped', "        L += FL.render(fin)", "        pass", ck_headline_block),
     ('the headline block dropped', "        L += HL.render(hn, link=WEEKLY_LINK)", "        pass", ck_headline_block),
     ('slot in UTC, not Central', "    if c.hour in SLOT_HOURS and c.minute < grace_min:",
      "    if now.hour in SLOT_HOURS and now.minute < grace_min:", ck_slot_cdt),

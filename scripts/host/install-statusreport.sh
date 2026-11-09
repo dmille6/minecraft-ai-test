@@ -34,7 +34,7 @@ case "$MODE" in
   dry)
     T=$(ssh "$H" 'mktemp -d $HOME/.statusreport-dry.XXXXXX')
     ship "$T/app"
-    ssh "$H" "set -e; cd '$T/app.new/scripts' && python3 -B host/test_statusreport.py | tail -1 && python3 -B host/test_headline.py | tail -1
+    ssh "$H" "set -e; cd '$T/app.new/scripts' && python3 -B host/test_statusreport.py | tail -1 && python3 -B host/test_headline.py | tail -1 && python3 -B host/test_finishline.py | tail -1
       python3 -B host/statusreport.py run --force --no-push --no-llm --out '$T/out' && head -12 '$T'/out/report-*.md; rm -rf '$T'"
     echo "dry run OK ($SHA). --apply installs it and adds: $CRON"
     echo "and: $CRON2"
@@ -42,7 +42,7 @@ case "$MODE" in
   --apply)
     ship statusreport/app
     ssh "$H" "set -e; cd \$HOME/statusreport && python3 -B app.new/scripts/host/test_statusreport.py | tail -1
-      python3 -B app.new/scripts/host/test_headline.py | tail -1
+      python3 -B app.new/scripts/host/test_headline.py | tail -1; python3 -B app.new/scripts/host/test_finishline.py | tail -1
       rm -rf app.old; [ -d app ] && mv app app.old; mv app.new app; mkdir -p \$HOME/digest/statusreport
       crontab -l > \$HOME/statusreport/crontab.bak-\$(date -u +%Y%m%dT%H%M%SZ) 2>/dev/null || true
       # '$TAG' is a prefix of '$TAG2': drop both, then add both (one line each)
