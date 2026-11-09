@@ -19571,14 +19571,14 @@ async function buildWall (ctx, args, signal) {
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the wall record could not be read back')
   }
   shopFootprintRefresh(bot)
-  // the lights in their own last segment (wall.mjs wallLightsLast: in memory, the record file unchanged)
-  let rec = wallLightsLast(rh.head.rec)
   // citywall-01: a STANDING ring's next upgrade phase is published here first (its design once -- proven by the escape walk -- then each
   // phase when the last one stands and the town holds its bill); the visit then builds it like a repair
-  if (rec.structure_complete && citywallDueFor(bot, rec).due) {
-    const adv = citywallAdvance(bot, c, dir, key, rec, home, me)
-    if (adv.published) { rh = recordHead(dir, key); if (rh.ok && rh.head) rec = wallLightsLast(rh.head.rec); bot.shopDamage = null }
+  if (rh.head.rec.structure_complete && citywallDueFor(bot, rh.head.rec).due) {
+    const adv = citywallAdvance(bot, c, dir, key, wallLightsLast(rh.head.rec), home, me)
+    if (adv.published) { const rh2 = recordHead(dir, key); if (rh2.ok && rh2.head) rh = rh2; bot.shopDamage = null }
   }
+  // the lights in their own last segment (wall.mjs wallLightsLast: in memory, the record file unchanged)
+  const rec = wallLightsLast(rh.head.rec)
   // citywall-01: an upgraded ring is built, billed and judged by its generation's own palette
   const palette = isCitywall(rec) ? { ...WALL_PALETTE, ...rec.palette } : WALL_PALETTE
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
@@ -19640,9 +19640,9 @@ async function buildWall (ctx, args, signal) {
     // a segment this bot found BLOCKED lately waits; the visit works the others (wall.mjs wallVisitRecord)
     const blocked = (bot.wallBlocked ??= new Map())
     const r = await runVisit({ ...canopyOf(bot, c, WALL_PLOT), dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wallStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
       // citywall-01: an upgraded ring SWAPS its cobble in place (buildrun.mjs swapDigOk: one hole a segment, placed before the next dig)
       ...(isCitywall(rec) ? { swap: true } : {}),
+      domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
       ...wallStuckOf(c), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
     // wallstuck-01: THE WAIVER (wall.mjs wallWaiveDue) -- a cell this visit deferred after the remedies, counted WALL_WAIVE_AFTER
@@ -19651,7 +19651,8 @@ async function buildWall (ctx, args, signal) {
       try {
         // citywall-01: an upgraded ring's swapped cells no stand sees are waived past the wall's own bound (each stays its old block:
         // the wall whole, never a gap), so a phase closes
-        const due = wallWaiveDue(rec, r.deferred ?? [], isCitywall(rec) ? { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE } : {})
+        const due = wallWaiveDue(rec, r.deferred ?? [])
+        if (isCitywall(rec) && !due.length) due.push(...wallWaiveDue(rec, r.deferred ?? [], { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE }))
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too

@@ -214,7 +214,7 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const BR = strip(readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
 await t('WIRED (the fleet: no planner plot): the wall visit publishes the next phase, judges by the record palette, swaps; the due read; the waiver; the sealed remedy never for a swapped cell', () => {
-  assert.ok(/if \(rec\.structure_complete && citywallDueFor\(bot, rec\)\.due\) \{\s*\n\s*const adv = citywallAdvance\(/.test(SK))
+  assert.ok(/if \(rh\.head\.rec\.structure_complete && citywallDueFor\(bot, rh\.head\.rec\)\.due\) \{\s*\n\s*const adv = citywallAdvance\(bot, c, dir, key, wallLightsLast\(rh\.head\.rec\)[^\n]*\n[^\n]*rh = rh2[^\n]*\n\s*\}\s*\n\s*const rec = wallLightsLast\(rh\.head\.rec\)/.test(SK))
   assert.ok(/const palette = isCitywall\(rec\) \? \{ \.\.\.WALL_PALETTE, \.\.\.rec\.palette \} : WALL_PALETTE/.test(SK))
   assert.ok(/\.\.\.\(isCitywall\(rec\) \? \{ swap: true \} : \{\}\)/.test(SK))
   assert.ok(/if \(tidy && r\.blueprint === WALL_BLUEPRINT && r\.structure_complete && citywallDueFor\(bot, r\)\.due\) return true/.test(SK))
@@ -222,7 +222,7 @@ await t('WIRED (the fleet: no planner plot): the wall visit publishes the next p
   assert.ok(/wallEscape\(read0, home, \[\.\.\.rec\.cells, \.\.\.design\.cells\]/.test(SK))
   assert.ok(/done: q => wallWaived\(rec, q\) \|\| /.test(SK))
   assert.ok(/\(cur\.structure_complete && !isCitywall\(cur\)\)/.test(SK))
-  assert.ok(/if \(v === 'no_stand' && p\.sealed && kind !== 'tree' && !\(p\.swap && f\.sw\)\) \{/.test(BR))
+  assert.ok(/const swapSealed = v === 'no_stand' && p\.swap && f\.sw\s*\n\s*if \(!swapSealed\) if \(v === 'no_stand' && p\.sealed && kind !== 'tree'\) \{/.test(BR))
 })
 
 console.log(`\ncitywall (fleet): ${pass} passed, ${fail} failed`)

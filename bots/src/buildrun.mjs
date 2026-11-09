@@ -1230,7 +1230,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // is SEALED: named, and deferred with the cells no stand reaches (F4: counted, stuck_on_cell, the waiver), never `blocked`
           // citywall-01: never for a SWAPPED cell -- the sealed column's chain digs several cells before any is placed again, a hole
           // two high; a swapped cell no stand sees is spent and named (the waiver's), never opened from the top
-          if (v === 'no_stand' && p.sealed && kind !== 'tree' && !(p.swap && f.sw)) {
+          const swapSealed = v === 'no_stand' && p.swap && f.sw
+          if (!swapSealed) if (v === 'no_stand' && p.sealed && kind !== 'tree') {
             cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
             const openK = new Set(open.map(q => kOf(q.at)))
             // zigsealed-01 (LIVE showcase 10-31 16:58Z on: the ziggurat's F-W skin cell -55,67,-35 grass under its own open air cell
