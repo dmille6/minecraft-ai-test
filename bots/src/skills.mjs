@@ -23396,7 +23396,7 @@ async function deepMineBuild (ctx, trip, signal, deadline) {
       vr = await withStairClaim(ctx.runner, () => runStairVisit({ rec, plan, exit: rec.exit, built: new Set(rec.landings_built ?? []),
         onLanding: async () => true,
         onStop: async (k, why) => {
-          publishRecord(dir, key, cur => (hasMine(cur) && cur.ext.state === 'open' ? mineStopped(cur, k, { now: Date.now(), why }) : null), { by: me })
+          publishRecord(dir, key, cur => (hasMine(cur) && ['open', 'stalled'].includes(cur.ext.state) ? mineStopped(cur, k, { now: Date.now(), why }) : null), { by: me })
           stairRecMem = null
           deepMineRow(bot, 'stop', { why, k })
         },
@@ -23407,7 +23407,7 @@ async function deepMineBuild (ctx, trip, signal, deadline) {
       trip.torches = (trip.torches ?? 0) + (vr.torches ?? 0)
       deepMineRow(bot, 'build', { why: vr.stop, k: vr.k ?? '-', n: `${vr.dug}d/${vr.placed}p/${vr.units}u/${vr.torches}t`, ms: Date.now() - (trip.callAt ?? Date.now()) })
       if (vr.stop === 'complete') {
-        const pub = publishRecord(dir, key, cur => (hasMine(cur) && cur.ext.state === 'open' ? { ...cur, ext: { ...cur.ext, state: 'complete', completeAt: Date.now() } } : null), { by: me })
+        const pub = publishRecord(dir, key, cur => (hasMine(cur) && ['open', 'stalled'].includes(cur.ext.state) ? { ...cur, ext: { ...cur.ext, state: 'complete', completeAt: Date.now(), stalls: 0, retryAt: null } } : null), { by: me })   // Claude r2 note 1: a stalled mine past its retry completes too
         stairRecMem = null
         if (pub.result === 'accepted') deepMineRow(bot, 'complete', { k: plan.K, n: pub.gen ?? '-' })
       }
@@ -23562,7 +23562,7 @@ async function deepMine (ctx, args, signal) {
   // TOWNMINE-01: with the town mine sited, the way back is every step's stand of the extended stair (the trail leads to it)
   const mineOn = TOWNMINE.on && hasMine(rec) && !!trip.mine
   const minePlan = mineOn ? stairPlanOf(rec) : null
-  const backRoute = mineOn ? minePlan.steps.slice(0, trip.target === 'build' || st.mine?.complete ? minePlan.steps.length : (minePlan.K16 ?? minePlan.K) + 1).map((_, k) => stairStandOf(minePlan, k)) : route
+  const backRoute = mineOn ? minePlan.steps.slice(0, trip.target === 'build' || trip.viaHall || st.mine?.complete ? minePlan.steps.length : (minePlan.K16 ?? minePlan.K) + 1).map((_, k) => stairStandOf(minePlan, k)) : route
   // the trail is sampled while the bot walks, digs and tunnels (a stand on the ground every TRAIL_GAP)
   const sampler = setInterval(() => { try { if (bot.entity?.onGround && trip.phase !== 'return') trip.trail = deepTrailPush(trip.trail, deepFeet(bot)) } catch { /* sampling */ } }, 500)
   try {
