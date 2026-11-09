@@ -601,5 +601,12 @@ export function citywallStyleFor (stock = {}, pool = '', env = process.env) {
   const sb = Number(stock?.stone_bricks) || 0, ds = (Number(stock?.deepslate_bricks) || 0) + (Number(stock?.cobbled_deepslate) || 0)
   return sb < STYLE_DARK_AT.stoneBelow && ds > STYLE_DARK_AT.deepslateOver ? 'dark' : 'grey'
 }
+/** THE WALK'S START for the escape proof -> [x, y, z] | null: the first stood cell (shop.mjs stoodRead: where the bots have stood) that is
+ *  a feet cell now (a floor under it, two cells of air). Pure. */
+export function walkSeed (read, stood = []) {
+  const pass = b => !!b && b.boundingBox === 'empty' && !/^(water|lava|bubble_column)$/.test(nm(b))
+  for (const s of stood) { const [x, y, z] = s; const f = read(x, y - 1, z); if (f && f.boundingBox === 'block' && pass(read(x, y, z)) && pass(read(x, y + 1, z))) return [x, y, z] }
+  return null
+}
 /** Is this visit's record a citywall generation (the wall visit's `swap` rule and palette)? Pure. */
 export const isCitywall = rec => !!(rec?.citywall && typeof rec.citywall === 'object')
