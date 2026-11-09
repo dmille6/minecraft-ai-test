@@ -64,13 +64,16 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
       // townmine-01: BELOW THE 16 LANDING A LIQUID IN A STEP'S OWN CELL IS SEALED, not a stop: a block placed into it (its
       // neighbours are sealed by nextOp 1b before anything opens), then dug as stone on a later pass. Two refused seals of the cell
       // stop the stair there as before (CELL_TRIES). Never above the landing: the town stair keeps its own rule.
-      if (sealDeep && op.op === 'stop' && (op.why === 'water' || op.why === 'lava') && w.k > (plan.K16 ?? plan.K) && (fails.get(kOf(op.at)) ?? 0) < CELL_TRIES) op = { op: 'place', at: op.at, why: 'seal' }
+      if (sealDeep && op.op === 'stop' && (op.why === 'water' || op.why === 'lava') && (w.kind === 'room' || w.k > (plan.K16 ?? plan.K)) && (fails.get(kOf(op.at)) ?? 0) < CELL_TRIES) op = { op: 'place', at: op.at, why: 'seal' }
       if (op.op === 'done') break
       if (op.op === 'wait') return end('unknown', `unread ${kOf(op.at)}`, w.k)
       if (op.op === 'stop') {
         if (op.why === 'water' || op.why === 'lava') {
           // A LIQUID WHERE THE STAIR WOULD OPEN: it ends above it (the truncated record), never dug into
           if (w.kind === 'step') { await p.onStop(w.k, op.why); e.log('stop', { k: w.k, at: op.at, why: op.why }); return end('stopped', op.why, w.k) }
+          // townmine-01 (Claude code r1 BLOCKER 1): a room (a bay, the hall) whose cell holds a liquid it may not seal is DROPPED from
+          // the plan (the stair goes on without it), never read as a stub
+          if (w.kind === 'room') { await p.onDropRoom?.(w.room.k, op.why); e.log('stop', { k: w.k, at: op.at, why: `room_${op.why}` }); return end('room_dropped', `room_${op.why}`, w.k) }
           // in a stub: THAT LANDING is dropped from the record (the steps go on below it); the next visit plans without it
           await p.onDropLanding(w.landing.feet, op.why); e.log('stop', { k: w.k, at: op.at, why: `stub_${op.why}`, feet: w.landing.feet }); return end('landing_dropped', `stub_${op.why}`, w.k)
         }

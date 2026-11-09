@@ -241,7 +241,7 @@ import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
-import { TOWNMINE, hasMine, mineState, mineSiteRefusal, mineSiteCheck, withMine, mineStopped, hallRoute, hallUsable, galleryOf, galleryNext, fixturesMissing, torchesMissing, mineRowDetail, BUILD_UNITS_CALL as MINE_BUILD_UNITS, GALLERY as MINE_GALLERY, FIXTURE_ITEMS as MINE_FIXTURES, BUILD_COOLDOWN_MS as MINE_BUILD_COOLDOWN_MS } from './townmine.mjs'   // townmine-01
+import { TOWNMINE, hasMine, mineState, mineSiteRefusal, mineSiteCheck, withMine, mineStopped, hallRoute, hallUsable, galleryOf, galleryNext, fixturesMissing, torchesMissing, mineRowDetail, fixtureCellSafe as mineFixtureSafe, mineRoomDropped, mineStallNoted, BUILD_UNITS_CALL as MINE_BUILD_UNITS, GALLERY as MINE_GALLERY, FIXTURE_ITEMS as MINE_FIXTURES, BUILD_COOLDOWN_MS as MINE_BUILD_COOLDOWN_MS } from './townmine.mjs'   // townmine-01
 import { mineExt, standOf as stairStandOf } from './shaftgeom.mjs'   // townmine-01
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
@@ -22708,6 +22708,8 @@ async function buildStair (ctx, args, signal) {
         publishRecord(dir, key, cur => (cur && isStairRecord(cur) && (cur.landings ?? []).includes(feet) ? stairDropped(cur, feet, { now: now(), why }) : null), { by: me })
         stairRecMem = null
       },
+      // townmine-01: an upper bay with a liquid in it is dropped from the mine's plan (the upkeep never seals into a room)
+      onDropRoom: async (k, why) => { publishRecord(dir, key, cur => mineRoomDropped(cur, k, { now: now(), why }), { by: me }); stairRecMem = null },
     }, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS, reserve: egressReserveMs, maxK: rec.K })   // townmine-01: the deep extension is the deep miner's
       egress = await visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS, e)
       return v
@@ -23073,6 +23075,8 @@ function deepClose (bot, end, why) {
   // townmine-01: a build trip that cut cells comes back for the next part soon (its work is the mine, not ore)
   bot.deepMineCooldownUntil = Date.now() + (t.target === 'build' && end === 'home' && (t.cells ?? 0) + (t.sealed ?? 0) > 0 ? MINE_BUILD_COOLDOWN_MS : end === 'home' && (t.found ?? 0) > 0 ? DEEPMINE_COOLDOWN_MS : DEEPMINE_FAIL_BACKOFF_MS)
   deepRow(bot, 'end', { end, why, found: t.found ?? 0, n: `cells${t.cells ?? 0}/seal${t.sealed ?? 0}/torch${t.torches ?? 0}/br${t.branches ?? 0}/calls${t.calls}/net${got}`, ms: Date.now() - t.startedAt, status: end === 'home' ? 'success' : 'no_effect' })
+  // townmine-01 (Claude code r1 BLOCKER 3): a build trip that cut nothing counts toward parking the build; one that cut clears it
+  if (t.target === 'build' && TOWNMINE.on) { try { publishRecord(townDir(), projKeyOf(SHAFT_PLOT), cur => mineStallNoted(cur, (t.cells ?? 0) + (t.sealed ?? 0), { now: Date.now() }), { by: bot.username ?? 'bot' }); stairRecMem = null } catch { /* the next trip notes it */ } }
   t.phase = 'closed'
   t.end = end
   bot.deepTrip = null
@@ -23510,6 +23514,9 @@ async function deepMineFinish (ctx, trip, plan, fx, signal, deadline) {
     const me = deepFeet(bot)
     // SEAL FIRST (a liquid behind the wall cell the fixture stands in), then open the cell, then the fixture
     for (const sc of deepSealTargets(stairRead(bot), [f.at], [me, [me[0], me[1] + 1, me[2]]])) { if ((await fx.e.place(sc)) === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: `fixture:${sc.join(',')}` }) } }
+    // Codex code r1 BLOCKER 2: the wall cell is opened only when every face of it reads dry NOW (a seal that did not take waits)
+    const unsafe = mineFixtureSafe(stairRead(bot), f.at)
+    if (unsafe) { out.missing++; deepMineRow(bot, 'fixture', { why: `${f.item}:${unsafe}`, at: f.at, status: 'no_effect' }); continue }
     const b = stairRead(bot)(...f.at)
     if (b && !stairFull(b) && b.boundingBox !== 'empty') { out.missing++; continue }
     if (b && b.boundingBox !== 'empty') {
@@ -23563,7 +23570,8 @@ async function deepMineBuild (ctx, trip, signal, deadline) {
           stairRecMem = null
           deepMineRow(bot, 'stop', { why, k })
         },
-        onDropLanding: async () => {} }, fx.e, { deadline, unitsMax: MINE_BUILD_UNITS, sealDeep: true }))
+        onDropLanding: async () => {},
+        onDropRoom: async (k, why) => { publishRecord(dir, key, cur => mineRoomDropped(cur, k, { now: Date.now(), why }), { by: me }); stairRecMem = null; deepMineRow(bot, 'stop', { why: `room_${why}`, k }) } }, fx.e, { deadline, unitsMax: MINE_BUILD_UNITS, sealDeep: true }))
       trip.cells = (trip.cells ?? 0) + (vr.dug ?? 0)
       trip.sealed = (trip.sealed ?? 0) + (vr.placed ?? 0)
       trip.torches = (trip.torches ?? 0) + (vr.torches ?? 0)
@@ -23691,8 +23699,11 @@ async function deepMine (ctx, args, signal) {
     }
     // TORCHES AND BLOCKS FROM TOWN at the start (the stair visit's own top-up: matsWithdraw under the town's reserve; the town
     // deposit banks a bag's torches, so a miner would otherwise go down with none). Never required: a short take is only a row.
-    if (kit.torches < 8 || kit.seal < 48) {
-      try { await matsWithdraw(ctx, { ...(kit.torches < 8 ? { torch: 16 } : {}), ...(kit.seal < 48 ? { cobblestone: 64 } : {}) }, signal, 30_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    {
+      const k2 = deepTripKit(bot.inventory?.items?.() ?? [])   // townmine-01 r1 note 3: after the fixture crafts (a furnace is 8 cobble)
+      if (k2.torches < 8 || k2.seal < 48) {
+        try { await matsWithdraw(ctx, { ...(k2.torches < 8 ? { torch: 16 } : {}), ...(k2.seal < 48 ? { cobblestone: 64 } : {}) }, signal, 30_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
     }
     deepRow(bot, 'start', { why: `uses${kit.uses}/iron${kit.ironUses}/seal${kit.seal}/free${kit.free}/torch${deepTripKit(bot.inventory?.items?.() ?? []).torches}` })
     // OBSIDIAN-01: THE SUB-GOAL (deepmine.mjs obsidianWant: a diamond trip, a diamond pickaxe, a bucket, the town short of OBS_GOAL);
@@ -23721,7 +23732,7 @@ async function deepMine (ctx, args, signal) {
   // TOWNMINE-01: with the town mine sited, the way back is every step's stand of the extended stair (the trail leads to it)
   const mineOn = TOWNMINE.on && hasMine(rec) && !!trip.mine
   const minePlan = mineOn ? stairPlanOf(rec) : null
-  const backRoute = mineOn ? minePlan.steps.map((_, k) => stairStandOf(minePlan, k)) : route
+  const backRoute = mineOn ? minePlan.steps.slice(0, trip.target === 'build' || st.mine?.complete ? minePlan.steps.length : (minePlan.K16 ?? minePlan.K) + 1).map((_, k) => stairStandOf(minePlan, k)) : route
   // the trail is sampled while the bot walks, digs and tunnels (a stand on the ground every TRAIL_GAP)
   const sampler = setInterval(() => { try { if (bot.entity?.onGround && trip.phase !== 'return') trip.trail = deepTrailPush(trip.trail, deepFeet(bot)) } catch { /* sampling */ } }, 500)
   try {
@@ -23765,7 +23776,8 @@ async function deepMine (ctx, args, signal) {
           return out('no_effect', `stopped in the town mine at stand ${h.at} of ${way.length - 1} (${h.why})`)
         }
         // a build trip that stops short builds from there (the visit's own scan repairs what blocked the walk, top down)
-        trip.trail = [deepFeet(bot)]
+        // the trail back (Claude code r1 BLOCKER 2): from the hall, its columns back to the bottom step's stand (on the way back route)
+        trip.trail = trip.target === 'build' ? [deepFeet(bot)] : way.slice(minePlan.K)
         trip.phase = trip.target === 'build' ? 'build' : 'work'
         trip.arrivedAt = Date.now()
         trip.viaHall = trip.target === 'diamond'

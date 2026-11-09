@@ -45,10 +45,12 @@ export const FIXTURE_ITEMS = Object.freeze(['chest', 'crafting_table', 'furnace'
 /** Is this a stair record with a town mine on it? Pure. */
 export const hasMine = rec => isStairRecord(rec) && rec.ext?.blueprint === MINE_BLUEPRINT
 /** THE MINE NOW -> { sited, complete, stopped, why }. Pure. */
-export function mineState (rec) {
+export function mineState (rec, now = Date.now()) {
   if (!hasMine(rec)) return { sited: false, complete: false, stopped: false, why: 'no_mine' }
   const st = rec.ext.state
   if (st === 'no_site' || !Number.isInteger(rec.ext.Kb)) return { sited: false, complete: false, stopped: false, why: 'no_site' }
+  // a stalled build is parked until its retry (the ore trips have the miner meanwhile); then it is open again
+  if (st === 'stalled') return { sited: true, complete: false, stopped: !(now >= (rec.ext.retryAt ?? Infinity)), why: 'stalled' }
   return { sited: true, complete: st === 'complete', stopped: st === 'stopped', why: st }
 }
 /** MAY A MINE BE SITED ON THIS STAIR? -> null (yes) | why. Pure. The stair complete with its 16 landing built, no mine yet. */
@@ -79,6 +81,23 @@ export function withMine (rec, ext) {
   const r = { ...rec, ext }
   const plan = planOf(r)
   return { ...r, cells: plan.cells.map(c => ({ at: c.at, role: c.role })), box: [plan.box.x0, plan.box.z0, plan.box.x1, plan.box.z1] }
+}
+/** A room (a bay, the hall) dropped from the plan: a liquid in it the visit may not seal (the stair builder's upkeep). Pure. */
+export function mineRoomDropped (rec, k, { now = 0, why = 'liquid' } = {}) {
+  if (!hasMine(rec)) return null
+  const d = Array.isArray(rec.ext.droppedRooms) ? rec.ext.droppedRooms : []
+  if (d.includes(k)) return null
+  return withMine(rec, { ...rec.ext, droppedRooms: [...d, k], droppedAt: now, droppedWhy: why })
+}
+/** THE BUILD'S STALL CLOCK (Claude code r1 BLOCKER 3): a build trip that cut nothing counts one; STALL_TRIPS in a row park the mine
+ *  (state 'stalled' until retryAt) so the ore trips get the miner back; a trip that cut something clears it. -> the record | null. */
+export const STALL_TRIPS = 3
+export const STALL_RETRY_MS = 6 * 60 * 60_000
+export function mineStallNoted (rec, cut, { now = 0 } = {}) {
+  if (!hasMine(rec) || !['open', 'stalled'].includes(rec.ext.state)) return null
+  if (cut > 0) return (rec.ext.stalls ?? 0) > 0 || rec.ext.state === 'stalled' ? { ...rec, ext: { ...rec.ext, stalls: 0, state: 'open', retryAt: null } } : null
+  const n = (rec.ext.stalls ?? 0) + 1
+  return { ...rec, ext: { ...rec.ext, stalls: n, ...(n >= STALL_TRIPS ? { state: 'stalled', retryAt: now + STALL_RETRY_MS } : {}) } }
 }
 /** A truncated extension: a liquid the build could not seal at deep step k ends the mine above it (the hall moves up). Pure. */
 export function mineStopped (rec, k, { now = 0, why = 'liquid' } = {}) {
@@ -236,6 +255,20 @@ export function torchesMissing (read, plan) {
     const b = read(...t.at), s = read(...t.support)
     return !!b && !!s && isOpen(b) && !/torch$/.test(String(b.name)) && isFull(s)
   })
+}
+
+/**
+ * MAY THE FIXTURE'S WALL CELL BE OPENED? -> null (yes) | 'wet' | 'unknown' | 'falling'. Pure over read. Codex code r1 BLOCKER 2:
+ * every face neighbour read NOW (after the seals) is no liquid and is read; nothing that falls sits on it. Else the fixture waits.
+ */
+export function fixtureCellSafe (read, at) {
+  for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+    const b = read(at[0] + dx, at[1] + dy, at[2] + dz)
+    if (!b) return 'unknown'
+    if (isWet(b) || isLava(b)) return 'wet'
+    if (dy === 1 && /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|.*concrete_powder)$/.test(String(b.name))) return 'falling'
+  }
+  return null
 }
 
 // ---- rows -----------------------------------------------------------------------------------------------------------------------

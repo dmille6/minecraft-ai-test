@@ -117,7 +117,7 @@ export const MINE_BLUEPRINT = 'townmine@1'
 export const MINE_BOTTOM_FEET = -53               // owner O6 (10-23): deep branches at feet -53 (lava lakes start at y <= -55)
 export const BAY_EVERY = 12                       // owner 11-09: rest landings every 10-15 steps (12 keeps them on side cells)
 export const BAY_DEPTH = 2                        // a bay: two cells out from its step, two high (feet, head)
-export const BAY_MIN_BELOW = 6                    // a bay's feet at least this far below the ground
+export const BAY_MIN_BELOW = 10                   // a bay's feet at least this far below the ground (Claude r1: the deep miner's not-underground line is g - 8)
 export const BAY_LANDING_GAP = 4                  // never within this of a stub landing's feet (48/32/16 are rests already)
 export const HALL = Object.freeze({ len: 5, half: 2, h: 3 })   // the bottom hall: 5 deep x 5 wide x 3 high
 export const HALL_FIXTURES = Object.freeze([['crafting_table', -2], ['chest', -1], ['furnace', 1]])   // in the far wall (d = len + 1), by w
@@ -144,7 +144,7 @@ export function bayFeet (g, Kb) {
  * goes out from the bottom step's cell (HALL_DIR), HALL.len deep, 2*half+1 wide, h high; its fixtures sit in the far wall and the
  * diamond gallery's portal is the far wall's middle (d = len + 1, w = 0).
  */
-export function mineRooms ({ origin, away, g, s0, Kb }) {
+export function mineRooms ({ origin, away, g, s0, Kb, dropped = [] }) {
   const W = (u, y, v) => { const w = toWorld(origin, away, u, v); return [w.x, y, w.z] }
   const stand = k => { const [u, v] = PERIM[(s0 + k) % 8]; return W(u, g - k + 1, v) }
   const rooms = []
@@ -152,7 +152,7 @@ export function mineRooms ({ origin, away, g, s0, Kb }) {
     const k = g - f + 1
     const idx = (s0 + k) % 8
     const out = SIDE_OUT[idx]
-    if (!out || k < 1 || k > Kb) continue
+    if (!out || k < 1 || k > Kb || dropped.includes(k)) continue
     const [u, v] = PERIM[idx]
     const cols = []
     for (let d = 1; d <= BAY_DEPTH; d++) {
@@ -173,7 +173,7 @@ export function mineRooms ({ origin, away, g, s0, Kb }) {
     const inside = (uu, vv) => uu >= 0 && uu <= 2 && vv >= 0 && vv <= 2
     let ok = true
     for (let d = 1; d <= HALL.len + 1 && ok; d++) for (let w = -HALL.half - 1; w <= HALL.half + 1; w++) if (inside(...L(d, w))) ok = false
-    if (ok) {
+    if (ok && !dropped.includes(k)) {
       // the columns in breadth-first order from the entrance (d=1, w=0): each one's stand is the column it was reached from
       const cols = [], seen = new Map()
       const q = [[1, 0, null]]
@@ -245,7 +245,7 @@ export function planStair (site) {
     cols[cols.length - 1].end = end
     landings.push({ feet: l.feet, k: l.k, stub, cols, lining: [], end })
   }
-  const rooms = ext ? mineRooms({ origin, away, g, s0, Kb: K }) : []
+  const rooms = ext ? mineRooms({ origin, away, g, s0, Kb: K, dropped: Array.isArray(ext.droppedRooms) ? ext.droppedRooms : [] }) : []
   for (const r of rooms) for (const col of r.cols) for (const c of col.air) if (!air.has(k3(...c)) && !tread.has(k3(...c))) air.set(k3(...c), r.k)
   const fixtureKeys = new Set(rooms.flatMap(r => r.fixtures.map(f => k3(...f.at))))
   const endFaces = new Set([...landings.flatMap(l => l.end.map(c => k3(...c))), ...rooms.flatMap(r => r.cols.flatMap(c => c.end.map(e => k3(...e))))])
@@ -597,14 +597,14 @@ export function noSiteRecord ({ home, now = 0, by = '?', why = '' } = {}) {
 export function truncatedRecord (rec, stopK, { now = 0, why = 'liquid' } = {}) {
   const K = Math.max(0, stopK - 1)
   const keep = (rec.landings ?? []).filter(f => (rec.site.g - f + 1) <= K)
-  const plan = planStair({ ...rec.site, K, landings: keep })
+  const plan = planStair({ ...rec.site, K, landings: keep, ...(rec.ext ? { ext: rec.ext } : {}) })   // townmine-01 r1 note 1
   return { ...rec, K: plan.K, landings: plan.landings.map(l => l.feet), landings_built: (rec.landings_built ?? []).filter(f => keep.includes(f)),
     cells: plan.cells.map(c => ({ at: c.at, role: c.role })), box: [plan.box.x0, plan.box.z0, plan.box.x1, plan.box.z1], stoppedAt: now, stopWhy: why, stopK }
 }
 /** A landing whose stub met a liquid is dropped (the steps go on below it). Pure. */
 export function droppedLandingRecord (rec, feet, { now = 0, why = 'liquid' } = {}) {
   const keep = (rec.landings ?? []).filter(f => f !== feet)
-  const plan = planStair({ ...rec.site, K: rec.K, landings: keep })
+  const plan = planStair({ ...rec.site, K: rec.K, landings: keep, ...(rec.ext ? { ext: rec.ext } : {}) })   // townmine-01 r1 note 1
   return { ...rec, landings: plan.landings.map(l => l.feet), landings_built: (rec.landings_built ?? []).filter(f => keep.includes(f)),
     cells: plan.cells.map(c => ({ at: c.at, role: c.role })), box: [plan.box.x0, plan.box.z0, plan.box.x1, plan.box.z1],
     dropped: [...(rec.dropped ?? []), { feet, why, at: now }] }
