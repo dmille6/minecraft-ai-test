@@ -292,6 +292,30 @@ export function crewCaps (role, cutsOn = crewCutsOn()) {
 export const crewCutsOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.GKCREWCUT ?? '1').trim().toLowerCase())
 /** A helper visit that dug a cut did grounds work (it keeps its helper lease). Pure. */
 export const helperWorked = (r, gathered = 0) => (Number(r?.placed) || 0) > 0 || (Number(r?.cleared) || 0) > 0 || (Number(gathered) || 0) > 0
+// FILLSHARE-01 (control session 11-09, the 6:03 CT status report: inside-wall tidy 160 cuts / 26 fills since 00:00Z). MEASURED showcase
+// 11-08 16:17Z -> 11-09 12:40Z (telemetry.py, 14 bots): runVisit digs the tidy's cuts FIRST (up to GK.clearMax = 16 tries) and a crew
+// visit's budget (~120-160 s) runs out in them -- keeper visits placed 0 fills in 47 visits 02:39-12:40Z (cleared 105); a helper that
+// gets the seg-clear lease cuts its whole visit (helper visits 20:00-24:00Z: 30 cleared, 4 placed). Fills only came from helpers whose
+// clear lease was taken by the keeper. Stage open after 31 h: cuts 536/1098, fills 1339/2601 (the read's own record).
+// THE SHARE: while the stage's FILLS are further behind than its cuts (fills left / fills > cuts left / cuts) and a fill segment is
+// workable with earth in the bag, a HELPER fills first and digs cuts only with the time left (runVisit `clearsLast`), and the
+// KEEPER (its plan digs stay first: trees, replants) digs at most G.keeperCutsBehind tries before the fills. GKFILLSHARE=0 rollback.
+export const fillShareOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.GKFILLSHARE ?? '1').trim().toLowerCase())
+export const FILLSHARE = Object.freeze({ keeperCutsBehind: 6 })
+/**
+ * THE VISIT'S CUT/FILL SHARE -> { clearMax, clearsLast, behind }. Pure.
+ *   role       'keeper' | 'helper'
+ *   fillsLeft / fillsTotal, cutsLeft / cutsTotal   the stage's open counts (non-finite or <= 0 totals read as nothing behind)
+ *   fillReady  a fill segment is workable now AND the bag holds an earth block (else the share would idle the visit: cuts as before)
+ */
+export function tidyShare ({ role = 'keeper', fillsLeft = 0, fillsTotal = 0, cutsLeft = 0, cutsTotal = 0, fillReady = false, G = GK, F = FILLSHARE, on = fillShareOn() } = {}) {
+  const base = { clearMax: G.clearMax, clearsLast: false, behind: false }
+  if (!on || !fillReady) return base
+  const frac = (l, t) => (Number(t) > 0 && Number.isFinite(Number(l)) ? Math.max(0, Number(l)) / Number(t) : 0)
+  const fl = frac(fillsLeft, fillsTotal), cl = frac(cutsLeft, cutsTotal)
+  if (!(fl > cl)) return base
+  return role === 'keeper' ? { clearMax: Math.min(G.clearMax, F.keeperCutsBehind), clearsLast: false, behind: true } : { clearMax: G.clearMax, clearsLast: true, behind: true }
+}
 /**
  * GKHANDOVER-01: IS MY LEASE LET GO, AS THE DISK SAYS -> bool. Pure over buildproj leaseState's answer READ AGAIN after the release.
  * LIVE showcase 11-04 15:12Z (batch 3, the tripwire's H4): showcase-Frost logged its helper2 release (why=keeper) at :40.806 but no

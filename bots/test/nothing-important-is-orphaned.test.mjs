@@ -42,6 +42,7 @@ const REQUIRED = [
   'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
   'bots/test/gkleft.test.mjs',   // gkleft-01 (11-08): a cell nobody can work is waived by the town
   'bots/test/gkcrewcut.test.mjs',   // gkcrewcut-01 (11-08): helpers dig the tidy's cuts too
+  'bots/test/fillshare.test.mjs',   // fillshare-01 (11-09): a helper fills first while the fills are behind the cuts
   'bots/test/gkcrew4.test.mjs',   // gkcrew4-01 (11-08, owner: up to 4 helpers while > 500 open cells)
   'bots/test/gkclear.test.mjs',   // gkclear-01 (11-07): the town's strikes say a tidy stage is closing
   'bots/test/gkroom.test.mjs',   // gkroom-01 (11-07): the keeper refused the forest for room works the tidy
