@@ -342,6 +342,7 @@ export function surveyDescent (read, site, { keep = null } = {}) {
     const airK = new Set([...D.air, ...D.portal].map(kOf))
     const counts = { cave: 0, water: 0, ore: 0, cells: airK.size }
     let hazard = null
+    if (keep) for (const a of descentAllCells(P)) if (keep(...a) || N6.some(([dx, dy, dz]) => keep(a[0] + dx, a[1] + dy, a[2] + dz))) hazard = Math.max(hazard ?? -999, a[1])
     for (const a of [...D.air, ...D.portal]) {
       // townmine-01 (OWNER 11-09 'a mine is working way down is fine'): the town mine is the showcase's way down; the stepwell's
       // descent stops ABOVE every mine cell -- a descent cell on or beside one is a hazard like lava (the bottom rises over it)
@@ -368,10 +369,17 @@ export function surveyDescent (read, site, { keep = null } = {}) {
 /** DOES A PLANNED DESCENT TOUCH THE TOWN MINE? -> the highest feet y of a descent cell on or beside a mine cell | null. Pure. */
 export function descentMineHit (site, keep) {
   if (!site?.descent || !keep) return null
-  const D = planTank(site).descent
   let hit = null
-  for (const a of [...D.air, ...D.portal, ...D.treads]) if (keep(...a) || N6.some(([dx, dy, dz]) => keep(a[0] + dx, a[1] + dy, a[2] + dz))) hit = Math.max(hit ?? -999, a[1])
+  // EVERY descent cell (Codex r4 BLOCKER 2): its air, portal, treads and lights, and every structural cell the plan marks as the
+  // descent's (its lining walls) -- on a mine cell or beside one
+  for (const a of descentAllCells(planTank(site))) if (keep(...a) || N6.some(([dx, dy, dz]) => keep(a[0] + dx, a[1] + dy, a[2] + dz))) hit = Math.max(hit ?? -999, a[1])
   return hit
+}
+/** Every cell of a plan's descent: its air, portal, treads, lights and the plan's descent-marked cells. Pure. */
+export function descentAllCells (P) {
+  const D = P?.descent
+  if (!D) return []
+  return [...D.air, ...D.portal, ...D.treads, ...D.lights, ...(P.cells ?? []).filter(e => e.d).map(e => e.at)]
 }
 /**
  * THE STEPWELL CLEAR OF THE TOWN MINE (townmine-01, OWNER 11-09 option A) -> the next generation | null (already clear). Pure. A sited
@@ -391,9 +399,14 @@ export function stepwellClearOfMine (rec, keep, { now = Date.now() } = {}) {
   const bare = { ...rec, site: { ...rec.site } }
   delete bare.site.descent
   if (bottom > H0 - 2) {
-    const P = planTank(bare.site)
+    // the TANK's own cuts kept as listed (the same cut-top rule as the record's), the felling carried (Codex r4 BLOCKER 1: the clear
+    // list is rebuilt from the tank-only plan's cuts, never filtered against its structural cells)
+    const oldD = new Set(descentAllCells(planTank(rec.site)).map(kOf))
+    const listed = new Set((rec.clear ?? []).filter(c => c.kind === 'cut' && !oldD.has(kOf(c.at))).map(c => kOf(c.at)))
+    const P = planTank(bare.site, { cutKeep: c => listed.has(kOf(c)) })
+    const fell = (rec.clear ?? []).filter(c => c.kind === 'tree' || c.kind === 'leaves')
     return { ...bare, cells: P.cells.map(e => ({ at: e.at, role: e.role, t: e.t, ...(e.d ? { d: 1 } : {}), ...(e.role === 'stand' ? { seg: FELL_SEG } : {}) })),
-      clear: (rec.clear ?? []).filter(c => c.kind !== 'cut' || P.byKey.has(kOf(c.at))), descent: null, descentNone: { why: 'mine', bottom, at: now } }
+      clear: [...fell.filter(c => !P.byKey.has(kOf(c.at))), ...P.cut.map(c => ({ at: c.at, kind: 'cut', t: c.t }))], descent: null, descentNone: { why: 'mine', bottom, at: now } }
   }
   const D = planTank({ ...rec.site, descent: { bottom } }).descent
   return stepwellWithDescent(bare, { ok: true, bottom, bottomFeet: D.bottomFeet, counts: { cells: D.air.length + D.portal.length, mine: 1 } }, { now })

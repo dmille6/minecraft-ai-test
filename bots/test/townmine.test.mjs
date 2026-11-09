@@ -391,6 +391,33 @@ await t('a descent that WOULD reach the mine is raised over it (never on or besi
   const sd = SW.surveyDescent(() => ({ name: 'stone', boundingBox: 'block' }), { ...site, descent: undefined }, { keep })
   assert.ok(sd.ok && sd.bottom > mid, 'a NEW survey stops above the mine too')
 })
+await t('Codex r4 BLOCKER 2: a mine cell beside only a descent LINING wall still raises the descent', () => {
+  const site = FIX.stepwell.site, P = SW.planTank(site)
+  const keys = new Set(P.cells.map(e => e.at.join(',')))
+  const N = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
+  let probe = null
+  for (const e of P.cells.filter(q => q.d && q.role === 'wall')) {
+    for (const [a, b, c] of N) { const n = [e.at[0] + a, e.at[1] + b, e.at[2] + c]; if (!keys.has(n.join(',')) && !P.descent.air.some(q => q.join(',') === n.join(','))) { probe = n; break } }
+    if (probe) break
+  }
+  assert.ok(probe, 'a cell just outside a descent wall')
+  const keep = (x, y, z) => x === probe[0] && y === probe[1] && z === probe[2]
+  assert.notStrictEqual(SW.descentMineHit(site, keep), null)
+})
+await t('Codex r4 BLOCKER 1: a dropped descent keeps every tank cut (the tank-only plan\'s cuts, none of them a structural cell)', () => {
+  const site = FIX.stepwell.site
+  const full = SW.planTank(site)
+  const rec = { ...FIX.stepwell, cells: [], clear: full.cut.map(c => ({ at: c.at, kind: 'cut', t: c.t })) }
+  const D = full.descent, H0 = Math.max(...D.path.map(q => q[1]))
+  const dAir = new Set(D.air.filter(a => a[1] <= H0 - 2).map(a => a.join(',')))
+  const r = SW.stepwellClearOfMine(rec, (x, y, z) => dAir.has(`${x},${y},${z}`), { now: 1 })
+  const tank = SW.planTank({ ...site, descent: undefined })
+  const cuts = r.clear.filter(c => c.kind === 'cut')
+  assert.ok(cuts.length > 1000, `tank cuts kept (${cuts.length})`)
+  assert.strictEqual(cuts.length, tank.cut.length)
+  const struct = new Set(tank.cells.map(e => e.at.join(',')))
+  assert.strictEqual(cuts.filter(c => struct.has(c.at.join(','))).length, 0)
+})
 await t('WIRED: the stepwell visit clears its descent of the mine before cutting; both surveys pass the mine keep', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
