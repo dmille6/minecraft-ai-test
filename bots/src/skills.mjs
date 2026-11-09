@@ -125,7 +125,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { citywallOn, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, CITYWALL_WAIVE_MORE, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01 (the fleet port: FLAT, no planner plot)
+import { citywallOn, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallWaiveMore, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01 (the fleet port: FLAT, no planner plot)
 import { wallEscape } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own)
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a stand dig a swapped cell (the visit's own rule)
@@ -19652,7 +19652,7 @@ async function buildWall (ctx, args, signal) {
         // citywall-01: an upgraded ring's swapped cells no stand sees are waived past the wall's own bound (each stays its old block:
         // the wall whole, never a gap), so a phase closes
         const due = wallWaiveDue(rec, r.deferred ?? [])
-        if (isCitywall(rec) && !due.length) due.push(...wallWaiveDue(rec, r.deferred ?? [], { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE }))
+        if (isCitywall(rec) && !due.length) due.push(...wallWaiveDue(rec, r.deferred ?? [], { max: WALL_WAIVE_MAX + citywallWaiveMore(rec) }))
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too

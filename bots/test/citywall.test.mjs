@@ -38,6 +38,17 @@ function standingWall (srv) {
   return rec
 }
 
+await t('THE WAIVER\'S BOUND scales with the ring (the waived list lives across every phase: a fixed 76 held a 706-cell ring\'s later phases)', () => {
+  const ring = n => ({ cells: Array.from({ length: n }, (_, i) => ({ at: [i, 70, 0], role: 'cw-body', seg: 'W-00' })), citywall: { design: { cells: Array.from({ length: n }, (_, i) => ({ at: [i, 70, 0] })) } } })
+  assert.strictEqual(CW.citywallWaiveMore(null), CW.CITYWALL_WAIVE_MORE)
+  assert.strictEqual(CW.citywallWaiveMore(ring(100)), CW.CITYWALL_WAIVE_MORE, 'a short ring: the floor')
+  assert.strictEqual(CW.citywallWaiveMore(ring(706)), Math.ceil(706 * CW.CITYWALL_WAIVE_FRAC))
+  // composed with the wall's own waiver: a long ring with 100 cells waived still waives its next deferred cell
+  const r = ring(706); r.waived = Object.fromEntries(r.cells.slice(0, 100).map(c => [c.at.join(','), { why: 'x' }]))
+  const d = [{ k: '150,70,0', why: 'swap no_stand', visits: W.WALL_WAIVE_AFTER }]
+  assert.strictEqual(W.wallWaiveDue(r, d, { max: W.WALL_WAIVE_MAX + CW.CITYWALL_WAIVE_MORE }).length, 0, 'the fixed bound: spent')
+  assert.strictEqual(W.wallWaiveDue(r, d, { max: W.WALL_WAIVE_MAX + CW.citywallWaiveMore(r) }).length, 1, 'the scaled bound: waived')
+})
 await t('THE PALETTE COPY: OLD_WALL_PALETTE is wall.mjs WALL_PALETTE (the steps, posts and lights the upgrade leaves)', () => {
   assert.deepStrictEqual(JSON.parse(JSON.stringify(CW.OLD_WALL_PALETTE)), JSON.parse(JSON.stringify(W.WALL_PALETTE)))
   for (const st of Object.keys(CW.WALL_STYLES)) for (const r of Object.values(CW.CW)) assert.ok(CW.citywallPalette(st)[r]?.length, `${st} ${r}`)
@@ -184,6 +195,28 @@ await t('A SWAPPED CELL NO STAND SEES is DEFERRED (counted for the waiver), neve
   assert.ok((v.deferred ?? []).some(d => String(d.k) === at.join(',')), `deferred ${JSON.stringify(v.deferred)}`)
   assert.strictEqual(srv.read(...at).name, 'cobblestone', 'never dug: the wall stays whole')
 })
+await t('A SEGMENT HELD BY A LISTED LEAF NO STAND SEES is DEFERRED (counted for the waiver), never `blocked` for good -- and a mutant without the rule is', async () => {
+  // offline on the showcase 11-09: a spruce leaf in a gate deck cell, listed as a clear, no stand for it: `blocked` every visit, the phase held
+  const run = async M => {
+    const srv = server()
+    const at = [10, G - 3, 10]
+    srv.set(at, 'spruce_leaves')
+    const rec = { v: 1, blueprint: 'wall@1', plot: 'wall', home: HOME, cells: [{ at, role: 'cw-deck', seg: 'CW-G' }], segments: [{ seg: 'CW-G', deps: [] }], clear: [{ at, kind: 'leaves', name: 'spruce_leaves' }], replant: [], structure_complete: true }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cwleaf-')); const key = PJ.projKey(HOME, W.WALL_PLOT)
+    const pub = PJ.publishRecord(dir, key, () => rec)
+    const b = bot(srv, 'A', { inv: { stone_bricks: 10 }, feet: [0, G + 1, 0] })
+    const slot = PJ.takeSlot(dir, key, 'A', 4)
+    return M.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, recordGen: pub.gen, palette: CW.citywallPalette('grey'), slot: slot.slot, slotGen: slot.gen,
+      domain: () => true, walkR: 40, foreign: W.WALL_FOREIGN, blockLayer: false, clearMax: W.WALL_CLEAR_MAX, swap: true, sealed: { mayDig: () => true }, stands: { pending: null, bans: {} } }, b, { maxSteps: 100 })
+  }
+  const v = await run(R)
+  assert.notStrictEqual(v.stop, 'blocked', `${v.stop} ${v.why}`)
+  assert.ok((v.deferred ?? []).some(d => String(d.k) === '10,' + (G - 3) + ',10'), `deferred ${JSON.stringify(v.deferred)}`)
+  await withMutant('          if (p.swap && !needSapling) {\n', '          if (false) {\n', async M => {
+    const m = await run(M)
+    assert.strictEqual(m.stop, 'blocked', `the mutant: ${m.stop}`)
+  })
+})
 await t('CODEX r3 BLOCKER: a SEALED lower swap never strands the hole dug above it -- the cell above is placed on the old block, the sealed ones deferred', async () => {
   const srv = server()
   // a column of three swapped cells: the lower two buried in the ground (no stand sees them), the top one in the open air
@@ -222,6 +255,7 @@ await t('WIRED (the fleet: no planner plot): the wall visit publishes the next p
   assert.ok(/wallEscape\(read0, home, \[\.\.\.rec\.cells, \.\.\.design\.cells\]/.test(SK))
   assert.ok(/done: q => wallWaived\(rec, q\) \|\| /.test(SK))
   assert.ok(/\(cur\.structure_complete && !isCitywall\(cur\)\)/.test(SK))
+  assert.ok(/if \(isCitywall\(rec\) && !due\.length\) due\.push\(\.\.\.wallWaiveDue\(rec, r\.deferred \?\? \[\], \{ max: WALL_WAIVE_MAX \+ citywallWaiveMore\(rec\) \}\)\)/.test(SK), 'the scaled waiver bound')
   assert.ok(/const swapSealed = v === 'no_stand' && p\.swap && f\.sw\s*\n\s*if \(!swapSealed\) if \(v === 'no_stand' && p\.sealed && kind !== 'tree'\) \{/.test(BR))
 })
 

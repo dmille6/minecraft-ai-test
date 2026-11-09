@@ -581,6 +581,11 @@ export function citywallGeneration (rec, design, ph, { now = Date.now() } = {}) 
 export const designOf = rec => (rec?.citywall?.design ? { style: rec.citywall.style, seed: rec.citywall.seed, ...rec.citywall.design } : null)
 /** How many more cells an upgraded ring's waiver may name past wall.mjs WALL_WAIVE_MAX (a swapped cell no stand sees stays its old block). */
 export const CITYWALL_WAIVE_MORE = 64
+/** THE WAIVER'S BOUND for an upgraded ring past WALL_WAIVE_MAX -> a count: CITYWALL_WAIVE_MORE, or CITYWALL_WAIVE_FRAC of the design's
+ *  cells when that is more (the waived list lives on the record across every phase: a fixed bound a long ring spends in its first
+ *  phases would hold every later phase for good -- offline on the showcase 11-09). Pure. */
+export const CITYWALL_WAIVE_FRAC = 0.25
+export const citywallWaiveMore = rec => Math.max(CITYWALL_WAIVE_MORE, Math.ceil((rec?.citywall?.design?.cells?.length ?? 0) * CITYWALL_WAIVE_FRAC))
 /** What the town keeps back from a phase's bill (the stoneworks' and the market's own buffers stay theirs). */
 export const CITYWALL_KEEP = Object.freeze({ stone_bricks: 64, deepslate_bricks: 32, lantern: 4, iron_bars: 0 })
 /**
