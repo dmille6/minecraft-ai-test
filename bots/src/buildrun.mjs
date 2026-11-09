@@ -1371,6 +1371,17 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // (shopwalls-06 r2, Codex r1 BLOCK: with every stand's route crossing, the refusal alone would stall the cell for good)
         for (const c of cand) { const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
         if (!picked) {
+          // citywall-01 (`p.swap`): an ADDED clear cell no stand fills now (an underpinning under a hanging run) never holds the swap: it
+          // is spent and DEFERRED (counted for the waiver), and the swap of the run's standing cells goes on (offline on board-b 11-09:
+          // a `blocked` run for good, every later run of the phase behind it)
+          if (p.swap && open.some(c => c.sw && !isClear(c.at))) {
+            const spent = cand.filter(c => !c.sw)
+            if (spent.length) {
+              for (const c of spent) { tries.set(kOf(c.at), BUILD_ATTEMPTS); deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
+              e.log('_build', { op: 'deferred', seg, cell: spent[0].at, n: spent.length, why: 'swap_hole' })
+              continue
+            }
+          }
           // canopy-01: no stand for any placeable cell -- the natural leaves round the lowest few are cut back, the segment read again
           if (p.canopy && cand.length && cand.some(c => !canopied.has(kOf(c.at)))) {
             const sg = segGen
