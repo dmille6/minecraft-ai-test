@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """suite-run: run the FULL bots test suite on a test host, never on the Mac mini.
 
-OWNER 2026-11-03 "build the 2nd test suite on pve3". Two hosts share one convention: a
-per-host `~/suite.lock` (flock), `nice -n 19`, `TEST_JOBS=6`, and a copied tree under ~/ci/.
+OWNER 2026-11-03 "build the 2nd test suite on pve3"; 2026-11-09 "lets build 2 more test machines" (ci3, ci4). The
+hosts share one convention: a per-host `~/suite.lock` (flock), `nice -n 19`, `TEST_JOBS=6`, and a copied tree under ~/ci/.
 
-    ci2   mike@10.0.0.34  vm-minecraft-ci2 (pve3 vmid 107, 16 vCPU / 24 GB), the dedicated test host
-    w30   mike@10.0.0.30  block2-worlds (also runs the fleet's Paper worlds; user-space Node 22)
+    ci2   mike@10.0.0.34  vm-minecraft-ci2 (pve3 vmid 107, 16 vCPU / 24 GB), a dedicated test host
+    ci3   mike@10.0.0.35  vm-minecraft-ci3 (pve1 vmid 124, 16 vCPU / 24 GB), a dedicated test host
+    ci4   mike@10.0.0.36  vm-minecraft-ci4 (pve1 vmid 125, 16 vCPU / 24 GB), a dedicated test host
+    w30   mike@10.0.0.30  block2-worlds (also runs the fleet's Paper worlds; user-space Node 22) -- the last resort
 
 Usage (from the Mac, any worktree):
 
-    python3 scripts/host/suite-run.py [WORKTREE] [--ref REF] [--label L] [--host ci2|w30]
+    python3 scripts/host/suite-run.py [WORKTREE] [--ref REF] [--label L] [--host ci2|ci3|ci4|w30]
                                       [--filter SUBSTR] [--log PATH] [--detach] [--keep]
 
   WORKTREE   default: the current directory's git top level. The tree shipped is that worktree AS IT
              STANDS (tracked files with their uncommitted edits, plus untracked non-ignored files;
              .wt-*/, videos/ and .claude/ are left out). With --ref, `git archive REF` is shipped instead.
-  --host     force a host. Default: host_plan -- lock-free hosts first (ci2 first), then busy ones by fewer flock
-             holders+waiters; a host without npm or this lock's node_modules cache is seeded from one that has it,
+  --host     force a host. Default: host_plan -- lock-free hosts first (the ci hosts before w30; ci2, the fast one,
+             before ci3/ci4; then the least loaded by 1-min load per CPU), then busy ones by fewer flock holders+waiters (ci before
+             w30 on a tie); a host without npm or this lock's node_modules cache is seeded from one that has it,
              and a host whose seed or prep fails is skipped for the next (FALLBACK below).
   --filter   passed to run-tests.mjs as its file-name filter (argv[2]).
   --log      local copy of the log (default /tmp/suite-run/<label>.<host>.log). The remote log is
@@ -69,9 +72,18 @@ import time
 
 HOSTS = {
     'ci2': 'mike@10.0.0.34',
+    'ci3': 'mike@10.0.0.35',
+    'ci4': 'mike@10.0.0.36',
     'w30': 'mike@10.0.0.30',
 }
-ORDER = ['ci2', 'w30']
+ORDER = ['ci2', 'ci3', 'ci4', 'w30']
+LAST_RESORT = ('w30',)   # also runs the fleet's Paper worlds: a ci host is preferred whenever one is free
+# 11-09 proof (sha 89385025, same tree): ci2 (i9-13900H) 420/421 in 804 s; ci3/ci4 (pve1 Xeon 8268, ~1.6x slower per core)
+# 415-416/421 in 1158 s -- ziggurat-tidy/ziggurat-v2-build SIGKILLed at the 300 s file timeout (232 s solo on ci3, 145-190
+# on ci2), plinth-skill, well, lavastep: the same set w30 (also a pve1 Xeon) has failed on for days. So among FREE hosts
+# the fast one goes first and the slow ones get a 600 s file timeout; well/lavastep stay red there (timing, not the host).
+SLOW = ('ci3', 'ci4', 'w30')
+HOST_ENV = {'ci3': 'TEST_TIMEOUT_MS=600000', 'ci4': 'TEST_TIMEOUT_MS=600000'}
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
 SKIP_PREFIXES = ('.wt-', 'videos/', '.claude/')
 
@@ -85,15 +97,21 @@ def ssh(host, cmd, timeout=120, **kw):
 
 
 def parse_probe(out):
-    """PURE. probe_cmd's stdout -> {'free', 'cache', 'npm': bool, 'waiters': int}, or None when the host did not answer."""
+    """PURE. probe_cmd's stdout -> {'free', 'cache', 'npm': bool, 'waiters': int, 'load': float or None (1-min load
+    average per CPU)}, or None when the host did not answer."""
     lines = (out or '').split()
     if 'PROBED' not in lines:
         return None
-    w = 0
+    w, load = 0, None
     for i, tok in enumerate(lines):
         if tok == 'WAITERS' and i + 1 < len(lines) and lines[i + 1].isdigit():
             w = int(lines[i + 1])
-    return {'free': 'FREE' in lines, 'cache': 'CACHE' in lines, 'npm': 'NPM' in lines, 'waiters': w}
+        if tok == 'LOAD' and i + 2 < len(lines):
+            try:
+                load = round(float(lines[i + 1]) / max(1, int(lines[i + 2])), 3)
+            except ValueError:
+                load = None
+    return {'free': 'FREE' in lines, 'cache': 'CACHE' in lines, 'npm': 'NPM' in lines, 'waiters': w, 'load': load}
 
 
 def probe_cmd(lock_hash):
@@ -101,14 +119,16 @@ def probe_cmd(lock_hash):
     return ('touch ~/suite.lock; flock -n ~/suite.lock true && echo FREE; '
             f'test -d ~/ci/.nm-cache/{h}/node_modules && echo CACHE; '
             '(PATH=$HOME/coopb5/node22/bin:$PATH; command -v npm >/dev/null) && echo NPM; '
-            "echo WAITERS $(ps -eo args | grep -c '^flock .*suite\\.lock'); echo PROBED")
+            "echo WAITERS $(ps -eo args | grep -c '^flock .*suite\\.lock'); "
+            "echo LOAD $(cut -d' ' -f1 /proc/loadavg) $(nproc); echo PROBED")
 
 
 def host_plan(order, probes, forced=None):
     """PURE. probes {host: parse_probe() or None} -> [(host, seed_from or None)], the order to try.
     A host is READY when it holds the cache for this lock hash or has npm; otherwise it is tried with its cache seeded
-    from a host that holds it (busy or not: seeding reads the cache, not the lock). Lock-free hosts first (in `order`),
-    then busy ones by fewer waiters (ties in order). A host with neither is kept, LAST, with no seed (its prep may still
+    from a host that holds it (busy or not: seeding reads the cache, not the lock). Lock-free hosts first -- LAST_RESORT
+    (w30) after the others, then the fast host (ci2) before the SLOW ones, then the least loaded (load per CPU; unknown
+    counts as loaded), ties in `order` -- then busy ones by fewer waiters (ties: LAST_RESORT last, then SLOW, then order). A host with neither is kept, LAST, with no seed (its prep may still
     find a ~/ci tree to copy from). An unreachable host is left out. forced: only that host (seeded if it needs it)."""
     up = {h: p for h, p in probes.items() if p is not None and h in order}
     holders = [h for h in order if h in up and up[h]['cache']]
@@ -117,8 +137,13 @@ def host_plan(order, probes, forced=None):
         if up[h]['cache'] or up[h]['npm']:
             return None
         return next((s for s in holders if s != h), False)
-    hosts = [forced] if forced else sorted(up, key=lambda h: (0, 0, order.index(h)) if up[h]['free']
-                                           else (1, up[h]['waiters'], order.index(h)))
+    def rank(h):
+        last = 1 if h in LAST_RESORT else 0
+        load = up[h].get('load')
+        load = 99.0 if load is None else load
+        slow = 1 if h in SLOW else 0
+        return (0, last, slow, load, order.index(h)) if up[h]['free'] else (1, up[h]['waiters'], last, slow, order.index(h))
+    hosts = [forced] if forced else sorted(up, key=rank)
     plan, last = [], []
     for h in hosts:
         if h not in up:
@@ -402,7 +427,7 @@ node -v
 
 
 def main():
-    ap = argparse.ArgumentParser(description='Run the full bots suite on ci2 (10.0.0.34) or .30 under ~/suite.lock.')
+    ap = argparse.ArgumentParser(description='Run the full bots suite on ci2/ci3/ci4 (10.0.0.34-36) or .30 under ~/suite.lock.')
     ap.add_argument('worktree', nargs='?')
     ap.add_argument('--ref')
     ap.add_argument('--label')
@@ -514,6 +539,7 @@ def run_suite(host, a, label, dest, rlog, llog, git_ctx):
     lock_s, suite_s = a.lock_wait_min * 60, a.suite_min * 60
     inner = (f'export PATH=$HOME/coopb5/node22/bin:$PATH; cd ~/{dest}/bots && '
              f'flock -w {lock_s} -E {LOCK_TIMEOUT_RC} ~/suite.lock timeout -k 60 {suite_s} nice -n 19 env TEST_JOBS=6 '
+             f'{HOST_ENV[host] + " " if HOST_ENV.get(host) else ""}'
              f'node scripts/run-tests.mjs{filt} > ~/{rlog} 2>&1; rc=$?; '
              f'[ $rc = {LOCK_TIMEOUT_RC} ] && echo "LOCK TIMEOUT: ~/suite.lock busy for {a.lock_wait_min} min" >> ~/{rlog}; '
              f'[ $rc = {SUITE_TIMEOUT_RC} ] && echo "SUITE DEADLINE: killed after {a.suite_min} min" >> ~/{rlog}; '

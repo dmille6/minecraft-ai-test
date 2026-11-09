@@ -153,8 +153,8 @@ def t_relay(_S=None):
           == ('giveup', None))
 
 
-def P(free=False, cache=False, npm=False, waiters=0):
-    return {'free': free, 'cache': cache, 'npm': npm, 'waiters': waiters}
+def P(free=False, cache=False, npm=False, waiters=0, load=None):
+    return {'free': free, 'cache': cache, 'npm': npm, 'waiters': waiters, 'load': load}
 
 
 def t_plan(S):
@@ -179,9 +179,46 @@ def t_plan(S):
     check('plan: forced unreachable -> nothing', got == [], got)
 
 
+def t_plan_ci34(S):
+    """OWNER 11-09: ci3 + ci4. Free hosts: the ci hosts before w30 (it runs the fleet's worlds), least loaded first;
+    busy: fewer waiters, ci before w30 on a tie."""
+    O = list(S.ORDER)
+    check('hosts: ci2/ci3/ci4/w30 known', O == ['ci2', 'ci3', 'ci4', 'w30'] and set(O) <= set(S.HOSTS), O)
+    allc = dict(cache=True, npm=True)
+    got = S.host_plan(O, {'ci2': P(free=True, load=0.5, **allc), 'ci3': P(free=True, load=0.1, **allc),
+                          'ci4': P(free=True, load=0.3, **allc), 'w30': P(free=True, cache=True, load=0.0)})
+    check('plan: all free -> fast ci2 first, then the least-loaded slow ci, w30 last even when idle',
+          [h for h, _ in got] == ['ci2', 'ci3', 'ci4', 'w30'], got)
+    got = S.host_plan(O, {'ci2': P(waiters=1, **allc), 'ci3': P(free=True, load=0.4, **allc),
+                          'ci4': P(free=True, load=0.1, **allc), 'w30': None})
+    check('plan: ci2 busy -> the least-loaded of ci3/ci4', [h for h, _ in got] == ['ci4', 'ci3', 'ci2'], got)
+    got = S.host_plan(O, {'ci2': P(waiters=1, **allc), 'ci3': P(free=True, load=2.0, **allc),
+                          'ci4': P(waiters=2, **allc), 'w30': P(free=True, cache=True, load=0.1)})
+    check('plan: a free ci beats a free w30 whatever the load', [h for h, _ in got] == ['ci3', 'w30', 'ci2', 'ci4'], got)
+    got = S.host_plan(O, {'ci2': P(waiters=1, **allc), 'ci3': P(waiters=1, **allc), 'ci4': P(waiters=1, **allc),
+                          'w30': P(waiters=0, cache=True)})
+    check('plan: all busy -> fewer waiters (w30 0) first', [h for h, _ in got] == ['w30', 'ci2', 'ci3', 'ci4'], got)
+    got = S.host_plan(O, {'ci2': P(waiters=2, **allc), 'ci3': P(waiters=2, **allc), 'ci4': None,
+                          'w30': P(waiters=2, cache=True)})
+    check('plan: busy tie -> ci before w30', [h for h, _ in got] == ['ci2', 'ci3', 'w30'], got)
+    got = S.host_plan(['w30', 'ci3'], {'ci3': P(waiters=2, **allc), 'w30': P(waiters=2, cache=True)})
+    check('plan: busy tie -> ci before w30 whatever the order', [h for h, _ in got] == ['ci3', 'w30'], got)
+    got = S.host_plan(O, {'ci2': None, 'ci3': P(free=True, load=None, **allc), 'ci4': P(free=True, load=0.9, **allc),
+                          'w30': None})
+    check('plan: unknown load ranks after a known one', [h for h, _ in got] == ['ci4', 'ci3'], got)
+    got = S.host_plan(O, {'ci2': P(cache=True, npm=True, waiters=3), 'ci3': P(free=True), 'ci4': None, 'w30': None})
+    check('plan: a fresh ci3 without cache or npm is seeded from ci2', got == [('ci3', 'ci2'), ('ci2', None)], got)
+    got = S.host_plan(O, {'ci2': P(free=True, **allc), 'ci3': P(waiters=4, **allc), 'ci4': P(free=True, **allc),
+                          'w30': None}, forced='ci3')
+    check('plan: forced ci3 even when busy', got == [('ci3', None)], got)
+
+
 def t_probe(S):
     check('probe: parsed', S.parse_probe('FREE\nCACHE\nWAITERS 2\nPROBED\n') == P(True, True, False, 2))
     check('probe: npm only', S.parse_probe('NPM\nWAITERS 0\nPROBED\n') == P(npm=True))
+    check('probe: load per CPU', S.parse_probe('FREE\nWAITERS 0\nLOAD 8.00 16\nPROBED\n') == P(free=True, load=0.5),
+          S.parse_probe('FREE\nWAITERS 0\nLOAD 8.00 16\nPROBED\n'))
+    check('probe: garbled load -> None', S.parse_probe('LOAD x 16\nPROBED\n') == P())
     check('probe: no answer -> None', S.parse_probe('') is None and S.parse_probe('FREE') is None)
     check('probe: a bad hash is never put in a path', 'nm-cache/none/' in S.probe_cmd('x; rm -rf ~'))
     # the real command, run locally against a temp HOME with a cache (positive) and without (negative)
@@ -265,8 +302,10 @@ def t_relay_retry(_S=None):
     check('relay: failed hosts parsed', R.failed_hosts(out) == ['w30', 'ci2'], R.failed_hosts(out))
     check('relay: 1st failure -> suite-run picks', R.next_args({'fails': 1, 'hosts': ['w30']}) == [])
     check('relay: 2nd failure on w30 -> try ci2', R.next_args({'fails': 2, 'hosts': ['w30']}) == ['--host', 'ci2'])
-    check('relay: 2nd failure on ci2 -> try w30', R.next_args({'fails': 2, 'hosts': ['ci2']}) == ['--host', 'w30'])
-    check('relay: every host failed -> suite-run picks', R.next_args({'fails': 5, 'hosts': ['ci2', 'w30']}) == [])
+    check('relay: 2nd failure on ci2 -> try ci3', R.next_args({'fails': 2, 'hosts': ['ci2']}) == ['--host', 'ci3'])
+    check('relay: ci2-ci4 failed -> try w30', R.next_args({'fails': 2, 'hosts': ['ci2', 'ci3', 'ci4']}) == ['--host', 'w30'])
+    check('relay: every host failed -> suite-run picks',
+          R.next_args({'fails': 5, 'hosts': ['ci2', 'ci3', 'ci4', 'w30']}) == [])
     k = 'gkwork-01--e6a1ea2b042e--76db6dd20bb6'
     check('relay: a retried key with a stale .expired is LIVE (11-07 drop/start cycle)', R.gone_keys({k: {}}, {k}) == set())
     check('relay: an .expired with no .req is gone', R.gone_keys({}, {k}) == {k})
@@ -313,8 +352,16 @@ MUTANTS = [
      "    deleted = sorted(p for p in git_lines(wt, 'ls-files', '-z', '--deleted') if not p.startswith(SKIP_PREFIXES))", t_overlay),
     # 11-07 fallback
     ("        return next((s for s in holders if s != h), False)", "        return False", t_plan),
-    ("    hosts = [forced] if forced else sorted(up, key=lambda h: (0, 0, order.index(h)) if up[h]['free']",
-     "    hosts = [forced] if forced else sorted(up, key=lambda h: (0, 0, order.index(h)) if not up[h]['free']", t_plan),
+    ("return (0, last, slow, load, order.index(h)) if up[h]['free']",
+     "return (0, last, slow, load, order.index(h)) if not up[h]['free']", t_plan),
+    # 11-09 ci3/ci4: w30 is the last resort among free hosts; load orders the free ones
+    ("return (0, last, slow, load, order.index(h)) if up[h]['free']", "return (0, 0, slow, 0, order.index(h)) if up[h]['free']",
+     t_plan_ci34),
+    ("slow = 1 if h in SLOW else 0", "slow = 0", t_plan_ci34),
+    ("load = 99.0 if load is None else load", "load = 0.0 if load is None else load", t_plan_ci34),
+    ("else (1, up[h]['waiters'], last, slow, order.index(h))", "else (1, up[h]['waiters'], 0, slow, order.index(h))",
+     t_plan_ci34),
+    ("load = round(float(lines[i + 1]) / max(1, int(lines[i + 2])), 3)", "load = float(lines[i + 1])", t_probe),
     ("        (last if s is False else plan).append((h, None if s is False else s))", "        (plan if s is False else plan).append((h, None if s is False else s))", t_plan),
     ("        if bad:\n            failed(host, 'seed-failed', bad)\n            tried.append(f'{host}: {bad}')\n            continue",
      "        if bad:\n            failed(host, 'seed-failed', bad)\n            tried.append(f'{host}: {bad}')\n            break", t_try),
@@ -365,7 +412,7 @@ def relay_mutants():
 
 def main():
     S = load()
-    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_prune, t_relay, t_plan, t_probe, t_try, t_seed, t_relay_retry):
+    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_prune, t_relay, t_plan, t_plan_ci34, t_probe, t_try, t_seed, t_relay_retry):
         t(S)
     base = list(FAILS)
     for f in base:

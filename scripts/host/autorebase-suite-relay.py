@@ -8,8 +8,8 @@ its scratch repo, then waits up to 100 min for <key>.out (the run-tests output) 
 has no ssh key to the test hosts; the Mac has both, so this relay does the hand-over:
 
   1. new request: fetch <ref> from .31's scratch repo into the relay's bare repo (~/mcai-autorebase-relay.git, the push
-     relay's), check it IS the requested sha, and start `suite-run.py <that repo> --ref <sha> --detach` (ci2 first, .30
-     second, its lock, its deadlines, a real git checkout) -- recorded in ~/mcai-autorebase-suite/<key>.json;
+     relay's), check it IS the requested sha, and start `suite-run.py <that repo> --ref <sha> --detach` (a free ci host
+     first -- ci2/ci3/ci4, least loaded -- .30 last, its lock, its deadlines, a real git checkout) -- recorded in ~/mcai-autorebase-suite/<key>.json;
   2. a started run: read its remote log's last line; `DONE rc=N` -> copy the log to .31 as <key>.out, THEN write
      <key>.done (the order .31 relies on), and rename <key>.req to <key>.req-done;
   3. a run older than GIVEUP_MIN (150) with no DONE -> <key>.done {rc: "timeout"} (.31 then runs the suite itself).
@@ -39,7 +39,7 @@ HREPO = '/home/mike/autorebase/repo.git'
 R = os.path.expanduser('~/mcai-autorebase-relay.git')
 STATE = os.path.expanduser('~/mcai-autorebase-suite')
 SUITE_RUN = os.path.expanduser(os.environ.get('AR_SUITE_RUN', '~/bin/suite-run.py'))
-TEST_HOSTS = {'ci2': 'mike@10.0.0.34', 'w30': 'mike@10.0.0.30'}
+TEST_HOSTS = {'ci2': 'mike@10.0.0.34', 'ci3': 'mike@10.0.0.35', 'ci4': 'mike@10.0.0.36', 'w30': 'mike@10.0.0.30'}
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
 GIVEUP_MIN = 150
 LABEL = 'com.mcai.autorebase-suite-relay'
