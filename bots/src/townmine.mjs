@@ -106,6 +106,15 @@ export function mineStopped (rec, k, { now = 0, why = 'liquid' } = {}) {
   return withMine(rec, { ...rec.ext, Kb, stopK: k, stopWhy: why, stoppedAt: now, state: Kb <= rec.K ? 'stopped' : rec.ext.state })
 }
 
+/** EVERY CELL THE TOWN MINE OWNS OR WILL DIG (the extended stair's cells and both galleries) -> a keep(x, y, z) predicate | null. Pure. */
+export function mineKeep (rec) {
+  if (!hasMine(rec) || !mineState(rec).sited) return null
+  const plan = planOf(rec)
+  const keys = new Set(plan.cells.map(c => c.at.join(',')))
+  for (const lv of ['iron', 'diamond']) for (const s of galleryOf(plan, lv)?.slots ?? []) for (const c of s.cells) { keys.add(c.feet.join(',')); keys.add(c.head.join(',')) }
+  return (x, y, z) => keys.has(`${x},${y},${z}`)
+}
+
 // ---- the routes -----------------------------------------------------------------------------------------------------------------
 /** The stands to the hall, top down: every step's stand, then the hall's columns from the entrance to the far wall's middle. Pure. */
 export function hallRoute (plan) {

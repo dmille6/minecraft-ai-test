@@ -332,7 +332,7 @@ export function descentCells (site, at) {
  * planned again (water beside the air is sealed by the build: a record cell). `ok` false when no flight is left above the hazard or a
  * cell is unread (`unknown`: ask again later). counts: cave (air in its lining), water (beside), ore (in its air: the builder's loot).
  */
-export function surveyDescent (read, site) {
+export function surveyDescent (read, site, { keep = null } = {}) {
   const H0 = site.g - SW.tierD * (site.T ?? SW.tiers) + 1
   let bottom = DESCENT.bottom
   for (let round = 0; round < 8; round++) {
@@ -343,6 +343,9 @@ export function surveyDescent (read, site) {
     const counts = { cave: 0, water: 0, ore: 0, cells: airK.size }
     let hazard = null
     for (const a of [...D.air, ...D.portal]) {
+      // townmine-01 (OWNER 11-09 'a mine is working way down is fine'): the town mine is the showcase's way down; the stepwell's
+      // descent stops ABOVE every mine cell -- a descent cell on or beside one is a hazard like lava (the bottom rises over it)
+      if (keep && (keep(...a) || N6.some(([dx, dy, dz]) => keep(a[0] + dx, a[1] + dy, a[2] + dz)))) { hazard = Math.max(hazard ?? -999, a[1]); continue }
       const b = read(...a)
       if (!b) return { ok: false, why: 'unknown', bottom }
       if (isLava(b) || isWet(b)) { hazard = Math.max(hazard ?? -999, a[1]); continue }
@@ -361,6 +364,39 @@ export function surveyDescent (read, site) {
     bottom = hazard + 3
   }
   return { ok: false, why: 'hazards', bottom }
+}
+/** DOES A PLANNED DESCENT TOUCH THE TOWN MINE? -> the highest feet y of a descent cell on or beside a mine cell | null. Pure. */
+export function descentMineHit (site, keep) {
+  if (!site?.descent || !keep) return null
+  const D = planTank(site).descent
+  let hit = null
+  for (const a of [...D.air, ...D.portal, ...D.treads]) if (keep(...a) || N6.some(([dx, dy, dz]) => keep(a[0] + dx, a[1] + dy, a[2] + dz))) hit = Math.max(hit ?? -999, a[1])
+  return hit
+}
+/**
+ * THE STEPWELL CLEAR OF THE TOWN MINE (townmine-01, OWNER 11-09 option A) -> the next generation | null (already clear). Pure. A sited
+ * descent that touches a mine cell is planned again with its bottom raised over the highest touching cell (3 above, as a hazard);
+ * if no flight is left above it the descent is dropped (descentNone why=mine). The tank is never touched.
+ */
+export function stepwellClearOfMine (rec, keep, { now = Date.now() } = {}) {
+  if (!rec?.site?.descent || !keep) return null
+  let bottom = rec.site.descent.bottom ?? DESCENT.bottom
+  const H0 = rec.site.g - SW.tierD * (rec.site.T ?? SW.tiers) + 1
+  for (let round = 0; round < 12; round++) {
+    const hit = descentMineHit({ ...rec.site, descent: { bottom } }, keep)
+    if (hit == null) break
+    bottom = hit + 3
+  }
+  if (bottom === (rec.site.descent.bottom ?? DESCENT.bottom)) return null
+  const bare = { ...rec, site: { ...rec.site } }
+  delete bare.site.descent
+  if (bottom > H0 - 2) {
+    const P = planTank(bare.site)
+    return { ...bare, cells: P.cells.map(e => ({ at: e.at, role: e.role, t: e.t, ...(e.d ? { d: 1 } : {}), ...(e.role === 'stand' ? { seg: FELL_SEG } : {}) })),
+      clear: (rec.clear ?? []).filter(c => c.kind !== 'cut' || P.byKey.has(kOf(c.at))), descent: null, descentNone: { why: 'mine', bottom, at: now } }
+  }
+  const D = planTank({ ...rec.site, descent: { bottom } }).descent
+  return stepwellWithDescent(bare, { ok: true, bottom, bottomFeet: D.bottomFeet, counts: { cells: D.air.length + D.portal.length, mine: 1 } }, { now })
 }
 /**
  * THE RECORD UPGRADED WITH ITS DESCENT (stepwell-02: a record sited by stepwell-01 had none) -> the next generation | null (nothing to

@@ -1,0 +1,100 @@
+{
+ "_": "townmine-01: the showcase stepwell and town stair records (11-09 13:40Z, gens as on /var/lib/mcai/_pool-showcase), trimmed to what the plans need",
+ "stepwell": {
+  "blueprint": "stepwell@1",
+  "plot": "stepwell",
+  "home": {
+   "x": 0,
+   "y": 70,
+   "z": 0
+  },
+  "site": {
+   "origin": {
+    "x": -43,
+    "z": -63
+   },
+   "away": "n",
+   "g": 62,
+   "W": 23,
+   "T": 2,
+   "centre": [
+    -54,
+    -74
+   ],
+   "tiersDry": 2,
+   "stands": [
+    [
+     -55,
+     68,
+     -75
+    ],
+    [
+     -55,
+     69,
+     -75
+    ],
+    [
+     -54,
+     68,
+     -75
+    ],
+    [
+     -53,
+     68,
+     -77
+    ],
+    [
+     -51,
+     68,
+     -76
+    ]
+   ],
+   "cutTop": 65,
+   "exitY": 62,
+   "descent": {
+    "bottom": 16
+   }
+  },
+  "state": "open"
+ },
+ "stair": {
+  "v": 1,
+  "blueprint": "shaft@2",
+  "plot": "shaft",
+  "home": {
+   "x": 0,
+   "y": 70,
+   "z": 0
+  },
+  "site": {
+   "origin": {
+    "x": 26,
+    "z": -25
+   },
+   "away": "n",
+   "g": 68,
+   "center": [
+    25,
+    -26
+   ]
+  },
+  "K": 53,
+  "landings": [
+   48,
+   32,
+   16
+  ],
+  "landings_built": [
+   48,
+   32,
+   16
+  ],
+  "exit": [
+   25,
+   69,
+   -23
+  ],
+  "state": "complete",
+  "structure_complete": true
+ }
+}
