@@ -20818,7 +20818,7 @@ const reroofVisitOpts = (rec, stood, home = null) => (REROOF_FIX.access && rec?.
   // r5: the ledges whose fall lands off the town walk are never a stand or a step (computed once a visit over the visit's own walk view)
   // r6 (Codex r6 BLOCKER): the guard walks the new roof's slabs as floors, lands on them, and a landing with a walk-and-drop way back
   // (reroofRecoverable) is no trap -- the same rule as the proof's stair check (reroofStairSafe)
-  ...(REROOF_FIX.fallSafe && home ? { avoid: rd => { const fl = reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))); const wr = Number.isFinite(rec.walkR) ? rec.walkR : 90, sd = Array.isArray(stood) ? reroofSeeds(stood, rec.box) : []; return reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), wr, { stood: sd }), { box: rec.box, floors: fl, recover: true, landOn: siteWalkFrom(rd, home, new Set(), wr, { stood: sd, floors: fl }) }) } } : {}),
+  ...(REROOF_FIX.fallSafe && home ? { avoid: rd => { const fl = reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))); return reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90, { stood: Array.isArray(stood) ? reroofSeeds(stood, rec.box) : [], floors: fl }), { box: rec.box, floors: fl, recover: true }) } } : {}),
   // ...and the walk its proof walked: no natural leaves underfoot, no seed a bot once stood on inside the building's own box (its roof)
   walkRead: reroofNoLeafFloor, stairFirst: true, ...(Array.isArray(stood) ? { stood: reroofSeeds(stood, rec.box) } : {}) } : {})
 /**
