@@ -189,6 +189,9 @@ const REQUIRED = [
   'bots/scripts/stepwell-offline.mjs',
   'bots/scripts/stepwell-landmap.mjs',
   'bots/test/stepwell.test.mjs',
+  // townmine-01 (11-09, owner "i want all of those things done"): the town mine -- the stair extended to -53, bays, hall, galleries
+  'bots/src/townmine.mjs',
+  'bots/test/townmine.test.mjs',
   'sandbox/stepwell/stepwell-e2e.mjs',  // stepwell-01: its Paper driver
   'bots/test/plotprep03.test.mjs',
   'bots/test/levelfall.test.mjs',

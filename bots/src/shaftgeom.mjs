@@ -104,16 +104,119 @@ export function stairShape (g) {
   return { K, s0, landings }
 }
 
+// ---- the town mine's extension (townmine-01) ---------------------------------------------------------------------------
+//
+// OWNER 11-09 "a proper town mine": the town stair goes on down to the diamond level, with rest bays, a hall at the bottom
+// (chest, crafting table, furnace) and torches. THE EXTENSION IS THE SAME STAIR: the record gains `ext` = { Kb, ... } and
+// planStair continues the spiral below the 16 landing to step Kb with the SAME phase (stairShape(g).s0 does not depend on the
+// extension, so no built cell moves: both design engines' first trap). Rooms (bays, the hall) are stub-like units: columns of
+// air cells with a stand each, lined like everything else. The stair's own upkeep (stairDamaged, buildStair) reads only steps
+// 0..rec.K (the 16 landing) and the rooms at or above it (`maxK`); the deep part is the deep miner's (deepmine.mjs 'build').
+
+export const MINE_BLUEPRINT = 'townmine@1'
+export const MINE_BOTTOM_FEET = -53               // owner O6 (10-23): deep branches at feet -53 (lava lakes start at y <= -55)
+export const BAY_EVERY = 12                       // owner 11-09: rest landings every 10-15 steps (12 keeps them on side cells)
+export const BAY_DEPTH = 2                        // a bay: two cells out from its step, two high (feet, head)
+export const BAY_MIN_BELOW = 6                    // a bay's feet at least this far below the ground
+export const BAY_LANDING_GAP = 4                  // never within this of a stub landing's feet (48/32/16 are rests already)
+export const HALL = Object.freeze({ len: 5, half: 2, h: 3 })   // the bottom hall: 5 deep x 5 wide x 3 high
+export const HALL_FIXTURES = Object.freeze([['crafting_table', -2], ['chest', -1], ['furnace', 1]])   // in the far wall (d = len + 1), by w
+const SIDE_OUT = Object.freeze({ 1: [0, -1], 3: [1, 0], 5: [0, 1], 7: [-1, 0] })                     // a side cell's outward face
+const HALL_DIR = Object.freeze({ 0: [-1, 0], 1: [0, -1], 2: [1, 0], 3: [1, 0], 4: [0, 1], 5: [0, 1], 6: [-1, 0], 7: [-1, 0] })
+/** The deep stair's last step for ground g and bottom feet. Pure. */
+export const extKb = (g, bottom = MINE_BOTTOM_FEET) => g - bottom + 1
+/** The feet of every rest bay of a stair at ground g down to step Kb. Pure. 16 +- 12j, below the ground by BAY_MIN_BELOW, clear of
+ *  the stub landings by BAY_LANDING_GAP, at least 4 above the bottom (the hall is the bottom's rest). */
+export function bayFeet (g, Kb) {
+  const bottom = g - Kb + 1
+  const out = []
+  for (let f = STAIR_BOTTOM_FEET + BAY_EVERY * 8; f >= bottom + 4; f -= BAY_EVERY) {
+    if (f > g - BAY_MIN_BELOW) continue
+    if (LANDING_FEET.some(l => Math.abs(l - f) < BAY_LANDING_GAP && l <= g - LANDING_MIN_DEPTH)) continue
+    out.push(f)
+  }
+  return out
+}
+/**
+ * THE ROOMS OF AN EXTENDED STAIR -> [{ kind: 'bay'|'hall', k, feet, cols: [{ air, stand, end }], torches: [{ at, support }],
+ * fixtures: [{ item, at, stand }], portal: { at, dir } | null }]. Pure. `stand` of a column = the cell the bot stands on to cut it
+ * (the step's stand, or an earlier column's feet cell). A bay sits on a SIDE cell of the spiral and goes BAY_DEPTH out; the hall
+ * goes out from the bottom step's cell (HALL_DIR), HALL.len deep, 2*half+1 wide, h high; its fixtures sit in the far wall and the
+ * diamond gallery's portal is the far wall's middle (d = len + 1, w = 0).
+ */
+export function mineRooms ({ origin, away, g, s0, Kb }) {
+  const W = (u, y, v) => { const w = toWorld(origin, away, u, v); return [w.x, y, w.z] }
+  const stand = k => { const [u, v] = PERIM[(s0 + k) % 8]; return W(u, g - k + 1, v) }
+  const rooms = []
+  for (const f of bayFeet(g, Kb)) {
+    const k = g - f + 1
+    const idx = (s0 + k) % 8
+    const out = SIDE_OUT[idx]
+    if (!out || k < 1 || k > Kb) continue
+    const [u, v] = PERIM[idx]
+    const cols = []
+    for (let d = 1; d <= BAY_DEPTH; d++) {
+      const air = [0, 1].map(h => W(u + out[0] * d, f + h, v + out[1] * d))
+      cols.push({ air, stand: d === 1 ? stand(k) : cols[d - 2].air[0], end: [] })
+    }
+    const far = W(u + out[0] * (BAY_DEPTH + 1), f + 1, v + out[1] * (BAY_DEPTH + 1))
+    rooms.push({ kind: 'bay', k, feet: f, cols, torches: [{ at: cols[BAY_DEPTH - 1].air[1], support: far }], fixtures: [], portal: null })
+  }
+  // THE HALL off the bottom step
+  {
+    const k = Kb, f = g - Kb + 1
+    const idx = (s0 + k) % 8
+    const [u, v] = PERIM[idx]
+    const dir = HALL_DIR[idx], perp = [-dir[1], dir[0]]
+    const L = (d, w) => [u + dir[0] * d + perp[0] * w, v + dir[1] * d + perp[1] * w]
+    const at = (d, w, h) => { const [uu, vv] = L(d, w); return W(uu, f + h, vv) }
+    const inside = (uu, vv) => uu >= 0 && uu <= 2 && vv >= 0 && vv <= 2
+    let ok = true
+    for (let d = 1; d <= HALL.len + 1 && ok; d++) for (let w = -HALL.half - 1; w <= HALL.half + 1; w++) if (inside(...L(d, w))) ok = false
+    if (ok) {
+      // the columns in breadth-first order from the entrance (d=1, w=0): each one's stand is the column it was reached from
+      const cols = [], seen = new Map()
+      const q = [[1, 0, null]]
+      while (q.length) {
+        const [d, w, from] = q.shift()
+        const key = `${d},${w}`
+        if (seen.has(key) || d < 1 || d > HALL.len || Math.abs(w) > HALL.half) continue
+        seen.set(key, cols.length)
+        const air = [0, 1, 2].map(h => at(d, w, h))
+        cols.push({ d, w, air, stand: from ? cols[seen.get(from)].air[0] : stand(k), end: [] })
+        for (const [dd, ww] of [[1, 0], [0, -1], [0, 1], [-1, 0]]) q.push([d + dd, w + ww, key])
+      }
+      const D = HALL.len + 1
+      // the portal (the diamond gallery's first cell) is the far wall's middle: never lined, a liquid there sealed (an end face)
+      const mid = cols.find(c => c.d === HALL.len && c.w === 0)
+      mid.end = [at(D, 0, 0), at(D, 0, 1)]
+      const fixtures = HALL_FIXTURES.map(([item, w]) => ({ item, at: at(D, w, 0), stand: cols.find(c => c.d === HALL.len && c.w === w).air[0] }))
+      const torches = [[1, -HALL.half, -1], [1, HALL.half, 1], [HALL.len, -HALL.half, -1], [HALL.len, HALL.half, 1]]
+        .map(([d, w, s]) => ({ at: at(d, w, 1), support: at(d, w + s, 1) }))
+      rooms.push({ kind: 'hall', k, feet: f, cols, torches, fixtures, portal: { at: at(D, 0, 0), dir: [toWorld({ x: 0, z: 0 }, away, dir[0], dir[1]).x, toWorld({ x: 0, z: 0 }, away, dir[0], dir[1]).z] } })
+    }
+  }
+  return rooms
+}
+/** The extension object for a record (what siting writes into rec.ext). Pure. */
+export function mineExt (g, { bottom = MINE_BOTTOM_FEET, now = 0, by = '?' } = {}) {
+  return { v: 1, blueprint: MINE_BLUEPRINT, bottom, Kb: extKb(g, bottom), state: 'open', sitedAt: now, sitedBy: by }
+}
+
 /**
  * THE STAIR'S CELLS -> { K, s0, g, steps, landings, cells, byKey, air, box }. Pure. `site` = { origin, away, g } (+ `K` and
  * `landings` [feet] to plan a truncated stair: a stop's record). steps[k] = { k, uv, tread, air: [3 cells], lining: [cells] }
  * (world [x,y,z]); landings = [{ feet, k, stub: [[x,y,z]], lining, end }] (end: the unreserved face, surveyed only).
  * cells = [{ at, role: 'air'|'tread'|'lining', k }] -- k the first step (or landing step) whose work needs the cell.
+ * townmine-01: `site.ext` ({ Kb }) on a stair that reaches the 16 landing continues it to step Kb, with `rooms` (mineRooms);
+ * fixture cells are neither air nor lining (the hall's chest, table and furnace stand in them).
  */
 export function planStair (site) {
   const { origin, away, g } = site
   const shape = stairShape(g)
-  const K = Number.isInteger(site.K) ? Math.min(site.K, shape.K) : shape.K
+  const K0 = Number.isInteger(site.K) ? Math.min(site.K, shape.K) : shape.K
+  const ext = site.ext && Number.isInteger(site.ext.Kb) && site.ext.Kb > shape.K && K0 === shape.K ? site.ext : null
+  const K = ext ? ext.Kb : K0
   const s0 = shape.s0
   const keepFeet = Array.isArray(site.landings) ? new Set(site.landings) : null
   const W = (u, y, v) => { const w = toWorld(origin, away, u, v); return [w.x, y, w.z] }
@@ -142,18 +245,22 @@ export function planStair (site) {
     cols[cols.length - 1].end = end
     landings.push({ feet: l.feet, k: l.k, stub, cols, lining: [], end })
   }
-  const endFaces = new Set(landings.flatMap(l => l.end.map(c => k3(...c))))
+  const rooms = ext ? mineRooms({ origin, away, g, s0, Kb: K }) : []
+  for (const r of rooms) for (const col of r.cols) for (const c of col.air) if (!air.has(k3(...c)) && !tread.has(k3(...c))) air.set(k3(...c), r.k)
+  const fixtureKeys = new Set(rooms.flatMap(r => r.fixtures.map(f => k3(...f.at))))
+  const endFaces = new Set([...landings.flatMap(l => l.end.map(c => k3(...c))), ...rooms.flatMap(r => r.cols.flatMap(c => c.end.map(e => k3(...e))))])
   const lining = new Map()
   const addLining = (c, k) => { const key = k3(...c); if (!lining.has(key) || lining.get(key) > k) lining.set(key, k) }
   const owner = new Map()   // air key -> step index or 'L<k>' for a stub cell
   for (const s of steps) for (const c of s.air) owner.set(k3(...c), s.k)
   for (const l of landings) for (const col of l.cols) for (const c of col.air) owner.set(k3(...c), `L${l.k}:${col.v}`)
+  rooms.forEach((r, ri) => r.cols.forEach((col, ci) => { for (const c of col.air) if (!owner.has(k3(...c))) owner.set(k3(...c), `R${r.k}:${ri}.${ci}`) }))
   const linOf = new Map()   // owner -> lining cells
   for (const [key, own] of owner) {
     const [x, y, z] = key.split(',').map(Number)
     for (const [dx, dy, dz] of N6) {
       const n = [x + dx, y + dy, z + dz], nk = k3(...n)
-      if (air.has(nk) || tread.has(nk) || n[1] > g || endFaces.has(nk)) continue
+      if (air.has(nk) || tread.has(nk) || n[1] > g || endFaces.has(nk) || fixtureKeys.has(nk)) continue
       const kk = typeof own === 'number' ? own : Number(own.slice(1).split(':')[0])
       addLining(n, kk)
       if (!linOf.has(own)) linOf.set(own, new Map())
@@ -165,14 +272,16 @@ export function planStair (site) {
     for (const col of l.cols) col.lining = [...(linOf.get(`L${l.k}:${col.v}`)?.values() ?? [])]
     l.lining = [...new Map(l.cols.flatMap(col => col.lining.map(c => [k3(...c), c]))).values()]
   }
+  rooms.forEach((r, ri) => r.cols.forEach((col, ci) => { col.lining = [...(linOf.get(`R${r.k}:${ri}.${ci}`)?.values() ?? [])] }))
   const cells = []
   for (const [key, k] of air) cells.push({ at: key.split(',').map(Number), role: 'air', k })
   for (const [key, k] of tread) cells.push({ at: key.split(',').map(Number), role: 'tread', k })
   for (const [key, k] of lining) cells.push({ at: key.split(',').map(Number), role: 'lining', k })
+  for (const r of rooms) for (const f of r.fixtures) cells.push({ at: f.at, role: 'fixture', k: r.k })
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, y0 = Infinity, y1 = -Infinity
   for (const c of cells) { x0 = Math.min(x0, c.at[0]); x1 = Math.max(x1, c.at[0]); z0 = Math.min(z0, c.at[2]); z1 = Math.max(z1, c.at[2]); y0 = Math.min(y0, c.at[1]); y1 = Math.max(y1, c.at[1]) }
   const byKey = new Map(cells.map(c => [k3(...c.at), c]))
-  return { K, s0, g, origin, away, steps, landings, cells, byKey, air, box: { x0, x1, y0, y1, z0, z1 } }
+  return { K, K16: shape.K, s0, g, origin, away, steps, landings, rooms, cells, byKey, air, box: { x0, x1, y0, y1, z0, z1 } }
 }
 
 /** The stand of step k (feet cell). Pure. */
@@ -218,9 +327,11 @@ export function stubDone (read, plan, l) {
  * THE FIRST THING NOT DONE, top down -> { kind: 'step', k } | { kind: 'stub', k, landing } | { kind: 'unknown', k } | null (all
  * done). Pure. Repairs are the same scan: a damaged step above the frontier is found first.
  */
-export function firstUndone (read, plan) {
+export function firstUndone (read, plan, { maxK = Infinity } = {}) {
   const lAt = new Map(plan.landings.map(l => [l.k, l]))
-  for (let k = 0; k <= plan.K; k++) {
+  const rAt = new Map()
+  for (const r of plan.rooms ?? []) { if (!rAt.has(r.k)) rAt.set(r.k, []); rAt.get(r.k).push(r) }
+  for (let k = 0; k <= Math.min(plan.K, maxK); k++) {
     const d = stepDone(read, plan, k)
     if (d == null) return { kind: 'unknown', k }
     if (!d) return { kind: 'step', k }
@@ -230,6 +341,14 @@ export function firstUndone (read, plan) {
         const sd = colDone(read, plan, l.cols[i])
         if (sd == null) return { kind: 'unknown', k }
         if (!sd) return { kind: 'stub', k, landing: l, col: i }
+      }
+    }
+    // townmine-01: a step's rooms (a bay, the hall) right after it, column by column in their own order
+    for (const r of rAt.get(k) ?? []) {
+      for (let i = 0; i < r.cols.length; i++) {
+        const sd = colDone(read, plan, r.cols[i])
+        if (sd == null) return { kind: 'unknown', k }
+        if (!sd) return { kind: 'room', k, room: r, col: i }
       }
     }
   }
@@ -302,6 +421,7 @@ export const replaceable = b => /^(short_grass|grass|tall_grass|fern|large_fern|
 /** The work cells of a unit: a step's, or a landing stub's next column (2 cells at v) with its lining. Pure. */
 export function unitCells (plan, work) {
   if (work.kind === 'step') { const s = plan.steps[work.k]; return { air: s.air, tread: s.tread, lining: s.lining, end: [] } }
+  if (work.kind === 'room') { const col = work.room.cols[work.col]; return { air: col.air, tread: null, lining: col.lining, end: col.end ?? [] } }
   const col = work.landing.cols[work.col]
   return { air: col.air, tread: null, lining: col.lining, end: col.end }
 }
@@ -309,6 +429,7 @@ export function unitCells (plan, work) {
  *  column before it (the first: the landing step's stand). Pure. */
 export function standFor (plan, work, exit, read = null) {
   if (work.kind === 'step') return work.k === 0 ? ((read && step0Stand(read, plan)) ?? exit) : standOf(plan, work.k - 1)
+  if (work.kind === 'room') return work.room.cols[work.col].stand
   return work.col === 0 ? standOf(plan, work.k) : work.landing.cols[work.col - 1].air[0]
 }
 /**
@@ -489,14 +610,14 @@ export function droppedLandingRecord (rec, feet, { now = 0, why = 'liquid' } = {
     dropped: [...(rec.dropped ?? []), { feet, why, at: now }] }
 }
 /** The plan a record describes. Pure. */
-export const planOf = rec => planStair({ ...rec.site, K: rec.K, landings: rec.landings })
+export const planOf = rec => planStair({ ...rec.site, K: rec.K, landings: rec.landings, ...(rec.ext ? { ext: rec.ext } : {}) })
 /** Is a record a real stair (sited, with cells)? Pure. */
 export const isStairRecord = rec => rec?.blueprint === SHAFT_BLUEPRINT && rec.state !== 'no_site' && !!rec.site && Number.isInteger(rec.K)
 
 /** A stair record DAMAGED or (a no-site record past its retry) DUE? Pure over read. */
 export function stairDamaged (read, rec) {
   if (!isStairRecord(rec) || !rec.structure_complete) return false
-  const w = firstUndone(read, planOf(rec))
+  const w = firstUndone(read, planOf(rec), { maxK: rec.K })   // townmine-01: the deep extension is the deep miner's, not the upkeep's
   return !!w && w.kind !== 'unknown'
 }
 export const stairDue = (rec, now = Date.now()) => rec?.blueprint === SHAFT_BLUEPRINT && rec.state === 'no_site' && now >= (rec.retryAt ?? Infinity)
@@ -604,6 +725,22 @@ export function stairStepAt (plan, feet) {
     let i = -1, d = Infinity
     cols.forEach((c, j) => { const dj = cheb3(c, feet); if (c[1] === feet[1] && dj <= 1 && dj <= d) { d = dj; i = j } })   // nearest, ties outward
     if (i >= 0) return { k: l.k, via: cols.slice(0, i).reverse() }
+  }
+  // townmine-01: in a room (a bay, the hall) -> its step, walking the columns' stands back to it (the room's own BFS parents)
+  for (const r of plan.rooms ?? []) {
+    let best2 = -1, d2 = Infinity
+    r.cols.forEach((c, j) => { const dj = cheb3(c.air[0], feet); if (c.air[0][1] === feet[1] && dj <= 1 && dj < d2) { d2 = dj; best2 = j } })
+    if (best2 < 0) continue
+    const via = []
+    const stepStand = standOf(plan, r.k)
+    let col = r.cols[best2]
+    for (let guard = 0; guard < r.cols.length + 1; guard++) {
+      if (col.stand[0] === stepStand[0] && col.stand[1] === stepStand[1] && col.stand[2] === stepStand[2]) break
+      via.push(col.stand)
+      col = r.cols.find(c => c.air[0][0] === col.stand[0] && c.air[0][1] === col.stand[1] && c.air[0][2] === col.stand[2])
+      if (!col) break
+    }
+    return { k: r.k, via }
   }
   return null
 }
