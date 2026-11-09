@@ -6156,7 +6156,7 @@
    "lane": "progress",
    "state": "open",
    "owner": "control session",
-   "next_step": "BUILT 2026-11-08, not queued/released. FLEET workboard-01 @ 141b975a on 1e593b9b (tier 3; two-engine design + OSS search; code r1 blockers fixed, r2 NO BLOCKERS): registration ~/mcai-analysis/workboard-01.141b975a.json (effectwatch validate: valid) + draft entry docs/reports/workboard-01/ and ~/mcai-analysis/workboard-01.queue-entry.draft.json -> control session queues it as a P canary (shared pools). SHOWCASE workboard-01show @ c8540eef on release 63bc4795: ready to stage. Read: _workboard op=issue / op=end worked=yes, _build_visit per bot-h, decision share, yield reasons.",
+   "next_step": "BUILT 2026-11-08, not queued/released. FLEET workboard-01 @ fcc3e2c0 on the live fleet ef774d02 (rebased from 141b975a on 1e593b9b; tier 3; two-engine design + OSS search; code r1 blockers fixed, r2 NO BLOCKERS): registration ~/mcai-analysis/workboard-01.fcc3e2c0.json (effectwatch validate: valid) + draft entry docs/reports/workboard-01/ and ~/mcai-analysis/workboard-01.queue-entry.draft.json (variant keyed on ef774d02) -> control session queues it as a P canary (shared pools). SHOWCASE workboard-01show @ bbf106c4 on release 63bc4795 (travelOnly + cooldown chain; Codex r1 + Claude r2 NO BLOCKERS): ready to stage. Read: _workboard op=issue / op=end worked=yes, _build_visit per bot-h, decision share, yield reasons.",
    "max_quiet_hours": 48,
    "evidence": {
     "paths": [
@@ -6168,6 +6168,7 @@
     ],
     "branches": [
      "workboard-01",
+     "workboard-01-on-ef774d02",
      "workboard-01show"
     ],
     "grep": [

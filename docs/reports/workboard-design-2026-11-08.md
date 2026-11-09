@@ -4,10 +4,10 @@ OWNER 11-08: "do all your recommendations now". Recommendation 1 is the town wor
 [codeeval-2026-11-06](codeeval-2026-11-06/README.md). Ledger row `workboard-1108`.
 
 **Status: built, not queued, not released.**
-- Fleet: branch `workboard-01` @ `141b975a`, on the live fleet `1e593b9b`. Registration and draft queue entry are in
-  [workboard-01/](workboard-01/); the registration is installed at `~/mcai-analysis/workboard-01.141b975a.json` on .31 and
+- Fleet: branch `workboard-01` @ `fcc3e2c0`, on the live fleet `ef774d02` (hivedrop-01; built on `1e593b9b`, rebased clean). Registration and draft queue entry are in
+  [workboard-01/](workboard-01/); the registration is installed at `~/mcai-analysis/workboard-01.fcc3e2c0.json` on .31 and
   `effectwatch validate` reports `valid`.
-- Showcase: branch `workboard-01show` @ `c8540eef`, on the live showcase release `63bc4795` (sitecanopy-01show). Ready to stage.
+- Showcase: branch `workboard-01show` @ `bbf106c4`, on the live showcase release `63bc4795` (sitecanopy-01show). Ready to stage.
 - Tier 3: `protected.py` flags `bots/src/cognitive.mjs`.
 
 ## 1. Where the 54% goes (measured)
@@ -144,6 +144,14 @@ reason per 10 min per bot.
   refusing for repeat_loop), fixed in `675c3a7f`; Claude r2 NO BLOCKERS.
 - Then `141b975a` (fleet) and `c8540eef` (showcase) keep two existing tests' anchored `build_shop` `finally` lines intact
   (stuckproj.test, gklease.test); the pin is cleared in its own statement.
+- Showcase `bbf106c4` keeps the showcase `shopActive` body and its anchored lines (prodserve, sinks, gkroom, groundskeeper,
+  zigtidy2 wiring tests): the pin is a check after the room fallback, and the states come out through an `out` param.
+- 11-08 the fleet moved to `ef774d02` (hivedrop-01): `workboard-01` was rebased onto it as `fcc3e2c0` (no overlapping files).
+
+**Full suites:** fleet ci2 on `0360f43e` 418/422 and w30 on `141b975a` 420/422 (left: well.test, known base, and plinth-skill's
+/tmp ENOENT flake); the base control for craftsync passed 3/3, so its r1 failure was a flake. Showcase w30 on `c8540eef` 471/478 (four
+anchor failures fixed in `bbf106c4`; bagdiet orphan, well.test and plinth-skill are not this change). Reruns on `fcc3e2c0` and
+`bbf106c4` are queued.
 
 **Tests:** `bots/test/townwork.test.mjs` passes 22/22 on the fleet (6 anchored mutants) and 25/25 on the showcase (7 mutants).
 It covers behaviour, the chain on real record and lease files (claims fill slots so the next bot moves on, the pin, a release
