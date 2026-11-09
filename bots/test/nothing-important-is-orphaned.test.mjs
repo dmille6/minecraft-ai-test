@@ -605,7 +605,7 @@ const REQUIRED = [
   'docs/reports/country-design-2026-11-09/fleet-hive-a-upkeep.png',
   'docs/reports/country-design-2026-11-09/country-run.mjs',
   'docs/reports/country-design-2026-11-09/upkeep-fleet.mjs',
-  'docs/reports/country-design-2026-11-09/upkeep-01/upkeep-01.f0b02592.json',
+  'docs/reports/country-design-2026-11-09/upkeep-01/upkeep-01.35215b53.json',
   'docs/reports/country-design-2026-11-09/upkeep-01/upkeep-01.queue-entry.draft.json',
   'sandbox/country/country-proof.cjs',
   'sandbox/country/country-proof.jsonl',

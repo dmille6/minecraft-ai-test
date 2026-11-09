@@ -6,13 +6,14 @@ in parallel with the inside stage, by the groundskeeper and its helpers, then me
 crew: repair, replant felled trees, re-light, sweep strays and drops, re-till; the lowest-priority always-available work, on the town
 work board. Showcase first, then the fleet. Ledger rows `country-1109`, `upkeep-1109`.
 
-**Status (11-09):** built, reviewed, Paper-proven; NOT released, NOT queued.
+**Status (11-09):** built, reviewed, Paper-proven; NOT released, NOT queued. Full suites at the final shas: showcase a4c08e0e ci2
+484/487 (craftsync-mutants and showdrop pass alone; orphan = bagdiet base); fleet 35215b53 ci2 425/426 (well.test, known base).
 
 | Piece | Branch @ sha | Base | Tier | State |
 |---|---|---|---|---|
-| Showcase: country lane + upkeep | `countryside-01show` @ `77946084` | live release `b9fa002e` (glass-01show) | 2 | ready to stage |
+| Showcase: country lane + upkeep | `countryside-01show` @ `a4c08e0e` | live release `b9fa002e` (glass-01show) | 2 | ready to stage |
 | Tripwire CO1 + UK1 | `shopread-country-upkeep` (merged to main) | main | tooling | install with the release |
-| Fleet: upkeep | `upkeep-01-on-bcdba35f` @ `f0b02592` | live fleet `bcdba35f` | 2 | registration valid, draft entry, not queued |
+| Fleet: upkeep | `upkeep-01-on-bcdba35f` @ `35215b53` | live fleet `bcdba35f` | 2 | registration valid, draft entry, not queued |
 | Fleet: country lane | not built (see section 7) | | | |
 
 ## 1. Measured
@@ -109,7 +110,7 @@ Two findings fixed from the proof: a furnace dug by hand is lost (pickaxe rule),
 
 ## 7. Fleet
 
-- **upkeep-01** on bcdba35f @ f0b02592: the same module and visit; the fleet's own activeProject tier (after repairs, open projects with a slot,
+- **upkeep-01** on bcdba35f @ 35215b53: the same module and visit; the fleet's own activeProject tier (after repairs, open projects with a slot,
   buildnext's due records; in place of a held open project), the fleet's runVisit `clearOk`, its own sweep (gksweep.mjs sweepPick).
   With the work board (cherry-picked onto workboard-01's 3d8ef9de: clean; townwork/stuckproj/buildnext/gkforever/idlework pass) a due
   upkeep is a board job (`jobBlocked` null) and a quiet one is not.
@@ -117,7 +118,7 @@ Two findings fixed from the proof: a furnace dug by hand is lost (pickaxe rule),
   bands already run without waiting; plantings need the park machinery the fleet lacks; the fleet's rough-ground pieces are
   roughground-02/04 (drafts). A fleet country lane is a separate piece once those land.
 
-Registration `~/mcai-analysis/upkeep-01.f0b02592.json` (copy in `country-design-2026-11-09/upkeep-01/`): `effectwatch validate` valid
+Registration `~/mcai-analysis/upkeep-01.35215b53.json` (copy in `country-design-2026-11-09/upkeep-01/`): `effectwatch validate` valid
 (primary `_build:upkeep:clear` absolute +0.05/bot-h from a zero base; `_build:upkeep:place` +0.01; `_build_visit` rate +5%; guardrails
 items/bot-h, drowning deaths, productive share). Draft entry `upkeep-01.queue-entry.draft.json`; drawrec with the registration: DRAW
 ['board-d', 'board-c'] (never isolated-* or placebo-c). NOT queued.
