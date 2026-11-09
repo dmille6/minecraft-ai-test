@@ -6059,7 +6059,7 @@
     "stuck-1108.md"
    ],
    "state": "open",
-   "next_step": "2026-11-08 (3): stuckfleet-02 QUEUED after stuckfleet-01. READY TO STAGE as ONE piece buildsite-01show ec3774e8 (= 2849dfa5 + thprep-01show + reroof3-01show + claim-01: a sited town hall/cottage owns its volume; the tidy skips and retires its 46 cells/83 cuts inside it, CLAIM=off; Codex none on 2849dfa5..ec3774e8; suite 475/478 known). reroof4-01show d03222dc on c3c2b1ff (roof access, OWNER-approved: own roof slabs as floor + temporary cobble stair torn down; Paper sandbox4: hall PASS x2 200/200, storehub 221/221 but 4 dirt_path under the stair turned to dirt, enchantshop FAIL (fell off a 1-wide ledge, path never recovered); Codex r2 none + Claude second engine none; suite 474/478 known) -- NOT ready for the enchantshop; tripwire RT3 on branch shopread-rt3-reroof4 ed832f3c (merge to main to install, never copy: branch lacks H4). reroof4 must be restacked on buildsite-01show ec3774e8 before staging.",
+   "next_step": "2026-11-09: reroof4-01show 226adfde to the release agent (round 3: cornerCut gated, workshop jump leaf, storehub ridge). RT3 merged on main 96b833dc (merge, H4 kept; selftest ok, 236 mutants killed; NOT installed on the showcase host). Workshop fill 26,67,-64: NO FIX NEEDED -- telemetry 11-08: deferred 13:08/13:09/13:10Z, stuck_on_cell 13:10Z (3 visits), and after the 6-h back-off showcase-Iris placed it 19:17:25Z (4th visit) and the record read complete; region read 11-09 05:30Z: cobblestone. The air reading came from the 11-08 14:43Z dump. Still open: buildsite-01show ec3774e8 + reroof4 226adfde staging (release agent).",
    "evidence": {
     "grep": [
      "fellcanopy-01show",
