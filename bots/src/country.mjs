@@ -55,7 +55,8 @@ export const COUNTRY = Object.freeze({
   first: 48,                   // the first band: everything outside the wall boxes out to here (the collar between the wall and 32 too)
   builders: 3,                 // the record's slots: the keeper and two country-side helpers
   keeperEveryMs: 60 * 60_000,  // the keeper's country visit at most this often while the inside has work (siting, completion, clears)
-  cycleMs: 30 * 60_000,        // after the last band is complete this long, the first band again (landplan.mjs LAND_CYCLE_MS)
+  cycleMs: 2 * 60 * 60_000,    // after the last band is complete this long, the first band again (a re-survey of the countryside: the
+                               // bands' sitings read up to ~0.5M cells each; the inside's cycle is 30 min)
   // PLANTINGS (Codex + Claude design; forest-01's Paper: spruce in a spacing-3 grid grows 68/68; REPLANT_AIR 6 for birch)
   grovePer: 400,               // one grove per this many eligible grass columns of the band
   groveMin: 3, groveMax: 5,    // saplings a grove
@@ -139,8 +140,9 @@ export function countrySide (name, cap) {
  *   inside   { open, due }: the tidy head is open / wants siting
  *   country  { demand: countryDemand(head) }
  *   lastCountryAt  the keeper's last country visit (ms)
- * KEEPER: the country when the inside has no work; else when the country wants siting or is open and the keeper has not been there
- * for C.keeperEveryMs (siting, completion, the clears and the waivers are the keeper's); else the inside.
+ * KEEPER: the country when it wants SITING (its next band: one visit's start, then the band is worked), or when the inside has no work;
+ * an open band at most every C.keeperEveryMs while the inside has work (its completion, clears and waivers are the keeper's); else
+ * the inside.
  * HELPER: its side when that lane has open work; else the other lane's open work (borrowed); else its side (the visit names why).
  * A helper never takes the country to site it (the siting is the keeper's: the visit ends keeper_plan there).
  */
@@ -150,6 +152,7 @@ export function groundsLane ({ on = true, role = 'keeper', helper = null, cap = 
   const cDemand = country.demand ?? null
   if (role === 'keeper') {
     if (!cDemand) return { lane: 'inside', why: 'country_quiet' }
+    if (cDemand === 'site') return { lane: 'country', why: 'site' }
     if (!inWork) return { lane: 'country', why: `inside_quiet:${cDemand}` }
     if (now - (Number.isFinite(lastCountryAt) ? lastCountryAt : -Infinity) >= C.keeperEveryMs) return { lane: 'country', why: `keeper_turn:${cDemand}` }
     return { lane: 'inside', why: 'keeper_inside' }

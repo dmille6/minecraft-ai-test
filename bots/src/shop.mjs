@@ -270,6 +270,8 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // work (an open project with no slot for it, an upkeep or a due record this bot found nothing to do at). No upkeep: as before.
   const upk = list.find(p => p.upkeep && st(p).due === true && st(p).free !== false && !st(p).stuck && st(p).idle !== true) ?? null
   const idleDue = s => !!upk && s.idle === true
+  // Codex r1 BLOCKER 4: a due record (dueFirst first) this bot may work still comes before the upkeep wherever the upkeep stands in
+  const dueBefore = () => list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && s.dueFirst && !idleDue(s) }) ?? list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && !idleDue(s) }) ?? null
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged && !yields(s)) return p }
   const open = []
   for (const p of list) {
@@ -295,7 +297,7 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // this bot visited without effect in the last IDLE_MS yields to a wanted sink; with no sink, exactly as before
   const freeOpen = open.find(p => st(p).free !== false && !yields(st(p)))
   if (freeOpen) return freeOpen
-  if (open.length && !sink && upk) return upk
+  if (open.length && !sink && upk) return dueBefore() ?? upk
   if (open.length && !sink) return open[0]
   if (sink) {
     for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due && s.dueFirst) return p }
@@ -958,4 +960,4 @@ export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP
 // fellfirst-01: `first` (a tree felled before its sapling: none of its kind anywhere -- the tripwire's G5 reads it)
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'st', 'kind', 'saplings', 'first', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'crew', 'gathered', 'floor', 'fromMats', 'fromYard', 'meals', 'blooms', 'pots', 'lane', 'ms', 'why'], f)   // gkhelpers-01: crew gathered floor; yarduse-01: fromYard; decorator-01: meals blooms pots
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'crew', 'gathered', 'floor', 'fromMats', 'fromYard', 'meals', 'blooms', 'pots', 'lane', 'held', 'ms', 'why'], f)   // gkhelpers-01: crew gathered floor; yarduse-01: fromYard; decorator-01: meals blooms pots

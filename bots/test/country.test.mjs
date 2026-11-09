@@ -45,13 +45,13 @@ await t('the bands: everything outside the wall boxes out to 48, then 16-wide ri
   // the land plan's own band numbers within its reach (tidy.mjs stageRoadCols reads the band before by number)
   assert.deepStrictEqual(st.slice(0, 3).map(s => s.k), LP.landStages().filter(s => /^rim/.test(s.id)).map(s => s.k))
 })
-await t('the cursor: none -> c48; open -> nothing; complete c64 -> c80; the last band waits COUNTRY.cycleMs then wraps; an unknown band -> c48', () => {
+await t('the cursor: none -> c48; open -> nothing; complete c64 -> c80; the last band waits COUNTRY.cycleMs (2 h) then wraps; an unknown band -> c48', () => {
   assert.strictEqual(CO.countryNext(null, T0).id, 'c48')
   assert.strictEqual(CO.countryNext({ stageId: 'c64', structure_complete: false }, T0), null)
   assert.strictEqual(CO.countryNext({ stageId: 'c64', structure_complete: true, completeAt: T0 }, T0).id, 'c80')
   const last = { stageId: 'c128', structure_complete: true, completeAt: T0 }
-  assert.strictEqual(CO.countryNext(last, T0 + 29 * MIN), null)
-  assert.strictEqual(CO.countryNext(last, T0 + 30 * MIN).id, 'c48')
+  assert.strictEqual(CO.countryNext(last, T0 + 119 * MIN), null)
+  assert.strictEqual(CO.countryNext(last, T0 + 120 * MIN).id, 'c48')
   assert.strictEqual(CO.countryNext({ stageId: 'rim48', structure_complete: true, completeAt: T0 }, T0).id, 'c48')
   assert.deepStrictEqual(CO.countryTryOrder(CO.countryStageOf('c96')).map(s => s.id), ['c96', 'c112', 'c128'])
 })
@@ -87,6 +87,8 @@ await t('the keeper: the inside, the country when it wants siting or the keeper 
     const L = o => M.groundsLane({ role: 'keeper', now: T0, ...o }).lane
     assert.strictEqual(L({ inside: { open: true }, country: { demand: null } }), 'inside')
     assert.strictEqual(L({ inside: { open: true }, country: { demand: 'site' }, lastCountryAt: T0 - 61 * MIN }), 'country')
+    assert.strictEqual(L({ inside: { open: true }, country: { demand: 'site' }, lastCountryAt: T0 - MIN }), 'country', 'the next band sited at once')
+    assert.strictEqual(L({ inside: { open: true }, country: { demand: 'open' }, lastCountryAt: T0 - 61 * MIN }), 'country', 'an open band: the keeper\'s hourly turn')
     assert.strictEqual(L({ inside: { open: true }, country: { demand: 'open' }, lastCountryAt: T0 - 10 * MIN }), 'inside', 'bounded: the inside keeps its keeper')
     assert.strictEqual(L({ inside: {}, country: { demand: 'open' }, lastCountryAt: T0 - MIN }), 'country', 'a quiet inside: the country at once')
     assert.strictEqual(M.groundsLane({ on: false, role: 'keeper', inside: {}, country: { demand: 'site' } }).lane, 'inside', 'COUNTRY=off')

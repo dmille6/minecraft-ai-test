@@ -174,7 +174,7 @@ import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeper
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
-import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
+import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, dropsWorth } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
@@ -25956,16 +25956,24 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
 // a list worked out is published complete (quiet until its next survey); then the drops in view are swept (gksweep.mjs sweepPick over
 // the reach). Every row names project=upkeep. Any bot of the town, last in the order (shop.mjs activeProject's upkeep tier).
 // ================================================================================================================================
-/** The upkeep plot's state for the order (upkeep.mjs upkeepState over the world through the bot; no bot: every job reads open). */
+/** The upkeep plot's state for the order (upkeep.mjs upkeepState over the world through the bot; no bot: every job reads open). A
+ *  remains group that owes a replant is this bot's job only while it or the town holds a sapling; the drops in its view worth a sweep
+ *  make it due too (Codex r1 BLOCKERS 2-3). */
 function upkeepStateNow (b, rec, now = Date.now()) {
-  const open = r => {
-    const rd = b ? (x, y, z) => { const q = b.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name } : null } : () => null
-    let n = 0
-    for (const c of r?.clear ?? []) { const q = rd(...c.at); if (!q || q.name === c.name) n++ }
-    for (const c of r?.cells ?? []) { const q = rd(...c.at); if (!q || !/_sapling$|^mangrove_propagule$/.test(q.name)) n++ }
-    return n
-  }
-  return upkeepState(rec, { now, open })
+  const rd = b ? (x, y, z) => { const q = b.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name } : null } : () => null
+  const canPlant = !b || upkeepSaplingNear(b)
+  let drops = 0
+  try { if (b) drops = dropsWorth(upkeepDropsInView(b), { home: planHomeP(), never: NEVER_KEEP, stacks: (b.inventory?.items?.() ?? []).map(i => ({ name: i.name, count: i.count, stackSize: i.stackSize })), free: Number(b.inventory?.emptySlotCount?.()) || 0 }) } catch { drops = 0 }
+  return upkeepState(rec, { now, open: r => upkeepLeft(r, rd, { canPlant }), drops })
+}
+/** Does this bot hold a sapling the replant takes, or does the town (its chests' stock, cached by matsTownStock)? Never throws. */
+function upkeepSaplingNear (bot) {
+  try { if (UPKEEP_PALETTE.sapling.some(n => countItem(bot, n) > 0)) return true } catch { /* the bag unread */ }
+  try { const st = matsTownStock(bot)?.stock ?? {}; return UPKEEP_PALETTE.sapling.some(n => (Number(st[n]) || 0) > 0) } catch { return false }
+}
+/** The item drops this bot sees -> [{ id, name, count, pos }]. Never throws. */
+function upkeepDropsInView (bot) {
+  try { return Object.values(bot.entities ?? {}).filter(e => e?.name === 'item' && e.position).map(e => { const d = spawnedItem(e); return { id: e.id, name: d.name, count: d.count, pos: e.position } }) } catch { return [] }
 }
 /** THE SURVEY'S INPUTS (the visit's): every record cell and the grounds' plans, the refusals, the protected zones' cells. Throws when
  *  a record cannot be read. */
@@ -26022,7 +26030,16 @@ async function buildUpkeep (ctx, args, signal) {
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the upkeep record could not be read back')
   }
   const rec = rh.head.rec
-  if (rec.structure_complete) return out('no_effect', 'complete', `nothing to keep up in this tile (${rec.state ?? 'quiet'}); the next survey is due later`)
+  const R = UPKEEP.r
+  const sweepNow = async until => {
+    if (signal?.aborted || !gkSweepOn()) return null
+    try { return await gkSweep(bot, signal, { until, inputs: () => tidyInputs(bot), reach: R, boxesOf: I => [[(I.home ?? home).x - R, (I.home ?? home).z - R, (I.home ?? home).x + R, (I.home ?? home).z + R]], plot: UPKEEP_PLOT }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; return null }
+  }
+  // Codex r1 BLOCKER 3: a quiet list still sweeps the drops in view (they alone make the upkeep due)
+  if (rec.structure_complete) {
+    const sw0 = await sweepNow(t0 + budget - 5_000)
+    return out(sw0?.took > 0 ? 'success' : 'no_effect', 'complete', `nothing to keep up in this tile (${rec.state ?? 'quiet'}); swept ${sw0?.took ?? 0} drop(s); the next survey is due later`, { gathered: sw0?.took ?? 0 })
+  }
   const slot = takeSlot(dir, key, me, UPKEEP.builders)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -26042,24 +26059,37 @@ async function buildUpkeep (ctx, args, signal) {
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     const deadline = t0 + budget - ZIG_VISIT_TAIL_MS - GKSWEEP.budgetMs
-    // a replant with no sapling the placer may use is passed (never a blocker: the next survey lists it again)
-    const noSapling = q => q.role === 'sapling' && !UPKEEP_PALETTE.sapling.some(n => !!effects?.has?.(n))
+    // CODEX r1 BLOCKER 2: the replants -- the bag's saplings, else the town's (a draw of what the open replants want); a remains group
+    // that owes a replant is taken down only with a sapling in hand (upkeep.mjs upkeepVisitJobs: held otherwise, never lost)
+    const rd0 = tidyRead(bot)
+    const owed = (rec.cells ?? []).filter(q => q.role === 'sapling' && !replantDone(rd0(...q.at))).length
+    let haveSapling = UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))
+    if (owed && !haveSapling) {
+      const kinds = [...new Set((rec.cells ?? []).map(q => q.sapling).filter(Boolean)), ...UPKEEP_PALETTE.sapling]
+      let st = {}
+      try { st = matsTownStock(bot)?.stock ?? {} } catch { st = {} }
+      const kind = kinds.find(n => (Number(st[n]) || 0) > 0)
+      if (kind) { try { const w = await matsWithdraw(ctx, { [kind]: Math.min(owed, Number(st[kind]) || 0, 8) }, signal, 30_000, matsReserve().table, shopAllow); f.fromMats = Object.entries(w.took ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-' } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      check(signal)
+      haveSapling = UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))
+    }
+    const vj = upkeepVisitJobs(rec, { haveSapling })
+    // CODEX r1 BLOCKER 1: a replant that grew (a log in its cell) or stands is done -- never a foreign block to dig
+    const grown = (q, rd) => q.role === 'sapling' && replantDone((rd ?? rd0)(...q.at))
     bot.shopUnknown ??= new Set()
-    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.upkeepStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisit({ dir, key, me, home, stood, record: vj.record, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.upkeepStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, blockLayer: false, clearMax: 24, walkR: UPKEEP.r + 8, stuckStalledOnly: true,
-      openRole: role => role === 'sapling', alsoDone: q => noSapling(q) }, effects, { deadline, maxSteps: 200 })
-    // THE LIST WORKED OUT: every listed block gone (or no longer the listed kind) and every replant standing or passed -> complete
+      openRole: role => role === 'sapling', alsoDone: (q, rd) => grown(q, rd) }, effects, { deadline, maxSteps: 200 })
+    if (vj.held) f.held = vj.held   // the remains held for want of a sapling (named on the row)
+    // THE LIST WORKED OUT: every listed block gone (or no longer the listed kind) and every replant standing or grown -> complete
     const rd = tidyRead(bot)
-    const left = (rec.clear ?? []).filter(q => { const b = rd(...q.at); return !b || String(b.name ?? '').replace(/\[.*\]$/, '') === q.name }).length + (rec.cells ?? []).filter(q => { const b = rd(...q.at); return !(b && /_sapling$|^mangrove_propagule$/.test(String(b.name ?? ''))) && !noSapling(q) }).length
+    const left = upkeepLeft(rec, rd, { canPlant: true })
     if (!left) {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && cur.surveyedAt === rec.surveyedAt ? { ...cur, structure_complete: true, state: 'done', completeAt: Date.now() } : null), { by: me })
       if (pub.result === 'accepted') { try { logEvent({ kind: 'upkeep', status: 'success', snapshot: snapshot(bot), detail: upkeepDetail({ op: 'done', tile: rec.tile, gen: pub.gen, clears: (rec.clear ?? []).length, replants: (rec.cells ?? []).length }) }) } catch { /* telemetry */ } }
     }
     // THE SWEEP: the drops in view over the whole reach (the crew's own sweep keeps inside the walls)
-    if (!signal?.aborted && gkSweepOn()) {
-      const R = UPKEEP.r
-      try { sw = await gkSweep(bot, signal, { until: t0 + budget - 5_000, inputs: () => tidyInputs(bot), reach: R, boxesOf: I => [[(I.home ?? home).x - R, (I.home ?? home).z - R, (I.home ?? home).x + R, (I.home ?? home).z + R]], plot: UPKEEP_PLOT }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; sw = null }
-    }
+    sw = await sweepNow(t0 + budget - 5_000)
     const status = r.placed > 0 || r.cleared > 0 || (sw?.took ?? 0) > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, `${r.why ?? r.stop}; cleared ${r.cleared}, replanted ${r.placed}, swept ${sw?.took ?? 0}; ${left} job(s) left in this tile`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, gathered: sw?.took ?? 0 })
   } catch (e) {
