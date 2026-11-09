@@ -15,7 +15,7 @@
 | Branch | Tip | Tier | State |
 |---|---|---|---|
 | `roads-01show` (showcase tip `b9fa002e`) | `cde69b81` | 2, not protected (`protected.py`: not protected) | Ready to stage, not released |
-| `roads-01-on-bcdba35f` (the fleet port) | `0c8911a8` | 2 | Built. Registration and draft queue entry in `~/mcai-analysis/roads-01.*` on the canary host. Not queued |
+| `roads-01-on-bcdba35f` (the fleet port) | `e3f21072` | 2 | Built. Registration and draft queue entry in `~/mcai-analysis/roads-01.*` on the canary host. Not queued |
 
 Ledger row: `roads-1109`.
 
