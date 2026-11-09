@@ -207,6 +207,8 @@ import { mineKeep } from './townmine.mjs'   // townmine-01: the stepwell's desce
 import { columnMemo as swColumnMemo, sitingRead as swSitingRead } from './stepwell.mjs'   // stepwell-03: the siting's memos
 import { stepwellCrew, stepwellBuildersNow, stepwellCrewDue, crewSector } from './stepwell.mjs'   // stepwell-05: the tank's crew
 import { plotPrep, replantCells, PLOTPREP } from './tidy.mjs'   // stepwell-01: the site's felling (the groundskeeper's stands and replants)
+import { PENS_PLOT, PENS_BLUEPRINT, PEN, PEN_FOREIGN, penPalette, sitePens, penOpen, penOf, penDomain } from './pens.mjs'   // pens-01
+import { HERD, animalOf, herdCensus, herdState, noteAnimals, herdWork, lureStep, herdDetail } from './herd.mjs'   // herd-01
 import { CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANE, CANE_PALETTE, CANE_FOREIGN, siteCaneFarm, caneCells, caneState, caneCensus, caneHarvest, caneStand, caneNeed, caneDue, caneAlsoDone, cutCell, caneHarvestRow, caneBankable } from './canefarm.mjs'   // canefarm-01
 import { TERRACE_STAGE, wallInterior, farmGuardOf } from './terrace.mjs'   // townterrace-01: the terrace stage
 import { legacyStage, stageCarry, tidyWater, cutSafeNow } from './tidy.mjs'   // townterrace-01
@@ -17780,7 +17782,7 @@ const bpCache = new Map()
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
 // picker-01: a sink's palette is its record's (every instance's roles): its blueprint here names no palette of its own
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) || id === STEPWELL_BLUEPRINT ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === CANEFARM_BLUEPRINT ? { id, palette: CANE_PALETTE } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, isSinkBlueprint(id) || id === STEPWELL_BLUEPRINT ? { id, palette: {} } : id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT || id === WALLEXT_BLUEPRINT || id === WALLDEMO_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === CROPFARM_BLUEPRINT ? { id, palette: CROP_PALETTE } : id === CANEFARM_BLUEPRINT ? { id, palette: CANE_PALETTE } : id === PENS_BLUEPRINT ? { id, palette: penPalette() } : id === STORE_BLUEPRINT ? { id, palette: STORE_PALETTE } : id === SHOPCHEST_BLUEPRINT ? { id, palette: SHOPCHEST_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17874,6 +17876,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         if (p.plot === TOWNHALL_PLOT && !rec && !townhallOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
         if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        // pens-01: an unsited pen whose siting found no site WAITS town-wide too
+        if (p.plot === PENS_PLOT && !rec && Date.now() < siteWaitUntil(PENS_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // stepwell-01: an unsited stepwell whose siting found no site WAITS town-wide too (the canefarm rule: never a loop of no_site visits)
         // forest-01: an unsited forest whose siting found no site WAITS town-wide (siteWaitUntil), never the keeper's every order
         if (p.plot === FOREST_PLOT && !rec && Date.now() < siteWaitUntil(FOREST_PLOT, dir) && !farmRetireDueNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
@@ -18415,6 +18419,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r.blueprint === CROPFARM_BLUEPRINT) return tidy && !!cropDueFor(bot, r)
     // canefarm-01: a standing cane bed is never DAMAGED either: its harvest and replant are upkeep (canefarm.mjs caneDue)
     if (r.blueprint === CANEFARM_BLUEPRINT) return tidy && !!caneDueFor(bot, r)
+    // pens-01: standing pens are never DAMAGED: a fence gone, and the herd's shear / breed / fetch, are upkeep (pensDueFor)
+    if (r.blueprint === PENS_BLUEPRINT) return tidy && !!pensDueFor(bot, r)
     // stepwell-01: the stepwell judges its own cells (stepwell.mjs stepwellDamaged: the first layer not done, lights aside; a stopped
     // tank is never damaged -- it stands as built)
     if (r.blueprint === STEPWELL_BLUEPRINT) return stepwellDamaged(stairRead(bot), r) != null
@@ -19916,6 +19922,7 @@ export function marketInstall (bot) {
   try { logEvent({ kind: 'villagefeed_mode', status: 'success', snapshot: snapshot(bot), detail: feedModeDetail(FEED_ON.on && MARKET_ON.on) }) } catch { /* telemetry */ }
 }
 export const _marketTest = { marketRunPlan, marketJobPlan, mkFillBucket, mkState, mkFile, walkinPlan, mkTripState }
+export const _pensTest = { pensDueFor, penGateOf, herdVisit, buildPens, hdRead, hdWrite, hdNoteSightings, pensMaterials }
 export const _feedTest = { feedPlan, vfNote, vfFile, vfRead, vfUpdate, vfState, villageFeed }
 export function expeditionInstall (bot) {
   exBot = bot
@@ -21562,6 +21569,7 @@ function serviceDueOf (bot, plot, rec, hubDue = null, now = Date.now()) {
   try {
     if (plot === CROPFARM_PLOT) return cropDueFor(bot, rec)
     if (plot === CANEFARM_PLOT) return caneDueFor(bot, rec)
+    if (plot === PENS_PLOT) return pensDueFor(bot, rec)
     if (plot === HUB_PLOT) return (hubDue ?? hubUpkeepDue(bot, rec, now)) ? 'clerk' : null
     return null
   } catch { return null }
@@ -22457,6 +22465,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (proj.plot === CROPFARM_PLOT) return buildCropFarm(ctx, args, signal)
   // canefarm-01: the sugar cane bed's visit (canefarm.mjs siting; the harvest, the replant, the bank)
   if (proj.plot === CANEFARM_PLOT) return buildCaneFarm(ctx, args, signal)
+  // pens-01: the sheep and cow pens' visit (pens.mjs siting; the rings, then the herd: herd.mjs)
+  if (proj.plot === PENS_PLOT) return buildPens(ctx, args, signal)
   // stepwell-01: the town stepwell's visit (stepwell.mjs siting; the felling, then the tank by layers)
   if (proj.plot === STEPWELL_PLOT) return buildStepwell(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
@@ -29416,6 +29426,403 @@ async function buildCaneFarm (ctx, args, signal) {
     try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
     try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
     if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(CANEFARM_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+
+// ================================================================================================================================
+// PENS-01 + HERD-01: THE SHEEP AND COW PENS' VISIT (pens.mjs the layout and siting, herd.mjs the animals; design
+// docs/reports/villagecon-2026-11-09/design.md on main). Site once (the farms zone, then the town ring), build the two rings and their
+// gates (fences crafted from the town's plenty logs; the builder never stands on a pen's floor), then UPKEEP: the herd -- SHEAR the
+// woolly adults (the wool banked: beds for the cottages and the villages), BREED two adults with wheat, FETCH a wild animal remembered
+// near the pens with a wheat lure, through the gate. One builder (PENS_BUILDERS). `_herd` rows; `_build project=pens` rows.
+// ================================================================================================================================
+const pensRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); if (!q) return null; let props = null; try { props = q.getProperties?.() ?? null } catch { props = null } return { name: q.name, boundingBox: q.boundingBox, ...(props ? { props } : {}) } }
+// TWO FILES: the herd's state (bredAt, failed, resume: written only by the one pens builder, inside its slot) and the SIGHTINGS (written by
+// any bot that sees a wild sheep or cow near the pens -- a race there loses a sighting, never the builder's state)
+const hdFile = (k = 'state') => path.join(townDir(), `herd-${indexHk()}.${k}.json`)
+const hdJson = k => { try { return JSON.parse(fs.readFileSync(hdFile(k), 'utf8')) } catch { return null } }
+function hdRead () { const st = herdState(hdJson('state')); return { ...st, seen: herdState({ seen: hdJson('seen') }).seen } }
+function hdPut (k, obj) { try { fs.mkdirSync(townDir(), { recursive: true }); const f = hdFile(k), tmp = `${f}.${config.bot.name}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify(obj)); fs.renameSync(tmp, f) } catch { /* advisory */ } }
+/** Write the herd's state (bredAt, failed, resume) and, with `seen`, the sightings. -> the merged state. */
+function hdWrite (s, { seen = false } = {}) { hdPut('state', { bredAt: s.bredAt ?? {}, failed: s.failed ?? {}, resume: s.resume ?? null }); if (seen) hdPut('seen', s.seen ?? {}); return s }
+const hdNoteAt = { at: -Infinity }
+/** Any bot: wild sheep and cows in sight near the pens into the sightings file (once a minute a bot). Never throws. */
+function hdNoteSightings (bot, rec, now = Date.now()) {
+  try {
+    if (now - hdNoteAt.at < 60_000) return
+    hdNoteAt.at = now
+    const census = herdCensus(hdAnimals(bot), rec)
+    if (!census.wild.length && !census.sheep.n && !census.cow.n) return
+    const next = noteAnimals(hdRead(), census, rec, now)
+    hdPut('seen', next.seen)
+  } catch { /* advisory */ }
+}
+const hdAnimals = bot => Object.values(bot.entities ?? {}).map(animalOf).filter(Boolean)
+const penCentreOf = rec => ({ x: ((rec?.box?.[0] ?? 0) + (rec?.box?.[2] ?? 0)) / 2, z: ((rec?.box?.[1] ?? 0) + (rec?.box?.[3] ?? 0)) / 2 })
+const woolIn = stock => Object.entries(stock ?? {}).filter(([k]) => /_wool$/.test(k)).reduce((a, [, v]) => a + (Number(v) || 0), 0)
+/** IS THE STANDING PEN DUE A VISIT for this bot? -> 'repair' | herd op | null. A fence or gate gone (repair); else, with the bot near
+ *  enough to count the pens (40 b of their centre: the animals' tracking range), the herd's next job. Never throws. */
+function pensDueFor (bot, rec) {
+  try {
+    const read = pensRead(bot)
+    const o = penOpen(read, rec)
+    if (o.fence + o.gate > 0) return 'repair'
+    const me = bot.entity?.position
+    const c = penCentreOf(rec)
+    hdNoteSightings(bot, rec)
+    if (!me || Math.hypot(me.x - c.x, me.z - c.z) > 40) return null
+    let stock = {}
+    try { stock = matsTownStock(bot)?.stock ?? {} } catch { stock = {} }
+    const w = herdWork({ census: herdCensus(hdAnimals(bot), rec), known: true, state: hdRead(), now: Date.now(), townWheat: Number(stock.wheat) || 0, bagWheat: countItem(bot, 'wheat'),
+      townWool: woolIn(stock), shears: countItem(bot, 'shears') > 0 || (Number(stock.iron_ingot) || 0) + countItem(bot, 'iron_ingot') >= 2, penCentre: c })
+    return w.op
+  } catch { return null }
+}
+/** THE SITING'S RESERVATIONS: the crop farm's (cropInputs' rule for this plot). */
+function pensInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const P = pathsInputs(bot, c, h, dir)
+  const records = projectHeads().filter(x => x.plot !== PENS_PLOT).map(x => x.head.rec).filter(Boolean)
+  const land = landHead(dir)
+  const park = land?.park?.box ?? null
+  const base = farmBlocked({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records, pzones: recordZones(records) })
+  const blocked = (x, z) => base(x, z) ?? (park && x >= park[0] - 2 && x <= park[2] + 2 && z >= park[1] - 2 && z <= park[3] + 2 ? 'park' : null)
+  return { blocked, zone: land ? (x, z) => zoneAt(land, x, z) : null }
+}
+/** The town's plenty wood species (its most logs) -> 'spruce' ... Never throws ('oak'). */
+function pensWood (bot) {
+  try { const st = matsTownStock(bot)?.stock ?? {}; const top = Object.entries(st).filter(([k]) => /_log$/.test(k) && !/stripped/.test(k)).sort((a, b) => b[1] - a[1])[0]; return top ? top[0].replace(/_log$/, '') : 'oak' } catch { return 'oak' }
+}
+/** THE FENCES AND GATES the open cells want, crafted from the town's logs of the record's wood (at most 24 fences a visit). */
+async function pensMaterials (ctx, rec, read, signal, tookAll) {
+  const { bot } = ctx
+  const o = penOpen(read, rec)
+  if (!o.fence && !o.gate) return
+  const w = rec.wood ?? 'oak'
+  const fences = Math.max(0, Math.min(24, o.fence) - bot.inventory.items().filter(i => /_fence$/.test(i.name)).reduce((a, i) => a + i.count, 0))
+  const gates = Math.max(0, o.gate - bot.inventory.items().filter(i => /_fence_gate$/.test(i.name)).reduce((a, i) => a + i.count, 0))
+  if (!fences && !gates) return
+  // planks: a fence craft (3 fences) takes 4 planks + 2 sticks (1 plank); a gate 2 planks + 4 sticks (2 planks)
+  const planks = Math.ceil(fences / 3) * 5 + gates * 4
+  const have = countItem(bot, `${w}_planks`) + 4 * countItem(bot, `${w}_log`)
+  if (planks > have) {
+    const logs = Math.ceil((planks - have) / 4)
+    try { const r = await matsWithdraw(ctx, { [`${w}_log`]: logs }, signal, 30_000, matsReserve().table, decorAllow({ [`${w}_log`]: logs })); for (const [k, v] of Object.entries(r?.took ?? {})) tookAll[k] = (tookAll[k] ?? 0) + v } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+  const cw = { ...ctx, preferWorkshop: true, stations: {} }
+  if (fences > 0) { try { await craft(cw, { item: `${w}_fence`, count: Math.ceil(fences / 3) * 3 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+  if (gates > 0) { try { await craft(cw, { item: `${w}_fence_gate`, count: gates }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+  // the floor's dips: dirt (else cobblestone) from town
+  const floorOpen = (rec.cells ?? []).filter(c => c.role === 'floor' && !isSolidName(read(...c.at)?.name)).length
+  if (floorOpen > countItem(bot, 'dirt') + countItem(bot, 'cobblestone')) {
+    const k = floorOpen - countItem(bot, 'dirt') - countItem(bot, 'cobblestone')
+    try { const r = await matsWithdraw(ctx, { cobblestone: k }, signal, 20_000, matsReserve().table, decorAllow({ cobblestone: k })); for (const [kk, v] of Object.entries(r?.took ?? {})) tookAll[kk] = (tookAll[kk] ?? 0) + v } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+}
+const isSolidName = n => !!n && !/^(air|cave_air|void_air|water|lava|short_grass|tall_grass|fern|large_fern|snow)$/.test(n)
+async function buildPens (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: PENS_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === PENS_PLOT)) return out('no_effect', 'off', 'the pens are switched off (PENS, CROPFARM, PATHS, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(PENS_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the pens record could not be read')
+  if (!rh.head) {
+    if (Date.now() < siteWaitUntil(PENS_PLOT, dir)) return out('no_effect', 'no_site', 'no pens site (waiting)', { stop: 'site_wait' })
+    let s
+    try { s = sitePens(planReader(bot), { home, ...pensInputs(bot, c, h, dir), wood: pensWood(bot) }) } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
+    if (!s.ok) { siteWaitSet(PENS_PLOT, 30 * 60_000, s.why); return out('no_effect', 'no_site', `no pens site (${s.why})`.slice(0, 160), { stop: 'site_wait' }) }
+    const record = s.record
+    const pub = publishRecord(dir, key, cur => (cur ? null : { ...record, state: 'open' }), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PENS_PLOT, op: 'sited', cell: [record.anchor[0], record.level, record.anchor[1]], kind: `fence${record.counts.fence}/grass${record.counts.grass}/cut${record.counts.cut}/floor${record.counts.floor}/${record.orient}${record.front}/${record.wood}/${s.zone ?? '-'}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the pens record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  const read = pensRead(bot)
+  const due = rec.structure_complete ? pensDueFor(bot, rec) : null
+  if (rec.structure_complete && !due && !args?.herd) return out('no_effect', 'complete', 'the pens stand; the herd has no work in sight')
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === PENS_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null, placedBy = {}, backAll = {}, tookAll = {}, diedAt = null
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    bag0 = heldMap(bot)
+    const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: PENS_PLOT, ...d }) : buildRowDetail({ project: PENS_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
+    let r = { stop: 'complete', placed: 0, refused: 0, silent: 0, cleared: 0, unknown: 0, why: 'complete' }
+    const open0 = penOpen(read, rec)
+    if (!rec.structure_complete || open0.fence + open0.gate > 0) {
+      // 1. THE MATERIALS: fences and gates crafted from the record's wood, the floor's fill drawn
+      await pensMaterials(ctx, rec, read, signal, tookAll)
+      check(signal)
+      // 2. THE BUILD: the floor's dips, the rings, the gates (aimed: the facing into the pen, closed); never a stand on a floor
+      bot.shopUnknown ??= new Set()
+      const palette = rec.palette ?? penPalette(rec.wood)
+      r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.pensStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+        domain: penDomain(rec), foreign: PEN_FOREIGN, blockLayer: false, clearMax: 40, walkR: Math.max(96, PEN.rMax + 16) }, effects, { deadline: rec.structure_complete ? deadline : deadline - 30_000, maxSteps: 200 })
+      const o1 = penOpen(pensRead(bot), rec)
+      if (r.stop === 'complete' && !rec.structure_complete && o1.fence + o1.gate === 0) {
+        const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+        bot.shopDamage = null
+        if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PENS_PLOT, op: 'complete', kind: PENS_BLUEPRINT, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+        rec.structure_complete = true
+      }
+    }
+    // 3. THE HERD (upkeep, the rings standing and whole)
+    let hv = null
+    if (rec.structure_complete && penOpen(pensRead(bot), rec).fence + penOpen(pensRead(bot), rec).gate === 0 && Date.now() < deadline - 20_000) {
+      hv = await herdVisit(ctx, rec, { deadline: deadline - 10_000, signal, tookAll })
+    }
+    const status = r.placed > 0 || r.cleared > 0 || hv?.ok ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}${hv ? `; herd ${hv.op ?? '-'} ${hv.why ?? ''}` : ''}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(PENS_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
+  }
+}
+/** A pen's gate and its two stands: the apron (outside, 2 b out) and the inside (2 b in). */
+function penGateOf (rec, sp) {
+  const g = rec?.pens?.[sp]?.gate
+  if (!g) return null
+  const d = { south: [0, 1], north: [0, -1], east: [1, 0], west: [-1, 0] }[g.facing] ?? [0, 1]
+  const y = (rec.level ?? 0) + 1
+  // deep: the far side of the floor (the lured animal follows the bot ALL the way in -- pens-e2e 11-09 run 2: led only 2 in, the sheep
+  // stopped at 2.5 b behind it, in the gateway, and 6 of 7 fetches ended `not_in`)
+  return { x: g.x, y, z: g.z, out: { x: g.x - 2 * d[0], y, z: g.z - 2 * d[1] }, in: { x: g.x + 2 * d[0], y, z: g.z + 2 * d[1] }, deep: { x: g.x + 6 * d[0], y, z: g.z + 6 * d[1] }, door: { x: g.x - d[0], z: g.z - d[1] } }
+}
+const gateIsOpen = (bot, g) => { try { const b = bot.blockAt(new Vec3(g.x, g.y, g.z)); return b ? String(b.getProperties?.()?.open) === 'true' : null } catch { return null } }
+async function useGate (bot, g) { await bot.lookAt(new Vec3(g.x + 0.5, g.y + 0.5, g.z + 0.5), true); await bot.activateBlock(bot.blockAt(new Vec3(g.x, g.y, g.z))); await sleep(400) }
+/** Set the gate to `open` (true/false) from where the bot stands (within reach). -> the state read back. */
+async function setGate (bot, g, open, signal) {
+  for (let i = 0; i < 3 && gateIsOpen(bot, g) !== open; i++) { check(signal); try { await useGate(bot, g) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+  return gateIsOpen(bot, g) === open
+}
+const onFloor = (rec, p) => !!penOf(rec, p.x, p.z)
+async function hdGoto (ctx, p, signal, range = 0, ms = 15_000) { try { await goto(ctx, { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z), range }, signal, { until: Date.now() + ms }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+/** INTO a pen by its gate (open, in, closed behind) -> true when the bot stands on the pen's floor with the gate closed. */
+async function penEnter (ctx, rec, sp, signal) {
+  const { bot } = ctx
+  const g = penGateOf(rec, sp)
+  if (!g) return false
+  await hdGoto(ctx, g.out, signal, 0)
+  if (!(await setGate(bot, g, true, signal))) return false
+  await hdGoto(ctx, g.in, signal, 0)
+  const inside = penOf(rec, bot.entity.position.x, bot.entity.position.z) === sp
+  const shut = await setGate(bot, g, false, signal)
+  return inside && shut
+}
+/** OUT of a pen by its gate (open, out, closed behind) -> true when the bot stands off every floor with the gate closed. */
+async function penExit (ctx, rec, sp, signal) {
+  const { bot } = ctx
+  const g = penGateOf(rec, sp)
+  if (!g) return false
+  try { if (bot.heldItem && ['wheat', 'shears'].includes(bot.heldItem.name)) await bot.unequip('hand') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  for (let i = 0; i < 3; i++) {
+    await hdGoto(ctx, { x: g.in.x - (g.in.x - g.x) / 2, y: g.y, z: g.in.z - (g.in.z - g.z) / 2 }, signal, 0)
+    await setGate(bot, g, true, signal)
+    await hdGoto(ctx, g.out, signal, 0)
+    if (!onFloor(rec, bot.entity.position)) break
+  }
+  const shut = await setGate(bot, g, false, signal)
+  return !onFloor(rec, bot.entity.position) && shut
+}
+/**
+ * THE HERD'S WORK this visit (herd.mjs herdWork picks it): SHEAR, BREED or FETCH. One `_herd` row at the end. -> { ok, op, why }.
+ * Never throws but an abort; the bot always tries to leave a pen it entered, the gate closed (penExit).
+ */
+async function herdVisit (ctx, rec, { deadline, signal, tookAll = {} }) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const row = (status, o) => { try { logEvent({ kind: 'herd', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: herdDetail(o), args: { op: o.op, species: o.species ?? null, why: o.why ?? null } }) } catch { /* telemetry */ } }
+  const c = penCentreOf(rec)
+  const g0 = penGateOf(rec, 'sheep')
+  if (g0) await hdGoto(ctx, g0.out, signal, 2)
+  const census = herdCensus(hdAnimals(bot), rec)
+  const st = hdWrite(noteAnimals(hdRead(), census, rec, Date.now()), { seen: true })
+  let stock = {}
+  try { stock = matsTownStock(bot)?.stock ?? {} } catch { stock = {} }
+  const w = herdWork({ census, known: true, state: st, now: Date.now(), townWheat: Number(stock.wheat) || 0, bagWheat: countItem(bot, 'wheat'), townWool: woolIn(stock),
+    shears: countItem(bot, 'shears') > 0 || (Number(stock.iron_ingot) || 0) + countItem(bot, 'iron_ingot') >= 2, penCentre: c })
+  const base = { op: w.op ?? 'none', species: w.species, why: w.why, census }
+  if (!w.op) { row('no_effect', base); return { ok: false, op: null, why: w.why } }
+  const wheatFor = async n => {
+    if (countItem(bot, 'wheat') >= n) return true
+    const k = n - countItem(bot, 'wheat')
+    try { const r = await matsWithdraw(ctx, { wheat: k }, signal, 20_000, matsReserve().table, decorAllow({ wheat: k })); for (const [kk, v] of Object.entries(r?.took ?? {})) tookAll[kk] = (tookAll[kk] ?? 0) + v } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    return countItem(bot, 'wheat') >= n
+  }
+  let entered = null
+  try {
+    if (w.op === 'shear') {
+      if (!(await decorShears(ctx, signal))) { row('no_effect', { ...base, stop: 'no_shears' }); return { ok: false, op: 'shear', why: 'no_shears' } }
+      const wool0 = bot.inventory.items().filter(i => /_wool$/.test(i.name)).reduce((a, i) => a + i.count, 0)
+      if (!(await penEnter(ctx, rec, 'sheep', signal))) { entered = 'sheep'; row('failed', { ...base, stop: 'enter' }); return { ok: false, op: 'shear', why: 'enter' } }
+      entered = 'sheep'
+      let n = 0
+      const done = new Set()
+      for (let i = 0; i < 4 && Date.now() < deadline - 25_000; i++) {
+        check(signal)
+        const sh = herdCensus(hdAnimals(bot), rec).sheep.woolly.filter(a => !done.has(a.id)).sort((a, b) => Math.hypot(a.x - bot.entity.position.x, a.z - bot.entity.position.z) - Math.hypot(b.x - bot.entity.position.x, b.z - bot.entity.position.z))[0]
+        if (!sh) break
+        done.add(sh.id)
+        await hdGoto(ctx, sh, signal, 2, 8_000)
+        const e = bot.entities?.[sh.id]
+        if (!e) continue
+        const it = bot.inventory.items().find(x => x.name === 'shears')
+        if (!it) break
+        await bot.equip(it, 'hand')
+        await bot.lookAt(e.position.offset(0, 0.6, 0), true)
+        await bot.activateEntity(e)
+        await sleep(900, signal)
+        n++
+        // THE WOOL: walk over every item on the pen's floor near the sheep (pens-e2e run 2: walking to the sheep left the wool lying)
+        for (const it of Object.values(bot.entities ?? {}).filter(q => q.name === 'item' && q.position && penOf(rec, q.position.x, q.position.z) === 'sheep' && q.position.distanceTo(bot.entity.position) < 8)) {
+          await hdGoto(ctx, it.position, signal, 0, 4_000)
+        }
+        await sleep(600, signal)
+      }
+      const wool = bot.inventory.items().filter(i => /_wool$/.test(i.name)).reduce((a, i) => a + i.count, 0) - wool0
+      const out = await penExit(ctx, rec, 'sheep', signal)
+      if (out) entered = null
+      row(wool > 0 ? 'success' : 'no_effect', { ...base, n, wool, stop: out ? 'out' : 'exit_failed' })
+      return { ok: wool > 0, op: 'shear', why: `${n} sheared, ${wool} wool` }
+    }
+    if (w.op === 'breed') {
+      if (!(await wheatFor(HERD.breedWheat))) { row('no_effect', { ...base, stop: 'no_wheat' }); return { ok: false, op: 'breed', why: 'no_wheat' } }
+      const sp = w.species
+      const n0 = herdCensus(hdAnimals(bot), rec)[sp].n
+      if (!(await penEnter(ctx, rec, sp, signal))) { entered = sp; row('failed', { ...base, stop: 'enter' }); return { ok: false, op: 'breed', why: 'enter' } }
+      entered = sp
+      const fed = []
+      for (let i = 0; i < 6 && fed.length < 2 && Date.now() < deadline - 25_000; i++) {
+        check(signal)
+        const a = herdCensus(hdAnimals(bot), rec)[sp].adults.filter(x => !fed.includes(x.id)).sort((p, q) => Math.hypot(p.x - bot.entity.position.x, p.z - bot.entity.position.z) - Math.hypot(q.x - bot.entity.position.x, q.z - bot.entity.position.z))[0]
+        if (!a) { await sleep(1_000, signal); continue }
+        await hdGoto(ctx, a, signal, 1, 6_000)
+        const e = bot.entities?.[a.id]
+        const it = bot.inventory.items().find(x => x.name === 'wheat')
+        if (!e || !it) continue
+        await bot.equip(it, 'hand')
+        await bot.lookAt(e.position.offset(0, 0.6, 0), true)
+        await bot.activateEntity(e)
+        fed.push(a.id)
+        await sleep(500, signal)
+      }
+      hdWrite({ ...hdRead(), bredAt: { ...hdRead().bredAt, [sp]: Date.now() } })
+      let n1 = n0
+      for (let i = 0; i < 10 && n1 <= n0; i++) { await sleep(1_000, signal); n1 = herdCensus(hdAnimals(bot), rec)[sp].n }
+      const out = await penExit(ctx, rec, sp, signal)
+      if (out) entered = null
+      row(n1 > n0 ? 'success' : 'no_effect', { ...base, n: n1 - n0, stop: `fed${fed.length}${out ? '' : '+exit_failed'}` })
+      return { ok: n1 > n0, op: 'breed', why: `fed ${fed.length}, +${n1 - n0}` }
+    }
+    if (w.op === 'fetch') {
+      const sp = w.species, tg = w.target
+      if (!(await wheatFor(2))) { row('no_effect', { ...base, stop: 'no_wheat' }); return { ok: false, op: 'fetch', why: 'no_wheat' } }
+      const g = penGateOf(rec, sp)
+      const walk = await mkWalkLegs(ctx, { x: tg.x, z: tg.z }, signal, Math.min(deadline - 60_000, Date.now() + 60_000), { range: 4 })
+      const pick = () => hdAnimals(bot).filter(a => a.species === sp && !a.baby && !onFloor(rec, a)).sort((a, b) => (b.uuid === tg.uuid) - (a.uuid === tg.uuid) || Math.hypot(a.x - tg.x, a.z - tg.z) - Math.hypot(b.x - tg.x, b.z - tg.z))[0]
+      let an = pick()
+      if (!an || Math.hypot(an.x - tg.x, an.z - tg.z) > 16) {
+        const s1 = hdRead(); hdWrite({ ...s1, failed: { ...s1.failed, [tg.uuid]: Date.now() }, resume: null })
+        row('no_effect', { ...base, uuid: tg.uuid, stop: `not_found:${walk}` })
+        return { ok: false, op: 'fetch', why: 'not_found' }
+      }
+      const it = bot.inventory.items().find(x => x.name === 'wheat')
+      if (it) await bot.equip(it, 'hand')
+      await hdGoto(ctx, an, signal, 3, 10_000)
+      await sleep(1_500, signal)
+      let legs = 0, stop = 'time', waitFrom = null, reapproach = 0
+      const dest = { x: g.out.x + 0.5, z: g.out.z + 0.5 }
+      const d0 = Math.hypot(an.x - dest.x, an.z - dest.z)
+      while (Date.now() < deadline - 30_000) {
+        check(signal)
+        // the wheat in hand at every step (a walk may change the held slot; an animal only follows what it sees held)
+        if (bot.heldItem?.name !== 'wheat') { const wi = bot.inventory.items().find(x => x.name === 'wheat'); if (!wi) { stop = 'no_wheat'; break } await bot.equip(wi, 'hand') }
+        const cur = hdAnimals(bot).find(a => a.id === an.id) ?? null
+        const s = lureStep(bot.entity.position, cur, dest)
+        if (s.act === 'arrived') { stop = 'arrived'; break }
+        if (s.act === 'lost') { stop = 'lost'; break }
+        if (s.act === 'wait') {
+          // NOT FOLLOWING (pens-e2e 11-09 run 4: a sheep 5-10 b off never came, the bot waited out four visits): after 6 s, walk back to it
+          // (within 2 b: TemptGoal starts within 10 b, a fresh look at the wheat); four times -> lost
+          waitFrom ??= Date.now()
+          if (Date.now() - waitFrom > 6_000) { if (++reapproach > 4) { stop = 'lost'; break } await hdGoto(ctx, cur, signal, 2, 8_000); waitFrom = null; continue }
+          await sleep(HERD.legWaitMs, signal); continue
+        }
+        waitFrom = null
+        await hdGoto(ctx, { x: s.to.x, y: bot.entity.position.y, z: s.to.z }, signal, 1, 8_000)
+        legs++
+      }
+      if (stop !== 'arrived') {
+        const cur = hdAnimals(bot).find(a => a.id === an.id)
+        const s1 = hdRead()
+        // a time-out that brought the animal at least 8 b nearer is resumed next visit; one that did not is a failure (never chased forever)
+        const gained = cur ? d0 - Math.hypot(cur.x - dest.x, cur.z - dest.z) : 0
+        if (stop !== 'time' || !cur || gained < 8) hdWrite({ ...s1, failed: { ...s1.failed, [an.uuid]: Date.now() }, resume: null })
+        else hdWrite({ ...s1, resume: { uuid: an.uuid, species: sp, x: Math.round(cur.x), z: Math.round(cur.z), at: Date.now() } })
+        try { await bot.unequip('hand') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        row('no_effect', { ...base, uuid: an.uuid, legs, stop, d: cur ? Math.hypot(cur.x - dest.x, cur.z - dest.z) : null })
+        return { ok: false, op: 'fetch', why: stop }
+      }
+      // THROUGH THE GATE: open, in (the animal follows the wheat), wheat away, out, closed
+      await setGate(bot, g, true, signal)
+      entered = sp
+      await hdGoto(ctx, g.deep, signal, 0)
+      let inPen = false
+      for (let i = 0; i < 10 && !inPen; i++) { await sleep(1_000, signal); const cur = hdAnimals(bot).find(a => a.id === an.id); inPen = !!cur && penOf(rec, cur.x, cur.z) === sp && Math.hypot(cur.x - (g.x + 0.5), cur.z - (g.z + 0.5)) >= 2 }
+      try { await bot.unequip('hand') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      await sleep(1_500, signal)
+      const out = await penExit(ctx, rec, sp, signal)
+      if (out) entered = null
+      const cur = hdAnimals(bot).find(a => a.id === an.id)
+      const kept = !!cur && penOf(rec, cur.x, cur.z) === sp
+      hdWrite({ ...hdRead(), resume: null })
+      row(kept ? 'success' : 'no_effect', { ...base, uuid: an.uuid, legs, stop: `${kept ? 'penned' : 'not_in'}${out ? '' : '+exit_failed'}` })
+      return { ok: kept, op: 'fetch', why: kept ? 'penned' : 'not_in' }
+    }
+    row('no_effect', base)
+    return { ok: false, op: w.op, why: 'unknown_op' }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row('failed', { ...base, stop: `error:${String(e?.message ?? e).slice(0, 40)}` })
+    return { ok: false, op: w.op, why: 'error' }
+  } finally {
+    // never left inside a pen by an error: one more exit, best effort (an abort's signal is set: the walk is the next order's)
+    if (entered && !signal?.aborted) { try { await penExit(ctx, rec, entered, signal) } catch { /* the next visit */ } }
   }
 }
 
