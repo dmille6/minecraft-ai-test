@@ -251,6 +251,7 @@ import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the 
 import { servicePick, isServicePlot, stampNext, stampReleaseDue, stampOfHead, serviceOffer, serviceRowDetail, SERVICE_PLOTS } from './prodserve.mjs'   // prodserve-01
 import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
 import { ornamentKind } from './sinks.mjs'   // fences-01: dress, decor and wood spend their own supply, never the stone
+import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
 import { fnv1a as decorHash } from './zigdesign.mjs'   // decorator-01: a pot's plant by its cell
@@ -24299,8 +24300,40 @@ function sinkPressureNow (bot) {
   try { const t = matsTownStock(bot); return sinkPressure({ town: t?.stock ?? null, coverage: t?.coverage ?? 0, bag: heldMap(bot) }) } catch { return { p: -1, avail: 0, known: false, town: null, bag: 0 } }
 }
 /** Has a kind what it stands on? A road the land plan's rails, a shrine a sited ziggurat, a tower nothing. Never throws. */
+// ---- roads-01: the traffic routes (roads.mjs) ------------------------------------------------------------------------------------
+/** Is the road sink on the traffic routes for this pool (ROADS2)? Never throws. */
+const roads2On = () => { try { return roadsOn(process.env, config.memory.pool) } catch { return false } }
+let roads2Cache = { at: -Infinity, v: null }
+/** The town's traffic file's routes (roads.mjs trafficRoutes), read at most once a minute. Never throws: unreadable is no routes. */
+function roads2Traffic (now = Date.now()) {
+  if (now - roads2Cache.at < 60_000 && roads2Cache.v) return roads2Cache.v
+  let v
+  try { v = trafficRoutes(JSON.parse(fs.readFileSync(path.join(townDir(), trafficFile(`${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`)), 'utf8')), now) } catch { v = { ok: false, why: 'no_file', routes: [] } }
+  roads2Cache = { at: now, v }
+  return v
+}
+/**
+ * THE ROAD2 SITING'S TOWN INPUTS -> { routes, ring, landOk } | null (sinks.mjs siteSink's `roads2`). The ring a route leaves (the wall's,
+ * or the wall extension's when its start lies beside that one); the LANDING test: a column holding no wall or wall-extension cell (a
+ * road starts from a gap in the ring, never through a wall). Throws on an unreadable record (the visit stops).
+ */
+function roads2Ctx () {
+  const t = roads2Traffic()
+  if (!t.ok) return null
+  const heads = projectHeads()
+  const walls = heads.filter(x => x.plot === WALL_PLOT || x.plot === WALLEXT_PLOT).map(x => x.head?.rec).filter(Boolean)
+  const wallCols = new Set(walls.flatMap(r => (r.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => `${c.at[0]},${c.at[2]}`)))
+  const boxes = [...walls.map(r => r.ring), t.ring, t.ext].filter(b => Array.isArray(b) && b.length === 4)
+  const ringFor = st => boxes.find(b => Math.max(b[0] - st[0], st[0] - b[2], b[1] - st[1], st[1] - b[3]) <= 2) ?? t.ring ?? null
+  // every OTHER record's cell columns (the paths', the yard's piles, the ziggurat's, a tower's, the tidy's grading...): a road cell never
+  // stands in one (a record without zones -- the yard, the ziggurat -- reserves nothing through the guard; its cells still do)
+  const pathCols = new Set(heads.filter(x => x.plot !== SINK_PLOTS.road && x.plot !== LAND_PLOT && x.plot !== SITEPREP_PLOT).flatMap(x => (x.head?.rec?.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => `${c.at[0]},${c.at[2]}`)))
+  return { routes: t.routes, ringFor, townBoxes: boxes, landOk: (x, z) => !wallCols.has(`${x},${z}`), own: (x, z) => pathCols.has(`${x},${z}`) }
+}
 function sinkReady (kind) {
   try {
+    // roads-01 (ROADS2): a road is ready while the town's traffic file names a route that has not ended
+    if (kind === 'road' && roads2On()) { const t = roads2Traffic(); const ended = endedRoutes(recordHead(townDir(), projKeyOf(SINK_PLOTS.road)).head?.rec ?? null); return t.ok && t.routes.some(r => !ended[r.id]) }
     if (kind === 'road') return roadRails(landHead()).length > 0
     if (kind === 'shrine') { const m = recordHead(townDir(), projKeyOf(MONUMENT_PLOT)); return Array.isArray(m.head?.rec?.box) }
     // towndress-01: a dress batch dresses the laid paths or the wall
@@ -24337,7 +24370,7 @@ function sinkStatesNow (bot, states, now = Date.now()) {
       const held = kind === WOOD_KIND ? woodHold({ on: WOOD_ON, now, stallUntil: bot ? noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), WOOD_STALL) : 0 }) : null
       const open = sinkOpen(rec) && !held
       let next = false, why = open ? 'open' : sinkOpen(rec) ? held : 'no_bot'
-      if (!open && !sinkOpen(rec) && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : kind === WOOD_KIND ? woodPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind) }); next = g.want; why = g.why }
+      if (!open && !sinkOpen(rec) && bot) { pr ??= sinkPressureNow(bot); const g = sinkNextGate({ kind, rec, pressure: kind === 'dress' ? dressPressureNow(bot) : kind === 'decor' ? decorPressureNow(bot) : kind === WOOD_KIND ? woodPressureNow(bot) : pr, openCount, noSiteUntil: sp && prepClaimFor(sp, kind) ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now, ready: sinkReady(kind), max: kind === 'road' && roads2On() ? ROADS.instancesMax : null }); next = g.want; why = g.why }
       st[kind] = { open, want: next, sitedAt: instancesOf(rec).at(-1)?.sitedAt ?? 0, why }
       return woodHeldState({ ...rest, sinkOpen: open, sinkNext: next, sinkWhy: why }, held)   // fold r2: an off wood record is no repair pick
     })
@@ -24369,7 +24402,10 @@ function sinkNextNow (plot) { try { return !!activeMem?.states?.find(s => s.plot
 function sinkGuardFor (c, plan, { noZ0 = false, kind = null, prepExcept = null } = {}) {
   const others = guardRecords(projectHeads().map(x => x.head.rec).filter(Boolean), kind)
   // siteprep-01: only the ONE request being claimed (or graded and verified by the keeper) ignores its own zone -- never a kind
-  const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept)), ...hallPadZones(plan), ...townMarkerZones()]
+  // roads-01 (ROADS2): the land plan's ROAD corridors are the road's own (reserved for a road: the road may take them), and the paths'
+  // zones are open to it (it continues a path laid outside the wall: roads.mjs crossSection refuses the paths' own cell columns)
+  const roadOwn = kind === 'road' && roads2On()
+  const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept) && !(roadOwn && /^(land:road|project:paths)/.test(String(z?.why ?? '')))), ...hallPadZones(plan), ...townMarkerZones()]
   const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
   return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
 }
@@ -25152,6 +25188,65 @@ async function decorPostKit (ctx, signal, need, rec, owed = 0) {
   try { logEvent({ kind: 'decor', status: made ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: decorRowDetail({ op: 'post_kit', want, lanterns: Number(heldMap(bot).lantern) || 0, fences: fencesOf(heldMap(bot)), n: made }) }) } catch { /* telemetry */ }
   return made
 }
+/**
+ * ROADS-01: THE ROAD KIT -> { made, need }. What the record's open cells owe in the roles no chest stocks (roads.mjs roadKitNeed: a road's
+ * bottom slabs, a lamp's fence and lantern; LAMPS2 dress posts: fences and lanterns), less the bag's, made now at most ROAD_KIT_MAX of
+ * each: SLABS at a table from the town's stone bricks (3 -> 6), else cobblestone (cobblestone_slab); FENCES from the bag's planks
+ * (spruce_fence, 3 a craft); LANTERNS from iron (the town's above ROAD_IRON_KEEP: 9 nuggets an ingot) and a torch (the town's above its
+ * reserve). Never throws but an abort; one `_road op=kit` row.
+ */
+const ROAD_KIT_MAX = 24
+const ROAD_IRON_KEEP = 32
+async function roadKit (ctx, rec, palette, signal) {
+  const { bot } = ctx
+  const rd = planReader(bot)
+  const open = c => !buildCellDone(rd(...c.at), palette, c.role, c.ws)
+  const nd = roadKitNeed(rec, open, heldMap(bot))
+  // a LAMPS2 dress batch's fence posts and lanterns (roadKitNeed reads the road's roles; the dress's are counted here)
+  if (rec?.blueprint === SINK_BLUEPRINTS.dress) {
+    const owe = (rec.cells ?? []).filter(c => open(c))
+    nd.fence = Math.max(0, owe.filter(c => /^L\d+-fpost$/.test(c.role)).length - fencesOf(heldMap(bot)))
+    nd.lantern = Math.max(0, owe.filter(c => /^L\d+-lamp$/.test(c.role)).length - (Number(heldMap(bot).lantern) || 0))
+  }
+  const made = {}
+  const t = matsTownStock(bot)?.stock ?? {}
+  const R0 = matsReserve().table
+  try {
+    if (nd.slab > 0) {
+      const want = Math.min(ROAD_KIT_MAX, nd.slab)
+      const crafts = Math.ceil(want / 6)
+      const brick = (Number(t.stone_bricks) || 0) - 64 >= 3 * crafts || countItem(bot, 'stone_bricks') >= 3 * crafts
+      const item = brick ? 'stone_brick_slab' : 'cobblestone_slab', input = brick ? 'stone_bricks' : 'cobblestone'
+      const lack = Math.max(0, 3 * crafts - countItem(bot, input))
+      if (lack) await matsWithdraw(ctx, { [input]: lack }, signal, 20_000, R0, decorAllow({ [input]: lack }))
+      check(signal)
+      const before = countItem(bot, item)
+      if (countItem(bot, input) >= 3) await craft(ctx, { item, count: Math.min(crafts, Math.floor(countItem(bot, input) / 3)) * 6 }, signal)
+      made[item] = Math.max(0, countItem(bot, item) - before)
+    }
+    if (nd.fence > 0) {
+      const before = fencesOf(heldMap(bot))
+      await craft(ctx, { item: 'spruce_fence', count: Math.ceil(Math.min(ROAD_KIT_MAX, nd.fence) / 3) * 3 }, signal)
+      made.fence = Math.max(0, fencesOf(heldMap(bot)) - before)
+    }
+    check(signal)
+    if (nd.lantern > 0) {
+      const lacking = Math.min(ROAD_KIT_MAX, nd.lantern)
+      const ironCap = Math.max(0, (Number(t.iron_ingot) || 0) - ROAD_IRON_KEEP)
+      const iron = Math.min(ironCap, Math.max(0, Math.ceil((lacking * 8 - countItem(bot, 'iron_nugget')) / 9) - countItem(bot, 'iron_ingot')))
+      const torch = Math.min(Math.max(0, (Number(t.torch) || 0) - (Number(R0?.torch) || 32)), Math.max(0, lacking - countItem(bot, 'torch')))
+      if (iron || torch) await matsWithdraw(ctx, { ...(iron ? { iron_ingot: iron } : {}), ...(torch ? { torch } : {}) }, signal, 20_000, R0, decorAllow({ iron_ingot: iron, torch }))
+      check(signal)
+      const k = Math.min(lacking, countItem(bot, 'torch'), Math.floor((countItem(bot, 'iron_nugget') + 9 * countItem(bot, 'iron_ingot')) / 8))
+      const before = Number(heldMap(bot).lantern) || 0
+      if (k > 0) await craft(ctx, { item: 'lantern', count: k }, signal)
+      made.lantern = Math.max(0, (Number(heldMap(bot).lantern) || 0) - before)
+    }
+  } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+  const n = Object.values(made).reduce((a, b) => a + b, 0)
+  try { logEvent({ kind: 'road', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=kit plot=${rec?.plot ?? '-'} slab=${nd.slab} fence=${nd.fence} lantern=${nd.lantern} made=${Object.entries(made).map(([a, b]) => `${a}:${b}`).join(',') || '-'}` }) } catch { /* telemetry */ }
+  return { made: n, need: nd }
+}
 /** The decor upkeep for THIS bot (recordDamaged's `due`): an empty pot and a plant to fill it, under its tries. Never throws. */
 function decorPotWork (bot, rec) {
   try {
@@ -25181,7 +25276,7 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
     const zig = projectHeads().find(x => x.plot === MONUMENT_PLOT)?.head?.rec ?? null
     const feet = bot.entity?.position ? [Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y + 1e-6), Math.floor(bot.entity.position.z)] : null
     // towndress-01: a dress batch reads every other record (its anchors, its cell guard, the lights they plan) and the spare torches
-    const dress = kind === 'dress' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.dress && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), torches: dressPressureNow(bot).torches, reserved: dressReservedFor(c, plan) } : {}
+    const dress = kind === 'dress' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.dress && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), torches: dressPressureNow(bot).torches, reserved: dressReservedFor(c, plan), lamps2: lampsOn(process.env, config.memory.pool) } : {}
     // decorator-01: a decor batch reads every other record (the paths, the buildings' doorways, the cell guard), the bag's plants and
     // the pots, the town's walls (inside first) and its own seed
     const decor = kind === 'decor' ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.decor && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), flowers: decorFlowersOf(heldMap(bot)), ferns: Number(heldMap(bot).fern) || 0, pots: decorPressureNow(bot).pots,
@@ -25196,8 +25291,14 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
     // siteprep-01: `prep` pins the claim of a prepared plot (one spot, its base), `read` an after-world (the keeper's choosing)
     const pe = prep?.id ?? null
     return siteSink(read ?? planReader(bot), { kind, n, id: `${SINK_LETTER[kind]}${n}`, home: planHomeP(), pool: config.memory.pool, avail: av.avail, torch: av.torch, campfire: av.campfire,
-      guard: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...wood, ...(prep ? { prep } : {}) })
+      guard: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { kind, prepExcept: pe }), guardShrine: ornamentKind(kind) ? () => null : sinkGuardFor(c, plan, { noZ0: true, kind, prepExcept: pe }), wall: walls, zig, land: landHead(), rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...dress, ...decor, ...wood, ...(prep ? { prep } : {}), ...(kind === 'road' && roads2On() ? { roads2: roads2Sited() } : {}) })
   }
+}
+/** roads-01: the road2 siting's inputs (roads2Ctx) shaped for roads.mjs siteRoad2 (`ring` per route), or none (the spokes, as before). */
+function roads2Sited () {
+  const c = roads2Ctx()
+  if (!c) return undefined
+  return { routes: c.routes.map(r => ({ ...r })), ring: null, ringFor: c.ringFor, townBoxes: c.townBoxes, landOk: c.landOk, own: c.own, lamp: true }
 }
 /** sinkwaive-01 (Codex r1 BLOCKER): each holder's LIFETIME tally of the sink cells its visits deferred (never aged: the stuck files are)
  *  -> the merged counts of every holder's tally and the stuck files, after this holder's own tally took `deferred`. Never throws. */
@@ -25335,7 +25436,7 @@ async function buildSink (ctx, args, signal, proj) {
     const sp = siteprepHead(dir)
     const claim = sp ? prepClaimFor(sp, kind) : null
     if (claim && prepHandedIn(rec0, claim.id)) { const hp = prepPublish(dir, claim.id, { type: 'handed', inst: prepHandedIn(rec0, claim.id).id }, me); prepRow(bot, 'success', { op: 'handed', id: claim.id, kind, why: 'already', gen: hp.gen }) }
-    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: claim ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now: Date.now(), ready: sinkReady(kind) })
+    const g = sinkNextGate({ kind, rec: rec0, pressure: pr, openCount: stoneOpenCount(recs), noSiteUntil: claim ? 0 : noSiteUntilOf(bot.sinkNoSite, townNoSiteRead(), kind), now: Date.now(), ready: sinkReady(kind), max: kind === 'road' && roads2On() ? ROADS.instancesMax : null })
     if (!g.want) { if (kind === 'decor' && decorStalled(f)) decorStall(bot, `gate:${g.why}`); return out('no_effect', 'complete', `the ${plot} sink wants no instance now (${g.why}; pressure ${pr.p})`, { stop: 'complete' }) }
     const r = await sinkSiteFor(bot, kind, rec0, { ...h.head.plan, gen: h.head.gen }, c, stood, signal, claim && !prepHandedIn(rec0, claim.id) ? { prep: prepPin(claim) } : {})
     check(signal)
@@ -25493,10 +25594,16 @@ async function buildSink (ctx, args, signal, proj) {
     const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
     // its cells or clears was left out for a hold
+    // roads-01: a road visit (and a LAMPS2 dress visit) first makes what the open cells owe that no chest stocks: slabs at a table from
+    // bricks or cobble, fences from planks, lanterns from iron nuggets and a torch (roadKit; bounded, its own row)
+    if (kind === 'road' || (kind === 'dress' && lampsOn(process.env, config.memory.pool))) {
+      try { const kt = await roadKit(ctx, rec, palette, signal); if (kt.made) f.kit = kt.made } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      check(signal)
+    }
     const vrecD = kind === 'decor' ? decorUnheld(rec) : rec
     const heldOut = kind === 'decor' ? ((rec.cells ?? []).length - (vrecD.cells ?? []).length) + ((rec.clear ?? []).length - (vrecD.clear ?? []).length) : 0
     const r = await runVisit({ dir, key, me, home, stood, record: vrecD, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      ...sinkVisitOpts(rec, home), ...leave, ...(kind === 'road' ? { floors: roadFloors(rec) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // sinkwaive-01: THE WAIVER (sinks.mjs sinkWaiveDue) -- a cell this visit deferred that the stuck files have counted minVisits
     // deferrals over every holder, the first afterMs ago, is named on the record (an op=waived row with its reason); the next visit
     // reads it done and the instance can close (the wall's waiver, wallstuck-01)
