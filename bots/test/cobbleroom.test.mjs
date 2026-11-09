@@ -131,6 +131,25 @@ await t('EVERY IN-TOWN WELL CONSUMER reads the switch through wellTakesCobble (c
   assert.match(c, /if \(!wellTakesCobble\(acc\.capLast\)\) continue/, 'the per-click re-read')
 })
 
+await t('THE 34-SLOT ORDER (Codex r1 blocker): a full bag holding only surplus cobble at no_room gets dispose_well; below, it gets nothing (the dead end)', () => {
+  const bag = withSlots([stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 64),
+    ...Array.from({ length: 31 }, () => stack('oak_log', 64))])   // 34 slots, nothing listed but the cobble
+  const order = cap => {
+    const plan = W.disposePlan(bag, { cobbleAtCap: CC.wellTakesCobble(cap) })
+    return W.wellOrder({ now: 10 ** 12, distHome: 3, well: () => ({ open: false, attended: false, breached: false }), state: {},
+      slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: 0 }).order?.skill ?? null
+  }
+  assert.equal(order('below'), null, 'positive control: the base\'s dead end -- no junk, no order')
+  assert.equal(order('no_room'), 'dispose_well')
+  assert.equal(order('at_cap'), 'dispose_well', 'the cap, unchanged')
+})
+await t('THE SCHEDULER (cognitive.mjs, comments stripped) counts cobble through wellTakesCobble at town', () => {
+  const c = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.match(c, /^import \{ wellTakesCobble \} from '\.\/cobblecap\.mjs'/m)
+  assert.match(c, /cobbleAtCap: atTown && wellTakesCobble\(cobbleWellCap\(bot, items\)\), stock:/)
+  assert.doesNotMatch(c, /cobbleWellCap\([^)]*\) === 'at_cap'/, 'no raw at_cap comparison left in the scheduler')
+})
+
 // ------------------------------------------------------------------------------------------------ mutants
 await t('MUTANT KILLED: without the no_room exit in the switch, the chain\'s note changes nothing', async () => {
   await withMutant(CAP_PATH, "  if (noRoom) return 'no_room'\n", '', async M => {
