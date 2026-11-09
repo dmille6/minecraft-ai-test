@@ -107,7 +107,7 @@ await t('WIRED: the stair visit and both use walks run inside withStairClaim(ctx
   assert.ok(d0 > 0 && d1 > d0, 'the deep miner section is found')
   const deep = src.slice(d0, d1), rest = src.slice(0, d0) + src.slice(d1)
   assert.strictEqual(rest.split('await stairWalk(').length, 1, 'no unclaimed stair walk')
-  assert.strictEqual(deep.split('withStairClaim(ctx.runner, () => deepHops(').length, 4, 'all three deep stair hop walks hold the claim')
+  assert.strictEqual(deep.split('withStairClaim(ctx.runner, () => deepHops(').length, 5, 'all four deep stair hop walks hold the claim (townmine-01: + the mine\'s descent)')
   assert.strictEqual(deep.split('await deepHops(').length, 1, 'no unclaimed deep stair hop walk')
   const rx = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
   assert.match(rx, /const climbing = !!runner\?\.bodyClaimFor\?\.\('climb'\) \|\| !!runner\?\.bodyClaimFor\?\.\('stair'\)/)

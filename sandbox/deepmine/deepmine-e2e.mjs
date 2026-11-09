@@ -9,6 +9,11 @@
 //   diamond   an iron + two stone pickaxes: down the stair to y=16, `mine` on to y=-53, branches, back, bank, a diamond pickaxe
 //   iron      two stone pickaxes only: an iron trip at the stair's y=16 landing
 //   blocked   as diamond, with dirt pillared into three of the stair's air cells first (the 11-01 fleet failure, 852/1,163)
+//   mine      TOWNMINE-01: the whole town mine -- sited at the first trip, BUILT on build trips (the deep stair to -53, bays, the hall, its
+//             chest/table/furnace, torches; liquids sealed), then a diamond trip DOWN THE MINE to the hall and its gallery. Ends at
+//             the first diamond trip's end after the mine is complete (or 240 min).
+//   gallery   TOWNMINE-01: an iron trip on a stair whose mine is not sited (ext no_site): the IRON GALLERY from the 16 stub's end face
+//             (LIVE: 2,030 iron branches in 3 d started inside the stub and dug nothing)
 //   hazard    as diamond, plus a HAZARD FIELD at the work depth: a lava or water source every 4 blocks in x and z at y -53..-51
 //             (outside the stair's skirt), so every branch and tunnel meets liquid; the server's truth must still show 0 breaches
 // THE ARENA (181 x 181, rebuilt every run): bedrock -64, deepslate -63..-1, stone 0..69, grass 70, air above; a lava LAKE at
@@ -27,7 +32,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import sbx from '../lib/sbxlock.cjs'
 
 const [BOT_ROOT, SCENE = 'diamond', SERVER = 'sandbox3', SEED_S = '11'] = process.argv.slice(2)
-if (!BOT_ROOT || !['diamond', 'iron', 'blocked', 'hazard'].includes(SCENE)) throw new Error('usage: deepmine-e2e.mjs <botRoot> <diamond|iron|blocked|hazard> [server] [seed]')
+if (!BOT_ROOT || !['diamond', 'iron', 'blocked', 'hazard', 'mine', 'gallery'].includes(SCENE)) throw new Error('usage: deepmine-e2e.mjs <botRoot> <diamond|iron|blocked|hazard|mine|gallery> [server] [seed]')
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602, sandbox5: 25603, sandbox6: 25604, sandbox7: 25605, sandbox8: 25606 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 sbx.requireSandboxLock(SERVER, 'deepmine')
@@ -180,6 +185,8 @@ try {
   if (!sv.ok) throw new Error(`survey: ${sv.why}`)
   let rec = { ...G.stairRecord(sv, { home: HOME, now: Date.now(), by: 'sandbox-Builder' }), state: 'complete', structure_complete: true, completeAt: Date.now() }
   rec.landings_built = [...rec.landings]
+  // townmine-01 gallery scene: the mine is refused (no_site), so the trip is an iron trip on the stair as it stands
+  if (SCENE === 'gallery') rec.ext = { v: 1, blueprint: 'townmine@1', state: 'no_site', why: 'scene' }
   if (SCENE === 'blocked') {
     // THE FLEET'S FAILURE (11-01): dirt pillared into three air cells (steps 12, 30 and 47)
     const blocks = [12, 30, 47].map(k => G.planOf(rec).steps[k].air[0])
@@ -202,7 +209,7 @@ try {
     .replace(/^BOARD_X=.*$/m, `BOARD_X=${HOME.x}`).replace(/^BOARD_Y=.*$/m, `BOARD_Y=${HOME.y}`).replace(/^BOARD_Z=.*$/m, `BOARD_Z=${HOME.z}`)
     .replace(/^CODE_VERSION=.*$/m, `CODE_VERSION=deepmine-${RUN}`)
     .replace(/^WORLD_BORDER_RADIUS=.*$/m, 'WORLD_BORDER_RADIUS=20000')   // the arena is ~10,000 from the origin; gather filters by the border
-  fs.writeFileSync(`${R}/${ENV}`, envSrc + `\nPOOL_STATE_DIR=${POOL}\nDEEPMINE=on\nSHAFT=on\n`)
+  fs.writeFileSync(`${R}/${ENV}`, envSrc + `\nPOOL_STATE_DIR=${POOL}\nDEEPMINE=on\nSHAFT=on\n${['mine', 'gallery'].includes(SCENE) ? 'TOWNMINE=on\n' : 'TOWNMINE=off\n'}`)
   brain = spawn('node', [`${R}/sandbox/sandbox-brain.mjs`, '11499'], { env: { ...process.env, SANDBOX_SCRIPT: 'status' }, stdio: ['ignore', fs.openSync(`${OUT}/${RUN}-brain.log`, 'a'), 'inherit'] })
   await sleep(800)
   botp = spawn('bash', [`${R}/sandbox/run-bot.sh`, ENV], { env: { ...process.env, BOT_ROOT }, stdio: ['ignore', fs.openSync(`${OUT}/${RUN}-bot.log`, 'a'), fs.openSync(`${OUT}/${RUN}-bot.log`, 'a')] })
@@ -211,15 +218,17 @@ try {
   if (!rcon('list')[0]?.reply?.includes(NAME)) throw new Error('the bot never joined')
   const kitCmds = [`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${rec.exit[0] + 0.5} ${rec.exit[1]} ${rec.exit[2] + 0.5}`, `spawnpoint ${NAME} ${HOME.x} ${HOME.y} ${HOME.z}`,
     `effect give ${NAME} minecraft:saturation 7200 1 true`,
-    ...(SCENE === 'iron' ? [] : [`give ${NAME} minecraft:iron_pickaxe 1`]), `give ${NAME} minecraft:stone_pickaxe 2`,
-    `give ${NAME} minecraft:cobblestone 64`, `give ${NAME} minecraft:torch 24`, `give ${NAME} minecraft:stick 4`, `give ${NAME} minecraft:oak_planks 8`]
+    ...(['iron', 'gallery'].includes(SCENE) ? [] : [`give ${NAME} minecraft:iron_pickaxe ${SCENE === 'mine' ? 3 : 1}`]), `give ${NAME} minecraft:stone_pickaxe ${SCENE === 'mine' ? 4 : 2}`,
+    `give ${NAME} minecraft:cobblestone ${SCENE === 'mine' ? 192 : 64}`, `give ${NAME} minecraft:torch ${SCENE === 'mine' ? 64 : 24}`, `give ${NAME} minecraft:stick 4`, `give ${NAME} minecraft:oak_planks 8`,
+    ...(SCENE === 'mine' ? [`give ${NAME} minecraft:chest 1`, `give ${NAME} minecraft:crafting_table 1`, `give ${NAME} minecraft:furnace 1`] : [])]
   rcon(...kitCmds)
   P_('kit', { scene: SCENE })
   // watch: the bot's own rows, the server's view of it
   const rowsFile = () => { try { const d = `${R}/${LOGD.slice(2)}`; return fs.readdirSync(d).filter(f => /^skill-.*\.jsonl$/.test(f)).map(f => `${d}/${f}`) } catch { return [] } }
   const seen = new Set(), events = []
   let end = null, minY = Infinity, deaths = 0
-  const DEADLINE = Date.now() + 75 * 60_000
+  const DEADLINE = Date.now() + (SCENE === 'mine' ? 240 : 75) * 60_000
+  let mineDone = false
   while (Date.now() < DEADLINE && !end) {
     await sleep(5000)
     for (const f of rowsFile()) {
@@ -231,10 +240,11 @@ try {
         const y = r?.bot?.pos?.y
         if (Number.isFinite(y)) minY = Math.min(minY, y)
         if (k === '_death') { deaths++; P_('DEATH', r.skill.detail) }
-        if (['_deepmine', '_deepmine_skip', '_exit_reserve_abort', '_shaft_use', '_lava_escape', '_entombed', 'deep_mine'].includes(k) || (k === 'mine' && r?.trigger !== 'reflex')) {
+        if (['_deepmine', '_deepmine_skip', '_exit_reserve_abort', '_shaft_use', '_lava_escape', '_entombed', 'deep_mine', '_townmine'].includes(k) || (k === 'mine' && r?.trigger !== 'reflex')) {
           const e = { t: r['@timestamp'], k, s: r.skill.status, d: String(r.skill.detail ?? '').slice(0, 200), y: Math.floor(y) }
           events.push(e); P_(k, e.s, e.y, e.d)
-          if (k === '_deepmine' && /op=end /.test(e.d)) end = e
+          if (k === '_townmine' && /op=complete /.test(e.d)) mineDone = true
+          if (k === '_deepmine' && /op=end /.test(e.d) && (SCENE !== 'mine' || (mineDone && /target=diamond/.test(e.d)))) end = e
         }
       }
     }
@@ -257,10 +267,27 @@ try {
   const phases = [...new Set(deep.map(e => (e.d.match(/phase=(\w+)/) ?? [])[1]).filter(Boolean))]
   const found = Number((end?.d?.match(/found=(\d+)/) ?? [])[1] ?? 0)
   // THE LOOP CLOSED (Codex r1 note: zero ore must not pass): home, ore brought back, nobody died, nothing opened beside a liquid
-  const ok = !!end && /end=home/.test(end.d) && found > 0 && deaths === 0 && !!truth && truth.breach_n === 0 && truth.flowing === 0
+  // TOWNMINE-01: the mine scene passes on the mine complete, its fixtures standing (the server's own test), a diamond trip that
+  // walked down the mine to the hall, no death and no breach; the gallery scene on gallery cells dug and no stair_cells branch
+  const mineRows = events.filter(e => e.k === '_townmine')
+  let fixtures = null
+  if (SCENE === 'mine') {
+    const r2 = { ...rec, ...(BP.recordHead(POOL, key).head?.rec ?? {}) }
+    const plan2 = G.planOf(r2)
+    const hall = (plan2.rooms ?? []).find(q => q.kind === 'hall')
+    fixtures = (hall?.fixtures ?? []).map(f => ({ item: f.item, at: f.at, ok: /Test passed/.test(rcon(`execute if block ${f.at[0]} ${f.at[1]} ${f.at[2]} minecraft:${f.item}`)[0]?.reply ?? '') }))
+  }
+  const viaHall = deep.some(e => /why=mine_hall/.test(e.d))
+  const galleryCells = mineRows.filter(e => /op=gallery /.test(e.d)).reduce((n, e) => n + Number((e.d.match(/cells=(\d+)/) ?? [])[1] ?? 0), 0)
+  const stairCells = deep.filter(e => /op=branch .*why=stair_cells/.test(e.d)).length
+  const ok = SCENE === 'mine'
+    ? mineDone && !!fixtures?.length && fixtures.every(f => f.ok) && viaHall && deaths === 0 && !!truth && truth.breach_n === 0
+    : SCENE === 'gallery'
+      ? !!end && /end=home/.test(end.d) && galleryCells > 0 && stairCells === 0 && deaths === 0 && !!truth && truth.breach_n === 0
+      : !!end && /end=home/.test(end.d) && found > 0 && deaths === 0 && !!truth && truth.breach_n === 0 && truth.flowing === 0
   result({ ok, end: end?.d ?? null, deaths, minY: Number.isFinite(minY) ? Math.floor(minY) : null, phases, pos: pos.slice(-60),
     bag: { diamond: count('diamond'), diamond_pickaxe: count('diamond_pickaxe'), raw_iron: count('raw_iron'), iron_pickaxe: count('iron_pickaxe'), stone_pickaxe: count('stone_pickaxe'), cobblestone: count('cobblestone'), cobbled_deepslate: count('cobbled_deepslate'), torch: count('torch') },
-    rows: deep.length, deepRows: deep.map(e => e.d).slice(-40), truth, hazards: hz.notes, ms: Date.now() - T0 })
+    rows: deep.length, deepRows: deep.map(e => e.d).slice(-40), mineRows: mineRows.map(e => e.d).slice(-40), mineDone, fixtures, viaHall, galleryCells, stairCells, truth, hazards: hz.notes, ms: Date.now() - T0 })
 } catch (e) {
   result({ ok: false, error: String(e?.stack ?? e).slice(0, 500) })
 } finally {
