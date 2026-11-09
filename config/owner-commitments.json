@@ -5417,7 +5417,7 @@
     "owner-blackwell-testing-only-1031.md"
    ],
    "state": "open",
-   "next_step": "STAGE 3b RUNNING (owner 11-09 'fair rematch', pre-registered design \u00a718): Haiku x2 vs qwen3.8:27b x2 (Blackwell) + control x2, paired seeds -646147908495530573 / 1033369084927035764, launched 2026-11-09 05:18:45Z, 96 h; reads +24/+48/+72 h (05:18:45Z daily, reports/3b-day-N.txt), final + stop 2026-11-13 05:18:45Z; Haiku hard stop $70 (spend group). Stage 3 PASS (\u00a717). Stage 4 held: Blackwell /api/pull is 403 from the WAN (owner to pull the 3 models on CCU1).",
+   "next_step": "STAGE 3b RUNNING (owner 11-09 'fair rematch', pre-registered design §18): Haiku x2 vs qwen3.8:27b x2 (Blackwell) + control x2, paired seeds -646147908495530573 / 1033369084927035764, launched 2026-11-09 05:18:45Z, 96 h; reads +24/+48/+72 h (05:18:45Z daily, reports/3b-day-N.txt), final + stop 2026-11-13 05:18:45Z; Haiku hard stop $70 (spend group). Stage 3 PASS (§17). Stage 4 held: Blackwell /api/pull is 403 from the WAN (owner to pull the 3 models on CCU1).",
    "evidence": {
     "branches": [
      "voyager-01"
@@ -6633,6 +6633,37 @@
     ],
     "paths": []
    }
+  },
+  {
+   "id": "seapocket-1109",
+   "title": "seapocket-01: free a bot pinned in an open-sea bubble its own air-pocket rescue sealed (placebo-d-Bravo 46,59,69)",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "seapocket-1109.md",
+    "escpocket-1107.md"
+   ],
+   "kind": "canary",
+   "lane": "survival",
+   "state": "open",
+   "owner": "survival builder / control session",
+   "next_step": "BUILT, not queued. Branch seapocket-01 on fleet 3d8ef9de: code e81becc4, tip 55cc1574 (pushed). Tier 3. Codex r1 1 BLOCKER (return-air budget) fixed, r2 none; independent Claude r1/r2 none. Paper -pillar scene: base stayed 1/1, cand escaped 3/3 (breath=6, min air 17). Registration ~/mcai-analysis/seapocket-01.e81becc4.json (validate valid; draw pin placebo-d + placebo-a, drawexposure PASS climb_flood_refused>=3) + DRAFT ~/mcai-analysis/seapocket-01.queue-entry.json. Full suite seapocket-e81becc4 (ci2) queued at commit time. Root-cause follow-up NOT built: airpocket.mjs seals head-level sides even when an open surface is 4 cells away.",
+   "max_quiet_hours": 48,
+   "depends_on": [],
+   "evidence": {
+    "runs": [
+     "seapocket-01"
+    ],
+    "branches": [
+     "seapocket-01"
+    ],
+    "grep": [
+     "seapocket"
+    ],
+    "paths": [
+     "docs/reports/seapocket-2026-11-09.md"
+    ]
+   },
+   "note": "11-09: Bravo surfaced a 63-block shaft into the ocean floor under an old cobble/dirt column; the air-pocket rescue (seal=4) sealed its head cell; the way out is 9 cells with a head-wet run of 6 (base bound 5). Every rung refused (flood guard, plugcut, breach, pocket dig, swim)."
   }
  ]
 }
