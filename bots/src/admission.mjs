@@ -653,9 +653,10 @@ export class AdmissionControl {
       // IRONCHAIN-02 (pickswings.mjs): admitted above ONLY for a swing reserve, an iron pickaxe the bag cannot make becomes the
       // stone one it can -- rewritten in place, as block names are (cognitive.mjs runs `admitted.args`); one row per rewrite
       const swing = swingRewrite({ item: args.item, items: bot.inventory?.items?.() ?? [], wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort,
-                                   stoneMakeable: () => craftableFromBag(bot, 'stone_pickaxe') })
+                                   stoneMakeable: () => craftableFromBag(bot, 'stone_pickaxe'), ironMakeable: () => craftableFromBag(bot, 'iron_pickaxe') })
       if (swing) {
         args.item = swing.to
+        args.count = 1   // the plan the rule asked was for ONE stone copy (Claude r1 note)
         try { logEvent({ kind: 'pick_swings', status: 'success', detail: swing.detail, snapshot: snapshot(bot) }) } catch { /* telemetry never costs the decision */ }
       }
       // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07; the food policy's switch). Before any walk to a table.
