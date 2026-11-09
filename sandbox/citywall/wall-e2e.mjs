@@ -175,7 +175,8 @@ async function main () {
   // THE SERVER'S WORD on every design cell
   const pal = CW.citywallPalette(design.style)
   const cmds = [], idx = []
-  for (const c of design.cells) for (const n of pal[c.role]) { const w = c.ws ? T.stateKey(n, Object.fromEntries(Object.entries(c.ws).map(([k, v]) => [k, String(v)]))) : n; cmds.push(`execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} minecraft:${w}`); idx.push(c) }
+  // a torch clicked on a side face stands as `wall_torch` on the server (the visit's cellDone reads it as the torch family)
+  for (const c of design.cells) for (const n of [...pal[c.role], ...(pal[c.role].includes('torch') ? ['wall_torch'] : [])]) { const w = c.ws ? T.stateKey(n, Object.fromEntries(Object.entries(c.ws).map(([k, v]) => [k, String(v)]))) : n; cmds.push(`execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} minecraft:${w}`); idx.push(c) }
   const res = []
   for (let i = 0; i < cmds.length; i += 150) res.push(...rcon(...cmds.slice(i, i + 150)))
   const okCells = new Set()

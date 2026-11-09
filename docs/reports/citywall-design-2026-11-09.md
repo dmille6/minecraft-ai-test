@@ -151,7 +151,11 @@ proofs, the rim-first pad, the enclosed cells, the spiral, the bills and the anc
   that boxed the builder in once the next course was open (chamfered corners, as the lighthouse). Hung lanterns were dropped: this base's
   solver never clicks the face above (`buildsite.mjs SUPPORTS`), so every lantern stands.
 - The wall upgrade (`sandbox/citywall/wall-e2e.mjs`): a 25 x 19 cobble ring laid by /fill with a 5-wide gateway, a sally port, a gapped
-  corner and three hanging columns; the bot builds every phase (gate, 5 towers, the runs) with `swap`. PAPER_WALL_RESULT
+  corner and three hanging columns; the bot builds every phase (gate, 5 towers, the runs) with `swap`. **PASS: every phase complete,
+  597/597 design cells read back by the server in their states, 262 real swaps (dig + place), at no moment two swapped cells of one
+  column or one segment open (from the bot's own block updates: 0 gap violations)**, 57 min for one bot (results in
+  `sandbox/citywall/wall-e2e.jsonl`). An earlier run on the pre-fix code had stalled when its up-front kit ran short: the driver now
+  tops the kit up per visit, as the wall visit draws its bill from the town.
 
 **Offline on the showcase** (`bots/scripts/citywall-offline.mjs --build`, four fake builders over the region copy, every phase, the bots' own
 visit): OFFLINE_SHOW_RESULT
@@ -186,3 +190,7 @@ Offline on board-b's region copy (11-09; its home is inside the town's chest roo
 builders, four rounds: 318 of 393 cells done, the rest deferred for the waiver (the fake server runs no waiver), **0 gap violations**.
 Picture: [`fleet-boardb-sheet.png`](citywall-2026-11-09/fleet-boardb-sheet.png). The landmarks wait for townstyle-01's machinery on the
 fleet (block states, reach-only clicks): every look uses stairs, slabs or reach-only cells.
+
+**Paper, the fleet port** (`sandbox/citywall/wall-e2e.mjs` with the fleet branch's code, FLAT, dark): the same ring, gate deck + runs, every
+phase complete, 337 of 337 cells built, 262 real swaps, max one open cell per column and per segment, **0 gap violations**. The run's
+check read 4 torch cells as bad: they stand as `wall_torch` (probed by RCON); the check now accepts it.
