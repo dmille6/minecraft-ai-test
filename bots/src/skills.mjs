@@ -16763,6 +16763,9 @@ function planReader (bot) {
         const name = blockNameOf(bot, b)
         let props = null
         if (name === 'snow') { try { props = b.getProperties?.() ?? null } catch { props = null } }
+        // roads-01 (Codex fleet r2 BLOCKER): a leaf's props too (`waterlogged`: a road never clears a waterlogged leaf; the showcase line's
+        // sitecanopy-01 rule)
+        else if (/_leaves$/.test(name)) { try { props = b.getProperties?.() ?? null } catch { props = null } }
         v = { name, boundingBox: b.boundingBox, shapes: b.shapes, props }
       }
     } catch { v = null }

@@ -220,6 +220,13 @@ await t('Codex fleet r1 BLOCKER: a leaf touching water in the head room is never
   assert.ok(r3.rec.clear.some(c => c.at[0] === 30 && c.at[1] === 65 && c.kind === 'leaves'), 'positive control: a dry leaf is cleared')
 })
 
+await t('STRUCTURE (Codex fleet r2 BLOCKER): planReader carries a leaf\'s props (waterlogged) on the fleet line', () => {
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const at = src.indexOf('function planReader (bot)')
+  const body = src.slice(at, src.indexOf('memo.set(k, v)', at))
+  assert.ok(/else if \(\/_leaves\$\/\.test\(name\)\) \{ try \{ props = b\.getProperties\?\.\(\) \?\? null \}/.test(body), 'a leaf read carries its props')
+})
+
 await t('Codex fleet r1 BLOCKER: a laid road stays guarded with ROADS2 off (projectsGuarded keeps the road, as the stair)', () => {
   assert.ok(SH.projectsGuarded(SH.projectsOn(true, true, true, true, true, true, true, false)).some(p => p.plot === 'road'))
   assert.ok(!SH.projectsOn(true, true, true, true, true, true, true, false).some(p => p.plot === 'road'), 'positive control: no road WORK with it off')
