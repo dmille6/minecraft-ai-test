@@ -118,7 +118,7 @@ await t('WIRED: the plots in PROJECTS each after the last (shop.mjs), the siting
   assert.ok(/\.\.\.CIVIC_PLOTS\.map\(\(plot, i\) => Object\.freeze\(\{ plot, blueprint: civicLooks\(CIVIC_ORDER\[i\]\)\[0\], after: i \? CIVIC_PLOTS\[i - 1\] : PATHS_PLOT, builders: 2 \}\)\)/.test(SH))
   assert.ok(/isCivicPlot\(p\.plot\) \? civic && wall && paths && on/.test(SH))
   assert.ok(/\} else if \(isCivicPlot\(plot\)\) \{\s*\n\s*const ss = await civicSiteFor\(bot/.test(SK))
-  assert.ok(/if \(!SITED_APART\.has\(plot\) && !isCivicPlot\(plot\)/.test(SK), 'never the generic siting')
+  assert.ok(/const SITED_APART = new Set\(\[COTTAGE_PLOT, TOWNHALL_PLOT, \.\.\.CIVIC_PLOTS\]\)/.test(SK) && /if \(!SITED_APART\.has\(plot\) && plot !== STORE_PLOT/.test(SK), 'never the generic siting')
   assert.ok(/isCivicBlueprint\(id\) \? civicBlueprint\(id\) :/.test(BS))
 })
 
