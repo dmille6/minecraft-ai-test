@@ -43,7 +43,7 @@ fs.mkdirSync(OUT, { recursive: true })
 const RES = `${OUT}/results.jsonl`
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const T0 = Date.now()
-const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
+const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15) + `-${SCENE}-${process.pid}`   // townmine-01: two lanes started in one minute shared a pool
 const P_ = (...a) => { const s = `[${((Date.now() - T0) / 1000).toFixed(1)}] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' '); fs.appendFileSync(`${OUT}/${RUN}-driver.log`, s + '\n'); console.log(s) }
 const result = r => { fs.appendFileSync(RES, JSON.stringify({ run: RUN, server: SERVER, scene: SCENE, at: new Date().toISOString(), ...r }) + '\n'); P_('RESULT', r) }
 const G = await import(pathToFileURL(path.join(BOT_ROOT, 'bots/src/shaftgeom.mjs')))
