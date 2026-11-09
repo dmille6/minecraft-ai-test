@@ -196,6 +196,9 @@ const REQUIRED = [
   'bots/test/claim.test.mjs',  // claim-01 (11-08): a sited town hall / cottage owns its volume; the tidy yields it
   'bots/test/thprep.test.mjs',  // thprep-01 (11-08): the town hall's volume (leaves, slope within its cut) and the built reach
   'bots/test/reroof4.test.mjs', 'bots/test/fixtures/reroof4-hall-1108.json', 'sandbox/townstyle/reroof4-e2e.mjs',  // reroof-04 (11-08): roof access -- slab floors, door-side eave notch, a temporary stair torn down
+  'bots/src/citywall.mjs', 'bots/test/citywall.test.mjs', 'bots/scripts/citywall-offline.mjs', 'sandbox/citywall/wall-e2e.mjs',  // citywall-01 (11-09): the wall upgrade -- courses swapped in place, towers, a gatehouse, lamps
+  'bots/src/civic.mjs', 'bots/test/civic.test.mjs', 'bots/scripts/civic-offline.mjs', 'bots/scripts/render-civic.mjs', 'bots/scripts/civic-render.mjs', 'sandbox/civic/civic-e2e.mjs',  // civic-01 (11-09): the landmarks catalogue
+  'docs/reports/citywall-design-2026-11-09.md',  // citywall-01 + civic-01 (11-09): the design, the pictures, the Paper proofs
   'bots/test/reroof3.test.mjs',  // reroof-03 (11-08): roof trees and floating remains dug; digs reached from the new roof's own cells
   'bots/src/sitecanopy.mjs', 'bots/test/sitecanopy.test.mjs',  // sitecanopy-01 (11-08): a styled building's site lists the natural leaves in its own cells
   'bots/src/fellcanopy.mjs', 'bots/test/fellcanopy.test.mjs',  // fellcanopy-01 (11-08): a felling log no stand sees gets its natural canopy listed

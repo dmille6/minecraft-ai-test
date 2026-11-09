@@ -142,6 +142,7 @@ import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './t
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
 import { wallEscape } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own)
+import { stepFor as siteStepFor } from './buildsite.mjs'   // citywall-01: can a stand place an underpinning cell (the visit's own rule)
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
 import { isCivicPlot, civicKindOf, civicNear, civicLookFor, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
@@ -21122,7 +21123,9 @@ function citywallDueNow (bot, dir = townDir()) {
       const rec = h.ok ? h.head?.rec ?? null : null
       if (!rec?.structure_complete) continue
       if (!isCitywall(rec)) return { target: { plot, kind: 'design' }, why: null }
-      const n = citywallNext(rec, { done: c => !!bot && cellDoneHere(bot, rec.palette ?? {}, c), stock, keep: CITYWALL_KEEP })
+      // a cell the wall's waiver named (wall.mjs wallWaived: no stand reached it in WALL_WAIVE_AFTER visits) is done for the next phase too:
+      // else one unreachable underpinning cell would hold every later phase for good
+      const n = citywallNext(rec, { done: c => wallWaived(rec, c) || (!!bot && cellDoneHere(bot, rec.palette ?? {}, c)), stock, keep: CITYWALL_KEEP })
       if (n.ph != null) return { target: { plot, kind: 'phase', ph: n.ph }, why: null }
       if (n.why !== 'all_published') return { target: null, why: `${plot}:${n.why}` }
     }
@@ -21160,8 +21163,12 @@ async function buildCitywall (ctx, args, signal) {
     if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read')
     const stock = matsTownStock(bot)?.stock ?? {}
     const pool = process.env.MEMORY_POOL ?? ''
+    // the town walk now (buildsite.mjs walkFrom, the visit's own) -> its feet cells by column, for the underpinning's reach (stepFor)
+    const walkNodes = new Map()
+    for (const k of siteWalkFrom(read0, home, new Set(), wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
     design = citywallDesign(read, rec, { style: citywallStyleFor(stock, pool), seed: Number(rec.sitedAt ?? 0) >>> 0, gatePick: citywallGatePick(process.env, t.plot),
-      taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones), zone: (x, z) => roads.has(`${x},${z}`) })
+      taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones), zone: (x, z) => roads.has(`${x},${z}`),
+      reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true, null) })
     if (!design.ok) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, design.why); return out('no_effect', 'no_site', `${t.plot}: no design (${design.why})`, { stop: 'site_wait' }) }
     if (unread) { siteWaitSet(CITYWALL_PLOT, 10 * 60_000, 'unread'); return out('no_effect', 'site_unread', `${t.plot}: ${unread} cells unread (unloaded): the design waits`, { stop: 'site_wait' }) }
     // THE ESCAPE PROOF (wall.mjs wallEscape, the siting's own): every design cell built cuts nothing off and pens nobody
@@ -23931,7 +23938,8 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
         const due = wallWaiveDue(rec, r.deferred ?? [])
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
-            if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
+            // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too
+            if (!cur || (cur.structure_complete && !isCitywall(cur)) || cur.cells.length !== rec.cells.length) return null
             const w = { ...(cur.waived ?? {}) }
             for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
             return { ...cur, waived: w }

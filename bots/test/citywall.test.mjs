@@ -107,6 +107,27 @@ await t('THE DESIGN on a real wall@1 (siteWall on the fake server): every O cell
   const esc = W.wallEscape(SRV.read, HOME, [...REC.cells, ...DES.cells], { r: 56 })
   assert.strictEqual(esc.cut, 0); assert.strictEqual(esc.trapped, 0)
 })
+await t('CODEX r1 BLOCKERS 2 + 3: a WAIVED cell is never swapped nor a tower\'s; a gatehouse with ANY added cell on a taken one is refused (the deck included)', () => {
+  const k = k3(REC.cells.find(c => c.role === 'wall').at)
+  const d2 = CW.citywallDesign(SRV.read, { ...REC, waived: { [k]: { why: 'no_stand', at: 1, by: 'x' } } }, { style: 'grey', seed: 3, gatePick: 'path' })
+  assert.ok(d2.ok && !d2.cells.some(c => k3(c.at) === k), 'the waived cell stays as it is')
+  const deck = DES.cells.find(c => c.role === CW.CW.deck)
+  const d3 = CW.citywallDesign(SRV.read, REC, { style: 'grey', seed: 3, gatePick: 'path', taken: (x, y, z) => k3([x, y, z]) === k3(deck.at) })
+  assert.strictEqual(d3.gate, null); assert.match(String(d3.skipped.gate), /taken/)
+  assert.ok(!d3.cells.some(c => k3(c.at) === k3(deck.at)))
+})
+await t('THE UNDERPINNING NO STAND REACHES is left out (the waiver is bounded): reachUnder false -> no foot added, counted `unreached`', () => {
+  const srv = server(); const rec = standingWall(srv)
+  const col = CW.wallColumns(rec)[3]
+  for (const c of col.cells) srv.set(c.at, 'air')
+  const lo = col.cells[0].at[1]
+  for (const c of col.cells) srv.set(c.at, 'cobblestone')
+  srv.set([col.x, lo - 1, col.z], 'air'); srv.set([col.x, lo - 2, col.z], 'air')
+  const a = CW.citywallDesign(srv.read, rec, { seed: 3, gatePick: 'path' })
+  const b = CW.citywallDesign(srv.read, rec, { seed: 3, gatePick: 'path', reachUnder: () => false })
+  const feet = d => d.cells.filter(c => c.role === CW.CW.foot && !c.sw && c.at[0] === col.x && c.at[2] === col.z).length
+  assert.ok(feet(a) >= 1, `underpinned ${feet(a)}`); assert.strictEqual(feet(b), 0); assert.ok(b.skipped.underpin.unreached >= 1)
+})
 await t('THE GENERATIONS: phase by phase; segments ordered gate towers, gate deck, gate lamps, towers, runs, lamps; the deck waits on its towers', () => {
   let rec = REC
   for (const p of DES.phases) rec = CW.citywallGeneration(rec, DES, p.ph, { now: 1 })
@@ -223,6 +244,13 @@ await t('WIRED: the planner plot registered (shop.mjs), dispatched and waiting (
   assert.ok(/const palette = recordPalette\(rec, \{ palette: WALL_PALETTE \}\)/.test(SK))
   assert.ok(/\.\.\.\(isCitywall\(rec\) \? \{ swap: true, skipOpenDeps: true \} : \{\}\)/.test(SK))
   assert.ok(/wallEscape\(read0, home, \[\.\.\.rec\.cells, \.\.\.design\.cells\]/.test(SK), 'the design passes the escape proof')
+  // Codex r1: the waiver counts for the next phase and applies to an upgraded (complete) ring
+  assert.ok(/done: c => wallWaived\(rec, c\) \|\| \(!!bot && cellDoneHere\(bot, rec\.palette \?\? \{\}, c\)\)/.test(SK))
+  assert.ok(/\(cur\.structure_complete && !isCitywall\(cur\)\)/.test(SK))
+})
+const BR = strip(readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
+await t('CODEX r1 BLOCKER 1 (structural: the remedy is a chain of digs): the sealed-column remedy never runs for a swapped cell in a swap visit', () => {
+  assert.ok(/if \(v === 'no_stand' && p\.sealed && kind !== 'tree' && !\(p\.swap && f\.sw\)\) \{/.test(BR))
 })
 
 console.log(`\ncitywall: ${pass} passed, ${fail} failed`)
