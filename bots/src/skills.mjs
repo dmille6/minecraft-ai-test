@@ -19517,7 +19517,7 @@ function citywallAdvance (bot, c, dir, key, rec, home, me) {
       design = citywallDesign(read, rec, { style: citywallStyleFor(stock, process.env.MEMORY_POOL ?? ''), seed: Number(rec.sitedAt ?? 0) >>> 0, flat: true,
         taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones),
         reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true), reachSwap: at => !!runDigStand(read0, at, swapNodes()) })
-      const noSite = why => { bot.citywallNoSiteUntil = Date.now() + CITYWALL_NOSITE_MS; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'citywall', kind: 'no_design', why: String(why).slice(0, 80) }) }) } catch { /* telemetry */ } return { published: false, why } }
+      const noSite = why => { bot.citywallNoSiteUntil = Date.now() + CITYWALL_NOSITE_MS; try { logEvent({ kind: 'citywall', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'citywall', kind: 'no_design', why: String(why).slice(0, 80) }) }) } catch { /* telemetry */ } return { published: false, why } }
       if (!design.ok) return noSite(design.why)
       if (unread) { bot.citywallNoSiteUntil = Date.now() + 10 * 60_000; return { published: false, why: 'unread' } }
       if (!design.phases.length) return noSite('empty')
@@ -19528,7 +19528,7 @@ function citywallAdvance (bot, c, dir, key, rec, home, me) {
     const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && (cur.citywall?.phase ?? -1) < ph ? citywallGeneration(cur, design, ph) : null), { by: me })
     if (pub.result !== 'accepted') return { published: false, why: pub.result }
     const p = design.phases.find(q => q.ph === ph)
-    try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'citywall', kind: `${design.style}/ph${ph}:${p?.kind}/${p?.n}cells/${Object.entries(p?.bill ?? {}).map(([k, v]) => `${k}:${v}`).join(',')}${due.kind === 'design' ? `/swap${design.counts.swapped}/add${design.counts.added}/under${design.counts.underpin}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
+    try { logEvent({ kind: 'citywall', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'citywall', kind: `${design.style}/ph${ph}:${p?.kind}/${p?.n}cells/${Object.entries(p?.bill ?? {}).map(([k, v]) => `${k}:${v}`).join(',')}${due.kind === 'design' ? `/swap${design.counts.swapped}/add${design.counts.added}/under${design.counts.underpin}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
     return { published: true, why: null }
   } catch (e) { return { published: false, why: String(e?.message ?? e).slice(0, 60) } }
 }
