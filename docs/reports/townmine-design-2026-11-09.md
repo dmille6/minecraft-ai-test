@@ -175,7 +175,10 @@ cut, nothing commanded.
   - The run ended there: the town deposit banked the iron pickaxes, so no diamond trip followed. That is the next scene.
 - **`gallery`** (sandbox3, mine refused, an iron trip): the gallery dug spine 23 cells, then branches of 12, 3 and 12 cells.
   Iron ore was found, and no `stair_cells` came up.
-- **`hall`** (sandbox5, the mine standing): see the ledger row for the result.
+- **`hall`** (sandbox5, the mine standing; PASS): a diamond trip walked DOWN THE MINE to the hall in 50 s (129 hops; no `mine`
+  staircase of its own), dug the diamond gallery (spine 22 + four branches of 12 = 70 cells), found 4 ore, made a diamond
+  pickaxe, climbed back and banked. 0 deaths, **breach 0, flowing 0**.
+- **`gallery`** result in full (PASS): 73 cells over 6 slots, 5 iron, home, 0 deaths, breach 0.
 
 ## 5. Effect metric (owner rule 11-06)
 
