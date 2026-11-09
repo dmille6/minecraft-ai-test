@@ -31,6 +31,9 @@ import { lavaRingOf, lavaBlocksTarget, noteLavaFinding } from './lavatarget.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, toolFor, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
+import { NEVER_KEEP } from './hygiene.mjs'   // upkeep-01: the sweep never chases junk
+import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
+import { GKSWEEP, sweepPick } from './gksweep.mjs'   // upkeep-01: the drops' pick (the showcase crew's sweep rule)
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
@@ -17248,6 +17251,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
         const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
         const complete = !!rec?.structure_complete
+        // UPKEEP-01 (upkeep.mjs upkeepState): always complete (never the finite order, never a repair), due while a job is open, the
+        // list is due its survey, or drops worth a sweep lie in view
+        if (p.plot === UPKEEP_PLOT) return upkeepStateNow(b, rec, now)
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
         // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
@@ -17843,6 +17849,7 @@ async function buildShopOn (proj, ctx, args, signal) {
   if (proj.plot === TREEFARM_PLOT) return buildTreeFarm(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
   if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)
+  if (proj.plot === UPKEEP_PLOT) return buildUpkeep(ctx, args, signal)   // upkeep-01
   const plot = proj.plot
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
@@ -19943,6 +19950,197 @@ export function groundsMeansFor (bot, now = Date.now()) {
 setGroundsMeans(b => groundsMeansFor(b))
 /** gkforever-01: are two tidy records the SAME generation (one siting: its `sitedAt` and stage, and its cell and cut counts)? Pure. */
 export const tidySameGen = (a, b) => !!a && !!b && a.sitedAt === b.sitedAt && (Number(a.stage) || 0) === (Number(b.stage) || 0) && (a.cells?.length ?? 0) === (b.cells?.length ?? 0) && (a.cut?.length ?? 0) === (b.cut?.length ?? 0)
+// ================================================================================================================================
+// UPKEEP-01 (fleet port of the showcase's upkeep-01show): THE UPKEEP CREW'S VISIT (upkeep.mjs has every rule). The job list stale:
+// survey one tile of the reach (the strays, the remains of trees felled at the base and their replants) and publish it as the plot's
+// next generation; then work it with the ordinary record visit (runVisit: a clear only while its block is still the listed one; a
+// remains group owing a replant only with a sapling in hand -- drawn from the town first -- else held, never lost; a grown replant is
+// done); a list worked out is published complete; then the drops in view over the reach are picked up (gksweep.mjs sweepPick). Any
+// bot of the town, last in the order (shop.mjs activeProject's upkeep tier); on the work board (townwork.mjs) while it is due.
+// ================================================================================================================================
+/** country-01/upkeep-01: a cell set with a record's plan added (its cells, cuts and clears). Pure. */
+function withPlanCells (cells, rec) {
+  if (!rec) return cells
+  const out = new Set(cells)
+  for (const q of [...(rec.cells ?? []), ...(rec.cut ?? []), ...(rec.clear ?? [])]) if (Array.isArray(q?.at)) out.add(q.at.join(','))
+  return out
+}
+/** The upkeep plot's state for the order (upkeep.mjs upkeepState over the world through the bot). Never throws past shopActive's. */
+function upkeepStateNow (b, rec, now = Date.now()) {
+  const rd = b ? (x, y, z) => { const q = b.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name } : null } : () => null
+  const canPlant = !b || upkeepSaplingNear(b)
+  // the drops the sweep itself would take (upkeepSweepSel: one selection for the due and the walk -- Codex r2/r3 BLOCKER 3)
+  let drops = 0
+  try { if (b) drops = upkeepSweepSel(b, planHomeP()).picks.length } catch { drops = 0 }
+  return upkeepState(rec, { now, open: r => upkeepLeft(r, rd, { canPlant }), drops })
+}
+/** THE SWEEP'S CHOICE over the drops in view within the reach (gksweep.mjs sweepPick: the bag's stacks, its free slots, junk never). */
+function upkeepSweepSel (bot, home, R = UPKEEP.r) {
+  const near = upkeepDropsInView(bot).filter(d => Math.max(Math.abs(d.pos.x - home.x), Math.abs(d.pos.z - home.z)) <= R)
+  const items = bot.inventory?.items?.() ?? []
+  let free = 0
+  try { const n = bot.inventory?.emptySlotCount?.(); free = Number.isFinite(n) ? n : Math.max(0, 36 - items.length) } catch { free = 0 }
+  return sweepPick(near, { boxes: [[home.x - R, home.z - R, home.x + R, home.z + R]], home, caps: [], from: bot.entity?.position ?? null, stacks: items.map(i => ({ name: i.name, count: i.count, stackSize: i.stackSize })), free, never: NEVER_KEEP })
+}
+function upkeepSaplingNear (bot) {
+  try { if (UPKEEP_PALETTE.sapling.some(n => countItem(bot, n) > 0)) return true } catch { /* the bag unread */ }
+  try { const st = matsTownStock(bot)?.stock ?? {}; return UPKEEP_PALETTE.sapling.some(n => (Number(st[n]) || 0) > 0) } catch { return false }
+}
+function upkeepDropsInView (bot) {
+  try { return Object.values(bot.entities ?? {}).filter(e => e?.name === 'item' && e.position).map(e => { const d = spawnedItem(e); return { id: e.id, name: d.name, count: d.count, pos: e.position } }) } catch { return [] }
+}
+/** THE SURVEY'S INPUTS: every record cell and the tidy's plan, the refusals, the protected zones' cells. Throws when unreadable. */
+function upkeepInputs (bot, c, h, dir) {
+  const I = tidyInputs(bot, c, h, dir)
+  const th = recordHead(dir, projKeyOf(TIDY_PLOT))
+  if (!th.ok) throw new Error('tidy record unreadable')
+  const cells = withPlanCells(I.cells, th.head?.rec ?? null)
+  const zb = (c.zones ?? []).map(z => z?.box).filter(b => Array.isArray(b) && b.length === 6)
+  const zone = (x, y, z) => zb.some(b => x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5])
+  return { home: I.home, cells, avoid: I.avoid, zone }
+}
+/** THE SWEEP over the reach -> { took, kinds }: sweepPick's drops walked to one by one (each walk bounded), what the BAG gained
+ *  counted. One `_build project=upkeep op=sweep` row. */
+async function upkeepSweep (bot, signal, { until, home, R = UPKEEP.r } = {}) {
+  const t0 = Date.now(), end = Math.min(until, t0 + GKSWEEP.budgetMs)
+  if (Date.now() >= end) return { took: 0, kinds: '-' }
+  const before = heldMap(bot)
+  const sel = upkeepSweepSel(bot, home, R)
+  if (!sel.picks.length) return { took: 0, kinds: '-' }
+  const names = [...new Set(sel.picks.map(d => d.name))]
+  let refused = 0
+  for (const d of sel.picks) {
+    check(signal)
+    if (Date.now() + GKSWEEP.walkMs > end) break
+    const e = bot.entities?.[d.id]
+    if (!e || e.name !== 'item' || !e.position) continue
+    const releaseSought = noteSought(bot, d.id, 'upkeep')
+    try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(e.position.x, e.position.y, e.position.z, 1)), GKSWEEP.walkMs, bot); await sleep(250, signal) } catch (err) { if (err?.aborted || signal?.aborted) throw err; refused++ } finally { releaseSought() }
+  }
+  const after = heldMap(bot)
+  const gained = names.map(n => [n, Math.max(0, (after[n] ?? 0) - (before[n] ?? 0))]).filter(([, v]) => v > 0)
+  const took = gained.reduce((a, [, v]) => a + v, 0), kinds = gained.map(([n, v]) => `${n}:${v}`).join(',') || '-'
+  try { logEvent({ kind: 'build', status: took > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: UPKEEP_PLOT, op: 'sweep', n: took, kind: kinds.slice(0, 120), why: `seen:${sel.seen},picks:${sel.picks.length},refused:${refused}`, result: took > 0 ? 'took' : 'none' }) }) } catch { /* telemetry */ }
+  return { took, kinds }
+}
+async function buildUpkeep (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: UPKEEP_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === UPKEEP_PLOT)) return out('no_effect', 'off', 'the upkeep is switched off (UPKEEP, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is surveyed or worked until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(UPKEEP_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the upkeep record could not be read')
+  if (upkeepStale(rh.head?.rec ?? null)) {
+    let U, sv
+    const tile = upkeepNextTile(rh.head?.rec ?? null)
+    try {
+      U = upkeepInputs(bot, c, h, dir)
+      let repair = 0
+      try { repair = (activeMem?.states ?? []).filter(q => q?.exists && q?.complete && q?.damaged).length } catch { repair = 0 }
+      await new Promise(resolve => setImmediate(resolve)); check(signal)
+      sv = upkeepSurvey(planReader(bot), { home: U.home ?? home, box: upkeepTile(U.home ?? home, tile), cells: U.cells, avoid: U.avoid, zone: U.zone, counts: { repair } })
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      return out('no_effect', 'site_unread', `the town's records could not be read for the upkeep survey (${String(e?.message ?? e).slice(0, 60)})`, { stop: 'site_unread' })
+    }
+    const empty = !sv.clear.length && !sv.cells.length
+    const body = upkeepRecord(sv, { home: U.home ?? home, now: Date.now(), by: me, tile, quietRun: upkeepQuietRun(rh.head?.rec ?? null, empty) })
+    const pub = publishRecord(dir, key, cur => (upkeepStale(cur) ? body : null), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the upkeep record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'upkeep', status: 'success', snapshot: snapshot(bot), detail: upkeepDetail({ op: 'survey', tile, box: upkeepTile(U.home ?? home, tile), gen: pub.gen, clears: sv.clear.length, replants: sv.cells.length, ...sv.census, skipped: sv.census.skipped }) }) } catch { /* telemetry */ } }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the upkeep record could not be read back')
+  }
+  const rec = rh.head.rec
+  const sweepNow = async until => { if (signal?.aborted) return null; try { return await upkeepSweep(bot, signal, { until, home }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; return null } }
+  if (rec.structure_complete) {
+    const sw0 = await sweepNow(t0 + budget - 5_000)
+    return out(sw0?.took > 0 ? 'success' : 'no_effect', 'complete', `nothing to keep up in this tile (${rec.state ?? 'quiet'}); swept ${sw0?.took ?? 0} drop(s); the next survey is due later`, { gathered: sw0?.took ?? 0 })
+  }
+  const slot = takeSlot(dir, key, me, UPKEEP.builders)
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null, bag0 = null, placedBy = {}, diedAt = null, sw = null
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    bag0 = heldMap(bot)
+    const keep = townKeeps(bag0, { wanted: bot.currentWants ?? [] }).keep
+    effects = botBuildEffects(bot, {
+      acks, keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: UPKEEP_PLOT, ...d }) : buildRowDetail({ project: UPKEEP_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    const deadline = t0 + budget - ZIG_VISIT_TAIL_MS - GKSWEEP.budgetMs
+    // THE REPLANT FIRST (upkeep.mjs replantGate): the bag's saplings, else the town's; then the clears the gate allows, read again
+    // after the planting and AT each dig (runVisit `clearOk`); a furnace-kind stray dug with the pickaxe in hand
+    const rd0 = tidyRead(bot)
+    const owed = (rec.cells ?? []).filter(q => q.role === 'sapling' && !replantDone(rd0(...q.at))).length
+    if (owed && !UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))) {
+      const kinds = [...new Set((rec.cells ?? []).map(q => q.sapling).filter(Boolean)), ...UPKEEP_PALETTE.sapling]
+      let st = {}
+      try { st = matsTownStock(bot)?.stock ?? {} } catch { st = {} }
+      const kind = kinds.find(n => (Number(st[n]) || 0) > 0)
+      if (kind) { try { const w = await matsWithdraw(ctx, { [kind]: Math.min(owed, Number(st[kind]) || 0, 8) }, signal, 30_000, matsReserve().table, shopAllow); f.fromMats = Object.entries(w.took ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-' } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      check(signal)
+    }
+    const grown = (q, rd) => q.role === 'sapling' && replantDone((rd ?? rd0)(...q.at))
+    const noSapling = q => q.role === 'sapling' && !UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))
+    // Codex r4 BLOCKER: the pickaxe effects.tool equips (2+ uses left), verified IN HAND before the dig -- else the dig is refused
+    const pickLeft = i => (Number(i.maxDurability) || 0) - (Number(i.durabilityUsed) || 0)
+    const hasPick = () => (bot.inventory?.items?.() ?? []).some(i => /_pickaxe$/.test(i.name) && pickLeft(i) >= 2)
+    const dig0 = effects.dig
+    effects.dig = async (c, expect) => {
+      if (STRAY_PICK.test(String(expect ?? ''))) { await effects.tool?.(); if (!/_pickaxe$/.test(String(bot.heldItem?.name ?? ''))) return 'refused' }
+      return dig0(c, expect)
+    }
+    bot.shopUnknown ??= new Set()
+    const stands = (bot.upkeepStands ??= { pending: null, bans: {} })
+    const visit = (record, maxSteps) => runVisit({ dir, key, me, home, stood, record, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slotRef.gen, slotRef, stands, unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, blockLayer: false, clearMax: 24, walkR: UPKEEP.r + 8, stuckStalledOnly: true, clearOk: (c, rd) => upkeepClearOk(rec, c, rd ?? rd0, { hasPick: hasPick() }),
+      openRole: role => role === 'sapling', alsoDone: (q, rd) => grown(q, rd) || noSapling(q) }, effects, { deadline, maxSteps })
+    const v1 = upkeepVisitJobs(rec, rd0)
+    const r1 = v1.plant.cells.length ? await visit(v1.plant, 80) : { placed: 0, cleared: 0, refused: 0, silent: 0, unknown: 0, stop: 'complete', why: null }
+    check(signal)
+    const v2 = upkeepVisitJobs(rec, tidyRead(bot))
+    const r2 = v2.clear.clear.length ? await visit(v2.clear, 160) : { placed: 0, cleared: 0, refused: 0, silent: 0, unknown: 0, stop: 'complete', why: null }
+    const r = { placed: (r1.placed ?? 0) + (r2.placed ?? 0), cleared: (r1.cleared ?? 0) + (r2.cleared ?? 0), refused: (r1.refused ?? 0) + (r2.refused ?? 0), silent: (r1.silent ?? 0) + (r2.silent ?? 0), unknown: (r1.unknown ?? 0) + (r2.unknown ?? 0), stop: r2.stop ?? r1.stop, why: r2.why ?? r1.why }
+    if (v2.held) f.held = v2.held
+    const left = upkeepLeft(rec, tidyRead(bot), { canPlant: true })
+    if (!left) {
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && cur.surveyedAt === rec.surveyedAt ? { ...cur, structure_complete: true, state: 'done', completeAt: Date.now() } : null), { by: me })
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'upkeep', status: 'success', snapshot: snapshot(bot), detail: upkeepDetail({ op: 'done', tile: rec.tile, gen: pub.gen, clears: (rec.clear ?? []).length, replants: (rec.cells ?? []).length }) }) } catch { /* telemetry */ } }
+    }
+    sw = await sweepNow(t0 + budget - 5_000)
+    const status = r.placed > 0 || r.cleared > 0 || (sw?.took ?? 0) > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}; cleared ${r.cleared}, replanted ${r.placed}, swept ${sw?.took ?? 0}; ${left} job(s) left in this tile`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, gathered: sw?.took ?? 0 })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(UPKEEP_PLOT, bagBalance({ bag0, took: {}, crafted: {}, placed: placedBy, back: {}, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: '-' }) }) } catch { /* telemetry */ } }
+  }
+}
 async function buildTidy (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()

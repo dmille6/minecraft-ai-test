@@ -11,6 +11,7 @@ import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
+import { upkeepOn, UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { gkfOn, gkfBuilders } from './gkforever.mjs'   // gkforever-01: the crew
 import { groundsBatchOpen } from './idlework.mjs'   // gkforever-01: a grounds lap's order cooldown
@@ -82,6 +83,8 @@ export const TIDY = Object.freeze({ on: tidyOn(process.env, process.env.MEMORY_P
 /** GROUNDSKEEPER-01 (groundskeeper.mjs): one leased bot a town works the tidy -- its only builder (the lease is the slot, the yard
  *  clerk's pattern) -- through the land plan's stages; GROUNDSKEEPER=off is tidy-01 exactly as before (3 builders). */
 export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** upkeep-01: the upkeep plot (upkeep.mjs) -- UPKEEP=off is the rollback; on in every named pool. */
+export const UPKEEPP = Object.freeze({ on: upkeepOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -90,17 +93,22 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
+  // upkeep-01: the standing maintenance loop -- its tier is activeProject's own (`upkeep`: after every repair, open project and due
+  // record), whatever its place here; the tidy stays the list's last (the order's fallback)
+  Object.freeze({ plot: UPKEEP_PLOT, blueprint: UPKEEP_BLUEPRINT, builders: UPKEEP.builders, upkeep: true }),
   // gkforever-01 CREW (GKF_CREW): the keeper and a helper (gkforever.mjs GKF.crew); off: the keeper alone (groundskeeper-01)
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? gkfBuilders(gkfOn('crew')) : TIDY_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, upk = UPKEEPP.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === UPKEEP_PLOT ? upk : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
 export const projectsGuarded = (list = projectsOn()) => {
   // tidy-01: the tidy guards nothing (its fills are ground, its cuts are spoil): never a footprint, a keep-out or a siting input
   const l = list.filter(p => p.plot !== TIDY_PLOT)
-  return l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  // upkeep-01: nor the upkeep's job list (a stray to dig, a replant: the ground's, never a protected build)
+  const lu = l.filter(p => p.plot !== UPKEEP_PLOT)
+  return lu.some(p => p.plot === SHAFT_PLOT) ? lu : [...lu, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX
@@ -112,6 +120,11 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  */
 export function activeProject (states = [], list = projectsOn()) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
+  // UPKEEP-01 (upkeep.mjs): the standing maintenance loop -- workable while DUE (a job open, or its list due a survey), with a slot,
+  // not stuck, not held for this bot (nextBackoff: its empty-visit breaker). Never in the loops below: its own tier is the LAST, and
+  // it stands in for an open project this bot cannot work (no slot, held). No upkeep plot: exactly as before.
+  const upk = list.find(p => p.upkeep && st(p).due === true && st(p).free !== false && !st(p).stuck && !st(p).nextHeld) ?? null
+  if (list.some(p => p.upkeep)) list = list.filter(p => !p.upkeep)
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged) return p }
   const open = []
   for (const p of list) {
@@ -126,10 +139,12 @@ export function activeProject (states = [], list = projectsOn()) {
     // buildnext-01: every open project held (stuck, unsited, full, this bot's breaker) -> a complete project's due upkeep that has
     // a slot comes before the first held one (the order's own gates then decide), never a held one ahead of free work
     const dueP = buildNextOn() ? list.find(p => { const s = st(p); return s.exists && s.complete && s.due && s.free !== false }) : null
+    if (upk && !starved.length && !open.some(p => st(p).free !== false) && !dueP) return upk
     return starved[0] ?? open.find(p => st(p).free !== false) ?? dueP ?? open[0]
   }
   // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.due) return p }
+  if (upk) return upk
   return list[list.length - 1]
 }
 /**
@@ -260,7 +275,7 @@ export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the zig
 /** wall-01: the wall is built from the cobblestone the bags carry, as the ziggurat is. */
 /** treefarm-04: the farm plants from the bag's saplings and takes its harvest into it. */
 /** tidy-01: the tidy fills from the dirt and cobblestone a bag already holds. */
-export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT, TIDY_PLOT]))
+export const LIGHT_PLOTS = Object.freeze(new Set([MONUMENT_PLOT, PATHS_PLOT, WALL_PLOT, SHAFT_PLOT, TREEFARM_PLOT, TIDY_PLOT, UPKEEP_PLOT]))
 /** THE ACTIVE PROJECT'S PLOT for an order with no record yet (skills.mjs installs shopActive's: an unsited project's bag rule). */
 let activePlotOf = () => null
 export function setActivePlot (fn) { if (typeof fn === 'function') activePlotOf = fn }
@@ -754,4 +769,4 @@ export const buildModeDetail = (reserveSha = '-') => `phase=mode v=1 shop=${SHOP
 // `op=stuck_on_cell cell=...` and the read's STALLED POOLS could never see a stall; the fake runner's e.log kept the objects)
 export const buildRowDetail = f => fmt(['project', 'op', 'seg', 'cell', 'block', 'kind', 'saplings', 'gen', 'to', 'result', 'visits', 'n', 'segs', 'waiting', 'stalled', 'early', 'why'], f)
 export const buildSegDetail = f => fmt(['project', 'seg', 'open', 'done', 'material_open', 'found_done', 'found_open', 'why'], f)
-export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'ms', 'why'], f)
+export const buildVisitDetail = f => fmt(['project', 'outcome', 'stop', 'placed', 'refused', 'silent', 'cleared', 'planted', 'unknown', 'slot', 'gen', 'took', 'back', 'gathered', 'fromMats', 'held', 'ms', 'why'], f)   // upkeep-01: gathered (swept) fromMats held

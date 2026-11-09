@@ -10,6 +10,7 @@ process.env.BOT_NAME = 'PathBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
+process.env.UPKEEP = 'off'   // upkeep-01's plot (on in every named pool) has its own order test: upkeep.test.mjs
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-paths-pool-'))
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs

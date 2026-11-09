@@ -14,6 +14,7 @@ process.env.LOG_LEVEL = 'error'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
+process.env.UPKEEP = 'off'   // upkeep-01's plot (on in every named pool) has its own order test: upkeep.test.mjs
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-buildnext-pool-'))
 for (const k of ['MONUMENT', 'MONUMENT_POOLS', 'HOUSE', 'PATHS', 'PATHS_POOLS', 'WALL', 'WALL_POOLS', 'BUILDNEXT', 'BUILDNEXT_BREAKER']) delete process.env[k]
 process.env.SHAFT = 'off'

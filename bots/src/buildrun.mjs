@@ -639,7 +639,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // lease are checked AGAIN after the walk, at the dig (Codex r1 P2: a replacement placed during the walk, or a lease lapsed in it,
   // was dug anyway). An unconfirmed dig asks the server (the probe): air confirms, any other name means it stands, nothing leaves
   // the cell unknown.
-  const digNamed = async (at, name, held, nodes = null) => {
+  const digNamed = async (at, name, held, nodes = null, safe = null) => {
     // monustuck-01 (DIG_BANS_MAX): the stands this cell's dig walks failed from are not walked again; with DIG_BANS_MAX of them
     // the cell has no stand from here
     const banOn = monuStuckOn() && !!stands
@@ -661,6 +661,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     }
     if (nm(rd(...at)) !== name) return 'gone'
     if (!renewSlot() || !held()) return 'fence'
+    // upkeep-01 (Codex r3 BLOCKER 1): the caller's dig-time check re-read AFTER the walk, nothing awaited from here to the dig
+    if (safe && !safe()) return 'unsafe'
     let v = await e.dig(at, name)
     for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
     if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++; e.log('_build', { op: 'unknown', cell: at, block: name }) }
@@ -960,10 +962,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // fell-01's log felled from the pad -- buildretry-01 counts the dig WALKS that fail, below)
         // stuckclose-01 (`p.tidyTownCount`, the town tidy): a stand-less tidy cut IS counted in the town's retry ledger, so the town
         // gives it up (stuckclose.mjs townGivenCuts) instead of it waiting on one bot's connection to evaluate it TIDY_CUT_TRIES times
+        // upkeep-01 (`p.clearOk(clear, read)`): a listed non-tidy clear is dug only while the caller's check holds NOW -- here and again
+        // after the walk (digNamed's `safe`): the upkeep's remains only while their own replant reads a sapling
+        if (c.kind !== 'tidy' && p.clearOk && !p.clearOk(c, rd)) continue
         if (!digStand(rd, c.at, nodes)) { if (p.tidyTownCount && c.kind === 'tidy') fail(c.at, 'no_stand'); continue }
         const g = guard(); if (g) return g
         tried++
-        const v = await digNamed(c.at, c.name, held, nodes)
+        const v = await digNamed(c.at, c.name, held, nodes, c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
+        if (v === 'unsafe') continue
         if (!['confirmed', 'gone', 'fence', 'aborted'].includes(v)) fail(c.at, v)
         if (v !== 'no_stand') nodes = null
         // zigtidy-02: a tidy walk that did not arrive ends the tidy (the lease freed for a builder who can), the visit goes on
