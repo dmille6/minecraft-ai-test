@@ -263,7 +263,7 @@ import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS, SMELT_MS_PER_ITEM } from './smelting.mjs'
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
-import { GLASS, GLASS_PLOTS, SAND_PER_ORDER, SAND_R_MAX, GLAZE_PER_ORDER, windowsOf, sandWant, sandPlan, sandCellOk, glazePlan, paneRefs, glassDetail, glassMem, glassMemNote } from './glass.mjs'   // glass-01
+import { GLASS, GLASS_PLOTS, SAND_PER_ORDER, SAND_R_MAX, GLAZE_PER_ORDER, inBridgeZone, windowsOf, sandWant, sandPlan, sandCellOk, glazePlan, paneRefs, glassDetail, glassMem, glassMemNote } from './glass.mjs'   // glass-01
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
   STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting, stoneScaffoldHeld,   // stoneworks-01
   stoneBillDemand,   // stoneworks-02
@@ -14567,7 +14567,11 @@ export function glassReading (bot, { fresh = false } = {}) {
 }
 /** A cell the sand dig never takes: a protect zone (protectzone-01), a workshop record cell. */
 function glassReserved (bot) {
+  // glass-01 fold (Codex BLOCKER): every bridge site's footprint (sighted, designed, built or not) -- unreadable: nothing is dug
+  let bz = null
+  try { bz = bridgeZones(exBridgeSites(), 2) } catch { bz = null }
   return (x, z, y) => {
+    if (bz == null || inBridgeZone(bz, x, z)) return true
     try { if (blocked(bot.protectZones?.() ?? [], x, y, z, null)) return true } catch { return true }
     for (const yy of [y, y + 1, y + 2]) if (bot.shopCells?.has?.(`${x},${yy},${z}`)) return true
     return false

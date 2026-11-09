@@ -176,6 +176,9 @@ export function waterDepth (read, x, y, z, max = 6) {
  *   - no water SAND_DEEP deep within SAND_DEEP_R of it: shallows only, never deep water (the drowning rule)
  *   - inside the ring [rMin, rMax] of home, never `reserved(x, z, y)` (a record, a protect zone)
  */
+/** Is (x, z) inside a bridge site's footprint (bridge.mjs bridgeZones boxes, built or not: its banks and approaches)? Pure.
+ *  glass-01 fold (Codex BLOCKER): the sand dig never takes a bridge's bank -- the tidy's own guard is per cell, the dig's is the zone. */
+export const inBridgeZone = (zones = [], x, z) => (zones ?? []).some(q => Array.isArray(q?.box) && x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5])
 export function sandCellOk (read, at, { home = null, rMin = SAND_R_MIN, rMax = SAND_R_MAX, reserved = () => false } = {}) {
   const [x, y, z] = at
   if (home) {
