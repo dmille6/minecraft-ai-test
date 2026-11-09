@@ -141,7 +141,7 @@ import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottage
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
-import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
+import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
@@ -20816,9 +20816,10 @@ async function buildReroof (ctx, args, signal) {
 /** reroof-04: a re-roofed record's visit options -- its new roof's slab cells are floors to the walk (REROOF_ACCESS). Pure over rec, stood. */
 const reroofVisitOpts = (rec, stood, home = null) => (REROOF_FIX.access && rec?.restyle ? { floors: reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))),
   // r5: the ledges whose fall lands off the town walk are never a stand or a step (computed once a visit over the visit's own walk view)
-  // r6 (Codex r6 BLOCKER): the guard walks the new roof's slabs as floors, lands on them, and a landing with a walk-and-drop way back
-  // (reroofRecoverable) is no trap -- the same rule as the proof's stair check (reroofStairSafe)
-  ...(REROOF_FIX.fallSafe && home ? { avoid: rd => { const fl = reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))); return reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90, { stood: Array.isArray(stood) ? reroofSeeds(stood, rec.box) : [], floors: fl }), { box: rec.box, floors: fl, recover: true }) } } : {}),
+  // r6e: the r5 guard (the ground walk's ledges whose fall has no walk back) with ONE exemption -- the feet cells of the record's own
+  // temporary stair, which the proof took only because every step's side fall gets back (reroof.mjs reroofStairSafe; Paper sandbox4
+  // storehub 11-08: unexempted, the guard avoided the stair's top 21,74,-60, the only walk onto the roof, and the ridge had no stand)
+  ...(REROOF_FIX.fallSafe && home ? { avoid: rd => reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90, { stood: Array.isArray(stood) ? reroofSeeds(stood, rec.box) : [] }), { box: rec.box, keep: reroofStairFeet(rec) }) } : {}),
   // ...and the walk its proof walked: no natural leaves underfoot, no seed a bot once stood on inside the building's own box (its roof)
   walkRead: reroofNoLeafFloor, stairFirst: true, ...(Array.isArray(stood) ? { stood: reroofSeeds(stood, rec.box) } : {}) } : {})
 /**

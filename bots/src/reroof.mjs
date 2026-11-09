@@ -636,7 +636,7 @@ export const FALL_PAD = 1          // the building's box + this: where its ledge
  * `avoid`; every walk's step fence). The building's own ledges stay usable (the proofs need them as stands); their falls are made
  * recoverable by reroofExitLeaves.
  */
-export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, floors = null, recover = false } = {}) {
+export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, floors = null, recover = false, keep = null } = {}) {
   const out = new Set()
   if (!Array.isArray(box) || box.length < 4) return out
   const K = (x, y, z) => `${x},${y},${z}`
@@ -644,6 +644,8 @@ export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FA
   for (const key of walked) {
     const [x, y, z] = key.split(',').map(Number)
     if (!near(x, z)) continue
+    // r6e (`keep`): the record's own temporary stair -- taken by the proof only when reroofStairSafe found every step's fall recoverable
+    if (keep?.has(key)) continue
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz
       if ([0, 1, -1].some(d => walked.has(K(nx, y + d, nz)))) continue
@@ -758,6 +760,8 @@ export function reroofRecoverable (read, landing, walked = new Set(), { floors =
   }
   return false
 }
+/** r6e: the feet cells on the record's temporary stair (its temp cells) -> Set of keys. Pure. */
+export const reroofStairFeet = rec => stairFeetOf(reroofTempCells(rec).map(c => c.at.join(',')))
 /** reroof-04 r6: the feet cells on a temporary stair (one above each stair cell that has open air over it) -> Set of keys. Pure. */
 export const stairFeetOf = keys => { const ks = new Set(keys); return new Set([...ks].map(k => k.split(',').map(Number)).filter(([x, y, z]) => !ks.has(`${x},${y + 1},${z}`)).map(([x, y, z]) => `${x},${y + 1},${z}`)) }
 /**
