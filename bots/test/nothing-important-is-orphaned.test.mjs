@@ -106,6 +106,10 @@ const REQUIRED = [
   // deepminer-01 (11-01): the town deep miner (the trip, the branch layout, the way back) and its Paper driver
   'bots/src/deepmine.mjs',
   'bots/test/deepmine.test.mjs',
+  // townmine-01 (11-09, owner "i want all of those things done"): the town mine -- the stair extended to -53, bays, hall, galleries
+  'bots/src/townmine.mjs',
+  'bots/test/townmine.test.mjs',
+  'bots/scripts/townmine-render.mjs',   // townmine-01: its pictures, drawn from the bots' own plan
   'sandbox/deepmine/deepmine-e2e.mjs',
   'docs/reports/deepminer-2026-11-01.md',
   'bots/src/shaftgeom.mjs',
