@@ -32,7 +32,7 @@
 //                   QUIET_MS without a refusal, ends the wait. So the guard can delay an escape by at most WAIT_MS, and it
 //                   never takes away the escape that existed before it.
 // ESCAPEGUARD=off is the kill switch: every answer here is "allow", exactly the base's behaviour.
-import { blocked } from './protectzone.mjs'
+import { blocked, structAt, DIG_MASK, ORDINARY_TERRAIN, DEEP_NATURAL_BLOCKS } from './protectzone.mjs'   // zoneguard-01show: structAt + the moved regexes
 import { digPurpose, currentDigScope } from './digtown.mjs'
 
 export const ESCAPE_GUARD_WAIT_MS = 10 * 60_000     // under the tripwire's Z1 (a bot still inside a zone 15 min trips it)
@@ -65,7 +65,7 @@ export const escapeGuardOn = (env = process.env) => !/^(off|0|false|no)$/i.test(
  * Conservative: what is not listed (cobblestone, mossy cobblestone, planks, logs, bricks, terracotta, glass ...) is treated as
  * a structure's.
  */
-export const ORDINARY = /^(stone|deepslate|granite|diorite|andesite|tuff|calcite|dripstone_block|smooth_basalt|basalt|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|moss_block|netherrack|soul_sand|soul_soil|end_stone|(deepslate_)?(coal|iron|copper|gold|redstone|lapis|diamond|emerald)_ore|nether_(gold|quartz)_ore)$/
+export const ORDINARY = ORDINARY_TERRAIN   // zoneguard-01show: defined in protectzone.mjs (its name rule reads it too)
 export const isOrdinary = name => typeof name === 'string' && ORDINARY.test(name.replace(/^minecraft:/, ''))
 
 const finite3 = p => !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)
@@ -81,6 +81,11 @@ const cellOf = p => (finite3(p) ? { x: Math.floor(p.x), y: Math.floor(p.y), z: M
 export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt = null, home = null, zoneWalk = zoneWalkOn() } = {}) {
   const c = cellOf(cell)
   if (!c) return null
+  // ZONEGUARD-01SHOW: A CELL THE TRIPWIRE'S BASELINE GUARDS (protectzone structAt: the cell itself, or the support of a block that
+  // hangs on it) is the zone's at every depth, whatever its name -- first, so the planners pass over it and no rule below opens it
+  let sz = null
+  try { sz = zones?.length ? structAt(zones, c.x, c.y, c.z, DIG_MASK) : null } catch { sz = null }
+  if (sz) return { kind: 'zone', zone: sz.id ?? '?', ordinary: false, struct: true }
   // ESCDEAD-01SHOW: A ZONE'S STRUCTURE BLOCK IS THE ZONE'S FIRST (Codex r1 blocker 2): a plank inside a village box that a build
   // record also covers is answered as the zone's, so the last-resort prohibition (escapeDigDecision) reaches it
   const zs = zoneWalk ? zoneStructureAt(zones, c, name) : null
@@ -109,7 +114,7 @@ export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt 
  *  palette -- a palette missed copper and iron bars): natural cave blocks (sculk, dripstone, amethyst, obsidian, magma, lichen,
  *  roots, cave plants) and the bots' own pillar blocks (cobblestone, cobbled deepslate). They stay open in the deep part, as
  *  before; everything else built (wood, rails, copper, bars, bricks, glass ...) is guarded at every depth. */
-export const DEEP_NATURAL = /^(cobblestone|cobbled_deepslate|sculk|sculk_vein|sculk_catalyst|sculk_sensor|sculk_shrieker|pointed_dripstone|amethyst_block|budding_amethyst|(small|medium|large)_amethyst_bud|amethyst_cluster|obsidian|crying_obsidian|magma_block|glow_lichen|moss_carpet|hanging_roots|cave_vines|cave_vines_plant|spore_blossom|azalea|flowering_azalea|big_dripleaf|big_dripleaf_stem|small_dripleaf|glow_berries|short_grass|tall_grass|fern|large_fern|dead_bush|vine|seagrass|tall_seagrass|kelp|kelp_plant)$/
+export const DEEP_NATURAL = DEEP_NATURAL_BLOCKS   // zoneguard-01show: defined in protectzone.mjs
 export function zoneStructureAt (zones, c, name) {
   if (typeof name !== 'string' || !name || /(^|_)air$/.test(name) || isOrdinary(name)) return null
   for (const q of (Array.isArray(zones) ? zones : [])) {
@@ -130,6 +135,9 @@ export function escapeDigDecision ({ on = true, purpose = 'survival', guard = nu
   if (!on) return { allow: true, why: 'off' }
   if (purpose !== 'survival') return { allow: true, why: 'not_survival' }
   if (!guard) return { allow: true, why: 'unguarded' }
+  // ZONEGUARD-01SHOW: a baseline cell is never dug -- not for air, not as a last resort (protectzone's chokepoint refuses it too;
+  // the planners asking here pass over it to another bearing, the walk-out's ordinary rock)
+  if (guard.struct) return { allow: false, why: 'zone' }
   if (guard.kind === 'zone' && guard.ordinary) return { allow: true, why: 'ordinary' }
   if (air) return { allow: true, why: 'air' }
   // ESCDEAD-01SHOW: THE LAST RESORT NEVER DIGS A ZONE'S STRUCTURE (showcase-Nova 11-06: 79,72,-10 plank, 80,77,-8 log). The wait
