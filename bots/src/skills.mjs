@@ -174,7 +174,7 @@ import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeper
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
-import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
+import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
@@ -18378,7 +18378,13 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
     if (r?.blueprint === TIDY_BLUEPRINT && gkStageDue(r)) return tidy
+    // COUNTRY-01 (Codex fleet r1 BLOCKER, the showcase's too): the ORDER's completion check (cognitive.mjs shopDamaged, tidy on) reads a
+    // quiet inside as wanting a visit while the country does -- else a crew order to a country band is refused `complete`
+    if (r?.blueprint === TIDY_BLUEPRINT && tidy && COUNTRY_ON && GROUNDS.on && LANDP.on && countryDemandNow() != null) return true
     if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)
+    // UPKEEP-01 (Codex fleet r1 BLOCKER, the showcase's too): the upkeep is never DAMAGED; with `tidy` (the order's completion check) it
+    // wants a visit while it is due (a job open, its list stale, drops the sweep would take) -- else a stale list is never surveyed again
+    if (r?.blueprint === UPKEEP_BLUEPRINT) return tidy && upkeepStateNow(bot, r).due
     // shaft-02: the town stair judges its own cells (shaftgeom.mjs stairDamaged); a no-site record is only DUE, after its retry
     if (r?.blueprint === SHAFT_BLUEPRINT) return stairDamaged(stairRead(bot), r) || (tidy && stairDue(r))
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
