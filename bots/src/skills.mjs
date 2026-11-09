@@ -26947,9 +26947,14 @@ async function buildUpkeep (ctx, args, signal) {
     // Codex r3 BLOCKER 2: each pass takes the slot's CURRENT generation (a renewal in the first pass is the second's)
     // Codex r3 BLOCKER 1: every remains dig re-checks its group's replant at the dig (upkeep.mjs upkeepClearOk via runVisit `clearOk`)
     // Paper proof 11-09: a furnace-kind stray is dug with the pickaxe in hand (its block drops back), never by hand or axe
-    const hasPick = () => (bot.inventory?.items?.() ?? []).some(i => /_pickaxe$/.test(i.name))
+    // Codex r4 BLOCKER: the pickaxe effects.tool equips (2+ uses left), verified IN HAND before the dig -- else the dig is refused
+    const pickLeft = i => (Number(i.maxDurability) || 0) - (Number(i.durabilityUsed) || 0)
+    const hasPick = () => (bot.inventory?.items?.() ?? []).some(i => /_pickaxe$/.test(i.name) && pickLeft(i) >= 2)
     const dig0 = effects.dig
-    effects.dig = async (c, expect) => { if (STRAY_PICK.test(String(expect ?? ''))) await effects.tool?.(); return dig0(c, expect) }
+    effects.dig = async (c, expect) => {
+      if (STRAY_PICK.test(String(expect ?? ''))) { await effects.tool?.(); if (!/_pickaxe$/.test(String(bot.heldItem?.name ?? ''))) return 'refused' }
+      return dig0(c, expect)
+    }
     const visit = (record, maxSteps) => runVisit({ dir, key, me, home, stood, record, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slotRef.gen, slotRef, stands, unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, blockLayer: false, clearMax: 24, walkR: UPKEEP.r + 8, stuckStalledOnly: true, clearOk: (c, rd) => upkeepClearOk(rec, c, rd ?? rd0, { hasPick: hasPick() }),
       openRole: role => role === 'sapling', alsoDone: (q, rd) => grown(q, rd) || noSapling(q) }, effects, { deadline, maxSteps })
