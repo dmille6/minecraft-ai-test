@@ -312,5 +312,19 @@ await t('THE KIT\'S TOWN DRAW (Codex r1 BLOCKER 2): logs keep the owner\'s reser
   assert.equal((src.match(/\} else if \(cand && Number\.isInteger\(cand\.bearing\) && BRIDGE_DESIGN_ON && !cand\.mat && dsg\?\.why !== 'started'\) \{/g) ?? []).length, 1, 'a new site waits for its design')
 })
 
+await t('fold (Codex BLOCKER): a refused design WAITS NODESIGN_RETRY_MS from its last refusal, then the fit is read again', async () => {
+  const span = mkSpan(12)
+  const id = 'nd'
+  const s1 = B.bridgeSites([{ op: 'sight', id, span, trip: 'a' }, { op: 'state', id, nodesign: 'cell_chest', t: 1000 }, { op: 'state', id, nodesign: 'cell_chest', t: 5000 }])[0]
+  assert.equal(s1.nodesignAt, 5000, 'the last refusal times the wait')
+  assert.equal(B.designWaits(s1, 5000 + B.NODESIGN_RETRY_MS - 1), true)
+  assert.equal(B.designWaits(s1, 5000 + B.NODESIGN_RETRY_MS), false, 'past the wait: the fit is read again')
+  assert.equal(B.designWaits({ ...s1, design: { style: 'arch' } }, 5001), false, 'a named design never waits')
+  assert.equal(B.designWaits({ id, span }, 5001), false, 'positive control: no refusal, no wait')
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.equal((src.match(/if \(designWaits\(site, Date\.now\(\)\)\) return \{ why: 'nodesign' \}/g) ?? []).length, 1, 'exDesignFor waits, then retries')
+  assert.equal((src.match(/site\?\.nodesign\) return/g) ?? []).length, 0, 'no permanent nodesign refusal')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
