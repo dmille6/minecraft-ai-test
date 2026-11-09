@@ -307,7 +307,7 @@ test('returnOverdue: a return past the trip\'s age or twice its calls is over (t
   assert.equal(D.returnOverdue({ startedAt: now - D.TRIP_MAX_MS - 11 * 60_000, calls: 3 }, now), true)
   assert.equal(D.returnOverdue({ startedAt: now, calls: 2 * D.CALLS_MAX + 1 }, now), true)
 })
-const NOT_UNDER = "if (['deepen', 'work', 'build'].includes(trip.phase) && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {"   // townmine-01: + build
+const NOT_UNDER = "if (['deepen', 'work', 'build'].includes(trip.phase) && !inStairBox && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {"   // townmine-01: + build (in the stair's box: on the stair)
 test('wired (B1): a trip at the surface in deepen/work turns home before any phase step (mutant seen)', () => {
   const sk = readFileSync(SK, 'utf8')
   assert.equal(sk.split(NOT_UNDER).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
