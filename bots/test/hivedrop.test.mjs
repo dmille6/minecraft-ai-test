@@ -88,7 +88,7 @@ await t('the crown visit does THE SAME THING with the plan cached (same stop, sa
     assert.deepStrictEqual(on.ops, off.ops, 'the same rows')
     assert.ok(on.reads * 2 < off.reads, `reads ${on.reads} cached vs ${off.reads} re-planned per leaf: the plan was not reused`)
   }
-  await killedBy('        nodes ??= nodesFor()\n        if (!digStand(rd, q.at, nodes)) continue', '        nodes = nodesFor()\n        if (!digStand(rd, q.at, nodes)) continue', scenario)
+  await killedBy('        if (!nodes) { nodes = nodesFor(); plan = { at: Date.now(), feet: feetNow() } }\n        if (!digStand(rd, q.at, nodes)) continue', '        nodes = nodesFor(); plan = { at: Date.now(), feet: feetNow() }\n        if (!digStand(rd, q.at, nodes)) continue', scenario)   // hivedrop-02 reworded the line
 })
 await t('digs that LAND (the plan re-made after each): the same visit as the rollback, row for row', async () => {
   // EQUIVALENCE, not a kill: in this scene a plan kept across a landed dig gives the same rows too (that mutant survives here),
