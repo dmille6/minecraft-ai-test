@@ -957,6 +957,8 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
     await tick()
     const r = await reach(clear, q, keys)
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    reach', r.ok ? 'OK' : unreached(r))
+    // Codex r6f BLOCKER: the reach may grow the clears (reroofCanopyGrow): the stair is judged again on the FINAL cells and clears
+    if (r.ok && fx.fallSafe) { await tick(); if (!reroofStairSafe(read, home, r.p.cells, keys, { stood, walkR, box: rec.box, clear: r.clear }).ok) continue }
     if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: withApex(r.clear, apex), retire: ob.retire, step, temp: keys }
   }
   return fail0
