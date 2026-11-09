@@ -305,7 +305,7 @@ await t('wired (structural, comments stripped): buildReroof asks reroofProve and
   assert.strictEqual(sk.split('const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX })').length, 2)
   assert.ok(sk.includes('reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch })'))
   assert.ok(sk.includes("    Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))"))
-  assert.ok(sk.includes('...(REROOF_FIX.fallSafe && home ? { avoid: rd => { const fl = reroofFloors(') && sk.includes('return reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), wr, { stood: sd }),'), 'the visit avoids the risky ledges')
+  assert.ok(sk.includes('...(REROOF_FIX.fallSafe && home ? { avoid: rd => { const fl = reroofFloors(') && sk.includes('return reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90,'), 'the visit avoids the risky ledges')
   assert.ok(sk.includes('walkRead: reroofNoLeafFloor, stairFirst: true, ...(Array.isArray(stood) ? { stood: reroofSeeds(stood, rec.box) } : {}) } : {})'))
   assert.ok(sk.includes("    if (reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)"), 'the teardown on any stop (Codex r1 BLOCKER)')
   assert.ok(sk.includes('    if (r?.restyle && reroofTempState(bot, r)) return true'))
@@ -345,13 +345,6 @@ await t('r6 reroofFallRisk `recover` + `floors`: a ledge over a recoverable land
   assert.ok(RR.reroofFallRisk(slab, w2, { box: [-2, -2, 2, 2] }).has('0,6,0'), 'POSITIVE CONTROL: without floors the fall passes the slab')
   assert.ok(!RR.reroofFallRisk(slab, w2, { box: [-2, -2, 2, 2], floors: new Set(ring.map(([a, b]) => `${a},3,${b}`)) }).has('0,6,0'), 'the slab is the landing')
 })
-await t('r6b reroofFallRisk `landOn`: only the cells `walked` names are judged (the ground walk, as the proof judged them); the roof walk is landed on', () => {
-  // a roof-top cell 0,6,0 (feet over the roof, only on the walk over the roof's slabs) with a fall to deep air: judged only when listed
-  const read = (x, y, z) => (x === 0 && z === 0 ? (y <= 5 ? stone : air) : y <= -6 ? stone : air)
-  const roofWalk = new Set(['0,6,0', '-10,-5,0'])
-  assert.ok(RR.reroofFallRisk(read, roofWalk, { box: [-2, -2, 2, 2] }).has('0,6,0'), 'POSITIVE CONTROL: judged when the judged walk holds it')
-  assert.ok(!RR.reroofFallRisk(read, new Set(['-10,-5,0']), { box: [-2, -2, 2, 2], landOn: roofWalk }).has('0,6,0'), 'a roof-top cell is not judged')
-})
 await t('r6 reroofStairSafe: a stair whose step drops into a closed pocket is unsafe; with a way back it is safe; stairFeetOf the tops', () => {
   assert.deepStrictEqual([...RR.stairFeetOf(['0,4,2', '0,5,2', '0,3,1'])].sort(), ['0,4,1', '0,6,2'])
   const keys = new Set(['0,5,2'])
@@ -362,7 +355,7 @@ await t('r6 reroofStairSafe: a stair whose step drops into a closed pocket is un
   assert.strictEqual(ok.ok, true, JSON.stringify(ok))
 })
 await t('r6 MUTANT: the recovery path dropped from the fall guard -- the stair top is avoided again (killed for that reason)', async () => {
-  await withMutant(RR_PATH, " && !(recover && reroofRecoverable(read, land, L, { floors }))", '', async M => {
+  await withMutant(RR_PATH, " && !(recover && reroofRecoverable(read, land, walked, { floors }))", '', async M => {
     const walked = new Set(['0,6,2', '-1,-1,2', '-2,-1,2'])
     assert.ok(M.reroofFallRisk(stripRead(true), walked, { box: [-1, 0, 4, 4], recover: true }).has('0,6,2'))
   })
@@ -440,7 +433,7 @@ await t('r6 MUTANT: the clears pass ignores the apex tag -- it digs the apex lea
 await t('r6 wired (structural, comments stripped): the shop visit\'s fall guard and the proof\'s stair check share the rule; the apex keys; the walk digs apex leaves only when asked', () => {
   const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const sk = strip('../src/skills.mjs')
-  assert.ok(/\{ box: rec\.box, floors: fl, recover: true, landOn: siteWalkFrom\(rd, home, new Set\(\), wr, \{ stood: sd, floors: fl \}\) \}/.test(sk), 'the visit guard: ground cells judged, the roof walk landed on, the way back')
+  assert.ok(/\{ box: rec\.box, floors: fl, recover: true \}/.test(sk), 'the visit guard: roof floors + the way back')
   assert.ok(/if \(fx\.fallSafe\) \{ await tick\(\); const sf = reroofStairSafe\(read, home, q\.cells, keys, \{ stood, walkR, box: rec\.box \}\); if \(!sf\.ok\)/.test(strip('../src/reroof.mjs')), 'the proof takes no unsafe stair')
   assert.ok(/apexDig: REROOF_FIX\.apex && rec\?\.restyle \? \(keys => k => keys\.get\(k\) \?\? null\)\(reroofApexKeys\(rec\)\) : null,/.test(sk))
   const bb = strip('../src/buildbot.mjs')

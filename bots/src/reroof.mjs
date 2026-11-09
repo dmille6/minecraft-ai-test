@@ -636,10 +636,7 @@ export const FALL_PAD = 1          // the building's box + this: where its ledge
  * `avoid`; every walk's step fence). The building's own ledges stay usable (the proofs need them as stands); their falls are made
  * recoverable by reroofExitLeaves.
  */
-export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, floors = null, recover = false, landOn = null } = {}) {
-  // r6b (`landOn`): the walk a landing is judged against (the walk over the new roof's slabs); `walked` stays the cells judged -- the
-  // ground walk, as the proof judged them (Paper r6b: judging the roof's own top cells as ledges avoided the stands the proof had chosen)
-  const L = landOn ?? walked
+export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, floors = null, recover = false } = {}) {
   const out = new Set()
   if (!Array.isArray(box) || box.length < 4) return out
   const K = (x, y, z) => `${x},${y},${z}`
@@ -649,14 +646,14 @@ export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FA
     if (!near(x, z)) continue
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz
-      if ([0, 1, -1].some(d => L.has(K(nx, y + d, nz)))) continue
+      if ([0, 1, -1].some(d => walked.has(K(nx, y + d, nz)))) continue
       const a = read(nx, y, nz), h = read(nx, y + 1, nz)
       if (!a || !h || !isPassable(a) || !isPassable(h)) continue           // a wall: no fall that way
       let land = null
       // r6 (`floors`): a slab of the record's new roof is a landing too (the walk stands on it: walkFrom `floors`)
       for (let yy = y - 1; yy >= y - drop; yy--) { const b = read(nx, yy, nz); if (!b) break; if (fullCube(b) || isLiquid(b) || (floors?.has(K(nx, yy, nz)) && slabTopFloor(b))) { land = isLiquid(b) ? null : K(nx, yy + 1, nz); break } }
       // r6: a landing off the walk that a body can walk (and drop) back from to the walk is no trap (reroofRecoverable)
-      if (!land || (!L.has(land) && !(recover && reroofRecoverable(read, land, L, { floors })))) { out.add(key); break }
+      if (!land || (!walked.has(land) && !(recover && reroofRecoverable(read, land, walked, { floors })))) { out.add(key); break }
     }
   }
   return out
