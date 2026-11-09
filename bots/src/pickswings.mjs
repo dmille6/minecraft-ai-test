@@ -9,7 +9,7 @@
 // make. Every one of them failed, and the next decision asked again.
 //
 // THE RULE (pure): a craft of iron_pickaxe that tool hygiene admits ONLY for a swing reserve (the same call, asked without the
-// depth and the recorded `mine` shortfall, would refuse it), from a bag with fewer than 3 iron ingots, is REWRITTEN to
+// depth and the recorded `mine` shortfall, would refuse it), from a bag whose whole-tree plan cannot make it, is REWRITTEN to
 // stone_pickaxe when the bag can make one (the caller's whole-tree plan). The stone copy adds ~130 swings (the reserve's
 // need at y=-50 is ~131), it is made from what a deep bot carries (cobblestone/deepslate + a stick), and it is a craft the
 // SAME exemption admits. The bot's tier is untouched: it already holds an iron copy with uses (that is the condition), and
@@ -29,8 +29,9 @@ export const IRON_PICK_INGOTS = 3
  *   wanted         the active task's wanted set (never rewritten when it names the iron pickaxe)
  *   y, exitShort   what tool hygiene was given (the swing-reserve exemptions)
  *   stoneMakeable  () => boolean: the caller's whole-tree plan for ONE stone_pickaxe from this bag succeeds
+ *   ironMakeable   () => boolean: the same plan for ONE iron_pickaxe (an iron block or nuggets make ingots: Codex r1) -- true leaves it
  */
-export function swingRewrite ({ item, items = [], wanted = null, y = null, exitShort = null, stoneMakeable = () => false, on = PICKSWINGS, now = Date.now() } = {}) {
+export function swingRewrite ({ item, items = [], wanted = null, y = null, exitShort = null, stoneMakeable = () => false, ironMakeable = () => true, on = PICKSWINGS, now = Date.now() } = {}) {
   if (!on || item !== 'iron_pickaxe') return null
   const bag = Array.isArray(items) ? items : []
   const ingots = bag.filter(it => it?.name === 'iron_ingot').reduce((n, it) => n + (it.count ?? 1), 0)
@@ -39,6 +40,11 @@ export function swingRewrite ({ item, items = [], wanted = null, y = null, exitS
   if (redundantCraft(item, bag, { wanted, y, exitShort, now }) != null) return null   // hygiene refuses it anyway
   const bare = redundantCraft(item, bag, { wanted, y: null, exitShort: null, now })
   if (bare == null) return null                                                  // admitted for something else (no usable iron copy, the task, ...)
+  // THE IRON CRAFT CAN RUN after all (Codex r1: an iron block or nuggets in the bag make the ingots): leave it. A throw reads as
+  // makeable -- the rewrite is only for a craft known to fail.
+  let iron = true
+  try { iron = !!ironMakeable() } catch { iron = true }
+  if (iron) return null
   let ok = false
   try { ok = !!stoneMakeable() } catch { ok = false }
   if (!ok) return null                                                           // no stone copy from here: the craft's own refusal stands
