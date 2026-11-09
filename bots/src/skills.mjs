@@ -14569,7 +14569,7 @@ export function glassReading (bot, { fresh = false } = {}) {
 function glassReserved (bot) {
   // glass-01 fold (Codex BLOCKER): every bridge site's footprint (sighted, designed, built or not) -- unreadable: nothing is dug
   let bz = null
-  try { bz = bridgeZones(exBridgeSites(), 2) } catch { bz = null }
+  try { const bs = exBridgeSitesStrict(); bz = bs == null ? null : bridgeZones(bs, 2) } catch { bz = null }
   return (x, z, y) => {
     if (bz == null || inBridgeZone(bz, x, z)) return true
     try { if (blocked(bot.protectZones?.() ?? [], x, y, z, null)) return true } catch { return true }
@@ -18469,6 +18469,13 @@ const exBridgesFile = () => path.join(townDir(), `${exKey()}.bridges.jsonl`)
 const exBridgeKey = () => `${exKey()}.bridge`
 /** The town's bridge sites. Never throws (unreadable: none). */
 function exBridgeSites () { try { return bridgeSites(exLines(exBridgesFile(), 4000)) } catch { return [] } }
+/** glass-01 fold r3 (Codex BLOCKER: exLines swallows a read error as "no bridges"): the sites, [] only when the town has no bridges
+ *  file, null when it exists but cannot be read. */
+function exBridgeSitesStrict () {
+  let txt
+  try { txt = fs.readFileSync(exBridgesFile(), 'utf8') } catch (e) { return e?.code === 'ENOENT' ? [] : null }
+  try { return bridgeSites(txt.split('\n').filter(Boolean).slice(-4000).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)) } catch { return null }
+}
 const exHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
 const exAtHome = (p, r = 40) => !!p && Math.hypot(p.x - config.world.homeX, p.z - config.world.homeZ) <= r
 const EX_TOWN_R = 48   // the order's own `atTown` (cognitive TOWN_RADIUS): an open trip whose bot is this close is closed
