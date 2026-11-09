@@ -74,6 +74,21 @@ await t('never: a group past UPKEEP.remainsMax, one at the reach\'s edge (it may
   assert.strictEqual(skipped.remains_high, 1)
 })
 
+await t('A LIVING TREE\'S CROWN is never remains: a branch stepping diagonally off its trunk (26 neighbours), or a log within UPKEEP.canopyR of another tree\'s', async () => {
+  const set = {}
+  column(set, 20, 20, 65, 70, 'oak_log')                       // a living oak
+  set['21,71,21'] = 'oak_log'                                   // a branch, diagonal to the trunk's top
+  set['23,70,20'] = 'oak_log'                                   // a crown log two off the branch, over air (not touching it)
+  column(set, 40, 40, 67, 68, 'oak_log')                        // a felled trunk alone: remains
+  const read = world(set)
+  const scenario = M => {
+    const skipped = {}
+    const r = M.remainsIn(read, [0, 0, 60, 60], { yHi: 78, yLo: 50, bounds: [-100, -100, 100, 100], skipped })
+    assert.deepStrictEqual(r.map(g => g.logs[0].join(',')), ['40,68,40'])
+    assert.strictEqual(skipped.remains_canopy, 1, 'the crown log two off the trunk')
+  }
+  await killedBy(UK_PATH, UK, "    if (nearTree) { skipped.remains_canopy = (skipped.remains_canopy ?? 0) + 1; continue }\n", '', scenario)
+})
 console.log('THE STRAYS (straysIn): tables and furnaces on the ground outside every record')
 await t('listed: a table in the open; never on a record cell, beside a record\'s box, in a protected zone, under a roof', async () => {
   const set = { '40,65,0': 'crafting_table', '41,65,0': 'furnace', '60,65,0': 'crafting_table', '80,65,0': 'crafting_table', '90,65,5': 'furnace', '90,68,5': 'stone' }

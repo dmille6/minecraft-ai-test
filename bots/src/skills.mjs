@@ -17875,11 +17875,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
         // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
-        const st0 = { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}) }
-        // COUNTRY-01 (country.mjs groundsState): the grounds crew is wanted while either lane has work -- a quiet inside reads due
-        // while the country wants siting, open while a band is worked
-        return p.plot === TIDY_PLOT && COUNTRY_ON && GROUNDS.on && LANDP.on ? groundsState(st0, countryDemandNow(dir, now)) : st0
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}) }
       })
+      // COUNTRY-01 (country.mjs groundsState): the grounds crew is wanted while either lane has work -- a quiet inside reads due while
+      // the country wants siting, open while a band is worked
+      if (COUNTRY_ON && GROUNDS.on && LANDP.on) for (let i = 0; i < states.length; i++) if (states[i]?.plot === TIDY_PLOT) states[i] = groundsState(states[i], countryDemandNow(dir, now))
       if (stateOf) return states[0]
       // PICKER-01: each sink's open instance or its next one (sinks.mjs sinkNextGate over this bot's pressure), and the picker's order
       const sk = sinkStatesNow(b, states, now)
