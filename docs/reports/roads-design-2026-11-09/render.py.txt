@@ -1,0 +1,113 @@
+"""roads-01 pictures: a top view of the surveyed ground BEFORE and AFTER the bots' road instances (offline siting output), shaded by
+height, plus a side profile along each road. python3 render.py <dump.json> <road-rec.json> <traffic.json> <out-prefix> [x0 z0 x1 z1]"""
+import json, sys, math
+from dumpread import Dump
+from png import write_png, text
+
+dump, recf, trf, out = sys.argv[1:5]
+D = Dump(dump)
+R = json.load(open(recf))['rec']
+T = json.load(open(trf))
+X0, Z0, X1, Z1 = (int(v) for v in sys.argv[5:9]) if len(sys.argv) > 8 else (-100, -60, 100, 40)
+S = 10
+COL = {
+    'grass_block': (96, 150, 68), 'dirt': (128, 92, 62), 'coarse_dirt': (118, 86, 58), 'podzol': (104, 74, 44), 'stone': (125, 125, 125),
+    'cobblestone': (118, 118, 118), 'cobbled_deepslate': (78, 78, 86), 'stone_bricks': (150, 150, 146), 'stone_brick_slab': (170, 170, 164),
+    'deepslate_bricks': (70, 70, 78), 'mossy_cobblestone': (100, 122, 90), 'andesite': (136, 136, 136), 'sand': (216, 204, 150), 'gravel': (140, 134, 130),
+    'water': (52, 92, 196), 'ice': (170, 205, 240), 'snow': (238, 240, 244), 'snow_block': (238, 240, 244), 'spruce_log': (74, 54, 34), 'spruce_leaves': (44, 84, 52),
+    'oak_leaves': (60, 110, 50), 'lantern': (255, 200, 60), 'torch': (255, 200, 60), 'spruce_fence': (112, 82, 48), 'dirt_path': (178, 156, 100),
+}
+SKIP = ('air', 'cave_air', 'short_grass', 'tall_grass', 'fern', 'large_fern', 'snow', 'dead_bush', 'spruce_leaves', 'oak_leaves', 'birch_leaves', 'spruce_log', 'oak_log', 'birch_log')
+def colour(n):
+    n = n.split('[')[0]
+    if n in COL: return COL[n]
+    if n.endswith('_leaves'): return (50, 96, 50)
+    if n.endswith('_log'): return (80, 60, 40)
+    if 'water' in n: return COL['water']
+    return (150, 140, 120)
+# the AFTER world: the record's cells and clears over the dump
+over = {}
+for c in R.get('clear', []): over[tuple(c['at'])] = 'air'
+pal = R['palette']
+for c in R['cells']:
+    names = [n for n in pal.get(c['role'], ['cobblestone']) if n != '*solid']
+    over[tuple(c['at'])] = names[0] if names else 'cobblestone'
+def get(x, y, z, after):
+    if after and (x, y, z) in over: return over[(x, y, z)]
+    return D.get(x, y, z)
+def top(x, z, after):
+    for y in range(D.y[1], D.y[0] - 1, -1):
+        n = get(x, y, z, after)
+        if n is None: return None, None
+        if n.split('[')[0] not in SKIP: return y, n
+    return None, None
+def draw(after, path):
+    W, H = (X1 - X0 + 1) * S, (Z1 - Z0 + 1) * S + 20
+    px = bytearray([20, 22, 26] * W * H)
+    for x in range(X0, X1 + 1):
+        for z in range(Z0, Z1 + 1):
+            y, n = top(x, z, after)
+            if y is None: continue
+            c = colour(n)
+            yw, _ = top(x - 1, z, after)
+            shade = 1.0 + (0.08 * (y - yw) if yw is not None else 0)
+            shade = max(0.6, min(1.35, shade))
+            c = tuple(min(255, int(v * shade)) for v in c)
+            for i in range(S):
+                for j in range(S):
+                    X, Y = (x - X0) * S + i, (z - Z0) * S + j + 20
+                    px[(Y * W + X) * 3:(Y * W + X) * 3 + 3] = bytes(c)
+            if after and n.split('[')[0] == 'lantern':
+                for i in range(-S, 2 * S):
+                    for j in range(-S, 2 * S):
+                        X, Y = (x - X0) * S + i, (z - Z0) * S + j + 20
+                        if 0 <= X < W and 20 <= Y < H and (i - S / 2) ** 2 + (j - S / 2) ** 2 <= (S * 1.4) ** 2:
+                            o = (Y * W + X) * 3
+                            px[o:o + 3] = bytes(min(255, int(px[o + k] * 0.5 + (255, 210, 90)[k] * 0.5)) for k in range(3))
+    if not after:
+        for r in T['routes']:
+            for (lx, lz) in r['line']:
+                for i in range(2, S - 2):
+                    for j in range(2, S - 2):
+                        X, Y = (lx - X0) * S + i, (lz - Z0) * S + j + 20
+                        if 0 <= X < W and 20 <= Y < H: px[(Y * W + X) * 3:(Y * W + X) * 3 + 3] = bytes((255, 60, 200))
+    for gx in range(X0 - X0 % 20, X1 + 1, 20):
+        if gx >= X0: text(px, W, H, (gx - X0) * S + 2, H - 10, str(gx), (230, 230, 230))
+    for gz in range(Z0 - Z0 % 20, Z1 + 1, 20):
+        if gz >= Z0: text(px, W, H, 2, (gz - Z0) * S + 22, str(gz), (230, 230, 230))
+    title = 'AFTER: THE BOTS OWN ROAD SITING (ROADS2), STONE BRICKS + DEEPSLATE KERB + SLAB RISERS + LANTERN POSTS' if after else 'BEFORE: SURVEYED GROUND, MAGENTA = THE MOST-WALKED LINE (7 D OF BOT.POS)'
+    text(px, W, H, 6, 6, title, (255, 255, 255))
+    write_png(path, W, H, px)
+draw(False, out + '-top-before.png')
+draw(True, out + '-top-after.png')
+# side profiles along each route (the instances' nodes in order: the surface level, slabs half a block up)
+routes = {}
+for i in R['instances']:
+    if i.get('design', {}).get('kind') == 'road2': routes.setdefault(i['route'], []).append(i)
+print({k: [x['id'] for x in v] for k, v in routes.items()})
+# ---- side profile per route along its centreline (meta.path): ground under the centre before (brown), the road (grey; a slab row
+# light, half a block), the lamps' posts (dark) and lanterns (yellow) beside it
+slabs = {tuple(c['at']) for c in R['cells'] if c['role'].endswith('-sl')}
+for rid, ins in routes.items():
+    path = [p for i in ins for p in i.get('path', [])]
+    if not path: continue
+    land = ins[0].get('land')
+    if land: path = [[land['x'], land['z'], land['L'], 'land']] + path
+    PX = 10
+    ys = [p[2] for p in path]
+    y0, y1 = min(ys) - 5, max(ys) + 6
+    W, H = max(300, len(path) * PX), (y1 - y0 + 1) * PX + 24
+    px = bytearray([235, 240, 248] * W * H)
+    def box(i, yb, yt, col):
+        for X in range(i * PX, i * PX + PX - 1):
+            for Y in range(int(round((y1 + 1 - yt) * PX)) + 24, int(round((y1 + 1 - yb) * PX)) + 24):
+                if 0 <= X < W and 0 <= Y < H: px[(Y * W + X) * 3:(Y * W + X) * 3 + 3] = bytes(col)
+    for i, p in enumerate(path):
+        x, z, L = p[0], p[1], p[2]
+        g, n = top(x, z, False)
+        if g is not None: box(i, y0, g + 1, (120, 90, 60) if g <= L else (150, 110, 70))
+        if len(p) > 3: continue
+        slab = (x, L, z) in slabs
+        box(i, min(g + 1, L) if g is not None else L, L + (0.5 if slab else 1), (185, 185, 180) if slab else (120, 120, 118))
+    text(px, W, H, 4, 4, (rid[:20] + ': GROUND BEFORE (BROWN) AND THE ROAD (GREY, LIGHT = SLAB HALF STEP)').upper(), (20, 20, 20))
+    write_png(f'{out}-{rid.split(":")[0][:12]}-side.png', W, H, px)

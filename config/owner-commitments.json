@@ -6549,6 +6549,36 @@
      "upkeep-01"
     ]
    }
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "roads-1109",
+   "title": "Roads + lamp posts (owner 11-09): stone-brick roads on the bots' most-walked lines (town <-> mine/forest/village/farm/landmarks), graded in slab half steps (no 1-block jumps), stone bricks with cobble fallback, kerbs and verges, tied into the paths; lantern posts along roads, paths and walls",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "roads-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: roads-01show cde69b81 (on showcase b9fa002e; ROADS2 traffic roads + LAMPS2 lantern posts; tier 2) READY TO STAGE: Codex r1 1 blocker (verge columns) fixed, r2 none; fleet-review blocker (waterlogged leaf) applied here too; Paper sandbox8 PASS (3 instances, 259/259 cells server-read, 6 walks 0 jumps). Stage AFTER writing the showcase traffic file (scripts/host/roadtraffic.py --pool showcase --home 0_70_0 on the showcase VM, daily cron + monitors.json row); no shopread change (road cells/clears are the sink chain's G1/G2). Fleet port roads-01-on-bcdba35f 0c8911a8 (road project after the paths, due only; fence posts): Codex r1 2 + r2 1 blockers fixed; Paper PASS X0 6800/7000; registration ~/mcai-analysis/roads-01.0c8911a8.json (valid) + draft entry roads-01.queue-entry.json (pins hive-c + board-d; DRAW 2 pools); write those pools' traffic files + cron before launch; NOT queued. Read: _sink/_road op=sited/no_site, _build project=road place/clear, H1/H2 = 0, deaths, the village trip median (11.9 s before).",
+   "evidence": {
+    "grep": [
+     "roads-01show",
+     "roads-01 fleet",
+     "roads-01 (fleet port"
+    ],
+    "branches": [
+     "roads-01show",
+     "roads-01-on-bcdba35f"
+    ],
+    "paths": [
+     "docs/reports/roads-design-2026-11-09.md",
+     "scripts/host/roadtraffic.py",
+     "sandbox/roads/roads-e2e.mjs"
+    ]
+   }
   }
  ]
 }

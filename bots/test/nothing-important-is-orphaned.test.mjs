@@ -122,6 +122,9 @@ const REQUIRED = [
   'scripts/host/waterstrays.py',   // boardwalk-03: the genesis evidence of the bots' blocks standing in water (bots/src/waterstrays/*.json)
   'sandbox/woodworks/boardwalk3-proof.cjs',   // boardwalk-03: the Paper walkway-in-place / removal proof
   'docs/reports/boardwalk-03-2026-11-08.md',   // boardwalk-03: the design, the evidence and the pieces
+  'docs/reports/roads-design-2026-11-09.md',   // roads-1109: traffic-routed stone roads + lantern posts (code on roads-01show / roads-01-on-bcdba35f)
+  'scripts/host/roadtraffic.py',   // roads-01: the traffic report the bots' road siting reads (roadtraffic-<home>.json in the pool dir)
+  'sandbox/roads/roads-e2e.mjs',   // roads-01: the Paper road proof (sited, built, server-read, walked)
   'docs/reports/glass-2026-11-08.md',   // glass-1108: sand -> glass -> windows (code on glass-01show / glass-01-on-1e593b9b)
   'sandbox/glass/glass-proof.mjs',   // glass-01: the Paper proof (the bot's own sandDigs / glazeCells)
   'sandbox/glass/glass-proof.jsonl',

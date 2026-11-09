@@ -1,0 +1,15 @@
+import json, base64
+class Dump:
+    def __init__(s, p):
+        d = json.load(open(p)); s.box = d['box']; s.y = d['y']; s.pal = d['palette']; s.bits = d['bits']
+        s.raw = base64.b64decode(d['cells']); s.W = s.box[2] - s.box[0] + 1; s.D = s.box[3] - s.box[1] + 1
+    def get(s, x, y, z):
+        if not (s.box[0] <= x <= s.box[2] and s.box[1] <= z <= s.box[3] and s.y[0] <= y <= s.y[1]): return None
+        i = ((y - s.y[0]) * s.D + (z - s.box[1])) * s.W + (x - s.box[0])
+        v = s.raw[i] if s.bits == 8 else s.raw[2*i] | (s.raw[2*i+1] << 8)
+        return s.pal[v]
+    def top(s, x, z, skip=('air','cave_air','short_grass','tall_grass','fern','large_fern','snow','dead_bush')):
+        for y in range(s.y[1], s.y[0]-1, -1):
+            n = s.get(x, y, z)
+            if n and n.split('[')[0] not in skip and not n.endswith('_leaves'): return y, n
+        return None, None
