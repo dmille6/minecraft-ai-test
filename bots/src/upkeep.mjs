@@ -34,6 +34,8 @@ const LOG = /_(log|wood)$/
 const LEAVES = /_leaves$/
 const SOIL = /^(grass_block|dirt|podzol|coarse_dirt|rooted_dirt|moss_block|mycelium)$/
 export const STRAY = /^(crafting_table|furnace|blast_furnace|smoker)$/
+/** A stray that drops itself only to a pickaxe (Paper proof 11-09: a furnace dug by hand or axe is lost): dug only with a pickaxe in hand. */
+export const STRAY_PICK = /^(furnace|blast_furnace|smoker)$/
 export const SAPLING_OF = Object.freeze({ oak_log: 'oak_sapling', birch_log: 'birch_sapling', spruce_log: 'spruce_sapling', jungle_log: 'jungle_sapling', acacia_log: 'acacia_sapling', dark_oak_log: 'oak_sapling', cherry_log: 'cherry_sapling', pale_oak_log: 'oak_sapling', mangrove_log: 'mangrove_propagule' })
 
 export const UPKEEP_PLOT = 'upkeep'
@@ -285,6 +287,18 @@ export function replantGate (rec, read) {
     else held.add(c.group)
   }
   return { workable, held, retired, owe: new Set(owe.keys()) }
+}
+/** THE GATE AT THE DIG (Codex r3 BLOCKER 1; buildrun.mjs runVisit `clearOk`, read before the walk and again after it) -> bool. Pure over
+ *  `read`. A remains log of a group that owes a replant only while that replant reads a SAPLING now (grown, gone or unread: never); a
+ *  group owing none, always; a stray always, but a furnace-kind one only with a pickaxe in the bag (`hasPick`). */
+export function upkeepClearOk (rec, c, read, { hasPick = true } = {}) {
+  // a furnace-kind stray only with a pickaxe in the bag (its block back, never lost: Paper proof 11-09)
+  if (c?.kind === 'stray') return !STRAY_PICK.test(String(c.name ?? '')) || !!hasPick
+  if (c?.kind !== 'remains' || !Number.isFinite(c.group)) return true
+  const cell = (rec?.cells ?? []).find(q => q?.role === 'sapling' && q.group === c.group)
+  if (!cell) return true
+  const b = read(...cell.at)
+  return !!b && /_sapling$|^mangrove_propagule$/.test(nm(b))
 }
 /**
  * THE JOBS A VISIT MAY TAKE NOW -> { plant, clear, held, retired }. Pure over `read`. `plant`: the record with the replants not done

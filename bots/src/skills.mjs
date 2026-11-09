@@ -174,7 +174,7 @@ import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeper
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
-import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
+import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
@@ -25974,8 +25974,9 @@ function upkeepStateNow (b, rec, now = Date.now()) {
       const near = upkeepDropsInView(b).filter(d => Math.max(Math.abs(d.pos.x - home.x), Math.abs(d.pos.z - home.z)) <= R)
       if (near.length) {
         // the wells' caps (the sweep's well rule) from the visit's inputs, read at most every 5 min a bot
-        if (!b.upkeepCaps || now - b.upkeepCaps.at > 5 * 60_000) { let caps = []; try { caps = tidyInputs(b).caps ?? [] } catch { caps = [] } b.upkeepCaps = { at: now, caps } }
-        drops = gkSweepSel(b, near, { boxes: [[home.x - R, home.z - R, home.x + R, home.z + R]], home, caps: b.upkeepCaps.caps }).picks.length
+        // Codex r3 BLOCKER 3: an unreadable input counts no drop (the sweep itself refuses then); the read is cached a minute
+        if (!b.upkeepCaps || now - b.upkeepCaps.at > 60_000) { let caps = null; try { caps = tidyInputs(b).caps ?? [] } catch { caps = null } b.upkeepCaps = { at: now, caps } }
+        drops = b.upkeepCaps.caps ? gkSweepSel(b, near, { boxes: [[home.x - R, home.z - R, home.x + R, home.z + R]], home, caps: b.upkeepCaps.caps }).picks.length : 0
       }
     }
   } catch { drops = 0 }
@@ -26091,8 +26092,14 @@ async function buildUpkeep (ctx, args, signal) {
     const noSapling = q => q.role === 'sapling' && !UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))
     bot.shopUnknown ??= new Set()
     const stands = (bot.upkeepStands ??= { pending: null, bans: {} })
-    const visit = (record, maxSteps) => runVisit({ dir, key, me, home, stood, record, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands, unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, blockLayer: false, clearMax: 24, walkR: UPKEEP.r + 8, stuckStalledOnly: true,
+    // Codex r3 BLOCKER 2: each pass takes the slot's CURRENT generation (a renewal in the first pass is the second's)
+    // Codex r3 BLOCKER 1: every remains dig re-checks its group's replant at the dig (upkeep.mjs upkeepClearOk via runVisit `clearOk`)
+    // Paper proof 11-09: a furnace-kind stray is dug with the pickaxe in hand (its block drops back), never by hand or axe
+    const hasPick = () => (bot.inventory?.items?.() ?? []).some(i => /_pickaxe$/.test(i.name))
+    const dig0 = effects.dig
+    effects.dig = async (c, expect) => { if (STRAY_PICK.test(String(expect ?? ''))) await effects.tool?.(); return dig0(c, expect) }
+    const visit = (record, maxSteps) => runVisit({ dir, key, me, home, stood, record, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slotRef.gen, slotRef, stands, unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, blockLayer: false, clearMax: 24, walkR: UPKEEP.r + 8, stuckStalledOnly: true, clearOk: (c, rd) => upkeepClearOk(rec, c, rd ?? rd0, { hasPick: hasPick() }),
       openRole: role => role === 'sapling', alsoDone: (q, rd) => grown(q, rd) || noSapling(q) }, effects, { deadline, maxSteps })
     const v1 = upkeepVisitJobs(rec, rd0)
     const r1 = v1.plant.cells.length ? await visit(v1.plant, 80) : { placed: 0, cleared: 0, refused: 0, silent: 0, unknown: 0, stop: 'complete', why: null }

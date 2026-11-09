@@ -205,13 +205,17 @@ await t('THE SUPPLY CHAIN: a grove or drift cell with nothing in the bag is pass
   assert.strictEqual(PK.PARK_PALETTE.sapling3[0], 'spruce_sapling')
   assert.ok(TI.TIDY_PALETTE.sapling3, 'the tidy visit\'s palette knows the grove role')
 })
-await t('snow: a snow layer is the ground\'s cover (one layer replaceable), never the top that hides the grass', () => {
+await t('snow: a snow layer is the ground\'s cover (one layer replaceable), never the top that hides the grass; groves on it', async () => {
   const base = world()
   const read = (x, y, z) => (y === 65 ? { name: 'snow', boundingBox: 'block', props: { layers: '1' } } : base(x, y, z))
   const g = CO.groundAt(read, 60, 0, { yHi: 78, yLo: 50 })
   assert.deepStrictEqual([g.y, g.name, g.open], [64, 'grass_block', true])
   const read2 = (x, y, z) => (y === 65 ? { name: 'snow', boundingBox: 'block', props: { layers: '3' } } : base(x, y, z))
   assert.strictEqual(CO.groundAt(read2, 60, 0, { yHi: 78, yLo: 50 }).open, false, 'deep snow: covered')
+  // Paper proof 11-09 (sandbox6): groves never sited on a snowy band -- the room above counted the snow layer as a block
+  const snowy = (x, y, z) => (y === 65 ? { name: 'snow', boundingBox: 'block', props: { layers: '1' } } : base(x, y, z))
+  const scenario = M => assert.ok(M.countryPlantings(snowy, { home: HOME, band, seed: 7 }).census.groves >= 2, 'groves on one-layer snow')
+  await killedBy(CO_PATH, CO, " || replaceableCell(b) || (d > 2 && LEAVES.test(n)))) return false }", " || (d > 2 && LEAVES.test(n)))) return false }", scenario)
 })
 
 console.log('THE RECORD (countryRecord, countryNothing)')
