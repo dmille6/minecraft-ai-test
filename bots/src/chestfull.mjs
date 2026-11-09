@@ -34,6 +34,17 @@ export const NEW_CHESTS_PER_DAY = 4
 export const DAY_MS = 24 * 60 * 60 * 1000
 /** At most this many RECOVERY-MADE chests standing in one town (containers that were already there do not count). */
 export const MAX_RECOVERY_CHESTS = 12
+// CHESTCARRY-01 (OWNER 11-09, approved: "relax the 4-per-day chest limit for chests a bot already carries, so it places them as
+// town storage when chests are full"). MEASURED 11-09 (fleet, 00:00-15:30Z): 169 deposits refused "the town has used its
+// new-chest budget (4 in 24 h)", 2 for the 10-min interval, 0 for the standing cap; bots carried 649 chests (73 slots); town
+// chests 87-100% full. A chest ALREADY IN THE BAG costs no wood and empties a bag slot when placed; a CRAFTED one keeps the old
+// budget. The interval stays (one new chest per town per 10 min); a carried chest may take the day up to NEW_CHESTS_PER_DAY_CARRIED
+// and the standing recovery chests up to MAX_RECOVERY_CHESTS_CARRIED (placebo-d already stands at 10 of 12). CHESTCARRY=off: the base.
+export const NEW_CHESTS_PER_DAY_CARRIED = 16
+export const MAX_RECOVERY_CHESTS_CARRIED = 24
+const OFF_RX = /^(0|off|false|no)$/i
+/** CHESTCARRY=0|off -> false (the base's budget for every chest). Pure. */
+export const chestCarryOn = (env = (typeof process !== 'undefined' ? process.env : {})) => !(env?.CHESTCARRY != null && OFF_RX.test(String(env.CHESTCARRY).trim()))
 /** A claim whose cell still holds no chest this long after it was made is reconciled as not placed. */
 export const RECONCILE_AFTER_MS = 2 * 60 * 1000
 /** The new chest goes this many rings (Chebyshev) around the full chest at most. */
@@ -188,7 +199,10 @@ export function writeClaimState (dir, key, n, state, now = Date.now()) {
  * the pool) are not counted. Interval and day count EVERY claim (a submission that never landed was still spent --
  * an abort after submission is never refunded); the standing limit counts placed and unresolved claims.
  */
-export function chestBudget ({ claims = [], now = Date.now(), world = null } = {}) {
+export function chestBudget ({ claims = [], now = Date.now(), world = null, carried = false, on = chestCarryOn() } = {}) {
+  // CHESTCARRY-01: a chest the bot already carries has the larger day and standing limits; a crafted one the base's
+  const perDay = carried && on ? NEW_CHESTS_PER_DAY_CARRIED : NEW_CHESTS_PER_DAY
+  const maxStanding = carried && on ? MAX_RECOVERY_CHESTS_CARRIED : MAX_RECOVERY_CHESTS
   const mine = claims.filter(c => c.malformed || sameWorld(c.world, world))
   const standing = mine.filter(c => c.state === 'placed' || c.state === 'unresolved').length
   const day = mine.filter(c => now - c.at < DAY_MS)
@@ -199,11 +213,11 @@ export function chestBudget ({ claims = [], now = Date.now(), world = null } = {
     const until = last + NEW_CHEST_INTERVAL_MS
     return { ok: false, ...base, until, why: `the town made a new chest ${mins(now - last)} ago; the next may be made in ${mins(until - now)}` }
   }
-  if (day.length >= NEW_CHESTS_PER_DAY) {
+  if (day.length >= perDay) {
     const until = Math.min(...day.map(c => c.at)) + DAY_MS
     return { ok: false, ...base, until, why: `the town has used its new-chest budget (${day.length} in 24 h); the next may be made in ${mins(until - now)}` }
   }
-  if (standing >= MAX_RECOVERY_CHESTS) {
+  if (standing >= maxStanding) {
     return { ok: false, ...base, until: null, why: `the town has ${standing} chests made for overflow standing, its limit` }
   }
   return { ok: true, ...base, until: null, why: null }
@@ -214,9 +228,9 @@ export function chestBudget ({ claims = [], now = Date.now(), world = null } = {
  * claim n = highest + 1 is created with link(), which fails if another bot created it first (that bot wins; this one
  * refuses). FAILS CLOSED: nothing written, no chest.
  */
-export function claimNewChest ({ dir, key, site, world = null, now = Date.now() } = {}) {
+export function claimNewChest ({ dir, key, site, world = null, now = Date.now(), carried = false } = {}) {
   const claims = readClaims(dir, key, now)
-  const b = chestBudget({ claims, now, world })
+  const b = chestBudget({ claims, now, world, carried })
   if (!b.ok) return { ok: false, n: null, why: b.why, until: b.until }
   const n = claims.reduce((m, c) => Math.max(m, c.n), 0) + 1
   const file = path.join(dir, `${key}.c${n}.json`)

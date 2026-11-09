@@ -4859,8 +4859,8 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const readName = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? blockNameOf(bot, b) : null }
   const claims = readClaims(dir, key)
   reconcileClaims({ dir, key, claims, read: readName, world })
-  budget = chestBudget({ claims, world })
   const carried = carriedChest(bot.inventory.items())
+  budget = chestBudget({ claims, world, carried: !!carried })   // chestcarry-01: a chest already in the bag has the larger limits
   const next0 = fullChestNext({ nearHome, unknown, budget, carried: !!carried })
   // THE GREENFIELD STORE FIRST (found-01, build spec 2.2): with a town plan whose storehouse has a free READY cell, the new chest
   // goes there -- the section cap, not the recovery's budget (design 5 F3). TOWNPLAN=off, FOUND=off or no such cell: the base.
@@ -5044,7 +5044,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     row('stock_target', 'no_effect', { stage: 'place' })
     return { status: 'no_effect', failClass: null, detail: 'nothing banked: the town holds its stock target of what is left -- the chest is not placed (town stock target)' }
   }
-  const claim = planPlaced ? { ok: true, n: 'plan' } : claimNewChest({ dir, key, site, world })
+  const claim = planPlaced ? { ok: true, n: 'plan' } : claimNewChest({ dir, key, site, world, carried: !!carried })   // chestcarry-01: carried BEFORE any craft
   if (!claim.ok) {
     releaseStock()
     shut('refuse_cap', claim.why, claim.until)
