@@ -63,6 +63,9 @@ const REQUIRED = [
   'bots/src/ironchain.mjs',
   'bots/test/ironchain.test.mjs',
   'sandbox/ironchain/lining-e2e.mjs',
+  // ironchain-02 (11-09): an iron pickaxe asked only for swings, with no iron in the bag, is a stone one (95 of 110 short-ingot crafts)
+  'bots/src/pickswings.mjs',
+  'bots/test/pickswings.test.mjs',
   // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
   'bots/src/repeatwork.mjs',
   'bots/test/repeatwork.test.mjs',
