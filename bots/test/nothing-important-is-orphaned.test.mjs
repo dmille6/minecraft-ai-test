@@ -49,6 +49,9 @@ const REQUIRED = [
   // sandrung-01 (11-07): the gatherer chain's sand rung retired (7.5% of fleet time, gather sand 11.7% ok, no sand reached a town)
   'bots/src/sandrung.mjs',
   'bots/test/sandrung.test.mjs',
+  // ironchain-01 (11-09): the ore tunnel aims only at ore gather may take (184 of 246 'tunnelled, still buried' were the town stair's lining)
+  'bots/src/ironchain.mjs',
+  'bots/test/ironchain.test.mjs',
   // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
   'bots/src/repeatwork.mjs',
   'bots/test/repeatwork.test.mjs',
