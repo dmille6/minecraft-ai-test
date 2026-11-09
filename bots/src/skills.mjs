@@ -173,6 +173,7 @@ import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PL
 import { unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf } from './shop.mjs'   // idlework-01 B: an unsited project yields its turn
 import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
 import { buildNextOn, nextBreakerOn, nextNote, nextHeld, nextBackoff, setNextHoldOf, NEXT_K, NEXT_HOLD_MS } from './shop.mjs'   // buildnext-01: never idle on a blocked project
+import { FEED, feedSwitch, feedModeDetail, villagerOf, feedState, noteVillagers, tossedToday, feedClusters, feedAdmit, nextTarget, isolation, tossStand, creditLoaf, noteTosses, feedDetail, bedRoom, noteRoom, bedWool } from './villagefeed.mjs'   // villagefeed-01
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
 import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
@@ -21132,6 +21133,10 @@ export function marketAsk ({ now = Date.now(), health = 20, freeSlots = 36 } = {
     const r = marketRunPlan(bot, now, { health, freeSlots })
     if (r.ok) return { order: { skill: 'market_run', args: { uuid: r.merchant.uuid } } }
     mkSkip(bot, 'market_run', r.why, now)
+    // villagefeed-01: bread for hungry villagers before the walk-in (its own skips say why not)
+    const f = feedPlan(bot, now, { health, freeSlots })
+    if (f.ok) return { order: { skill: 'village_feed', args: { at: `${f.cluster.x},${f.cluster.z}` } } }
+    mkSkip(bot, 'villagefeed', f.why, now)
     // market-02: nothing to trade near town -> a walk-in trip to a far village
     const w = walkinPlan(bot, now, { health, freeSlots })
     if (w.ok) return { order: { skill: 'market_trip', args: { zone: w.target.id } } }
@@ -21493,10 +21498,10 @@ function mkReservedNear (c) {
 }
 /** The beds in this bag. */
 const mkBeds = bot => bot.inventory.items().filter(i => /_bed$/.test(i.name)).reduce((a, i) => a + i.count, 0)
-async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity) {
+async function mkPlaceBed (ctx, cluster, zones, signal, row, deadline = Infinity, name = null) {   // name: this bed colour only (villagefeed: the beds it made, never the kit)
   const { bot } = ctx
   if (Date.now() > deadline) return false
-  const it = bot.inventory.items().find(i => /_bed$/.test(i.name))
+  const it = bot.inventory.items().find(i => (name ? i.name === name : /_bed$/.test(i.name)))
   if (!it) return false
   const beds = mkRead('beds', [])
   if ((Array.isArray(beds) ? beds : []).filter(e => Date.now() - (e.at ?? 0) < 24 * 3600_000).length >= WALKIN.bedsPerDay) { row('no_effect', { op: 'skip', why: 'bed_cap', block: it.name }); return false }
@@ -21705,11 +21710,226 @@ async function marketTripPriced (ctx, args, signal) {
     return { status, ...(status === 'failed' ? { failClass } : {}), detail: `market_trip: ${out.stop}${err ? ` ${err.slice(0, 60)}` : ''} (${out.visited} visited, +${out.earned} emerald)` }
   }
 }
+// VILLAGEFEED-01 (villager economy 11-09; villagefeed.mjs decides, docs/reports/villagecon-2026-11-09/design.md): bread for the
+// villagers so they breed. marketAsk asks it after the market run and the job block, before the walk-in trip:
+//  - every ask notes the villagers the bot sees (the town file `villagefeed-<hk>.json`, at most once a minute a bot) and logs a
+//    `_villagefeed op=birth` row for a baby first seen beside an adult the town fed (fed=1) or elsewhere (fed=0: the control);
+//  - village_feed: bread made at town from the wheat above FEED.wheatKeep (bag bread first), a walk in legs to the hungriest cluster
+//    of adults (>= 2, within 160 b), ONE loaf tossed at a time from <= 2 b at an adult's feet, each credited to the villager whose
+//    `playerCollect` took it (one `_villagefeed op=toss` row per loaf), then the walk home. Never a block touched. One run per bot per
+//    45 min, one per town at a time (a pool lease `feed`), <= 24 loaves per town per day. VILLAGEFEED=off: never asked.
+const FEED_ON = { on: feedSwitch() }
+const vfState = { lastRunAt: -Infinity, notedAt: -Infinity, madeBeds: 0, bedName: null }   // madeBeds: beds a feed run crafted and has not placed yet (never the kit)
+const vfFile = () => path.join(townDir(), `villagefeed-${indexHk()}.json`)
+function vfRead () { try { return feedState(JSON.parse(fs.readFileSync(vfFile(), 'utf8'))) } catch { return feedState(null) } }
+function vfWrite (s) { try { fs.mkdirSync(townDir(), { recursive: true }); const f = vfFile(), tmp = `${f}.${config.bot.name}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify(s)); fs.renameSync(tmp, f) } catch { /* advisory */ } }
+/** ONE READ-MODIFY-WRITE of the town file under a short mutex (Codex r1 BLOCKER 1: two bots' notes and credits interleaved could drop a
+ *  credit or a day's tosses). The mutex is an O_EXCL file; one older than 5 s is a dead holder's and is taken over; no mutex within
+ *  ~250 ms -> the update is skipped (advisory: a skipped note is redone at the next ask; a skipped credit can over-feed one villager by
+ *  at most its loaves). fn(state) -> the new state. -> the written state | null. Never throws. */
+const vfSleepSync = ms => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } catch { /* no wait */ } }
+function vfUpdate (fn) {
+  const lk = `${vfFile()}.lock`
+  let held = false
+  try { fs.mkdirSync(townDir(), { recursive: true }) } catch { /* advisory */ }
+  for (let i = 0; i < 25 && !held; i++) {
+    try { fs.writeFileSync(lk, `${config.bot.name} ${Date.now()}`, { flag: 'wx' }); held = true } catch (e) {
+      if (e?.code !== 'EEXIST') return null
+      try { if (Date.now() - fs.statSync(lk).mtimeMs > 5_000) { fs.unlinkSync(lk); continue } } catch { continue }
+      vfSleepSync(10)
+    }
+  }
+  if (!held) return null
+  try { const next = fn(vfRead()); vfWrite(next); return next } catch { return null } finally { try { fs.unlinkSync(lk) } catch { /* gone */ } }
+}
+const vfRow = (bot, status, o, t0 = null) => { try { logEvent({ kind: 'villagefeed', status, snapshot: snapshot(bot), ...(t0 ? { durationMs: Date.now() - t0 } : {}), detail: feedDetail(o), args: { op: o.op, why: o.why ?? null, uuid: o.uuid ?? null, by: o.by ?? null } }) } catch { /* telemetry */ } }
+const vfSeen = bot => Object.values(bot.entities ?? {}).map(villagerOf).filter(Boolean)
+/** Note the villagers in sight (and the births) into the town file. Never throws. */
+function vfNote (bot, now = Date.now(), { force = false } = {}) {
+  try {
+    if (!force && now - vfState.notedAt < 60_000) return null
+    vfState.notedAt = now
+    const vs = vfSeen(bot)
+    if (!vs.length) return null
+    let births = []
+    const state = vfUpdate(s0 => { const r = noteVillagers(s0, vs, now); births = r.births; return r.state })
+    if (!state) return null
+    for (const b of births) vfRow(bot, 'success', { op: 'birth', uuid: b.uuid, fed: b.fed, near: b.near, cluster: { x: b.x, z: b.z, uuids: [], loaves: 0 } })
+    return state
+  } catch { return null }
+}
+/** The run's admission -> feedAdmit's answer. Never throws. */
+function feedPlan (bot, now = Date.now(), { health = 20, freeSlots = 36 } = {}) {
+  try {
+    if (!FEED_ON.on) return { ok: false, why: 'off' }
+    const st = vfNote(bot, now) ?? vfRead()
+    const stock = mkTownStock(bot)
+    if (!stock) return { ok: false, why: 'no_index' }
+    const bag = mkBag(bot)
+    return feedAdmit({ on: true, atTown: true, now, timeOfDay: bot.time?.timeOfDay ?? 0, health, freeSlots, lastRunAt: vfState.lastRunAt,
+      clusters: feedClusters(st, mkHome(), now), bagBread: bag.bread ?? 0, bagWheat: bag.wheat ?? 0, townWheat: stock.wheat ?? 0,
+      tossed: tossedToday(st, now), leased: !mkLease(bot, now, { name: 'feed' }), state: st, wool: bedWool(stock) })
+  } catch { return { ok: false, why: 'error' } }
+}
+/** village_feed: make the bread, walk to the cluster, toss, credit by the pickup packet, walk home. Never throws but an abort. */
+async function villageFeed (ctx, args, signal) {
+  const { bot } = ctx
+  return withStepPrice(bot.pathfinder?.movements, farmStep(p => bot.blockAt(new Vec3(p.x, p.y, p.z))), () => villageFeedPriced(ctx, args, signal))
+}
+async function villageFeedPriced (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now(), until = t0 + FEED.callMs
+  const plan = feedPlan(bot, t0, { freeSlots: 36 - bot.inventory.items().length, health: bot.health ?? 20 })
+  vfState.lastRunAt = t0
+  if (!plan.ok) { vfRow(bot, 'no_effect', { op: 'skip', why: plan.why }, t0); return { status: 'no_effect', detail: `village_feed: ${plan.why}` } }
+  if (!mkLease(bot, t0, { take: true, name: 'feed' })) { vfRow(bot, 'no_effect', { op: 'skip', why: 'leased' }, t0); return { status: 'no_effect', detail: 'village_feed: leased' } }
+  const out = { op: 'done', cluster: plan.cluster, made: 0, tossed: 0, collected: 0, stop: 'start' }
+  const collects = []
+  const onCollect = (collector, collected) => {
+    try { if (collected?.getDroppedItem?.()?.name === 'bread') collects.push({ id: collector?.id, uuid: collector?.uuid ?? (collector?.id != null ? String(collector.id) : null), name: collector?.name ?? collector?.username ?? null, at: Date.now() }) } catch { /* not an item */ }
+  }
+  bot.on?.('playerCollect', onCollect)
+  try {
+    // 1. THE BREAD: bag first, then wheat drawn from town (above the keep) and crafted at the town's table
+    const have = () => mkBag(bot).bread ?? 0
+    if (have() < plan.want && plan.make > 0) {
+      const wheatNeed = plan.make * 3 - (mkBag(bot).wheat ?? 0)
+      if (wheatNeed > 0) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item: 'wheat', count: wheatNeed }, signal, rs) }
+      const can = Math.min(plan.make, Math.floor((mkBag(bot).wheat ?? 0) / 3))
+      const b0 = have()
+      if (can > 0) { try { await craft({ ...ctx, preferWorkshop: true, stations: {} }, { item: 'bread', count: can }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      out.made = Math.max(0, have() - b0)
+    }
+    // 1b. THE BEDS (a cluster counted with no bed room, the town holding wool): FEED.bedsPerRun crafted from the town's wool -- only beds
+    // made in this run are placed (the bot's own kit bed stays its own)
+    // the KIT is what the bag held beyond the beds earlier feed runs made and could not place (e2e 11-09: a head misplaced -> the bed
+    // stayed in the bag; counted as kit it was never placed while the next run crafted more)
+    vfState.madeBeds = Math.min(vfState.madeBeds, vfState.bedName ? (mkBag(bot)[vfState.bedName] ?? 0) : 0)
+    const bedsKit = mkBeds(bot) - vfState.madeBeds
+    if (plan.beds > 0 && plan.wool && vfState.madeBeds < plan.beds) {
+      const bedName = plan.wool.replace(/_wool$/, '_bed')
+      const woolNeed = 3 * plan.beds - (mkBag(bot)[plan.wool] ?? 0)
+      if (woolNeed > 0) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item: plan.wool, count: woolNeed }, signal, rs) }
+      const planks = Object.entries(mkBag(bot)).filter(([k]) => /_planks$/.test(k)).reduce((a, [, c]) => a + c, 0) + 4 * Object.entries(mkBag(bot)).filter(([k]) => /_log$/.test(k)).reduce((a, [, c]) => a + c, 0)
+      const logName = Object.entries(mkTownStock(bot) ?? {}).filter(([k]) => /_log$/.test(k) && !/stripped/.test(k)).sort((a, b) => b[1] - a[1])[0]?.[0]
+      if (planks < 3 * plan.beds && logName) { const rs = { written: false, bagBefore: bagTotal(bot.inventory.items()), tried: [], uses: null }; await withdrawVerb(ctx, { item: logName, count: 2 }, signal, rs) }
+      const n = Math.min(plan.beds - vfState.madeBeds, Math.floor((mkBag(bot)[plan.wool] ?? 0) / 3))
+      const b0 = mkBeds(bot)
+      if (n > 0) { try { await craft({ ...ctx, preferWorkshop: true, stations: {} }, { item: bedName, count: n }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      out.bedsMade = Math.max(0, mkBeds(bot) - b0)
+      vfState.madeBeds += out.bedsMade
+      if (out.bedsMade) vfState.bedName = bedName
+    }
+    if (have() < 1 && !(mkBeds(bot) > bedsKit)) { out.stop = 'no_bread'; return finish('no_effect') }
+    // 2. THE WALK to the cluster (legs; inside a village zone on foot only: nothing here digs, places or uses a block)
+    const c = plan.cluster
+    const r = await mkWalkLegs(ctx, { x: c.x, z: c.z }, signal, Math.min(until - 60_000, Date.now() + 75_000), { range: 6 })
+    if (r !== 'arrived') { out.stop = `walk_${r}`; return await goHome('failed', 'travel_incomplete') }
+    vfNote(bot, Date.now(), { force: true })
+    // 2b. THE BED ROOM where the bot stands (villagefeed.mjs bedRoom): beds (their foot blocks) within FEED.bedR of the cluster against the
+    // villagers there; no room -> the beds this run brought (mkPlaceBed: outside the zone + pad, beside the cluster, its own day cap)
+    const countRoom = () => {
+      const ids = Object.keys(bot.registry?.blocksByName ?? {}).filter(n => /_bed$/.test(n)).map(n => bot.registry.blocksByName[n].id)
+      const feet = (bot.findBlocks?.({ matching: ids, maxDistance: FEED.bedR + 12, count: 256 }) ?? [])
+        .filter(p => Math.hypot(p.x - c.x, p.z - c.z) <= FEED.bedR && String(bot.blockAt?.(p)?.getProperties?.()?.part ?? 'foot') === 'foot')
+      const vills = vfSeen(bot).filter(v => Math.hypot(v.x - c.x, v.z - c.z) <= FEED.bedR)
+      return { beds: feet.length, villagers: vills.length, members: vills.filter(v => !v.baby) }
+    }
+    let rc = countRoom()
+    if (bedRoom(rc) <= 0 && mkBeds(bot) > bedsKit) {
+      const zv = townPlanZones(bot)
+      const jobRow = (status, o) => { try { logEvent({ kind: 'market_job', status, snapshot: snapshot(bot), detail: jobDetail(o), args: { op: o.op, block: o.block ?? null, why: o.why ?? null, at: o.cell ? `${o.cell.x},${o.cell.y},${o.cell.z}` : null } }) } catch { /* telemetry */ } }
+      const cl = { x: c.x, z: c.z, y: Math.floor(Math.min(...rc.members.map(m => m.y), c.y ?? bot.entity.position.y)), n: rc.members.length, uuids: rc.members.map(m => m.uuid), members: rc.members }
+      for (let b = 0; b < FEED.bedsPerRun && mkBeds(bot) > bedsKit && bedRoom(rc) <= 0; b++) {
+        if (zv?.known && rc.members.length && vfState.bedName && await mkPlaceBed(ctx, cl, zv.zones, signal, jobRow, until - 70_000, vfState.bedName)) { out.bedsPlaced = (out.bedsPlaced ?? 0) + 1; vfState.madeBeds = Math.max(0, vfState.madeBeds - 1) }
+        else break
+        rc = countRoom()
+      }
+    }
+    vfUpdate(s0 => noteRoom(s0, c, rc, Date.now()))
+    out.room = bedRoom(rc)
+    if (out.room <= 0) { out.stop = 'no_bed_room'; return await goHome(out.bedsPlaced ? 'success' : 'no_effect') }
+    // 3. THE TOSSES: the nearest hungry adult of the cluster, one loaf at a time from <= FEED.reach, credited to its collector
+    const misses = {}
+    let st = vfRead()
+    while (Date.now() < until - 50_000 && have() > 0 && out.collected < plan.want && out.tossed < plan.want + 2 * FEED.missMax) {   // the admitted allowance (Codex r1 BLOCKER 2: the day cap) in loaves a villager took; a loaf nobody took (or the bot took back) is tossed again, at most 2 x missMax more
+      check(signal)
+      const vs = vfSeen(bot)
+      // the cluster's own adults wherever they wandered (e2e 11-09 run 9: a target 30 b off the centre read `all_fed` while hungry), and any
+      // other villager near the centre
+      const mine = new Set(c.uuids ?? [])
+      const near = vs.filter(v => mine.has(v.uuid) || Math.hypot(v.x - c.x, v.z - c.z) <= FEED.clusterR + 8)
+      const tgt = nextTarget(near, st, bot.entity.position, { misses })
+      if (!tgt) {
+        // why no target: every cluster adult fed, or a hungry one out of sight / at its miss cap / asleep (the row says which)
+        const hungry = [...mine].filter(u => (st.fed?.[u]?.n ?? 0) < FEED.loaves)
+        const seenU = new Set(vs.map(v => v.uuid))
+        out.stop = !hungry.length ? 'all_fed' : hungry.every(u => !seenU.has(u)) ? `unseen${hungry.length}` : hungry.some(u => (misses[u] ?? 0) >= FEED.missMax) ? `missed${hungry.length}` : `asleep${hungry.length}`
+        break
+      }
+      // the stand on the target's far side from its nearest neighbour (villagefeed.mjs tossStand: the nearest villager takes the loaf)
+      const sp = tossStand(tgt, vs, bot.entity.position)
+      if (Math.hypot(bot.entity.position.x - sp.x, bot.entity.position.z - sp.z) > 1) {
+        try { await goto(ctx, { x: Math.floor(sp.x), y: Math.floor(tgt.y), z: Math.floor(sp.z), range: 1 }, signal, { until: Math.min(until - 50_000, Date.now() + 15_000) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
+      // WAIT FOR ROOM: up to FEED.clearWaitMs for the target to stand clear of the others (they wander), then toss anyway
+      for (let w = 0; w < FEED.clearWaitMs / 500; w++) {
+        const now2 = vfSeen(bot), me = now2.find(v => v.uuid === tgt.uuid)
+        if (!me || isolation(me, now2) >= FEED.clearR) break
+        await sleep(500, signal)
+      }
+      const e = bot.entities?.[tgt.id]
+      const at = e?.position ?? new Vec3(tgt.x, tgt.y, tgt.z)
+      if (bot.entity.position.distanceTo(at) > FEED.reach + 1.5) { misses[tgt.uuid] = (misses[tgt.uuid] ?? 0) + 1; continue }
+      const n0 = collects.length
+      try {
+        // AIMED AT THE BODY (y + 1.1), not the feet: aimed at the feet from 1.6 b the loaf landed at the bot's own feet and the BOT took it
+        // back (e2e 11-09 run 7: 6 tossed, 3 collected by villagers, 2 back in the bag)
+        await bot.lookAt(at.offset(0, 1.1, 0), true)
+        const loaf = bot.inventory.items().find(i => i.name === 'bread')
+        if (!loaf) break
+        await bot.toss(loaf.type, null, 1)
+      } catch (err) { if (err?.aborted || signal?.aborted) throw err; misses[tgt.uuid] = (misses[tgt.uuid] ?? 0) + 1; continue }
+      out.tossed++
+      const end = Date.now() + FEED.collectMs
+      while (collects.length === n0 && Date.now() < end) await sleep(250, signal)
+      const got = collects.slice(n0).find(x => x.name === 'villager')
+      // the collector's uuid (bot.entities carries it); a bot that collected its own loaf back is no credit
+      const byUuid = got ? (bot.entities?.[got.id]?.uuid ?? got.uuid) : null
+      if (byUuid) { st = vfUpdate(s0 => creditLoaf(s0, byUuid, Date.now())) ?? vfRead(); out.collected++ }
+      // a loaf the TARGET did not take is a miss for it (a greedy neighbour -- sandbox7 11-09: one villager took 10 of 10 -- ends the
+      // target's turn after missMax instead of feeding the neighbour the whole bag)
+      if (byUuid !== tgt.uuid) misses[tgt.uuid] = (misses[tgt.uuid] ?? 0) + 1
+      vfRow(bot, byUuid ? 'success' : 'no_effect', { op: 'toss', uuid: tgt.uuid, by: byUuid ? (byUuid === tgt.uuid ? 'target' : 'neighbour') : (got ? got.name : 'none') })
+      st = vfRead()
+    }
+    if (out.stop === 'start') out.stop = have() > 0 ? 'time' : 'bread_out'
+    return await goHome(out.collected > 0 ? 'success' : 'no_effect')
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out.stop = 'aborted'; finish('no_effect'); throw e }
+    out.stop = 'error'
+    try { return await goHome('failed', String(e?.message ?? e)) } catch (e2) { if (e2?.aborted || signal?.aborted) { finish('no_effect'); throw e2 } return finish('failed', String(e?.message ?? e)) }
+  } finally { bot.removeListener?.('playerCollect', onCollect) }
+  async function goHome (status, err = null) {
+    const r = await mkWalkLegs(ctx, mkHome(), signal, t0 + FEED.callMs, { range: 6 })
+    if (r !== 'arrived') { out.stop = `${out.stop}+home_${r}`; return finish('failed', err, 'travel_incomplete') }
+    return finish(status, err)
+  }
+  function finish (status, err = null, failClass = 'skill_error') {
+    // the day cap's count: only ever under the mutex (Codex r2: an unlocked fallback could overwrite a holder's update); a few tries,
+    // else the row says so (`stop=...+tosses_unrecorded`) -- the run's own allowance already bounded this run
+    if (out.tossed > 0) { let ok = null; for (let i = 0; i < 8 && !ok; i++) { ok = vfUpdate(s0 => noteTosses(s0, out.tossed, Date.now())); if (!ok) vfSleepSync(100) } if (!ok) out.stop = `${out.stop}+tosses_unrecorded` }
+    vfRow(bot, status, out, t0)
+    mkLease(bot, Date.now(), { release: true, name: 'feed' })
+    return { status, ...(status === 'failed' ? { failClass } : {}), detail: `village_feed: ${out.stop}${err ? ` ${String(err).slice(0, 60)}` : ''} (made ${out.made}, tossed ${out.tossed}, collected ${out.collected})` }
+  }
+}
 /** MARKET-01, once per spawn (features.mjs): the ask wired and the licence row. Never throws. */
 export function marketInstall (bot) {
   mkBot = bot
   if (MARKET_ON.on) { setMarketAsk(marketAsk); setWellKeep(marketKeeps); setDepositExtra(marketKeeps) }   // the batch19b fold (Codex BLOCKER 3): bought wants are banked, never thrown
   try { logEvent({ kind: 'market_mode', status: 'success', snapshot: snapshot(bot), detail: `${marketModeDetail(MARKET_ON.on, MARKET_ON.jobs)} walkin=${WALKIN_ON.on ? 1 : 0}` }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'villagefeed_mode', status: 'success', snapshot: snapshot(bot), detail: feedModeDetail(FEED_ON.on && MARKET_ON.on) }) } catch { /* telemetry */ }
 }
 export const _marketTest = { marketRunPlan, marketJobPlan, mkFillBucket, mkState, mkFile, walkinPlan, mkTripState }
 export function tradeInstall (bot) {
@@ -21717,6 +21937,7 @@ export function tradeInstall (bot) {
   try { bot.on?.('death', () => { if (bot.tradeTrip) { try { logEvent({ kind: 'trade_trip', status: 'failed', snapshot: snapshot(bot), detail: tripDetail(bot.tradeTrip, 'end=death') }) } catch { /* telemetry */ } bot.tradeTrip = null; tradeLeaseRelease(bot) } }) } catch { /* no events */ }
   try { logEvent({ kind: 'coalsale_mode', status: 'success', snapshot: snapshot(bot), detail: tradeModeDetail(TRADE_ON.on, censusOf(config.memory.pool).length) }) } catch { /* telemetry */ }
 }
+export const _feedTest = { feedPlan, vfNote, vfFile, vfRead, vfUpdate, vfState, villageFeed }
 export const SKILL_CONTRACTS = {
   goto:     { expects: ['position'],              maxMs: 120_000 },
   explore:  { expects: ['position'],              maxMs: 120_000 },
@@ -21776,6 +21997,7 @@ export const SKILL_CONTRACTS = {
   market_job: { expects: ['world_change'], maxMs: 240_000 },   // market-01: a job block placed in the market
   market_trip: { expects: ['position', 'inventory_loss', 'inventory_gain'], maxMs: 1_200_000 },   // market-02: a walk-in trip, one call (its own 18-min clock)
   market_trip: { expects: ['position', 'inventory_loss', 'inventory_gain'], maxMs: 180_000 },   // market-02: a walk-in trip, one call (WALKIN.callMs 165 s < the runner's 180 s watchdog)
+  village_feed: { expects: ['position', 'inventory_loss'], maxMs: 180_000 },   // villagefeed-01: bread to villagers, one call (FEED.callMs 165 s)
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
   toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
@@ -22975,6 +23197,7 @@ export const SKILLS = {
   market_run: { run: marketRun, usage: 'market_run', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)
   market_job: { run: marketJob, usage: 'market_job', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)
   market_trip: { run: marketTrip, usage: 'market_trip', args: [], chatOnly: true },   // market-02 (buildOrder issues it; never the model's)
+  village_feed: { run: villageFeed, usage: 'village_feed', args: [], chatOnly: true },   // villagefeed-01 (buildOrder issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // KEEPOUT-01: a deterministic order from cognitive.mjs (a body inside a fire column), never the model's choice; rescue-class:
