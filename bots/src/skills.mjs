@@ -202,7 +202,7 @@ import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OU
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
 import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress, legSealTargets as deepLegSealTargets } from './deepmine.mjs'   // deepminer-01 r1
-import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, isNatural as deepIsNatural, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
+import { DEEPMINE, DEEPMINE_PLOT, MINE_BUILD_PLOT as DEEP_MINE_BUILD_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, isNatural as deepIsNatural, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { stairStepAt, stairTrapOn, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   // shafttrap-02: the reflexes hand a bot on the stair to the egress
@@ -18702,6 +18702,7 @@ function deepClose (bot, end, why) {
   const t = bot.deepTrip
   if (!t) return
   try { releaseLease(townDir(), projKeyOf(DEEPMINE_PLOT), `slot${t.slot}`, bot.username ?? 'bot', t.gen) } catch { /* lapses at its TTL */ }
+  if (t.buildGen != null) { try { releaseLease(townDir(), projKeyOf(DEEP_MINE_BUILD_PLOT), `slot${t.buildSlot}`, bot.username ?? 'bot', t.buildGen) } catch { /* lapses at its TTL */ } }
   const kit = deepTripKit(bot.inventory?.items?.() ?? [])
   const got = (kit.diamonds - (t.diamonds0 ?? 0)) + (kit.rawIron - (t.rawIron0 ?? 0))
   // townmine-01: a build trip that cut cells comes back for the next part soon (its work is the mine, not ore)
@@ -18933,11 +18934,18 @@ async function deepMine (ctx, args, signal) {
     // TOWNMINE-01: the finished stair gets its mine sited at the first trip (once; a refused site is written and not asked again)
     if (TOWNMINE.on && !mineSiteRefusal(st.rec)) { deepMineSite(bot, st.rec); st = deepStairNow() }
     const kit = deepTripKit(bot.inventory?.items?.() ?? [])
-    const target = deepTripTarget(kit, st.mine ?? null)
+    let target = deepTripTarget(kit, st.mine ?? null)
     if (!target) return out('no_effect', 'the bag cannot pay for a trip (pickaxe uses)')
     const slot = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS })
     if (!slot.ok) return out('no_effect', `the town's deep miner slot is taken (${slot.why})`)
-    bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron, ...(TOWNMINE.on ? { coal: true, mine: true } : {}) }
+    // townmine-01: ONE BUILDER A TOWN (the build lease); the second miner, finding it taken, makes an ore trip instead
+    let build = null
+    if (target === 'build') {
+      build = takeSlot(dir, projKeyOf(DEEP_MINE_BUILD_PLOT), me, 1, { ttl: DEEPMINE_LEASE_TTL_MS })
+      if (!build.ok) { build = null; target = deepTripTarget(kit, null) }
+      if (!target) { releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen); return out('no_effect', 'the mine has its builder and the bag cannot pay for an ore trip') }
+    }
+    bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron, ...(TOWNMINE.on ? { coal: true, mine: true } : {}), ...(build ? { buildSlot: build.slot, buildGen: build.gen } : {}) }
     // TOWNMINE-01: A BUILD TRIP carries the hall's fixtures (from town, else made from the bag's planks and cobble); never required
     if (target === 'build' || (TOWNMINE.on && st.mine?.complete && !st.rec?.ext?.furnished)) {
       const has = n => (bot.inventory?.items?.() ?? []).some(i => i.name === n)
@@ -18963,6 +18971,11 @@ async function deepMine (ctx, args, signal) {
     const g = projRenewLease(dir, key, `slot${trip.slot}`, me, trip.gen, { ttl: DEEPMINE_LEASE_TTL_MS })
     if (g != null) trip.gen = g
     else { const s = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS }); if (s.ok) { trip.slot = s.slot; trip.gen = s.gen } else if (['descend', 'deepen', 'work', 'build'].includes(trip.phase)) { trip.phase = 'return'; trip.returnWhy = 'lease_lost' } }
+  }
+  // townmine-01: the build lease is renewed the same way; a build trip that lost it stops building (built: home)
+  if (trip.buildGen != null) {
+    const bg = projRenewLease(dir, projKeyOf(DEEP_MINE_BUILD_PLOT), `slot${trip.buildSlot}`, me, trip.buildGen, { ttl: DEEPMINE_LEASE_TTL_MS })
+    if (bg != null) trip.buildGen = bg; else trip.built = true
   }
   const st = deepStairNow()
   const rec = st.rec
