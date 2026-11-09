@@ -190,7 +190,7 @@ await t('MUTANT KILLED: appendInstance without the dress zones fences a whole bo
   }
   scen(S)
   let k = false
-  await withMutant(SINKS_PATH, 'const zs = ornamentKind(kind) && Array.isArray(meta.zones) ? meta.zones :', 'const zs = false ? meta.zones :', async M => { try { scen(M) } catch { k = true } })
+  await withMutant(SINKS_PATH, 'const zs0 = ornamentKind(kind) && Array.isArray(meta.zones) ? meta.zones :', 'const zs0 = false ? meta.zones :', async M => { try { scen(M) } catch { k = true } })
   assert.ok(k, 'the mutant survived')
 })
 await t('siteDress on the fake town: the storehouse\'s signpost and lamps / wall tops, every one proven, spaced, off every record cell; no torches: no batch', () => {

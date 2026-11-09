@@ -993,7 +993,9 @@ export function appendInstance (cur, { kind, home, inst, meta, plan = null, now 
   // towndress-01: a dress batch names its own zones (each fixture's column + 1: a town-wide box would fence the town off)
   // decorator-01: a decor batch too (each ornament's own column)
   // roads-01: a road2 instance names its zones too (each node's square: a winding road's box would fence a field off)
-  const zs = (ornamentKind(kind) || (kind === 'road' && meta?.design?.kind === 'road2')) && Array.isArray(meta.zones) ? meta.zones : [{ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${SINK_PLOTS[kind]}:${meta.id}` }]
+  const road2 = kind === 'road' && meta?.design?.kind === 'road2' && Array.isArray(meta.zones)
+  const zs0 = ornamentKind(kind) && Array.isArray(meta.zones) ? meta.zones : [{ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${SINK_PLOTS[kind]}:${meta.id}` }]
+  const zs = road2 ? meta.zones : zs0
   const walkR = Math.max(Number(base.walkR) || 0, sinkWalkR(inst.cells, home))
   return {
     ...base, instances: [...instancesOf(base), { ...meta, cells: inst.cells.length, sitedAt: meta.sitedAt ?? now }],

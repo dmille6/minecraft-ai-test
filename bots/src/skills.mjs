@@ -24405,7 +24405,7 @@ function sinkGuardFor (c, plan, { noZ0 = false, kind = null, prepExcept = null }
   // roads-01 (ROADS2): the land plan's ROAD corridors are the road's own (reserved for a road: the road may take them), and the paths'
   // zones are open to it (it continues a path laid outside the wall: roads.mjs crossSection refuses the paths' own cell columns)
   const roadOwn = kind === 'road' && roads2On()
-  const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept) && !(roadOwn && /^(land:road|project:paths)/.test(String(z?.why ?? '')))), ...hallPadZones(plan), ...townMarkerZones()]
+  const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept)).filter(z => !(roadOwn && /^(land:road|project:paths)/.test(String(z?.why ?? '')))), ...hallPadZones(plan), ...townMarkerZones()]
   const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
   return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
 }
@@ -25604,7 +25604,7 @@ async function buildSink (ctx, args, signal, proj) {
     const vrecD = kind === 'decor' ? decorUnheld(rec) : rec
     const heldOut = kind === 'decor' ? ((rec.cells ?? []).length - (vrecD.cells ?? []).length) + ((rec.clear ?? []).length - (vrecD.clear ?? []).length) : 0
     const r = await runVisit({ dir, key, me, home, stood, record: vrecD, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      ...sinkVisitOpts(rec, home), ...leave, ...(kind === 'road' ? { floors: roadFloors(rec) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+      ...(kind === 'road' ? { floors: roadFloors(rec) } : {}), ...sinkVisitOpts(rec, home), ...leave }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     // sinkwaive-01: THE WAIVER (sinks.mjs sinkWaiveDue) -- a cell this visit deferred that the stuck files have counted minVisits
     // deferrals over every holder, the first afterMs ago, is named on the record (an op=waived row with its reason); the next visit
     // reads it done and the instance can close (the wall's waiver, wallstuck-01)
