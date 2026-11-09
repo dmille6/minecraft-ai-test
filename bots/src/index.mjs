@@ -60,7 +60,7 @@ import { makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidpla
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
-import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
+import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, baselinePathFor, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01 (+ zoneguard-01show baselinePathFor)
 import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   // escapeguard-01
 import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
 import { performance } from 'node:perf_hooks'   // scaftown-01: the search clock
@@ -333,7 +333,9 @@ function connect() {
     // every 30 s on a timer (never inside the A* step); no file -> no zone, and every guard below passes straight through.
     // Read here, before the movement profiles and the guard that use it. The licence row says what this spawn loaded
     // (`_protectzone_mode`), and again whenever that changes (an install, an edit, a removal, a broken file kept stale).
+    // zoneguard-01show: and the tripwire's baseline (the cells its S4 compares), beside the zones file or the showcase tripwire's
     const zoneRd = zoneReader({ file: () => zonesFileIn(poolStateDir(config.memory.pool)), worldId: () => bot.worldId ?? null,
+      baseline: () => baselinePathFor(poolStateDir(config.memory.pool)),
       onChange: st => { try { logEvent({ kind: 'protectzone_mode', status: 'success', snapshot: snapshot(bot), detail: protectZoneModeDetail(st, bot.worldId) }) } catch {} } })
     zoneRd.refresh()
     const zoneTimer = setInterval(() => zoneRd.refresh(), ZONE_RELOAD_MS); zoneTimer.unref?.()
@@ -1331,9 +1333,10 @@ function connect() {
         zones: bot.protectZones,
         context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
                           reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
-        onRefuse: ({ op, zone, at, purpose, by, remedy }) => {
+        onRefuse: ({ op, zone, at, purpose, by, remedy, struct }) => {
           if (rowsThisMin++ >= 30) return
-          try { logEvent({ kind: 'protect_zone_refused', status: 'refused', detail: `op=${op} zone=${zone} at=${at ? `${at.x},${at.y},${at.z}` : '-'} purpose=${purpose} by=${by} | ${remedy}`.slice(0, 300), args: { op, zone, at, purpose, by } }) } catch { /* telemetry */ }
+          // zoneguard-01show: struct=1 -- a cell the tripwire's baseline guards (or a deep structure by name), refused at any depth
+          try { logEvent({ kind: 'protect_zone_refused', status: 'refused', detail: `op=${op} zone=${zone} at=${at ? `${at.x},${at.y},${at.z}` : '-'} purpose=${purpose} by=${by} struct=${struct ? 1 : 0} | ${remedy}`.slice(0, 300), args: { op, zone, at, purpose, by, struct: !!struct } }) } catch { /* telemetry */ }
         },
       })
       bot.protectZone = protectZoneCounters()

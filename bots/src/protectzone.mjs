@@ -32,6 +32,22 @@
 //   MINE (zoneKeepOut, skills.mjs): one more part of minewell's composed keep-out: no stair through a zone, a walk-off to
 //     just beyond its side (zoneExitColumns), a per-dig stop.
 //
+// ZONEGUARD-01SHOW (11-09, showcase-Haven 01:42Z: a `mine` stair at y 18 under village-taiga-6_1 dug 57,18,5 oak_planks -- a
+// mineshaft plank in the tripwire's baseline -- and the pathfinder's pillar put cobblestone in the hole; S4 BREACH, the showcase
+// stopped and rolled back). THE TWO SIDES READ DIFFERENT VOLUMES: the tripwire's S4 compares EVERY baseline structure cell of a
+// box from y0 (-64) to y1, while blocked() below opened every cell under floor_y (54) to a bot whose feet were also under it
+// (the deep exemption), and a survival purpose passed every cell at any depth. THE FIX READS THE TRIPWIRE'S OWN FILE: the
+// baseline (`showcase_trip.py zones-baseline`, BASELINE_FILE) names every cell S4 compares; each zone carries those cells
+// (structGuardOf) and NO bot dig or placement may change one, at any depth, whatever its purpose (structAt, checked BEFORE the
+// deep exemption and before the survival pass). What a dig or placement changes besides its own cell is guarded with it: the
+// support of a block that hangs or stands on another (a wall_torch, a door, a carpet: S_SUPPORT, digs only) and the cell over a
+// dirt_path (a block placed on a path turns it to dirt: S_COVER, placements only). A placement's REFERENCE changes nothing and is
+// judged by the old rule only (a pillar on a mineshaft floor stays a pillar). Ordinary rock beside a structure stays open to a
+// deep bot, so the way out (zonewalk.mjs: a tunnel through ordinary rock to a side) is the one it always had.
+// A zone with NO baseline (the fleet: no S4 runs there) gets the same rule by NAME for non-survival digs below its floor
+// (deepNameBlocked: escapeguard's survival rule, a block that is neither ordinary terrain nor natural cave stuff). ZONEGUARD=off
+// restores the base everywhere.
+//
 // SURVIVAL KEEPS PRIORITY (as townzone-01): a dig, placement or block use whose purpose is `survival` (digtown.mjs
 // digPurpose: a reflex holding the body, or the reflex tick's scope) is never refused -- a drowning or entombed bot gets
 // air first and the scenery absorbs that damage. Opening a container, sleeping and crafting are never survival.
@@ -51,6 +67,142 @@ export const MAX_SPAN = 1024
 export const EXIT_PAD = 4   // > goto's arrival range 2 (Paper 10-20: a GoalNear 3 past stopped ON the edge cell), so the walk ends outside
 /** pathfinder: >= 100 is "never" for a break (safeToBreak) and a dropped move for a place. */
 export const ZONE_COST = 100
+
+// ---------------------------------------------------------------------------------------------- zoneguard-01show
+/** ZONEGUARD=off (0/false/no) is the kill switch: no baseline is read, no name rule runs -- the base's behaviour exactly. */
+export const zoneGuardOn = (env = typeof process !== 'undefined' ? process.env : {}) =>
+  !/^(off|0|false|no)$/i.test(String(env?.ZONEGUARD ?? 'on').trim())
+/** The tripwire's baseline (infra/showcase/showcase_trip.py zones-baseline --out): looked for beside the zones file, then where
+ *  the showcase's tripwire keeps it. PROTECT_ZONES_BASELINE=<path> names it; =off reads none. */
+export const BASELINE_FILE = 'zones-baseline.json'
+export const SHOWCASE_BASELINE = '/srv/showcase/trip/zones-baseline.json'
+/** The flags of a guarded cell. A dig is refused on S_CELL | S_SUPPORT, a placement's destination on S_CELL | S_COVER. */
+export const S_CELL = 1, S_SUPPORT = 2, S_COVER = 4
+export const DIG_MASK = S_CELL | S_SUPPORT
+export const PLACE_MASK = S_CELL | S_COVER
+export const ANY_MASK = S_CELL | S_SUPPORT | S_COVER
+/** Palette blocks that drop when a neighbour is dug (they hang on, stand on or lean on it), or fall (anvil, scaffolding). */
+export const SUPPORTED = /(torch|lantern|_door|sign|pressure_plate|button|carpet|bell|ladder|chain|_bed|scaffolding|anvil|rail|flower_pot|candle|banner|lever)$|^potted_/
+/** Palette blocks a placement ABOVE changes (a full block on a dirt_path turns it to dirt). */
+export const COVERED = /^(dirt_path|farmland)$/
+/** The bound on one zone's guarded cells (the showcase's largest, the trial chambers, is 69,712). */
+export const MAX_GUARD_CELLS = 400_000
+/** ORDINARY TERRAIN (moved here from escapeguard.mjs, which re-exports it): never a structure's block. */
+export const ORDINARY_TERRAIN = /^(stone|deepslate|granite|diorite|andesite|tuff|calcite|dripstone_block|smooth_basalt|basalt|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|moss_block|netherrack|soul_sand|soul_soil|end_stone|(deepslate_)?(coal|iron|copper|gold|redstone|lapis|diamond|emerald)_ore|nether_(gold|quartz)_ore)$/
+/** BELOW a zone's floor: natural cave blocks and the bots' own pillar blocks (moved here from escapeguard.mjs, re-exported). */
+export const DEEP_NATURAL_BLOCKS = /^(cobblestone|cobbled_deepslate|sculk|sculk_vein|sculk_catalyst|sculk_sensor|sculk_shrieker|pointed_dripstone|amethyst_block|budding_amethyst|(small|medium|large)_amethyst_bud|amethyst_cluster|obsidian|crying_obsidian|magma_block|glow_lichen|moss_carpet|hanging_roots|cave_vines|cave_vines_plant|spore_blossom|azalea|flowering_azalea|big_dripleaf|big_dripleaf_stem|small_dripleaf|glow_berries|short_grass|tall_grass|fern|large_fern|dead_bush|vine|seagrass|tall_seagrass|kelp|kelp_plant)$/
+const bare = n => (typeof n === 'string' ? n.replace(/^minecraft:/, '') : '')
+
+/**
+ * THE TRIPWIRE'S BASELINE -> { zones: Map(id -> { box, cells: { "x,y,z": name } }), why }. Pure. A zone the baseline could not
+ * read (NOT COVERED, no `cells`) is absent: the zone keeps the name rule (deepNameBlocked), as on the fleet.
+ */
+export function parseBaseline (raw) {
+  if (raw == null) return { zones: new Map(), why: 'absent' }
+  if (typeof raw !== 'object' || Array.isArray(raw) || typeof raw.zones !== 'object' || raw.zones == null) return { zones: new Map(), why: 'not_a_baseline' }
+  const out = new Map()
+  for (const [id, b] of Object.entries(raw.zones)) {
+    if (!b || typeof b !== 'object' || !b.cells || typeof b.cells !== 'object') continue
+    const box = Array.isArray(b.box) && b.box.length === 6 && b.box.every(isInt) ? b.box : null
+    out.set(id, { box, cells: b.cells })
+  }
+  return { zones: out, why: out.size ? 'ok' : 'empty' }
+}
+
+/**
+ * ONE ZONE'S GUARDED CELLS -> { x0, y0, z0, x1, y1, z1, sy, sz, map: Map(key -> flags), n } | null. Pure. `cells` the baseline's
+ * { "x,y,z": "minecraft:name" }. Every cell is S_CELL; the six neighbours of a SUPPORTED block are S_SUPPORT; the cell over a
+ * COVERED block is S_COVER. The key is relative to the guard's own bounding box (numbers, no allocation in the A* step).
+ */
+export function structGuardOf (cells) {
+  if (!cells || typeof cells !== 'object') return null
+  const list = []
+  for (const [k, name] of Object.entries(cells)) {
+    const p = k.split(',').map(Number)
+    if (p.length !== 3 || !p.every(isInt)) continue
+    list.push([p[0], p[1], p[2], S_CELL])
+    const n = bare(name)
+    if (SUPPORTED.test(n)) for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) list.push([p[0] + dx, p[1] + dy, p[2] + dz, S_SUPPORT])
+    if (COVERED.test(n)) list.push([p[0], p[1] + 1, p[2], S_COVER])
+    if (list.length > MAX_GUARD_CELLS * 2) return null
+  }
+  if (!list.length) return null
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
+  for (const [x, y, z] of list) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z }
+  const sy = y1 - y0 + 1, sz = z1 - z0 + 1
+  const map = new Map()
+  let n = 0
+  for (const [x, y, z, f] of list) {
+    const key = ((x - x0) * sy + (y - y0)) * sz + (z - z0)
+    const was = map.get(key) ?? 0
+    if (f === S_CELL && !(was & S_CELL)) n++
+    map.set(key, was | f)
+  }
+  return { x0, y0, z0, x1, y1, z1, sy, sz, map, n }
+}
+
+/** One guard's flags at an integer cell (0: not guarded). Pure, allocation-free. */
+export function structFlagsIn (g, cx, cy, cz) {
+  if (!g || cx < g.x0 || cx > g.x1 || cy < g.y0 || cy > g.y1 || cz < g.z0 || cz > g.z1) return 0
+  return g.map.get(((cx - g.x0) * g.sy + (cy - g.y0)) * g.sz + (cz - g.z0)) ?? 0
+}
+
+/**
+ * IS THIS CELL ONE THE TRIPWIRE'S S4 COMPARES (or one whose dig/placement changes one)? -> zone | null. Pure, allocation-free.
+ * No depth, no feet, no purpose: the baseline's cells are closed to every bot. `mask` DIG_MASK for a dig, PLACE_MASK for a
+ * placement's destination, S_CELL for the cell above it, ANY_MASK for a planner that does not know which.
+ */
+export function structAt (zones, x, y, z, mask = DIG_MASK) {
+  if (!zones || !zones.length) return null
+  const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(cz)) return null
+  for (let i = 0; i < zones.length; i++) { const g = zones[i].guard; if (g && (structFlagsIn(g, cx, cy, cz) & mask)) return zones[i] }
+  return null
+}
+
+/** A structure block by NAME: solid, not ordinary terrain, not natural cave stuff or a bot's pillar block. Pure. */
+export const deepStructureName = name => {
+  const n = bare(name)
+  return !!n && !/(^|_)air$/.test(n) && !/^(water|lava|bubble_column)$/.test(n) && !ORDINARY_TERRAIN.test(n) && !DEEP_NATURAL_BLOCKS.test(n)
+}
+
+/**
+ * THE NAME RULE for a zone WITHOUT a baseline -> zone | null. Pure. A cell the deep exemption opens (below floor_y, the bot's
+ * feet under it too) holding a structure block by name is closed to a non-survival dig. A zone with a baseline never answers
+ * here (its cells are exact); a cell the base rule already closes is the base's.
+ */
+export function deepNameBlocked (zones, x, y, z, name, feet = null, { on = true } = {}) {
+  if (!on || !zones || !zones.length || !deepStructureName(name)) return null
+  const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
+  for (const q of zones) {
+    if (q.guard || q.floorY == null || cy >= q.floorY) continue
+    if (cx >= q.x0 && cx <= q.x1 && cy >= q.y0 && cy <= q.y1 && cz >= q.z0 && cz <= q.z1) return q
+  }
+  return null
+}
+
+/**
+ * THE ZONES WITH THEIR BASELINE CELLS -> { zones (new objects; the input is not touched), state }. Pure. A baseline zone joins
+ * the zones-file zone of the SAME id whose box meets its own (a baseline from another world never protects this one); one with
+ * no such zone is named in `orphan`, a zones-file zone with none in `missing`.
+ */
+export function withBaseline (zones, base) {
+  const st = { why: base?.why ?? 'absent', guarded: [], missing: [], orphan: [], cells: 0, bad: [] }
+  if (!base || !base.zones || !base.zones.size) return { zones, state: st }
+  const meets = (q, b) => !b || (b[0] <= q.x1 && b[3] >= q.x0 && b[1] <= q.y1 && b[4] >= q.y0 && b[2] <= q.z1 && b[5] >= q.z0)
+  const ids = new Set(zones.map(q => q.id))
+  for (const id of base.zones.keys()) if (!ids.has(id)) st.orphan.push(id)
+  const out = zones.map(q => {
+    const b = base.zones.get(q.id)
+    if (!b) { st.missing.push(q.id); return q }
+    if (!meets(q, b.box)) { st.bad.push(`${q.id}:box_apart`); return q }
+    const g = structGuardOf(b.cells)
+    if (!g) { st.bad.push(`${q.id}:cells`); return q }
+    st.guarded.push(q.id); st.cells += g.n
+    return { ...q, guard: g }
+  })
+  return { zones: out, state: st }
+}
 
 const isInt = v => Number.isInteger(v)
 
@@ -107,17 +259,22 @@ export const zoneAtPos = (zones, p) => (p ? zoneAt(zones, p.x, p.y, p.z) : null)
  * cave pocket under a village digs its way out sideways; a bot outside can never tunnel in, and the village (at or above
  * floor_y) is closed to everyone. `feet` null: no exemption.
  */
-export function blocked (zones, x, y, z, feet = null) {
+export function blocked (zones, x, y, z, feet = null, base = false) {
   if (!zones || !zones.length) return null
   const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
   if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(cz)) return null
   // EVERY ZONE HOLDING THE CELL (Codex r3 P2): one zone's deep exemption never opens a cell another zone closes
-  for (let i = 0; i < zones.length; i++) if (blockedIn(zones[i], cx, cy, cz, feet)) return zones[i]
+  for (let i = 0; i < zones.length; i++) if (blockedIn(zones[i], cx, cy, cz, feet, base)) return zones[i]
   return null
 }
 
-/** One zone's verdict on an integer cell (no allocation: the A* hot path). Pure. */
-export function blockedIn (q, cx, cy, cz, feet = null) {
+/**
+ * One zone's verdict on an integer cell (no allocation: the A* hot path). Pure. ZONEGUARD-01SHOW: a cell the tripwire's baseline
+ * guards (any flag: a planner that asks blocked() does not say whether it digs or places) is closed BEFORE the deep exemption,
+ * to every bot. `base` true: the old rule only (the chokepoint and placeBlocked ask structAt themselves, with the op's mask).
+ */
+export function blockedIn (q, cx, cy, cz, feet = null, base = false) {
+  if (!base && q.guard && structFlagsIn(q.guard, cx, cy, cz)) return true
   if (!(cx >= q.x0 && cx <= q.x1 && cy >= q.y0 && cy <= q.y1 && cz >= q.z0 && cz <= q.z1)) return false
   if (q.floorY == null || !feet || cy >= q.floorY) return true
   const fx = Math.floor(feet.x), fy = Math.floor(feet.y), fz = Math.floor(feet.z)
@@ -130,10 +287,13 @@ export function blockedIn (q, cx, cy, cz, feet = null) {
  * reference is one of them). Conservative: a cell touching a closed zone cell is never a scaffold. Allocation-free.
  */
 export function placeBlocked (zones, x, y, z, feet = null) {
-  return blocked(zones, x, y, z, feet) || blocked(zones, x, y + 1, z, feet) || blocked(zones, x, y - 1, z, feet) ||
-         blocked(zones, x + 1, y, z, feet) || blocked(zones, x - 1, y, z, feet) || blocked(zones, x, y, z + 1, feet) || blocked(zones, x, y, z - 1, feet) ||
+  // ZONEGUARD-01SHOW: the destination may not be a baseline cell or the cover of a path, the cell above it not a baseline cell
+  // (the guard's own three cells); the references keep the old rule (placing AGAINST a structure block changes nothing)
+  return structAt(zones, x, y, z, PLACE_MASK) || structAt(zones, x, y + 1, z, S_CELL) ||
+         blocked(zones, x, y, z, feet, true) || blocked(zones, x, y + 1, z, feet, true) || blocked(zones, x, y - 1, z, feet, true) ||
+         blocked(zones, x + 1, y, z, feet, true) || blocked(zones, x - 1, y, z, feet, true) || blocked(zones, x, y, z + 1, feet, true) || blocked(zones, x, y, z - 1, feet, true) ||
          // the forward bridge places against the bot's floor, DIAGONAL-below the priced cell (Claude r4 P3)
-         blocked(zones, x + 1, y - 1, z, feet) || blocked(zones, x - 1, y - 1, z, feet) || blocked(zones, x, y - 1, z + 1, feet) || blocked(zones, x, y - 1, z - 1, feet)
+         blocked(zones, x + 1, y - 1, z, feet, true) || blocked(zones, x - 1, y - 1, z, feet, true) || blocked(zones, x, y - 1, z + 1, feet, true) || blocked(zones, x, y - 1, z - 1, feet, true)
 }
 
 /** Is the bot's column (any y) inside this zone's footprint, grown by `margin`? Pure. */
@@ -202,7 +362,7 @@ export function zoneWithin (zones, p, reach) {
  * answers a standable height at the exit column (Claude r1 P2: the bot's own y can be solid rock on a hill or in a cave);
  * without an answer the exit is named by its column. A bot already outside the footprint is told to work beyond it.
  */
-export function zoneRemedy (zone, op, at, from = null, { standY = null, pad = EXIT_PAD } = {}) {
+export function zoneRemedy (zone, op, at, from = null, { standY = null, pad = EXIT_PAD, struct = false } = {}) {
   const where = at ? `${Math.floor(at.x)},${Math.floor(at.y)},${Math.floor(at.z)}` : '?'
   const box = `x ${zone.x0}..${zone.x1}, z ${zone.z0}..${zone.z1}`
   const ex = from ? (pad > EXIT_PAD ? awayPoint(zone, from, pad) : exitPoint(zone, from, pad)) : null
@@ -214,6 +374,12 @@ export function zoneRemedy (zone, op, at, from = null, { standY = null, pad = EX
     : from ? `you are beside it: step away from it${sideOf(zone, from) ? ` (its ${sideOf(zone, from)} side)` : ''} and ` : ''
   const what = op === 'open' ? 'open its containers' : op === 'sleep' ? 'sleep in its beds' : op === 'craft' ? 'use its crafting tables'
     : op === 'use' ? 'use its blocks' : op === 'place' ? 'build in it' : 'dig it'
+  // ZONEGUARD-01SHOW: a structure cell is closed at every depth, but the ordinary rock around it is not -- the deep bot's way on
+  if (struct) {
+    return `protected zone: ${zone.label} (${box}) -- cell ${where} is part of the structure itself, closed at every depth and to ` +
+           `every purpose (bots never ${what}); dig the ordinary rock (stone, deepslate, dirt) around it instead, or ${go || 'step away and '}` +
+           'take blocks or build anywhere outside it'
+  }
   return `protected zone: ${zone.label} (${box}) is kept as scenery -- bots never ${what} (cell ${where}); ${go}` +
          `${op === 'open' ? 'use the town\'s chests' : op === 'sleep' ? 'sleep at home' : op === 'craft' ? 'craft at your own table' : 'take blocks or build anywhere outside it'}`
 }
@@ -236,18 +402,35 @@ export const SURVIVAL_OPS = new Set(['dig', 'place', 'use'])
  * THE GUARD'S ONE DECISION -> null (allowed) | { zone }. Pure. `op` in dig | place | use | open | sleep | craft; `cell` the
  * block's cell; `purpose` digPurpose's answer for this call.
  */
-export function zoneDecision ({ zones, op, cell, purpose = null, feet = null }) {
-  const z = cell ? blocked(zones, cell.x, cell.y, cell.z, feet) : null
+export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, role = null, name = null, nameRule = true }) {
+  if (!cell) return null
+  // ZONEGUARD-01SHOW 1: THE TRIPWIRE'S CELLS, before the deep exemption and before the survival pass -- never changed by a bot
+  const mask = structMask(op, role)
+  const s = mask ? structAt(zones, cell.x, cell.y, cell.z, mask) : null
+  if (s) return { zone: s, struct: true }
+  // 2: no baseline for the zone: a deep structure block by name, for a non-survival dig (survival has escapeguard's own rule)
+  if (op === 'dig' && purpose !== 'survival') {
+    const d = deepNameBlocked(zones, cell.x, cell.y, cell.z, name, feet, { on: nameRule })
+    if (d) return { zone: d, struct: true }
+  }
+  const z = blocked(zones, cell.x, cell.y, cell.z, feet, true)
   if (!z) return null
   if (purpose === 'survival' && SURVIVAL_OPS.has(op)) return null
   return { zone: z }
+}
+
+/** The flags an op at a cell must not touch (zoneguard-01show). A placement's reference changes nothing: none. Pure. */
+export function structMask (op, role = null) {
+  if (op === 'dig') return DIG_MASK
+  if (op !== 'place') return 0
+  return role === 'ref' ? 0 : role === 'above' ? S_CELL : PLACE_MASK
 }
 
 /**
  * THE PATHFINDER'S PRICE -> (block) => 0 | ZONE_COST, for exclusionAreasBreak AND exclusionAreasPlace. `zones()` returns
  * the cached list (no fs, no allocation in the A* step). Zones off -> always 0.
  */
-export function zoneCost (zones, { feet = () => null, grow = 0 } = {}) {
+export function zoneCost (zones, { feet = () => null, grow = 0, nameRule = zoneGuardOn() } = {}) {
   return (block) => {
     const list = zones()
     if (!list || !list.length) return 0
@@ -255,7 +438,11 @@ export function zoneCost (zones, { feet = () => null, grow = 0 } = {}) {
     if (!p) return 0
     // A PLACEMENT (grow): the guard's cells, with the same exemption (placeBlocked) -- no plan the guard then refuses
     if (grow) return placeBlocked(list, p.x, p.y, p.z, feet()) ? ZONE_COST : 0
-    return blocked(list, p.x, p.y, p.z, feet()) ? ZONE_COST : 0
+    // ZONEGUARD-01SHOW: a break is the chokepoint's dig -- a baseline cell or a support at any depth, a deep structure by name
+    // where the zone has no baseline, else the old rule
+    const f = feet()
+    return (structAt(list, p.x, p.y, p.z, DIG_MASK) || deepNameBlocked(list, p.x, p.y, p.z, block?.name, f, { on: nameRule }) ||
+            blocked(list, p.x, p.y, p.z, f, true)) ? ZONE_COST : 0
   }
 }
 
@@ -300,16 +487,46 @@ export function zoneExitColumns (zones, from, { step = 6, margin = 3 } = {}) {
  *                                     world's protection off); state() says `stale:<why>` until a good read
  * `onChange(state)` is called whenever the state changes (the caller logs it). Never throws.
  */
-export function zoneReader ({ file, worldId = () => null, fsx = fs, onChange = () => {} } = {}) {
+export function zoneReader ({ file, worldId = () => null, fsx = fs, onChange = () => {}, baseline = () => null, guardOn = zoneGuardOn() } = {}) {
   let sig = null, list = [], st = { why: 'unread', bad: [], file: null, n: 0 }
-  const set = next => {
+  // ZONEGUARD-01SHOW: the tripwire's baseline, read beside the zones file (its own signature; the same keep-last-good rule)
+  let bsig = null, base = null, bst = { why: guardOn ? 'unread' : 'off', file: null }, joined = [], joinedOf = null
+  let fileSt = st
+  const set = next => { fileSt = next }
+  const off = f => { sig = null; list = []; set({ why: 'absent', bad: [], file: f, n: 0 }) }
+  const keep = (why) => set({ ...fileSt, why: `${list.length ? 'stale' : 'unreadable'}:${why}` })
+  const refreshBase = () => {
+    if (!guardOn) { base = null; bsig = null; bst = { why: 'off', file: null }; return }
+    let f = null
+    try { f = baseline() } catch { f = null }
+    if (!f) { base = null; bsig = null; bst = { why: 'absent', file: null }; return }
+    let s2
+    try { s2 = fsx.statSync(f) } catch (e) {
+      if (e?.code === 'ENOENT') { base = null; bsig = null; bst = { why: 'absent', file: f }; return }
+      bst = { ...bst, why: `${base ? 'stale' : 'unreadable'}:${String(e?.message ?? e).slice(0, 60)}` }; return
+    }
+    const m = `${s2.mtimeMs}:${s2.size}`
+    if (m === bsig) return
+    let raw
+    try { raw = JSON.parse(fsx.readFileSync(f, 'utf8')) } catch (e) { bst = { ...bst, why: `${base ? 'stale' : 'unreadable'}:${String(e?.message ?? e).slice(0, 60)}`, file: f }; return }
+    const r = parseBaseline(raw)
+    if (r.why === 'not_a_baseline') { bst = { ...bst, why: `${base ? 'stale' : 'unreadable'}:${r.why}`, file: f }; return }
+    bsig = m; base = r; bst = { why: r.why, file: f }
+  }
+  const refresh = () => {
     const was = JSON.stringify(st)
-    st = next
+    refreshFile()
+    refreshBase()
+    if (joinedOf !== `${sig}|${bsig}|${list.length}`) {
+      const j = withBaseline(list, base)
+      joined = j.zones
+      joinedOf = `${sig}|${bsig}|${list.length}`
+      bst = { ...bst, guarded: j.state.guarded, cells: j.state.cells, missing: j.state.missing, orphan: j.state.orphan, bad: j.state.bad }
+    }
+    st = { ...fileSt, base: bst }
     if (JSON.stringify(st) !== was) { try { onChange(st) } catch { /* telemetry */ } }
   }
-  const off = f => { sig = null; list = []; set({ why: 'absent', bad: [], file: f, n: 0 }) }
-  const keep = (why) => set({ ...st, why: `${list.length ? 'stale' : 'unreadable'}:${why}` })
-  const refresh = () => {
+  const refreshFile = () => {
     let f = null
     try { f = file() } catch { f = null }
     if (!f) return off(f)
@@ -327,17 +544,31 @@ export function zoneReader ({ file, worldId = () => null, fsx = fs, onChange = (
     list = r.zones
     set({ why: r.why, bad: r.bad, file: f, n: r.zones.length, ids: r.zones.map(z => z.id) })
   }
-  return { zones: () => list, state: () => st, refresh }
+  return { zones: () => joined, state: () => st, refresh }
+}
+
+/** Where this bot's tripwire baseline is (zoneguard-01show): PROTECT_ZONES_BASELINE, else beside the zones file, else the
+ *  showcase tripwire's own copy. Exists-checked (fsx.existsSync); null when none. */
+export function baselinePathFor (dir, { env = typeof process !== 'undefined' ? process.env : {}, fsx = fs } = {}) {
+  const e = String(env?.PROTECT_ZONES_BASELINE ?? '').trim()
+  if (/^(off|0|false|no)$/i.test(e)) return null
+  if (e) return e
+  for (const p of [dir ? path.join(dir, BASELINE_FILE) : null, SHOWCASE_BASELINE]) { try { if (p && fsx.existsSync(p)) return p } catch { /* next */ } }
+  return null
 }
 
 /** The licence row's detail (`_protectzone_mode`, once per spawn and on every change). Pure. */
 export function protectZoneModeDetail (st, worldId = null) {
-  return `zones=${st?.n ?? 0} why=${st?.why ?? '?'}${st?.ids?.length ? ` ids=${st.ids.join(',')}` : ''}${st?.bad?.length ? ` bad=${st.bad.join(',')}` : ''} world=${worldId || 'unknown'}`
+  const b = st?.base
+  // zoneguard-01show: the baseline's line -- which zones carry the tripwire's cells, how many, and which do not
+  const bl = b ? ` baseline=${b.why ?? '?'}${b.guarded?.length ? ` guarded=${b.guarded.length} cells=${b.cells ?? 0}` : ''}${b.missing?.length ? ` unguarded=${b.missing.join(',')}` : ''}` +
+    `${b.orphan?.length ? ` orphan=${b.orphan.join(',')}` : ''}${b.bad?.length ? ` base_bad=${b.bad.join(',')}` : ''}` : ''
+  return `zones=${st?.n ?? 0} why=${st?.why ?? '?'}${st?.ids?.length ? ` ids=${st.ids.join(',')}` : ''}${st?.bad?.length ? ` bad=${st.bad.join(',')}` : ''} world=${worldId || 'unknown'}${bl}`
 }
 
 /** Per-bot counters for the `_protect_zone` liveness row (one a minute, only when something was refused or filtered). */
 export function protectZoneCounters () {
-  return { dig: 0, place: 0, use: 0, open: 0, sleep: 0, craft: 0, survival_allowed: 0, find_filtered: 0, mine_refused: 0, mine_walkout: 0, mine_step_refused: 0, place_refused: 0, bucket_refused: 0 }
+  return { dig: 0, place: 0, use: 0, open: 0, sleep: 0, craft: 0, survival_allowed: 0, struct_refused: 0, find_filtered: 0, mine_refused: 0, mine_walkout: 0, mine_step_refused: 0, place_refused: 0, bucket_refused: 0 }
 }
 export function noteProtectZone (bot, key, n = 1) {
   try { if (bot) { bot.protectZone ??= protectZoneCounters(); bot.protectZone[key] = (bot.protectZone[key] ?? 0) + n } } catch { /* telemetry */ }
@@ -364,7 +595,7 @@ export function standableY (bot, x, z, y0) {
  * (as digtown reads it); `onRefuse({ op, zone, at, purpose, by, remedy })` telemetry. Installed AFTER attachDigTown so a
  * refused dig never reaches the instrument (it is not a dig). Every wrapper is a pass-through when no zone is loaded.
  */
-export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse = () => {} } = {}) {
+export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse = () => {}, guardOn = zoneGuardOn() } = {}) {
   if (!bot || typeof zones !== 'function' || bot.__protectZone) return null
   bot.__protectZone = true
   const purposeOf = () => {
@@ -377,12 +608,12 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     try { mining = !!bot.pathfinder?.isMining?.(); tag = bot.pathfinder?.movements?.digPurpose ?? null } catch { /* fine */ }
     return digPurpose({ scope: currentDigScope(), pathfinderMining: mining, movementsPurpose: tag, ...c })
   }
-  const refuse = (op, zone, at) => {
+  const refuse = (op, zone, at, struct = false) => {
     const { purpose, by } = purposeOf()
     const from = bot.entity?.position ?? null
-    const remedy = zoneRemedy(zone, op, at, from, { standY: (x, z) => standableY(bot, x, z, from?.y) })
+    const remedy = zoneRemedy(zone, op, at, from, { standY: (x, z) => standableY(bot, x, z, from?.y), struct })
     noteProtectZone(bot, op)
-    try { onRefuse({ op, zone: zone.id, at, purpose, by, remedy }) } catch { /* telemetry */ }
+    try { onRefuse({ op, zone: zone.id, at, purpose, by, remedy, struct }) } catch { /* telemetry */ }
     // HANDLED AT BIRTH (Codex r1 P2): mineflayer calls activateBlock UNAWAITED inside openBlock, craft and sleep, and
     // pathfinder chains .catch -- an unobserved rejection must never become an unhandledRejection. Awaiting callers still
     // receive the rejection.
@@ -390,15 +621,22 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     p.catch(() => {})
     return p
   }
-  /** -> a rejected promise, or null to proceed. */
+  /** -> a rejected promise, or null to proceed. `cell.role` (a placement's ref | dest | above) and `cell.name` (a dig's block). */
   const gate = (op, cell) => {
     const list = zones()
     if (!list || !list.length || !cell) return null
-    const z = blocked(list, cell.x, cell.y, cell.z, bot.entity?.position ?? null)
-    if (!z) return null
+    const feet = bot.entity?.position ?? null
+    const mask = structMask(op, cell.role)
+    // ZONEGUARD-01SHOW: the cheap pre-check -- a baseline cell for this op, a deep structure by name, or the old rule
+    const any = (mask && structAt(list, cell.x, cell.y, cell.z, mask)) ||
+                (op === 'dig' && deepNameBlocked(list, cell.x, cell.y, cell.z, cell.name, feet, { on: guardOn })) ||
+                blocked(list, cell.x, cell.y, cell.z, feet, true)
+    if (!any) return null
     const purpose = SURVIVAL_OPS.has(op) ? purposeOf().purpose : null
-    if (!zoneDecision({ zones: list, op, cell, purpose, feet: bot.entity?.position ?? null })) { noteProtectZone(bot, 'survival_allowed'); return null }
-    return refuse(op, z, cell)
+    const d = zoneDecision({ zones: list, op, cell, purpose, feet, role: cell.role ?? null, name: cell.name ?? null, nameRule: guardOn })
+    if (!d) { noteProtectZone(bot, 'survival_allowed'); return null }
+    if (d.struct) noteProtectZone(bot, 'struct_refused')
+    return refuse(op, d.zone, cell, !!d.struct)
   }
   // THE INNER USE OF AN APPROVED CALL (Codex r1 P2): openBlock, craft and sleep reach bot.activateBlock themselves, UNAWAITED.
   // The outer call was judged; its own activation of the SAME cell passes while it runs, so a zone file re-read between the
@@ -428,14 +666,17 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     w.__protectZone = orig
     bot[name] = w
   }
-  wrap('dig', 'dig', b => [cellOf(b)])
+  wrap('dig', 'dig', b => { const c = cellOf(b); return [c ? { ...c, name: b?.name ?? null } : null] })   // the name: deepNameBlocked
   // A PLACEMENT TOUCHES THREE CELLS (Codex r1 P1): the REFERENCE (mineflayer sends a use-item-on packet AT it: a protected
   // chest or door would open or toggle; a replaceable reference is replaced), the destination reference + face, and the cell
   // above it (a door's or a tall plant's upper half)
   wrap('_genericPlace', 'place', (ref, face) => {
     if (!ref?.position || !face) return []
     const d = { position: { x: ref.position.x + face.x, y: ref.position.y + face.y, z: ref.position.z + face.z } }
-    return [cellOf(ref), cellOf(d), cellOf({ position: { x: d.position.x, y: d.position.y + 1, z: d.position.z } })]
+    // ZONEGUARD-01SHOW: each cell's ROLE -- the reference changes nothing (old rule only), the destination may not be a baseline
+    // cell or a path's cover, the cell above it not a baseline cell
+    const tag = (c, role) => (c ? { ...c, role } : null)
+    return [tag(cellOf(ref), 'ref'), tag(cellOf(d), 'dest'), tag(cellOf({ position: { x: d.position.x, y: d.position.y + 1, z: d.position.z } }), 'above')]
   })
   wrap('activateBlock', 'use', b => [cellOf(b)])
   wrap('openBlock', 'open', b => [cellOf(b)], { approve: true })
@@ -459,7 +700,7 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
       const matching = b => {
         if (!inner(b)) return false
         const p = b?.position
-        if (p && blocked(list, p.x, p.y, p.z, feet)) { filtered++; return false }
+        if (p && (blocked(list, p.x, p.y, p.z, feet) || deepNameBlocked(list, p.x, p.y, p.z, b?.name, feet, { on: guardOn }))) { filtered++; return false }   // zoneguard-01show
         return true
       }
       const out = find.call(this, { ...options, matching })
