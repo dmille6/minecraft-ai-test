@@ -311,7 +311,7 @@ await t('wired (structural, comments stripped): buildReroof asks reroofProve and
   assert.ok(sk.includes('    if (r?.restyle && reroofTempState(bot, r)) return true'))
   const br = strip('../src/buildrun.mjs')
   assert.ok(br.includes('walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null, avoid: avoidSet })'))
-  assert.ok(br.includes('  if (!stairOpen) { const s = await clears(); if (s) { out.stop = s; return out } }'))
+  assert.ok(br.includes('  if (!stairOpen && !p.clearsLast) { const s = await clears(); if (s) { out.stop = s; return out } }'))   // fillshare-01: a helper's clears last
   assert.strictEqual(RR.reroofFixes({ REROOF_ACCESS: 'off' }).access, false)
 })
 
