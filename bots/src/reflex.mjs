@@ -1884,11 +1884,16 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // dig's kind, not guarded (a build record, a zone), and diggable from this floating stance inside POCKET_DIG_MS.
     // seapocket-01: no swim within the base breath bound on the wide tier -> the long-breath search (escdead.mjs longBreathPlan),
     // before any dig: a swim that changes nothing in the world is preferred to one that digs first
+    // ...unless a long-breath firing already FAILED at this spot (Claude r1 note): then the pocket dig is asked first, and the
+    // long tier only if no dig opens a way (a long swim that keeps failing at one corner never shuts out a 5-cell dig route)
     let breath = 0
-    if (!plan.ok && wide.radius && pocketOn) {
+    const longFirst = !(st0?.breath > 0)
+    const tryLong = () => {
+      if (plan.ok || !wide.radius || !pocketOn) return
       const lb = longBreathPlan({ at, start, tier: wide })
       if (lb?.ok) { plan = lb; breath = SU_LONG_WET_RUN }
     }
+    if (longFirst) tryLong()
     let pocket = null
     if (!plan.ok && wide.radius && pocketOn && headAirNow) {
       // the time is the ACTUATOR'S tool's: bestTool = applyToolPolicy = toolFor(block, items, { pinned: pinnedNow }) -- the same
@@ -1903,6 +1908,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const pd = pocketDigPlan({ at, start, eye: [p.x, p.y + 1.62, p.z], digOk, ...wide })
       if (pd.ok && pd.dig) { plan = pd.plan; pocket = pd } else if (!pd.ok) plan = { ...plan, reason: pd.reason }
     }
+    if (!longFirst) tryLong()
     const adm = swimUnderAdmit({ plan, oxygen: bot.oxygenLevel, health: bot.health, headAir: !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block' })
     if (!adm.ok) {
       // no way out within reach is a fact of this place: back off like a failed firing. Air or health is a wait, not a fact.
@@ -1953,11 +1959,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     }
     if (res.outcome === 'out') swimSpots.delete(key)
     else if (res.outcome !== 'yielded') {
-      swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries), wide: !!wide.radius })
+      swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries), wide: !!wide.radius, breath })
       if (swimSpots.size > 32) swimSpots.delete(swimSpots.keys().next().value)
     }
     logEvent({ kind: 'swim_under', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
-               snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}${pocketDigDetail(pocket)}${res.dug != null ? ` dug=${res.dug}` : ''}` })
+               snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}${breath ? ` breath=${breath}` : ''}${pocketDigDetail(pocket)}${res.dug != null ? ` dug=${res.dug}` : ''}` })
     // escpocket-01: THE POCKET IS RECORDED (pool-wide, 12 h): its cells and the column the body rose in by are priced out of
     // every path, and a bot found in it gets the wide search at once (Bravo re-entered within a minute; Echo 84 min later)
     if (res.outcome === 'out' && pocketOn) recordTrap(trapSiteFrom({ start, route: plan.route, via: pocket ? 'pocket_dig' : 'swim', by: bot.username }))
