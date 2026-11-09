@@ -19,7 +19,7 @@ import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
-import { redundantCraft } from './toolhygiene.mjs'
+import { redundantCraft, otherTool } from './toolhygiene.mjs'
 // The peaceful kit (peacefulkit.mjs): no sword is offered while the food policy's switch is active.
 import { peacefulFoodActive } from './foodskip.mjs'
 import { isSword } from './peacefulkit.mjs'
@@ -560,7 +560,7 @@ export function craftableNow (bot, milestone = null, wantedSet = null, noRoomIte
       // NO ROOM, NOT ADVERTISED (orderroom-01): the craft's own room check withheld this craft; the HINT names the remedy.
       if (name === noRoomItem) continue
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
-      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue
+      if ((name.endsWith('_pickaxe') || otherTool(name)) && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue   // toolrank-01: other tools too
       const it = bot.registry?.itemsByName?.[name]
       if (!it) continue
       const r = bot.recipesFor(it.id, null, 1, hasTable ? true : null)

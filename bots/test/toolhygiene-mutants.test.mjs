@@ -131,7 +131,7 @@ await killed('descentPickNeed keeps the deployed arithmetic (y=15 -> 62)', EX,
   '  return debt + 2 + pickReserve\n', '  return debt + pickReserve\n', load(EX),
   m => assert.equal(m.descentPickNeed(15), 62))
 await killed('the prompt does not advertise a refused pickaxe', PR,
-  "      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue\n", '\n', load(PR),
+  "      if ((name.endsWith('_pickaxe') || otherTool(name)) && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue   // toolrank-01: other tools too\n", '\n', load(PR),
   m => {
     assert.match(m.craftableNow(botWith([pk('stone_pickaxe', 25), W30, ...MATS]), null), /stone_pickaxe/, 'positive control: listed when not covered')
     assert.doesNotMatch(m.craftableNow(botWith([pk('stone_pickaxe', 52), W30, ...MATS]), null), /stone_pickaxe/)

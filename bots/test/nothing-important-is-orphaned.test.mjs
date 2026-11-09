@@ -152,6 +152,8 @@ const REQUIRED = [
   'bots/test/gkforever.test.mjs',
   'docs/reports/gkforever-design-2026-11-06.md',
   // stations-01 (owner 11-06): the town's tables and furnaces (take-back, the groundskeepers' sweep, town stations, chest first, spare fuel)
+  // toolrank-01 (11-09, owner-approved): no lower-tier tool beside a working better one (other tools + the pickaxe pair)
+  'bots/test/toolrank.test.mjs',
   'bots/src/stations.mjs',
   'bots/test/stations.test.mjs',
   'docs/reports/stations-design-2026-11-06.md',
