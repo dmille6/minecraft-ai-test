@@ -237,36 +237,57 @@ def flows(rows, since=None):
 def station_left(rows, since=None):
     """PURE. -> {pool: {'gross', 'burned', 'recovered', 'left'}} for station losses on STATION_ROWS at t >= since (all when None).
     gross = crafting tables + furnaces a craft/smelt row ended without; burned = tables its own detail says it burned as fuel;
-    recovered = later rises of that station in the SAME bot's bag within RECOVER_S (any row's inventory snapshot), never from a
-    transfer/draw row or a craft of the station (those re-base the level); left = gross - burned - recovered.
-    A top-level row is stamped at its skill's START but carries the END bag, and the skill's own sub-rows (written while it ran)
-    carry mid-skill bags: MEASURED 11-09, 59 of 129 'recoveries' were a `_path_noPath` 0.1 s after a smelt's start still
-    holding the furnace it was about to place. So only rows after the skill ENDED (t + duration_ms) are read."""
+    recovered = later rises of that station in the SAME bot's bag within RECOVER_S of the losing skill's end; left = gross -
+    burned - recovered.
+    WHEN A BAG WAS SEEN: a top-level row is stamped at its skill's START but carries the END bag (start + duration_ms), and a
+    sub-row carries the bag at its own time (MEASURED 11-09: 59 of a first cut's 129 'recoveries' were a `_path_noPath` 0.1 s
+    after a smelt's start, still holding the furnace it was about to place). Rows are read in order of when their bag was
+    seen; rows seen inside the losing skill are skipped. NEVER A RECOVERY (they re-base the level): a transfer/draw row or a
+    craft of that station, and any sub-row seen inside such a skill (Codex r1). ONE RISE IS CREDITED ONCE, oldest loss first
+    (Codex r1: two losses and one pickup recovered both)."""
     out = defaultdict(Counter)
     by = defaultdict(list)
     for r in rows:
         if r.get('bot'):
             by[r['bot']].append(r)
+    end_of = lambda r: r['t'] + dt.timedelta(milliseconds=(r.get('dur_ms') or 0)) if r.get('top', True) else r['t']
     for rs in by.values():
-        rs.sort(key=lambda r: r['t'])
-        pending = []
+        rebase_win = defaultdict(list)            # station -> [(start, end)] of skills whose gains are not recoveries
         for r in rs:
+            if not r.get('top', True):
+                continue
+            for nm in STATION_NAMES:
+                if r['name'] in TRANSFER or r['name'] in DRAW or (r['name'] == 'craft' and str(r['args'].get('item')) == nm):
+                    rebase_win[nm].append((r['t'], end_of(r)))
+        seen = sorted(rs, key=lambda r: (end_of(r), 0 if not r.get('top', True) else 1))
+        level = {}
+        pending = defaultdict(list)                # station -> FIFO of losses
+        for r in seen:
+            at = end_of(r)
             inv = r.get('inv')
-            if pending and inv is not None:
-                pending = [q for q in pending if q['n'] > 0 and (r['t'] - q['end']).total_seconds() <= RECOVER_S]
-                for q in pending:
-                    if r['t'] <= q['end']:
-                        continue          # written while the losing skill still ran: a mid-skill bag
-                    now = inv.get(q['name'], 0) or 0
-                    rebase = r['name'] in TRANSFER or r['name'] in DRAW or (r['name'] == 'craft' and str(r['args'].get('item')) == q['name'])
-                    if q['level'] is not None and not rebase and now > q['level']:
-                        k = min(now - q['level'], q['n'])
-                        q['n'] -= k
-                        if q['counted']:
-                            out[q['pool']]['recovered'] += k
-                    q['level'] = now
+            if inv is not None:
+                for nm in STATION_NAMES:
+                    now = inv.get(nm, 0) or 0
+                    was = level.get(nm)
+                    level[nm] = now
+                    if was is None or now <= was:
+                        continue
+                    if any(a <= r['t'] <= b or a <= at <= b for a, b in rebase_win[nm]):
+                        continue           # a withdraw / a craft of the station (or a bag seen inside one): re-based, never credited
+                    rise = now - was
+                    keep = []
+                    for q in pending[nm]:
+                        if rise > 0 and q['n'] > 0 and q['end'] < at and (at - q['end']).total_seconds() <= RECOVER_S:
+                            k = min(rise, q['n'])
+                            q['n'] -= k
+                            rise -= k
+                            if q['counted']:
+                                out[q['pool']]['recovered'] += k
+                        if q['n'] > 0 and (at - q['end']).total_seconds() <= RECOVER_S:
+                            keep.append(q)
+                    pending[nm] = keep
             d = r.get('delta')
-            if r['name'] not in STATION_ROWS or not d:
+            if r['name'] not in STATION_ROWS or not d or not r.get('top', True):
                 continue
             counted = since is None or r['t'] >= since
             for nm in STATION_NAMES:
@@ -282,9 +303,7 @@ def station_left(rows, since=None):
                     out[r['pool']]['gross'] += lost
                     out[r['pool']]['burned'] += burned
                 if lost > burned:
-                    pending.append({'t': r['t'], 'end': r['t'] + dt.timedelta(milliseconds=r.get('dur_ms') or 0),
-                                    'pool': r['pool'], 'name': nm, 'n': lost - burned, 'counted': counted,
-                                    'level': (inv.get(nm, 0) or 0) if inv is not None else None})
+                    pending[nm].append({'end': at, 'pool': r['pool'], 'n': lost - burned, 'counted': counted})
     for c in out.values():
         c['left'] = c['gross'] - c['burned'] - c['recovered']
     return out

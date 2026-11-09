@@ -173,6 +173,21 @@ def t_station_left(F):
     check('left: a sub-row inside the skill (mid-skill bag) is not a recovery', (c['recovered'], c['left']) == (0, 1), dict(c))
     R.append(row(10 - 60 / 60, 'pickups', inv={'furnace': 1}, top=False))
     check('left: ...a rise after the skill ended is', F.station_left(R)['board-a']['recovered'] == 1, dict(F.station_left(R)['board-a']))
+    # Codex r1: one rise is credited ONCE (two losses, one pickup -> one recovered)
+    R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
+         row(9.5, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_shovel'}),
+         row(9.0, 'pickups', inv={'crafting_table': 1}, top=False)]
+    c = F.station_left(R)['board-a']
+    check('left: one pickup recovers one of two losses', (c['gross'], c['recovered'], c['left']) == (2, 1, 1), dict(c))
+    # Codex r1: a later skill's END bag is seen at its end -- past RECOVER_S it is not a recovery
+    R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
+         row(9, 'goto', inv={'crafting_table': 1}, delta={'crafting_table': 1}) | {'dur_ms': 120_000}]
+    check('left: a later skill\'s end bag past RECOVER_S is not a recovery', F.station_left(R)['board-a']['left'] == 1, dict(F.station_left(R)['board-a']))
+    # Codex r1: a bag seen INSIDE a later craft of the station is that craft's table, not the lost one
+    R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
+         row(9.5, 'craft', inv={'crafting_table': 1}, delta={'crafting_table': 1}, args={'item': 'crafting_table'}) | {'dur_ms': 20_000},
+         row(9.5 - 10 / 60, 'craft_sync', inv={'crafting_table': 1}, top=False)]
+    check('left: a sub-row inside a craft of the station is not a recovery', F.station_left(R)['board-a']['left'] == 1, dict(F.station_left(R)['board-a']))
     # another bot's pickup never recovers this bot's loss
     R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
          row(9.5, 'pickups', bot='b-a-Bravo', inv={'crafting_table': 3}, top=False)]
@@ -300,10 +315,11 @@ def t_wiring():
 MUTANTS = [
     # stnmetric-01: each part of the station rule is load-bearing
     ("                    burned = min(lost, int(m.group(1))) if m else 0", "                    burned = 0", t_station_left),
-    ("                    if q['level'] is not None and not rebase and now > q['level']:", "                    if q['level'] is not None and now > q['level']:", t_station_left),
-    ("pending = [q for q in pending if q['n'] > 0 and (r['t'] - q['end']).total_seconds() <= RECOVER_S]", "pending = [q for q in pending if q['n'] > 0]", t_station_left),
-    ("                    if r['t'] <= q['end']:\n                        continue", "                    if False:\n                        continue", t_station_left),
-    ("            by[r['bot']].append(r)\n    for rs in by.values():\n        rs.sort(key=lambda r: r['t'])\n        pending = []", "            by['all'].append(r)\n    for rs in by.values():\n        rs.sort(key=lambda r: r['t'])\n        pending = []", t_station_left),
+    ("                    if any(a <= r['t'] <= b or a <= at <= b for a, b in rebase_win[nm]):", "                    if False:", t_station_left),
+    ("if rise > 0 and q['n'] > 0 and q['end'] < at and (at - q['end']).total_seconds() <= RECOVER_S:", "if rise > 0 and q['n'] > 0 and q['end'] < at:", t_station_left),
+    ("            by[r['bot']].append(r)\n    end_of", "            by['all'].append(r)\n    end_of", t_station_left),
+    ("    end_of = lambda r: r['t'] + dt.timedelta(milliseconds=(r.get('dur_ms') or 0)) if r.get('top', True) else r['t']", "    end_of = lambda r: r['t']", t_station_left),
+    ("                            rise -= k\n", "", t_station_left),
     ("        if sup and share > SINK_SHARE:", "        if False:", t_alarms),
     ("c.get('uncounted', 1) == 0 and ", "", t_alarms),
     ("            towns[p] = 'closes' if abs(o['res']) <= close_pct / 100 * o['gross'] and share(o) >= measured_min else 'OPEN'", "            towns[p] = 'closes'", t_flows),
