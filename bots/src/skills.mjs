@@ -166,7 +166,7 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
-import { fillWant, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
+import { fillWant, earthDirt, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
@@ -26097,7 +26097,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // access-01 (Codex r1 BLOCKER 1): a staircase's cells take the town's STONE only (TIDY_PALETTE.access) -- billed as cobblestone
     // on their own, never offset by the bag's spare dirt
     const openAccess = (visitRec.cells ?? []).filter(q => q.role === 'access' && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
-    const want = fillWant({ open, openAccess, dirt: Math.max(0, spare('dirt') - openSoil), cobble: spare('cobblestone'), visitCap: TIDY_VISIT_FILLS })
+    const want = fillWant({ open, openAccess, dirt: earthDirt(spare('dirt'), openSoil, TIDY_VISIT_FILLS), cobble: spare('cobblestone'), visitCap: TIDY_VISIT_FILLS })   // fillshare-01b: one visit's topsoil held back
     // groundskeeper-01: a stage's road lights (torches) and its felled trunks' saplings, less what the bag holds
     const extra = GROUNDS.on ? gkExtraBill(rec, read, held0, q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)) : {}
     // townterrace-01: the park's plants, a hoe for its tilled plots, bone meal for its meadow -- only what the town holds

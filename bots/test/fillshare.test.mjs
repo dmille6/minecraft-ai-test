@@ -119,11 +119,26 @@ await t('clearMax 6 (the keeper behind): at most 6 cuts, then a fill in the same
   assert.ok(r.placed >= 1, `placed ${r.placed} stop ${r.stop} ops ${ops.join(',')}`)   // the pit's layers are one segment each: the pass after each cuts again
 })
 
+console.log('THE BILL (fillshare-01b): one visit\'s topsoil holds back dirt, not the stage\'s')
+const TIDY_PATH = new URL('../src/tidy.mjs', import.meta.url)
+// LIVE 11-09 11:12Z Onyx: bag dirt 227, cobble 68, yard draw bill:22 dug 4 in ~50 s; the stage holds hundreds of open topsoil cells
+const bill = M => M.fillWant({ open: 400, openAccess: 0, dirt: M.earthDirt(150, 300, M.TIDY_VISIT_FILLS), cobble: 5, visitCap: M.TIDY_VISIT_FILLS })
+await t('earthDirt: 150 spare dirt, 300 open topsoil -> 118 for the earth fills, the visit bills 0 (control: the old offset bills 27 -> a yard draw)', async () => {
+  await killedBy(TIDY_PATH, T, 'return Math.max(0, (Number(spareDirt) || 0) - Math.min(Math.max(0, Number(openSoil) || 0), Math.max(0, Number(visitCap) || 0)))', 'return Math.max(0, (Number(spareDirt) || 0) - Math.max(0, Number(openSoil) || 0))', M => {
+    assert.strictEqual(M.earthDirt(150, 300, 32), 118)
+    assert.strictEqual(bill(M), 0)
+  })
+  assert.strictEqual(T.fillWant({ open: 400, dirt: Math.max(0, 150 - 300), cobble: 5, visitCap: 32 }), 27, 'control: the stage-wide offset')
+  assert.strictEqual(T.earthDirt(20, 300, 32), 0, 'a bag short of one visit\'s topsoil keeps it all')
+  assert.strictEqual(T.earthDirt(40, 0, 32), 40, 'no topsoil: every spare dirt')
+})
+
 console.log('THE WIRING (skills.mjs buildTidy)')
 const wiring = s => {
   const one = re => { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
   one('share = tidyShare\\(\\{ role, fillsLeft: open \\+ openSoil \\+ openAccess,')
   one('clearMax: GROUNDS\\.on \\? share\\.clearMax : TIDY_CLEAR_MAX, \\.\\.\\.\\(share\\.clearsLast \\? \\{ clearsLast: true \\} : \\{\\}\\)')
+  one("const want = fillWant\\(\\{ open, openAccess, dirt: earthDirt\\(spare\\('dirt'\\), openSoil, TIDY_VISIT_FILLS\\),")
   one('const fillReady = !!workableSeg\\(visitRec, read, palette, tidySegOk, waivedK, \\{ skipOpenDeps: true \\}\\) && TIDY_PALETTE\\.earth\\.some')
 }
 await t('wiring: the share is computed and passed to the tidy visit; a cut line fails', () => {
