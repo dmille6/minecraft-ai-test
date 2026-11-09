@@ -26,8 +26,8 @@ const kOf = a => a.join(',')
  * Promise<bool>, dig(cell) -> Promise<'confirmed'|...>, place(cell) -> Promise<'confirmed'|'no_material'|'no_support'|'no_reach'|
  * 'refused'>, toolOk() -> bool, fence() -> bool, torch?(cell, support) -> Promise<bool>, log(op, d), now(), aborted() }.
  */
-export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNITS_MAX, reserve = null } = {}) {
-  const plan = planOf(p.rec)
+export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNITS_MAX, reserve = null, maxK = Infinity, sealDeep = false } = {}) {
+  const plan = p.plan ?? planOf(p.rec)
   const built = p.built ?? new Set(p.rec.landings_built ?? [])
   const out = { stop: null, why: null, k: null, placed: 0, dug: 0, units: 0, landings: [], torches: 0 }
   const fails = new Map()
@@ -38,7 +38,7 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
     if (e.aborted()) { const err = new Error('aborted'); err.aborted = true; throw err }
     if (e.now() >= deadline) return end('time')
     if (!e.fence()) return end('lease')
-    const w = firstUndone(e.read, plan)
+    const w = firstUndone(e.read, plan, { maxK })
     // LANDINGS ABOVE THE WORK POINT ARE DONE: publish each one not yet published (a record generation per landing)
     for (const l of plan.landings) {
       if (built.has(l.feet) || (w && w.k <= l.k)) continue
@@ -73,13 +73,20 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
       if (e.aborted()) { const err = new Error('aborted'); err.aborted = true; throw err }
       if (e.now() >= deadline) return end('time', null, w.k)
       if (!e.fence()) return end('lease', null, w.k)
-      const op = nextOp(e.read, plan, cells, e.feet())
+      let op = nextOp(e.read, plan, cells, e.feet())
+      // townmine-01: BELOW THE 16 LANDING A LIQUID IN A STEP'S OWN CELL IS SEALED, not a stop: a block placed into it (its
+      // neighbours are sealed by nextOp 1b before anything opens), then dug as stone on a later pass. Two refused seals of the cell
+      // stop the stair there as before (CELL_TRIES). Never above the landing: the town stair keeps its own rule.
+      if (sealDeep && op.op === 'stop' && (op.why === 'water' || op.why === 'lava') && (w.kind === 'room' || w.k > (plan.K16 ?? plan.K)) && (fails.get(kOf(op.at)) ?? 0) < CELL_TRIES) op = { op: 'place', at: op.at, why: 'seal' }
       if (op.op === 'done') break
       if (op.op === 'wait') return end('unknown', `unread ${kOf(op.at)}`, w.k)
       if (op.op === 'stop') {
         if (op.why === 'water' || op.why === 'lava') {
           // A LIQUID WHERE THE STAIR WOULD OPEN: it ends above it (the truncated record), never dug into
           if (w.kind === 'step') { await p.onStop(w.k, op.why); e.log('stop', { k: w.k, at: op.at, why: op.why }); return end('stopped', op.why, w.k) }
+          // townmine-01 (Claude code r1 BLOCKER 1): a room (a bay, the hall) whose cell holds a liquid it may not seal is DROPPED from
+          // the plan (the stair goes on without it), never read as a stub
+          if (w.kind === 'room') { await p.onDropRoom?.(w.room.k, op.why); e.log('stop', { k: w.k, at: op.at, why: `room_${op.why}` }); return end('room_dropped', `room_${op.why}`, w.k) }
           // in a stub: THAT LANDING is dropped from the record (the steps go on below it); the next visit plans without it
           await p.onDropLanding(w.landing.feet, op.why); e.log('stop', { k: w.k, at: op.at, why: `stub_${op.why}`, feet: w.landing.feet }); return end('landing_dropped', `stub_${op.why}`, w.k)
         }
@@ -132,11 +139,17 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
     }
     out.units++
     // ONE TORCH A TURN on the pillar, at the head of each step on the landing cell (never required: a failure is only a row)
-    if (w.kind === 'step' && e.torch && (plan.s0 + w.k) % 8 === LANDING_CELL && w.k >= TORCH_EVERY && !torched.has(w.k)) {
+    // townmine-01: below the 16 landing two a turn (the opposite side cell too): the owner's "lit throughout"
+    const deepTorch = w.k > (plan.K16 ?? plan.K) && (plan.s0 + w.k) % 8 === (LANDING_CELL + 4) % 8
+    if (w.kind === 'step' && e.torch && ((plan.s0 + w.k) % 8 === LANDING_CELL || deepTorch) && w.k >= TORCH_EVERY && !torched.has(w.k)) {
       torched.add(w.k)
       const head = plan.steps[w.k].air[1]
       const pil = toWorld(plan.origin, plan.away, PILLAR[0], PILLAR[1])
       try { if (await e.torch(head, [pil.x, head[1], pil.z])) out.torches++ } catch (err) { if (err?.aborted) throw err }
+    }
+    // townmine-01: a room's torches once its last column is cut (a bay's one, the hall's four), from where the bot stands
+    if (w.kind === 'room' && e.torch && w.col === w.room.cols.length - 1) {
+      for (const t of w.room.torches) { try { if (await e.torch(t.at, t.support)) out.torches++ } catch (err) { if (err?.aborted) throw err } }
     }
   }
 }
@@ -408,6 +421,9 @@ export function stairBotEffects (bot, B, { signal = null, fence = () => true, lo
       if (!item) return 'no_material'
       return click(c, item, b => isFull(b))
     },
+    // townmine-01: the hall's fixtures (a chest, a crafting table, a furnace) clicked like a lining block, believed when the cell
+    // reads that block after the acknowledgement
+    placeItem: async (c, item) => (B.has(item) ? click(c, item, b => String(b?.name ?? '') === item) : 'no_material'),
     torch: async (cell, support) => {
       if (!B.has('torch')) return false
       if (!isFull(fresh()(...support))) return false
