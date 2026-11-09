@@ -48,7 +48,11 @@ const zoneBoxes = [...(land?.corridors ?? []).map(c => c.box), ...(() => { try {
 // the land plan's roads by their own columns (a corridor box is the planner's search room, wider than the road)
 const roadCols = new Set((land?.roads ?? []).flatMap(r => (r.cols ?? []).map(c => `${c[0]},${c[1]}`)))
 const zone = flag('nozones') ? () => false : (x, z) => roadCols.has(`${x},${z}`) || (flag('corridors') && zoneBoxes.some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])) || zoneBoxes.slice((land?.corridors ?? []).length).some(b => x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5])
-const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone })
+// the underpinning's reach: the town walk now (buildsite.mjs walkFrom) and the visit's stepFor, as skills.mjs buildCitywall asks
+const BS = await import('../src/buildsite.mjs')
+const walkNodes = new Map()
+for (const k of BS.walkFrom(base, home, new Set(), W.wallWalkR(rec0, home))) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
+const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone, reachUnder: at => !!BS.stepFor(base, home, at, walkNodes, () => true, null) })
 if (!design.ok) { console.error('no design', design.why); process.exit(1) }
 const roles = design.cells.reduce((m, c) => (m[c.role] = (m[c.role] ?? 0) + 1, m), {})
 const bill = CW.citywallBill(design.cells, design.style)

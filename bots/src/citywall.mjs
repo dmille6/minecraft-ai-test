@@ -228,7 +228,6 @@ export function towerCells (read, site, { seed = 0, oldAt = new Map(), taken = (
       if (outerMid(a, b) && y === tb + 3) role = CW.slit
       const c = { at: [x, y, z], role }
       if (oldAt.has(k3(x, y, z))) c.sw = 1
-      // the hidden centre is enclosed by its ring as the tower rises: placed by reach (the roofs' proven blind click), as the top courses
       // above a ground eye's top-face reach (its ground + 3: the course a builder on the ground cannot see the top of) and the hidden
       // centre (enclosed by its ring as the tower rises): placed by reach (the roofs' proven blind click, Paper 147/147)
       if (y >= g + 3 || role === CW.tcore) c.blind = true
@@ -238,7 +237,9 @@ export function towerCells (read, site, { seed = 0, oldAt = new Map(), taken = (
     if (isCorner(a, b) || outerMid(a, b)) cells.push({ at: [x, top + 1, z], role: CW.tmerlon, blind: true })
     if (outerMid(a, b)) cells.push({ at: [x, top + 2, z], role: CW.lamp, blind: true })
   }
-  // an old cell of the in-line columns above the new top (a merlon over a low base) is kept as tower body
+  // EVERY added cell vetoed like the courses (Codex r1 BLOCKER 3: the merlons and the lamp were never asked)
+  if (!why) for (const c of cells) if (!oldAt.has(kOf(c.at)) && taken(...c.at)) { why = `taken ${kOf(c.at)}`; break }
+  if (why) return { cells: [], top, why }
   return { cells, top, why }
 }
 
@@ -325,6 +326,9 @@ export function gatehouseCells (read, site, { seed = 0, colAt = () => null, oldA
       if (o === 0 && i % 3 === 1) cells.push({ at: [X, deckY + 2, Z], role: CW.lamp, blind: true })
     }
   })
+  // EVERY added cell vetoed (Codex r1 BLOCKER 3: the deck, the parapet, the haunches and the lamps were never asked)
+  const hit = cells.find(c => !oldAt.has(kOf(c.at)) && taken(...c.at))
+  if (hit) return { cells: [], why: `taken ${kOf(hit.at)}` }
   return { cells, deckY, g, towers: [tA, tB], why: null }
 }
 /** [dx, dz] -> a facing name. Pure. */
@@ -358,18 +362,22 @@ export function runLamps (read, runs, { taken = () => false, skip = new Set(), i
  * counts }. Pure over `read`. Every O cell of the record swapped to its course (sw), the underpinning, the towers, the gatehouse (when
  * `gatePick` names one, or `gate` is true: the widest), the lamps. Each cell carries its segment (the run's own W-<nn> for its
  * courses, underpinning and lamps; CW-T<i> a tower; CW-G the gatehouse) and its phase. `taken(x, y, z)` vetoes a cell another record
- * owns (a dress torch, a path); the old record's own cells are never taken.
+ * owns (a dress torch, a path); the old record's own cells are never taken. `reachUnder([x, y, z])`: can a stand place this underpinning
+ * cell (the caller's walk and stepFor); false leaves the column's underpinning out.
  */
-export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = true, gate = false, gatePick = null, taken = () => false, zone = () => false, towersMax = CITYWALL.towersMax, stairs = true } = {}) {
+export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = true, gate = false, gatePick = null, taken = () => false, zone = () => false, towersMax = CITYWALL.towersMax, stairs = true, reachUnder = () => true } = {}) {
   if (!rec?.cells?.length || !Array.isArray(rec.ring)) return { ok: false, why: 'no_record' }
   if (rec.citywall) return { ok: false, why: 'already' }
   const cols = wallColumns(rec)
   if (!cols.length) return { ok: false, why: 'no_columns' }
   const runs = wallRuns(cols)
   const oldAt = new Map((rec.cells ?? []).map(c => [kOf(c.at), c]))
+  // A WAIVED cell (wall.mjs wallWaived: no stand ever reached it) stays the record's as it is -- never swapped, never a tower's
+  // (Codex r1 BLOCKER 2: re-roled, the visit read it done and the next phase read it open, for good)
+  const waived = new Set(Object.keys(rec.waived ?? {}))
   const own = (x, y, z) => oldAt.has(k3(x, y, z))
   // a cell another record owns, or a NEW cell in a reservation (a land road corridor, a protected zone): never the design's
-  const veto = (x, y, z) => !own(x, y, z) && (!!taken(x, y, z) || !!zone(x, z))
+  const veto = (x, y, z) => (waived.has(k3(x, y, z))) || (!own(x, y, z) && (!!taken(x, y, z) || !!zone(x, z)))
   const colAt = (() => { const m = new Map(cols.map(c => [k2(c.x, c.z), c])); return (x, z) => m.get(k2(x, z)) ?? null })()
   const cells = new Map()   // "x,y,z" -> cell
   const put = (c, seg, ph) => { const k = kOf(c.at); const o = oldAt.get(k); cells.set(k, { ...c, seg, ph, ...(o ? { sw: 1, old: o.role, oldSeg: o.seg } : {}) }) }
@@ -423,8 +431,11 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
       for (const col of run) {
         const k = k2(col.x, col.z)
         if (towerCols.has(k) || sites.some(s => s.cols.some(c => c.x === col.x && c.z === col.z))) continue
-        for (const c of col.cells) { const rel = c.at[1] - col.b; if (c.role === 'post') continue; if (!cells.has(kOf(c.at))) put({ at: c.at, role: courseRole(rel, { seed, at: c.at, moss }) }, col.seg, ph) }
-        const up = underpinOf(read, col, { taken: veto })
+        for (const c of col.cells) { const rel = c.at[1] - col.b; if (c.role === 'post' || waived.has(kOf(c.at))) continue; if (!cells.has(kOf(c.at))) put({ at: c.at, role: courseRole(rel, { seed, at: c.at, moss }) }, col.seg, ph) }
+        let up = underpinOf(read, col, { taken: veto })
+        // an underpinning no stand can reach (its LOWEST cell: the first placed) is left out, counted: the wall's waiver is bounded (wall.mjs
+        // WALL_WAIVE_MAX), so a run of unreachable feet would hold its phase for good
+        if (!up.why && up.cells.length && !reachUnder(up.cells.at(-1))) up = { cells: [], why: 'unreached' }
         if (up.why) skipped.underpin[up.why] = (skipped.underpin[up.why] ?? 0) + 1
         for (const at of up.cells) if (!cells.has(kOf(at))) put({ at, role: CW.foot }, col.seg, ph)
       }

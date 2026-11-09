@@ -1190,7 +1190,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // wallstuck-01 (`p.sealed` = { mayDig(at) }): a foreign block NO STAND SEES is dug from the top of its column -- the
           // overburden above it, then this segment's open foreign cells highest first (sealedAbove); a column that cannot be opened
           // is SEALED: named, and deferred with the cells no stand reaches (F4: counted, stuck_on_cell, the waiver), never `blocked`
-          if (v === 'no_stand' && p.sealed && kind !== 'tree') {
+          // citywall-01 (Codex r1 BLOCKER 1): never for a SWAPPED cell -- the sealed column's chain digs several cells before any is
+          // placed again, a hole two high; a swapped cell no stand sees is spent and named (the waiver's), never opened from the top
+          if (v === 'no_stand' && p.sealed && kind !== 'tree' && !(p.swap && f.sw)) {
             cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
             const openK = new Set(open.map(q => kOf(q.at)))
             // zigsealed-01 (LIVE showcase 10-31 16:58Z on: the ziggurat's F-W skin cell -55,67,-35 grass under its own open air cell
