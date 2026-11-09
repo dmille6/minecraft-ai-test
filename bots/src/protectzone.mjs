@@ -104,7 +104,9 @@ export function parseBaseline (raw) {
   for (const [id, b] of Object.entries(raw.zones)) {
     if (!b || typeof b !== 'object' || !b.cells || typeof b.cells !== 'object') continue
     const box = Array.isArray(b.box) && b.box.length === 6 && b.box.every(isInt) ? b.box : null
-    out.set(id, { box, cells: b.cells })
+    // THE GUARD IS BUILT HERE, ONCE PER READ (Claude r1 note 2): the parsed cell objects (tens of MB in 14 bots) are dropped
+    // after this; a zones-file change re-joins the prebuilt guards
+    out.set(id, { box, guard: structGuardOf(b.cells) })
   }
   return { zones: out, why: out.size ? 'ok' : 'empty' }
 }
@@ -130,15 +132,17 @@ export function structGuardOf (cells) {
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
   for (const [x, y, z] of list) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z }
   const sy = y1 - y0 + 1, sz = z1 - z0 + 1
-  const map = new Map()
+  const map = new Map(), colMin = new Map()
   let n = 0
   for (const [x, y, z, f] of list) {
     const key = ((x - x0) * sy + (y - y0)) * sz + (z - z0)
     const was = map.get(key) ?? 0
     if (f === S_CELL && !(was & S_CELL)) n++
     map.set(key, was | f)
+    // the lowest baseline cell of each column (liquidReaches)
+    if (f === S_CELL) { const ck = (x - x0) * sz + (z - z0), m = colMin.get(ck); if (m == null || y < m) colMin.set(ck, y) }
   }
-  return { x0, y0, z0, x1, y1, z1, sy, sz, map, n }
+  return { x0, y0, z0, x1, y1, z1, sy, sz, map, colMin, n }
 }
 
 /** One guard's flags at an integer cell (0: not guarded). Pure, allocation-free. */
@@ -172,11 +176,38 @@ export const deepStructureName = name => {
  * here (its cells are exact); a cell the base rule already closes is the base's.
  */
 export function deepNameBlocked (zones, x, y, z, name, feet = null, { on = true } = {}) {
-  if (!on || !zones || !zones.length || !deepStructureName(name)) return null
+  if (!on || !zones || !zones.length) return null
   const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
   for (const q of zones) {
     if (q.guard || q.floorY == null || cy >= q.floorY) continue
-    if (cx >= q.x0 && cx <= q.x1 && cy >= q.y0 && cy <= q.y1 && cz >= q.z0 && cz <= q.z1) return q
+    // the box first, the name's regexes only for a cell inside one (Claude r1 note 5: the A* step)
+    if (cx >= q.x0 && cx <= q.x1 && cy >= q.y0 && cy <= q.y1 && cz >= q.z0 && cz <= q.z1) return deepStructureName(name) ? q : null
+  }
+  return null
+}
+
+/** How far a poured liquid may run toward a guarded cell (water's 7 on level ground, a fall's fresh 7 below it, and margin). */
+export const LIQUID_REACH = 16
+/**
+ * A LIQUID POURED HERE COULD REACH A BASELINE CELL -> zone | null (Codex r1 blocker 2: a bucket pour is no placement the
+ * chokepoint sees -- activateItem -- and water washes away a torch, lava sets planks alight). Pure. Any S_CELL within `reach`
+ * horizontally (Chebyshev) and no higher than one above the pour (a liquid never runs uphill). Bounded: (2r+1)^2 column
+ * lookups per zone, a pour is rare.
+ */
+export function liquidReaches (zones, p, reach = LIQUID_REACH) {
+  if (!zones || !zones.length || !p) return null
+  const px = Math.floor(p.x), py = Math.floor(p.y), pz = Math.floor(p.z)
+  if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return null
+  for (const q of zones) {
+    const g = q.guard
+    if (!g || !g.colMin) continue
+    if (px + reach < g.x0 || px - reach > g.x1 || pz + reach < g.z0 || pz - reach > g.z1 || g.y0 > py + 1) continue
+    for (let x = Math.max(px - reach, g.x0); x <= Math.min(px + reach, g.x1); x++) {
+      for (let z = Math.max(pz - reach, g.z0); z <= Math.min(pz + reach, g.z1); z++) {
+        const m = g.colMin.get((x - g.x0) * g.sz + (z - g.z0))
+        if (m != null && m <= py + 1) return q
+      }
+    }
   }
   return null
 }
@@ -196,7 +227,7 @@ export function withBaseline (zones, base) {
     const b = base.zones.get(q.id)
     if (!b) { st.missing.push(q.id); return q }
     if (!meets(q, b.box)) { st.bad.push(`${q.id}:box_apart`); return q }
-    const g = structGuardOf(b.cells)
+    const g = b.guard ?? structGuardOf(b.cells)
     if (!g) { st.bad.push(`${q.id}:cells`); return q }
     st.guarded.push(q.id); st.cells += g.n
     return { ...q, guard: g }
@@ -568,7 +599,7 @@ export function protectZoneModeDetail (st, worldId = null) {
 
 /** Per-bot counters for the `_protect_zone` liveness row (one a minute, only when something was refused or filtered). */
 export function protectZoneCounters () {
-  return { dig: 0, place: 0, use: 0, open: 0, sleep: 0, craft: 0, survival_allowed: 0, struct_refused: 0, find_filtered: 0, mine_refused: 0, mine_walkout: 0, mine_step_refused: 0, place_refused: 0, bucket_refused: 0 }
+  return { dig: 0, place: 0, use: 0, open: 0, sleep: 0, craft: 0, survival_allowed: 0, struct_refused: 0, liquid_refused: 0, find_filtered: 0, mine_refused: 0, mine_walkout: 0, mine_step_refused: 0, place_refused: 0, bucket_refused: 0 }
 }
 export function noteProtectZone (bot, key, n = 1) {
   try { if (bot) { bot.protectZone ??= protectZoneCounters(); bot.protectZone[key] = (bot.protectZone[key] ?? 0) + n } } catch { /* telemetry */ }
@@ -682,6 +713,30 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
   wrap('openBlock', 'open', b => [cellOf(b)], { approve: true })
   wrap('sleep', 'sleep', b => [cellOf(b)], { approve: true })
   wrap('craft', 'craft', (_r, _n, table) => [cellOf(table)], { approve: true })
+  // ZONEGUARD-01SHOW (Codex r1 blocker 2): A POUR IS NO PLACEMENT this guard sees (bucket.mjs: equip -> lookAt -> activateItem).
+  // With a liquid in hand, a use from where its flow could reach a baseline cell is not sent (the reach covers the bot's own
+  // use range above LIQUID_REACH). activateItem is synchronous in mineflayer and every pour verifies the world afterwards, so a
+  // use not sent reads as a pour that did not take. Eating, a bow, an empty bucket: untouched.
+  const use = bot.activateItem
+  if (typeof use === 'function') {
+    const w = function (...a) {
+      const held = bot.heldItem?.name ?? ''
+      if (/^(water|lava|powder_snow|cod|salmon|pufferfish|tropical_fish|axolotl|tadpole)_bucket$/.test(held)) {
+        const list = zones()
+        const p = bot.entity?.position
+        const z = list?.length && p ? liquidReaches(list, { x: p.x, y: p.y + 2, z: p.z }, LIQUID_REACH + 5) : null
+        if (z) {
+          noteProtectZone(bot, 'liquid_refused')
+          try { onRefuse({ op: 'pour', zone: z.id, at: { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, purpose: purposeOf().purpose, by: purposeOf().by, struct: true,
+            remedy: `protected zone: ${z.label} -- a ${held.replace(/_bucket$/, '')} pour here could run into its structure (within ${LIQUID_REACH} blocks, not above it); pour farther away` }) } catch { /* telemetry */ }
+          return undefined
+        }
+      }
+      return use.apply(this, a)
+    }
+    w.__protectZone = use
+    bot.activateItem = w
+  }
   // THE ENUMERATION: findBlocks never answers a zone cell. mineflayer calls `matching` twice per candidate: with a
   // position-less palette Block (the section pre-check: passed through), then with bot.blockAt(point) -- that call is
   // judged. A search whose sphere meets no zone is handed through untouched.
