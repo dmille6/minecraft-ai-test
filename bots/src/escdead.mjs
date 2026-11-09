@@ -306,6 +306,27 @@ export function swimTierFor (pinnedMs, { known = false, on = escDeadOn(), pocket
   if (on && pocketOn && known) return SU_WIDE
   return swimSearchFor(pinnedMs, { on, minMs })
 }
+// ---- SEAPOCKET-01: the long-breath tier (docs/reports/seapocket-2026-11-09.md) --------------------------------------------
+// LIVE 11-09 (placebo-d-Bravo, 46,59,69, pinned 4 h+): the bot surfaced a 63-block shaft into the bottom of the OCEAN (water to
+// y62, air at y63) under an old bot-built cobble/dirt column; the air-pocket rescue sealed the four head-level sides and dug
+// the cobble over its head. Feet in open sea, head in a sealed one-cell bubble, roof cobble (water BESIDE it, dirt over it).
+// The 11-09 cut + those five edits reproduces the live rows (narrow "92 water cells", wide "110"). The way out is 9 cells
+// (down 1, over 2, up 4, step out onto the dirt) with SIX head-wet cells in a row -- one over SU_MAX_WET_RUN (5). Every rung
+// refuses: flood guard (water beside the roof), plugcut (4 wet faces), the breach (no water OVER the roof), the pocket dig
+// (open water: nothing at or below the feet to dig), the swim (5).
+// THE TIER: on the wide tier only (a 30-min pin or a recorded trap), when the wide search finds nothing, it is run once more
+// with the head-wet run allowed to SU_LONG_WET_RUN. A plan within 5 is always preferred (the long tier runs only when none
+// exists); the actuator's own turn-back (air <= 10 with less water behind than ahead) is unchanged. ESCPOCKET=0 -> off.
+export const SU_LONG_WET_RUN = 7
+/** The long-breath search on the wide tier -> swimUnderPlan's result | null (not armed). Pure. */
+export function longBreathPlan ({ at, start, tier, on = escPocketOn() } = {}) {
+  if (!on || !tier?.radius) return null
+  return swimUnderPlan({ at, start, ...tier, maxWetRun: SU_LONG_WET_RUN })
+}
+
+/** The `_seapocket_mode` licence row, once per spawn (features.mjs). Pure. */
+export const seaPocketModeDetail = (env = typeof process !== 'undefined' ? process.env : {}) =>
+  `on=${escPocketOn(env) ? 1 : 0} long_wet_run=${SU_LONG_WET_RUN} base_wet_run=5 tier=wide_only`
 /** The `_escpocket_mode` licence row, once per spawn (features.mjs). Pure. */
 export function escPocketModeDetail (env = typeof process !== 'undefined' ? process.env : {}) {
   return `on=${escPocketOn(env) ? 1 : 0} dig=wide_tier reach=${POCKET_REACH} max_digs=${POCKET_MAX_DIGS} dig_ms<=${POCKET_DIG_MS} ` +
