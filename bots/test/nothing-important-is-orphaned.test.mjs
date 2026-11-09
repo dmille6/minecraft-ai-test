@@ -44,6 +44,7 @@ const REQUIRED = [
   'bots/src/canopy.mjs',
   'bots/test/stuckproj.test.mjs',
   'bots/test/hivedrop.test.mjs',          // hivedrop-01: the canopy re-plan + loop yields (keepalive), the evictor's end stop
+  'bots/test/plankeep.test.mjs',          // hivedrop-02: the walk plan kept across a yield (monument/tidy start interruptions)
   // dirtrung-01 (11-04): the dirt rung is met by a stack of dirt + stone family (gather_dirt_16 held 22.8% of decisions)
   'bots/test/dirtrung.test.mjs',
   // sandrung-01 (11-07): the gatherer chain's sand rung retired (7.5% of fleet time, gather sand 11.7% ok, no sand reached a town)
