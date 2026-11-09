@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-09T16:20:01Z._
+_Generated 2026-11-09T17:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `3d8ef9de` = workboard-01 `3d8ef9de` (KEEP 11-09 15:04Z, promoted 11-09 15:14Z) on stuckclose-01 `bcdba35f` (KEEP 11-09 11:25Z, promoted 11-09 11:36Z) on scaftown-01b `c13e6732` (KEEP 11-09 03:48Z, promoted 11-09 03:58Z) on hivedrop-01 `ef774d02` (KEEP 11-08 21:17Z, promoted 11-08 21:28Z) on sandrung-01 `1e593b9b` (KEEP 11-08 12:33Z, promoted 11-08 12:44Z) on placeaudit-fleet-01 `17df15e2` (KEEP 11-08 09:04Z, promoted 11-08 09:14Z). Live builds: {'3d8ef9dee8b303201340e8cefe96aebd06773bc0+7e61ac': 65, '7d7978e8831edb211d7340db3ced5f824cfc4f80+67b00a': 15} |
 | **Canary in slot** | **pipeline-01** deployed 11-09 15:51Z; reads +90 11-09 17:21Z, +180 11-09 18:51Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | stuckfleet-01 -> stuckfleet-02 -> stoneworks-01 -> logcap-02 -> cobbleroom-01 -> gathermem-01 -> townmine-01 -> stationsback-01 -> glass-01 -> boardwalk-03 -> +16 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
+| **Queue (front)** | seapocket-01 -> stuckfleet-01 -> stuckfleet-02 -> stoneworks-01 -> logcap-02 -> cobbleroom-01 -> chestcarry-01 -> toolrank-01 -> gathermem-01 -> ironchain-01 -> +21 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: 7d7978e8831edb211d7340db3ced5f824cfc4f80 on placebo-d,board-c,board-d / S6 open loop: canary 7d7978e is deployed on placebo-d,board-c,board-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anyth |
-| **Showcase release** | `0988a0a8` (27,204 rows), `b9fa002e` (5,503 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 0988a0a8's protected tree: restack by hand; row 11-09 15:25Z) |
+| **Showcase release** | `0988a0a8` (21,720 rows), `a5ba4078` (10,839 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release a5ba4078's protected tree: restack by hand; row 11-09 16:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports?; **zoneguard-1109**: zoneguard-01show: accept that a drowning/suffocating bot no longer digs a tripwire-baseline cell for air, and that pours whose flow could reach a guarded cell are refused?; **townmine-1109**: townmine-01: depth feet -53 (owner O6) or -58 (11-09 ask)? keep one deep miner (O13) while the mine is being built? |
 | **Projects (daily audit)** | project audit fleet (11-09T12:05Z, 7 d, 172 projects, 14,239,977 lines / 80 bots): 3 underused, 90 effective, 53 unmeasured, 26 -; showcase: project audit showcase (11-09T12:05Z, 7 d, 33 projects, 1,909,532 lines / 15 bots): 1 dormant, 2 underused, 13 effective, 12 unmeasured, 5 - -- showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-09T15:35:01Z STALLED: 128. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 78 active alarm(s): stuck goals 15 (board-b/tidy@-249_65_144, board-c/tidy@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68, isolated-a/monument@355_73_147, isolated-a/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gkwork-01:h24, effectwatch effect:idlework-01:h72, effectwatch effect:kitmulti-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-09T16:35:01Z STALLED: 134. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 80 active alarm(s): stuck goals 17 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-c/tidy@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68, hive-d/tidy@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gkwork-01:h24, effectwatch effect:idlework-01:h72, effectwatch effect:kitmulti-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
