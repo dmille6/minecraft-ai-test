@@ -122,6 +122,7 @@ const REQUIRED = [
   'scripts/host/waterstrays.py',   // boardwalk-03: the genesis evidence of the bots' blocks standing in water (bots/src/waterstrays/*.json)
   'sandbox/woodworks/boardwalk3-proof.cjs',   // boardwalk-03: the Paper walkway-in-place / removal proof
   'docs/reports/boardwalk-03-2026-11-08.md',   // boardwalk-03: the design, the evidence and the pieces
+  'docs/reports/citywall-design-2026-11-09.md',   // citywall-1109: the wall upgrade + the landmarks (code on citywall-01show / citywall-01-on-bcdba35f)
   'docs/reports/roads-design-2026-11-09.md',   // roads-1109: traffic-routed stone roads + lantern posts (code on roads-01show / roads-01-on-bcdba35f)
   'docs/reports/villagecon-design-2026-11-09.md',   // villagecon-1109: bread for villagers, beds, pens + herd (code on villagefeed-01show / pens-01show / villagefeed-01-on-f9d70a5)
   'docs/reports/villagecon-2026-11-09/codex-design.txt',

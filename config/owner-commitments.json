@@ -6607,6 +6607,35 @@
    }
   },
   {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "citywall-1109",
+   "title": "Town wall upgrade + landmarks (owner 11-09): the cobble walls re-faced in place in stone/deepslate brick courses (never a gap), corner towers, a gatehouse at the main road, lights; a landmark catalogue (Claude + Codex reconciled: plaza/dry fountain, market cross, belfry, well house, pavilion, statue, lighthouse) sited per the town plan, seeded, from town stock, pictured, Paper-proven",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "citywall-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: BUILT, NOT RELEASED. Showcase citywall-01show 6c26e1ac (on showcase b9fa002e; tier 2): citywall.mjs phased wall generations with the in-place SWAP (buildrun.mjs swapDigOk: one 1x1 hole a segment at most), towers, inset road gatehouse, lamps, underpinning; civic.mjs 7 landmark kinds / 22 looks. Paper sandbox4: 22/22 looks + 21 orientation builds PASS; wall e2e 597/597 cells, 262 swaps, 0 gap violations. Offline (both showcase rings, waiver modelled): every phase complete, 0 gap violations (657 cells/42 waived; 706/67). Codex r1-r6 (r5, r6 NO BLOCKERS). Full suite ci2 485/486 (bagdiet orphan: base). Fleet port citywall-01-on-bcdba35f bde029bb (FLAT, dark): Paper 337/337, board-b offline every phase complete (393 cells/72 waived, 0 gaps); suite w30 421/425 (buildrun/oretunnel/plinth-skill pass alone: load; well: base mutant anchor absent). Registration ~/mcai-analysis/citywall-01.bde029bb.json effectwatch valid; draft queue entry; drawrec DRAW board-b, hive-b (10 bots). NOT queued. Next: owner D1-D3, then stage the showcase branch; civic on the fleet waits for townstyle-01 there.",
+   "owner_pending": "citywall-1109: the gatehouse on the extension's east road gateway (inset, 12-wide passage) as the default, or the north road R1 / the south side? Grey stone-brick face on the showcase, dark deepslate on the fleet?",
+   "evidence": {
+    "grep": [
+     "citywall-01show",
+     "citywall-01 (fleet",
+     "civic-01"
+    ],
+    "branches": [
+     "citywall-01show",
+     "citywall-01-on-bcdba35f"
+    ],
+    "paths": [
+     "docs/reports/citywall-design-2026-11-09.md"
+    ]
+   }
+  },
+  {
    "id": "showcase-stepwell-mine-door",
    "title": "Decorative entrance from the stepwell bottom into the town mine's first landing (visitors' grand way in; bots keep the mine stair)",
    "owner_date": "2026-11-09",
