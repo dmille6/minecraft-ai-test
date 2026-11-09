@@ -71,7 +71,7 @@ await t('THE SWAP RULE (swapDigOk): no hole open in the segment and the block in
   assert.strictEqual(R.swapDigOk(a, [a, b, c], { clear, has }), false, 'a dug cell stands open: the next waits')
   assert.strictEqual(R.swapDigOk(a, [a, b, c], { clear, has, tries: () => 9 }), false, 'a dug cell blocks whatever its attempts')
   air.clear()
-  const u = { at: [0, 69, 0], role: 'cw-foot' }   // an underpinning cell (no sw): open and placeable
+  const u = { at: [5, 69, 0], role: 'cw-foot' }   // an underpinning cell (no sw) of another column: open and placeable
   air.add(k3(u.at))
   assert.strictEqual(R.swapDigOk(a, [u, a, b], { clear, has }), false, 'the underpinning first')
   assert.strictEqual(R.swapDigOk(a, [u, a, b], { clear, has, tries: () => 2 }), true, 'an added cell whose attempts are spent holds nothing back')
@@ -79,11 +79,15 @@ await t('THE SWAP RULE (swapDigOk): no hole open in the segment and the block in
   air.add(k3(c.at))
   assert.strictEqual(R.swapDigOk(a, [u, a, b, c], { clear, has, fillable: () => false }), false, 'a DUG cell holds the next dig whatever its stands')
   air.delete(k3(c.at))
-  const u2 = { at: [0, 68, 0], role: 'cw-foot' }
+  const u2 = { at: [5, 68, 0], role: 'cw-foot' }
   air.add(k3(u2.at))
   // the upper underpinning waits on the lower (open below it): only the lower blocks
   air.delete(k3(u2.at))
   assert.strictEqual(R.swapDigOk(a, [u2, u, a], { clear: q => q === u, has }), true, 'a clear cell waiting on an open one below it is not a hole now')
+  // NEVER OVER A HOLE in its own column (offline board-b 11-09: a dug plinth over a spent underpinning could not be placed again)
+  const under = { at: [0, 70, 0], role: 'cw-foot' }
+  assert.strictEqual(R.swapDigOk(a, [under, a], { clear: q => q === under, has, tries: () => 2 }), false, 'a spent hole under it: never dug')
+  assert.strictEqual(R.swapOverHole(a, [under, a], q => q === under), true)
 })
 
 let SRV = null, REC = null, DES = null
