@@ -147,6 +147,8 @@ import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BU
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
+import { planaheadOn, planReachAsync, reachTag, puWaiveDue, standClaims, standRetire, plannedWorld } from './planahead.mjs'   // planahead-01
+import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock, tidyDeadOn } from './stuckcells.mjs'   // stuckcells-01, tidydead-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { canopyOn, naturalProps } from './canopy.mjs'   // canopy-01
@@ -19629,6 +19631,45 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   return { home, avoid, cells, pin, plan: P.plan }
 }
 const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+const PLANAHEAD_ON = planaheadOn()   // planahead-01 (PLANAHEAD=off: no reach tag, no plan waiver, no stand claims)
+/** planahead-01: is a planned cell of another record read FINISHED (a clear dug, a cell or fill laid)? Unread: not finished. Pure over `read`. */
+const paDone = read => (r, c) => { const b = read(...c.at); if (!b) return false; return c.role === 'clear' ? b.boundingBox === 'empty' : b.boundingBox !== 'empty' && !paReplaceable(b) }
+/** planahead-01: every project's record (plot named) -> [rec]. Never throws (none). */
+const paRecords = () => { try { return projectHeads().map(x => ({ ...x.head.rec, plot: x.head.rec?.plot ?? x.plot })) } catch { return [] } }
+/**
+ * PLANAHEAD-01: A NEW TIDY STAGE PLANNED AHEAD -> the body to publish. Never throws. (1) the open buildings' proof STANDS are claimed:
+ * a stage fill on a stand's feet or head, a cut of its floor, is never planned (planahead.mjs standRetire); (2) the REACH TAG: the stage's
+ * open cuts and fills worked to a fixed point in the town's own walk, in the planned world of the other open records (planReachAsync);
+ * the cells no order reaches are tagged `pu` -- a tag, never a waiver (a live visit's own miss confirms it: puWaiveDue). An unread
+ * cell, an error or the budget: an `unchecked` tag (tags nothing: the stage publishes as before).
+ */
+async function tidyPlanAhead (bot, body0, home, stood, signal = null) {
+  let body = body0
+  try { const sc = standClaims(paRecords()); const nx = standRetire(body0, sc); if (nx) body = nx } catch { body = body0 }
+  try {
+    const read = tidyRead(bot), waived = body?.waived ?? {}
+    const fills = [], cuts = []
+    let unread = 0
+    for (const q of body?.cells ?? []) {
+      if (!Array.isArray(q?.at) || q.prev || Object.prototype.hasOwnProperty.call(waived, q.at.join(','))) continue
+      const b = read(...q.at)
+      if (!b) { unread++; continue }
+      if (!buildCellDone(b, TIDY_PALETTE, q.role)) fills.push(q)
+    }
+    for (const q of [...(body?.cut ?? []), ...(body?.clear ?? [])]) {
+      if (!Array.isArray(q?.at) || q.prev) continue
+      const b = read(...q.at)
+      if (!b) { unread++; continue }
+      if (b.boundingBox !== 'empty') cuts.push(q.at)
+    }
+    if (unread) return { ...body, reach: { ...reachTag({ state: 'unchecked', open: { fills: fills.length, cuts: cuts.length } }), why: `unread:${unread}` } }
+    const planned = plannedWorld(paRecords(), { self: TIDY_PLOT, done: paDone(read) })
+    const p = bot?.entity?.position
+    const feet = p ? [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)] : null
+    const r = await planReachAsync(read, fills, cuts, { home, stood: feet ? [...stood, feet] : stood, walkR: tidyWalkR(body), planned }, { aborted: () => !!signal?.aborted })
+    return { ...body, reach: { ...reachTag(r), ...(r.why ? { why: r.why } : {}) } }
+  } catch (e) { return { ...body, reach: { ...reachTag({ state: 'unchecked' }), why: `error:${String(e?.message ?? e).slice(0, 40)}` } } }
+}
 
 // ================================================================================================================================
 // STATIONS-01 SWEEP (stations.mjs): THE GROUNDSKEEPERS TAKE UP THE TOWN'S STRAY TABLES AND FURNACES. The tidy's visit (the keeper and
@@ -20013,7 +20054,11 @@ async function buildTidy (ctx, args, signal) {
     const sk = s.k ?? 0
     // gkforever-01 CLOCK: any due record takes the new generation (the survey may start below the record's stage: the interior)
     const fresh = GKFS.clock ? (cur => !cur || gkfDueOf(cur).due) : (cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (Number(cur.stage) || 0) < sk))
-    const body0 = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: sk } : {}) }
+    const bodyP = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: sk } : {}) }
+    // planahead-01: the stage is planned ahead BEFORE it is published (tidyPlanAhead: the open buildings' stands kept, the reach tagged),
+    // and one `_build op=reach` row says the supply
+    const body0 = PLANAHEAD_ON && GROUNDS.on && s.record ? await tidyPlanAhead(bot, bodyP, home, stood, signal) : bodyP
+    if (body0.reach) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'reach', seg: `stage${sk}`, kind: body0.reach.state, n: body0.reach.n, to: body0.reach.open, result: `${body0.reach.passes}/${body0.reach.checked}/${body0.reach.ms ?? '-'}ms`, why: `${body0.reach.why ?? '-'};stands:${Object.values(body0.standClaimed ?? {}).reduce((a, b) => a + b, 0)}` }) }) } catch { /* telemetry */ } }
     // gkforever-01: the record carries the interior's audit clock and the given-up cells
     const now1 = Date.now(), prevG = rh.head?.rec?.gkf ?? null
     const body = GKFS.clock || GKFS.dead ? { ...body0, gkf: { interiorAt: k0 === 0 ? now1 : (prevG?.interiorAt ?? null), from: k0, why: gkD?.why ?? 'first' }, ...(GKFS.dead && rh.head ? { gkfDead: gkfDeadCarry(rh.head.rec, { now: now1 }) } : {}) } : body0
@@ -20117,7 +20162,10 @@ async function buildTidy (ctx, args, signal) {
       const waive0 = wallWaiveDue(rec, r.deferred ?? [], GROUNDS.on ? gkWaiveOpts(rec, WALL_WAIVE_MAX) : {})
       // gkwork-01 rule 4: a STALLED stage (stuck_on_cell: nothing else open) whose waiver room is spent waives the cells the town's stuck
       // map has counted past the tenth (gkwork.mjs stallWaive), so the cells waiting on them become work
-      const waive = GKW_ON && GROUNDS.on && !waive0.length ? stallWaive(rec, r.deferred ?? [], { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
+      const waive1 = GKW_ON && GROUNDS.on && !waive0.length ? stallWaive(rec, r.deferred ?? [], { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
+      // planahead-01: a cell the stage's plan tagged unreached that THIS visit deferred too is waived now (two independent negatives:
+      // planahead.mjs puWaiveDue), in the same room as the waivers above
+      const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1 })] : waive1
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || !tidySameGen(cur, rec)) return null
