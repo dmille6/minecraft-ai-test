@@ -32,6 +32,7 @@ import { TOWN_COBBLE_CAP } from './stocktarget.mjs'
 import { matsReserve } from './mats.mjs'   // the owner's reserve table, read through its one reader (matset.test)
 import { siteDress, DRESS } from './towndress.mjs'   // towndress-01: the fourth sink, lights and signs
 import { siteDecor, DECOR, decorFlowerRole } from './decorator.mjs'   // decorator-01: the fifth sink, the decorator's flowers and pots
+import { siteRoad2 } from './roads.mjs'   // roads-01: the road sink on the bots' travel lines (ROADS2)
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => `${a[0]},${a[1]},${a[2]}`
@@ -143,14 +144,15 @@ export const sinkOpen = rec => !!rec && instancesOf(rec).length > 0 && !rec.stru
  * only on a positive pressure, never with the kind switched off or its precondition missing (`ready`: a road needs the land
  * plan's rails, a shrine the ziggurat, towers nothing).
  */
-export function sinkNextGate ({ kind, rec = null, pressure = null, openCount = 0, noSiteUntil = 0, now = 0, ready = true, on = true } = {}) {
+// roads-01: `max` overrides the kind's instancesMax (ROADS2: roads.mjs ROADS.instancesMax -- every route of the town, ~16 rows an instance)
+export function sinkNextGate ({ kind, rec = null, pressure = null, openCount = 0, noSiteUntil = 0, now = 0, ready = true, on = true, max = null } = {}) {
   if (!on) return { want: false, why: 'off' }
   if (!SINK_KINDS.includes(kind)) return { want: false, why: 'kind' }
   if (!ready) return { want: false, why: 'not_ready' }
   if (sinkOpen(rec)) return { want: false, why: 'open' }
   // decorator-01: a decor batch spends flowers and pots, never stone: no stone sink holds it back
   if (kind !== 'dress' && kind !== 'decor' && openCount >= SINK.maxOpen) return { want: false, why: 'max_open' }
-  if (instancesOf(rec).length >= (SINK.instancesMax[kind] ?? 0)) return { want: false, why: 'max_instances' }
+  if (instancesOf(rec).length >= (Number.isFinite(max) ? max : (SINK.instancesMax[kind] ?? 0))) return { want: false, why: 'max_instances' }
   if (now < (Number(noSiteUntil) || 0)) return { want: false, why: 'no_site_wait' }
   if (!(Number(pressure?.p) > 0)) return { want: false, why: 'no_pressure' }
   return { want: true, why: 'ok' }
@@ -619,7 +621,9 @@ const EMPTY = name => Object.freeze({ name, boundingBox: 'empty' })
  *      `localR`) reaches, the cells still to place obstacles and never floors; every placed cell is a floor from then on.
  * `domain(x, z)` the stands' domain (the instance's box + 6). Lights and fires are walk-through (never obstacles, never floors).
  */
-export function proveBuild (read, home, inst, { stood = [], walkR = 48, domain = () => true, approach = [], localR = 14, reach = true } = {}) {
+// roads-01 (`floors`: a Set of the road's bottom-slab cell keys): such a cell is a floor of the walk (buildsite.mjs walkFrom's reroof-04
+// rule), and a cell that names a world state (`ws`) is laid in the overlay with its props, so the walk reads the slab rows it places
+export function proveBuild (read, home, inst, { stood = [], walkR = 48, domain = () => true, approach = [], localR = 14, reach = true, floors = null } = {}) {
   const over = new Map()
   for (const c of inst.clear ?? []) over.set(kOf(c.at), EMPTY('air'))
   const R = overlay(read, over)
@@ -628,7 +632,7 @@ export function proveBuild (read, home, inst, { stood = [], walkR = 48, domain =
   let town0 = new Set()
   if (reach) {
     const ov = new Map([...(inst.clear ?? []).map(c => [kOf(c.at), EMPTY('air')]), ...inst.cells.filter(c => /-F$/.test(c.seg)).map(c => [kOf(c.at), SOLID('cobblestone')])])
-    town0 = walkFrom(overlay(read, ov), home, new Set(), walkR, { stood })
+    town0 = walkFrom(overlay(read, ov), home, new Set(), walkR, { stood, floors })
     if (!approach.some(a => town0.has(kOf(a)))) return { ok: false, why: 'unreachable', detail: `approach ${approach.map(kOf).slice(0, 2).join('/')}`, walks: 1 }
   }
   const byCol = keys => { const m = new Map(); for (const k of keys) { const [x, y, z] = k.split(',').map(Number); const c = `${x},${z}`; if (!m.has(c)) m.set(c, []); m.get(c).push(y) } return m }
@@ -638,7 +642,7 @@ export function proveBuild (read, home, inst, { stood = [], walkR = 48, domain =
   let walks = 0
   for (const sg of inst.segments) {
     const left = inst.cells.filter(c => c.seg === sg.seg).sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
-    const walkNow = () => { walks++; return byCol(walkFrom(R, local, new Set(left.filter(c => !open(c)).map(c => kOf(c.at))), localR, { stood: approach })) }
+    const walkNow = () => { walks++; return byCol(walkFrom(R, local, new Set(left.filter(c => !open(c)).map(c => kOf(c.at))), localR, { stood: approach, floors })) }
     let nodes = walkNow(), fresh = true
     while (left.length) {
       let pick = -1, step = null
@@ -647,7 +651,7 @@ export function proveBuild (read, home, inst, { stood = [], walkR = 48, domain =
       if (pick < 0) return { ok: false, why: 'no_step', detail: `${sg.seg} ${left.length} left, first ${left[0].role}@${kOf(left[0].at)}`, walks }
       fresh = false
       const c = left.splice(pick, 1)[0]
-      over.set(kOf(c.at), open(c) ? EMPTY(nameOf(c)) : SOLID(nameOf(c)))
+      over.set(kOf(c.at), open(c) ? EMPTY(nameOf(c)) : c.ws ? Object.freeze({ name: nameOf(c), boundingBox: 'block', props: c.ws }) : SOLID(nameOf(c)))
     }
   }
   return { ok: true, why: 'ok', walks }
@@ -928,6 +932,9 @@ export function siteSink (read, ctx = {}) {
     }
     return { ok: false, why: proofs >= tries ? 'no_proven_site' : 'no_site', tried: firstFail ? [...tried, `first:${firstFail}`] : tried, proofs, rejects }
   }
+  // roads-01 (ROADS2): the road sink's instances follow the traffic routes (roads.mjs siteRoad2: routed, graded, lamps) -- the caller
+  // passes `roads2` (the routes, the ring, the landing test) only when the switch is on and the town's traffic file reads
+  if (kind === 'road' && ctx.roads2) return siteRoad2(read, { ...ctx, ...ctx.roads2 })
   if (kind === 'road') {
     const rails = roadRails(ctx.land)
     if (!rails.length) return { ok: false, why: 'no_rails', tried }
@@ -976,12 +983,15 @@ export function appendInstance (cur, { kind, home, inst, meta, plan = null, now 
   const b = meta.box
   // towndress-01: a dress batch names its own zones (each fixture's column + 1: a town-wide box would fence the town off)
   // decorator-01: a decor batch too (each ornament's own column)
-  const zs = (kind === 'dress' || kind === 'decor') && Array.isArray(meta.zones) ? meta.zones : [{ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${SINK_PLOTS[kind]}:${meta.id}` }]
+  // roads-01: a road2 instance names its zones too (each node's square: a winding road's box would fence a field off)
+  const zs = (kind === 'dress' || kind === 'decor' || (kind === 'road' && meta?.design?.kind === 'road2')) && Array.isArray(meta.zones) ? meta.zones : [{ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${SINK_PLOTS[kind]}:${meta.id}` }]
   const walkR = Math.max(Number(base.walkR) || 0, sinkWalkR(inst.cells, home))
   return {
     ...base, instances: [...instancesOf(base), { ...meta, cells: inst.cells.length, sitedAt: meta.sitedAt ?? now }],
     cells: [...base.cells, ...inst.cells], clear: [...(base.clear ?? []), ...(inst.clear ?? [])], segments: [...base.segments, ...inst.segments], palette: { ...base.palette, ...inst.palette },
     zones: [...(base.zones ?? []), ...zs], walkR, structure_complete: false, state: 'open', ...(plan ? { plan } : {}),
+    // roads-01: the road's FRONT (its routes' landing columns) -- the paths' destination (paths.mjs pathDests: a record's `front`)
+    ...(kind === 'road' && Array.isArray(meta.front) ? { front: [...(base.front ?? []), ...meta.front] } : {}),
     bom: { ...(base.bom ?? {}), [meta.id]: inst.cells.length },
   }
 }

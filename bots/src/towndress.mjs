@@ -49,7 +49,9 @@ export const LIGHT_BLOCK = /^(torch|wall_torch|soul_torch|soul_wall_torch|copper
 /** Is a role a dress SIGN cell (`L3-sign`)? Pure. */
 export const dressSignRole = role => /^L\d+-sign$/.test(String(role ?? ''))
 /** Is a role a dress light (`L3-light`)? Pure. */
-export const dressLightRole = role => /^L\d+-light$/.test(String(role ?? ''))
+export const dressLightRole = role => /^L\d+-(light|lamp)$/.test(String(role ?? ''))
+/** lamps-01 (LAMPS2): a lamp's or a wall top's lantern (`L7-lamp`: a lantern, a torch if none) and a lamp's fence post (`L7-fpost`). */
+export const LAMP_FENCES = Object.freeze(['spruce_fence', 'oak_fence', 'birch_fence', 'dark_oak_fence', 'jungle_fence', 'acacia_fence', 'cherry_fence', 'mangrove_fence', 'bamboo_fence', 'pale_oak_fence'])
 
 // ---- the names on the signs -------------------------------------------------------------------------------------------------------
 /** The building each finished record names (plot -> the sign's first line, <= 15 characters). Pure. */
@@ -318,13 +320,18 @@ export function walkNodes (read, home, { stood = [], walkR = 64, block = new Set
  * (`L3-P0` ...: no barrier between them, so three builders take three fixtures), its post cells bottom up, its light, a signpost's
  * sign cell (role `L3-sign`: the label writer's, never runVisit's). Zones: each fixture's column + 1 (a wall top: its own column).
  */
-export function dressInstance (id, fixtures) {
+// lamps-01 (`lamps2`, LAMPS2 on): a LAMP is a fence post with a LANTERN on top (`<id>-fpost`, `<id>-lamp`: a torch when the bag has no
+// lantern), a WALL TOP a lantern on the merlon (`<id>-lamp`); a signpost keeps its stone post and its torch (the torch may hang on the
+// post's side: a lantern cannot)
+export function dressInstance (id, fixtures, { lamps2 = false } = {}) {
   const roles = { [`${id}-post`]: POST_NAMES.slice(), [`${id}-light`]: ['torch'], [`${id}-sign`]: WALL_SIGNS.slice() }
+  if (lamps2) { roles[`${id}-fpost`] = LAMP_FENCES.slice(); roles[`${id}-lamp`] = ['lantern', 'torch'] }
   const cells = [], zones = [], cols = [], signs = []
   fixtures.forEach((f, k) => {
     const seg = `${id}-P${k}`
-    for (const p of f.post) cells.push({ at: p.slice(), role: `${id}-post`, seg })
-    cells.push({ at: f.light.slice(), role: `${id}-light`, seg })
+    const lantern = lamps2 && (f.kind === 'lamp' || f.kind === 'walltop')
+    for (const p of f.post) cells.push({ at: p.slice(), role: lantern ? `${id}-fpost` : `${id}-post`, seg })
+    cells.push({ at: f.light.slice(), role: lantern ? `${id}-lamp` : `${id}-light`, seg })
     if (f.sign) { cells.push({ at: f.sign.at.slice(), role: `${id}-sign`, seg }); signs.push({ ...f.sign, for: f.for, seg }) }
     const m = f.post.length ? 1 : 0
     const [x, , z] = f.light
@@ -377,10 +384,10 @@ export function siteDress (read, ctx = {}) {
   const batch = pickBatch({ signposts, lamps, walltops, lit, torches, ok })
   tried.push(`lit${lit.length} proofs${proofs}`)
   if (!batch.length) return { ok: false, why: 'no_site', tried, proofs }
-  const inst = dressInstance(id, batch)
+  const inst = dressInstance(id, batch, { lamps2: !!ctx.lamps2 })
   const meta = { id, n, kind: DRESS_KIND, design: { kind: DRESS_KIND, fixtures: batch.map(f => ({ kind: f.kind, at: f.at, ...(f.for ? { for: f.for } : {}) })) }, summary: dressSummary(batch),
     box: inst.box, zones: inst.zones, cols: inst.cols, signed: batch.filter(f => f.for).map(f => f.for), signs: inst.signs,
-    approach: [batch[0].sign?.stand ?? batch[0].light], centre: [batch[0].at[0], batch[0].at[2]], torches: batch.length }
+    approach: [batch[0].sign?.stand ?? batch[0].light], centre: [batch[0].at[0], batch[0].at[2]], torches: batch.length, ...(ctx.lamps2 ? { lamps2: 1 } : {}) }
   return { ok: true, inst, meta, tried, proofs }
 }
 
