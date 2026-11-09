@@ -6617,11 +6617,7 @@
    "lane": "progress",
    "state": "parked",
    "owner": "control session",
-   "depends_on": [
-    {
-     "item": "townmine and stepwell both built and stable on the showcase"
-    }
-   ],
+   "depends_on": [],
    "next_step": "OWNER 11-09: 'lets add the decorative way into the mine at a later date, add it to the bottom of the queue' -- design (Claude+Codex, pictures) after townmine-01show + stepwell descent are live and read clean; no overlap with mine cells; water sealed",
    "evidence": {
     "runs": [],
@@ -6632,6 +6628,10 @@
      "stepdoor"
     ],
     "paths": []
+   },
+   "parked": {
+    "until": "2026-12-01",
+    "why": "OWNER 11-09: bottom of the queue; waits for townmine-01show and the stepwell descent to be live and read clean on the showcase"
    }
   },
   {
