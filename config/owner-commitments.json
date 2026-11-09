@@ -6664,6 +6664,34 @@
     ]
    },
    "note": "11-09: Bravo surfaced a 63-block shaft into the ocean floor under an old cobble/dirt column; the air-pocket rescue (seal=4) sealed its head cell; the way out is 9 cells with a head-wet run of 6 (base bound 5). Every rung refused (flood guard, plugcut, breach, pocket dig, swim)."
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "ironchain-1109",
+   "title": "Iron chain (owner 11-09 'lets do 1,2,3', idea #3: a fixed recipe/tool chain) -- measured first; coordinator: build B (the ore tunnel's target) and C (iron pickaxe for swings), tier 3 both engines; D (chest-first ladder rungs) dropped; A = logcap-02",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "ironchain-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: ironchain-01 (B) a9a73984 on fleet bcdba35f (branch ironchain-01-on-bcdba35f): the ore tunnel aims only at ore gather may take (184/246 'tunnelled, still buried' were the town stair's lining); Codex + Claude r1 no blockers; Paper sandbox8 base 0/2 iron, cand 3/3 'collected 2 iron_ore'. ironchain-02 (C) 02cd74b1 (branch ironchain-02-on-bcdba35f): iron_pickaxe admitted only for the swing reserve with no iron -> stone_pickaxe (95/110 short-ingot crafts); Codex r1 2 blockers fixed, r2 none; Claude r1 none. Suites w30 418/425 + 419/425 (base set only). Registrations + draft entries ~/mcai-analysis/ironchain-0{1,2}.* on .31, NOT queued -- control session queues (P lane, any draw with a built town stair; never pin isolated-*/placebo-c). NEXT: read +90/+180; showcase port after a fleet KEEP.",
+   "evidence": {
+    "grep": [
+     "ironchain-01",
+     "ironchain-02"
+    ],
+    "branches": [
+     "ironchain-01-on-bcdba35f",
+     "ironchain-02-on-bcdba35f"
+    ],
+    "paths": [
+     "docs/reports/ironchain-2026-11-09.md"
+    ]
+   },
+   "note": "Fleet 6 h to 11-09 13:10Z: gather 3,250/8,269 ok; fail classes path 29.7%, unsafe 23.4%, interrupted 18.4%, no stand 11.0%, buried 10.2%, wrong tool 0.1% (0/3,221 iron gathers lacked a pickaxe); dirt 0 in all 29 town indexes; 1,887 of 3,591 gathered logs junked (logcap-02)."
   }
  ]
 }
