@@ -771,16 +771,22 @@ export const stairFeetOf = keys => { const ks = new Set(keys); return new Set([.
  * the roof's slabs landings) is RISKY -- the visit's fall guard would avoid it, so a roof reached only over it has no stand (the storehub's
  * ridge 13,76,-54: the stair's top 21,74,-60 drops east into the 4-cell strip 22..25,69,-60 with no way back).
  */
-export function reroofStairSafe (read, home, cells = [], keys = new Set(), { stood = [], walkR = 90, box = null } = {}) {
+export function reroofStairSafe (read, home, cells = [], keys = new Set(), { stood = [], walkR = 90, box = null, clear = [] } = {}) {
   const over = new Map()
   const COB = Object.freeze({ name: 'cobblestone', boundingBox: 'block', props: null })
+  // Codex r6e BLOCKER: the world AFTER the listed clears (dug before the stair is used: a leaf beside a step is gone then)
+  const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty', props: null })
+  for (const c of clear ?? []) if (Array.isArray(c?.at)) over.set(c.at.join(','), AIRB)
   for (const c of cells ?? []) { if (!Array.isArray(c?.at)) continue; const t = c.ws?.type; over.set(c.at.join(','), t ? { name: 'spruce_slab', boundingBox: 'block', props: { type: t } } : COB) }
   for (const k of keys) over.set(k, COB)
   const R2 = reroofNoLeafFloor(overlay(read, over))
   const floors = reroofFloors(cells)
   const walk = walkFrom(R2, home, new Set(), walkR, { stood, floors })
-  const risk = reroofFallRisk(R2, walk, { box, floors, pad: FALL_PAD + 3, recover: true })
-  const risky = [...stairFeetOf(keys)].filter(k => risk.has(k))
+  const feet = [...stairFeetOf(keys)]
+  // ...and every step is judged, walked or not (Codex r6e: an unwalked step was never judged)
+  const judged = new Set([...walk, ...feet])
+  const risk = reroofFallRisk(R2, judged, { box, floors, pad: FALL_PAD + 3, recover: true })
+  const risky = feet.filter(k => risk.has(k))
   return { ok: !risky.length, risky }
 }
 /** The record's temporary stand cells still in `cells` -> [cell]. Pure. */
@@ -947,7 +953,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  stair', set.map(st => JSON.stringify(st.eave)).join('+'), keys.size, q.ok ? 'OK' : `${q.why} ${q.detail}`)
     if (!q.ok) continue
     // r6: a stair one of whose steps would drop a builder where it cannot walk back is not taken (the visit's fall guard avoids it)
-    if (fx.fallSafe) { await tick(); const sf = reroofStairSafe(read, home, q.cells, keys, { stood, walkR, box: rec.box }); if (!sf.ok) { if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    unsafe', sf.risky.join(' ')); continue } }
+    if (fx.fallSafe) { await tick(); const sf = reroofStairSafe(read, home, q.cells, keys, { stood, walkR, box: rec.box, clear }); if (!sf.ok) { if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    unsafe', sf.risky.join(' ')); continue } }
     await tick()
     const r = await reach(clear, q, keys)
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    reach', r.ok ? 'OK' : unreached(r))
