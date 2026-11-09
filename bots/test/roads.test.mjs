@@ -285,7 +285,12 @@ await t('MUTANT KILLED: a dress lamp without the lamps2 roles keeps its torch', 
 await t('STRUCTURE: skills.mjs hands the road siting its routes, kits a road visit, gives runVisit the slab floors, and lets the road take the land plan\'s corridors', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/\.\.\.\(kind === 'road' && roads2On\(\) \? \{ roads2: roads2Sited\(\) \} : \{\}\)/.test(src), 'the siting ctx carries roads2')
-  assert.ok(/if \(kind === 'road' \|\| \(kind === 'dress' && lampsOn\(process\.env, config\.memory\.pool\)\)\) \{/.test(src), 'the kit runs on a road visit')
+  const kitAt = src.indexOf("if (kind === 'road' || (kind === 'dress' && lampsOn(process.env, config.memory.pool))) {")
+  assert.ok(kitAt > 0, 'the kit runs on a road visit')
+  // the kit crafts BEFORE the visit's bag accounting (bag0 = held0): a craft inside it is unexplained loss to shopread G8
+  const fnAt = src.lastIndexOf('async function buildSink', kitAt)
+  const held0At = src.indexOf('const held0 = heldMap(bot)', fnAt)
+  assert.ok(fnAt > 0 && held0At > kitAt, 'the kit comes before the visit takes held0')
   assert.ok(/\.\.\.\(kind === 'road' \? \{ floors: roadFloors\(rec\) \} : \{\}\)/.test(src), 'runVisit gets the road\'s slab floors')
   assert.ok(/roadOwn && \/\^\(land:road\|project:paths\)\//.test(src), 'the road guard opens the land plan\'s road corridors')
   assert.ok(/max: kind === 'road' && roads2On\(\) \? ROADS\.instancesMax : null/.test(src), 'the gate gets the road2 instance cap')
