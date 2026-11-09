@@ -386,6 +386,9 @@ export function digReachFrom (feet, cell) {
  */
 export function swapDigOk (cell, open, { clear, tries = () => 0, has, fillable = () => true }) {
   if (!has(cell)) return false
+  // never a cell over an OPEN HOLE in its own column (an underpinning not filled): dug, it could not be placed again -- the bottom-up
+  // rule holds a cell over an open one (offline on board-b 11-09: a dug plinth over a spent underpinning stood open for good)
+  if (swapOverHole(cell, open, clear)) return false
   for (const o of open) {
     if (o === cell || !clear(o)) continue
     if (o.sw) return false
@@ -394,6 +397,8 @@ export function swapDigOk (cell, open, { clear, tries = () => 0, has, fillable =
   }
   return true
 }
+/** citywall-01: does an open clear cell stand under this one in its column (a hole the swap must not build over)? Pure. */
+export const swapOverHole = (cell, open, clear) => open.some(o => o !== cell && o.at[0] === cell.at[0] && o.at[2] === cell.at[2] && o.at[1] < cell.at[1] && clear(o))
 export function digStand (read, cell, nodes) {
   const [cx, cy, cz] = cell
   let best = null, bd = Infinity
@@ -1168,6 +1173,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         let swapNodes = null
         const fillable = q => { swapNodes ??= nodesFor(new Set(open.filter(o => o.role !== 'light').map(o => kOf(o.at)))); return !!stepFor(rd, home, q.at, swapNodes, domain) }
         const swapOk = c => !p.swap || !c.sw || swapDigOk(c, open, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!blockFor(palette, q.role, e.has), fillable })
+        // a swapped cell left standing over a hole no stand fills (its underpinning spent) is DEFERRED once -- the waiver closes it as its
+        // old block -- never held open for good
+        if (p.swap) for (const c of open) if (c.sw && !isClear(c.at) && !sealed.has(kOf(c.at)) && swapOverHole(c, open, q => isClear(q.at) && (tries.get(kOf(q.at)) ?? 0) >= BUILD_ATTEMPTS)) { sealed.add(kOf(c.at)); deferredCells.push(kOf(c.at)); deferredSegs.add(seg); deferWhy.set(kOf(c.at), 'swap hole_under') }
         const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && swapOk(c) }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name, scaffoldRe)
