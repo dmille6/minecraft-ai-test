@@ -25518,6 +25518,13 @@ async function buildSink (ctx, args, signal, proj) {
     } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
     check(signal)
   }
+  // roads-01: a road visit (and a LAMPS2 dress visit) first makes what the open cells owe that no chest stocks: slabs at a table from
+  // bricks or cobble, fences from planks, lanterns from iron nuggets and a torch (roadKit; bounded, its own row). BEFORE the visit's bag
+  // accounting opens (bag0, the drawn record): a craft inside it reads as unexplained loss (shopread G8), as decorPostKit's would
+  if (kind === 'road' || (kind === 'dress' && lampsOn(process.env, config.memory.pool))) {
+    try { const kt = await roadKit(ctx, rec, palette, signal); if (kt.made) f.kit = kt.made } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
+    check(signal)
+  }
   const slot = takeSlot(dir, key, me, buildersOf(proj))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -25594,12 +25601,6 @@ async function buildSink (ctx, args, signal, proj) {
     const leave = rec?.waived && SINK_WAIVE.on && kind !== 'dress' && kind !== 'decor' ? { ...leave0, alsoDone: q => sinkWaived(rec, q) } : leave0
     // the showcase atlas+decorator fold (Codex fold r4 BLOCKER): held decor work stays PENDING -- the batch never completes while any of
     // its cells or clears was left out for a hold
-    // roads-01: a road visit (and a LAMPS2 dress visit) first makes what the open cells owe that no chest stocks: slabs at a table from
-    // bricks or cobble, fences from planks, lanterns from iron nuggets and a torch (roadKit; bounded, its own row)
-    if (kind === 'road' || (kind === 'dress' && lampsOn(process.env, config.memory.pool))) {
-      try { const kt = await roadKit(ctx, rec, palette, signal); if (kt.made) f.kit = kt.made } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-      check(signal)
-    }
     const vrecD = kind === 'decor' ? decorUnheld(rec) : rec
     const heldOut = kind === 'decor' ? ((rec.cells ?? []).length - (vrecD.cells ?? []).length) + ((rec.clear ?? []).length - (vrecD.clear ?? []).length) : 0
     const r = await runVisit({ dir, key, me, home, stood, record: vrecD, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.sinkStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
