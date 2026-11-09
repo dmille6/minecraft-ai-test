@@ -355,11 +355,16 @@ export function bridgeSites (lines = []) {
       // bridges-01: the site's DESIGN, named once before its first block (never changed after); its span may be the design's own
       // (designSpan: islets, banks) when the site was sighted for a design
       if (l.design?.style && !s.design && !s.mat) s.design = l.design
-      if (l.nodesign && !s.design) s.nodesign = String(l.nodesign)   // bridges-01: the design did not fit at the site: the legacy bridge
+      if (l.nodesign && !s.design) { s.nodesign = String(l.nodesign); s.nodesignAt = Math.max(s.nodesignAt ?? 0, Number(l.t) || 0) }   // bridges-01: the design did not fit at the site
     }
   }
   return sites
 }
+/** bridges-01 fold (Codex BLOCKER: a refused design waited for good -- the next trip skipped it, and with designs on a new site never
+ *  falls back): a site whose design did not fit WAITS NODESIGN_RETRY_MS from its last refusal, then a trip reads the fit again (the
+ *  obstruction may be gone: a tree felled, water flowed). While it waits it is no trip's pick, so it never holds the other sites. Pure. */
+export const NODESIGN_RETRY_MS = 6 * 60 * 60_000
+export const designWaits = (site, now = 0) => !!site?.nodesign && !site?.design && now - (Number(site.nodesignAt) || 0) < NODESIGN_RETRY_MS
 /** THE SITE TO BUILD NOW -> site | null. Pure. Not complete, seen by >= SITE_SEEN trips, fewer than 3 failed visits in 24 h; the most
  *  seen first, then the narrowest. */
 export function bridgeToBuild (sites = [], now = 0) {
