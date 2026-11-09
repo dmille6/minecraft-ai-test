@@ -929,7 +929,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const builtDone = c => roleAt.has(kOf(c.at)) && isDone({ at: c.at, role: roleAt.get(kOf(c.at)) }, e.read)
     // THE TIDY (p.tidy, zigtidy-01: ziggurat.mjs zigTidy -- the climbing pillars left on a finished build's treads, never record
     // cells): dug after the record's own clears, highest first, under the same lease and the same per-call bound
-    const todo = [...(record.clear ?? []).filter(c => unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name).sort((a, b) => a.at[1] - b.at[1]),
+    // reroof-04 r6: a listed jump-apex leaf (`apex: 1`, reroof.mjs reroofApexLeaves) is never dug by this pass -- low before high it walked a
+    // builder down into the pit beside the workshop (Paper 11-08) -- only by the walk, before a jump-up it plans needs it (buildbot apexDig)
+    const todo = [...(record.clear ?? []).filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name)).sort((a, b) => a.at[1] - b.at[1]),
       ...(p.tidy ?? []).filter(c => !roleAt.has(kOf(c.at)) && nm(e.read(...c.at)) === c.name).sort((a, b) => (p.tidyKeepOrder ? 0 : b.at[1] - a.at[1]))]
     // groundskeeper-01 (`p.tidyKeepOrder`): the caller's order is kept -- the town tidy's cuts chained column by column from the
     // bot (tidy.mjs chainCuts: top first within a column), not highest first across the town (a walk across it between two digs)

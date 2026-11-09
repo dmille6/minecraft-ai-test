@@ -59,7 +59,7 @@ await t('WIRED: the build walk plans with cornerWaypoints and walks every leg in
   const walk = src.slice(src.indexOf('walkTo: async (s, { avoid = null } = {}) =>'), src.indexOf('hold: async n =>'))
   assert.ok(/optimizePath: false/.test(walk), 'integer nodes asked for')
   assert.ok(/late = true/.test(walk) && /if \(aborted\(\) \|\| late\) return/.test(walk), 'no leg after the clock')
-  assert.ok(/legs = cornerWaypoints\(\[Math\.floor\(p\.x\), Math\.floor\(p\.y \+ 1e-6\), Math\.floor\(p\.z\)\], s, plan, read\)/.test(walk), 'planned from the feet')
+  assert.ok(/legs = cornerWaypoints\(\[Math\.floor\(p\.x\), Math\.floor\(p\.y \+ 1e-6\), Math\.floor\(p\.z\)\], s, plan, read, 4, \{ square: cornerSquare \}\)/.test(walk), 'planned from the feet')
   assert.ok(/for \(const w of legs\) \{ if \(aborted\(\) \|\| late\) return; await bot\.pathfinder\.goto\(new goals\.GoalBlock\(w\[0\], w\[1\], w\[2\]\)\) \}/.test(walk), 'each leg walked')
   assert.ok(walk.indexOf('Promise.race([') < walk.indexOf('for (const w of legs)') && walk.indexOf('for (const w of legs)') < walk.indexOf('timer = setTimeout'), 'inside the race with the clock')
 })
@@ -133,7 +133,9 @@ await t('WIRED: the build walk refuses a crossing plan before walking; the click
 const cav = new Set(['15,67,-47', '14,68,-46', '15,67,-46', '14,66,-47', '15,66,-47', '14,66,-46', '15,66,-46', '16,67,-46', '16,67,-47'])
 const cread = (x, y, z) => (y <= 65 || cav.has(`${x},${y},${z}`) ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
 await t('r5 the live cavity: a diagonal jump-up with BOTH sides blocked is taken square -- up onto 15,68,-47, then across', () => {
-  assert.deepStrictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread), { i: 0, via: [15, 68, -47] })
+  assert.deepStrictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread, { square: true }), { i: 0, via: [15, 68, -47] })
+  // r6 (REROOF_CORNERCUT): every walk that does not ask -- every other build visit -- is unchanged: the diagonal is left alone, as before
+  assert.strictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread), null)
   // positive control: the same step with a clear side is the old rule (round by the clear side at the start's height)
   const open1 = (x, y, z) => (x === 15 && z === -47 && y >= 67 ? { name: 'air', boundingBox: 'empty' } : cread(x, y, z))
   assert.deepStrictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], open1), { i: 0, via: [15, 67, -47] })
@@ -142,11 +144,25 @@ await t('r5 the live cavity: a diagonal jump-up with BOTH sides blocked is taken
 })
 await t('r5 MUTANT: the square step off -- the cavity\'s diagonal is left alone again (killed for that reason)', async () => {
   const src = fs.readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8')
-  const old = '        if (!side && b.y !== a.y) {\n'
+  const old = '        if (square && !side && b.y !== a.y) {\n'
   assert.ok(src.split(old).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
   const out = new URL(`./_mutant-${process.pid}-bb.mjs`, import.meta.url)
   fs.writeFileSync(out, src.replace(old, '        if (false) {\n').replace(/from '\.\//g, "from '../src/"))
-  try { const M = await import(out.href); assert.strictEqual(M.cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread), null) } finally { try { fs.unlinkSync(out) } catch {} }
+  try { const M = await import(out.href); assert.strictEqual(M.cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread, { square: true }), null) } finally { try { fs.unlinkSync(out) } catch {} }
+})
+await t('r6 WIRED (structural, comments stripped): only the shop visit asks for the square step, and only for a re-roofed record', () => {
+  const strip = f => fs.readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const sk = strip('../src/skills.mjs')
+  assert.strictEqual(sk.split('cornerSquare:').length, 2, 'one caller')
+  assert.ok(/cornerSquare: !!\(REROOF_FIX\.cornerSquare && rec\?\.restyle\)/.test(sk))
+  const bb = strip('../src/buildbot.mjs')
+  assert.ok(/cornerWaypoints\(\[Math\.floor\(p\.x\), Math\.floor\(p\.y \+ 1e-6\), Math\.floor\(p\.z\)\], s, plan, read, 4, \{ square: cornerSquare \}\)/.test(bb))
+})
+await t('r6 the switch: REROOF_CORNERCUT=off (or REROOF_ACCESS=off) turns the square step off', async () => {
+  const { reroofFixes } = await import('../src/reroof.mjs')
+  assert.strictEqual(reroofFixes({}).cornerSquare, true)
+  assert.strictEqual(reroofFixes({ REROOF_CORNERCUT: 'off' }).cornerSquare, false)
+  assert.strictEqual(reroofFixes({ REROOF_ACCESS: 'off' }).cornerSquare, false)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
