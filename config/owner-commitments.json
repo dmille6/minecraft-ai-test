@@ -6489,6 +6489,66 @@
    "title": "buildfix-01 FIX via hivedrop-02: 2.1 tidy `blocked` visits 414/1,036 -> 0/1,077 bot-h h24, 8/958 at +24..48 h (MET -98%, 1,432 retry deferrals/24 h; read UNREADABLE on 3 pools); 2.2 _shop_skip flat (+0.3% h24, +9.5% interim); 2.4 aborted monument visits +2% h24, +64.5% at +24..48 h; busy share -2.5% h24, -14.4% interim",
    "next_step": "Queue hivedrop-02 (branch hivedrop-02-on-bcdba35f 9199621f): hivedrop-01 (promoted 11-08 21:28Z, inside buildfix's read) re-plans the walk at every 200-ms yield, so monument/tidy visits stand still >35 s and the stuck reflex kills them at `start` (monument aborted 155/520 before -> 467/549 after; places 24/427/39 -> 7/48/1 by build). Re-read buildfix-01's 2.4 + busy share after hivedrop-02 promotes. 2.2: the shop_skip row is rate-limited to one per bot per 30 min and also counts the legitimate 'nothing else workable' hold (1,616 stuck_on_cell skips / 69 bots in 24 h, towns whose last open project is stuck): no separate fix.",
    "note": "OWNER 2026-11-09 ~13:30Z course correction item 2 (act on kept changes that missed their goals): re-read with effectwatch on .31 (committed h24/h72 reads; interim +48..+68 h reads by the same code on the hours the cache has) and telemetry.py full walks with denominators."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "country-1109",
+   "title": "Countryside landscaping outside the walls (owner 11-07 'smoothed out and made to look pretty', 11-09 'i want all of those things done'): rings out from the wall, in parallel with the inside stage, by the groundskeeper and helpers; then meadows, flower drifts and tree groves",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "country-1109.md",
+    "owner-pretty-land-1107.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: BUILT, NOT RELEASED. Showcase countryside-01show @ 77946084 on the live release b9fa002e (glass-01show): the countryside is its OWN record chain (country.mjs; both design engines chose it): c48 (outside the wall boxes to 48) then 16-wide rings to 128, sited by the keeper with tidy.mjs siteStage classic:false + groves (3-5 saplings, spruce first) and flower drifts on untouched grass (park roles: no material -> passed); the inside chain ends at inwall (setLandInner); one crew, two lanes (helper upper half works the country, borrowing; keeper sites the next band at once, an open band hourly). COUNTRY=off rollback. Tier 2; Codex r1-r8 (the country drew blockers only in r7: shopActive's state vs the order's completion check -- fixed r8, NO BLOCKERS). Paper sandbox6 country-proof C1/C2 PASS (30 grove saplings; drifts passed without flowers, 30 placed once given, 7 on snow). Tripwire CO1 on main (shopread-country-upkeep). Pictures docs/reports/country-design-2026-11-09/. Suite: see upkeep-1109. NEXT: stage with main's shopread installed; read `_grounds_lane lane=country`, `_build project=country op=sited|place|clear`, the inside's fills/h + cuts/h >= 90% of the 6 h before, plantings standing. Fleet country lane NOT ported (no inwall stage on the fleet: its bands already run; no park).",
+   "evidence": {
+    "grep": [
+     "countryside-01show",
+     "country-1109"
+    ],
+    "branches": [
+     "countryside-01show",
+     "shopread-country-upkeep"
+    ],
+    "paths": [
+     "docs/reports/country-design-2026-11-09.md"
+    ]
+   }
+  },
+  {
+   "kind": "canary",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "upkeep-1109",
+   "title": "The upkeep crew (owner 11-09): a standing maintenance loop -- strays (tables, furnaces), felled trees' remains replanted, drops swept; repair/relight/retill counted (already served) -- the lowest-priority always-available work, its jobs on the town work board",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "country-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: BUILT, NOT QUEUED / NOT RELEASED. Showcase: in countryside-01show @ 77946084 (upkeep.mjs + buildUpkeep; Codex r1-r5 4+3+3+1 blockers fixed, the order-gate blocker r7/r8, NO BLOCKERS). FLEET upkeep-01 @ f0b02592 on the live fleet bcdba35f (branch upkeep-01-on-bcdba35f; tier 2; Codex fleet r1 1 blocker -- the order's completion check -- fixed): registration ~/mcai-analysis/upkeep-01.f0b02592.json (effectwatch validate: valid) + draft ~/mcai-analysis/upkeep-01.queue-entry.draft.json (copies in docs/reports/country-design-2026-11-09/upkeep-01/); drawrec with the registration: DRAW ['board-d','board-c']; cherry-picks clean onto workboard-01's 3d8ef9de (a due upkeep = a board job). Paper sandbox6 U1-U3 PASS. Measured jobs (reach 128): showcase 21 strays / 66 remains / 57 replants; fleet hive-a 79/148/89, board-b 38/156/99, placebo-a 26/163/114, hive-c 33/223/134. NEXT: the control session queues upkeep-01 (P, shared pools); stage the showcase piece; reads `_upkeep op=survey`, `_build project=upkeep op=clear|place|sweep`, build-visit share up, patrol/idle_work share down.",
+   "evidence": {
+    "grep": [
+     "upkeep-01",
+     "upkeep-1109"
+    ],
+    "branches": [
+     "countryside-01show",
+     "upkeep-01-on-bcdba35f",
+     "shopread-country-upkeep"
+    ],
+    "paths": [
+     "docs/reports/country-design-2026-11-09.md",
+     "docs/reports/country-design-2026-11-09/upkeep-01"
+    ],
+    "runs": [
+     "upkeep-01"
+    ]
+   }
   }
  ]
 }

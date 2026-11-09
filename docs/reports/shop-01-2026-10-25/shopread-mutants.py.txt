@@ -68,7 +68,7 @@ M = [
  ("            blocks_until = rel0 if rel0 is not None else (int(r0.get('until') or 0) + RECLAIM_MS)", "            blocks_until = int(r0.get('until') or 0) + RECLAIM_MS"),
  ("            elif op == 'known':\n                unknown_open.pop((bot, k), None)", "            elif op == 'known':\n                pass"),
  # tidyread-01 (11-03): a project=tidy clear against the tidy record's own lists across every stage generation
- ("                    if plot == TIDY:\n", "                    if False:\n"),
+ ("                    if plot in GROUNDS_PLOTS:\n", "                    if False:\n"),
  ("chain_t = project_of(projects.get(pool), plot).get('chain') or [rec]", "chain_t = [rec]"),
  ("    if tidy_guarded(cell, t_ms, guard):\n        return False\n    lists = ", "    if False:\n        return False\n    lists = "),
  ("    return g is not None and (t_ms is None or g <= t_ms)", "    return g is not None"),
@@ -78,7 +78,7 @@ M = [
  ("    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut', 'clear')", "    lists = ('cells',) if kind in ('foreign', 'cover') else ('cut',)"),
  ("            head = (gen, sha, rec)\n            chain.append(dict(rec, _gen=gen, _sha=sha))\n    return chain", "            head = (gen, sha, rec)\n    return chain"),
  ("            for dy in (0, 1, 2):\n                k = ck([at[0], at[1] + dy, at[2]])", "            for dy in (0,):\n                k = ck([at[0], at[1] + dy, at[2]])"),
- ("        if plot in (TIDY, LAND):", "        if plot in (LAND,):"),
+ ("        if plot in (TIDY, LAND, COUNTRY):", "        if plot in (LAND, COUNTRY):"),
  ("            if m.get('gone') if isinstance(m, dict) else True:", "            if not isinstance(m, dict):"),
  ("                     'projects': projects, 'markers': merge_guards(read_markers(d), read_bridges(d))}", "                     'projects': projects, 'markers': {}}"),
  # bridgepost-01: the bridge cells guard (the read, the merge's earliest time, the rails, the one torch, the site grouping)
@@ -206,7 +206,7 @@ M = [
  ("                        ok = reorient_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))", "                        ok = reorient_ok([rec], cell, f.get('block'))"),
  ("|trapdoor|bed)|(soul_)?lantern|chest|trapped_chest)$')   # cottage2-01", "|trapdoor|bed)|chest|trapped_chest)$')   # cottage2-01"),   # cottage2-01: re-anchored (the lantern alternative dropped)
  # outbands-01: a tidy replant on a road or a path
- ("                if plot == TIDY:\n                    rwhy = replant_road_why(projects.get(pool), cell)", "                if False:\n                    rwhy = replant_road_why(projects.get(pool), cell)"),
+ ("                if plot in GROUNDS_PLOTS:\n                    rwhy = replant_road_why(projects.get(pool), cell)", "                if False:\n                    rwhy = replant_road_why(projects.get(pool), cell)"),
  ("        if isinstance(b, list) and len(b) == 6 and b[0] <= cell[0] <= b[3] and b[2] <= cell[2] <= b[5]:", "        if isinstance(b, list) and len(b) == 6 and b[0] <= cell[0] <= b[3] and b[1] <= cell[2] <= b[4]:"),
  ("            return 'on_path'", "            return ''"),
  # reroof-02 RT2: a retrofit's decor_post dig -- listed with its kind and block, and a decor cell (cells or retired)
@@ -295,6 +295,15 @@ M = [
  ("    return any(isinstance(c, dict) and c.get('byFoot') is True and", "    return any(isinstance(c, dict) and c.get('byFoot') is not None and"),
  ("|trapdoor|bed)|(soul_)?lantern|chest|trapped_chest)$')   # cottage2-01", "|trapdoor)|(soul_)?lantern|chest|trapped_chest)$')   # cottage2-01"),
  ("|trapdoor|bed)|(soul_)?lantern|chest|trapped_chest)$')   # cottage2-01", "|trapdoor|bed)|(soul_)?lantern)$')   # cottage2-01"),
+ # country-01 (CO1): the countryside's own chain under the tidy's rules; its cells never a guard; the gathers read its head
+ ("GROUNDS_PLOTS = (TIDY, COUNTRY)", "GROUNDS_PLOTS = (TIDY,)"),
+ ("                if plot in GROUNDS_PLOTS and rec is not None:\n                    # tidyread-02:", "                if plot == TIDY and rec is not None:\n                    # tidyread-02:"),
+ ("        if plot in (TIDY, LAND, COUNTRY):", "        if plot in (TIDY, LAND):"),
+ ("                if plot in GROUNDS_PLOTS:\n                    rwhy = replant_road_why", "                if plot == TIDY:\n                    rwhy = replant_road_why"),
+ ("                    if plot in GROUNDS_PLOTS:\n                        # tidyread-01", "                    if plot == TIDY:\n                        # tidyread-01"),
+ ("    return [g for plot in GROUNDS_PLOTS for g in tidy_heads_at(project_of(pr, plot).get('chain') or [], t_ms, skew_ms)]", "    return tidy_heads_at(project_of(pr, TIDY).get('chain') or [], t_ms, skew_ms)"),
+ # upkeep-01 (UK1): the upkeep's job list judged as a sink's growing chain
+ ("SINK_PLOTS = SINK_PLOTS + ('upkeep',)\n", ""),
 ]
 bad = 0
 for old, new in M:

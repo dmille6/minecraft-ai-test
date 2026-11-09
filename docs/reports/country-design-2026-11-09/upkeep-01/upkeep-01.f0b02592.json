@@ -1,0 +1,70 @@
+{
+ "run_id": "upkeep-01",
+ "sha": "f0b025920365ab2ef127aee85f7427f2a3e45249",
+ "registered_at": "2026-11-09T14:13:34Z",
+ "promotion": "fleet-wide",
+ "notes": "[FUN MODE] upkeep-01 @ f0b02592 ON the live fleet bcdba35f (stuckclose-01; branch upkeep-01-on-bcdba35f; design docs/reports/country-design-2026-11-09.md). TIER 2 (protected.py: not protected). OWNER 11-09 'i want all of those things done' -- the UPKEEP CREW: a standing maintenance loop, the lowest-priority always-available work, its jobs on the town work board. Fleet port of the showcase's upkeep-01show. MEASURED (region copies 11-09, the bots' own survey over the 128 reach): hive-a 79 stray tables/furnaces, 148 remains groups of trees felled at the base, 89 replants; board-b 38/156/99; placebo-a 26/163/114; hive-c 33/223/134; fleet decision time 54.3%, idle_work rung 50.4% of all time (workboard-1108). Repair/relight/retill stay the picker's repair tier and the farms' own upkeep (counted on the survey row). CHANGE (UPKEEP=off rollback; unset = on in every named pool): PROJECTS `upkeep` (before the tidy, last); activeProject's last tier (after repairs, open projects with a slot, buildnext's due records; in place of an open project this bot cannot work; never the quiet fallback); buildUpkeep: survey one eighth of the reach per 30 min (strays outside every record box+3 and zone; remains = 26-connected log groups no member of which rests on the ground, top <= ground+6, no other log within 2), the replants first (a town sapling draw), the remains of a group only after its own sapling stands (re-read at the dig: runVisit clearOk), a furnace-kind stray only with a usable pickaxe in hand, then the drops in view (gksweep.mjs sweepPick); the order's completion check reads a due upkeep as wanting a visit. Reviews: showcase upkeep-01show Codex r1-r5 (4+3+3+1 blockers fixed, r5 NO BLOCKERS); fleet port Codex r1 1 blocker (the order's completion check) fixed; r2 see the ledger row. Paper sandbox6 (sandbox/country/country-proof.cjs): strays dug and swept into the bag, felled trunks dug from the ground (0 towers) and replanted first, one sapling for two groups holds the second whole, a living tree and a high beam kept. With workboard-01 (cherry-picked onto 3d8ef9de: clean) a due upkeep is a board job. READ +90/+180: (1) MECHANISM: `_upkeep op=survey` rows > 0 on canary bots and `_build project=upkeep op=clear` > 0, else REVERT (the base cannot write either); (2) EFFECT: upkeep clears and replants per bot-h, build-visit share; (3) GUARD: items per bot-h not worse, deaths (the gate), tripwire none on the fleet; a stuck upkeep (`_build_visit project=upkeep outcome=stuck_on_cell`) share.",
+ "effect": {
+  "version": 1,
+  "exposure": "every canary bot with nothing else to build at its town (the picker's last tier) or a board job while the upkeep is due",
+  "targets": [
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:upkeep:clear"
+    },
+    "direction": "increase",
+    "minimum": 0.05,
+    "scale": "absolute",
+    "claim": "upkeep digs (strays, felled trees' remains) per bot-h; the base cannot write project=upkeep; 26-79 strays and 148-223 remains groups a town (region copies 11-09)",
+    "primary": true
+   },
+   {
+    "metric": "detail.rate.v1",
+    "params": {
+     "key": "_build:upkeep:place"
+    },
+    "direction": "increase",
+    "minimum": 0.01,
+    "scale": "absolute",
+    "claim": "replants (a sapling at a felled tree's own soil) per bot-h; 89-134 owed a town"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_build_visit"
+    },
+    "direction": "increase",
+    "minimum": 0.05,
+    "scale": "relative",
+    "claim": "idle bots get a visit: 2.9 build visits per bot-h fleet-wide (workboard-1108), 50.4% of time on the idle_work rung"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   },
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "busy.share.v1",
+    "params": {
+     "cls": "productive"
+    },
+    "direction": "increase"
+   }
+  ]
+ },
+ "reads": [],
+ "teardown": {
+  "note": "THREE STEPS (the loop's _teardown): drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

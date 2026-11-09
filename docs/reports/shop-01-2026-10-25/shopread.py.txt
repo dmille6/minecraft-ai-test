@@ -33,6 +33,15 @@
 #                      bots/src/groundskeeper.mjs): one bot holding two crew leases at once (keeper + helperN, helper1 + helper2), a
 #                      helperN beyond CREW_HELPERS_MAX, or two bots holding segments within CREW_SEG_GAP columns of each other for
 #                      longer than CREW_YIELD_MS (the bot yields a raced take at once) -- leases taken after the read's cut only
+#   CO1 country (country-01, 11-09; bots/src/country.mjs): THE COUNTRYSIDE is the tidy record's shape on its OWN chain (project=country:
+#                      the bands outside the wall, sited by the keeper and worked by the grounds crew in parallel with the inside). Its
+#                      placements are tidy_place_ok's (a cell of a generation in force; never another project's cell or a marker that
+#                      stood then: ` guarded`), its digs tidy_clear_ok's (the cut + clear lists of every generation), its replants
+#                      replant_road_why's -- exactly the tidy's rules over its own chain (GROUNDS_PLOTS). Its cells are ground, never
+#                      another project's guard (tidy_guard skips it, as the tidy). The decor's and the seed gather's ` tidy_cell` refusal
+#                      reads the country's head in force too (grounds_heads_at: a groves' sapling or a drift's flower is never picked).
+#   UK1 upkeep (upkeep-01, 11-09; bots/src/upkeep.mjs): THE UPKEEP's job list is a sink plot's growing chain (SINK_PLOTS): its replants
+#                      are G1's (a cell of a generation in force), its digs (kind stray / remains) G2's (the clear list in force).
 #   G2 (tidy, gkhelpers-01) a `kind=gather` clear (the park gather) is a plant block (GATHER_BLOCKS: park.mjs GATHER_NAMES), never
 #                      another project's record cell or a marker (tidy_guard), never in the park (the land plan's park box + 1), never a
 #                      FILL cell of the tidy chain (gather_ok)
@@ -380,6 +389,8 @@ REC_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.g(\d+)
 LEASE_RE = re.compile(r'^(project-(-?\d+)_(-?\d+)_(-?\d+)\.([A-Za-z0-9]+))\.(keeper|helper\d+|slot\d+|seg-[A-Za-z0-9-]+)\.lease\.g(\d+)\.json$')   # wall-F: upper case (Claude read r1 P2-1); gkhelpers-01: the crew's leases
 SHOP = 'shop'
 TIDY = 'tidy'                         # bots/src/tidy.mjs TIDY_PLOT
+COUNTRY = 'country'                   # bots/src/country.mjs COUNTRY_PLOT (country-01: the bands outside the wall, the tidy's rules)
+GROUNDS_PLOTS = (TIDY, COUNTRY)
 LAND = 'land'                         # bots/src/landplan.mjs LAND_PLOT (a reservation: no cells)
 PATHS = 'paths'                       # bots/src/paths.mjs PATHS_PLOT (outbands-01: a replant never on a path)
 # gkhelpers-01 (bots/src/groundskeeper.mjs GK.helpersMax / GK.segGap; park.mjs GATHER_NAMES)
@@ -579,6 +590,12 @@ def tidy_heads_at(chain, t_ms, skew_ms=60_000):
     return inf[idx:] if idx is not None else inf   # none sited before the dig: every one in the skew (Codex G9 r3)
 
 
+def grounds_heads_at(pr, t_ms, skew_ms=60_000):
+    """country-01: the grounds' heads in force at t_ms -> [gen]: the tidy chain's (tidy_heads_at) and the country chain's. Pure. The decor's
+    and the seed gather's ` tidy_cell` refusal reads both (a grove's sapling or a drift's flower is the country's plan, never a gather's)."""
+    return [g for plot in GROUNDS_PLOTS for g in tidy_heads_at(project_of(pr, plot).get('chain') or [], t_ms, skew_ms)]
+
+
 def seedgrass_ok(chain, cell, block, t_ms, guard, park_box, tidy_chain=()):
     """cropfarm-01: is a `project=cropfarm op=clear kind=seedgrass` (the seed gather) a grass plant the gather may take? -> (bool, why).
     Pure. A SEED_GRASS block; never guarded (any project's record cell -- the farm's own too -- or a marker, when it was dug:
@@ -697,6 +714,8 @@ def tidy_place_ok(chain, cell, t_ms, skew_ms=60_000):
 # their openings, and rails on path shoulders. Every fence and gate is a cell of its instance (roles W<n>-f / W<n>-g), judged by G1
 # against the generations in force like every sink's; its foreign digs (runVisit clearing an open cell) are G2's against the cells.
 SINK_PLOTS = ('road', 'tower', 'shrine', 'dress', 'decor', 'wood')
+# upkeep-01 (UK1): the upkeep's job list is judged as a sink's growing chain (its replants on a cell, its digs on the clear list in force)
+SINK_PLOTS = SINK_PLOTS + ('upkeep',)
 DECOR = 'decor'
 DECOR_SPREAD = 7
 DECOR_BLOOMS = frozenset(['poppy', 'dandelion', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'blue_orchid', 'lily_of_the_valley',
@@ -1254,7 +1273,7 @@ def tidy_guard(pr):
     dchain = dj.get('chain') or ([dj['record']] if dj.get('record') else [])
     done_at = min([g['completeAt'] for g in dchain if g.get('structure_complete') and isinstance(g.get('completeAt'), (int, float))] or [None], key=lambda v: float('inf') if v is None else v)
     for plot, pj in ((pr or {}).get('projects') or {}).items():
-        if plot in (TIDY, LAND):
+        if plot in (TIDY, LAND, COUNTRY):
             continue
         chain = pj.get('chain') or ([pj['record']] if pj.get('record') else [])
         for rec in chain:
@@ -1713,7 +1732,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
             if op == 'place':
                 out['placements'] += 1
                 pwhy = ''
-                if plot == TIDY and rec is not None:
+                if plot in GROUNDS_PLOTS and rec is not None:
                     # tidyread-02: a tidy fill is judged against the generations in force when it was placed (tidy_place_ok)
                     t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                     off = not tidy_place_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, t_ms)
@@ -1799,7 +1818,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['replants'] += 1
                 # outbands-01 (owner 11-04, groundskeeper piece 5: "cut down trees and replant in better spots" -- never on a road or a
                 # path): a tidy replant on a land-plan road corridor or a laid path's cell is off the record (`on_road` / `on_path`)
-                if plot == TIDY:
+                if plot in GROUNDS_PLOTS:
                     rwhy = replant_road_why(projects.get(pool), cell)
                     if rwhy:
                         lists['off_record'].append('%s %s %s %s' % (bot, k, f.get('block'), rwhy))
@@ -1812,7 +1831,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                 out['clears'] += 1
                 why = ''
                 if rec is not None:
-                    if plot == TIDY:
+                    if plot in GROUNDS_PLOTS:
                         # tidyread-01 (11-03, showcase 62e2aff0 TRIP): the tidy record has no box; its cuts are judged against
                         # its own planned lists across every stage generation, never the ziggurat's zigtidy box rule
                         if pool not in guards:
@@ -1838,7 +1857,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                             guards[pool] = tidy_guard(projects.get(pool))
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         lrec = project_of(projects.get(pool), LAND).get('record') or {}
-                        ok, why = seedgrass_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool], (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms))
+                        ok, why = seedgrass_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool], (lrec.get('park') or {}).get('box'), grounds_heads_at(projects.get(pool), t_ms))
                     elif plot == FOREST and f.get('kind') in ('stand', 'aisle'):
                         # forest-01 FR2: the leaves in a stand's or an aisle's feet and head, inside the forest's box + 1 and its band
                         ok = forest_leaves_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'))
@@ -1867,7 +1886,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         lv = f.get('kind') == 'leaves'   # decorator-03 DC5: the hedge's leaves, the fern rule over DECOR_LEAVES
                         wd = f.get('kind') == 'wild'     # flowers-01 DC6: the wild flower pick, the fern rule over DECOR_SMALL within DECOR_WILD_R
                         ok, why = decor_fern_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool],
-                                                (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms),
+                                                (lrec.get('park') or {}).get('box'), grounds_heads_at(projects.get(pool), t_ms),
                                                 names=DECOR_LEAVES if lv else DECOR_SMALL if wd else DECOR_FERNS, tag=' leaves_rule' if lv else ' wild_rule' if wd else ' fern_rule',
                                                 r=DECOR_WILD_R if wd else DECOR_FERN_R)
                     elif plot == DECOR and f.get('kind') == 'bloom':
@@ -1877,7 +1896,7 @@ def judge(rows, projects, zones_by_pool, cut=None, gens=(), surveys=None):
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
                         lrec = project_of(projects.get(pool), LAND).get('record') or {}
                         ok, why = decor_bloom_ok(project_of(projects.get(pool), plot).get('chain') or [rec], cell, f.get('block'), t_ms, guards[pool],
-                                                 (lrec.get('park') or {}).get('box'), tidy_heads_at(project_of(projects.get(pool), TIDY).get('chain') or [], t_ms))
+                                                 (lrec.get('park') or {}).get('box'), grounds_heads_at(projects.get(pool), t_ms))
                     elif plot in SINK_PLOTS:
                         # picker-01: the clear lists (kind=foreign: the cells) of the generations in force when it was dug
                         t_ms = int(r['t'].timestamp() * 1000) if hasattr(r['t'], 'timestamp') else None
@@ -2196,6 +2215,50 @@ def selftest():
     assert tpl('50,70,50', pp=TP_(chain_=c3))['off_record'] == 1, 'a cell of a stage sited AFTER the placement (beyond the skew) is not in force'
     assert tpl('50,70,50', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0 and tpl('17,64,-2', s_=3_700, pp=TP_(chain_=c3))['off_record'] == 0, 'after it: both stages in force'
     assert tidy_place_ok(chain, [17, 64, -2], None) and not tidy_place_ok(chain, [5, 70, 5], None) and not tidy_place_ok([], [17, 64, -2], 0)
+    # country-01 (CO1): the countryside's own chain, judged by the tidy's rules -- a stage-1 cut read after the head moved on, a fill of an
+    # earlier band, a listed fill on another project's cell (` guarded`), a dig off every list, a replant on a road; and its cells are no guard
+    cn1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'country', 'stageId': 'c48', 'at': T0MS - 60_000, 'cells': [{'at': [60, 66, 0], 'role': 'earth', 'seg': 'T-00-0'}, {'at': [62, 66, 0], 'role': 'sapling3', 'seg': 'C-P0'}],
+           'cut': [{'at': [64, 68, 0], 'kind': 'tidy', 'name': 'dirt'}], 'clear': [{'at': [66, 70, 0], 'kind': 'leaves', 'name': 'spruce_leaves'}], 'replant': []}
+    cn2 = {'v': 1, 'gen': 2, 'prev': 1, 'plot': 'country', 'stageId': 'c64', 'at': T0MS - 30_000, 'cells': [{'at': [17, 64, -2], 'role': 'earth', 'seg': 'T-00-0'}], 'cut': [], 'clear': [], 'replant': []}
+    cfiles = [(1, json.dumps(cn1).encode())]
+    cfiles.append((2, json.dumps(dict(cn2, prevSha=hashlib.sha256(cfiles[0][1]).hexdigest())).encode()))
+    cchain = record_chain(cfiles)
+    def KP_(mon=mrec, chain_=cchain):
+        pp = TP_(mon=mon)
+        pp['board-a']['projects'] = dict(pp['board-a']['projects'], country={'record': chain_[-1], 'records_files': len(chain_), 'leases': {}, 'chain': chain_})
+        return pp
+    kc = lambda c, kind='tidy', block='dirt', pp=None: J(base + [R('_build', 'project=country op=clear seg=T-00-0 cell=%s block=%s kind=%s' % (c, block, kind), s=14)], pp or KP_())
+    kp = lambda c, block='cobblestone', pp=None: J(base + [R('_build', 'project=country op=place seg=T-00-0 cell=%s block=%s' % (c, block), s=14)], pp or KP_())
+    assert kc('64,68,0')['clear_outside'] == 0 and kc('66,70,0', kind='leaves', block='spruce_leaves')['clear_outside'] == 0, 'CO1: a band-1 cut and clear read after the head moved to band 2'
+    assert kc('64,69,0')['clear_outside'] == 1, 'CO1 positive control: a country dig off every list trips'
+    assert kp('60,66,0')['off_record'] == 0 and kp('62,66,0', block='spruce_sapling')['off_record'] == 0, 'CO1: an earlier band\'s fill and a grove sapling, in force'
+    assert kp('61,66,0')['off_record'] == 1, 'CO1 positive control: an off-record country placement trips'
+    kg = kp('17,64,-2', pp=KP_(mon=mg))
+    assert kg['off_record'] == 1 and kg['_lists']['off_record'] == ['board-a-Alpha 17,64,-2 cobblestone guarded'], kg['_lists']['off_record']
+    assert kp('17,64,-2')['off_record'] == 0, 'control: the same listed fill with no other project there is clean'
+    assert tc('17,64,-2', pp=KP_())['clear_outside'] == 1, 'the country\'s cells never make a tidy dig legal (its own lists only)'
+    assert tidy_guard(KP_()['board-a']).get(ck([60, 66, 0])) is None, 'CO1: the country\'s cells are ground, never another project\'s guard'
+    def KR_(c):
+        pp = KP_()
+        pp['board-a']['projects'] = dict(pp['board-a']['projects'], land={'record': lrec_, 'records_files': 1, 'leases': {}, 'chain': [lrec_]})
+        return J(base + [R('_build', 'project=country op=replant cell=%s block=spruce_sapling' % c, s=14)], pp)
+    assert KR_('30,70,0')['_lists']['off_record'] == ['board-a-Alpha 30,70,0 spruce_sapling on_road'] and KR_('30,70,5')['off_record'] == 0, 'CO1: a country replant on a road trips'
+    assert [g.get('_gen') for g in grounds_heads_at(KP_()['board-a'], T0MS)] == [2, 2], 'CO1: the tidy head and the country head in force'
+    assert any(ck(c['at']) == ck([62, 66, 0]) for g in grounds_heads_at(KP_()['board-a'], T0MS - 45_000) for c in g.get('cells') or []), 'CO1: a country sapling cell reads as a grounds head\'s cell (the gathers\' ` tidy_cell`)'
+    # upkeep-01 (UK1): the upkeep's job list is a sink chain -- a stray dug off its list trips, a listed one and a listed replant do not
+    ukr = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'upkeep', 'at': T0MS - 60_000, 'cells': [{'at': [70, 65, 70], 'role': 'sapling', 'seg': 'U-0'}],
+           'clear': [{'at': [72, 65, 70], 'kind': 'stray', 'name': 'crafting_table'}, {'at': [74, 67, 70], 'kind': 'remains', 'name': 'spruce_log'}], 'replant': []}
+    def UP_():
+        pp = TP_()
+        uk2 = {'v': 1, 'gen': 2, 'prev': 1, 'plot': 'upkeep', 'at': T0MS - 30_000, 'cells': [], 'clear': [{'at': [80, 65, 80], 'kind': 'stray', 'name': 'furnace'}], 'replant': []}
+        pp['board-a']['projects'] = dict(pp['board-a']['projects'], upkeep={'record': uk2, 'records_files': 2, 'leases': {}, 'chain': [ukr, uk2]})
+        return pp
+    uc = lambda c, kind, block: J(base + [R('_build', 'project=upkeep op=clear cell=%s block=%s kind=%s' % (c, block, kind), s=14)], UP_())
+    up = lambda c, block='spruce_sapling': J(base + [R('_build', 'project=upkeep op=place seg=U-0 cell=%s block=%s' % (c, block), s=14)], UP_())
+    assert uc('72,65,70', 'stray', 'crafting_table')['clear_outside'] == 0 and uc('74,67,70', 'remains', 'spruce_log')['clear_outside'] == 0, 'UK1: jobs of the list before (in force), read after the next survey'
+    assert uc('80,65,80', 'stray', 'furnace')['clear_outside'] == 0, 'UK1: the head\'s job'
+    assert uc('73,65,70', 'stray', 'crafting_table')['clear_outside'] == 1, 'UK1 positive control: an unlisted dig trips'
+    assert up('70,65,70')['off_record'] == 0 and up('71,65,70')['off_record'] == 1, 'UK1: a listed replant; positive control: an unlisted placement'
     # picker-01 (11-03): a sink plot's growing chain -- T1 sited before the window, completed, T2 sited an hour in; every row judged
     # against the generations in force when it was written
     sg1 = {'v': 1, 'gen': 1, 'prev': None, 'plot': 'tower', 'blueprint': 'tower@1', 'builders_max': 3, 'at': T0MS - 60_000, 'structure_complete': False,

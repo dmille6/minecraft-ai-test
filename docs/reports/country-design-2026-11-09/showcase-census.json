@@ -1,0 +1,163 @@
+{
+ "bands": [
+  {
+   "id": "c48",
+   "fills": 593,
+   "cuts": 205,
+   "clears": 19,
+   "stands": 19,
+   "cols": 9408,
+   "eligible": 158,
+   "groves": 0,
+   "saplings": 0,
+   "drifts": 0,
+   "flowers": 0,
+   "skipped": {
+    "edge": 4089,
+    "not_grass": 3451,
+    "record": 756,
+    "tree": 168,
+    "covered": 165,
+    "slope": 71,
+    "worked": 545,
+    "water_or_unread": 5
+   }
+  },
+  {
+   "id": "c64",
+   "fills": 771,
+   "cuts": 465,
+   "clears": 72,
+   "stands": 149,
+   "cols": 7232,
+   "eligible": 407,
+   "groves": 0,
+   "saplings": 0,
+   "drifts": 1,
+   "flowers": 5,
+   "skipped": {
+    "not_grass": 1879,
+    "worked": 1234,
+    "slope": 193,
+    "tree": 178,
+    "covered": 168,
+    "edge": 3052,
+    "record": 118,
+    "water_or_unread": 3
+   }
+  },
+  {
+   "id": "c80",
+   "fills": 434,
+   "cuts": 255,
+   "clears": 37,
+   "stands": 93,
+   "cols": 9280,
+   "eligible": 510,
+   "groves": 0,
+   "saplings": 0,
+   "drifts": 1,
+   "flowers": 9,
+   "skipped": {
+    "not_grass": 3492,
+    "water_or_unread": 47,
+    "worked": 896,
+    "record": 180,
+    "slope": 166,
+    "tree": 214,
+    "edge": 3560,
+    "covered": 215
+   }
+  },
+  {
+   "id": "c96",
+   "fills": 414,
+   "cuts": 185,
+   "clears": 15,
+   "stands": 125,
+   "cols": 11328,
+   "eligible": 543,
+   "groves": 1,
+   "saplings": 3,
+   "drifts": 2,
+   "flowers": 13,
+   "skipped": {
+    "not_grass": 6684,
+    "water_or_unread": 177,
+    "worked": 421,
+    "slope": 123,
+    "covered": 186,
+    "tree": 209,
+    "edge": 2876,
+    "record": 104,
+    "water_beside": 5
+   }
+  },
+  {
+   "id": "c112",
+   "fills": 304,
+   "cuts": 132,
+   "clears": 0,
+   "stands": 46,
+   "cols": 13376,
+   "eligible": 945,
+   "groves": 2,
+   "saplings": 7,
+   "drifts": 3,
+   "flowers": 25,
+   "skipped": {
+    "not_grass": 8995,
+    "water_or_unread": 697,
+    "worked": 466,
+    "slope": 106,
+    "tree": 256,
+    "covered": 109,
+    "edge": 1802
+   }
+  },
+  {
+   "id": "c128",
+   "fills": 265,
+   "cuts": 56,
+   "clears": 1,
+   "stands": 7,
+   "cols": 15424,
+   "eligible": 2160,
+   "groves": 5,
+   "saplings": 18,
+   "drifts": 8,
+   "flowers": 68,
+   "skipped": {
+    "not_grass": 10044,
+    "water_or_unread": 878,
+    "worked": 383,
+    "slope": 213,
+    "tree": 220,
+    "covered": 98,
+    "edge": 1428
+   }
+  }
+ ],
+ "upkeep": {
+  "strays": 18,
+  "remains": 60,
+  "remainLogs": 156,
+  "replants": 52,
+  "repair": 0,
+  "relight": 0,
+  "retill": 0,
+  "skipped": {
+   "remains_canopy": 82,
+   "remains_high": 231,
+   "remains_refused": 30,
+   "replant_no_soil": 6,
+   "replant_no_room": 2
+  }
+ },
+ "marks": {
+  "cut": 1163,
+  "fill": 1461,
+  "sapling": 28,
+  "flower": 120
+ }
+}

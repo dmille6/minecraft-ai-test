@@ -1,0 +1,19 @@
+{
+ "run": "upkeep-01",
+ "class": "",
+ "after": [],
+ "not_before": null,
+ "hold": null,
+ "note": "upkeep-01 agent 11-09 (owner 11-09 'i want all of those things done': the upkeep crew): DRAFT, NOT QUEUED. Tier 2: a P canary in the one slot (or the control session's fast lane). Built ON the live fleet bcdba35f (stuckclose-01; variant keyed on it); composes with workboard-01 (cherry-picked onto its 3d8ef9de clean: a due upkeep is a board job). Draw: SHARED pools; NEVER isolated-* or placebo-c. NO patch block (the control session sets it).",
+ "variants": {
+  "bcdba35ffe440d27a2582ea8d0905d50f82e098a": {
+   "registration": "/home/mike/mcai-analysis/upkeep-01.f0b02592.json",
+   "canary_sha": "f0b025920365ab2ef127aee85f7427f2a3e45249",
+   "approved": "upkeep-01 agent 2026-11-09: design Claude + Codex independent (docs/reports/country-design-2026-11-09.md); showcase upkeep-01show Codex r1-r5 (r5 NO BLOCKERS); fleet port Codex r1 1 BLOCKER fixed; upkeep.test 22 + upkeep-order.test 1 (anchored mutants); Paper sandbox6 country-proof U1-U3 PASS; full suite: see the ledger row",
+   "protected": false,
+   "protected_why": "",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {}
+  }
+ }
+}

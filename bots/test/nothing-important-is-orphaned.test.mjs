@@ -581,6 +581,18 @@ const REQUIRED = [
   'docs/reports/freshworld-playbook-design-2026-11-06.md',
   'docs/reports/freshworld-playbook-2026-11-06/codex-design.txt',
   'docs/reports/freshworld-playbook-2026-11-06/measure.py.txt',
+  // country-01 + upkeep-01 (11-09): the countryside lane + the upkeep crew (design, pictures, measures, the fleet registration and draft
+  // entry, the Paper proof; code on branches countryside-01show / upkeep-01-on-bcdba35f; the tripwire's CO1 + UK1 in shopread.py.txt)
+  'docs/reports/country-design-2026-11-09.md',
+  'docs/reports/country-design-2026-11-09/country-sheet.png',
+  'docs/reports/country-design-2026-11-09/country-upkeep.png',
+  'docs/reports/country-design-2026-11-09/fleet-hive-a-upkeep.png',
+  'docs/reports/country-design-2026-11-09/country-run.mjs',
+  'docs/reports/country-design-2026-11-09/upkeep-fleet.mjs',
+  'docs/reports/country-design-2026-11-09/upkeep-01/upkeep-01.f0b02592.json',
+  'docs/reports/country-design-2026-11-09/upkeep-01/upkeep-01.queue-entry.draft.json',
+  'sandbox/country/country-proof.cjs',
+  'sandbox/country/country-proof.jsonl',
   // pinned draw (11-06): draw_pin_pools + draw_pin_owner_ok, honoured in fun mode (escdead-01, treefarm-05)
   'scripts/drawpin.py',
   'scripts/test_drawpin.py',
