@@ -1,0 +1,204 @@
+{
+ "showcase": {
+  "tidy": {
+   "state": "proven",
+   "open": {
+    "fills": 1327,
+    "cuts": 544
+   },
+   "pu": 95,
+   "puRoles": {
+    "core": 48,
+    "earth": 31,
+    "topsoil": 6,
+    "till": 2,
+    "crop1": 1,
+    "light": 2,
+    "cut": 5
+   },
+   "passes": 4,
+   "checked": 2174,
+   "ms": 1230,
+   "planned": {
+    "block": 80,
+    "noFloor": 1677
+   },
+   "standRetired": null
+  },
+  "tower": {
+   "state": "proven",
+   "open": {
+    "fills": 6,
+    "cuts": 144
+   },
+   "pu": 19,
+   "puRoles": {
+    "T3-light": 4,
+    "T1-b0": 2,
+    "T1-core": 4,
+    "T2-b0": 1,
+    "T3-b1": 2,
+    "T3-core": 4,
+    "T3-b0": 2
+   },
+   "passes": 3,
+   "checked": 203,
+   "ms": 638,
+   "planned": {
+    "block": 80,
+    "noFloor": 1533
+   },
+   "standRetired": null
+  },
+  "stepwell": {
+   "state": "unchecked",
+   "open": {
+    "fills": 96,
+    "cuts": 1483
+   },
+   "pu": 0,
+   "puRoles": {},
+   "passes": 8,
+   "checked": 5145,
+   "ms": 2004,
+   "planned": {
+    "block": 2,
+    "noFloor": 194
+   },
+   "standRetired": null
+  },
+  "cottage1": {
+   "state": "proven",
+   "open": {
+    "fills": 2,
+    "cuts": 50
+   },
+   "pu": 2,
+   "puRoles": {
+    "post": 2
+   },
+   "passes": 4,
+   "checked": 62,
+   "ms": 942,
+   "planned": {
+    "block": 78,
+    "noFloor": 1627
+   },
+   "standRetired": {
+    "cottage1": 20
+   }
+  }
+ },
+ "hive-a": {
+  "tidy": {
+   "state": "suspect",
+   "open": {
+    "fills": 0,
+    "cuts": 7
+   },
+   "pu": 7,
+   "puRoles": {},
+   "passes": 1,
+   "checked": 7,
+   "ms": 348,
+   "planned": {
+    "block": 2364,
+    "noFloor": 1917
+   },
+   "standRetired": null
+  },
+  "monument": {
+   "state": "unchecked",
+   "open": {
+    "fills": 2395,
+    "cuts": 1920
+   },
+   "pu": 0,
+   "puRoles": {},
+   "passes": 8,
+   "checked": 26446,
+   "ms": 2272,
+   "planned": {
+    "block": 0,
+    "noFloor": 0
+   },
+   "standRetired": null
+  },
+  "house1": {
+   "state": "proven",
+   "open": {
+    "fills": 0,
+    "cuts": 10
+   },
+   "pu": 1,
+   "puRoles": {
+    "base": 1
+   },
+   "passes": 2,
+   "checked": 11,
+   "ms": 492,
+   "planned": {
+    "block": 2364,
+    "noFloor": 1917
+   },
+   "standRetired": null
+  }
+ },
+ "board-b": {
+  "tidy": {
+   "state": "suspect",
+   "open": {
+    "fills": 1,
+    "cuts": 0
+   },
+   "pu": 1,
+   "puRoles": {},
+   "passes": 1,
+   "checked": 1,
+   "ms": 292,
+   "planned": {
+    "block": 0,
+    "noFloor": 0
+   },
+   "standRetired": null
+  },
+  "monument": {
+   "state": "proven",
+   "open": {
+    "fills": 4,
+    "cuts": 1421
+   },
+   "pu": 1,
+   "puRoles": {
+    "core": 1
+   },
+   "passes": 8,
+   "checked": 2676,
+   "ms": 2071,
+   "planned": {
+    "block": 0,
+    "noFloor": 0
+   },
+   "standRetired": null
+  },
+  "house1": {
+   "state": "proven",
+   "open": {
+    "fills": 0,
+    "cuts": 17
+   },
+   "pu": 1,
+   "puRoles": {
+    "base": 1
+   },
+   "passes": 3,
+   "checked": 20,
+   "ms": 693,
+   "planned": {
+    "block": 0,
+    "noFloor": 0
+   },
+   "standRetired": null
+  }
+ }
+}

@@ -1,0 +1,109 @@
+**Blockers first**
+
+This design is wrong if a successful proof depends on an order the crew cannot enforce, treats an unbuilt road as present, or reserves a building before permitting its prerequisite ground work. A fixed-point replay alone is insufficient: placements can destroy previously available stands.
+
+`proveSite` currently overlays clears before proving fills; their execution needs proof too. `landplan.walkReach` permits three-block drops, whereas `buildsite.walkFrom` uses ±1 steps. Use the latter for construction acceptance.
+
+The referenced fresh-world playbook and stuck-project designs are absent from this checkout. Their compatibility remains unverified.
+
+**1. One town claim map**
+
+Add an optional, versioned `planahead` section to the existing land record, persisted through `publishRecord`. Before a land record exists, construct the map transiently from town-plan and project heads. Avoid a second authoritative siting file.
+
+Store:
+
+- Source generations, blueprint/palette hashes, plan revision and proof version.
+- Plot assignments, candidate geometry, prerequisite operations and dependency edges.
+- Claims with owner, purpose, geometry, activation condition and release condition.
+- Proof witnesses: operation, stand, support, required air, predecessors and affected world cells.
+
+Use exact XYZ cells for placements, cuts, supports, required air and replants; XZ boxes for unsited plots and road corridors. Preserve claim-01’s existing all-height building-column protection against tidy. Extend its existing helpers to participating buildings rather than introduce competing ownership logic.
+
+Hard claims cover existing buildings, stations, protected zones, owed replants, committed building envelopes and active access requirements. Soft claims cover uncommitted plots and ordinary tidy grading. Accepted road corridors reserve access; decorative road details remain negotiable.
+
+“Soft” permits coordinated replanning, never arbitrary overwriting. Retire displaced tidy work through `claimRetire`; preserve replants and history.
+
+Invalidate affected proofs on record publication, stage replacement, waiver, retirement or observed block change. Revalidate relevant world cells before dispatch and mutation. Missing data means `unknown`, not unreachable.
+
+Serialize participating plan admissions with a town planning lease, check source generations again before publication, and make activation recoverable after interruption. Existing projects remain authoritative throughout.
+
+**2. Prove an executable planned world**
+
+Use two views:
+
+1. **Construction view:** observed blocks plus operations already simulated successfully.
+2. **Finished view:** accepted operations at their intended final state, checking shared roads, entrances and interiors.
+
+Never place every open record into the construction overlay immediately. Existing open records contribute operations and constraints; unproven obligations remain explicit unresolved work. They cannot supply imaginary floors.
+
+Seed `walkFrom` with its existing home/validated stood-cell policy and town-component selection. Never seed planned stands or every historical location independently. Match each project’s runtime radius, domains, floor exceptions, avoidance and layer rules. Unknown chunks suspend the affected proof.
+
+Generate roads first using `planLand`—spokes, then ring—and prove their actual construction. Then jointly assign building plots and entrances; then generate compatible tidy/terrace work. Roads need not finish globally before any building starts: each building depends on its specific reachable connector.
+
+For every operation:
+
+- Check ownership, segment dependencies and runtime eligibility.
+- Prove cuts/clears with `digStand`; prove fills with `stepFor`, including block state.
+- Preserve replant-before-felling obligations.
+- Apply the operation to the overlay and recompute affected reachability.
+- Check that remaining operations retain access or have an explicit executable prerequisite.
+
+Store the successful sequence. Export the dependency/frontier predicate for both planning and execution. Parallelize only operations whose effects cannot invalidate one another’s witnesses; otherwise serialize them. Recheck exit access after mutations.
+
+A stalled search is `unproven`, not mathematical impossibility. Try bounded alternative orders, anchors, orientations, floor levels and compatible blueprint variants. For tidy, reshape grades or add an explicitly recorded, proven access stair. Drop only optional work; never silently omit required foundations or supporting fills.
+
+For X2, test the actual town-hall footprint, entrance and stand domain together. `wallExtPlots`’ terrain rectangles are candidates, not building proofs. If fixed X2 cannot fit, revise an unbuilt plot assignment before construction. Preserve home-facing doorway rules unless a separate design change explicitly revises them.
+
+Plan showcase town hall, cottage2/3 and landmarks together with their roads; then admit tidy stages around those commitments. On fresh fleet worlds, reserve the full layout at founding, prove core access first, and prepare two future plots ahead.
+
+**3. Claim access, with lifetimes**
+
+Protect a witness stand’s floor, feet/head space, placement support, sight line and connecting route—not merely its feet coordinate.
+
+Construction access is hard against incompatible edits until its dependent operations finish. It may be replaced only after proving equivalent access and publishing the replacement. Permanent entrances and shared roads retain protection after completion.
+
+Claims prohibit incompatible mutations, not walking or compatible shared use. Release temporary access through proven teardown operations.
+
+Prerequisite prep owns its work before the building claim activates. When a building claims a plot, unfinished required prep transfers explicitly into that building’s executable record. This prevents “tidy yields to building; building waits for tidy.”
+
+**4. Explicit tolerance**
+
+Use existing palettes as `buildSubstitutes`, narrowed by structural properties and block state. A visually acceptable block is insufficient if it changes support, collision, attachment or lighting.
+
+Allow `buildSkipBlocks` only for declared optional ornament, surplus lights with lighting requirements already satisfied, and cosmetic topsoil. Allow `okIfAir` for already-cleared targets and explicitly optional decoration. Never apply these to foundations, load-bearing cells, access, doors, required illumination, irrigation or owed replants.
+
+At planning time, remove optional work from the proposed geometry and record the reduction separately. After publication, persist permitted skips in the existing `waived` map with reason and proof revision; reuse existing completion and bill readers. Waivers never create virtual blocks in an overlay.
+
+Lost required access triggers alternate-stand proof, executable access repair or replanning. Unknown reads and temporary body obstruction never justify permanent waivers. Keep H/G tripwire semantics, record membership and replant accounting intact.
+
+**5. Reachable supply**
+
+Before helper admission and material calculation, compute the live operation frontier using the same exported predicates as execution.
+
+Publish separate counts:
+
+- `openRequired`
+- `reachableNow`
+- `readyNow`: reachable, dependencies satisfied, permitted for an available crew role
+- `assignedNow`: distinct operations held by live assignments
+- `waitingPrerequisite`, `unknown`, `unproven`, `tolerated`
+
+Crew supply is distinct unassigned `readyNow` operations, with cuts/fills and material needs separated. Future reachable work is backlog, never immediate supply. Allocate disjoint batches through existing leases; refresh after mutations or generation changes.
+
+A helper with no eligible work receives another reachable batch or leaves admission immediately. A keeper-only prerequisite routes deterministically to the keeper. Inventory and travel delays remain separately measured; this change does not claim to fix the full-bag/slow-fill problem.
+
+**6. First pieces, evidence and risks**
+
+Showcase first, based on `b9fa002e`: gate publication of the next inwall tidy stage through the shared claim snapshot and sequence proof; publish reachable crew supply. Retain existing active-stage obligations. Reshape or exclude optional unreachable additions before publication. Defer required blocked portions explicitly without declaring the whole surveyed area complete.
+
+Fleet first, based on `bcdba35f`: apply the same mechanism to fresh-world initial tidy and road work, reserving future building plots and exposing executable prep. Follow with joint building admission.
+
+Use `PLANAHEAD=off` for each piece: stop new planning enforcement and supply filtering while retaining compatible project records, existing waivers and claim-01 protections. Rollback does not undo world edits.
+
+Primary effect: required operations completed and stages closed without new reachability waivers, per admitted required operation. Also report ready supply, productive helper visits/all helper visits, plan rejection reasons and planning time. Count excluded obligations explicitly so shrinking scope cannot masquerade as completion.
+
+Export pure claim, overlay, frontier, tolerance and invalidation functions. Test composed prep/build guards, stand destruction, concurrent admission, restart and unknown terrain; use uniquely anchored mutants. Slice proof work—including walks—at approximately 40 ms, checkpoint across visits and never publish an unfinished proof.
+
+Run `protected.py` on each actual diff; follow its tier, existing tripwire and rollout ledger. For tier 2, observe showcase progress for two hours before fleet rollout.
+
+Top risks are guard cycles, stale/concurrent proofs, and excessive conservatism or CPU cost. Counter them with executable prerequisite handoffs, fenced activation plus live revalidation, and resumable bounded search whose unfinished result remains explicit.

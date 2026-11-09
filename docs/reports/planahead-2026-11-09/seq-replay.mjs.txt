@@ -1,0 +1,46 @@
+// offline: the plan's OPEN cells worked to the end in the town's own walk model (dig a cut when a dig stand sees it, place a
+// fill when a step reaches it; the world overlaid as it goes) -> the cells NO order reaches
+import fs from 'node:fs'
+import path from 'node:path'
+import { dumpReader } from '../scripts/buildsite-offline.mjs'
+import { walkFrom, stepFor, overlay } from '../src/buildsite.mjs'
+import { digStand } from '../src/buildrun.mjs'
+import { replaceableCell, isLiquid } from '../src/townplan.mjs'
+const [dumpP, poolDir, plots, outP] = process.argv.slice(2)
+const base = dumpReader(JSON.parse(fs.readFileSync(dumpP, 'utf8')))
+const home = { x: 0, y: 70, z: 0 }
+const stood = []
+for (const f of ['project-0_70_0.shop.stood.jsonl.old', 'project-0_70_0.shop.stood.jsonl']) for (const l of fs.readFileSync(path.join(poolDir, f), 'utf8').split('\n')) { try { const r = JSON.parse(l); if (Array.isArray(r.c)) stood.push(r.c) } catch {} }
+const gen = f => Number(/\.g(\d+)\.json$/.exec(f)?.[1] ?? 0)
+const files = fs.readdirSync(poolDir)
+const latest = p => files.filter(f => new RegExp(`^project-0_70_0\\.${p}\\.g\\d+\\.json$`).test(f)).sort((a, b) => gen(b) - gen(a))[0]
+const AIR = { name: 'air', boundingBox: 'empty' }, PUT = { name: 'cobblestone', boundingBox: 'block' }
+const out = {}
+for (const plot of plots.split(',')) {
+  const j = JSON.parse(fs.readFileSync(path.join(poolDir, latest(plot)), 'utf8')); const rec = j.rec ?? j
+  const waived = new Set(Object.keys(rec.waived ?? {}))
+  const over = new Map(), read = overlay(base, over)
+  const isOpenFill = at => { const b = read(...at); return !!b && (replaceableCell(b) || b.name === 'air' || b.name === 'cave_air' || isLiquid(b)) }
+  let fills = (rec.cells ?? []).filter(c => !waived.has(c.at.join(',')) && (c.role ? !/light|sapling|crop|till|meadow|shrub|hedge/.test(c.role) || true : true) && isOpenFill(c.at)).map(c => ({ at: c.at, role: c.role ?? '-', box: (c.role === 'light' || /T\d-light/.test(c.role ?? '')) ? 'empty' : 'block' }))
+  let cuts = [...(rec.cut ?? []), ...(rec.clear ?? [])].map(c => c.at ?? c).filter(at => { const b = read(...at); return b && b.boundingBox !== 'empty' })
+  const n0 = { fills: fills.length, cuts: cuts.length }
+  let walks = 0
+  const walk = () => { walks++; const keys = walkFrom(read, home, new Set(fills.filter(f => f.box === 'block').map(f => f.at.join(','))), 104, { stood }); const m = new Map(); for (const k of keys) { const [x, y, z] = k.split(',').map(Number); const c = `${x},${z}`; if (!m.has(c)) m.set(c, []); m.get(c).push(y) } return m }
+  let nodes = walk(), progress = true, done = 0
+  while (progress && walks < 400) {
+    progress = false
+    // cuts first (the tidy digs before it fills), then fills bottom-up
+    const leftC = []
+    for (const at of cuts) { if (digStand(read, at, nodes)) { over.set(at.join(','), AIR); progress = true; done++ } else leftC.push(at) }
+    cuts = leftC
+    fills.sort((a, b) => a.at[1] - b.at[1])
+    const leftF = []
+    for (const f of fills) { if (stepFor(read, home, f.at, nodes, () => true)) { over.set(f.at.join(','), f.box === 'block' ? PUT : { name: 'torch', boundingBox: 'empty' }); progress = true; done++ } else leftF.push(f) }
+    fills = leftF
+    nodes = walk()
+  }
+  const byRole = {}; for (const f of fills) byRole[f.role] = (byRole[f.role] ?? 0) + 1
+  out[plot] = { open: n0, unreachable: { fills: fills.length, cuts: cuts.length }, byRole, walks, fillCells: fills.map(f => f.at), cutCells: cuts }
+  console.log(plot, JSON.stringify({ open: n0, unreachable: { fills: fills.length, cuts: cuts.length }, byRole, walks }))
+}
+fs.writeFileSync(outP, JSON.stringify(out))

@@ -587,6 +587,12 @@ const REQUIRED = [
   'docs/reports/freshworld-playbook-design-2026-11-06.md',
   'docs/reports/freshworld-playbook-2026-11-06/codex-design.txt',
   'docs/reports/freshworld-playbook-2026-11-06/measure.py.txt',
+  // planahead-01 (11-09, owner: plan the town ahead): the design, both engines' designs, the offline numbers and the map
+  'docs/reports/planahead-design-2026-11-09.md',
+  'docs/reports/planahead-2026-11-09/codex-design.txt',
+  'docs/reports/planahead-2026-11-09/claude-design.md',
+  'docs/reports/planahead-2026-11-09/offline-reach.json',
+  'docs/reports/planahead-2026-11-09/tidy-stage-reach.png',
   // country-01 + upkeep-01 (11-09): the countryside lane + the upkeep crew (design, pictures, measures, the fleet registration and draft
   // entry, the Paper proof; code on branches countryside-01show / upkeep-01-on-bcdba35f; the tripwire's CO1 + UK1 in shopread.py.txt)
   'docs/reports/country-design-2026-11-09.md',
