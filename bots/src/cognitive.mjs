@@ -14,6 +14,8 @@ import { elevation, descendOrder, descentDone, supportOf, respawnfallOn, SPAWN_W
 import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
+// cobbleroom-01: the well's two cobble exits (the proven cap, and no room to bank it)
+import { wellTakesCobble } from './cobblecap.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, shopShareHeld, projectPartReserve, drainPickNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
@@ -1335,7 +1337,7 @@ export class CognitiveLoop {
         // read on every decision anywhere in the world was a hot-path cost)
         const atTown = distHome <= TOWN_RADIUS
         // ...and at town every targeted group at its target (stocktarget design 3.4: the available floor, the keeps)
-        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: atTown && cobbleWellCap(bot, items) === 'at_cap', stock: atTown ? stockWellOpts(bot, items) : null })   // a peaceful world's swords count (well.mjs swordGoes)
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: atTown && wellTakesCobble(cobbleWellCap(bot, items)), stock: atTown ? stockWellOpts(bot, items) : null })   // a peaceful world's swords count (well.mjs swordGoes)
         const buildPlanJunk = disposePlan(items)   // the pit-first build tosses neither cobble nor swords (Claude coupling review P3)
         const r = wellOrder({
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,
