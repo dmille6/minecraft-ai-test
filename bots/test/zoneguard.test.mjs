@@ -350,6 +350,9 @@ test('r2 (Codex blocker 2 again): the pour\'s FLOW is traced -- level ground sto
     return y > 80 ? 'air' : 'stone'
   })
   assert.ok(PZ.liquidFlowReaches(zl, [[30, 75, 0]], channel), 'the channel carries the pour 30 blocks down to the torch')
+  // Codex r3: a SIGN in the channel's floor (no collision box, but no liquid enters it) must not end the run there
+  const signed = mkAt((x, y, z) => (x === 36 && y === 73 && z === 0 ? 'oak_sign' : channel(x, y, z)?.name))
+  assert.ok(PZ.liquidFlowReaches(zl, [[30, 75, 0]], signed), 'a sign under the flow: the trace also runs on sideways')
   const uphill = mkAt((x, y, z) => (x === 60 && y === 70 && z === 0 ? 'torch' : y <= 71 ? 'stone' : 'air'))
   assert.equal(PZ.liquidFlowReaches(zl, [[58, 72, 0]], uphill), null, 'the torch is below solid ground the flow runs over (it never gets down to it)')
   assert.ok(PZ.liquidFlowReaches(zg, [[54, 70, 0]], () => null), 'an unread world: refused')
