@@ -36,6 +36,7 @@ import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyO
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
 import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword, unwantedSword } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
+import { sbOn, chaseStationDrop, waitStationDrop, digWithRetry } from './stationsback.mjs'   // stationsback-01
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict, chainPeak } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
@@ -6312,6 +6313,33 @@ function watchPlaced(bot, at, name = 'crafting_table') {
   return w
 }
 
+/** STATIONSBACK-01: the station still stands at `at` -> its block (the retry digs it), else null. Never throws. */
+function stationStill (bot, at, name) {
+  try { const b = bot.blockAt?.(at); return b?.name === name ? b : null } catch { return null }
+}
+/**
+ * STATIONSBACK-01: THE RETRY'S OWNERSHIP GUARD -- a fresh watch armed now (the first dig's watch stopped at its swing), asked at
+ * the retry's swing like the first: a change since, or another block there, is not ours. The watch stops at that swing.
+ */
+function retryGuard (bot, at, name) {
+  const w = watchPlaced(bot, at, name)
+  const guard = () => {
+    try {
+      if (w.changed) throw Object.assign(new Error(`changed before the retry (${w.changed}); not provably ours`), { failClass: 'not_ours' })
+      const now = bot.blockAt?.(at)
+      if (now?.name !== name) throw Object.assign(new Error(`now ${now?.name ?? 'unknown'}`), { failClass: 'not_ours' })
+    } finally { w.stop() }
+  }
+  guard.stop = () => w.stop()
+  return guard
+}
+/** STATIONSBACK-01: one dig of a retake -- the first under the caller's guard, a retry (`again`) under a fresh retryGuard. */
+async function retryDig (bot, again, block, signal, beforeDig, at, name) {
+  if (!again) return collectManually(bot, block, signal, { beforeDig })
+  const g = retryGuard(bot, at, name)
+  try { return await collectManually(bot, again, signal, { beforeDig: g }) } finally { g.stop() }
+}
+
 /**
  * STATIONS-01: DIG BACK ONE STATION -> a phrase for the caller's detail, or null (stationkeep-01's retakeStation). `w` is a watch
  * (watchPlaced) of a station THIS CALL placed (smelt's furnace), or of a stray the groundskeepers' sweep proved (`w.stray`: no
@@ -6342,8 +6370,11 @@ async function retakeStation (ctx, w, signal, by = 'smelt') {
       if (now?.name !== name) throw Object.assign(new Error(`now ${now?.name ?? 'unknown'}`), { failClass: 'not_ours' })
       w.stop()
     }
+    let retried = ''
     try {
-      await collectManually(bot, block, signal, { beforeDig })
+      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, under a fresh watch
+      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, name), recheck: () => stationStill(bot, at, name) })
+      if (r.retried) retried = ' (dig retried)'
     } catch (e) {
       if (e?.aborted || signal?.aborted) { row('left', 'aborted mid-dig'); throw e }
       row(e?.failClass === 'not_ours' ? 'left' : 'failed', `dig: ${String(e?.message ?? e).slice(0, 80)}`)
@@ -6351,7 +6382,15 @@ async function retakeStation (ctx, w, signal, by = 'smelt') {
     }
     let back = countItem(bot, name) > before
     for (let i = 0; i < 15 && !back; i++) { await sleep(100, signal); back = countItem(bot, name) > before }
-    row(back ? 'back' : 'failed', back ? 'dug and back in the bag' : `dug but it did not arrive (${bot.blockAt?.(at)?.name ?? 'unknown'} there now)`)
+    // STATIONSBACK-01: NOT BACK -> look for its drop (up to 1.5 s) and walk into its pickup box, as craft's table retake does
+    let walked = ''
+    if (!back && sbOn()) {
+      try {
+        const c = await chaseStationDrop(bot, { at, name, before, signal, Goal: pickupGoalClass(goals), inPickupBox, withTimeout, sleep, count: () => countItem(bot, name) })
+        back = c.back; walked = c.how
+      } catch (e) { if (e?.aborted || signal?.aborted) { row('left', 'aborted walking to its drop'); throw e } walked = ` (chase: ${String(e?.message ?? e).slice(0, 40)})` }
+    }
+    row(back ? 'back' : 'failed', back ? `dug and back in the bag${walked}${retried}` : `dug but it did not arrive (${bot.blockAt?.(at)?.name ?? 'unknown'} there now)${walked}${retried}`)
     return back ? `took the ${name} back` : `dug the ${name} but it did not arrive`
   } finally { try { w.stop() } catch { /* already stopped */ } }
 }
@@ -6745,8 +6784,11 @@ async function retakeWatched(ctx, watched, signal) {
       if (late) throw Object.assign(new Error(`changed since placement (${late}); not provably ours`), { failClass: 'not_ours' })
       w.stop()
     }
+    let retried = ''
     try {
-      await collectManually(bot, block, signal, { beforeDig })
+      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, under a fresh watch
+      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, 'crafting_table'), recheck: () => stationStill(bot, at, 'crafting_table') })
+      if (r.retried) retried = ' (dig retried)'
     } catch (e) {
       if (e?.aborted || signal?.aborted) { row('left', 'aborted mid-dig'); throw e }
       if (e?.failClass === 'not_ours') { row('left', `${e.message} (seen at the dig)`); said.push('left the table: it changed while the bot walked to it'); continue }
@@ -6762,14 +6804,19 @@ async function retakeWatched(ctx, watched, signal) {
     let walked = ''
     if (!back) {
       const centre = at.offset ? at.offset(0.5, 0.5, 0.5) : new Vec3(at.x + 0.5, at.y + 0.5, at.z + 0.5)
-      const drop = bot.nearestEntity?.(e => {
+      // STATIONSBACK-01: the drop is LOOKED FOR up to 1.5 s, not once (50 of 184 retakes 11-09 read "not in sight" and 41 of
+      // the 56 failures saw the table picked up passively within 120 s: it was there)
+      const looked = sbOn() ? await waitStationDrop(bot, { at, name: 'crafting_table', before, sleep, signal, count: () => countItem(bot, 'crafting_table') }) : null
+      back = countItem(bot, 'crafting_table') > before
+      const drop = back ? null : looked ?? bot.nearestEntity?.(e => {
         if (e?.name !== 'item' || !e.position) return false
         let n = null
         try { n = e.getDroppedItem?.()?.name } catch {}
         return n === 'crafting_table' && e.position.distanceTo(centre) < TABLE_DROP_R
       })
       const Goal = pickupGoalClass(goals)
-      if (drop && Goal) {
+      if (back) walked = ' (arrived while it looked for the drop)'
+      else if (drop && Goal) {
         if (!inPickupBox(bot.entity?.position, drop.position)) {
           try { await withTimeout(bot.pathfinder.goto(new Goal(drop.position)), 8_000, bot) } catch (e) {
             if (e?.aborted || signal?.aborted) { row('left', 'aborted walking to its drop'); throw e }
@@ -6782,8 +6829,8 @@ async function retakeWatched(ctx, watched, signal) {
     }
     // BAGDIET-01: a LATE arrival is still an arrival (the bag's window update can trail the collect): one bounded last look
     for (let i = 0; i < TABLE_LATE_LOOKS && !back; i++) { await sleep(100, signal); back = countItem(bot, 'crafting_table') > before }
-    if (back) { row('success', `dug and back in the bag${walked}`); said.push('took the table back') } else {
-      row('failed', `dug but it did not arrive (${bot.blockAt(at)?.name ?? 'unknown'} there now)${walked}`)
+    if (back) { row('success', `dug and back in the bag${walked}${retried}`); said.push('took the table back') } else {
+      row('failed', `dug but it did not arrive (${bot.blockAt(at)?.name ?? 'unknown'} there now)${walked}${retried}`)
       said.push('dug the table but it did not arrive')
     }
   }
