@@ -29469,6 +29469,8 @@ function pensDueFor (bot, rec) {
     if (o.fence + o.gate > 0) return 'repair'
     const me = bot.entity?.position
     const c = penCentreOf(rec)
+    // a bot left standing on a pen's floor (an abort mid-visit: Codex pens r1 BLOCKER) is due its way out first
+    if (me && penOf(rec, me.x, me.z)) return 'exit'
     hdNoteSightings(bot, rec)
     if (!me || Math.hypot(me.x - c.x, me.z - c.z) > 40) return null
     let stock = {}
@@ -29631,14 +29633,26 @@ async function setGate (bot, g, open, signal) {
   return gateIsOpen(bot, g) === open
 }
 const onFloor = (rec, p) => !!penOf(rec, p.x, p.z)
-async function hdGoto (ctx, p, signal, range = 0, ms = 15_000) { try { await goto(ctx, { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z), range }, signal, { until: Date.now() + ms }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+/** THE HERD'S WALKS: the pathfinder with the bot's own travel moves (canDig false) and NOTHING ELSE -- never goto's dig-assisted retry
+ *  (Codex + Claude pens r1 BLOCKER: a gate that failed to open left a walk short, and gotoLegs' one retry runs the ascent profile,
+ *  canDig true without the footprint price: it would dig the gate or a fence). A short walk, bounded; a failure is the caller's to
+ *  read (where the bot stands). Range 0 means the cell itself (the wool's pickup). */
+async function hdGoto (ctx, p, signal, range = 0, ms = 15_000) {
+  const { bot } = ctx
+  check(signal)
+  const onAbort = () => { try { bot.pathfinder.setGoal(null) } catch { /* idle */ } }
+  signal?.addEventListener?.('abort', onAbort)
+  try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z), range)), ms, bot, { what: 'herd walk' }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { signal?.removeEventListener?.('abort', onAbort) }
+  try { bot.pathfinder.setGoal(null) } catch { /* idle */ }
+  check(signal)
+}
 /** INTO a pen by its gate (open, in, closed behind) -> true when the bot stands on the pen's floor with the gate closed. */
 async function penEnter (ctx, rec, sp, signal) {
   const { bot } = ctx
   const g = penGateOf(rec, sp)
   if (!g) return false
   await hdGoto(ctx, g.out, signal, 0)
-  if (!(await setGate(bot, g, true, signal))) return false
+  if (!(await setGate(bot, g, true, signal))) { await setGate(bot, g, false, signal); return false }
   await hdGoto(ctx, g.in, signal, 0)
   const inside = penOf(rec, bot.entity.position.x, bot.entity.position.z) === sp
   const shut = await setGate(bot, g, false, signal)
@@ -29652,7 +29666,7 @@ async function penExit (ctx, rec, sp, signal) {
   try { if (bot.heldItem && ['wheat', 'shears'].includes(bot.heldItem.name)) await bot.unequip('hand') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   for (let i = 0; i < 3; i++) {
     await hdGoto(ctx, { x: g.in.x - (g.in.x - g.x) / 2, y: g.y, z: g.in.z - (g.in.z - g.z) / 2 }, signal, 0)
-    await setGate(bot, g, true, signal)
+    if (!(await setGate(bot, g, true, signal))) continue
     await hdGoto(ctx, g.out, signal, 0)
     if (!onFloor(rec, bot.entity.position)) break
   }
@@ -29668,6 +29682,9 @@ async function herdVisit (ctx, rec, { deadline, signal, tookAll = {} }) {
   const t0 = Date.now()
   const row = (status, o) => { try { logEvent({ kind: 'herd', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: herdDetail(o), args: { op: o.op, species: o.species ?? null, why: o.why ?? null } }) } catch { /* telemetry */ } }
   const c = penCentreOf(rec)
+  // LEFT INSIDE by an earlier visit's abort: out by that pen's gate before anything else
+  const inside0 = penOf(rec, bot.entity.position.x, bot.entity.position.z)
+  if (inside0) { const ok = await penExit(ctx, rec, inside0, signal); row(ok ? 'success' : 'failed', { op: 'exit', species: inside0, stop: ok ? 'out' : 'exit_failed' }); if (!ok) return { ok: false, op: 'exit', why: 'exit_failed' } }
   const g0 = penGateOf(rec, 'sheep')
   if (g0) await hdGoto(ctx, g0.out, signal, 2)
   const census = herdCensus(hdAnimals(bot), rec)
@@ -29689,7 +29706,7 @@ async function herdVisit (ctx, rec, { deadline, signal, tookAll = {} }) {
     if (w.op === 'shear') {
       if (!(await decorShears(ctx, signal))) { row('no_effect', { ...base, stop: 'no_shears' }); return { ok: false, op: 'shear', why: 'no_shears' } }
       const wool0 = bot.inventory.items().filter(i => /_wool$/.test(i.name)).reduce((a, i) => a + i.count, 0)
-      if (!(await penEnter(ctx, rec, 'sheep', signal))) { entered = 'sheep'; row('failed', { ...base, stop: 'enter' }); return { ok: false, op: 'shear', why: 'enter' } }
+      if (!(await penEnter(ctx, rec, 'sheep', signal))) { entered = onFloor(rec, bot.entity.position) ? 'sheep' : null; row('failed', { ...base, stop: 'enter' }); return { ok: false, op: 'shear', why: 'enter' } }
       entered = 'sheep'
       let n = 0
       const done = new Set()
@@ -29724,7 +29741,7 @@ async function herdVisit (ctx, rec, { deadline, signal, tookAll = {} }) {
       if (!(await wheatFor(HERD.breedWheat))) { row('no_effect', { ...base, stop: 'no_wheat' }); return { ok: false, op: 'breed', why: 'no_wheat' } }
       const sp = w.species
       const n0 = herdCensus(hdAnimals(bot), rec)[sp].n
-      if (!(await penEnter(ctx, rec, sp, signal))) { entered = sp; row('failed', { ...base, stop: 'enter' }); return { ok: false, op: 'breed', why: 'enter' } }
+      if (!(await penEnter(ctx, rec, sp, signal))) { entered = onFloor(rec, bot.entity.position) ? sp : null; row('failed', { ...base, stop: 'enter' }); return { ok: false, op: 'breed', why: 'enter' } }
       entered = sp
       const fed = []
       for (let i = 0; i < 6 && fed.length < 2 && Date.now() < deadline - 25_000; i++) {
@@ -29799,7 +29816,12 @@ async function herdVisit (ctx, rec, { deadline, signal, tookAll = {} }) {
         return { ok: false, op: 'fetch', why: stop }
       }
       // THROUGH THE GATE: open, in (the animal follows the wheat), wheat away, out, closed
-      await setGate(bot, g, true, signal)
+      // the gate OPEN, read back, before a step in (Claude pens r1 BLOCKER: a walk at a closed gate)
+      if (!(await setGate(bot, g, true, signal))) {
+        try { await bot.unequip('hand') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        row('failed', { ...base, uuid: an.uuid, legs, stop: 'gate' })
+        return { ok: false, op: 'fetch', why: 'gate' }
+      }
       entered = sp
       await hdGoto(ctx, g.deep, signal, 0)
       let inPen = false
