@@ -42,7 +42,7 @@ const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  $
 const ED = await import('../src/escdead.mjs')
 const { pocketDigPlan, pocketDigOk, trapSiteFrom, trapCellSet, trapStepCost, inTrap, swimTierFor, SU_WIDE, PIN_MIN_MS, TRAP_TTL_MS,
   TRAP_STEP_COST, POCKET_DIG_MS, breachPlan, escPocketOn, pocketDigDetail, escPocketModeDetail, pocketDig, POCKET_ABORT_OXYGEN, longBreathPlan, SU_LONG_WET_RUN, seaPocketModeDetail } = ED
-const { swimUnderPlan, swimUnder, startCells, exitKind, SU_MAX_WET_RUN } = await import('../src/swimunder.mjs')
+const { swimUnderPlan, swimUnder, startCells, exitKind, SU_MAX_WET_RUN, swimUnderAbort, SU_BACK_TICKS, SU_BACK_RESERVE } = await import('../src/swimunder.mjs')
 const { overheadBreakRisk } = await import('../src/scaffold.mjs')
 const { predictedDigMs } = await import('../src/digbudget.mjs')
 const RX = await import('../src/reflex.mjs')
@@ -160,7 +160,7 @@ await t('S2 positive control: without the rescue\'s four head-level seals (the 0
   const p = swimUnderPlan({ at: worldOf(PD).at, start: PF })
   assert.ok(p.ok, p.reason); assert.ok(p.wetRun <= 3, `run ${p.wetRun}`)
 })
-await t('S3 THE LONG-BREATH TIER on LIVE: 9 cells to dry 46,63,69 (onto the dirt), head-wet run 6 <= 7; the base bound (5) refuses it', () => {
+await t('S3 THE LONG-BREATH TIER on LIVE: 9 cells to dry 46,63,69 (onto the dirt), head-wet run 6 = the long bound; the base bound (5) refuses it', () => {
   const w = worldOf(PD, SEA)
   const lb = longBreathPlan({ at: w.at, start: PF, tier: SU_WIDE, on: true })
   assert.ok(lb.ok, lb.reason); assert.equal(lb.exit, 'dry'); assert.deepEqual(lb.route.at(-1), [46, 63, 69])
@@ -189,13 +189,68 @@ await t('S5 COMPOSED CHAIN at 46,59,69 (LIVE): the flood guard (water beside the
 })
 await t('S6 THE LONG TIER NEVER REPLACES A SHORT PLAN: wherever the base bound plans, the reflex never asks the long tier (structural), and on Echo\'s cut the base plan is unchanged', () => {
   const r = stripComments(readFileSync(SRC.reflex, 'utf8'))
-  assert.ok(/if \(!plan\.ok && wide\.radius && pocketOn\) \{\n\s*const lb = longBreathPlan\(\{ at, start, tier: wide \}\)\n\s*if \(lb\?\.ok\) \{ plan = lb; breath = SU_LONG_WET_RUN \}/.test(r), 'long breath only after the wide plan failed')
-  assert.ok(r.indexOf('const lb = longBreathPlan(') < r.indexOf('const pd = pocketDigPlan('), 'before the pocket dig')
-  assert.ok(r.includes("${breath ? ` breath=${breath}` : ''}"), 'the start row says breath=')
+  assert.ok(/if \(plan\.ok \|\| !wide\.radius \|\| !pocketOn\) return\n\s*const lb = longBreathPlan\(\{ at, start, tier: wide \}\)\n\s*if \(lb\?\.ok\) \{ plan = lb; breath = SU_LONG_WET_RUN \}/.test(r), 'long breath only after the wide plan failed')
+  assert.ok(/const longFirst = !\(st0\?\.breath > 0\)\n[\s\S]*if \(longFirst\) tryLong\(\)\n\s*let pocket = null[\s\S]*const pd = pocketDigPlan\([\s\S]*if \(!longFirst\) tryLong\(\)/.test(r), 'before the pocket dig, after it once a long firing failed here')
+  assert.ok(r.includes('wide: !!wide.radius, breath })'), 'a failed firing remembers its tier')
+  assert.equal(r.split("${breath ? ` breath=${breath}` : ''}").length, 3, 'the start AND outcome rows say breath=')
   const w = worldOf(FX, PRE)
   assert.equal(swimUnderPlan({ at: w.at, start: FEET, ...SU_WIDE }).wetRun <= SU_MAX_WET_RUN, true)
-  assert.match(seaPocketModeDetail({}), /^on=1 long_wet_run=7 base_wet_run=5 tier=wide_only$/)
+  assert.match(seaPocketModeDetail({}), /^on=1 long_wet_run=6 base_wet_run=5 tier=wide_only$/)
   const f = stripComments(readFileSync(SRC.features, 'utf8')); assert.equal(f.split("kind: 'seapocket_mode'").length, 2)
+})
+// ---- the way back is paid for (Codex r1 BLOCKER) ------------------------------------------------------------------------
+// a 1x1 pocket at x=0 (feet water y=10, head air y=11), a 2-high water tunnel y=9..10 running +x for n cells under stone, then
+// dry ground (swimunder.test.mjs's tunnel)
+const tunnel = (n, extra = () => null) => synth((x, y, z) => {
+  const e = extra(x, y, z); if (e) return e
+  if (x === 0 && z === 0) return y === 10 ? 'minecraft:water[level=0]' : y === 11 ? 'minecraft:air' : y === 9 ? 'minecraft:water[level=0]' : 'minecraft:stone'
+  if (z === 0 && x >= 1 && x <= n) return (y === 9 || y === 10) ? 'minecraft:water[level=0]' : 'minecraft:stone'
+  if (z === 0 && x === n + 1) return (y >= 9 && y <= 11) ? 'minecraft:air' : 'minecraft:stone'
+  return 'minecraft:stone'
+})
+await t('A1 THE RULE: on a long plan, air that no longer pays the wet cells behind (30 ticks each + 60) turns back -- unless the nearer breath is ahead; base plans never ask it', () => {
+  assert.equal(SU_BACK_TICKS, 30); assert.equal(SU_BACK_RESERVE, 60)
+  assert.match(swimUnderAbort({ oxygen: 13, wetAhead: 5, wetBack: 5, longRun: true }), /no longer pays the way back \(5 wet cells\)/)   // 195 < 210
+  assert.equal(swimUnderAbort({ oxygen: 14, wetAhead: 5, wetBack: 5, longRun: true }), null)                                         // 210 = 210
+  assert.equal(swimUnderAbort({ oxygen: 13, wetAhead: 1, wetBack: 5, longRun: true }), null, 'the nearer breath is ahead: press on')
+  assert.equal(swimUnderAbort({ oxygen: 13, wetAhead: 5, wetBack: 5, longRun: false }), null, 'a base plan keeps the base rule')
+})
+await t('A2 ADVERSE (prismarine-physics): a 5-cell tunnel (6 head-wet cells with the dip) whose dry exit closes as the body reaches cell 5 -- the body turns back along its wake to the pocket, health 20, air never at 0', async () => {
+  let closed = false
+  const w = tunnel(5, (x, y, z) => (closed && x === 6 && z === 0 && y === 9) ? 'minecraft:stone' : null)
+  const world = { getBlock: p => { const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); if (closed && x === 6 && z === 0 && y === 9) { const b = Block.fromString('minecraft:stone', 0); b.position = new Vec3(x, y, z); return b } return w.getBlock(p) } }
+  const bot = simBot(world, [0.5, 10.2, 0.5]); settle(bot)
+  const plan = longBreathPlan({ at: (x, y, z) => world.getBlock(new Vec3(x, y, z)), start: feetCell(bot), tier: { radius: 8, maxDown: 4 }, on: true })
+  assert.ok(plan.ok, plan.reason); assert.equal(plan.wetRun, 6)
+  let res = null, done = false
+  const p = swimUnder(bot, { plan, oxygen: () => bot.oxygenLevel, now: () => bot.ticks * 50, onStep: ({ i }) => { if (i >= 4) closed = true } }).then(r => { res = r; done = true })
+  let minAir = 300
+  for (let i = 0; i < 2000 && !done; i++) { await new Promise(r => setImmediate(r)); bot.tick(); minAir = Math.min(minAir, bot.air) }
+  await p
+  assert.notEqual(res.outcome, 'out'); assert.equal(bot.health, 20, `health ${bot.health} (${res.outcome}: ${res.why})`); assert.ok(minAir > 0, `air hit 0`)
+  console.log(`        (${res.outcome}: ${res.why}; min air ${minAir} ticks)`)
+})
+await t('A3 ADVERSE (prismarine-physics): the worst turn-back -- the exit closes at the LAST cell, the body STALLS there 3 s (Codex r1 scenario), set out on 2/3 air (200 of 300 ticks): it swims the whole wake back to the pocket, health 20, >= 60 ticks of air left', async () => {
+  let closed = false
+  const w = tunnel(5)
+  const world = { getBlock: p => { const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); if (closed && x === 6 && z === 0 && y === 9) { const b = Block.fromString('minecraft:stone', 0); b.position = new Vec3(x, y, z); return b } return w.getBlock(p) } }
+  const bot = simBot(world, [0.5, 10.2, 0.5]); settle(bot)
+  const plan = longBreathPlan({ at: (x, y, z) => world.getBlock(new Vec3(x, y, z)), start: feetCell(bot), tier: { radius: 8, maxDown: 4 }, on: true })
+  bot.air = 200
+  let res = null, done = false, minAir = 300
+  const p = swimUnder(bot, { plan, oxygen: () => bot.oxygenLevel, now: () => bot.ticks * 50, onStep: ({ i, back }) => { if (!back && i >= plan.route.length - 1) closed = true } }).then(r => { res = r; done = true })
+  for (let k = 0; k < 2000 && !done; k++) { await new Promise(r => setImmediate(r)); bot.tick(); minAir = Math.min(minAir, bot.air) }
+  await p
+  console.log(`        (${res.outcome}: ${res.why}; at ${feetCell(bot)} min air ${minAir} ticks hp ${bot.health})`)
+  assert.equal(res.outcome, 'returned', `${res.outcome}: ${res.why}`)
+  const fc = feetCell(bot); assert.ok(fc[0] === 0 && fc[2] === 0 && (fc[1] === 9 || fc[1] === 10), `home column, at ${fc}`)   // the body bobs in the start column
+  assert.equal(bot.health, 20); assert.ok(minAir >= 60, `min air ${minAir} ticks`)
+})
+await t('M3 MUTANT KILLED: without the paid-way-back rule the short-air long swim presses on (A3 catches it)', async () => {
+  const SW = new URL('../src/swimunder.mjs', import.meta.url)
+  await withMutant(SW, "  if (longRun && Number.isFinite(oxygen) && Number.isFinite(wetBack) && oxygen * 15 <", "  if (false && longRun && Number.isFinite(oxygen) && Number.isFinite(wetBack) && oxygen * 15 <", async m => {
+    assert.equal(m.swimUnderAbort({ oxygen: 13, wetAhead: 5, wetBack: 5, longRun: true }), null)
+  })
 })
 await t('M1 MUTANT KILLED: the long tier without its breath override is the wide search again (S3 catches it)', async () => {
   await withMutant(SRC.escdead, '  return swimUnderPlan({ at, start, ...tier, maxWetRun: SU_LONG_WET_RUN })', '  return swimUnderPlan({ at, start, ...tier })', async m => {

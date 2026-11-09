@@ -315,9 +315,9 @@ export function swimTierFor (pinnedMs, { known = false, on = escDeadOn(), pocket
 // refuses: flood guard (water beside the roof), plugcut (4 wet faces), the breach (no water OVER the roof), the pocket dig
 // (open water: nothing at or below the feet to dig), the swim (5).
 // THE TIER: on the wide tier only (a 30-min pin or a recorded trap), when the wide search finds nothing, it is run once more
-// with the head-wet run allowed to SU_LONG_WET_RUN. A plan within 5 is always preferred (the long tier runs only when none
+// with the head-wet run allowed to SU_LONG_WET_RUN (6), and the actuator keeps the way back paid for in air (swimUnderAbort longRun). A plan within 5 is always preferred (the long tier runs only when none
 // exists); the actuator's own turn-back (air <= 10 with less water behind than ahead) is unchanged. ESCPOCKET=0 -> off.
-export const SU_LONG_WET_RUN = 7
+export const SU_LONG_WET_RUN = 6   // Bravo's way out needs 6; one over the base, and the way back is paid for (swimunder.mjs swimUnderAbort longRun)
 /** The long-breath search on the wide tier -> swimUnderPlan's result | null (not armed). Pure. */
 export function longBreathPlan ({ at, start, tier, on = escPocketOn() } = {}) {
   if (!on || !tier?.radius) return null
