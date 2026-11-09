@@ -26,7 +26,7 @@
 // CITYWALL=off is the rollback (no new generation; a published one is an ordinary record: its open cells are repaired or waived).
 
 export const CITYWALL_PLOT = 'citywall'
-export const CITYWALL = Object.freeze({ underMax: 6, towerOut: 2, towerRise: 5, towersMax: 6, cornerReach: 6, gateHead: 3, gateMaxP: 20, lampIceR: 3, mossBody: 0.16, mossMerlon: 0.1 })
+export const CITYWALL = Object.freeze({ underMax: 6, towerOut: 2, towerRise: 5, flatRise: 4, towersMax: 6, cornerReach: 6, gateHead: 3, gateMaxP: 20, lampIceR: 3, mossBody: 0.16, mossMerlon: 0.1 })
 /** The roles a citywall generation adds (every one prefixed: no other module's `role === 'wall'` reads them as the old wall). */
 export const CW = Object.freeze({ foot: 'cw-foot', plinth: 'cw-plinth', body: 'cw-body', bodym: 'cw-bodym', band: 'cw-band', merlon: 'cw-merlon', merlonm: 'cw-merlonm', tower: 'cw-tower', quoin: 'cw-quoin', tcore: 'cw-tcore', tmerlon: 'cw-tmerlon', slit: 'cw-slit', deck: 'cw-deck', dedge: 'cw-dedge', parapet: 'cw-parapet', key: 'cw-key', haunch: 'cw-haunch', lamp: 'cw-lamp', hang: 'cw-hang' })
 /** THE STYLES: role -> block names, first wanted (the bill draws it), the rest accepted (cellDone by family) and placed when the bag
@@ -203,9 +203,11 @@ export function towerSites (rec, cols, { reach = CITYWALL.cornerReach, max = CIT
  * SWAPPED (sw); merlons on the four corners and the outer middle at top+1, the lamp on the outer middle merlon, the slit at tb+3 on
  * the outer middle. A column whose ground is not found within reach -> why.
  */
-export function towerCells (read, site, { seed = 0, oldAt = new Map(), taken = () => false, rise = CITYWALL.towerRise } = {}) {
+export function towerCells (read, site, { seed = 0, oldAt = new Map(), taken = () => false, rise = CITYWALL.towerRise, flat = false } = {}) {
   const tb = Math.max(...site.cols.map(c => c.b))
-  const top = tb + rise
+  // FLAT (a base with no reach-only click and no block states: the fleet before townstyle-01): the top course at tb+4 (its top face seen
+  // from the wall walk's eye, tb+4.62), merlons at tb+5 placed from a crenel beside it, no lantern over them
+  const top = tb + (flat ? Math.min(rise, CITYWALL.flatRise) : rise)
   const foot = []   // [x, z, kind, a, b]: a, b the footprint indices (0..2)
   if (site.kind === 'corner') {
     const [n1, n2] = site.n, [cx, cz] = site.at
@@ -230,12 +232,12 @@ export function towerCells (read, site, { seed = 0, oldAt = new Map(), taken = (
       if (oldAt.has(k3(x, y, z))) c.sw = 1
       // above a ground eye's top-face reach (its ground + 3: the course a builder on the ground cannot see the top of) and the hidden
       // centre (enclosed by its ring as the tower rises): placed by reach (the roofs' proven blind click, Paper 147/147)
-      if (y >= g + 3 || role === CW.tcore) c.blind = true
+      if (!flat && (y >= g + 3 || role === CW.tcore)) c.blind = true
       cells.push(c)
     }
     if (why) break
-    if (isCorner(a, b) || outerMid(a, b)) cells.push({ at: [x, top + 1, z], role: CW.tmerlon, blind: true })
-    if (outerMid(a, b)) cells.push({ at: [x, top + 2, z], role: CW.lamp, blind: true })
+    if (isCorner(a, b) || outerMid(a, b)) cells.push({ at: [x, top + 1, z], role: CW.tmerlon, ...(flat ? {} : { blind: true }) })
+    if (outerMid(a, b) && !flat) cells.push({ at: [x, top + 2, z], role: CW.lamp, blind: true })
   }
   // EVERY added cell vetoed like the courses (Codex r1 BLOCKER 3: the merlons and the lamp were never asked)
   if (!why) for (const c of cells) if (!oldAt.has(kOf(c.at)) && taken(...c.at)) { why = `taken ${kOf(c.at)}`; break }
@@ -279,7 +281,7 @@ export function gateInset (site) {
  * centre, haunch stairs under the deck at the passage's two edge columns (outer and inner row) and lanterns hung under the outer row
  * every third column. `cols(x, z)` -> the record's wall column there (for the in-line flank columns' bases and old cells).
  */
-export function gatehouseCells (read, site, { seed = 0, colAt = () => null, oldAt = new Map(), taken = () => false, head = CITYWALL.gateHead, stairs = true, top0 = null } = {}) {
+export function gatehouseCells (read, site, { seed = 0, colAt = () => null, oldAt = new Map(), taken = () => false, head = CITYWALL.gateHead, stairs = true, top0 = null, flat = false } = {}) {
   // the scan's start: above the flank columns' bases (the passage's ground is near them), else above the highest record cell
   top0 ??= Math.max(...[site.lo, site.hi].map(([x, z]) => colAt(x, z)?.b ?? -Infinity), ...[...oldAt.values()].map(c => c.at[1])) + 8
   const [nx, nz] = site.n, [ax, az] = site.along
@@ -303,16 +305,18 @@ export function gatehouseCells (read, site, { seed = 0, colAt = () => null, oldA
   const tA = flank(site.lo, [-ax, -az]), tB = flank(site.hi, [ax, az])
   const cells = []
   for (const t of [tA, tB]) {
-    const rise = Math.max(CITYWALL.towerRise, deckY + 1 - Math.max(...t.cols.map(c => c.b)))
-    const tc = towerCells(read, t, { seed, oldAt, taken, rise })
+    // FLAT: the towers' top course is the deck's level (a deck cell is clicked on a tower's side face); no merlons over a gate tower
+    const rise = flat ? Math.max(CITYWALL.flatRise, deckY - Math.max(...t.cols.map(c => c.b))) : Math.max(CITYWALL.towerRise, deckY + 1 - Math.max(...t.cols.map(c => c.b)))
+    const tc = towerCells(read, t, { seed, oldAt, taken, rise, flat })
     if (tc.why) return { cells: [], why: `tower ${tc.why}` }
-    cells.push(...tc.cells)
+    cells.push(...(flat ? tc.cells.filter(c => c.role !== CW.tmerlon) : tc.cells))
   }
   const mid = Math.floor((site.P - 1) / 2)
   site.cols.forEach(([x, z], i) => {
     for (let o = 0; o < 3; o++) {
       const X = x + nx * o, Z = z + nz * o
       cells.push({ at: [X, deckY, Z], role: o === 2 && i === mid ? CW.key : o === 2 ? CW.dedge : CW.deck })
+      if (flat) continue   // FLAT: the deck alone (its merlons, parapet, haunches and lamps need reach-only clicks or states)
       if (o === 2 && i % 2 === 0) cells.push({ at: [X, deckY + 1, Z], role: CW.tmerlon, blind: true })
       if (o === 0) cells.push({ at: [X, deckY + 1, Z], role: CW.parapet, blind: true })
       const edge = i === 0 || i === site.P - 1
@@ -338,7 +342,7 @@ export const facingOf = ([dx, dz]) => (dx > 0 ? 'east' : dx < 0 ? 'west' : dz > 
 
 /** THE RUN-END LAMPS -> [{ at, role }]: one on the top merlon of each run's end columns (a run of one: one lamp), never on a taken
  *  cell, never within CITYWALL.lampIceR of ice (a lantern melts the lake the bots swim). Pure. */
-export function runLamps (read, runs, { taken = () => false, skip = new Set(), iceR = CITYWALL.lampIceR } = {}) {
+export function runLamps (read, runs, { taken = () => false, skip = new Set(), iceR = CITYWALL.lampIceR, flat = false } = {}) {
   const out = []
   const icy = (x, y, z) => { for (let dx = -iceR; dx <= iceR; dx++) for (let dz = -iceR; dz <= iceR; dz++) for (let dy = -2; dy <= 1; dy++) if (/ice$/.test(nm(read(x + dx, y + dy, z + dz)))) return true; return false }
   for (const r of runs) {
@@ -347,9 +351,11 @@ export function runLamps (read, runs, { taken = () => false, skip = new Set(), i
       if (skip.has(k2(c.x, c.z))) continue
       const t = c.cells.at(-1).at
       if (t[1] < c.b + 4) continue   // no merlon at this end
-      const at = [t[0], t[1] + 1, t[2]]
+      // FLAT: a TORCH on the merlon's inner face, over the wall walk (the wall's own post lights: role `light`, placed from the walk)
+      const inn = c.n.reduce((a, d) => [a[0] - d[0], a[1] - d[1]], [0, 0])
+      const at = flat ? [t[0] + inn[0], t[1], t[2] + inn[1]] : [t[0], t[1] + 1, t[2]]
       if (taken(...at) || !airish(read(...at)) || icy(...at)) continue
-      out.push({ at, role: CW.lamp, blind: true })
+      out.push(flat ? { at, role: 'light' } : { at, role: CW.lamp, blind: true })
     }
   }
   return out
@@ -365,7 +371,7 @@ export function runLamps (read, runs, { taken = () => false, skip = new Set(), i
  * owns (a dress torch, a path); the old record's own cells are never taken. `reachUnder([x, y, z])`: can a stand place this underpinning
  * cell (the caller's walk and stepFor); false leaves the column's underpinning out.
  */
-export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = true, gate = false, gatePick = null, taken = () => false, zone = () => false, towersMax = CITYWALL.towersMax, stairs = true, reachUnder = () => true } = {}) {
+export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = true, gate = false, gatePick = null, taken = () => false, zone = () => false, towersMax = CITYWALL.towersMax, stairs = true, reachUnder = () => true, flat = false } = {}) {
   if (!rec?.cells?.length || !Array.isArray(rec.ring)) return { ok: false, why: 'no_record' }
   if (rec.citywall) return { ok: false, why: 'already' }
   const cols = wallColumns(rec)
@@ -388,20 +394,22 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
   if (gate || gatePick != null) {
     let site = gateSite(rec, { pick: gatePick })
     if (site) {
-      let r = gatehouseCells(read, site, { seed, colAt, oldAt, taken: veto, stairs })
+      let r = gatehouseCells(read, site, { seed, colAt, oldAt, taken: veto, stairs, flat })
       const ins = r.why ? gateInset(site) : null
-      if (ins) { const r2 = gatehouseCells(read, ins, { seed, colAt, oldAt, taken: veto, stairs }); if (!r2.why) { r = r2; site = ins } else r = { ...r, why: `${r.why}; inset ${r2.why}` } }
+      if (ins) { const r2 = gatehouseCells(read, ins, { seed, colAt, oldAt, taken: veto, stairs, flat }); if (!r2.why) { r = r2; site = ins } else r = { ...r, why: `${r.why}; inset ${r2.why}` } }
       if (r.why) skipped.gate = r.why
       else { gh = { site, ...r }; for (const t of r.towers) for (const c of t.cols) towerCols.add(k2(c.x, c.z)) }
     } else skipped.gate = 'no_gateway'
   }
   // 2. THE TOWERS (one phase each, after the gate)
   const footprintFree = s => {
-    const tc = towerCells(read, s, { seed, oldAt, taken: veto })
+    const tc = towerCells(read, s, { seed, oldAt, taken: veto, flat })
     if (tc.why) { skipped.towers.push(`${s.at.join(',')}:${tc.why}`); return false }
     return true
   }
-  const sites = towerSites(rec, cols, { max: towersMax, fits: footprintFree, skip: towerCols })
+  // FLAT: no bastions (their merlons and outer rows want reach-only clicks: the fake server 11-09 left 103 cells open); the gate's own
+  // towers stay (the wall walk beside them reaches their top course, the deck's level)
+  const sites = towerSites(rec, cols, { max: flat ? 0 : towersMax, fits: footprintFree, skip: towerCols })
   // 3. THE PHASES: the gate's unit, each tower's unit (its run), then the other runs nearest a tower or the gate first
   const runOf = new Map(); runs.forEach((r, i) => { for (const c of r) runOf.set(k2(c.x, c.z), i) })
   const units = []
@@ -421,11 +429,12 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
     // the gate towers' lamps go up LAST, from the finished deck (a ground eye cannot reach a lamp over a raised tower: offline 11-09)
     // A TOWER'S SWAPPED CELLS (its in-line O column) go FIRST, in their own segment `<tower>s`: the swap digs them from the outside ground
     // and once the tower's outer rows stand round them no stand sees them (the fake server 11-09: clear_failed no_stand, blocked)
-    const swFirst = (c, seg) => (oldAt.has(kOf(c.at)) ? `${seg}s` : seg)
+    // FLAT: the hidden core next (`<tower>c`, after the swap): with no reach-only click it is placed while nothing round it stands yet
+    const swFirst = (c, seg) => (oldAt.has(kOf(c.at)) ? `${seg}s` : flat && c.role === CW.tcore ? `${seg}c` : seg)
     // ...and the haunch stairs with them (a part with no fallback: a visit that holds none ends `no_material` at it, so it goes in the
     // gate's LAST segment -- the wall's lights-last rule, wall.mjs wallLightsLast -- never ahead of the deck and the runs)
     if (u.kind === 'gate') for (const c of u.site.cells) put(c, c.role === CW.lamp || c.role === CW.haunch ? 'CW-GL' : c.role === CW.deck || c.role === CW.dedge || c.role === CW.key || c.role === CW.hang || (c.role === CW.tmerlon && c.at[1] === u.site.deckY + 1) || c.role === CW.parapet ? 'CW-G' : swFirst(c, 'CW-GT'), ph)
-    if (u.kind === 'tower') { const tc = towerCells(read, u.site, { seed, oldAt, taken: veto }); for (const c of tc.cells) put(c, swFirst(c, `CW-${u.site.id}`), ph) }
+    if (u.kind === 'tower') { const tc = towerCells(read, u.site, { seed, oldAt, taken: veto, flat }); for (const c of tc.cells) put(c, swFirst(c, `CW-${u.site.id}`), ph) }
     for (const ri of u.runs) {
       const run = runs[ri]
       for (const col of run) {
@@ -439,7 +448,7 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
         if (up.why) skipped.underpin[up.why] = (skipped.underpin[up.why] ?? 0) + 1
         for (const at of up.cells) if (!cells.has(kOf(at))) put({ at, role: CW.foot }, col.seg, ph)
       }
-      for (const l of runLamps(read, [run], { taken: veto, skip: lampSkip })) if (!cells.has(kOf(l.at))) put(l, `CW-L${ph}`, ph)
+      for (const l of runLamps(read, [run], { taken: veto, skip: lampSkip, flat })) if (!cells.has(kOf(l.at))) put(l, `CW-L${ph}`, ph)
     }
   })
   const all = [...cells.values()]
@@ -536,14 +545,15 @@ export function citywallGeneration (rec, design, ph, { now = Date.now() } = {}) 
   const have = new Set(cells.map(c => kOf(c.at)))
   for (const c of add) if (!have.has(kOf(c.at))) cells.push(strip(c))
   const used = new Set(cells.map(c => c.seg))
-  const rank = s => (/^CW-GTs$/.test(s) ? -0.5 : /^CW-GT$/.test(s) ? 0 : /^CW-G$/.test(s) ? 1 : /^CW-GL$/.test(s) ? 1.5 : /^CW-T\d+s$/.test(s) ? 1.8 : /^CW-T/.test(s) ? 2 : /^CW-L/.test(s) ? 4 : 3)
+  const rank = s => (/^CW-GTs$/.test(s) ? -0.5 : /^CW-GTc$/.test(s) ? -0.25 : /^CW-GT$/.test(s) ? 0 : /^CW-G$/.test(s) ? 1 : /^CW-GL$/.test(s) ? 1.5 : /^CW-T\d+s$/.test(s) ? 1.8 : /^CW-T\d+c$/.test(s) ? 1.9 : /^CW-T/.test(s) ? 2 : /^CW-L/.test(s) ? 4 : 3)
   const knownSeg = new Set((rec.segments ?? []).map(s => s.seg))
   const segs = [...(rec.segments ?? []).filter(s => used.has(s.seg)), ...[...used].filter(s => !knownSeg.has(s)).map(s => ({ seg: s, deps: [] }))]
   const order = segs.map((s, i) => ({ s, i })).sort((a, b) => rank(a.s.seg) - rank(b.s.seg) || a.i - b.i).map(q => q.s)
   // the gate's deck waits on its flank towers (a deck cell is clicked on a tower's side face)
   // and a tower's outer rows wait on its swapped in-line cells (`<tower>s`)
-  const depOf = sg => (sg === 'CW-G' ? 'CW-GT' : sg === 'CW-GL' ? 'CW-G' : /^CW-(GT|T\d+)$/.test(sg) ? `${sg}s` : null)
-  const segments = order.map(s => { const d = depOf(s.seg); return d && used.has(d) ? { ...s, deps: [...new Set([...(s.deps ?? []), d])] } : s })
+  // (FLAT: and on its core `<tower>c`, which waits on the swap)
+  const depsOf = sg => (sg === 'CW-G' ? ['CW-GT'] : sg === 'CW-GL' ? ['CW-G'] : /^CW-(GT|T\d+)$/.test(sg) ? [`${sg}s`, `${sg}c`] : /^CW-(GT|T\d+)c$/.test(sg) ? [`${sg.slice(0, -1)}s`] : [])
+  const segments = order.map(s => { const d = depsOf(s.seg).filter(x => used.has(x)); return d.length ? { ...s, deps: [...new Set([...(s.deps ?? []), ...d])] } : s })
   const prev = rec.citywall ?? null
   // the phase's clears (a tree in a new cell, felled whole) join the record's list: the visit fells them first, the tripwire judges them
   const pc = (design.phases.find(p => p.ph === ph)?.clear ?? [])
