@@ -172,6 +172,9 @@ const REQUIRED = [
   // stations-01 (owner 11-06): the town's tables and furnaces (take-back, the groundskeepers' sweep, town stations, chest first, spare fuel)
   'bots/src/stations.mjs',
   'bots/test/stations.test.mjs',
+  // stationsback-01 (11-09): a dug station reaches the bag (the drop chased over time, a reflex-cancelled dig retried once)
+  'bots/src/stationsback.mjs',
+  'bots/test/stationsback.test.mjs',
   'docs/reports/stations-design-2026-11-06.md',
   'docs/reports/stations-2026-11-06/codex-design.txt',
   'docs/reports/stations-2026-11-06/scan.py',
