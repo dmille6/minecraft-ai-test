@@ -1,0 +1,91 @@
+{
+ "run_id": "seapocket-01",
+ "sha": "e81becc420d366c78d1bde51705388890a32955e",
+ "registered_at": "2026-11-09T15:37:17Z",
+ "promotion": "fleet-wide",
+ "target_pools": [
+  "placebo-d"
+ ],
+ "target_bots": [
+  "placebo-d-Bravo"
+ ],
+ "target_note": "placebo-d-Bravo pinned at 46,59,69 (open-sea bubble its own air-pocket rescue sealed) since 11-09 11:07Z. The draw should contain placebo-d; the long-breath tier is fleet-wide (any wide-tier pin whose way out needs a head-wet run of exactly 6).",
+ "change_rows": [
+  "_seapocket_mode",
+  "_swim_under_start",
+  "_swim_under"
+ ],
+ "licence": {
+  "class": "kind",
+  "kind": "_seapocket_mode",
+  "min_rows": 1,
+  "note": "Written only by this build: `_seapocket_mode on=1 long_wet_run=6 base_wet_run=5 tier=wide_only` once per spawn (features.mjs). ESCPOCKET=0 -> on=0 (the rollback)."
+ },
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_swim_under"
+    },
+    "direction": "increase",
+    "minimum": 0.25,
+    "scale": "relative",
+    "primary": true,
+    "claim": "escapes from wet-ceiling pins up: the open-sea bubble class (placebo-d-Bravo 46,59,69: no swim within run 5, a 6-run swim to the surface) frees by the long-breath tier; `_swim_under ... breath=6` rows are this change's own"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_swim_under_refused"
+    },
+    "direction": "decrease",
+    "minimum": 0.25,
+    "scale": "relative",
+    "claim": "pinned bot-time proxy: Bravo writes `_swim_under_refused ... wide=1 -- no way out within 8 cells (110 water cells searched)` every ~10-60 min while pinned"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_death"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   }
+  ],
+  "exposure": {},
+  "note": "direction = the GOOD direction. The read's own lines: `_swim_under_start ... breath=6` and its `_swim_under` outcome (status, min_air); a drowned `_death` within 2 min of a `breath=6` start = REVERT; `_seapocket_mode on=1` licence."
+ },
+ "draw_pin_pools": [
+  "placebo-d",
+  "placebo-a"
+ ],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "climb-flood refusal (the chain the wide tier answers)",
+    "kind": "climb_flood_refused",
+    "min": 3
+   }
+  ]
+ },
+ "notes": "seapocket-01 (tier 3: reflex.mjs; + escdead.mjs, swimunder.mjs, features.mjs) on live fleet 3d8ef9de. MEASURED 11-09: placebo-d-Bravo surfaced a 63-block shaft into the ocean floor (sea to y62, air y63) under an old cobble(61)/dirt(62) column; its air-pocket rescue at 11:07Z sealed the 4 head-level sides and dug the cobble over its head (airpocket seal=4). The 11-09 03:16Z cut + those 5 edits reproduces the live rows (92/110 water cells). Every rung refuses: flood guard (water beside the roof), plugcut (4 wet faces), breach (no water OVER the roof), pocket dig (0 candidates), swim (no plan within run 5). The way out: 9 cells, head-wet run 6. CHANGE: the long-breath tier (wide tier only, after the wide plan fails; before the pocket dig unless a long firing failed here) re-plans with run 6; swimUnderAbort longRun keeps the way back paid for (30 ticks a wet cell + 60). ESCPOCKET=0 = the base. Reviews: Codex r1 1 BLOCKER fixed, r2 none; Claude subagent r1 none (2 notes taken), r2 none.",
+ "fun_reads": "90 180",
+ "draw_note": "drawexposure.py 11-09 15:40Z (6 h): climb_flood_refused >= 3 -> eligible hive-c 4, hive-d 4, placebo-a 7, placebo-b 5, placebo-d 75 (PASS, >= 2 pools). A swim_under_refused requirement qualified placebo-d alone (19) -> REFUSED, so the broader chain is the exposure line and placebo-d (Bravo) is pinned. isolated-* and placebo-c are never pinned (coordinator)."
+}

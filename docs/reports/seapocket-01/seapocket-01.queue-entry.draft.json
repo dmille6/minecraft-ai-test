@@ -1,0 +1,20 @@
+{
+ "run": "seapocket-01",
+ "class": "",
+ "after": [],
+ "not_before": null,
+ "hold": null,
+ "note": "DRAFT (seapocket builder, 11-09; the control session queues it -- this file does NOT edit ~/canary-queue.json and carries NO patch block: use `queue set-patch`). SURVIVAL (S lane), tier 3 (canary slot). Built on live fleet 3d8ef9de. Draw pin placebo-d (Bravo pinned at 46,59,69) + placebo-a; drawexposure PASS on climb_flood_refused >= 3 (5 pools).",
+ "variants": {
+  "3d8ef9dee8b303201340e8cefe96aebd06773bc0": {
+   "registration": "/home/mike/mcai-analysis/seapocket-01.e81becc4.json",
+   "approved": "Codex r1 1 BLOCKER (return-air budget) fixed, r2 none; independent Claude r1 none (2 notes taken), r2 none; tier 3; seapocket 12/12 (3 anchored mutants), escpocket/escdead/swimunder green; Paper + full suite: see the ledger row seapocket-1109.",
+   "canary_sha": "e81becc420d366c78d1bde51705388890a32955e",
+   "branch": "seapocket-01",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/reflex.mjs"
+  }
+ }
+}
