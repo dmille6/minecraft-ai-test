@@ -83,6 +83,14 @@ WELL = {'dispose_well'}
 TRANSFER = {'deposit', 'town_deposit', 'withdraw', 'withdraw_pick', 'toolkit', 'prune_town', 'yard', 'take'}
 DRAW = {'build_shop'}                 # gains are draws from the town (internal); losses are placements (spend)
 STATION_ROWS = {'craft', 'smelt', 'smelt_town', 'make_material'}
+# STNMETRIC-01 (11-09: the report's "138 left behind (6 h)"): NOT every station a craft/smelt row ends without was left.
+# MEASURED 11-09 6 h on bcdba35f: 30 of the rule's 155 were spare crafting tables BURNED AS FUEL by stations-01 SURPLUS
+# (the smelt says "burned Nx crafting_table"); and 49 of 121 failed retakes (12 h) saw the same bot pick that station up
+# within 120 s. Left = lost - burned - picked up again by the same bot within RECOVER_S (a chest withdraw or a craft of
+# the station is never a recovery: it re-bases the bag level instead).
+FUEL_TABLE = re.compile(r'burned (\d+)x crafting_table')
+RECOVER_S = 120
+STATION_NAMES = ('crafting_table', 'furnace')
 DEPART = {'deposit', 'town_deposit'}
 BUILD_PLACE = re.compile(r'\bop=place\b.*?\bblock=([a-z_]+)')    # one `_build` row per block a project placed
 MEASURED_MIN = 0.5           # the control: at least half the gross inflow must come from MEASURED deltas (not inferred)
@@ -136,7 +144,8 @@ def norm(raw):
     return {'t': t, 'name': canon(sk['name']), 'top': not str(sk['name']).startswith('_'), 'bot': b.get('name'), 'pool': (raw.get('exp') or {}).get('pool'),
             'inv': b.get('inventory') if isinstance(b.get('inventory'), dict) else None,
             'delta': sk.get('inventory_delta') if isinstance(sk.get('inventory_delta'), dict) else None,
-            'status': sk.get('status'), 'args': sk.get('args') or {}, 'detail': sk.get('detail') or ''}
+            'status': sk.get('status'), 'args': sk.get('args') or {}, 'detail': sk.get('detail') or '',
+            'dur_ms': sk.get('duration_ms') if isinstance(sk.get('duration_ms'), (int, float)) else None}
 
 
 def infer_deltas(rows):
@@ -214,11 +223,71 @@ def flows(rows, since=None):
         e = extra[p]
         if r['name'] == 'craft' and r['status'] == 'success' and str(r['args'].get('item')) in ('crafting_table', 'furnace'):
             e['crafted_stations'] += int(r['args'].get('count') or 1)
-        if r['name'] in STATION_ROWS and fam(d, 'stations') < 0:
-            e['left_stations'] += -fam(d, 'stations')
         if r['name'] == 'build_shop':
             e['build_visits'] += 1
+    for p, c in station_left(rows, since).items():
+        e = extra[p]
+        e['left_stations'] = c['left']
+        e['left_gross'] = c['gross']
+        e['burned_stations'] = c['burned']
+        e['recovered_stations'] = c['recovered']
     return P, extra
+
+
+def station_left(rows, since=None):
+    """PURE. -> {pool: {'gross', 'burned', 'recovered', 'left'}} for station losses on STATION_ROWS at t >= since (all when None).
+    gross = crafting tables + furnaces a craft/smelt row ended without; burned = tables its own detail says it burned as fuel;
+    recovered = later rises of that station in the SAME bot's bag within RECOVER_S (any row's inventory snapshot), never from a
+    transfer/draw row or a craft of the station (those re-base the level); left = gross - burned - recovered.
+    A top-level row is stamped at its skill's START but carries the END bag, and the skill's own sub-rows (written while it ran)
+    carry mid-skill bags: MEASURED 11-09, 59 of 129 'recoveries' were a `_path_noPath` 0.1 s after a smelt's start still
+    holding the furnace it was about to place. So only rows after the skill ENDED (t + duration_ms) are read."""
+    out = defaultdict(Counter)
+    by = defaultdict(list)
+    for r in rows:
+        if r.get('bot'):
+            by[r['bot']].append(r)
+    for rs in by.values():
+        rs.sort(key=lambda r: r['t'])
+        pending = []
+        for r in rs:
+            inv = r.get('inv')
+            if pending and inv is not None:
+                pending = [q for q in pending if q['n'] > 0 and (r['t'] - q['end']).total_seconds() <= RECOVER_S]
+                for q in pending:
+                    if r['t'] <= q['end']:
+                        continue          # written while the losing skill still ran: a mid-skill bag
+                    now = inv.get(q['name'], 0) or 0
+                    rebase = r['name'] in TRANSFER or r['name'] in DRAW or (r['name'] == 'craft' and str(r['args'].get('item')) == q['name'])
+                    if q['level'] is not None and not rebase and now > q['level']:
+                        k = min(now - q['level'], q['n'])
+                        q['n'] -= k
+                        if q['counted']:
+                            out[q['pool']]['recovered'] += k
+                    q['level'] = now
+            d = r.get('delta')
+            if r['name'] not in STATION_ROWS or not d:
+                continue
+            counted = since is None or r['t'] >= since
+            for nm in STATION_NAMES:
+                v = d.get(nm, 0)
+                if not isinstance(v, (int, float)) or v >= 0:
+                    continue
+                lost = int(-v)
+                burned = 0
+                if nm == 'crafting_table':
+                    m = FUEL_TABLE.search(r.get('detail') or '')
+                    burned = min(lost, int(m.group(1))) if m else 0
+                if counted:
+                    out[r['pool']]['gross'] += lost
+                    out[r['pool']]['burned'] += burned
+                if lost > burned:
+                    pending.append({'t': r['t'], 'end': r['t'] + dt.timedelta(milliseconds=r.get('dur_ms') or 0),
+                                    'pool': r['pool'], 'name': nm, 'n': lost - burned, 'counted': counted,
+                                    'level': (inv.get(nm, 0) or 0) if inv is not None else None})
+    for c in out.values():
+        c['left'] = c['gross'] - c['burned'] - c['recovered']
+    return out
 
 
 def balance(rows, f='cobble'):
@@ -476,7 +545,9 @@ def build(rows, proof, now, window_min, stack, stock):
                           'build_placed': sum(extra[p]['build_placed'] for p in pools),
                           'build_visits': sum(extra[p]['build_visits'] for p in pools),
                           'crafted_stations': sum(extra[p]['crafted_stations'] for p in pools),
-                          'left_stations': sum(extra[p]['left_stations'] for p in pools)},
+                          'left_stations': sum(extra[p]['left_stations'] for p in pools),
+                          'burned_stations': sum(extra[p].get('burned_stations', 0) for p in pools),
+                          'recovered_stations': sum(extra[p].get('recovered_stations', 0) for p in pools)},
     }
     return rec
 
@@ -500,7 +571,8 @@ def summary_line(rec, active, notes):
             f'({len(ch) - ch_unk} of {len(rec["chests"])} towns fully counted) | balance closes {n_close}/{n_judged} towns '
             f'(control: residual {ctl["abs_res"]:,} vs null {ctl["null"]:,} of {ctl["gross"]:,} in, {ctl["measured_share"]:.0%} measured) | departures {rec["depart"]["n"]}: '
             f'p50 {rec["depart"]["p50"]} p75 {rec["depart"]["p75"]} at>=34 {rec["depart"]["ge34"]} | stations crafted '
-            f'{w["crafted_stations"]}, left {w["left_stations"]} | build_shop placed {w["build_placed"]:,} in {w["build_visits"]} visits'
+            f'{w["crafted_stations"]}, left {w["left_stations"]} (not counted: {w.get("burned_stations", 0)} burned as fuel, '
+            f'{w.get("recovered_stations", 0)} picked up again) | build_shop placed {w["build_placed"]:,} in {w["build_visits"]} visits'
             + (f' | {"; ".join(notes)}' if notes else ''))
 
 

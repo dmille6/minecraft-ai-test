@@ -142,6 +142,49 @@ def hist(hours, **kw):
     return H
 
 
+def t_station_left(F):
+    """stnmetric-01: burned fuel and stations picked up again are not 'left'."""
+    sm = lambda t, inv, d, detail='': row(t, 'smelt', inv=inv, delta=d, args={'item': 'raw_iron'}) | {'detail': detail}
+    # a smelt burned 2 spare tables as fuel and placed/left 1 furnace that is never seen again
+    R = [sm(60, {'crafting_table': 1}, {'crafting_table': -2, 'furnace': -1, 'raw_iron': -1}, 'smelted 1x iron_ingot from raw_iron (batch 1, burned 2x crafting_table, placed the furnace first)')]
+    c = F.station_left(R)['board-a']
+    check('left: tables burned as fuel are not left; the furnace is', (c['gross'], c['burned'], c['left']) == (3, 2, 1), dict(c))
+    # a craft left its table, the same bot picks it up 50 s later (a _pickups row's snapshot) -> recovered, not left
+    R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
+         row(10 - 50 / 60, 'pickups', inv={'crafting_table': 1}, top=False)]
+    c = F.station_left(R)['board-a']
+    check('left: picked up again within 120 s -> recovered', (c['recovered'], c['left']) == (1, 0), dict(c))
+    # ...the same rise after 200 s is too late to be that table
+    R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
+         row(10 - 200 / 60, 'pickups', inv={'crafting_table': 1}, top=False)]
+    check('left: a rise after RECOVER_S is not a recovery', F.station_left(R)['board-a']['left'] == 1, dict(F.station_left(R)['board-a']))
+    # a chest withdraw (transfer) or a fresh craft of the station is never a recovery
+    R = [row(10, 'smelt', inv={'furnace': 0}, delta={'furnace': -1}, args={'item': 'raw_iron'}),
+         row(9.5, 'withdraw', inv={'furnace': 1}, delta={'furnace': 1})]
+    check('left: a chest withdraw is not a recovery', F.station_left(R)['board-a']['left'] == 1, dict(F.station_left(R)['board-a']))
+    R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
+         row(9.5, 'craft', inv={'crafting_table': 1}, delta={'crafting_table': 1}, args={'item': 'crafting_table'})]
+    check('left: crafting a new table is not a recovery', F.station_left(R)['board-a']['left'] == 1, dict(F.station_left(R)['board-a']))
+    # a row written WHILE the losing skill ran (its start + duration) is a mid-skill bag, never a recovery (MEASURED 11-09)
+    R = [row(10, 'smelt', inv={'furnace': 0}, delta={'furnace': -1}, args={'item': 'raw_iron'}) | {'dur_ms': 30_000},
+         row(10 - 1 / 60, 'path_noPath', inv={'furnace': 1}, top=False),
+         row(10 - 20 / 60, 'ledger_station', inv={'furnace': 0}, top=False)]
+    c = F.station_left(R)['board-a']
+    check('left: a sub-row inside the skill (mid-skill bag) is not a recovery', (c['recovered'], c['left']) == (0, 1), dict(c))
+    R.append(row(10 - 60 / 60, 'pickups', inv={'furnace': 1}, top=False))
+    check('left: ...a rise after the skill ended is', F.station_left(R)['board-a']['recovered'] == 1, dict(F.station_left(R)['board-a']))
+    # another bot's pickup never recovers this bot's loss
+    R = [row(10, 'craft', inv={'crafting_table': 0}, delta={'crafting_table': -1}, args={'item': 'stone_pickaxe'}),
+         row(9.5, 'pickups', bot='b-a-Bravo', inv={'crafting_table': 3}, top=False)]
+    check('left: another bot\'s bag is not a recovery', F.station_left(R)['board-a']['left'] == 1)
+    # flows carries it: the net number, plus the burned / recovered parts
+    R = [sm(60, {'crafting_table': 1, 'furnace': 0}, {'crafting_table': -2, 'furnace': -1}, 'burned 2x crafting_table, placed the furnace first'),
+         row(59.5, 'pickups', inv={'crafting_table': 1, 'furnace': 1}, top=False)]
+    _, X = F.flows(R)
+    x = X['board-a']
+    check('flows: left_stations is net of burned and recovered', (x['left_stations'], x['burned_stations'], x['recovered_stations'], x['left_gross']) == (0, 2, 1, 3), x)
+
+
 def t_alarms(F):
     a, notes = F.judge(hist(26), NOW)
     check('alarms: a clean 26 h history is QUIET', a == {}, a)
@@ -255,6 +298,12 @@ def t_wiring():
 
 
 MUTANTS = [
+    # stnmetric-01: each part of the station rule is load-bearing
+    ("                    burned = min(lost, int(m.group(1))) if m else 0", "                    burned = 0", t_station_left),
+    ("                    if q['level'] is not None and not rebase and now > q['level']:", "                    if q['level'] is not None and now > q['level']:", t_station_left),
+    ("pending = [q for q in pending if q['n'] > 0 and (r['t'] - q['end']).total_seconds() <= RECOVER_S]", "pending = [q for q in pending if q['n'] > 0]", t_station_left),
+    ("                    if r['t'] <= q['end']:\n                        continue", "                    if False:\n                        continue", t_station_left),
+    ("            by[r['bot']].append(r)\n    for rs in by.values():\n        rs.sort(key=lambda r: r['t'])\n        pending = []", "            by['all'].append(r)\n    for rs in by.values():\n        rs.sort(key=lambda r: r['t'])\n        pending = []", t_station_left),
     ("        if sup and share > SINK_SHARE:", "        if False:", t_alarms),
     ("c.get('uncounted', 1) == 0 and ", "", t_alarms),
     ("            towns[p] = 'closes' if abs(o['res']) <= close_pct / 100 * o['gross'] and share(o) >= measured_min else 'OPEN'", "            towns[p] = 'closes'", t_flows),
@@ -297,6 +346,7 @@ def run_mutants():
 if __name__ == '__main__':
     F = load()
     t_flows(F)
+    t_station_left(F)
     t_alarms(F)
     t_summary(F)
     t_flowstock()
