@@ -165,13 +165,17 @@ await t('the shear errand: due only with a bed owed AND waiting, shears, a sheep
   meta[17] = 0x10 | 4
   assert.deepStrictEqual(C.sheepWool(meta), { sheared: true, colour: 4 })
 })
-await t('the cottage chests are town containers (chestfull setTownExtra keys); wool is never well junk', async () => {
+await t('the cottage chests are town containers (chestfull setTownExtra keys); wool is kept from the well by the market\'s keep (on in the showcase)', async () => {
   const bp = K.cottage2Blueprint('Lfg0-')
   const cells = B.placeBlueprint(bp, { x: 10, z: 10 }, G, 'N')
   assert.strictEqual(C.cottageChestKeys({ blueprint: bp.id, cells }).length, 2)
   const W = await import('../src/well.mjs')
-  assert.strictEqual(W.isWellJunk('white_wool'), false)
-  assert.strictEqual(W.isWellJunk('white_stained_glass'), true, 'positive control: a decoration is still junk')
+  // wool is owner-listed junk (10-07) WITHOUT the market; the market (on in the showcase since 11-07) keeps it as a want (wool target 32):
+  // the shear errand's wool is banked, never thrown (a fleet port needs the market on, or its own keep)
+  const MK = await import('../src/market.mjs')
+  assert.strictEqual(W.isWellJunk('white_wool'), true, 'positive control: junk without the market')
+  W.setWellKeep(MK.marketKeeps)
+  try { assert.strictEqual(W.isWellJunk('white_wool'), false, 'kept with the market'); assert.strictEqual(W.isWellJunk('white_stained_glass'), true, 'a decoration is still junk') } finally { W.setWellKeep(null) }
 })
 
 await t('the furniture crafts are booked: a withdrawn name crafted away entirely is booked crafted (Codex r1 BLOCKER: G8 white_wool -6)', async () => {

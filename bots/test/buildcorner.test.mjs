@@ -124,7 +124,7 @@ await t('WIRED: the build walk refuses a crossing plan before walking; the click
   assert.ok(walk.indexOf('if (crosses) return') > walk.indexOf('legs = cornerWaypoints(') && walk.indexOf('if (crosses) return') < walk.indexOf('for (const w of legs)'), 'refused before any leg')
   assert.ok(/export const PLAN_MS = 150\b/.test(bb))
   const br = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
-  assert.ok(/await click\(picked\.at, block, step, seg, segGen, \{ closer: CLOSER_SEGS\.has\(seg\), want: b => cellDone\(b, palette, picked\.role(, picked\.ws)?\), avoid: fellBack \|\| feetIn \? null : blocking(, ws: picked\.ws \?\? null, blind: !!picked\.blind)? \}\)/.test(br), 'the click passes avoid, except on the all-banned fallback')
+  assert.ok(/await click\(picked\.at, block, step, seg, segGen, \{ closer: CLOSER_SEGS\.has\(seg\), want: b => cellDone\(b, palette, picked\.role(, picked\.ws)?\), avoid: fellBack \|\| feetIn \? null : blocking(, ws: picked\.ws \?\? null, blind: !!picked\.blind)?(, also: pickedHead \? \[pickedHead\] : null)? \}\)/.test(br), 'the click passes avoid, except on the all-banned fallback')
   assert.ok(/step = kept \?\? stepFor\(rd, home, c\.at, nodes, domain(, w)?\); if \(step\) \{ picked = c; fellBack = bans\.size > 0 && !kept; break \}/.test(br), 'fellBack marks the all-banned pick')
 })
 
