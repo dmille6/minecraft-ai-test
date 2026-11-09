@@ -12,6 +12,7 @@ process.env.BOT_NAME = 'WallBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
+process.env.UPKEEP = 'off'   // upkeep-01's plot (on in every named pool) has its own order test: upkeep.test.mjs
 // treefarm-04: the tree farm (sixth, after the paths) has its own test (treefarm.test.mjs); off here, so this file's project lists stand
 process.env.TREEFARM = 'off'
 process.env.STOREHOUSE = 'off'; process.env.SHOPCHEST = 'off'   // storehouse-01 / shopchest-01: storehouse.test.mjs, shopchest.test.mjs

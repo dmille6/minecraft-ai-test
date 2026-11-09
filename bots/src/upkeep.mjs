@@ -36,6 +36,9 @@ const SOIL = /^(grass_block|dirt|podzol|coarse_dirt|rooted_dirt|moss_block|mycel
 export const STRAY = /^(crafting_table|furnace|blast_furnace|smoker)$/
 /** A stray that drops itself only to a pickaxe (Paper proof 11-09: a furnace dug by hand or axe is lost): dug only with a pickaxe in hand. */
 export const STRAY_PICK = /^(furnace|blast_furnace|smoker)$/
+/** The 26 neighbours (faces, edges, corners): a big oak's branch steps diagonally off its trunk -- connected this way it is the tree's
+ *  own, never a remains group (Codex r1/r2: never every log-over-air column; a natural canopy is never debris). */
+const N26 = Object.freeze([...Array(27).keys()].map(i => [(i % 3) - 1, Math.floor(i / 3) % 3 - 1, Math.floor(i / 9) - 1]).filter(([a, b, c]) => a || b || c))
 export const SAPLING_OF = Object.freeze({ oak_log: 'oak_sapling', birch_log: 'birch_sapling', spruce_log: 'spruce_sapling', jungle_log: 'jungle_sapling', acacia_log: 'acacia_sapling', dark_oak_log: 'oak_sapling', cherry_log: 'cherry_sapling', pale_oak_log: 'oak_sapling', mangrove_log: 'mangrove_propagule' })
 
 export const UPKEEP_PLOT = 'upkeep'
@@ -57,6 +60,7 @@ export const UPKEEP = Object.freeze({
   jobMax: 48,                // clears a generation lists at most (nearest first)
   remainsMax: 24,            // logs a remains group may have (larger: a living tree's crown a read missed -- never listed)
   reachUp: 6,                // a remains group's highest log at most this far over its ground (a bot on the ground reaches it)
+  canopyR: 2,                // another log this near a group (3D Chebyshev): it is a living tree's crown, never remains
   strayEdge: 3,              // a stray within this many columns of a record box is a building's station (never listed)
   air: 6,                    // clear cells above a replant's soil (tidy.mjs REPLANT_AIR)
   builders: 4,               // admission slots on the plot
@@ -79,7 +83,7 @@ function groundY (read, x, z, yHi, yLo) {
 }
 
 /**
- * THE REMAINS -> [{ logs: [[x, y, z]], base: [x, y, z], name }]. Pure over `read`. Every 6-connected group of logs within the box whose
+ * THE REMAINS -> [{ logs: [[x, y, z]], base: [x, y, z], name }]. Pure over `read`. Every 26-connected group of logs within the box whose
  * NO member rests on the ground (the block under each member is air, leaves, a plant, a liquid or another log of the group) -- a tree
  * felled at its base leaves exactly this; a living tree always stands on its trunk. A group larger than UPKEEP.remainsMax, one touching
  * the box edge (it may go on beyond: unread), or one with an unread neighbour is never listed (fail closed). `base`: the cell under the
@@ -94,7 +98,7 @@ export function remainsIn (read, box, { yHi, yLo, bounds = box, seen = new Set()
   for (let x = box[0]; x <= box[2]; x++) for (let z = box[1]; z <= box[3]; z++) for (let y = yHi; y >= yLo; y--) {
     const k = `${x},${y},${z}`
     if (seen.has(k) || !isLog(x, y, z)) continue
-    // the group (flood over the six faces)
+    // the group (flood over the 26 neighbours: a diagonal branch is its tree's)
     const grp = [], q = [[x, y, z]], mine = new Set([k])
     seen.add(k)
     let bad = false
@@ -103,7 +107,7 @@ export function remainsIn (read, box, { yHi, yLo, bounds = box, seen = new Set()
       grp.push([a, b, c])
       if (grp.length > U.remainsMax) { bad = true; break }
       if (a <= x0 || a >= x1 || c <= z0 || c >= z1 || b >= yHi || b <= yLo) { bad = true; break }
-      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+      for (const [dx, dy, dz] of N26) {
         const p = [a + dx, b + dy, c + dz], pk = k3(p)
         if (mine.has(pk)) continue
         const blk = read(...p)
@@ -122,6 +126,17 @@ export function remainsIn (read, box, { yHi, yLo, bounds = box, seen = new Set()
       return !(AIR.test(n) || LEAVES.test(n) || u.boundingBox === 'empty' || replaceableCell(u) || isLiquid(u))
     })
     if (grounded) continue
+    // A LIVING TREE'S CANOPY is never remains (Codex r1/r2: protect natural canopies; the fleet towns' 26-connected count still read 150
+    // of 206 groups as single logs, most in oak and jungle crowns): a group with another log within U.canopyR of any member is left
+    let nearTree = false
+    for (const [a, b, c] of grp) {
+      for (let dx = -U.canopyR; dx <= U.canopyR && !nearTree; dx++) for (let dy = -U.canopyR; dy <= U.canopyR && !nearTree; dy++) for (let dz = -U.canopyR; dz <= U.canopyR && !nearTree; dz++) {
+        const k = `${a + dx},${b + dy},${c + dz}`
+        if (!mine.has(k) && isLog(a + dx, b + dy, c + dz)) nearTree = true
+      }
+      if (nearTree) break
+    }
+    if (nearTree) { skipped.remains_canopy = (skipped.remains_canopy ?? 0) + 1; continue }
     const low = grp.reduce((m, p) => (p[1] < m[1] ? p : m), grp[0])
     const gy = groundY(read, low[0], low[2], low[1] - 1, yLo)
     const topY = Math.max(...grp.map(p => p[1]))
