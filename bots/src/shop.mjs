@@ -14,6 +14,7 @@ import { forestOn, FOREST_PLOT, FOREST_BLUEPRINT, FOREST_BUILDERS } from './fore
 import { cropfarmOn, CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROPFARM_BUILDERS } from './cropfarm.mjs'   // cropfarm-01
 import { prodserveOn } from './prodserve.mjs'   // prodserve-01: the service tier's switch
 import { canefarmOn, CANEFARM_PLOT, CANEFARM_BLUEPRINT, CANEFARM_BUILDERS } from './canefarm.mjs'   // canefarm-01
+import { pensOn, PENS_PLOT, PENS_BLUEPRINT, PENS_BUILDERS } from './pens.mjs'   // pens-01
 import { stepwellOn, STEPWELL_PLOT, STEPWELL_BLUEPRINT, STEPWELL_BUILDERS } from './stepwell.mjs'   // stepwell-01
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
 import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './storehouse.mjs'
@@ -108,6 +109,9 @@ export const CROPFARM = Object.freeze({ on: cropfarmOn(process.env, process.env.
 /** CANEFARM-01: THE SUGAR CANE BED (canefarm.mjs; owner 11-04 enchantshop E1 "a dedicated cane bed like the tree farm"): the books' cane,
  *  on a natural water edge; its harvest (the second block up) and replant are upkeep. CANEFARM=off is the rollback; showcase only. */
 export const CANEFARM = Object.freeze({ on: canefarmOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** PENS-01: THE SHEEP AND COW PENS (pens.mjs + herd.mjs; OWNER 11-09, ledger villagecon-1109): two fence rings near town, after the crop farm
+ *  (its wheat breeds them); the herd (fetch, breed, shear) is their upkeep. PENS=off is the rollback; showcase only. */
+export const PENS = Object.freeze({ on: pensOn(process.env, process.env.MEMORY_POOL ?? '') })
 /** STEPWELL-01: THE TOWN STEPWELL (stepwell.mjs; owner 11-05 "Yes": a showcase landmark that becomes the miners' shared descent): a
  *  terraced stone tank cut into the ground, one builder at a time. STEPWELL=off is the rollback (a sited record stays a reservation);
  *  showcase only (STEPWELL_POOLS). */
@@ -190,6 +194,7 @@ export const PROJECTS = Object.freeze([
   // complete and an open crop farm or cane bed was never offered -- they follow the paths then, as the farm did
   Object.freeze({ plot: CROPFARM_PLOT, blueprint: CROPFARM_BLUEPRINT, after: FARM_AFTER, builders: CROPFARM_BUILDERS }),   // cropfarm-01
   Object.freeze({ plot: CANEFARM_PLOT, blueprint: CANEFARM_BLUEPRINT, after: FARM_AFTER, builders: CANEFARM_BUILDERS }),   // canefarm-01: the books' cane
+  Object.freeze({ plot: PENS_PLOT, blueprint: PENS_BLUEPRINT, after: FARM_AFTER, builders: PENS_BUILDERS }),   // pens-01: the sheep and cow pens
   Object.freeze({ plot: SHOPCHEST_PLOT, blueprint: SHOPCHEST_BLUEPRINT, after: SHOP_PLOT, builders: SHOPCHEST_BUILDERS }),
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
@@ -206,7 +211,7 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: FOREST_PLOT, blueprint: FOREST_BLUEPRINT, after: WALL_PLOT, builders: FOREST_BUILDERS }),   // forest-01: the keeper's (groundskeeper.mjs keeperOrderPure)
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + Math.max(GK.helpersMax, GK.helpersBig ?? 0) : TIDY_BUILDERS }),   // gkcrew4-01: slots for the big cap   // gkhelpers-01: the keeper and its helpers
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, decor = DECORATE.on, cot = COTTAGE.on, th = TOWNHALL.on, rr = REROOF.on, well = STEPWELL.on, forest = FORESTP.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === FOREST_PLOT ? forest && wall && paths && on : p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) && (sinkKindOf(p.plot) !== 'decor' || decor) : p.plot === STEPWELL_PLOT ? well : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === COTTAGE_PLOT ? cot && ench && ext && wall && hub && store && paths && on : p.plot === TOWNHALL_PLOT ? th && ench && ext && wall && hub && store && paths && on : p.plot === REROOF_PLOT ? rr && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on && !forest : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, decor = DECORATE.on, cot = COTTAGE.on, th = TOWNHALL.on, rr = REROOF.on, well = STEPWELL.on, forest = FORESTP.on, pen = PENS.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === PENS_PLOT ? pen && crop && farm && paths && on : p.plot === FOREST_PLOT ? forest && wall && paths && on : p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) && (sinkKindOf(p.plot) !== 'decor' || decor) : p.plot === STEPWELL_PLOT ? well : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : p.plot === COTTAGE_PLOT ? cot && ench && ext && wall && hub && store && paths && on : p.plot === TOWNHALL_PLOT ? th && ench && ext && wall && hub && store && paths && on : p.plot === REROOF_PLOT ? rr && hub && store && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on && !forest : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */
@@ -220,6 +225,8 @@ export const projectsGuarded = (list = projectsOn()) => {
   for (const p of PROJECTS) if (p.plot === CROPFARM_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // canefarm-01: a sited cane bed stays guarded whatever its switch
   for (const p of PROJECTS) if (p.plot === CANEFARM_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
+  // pens-01: a sited pen stays guarded whatever its switch (its animals are inside it)
+  for (const p of PROJECTS) if (p.plot === PENS_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // stepwell-01: a sited stepwell stays guarded whatever its switch (its cells, its reservation, its felling stands)
   for (const p of PROJECTS) if (p.plot === STEPWELL_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // forest-01: the in-wall tree farm leaves the order when the forest is on (never sited, never visited) but its record stays guarded
