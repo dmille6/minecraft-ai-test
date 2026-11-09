@@ -362,8 +362,8 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stoo
     if (block.has(k3(x, y, z)) || block.has(k3(x, y + 1, z)) || block.has(k3(x, y - 1, z))) return false
     if (noFloor?.has(k3(x, y - 1, z))) return false             // monument-01: an open fill cell is never a floor
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
-    const floor = fullCube(f) || (!!floors && floors.has(k3(x, y - 1, z)) && /_slab$/.test(nm(f)))
-    return !!f && !!a && !!h && floor && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
+    if (!!floors && !!f && !!a && !!h && floors.has(k3(x, y - 1, z)) && /_slab$/.test(nm(f)) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)) return true
+    return !!f && !!a && !!h && fullCube(f) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
   }
   // the walk's steps from one node -> its neighbours (4-neighbour, dy -1 / 0 / +1 with head room)
   const next = ([x, y, z], r) => {
