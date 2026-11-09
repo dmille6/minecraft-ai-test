@@ -10,8 +10,9 @@ WHAT IT MEASURES (the method of docs/reports/roads-design-2026-11-09.md section 
   * TRAFFIC: every bot's consecutive rows (bot.pos) at most 20 s apart, both in the surface band (home.y - 14 .. home.y + 40), a
     step of 0.8 .. 7 blocks/s: the segment is rasterised over 1x1 columns and each column it crosses counts ONE traversal (a bot
     standing still counts nothing; a long stay counts nothing more). A FULL WALK of every file in the window (rotated .gz too).
-  * DESTINATIONS: the pool's records outside the town ring (forest, farms, the stair well, shrines, towers, the mine collar...)
-    and the VILLAGES the bots saw (`_merchant_seen` rows: the villagers' positions, clustered by zone).
+  * DESTINATIONS: the pool's records outside the town ring (forest, farms, the stair well, shrines, towers, the mine collar...),
+    the VILLAGES the bots saw (`_merchant_seen` rows: the villagers' positions, clustered by zone), and the WORK PLACES where the bots
+    dwell outside the town (the busiest 8x8 bins of surface rows: the fleet's woods and quarries have no record).
   * TRIPS: a bot inside the ring that next enters a destination's box (+3) within 15 min = one trip; per destination the count
     and the median seconds (the walk-time baseline).
   * ROUTES: for each destination with >= --min-trips trips, the most-walked line from the ring to it: a least-cost path over the
@@ -32,6 +33,10 @@ ap.add_argument('--pooldir')
 ap.add_argument('--out')
 ap.add_argument('--min-trips', type=int, default=40)
 ap.add_argument('--dry', action='store_true')
+ap.add_argument('--work-r', type=int, default=160)
+ap.add_argument('--work-min', type=int, default=2000)
+ap.add_argument('--work-gap', type=int, default=40)
+ap.add_argument('--work-n', type=int, default=3)
 a = ap.parse_args()
 POOLDIR = a.pooldir or f'/var/lib/mcai/_pool-{a.pool}'
 LOGS = a.logs or f'/var/log/mcai/{a.pool}-*/skill-*.jsonl*'
@@ -119,6 +124,23 @@ for zone, ps in vill.items():
     xs, zs = sorted(p[0] for p in ps), sorted(p[1] for p in ps)
     mx, mz = xs[len(xs) // 2], zs[len(zs) // 2]
     if not in_town(mx, mz): dests.append({'id': zone, 'to': 'village', 'kind': 'village', 'box': [mx - 12, mz - 12, mx + 12, mz + 12], 'seen': len(ps)})
+
+# WORK PLACES (the fleet has no forest or farm record: Codex design 11-09 "traffic-derived destination clusters"): where the bots
+# DWELL outside the town -- surface rows per 8x8 bin within --work-r of home, more than 12 columns outside the town -- the busiest bins
+# (a bin's rows >= --work-min), one per --work-gap (non-maximum suppression), at most --work-n: each a destination `work-<x>_<z>`
+dwell = collections.Counter()
+for bot, rs in by_bot.items():
+    for (t, x, y, z) in rs:
+        if not (YLO <= y <= YHI) or abs(x - HX) > a.work_r or abs(z - HZ) > a.work_r: continue
+        if any(inside(x, z, b, 12) for b in [ring] + ([ext] if ext else [])): continue
+        dwell[(math.floor(x) // 8, math.floor(z) // 8)] += 1
+taken = []
+for (bx, bz), n in dwell.most_common():
+    if n < a.work_min or len(taken) >= a.work_n: break
+    cx, cz = bx * 8 + 4, bz * 8 + 4
+    if any(max(abs(cx - tx), abs(cz - tz)) < a.work_gap for tx, tz in taken + [((d['box'][0] + d['box'][2]) // 2, (d['box'][1] + d['box'][3]) // 2) for d in dests]): continue
+    taken.append((cx, cz))
+    dests.append({'id': f'work-{cx}_{cz}', 'to': 'work', 'kind': 'work', 'box': [cx - 6, cz - 6, cx + 6, cz + 6], 'dwell_rows': n})
 
 grid = collections.Counter()
 walk_s = 0.0

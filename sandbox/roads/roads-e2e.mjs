@@ -1,7 +1,8 @@
 // SANDBOX-ONLY (roads-01show, 2026-11-09): A TRAFFIC ROAD ON PAPER, SITED AND BUILT BY THE BOTS' OWN CODE, THEN WALKED.
 //   BOT_ROOT=<worktree> SBX=sandbox8 node sandbox/roads/roads-e2e.mjs        (lock first: sandbox/sbxlock.sh take sandbox8 roadsproof ...)
 // THE GROUND (laid by RCON in the sandbox only): a town ring with a home, then east of it flat grass, a 2-deep pit on the line, a slope
-// rising one block every two columns, a spruce standing on the line, a pond beside it, flat ground to the destination. The route is a
+// rising one block every two columns, a spruce standing on the line, a pond beside it, flat ground to the destination; the fleet's
+// litter -- a floating cobble beam over the line and a cobble pillar on it (the road clears both). The route is a
 // straight traffic line from the ring to the destination (the host's file shape, roads.mjs trafficRoutes).
 // THE CODE UNDER TEST: sinks.mjs siteSink -> roads.mjs siteRoad2 (the router, the cells, the proof loop) over the bot's own read of the
 // server; the growing record (appendInstance / completeInstance); buildrun.mjs runVisit with the road's slab floors and sinkVisitOpts
@@ -67,6 +68,8 @@ async function main () {
   cmds.push(`fill ${X0 + 44} ${G + 8} ${Z0 - 1} ${X0 + 44} ${G + 11} ${Z0 - 1} minecraft:spruce_log`, `fill ${X0 + 43} ${G + 10} ${Z0 - 2} ${X0 + 45} ${G + 12} ${Z0} minecraft:spruce_leaves[persistent=true] keep`)
   cmds.push(`fill ${X0 + 50} ${G + 6} ${Z0 + 9} ${X0 + 53} ${G + 7} ${Z0 + 12} minecraft:water`)
   cmds.push(`fill ${X0 + 12} ${G + 1} ${Z0 - 12} ${X0 + 12} ${G + 3} ${Z0 + 12} minecraft:cobblestone`, `fill ${X0 + 12} ${G + 1} ${Z0 - 1} ${X0 + 12} ${G + 3} ${Z0 + 1} minecraft:air`)
+  // the fleet's litter (roads.mjs LITTER): a floating cobble beam over the line (air under it) and a 3-high cobble pillar on the plateau
+  cmds.push(`fill ${X0 + 16} ${G + 3} ${Z0 - 1} ${X0 + 19} ${G + 3} ${Z0 + 1} minecraft:cobblestone`, `fill ${X0 + 40} ${G + 8} ${Z0 + 2} ${X0 + 40} ${G + 10} ${Z0 + 2} minecraft:cobblestone`)
   for (let i = 0; i < cmds.length; i += 500) rcon(...cmds.slice(i, i + 500))
   rcon(`kill @e[type=item,x=${BOX[0]},y=${G - 8},z=${BOX[1]},dx=${BOX[2] - BOX[0]},dy=40,dz=${BOX[3] - BOX[1]}]`)
   P('ground laid', cmds.length, 'commands')
