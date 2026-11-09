@@ -96,7 +96,8 @@ import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: importe
 import { WELL_BAND, WELL_BAND_SLOTS } from './well.mjs'   // idlework-02: the band dispose
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
-import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
+import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision, tunnelTargets } from './oretunnel.mjs'
+import { IRONCHAIN_B } from './ironchain.mjs'   // ironchain-01 (B): the tunnel's target rule
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -1854,7 +1855,7 @@ const TUNNEL_TRIES = 3
 // the old `mine({y})` escalation, for iron -- and for COAL since coalfirst-01 (oretunnel.mjs tunnelKindsFor; `kinds` and
 // `label` name the ore, the rest of the tunnel is unchanged). Every refusal names a remedy the bot can perform from where it
 // stands and carries a class with no vote; the outcome row is written from the inventory, not the plan.
-async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KINDS, label = 'iron' } = {}) {
+async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KINDS, label = 'iron', eligible = null } = {}) {
   const { bot, runner } = ctx
   const t0 = Date.now()
   deadlineMs = Math.min(150_000, deadlineMs)
@@ -1877,8 +1878,18 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KIN
   const found = bot.findBlocks({ matching: ids, maxDistance: CANDIDATE_RADIUS, count: 64 }) ?? []
   // The ORE's own dig happens outside the pathfinder, so its hazard check happens here.
   const home = { x: config.world.homeX, z: config.world.homeZ }
-  const candidates = rankCandidates(feet, found.filter(q => breakHazard(at, bot.blockAt(q)) === 0 && !nearHome(q, home)))
+  // ironchain-01 (B): gather's own per-cell rule too (oretunnel.mjs tunnelTargets): never the town stair's ore
+  const tt = tunnelTargets(found, { hazard: q => breakHazard(at, bot.blockAt(q)), home, eligible: IRONCHAIN_B ? eligible : null })
+  const candidates = rankCandidates(feet, tt.safe)
+  // THE CHANGE ROW (ironchain-01): written only by this build, once per tunnel that skipped an ore gather may not take
+  if (tt.ineligible > 0) {
+    try { logEvent({ kind: 'ironchain_tunnel', status: 'no_effect', snapshot: snapshot(bot), detail: `${label}: skipped ${tt.ineligible} ore(s) gather may not take (town structure, town ground, keep-out, cave floor); ${tt.safe.length} eligible, ${tt.unsafe} unsafe` }) } catch { /* telemetry never costs the tunnel */ }
+  }
   if (!candidates.length) {
+    if (tt.ineligible > 0) {
+      return out({ status: 'failed', failClass: 'no_tunnel', detail: `${label} within ${CANDIDATE_RADIUS} blocks, but none gather may take: ${tt.ineligible} in a town structure, town ground or a keep-out, ${tt.unsafe} beside liquid or a falling block -- mine down to new rock` },
+                 `refused: ${found.length} found, 0 eligible (${tt.ineligible} ineligible, ${tt.unsafe} unsafe)`)
+    }
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `${label} within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
   }
   const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home: townHome() ?? home })
@@ -1971,6 +1982,24 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KIN
     ? out({ status: 'success', detail: `tunnelled to ${label} at ${plan.target.x},${plan.target.y},${plan.target.z}` }, summary)
     : out({ status: 'failed', failClass: 'tunnel_incomplete', detail: `could not finish the tunnel to ${label}${stopped ? ` (${stopped})` : ''}` }, summary)
 }
+
+/**
+ * IRONCHAIN-01 (B): GATHER'S PER-CELL RULE, as the ore tunnel's `eligible` (oretunnel.mjs tunnelTargets) -> (q) => boolean.
+ * The round's enumeration conjunction (gatherRun's notTown), read-only -- no skip counters, no rows: town ground, the record
+ * cells (shopCellsNow: the workshop, the houses and the town stair -- "the town stair's cells are gather targets never"),
+ * keep-out columns, cave floors. An unreadable cell is never a target. Exported for its behaviour tests.
+ */
+export function tunnelEligibleOf ({ nameAt = () => null, home = null, shopCells = null, koSites = null, caveSkip = () => false } = {}) {
+  return q => {
+    try {
+      if (townDigClass(q, nameAt(q), home) === 'ground') return false
+      if (shopCells && shopCells.has(`${q.x},${q.y},${q.z}`)) return false
+      if (koSites && columnAt(koSites, q)) return false
+      return !caveSkip(q)
+    } catch { return false }
+  }
+}
+export { tunnelToOre }   // ironchain-01: its target choice is tested on the real pathfinder (bots/test/ironchain.test.mjs)
 
 /**
  * KEEPOUT-01: THE KEEP-OUT SCOPE of one gather / mine / `_keepout_exit` run. With a live fire site within `near` of the bot
@@ -2578,7 +2607,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       if (tk && !escalated) {
         escalated = true
         check(signal)
-        const dug = await tunnelToOre(ctx, signal, { deadlineMs: SKILL_CONTRACTS.gather.maxMs - (Date.now() - gatherT0) - 30_000, kinds: tk.kinds, label: tk.label })
+        // ironchain-01 (B): the tunnel aims only at a cell this round's enumeration would take (notTown's conjunction, read-only:
+        // town ground, the record cells -- the town stair's lining --, keep-out columns, cave floors)
+        const tunnelEligible = tunnelEligibleOf({ nameAt: q => bot.blockAt(q)?.name, home: townHome(), shopCells, koSites: ko?.sites ?? null, caveSkip: cave.skip })
+        const dug = await tunnelToOre(ctx, signal, { deadlineMs: SKILL_CONTRACTS.gather.maxMs - (Date.now() - gatherT0) - 30_000, kinds: tk.kinds, label: tk.label, eligible: tunnelEligible })
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel exposed the ore; gather's own collection takes it
         // inventory_full FALLS THROUGH (Claude review): its remedy, deposit, cannot be performed while the chests are full.
