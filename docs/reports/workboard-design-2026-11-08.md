@@ -150,8 +150,8 @@ reason per 10 min per bot.
 
 **Full suites:** fleet ci2 on `0360f43e` 418/422 and w30 on `141b975a` 420/422 (left: well.test, known base, and plinth-skill's
 /tmp ENOENT flake); the base control for craftsync passed 3/3, so its r1 failure was a flake. Showcase w30 on `c8540eef` 471/478 (four
-anchor failures fixed in `bbf106c4`; bagdiet orphan, well.test and plinth-skill are not this change). Reruns on `fcc3e2c0` and
-`bbf106c4` are queued.
+anchor failures fixed in `bbf106c4`; bagdiet orphan, well.test and plinth-skill are not this change). Final: fleet `fcc3e2c0` on ef774d02 ci2
+422/423 (well.test, known base); showcase `bbf106c4` ci2 477/478 (the bagdiet orphan, known base).
 
 **Tests:** `bots/test/townwork.test.mjs` passes 22/22 on the fleet (6 anchored mutants) and 25/25 on the showcase (7 mutants).
 It covers behaviour, the chain on real record and lease files (claims fill slots so the next bot moves on, the pin, a release
