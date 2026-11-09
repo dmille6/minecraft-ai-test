@@ -489,6 +489,28 @@ export const BODY_WAITS = 20
  */
 export const BREATHE_MS = 200
 export const loopYieldOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.LOOPYIELD ?? '').trim().toLowerCase())
+/**
+ * HIVEDROP-02 (PLANKEEP): A YIELD NO LONGER THROWS THE WALK PLAN AWAY. hivedrop-01 re-planned the clears' and the canopy's walk
+ * (a whole-town flood, walkFrom) after EVERY yield, and a yield comes every BREATHE_MS: once one flood takes about BREATHE_MS (a
+ * big town), every stand-less entry floods again -- the 47-54 s planning runs are back, only now yielding, so the stuck reflex sees
+ * the builder still for 35 s and kills the visit before its first walk (`_build op=interrupted kind=start`).
+ * MEASURED (fleet .31, 34 h to 11-09 13:30Z, by build): monument visits aborted 155/520, 52/358, 20/199 on the three builds
+ * before hivedrop-01 (0 interrupted at `start`) -> 467/549, 465/550, 108/126 on hivedrop-01 and the two after it (380, 343, 84 at
+ * `start`, 426 of 560 in the last 12 h at 30-40 s); monument placements 24 / 427 / 39 -> 7 / 48 / 1; tidy start interruptions
+ * 1 -> 200, tidy visits aborted 359/2,093 -> 673/2,244.
+ * The plan is kept across a yield while the builder's feet have not moved and it is younger than PLAN_KEEP_MS (another builder
+ * may have dug or placed meanwhile: a stand that went stale fails its walk, which the visit already counts); it is still re-made
+ * after every dig, exactly as before. PLANKEEP=off is the rollback (hivedrop-01: a fresh plan after every yield).
+ */
+export const PLAN_KEEP_MS = 10_000
+export const planKeepOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.PLANKEEP ?? '').trim().toLowerCase())
+/** Is a walk plan made at `plan` ({ at, feet }) stale after a yield at `now` with the builder's feet at `feet`? Pure. No plan, the
+ *  switch off, feet moved or unknown, or an age of PLAN_KEEP_MS or more -> stale. */
+export function planStale (plan, feet, now, { on = planKeepOn(), keepMs = PLAN_KEEP_MS } = {}) {
+  if (!on || !plan || !Array.isArray(plan.feet) || !Array.isArray(feet)) return true
+  if (plan.feet.length !== feet.length || plan.feet.some((v, i) => v !== feet[i])) return true
+  return !(Number.isFinite(plan.at) && now - plan.at >= 0 && now - plan.at < keepMs)
+}
 async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS } = {}, rt = null) {
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
@@ -552,6 +574,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   const mutex = () => PJ.mutexTake(dir, key, me, { now: now(), conn, gone })
   // HIVEDROP-01: THE VISIT LETS THE CONNECTION BREATHE (breathe below). -> true when it yielded (the world may have moved)
   let breathedAt = Date.now()
+  // hivedrop-02: the builder's feet for planStale (a read that throws is a moved builder: the plan is re-made, as before)
+  const feetNow = () => { try { return e.feet() } catch { return null } }
   const breathe = async () => {
     if (!loopYieldOn() || Date.now() - breathedAt < BREATHE_MS) return false
     await new Promise(r => setImmediate(r))
@@ -935,10 +959,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const held = () => PJ.holdsLease(dir, key, 'seg-clear', me, seg.gen, now())
     // the walk's nodes are re-planned only after a dig that LANDED (a skipped or failed one changed nothing): a long clear list
     // (monument-01: a forest site's leaves and logs) is not one walk plan per entry
-    let nodes = null, tried = 0
+    let nodes = null, tried = 0, plan = null
     try {
       for (const c of todo) {
-        if (await breathe()) nodes = null                           // hivedrop-01: a yield may have moved the world
+        // hivedrop-01: a yield may have moved the world; hivedrop-02: only a moved builder or an old plan is re-planned (planStale)
+        if (await breathe() && planStale(plan, feetNow(), Date.now())) nodes = null
         // the step guard counts the entries a dig is TRIED for (below the skips), and `p.clearMax` bounds them per call: a long
         // list (monument-01) leaves the rest of the visit for the segments instead of ending it at max_steps in the clears
         if (tried >= (p.clearMax ?? Infinity)) return null
@@ -952,7 +977,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // palette places a log, so a log "done" as a solid core (monument-01's `*solid`) is still the tree it was listed as
         if (c.kind !== 'tree' && builtDone(c)) continue
         if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await waitStill('spawn_quiet', SPAWN_DIG_QUIET_MS + 500, () => e.sleep(SPAWN_DIG_QUIET_MS))
-        nodes ??= nodesFor()
+        if (!nodes) { nodes = nodesFor(); plan = { at: Date.now(), feet: feetNow() } }
         // a TIDY entry evaluated here (a stand looked for) is reported (out.tidied): the caller's per-cell bound counts only these
         // (Codex zigtidy r1: counted at the list, a deadline or the clear bound spent untouched pillars' visits)
         if (c.kind === 'tidy') (out.tidied ??= []).push(kOf(c.at))
@@ -1021,13 +1046,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       // Nothing between two stand-less leaves changes the world, so the plan is the same; it is re-planned after every dig (the
       // walk and the dig moved the bot and the world) and after every yield, exactly where the old code could see a change.
       // LOOPYIELD=off is the rollback: a fresh plan for every leaf, as before.
-      let nodes = null
+      let nodes = null, plan = null
       for (const q of [...list.values()].sort((a, b) => b.at[1] - a.at[1])) {
         if (canopyDug >= max) break
-        if (await breathe()) nodes = null
+        if (await breathe() && planStale(plan, feetNow(), Date.now())) nodes = null   // hivedrop-02: kept across a yield (planStale)
         const g = guard(); if (g) return { dug, stop: g }
         if (!loopYieldOn()) nodes = null
-        nodes ??= nodesFor()
+        if (!nodes) { nodes = nodesFor(); plan = { at: Date.now(), feet: feetNow() } }
         if (!digStand(rd, q.at, nodes)) continue                 // not from here yet: a later pass, once the outer leaves are gone
         tried.add(kOf(q.at))
         const v = await digNamed(q.at, q.name, held, nodes)
