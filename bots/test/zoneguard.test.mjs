@@ -403,3 +403,30 @@ test('r1 WIRING (structural): the bucket skill\'s pour and the obsidian cast\'s 
   assert.equal(sk.split("{ lava: true, budget: flowBudget }").length, 2, 'the cast filter shares one budget')
   assert.equal(sk.split("inZone: deepObsZone(bot, { townToo: false, pour: false }) })").length, 2, 'a scoop traces nothing')
 })
+
+test('zoneguard fold (Codex BLOCKER): a designed bridge step\'s raw aimed click is guarded like any place -- a baseline cell refused, no packet sent', async () => {
+  const IO = await import('../src/bridgeio.mjs')
+  const mkBot = zones => {
+    const writes = []
+    const bot = {
+      entity: { position: V(0.5, 64, 0.5), width: 0.6, height: 1.8, onGround: true, pitch: 0 }, entities: {},
+      inventory: { items: () => [{ name: 'oak_planks', count: 64 }] }, heldItem: { name: 'oak_planks' }, equip: async () => {},
+      blockAt: p => ({ name: 'stone', boundingBox: 'block', position: p, getProperties: () => ({}) }), lookAt: async () => {},
+      _client: { write: (k, d) => writes.push(k) }, swingArm: () => {}, protectZones: () => zones,
+    }
+    return { bot, writes }
+  }
+  const step = { d: 1, aim: { yaw: 0 }, cell: [57, 18, 5], ref: [57, 17, 5], face: [0, 1, 0], item: 'oak_planks', kind: 'deck' }
+  const seen = []
+  const g = mkBot(ZG)
+  const ok = await IO.bridgeIo(g.bot, { Vec3, walkTo: async () => true, sleep: async () => {}, onPlace: (s, k, why) => seen.push(why) }).place(step)
+  assert.equal(ok, false); assert.match(String(seen[0]), /^zone:village-taiga-6_1$/); assert.deepEqual(g.writes, [], 'no packet for a guarded cell')
+  const free = mkBot(ZG)
+  const seen2 = []
+  await IO.bridgeIo(free.bot, { Vec3, walkTo: async () => true, sleep: async () => {}, onPlace: (s, k, why) => seen2.push(why) }).place({ ...step, cell: [0, 64, 300], ref: [0, 63, 300] })
+  assert.ok(free.writes.includes('block_place'), 'positive control: a cell outside every zone is clicked')
+  const bad = mkBot(null); bad.bot.protectZones = () => { throw new Error('x') }
+  const seen3 = []
+  await IO.bridgeIo(bad.bot, { Vec3, walkTo: async () => true, sleep: async () => {}, onPlace: (s, k, why) => seen3.push(why) }).place(step)
+  assert.equal(seen3[0], 'zone:zones_unread'); assert.deepEqual(bad.writes, [])
+})

@@ -12,6 +12,7 @@ export const PLACE_MS = 3_000
 export const READBACK_MS = 1_000
 export const LOOK_SETTLE_MS = 60
 import { designDone } from './bridgedesign.mjs'   // bridges-01
+import { placeBlocked } from './protectzone.mjs'   // zoneguard fold: the aimed click's guard
 // bridges-01: the block_place direction of a face normal (down, up, north, south, west, east), as buildbot.mjs writes it
 const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3 : f[0] < 0 ? 4 : 5)
 const NO_BODY = /^(item|experience_orb|arrow|spectral_arrow|trident|snowball|egg|ender_pearl|fishing_bobber|marker|area_effect_cloud|text_display|item_display|block_display|interaction)$/
@@ -60,6 +61,11 @@ export function bridgeIo (bot, { Vec3, walkTo, sleep = ms => new Promise(r => se
     // packet immediately before the block_place, in the same synchronous write (mineflayer's lookAt only queues a look for the next
     // physics tick), and the cursor sits where the state's half needs it (buildbot.mjs botBuildEffects `send`, the same two packets)
     if (step.d && step.aim) {
+      // zoneguard fold (Codex BLOCKER): the raw block_place below bypasses protectzone's _genericPlace wrapper -- the same guard here
+      // (the destination, the cell above, the reference faces: placeBlocked); an unreadable zone list refuses
+      let zone = null
+      try { zone = placeBlocked(bot.protectZones?.() ?? [], ...step.cell) } catch { zone = { id: 'zones_unread' } }
+      if (zone) { onPlace(step, false, `zone:${zone.id ?? 'guarded'}`); return false }
       const cur = Array.isArray(step.aim.cursor) ? step.aim.cursor : [0.5 + fx * 0.5, 0.5 + fy * 0.5, 0.5 + fz * 0.5]
       try {
         const onGround = !!bot.entity?.onGround
