@@ -6116,7 +6116,7 @@
    "note": "Measured 11-08: fleet 77 window cells, 74 planks; town sand 161/12 towns (10 hold 0), panes 61; safe surface sand ~0-53 cells within 96 a town (hive-d a desert; board-b 0, placebo-d 2); drowning 2/13 deaths 24 h, both underground. Showcase 66 windows, 32 planks, panes 35."
   },
   {
-   "kind": "fleet",
+   "kind": "canary",
    "lane": "progress",
    "owner": "control session",
    "max_quiet_hours": 48,
