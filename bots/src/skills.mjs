@@ -6217,6 +6217,15 @@ function craftRoomNow(bot, plan, owedTables, items = bot.inventory.items()) {
   return admitRoom(items, plan, { owedTables, pickupNear: pickupNearest(bot.entity?.position, bot.entities) })
 }
 
+/** IRONCHAIN-02 (pickswings.mjs): can the bag make ONE `item` by the craft skill's own whole-tree plan? A crafting table
+ *  counts as ready when carried or within 32 blocks (craft walks to it); otherwise the plan must make one too. Never throws. */
+export function craftableFromBag (bot, item) {
+  try {
+    const carried = bot.inventory.items().some(it => it.name === 'crafting_table')
+    const near = !carried && !!bot.findBlock?.({ matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table', maxDistance: 32 })
+    return !!craftPlanFor(bot, item, 1, carried || near)?.ok
+  } catch { return false }
+}
 /** craftplan.mjs's view of this bot: what it holds, and every recipe as { yield, table, ingredients, ref }. */
 function craftPlanFor (bot, item, count, tableReady) {
   const have = Object.fromEntries(heldCounts(bot.inventory.items()))
