@@ -310,9 +310,12 @@ const FARM_FN = /\nasync function buildTreeFarm \([\s\S]*?\n\}\n/
 assert.ok(FARM_FN.test(SK), 'buildTreeFarm is found (the cut is not a no-op)')
 // tidy-01: buildTidy (the town-ground tidy's visit) repeats the wall's draw, share and bag lines the same way (its wiring: tidy.test.mjs)
 const TIDY_FN = /\nasync function buildTidy \([\s\S]*?\n\}\n/
+// boardwalk-03: waterWalkVisit (the keeper's water visit) repeats the tidy's effects and presence lines (its wiring: boardwalk3.test.mjs)
+const WW_FN = /\nasync function waterWalkVisit \([\s\S]*?\n\}\n/
+assert.ok(WW_FN.test(SK), 'waterWalkVisit is found (the cut is not a no-op)')
 assert.ok(TIDY_FN.test(SK), 'buildTidy is found (the cut is not a no-op)')
 for (const [name, src0, re] of W) {
-  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n') : src0
+  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(WW_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]
