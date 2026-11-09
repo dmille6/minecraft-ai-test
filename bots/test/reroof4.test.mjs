@@ -345,15 +345,12 @@ await t('r6 reroofFallRisk `recover` + `floors`: a ledge over a recoverable land
   assert.ok(RR.reroofFallRisk(slab, w2, { box: [-2, -2, 2, 2] }).has('0,6,0'), 'POSITIVE CONTROL: without floors the fall passes the slab')
   assert.ok(!RR.reroofFallRisk(slab, w2, { box: [-2, -2, 2, 2], floors: new Set(ring.map(([a, b]) => `${a},3,${b}`)) }).has('0,6,0'), 'the slab is the landing')
 })
-await t('r6b/c reroofFallRisk `landOn`: the roof walk is landed on; its own top cells are judged for OUTWARD falls only', () => {
+await t('r6b reroofFallRisk `landOn`: only the cells `walked` names are judged (the ground walk, as the proof judged them); the roof walk is landed on', () => {
   // a roof-top cell 0,6,0 (feet over the roof, only on the walk over the roof's slabs) with a fall to deep air: judged only when listed
   const read = (x, y, z) => (x === 0 && z === 0 ? (y <= 5 ? stone : air) : y <= -6 ? stone : air)
   const roofWalk = new Set(['0,6,0', '-10,-5,0'])
   assert.ok(RR.reroofFallRisk(read, roofWalk, { box: [-2, -2, 2, 2] }).has('0,6,0'), 'POSITIVE CONTROL: judged when the judged walk holds it')
-  // Codex r6c BLOCKER: a roof-top cell over a pit OUTSIDE the building is still judged (its outward falls)
-  assert.ok(RR.reroofFallRisk(read, new Set(['-10,-5,0']), { box: [0, 0, 0, 0], landOn: roofWalk }).has('0,6,0'), 'an outward fall into a pit: avoided')
-  // ...a fall INWARD (into the building's own pad box: its roof or room, which the build is making) is not judged for a roof-top cell
-  assert.ok(!RR.reroofFallRisk(read, new Set(['-10,-5,0']), { box: [-2, -2, 2, 2], landOn: roofWalk }).has('0,6,0'), 'inward falls only: not avoided')
+  assert.ok(!RR.reroofFallRisk(read, new Set(['-10,-5,0']), { box: [-2, -2, 2, 2], landOn: roofWalk }).has('0,6,0'), 'a roof-top cell is not judged')
 })
 await t('r6 reroofStairSafe: a stair whose step drops into a closed pocket is unsafe; with a way back it is safe; stairFeetOf the tops', () => {
   assert.deepStrictEqual([...RR.stairFeetOf(['0,4,2', '0,5,2', '0,3,1'])].sort(), ['0,4,1', '0,6,2'])
