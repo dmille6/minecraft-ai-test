@@ -27,6 +27,8 @@ export const PARK_PALETTE = Object.freeze({
   tall0: rot(TALL_FLOWERS, 0), tall1: rot(TALL_FLOWERS, 2),
   shrub: ['flowering_azalea', 'azalea'],
   sapling0: rot(PARK_SAPLINGS, 0), sapling1: rot(PARK_SAPLINGS, 1), sapling2: rot(PARK_SAPLINGS, 2),
+  // country-01: a grove's spruce-first list (the taiga's own tree: country.mjs GROVE_ROLE picks the band's standing species)
+  sapling3: rot(PARK_SAPLINGS, 3),
   bamboo: ['bamboo'],
   crop0: rot(CROP_ITEMS, 0), crop1: rot(CROP_ITEMS, 1), crop2: rot(CROP_ITEMS, 2), crop3: rot(CROP_ITEMS, 3),
   cane: ['sugar_cane'],
