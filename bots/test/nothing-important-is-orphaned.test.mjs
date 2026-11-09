@@ -149,6 +149,7 @@ const REQUIRED = [
   'docs/reports/treefarm-05/treefarm-05.queue-entry.json',
   // workboard-01 (11-08): the town work board, phase A (design + registration + draft entry; code on branches workboard-01 / workboard-01show)
   'docs/reports/workboard-design-2026-11-08.md',
+  'docs/reports/pipeline-design-2026-11-09.md',   // pipeline-01 (landscape idea #1): the gap measurement + design
   'docs/reports/workboard-01/workboard-01.fcc3e2c0.json',
   'docs/reports/workboard-01/workboard-01.queue-entry.draft.json',
   // idlework-02 (11-06): bag stop, 29-33 band dispose, depth-aware iron hint (design + registration; code on branch idlework-02-on-9e9284d7)

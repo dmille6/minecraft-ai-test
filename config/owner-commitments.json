@@ -6284,6 +6284,35 @@
      "docs/reports/townmine-design-2026-11-09.md"
     ]
    }
+  },
+  {
+   "id": "pipeline-1109",
+   "title": "Pipelined decisions (landscape survey 11-09 idea #1, plan while acting): no wait after a successful run + the next model call prefetched while the skill runs, validated by the gate's dry run; PIPELINE=off|shadow|on",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "pipeline-1109.md"
+   ],
+   "kind": "canary",
+   "lane": "progress",
+   "state": "open",
+   "owner": "control session",
+   "next_step": "BUILT 2026-11-09, not queued/released. FLEET pipeline-01 @ 7d7978e8 on workboard-01 3d8ef9de (tier 3; OSS/forum search + code Claude r1 NO BLOCKERS, Codex r1 2 blockers fixed, r2 NO BLOCKERS): registration ~/mcai-analysis/pipeline-01.7d7978e8.json (effectwatch validate: valid) + draft ~/mcai-analysis/pipeline-01.queue-entry.draft.json (variant keyed on 3d8ef9de: release after workboard-01 KEEPs+promotes, else rebase onto bcdba35f) -> control session queues it as a P canary (any pools; never pin isolated-*/placebo-c). SHOWCASE pipeline-01show @ b91c44c9 on release b9fa002e: ready to stage. Read: _pipeline status=success rows, pipeline_tally nowait/used, busy 'between' share (primary), model calls + unused prefetches per bot-h <= 1.6x control, endpoint p95.",
+   "max_quiet_hours": 48,
+   "evidence": {
+    "paths": [
+     "docs/reports/pipeline-design-2026-11-09.md"
+    ],
+    "runs": [
+     "pipeline-01"
+    ],
+    "branches": [
+     "pipeline-01",
+     "pipeline-01show"
+    ],
+    "grep": [
+     "pipeline-01"
+    ]
+   }
   }
  ]
 }
