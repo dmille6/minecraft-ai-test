@@ -1,0 +1,107 @@
+# villagecon-1109 pictures (stdlib only; run on a READ-ONLY copy of the showcase world): render.py <world-copy> <out-dir>
+# Draws village-taiga-6_1 and the town's east edge from above (x 28..140, z -45..40), 6 px a block:
+#   v61-before.png  the ground's top block by colour; beds (red), villagers (blue: penned rings), job sites (orange), the bell (yellow),
+#                   the protected zone box (magenta outline) and its +3 pad (thin); counts: 5 beds, 7 villagers -> NO bed room
+#   v61-after.png   the same with what villagefeed-01 adds: beds the feed run brings (pink, outside the zone + pad, beside the cluster:
+#                   ILLUSTRATIVE cells -- the live choice is market.mjs bedCells at the click) and the fed adults (green ring)
+# Legend colours: grass 95,159,53 / dirt-path 160,130,80 / spruce wood 110,80,50 / cobble+stone 140 / leaves 40,90,40 / water 60,90,200
+import sys, os, glob, math, struct, zlib, json
+W = sys.argv[1]; OUT = sys.argv[2]; os.makedirs(OUT, exist_ok=True)
+here = os.path.dirname(os.path.abspath(__file__))
+exec(open(os.path.join(here, 'villagers.py')).read().split("w=sys.argv[1]")[0])
+X0, X1, Z0, Z1, S = 28, 140, -45, 40, 6
+cache = {}
+def chunk_at(cx, cz):
+    k = (cx, cz)
+    if k in cache: return cache[k]
+    p = '%s/region/r.%d.%d.mca' % (W, cx >> 5, cz >> 5)
+    c = None
+    if os.path.exists(p):
+        data = open(p, 'rb').read(); i = (cx & 31) + (cz & 31) * 32
+        off = int.from_bytes(data[i*4:i*4+3], 'big')
+        if off:
+            q = off * 4096; ln = struct.unpack('>i', data[q:q+4])[0]; ct = data[q+4]; raw = data[q+5:q+4+ln]
+            c = root(zlib.decompress(raw) if ct == 2 else raw)
+    cache[k] = c; return c
+def block(x, y, z):
+    c = chunk_at(x >> 4, z >> 4)
+    if c is None: return '?'
+    for s in c['sections']:
+        if s['Y'] == y >> 4:
+            bs = s.get('block_states', {}); pal = bs['palette']
+            if 'data' not in bs: return pal[0]['Name'][10:]
+            bits = max(4, math.ceil(math.log2(len(pal)))); per = 64 // bits
+            idx = ((y & 15) * 16 + (z & 15)) * 16 + (x & 15); L = bs['data'][idx // per] & ((1 << 64) - 1)
+            return pal[(L >> ((idx % per) * bits)) & ((1 << bits) - 1)]['Name'][10:]
+    return 'air'
+THIN = ('air', 'cave_air', 'short_grass', 'tall_grass', 'fern', 'large_fern', 'snow', 'dandelion', 'poppy', 'sweet_berry_bush')
+def colour(n):
+    if n.endswith('_bed'): return (200, 40, 40)
+    if 'leaves' in n: return (40, 90, 40)
+    if n in ('grass_block', 'podzol'): return (95, 159, 53)
+    if n in ('dirt_path', 'dirt', 'coarse_dirt', 'farmland'): return (160, 130, 80)
+    if 'water' in n: return (60, 90, 200)
+    if 'spruce' in n or 'oak' in n or n.endswith('_log') or n.endswith('_planks'): return (110, 80, 50)
+    if 'cobble' in n or 'stone' in n or 'andesite' in n or 'gravel' in n: return (140, 140, 140)
+    if n.endswith('_trapdoor'): return (150, 110, 70)
+    if 'glass' in n: return (190, 220, 230)
+    return (120, 120, 100)
+top = {}
+for x in range(X0, X1 + 1):
+    for z in range(Z0, Z1 + 1):
+        for y in range(110, 50, -1):
+            n = block(x, y, z)
+            if n not in THIN: top[(x, z)] = (n, y); break
+pois = []
+for r in glob.glob(W + '/poi/*.mca'):
+    for c in chunks(r):
+        for yy, s in (c.get('Sections') or {}).items():
+            for rec in s.get('Records', []):
+                x, y, z = rec['pos']
+                if X0 <= x <= X1 and Z0 <= z <= Z1: pois.append((rec['type'][10:], x, y, z, rec.get('free_tickets')))
+vill = []
+for r in glob.glob(W + '/entities/*.mca'):
+    for c in chunks(r):
+        for e in c.get('Entities', []):
+            if e.get('id') == 'minecraft:villager':
+                x, y, z = e['Pos']
+                if X0 <= x <= X1 and Z0 <= z <= Z1: vill.append((x, z))
+def canvas(): return [[(250, 250, 248)] * ((X1 - X0 + 1) * S) for _ in range((Z1 - Z0 + 1) * S)]
+def rect(img, x0, y0, x1, y1, c):
+    for y in range(max(0, y0), min(len(img), y1)):
+        row = img[y]
+        for x in range(max(0, x0), min(len(row), x1)): row[x] = c
+def cell(img, x, z, c, inset=0): rect(img, (x - X0) * S + inset, (z - Z0) * S + inset, (x - X0 + 1) * S - inset, (z - Z0 + 1) * S - inset, c)
+def outline(img, x0, z0, x1, z1, c, w=2):
+    a, b, cc, d = (x0 - X0) * S, (z0 - Z0) * S, (x1 - X0 + 1) * S, (z1 - Z0 + 1) * S
+    rect(img, a, b, cc, b + w, c); rect(img, a, d - w, cc, d, c); rect(img, a, b, a + w, d, c); rect(img, cc - w, b, cc, d, c)
+def dot(img, fx, fz, c, r=2.2):
+    cx, cz = (fx - X0) * S, (fz - Z0) * S
+    for y in range(int(cz - r * S / 2), int(cz + r * S / 2) + 1):
+        for x in range(int(cx - r * S / 2), int(cx + r * S / 2) + 1):
+            if (x - cx) ** 2 + (y - cz) ** 2 <= (r * S / 2) ** 2 and 0 <= y < len(img) and 0 <= x < len(img[0]): img[y][x] = c
+def png(path, img):
+    h = len(img); w = len(img[0])
+    raw = b''.join(b'\x00' + bytes(v for p in row for v in p) for row in img)
+    def ch(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw, 9)) + ch(b'IEND', b''))
+    print(path, w, h)
+def base():
+    img = canvas()
+    for (x, z), (n, y) in top.items(): cell(img, x, z, colour(n))
+    outline(img, 49, -59 if -59 >= Z0 else Z0, 157 if 157 <= X1 else X1, 45 if 45 <= Z1 else Z1, (200, 0, 200), 3)   # zone box x49..157 z-59..45
+    outline(img, 46, Z0, X1, Z1, (230, 140, 230), 1)                                                                 # + 3 pad
+    for t, x, y, z, ft in pois:
+        if t == 'home': cell(img, x, z, (200, 40, 40), 0); outline(img, x, z, x, z, (255, 255, 255) if ft else (90, 0, 0), 1)
+        elif t == 'meeting': cell(img, x, z, (240, 220, 0))
+        elif t not in ('nether_portal',): cell(img, x, z, (240, 140, 20))
+    return img
+b = base()
+for fx, fz in vill: dot(b, fx, fz, (30, 60, 220))
+png(os.path.join(OUT, 'v61-before.png'), b)
+a = base()
+for (x, z) in ((43, -6), (43, -2), (43, 2)):        # ILLUSTRATIVE: three beds outside the zone + pad, west of the outdoor ring
+    cell(a, x, z, (250, 120, 160)); cell(a, x + 1, z, (250, 120, 160)); outline(a, x, z, x + 1, z, (120, 0, 40), 1)
+for fx, fz in vill: dot(a, fx, fz, (40, 190, 60), 2.8); dot(a, fx, fz, (30, 60, 220))
+png(os.path.join(OUT, 'v61-after.png'), a)
+print(json.dumps({'beds': sum(1 for p in pois if p[0] == 'home'), 'free': sum(1 for p in pois if p[0] == 'home' and p[4]), 'villagers': len(vill), 'jobs': [p for p in pois if p[0] not in ('home', 'meeting')]}))

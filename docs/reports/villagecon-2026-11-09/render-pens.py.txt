@@ -1,0 +1,34 @@
+# pens-01's layout picture (stdlib only): render-pens.py <layout.json> <out.png>
+# layout.json = pens.mjs penLayout(0, 0, 'x', 'lo') + a few animals (node -e). Top view, 24 px a block, the gates' wall at the top:
+# grass floor (green), fences (brown), gates (orange, a tick on the side they open into), the walkway between the rings (path tan),
+# the apron outside the gates (pale), sheep (white dots, one sheared: grey), a lamb (small), cows (dark brown dots).
+import json, sys, struct, zlib
+L = json.load(open(sys.argv[1])); OUT = sys.argv[2]
+S = 24; X0, Z0 = -1, -2; W, H = 21, 12
+img = [[(250, 250, 248)] * (W * S) for _ in range(H * S)]
+def rect(x0, y0, x1, y1, c):
+    for y in range(max(0, y0), min(len(img), y1)):
+        for x in range(max(0, x0), min(len(img[0]), x1)): img[y][x] = c
+def cell(x, z, c, inset=0): rect((x - X0) * S + inset, (z - Z0) * S + inset, (x - X0 + 1) * S - inset, (z - Z0 + 1) * S - inset, c)
+def dot(fx, fz, c, r):
+    cx, cz = (fx - X0) * S, (fz - Z0) * S
+    for y in range(int(cz - r), int(cz + r) + 1):
+        for x in range(int(cx - r), int(cx + r) + 1):
+            if (x - cx) ** 2 + (y - cz) ** 2 <= r * r: img[y][x] = c
+for x in range(-1, 20):
+    for z in range(-2, 10): cell(x, z, (120, 170, 80))
+for p in L['floor']['sheep'] + L['floor']['cow']: cell(p[0], p[1], (95, 159, 53))
+for p in L['walk']: cell(p[0], p[1], (200, 175, 120))
+for p in L['apron']: cell(p[0], p[1], (225, 210, 170))
+for p in L['fence']: cell(p[0], p[1], (110, 80, 50), 6)
+for g in L['gates']: cell(g['x'], g['z'], (235, 140, 30), 3); rect((g['x'] - X0) * S + 8, (g['z'] - Z0) * S + S - 6, (g['x'] - X0) * S + S - 8, (g['z'] - Z0) * S + S, (90, 40, 0))
+for (x, z, kind) in L['animals']:
+    if kind == 'sheep': dot(x, z, (245, 245, 245), 7)
+    elif kind == 'sheared': dot(x, z, (170, 170, 170), 7)
+    elif kind == 'lamb': dot(x, z, (245, 245, 245), 4)
+    else: dot(x, z, (70, 45, 30), 8)
+h = len(img); w = len(img[0])
+raw = b''.join(b'\x00' + bytes(v for p in row for v in p) for row in img)
+def ch(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+open(OUT, 'wb').write(b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw, 9)) + ch(b'IEND', b''))
+print(OUT, w, h)

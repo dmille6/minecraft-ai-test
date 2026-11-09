@@ -123,6 +123,10 @@ const REQUIRED = [
   'sandbox/woodworks/boardwalk3-proof.cjs',   // boardwalk-03: the Paper walkway-in-place / removal proof
   'docs/reports/boardwalk-03-2026-11-08.md',   // boardwalk-03: the design, the evidence and the pieces
   'docs/reports/roads-design-2026-11-09.md',   // roads-1109: traffic-routed stone roads + lantern posts (code on roads-01show / roads-01-on-bcdba35f)
+  'docs/reports/villagecon-design-2026-11-09.md',   // villagecon-1109: bread for villagers, beds, pens + herd (code on villagefeed-01show / pens-01show / villagefeed-01-on-f9d70a5)
+  'docs/reports/villagecon-2026-11-09/codex-design.txt',
+  'docs/reports/villagecon-2026-11-09/render.py.txt',
+  'docs/reports/villagecon-2026-11-09/render-pens.py.txt',
   'scripts/host/roadtraffic.py',   // roads-01: the traffic report the bots' road siting reads (roadtraffic-<home>.json in the pool dir)
   'sandbox/roads/roads-e2e.mjs',   // roads-01: the Paper road proof (sited, built, server-read, walked)
   'docs/reports/glass-2026-11-08.md',   // glass-1108: sand -> glass -> windows (code on glass-01show / glass-01-on-1e593b9b)

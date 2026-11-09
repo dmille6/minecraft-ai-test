@@ -1,0 +1,60 @@
+**Build around 6_1 first: free villagers, establish useful jobs, deliver bread, then add nearby housing and livestock supply.** The current bottlenecks are confinement and food; three free bed tickets do not prove three reachable breeding beds.
+
+Read-only review completed using the requested code, showcase commit, unlock branch, and report copies in local worktrees. No files changed.
+
+**Build order.** T2 means ordinary project/policy work; T3 includes protected movement/escape/mining/execution changes and new entity behavior. Sandbox success does not downgrade T3.
+
+| Order / tier | Bot action and bounds | Server-backed success signal; one effect metric | Paper proof required |
+|---|---|---|---|
+| **1. Shared farm budget — T2** | One town lease reserves wheat across bread, hay, animals, and market sales, including carried stock. Target 256 wheat; allocate 32 general reserve + 18 hay + 16 livestock + 18 bread before discretionary sales. Keep planting stock through pickup, composting, disposal, deposit, and withdrawal. | Server inventory/chest counts reconcile after concurrent consumers. **Reserve violations → 0.** | Two bots competing for stock; cleanup pass cannot compost/drop reserved inputs; restart releases stale reservations. |
+| **2. Wheat expansion — T2** | Preserve existing 20 cells; add up to 40 wheat cells in registered plots. One farmer; ≤12 harvests/visit, ≥4 free slots, confirmed chest space; ≤24 earthwork blocks/plot. Prefer natural hydration; add contained water only after proof. | Mature crop block → air → replanted crop, with wheat inventory gain. **Banked wheat/hour ↑ from measured baseline.** | Existing wheat loop proven; prove larger layout, bucket fill/pour containment if used, hydration, and cleanup composition. Current 192 digs/96 h ≈2 wheat/h, not yet measured net banked yield. |
+| **3. Release 6_1 — T3** | Stage `villageunlock-02show` after the stated fleet KEEP dependency. One pen lease; ≤12 interior cells; one attempt/villager/6 h. Toggle only validated escape barriers. | Same UUID leaves ring; later position ≥6 blocks away. **Penned adults: 7 → 0.** | Existing outdoor/house proofs plus exact current fixtures, concurrent bot exclusion, no unsafe hole-cover/shutter toggles. |
+| **4. Employment and first trades — T2; protected route changes T3** | Observe existing jobs first. Add ≤2 useful workstations/town/day using market’s 3-block spacing and open-neighbor checks; one trader lease, existing 8-emerald spending cap and cooldowns. | Profession metadata + actual merchant offers; trade consumes input and credits output; later restock confirms workstation access. **Completed trades/day: 0 → positive.** | Existing claim/trade proofs; replay actual edge terrain, competing POI claims, level-up and restock. |
+| **5. Bakery and bread delivery — T2 craft/bank, T3 delivery/breeding** | Craft ≤6 bread/batch. Toss three separately to each of two nearby adults; withdraw from pickup range. One delivery lease; no repeat on disappearance alone. Initially stop feeding after two confirmed births or uncertain census. | Match tossed item entity to `playerCollect` with villager collector; observe new baby UUID and baby metadata during continuous tracking. **Confirmed villager births: 0 → 2.** | Survival toss→pickup→inventory→birth, blocked-bed and no-food controls; nearby bots cannot steal delivery. Confirm packet coverage against server NBT in sandbox. |
+| **6. Empty sheep/cow pens — T2** | Two separate 7×7 grass interiors; two-gate vestibules; one gate open at a time; clear adjacent climbable blocks. Build near routinely staffed work, outside villager routes. | Server block states show complete perimeter and both gates closed. **Ready enclosures: 0 → 2.** | Fence placement proven; prove adult/baby passage, gate occupancy detection, corner escapes and interruption recovery before admitting animals. |
+| **7. Acquire and maintain herds — T3** | One handler/animal; acquire two adults/species. Nearest sheep first, then recorded SE sheep and 115–155-block cows. Survey ≤200-block routes; ≤10-minute acquisition attempt with resumable short visits. Breed only with complete census; cap six/species including babies and pending births. Shear ≤3 adults/visit; bank wool to 32. | UUID tracked into closed pen; new calf/lamb UUID; sheared metadata plus wool inventory gain. **Usable wool banked: 0 → 12.** | Full 100–200-block lure, slopes, gates, reconnect, sheep regrowth, breed cooldown, census uncertainty and activation-distance tests. No culling needed for this owner goal. |
+| **8. Village cottages — T2 construction; T3 if protection/path core changes** | Reuse cottage2 furnishings on **village-edge plots**, two cottages × two beds, ≤2 beds/day. Furnishing waits for wool; reserve 12 same-color-compatible wool. | Both bed halves exist; home memory/POI claim and actual villager sleeping establish use. **Reachable village beds: 5 → 9**, subject to validating the existing five. | Placement already proven; prove villager entry, bed discovery/sleep and breeding using these exact footprints. |
+| **9. Carrot/potato bootstrap and expansion — T2 crops; T3 new acquisition routes/protection exceptions** | Record a real source, bring back ≤16 of each, multiply in starter plots, then add ten cells/species. Reserve one complete replant +8 before food/trades; never plant poisonous/baked potatoes. | Source inventory gain, successful planting, mature harvest and replant. **Established crop species: 1 → 3.** | Both crop cycles, transport/deposit retention and source harvest/replant; source access must obey existing protection. |
+
+Steps 3–5 need not wait for the new harvest: 195 wheat already supports a bounded pilot. Houses need not delay the first breeding proof if an existing free bed proves reachable.
+
+**Carrots and potatoes must be acquired, not assumed.**
+
+- First inspect saved crop blocks and loot inventories in known villages: 6_1, then 23_-20 (~500 blocks NE), then 1_54 (~860 blocks S). **UNSURE:** which actually contains either crop; no measured source coordinates were supplied.
+- Harvest a mature source crop and immediately replant one; take only surplus. Protected village harvesting needs a narrowly scoped T3 allowance—the unlock exception does not authorize crop digging.
+- Alternatives are **shipwreck supply chests and pillager-outpost chests**, preferably already recorded and reachable without underwater excavation. Both crops have these acquisition routes. [Mojang: carrot](https://www.minecraft.net/en-us/article/taking-inventory--carrot), [potato](https://www.minecraft.net/en-us/article/taking-inventory--potato).
+- Farmers **buy** raw carrots/potatoes; they are not a bootstrap seller. Do not count wandering traders as a source. Zombie drops are unavailable as a normal PEACEFUL supply.
+- Wheat/seeds are not breeding food points. Deliver bread directly; farmer harvesting, bread-making and sharing are a later T3 proof, not a prerequisite.
+
+**Site houses and workstations on the western edge of 6_1.**
+
+- The recorded protected box is x49..157, z−59..45. Survey cottage footprints roughly **x35..45, z−10..15**, with doors facing the village and eastern bed heads around x43..45. **UNSURE:** terrain, reservations and elevation permit these footprints.
+- The outdoor ring near x81 is about 36–38 blocks from that edge; the house group near x88 is about 43–45. Job acquisition and breeding-bed searches use a **48-block search radius**, but require a valid path; aim comfortably inside it, including elevation.
+- Put the first workstation near x43–44, aligned with the outdoor group, satisfying market’s ≤40-block claim bound and protection buffer. Re-evaluate from villagers’ live positions after release.
+- Use continuous walkable ground, generous headroom, wooden doors and two clear blocks above beds; no fence gates, trapdoor bridges, steep drops or workstation-blocked entrances on villager routes.
+- The three free tickets are candidates, not proof of access. Existing adults may claim them after release; count vacancy again before feeding. Existing town cottages ~90 blocks away do not solve 6_1 housing.
+- `jobsite-01` is stonecutter-only and excludes nearby job sites at 32 blocks. Use one coordinated market placement ledger for the upgrade; otherwise the two planners can suppress or duplicate work.
+
+**Prefer these jobs, using the repository’s Paper-observed offers; actual windows decide prices and availability.**
+
+| Priority | Block / profession | Useful trade and constraint |
+|---|---|---|
+| 1 | Cartography table / cartographer | Novice buys **24 paper →1 emerald**. Craft from 138 cane, reserving table paper and planting stock; no leather needed. |
+| 2 | Existing fletching table / fletcher | Novice may buy **32 sticks →1 emerald**; converts surplus logs. New table needs two flint, currently unmeasured. |
+| 3 | Composter / farmer | Food-production role; possible novice wheat/carrot/potato purchases and bread sales. Keep its crops accessible; do not assume automatic sharing works here. |
+| 4 | Existing grindstones, then smithing table | Smiths may buy **15 coal →1 emerald** at novice; **4 iron →1** at apprentice. Keep 64 coal/iron plus committed build needs; budget leveling first. |
+| 5 | Existing/new stonecutter / mason | Novice buys **10 clay balls →1** and sells bricks; **20 stone →1** requires apprentice. Fund brick purchases to level if clay is unavailable. |
+
+Do not prioritize cauldrons with zero leather, looms with zero string, or lecterns before a bookshelf/leather supply exists. Employment is measured separately as **distinct employed adult UUIDs: 0 → positive**, excluding nitwits.
+
+**Top five risks and controls.**
+
+1. **World damage:** reserve full footprints before construction; preserve original village blocks; no generic protection bypass or flood-producing irrigation. Pause on unknown terrain.
+2. **Villagers remain trapped:** verify exits, actual routes, sleeping and restocking—not profession alone. Never dismantle claimed workstations to force reassignment.
+3. **Animals escape:** inspect enclosure before every admission/breeding; gate lease and interruption recovery; missing UUID means stop breeding, not “replace animal.”
+4. **Bag/chest bloat:** one shared commodity budget, one-stack carrying limits, four free slots, destination capacity check, existing shears reused. Stop production at caps; do not add more chests by default.
+5. **Wheat starvation:** hay gets its explicit 18-wheat allocation; bread/livestock consume only theirs; raw-wheat sales use surplus. Existing crop cap 128, market keep 16 and hay keep 32 must become one consistent policy.
+
+**Fleet port:** first prove showcase crop renewal, jobs, completed trades, two observed births and cottage occupation; require a week of contained livestock operation before its fleet canary, following the farms design. Port pure crop/supply/build pieces first, then T3 release/delivery/herding through the fleet canary process. Select towns by actual nearby animals, villagers, plots and storage—not showcase coordinates; expand to 16 only after each has prerequisites.
+
+**UNSURE:** actual Paper activation settings. Loaded chunks alone are insufficient: Paper throttles entities beyond configured activation ranges. Test breeding, growth and wool regrowth at 20/32/40 blocks using production settings; retain ordinary nearby bot work where needed. [Paper configuration](https://docs.papermc.io/paper/reference/spigot-configuration/).

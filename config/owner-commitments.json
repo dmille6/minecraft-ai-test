@@ -6692,6 +6692,37 @@
     ]
    },
    "note": "Fleet 6 h to 11-09 13:10Z: gather 3,250/8,269 ok; fail classes path 29.7%, unsafe 23.4%, interrupted 18.4%, no stand 11.0%, buried 10.2%, wrong tool 0.1% (0/3,221 iron gathers lacked a pickaxe); dirt 0 in all 29 town indexes; 1,887 of 3,591 gathered logs junked (logcap-02)."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "villagecon-1109",
+   "title": "Villager economy (owner 11-09): crop farm expansion + sheep and cow pens bred with wheat, wool for beds; bread to the villagers; village upgrade near town (beds and job blocks the freed villagers reach) -- villagers employed, births, trades",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "villagecon-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: villagefeed-01show c404c0e0 (on showcase b9fa002e; tier 2; bread by toss credited by playerCollect, only where beds > villagers, beds from town wool via mkPlaceBed) READY TO STAGE (Codex r1-r4 blockers fixed; Paper sandbox7 e2e: 6/6 loaves -> a baby; no room -> nothing; wool -> beds -> fed -> a baby). pens-01show f8bcf531 (stacked on it; tier 3 entity behaviour: two 9x9 rings + herd fetch/breed/shear) READY TO STAGE after it (Codex + Claude r1 blockers fixed, r2 FIXED; pens-e2e: 64/64 cells by the server, fetch 2, shear 5 wool, breed +1). Suites: see the commits. Stage villagefeed then pens; 6_1 logs no_bed_room until wool->beds. Fleet port villagefeed-01-on-f9d70a5 08c5b154 (after market-03): registration ~/mcai-analysis/villagefeed-01.08c5b154.json valid, draft villagefeed-01.queue-entry.draft.json HELD (fleet villagers 282+ b from home, radius 160). No pens fleet port (needs a fleet crop farm). Carrots/potatoes and job blocks: not built (no source; market_job already places job blocks). Read: _villagefeed op=birth fed=1, op=done room=, _herd op=fetch/shear/breed, _build project=pens, G1/G2 = 0.",
+   "evidence": {
+    "grep": [
+     "villagefeed-01show",
+     "pens-01show",
+     "villagefeed-01 (fleet port"
+    ],
+    "branches": [
+     "villagefeed-01show",
+     "pens-01show",
+     "villagefeed-01-on-f9d70a5"
+    ],
+    "paths": [
+     "docs/reports/villagecon-design-2026-11-09.md",
+     "docs/reports/villagecon-2026-11-09/v61-before.png",
+     "docs/reports/villagecon-2026-11-09/pens-layout.png"
+    ]
+   }
   }
  ]
 }
