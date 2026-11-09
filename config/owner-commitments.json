@@ -6257,6 +6257,33 @@
     "paths": []
    },
    "note": "Guard by y range before the fix (6_1 box y -64..90, floor_y 54): tripwire S4 whole box; chokepoint/pathfinder/mine/findBlocks closed y>=54 only for a deep bot; survival purpose passed everything. escdead-01 r1 (fleet terrainDeep) widens the exemption above floor_y and would not have stopped this one."
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "townmine-1109",
+   "title": "A proper town mine: the town stair extended to diamond level (-53) with rest bays every 12 steps, a hall with chest/crafting table/furnace, iron and diamond galleries, lit and sealed; the deep miner builds and works it (owner 11-09 'i want all of those things done')",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "townmine-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: townmine-01show (on b9fa002e) READY TO STAGE, NOT released; fleet port townmine-01-on-bcdba35f 46b1e7e2 with registration ~/mcai-analysis/townmine-01.46b1e7e2.json (valid) + draft ~/mcai-analysis/townmine-01.queue-entry.json, NOT queued. Tier 3: Codex+Claude designs reconciled; code r1 blockers fixed, r2 none from both. Paper sandbox5 whole build to -53 (308 cells, fixtures, breach 0). NEXT: stage the show piece; read _townmine op=build/complete/gallery and _deepmine op=ore; queue the fleet port. Baseline: docs/reports/townmine-design-2026-11-09.md section 1.",
+   "owner_pending": "townmine-01: depth feet -53 (owner O6) or -58 (11-09 ask)? keep one deep miner (O13) while the mine is being built?",
+   "evidence": {
+    "grep": [
+     "townmine-01"
+    ],
+    "branches": [
+     "townmine-01show",
+     "townmine-01-on-bcdba35f"
+    ],
+    "paths": [
+     "docs/reports/townmine-design-2026-11-09.md"
+    ]
+   }
   }
  ]
 }
