@@ -180,6 +180,25 @@ await t('A SWAPPED CELL NO STAND SEES is DEFERRED (counted for the waiver), neve
   assert.ok((v.deferred ?? []).some(d => String(d.k) === at.join(',')), `deferred ${JSON.stringify(v.deferred)}`)
   assert.strictEqual(srv.read(...at).name, 'cobblestone', 'never dug: the wall stays whole')
 })
+await t('CODEX r3 BLOCKER: a SEALED lower swap never strands the hole dug above it -- the cell above is placed on the old block, the sealed ones deferred', async () => {
+  const srv = server()
+  // a column of three swapped cells: the lower two buried in the ground (no stand sees them), the top one in the open air
+  const col = [[12, G - 1, 12], [12, G, 12], [12, G + 1, 12]]
+  for (const at of col) srv.set(at, 'cobblestone')
+  const rec = { v: 1, blueprint: 'wall@1', plot: 'wall', home: HOME, cells: col.map(at => ({ at, role: 'cw-body', seg: 'W-00', sw: 1 })), segments: [{ seg: 'W-00', deps: [] }], clear: [], replant: [], structure_complete: true }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cwsealed3-')); const key = PJ.projKey(HOME, W.WALL_PLOT)
+  const pub = PJ.publishRecord(dir, key, () => rec)
+  const b = bot(srv, 'A', { inv: { deepslate_bricks: 10, stone_bricks: 10 }, feet: [0, G + 1, 0] })
+  const pal = CW.citywallPalette('dark')
+  for (let v = 0; v < 2; v++) {
+    const slot = PJ.takeSlot(dir, key, 'A', 4)
+    await R.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, recordGen: pub.gen, palette: pal, slot: slot.slot, slotGen: slot.gen,
+      domain: () => true, walkR: 40, foreign: W.WALL_FOREIGN, blockLayer: false, clearMax: W.WALL_CLEAR_MAX, swap: true, sealed: { mayDig: () => true }, stands: { pending: null, bans: {} } }, b, { maxSteps: 100 })
+    PJ.releaseLease(dir, key, `slot${slot.slot}`, 'A', slot.gen)
+  }
+  assert.ok(R.cellDone(srv.read(...col[2]), pal, 'cw-body'), `the top cell swapped: ${srv.read(...col[2]).name}`)
+  for (const at of col) assert.notStrictEqual(srv.read(...at).name, 'air', `never a hole left at ${at}`)
+})
 await t('MUTANT KILLED: without the swap rule in the visit\'s dig filter, a segment opens more than one hole', async () => {
   await withMutant(' && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && swapOk(c) })', ' && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS })', async M => {
     const r = await buildUpgrade(M)
