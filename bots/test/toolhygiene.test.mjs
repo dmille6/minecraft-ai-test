@@ -381,7 +381,8 @@ t('stations: a carried crafting_table/furnace refuses a second, naming the skill
   assert.equal(redundantCraft('furnace', [{ name: 'crafting_table', count: 1 }]), null)
   assert.equal(redundantCraft('chest', [{ name: 'chest', count: 1 }]), null)
   assert.equal(redundantCraft('stick', [{ name: 'stick', count: 64 }]), null)
-  assert.equal(redundantCraft('stone_axe', [P('stone_axe', 120)]), null)
+  assert.equal(redundantCraft('stone_axe', [P('stone_axe', 120)], { toolrank: false }), null)   // the base: pickaxes and stations only
+  assert.equal(redundantCraft('stone_axe', [P('stone_axe', 120)]).kind, 'tool', 'toolrank-01: a same-tier axe now covers it')
 })
 t('NEVER WHAT THE TASK WANTS; never when off', () => {
   const bag = [P('stone_pickaxe', 131), P('wooden_pickaxe', 30), { name: 'crafting_table', count: 1 }]
