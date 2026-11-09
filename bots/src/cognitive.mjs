@@ -2296,7 +2296,7 @@ export class CognitiveLoop {
 
   /** One pipeline_tally row per bot per 10 min: prefetches, uses, drops by reason, arms, no-wait ticks. */
   #pipeCount (what) {
-    if (!this.pipe?.prefetch) return
+    if (!this.pipe?.active) return
     const now = Date.now()
     this.pipeTally ??= { t0: now, c: {} }
     this.pipeTally.c[what] = (this.pipeTally.c[what] ?? 0) + 1
@@ -2309,7 +2309,7 @@ export class CognitiveLoop {
   /** A run starts: give it an id, and arm the prefetch timer when the rule says so. -> { id, timer } */
   #pipeAtRunStart ({ source, admitted, milestone }) {
     const id = ++this.pipeArmSeq
-    if (!this.pipe.prefetch) return { id, timer: null }
+    if (!this.pipe.active) return { id, timer: null }
     let st = { go: false, why: 'error' }
     try { st = prefetchAtStart({ cfg: this.pipe, source, skill: admitted.skill, stats: this.pipeStats, pending: !!(this.prefetch && !this.prefetch.done) }) } catch { /* never cost the run */ }
     if (!st.go) { this.#pipeCount(`nopf_${st.why}`); return { id, timer: null } }
@@ -2414,7 +2414,7 @@ export class CognitiveLoop {
 
   /** The end of a tick: update the skill estimate, arm (or not) the next decision, void a prefetch the run did not arm. */
   #pipeEnd ({ executed, status, runMeta }) {
-    if (!this.pipe.prefetch) return
+    if (!this.pipe.active) return
     try {
       const now = Date.now()
       if (!runMeta) { this.pipeArm = null; this.#pipeDrop('no_run'); return }

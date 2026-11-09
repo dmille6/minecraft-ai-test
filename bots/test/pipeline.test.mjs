@@ -46,6 +46,7 @@ test('CONFIG: unset or junk = off; shadow and on prefetch, only on skips the wai
   const on = PL.pipelineConfig({ PIPELINE: ' ON ' }); assert.equal(on.on, true); assert.equal(on.prefetchAfterMs, 3000)
   assert.equal(PL.pipelineConfig({ PIPELINE: 'on', PIPELINE_MAX_PER_MIN: 'x' }).maxPerMin, 4)
   assert.equal(PL.pipelineConfig({ PIPELINE: 'on', PIPELINE_MIN_P: '7' }).minP, 1)
+  const np = PL.pipelineConfig({ PIPELINE: 'on', PIPELINE_PREFETCH: '0' }); assert.equal(np.on, true); assert.equal(np.active, true); assert.equal(np.prefetch, false)
 })
 const ON = PL.pipelineConfig({ PIPELINE: 'on' })
 test('PREFETCH AT START: only a MODEL run, one in flight at most, never a skill this bot rarely finishes', () => {
@@ -239,6 +240,12 @@ test('LOOP ON x GATE: a prefetch the dry run refuses falls back to ONE fresh cal
     assert.equal(checks, decisions, `check() ran ${checks} times for ${decisions} decisions`)
     assert.ok(gaps(runner).slice(0, 3).every(x => x < 200), `the fallback is asked at once, not after the cooldown: ${gaps(runner)}`)
   } finally { AdmissionControl.prototype.check = was }
+})
+test('LOOP ON, PREFETCH OFF: no prefetch is ever made, and the next decision is a fresh call right after the successful run', async () => {
+  const { rows, calls, runner } = await drive(COG, { mode: 'on', runner: slowRunner(100), extra: { PIPELINE_PREFETCH: '0' } })
+  assert.equal(calls.filter(c => c.pre).length, 0); assert.equal(rows.length, 0)
+  const g = gaps(runner)
+  assert.ok(g.length >= 4 && g.every(x => x < 200), `gaps ${g}`)
 })
 test('LOOP ON x RUNAWAY GUARD: past maxPerMin no-wait decisions the cooldown comes back', async () => {
   const { runner } = await drive(COG, { mode: 'on', runner: slowRunner(60), extra: { PIPELINE_MAX_PER_MIN: '2' }, ms: 1500 })

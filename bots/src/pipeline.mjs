@@ -4,10 +4,10 @@
 // 2026-11-09.md; ~/pipeline-1109/pipegaps.py + piperuns.py on the canary host). The gap before a model call is the 15 s
 // decision cooldown almost every time (84-100% of calls sit in the 15-20 s bin), and WHAT ENDED BEFORE IT decides whether
 // the gap is pacing or plain waiting:
-//   after a SUCCESSFUL run           213 bot-h = 11.1% of bot time (+ 27 bot-h of the call itself); 18% of those calls vetoed
+//   after a SUCCESSFUL run           215 bot-h = 11.2% of bot time (+ 27 bot-h of the call itself); 18% of those calls vetoed
 //   after a veto (+ VETOSKIP)        229 bot-h = 11.9%   -- pacing: shorter waits here buy re-proposals (cooldown-20s, 09-11:
 //                                                         three canaries, "+41% calls became vetoed re-proposals")
-//   after a failed / unknown run     201 bot-h = 10.5%   -- pacing: the failed key's 45 s cooldown, re-proposal risk
+//   after a failed / unknown run     208 bot-h = 10.8%   -- pacing: the failed key's 45 s cooldown, re-proposal risk
 //   the runner's failure pause       202 bot-h = 10.5%   -- a safety valve (3 failures in a row)
 // Only the first is a wait-for-decision: the bot finished, nothing argues against deciding now. That is what this removes.
 //
@@ -51,6 +51,7 @@ export const PIPELINE_DEFAULTS = Object.freeze({
 export const PIPELINE_MODES = Object.freeze(['off', 'shadow', 'on'])
 export const PIPELINE_TALLY_MS = 10 * 60 * 1000
 
+const off = v => v === '0' || v === 'false' || v === 'off'
 const num = (v, d) => { const n = Number(v); return v != null && v !== '' && Number.isFinite(n) && n >= 0 ? n : d }
 
 /** PIPELINE=off|shadow|on (anything else = off), plus the knobs. Read once from the environment. */
@@ -59,7 +60,9 @@ export function pipelineConfig (env = process.env) {
   const mode = PIPELINE_MODES.includes(m) ? m : 'off'
   const D = PIPELINE_DEFAULTS
   return {
-    mode, on: mode === 'on', shadow: mode === 'shadow', prefetch: mode !== 'off',
+    // active = the arm is computed and rows written; prefetch can be switched off alone (PIPELINE_PREFETCH=0): then `on` is
+    // the no-wait rule only (a fresh call at the end of a successful run), at no extra inference
+    mode, on: mode === 'on', shadow: mode === 'shadow', active: mode !== 'off', prefetch: mode !== 'off' && !off(env.PIPELINE_PREFETCH),
     prefetchAfterMs: num(env.PIPELINE_PREFETCH_AFTER_MS, D.prefetchAfterMs),
     maxAgeMs: num(env.PIPELINE_MAX_AGE_MS, D.maxAgeMs),
     waitCapMs: num(env.PIPELINE_WAIT_CAP_MS, D.waitCapMs),
@@ -105,7 +108,7 @@ export function runningLine (skill, args) {
  * Only a run that RAN and ENDED `success`, long enough, with no reflex in it or waiting, and the runner not paused.
  */
 export function armAfterRun ({ cfg, executed, declined, status, interruptedBy, pendingTrigger, paused, runMs }) {
-  if (!cfg?.prefetch) return { arm: false, why: 'off' }
+  if (!cfg?.active) return { arm: false, why: 'off' }
   if (interruptedBy) return { arm: false, why: 'interrupted' }
   if (!executed || declined) return { arm: false, why: 'not_run' }
   if (pendingTrigger) return { arm: false, why: 'trigger_pending' }
