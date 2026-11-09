@@ -363,7 +363,7 @@ await t('planksFromLogs: spare planks of any species count; none short, no logs 
 })
 await t('WIRED: build_shop draws the logs under the project reserve and crafts the planks before the stations', () => {
   const body = SK.slice(SK.indexOf('async function buildShop'), SK.indexOf('async function foundStore'))
-  assert.ok(/billOf\(rec, pal, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
+  assert.ok(/billOf\(recB?, pal, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
   assert.ok(/const pf = planksFromLogs\(want, \{ spare: n => \(hn\[n\] \?\? 0\) - \(keep\[n\] \?\? 0\), town \}\)/.test(body), 'the shortfall is computed')
   assert.ok(/matsWithdraw\(ctx, \{ \[pf\.log\]: pf\.logs \}, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain\)/.test(body), 'drawn under PD')
   assert.ok(/if \(plankCraft\) \{ try \{ await craft\(ctx, plankCraft, signal\) \}[\s\S]{0,120}for \(const item of \['furnace', 'crafting_table', 'chest'\]\)/.test(body), 'crafted, before the stations, inside the booked craft block')
