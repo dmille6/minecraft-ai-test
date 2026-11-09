@@ -28,6 +28,7 @@
 // that case: they no longer climb into it.
 import { Vec3 } from 'vec3'
 import { isOrdinary, zoneWalkOn } from './escapeguard.mjs'
+import { structAt, DIG_MASK, PLACE_MASK } from './protectzone.mjs'   // zoneguard-01show: the tripwire's own cells
 import { isFallingBlock } from './scaffold.mjs'
 
 /** ZONEWALK=off (0/false/no) turns all three rules off: the base escape guard, climbs and last resort. Default on. */
@@ -151,11 +152,17 @@ export const outOfFootprint = (zone, x, z, pad = WALK_PAD) => x < zone.x0 - pad 
  * (dx, dz): the next feet and head cells must be open or ORDINARY (never a structure block, never liquid), with no lava on any
  * face of the two cells; the next floor must be solid, or open air with a block to place (`canPlace`), never liquid.
  */
-export function tunnelStep ({ at = () => null, from, dx, dz, canPlace = false } = {}) {
+export function tunnelStep ({ at = () => null, from, dx, dz, canPlace = false, guarded = () => false } = {}) {
   const [x, y, z] = from
   const nx = x + dx, nz = z + dz
   const feetB = at(nx, y, nz), headB = at(nx, y + 1, nz), floorB = at(nx, y - 1, nz)
   if (feetB == null || headB == null || floorB == null) return { ok: false, dig: [], place: null, why: 'unloaded' }
+  // ZONEGUARD-01SHOW (Codex r1 blocker 1): a cell the tripwire's baseline guards (protectzone structAt: the cell itself, or the
+  // support of a block that hangs, stands or falls -- an anvil, scaffolding) is never cut: the chokepoint would refuse the dig
+  // and the throw would end the whole firing. This bearing ends here; the next one is tried.
+  for (const [cy, w] of [[y + 1, 'head'], [y, 'feet']]) {
+    if (solid(at(nx, cy, nz)) && guarded(nx, cy, nz, DIG_MASK)) return { ok: false, dig: [], place: null, why: `guarded (tripwire baseline) at the ${w} cell ${nx},${cy},${nz}` }
+  }
   for (const [b, w] of [[headB, 'head'], [feetB, 'feet']]) {
     if (isStructure(b)) return { ok: false, dig: [], place: null, why: `structure ${b.name} at the ${w} cell ${nx},${w === 'head' ? y + 1 : y},${nz}` }
     if (isLiquid(b)) return { ok: false, dig: [], place: null, why: `${b.name} at the ${w} cell` }
@@ -180,6 +187,7 @@ export function tunnelStep ({ at = () => null, from, dx, dz, canPlace = false } 
   if (!solid(floorB)) {
     if (isLava(at(nx, y - 2, nz))) return { ok: false, dig: [], place: null, why: 'lava under the next cell' }
     if (!canPlace) return { ok: false, dig: [], place: null, why: 'no floor under the next cell and no block to bridge it' }
+    if (guarded(nx, y - 1, nz, PLACE_MASK)) return { ok: false, dig: [], place: null, why: `guarded (tripwire baseline) at the bridge cell ${nx},${y - 1},${nz}` }
     return { ok: true, dig, place: [nx, y - 1, nz], why: null }
   }
   return { ok: true, dig, place: null, why: null }
@@ -187,10 +195,11 @@ export function tunnelStep ({ at = () => null, from, dx, dz, canPlace = false } 
 
 /** ONE STEP DOWN (above the zone floor only) -> { ok, dig: [x,y,z] | null, why }. Pure: the cell under the feet is ordinary
  *  (or open), its own floor solid and dry, no lava near. */
-export function downStep ({ at = () => null, from } = {}) {
+export function downStep ({ at = () => null, from, guarded = () => false } = {}) {
   const [x, y, z] = from
   const below = at(x, y - 1, z), floor = at(x, y - 2, z)
   if (below == null || floor == null) return { ok: false, dig: null, why: 'unloaded' }
+  if (solid(below) && guarded(x, y - 1, z, DIG_MASK)) return { ok: false, dig: null, why: `guarded (tripwire baseline) under the feet ${x},${y - 1},${z}` }   // zoneguard-01show
   if (isStructure(below)) return { ok: false, dig: null, why: `structure ${below.name} under the feet` }
   // a torch or carpet standing on the block it digs (in the bot's own feet cell) would drop (Claude r2 note)
   if (attached(at(x, y, z))) return { ok: false, dig: null, why: `${at(x, y, z).name} stands on the block under the feet` }
@@ -228,6 +237,8 @@ export async function zoneWalkOut (bot, { zone, dig, place = async () => false, 
   const t0 = now()
   const at = (x, y, z) => { try { return bot.blockAt?.(new Vec3(x, y, z)) ?? null } catch { return null } }
   const here = () => { const p = bot.entity.position; return [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] }
+  // ZONEGUARD-01SHOW: the zones as the chokepoint reads them (with the tripwire's baseline cells), asked per cut; unreadable = guarded
+  const guarded = (x, y, z, mask) => { try { return !!structAt(bot.protectZones?.() ?? [], x, y, z, mask) } catch { return true } }
   const start = here()
   const res = { outcome: 'failed', zone: zone?.id ?? '?', from: start.join(','), to: null, steps: 0, down: 0, dug: 0, placed: 0, side: null, ms: 0, stops: [] }
   // PROGRESS IS GETTING NEARER THE WAY OUT (Codex r1 blocker 5), never walking: a firing that ends no nearer the footprint's
@@ -257,7 +268,7 @@ export async function zoneWalkOut (bot, { zone, dig, place = async () => false, 
     while (zone.kind === 'village' && zone.floorY != null && here()[1] >= zone.floorY && res.down < DOWN_MAX) {
       if (gone()) return fin('yielded')
       if (now() - t0 > budgetMs) return fin(res.steps || res.down ? 'progress' : 'failed')
-      const d = downStep({ at, from: here() })
+      const d = downStep({ at, from: here(), guarded })
       if (!d.ok) { res.stops.push(`down: ${d.why}`); break }
       const y0 = here()[1]
       if (d.dig) await digCell(d.dig)
@@ -274,11 +285,11 @@ export async function zoneWalkOut (bot, { zone, dig, place = async () => false, 
         if (now() - t0 > budgetMs) return fin(res.steps || res.down ? 'progress' : 'failed')
         const f = here()
         if (outOfFootprint(zone, f[0], f[2])) return fin('out')
-        const s = tunnelStep({ at, from: f, dx: b.dx, dz: b.dz, canPlace: canPlace() })
+        const s = tunnelStep({ at, from: f, dx: b.dx, dz: b.dz, canPlace: canPlace(), guarded })
         if (!s.ok) { res.stops.push(`${b.side} at ${f.join(',')}: ${s.why}`); break }
         for (const c of s.dig) await digCell(c)
         // RE-READ AFTER THE DIGS (Codex r1 blocker 4): a block that fell in, or a liquid that arrived, ends the bearing
-        const again = tunnelStep({ at, from: f, dx: b.dx, dz: b.dz, canPlace: canPlace() })
+        const again = tunnelStep({ at, from: f, dx: b.dx, dz: b.dz, canPlace: canPlace(), guarded })
         const target = [f[0] + b.dx, f[1], f[2] + b.dz]
         if (!again.ok || again.dig.length) { res.stops.push(`${b.side}: the cut changed after the dig (${again.why ?? 'refilled'})`); break }
         if (s.place) { own(); if (!(await place(s.place, [b.dx, 0, b.dz]))) { res.stops.push(`${b.side}: the bridge block did not take`); break } res.placed++ }

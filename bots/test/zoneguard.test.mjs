@@ -303,3 +303,63 @@ test('MUTANT KILLED: escapeguard without its baseline line -- the planners would
     assert.equal(m.escapeDigDecision({ guard: gm }).allow, true)
   })
 })
+
+// ---- r1 blockers (Codex): the walk-out never cuts a guarded support; a pour never runs into a baseline cell -----------------
+test('r1 (Codex blocker 1): a baseline ANVIL beside the west tunnel (its support is guarded, the walk-out\'s own names miss it) ends that bearing -- the walk-out goes south, out, and never throws', async () => {
+  const Block = require_('prismarine-block')('1.21.8')
+  const cells = { '55,20,4': 'minecraft:anvil' }     // beside the west cut's head cell 55,20,5 (Codex's shape)
+  const zg = withBaseline(Z0, parseBaseline({ zones: { 'village-taiga-6_1': { box: ZFILE.zones[0].box, cells } } })).zones
+  const edits = new Map()
+  const base = (x, y, z) => (cells[`${x},${y},${z}`] ? 'anvil' : x === 57 && z === 5 && (y === 19 || y === 20) ? 'air' : y > 60 ? 'air' : 'stone')
+  const at = (x, y, z) => { const b = Block.fromString(`minecraft:${edits.get(`${x},${y},${z}`) ?? base(x, y, z)}`, 0); b.position = V(x, y, z); return b }
+  const solid = (x, y, z) => at(x, y, z).boundingBox === 'block'
+  const run = async (mod, zones) => {
+    edits.clear()
+    const bot = { entity: { position: V(57.5, 19, 5.5) }, dig: async b => { edits.set(`${b.position.x},${b.position.y},${b.position.z}`, 'air') }, _genericPlace: async () => {}, pathfinder: { isMining: () => false, movements: {} } }
+    mod.PZ.attachProtectZone(bot, { zones: () => zones, context: () => ENTOMBED })
+    bot.blockAt = p => at(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)); bot.protectZones = () => zones
+    const walk = async c => { if (!solid(c[0], c[1], c[2]) && !solid(c[0], c[1] + 1, c[2])) bot.entity.position = V(c[0] + 0.5, c[1], c[2] + 0.5) }
+    return mod.ZW.zoneWalkOut(bot, { zone: zones[0], dig: b => bot.dig(b), walk })
+  }
+  const r = await run({ PZ, ZW }, zg)
+  assert.equal(r.outcome, 'out', JSON.stringify(r)); assert.equal(r.side, 'south')
+  assert.ok(r.stops.some(s => /^west .*guarded \(tripwire baseline\)/.test(s)), JSON.stringify(r.stops))
+  assert.equal(at(55, 20, 4).name, 'anvil', 'the anvil stands')
+  await withMutant(new URL('../src/zonewalk.mjs', import.meta.url), "    if (solid(at(nx, cy, nz)) && guarded(nx, cy, nz, DIG_MASK)) return", '    if (false) return', async m => {
+    const rm = await run({ PZ, ZW: m }, zg)
+    assert.notEqual(rm.outcome, 'out', 'MUTANT: the chokepoint refuses the support dig and the throw ends the firing')
+    assert.ok(rm.stops.some(s => /threw: .*protected zone/.test(s)), JSON.stringify(rm.stops))
+  })
+})
+
+test('r1 (Codex blocker 2): liquidReaches -- a baseline cell within 16 blocks, level or below the pour, is reached; 17 away, or 2+ above the pour, is not', () => {
+  const zg = withBaseline(Z0, parseBaseline({ zones: { 'village-taiga-6_1': { box: ZFILE.zones[0].box, cells: { '60,70,0': 'minecraft:torch' } } } })).zones
+  assert.ok(PZ.liquidReaches(zg, { x: 44, y: 70, z: 0 }), '16 west, level')
+  assert.ok(PZ.liquidReaches(zg, { x: 44, y: 90, z: 16 }), 'above it, 16 off on both axes')
+  assert.equal(PZ.liquidReaches(zg, { x: 43, y: 70, z: 0 }), null, '17 west')
+  assert.equal(PZ.liquidReaches(zg, { x: 50, y: 68, z: 0 }), null, 'two below the torch: water never runs up')
+  assert.equal(PZ.liquidReaches(Z0, { x: 50, y: 70, z: 0 }), null, 'no baseline: the box reach (BUCKET_ZONE_REACH) is the old rule')
+})
+
+test('r1 (Codex blocker 2): the chokepoint does not send a liquid bucket use within reach of a baseline cell; eating, an empty bucket and a pour far away pass', () => {
+  const zg = withBaseline(Z0, parseBaseline({ zones: { 'village-taiga-6_1': { box: ZFILE.zones[0].box, cells: { '60,70,0': 'minecraft:torch' } } } })).zones
+  const mk = (held, pos) => {
+    const sent = []
+    const bot = { entity: { position: pos }, heldItem: { name: held }, activateItem: () => { sent.push(held) }, pathfinder: { isMining: () => false, movements: {} } }
+    const refusals = []
+    attachProtectZone(bot, { zones: () => zg, context: () => ({ skill: 'bucket' }), onRefuse: r => refusals.push(r) })
+    bot.activateItem()
+    return { sent, refusals, bot }
+  }
+  for (const h of ['water_bucket', 'lava_bucket', 'cod_bucket']) {
+    const r = mk(h, V(50.5, 70, 0.5))
+    assert.deepEqual(r.sent, [], `${h} near: not sent`); assert.equal(r.refusals[0].op, 'pour'); assert.equal(r.bot.protectZone.liquid_refused, 1)
+  }
+  for (const [h, pos] of [['bread', V(50.5, 70, 0.5)], ['bucket', V(50.5, 70, 0.5)], ['water_bucket', V(20.5, 70, 0.5)]]) assert.deepEqual(mk(h, pos).sent, [h], `${h} at ${pos}: sent`)
+})
+
+test('r1 WIRING (structural): the bucket skill\'s pour and the obsidian cast\'s cells ask liquidReaches', () => {
+  const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.equal(sk.split("if (action === 'pour') { try { lz = liquidReaches(bot.protectZones?.() ?? [], { x: p.x, y: p.y + 1, z: p.z }) } catch { lz = null } }").length, 2)
+  assert.equal(sk.split('try { if (liquidReaches(zones, p)) return true } catch { return true }').length, 2)
+})

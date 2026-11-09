@@ -287,7 +287,7 @@ import { fillWater as obsFillWater, scoopLava as obsScoopLava, pourInto as obsPo
 import { isFull as obsIsFull } from './shaftgeom.mjs'   // obsidian-01: a basin cell still rock
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
-import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
+import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD, liquidReaches, LIQUID_REACH } from './protectzone.mjs'   // protectzone-01 (+ zoneguard-01show liquidReaches)
 import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
@@ -22106,6 +22106,8 @@ function deepObsZone (bot, { townToo = true } = {}) {
     if (zones == null) return true
     const p = { x: c[0], y: c[1], z: c[2] }
     try { if (zoneWithin(zones, p, BUCKET_ZONE_REACH)) return true } catch { return true }
+    // zoneguard-01show (Codex r1 blocker 2): a cast's lava or water could run into a baseline cell from farther than the box reach
+    try { if (liquidReaches(zones, p)) return true } catch { return true }
     if (townToo && inTownBox(p, home, { margin: 4 })) return true
     return stair.has(c.join(','))
   }
@@ -28785,6 +28787,14 @@ async function bucketSkill (ctx, args, signal) {
       noteProtectZone(bot, 'bucket_refused')
       // THE WALK CLEARS THE BUCKET'S OWN REACH (Codex r2 P2, Claude r2 P3): 6 + goto's arrival range 2 + 1
       return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone no bucket use within ${BUCKET_ZONE_REACH} blocks of ${z.label}: ${zoneRemedy(z, action === 'fill' ? 'use' : 'place', p, p, { pad: BUCKET_ZONE_REACH + 3, standY: (x, zz) => standableY(bot, x, zz, p.y) })}` }
+    }
+    // zoneguard-01show (Codex r1 blocker 2): a POUR whose flow could run into a cell the tripwire compares (protectzone
+    // liquidReaches: a baseline cell within LIQUID_REACH, not above the pour) -- the step that works is farther away or uphill-free
+    let lz = null
+    if (action === 'pour') { try { lz = liquidReaches(bot.protectZones?.() ?? [], { x: p.x, y: p.y + 1, z: p.z }) } catch { lz = null } }
+    if (lz) {
+      noteProtectZone(bot, 'bucket_refused')
+      return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone a pour here could run into ${lz.label}'s structure (a block of it within ${LIQUID_REACH} blocks, level or below): walk at least ${LIQUID_REACH + 3} blocks farther from it, or pour where the ground does not fall toward it` }
     }
   }
   const bucketZone = q => { try { return zoneAtPos(bot.protectZones?.() ?? [], q) } catch { return null } }
