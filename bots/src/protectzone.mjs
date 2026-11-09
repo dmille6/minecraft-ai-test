@@ -220,6 +220,8 @@ export function liquidReaches (zones, p) {
  * answered as reached: refused, never guessed. `at(x, y, z)` -> block | null. Only when the prefilter names a zone.
  */
 export function liquidFlowReaches (zones, seeds, at, { lava = false, maxNodes = LIQUID_MAX_NODES, budget = null } = {}) {
+  // a SPENT shared budget refuses before the prefilter's column loop (Claude r4 note: no cost once spent)
+  if (budget && budget.left <= 0) return zones?.find(q => q.guard) ?? zones?.[0] ?? null
   const pre = (seeds ?? []).map(c => liquidReaches(zones, { x: c[0], y: c[1], z: c[2] })).find(Boolean)
   if (!pre) return null
   if (typeof at !== 'function') return pre
