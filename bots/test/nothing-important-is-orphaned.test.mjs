@@ -273,6 +273,9 @@ const REQUIRED = [
   // depositoffer-01 (11-04): deposit leaves the per-call skill enum when the gate would refuse it; the deposit rung's floor
   'bots/src/depositoffer.mjs',
   'bots/test/depositoffer.test.mjs',
+  'bots/src/planahead.mjs',   // planahead-01 (11-09, owner: plan the town ahead -- plan-time reach, stand claims)
+  'bots/test/planahead.test.mjs',   // planahead-01
+  'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
 ]
 
 t('every load-bearing path exists in the working tree', () => {
