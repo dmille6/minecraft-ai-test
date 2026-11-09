@@ -352,7 +352,7 @@ test('DEATH-GAP MUTANT KILLED: without clearing the armed timer, an idle call is
   })
 })
 test('LOOP WIRING MUTANT KILLED: with the no-wait unwired, `on` waits the cooldown after a success', async () => {
-  await withMutant(COG_PATH, '      const w = Math.max(pipeNoWait ? 0 : continueWait(', '      const w = Math.max(false ? 0 : continueWait(', async M => {
+  await withMutant(COG_PATH, 'pipeNoWait ? 0 : continueWait(', 'false ? 0 : continueWait(', async M => {
     const { runner } = await drive(M, { mode: 'on', runner: slowRunner(100) })
     assert.ok(gaps(runner).some(x => x >= 390), `gaps ${gaps(runner)}`)
   })
