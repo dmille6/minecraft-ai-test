@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install node_exporter and (unless --node-only) mcai-dash-agent on THIS host. Run with sudo.
 #   sudo bash install-agent.sh fleet|worlds|showcase   # agent + node_exporter
-#   sudo bash install-agent.sh --node-only             # node_exporter only (ci2, the ELK box)
+#   sudo bash install-agent.sh --node-only             # node_exporter only (ci2-ci4, the ELK box)
 # Idempotent. Reads nothing it did not already read; opens 9100/9188 only to the dashboard host.
 set -euo pipefail
 ROLE="${1:?role: fleet | worlds | showcase | --node-only}"

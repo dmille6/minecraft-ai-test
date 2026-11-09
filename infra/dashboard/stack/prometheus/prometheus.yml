@@ -15,6 +15,10 @@ scrape_configs:
         labels: {host: showcase, role: "showcase world + bots"}
       - targets: ["10.0.0.34:9100"]
         labels: {host: ci2, role: "test-suite host"}
+      - targets: ["10.0.0.35:9100"]
+        labels: {host: ci3, role: "test-suite host"}
+      - targets: ["10.0.0.36:9100"]
+        labels: {host: ci4, role: "test-suite host"}
       - targets: ["10.0.0.186:9100"]
         labels: {host: minecraftelk, role: "Elasticsearch + dashboard"}
 

@@ -41,7 +41,7 @@ stack() {
 }
 
 agents() {
-  for spec in 10.0.0.31:fleet 10.0.0.30:worlds 10.0.0.40:showcase 10.0.0.34:--node-only 10.0.0.186:--node-only; do
+  for spec in 10.0.0.31:fleet 10.0.0.30:worlds 10.0.0.40:showcase 10.0.0.34:--node-only 10.0.0.35:--node-only 10.0.0.36:--node-only 10.0.0.186:--node-only; do
     host=${spec%%:*}; role=${spec#*:}
     say "$host ($role)"
     ssh "mike@$host" 'mkdir -p /tmp/mcai-dash-agent'
