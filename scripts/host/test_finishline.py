@@ -64,7 +64,15 @@ def ck_stuck_bots(M):
     still = ('b1', 'h', 20, (1.0, 2.5), (64, 64), (5, 6))
     few = ('b2', 'h', 19, (1.0, 1.0), (64, 64), (5, 5))
     moved = ('b3', 'h', 400, (1.0, 4.0), (64, 64), (5, 5))
-    return M.stuck_bots([still, few, moved]) == {'b1': 1}
+    nobound = ('b4', 'h', 50, (1.0, 1.0), (None, None), (5, 5))
+    return (M.stuck_bots([still, few, moved]) == {'b1': 1} and M.judged_bots([still, few, moved, nobound]) == {'b1', 'b3'}
+            and M.judged_bots([few, nobound]) == set())
+
+
+def ck_pool_shares(M):
+    sec = {'a': {'productive': 60.0, 'idle': 40.0}, 'b': {'productive': 100.0}}
+    r = M.pool_shares(sec, {'a': 150, 'b': 1}, 134.4)
+    return abs(r['a'] - 0.6) < 1e-9 and r['b'] is None
 
 
 def ck_employed(M):
@@ -99,7 +107,7 @@ def ck_render(M):
             and '4+ roofed houses: 4' in md)
 
 
-CHECKS = [ck_status, ck_town_m2, ck_m2_world, ck_stuck_bots, ck_employed, ck_diamond, ck_admin, ck_render]
+CHECKS = [ck_status, ck_town_m2, ck_m2_world, ck_stuck_bots, ck_pool_shares, ck_employed, ck_diamond, ck_admin, ck_render]
 
 MUTANTS = [
     ('an unread criterion counts as a pass', "    s = 'pass' if n == len(cs) else", "    s = 'pass' if n >= len(cs) - un else",
@@ -107,7 +115,12 @@ MUTANTS = [
     ('one house is enough', "len(k['houses']) >= M2_HOUSES", "len(k['houses']) >= 1", ck_town_m2),
     ('working share of exactly 50% passes', "working is not None and working > M2_WORKING",
      "working is not None and working >= M2_WORKING", ck_town_m2),
-    ('a barely-logging bot judged stuck', "if rows >= STUCK_MIN_ROWS and", "if rows >= 0 and", ck_stuck_bots),
+    ('a barely-logging bot judged stuck', "        if rows >= STUCK_MIN_ROWS and all(a is not None and b is not None and b - a",
+     "        if rows >= 0 and all(a is not None and b is not None and b - a", ck_stuck_bots),
+    ('a town seen in one hour gets a share', "if obs and hours.get(pool, 0) >= need else None", "if obs else None",
+     ck_pool_shares),
+    ('too few rows still judged', "    return {bot for bot, _h, rows, *rng in buckets\n            if rows >= STUCK_MIN_ROWS and",
+     "    return {bot for bot, _h, rows, *rng in buckets\n            if rows >= 0 and", ck_stuck_bots),
     ('unemployed villagers counted', "if m and m.group(1) not in NOT_EMPLOYED:", "if m:", ck_employed),
     ('a short release log reads as no admin edits', "    if n or (ts_ and min(ts_) <= since):", "    if True:", ck_admin),
 ]

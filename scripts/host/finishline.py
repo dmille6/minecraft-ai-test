@@ -122,6 +122,23 @@ def stuck_bots(buckets):
     return {b: h for b, h in out.items() if h >= STUCK_BOT_H}
 
 
+def judged_bots(buckets):
+    """PURE. the bots with at least one hour stuck_bots() can judge (enough rows, all three bounds): the M1 denominator.
+    None judged = unread, never 'none stuck'."""
+    return {bot for bot, _h, rows, *rng in buckets
+            if rows >= STUCK_MIN_ROWS and all(a is not None and b is not None for a, b in rng)}
+
+
+def pool_shares(sec, hours, need):
+    """PURE. {pool: busy seconds}, {pool: cache hours the pool appears in}, hours needed -> {pool: working share or None}.
+    A pool seen in fewer than `need` hours is None (unread), never a share of the few hours it had."""
+    out = {}
+    for pool, s in sec.items():
+        obs = sum(v for k, v in s.items() if k not in ('unobserved', 'dead'))
+        out[pool] = s.get('productive', 0) / obs if obs and hours.get(pool, 0) >= need else None
+    return out
+
+
 def employed(details):
     """PURE. `_merchant_seen` details -> sightings of an employed villager (profession not none/nitwit)."""
     n = 0
@@ -192,7 +209,7 @@ def _hour_buckets(EsEvents, stream, since, until):
 
 
 def _working_by_pool(now):
-    sec = {}
+    sec, ph = {}, {}
     hours = 0
     end = now.replace(minute=0, second=0, microsecond=0)
     for i in range(1, WINDOW_D * 24 + 1):
@@ -203,18 +220,18 @@ def _working_by_pool(now):
         except (OSError, ValueError, EOFError):
             continue
         hours += 1
+        seen = set()
         for b in (d.get('bots') or {}).values():
             for c in b.values():
+                seen.add(c.get('pool') or '-')
                 s = sec.setdefault(c.get('pool') or '-', {})
                 for k, v in (c.get('busy') or {}).items():
                     s[k] = s.get(k, 0.0) + v
+        for p in seen:
+            ph[p] = ph.get(p, 0) + 1
     if hours < WINDOW_D * 24 * 0.8:
         return None, hours
-    out = {}
-    for pool, s in sec.items():
-        obs = sum(v for k, v in s.items() if k not in ('unobserved', 'dead'))
-        out[pool] = s.get('productive', 0) / obs if obs else None
-    return out, hours
+    return pool_shares(sec, ph, WINDOW_D * 24 * 0.8), hours
 
 
 def collect(now, f, show_releases=None):
@@ -258,10 +275,10 @@ def collect(now, f, show_releases=None):
         cs = []
         try:
             bk, nb = _hour_buckets(EsEvents, stream[w], day, until)
-            sb = stuck_bots(bk)
-            cs.append(crit('bots stuck > 1 h (24 h)', f'{len(sb)} of {nb}' + (': ' + ', '.join(
+            sb, jb = stuck_bots(bk), judged_bots(bk)
+            cs.append(crit('bots stuck > 1 h (24 h)', f'{len(sb)} of {len(jb)} judged ({nb} present)' + (': ' + ', '.join(
                 f'{b} {h} h' for b, h in sorted(sb.items(), key=lambda x: -x[1])[:4]) if sb else ''), not sb,
-                None if bk else 'no position rows'))
+                None if jb else 'no bot-hour with enough position rows'))
         except Exception as e:  # noqa: BLE001
             cs.append(crit('bots stuck > 1 h (24 h)', '', False, f'{type(e).__name__}'))
         dv = hl[w]['deaths'][-1] if hl else None
@@ -290,7 +307,9 @@ def collect(now, f, show_releases=None):
             else:
                 towns = ['showcase']
                 sc = f.get('showcase') or {}
-                stuck = {} if 'stuck' in sc else None
+                # the showcase STUCK lines come from fleetstatus: without it, 'stuck' is an empty default, not a reading
+                read = 'stuck' in sc and f.get('bots') and 'fleet numbers (fleetstatus)' not in (f.get('errors') or {})
+                stuck = {} if read else None
                 for s in (sc.get('stuck') or []):
                     stuck['showcase'] = max(stuck.get('showcase', 0), s['hours'])
                 wv = hl['showcase']['working'][-1]['v'] if hl else None
