@@ -17811,6 +17811,8 @@ export async function shopActivePrime (bot = null, now = Date.now(), { pause = (
 }
 /** Test hook: forget shopActive's memo. */
 export function shopActiveForget () { activeMem = null }
+/** Test hook (country-01): the memo's project states (shopActive's per-project pass, before the per-bot marks). */
+export const shopActiveStates = () => activeMem?.states ?? null
 export function shopActive (bot = null, now = Date.now(), { visit = false, stateOf = null } = {}) {
   try {
     const list = projectsOn()
@@ -18362,7 +18364,10 @@ export function shopDamaged (bot, rec = null) {
     const now = Date.now()
     const id = `${r.plot ?? SHOP_PLOT}`   // house-01: one cache per project record
     if (bot.shopDamage && bot.shopDamage.id === id && now - bot.shopDamage.at < 60_000) return bot.shopDamage.v
-    const v = recordDamaged(bot, r)
+    // COUNTRY-01 (Codex fleet r1 / r7 BLOCKERS): the ORDER's completion check alone reads a quiet inside stage as wanting a visit while
+    // the country wants one -- else a crew order to a country band is refused `complete`; shopActive's states keep the inside-only
+    // reads (groundsState merges the country there)
+    const v = recordDamaged(bot, r) || (r?.blueprint === TIDY_BLUEPRINT && COUNTRY_ON && GROUNDS.on && LANDP.on && countryDemandNow() != null)
     bot.shopDamage = { at: now, v, id }
     return v
   } catch { return false }
@@ -18388,9 +18393,6 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
     if (r?.blueprint === TIDY_BLUEPRINT && gkStageDue(r)) return tidy
-    // COUNTRY-01 (Codex fleet r1 BLOCKER, the showcase's too): the ORDER's completion check (cognitive.mjs shopDamaged, tidy on) reads a
-    // quiet inside as wanting a visit while the country does -- else a crew order to a country band is refused `complete`
-    if (r?.blueprint === TIDY_BLUEPRINT && tidy && COUNTRY_ON && GROUNDS.on && LANDP.on && countryDemandNow() != null) return true
     if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)
     // UPKEEP-01 (Codex fleet r1 BLOCKER, the showcase's too): the upkeep is never DAMAGED; with `tidy` (the order's completion check) it
     // wants a visit while it is due (a job open, its list stale, drops the sweep would take) -- else a stale list is never surveyed again
