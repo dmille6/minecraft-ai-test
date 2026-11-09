@@ -240,11 +240,14 @@ export function liquidFlowReaches (zones, seeds, at, { lava = false, maxNodes = 
       for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, 2, 0], [0, -1, 0]]) { const l = hit(x + dx, y + dy, z + dz); if (l) return l }
     }
     if (y <= -64) continue
-    const d = open(x, y - 1, z)
-    if (d == null) return pre
+    const below = at(x, y - 1, z)
+    if (below == null) return pre
+    const d = below.boundingBox !== 'block'
     // A LIQUID THAT CAN FALL, FALLS (the game's own rule: it runs sideways only over something it cannot enter); the fall
-    // renews its run
-    if (d) { queue.push([x, y - 1, z, LIQUID_SPREAD]); continue }
+    // renews its run. Only AIR or a liquid below is a sure fall (Codex r3: a sign, a door, a torch has no collision box but a
+    // liquid may not enter it) -- over anything else without a collision box the trace takes BOTH ways, down and sideways.
+    if (d) queue.push([x, y - 1, z, LIQUID_SPREAD])
+    if (d && /^(air|cave_air|void_air|water|lava|bubble_column)$/.test(bare(below.name))) continue
     if (sp > 0) {
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const o = open(x + dx, y, z + dz)
