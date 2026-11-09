@@ -20160,10 +20160,12 @@ async function buildTidy (ctx, args, signal) {
     // clear lease, never a record cell)
     // stuckclose-01: nor a cut the town has given up (the retry ledger holds it: no walk would be made to it anyway)
     const tg0 = tidyTownGiven(dir, key, rec, read)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !standFloorK(q.at.join(',')) && !tg0.has(q.at.join(',')))
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !tg0.has(q.at.join(',')))
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
-    const cuts = GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
+    // planahead-01: never a cut of a claimed floor (the visit start retired them; this holds if that publish was lost)
+    const cutsPa = paStands ? cuts0.filter(q => !standFloorK(q.at.join(','))) : cuts0
+    const cuts = GROUNDS.on ? chainCuts(cutsPa, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cutsPa
     const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
     const r = await runVisit({ ...canopyOf(bot, c, TIDY_PLOT), dir, key, me, home, stood, record: paStands ? { ...rec, clear: (rec.clear ?? []).filter(q => !(Array.isArray(q?.at) && standFloorK(q.at.join(',')))) } : rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q), stuckStalledOnly: true,
@@ -20209,7 +20211,7 @@ async function buildTidy (ctx, args, signal) {
     // cut or fill cell is left, never done on no evidence
     // stuckclose-01: a cut the TOWN has failed RETRY_VISITS visits (the ledger read after this visit settled it) is given up too
     const tg = tidyTownGiven(dir, key, rw, read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || standFeetQ(q) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || standFloorK(k) || tidyGivenUp(mem, k) || tg.has(k) })
+    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || standFeetQ(q) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) || tg.has(k) })
     const unread = [...(rw.cut ?? []), ...(rw.cells ?? [])].some(q => !read2(...q.at))
     // groundskeeper-01 (Codex r1 BLOCKER 2): the record's clears (a felled road trunk, head-room leaves) are work too -- left
     // standing, the stage stays open until this bot's visits have made no clear progress GK_CLEAR_VISITS times (then named)

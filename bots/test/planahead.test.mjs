@@ -220,7 +220,7 @@ const WIRES = [
   'const body0 = PLANAHEAD_ON && GROUNDS\\.on && s\\.record \\? await tidyPlanAhead\\(bot, bodyP, home, stood, signal\\) : bodyP',
   "puWaiveDue\\(rec, \\(r\\.deferred \\?\\? \\[\\]\\)\\.map\\(d => d\\?\\.k \\?\\? d\\), \\{ already: waive1, confirm: paConfirm\\(bot, rec, home, stood\\) \\}\\)",
   "const waivedK = q => guard\\.has\\(q\\.at\\.join\\(','\\)\\) \\|\\| standFeetQ\\(q\\)",
-  'given: k => guard\\.has\\(k\\) \\|\\| standFloorK\\(k\\)',
+  'const cutsPa = paStands \\? cuts0\\.filter\\(q => !standFloorK\\(q\\.at\\.join',
   'const nx = standRetire\\(body0, sc\\)',
   'const nx = cur && !cur\\.structure_complete \\? standRetire\\(cur, paStands\\) : null',
   "record: paStands \\? \\{ \\.\\.\\.rec, clear: \\(rec\\.clear \\?\\? \\[\\]\\)\\.filter\\(q => !\\(Array\\.isArray\\(q\\?\\.at\\) && standFloorK\\(q\\.at\\.join\\(','\\)\\)\\)\\) \\} : rec, tidy: cuts",
