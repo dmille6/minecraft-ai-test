@@ -244,6 +244,32 @@ export class AdmissionControl {
    * @returns {{ok: true, skill, args} | {ok: false, reason: string, detail: string}}
    */
   check(proposal, bot, wanted = null) {
+    return this.#check(proposal, bot, wanted)
+  }
+
+  /**
+   * PIPELINE-01 (pipeline.mjs): WOULD check() ADMIT THIS NOW? The same #check, with nothing written: the repeat window,
+   * the veto streak, the probation counters (in memory and persisted), the counters and the bot's deposit wants are put
+   * back, and no row is logged. A prefetched pick is judged here first, so the gate's state only ever sees the ONE
+   * proposal a decision runs through check().
+   */
+  dryCheck(proposal, bot, wanted = null) {
+    const keep = { recent: this.recent.slice(), vetoStreak: this.vetoStreak, forcedAdmissions: this.forcedAdmissions,
+      milestoneCriticalAdmissions: this.milestoneCriticalAdmissions, blockedCount: { ...this.blockedCount },
+      normalisations: this.normalisations, resolutions: this.resolutions }
+    const hadWants = !!bot && Object.prototype.hasOwnProperty.call(bot, 'currentWants'), wants = bot?.currentWants
+    this.dry = true
+    // a COPY: #check normalises args in place, and the real check() must see the proposal as the model wrote it
+    try { return this.#check(proposal && typeof proposal === 'object' ? structuredClone(proposal) : proposal, bot, wanted) }
+    catch (e) { return { ok: false, reason: 'dry_error', detail: String(e?.message ?? e).slice(0, 120) } }
+    finally {
+      this.dry = false
+      Object.assign(this, keep)
+      if (bot) { if (hadWants) bot.currentWants = wants; else delete bot.currentWants }
+    }
+  }
+
+  #check(proposal, bot, wanted = null) {
     if (!proposal || typeof proposal !== 'object') {
       return { ok: false, reason: 'no_proposal', detail: 'model produced nothing usable' }
     }
@@ -426,7 +452,8 @@ export class AdmissionControl {
       if (!depositPlan(items, args?.item ?? null, { wants, noSwords }).length && !reconcile) {
         // THE CAP'S REFUSAL IS A ROW HERE TOO (Codex fold-r1 P2: a bag holding only capped surplus is refused here, before
         // any skill runs, so the skill's rows never see it); throttled -- admission is asked on every proposal
-        stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
+        // PIPELINE-01 dryCheck (Codex r1): no row and no throttle stamp for a refusal that is only asked about
+        if (!this.dry) stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants, noSwords }) }
       }
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
@@ -748,7 +775,10 @@ export class AdmissionControl {
       // shape in this codebase.
       const k = AdmissionControl.key(skill, args)
       // Persisted: a reconnect must not reset the countdown (see bumpBlocked).
-      const n = this.lessons?.bumpBlocked
+      // PIPELINE-01 dryCheck: the count this proposal WOULD reach, nothing written (persisted or in memory)
+      const n = this.dry
+        ? (this.lessons?.bumpBlocked ? (this.lessons.data?.progress?.blocked?.[k] ?? 0) : (this.blockedCount[k] ?? 0)) + 1
+        : this.lessons?.bumpBlocked
         ? this.lessons.bumpBlocked(k)
         : (this.blockedCount[k] = (this.blockedCount[k] ?? 0) + 1)
 
