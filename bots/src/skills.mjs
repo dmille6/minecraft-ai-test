@@ -145,6 +145,7 @@ import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, tow
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
 import { wallEscape } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own)
 import { stepFor as siteStepFor } from './buildsite.mjs'   // citywall-01: can a stand place an underpinning cell (the visit's own rule)
+import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a stand dig a swapped cell (the visit's own rule)
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
 import { isCivicPlot, civicKindOf, civicNear, civicLookFor, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
@@ -21472,7 +21473,9 @@ async function buildCitywall (ctx, args, signal) {
     for (const k of siteWalkFrom(read0, home, new Set(), wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
     design = citywallDesign(read, rec, { style: citywallStyleFor(stock, pool), seed: Number(rec.sitedAt ?? 0) >>> 0, gatePick: citywallGatePick(process.env, t.plot),
       taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones), zone: (x, z) => roads.has(`${x},${z}`),
-      reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true, null) })
+      reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true, null),
+      // a swapped cell's dig needs a stand that sees it (buildrun.mjs digStand, the visit's own rule)
+      reachSwap: at => !!runDigStand(read0, at, walkNodes) })
     if (!design.ok) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, design.why); return out('no_effect', 'no_site', `${t.plot}: no design (${design.why})`, { stop: 'site_wait' }) }
     if (unread) { siteWaitSet(CITYWALL_PLOT, 10 * 60_000, 'unread'); return out('no_effect', 'site_unread', `${t.plot}: ${unread} cells unread (unloaded): the design waits`, { stop: 'site_wait' }) }
     // THE ESCAPE PROOF (wall.mjs wallEscape, the siting's own): every design cell built cuts nothing off and pens nobody
