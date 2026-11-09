@@ -89,7 +89,7 @@ export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYG
     if (!cover) return null
     const left = remaining(cover)
     return { item, kind: 'tool', held: cover.name, uses: Number.isFinite(left) ? left : null, need: FLOOR + 1, pickUses: null, exitNeed: null,
-      detail: `you already hold a ${cover.name} with ${fmtUses(left)} -- it does everything a ${item} does and is picked for the job by itself; use it, and craft a ${item} only when no ${ot.kind} of that tier or better has more than ${FLOOR} uses` }
+      detail: `you already hold a ${cover.name} with ${fmtUses(left)} -- it does everything a ${item} does${ot.kind === 'sword' ? '' : ' and is picked for the job by itself'}; use it, and craft a ${item} only when no ${ot.kind} of that tier or better has more than ${FLOOR} uses` }
   }
   const rank = pickRank(item)
   if (rank == null) return null
