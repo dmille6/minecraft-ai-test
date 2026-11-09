@@ -12,7 +12,7 @@ import path from 'node:path'
 import { dumpReader, poolRecords } from './buildsite-offline.mjs'
 import { reservations } from '../src/buildsite.mjs'
 import { recordHead } from '../src/buildproj.mjs'
-import { recordZones } from '../src/shop.mjs'
+import { recordZones, stoodRead } from '../src/shop.mjs'
 import * as S from '../src/sinks.mjs'
 import * as RD from '../src/roads.mjs'
 const LP = await import('../src/landplan.mjs').catch(() => null)
@@ -55,14 +55,16 @@ const guard = () => {
   return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zones.find(zb => { const b = zb.box; return x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
 }
 if (process.env.DBG) { const rt = T.routes[+process.env.DBG]; const st = RD.routeStart(read, rt, { ring: ringFor(rt.start), guard: g0(), hy: home.y, landOk: (x, z) => !wallCols.has(`${x},${z}`) }); console.error("start", JSON.stringify(st)); if (st.ok) { const r = RD.routeRoad(read, { line: rt.line, start: st.start, guard: g0(), hy: home.y, forbid: (x, z) => boxes.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }); console.error("route", r.ok, r.why, r.pops, JSON.stringify(r.tally), JSON.stringify(r.nodes)) } process.exit(0) }
+// the cells the pool's bots stood on in town (the shop's stood file: the town walk's seeds, as the bot's siting reads them)
+const stood = (() => { try { return stoodRead(poolDir, `project-${hk}.shop`, home) } catch { return [] } })()
 const count = Number(opt('count') ?? 8)
-const out = { pool, home, routes: T.routes.map(r => ({ id: r.id, trips: r.trips, len: r.line.length })), sited: [], failed: [] }
+const out = { pool, home, stood: stood.length, routes: T.routes.map(r => ({ id: r.id, trips: r.trips, len: r.line.length })), sited: [], failed: [] }
 const g = guard()
 for (let i = 0; i < count; i++) {
   const n = S.instancesOf(rec).length + 1
   const id = `R${n}`
   const t0 = Date.now()
-  const r = S.siteSink(read, { kind: 'road', n, id, home, pool, avail, guard: g, rec, stood: [], roads2: { routes: T.routes, ringFor, townBoxes: boxes, own: (x, z) => pathCols.has(`${x},${z}`), landOk: (x, z) => !wallCols.has(`${x},${z}`), lamp: true } })
+  const r = S.siteSink(read, { kind: 'road', n, id, home, pool, avail, guard: g, rec, stood, roads2: { routes: T.routes, ringFor, townBoxes: boxes, own: (x, z) => pathCols.has(`${x},${z}`), landOk: (x, z) => !wallCols.has(`${x},${z}`), lamp: true } })
   const ms = Date.now() - t0
   if (!r.ok) { out.failed.push({ n, why: r.why, tried: r.tried, ms }); break }
   rec = S.completeInstance(S.appendInstance(rec, { kind: 'road', home, inst: r.inst, meta: { ...r.meta, sitedAt: Date.now() } }))

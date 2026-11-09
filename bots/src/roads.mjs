@@ -54,6 +54,7 @@ export const ROADS = Object.freeze({
   verge: 3,           // the verge's offset
   fillMax: 2,         // a paved column's ground at most this below L (a hole 3 deep has no stand for its bottom cell: sinkfix-02)
   cutMax: 2,          // natural ground dug above a paved column's surface
+  litterMax: 8,       // ... and a pillar of the bots' own cobble on it (their scaffold: the road takes it down)
   vergeFill: 3,       // a verge raised by at most this (to L - 1)
   runMin: 2,          // rows at a level before it may change again (the slope 1:2; a riser never beside a riser)
   turnFlat: 3,        // rows at one level before a turn, and rows after it before the level may change (the 5x5 corner is flat)
@@ -139,12 +140,18 @@ const GROUNDISH = /^(grass_block|dirt|coarse_dirt|podzol|rooted_dirt|mycelium|mo
  * when it is a full-cube floor (solidFloor), else the column refuses: `liquid`, `tree` (a stem, bamboo, roots), `built` (furniture, a
  * torch, a partial block: someone's work), `unknown` (an unread cell: never a guess).
  */
+/** The bots' own building blocks: a block of these with nothing under it is their scaffold (a pathfinder bridge, a floating beam). */
+export const LITTER = /^(cobblestone|cobbled_deepslate|mossy_cobblestone|dirt|coarse_dirt|netherrack|gravel|sand|[a-z_]+_planks)$/
 export function roadColumn (read, x, z, yHi, yLo) {
-  const logs = [], leaves = []
+  const logs = [], leaves = [], litter = []
   for (let y = yHi; y >= yLo; y--) {
     const b = read(x, y, z)
     if (!b) return { why: 'unknown' }
     const n = nm(b)
+    // FLOATING LITTER (the fleet's fields, measured board-b 11-09: cobblestone hanging 3-7 over the grass with air under it): a bot
+    // material with an open cell under it is the pathfinder's scaffold, never the ground -- listed (the road clears what stands in its
+    // head room) and passed
+    if (LITTER.test(n)) { const u = read(x, y - 1, z); if (!u) return { why: 'unknown' }; if (nm(u) === 'air' || nm(u) === 'cave_air' || (isPassable(u) && !wet(u))) { litter.push({ y, name: n }); continue } }
     if (n === 'air' || n === 'cave_air' || replaceableCell(b)) continue
     if (wet(b)) return { why: 'liquid' }
     if (/_(log|wood)$/.test(n) && !/^stripped_/.test(n)) { logs.push({ y, name: n }); continue }
@@ -152,7 +159,7 @@ export function roadColumn (read, x, z, yHi, yLo) {
     if (/_sapling$|^mangrove_propagule$/.test(n)) { leaves.push({ y, name: n, plant: true }); continue }
     if (/^mangrove_roots$|_stem$|^bamboo$/.test(n) || isTreeish(b)) return { why: 'tree' }
     if (isPassable(b) && !/torch|lantern|rail|_sign$|_button$|lever|_carpet$|_pressure_plate$|campfire/.test(n) && !isFurniture(b)) continue
-    if (solidFloor(b)) return { g: y, name: n, logs, leaves }
+    if (solidFloor(b)) return { g: y, name: n, logs, leaves, litter }
     return { why: 'built' }
   }
   return { why: 'no_ground' }
@@ -216,12 +223,15 @@ export function crossSection (read, col, guard, x, z, L, d, own = () => false) {
     if (why) return { ok: false, why: 'reserved' }
     if (paved) {
       if (L - g > ROADS.fillMax) return { ok: false, why: 'fill' }
-      if (g - L > ROADS.cutMax) return { ok: false, why: 'cut' }
+      // a cut: natural ground at most cutMax deep, a stack of the bots' blocks on it (a pillar) at most litterMax more
+      let natural = 0, stack = 0
+      for (let y = g; y > L; y--) { const n = nm(read(cx, y, cz)); if (LITTER.test(n) && n !== 'dirt' && n !== 'gravel' && n !== 'sand') stack++; else if (n !== 'air' && n !== 'cave_air') natural++ }
+      if (natural > ROADS.cutMax || stack > ROADS.litterMax) return { ok: false, why: 'cut' }
       // (the bots' ground is hollow in places -- 1-high tunnels under the turf: an air cell in the cut is nothing to dig)
       for (let y = g; y > L; y--) { const b = read(cx, y, cz); if (!b) return { ok: false, why: 'unknown' }; const n = nm(b); if (n !== 'air' && n !== 'cave_air' && !replaceableCell(b) && !roadCut(n)) return { ok: false, why: 'cut_kind' } }
       if (g > L && /^(sand|red_sand|gravel)$/.test(nm(read(cx, g + 1, cz)))) return { ok: false, why: 'gravity' }
       for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) for (let y = Math.min(g, L) - 1; y <= L + 3; y++) if (wet(read(cx + dx, y, cz + dz))) return { ok: false, why: 'liquid' }
-      cost += Math.max(0, L - g) * 0.6 + Math.max(0, g - L) * 0.8 + (gr.logs.some(l => l.y > L && l.y <= L + 3) ? 4 : 0) + 0.1 * gr.leaves.length
+      cost += Math.max(0, L - g) * 0.6 + natural * 0.8 + stack * 0.3 + (gr.logs.some(l => l.y > L && l.y <= L + 3) ? 4 : 0) + 0.1 * gr.leaves.length
     } else {
       if (L - 1 - g > ROADS.vergeFill) return { ok: false, why: 'verge_low' }
       if (wet(read(cx, g + 1, cz)) || wet(read(cx, g, cz))) return { ok: false, why: 'liquid' }
@@ -268,7 +278,7 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
     if (!a.ok || !b.ok) return false
     for (const sx of [-2, 2]) for (const sz of [-2, 2]) {
       const gr = col(x + sx, z + sz)
-      if (gr.why || own(x + sx, z + sz) || L - gr.g > ROADS.fillMax || gr.g - L > ROADS.cutMax || guard(x + sx, z + sz, Math.min(gr.g, L) - 1, L + 4)) return false
+      if (gr.why || own(x + sx, z + sz) || L - gr.g > ROADS.fillMax || gr.g - L > ROADS.cutMax + ROADS.litterMax || guard(x + sx, z + sz, Math.min(gr.g, L) - 1, L + 4)) return false
     }
     return true
   }
@@ -411,6 +421,7 @@ export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = nul
     taken.add(k3(c.x, c.L, c.z))
     for (let y = g.g; y > c.L; y--) addClear(c.x, y, c.z, 'cut')
     for (const l of g.logs) if (l.y > c.L && l.y <= c.L + 3) addClear(c.x, l.y, c.z, 'tree')
+    for (const l of g.litter ?? []) if (l.y > c.L && l.y <= c.L + 4) addClear(c.x, l.y, c.z, 'cut')
     for (const l of g.leaves) if (l.y > c.L && l.y <= c.L + 4) addClear(c.x, l.y, c.z, l.plant ? 'plant' : 'leaves')
   }
   // the verges: every column 4-beside the paved area (not paved) -- a ground lower than L - 1 is filled to L - 1 (dirt on top)
@@ -435,29 +446,38 @@ export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = nul
       v.g = v.L - 1
     }
     for (const l of g.logs) if (l.y > v.g && l.y <= v.L + 3) addClear(v.x, l.y, v.z, 'tree')
+    for (const l of g.litter ?? []) if (l.y > v.g && l.y <= v.L + 3) addClear(v.x, l.y, v.z, 'cut')
   }
-  // the lamp posts: on a verge column at every lampEvery-th row (chainage), sides alternating, on a straight row (no turn within 2),
-  // the verge ground at L-1..L+1, the post's and the lantern's cells clear
+  // the lamp posts: on a verge column at every lampEvery-th row (chainage; the nearest row within 3 that takes one), sides alternating,
+  // on a straight row (no turn within 2), the verge ground at L-1..L, the post's and the lantern's cells clear
   const lamps = []
   if (lamp) {
     const rPost = style.lamp === 'log' ? role('log', LOGS.slice()) : role('fence', FENCES.slice()), rLight = role('light', ['lantern', 'torch'])
-    nodes.forEach((n, i) => {
-      const t = chain0 + i
-      if (((t % ROADS.lampEvery) + ROADS.lampEvery) % ROADS.lampEvery !== ROADS.lampEvery / 2) return
-      if (nodes.slice(Math.max(0, i - 2), i + 3).some(q => q.d !== n.d)) return
-      const side = Math.floor(t / ROADS.lampEvery) % 2 === 0 ? 1 : -1
-      const [px, pz] = perp(n.d)
-      for (const s of [side, -side]) {
-        const v = verge.get(k2(n.x + px * s * ROADS.verge, n.z + pz * s * ROADS.verge))
-        if (!v || v.g == null || v.g < n.L - 1 || v.g > n.L + 1) continue
-        const post = [[v.x, v.g + 1, v.z]], light = [v.x, v.g + 2, v.z]
-        if ([...post, light].some(c => { const b = read(...c); return taken.has(kOf(c)) || !b || !(nm(b) === 'air' || replaceableCell(b) || /_leaves$/.test(nm(b))) })) continue
-        for (const c of [...post, light]) if (/_leaves$/.test(nm(read(...c)))) addClear(c[0], c[1], c[2], 'leaves')
-        cells.push({ at: post[0], role: rPost, seg: `${id}-PL`, ...(style.lamp === 'log' ? { ws: { axis: 'y' } } : {}) }, { at: light, role: rLight, seg: `${id}-PL` })
-        lamps.push(light)
-        break
+    // each lamp's row: the chainage's every lampEvery-th (at lampEvery / 2), else the nearest row within 3 that takes a post
+    const want = nodes.map((n, i) => chain0 + i).filter(t => ((t % ROADS.lampEvery) + ROADS.lampEvery) % ROADS.lampEvery === ROADS.lampEvery / 2)
+    for (const t0 of want) {
+      const i0 = t0 - chain0
+      let done = false
+      for (const o of [0, 1, -1, 2, -2, 3, -3]) {
+        const i = i0 + o, n = nodes[i]
+        if (!n || done) continue
+        if (nodes.slice(Math.max(0, i - 2), i + 3).some(q => q.d !== n.d)) continue
+        const side = Math.floor(t0 / ROADS.lampEvery) % 2 === 0 ? 1 : -1
+        const [px, pz] = perp(n.d)
+        for (const s of [side, -side]) {
+          const v = verge.get(k2(n.x + px * s * ROADS.verge, n.z + pz * s * ROADS.verge))
+          // the post's ground at L-1 or L: its top face below the eye of a bot on the road (L + 1 + 1.62), so the lantern is placeable
+          if (!v || v.g == null || v.g < n.L - 1 || v.g > n.L) continue
+          const post = [[v.x, v.g + 1, v.z]], light = [v.x, v.g + 2, v.z]
+          if ([...post, light].some(c => { const b = read(...c); return taken.has(kOf(c)) || !b || !(nm(b) === 'air' || replaceableCell(b) || /_leaves$/.test(nm(b)) || clearK.has(kOf(c))) })) continue
+          for (const c of [...post, light]) if (/_leaves$/.test(nm(read(...c)))) addClear(c[0], c[1], c[2], 'leaves')
+          cells.push({ at: post[0], role: rPost, seg: `${id}-PL`, ...(style.lamp === 'log' ? { ws: { axis: 'y' } } : {}) }, { at: light, role: rLight, seg: `${id}-PL` })
+          lamps.push(light)
+          done = true
+          break
+        }
       }
-    })
+    }
   }
   const logs = clear.filter(c => c.kind === 'tree').length
   if (logs > ROADS.logsMax) return { ok: false, why: 'logs_over_max' }
