@@ -262,36 +262,61 @@ export function upkeepState (rec, { now = Date.now(), open = () => 0, drops = 0,
 /** A replant cell DONE: a sapling stands in it, or a log (it grew: never a foreign block to dig). Pure over the cell's block. */
 export const replantDone = b => !!b && (/_sapling$|^mangrove_propagule$/.test(nm(b)) || LOG.test(nm(b)))
 /**
- * THE JOBS A VISIT MAY TAKE NOW -> { record, held }. Pure. A remains group that owes a replant is taken down ONLY with a sapling in the
- * bag (`haveSapling`): its logs and its replant go together, so the obligation is never lost (Codex r1 BLOCKER 2: a group cleared
- * without its sapling leaves nothing a later survey can find). Without one, the group's clears and replant are HELD (they stay on the
- * list; the next survey of the tile lists them again while the logs stand); the strays and the groups that owe nothing go on.
+ * THE REPLANT GATE (Codex r1 BLOCKER 2, r2 BLOCKERS 1-2) -> { workable, held, retired, owe }: Sets of remains group indices. Pure over
+ * `read`. A group that owes a replant (a `sapling` cell) is taken down only AFTER its own sapling stands in its replant cell -- the
+ * replant first, then the logs -- so the obligation can never be lost (no sapling, an interrupted visit, one sapling for two groups:
+ * the unplanted groups' logs stand, and the next survey of the tile lists them again). Its replant cell reads:
+ *   a sapling   -> WORKABLE (its logs may be dug)
+ *   a log       -> RETIRED (the replant grew: its logs, if any stand where the remains were, are the new tree -- never dug)
+ *   else        -> HELD (unplanted, or unread)
+ * A group that owes nothing (no soil, no room under it) is workable.
  */
-export function upkeepVisitJobs (rec, { haveSapling = false } = {}) {
-  if (!rec || haveSapling) return { record: rec, held: 0 }
-  const owe = new Set((rec.cells ?? []).filter(c => c.role === 'sapling' && Number.isFinite(c.group)).map(c => c.group))
-  const clear = (rec.clear ?? []).filter(c => !(c.kind === 'remains' && owe.has(c.group)))
-  return { record: { ...rec, clear, cells: (rec.cells ?? []).filter(c => c.role !== 'sapling') }, held: (rec.clear ?? []).length - clear.length }
+export function replantGate (rec, read) {
+  const owe = new Map()
+  for (const c of rec?.cells ?? []) if (c?.role === 'sapling' && Number.isFinite(c.group)) owe.set(c.group, c)
+  const workable = new Set(), held = new Set(), retired = new Set()
+  for (const c of rec?.clear ?? []) {
+    if (c?.kind !== 'remains' || !Number.isFinite(c.group)) continue
+    const cell = owe.get(c.group)
+    if (!cell) { workable.add(c.group); continue }
+    const b = read(...cell.at)
+    if (b && LOG.test(nm(b))) retired.add(c.group)
+    else if (b && /_sapling$|^mangrove_propagule$/.test(nm(b))) workable.add(c.group)
+    else held.add(c.group)
+  }
+  return { workable, held, retired, owe: new Set(owe.keys()) }
 }
 /**
- * THE JOBS LEFT ON A LIST -> n. Pure over `read`. A clear still standing as its listed block (unread: left), a replant not done
- * (replantDone; unread: left). `canPlant` false: a remains group that owes a replant, and its replant, are not this bot's work now
- * (it holds no sapling and the town has none) -- the state's due reads the jobs this bot can do.
+ * THE JOBS A VISIT MAY TAKE NOW -> { plant, clear, held, retired }. Pure over `read`. `plant`: the record with the replants not done
+ * (planted first); `clear`: the record with the strays and the remains of the WORKABLE groups (replantGate) -- read again after the
+ * planting, so a group planted in this visit is taken down in it.
+ */
+export function upkeepVisitJobs (rec, read) {
+  if (!rec) return { plant: null, clear: null, held: 0, retired: 0 }
+  const g = replantGate(rec, read)
+  const plant = { ...rec, clear: [], cells: (rec.cells ?? []).filter(c => c.role === 'sapling' && !replantDone(read(...c.at))) }
+  const clearList = (rec.clear ?? []).filter(c => c.kind !== 'remains' || !Number.isFinite(c.group) || g.workable.has(c.group))
+  return { plant, clear: { ...rec, cells: [], clear: clearList }, held: [...g.held].length, retired: [...g.retired].length }
+}
+/**
+ * THE JOBS LEFT ON A LIST -> n. Pure over `read`. A stray still standing as its listed block; a workable group's log still standing;
+ * a replant not done and its held group's logs -- these two only when this bot can plant (`canPlant`: it or the town holds a sapling;
+ * else they are not its work now and never make the upkeep due for it). A retired group (its replant grew) leaves nothing. Unread: left.
  */
 export function upkeepLeft (rec, read, { canPlant = true } = {}) {
   if (!rec || rec.structure_complete) return 0
-  const owe = new Set((rec.cells ?? []).filter(c => c.role === 'sapling' && Number.isFinite(c.group)).map(c => c.group))
+  const g = replantGate(rec, read)
+  const standing = c => { const b = read(...c.at); return !b || nm(b) === c.name }
   let n = 0
-  for (const c of rec.clear ?? []) { if (!canPlant && c.kind === 'remains' && owe.has(c.group)) continue; const b = read(...c.at); if (!b || nm(b) === c.name) n++ }
+  for (const c of rec.clear ?? []) {
+    if (c.kind === 'remains' && Number.isFinite(c.group)) {
+      if (g.retired.has(c.group)) continue
+      if (g.held.has(c.group) && !canPlant) continue
+    }
+    if (standing(c)) n++
+  }
   if (canPlant) for (const c of rec.cells ?? []) { const b = read(...c.at); if (!b || !replantDone(b)) n++ }
   return n
-}
-/** THE DROPS WORTH A SWEEP -> n. Pure. Item drops within `r` of home that are not junk (`never`), with room for them in the bag (a stack
- *  of that name with room, or a free slot past `freeMin`) -- Codex r1 BLOCKER 3: the drops alone make the upkeep due. */
-export function dropsWorth (drops = [], { home, r = UPKEEP.r, never = new Set(), stacks = [], free = 0, freeMin = 6 } = {}) {
-  if (!home) return 0
-  const room = new Set(stacks.filter(q => q && (Number(q.count) || 0) < (Number(q.stackSize) || 64)).map(q => q.name))
-  return drops.filter(d => d?.name && d.pos && !never.has(d.name) && Math.max(Math.abs(d.pos.x - home.x), Math.abs(d.pos.z - home.z)) <= r && (room.has(d.name) || free > freeMin)).length
 }
 /** One `_upkeep` row's detail. Pure. */
 export const upkeepDetail = f => Object.entries(f).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}=${String(Array.isArray(v) ? v.join(',') : typeof v === 'object' ? Object.entries(v).map(([a, b]) => `${a}:${b}`).join(',') : v).replace(/\s+/g, '_').slice(0, 120)}`).join(' ')

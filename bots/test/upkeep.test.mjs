@@ -167,28 +167,42 @@ await t('BLOCKER 1: a replant that grew (a log in its cell) or stands is DONE --
   }
   await killedBy(UK_PATH, UK, "export const replantDone = b => !!b && (/_sapling$|^mangrove_propagule$/.test(nm(b)) || LOG.test(nm(b)))", "export const replantDone = b => !!b && /_sapling$|^mangrove_propagule$/.test(nm(b))", scenario)
 })
-await t('BLOCKER 2: without a sapling a remains group that owes a replant is HELD (its logs stand, its replant stays listed); strays and groups owing none go on', async () => {
-  const rec = { cells: [{ at: [10, 65, 10], role: 'sapling', group: 0 }], clear: [{ at: [10, 67, 10], kind: 'remains', name: 'spruce_log', group: 0 }, { at: [20, 67, 0], kind: 'remains', name: 'spruce_log', group: 1 }, { at: [30, 65, 0], kind: 'stray', name: 'crafting_table' }] }
+// two remains groups owing a replant each (soil at y 64 under them), one owing none, one stray
+const REC2 = { cells: [{ at: [10, 65, 10], role: 'sapling', group: 0 }, { at: [20, 65, 0], role: 'sapling', group: 1 }],
+  clear: [{ at: [10, 67, 10], kind: 'remains', name: 'spruce_log', group: 0 }, { at: [10, 68, 10], kind: 'remains', name: 'spruce_log', group: 0 },
+    { at: [20, 67, 0], kind: 'remains', name: 'spruce_log', group: 1 }, { at: [40, 67, 0], kind: 'remains', name: 'oak_log', group: 2 }, { at: [30, 65, 0], kind: 'stray', name: 'crafting_table' }] }
+const W2 = (set = {}) => (x, y, z) => ({ name: set[`${x},${y},${z}`] ?? (REC2.clear.some(c => c.at.join(',') === `${x},${y},${z}`) ? REC2.clear.find(c => c.at.join(',') === `${x},${y},${z}`).name : 'air') })
+await t('CODEX r1 BLOCKER 2 / r2 BLOCKER 2: THE REPLANT FIRST -- a group owing a replant is held until ITS sapling stands; one sapling, one group; a group owing none goes on', async () => {
   const scenario = M => {
-    const v = M.upkeepVisitJobs(rec, { haveSapling: false })
-    assert.deepStrictEqual(v.record.clear.map(c => c.at.join(',')), ['20,67,0', '30,65,0'])
-    assert.deepStrictEqual(v.record.cells, [])
-    assert.strictEqual(v.held, 1)
-    assert.strictEqual(M.upkeepVisitJobs(rec, { haveSapling: true }).record, rec, 'with a sapling: the whole list')
-    const read = (x, y, z) => ({ name: x === 10 && y === 67 ? 'spruce_log' : 'air' })
-    assert.strictEqual(M.upkeepLeft(rec, read, { canPlant: true }), 2, 'its log and its replant are left')
-    assert.strictEqual(M.upkeepLeft(rec, read, { canPlant: false }), 0, 'not this bot\'s work while no sapling is near: never due for it')
+    const none = M.upkeepVisitJobs(REC2, W2())
+    assert.deepStrictEqual(none.plant.cells.map(c => c.at.join(',')), ['10,65,10', '20,65,0'], 'the replants go first')
+    assert.deepStrictEqual(none.clear.clear.map(c => c.at.join(',')), ['40,67,0', '30,65,0'], 'unplanted groups held: only the group owing none and the stray')
+    assert.strictEqual(none.held, 2)
+    const one = M.upkeepVisitJobs(REC2, W2({ '10,65,10': 'spruce_sapling' }))
+    assert.deepStrictEqual(one.clear.clear.map(c => c.at.join(',')), ['10,67,10', '10,68,10', '40,67,0', '30,65,0'], 'one sapling planted: that group alone comes down')
+    assert.deepStrictEqual(one.plant.cells.map(c => c.at.join(',')), ['20,65,0'])
   }
-  await killedBy(UK_PATH, UK, "  const clear = (rec.clear ?? []).filter(c => !(c.kind === 'remains' && owe.has(c.group)))\n", "  const clear = (rec.clear ?? []).slice()\n", scenario)
+  await killedBy(UK_PATH, UK, "  const clearList = (rec.clear ?? []).filter(c => c.kind !== 'remains' || !Number.isFinite(c.group) || g.workable.has(c.group))\n", "  const clearList = (rec.clear ?? []).slice()\n", scenario)
 })
-await t('BLOCKER 3: drops worth a sweep (not junk, room for them) make the upkeep DUE on their own', async () => {
-  const drops = [{ name: 'dirt', pos: { x: 10, y: 65, z: 10 } }, { name: 'rotten_flesh', pos: { x: 12, y: 65, z: 10 } }, { name: 'oak_log', pos: { x: 500, y: 65, z: 0 } }]
-  assert.strictEqual(UK.dropsWorth(drops, { home: HOME, never: new Set(['rotten_flesh']), free: 10 }), 1)
-  assert.strictEqual(UK.dropsWorth(drops, { home: HOME, never: new Set(['rotten_flesh']), free: 2 }), 0, 'no room: nothing worth it')
-  assert.strictEqual(UK.dropsWorth(drops, { home: HOME, never: new Set(['rotten_flesh']), free: 2, stacks: [{ name: 'dirt', count: 10, stackSize: 64 }] }), 1, 'a stack with room')
+await t('CODEX r2 BLOCKER 1: a replant that GREW retires its group -- the new tree\'s logs where the remains were are never dug, never left', async () => {
+  const scenario = M => {
+    const grown = W2({ '10,65,10': 'spruce_log', '10,66,10': 'spruce_log' })   // the replant grew up through 10,67..68,10
+    const g = M.replantGate(REC2, grown)
+    assert.ok(g.retired.has(0) && !g.workable.has(0))
+    assert.ok(!M.upkeepVisitJobs(REC2, grown).clear.clear.some(c => c.group === 0))
+    assert.strictEqual(M.upkeepLeft({ ...REC2, cells: [REC2.cells[0]], clear: REC2.clear.filter(c => c.group === 0) }, grown), 0)
+  }
+  await killedBy(UK_PATH, UK, "    if (b && LOG.test(nm(b))) retired.add(c.group)\n", "    if (false) retired.add(c.group)\n", scenario)
+})
+await t('the jobs left: a bot that cannot plant (no sapling near) is never due for the held groups; one that can, is', () => {
+  assert.strictEqual(UK.upkeepLeft(REC2, W2(), { canPlant: true }), 2 + 5, 'two replants and five clears standing')
+  assert.strictEqual(UK.upkeepLeft(REC2, W2(), { canPlant: false }), 2, 'the group owing none and the stray')
+})
+await t('CODEX r1/r2 BLOCKER 3: the drops the sweep would take (its own selection, passed in) make the upkeep DUE on their own', () => {
   const quiet = UK.upkeepRecord({ clear: [], cells: [] }, { home: HOME, now: T0 })
   assert.strictEqual(UK.upkeepState(quiet, { now: T0 + MIN }).due, false)
   assert.strictEqual(UK.upkeepState(quiet, { now: T0 + MIN, drops: 1 }).due, true)
+  assert.strictEqual(UK.upkeepState(quiet, { now: T0 + MIN, drops: 0 }).due, false, 'none the sweep would take: quiet')
 })
 console.log('THE ORDER\'S TIER (shop.mjs activeProject `upkeep`) AND THE REFUSAL CHAINS IT COMPOSES')
 const P = [{ plot: 'shop' }, { plot: 'house1' }, { plot: 'monument' }, { plot: 'road', sink: true }, { plot: 'upkeep', upkeep: true }, { plot: 'tidy' }]
@@ -249,6 +263,9 @@ await t('the build order dispatches the plot to its visit; the state is upkeep.m
   assert.ok(v.length > 3000)
   assert.ok(!/project: (TIDY_PLOT|COUNTRY_PLOT)/.test(v), 'no other project named in the upkeep visit\'s rows')
   assert.ok(/gkSweep\(bot, signal, \{[^}]*plot: UPKEEP_PLOT/.test(v), 'the sweep row names the upkeep')
+  const st = SK.slice(SK.indexOf('function upkeepStateNow ('), SK.indexOf('function upkeepSaplingNear ('))
+  assert.ok(/gkSweepOn\(\)/.test(st) && /gkSweepSel\(b, near,/.test(st), 'the due reads the sweep\'s own selection and switch')
+  assert.ok(/const sel = gkSweepSel\(bot, near,/.test(SK), 'the sweep walks the same selection')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
