@@ -632,3 +632,9 @@ netherite is unreachable without a Nether); deaths; sandbox violations; commands
 4. *Creativity vs the scripted control:* each LLM arm beats the control on unique items, on both seeds.
 5. *Survival:* each LLM arm's deaths per bot-hour <= 2x the control's (both seeds pooled).
 Pairing rule: a seed-level result counts only if both arms on that seed met the validity bar.
+
+**Launched 2026-11-09 05:18:45Z** (11-08 23:18:45 CST): six servers, then all six bots at the same moment; all connected
+within a minute. Blackwell before/after: theirs (qwen2.5:32b, qwen2.5-coder:7b-hp, nomic-embed) unchanged, ours qwen3.8:27b
+at 12288 = 4 of 4. Reads (timers on the worlds host, `reports/3b-*`): +24 h 11-10 05:18:45Z, +48 h 11-11, +72 h 11-12;
+final read + stop + unload (ours only, only if resident) **11-13 05:18:45Z** (11-12 23:18:45 CST). bw-guard (6,000 min) and
+the Studio guard (until 11-13 07:00Z) run on the Mac controller. Transient timers do not survive a worlds-host reboot.

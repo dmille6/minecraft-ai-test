@@ -5417,7 +5417,7 @@
     "owner-blackwell-testing-only-1031.md"
    ],
    "state": "open",
-   "next_step": "2026-11-09 01:26Z STAGE 3 DONE, verdict PASS (design §17): Haiku 743 verified / 47.2 bot-h, 156 invented (9 reused), diamond tools, 85-block structure survived 24 h, 0.021 deaths/bot-h vs control 0.085, $12.90; B-qwen3.8 12.5 verified/bot-h (80% of Haiku), 0 reused; A throttled 0.38/bot-h; 0 escapes, 0 commands executed. Models unloaded (ours only). NEXT: stage 4 (§16) -- the Blackwell API refuses /api/pull and /api/delete from the WAN (HTTP 403), so the three pulls need another route; timers held.",
+   "next_step": "STAGE 3b RUNNING (owner 11-09 'fair rematch', pre-registered design §18): Haiku x2 vs qwen3.8:27b x2 (Blackwell) + control x2, paired seeds -646147908495530573 / 1033369084927035764, launched 2026-11-09 05:18:45Z, 96 h; reads +24/+48/+72 h (05:18:45Z daily, reports/3b-day-N.txt), final + stop 2026-11-13 05:18:45Z; Haiku hard stop $70 (spend group). Stage 3 PASS (§17). Stage 4 held: Blackwell /api/pull is 403 from the WAN (owner to pull the 3 models on CCU1).",
    "evidence": {
     "branches": [
      "voyager-01"
