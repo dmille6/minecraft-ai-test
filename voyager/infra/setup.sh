@@ -4,7 +4,9 @@
 # Touches only: /srv/voyager, /etc/voyager, /var/log/voyager, /var/lib/voyager-proxy, voyager-* units and users.
 set -euo pipefail
 STAGE="$1"
-ARMS="a b c ctl"
+REG="$STAGE/code/voyager/infra/arms.conf"
+ARMS="$(grep -v '^#' "$REG" | awk 'NF{print $1}' | tr '\n' ' ')"
+field () { grep -v '^#' "$REG" | awk -v a="$1" -v f="$2" '$1==a{print $f}'; }
 id voyager-mc >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin voyager-mc
 id voyager-proxy >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin voyager-proxy
 for a in $ARMS; do
@@ -27,7 +29,7 @@ for a in $ARMS; do
   install -d -m 0750 -o voyager-mc -g voyager-mc $W $W/plugins
   install -m 0640 -o voyager-mc -g voyager-mc "$STAGE/paper.jar" $W/paper.jar
   install -m 0640 -o voyager-mc -g voyager-mc "$STAGE/VoyagerGuard.jar" $W/plugins/VoyagerGuard.jar
-  [ -f $W/server.properties ] || sed "s/__ARM__/$a/" /srv/voyager/code/voyager/infra/server.properties.tmpl > $W/server.properties
+  [ -f $W/server.properties ] || sed -e "s/__ARM__/$a/" -e "s/__SEED__/$(field $a 4)/" /srv/voyager/code/voyager/infra/server.properties.tmpl > $W/server.properties
   echo 'eula=true' > $W/eula.txt
   echo '[]' > $W/ops.json
   echo "[{\"uuid\":\"$(python3 -c "import hashlib,uuid,sys; n='vy-$a'; h=bytearray(hashlib.md5(('OfflinePlayer:'+n).encode()).digest()); h[6]=h[6]&0x0f|0x30; h[8]=h[8]&0x3f|0x80; print(uuid.UUID(bytes=bytes(h)))")\",\"name\":\"vy-$a\"}]" > $W/whitelist.json
@@ -39,16 +41,16 @@ done
 install -m 0644 /srv/voyager/code/voyager/infra/voyager.slice /srv/voyager/code/voyager/infra/voyager-paper@.service \
   /srv/voyager/code/voyager/infra/voyager-bot@.service /srv/voyager/code/voyager/infra/voyager-proxy.service \
   /srv/voyager/code/voyager/infra/voyager-watch.service /srv/voyager/code/voyager/infra/voyager-watch.timer /etc/systemd/system/
-install -m 0644 /srv/voyager/code/voyager/infra/voyager-tmpfiles.conf /etc/tmpfiles.d/voyager.conf
+{ echo "# voyager-01 (generated from arms.conf): one socket dir per arm, readable only by that arm's group"; echo "d /run/voyager 0755 root root -"
+  for a in $ARMS; do echo "d /run/voyager/$a 0750 voyager-proxy voyager-$a -"; done; } > /etc/tmpfiles.d/voyager.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/voyager.conf
 systemctl daemon-reload
 echo "setup done: $(ls /srv/voyager/worlds | tr '\n' ' ')"
 # per-arm env files (rewritten each setup: CODE_VERSION follows the staged sha)
 SHA="$(cat "$STAGE/SHA")"
-declare -A MODEL=( [a]='qwen3.6:35b-a3b' [b]='qwen3.8:27b' [c]='claude-haiku-5-5' [ctl]='qwen2.5:7b-instruct' )
 for a in $ARMS; do
-  if [ "$a" = ctl ]; then E=control-entry.mjs; L=true; MF=3; else E=entry.mjs; L=false; MF=1000; fi
-  sed -e "s/__ARM__/$a/g" -e "s#__ENTRY__#$E#" -e "s/__LLM__/$L/" -e "s/__MODEL__/${MODEL[$a]}/g" -e "s/__SHA__/$SHA/" -e "s/__MAXFAIL__/$MF/" \
+  if [ "$(field $a 2)" = control ]; then E=control-entry.mjs; L=true; MF=3; else E=entry.mjs; L=false; MF=1000; fi
+  sed -e "s/__ARM__/$a/g" -e "s#__ENTRY__#$E#" -e "s/__LLM__/$L/" -e "s/__MODEL__/$(field $a 3)/g" -e "s/__SHA__/$SHA/" -e "s/__MAXFAIL__/$MF/" \
     /srv/voyager/code/voyager/infra/bot.env.tmpl > /etc/voyager/bot-$a.env
   chmod 0644 /etc/voyager/bot-$a.env
   install -d -m 0700 -o voyager-$a -g voyager-$a /srv/voyager/state/$a/bot /srv/voyager/state/$a/pool /srv/voyager/state/$a/voyager
@@ -82,3 +84,24 @@ JSON
   chown root:voyager-proxy /etc/voyager/proxy.json; chmod 0640 /etc/voyager/proxy.json
 fi
 echo "proxy config present"
+# stage 3b+: every arm in arms.conf has a proxy entry (added PAUSED when missing; existing entries are never changed here)
+python3 - "$REG" <<'PY'
+import json, sys, grp
+p = "/etc/voyager/proxy.json"; d = json.load(open(p))
+for line in open(sys.argv[1]):
+    if not line.strip() or line.startswith("#"): continue
+    arm, kind, model, seed = line.split()[:4]
+    if arm in d["arms"]: continue
+    gid = grp.getgrnam(f"voyager-{arm}").gr_gid
+    if model.startswith("claude-"):
+        e = {"backend": "anthropic", "model": model, "inUsdPerMTok": 0.10, "outUsdPerMTok": 0.50, "capUsd": 70, "spendGroup": "haiku-3b", "effort": "low", "inflight": 1, "perHour": 400, "maxTokens": 4096}
+    elif kind == "control":
+        e = {"backend": "ollama-raw", "url": "http://ai.ticrcorp.com:11436", "model": model, "keepAlive": "15m", "inflight": 1, "perHour": 300, "guarded": True}
+    else:
+        e = {"backend": "ollama", "url": "http://ai.ticrcorp.com:11438", "model": model, "numCtx": 12288, "keepAlive": -1, "think": False, "inflight": 1, "perHour": 400, "maxTokens": 4096, "dutyFactor": 0}
+    e.update({"gid": gid, "paused": True})
+    d["arms"][arm] = e
+json.dump(d, open(p + ".new", "w"), indent=1)
+PY
+chown root:voyager-proxy /etc/voyager/proxy.json.new && chmod 0640 /etc/voyager/proxy.json.new && mv /etc/voyager/proxy.json.new /etc/voyager/proxy.json
+echo "proxy arms: $(python3 -c 'import json;print(" ".join(json.load(open("/etc/voyager/proxy.json"))["arms"]))')"

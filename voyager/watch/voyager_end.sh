@@ -6,16 +6,17 @@
 set -u
 R=/srv/voyager/reports; mkdir -p "$R"
 M=/srv/voyager/code/voyager/watch/voyager_metrics.py
+ARMS="${VOYAGER_ARMS:-a,b,c,ctl}"   # stage 3b: h1,h2,q1,q2,k1,k2
+TAG="${VOYAGER_TAG:-}"              # report file prefix, e.g. 3b-
 case "$1" in
 day)
-  python3 "$M" --since "$3" --arms a,b,c,ctl > "$R/day-$2.txt" 2>&1
-  python3 "$M" --since "$3" --arms a,b,c,ctl --json > "$R/day-$2.json" 2>&1 ;;
+  python3 "$M" --since "$3" --arms "$ARMS" > "$R/${TAG}day-$2.txt" 2>&1
+  python3 "$M" --since "$3" --arms "$ARMS" --json > "$R/${TAG}day-$2.json" 2>&1 ;;
 end)
-  python3 "$M" --since "$2" --arms a,b,c,ctl > "$R/final.txt" 2>&1
-  python3 "$M" --since "$2" --arms a,b,c,ctl --json > "$R/final.json" 2>&1
-  rm -f /srv/voyager/RUNNING-*
-  for a in a b c ctl; do systemctl stop "voyager-bot@$a"; done
-  for a in a b c ctl; do systemctl stop "voyager-paper@$a"; done
+  python3 "$M" --since "$2" --arms "$ARMS" > "$R/${TAG}final.txt" 2>&1
+  python3 "$M" --since "$2" --arms "$ARMS" --json > "$R/${TAG}final.json" 2>&1
+  for a in ${ARMS//,/ }; do rm -f "/srv/voyager/RUNNING-$a"; systemctl stop "voyager-bot@$a"; done
+  for a in ${ARMS//,/ }; do systemctl stop "voyager-paper@$a"; done
   # unload ONLY a model that is resident: keep_alive 0 on a model that is not loaded makes Ollama LOAD it first (which on
   # the Blackwell could evict someone else's pinned model). Studio: the pilot's three; Blackwell: qwen3.8:27b ONLY (arm B-qwen3.8).
   unload () {   # host model
@@ -24,8 +25,8 @@ end)
     else echo "not resident: $2 on $1 (nothing sent)"; fi
   }
   { for m in qwen3.6:35b-a3b qwen2.5-coder:32b qwen2.5:7b-instruct; do unload http://ai.ticrcorp.com:11436 "$m"; done
-    unload http://ai.ticrcorp.com:11438 qwen3.8:27b; } > "$R/unload.txt" 2>&1   # the Blackwell: OUR model only
-  curl -s -m 10 http://ai.ticrcorp.com:11436/api/ps > "$R/studio-ps-after.json"
-  curl -s -m 10 http://ai.ticrcorp.com:11438/api/ps > "$R/blackwell-ps-after.json"
-  date -u +%FT%TZ > "$R/ENDED" ;;
+    unload http://ai.ticrcorp.com:11438 qwen3.8:27b; } > "$R/${TAG}unload.txt" 2>&1   # the Blackwell: OUR model only
+  curl -s -m 10 http://ai.ticrcorp.com:11436/api/ps > "$R/${TAG}studio-ps-after.json"
+  curl -s -m 10 http://ai.ticrcorp.com:11438/api/ps > "$R/${TAG}blackwell-ps-after.json"
+  date -u +%FT%TZ > "$R/${TAG}ENDED" ;;
 esac

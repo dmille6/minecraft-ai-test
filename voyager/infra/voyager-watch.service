@@ -1,6 +1,7 @@
 [Unit]
 Description=voyager-01 light watcher (one pass)
 [Service]
+Environment=VOYAGER_ARMS=h1,h2,q1,q2,k1,k2
 Type=oneshot
 ExecStart=/usr/bin/python3 /srv/voyager/code/voyager/watch/voyager_watch.py run
 Nice=5

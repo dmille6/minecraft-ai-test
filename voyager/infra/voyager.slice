@@ -2,8 +2,8 @@
 [Unit]
 Description=voyager-01 pilot (LLM-written skills; NOT the fleet)
 [Slice]
-CPUQuota=800%
+CPUQuota=1200%
 CPUWeight=30
-MemoryMax=20G
+MemoryMax=28G
 IOWeight=20
 TasksMax=1024

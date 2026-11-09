@@ -604,3 +604,31 @@ Against §8:
 **Verdict: PASS** (bars 1-3 met). Caveats: one seed, one bot per arm; arm A was throttled to protect the showcase brain (its
 numbers measure the throttle as much as the model); B-qwen3.8 ran 28 of the 48 h; reuse stayed low in every arm, the weakest
 part of the loop. Haiku's outputs are evaluation-only, never training data.
+
+## 18. Stage 3b: the fair rematch (owner 11-09 ~05:30Z, "lets do a fair rematch") -- PRE-REGISTERED before launch
+
+**Design.** Haiku 5.5 vs qwen3.8:27b (Blackwell), **2 bots each, on the same 2 brand-new seeds** (drawn 11-09 with
+`secrets.randbits(63)`: S1 `-646147908495530573`, S2 `1033369084927035764`), **paired** (h1/q1/k1 on S1, h2/q2/k2 on S2), all
+started at the same moment, **96 h**. Plus the scripted control (fleet harness, qwen2.5:7b on the Studio) on the same seeds:
+cheap (the control measured harmless to the showcase brain; the Studio guard runs, and only backs off guarded arms). Each bot
+alone in its own world and namespace (`voyager/infra/arms.conf`). Same harness, prompts, verifier and pace for both LLM arms
+(400 calls/h, no gap). Haiku budget ~$55 (stage 3: $0.27/bot-h x 192 bot-h); **hard stop $70** at the proxy (one spend group
+for both Haiku bots). Guards as before: bw-guard (retry fix; pauses q1/q2), never touch the other project's models, unload only
+ours (only if resident), no 192.168.19x routes.
+
+**Reads** at +24, +48, +72 and +96 h (`reports/3b-day-N.txt`, `3b-final.txt`): per arm and pooled, per bot-hour: verified
+tasks, projects finished, invented and reused skills; unique items; best tool and hours to each tier (stone, iron, diamond;
+netherite is unreachable without a Nether); deaths; sandbox violations; commands; cost.
+
+**Success bar (fixed now):**
+1. *Safety (hard):* 0 escapes and 0 commands executed on any server, all arms. Else the stage FAILS.
+2. *Validity:* each arm keeps >= 85 % of its possible bot-hours (2 bots x 96 h). An arm below that is INCONCLUSIVE.
+3. *The question -- is the free local model a substitute for Haiku?* Pooled over both seeds, per bot-hour:
+   - **qwen3.8 MATCHES** if it reaches >= 100 % of Haiku's verified tasks AND projects finished, on BOTH seeds.
+   - **qwen3.8 is COMPETITIVE** if it reaches >= 80 % of Haiku's verified tasks AND >= 50 % of its projects finished, AND
+     reaches iron tools on both seeds; reused skills are judged only if Haiku reuses >= 10 distinct skills (then qwen3.8 needs
+     >= 50 % of Haiku's count).
+   - Otherwise **Haiku WINS**.
+4. *Creativity vs the scripted control:* each LLM arm beats the control on unique items, on both seeds.
+5. *Survival:* each LLM arm's deaths per bot-hour <= 2x the control's (both seeds pooled).
+Pairing rule: a seed-level result counts only if both arms on that seed met the validity bar.

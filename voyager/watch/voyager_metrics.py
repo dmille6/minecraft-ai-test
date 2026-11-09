@@ -19,7 +19,8 @@ ROOT = '/srv/voyager'
 TIERS = [('wood', ('wooden_pickaxe', 'wooden_axe', 'wooden_shovel', 'wooden_sword', 'wooden_hoe')),
          ('stone', ('stone_pickaxe', 'stone_axe', 'stone_shovel', 'stone_sword', 'stone_hoe')),
          ('iron', ('iron_pickaxe', 'iron_axe', 'iron_shovel', 'iron_sword', 'iron_hoe')),
-         ('diamond', ('diamond_pickaxe', 'diamond_axe', 'diamond_shovel', 'diamond_sword', 'diamond_hoe'))]
+         ('diamond', ('diamond_pickaxe', 'diamond_axe', 'diamond_shovel', 'diamond_sword', 'diamond_hoe')),
+         ('netherite', ('netherite_pickaxe', 'netherite_axe', 'netherite_sword'))]   # unreachable here (no Nether): listed for completeness
 
 
 def ts(s):
@@ -93,7 +94,7 @@ def arm_metrics(a, since, until, proxy_rows):
         first = [ts(r['t']) for r in hb if set(r.get('inv') or []) & set(tools)]
         first += [ts(r['t']) for r in v if r['kind'] == 'task_done' and (r.get('success') or {}).get('item') in tools]
         if first:
-            tiers[name] = min(first).isoformat()[:16]
+            tiers[name] = min(first).isoformat()
     done = [r for r in v if r['kind'] == 'task_done']
     kinds = collections.Counter(r.get('library_kind') for r in done)
     proposed = [r for r in v if r['kind'] == 'task_proposed']
@@ -123,8 +124,14 @@ def arm_metrics(a, since, until, proxy_rows):
     pr = [r for r in proxy_rows if r.get('arm') == a and 'ms' in r]
     usd = sum(r.get('usd') or 0 for r in pr)
     lat = [r['ms'] for r in pr if not r.get('error')]
+    t0 = min((ts(r['t']) for r in hb), default=None)
+    tier_h = {k: round((ts(v2) - t0).total_seconds() / 3600, 2) if t0 else None for k, v2 in tiers.items()} if tiers else {}
+    per = (lambda n: round(n / bot_h, 3) if bot_h else None)
     return {
         'arm': a, 'bot_hours_connected': round(bot_h, 2), 'heartbeats': len(hb), 'rows': len(v),
+        'tier_hours_from_start': tier_h,
+        'per_bot_h': {'verified': per(len(done)), 'projects_finished': per(len(projects_done)), 'invented': per(len(invented)),
+                      'reused_distinct': per(len(reused)), 'deaths': per(len(deaths))},
         'iterations': k['task_proposed'] + len({r.get('iteration') for r in refused} - {r.get('iteration') for r in proposed}),
         'tasks': {'proposed': len(proposed), 'refused': len(refused), 'verified': len(done), 'failed': len(failed),
                   'types': dict(types)},
@@ -169,7 +176,8 @@ def main():
         print(f"\n[{m['arm']}] {m['bot_hours_connected']} bot-h connected ({m['heartbeats']} heartbeats, {m['rows']} rows)")
         print(f"  tasks: {t['proposed']} proposed, {t['refused']} refused by the filter, {t['verified']} verified, {t['failed']} failed; types {t['types']}")
         print(f"  executions {m['executions']}, lint refusals {m['lint_refused']}")
-        print(f"  unique items {m['unique_items']}; tool tiers first reached {m['tool_tiers_first'] or 'none'}")
+        print(f"  unique items {m['unique_items']}; tool tiers first reached (h from start) {m['tier_hours_from_start'] or 'none'}")
+        print(f"  per bot-h: {m['per_bot_h']}")
         print(f"  skills: {s['library_files']} in the library, {s['invented']} invented, {s['reused_distinct']} reused by later runs ({s['reuse_calls']} calls), {s['demoted']} demoted; at verify {s['by_kind_at_verify']}")
         print(f"  projects: {m['projects']['proposed']} proposed, {m['projects']['finished']} finished")
         print(f"  blocks (server): placed {b['placed_server']}, broken {b['broken_server']}, standing {b['standing']}, largest cluster {b['largest_cluster']}, clusters>=20 {b['clusters_ge20']}; 24-h reads {b['survival_reads']}, survived {b['survived_24h']}")

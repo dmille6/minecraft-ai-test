@@ -153,7 +153,9 @@ function serveArm (name, arm) {
   let inflight = 0
   let hourStart = Date.now(), hourCalls = 0
   let nextFree = 0                    // duty cycle (arm B): earliest next dispatch
-  spend[name] ??= { usd: 0, calls: 0 }
+  // spendGroup: several arms share one cap and one total (stage 3b: both Haiku bots, hard stop $70)
+  const sk = arm.spendGroup ?? name
+  spend[sk] ??= { usd: 0, calls: 0 }
 
   const server = http.createServer(async (req, res) => {
     const send = (code, obj) => { const s = JSON.stringify(obj); res.writeHead(code, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(s) }); res.end(s) }
@@ -199,16 +201,16 @@ function serveArm (name, arm) {
     try {
       if (arm.backend === 'anthropic') {
         reserved = reserveUsd(arm, Buffer.byteLength(raw, 'utf8'), body.max_tokens)
-        if (!Number.isFinite(spend[name].usd)) spend[name].usd = arm.capUsd   // a corrupted total fails closed
+        if (!Number.isFinite(spend[sk].usd)) spend[sk].usd = arm.capUsd   // a corrupted total fails closed
         if (spendCorrupt) { row({ arm: name, purpose, refused: 'spend_record_unreadable' }); return send(503, { error: 'spend record unreadable; refusing paid calls' }) }
-        if (!(reserved > 0) || spend[name].usd + reserved > arm.capUsd) { row({ arm: name, purpose, refused: 'spend_cap', usd_total: spend[name].usd }); return send(402, { error: `spend cap $${arm.capUsd} reached` }) }
-        spend[name].usd += reserved
-        try { saveSpend() } catch (e) { spend[name].usd -= reserved; reserved = 0; row({ arm: name, purpose, refused: 'spend_not_persisted', error: String(e.message).slice(0, 80) }); return send(503, { error: 'spend record not writable; refusing' }) }
+        if (!(reserved > 0) || spend[sk].usd + reserved > arm.capUsd) { row({ arm: name, purpose, refused: 'spend_cap', usd_total: spend[sk].usd }); return send(402, { error: `spend cap $${arm.capUsd} reached` }) }
+        spend[sk].usd += reserved
+        try { saveSpend() } catch (e) { spend[sk].usd -= reserved; reserved = 0; row({ arm: name, purpose, refused: 'spend_not_persisted', error: String(e.message).slice(0, 80) }); return send(503, { error: 'spend record not writable; refusing' }) }
         const r = await anthropicChat(arm, body)
         const usd = usageUsd(arm, r.usage)
-        spend[name].usd += usd - reserved; spend[name].calls++   // settle the reservation to the real usage
+        spend[sk].usd += usd - reserved; spend[sk].calls++   // settle the reservation to the real usage
         try { saveSpend() } catch { /* the reservation already covered it */ }
-        row({ arm: name, purpose, model: arm.model, paid: true, ms: Date.now() - t0, usage: r.usage, usd: Math.round(usd * 1e6) / 1e6, usd_total: Math.round(spend[name].usd * 1e4) / 1e4, stop: r.stop })
+        row({ arm: name, purpose, model: arm.model, paid: true, ms: Date.now() - t0, usage: r.usage, usd: Math.round(usd * 1e6) / 1e6, usd_total: Math.round(spend[sk].usd * 1e4) / 1e4, stop: r.stop })
         return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0 })
       }
       if (arm.backend === 'ollama-raw') {
