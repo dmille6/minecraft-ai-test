@@ -43,7 +43,10 @@ const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 const k2 = (x, z) => `${x},${z}`
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => `${a[0]},${a[1]},${a[2]}`
-const wet = b => !!b && (isLiquid(b) || /waterlogged/.test(String(b.name ?? '')) || nm(b) === 'ice' || nm(b) === 'bubble_column')
+const wet = b => !!b && (isLiquid(b) || /waterlogged/.test(String(b.name ?? '')) || b.props?.waterlogged === true || b.props?.waterlogged === 'true' || nm(b) === 'ice' || nm(b) === 'bubble_column')
+/** Codex fleet r1 BLOCKER: a leaf (or a plant) the road would clear that is waterlogged -- or, on a read without block properties, that
+ *  touches water -- releases water when broken. -> bool. Pure. */
+const wetAround = (read, x, y, z) => [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([dx, dy, dz]) => wet(read(x + dx, y + dy, z + dz)))
 const uniq = xs => [...new Set(xs.filter(Boolean))]
 
 export const ROADS = Object.freeze({
@@ -231,6 +234,8 @@ export function crossSection (read, col, guard, x, z, L, d, own = () => false) {
       for (let y = g; y > L; y--) { const b = read(cx, y, cz); if (!b) return { ok: false, why: 'unknown' }; const n = nm(b); if (n !== 'air' && n !== 'cave_air' && !replaceableCell(b) && !roadCut(n)) return { ok: false, why: 'cut_kind' } }
       if (g > L && /^(sand|red_sand|gravel)$/.test(nm(read(cx, g + 1, cz)))) return { ok: false, why: 'gravity' }
       for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) for (let y = Math.min(g, L) - 1; y <= L + 3; y++) if (wet(read(cx + dx, y, cz + dz))) return { ok: false, why: 'liquid' }
+      // a leaf in the head room the road clears: never one that is (or may be) waterlogged
+      for (const l of gr.leaves) if (l.y > L && l.y <= L + 4 && wetAround(read, cx, l.y, cz)) return { ok: false, why: 'liquid' }
       cost += Math.max(0, L - g) * 0.6 + natural * 0.8 + stack * 0.3 + (gr.logs.some(l => l.y > L && l.y <= L + 3) ? 4 : 0) + 0.1 * gr.leaves.length
     } else {
       if (L - 1 - g > ROADS.vergeFill) return { ok: false, why: 'verge_low' }
@@ -409,7 +414,8 @@ export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = nul
   const rCore = role('core', CORE_NAMES.slice())
   const cells = [], clear = [], clearK = new Set()
   const segOf = t => `${id}-P${Math.floor((t - chain0) / ROADS.segNodes)}`
-  const addClear = (x, y, z, kind) => { const k = k3(x, y, z); if (clearK.has(k)) return; const b = read(x, y, z); const n = nm(b); if (!b || n === 'air' || n === 'cave_air') return; clearK.add(k); clear.push({ at: [x, y, z], kind, name: n }) }
+  // (Codex fleet r1 BLOCKER: never a clear that is, or touches, water -- a waterlogged leaf broken releases its water)
+  const addClear = (x, y, z, kind) => { const k = k3(x, y, z); if (clearK.has(k)) return; const b = read(x, y, z); const n = nm(b); if (!b || n === 'air' || n === 'cave_air' || wetAround(read, x, y, z)) return; clearK.add(k); clear.push({ at: [x, y, z], kind, name: n }) }
   const taken = new Set()
   for (const [k, c] of paved) {
     const g = col(c.x, c.z)
