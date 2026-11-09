@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-09T12:20:02Z._
+_Generated 2026-11-09T13:20:02Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `bcdba35f` = stuckclose-01 `bcdba35f` (KEEP 11-09 11:25Z, promoted 11-09 11:36Z) on scaftown-01b `c13e6732` (KEEP 11-09 03:48Z, promoted 11-09 03:58Z) on hivedrop-01 `ef774d02` (KEEP 11-08 21:17Z, promoted 11-08 21:28Z) on sandrung-01 `1e593b9b` (KEEP 11-08 12:33Z, promoted 11-08 12:44Z) on placeaudit-fleet-01 `17df15e2` (KEEP 11-08 09:04Z, promoted 11-08 09:14Z) on escpocket-01 `de538429` (KEEP 11-08 05:35Z, promoted 11-08 05:45Z). Live builds: {'3d8ef9dee8b303201340e8cefe96aebd06773bc0+7e61ac': 15, 'bcdba35ffe440d27a2582ea8d0905d50f82e098a+7f9fcf': 65} |
 | **Canary in slot** | **workboard-01** deployed 11-09 12:04Z; reads +90 11-09 13:34Z, +180 11-09 15:04Z; KEEP auto-promotes ~10 min after the +180 KEEP |
-| **Queue (front)** | stoneworks-01 -> glass-01 -> boardwalk-03 -> villageunlock-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> market-02 -> market-03 -> +13 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
+| **Queue (front)** | stuckfleet-01 -> stuckfleet-02 -> stoneworks-01 -> logcap-02 -> gathermem-01 -> glass-01 -> boardwalk-03 -> villageunlock-01 -> coalsale-01 -> coalsale-02 -> +13 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: 3d8ef9dee8b303201340e8cefe96aebd06773bc0 on placebo-b,placebo-a,board-b / S6 open loop: canary 3d8ef9d is deployed on placebo-b,placebo-a,board-b with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting a |
-| **Showcase release** | `2de5befb` (24,023 rows), `4efbf768` (10,554 rows), `b9fa002e` (2,579 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 2de5befb's protected tree: restack by hand; row 11-09 11:25Z) |
+| **Showcase release** | `2de5befb` (19,680 rows), `b9fa002e` (12,279 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release b9fa002e's protected tree: restack by hand; row 11-09 12:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports?; **zoneguard-1109**: zoneguard-01show: accept that a drowning/suffocating bot no longer digs a tripwire-baseline cell for air, and that pours whose flow could reach a guarded cell are refused? |
 | **Projects (daily audit)** | project audit fleet (11-09T12:05Z, 7 d, 172 projects, 14,239,977 lines / 80 bots): 3 underused, 90 effective, 53 unmeasured, 26 -; showcase: project audit showcase (11-09T12:05Z, 7 d, 33 projects, 1,909,532 lines / 15 bots): 1 dormant, 2 underused, 13 effective, 12 unmeasured, 5 - -- showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-09T11:35:01Z STALLED: 120. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 84 active alarm(s): stuck goals 16 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-c/shaft@355_73_147, board-c/tidy@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:gkwork-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-09T12:35:01Z STALLED: 120. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 84 active alarm(s): stuck goals 16 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-c/shaft@355_73_147, board-c/tidy@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:gkwork-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
