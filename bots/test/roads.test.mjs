@@ -229,6 +229,28 @@ await t('Codex r1 BLOCKER: a verge column beyond the cross-sections (an end cap,
   assert.ok(r2.clear.some(c => c.at[0] === 35 && c.at[2] === 3), 'positive control: the verge clears an unprotected log')
 })
 
+await t('the fleet\'s litter: a floating cobble beam over the line is passed and cleared (kind=cut, by name), a cobble pillar on it cut', () => {
+  const extra = new Map()
+  for (let x = 20; x <= 26; x++) for (let z = -2; z <= 2; z++) extra.set(`${x},67,${z}`, { name: 'cobblestone', boundingBox: 'block' })   // a beam, air under it
+  for (let y = 65; y <= 69; y++) extra.set(`34,${y},1`, { name: 'cobblestone', boundingBox: 'block' })                                      // a 5-high pillar
+  const { rec, out } = siteAll(world({ extra }))
+  assert.ok(rec, JSON.stringify(out[0]?.fail ?? {}))
+  assert.ok(Math.max(...rec.cells.map(c => c.at[0])) > 40, 'the road went on past the litter')
+  const cut = new Set(rec.clear.filter(c => c.kind === 'cut' && c.name === 'cobblestone').map(c => c.at.join(',')))
+  assert.ok(cut.has('22,67,0') && cut.has('34,66,1'), 'the beam over the road and the pillar are listed clears')
+  assert.ok(rec.cells.every(c => !(c.at[0] === 22 && c.at[2] === 0) || c.at[1] === 64), 'the road at the ground under the beam, not on it')
+})
+
+await t('MUTANT KILLED: without the pillar rule a bots\' cobble pillar on the line counts as natural cut (> cutMax): the road goes round it', async () => {
+  const extra = new Map(); for (let z = -12; z <= 12; z++) for (let y = 65; y <= 68; y++) extra.set(`30,${y},${z}`, { name: 'cobblestone', boundingBox: 'block' })   // a cobble wall-pillar row
+  const real = RD.routeRoad(world({ extra }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
+  assert.ok(real.nodes.some(n => n.x === 30 && n.L === 64), 'the real router cuts the bots\' cobble down to the road')
+  await withMutant(ROADS_PATH, "if (LITTER.test(n) && n !== 'dirt' && n !== 'gravel' && n !== 'sand') stack++; else if", "if (false) stack++; else if", async M => {
+    const r = M.routeRoad(world({ extra }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 3, t: 3 }, hy: 64 })
+    assert.ok(!r.nodes.some(n => n.x === 30 && n.L === 64), 'the mutant should refuse the 4-deep cut')
+  })
+})
+
 await t('a reservation (the guard) is never paved; the router stays out of the town (`forbid`)', () => {
   const guard = (x, z) => (x >= 25 && x <= 27 && z >= -20 && z <= 2 ? 'project:tower' : null)
   const { rec } = siteAll(world(), { guard })
