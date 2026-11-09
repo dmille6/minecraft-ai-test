@@ -14,7 +14,7 @@ import { restyleRoof, styleOf, stylePalette } from './townstyle.mjs'
 import { placeBlueprint } from './buildsite.mjs'   // reroof-02: the pending retrofits' world cells (the decorator keeps off them)
 import { replaceableCell, rot, isPassable, isLiquid } from './townplan.mjs'
 import { digStand, foreignKind } from './buildrun.mjs'   // reroof-02 (b): the visit's own dig rules, asked by the proof
-import { walkFrom, overlay, stepFor, proveSite, fullCube } from './buildsite.mjs'   // reroof-04: proveSite for the whole proof (reroofProve)
+import { walkFrom, overlay, stepFor, proveSite, fullCube, slabTopFloor } from './buildsite.mjs'   // reroof-04: proveSite for the whole proof (reroofProve)
 
 export const REROOF_PLOT = 'reroof'
 /** The targets in order (smallest first: a stalled roof costs least there) and their roof form. */
@@ -636,7 +636,7 @@ export const FALL_PAD = 1          // the building's box + this: where its ledge
  * `avoid`; every walk's step fence). The building's own ledges stay usable (the proofs need them as stands); their falls are made
  * recoverable by reroofExitLeaves.
  */
-export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, keep = null } = {}) {
+export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, floors = null, recover = false } = {}) {
   const out = new Set()
   if (!Array.isArray(box) || box.length < 4) return out
   const K = (x, y, z) => `${x},${y},${z}`
@@ -644,19 +644,16 @@ export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FA
   for (const key of walked) {
     const [x, y, z] = key.split(',').map(Number)
     if (!near(x, z)) continue
-    // reroof-04 r6 (`keep`): a feet cell on the record's own TEMPORARY STAIR is never avoided -- the stair is the way up and its own
-    // steps are the way back (Paper sandbox4 storehub 11-08: the visit's fall guard, computed with the roof up, avoided the stair's top
-    // 21,74,-60, the only walk onto the roof, so the ridge beams 13,76,-54 / 12,76,-54 had no stand; the proof, walked before the stair
-    // stood, never avoided it)
-    if (keep?.has(key)) continue
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz
       if ([0, 1, -1].some(d => walked.has(K(nx, y + d, nz)))) continue
       const a = read(nx, y, nz), h = read(nx, y + 1, nz)
       if (!a || !h || !isPassable(a) || !isPassable(h)) continue           // a wall: no fall that way
       let land = null
-      for (let yy = y - 1; yy >= y - drop; yy--) { const b = read(nx, yy, nz); if (!b) break; if (fullCube(b) || isLiquid(b)) { land = isLiquid(b) ? null : K(nx, yy + 1, nz); break } }
-      if (!land || !walked.has(land)) { out.add(key); break }
+      // r6 (`floors`): a slab of the record's new roof is a landing too (the walk stands on it: walkFrom `floors`)
+      for (let yy = y - 1; yy >= y - drop; yy--) { const b = read(nx, yy, nz); if (!b) break; if (fullCube(b) || isLiquid(b) || (floors?.has(K(nx, yy, nz)) && slabTopFloor(b))) { land = isLiquid(b) ? null : K(nx, yy + 1, nz); break } }
+      // r6: a landing off the walk that a body can walk (and drop) back from to the walk is no trap (reroofRecoverable)
+      if (!land || (!walked.has(land) && !(recover && reroofRecoverable(read, land, walked, { floors })))) { out.add(key); break }
     }
   }
   return out
@@ -719,15 +716,69 @@ export function withApex (clear = [], apex = []) {
   const have = new Set(clear.map(c => c.at.join(',')))
   return [...clear, ...(apex ?? []).filter(c => !have.has(c.at.join(',')))]
 }
-/** r6: the record's listed jump-apex leaves -> Set of keys (buildbot.mjs apexDig asks it). Pure. */
-export const reroofApexKeys = rec => new Set((rec?.clear ?? []).filter(c => c?.apex === 1 && Array.isArray(c.at)).map(c => c.at.join(',')))
+/** r6: the record's listed jump-apex leaves -> Map key -> the listed block name (buildbot.mjs apexDig asks it). Pure. */
+export const reroofApexKeys = rec => new Map((rec?.clear ?? []).filter(c => c?.apex === 1 && Array.isArray(c.at)).map(c => [c.at.join(','), c.name]))
 /** (SEEDS) The stood cells outside the building's pad box (x/z) -> [[x, y, z]]. Pure. */
 export function reroofSeeds (stood = [], box) {
   if (!Array.isArray(box) || box.length < 4) return stood
   return (stood ?? []).filter(c => Array.isArray(c) && !(c[0] >= box[0] && c[0] <= box[2] && c[2] >= box[1] && c[2] <= box[3]))
 }
-/** reroof-04 r6: the feet cells on the record's temporary stair (one above each temp cell) -> Set of keys. Pure. */
-export const reroofStairFeet = rec => new Set(reroofTempCells(rec).map(c => `${c.at[0]},${c.at[1] + 1},${c.at[2]}`))
+export const RECOVER_R = 16, RECOVER_DROP = 3, RECOVER_MAX = 4000
+/**
+ * reroof-04 r6: THE FALL-RECOVERY PATH -> bool. Pure. From a fall's landing (feet key), can a body get back to the town walk by walk
+ * steps (dy -1..+1, head room) and short drops (down at most RECOVER_DROP onto a standing cell), within RECOVER_R (x/z) and RECOVER_MAX
+ * cells? Natural leaves are obstacles (the caller's reader: reroofNoLeafFloor); the record's roof slabs floors (`floors`).
+ */
+export function reroofRecoverable (read, landing, walked = new Set(), { floors = null, r = RECOVER_R, dropMax = RECOVER_DROP, max = RECOVER_MAX } = {}) {
+  const [lx, ly, lz] = String(landing).split(',').map(Number)
+  if (![lx, ly, lz].every(Number.isFinite)) return false
+  const K = (x, y, z) => `${x},${y},${z}`
+  const floorAt = (x, y, z) => { const f = read(x, y - 1, z); return !!f && (fullCube(f) || (!!floors?.has(K(x, y - 1, z)) && slabTopFloor(f))) }
+  const open = (x, y, z) => { const b = read(x, y, z); return !!b && isPassable(b) && !isLiquid(b) }
+  const stand = (x, y, z) => floorAt(x, y, z) && open(x, y, z) && open(x, y + 1, z)
+  const seen = new Set([K(lx, ly, lz)]), q = [[lx, ly, lz]]
+  while (q.length && seen.size < max) {
+    const [x, y, z] = q.shift()
+    if (walked.has(K(x, y, z))) return true
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz
+      if (Math.abs(nx - lx) > r || Math.abs(nz - lz) > r) continue
+      const cand = []
+      if (open(x, y + 2, z)) cand.push(y + 1)                            // a step up needs head room over the jump
+      cand.push(y)
+      for (let d = 1; d <= dropMax; d++) cand.push(y - d)                 // a step down, or a drop
+      for (const ny of cand) {
+        if (ny < y && ![...Array(y - ny + 1).keys()].every(i => open(nx, ny + i + 1, nz))) continue   // the column the body drops through
+        if (!stand(nx, ny, nz)) continue
+        const k = K(nx, ny, nz)
+        if (!seen.has(k)) { seen.add(k); q.push([nx, ny, nz]) }
+        break
+      }
+    }
+  }
+  return false
+}
+/** reroof-04 r6: the feet cells on a temporary stair (one above each stair cell that has open air over it) -> Set of keys. Pure. */
+export const stairFeetOf = keys => { const ks = new Set(keys); return new Set([...ks].map(k => k.split(',').map(Number)).filter(([x, y, z]) => !ks.has(`${x},${y + 1},${z}`)).map(([x, y, z]) => `${x},${y + 1},${z}`)) }
+/**
+ * reroof-04 r6 (Codex r6 BLOCKER; Paper sandbox4 storehub 11-08): IS A TEMPORARY STAIR SAFE TO STAND ON? -> { ok, risky: [key] }. Pure.
+ * The world with the stair and the proven roof placed (`cells`: the proof's; a cell with a slab state reads as that slab, every other one
+ * as a full block); the walk over it with the roof's slabs as floors; a stair step whose side fall lands off that walk (reroofFallRisk,
+ * the roof's slabs landings) is RISKY -- the visit's fall guard would avoid it, so a roof reached only over it has no stand (the storehub's
+ * ridge 13,76,-54: the stair's top 21,74,-60 drops east into the 4-cell strip 22..25,69,-60 with no way back).
+ */
+export function reroofStairSafe (read, home, cells = [], keys = new Set(), { stood = [], walkR = 90, box = null } = {}) {
+  const over = new Map()
+  const COB = Object.freeze({ name: 'cobblestone', boundingBox: 'block', props: null })
+  for (const c of cells ?? []) { if (!Array.isArray(c?.at)) continue; const t = c.ws?.type; over.set(c.at.join(','), t ? { name: 'spruce_slab', boundingBox: 'block', props: { type: t } } : COB) }
+  for (const k of keys) over.set(k, COB)
+  const R2 = reroofNoLeafFloor(overlay(read, over))
+  const floors = reroofFloors(cells)
+  const walk = walkFrom(R2, home, new Set(), walkR, { stood, floors })
+  const risk = reroofFallRisk(R2, walk, { box, floors, pad: FALL_PAD + 3, recover: true })
+  const risky = [...stairFeetOf(keys)].filter(k => risk.has(k))
+  return { ok: !risky.length, risky }
+}
 /** The record's temporary stand cells still in `cells` -> [cell]. Pure. */
 export const reroofTempCells = rec => (rec?.cells ?? []).filter(c => c?.temp === 1)
 /**
@@ -891,6 +942,8 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
     const q = proveWith(clear, keys)
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  stair', set.map(st => JSON.stringify(st.eave)).join('+'), keys.size, q.ok ? 'OK' : `${q.why} ${q.detail}`)
     if (!q.ok) continue
+    // r6: a stair one of whose steps would drop a builder where it cannot walk back is not taken (the visit's fall guard avoids it)
+    if (fx.fallSafe) { await tick(); const sf = reroofStairSafe(read, home, q.cells, keys, { stood, walkR, box: rec.box }); if (!sf.ok) { if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    unsafe', sf.risky.join(' ')); continue } }
     await tick()
     const r = await reach(clear, q, keys)
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    reach', r.ok ? 'OK' : unreached(r))
