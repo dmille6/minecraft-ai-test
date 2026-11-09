@@ -38,6 +38,7 @@ const REQUIRED = [
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
   'bots/src/zonewalk.mjs',  // escdead-01show (11-07): an escape under a protected zone walks out under its side
   'bots/test/zonewalk.test.mjs',
+  'bots/test/zoneguard.test.mjs',  // zoneguard-01show (11-09): no bot dig or placement changes a cell the tripwire's S4 compares
   'bots/src/fewerdec.mjs',
   'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
   'bots/test/gkleft.test.mjs',   // gkleft-01 (11-08): a cell nobody can work is waived by the town
