@@ -313,7 +313,7 @@ test('MUTANT KILLED: without the stair skip the board would dispatch shaft excav
 })
 test('MUTANT KILLED (skills.mjs): without the pin the visit re-picks and builds a project other than the one it walked to', async () => {
   setup()
-  await withMutant('../src/skills.mjs', '      if (sp && st && jobBlocked(st) == null) pick = sp\n', '', M => {
+  await withMutant('../src/skills.mjs', '    if (pinned) return pinned\n', '', M => {
     const b = bot('PinMut'), now = Date.now()
     M.boardPin(b, 'wall', now)
     assert.equal(M.shopActive(b, now + 1).plot, 'monument', 'the mutant ignores the pin')

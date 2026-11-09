@@ -17492,12 +17492,10 @@ const stoodKey = () => projKeyOf(SHOP_PLOT)
  * an unreadable state is the workshop (the job as before).
  */
 let activeMem = null
-export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) { return shopActiveAll(bot, now, { visit }).pick }
-/** workboard-01: shopActive's pick AND the marked states it chose from -> { pick, states } (states null: one project, or a throw). */
-export function shopActiveAll (bot = null, now = Date.now(), { visit = false } = {}) {
+export function shopActive (bot = null, now = Date.now(), { visit = false, out = null } = {}) {
   try {
     const list = projectsOn()
-    if (list.length === 1) return { pick: list[0], states: null }
+    if (list.length === 1) return list[0]
     const dir = townDir()
     if (bot) activeMem = { ...(activeMem ?? {}), bot }
     const sig = `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
@@ -17573,6 +17571,7 @@ export function shopActiveAll (bot = null, now = Date.now(), { visit = false } =
     const waited = stuckBackoff(states, plot => projStuckLive(projKeyOf(plot), now), now)
     // sinkfix-01: this bot's own no-effect visits (shop.mjs idleMarks): such a project yields to a wanted sink for IDLE_MS
     const marked = idleMarks(waited, b?.shopIdle ?? null, now)
+    if (out) out.states = marked   // workboard-01: the marked states, for the board's job and its pin
     // PRODSERVE-01: a finished production plot due by the town's schedule and this bot's fair share goes first (prodserve.mjs)
     const svc = PRODSERVE.on && b ? servicePickNow(b, marked, now, visit) : null
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
@@ -17581,22 +17580,35 @@ export function shopActiveAll (bot = null, now = Date.now(), { visit = false } =
     const order0 = b ? decorOrder(b, marked, order00, now) : order00
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    let pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
-    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
-    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
-    const bp = b?.boardPick
-    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
-      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
-      if (sp && st && jobBlocked(st) == null) pick = sp
-    }
+    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
     // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, the visit's pick and every read of the active project (the
     // reserve, the draw, the bag) name the tidy the order sent it to, never the forest the order skipped (shop.mjs roomFallbackPick)
     const fbPick = roomFallbackPick(b?.roomFallback ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
-    if (fbPick) return { pick: fbPick, states: marked }
+    if (fbPick) return fbPick
+    // workboard-01: a board job's PIN (bot.boardPick, townwork.mjs WB.claimTtlMs) wins while the pinned project is still workable
+    // (jobBlocked): the bot claimed a slot of THAT project and walked to town for it (a room-fallback visit, above, keeps its tidy);
+    // the pinned pick skips the visit's repair/service bookkeeping, which is the unpinned pick's
+    const pinned = boardPinnedPick(b, list, marked, pick, now)
+    if (pinned) return pinned
     if (visit) noteRepair(rmem, pick, states, now)
     if (visit && b) serviceBegin(b, svc, pick, now)
-    return { pick, states: marked }
-  } catch { return { pick: projectsOn()[0], states: null } }
+    return pick
+  } catch { return projectsOn()[0] }
+}
+/** workboard-01: shopActive's pick AND the marked states it chose from -> { pick, states } (states null: one project, or a throw). */
+export function shopActiveAll (bot = null, now = Date.now(), { visit = false } = {}) {
+  const out = {}
+  const pick = shopActive(bot, now, { visit, out })
+  return { pick, states: out.states ?? null }
+}
+/** workboard-01: the pinned project when the pin is fresh, names another project and that one is workable -> a PROJECTS entry | null. */
+function boardPinnedPick (b, list, marked, pick, now = Date.now()) {
+  try {
+    const bp = b?.boardPick
+    if (!bp || !Number.isFinite(bp.at) || now - bp.at < 0 || now - bp.at >= WORKBOARD_T.claimTtlMs || bp.plot === pick?.plot) return null
+    const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+    return sp && st && jobBlocked(st) == null ? sp : null
+  } catch { return null }
 }
 /**
  * WORKBOARD-01 (townwork.mjs): THE TOWN'S JOB FOR THIS BOT NOW -> townwork.mjs boardJob ({ plot, workable, why, starved, cands }), or
