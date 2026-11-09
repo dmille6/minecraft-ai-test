@@ -62,9 +62,21 @@ await t('a complete inside stage, nothing due: complete with no country work; wa
   }
   await scenario(SK)
   let killed = false
-  await withMutant("    if (r?.blueprint === TIDY_BLUEPRINT && tidy && COUNTRY_ON && GROUNDS.on && LANDP.on && countryDemandNow() != null) return true\n", '\n', async M => { try { await scenario(M) } catch (e) { if (e instanceof assert.AssertionError) killed = true } })
+  await withMutant("    const v = recordDamaged(bot, r) || (r?.blueprint === TIDY_BLUEPRINT && COUNTRY_ON && GROUNDS.on && LANDP.on && countryDemandNow() != null)\n", '    const v = recordDamaged(bot, r)\n', async M => { try { await scenario(M) } catch (e) { if (e instanceof assert.AssertionError) killed = true } })
   assert.ok(killed, 'the mutant (no country case) survived')
 })
 
+await t('Codex r7 BLOCKER: shopActive\'s tidy state stays the inside\'s own read -- a quiet inside with an OPEN country band reads OPEN (the crew\'s finite tier), never due (behind the sinks)', async () => {
+  fresh()
+  pub('shop', { v: 1, blueprint: 'workshop@1', plot: 'shop', cells: [], segments: [], structure_complete: true, completeAt: 1 })
+  pub('tidy', { v: 1, blueprint: 'tidy@1', plot: 'tidy', stageId: 'inwall', terraceV: 1, cells: [], cut: [], clear: [], segments: [], structure_complete: true, completeAt: Date.now() })
+  pub('country', { v: 1, blueprint: 'country@1', plot: 'country', stageId: 'c48', cells: [{ at: [40, 70, 0], role: 'earth', seg: 'T-00-0' }], cut: [], clear: [], segments: [{ seg: 'T-00-0', deps: [] }], structure_complete: false })
+  SK.shopActiveForget()
+  const b = bot()
+  SK.shopActive(b, Date.now())
+  const ti = (SK.shopActiveStates() ?? []).find(q => q.plot === 'tidy')
+  assert.ok(ti && ti.exists && ti.complete === false && ti.due === false && ti.country === 'open', JSON.stringify(ti))
+  assert.strictEqual(SK.shopDamaged(bot(), { v: 1, blueprint: 'tidy@1', plot: 'tidy', stageId: 'inwall', terraceV: 1, structure_complete: true, completeAt: Date.now() }), true, 'and the order goes')
+})
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
