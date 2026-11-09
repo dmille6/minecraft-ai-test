@@ -204,6 +204,13 @@ await t('wiring: the dispatch, the upkeep (damaged + service), the blueprint pal
   assert.match(SH, /if \(p\.plot === PENS_PLOT && !out\.some\(q => q\.plot === p\.plot\)\) out\.push\(p\)/)
   assert.match(SK, /\} finally \{\n\s+if \(entered && !signal\?\.aborted\) \{ try \{ await penExit\(ctx, rec, entered, signal\) \}/)
   assert.match(SK, /domain: penDomain\(rec\), foreign: PEN_FOREIGN/)
+  // the herd's walks never take goto's dig-assisted retry (r1 BLOCKER: it could dig the gate or a fence)
+  const hd = SK.match(/\nasync function hdGoto \([\s\S]*?\n\}\n/)?.[0] ?? ''
+  assert.ok(hd.length > 50 && /bot\.pathfinder\.goto\(new goals\.GoalNear\(/.test(hd) && !/\bgoto\(ctx/.test(hd), 'hdGoto: the pathfinder directly, never goto(ctx ...)')
+  const hv = SK.match(/\nasync function herdVisit \([\s\S]*?\n\}\n/)?.[0] ?? ''
+  assert.ok(hv.length > 500 && !/\bgoto\(ctx/.test(hv), 'herdVisit walks only by hdGoto (and mkWalkLegs for the far approach)')
+  assert.match(SK, /if \(me && penOf\(rec, me\.x, me\.z\)\) return 'exit'/)
+  assert.match(SK, /if \(!\(await setGate\(bot, g, true, signal\)\)\) \{ await setGate\(bot, g, false, signal\); return false \}/)
 })
 
 console.log(`\npens: ${pass} passed, ${fail} failed`)
