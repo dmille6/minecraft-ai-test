@@ -219,7 +219,7 @@ export function liquidReaches (zones, p) {
  * beside or two above the flow is reached too (it sets planks and logs alight). An unread cell, or a trace past maxNodes, is
  * answered as reached: refused, never guessed. `at(x, y, z)` -> block | null. Only when the prefilter names a zone.
  */
-export function liquidFlowReaches (zones, seeds, at, { lava = false, maxNodes = LIQUID_MAX_NODES } = {}) {
+export function liquidFlowReaches (zones, seeds, at, { lava = false, maxNodes = LIQUID_MAX_NODES, budget = null } = {}) {
   const pre = (seeds ?? []).map(c => liquidReaches(zones, { x: c[0], y: c[1], z: c[2] })).find(Boolean)
   if (!pre) return null
   if (typeof at !== 'function') return pre
@@ -234,6 +234,8 @@ export function liquidFlowReaches (zones, seeds, at, { lava = false, maxNodes = 
     if ((best.get(k) ?? -1) >= sp) continue
     best.set(k, sp)
     if (++n > maxNodes) return pre
+    // A CALLER'S SHARED BUDGET (Claude r3: a planner asking per candidate cell must not block the event loop): spent -> refused
+    if (budget && --budget.left < 0) return pre
     const h = hit(x, y, z)
     if (h) return h
     if (lava) {

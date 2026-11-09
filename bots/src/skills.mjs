@@ -22096,18 +22096,30 @@ function deepObsRead (bot) {
 }
 /** Cells no cast may touch: a protected zone within the bucket's reach, the town box (+4), the town stair's cells. Never throws
  *  (an unreadable zone list refuses everything). */
-function deepObsZone (bot, { townToo = true } = {}) {
+const DEEPOBS_FLOW_BUDGET = 20_000   // zoneguard-01show: traced liquid cells per deepObsZone closure (the planners' loops)
+function deepObsZone (bot, { townToo = true, pour = true } = {}) {
   let zones = null
   try { zones = bot.protectZones?.() ?? [] } catch { zones = null }
   const rec = stairRecordNow()
   const stair = isStairRecord(rec) ? new Set(stairCellKeys(rec)) : new Set()
   const home = townHome()
+  const flowSeen = new Map(), flowBudget = { left: DEEPOBS_FLOW_BUDGET }
   return c => {
     if (zones == null) return true
     const p = { x: c[0], y: c[1], z: c[2] }
     try { if (zoneWithin(zones, p, BUCKET_ZONE_REACH)) return true } catch { return true }
     // zoneguard-01show (Codex r1 blocker 2): a cast's lava or water could run into a baseline cell from farther than the box reach
-    try { if (liquidFlowReaches(zones, [c], (x, y, z) => { try { return bot.blockAt(new Vec3(x, y, z)) } catch { return null } }, { lava: true })) return true } catch { return true }
+    // zoneguard-01show (Claude r3): one trace per cell, CACHED, all under ONE node budget per closure (spent: every remaining
+    // cell refused) -- and none for a scoop (`pour: false`: a scoop pours nothing)
+    if (pour) {
+      const k = c.join(',')
+      if (!flowSeen.has(k)) {
+        let r = true
+        try { r = !!liquidFlowReaches(zones, [c], (x, y, z) => { try { return bot.blockAt(new Vec3(x, y, z)) } catch { return null } }, { lava: true, budget: flowBudget }) } catch { r = true }
+        flowSeen.set(k, r)
+      }
+      if (flowSeen.get(k)) return true
+    }
     if (townToo && inTownBox(p, home, { margin: 4 })) return true
     return stair.has(c.join(','))
   }
@@ -22169,7 +22181,7 @@ async function deepObsSeal (bot, cells, signal, trip) {
 /** The water before the descent: an INFINITE source near the stair top (the fill takes nothing). -> 'filled' | why. */
 async function deepObsFill (ctx, trip, signal) {
   const { bot } = ctx
-  const spot = deepWaterFill(deepObsRead(bot), deepFeet(bot), { inZone: deepObsZone(bot, { townToo: false }) })
+  const spot = deepWaterFill(deepObsRead(bot), deepFeet(bot), { inZone: deepObsZone(bot, { townToo: false, pour: false }) })
   if (!spot) return 'no_water_near'
   if (!(await stairWalk(bot, spot.stand, 40_000, signal))) return 'walk'
   const r = await obsFillWater(bot, new Vec3(spot.at[0], spot.at[1], spot.at[2]))

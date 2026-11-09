@@ -356,6 +356,12 @@ test('r2 (Codex blocker 2 again): the pour\'s FLOW is traced -- level ground sto
   const uphill = mkAt((x, y, z) => (x === 60 && y === 70 && z === 0 ? 'torch' : y <= 71 ? 'stone' : 'air'))
   assert.equal(PZ.liquidFlowReaches(zl, [[58, 72, 0]], uphill), null, 'the torch is below solid ground the flow runs over (it never gets down to it)')
   assert.ok(PZ.liquidFlowReaches(zg, [[54, 70, 0]], () => null), 'an unread world: refused')
+  // Claude r3: a planner's SHARED budget -- spent, the next trace is refused without reading the world
+  const budget = { left: 30 }
+  assert.ok(PZ.liquidFlowReaches(zg, [[50, 70, 0]], flat, { budget }), 'the level-ground trace (> 30 cells) runs out of the shared budget: refused')
+  let reads = 0
+  assert.ok(PZ.liquidFlowReaches(zg, [[50, 70, 0]], (...a) => { reads++; return flat(...a) }, { budget }), 'spent: refused')
+  assert.ok(reads <= 8, `spent budget reads almost nothing (${reads})`)
   assert.equal(PZ.liquidFlowReaches(zg, [[20, 70, 0]], flat), null, 'outside the prefilter: no trace at all')
   assert.equal(PZ.liquidFlowReaches(Z0, [[54, 70, 0]], flat), null, 'no baseline: the old box reach only')
   // lava sets a plank wall alight from beside it
@@ -393,5 +399,7 @@ test('r1 (Codex blocker 2): the chokepoint does not send a liquid bucket use wit
 test('r1 WIRING (structural): the bucket skill\'s pour and the obsidian cast\'s cells trace the flow (liquidFlowReaches)', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.equal(sk.split('try { lz = liquidFlowReaches(bot.protectZones?.() ?? [], seeds,').length, 2)
-  assert.equal(sk.split('try { if (liquidFlowReaches(zones, [c],').length, 2)
+  assert.equal(sk.split('try { r = !!liquidFlowReaches(zones, [c],').length, 2)
+  assert.equal(sk.split("{ lava: true, budget: flowBudget }").length, 2, 'the cast filter shares one budget')
+  assert.equal(sk.split("inZone: deepObsZone(bot, { townToo: false, pour: false }) })").length, 2, 'a scoop traces nothing')
 })
