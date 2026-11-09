@@ -366,6 +366,28 @@ await t('r6 reroofStairSafe: a stair whose step drops into a closed pocket is un
   const ok = RR.reroofStairSafe(stripRead(true), { x: -1, y: -1, z: 2 }, [], keys, { box: [-1, 0, 4, 4], walkR: 12, stood: [[0, 6, 2]] })
   assert.strictEqual(ok.ok, true, JSON.stringify(ok))
 })
+await t('r6e reroofStairSafe (Codex r6e BLOCKER): judged on the world AFTER the listed clears -- a leaf that walls a step now is gone then', () => {
+  // the stair top 0,6,2 over the strip pocket; a natural leaf at 1,6,2 walls its east side NOW (no fall that way), the record lists it
+  const lf = { name: 'spruce_leaves', boundingBox: 'block', props: { persistent: 'false' } }
+  // walls north and south of the stair top: its only open sides are west (the walk) and east (the leaf, then the strip)
+  const read = (x, y, z) => (x === 1 && y === 6 && z === 2 ? lf : x === 0 && (z === 1 || z === 3) && y <= 9 ? stone : stripRead(false)(x, y, z))
+  const keys = new Set(['0,5,2']), homeC = { x: -1, y: 5, z: 2 }
+  const before = RR.reroofStairSafe(read, homeC, [], keys, { box: [-1, 0, 4, 4], walkR: 12 })
+  const after = RR.reroofStairSafe(read, homeC, [], keys, { box: [-1, 0, 4, 4], walkR: 12, clear: [{ at: [1, 6, 2], kind: 'leaves', name: 'spruce_leaves' }] })
+  assert.strictEqual(after.ok, false, 'with the leaf dug the east fall strands: unsafe')
+  assert.ok(after.risky.includes('0,6,2'))
+  assert.strictEqual(before.ok, true, 'POSITIVE CONTROL: judged on the world as it stands, the leaf walls the fall (the r6 bug)')
+  // a stair step the walk never reaches is judged too (its fall into the pocket: unsafe)
+  const off = RR.reroofStairSafe(read, { x: -30, y: 5, z: 30 }, [], keys, { box: [-1, 0, 4, 4], walkR: 4, clear: [{ at: [1, 6, 2], kind: 'leaves', name: 'spruce_leaves' }] })
+  assert.strictEqual(off.ok, false, JSON.stringify(off))
+})
+await t('r6e MUTANT: the clears not applied in reroofStairSafe -- the leaf-walled stair reads safe again (killed for that reason)', async () => {
+  await withMutant(RR_PATH, "  for (const c of clear ?? []) if (Array.isArray(c?.at)) over.set(c.at.join(','), AIRB)\n", '', async M => {
+    const lf = { name: 'spruce_leaves', boundingBox: 'block', props: { persistent: 'false' } }
+    const read = (x, y, z) => (x === 1 && y === 6 && z === 2 ? lf : x === 0 && (z === 1 || z === 3) && y <= 9 ? stone : stripRead(false)(x, y, z))
+    assert.strictEqual(M.reroofStairSafe(read, { x: -1, y: 5, z: 2 }, [], new Set(['0,5,2']), { box: [-1, 0, 4, 4], walkR: 12, clear: [{ at: [1, 6, 2], kind: 'leaves', name: 'spruce_leaves' }] }).ok, true)
+  })
+})
 await t('r6 MUTANT: the recovery path dropped from the fall guard -- the stair top is avoided again (killed for that reason)', async () => {
   await withMutant(RR_PATH, " && !(recover && reroofRecoverable(read, land, walked, { floors }))", '', async M => {
     const walked = new Set(['0,6,2', '-1,-1,2', '-2,-1,2'])
@@ -446,7 +468,7 @@ await t('r6 wired (structural, comments stripped): the shop visit\'s fall guard 
   const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const sk = strip('../src/skills.mjs')
   assert.ok(/\{ box: rec\.box, keep: reroofStairFeet\(rec\) \}\) \} : \{\}\),/.test(sk), 'the visit guard: the r5 rule, the proof-verified stair kept')
-  assert.ok(/if \(fx\.fallSafe\) \{ await tick\(\); const sf = reroofStairSafe\(read, home, q\.cells, keys, \{ stood, walkR, box: rec\.box \}\); if \(!sf\.ok\)/.test(strip('../src/reroof.mjs')), 'the proof takes no unsafe stair')
+  assert.ok(/if \(fx\.fallSafe\) \{ await tick\(\); const sf = reroofStairSafe\(read, home, q\.cells, keys, \{ stood, walkR, box: rec\.box, clear \}\); if \(!sf\.ok\)/.test(strip('../src/reroof.mjs')), 'the proof takes no unsafe stair')
   assert.ok(/apexDig: REROOF_FIX\.apex && rec\?\.restyle \? \(keys => k => keys\.get\(k\) \?\? null\)\(reroofApexKeys\(rec\)\) : null,/.test(sk))
   const bb = strip('../src/buildbot.mjs')
   assert.ok(/if \(typeof apexDig === 'function'\) \{/.test(bb) && /for \(const d of apexDigs\(\{ x: f0\[0\], y: f0\[1\], z: f0\[2\] \}, path0, read, apexDig\)\)/.test(bb))
