@@ -1246,6 +1246,12 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             sealed.add(kOf(f.at)); deferWhy.set(kOf(f.at), `sealed ${sa.why ?? sv ?? 'no_stand'}`)
             fail(f.at, 'sealed'); bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: String(sa.why ?? sv ?? 'no_stand').slice(0, 80) }); continue
           }
+          // citywall-01: A SWAPPED CELL NO STAND SEES (its old block still standing: the wall whole) is DEFERRED like a sealed cell -- no
+          // chain of digs -- so the F4 count and the wall's waiver close it (it stays the old block) instead of a `blocked` run for good
+          if (v === 'no_stand' && p.swap && f.sw) {
+            sealed.add(kOf(f.at)); deferWhy.set(kOf(f.at), 'swap no_stand')
+            fail(f.at, 'sealed'); bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: 'swap no_stand' }); continue
+          }
           // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
           if (v !== 'confirmed') {
             if (v === 'no_stand' || v === 'unreached') unreachedClears.add(kOf(f.at))

@@ -550,11 +550,12 @@ export function siteWall (read, { plan, zones = [], caps = [], plinth = [], comp
  */
 export const PIT_MAX = 4
 export const WALK_DROP = 3
-export function wallEscape (read, home, cells, { r = 64, near = r - 6 } = {}) {
+export function wallEscape (read, home, cells, { r = 64, near = r - 6, seed = null } = {}) {
+  // citywall-01 (`seed`: the walk's start, as on the showcase -- a home inside the town's chest room walks nowhere by itself)
   const solid = new Set(cells.map(c => c.at.join(',')))
   const SOLID = { name: 'cobblestone', boundingBox: 'block' }
   const r1 = (x, y, z) => (solid.has(`${x},${y},${z}`) ? SOLID : read(x, y, z))
-  const a = walkSet(read, home, r, { drops: WALK_DROP }), b = walkSet(r1, home, r, { drops: WALK_DROP })
+  const a = walkSet(read, home, r, { drops: WALK_DROP, seed }), b = walkSet(r1, home, r, { drops: WALK_DROP, seed })
   const inner = k => { const [x, , z] = k.split(',').map(Number); return Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= near }
   let under = 0, canopy = 0
   const judge = (set, rd) => {
@@ -572,9 +573,9 @@ export function wallEscape (read, home, cells, { r = 64, near = r - 6 } = {}) {
   }
   const lost = judge([...a].filter(k => !b.has(k)), read)
   // the reverse walks: who can get home, before and after
-  const back0 = walkSet(read, home, r, { drops: WALK_DROP, reverse: true }), back1 = walkSet(r1, home, r, { drops: WALK_DROP, reverse: true })
+  const back0 = walkSet(read, home, r, { drops: WALK_DROP, reverse: true, seed }), back1 = walkSet(r1, home, r, { drops: WALK_DROP, reverse: true, seed })
   const pen = judge([...b].filter(k => !back1.has(k) && !(a.has(k) && !back0.has(k))), r1)
-  const sa = walkSet(read, home, r), sb = walkSet(r1, home, r)
+  const sa = walkSet(read, home, r, { seed }), sb = walkSet(r1, home, r, { seed })
   let lostStrict = 0
   for (const k of sa) if (!sb.has(k) && inner(k) && !solid.has(k)) lostStrict++
   const big = g => g.filter(q => q.length > PIT_MAX)

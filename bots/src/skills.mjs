@@ -125,7 +125,7 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { citywallOn, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallStyleFor } from './citywall.mjs'   // citywall-01 (the fleet port: FLAT, no planner plot)
+import { citywallOn, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, CITYWALL_WAIVE_MORE, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01 (the fleet port: FLAT, no planner plot)
 import { wallEscape } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own)
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a stand dig a swapped cell (the visit's own rule)
@@ -19507,16 +19507,21 @@ function citywallAdvance (bot, c, dir, key, rec, home, me) {
       const others = new Set()
       for (const x of projectHeads()) if (x.plot !== WALL_PLOT) for (const q of x.head?.rec?.cells ?? []) if (Array.isArray(q?.at)) others.add(q.at.join(','))
       const walkNodes = new Map()
-      for (const k of siteWalkFrom(read0, home, new Set(), wallWalkR(rec, home))) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
+      // the town walk from where the bots have stood (shop.mjs stoodRead: a home inside the town's chest room walks nowhere by itself)
+      for (const k of siteWalkFrom(read0, home, new Set(), wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
+      // the swap's walk as the visit walks it: the ring's own O cells are open then (never a floor, never walked through) -- a stand on
+      // the wall's own top read reachable here and was no stand at the visit (the fleet's board-b offline 11-09: no_stand on the swap)
+      let swN = null
+      const swapNodes = () => { if (swN) return swN; swN = new Map(); const oBlock = new Set((rec.cells ?? []).filter(q => ['wall', 'post', 'base'].includes(q.role)).map(q => q.at.join(','))); for (const k of siteWalkFrom(read0, home, oBlock, wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!swN.has(ck)) swN.set(ck, []); swN.get(ck).push(y) } return swN }
       const stock = matsTownStock(bot)?.stock ?? {}
       design = citywallDesign(read, rec, { style: citywallStyleFor(stock, process.env.MEMORY_POOL ?? ''), seed: Number(rec.sitedAt ?? 0) >>> 0, flat: true,
         taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones),
-        reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true), reachSwap: at => !!runDigStand(read0, at, walkNodes) })
+        reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true), reachSwap: at => !!runDigStand(read0, at, swapNodes()) })
       const noSite = why => { bot.citywallNoSiteUntil = Date.now() + CITYWALL_NOSITE_MS; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'citywall', kind: 'no_design', why: String(why).slice(0, 80) }) }) } catch { /* telemetry */ } return { published: false, why } }
       if (!design.ok) return noSite(design.why)
       if (unread) { bot.citywallNoSiteUntil = Date.now() + 10 * 60_000; return { published: false, why: 'unread' } }
       if (!design.phases.length) return noSite('empty')
-      const esc = wallEscape(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8 })
+      const esc = wallEscape(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8, seed: walkSeed(read0, stoodRead(dir, stoodKey(), home)) })
       if (esc.cut || esc.trapped) return noSite(`escape cut ${esc.cut} trapped ${esc.trapped}`)
     }
     const ph = due.kind === 'design' ? design.phases[0].ph : due.ph
@@ -19644,7 +19649,9 @@ async function buildWall (ctx, args, signal) {
     // visits by the stuck map, is named on the record (a logged row with its reason) so the wall closes; the next visit reads it done
     if (wallStuckOn()) {
       try {
-        const due = wallWaiveDue(rec, r.deferred ?? [])
+        // citywall-01: an upgraded ring's swapped cells no stand sees are waived past the wall's own bound (each stays its old block:
+        // the wall whole, never a gap), so a phase closes
+        const due = wallWaiveDue(rec, r.deferred ?? [], isCitywall(rec) ? { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE } : {})
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too

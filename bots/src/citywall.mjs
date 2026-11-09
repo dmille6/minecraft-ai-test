@@ -579,6 +579,8 @@ export function citywallGeneration (rec, design, ph, { now = Date.now() } = {}) 
 }
 /** A design's cells kept in the record (citywallGeneration stores them stripped) -> the design object again for the next phase. Pure. */
 export const designOf = rec => (rec?.citywall?.design ? { style: rec.citywall.style, seed: rec.citywall.seed, ...rec.citywall.design } : null)
+/** How many more cells an upgraded ring's waiver may name past wall.mjs WALL_WAIVE_MAX (a swapped cell no stand sees stays its old block). */
+export const CITYWALL_WAIVE_MORE = 64
 /** What the town keeps back from a phase's bill (the stoneworks' and the market's own buffers stay theirs). */
 export const CITYWALL_KEEP = Object.freeze({ stone_bricks: 64, deepslate_bricks: 32, lantern: 4, iron_bars: 0 })
 /**
@@ -600,6 +602,13 @@ export function citywallStyleFor (stock = {}, pool = '', env = process.env) {
   if (WALL_STYLES[v]) return v
   const sb = Number(stock?.stone_bricks) || 0, ds = (Number(stock?.deepslate_bricks) || 0) + (Number(stock?.cobbled_deepslate) || 0)
   return sb < STYLE_DARK_AT.stoneBelow && ds > STYLE_DARK_AT.deepslateOver ? 'dark' : 'grey'
+}
+/** THE WALK'S START for the escape proof -> [x, y, z] | null: the first stood cell (shop.mjs stoodRead: where the bots have stood) that is
+ *  a feet cell now (a floor under it, two cells of air). Pure. */
+export function walkSeed (read, stood = []) {
+  const pass = b => !!b && b.boundingBox === 'empty' && !/^(water|lava|bubble_column)$/.test(nm(b))
+  for (const s of stood) { const [x, y, z] = s; const f = read(x, y - 1, z); if (f && f.boundingBox === 'block' && pass(read(x, y, z)) && pass(read(x, y + 1, z))) return [x, y, z] }
+  return null
 }
 /** Is this visit's record a citywall generation (the wall visit's `swap` rule and palette)? Pure. */
 export const isCitywall = rec => !!(rec?.citywall && typeof rec.citywall === 'object')
