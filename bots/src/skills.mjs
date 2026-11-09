@@ -147,7 +147,7 @@ import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
 import { isCivicPlot, civicKindOf, civicNear, civicLookFor, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
-import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallGatePick, citywallStyleFor } from './citywall.mjs'   // citywall-01
+import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
@@ -21175,7 +21175,7 @@ async function buildCitywall (ctx, args, signal) {
     if (!design.ok) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, design.why); return out('no_effect', 'no_site', `${t.plot}: no design (${design.why})`, { stop: 'site_wait' }) }
     if (unread) { siteWaitSet(CITYWALL_PLOT, 10 * 60_000, 'unread'); return out('no_effect', 'site_unread', `${t.plot}: ${unread} cells unread (unloaded): the design waits`, { stop: 'site_wait' }) }
     // THE ESCAPE PROOF (wall.mjs wallEscape, the siting's own): every design cell built cuts nothing off and pens nobody
-    const esc = wallEscape(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8 })
+    const esc = wallEscape(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8, seed: walkSeed(read0, stoodRead(dir, stoodKey(), home)) })
     if (esc.cut || esc.trapped) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, 'escape'); return out('no_effect', 'no_site', `${t.plot}: the design would cut ${esc.cut} / trap ${esc.trapped} cells`, { stop: 'site_wait' }) }
   }
   if (!design?.phases?.length) return out('no_effect', 'no_site', `${t.plot}: an empty design`)

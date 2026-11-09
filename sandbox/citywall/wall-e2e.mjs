@@ -115,7 +115,11 @@ async function main () {
   bot.pathfinder.setMovements(moves)
   const read = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox, props: T.oriented(b.name) ? b.getProperties() : null } : null }
   const home = { x: HX, y: HY, z: HZ }
-  const design = CW.citywallDesign(read, rec0, { style: process.env.STYLE || 'grey', seed: 7, gatePick: 'path' })
+  const BS = await imp('buildsite.mjs')
+  const walkNodes = new Map()
+  for (const k of BS.walkFrom(read, home, new Set(), 40, { stood: [[HX, HY, HZ]] })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
+  const design = CW.citywallDesign(read, rec0, { style: process.env.STYLE || 'grey', seed: 7, gatePick: 'path', flat: process.env.FLAT === '1',
+    reachUnder: at => !!BS.stepFor(read, home, at, walkNodes, () => true, null), reachSwap: at => !!R.digStand(read, at, walkNodes) })
   if (!design.ok) throw new Error('no design ' + design.why)
   P('design', design.counts, 'skipped', design.skipped, 'gate', design.gate, 'phases', design.phases.map(p => `${p.ph}:${p.kind}:${p.n}`))
   // the kit: every design cell's first name, generously
@@ -150,6 +154,11 @@ async function main () {
     PJ.publishRecord(dir, key, () => recN)
     let r = null
     for (let visit = 0; visit < 12; visit++) {
+      // THE TOWN'S DRAW, by RCON in the sandbox (the wall visit draws its bill from the town chests): any first name of this phase's
+      // bill the bag holds under 24 of is topped up by 64 (Paper 11-09: a single up-front kit ran short mid-run and the swap waited)
+      const held = n => bot.inventory.items().filter(i => i.name === n).reduce((t, i) => t + i.count, 0)
+      const tops = Object.keys(ph.bill).filter(n => held(n) < 24).map(n => `give ${NAME} minecraft:${n} 64`)
+      if (tops.length) { rcon(...tops); await sleep(800) }
       const hh = PJ.recordHead(dir, key)
       const slot = PJ.takeSlot(dir, key, NAME, 4)
       r = await R.runVisit({ dir, key, me: NAME, home, stood: [[HX, HY, HZ]], record: W.wallVisitRecord(W.wallLightsLast(hh.head.rec), new Map()), recordGen: hh.head.gen, palette: recN.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} },

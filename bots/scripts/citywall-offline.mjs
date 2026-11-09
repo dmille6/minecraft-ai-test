@@ -51,8 +51,11 @@ const zone = flag('nozones') ? () => false : (x, z) => roadCols.has(`${x},${z}`)
 // the underpinning's reach: the town walk now (buildsite.mjs walkFrom) and the visit's stepFor, as skills.mjs buildCitywall asks
 const BS = await import('../src/buildsite.mjs')
 const walkNodes = new Map()
-for (const k of BS.walkFrom(base, home, new Set(), W.wallWalkR(rec0, home))) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
-const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone, reachUnder: at => !!BS.stepFor(base, home, at, walkNodes, () => true, null), reachSwap: at => !!digStandOf(base, at, walkNodes) })
+// the walk from where the bots have stood (the pool's stood file: a home in the town's chest room walks nowhere by itself)
+const SHOPM = await import('../src/shop.mjs')
+const stood = SHOPM.stoodRead(poolDir, `project-${hk}.shop`, home)
+for (const k of BS.walkFrom(base, home, new Set(), W.wallWalkR(rec0, home), { stood })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
+const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone, flat: flag('flat'), reachUnder: at => !!BS.stepFor(base, home, at, walkNodes, () => true, null), reachSwap: at => !!digStandOf(base, at, walkNodes) })
 if (!design.ok) { console.error('no design', design.why); process.exit(1) }
 const roles = design.cells.reduce((m, c) => (m[c.role] = (m[c.role] ?? 0) + 1, m), {})
 const bill = CW.citywallBill(design.cells, design.style)
@@ -148,7 +151,7 @@ if (flag('build')) {
       for (const b of bs) {
         const slot = PJ.takeSlot(dir, key, b.name, W.WALL_BUILDERS, { now: t })
         if (!slot.ok) continue
-        const v = await runVisit({ dir, key, me: b.name, home, stood: [], record: W.wallVisitRecord(W.wallLightsLast(recN), b.blocked, t), recordGen: hh.head.gen, palette: pal, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, stands: b.stands, unknown: b.unknown,
+        const v = await runVisit({ dir, key, me: b.name, home, stood, record: W.wallVisitRecord(W.wallLightsLast(recN), b.blocked, t), recordGen: hh.head.gen, palette: pal, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, stands: b.stands, unknown: b.unknown,
           domain: () => true, walkR: W.wallWalkR(recN, home), foreign: W.WALL_FOREIGN, blockLayer: false, clearMax: W.WALL_CLEAR_MAX, swap: true, skipOpenDeps: true }, b.e, { maxSteps: 400 })
         PJ.releaseLease(dir, key, `slot${slot.slot}`, b.name, slot.gen)
         stops[v.stop] = (stops[v.stop] ?? 0) + 1
@@ -164,8 +167,8 @@ if (flag('build')) {
   }
   const ops = rows.filter(q => q.name === '_build').reduce((m, q) => { const kk = `${q.d.op}${q.d.kind ? ':' + q.d.kind : ''}`; m[kk] = (m[kk] ?? 0) + 1; return m }, {})
   // the walk after: nothing cut, nobody trapped on the world as the fake builders left it
-  const escB = W.wallEscape(base, home, [], { r: R })
-  const after = W.wallEscape(read, home, [], { r: R })
+  const escB = W.wallEscape(base, home, [], { r: R, seed: seedC })
+  const after = W.wallEscape(read, home, [], { r: R, seed: seedC })
   built = { perPhase, stops, ops, gapViolations: gapViolations.length, gapSample: gapViolations.slice(0, 8), reachBefore: escB.reach0, reachAfter: after.reach0 }
   console.log(JSON.stringify({ build: built }, null, 1))
 }
