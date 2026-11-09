@@ -469,6 +469,7 @@ await t('r6 wired (structural, comments stripped): the shop visit\'s fall guard 
   const sk = strip('../src/skills.mjs')
   assert.ok(/\{ box: rec\.box, keep: reroofStairFeet\(rec\) \}\) \} : \{\}\),/.test(sk), 'the visit guard: the r5 rule, the proof-verified stair kept')
   assert.ok(/if \(fx\.fallSafe\) \{ await tick\(\); const sf = reroofStairSafe\(read, home, q\.cells, keys, \{ stood, walkR, box: rec\.box, clear \}\); if \(!sf\.ok\)/.test(strip('../src/reroof.mjs')), 'the proof takes no unsafe stair')
+  assert.ok(/if \(r\.ok && fx\.fallSafe\) \{ await tick\(\); if \(!reroofStairSafe\(read, home, r\.p\.cells, keys, \{ stood, walkR, box: rec\.box, clear: r\.clear \}\)\.ok\) continue \}/.test(strip('../src/reroof.mjs')), 'judged again on the final clears')
   assert.ok(/apexDig: REROOF_FIX\.apex && rec\?\.restyle \? \(keys => k => keys\.get\(k\) \?\? null\)\(reroofApexKeys\(rec\)\) : null,/.test(sk))
   const bb = strip('../src/buildbot.mjs')
   assert.ok(/if \(typeof apexDig === 'function'\) \{/.test(bb) && /for \(const d of apexDigs\(\{ x: f0\[0\], y: f0\[1\], z: f0\[2\] \}, path0, read, apexDig\)\)/.test(bb))
