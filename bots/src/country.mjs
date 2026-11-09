@@ -202,7 +202,8 @@ export function groundAt (read, x, z, { yHi, yLo }) {
 }
 /** Is the column's soil a planting's (grass, or dirt that greens) with `air` clear cells above? Pure. */
 function roomAbove (read, x, y, z, air) {
-  for (let d = 1; d <= air; d++) { const b = read(x, y + d, z); if (!b) return false; const n = nm(b); if (!(AIR.test(n) || GRASSY.test(n) || (d > 2 && LEAVES.test(n)))) return false }
+  // Paper proof 11-09: a one-layer snow cover is room (a placement replaces it: townplan.mjs replaceableCell), as short grass is
+  for (let d = 1; d <= air; d++) { const b = read(x, y + d, z); if (!b) return false; const n = nm(b); if (!(AIR.test(n) || GRASSY.test(n) || replaceableCell(b) || (d > 2 && LEAVES.test(n)))) return false }
   return true
 }
 
@@ -284,7 +285,8 @@ export function countryPlantings (read, { home, band, inWall = () => false, busy
   const G = C.groveGap
   const pattern = [[0, 0], [G, 0], [0, G], [-G, 0], [0, -G], [G, G], [-G, -G]]
   for (const [x, z, y] of order) {
-    if (census.groves >= nGroves || out.length >= C.plantMax) break
+    // the groves take at most half the band's plantings (the drifts keep their share: Paper proof 11-09, a dense band's groves took all 60)
+    if (census.groves >= nGroves || out.length >= Math.floor(C.plantMax / 2)) break
     if (!far(x, z, C.groveSep) || logNear(x, z, C.groveLogR)) continue
     const pts = []
     for (const [dx, dz] of pattern) {

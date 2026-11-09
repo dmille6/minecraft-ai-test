@@ -975,10 +975,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // townterrace-01 (`p.tidyOk(cut, read)`, the owner's 11-01 water rule): a tidy cut is dug only when the world NOW lets it out --
         // no water beside it at its height (its dams are in) -- re-read at the dig; else it waits (counted toward its give-up above)
         if (c.kind === 'tidy' && p.tidyOk && !p.tidyOk(c, rd)) { (out.tidyWet ??= []).push(kOf(c.at)); continue }
+        // upkeep-01 (`p.clearOk(clear, read)`, Codex r3 BLOCKER 1): any other listed clear is dug only while the caller's check holds NOW --
+        // read here and again after the walk (digNamed's `safe`): the upkeep's remains only while their own replant reads a sapling
+        if (c.kind !== 'tidy' && p.clearOk && !p.clearOk(c, rd)) continue
         if (!digStand(rd, c.at, nodes)) continue                    // no stand reaches it now: nothing tried, nothing counted
         const g = guard(); if (g) return g
         tried++
-        const v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : null)
+        const v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
         if (v === 'unsafe') { (out.tidyWet ??= []).push(kOf(c.at)); nodes = null; continue }
         if (v !== 'no_stand') nodes = null
         // zigtidy-02: a tidy walk that did not arrive ends the tidy (the lease freed for a builder who can), the visit goes on

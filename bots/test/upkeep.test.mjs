@@ -204,6 +204,49 @@ await t('CODEX r1/r2 BLOCKER 3: the drops the sweep would take (its own selectio
   assert.strictEqual(UK.upkeepState(quiet, { now: T0 + MIN, drops: 1 }).due, true)
   assert.strictEqual(UK.upkeepState(quiet, { now: T0 + MIN, drops: 0 }).due, false, 'none the sweep would take: quiet')
 })
+await t('CODEX r3 BLOCKER 1: THE GATE AT THE DIG -- runVisit digs a remains log only while its own replant reads a sapling NOW (before the walk and after it)', async () => {
+  const BF = await import('./helpers/buildfake.mjs')
+  const fs2 = await import('node:fs'), os2 = await import('node:os'), path2 = await import('node:path')
+  const g = BF.G
+  const rec = { v: 1, plot: 'upkeep', home: BF.HOME, cells: [{ at: [8, g + 1, 0], role: 'sapling', seg: 'U-0', group: 0 }], segments: [{ seg: 'U-0', deps: [] }],
+    clear: [{ at: [8, g + 3, 0], kind: 'remains', name: 'spruce_log', group: 0 }, { at: [8, g + 4, 0], kind: 'remains', name: 'spruce_log', group: 0 }], replant: [], zones: [], structure_complete: false }
+  const run = async (RM, sapling) => {
+    const srv = BF.server()
+    srv.set([8, g + 3, 0], 'spruce_log'); srv.set([8, g + 4, 0], 'spruce_log')
+    if (sapling) srv.set([8, g + 1, 0], 'spruce_sapling')
+    const dir = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'uk-'))
+    const key = BF.PJ.projKey(BF.HOME, 'upkeep')
+    const pub = BF.PJ.publishRecord(dir, key, () => ({ ...rec }))
+    const slot = BF.PJ.takeSlot(dir, key, 'A', 4)
+    const e = BF.bot(srv, 'A', { inv: { iron_axe: 1 }, feet: [6, g + 1, 0] })
+    const clearRec = { ...rec, cells: [] }
+    await RM.runVisit({ dir, key, me: 'A', home: BF.HOME, stood: [], record: clearRec, recordGen: pub.gen, palette: UK.UPKEEP_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 24,
+      clearOk: (c, rd) => UK.upkeepClearOk(rec, c, rd) }, e, { maxSteps: 200 })
+    return [srv.read(8, g + 3, 0)?.name, srv.read(8, g + 4, 0)?.name]
+  }
+  assert.deepStrictEqual(await run(BF.R, true), ['air', 'air'], 'its sapling stands: the remains come down')
+  assert.deepStrictEqual(await run(BF.R, false), ['spruce_log', 'spruce_log'], 'no sapling in its cell: held at the dig')
+  assert.strictEqual(UK.upkeepClearOk(rec, rec.clear[0], () => ({ name: 'spruce_log' })), false, 'grown: never')
+  assert.strictEqual(UK.upkeepClearOk(rec, { at: [1, 1, 1], kind: 'stray', name: 'crafting_table' }, () => null), true, 'a stray: always')
+  // the mutant: no dig-time check in runVisit (neither before the walk nor after it) -> the unplanted group is dug
+  const BUILDRUN = new URL('../src/buildrun.mjs', import.meta.url)
+  let src = fs2.readFileSync(BUILDRUN, 'utf8')
+  for (const [old, neu] of [["        if (c.kind !== 'tidy' && p.clearOk && !p.clearOk(c, rd)) continue\n", '\n'], [" : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)", ' : null)']]) {
+    assert.ok(src.split(old).length === 2, 'ANCHOR MISSING OR NOT UNIQUE'); src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs2.writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { const RM = await import(out.href); assert.deepStrictEqual(await run(RM, false), ['air', 'air'], 'the mutant digs the unplanted group (killed)') } finally { try { fs2.unlinkSync(out) } catch {} }
+})
+await t('PAPER PROOF 11-09: a furnace-kind stray only with a pickaxe in the bag (by hand or axe it is lost); a table always', async () => {
+  const scenario = M => {
+    const f = { at: [1, 65, 1], kind: 'stray', name: 'furnace' }, tb = { at: [2, 65, 1], kind: 'stray', name: 'crafting_table' }
+    assert.strictEqual(M.upkeepClearOk({}, f, () => null, { hasPick: false }), false)
+    assert.strictEqual(M.upkeepClearOk({}, f, () => null, { hasPick: true }), true)
+    assert.strictEqual(M.upkeepClearOk({}, tb, () => null, { hasPick: false }), true)
+  }
+  await killedBy(UK_PATH, UK, "  if (c?.kind === 'stray') return !STRAY_PICK.test(String(c.name ?? '')) || !!hasPick\n", "  if (c?.kind === 'stray') return true\n", scenario)
+})
 console.log('THE ORDER\'S TIER (shop.mjs activeProject `upkeep`) AND THE REFUSAL CHAINS IT COMPOSES')
 const P = [{ plot: 'shop' }, { plot: 'house1' }, { plot: 'monument' }, { plot: 'road', sink: true }, { plot: 'upkeep', upkeep: true }, { plot: 'tidy' }]
 const S = (o = {}) => [
@@ -266,6 +309,10 @@ await t('the build order dispatches the plot to its visit; the state is upkeep.m
   const st = SK.slice(SK.indexOf('function upkeepStateNow ('), SK.indexOf('function upkeepSaplingNear ('))
   assert.ok(/gkSweepOn\(\)/.test(st) && /gkSweepSel\(b, near,/.test(st), 'the due reads the sweep\'s own selection and switch')
   assert.ok(/const sel = gkSweepSel\(bot, near,/.test(SK), 'the sweep walks the same selection')
+  assert.ok(/slotGen: slotRef\.gen, slotRef, stands, unknown: bot\.shopUnknown/.test(v), 'each pass takes the slot\'s current generation (Codex r3 BLOCKER 2)')
+  assert.ok(/clearOk: \(c, rd\) => upkeepClearOk\(rec, c, rd \?\? rd0, \{ hasPick: hasPick\(\) \}\)/.test(v), 'the gate at the dig (Codex r3 BLOCKER 1)')
+  assert.ok(/effects\.dig = async \(c, expect\) => \{ if \(STRAY_PICK\.test\(String\(expect \?\? ''\)\)\) await effects\.tool\?\.\(\); return dig0\(c, expect\) \}/.test(v), 'a furnace-kind stray dug with the pickaxe in hand (Paper proof 11-09)')
+  assert.ok(/drops = b\.upkeepCaps\.caps \? gkSweepSel\(/.test(st), 'an unreadable input counts no drop (Codex r3 BLOCKER 3)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
