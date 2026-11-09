@@ -24,7 +24,13 @@ const mineflayer = req('mineflayer')
 const { pathfinder, Movements, goals } = req('mineflayer-pathfinder')
 const { Vec3 } = req('vec3')
 const imp = f => import(path.join(BOT_ROOT, 'bots/src', f))
-const [R, PJ, BB, T, S, RD] = await Promise.all(['buildrun.mjs', 'buildproj.mjs', 'buildbot.mjs', 'townstyle.mjs', 'sinks.mjs', 'roads.mjs'].map(imp))
+const [R, PJ, BB, RD] = await Promise.all(['buildrun.mjs', 'buildproj.mjs', 'buildbot.mjs', 'roads.mjs'].map(imp))
+// the line under test: the showcase's (sinks.mjs siteSink's road2 hand-off, townstyle's states) or the fleet's (roadsbase.mjs, no aimed click)
+const FLEET = fs.existsSync(path.join(BOT_ROOT, 'bots/src/roadsbase.mjs'))
+const RB = FLEET ? await imp('roadsbase.mjs') : null
+const S = FLEET ? null : await imp('sinks.mjs')
+const stateKey = (name, st) => (st && Object.keys(st).length ? `${name}[${Object.keys(st).sort().map(k => `${k}=${st[k]}`).join(',')}]` : String(name))
+const instancesOf = rec => (Array.isArray(rec?.instances) ? rec.instances : [])
 const REG = JSON.parse(fs.readFileSync(path.join(BOT_ROOT, 'sandbox/sandboxes.json'), 'utf8'))
 const SERVER = process.env.SBX || 'sandbox8'
 const PORT = REG.servers[SERVER].port
@@ -94,7 +100,7 @@ async function main () {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'roads-e2e-'))
   const key = PJ.projKey({ x: X0, y: G + 1, z: Z0 }, 'road')
   const logs = []
-  const e = BB.botBuildEffects(bot, { log: (k, d) => { logs.push([k, d]); if (k === '_build' && /clear|deferred|stuck/.test(String(d.op) + String(d.kind))) P(k, d) } })
+  const e = BB.botBuildEffects(bot, { log: (k, d) => { logs.push([k, d]); if ((k === '_build' && /clear|deferred|stuck/.test(String(d.op) + String(d.kind))) || (process.env.LOGALL && k !== '_build_seg')) P(k, d) } })
   const touched = new Set()
   { const d1 = e.dig; e.dig = async (c, ...a) => { touched.add(k3(c)); return d1(c, ...a) } }
   const stood = [[home.x, home.y, home.z]]
@@ -102,9 +108,10 @@ async function main () {
   let rec = null
   const visits = []
   for (let inst = 0; inst < 8; inst++) {
-    const n = S.instancesOf(rec).length + 1
+    const n = instancesOf(rec).length + 1
     const t1 = Date.now()
-    const r = S.siteSink(read, { kind: 'road', n, id: `R${n}`, home, pool: 'sandbox', avail, guard: () => null, rec, stood, roads2: { routes: [ROUTE], ring: RING, townBoxes: [RING], landOk: () => true, own: () => false, lamp: true } })
+    const ctx2 = { routes: [ROUTE], ring: RING, townBoxes: [RING], landOk: () => true, own: () => false, lamp: true }
+    const r = FLEET ? RD.siteRoad2(read, { id: `R${n}`, n, home, pool: 'sandbox', avail, guard: () => null, rec, stood, ...ctx2 }) : S.siteSink(read, { kind: 'road', n, id: `R${n}`, home, pool: 'sandbox', avail, guard: () => null, rec, stood, roads2: ctx2 })
     P(`siting R${n}`, r.ok ? `OK ${r.meta.summary} len ${r.meta.len} cells ${r.inst.cells.length} clears ${r.inst.clear.length} slabs ${r.meta.slabs} lamps ${r.meta.lamps} ended ${r.meta.ended ?? '-'}` : `${r.why} ${JSON.stringify(r.tried)}`, `${Date.now() - t1} ms`)
     if (!r.ok) break
     if (r.meta.ended && r.meta.ended !== 'arrived') {
@@ -113,14 +120,15 @@ async function main () {
       const nulls = []; for (let x = r.meta.end.x; x <= X0 + 66; x++) { if (!read(x, G + 7, Z0)) nulls.push(x) }
       P('BLOCKED diagnosis', rr.why, JSON.stringify(rr.tally), 'nodes', rr.nodes.length, 'end', r.meta.end, 'unloaded x', nulls.slice(0, 5), nulls.length, 'bot at', bot.entity.position.floored())
     }
-    const pub = PJ.publishRecord(dir, key, cur => S.appendInstance(cur, { kind: 'road', home, inst: r.inst, meta: { ...r.meta, sitedBy: NAME, sitedAt: Date.now() } }))
+    const meta = { ...r.meta, sitedBy: NAME, sitedAt: Date.now() }
+    const pub = PJ.publishRecord(dir, key, cur => (FLEET ? RB.appendRoad(cur, { home, inst: r.inst, meta }) : S.appendInstance(cur, { kind: 'road', home, inst: r.inst, meta })))
     if (pub.result !== 'accepted') { P('publish', pub.result); break }
     let v = null
     for (let visit = 0; visit < 10; visit++) {
       const h = PJ.recordHead(dir, key)
       const head = h.head.rec
       const slot = PJ.takeSlot(dir, key, NAME, 3)
-      v = await R.runVisit({ dir, key, me: NAME, home, stood, record: head, recordGen: h.head.gen, palette: head.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, ...S.sinkVisitOpts(head, home), floors: RD.roadFloors(head) }, e, { deadline: Date.now() + 15 * 60_000, maxSteps: 400 })
+      v = await R.runVisit({ dir, key, me: NAME, home, stood, record: head, recordGen: h.head.gen, palette: head.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, ...(FLEET ? RB.roadVisitOpts(head, home) : S.sinkVisitOpts(head, home)), floors: RD.roadFloors(head) }, e, { deadline: Date.now() + 15 * 60_000, maxSteps: 400 })
       PJ.releaseLease(dir, key, `slot${slot.slot}`, NAME, slot.gen)
       P(`  R${n} visit ${visit}: stop ${v.stop} ${v.why ?? ''} placed ${v.placed} refused ${v.refused} silent ${v.silent} cleared ${v.cleared}`)
       visits.push({ inst: `R${n}`, visit, stop: v.stop, placed: v.placed, cleared: v.cleared })
@@ -128,13 +136,13 @@ async function main () {
       await sleep(1000)
     }
     if (v?.stop !== 'complete') break
-    PJ.publishRecord(dir, key, cur => S.completeInstance(cur))
+    PJ.publishRecord(dir, key, cur => (FLEET ? RB.completeRoad(cur) : S.completeInstance(cur)))
     rec = PJ.recordHead(dir, key).head.rec
     if (r.meta.ended) break
   }
   rec = PJ.recordHead(dir, key).head.rec
   // ---- THE SERVER'S WORD on every cell ------------------------------------------------------------------------------------------
-  const wantOf = c => { const names = rec.palette[c.role].filter(q => q !== '*solid'); return names.map(nm => (c.ws ? T.stateKey(nm, c.ws) : nm)) }
+  const wantOf = c => { const names = rec.palette[c.role].filter(q => q !== '*solid'); return names.map(nm => (c.ws ? stateKey(nm, c.ws) : nm)) }
   const cmdsV = [], idx = []
   for (const c of rec.cells) for (const w of wantOf(c)) { cmdsV.push(`execute if block ${c.at[0]} ${c.at[1]} ${c.at[2]} minecraft:${w}`); idx.push(c) }
   const res = []
@@ -156,9 +164,10 @@ async function main () {
     const nearBot = [-1, 0, 1].some(dx => [-1, 0, 1].some(dy => [-1, 0, 1].some(dz => touched.has(k3([x + dx, y + dy, z + dz])) || placedAt.has(k3([x + dx, y + dy, z + dz])))))
     if (nearBot) stray.push(`${kk}:${n0}->${n1}`)
   }
+  for (const c of bad.slice(0, 6)) P('BAD-CELL', c.role, c.at, 'now', read(...c.at), 'below', read(c.at[0], c.at[1] - 1, c.at[2])?.name, 'nbrs', [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].map(q => read(c.at[0] + q[0], c.at[1], c.at[2] + q[2])?.name).join('/'))
   P('cells', rec.cells.length, 'server-ok', rec.cells.length - bad.length, 'bad', bad.slice(0, 8).map(c => `${c.role}@${c.at}${c.ws ? JSON.stringify(c.ws) : ''}`), 'clears left', standing.length, 'stray', stray.slice(0, 8))
   // ---- THE WALK: landing <-> road end, the pathfinder alone (no dig, no scaffold), feet sampled ---------------------------------
-  const ins = S.instancesOf(rec).filter(i => i.design?.kind === 'road2')
+  const ins = instancesOf(rec).filter(i => i.design?.kind === 'road2')
   const land = ins[0]?.land, end = ins.at(-1)?.end
   const roadCols = new Set(rec.cells.filter(c => /-(tr|acc|ed|sl)$/.test(c.role)).map(c => `${c.at[0]},${c.at[2]}`))
   const walks = []
