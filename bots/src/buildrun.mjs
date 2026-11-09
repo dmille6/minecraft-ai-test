@@ -137,7 +137,7 @@ export function swapDigOk (cell, open, { clear, tries = () => 0, has, fillable =
   for (const o of open) {
     if (o === cell || !clear(o)) continue
     if (o.sw) return false
-    const below = open.some(q => q !== o && q.at[0] === o.at[0] && q.at[2] === o.at[2] && q.at[1] < o.at[1])
+    const below = open.some(q => q !== o && q.at[0] === o.at[0] && q.at[2] === o.at[2] && q.at[1] < o.at[1] && !(q.sw && !clear(q)))
     if (!below && tries(o) < BUILD_ATTEMPTS && fillable(o)) return false
   }
   return true
@@ -1206,7 +1206,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // citywall-01: A SWAPPED CELL NO STAND SEES (its old block still standing: the wall whole) is DEFERRED like a sealed cell -- no
           // chain of digs -- so the F4 count and the wall's waiver close it (it stays the old block) instead of a `blocked` run for good
           if (v === 'no_stand' && p.swap && f.sw) {
-            sealed.add(kOf(f.at)); deferWhy.set(kOf(f.at), 'swap no_stand')
+            // (Codex r3: counted for the waiver now, whatever else stands open in the segment)
+            sealed.add(kOf(f.at)); deferWhy.set(kOf(f.at), 'swap no_stand'); deferredCells.push(kOf(f.at)); deferredSegs.add(seg)
             bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: 'swap no_stand' }); continue
           }
           // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
@@ -1309,7 +1310,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const nodes = feetIn ? nodesFor(others, blocking) : nodesFor(blocking)
         const feet = e.feet()
         // BOTTOM-UP: never a cell while one below it in its column is open; never a cell still holding an uncleared block
-        const below = c => open.some(o => o !== c && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1])
+        // citywall-01 (Codex r3 BLOCKER): in a swap visit a STANDING swapped cell below (its old block: a support, only the wrong one) never
+        // holds the cell above -- a sealed lower swap would strand the hole dug over it for good
+        const below = c => open.some(o => o !== c && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1] && !(p.swap && o.sw && !isClear(o.at)))
         // a fill a builder stands IN (feetIn): a cell ANOTHER builder's body is in is passed over for now, never an attempt (two
         // builders each standing in the other's next cell spent both cells' attempts every visit: the fake server, 10-29)
         const bodies = feetIn ? (e.bodies?.() ?? []) : []
