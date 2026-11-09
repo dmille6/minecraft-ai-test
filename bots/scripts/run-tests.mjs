@@ -99,6 +99,9 @@ function run (file) {
              SKILL_HARD_STOP_GRACE_MS: process.env.SKILL_HARD_STOP_GRACE_MS || '300',
              // logcap-01: the stock suite's arithmetic is written against the old 64 wood target (stocktarget.mjs)
              STOCK_WOOD_TARGET: process.env.STOCK_WOOD_TARGET ?? '64',
+             // pipeline-01: the suite's loop tests count model calls and gaps against the pre-pipeline loop; pipeline.test
+             // sets its own modes (pipelineConfig) and asserts the shipped default
+             PIPELINE: process.env.PIPELINE ?? 'off',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.

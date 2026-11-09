@@ -11,7 +11,8 @@
 //   the runner's failure pause       202 bot-h = 10.5%   -- a safety valve (3 failures in a row)
 // Only the first is a wait-for-decision: the bot finished, nothing argues against deciding now. That is what this removes.
 //
-// Two rules, one switch (PIPELINE=off|shadow|on; unset = off):
+// Two rules, one switch (PIPELINE=off|shadow|on; unset = PIPELINE_DEFAULTS.mode, `on` on the canary variant -- a code
+// version the manifest and the tripper can see, as cooldown15 was; PIPELINE=off is the one-env rollback; junk = off):
 //   NO WAIT AFTER SUCCESS (on): after a run that ENDED `success`, lasted >= minRunMs, with no reflex interrupt and no reflex
 //     trigger pending, the next tick comes after nextDelayMs (500 ms, the CONTINUE early tick's step) and does not wait out
 //     the cooldown window: the work-order chain runs first exactly as today, and with no order the model is asked at once.
@@ -37,7 +38,7 @@
 // failure and cool the endpoint for every decision. It finishes and is dropped; its cost is counted on its `pipeline` row.
 
 export const PIPELINE_DEFAULTS = Object.freeze({
-  mode: 'off',
+  mode: 'on',
   prefetchAfterMs: 3000,
   maxAgeMs: 60_000,
   waitCapMs: 8000,          // at use, a prefetch still in flight is awaited at most this long, then a fresh call
@@ -56,9 +57,9 @@ const num = (v, d) => { const n = Number(v); return v != null && v !== '' && Num
 
 /** PIPELINE=off|shadow|on (anything else = off), plus the knobs. Read once from the environment. */
 export function pipelineConfig (env = process.env) {
-  const m = String(env.PIPELINE ?? '').trim().toLowerCase()
-  const mode = PIPELINE_MODES.includes(m) ? m : 'off'
   const D = PIPELINE_DEFAULTS
+  const m = String(env.PIPELINE ?? '').trim().toLowerCase()
+  const mode = m === '' ? D.mode : PIPELINE_MODES.includes(m) ? m : 'off'
   return {
     // active = the arm is computed and rows written; prefetch can be switched off alone (PIPELINE_PREFETCH=0): then `on` is
     // the no-wait rule only (a fresh call at the end of a successful run), at no extra inference

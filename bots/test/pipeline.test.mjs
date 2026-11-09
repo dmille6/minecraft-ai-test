@@ -39,8 +39,9 @@ async function withMutant (p, old, neu, fn) {
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 // ---------------------------------------------------------------- the rules
-test('CONFIG: unset or junk = off; shadow and on prefetch, only on skips the wait; knobs parse with defaults', () => {
-  assert.equal(PL.pipelineConfig({}).mode, 'off'); assert.equal(PL.pipelineConfig({}).prefetch, false)
+test('CONFIG: unset = the shipped default (on, the canary variant); junk = off; shadow and on prefetch, only on skips the wait', () => {
+  assert.equal(PL.PIPELINE_DEFAULTS.mode, 'on'); assert.equal(PL.pipelineConfig({}).mode, 'on')
+  assert.equal(PL.pipelineConfig({ PIPELINE: 'off' }).active, false); assert.equal(PL.pipelineConfig({ PIPELINE: 'off' }).prefetch, false)
   assert.equal(PL.pipelineConfig({ PIPELINE: 'yes' }).mode, 'off')
   const sh = PL.pipelineConfig({ PIPELINE: 'shadow' }); assert.equal(sh.prefetch, true); assert.equal(sh.on, false)
   const on = PL.pipelineConfig({ PIPELINE: ' ON ' }); assert.equal(on.on, true); assert.equal(on.prefetchAfterMs, 3000)
@@ -50,7 +51,7 @@ test('CONFIG: unset or junk = off; shadow and on prefetch, only on skips the wai
 })
 const ON = PL.pipelineConfig({ PIPELINE: 'on' })
 test('PREFETCH AT START: only a MODEL run, one in flight at most, never a skill this bot rarely finishes', () => {
-  assert.equal(PL.prefetchAtStart({ cfg: PL.pipelineConfig({}), source: 'model', skill: 'mine' }).why, 'off')
+  assert.equal(PL.prefetchAtStart({ cfg: PL.pipelineConfig({ PIPELINE: 'off' }), source: 'model', skill: 'mine' }).why, 'off')
   assert.equal(PL.prefetchAtStart({ cfg: ON, source: 'order', skill: 'mine' }).why, 'not_model')
   assert.equal(PL.prefetchAtStart({ cfg: ON, source: 'model', skill: 'mine', pending: true }).why, 'in_flight')
   assert.equal(PL.prefetchAtStart({ cfg: ON, source: 'model', skill: 'mine', stats: { mine: 0.1 } }).why, 'low_p')
@@ -71,7 +72,7 @@ test('ARM AFTER RUN: only a run that ran and ENDED success, long enough, no refl
   assert.equal(PL.armAfterRun({ ...base, declined: true }).why, 'not_run')
   assert.equal(PL.armAfterRun({ ...base, paused: true }).why, 'paused')
   assert.equal(PL.armAfterRun({ ...base, runMs: 200 }).why, 'short_run')
-  assert.equal(PL.armAfterRun({ ...base, cfg: PL.pipelineConfig({}) }).why, 'off')
+  assert.equal(PL.armAfterRun({ ...base, cfg: PL.pipelineConfig({ PIPELINE: 'off' }) }).why, 'off')
 })
 test('NO-WAIT GUARD: at most maxPerMin no-wait decisions per rolling minute, and never outside `on`', () => {
   assert.equal(PL.noWaitAllowed({ cfg: ON, recent: [1, 2, 3], now: 10_000 }), true)
