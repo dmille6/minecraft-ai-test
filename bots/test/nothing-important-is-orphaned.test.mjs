@@ -76,6 +76,9 @@ const REQUIRED = [
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
   'bots/src/fewerdec.mjs',
   'bots/test/fewerdec.test.mjs',
+  'bots/src/pipeline.mjs',          // pipeline-01: pipelined decisions (PIPELINE=off|shadow|on)
+  'bots/test/pipeline.test.mjs',
+  'docs/reports/pipeline-design-2026-11-09.md',
   'bots/src/vetoremedy.mjs',
   'bots/test/vetoremedy.test.mjs',
   'bots/src/escapeguard.mjs',
