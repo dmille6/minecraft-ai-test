@@ -143,6 +143,11 @@ import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
+import { wallEscape } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own)
+import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
+import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
+import { isCivicPlot, civicKindOf, civicNear, civicLookFor, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
+import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallGatePick, citywallStyleFor } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
@@ -17848,6 +17853,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         // townstyle-03: the retrofit's planner WAITS until a standing building is due (reroof.mjs reroofNext: one at a time, logs known)
         // (Claude r1 BLOCKER 2: its town-wide wait after a failed proof is a WAIT here too, never an always-free open project)
         if (p.plot === REROOF_PLOT) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: Date.now() < siteWaitUntil(REROOF_PLOT, dir) || !reroofDueNow(b, dir).target }
+        // citywall-01: the wall upgrade's planner WAITS until a ring's next phase is due (citywall.mjs citywallNext: the last phase
+        // standing, the bill in town); its own town-wide wait after a design that could not be proven is a wait too
+        // civic-01: an unsited landmark WAITS town-wide after a failed siting or a short stock (siteWaitUntil: never a no_site loop)
+        if (isCivicPlot(p.plot) && !rec && Date.now() < siteWaitUntil(p.plot, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
+        if (p.plot === CITYWALL_PLOT) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: Date.now() < siteWaitUntil(CITYWALL_PLOT, dir) || !citywallDueNow(b, dir).target }
         if (p.plot === TOWNHALL_PLOT && !rec && !townhallOpenNow(dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
         // canefarm-01 r1 (Codex BLOCKER 1): an unsited cane bed whose siting found no site WAITS town-wide (siteWaitUntil)
         if (p.plot === CANEFARM_PLOT && !rec && Date.now() < siteWaitUntil(CANEFARM_PLOT, dir)) return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true }
@@ -21394,6 +21404,83 @@ function reroofDueNow (bot, dir = townDir()) {
     return reroofNext(records, { logs, damaged: r => !!bot && recordDamaged(bot, r, { tidy: false }), failed: reroofFails(dir), fresh: REROOF_FIX.fresh })
   } catch { return { target: null, why: 'error' } }
 }
+// ================================================================================================================================
+// CITYWALL-01: THE WALL UPGRADE'S PLANNER (citywall.mjs; docs/reports/citywall-design-2026-11-09.md). One ring at a time (the extension
+// first: its gateway is the main road's), one phase at a time: the design once (the courses, the underpinning, the towers, the gatehouse,
+// the lamps -- proven against the escape walk: nothing cut off, nobody trapped), then each phase's generation when the last one stands
+// and the town holds its bill. Places nothing itself: the ring's own wall visit builds a phase (its palette, its swap rule).
+// ================================================================================================================================
+const CITYWALL_RINGS = [WALLEXT_PLOT, WALL_PLOT]
+const CITYWALL_NOSITE_MS = 60 * 60_000
+/** Is a world cell of a record done (this bot's own world; an unloaded cell is not)? Never throws. */
+function cellDoneHere (bot, palette, c) {
+  try { const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2])); return !!b && buildCellDone({ name: b.name, boundingBox: b.boundingBox, props: c.ws ? b.getProperties?.() ?? null : null }, palette, c.role, c.ws) } catch { return false }
+}
+/** THE NEXT RING AND PHASE -> { target: { plot, kind: 'design' | 'phase', ph? }, why } | { target: null, why }. Never throws. */
+function citywallDueNow (bot, dir = townDir()) {
+  try {
+    if (!projectsOn().some(p => p.plot === CITYWALL_PLOT)) return { target: null, why: 'off' }
+    const stock = bot ? matsTownStock(bot)?.stock ?? null : null
+    for (const plot of CITYWALL_RINGS) {
+      const h = recordHead(dir, projKeyOf(plot))
+      const rec = h.ok ? h.head?.rec ?? null : null
+      if (!rec?.structure_complete) continue
+      if (!isCitywall(rec)) return { target: { plot, kind: 'design' }, why: null }
+      const n = citywallNext(rec, { done: c => !!bot && cellDoneHere(bot, rec.palette ?? {}, c), stock, keep: CITYWALL_KEEP })
+      if (n.ph != null) return { target: { plot, kind: 'phase', ph: n.ph }, why: null }
+      if (n.why !== 'all_published') return { target: null, why: `${plot}:${n.why}` }
+    }
+    return { target: null, why: 'all_published' }
+  } catch { return { target: null, why: 'error' } }
+}
+/** citywall-01: THE PLANNER'S VISIT -- the ring's design once, then its next phase's generation. Places nothing itself. */
+async function buildCitywall (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const out = (status, outcome, detail, extra = {}) => {
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail({ project: CITYWALL_PLOT, outcome, why: detail, ms: Date.now() - t0, ...extra }) }) } catch { /* telemetry */ }
+    return { status, detail, stop: extra.stop ?? outcome }
+  }
+  const dir = townDir()
+  if (Date.now() < siteWaitUntil(CITYWALL_PLOT, dir)) return out('no_effect', 'site_wait', 'a wall design that could not be proven waits')
+  const next = citywallDueNow(bot, dir)
+  if (!next.target) return out('no_effect', 'waiting', `no wall phase is due (${next.why})`)
+  const t = next.target, key = projKeyOf(t.plot), me = bot.username ?? 'bot'
+  const rh = recordHead(dir, key)
+  const rec = rh.ok ? rh.head?.rec ?? null : null
+  if (!rec?.structure_complete) return out('no_effect', 'changed', `${t.plot} is no longer standing`)
+  const home = planHomeP()
+  let design = designOf(rec)
+  if (t.kind === 'design') {
+    // THE DESIGN on the world as this bot reads it; every other record's cells and the land plan's roads and the protected zones vetoed
+    const read0 = planReader(bot)
+    let unread = 0
+    const read = (x, y, z) => { const b = read0(x, y, z); if (!b) unread++; return b }
+    const others = new Set()
+    for (const x of projectHeads()) if (x.plot !== t.plot) for (const q of x.head?.rec?.cells ?? []) if (Array.isArray(q?.at)) others.add(q.at.join(','))
+    const roads = new Set()
+    try { for (const r of landHead(dir)?.roads ?? []) for (const q of r.cols ?? []) roads.add(`${q[0]},${q[1]}`) } catch { /* none */ }
+    const c = shopCtx(bot)
+    if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read')
+    const stock = matsTownStock(bot)?.stock ?? {}
+    const pool = process.env.MEMORY_POOL ?? ''
+    design = citywallDesign(read, rec, { style: citywallStyleFor(stock, pool), seed: Number(rec.sitedAt ?? 0) >>> 0, gatePick: citywallGatePick(process.env, t.plot),
+      taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones), zone: (x, z) => roads.has(`${x},${z}`) })
+    if (!design.ok) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, design.why); return out('no_effect', 'no_site', `${t.plot}: no design (${design.why})`, { stop: 'site_wait' }) }
+    if (unread) { siteWaitSet(CITYWALL_PLOT, 10 * 60_000, 'unread'); return out('no_effect', 'site_unread', `${t.plot}: ${unread} cells unread (unloaded): the design waits`, { stop: 'site_wait' }) }
+    // THE ESCAPE PROOF (wall.mjs wallEscape, the siting's own): every design cell built cuts nothing off and pens nobody
+    const esc = wallEscape(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8 })
+    if (esc.cut || esc.trapped) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, 'escape'); return out('no_effect', 'no_site', `${t.plot}: the design would cut ${esc.cut} / trap ${esc.trapped} cells`, { stop: 'site_wait' }) }
+  }
+  if (!design?.phases?.length) return out('no_effect', 'no_site', `${t.plot}: an empty design`)
+  const ph = t.kind === 'design' ? design.phases[0].ph : t.ph
+  const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && (cur.citywall?.phase ?? -1) < ph ? citywallGeneration(cur, design, ph) : null), { by: me })
+  if (pub.result !== 'accepted') return out('no_effect', 'lost_record', `${t.plot}: the generation was not published (${pub.result})`)
+  const p = design.phases.find(q => q.ph === ph)
+  try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: t.plot, op: 'citywall', kind: `${design.style}/ph${ph}:${p?.kind}/${p?.n}cells/${Object.entries(p?.bill ?? {}).map(([k, v]) => `${k}:${v}`).join(',')}${t.kind === 'design' ? `/towers${design.counts.towers}/gate${design.counts.gate}/swap${design.counts.swapped}/add${design.counts.added}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
+  return out('success', 'published', `${t.plot}: phase ${ph} (${p?.kind}) published`, { gen: pub.gen })
+}
+
 /**
  * TOWNSTYLE-03: THE RETROFIT'S VISIT -- the next building's new record generation: its standing record kept whole, the pitched roof added
  * above its flat one (reroof.mjs), the added cells PROVEN on the world as it stands (buildsite.mjs proveSite over them alone, the
@@ -21498,7 +21585,7 @@ function reroofFails (dir = townDir()) { try { return JSON.parse(fs.readFileSync
 // reroof-02 (c, REROOF_FAILS_FRESH): a versioned, expiring entry ({ v, n, at }); the old plain numbers read 0 (reroof.mjs reroofFailCount)
 function reroofFailNote (dir, plot) { try { const f = reroofFails(dir); f[plot] = reroofFailBump(f[plot], { fresh: REROOF_FIX.fresh }); fs.writeFileSync(reroofFailFile(dir), JSON.stringify(f)) } catch { /* the wait still holds */ } }
 /** TOWNSTYLE-01/02: the projects sited by their own siting (never the generic one): the cottage, the town hall. */
-const SITED_APART = new Set([...COTTAGE_PLOTS, TOWNHALL_PLOT])   // cottage2-01: every cottage
+const SITED_APART = new Set([...COTTAGE_PLOTS, TOWNHALL_PLOT])   // cottage2-01: every cottage; civic-01: and every civic plot (isCivicPlot, below)
 /** Is the unsited town hall open (the extension's X2 free, no failed siting waiting)? Never throws. */
 function townhallOpenNow (dir = townDir()) { try { return TOWNHALL_SW.on && Date.now() >= siteWaitUntil(TOWNHALL_PLOT, dir) && townhallOpening(enchantExtNow(dir), plotsTakenBy(TOWNHALL_PLOT, dir)).open } catch { return false } }
 /** TOWNSTYLE-02: THE TOWN HALL'S SITE (the cottage's way: the style from the known stock, the styled blueprint sited on X2). Never throws. */
@@ -21747,6 +21834,40 @@ async function cottageFurnitureCrafts (ctx, rec, pal, read, signal, draw) {
 }
 /** cottage2-01: the shear errand and the furniture crafts, for the sandbox drive (sandbox/cottage2/shear-e2e.mjs) and the tests. */
 export const _cottage2 = Object.freeze({ cottageShearVisit, cottageFurnitureCrafts, sheepInSight, cottageShearDueFor })
+/**
+ * CIVIC-01: A LANDMARK'S SITE -> { ok, record, near } | { ok: false, why, detail? }. Never throws. The look seeded from the town and the kind
+ * (civic.mjs civicLookFor), its bill in the town's known stock (civicStockOk: else `stock`, a short wait), then the bots' own siting
+ * (buildsite.mjs siteBlueprint: the screen, the earthwork, the build proof) round the kind's anchor (civicNear), nearest first, every
+ * reservation, record and protected zone kept clear.
+ */
+async function civicSiteFor (bot, plan, c, stood, plot, signal = null) {
+  try {
+    const kind = civicKindOf(plot)
+    const dir = townDir()
+    const recs = Object.fromEntries(projectHeads().map(x => [x.plot, x.head?.rec ?? null]))
+    const land = landHead(dir)
+    const near = civicNear(kind, { home: plan.home, recs, park: land?.park?.box ?? null, well: c.wells?.[0] ?? null })
+    if (!near) return { ok: false, why: 'no_anchor' }
+    const id = civicLookFor(kind, `${process.env.MEMORY_POOL ?? ''}/${plot}`)
+    const bp = blueprintOf(id)
+    const stock = matsTownStock(bot)?.stock ?? null
+    if (!stock) return { ok: false, why: 'stock_unknown' }
+    const st = civicStockOk(bp, stock)
+    if (!st.ok) return { ok: false, why: 'stock', detail: Object.entries(st.short).map(([k, v]) => `${k}:${v}`).join(',') }
+    const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
+    const R = CIVIC_SITE.r
+    const domain = (x, z) => Math.max(Math.abs(x - near[0]), Math.abs(z - near[1])) <= R
+    const line = Math.max(Math.abs(near[0] - plan.home.x), Math.abs(near[1] - plan.home.z)) + R + 2
+    const prd = planReader(bot)
+    const s = await siteBlueprintAsync(prd, plan, bp, { zones: [...c.zones, ...recordZones(others), ...townMarkerZones()], wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: [{ sector: null, source: 'civic' }], plot,
+      domain, standDomain: (x, z) => Math.max(Math.abs(x - near[0]), Math.abs(z - near[1])) <= R + 8, line, walkR: Math.max(CIVIC_WALK_R, line + 12), tries: CIVIC_SITE.tries,
+      rankKey: q => Math.hypot(q.pad[0][0] - near[0], q.pad[0][1] - near[1]), ...siteCanopyCtx(prd, bp, plan.home, stood, Math.max(CIVIC_WALK_R, line + 12)) }, { aborted: () => !!signal?.aborted })
+    if (s.why === 'aborted') return { ok: false, why: 'aborted' }
+    if (!s.ok) return { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => [r.screened, r.tried, r.proofEx?.[0] ?? ''])).slice(0, 100) }
+    // the record is judged, billed and built by its own palette (cottage.mjs recordPalette reads it with `civic`)
+    return { ok: true, near, record: { ...s.record, palette: bp.palette, civic: { kind, look: bp.look.code }, walkR: Math.max(CIVIC_WALK_R, line + 12) } }
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60) } }
+}
 /** The bot's world read for the fit-out (null: unloaded). */
 const enchantRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
 /** THE FITTER'S CARGO (r1, Codex code r1 BLOCKER): what this bot drew or made for a furnishing and has not placed or banked, in the
@@ -22079,6 +22200,8 @@ async function buildShopVisit (ctx, args, signal) {
   if (proj.plot === UPKEEP_PLOT) return buildUpkeep(ctx, args, signal)   // upkeep-01
   // townstyle-03: the retrofit's planner (reroof.mjs): publishes the next building's roof generation; that building's own visit builds it
   if (proj.plot === REROOF_PLOT) return buildReroof(ctx, args, signal)
+  // citywall-01: the wall upgrade's planner (citywall.mjs): publishes a ring's next phase; the ring's own wall visit builds it
+  if (proj.plot === CITYWALL_PLOT) return buildCitywall(ctx, args, signal)
   // picker-01: a town sink's visit (sinks.mjs: site the next instance when the picker wants one, else build the open one)
   if (isSinkPlot(proj.plot)) return buildSink(ctx, args, signal, proj)
   const plot = proj.plot
@@ -22164,6 +22287,15 @@ async function buildShopVisit (ctx, args, signal) {
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.style.wood}/${ss.record.style.roof}/${ss.record.style.stone}/${ss.record.cells.length}cells`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    } else if (isCivicPlot(plot)) {
+      // civic-01: a landmark sites near its anchor (civic.mjs civicNear), its look seeded from the town, its bill in town first
+      const ss = await civicSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, plot, signal)
+      check(signal)
+      if (!ss.ok && ss.why !== 'aborted') siteWaitSet(plot, ss.why === 'stock' ? 20 * 60_000 : COTTAGE_NOSITE_MS, ss.why)
+      if (!ss.ok) return out('no_effect', ss.why === 'stock' ? 'stock_wait' : 'no_site', `no ${plot} site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''})`.slice(0, 160), { stop: 'site_wait' })
+      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+      if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.cells.length}cells/near${ss.near.join(',')}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (isCottagePlot(plot)) {
       // townstyle-01: the cottage sites on the extension's first free house-size plot only, its style chosen once from the town's stock
       // cottage2-01: every cottage plot the same way (a later one its own look)
@@ -22180,7 +22312,7 @@ async function buildShopVisit (ctx, args, signal) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
-    if (!SITED_APART.has(plot) && plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
+    if (!SITED_APART.has(plot) && !isCivicPlot(plot) && plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -24226,7 +24358,8 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
   shopFootprintRefresh(bot)
   // the lights in their own last segment (wall.mjs wallLightsLast: in memory, the record file unchanged)
   const rec = wallLightsLast(rh.head.rec)
-  const palette = WALL_PALETTE
+  // citywall-01: an upgraded ring is built, billed and judged by its generation's own palette (cottage.mjs recordPalette: `citywall`)
+  const palette = recordPalette(rec, { palette: WALL_PALETTE })
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the wall stands')
@@ -24287,6 +24420,9 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
     const blocked = K.plot === WALL_PLOT ? (bot.wallBlocked ??= new Map()) : (bot.wallextBlocked ??= new Map())
     const r = await runVisit({ dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: K.plot === WALL_PLOT ? (bot.wallStands ??= { pending: null, bans: {} }) : (bot.wallextStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
+      // citywall-01: an upgraded ring SWAPS its cobble in place (buildrun.mjs swapDigOk: one hole a segment, placed before the next dig)
+      // and passes a segment that waits on another (a gate's deck on its towers) instead of ending the visit there
+      ...(isCitywall(rec) ? { swap: true, skipOpenDeps: true } : {}),
       ...wallStuckOf(c, K.plot), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
     // wallstuck-01: THE WAIVER (wall.mjs wallWaiveDue) -- a cell this visit deferred after the remedies, counted WALL_WAIVE_AFTER
