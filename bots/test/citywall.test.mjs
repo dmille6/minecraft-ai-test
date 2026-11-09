@@ -179,10 +179,10 @@ await t('THE STYLE AND THE GATE PICK: grey unless few stone bricks and much deep
 
 /** THE UPGRADE BUILT by fake builders running buildrun.mjs runVisit (the wall visit's options and `swap`), every phase; the holes per
  *  segment watched at every dig. -> { open, maxHoles, digs, places, offRecord }. */
-async function buildUpgrade (Rmod) {
+async function buildUpgrade (Rmod, { flat = false } = {}) {
   const srv = server(); const rec0 = standingWall(srv)
   // the fake server places no block state (a stair's facing is Paper's proof: sandbox/citywall/wall-e2e.mjs): no haunch stairs here
-  const des = CW.citywallDesign(srv.read, rec0, { style: 'grey', seed: 3, gatePick: 'path', stairs: false })
+  const des = CW.citywallDesign(srv.read, rec0, { style: 'grey', seed: 3, gatePick: 'path', stairs: false, flat })
   const sw = des.cells.filter(c => c.sw)
   let maxHoles = 0
   const dig = async (c, expect) => {
@@ -225,6 +225,15 @@ await t('BUILT END TO END with the swap: every phase complete, every swapped cel
   assert.ok(r.digs >= r.swN * 0.9, `swapped ${r.digs} of ${r.swN}`)
   assert.strictEqual(r.maxHoles, 1, `holes ${r.maxHoles}`)
   assert.strictEqual(r.offRecord, 0)
+})
+await t('FLAT (the fleet before townstyle: no reach-only click, no block state): no blind cell, no state, torches for lamps -- and BUILT END TO END the same way', async () => {
+  const d = CW.citywallDesign(SRV.read, REC, { style: 'dark', seed: 3, gatePick: 'path', flat: true })
+  assert.ok(d.ok && d.counts.towers === 0 && d.gate, 'no bastions flat; the gate keeps its towers')
+  assert.ok(!d.cells.some(c => c.blind || c.ws), 'no blind cell, no state')
+  assert.ok(d.cells.some(c => c.role === 'light') && !d.cells.some(c => c.role === CW.CW.lamp || c.role === CW.CW.parapet || c.role === CW.CW.haunch))
+  const r = await buildUpgrade(R, { flat: true })
+  assert.strictEqual(r.open.length, 0, `open ${r.open.slice(0, 5).map(c => `${c.at}:${c.role}:${c.seg}`).join(' ')}`)
+  assert.strictEqual(r.maxHoles, 1); assert.strictEqual(r.offRecord, 0)
 })
 await t('MUTANT KILLED: without the swap rule in the visit\'s dig filter, a segment opens more than one hole', async () => {
   await withMutant(' && !useOf(c)?.can(rd(...c.at)) && swapOk(c) })', ' && !useOf(c)?.can(rd(...c.at)) })', async M => {
