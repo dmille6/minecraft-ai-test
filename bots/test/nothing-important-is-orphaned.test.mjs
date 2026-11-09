@@ -63,6 +63,9 @@ const REQUIRED = [
   'bots/test/fewerdec.test.mjs',
   'bots/test/standcache.test.mjs',   // standcache-01 (11-12): the visit's kept walk (STANDCACHE=off|on), buildsite.mjs walkAgain
   'bots/scripts/standbench.mjs',     // standcache-01: the measurement (one walk's cost through the bot's block read; walks a tidy visit)
+  'bots/src/pipeline.mjs',          // pipeline-01: pipelined decisions (PIPELINE=off|shadow|on)
+  'bots/test/pipeline.test.mjs',
+  'docs/reports/pipeline-design-2026-11-09.md',
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
