@@ -25926,7 +25926,8 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
   const read = planReader(bot)
   let climbs = []
   try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
-  const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, climbs, have: {}, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+  // the band survey's inputs (siteStage `terrace`: the wall boxes the band keeps off, the records, the bots' climbs)
+  const bandIn = { wall: I.wall, wallext: I.wallext, records: I.records, caps: I.caps, climbs, have: {}, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
   const th = recordHead(dir, projKeyOf(TIDY_PLOT))
   if (!th.ok) throw new Error('tidy record unreadable')
   const cells = withPlanCells(I.cells, th.head?.rec ?? null)
@@ -25941,7 +25942,7 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
   let rec = null, st = null, census = null
   for (const s0 of countryTryOrder(next)) {
     await new Promise(resolve => setImmediate(resolve)); check(signal)
-    const s = await siteStage(read, { home: I.home, avoid: I.avoid, cells, pin: null, plan: I.plan, land, stage: s0, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace, reserved: I.reserved, forest: forestRecNow(), classic: false })
+    const s = await siteStage(read, { home: I.home, avoid: I.avoid, cells, pin: null, plan: I.plan, land, stage: s0, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: bandIn, reserved: I.reserved, forest: forestRecNow(), classic: false })
     st = s0
     if (!s.ok) { tried.push(`${s0.id}:${s.why}`); return { ok: false, why: s.why, tried } }
     const earth = s.record ? coreFills(s.record) : null

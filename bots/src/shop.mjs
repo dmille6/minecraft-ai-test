@@ -268,7 +268,7 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // UPKEEP-01 (upkeep.mjs): the standing maintenance loop -- workable while DUE (a job open, or its list due a survey), with a slot,
   // not stuck, not idle for this bot. Never in the loops below: its own tier is the LAST, and it stands in for a pick this bot cannot
   // work (an open project with no slot for it, an upkeep or a due record this bot found nothing to do at). No upkeep: as before.
-  const upk = list.find(p => p.upkeep && st(p).due === true && st(p).free !== false && !st(p).stuck && st(p).idle !== true) ?? null
+  const upk = list.find(p => p.upkeep && st(p).due === true && st(p).free !== false && st(p).idle !== true && !st(p).stuck) ?? null
   const idleDue = s => !!upk && s.idle === true
   // Codex r1 BLOCKER 4: a due record (dueFirst first) this bot may work still comes before the upkeep wherever the upkeep stands in
   const dueBefore = () => list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && s.dueFirst && !idleDue(s) }) ?? list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && !idleDue(s) }) ?? null
