@@ -26,6 +26,14 @@ await t('SEEDED VARIETY: a town\'s look is fixed by its key; different towns get
   const seen = new Set(Array.from({ length: 40 }, (_, i) => C.civicLookFor('B', `town${i}/civicB`)))
   assert.ok(seen.size >= 3, `${seen.size} belfry looks over 40 towns`)
 })
+await t('THE LOOK THE STOCK COVERS: the seeded look when it can be built, else the next of the kind that can (11-09: no stone-brick stairs yet)', () => {
+  const seeded = C.civicLookFor('F', 'showcase/civicF')
+  assert.strictEqual(C.civicLookForStock('F', 'showcase/civicF', () => true), seeded)
+  const noStairs = id => !Object.keys(C.civicBill(B.loadBlueprint(id))).includes('stone_brick_stairs')
+  const got = C.civicLookForStock('F', 'showcase/civicF', noStairs)
+  assert.ok(noStairs(got), got)
+  assert.strictEqual(C.civicLookForStock('F', 'showcase/civicF', () => false), seeded, 'none buildable: the seeded one (its siting waits)')
+})
 await t('loadBlueprint GENERATES a civic id (never a file); the blueprint has the build machinery\'s shape', () => {
   for (const id of ALL) {
     const bp = B.loadBlueprint(id)
