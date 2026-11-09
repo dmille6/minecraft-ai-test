@@ -572,3 +572,35 @@ handicaps stated (A throttled for the Studio; B-qwen3.8 started 14 h late).
   B-qwen3.8 (15:27Z-01:30Z): 9.98 bot-h, 151 verified (**15.1 / bot-h**), 37 projects finished (**3.7 / bot-h**), 27 invented,
   34 unique items, iron by 17:12Z (1 h 45 min), largest structure 78 blocks. Haiku (arm C, 23.43 bot-h): 407 verified
   (**17.4 / bot-h**), 144 projects (**6.1 / bot-h**), 113 invented, 91 unique items, iron in 1 h 34 min.
+
+## 17. Stage 3 verdict (the success-bar read, 11-09 01:26Z, `reports/final.txt`)
+
+The end ran on time: every voyager bot and server stopped; unloaded qwen2.5:7b-instruct (Studio) and qwen3.8:27b (Blackwell);
+qwen3.6:35b-a3b and qwen2.5-coder:32b were not resident (nothing sent); the other project's three Blackwell models untouched.
+
+| Per arm (48 h window) | Haiku 5.5 (C) | B-qwen3.8 (Blackwell) | A Qwen3.6-35B-A3B (Studio, throttled) | Control (fleet harness) |
+|---|---|---|---|---|
+| bot-h connected | 47.2 | 28.1 (from 15:27Z 11-07) | 47.2 | 47.3 |
+| verified tasks (/bot-h) | 743 (15.7) | 351 (12.5) | 18 (0.38) | - |
+| projects finished (/bot-h) | 238 (5.0) | 69 (2.5) | 2 (0.04) | - |
+| invented / reused skills | 156 / 9 | 32 / 0 | 14 / 0 | - |
+| unique items | 122 | 41 | 27 | 33 |
+| tool tier (time from start) | **diamond** (11-08 12:36Z); iron 1 h 34 min | iron 1 h 45 min | iron 14 h 16 min | iron 5 h 46 min |
+| largest structure standing 24 h later (server read) | 85 | 89 | 34 | 60 |
+| deaths (/bot-h) | 1 (0.021) | 0 | 0 | 4 (0.085) |
+| sandbox violations / commands executed | 0 / 0 | 0 / 0 | 0 / 0 (1 attempt blocked at the facade) | 0 / 0 |
+| cost | $12.90 ($0.083 / invented skill) | GPU time | GPU time | GPU time |
+
+Against §8:
+1. **Safety: MET.** No escape, no command executed on any server (one `/difficulty` attempt stopped in the facade).
+2. **Primary (best arm, Haiku): MET.** Stone in 31 min, iron tools in 1 h 34 min (and diamond tools on day 2); 156 invented
+   skills, 9 reused; 238 projects finished; an 85-block structure still standing 24 h later on the server's read; 0.021
+   deaths/bot-h vs the control's 0.085.
+3. **More creative than the control: MET.** 122 unique items vs 33; diamond vs iron.
+4. **Affordability:** Haiku at $0.083 per invented skill is under the $0.25 bar (~$6.45/day for one bot). No local arm
+   reached 50 % of Haiku's reused skills (0 vs 9), so by the written bar none is "worth running every day". By verified tasks
+   per bot-hour B-qwen3.8 reached 80 % of Haiku and 50 % of its projects per bot-hour, at no API cost.
+
+**Verdict: PASS** (bars 1-3 met). Caveats: one seed, one bot per arm; arm A was throttled to protect the showcase brain (its
+numbers measure the throttle as much as the model); B-qwen3.8 ran 28 of the 48 h; reuse stayed low in every arm, the weakest
+part of the loop. Haiku's outputs are evaluation-only, never training data.
