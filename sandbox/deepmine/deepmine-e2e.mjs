@@ -222,7 +222,7 @@ try {
     .replace(/^BOARD_X=.*$/m, `BOARD_X=${HOME.x}`).replace(/^BOARD_Y=.*$/m, `BOARD_Y=${HOME.y}`).replace(/^BOARD_Z=.*$/m, `BOARD_Z=${HOME.z}`)
     .replace(/^CODE_VERSION=.*$/m, `CODE_VERSION=deepmine-${RUN}`)
     .replace(/^WORLD_BORDER_RADIUS=.*$/m, 'WORLD_BORDER_RADIUS=20000')   // the arena is ~10,000 from the origin; gather filters by the border
-  fs.writeFileSync(`${R}/${ENV}`, envSrc + `\nPOOL_STATE_DIR=${POOL}\nDEEPMINE=on\nSHAFT=on\n${['mine', 'gallery'].includes(SCENE) ? 'TOWNMINE=on\n' : 'TOWNMINE=off\n'}`)
+  fs.writeFileSync(`${R}/${ENV}`, envSrc + `\nPOOL_STATE_DIR=${POOL}\nDEEPMINE=on\nSHAFT=on\n${['mine', 'gallery', 'hall'].includes(SCENE) ? 'TOWNMINE=on\n' : 'TOWNMINE=off\n'}`)
   brain = spawn('node', [`${R}/sandbox/sandbox-brain.mjs`, '11499'], { env: { ...process.env, SANDBOX_SCRIPT: 'status' }, stdio: ['ignore', fs.openSync(`${OUT}/${RUN}-brain.log`, 'a'), 'inherit'] })
   await sleep(800)
   botp = spawn('bash', [`${R}/sandbox/run-bot.sh`, ENV], { env: { ...process.env, BOT_ROOT }, stdio: ['ignore', fs.openSync(`${OUT}/${RUN}-bot.log`, 'a'), fs.openSync(`${OUT}/${RUN}-bot.log`, 'a')] })
