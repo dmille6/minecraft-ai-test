@@ -69,6 +69,7 @@ const movesFor = blockAt => {
 }
 const blockAtOf = w => p => { const b = Block.fromStateId(registry.blocksByName[w.name(p.x, p.y, p.z) === 'air' ? 'air' : 'stone'].defaultState, 0); b.position = new Vec3(p.x, p.y, p.z); return b }
 
+const kit = (o = {}) => ({ uses: 200, lowUses: 120, ironUses: 0, seal: 64, free: 20, diamonds: 0, rawIron: 0, torches: 16, ...o })
 console.log('GEOMETRY: THE EXTENSION')
 await t('the extension keeps every built cell where it was (air and tread), 4 orientations x 4 ground levels; the deep part reaches feet -53', () => {
   for (const away of ['n', 's', 'e', 'w']) for (const g of [63, 70, 77, 90]) {
@@ -251,6 +252,57 @@ await t('a stopped extension moves the hall up to the last dry step; a stop at t
   assert.strictEqual(G.planOf(s2).K, rec.K, 'nothing below the landing is planned')
 })
 
+await t('Claude r1 BLOCKER 1: water in an UPPER bay (the town builder\'s upkeep, no sealDeep) drops that bay, never a crash; the plan goes on without it', async () => {
+  const rec = MINED(70, 's'), p = G.planOf(rec)
+  const w = finished(p, world(70), { upto: rec.K })
+  const bay = p.rooms.find(r => r.kind === 'bay' && r.k <= rec.K)
+  for (const c of bay.cols.flatMap(q => q.air)) w.set(c, 'stone')
+  w.set(bay.cols[0].air[0], 'water')
+  const dropped = []
+  const e = fx(w, G.standOf(p, 0))
+  const r = await runStairVisit({ rec, exit: [0, 0, 0], built: new Set(rec.landings_built), onLanding: async () => true, onStop: async () => {}, onDropLanding: async () => { throw new Error('read as a stub') }, onDropRoom: async (k, why) => dropped.push([k, why]) }, e, { maxK: rec.K })
+  assert.strictEqual(r.stop, 'room_dropped')
+  assert.deepStrictEqual(dropped, [[bay.k, 'water']])
+  const rec2 = M.mineRoomDropped(rec, bay.k, { now: 1 })
+  assert.ok(!G.planOf(rec2).rooms.some(q => q.k === bay.k), 'the bay is out of the plan')
+  assert.strictEqual(M.mineRoomDropped(rec2, bay.k), null, 'once')
+  // the water beside the step is now the step's own lining: the upkeep SEALS it (a block placed), never digs a room into it
+  const p2 = G.planOf(rec2), w2 = G.firstUndone(w.read, p2, { maxK: rec.K })
+  assert.deepStrictEqual([w2.kind, w2.k], ['step', bay.k])
+  const op = G.nextOp(w.read, p2, G.unitCells(p2, w2))
+  assert.deepStrictEqual([op.op, op.why, op.at], ['place', 'seal', bay.cols[0].air[0]])
+})
+await t('Claude r1 BLOCKER 2: the trail back from the hall (way.slice(K)) leads onto the way-back route; the far column alone does not', () => {
+  const p = G.planOf(MINED(70, 's'))
+  const way = M.hallRoute(p), back = p.steps.map((_, k) => G.standOf(p, k))
+  const far = way.at(-1)
+  assert.strictEqual(D.routeIndex(back, far), -1, 'the far column is off the route')
+  const tb = D.trailBack(way.slice(p.K), far)
+  assert.ok(tb.length > 1)
+  assert.ok(D.routeIndex(back, tb.at(-1)) >= 0, 'the trail ends on the route')
+  assert.strictEqual(D.trailBack([far], far).filter(c => D.routeIndex(back, c) >= 0).length, 0, 'POSITIVE CONTROL: the old one-point trail never reaches it')
+})
+await t('Claude r1 BLOCKER 3: three build trips that cut nothing park the build (ore trips again) until its retry; a trip that cuts clears it', () => {
+  let rec = MINED(70, 's')
+  for (let i = 0; i < M.STALL_TRIPS; i++) rec = M.mineStallNoted(rec, 0, { now: 100 })
+  assert.strictEqual(rec.ext.state, 'stalled')
+  assert.strictEqual(D.tripTarget(kit(), M.mineState(rec, 200)), 'iron', 'parked: an ore trip')
+  assert.strictEqual(D.tripTarget(kit(), M.mineState(rec, 100 + M.STALL_RETRY_MS)), 'build', 'after the retry: building again')
+  const back = M.mineStallNoted(rec, 5, { now: 300 })
+  assert.deepStrictEqual([back.ext.state, back.ext.stalls], ['open', 0])
+  assert.strictEqual(M.mineStallNoted(M.MINED ?? back, 5), null, 'nothing to clear: no write')
+})
+await t('Codex r1 BLOCKER 2: a fixture\'s wall cell with a liquid (or an unread cell, or sand) at any face is not opened', () => {
+  const p = G.planOf(MINED(70, 's'))
+  const w = finished(p, world(70))
+  const f = p.rooms.find(r => r.kind === 'hall').fixtures[1]
+  assert.strictEqual(M.fixtureCellSafe(w.read, f.at), null, 'POSITIVE CONTROL: rock all round')
+  const behind = [2 * f.at[0] - f.stand[0], f.at[1], 2 * f.at[2] - f.stand[2]]
+  w.set(behind, 'lava'); assert.strictEqual(M.fixtureCellSafe(w.read, f.at), 'wet')
+  w.set(behind, 'stone'); w.set([f.at[0], f.at[1] + 1, f.at[2]], 'gravel'); assert.strictEqual(M.fixtureCellSafe(w.read, f.at), 'falling')
+  w.set([f.at[0], f.at[1] + 1, f.at[2]], 'stone')
+  assert.strictEqual(M.fixtureCellSafe((x, y, z) => (y === f.at[1] - 1 ? null : w.read(x, y, z)), f.at), 'unknown')
+})
 console.log('THE GALLERIES (the live iron-branch failure: 2,030 branches in 3 d started inside the stub and dug nothing)')
 await t('no gallery cell is a cell of the mine (air, tread, lining, fixture); the iron spine starts at the 16 stub\'s end face', () => {
   for (const away of ['n', 's', 'e', 'w']) for (const g of [63, 70, 90]) {
@@ -305,7 +357,6 @@ await t('the extension\'s siting refuses a protected cell; the old stair\'s cell
 })
 
 console.log('THE DEEP MINER')
-const kit = (o = {}) => ({ uses: 200, lowUses: 120, ironUses: 0, seal: 64, free: 20, diamonds: 0, rawIron: 0, torches: 16, ...o })
 await t('tripTarget: an open mine is built first; finished, stopped, unsited or a thin bag: the trips as before', () => {
   assert.strictEqual(D.tripTarget(kit(), { sited: true, complete: false, stopped: false }), 'build')
   assert.strictEqual(D.tripTarget(kit(), { sited: true, complete: true, stopped: false }), 'iron')
