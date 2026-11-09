@@ -1497,7 +1497,7 @@ export function bandTrees (read, { home, box, inBand = () => true, corridor = ()
  * do in this stage (the caller moves to the next). townterrace-01: the terrace stage returns a PROMISE (terrace.mjs siteTerrace);
  * callers await siteStage.
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, env = process.env, L = LAND } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, classic = true, env = process.env, L = LAND } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
@@ -1617,7 +1617,9 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     return { ok: true, why: 'ok', record, survey: sv, road: null }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
-  const survey = st.rMax > 0 ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin, water, waterOk }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
+  // country-01: `classic: false` -- the band's own survey alone (surveyInwall over the band's columns, which keeps off the wall boxes),
+  // never tidy-01's square survey (it reaches inside the wall when a country band starts at 0)
+  const survey = st.rMax > 0 && classic !== false ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin, water, waterOk }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
   if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, road: null }
   const rcols = stageRoadCols(land, st, { L })
   let road = rcols.length ? roadWork(read, rcols, { home, cells, avoid, waterOk, lim: { ...(lim ?? gradeLim(read, 6, water)), water } }) : { cut: [], fill: [], clear: [], trees: [], skipped: {} }
