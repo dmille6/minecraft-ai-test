@@ -134,9 +134,10 @@ export function orientAim (name, ws, face) {
     return cursor ? { yaw: null, cursor } : null
   }
   // fences-01: A FENCE GATE faces the way the placer looks (Paper: the player's horizontal facing, as a stair's); in line with a fence
-  // along x it faces north or south. Any face: the yaw alone sets it
+  // along x it faces north or south. Any face: the yaw alone sets it. pens-01: a gate is placed closed (an open state is the server's)
   if (GATE.test(n)) {
     if (ws.facing && YAW_OF[ws.facing] == null) return null
+    if (ws.open === true || ws.open === 'true') return null
     return { yaw: ws.facing ? YAW_OF[ws.facing] : null, cursor: centre }
   }
   if (LANTERN.test(n)) {
