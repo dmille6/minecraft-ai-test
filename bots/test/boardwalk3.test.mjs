@@ -308,5 +308,17 @@ await t('the visit row keeps every key inside the logger\'s 300 characters', asy
   assert.ok(d.length <= 300, d.length); assert.ok(/^op=visit lines=977 walk=117 standing=2402 .* stop=cell_deferred why=x+$/.test(d))
 })
 
+await t('fold (Codex BLOCKERS): the water visit guards bridges and the tidy, reads every record strictly, and re-reads its guard before each dig', () => {
+  const one = (needle, what) => assert.equal(SK.split(needle).length, 2, what)
+  one('    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT])]', 'the tidy\'s cells are guarded too')
+  one('      const h = recordHead(dir, projKeyOf(pl))\n      if (!h.ok) return null', 'one unreadable record: no visit')
+  one('    for (const k of bridgeCellKeys(bs)) out.add(k)', 'every bridge site\'s planned cells')
+  one('    if (bs == null) return null', 'an unreadable bridges file: no visit')
+  one("  if (!guard) return no('record_unreadable')", 'the visit refuses on null')
+  one("      tidyOk: q => { const g = guardNow(); if (g) guard = g; return !!g && !g.has(q.at.join(',')) } },", 'the guard re-read before each dig')
+  const vb = SK.slice(SK.indexOf('async function waterWalkVisit ('), SK.indexOf('async function waterWalkVisit (') + 1500)
+  assert.ok(vb.length > 100 && !vb.includes('projectHeads()'), 'the swallowing reader is gone from the visit')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

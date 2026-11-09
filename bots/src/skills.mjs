@@ -26397,6 +26397,23 @@ function bw3Doc (pool) {
   bw3Docs.set(pool, d)
   return d
 }
+/** boardwalk-03 fold: the water visit's guard -> Set("x,y,z") | null (null: a record or the bridges file could not be read). */
+function bw3GuardStrict () {
+  try {
+    const dir = townDir()
+    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT])]
+    const out = new Set()
+    for (const pl of plots) {
+      const h = recordHead(dir, projKeyOf(pl))
+      if (!h.ok) return null
+      for (const q of h.head?.rec?.cells ?? []) if (Array.isArray(q?.at)) out.add(q.at.join(','))
+    }
+    const bs = exBridgeSitesStrict()
+    if (bs == null) return null
+    for (const k of bridgeCellKeys(bs)) out.add(k)
+    return out
+  } catch { return null }
+}
 /** Is the water visit due for this bot now (switch, clock)? Pure but for the switch. */
 export const bw3Due = (bot, now = Date.now(), every = BW3.everyMs) => BW3S.on && now - (Number(bot?.bw3At) || 0) >= every
 /** One water visit -> { tried, status, why, placed, cleared, stop }. `tried` false: nothing was walked to or dug (no file, no work). */
@@ -26407,8 +26424,13 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
   const home = planHomeP()
   const ev = bw3Evidence(bw3Doc(config.memory.pool), { pool: config.memory.pool, home })
   if (!ev.ok) return no(ev.why)
-  let guard
-  try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return no('record_unreadable') }
+  // boardwalk-03 fold (Codex BLOCKERS): the guard is every guarded project's cells read STRICTLY (one unreadable record: no visit),
+  // the tidy's own cells (its fills: a helper's dirt at a listed cell is the tidy's, never dug back), every bridge site's planned
+  // cells (bridgepost/boardwalk-01/bridges-01 decks, piers, supports, rails; an unreadable bridges file: no visit); and it is read
+  // AGAIN before each dig (tidyOk), so a cell a project or the tidy claims during the visit is never dug
+  const guardNow = () => bw3GuardStrict()
+  let guard = guardNow()
+  if (!guard) return no('record_unreadable')
   const read = planReader(bot)
   const w = bw3Work(ev.lines, read, { guard: k => guard.has(k), walkOn: BW3S.walk, home })
   const mem = (bot.bw3Given ??= new Map())
@@ -26469,7 +26491,8 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     const stood = stoodRead(dir, stoodKey(), home)
     const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, tidyKeepOrder: true, recordGen: rh.head.gen, foreign: BOT_MAT_RE, palette: BW3_PALETTE, res: null, resFailed: false,
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.bw3Stands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, intoWater: true, alsoDone: q => guard.has(q.at.join(',')) },
+      domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, intoWater: true, alsoDone: q => guard.has(q.at.join(',')),
+      tidyOk: q => { const g = guardNow(); if (g) guard = g; return !!g && !g.has(q.at.join(',')) } },
     effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts: TIDY_CUT_TRIES visits)
     const read2 = tidyRead(bot)
