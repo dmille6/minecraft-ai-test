@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-09T10:20:01Z._
+_Generated 2026-11-09T11:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-09T10:20:01Z._
 | **Canary in slot** | **stuckclose-01** deployed 11-09 08:27Z; reads +90 11-09 09:57Z, +180 11-09 11:27Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | workboard-01 -> stoneworks-01 -> glass-01 -> boardwalk-03 -> villageunlock-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> market-02 -> +14 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: bcdba35ffe440d27a2582ea8d0905d50f82e098a on hive-b,board-a / S6 open loop: canary bcdba35 is deployed on hive-b,board-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 stuckclos |
-| **Showcase release** | `4efbf768` (27,577 rows), `9b4da875` (8,456 rows), `2de5befb` (4,305 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 4efbf768's protected tree: restack by hand; row 11-09 09:25Z) |
+| **Showcase release** | `4efbf768` (21,376 rows), `2de5befb` (15,295 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 2de5befb's protected tree: restack by hand; row 11-09 10:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports?; **zoneguard-1109**: zoneguard-01show: accept that a drowning/suffocating bot no longer digs a tripwire-baseline cell for air, and that pours whose flow could reach a guarded cell are refused? |
 | **Projects (daily audit)** | project audit fleet (11-08T12:05Z, 7 d, 169 projects, 13,793,865 lines / 80 bots): 5 underused, 87 effective, 51 unmeasured, 26 -; showcase: project audit showcase (11-08T12:05Z, 7 d, 33 projects, 1,795,088 lines / 15 bots): 2 broken, 1 underused, 13 effective, 12 unmeasured, 5 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-09T09:35:01Z STALLED: 119. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 90 active alarm(s): stuck goals 22 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-c/shaft@355_73_147, board-c/tidy@355_73_147, board-d/tidy@355_73_147, hive-a/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:gkwork-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-09T10:35:01Z STALLED: 120. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 92 active alarm(s): stuck goals 23 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-c/shaft@355_73_147, board-c/tidy@355_73_147, board-d/tidy@355_73_147, hive-a/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:gkwork-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
