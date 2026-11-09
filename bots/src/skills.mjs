@@ -194,7 +194,7 @@ import { accessNoStair } from './tidy.mjs'   // the showcase batch fold: the sto
 import { terraceSkip, parkBill, PARK_ROLES, OPEN_ROLES, HOE_RE, TILL_RE } from './park.mjs'   // townterrace-01: the park
 import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantrySum, parkHeldByCrew, spareOf } from './park.mjs'   // gkhelpers-01: the park gather
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
-import { helperWorked, helpersCap } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
+import { helperWorked, helpersCap, tidyShare } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
@@ -26179,8 +26179,18 @@ async function buildTidyVisit (ctx, args, signal) {
     // a previous fill under one of this stage's cuts would hide the cut from clears())
     const recV = isTerrace ? { ...visitRec, cells: (visitRec.cells ?? []).filter(q => !q.prev), clear: (visitRec.clear ?? []).filter(q => (q.prep || !guardNow(q.at[0], q.at[2])) && !keptLogK.has(q.at.join(','))) } : visitRec
     // gkleft-01 (Codex r1 BLOCKER): a clear the town waived is never dug again (tidy.mjs dropWaivedClears)
+    // fillshare-01 (groundskeeper.mjs tidyShare): while the stage's fills are further behind than its cuts, a helper fills first and the
+    // keeper digs a few cuts before the fills -- only with a fill segment workable and earth in the bag (else the cuts as before)
+    let share = { clearMax: GK.clearMax, clearsLast: false, behind: false }
+    if (GROUNDS.on && !floorOnly && !prepNow && cuts.length) {
+      try {
+        const fillReady = !!workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: true }) && TIDY_PALETTE.earth.some(n => n !== '*solid' && !!effects?.has?.(n))
+        share = tidyShare({ role, fillsLeft: open + openSoil + openAccess, fillsTotal: (visitRec.cells ?? []).filter(q => !q.prev).length, cutsLeft: cuts.length, cutsTotal: (rec.cut ?? []).length, fillReady })
+      } catch { /* the cuts as before */ }
+      if (share.behind) f.share = `${share.clearsLast ? 'last' : share.clearMax}`
+    }
     const r = await runVisit({ dir, key, me, home, stood, record: GKW_ON ? dropWaivedClears(recV) : recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q), stuckStalledOnly: true,
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)

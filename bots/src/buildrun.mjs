@@ -987,7 +987,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // reroof-04 (`p.stairFirst`): a record whose TEMPORARY stair (cells marked temp) still stands open builds it before any clear -- its
   // proof reached the digs over the stair; clears() runs again once that segment finishes (the `finished` pass below)
   const stairOpen = !!p.stairFirst && record.cells.some(c => c?.temp === 1 && !isDone(c))
-  if (!stairOpen) { const s = await clears(); if (s) { out.stop = s; return out } }
+  // fillshare-01 (`p.clearsLast`, groundskeeper.mjs tidyShare): the segments (a crew helper's fills) first, the clears only with the
+  // time left at the loop's end -- never the first pass, never the pass after a finished segment
+  if (!stairOpen && !p.clearsLast) { const s = await clears(); if (s) { out.stop = s; return out } }
 
   // ---- 3. segments ------------------------------------------------------------------------------------------------------------
   // F4 (Paper 10-26 SHOP-TERRAIN hive-c: `no_step earth: 1 open` every visit): a cell no stand reaches is DEFERRED -- the visit
@@ -1409,8 +1411,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (v === 'silent') out.silent++
       }
     } finally { PJ.releaseLease(dir, key, `seg-${seg}`, me, segGen); out.segs.push(row); e.log('_build_seg', { seg, open: row.open, done: row.done }) }
-    if (finished) { const s = await clears(); if (s) { out.stop = s; return out } }
+    if (finished && !p.clearsLast) { const s = await clears(); if (s) { out.stop = s; return out } }
   }
+    // fillshare-01: the clears last, inside the try (an early stop here still settles the stuck map in the finally)
+    if (p.clearsLast) { const s = await clears(); if (s) { out.stop = s; return out } }
     reachedEnd = true
   } finally {
     // an early exit (any `return out` above): count this visit's deferrals; the early stop stands, except a map that cannot be
