@@ -34,7 +34,7 @@ ap.add_argument('--min-trips', type=int, default=40)
 ap.add_argument('--dry', action='store_true')
 a = ap.parse_args()
 POOLDIR = a.pooldir or f'/var/lib/mcai/_pool-{a.pool}'
-LOGS = a.logs or (f'/var/log/mcai/{a.pool}-*/skill-*.jsonl*' if a.pool == 'showcase' else f'/var/log/mcai/*/skill-*{a.pool}*.jsonl*')
+LOGS = a.logs or f'/var/log/mcai/{a.pool}-*/skill-*.jsonl*'
 HX, HY, HZ = (int(v) for v in a.home.split('_'))
 now = datetime.datetime.now(datetime.timezone.utc)
 since = now - datetime.timedelta(days=a.days)

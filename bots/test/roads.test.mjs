@@ -213,6 +213,22 @@ await t('MUTANT KILLED: without the own-column refusal the road is laid over the
   })
 })
 
+await t('Codex r1 BLOCKER: a verge column beyond the cross-sections (an end cap, a corner diagonal) on another record is left alone -- no fill, no clear', () => {
+  // three nodes ending at (34, 0): the end cap's diagonal verge (35, 3) holds another project's log; guard and own both protect it
+  const extra = new Map([['35,65,3', { name: 'oak_log', boundingBox: 'block' }], ['35,66,3', { name: 'oak_log', boundingBox: 'block' }]])
+  const read = world({ extra })
+  const prot = (x, z) => x === 35 && z === 3
+  const nodes = [32, 33, 34].map(x => ({ x, z: 0, L: 64, d: 0, s: 3, t: 3 }))
+  const col = (x, z) => RD.roadColumn(read, x, z, 90, 50)
+  const r = RD.roadInstance('R9', nodes, { col, style: RD.roadStyle2(1, {}), lamp: false, read, guard: (x, z) => (prot(x, z) ? 'project:x' : null), own: prot })
+  assert.strictEqual(r.ok, true)
+  assert.ok(!r.clear.some(c => c.at[0] === 35 && c.at[2] === 3), 'the protected log is in the clear list')
+  assert.ok(!r.cells.some(c => c.at[0] === 35 && c.at[2] === 3), 'a cell on the protected column')
+  // positive control: unprotected, the same verge's log above the road level IS cleared (the verge clears its logs)
+  const r2 = RD.roadInstance('R9', nodes, { col, style: RD.roadStyle2(1, {}), lamp: false, read })
+  assert.ok(r2.clear.some(c => c.at[0] === 35 && c.at[2] === 3), 'positive control: the verge clears an unprotected log')
+})
+
 await t('a reservation (the guard) is never paved; the router stays out of the town (`forbid`)', () => {
   const guard = (x, z) => (x >= 25 && x <= 27 && z >= -20 && z <= 2 ? 'project:tower' : null)
   const { rec } = siteAll(world(), { guard })

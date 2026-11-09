@@ -378,13 +378,14 @@ export function gradeOf (paved, tail = [], land = null) {
  * ONE ROAD INSTANCE from routed nodes -> { cells, clear, segments, palette, box, zones, approach, end, tail, lamps, ok, why }. Pure.
  * `prevEnd` the node the instance continues from ({ x, z, L, d, s, t, chain }), `tail` the previous instance's last paved rows,
  * `land` the landing column (the first instance: the ring-gap column it starts from), `col(x, z)` the ground scan (roadColumn),
- * `style` (roadStyle2), `lamp` (posts on), `read` the world (the clears' names).
+ * `style` (roadStyle2), `lamp` (posts on), `read` the world (the clears' names), `guard` / `own` (the router's: a verge column beyond
+ * its cross-sections -- an end cap, a corner's diagonal -- that either refuses is left as it is).
  * Cells (roles namespaced by the instance id): the surface (tread, accent, kerb; a SLAB row in slabs with ws type=bottom), the fill
  * under it (core: any solid, the bag's cobblestone first), the verge fill (to L - 1, its top cell dirt), the lamp posts (a fence or a
  * log, axis y; a lantern on it). Clears: logs and leaves over the paved and verge columns up to L + 3, and every cut (natural ground above L).
  * Segments: every ROADS.segNodes nodes' cells (`<id>-P<k>`, each after the one before), the lamps last (`<id>-PL`).
  */
-export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = null, col, style, lamp = true, read, chain0 = 0 } = {}) {
+export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = null, col, style, lamp = true, read, chain0 = 0, guard = () => null, own = () => false } = {}) {
   const paved = pavedColumns(nodes, chain0)
   const gr = gradeOf(paved, tail, land)
   if (!gr.ok) return { ok: false, why: 'grade', bad: gr.bad }
@@ -421,9 +422,11 @@ export function roadInstance (id, nodes, { prevEnd = null, tail = [], land = nul
     const q = verge.get(k)
     if (!q || c.L > q.L) verge.set(k, { x: c.x + dx, z: c.z + dz, L: c.L, t: c.t })
   }
-  for (const v of verge.values()) {
+  // Codex r1 BLOCKER: a verge column is beyond the router's cross-sections at an end cap or a corner's diagonal -- it is validated here
+  // as they are (another record's cell column, a reservation, the landing): such a column gets no fill, no clear and no lamp
+  for (const [k, v] of [...verge]) {
     const g = col(v.x, v.z)
-    if (g.why) continue
+    if (g.why || own(v.x, v.z) || guard(v.x, v.z, Math.min(g.g, v.L) - 1, v.L + 4) || (land && land.x === v.x && land.z === v.z)) { verge.delete(k); continue }
     v.g = g.g
     const seg = segOf(v.t)
     if (g.g < v.L - 1) {
@@ -574,7 +577,7 @@ export function siteRoad2 (read, ctx = {}) {
     for (let a = 0; a <= ROADS.proofRetries; a++) {
       r = routeRoad(read, { line: route.line, start, guard: g2, hy: home.y, forbid, own })
       if (!r.ok || !r.nodes.length) break
-      inst = roadInstance(id, r.nodes, { prevEnd: last ? last.end : null, tail: last?.tail ?? [], land, col, style, lamp, read, chain0 })
+      inst = roadInstance(id, r.nodes, { prevEnd: last ? last.end : null, tail: last?.tail ?? [], land, col, style, lamp, read, chain0, guard: g2, own })
       if (!inst.ok) break
       // the proof: the town walk (the road's slab rows floors) reaches the approach; every cell has a step, segment by segment
       const floors = new Set([...roadFloors(rec), ...inst.cells.filter(c => c.ws?.type === 'bottom').map(c => kOf(c.at))])
