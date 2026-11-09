@@ -35,7 +35,9 @@ export const PA = Object.freeze({
   passes: 8,           // re-walks of the fixed point (the showcase's stage: 5)
   budgetMs: 20_000,    // the check's wall-clock budget inside a 180 s visit; past it the stage publishes untagged
   sliceMs: 40,         // the event loop handed back this often (siteBlueprintAsync's slice)
-  suspect: 0.15,       // a tag share above this is a wrong walk, not a dead stage (the replay: 5%): no tags
+  suspect: 0.15,       // a tag share above this is a wrong walk, not a dead stage (the replay: 5%): no tags ...
+  suspectMin: 24,      // ... once more than this many are tagged (a stage's last few dead cells are often ALL its open work:
+                       // fleet hive-a 11-09, 7 of 7 open cuts reached by no order; board-b 1 of 1 fill)
   waiveMax: 12,        // tagged cells waived in one visit (gkwork GKL.leftMax)
   share: 0.25,         // the stage's waived total at most this share of its cells + clears (gkwork GKW.stallShare)
 })
@@ -130,14 +132,14 @@ export async function planReachAsync (read, fills, cuts, ctx = {}, { sliceMs = P
 }
 
 /**
- * THE RECORD'S REACH TAG -> the `reach` field. Pure. A proven check whose tagged share of the open work is over PA.suspect is
+ * THE RECORD'S REACH TAG -> the `reach` field. Pure. A proven check tagging more than PA.suspectMin cells AND over PA.suspect of the open work is
  * `suspect` and tags nothing (the replay's dead share is 5%: a third of a stage "unreachable" is a wrong seed or walk, never believed).
  */
-export function reachTag (r, { now = Date.now(), suspect = PA.suspect } = {}) {
+export function reachTag (r, { now = Date.now(), suspect = PA.suspect, suspectMin = PA.suspectMin } = {}) {
   const open = (r?.open?.fills ?? 0) + (r?.open?.cuts ?? 0)
   const pu = Array.isArray(r?.pu) ? r.pu : []
   let state = r?.state === 'proven' ? 'proven' : 'unchecked'
-  if (state === 'proven' && open > 0 && pu.length / open > suspect) state = 'suspect'
+  if (state === 'proven' && open > 0 && pu.length > suspectMin && pu.length / open > suspect) state = 'suspect'
   return { v: 1, at: now, state, open, pu: state === 'proven' ? pu : [], n: pu.length, passes: r?.passes ?? 0, checked: r?.checked ?? 0, ms: r?.ms ?? null }
 }
 /** The record's tagged keys -> Set. Pure. Only a `proven` tag counts. */

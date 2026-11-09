@@ -104,14 +104,16 @@ await t('planReachAsync gives the same answer cooperatively and stops on its bud
 })
 
 console.log('THE TAG, THE PLAN WAIVER, THE SUPPLY')
-await t('reachTag: a proven 5% is believed; over 15% is suspect and tags nothing; unchecked tags nothing', async () => {
+await t('reachTag: a proven 5% is believed; over 15% AND over 24 cells is suspect and tags nothing; a few dead cells are believed; unchecked tags nothing', async () => {
   const ok = PA.reachTag({ state: 'proven', open: { fills: 95, cuts: 5 }, pu: ['1,2,3', '4,5,6', '7,8,9', '1,1,1', '2,2,2'] })
   assert.strictEqual(ok.state, 'proven'); assert.strictEqual(ok.pu.length, 5)
-  await killedBy(PA_PATH, PA, '  if (state === \'proven\' && open > 0 && pu.length / open > suspect) state = \'suspect\'', '  if (false) state = \'suspect\'', M => {
-    const sus = M.reachTag({ state: 'proven', open: { fills: 10, cuts: 0 }, pu: ['1,2,3', '4,5,6'] })
+  await killedBy(PA_PATH, PA, '  if (state === \'proven\' && open > 0 && pu.length > suspectMin && pu.length / open > suspect) state = \'suspect\'', '  if (false) state = \'suspect\'', M => {
+    const sus = M.reachTag({ state: 'proven', open: { fills: 100, cuts: 0 }, pu: Array.from({ length: 30 }, (_, i) => `${i},70,0`) })
     assert.strictEqual(sus.state, 'suspect'); assert.deepStrictEqual(sus.pu, []); assert.strictEqual(M.puKeys({ reach: sus }).size, 0)
   })
   assert.deepStrictEqual(PA.reachTag({ state: 'unchecked', pu: ['1,2,3'] }).pu, [])
+  // a stage's last few dead cells ARE its open work (fleet hive-a: 7 of 7 cuts): believed under suspectMin
+  assert.strictEqual(PA.reachTag({ state: 'proven', open: { fills: 0, cuts: 7 }, pu: ['1,2,3', '4,5,6', '7,8,9', '1,1,1', '2,2,2', '3,3,3', '4,4,4'] }).state, 'proven')
 })
 const REC = { cells: [{ at: [1, 70, 1], role: 'earth' }, { at: [2, 70, 2], role: 'core', opener: [2, 71, 2] }, { at: [3, 70, 3], role: 'earth' }, { at: [4, 70, 4], role: 'earth' }], clear: [], waived: {} }
 const tagged = (rec, pu) => ({ ...rec, reach: PA.reachTag({ state: 'proven', open: { fills: 40, cuts: 0 }, pu }) })
