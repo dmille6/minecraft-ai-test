@@ -101,8 +101,9 @@ await t('the monument and the tree farm draw under the hold (two calls); the wor
   assert.strictEqual(holdCalls(SK), 2)
   assert.strictEqual((SK.match(/const need = needFromTown\(want, spare0\)\n/g) ?? []).length, 1, 'the workshop/house call keeps no hold')
 })
-await t('the monument, wall and tree-farm bank-backs use the light gate (three); the workshop keeps its own', () => {
-  assert.strictEqual(gateCalls(SK), 3)
+// roads-01: the road's visit (skills.mjs buildRoad) uses the light gate too -- four
+await t('the monument, wall, tree-farm and road bank-backs use the light gate (four); the workshop keeps its own', () => {
+  assert.strictEqual(gateCalls(SK), 4)
   assert.strictEqual((SK.match(/if \(left\.length && SHOP_SKILL_MS - \(Date\.now\(\) - t0\) >= SHOP_BANK_MIN_MS\)/g) ?? []).length, 1)
 })
 await t('the craft tries tableCandidates before the carried table', () => {
@@ -116,7 +117,7 @@ await t('MUTANTS KILLED: the wiring checks fail on the base\'s source', () => {
   assert.strictEqual(holdCalls(strip(src.replace(a, '    const need = needFromTown(want, spare0)'))), 1)
   const g = '    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, caps, {'
   assert.strictEqual(src.split(g).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  assert.strictEqual(gateCalls(strip(src.replace(g, '    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, caps, {'))), 2)
+  assert.strictEqual(gateCalls(strip(src.replace(g, '    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, caps, {'))), 3)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
