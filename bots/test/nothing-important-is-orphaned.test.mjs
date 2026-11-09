@@ -43,6 +43,7 @@ const REQUIRED = [
   'bots/test/tidydead.test.mjs',
   'bots/src/stuckclose.mjs',   // stuckclose-01 (11-08): a tidy stage whose last cuts the town cannot reach closes
   'bots/test/stuckclose.test.mjs',   // stuckclose-01 (11-08)
+  'bots/test/cobbleroom.test.mjs',   // cobbleroom-01 (11-09): cobble below the cap with no room to bank it goes down the well
   // stuckproj-01 (11-05): canopy-01 (a tree grown on a build is cut back so a stand sees the cell) + starve-01 (a starved open project gets a builder)
   'bots/src/canopy.mjs',
   'bots/test/stuckproj.test.mjs',
