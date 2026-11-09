@@ -216,13 +216,14 @@ await t('SMELT LATE DROP: the furnace\'s drop lands late and outside the pickup 
   assert.ok(rows.some(x => x.kind === '_station_retaken' && x.status === 'success' && /outcome=back why=dug_and_back_in_the_bag_after_walking_into_its_pickup_box/.test(x.detail)), JSON.stringify(rows.filter(x => /station/.test(x.kind))))
 })
 
-async function cancelledRun (S, { swap = false } = {}) {
+async function cancelledRun (S, { swap = false, replace = false } = {}) {
   const n = await mark()
   let k = 0
   const w = makeBot(kit(), {
     onDig: (b, { setBlock }) => {
       if (b.name !== 'furnace' || k++ > 0) return
       if (swap) setBlock(b.position, 'cobblestone')   // another hand changed the cell while the bot was knocked off its dig
+      if (replace) { setBlock(b.position, 'air'); setBlock(b.position, 'furnace') }   // broken and RE-PLACED: same name, not ours (Codex r1)
       throw new Error('Digging aborted')
     },
   })
@@ -243,6 +244,13 @@ await t('SMELT CANCELLED DIG, CELL CHANGED: no retry -- the cobblestone now ther
   assert.ok(rows.some(x => x.kind === '_station_retaken' && /outcome=failed why=dig:_Digging_aborted/.test(x.detail)))
 })
 
+await t('SMELT CANCELLED DIG, STATION RE-PLACED (Codex r1 blocker): a furnace broken and put back in the gap is not ours -- never dug', async () => {
+  const { digs, rows, world, have } = await cancelledRun(SKILLS, { replace: true })
+  assert.equal(digs.length, 0, JSON.stringify(digs))
+  assert.ok([...world.values()].includes('furnace')); assert.equal(have('furnace'), 0)
+  assert.ok(rows.some(x => x.kind === '_station_retaken' && /outcome=failed why=dig:_Digging_aborted/.test(x.detail)), JSON.stringify(rows.filter(x => /station/.test(x.kind))))
+})
+
 // ---------------------------------------------------------------------------------------------- wiring (structural)
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '')
 const CODE = strip(readFileSync(path.join(SRC, 'skills.mjs'), 'utf8'))
@@ -250,11 +258,13 @@ const fnBody = name => { const i = CODE.indexOf(`async function ${name}`); asser
 await t('wiring: craft\'s table retake looks for its drop over time and retries a cancelled dig, as the furnace\'s does', () => {
   const tw = fnBody('retakeWatched')
   assert.match(tw, /sbOn\(\) \? await waitStationDrop\(bot, \{ at, name: 'crafting_table'/)
-  assert.match(tw, /await digWithRetry\(\{ bot, sleep, signal, dig: again => retryDig\(bot, again, block, signal, beforeDig, at, 'crafting_table'\)/)
+  assert.match(tw, /const rw = retryWatch\(bot, at, 'crafting_table'\)\n\s*try \{\n\s*const r = await digWithRetry\(\{ bot, sleep, signal, dig: again => retryDig\(bot, again, block, signal, beforeDig, at, 'crafting_table', rw\), recheck: \(\) => retryRecheck\(bot, rw, at, 'crafting_table'\) \}\)/)
+  assert.match(tw, /\} finally \{ rw\?\.stop\(\) \}/)
   const rs = fnBody('retakeStation')
   assert.match(rs, /if \(!back && sbOn\(\)\) \{/)
   assert.match(rs, /await chaseStationDrop\(bot, \{ at, name, before, signal, Goal: pickupGoalClass\(goals\)/)
-  assert.match(rs, /await digWithRetry\(\{ bot, sleep, signal, dig: again => retryDig\(bot, again, block, signal, beforeDig, at, name\)/)
+  assert.match(rs, /const rw = retryWatch\(bot, at, name\)\n\s*try \{\n\s*const r = await digWithRetry\(\{ bot, sleep, signal, dig: again => retryDig\(bot, again, block, signal, beforeDig, at, name, rw\), recheck: \(\) => retryRecheck\(bot, rw, at, name\) \}\)/)
+  assert.match(rs, /\} finally \{ rw\?\.stop\(\) \}/)
 })
 
 // ---------------------------------------------------------------------------------------------- mutants
@@ -264,6 +274,14 @@ async function withSkillsMutant (old, neu, fn) {
   assert.equal(src.split(old).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE in skills.mjs: ${old.slice(0, 70)}`)
   const tmp = path.join(SRC, `_mut_${process.pid}_${Math.random().toString(36).slice(2)}_skills.mjs`)
   writeFileSync(tmp, src.replace(old, neu))
+  try { return await fn((await import(`${tmp}?${Date.now()}`)).SKILLS) } finally { unlinkSync(tmp) }
+}
+async function withSkillsMutants (pairs, fn) {
+  const p = path.join(SRC, 'skills.mjs')
+  let src = readFileSync(p, 'utf8')
+  for (const [old, neu] of pairs) { assert.equal(src.split(old).length - 1, 1, `ANCHOR MISSING OR NOT UNIQUE in skills.mjs: ${old.slice(0, 70)}`); src = src.replace(old, neu) }
+  const tmp = path.join(SRC, `_mut_${process.pid}_${Math.random().toString(36).slice(2)}_skills.mjs`)
+  writeFileSync(tmp, src)
   try { return await fn((await import(`${tmp}?${Date.now()}`)).SKILLS) } finally { unlinkSync(tmp) }
 }
 async function withSbMutant (old, neu, fn) {
@@ -282,7 +300,7 @@ await t('MUTANT KILLED: without the chase (the base: bag reads only) the late fu
   })
 })
 await t('MUTANT KILLED: without the retry (the base) a cancelled dig leaves the furnace standing', async () => {
-  await withSkillsMutant("      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, name), recheck: () => stationStill(bot, at, name) })",
+  await withSkillsMutant("      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, name, rw), recheck: () => retryRecheck(bot, rw, at, name) })",
     "      const r = (await collectManually(bot, block, signal, { beforeDig }), { retried: false })", async S => {
       const { have, world } = await cancelledRun(S)
       assert.equal(have('furnace'), 0, 'the mutant took it back anyway')
@@ -302,6 +320,18 @@ await t('MUTANT KILLED: a retry that skips the re-check digs whatever now stands
     await M.digWithRetry({ bot: {}, sleep, on: true, dig: async again => { digs++; if (!again) throw new Error('Digging aborted') }, recheck: () => null })
     assert.equal(digs, 2, 'the mutant dug the changed cell')
   })
+})
+
+await t('MUTANT KILLED: ownership by name only (r1: re-check and swing guard blind to the watch) digs a station re-placed in the gap', async () => {
+  await withSkillsMutants([
+    ['function retryRecheck (bot, rw, at, name) { return rw && !rw.changed ? stationStill(bot, at, name) : null }', 'function retryRecheck (bot, rw, at, name) { return stationStill(bot, at, name) }'],
+    ["      if (w.changed) throw Object.assign(new Error(`changed before the retry (${w.changed}); not provably ours`), { failClass: 'not_ours' })\n", ''],
+  ], async S => {
+      let k = 0
+      const { bot, digs } = (() => { const w = makeBot(kit(), { onDig: (b, { setBlock }) => { if (b.name !== 'furnace' || k++ > 0) return; setBlock(b.position, 'air'); setBlock(b.position, 'furnace'); throw new Error('Digging aborted') } }); return w })()
+      await smeltWith(S, bot)
+      assert.equal(digs.filter(d => d.name === 'furnace').length, 1, 'the mutant left the re-placed furnace: the test proves nothing')
+    })
 })
 
 console.log(`\nstationsback: ${pass} passed, ${fail} failed`)
