@@ -374,7 +374,7 @@ await t('STRUCTURE: skills.mjs hands the road siting its routes, kits a road vis
   const fnAt = src.lastIndexOf('async function buildSink', kitAt)
   const held0At = src.indexOf('const held0 = heldMap(bot)', fnAt)
   assert.ok(fnAt > 0 && held0At > kitAt, 'the kit comes before the visit takes held0')
-  assert.ok(/\.\.\.\(kind === 'road' \? \{ floors: roadFloors\(rec\) \} : \{\}\)/.test(src), 'runVisit gets the road\'s slab floors')
+  assert.ok(/\.\.\.\(kind === 'road' \? \{ floors: roadFloors\(rec\) \} : \{\}\), \.\.\.sinkVisitOpts\(rec, home\)/.test(src), 'runVisit gets the road\'s slab floors')
   assert.ok(/roadOwn && \/\^\(land:road\|project:paths\)\//.test(src), 'the road guard opens the land plan\'s road corridors')
   assert.ok(/max: kind === 'road' && roads2On\(\) \? ROADS\.instancesMax : null/.test(src), 'the gate gets the road2 instance cap')
 })
