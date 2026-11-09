@@ -186,26 +186,70 @@ export function deepNameBlocked (zones, x, y, z, name, feet = null, { on = true 
   return null
 }
 
-/** How far a poured liquid may run toward a guarded cell (water's 7 on level ground, a fall's fresh 7 below it, and margin). */
-export const LIQUID_REACH = 16
+/** One fall renews a liquid's horizontal run (water 7; lava 3 in the overworld, taken as 7): the prefilter's bound per level. */
+export const LIQUID_SPREAD = 7
+/** The flow search's bound: past it the pour is refused (a flow nobody traced is not a safe flow). */
+export const LIQUID_MAX_NODES = 4000
+
 /**
- * A LIQUID POURED HERE COULD REACH A BASELINE CELL -> zone | null (Codex r1 blocker 2: a bucket pour is no placement the
- * chokepoint sees -- activateItem -- and water washes away a torch, lava sets planks alight). Pure. Any S_CELL within `reach`
- * horizontally (Chebyshev) and no higher than one above the pour (a liquid never runs uphill). Bounded: (2r+1)^2 column
- * lookups per zone, a pour is rare.
+ * COULD A LIQUID POURED HERE REACH A BASELINE CELL AT ALL? -> zone | null. Pure, the cheap prefilter (Codex r1 blocker 2, r2: a
+ * fixed radius does not bound DOWNHILL flow -- every drop renews the run). A baseline column whose lowest cell is no higher
+ * than one above the pour, within (LIQUID_SPREAD + 1) per level of drop horizontally, is a candidate; liquidFlowReaches decides.
  */
-export function liquidReaches (zones, p, reach = LIQUID_REACH) {
+export function liquidReaches (zones, p) {
   if (!zones || !zones.length || !p) return null
   const px = Math.floor(p.x), py = Math.floor(p.y), pz = Math.floor(p.z)
   if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) return null
   for (const q of zones) {
     const g = q.guard
-    if (!g || !g.colMin) continue
-    if (px + reach < g.x0 || px - reach > g.x1 || pz + reach < g.z0 || pz - reach > g.z1 || g.y0 > py + 1) continue
-    for (let x = Math.max(px - reach, g.x0); x <= Math.min(px + reach, g.x1); x++) {
-      for (let z = Math.max(pz - reach, g.z0); z <= Math.min(pz + reach, g.z1); z++) {
-        const m = g.colMin.get((x - g.x0) * g.sz + (z - g.z0))
-        if (m != null && m <= py + 1) return q
+    if (!g || !g.colMin || g.y0 > py + 1) continue
+    for (const [ck, m] of g.colMin) {
+      if (m > py + 1) continue
+      const x = g.x0 + Math.floor(ck / g.sz), z = g.z0 + (ck % g.sz)
+      if (Math.max(Math.abs(x - px), Math.abs(z - pz)) <= (LIQUID_SPREAD + 1) * (py - m + 2)) return q
+    }
+  }
+  return null
+}
+
+/**
+ * WOULD THE FLOW FROM THESE CELLS REACH A BASELINE CELL? -> zone | null. A bounded trace of how a liquid runs (Codex r2): from
+ * each seed through open cells (no collision box: air, water, plants, torches): down whenever it can (the run renews; a cell it
+ * can fall from it does not leave sideways), else sideways LIQUID_SPREAD cells per level. A baseline cell the flow enters is reached (water washes a torch away); for LAVA a baseline cell
+ * beside or two above the flow is reached too (it sets planks and logs alight). An unread cell, or a trace past maxNodes, is
+ * answered as reached: refused, never guessed. `at(x, y, z)` -> block | null. Only when the prefilter names a zone.
+ */
+export function liquidFlowReaches (zones, seeds, at, { lava = false, maxNodes = LIQUID_MAX_NODES } = {}) {
+  const pre = (seeds ?? []).map(c => liquidReaches(zones, { x: c[0], y: c[1], z: c[2] })).find(Boolean)
+  if (!pre) return null
+  if (typeof at !== 'function') return pre
+  const open = (x, y, z) => { const b = at(x, y, z); return b == null ? null : b.boundingBox !== 'block' }
+  const hit = (x, y, z) => structAt(zones, x, y, z, S_CELL)
+  const best = new Map(), queue = []
+  for (const c of seeds) { const o = open(c[0], c[1], c[2]); if (o == null) return pre; if (o) queue.push([c[0], c[1], c[2], LIQUID_SPREAD]) }
+  let n = 0
+  while (queue.length) {
+    const [x, y, z, sp] = queue.pop()
+    const k = `${x},${y},${z}`
+    if ((best.get(k) ?? -1) >= sp) continue
+    best.set(k, sp)
+    if (++n > maxNodes) return pre
+    const h = hit(x, y, z)
+    if (h) return h
+    if (lava) {
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, 2, 0], [0, -1, 0]]) { const l = hit(x + dx, y + dy, z + dz); if (l) return l }
+    }
+    if (y <= -64) continue
+    const d = open(x, y - 1, z)
+    if (d == null) return pre
+    // A LIQUID THAT CAN FALL, FALLS (the game's own rule: it runs sideways only over something it cannot enter); the fall
+    // renews its run
+    if (d) { queue.push([x, y - 1, z, LIQUID_SPREAD]); continue }
+    if (sp > 0) {
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const o = open(x + dx, y, z + dz)
+        if (o == null) return pre
+        if (o) queue.push([x + dx, y, z + dz, sp - 1])
       }
     }
   }
@@ -715,7 +759,7 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
   wrap('craft', 'craft', (_r, _n, table) => [cellOf(table)], { approve: true })
   // ZONEGUARD-01SHOW (Codex r1 blocker 2): A POUR IS NO PLACEMENT this guard sees (bucket.mjs: equip -> lookAt -> activateItem).
   // With a liquid in hand, a use from where its flow could reach a baseline cell is not sent (the reach covers the bot's own
-  // use range above LIQUID_REACH). activateItem is synchronous in mineflayer and every pour verifies the world afterwards, so a
+  // flow is traced from the feet, the head and the aimed face: liquidFlowReaches). activateItem is synchronous in mineflayer and every pour verifies the world afterwards, so a
   // use not sent reads as a pour that did not take. Eating, a bow, an empty bucket: untouched.
   const use = bot.activateItem
   if (typeof use === 'function') {
@@ -724,11 +768,21 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
       if (/^(water|lava|powder_snow|cod|salmon|pufferfish|tropical_fish|axolotl|tadpole)_bucket$/.test(held)) {
         const list = zones()
         const p = bot.entity?.position
-        const z = list?.length && p ? liquidReaches(list, { x: p.x, y: p.y + 2, z: p.z }, LIQUID_REACH + 5) : null
+        let z = null
+        if (list?.length && p) {
+          // THE FLOW'S SEEDS: the feet and head cells and the cell in front of the face the bot is aiming at (and its faces)
+          const f = [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)]
+          const seeds = [f, [f[0], f[1] + 1, f[2]]]
+          let cur = null
+          try { cur = bot.blockAtCursor?.(5) ?? null } catch { cur = null }
+          if (cur?.position) for (const [dx, dy, dz] of [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) seeds.push([cur.position.x + dx, cur.position.y + dy, cur.position.z + dz])
+          const atB = typeof bot.blockAt === 'function' ? (x, y, zz) => { try { return bot.blockAt(new Vec3(x, y, zz)) } catch { return null } } : null
+          try { z = liquidFlowReaches(list, seeds, atB, { lava: held === 'lava_bucket' }) } catch { z = list[0] }
+        }
         if (z) {
           noteProtectZone(bot, 'liquid_refused')
           try { onRefuse({ op: 'pour', zone: z.id, at: { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, purpose: purposeOf().purpose, by: purposeOf().by, struct: true,
-            remedy: `protected zone: ${z.label} -- a ${held.replace(/_bucket$/, '')} pour here could run into its structure (within ${LIQUID_REACH} blocks, not above it); pour farther away` }) } catch { /* telemetry */ }
+            remedy: `protected zone: ${z.label} -- a ${held.replace(/_bucket$/, '')} pour here could run into its structure (the flow traced from here reaches it, or could not be traced); pour where the ground does not fall toward it, farther away` }) } catch { /* telemetry */ }
           return undefined
         }
       }

@@ -332,13 +332,34 @@ test('r1 (Codex blocker 1): a baseline ANVIL beside the west tunnel (its support
   })
 })
 
-test('r1 (Codex blocker 2): liquidReaches -- a baseline cell within 16 blocks, level or below the pour, is reached; 17 away, or 2+ above the pour, is not', () => {
-  const zg = withBaseline(Z0, parseBaseline({ zones: { 'village-taiga-6_1': { box: ZFILE.zones[0].box, cells: { '60,70,0': 'minecraft:torch' } } } })).zones
-  assert.ok(PZ.liquidReaches(zg, { x: 44, y: 70, z: 0 }), '16 west, level')
-  assert.ok(PZ.liquidReaches(zg, { x: 44, y: 90, z: 16 }), 'above it, 16 off on both axes')
-  assert.equal(PZ.liquidReaches(zg, { x: 43, y: 70, z: 0 }), null, '17 west')
-  assert.equal(PZ.liquidReaches(zg, { x: 50, y: 68, z: 0 }), null, 'two below the torch: water never runs up')
-  assert.equal(PZ.liquidReaches(Z0, { x: 50, y: 70, z: 0 }), null, 'no baseline: the box reach (BUCKET_ZONE_REACH) is the old rule')
+test('r2 (Codex blocker 2 again): the pour\'s FLOW is traced -- level ground stops at 7, a DESCENDING channel carries it 30 blocks to a lower torch, uphill never, an unread cell refuses', () => {
+  const Block = require_('prismarine-block')('1.21.8')
+  const mkAt = fn => (x, y, z) => { const n = fn(x, y, z); if (n == null) return null; const bl = Block.fromString(`minecraft:${n}`, 0); bl.position = V(x, y, z); return bl }
+  const torch = { '60,70,0': 'minecraft:torch' }
+  const zg = withBaseline(Z0, parseBaseline({ zones: { 'village-taiga-6_1': { box: ZFILE.zones[0].box, cells: torch } } })).zones
+  const flat = mkAt((x, y, z) => (x === 60 && y === 70 && z === 0 ? 'torch' : y <= 69 ? 'stone' : 'air'))
+  assert.equal(PZ.liquidFlowReaches(zg, [[50, 70, 0]], flat), null, 'level ground, 10 away: water runs 7 and stops')
+  assert.ok(PZ.liquidFlowReaches(zg, [[54, 70, 0]], flat), 'level ground, 6 away: reached')
+  // Codex's channel: a 1-wide trench that drops one block every 6 cells, from x 30 (y 75) down to the torch at x 60 (y 70)
+  const lowTorch = { '60,70,0': 'minecraft:torch' }
+  const zl = withBaseline(Z0, parseBaseline({ zones: { 'village-taiga-6_1': { box: ZFILE.zones[0].box, cells: lowTorch } } })).zones
+  const floorAt = x => 75 - Math.floor((x - 30) / 6)
+  const channel = mkAt((x, y, z) => {
+    if (x === 60 && y === 70 && z === 0) return 'torch'
+    if (z === 0 && x >= 30 && x <= 60 && y >= Math.max(70, floorAt(x)) && y <= 80) return 'air'
+    return y > 80 ? 'air' : 'stone'
+  })
+  assert.ok(PZ.liquidFlowReaches(zl, [[30, 75, 0]], channel), 'the channel carries the pour 30 blocks down to the torch')
+  const uphill = mkAt((x, y, z) => (x === 60 && y === 70 && z === 0 ? 'torch' : y <= 71 ? 'stone' : 'air'))
+  assert.equal(PZ.liquidFlowReaches(zl, [[58, 72, 0]], uphill), null, 'the torch is below solid ground the flow runs over (it never gets down to it)')
+  assert.ok(PZ.liquidFlowReaches(zg, [[54, 70, 0]], () => null), 'an unread world: refused')
+  assert.equal(PZ.liquidFlowReaches(zg, [[20, 70, 0]], flat), null, 'outside the prefilter: no trace at all')
+  assert.equal(PZ.liquidFlowReaches(Z0, [[54, 70, 0]], flat), null, 'no baseline: the old box reach only')
+  // lava sets a plank wall alight from beside it
+  const planks = withBaseline(Z0, parseBaseline({ zones: { 'village-taiga-6_1': { box: ZFILE.zones[0].box, cells: { '57,70,1': 'minecraft:oak_planks' } } } })).zones
+  const wall = mkAt((x, y, z) => (x === 57 && y === 70 && z === 1 ? 'oak_planks' : y <= 69 ? 'stone' : 'air'))
+  assert.equal(PZ.liquidFlowReaches(planks, [[54, 70, 0]], wall), null, 'water beside a plank wall changes nothing')
+  assert.ok(PZ.liquidFlowReaches(planks, [[54, 70, 0]], wall, { lava: true }), 'lava beside it does')
 })
 
 test('r1 (Codex blocker 2): the chokepoint does not send a liquid bucket use within reach of a baseline cell; eating, an empty bucket and a pour far away pass', () => {
@@ -356,10 +377,18 @@ test('r1 (Codex blocker 2): the chokepoint does not send a liquid bucket use wit
     assert.deepEqual(r.sent, [], `${h} near: not sent`); assert.equal(r.refusals[0].op, 'pour'); assert.equal(r.bot.protectZone.liquid_refused, 1)
   }
   for (const [h, pos] of [['bread', V(50.5, 70, 0.5)], ['bucket', V(50.5, 70, 0.5)], ['water_bucket', V(20.5, 70, 0.5)]]) assert.deepEqual(mk(h, pos).sent, [h], `${h} at ${pos}: sent`)
+  // with the world readable the flow is traced: 10 away on level ground the pour goes ahead
+  const Block = require_('prismarine-block')('1.21.8')
+  const sent = []
+  const bot = { entity: { position: V(50.5, 70, 0.5) }, heldItem: { name: 'water_bucket' }, activateItem: () => { sent.push(1) }, pathfinder: { isMining: () => false, movements: {} },
+    blockAt: p => { const bl = Block.fromString(`minecraft:${p.y <= 69 ? 'stone' : p.x === 60 && p.y === 70 && p.z === 0 ? 'torch' : 'air'}`, 0); bl.position = p; return bl } }
+  attachProtectZone(bot, { zones: () => zg, context: () => ({ skill: 'bucket' }) })
+  bot.activateItem()
+  assert.deepEqual(sent, [1], 'traced: the flow stops 3 short of the torch')
 })
 
-test('r1 WIRING (structural): the bucket skill\'s pour and the obsidian cast\'s cells ask liquidReaches', () => {
+test('r1 WIRING (structural): the bucket skill\'s pour and the obsidian cast\'s cells trace the flow (liquidFlowReaches)', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.equal(sk.split("if (action === 'pour') { try { lz = liquidReaches(bot.protectZones?.() ?? [], { x: p.x, y: p.y + 1, z: p.z }) } catch { lz = null } }").length, 2)
-  assert.equal(sk.split('try { if (liquidReaches(zones, p)) return true } catch { return true }').length, 2)
+  assert.equal(sk.split('try { lz = liquidFlowReaches(bot.protectZones?.() ?? [], seeds,').length, 2)
+  assert.equal(sk.split('try { if (liquidFlowReaches(zones, [c],').length, 2)
 })

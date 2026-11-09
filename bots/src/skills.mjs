@@ -287,7 +287,7 @@ import { fillWater as obsFillWater, scoopLava as obsScoopLava, pourInto as obsPo
 import { isFull as obsIsFull } from './shaftgeom.mjs'   // obsidian-01: a basin cell still rock
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
-import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD, liquidReaches, LIQUID_REACH } from './protectzone.mjs'   // protectzone-01 (+ zoneguard-01show liquidReaches)
+import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD, liquidFlowReaches } from './protectzone.mjs'   // protectzone-01 (+ zoneguard-01show liquidReaches)
 import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
@@ -22107,7 +22107,7 @@ function deepObsZone (bot, { townToo = true } = {}) {
     const p = { x: c[0], y: c[1], z: c[2] }
     try { if (zoneWithin(zones, p, BUCKET_ZONE_REACH)) return true } catch { return true }
     // zoneguard-01show (Codex r1 blocker 2): a cast's lava or water could run into a baseline cell from farther than the box reach
-    try { if (liquidReaches(zones, p)) return true } catch { return true }
+    try { if (liquidFlowReaches(zones, [c], (x, y, z) => { try { return bot.blockAt(new Vec3(x, y, z)) } catch { return null } }, { lava: true })) return true } catch { return true }
     if (townToo && inTownBox(p, home, { margin: 4 })) return true
     return stair.has(c.join(','))
   }
@@ -28789,12 +28789,16 @@ async function bucketSkill (ctx, args, signal) {
       return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone no bucket use within ${BUCKET_ZONE_REACH} blocks of ${z.label}: ${zoneRemedy(z, action === 'fill' ? 'use' : 'place', p, p, { pad: BUCKET_ZONE_REACH + 3, standY: (x, zz) => standableY(bot, x, zz, p.y) })}` }
     }
     // zoneguard-01show (Codex r1 blocker 2): a POUR whose flow could run into a cell the tripwire compares (protectzone
-    // liquidReaches: a baseline cell within LIQUID_REACH, not above the pour) -- the step that works is farther away or uphill-free
+    // liquidFlowReaches: the flow traced from the reachable cells enters one, or cannot be traced) -- the step that works is elsewhere
     let lz = null
-    if (action === 'pour') { try { lz = liquidReaches(bot.protectZones?.() ?? [], { x: p.x, y: p.y + 1, z: p.z }) } catch { lz = null } }
+    if (action === 'pour') {
+      const held = (bot.inventory?.items?.() ?? []).some(i => i.name === 'lava_bucket') && !(bot.inventory?.items?.() ?? []).some(i => i.name === 'water_bucket')
+      const seeds = near.map(c => [p.x + c.off[0], p.y + c.off[1], p.z + c.off[2]])
+      try { lz = liquidFlowReaches(bot.protectZones?.() ?? [], seeds, (x, y, z) => { try { return bot.blockAt(new Vec3(x, y, z)) } catch { return null } }, { lava: held }) } catch { lz = (bot.protectZones?.() ?? [])[0] ?? null }
+    }
     if (lz) {
       noteProtectZone(bot, 'bucket_refused')
-      return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone a pour here could run into ${lz.label}'s structure (a block of it within ${LIQUID_REACH} blocks, level or below): walk at least ${LIQUID_REACH + 3} blocks farther from it, or pour where the ground does not fall toward it` }
+      return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone a pour here could run into ${lz.label}'s structure (the flow traced from here reaches it, or could not be traced): pour where the ground does not fall toward it, farther away` }
     }
   }
   const bucketZone = q => { try { return zoneAtPos(bot.protectZones?.() ?? [], q) } catch { return null } }
