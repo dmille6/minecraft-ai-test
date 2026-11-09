@@ -115,22 +115,47 @@ await t('reachTag: a proven 5% is believed; over 15% AND over 24 cells is suspec
   assert.strictEqual(PA.reachTag({ state: 'proven', open: { fills: 0, cuts: 7 }, pu: ['1,2,3', '4,5,6', '7,8,9', '1,1,1', '2,2,2', '3,3,3', '4,4,4'] }).state, 'proven')
 })
 const REC = { cells: [{ at: [1, 70, 1], role: 'earth' }, { at: [2, 70, 2], role: 'core', opener: [2, 71, 2] }, { at: [3, 70, 3], role: 'earth' }, { at: [4, 70, 4], role: 'earth' }], clear: [], waived: {} }
+const YES = () => true
 const tagged = (rec, pu) => ({ ...rec, reach: PA.reachTag({ state: 'proven', open: { fills: 40, cuts: 0 }, pu }) })
-await t('puWaiveDue: only a TAGGED cell the visit ALSO missed; never an opener fill, never one waived; a plan tag alone waives nothing', async () => {
+await t('puWaiveDue: only a TAGGED cell the visit ALSO missed AND a fresh check confirms; never an opener fill, a cut or one waived; a plan tag alone waives nothing', async () => {
   const rec = tagged(REC, ['1,70,1', '2,70,2', '4,70,4'])
   await killedBy(PA_PATH, PA, '    if (!pu.has(k) || !waivable.has(k)', '    if (!waivable.has(k)', M => {
-    assert.deepStrictEqual(M.puWaiveDue(rec, ['1,70,1', '2,70,2', '3,70,3'], { P: { ...M.PA, share: 1 } }).map(d => d.k), ['1,70,1'])
+    assert.deepStrictEqual(M.puWaiveDue(rec, ['1,70,1', '2,70,2', '3,70,3'], { P: { ...M.PA, share: 1 }, confirm: YES }).map(d => d.k), ['1,70,1'])
   })
   assert.deepStrictEqual(PA.puWaiveDue(rec, []), [], 'no live miss: nothing')
-  assert.deepStrictEqual(PA.puWaiveDue({ ...rec, waived: { '1,70,1': {} } }, ['1,70,1', '4,70,4'], { P: { ...PA.PA, share: 1 } }).map(d => d.k), ['4,70,4'])
+  assert.deepStrictEqual(PA.puWaiveDue({ ...rec, waived: { '1,70,1': {} } }, ['1,70,1', '4,70,4'], { P: { ...PA.PA, share: 1 }, confirm: YES }).map(d => d.k), ['4,70,4'])
   assert.deepStrictEqual(PA.puWaiveDue(REC, ['1,70,1']), [], 'an untagged record: nothing')
-  assert.deepStrictEqual(PA.puWaiveDue({ ...tagged(REC, ['8,69,8']), cut: [{ at: [8, 69, 8] }] }, ['8,69,8'], { P: { ...PA.PA, share: 1 } }), [], 'a tagged CUT is never waived (no done rule reads it)')
-  assert.strictEqual(PA.puWaiveDue(rec, ['1,70,1'])[0].why, 'plan_unreach')
+  assert.deepStrictEqual(PA.puWaiveDue({ ...tagged(REC, ['8,69,8']), cut: [{ at: [8, 69, 8] }] }, ['8,69,8'], { P: { ...PA.PA, share: 1 }, confirm: YES }), [], 'a tagged CUT is never waived (no done rule reads it)')
+  assert.strictEqual(PA.puWaiveDue(rec, ['1,70,1'], { confirm: YES })[0].why, 'plan_unreach')
+  // Codex r1 BLOCKER 1: a live deferral may be transient -- without a FRESH conclusive check confirming it, nothing is waived
+  await killedBy(PA_PATH, PA, '    if (confirm(k) !== true) continue\n', '', M => {
+    assert.deepStrictEqual(M.puWaiveDue(rec, ['1,70,1']), [])
+    assert.deepStrictEqual(M.puWaiveDue(rec, ['1,70,1'], { confirm: () => false }), [])
+  })
 })
 await t('puWaiveDue shares the stage\'s waiver room (a quarter of cells + clears, less what is waived and what this visit waives)', () => {
   const rec = tagged(REC, ['1,70,1', '3,70,3', '4,70,4'])   // 4 cells: room ceil(1) = 1
-  assert.strictEqual(PA.puWaiveDue(rec, ['1,70,1', '3,70,3', '4,70,4']).length, 1)
-  assert.strictEqual(PA.puWaiveDue(rec, ['1,70,1', '3,70,3'], { already: [{ k: '9,9,9' }] }).length, 0)
+  assert.strictEqual(PA.puWaiveDue(rec, ['1,70,1', '3,70,3', '4,70,4'], { confirm: YES }).length, 1)
+  assert.strictEqual(PA.puWaiveDue(rec, ['1,70,1', '3,70,3'], { already: [{ k: '9,9,9' }], confirm: YES }).length, 0)
+})
+await t('liveUnreached (the fresh check): a cell in a sealed room -> true; on open ground -> false; any unknown read -> false', () => {
+  const read = world({ ...sealed(20, 20), '20,70,21': 'dirt' })
+  const live = PA.liveUnreached(read, HOME, { walkR: 36, fill: k => k === '20,70,20' })
+  assert.strictEqual(live('20,70,20'), true)
+  assert.strictEqual(live('20,70,21'), true, 'a clear no dig stand sees')
+  assert.strictEqual(live('5,70,5'), false, 'positive control: an open-ground fill has a step')
+  // a hole in the bot's knowledge next to the walk: the check confirms nothing
+  const holey = (x, y, z) => (x === 10 && z === 10 ? null : read(x, y, z))
+  assert.strictEqual(PA.liveUnreached(holey, HOME, { walkR: 36, fill: () => true })('20,70,20'), false)
+})
+await t('planReach: a negative met with an UNKNOWN read anywhere it looked is unchecked and tags nothing (Codex r1 BLOCKER 2)', async () => {
+  const read = world(sealed(20, 20))
+  const holey = (x, y, z) => (x === 10 && z === 10 ? null : read(x, y, z))
+  assert.deepStrictEqual(PA.planReach(read, [{ at: [20, 70, 20], role: 'earth' }], [], CTX).pu, ['20,70,20'], 'positive control: fully read, tagged')
+  await killedBy(PA_PATH, PA, "      if (pu.length && unknown > 0) return { state: 'unchecked', open, pu: [], passes, checked, why: `unknown:${unknown}` }\n", '', M => {
+    const r = M.planReach(holey, [{ at: [20, 70, 20], role: 'earth' }], [], CTX)
+    assert.strictEqual(r.state, 'unchecked'); assert.deepStrictEqual(r.pu, [])
+  })
 })
 await t('puSupply: a helper\'s view drops exactly the tagged cells, cuts and clears; an untagged record is unchanged', () => {
   const rec = tagged({ ...REC, cut: [{ at: [5, 70, 5] }, { at: [6, 70, 6] }] }, ['1,70,1', '6,70,6'])
@@ -193,14 +218,16 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const WIRES = [
   'const body0 = PLANAHEAD_ON && GROUNDS\\.on && s\\.record \\? await tidyPlanAhead\\(bot, bodyP, home, stood, signal\\) : bodyP',
-  "puWaiveDue\\(rec, \\(r\\.deferred \\?\\? \\[\\]\\)\\.map\\(d => d\\?\\.k \\?\\? d\\), \\{ already: waive1 \\}\\)",
+  "puWaiveDue\\(rec, \\(r\\.deferred \\?\\? \\[\\]\\)\\.map\\(d => d\\?\\.k \\?\\? d\\), \\{ already: waive1, confirm: paConfirm\\(bot, rec, home, stood\\) \\}\\)",
+  "const waivedK = q => guard\\.has\\(q\\.at\\.join\\(','\\)\\) \\|\\| standFeetQ\\(q\\)",
+  'given: k => guard\\.has\\(k\\) \\|\\| standFloorK\\(k\\)',
   'const nx = standRetire\\(body0, sc\\)',
   'const r = await planReachAsync\\(read, fills, cuts, ',
 ]
 const wired = s => { for (const re of WIRES) { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) } }
 await t('the stage is planned ahead (stands kept, reach tagged) before it publishes; the waiver takes the plan tag; a cut line fails', () => {
   wired(SK)
-  const cut = "const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1 })] : waive1"
+  const cut = "const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1, confirm: paConfirm(bot, rec, home, stood) })] : waive1"
   assert.ok(SK.split(cut).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
   assert.throws(() => wired(SK.replace(cut, 'const waive = waive1')), assert.AssertionError)
   const tagAt = SK.search(/const body0 = PLANAHEAD_ON/), pubAt = SK.slice(tagAt).search(/const pub = publishRecord\(dir, key, cur => \(fresh\(cur\) \? body : null\)/)

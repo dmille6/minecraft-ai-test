@@ -148,7 +148,7 @@ import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_C
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
 import { stuckFleetOn, lightWaiveDue, stuckFleet2On, orphanWaiveDue } from './stuckfleet.mjs'   // stuckfleet-01, stuckfleet-02
-import { planaheadOn, planReachAsync, reachTag, puWaiveDue, standClaims, standRetire, plannedWorld } from './planahead.mjs'   // planahead-01
+import { planaheadOn, planReachAsync, reachTag, puWaiveDue, standClaims, standRetire, plannedWorld, liveUnreached } from './planahead.mjs'   // planahead-01
 import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock, tidyDeadOn } from './stuckcells.mjs'   // stuckcells-01, tidydead-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
@@ -19679,6 +19679,9 @@ const PLANAHEAD_ON = planaheadOn()   // planahead-01 (PLANAHEAD=off: no reach ta
 /** planahead-01: is a planned cell of another record read FINISHED (a clear dug, a cell or fill laid)? Unread: not finished. Pure over `read`. */
 const paDone = read => (r, c) => { const b = read(...c.at); if (!b) return false; return c.role === 'clear' ? b.boundingBox === 'empty' : b.boundingBox !== 'empty' && !paReplaceable(b) }
 /** planahead-01: every project's record (plot named) -> [rec]. Never throws (none). */
+/** planahead-01 (Codex r1 BLOCKER 1): the plan waiver's FRESH conclusive check over the bot's live world (planahead.mjs liveUnreached:
+ *  no stand now and every read known), a record cell a fill, else a clear. Never throws (a failure confirms nothing). */
+const paConfirm = (bot, rec, home, stood) => { try { const cells = new Set((rec?.cells ?? []).filter(q => Array.isArray(q?.at)).map(q => q.at.join(','))); return liveUnreached(tidyRead(bot), home, { stood, walkR: tidyWalkR(rec), fill: k => cells.has(k) }) } catch { return () => false } }
 const paRecords = () => { try { return projectHeads().map(x => ({ ...x.head.rec, plot: x.head.rec?.plot ?? x.plot })) } catch { return [] } }
 /**
  * PLANAHEAD-01: A NEW TIDY STAGE PLANNED AHEAD -> the body to publish. Never throws. (1) the open buildings' proof STANDS are claimed:
@@ -20128,7 +20131,13 @@ async function buildTidy (ctx, args, signal) {
   // as done)
   let guard
   try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
-  const waivedK = q => guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))
+  // planahead-01 (the work-time guard): an open building's claimed STAND is never filled (feet, head) nor its floor cut, whatever
+  // generation the visit works -- read as done / given (planahead.mjs standClaims; a building sited after the stage was published)
+  let paStands = null
+  if (PLANAHEAD_ON) { try { paStands = standClaims(paRecords()) } catch { paStands = null } }
+  const standFeetQ = q => !!paStands && Array.isArray(q?.at) && paStands.feet.has(q.at.join(','))
+  const standFloorK = k => !!paStands && paStands.floor.has(k)
+  const waivedK = q => guard.has(q.at.join(',')) || standFeetQ(q) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -20180,7 +20189,7 @@ async function buildTidy (ctx, args, signal) {
     // clear lease, never a record cell)
     // stuckclose-01: nor a cut the town has given up (the retry ledger holds it: no walk would be made to it anyway)
     const tg0 = tidyTownGiven(dir, key, rec, read)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !tg0.has(q.at.join(',')))
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !standFloorK(q.at.join(',')) && !tg0.has(q.at.join(',')))
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     const cuts = GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
@@ -20214,8 +20223,8 @@ async function buildTidy (ctx, args, signal) {
       // share spent): a cell orphaned by the waiver below it -- and the open column over it -- is waived, at most half the stage in all
       const waive3 = stuckFleet2On() ? [...waive2, ...orphanWaiveDue(rec, r.deferred ?? [], read2).filter(o => !waive2.some(w => w.k === o.k))] : waive2
       // planahead-01: a cell the stage's plan tagged unreached that THIS visit deferred too is waived now (two independent negatives:
-      // planahead.mjs puWaiveDue), in the same room as the waivers above (rebase on stuckfleet-01/02: after their waivers, `already` counts them)
-      const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive3, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive3 })] : waive3
+      // planahead.mjs puWaiveDue), in the same room as the waivers above
+      const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive3, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive3, confirm: paConfirm(bot, rec, home, stood) })] : waive3
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || !tidySameGen(cur, rec)) return null
@@ -20235,7 +20244,7 @@ async function buildTidy (ctx, args, signal) {
     // cut or fill cell is left, never done on no evidence
     // stuckclose-01: a cut the TOWN has failed RETRY_VISITS visits (the ledger read after this visit settled it) is given up too
     const tg = tidyTownGiven(dir, key, rw, read2)
-    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) || tg.has(k) })
+    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || standFeetQ(q) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || standFloorK(k) || tidyGivenUp(mem, k) || tg.has(k) })
     const unread = [...(rw.cut ?? []), ...(rw.cells ?? [])].some(q => !read2(...q.at))
     // groundskeeper-01 (Codex r1 BLOCKER 2): the record's clears (a felled road trunk, head-room leaves) are work too -- left
     // standing, the stage stays open until this bot's visits have made no clear progress GK_CLEAR_VISITS times (then named)
