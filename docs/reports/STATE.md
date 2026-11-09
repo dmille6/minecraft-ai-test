@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-09T02:20:01Z._
+_Generated 2026-11-09T03:20:02Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-09T02:20:01Z._
 | **Canary in slot** | **scaftown-01b** deployed 11-09 00:44Z; reads +90 11-09 02:14Z, +180 11-09 03:44Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | stuckclose-01 -> workboard-01 -> stoneworks-01 -> glass-01 -> boardwalk-03 -> villageunlock-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> +15 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: c13e673263d35f17aab7d2c3c4829f1ad479ef1e on hive-b,hive-c / S6 open loop: canary c13e673 is deployed on hive-b,hive-c with no KEEP/REVERT/INCONCLUSIVE recorded — read it before starting anything new / S7 scaftown-01 |
-| **Showcase release** | `2698a667` (20,644 rows), `dd79b56a` (15,258 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 2698a667's protected tree: restack by hand; row 11-09 01:25Z) |
+| **Showcase release** | `2698a667` (24,937 rows), `dd79b56a` (3,417 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 2698a667's protected tree: restack by hand; row 11-09 02:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-08T12:05Z, 7 d, 169 projects, 13,793,865 lines / 80 bots): 5 underused, 87 effective, 51 unmeasured, 26 -; showcase: project audit showcase (11-08T12:05Z, 7 d, 33 projects, 1,795,088 lines / 15 bots): 2 broken, 1 underused, 13 effective, 12 unmeasured, 5 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-09T01:35:01Z STALLED: 113. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 83 active alarm(s): stuck goals 19 (board-a/paths@355_73_147, board-a/tidy@355_73_147, board-c/tidy@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-d/monument@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:gkwork-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-09T02:35:02Z STALLED: 116. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 81 active alarm(s): stuck goals 16 (board-a/paths@355_73_147, board-a/tidy@355_73_147, board-c/tidy@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-d/monument@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:gkwork-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
