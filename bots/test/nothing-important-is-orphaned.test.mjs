@@ -49,6 +49,9 @@ const REQUIRED = [
   // sandrung-01 (11-07): the gatherer chain's sand rung retired (7.5% of fleet time, gather sand 11.7% ok, no sand reached a town)
   'bots/src/sandrung.mjs',
   'bots/test/sandrung.test.mjs',
+  // ironchain-02 (11-09): an iron pickaxe asked only for swings, with no iron in the bag, is a stone one (95 of 110 short-ingot crafts)
+  'bots/src/pickswings.mjs',
+  'bots/test/pickswings.test.mjs',
   // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
   'bots/src/repeatwork.mjs',
   'bots/test/repeatwork.test.mjs',

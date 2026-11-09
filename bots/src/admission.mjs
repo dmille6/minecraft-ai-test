@@ -10,7 +10,7 @@
 // you can query in Kibana.
 
 import { cooldownHit, KEEPOUT_COOLDOWN_MS, KEEPOUT_COOLDOWN_NEAR } from './keepout.mjs'
-import { SKILLS, actionKey, foodSkipNow, stockRefusedRow } from './skills.mjs'
+import { SKILLS, actionKey, foodSkipNow, stockRefusedRow, craftableFromBag } from './skills.mjs'
 import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
@@ -22,6 +22,7 @@ import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
+import { swingRewrite } from './pickswings.mjs'   // ironchain-02: an iron pickaxe asked for swings, with no iron, is a stone one
 import { repeatWorkConfig, repeatDecision, ledgerSet, PROGRESS_SKILLS, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
 import { logEvent } from './logger.mjs'
 import { snapshot } from './state.mjs'
@@ -606,6 +607,14 @@ export class AdmissionControl {
       // detail names the remedy (dig with the held copy / the skill places the carried station).
       const redundant = redundantCraft(args.item, bot.inventory?.items?.() ?? [], { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })
       if (redundant) return { ok: false, reason: 'redundant_craft', detail: redundant.detail, redundant }
+      // IRONCHAIN-02 (pickswings.mjs): admitted above ONLY for a swing reserve, an iron pickaxe the bag cannot make becomes the
+      // stone one it can -- rewritten in place, as block names are (cognitive.mjs runs `admitted.args`); one row per rewrite
+      const swing = swingRewrite({ item: args.item, items: bot.inventory?.items?.() ?? [], wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort,
+                                   stoneMakeable: () => craftableFromBag(bot, 'stone_pickaxe') })
+      if (swing) {
+        args.item = swing.to
+        try { logEvent({ kind: 'pick_swings', status: 'success', detail: swing.detail, snapshot: snapshot(bot) }) } catch { /* telemetry never costs the decision */ }
+      }
       // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07; the food policy's switch). Before any walk to a table.
       const noSword = swordCraftRefusal(args.item, foodSkipNow(bot).active)
       if (noSword) return { ok: false, reason: 'peaceful_no_sword', detail: noSword }
