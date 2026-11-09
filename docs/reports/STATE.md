@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-08T23:20:01Z._
+_Generated 2026-11-09T00:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-08T23:20:01Z._
 | **Canary in slot** | EMPTY (last close hivedrop-01 KEEP 11-08 21:17Z) |
 | **Queue (front)** | scaftown-01b -> stuckclose-01 -> stoneworks-01 -> glass-01 -> gathermem-01 -> roughground-01 -> irongap-01 -> obsidian-01 -> roughground-02 -> roughground-04 -> +8 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); coalsale-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); jobsite-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...); market-02 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | block H2 stuckclose-01: no variant for the fleet base ef774d0 (have: 1e593b9): no patch source, so no autorebase: build the variant by hand, or `queue set-patch stuckclose-01 <src_base>` / K scaftown-01b skipped (autorebase-refused): scafto |
-| **Showcase release** | `dd79b56a` (28,955 rows), `63bc4795` (3,968 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release dd79b56a's protected tree: restack by hand; row 11-08 22:25Z) |
+| **Showcase release** | `dd79b56a` (32,820 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release dd79b56a's protected tree: restack by hand; row 11-08 23:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports? |
 | **Projects (daily audit)** | project audit fleet (11-08T12:05Z, 7 d, 169 projects, 13,793,865 lines / 80 bots): 5 underused, 87 effective, 51 unmeasured, 26 -; showcase: project audit showcase (11-08T12:05Z, 7 d, 33 projects, 1,795,088 lines / 15 bots): 2 broken, 1 underused, 13 effective, 12 unmeasured, 5 - -- showcase/enchantshop BROKEN; showcase/treefarm BROKEN |
-| **Open alarms** | STALLCHECK 2026-11-08T22:35:01Z STALLED: 119. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 81 active alarm(s): stuck goals 17 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-c/shaft@355_73_147, hive-a/tidy@355_73_147, hive-d/monument@68_65_68, isolated-a/monument@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24 |
+| **Open alarms** | STALLCHECK 2026-11-08T23:35:02Z STALLED: 112. OPSAUDIT 2026-11-08 FLAGS: 12 (2 high). 85 active alarm(s): stuck goals 21 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-c/shaft@355_73_147, board-d/tidy@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:buildfix-01:h24, effectwatch effect:gklease-01:h24, effectwatch effect:idlework-02:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
