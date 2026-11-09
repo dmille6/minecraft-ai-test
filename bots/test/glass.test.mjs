@@ -246,3 +246,20 @@ test('the wiring: make_material routes sand and glaze to their walks under GLASS
   assert.equal(fe.split("setGlassReading(GLASS.on ? () => glassReading(bot) : null)").length, 2)
   assert.equal(fe.split("kind: 'glass_mode'").length, 2)
 })
+
+test('glass-01 fold (Codex BLOCKER): the sand dig never takes a bridge bank -- inside any bridge site footprint is reserved; the wiring', () => {
+  const zones = [{ box: [10, -64, 20, 14, 320, 26], why: 'expedition:bridge' }]
+  assert.equal(G.inBridgeZone(zones, 12, 22), true)
+  assert.equal(G.inBridgeZone(zones, 10, 26), true, 'the box edges are inside')
+  assert.equal(G.inBridgeZone(zones, 14, 20), true, 'the far edges too')
+  assert.equal(G.inBridgeZone(zones, 15, 22), false, 'positive control: one past the box is free')
+  assert.equal(G.inBridgeZone([], 12, 22), false)
+  assert.equal(G.inBridgeZone(null, 12, 22), false)
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const at = src.indexOf('function glassReserved (bot) {')
+  assert.ok(at > 0)
+  const body = src.slice(at, src.indexOf('\n}\n', at))
+  assert.match(body, /try \{ bz = bridgeZones\(exBridgeSites\(\), 2\) \} catch \{ bz = null \}/, 'the footprints read once a plan')
+  assert.match(body, /if \(bz == null \|\| inBridgeZone\(bz, x, z\)\) return true/, 'unreadable or inside: reserved')
+})
