@@ -1,0 +1,47 @@
+{
+ "newCells": 990,
+ "byRole": {
+  "air": 306,
+  "tread": 69,
+  "lining": 612,
+  "fixture": 3
+ },
+ "liquidInAir": 0,
+ "liquidBeside": 0,
+ "caveAirInAir": 46,
+ "ores": {
+  "o": 8,
+  "D": 1
+ },
+ "galleries": {
+  "iron": {
+   "cells": 432,
+   "ores": {
+    "o": 9
+   },
+   "liquid": 0,
+   "cave": 80
+  },
+  "diamond": {
+   "cells": 432,
+   "ores": {
+    "o": 31,
+    "D": 4
+   },
+   "liquid": 0,
+   "cave": 0
+  }
+ },
+ "K": 122,
+ "rooms": [
+  "bay@52",
+  "bay@40",
+  "bay@28",
+  "bay@4",
+  "bay@-8",
+  "bay@-20",
+  "bay@-32",
+  "bay@-44",
+  "hall@-53"
+ ]
+}
