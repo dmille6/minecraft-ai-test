@@ -6232,6 +6232,31 @@
     ]
    },
    "note": "Measured 11-08: showcase 1,779 real crossings in 13 days (780 at the SW shore strip -- a wade along the bank, no bridge fits), N shore footbridge w6 (89), W shore trestle w24; fleet 189-722 crossings/day in hive-d, placebo-b, hive-c, placebo-a, placebo-d. Showcase logs 307 < 512 reserve: stone styles only there."
+  },
+  {
+   "kind": "showcase",
+   "lane": "survival",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "zoneguard-1109",
+   "title": "No bot dig or placement changes a cell the showcase tripwire's S4 compares (11-09 02:36Z TRIP: Haven's mine dug 57,18,5, a mineshaft plank under village 6_1; the pathfinder pillared cobble into it)",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "zoneguard-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-09: zoneguard-01show 4196a65c (code 03e1fddad) on dd79b56a READY TO STAGE, NOT released. Bots read /srv/showcase/trip/zones-baseline.json (the tripwire's own cells) before the deep exemption and the survival pass; walk-out ends a bearing at a guarded cell; liquid pours flow-traced. Tier 3: Codex r1-r3 4 blockers fixed, r4 none; Claude subagent r3 1 fixed, r4 none. Paper sandbox6: mine-over-mineshaft base 3/250 baseline cells changed (incl. 57,18,5), cand 0; entombed under planks cand x2 escaped 0/11 changed. Suite ci2 478/479 (bagdiet = base). NEXT: owner repair of 57,18,5 (owner's call), then stage; read _protectzone_mode baseline=ok guarded=8 on every bot first, S4 INTACT, protect_zone_refused struct=1, _zone_walk. Fleet port (name rule; not a cherry-pick) is a separate tier-3 piece, not built.",
+   "owner_pending": "zoneguard-01show: accept that a drowning/suffocating bot no longer digs a tripwire-baseline cell for air, and that pours whose flow could reach a guarded cell are refused?",
+   "evidence": {
+    "grep": [
+     "zoneguard-01show"
+    ],
+    "branches": [
+     "zoneguard-01show"
+    ],
+    "paths": []
+   },
+   "note": "Guard by y range before the fix (6_1 box y -64..90, floor_y 54): tripwire S4 whole box; chokepoint/pathfinder/mine/findBlocks closed y>=54 only for a deep bot; survival purpose passed everything. escdead-01 r1 (fleet terrainDeep) widens the exemption above floor_y and would not have stopped this one."
   }
  ]
 }
