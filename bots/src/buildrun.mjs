@@ -1156,7 +1156,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             const above = [f.at[0], f.at[1] + 1, f.at[2]]
             if (left && /_log$/.test(nm(rd(...above)))) { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'tree', result: 'trunk_blocked', why: left }); continue }
           }
-          const v = await digNamed(f.at, name, held)
+          // boardwalk-03 fold r3 (`p.foreignOk(f)`): the caller's ownership check re-read after the walk, right before the dig
+          const v = await digNamed(f.at, name, held, null, p.foreignOk ? () => p.foreignOk(f) : null)
           if (v === 'fence') { out.stop = 'fence:segment'; return out }
           if (v === 'aborted') { out.stop = 'aborted'; return out }
           // wallstuck-01 (`p.sealed` = { mayDig(at) }): a foreign block NO STAND SEES is dug from the top of its column -- the

@@ -26494,7 +26494,9 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, tidyKeepOrder: true, recordGen: rh.head.gen, foreign: BOT_MAT_RE, palette: BW3_PALETTE, res: null, resFailed: false,
       slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.bw3Stands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, intoWater: true, alsoDone: q => { const g = guardNow(); return !g || g.has(q.at.join(',')) },
-      tidyOk: q => { const g = guardNow(); return !!g && !g.has(q.at.join(',')) } },
+      // fold r3: the checks right before a dig read the guard FRESH (no cache): a cut and a deck's foreign dig
+      tidyOk: q => { const g = bw3GuardStrict(); return !!g && !g.has(q.at.join(',')) },
+      foreignOk: q => { const g = bw3GuardStrict(); return !!g && !g.has(q.at.join(',')) } },
     effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts: TIDY_CUT_TRIES visits)
     const read2 = tidyRead(bot)
