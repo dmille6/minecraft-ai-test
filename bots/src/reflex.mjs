@@ -73,7 +73,7 @@ import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plu
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimNoPlanBackoffMs, swimUnderRowDetail, startCells } from './swimunder.mjs'
 import { escDeadOn, pinStep, pinnedFor, pinMinMs, swimSearchFor, breachPlan, breachAdmit, floodBreach, breachBackoffMs, breachRowDetail, BREACH_DIG_MS } from './escdead.mjs'   // escdead-01
-import { escPocketOn, pocketDigOk, pocketDigPlan, pocketDigDetail, pocketDig, POCKET_DIG_MS, trapSiteFrom, inTrap, swimTierFor } from './escdead.mjs'   // escpocket-01
+import { escPocketOn, pocketDigOk, pocketDigPlan, pocketDigDetail, pocketDig, POCKET_DIG_MS, trapSiteFrom, inTrap, swimTierFor, longBreathPlan, SU_LONG_WET_RUN } from './escdead.mjs'   // escpocket-01, seapocket-01
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
@@ -1882,6 +1882,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // opening) bordering the reachable water, at feet level or below, within reach, dug from here with the head in air: a
     // plug the bot placed itself (Echo 11-07: dirt at 358,55,180 under its own pillar) is the case. The block must be a pocket
     // dig's kind, not guarded (a build record, a zone), and diggable from this floating stance inside POCKET_DIG_MS.
+    // seapocket-01: no swim within the base breath bound on the wide tier -> the long-breath search (escdead.mjs longBreathPlan),
+    // before any dig: a swim that changes nothing in the world is preferred to one that digs first
+    let breath = 0
+    if (!plan.ok && wide.radius && pocketOn) {
+      const lb = longBreathPlan({ at, start, tier: wide })
+      if (lb?.ok) { plan = lb; breath = SU_LONG_WET_RUN }
+    }
     let pocket = null
     if (!plan.ok && wide.radius && pocketOn && headAirNow) {
       // the time is the ACTUATOR'S tool's: bestTool = applyToolPolicy = toolFor(block, items, { pinned: pinnedNow }) -- the same
@@ -1924,7 +1931,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const held = runner?.activeReservation?.() ?? null
       if (held && held.owner !== 'swimunder') return null
       logEvent({ kind: 'swim_under_start', status: 'success', snapshot: snapshot(bot),
-                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} wide=${wide.radius ? 1 : 0}${trapHere ? ' trap=1' : ''}${pocketDigDetail(pocket)} ` +
+                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} wide=${wide.radius ? 1 : 0}${trapHere ? ' trap=1' : ''}${breath ? ` breath=${breath}` : ''}${pocketDigDetail(pocket)} ` +
                          `wet=${plan.wet} run=${plan.wetRun} air=${bot.oxygenLevel} hp=${bot.health} via ${plan.route.map(c => c.join(',')).join(' ')}` })
       renew()
       keep = setInterval(renew, 5_000)
