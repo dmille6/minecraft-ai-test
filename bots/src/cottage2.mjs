@@ -20,6 +20,7 @@
 
 import { gableRoof, slabRoof } from './townstyle.mjs'
 import { SMALL_FLOWERS } from './park.mjs'
+import { windowPalette } from './glass.mjs'   // glass-01: glass, else a trapdoor of the walls' wood, else the wall
 
 export const COTTAGE2_PREFIX = 'cottage@2-'
 export const isCottage2Blueprint = id => /^cottage@2-[CL][sf][gl][01][c-]$/.test(String(id ?? ''))
@@ -160,9 +161,9 @@ export function cottage2Blueprint (look) {
       course: ['%stone', 'cobblestone', 'stone_bricks'],
       post: ['%wood_log'],
       wall: ['%wood_planks', '$planks'],
-      window: ['glass_pane', '$wall'],
+      window: windowPalette('$wall'),
       gable: ['%wood_planks', '$planks'],
-      gablewin: ['glass_pane', '$gable'],
+      gablewin: windowPalette('$gable'),
       roof: ['%roof_stairs'],
       ridge: ['%roof_slab'],
       roofslab: ['%roof_slab'],
