@@ -181,7 +181,7 @@ import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeper
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
-import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, dropsWorth } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
+import { UPKEEP_PLOT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, gkwClosing, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { strikesTotal, strikeReadAll, gkwSig, tidyFirstNow, leftVisit, leftWaiveDue, openWrite, openNewest, openReadAll } from './gkwork.mjs'   // gkclear-01: the town's strikes say a stage is closing
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, nextStageCycle, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
@@ -26495,6 +26495,17 @@ async function buildTidy (ctx, args, signal) {
   if (sw?.took > 0 && res.status === 'no_effect') return { ...res, status: 'success', detail: `${res.detail}; swept ${sw.took} item(s) off the town's ground (${sw.kinds})` }
   return res
 }
+/** THE SWEEP'S CHOICE over the drops in view (gksweep.mjs sweepPick with the bag's stacks, its free slots, junk never, a station past
+ *  its allowance never) -- the one selection the sweep walks and the upkeep's due reads (Codex r2 BLOCKER 3). Never throws past it. */
+function gkSweepSel (bot, near, { boxes, home, caps = [], before = heldMap(bot) } = {}) {
+  const items = bot.inventory?.items?.() ?? []
+  const stacks = items.map(i => ({ name: i.name, count: i.count, stackSize: i.stackSize }))
+  let free = 0
+  try { const n = bot.inventory?.emptySlotCount?.(); free = Number.isFinite(n) ? n : Math.max(0, 36 - items.length) } catch { free = 0 }
+  const stationSet = new Set(BAG_STATIONS)
+  const over = n => stationSet.has(n) && (before[n] ?? 0) >= BAG_ALLOW.station
+  return sweepPick(near, { boxes, home, caps, from: bot.entity?.position ?? null, stacks, free, never: NEVER_KEEP, over })
+}
 /** THE SWEEP -> { took, kinds, picks, skipped }. Walks to sweepPick's drops one by one (each walk bounded, a refused walk skips the
  *  drop), and counts what the BAG gained of each picked name -- the outcome, never the intention. */
 export async function gkSweep (bot, signal, { until = Date.now() + GKSWEEP.budgetMs, inputs = () => tidyInputs(bot), reach = 112, boxesOf = null, plot = TIDY_PLOT } = {}) {
@@ -26508,14 +26519,8 @@ export async function gkSweep (bot, signal, { until = Date.now() + GKSWEEP.budge
   try { I = inputs() } catch { return { took: 0, kinds: '-', picks: 0, skipped: { unread: near.length } } }
   // upkeep-01: the upkeep's sweep reaches its whole survey box (`boxesOf`); the crew's stays inside the walls
   const boxes = boxesOf ? boxesOf(I) : inwallBoxes(I.wall, I.home ?? home, I.wallext)
-  const items = bot.inventory?.items?.() ?? []
-  const stacks = items.map(i => ({ name: i.name, count: i.count, stackSize: i.stackSize }))
-  let free = 0
-  try { const n = bot.inventory?.emptySlotCount?.(); free = Number.isFinite(n) ? n : Math.max(0, 36 - items.length) } catch { free = 0 }
   const before = heldMap(bot)
-  const stationSet = new Set(BAG_STATIONS)
-  const over = n => stationSet.has(n) && (before[n] ?? 0) >= BAG_ALLOW.station
-  const sel = sweepPick(near, { boxes, home: I.home ?? home, caps: I.caps ?? [], from: bot.entity?.position ?? null, stacks, free, never: NEVER_KEEP, over })
+  const sel = gkSweepSel(bot, near, { boxes, home: I.home ?? home, caps: I.caps ?? [], before })
   const names = [...new Set(sel.picks.map(d => d.name))]
   let refused = 0, walked = 0
   for (const d of sel.picks) {
@@ -26815,7 +26820,17 @@ function upkeepStateNow (b, rec, now = Date.now()) {
   const rd = b ? (x, y, z) => { const q = b.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name } : null } : () => null
   const canPlant = !b || upkeepSaplingNear(b)
   let drops = 0
-  try { if (b) drops = dropsWorth(upkeepDropsInView(b), { home: planHomeP(), never: NEVER_KEEP, stacks: (b.inventory?.items?.() ?? []).map(i => ({ name: i.name, count: i.count, stackSize: i.stackSize })), free: Number(b.inventory?.emptySlotCount?.()) || 0 }) } catch { drops = 0 }
+  try {
+    if (b && gkSweepOn()) {
+      const home = planHomeP(), R = UPKEEP.r
+      const near = upkeepDropsInView(b).filter(d => Math.max(Math.abs(d.pos.x - home.x), Math.abs(d.pos.z - home.z)) <= R)
+      if (near.length) {
+        // the wells' caps (the sweep's well rule) from the visit's inputs, read at most every 5 min a bot
+        if (!b.upkeepCaps || now - b.upkeepCaps.at > 5 * 60_000) { let caps = []; try { caps = tidyInputs(b).caps ?? [] } catch { caps = [] } b.upkeepCaps = { at: now, caps } }
+        drops = gkSweepSel(b, near, { boxes: [[home.x - R, home.z - R, home.x + R, home.z + R]], home, caps: b.upkeepCaps.caps }).picks.length
+      }
+    }
+  } catch { drops = 0 }
   return upkeepState(rec, { now, open: r => upkeepLeft(r, rd, { canPlant }), drops })
 }
 /** Does this bot hold a sapling the replant takes, or does the town (its chests' stock, cached by matsTownStock)? Never throws. */
@@ -26911,28 +26926,33 @@ async function buildUpkeep (ctx, args, signal) {
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     const deadline = t0 + budget - ZIG_VISIT_TAIL_MS - GKSWEEP.budgetMs
-    // CODEX r1 BLOCKER 2: the replants -- the bag's saplings, else the town's (a draw of what the open replants want); a remains group
-    // that owes a replant is taken down only with a sapling in hand (upkeep.mjs upkeepVisitJobs: held otherwise, never lost)
+    // CODEX r1 BLOCKER 2 / r2 BLOCKERS 1-2: THE REPLANT FIRST -- the bag's saplings, else the town's (a draw of what the open replants
+    // want); then the clears of the groups whose sapling stands (upkeep.mjs replantGate: a group unplanted is held, a group whose
+    // replant grew is retired -- never a new tree dug), read again after the planting
     const rd0 = tidyRead(bot)
     const owed = (rec.cells ?? []).filter(q => q.role === 'sapling' && !replantDone(rd0(...q.at))).length
-    let haveSapling = UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))
-    if (owed && !haveSapling) {
+    if (owed && !UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))) {
       const kinds = [...new Set((rec.cells ?? []).map(q => q.sapling).filter(Boolean)), ...UPKEEP_PALETTE.sapling]
       let st = {}
       try { st = matsTownStock(bot)?.stock ?? {} } catch { st = {} }
       const kind = kinds.find(n => (Number(st[n]) || 0) > 0)
       if (kind) { try { const w = await matsWithdraw(ctx, { [kind]: Math.min(owed, Number(st[kind]) || 0, 8) }, signal, 30_000, matsReserve().table, shopAllow); f.fromMats = Object.entries(w.took ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-' } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
       check(signal)
-      haveSapling = UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))
     }
-    const vj = upkeepVisitJobs(rec, { haveSapling })
-    // CODEX r1 BLOCKER 1: a replant that grew (a log in its cell) or stands is done -- never a foreign block to dig
     const grown = (q, rd) => q.role === 'sapling' && replantDone((rd ?? rd0)(...q.at))
+    const noSapling = q => q.role === 'sapling' && !UPKEEP_PALETTE.sapling.some(n => !!effects.has?.(n))
     bot.shopUnknown ??= new Set()
-    const r = await runVisit({ dir, key, me, home, stood, record: vj.record, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.upkeepStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const stands = (bot.upkeepStands ??= { pending: null, bans: {} })
+    const visit = (record, maxSteps) => runVisit({ dir, key, me, home, stood, record, recordGen: rh.head.gen, palette: UPKEEP_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands, unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, blockLayer: false, clearMax: 24, walkR: UPKEEP.r + 8, stuckStalledOnly: true,
-      openRole: role => role === 'sapling', alsoDone: (q, rd) => grown(q, rd) }, effects, { deadline, maxSteps: 200 })
-    if (vj.held) f.held = vj.held   // the remains held for want of a sapling (named on the row)
+      openRole: role => role === 'sapling', alsoDone: (q, rd) => grown(q, rd) || noSapling(q) }, effects, { deadline, maxSteps })
+    const v1 = upkeepVisitJobs(rec, rd0)
+    const r1 = v1.plant.cells.length ? await visit(v1.plant, 80) : { placed: 0, cleared: 0, refused: 0, silent: 0, unknown: 0, stop: 'complete', why: null }
+    check(signal)
+    const v2 = upkeepVisitJobs(rec, tidyRead(bot))
+    const r2 = v2.clear.clear.length ? await visit(v2.clear, 160) : { placed: 0, cleared: 0, refused: 0, silent: 0, unknown: 0, stop: 'complete', why: null }
+    const r = { placed: (r1.placed ?? 0) + (r2.placed ?? 0), cleared: (r1.cleared ?? 0) + (r2.cleared ?? 0), refused: (r1.refused ?? 0) + (r2.refused ?? 0), silent: (r1.silent ?? 0) + (r2.silent ?? 0), unknown: (r1.unknown ?? 0) + (r2.unknown ?? 0), stop: r2.stop ?? r1.stop, why: r2.why ?? r1.why }
+    if (v2.held) f.held = v2.held   // the remains held for want of their sapling (named on the row)
     // THE LIST WORKED OUT: every listed block gone (or no longer the listed kind) and every replant standing or grown -> complete
     const rd = tidyRead(bot)
     const left = upkeepLeft(rec, rd, { canPlant: true })
@@ -26999,6 +27019,8 @@ async function buildTidyVisit (ctx, args, signal) {
     }
   }
   const caps = crewCaps(role)
+  // gksweep-01: the crew bot's role, for the sweep after this visit (buildTidy)
+  bot.gkSweepRole = GROUNDS.on ? role : null
   // COUNTRY-01 (country.mjs groundsLane): the crew's visit works the INSIDE (the tidy chain) or the COUNTRY (the bands outside the
   // wall, their own chain) -- a helper its side (borrowing the other lane's open work), the keeper the inside and the country when it
   // wants siting or has not had the keeper for COUNTRY.keeperEveryMs
@@ -27021,8 +27043,6 @@ async function buildTidyVisit (ctx, args, signal) {
     f.lane = lane
   }
   bot.shopVisitKey = key
-  // gksweep-01: the crew bot's role, for the sweep after this visit (buildTidy)
-  bot.gkSweepRole = GROUNDS.on ? role : null
   // gkclear-02: a keeper's tidy visit is stamped at its start with the town's count (an interrupted visit still spends its turn)
   if (GKW_ON && role === 'keeper') { try { bot.gkwTown = null; const t = gkwTownRead(bot); if (t.sig) bot.gkwTried = { sig: t.sig, total: t.total, at: Date.now() } } catch { /* the stamp is advisory */ } }
   // BOARDWALK-03: the town's water, every BW3.everyMs, before the stage (the keeper's; a visit with no water work goes on to the grounds)
