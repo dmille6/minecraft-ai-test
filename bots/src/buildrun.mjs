@@ -1448,6 +1448,19 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             e.log('_build', { op: 'deferred', seg, cell: open[0].at, n: open.length, why: 'blocked' })
             break
           }
+          // citywall-01 (`p.swap`; offline on the showcase 11-09: a leaf listed as a clear in a gate deck cell, no stand for it or for the
+          // deck cells beside it, `blocked` every visit and the phase -- every later phase -- held for good): a segment held by a block
+          // this visit cannot dig, or by cells no stand reaches, is DEFERRED (counted: F4, the wall's waiver after WALL_WAIVE_AFTER visits)
+          // and the visit goes on. Never a swapped cell standing open (a dug hole): it is never waived, it is placed again
+          if (p.swap && !needSapling) {
+            const defer = open.filter(c => !(c.sw && isClear(c.at)))
+            if (defer.length) {
+              for (const c of defer) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), isClear(c.at) ? (cand.includes(c) ? 'no_stand' : 'attempts_spent') : `blocked ${nm(rd(...c.at))}`) }
+              deferredSegs.add(seg)
+              e.log('_build', { op: 'deferred', seg, cell: defer[0].at, n: defer.length, why: 'swap_blocked' })
+              break
+            }
+          }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'
           out.why = `${seg}: ${open.length} open, ${cand.length} placeable now`
           return out

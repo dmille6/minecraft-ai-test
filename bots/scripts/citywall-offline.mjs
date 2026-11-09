@@ -65,8 +65,10 @@ const bill = CW.citywallBill(design.cells, design.style)
 // THE ESCAPE PROOF: the old record's cells and every design cell built
 const allCells = [...rec0.cells, ...design.cells]
 const R = W.wallWalkR(rec0, home) + 8
-const esc = W.wallEscape(base, home, allCells, { r: R })
-const esc0 = W.wallEscape(base, home, rec0.cells, { r: R })
+// the walk starts where the bots stood (an enclosed home seeds nothing)
+const seedC = CW.walkSeed(base, stood)
+const esc = W.wallEscape(base, home, allCells, { r: R, seed: seedC })
+const esc0 = W.wallEscape(base, home, rec0.cells, { r: R, seed: seedC })
 console.log(JSON.stringify({ plot: PLOT, counts: design.counts, skipped: design.skipped, towers: design.towers, gate: design.gate, roles, bill,
   phases: design.phases.map(p => `${p.ph}:${p.kind}:${p.n}:${Object.entries(p.bill).map(([k, v]) => `${k}=${v}`).join('/')}`),
   escape_before: { cut: esc0.cut, trapped: esc0.trapped, reach0: esc0.reach0, reach1: esc0.reach1 }, escape_after: { cut: esc.cut, trapped: esc.trapped, reach1: esc.reach1, pits: esc.pits, cutAt: esc.cutAt.slice(0, 6), trapAt: esc.trapAt.slice(0, 6) } }, null, 1))
@@ -140,13 +142,18 @@ if (flag('build')) {
   const bs = Array.from({ length: nB }, (_, i) => builder(`B${i}`, [home.x + i, home.y, home.z]))
   const stops = {}
   const perPhase = []
+  let waivedN = 0
   for (const ph of design.phases.slice(0, Number(opt('phases', 999)))) {
     const h = PJ.recordHead(dir, key).head
     const recN = CW.citywallGeneration(h.rec, design, ph.ph, { now: t })
     PJ.publishRecord(dir, key, () => recN)
-    const hh = PJ.recordHead(dir, key)
+    let hh = PJ.recordHead(dir, key)
+    let cur = recN
     const pal = recN.palette
-    const isDone = c => cellDone(read(...c.at), pal, c.role, c.ws) || (c.ws && cellDone(read(...c.at), pal, c.role) && stOk(c))
+    // the wall's own WAIVER as buildWall runs it (wall.mjs wallWaiveDue on the visit's deferred cells, the citywall bound second;
+    // --waive-max N overrides that bound to measure what a ring needs): a waived cell is done (it stays its old block)
+    const waiveMax = opt('waive-max') != null ? Number(opt('waive-max')) : W.WALL_WAIVE_MAX + CW.citywallWaiveMore(recN)
+    const isDone = c => W.wallWaived(cur, c) || cellDone(read(...c.at), pal, c.role, c.ws) || (c.ws && cellDone(read(...c.at), pal, c.role) && stOk(c))
     const stOk = c => { const s = stOf.get(c.at.join(',')); return !!s && Object.entries(c.ws).every(([k, v]) => String(s[k]) === String(v)) }
     const mine = recN.cells.filter(c => c.ph === ph.ph)
     let r = 0
@@ -154,9 +161,17 @@ if (flag('build')) {
       for (const b of bs) {
         const slot = PJ.takeSlot(dir, key, b.name, W.WALL_BUILDERS, { now: t })
         if (!slot.ok) continue
-        const v = await runVisit({ dir, key, me: b.name, home, stood, record: W.wallVisitRecord(W.wallLightsLast(recN), b.blocked, t), recordGen: hh.head.gen, palette: pal, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, stands: b.stands, unknown: b.unknown,
-          domain: () => true, walkR: W.wallWalkR(recN, home), foreign: W.WALL_FOREIGN, blockLayer: false, clearMax: W.WALL_CLEAR_MAX, swap: true, skipOpenDeps: true }, b.e, { maxSteps: 400 })
+        const v = await runVisit({ dir, key, me: b.name, home, stood, record: W.wallVisitRecord(W.wallLightsLast(cur), b.blocked, t), recordGen: hh.head.gen, palette: pal, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, stands: b.stands, unknown: b.unknown,
+          domain: () => true, walkR: W.wallWalkR(recN, home), foreign: W.WALL_FOREIGN, blockLayer: false, clearMax: W.WALL_CLEAR_MAX, swap: true, skipOpenDeps: true, sealed: { mayDig: () => true }, alsoDone: q => W.wallWaived(cur, q) }, b.e, { maxSteps: 400 })
         PJ.releaseLease(dir, key, `slot${slot.slot}`, b.name, slot.gen)
+        {
+          const due = W.wallWaiveDue(cur, v.deferred ?? [])
+          if (!due.length) due.push(...W.wallWaiveDue(cur, v.deferred ?? [], { max: waiveMax }))
+          if (due.length) {
+            PJ.publishRecord(dir, key, c0 => { const w = { ...(c0.waived ?? {}) }; for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: t, by: b.name }; return { ...c0, waived: w } })
+            hh = PJ.recordHead(dir, key); cur = hh.head.rec; waivedN += due.length
+          }
+        }
         stops[v.stop] = (stops[v.stop] ?? 0) + 1
         { const s = W.blockedSeg(v.stop, v.why); if (s) b.blocked.set(s, t) }
         if (process.env.VERBOSE && v.stop !== 'complete') console.error(ph.ph, b.name, r, v.stop, v.why)
@@ -165,14 +180,14 @@ if (flag('build')) {
       t += 10 * 60_000
     }
     const open = mine.filter(c => !isDone(c))
-    perPhase.push({ ph: ph.ph, kind: ph.kind, cells: mine.length, open: open.length, rounds: r, openSample: open.slice(0, 6).map(c => `${c.at.join(',')}:${c.role}:${c.seg}:${read(...c.at)?.name}`) })
+    perPhase.push({ ph: ph.ph, kind: ph.kind, cells: mine.length, open: open.length, waived: mine.filter(c => W.wallWaived(cur, c)).length, openOld: open.filter(c => c.sw && !/^(air|cave_air)$/.test(read(...c.at)?.name ?? 'air')).length, rounds: r, openSample: open.slice(0, Number(opt('sample', 6))).map(c => `${c.at.join(',')}:${c.role}:${c.seg}:${read(...c.at)?.name}`) })
     if (open.length && !flag('force')) break
   }
   const ops = rows.filter(q => q.name === '_build').reduce((m, q) => { const kk = `${q.d.op}${q.d.kind ? ':' + q.d.kind : ''}`; m[kk] = (m[kk] ?? 0) + 1; return m }, {})
   // the walk after: nothing cut, nobody trapped on the world as the fake builders left it
   const escB = W.wallEscape(base, home, [], { r: R, seed: seedC })
   const after = W.wallEscape(read, home, [], { r: R, seed: seedC })
-  built = { perPhase, stops, ops, gapViolations: gapViolations.length, gapSample: gapViolations.slice(0, 8), reachBefore: escB.reach0, reachAfter: after.reach0 }
+  built = { perPhase, waived: waivedN, stops, ops, gapViolations: gapViolations.length, gapSample: gapViolations.slice(0, 8), reachBefore: escB.reach0, reachAfter: after.reach0 }
   console.log(JSON.stringify({ build: built }, null, 1))
 }
 
