@@ -1142,7 +1142,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // a swapped cell left standing over a hole no stand fills (its underpinning spent) is DEFERRED once -- the waiver closes it as its
         // old block -- never held open for good
         if (p.swap) for (const c of open) if (c.sw && !isClear(c.at) && !sealed.has(kOf(c.at)) && swapOverHole(c, open, q => isClear(q.at) && (tries.get(kOf(q.at)) ?? 0) >= BUILD_ATTEMPTS)) { sealed.add(kOf(c.at)); deferredCells.push(kOf(c.at)); deferredSegs.add(seg); deferWhy.set(kOf(c.at), 'swap hole_under') }
-        const foreign = open.filter(c => { const k = kindAt(c); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !useOf(c)?.can(rd(...c.at)) && swapOk(c) }).sort((a, b) => a.at[1] - b.at[1])
+        const foreign = open.filter(c => { const k = kindAt(c); return k && swapOk(c) && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !useOf(c)?.can(rd(...c.at)) }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = kindAt(f)
           const sg = segGen
@@ -1186,8 +1186,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // overburden above it, then this segment's open foreign cells highest first (sealedAbove); a column that cannot be opened
           // is SEALED: named, and deferred with the cells no stand reaches (F4: counted, stuck_on_cell, the waiver), never `blocked`
           // citywall-01 (Codex r1 BLOCKER 1): never for a SWAPPED cell -- the sealed column's chain digs several cells before any is
-          // placed again, a hole two high; a swapped cell no stand sees is spent and named (the waiver's), never opened from the top
-          if (v === 'no_stand' && p.sealed && kind !== 'tree' && !(p.swap && f.sw)) {
+          // placed again, a hole two high; a swapped cell no stand sees is deferred (below), never opened from the top
+          const swapSealed = v === 'no_stand' && p.swap && f.sw
+          if (!swapSealed) if (v === 'no_stand' && p.sealed && kind !== 'tree') {
             cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
             const openK = new Set(open.map(q => kOf(q.at)))
             // zigsealed-01 (LIVE showcase 10-31 16:58Z on: the ziggurat's F-W skin cell -55,67,-35 grass under its own open air cell

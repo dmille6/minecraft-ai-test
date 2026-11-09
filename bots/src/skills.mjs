@@ -146,6 +146,7 @@ import { stepFor as siteStepFor } from './buildsite.mjs'   // citywall-01: can a
 import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a stand dig a swapped cell (the visit's own rule)
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
+import { CIVIC_PLOTS } from './civic.mjs'   // civic-01: the landmarks' plots are sited apart
 import { isCivicPlot, civicKindOf, civicNear, civicLookForStock, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
 import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, CITYWALL_WAIVE_MORE, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
@@ -21294,7 +21295,7 @@ function reroofFails (dir = townDir()) { try { return JSON.parse(fs.readFileSync
 // reroof-02 (c, REROOF_FAILS_FRESH): a versioned, expiring entry ({ v, n, at }); the old plain numbers read 0 (reroof.mjs reroofFailCount)
 function reroofFailNote (dir, plot) { try { const f = reroofFails(dir); f[plot] = reroofFailBump(f[plot], { fresh: REROOF_FIX.fresh }); fs.writeFileSync(reroofFailFile(dir), JSON.stringify(f)) } catch { /* the wait still holds */ } }
 /** TOWNSTYLE-01/02: the projects sited by their own siting (never the generic one): the cottage, the town hall. */
-const SITED_APART = new Set([COTTAGE_PLOT, TOWNHALL_PLOT])   // civic-01: and every civic plot (isCivicPlot, below)
+const SITED_APART = new Set([COTTAGE_PLOT, TOWNHALL_PLOT, ...CIVIC_PLOTS])   // civic-01: and every civic plot (civicSiteFor)
 /** Is the unsited town hall open (the extension's X2 free, no failed siting waiting)? Never throws. */
 function townhallOpenNow (dir = townDir()) { try { return TOWNHALL_SW.on && Date.now() >= siteWaitUntil(TOWNHALL_PLOT, dir) && townhallOpening(enchantExtNow(dir), plotsTakenBy(TOWNHALL_PLOT, dir)).open } catch { return false } }
 /** TOWNSTYLE-02: THE TOWN HALL'S SITE (the cottage's way: the style from the known stock, the styled blueprint sited on X2). Never throws. */
@@ -21855,7 +21856,7 @@ async function buildShopVisit (ctx, args, signal) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
       more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
     }
-    if (!SITED_APART.has(plot) && !isCivicPlot(plot) && plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
+    if (!SITED_APART.has(plot) && plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -23932,19 +23933,18 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
     // a segment this bot found BLOCKED lately waits; the visit works the others (wall.mjs wallVisitRecord)
     const blocked = K.plot === WALL_PLOT ? (bot.wallBlocked ??= new Map()) : (bot.wallextBlocked ??= new Map())
     const r = await runVisit({ dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: K.plot === WALL_PLOT ? (bot.wallStands ??= { pending: null, bans: {} }) : (bot.wallextStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      ...(isCitywall(rec) ? { swap: true, skipOpenDeps: true } : {}),   // citywall-01: the in-place swap
       domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
-      // citywall-01: an upgraded ring SWAPS its cobble in place (buildrun.mjs swapDigOk: one hole a segment, placed before the next dig)
-      // and passes a segment that waits on another (a gate's deck on its towers) instead of ending the visit there
-      ...(isCitywall(rec) ? { swap: true, skipOpenDeps: true } : {}),
       ...wallStuckOf(c, K.plot), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
     // wallstuck-01: THE WAIVER (wall.mjs wallWaiveDue) -- a cell this visit deferred after the remedies, counted WALL_WAIVE_AFTER
     // visits by the stuck map, is named on the record (a logged row with its reason) so the wall closes; the next visit reads it done
     if (wallStuckOn()) {
       try {
+        const due = wallWaiveDue(rec, r.deferred ?? [])
         // citywall-01: an upgraded ring's swapped cells no stand sees are waived past the wall's own bound (each stays its old block:
         // the wall whole, never a gap), so a phase closes
-        const due = wallWaiveDue(rec, r.deferred ?? [], isCitywall(rec) ? { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE } : {})
+        if (isCitywall(rec) && !due.length) due.push(...wallWaiveDue(rec, r.deferred ?? [], { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE }))
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too

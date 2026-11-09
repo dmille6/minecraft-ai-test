@@ -284,7 +284,7 @@ await t('CODEX r3 BLOCKER: a SEALED lower swap never strands the hole dug above 
   for (const at of col) assert.notStrictEqual(srv.read(...at).name, 'air', `never a hole left at ${at}`)
 })
 await t('MUTANT KILLED: without the swap rule in the visit\'s dig filter, a segment opens more than one hole', async () => {
-  await withMutant(' && !useOf(c)?.can(rd(...c.at)) && swapOk(c) })', ' && !useOf(c)?.can(rd(...c.at)) })', async M => {
+  await withMutant('return k && swapOk(c) && ', 'return k && ', async M => {
     const r = await buildUpgrade(M)
     assert.ok(r.maxHoles > 1, `the mutant kept ${r.maxHoles} hole(s)`)
   })
@@ -299,7 +299,7 @@ await t('WIRED: the planner plot registered (shop.mjs), dispatched and waiting (
   assert.ok(/p\.plot === CITYWALL_PLOT \? cw && wall && paths && on/.test(SH))
   assert.ok(/if \(proj\.plot === CITYWALL_PLOT\) return buildCitywall\(ctx, args, signal\)/.test(SK))
   assert.ok(/const palette = recordPalette\(rec, \{ palette: WALL_PALETTE \}\)/.test(SK))
-  assert.ok(/\.\.\.\(isCitywall\(rec\) \? \{ swap: true, skipOpenDeps: true \} : \{\}\)/.test(SK))
+  assert.ok(/\.\.\.\(isCitywall\(rec\) \? \{ swap: true, skipOpenDeps: true \} : \{\}\),\s*domain: \(\) => true, walkR: wallWalkR\(rec, home\)/.test(SK))
   assert.ok(/wallEscape\(read0, home, \[\.\.\.rec\.cells, \.\.\.design\.cells\]/.test(SK), 'the design passes the escape proof')
   // Codex r1: the waiver counts for the next phase and applies to an upgraded (complete) ring
   assert.ok(/done: c => wallWaived\(rec, c\) \|\| \(!!bot && cellDoneHere\(bot, rec\.palette \?\? \{\}, c\)\)/.test(SK))
@@ -307,7 +307,7 @@ await t('WIRED: the planner plot registered (shop.mjs), dispatched and waiting (
 })
 const BR = strip(readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
 await t('CODEX r1 BLOCKER 1 (structural: the remedy is a chain of digs): the sealed-column remedy never runs for a swapped cell in a swap visit', () => {
-  assert.ok(/if \(v === 'no_stand' && p\.sealed && kind !== 'tree' && !\(p\.swap && f\.sw\)\) \{/.test(BR))
+  assert.ok(/const swapSealed = v === 'no_stand' && p\.swap && f\.sw\n\s*if \(!swapSealed\) if \(v === 'no_stand' && p\.sealed && kind !== 'tree'\) \{/.test(BR))
 })
 
 console.log(`\ncitywall: ${pass} passed, ${fail} failed`)
