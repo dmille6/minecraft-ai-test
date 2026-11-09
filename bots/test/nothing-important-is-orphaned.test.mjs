@@ -363,6 +363,8 @@ const REQUIRED = [
   'scripts/host/statusreport.py',
   'scripts/host/test_statusreport.py',
   'scripts/host/install-statusreport.sh',
+  'scripts/host/headline.py',
+  'scripts/host/test_headline.py',
   'infra/dashboard/agent/mcai-dash-agent.py',
   'infra/dashboard/build_dashboards.py',
   'infra/dashboard/deploy.sh',

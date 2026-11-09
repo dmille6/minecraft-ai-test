@@ -381,13 +381,31 @@ def ck_render(M):
             and 'Sat 6:03 AM CT' in md and h.count('<ul>') == 2 and h.count('</ul>') == 2 and '<strong>x</strong>' in h)
 
 
-CHECKS = [ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window, ck_healthy_quiet, ck_death_spike, ck_fewer_deaths, ck_value,
+def ck_headline_block(M):
+    """The headline block sits above section 1, and its table renders as a table; an unread block says so."""
+    f = base()
+    f['headline'] = {'weeks': [['2026-10-12T00:00:00Z', '2026-10-19T00:00:00Z'], ['2026-10-19T00:00:00Z', '2026-10-26T00:00:00Z'],
+                               ['2026-10-26T00:00:00Z', '2026-11-02T00:00:00Z'], ['2026-11-02T00:00:00Z', '2026-11-09T00:00:00Z']],
+                     'days': {}, 'errors': []}
+    md = M.render(f, M.judge(f), NOW)
+    f2 = base()
+    f2['errors']['headline numbers'] = 'ES down'
+    md2 = M.render(f2, M.judge(f2), NOW)
+    h = M.md_to_html(md)
+    return (md.index('## Headline numbers (weekly)') < md.index('## 1. Headline') and '<table>' in h and '|---|' not in h
+            and 'could not read the headline numbers: ES down' in md2 and M.WEEKLY_LINK in md)
+
+
+CHECKS = [ck_headline_block, ck_slot_cst, ck_slot_cdt, ck_slot_grace, ck_window, ck_healthy_quiet, ck_death_spike, ck_fewer_deaths, ck_value,
           ck_unread_no_verdict, ck_bots_down, ck_world_down_first, ck_canary, ck_stuck_and_unstuck, ck_bags,
           ck_showcase_halt, ck_showcase_deaths, ck_finished, ck_narrative_ok, ck_narrative_new_number, ck_narrative_parts, ck_numbers,
           ck_effects, ck_grounds_town, ck_narrative_words, ck_unread_mood, ck_owner_alarms, ck_parsers, ck_windows_of_time, ck_backups, ck_render]
 
 # (name, old, new, the check it must break)
 MUTANTS = [
+    ('table lines rendered as paragraphs', "        if line.startswith('|') and line.rstrip().endswith('|'):", "        if False:",
+     ck_headline_block),
+    ('the headline block dropped', "        L += HL.render(hn, link=WEEKLY_LINK)", "        pass", ck_headline_block),
     ('slot in UTC, not Central', "    if c.hour in SLOT_HOURS and c.minute < grace_min:",
      "    if now.hour in SLOT_HOURS and now.minute < grace_min:", ck_slot_cdt),
     ('death spike threshold x10', "if win['deaths'] >= 3 and r_now >= 1.5 * r_week:",

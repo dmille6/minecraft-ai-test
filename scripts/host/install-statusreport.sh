@@ -18,6 +18,9 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REF="${REF:-origin/main}"
 TAG='# statusreport'
 CRON="3 0,5,6,11,12,17,18,23 * * * cd \$HOME/statusreport/app/scripts && /usr/bin/nice -n 10 /usr/bin/python3 -B host/statusreport.py run >> \$HOME/digest/statusreport.log 2>&1 $TAG"
+# the weekly summary (headline numbers, OWNER 11-09): Mondays 03:40Z, after valuescore's 00:50Z day file and DAY_SETTLE
+TAG2='# statusreport-weekly'
+CRON2="40 3 * * 1 cd \$HOME/statusreport/app/scripts && /usr/bin/nice -n 10 /usr/bin/python3 -B host/statusreport.py weekly >> \$HOME/digest/statusreport.log 2>&1 $TAG2"
 
 git -C "$REPO" fetch -q origin
 SHA="$(git -C "$REPO" rev-parse "$REF")"
@@ -31,24 +34,23 @@ case "$MODE" in
   dry)
     T=$(ssh "$H" 'mktemp -d $HOME/.statusreport-dry.XXXXXX')
     ship "$T/app"
-    ssh "$H" "set -e; cd '$T/app.new/scripts' && python3 -B host/test_statusreport.py | tail -1
+    ssh "$H" "set -e; cd '$T/app.new/scripts' && python3 -B host/test_statusreport.py | tail -1 && python3 -B host/test_headline.py | tail -1
       python3 -B host/statusreport.py run --force --no-push --no-llm --out '$T/out' && head -12 '$T'/out/report-*.md; rm -rf '$T'"
     echo "dry run OK ($SHA). --apply installs it and adds: $CRON"
+    echo "and: $CRON2"
     ;;
   --apply)
     ship statusreport/app
     ssh "$H" "set -e; cd \$HOME/statusreport && python3 -B app.new/scripts/host/test_statusreport.py | tail -1
+      python3 -B app.new/scripts/host/test_headline.py | tail -1
       rm -rf app.old; [ -d app ] && mv app app.old; mv app.new app; mkdir -p \$HOME/digest/statusreport
       crontab -l > \$HOME/statusreport/crontab.bak-\$(date -u +%Y%m%dT%H%M%SZ) 2>/dev/null || true
-      if crontab -l 2>/dev/null | grep -qF '$TAG'; then
-        (crontab -l | grep -vF '$TAG'; echo '$CRON') | crontab -; echo 'cron line replaced'
-      else
-        (crontab -l 2>/dev/null; echo '$CRON') | crontab -; echo 'cron line added'
-      fi
+      # '$TAG' is a prefix of '$TAG2': drop both, then add both (one line each)
+      (crontab -l 2>/dev/null | grep -vF '$TAG'; echo '$CRON'; echo '$CRON2') | crontab -; echo 'cron lines set'
       crontab -l | grep -F '$TAG'; cat app/SHA"
     ;;
   --rollback)
-    ssh "$H" "(crontab -l | grep -vF '$TAG') | crontab -; echo 'cron line removed'; crontab -l | grep -cF '$TAG' || true"
+    ssh "$H" "(crontab -l | grep -vF '$TAG') | crontab -; echo 'cron lines removed (report + weekly)'; crontab -l | grep -cF '$TAG' || true"
     ;;
   *) echo "usage: $0 [--apply|--rollback]"; exit 1 ;;
 esac

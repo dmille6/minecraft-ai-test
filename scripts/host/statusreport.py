@@ -21,6 +21,10 @@ provenance "paid:anthropic:<model> report-only" in its sidecar. Spend is logged 
 Read-only on the worlds and the bots: it reads files, Elasticsearch (read-only key), Prometheus and the dashboard agents
 over HTTP; it writes only ~/digest/statusreport/ and one push.
 
+HEADLINE NUMBERS (OWNER 11-09): the block at the top -- working share, projects finished per day, value per bot-hour,
+deaths per 100 bot-hours; this week, last week, 4-week trend; fleet + showcase -- comes from host/headline.py (its
+definitions, its day cache ~/digest/headline/). The weekly summary (`weekly`, Mondays) is linked from every report.
+
 Sources (all on 10.0.0.31 unless said):
   fleetstatus.py --json   deaths + causes, gather/craft/deposit, bags, structcount line, showcase block (ES)
   busy-fleet.json         time split (skills / walking / deciding / idle); hourwatch-fleet.json the patrol lap share
@@ -40,6 +44,7 @@ one click away). One push through lib/alarm.deliver at priority 'default' (never
 
     python3 -B host/statusreport.py run [--force] [--no-push] [--no-llm] [--out DIR]
     python3 -B host/statusreport.py due          # prints the slot this minute belongs to, or nothing
+    python3 -B host/statusreport.py weekly [--force]   # Mondays: the weekly summary (weekly/<ISO week>.md|html)
     python3 -B host/statusreport.py narrate FILE.md [--provider anthropic|local|none]   # the writing pass alone
 
 Schedule: cron on .31 runs in UTC, so it fires at 00,05,06,11,12,17,18,23 :03Z and due_slot() keeps only the run whose
@@ -68,6 +73,8 @@ HOME = os.path.expanduser('~')
 DIGEST = f'{HOME}/digest'
 OUT = f'{DIGEST}/statusreport'
 LINK = 'http://10.0.0.186/status/'
+WEEKLY_DIR = 'weekly'
+WEEKLY_LINK = f'{LINK}{WEEKLY_DIR}/weekly-latest.html'
 SLOT_HOURS = (0, 6, 12, 18)
 SLOT_GRACE_MIN = 40
 DEFAULT_WINDOW_H = 6
@@ -720,6 +727,14 @@ def render(f, j, now):
     L.append(f'_Covers the last {wh} h ({ct(since, day=True)} to {ct(now)} Central). Data report: every number comes '
              f'from the lab\'s own logs and checks; nothing here is written by a model._')
     L.append('')
+    hn = f.get('headline')
+    if hn:
+        import headline as HL
+        L += HL.render(hn, link=WEEKLY_LINK)
+    else:
+        L.append('## Headline numbers (weekly)')
+        L.append(f'- could not read the headline numbers: {plain((f.get("errors") or {}).get("headline numbers") or "no data", 140)}')
+    L.append('')
     L.append('## 1. Headline')
     L += [f'- {x}' for x in headline(f, j)]
     L.append('')
@@ -1068,7 +1083,22 @@ def md_to_html(md):
         s = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', s)
         return re.sub(r'(?<![\w])_(.+?)_(?![\w])', r'<em>\1</em>', s)
 
+    rows = []
+
+    def flush():
+        if rows:
+            head, body = rows[0], [r for r in rows[1:] if not all(re.fullmatch(r':?-+:?', c) for c in r)]
+            out.append('<div class="tw"><table><tr>' + ''.join(f'<th>{inline(c)}</th>' for c in head) + '</tr>'
+                       + ''.join('<tr>' + ''.join(f'<td>{inline(c)}</td>' for c in r) + '</tr>' for r in body)
+                       + '</table></div>')
+            rows.clear()
+
     for line in md.splitlines():
+        if line.startswith('|') and line.rstrip().endswith('|'):
+            close()
+            rows.append([c.strip() for c in line.strip()[1:-1].split('|')])
+            continue
+        flush()
         m = re.match(r'^(#{1,3}) (.*)$', line)
         b = re.match(r'^( *)- (.*)$', line)
         if m:
@@ -1087,6 +1117,7 @@ def md_to_html(md):
             out.append(f'<p>{inline(line)}</p>')
         else:
             close()
+    flush()
     close()
     return '\n'.join(out)
 
@@ -1106,6 +1137,8 @@ ul{margin:4px 0 4px 0;padding-left:20px} li{margin:2px 0} p{margin:6px 0} em{col
 .narr{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px 16px 10px;margin:10px 0 18px}
 .narr h1{font-size:18px} .narr h2,.narr h3{font-size:16px;border:0;padding:0;margin:12px 0 2px}
 .foot{color:var(--muted);font-size:13px;margin-top:24px}
+.tw{overflow-x:auto;margin:6px 0} table{border-collapse:collapse;font-size:14px;min-width:100%}
+th,td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left;white-space:nowrap} th{color:var(--muted);font-weight:600}
 """
 
 
@@ -1445,6 +1478,11 @@ def c_showcase_ops(f, since):
         sc.setdefault('trips', []).append(f'{trip["verdict"]}: ' + '; '.join(trip.get('why') or []))
 
 
+def c_headline(f, now):
+    import headline as HL
+    f['headline'] = HL.collect(now)
+
+
 def c_canary(f, now, since):
     import stategen as G
     rows = []
@@ -1521,6 +1559,7 @@ def c_alarms(f, now):
 
 def collect(now, since, wh, prev):
     f = {'generated_at': iso(now), 'since': iso(since), 'window_h': wh, 'errors': {}}
+    attempt(f, 'headline numbers', lambda: c_headline(f, now))
     attempt(f, 'fleet numbers (fleetstatus)', lambda: c_fleetstatus(f, now, wh))
     attempt(f, 'time split (busytime)', lambda: c_busy(f, now))
     attempt(f, 'production (valuescore / hourwatch)', lambda: c_value(f, now, wh))
@@ -1723,6 +1762,49 @@ def cmd_run(a):
     return 0
 
 
+def cmd_weekly(a):
+    """The weekly summary (Mondays): weekly/<ISO week>.{md,html} + weekly-latest.{md,html}; idempotent per week."""
+    import headline as HL
+    now = dt.datetime.now(UTC).replace(microsecond=0)
+    h = HL.collect(now)
+    label = HL.week_label(h)
+    wdir = os.path.join(a.out, WEEKLY_DIR)
+    os.makedirs(wdir, exist_ok=True)
+    if os.path.exists(os.path.join(wdir, label + '.md')) and not a.force:
+        print(f'{iso(now)} statusreport weekly: {label} already written')
+        return 0
+    rows = []
+    try:
+        with open(f'{HOME}/canary-journal.jsonl', errors='replace') as fh:
+            for line in fh:
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    pass
+    except OSError:
+        pass
+    a0, b0 = (ts(x) for x in h['weeks'][-1])
+    closed = canary_facts(rows, [], a0, b0)['closed']
+    md = HL.weekly_md(h, closed, now)
+    olds = sorted((x[:-3] for x in os.listdir(wdir) if re.fullmatch(r'\d{4}-W\d\d\.md', x)), reverse=True)
+    weeks_ = sorted(set(olds) | {label}, reverse=True)[:6]
+    for lab in weeks_:
+        try:
+            emd = md if lab == label else open(os.path.join(wdir, lab + '.md')).read()
+        except OSError:
+            continue
+        nav = [('Latest report', '../latest.html', False)] + [(x, f'{x}.html', x == lab) for x in weeks_]
+        page = page_html(emd, None, nav, f'weekly {lab}')
+        if lab == label:
+            write_atomic(os.path.join(wdir, lab + '.md'), md)
+            write_atomic(os.path.join(wdir, 'weekly-latest.md'), md)
+            write_atomic(os.path.join(wdir, 'weekly-latest.html'), page)
+        write_atomic(os.path.join(wdir, lab + '.html'), page)
+    print(f'{iso(now)} statusreport weekly: wrote {label} ({len(md.splitlines())} lines; {len(h["errors"])} error(s)) '
+          f'-> {WEEKLY_LINK}')
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -1732,6 +1814,9 @@ def main(argv=None):
     r.add_argument('--no-llm', action='store_true')
     r.add_argument('--out', default=OUT)
     sub.add_parser('due')
+    wk = sub.add_parser('weekly')
+    wk.add_argument('--force', action='store_true', help='rewrite this week\'s summary')
+    wk.add_argument('--out', default=OUT)
     nr = sub.add_parser('narrate')
     nr.add_argument('file')
     nr.add_argument('--provider', default='auto', choices=['auto', 'anthropic', 'local', 'none'])
@@ -1740,6 +1825,8 @@ def main(argv=None):
     if a.cmd == 'due':
         print(due_slot(dt.datetime.now(UTC)) or '')
         return 0
+    if a.cmd == 'weekly':
+        return cmd_weekly(a)
     if a.cmd == 'narrate':
         md = open(a.file).read()
         text, note = narrate(md, dt.datetime.now(UTC), a.out, a.provider)

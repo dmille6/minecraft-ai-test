@@ -630,6 +630,36 @@
    "consumer": "operator / daily Codex ops audit: database.db size trend (expected bounded at ~30 days of rows)",
    "kind": "maintenance",
    "note": "coreprotect-1106 (OWNER 11-06, logging only): showcase VM root crontab 03:50Z, before the 04:15Z backup stage. Rollback: delete the '# coreprotect-1106' cron line (backup /srv/showcase/ops/root-crontab.bak-coreprotect-*)"
+  },
+  {
+   "id": "statusreport",
+   "host": "31",
+   "cron": "host/statusreport.py run",
+   "outputs": [
+    "~/digest/statusreport/report-<YYYYMMDDTHHMM>CT.{md,json,html}",
+    "~/digest/statusreport/latest.html",
+    "~/digest/statusreport/index.json",
+    "~/digest/statusreport/headline.html",
+    "~/digest/headline/day-<YYYY-MM-DD>.json (headline numbers day cache)",
+    "one push via lib/alarm.deliver (priority default)"
+   ],
+   "fresh_hours": 7,
+   "consumer": "the owner: http://10.0.0.186/status/ (dashboard /status/ via mcai-dash-agent) + the push; Grafana Overview headline strip",
+   "kind": "report",
+   "note": "statusreport-1106; headline numbers block added 11-09 (host/headline.py). Rollback: bash scripts/host/install-statusreport.sh --rollback"
+  },
+  {
+   "id": "statusreport-weekly",
+   "host": "31",
+   "cron": "host/statusreport.py weekly",
+   "outputs": [
+    "~/digest/statusreport/weekly/<YYYY-Www>.{md,html}",
+    "~/digest/statusreport/weekly/weekly-latest.{md,html}"
+   ],
+   "fresh_hours": 170,
+   "consumer": "the owner: http://10.0.0.186/status/weekly/weekly-latest.html, linked from every status report's headline block",
+   "kind": "report",
+   "note": "OWNER 11-09 course correction point 1: the four headline numbers weekly. Mondays 03:40Z. Rollback: delete the '# statusreport-weekly' cron line"
   }
  ]
 }
