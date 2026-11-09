@@ -57,7 +57,8 @@ test('WIRING: cognitive issues the coal run after the workshop and before planti
   assert.deepEqual(refundDeclined('gather', { coalRunState: { lastIssuedAt: 5, pending: false } }), {}, 'a model gather refunds nothing')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(sk.includes('const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true })'), 'gather asks the tunnel kinds')
-  assert.ok(sk.includes('kinds: tk.kinds, label: tk.label })'), 'and passes them to the tunnel')
+  // ironchain-01: the call also hands gather's per-cell rule (`eligible`) to the tunnel
+  assert.ok(sk.includes('kinds: tk.kinds, label: tk.label, eligible: tunnelEligible })'), 'and passes them to the tunnel')
   assert.ok(sk.includes('const cluster = clusterOf(at, plan.target, kinds)'), 'the cluster follows the kind')
 })
 
