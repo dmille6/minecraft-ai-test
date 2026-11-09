@@ -11,6 +11,8 @@ import { wallOn, WALL_PLOT, WALL_BLUEPRINT, WALL_BUILDERS } from './wall.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, stairStartRefusal } from './shaftgeom.mjs'
 import { treefarmOn, TREEFARM_PLOT, TREEFARM_BLUEPRINT, TREEFARM_BUILDERS } from './treefarm.mjs'
 import { tidyOn, TIDY_PLOT, TIDY_BLUEPRINT, TIDY_BUILDERS } from './tidy.mjs'
+import { ROAD_PLOT, ROAD_BLUEPRINT, ROAD_BUILDERS } from './roadsbase.mjs'   // roads-01 (the fleet port): the traffic roads
+import { roadsOn } from './roads.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { gkfOn, gkfBuilders } from './gkforever.mjs'   // gkforever-01: the crew
 import { groundsBatchOpen } from './idlework.mjs'   // gkforever-01: a grounds lap's order cooldown
@@ -41,6 +43,8 @@ export const MONUMENT = Object.freeze({ on: monumentOn(process.env, process.env.
  * fleet's until its rollout (paths.mjs pathsOn; PATHS=off is the rollback).
  */
 export const PATHS = Object.freeze({ on: pathsOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** ROADS-01: the traffic roads (roads.mjs roadsOn: ROADS2; the fleet line's default is every pool). */
+export const ROADS2 = Object.freeze({ on: roadsOn(process.env, process.env.MEMORY_POOL ?? '') })
 /**
  * WALL-01: THE TOWN WALL is the fifth project (wall.mjs; owner showcase list 10-29: house-01 -> paths-01 -> wall-01): after the
  * paths (its gateways are where they cross), a cobblestone rampart round the plan area. On in the showcase pool, off in the fleet's
@@ -90,10 +94,13 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: PATHS_PLOT, blueprint: PATHS_BLUEPRINT, after: 'house1', builders: PATHS_BUILDERS }),
   Object.freeze({ plot: WALL_PLOT, blueprint: WALL_BLUEPRINT, after: PATHS_PLOT, builders: WALL_BUILDERS }),
   Object.freeze({ plot: TREEFARM_PLOT, blueprint: TREEFARM_BLUEPRINT, after: PATHS_PLOT, builders: TREEFARM_BUILDERS }),
+  // roads-01: the traffic roads -- a GROWING record (an instance a stretch); a standing record is only `due` (its next stretch, after
+  // every open project: skills.mjs shopActive), so a road never holds the town's finite work back
+  Object.freeze({ plot: ROAD_PLOT, blueprint: ROAD_BLUEPRINT, after: PATHS_PLOT, builders: ROAD_BUILDERS }),
   // gkforever-01 CREW (GKF_CREW): the keeper and a helper (gkforever.mjs GKF.crew); off: the keeper alone (groundskeeper-01)
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? gkfBuilders(gkfOn('crew')) : TIDY_BUILDERS }),
 ])
-export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : on))
+export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, road = ROADS2.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === ROAD_PLOT ? road && paths && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
  *  protection"). Pure. */

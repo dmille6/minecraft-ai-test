@@ -355,12 +355,15 @@ export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z))
  * cell inside the town circle that is a node here. Never "every plaza cell" (Codex r1 P2: a moat inside the plaza), never "beside
  * a chest" (Codex r2/r3 P2: a chest in a wall is opened from either side).
  */
-export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null } = {}) {
+// roads-01 (`floors`: a Set of a record's own BOTTOM-SLAB cell keys -- the road's riser rows): such a cell reading a slab is a floor
+// too (the showcase line's reroof-04 rule; a road walker stands half a block up on it)
+export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null } = {}) {
   const isNode = (x, y, z) => {
     if (block.has(k3(x, y, z)) || block.has(k3(x, y + 1, z)) || block.has(k3(x, y - 1, z))) return false
     if (noFloor?.has(k3(x, y - 1, z))) return false             // monument-01: an open fill cell is never a floor
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
-    return !!f && !!a && !!h && fullCube(f) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
+    const floor = fullCube(f) || (!!floors && floors.has(k3(x, y - 1, z)) && /_slab$/.test(nm(f)))
+    return !!f && !!a && !!h && floor && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
   }
   // the walk's steps from one node -> its neighbours (4-neighbour, dy -1 / 0 / +1 with head room)
   const next = ([x, y, z], r) => {

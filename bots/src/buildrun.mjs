@@ -543,7 +543,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // A LAYERED BUILD (p.blockLayer, monument-01): a stand is never an open cell of ANY segment at the heights this segment builds --
   // two builders on one layer otherwise stood in each other's open cells (the fake server: both `body` until attempts_spent)
   const byY = p.blockLayer ? record.cells.reduce((m, c) => (m.has(c.at[1]) ? m.get(c.at[1]).push(c) : m.set(c.at[1], [c]), m), new Map()) : null
-  const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(rd, home, block, walkR, { stood, noFloor }))
+  // roads-01 (`p.floors`: the road record's bottom-slab cells -- buildsite.mjs walkFrom's floors)
+  const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(rd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null }))
   const conn = e.conn?.() ?? null
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
   // the mutex's holder RETIRED (offline RETIRE_MS as this bot has seen it): it cannot send (Codex r2 P2: a reused pid kept a dead

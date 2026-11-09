@@ -130,6 +130,8 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
+import { trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes, siteRoad2 } from './roads.mjs'   // roads-01 (the fleet port)
+import { ROAD_PLOT, ROAD_BLUEPRINT, appendRoad, completeRoad, roadVisitOpts, instancesOf as roadInstancesOf, FENCES as ROAD_FENCES } from './roadsbase.mjs'
 import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
 import { LAND as LAND_TABLE } from './landplan.mjs'   // gkforever-01: the bands out to GKF.radius
 import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMeans } from './gkforever.mjs'   // gkforever-01
@@ -17224,7 +17226,7 @@ const bpCache = new Map()
 // paths-01: the paths have none either (paths.mjs routes them; PATH_PALETTE)
 // wall-01: the wall has none either (wall.mjs sites it; WALL_PALETTE)
 // shaft-02: the town stair has none either (shaftgeom.mjs plans it; its visit and its damage test are its own)
-const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : loadBlueprint(id)); return bpCache.get(id) }
+const blueprintOf = id => { if (!bpCache.has(id)) bpCache.set(id, id === MONUMENT_BLUEPRINT ? { id, palette: ZIG_PALETTE } : id === PATHS_BLUEPRINT ? { id, palette: PATH_PALETTE } : id === WALL_BLUEPRINT ? { id, palette: WALL_PALETTE } : id === SHAFT_BLUEPRINT ? { id, palette: {} } : id === TREEFARM_BLUEPRINT ? { id, palette: FARM_PALETTE } : id === TIDY_BLUEPRINT ? { id, palette: TIDY_PALETTE } : id === ROAD_BLUEPRINT ? { id, palette: {} } : loadBlueprint(id)); return bpCache.get(id) }
 // the pool's stood cells stay in the workshop's file: they are town feet cells, every project's walk seeds (house-01)
 const stoodKey = () => projKeyOf(SHOP_PLOT)
 /**
@@ -17247,6 +17249,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
         const rec0 = h.ok ? h.head?.rec ?? null : null
         // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
         const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
+        // roads-01: a town with no road record yet reads its road as STANDING and only due when a first stretch is wanted (a route in
+        // the traffic file, the town's stone above its floor, no no-site wait): never an open project that holds the order
+        if (p.plot === ROAD_PLOT && !rec) return { plot: p.plot, exists: true, complete: true, damaged: false, due: !!b && roadNextDue(null) }
         const complete = !!rec?.structure_complete
         // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
         // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
@@ -17720,6 +17725,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r?.blueprint === TIDY_BLUEPRINT) return tidy && (tidyDue(r) || strayDue(bot))
     // shaft-02: the town stair judges its own cells (shaftgeom.mjs stairDamaged); a no-site record is only DUE, after its retry
     if (r?.blueprint === SHAFT_BLUEPRINT) return stairDamaged(stairRead(bot), r) || (tidy && stairDue(r))
+    // roads-01: a road judges its cells with its own palette (instances name their roles); a standing road is DUE its next stretch
+    if (r?.blueprint === ROAD_BLUEPRINT) return roadCellsDamaged(bot, r) || (tidy && roadNextDue(r))
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
     // own palette (ziggurat.mjs zigPaletteOf -- a v1 record keeps ZIG_PALETTE)
     const mon = isZigBlueprint(r.blueprint)
@@ -17843,6 +17850,8 @@ async function buildShopOn (proj, ctx, args, signal) {
   if (proj.plot === TREEFARM_PLOT) return buildTreeFarm(ctx, args, signal)
   // tidy-01: the town-ground tidy's visit (tidy.mjs survey and grading; cuts, then layered fills)
   if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)
+  // roads-01 (the fleet port): the traffic roads' visit (roads.mjs: the routes, the router, the cells; a stretch an instance)
+  if (proj.plot === ROAD_PLOT) return buildRoad(ctx, args, signal)
   const plot = proj.plot
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
@@ -19457,6 +19466,265 @@ function wallStuckOf (c) {
   const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
   const may = at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } }
   return { sealed: { mayDig: may }, footing: { mayPlace: may, role: 'base' }, stuckStalledOnly: true }
+}
+// ---- ROADS-01 (the fleet port): traffic-routed stone roads ------------------------------------------------------------------------
+let roads2Cache = { at: -Infinity, v: null }
+/** The town's traffic file's routes (roads.mjs trafficRoutes; scripts/host/roadtraffic.py writes it daily), read at most once a minute.
+ *  Never throws: unreadable is no routes. */
+function roads2Traffic (now = Date.now()) {
+  if (now - roads2Cache.at < 60_000 && roads2Cache.v) return roads2Cache.v
+  let v
+  try { v = trafficRoutes(JSON.parse(fs.readFileSync(path.join(townDir(), trafficFile(`${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`)), 'utf8')), now) } catch { v = { ok: false, why: 'no_file', routes: [] } }
+  roads2Cache = { at: now, v }
+  return v
+}
+const ROAD_NOSITE_MS = 2 * 60 * 60_000
+const roadNoSiteFile = () => path.join(townDir(), `road-nosite-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.json`)
+/** The town's road no-site stamp (a siting that found nothing holds every bot of the town ROAD_NOSITE_MS) -> until ms. Never throws. */
+function roadNoSiteUntil () { try { return Number(JSON.parse(fs.readFileSync(roadNoSiteFile(), 'utf8'))?.until) || 0 } catch { return 0 } }
+function roadNoSiteWrite (why) { try { const f = roadNoSiteFile(), tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ until: Date.now() + ROAD_NOSITE_MS, why: String(why).slice(0, 80) })); fs.renameSync(tmp, f) } catch { /* one bot's wait */ } }
+/** The town's stone for a road: its cobble family + stone bricks above the reserve (unread: the bag's). Never throws. */
+function roadStoneNow (bot) {
+  try {
+    const t = matsTownStock(bot), st = t?.stock ?? {}, known = (t?.coverage ?? 0) >= 0.8
+    const fam = n => Number(st[n]) || 0
+    const town = known ? Math.max(0, fam('cobblestone') + fam('cobbled_deepslate') + fam('stone_bricks') - (Number(matsReserve().table?.cobblestone) || 256)) : 0
+    return town + Math.max(0, (countItem(bot, 'cobblestone') || 0) - 64)
+  } catch { return 0 }
+}
+/** IS THE TOWN'S ROAD DUE ITS NEXT STRETCH? A route in the traffic file not ended, no no-site wait, the record under its instance cap,
+ *  stone enough for a stretch (ROAD_STONE_MIN). Never throws. */
+const ROAD_STONE_MIN = 192
+/** A standing road's cells: is one not done (a repair)? Its own palette. Never throws (false). */
+function roadCellsDamaged (bot, r) {
+  try {
+    for (const c of r?.cells ?? []) { if (r.waived?.[c.at.join(',')]) continue; const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2])); if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox }, r.palette ?? {}, c.role)) return true }
+    return false
+  } catch { return false }
+}
+function roadNextDue (rec) {
+  try {
+    if (Date.now() < roadNoSiteUntil()) return false
+    if (roadInstancesOf(rec).length >= ROADS.instancesMax) return false
+    const t = roads2Traffic()
+    if (!t.ok) return false
+    const ended = endedRoutes(rec)
+    if (!t.routes.some(r => !ended[r.id])) return false
+    const b = activeMem?.bot ?? null
+    return !b || roadStoneNow(b) >= ROAD_STONE_MIN
+  } catch { return false }
+}
+/** THE ROAD'S SITING INPUTS -> { guard, own, ringFor, townBoxes, landOk, routes } | null. The reservations (buildsite.mjs reservations over
+ *  the plan, the protected zones, wells, the farm, every OTHER record's zone but the land plan's road corridors and the paths' zones:
+ *  the road continues a path and takes the corridors kept for a road), every other record's cell columns (`own`: never a road cell on
+ *  one), the ring each route leaves, the landing test (no wall cell). Throws on an unreadable record (the visit stops). */
+function roadSiteInputs (c, plan) {
+  const t = roads2Traffic()
+  if (!t.ok) return null
+  const heads = projectHeads()
+  const others = heads.filter(x => x.plot !== ROAD_PLOT).map(x => x.head.rec).filter(Boolean)
+  const zs = [...c.zones, ...recordZones(others).filter(z => !/^(land:road|project:paths)/.test(String(z?.why ?? '')))]
+  const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: c.z0 })
+  const guard = (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
+  const cols = new Set(heads.filter(x => x.plot !== ROAD_PLOT && x.plot !== LAND_PLOT).flatMap(x => (x.head?.rec?.cells ?? []).filter(q => Array.isArray(q?.at)).map(q => `${q.at[0]},${q.at[2]}`)))
+  const walls = heads.filter(x => x.plot === WALL_PLOT).map(x => x.head?.rec).filter(Boolean)
+  const wallCols = new Set(walls.flatMap(r => (r.cells ?? []).filter(q => Array.isArray(q?.at)).map(q => `${q.at[0]},${q.at[2]}`)))
+  const boxes = [...walls.map(r => r.ring), t.ring, t.ext].filter(b => Array.isArray(b) && b.length === 4)
+  const ringFor = st => boxes.find(b => Math.max(b[0] - st[0], st[0] - b[2], b[1] - st[1], st[1] - b[3]) <= 2) ?? t.ring ?? null
+  return { guard, own: (x, z) => cols.has(`${x},${z}`), ringFor, townBoxes: boxes, landOk: (x, z) => !wallCols.has(`${x},${z}`), routes: t.routes }
+}
+/**
+ * THE ROAD KIT (before the visit's bag accounting) -> { made }. What the record's open cells owe in the roles no chest stocks (roads.mjs
+ * roadKitNeed): bottom slabs crafted at a table from the town's stone bricks (3 -> 6), else cobblestone; spruce fences from the bag's
+ * planks; lanterns from iron (the town's above ROAD_IRON_KEEP) and a torch (above its reserve) -- at most ROAD_KIT_MAX of each. One
+ * `_road op=kit` row. Never throws but an abort.
+ */
+const ROAD_KIT_MAX = 24
+const ROAD_IRON_KEEP = 32
+async function roadKit (ctx, rec, palette, signal) {
+  const { bot } = ctx
+  const rd = planReader(bot)
+  const nd = roadKitNeed(rec, c => !buildCellDone(rd(...c.at), palette, c.role), heldMap(bot))
+  const made = {}
+  const t = matsTownStock(bot)?.stock ?? {}
+  const R0 = matsReserve().table
+  try {
+    if (nd.slab > 0) {
+      const crafts = Math.ceil(Math.min(ROAD_KIT_MAX, nd.slab) / 6)
+      const brick = (Number(t.stone_bricks) || 0) - 64 >= 3 * crafts || countItem(bot, 'stone_bricks') >= 3 * crafts
+      const item = brick ? 'stone_brick_slab' : 'cobblestone_slab', input = brick ? 'stone_bricks' : 'cobblestone'
+      const lack = Math.max(0, 3 * crafts - countItem(bot, input))
+      if (lack) await matsWithdraw(ctx, { [input]: lack }, signal, 20_000, R0)
+      check(signal)
+      const before = countItem(bot, item)
+      if (countItem(bot, input) >= 3) await craft(ctx, { item, count: Math.min(crafts, Math.floor(countItem(bot, input) / 3)) * 6 }, signal)
+      made[item] = Math.max(0, countItem(bot, item) - before)
+    }
+    if (nd.fence > 0) {
+      const fences = () => ROAD_FENCES.reduce((a, n) => a + (countItem(bot, n) || 0), 0)
+      const before = fences()
+      await craft(ctx, { item: 'spruce_fence', count: Math.ceil(Math.min(ROAD_KIT_MAX, nd.fence) / 3) * 3 }, signal)
+      made.fence = Math.max(0, fences() - before)
+    }
+    check(signal)
+    if (nd.lantern > 0) {
+      const lacking = Math.min(ROAD_KIT_MAX, nd.lantern)
+      const iron = Math.min(Math.max(0, (Number(t.iron_ingot) || 0) - ROAD_IRON_KEEP), Math.max(0, Math.ceil((lacking * 8 - countItem(bot, 'iron_nugget')) / 9) - countItem(bot, 'iron_ingot')))
+      const torch = Math.min(Math.max(0, (Number(t.torch) || 0) - (Number(R0?.torch) || 32)), Math.max(0, lacking - countItem(bot, 'torch')))
+      if (iron || torch) await matsWithdraw(ctx, { ...(iron ? { iron_ingot: iron } : {}), ...(torch ? { torch } : {}) }, signal, 20_000, R0)
+      check(signal)
+      const k = Math.min(lacking, countItem(bot, 'torch'), Math.floor((countItem(bot, 'iron_nugget') + 9 * countItem(bot, 'iron_ingot')) / 8))
+      const before = countItem(bot, 'lantern')
+      if (k > 0) await craft(ctx, { item: 'lantern', count: k }, signal)
+      made.lantern = Math.max(0, countItem(bot, 'lantern') - before)
+    }
+  } catch (err) { if (err?.aborted || signal?.aborted) throw err }
+  const n = Object.values(made).reduce((a, b) => a + b, 0)
+  try { logEvent({ kind: 'road', status: n ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=kit slab=${nd.slab} fence=${nd.fence} lantern=${nd.lantern} made=${Object.entries(made).map(([a, b]) => `${a}:${b}`).join(',') || '-'}` }) } catch { /* telemetry */ }
+  return { made: n }
+}
+/**
+ * ROADS-01 (the fleet port): THE ROAD'S VISIT. A standing record (or none) due its next stretch: the next instance is sited (roads.mjs
+ * siteRoad2: the traffic routes most-walked first, the router, the cells, the proof) and published (roadsbase.mjs appendRoad); a stretch
+ * that does not site stamps the town's no-site wait (2 h). Then, an open record: the kit (slabs, fences, lanterns) BEFORE the bag's
+ * accounting, the bill drawn from town under the project reserve, runVisit with the road's slab floors; a stretch that ends complete is
+ * marked standing (completeRoad). Rows: `_road op=sited|no_site|kit`, `_build_visit project=road`.
+ */
+async function buildRoad (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const f = { project: ROAD_PLOT }
+  const out = (status, outcome, detail, extra = {}, failClass = null) => {
+    Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
+    return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
+  }
+  if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === ROAD_PLOT)) return out('no_effect', 'off', 'the roads are switched off (ROADS2, PATHS, SHOP or TOWNPLAN)')
+  const c = shopCtx(bot)
+  if (!c.zonesKnown) return out('no_effect', 'zones_unknown', 'the protected zones could not be read; nothing is sited or built until they are')
+  const h = townPlanHead(bot)
+  if (!h.ok || !h.head) return out('no_effect', 'no_plan', 'the town has no plan yet')
+  const dir = townDir(), key = projKeyOf(ROAD_PLOT), me = bot.username ?? 'bot', home = planHomeP()
+  bot.shopVisitKey = key
+  const stood = stoodRead(dir, stoodKey(), home)
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return out('no_effect', 'record_unreadable', 'the road record could not be read')
+  let rec0 = rh.head?.rec ?? null
+  // (the cells' damage only: shopDamaged reads a road due its next stretch as damaged)
+  if (!rec0 || (rec0.structure_complete && !roadCellsDamaged(bot, rec0))) {
+    if (!roadNextDue(rec0)) return out('no_effect', 'complete', 'the road wants no stretch now (no route, ended, a no-site wait or no stone)', { stop: 'complete' })
+    let r
+    try {
+      await new Promise(resolve => setImmediate(resolve))
+      const inp = roadSiteInputs(c, { ...h.head.plan, gen: h.head.gen })
+      const n = roadInstancesOf(rec0).length + 1
+      const feet = bot.entity?.position ? [Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y + 1e-6), Math.floor(bot.entity.position.z)] : null
+      const t = matsTownStock(bot)?.stock ?? {}
+      const avail = Object.fromEntries(['stone_bricks', 'cobbled_deepslate', 'deepslate_bricks', 'mossy_cobblestone', 'andesite', 'tuff', 'polished_andesite', 'mossy_stone_bricks'].map(q => [q, Math.max(0, (Number(t[q]) || 0) - 64) + (countItem(bot, q) || 0)]))
+      r = inp ? siteRoad2(planReader(bot), { id: `R${n}`, n, home, pool: config.memory.pool, avail, rec: rec0, stood: [...stood, ...(feet ? [feet] : [])], ...inp, lamp: true }) : { ok: false, why: 'no_traffic', tried: [] }
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e; r = { ok: false, why: 'error', tried: [String(e?.message ?? e).slice(0, 60)] } }
+    check(signal)
+    const tried = (r.tried ?? []).join(' ')
+    if (!r.ok) {
+      roadNoSiteWrite(r.why)
+      try { logEvent({ kind: 'road', status: 'no_effect', snapshot: snapshot(bot), detail: `op=no_site why=${r.why} tried=${tried.replace(/\s+/g, '|').slice(0, 160)}` }) } catch { /* telemetry */ }
+      return out('no_effect', 'no_site', `no road stretch (${r.why}) ${tried}`.slice(0, 160), { stop: 'no_site' })
+    }
+    const n0 = roadInstancesOf(rec0).length
+    const pub = publishRecord(dir, key, cur => ((roadInstancesOf(cur).length === n0 && (!cur || cur.structure_complete)) ? appendRoad(cur, { home, inst: r.inst, meta: { ...r.meta, sitedBy: me, sitedAt: Date.now() } }) : null), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    if (pub.result === 'accepted') {
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: ROAD_PLOT, op: 'sited', cell: r.meta.box?.slice(0, 2), kind: `${r.meta.id}/${r.meta.summary}`.slice(0, 48), n: r.inst.cells.length, gen: pub.gen }) }) } catch { /* telemetry */ }
+      try { logEvent({ kind: 'road', status: 'success', snapshot: snapshot(bot), detail: `op=sited id=${r.meta.id} route=${r.meta.route} k=${r.meta.k} len=${r.meta.len} cells=${r.inst.cells.length} clears=${r.inst.clear.length} slabs=${r.meta.slabs} lamps=${r.meta.lamps} ended=${r.meta.ended ?? '-'} trips=${r.meta.trips}` }) } catch { /* telemetry */ }
+    }
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the road record could not be read back')
+  }
+  shopFootprintRefresh(bot)
+  const rec = rh.head.rec
+  const palette = rec.palette ?? {}
+  if (rec.structure_complete && !roadCellsDamaged(bot, rec)) return out('no_effect', 'complete', 'the road stands')
+  // the kit BEFORE the visit's bag accounting (a craft inside it reads as unexplained loss)
+  try { const kt = await roadKit(ctx, rec, palette, signal); if (kt.made) f.kit = kt.made } catch (e) { if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e } }
+  check(signal)
+  const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === ROAD_PLOT)))
+  if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
+  const slotRef = { gen: slot.gen }
+  let effects = null
+  let bag0 = null, tookAll = {}, backAll = {}, placedBy = {}, diedAt = null, drawn0 = null, drawnFails = 0, completed = false
+  const persist = () => {
+    if (!drawn0 || completed) return
+    const b1 = heldMap(bot)
+    if (!drawnWrite(dir, key, me, drawnAfter({ drawn: drawn0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: b1 }), { bag: b1 })) drawnFails++
+  }
+  const onDeath = () => { diedAt = Date.now() }
+  try { bot.once?.('death', onDeath) } catch { /* a bare bot */ }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    const held0 = heldMap(bot)
+    let dr = drawnRead(dir, key, me)
+    if (rec.structure_complete && Object.keys(dr.drawn).length && !(Number(dr.at) > Number(rec.completeAt ?? Infinity))) {
+      if (!drawnWrite(dir, key, me, {})) drawnFails++
+      dr = { drawn: {}, bag: {}, at: null }
+    }
+    drawn0 = drawnHeld(dr.drawn, held0, dr.bag)
+    const keep = townKeeps(ownCounts(held0, drawn0), { wanted: bot.currentWants ?? [] }).keep
+    const spare0 = Object.fromEntries(Object.entries(held0).map(([n, k]) => [n, Math.max(0, k - (keep[n] ?? 0))]))
+    const read = planReader(bot)
+    const town = matsTownStock(bot)?.stock ?? {}
+    const bill = billOf(rec, palette, read, { done: buildCellDone, inTown: zigBillInTown(bot, town) })
+    const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
+    let took = {}
+    bag0 = held0
+    if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
+    const R0 = matsReserve().table
+    const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
+    const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
+    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree)) {
+      const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
+    }
+    check(signal)
+    effects = botBuildEffects(bot, {
+      acks,
+      keep,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: ROAD_PLOT, ...d }) : buildRowDetail({ project: ROAD_PLOT, ...d }) }) } catch { /* telemetry */ } if (kind === '_build' && d?.op === 'place') persist() },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const ins = roadInstancesOf(rec).at(-1) ?? null
+    const boxes = roadInstancesOf(rec).map(i => i.box).filter(b => Array.isArray(b) && b.length === 4)
+    const onBuild = ft => !!ft && boxes.some(b => ft[0] >= b[0] && ft[0] <= b[2] && ft[2] >= b[1] && ft[2] <= b[3])
+    const leave = Array.isArray(ins?.approach?.[0]) ? { leaveIf: onBuild, leaveTo: ins.approach[0] } : {}
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.roadStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      ...roadVisitOpts(rec, home), ...leave, floors: roadFloors(rec) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    if (r.stop === 'complete') {
+      const pub = publishRecord(dir, key, cur => (cur && roadInstancesOf(cur).length === roadInstancesOf(rec).length ? completeRoad(cur) : null), { by: me })
+      completed = true
+      bot.shopDamage = null
+      if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
+      if (pub.result === 'accepted') { try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: ROAD_PLOT, op: 'complete', kind: `${ins?.id ?? '-'}/${ROAD_BLUEPRINT}`, gen: pub.gen ?? '-' }) }) } catch { /* telemetry */ } }
+    }
+    let back = {}
+    const left = leftoverNames(took, held0, heldMap(bot))
+    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    const done = (() => { try { const rd = planReader(bot); let d = 0, o = 0; for (const q of rec.cells) { if (buildCellDone(rd(...q.at), palette, q.role)) d++; else o++ } return `${d}/${d + o}` } catch { return '-' } })()
+    const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    return out(status, r.stop, `${r.why ?? r.stop}; built ${done} (${ins?.id ?? '-'})`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
+    return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+    try { if (Object.values(placedBy).some(n => n > 0)) { shopProgressWrite(Date.now(), 'placed', me, shopRecordRoot(recordHead(dir, key)), key); if (bot.projReserve) bot.projReserve.at = -Infinity } } catch { /* the clock */ }
+    try { (bot.off ?? bot.removeListener)?.call(bot, 'death', onDeath) } catch { /* gone */ }
+    if (drawn0) { try { if (completed) { if (!drawnWrite(dir, key, me, {})) drawnFails++ } else persist() } catch { drawnFails++ } }
+    if (bag0) { try { logEvent({ kind: 'build_bag', status: 'success', snapshot: snapshot(bot), detail: buildBagDetail(ROAD_PLOT, bagBalance({ bag0, took: tookAll, crafted: {}, placed: placedBy, back: backAll, bag1: heldMap(bot) }), { exit: diedAt ? 'died' : (f.outcome ?? '-'), silent: f.silent ?? '-', drawn: drawn0 ? (drawnFails ? `fail:${drawnFails}` : 'ok') : '-' }) }) } catch { /* telemetry */ } }
+  }
 }
 async function buildWall (ctx, args, signal) {
   const { bot } = ctx
