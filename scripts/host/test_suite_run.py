@@ -213,6 +213,16 @@ def t_plan_ci34(S):
     check('plan: forced ci3 even when busy', got == [('ci3', None)], got)
 
 
+def t_suite_env(S):
+    """11-09 bench: ci2 12 jobs, ci3/ci4 10 with the 600 s file timeout, w30 and any unknown host 6."""
+    check('env: ci2 12 jobs', S.suite_env('ci2') == 'TEST_JOBS=12', S.suite_env('ci2'))
+    check('env: ci3 10 jobs + 600 s', S.suite_env('ci3') == 'TEST_JOBS=10 TEST_TIMEOUT_MS=600000', S.suite_env('ci3'))
+    check('env: ci4 10 jobs + 600 s', S.suite_env('ci4') == 'TEST_JOBS=10 TEST_TIMEOUT_MS=600000', S.suite_env('ci4'))
+    check('env: w30 stays at 6', S.suite_env('w30') == 'TEST_JOBS=6', S.suite_env('w30'))
+    check('env: unknown host -> 6', S.suite_env('local') == 'TEST_JOBS=6', S.suite_env('local'))
+    check('env: every ORDER host has an entry', all(h in S.HOST_ENV for h in S.ORDER))
+
+
 def t_probe(S):
     check('probe: parsed', S.parse_probe('FREE\nCACHE\nWAITERS 2\nPROBED\n') == P(True, True, False, 2))
     check('probe: npm only', S.parse_probe('NPM\nWAITERS 0\nPROBED\n') == P(npm=True))
@@ -358,6 +368,9 @@ MUTANTS = [
     ("return (0, last, slow, load, order.index(h)) if up[h]['free']", "return (0, 0, slow, 0, order.index(h)) if up[h]['free']",
      t_plan_ci34),
     ("slow = 1 if h in SLOW else 0", "slow = 0", t_plan_ci34),
+    ("jobs = e.pop('TEST_JOBS', str(DEFAULT_JOBS))", "jobs = str(DEFAULT_JOBS); e.pop('TEST_JOBS', None)", t_suite_env),
+    ("return ' '.join([f'TEST_JOBS={jobs}'] + [f'{k}={v}' for k, v in sorted(e.items())])",
+     "return f'TEST_JOBS={jobs}'", t_suite_env),
     ("load = 99.0 if load is None else load", "load = 0.0 if load is None else load", t_plan_ci34),
     ("else (1, up[h]['waiters'], last, slow, order.index(h))", "else (1, up[h]['waiters'], 0, slow, order.index(h))",
      t_plan_ci34),
@@ -412,7 +425,7 @@ def relay_mutants():
 
 def main():
     S = load()
-    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_prune, t_relay, t_plan, t_plan_ci34, t_probe, t_try, t_seed, t_relay_retry):
+    for t in (t_wait, t_ship, t_overlay, t_mirror_ref, t_prune, t_relay, t_plan, t_plan_ci34, t_suite_env, t_probe, t_try, t_seed, t_relay_retry):
         t(S)
     base = list(FAILS)
     for f in base:

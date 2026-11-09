@@ -2,7 +2,8 @@
 """suite-run: run the FULL bots test suite on a test host, never on the Mac mini.
 
 OWNER 2026-11-03 "build the 2nd test suite on pve3"; 2026-11-09 "lets build 2 more test machines" (ci3, ci4). The
-hosts share one convention: a per-host `~/suite.lock` (flock), `nice -n 19`, `TEST_JOBS=6`, and a copied tree under ~/ci/.
+hosts share one convention: a per-host `~/suite.lock` (flock), `nice -n 19`, a per-host TEST_JOBS (HOST_ENV), and a copied
+tree under ~/ci/.
 
     ci2   mike@10.0.0.34  vm-minecraft-ci2 (pve3 vmid 107, 16 vCPU / 24 GB), a dedicated test host
     ci3   mike@10.0.0.35  vm-minecraft-ci3 (pve1 vmid 124, 16 vCPU / 24 GB), a dedicated test host
@@ -83,7 +84,25 @@ LAST_RESORT = ('w30',)   # also runs the fleet's Paper worlds: a ci host is pref
 # on ci2), plinth-skill, well, lavastep: the same set w30 (also a pve1 Xeon) has failed on for days. So among FREE hosts
 # the fast one goes first and the slow ones get a 600 s file timeout; well/lavastep stay red there (timing, not the host).
 SLOW = ('ci3', 'ci4', 'w30')
-HOST_ENV = {'ci3': 'TEST_TIMEOUT_MS=600000', 'ci4': 'TEST_TIMEOUT_MS=600000'}
+# 11-09 TEST_JOBS bench (owner OK to raise it; hosts sat 20-40% busy at 6), main b8c0e49a, one run per setting under the
+# host's lock, peak RAM of 23.4 GB:
+#   ci2  6: 757 s 420/421 2.3 GB | 10: 490 s 419/421 (craftsync-mutants flake) 2.8 GB | 12: 436 s 420/421 3.1 GB  -> 12
+#   ci3  6: 1232 s 417/421 2.2 GB | 10: 695 s 416/421 2.7 GB | 12: 638 s 415/421 3.1 GB (+ leasegen's 3 ms budget) -> 10
+#   (ci3 reds at every setting: plinth-skill, well, ziggurat-v2-build ~355 s assertion, + main's stallcheck; lavastep at 10
+#   and 12.) No file hit the timeout; ziggurat-tidy 348 -> 377 -> 404 s against the 600 s limit. ci4 = ci3's hardware.
+#   w30 stays at 6: it also runs the fleet's worlds.
+DEFAULT_JOBS = 6
+HOST_ENV = {'ci2': {'TEST_JOBS': '12'},
+            'ci3': {'TEST_JOBS': '10', 'TEST_TIMEOUT_MS': '600000'},
+            'ci4': {'TEST_JOBS': '10', 'TEST_TIMEOUT_MS': '600000'},
+            'w30': {'TEST_JOBS': '6'}}
+
+
+def suite_env(host):
+    """PURE. The `env` assignments for a host's suite: TEST_JOBS (DEFAULT_JOBS unless HOST_ENV says) first, then the rest."""
+    e = dict(HOST_ENV.get(host) or {})
+    jobs = e.pop('TEST_JOBS', str(DEFAULT_JOBS))
+    return ' '.join([f'TEST_JOBS={jobs}'] + [f'{k}={v}' for k, v in sorted(e.items())])
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
 SKIP_PREFIXES = ('.wt-', 'videos/', '.claude/')
 
@@ -538,8 +557,7 @@ def run_suite(host, a, label, dest, rlog, llog, git_ctx):
     cleanup = '' if a.keep else f'; rm -rf ~/{dest}/bots/node_modules'
     lock_s, suite_s = a.lock_wait_min * 60, a.suite_min * 60
     inner = (f'export PATH=$HOME/coopb5/node22/bin:$PATH; cd ~/{dest}/bots && '
-             f'flock -w {lock_s} -E {LOCK_TIMEOUT_RC} ~/suite.lock timeout -k 60 {suite_s} nice -n 19 env TEST_JOBS=6 '
-             f'{HOST_ENV[host] + " " if HOST_ENV.get(host) else ""}'
+             f'flock -w {lock_s} -E {LOCK_TIMEOUT_RC} ~/suite.lock timeout -k 60 {suite_s} nice -n 19 env {suite_env(host)} '
              f'node scripts/run-tests.mjs{filt} > ~/{rlog} 2>&1; rc=$?; '
              f'[ $rc = {LOCK_TIMEOUT_RC} ] && echo "LOCK TIMEOUT: ~/suite.lock busy for {a.lock_wait_min} min" >> ~/{rlog}; '
              f'[ $rc = {SUITE_TIMEOUT_RC} ] && echo "SUITE DEADLINE: killed after {a.suite_min} min" >> ~/{rlog}; '
