@@ -19841,12 +19841,12 @@ async function villageFeedPriced (ctx, args, signal) {
       const vs = vfSeen(bot)
       // the cluster's own adults wherever they wandered (e2e 11-09 run 9: a target 30 b off the centre read `all_fed` while hungry), and any
       // other villager near the centre
-      const mine = new Set(c.uuids ?? [])
-      const near = vs.filter(v => mine.has(v.uuid) || Math.hypot(v.x - c.x, v.z - c.z) <= FEED.clusterR + 8)
+      const ours = new Set(c.uuids ?? [])
+      const near = vs.filter(v => ours.has(v.uuid) || Math.hypot(v.x - c.x, v.z - c.z) <= FEED.clusterR + 8)
       const tgt = nextTarget(near, st, bot.entity.position, { misses })
       if (!tgt) {
         // why no target: every cluster adult fed, or a hungry one out of sight / at its miss cap / asleep (the row says which)
-        const hungry = [...mine].filter(u => (st.fed?.[u]?.n ?? 0) < FEED.loaves)
+        const hungry = [...ours].filter(u => (st.fed?.[u]?.n ?? 0) < FEED.loaves)
         const seenU = new Set(vs.map(v => v.uuid))
         out.stop = !hungry.length ? 'all_fed' : hungry.every(u => !seenU.has(u)) ? `unseen${hungry.length}` : hungry.some(u => (misses[u] ?? 0) >= FEED.missMax) ? `missed${hungry.length}` : `asleep${hungry.length}`
         break
