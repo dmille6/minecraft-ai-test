@@ -14,7 +14,7 @@ import path from 'node:path'
 import { EventEmitter } from 'node:events'
 import { dumpReader } from './buildsite-offline.mjs'
 import * as PJ from '../src/buildproj.mjs'
-import { runVisit, cellDone } from '../src/buildrun.mjs'
+import { runVisit, cellDone, digStand as digStandOf } from '../src/buildrun.mjs'
 import { installAckTracker } from '../src/buildack.mjs'
 import { buildRowDetail, buildSegDetail } from '../src/shop.mjs'
 import * as W from '../src/wall.mjs'
@@ -52,7 +52,7 @@ const zone = flag('nozones') ? () => false : (x, z) => roadCols.has(`${x},${z}`)
 const BS = await import('../src/buildsite.mjs')
 const walkNodes = new Map()
 for (const k of BS.walkFrom(base, home, new Set(), W.wallWalkR(rec0, home))) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
-const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone, reachUnder: at => !!BS.stepFor(base, home, at, walkNodes, () => true, null) })
+const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone, reachUnder: at => !!BS.stepFor(base, home, at, walkNodes, () => true, null), reachSwap: at => !!digStandOf(base, at, walkNodes) })
 if (!design.ok) { console.error('no design', design.why); process.exit(1) }
 const roles = design.cells.reduce((m, c) => (m[c.role] = (m[c.role] ?? 0) + 1, m), {})
 const bill = CW.citywallBill(design.cells, design.style)

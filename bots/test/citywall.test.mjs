@@ -128,6 +128,15 @@ await t('THE UNDERPINNING NO STAND REACHES is left out (the waiver is bounded): 
   const feet = d => d.cells.filter(c => c.role === CW.CW.foot && !c.sw && c.at[0] === col.x && c.at[2] === col.z).length
   assert.ok(feet(a) >= 1, `underpinned ${feet(a)}`); assert.strictEqual(feet(b), 0); assert.ok(b.skipped.underpin.unreached >= 1)
 })
+await t('A CELL NO STAND CAN DIG stays cobblestone (counted), its run keeps the rest; a tower or a gate with one is refused', () => {
+  const o = REC.cells.filter(c => c.role === 'wall')
+  const lowK = new Set(o.filter(c => c.at[1] <= G + 1).map(c => k3(c.at)))
+  const d = CW.citywallDesign(SRV.read, REC, { seed: 3, gatePick: 'path', reachSwap: at => !lowK.has(k3(at)) })
+  assert.ok(d.ok && d.skipped.cells > 0)
+  assert.ok(!d.cells.some(c => lowK.has(k3(c.at))), 'never swapped')
+  assert.ok(d.cells.some(c => c.sw), 'the reachable courses still are')
+  assert.strictEqual(d.counts.towers, 0, 'every tower here has a low in-line cell: refused'); assert.strictEqual(d.gate, null)
+})
 await t('THE GENERATIONS: phase by phase; segments ordered gate towers, gate deck, gate lamps, towers, runs, lamps; the deck waits on its towers', () => {
   let rec = REC
   for (const p of DES.phases) rec = CW.citywallGeneration(rec, DES, p.ph, { now: 1 })

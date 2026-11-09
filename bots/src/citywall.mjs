@@ -371,7 +371,7 @@ export function runLamps (read, runs, { taken = () => false, skip = new Set(), i
  * owns (a dress torch, a path); the old record's own cells are never taken. `reachUnder([x, y, z])`: can a stand place this underpinning
  * cell (the caller's walk and stepFor); false leaves the column's underpinning out.
  */
-export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = true, gate = false, gatePick = null, taken = () => false, zone = () => false, towersMax = CITYWALL.towersMax, stairs = true, reachUnder = () => true, flat = false } = {}) {
+export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = true, gate = false, gatePick = null, taken = () => false, zone = () => false, towersMax = CITYWALL.towersMax, stairs = true, reachUnder = () => true, reachSwap = () => true, flat = false } = {}) {
   if (!rec?.cells?.length || !Array.isArray(rec.ring)) return { ok: false, why: 'no_record' }
   if (rec.citywall) return { ok: false, why: 'already' }
   const cols = wallColumns(rec)
@@ -395,6 +395,7 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
     let site = gateSite(rec, { pick: gatePick })
     if (site) {
       let r = gatehouseCells(read, site, { seed, colAt, oldAt, taken: veto, stairs, flat })
+      if (!r.why) { const u0 = r.cells.find(c => oldAt.has(kOf(c.at)) && !reachSwap(c.at)); if (u0) r = { ...r, why: `unreached ${kOf(u0.at)}` } }
       const ins = r.why ? gateInset(site) : null
       if (ins) { const r2 = gatehouseCells(read, ins, { seed, colAt, oldAt, taken: veto, stairs, flat }); if (!r2.why) { r = r2; site = ins } else r = { ...r, why: `${r.why}; inset ${r2.why}` } }
       if (r.why) skipped.gate = r.why
@@ -405,6 +406,8 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
   const footprintFree = s => {
     const tc = towerCells(read, s, { seed, oldAt, taken: veto, flat })
     if (tc.why) { skipped.towers.push(`${s.at.join(',')}:${tc.why}`); return false }
+    const u0 = tc.cells.find(c => c.sw && !reachSwap(c.at))
+    if (u0) { skipped.towers.push(`${s.at.join(',')}:unreached ${kOf(u0.at)}`); return false }
     return true
   }
   // FLAT: no bastions (their merlons and outer rows want reach-only clicks: the fake server 11-09 left 103 cells open); the gate's own
@@ -421,7 +424,16 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
   const rest = runs.map((r, i) => i).filter(i => !claimed.has(i))
     .map(i => ({ i, d: Math.min(...runs[i].map(c => Math.min(Infinity, ...anchors.map(a => Math.abs(a[0] - c.x) + Math.abs(a[1] - c.z))))) }))
     .sort((p, q) => p.d - q.d || p.i - q.i)
-  for (const { i } of rest) units.push({ kind: 'run', runs: new Set([i]) })
+  // A CELL NO STAND CAN DIG (buildrun.mjs digStand: a plinth whose outer face is over a ditch, a cliff, the water, its inner face behind
+  // the steps) stays cobblestone, counted: its swap would stall the run (offline on the showcase 11-09: whole runs `blocked`). The top
+  // courses -- the band and the merlons, seen from the wall walk -- are the run's face from above and from the town; a run with no
+  // reachable cell at all is left out
+  skipped.cells = 0; skipped.runs = 0
+  const swappable = c => c.role !== 'post' && !waived.has(kOf(c.at)) && reachSwap(c.at)
+  for (const { i } of rest) {
+    if (!runs[i].some(col => col.cells.some(swappable))) { skipped.runs++; continue }
+    units.push({ kind: 'run', runs: new Set([i]) })
+  }
   // 4. THE CELLS per unit
   const lampSkip = new Set(towerCols)
   for (const s of sites) for (const c of s.cols) lampSkip.add(k2(c.x, c.z))
@@ -440,7 +452,7 @@ export function citywallDesign (read, rec, { style = 'grey', seed = 0, moss = tr
       for (const col of run) {
         const k = k2(col.x, col.z)
         if (towerCols.has(k) || sites.some(s => s.cols.some(c => c.x === col.x && c.z === col.z))) continue
-        for (const c of col.cells) { const rel = c.at[1] - col.b; if (c.role === 'post' || waived.has(kOf(c.at))) continue; if (!cells.has(kOf(c.at))) put({ at: c.at, role: courseRole(rel, { seed, at: c.at, moss }) }, col.seg, ph) }
+        for (const c of col.cells) { const rel = c.at[1] - col.b; if (c.role === 'post' || waived.has(kOf(c.at))) continue; if (!reachSwap(c.at)) { skipped.cells++; continue } if (!cells.has(kOf(c.at))) put({ at: c.at, role: courseRole(rel, { seed, at: c.at, moss }) }, col.seg, ph) }
         let up = underpinOf(read, col, { taken: veto })
         // an underpinning no stand can reach (its LOWEST cell: the first placed) is left out, counted: the wall's waiver is bounded (wall.mjs
         // WALL_WAIVE_MAX), so a run of unreachable feet would hold its phase for good
