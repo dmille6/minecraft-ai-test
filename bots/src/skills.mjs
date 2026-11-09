@@ -6318,11 +6318,15 @@ function stationStill (bot, at, name) {
   try { const b = bot.blockAt?.(at); return b?.name === name ? b : null } catch { return null }
 }
 /**
- * STATIONSBACK-01: THE RETRY'S OWNERSHIP GUARD -- a fresh watch armed now (the first dig's watch stopped at its swing), asked at
- * the retry's swing like the first: a change since, or another block there, is not ours. The watch stops at that swing.
+ * STATIONSBACK-01: THE RETRY'S OWNERSHIP WATCH, armed BEFORE the first dig (while the caller's own watch still runs, so there is no
+ * unwatched gap through the cancelled swing and the settle -- Codex r1 blocker: a station broken and re-placed in that gap
+ * passed a name-only re-check). null when off. The caller stops it on every path.
  */
-function retryGuard (bot, at, name) {
-  const w = watchPlaced(bot, at, name)
+function retryWatch (bot, at, name) { return sbOn() ? watchPlaced(bot, at, name) : null }
+/** The retry may dig only a cell that never changed since retryWatch was armed and still holds the station -> its block, or null. */
+function retryRecheck (bot, rw, at, name) { return rw && !rw.changed ? stationStill(bot, at, name) : null }
+/** THE RETRY'S GUARD at its swing: the same watch asked again (any change since it was armed, or another block there: not ours). */
+function retryGuard (bot, at, name, w) {
   const guard = () => {
     try {
       if (w.changed) throw Object.assign(new Error(`changed before the retry (${w.changed}); not provably ours`), { failClass: 'not_ours' })
@@ -6334,9 +6338,10 @@ function retryGuard (bot, at, name) {
   return guard
 }
 /** STATIONSBACK-01: one dig of a retake -- the first under the caller's guard, a retry (`again`) under a fresh retryGuard. */
-async function retryDig (bot, again, block, signal, beforeDig, at, name) {
+async function retryDig (bot, again, block, signal, beforeDig, at, name, rw) {
   if (!again) return collectManually(bot, block, signal, { beforeDig })
-  const g = retryGuard(bot, at, name)
+  if (!rw) throw Object.assign(new Error('no ownership watch for a retry'), { failClass: 'not_ours' })
+  const g = retryGuard(bot, at, name, rw)
   try { return await collectManually(bot, again, signal, { beforeDig: g }) } finally { g.stop() }
 }
 
@@ -6371,15 +6376,16 @@ async function retakeStation (ctx, w, signal, by = 'smelt') {
       w.stop()
     }
     let retried = ''
+    const rw = retryWatch(bot, at, name)
     try {
-      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, under a fresh watch
-      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, name), recheck: () => stationStill(bot, at, name) })
+      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, if the cell never changed
+      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, name, rw), recheck: () => retryRecheck(bot, rw, at, name) })
       if (r.retried) retried = ' (dig retried)'
     } catch (e) {
       if (e?.aborted || signal?.aborted) { row('left', 'aborted mid-dig'); throw e }
       row(e?.failClass === 'not_ours' ? 'left' : 'failed', `dig: ${String(e?.message ?? e).slice(0, 80)}`)
       return `could not take the ${name} back`
-    }
+    } finally { rw?.stop() }
     let back = countItem(bot, name) > before
     for (let i = 0; i < 15 && !back; i++) { await sleep(100, signal); back = countItem(bot, name) > before }
     // STATIONSBACK-01: NOT BACK -> look for its drop (up to 1.5 s) and walk into its pickup box, as craft's table retake does
@@ -6785,9 +6791,10 @@ async function retakeWatched(ctx, watched, signal) {
       w.stop()
     }
     let retried = ''
+    const rw = retryWatch(bot, at, 'crafting_table')
     try {
-      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, under a fresh watch
-      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, 'crafting_table'), recheck: () => stationStill(bot, at, 'crafting_table') })
+      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, if the cell never changed
+      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, 'crafting_table', rw), recheck: () => retryRecheck(bot, rw, at, 'crafting_table') })
       if (r.retried) retried = ' (dig retried)'
     } catch (e) {
       if (e?.aborted || signal?.aborted) { row('left', 'aborted mid-dig'); throw e }
@@ -6795,7 +6802,7 @@ async function retakeWatched(ctx, watched, signal) {
       row('failed', `dig failed: ${String(e?.message ?? e).slice(0, 80)}`)
       said.push(`could not take the table back: ${String(e?.message ?? e).slice(0, 60)}`)
       continue
-    }
+    } finally { rw?.stop() }
     let back = countItem(bot, 'crafting_table') > before
     for (let i = 0; i < 4 && !back; i++) { await sleep(100, signal); back = countItem(bot, 'crafting_table') > before }
     // NOT BACK: WALK INTO ITS PICKUP BOX (sandbox 46c4836, 1 of 4: the drop came to rest just outside the box and
