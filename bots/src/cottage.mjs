@@ -107,5 +107,7 @@ export function cottageEntranceCols (rec, { depth = COTTAGE_APPROACH } = {}) {
   return out
 }
 /** THE PALETTE A RECORD IS BUILT AND JUDGED BY: its own (a styled record), else its blueprint's. Pure. */
-export const recordPalette = (rec, bp) => (rec?.palette && typeof rec.palette === 'object' && (isCottageBlueprint(rec.blueprint) || (rec.style && typeof rec.style === 'object')) ? rec.palette : bp?.palette ?? {})
+// citywall-01 / civic-01: an upgraded wall generation (`citywall`) and a landmark (`civic`) carry their own palette too -- without a `style`,
+// so the retrofit's one-at-a-time rule (reroof.mjs isStyled) never waits on them
+export const recordPalette = (rec, bp) => (rec?.palette && typeof rec.palette === 'object' && (isCottageBlueprint(rec.blueprint) || (rec.style && typeof rec.style === 'object') || (rec.citywall && typeof rec.citywall === 'object') || (rec.civic && typeof rec.civic === 'object')) ? rec.palette : bp?.palette ?? {})
 // townstyle-02: ANY STYLED record (a `style` chosen at siting: the town hall, a re-roofed generation) is judged by its own palette too

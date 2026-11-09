@@ -126,6 +126,23 @@ export function foreignKind (n, scaffold = FOREIGN_CLEAR) {
   return null
 }
 /**
+ * CITYWALL-01: MAY A SWAPPED CELL BE DUG NOW? -> bool. Pure. `cell` a record cell holding a standing block the generation replaces
+ * (`sw`); `open` its segment's open cells. Never while the segment has a HOLE: a swapped cell standing open and clear (dug and not
+ * yet placed again -- whatever its attempts), or any clear open cell a placement could take now (nothing open below it in its column,
+ * attempts left, a stand that fills it: `fillable`; an underpinning first, the swap after); never while the bag holds no block for it. So a segment has at most
+ * one dug cell open at a time, placed before the next dig: a 1 x 1 hole, never two high, never a passage.
+ */
+export function swapDigOk (cell, open, { clear, tries = () => 0, has, fillable = () => true }) {
+  if (!has(cell)) return false
+  for (const o of open) {
+    if (o === cell || !clear(o)) continue
+    if (o.sw) return false
+    const below = open.some(q => q !== o && q.at[0] === o.at[0] && q.at[2] === o.at[2] && q.at[1] < o.at[1])
+    if (!below && tries(o) < BUILD_ATTEMPTS && fillable(o)) return false
+  }
+  return true
+}
+/**
  * THE OVERBURDEN ON A TOOL CELL (pathsclose-01, LIVE showcase 10-30: the paths sat at 261/263 all day -- 304 of 307 visits since
  * 12Z ended `clears_wait`, nothing done -- because two path cells, 19,67,16 and 20,69,24, had dirt/grass SET ON THEM after siting
  * (one and two blocks: a scaffold's or a pillar's), and a shovel converts a cell only with air above; the visit dug a LISTED plant
@@ -1110,7 +1127,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // townstyle-01: A MISORIENTED CELL (the role's block in the WRONG state: a stair facing away, a log on its side) is dug like a
         // foreign block (`reorient`) and placed again aimed -- never left, never clicked into (a slab clicked into a slab doubles)
         const kindAt = c => (misorientedAt(c) ? 'reorient' : foreignKind(nm(rd(...c.at)), scaffoldRe))
-        const foreign = open.filter(c => { const k = kindAt(c); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !useOf(c)?.can(rd(...c.at)) }).sort((a, b) => a.at[1] - b.at[1])
+        // citywall-01 (`p.swap`, THE IN-PLACE SWAP): a swapped cell (`sw`: a standing block the generation replaces) is dug only when
+        // swapDigOk says so -- no hole open in this segment and the bag holding its block -- so it is placed before the next dig
+        // (an ADDED clear cell -- an underpinning under a hanging run -- holds the dig back only while a stand can fill it NOW: one no stand
+        // reaches would otherwise hold the whole run's swap for good, two guards composing into a dead end; offline 11-09, 404 `blocked`)
+        let swapNodes = null
+        const fillable = q => { swapNodes ??= nodesFor(new Set(open.filter(o => !openRole(o.role)).map(o => kOf(o.at)))); return !!stepFor(rd, home, q.at, swapNodes, domain, wantOf(q)) }
+        const swapOk = c => !p.swap || !c.sw || swapDigOk(c, open, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!blockFor(palette, q.role, e.has), fillable })
+        const foreign = open.filter(c => { const k = kindAt(c); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !useOf(c)?.can(rd(...c.at)) && swapOk(c) }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = kindAt(f)
           const sg = segGen

@@ -34,6 +34,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell, sectorOf, keepouts, boxMeetsZones, cellInZones, rot } from './townplan.mjs'
 import { worldState, orientAim, slabMerges } from './townstyle.mjs'
+import { isCivicBlueprint, civicBlueprint } from './civic.mjs'   // civic-01: the landmarks' generated blueprints
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const k2 = (x, z) => `${x},${z}`
@@ -102,7 +103,8 @@ export function groundOf (read, x, z, hy) {
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 /** A blueprint by id ('workshop@1') from bots/src/blueprints/. */
-export function loadBlueprint (id) { return JSON.parse(fs.readFileSync(`${here}blueprints/${id}.json`, 'utf8')) }
+// civic-01: a landmark's blueprint is GENERATED from its id (civic.mjs civicBlueprint: one per seeded look), never a file
+export function loadBlueprint (id) { return isCivicBlueprint(id) ? civicBlueprint(id) : JSON.parse(fs.readFileSync(`${here}blueprints/${id}.json`, 'utf8')) }
 
 /** The cardinal unit vector a local direction (du, dv) points to under an orientation. */
 const dirOf = (orient, du, dv) => { const { dx, dz } = rot(orient, du, dv); return [Math.sign(dx), Math.sign(dz)] }
