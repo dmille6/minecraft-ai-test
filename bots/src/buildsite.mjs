@@ -531,7 +531,10 @@ const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; cons
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
  * the bottom up), then the blueprint's segments in order. `stood` = the walk's seeds, cells a bot stood on (D3).
  */
-export function proveSite (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null, avoid = null } = {}) {
+export function proveSite (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null, avoid = null, planned = null } = {}) {
+  // planahead-01 (`planned` = { block: Set, noFloor: Set }, planahead.mjs plannedWorld): the other open records' work still to place is an
+  // obstacle and never a floor, their open clears never a floor -- the proof is made in the PLANNED town, never only the town as it is
+  const pBlock = planned?.block instanceof Set ? planned.block : null, pNoFloor = planned?.noFloor instanceof Set && planned.noFloor.size ? planned.noFloor : null
   // storehouse-01: a building inside the town (its plan plot beside the plaza) names its stands' domain (stepFor's), as the visit does
   const over = new Map()
   for (const c of site.clear) over.set(k3(...c.at), AIR)
@@ -554,7 +557,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
     // cottage2-01: a bed's HEAD is never clicked -- the foot's click puts it there (it rides with its foot, below)
     const left = mine.filter(c => !c.byFoot).sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
     const headOf = c => (c.role === 'bed' && c.bed ? mine.find(h => h.byFoot && h.bed === c.bed) ?? null : null)
-    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), walkR, { stood, floors, avoid }))
+    const walkNow = () => byColumn(walkFrom(R, home, new Set([...(pBlock ?? []), ...left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))]), walkR, { stood, floors, avoid, ...(pNoFloor ? { noFloor: pNoFloor } : {}) }))
     let nodes = walkNow(), fresh = true, walks = 1
     while (left.length) {
       let pick = -1, step = null
@@ -579,7 +582,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
   }
   // the finished building: EVERY open interior floor cell is walked to from town through the open doorway
   // reroof-04 (`gone`: fill keys a temporary stand holds -- torn down once the roof stands): the finished building is walked WITHOUT them
-  const final = walkFrom(gone?.size ? overlay(R, new Map([...gone].map(k => [k, AIR]))) : R, home, new Set(), walkR, { stood, floors, avoid })
+  const final = walkFrom(gone?.size ? overlay(R, new Map([...gone].map(k => [k, AIR]))) : R, home, new Set(pBlock ?? []), walkR, { stood, floors, avoid, ...(pNoFloor ? { noFloor: pNoFloor } : {}) })
   const solidInside = new Set(cells.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))
   const interior = bp.interior.filter(([, , y]) => y === 1).map(([u, v]) => { const { dx, dz } = rot(site.orient, u, v); return k3(site.anchor.x + dx, site.s + 1, site.anchor.z + dz) })
   // reroof-04 (`interiorNow(key)`, a retrofit: NEVER WORSE) only the interior cells the town walks to NOW must stay walked (LIVE 11-08: a
@@ -809,7 +812,7 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
       yield null
       let site = ok[i]
       row.tried = i + 1
-      const proveOpts = { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}) }
+      const proveOpts = { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}), ...(ctx.planned ? { planned: ctx.planned } : {}) }
       // sitecanopy-01 (`ctx.cellClears(site)` -> null | { clear } | { fail }): the caller may list more clears for this candidate (the
       // natural leaves in a styled building's own cells, sitecanopy.mjs), or fail it by name (they would never be reached)
       if (typeof ctx.cellClears === 'function') {
@@ -830,6 +833,9 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
         }
       }
       if (!p.ok) { proofFails[p.why] = (proofFails[p.why] ?? 0) + 1; if ((row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} ${p.why} ${p.detail ?? ''}`.slice(0, 120)); continue }
+      // planahead-01 (`ctx.standCheck(site, cells)` -> null | { plot, at, kind }, planahead.mjs standConflicts): a candidate that would fill
+      // another unfinished building's stand or dig its floor is not this town's site -- the search moves on (never a stand taken away)
+      if (typeof ctx.standCheck === 'function') { const hit = ctx.standCheck(site, p.cells); if (hit) { proofFails.stand_claimed = (proofFails.stand_claimed ?? 0) + 1; if ((row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} stand_claimed ${hit.plot}@${hit.at.join(',')}`.slice(0, 120)); continue } }
       const over = new Map()
       for (const c of site.clear) over.set(k3(...c.at), AIR)
       for (const c of site.fill) over.set(k3(...c), SOLID('cobblestone'))

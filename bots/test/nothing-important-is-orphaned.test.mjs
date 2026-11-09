@@ -45,6 +45,9 @@ const REQUIRED = [
   'bots/test/gkcrewcut.test.mjs',   // gkcrewcut-01 (11-08): helpers dig the tidy's cuts too
   'bots/test/fillshare.test.mjs',   // fillshare-01 (11-09): a helper fills first while the fills are behind the cuts
   'bots/test/gkcrew4.test.mjs',   // gkcrew4-01 (11-08, owner: up to 4 helpers while > 500 open cells)
+  'bots/src/planahead.mjs',   // planahead-01 (11-09, owner: plan the town ahead -- plan-time reach, stand claims)
+  'bots/test/planahead.test.mjs',   // planahead-01
+  'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
   'bots/test/gkclear.test.mjs',   // gkclear-01 (11-07): the town's strikes say a tidy stage is closing
   'bots/test/gkroom.test.mjs',   // gkroom-01 (11-07): the keeper refused the forest for room works the tidy
   'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
