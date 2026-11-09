@@ -156,6 +156,40 @@ await t('ON THE WORK BOARD (townwork.mjs jobBlocked, when this build has it): a 
   assert.strictEqual(TW.jobBlocked(quiet), 'complete')
 })
 
+console.log('CODEX r1 BLOCKERS 1-3: a grown replant, the replant obligation, the drops alone')
+await t('BLOCKER 1: a replant that grew (a log in its cell) or stands is DONE -- never left, never a foreign block to dig', async () => {
+  const scenario = M => {
+    assert.strictEqual(M.replantDone({ name: 'spruce_sapling' }), true)
+    assert.strictEqual(M.replantDone({ name: 'spruce_log' }), true, 'it grew')
+    assert.strictEqual(M.replantDone({ name: 'air' }), false)
+    const rec = { cells: [{ at: [1, 65, 1], role: 'sapling', group: 0 }], clear: [] }
+    assert.strictEqual(M.upkeepLeft(rec, () => ({ name: 'spruce_log' })), 0, 'a grown tree is no job left')
+  }
+  await killedBy(UK_PATH, UK, "export const replantDone = b => !!b && (/_sapling$|^mangrove_propagule$/.test(nm(b)) || LOG.test(nm(b)))", "export const replantDone = b => !!b && /_sapling$|^mangrove_propagule$/.test(nm(b))", scenario)
+})
+await t('BLOCKER 2: without a sapling a remains group that owes a replant is HELD (its logs stand, its replant stays listed); strays and groups owing none go on', async () => {
+  const rec = { cells: [{ at: [10, 65, 10], role: 'sapling', group: 0 }], clear: [{ at: [10, 67, 10], kind: 'remains', name: 'spruce_log', group: 0 }, { at: [20, 67, 0], kind: 'remains', name: 'spruce_log', group: 1 }, { at: [30, 65, 0], kind: 'stray', name: 'crafting_table' }] }
+  const scenario = M => {
+    const v = M.upkeepVisitJobs(rec, { haveSapling: false })
+    assert.deepStrictEqual(v.record.clear.map(c => c.at.join(',')), ['20,67,0', '30,65,0'])
+    assert.deepStrictEqual(v.record.cells, [])
+    assert.strictEqual(v.held, 1)
+    assert.strictEqual(M.upkeepVisitJobs(rec, { haveSapling: true }).record, rec, 'with a sapling: the whole list')
+    const read = (x, y, z) => ({ name: x === 10 && y === 67 ? 'spruce_log' : 'air' })
+    assert.strictEqual(M.upkeepLeft(rec, read, { canPlant: true }), 2, 'its log and its replant are left')
+    assert.strictEqual(M.upkeepLeft(rec, read, { canPlant: false }), 0, 'not this bot\'s work while no sapling is near: never due for it')
+  }
+  await killedBy(UK_PATH, UK, "  const clear = (rec.clear ?? []).filter(c => !(c.kind === 'remains' && owe.has(c.group)))\n", "  const clear = (rec.clear ?? []).slice()\n", scenario)
+})
+await t('BLOCKER 3: drops worth a sweep (not junk, room for them) make the upkeep DUE on their own', async () => {
+  const drops = [{ name: 'dirt', pos: { x: 10, y: 65, z: 10 } }, { name: 'rotten_flesh', pos: { x: 12, y: 65, z: 10 } }, { name: 'oak_log', pos: { x: 500, y: 65, z: 0 } }]
+  assert.strictEqual(UK.dropsWorth(drops, { home: HOME, never: new Set(['rotten_flesh']), free: 10 }), 1)
+  assert.strictEqual(UK.dropsWorth(drops, { home: HOME, never: new Set(['rotten_flesh']), free: 2 }), 0, 'no room: nothing worth it')
+  assert.strictEqual(UK.dropsWorth(drops, { home: HOME, never: new Set(['rotten_flesh']), free: 2, stacks: [{ name: 'dirt', count: 10, stackSize: 64 }] }), 1, 'a stack with room')
+  const quiet = UK.upkeepRecord({ clear: [], cells: [] }, { home: HOME, now: T0 })
+  assert.strictEqual(UK.upkeepState(quiet, { now: T0 + MIN }).due, false)
+  assert.strictEqual(UK.upkeepState(quiet, { now: T0 + MIN, drops: 1 }).due, true)
+})
 console.log('THE ORDER\'S TIER (shop.mjs activeProject `upkeep`) AND THE REFUSAL CHAINS IT COMPOSES')
 const P = [{ plot: 'shop' }, { plot: 'house1' }, { plot: 'monument' }, { plot: 'road', sink: true }, { plot: 'upkeep', upkeep: true }, { plot: 'tidy' }]
 const S = (o = {}) => [
@@ -175,7 +209,14 @@ await t('the LAST tier: a repair, an open project with a slot, a due record and 
 })
 await t('COMPOSED: an open project this bot has no slot on is never its pick while upkeep is due (it would end slots_full)', async () => {
   const scenario = M => assert.strictEqual(M.activeProject(S({ house1: { complete: false, free: false } }), P).plot, 'upkeep')
-  await killedBy(SHOP_PATH, SHOP, '  if (open.length && !sink && upk) return upk\n', '', scenario)
+  await killedBy(SHOP_PATH, SHOP, '  if (open.length && !sink && upk) return dueBefore() ?? upk\n', '', scenario)
+})
+await t('CODEX r1 BLOCKER 4: with the open project full, a due record (dueFirst first) still comes before the upkeep', async () => {
+  const scenario = M => {
+    assert.strictEqual(M.activeProject(S({ house1: { complete: false, free: false }, monument: { due: true, dueFirst: true } }), P).plot, 'monument')
+    assert.strictEqual(M.activeProject(S({ house1: { complete: false, free: false }, monument: { due: true, idle: true } }), P).plot, 'upkeep', 'a due record idle for this bot yields')
+  }
+  await killedBy(SHOP_PATH, SHOP, '  if (open.length && !sink && upk) return dueBefore() ?? upk\n', '  if (open.length && !sink && upk) return upk\n', scenario)
 })
 await t('COMPOSED: a due record this bot found nothing to do at (idle) yields to the upkeep; with no upkeep it is the pick as before', async () => {
   const scenario = M => {

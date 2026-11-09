@@ -250,12 +250,48 @@ export function upkeepStale (rec, now = Date.now(), U = UPKEEP) {
 /**
  * THE PLOT'S STATE FOR THE ORDER -> { plot, exists, complete, damaged, due, upkeep }. Pure. Always "complete" (never in the finite
  * order, never a repair), DUE while a job is open (`open(rec)`: the caller's world read) or the list is stale (the visit surveys);
- * otherwise quiet (not due: the work board reads it `complete`, the order passes it).
+ * or while drops worth a sweep lie in view (dropsWorth); otherwise quiet (not due: the work board reads it `complete`, the order passes it).
  */
-export function upkeepState (rec, { now = Date.now(), open = () => 0, U = UPKEEP } = {}) {
+export function upkeepState (rec, { now = Date.now(), open = () => 0, drops = 0, U = UPKEEP } = {}) {
   const stale = upkeepStale(rec, now, U)
   const left = rec && !rec.structure_complete ? Number(open(rec)) || 0 : 0
-  return { plot: UPKEEP_PLOT, exists: true, complete: true, damaged: false, due: stale || left > 0, dueFirst: false, upkeep: true, stale, left }
+  const d = Number(drops) || 0
+  return { plot: UPKEEP_PLOT, exists: true, complete: true, damaged: false, due: stale || left > 0 || d > 0, dueFirst: false, upkeep: true, stale, left, drops: d }
+}
+// ---- CODEX r1 BLOCKERS 1-3: the replant's obligation, a grown replant, the drops ------------------------------------------------
+/** A replant cell DONE: a sapling stands in it, or a log (it grew: never a foreign block to dig). Pure over the cell's block. */
+export const replantDone = b => !!b && (/_sapling$|^mangrove_propagule$/.test(nm(b)) || LOG.test(nm(b)))
+/**
+ * THE JOBS A VISIT MAY TAKE NOW -> { record, held }. Pure. A remains group that owes a replant is taken down ONLY with a sapling in the
+ * bag (`haveSapling`): its logs and its replant go together, so the obligation is never lost (Codex r1 BLOCKER 2: a group cleared
+ * without its sapling leaves nothing a later survey can find). Without one, the group's clears and replant are HELD (they stay on the
+ * list; the next survey of the tile lists them again while the logs stand); the strays and the groups that owe nothing go on.
+ */
+export function upkeepVisitJobs (rec, { haveSapling = false } = {}) {
+  if (!rec || haveSapling) return { record: rec, held: 0 }
+  const owe = new Set((rec.cells ?? []).filter(c => c.role === 'sapling' && Number.isFinite(c.group)).map(c => c.group))
+  const clear = (rec.clear ?? []).filter(c => !(c.kind === 'remains' && owe.has(c.group)))
+  return { record: { ...rec, clear, cells: (rec.cells ?? []).filter(c => c.role !== 'sapling') }, held: (rec.clear ?? []).length - clear.length }
+}
+/**
+ * THE JOBS LEFT ON A LIST -> n. Pure over `read`. A clear still standing as its listed block (unread: left), a replant not done
+ * (replantDone; unread: left). `canPlant` false: a remains group that owes a replant, and its replant, are not this bot's work now
+ * (it holds no sapling and the town has none) -- the state's due reads the jobs this bot can do.
+ */
+export function upkeepLeft (rec, read, { canPlant = true } = {}) {
+  if (!rec || rec.structure_complete) return 0
+  const owe = new Set((rec.cells ?? []).filter(c => c.role === 'sapling' && Number.isFinite(c.group)).map(c => c.group))
+  let n = 0
+  for (const c of rec.clear ?? []) { if (!canPlant && c.kind === 'remains' && owe.has(c.group)) continue; const b = read(...c.at); if (!b || nm(b) === c.name) n++ }
+  if (canPlant) for (const c of rec.cells ?? []) { const b = read(...c.at); if (!b || !replantDone(b)) n++ }
+  return n
+}
+/** THE DROPS WORTH A SWEEP -> n. Pure. Item drops within `r` of home that are not junk (`never`), with room for them in the bag (a stack
+ *  of that name with room, or a free slot past `freeMin`) -- Codex r1 BLOCKER 3: the drops alone make the upkeep due. */
+export function dropsWorth (drops = [], { home, r = UPKEEP.r, never = new Set(), stacks = [], free = 0, freeMin = 6 } = {}) {
+  if (!home) return 0
+  const room = new Set(stacks.filter(q => q && (Number(q.count) || 0) < (Number(q.stackSize) || 64)).map(q => q.name))
+  return drops.filter(d => d?.name && d.pos && !never.has(d.name) && Math.max(Math.abs(d.pos.x - home.x), Math.abs(d.pos.z - home.z)) <= r && (room.has(d.name) || free > freeMin)).length
 }
 /** One `_upkeep` row's detail. Pure. */
 export const upkeepDetail = f => Object.entries(f).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}=${String(Array.isArray(v) ? v.join(',') : typeof v === 'object' ? Object.entries(v).map(([a, b]) => `${a}:${b}`).join(',') : v).replace(/\s+/g, '_').slice(0, 120)}`).join(' ')
