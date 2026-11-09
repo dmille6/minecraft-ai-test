@@ -311,7 +311,7 @@ await t('the build order dispatches the plot to its visit; the state is upkeep.m
   assert.ok(/const sel = gkSweepSel\(bot, near,/.test(SK), 'the sweep walks the same selection')
   assert.ok(/slotGen: slotRef\.gen, slotRef, stands, unknown: bot\.shopUnknown/.test(v), 'each pass takes the slot\'s current generation (Codex r3 BLOCKER 2)')
   assert.ok(/clearOk: \(c, rd\) => upkeepClearOk\(rec, c, rd \?\? rd0, \{ hasPick: hasPick\(\) \}\)/.test(v), 'the gate at the dig (Codex r3 BLOCKER 1)')
-  assert.ok(/effects\.dig = async \(c, expect\) => \{ if \(STRAY_PICK\.test\(String\(expect \?\? ''\)\)\) await effects\.tool\?\.\(\); return dig0\(c, expect\) \}/.test(v), 'a furnace-kind stray dug with the pickaxe in hand (Paper proof 11-09)')
+  assert.ok(/if \(STRAY_PICK\.test\(String\(expect \?\? ''\)\)\) \{ await effects\.tool\?\.\(\); if \(!\/_pickaxe\$\/\.test\(String\(bot\.heldItem\?\.name \?\? ''\)\)\) return 'refused' \}/.test(v), 'a furnace-kind stray dug with the pickaxe in hand (Paper proof 11-09)')
   assert.ok(/drops = b\.upkeepCaps\.caps \? gkSweepSel\(/.test(st), 'an unreadable input counts no drop (Codex r3 BLOCKER 3)')
 })
 
