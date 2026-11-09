@@ -29,7 +29,7 @@ const SERVER = process.env.SBX || 'sandbox4'
 const REG = JSON.parse(fs.readFileSync(new URL('../sandboxes.json', import.meta.url), 'utf8'))
 const PORT = REG.servers[SERVER].port
 lockLib.requireSandboxLock?.(SERVER, 'civic')
-const NAME = 'sbx-Mason2'
+const NAME = process.env.NAME || 'sbx-Mason2'
 const SSH = ['-o', 'BatchMode=yes', 'mike@10.0.0.30']
 const rcon = (...cmds) => {
   const out = execFileSync('ssh', [...SSH, `python3 /tmp/sbx-rcon.py ${SERVER} -`], { input: cmds.join('\n') + '\n', encoding: 'utf8', timeout: 300000 })
@@ -46,7 +46,7 @@ const fillAll = (x0, y0, z0, x1, y1, z1, block) => { const out = []; const per =
 const OUT = process.env.OUT || path.join(path.dirname(new URL(import.meta.url).pathname), 'wall-e2e.jsonl')
 
 // ---- the arena and the old wall ---------------------------------------------------------------------------------------------------
-const HX = 3000, HY = 120, HZ = 3000, G = HY - 1   // home's feet; the grass top G
+const HX = Number(process.env.HX || 3000), HY = 120, HZ = 3000, G = HY - 1   // home's feet; the grass top G
 const RING = [HX - 12, HZ - 9, HX + 12, HZ + 9]      // x0, z0, x1, z1
 const GATE = new Set([-2, -1, 0, 1, 2].map(d => `${HX + d},${RING[3]}`))   // the south side's gateway (5 wide)
 const PORT2 = new Set([`${RING[2]},${HZ}`, `${RING[2]},${HZ + 1}`])        // an east sally port
