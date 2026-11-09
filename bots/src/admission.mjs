@@ -540,7 +540,8 @@ export class AdmissionControl {
       if (dv.reason === 'deposit_nothing_to_bank') {
         // THE CAP'S REFUSAL IS A ROW HERE TOO (Codex fold-r1 P2: a bag holding only capped surplus is refused here, before
         // any skill runs, so the skill's rows never see it); throttled -- admission is asked on every proposal
-        stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
+        // PIPELINE-01 dryCheck (Codex r1): no row and no throttle stamp for a refusal that is only asked about
+        if (!this.dry) stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants, noSwords }) }
       }
       if (dv.reason === 'deposit_not_worth_it') {

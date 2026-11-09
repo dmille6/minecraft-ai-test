@@ -439,6 +439,7 @@ export class CognitiveLoop {
     this.pipeStats = {}
     this.pipeNoWait = []
     this.pipeTally = null
+    this.pipeEpoch = 0         // bumped by notify() for every non-idle tick it starts: a decision waiting on a prefetch is stale
     this.pendingRemedy = null  // { order, at, milestoneId }: used once, by the very next tick
     this.remedyHistory = []    // [{ rule, at }] the last hour's queued remedies: the exposure budget
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
@@ -547,6 +548,8 @@ export class CognitiveLoop {
     if (detail) this.memory.addEvent(detail)
     if (!this.running || this.stopped) return
     if (this.runner.isBusy()) return   // a decision is already being acted on
+    // PIPELINE-01 (Codex r1 BLOCKER): a non-idle tick about to start makes any decision still waiting on a prefetch stale
+    if (trigger !== 'idle') this.pipeEpoch = (this.pipeEpoch ?? 0) + 1
     this.#tick(trigger)
   }
 
@@ -1263,6 +1266,10 @@ export class CognitiveLoop {
   async #tick(trigger) {
     { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
+    // PIPELINE-01: a non-idle tick (death, a reflex handoff) spends the no-wait arm before anything else, and the armed
+    // early timer goes with it (Claude r1 note): it would otherwise fire as `idle` while this tick is still deciding and ask
+    // the model beside it. This tick reschedules at its end, as every tick does.
+    if (trigger !== 'idle' && this.pipeArm?.noWait) { this.pipeArm = { ...this.pipeArm, noWait: false }; clearTimeout(this.nextTimer) }
     // PAUSEWAIT (fewerdec.mjs): inside the runner's failure pause every skill is refused, so an idle tick asks nothing and
     // wakes when the pause ends. Non-idle triggers (death, a reflex handoff, startup) are never held here.
     {
@@ -1822,6 +1829,7 @@ export class CognitiveLoop {
     // PIPELINE-01 PREFETCH: the call made while the last skill ran stands in for this one when it passes every check and
     // the gate's dry run (on); otherwise -- and always in shadow -- the model is asked now, as before
     const pipeTake = order ? null : await this.#pipeTake({ trigger, milestone })
+    if (pipeTake?.abandon) { this.#pipeCount('superseded'); this.#pipeRow(pipeTake, null); this.lastDecisionAt = Date.now(); return }
     const res = order
       ? { schemaValid: true, latencyMs: 0, raw: null,
           proposal: { skill: order.skill, args: order.args, reason: order.why } }
@@ -2358,7 +2366,9 @@ export class CognitiveLoop {
   /** The tick after an armed run, in `on`: skip the cooldown window's wait (the runaway guard was asked at arm time). */
   #pipeNoWait (trigger) {
     if (!this.pipe.on || !this.pipeArm?.noWait) return false
-    if (trigger !== 'idle' || this.pendingTrigger) return false
+    // a non-idle tick (death, a reflex handoff) SPENDS the arm (Claude r1 note): the 500 ms timer tick that may still fire
+    // after it must wait the window as before, not make a second model call beside the reflex's decision
+    if (trigger !== 'idle' || this.pendingTrigger) { this.pipeArm = { ...this.pipeArm, noWait: false }; return false }
     this.pipeArm = { ...this.pipeArm, noWait: false }   // one no-wait decision per arm
     this.#pipeCount('nowait')
     return true
@@ -2376,8 +2386,13 @@ export class CognitiveLoop {
     // ON waits for a prefetch still in flight (bounded); SHADOW never delays the bot and records it as in flight
     if (u.use && !pf.done) {
       if (this.pipe.on) {
+        const epoch = this.pipeEpoch ?? 0
         await Promise.race([pf.promise, new Promise(r => setTimeout(r, this.pipe.waitCapMs))])
         waitMs = Date.now() - t0
+        // A DEATH OR A REFLEX HANDOFF DURING THE WAIT (Codex r1 BLOCKER): notify() started a newer tick, which owns the
+        // decision and reschedules at its end -- this one gives up the turn (no prefetch, no fresh call beside it)
+        if ((this.pipeEpoch ?? 0) !== epoch) return { abandon: true, use: false, why: 'superseded', waitMs, ageMs: t0 - pf.startedAt, pf,
+                                                       pre: pf.res?.proposal?.skill ? AdmissionControl.key(pf.res.proposal.skill, pf.res.proposal.args) : null }
         u = pf.done ? ask() : { use: false, why: 'wait_cap' }
       } else u = { use: false, why: 'in_flight' }
     }
@@ -2399,7 +2414,7 @@ export class CognitiveLoop {
     try {
       const fresh = ev.res ? null : (res?.proposal?.skill ? AdmissionControl.key(res.proposal.skill, res.proposal.args) : null)
       const agree = ev.pre && fresh ? ev.pre === fresh : null
-      const use = this.pipe.on ? (ev.res ? 'used' : 'fallback') : (ev.use ? 'would_use' : 'would_drop')
+      const use = ev.abandon ? 'superseded' : this.pipe.on ? (ev.res ? 'used' : 'fallback') : (ev.use ? 'would_use' : 'would_drop')
       // what the decision did not have to wait for: on = the call's latency minus what was still awaited; shadow = the gap
       // since the armed run ended plus the fresh call (what `on` would have removed)
       const savedMs = ev.res ? Math.max(0, (ev.pf.res?.latencyMs ?? 0) - ev.waitMs)

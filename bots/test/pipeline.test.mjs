@@ -150,9 +150,9 @@ test('DRY CHECK MUTANT KILLED: without the restore, a dry run fills the repeat w
 const COG = await import('../src/cognitive.mjs')
 /** A runner whose every skill takes `ms`, busy meanwhile. `script(i)` -> the result of run i (default success). */
 function slowRunner (ms, script = () => ({})) {
-  const r = { ran: 0, busy: false, paused: false, starts: [], ends: [], skills: [], isBusy () { return r.busy },
+  const r = { ran: 0, busy: false, paused: false, starts: [], ends: [], skills: [], args: [], isBusy () { return r.busy },
     async run (skill, args) {
-      const i = r.ran++; r.busy = true; r.starts.push(Date.now()); r.skills.push(skill)
+      const i = r.ran++; r.busy = true; r.starts.push(Date.now()); r.skills.push(skill); r.args.push(args)
       await sleep(ms)
       r.busy = false; r.ends.push(Date.now())
       return { status: 'success', detail: 'ok', contractEvidence: ['position: moved 3 blocks'], ...script(i) }
@@ -219,6 +219,76 @@ test('LOOP ON x REFLEX: a run a reflex interrupted voids the prefetch -- the nex
   assert.ok(d && !d.pre, `the drowning decision was asked fresh: ${JSON.stringify(calls.map(c => c.trig + (c.pre ? '*' : '')))}`)
   assert.ok(runner.starts[2] - runner.ends[1] >= 390, `no early tick after an interrupt: ${runner.starts[2] - runner.ends[1]} ms`)
 })
+/** An armed success, then a death while the 150 ms no-wait timer is pending. -> the model calls with their triggers. */
+async function deathGap (mod) {
+  const runner = slowRunner(100)
+  const was = config.llm.decisionCooldownMs
+  config.llm.decisionCooldownMs = 400
+  const calls = []
+  try {
+    const loop = new mod.CognitiveLoop(fieldBot(), runner, freshLessons(), null)
+    // CONTINUE off: its own early tick has the same pre-existing race with a death (the death tick clears the window); this
+    // isolates the timer the pipeline adds
+    loop.fewerDec = FD.fewerDecConfig({ FEWERDEC_PAUSEWAIT: '0', FEWERDEC_VETOSKIP: '0', FEWERDEC_CONTINUE: '0' })
+    loop.pipe = PL.pipelineConfig({ PIPELINE: 'on', PIPELINE_PREFETCH: '0', PIPELINE_NEXT_DELAY_MS: '150', PIPELINE_MIN_RUN_MS: '0', PIPELINE_MAX_PER_MIN: '1000' })
+    let n = 0
+    loop.llm = { decide: async ({ user }) => { calls.push({ t: Date.now(), trig: (/TRIGGER: (\w+)/.exec(user ?? '') ?? [])[1] }); await sleep(200); n++
+      return { schemaValid: true, latencyMs: 200, raw: '{}', proposal: { skill: 'gather', args: { block: 'dirt', count: 1 + (n % 7) }, reason: 'p' } } } }
+    loop.start()
+    while (runner.ends.length < 1) await sleep(5)
+    await sleep(10)                     // the first run ended and armed: the 150 ms no-wait timer is pending
+    loop.notify('death', 'died and respawned')
+    await sleep(700); loop.stop(); await sleep(30)
+  } finally { config.llm.decisionCooldownMs = was }
+  return calls
+}
+test('LOOP ON x DEATH IN THE NO-WAIT GAP: a death right after an armed success is decided fresh, and no idle call is made beside it', async () => {
+  const calls = await deathGap(COG)
+  const d = calls.findIndex(c => c.trig === 'death')
+  assert.ok(d >= 0, JSON.stringify(calls))
+  const beside = calls.filter(c => c.trig === 'idle' && Math.abs(c.t - calls[d].t) < 250)
+  assert.equal(beside.length, 0, `an idle call beside the death decision: ${JSON.stringify(calls)}`)
+})
+/** A slow first prefetch (500 ms) that the next tick waits on; a death 100 ms into that wait. */
+async function deathWait (mod) {
+  const runner = slowRunner(100)
+  const was = config.llm.decisionCooldownMs
+  config.llm.decisionCooldownMs = 400
+  const rows = [], trig = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_pipeline') rows.push(r.skill.detail) })
+  try {
+    const loop = new mod.CognitiveLoop(fieldBot(), runner, freshLessons(), null)
+    loop.fewerDec = FD.fewerDecConfig({ FEWERDEC_PAUSEWAIT: '0', FEWERDEC_VETOSKIP: '0', FEWERDEC_CONTINUE_DELAY_MS: '20' })
+    loop.pipe = PL.pipelineConfig({ PIPELINE: 'on', PIPELINE_PREFETCH_AFTER_MS: '20', PIPELINE_NEXT_DELAY_MS: '10', PIPELINE_MIN_RUN_MS: '0',
+                                    PIPELINE_MAX_PER_MIN: '1000', PIPELINE_WAIT_CAP_MS: '2000' })
+    let n = 0, prefetches = 0
+    loop.llm = { decide: async ({ user }) => {
+      const pre = /running now; plan the NEXT action/.test(user ?? '')
+      trig.push((/TRIGGER: (\w+)/.exec(user ?? '') ?? [])[1] + (pre ? '*' : ''))
+      if (pre && prefetches++ === 0) { await sleep(500); return { schemaValid: true, latencyMs: 500, raw: '{}', proposal: { skill: 'gather', args: { block: 'dirt', count: 99 }, reason: 'stale' } } }
+      // the death decision is slow: the prefetch lands while the death tick is still asking (the window Codex found)
+      await sleep(/TRIGGER: death/.test(user ?? '') ? 700 : 5); n++
+      return { schemaValid: true, latencyMs: 5, raw: '{}', proposal: { skill: 'gather', args: { block: 'dirt', count: 1 + (n % 7) }, reason: 'p' } } } }
+    loop.start()
+    while (runner.ends.length < 1) await sleep(5)
+    await sleep(100)                    // the next tick is waiting on the slow prefetch now
+    loop.notify('death', 'died and respawned')
+    await sleep(1300); loop.stop(); await sleep(30)
+  } finally { untap(); config.llm.decisionCooldownMs = was }
+  return { rows, trig, runner }
+}
+test('LOOP ON x DEATH DURING THE PREFETCH WAIT (Codex r1 BLOCKER): the waiting tick gives up the turn; the prefetched pick never runs', async () => {
+  const { rows, trig, runner } = await deathWait(COG)
+  assert.ok(trig.includes('death'), JSON.stringify(trig))
+  assert.ok(rows.some(d => /use=superseded/.test(d)), rows.join(' | '))
+  assert.ok(!runner.args.some(a => a?.count === 99), `the stale prefetched pick ran: ${JSON.stringify(runner.args)}`)
+})
+test('DEATH-WAIT MUTANT KILLED: without the epoch check the waiting tick runs the stale prefetched pick after the death', async () => {
+  await withMutant(COG_PATH, 'if ((this.pipeEpoch ?? 0) !== epoch) return { abandon: true', 'if (false) return { abandon: true', async M => {
+    const { runner } = await deathWait(M)
+    assert.ok(runner.args.some(a => a?.count === 99), JSON.stringify(runner.args))
+  })
+})
 test('LOOP ON x FAILURE: a failed run keeps the cooldown and drops its prefetch', async () => {
   const runner = slowRunner(100, i => (i === 1 ? { status: 'failed', detail: 'no', failClass: 'unreachable' } : {}))
   const { rows } = await drive(COG, { mode: 'on', runner, ms: 1500 })
@@ -270,6 +340,14 @@ test('LOOP WIRING MUTANT KILLED: with the prefetch unwired at the model call, `o
     const { rows, calls } = await drive(M, { mode: 'on', runner: slowRunner(100) })
     assert.ok(calls.filter(c => !c.pre && c.trig !== 'startup').length >= 3, 'fresh calls')
     assert.ok(rows.some(d => /use=used/.test(d)), 'the row still claims use: the wiring, not the rule, is what the mutant removed')
+  })
+})
+test('DEATH-GAP MUTANT KILLED: without clearing the armed timer, an idle call is made beside the death decision', async () => {
+  // the same scenario as LOOP ON x DEATH IN THE NO-WAIT GAP, through the mutant
+  await withMutant(COG_PATH, "this.pipeArm = { ...this.pipeArm, noWait: false }; clearTimeout(this.nextTimer) }", "this.pipeArm = { ...this.pipeArm, noWait: false } }", async M => {
+    const calls = await deathGap(M)
+    const d = calls.findIndex(c => c.trig === 'death')
+    assert.ok(calls.some(c => c.trig === 'idle' && Math.abs(c.t - calls[d].t) < 250), JSON.stringify(calls))
   })
 })
 test('LOOP WIRING MUTANT KILLED: with the no-wait unwired, `on` waits the cooldown after a success', async () => {
