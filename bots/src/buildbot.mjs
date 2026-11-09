@@ -52,7 +52,7 @@ const aimPitch = bot => Math.fround((-(Number(bot.entity?.pitch) || 0) * 180) / 
  * clear side's standing cell (feet and head room over the step's heights, a full floor under it), or null. Pure. A step whose
  * clear side has no floor is left alone (a drop is not a safer step than a corner).
  */
-export function cornerCut (start, path, read) {
+export function cornerCut (start, path, read, { square = false } = {}) {
   const clear = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'empty' }
   const floor = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'block' }
   // BLOCK cells (r1 reviews, both BLOCK: the pathfinder's post-processed nodes are block CENTRES, x.5 / z.5): floored here
@@ -73,7 +73,8 @@ export function cornerCut (start, path, read) {
         // ONE diagonal jump-up to 15,68,-46 with BOTH side columns blocked -- the body never left the cell, every walk timed out; nudged
         // onto 15,68,-47 by hand it walked out in 4.9 s): with neither side column clear, a side that is a STANDING cell at the step's
         // other height (a full floor, feet and head open) is the via -- the step is taken square, up (or down) then across
-        if (!side && b.y !== a.y) {
+        // reroof-04 r6 (REROOF_CORNERCUT): only a visit that asks (`square`: a re-roofed record's own visit); every other walk as before
+        if (square && !side && b.y !== a.y) {
           const stand = (x, y, z) => floor(x, y - 1, z) && clear(x, y, z) && clear(x, y + 1, z) && clear(a.x, Math.max(a.y, y) + 1, a.z)
           for (const q of [sx, sz]) if (stand(q[0], b.y, q[1])) return { i, via: [q[0], b.y, q[1]] }
         }
@@ -132,19 +133,44 @@ export async function withStepFence (movements, avoid, fn) {
  * clear side (cornerCut), re-planned from each `via`, at most `max` detours. `plan(from)` -> path [{ x, y, z }] | null (the
  * pathfinder's A*); null or an unplannable leg: the remaining walk is the plain goal (the walk as before). Pure.
  */
-export function cornerWaypoints (from, goal, plan, read, max = 4) {
+export function cornerWaypoints (from, goal, plan, read, max = 4, { square = false } = {}) {
   const out = []
   let at = from
   for (let n = 0; n < max; n++) {
     const path = plan(at)
     if (!path) break
-    const cut = cornerCut({ x: at[0], y: at[1], z: at[2] }, path, read)
+    const cut = cornerCut({ x: at[0], y: at[1], z: at[2] }, path, read, { square })
     if (!cut) break
     if (cut.i > 0) { const p = path[cut.i - 1]; out.push([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]) }
     out.push(cut.via)
     at = cut.via
   }
   out.push(goal)
+  return out
+}
+
+/**
+ * reroof-04 r6: THE LEAVES A PLANNED JUMP-UP NEEDS DUG FIRST -> [{ i, lower: [x, y, z], at: [x, y, z], name }]. Pure. For every step of
+ * `path` (from `start`) that rises one block: the natural leaf at the lower cell's y + 2 (the jump's head room) and at the upper cell's
+ * y + 2 (its apex: a jump from feet y peaks near y + 1.25 + 1.8) -- LIVE Paper sandbox4 11-08: the workshop's builder in the pit at
+ * 32,68,-71 planned the jump to 31,69,-71 under the leaf 31,71,-71 and jumped in place for 25 s, every walk -- only a leaf `listed(key)`
+ * says may go (the record's apex leaves: on the record for the tripwire), at most `max`.
+ */
+export function apexDigs (start, path, read, listed = () => false, max = 3) {
+  const cell = p => ({ x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) })
+  const leaf = at => { const b = read(...at); return !!b && /_leaves$/.test(String(b.name ?? '')) && listed(at.join(',')) ? String(b.name) : null }
+  const out = [], seen = new Set()
+  let a = cell(start)
+  for (let i = 0; i < (path?.length ?? 0) && out.length < max; i++) {
+    const b = cell(path[i])
+    if (b.y === a.y + 1 && Math.abs(b.x - a.x) + Math.abs(b.z - a.z) >= 1) {
+      for (const at of [[a.x, a.y + 2, a.z], [b.x, b.y + 2, b.z]]) {
+        const k = at.join(','), n = leaf(at)
+        if (n && !seen.has(k) && out.length < max) { seen.add(k); out.push({ i, lower: [a.x, a.y, a.z], at, name: n }) }
+      }
+    }
+    a = b
+  }
   return out
 }
 
@@ -199,7 +225,7 @@ export function installServerBlockWitness (bot) {
  *   log(kind, d)   the row writer (the skill's logEvent)
  *   spawnedAt()    ms of the last spawn
  */
-export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn => fn(), aborted = () => false, log = () => {}, spawnedAt = () => 0, pathMs = PATH_MS } = {}) {
+export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn => fn(), aborted = () => false, log = () => {}, spawnedAt = () => 0, pathMs = PATH_MS, cornerSquare = false, apexDig = null } = {}) {
   const own = !acks
   const A = acks ?? installAckTracker(bot)
   const blocks = installServerBlockWitness(bot)
@@ -258,8 +284,24 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
                 return path
               }
               const p = bot.entity.position
-              legs = cornerWaypoints([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], s, plan, read)
-            } catch { legs = [s] }
+              legs = cornerWaypoints([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], s, plan, read, 4, { square: cornerSquare })
+              // reroof-04 r6 (`apexDig(key)`, a re-roofed record's visit only): a listed leaf over a jump-up this walk plans is dug from the
+              // jump's lower cell first (walked to, then dug), so the jump is never taken under it
+              if (typeof apexDig === 'function') {
+                const f0 = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
+                const path0 = plan(f0)
+                for (const d of apexDigs({ x: f0[0], y: f0[1], z: f0[2] }, path0, read, apexDig)) {
+                  if (aborted() || late) return
+                  const here = bot.entity.position
+                  if (Math.floor(here.x) !== d.lower[0] || Math.floor(here.y + 1e-6) !== d.lower[1] || Math.floor(here.z) !== d.lower[2]) await bot.pathfinder.goto(new goals.GoalBlock(d.lower[0], d.lower[1], d.lower[2]))
+                  const blk = bot.blockAt(new Vec3(d.at[0], d.at[1], d.at[2]))
+                  if (!blk || blk.name !== d.name) continue
+                  blocks.watch(d.at)
+                  try { await bot.dig(blk, true) } catch (e) { if (e?.aborted || aborted()) throw e; continue }
+                  if (await blocks.wait(d.at, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS)) log('_build', { op: 'clear', cell: d.at, block: d.name, kind: 'leaves' })
+                }
+              }
+            } catch (e) { if (e?.aborted || aborted()) throw e; legs = [s] }
             // THROUGH THE SEGMENT'S OWN OPEN CELLS (pathCrosses): not walked -- the click's re-proof fails, the stand is banned
             // (standBans) and the cell's next-best stand is tried
             if (crosses) return

@@ -178,7 +178,8 @@ async function main () {
   const onSlab = new Map()
   const sampler = setInterval(() => { try { if (fallFrom && !fallLeft) { const q = bot.entity.position.floored(); if (q.y >= fallFrom.y + Number(process.env.FALL_UP ?? 2)) { fallLeft = q; P("FALL: climbed back out to", q) } } const p = bot.entity.position; const fx0 = Math.floor(p.x), fz0 = Math.floor(p.z); const below = [fx0, Math.floor(p.y - 0.01), fz0]; const b = bot.blockAt(new Vec3(...below)); if (b && /_slab$/.test(b.name) && newKeys.has(k3(below))) onSlab.set(k3(below), `${b.getProperties().type}@y${p.y.toFixed(2)}`) } catch { /* sample */ } }, 250)
   const logs = []
-  const e = BB.botBuildEffects(bot, { log: (k, d) => { logs.push([k, d]); if (k === '_build' && /clear|deferred|stuck|temp/.test(String(d.op) + String(d.kind))) P(k, d) } })
+  const apexKeys = RR.reroofApexKeys ? RR.reroofApexKeys(head) : new Set()
+  const e = BB.botBuildEffects(bot, { cornerSquare: RR.REROOF_FIX?.cornerSquare !== false, apexDig: RR.REROOF_FIX?.apex === false ? null : k => apexKeys.has(k), log: (k, d) => { logs.push([k, d]); if (k === '_build' && /clear|deferred|stuck|temp/.test(String(d.op) + String(d.kind))) P(k, d) } })
   // r5: every cell the bot dug (the stray check tells the bot's changes from the world's own: a mushroom or a leaf that pops)
   const touched = new Set()
   { const d1 = e.dig; e.dig = async (c, ...a) => { touched.add(k3(c)); return d1(c, ...a) } }
@@ -189,12 +190,14 @@ async function main () {
     const h = PJ.recordHead(dir, key)
     const slot = PJ.takeSlot(dir, key, NAME, 2)
     const floors = RR.reroofFloors(head.cells.filter(q => /^reroof-/.test(String(q.seg))))
-    r = await R.runVisit({ dir, key, me: NAME, home, stood, record: head, recordGen: h.head.gen, palette: head.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, domain, walkR: 90, floors, walkRead: RR.reroofNoLeafFloor, stairFirst: true, stood: RR.reroofSeeds(stood, head.box), ...(fx.fallSafe ? { avoid: rd => RR.reroofFallRisk(rd, B.walkFrom(rd, home, new Set(), 90, { stood: RR.reroofSeeds(stood, head.box) }), { box: head.box }) } : {}) }, e, { deadline: Date.now() + 20 * 60_000 })
+    r = await R.runVisit({ dir, key, me: NAME, home, stood, record: head, recordGen: h.head.gen, palette: head.palette, slot: slot.slot, slotGen: slot.gen, beat: true, unknown: new Set(), stands: { pending: null, bans: {} }, domain, walkR: 90, floors, walkRead: RR.reroofNoLeafFloor, stairFirst: true, stood: RR.reroofSeeds(stood, head.box), ...(fx.fallSafe ? { avoid: rd => RR.reroofFallRisk(rd, B.walkFrom(rd, home, new Set(), 90, { stood: RR.reroofSeeds(stood, head.box) }), { box: head.box, keep: RR.reroofStairFeet(head) }) } : {}) }, e, { deadline: Date.now() + 20 * 60_000 })
     PJ.releaseLease(dir, key, `slot${slot.slot}`, NAME, slot.gen)
     // FALL_AT=x,y,z (r5, the fall-recovery test): after the first visit the bot is dropped into that cell (the storage hub's cavity
     // 14,67,-47: Paper 11-08 a builder fell there and every walk out timed out); the next visits must walk out and finish
     if (process.env.FALL_AT && visit === 0) { const [qx, qy, qz] = process.env.FALL_AT.split(',').map(Number); rcon(`tp ${NAME} ${qx + 0.5} ${qy} ${qz + 0.5}`); await sleep(2500); fallFrom = bot.entity.position.floored(); P('FALL: dropped at', fallFrom) }
     P(`visit ${visit}: stop ${r.stop} ${r.why ?? ''} placed ${r.placed} refused ${r.refused} silent ${r.silent} cleared ${r.cleared}`)
+    // r6 diagnosis: a `blocked` segment's open cells, what stands in them and round them (the face a click needs)
+    if (r.stop === 'blocked') { const m = String(r.why ?? '').match(/^(\S+):/); const seg = m ? m[1] : null; for (const c of head.cells.filter(q => q.seg === seg)) { const b = read(...c.at); if (b && (b.name === 'air' || b.name === 'cave_air' || !String(b.name).startsWith(String(c.role ?? '')))) P('BLOCKED-CELL', seg, c.at, c.role, 'now', b?.name, 'stand', c.stand, 'support', c.support, '->', c.support ? read(...c.support)?.name : '-', 'nbrs', [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].map(d => read(c.at[0] + d[0], c.at[1] + d[1], c.at[2] + d[2])?.name).join('/')) } }
     // the teardown (skills.mjs reroofTempState/reroofTempDown): the roof stands -> the stair's cells become kind=temp clears
     const done = c => { const b = read(...c.at); return !!b && R.cellDone({ name: b.name, boundingBox: b.boundingBox, props: b.props ?? null }, head.palette, c.role, c.ws) }
     if (RR.reroofDismantleDue(head, done)) { torn = PJ.publishRecord(dir, key, cur => RR.reroofDismantle(cur)); P('teardown generation', torn.result, torn.gen); continue }

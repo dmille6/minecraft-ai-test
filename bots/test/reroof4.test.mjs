@@ -315,5 +315,93 @@ await t('wired (structural, comments stripped): buildReroof asks reroofProve and
   assert.strictEqual(RR.reroofFixes({ REROOF_ACCESS: 'off' }).access, false)
 })
 
+// ---- r6 (round 3, Paper sandbox4 11-08) ---------------------------------------------------------------------------------------------
+await t('r6 reroofFallRisk `keep`: the record\'s own temporary stair is never avoided (the storehub\'s visit avoided its top 21,74,-60, the only walk onto the roof)', () => {
+  // the stair: a 1-wide column of steps west of the building; its top 0,6,2 is a ledge whose east fall lands in an unwalked pit
+  const air = { name: 'air', boundingBox: 'empty' }, stone = { name: 'stone', boundingBox: 'block' }
+  const read = (x, y, z) => (x === 0 && y <= 5 ? stone : x < 0 && y <= 4 ? stone : x > 0 && y <= 0 ? stone : air)
+  const walked = new Set(['0,6,2']); for (let z = -4; z <= 8; z++) for (let x = -6; x <= -1; x++) walked.add(`${x},5,${z}`)
+  assert.ok(RR.reroofFallRisk(read, walked, { box: [-1, 0, 0, 4] }).has('0,6,2'), 'POSITIVE CONTROL: without keep the stair top is avoided')
+  assert.ok(!RR.reroofFallRisk(read, walked, { box: [-1, 0, 0, 4], keep: new Set(['0,6,2']) }).has('0,6,2'), 'kept')
+  const rec = { cells: [{ at: [0, 5, 2], temp: 1 }, { at: [0, 4, 2], temp: 1 }, { at: [3, 3, 3] }] }
+  assert.deepStrictEqual([...RR.reroofStairFeet(rec)].sort(), ['0,5,2', '0,6,2'])
+})
+await t('r6 MUTANT: the keep test dropped -- the stair top is avoided again (killed for that reason)', async () => {
+  await withMutant(RR_PATH, '    if (keep?.has(key)) continue\n', '', async M => {
+    const air = { name: 'air', boundingBox: 'empty' }, stone = { name: 'stone', boundingBox: 'block' }
+    const read = (x, y, z) => (x === 0 && y <= 5 ? stone : x < 0 && y <= 4 ? stone : x > 0 && y <= 0 ? stone : air)
+    const walked = new Set(['0,6,2']); for (let z = -4; z <= 8; z++) for (let x = -6; x <= -1; x++) walked.add(`${x},5,${z}`)
+    assert.ok(M.reroofFallRisk(read, walked, { box: [-1, 0, 0, 4], keep: new Set(['0,6,2']) }).has('0,6,2'))
+  })
+})
+// the workshop pit (Paper 11-08): the slip lands at 32,68,-71; the way back is the jump-up to 31,69,-71 under the natural leaf 31,71,-71
+const leafAt = (persistent = 'false') => ({ name: 'spruce_leaves', boundingBox: 'block', props: { persistent } })
+const pitRead = (persistent = 'false') => (x, y, z) => {
+  const air = { name: 'air', boundingBox: 'empty' }, stone = { name: 'stone', boundingBox: 'block' }
+  if (x === 31 && y === 71 && z === -71) return leafAt(persistent)
+  if (x <= 31 && y <= 68) return stone          // the terrace (feet 69) west of the pit
+  if (x >= 32 && y <= 67) return stone          // the pit floor (feet 68)
+  return air
+}
+await t('r6 reroofApexLeaves: the jump-apex leaf out to box + 6 is listed (apex: 1); one the inner list has, a placed hedge, a record cell: never', () => {
+  const walked = new Set(['31,69,-71', '30,69,-71'])
+  const box = [11, -74, 27, -64]                      // the workshop's pad box: x 31 is box + 4 (r5e's box + 3 missed it)
+  const ap = RR.reroofApexLeaves(pitRead(), walked, { box })
+  assert.deepStrictEqual(ap.map(c => [c.at.join(','), c.apex, c.kind]), [['31,71,-71', 1, 'leaves']])
+  assert.deepStrictEqual(RR.reroofExitLeaves(pitRead(), walked, { box }).filter(c => c.at.join(',') === '31,71,-71'), [], 'POSITIVE CONTROL: the r5e exit list (box + 3) misses it')
+  assert.deepStrictEqual(RR.reroofApexLeaves(pitRead('true'), walked, { box }), [], 'a placed hedge stays')
+  assert.deepStrictEqual(RR.reroofApexLeaves(pitRead(), walked, { box, inner: [{ at: [31, 71, -71] }] }), [], 'already listed')
+  assert.deepStrictEqual(RR.reroofApexLeaves(pitRead(), walked, { box, recordAt: () => true }), [], 'a record cell stays')
+  assert.deepStrictEqual(RR.reroofApexLeaves(pitRead(), walked, { box: [100, 100, 110, 110] }), [], 'far: nothing')
+  const rec = RR.reroofRecord({ v: 1, cells: [], segments: [], structure_complete: true, palette: {} }, [], { id: 'x@1r', segments: [], palette: {} }, { roof: 'spruce' }, { clear: RR.withApex([], ap) })
+  assert.ok(rec.clear.some(c => c.apex === 1), 'the record keeps the tag')
+  assert.deepStrictEqual([...RR.reroofApexKeys(rec)], ['31,71,-71'])
+})
+await t('r6 apexDigs (buildbot): a planned jump-up under a LISTED natural leaf is dug first from the lower cell; unlisted, level, or no leaf: nothing', async () => {
+  const { apexDigs } = await import('../src/buildbot.mjs')
+  const path = [{ x: 31.5, y: 69, z: -70.5 }, { x: 30.5, y: 69, z: -70.5 }]
+  const d = apexDigs({ x: 32, y: 68, z: -71 }, path, pitRead(), k => k === '31,71,-71')
+  assert.deepStrictEqual(d.map(q => [q.lower, q.at, q.name]), [[[32, 68, -71], [31, 71, -71], 'spruce_leaves']])
+  assert.deepStrictEqual(apexDigs({ x: 32, y: 68, z: -71 }, path, pitRead(), () => false), [], 'unlisted: never dug')
+  assert.deepStrictEqual(apexDigs({ x: 31, y: 69, z: -71 }, [{ x: 30.5, y: 69, z: -70.5 }], pitRead(), () => true), [], 'a level step: no jump')
+  assert.deepStrictEqual(apexDigs({ x: 32, y: 68, z: -71 }, path, (x, y, z) => (y === 71 ? { name: 'air', boundingBox: 'empty' } : pitRead()(x, y, z)), () => true), [], 'no leaf')
+})
+await t('r6 runVisit clears skip an apex leaf (the walk digs it); the same leaf without the tag is dug -- the positive control', async () => {
+  const { R, PJ, G, server, bot, SITE, project } = await import('./helpers/buildfake.mjs')
+  const run = async (M, tag) => {
+    const leaf = [2, G + 2, -4]
+    const srv = server({ [leaf.join(',')]: 'spruce_leaves' })
+    const record = { ...SITE.record, clear: [{ at: leaf, kind: 'leaves', name: 'spruce_leaves', ...(tag ? { apex: 1 } : {}) }] }
+    const pr = project(record)
+    const h = PJ.recordHead(pr.dir, pr.key)
+    await M.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen }, bot(srv, 'A'), { maxSteps: 400 })
+    return srv.read(...leaf).name
+  }
+  assert.notStrictEqual(await run(R, false), 'spruce_leaves', 'POSITIVE CONTROL: an ordinary listed leaf is dug')
+  assert.strictEqual(await run(R, true), 'spruce_leaves', 'the apex leaf stays for the walk')
+})
+await t('r6 MUTANT: the clears pass ignores the apex tag -- it digs the apex leaf again (killed for that reason)', async () => {
+  const { PJ, G, server, bot, SITE, project, withMutant: wm } = await import('./helpers/buildfake.mjs')
+  await wm('filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name))', 'filter(c => (unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name))', async M => {
+    const leaf = [2, G + 2, -4]
+    const srv = server({ [leaf.join(',')]: 'spruce_leaves' })
+    const record = { ...SITE.record, clear: [{ at: leaf, kind: 'leaves', name: 'spruce_leaves', apex: 1 }] }
+    const pr = project(record)
+    const h = PJ.recordHead(pr.dir, pr.key)
+    await M.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen }, bot(srv, 'A'), { maxSteps: 400 })
+    assert.notStrictEqual(srv.read(...leaf).name, 'spruce_leaves')
+  })
+})
+await t('r6 wired (structural, comments stripped): the shop visit passes the stair keep and the apex keys; the walk digs apex leaves only when asked', () => {
+  const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const sk = strip('../src/skills.mjs')
+  assert.ok(/\{ box: rec\.box, keep: reroofStairFeet\(rec\) \}/.test(sk))
+  assert.ok(/apexDig: REROOF_FIX\.apex && rec\?\.restyle \? \(keys => k => keys\.has\(k\)\)\(reroofApexKeys\(rec\)\) : null,/.test(sk))
+  const bb = strip('../src/buildbot.mjs')
+  assert.ok(/if \(typeof apexDig === 'function'\) \{/.test(bb) && /for \(const d of apexDigs\(\{ x: f0\[0\], y: f0\[1\], z: f0\[2\] \}, path0, read, apexDig\)\)/.test(bb))
+  assert.ok(/const apex = walk0 && fx\.apex \? reroofApexLeaves\(/.test(strip('../src/reroof.mjs')))
+  assert.strictEqual(RR.reroofFixes({ REROOF_APEX: 'off' }).apex, false); assert.strictEqual(RR.reroofFixes({}).apex, true)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

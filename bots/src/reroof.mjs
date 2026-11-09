@@ -113,7 +113,7 @@ export function reroofRecord (rec, added, bpNew, style, { now = Date.now(), clea
     // reroof-04: a TEMPORARY stand's cells (`temp`: a Set of keys) are marked; reroofDismantle takes them out once the roof stands
     cells: [...rec.cells, ...added.map(c => ({ ...c, seg: ren(c.seg), ...(temp?.has(c.at.join(',')) ? { temp: 1 } : {}) }))],
     // reroof-02 (b): what stands in the new roof's cells, dug first by the building's own visit (runVisit's clears: low before high)
-    ...(clear.length ? { clear: [...(rec.clear ?? []), ...clear.map(c => ({ at: c.at.slice(), kind: c.kind, name: c.name }))] } : {}),
+    ...(clear.length ? { clear: [...(rec.clear ?? []), ...clear.map(c => ({ at: c.at.slice(), kind: c.kind, name: c.name, ...(c.apex === 1 ? { apex: 1 } : {}) }))] } : {}),
     segments: [...segs, ...newSegs],
     // still COMPLETE (Claude r1 note 1: an open record turns off the workshop's stations, the hall's clerk, the enchanting fitter and
     // every project `after` it): the added cells read open, so the record reads DAMAGED and the building's own visit repairs it -- the
@@ -156,11 +156,15 @@ export function reroofFixes (env = process.env) {
     // reroof-04 r5: the door-side eave stays -- a door approach (fills + cuts) that never passes under it, before any notch
     approach: !offs(env?.REROOF_ACCESS) && !offs(env?.REROOF_APPROACH),
     // reroof-04 r5: a ledge whose fall lands off the town walk is never a stand or a step (proof and visit)
-    fallSafe: !offs(env?.REROOF_ACCESS) && !offs(env?.REROOF_FALLSAFE) }
+    fallSafe: !offs(env?.REROOF_ACCESS) && !offs(env?.REROOF_FALLSAFE),
+    // reroof-04 r6: the square step round a blocked diagonal jump (buildbot.mjs cornerCut `square`), on a re-roofed record's own visit only
+    cornerSquare: !offs(env?.REROOF_ACCESS) && !offs(env?.REROOF_CORNERCUT),
+    // reroof-04 r6: the jump-apex leaves listed further out, dug by the walk before a planned jump-up (REROOF_APEX)
+    apex: !offs(env?.REROOF_ACCESS) && !offs(env?.REROOF_APEX) }
 }
 export const REROOF_FIX = Object.freeze(reroofFixes(typeof process !== 'undefined' ? process.env : {}))
 /** The `_reroof_mode` licence row. Pure. */
-export const reroofModeDetail = (on, fx) => `on=${on ? 1 : 0} v=2 avoid=${fx.avoid ? 1 : 0} decor=${fx.decor ? 1 : 0} clutter=${fx.clutter ? 1 : 0} fresh=${fx.fresh ? 1 : 0} doorstep=${fx.doorstep ? 1 : 0} rooftree=${fx.roofTree ? 1 : 0} ordered=${fx.ordered ? 1 : 0} access=${fx.access ? 1 : 0} approach=${fx.approach ? 1 : 0} fallsafe=${fx.fallSafe ? 1 : 0} fails_max=${REROOF_FAILS_MAX} fails_ttl_h=${REROOF_FAILS_TTL_MS / 3_600_000}`
+export const reroofModeDetail = (on, fx) => `on=${on ? 1 : 0} v=2 avoid=${fx.avoid ? 1 : 0} decor=${fx.decor ? 1 : 0} clutter=${fx.clutter ? 1 : 0} fresh=${fx.fresh ? 1 : 0} doorstep=${fx.doorstep ? 1 : 0} rooftree=${fx.roofTree ? 1 : 0} ordered=${fx.ordered ? 1 : 0} access=${fx.access ? 1 : 0} approach=${fx.approach ? 1 : 0} fallsafe=${fx.fallSafe ? 1 : 0} cornercut=${fx.cornerSquare ? 1 : 0} apex=${fx.apex ? 1 : 0} fails_max=${REROOF_FAILS_MAX} fails_ttl_h=${REROOF_FAILS_TTL_MS / 3_600_000}`
 
 /** (c) A pass-over lasts this long after the building's LAST failed proof: the world around it changes (a tree felled, a post moved). */
 export const REROOF_FAILS_TTL_MS = 6 * 60 * 60_000
@@ -632,7 +636,7 @@ export const FALL_PAD = 1          // the building's box + this: where its ledge
  * `avoid`; every walk's step fence). The building's own ledges stay usable (the proofs need them as stands); their falls are made
  * recoverable by reroofExitLeaves.
  */
-export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP } = {}) {
+export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, keep = null } = {}) {
   const out = new Set()
   if (!Array.isArray(box) || box.length < 4) return out
   const K = (x, y, z) => `${x},${y},${z}`
@@ -640,6 +644,11 @@ export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FA
   for (const key of walked) {
     const [x, y, z] = key.split(',').map(Number)
     if (!near(x, z)) continue
+    // reroof-04 r6 (`keep`): a feet cell on the record's own TEMPORARY STAIR is never avoided -- the stair is the way up and its own
+    // steps are the way back (Paper sandbox4 storehub 11-08: the visit's fall guard, computed with the roof up, avoided the stair's top
+    // 21,74,-60, the only walk onto the roof, so the ridge beams 13,76,-54 / 12,76,-54 had no stand; the proof, walked before the stair
+    // stood, never avoided it)
+    if (keep?.has(key)) continue
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz
       if ([0, 1, -1].some(d => walked.has(K(nx, y + d, nz)))) continue
@@ -680,11 +689,45 @@ export function reroofExitLeaves (read, walked = new Set(), { box = null, pad = 
   }
   return [...out.values()]
 }
+export const APEX_PAD = FALL_PAD + 5   // r6: how far out the jump-apex leaves are listed (the live workshop pit is box + 4..5)
+/**
+ * reroof-04 r6: THE JUMP-APEX LEAVES further out -> [{ at, name, kind: 'leaves', apex: 1 }]. Pure. reroofExitLeaves out to box + APEX_PAD,
+ * minus the cells `inner` already lists, and only the apex kind (the natural leaf at the UPPER cell's y + 2: a jump from the lower cell
+ * peaks there). Tagged `apex: 1`: runVisit's clears pass skips them; the walk digs one before a planned jump-up needs it.
+ */
+export function reroofApexLeaves (read, walked = new Set(), { box = null, recordAt = () => null, inner = [], pad = APEX_PAD } = {}) {
+  if (!Array.isArray(box) || box.length < 4) return []
+  const have = new Set((inner ?? []).map(c => c.at.join(',')))
+  const stands = (x, y, z) => { const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z); return !!f && fullCube(f) && !!a && isPassable(a) && !!h && isPassable(h) }
+  const near = (x, z) => x >= box[0] - pad && x <= box[2] + pad && z >= box[1] - pad && z <= box[3] + pad
+  const out = new Map()
+  for (const key of walked) {
+    const [x, y, z] = key.split(',').map(Number)
+    if (!near(x, z)) continue
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!stands(x + dx, y - 1, z + dz)) continue
+      const at = [x, y + 2, z], k = at.join(',')
+      if (have.has(k) || out.has(k)) continue
+      const b = read(...at)
+      if (b && naturalLeafBlock(b) && !recordAt(...at)) out.set(k, { at, name: nmOf(b), kind: 'leaves', apex: 1 })
+    }
+  }
+  return [...out.values()]
+}
+/** r6: a proof's clear list with the apex leaves appended (never a cell it already lists). Pure. */
+export function withApex (clear = [], apex = []) {
+  const have = new Set(clear.map(c => c.at.join(',')))
+  return [...clear, ...(apex ?? []).filter(c => !have.has(c.at.join(',')))]
+}
+/** r6: the record's listed jump-apex leaves -> Set of keys (buildbot.mjs apexDig asks it). Pure. */
+export const reroofApexKeys = rec => new Set((rec?.clear ?? []).filter(c => c?.apex === 1 && Array.isArray(c.at)).map(c => c.at.join(',')))
 /** (SEEDS) The stood cells outside the building's pad box (x/z) -> [[x, y, z]]. Pure. */
 export function reroofSeeds (stood = [], box) {
   if (!Array.isArray(box) || box.length < 4) return stood
   return (stood ?? []).filter(c => Array.isArray(c) && !(c[0] >= box[0] && c[0] <= box[2] && c[2] >= box[1] && c[2] <= box[3]))
 }
+/** reroof-04 r6: the feet cells on the record's temporary stair (one above each temp cell) -> Set of keys. Pure. */
+export const reroofStairFeet = rec => new Set(reroofTempCells(rec).map(c => `${c.at[0]},${c.at[1] + 1},${c.at[2]}`))
 /** The record's temporary stand cells still in `cells` -> [cell]. Pure. */
 export const reroofTempCells = rec => (rec?.cells ?? []).filter(c => c?.temp === 1)
 /**
@@ -776,7 +819,12 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   const walk0 = fx.access && fx.fallSafe ? walkFrom(PR0, home, new Set(), walkR, { stood }) : null
   const avoid = walk0 ? reroofFallRisk(PR0, walk0, { box: rec.box }) : null
   // ...and the way back up from a one-block slip off the building's own ledges: the natural leaves over the step, listed (reroofExitLeaves)
-  const exits = walk0 ? reroofExitLeaves(read, walk0, { box: rec.box, recordAt: (x, y, z) => recordAt(x, y, z) || own.has(`${x},${y},${z}`) || addedAt.some(a => a[0] === x && a[1] === y && a[2] === z) }) : []
+  const exitAt = (x, y, z) => recordAt(x, y, z) || own.has(`${x},${y},${z}`) || addedAt.some(a => a[0] === x && a[1] === y && a[2] === z)
+  const exits = walk0 ? reroofExitLeaves(read, walk0, { box: rec.box, recordAt: exitAt }) : []
+  // r6 (fx.apex): the jump-apex leaves FURTHER out (box + 4 .. + 6: where a slip lands, LIVE Paper workshop pit 32,68,-71 -> 31,69,-71, its
+  // leaf 31,71,-71 at box + 4) are LISTED but never dug by the clears pass (low before high it walked down into the pit to dig them, r5e)
+  // and never asked of the proof: the walk digs one only when a jump it plans needs it (buildbot.mjs apexDig), from the lower cell
+  const apex = walk0 && fx.apex ? reroofApexLeaves(read, walk0, { box: rec.box, recordAt: exitAt, inner: exits }) : []
   const now = fx.access ? walkFrom(read, home, new Set(), walkR, { stood, avoid }) : null
   // (LEAVES) the proof walks on no natural leaves (fx.access): a canopy is dug, or decays once its trunk is gone (Paper sandbox4 11-08: the
   // workshop's builder reached its roof over a spruce crown, dug the crown, dropped and never got back) -- an obstacle, never a floor
@@ -815,7 +863,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   let fail0 = null
   if (p.ok) {
     const r = await reach(clear, p, null)
-    if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: r.clear, retire: ob.retire, step, temp: null }
+    if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: withApex(r.clear, apex), retire: ob.retire, step, temp: null }
     fail0 = { ok: false, why: 'clear_unreached', detail: unreached(r) }
   } else fail0 = { ok: false, why: p.why, detail: p.detail }
   // (TEMP) a roof cell with no step, or a dig no stand reaches: a temporary stair from an eave down to the town walk, proven whole (the
@@ -846,7 +894,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
     await tick()
     const r = await reach(clear, q, keys)
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('    reach', r.ok ? 'OK' : unreached(r))
-    if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: r.clear, retire: ob.retire, step, temp: keys }
+    if (r.ok) return { ok: true, why: 'ok', p: r.p, clear: withApex(r.clear, apex), retire: ob.retire, step, temp: keys }
   }
   return fail0
 }

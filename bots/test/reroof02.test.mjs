@@ -27,12 +27,12 @@ const worldOf = (cells, dflt = y => (y < 70 ? 'stone' : 'air')) => (x, y, z) => 
 
 console.log('THE SWITCHES')
 await t('reroofFixes: every fix on by default, each REROOF_<X>=off its own rollback; the licence row names them', () => {
-  assert.deepStrictEqual(RR.reroofFixes({}), { avoid: true, decor: true, clutter: true, fresh: true, doorstep: true, roofTree: true, ordered: true, access: true, approach: true, fallSafe: true })   // reroof-03 adds two, reroof-04 three
-  for (const [env, key] of [['REROOF_DECOR_AVOID', 'avoid'], ['REROOF_DECOR_CLEAR', 'decor'], ['REROOF_CLUTTER_CLEAR', 'clutter'], ['REROOF_FAILS_FRESH', 'fresh'], ['REROOF_DOORSTEP', 'doorstep'], ['REROOF_ROOFTREE', 'roofTree'], ['REROOF_ORDERED', 'ordered'], ['REROOF_APPROACH', 'approach'], ['REROOF_FALLSAFE', 'fallSafe']]) {
+  assert.deepStrictEqual(RR.reroofFixes({}), { avoid: true, decor: true, clutter: true, fresh: true, doorstep: true, roofTree: true, ordered: true, access: true, approach: true, fallSafe: true, cornerSquare: true, apex: true })   // reroof-03 adds two, reroof-04 five (r6: cornerSquare, apex)
+  for (const [env, key] of [['REROOF_DECOR_AVOID', 'avoid'], ['REROOF_DECOR_CLEAR', 'decor'], ['REROOF_CLUTTER_CLEAR', 'clutter'], ['REROOF_FAILS_FRESH', 'fresh'], ['REROOF_DOORSTEP', 'doorstep'], ['REROOF_ROOFTREE', 'roofTree'], ['REROOF_ORDERED', 'ordered'], ['REROOF_APPROACH', 'approach'], ['REROOF_FALLSAFE', 'fallSafe'], ['REROOF_CORNERCUT', 'cornerSquare'], ['REROOF_APEX', 'apex']]) {
     const f = RR.reroofFixes({ [env]: 'off' })
     assert.strictEqual(f[key], false, env); assert.strictEqual(Object.values(f).filter(v => !v).length, 1, `${env} turns off only ${key}`)
   }
-  assert.match(RR.reroofModeDetail(true, RR.reroofFixes({ REROOF_DOORSTEP: '0' })), /^on=1 v=2 avoid=1 decor=1 clutter=1 fresh=1 doorstep=0 rooftree=1 ordered=1 access=1 approach=1 fallsafe=1 fails_max=3 fails_ttl_h=6$/)
+  assert.match(RR.reroofModeDetail(true, RR.reroofFixes({ REROOF_DOORSTEP: '0' })), /^on=1 v=2 avoid=1 decor=1 clutter=1 fresh=1 doorstep=0 rooftree=1 ordered=1 access=1 approach=1 fallsafe=1 cornercut=1 apex=1 fails_max=3 fails_ttl_h=6$/)
 })
 
 console.log('(c) THE FAILURE COUNTS')
