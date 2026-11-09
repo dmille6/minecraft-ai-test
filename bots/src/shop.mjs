@@ -107,7 +107,10 @@ export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, w
 export const projectsGuarded = (list = projectsOn()) => {
   // tidy-01: the tidy guards nothing (its fills are ground, its cuts are spoil): never a footprint, a keep-out or a siting input
   const l = list.filter(p => p.plot !== TIDY_PLOT)
-  return l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  const out = l.some(p => p.plot === SHAFT_PLOT) ? l : [...l, PROJECTS.find(p => p.plot === SHAFT_PLOT)]
+  // roads-01 (Codex fleet r1 BLOCKER): a laid road stays protected with ROADS2 off -- switching off stops new road work, never the
+  // protection of the cells already built (the stair's rule)
+  return out.some(p => p.plot === ROAD_PLOT) ? out : [...out, PROJECTS.find(p => p.plot === ROAD_PLOT)]
 }
 /** A project's admission slots (the workshop's and a house's BUILDERS_MAX). Pure. */
 export const buildersOf = p => p?.builders ?? BUILDERS_MAX

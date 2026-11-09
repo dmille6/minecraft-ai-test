@@ -205,6 +205,26 @@ await t('MUTANT KILLED: a turn allowed at the third row of a level puts the rise
   })
 })
 
+await t('Codex fleet r1 BLOCKER: a leaf touching water in the head room is never cleared (a waterlogged leaf breaks into a source)', () => {
+  const extra = new Map([['30,65,0', { name: 'oak_leaves', boundingBox: 'block' }], ['30,66,0', WATER]])
+  for (let z = -12; z <= 12; z++) { extra.set(`30,65,${z}`, { name: 'oak_leaves', boundingBox: 'block' }); extra.set(`30,66,${z}`, WATER) }
+  const { rec } = siteAll(world({ extra }))
+  assert.ok(!rec || !rec.clear.some(c => c.at[0] === 30 && c.at[1] === 65), 'a wet leaf in the clear list')
+  // the props form too (a read that carries them): waterlogged=true reads wet
+  const ex2 = new Map(); for (let z = -12; z <= 12; z++) ex2.set(`30,65,${z}`, { name: 'oak_leaves', boundingBox: 'block', props: { waterlogged: 'true' } })
+  const r2 = RD.routeRoad(world({ extra: ex2 }), { line: [[13, 0], [70, 0]], start: { x: 13, z: 0, L: 64, d: 0, s: 4, t: 3 }, hy: 64 })
+  assert.ok(!r2.nodes.some(n => n.x === 30), 'the road crossed under waterlogged leaves')
+  // positive control: dry leaves over the line are cleared
+  const ex3 = new Map(); for (let z = -12; z <= 12; z++) ex3.set(`30,65,${z}`, { name: 'oak_leaves', boundingBox: 'block' })
+  const r3 = siteAll(world({ extra: ex3 }))
+  assert.ok(r3.rec.clear.some(c => c.at[0] === 30 && c.at[1] === 65 && c.kind === 'leaves'), 'positive control: a dry leaf is cleared')
+})
+
+await t('Codex fleet r1 BLOCKER: a laid road stays guarded with ROADS2 off (projectsGuarded keeps the road, as the stair)', () => {
+  assert.ok(SH.projectsGuarded(SH.projectsOn(true, true, true, true, true, true, true, false)).some(p => p.plot === 'road'))
+  assert.ok(!SH.projectsOn(true, true, true, true, true, true, true, false).some(p => p.plot === 'road'), 'positive control: no road WORK with it off')
+})
+
 await t('a lake across the line: the road stops short of the water and the route ends blocked (a bridge is bridges-01\'s)', () => {
   const lake = (x, z) => x >= 40 && x <= 52 && Math.abs(z) <= 30
   const { rec, out } = siteAll(world({ lake, wl: 64 }))
