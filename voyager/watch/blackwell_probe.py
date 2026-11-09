@@ -43,8 +43,21 @@ def main():
     first = ps()
     PINNED = sorted(m for m in first if m not in OURS)
     print(json.dumps({'kind': 'watching', 'theirs': PINNED, 'ours': sorted(OURS)}), flush=True)
+    fails = 0
     for i in range(minutes):
-        res = ps()
+        # a network error is NOT a reading: retry next minute; 5 in a row stops arm B like a trip (11-09: the probe died on
+        # one timeout at 11-07 19:23Z and arm B ran unguarded for ~30 h)
+        try:
+            res = ps()
+        except Exception as e:
+            fails += 1
+            print(json.dumps({'kind': 'probe_error', 'i': i, 'error': str(e)[:120], 'consecutive': fails}), flush=True)
+            if fails >= 5:
+                print(json.dumps({'kind': 'abort', 'why': '5 consecutive probe errors'}), flush=True)
+                sys.exit(3)
+            time.sleep(60)
+            continue
+        fails = 0
         missing = [m for m in PINNED if m not in res]
         # expires_at moves on every use (now + forever), so the check is: still pinned forever, same context, same size
         changed = [m for m in PINNED if m in res and m in first and (res[m][0] != first[m][0] or res[m][1] != first[m][1] or not res[m][2])]
@@ -52,8 +65,13 @@ def main():
             print(json.dumps({'kind': 'evicted_or_changed', 'missing': missing, 'changed': changed, 'before': first, 'now': res}), flush=True)
             sys.exit(3)
         if TARGET in res:
-            ms, load = ping()
-            lat.append(ms)
+            try:
+                ms, load = ping()
+                lat.append(ms)
+            except Exception as e:
+                print(json.dumps({'kind': 'ping_error', 'i': i, 'error': str(e)[:120]}), flush=True)
+                ms, load = 60_000, 0
+                lat.append(ms)
         else:
             ms, load = 0, 0
         row = {'kind': mode, 'i': i, 't': time.strftime('%H:%M:%S', time.gmtime()), 'ms': ms, 'load_ms': load, 'resident': {k: v[:2] for k, v in res.items()}, 'p95': p95(lat)}
