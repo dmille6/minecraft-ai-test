@@ -6646,7 +6646,7 @@
    "lane": "survival",
    "state": "open",
    "owner": "survival builder / control session",
-   "next_step": "BUILT, not queued. Branch seapocket-01 on fleet 3d8ef9de: code e81becc4, tip 55cc1574 (pushed). Tier 3. Codex r1 1 BLOCKER (return-air budget) fixed, r2 none; independent Claude r1/r2 none. Paper -pillar scene: base stayed 1/1, cand escaped 3/3 (breath=6, min air 17). Registration ~/mcai-analysis/seapocket-01.e81becc4.json (validate valid; draw pin placebo-d + placebo-a, drawexposure PASS climb_flood_refused>=3) + DRAFT ~/mcai-analysis/seapocket-01.queue-entry.json. Full suite seapocket-e81becc4 (ci2) queued at commit time. Root-cause follow-up NOT built: airpocket.mjs seals head-level sides even when an open surface is 4 cells away.",
+   "next_step": "BUILT, not queued. Branch seapocket-01 on fleet 3d8ef9de: code e81becc4, tip 55cc1574 (pushed). Tier 3. Codex r1 1 BLOCKER (return-air budget) fixed, r2 none; independent Claude r1/r2 none. Paper -pillar scene: base stayed 1/1, cand escaped 3/3 (breath=6, min air 17). Registration ~/mcai-analysis/seapocket-01.e81becc4.json (validate valid; draw pin placebo-d + placebo-a, drawexposure PASS climb_flood_refused>=3) + DRAFT ~/mcai-analysis/seapocket-01.queue-entry.json. Full suite seapocket-e81becc4 (ci2): 425/426, well.test.mjs only (known base). Root-cause follow-up NOT built: airpocket.mjs seals head-level sides even when an open surface is 4 cells away.",
    "max_quiet_hours": 48,
    "depends_on": [],
    "evidence": {
