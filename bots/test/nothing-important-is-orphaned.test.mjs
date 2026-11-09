@@ -61,6 +61,9 @@ const REQUIRED = [
   'bots/test/landmark.test.mjs',   // roughground-3 (11-07)
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/fewerdec.test.mjs',
+  'bots/src/pipeline.mjs',          // pipeline-01: pipelined decisions (PIPELINE=off|shadow|on)
+  'bots/test/pipeline.test.mjs',
+  'docs/reports/pipeline-design-2026-11-09.md',
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
