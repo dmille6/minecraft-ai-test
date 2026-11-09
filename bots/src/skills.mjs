@@ -197,6 +197,8 @@ import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { helperWorked, helpersCap } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
+import { planaheadOn, planReachAsync, reachTag, puWaiveDue, puSupply, supplyOf, standClaims, standRetire, standConflicts, plannedWorld } from './planahead.mjs'   // planahead-01
+import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
 import { PARK_SAPLINGS } from './park.mjs'   // roughground-3: the crown's tree
 import { tidyColumn } from './tidy.mjs'   // roughground-3: the landmark's ground
@@ -21211,7 +21213,7 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     const ts = townhallStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
     const bp = styledBlueprint(blueprintOf(TOWNHALL_BLUEPRINT), ts.style)
     const prd = planReader(bot)
-    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, { ...(sp.earth ?? TOWNHALL_EARTH), owned: recordOwned() }),
+    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT, ...paSiteCtx(prd, TOWNHALL_PLOT), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, { ...(sp.earth ?? TOWNHALL_EARTH), owned: recordOwned() }),
       earth: sp.earth ?? TOWNHALL_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -21221,6 +21223,22 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
     return { ok: true, why: 'ok', record: townhallRecordOf(s.record, bp, ts.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
+}
+/**
+ * PLANAHEAD-01: A STYLED BUILDING'S SITING IN THE PLANNED TOWN -> the siteBlueprint ctx additions | {} (PLANAHEAD=off, or the records
+ * unreadable: the siting as before). `planned`: the other open hard records' work still to place is an obstacle, never a floor
+ * (buildsite.mjs proveSite); `standCheck`: a candidate that would fill another unfinished building's proof stand or dig its floor is not
+ * proven (planahead.mjs standConflicts -- the search moves to the next anchor). Never throws.
+ */
+function paSiteCtx (read, plot) {
+  if (!PLANAHEAD_ON) return {}
+  try {
+    const pr = plotRecordsNow()
+    if (!pr) return {}
+    const others = pr.filter(r => r.plot !== plot)
+    const claims = standClaims(others)
+    return { planned: plannedWorld(others, { self: plot, done: paDone(read) }), standCheck: (site, cells) => standConflicts(site, cells, claims) }
+  } catch { return {} }
 }
 /** thprep-01: is a cell some record's (a cell or a replant it owes)? -> (at) -> bool. Read once; unreadable heads: every cell owned. */
 function recordOwned () {
@@ -21267,7 +21285,7 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null) {
     const cs = cottageStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })
     const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
     const prd = planReader(bot)
-    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: COTTAGE_PLOT, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
+    const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: COTTAGE_PLOT, ...paSiteCtx(prd, COTTAGE_PLOT), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
       earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -21308,7 +21326,7 @@ async function enchantSiteFor (bot, plan, c, stood, signal = null) {
     const sp = enchantSitingPlan(plan.home, o.plot, zonesNow())
     if (!sp) return { ok: false, why: 'no_plan', tried }
     const bp = blueprintOf(ENCHANT_BLUEPRINT)
-    const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: ENCHANT_PLOT,
+    const s = await siteBlueprintAsync(planReader(bot), plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: ENCHANT_PLOT, ...paSiteCtx(planReader(bot), ENCHANT_PLOT),
       earth: sp.earth, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line, levelAlts: sp.levelAlts }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -25283,6 +25301,41 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
 const GKW_ON = gkworkOn()   // gkwork-01
+const PLANAHEAD_ON = planaheadOn()   // planahead-01 (PLANAHEAD=off: no reach tag, no plan waiver, no helper filter, no stand claims)
+/** planahead-01: is a planned cell of another record read FINISHED (a clear dug, a cell or fill laid)? Unread: not finished. Pure over `read`. */
+const paDone = read => (r, c) => { const b = read(...c.at); if (!b) return false; return c.role === 'clear' ? b.boundingBox === 'empty' : b.boundingBox !== 'empty' && !paReplaceable(b) }
+/** planahead-01: every project's record (plot named) -> [rec]. Never throws (none). */
+const paRecords = () => { try { return projectHeads().map(x => ({ ...x.head.rec, plot: x.head.rec?.plot ?? x.plot })) } catch { return [] } }
+/**
+ * PLANAHEAD-01: A NEW TIDY STAGE'S REACH TAG (planahead.mjs planReachAsync: its open cuts and fills worked to a fixed point in the town's
+ * own walk, in the planned world of the other open records) -> the `reach` field. Never throws. An unread cell anywhere in the stage,
+ * an error or the budget: an `unchecked` tag (tags nothing: the stage publishes as before).
+ */
+async function tidyReachTag (bot, body, home, stood, signal = null) {
+  try {
+    const read = tidyRead(bot), waived = body?.waived ?? {}
+    const fills = [], cuts = []
+    let unread = 0
+    for (const q of body?.cells ?? []) {
+      if (!Array.isArray(q?.at) || q.prev || Object.prototype.hasOwnProperty.call(waived, q.at.join(','))) continue
+      const b = read(...q.at)
+      if (!b) { unread++; continue }
+      if (!buildCellDone(b, TIDY_PALETTE, q.role)) fills.push(q)
+    }
+    for (const q of [...(body?.cut ?? []), ...(body?.clear ?? [])]) {
+      if (!Array.isArray(q?.at) || q.prev) continue
+      const b = read(...q.at)
+      if (!b) { unread++; continue }
+      if (b.boundingBox !== 'empty') cuts.push(q.at)
+    }
+    if (unread) return { ...reachTag({ state: 'unchecked', open: { fills: fills.length, cuts: cuts.length } }), why: `unread:${unread}` }
+    const planned = plannedWorld(paRecords(), { self: TIDY_PLOT, done: paDone(read) })
+    const p = bot?.entity?.position
+    const feet = p ? [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)] : null
+    const r = await planReachAsync(read, fills, cuts, { home, stood: feet ? [...stood, feet] : stood, walkR: tidyWalkR(body), planned }, { aborted: () => !!signal?.aborted })
+    return { ...reachTag(r), ...(r.why ? { why: r.why } : {}) }
+  } catch (e) { return { ...reachTag({ state: 'unchecked' }), why: `error:${String(e?.message ?? e).slice(0, 40)}` } }
+}
 /** gkclear-01: is the town's tidy stage collecting strikes (gkwork.mjs strikesClosing over every holder's file)? Cached 60 s a bot; never throws. */
 function gkwTownClosing (bot, now = Date.now()) {
   if (!GKW_ON || !GROUNDS.on || !bot) return false
@@ -25419,6 +25472,17 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
     if (claims.length) {
       const pub = publishRecord(dir, key, cur => (cur ? claimRetire(cur, claims) : null), { by: me })
       if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'claim_retired', kind: claims.map(c => c.plot).join('+'), gen: pub.gen }) }) } catch { /* telemetry */ } }
+    }
+  } catch { /* asked again next visit */ }
+  // planahead-01: an unfinished building's proof STANDS are its claim too -- a tidy fill on a stand's feet or head, a cut of its floor,
+  // leaves the record (planahead.mjs standRetire: retired like claim-01's volume, never refused-and-waited)
+  try {
+    const pr = PLANAHEAD_ON ? plotRecordsNow() : null
+    const sc = pr ? standClaims(pr) : null
+    if (sc && (sc.feet.size || sc.floor.size)) {
+      let n = null
+      const pub = publishRecord(dir, key, cur => { const nx = cur && !cur.structure_complete ? standRetire(cur, sc) : null; n = nx?.standClaimed ?? null; return nx }, { by: me })
+      if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'stand_retired', kind: Object.entries(n ?? {}).map(([a, b]) => `${a}:${b}`).join('+') || '-', gen: pub.gen }) }) } catch { /* telemetry */ } }
     }
   } catch { /* asked again next visit */ }
   // plotprep-01: a felling stand whose tree is down (or that has stood its time) is taken back down -- its cells become cuts
@@ -25939,6 +26003,12 @@ async function buildTidyVisit (ctx, args, signal) {
     // gkstage-01: a stage BEFORE the head's is fresh only when the head ends the ring order (the cycle wraps to the wall's inside)
     const fresh = cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (recStageK(cur) < sk || nextStage(recStageK(cur)) == null || (firstIn && landStages().find(q => q.k === sk)?.id === 'inwall')))
     const body = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: legacyStage(landStages().find(q => q.k === sk)), stageId: landStages().find(q => q.k === sk)?.id ?? null, terraceV: 1 } : {}) }
+    // planahead-01: the new stage's reach is checked BEFORE it is published (planahead.mjs): the cells no order of work reaches are tagged
+    // `pu` -- a tag, never a waiver (a live visit's own miss confirms it: puWaiveDue) -- and one `_build op=reach` row says the supply
+    if (PLANAHEAD_ON && GROUNDS.on && s.record) {
+      body.reach = await tidyReachTag(bot, body, home, stood, signal)
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'reach', seg: `stage${sk}`, kind: body.reach.state, n: body.reach.n, to: body.reach.open, result: `${body.reach.passes}/${body.reach.checked}/${body.reach.ms ?? '-'}ms`, why: body.reach.why ?? '-' }) }) } catch { /* telemetry */ }
+    }
     // townterrace-01: the stage before's cells carried on (tidy.mjs stageCarry: the tripwire judges a placement against the head)
     // roughground-01: the inside-the-wall clock rides on every stage's record (inwallAtNext)
     const pub = publishRecord(dir, key, cur => (fresh(cur) ? (GROUNDS.on ? { ...stageCarry(body, cur), inwallAt: inChecked ?? inwallAtNext(cur, body) } : body) : null), { by: me })
@@ -26080,6 +26150,9 @@ async function buildTidyVisit (ctx, args, signal) {
     const prepNow = prepSt?.hold === 'work' ? prepSt.id : null
     if (prepNow) { f.prep = prepNow; visitRec = { ...rec, cells: (rec.cells ?? []).filter(q => q.prep === prepNow), segments: (rec.segments ?? []).filter(sg => String(sg.seg).startsWith(`${prepNow}-`)), clear: (rec.clear ?? []).filter(q => q.prep === prepNow), replant: [] } }
     if (!caps.digs) visitRec = helperRecord(visitRec)
+    // planahead-01: a HELPER's view without the cells the stage's plan tagged unreached (the keeper confirms those): it walks and draws
+    // material only for work some order reaches (planahead.mjs puSupply)
+    if (PLANAHEAD_ON && GROUNDS.on && role === 'helper') visitRec = puSupply(visitRec)
     // the crew's segment rule over the WHOLE record's columns (another bot's segment is judged even when this visit's view lacks it)
     const crewCols = GROUNDS.on ? segColumns(rec) : new Map()
     let liveMemo = null
@@ -26193,7 +26266,10 @@ async function buildTidyVisit (ctx, args, signal) {
       const waive0 = !caps.waive ? [] : GROUNDS.on ? wallWaiveDue(rec, gkWaivable(rec, r.deferred ?? []), gkWaiveOpts(rec, WALL_WAIVE_MAX)) : wallWaiveDue(rec, r.deferred ?? [])
       // gkwork-01 rule 4: a STALLED stage (stuck_on_cell: nothing else open) whose waiver room is spent waives the cells the town's stuck
       // map has counted past the tenth (gkwork.mjs stallWaive), so the cells waiting on them become work
-      const waive = GKW_ON && GROUNDS.on && caps.waive && !waive0.length ? stallWaive(rec, gkWaivable(rec, r.deferred ?? []), { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
+      const waive1 = GKW_ON && GROUNDS.on && caps.waive && !waive0.length ? stallWaive(rec, gkWaivable(rec, r.deferred ?? []), { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
+      // planahead-01: a cell the stage's plan tagged unreached that THIS visit deferred too is waived now (two independent negatives:
+      // planahead.mjs puWaiveDue), in the same room as the waivers above
+      const waive = PLANAHEAD_ON && GROUNDS.on && caps.waive ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1 })] : waive1
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
@@ -26257,7 +26333,9 @@ async function buildTidyVisit (ctx, args, signal) {
         const left = tidyLeftKeys(rw, read2, progOpts)
         const town = leftVisit(dir, key, me, rw, left, { count: r.stop === 'complete' })
         openWrite(dir, key, me, rw, left.length + prog.cutLeft)   // gkcrew4-01: this visit's open count (fills + clears left, cuts)
-        const due = caps.waive ? leftWaiveDue(rw, town, left) : []
+        const due0 = caps.waive ? leftWaiveDue(rw, town, left) : []
+        // planahead-01: a tagged cell this visit left open when it ran out of work is its live negative (planahead.mjs puWaiveDue)
+        const due = PLANAHEAD_ON && caps.waive && r.stop === 'complete' ? [...due0, ...puWaiveDue(rw, left, { already: due0 })] : due0
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             if (!cur || cur.structure_complete || cur.cells.length !== rw.cells.length || gkwSig(cur) !== gkwSig(rw)) return null
