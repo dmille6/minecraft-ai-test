@@ -1138,6 +1138,13 @@ export function fillWant ({ open = 0, openAccess = 0, dirt = 0, cobble = 0, visi
 }
 /** roughfill-01: the fills one tidy visit bills for (a visit places well under this in its ~2 min; YARD_DRAW_MAX is 32). */
 export const TIDY_VISIT_FILLS = 32
+/** FILLSHARE-01b (control 11-09: 12 tidy yard draws 11-08 13:49Z -> 11-09 13:35Z by bags holding 17-227 dirt and 68-82 cobblestone,
+ *  bill 17-32, each drawing 0-7 blocks in ~50 s -- 9 of 59 idle helper visits spent >= 40% of their time in it): the bag's spare dirt
+ *  held back for the stage's topsoil is ONE VISIT's topsoil (as roughfill-01 billed it), never every open topsoil cell of the stage,
+ *  which left no dirt for the earth fills and sent the visit to the yard. -> the dirt the earth fills may count. Pure. */
+export function earthDirt (spareDirt = 0, openSoil = 0, visitCap = TIDY_VISIT_FILLS) {
+  return Math.max(0, (Number(spareDirt) || 0) - Math.min(Math.max(0, Number(openSoil) || 0), Math.max(0, Number(visitCap) || 0)))
+}
 /** roughfill-01: a topsoil cell the placer cannot lay now (no topsoil block the bag SPARES: effects.has, the placer's own read) reads done.
  *  Pure. LIVE 11-08: the raw count said "dirt held" while the placer's keep said none, so the visit reached the cell and stopped
  *  no_material "topsoil for T-00-0" (3 visits, 8 helper_idle rows) -- every later fill of that visit lost. */
