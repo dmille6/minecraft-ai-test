@@ -343,7 +343,7 @@ console.log('7. WIRED (structural: the call sites; behaviour is above)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 await t('buildStair runs the egress after the visit inside the same claim, keeps the reserve, and on the finished-stair return', () => {
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  for (const a of ['}, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS, reserve: egressReserveMs })',
+  for (const a of ['}, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS, reserve: egressReserveMs, maxK: rec.K })',
     'egress = await visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS, e)',
     'const x = await withStairClaim(ctx.runner, () => visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS))',
     'const r = await runStairEgress(plan, {']) assert.strictEqual(src.split(a).length, 2, `missing or not unique: ${a}`)
