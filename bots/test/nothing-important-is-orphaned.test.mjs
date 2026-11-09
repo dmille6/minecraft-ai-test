@@ -49,6 +49,7 @@ const REQUIRED = [
   'bots/test/roofclimb.test.mjs',
   // zonesite-01show (11-15): a sink never stands in a protected zone -- the siting guard, the builder's click, the retirement
   'bots/test/zonesite.test.mjs',
+  'bots/test/chestcarry.test.mjs',   // chestcarry-01 (11-09): a carried chest is placed past the 4-a-day new-chest budget
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
