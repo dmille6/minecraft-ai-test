@@ -30,7 +30,7 @@
 // Pure except the switch: no bot, no world. The effects live in skills.mjs (deepMine).
 
 import { isWet, isLava, isFalling, isOpen, isFull, planOf, standOf, isStairRecord, LINING_ITEMS } from './shaftgeom.mjs'
-import { BUILD_USES } from './townmine.mjs'   // townmine-01
+import { BUILD_USES, TOWNMINE } from './townmine.mjs'   // townmine-01
 
 // ---- the switch ---------------------------------------------------------------------------------------------------------------
 export function deepMineOn (env = process.env, pool = '') {
@@ -40,12 +40,15 @@ export function deepMineOn (env = process.env, pool = '') {
   const pools = String(env?.DEEPMINE_POOLS ?? '*').split(',').map(q => q.trim()).filter(Boolean)
   return pools.includes('*') || pools.includes(String(pool))
 }
-const slotsOf = env => { const n = Number(env?.DEEPMINE_SLOTS); return Number.isInteger(n) && n >= 1 && n <= 2 ? n : 1 }
+// townmine-01 (coordinator 11-09, owner M8): TWO deep miners a town where the town mine is on -- one builds (the mine's build lease,
+// MINE_BUILD_PLOT, holds a single builder) while the other mines; DEEPMINE_SLOTS still decides when set
+export const slotsOf = (env, mine = false) => { const n = Number(env?.DEEPMINE_SLOTS); return Number.isInteger(n) && n >= 1 && n <= 2 ? n : (mine ? 2 : 1) }
 export const DEEPMINE = Object.freeze({
   on: deepMineOn(typeof process !== 'undefined' ? process.env : {}, typeof process !== 'undefined' ? (process.env.MEMORY_POOL ?? '') : ''),
-  slots: slotsOf(typeof process !== 'undefined' ? process.env : {}),   // owner M8 allows 2; O13: 1 for the first diamond canary
+  slots: slotsOf(typeof process !== 'undefined' ? process.env : {}, TOWNMINE.on),   // owner M8 allows 2 (townmine-01: 2 with the mine on); O13: 1 before it
 })
 export const DEEPMINE_PLOT = 'deepmine'      // the lease key's plot: project-<home>.deepmine.slot<k>
+export const MINE_BUILD_PLOT = 'deepminebuild'   // townmine-01: the one build trip a town at a time: project-<home>.deepminebuild.slot1
 
 // ---- the numbers ----------------------------------------------------------------------------------------------------------------
 export const IRON_FEET = 16                  // the stair's bottom landing (shaftgeom STAIR_BOTTOM_FEET)
