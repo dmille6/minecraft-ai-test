@@ -637,25 +637,18 @@ export const FALL_PAD = 1          // the building's box + this: where its ledge
  * recoverable by reroofExitLeaves.
  */
 export function reroofFallRisk (read, walked = new Set(), { box = null, pad = FALL_PAD, drop = FALL_DROP, floors = null, recover = false, landOn = null } = {}) {
-  // r6b (`landOn`): the walk a landing is judged against (the walk over the new roof's slabs)
-  // r6c (Codex r6c BLOCKER: a roof slab over a pit outside was no longer judged): the cells only the roof walk has (`landOn` minus
-  // `walked`: the new roof's own top) are judged too, for falls OUTWARD only -- a side whose fall column lies outside the building's pad
-  // box; a fall inward lands in the building's own roof or room, which the build itself is making (Paper r6b: judging those avoided the
-  // proof's roof-edge stands mid-build)
+  // r6b (`landOn`): the walk a landing is judged against (the walk over the new roof's slabs); `walked` stays the cells judged -- the
+  // ground walk, as the proof judged them (Paper r6b: judging the roof's own top cells as ledges avoided the stands the proof had chosen)
   const L = landOn ?? walked
   const out = new Set()
   if (!Array.isArray(box) || box.length < 4) return out
   const K = (x, y, z) => `${x},${y},${z}`
   const near = (x, z) => x >= box[0] - pad && x <= box[2] + pad && z >= box[1] - pad && z <= box[3] + pad
-  const inBox = (x, z) => x >= box[0] && x <= box[2] && z >= box[1] && z <= box[3]
-  const roofOnly = landOn ? [...landOn].filter(k => !walked.has(k)) : []
-  const judged = [...walked].map(k => [k, false]).concat(roofOnly.map(k => [k, true]))
-  for (const [key, outwardOnly] of judged) {
+  for (const key of walked) {
     const [x, y, z] = key.split(',').map(Number)
     if (!near(x, z)) continue
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz
-      if (outwardOnly && inBox(nx, nz)) continue
       if ([0, 1, -1].some(d => L.has(K(nx, y + d, nz)))) continue
       const a = read(nx, y, nz), h = read(nx, y + 1, nz)
       if (!a || !h || !isPassable(a) || !isPassable(h)) continue           // a wall: no fall that way
