@@ -153,12 +153,13 @@ export function cornerWaypoints (from, goal, plan, read, max = 4, { square = fal
  * reroof-04 r6: THE LEAVES A PLANNED JUMP-UP NEEDS DUG FIRST -> [{ i, lower: [x, y, z], at: [x, y, z], name }]. Pure. For every step of
  * `path` (from `start`) that rises one block: the natural leaf at the lower cell's y + 2 (the jump's head room) and at the upper cell's
  * y + 2 (its apex: a jump from feet y peaks near y + 1.25 + 1.8) -- LIVE Paper sandbox4 11-08: the workshop's builder in the pit at
- * 32,68,-71 planned the jump to 31,69,-71 under the leaf 31,71,-71 and jumped in place for 25 s, every walk -- only a leaf `listed(key)`
- * says may go (the record's apex leaves: on the record for the tripwire), at most `max`.
+ * 32,68,-71 planned the jump to 31,69,-71 under the leaf 31,71,-71 and jumped in place for 25 s, every walk -- only a NATURAL leaf
+ * (persistent false) whose name is the one `listed(key)` names (the record's apex leaves: on the record for the tripwire), at most `max`.
  */
 export function apexDigs (start, path, read, listed = () => false, max = 3) {
   const cell = p => ({ x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) })
-  const leaf = at => { const b = read(...at); return !!b && /_leaves$/.test(String(b.name ?? '')) && listed(at.join(',')) ? String(b.name) : null }
+  // Codex r6 BLOCKER: never a placed leaf (persistent true) or another kind than the record listed there
+  const leaf = at => { const b = read(...at); if (!b || !/_leaves$/.test(String(b.name ?? ''))) return null; const want = listed(at.join(',')); const p = b.props?.persistent; return want && want === b.name && (p === false || p === 'false') ? String(b.name) : null }
   const out = [], seen = new Set()
   let a = cell(start)
   for (let i = 0; i < (path?.length ?? 0) && out.length < max; i++) {
@@ -296,6 +297,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
                   if (Math.floor(here.x) !== d.lower[0] || Math.floor(here.y + 1e-6) !== d.lower[1] || Math.floor(here.z) !== d.lower[2]) await bot.pathfinder.goto(new goals.GoalBlock(d.lower[0], d.lower[1], d.lower[2]))
                   const blk = bot.blockAt(new Vec3(d.at[0], d.at[1], d.at[2]))
                   if (!blk || blk.name !== d.name) continue
+                  let pers = null
+                  try { pers = blk.getProperties?.()?.persistent } catch { pers = null }
+                  if (!(pers === false || pers === 'false')) continue   // re-read at the dig: a natural leaf only
                   blocks.watch(d.at)
                   try { await bot.dig(blk, true) } catch (e) { if (e?.aborted || aborted()) throw e; continue }
                   if (await blocks.wait(d.at, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS)) log('_build', { op: 'clear', cell: d.at, block: d.name, kind: 'leaves' })
