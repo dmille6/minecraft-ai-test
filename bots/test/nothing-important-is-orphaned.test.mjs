@@ -32,6 +32,7 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
   // tidydead-01 (11-05): the tidy's hard cells (a block no stand reaches, a fill no click lands on) are deferred so its waiver names them
+  'bots/src/citywall.mjs', 'bots/test/citywall.test.mjs', 'bots/scripts/citywall-offline.mjs',  // citywall-01 (11-09): the wall upgrade, the fleet port (FLAT: courses swapped in place, underpinning, torches)
   'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
   'bots/test/gklease2.test.mjs',   // gklease-02 (11-07): the stale tidy stamp, open sky, the town's sweep give-up
   'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go

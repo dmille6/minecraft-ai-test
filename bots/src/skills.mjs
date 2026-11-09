@@ -125,6 +125,11 @@ import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFo
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, plinthCells, reservations, projectSectors, placeBlueprint } from './buildsite.mjs'
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
+import { citywallOn, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallStyleFor } from './citywall.mjs'   // citywall-01 (the fleet port: FLAT, no planner plot)
+import { wallEscape } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own)
+import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
+import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a stand dig a swapped cell (the visit's own rule)
+import { stepFor as siteStepFor, walkFrom as siteWalkFrom } from './buildsite.mjs'   // citywall-01: can a stand place an underpinning cell
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX } from './wall.mjs'   // wall-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
@@ -17480,7 +17485,8 @@ function stuckCellsDone (r) {
 function recordCellDone (bot, r, c) {
   try {
     const mon = isZigBlueprint(r.blueprint)
-    const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    // citywall-01: an upgraded wall ring is judged by its generation's own palette
+    const bp = mon ? { palette: zigPaletteOf(r) } : isCitywall(r) ? { palette: { ...WALL_PALETTE, ...r.palette } } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
@@ -17723,7 +17729,8 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
     // own palette (ziggurat.mjs zigPaletteOf -- a v1 record keeps ZIG_PALETTE)
     const mon = isZigBlueprint(r.blueprint)
-    const bp = mon ? { palette: zigPaletteOf(r) } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
+    // citywall-01: an upgraded wall ring is judged by its generation's own palette
+    const bp = mon ? { palette: zigPaletteOf(r) } : isCitywall(r) ? { palette: { ...WALL_PALETTE, ...r.palette } } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
     const stuckX = stuckCellsDone(r)
     for (const c of r.cells ?? []) {
@@ -17741,6 +17748,9 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
     // fleetpaths-01: a no-site paths record is only DUE, after its retry (the shaft's rule)
     if (r.blueprint === PATHS_BLUEPRINT && pathsNoSiteRec(r)) return tidy && pathsDue(r)
+    // citywall-01: a standing wall whose upgrade's next phase is due (its design once, then each phase: citywall.mjs citywallNext) is DUE
+    // -- upkeep, after every open project -- and its own visit publishes and builds it (the fleet has no planner plot)
+    if (tidy && r.blueprint === WALL_BLUEPRINT && r.structure_complete && citywallDueFor(bot, r).due) return true
     return false
   } catch { return false }
 }
@@ -19458,6 +19468,66 @@ function wallStuckOf (c) {
   const may = at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } }
   return { sealed: { mayDig: may }, footing: { mayPlace: may, role: 'base' }, stuckStalledOnly: true }
 }
+// ================================================================================================================================
+// CITYWALL-01, THE FLEET PORT (citywall.mjs FLAT mode: no reach-only click and no block state on this base): a standing wall@1 ring's
+// O cobblestone SWAPPED IN PLACE for coursed masonry (dark deepslate on the fleet: cobbled deepslate makes it with no fuel), the
+// hanging columns underpinned, a torch on each run end's merlon. No towers, no gatehouse (their upper courses want reach-only clicks).
+// The wall's own visit publishes the next phase (no planner plot here) and builds it with the `swap` rule (buildrun.mjs swapDigOk:
+// one hole a segment, the block in the bag). CITYWALL=off is the rollback; on in every pool this build runs in (CITYWALL_POOLS '*').
+// ================================================================================================================================
+const CITYWALL_NOSITE_MS = 6 * 60 * 60_000
+const citywallOnHere = () => citywallOn({ CITYWALL_POOLS: '*', ...process.env }, process.env.MEMORY_POOL ?? '')
+/** Is a world cell of a record done (this bot's own world; an unloaded cell is not)? Never throws. */
+function cellDoneHere (bot, palette, c) {
+  try { const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2])); return !!b && buildCellDone({ name: b.name, boundingBox: b.boundingBox }, palette, c.role) } catch { return false }
+}
+/** IS THE RING'S NEXT UPGRADE STEP DUE -> { due, kind: 'design' | 'phase', ph?, why }. Never throws. */
+function citywallDueFor (bot, rec) {
+  try {
+    if (!citywallOnHere() || !rec?.structure_complete) return { due: false, why: 'off' }
+    if (Date.now() < (bot?.citywallNoSiteUntil ?? 0)) return { due: false, why: 'site_wait' }
+    const stock = bot ? matsTownStock(bot)?.stock ?? null : null
+    if (!isCitywall(rec)) return stock ? { due: true, kind: 'design' } : { due: false, why: 'stock_unknown' }
+    const pal = { ...WALL_PALETTE, ...rec.palette }
+    // a cell the wall's waiver named is done for the next phase too (else one unreachable cell would hold every later phase)
+    const n = citywallNext(rec, { done: q => wallWaived(rec, q) || (!!bot && cellDoneHere(bot, pal, q)), stock, keep: CITYWALL_KEEP })
+    return n.ph != null ? { due: true, kind: 'phase', ph: n.ph } : { due: false, why: n.why }
+  } catch { return { due: false, why: 'error' } }
+}
+/** THE NEXT STEP PUBLISHED -> { published, why }. The design once (flat, the escape proof), then the due phase's generation. Never throws. */
+function citywallAdvance (bot, c, dir, key, rec, home, me) {
+  try {
+    const due = citywallDueFor(bot, rec)
+    if (!due.due) return { published: false, why: due.why }
+    let design = designOf(rec)
+    if (due.kind === 'design') {
+      const read0 = planReader(bot)
+      let unread = 0
+      const read = (x, y, z) => { const b = read0(x, y, z); if (!b) unread++; return b }
+      const others = new Set()
+      for (const x of projectHeads()) if (x.plot !== WALL_PLOT) for (const q of x.head?.rec?.cells ?? []) if (Array.isArray(q?.at)) others.add(q.at.join(','))
+      const walkNodes = new Map()
+      for (const k of siteWalkFrom(read0, home, new Set(), wallWalkR(rec, home))) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
+      const stock = matsTownStock(bot)?.stock ?? {}
+      design = citywallDesign(read, rec, { style: citywallStyleFor(stock, process.env.MEMORY_POOL ?? ''), seed: Number(rec.sitedAt ?? 0) >>> 0, flat: true,
+        taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones),
+        reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true), reachSwap: at => !!runDigStand(read0, at, walkNodes) })
+      const noSite = why => { bot.citywallNoSiteUntil = Date.now() + CITYWALL_NOSITE_MS; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'citywall', kind: 'no_design', why: String(why).slice(0, 80) }) }) } catch { /* telemetry */ } return { published: false, why } }
+      if (!design.ok) return noSite(design.why)
+      if (unread) { bot.citywallNoSiteUntil = Date.now() + 10 * 60_000; return { published: false, why: 'unread' } }
+      if (!design.phases.length) return noSite('empty')
+      const esc = wallEscape(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8 })
+      if (esc.cut || esc.trapped) return noSite(`escape cut ${esc.cut} trapped ${esc.trapped}`)
+    }
+    const ph = due.kind === 'design' ? design.phases[0].ph : due.ph
+    const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && (cur.citywall?.phase ?? -1) < ph ? citywallGeneration(cur, design, ph) : null), { by: me })
+    if (pub.result !== 'accepted') return { published: false, why: pub.result }
+    const p = design.phases.find(q => q.ph === ph)
+    try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: WALL_PLOT, op: 'citywall', kind: `${design.style}/ph${ph}:${p?.kind}/${p?.n}cells/${Object.entries(p?.bill ?? {}).map(([k, v]) => `${k}:${v}`).join(',')}${due.kind === 'design' ? `/swap${design.counts.swapped}/add${design.counts.added}/under${design.counts.underpin}` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
+    return { published: true, why: null }
+  } catch (e) { return { published: false, why: String(e?.message ?? e).slice(0, 60) } }
+}
+
 async function buildWall (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -19497,8 +19567,15 @@ async function buildWall (ctx, args, signal) {
   }
   shopFootprintRefresh(bot)
   // the lights in their own last segment (wall.mjs wallLightsLast: in memory, the record file unchanged)
-  const rec = wallLightsLast(rh.head.rec)
-  const palette = WALL_PALETTE
+  let rec = wallLightsLast(rh.head.rec)
+  // citywall-01: a STANDING ring's next upgrade phase is published here first (its design once -- proven by the escape walk -- then each
+  // phase when the last one stands and the town holds its bill); the visit then builds it like a repair
+  if (rec.structure_complete && citywallDueFor(bot, rec).due) {
+    const adv = citywallAdvance(bot, c, dir, key, rec, home, me)
+    if (adv.published) { rh = recordHead(dir, key); if (rh.ok && rh.head) rec = wallLightsLast(rh.head.rec); bot.shopDamage = null }
+  }
+  // citywall-01: an upgraded ring is built, billed and judged by its generation's own palette
+  const palette = isCitywall(rec) ? { ...WALL_PALETTE, ...rec.palette } : WALL_PALETTE
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the wall stands')
@@ -19559,6 +19636,8 @@ async function buildWall (ctx, args, signal) {
     const blocked = (bot.wallBlocked ??= new Map())
     const r = await runVisit({ ...canopyOf(bot, c, WALL_PLOT), dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.wallStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
+      // citywall-01: an upgraded ring SWAPS its cobble in place (buildrun.mjs swapDigOk: one hole a segment, placed before the next dig)
+      ...(isCitywall(rec) ? { swap: true } : {}),
       ...wallStuckOf(c), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
     // wallstuck-01: THE WAIVER (wall.mjs wallWaiveDue) -- a cell this visit deferred after the remedies, counted WALL_WAIVE_AFTER
@@ -19568,7 +19647,8 @@ async function buildWall (ctx, args, signal) {
         const due = wallWaiveDue(rec, r.deferred ?? [])
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
-            if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
+            // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too
+            if (!cur || (cur.structure_complete && !isCitywall(cur)) || cur.cells.length !== rec.cells.length) return null
             const w = { ...(cur.waived ?? {}) }
             for (const d of due) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
             return { ...cur, waived: w }

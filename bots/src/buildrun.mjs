@@ -377,6 +377,23 @@ export function digReachFrom (feet, cell) {
 }
 /** A dig stand for a cell -> [x, y, z] | null: a walked-to node whose eye is within DIG_REACH of the cell centre, never on or under
  *  the cell, with a clear sight line to the cell's centre. Nearest wins. Pure. */
+/**
+ * CITYWALL-01: MAY A SWAPPED CELL BE DUG NOW? -> bool. Pure. `cell` a record cell holding a standing block the generation replaces
+ * (`sw`); `open` its segment's open cells. Never while the segment has a HOLE: a swapped cell standing open and clear (dug and not
+ * yet placed again -- whatever its attempts), or any clear open cell a placement could take now (nothing open below it in its column,
+ * attempts left, a stand that fills it: `fillable`; an underpinning first, the swap after); never while the bag holds no block for it.
+ * So a segment has at most one dug cell open at a time, placed before the next dig: a 1 x 1 hole, never two high, never a passage.
+ */
+export function swapDigOk (cell, open, { clear, tries = () => 0, has, fillable = () => true }) {
+  if (!has(cell)) return false
+  for (const o of open) {
+    if (o === cell || !clear(o)) continue
+    if (o.sw) return false
+    const below = open.some(q => q !== o && q.at[0] === o.at[0] && q.at[2] === o.at[2] && q.at[1] < o.at[1])
+    if (!below && tries(o) < BUILD_ATTEMPTS && fillable(o)) return false
+  }
+  return true
+}
 export function digStand (read, cell, nodes) {
   const [cx, cy, cz] = cell
   let best = null, bd = Infinity
@@ -1144,7 +1161,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // -- only while the cell still holds THAT block (Codex r1 P2: a listed grass cell now holding a spruce log is ours to dig)
         const listed = new Map((record.clear ?? []).map(c => [kOf(c.at), c.name]))
         const listedNow = at => listed.has(kOf(at)) && listed.get(kOf(at)) === nm(rd(...at))
-        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS }).sort((a, b) => a.at[1] - b.at[1])
+        // citywall-01 (`p.swap`, THE IN-PLACE SWAP): a swapped cell (`sw`: a standing block the generation replaces) is dug only when
+        // swapDigOk says so -- no hole open in this segment and the bag holding its block -- so it is placed before the next dig
+        // (an ADDED clear cell -- an underpinning under a hanging run -- holds the dig back only while a stand can fill it NOW: one no stand
+        // reaches would otherwise hold the whole run's swap for good, two guards composing into a dead end)
+        let swapNodes = null
+        const fillable = q => { swapNodes ??= nodesFor(new Set(open.filter(o => o.role !== 'light').map(o => kOf(o.at)))); return !!stepFor(rd, home, q.at, swapNodes, domain) }
+        const swapOk = c => !p.swap || !c.sw || swapDigOk(c, open, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!blockFor(palette, q.role, e.has), fillable })
+        const foreign = open.filter(c => { const k = foreignKind(nm(rd(...c.at)), scaffoldRe); return k && !(k === 'tree' && listedNow(c.at)) && !sealed.has(kOf(c.at)) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && swapOk(c) }).sort((a, b) => a.at[1] - b.at[1])
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = foreignKind(name, scaffoldRe)
           const sg = segGen
@@ -1196,7 +1220,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // wallstuck-01 (`p.sealed` = { mayDig(at) }): a foreign block NO STAND SEES is dug from the top of its column -- the
           // overburden above it, then this segment's open foreign cells highest first (sealedAbove); a column that cannot be opened
           // is SEALED: named, and deferred with the cells no stand reaches (F4: counted, stuck_on_cell, the waiver), never `blocked`
-          if (v === 'no_stand' && p.sealed && kind !== 'tree') {
+          // citywall-01: never for a SWAPPED cell -- the sealed column's chain digs several cells before any is placed again, a hole
+          // two high; a swapped cell no stand sees is spent and named (the waiver's), never opened from the top
+          if (v === 'no_stand' && p.sealed && kind !== 'tree' && !(p.swap && f.sw)) {
             cellKeys ??= new Set(record.cells.map(q => kOf(q.at)))
             const openK = new Set(open.map(q => kOf(q.at)))
             // zigsealed-01 (LIVE showcase 10-31 16:58Z on: the ziggurat's F-W skin cell -55,67,-35 grass under its own open air cell
