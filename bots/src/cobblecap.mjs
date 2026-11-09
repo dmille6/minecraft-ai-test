@@ -214,7 +214,7 @@ export function cobbleAdmit (view, stack, cap = TOWN_COBBLE_CAP) {
  * 6 h count (placebo-b 0 of 969, board-c 386 of 1000, hive-a 733 of 999), and a town filled to within one stack of the
  * cap (hive-a 999, board-d 981) can be banked into by no whole stack and thrown from by none.
  */
-export function wellCobbleSwitch (view, stack, { cap = TOWN_COBBLE_CAP, held = 0, floorOnly = false } = {}) {
+export function wellCobbleSwitch (view, stack, { cap = TOWN_COBBLE_CAP, held = 0, floorOnly = false, noRoom = false } = {}) {
   const s = Number(stack) || 0
   if (!(s > 0)) return 'none'
   if ((Number(held) || 0) > 0) return 'held'
@@ -224,8 +224,43 @@ export function wellCobbleSwitch (view, stack, { cap = TOWN_COBBLE_CAP, held = 0
   if (floorOnly) return view?.complete ? 'below' : 'unknown'
   const counted = Math.max(0, (Number(view?.lbLo) || 0) - (Number(view?.taking) || 0))
   if (cobbleAdmit({ lb: counted, reserved: 0, complete: !!view?.complete }, s, cap) === 'at_cap') return 'at_cap'
+  // cobbleroom-01: BELOW THE CAP BUT NO ROOM -- the bot's own deposit just found no town container with room for a whole stack
+  // (cobbleRoomNote, fresh): the bank cannot take it and cobble never opens a new chest, so the well is the one exit left
+  if (noRoom) return 'no_room'
   return view?.complete ? 'below' : 'unknown'
 }
+
+// ---- cobbleroom-01: the third rule (room) ---------------------------------------------------------------------------
+//
+// MEASURED 11-09 (fleet .31, telemetry.py 6 h, 563,531 rows / 80 bots): `_cobble_bank` refused 670 whole stacks for want of
+// ROOM and 0 at the cap or unknown (701 rows); the deposit said "the cobble stays: no container here has room for a whole
+// stack, and cobble never opens a new chest" 261 times; the well on the same visits said 'below' or 'unknown' and threw no
+// cobble, leaving 187-307 cobble in the bag on average (76 at 'at_cap'). The town chests are 87-100% full (town index:
+// logs 35% of the slots), so a bot's surplus cobble had NO exit: bots at 34+ of 36 slots carry 6.7 cobble stacks vs 3.6
+// fleet-wide. cobblekeep-01 closed the cap band between the bank and the well; this closes the ROOM band the same way.
+
+/** How long one no-room refusal at a town container stands as evidence: chestfull's own full-container memory. */
+export const COBBLE_NOROOM_TTL_MS = 30 * 60 * 1000
+/** COBBLEROOM=off is the rollback (the well's switch is then cobblekeep-01's, unchanged). */
+export const COBBLEROOM = Object.freeze({ on: (process.env.COBBLEROOM ?? 'on') !== 'off' })
+/**
+ * THE BOT'S NO-ROOM NOTE AFTER A DEPOSIT -> the new note ({ at } | null). Pure.
+ *   prev   the note before (bot.cobbleNoRoom)
+ *   rows   the deposit's cobble rows ({ noRoom, went }); none -> unchanged
+ *   inTown the container was the town's (a mine chest says nothing about the town)
+ * A cobble stack that WENT IN clears it (the town had room); a refusal for room with none going in sets it to now.
+ */
+export function cobbleRoomNote (prev, rows = [], { inTown = false, now = Date.now() } = {}) {
+  const list = Array.isArray(rows) ? rows : []
+  if (!inTown || !list.length) return prev ?? null
+  if (list.some(r => (Number(r?.went) || 0) > 0)) return null
+  if (list.some(r => (Number(r?.noRoom) || 0) > 0)) return { at: now }
+  return prev ?? null
+}
+/** Is the note still evidence? -> true while younger than COBBLE_NOROOM_TTL_MS. Pure. */
+export const cobbleNoRoomFresh = (note, now = Date.now()) => !!note && Number.isFinite(note.at) && now - note.at >= 0 && now - note.at < COBBLE_NOROOM_TTL_MS
+/** May the well take surplus whole cobble stacks? The switch's two exits: the proven cap, and no room to bank it. Pure. */
+export const wellTakesCobble = cap => cap === 'at_cap' || cap === 'no_room'
 /** THE LICENCE ROW (cobblekeep-01): written once per spawn by index.mjs as `_cobblekeep_mode`, a kind the base cannot write. */
 export const cobbleKeepModeDetail = (cap = TOWN_COBBLE_CAP) => `phase=mode well=admission lid=dirt,grass_block open=leaves,glass cap=${cap}`
 
