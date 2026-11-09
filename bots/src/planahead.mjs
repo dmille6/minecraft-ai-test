@@ -145,7 +145,7 @@ export const puKeys = rec => new Set(rec?.reach?.state === 'proven' && Array.isA
 
 /**
  * THE TAGGED CELLS A LIVE VISIT ALSO MISSED, waived now -> [{ k, why }]. Pure. `missed` = keys this visit deferred (no stand) or left
- * open when it ran out of work. Never a fill that names its opener (roughground-1b: a hollow under a crust), never one waived already;
+ * open when it ran out of work. Only a record cell or clear (what the waived map is read for: never a cut). Never a fill that names its opener (roughground-1b: a hollow under a crust), never one waived already;
  * at most PA.waiveMax a visit and the stage's waived total at most ceil(PA.share * (cells + clears)) -- the room gkwork's waivers share.
  */
 export function puWaiveDue (rec, missed = [], { already = [], P = PA } = {}) {
@@ -156,11 +156,13 @@ export function puWaiveDue (rec, missed = [], { already = [], P = PA } = {}) {
   const taken = new Set((already ?? []).map(d => String(d?.k ?? d)))
   let room = Math.min(P.waiveMax, Math.ceil(P.share * size) - Object.keys(have).length - taken.size)
   const sealed = new Set((rec?.cells ?? []).filter(c => c?.opener && okAt(c.at)).map(c => kOf(c.at)))
+  // only what a waiver is READ for: a record cell or a clear (a waived CUT is read by no done rule -- it would spend the room for nothing)
+  const waivable = new Set([...(rec?.cells ?? []), ...(rec?.clear ?? [])].filter(q => okAt(q?.at)).map(q => kOf(q.at)))
   const out = []
   for (const m of missed ?? []) {
     if (room <= 0) break
     const k = String(m?.k ?? m)
-    if (!pu.has(k) || sealed.has(k) || taken.has(k) || Object.prototype.hasOwnProperty.call(have, k) || out.some(o => o.k === k)) continue
+    if (!pu.has(k) || !waivable.has(k) || sealed.has(k) || taken.has(k) || Object.prototype.hasOwnProperty.call(have, k) || out.some(o => o.k === k)) continue
     out.push({ k, why: 'plan_unreach' }); room--
   }
   return out

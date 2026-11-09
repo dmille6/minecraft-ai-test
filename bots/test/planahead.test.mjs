@@ -117,12 +117,13 @@ const REC = { cells: [{ at: [1, 70, 1], role: 'earth' }, { at: [2, 70, 2], role:
 const tagged = (rec, pu) => ({ ...rec, reach: PA.reachTag({ state: 'proven', open: { fills: 40, cuts: 0 }, pu }) })
 await t('puWaiveDue: only a TAGGED cell the visit ALSO missed; never an opener fill, never one waived; a plan tag alone waives nothing', async () => {
   const rec = tagged(REC, ['1,70,1', '2,70,2', '4,70,4'])
-  await killedBy(PA_PATH, PA, '    if (!pu.has(k) || sealed.has(k)', '    if (sealed.has(k)', M => {
+  await killedBy(PA_PATH, PA, '    if (!pu.has(k) || !waivable.has(k)', '    if (!waivable.has(k)', M => {
     assert.deepStrictEqual(M.puWaiveDue(rec, ['1,70,1', '2,70,2', '3,70,3'], { P: { ...M.PA, share: 1 } }).map(d => d.k), ['1,70,1'])
   })
   assert.deepStrictEqual(PA.puWaiveDue(rec, []), [], 'no live miss: nothing')
   assert.deepStrictEqual(PA.puWaiveDue({ ...rec, waived: { '1,70,1': {} } }, ['1,70,1', '4,70,4'], { P: { ...PA.PA, share: 1 } }).map(d => d.k), ['4,70,4'])
   assert.deepStrictEqual(PA.puWaiveDue(REC, ['1,70,1']), [], 'an untagged record: nothing')
+  assert.deepStrictEqual(PA.puWaiveDue({ ...tagged(REC, ['8,69,8']), cut: [{ at: [8, 69, 8] }] }, ['8,69,8'], { P: { ...PA.PA, share: 1 } }), [], 'a tagged CUT is never waived (no done rule reads it)')
   assert.strictEqual(PA.puWaiveDue(rec, ['1,70,1'])[0].why, 'plan_unreach')
 })
 await t('puWaiveDue shares the stage\'s waiver room (a quarter of cells + clears, less what is waived and what this visit waives)', () => {
