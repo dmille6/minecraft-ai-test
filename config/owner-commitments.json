@@ -5417,7 +5417,7 @@
     "owner-blackwell-testing-only-1031.md"
    ],
    "state": "open",
-   "next_step": "STAGE 3b RUNNING (owner 11-09 'fair rematch', pre-registered design §18): Haiku x2 vs qwen3.8:27b x2 (Blackwell) + control x2, paired seeds -646147908495530573 / 1033369084927035764, launched 2026-11-09 05:18:45Z, 96 h; reads +24/+48/+72 h (05:18:45Z daily, reports/3b-day-N.txt), final + stop 2026-11-13 05:18:45Z; Haiku hard stop $70 (spend group). Stage 3 PASS (§17). Stage 4 held: Blackwell /api/pull is 403 from the WAN (owner to pull the 3 models on CCU1).",
+   "next_step": "STAGE 3b RUNNING (owner 11-09 'fair rematch', pre-registered design \u00a718): Haiku x2 vs qwen3.8:27b x2 (Blackwell) + control x2, paired seeds -646147908495530573 / 1033369084927035764, launched 2026-11-09 05:18:45Z, 96 h; reads +24/+48/+72 h (05:18:45Z daily, reports/3b-day-N.txt), final + stop 2026-11-13 05:18:45Z; Haiku hard stop $70 (spend group). Stage 3 PASS (\u00a717). Stage 4 held: Blackwell /api/pull is 403 from the WAN (owner to pull the 3 models on CCU1).",
    "evidence": {
     "branches": [
      "voyager-01"
@@ -6604,6 +6604,34 @@
     "paths": [
      "docs/reports/planahead-design-2026-11-09.md"
     ]
+   }
+  },
+  {
+   "id": "showcase-stepwell-mine-door",
+   "title": "Decorative entrance from the stepwell bottom into the town mine's first landing (visitors' grand way in; bots keep the mine stair)",
+   "owner_date": "2026-11-09",
+   "memory": [
+    "owner-town-projects-1109.md"
+   ],
+   "kind": "showcase",
+   "lane": "progress",
+   "state": "parked",
+   "owner": "control session",
+   "depends_on": [
+    {
+     "item": "townmine and stepwell both built and stable on the showcase"
+    }
+   ],
+   "next_step": "OWNER 11-09: 'lets add the decorative way into the mine at a later date, add it to the bottom of the queue' -- design (Claude+Codex, pictures) after townmine-01show + stepwell descent are live and read clean; no overlap with mine cells; water sealed",
+   "evidence": {
+    "runs": [],
+    "branches": [
+     "stepdoor*"
+    ],
+    "grep": [
+     "stepdoor"
+    ],
+    "paths": []
    }
   }
  ]
