@@ -2,6 +2,9 @@ import subprocess, sys, os
 D = os.path.dirname(os.path.abspath(__file__))
 src = open(os.path.join(D, 'shopread.py')).read()
 M = [
+ # bridges-01: a designed site's own cells guard (its first design line only)
+ ("        for k in designed.get(q['id'], []) if q['id'] else []:\n            out[k] = min(out.get(k, q['t']), q['t'])\n", ""),
+ ("                if m['id'] not in designed:\n                    designed[m['id']]", "                if True:\n                    designed[m['id']]"),
  # gkcrew4-01: the tidy's slots are the keeper and its crew
  ("    return max(bmax, 1 + CREW_HELPERS_MAX) if plot == TIDY else bmax", "    return bmax"),
  ("    return max(bmax, 1 + CREW_HELPERS_MAX) if plot == TIDY else bmax", "    return max(bmax, 1 + CREW_HELPERS_MAX)"),
