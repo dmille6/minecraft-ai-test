@@ -20072,6 +20072,23 @@ async function buildTidy (ctx, args, signal) {
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')
   }
+  // planahead-01 (Codex fold BLOCKER, fleet): an open building's claimed STANDS are retired from the stage the visit works (a building
+  // sited AFTER the stage was published): a fill on its feet or head, a cut or clear of its floor, leaves the record (planahead.mjs
+  // standRetire -- retired, never refused-and-waited), and the visit guards them (standFeetQ, standFloorK, the clears it is handed)
+  let paStands = null
+  if (PLANAHEAD_ON && GROUNDS.on && rh.head?.rec && !rh.head.rec.structure_complete) {
+    try {
+      paStands = standClaims(paRecords())
+      if (paStands.feet.size || paStands.floor.size) {
+        let n = null
+        const pub = publishRecord(dir, key, cur => { const nx = cur && !cur.structure_complete ? standRetire(cur, paStands) : null; n = nx?.standClaimed ?? null; return nx }, { by: me })
+        if (pub.result === 'accepted') {
+          try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'stand_retired', kind: Object.entries(n ?? {}).map(([a, b]) => `${a}:${b}`).join('+') || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+          const h3 = recordHead(dir, key); if (h3.ok && h3.head) rh = h3
+        }
+      }
+    } catch { paStands = null }
+  }
   const rec = rh.head.rec
   if (rec.structure_complete) {
     // STATIONS-01 SWEEP: a complete stage's visit (strayDue made it a repair) takes up the town's stray stations, nothing else
@@ -20089,8 +20106,6 @@ async function buildTidy (ctx, args, signal) {
   try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
   // planahead-01 (the work-time guard): an open building's claimed STAND is never filled (feet, head) nor its floor cut, whatever
   // generation the visit works -- read as done / given (planahead.mjs standClaims; a building sited after the stage was published)
-  let paStands = null
-  if (PLANAHEAD_ON) { try { paStands = standClaims(paRecords()) } catch { paStands = null } }
   const standFeetQ = q => !!paStands && Array.isArray(q?.at) && paStands.feet.has(q.at.join(','))
   const standFloorK = k => !!paStands && paStands.floor.has(k)
   const waivedK = q => guard.has(q.at.join(',')) || standFeetQ(q) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))
@@ -20150,7 +20165,7 @@ async function buildTidy (ctx, args, signal) {
     const fp = bot.entity?.position
     const cuts = GROUNDS.on ? chainCuts(cuts0, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cuts0
     const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
-    const r = await runVisit({ ...canopyOf(bot, c, TIDY_PLOT), dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+    const r = await runVisit({ ...canopyOf(bot, c, TIDY_PLOT), dir, key, me, home, stood, record: paStands ? { ...rec, clear: (rec.clear ?? []).filter(q => !(Array.isArray(q?.at) && standFloorK(q.at.join(',')))) } : rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q), stuckStalledOnly: true,
       ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
       ...(SCL_ON ? { tidyTownCount: true } : {}),

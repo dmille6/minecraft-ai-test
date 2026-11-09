@@ -222,6 +222,8 @@ const WIRES = [
   "const waivedK = q => guard\\.has\\(q\\.at\\.join\\(','\\)\\) \\|\\| standFeetQ\\(q\\)",
   'given: k => guard\\.has\\(k\\) \\|\\| standFloorK\\(k\\)',
   'const nx = standRetire\\(body0, sc\\)',
+  'const nx = cur && !cur\\.structure_complete \\? standRetire\\(cur, paStands\\) : null',
+  "record: paStands \\? \\{ \\.\\.\\.rec, clear: \\(rec\\.clear \\?\\? \\[\\]\\)\\.filter\\(q => !\\(Array\\.isArray\\(q\\?\\.at\\) && standFloorK\\(q\\.at\\.join\\(','\\)\\)\\)\\) \\} : rec, tidy: cuts",
   'const r = await planReachAsync\\(read, fills, cuts, ',
 ]
 const wired = s => { for (const re of WIRES) { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) } }
