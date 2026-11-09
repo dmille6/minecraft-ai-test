@@ -173,6 +173,36 @@ await t('MUTANT KILLED: without the run rule (a level change every row) the rout
   })
 })
 
+await t('a turn on a slope: no slab row inside a corner\'s 5x5 (Paper fleet 11-09: a riser row under a corner square stalled `retry`)', () => {
+  const ground = (x, z) => Math.min(80, 64 + Math.floor(Math.max(0, x - 18) / 2) + Math.floor(Math.max(0, z - 4) / 2))
+  const r = siteAll(world({ ground }), { routes: [route({ line: [[13, 0], [26, 0], [26, 30], [26, 60]], start: [13, 0], box: [20, 56, 32, 66] })] })
+  assert.ok(r.rec, JSON.stringify(r.out[0]?.fail ?? {}))
+  const path = S.instancesOf(r.rec).flatMap(i => i.path ?? [])
+  const turns = path.filter((p, i) => i > 0 && i < path.length - 1 && ((path[i - 1][0] === p[0]) !== (path[i + 1][0] === p[0])))
+  assert.ok(turns.length >= 1, `no turn: ${JSON.stringify(path)}`)
+  const slabs = r.rec.cells.filter(c => /-sl$/.test(c.role))
+  for (const tn of turns) assert.ok(!slabs.some(c => Math.max(Math.abs(c.at[0] - tn[0]), Math.abs(c.at[2] - tn[1])) <= 2), `a slab within a corner square at ${tn}`)
+  assert.ok(maxStep(r.rec) <= 1)
+})
+
+await t('MUTANT KILLED: a turn allowed at the third row of a level puts the riser row under the corner square', async () => {
+  await withMutant(ROADS_PATH, '      if (turn && (s.s <= ROADS.turnFlat || s.t < ROADS.turnFlat)) continue', '      if (turn && (s.s < ROADS.turnFlat || s.t < ROADS.turnFlat)) continue', async M => {
+    const ground = (x, z) => Math.min(80, 64 + Math.floor(Math.max(0, x - 18) / 2) + Math.floor(Math.max(0, z - 4) / 2))
+    const read = world({ ground })
+    let hit = false
+    for (const sx of [13, 14, 15, 16]) {
+      const r = M.routeRoad(read, { line: [[13, 0], [26, 0], [26, 30], [26, 60]], start: { x: sx, z: 0, L: 64, d: 0, s: 4, t: 3 }, hy: 64, ahead: 40 })
+      const p = r.nodes
+      for (let i = 1; i < p.length - 1; i++) {
+        if (p[i + 1].d === p[i].d) continue
+        const pv = p.slice(Math.max(0, i - 2), i)
+        if (pv.some(q => q.L !== p[i].L) || (p[i - 2] && p[i - 3] && p[i - 3].L === p[i].L - 1 && p[i - 2].L === p[i].L)) hit = true
+      }
+    }
+    assert.ok(hit, 'the mutant should turn with the level\'s riser row two rows back')
+  })
+})
+
 await t('a lake across the line: the road stops short of the water and the route ends blocked (a bridge is bridges-01\'s)', () => {
   const lake = (x, z) => x >= 40 && x <= 52 && Math.abs(z) <= 30
   const { rec, out } = siteAll(world({ lake, wl: 64 }))

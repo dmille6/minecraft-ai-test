@@ -287,7 +287,7 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
   const heap = []
   const push = (c, s) => { heap.push([c, s]); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p } }
   const pop = () => { const top = heap[0]; const last = heap.pop(); if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m } } return top }
-  const s0 = { x: start.x, z: start.z, L: start.L, d: start.d, s: Math.min(ROADS.turnFlat, start.s ?? ROADS.turnFlat), t: Math.min(ROADS.turnFlat, start.t ?? ROADS.turnFlat) }
+  const s0 = { x: start.x, z: start.z, L: start.L, d: start.d, s: Math.min(ROADS.turnFlat + 1, start.s ?? ROADS.turnFlat + 1), t: Math.min(ROADS.turnFlat, start.t ?? ROADS.turnFlat) }
   dist.set(key(s0), 0); push(0, s0)
   let pops = 0, end = null, far = null, farD = Infinity
   const gd = s => Math.max(Math.abs(s.x - goal[0]), Math.abs(s.z - goal[1]))
@@ -300,7 +300,8 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
     if (s !== s0 && gd(s) < farD) { farD = gd(s); far = s }
     for (const d of [s.d, ...[0, 1, 2, 3].filter(q => q !== s.d && q !== rev(s.d))]) {
       const turn = d !== s.d
-      if (turn && (s.s < ROADS.turnFlat || s.t < ROADS.turnFlat)) continue
+      // a turn's 5x5 corner reaches 2 rows back: they are full rows of its level (s > turnFlat: the slab row, the level's first, is 3 back)
+      if (turn && (s.s <= ROADS.turnFlat || s.t < ROADS.turnFlat)) continue
       const x = s.x + DIRS[d][0], z = s.z + DIRS[d][1]
       const bd = band.get(k2(x, z))
       if (bd == null || forbid(x, z)) continue
@@ -310,7 +311,7 @@ export function routeRoad (read, { line, start, guard = () => null, hy = 70, max
         const cs = cross(x, z, L, d)
         if (!cs.ok) continue
         if (turn && !corner(s.x, s.z, s.L, s.d, d)) continue
-        const n = { x, z, L, d, s: dL ? 1 : Math.min(ROADS.turnFlat, s.s + 1), t: turn ? 0 : Math.min(ROADS.turnFlat, s.t + 1) }
+        const n = { x, z, L, d, s: dL ? 1 : Math.min(ROADS.turnFlat + 1, s.s + 1), t: turn ? 0 : Math.min(ROADS.turnFlat, s.t + 1) }
         const nc = c + 1 + cs.cost + ROADS.offLine * bd + (turn ? ROADS.turnCost : 0) + (dL ? 0.5 : 0)
         const kk = key(n)
         if (nc < (dist.get(kk) ?? Infinity)) { dist.set(kk, nc); prev.set(kk, s); push(nc, n) }
@@ -548,7 +549,7 @@ export function routeStarts (read, route, { ring = null, guard = () => null, hy 
     if (![1, 2].every(dy => { const b = read(lx, L + dy, lz); return !!b && isPassable(b) && !wet(b) })) { tried.land_head = (tried.land_head ?? 0) + 1; continue }
     const cs = crossSection(read, (a, b) => roadColumn(read, a, b, yHi, yLo), guard, x, z, L, d, own)
     if (!cs.ok) { tried[cs.why] = (tried[cs.why] ?? 0) + 1; continue }
-    found.push({ start: { x, z, L, d, s: ROADS.turnFlat, t: ROADS.turnFlat }, land: { x: lx, z: lz, L } })
+    found.push({ start: { x, z, L, d, s: ROADS.turnFlat + 1, t: ROADS.turnFlat }, land: { x: lx, z: lz, L } })
     if (found.length >= max) break
   }
   if (found.length) return { ok: true, starts: found }
