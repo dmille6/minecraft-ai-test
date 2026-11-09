@@ -10,6 +10,7 @@ import * as G from '../src/shaftgeom.mjs'
 import * as M from '../src/townmine.mjs'
 import * as D from '../src/deepmine.mjs'
 import { runStairVisit } from '../src/shaftvisit.mjs'
+import * as SW from '../src/stepwell.mjs'
 const require_ = createRequire(import.meta.url)
 const { Movements, goals } = require_('mineflayer-pathfinder')
 const AStar = require_('mineflayer-pathfinder/lib/astar')
@@ -356,6 +357,46 @@ await t('the extension\'s siting refuses a protected cell; the old stair\'s cell
   assert.strictEqual(G.planOf(ns).K, rec.K, 'nor plans anything below the landing')
 })
 
+console.log('THE STEPWELL STOPS ABOVE THE MINE (OWNER 11-09 option A: the town mine is the showcase\'s working way down)')
+const FIX = JSON.parse(readFileSync(new URL('./fixtures/townmine-showcase-1109.json', import.meta.url), 'utf8'))
+const swKeys = site => new Set(SW.planTank(site).cells.map(c => c.at.join(',')))
+const touches = (keys, keep) => [...keys].filter(k => { const [x, y, z] = k.split(',').map(Number); return keep(x, y, z) || [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([a, b, c]) => keep(x + a, y + b, z + c)) })
+await t('the SHOWCASE records: no stepwell cell (tank or descent) is on or beside a town-mine cell (stair, bays, hall, galleries)', () => {
+  const keep = M.mineKeep(M.withMine(FIX.stair, G.mineExt(FIX.stair.site.g)))
+  assert.ok(keep, 'the mine is planned')
+  const keys = swKeys(FIX.stepwell.site)
+  assert.ok(keys.size > 1000 && SW.planTank(FIX.stepwell.site).descent, 'POSITIVE CONTROL: the stepwell plan with its descent is read')
+  assert.deepStrictEqual(touches(keys, keep), [])
+  assert.strictEqual(SW.descentMineHit(FIX.stepwell.site, keep), null)
+  assert.strictEqual(SW.stepwellClearOfMine(FIX.stepwell, keep), null, 'already clear: no new generation')
+})
+await t('a descent that WOULD reach the mine is raised over it (never on or beside a mine cell), or dropped when no flight is left', () => {
+  const site = FIX.stepwell.site
+  const D = SW.planTank(site).descent
+  const ys = D.air.map(a => a[1]), mid = Math.round((Math.max(...ys) + Math.min(...ys)) / 2)
+  const col = new Set(D.air.filter(a => a[1] <= mid).map(a => `${a[0]},${a[2]}`))   // a mine under the descent's lower half
+  const keep = (x, y, z) => y <= mid && col.has(`${x},${z}`)
+  assert.ok(touches(swKeys(site), keep).length > 0, 'POSITIVE CONTROL: the planned descent hits it')
+  const rec2 = SW.stepwellClearOfMine({ ...FIX.stepwell, cells: [], clear: [] }, keep, { now: 1 })
+  assert.ok(rec2?.site?.descent, 'a shorter descent')
+  assert.ok(rec2.site.descent.bottom > mid, `bottom ${rec2.site.descent.bottom} above ${mid}`)
+  assert.deepStrictEqual(touches(swKeys(rec2.site), keep), [])
+  assert.deepStrictEqual(touches(new Set(rec2.cells.map(c => c.at.join(','))), keep), [], 'the record\'s own cells too')
+  const H0 = Math.max(...D.path.map(q => q[1]))
+  const dAir = new Set(D.air.filter(a => a[1] <= H0 - 2).map(a => a.join(',')))   // the mine right under the court: no flight fits
+  const all = (x, y, z) => dAir.has(`${x},${y},${z}`)
+  const rec3 = SW.stepwellClearOfMine({ ...FIX.stepwell, cells: [], clear: [] }, all, { now: 1 })
+  assert.strictEqual(rec3.site.descent, undefined); assert.strictEqual(rec3.descentNone.why, 'mine')
+  assert.strictEqual(SW.planTank(rec3.site).descent, null, 'no descent planned at all')
+  const sd = SW.surveyDescent(() => ({ name: 'stone', boundingBox: 'block' }), { ...site, descent: undefined }, { keep })
+  assert.ok(sd.ok && sd.bottom > mid, 'a NEW survey stops above the mine too')
+})
+await t('WIRED: the stepwell visit clears its descent of the mine before cutting; both surveys pass the mine keep', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/[^\n]*/g, '$1')
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.strictEqual(src.split('{ keep: stepwellMineKeep() }').length, 3)
+  assert.strictEqual(src.split('stepwellClearOfMine(cur, keep)').length, 2)
+})
 console.log('THE DEEP MINER')
 await t('tripTarget: an open mine is built first; finished, stopped, unsited or a thin bag: the trips as before', () => {
   assert.strictEqual(D.tripTarget(kit(), { sited: true, complete: false, stopped: false }), 'build')
