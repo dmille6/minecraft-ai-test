@@ -8,7 +8,8 @@ beds in cottages".
 wood, and never looks like a neighbour. A wool source (shearing a sheep in sight) feeds the beds. Every new block kind was placed by
 a bot's own click on Paper and read back by the server.
 
-**Code:** branch `cottage2-01show` on `buildsite-01show` ec3774e8 (showcase only, tier 2: `protected.py` says not protected).
+**Code:** branch `cottage2-01show-on-glass` on `glass-01show-on-24408081` 32cdb9d4 (windows take glass.mjs `windowPalette`), first
+built as `cottage2-01show` on `buildsite-01show` ec3774e8 (showcase only, tier 2: `protected.py` says not protected).
 **Tripwire:** CT1 + RO1 for beds and chests, in `docs/reports/shop-01-2026-10-25/shopread.py.txt` on main. Not installed.
 **Pictures:** [`cottage2-2026-11-08/cottage2-sheet.png`](cottage2-2026-11-08/cottage2-sheet.png) — before (flat house@1, cottage1)
 and after (the two cottages a replay sited on the showcase, with cutaways of their rooms), then four more looks.
@@ -76,8 +77,9 @@ slabs, fences), 4-6 glass panes, 2 lanterns (1 iron ingot), 1-2 chests (bags), 2
   with no lantern and no iron. It is done for the visit's completion, never damage and never billed.
 - **Crafting** in the visit: beds from wool + planks (the record's wood), lanterns from an ingot, fences as wood parts.
 - **Wool**: a complete cottage owing a waiting bed is `due` for a bot with shears that sees a woolly adult sheep. The errand walks
-  beside up to 3 sheep, shears each and picks up its wool (`_cottage op=shear sheep= sheared= wool= why=`). Wool is no longer
-  well junk.
+  beside up to 3 sheep, shears each and picks up its wool (`_cottage op=shear sheep= sheared= wool= why=`). Wool is
+  owner-listed well junk (10-07) except while the market is on: its wool want (target 32) keeps it from the well and banks it. The
+  showcase runs the market; a fleet port needs the market on, or its own keep.
 - **Siting**: cottage2 after cottage1 stands, cottage3 after cottage2, each on the next free house plot, each trying its 3 best
   looks in turn. `COTTAGE2=off` rolls it back.
 

@@ -6190,7 +6190,7 @@
     "cottages-1108.md"
    ],
    "state": "open",
-   "next_step": "2026-11-08: cottage2-01show e3efed44 (code f6a1922b) READY TO STAGE on buildsite-01show ec3774e8 (stage buildsite-01show first): 24 generated looks (C 5x5 / L 5x7, eave / gable front with awning, 45-deg / 1:2 roof, mirror, chimney), neighbours differ in >=2 axes; cottage2 (X4) after cottage1, cottage3 (X5) after cottage2; 2-3 beds + 1-2 chests each, lanterns, window boxes; furnishing WAITS for supply; shear errand for wool; COTTAGE2=off. Tier 2; Codex r1 1 blocker (furniture booking, G8) fixed, r2 FIXED. Paper: furnish 56/56, cottage e2e 12/12 looks (2 defects found+fixed), shear 20/20; replay sites X4 Lsl1c oak, X5 Csl0- oak. Install main's shopread CT1 + RO1 beds/chests with the stage. Measured: breeding is FOOD-limited (6_1 has 3 free beds, 0 births; cottages ~90 b from it) -- beds alone will not breed villagers. NEXT: stage + 2-h read (`_build project=cottage2`, `_cottage op=shear`, H1/H6 = 0); respawn-at-bed NOT built (tier 3); fleet port needs a house-plot source (no wall extension on the fleet).",
+   "next_step": "2026-11-09: READY TO STAGE as cottage2-01show-on-glass 496c29c5..fc4d6d0a (cottage2 restacked on glass-01show-on-24408081 32cdb9d4 per the coordinator; windows take glass.mjs windowPalette; stage glass-01show first). 24 generated looks (C 5x5 / L 5x7, eave / gable front with awning, 45-deg / 1:2 roof, mirror, chimney), neighbours differ in >=2 axes; cottage2 (X4) after cottage1, cottage3 (X5) after cottage2; 2-3 beds + 1-2 chests each, lanterns, window boxes; furnishing WAITS for supply; shear errand for wool (kept from the well by the market's keep); COTTAGE2=off. Tier 2; Codex r1 1 blocker (furniture booking, G8) fixed, r2 FIXED, r3 on the restack NO BLOCKERS. Suite w30 479/484 (base: body-claim, place-airborne, well, bagdiet orphan; plinth-skill flake). Paper: furnish 56/56, cottage e2e 12/12 looks + 3/3 on the glass base (2 defects found+fixed), shear 20/20; replay sites X4 Lsl1c oak, X5 Csl0- oak. Install main's shopread CT1 + RO1 beds/chests (c8de38c5) with the stage. Measured: breeding is FOOD-limited (6_1 has 3 free beds, 0 births; cottages ~90 b away) -- beds alone will not breed villagers. NEXT: stage + 2-h read (`_build project=cottage2`, `_cottage op=shear`, H1/H6 = 0); respawn-at-bed NOT built (tier 3); fleet port needs a house-plot source (no wall extension on the fleet) and the market's wool keep.",
    "evidence": {
     "grep": [
      "cottage2-01show",
@@ -6198,6 +6198,7 @@
     ],
     "branches": [
      "cottage2-01show",
+     "cottage2-01show-on-glass",
      "shopread-ct1-cottage2"
     ],
     "paths": [
