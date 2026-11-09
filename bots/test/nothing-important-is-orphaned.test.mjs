@@ -40,7 +40,6 @@ const REQUIRED = [
   'bots/test/tidydead.test.mjs',
   'bots/src/stuckclose.mjs',   // stuckclose-01 (11-08): a tidy stage whose last cuts the town cannot reach closes
   'bots/test/stuckclose.test.mjs',   // stuckclose-01 (11-08)
-  'bots/test/chestcarry.test.mjs',   // chestcarry-01 (11-09): a carried chest is placed past the 4-a-day new-chest budget
   // stuckproj-01 (11-05): canopy-01 (a tree grown on a build is cut back so a stand sees the cell) + starve-01 (a starved open project gets a builder)
   'bots/src/canopy.mjs',
   'bots/test/stuckproj.test.mjs',
@@ -151,6 +150,7 @@ const REQUIRED = [
   // gkforever-01 (owner 11-06): the grounds never run out (clock, dead carry, level, crew, the grounds lap)
   'bots/src/gkforever.mjs',
   'bots/test/gkforever.test.mjs',
+  'bots/test/chestcarry.test.mjs',   // chestcarry-01 (11-09): a carried chest is placed past the 4-a-day new-chest budget
   'docs/reports/gkforever-design-2026-11-06.md',
   // stations-01 (owner 11-06): the town's tables and furnaces (take-back, the groundskeepers' sweep, town stations, chest first, spare fuel)
   'bots/src/stations.mjs',
