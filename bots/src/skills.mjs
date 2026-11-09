@@ -23739,7 +23739,10 @@ async function deepMine (ctx, args, signal) {
     const kitNow = () => deepTripKit(bot.inventory?.items?.() ?? [])
     // NOT UNDERGROUND ANY MORE (Claude r1 B1: a death respawns the bot at home with its kit -- keepInventory -- and the trip would
     // go on at the surface, mine digging from the respawn point with the credit, branches in town): home and bank
-    if (['deepen', 'work', 'build'].includes(trip.phase) && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {
+    // townmine-01 (Paper 11-09: a build trip's first unit was a bay near the top, and the trip turned home before it): a build trip
+    // inside the stair's own box is on the stair whatever its height; outside it, the rule as before
+    const inStairBox = trip.phase === 'build' && Array.isArray(rec?.box) && (() => { const q = bot.entity.position; return q.x >= rec.box[0] - 1 && q.x <= rec.box[2] + 2 && q.z >= rec.box[1] - 1 && q.z <= rec.box[3] + 2 })()
+    if (['deepen', 'work', 'build'].includes(trip.phase) && !inStairBox && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {
       trip.phase = 'return'; trip.returnWhy = 'not_underground'; trip.returnTries = DEEP_RETURN_TRIES; trip.surfaced = false
       deepRow(bot, 'turn', { why: 'not_underground' })
     }
