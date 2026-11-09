@@ -207,7 +207,7 @@ import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { helperWorked, helpersCap, tidyShare } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
-import { planaheadOn, planReachAsync, reachTag, puWaiveDue, puSupply, supplyOf, standClaims, standRetire, standConflicts, plannedWorld } from './planahead.mjs'   // planahead-01
+import { planaheadOn, planReachAsync, reachTag, puWaiveDue, puSupply, standClaims, standRetire, standConflicts, plannedWorld, liveUnreached } from './planahead.mjs'   // planahead-01
 import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
 import { PARK_SAPLINGS } from './park.mjs'   // roughground-3: the crown's tree
@@ -26017,6 +26017,9 @@ const PLANAHEAD_ON = planaheadOn()   // planahead-01 (PLANAHEAD=off: no reach ta
 /** planahead-01: is a planned cell of another record read FINISHED (a clear dug, a cell or fill laid)? Unread: not finished. Pure over `read`. */
 const paDone = read => (r, c) => { const b = read(...c.at); if (!b) return false; return c.role === 'clear' ? b.boundingBox === 'empty' : b.boundingBox !== 'empty' && !paReplaceable(b) }
 /** planahead-01: every project's record (plot named) -> [rec]. Never throws (none). */
+/** planahead-01 (Codex r1 BLOCKER 1): the plan waiver's FRESH conclusive check over the bot's live world (planahead.mjs liveUnreached:
+ *  no stand now and every read known), a record cell a fill, else a clear. Never throws (a failure confirms nothing). */
+const paConfirm = (bot, rec, home, stood) => { try { const cells = new Set((rec?.cells ?? []).filter(q => Array.isArray(q?.at)).map(q => q.at.join(','))); return liveUnreached(tidyRead(bot), home, { stood, walkR: tidyWalkR(rec), fill: k => cells.has(k) }) } catch { return () => false } }
 const paRecords = () => { try { return projectHeads().map(x => ({ ...x.head.rec, plot: x.head.rec?.plot ?? x.plot })) } catch { return [] } }
 /**
  * PLANAHEAD-01: A NEW TIDY STAGE'S REACH TAG (planahead.mjs planReachAsync: its open cuts and fills worked to a fixed point in the town's
@@ -26188,17 +26191,6 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
       if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'claim_retired', kind: claims.map(c => c.plot).join('+'), gen: pub.gen }) }) } catch { /* telemetry */ } }
     }
   } catch { /* asked again next visit */ }
-  // planahead-01: an unfinished building's proof STANDS are its claim too -- a tidy fill on a stand's feet or head, a cut of its floor,
-  // leaves the record (planahead.mjs standRetire: retired like claim-01's volume, never refused-and-waited)
-  try {
-    const pr = PLANAHEAD_ON ? plotRecordsNow() : null
-    const sc = pr ? standClaims(pr) : null
-    if (sc && (sc.feet.size || sc.floor.size)) {
-      let n = null
-      const pub = publishRecord(dir, key, cur => { const nx = cur && !cur.structure_complete ? standRetire(cur, sc) : null; n = nx?.standClaimed ?? null; return nx }, { by: me })
-      if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'stand_retired', kind: Object.entries(n ?? {}).map(([a, b]) => `${a}:${b}`).join('+') || '-', gen: pub.gen }) }) } catch { /* telemetry */ } }
-    }
-  } catch { /* asked again next visit */ }
   // plotprep-01: a felling stand whose tree is down (or that has stood its time) is taken back down -- its cells become cuts
   try {
     if (platformUp(rec)) {
@@ -26319,6 +26311,18 @@ function gkPlanAdditions (bot, dir, key, rec, me) {
           try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'garden_topup', kind: [...new Set(t.cells.map(q => q.el))].join('+'), n: t.cells.length, segs: t.segments.map(q => q.seg).join('+'), gen: pub.gen }) }) } catch { /* telemetry */ }
         }
       }
+    }
+  } catch { /* asked again next visit */ }
+  // planahead-01 (LAST: after every addition and the felling stands' teardown -- Codex r1 BLOCKER 3: a teardown's cuts could take a
+  // claimed floor): an unfinished building's proof STANDS are its claim too -- a tidy fill on a stand's feet or head, a cut of its floor,
+  // leaves the record (planahead.mjs standRetire: retired like claim-01's volume, never refused-and-waited)
+  try {
+    const pr = PLANAHEAD_ON ? plotRecordsNow() : null
+    const sc = pr ? standClaims(pr) : null
+    if (sc && (sc.feet.size || sc.floor.size)) {
+      let n = null
+      const pub = publishRecord(dir, key, cur => { const nx = cur && !cur.structure_complete ? standRetire(cur, sc) : null; n = nx?.standClaimed ?? null; return nx }, { by: me })
+      if (pub.result === 'accepted') { changed = true; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'stand_retired', kind: Object.entries(n ?? {}).map(([a, b]) => `${a}:${b}`).join('+') || '-', gen: pub.gen }) }) } catch { /* telemetry */ } }
     }
   } catch { /* asked again next visit */ }
   if (!changed) return null
@@ -27301,7 +27305,13 @@ async function buildTidyVisit (ctx, args, signal) {
   let claimsNow = []
   if (claimOn()) { try { const pr = plotRecordsNow(); claimsNow = pr ? buildingClaims(pr) : [] } catch { claimsNow = [] } }
   const claimedQ = q => claimsNow.length > 0 && claimEntry(q, claimsNow)
-  const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
+  // planahead-01 (Codex r1 BLOCKER 3, the work-time guard): an open building's claimed STAND is never filled (feet, head) nor its floor
+  // cut or cleared, whatever generation the visit works -- read as done / given, like claim-01's volume (planahead.mjs standClaims)
+  let paStands = null
+  if (PLANAHEAD_ON) { try { const pr = plotRecordsNow(); paStands = pr ? standClaims(pr) : null } catch { paStands = null } }
+  const standFeetQ = q => !!paStands && Array.isArray(q?.at) && paStands.feet.has(q.at.join(','))
+  const standFloorQ = q => !!paStands && Array.isArray(q?.at) && paStands.floor.has(q.at.join(','))
+  const waivedK = q => claimedQ(q) || standFeetQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, lane === 'country' ? COUNTRY.builders : buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -27339,7 +27349,7 @@ async function buildTidyVisit (ctx, args, signal) {
     let visitRec = fv.visitRec
     // plotprep-02: a sited plot's trees are never felled by this visit (its replants stay as the head has them: the read's G5 counts)
     if (plotsSited.size) visitRec = { ...visitRec, clear: (visitRec.clear ?? []).filter(q => !plotEntryRetired(q, plotsSited)) }
-    if (claimsNow.length) visitRec = { ...visitRec, clear: (visitRec.clear ?? []).filter(q => !claimedQ(q)) }
+    if (claimsNow.length || paStands) visitRec = { ...visitRec, clear: (visitRec.clear ?? []).filter(q => !claimedQ(q) && !standFloorQ(q)) }
     // siteprep-01: while a requested plot's prep is open the visit works ONLY it (the floor's pattern): a plot in a few visits
     // Codex r5 BLOCKER: ONE open-work predicate for the selection, the tick and the completion -- the world and the record's
     // persisted waivers; the visit's transient guards (farm water, a cell another project took) only skip a cell inside the visit, so a
@@ -27405,7 +27415,7 @@ async function buildTidyVisit (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !standFloorQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
@@ -27479,7 +27489,7 @@ async function buildTidyVisit (ctx, args, signal) {
       const waive1 = GKW_ON && GROUNDS.on && caps.waive && !waive0.length ? stallWaive(rec, gkWaivable(rec, r.deferred ?? []), { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
       // planahead-01: a cell the stage's plan tagged unreached that THIS visit deferred too is waived now (two independent negatives:
       // planahead.mjs puWaiveDue), in the same room as the waivers above
-      const waive = PLANAHEAD_ON && GROUNDS.on && caps.waive ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1 })] : waive1
+      const waive = PLANAHEAD_ON && GROUNDS.on && caps.waive ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1, confirm: paConfirm(bot, rec, home, stood) })] : waive1
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
@@ -27522,7 +27532,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) || (TRF_ON && GROUNDS.on && cutWaived(rw, k)) }
+    const progOpts = { fillDone: q => claimedQ(q) || standFeetQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) || (TRF_ON && GROUNDS.on && cutWaived(rw, k)) }
     let prog = tidyProgress(rw, read2, progOpts)
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
@@ -27567,7 +27577,7 @@ async function buildTidyVisit (ctx, args, signal) {
         openWrite(dir, key, me, rw, left.length + prog.cutLeft)   // gkcrew4-01: this visit's open count (fills + clears left, cuts)
         const due0 = caps.waive ? leftWaiveDue(rw, town, left) : []
         // planahead-01: a tagged cell this visit left open when it ran out of work is its live negative (planahead.mjs puWaiveDue)
-        const due = PLANAHEAD_ON && caps.waive && r.stop === 'complete' ? [...due0, ...puWaiveDue(rw, left, { already: due0 })] : due0
+        const due = PLANAHEAD_ON && caps.waive && r.stop === 'complete' ? [...due0, ...puWaiveDue(rw, left, { already: due0, confirm: paConfirm(bot, rw, home, stood) })] : due0
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             if (!cur || cur.structure_complete || cur.cells.length !== rw.cells.length || gkwSig(cur) !== gkwSig(rw)) return null

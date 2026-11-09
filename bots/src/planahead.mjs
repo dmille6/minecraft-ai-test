@@ -71,7 +71,11 @@ export function * planReachSteps (read, fills = [], cuts = [], ctx = {}) {
   const home = ctx.home
   const walkR = Number.isFinite(ctx.walkR) ? ctx.walkR : PA.walkR
   const maxPasses = Number.isFinite(ctx.passes) ? ctx.passes : PA.passes
-  const over = new Map(), R = overlay(read, over)
+  // Codex r1 BLOCKER 2: an UNKNOWN read anywhere the search looked (a floor, a head, a route, a sight line -- not only the work cells)
+  // can hide a stand: a search that met one proves no negative (it ends `unchecked`, tags nothing)
+  let unknown = 0
+  const read0 = (x, y, z) => { const b = read(x, y, z); if (!b) unknown++; return b }
+  const over = new Map(), R = overlay(read0, over)
   const planned = ctx.planned ?? {}
   const pBlock = planned.block instanceof Set ? planned.block : new Set()
   const pNoFloor = planned.noFloor instanceof Set ? planned.noFloor : new Set()
@@ -108,7 +112,11 @@ export function * planReachSteps (read, fills = [], cuts = [], ctx = {}) {
       if (stepFor(R, home, f.at, nodes, () => true)) { over.set(kOf(f.at), f.box === 'block' ? PUT : LIT); progress = true } else leftF.push(f)
     }
     F = leftF
-    if (!progress || (!F.length && !C.length)) return { state: 'proven', open, pu: [...F.map(f => kOf(f.at)), ...C.map(kOf)], passes, checked }
+    if (!progress || (!F.length && !C.length)) {
+      const pu = [...F.map(f => kOf(f.at)), ...C.map(kOf)]
+      if (pu.length && unknown > 0) return { state: 'unchecked', open, pu: [], passes, checked, why: `unknown:${unknown}` }
+      return { state: 'proven', open, pu, passes, checked }
+    }
     if (passes >= maxPasses) return { state: 'unchecked', open, pu: [], passes, checked, why: 'passes' }
     yield null
     nodes = walk()
@@ -146,11 +154,11 @@ export function reachTag (r, { now = Date.now(), suspect = PA.suspect, suspectMi
 export const puKeys = rec => new Set(rec?.reach?.state === 'proven' && Array.isArray(rec.reach.pu) ? rec.reach.pu : [])
 
 /**
- * THE TAGGED CELLS A LIVE VISIT ALSO MISSED, waived now -> [{ k, why }]. Pure. `missed` = keys this visit deferred (no stand) or left
+ * THE TAGGED CELLS A LIVE VISIT ALSO MISSED AND A FRESH CHECK CONFIRMS, waived now -> [{ k, why }]. Pure. `missed` = keys this visit deferred (no stand) or left
  * open when it ran out of work. Only a record cell or clear (what the waived map is read for: never a cut). Never a fill that names its opener (roughground-1b: a hollow under a crust), never one waived already;
  * at most PA.waiveMax a visit and the stage's waived total at most ceil(PA.share * (cells + clears)) -- the room gkwork's waivers share.
  */
-export function puWaiveDue (rec, missed = [], { already = [], P = PA } = {}) {
+export function puWaiveDue (rec, missed = [], { already = [], confirm = () => false, P = PA } = {}) {
   const pu = puKeys(rec)
   if (!pu.size) return []
   const have = rec?.waived ?? {}
@@ -165,11 +173,32 @@ export function puWaiveDue (rec, missed = [], { already = [], P = PA } = {}) {
     if (room <= 0) break
     const k = String(m?.k ?? m)
     if (!pu.has(k) || !waivable.has(k) || sealed.has(k) || taken.has(k) || Object.prototype.hasOwnProperty.call(have, k) || out.some(o => o.k === k)) continue
+    // Codex r1 BLOCKER 1: a deferral may be transient (a body, attempts spent); the waiver needs a FRESH conclusive check now -- `confirm(k)`
+    // true only when the live world, fully read, has no stand for it (liveUnreached); the default confirms nothing
+    if (confirm(k) !== true) continue
     out.push({ k, why: 'plan_unreach' }); room--
   }
   return out
 }
 
+/**
+ * THE FRESH CONCLUSIVE CHECK for the plan waiver -> (k) -> true (no stand now, every read known) | false. Pure over `read` (the bot's
+ * live world). One walk, made on the first call; `fill(k)` says a key is a fill (a step must reach it) else a clear (a dig stand must
+ * see it). An unknown read anywhere the check looked -> false for every key (never a waiver on a hole in the bot's knowledge).
+ */
+export function liveUnreached (read, home, { stood = [], walkR = PA.walkR, fill = () => true, block = new Set() } = {}) {
+  let unknown = 0, nodes = null
+  const R = (x, y, z) => { const b = read(x, y, z); if (!b) unknown++; return b }
+  return k => {
+    try {
+      if (!nodes) nodes = byColumn(walkFrom(R, home, block, walkR, { stood }))
+      const at = String(k).split(',').map(Number)
+      if (!okAt(at)) return false
+      const hit = fill(k) ? stepFor(R, home, at, nodes, () => true) : digStand(R, at, nodes)
+      return !hit && unknown === 0
+    } catch { return false }
+  }
+}
 /** A HELPER's view of the stage without the tagged cells, cuts and clears (the keeper confirms them) -> rec. Pure. */
 export function puSupply (rec) {
   const pu = puKeys(rec)
