@@ -51,12 +51,14 @@ test('POSITIVE CONTROL: tool hygiene admits the fleet\'s iron craft at y=-20 onl
   assert.ok(redundantCraft('iron_pickaxe', bag, { y: null }), 'refused without the depth: the reserve is the only reason')
 })
 test('swingRewrite: the fleet\'s case -> stone_pickaxe, naming the held copy and the 0 ingots', () => {
-  const r = PS.swingRewrite({ item: 'iron_pickaxe', items: fleetBag(), y: -20, stoneMakeable: () => true, on: true })
+  const r = PS.swingRewrite({ item: 'iron_pickaxe', items: fleetBag(), y: -20, stoneMakeable: () => true, ironMakeable: () => false, on: true })
   assert.equal(r?.to, 'stone_pickaxe'); assert.equal(r.held, 'iron_pickaxe')
   assert.match(r.detail, /0x iron_ingot \(an iron pickaxe needs 3\)/)
 })
 test('swingRewrite leaves it: 3 ingots in the bag; no stone copy makeable; the task wants it; hygiene refuses anyway; no usable iron copy; the switch off; another item', () => {
-  const base = { item: 'iron_pickaxe', y: -20, stoneMakeable: () => true, on: true }
+  const base = { item: 'iron_pickaxe', y: -20, stoneMakeable: () => true, ironMakeable: () => false, on: true }
+  assert.equal(PS.swingRewrite({ ...base, items: fleetBag(), ironMakeable: () => true }), null, 'the bag can make the iron one after all (Codex r1)')
+  assert.equal(PS.swingRewrite({ ...base, items: fleetBag(), ironMakeable: () => { throw new Error('x') } }), null, 'a throw reads as makeable')
   assert.equal(PS.swingRewrite({ ...base, items: fleetBag([item('iron_ingot', 3, null, 9)]) }), null, 'the iron craft can run')
   assert.equal(PS.swingRewrite({ ...base, items: fleetBag(), stoneMakeable: () => false }), null, 'no stone copy from here')
   assert.equal(PS.swingRewrite({ ...base, items: fleetBag(), stoneMakeable: () => { throw new Error('x') } }), null, 'a throw is a no')
@@ -80,15 +82,17 @@ test('craftableFromBag (the craft skill\'s own plan): stone_pickaxe from cobble 
 // ---- the REAL gate ---------------------------------------------------------------------------------------------------------
 const run = (bag, y = -20, wanted = null) => {
   const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_pick_swings') rows.push(r.skill) })
-  try { return { r: new AdmissionControl(null).check({ skill: 'craft', args: { item: 'iron_pickaxe', count: 1 } }, botWith(bag, y), wanted), rows } } finally { untap() }
+  try { return { r: new AdmissionControl(null).check({ skill: 'craft', args: { item: 'iron_pickaxe', count: 2 } }, botWith(bag, y), wanted), rows } } finally { untap() }
 }
 test('THE GATE: the fleet\'s proposal is admitted as `craft stone_pickaxe`, with one _pick_swings row', () => {
   const { r, rows } = run(fleetBag())
   assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.skill, 'craft'); assert.equal(r.args.item, 'stone_pickaxe')
+  assert.equal(r.args.count, 1, 'one stone copy: the count the plan was asked for')
   assert.equal(rows.length, 1); assert.match(rows[0].detail, /iron_pickaxe -> stone_pickaxe/)
 })
 test('THE GATE leaves a makeable iron craft alone (3 ingots), and the surface case is refused by hygiene as before', () => {
   assert.equal(run(fleetBag([item('iron_ingot', 3, null, 9)])).r.args?.item, 'iron_pickaxe')
+  assert.equal(run(fleetBag([item('iron_block', 1, null, 9), item('stick', 4, null, 10)])).r.args?.item, 'iron_pickaxe', 'an iron block in the bag makes the ingots (Codex r1): the real plan says so')
   const top = run(fleetBag(), 70).r
   assert.equal(top.ok, false); assert.equal(top.reason, 'redundant_craft')
 })
@@ -115,12 +119,12 @@ const PS_URL = new URL('../src/pickswings.mjs', import.meta.url)
 test('MUTANT: without the reserve test (bare refusal) the rule would rewrite a craft hygiene admits for another reason', async () => {
   await withMutant(PS_URL, '  if (bare == null) return null', '', async M => {
     const stoneOnly = [item('stone_pickaxe', 1, 100, 0), item('stone_pickaxe', 1, 90, 1), item('cobblestone', 64, null, 2), item('oak_log', 8, null, 3)]
-    assert.ok(M.swingRewrite({ item: 'iron_pickaxe', items: stoneOnly, y: -20, stoneMakeable: () => true, on: true }), 'the tier step is rewritten: the guard was load-bearing')
+    assert.ok(M.swingRewrite({ item: 'iron_pickaxe', items: stoneOnly, y: -20, stoneMakeable: () => true, ironMakeable: () => false, on: true }), 'the tier step is rewritten: the guard was load-bearing')
   })
 })
 test('MUTANT: without the ingot test a makeable iron craft is rewritten', async () => {
   await withMutant(PS_URL, '  if (ingots >= IRON_PICK_INGOTS) return null', '', async M => {
-    assert.ok(M.swingRewrite({ item: 'iron_pickaxe', items: fleetBag([item('iron_ingot', 3, null, 9)]), y: -20, stoneMakeable: () => true, on: true }))
+    assert.ok(M.swingRewrite({ item: 'iron_pickaxe', items: fleetBag([item('iron_ingot', 3, null, 9)]), y: -20, stoneMakeable: () => true, ironMakeable: () => false, on: true }))
   })
 })
 test('WIRING (structural): admission rewrites args.item from swingRewrite right after the hygiene refusal', () => {
