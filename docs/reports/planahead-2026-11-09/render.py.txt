@@ -1,0 +1,68 @@
+import json, base64, zlib, struct, sys, array
+SP, OUT = sys.argv[1], sys.argv[2]
+d = json.load(open(f'{SP}/dump.json'))
+x0, z0, x1, z1 = d['box']; y0, y1 = d['y']; nx, nz = x1-x0+1, z1-z0+1
+raw = base64.b64decode(d['cells']); cells = array.array('B' if d['bits']==8 else 'H'); cells.frombytes(raw)
+pal = d['palette']
+AIRS = {'air','cave_air','short_grass','tall_grass','fern','large_fern','dead_bush','vine','glow_lichen','?'}
+def name(x,y,z): return pal[cells[((y-y0)*nz+(z-z0))*nx+(x-x0)]]
+def color(n):
+    b = n.split('[')[0]
+    if 'water' in n: return (64,96,200)
+    if b.endswith('_leaves'): return (40,90,40)
+    if b.endswith('_log') or b.endswith('_wood'): return (110,80,50)
+    if b in ('grass_block','moss_block'): return (100,150,70)
+    if b in ('dirt','coarse_dirt','rooted_dirt','podzol','farmland'): return (130,100,70)
+    if b == 'dirt_path': return (170,150,100)
+    if 'cobble' in b or 'stone' in b or b in ('andesite','diorite','granite','tuff','gravel'): return (128,128,128)
+    if b in ('sand','sandstone'): return (210,200,150)
+    if 'plank' in b or 'stair' in b or 'slab' in b or 'fence' in b: return (160,120,70)
+    return (150,150,150)
+rec = json.load(open(f'{SP}/pool/project-0_70_0.tidy.g101.json')); rec = rec.get('rec', rec)
+pa = json.load(open(f'{SP}/pa-offline.json'))['plots']['tidy']
+pu = set(pa['puKeys'])
+S = 3; R = 100
+W = H = (2*R+1)*S
+img = [[(0,0,0)]*W for _ in range(H)]
+for x in range(-R, R+1):
+    for z in range(-R, R+1):
+        c = (0,0,0)
+        for y in range(y1, y0-1, -1):
+            n = name(x,y,z)
+            if n.split('[')[0] not in AIRS: c = color(n); break
+        # shade by height a little
+        for i in range(S):
+            for j in range(S): img[(z+R)*S+j][(x+R)*S+i] = tuple(int(v*0.75) for v in c)
+def dot(x, z, col, s=S):
+    if abs(x)>R or abs(z)>R: return
+    for i in range(s):
+        for j in range(s):
+            px, pz = (x+R)*S+i, (z+R)*S+j
+            if 0<=px<W and 0<=pz<H: img[pz][px] = col
+waived = set((rec.get('waived') or {}).keys())
+nopen = {'fill':0,'cut':0}
+for q in rec['cells']:
+    k = ','.join(map(str,q['at']))
+    if k in waived: continue
+    n = name(*q['at']).split('[')[0]
+    if n in AIRS or 'water' in n:
+        nopen['fill']+=1
+        if k not in pu: dot(q['at'][0], q['at'][2], (240,220,60))
+for q in rec['cut'] + rec.get('clear', []):
+    at = q['at']; n = name(*at).split('[')[0]
+    if n not in AIRS:
+        nopen['cut']+=1
+        if ','.join(map(str,at)) not in pu: dot(at[0], at[2], (240,140,40))
+for k in pu:
+    x,y,z = map(int,k.split(','))
+    for dx in (-1,0,1):
+        for dz in (-1,0,1): dot(x+dx, z+dz, (230,30,30))
+for dx in range(-2,3):
+    for dz in range(-2,3): dot(dx, dz, (255,255,255))
+def png(path, img):
+    h, w = len(img), len(img[0])
+    rawd = b''.join(b'\x00' + bytes(v for p in row for v in p) for row in img)
+    def chunk(t, data): return struct.pack('>I', len(data)) + t + data + struct.pack('>I', zlib.crc32(t+data) & 0xffffffff)
+    open(path,'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rawd, 9)) + chunk(b'IEND', b''))
+png(f'{OUT}/tidy-stage-reach.png', img)
+print('open', nopen, 'pu', len(pu))
