@@ -244,6 +244,22 @@ await t('FLAT (the fleet before townstyle: no reach-only click, no block state):
   assert.strictEqual(r.open.length, 0, `open ${r.open.slice(0, 5).map(c => `${c.at}:${c.role}:${c.seg}`).join(' ')}`)
   assert.strictEqual(r.maxHoles, 1); assert.strictEqual(r.offRecord, 0)
 })
+await t('A SWAPPED CELL NO STAND SEES is DEFERRED (counted for the waiver), never a `blocked` run for good, never a chain of digs', async () => {
+  const srv = server()
+  // a cobble cell buried in stone: no stand sees any of its faces
+  const at = [10, G - 3, 10]
+  srv.set(at, 'cobblestone')
+  const rec = { v: 1, blueprint: 'wall@1', plot: 'wall', home: HOME, cells: [{ at, role: 'cw-plinth', seg: 'W-00', sw: 1 }], segments: [{ seg: 'W-00', deps: [] }], clear: [], replant: [], structure_complete: true }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cwsealed-')); const key = PJ.projKey(HOME, W.WALL_PLOT)
+  const pub = PJ.publishRecord(dir, key, () => rec)
+  const b = bot(srv, 'A', { inv: { deepslate_bricks: 10 }, feet: [0, G + 1, 0] })
+  const slot = PJ.takeSlot(dir, key, 'A', 4)
+  const v = await R.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, recordGen: pub.gen, palette: CW.citywallPalette('dark'), slot: slot.slot, slotGen: slot.gen,
+    domain: () => true, walkR: 40, foreign: W.WALL_FOREIGN, blockLayer: false, clearMax: W.WALL_CLEAR_MAX, swap: true, sealed: { mayDig: () => true }, stands: { pending: null, bans: {} } }, b, { maxSteps: 100 })
+  assert.notStrictEqual(v.stop, 'blocked', `${v.stop} ${v.why}`)
+  assert.ok((v.deferred ?? []).some(d => String(d.k) === at.join(',')), `deferred ${JSON.stringify(v.deferred)}`)
+  assert.strictEqual(srv.read(...at).name, 'cobblestone', 'never dug: the wall stays whole')
+})
 await t('MUTANT KILLED: without the swap rule in the visit\'s dig filter, a segment opens more than one hole', async () => {
   await withMutant(' && !useOf(c)?.can(rd(...c.at)) && swapOk(c) })', ' && !useOf(c)?.can(rd(...c.at)) })', async M => {
     const r = await buildUpgrade(M)

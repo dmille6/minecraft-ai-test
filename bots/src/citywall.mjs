@@ -579,6 +579,8 @@ export function citywallGeneration (rec, design, ph, { now = Date.now() } = {}) 
 }
 /** A design's cells kept in the record (citywallGeneration stores them stripped) -> the design object again for the next phase. Pure. */
 export const designOf = rec => (rec?.citywall?.design ? { style: rec.citywall.style, seed: rec.citywall.seed, ...rec.citywall.design } : null)
+/** How many more cells an upgraded ring's waiver may name past wall.mjs WALL_WAIVE_MAX (a swapped cell no stand sees stays its old block). */
+export const CITYWALL_WAIVE_MORE = 64
 /** What the town keeps back from a phase's bill (the stoneworks' and the market's own buffers stay theirs). */
 export const CITYWALL_KEEP = Object.freeze({ stone_bricks: 64, deepslate_bricks: 32, lantern: 4, iron_bars: 0 })
 /**

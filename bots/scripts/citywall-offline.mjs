@@ -55,7 +55,10 @@ const walkNodes = new Map()
 const SHOPM = await import('../src/shop.mjs')
 const stood = SHOPM.stoodRead(poolDir, `project-${hk}.shop`, home)
 for (const k of BS.walkFrom(base, home, new Set(), W.wallWalkR(rec0, home), { stood })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
-const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone, flat: flag('flat'), reachUnder: at => !!BS.stepFor(base, home, at, walkNodes, () => true, null), reachSwap: at => !!digStandOf(base, at, walkNodes) })
+// the swap's walk as the visit walks it: the ring's own O cells open (never a floor, never walked through)
+const swapNodes = new Map()
+{ const oBlock = new Set(rec0.cells.filter(q => ['wall', 'post', 'base'].includes(q.role)).map(q => q.at.join(','))); for (const k of BS.walkFrom(base, home, oBlock, W.wallWalkR(rec0, home), { stood })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!swapNodes.has(ck)) swapNodes.set(ck, []); swapNodes.get(ck).push(y) } }
+const design = CW.citywallDesign(base, rec0, { style: opt('style', 'grey'), seed: Number(opt('seed', 1)), gatePick, taken, zone, flat: flag('flat'), reachUnder: at => !!BS.stepFor(base, home, at, walkNodes, () => true, null), reachSwap: at => !!digStandOf(base, at, swapNodes) })
 if (!design.ok) { console.error('no design', design.why); process.exit(1) }
 const roles = design.cells.reduce((m, c) => (m[c.role] = (m[c.role] ?? 0) + 1, m), {})
 const bill = CW.citywallBill(design.cells, design.style)

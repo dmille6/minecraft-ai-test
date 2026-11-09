@@ -149,7 +149,7 @@ import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
 import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius floor for a landmark
 import { isCivicPlot, civicKindOf, civicNear, civicLookFor, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
-import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
+import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, CITYWALL_WAIVE_MORE, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
@@ -21471,11 +21471,14 @@ async function buildCitywall (ctx, args, signal) {
     // the town walk now (buildsite.mjs walkFrom, the visit's own) -> its feet cells by column, for the underpinning's reach (stepFor)
     const walkNodes = new Map()
     for (const k of siteWalkFrom(read0, home, new Set(), wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
+    // the swap's walk as the visit walks it: the ring's own O cells are open then (never a floor, never walked through)
+    let swN = null
+    const swapNodes = () => { if (swN) return swN; swN = new Map(); const oBlock = new Set((rec.cells ?? []).filter(q => ['wall', 'post', 'base'].includes(q.role)).map(q => q.at.join(','))); for (const k of siteWalkFrom(read0, home, oBlock, wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!swN.has(ck)) swN.set(ck, []); swN.get(ck).push(y) } return swN }
     design = citywallDesign(read, rec, { style: citywallStyleFor(stock, pool), seed: Number(rec.sitedAt ?? 0) >>> 0, gatePick: citywallGatePick(process.env, t.plot),
       taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones), zone: (x, z) => roads.has(`${x},${z}`),
       reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true, null),
       // a swapped cell's dig needs a stand that sees it (buildrun.mjs digStand, the visit's own rule)
-      reachSwap: at => !!runDigStand(read0, at, walkNodes) })
+      reachSwap: at => !!runDigStand(read0, at, swapNodes()) })
     if (!design.ok) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, design.why); return out('no_effect', 'no_site', `${t.plot}: no design (${design.why})`, { stop: 'site_wait' }) }
     if (unread) { siteWaitSet(CITYWALL_PLOT, 10 * 60_000, 'unread'); return out('no_effect', 'site_unread', `${t.plot}: ${unread} cells unread (unloaded): the design waits`, { stop: 'site_wait' }) }
     // THE ESCAPE PROOF (wall.mjs wallEscape, the siting's own): every design cell built cuts nothing off and pens nobody
@@ -24439,7 +24442,9 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
     // visits by the stuck map, is named on the record (a logged row with its reason) so the wall closes; the next visit reads it done
     if (wallStuckOn()) {
       try {
-        const due = wallWaiveDue(rec, r.deferred ?? [])
+        // citywall-01: an upgraded ring's swapped cells no stand sees are waived past the wall's own bound (each stays its old block:
+        // the wall whole, never a gap), so a phase closes
+        const due = wallWaiveDue(rec, r.deferred ?? [], isCitywall(rec) ? { max: WALL_WAIVE_MAX + CITYWALL_WAIVE_MORE } : {})
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             // citywall-01: an upgraded ring stays `structure_complete` while its phase is built: its unreachable cells are waived too
