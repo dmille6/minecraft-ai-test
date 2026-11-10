@@ -39,6 +39,7 @@ const REQUIRED = [
   'bots/src/stuckfleet.mjs',   // stuckfleet-01 (11-08): road lights, held monument cells and capped cells no remedy reached
   'bots/test/stuckfleet02.test.mjs', 'bots/test/fixtures/stuckfleet02-boardc.json',  // stuckfleet-02 (11-08): a cell orphaned by the waiver below it
   'bots/test/stuckfleet.test.mjs',   // stuckfleet-01 (11-08)
+  'bots/test/stuckfleet03.test.mjs',   // stuckfleet-03 (11-10): a sealed foundation cell already holding solid ground is waivable
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/tidydead.test.mjs',
   'bots/src/stuckclose.mjs',   // stuckclose-01 (11-08): a tidy stage whose last cuts the town cannot reach closes

@@ -32,7 +32,7 @@ import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
 import { waivePick, monuStuckOn, hardDeferrals } from './stuckcells.mjs'
-import { stuckFleetOn, heldWaiveCand, capDigs } from './stuckfleet.mjs'   // stuckfleet-01
+import { stuckFleetOn, heldWaiveCand, capDigs, stuckFleet3On, sealedSolidCand } from './stuckfleet.mjs'   // stuckfleet-01, -03
 import { canopyCuts, CANOPY_MAX } from './canopy.mjs'
 import * as RT from './buildretry.mjs'
 
@@ -1446,14 +1446,21 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           // stuckfleet-01 (stuckfleet.mjs heldWaiveCand; LIVE isolated-d monument F-S, 6 HELD core cells, 0 of 12 waivers used): the
           // segment's held cells that read clear are the waiver's candidates too (a held cell starts with its attempts spent: never in `cand`)
           const wcand = stuckFleetOn() && rt ? heldWaiveCand(open, cand, { held: k => rt.held.has(k), clear: at => isClear(at), below }) : cand
-          if (p.waive && wcand.length && (monuStuckOn() ? open.every(c => isClear(c.at) || sealed.has(kOf(c.at))) : !open.some(c => !isClear(c.at)))) {
+          // stuckfleet-03 (stuckfleet.mjs sealedSolidCand; LIVE isolated-d monument plinth 315,60,123 holding dirt under built cells,
+          // sealed 11-06..11-10, 7,248 cells waiting): a SEALED cell already holding natural solid ground is the waiver's candidate too
+          const sf3 = stuckFleet3On() && p.sealed && sealed.size ? sealedSolidCand(open, wcand, { sealed: k => sealed.has(k), read: rd }) : null
+          const wcand3 = sf3 ? sf3.cells : wcand
+          if (p.waive && wcand3.length && (monuStuckOn() ? open.every(c => isClear(c.at) || sealed.has(kOf(c.at))) : !open.some(c => !isClear(c.at)))) {
             const counts = PJ.stuckRead(dir, key, { since: now() - STUCK_FORGET_MS + 1 })
             const have = p.waive.have ?? {}
             const cellMap = (p.waive._cells ??= new Map(record.cells.map(q => [kOf(q.at), q])))
-            const due = waivePick(wcand, { counts, after: p.waive.after, mayWaive: p.waive.mayWaive ?? (() => false), cellAt: k => cellMap.get(k) ?? null,
+            const due = waivePick(wcand3, { counts, after: p.waive.after, mayWaive: p.waive.mayWaive ?? (() => false), cellAt: k => cellMap.get(k) ?? null,
               waived: k => waivedNow.has(k) || Object.prototype.hasOwnProperty.call(have, k), room: Math.max(0, (p.waive.max ?? 0) - Object.keys(have).length - waivedNow.size) })
             if (due.length) {
-              for (const d of due) { waivedNow.set(kOf(d.c.at), d.why); e.log('_build', { op: 'waived', seg, cell: d.c.at, why: d.why }) }
+              for (const d of due) {
+                const why = sf3?.solid.has(kOf(d.c.at)) ? `sealed_solid ${nm(rd(...d.c.at))} ${d.why}` : d.why
+                waivedNow.set(kOf(d.c.at), why); e.log('_build', { op: 'waived', seg, cell: d.c.at, why })
+              }
               out.waived = [...waivedNow].map(([k, why]) => ({ k, why }))
               continue
             }
