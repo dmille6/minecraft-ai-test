@@ -26173,6 +26173,16 @@ export async function gkSweep (bot, signal, { until = Date.now() + GKSWEEP.budge
   try { logEvent({ kind: 'build', status: took > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'sweep', n: took, kind: kinds.slice(0, 120), why: why.slice(0, 160), result: took > 0 ? 'took' : 'none' }) }) } catch { /* telemetry */ }
   return { took, kinds, picks: sel.picks.length, skipped: sel.skipped }
 }
+/** THE TIDY'S DIG GUARD -> Set "x,y,z": a cell ANOTHER project's record names now (a project sited since the survey) is never the
+ *  tidy's: never dug, never filled; nor a marker placed after the stage was sited (groundskeeper-01 on the showcase, Codex + Claude r1
+ *  BLOCKER), nor a bridge site's cell (bridgepost-01). Throws when the records cannot be read (the caller stops). tidyrefresh-01: the
+ *  visit's and the refresh's one source. */
+function tidyGuardSet () {
+  const guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(','))))
+  try { for (const k of markerCellKeys(exMarkers())) guard.add(k) } catch { /* no markers */ }
+  try { for (const k of bridgeCellKeys(exBridgeSites())) guard.add(k) } catch { /* no bridges */ }   // bridgepost-01
+  return guard
+}
 /** THE STAGE SURVEY'S INPUTS (the siting's and tidyrefresh-01's refresh: one source) -> { land, read, last, lights, terrace }: the land
  *  plan, a reader, the last stage, the road lights the town spares, and the terrace/inwall inputs (the floors' records, the wall and
  *  its extension, the wells' caps, the bots' climbs of 7 days, what the town can get for the park). Never throws past the caller's try. */
@@ -26209,10 +26219,7 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     const busy = openColumns(r0, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land: si.land, stage: inK, lim: gradeLim(read, 6), lights: si.lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: si.terrace, reserved: I.reserved, forest: forestRecNow(), planned: busy })
     cap = s?.survey?.rough?.skipped?.cap ?? 0
-    // the visit's own guard: another project's cells now, the markers, the bridges
-    guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(','))))
-    try { for (const k of markerCellKeys(exMarkers())) guard.add(k) } catch { /* no markers */ }
-    try { for (const k of bridgeCellKeys(exBridgeSites())) guard.add(k) } catch { /* no bridges */ }
+    guard = tidyGuardSet()   // the visit's own guard (one source)
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
     return null
@@ -26362,10 +26369,7 @@ async function buildTidyVisit (ctx, args, signal) {
   // a cell ANOTHER project's record names now (a project sited since the survey) is never the tidy's: never dug, never filled (read
   // as done)
   let guard
-  try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
-  // groundskeeper-01 on the showcase (Codex + Claude r1 BLOCKER): a marker placed after the stage was sited is never dug either
-  try { for (const k of markerCellKeys(exMarkers())) guard.add(k) } catch { /* no markers */ }
-  try { for (const k of bridgeCellKeys(exBridgeSites())) guard.add(k) } catch { /* no bridges */ }   // bridgepost-01
+  try { guard = tidyGuardSet() } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
   // townterrace-01: the terrace stage re-checks every refusal at WORK time (a zone, a project, a marker, a road sited since): a cell in
   // a column refused now is never cut, filled, cleared or planted (read as waived)
   const isTerrace = GROUNDS.on && rec.stageId === TERRACE_STAGE
