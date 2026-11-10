@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-10T00:20:01Z._
+_Generated 2026-11-10T01:20:02Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-10T00:20:01Z._
 | **Canary in slot** | EMPTY (last close hivedrop-02 KEEP 11-10 00:08Z) |
 | **Queue (front)** | stuckfleet-01 -> stuckfleet-02 -> planahead-01 -> stoneworks-01 -> logcap-02 -> cobbleroom-01 -> chestcarry-01 -> toolrank-01 -> gathermem-01 -> ironchain-01 -> +21 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | block H2 stuckfleet-01: no variant for the fleet base b3646f6 (have: 1e593b9, 7d7978e, 058bf56): autorebase REFUSED at step cherry-pick: the rebased diff is NOT the reviewed diff (normalized sha256 545179bcfe6a vs b5d3c8270bc7; files bots/s |
-| **Showcase release** | `de992551` (19,977 rows), `3b3af7ef` (12,147 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 3b3af7ef's protected tree: restack by hand; row 11-09 23:25Z) |
+| **Showcase release** | `3b3af7ef` (23,736 rows), `de992551` (9,121 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 3b3af7ef's protected tree: restack by hand; row 11-10 00:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | **statusreport-1106**: statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports?; **zoneguard-1109**: zoneguard-01show: accept that a drowning/suffocating bot no longer digs a tripwire-baseline cell for air, and that pours whose flow could reach a guarded cell are refused?; **townmine-1109**: townmine-01: depth feet -53 (owner O6) or -58 (11-09 ask)? keep one deep miner (O13) while the mine is being built?; **citywall-1109**: citywall-1109: the gatehouse on the extension's east road gateway (inset, 12-wide passage) as the default, or the north road R1 / the south side? Grey stone-brick face on the showcase, dark deepslate on the fleet? |
 | **Projects (daily audit)** | project audit fleet (11-09T12:05Z, 7 d, 172 projects, 14,239,977 lines / 80 bots): 3 underused, 90 effective, 53 unmeasured, 26 -; showcase: project audit showcase (11-09T12:05Z, 7 d, 33 projects, 1,909,532 lines / 15 bots): 1 dormant, 2 underused, 13 effective, 12 unmeasured, 5 - -- showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-09T23:35:01Z STALLED: 136. OPSAUDIT 2026-11-09 FLAGS: 12 (1 high). 83 active alarm(s): stuck goals 15 (board-a/paths@355_73_147, board-b/tidy@-249_65_144, board-d/tidy@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147, hive-d/tidy@68_65_68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gkwork-01:h24, effectwatch effect:idlework-01:h72, effectwatch effect:kitmulti-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-10T00:35:01Z STALLED: 143. OPSAUDIT 2026-11-09 FLAGS: 12 (1 high). 89 active alarm(s): stuck goals 19 (board-a/paths@355_73_147, board-a/tidy@355_73_147, board-b/tidy@-249_65_144, board-d/tidy@355_73_147, hive-a/tidy@355_73_147, hive-b/tidy@355_73_147 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:gkwork-01:h24, effectwatch effect:idlework-01:h72, effectwatch effect:kitmulti-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
