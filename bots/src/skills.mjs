@@ -21874,7 +21874,7 @@ async function civicSiteFor (bot, plan, c, stood, plot, signal = null) {
     const domain = (x, z) => Math.max(Math.abs(x - near[0]), Math.abs(z - near[1])) <= R
     const line = Math.max(Math.abs(near[0] - plan.home.x), Math.abs(near[1] - plan.home.z)) + R + 2
     const prd = planReader(bot)
-    const s = await siteBlueprintAsync(prd, plan, bp, { zones: [...c.zones, ...recordZones(others), ...townMarkerZones()], wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: [{ sector: null, source: 'civic' }], plot,
+    const s = await siteBlueprintAsync(prd, plan, bp, { zones: [...c.zones, ...recordZones(others), ...townMarkerZones()], wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: [{ sector: null, source: 'civic' }], plot, ...paSiteCtx(prd, plot),   // citywall fold (Codex BLOCKER): the planned world and the stands claimed
       domain, standDomain: (x, z) => Math.max(Math.abs(x - near[0]), Math.abs(z - near[1])) <= R + 8, line, walkR: Math.max(CIVIC_WALK_R, line + 12), tries: CIVIC_SITE.tries,
       rankKey: q => Math.hypot(q.pad[0][0] - near[0], q.pad[0][1] - near[1]), ...siteCanopyCtx(prd, bp, plan.home, stood, Math.max(CIVIC_WALK_R, line + 12)) }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted' }

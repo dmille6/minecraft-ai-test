@@ -1020,7 +1020,7 @@ export function plotRetire (rec, sited) {
 // there at work time (whoever's visit) and the keeper retires them from the record (claimRetire), so no count, no stuck map and no
 // re-survey sees them. Its replants stay (G5, as plotRetire). CLAIM=off is the rollback.
 export const claimOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.CLAIM ?? '').trim().toLowerCase())
-export const CLAIM_PLOTS = Object.freeze(['townhall', 'cottage1', 'cottage2', 'cottage3'])   // cottage2-01: every cottage
+export const CLAIM_PLOTS = Object.freeze(['townhall', 'cottage1', 'cottage2', 'cottage3', 'civicF', 'civicM', 'civicB', 'civicH', 'civicP', 'civicS', 'civicL'])   // cottage2-01: every cottage; citywall fold: every civic landmark (civic.mjs CIVIC_PLOTS)
 export const CLAIM_RING = 1
 /** THE CLAIMS -> [{ plot, box: [x0, z0, x1, z1] }]: one per record of a CLAIM plot that lists anything. Pure. */
 export function buildingClaims (records = [], { plots = CLAIM_PLOTS, ring = CLAIM_RING } = {}) {

@@ -114,6 +114,11 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const SH = strip(readFileSync(new URL('../src/shop.mjs', import.meta.url), 'utf8'))
 const BS = strip(readFileSync(new URL('../src/buildsite.mjs', import.meta.url), 'utf8'))
+await t('citywall fold (Codex BLOCKERS): a civic landmark claims its volume and its stands, and sites on the planned world', async () => {
+  const TI = await import('../src/tidy.mjs'), PA = await import('../src/planahead.mjs'), CV = await import('../src/civic.mjs')
+  for (const p of CV.CIVIC_PLOTS) { assert.ok(TI.CLAIM_PLOTS.includes(p), `${p} claims its volume`); assert.ok(PA.STAND_PLOTS.includes(p), `${p} claims its stands`) }
+  assert.ok(/sectors: \[\{ sector: null, source: 'civic' \}\], plot, \.\.\.paSiteCtx\(prd, plot\),/.test(SK), 'the civic siting passes the planned world')
+})
 await t('WIRED: the plots in PROJECTS each after the last (shop.mjs), the siting branch and its wait (skills.mjs), the generated blueprint (buildsite.mjs)', () => {
   assert.ok(/\.\.\.CIVIC_PLOTS\.map\(\(plot, i\) => Object\.freeze\(\{ plot, blueprint: civicLooks\(CIVIC_ORDER\[i\]\)\[0\], after: i \? CIVIC_PLOTS\[i - 1\] : PATHS_PLOT, builders: 2 \}\)\)/.test(SH))
   assert.ok(/isCivicPlot\(p\.plot\) \? civic && wall && paths && on/.test(SH))
