@@ -6752,6 +6752,32 @@
      "docs/reports/villagecon-2026-11-09/pens-layout.png"
     ]
    }
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "tidyrefresh-1110",
+   "title": "Tidy refresh (cleanup pass 2 code gap, freeze-allowed measured break): open inwall tidy record re-surveyed hourly + new cells merged; town gives up a cut a crew bot gave up; rough cap pages",
+   "owner_date": "2026-11-10",
+   "memory": [
+    "tidyrefresh-1109.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-10: BUILT, READY TO STAGE (release agent), NOT released. Stage tidyrefresh-01show-on-bw3 38f048f8 (on showcase-boardwalk3-on-bridges 6b2ca969) after bridges + boardwalk-03; tidyrefresh-01show d49b5877 is the same piece on the live 3b3af7ef. Tier: not protected. Codex r1 NO BLOCKERS; fold (restack + tidyGuardSet) NO BLOCKERS. Suite ci2 38f048f8 489/491 (orphaned = base bagdiet; showdrop timing, passes alone 2/2). Offline replay 11-10 01:52Z copy: adds 256 cuts + 944 fills / 710 cols (346 next hour), cap 0 (161 at siting), protected checks 0. Rollback TIDYREFRESH=off. READ after staging: _build op=refreshed hourly, op=waived why=cut_given_up, record.refreshed, tripwire H/Z 0, cuts/fills-left trend. Fleet: no port (no groundskeeper on main); fleet single stuck cells = stuckclose-01 3d96f847, queue it.",
+   "evidence": {
+    "grep": [
+     "tidyrefresh-01show"
+    ],
+    "branches": [
+     "tidyrefresh-01show",
+     "tidyrefresh-01show-on-bw3"
+    ],
+    "paths": [
+     "docs/reports/tidyrefresh-2026-11-10.md"
+    ]
+   }
   }
  ]
 }
