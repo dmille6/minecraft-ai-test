@@ -310,7 +310,7 @@ await t('the visit row keeps every key inside the logger\'s 300 characters', asy
 
 await t('fold (Codex BLOCKERS): the water visit guards bridges and the tidy, reads every record strictly, and re-reads its guard before each dig', () => {
   const one = (needle, what) => assert.equal(SK.split(needle).length, 2, what)
-  one('    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT])]', 'the tidy\'s cells are guarded too')
+  one('    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : [])])]', 'the tidy\'s (and the country\'s) cells are guarded too')
   one('      const h = recordHead(dir, projKeyOf(pl))\n      if (!h.ok || (h.rejected?.length ?? 0) > 0) return null', 'one unreadable record (or a rejected generation): no visit')
   one('    for (const k of bridgeCellKeys(bs)) out.add(k)', 'every bridge site\'s planned cells')
   one('    if (bs == null) return null', 'an unreadable bridges file: no visit')

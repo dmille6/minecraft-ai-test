@@ -266,5 +266,14 @@ await t('the gathers never pick a country planting: the park gather and the five
   assert.ok(/countryHeadNow\(dir\)/.test(gg))
 })
 
+
+await t('fold on the live line (Codex BLOCKERS): the water visit, the road2 siting and the wood siting all keep off the country\'s plan', () => {
+  const one = (needle, what) => assert.strictEqual(SK.split(needle).length, 2, what)
+  one("const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : [])])]", 'the water visit guards the country record')
+  one("if (COUNTRY_ON) { const cr = countryHeadNow(); if (cr === undefined) return null; for (const k of withPlanCells(new Set(), cr))", 'a road2 column on the country plan is owned; unreadable: no road')
+  one("...woodCountryRecord()], reserved: decorReservedFor(c, plan),", 'a wood structure reads the country record')
+  one("if (cr === undefined) throw new Error('country record unreadable')\n  if (!cr) return []", 'an unreadable country head fails the wood siting closed')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

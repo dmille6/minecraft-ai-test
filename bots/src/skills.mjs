@@ -24343,6 +24343,15 @@ function roads2Traffic (now = Date.now()) {
  * or the wall extension's when its start lies beside that one); the LANDING test: a column holding no wall or wall-extension cell (a
  * road starts from a gap in the ring, never through a wall). Throws on an unreadable record (the visit stops).
  */
+/** country fold (Codex BLOCKER): the country head as one of the records a wood structure reads (its cells guarded), with its cuts and
+ *  clears as cells too; an unreadable country head guards everything (a sentinel the siting cannot pass) -> [{ plot, rec }]. */
+function woodCountryRecord () {
+  if (!COUNTRY_ON) return []
+  const cr = countryHeadNow()
+  if (cr === undefined) throw new Error('country record unreadable')
+  if (!cr) return []
+  return [{ plot: COUNTRY_PLOT, rec: { ...cr, cells: [...withPlanCells(new Set(), cr)].map(k => ({ at: k.split(',').map(Number), role: 'country' })) } }]
+}
 function roads2Ctx () {
   const t = roads2Traffic()
   if (!t.ok) return null
@@ -24354,6 +24363,8 @@ function roads2Ctx () {
   // every OTHER record's cell columns (the paths', the yard's piles, the ziggurat's, a tower's, the tidy's grading...): a road cell never
   // stands in one (a record without zones -- the yard, the ziggurat -- reserves nothing through the guard; its cells still do)
   const pathCols = new Set(heads.filter(x => x.plot !== SINK_PLOTS.road && x.plot !== LAND_PLOT && x.plot !== SITEPREP_PLOT).flatMap(x => (x.head?.rec?.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => `${c.at[0]},${c.at[2]}`)))
+  // country fold (Codex BLOCKER): the country band's planned cells (its cells, cuts and clears) are owned too; an unreadable head: no road
+  if (COUNTRY_ON) { const cr = countryHeadNow(); if (cr === undefined) return null; for (const k of withPlanCells(new Set(), cr)) { const [x, , z] = k.split(','); pathCols.add(`${x},${z}`) } }
   return { routes: t.routes, ringFor, townBoxes: boxes, landOk: (x, z) => !wallCols.has(`${x},${z}`), own: (x, z) => pathCols.has(`${x},${z}`) }
 }
 function sinkReady (kind) {
@@ -25320,7 +25331,7 @@ function sinkSiteNow (bot, kind, rec0, plan, c, stood, { prep = null, read = nul
       avoid: REROOF_FIX.avoid && REROOF_SW.on ? reroofPendingCells(Object.fromEntries(projectHeads().map(x => [x.plot, x.head?.rec ?? null])), { bpOf: blueprintOf }) : null } : {}
     // fences-01: a wood structure reads every other record (its targets, the paths, the cell guard), the decor's reservations, and
     // the logs this bot may spend (the wood pressure's `avail`) in the species the town holds most
-    const wood = kind === WOOD_KIND ? { records: projectHeads().filter(x => x.plot !== SINK_PLOTS.wood && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), reserved: decorReservedFor(c, plan),
+    const wood = kind === WOOD_KIND ? { records: [...projectHeads().filter(x => x.plot !== SINK_PLOTS.wood && x.plot !== LAND_PLOT).map(x => ({ plot: x.plot, rec: x.head?.rec ?? null })), ...woodCountryRecord()], reserved: decorReservedFor(c, plan),
       wood: { avail: woodPressureNow(bot).avail, species: woodSpeciesNow(bot) } } : {}
     // siteprep-01: `prep` pins the claim of a prepared plot (one spot, its base), `read` an after-world (the keeper's choosing)
     const pe = prep?.id ?? null
@@ -26574,7 +26585,7 @@ function bw3Doc (pool) {
 function bw3GuardStrict () {
   try {
     const dir = townDir()
-    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT])]
+    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : [])])]   // country fold: its fills/dams too
     const out = new Set()
     for (const pl of plots) {
       const h = recordHead(dir, projKeyOf(pl))
