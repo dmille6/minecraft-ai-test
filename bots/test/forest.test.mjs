@@ -893,7 +893,7 @@ await t('WIRED: the visit dispatched, the due upkeep read, the footprint priced,
   assert.ok(/function farmDueFor \(bot, rec\) \{\n\s*if \(FORESTP\.on\) return null/.test(s), 'no upkeep visit of the in-wall farm')
   assert.ok(/domain: \(\) => true, walkR: forestWalkR\(rec, home\), foreign: FOREST_FOREIGN/.test(s), 'the build walks as far as the forest (r1)')
   assert.ok(/retire: farmRetireDueNow\(\), skip: forestSkipOf\(bot\)/.test(s), 'the retirement keeps the forest due (r1)')
-  assert.ok((s.match(/keepDue\(\(bot\.forestFails \?\?= new Map\(\)\), t\.key, r\.why\)/g) ?? []).length === 2, 'a tree that keeps failing is kept, forest and farm alike (r1)')
+  assert.ok((s.match(/keepDue\(\(procMem\(bot\)\.forestFails \?\?= new Map\(\)\), t\.key, r\.why\)/g) ?? []).length === 2, 'a tree that keeps failing is kept, forest and farm alike (r1)')
   // the harvest digs with the build effects' dig, never collectManually (the footprint's veto)
   const fell = s.slice(s.indexOf('async function forestFell'), s.indexOf('async function buildForest'))
   assert.ok(/const r = await fellTree\(e, farmRead\(bot\), t,/.test(fell), 'forest-03: the felling is forest.mjs fellTree')

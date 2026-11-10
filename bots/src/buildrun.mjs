@@ -27,6 +27,7 @@
 //   until every other builder's open intent is settled, cancelled, or its sender retired (buildproj.mjs intentRetired); never on
 //   a timer. After the wait the block is HELD again and the face looked at again.
 
+import { performance } from 'node:perf_hooks'
 import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative, refUsable } from './buildsite.mjs'
 import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
@@ -46,6 +47,21 @@ export const PROBES_MAX = 2
 export const RENEW_AT = 0.5
 export const CLOSER_SEGS = new Set(['roof-edge', 'roof-inner'])
 export const REPLANT_MOVES = 4      // a replant moves at most this often (each to a cell never tried before)
+// keeperstall-01 (LIVE showcase 11-10: the keeper's water visit ran 62 standing cuts x one full record pass -- about 41 s -- as ONE
+// macrotask; no keepalive was answered and Paper dropped the bot, every visit): THE VISIT BREATHES. At the TOP of its cell loops
+// (the clears, the segments, a segment's steps) a visit that has worked BREATH_MS of real wall time since its last breath gives the
+// event loop one real turn (setImmediate: the socket is read, a keepalive answered), then stops if it was aborted or its
+// connection ended, and ends `deadline` if its time is over. Never a step counted, never between a check and its dig or send.
+// BREATHE=off|0|false|no: no breath at all (the loops as they were).
+export const BREATH_MS = 40
+export const breatheOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.BREATHE ?? '').trim())
+const BREATHE_ON = breatheOn()
+/** IS A BREATH DUE? -> bool: `budgetMs` of wall time since the last one (a clock that cannot be read: due -- a breath costs one turn). Pure. */
+export function breathDue (lastMs, nowMs, budgetMs = BREATH_MS) {
+  if (!Number.isFinite(lastMs) || !Number.isFinite(nowMs) || !Number.isFinite(budgetMs)) return true
+  return nowMs - lastMs >= budgetMs
+}
+const wallNow = () => performance.now()
 /**
  * plotprep-03: THE ONE TREE'S REPLANTS SETTLED? -> bool. `c` a tree clear; its replants are those with the same `tree` index (and the
  * same `plot` when either names one). A clear with no tree index, or a record none of whose replants carries one, falls back to
@@ -471,7 +487,8 @@ const byColumn = keys => {
  *       want(b), block, hold(), held() } -- an open cell whose block a held TOOL turns into the record's block in place (a shovel:
  *       grass or dirt -> dirt_path) is used from a dig stand, never placed
  *   e   effects: read, feet, bodies, walkTo, hold, has, look, nextSeq, send, waitAck, track, untrack, conn, acked, seen, dig,
- *       probe, aborted, log, now, sleep, spawnedAt
+ *       probe, aborted, log, now, sleep, spawnedAt; optional `pause()` (keeperstall-01: one real event-loop turn; default setImmediate)
+ *   opts { maxSteps, deadline, barrierWaitMs, breathe (default: the BREATHE switch), breathMs (default BREATH_MS) }
  * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
  *        attempts_spent | unknown.
  */
@@ -491,7 +508,7 @@ export async function runVisit (p, e, opts = {}) {
 }
 /** BODY WAITS a visit spends on a cell another builder stands in before it stops (`body_wait`) instead of spending its steps. */
 export const BODY_WAITS = 20
-async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS } = {}) {
+async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS } = {}) {
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
@@ -515,6 +532,17 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (++steps > maxSteps) return 'max_steps'
     if (now() > deadline) return 'deadline'
     return null
+  }
+  // keeperstall-01, THE BREATH (see BREATH_MS): `winded()` is the synchronous question (nothing awaited when no breath is due, and
+  // never with the switch off); `breathe()` -> null | 'aborted' | 'deadline' after ONE real turn of the event loop. The clock is the
+  // WALL's (the effects' `now` is the visit's own, a test's fake); no step is counted. Called at loop tops only.
+  let breathAt = wallNow()
+  const winded = () => !!breatheOpt && breathDue(breathAt, wallNow(), breathMs)
+  const breathe = async () => {
+    await (typeof e.pause === 'function' ? e.pause() : new Promise(resolve => setImmediate(resolve)))
+    breathAt = wallNow()
+    if (e.aborted()) return 'aborted'
+    return now() > deadline ? 'deadline' : null
   }
   const renewSlot = () => {
     if (now() - slotAt < PJ.LEASE_TTL_MS * RENEW_AT) return true
@@ -973,6 +1001,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     let nodes = null, tried = 0
     try {
       for (const c of todo) {
+        if (winded()) { const b = await breathe(); if (b) return b }
         // the step guard counts the entries a dig is TRIED for (below the skips), and `p.clearMax` bounds them per call: a long
         // list (monument-01) leaves the rest of the visit for the segments instead of ending it at max_steps in the clears
         if (tried >= (p.clearMax ?? Infinity)) return null
@@ -1102,6 +1131,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   }
   try {
   for (const { seg, deps } of segmentsOf(record)) {
+    if (winded()) { const b = await breathe(); if (b) { out.stop = b; return out } }
     if (segComplete(rd, record, palette, seg, alsoDone)) continue
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
     if (!deps.every(d => segComplete(rd, record, palette, d, alsoDone))) {
@@ -1121,6 +1151,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     let finished = false
     try {
       for (;;) {
+        if (winded()) { const b = await breathe(); if (b) { out.stop = b; return out } }
         const g = guard(); if (g) { out.stop = g; return out }
         const mine = record.cells.filter(c => c.seg === seg)
         const open = mine.filter(c => !isDone(c))

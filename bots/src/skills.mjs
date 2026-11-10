@@ -234,6 +234,7 @@ import { stuckRead as vfStuckRead } from './buildproj.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
+import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
@@ -26153,7 +26154,7 @@ function keeperOrder (bot, states, list, now = Date.now()) {
     if (GKL_ON && unfitHeld && h.d === 'mine' && !inGrounds) { releaseHelper(bot, h.name, h.helpers?.[h.name]?.gen ?? null, unfitHeld, now); bot.gkHelpRestUntil = now + GK_FIT.restMs } else if (h.d === 'mine' || (h.d === 'take' && !decorHeld && !(GKL_ON && unfit))) d = 'helper'
   }
   // forest-01: a forest visit that did nothing rests the forest for this keeper (forestIdleUntil): the tidy goes on meanwhile
-  if (forestPlot && now < (bot.forestIdleUntil ?? 0)) { const fi = states.findIndex(q => q?.plot === forestPlot); if (fi >= 0) states[fi] = { ...states[fi], idle: true } }
+  if (forestPlot && now < (procMem(bot).forestIdleUntil ?? 0)) { const fi = states.findIndex(q => q?.plot === forestPlot); if (fi >= 0) states[fi] = { ...states[fi], idle: true } }
   const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, forestPlot, tidyClosing: d === 'mine' && GKW_ON && gkwTownClosing(bot, now) })   // gkclear-01
   // gklease-01 rule 3: the keeper's grounds before the town's other repairs (every other bot keeps the repair tier)
   const st1 = GKL_ON && d === 'mine' && work ? keeperGroundsFirst(r.states, { grounds: [TIDY_PLOT, FOREST_PLOT] }) : r.states
@@ -26819,8 +26820,10 @@ function bw3GuardStrict () {
     return out
   } catch { return null }
 }
-/** Is the water visit due for this bot now (switch, clock)? Pure but for the switch. */
-export const bw3Due = (bot, now = Date.now(), every = BW3.everyMs) => BW3S.on && now - (Number(bot?.bw3At) || 0) >= every
+/** Is the water visit due now (switch, clock)? `mem` = the bot's PROCESS memory (procmem.mjs procMem(bot): `bw3At` outlives a
+ *  reconnect -- keeperstall-01: kept on the bot, the visit that timed the keeper out was due again the moment it was back). Pure but
+ *  for the switch. */
+export const bw3Due = (mem, now = Date.now(), every = BW3.everyMs) => BW3S.on && now - (Number(mem?.bw3At) || 0) >= every
 /** One water visit -> { tried, status, why, placed, cleared, stop }. `tried` false: nothing was walked to or dug (no file, no work). */
 async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL_MS } = {}) {
   const { bot } = ctx
@@ -26840,7 +26843,7 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
   if (!guard) return no('record_unreadable')
   const read = planReader(bot)
   const w = bw3Work(ev.lines, read, { guard: k => guard.has(k), walkOn: BW3S.walk, home })
-  const mem = (bot.bw3Given ??= new Map())
+  const mem = (procMem(bot).bw3Given ??= new Map())   // keeperstall-01: a give-up outlives a reconnect
   const cuts = w.cuts.filter(q => !tidyGivenUp(mem, q.at.join(',')))
   if (!cuts.length && !(w.stats.deck > w.stats.deckDone)) return no(bw3HasWork(w) ? 'given_up' : 'nothing')
   if (deadline - t0 < BW3.minVisitMs) return no('late')
@@ -27283,14 +27286,14 @@ async function buildTidyVisit (ctx, args, signal) {
     if (crec !== undefined) {
       const irec = rh.head?.rec ?? null
       const cap = role === 'helper' ? helpersCap(gkOpenNow(bot, dir, projKeyOf(TIDY_PLOT))) : 0
-      const gl = groundsLane({ on: true, role, helper: helper?.name ?? null, cap, inside: { open: !!irec && !irec.structure_complete, due: !irec || tidyDue(irec) || gkStageDue(irec) }, country: { demand: countryDemand(crec) }, lastCountryAt: bot.gkCountryAt ?? -Infinity })
+      const gl = groundsLane({ on: true, role, helper: helper?.name ?? null, cap, inside: { open: !!irec && !irec.structure_complete, due: !irec || tidyDue(irec) || gkStageDue(irec) }, country: { demand: countryDemand(crec) }, lastCountryAt: procMem(bot).gkCountryAt ?? -Infinity })
       lane = gl.lane
       try { logEvent({ kind: 'grounds_lane', status: 'success', snapshot: snapshot(bot), detail: laneDetail({ lane, why: gl.why, role, helper: helper?.name ?? null, demand: countryDemand(crec) }) }) } catch { /* telemetry */ }
       if (lane === 'country') {
         plot = COUNTRY_PLOT; f.project = COUNTRY_PLOT; key = projKeyOf(COUNTRY_PLOT)
         rh = recordHead(dir, key)
         if (!rh.ok) return out('no_effect', 'record_unreadable', 'the country record could not be read')
-        if (role === 'keeper') bot.gkCountryAt = Date.now()
+        if (role === 'keeper') procMem(bot).gkCountryAt = Date.now()
       }
     }
     f.lane = lane
@@ -27299,8 +27302,8 @@ async function buildTidyVisit (ctx, args, signal) {
   // gkclear-02: a keeper's tidy visit is stamped at its start with the town's count (an interrupted visit still spends its turn)
   if (GKW_ON && role === 'keeper') { try { bot.gkwTown = null; const t = gkwTownRead(bot); if (t.sig) bot.gkwTried = { sig: t.sig, total: t.total, at: Date.now() } } catch { /* the stamp is advisory */ } }
   // BOARDWALK-03: the town's water, every BW3.everyMs, before the stage (the keeper's; a visit with no water work goes on to the grounds)
-  if (role === 'keeper' && bw3Due(bot)) {
-    bot.bw3At = Date.now()
+  if (role === 'keeper' && bw3Due(procMem(bot))) {
+    procMem(bot).bw3At = Date.now()
     const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
     if (ww.tried) return out(ww.status, 'waterwalk', ww.why, { stop: 'waterwalk', placed: ww.placed, cleared: ww.cleared }, ww.failClass ?? null)
   }
@@ -28060,7 +28063,7 @@ async function buildTreeFarm (ctx, args, signal) {
 // this bot FOREST.idleMs (its due comes back when a tree grows).
 // ================================================================================================================================
 const FOREST_SKIP_MS = 30 * 60_000
-const forestSkipOf = bot => { const m = (bot.forestSkip ??= new Map()); return k => { const e = m.get(k); return !!e && Date.now() < e } }
+const forestSkipOf = bot => { const m = (procMem(bot).forestSkip ??= new Map()); return k => { const e = m.get(k); return !!e && Date.now() < e } }
 /** The saplings to hand for the forest -> n (the bag's and the town's straight-trunk saplings). Never throws. */
 function forestSaplingsNow (bot) {
   let n = 0
@@ -28090,7 +28093,7 @@ function forestDemandNow (bot) {
 /** IS THE FOREST DUE A VISIT for this bot (forest.mjs forestDue)? -> reason | null. Its own idle rest and failed trees skipped. */
 function forestDueFor (bot, rec) {
   try {
-    if (Date.now() < (bot.forestIdleUntil ?? 0)) return null
+    if (Date.now() < (procMem(bot).forestIdleUntil ?? 0)) return null
     return forestDue(farmRead(bot), rec, { now: Date.now(), saplings: forestSaplingsNow(bot), drops: forestDropsNow(bot, rec).length, retire: farmRetireDueNow(), skip: forestSkipOf(bot) })
   } catch { return null }
 }
@@ -28152,7 +28155,7 @@ async function buildForest (ctx, args, signal) {
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
-    if (status === 'no_effect' && !['keeper_held', 'off', 'zones_unknown', 'no_plan'].includes(outcome)) bot.forestIdleUntil = Date.now() + FOREST.idleMs
+    if (status === 'no_effect' && !['keeper_held', 'off', 'zones_unknown', 'no_plan'].includes(outcome)) procMem(bot).forestIdleUntil = Date.now() + FOREST.idleMs
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
   }
   if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === FOREST_PLOT)) return out('no_effect', 'off', 'the forest is switched off (FOREST, GROUNDSKEEPER, WALL, PATHS, HOUSE, SHOP or TOWNPLAN)')
@@ -28220,10 +28223,10 @@ async function buildForest (ctx, args, signal) {
             const r = t.stand ? await forestFell(bot, e, t, { signal, deadline: deadline - 20_000, log: rowLog, kind: 'retire', project: TREEFARM_PLOT, guarded: (rguard ??= fellLeafGuard(bot, [FOREST_PLOT, TREEFARM_PLOT])) }) : { n: 0, why: 'no_stand' }
             felledAll += r.n
             if (r.why) {
-              (bot.forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
+              (procMem(bot).forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
               rowLog({ project: TREEFARM_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: 'retire_failed', n: r.n, why: r.why })
               // a tree no stand fells (none, or failed FOREST.failMax times): KEPT, a garden tree -- never a farm that never retires
-              if (!t.stand || keepDue((bot.forestFails ??= new Map()), t.key, r.why)) {
+              if (!t.stand || keepDue((procMem(bot).forestFails ??= new Map()), t.key, r.why)) {
                 const pub = publishRecord(dir, fk, cur => (cur && !farmIsRetired(cur) && !cur.waived?.[t.key] ? { ...cur, waived: { ...(cur.waived ?? {}), [t.key]: { why: String(r.why).slice(0, 40), at: Date.now(), by: me } } } : null), { by: me })
                 if (pub.result === 'accepted') rowLog({ project: TREEFARM_PLOT, op: 'waived', cell: t.cell, kind: 'kept', why: String(r.why).slice(0, 40), gen: pub.gen })
               }
@@ -28285,10 +28288,10 @@ async function buildForest (ctx, args, signal) {
             hv.felled += r.n
             if (r.why) {
               hv.failed++
-              ;(bot.forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
+              ;(procMem(bot).forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
               rowLog({ project: FOREST_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: `${t.kind}_failed`, n: r.n, why: r.why })
               // a tree that keeps failing (never on the clock) is KEPT: its plot (or site tree) waived, so the strip's rotation goes on
-              if (keepDue((bot.forestFails ??= new Map()), t.key, r.why)) {
+              if (keepDue((procMem(bot).forestFails ??= new Map()), t.key, r.why)) {
                 const pub = publishRecord(dir, key, cur => (cur && !cur.waived?.[t.key] ? { ...cur, waived: { ...(cur.waived ?? {}), [t.key]: { why: String(r.why).slice(0, 40), at: Date.now(), by: me } } } : null), { by: me })
                 if (pub.result === 'accepted') { hv.waived++; rowLog({ project: FOREST_PLOT, op: 'waived', cell: t.cell, kind: 'kept', why: String(r.why).slice(0, 40), gen: pub.gen }) }
               }

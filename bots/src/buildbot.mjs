@@ -216,18 +216,25 @@ export function installServerBlockWitness (bot) {
   }
 }
 
+/** keeperstall-01: HAS THIS BOT'S CONNECTION ENDED? -> bool. minecraft-protocol's client sets `ended` false on connect and true on end;
+ *  a bot with no client (a test's fake), or a client that never said, reads as NOT ended. Pure. */
+export const connEnded = bot => bot?._client?.ended === true
 /**
  * -> runVisit's effects for `bot`, plus close(). Options:
  *   acks           the connection's tracker (skills.mjs shopAckInstall, installed before login); none: one is installed for
  *                  this visit and removed at close (the Paper drivers' bare bots)
  *   keep           { name: n } the bag's keeps at the visit's start (`has` counts above them)
  *   withWalk(fn)   the caller's scoped walk profile (index.mjs); identity by default
- *   aborted()      the skill's signal
+ *   aborted()      the skill's signal; keeperstall-01: the effects' own `aborted()` is ALSO true once this bot's connection has
+ *                  ended (connEnded) -- index.mjs's `end` handler does not cancel the running skill, so a visit that yields
+ *                  (buildrun.mjs breathe) learns here that nobody is on the other end of its digs and clicks
  *   log(kind, d)   the row writer (the skill's logEvent)
  *   spawnedAt()    ms of the last spawn
  */
-export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn => fn(), aborted = () => false, log = () => {}, spawnedAt = () => 0, pathMs = PATH_MS, cornerSquare = false, apexDig = null } = {}) {
+export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn => fn(), aborted: skillAborted = () => false, log = () => {}, spawnedAt = () => 0, pathMs = PATH_MS, cornerSquare = false, apexDig = null } = {}) {
   const own = !acks
+  // keeperstall-01: ONE definition for every use below and for the visit (`e.aborted()`): the skill's signal, or the connection gone
+  const aborted = () => !!skillAborted() || connEnded(bot)
   const A = acks ?? installAckTracker(bot)
   const blocks = installServerBlockWitness(bot)
   const timers = new Set()

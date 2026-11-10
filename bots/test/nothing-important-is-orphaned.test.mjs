@@ -432,6 +432,10 @@ const REQUIRED = [
   'bots/test/obsidian.test.mjs',
   // showdrop-01show (11-08): one listing a stretch, the order primer, the pool prune; the evictor's end stop
   'bots/test/showdrop.test.mjs',
+  // keeperstall-01show (11-10): the visit breathes, an ended connection aborts it, the keeper's clocks and give-ups outlive a reconnect
+  'bots/src/procmem.mjs',
+  'bots/test/keeperstall.test.mjs',
+  'docs/reports/keeperstall-2026-11-10.md',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
