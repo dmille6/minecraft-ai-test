@@ -210,7 +210,7 @@ export function penRecord ({ f, x0, z0 }, { home, wood = 'spruce' } = {}) {
     pens: { sheep: { floor: lay.floor.sheep.map(([x, z]) => [x, L + 1, z]), gate: lay.gates.find(g => g.pen === 'sheep') }, cow: { floor: lay.floor.cow.map(([x, z]) => [x, L + 1, z]), gate: lay.gates.find(g => g.pen === 'cow') } },
     apron: lay.apron.map(([x, z]) => [x, L + 1, z]),
     walk: [...lay.apron, ...lay.walk].map(([x, z]) => [x, L + 1, z]),
-    front: lay.apron.slice(0, 2).map(([x, z]) => [x, z]),
+    front: lay.apron.map(([x, z]) => [x, z]),   // wood fold (Codex BLOCKER): both gates' approaches, never only the sheep's
     counts: { fence: lay.fence.length, gates: lay.gates.length, floor: f.floorFill.length, cut: f.clear.filter(q => q.kind === 'cut').length, grass: f.grass },
     bom: { [palette.fence[0]]: lay.fence.length, [palette.gate[0]]: lay.gates.length, ...(f.floorFill.length ? { dirt: f.floorFill.length } : {}) },
     builders_max: PENS_BUILDERS,
