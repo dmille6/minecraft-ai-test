@@ -560,6 +560,26 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
 }
 /** The destinations a laid record does not serve yet: no leg of the record goes `to` it and none of its columns is a path
  *  column. Pure. */
+/**
+ * PATHSMEM-01 (LIVE showcase 11-10, 24 h: 406 paths visits, 402 `complete` with nothing placed, ~30 a bot; each within 20 s - 4 min of a
+ * NEW CONNECTION (`_sink_mode` rows): the extension clock `pathsExtendAt` and the unrouted set `pathsUnrouted` lived on the bot object,
+ * which index.mjs makes anew after every disconnect -- so after each reconnect the laid network read DUE its extension again
+ * (recordDamaged -> pathsExtendDue: the enchantshop destination, which extendPaths answers `unrouted:enchantshop:unreachable`, offline
+ * on the 11-10 17:16Z copy), the order sent the bot there as a REPAIR, and the visit found the 610 cells laid). The two now live in the
+ * process memory (procmem.mjs, keeperstall-01) and an unrouted destination is asked again after PATHS_UNROUTED_MS, not never. Pure.
+ *   mem  procMem(bot): { pathsExtendAt?, pathsUnrouted?: Map to -> until }
+ */
+export const PATHS_UNROUTED_MS = 6 * 60 * 60_000
+/** Is a destination in the unrouted wait now? Pure. */
+export const pathsUnroutedNow = (mem, to, now = Date.now()) => Number(mem?.pathsUnrouted?.get?.(to)) > now
+/** Note an extension's outcome: the clock, and each destination no leg reached (never for a visit whose connection ended: its reads
+ *  are no evidence). Mutates `mem`. Pure but for that. */
+export function pathsExtendNote (mem, failed = [], { now = Date.now(), ended = false, waitMs = PATHS_UNROUTED_MS } = {}) {
+  if (!mem || ended) return mem
+  mem.pathsExtendAt = now
+  for (const t of failed ?? []) (mem.pathsUnrouted ??= new Map()).set(t, now + waitMs)
+  return mem
+}
 export function newDests (record, dests = []) {
   const lv = new Set((record?.cells ?? []).filter(c => c.role === 'path').map(c => `${c.at[0]},${c.at[2]}`))
   const tos = new Set((record?.legs ?? []).map(l => l.to))

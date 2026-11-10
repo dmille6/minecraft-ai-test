@@ -176,7 +176,7 @@ import { siteKey as bridgeSiteKey, stepDone, designWaits } from './bridge.mjs'  
 import { townCopperOf } from './copperhall.mjs'   // copperhall-01 r3
 import { COPPERRUN, COPPER_KINDS, COPPER_ORE_RADIUS, copperRunOrder, copperRunDetail, copperRunModeDetail } from './copperhall.mjs'   // copperrun-01
 import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copperrun-01: the build order's ask; the hall's switch
-import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
+import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid, pathsUnroutedNow, pathsExtendNote } from './paths.mjs'   // paths-01; pathsmem-01
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
@@ -24314,11 +24314,14 @@ function pathsInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDi
 function pathsExtendDue (bot, rec) {
   try {
     if (pathsNoSiteRec(rec)) return false                         // fleetpaths-01: nothing laid to extend
-    if (Date.now() - (bot?.pathsExtendAt ?? -Infinity) < PATHS_EXTEND_MS) return false
+    // pathsmem-01 (paths.mjs pathsExtendNote): the clock and the unrouted waits live in the PROCESS memory, never reset by a reconnect
+    const pm = procMem(bot)
+    if (Date.now() - (pm.pathsExtendAt ?? -Infinity) < PATHS_EXTEND_MS) return false
     const h = townPlanHead(bot)
     if (!h.ok || !h.head) return false
     const D = pathDests(pathsInputs(bot, shopCtx(bot), h))
-    return newDests(rec, D.dests ?? []).some(d => !bot.pathsUnrouted?.has?.(d.to))
+    const now = Date.now()
+    return newDests(rec, D.dests ?? []).some(d => !pathsUnroutedNow(pm, d.to, now))
   } catch { return false }
 }
 /**
@@ -24386,12 +24389,14 @@ async function buildPaths (ctx, args, signal) {
   // THE EXTENSION (paths-01 r2, coordinator 10-30: the store row's chests at -7,71,8 and -5,71,8 unreachable under spruce leaves):
   // a destination the laid network does not touch -- a container's stand, a project completed since -- gains a leg (paths.mjs
   // extendPaths), at most once per PATHS_EXTEND_MS per bot; the record reopens and the visit builds it
-  if (Date.now() - (bot.pathsExtendAt ?? -Infinity) >= PATHS_EXTEND_MS) {
-    bot.pathsExtendAt = Date.now()
+  // pathsmem-01: the clock and the unrouted waits in the process memory (paths.mjs pathsExtendNote: never noted on an ended connection)
+  const pm = procMem(bot)
+  if (Date.now() - (pm.pathsExtendAt ?? -Infinity) >= PATHS_EXTEND_MS) {
+    pathsExtendNote(pm, [], { ended: clientEnded(bot) })   // the clock first: a throw below still waits PATHS_EXTEND_MS
     try {
       const base = rh.head.rec, gen0 = rh.head.gen
       const x = extendPaths(planReader(bot), base, inputs())
-      for (const t of x.failed ?? []) (bot.pathsUnrouted ??= new Set()).add(t)
+      pathsExtendNote(pm, x.failed ?? [], { ended: clientEnded(bot) })
       if (x.ok) {
         const pub = publishRecord(dir, key, cur => (cur && cur.cells.length === base.cells.length && (cur.legs ?? []).length === (base.legs ?? []).length ? { ...x.record, completeAt: cur.completeAt ?? null } : null), { by: me })
         if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: PATHS_PLOT, op: 'extended', cell: [home.x, home.y, home.z], kind: x.added.join('+'), gen: pub.gen, n: x.record.cells.length - base.cells.length }) }) } catch { /* telemetry */ } }
