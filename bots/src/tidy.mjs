@@ -1497,7 +1497,7 @@ export function bandTrees (read, { home, box, inBand = () => true, corridor = ()
  * do in this stage (the caller moves to the next). townterrace-01: the terrace stage returns a PROMISE (terrace.mjs siteTerrace);
  * callers await siteStage.
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, env = process.env, L = LAND } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, env = process.env, L = LAND } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
@@ -1569,6 +1569,8 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // tables, the bots' own ledgered scaffold -- off every column this stage already works and the plots' levelling
     if (roughOn(env)) {
       const busyR = new Set([...sv0.cut, ...sv0.fill, ...pp.cut, ...pp.fill].map(q => k2(q.at[0], q.at[2])))
+      // tidyrefresh-01: an open record's refresh passes the columns it still works (`planned`) -- never planned twice, never under the cap (it pages)
+      for (const k of planned ?? []) busyR.add(k)
       for (const a of sv0.access ?? []) for (const c of a.cells) busyR.add(k2(c[0], c[2]))
       sv0.cut = [...sv0.cut]; sv0.pillars = [...sv0.pillars]
       // Codex 1c r1 BLOCKER: a stand never stands on a wall extension's reserved plot (the whole box)

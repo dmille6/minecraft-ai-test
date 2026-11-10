@@ -484,7 +484,8 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
  * 15:34Z and read "cuts 0/77, fills 0/1331" for 23 h while the bots kept piling scaffold up): when was the inside last surveyed?
  * -> ms | null. Pure. A record of the inwall stage is its own siting; any later stage carries the time on (`inwallAt`).
  */
-export const inwallAtOf = (rec, inwallId = 'inwall') => (rec?.stageId === inwallId ? (Number(rec?.sitedAt) || null) : (Number(rec?.inwallAt) || null))
+// tidyrefresh-01: an open inside-the-wall record's hourly refresh (tidyrefresh.mjs) is a survey of the inside too -- its time counts
+export const inwallAtOf = (rec, inwallId = 'inwall') => (rec?.stageId === inwallId ? (Math.max(Number(rec?.sitedAt) || 0, Number(rec?.refreshAt) || 0) || null) : (Number(rec?.inwallAt) || null))
 /**
  * BEFORE THE NEXT STAGE, INSIDE AGAIN? -> bool. Pure. The keeper is about to site stage `nextK` (a complete stage's successor): when
  * that is a stage AFTER the inside-the-wall one and the inside was last surveyed `everyMs` ago or more (or never, by this clock),

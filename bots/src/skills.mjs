@@ -173,6 +173,7 @@ import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellK
 import { fillWant, earthDirt, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
+import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn } from './tidyrefresh.mjs'   // tidyrefresh-01
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
@@ -25614,6 +25615,7 @@ function keeperOrder (bot, states, list, now = Date.now()) {
 /** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
 const GKL_ON = gkleaseOn()
 const GKW_ON = gkworkOn()   // gkwork-01
+const TRF_ON = tidyRefreshOn()   // tidyrefresh-01
 /** gkclear-01: is the town's tidy stage collecting strikes (gkwork.mjs strikesClosing over every holder's file)? Cached 60 s a bot; never throws. */
 function gkwTownClosing (bot, now = Date.now()) {
   if (!GKW_ON || !GROUNDS.on || !bot) return false
@@ -26171,6 +26173,65 @@ export async function gkSweep (bot, signal, { until = Date.now() + GKSWEEP.budge
   try { logEvent({ kind: 'build', status: took > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'sweep', n: took, kind: kinds.slice(0, 120), why: why.slice(0, 160), result: took > 0 ? 'took' : 'none' }) }) } catch { /* telemetry */ }
   return { took, kinds, picks: sel.picks.length, skipped: sel.skipped }
 }
+/** THE STAGE SURVEY'S INPUTS (the siting's and tidyrefresh-01's refresh: one source) -> { land, read, last, lights, terrace }: the land
+ *  plan, a reader, the last stage, the road lights the town spares, and the terrace/inwall inputs (the floors' records, the wall and
+ *  its extension, the wells' caps, the bots' climbs of 7 days, what the town can get for the park). Never throws past the caller's try. */
+function stageSurveyInputs (bot, I, dir, signal) {
+  const land = landHead(dir), read = planReader(bot), last = land ? landStages().at(-1).k : 0
+  let lights = 0
+  try { lights = Math.min(8, lightsFor(matsTownStock(bot)?.stock?.torch, matsReserve().table?.torch)) } catch { lights = 0 }
+  // townterrace-01: the terrace stage's inputs -- the floors' records, the wall, the wells' caps, and what the town can get
+  // for the park (the town's stock and this bag)
+  let have = {}
+  try { have = { ...(matsTownStock(bot)?.stock ?? {}) }; for (const [n, v] of Object.entries(heldMap(bot))) have[n] = (Number(have[n]) || 0) + v } catch { have = heldMap(bot) }
+  // access-02: the bots' own climbs (placeaudit.mjs's ledger, every bot's, 48 h) for the inwall stage's staircases
+  let climbs = []
+  // roughground-01: 7 days of them -- the survey takes back the bots' scaffold still standing (climbSpots keeps its own 48 h)
+  try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
+  const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+  return { land, read, last, lights, terrace }
+}
+/**
+ * TIDYREFRESH-01: THE OPEN RECORD'S REFRESH -> the new head { ok, head } | null (nothing written: the head as it was). The inside
+ * surveyed again (siteStage, the inwall stage, with the record's open columns `busy`), the new survey merged into the head NOW (inside
+ * the publish: another bot's waiver or refresh in between is merged over, never lost), the clock stamped whether or not anything was
+ * added (one survey an hour for the town, whoever keeps it). A survey that cannot run is asked again next visit (no stamp).
+ */
+async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
+  const r0 = rh.head.rec
+  let s, read, cap = 0, guard
+  try {
+    const I = tidyInputs(bot, c, h, dir)
+    const si = stageSurveyInputs(bot, I, dir, signal)
+    read = si.read
+    const inK = landStages().find(q => q.id === 'inwall')?.k
+    if (!Number.isFinite(inK)) return null
+    const busy = openColumns(r0, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
+    s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land: si.land, stage: inK, lim: gradeLim(read, 6), lights: si.lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: si.terrace, reserved: I.reserved, forest: forestRecNow(), planned: busy })
+    cap = s?.survey?.rough?.skipped?.cap ?? 0
+    // the visit's own guard: another project's cells now, the markers, the bridges
+    guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(','))))
+    try { for (const k of markerCellKeys(exMarkers())) guard.add(k) } catch { /* no markers */ }
+    try { for (const k of bridgeCellKeys(exBridgeSites())) guard.add(k) } catch { /* no bridges */ }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    return null
+  }
+  if (!s?.ok) return null
+  const fresh = s.record ? coreFills(s.record) : null
+  let res = null
+  const now = Date.now()
+  const pub = publishRecord(dir, key, cur => {
+    if (!cur || cur.structure_complete || cur.sitedAt !== r0.sitedAt || !refreshDue(cur, { now })) return null
+    const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
+    res = refreshMerge(cur, fresh, { busy, guard, now })
+    return refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap })
+  }, { by: me })
+  if (pub.result !== 'accepted') return null
+  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+  const h2 = recordHead(dir, key)
+  return h2.ok && h2.head ? h2 : null
+}
 async function buildTidyVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -26237,18 +26298,7 @@ async function buildTidyVisit (ctx, args, signal) {
       I = tidyInputs(bot, c, h, dir)
       if (GROUNDS.on) {
         // the first stage from k0 with work (tidy.mjs siteStage; stage 0 is siteTidy itself)
-        const land = landHead(dir), read = planReader(bot), last = land ? landStages().at(-1).k : 0
-        let lights = 0
-        try { lights = Math.min(8, lightsFor(matsTownStock(bot)?.stock?.torch, matsReserve().table?.torch)) } catch { lights = 0 }
-        // townterrace-01: the terrace stage's inputs -- the floors' records, the wall, the wells' caps, and what the town can get
-        // for the park (the town's stock and this bag)
-        let have = {}
-        try { have = { ...(matsTownStock(bot)?.stock ?? {}) }; for (const [n, v] of Object.entries(heldMap(bot))) have[n] = (Number(have[n]) || 0) + v } catch { have = heldMap(bot) }
-        // access-02: the bots' own climbs (placeaudit.mjs's ledger, every bot's, 48 h) for the inwall stage's staircases
-        let climbs = []
-        // roughground-01: 7 days of them -- the survey takes back the bots' scaffold still standing (climbSpots keeps its own 48 h)
-        try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
-        const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+        const { land, read, last, lights, terrace } = stageSurveyInputs(bot, I, dir, signal)   // tidyrefresh-01: shared with the refresh
         // roughground-01 (owner 11-07): before a band after the inside-the-wall stage, the inside again when it was last surveyed an
         // hour ago or more (roughground.mjs inwallFirst) -- a survey with work there is sited there
         const inK = landStages().find(q => q.id === 'inwall')?.k
@@ -26286,6 +26336,13 @@ async function buildTidyVisit (ctx, args, signal) {
     }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')
+  }
+  // TIDYREFRESH-01 (a)+(c): an OPEN inside-the-wall record is surveyed again by its keeper every hour (tidyrefresh.mjs refreshDue);
+  // what the new survey finds off the columns the record still works is ADDED (refreshMerge: whole columns, never a cell another
+  // project names, never one the record names or waived) -- the work already planned passed as `busy`, so the rough cap pages
+  if (GROUNDS.on && LANDP.on && caps.site && rh.head && refreshDue(rh.head.rec)) {
+    const r2 = await tidyRefresh(bot, c, h, dir, key, rh, me, signal)
+    if (r2) rh = r2
   }
   let rec = rh.head.rec
   // gkhelpers-01: the KEEPER's plan additions -- the storehouse's floor holes first (groundskeeper.mjs storeFloorHoles: the chests'
@@ -26463,7 +26520,7 @@ async function buildTidyVisit (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])))
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !claimedQ(q) && !plotEntryRetired(q, plotsSited) && !guard.has(q.at.join(',')) && !(isTerrace && !q.prep && guardNow(q.at[0], q.at[2])) && !(TRF_ON && GROUNDS.on && cutWaived(rec, q.at.join(','))))   // tidyrefresh-01 (b): never a cut the town gave up
     // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
     const fp = bot.entity?.position
     // gkhelpers-01: the cuts are the keeper's (crewCaps.digs), and none while the storehouse floor is open
@@ -26546,6 +26603,28 @@ async function buildTidyVisit (ctx, args, signal) {
         const h2 = recordHead(dir, key); if (h2.ok && h2.head) rw = h2.head.rec
       }
     } catch { /* counted again next visit */ }
+    // TIDYREFRESH-01 (b): a cut this bot's visits gave up (tidyNoteCuts above: TIDY_CUT_TRIES evaluated, still standing) is given up
+    // by the TOWN -- named on the record's waived list (with the closed hollow under a kept crust), so the completion and every other
+    // crew bot read it so; the next inside-the-wall survey plans it again (the refresh never re-adds a waived cell on this record)
+    if (TRF_ON && GROUNDS.on) {
+      try {
+        const gu = cutGiveUps(rw, read2, { given: k => tidyGivenUp(mem, k) })
+        if (gu.length) {
+          const pub = publishRecord(dir, key, cur => {
+            if (!cur || cur.structure_complete || cur.sitedAt !== rw.sitedAt) return null
+            const w = { ...(cur.waived ?? {}) }
+            let n = 0
+            for (const d of cutGiveUps(cur, read2, { given: k => tidyGivenUp(mem, k) })) if (!w[d.k]) { w[d.k] = { why: d.why, at: Date.now(), by: me }; n++ }
+            return n ? { ...cur, waived: w } : null
+          }, { by: me })
+          if (pub.result === 'accepted') {
+            for (const d of gu) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why.split(':')[0].split(' ')[0] }) }) } catch { /* telemetry */ } }
+            const h2 = recordHead(dir, key); if (h2.ok && h2.head) rw = h2.head.rec
+            f.cutsGiven = gu.length
+          }
+        }
+      } catch { /* given up again next visit */ }
+    }
     // gkstall-01: a visit that waived ends cell_waived (asked again at the keeper's cooldown), never the 6-h stuck_on_cell back-off;
     // a KEEPER still stuck (no waiver room) lets the lease go, so the grounds never sit with a holder whose order is backed off
     const stop1 = GROUNDS.on ? gkStopAfterWaive(r.stop, waivedN) : r.stop
@@ -26555,7 +26634,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
     const skip2 = skipOf(read2)
-    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) }
+    const progOpts = { fillDone: q => claimedQ(q) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) ||   /* Codex water r2: the farm-water waiver counts at completion too */ guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || noSoil(q) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2])) || buildCellDone(read2(...q.at), palette, q.role) || !!skip2(q), given: k => guard.has(k) || claimedQ({ at: k.split(',').map(Number) }) || tidyGivenUp(mem, k) || (isTerrace && !cutAt.get(k)?.prep && !!guardNow(Number(k.split(',')[0]), Number(k.split(',')[2]))) || (TRF_ON && GROUNDS.on && cutWaived(rw, k)) }
     let prog = tidyProgress(rw, read2, progOpts)
     // townterrace-01: what the park passed over this visit, named (one row a visit: the element skipped and why)
     if (parkish) {
