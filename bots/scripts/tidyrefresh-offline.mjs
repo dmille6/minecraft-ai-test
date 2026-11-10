@@ -5,7 +5,7 @@
 // fills, columns), what was skipped and why, the rough cap before (the head's own siting) and now, and an INDEPENDENT check that no
 // added cell touches a protected zone, another project's record cell or a well. With --no-planned the survey runs without `busy`
 // (the control: the cap fills with the work already planned).
-//   node scripts/tidyrefresh-offline.mjs <dump.json> <pool-state-dir> [--now ISO] [--no-planned] [--json]
+//   node scripts/tidyrefresh-offline.mjs <dump.json> <pool-state-dir> [--now ISO] [--no-planned] [--added cols.json] [--add-max N] [--json]
 // <dump.json>: scripts/host/townplan_blockdump.py over COPIES of the region files; <pool-state-dir>: a COPY of /var/lib/mcai/_pool-<pool>.
 // The inputs are inwall-offline's (the tidy's avoid, cells, reservations) plus the wall extension and the bots' climbs (7 days).
 import fs from 'node:fs'
@@ -25,7 +25,7 @@ import { markerZones } from '../src/expedition.mjs'
 const argv = process.argv.slice(2)
 const opt = (k, d = null) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d }
 const [dumpPath, poolDir] = argv
-if (!dumpPath || !poolDir) { console.error('usage: tidyrefresh-offline.mjs <dump.json> <pool-state-dir> [--now ISO] [--no-planned] [--json]'); process.exit(2) }
+if (!dumpPath || !poolDir) { console.error('usage: tidyrefresh-offline.mjs <dump.json> <pool-state-dir> [--now ISO] [--no-planned] [--added cols.json] [--add-max N] [--json]'); process.exit(2) }
 const now = opt('now') ? Date.parse(opt('now')) : Date.now()
 const read = dumpReader(JSON.parse(fs.readFileSync(dumpPath, 'utf8')))
 const R = poolRecords(poolDir)
@@ -76,7 +76,7 @@ const open = { cut: cur.cut.filter(c => !(cur.waived ?? {})[c.at.join(',')] && T
 const s = T.siteStage(read, { home, land, stage, avoid, cells, plan, lim: T.gradeLim(read, 6), now, walkFrom: T.townEdge(plan, home), terrace, reserved, planned: argv.includes('--no-planned') ? null : busy })
 const fresh = s.record ? T.coreFills(s.record) : null
 const guard = new Set(recs.flatMap(r => (r.cells ?? []).map(c => c.at.join(','))))
-const m = TR.refreshMerge(cur, fresh, { busy, guard, now })
+const m = TR.refreshMerge(cur, fresh, { busy, guard, now, T: { ...TR.TIDYREFRESH, addMax: Number(opt('add-max', TR.TIDYREFRESH.addMax)) } })   // --add-max: the pages after this one, at once
 const added = m.rec ? [...m.rec.cut.filter(c => c.added === now).map(c => c.at), ...m.rec.cells.filter(c => c.added === now).map(c => c.at)] : []
 const zoneHit = c => (R.zones ?? []).some(z => { const b = z.box; return c[0] >= b[0] && c[0] <= b[3] && c[2] >= b[2] && c[2] <= b[5] })
 const capNear = c => caps.some(w => Math.max(Math.abs(w[0] - c[0]), Math.abs(w[2] - c[2])) <= 3) || (R.wells ?? []).some(w => w[0] === c[0] && w[2] === c[2])
@@ -92,4 +92,5 @@ const out = {
   addedNames: m.rec ? m.rec.cut.filter(c => c.added === now).reduce((o, c) => ((o[c.name] = (o[c.name] ?? 0) + 1), o), {}) : {},
   prot,
 }
+if (opt('added')) fs.writeFileSync(opt('added'), JSON.stringify({ added: [...new Set(added.map(a => `${a[0]},${a[2]}`))], open: [...busy] }))
 console.log(argv.includes('--json') ? JSON.stringify(out) : JSON.stringify(out, null, 1))
