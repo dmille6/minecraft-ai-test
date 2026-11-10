@@ -6800,6 +6800,81 @@
      "docs/reports/sinkturn-2026-11-10.md"
     ]
    }
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "owner_date": "2026-11-10",
+   "state": "open",
+   "id": "tidygrow-1110",
+   "title": "Tidy record growth (coordinator 11-10, keeper stall input): one refresh = one generation (claim retirement inside the refresh publish)",
+   "memory": [
+    "stallfix-1110.md"
+   ],
+   "next_step": "2026-11-10: BUILT, READY TO STAGE. Branch stallfix-01show-on-keeperstall d12b96973 (3 pieces + doc on sinkturn-01show-on-keeperstall 78baaeb7f; stage after sinkturn). Tier 2 (protected.py: not protected). NOT released. Codex NO BLOCKERS. Suite ci2 d12b96973 500/503: orphan (base bagdiet), well (fails alone on the base 78baaeb7f too), plinth-skill (load flake: passes alone on both). Measured: recordHead pass 519 ms over 31 records / 438 gens / 38.1 MB; tidy 226 ms (122 gens, 15.7 MB). 11-10 06:50-16:01Z tidy +11 gens 4.19 MB (5 refresh + 5 claim-retire pairs) -> 6 gens 2.30 MB (-45% growth). Not capped: compaction needs buildproj recordHead/publishRecord (the other session's recordHead-cache canary owns it). Read: tidy gens per refresh = 1.",
+   "evidence": {
+    "grep": [
+     "tidygrow-01show"
+    ],
+    "branches": [
+     "stallfix-01show-on-keeperstall"
+    ],
+    "paths": [
+     "docs/reports/stallfixes-2026-11-10.md"
+    ]
+   }
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "owner_date": "2026-11-10",
+   "state": "open",
+   "id": "cwstall-1110",
+   "title": "Citywall design visit stall (coordinator 11-10): breathes between walks; escape proof sliced (wallEscapeAsync); swap pass breathes before its 2nd walk",
+   "memory": [
+    "stallfix-1110.md"
+   ],
+   "next_step": "2026-11-10: BUILT, READY TO STAGE. Branch stallfix-01show-on-keeperstall d12b96973 (3 pieces + doc on sinkturn-01show-on-keeperstall 78baaeb7f; stage after sinkturn). Tier 2 (protected.py: not protected). NOT released. Codex NO BLOCKERS. Suite ci2 d12b96973 500/503: orphan (base bagdiet), well (fails alone on the base 78baaeb7f too), plinth-skill (load flake: passes alone on both). Live: citywall design visits ms=15629..20509 with no await. Offline (11-10 17:16Z copy, ~/cwstall-1110, bots/scripts/citywall-stall-offline.mjs): worst macrotask 3.2-4.8 s -> 0.38-0.43 s (one town walk; escape proof 88 slices, max 66-99 ms, same answer cut5/trap0). Read: _build_visit project=citywall ms, Timed out near citywall visits.",
+   "evidence": {
+    "grep": [
+     "cwstall-01show"
+    ],
+    "branches": [
+     "stallfix-01show-on-keeperstall"
+    ],
+    "paths": [
+     "docs/reports/stallfixes-2026-11-10.md"
+    ]
+   }
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "owner_date": "2026-11-10",
+   "state": "open",
+   "id": "pathsmem-1110",
+   "title": "Paths no-op visits (406/24h, 402 complete placed 0): extension clock + unrouted set survive reconnects (procMem), unrouted waits 6 h",
+   "memory": [
+    "stallfix-1110.md"
+   ],
+   "next_step": "2026-11-10: BUILT, READY TO STAGE. Branch stallfix-01show-on-keeperstall d12b96973 (3 pieces + doc on sinkturn-01show-on-keeperstall 78baaeb7f; stage after sinkturn). Tier 2 (protected.py: not protected). NOT released. Codex NO BLOCKERS. Suite ci2 d12b96973 500/503: orphan (base bagdiet), well (fails alone on the base 78baaeb7f too), plinth-skill (load flake: passes alone on both). Cause: bot.pathsExtendAt/pathsUnrouted reset by every reconnect (Iris 16 connections 12:53-16:56Z -> 15 paths visits) -> pathsExtendDue reads the paths damaged (a repair) -> extension unrouted:enchantshop:unreachable -> 610/610 laid. Replay 16 -> 1. Read: paths visits/bot/day (~30 before) and their placed.",
+   "evidence": {
+    "grep": [
+     "pathsmem-01show"
+    ],
+    "branches": [
+     "stallfix-01show-on-keeperstall"
+    ],
+    "paths": [
+     "docs/reports/stallfixes-2026-11-10.md"
+    ]
+   }
   }
  ]
 }
