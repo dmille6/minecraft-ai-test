@@ -143,7 +143,8 @@ import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
 import { REROOF_PLOT, reroofNext, reroofBlueprint, reroofAdded, reroofStyle, reroofRecord, reroofProofBlueprint } from './reroof.mjs'   // townstyle-03
-import { wallEscape } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own)
+import { wallEscape, wallEscapeAsync } from './wall.mjs'   // citywall-01: the design's escape proof (the wall siting's own); cwstall-01: breathing
+import { breathDue } from './buildrun.mjs'   // cwstall-01: the visit's breath clock (keeperstall-01's BREATH_MS)
 import { stepFor as siteStepFor } from './buildsite.mjs'   // citywall-01: can a stand place an underpinning cell (the visit's own rule)
 import { digStand as runDigStand } from './buildrun.mjs'   // citywall-01: can a stand dig a swapped cell (the visit's own rule)
 import { cellInZones } from './townplan.mjs'   // citywall-01: no new wall cell in a protected zone
@@ -21482,20 +21483,34 @@ async function buildCitywall (ctx, args, signal) {
     const stock = matsTownStock(bot)?.stock ?? {}
     const pool = process.env.MEMORY_POOL ?? ''
     // the town walk now (buildsite.mjs walkFrom, the visit's own) -> its feet cells by column, for the underpinning's reach (stepFor)
+    // CWSTALL-01 (LIVE showcase 11-10: this design visit ran 15.6-20.5 s with no await -- the town walk, the swap walk inside the design, the
+    // design, then the escape proof's six walks, one macrotask; offline on the 17:16Z copy 3.1-4.1 s, the proof 2.5-3.3 s of it): THE
+    // DESIGN VISIT BREATHES between its walks -- one real turn of the event loop (buildrun.mjs breathDue: BREATH_MS of wall time worked
+    // since the last), then it stops `aborted` if the visit is gone (aborted, or its connection ended: buildbot.mjs visitGone)
+    let breathAt = Date.now()
+    const breath = async () => { if (!breathDue(breathAt, Date.now())) return false; await new Promise(resolve => setImmediate(resolve)); breathAt = Date.now(); return visitGone(bot, signal) }
+    const goneOut = () => out('no_effect', 'aborted', `${t.plot}: the design visit was aborted or its connection ended`, { stop: 'aborted' })
     const walkNodes = new Map()
     for (const k of siteWalkFrom(read0, home, new Set(), wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!walkNodes.has(ck)) walkNodes.set(ck, []); walkNodes.get(ck).push(y) }
-    // the swap's walk as the visit walks it: the ring's own O cells are open then (never a floor, never walked through)
-    let swN = null
-    const swapNodes = () => { if (swN) return swN; swN = new Map(); const oBlock = new Set((rec.cells ?? []).filter(q => ['wall', 'post', 'base'].includes(q.role)).map(q => q.at.join(','))); for (const k of siteWalkFrom(read0, home, oBlock, wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!swN.has(ck)) swN.set(ck, []); swN.get(ck).push(y) } return swN }
+    if (await breath()) return goneOut()
+    // the swap's walk as the visit walks it: the ring's own O cells are open then (never a floor, never walked through) -- cwstall-01:
+    // walked HERE (its own macrotask), never inside the design's first reachSwap
+    const swN = new Map()
+    { const oBlock = new Set((rec.cells ?? []).filter(q => ['wall', 'post', 'base'].includes(q.role)).map(q => q.at.join(','))); for (const k of siteWalkFrom(read0, home, oBlock, wallWalkR(rec, home), { stood: stoodRead(dir, stoodKey(), home) })) { const [x, y, z] = k.split(',').map(Number); const ck = `${x},${z}`; if (!swN.has(ck)) swN.set(ck, []); swN.get(ck).push(y) } }
+    const swapNodes = () => swN
+    if (await breath()) return goneOut()
     design = citywallDesign(read, rec, { style: citywallStyleFor(stock, pool), seed: Number(rec.sitedAt ?? 0) >>> 0, gatePick: citywallGatePick(process.env, t.plot),
       taken: (x, y, z) => others.has(`${x},${y},${z}`) || cellInZones(x, y, z, c.zones), zone: (x, z) => roads.has(`${x},${z}`),
       reachUnder: at => !!siteStepFor(read0, home, at, walkNodes, () => true, null),
       // a swapped cell's dig needs a stand that sees it (buildrun.mjs digStand, the visit's own rule)
       reachSwap: at => !!runDigStand(read0, at, swapNodes()) })
+    if (await breath()) return goneOut()
     if (!design.ok) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, design.why); return out('no_effect', 'no_site', `${t.plot}: no design (${design.why})`, { stop: 'site_wait' }) }
     if (unread) { siteWaitSet(CITYWALL_PLOT, 10 * 60_000, 'unread'); return out('no_effect', 'site_unread', `${t.plot}: ${unread} cells unread (unloaded): the design waits`, { stop: 'site_wait' }) }
     // THE ESCAPE PROOF (wall.mjs wallEscape, the siting's own): every design cell built cuts nothing off and pens nobody
-    const esc = wallEscape(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8, seed: walkSeed(read0, stoodRead(dir, stoodKey(), home)) })
+    // cwstall-01: the proof's six walks each their own macrotask (wall.mjs wallEscapeAsync: wallEscape's answer)
+    const esc = await wallEscapeAsync(read0, home, [...rec.cells, ...design.cells], { r: wallWalkR(rec, home) + 8, seed: walkSeed(read0, stoodRead(dir, stoodKey(), home)) }, { aborted: () => visitGone(bot, signal) })
+    if (!esc) return goneOut()
     if (esc.cut || esc.trapped) { siteWaitSet(CITYWALL_PLOT, CITYWALL_NOSITE_MS, 'escape'); return out('no_effect', 'no_site', `${t.plot}: the design would cut ${esc.cut} / trap ${esc.trapped} cells`, { stop: 'site_wait' }) }
   }
   if (!design?.phases?.length) return out('no_effect', 'no_site', `${t.plot}: an empty design`)
