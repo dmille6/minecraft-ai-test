@@ -217,8 +217,10 @@ export function installServerBlockWitness (bot) {
 }
 
 /** keeperstall-01: HAS THIS BOT'S CONNECTION ENDED? -> bool. minecraft-protocol's client sets `ended` false on connect and true on end;
- *  a bot with no client (a test's fake), or a client that never said, reads as NOT ended. Pure. */
-export const connEnded = bot => bot?._client?.ended === true
+ *  a DESTROYED SOCKET says the same (r1: mineflayer's own keepalive timeout calls client.end(), and `ended` can stay false until the
+ *  socket has closed). A bot with no client (a test's fake), or a client that never said, reads as NOT ended. Pure. THE ONE
+ *  DEFINITION: skills.mjs `clientEnded` is this function. */
+export const connEnded = bot => bot?._client?.ended === true || bot?._client?.socket?.destroyed === true
 /**
  * -> runVisit's effects for `bot`, plus close(). Options:
  *   acks           the connection's tracker (skills.mjs shopAckInstall, installed before login); none: one is installed for

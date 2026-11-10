@@ -931,6 +931,24 @@ export function keepDue (fails, key, why, F = FOREST) {
   fails.set(key, n)
   return n >= F.failMax
 }
+/**
+ * keeperstall-01 r1: A FELLING THAT FAILED, BOOKED in the bot's memory -> { counted, keep }. `mem` = the bot's PROCESS memory
+ * (procmem.mjs: `forestSkip` Map key -> ms the tree is passed until, `forestFails` Map key -> n; both mutated). `ended`: the visit was
+ * aborted or its connection had ended when the result came back -- on a dead connection every walk returns at once and every tree
+ * reads off_stand / unconfirmed, so the result says nothing about the TREE: NOTHING is booked (no skip, no count, never a keep; the
+ * counts outlive the connection, and three disconnects would otherwise waive every listed tree on the record, for every bot).
+ * Else the tree is passed for `skipMs` and `keep` says it is due to be KEPT (waived): `noStand` (the retire's tree no stand fells at
+ * all: kept at once, uncounted) or keepDue's FOREST.failMax failures. No failure (`r.why` empty): nothing. Pure over `mem`.
+ */
+export function fellFailNote (mem, t, r, { ended = false, noStand = false, now = Date.now(), skipMs = 30 * 60_000, F = FOREST } = {}) {
+  if (!mem || !r?.why || ended) return { counted: false, keep: false }
+  ;(mem.forestSkip ??= new Map()).set(t.key, now + skipMs)
+  return { counted: true, keep: !!noStand || keepDue((mem.forestFails ??= new Map()), t.key, r.why, F) }
+}
+/** forest-01: DOES THIS VISIT'S END REST THE FOREST for the bot (a visit that did nothing; never one that was turned away before it
+ *  looked)? keeperstall-01 r1: never a visit whose connection had ended (`ended`): the rest outlives the connection, and a visit
+ *  nobody was on the other end of says nothing about the forest. Pure. */
+export const forestRestDue = (status, outcome, { ended = false } = {}) => !ended && status === 'no_effect' && !['keeper_held', 'off', 'zones_unknown', 'no_plan'].includes(outcome)
 /** THE RETIRED FARM RECORD (published once its trees, saplings and torches are gone): no cells, no zones, no box reservation, the
  *  old box kept as `was` (the garden's site), the old cells and clears kept as `retired` / `retiredClear` with `retiredAt` (the
  *  showcase read judges the farm's earlier rows against them, and releases its cells to the groundskeeper from retiredAt: the wall's

@@ -9,6 +9,11 @@
 //      instrument can see the starvation it says is gone.
 //   2. AN ENDED CONNECTION ABORTS (buildbot.mjs): the effects' aborted() is true once the bot's client has ended.
 //   3. THE KEEPER'S MEMORY IS THE PROCESS'S (procmem.mjs + skills.mjs): two bot objects of one name share it.
+//   r1 (review BLOCKER). A memory that outlives the connection must not learn from a DEAD one: after `end` the running skill goes on
+//      on the old bot, every walk returns at once, every tree reads off_stand -- three disconnects would have waived every listed
+//      tree on the record, for every bot. Nothing is booked for a result on an aborted or ended connection: no forest skip, no
+//      failure count, no keep, no rest, no water-cut strike (forest.mjs fellFailNote / forestRestDue, boardwalk.mjs bw3Strikes);
+//      ONE notion of "ended" (buildbot.mjs connEnded = skills.mjs clientEnded: `ended`, or a destroyed socket).
 //
 // Anchored mutants (each anchor asserted present and unique, CLAUDE.md), each named after the test it must fail.
 import assert from 'node:assert'
@@ -22,6 +27,10 @@ const { R, PJ, G, HOME, k3, server, bot } = await import('./helpers/buildfake.mj
 const BB = await import('../src/buildbot.mjs')
 const PM = await import('../src/procmem.mjs')
 const T = await import('../src/tidy.mjs')
+const F = await import('../src/forest.mjs')
+const W = await import('../src/boardwalk.mjs')
+const FOREST_URL = new URL('../src/forest.mjs', import.meta.url)
+const BW_URL = new URL('../src/boardwalk.mjs', import.meta.url)
 const RUN_URL = new URL('../src/buildrun.mjs', import.meta.url)
 const BOT_URL = new URL('../src/buildbot.mjs', import.meta.url)
 const PM_URL = new URL('../src/procmem.mjs', import.meta.url)
@@ -157,6 +166,10 @@ const NAMES = {
   steps: 'A SEGMENT\'S STEP LOOP BREATHES: the probe fires before the visit resolves, every foreign block dug',
   ended: 'buildbot: the effects\' aborted() is true once the bot\'s client has ENDED; not ended, or no client: false; the skill\'s own signal still counts',
   onBot: 'skills.mjs (structural, comments stripped): none of the six fields is kept on the bot; procMem(bot) carries exactly those six',
+  deadFell: 'r1 A FELLING ON A DEAD CONNECTION books nothing (no skip, no failure count, never a keep -> no waive); the same result on a live one does',
+  deadRest: 'r1 A FOREST VISIT THAT ENDS ON A DEAD CONNECTION does not rest the forest for the next one; a live visit that did nothing does',
+  deadCuts: 'r1 A WATER VISIT ON A DEAD CONNECTION counts no strike against a cut; a live one gives it up after TIDY_CUT_TRIES',
+  wiring: 'r1 skills.mjs (structural): both felling loops stop when the visit is gone and book through fellFailNote(ended: gone()); the rest, the strikes and clientEnded use the one predicate',
 }
 const skipsBreathe = async M => {
   const o = await skipVisit(M)
@@ -309,7 +322,11 @@ const fakeBot = client => Object.assign(new EventEmitter(), { ...(client ? { _cl
 const fakeClient = () => { const c = new EventEmitter(); c.write = () => {}; return c }
 const endedSeen = async M => {
   assert.strictEqual(M.connEnded({ _client: { ended: true } }), true)
-  for (const b of [null, undefined, {}, { _client: null }, { _client: {} }, { _client: { ended: false } }, { _client: { ended: 'yes' } }]) assert.strictEqual(M.connEnded(b), false, JSON.stringify(b))
+  // r1: a destroyed socket says the same (mineflayer's keepalive timeout: client.end() first, `ended` only once the socket closed)
+  assert.strictEqual(M.connEnded({ _client: { ended: false, socket: { destroyed: true } } }), true, 'a destroyed socket')
+  for (const b of [null, undefined, {}, { _client: null }, { _client: {} }, { _client: { ended: false } }, { _client: { ended: 'yes' } }, { _client: { ended: false, socket: { destroyed: false } } }, { _client: { socket: null } }]) assert.strictEqual(M.connEnded(b), false, JSON.stringify(b))
+  { const c = fakeClient(); c.ended = false; c.socket = { destroyed: false }; const e = M.botBuildEffects(fakeBot(c), {})
+    try { assert.strictEqual(e.aborted(), false); c.socket.destroyed = true; assert.strictEqual(e.aborted(), true, 'the socket destroyed: aborted') } finally { e.close() } }
   // the effects on a connected client: not aborted; the client ends (minecraft-protocol sets `ended` true): aborted
   const c = fakeClient(), e = M.botBuildEffects(fakeBot(c), {})
   try {
@@ -336,6 +353,15 @@ await t(`MUTANT, the \`_client.ended\` clause dropped: fails "${NAMES.ended}"`, 
   })
 })
 
+await t(`MUTANT, the destroyed-socket clause dropped (two notions of "ended" again): fails "${NAMES.ended}"`, async () => {
+  await withMutants(BOT_URL, [[' || bot?._client?.socket?.destroyed === true\n', '\n']], async M => {
+    assert.strictEqual(M.connEnded({ _client: { ended: false, socket: { destroyed: true } } }), false, 'the mutant survived')
+    let killed = false
+    try { await endedSeen(M) } catch { killed = true }
+    assert.ok(killed, 'the mutant survived the named test')
+  })
+})
+
 console.log('THE KEEPER\'S MEMORY IS THE PROCESS\'S (procmem.mjs)')
 await t('two bot objects of ONE name share one memory object; another name has its own; nothing of the bot is kept in it', () => {
   const store = new Map()
@@ -349,6 +375,18 @@ await t('two bot objects of ONE name share one memory object; another name has i
   // the process's own store, through the exported accessor
   const n = `ks-${process.pid}`
   assert.strictEqual(PM.procMem({ username: n }), PM.procMem({ username: n })); assert.notStrictEqual(PM.procMem({ username: n }), PM.procMem({ username: `${n}-b` }))
+})
+await t('procMemReset (tests only): the process\'s store forgets every bot; no src module calls it', () => {
+  const n = `ks-reset-${process.pid}`
+  PM.procMem({ username: n }).bw3At = 7
+  assert.strictEqual(PM.procMem({ username: n }).bw3At, 7)
+  PM.procMemReset()
+  assert.strictEqual(PM.procMem({ username: n }).bw3At, undefined)
+  const srcDir = new URL('../src/', import.meta.url)
+  const files = fs.readdirSync(srcDir).filter(f => f.endsWith('.mjs'))
+  assert.ok(files.length > 50 && files.includes('procmem.mjs') && files.includes('skills.mjs'), 'the instrument reads the src modules')
+  const callers = files.filter(f => f !== 'procmem.mjs' && readFileSync(new URL(f, srcDir), 'utf8').includes('procMemReset'))
+  assert.deepStrictEqual(callers, [])
 })
 await t('a bot with NO name never shares (kept on the bot object itself); no bot: a throwaway', () => {
   const store = new Map()
@@ -397,7 +435,7 @@ await t('THREE STRIKES recorded through one bot object filter the cut for the NE
 console.log('skills.mjs: THE WATER VISIT\'S CLOCK AND THE WIRING')
 const SK_RAW = readFileSync(SKILLS_URL, 'utf8')
 /** Comments stripped: whole-line and trailing `//`, and the lines of a block comment (this codebase's comments quote the code). */
-const strip = s => s.split('\n').filter(l => !/^\s*(\/\*|\*)/.test(l)).map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s\/\/ .*$/, '')).join('\n')
+const strip = s => s.split('\n').filter(l => !/^\s*(\/\*|\*)/.test(l)).map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s+\/\/ .*$/, '')).join('\n')
 const MOVED = ['bw3At', 'bw3Given', 'forestIdleUntil', 'forestSkip', 'forestFails', 'gkCountryAt']
 const STAYS = ['shopUnknown', 'shopAcks', 'bw3Stands', 'forestStands', 'tidyStands']
 const onBotRe = names => new RegExp(`\\bbot\\??\\.(${names.join('|')})\\b`, 'g')
@@ -409,8 +447,11 @@ const structural = raw => {
   const left = [...code.matchAll(onBotRe(MOVED))].map(m => m[0])
   assert.deepStrictEqual(left, [], `still on the bot: ${left.join(', ')}`)
   // every use of the process memory is one of the six (nothing else was moved), and each of the six is there
+  // (r1: `forestFails`, and the write of `forestSkip`, are booked by forest.mjs fellFailNote on the memory object it is handed)
   const used = new Set([...code.matchAll(/\bprocMem\(bot\)\.(\w+)/g)].map(m => m[1]))
-  assert.deepStrictEqual([...used].sort(), [...MOVED].sort())
+  assert.deepStrictEqual([...used].sort(), MOVED.filter(n => n !== 'forestFails').sort())
+  const fcode = strip(readFileSync(FOREST_URL, 'utf8'))
+  assert.strictEqual(fcode.split('keepDue((mem.forestFails ??= new Map()), t.key, r.why, F)').length, 2); assert.strictEqual(fcode.split('(mem.forestSkip ??= new Map()).set(t.key, now + skipMs)').length, 2)
   for (const n of [...STAYS, 'pending']) assert.ok(!new RegExp(`procMem\\([^)]*\\)\\??\\.${n}\\b`).test(code), `${n} is never carried across connections`)
   // the keeper's hook: due by the process's clock, stamped there BEFORE the visit is awaited
   assert.strictEqual(code.split("  if (role === 'keeper' && bw3Due(procMem(bot))) {\n    procMem(bot).bw3At = Date.now()\n    const ww = await waterWalkVisit(").length, 2)
@@ -430,7 +471,8 @@ await t('the strip keeps code and drops comments (the structural test above read
   assert.ok(s.includes('a = bot.bw3At') && s.includes('b = 1'))
   for (const n of ['bw3Given', 'forestSkip', 'forestFails', 'gkCountryAt']) assert.ok(!s.includes(n), n)
 })
-const { bw3Due } = await import('../src/skills.mjs')
+const SKM = await import('../src/skills.mjs')
+const { bw3Due } = SKM
 const { BW3 } = await import('../src/boardwalk.mjs')
 await t('bw3Due takes the MEMORY: false inside everyMs for a FRESH bot object when the process memory says a visit just ran; due again after it', () => {
   const store = new Map(), now = 1_800_000_000_000
@@ -448,6 +490,180 @@ await t('bw3Due takes the MEMORY: false inside everyMs for a FRESH bot object wh
   assert.strictEqual(bw3Due(PM.procMemOf(s2, old, false), now + 60_000), false); assert.strictEqual(bw3Due(PM.procMemOf(s2, { username: 'Onyx' }, false), now + 60_000), true)
   assert.strictEqual(bw3Due(null, now), true); assert.strictEqual(bw3Due({}, now, 0), true)
 })
+
+
+console.log('r1: A MEMORY THAT OUTLIVES THE CONNECTION LEARNS NOTHING FROM A DEAD ONE')
+// the bots as the skills see them: `ended`, or the socket destroyed before `ended` is set; and a live one
+const DEAD = [{ ended: true }, { ended: false, socket: { destroyed: true } }]
+const LIVE = () => ({ ended: false, socket: { destroyed: false } })
+const TREE = { key: 'plot:12,64,-40', cell: [12, 64, -40], stand: [12, 64, -39] }
+/** One felling loop pass as skills.mjs buildForest books it (structural test below: both loops are these lines) -> the waives published. */
+const fellPass = (FM, ended, store, bot, t, r, { noStand = false, now = 1000 } = {}) => {
+  const waives = []
+  const nf = FM.fellFailNote(PM.procMemOf(store, bot), t, r, { ended: ended(bot), noStand, now, skipMs: 30 * 60_000 })
+  if (nf.counted && nf.keep) waives.push(t.key)
+  return { nf, waives }
+}
+const deadFellBooksNothing = async (FM, ended = BB.connEnded) => {
+  assert.ok(FM.FOREST.failMax >= 2, 'the keep needs more than one failure')
+  for (const client of DEAD) {
+    const store = new Map()
+    // every disconnect is a NEW bot object of the same name; the zombie visit's results come back on the ended one
+    let waived = 0
+    for (let i = 0; i < FM.FOREST.failMax + 3; i++) {
+      const zombie = { username: 'Onyx', _client: { ...client } }
+      for (const why of ['off_stand', 'unconfirmed']) {
+        const { nf, waives } = fellPass(FM, ended, store, zombie, TREE, { n: 0, why })
+        assert.deepStrictEqual(nf, { counted: false, keep: false }, `${JSON.stringify(client)} ${why}`); waived += waives.length
+      }
+      // the retire's no-stand tree is not kept on a dead connection either (the visit stops before it; the helper holds alone too)
+      waived += fellPass(FM, ended, store, zombie, { key: 'k2', stand: null }, { n: 0, why: 'no_stand' }, { noStand: true }).waives.length
+    }
+    const mem = PM.procMemOf(store, { username: 'Onyx' })
+    assert.strictEqual(mem.forestFails, undefined, 'no failure counted'); assert.strictEqual(mem.forestSkip, undefined, 'no tree passed')
+    assert.strictEqual(waived, 0, 'no waive published')
+  }
+  // POSITIVE CONTROL: the SAME results on a live connection are booked, across reconnects (the process memory), and kept at failMax
+  const store = new Map()
+  let waived = []
+  for (let i = 0; i < FM.FOREST.failMax; i++) {
+    const live = { username: 'Onyx', _client: LIVE() }
+    const { nf, waives } = fellPass(FM, ended, store, live, TREE, { n: 0, why: 'off_stand' }, { now: 1000 + i })
+    assert.deepStrictEqual(nf, { counted: true, keep: i === FM.FOREST.failMax - 1 }, `failure ${i + 1}`); waived = waived.concat(waives)
+  }
+  const mem = PM.procMemOf(store, { username: 'Onyx' })
+  assert.strictEqual(mem.forestFails.get(TREE.key), FM.FOREST.failMax); assert.strictEqual(mem.forestSkip.get(TREE.key), 1000 + FM.FOREST.failMax - 1 + 30 * 60_000)
+  assert.deepStrictEqual(waived, [TREE.key], 'kept once, at failMax')
+  // a clock stop is passed for now but never counted toward the keep (keepDue, as before); no failure: nothing; no stand: kept at once
+  const m2 = {}
+  assert.deepStrictEqual(FM.fellFailNote(m2, TREE, { n: 1, why: 'deadline' }, { now: 5, skipMs: 10 }), { counted: true, keep: false })
+  assert.strictEqual(m2.forestSkip.get(TREE.key), 15); assert.strictEqual(m2.forestFails.get(TREE.key), undefined)
+  assert.deepStrictEqual(FM.fellFailNote(m2, TREE, { n: 3, why: null }), { counted: false, keep: false })
+  assert.deepStrictEqual(FM.fellFailNote(m2, { key: 'k3', stand: null }, { n: 0, why: 'no_stand' }, { noStand: true }), { counted: true, keep: true })
+  assert.strictEqual(m2.forestFails.get('k3'), undefined, 'kept uncounted, as the retire loop always did')
+}
+const deadVisitRestsNothing = async (FM, ended = BB.connEnded) => {
+  for (const client of DEAD) {
+    const zombie = { username: 'Onyx', _client: client }
+    for (const outcome of ['aborted', 'blocked', 'complete', 'skipped', 'deadline']) assert.strictEqual(FM.forestRestDue('no_effect', outcome, { ended: ended(zombie) }), false, outcome)
+  }
+  const live = { username: 'Onyx', _client: LIVE() }
+  // POSITIVE CONTROL: a live visit that did nothing rests the forest; one that was turned away, did something, failed or was aborted does not
+  for (const outcome of ['blocked', 'complete', 'skipped', 'deadline', 'no_site']) assert.strictEqual(FM.forestRestDue('no_effect', outcome, { ended: ended(live) }), true, outcome)
+  assert.strictEqual(FM.forestRestDue('no_effect', 'blocked'), true, 'the default: not ended')
+  for (const outcome of ['keeper_held', 'off', 'zones_unknown', 'no_plan']) assert.strictEqual(FM.forestRestDue('no_effect', outcome), false, outcome)
+  assert.strictEqual(FM.forestRestDue('success', 'complete'), false); assert.strictEqual(FM.forestRestDue('failed', 'error'), false); assert.strictEqual(FM.forestRestDue('aborted', 'aborted'), false)
+}
+const deadVisitStrikesNothing = async (WM, ended = BB.connEnded) => {
+  const k = '5,69,0', cut = { at: [5, 69, 0] }
+  const visit = (store, bot) => {   // skills.mjs waterWalkVisit's lines: the filter before the visit, the note after it
+    const mem = (PM.procMemOf(store, bot).bw3Given ??= new Map())
+    const mine = [cut].filter(q => !T.tidyGivenUp(mem, q.at.join(',')))
+    T.tidyNoteCuts(mem, WM.bw3Strikes(mine.map(q => q.at.join(',')), { ended: ended(bot) }), () => true)   // evaluated, still standing
+    return mine.length
+  }
+  for (const client of DEAD) {
+    const store = new Map()
+    for (let i = 0; i < T.TIDY_CUT_TRIES + 2; i++) assert.strictEqual(visit(store, { username: 'Onyx', _client: { ...client } }), 1)
+    assert.strictEqual(PM.procMemOf(store, { username: 'Onyx' }).bw3Given.size, 0, 'no strike counted')
+    assert.strictEqual(visit(store, { username: 'Onyx', _client: LIVE() }), 1, 'the next connection still tries the cut')
+  }
+  // POSITIVE CONTROL: live visits strike it out
+  const store = new Map()
+  for (let i = 0; i < T.TIDY_CUT_TRIES; i++) assert.strictEqual(visit(store, { username: 'Onyx', _client: LIVE() }), 1)
+  assert.strictEqual(PM.procMemOf(store, { username: 'Onyx' }).bw3Given.get(k), T.TIDY_CUT_TRIES)
+  assert.strictEqual(visit(store, { username: 'Onyx', _client: LIVE() }), 0, 'given up')
+  assert.deepStrictEqual(WM.bw3Strikes(undefined), []); assert.deepStrictEqual(WM.bw3Strikes(['a', 'b']), ['a', 'b']); assert.deepStrictEqual(WM.bw3Strikes(['a'], { ended: true }), [])
+}
+await t(NAMES.deadFell, () => deadFellBooksNothing(F))
+await t(NAMES.deadRest, () => deadVisitRestsNothing(F))
+await t(NAMES.deadCuts, () => deadVisitStrikesNothing(W))
+await t('r1 ONE notion of "ended": skills.mjs clientEnded IS buildbot.mjs connEnded (and reads a destroyed socket)', () => {
+  assert.strictEqual(SKM.clientEnded, BB.connEnded)
+  assert.strictEqual(SKM.clientEnded({ _client: { ended: false, socket: { destroyed: true } } }), true); assert.strictEqual(SKM.clientEnded({ _client: { ended: false } }), false)
+})
+const expectKilled = async (scenario, what) => { let killed = false; try { await scenario() } catch { killed = true } assert.ok(killed, `the mutant survived ${what}`) }
+await t(`MUTANT, fellFailNote books a result from an ended connection: fails "${NAMES.deadFell}"`, async () => {
+  await withMutants(FOREST_URL, [['  if (!mem || !r?.why || ended) return { counted: false, keep: false }\n', '  if (!mem || !r?.why) return { counted: false, keep: false }\n']], async M => {
+    // the defect itself: failMax zombie results waive the tree
+    const store = new Map()
+    let waived = 0
+    for (let i = 0; i < M.FOREST.failMax; i++) waived += fellPass(M, BB.connEnded, store, { username: 'Onyx', _client: { ended: true } }, TREE, { n: 0, why: 'off_stand' }).waives.length
+    assert.strictEqual(waived, 1, 'the mutant does not reproduce the defect')
+    await expectKilled(() => deadFellBooksNothing(M), 'the named test')
+  })
+})
+await t(`MUTANT, the caller's predicate blind to a destroyed socket (the narrow \`ended\` only): fails "${NAMES.deadFell}" and "${NAMES.deadCuts}"`, async () => {
+  const narrow = b => b?._client?.ended === true
+  await expectKilled(() => deadFellBooksNothing(F, narrow), NAMES.deadFell)
+  await expectKilled(() => deadVisitStrikesNothing(W, narrow), NAMES.deadCuts)
+  await expectKilled(() => deadVisitRestsNothing(F, narrow), NAMES.deadRest)
+})
+await t(`MUTANT, forestRestDue ignores \`ended\`: fails "${NAMES.deadRest}"`, async () => {
+  await withMutants(FOREST_URL, [["=> !ended && status === 'no_effect' && ", "=> status === 'no_effect' && "]], async M => {
+    assert.strictEqual(M.forestRestDue('no_effect', 'aborted', { ended: true }), true, 'the mutant does not reproduce the defect')
+    await expectKilled(() => deadVisitRestsNothing(M), 'the named test')
+  })
+})
+await t(`MUTANT, bw3Strikes ignores \`ended\`: fails "${NAMES.deadCuts}"`, async () => {
+  await withMutants(BW_URL, [['=> (ended ? [] : [...(tidied ?? [])])', '=> [...(tidied ?? [])]']], async M => {
+    assert.deepStrictEqual(M.bw3Strikes(['a'], { ended: true }), ['a'], 'the mutant does not reproduce the defect')
+    await expectKilled(() => deadVisitStrikesNothing(M), 'the named test')
+  })
+})
+/** THE WIRING (what behaviour cannot reach from here: buildForest and waterWalkVisit need a whole bot). Throws on a miss. */
+const wiring = raw => {
+  const code = strip(raw)
+  const one = (hay, needle, what) => assert.strictEqual(hay.split(needle).length, 2, what)
+  const a = code.indexOf('async function buildForest ('), z = code.indexOf('const FOREST_NOSITE_MS')
+  assert.ok(a > 0 && z > a, 'buildForest found')
+  const fb = code.slice(a, z)
+  one(fb, '  const gone = () => !!signal?.aborted || clientEnded(bot)\n', 'the one predicate: aborted, or the connection ended')
+  // both felling loops: the visit stops BEFORE the next fell, and books the result through fellFailNote with `ended: gone()`
+  assert.strictEqual(fb.split('await forestFell(').length, 3, 'two felling loops')
+  for (const head of ['for (const t of rt.plan.trees) {', 'for (const t of hl.trees) {']) {
+    const i = fb.indexOf(head), j = fb.indexOf('await forestFell(', i), k = fb.indexOf('fellFailNote(', j)
+    assert.ok(i > 0 && j > i && k > j, head)
+    one(fb.slice(i, j), '            if (gone()) break\n', `${head} stops before the fell`)
+    assert.ok(fb.slice(k, k + 60).startsWith('fellFailNote(procMem(bot), t, r, { ended: gone(), '), `${head} books with ended: gone()`)
+    assert.ok(!fb.slice(j, k).includes('forestSkip') && !fb.slice(j, k).includes('rowLog('), `${head}: nothing booked or logged before the note`)
+  }
+  assert.strictEqual(fb.split('const nf = fellFailNote(').length, 3)
+  assert.strictEqual(fb.split('            if (nf.counted) {\n').length, 3, 'the failure row only for a counted failure')
+  // every waive of a tree that failed is under the note's `keep`; the loops book nothing themselves
+  assert.strictEqual(fb.split('[t.key]: { why: String(r.why).slice(0, 40), at: Date.now(), by: me }').length, 3, 'two waive publishes')
+  assert.strictEqual(fb.split('              if (nf.keep) {\n                const pub = publishRecord(').length, 3, 'both under nf.keep')
+  assert.ok(!fb.includes('keepDue(') && !code.includes('.forestFails'), 'no failure count outside fellFailNote')
+  one(code, '.forestSkip', 'forestSkip is only READ here (forestSkipOf); fellFailNote writes it')
+  one(fb, '            } else if (!r.why) {\n              hv.trees++\n', 'a tree is counted felled only when it was')
+  // the rest: one write, through forestRestDue with the same predicate
+  one(code, '.forestIdleUntil = ', 'one write of the rest')
+  one(fb, '    if (forestRestDue(status, outcome, { ended: gone() })) procMem(bot).forestIdleUntil = Date.now() + FOREST.idleMs\n', 'the rest asks forestRestDue')
+  // the water visit's strikes
+  const wv = code.slice(code.indexOf('async function waterWalkVisit ('), code.indexOf('function tidyGuardSet ('))
+  assert.ok(wv.length > 1000)
+  assert.strictEqual(wv.split('tidyNoteCuts(').length, 2, 'one note in the water visit')
+  one(wv, '    tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: clientEnded(bot) }), k => {', 'the strikes go through bw3Strikes')
+  one(code, 'export const clientEnded = connEnded\n', 'one definition of ended')
+}
+await t(NAMES.wiring, () => wiring(SK_RAW))
+const WIRE_MUTANTS = [
+  ['the predicate without the ended connection', '  const gone = () => !!signal?.aborted || clientEnded(bot)\n', '  const gone = () => !!signal?.aborted\n'],
+  ['the retire loop fells on', '            if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break\n            if (gone()) break   // keeperstall-01 r1\n', '            if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break\n'],
+  ['the harvest loop fells on', '            if (Date.now() > deadline - 40_000) break\n            if (gone()) break   // keeperstall-01 r1\n', '            if (Date.now() > deadline - 40_000) break\n'],
+  ['the retire loop books whatever came back', '{ ended: gone(), noStand: !t.stand, skipMs: FOREST_SKIP_MS }', '{ noStand: !t.stand, skipMs: FOREST_SKIP_MS }'],
+  ['the harvest loop books whatever came back', 'fellFailNote(procMem(bot), t, r, { ended: gone(), skipMs: FOREST_SKIP_MS })', 'fellFailNote(procMem(bot), t, r, { skipMs: FOREST_SKIP_MS })'],
+  ['a waive outside the note\'s keep', '              if (nf.keep) {\n                const pub = publishRecord(dir, key, ', '              if (true) {\n                const pub = publishRecord(dir, key, '],
+  ['the rest set whatever the connection', 'if (forestRestDue(status, outcome, { ended: gone() })) procMem(bot).forestIdleUntil', 'if (forestRestDue(status, outcome)) procMem(bot).forestIdleUntil'],
+  ['the strikes counted whatever the connection', 'tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: clientEnded(bot) }), k => {', 'tidyNoteCuts(mem, r.tidied ?? [], k => {'],
+  ['two notions of ended again', 'export const clientEnded = connEnded\n', 'export const clientEnded = bot => bot?._client?.ended === true\n'],
+]
+for (const [what, old, neu] of WIRE_MUTANTS) {
+  await t(`MUTANT, ${what}: fails "${NAMES.wiring}"`, () => {
+    const m = mutantText(SKILLS_URL, [[old, neu]])
+    assert.throws(() => wiring(m), assert.AssertionError)
+  })
+}
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

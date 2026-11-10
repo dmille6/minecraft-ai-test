@@ -38,3 +38,5 @@ export function procMemOf (store, bot, on = true) {
 }
 /** This process's memory for `bot` (the PROCMEM switch read once at load). */
 export const procMem = bot => procMemOf(STORE, bot, ON)
+/** FOR TESTS ONLY (never called by the bots' code): forget every bot's memory, so same-named fake bots of two tests share nothing. */
+export function procMemReset () { STORE.clear() }

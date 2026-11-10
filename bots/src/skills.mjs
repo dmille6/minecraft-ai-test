@@ -235,6 +235,9 @@ import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, s
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
+import { connEnded } from './buildbot.mjs'   // keeperstall-01 r1: the one notion of an ended connection (clientEnded below)
+import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
+import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
@@ -11427,8 +11430,9 @@ function holdUnsettled (bot, win, u, own) {
   // good. Checked here, at the start, and on every tick.
   if (clientEnded(bot)) finish('disconnected', { close: false })
 }
-/** Has this bot's connection ended? node-minecraft-protocol sets `ended`; a destroyed socket says the same. */
-export const clientEnded = bot => bot?._client?.ended === true || bot?._client?.socket?.destroyed === true
+/** Has this bot's connection ended? node-minecraft-protocol sets `ended`; a destroyed socket says the same. keeperstall-01 r1: ONE
+ *  definition -- buildbot.mjs connEnded (the build effects' `aborted()` reads the same). */
+export const clientEnded = connEnded
 
 /** A click on a chest slot whose content must still be what the plan saw (name and wear): the source is revalidated
  *  after every earlier click (Codex), and a mismatch stops the transfer. */
@@ -26909,7 +26913,8 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts: TIDY_CUT_TRIES visits)
     const read2 = tidyRead(bot)
     const cutAt = new Map(cuts.map(q => [q.at.join(','), q]))
-    tidyNoteCuts(mem, r.tidied ?? [], k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
+    // keeperstall-01 r1: never for a visit whose connection ended (boardwalk.mjs bw3Strikes: the counts outlive the connection)
+    tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: clientEnded(bot) }), k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     row(status, { placed: r.placed, cleared: r.cleared, stop: r.stop, why: r.why })
     return { tried: true, status, why: `water: ${r.cleared} dug, ${r.placed} planks laid (${r.stop})`, placed: r.placed, cleared: r.cleared, stop: r.stop }
@@ -28152,10 +28157,13 @@ async function buildForest (ctx, args, signal) {
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
   const deadline = t0 + budget - ZIG_VISIT_TAIL_MS
   const f = { project: FOREST_PLOT }
+  // keeperstall-01 r1: THE VISIT IS GONE (aborted, or its connection ended: index.mjs's `end` does not cancel the running skill) --
+  // no tree is felled from here on, and nothing this visit learns is written to the bot's process memory or waived on the record
+  const gone = () => !!signal?.aborted || clientEnded(bot)
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
-    if (status === 'no_effect' && !['keeper_held', 'off', 'zones_unknown', 'no_plan'].includes(outcome)) procMem(bot).forestIdleUntil = Date.now() + FOREST.idleMs
+    if (forestRestDue(status, outcome, { ended: gone() })) procMem(bot).forestIdleUntil = Date.now() + FOREST.idleMs
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
   }
   if (!SHOP.on || !planOn() || !projectsOn().some(p => p.plot === FOREST_PLOT)) return out('no_effect', 'off', 'the forest is switched off (FOREST, GROUNDSKEEPER, WALL, PATHS, HOUSE, SHOP or TOWNPLAN)')
@@ -28219,14 +28227,16 @@ async function buildForest (ctx, args, signal) {
           let rguard = null   // forest-04: the felling's reserved columns, read once a phase
           for (const t of rt.plan.trees) {
             if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break
+            if (gone()) break   // keeperstall-01 r1
             if (skip(t.key)) continue
             const r = t.stand ? await forestFell(bot, e, t, { signal, deadline: deadline - 20_000, log: rowLog, kind: 'retire', project: TREEFARM_PLOT, guarded: (rguard ??= fellLeafGuard(bot, [FOREST_PLOT, TREEFARM_PLOT])) }) : { n: 0, why: 'no_stand' }
             felledAll += r.n
-            if (r.why) {
-              (procMem(bot).forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
+            // keeperstall-01 r1 (forest.mjs fellFailNote): the skip and the failure count, never for a result on a gone connection
+            const nf = fellFailNote(procMem(bot), t, r, { ended: gone(), noStand: !t.stand, skipMs: FOREST_SKIP_MS })
+            if (nf.counted) {
               rowLog({ project: TREEFARM_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: 'retire_failed', n: r.n, why: r.why })
               // a tree no stand fells (none, or failed FOREST.failMax times): KEPT, a garden tree -- never a farm that never retires
-              if (!t.stand || keepDue((procMem(bot).forestFails ??= new Map()), t.key, r.why)) {
+              if (nf.keep) {
                 const pub = publishRecord(dir, fk, cur => (cur && !farmIsRetired(cur) && !cur.waived?.[t.key] ? { ...cur, waived: { ...(cur.waived ?? {}), [t.key]: { why: String(r.why).slice(0, 40), at: Date.now(), by: me } } } : null), { by: me })
                 if (pub.result === 'accepted') rowLog({ project: TREEFARM_PLOT, op: 'waived', cell: t.cell, kind: 'kept', why: String(r.why).slice(0, 40), gen: pub.gen })
               }
@@ -28284,18 +28294,20 @@ async function buildForest (ctx, args, signal) {
           const hguard = fellLeafGuard(bot, [FOREST_PLOT])   // forest-04: the felling's reserved columns, read once a phase
           for (const t of hl.trees) {
             if (Date.now() > deadline - 40_000) break
+            if (gone()) break   // keeperstall-01 r1
             const r = await forestFell(bot, e, t, { signal, deadline: deadline - 30_000, log: rowLog, kind: t.kind, guarded: hguard })
             hv.felled += r.n
-            if (r.why) {
+            // keeperstall-01 r1 (forest.mjs fellFailNote): the skip and the failure count, never for a result on a gone connection
+            const nf = fellFailNote(procMem(bot), t, r, { ended: gone(), skipMs: FOREST_SKIP_MS })
+            if (nf.counted) {
               hv.failed++
-              ;(procMem(bot).forestSkip ??= new Map()).set(t.key, Date.now() + FOREST_SKIP_MS)
               rowLog({ project: FOREST_PLOT, op: 'harvest', cell: t.cell, block: 'log', kind: `${t.kind}_failed`, n: r.n, why: r.why })
               // a tree that keeps failing (never on the clock) is KEPT: its plot (or site tree) waived, so the strip's rotation goes on
-              if (keepDue((procMem(bot).forestFails ??= new Map()), t.key, r.why)) {
+              if (nf.keep) {
                 const pub = publishRecord(dir, key, cur => (cur && !cur.waived?.[t.key] ? { ...cur, waived: { ...(cur.waived ?? {}), [t.key]: { why: String(r.why).slice(0, 40), at: Date.now(), by: me } } } : null), { by: me })
                 if (pub.result === 'accepted') { hv.waived++; rowLog({ project: FOREST_PLOT, op: 'waived', cell: t.cell, kind: 'kept', why: String(r.why).slice(0, 40), gen: pub.gen }) }
               }
-            } else {
+            } else if (!r.why) {
               hv.trees++
               // the logs fell into the sunk plot: step into it so they are picked up, then back to the aisle
               if (t.kind === 'grown') { try { await e.walkTo(t.cell); await sleep(300, signal); await e.walkTo(t.stand) } catch (err) { if (err?.aborted || signal?.aborted) throw err } }
