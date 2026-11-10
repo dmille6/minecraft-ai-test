@@ -63,7 +63,7 @@ def workdir(name, days):
 
 
 def run(w, *args):
-    p = subprocess.run(['nice', '-n', '19', 'ionice', '-c3', 'python3', os.path.join(BIN, args[0])]   # not -I: it drops BIN (tl2trails imports tl2) + list(args[1:]),
+    p = subprocess.run(['nice', '-n', '19', 'ionice', '-c3', 'python3', os.path.join(BIN, args[0])] + list(args[1:]),   # not -I: it drops BIN (tl2trails imports tl2)
                        cwd=w, capture_output=True, text=True, env=dict(os.environ, PYTHONPATH=BIN, TL2_THREADS='4'))
     tail = (p.stdout.strip().splitlines() or [''])[-1][:300]
     log('  ', args[0], args[1] if len(args) > 1 else '', 'rc', p.returncode, tail if p.returncode == 0 else p.stderr[-400:])
