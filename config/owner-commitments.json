@@ -6787,13 +6787,14 @@
     "sinkturn-1110.md"
    ],
    "state": "open",
-   "next_step": "2026-11-10: BUILT, READY TO STAGE (release agent stages it AFTER keeperstall-01show), NOT released. sinkturn-01show-on-citywall b05bfc2d on the live f7909770; restack onto keeperstall-01show once its activation is in /srv/showcase/ops/deploy.jsonl. Tier 2 (protected.py: not protected). Codex r1 NO BLOCKERS. No tripwire rule needed (shopread SK1 already reads project=tower op=waived as no mutation, cell-agnostic). Measured 24 h to 11-10 16:30Z: 16 of 1,569 build visits to a sink (14 decorator decor, 2 tower), wood/road/shrine 0; tower heads 2,209/2,209 pick rows; T3 open cells = torches 46,75,-14 and 46,75,-10 (6 no_stand deferrals each since 11-08). Read 2 h: sink share of build visits (was 1%), _build op=waived project=tower + structure_complete, _sink op=sited kind=wood|road, town hall placements/h, deaths. Rollback SINKTURN=off.",
+   "next_step": "2026-11-10: BUILT, READY TO STAGE, NOT released. The release agent stages it AFTER keeperstall-01show. Stage sinkturn-01show-on-keeperstall 78baaeb7f (on keeperstall b09d399a4). If keeperstall goes live at a different sha, cherry-pick 2 commits (clean, no shared hunks). Same piece on the live f7909770: sinkturn-01show-on-citywall (b05bfc2d + r1 test fold). Tier 2 (protected.py: not protected). Codex r1 NO BLOCKERS. Suite ci2 78baaeb7f 499/500 (only the base orphan bagdiet). No tripwire rule needed: shopread SK1 reads tower op=waived as no mutation, whatever the cell. NOTE: this brings back the picker sink turn that the 11-03 showcase-batch1 fold dropped for idle marks; the idle marks never fire while finite projects keep working. Measured 24 h to 11-10 16:30Z: 16 of 1,569 build visits went to a sink (14 decorator decor, 2 tower); wood/road/shrine 0. The tower headed 2,209 of 2,209 pick rows. T3's open cells are torches 46,75,-14 and 46,75,-10, with 6 no_stand deferrals since 11-08. Read at 2 h: sink share of build visits (was 1%); _build op=waived project=tower, then structure_complete; _sink op=sited kind=wood|road; town hall placements per hour; deaths. Rollback: SINKTURN=off.",
    "evidence": {
     "grep": [
      "sinkturn-01show"
     ],
     "branches": [
-     "sinkturn-01show-on-citywall"
+     "sinkturn-01show-on-citywall",
+     "sinkturn-01show-on-keeperstall"
     ],
     "paths": [
      "docs/reports/sinkturn-2026-11-10.md"
