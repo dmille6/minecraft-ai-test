@@ -103,3 +103,42 @@ head, a failed read or a shared parsed object.
 **Piece 4 — the forest's no-stand give-up** (pass `deferSpent`, so the existing stuck-cell flow and `waived` handle it).
 
 Rollback of piece 1: `BREATHE=off` (the yield) and `PROCMEM=off` (per-connection memory as before).
+
+## Piece 1 on the showcase (11-10, b09d399a on f7909770) and the profile that orders the rest
+
+- 16:35Z a THIRD S7 trip before the fix was live: with all four switches off the keeper (Bravo) stalled on the plain inwall
+  tidy visit (`deadline` 125-183 s, cleared 0, cuts_left ~340/1502, fills_left ~1700/4018, gen 122; 16 `Timed out` in
+  45 min; rss 338 -> 976 MB). The stall was never specific to forest / water / country.
+- 16:57Z piece 1 ACTIVATED + VERIFIED (13 bots; Bravo, Nova out; switches still set). +60 min rollout-check PASS: 0 deaths,
+  no crash loop, 2 `Timed out` in 62 min across 13 bots (23 in the hour before), rss 268-372 MB. NOT a proof: no keeper
+  visit ran in that hour (a healthy keeper rarely makes one; Alpha released the lease `no_work_visit` after 20 min).
+- 18:05Z the owner drop-in removed, Bravo back (14 bots). 18:06-18:38Z: 4 `Timed out` (three within 10 s at 18:14Z on
+  three bots = host-wide; one on the keeper), no crash loop, no restart. The keeper's water visit now ends in 22-27 s
+  (`aborted` by the stuck reflex, no timeout) where it ran 71-129 s and was dropped every time. The keeper's tidy visit
+  at 18:35:54Z was still dropped 18 s in: the starvation began BEFORE the visit.
+- Side effects seen: (1) the stuck reflex (35 s without movement) now runs during long stationary visits and ends them
+  `aborted`; (2) an aborted water visit books no strike (r2), so its 54 standing cuts are retried every 15 min for ~25 s
+  with no give-up -- harmless, but a dead end until the visit can finish inside the reflex's 35 s.
+
+**CPU profile of the keeper (showcase-Gale, 18:40-18:49Z, 541 s, 2 ms sampling; inspector via SIGUSR1, detached after):**
+
+| | seconds | share of wall | share of busy CPU |
+|---|---|---|---|
+| idle | 289.5 | 53.5% | |
+| busy | 251.5 | 46.5% | 100% |
+| `recordHead` (inclusive) | 88.5 | 16.4% | 35% |
+| directory listing under it (`gensOf`/`listDir`, `readdir` self 22.2 s) | 21.3 | 3.9% | 8% |
+| garbage collector | 32.8 | 6.1% | 13% |
+| `shopActive` (inclusive; `shopActivePrime` 60.0, `projectHeads` 47.4) | 73.8 | 13.6% | 29% |
+| pathfinder `compute` | 45.9 | 8.5% | 18% |
+| `clears` / `waterWalkVisit` / `bw3GuardStrict` | 10.8 / 10.2 / 3.0 | | |
+
+Longest stretches with no idle sample: 25.4 s (one cognitive tick: `build_shop` -> `buildTidy` -> `waterWalkVisit`
+10.2 s, the rest decision work), 14.6 s (`shopActive` -> `recordHead` 9.3 s of it), 14.6 s, 10.3 s (the features timer:
+`shopFootprintRefresh` -> `shopActive` -> `recordHead` 6.9 s). **One `shopActive` pass is 7-10 s of synchronous record
+reading, on every bot's decision tick and features timer** -- outside runVisit, so piece 1's breath cannot reach it.
+That is the residual timeout and the ~50% of a core each bot burns (host load 24 on 16 cores at 15:32Z).
+
+**So the order changes: piece 3 (the record cache) is next, as a showcase piece (`reccache-01show`), before the leak.**
+It removes the stall piece 1 cannot (shopActive), about 40% of every bot's CPU, and lets the water visit finish inside
+the stuck reflex's window so its strikes count again.
