@@ -27419,7 +27419,7 @@ async function buildTidyVisit (ctx, args, signal) {
             return n ? { ...cur, waived: w } : null
           }, { by: me })
           if (pub.result === 'accepted') {
-            for (const d of gu) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why.split(':')[0].split(' ')[0] }) }) } catch { /* telemetry */ } }
+            for (const d of gu) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why.split(':')[0].split(' ')[0] }) }) } catch { /* telemetry */ } }
             const h2 = recordHead(dir, key); if (h2.ok && h2.head) rw = h2.head.rec
             f.cutsGiven = gu.length
           }

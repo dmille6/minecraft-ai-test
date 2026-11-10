@@ -288,7 +288,7 @@ await t('THE RECORD carries every listed cell with its block (the tripwire WW2 j
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 await t('buildTidy runs the water visit when due, BEFORE the stage siting; the visit passes wet, the evidence file and the guard', async () => {
   const bt = SK.slice(SK.indexOf('async function buildTidyVisit ('))
-  const hook = bt.indexOf("if (role === 'keeper' && bw3Due(bot)) {"), site = bt.indexOf('const gkNext = GROUNDS.on && LANDP.on')
+  const hook = bt.indexOf("if (role === 'keeper' && bw3Due(bot)) {"), site = bt.indexOf("const gkNext = lane === 'inside' && GROUNDS.on && LANDP.on")   // country-01: the inside lane's siting
   assert.ok(hook > 0 && site > 0 && hook < site, 'the hook precedes the siting')
   const v = SK.slice(SK.indexOf('async function waterWalkVisit ('), SK.indexOf('async function buildTidyVisit ('))
   assert.ok(/stuckStalledOnly: true, intoWater: true,/.test(v)); assert.ok(/bw3Evidence\(bw3Doc\(config\.memory\.pool\)/.test(v)); assert.ok(/guard: k => guard\.has\(k\)/.test(v))
