@@ -154,6 +154,16 @@ export function refreshStamp (rec, { now = Date.now(), added = null, skipped = {
 }
 
 /**
+ * TIDYGROW-01 (LIVE showcase 11-10 06:50-16:01Z: every refresh was TWO generations of the ~400 KB tidy record, 0-60 s apart -- the
+ * refresh (bom, cells, cut, segments) and then gkPlanAdditions' claim retirement (claimed, cut: the cuts the survey had just planned
+ * inside a sited building's claim). 10 of the record's 11 generations that day; recordHead reads every generation, 226 ms of a 519 ms
+ * pass over the town's 31 records): the refresh's body is the claim retirement's too, IN THE SAME PUBLISH, so one refresh is one
+ * generation and the claim pass after it finds nothing to retire. `retire` is tidy.mjs claimRetire (null: nothing inside a claim).
+ * TIDYREFRESH=off: no refresh at all, as before. Pure.
+ */
+export const refreshClaimed = (rec, claims = [], retire = () => null) => (Array.isArray(claims) && claims.length ? retire(rec, claims) : null) ?? rec
+
+/**
  * (b) THE CUTS THE TOWN GIVES UP -> [{ k, why }]. Pure over `read`. Every cut of `rec` this bot gave up (`given(key)`: tidy.mjs
  * tidyGivenUp over its own tries) that still stands (READ standing: an unread cell is no evidence) and is not on the record's waived
  * list yet -- and, for a crust cut, the fills of the hollow it would open (`opener` = that cut: with the crust kept, nothing is opened

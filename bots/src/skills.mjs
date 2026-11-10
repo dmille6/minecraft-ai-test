@@ -183,7 +183,7 @@ import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellK
 import { fillWant, earthDirt, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
-import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn } from './tidyrefresh.mjs'   // tidyrefresh-01
+import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
@@ -27291,11 +27291,15 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   const fresh = s.record ? coreFills(s.record) : null
   let res = null
   const now = Date.now()
+  // tidygrow-01 (tidyrefresh.mjs refreshClaimed): the sited buildings' claims retired in the refresh's own generation (claim-01's
+  // read, as gkPlanAdditions makes it: none read -> none retired here, the claim pass after it retires them as before)
+  let claims = []
+  try { const pr = claimOn() ? plotRecordsNow() : null; claims = pr ? buildingClaims(pr) : [] } catch { claims = [] }
   const pub = publishRecord(dir, key, cur => {
     if (!cur || cur.structure_complete || cur.sitedAt !== r0.sitedAt || !refreshDue(cur, { now })) return null
     const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     res = refreshMerge(cur, fresh, { busy, guard, now })
-    return refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap })
+    return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
   try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
