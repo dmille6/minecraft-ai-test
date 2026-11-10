@@ -7,13 +7,17 @@
 //                 generation and the root removed, a same-size replacement by rename, an in-place rewrite with its mtime restored, an
 //                 unreadable file, the head moving back.
 //   COUNTERS      an unchanged history that is not racily clean reads 0 generation files; a publish reads exactly the new one.
-//   RACY          a just-written file is read on every call until it is older than REC_RACY_MS.
+//   RACY          a file is read on every call until it is REC_RACY_MS old, and a kept fact is not SERVED while its file reads racy.
+//   THE CLOCK     a wall clock that fell back against the monotonic one empties the cache (r1, review BLOCKER A).
+//   ONE DESCRIPTOR  a fact binds the bytes to the inode they were read from, whatever the path did around the read (r1, BLOCKER B).
 //   NOTHING SHARED  the caller may mutate head.rec, rejected and gens.
 //   NO KEPT FAILURE  an unreadable or unparseable file is read again on every call.
 //   RECCACHE=off  every file read on every call, nothing kept.
-// THE CLOCK. A file's ctime cannot be set, so a fixture is racily clean for REC_RACY_MS after it is made. The cached calls here pass
-// `now` 10 s ahead (recordHead's third argument: the racy rule's clock) instead of sleeping for seconds. That defeats the racy rule
-// on purpose, so every step that changes a file IN PLACE (same inode) first waits 30 ms and then PROVES the ctime moved.
+// NO TEST HERE DEPENDS ON WALL TIME. A file's ctime cannot be set, so the racy rule's clock is set instead, through the module's
+// tests' seam (recTestSeam): AGED = the module's clock runs 10 s ahead of the real one (every file that exists reads long still,
+// however slow the host; it never runs back), or a clock the test steps by hand from the files' own stamps. The same seam's `at`
+// hook is how a test moves a file BETWEEN two system calls of one read. AGED defeats the racy rule on purpose, so every step that
+// changes a file IN PLACE (same inode) first waits 30 ms and then PROVES the ctime moved.
 // Anchored mutants (each anchor asserted present and unique, CLAUDE.md), each named after the test that must fail on it.
 import assert from 'node:assert'
 import fs from 'node:fs'
@@ -25,6 +29,7 @@ import { performance } from 'node:perf_hooks'
 delete process.env.RECCACHE
 const P = await import('../src/buildproj.mjs')
 const PROJ_URL = new URL('../src/buildproj.mjs', import.meta.url)
+const SRC_URL = new URL('../src/', import.meta.url)
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {
@@ -46,11 +51,12 @@ async function withMutants (url, pairs, fn) {
   fs.writeFileSync(out, mutantText(url, pairs).replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { fs.unlinkSync(out) } catch {} }
 }
-/** The scenario passes on the real module and fails ITS OWN ASSERTION on the mutant (a throw of another kind is not a kill). */
-async function killedBy (pairs, scenario) {
-  await scenario(P)
+/** The scenario passes on the real module (or on the `base` variant of it: a bound made small) and fails ITS OWN ASSERTION on the
+ *  mutant (a throw of another kind is not a kill). */
+async function killedBy (pairs, scenario, base = null) {
+  if (base) await withMutants(PROJ_URL, base, scenario); else await scenario(P)
   let why = null
-  await withMutants(PROJ_URL, pairs, async M => { try { await scenario(M) } catch (e) { why = e } })
+  await withMutants(PROJ_URL, [...(base ?? []), ...pairs], async M => { try { await scenario(M) } catch (e) { why = e } })
   assert.ok(why instanceof assert.AssertionError, `the mutant survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
 }
 // what depended on the host (a step skipped, a filesystem that would not give a scene, the benchmark): printed where it happens and
@@ -65,11 +71,18 @@ const KEY = P.projKey({ x: 0, y: 70, z: 0 }, 'reccache')
 const sha = buf => crypto.createHash('sha256').update(buf).digest('hex')
 const gf = (d, n, key = KEY) => path.join(d, `${key}.g${n}.json`)
 const bstat = f => fs.statSync(f, { bigint: true })
+/** A file's racy stamp as the module reads it: the later of its mtime and ctime, whole ms. */
+const stampMs = f => { const st = bstat(f); return Number((st.mtimeNs > st.ctimeNs ? st.mtimeNs : st.ctimeNs) / 1_000_000n) }
 const T0 = 1_700_000_000                                              // whole seconds: utimesSync restores such an mtime exactly
 const age = (f, n = 0) => fs.utimesSync(f, T0 + n, T0 + n)
 const AHEAD_MS = 10_000
-/** The cached walk, its racy clock 10 s ahead (every fixture reads as long still). */
-const on = (M, d, key = KEY) => M.recordHead(d, key, { now: Date.now() + AHEAD_MS })
+/** A scenario's start: nothing kept, no hook, and the module's racy clock AGED -- 10 s ahead of the real clock, so every file that
+ *  exists reads long still however slow the host is, and the clock never runs back. */
+const begin = M => { M.recTestSeam(null); M.recCacheReset(); M.recTestSeam({ now: () => Date.now() + AHEAD_MS }) }
+/** A clock the test steps by hand: wall `t`, monotonic `m` (ms). */
+const handClock = (M, t, m = 0) => { const c = { t, m }; M.recTestSeam(null); M.recCacheReset(); M.recTestSeam({ now: () => c.t, mono: () => c.m }); return c }
+/** The cached walk. */
+const on = (M, d, key = KEY) => M.recordHead(d, key)
 /** The walk as it was: RECCACHE=off. */
 const off = (M, d, key = KEY) => {
   const prev = process.env.RECCACHE
@@ -84,6 +97,8 @@ function same (M, d, label, key = KEY) {
   eq(a2, b, `${label}: the repeat of the cached walk is not the uncached walk`)
   return b
 }
+/** [reads, hits] since the last call of the returned function. */
+const meter = M => { const S = M.recStats; let r = S.reads, h = S.hits; return () => { const x = [S.reads - r, S.hits - h]; r = S.reads; h = S.hits; return x } }
 const BODY = n => ({ v: 1, plot: 'reccache', n, cells: [[n, 64, n]], zones: { a: n }, pad: 'p'.repeat(64) })
 /** n generations by the REAL publishRecord, each given an old whole-second mtime. */
 function chain (M, d, n, key = KEY) {
@@ -105,6 +120,8 @@ function linkGen (d, n, body, key = KEY) {
 }
 /** Other bytes of the SAME size that still parse (one letter of the pad). */
 const twin = buf => { const s = buf.toString('utf8'), o = s.replace('"pad":"p', '"pad":"q'); assert.notStrictEqual(o, s); assert.strictEqual(Buffer.byteLength(o), buf.length); return Buffer.from(o) }
+/** Other bytes over a file, the same inode and size; the mtime is NOT put back (it moves to now). */
+const overwrite = (f, bytes) => { const fd = fs.openSync(f, 'r+'); try { fs.writeSync(fd, bytes, 0, bytes.length, 0) } finally { fs.closeSync(fd) } }
 /** Replace a generation BY RENAME (a new inode), the mtime as it was. */
 function replaceByRename (f, bytes) {
   const st = bstat(f), sw = `${f}.swap.tmp`
@@ -120,8 +137,7 @@ async function rewriteInPlace (f, bytes) {
   const st = bstat(f)
   assert.strictEqual(BigInt(bytes.length), st.size, 'CONTROL: not the same size')
   await nap(30)                                                       // past the coarsest timestamp tick: the ctime MUST move
-  const fd = fs.openSync(f, 'r+')
-  try { fs.writeSync(fd, bytes, 0, bytes.length, 0); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
+  overwrite(f, bytes)
   fs.utimesSync(f, Number(st.mtimeNs / 1_000_000_000n), Number(st.mtimeNs / 1_000_000_000n))
   const now = bstat(f)
   assert.strictEqual(now.ino, st.ino, 'CONTROL: not the same inode'); assert.strictEqual(now.size, st.size, 'CONTROL: the size moved')
@@ -129,22 +145,24 @@ async function rewriteInPlace (f, bytes) {
   assert.notStrictEqual(now.ctimeNs, st.ctimeNs, 'CONTROL: the ctime did not move')
 }
 
-console.log('RECCACHE-01: THE SWITCH AND THE TWO DECISIONS')
-await t('the switch: RECCACHE=off|0|false|no is the rollback; unset is on; the racy window is 2 s', () => {
+console.log('RECCACHE-01: THE SWITCH, THE DECISIONS, THE SEAM')
+await t('the switch: RECCACHE=off|0|false|no is the rollback; unset is on; the racy window is 2 s, the clock\'s tolerance less', () => {
   for (const v of ['off', 'OFF', ' 0', 'false', 'no']) assert.strictEqual(P.recCacheOn({ RECCACHE: v }), false, v)
   for (const v of [undefined, '', 'on', '1']) assert.strictEqual(P.recCacheOn({ RECCACHE: v }), true, String(v))
   assert.strictEqual(P.REC_RACY_MS, 2000)
+  assert.ok(P.REC_CLOCK_BACK_MS > 0 && P.REC_CLOCK_BACK_MS < P.REC_RACY_MS, 'a fall the clock check lets pass must be shorter than the racy window')
 })
-/** recFactFresh on a REAL file's stat: the fact answers only for the same inode, size, mtime and ctime, and only for a stat. */
+/** recFactFresh on a REAL file's stat: the fact answers only for the same device, inode, size, mtime and ctime, and only for a stat. */
 const scenFresh = M => {
   const d = tmp(); fs.writeFileSync(path.join(d, 'f'), 'x')
   const st = bstat(path.join(d, 'f'))
-  const c = { ino: st.ino, size: st.size, mtimeNs: st.mtimeNs, ctimeNs: st.ctimeNs, recGen: 1, prev: null, prevSha: null, sha: 'x' }
+  const c = { dev: st.dev, ino: st.ino, size: st.size, mtimeNs: st.mtimeNs, ctimeNs: st.ctimeNs, recGen: 1, prev: null, prevSha: null, sha: 'x' }
   assert.strictEqual(M.recFactFresh(c, st), true, 'CONTROL: a fact read under this very stat is not served')
-  for (const k of ['ino', 'size', 'mtimeNs', 'ctimeNs']) assert.strictEqual(M.recFactFresh({ ...c, [k]: c[k] + 1n }, st), false, `another ${k} was served`)
+  for (const k of ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs']) assert.strictEqual(M.recFactFresh({ ...c, [k]: c[k] + 1n }, st), false, `another ${k} was served`)
   assert.strictEqual(M.recFactFresh(c, null), false, 'a failed stat was served'); assert.strictEqual(M.recFactFresh(undefined, st), false)
+  assert.strictEqual(M.recFactFresh(null, null), false)
 }
-await t('a kept fact answers only for the SAME inode, size, mtime and ctime, and never for a failed stat (recFactFresh)', () => scenFresh(P))
+await t('a kept fact answers only for the SAME device, inode, size, mtime and ctime, and never for a failed stat (recFactFresh)', () => scenFresh(P))
 await t('racily clean (recRacy): mtime OR ctime within the window, or stamped in the future; both long still is clean', () => {
   const now = 1_800_000_000_000, ns = ms => BigInt(ms) * 1_000_000n
   assert.strictEqual(P.recRacy({ mtimeNs: ns(now - 60_000), ctimeNs: ns(now - 60_000) }, now), false)
@@ -154,10 +172,28 @@ await t('racily clean (recRacy): mtime OR ctime within the window, or stamped in
   assert.strictEqual(P.recRacy({ mtimeNs: ns(now - P.REC_RACY_MS), ctimeNs: ns(now - P.REC_RACY_MS) }, now), false, 'exactly the window: still')
   assert.strictEqual(P.recRacy({ mtimeNs: ns(now - P.REC_RACY_MS + 1), ctimeNs: ns(now - 60_000) }, now), true)
 })
+await t('the clock fell back (recClockBack): the wall-minus-monotonic offset more than the tolerance under its highest reading', () => {
+  const B = P.REC_CLOCK_BACK_MS
+  assert.strictEqual(P.recClockBack(null, 5), false, 'no reading yet')
+  assert.strictEqual(P.recClockBack(1000, 1000), false); assert.strictEqual(P.recClockBack(1000, 99_999), false, 'forward')
+  assert.strictEqual(P.recClockBack(1000, 1000 - B), false, 'exactly the tolerance'); assert.strictEqual(P.recClockBack(1000, 1000 - B - 1), true)
+})
+/** Where the seam's setter and its fields are written, over source texts. */
+const seamWrites = texts => texts.flatMap(([name, text]) => [...text.matchAll(/recTestSeam|Object\.assign\(recSeam|recSeam\.(?:now|mono|at)\s*=(?!=)/g)].map(m => `${name}: ${m[0]}`))
+await t('STRUCTURE: nothing in src/ sets the tests\' seam -- the setter is named once (its definition), its fields are written nowhere else', () => {
+  // the modules themselves: other tests park `_mutant-*` / `.mut-*` copies in src/ while they run beside this one
+  const read = n => { try { return fs.readFileSync(new URL(n, SRC_URL), 'utf8') } catch { return null } }
+  const texts = fs.readdirSync(SRC_URL).filter(n => /^[A-Za-z][\w-]*\.mjs$/.test(n)).map(n => [n, read(n)]).filter(([, x]) => x != null)
+  assert.ok(texts.length > 50 && texts.some(([n]) => n === 'buildproj.mjs') && texts.some(([n]) => n === 'skills.mjs'), `CONTROL: ${texts.length} modules scanned`)
+  // POSITIVE CONTROL: the scan sees the source (recordHead's callers), and sees a use when there is one
+  assert.ok(texts.filter(([, x]) => x.includes('recordHead(')).length >= 2, 'CONTROL: the scan did not find recordHead\'s callers')
+  eq(seamWrites([['x.mjs', 'import { recTestSeam } from "./buildproj.mjs"\nrecTestSeam({ now: () => 0 })\nrecSeam.at = f\nif (recSeam.at === f) g()']]).length, 3, 'CONTROL: the scan misses a use')
+  eq(seamWrites(texts), ['buildproj.mjs: recTestSeam', 'buildproj.mjs: Object.assign(recSeam'], 'the seam is set in src/')
+})
 
 console.log('EQUIVALENCE: THE CACHED WALK IS THE UNCACHED WALK, AFTER EVERY STEP')
 await t('a scripted history: publishes, a foreign generation, chain / gen / unparseable rejections, a middle generation and the root removed and put back, a same-size replacement by rename, an in-place rewrite with its mtime restored, an unreadable file, the head moving back', async () => {
-  P.recCacheReset()
+  begin(P)
   const d = tmp()
   let n = 0
   const step = async (label, fn, check) => { await fn?.(); await turn(); const r = same(P, d, `step ${++n} (${label})`); check?.(r); return r }
@@ -202,23 +238,22 @@ await t('a scripted history: publishes, a foreign generation, chain / gen / unpa
   // the head moves BACK to a generation that was not read in this call: its bytes are read again and checked against its fact
   await turn(); on(P, d)
   fs.unlinkSync(gf(d, 11)); await turn()
-  let r0 = P.recStats.reads
+  const m = meter(P)
   const moved = on(P, d)
-  assert.strictEqual(P.recStats.reads - r0, 2, 'the head moved back: the unparseable g8 (never kept) and the new head\'s bytes, nothing else')
-  r0 = P.recStats.reads
+  eq(m()[0], 2, 'the head moved back: the unparseable g8 (never kept) and the new head\'s bytes, nothing else')
   const plain = off(P, d)
-  assert.strictEqual(P.recStats.reads - r0, 10, 'CONTROL: the uncached walk reads all ten generations')
+  eq(m(), [10, 0], 'CONTROL: the uncached walk reads all ten generations')
   eq(moved, plain, 'the head moved back'); assert.strictEqual(moved.head.gen, 10)
-  r0 = P.recStats.reads
-  eq(on(P, d), plain, 'the head moved back, served'); assert.strictEqual(P.recStats.reads - r0, 1, 'the new head\'s bytes are kept now: only g8 is read')
+  eq(on(P, d), plain, 'the head moved back, served'); eq(m()[0], 1, 'the new head\'s bytes are kept now: only g8 is read')
   // POSITIVE CONTROL: the history was really served from kept facts, not read afresh every time
   assert.ok(P.recStats.hits > 100, `the cached walk served ${P.recStats.hits} facts over the history`)
+  assert.strictEqual(P.recStats.drops, 0, 'the clock check emptied the cache during the history')
   // a directory that cannot be listed is ok: false either way
   const notdir = path.join(d, 'a-file'); fs.writeFileSync(notdir, 'x')
   eq(on(P, notdir), off(P, notdir), 'not a directory'); assert.strictEqual(on(P, notdir).ok, false)
 })
 await t('odd bodies are judged alike: null, a number, a string, an array, an object for gen / prev / prevSha, a second root', async () => {
-  P.recCacheReset()
+  begin(P)
   const root = { v: 1, gen: 1, prev: null, prevSha: null }, rs = sha(Buffer.from(JSON.stringify(root)))
   const odd = ['null', '5', '"str"', '[]', '{}', '0', 'false', '""', '{"gen":{"a":1}}', '{"gen":2,"prev":{"x":1},"prevSha":null}', '{"gen":2,"prev":[1]}',
     '{"gen":2,"prev":null,"prevSha":null}', `{"gen":2,"prev":1,"prevSha":{"s":"${rs}"}}`, `{"gen":2,"prev":1,"prevSha":["${rs}"]}`, `{"gen":2,"prev":"1","prevSha":"${rs}"}`,
@@ -238,10 +273,10 @@ await t('odd bodies are judged alike: null, a number, a string, an array, an obj
 /** A generation replaced by rename (other bytes, the same size, the same mtime) while every later generation is KEPT: the head is
  *  the replacement and every later generation is no link. */
 const scenReplaced = async M => {
-  M.recCacheReset()
+  begin(M)
   const d = tmp(); chain(M, d, 4); await turn()
-  on(M, d); const r0 = M.recStats.reads; on(M, d)
-  assert.strictEqual(M.recStats.reads - r0, 0, 'CONTROL: the four generations were not kept before the replacement')
+  on(M, d); const m = meter(M); on(M, d)
+  eq(m(), [0, 4], 'CONTROL: the four generations were not kept before the replacement')
   replaceByRename(gf(d, 2), twin(fs.readFileSync(gf(d, 2)))); await turn()
   const r = same(M, d, 'replaced by rename')
   assert.strictEqual(r.head.gen, 2); assert.strictEqual(r.head.rec.pad[0], 'q'); eq(r.rejected, [{ gen: 3, why: 'chain' }, { gen: 4, why: 'chain' }], 'rejected')
@@ -249,18 +284,70 @@ const scenReplaced = async M => {
 await t('a generation replaced by rename with other bytes of the SAME size and mtime: the replacement is the head, the kept later generations are no link', () => scenReplaced(P))
 /** The same, in place: the same inode, size and mtime -- only the ctime moved. */
 const scenInPlace = async M => {
-  M.recCacheReset()
+  begin(M)
   const d = tmp(); chain(M, d, 4); await turn()
-  on(M, d); const r0 = M.recStats.reads; on(M, d)
-  assert.strictEqual(M.recStats.reads - r0, 0, 'CONTROL: the four generations were not kept before the rewrite')
+  on(M, d); const m = meter(M); on(M, d)
+  eq(m(), [0, 4], 'CONTROL: the four generations were not kept before the rewrite')
   await rewriteInPlace(gf(d, 3), twin(fs.readFileSync(gf(d, 3)))); await turn()
   const r = same(M, d, 'rewritten in place')
   assert.strictEqual(r.head.gen, 3); assert.strictEqual(r.head.rec.pad[0], 'q'); eq(r.rejected, [{ gen: 4, why: 'chain' }], 'rejected')
 }
 await t('a generation rewritten IN PLACE with its mtime restored (the same inode, size, mtime; the ctime moved) is read again', () => scenInPlace(P))
-/** TWO INODES, ONE STAT. Two directories hold the same record but for g2's bytes; the two g2 files are stamped back to back so the
- *  kernel's coarse clock gives them the same ctime (and mtime, and size). The directories are then swapped by rename (which touches
- *  no file's ctime): the path's file differs from the kept fact ONLY by its inode. -> false when the filesystem would not give it. */
+
+console.log('ONE DESCRIPTOR (r1, BLOCKER B): THE FACT IS BOUND TO THE INODE THAT WAS READ')
+/** Two directories hold the same record but for g2's bytes (AAAA under `live`, BBBB beside it), every file long still. `swap` puts
+ *  the other directory under the path, `back` undoes it: a rename of the PARENT moves no file's ctime. */
+function pair () {
+  const base = tmp(), live = path.join(base, 'live'), B = path.join(base, 'b'), parked = path.join(base, 'parked')
+  const root = JSON.stringify({ v: 1, tag: 'root', gen: 1, prev: null, prevSha: null }), rs = sha(Buffer.from(root))
+  for (const [D, tag] of [[live, 'AAAA'], [B, 'BBBB']]) {
+    fs.mkdirSync(D); fs.writeFileSync(gf(D, 1), root); fs.writeFileSync(gf(D, 2), JSON.stringify({ v: 1, tag, gen: 2, prev: 1, prevSha: rs }))
+    age(gf(D, 1), 1); age(gf(D, 2), 2)
+  }
+  return { base, live, swap: () => { fs.renameSync(live, parked); fs.renameSync(B, live) }, back: () => { fs.renameSync(live, B); fs.renameSync(parked, live) } }
+}
+/** "Another process" swaps the directory away at one stage of g2's read and back at a later one (the tests' seam: between two
+ *  system calls of one synchronous read). Whatever that one call answered, every LATER call is the uncached walk: AAAA. */
+const scenSwap = async M => {
+  for (const [away, home] of [['open', 'opened'], ['open', 'read'], ['stat0', 'read']]) {
+    begin(M)
+    const s = pair(), target = gf(s.live, 2), seen = []
+    await turn()
+    M.recTestSeam({ at: (stage, p) => {
+      if (p !== target) return
+      if (stage === away && seen.length === 0) { s.swap(); seen.push('away') } else if (stage === home && seen.length === 1) { s.back(); seen.push('home') }
+    } })
+    const first = on(M, s.live)
+    M.recTestSeam({ at: null })
+    eq(seen, ['away', 'home'], `CONTROL ${away} -> ${home}: the directory was not swapped away and back inside the read`)
+    // the read itself: `open` .. -> the descriptor is the OTHER directory's file (BBBB); `stat0` .. -> it is already this one's (AAAA)
+    assert.strictEqual(first.head.rec.tag, away === 'open' ? 'BBBB' : 'AAAA', `${away} -> ${home}: the bytes of the descriptor that was opened`)
+    for (let i = 0; i < 2; i++) { await turn(); assert.strictEqual(same(M, s.live, `${away} -> ${home}, call ${i + 1} after the swap`).head.rec.tag, 'AAAA') }
+    fs.rmSync(s.base, { recursive: true, force: true })
+  }
+}
+await t('a directory swapped away and back around one read (the path names another inode for one system call): every later call is the uncached walk', () => scenSwap(P))
+/** The file is rewritten BETWEEN the read and the stat after it: the fact would bind the old bytes to the new stat -- not kept. */
+const scenBetweenStats = async M => {
+  begin(M)
+  const d = tmp(); chain(M, d, 3); await turn(); M.recCacheReset()
+  const target = gf(d, 2), other = twin(fs.readFileSync(target))
+  let did = 0
+  M.recTestSeam({ at: (stage, p) => { if (stage === 'read' && p === target && !did++) overwrite(p, other) } })
+  const first = on(M, d)
+  M.recTestSeam({ at: null })
+  assert.strictEqual(did, 1, 'CONTROL: the file was not rewritten between the read and the second stat')
+  assert.notStrictEqual(bstat(target).mtimeNs, BigInt(T0 + 2) * 1_000_000_000n, 'CONTROL: the rewrite did not move the stat')
+  assert.strictEqual(first.head.gen, 3, 'the bytes read before the rewrite')
+  assert.strictEqual(M.recCacheSize().facts, 2, 'a file that changed between the stat before its read and the stat after it was kept')
+  await turn()
+  const r = same(M, d, 'after the rewrite')
+  assert.strictEqual(r.head.gen, 2); assert.strictEqual(r.head.rec.pad[0], 'q'); eq(r.rejected, [{ gen: 3, why: 'chain' }], 'rejected')
+}
+await t('a file rewritten between the stat before its read and the stat after it is not kept; the next call reads the rewrite', () => scenBetweenStats(P))
+/** TWO INODES, ONE STAT (not every filesystem gives it). Two directories hold the same record but for g2's bytes; the two g2 files
+ *  are stamped back to back so the kernel's coarse clock gives them the same ctime (and mtime, and size). The directories are then
+ *  swapped by rename BETWEEN two calls: the path's file differs from the kept fact ONLY by its inode. -> null when not given. */
 function twins () {
   for (let i = 0; i < 300; i++) {
     const base = tmp(), A = path.join(base, 'a'), B = path.join(base, 'b'); fs.mkdirSync(A); fs.mkdirSync(B)
@@ -274,41 +361,60 @@ function twins () {
   return null
 }
 const scenTwins = async M => {
-  M.recCacheReset()
+  begin(M)
   const tw = twins()
   if (!tw) return false
   const live = path.join(tw.base, 'live')
   fs.renameSync(tw.A, live); await turn()
   assert.strictEqual(same(M, live, 'twin A').head.rec.tag, 'AAAA')
-  const r0 = M.recStats.reads; on(M, live); assert.strictEqual(M.recStats.reads - r0, 0, 'CONTROL: twin A was not kept')
+  const m = meter(M); on(M, live); eq(m(), [0, 2], 'CONTROL: twin A was not kept')
   fs.renameSync(live, path.join(tw.base, 'old')); fs.renameSync(tw.B, live); await turn()
   assert.strictEqual(same(M, live, 'twin B under the same path, the same size, mtime and ctime').head.rec.tag, 'BBBB')
   return true
 }
 let twinsReached = false
-await t('two inodes with ONE size, mtime and ctime under the same path (a directory swap): the other inode is read', async () => {
+await t('two inodes with ONE size, mtime and ctime under the same path (a directory swap between two calls): the other inode is read', async () => {
   twinsReached = await scenTwins(P)
-  note(`two inodes, one stat: ${twinsReached ? 'REACHED' : 'NOT REACHED on this filesystem (fine-grained ctime); recFactFresh covers the inode'}`)
+  note(`two inodes, one stat (real files): ${twinsReached ? 'REACHED' : 'NOT REACHED on this filesystem (fine-grained ctime)'} -- the inode in the key is held deterministically by "a kept fact answers only for the SAME device, inode..." and "a directory swapped away and back around one read..."`)
 })
-/** The kept head's bytes are gone (the head moved back) and the file is no longer the bytes its fact was read from, with a stat that
- *  did not move (an in-place rewrite inside the ctime's tick, which only the test's 10-s-ahead clock lets a fact survive): the
- *  re-read does not hash to the fact, the fact is dropped and the walk is made again. -> false when the ctime moved every time. */
+
+console.log('THE HEAD\'S BYTES: READ AGAIN WHEN THEY ARE NOT KEPT, AND CHECKED AGAINST THE FACT')
+/** The head moved back to g4 (its bytes are not kept) and g4 is rewritten between its stat and the re-read (the seam's `head`
+ *  stage): the bytes do not hash to the fact -- the fact is dropped and the walk made again. */
+const scenHeadReread = async M => {
+  begin(M)
+  const d = tmp(); chain(M, d, 5); await turn(); on(M, d)
+  fs.unlinkSync(gf(d, 5)); await turn()
+  const target = gf(d, 4), other = twin(fs.readFileSync(target))
+  let did = 0
+  M.recTestSeam({ at: (stage, p) => { if (stage === 'head' && p === target && !did++) overwrite(p, other) } })
+  const m = meter(M)
+  const a = on(M, d), counted = m()
+  M.recTestSeam({ at: null })
+  assert.strictEqual(did, 1, 'CONTROL: the head\'s file was not rewritten between its stat and its re-read')
+  eq(a, off(M, d), 'the head re-read under a fact its bytes no longer hash to')
+  assert.strictEqual(a.head.gen, 4); assert.strictEqual(a.head.rec.pad[0], 'q')
+  eq(counted, [2, 7], 'the re-read that did not hash to the fact, then the fresh read of the walk made again (g1-g4 served, then g1-g3)')
+  await turn(); eq(on(M, d), off(M, d), 'the call after')
+}
+await t('the head moved back and its file is no longer the bytes its fact was read from: the fact is dropped, the walk made again', () => scenHeadReread(P))
+/** The same on real files without the seam: a rewrite inside one ctime tick leaves a stale fact (which only the AGED clock lets
+ *  survive). -> false when the filesystem moved the ctime every time. */
 const scenHeadMoved = async M => {
   for (let i = 0; i < 200; i++) {
-    M.recCacheReset()
+    begin(M)
     const d = tmp()
     let ps = null
     for (let g = 1; g <= 5; g++) { const buf = Buffer.from(JSON.stringify({ ...BODY(g), gen: g, prev: g === 1 ? null : g - 1, prevSha: ps })); fs.writeFileSync(gf(d, g), buf); age(gf(d, g), g); ps = sha(buf) }
     const f = gf(d, 4), other = twin(fs.readFileSync(f))
     age(f, 4); on(M, d); fs.unlinkSync(gf(d, 5))                       // every fact kept; the kept bytes are g5's
-    const st = bstat(f), fd = fs.openSync(f, 'r+')
-    try { fs.writeSync(fd, other, 0, other.length, 0) } finally { fs.closeSync(fd) }
-    age(f, 4)
+    const st = bstat(f)
+    overwrite(f, other); age(f, 4)
     const now = bstat(f)
     if (!(now.ino === st.ino && now.size === st.size && now.mtimeNs === st.mtimeNs && now.ctimeNs === st.ctimeNs)) { fs.rmSync(d, { recursive: true, force: true }); continue }
     M.dropListings()
-    const r0 = M.recStats.reads
-    const a = on(M, d), reads = M.recStats.reads - r0
+    const m = meter(M)
+    const a = on(M, d), reads = m()[0]
     eq(a, off(M, d), 'the head re-read under a stale fact')
     assert.strictEqual(a.head.gen, 4); assert.strictEqual(a.head.rec.pad[0], 'q')
     assert.strictEqual(reads, 2, 'the re-read that did not hash to the fact, then the fresh read of the walk made again')
@@ -316,75 +422,137 @@ const scenHeadMoved = async M => {
   }
   return false
 }
-await t('the head moved back and its file is not the bytes its fact was read from: the fact is dropped, the walk made again', async () => {
+await t('the same on real files alone: a rewrite inside one ctime tick under the head that moved back', async () => {
   const reached = await scenHeadMoved(P)
-  note(`the head's stale fact (a rewrite inside one ctime tick): ${reached ? 'REACHED' : 'NOT REACHED on this filesystem (the ctime moved every time): the drop-and-walk-again path did not run'}`)
+  note(`the head's stale fact, a rewrite inside one ctime tick (real files): ${reached ? 'REACHED' : 'NOT REACHED on this filesystem (the ctime moved every time)'} -- the drop-and-walk-again path is held deterministically by "the head moved back and its file is no longer the bytes..."`)
+})
+await t('three walks in a row lose their head between its stat and its re-read: the answer is the plain walk\'s', async () => {
+  await withMutants(PROJ_URL, [['export const REC_HEAD_BYTES_MAX = 32 * 1024 * 1024', 'export const REC_HEAD_BYTES_MAX = 16']], async M => {
+    begin(M)
+    const d = tmp(); chain(M, d, 3); await turn(); on(M, d)            // three facts kept, no head bytes (the bound made tiny)
+    const lost = []
+    M.recTestSeam({ at: (stage, p) => { if (stage === 'head') { lost.push(path.basename(p)); fs.unlinkSync(p); M.dropListings() } } })
+    const a = on(M, d)
+    M.recTestSeam({ at: null })
+    eq(lost, [3, 2, 1].map(g => path.basename(gf(d, g))), 'CONTROL: each walk\'s head was not removed under its re-read')
+    eq(a, { ok: true, head: null, gens: [], rejected: [] }, 'after three lost heads')
+    eq(a, off(M, d), 'the plain walk')
+  })
 })
 
 console.log('COUNTERS: WHAT A CALL READS')
-/** An unchanged history that is not racily clean reads nothing; a publish reads exactly the new generation. */
+/** An unchanged history that is not racily clean reads nothing; a publish reads exactly the generation it linked, once. */
 const scenCounters = async M => {
-  M.recCacheReset()
+  begin(M)
   const d = tmp(); chain(M, d, 5); await turn()
-  const S = M.recStats
-  let r = S.reads, h = S.hits
-  const d1 = () => { const x = [S.reads - r, S.hits - h]; r = S.reads; h = S.hits; return x }
-  on(M, d); eq(d1(), [5, 0], 'the first walk reads every generation')
-  for (let i = 0; i < 3; i++) { const a = on(M, d); eq(d1(), [0, 5], `repeat ${i}: an unchanged history reads no generation file`); assert.strictEqual(a.head.gen, 5) }
-  assert.strictEqual(M.recordHead(d, KEY).head.gen, 5); eq(d1(), [0, 5], 'the caller\'s own clock: kept facts are served')
-  assert.strictEqual(M.recordHead(d, KEY, null).head.gen, 5); d1()
+  M.recCacheReset()                                                   // what publishRecord's own walks kept is forgotten: count from nothing
+  const m = meter(M)
+  on(M, d); eq(m(), [5, 0], 'the first walk reads every generation')
+  for (let i = 0; i < 3; i++) { const a = on(M, d); eq(m(), [0, 5], `repeat ${i}: an unchanged history reads no generation file`); assert.strictEqual(a.head.gen, 5) }
   const p = M.publishRecord(d, KEY, rec => ({ ...rec, n: 6 }))
   assert.strictEqual(p.result, 'accepted'); assert.strictEqual(p.gen, 6); assert.strictEqual(p.head.rec.n, 6)
-  eq(d1(), [1, 10], 'a publish on a kept history reads only the generation it linked')
+  eq(m(), [1, 10], 'a publish on a kept history (two walks) reads only the generation it linked')
   await turn()
-  on(M, d); eq(d1(), [1, 5], 'after the publish exactly the new generation is read')
-  const a = on(M, d); eq(d1(), [0, 6], 'and then none'); assert.strictEqual(a.head.gen, 6); assert.strictEqual(a.head.rec.n, 6)
-  eq(a, off(M, d), 'the served walk'); eq(d1(), [6, 0], 'CONTROL: the uncached walk reads every generation')
-  assert.deepStrictEqual(M.recCacheSize().facts, 6); assert.strictEqual(M.recCacheSize().heads, 1)
+  const a = on(M, d); eq(m(), [0, 6], 'and the call after it reads none'); assert.strictEqual(a.head.gen, 6); assert.strictEqual(a.head.rec.n, 6)
+  eq(a, off(M, d), 'the served walk'); eq(m(), [6, 0], 'CONTROL: the uncached walk reads every generation')
+  eq(M.recCacheSize().facts, 6, 'facts kept'); eq(M.recCacheSize().heads, 1, 'head Buffers kept')
+  assert.strictEqual(M.recStats.drops, 0)
 }
-await t('an unchanged history that is not racily clean reads 0 generation files; a publish, and the call after it, read exactly the new one', () => scenCounters(P))
+await t('an unchanged history that is not racily clean reads 0 generation files; a publish reads exactly the generation it linked, once', () => scenCounters(P))
 await t('RECCACHE=off: every generation read on every call, nothing served, nothing kept', async () => {
-  P.recCacheReset()
+  begin(P)
   const d = tmp(); chain(P, d, 5); await turn()
   P.recCacheReset()
   for (let i = 1; i <= 3; i++) { assert.strictEqual(off(P, d).head.gen, 5); eq([P.recStats.reads, P.recStats.hits], [5 * i, 0], `call ${i}`) }
   eq(P.recCacheSize(), { facts: 0, heads: 0, headBytes: 0 }, 'kept under RECCACHE=off')
 })
 
-console.log('RACILY CLEAN: A JUST-WRITTEN FILE IS NOT KEPT')
-/** With the caller's own clock a just-written generation is read on every call; it is kept once it is older than the window. */
+console.log('RACILY CLEAN: NOT KEPT, AND NOT SERVED (the clock is stepped by hand from the file\'s own stamp)')
+/** One generation, its stamp c: read on every call while the clock is under c + REC_RACY_MS, kept at c + REC_RACY_MS. */
 const scenRacy = async M => {
-  M.recCacheReset()
-  const d = tmp()
-  for (let i = 1; i <= 3; i++) assert.strictEqual(M.publishRecord(d, KEY, () => BODY(i)).result, 'accepted')
-  await turn(); M.recCacheReset()
-  const S = M.recStats
-  for (let i = 1; i <= 3; i++) fs.utimesSync(gf(d, i), Date.now() / 1000, Date.now() / 1000)      // written NOW (a loaded host may have stalled since the publish)
-  for (let i = 1; i <= 3; i++) { assert.strictEqual(M.recordHead(d, KEY).head.gen, 3); eq([S.reads, S.hits], [3 * i, 0], `call ${i}: a just-written file is read again`) }
-  assert.strictEqual(M.recordHead(d, KEY, { now: Date.now() + M.REC_RACY_MS / 4 }).head.gen, 3); eq([S.reads, S.hits], [12, 0], 'a quarter of the window on: still racy')
-  assert.strictEqual(M.recCacheSize().facts, 0, 'a racily clean file was kept')
-  assert.strictEqual(M.recordHead(d, KEY, { now: Date.now() + M.REC_RACY_MS + 500 }).head.gen, 3); eq([S.reads, S.hits], [15, 0], 'past the window: read once more')
-  assert.strictEqual(M.recCacheSize().facts, 3, 'CONTROL: a file older than the window is kept')
-  assert.strictEqual(M.recordHead(d, KEY).head.gen, 3); eq([S.reads, S.hits], [15, 3], 'and served from then on')
-  // a file stamped in the FUTURE never stops being racy
-  fs.utimesSync(gf(d, 2), Date.now() / 1000 + 3600, Date.now() / 1000 + 3600); await turn()
-  for (let i = 1; i <= 2; i++) { eq(on(M, d), off(M, d), 'future mtime'); assert.strictEqual(M.recCacheSize().facts, 2, 'a file stamped in the future was kept') }
+  const d = tmp(); linkGen(d, 1, { ...BODY(1), gen: 1, prev: null, prevSha: null }); await turn()
+  const c = stampMs(gf(d, 1)), clock = handClock(M, c), m = meter(M)
+  for (const dt of [0, 1, 1000, M.REC_RACY_MS - 1]) {
+    clock.t = c + dt
+    assert.strictEqual(on(M, d).head.gen, 1); eq(m(), [1, 0], `${dt} ms after its stamp: read again`)
+    assert.strictEqual(M.recCacheSize().facts, 0, `${dt} ms after its stamp: a racily clean file was kept`)
+  }
+  clock.t = c + M.REC_RACY_MS
+  assert.strictEqual(on(M, d).head.gen, 1); eq(m(), [1, 0], 'at the window: read once more')
+  assert.strictEqual(M.recCacheSize().facts, 1, 'CONTROL: a file as old as the window is kept')
+  assert.strictEqual(on(M, d).head.gen, 1); eq(m(), [0, 1], 'and served from then on')
+  // a file stamped in the FUTURE is racy until the clock has passed its stamp by the window
+  const ahead = c + 3_600_000
+  fs.utimesSync(gf(d, 1), ahead / 1000, ahead / 1000); await turn()
+  const f = stampMs(gf(d, 1)); assert.ok(f > c + 3_000_000, 'CONTROL: the mtime was not moved ahead')
+  for (const t of [c + 60_000, f - 1, f + M.REC_RACY_MS - 1]) { clock.t = t; eq(on(M, d), off(M, d), 'future mtime'); assert.strictEqual(M.recCacheSize().facts, 0, 'a file stamped ahead of the clock was kept') }
+  clock.t = f + M.REC_RACY_MS; on(M, d); assert.strictEqual(M.recCacheSize().facts, 1)
+  assert.strictEqual(M.recStats.drops, 0, 'CONTROL: the clock only ran forward here')
 }
-await t('a just-written generation is read on every call until it is older than REC_RACY_MS; a future stamp is never kept', () => scenRacy(P))
+await t('a generation is read on every call until the clock is REC_RACY_MS past its stamp, then kept; a future stamp likewise', () => scenRacy(P))
+/** r1 BLOCKER A, the first clause: a KEPT fact is not served while its file reads racily clean (a clock that slipped back inside the
+ *  tolerance): it is dropped, the file read afresh and not kept. */
+const scenRacyHit = async M => {
+  const d = tmp(); linkGen(d, 1, { ...BODY(1), gen: 1, prev: null, prevSha: null }); await turn()
+  const c = stampMs(gf(d, 1)), clock = handClock(M, c + M.REC_RACY_MS), m = meter(M)
+  on(M, d); eq(m(), [1, 0], 'kept'); on(M, d); eq(m(), [0, 1], 'CONTROL: the fact is kept and served while its file is long still')
+  clock.t = c + M.REC_RACY_MS - 500                                   // 500 ms back: inside the clock check's tolerance
+  for (let i = 0; i < 2; i++) {
+    const a = on(M, d)
+    eq(m(), [1, 0], `call ${i}: a kept fact was served while its file reads racily clean`)
+    eq(a, off(M, d), 'racy at the hit'); m()
+    assert.strictEqual(M.recCacheSize().facts, 0, 'the fact was not dropped (or the fresh read was kept)')
+  }
+  assert.strictEqual(M.recStats.drops, 0, 'CONTROL: it was the racy rule at the hit, not the clock check')
+  clock.t = c + M.REC_RACY_MS; on(M, d); on(M, d); eq(m(), [1, 1], 'long still again: kept and served')
+}
+await t('a kept fact is NOT served while its file reads racily clean: dropped, read afresh, not kept; the answer is the uncached walk\'s', () => scenRacyHit(P))
+
+console.log('THE CLOCK FELL BACK: THE CACHE IS EMPTIED BEFORE THE WALK')
+/** r1 BLOCKER A, the second clause: wall and monotonic clocks stepped by hand; every file is a minute old throughout. */
+const scenClockBack = async M => {
+  const d = tmp(); for (let g = 1, ps = null; g <= 3; g++) ps = sha(linkGen(d, g, { ...BODY(g), gen: g, prev: g === 1 ? null : g - 1, prevSha: ps }))
+  await turn()
+  const hi = Math.max(...[1, 2, 3].map(g => stampMs(gf(d, g)))), B = M.REC_CLOCK_BACK_MS
+  const clock = handClock(M, hi + 600_000), m = meter(M), S = M.recStats
+  const t1 = clock.t
+  on(M, d); eq(m(), [3, 0], 'kept'); on(M, d); eq(m(), [0, 3], 'CONTROL: served')
+  clock.t = t1 - B
+  on(M, d); eq(m(), [0, 3], 'back by exactly the tolerance: still served'); assert.strictEqual(S.drops, 0)
+  clock.t = t1 - B - 1
+  const a = on(M, d)
+  eq(m(), [3, 0], 'the wall clock fell back past the tolerance: nothing kept is served'); assert.strictEqual(S.drops, 1)
+  eq(a, off(M, d), 'after the fall'); m()
+  on(M, d); eq(m(), [0, 3], 'CONTROL: kept again under the clock as it is now'); assert.strictEqual(S.drops, 1)
+  // several small falls add up: the measure is the highest reading, not the last one
+  const t2 = clock.t
+  clock.t = t2 - 600; on(M, d); eq(m(), [0, 3], '600 ms back: inside the tolerance'); assert.strictEqual(S.drops, 1)
+  clock.t = t2 - 1200; on(M, d); eq(m(), [3, 0], 'another 600 ms back: 1200 ms under the highest reading'); assert.strictEqual(S.drops, 2)
+  // the wall clock stood still while the monotonic one ran on: the same fall, seen however much later the next call comes
+  on(M, d); eq(m(), [0, 3], 'CONTROL: kept again')
+  clock.m += 5000; clock.t += 3000
+  const b = on(M, d); eq(m(), [3, 0], 'the wall clock lost 2 s against the monotonic one'); assert.strictEqual(S.drops, 3)
+  eq(b, off(M, d), 'after the second fall'); m()
+  // forward is no fall
+  clock.t += 3_600_000; on(M, d); eq(m(), [0, 3], 'an hour forward: served'); assert.strictEqual(S.drops, 3)
+  eq(M.recCacheSize().facts, 3, 'facts kept')
+}
+await t('a wall clock that fell back against the monotonic one by more than REC_CLOCK_BACK_MS empties the cache; the answer is the uncached walk\'s', () => scenClockBack(P))
 
 console.log('NOTHING SHARED: THE CALLER MAY MUTATE WHAT IT GETS')
 /** head.rec, head, rejected and gens are the caller's: wrecking them changes no later call. */
 const scenMutate = async M => {
-  M.recCacheReset()
+  begin(M)
   const d = tmp(); chain(M, d, 3); linkGen(d, 4, { ...BODY(4), gen: 4, prev: 3, prevSha: 'not it' }); await turn()
   const want = off(M, d)
   assert.strictEqual(want.head.gen, 3); eq(want.rejected, [{ gen: 4, why: 'chain' }], 'CONTROL: the scene')
   const wreck = r => { r.head.rec.cells.push('X'); r.head.rec.zones.a = 'wrecked'; r.head.rec.gen = 77; delete r.head.rec.prevSha; r.head.sha = 'zzz'; r.head.gen = -1; r.rejected[0].why = 'wrecked'; r.rejected.push({ gen: 0, why: 'x' }); r.gens.length = 0 }
   const seen = []
+  on(M, d)
   for (let i = 0; i < 4; i++) {
-    const r0 = M.recStats.reads
+    const m = meter(M)
     const a = on(M, d)
-    if (i >= 1) assert.strictEqual(M.recStats.reads - r0, 0, 'CONTROL: this call was not served from the kept facts and bytes')
+    eq(m(), [0, 4], 'CONTROL: this call was not served from the kept facts and bytes')
     eq(a, want, `call ${i}: an earlier caller's mutation came back`)
     assert.ok(seen.every(o => o !== a.head.rec), 'the same parsed object was handed out twice')
     seen.push(a.head.rec); wreck(a)
@@ -398,15 +566,15 @@ await t('mutating head.rec, head, rejected and gens changes no later call; every
 
 console.log('NO KEPT FAILURE: AN UNPARSEABLE OR UNREADABLE FILE IS READ AGAIN EVERY CALL')
 const scenUnparseable = async M => {
-  M.recCacheReset()
+  begin(M)
   const d = tmp(); chain(M, d, 2)
   const good = Buffer.from(JSON.stringify({ ...BODY(3), gen: 3, prev: 2, prevSha: off(M, d).head.sha }))
   linkGen(d, 3, good.subarray(0, good.length - 7)); await turn()        // a torn write
   on(M, d)
   for (let i = 0; i < 3; i++) {
-    const r0 = M.recStats.reads, a = on(M, d)
+    const m = meter(M), a = on(M, d)
     eq(a.rejected, [{ gen: 3, why: 'unparseable' }], `call ${i}`); assert.strictEqual(a.head.gen, 2)
-    assert.strictEqual(M.recStats.reads - r0, 1, `call ${i}: the unparseable file was not read again (and only it)`)
+    eq(m(), [1, 2], `call ${i}: the unparseable file was not read again (and only it)`)
   }
   eq(on(M, d), off(M, d), 'unparseable')
   await nap(30); fs.writeFileSync(gf(d, 3), good); age(gf(d, 3), 3); await turn()     // fixed in place
@@ -414,14 +582,14 @@ const scenUnparseable = async M => {
 }
 await t('an unparseable generation is read again on every call; fixed, the next call sees it', () => scenUnparseable(P))
 const scenUnreadable = async M => {
-  M.recCacheReset()
+  begin(M)
   const d = tmp(); chain(M, d, 2)
   fs.mkdirSync(gf(d, 3)); age(gf(d, 3), 3); await turn()                 // EISDIR: unreadable whoever runs this
   on(M, d)
   for (let i = 0; i < 3; i++) {
-    const r0 = M.recStats.reads, a = on(M, d)
+    const m = meter(M), a = on(M, d)
     eq(a.rejected, [{ gen: 3, why: 'unreadable' }], `call ${i}`); assert.strictEqual(a.head.gen, 2)
-    assert.strictEqual(M.recStats.reads - r0, 1, `call ${i}: the unreadable file was not tried again (and only it)`)
+    eq(m(), [1, 2], `call ${i}: the unreadable file was not tried again (and only it)`)
   }
   eq(on(M, d), off(M, d), 'unreadable')
   fs.rmdirSync(gf(d, 3)); linkGen(d, 3, { ...BODY(3), gen: 3, prev: 2, prevSha: off(M, d).head.sha }); await turn()
@@ -430,17 +598,17 @@ const scenUnreadable = async M => {
 await t('an unreadable generation is tried again on every call; readable, the next call sees it', () => scenUnreadable(P))
 await t('a generation without read permission (chmod 000) is tried again on every call; chmod back, the next call sees it', async () => {
   if (ROOT_USER) { note('chmod 000 test: SKIPPED (running as root)'); return }
-  P.recCacheReset()
+  begin(P)
   const d = tmp(); chain(P, d, 3); await turn()
   on(P, d); await nap(30); fs.chmodSync(gf(d, 2), 0o000)
   let denied = false; try { fs.readFileSync(gf(d, 2)) } catch { denied = true }
   if (!denied) { fs.chmodSync(gf(d, 2), 0o644); note('chmod 000 test: SKIPPED (the filesystem ignores the mode)'); return }
   await turn()
   for (let i = 0; i < 4; i++) {
-    const r0 = P.recStats.reads, a = on(P, d)
+    const m = meter(P), a = on(P, d)
     assert.strictEqual(a.head.gen, 1); eq(a.rejected, [{ gen: 2, why: 'unreadable' }, { gen: 3, why: 'chain' }], `call ${i}`)
     // the first call also reads the bytes of the head it fell back to (g1: kept as a fact, its bytes never kept)
-    assert.strictEqual(P.recStats.reads - r0, i === 0 ? 2 : 1, `call ${i}: the unreadable file is tried again (and only it)`)
+    eq(m()[0], i === 0 ? 2 : 1, `call ${i}: the unreadable file is tried again (and only it)`)
   }
   eq(on(P, d), off(P, d), 'chmod 000')
   await nap(30); fs.chmodSync(gf(d, 2), 0o644); await turn()
@@ -448,33 +616,50 @@ await t('a generation without read permission (chmod 000) is tried again on ever
 })
 
 console.log('BOUNDS: THE KEPT FACTS AND THE KEPT HEAD BYTES')
+const FACTS_6 = ['export const REC_FACTS_MAX = 8192', 'export const REC_FACTS_MAX = 6']
+const HEADS_2 = ['export const REC_HEADS_MAX = 64', 'export const REC_HEADS_MAX = 2']
 await t('at most REC_FACTS_MAX facts (least recently used out first) and REC_HEADS_MAX head Buffers; past them the walk is still the uncached walk', async () => {
   assert.ok(P.REC_FACTS_MAX >= 1024 && P.REC_HEADS_MAX >= 31, 'the live pool: 435 generation files, 31 records')
-  await withMutants(PROJ_URL, [['export const REC_FACTS_MAX = 8192', 'export const REC_FACTS_MAX = 6'], ['export const REC_HEADS_MAX = 64', 'export const REC_HEADS_MAX = 2']], async M => {
+  await withMutants(PROJ_URL, [FACTS_6, HEADS_2], async M => {
+    begin(M)
     const d = tmp(), keys = ['a', 'b', 'c', 'd'].map(pl => M.projKey({ x: 0, y: 70, z: 0 }, pl))
     for (const k of keys) chain(M, d, 5, k)
     await turn(); M.recCacheReset()
     for (const k of keys) { same(M, d, `record ${k}`, k); const z = M.recCacheSize(); assert.ok(z.facts <= 6 && z.heads <= 2, JSON.stringify(z)) }
     eq(M.recCacheSize().facts, 6, 'CONTROL: the bound was reached')
-    const r0 = M.recStats.reads; on(M, d, keys[3])
-    assert.strictEqual(M.recStats.reads - r0, 0, 'the record used last was pushed out')
-    const r1 = M.recStats.reads; same(M, d, 'the record used first', keys[0])
-    assert.ok(M.recStats.reads - r1 >= 5, 'CONTROL: the record used first was still kept (the bound is not biting)')
+    const m = meter(M); on(M, d, keys[3])
+    eq(m(), [0, 5], 'the record used last was pushed out')
+    same(M, d, 'the record used first', keys[0])
+    assert.ok(m()[0] >= 5, 'CONTROL: the record used first was still kept (the bound is not biting)')
   })
 })
+/** Three records, two head Buffers: the one USED last stays, whichever was READ first. */
+const scenHeadLru = async M => {
+  begin(M)
+  const d = tmp(), [a, b, c] = ['a', 'b', 'c'].map(pl => M.projKey({ x: 0, y: 70, z: 0 }, pl))
+  for (const k of [a, b, c]) chain(M, d, 3, k)
+  await turn(); M.recCacheReset()
+  const m = meter(M)
+  on(M, d, a); on(M, d, b); eq(m(), [6, 0], 'two records read, their head bytes kept'); eq(M.recCacheSize().heads, 2, 'heads')
+  on(M, d, a); eq(m(), [0, 3], 'CONTROL: the first record is served, bytes and all')
+  on(M, d, c); eq(m(), [3, 0], 'a third record'); eq(M.recCacheSize().heads, 2, 'heads')
+  on(M, d, a); eq(m(), [0, 3], 'the head bytes used last were pushed out by the third record')
+  on(M, d, b); eq(m(), [1, 3], 'CONTROL: the bound bit -- the record not used since had its head bytes read again')
+}
+await t('the head Buffers go least recently USED first: a served head is refreshed', () => withMutants(PROJ_URL, [HEADS_2], scenHeadLru))
 await t('a head too big for REC_HEAD_BYTES_MAX is not kept: its file is read again each call and must hash to its fact', async () => {
   await withMutants(PROJ_URL, [['export const REC_HEAD_BYTES_MAX = 32 * 1024 * 1024', 'export const REC_HEAD_BYTES_MAX = 16']], async M => {
-    M.recCacheReset()
+    begin(M)
     const d = tmp(); chain(M, d, 4); await turn()
     on(M, d)
-    for (let i = 0; i < 3; i++) { const r0 = M.recStats.reads; eq(on(M, d), off(M, d), `call ${i}`); assert.strictEqual(M.recStats.reads - r0 - 4, 1, 'only the head is read again') }
+    for (let i = 0; i < 3; i++) { const m = meter(M); const a = on(M, d); eq(m(), [1, 4], 'only the head is read again'); eq(a, off(M, d), `call ${i}`) }
     eq(M.recCacheSize(), { facts: 4, heads: 0, headBytes: 0 }, 'kept')
   })
 })
 
 console.log('MUTANTS (each anchor present and unique; each killed by the test named)')
-await t('MUTANT the inode dropped from the key -> "a kept fact answers only for the SAME inode..." (and the two-inode directory swap, where reached)', async () => {
-  const pair = [['!!c && !!st && c.ino === st.ino && c.size === st.size', '!!c && !!st && c.size === st.size']]
+await t('MUTANT the inode dropped from the key -> "a kept fact answers only for the SAME device, inode..." (and the two-inode directory swap, where reached)', async () => {
+  const pair = [['c.dev === st.dev && c.ino === st.ino && c.size === st.size', 'c.dev === st.dev && c.size === st.size']]
   await killedBy(pair, scenFresh)
   let real = 'not reached'
   if (twinsReached) {
@@ -482,26 +667,44 @@ await t('MUTANT the inode dropped from the key -> "a kept fact answers only for 
     await withMutants(PROJ_URL, pair, async M => { try { reached = await scenTwins(M) } catch (e) { why = e } })
     if (reached !== false) { assert.ok(why instanceof assert.AssertionError, `the mutant survived the directory swap: ${why?.stack?.split('\n')[0] ?? 'survived'}`); real = 'yes' }
   }
-  note(`the inode mutant killed on real files by the directory swap: ${real}`)
+  note(`the inode mutant killed on real files by the two-inode directory swap: ${real}`)
 })
+await t('MUTANT the device dropped from the key -> "a kept fact answers only for the SAME device, inode..."', () =>
+  killedBy([['!!c && !!st && c.dev === st.dev && c.ino === st.ino', '!!c && !!st && c.ino === st.ino']], scenFresh))
 await t('MUTANT the ctime dropped from the key -> "a generation rewritten IN PLACE with its mtime restored..."', () =>
   killedBy([['c.mtimeNs === st.mtimeNs && c.ctimeNs === st.ctimeNs', 'c.mtimeNs === st.mtimeNs']], scenInPlace))
 await t('MUTANT an unparseable file kept -> "an unparseable generation is read again on every call..."', () =>
-  killedBy([["catch { return { why: 'unparseable' } }", "catch { return recKeep(p, st0, { why: 'unparseable' }, now) }"]], scenUnparseable))
+  killedBy([["catch { return { why: 'unparseable' } }", "catch { return recKeep(p, f0, f1, { why: 'unparseable' }, now) }"]], scenUnparseable))
 await t('MUTANT a failed read kept -> "an unreadable generation is tried again on every call..."', () =>
-  killedBy([["catch { return { why: 'unreadable' } }", "catch { return recKeep(p, st0, { why: 'unreadable' }, now) }"]], scenUnreadable))
+  killedBy([["  } catch { return { why: 'unreadable' } }", "  } catch { const fx = recStat(p); return recKeep(p, fx, fx, { why: 'unreadable' }, now) }"]], scenUnreadable))
 await t('MUTANT the parsed head kept and handed out again (no fresh parse) -> "mutating head.rec, head, rejected and gens changes no later call..."', () =>
-  killedBy([["if (hb && hb.fact === e) return JSON.parse(hb.buf.toString('utf8'))", "if (hb && hb.fact === e) return (hb.rec ??= JSON.parse(hb.buf.toString('utf8')))"]], scenMutate))
-await t('MUTANT the racy rule skipped -> "a just-written generation is read on every call until it is older than REC_RACY_MS..."', () =>
-  killedBy([['if (!st0 || !recFactFresh(st0, st1) || recRacy(st1, now)) return fact', 'if (!st0 || !recFactFresh(st0, st1)) return fact']], scenRacy))
+  killedBy([["recHeads.set(hk, hb); return JSON.parse(hb.buf.toString('utf8')) }", "recHeads.set(hk, hb); return (hb.rec ??= JSON.parse(hb.buf.toString('utf8'))) }"]], scenMutate))
+await t('MUTANT the racy rule skipped when a fact is KEPT -> "a generation is read on every call until the clock is REC_RACY_MS past its stamp..."', () =>
+  killedBy([['if (!recFactFresh(f0, f1) || recRacy(f1, now)) return fact', 'if (!recFactFresh(f0, f1)) return fact']], scenRacy))
+await t('MUTANT (r1 A) the racy rule skipped when a fact is SERVED -> "a kept fact is NOT served while its file reads racily clean..."', () =>
+  killedBy([['if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now)) {', 'if (c && recFactFresh(c, st0)) {']], scenRacyHit))
+await t('MUTANT (r1 A) a clock that fell back is not noticed -> "a wall clock that fell back against the monotonic one..."', () =>
+  killedBy([['if (recClockBack(recOffsetMax, offset)) {', 'if (false) {']], scenClockBack))
+await t('MUTANT (r1 A) the fall measured from the last reading, not the highest -> "a wall clock that fell back against the monotonic one..."', () =>
+  killedBy([['else if (recOffsetMax == null || offset > recOffsetMax) recOffsetMax = offset', 'else recOffsetMax = offset']], scenClockBack))
 await t('MUTANT a kept fact trusted without the stat -> "a generation replaced by rename with other bytes of the SAME size and mtime..."', () =>
-  killedBy([['if (c && recFactFresh(c, st0)) { recStats.hits++', 'if (c) { recStats.hits++']], scenReplaced))
+  killedBy([['if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now)) {', 'if (c && !recRacyMs(c.stampMs, now)) {']], scenReplaced))
 await t('MUTANT the prevSha check skipped for a kept fact -> "a generation replaced by rename with other bytes of the SAME size and mtime..."', () =>
   killedBy([['if (e.prev !== head.gen || e.prevSha !== head.e.sha)', 'if (e.prev !== head.gen || (e.buf && e.prevSha !== head.e.sha))']], scenReplaced))
+await t('MUTANT (r1 B) the two stats taken by PATH again -> "a directory swapped away and back around one read..."', () =>
+  killedBy([['f0 = recFstat(fd)', 'f0 = recStat(p)'], ['f1 = recFstat(fd)', 'f1 = recStat(p)']], scenSwap))
+await t('MUTANT (r1 B) the read made by PATH again -> "a directory swapped away and back around one read..."', () =>
+  killedBy([['buf = fs.readFileSync(fd)', 'buf = fs.readFileSync(p)']], scenSwap))
+await t('MUTANT (r1 B) the stat before and the stat after not compared -> "a file rewritten between the stat before its read and the stat after it..."', () =>
+  killedBy([['if (!recFactFresh(f0, f1) || recRacy(f1, now)) return fact', 'if (!f1 || recRacy(f1, now)) return fact']], scenBetweenStats))
+await t('MUTANT the head\'s re-read bytes not checked against the fact\'s sha -> "the head moved back and its file is no longer the bytes..."', () =>
+  killedBy([['  if (sha(buf) !== e.sha) { recFacts.delete(p); return undefined }\n', '']], scenHeadReread))
+await t('MUTANT a served head Buffer not refreshed (first in, first out) -> "the head Buffers go least recently USED first..."', () =>
+  killedBy([["{ recHeads.delete(hk); recHeads.set(hk, hb); return JSON.parse(hb.buf.toString('utf8')) }", "{ return JSON.parse(hb.buf.toString('utf8')) }"]], scenHeadLru, [HEADS_2]))
 
-console.log('MICRO-BENCHMARK (printed, never asserted): 100 generations of ~100 KB, 20 calls')
+console.log('MICRO-BENCHMARK (printed, never asserted): 100 generations of ~100 KB, rounds of 20 calls')
 await t('the cached walk against the uncached walk on a tidy-sized record', async () => {
-  P.recCacheReset()
+  begin(P)
   const d = tmp(), N = 100, CALLS = 20
   let prevSha = null, bytes = 0
   for (let g = 1; g <= N; g++) {
@@ -510,22 +713,29 @@ await t('the cached walk against the uncached walk on a tidy-sized record', asyn
     fs.writeFileSync(gf(d, g), buf); age(gf(d, g), g); prevSha = sha(buf); bytes += buf.length
   }
   await turn()
-  const timed = fn => { const a = performance.now(); let r; for (let i = 0; i < CALLS; i++) r = fn(); return [performance.now() - a, r] }
-  const [offMs, want] = timed(() => off(P, d))
+  // ms a call, one figure a round of CALLS calls, lowest first (a loaded host and the collector make single rounds noisy)
+  let last
+  const rounds = (n, fn) => Array.from({ length: n }, () => { const a = performance.now(); for (let i = 0; i < CALLS; i++) last = fn(); return (performance.now() - a) / CALLS }).sort((x, y) => x - y)
+  const offR = rounds(3, () => off(P, d)), want = last
   P.recCacheReset()
   const c0 = performance.now(); on(P, d); const coldMs = performance.now() - c0
-  const r0 = P.recStats.reads
-  const [onMs, got] = timed(() => on(P, d))
-  const reads = P.recStats.reads - r0
+  const m = meter(P)
+  const onR = rounds(7, () => on(P, d)), got = last
+  const counted = m()
   assert.strictEqual(got.head.gen, N); assert.strictEqual(got.head.sha, want.head.sha); assert.strictEqual(got.head.sha, prevSha); eq(got.rejected, [], 'rejected')
-  assert.strictEqual(reads, 0, 'the timed cached calls read generation files')
-  note(`benchmark: ${N} generations, ${(bytes / 1e6).toFixed(1)} MB (${Math.round(bytes / N / 1000)} KB each), ${CALLS} calls`)
-  note(`benchmark: uncached (RECCACHE=off) ${offMs.toFixed(1)} ms = ${(offMs / CALLS).toFixed(2)} ms a call`)
-  note(`benchmark: cached, the first call (reads all ${N}) ${coldMs.toFixed(1)} ms`)
-  note(`benchmark: cached ${onMs.toFixed(1)} ms = ${(onMs / CALLS).toFixed(3)} ms a call (${reads} generation files read; ${(offMs / onMs).toFixed(0)}x)`)
+  eq(counted, [0, N * CALLS * 7], 'the timed cached calls read generation files')
+  // what a served call is made of: the stats, and the one parse of the head
+  const st0 = performance.now(); for (let i = 0; i < CALLS; i++) for (let g = 1; g <= N; g++) bstat(gf(d, g)); const statMs = (performance.now() - st0) / CALLS
+  const headBuf = fs.readFileSync(gf(d, N)); const p0 = performance.now(); for (let i = 0; i < CALLS; i++) JSON.parse(headBuf.toString('utf8')); const parseMs = (performance.now() - p0) / CALLS
+  note(`benchmark: ${N} generations, ${(bytes / 1e6).toFixed(1)} MB (${Math.round(bytes / N / 1000)} KB each), rounds of ${CALLS} calls, ms a call, lowest round first`)
+  note(`benchmark: uncached (RECCACHE=off) ${offR.map(x => x.toFixed(2)).join(' / ')}`)
+  note(`benchmark: cached, the first call (opens, fstats and reads all ${N}) ${coldMs.toFixed(1)} ms`)
+  note(`benchmark: cached ${onR.map(x => x.toFixed(3)).join(' / ')} (0 generation files read; ${(offR[0] / onR[0]).toFixed(0)}x on the best rounds)`)
+  note(`benchmark: of which ${N} stats ${statMs.toFixed(3)} ms and one parse of the head ${parseMs.toFixed(3)} ms, measured alone`)
   fs.rmSync(d, { recursive: true, force: true })
 })
 
+P.recTestSeam(null)
 console.log(`\nNOTES (what depended on this host):\n${notes.map(s => `  ${s}`).join('\n')}`)
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

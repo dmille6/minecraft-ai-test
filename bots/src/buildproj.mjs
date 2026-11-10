@@ -29,6 +29,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { performance } from 'node:perf_hooks'
 
 export const LEASE_TTL_MS = 4 * 60_000
 export const RECLAIM_MS = 60_000
@@ -128,13 +129,21 @@ const REC_RE = key => new RegExp(`^${esc(key)}\\.g(\\d+)\\.json$`)
 // files, 35 MB in the pool; tidy alone 119 generations, one more an hour). A generation is written once and never rewritten
 // (publishRecord: tmp + link), so what the walk needs from a file is kept PER FILE and the walk itself is made again on every call:
 //   - a FACT = what one successfully read and parsed generation file says: { recGen, prev, prevSha, sha } and the stat it was read
-//     under { ino, size, mtimeNs, ctimeNs }. Keyed by the file's path. Never a verdict, never a head, never the chain's result,
-//     never a parsed object, never a failed read or an unparseable file (those are read again on every call).
+//     under { dev, ino, size, mtimeNs, ctimeNs }. Keyed by the file's path. Never a verdict, never a head, never the chain's
+//     result, never a parsed object, never a failed read or an unparseable file (those are read again on every call).
 //   - every call lists the generations and stats EVERY one (no newest-only shortcut); a fact is served only when the stat succeeds
-//     and all four fields are the fact's (recFactFresh); anything else is read, parsed and hashed as before.
+//     and all five fields are the fact's (recFactFresh); anything else is read, parsed and hashed as before.
+//   - ONE DESCRIPTOR (r1, review BLOCKER B): the file is opened once and the stat before the read, the read and the stat after it
+//     all go through that descriptor (fstat, read, fstat), so a fact binds the bytes to the INODE they were read from. Three
+//     lookups by path could bind one inode's stat to another's bytes for good (a parent directory renamed away and back around
+//     the read moves no file's ctime). The next call's stat is by path: a path that names another inode is read again.
 //   - RACILY CLEAN (the listing's rule above, git's): a file whose mtime or ctime is within REC_RACY_MS of now is read and NOT kept
 //     -- an in-place rewrite inside the timestamp's granularity would leave the stat as it was. A fact is kept only when the stat
-//     before the read and the stat after it are identical. Once kept, any later change to the file moves its ctime past the fact's.
+//     before the read and the stat after it are identical. Once kept, any later change to the file moves its ctime past the fact's
+//     -- WHILE THE CLOCK RUNS FORWARD (r1, review BLOCKER A). So a fact is also not SERVED while its file reads racily clean
+//     (it is dropped and the file read afresh), and a wall clock that fell back against the monotonic one by more than
+//     REC_CLOCK_BACK_MS since its highest reading empties the cache before the walk (a stamp could repeat only after such a fall:
+//     a kept stamp is REC_RACY_MS behind the clock that kept it, and REC_CLOCK_BACK_MS is less).
 //   - the head's `rec` is PARSED AFRESH on every call (callers mutate it): from the head generation's raw bytes, kept one Buffer a
 //     record and bound to the fact they were read with; when those are not kept (the head moved back to an older generation, or
 //     the Buffer was dropped) the head file is read again and must hash to the fact's sha, else the fact is dropped and the walk
@@ -142,33 +151,57 @@ const REC_RE = key => new RegExp(`^${esc(key)}\\.g(\\d+)\\.json$`)
 // RECCACHE=off|0|false|no is the rollback: recordHeadPlain, the walk as it was. recordChain is untouched (it reads every file).
 export const recCacheOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.RECCACHE ?? '').trim().toLowerCase())
 export const REC_RACY_MS = 2000
+export const REC_CLOCK_BACK_MS = 1000
 export const REC_FACTS_MAX = 8192
 export const REC_HEADS_MAX = 64
 export const REC_HEAD_BYTES_MAX = 32 * 1024 * 1024
 const REC_WALK_TRIES = 3
-/** reads: generation files read by recordHead (either walk); hits: generation files answered from a kept fact. */
-export const recStats = { reads: 0, hits: 0 }
-const recFacts = new Map()       // path -> { ino, size, mtimeNs, ctimeNs, recGen, prev, prevSha, sha }, least recently used first
+/** reads: generation files read by recordHead (either walk); hits: generation files answered from a kept fact; drops: the cache
+ *  emptied because the wall clock fell back. */
+export const recStats = { reads: 0, hits: 0, drops: 0 }
+const recFacts = new Map()       // path -> { dev, ino, size, mtimeNs, ctimeNs, stampMs, recGen, prev, prevSha, sha }, least recently used first
 // `${dir}\0${key}` -> { fact, buf }: the raw bytes `fact` was read with. Never asked WHICH generation is the head (the walk says):
 // only parsed, when the walk's head is this very fact, validated by its stat in this call
-const recHeads = new Map()
+const recHeads = new Map()       // least recently used first
 let recHeadBytes = 0
-/** Forget every kept fact and head Buffer, and zero the counters (the tests' reset). */
-export function recCacheReset () { recFacts.clear(); recHeads.clear(); recHeadBytes = 0; recStats.reads = 0; recStats.hits = 0 }
+let recOffsetMax = null          // the highest (wall clock - monotonic clock) any call has seen
+// THE TESTS' SEAM. Nothing in src/ calls the setter below (reccache.test.mjs holds that), so in a bot every field is null: the clocks
+// are Date.now() and performance.now(), and `at` -- a call at each stage of a fresh read, for the tests to move a file between two
+// system calls of one synchronous function -- is never made. It cannot be reached through recordHead's arguments.
+const recSeam = { now: null, mono: null, at: null }
+/** TESTS ONLY: set the racy rule's clocks (`now`, `mono`: functions) and the stage hook `at(stage, path)`; null clears all three. */
+export function recTestSeam (patch) { Object.assign(recSeam, patch ?? { now: null, mono: null, at: null }) }
+const recForget = () => { recFacts.clear(); recHeads.clear(); recHeadBytes = 0 }
+/** Forget every kept fact and head Buffer and the clock's highest reading, and zero the counters (the tests' reset). */
+export function recCacheReset () { recForget(); recOffsetMax = null; recStats.reads = 0; recStats.hits = 0; recStats.drops = 0 }
 /** What is kept now (the tests' window on the bounds). */
 export const recCacheSize = () => ({ facts: recFacts.size, heads: recHeads.size, headBytes: recHeadBytes })
 const recStat = p => { try { return fs.statSync(p, { bigint: true }) } catch { return null } }
-/** May the kept fact `c` answer for a file whose stat is `st` now? Only the same inode, size, mtime and ctime. */
-export const recFactFresh = (c, st) => !!c && !!st && c.ino === st.ino && c.size === st.size && c.mtimeNs === st.mtimeNs && c.ctimeNs === st.ctimeNs
-/** Racily clean: modified or changed within REC_RACY_MS of `now` (or stamped in the future) -- read, never kept. */
-export const recRacy = (st, now) => now - Number((st.mtimeNs > st.ctimeNs ? st.mtimeNs : st.ctimeNs) / 1_000_000n) < REC_RACY_MS
+const recFstat = fd => { try { return fs.fstatSync(fd, { bigint: true }) } catch { return null } }
+/** May the kept fact `c` answer for a file whose stat is `st` now? Only the same device, inode, size, mtime and ctime. */
+export const recFactFresh = (c, st) => !!c && !!st && c.dev === st.dev && c.ino === st.ino && c.size === st.size && c.mtimeNs === st.mtimeNs && c.ctimeNs === st.ctimeNs
+const recStampMs = st => Number((st.mtimeNs > st.ctimeNs ? st.mtimeNs : st.ctimeNs) / 1_000_000n)
+const recRacyMs = (stampMs, now) => now - stampMs < REC_RACY_MS
+/** Racily clean: modified or changed within REC_RACY_MS of `now` (or stamped in the future) -- read, never kept, never served. */
+export const recRacy = (st, now) => recRacyMs(recStampMs(st), now)
+/** Did the wall clock fall back against the monotonic one (offset = wall - monotonic) by more than the tolerance since its highest
+ *  reading? A step back, however long ago it happened and however many small steps made it. */
+export const recClockBack = (offsetMax, offset) => offsetMax != null && offset < offsetMax - REC_CLOCK_BACK_MS
+/** This call's `now` for the racy rule; a clock that fell back empties the cache first (no kept stamp is trusted across it). */
+function recClockNow () {
+  const now = recSeam.now ? recSeam.now() : Date.now()
+  const offset = now - (recSeam.mono ? recSeam.mono() : performance.now())
+  if (recClockBack(recOffsetMax, offset)) { recForget(); recStats.drops++; recOffsetMax = offset }
+  else if (recOffsetMax == null || offset > recOffsetMax) recOffsetMax = offset
+  return now
+}
 // a value the walk compares with === against a number, a string or null: an object or an array can equal none of them
 const recPrim = v => (v !== null && typeof v === 'object' ? undefined : v)
-/** Keep `fact` for `p` when the file stood still around its read (the stat before = the stat after) and is not racily clean. */
-function recKeep (p, st0, fact, now) {
-  const st1 = recStat(p)
-  if (!st0 || !recFactFresh(st0, st1) || recRacy(st1, now)) return fact
-  const kept = { ino: st1.ino, size: st1.size, mtimeNs: st1.mtimeNs, ctimeNs: st1.ctimeNs, recGen: fact.recGen, prev: fact.prev, prevSha: fact.prevSha, sha: fact.sha }
+/** Keep `fact` for `p` when the file stood still around its read (f0, f1: the DESCRIPTOR's stat before the read and after it) and
+ *  is not racily clean. */
+function recKeep (p, f0, f1, fact, now) {
+  if (!recFactFresh(f0, f1) || recRacy(f1, now)) return fact
+  const kept = { dev: f1.dev, ino: f1.ino, size: f1.size, mtimeNs: f1.mtimeNs, ctimeNs: f1.ctimeNs, stampMs: recStampMs(f1), recGen: fact.recGen, prev: fact.prev, prevSha: fact.prevSha, sha: fact.sha }
   recFacts.set(p, kept)
   while (recFacts.size > REC_FACTS_MAX) recFacts.delete(recFacts.keys().next().value)
   fact.kept = kept
@@ -179,14 +212,26 @@ function recKeep (p, st0, fact, now) {
 function recFactOf (p, now) {
   const st0 = recStat(p)
   const c = recFacts.get(p)
-  if (c && recFactFresh(c, st0)) { recStats.hits++; recFacts.delete(p); recFacts.set(p, c); return c }
+  if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now)) { recStats.hits++; recFacts.delete(p); recFacts.set(p, c); return c }
   if (c) recFacts.delete(p)
   recStats.reads++
-  let buf
-  try { buf = fs.readFileSync(p) } catch { return { why: 'unreadable' } }
+  // one descriptor: what is stat'ed is what is read (an open or a read that fails is `unreadable`, as it always was)
+  let buf, f0 = null, f1 = null
+  try {
+    recSeam.at?.('open', p)
+    const fd = fs.openSync(p, 'r')
+    try {
+      recSeam.at?.('opened', p)
+      f0 = recFstat(fd)
+      recSeam.at?.('stat0', p)
+      buf = fs.readFileSync(fd)
+      recSeam.at?.('read', p)
+      f1 = recFstat(fd)
+    } finally { try { fs.closeSync(fd) } catch { /* the bytes are read */ } }
+  } catch { return { why: 'unreadable' } }
   let rec
   try { rec = JSON.parse(buf.toString('utf8')) } catch { return { why: 'unparseable' } }
-  return recKeep(p, st0, { recGen: rec ? recPrim(rec.gen) : undefined, prev: rec ? recPrim(rec.prev) : undefined, prevSha: rec ? recPrim(rec.prevSha) : undefined, sha: sha(buf), rec, buf }, now)
+  return recKeep(p, f0, f1, { recGen: rec ? recPrim(rec.gen) : undefined, prev: rec ? recPrim(rec.prev) : undefined, prevSha: rec ? recPrim(rec.prevSha) : undefined, sha: sha(buf), rec, buf }, now)
 }
 function recHeadKeep (hk, fact, buf) {
   const old = recHeads.get(hk)
@@ -200,11 +245,11 @@ function recHeadRec (dir, key, g, e) {
   const hk = `${dir}\0${key}`
   if (e.buf) { if (e.kept) recHeadKeep(hk, e.kept, e.buf); return e.rec }        // read in this call
   const hb = recHeads.get(hk)
-  if (hb && hb.fact === e) return JSON.parse(hb.buf.toString('utf8'))
+  if (hb && hb.fact === e) { recHeads.delete(hk); recHeads.set(hk, hb); return JSON.parse(hb.buf.toString('utf8')) }
   const p = recFile(dir, key, g)
   recStats.reads++
   let buf
-  try { buf = fs.readFileSync(p) } catch { recFacts.delete(p); return undefined }
+  try { recSeam.at?.('head', p); buf = fs.readFileSync(p) } catch { recFacts.delete(p); return undefined }
   if (sha(buf) !== e.sha) { recFacts.delete(p); return undefined }
   recHeadKeep(hk, e, buf)
   return JSON.parse(buf.toString('utf8'))
@@ -232,13 +277,12 @@ function recWalk (dir, key, gens, now) {
  * with prev null that parses; each later file is the head only when its prev is the head and its prevSha the head's sha;
  * anything else is rejected (skipped, never deleted). An unreadable directory is ok: false (never "no record").
  * reccache-01: the walk runs over per-file facts (above); `head.rec` is parsed for this call and is the caller's to mutate.
- * `opts.now` is the racy rule's clock, for the tests.
  */
-export function recordHead (dir, key, opts) {
+export function recordHead (dir, key) {
   if (!recCacheOn()) return recordHeadPlain(dir, key)
-  const now = opts?.now ?? Date.now()            // the racy rule's clock (the tests'; every caller leaves it)
   let gens
   try { gens = gensOf(dir, REC_RE(key)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
+  const now = recClockNow()
   // a head whose kept bytes are gone and whose file moved between its stat and the read: the fact is dropped and the walk made again
   for (let i = 0; i < REC_WALK_TRIES; i++) { const r = recWalk(dir, key, gens, now); if (r) return r }
   return recordHeadPlain(dir, key)
