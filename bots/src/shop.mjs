@@ -32,7 +32,7 @@ import { citywallOn, CITYWALL_PLOT } from './citywall.mjs'   // citywall-01
 import { civicOn, CIVIC_PLOTS, CIVIC_ORDER, civicLooks, isCivicPlot } from './civic.mjs'   // civic-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
-import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf } from './sinks.mjs'   // picker-01
+import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf, SINK_TURN } from './sinks.mjs'   // picker-01; sinkturn-01: SINK_TURN
 import { decorOn } from './decorator.mjs'   // decorator-01: the decorator's switch
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
@@ -271,7 +271,7 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  * free), else the first such -- else the LAST project (everything stands: the order reads it complete and stays quiet).
  * prodserve-01: `service` (a plot, skills.mjs shopActive's servicePick) is returned first when it is in `list`.
  */
-export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false, noWait = NOWAIT.on, service = null } = {}) {
+export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false, noWait = NOWAIT.on, service = null, sinkTurn = false } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
   // PRODSERVE-01 (prodserve.mjs servicePick): a finished production plot whose service is due by the town's schedule and this bot's
   // fair share goes FIRST -- ahead of the repairs, the open projects and the sinks, every one of which the showcase always has
@@ -290,6 +290,9 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // Codex r1 BLOCKER 4: a due record (dueFirst first) this bot may work still comes before the upkeep wherever the upkeep stands in
   const dueBefore = () => list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && s.dueFirst && !idleDue(s) }) ?? list.find(p => { const s = st(p); return !p.upkeep && s.exists && s.complete && s.due && !idleDue(s) }) ?? null
   for (const p of list) { const s = st(p); if (s.exists && s.complete && s.damaged && !yields(s)) return p }
+  // SINKTURN-01 (sinks.mjs SINK_TURN): this bot's sink turn -- after SINK_TURN.every finite visits in a row the sink a bot may work
+  // now goes ahead of the open finite projects (the repairs and the service tier still first); no sink to work: the order as before
+  if (sinkTurn && sink) return sink
   const open = []
   for (const p of list) {
     // picker-01: a sink is never in the finite order (its tier is below)
@@ -389,9 +392,12 @@ export function noteIdle (mem, plot, result, now = Date.now()) {
   // SINKFIX-02 (LIVE showcase 11-04 01:25-03:17Z: the one open road instance headed the sink order for 2 h while 16 of its 21 visits
   // ABORTED -- 13 the stuck reflex at the same approach under the canopy, 3 started in a mine and entombed): a SINK's aborted or
   // no-effect visit marks it too, so this bot works the next sink kind for IDLE_MS; a finite project's abort still marks nothing
-  if (result.status === 'aborted') { if (isSinkPlot(plot)) mem.set(plot, now + IDLE_MS); return }
+  // SINKTURN-01: a sink's mark lasts SINK_TURN.idleMs (longer than a sink turn's interval: the blocked sink yields this bot's next
+  // turns to the next sink in the picker's order); SINKTURN=off: IDLE_MS, as before
+  const ms = isSinkPlot(plot) && SINK_TURN.on ? SINK_TURN.idleMs : IDLE_MS
+  if (result.status === 'aborted') { if (isSinkPlot(plot)) mem.set(plot, now + ms); return }
   if (result.status !== 'no_effect' || IDLE_NOT_A_VISIT.has(String(result.stop ?? ''))) return
-  mem.set(plot, now + IDLE_MS)
+  mem.set(plot, now + ms)
 }
 /** The states with this bot's idle marks (`idle: true` while a mark holds). Pure. */
 export const idleMarks = (states = [], mem = null, now = Date.now()) => (mem?.size ? states.map(s => (s && (mem.get(s.plot) ?? -Infinity) > now ? { ...s, idle: true } : s)) : states)
