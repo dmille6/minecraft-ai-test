@@ -5560,7 +5560,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "2026-11-07: BUILT + dashboard deployed (http://10.0.0.186/status/, Overview headline strip, 'Status Report' dashboard; agents: fleet /status/, worlds backups.json, showcase trip.json; nginx /agent/showcase/{releases,trip}.json). Cron '# statusreport' on .31 (3 0,5,6,11,12,17,18,23 * * *, due_slot keeps the Central slot). Narrative pass (Claude Haiku 5.5, numbers checked against the data report, fallback deterministic) proven from the Mac (~$0.001 per report); on .31 it stays OFF until the owner places ~/.config/mcai/anthropic.key (mode 600) there. NEXT: read the first 4 scheduled reports; owner: key on .31 yes/no.",
+   "next_step": "OWNER 11-10 \"defaults\": keep data-only reports (no Anthropic key on the canary host). 2026-11-07: BUILT + dashboard deployed (http://10.0.0.186/status/, Overview headline strip, 'Status Report' dashboard; agents: fleet /status/, worlds backups.json, showcase trip.json; nginx /agent/showcase/{releases,trip}.json). Cron '# statusreport' on .31 (3 0,5,6,11,12,17,18,23 * * *, due_slot keeps the Central slot). Narrative pass (Claude Haiku 5.5, numbers checked against the data report, fallback deterministic) proven from the Mac (~$0.001 per report); on .31 it stays OFF until the owner places ~/.config/mcai/anthropic.key (mode 600) there. NEXT: read the first 4 scheduled reports; owner: key on .31 yes/no.",
    "max_quiet_hours": 24,
    "depends_on": [
     {
@@ -5579,7 +5579,6 @@
     ],
     "branches": []
    },
-   "owner_pending": "statusreport: put the Anthropic key on the canary host (~/.config/mcai/anthropic.key, mode 600) so the 4x-daily report gets the Haiku 5.5 narrative (~$0.12/month), or keep data-only reports?",
    "note": "Deterministic data report = source of truth; judge() rules tested with 20 mutants. One Codex review round: 5 blockers (unread sources read as reassurance, backup alarms lost, spelled-out numbers passed the guard, stale value cache shown as current, first ALARMS.log line dropped) all fixed. Also brought infra/dashboard (live since 11-04, commit fb5775d8 was never pushed) onto main."
   },
   {
@@ -6245,8 +6244,7 @@
     "zoneguard-1109.md"
    ],
    "state": "open",
-   "next_step": "2026-11-09: zoneguard-01show 4196a65c (code 03e1fddad) on dd79b56a READY TO STAGE, NOT released. Bots read /srv/showcase/trip/zones-baseline.json (the tripwire's own cells) before the deep exemption and the survival pass; walk-out ends a bearing at a guarded cell; liquid pours flow-traced. Tier 3: Codex r1-r3 4 blockers fixed, r4 none; Claude subagent r3 1 fixed, r4 none. Paper sandbox6: mine-over-mineshaft base 3/250 baseline cells changed (incl. 57,18,5), cand 0; entombed under planks cand x2 escaped 0/11 changed. Suite ci2 478/479 (bagdiet = base). NEXT: owner repair of 57,18,5 (owner's call), then stage; read _protectzone_mode baseline=ok guarded=8 on every bot first, S4 INTACT, protect_zone_refused struct=1, _zone_walk. Fleet port (name rule; not a cherry-pick) is a separate tier-3 piece, not built.",
-   "owner_pending": "zoneguard-01show: accept that a drowning/suffocating bot no longer digs a tripwire-baseline cell for air, and that pours whose flow could reach a guarded cell are refused?",
+   "next_step": "OWNER 11-10 \"defaults\": ACCEPTED -- a drowning/suffocating bot no longer digs a tripwire-baseline cell for air, and pours whose flow could reach a guarded cell are refused. 2026-11-09: zoneguard-01show 4196a65c (code 03e1fddad) on dd79b56a READY TO STAGE, NOT released. Bots read /srv/showcase/trip/zones-baseline.json (the tripwire's own cells) before the deep exemption and the survival pass; walk-out ends a bearing at a guarded cell; liquid pours flow-traced. Tier 3: Codex r1-r3 4 blockers fixed, r4 none; Claude subagent r3 1 fixed, r4 none. Paper sandbox6: mine-over-mineshaft base 3/250 baseline cells changed (incl. 57,18,5), cand 0; entombed under planks cand x2 escaped 0/11 changed. Suite ci2 478/479 (bagdiet = base). NEXT: owner repair of 57,18,5 (owner's call), then stage; read _protectzone_mode baseline=ok guarded=8 on every bot first, S4 INTACT, protect_zone_refused struct=1, _zone_walk. Fleet port (name rule; not a cherry-pick) is a separate tier-3 piece, not built.",
    "evidence": {
     "grep": [
      "zoneguard-01show"
@@ -6270,8 +6268,7 @@
     "townmine-1109.md"
    ],
    "state": "open",
-   "next_step": "2026-11-09: townmine-01show (on b9fa002e) READY TO STAGE, NOT released; fleet port townmine-01-on-bcdba35f 46b1e7e2 with registration ~/mcai-analysis/townmine-01.46b1e7e2.json (valid) + draft ~/mcai-analysis/townmine-01.queue-entry.json, NOT queued. Tier 3: Codex+Claude designs reconciled; code r1 blockers fixed, r2 none from both. Paper sandbox5 whole build to -53 (308 cells, fixtures, breach 0). NEXT: stage the show piece; read _townmine op=build/complete/gallery and _deepmine op=ore; queue the fleet port. Baseline: docs/reports/townmine-design-2026-11-09.md section 1.",
-   "owner_pending": "townmine-01: depth feet -53 (owner O6) or -58 (11-09 ask)? keep one deep miner (O13) while the mine is being built?",
+   "next_step": "OWNER 11-10 \"defaults\": depth -53 (O6); keep one deep miner (O13) while the mine is built. 2026-11-09: townmine-01show (on b9fa002e) READY TO STAGE, NOT released; fleet port townmine-01-on-bcdba35f 46b1e7e2 with registration ~/mcai-analysis/townmine-01.46b1e7e2.json (valid) + draft ~/mcai-analysis/townmine-01.queue-entry.json, NOT queued. Tier 3: Codex+Claude designs reconciled; code r1 blockers fixed, r2 none from both. Paper sandbox5 whole build to -53 (308 cells, fixtures, breach 0). NEXT: stage the show piece; read _townmine op=build/complete/gallery and _deepmine op=ore; queue the fleet port. Baseline: docs/reports/townmine-design-2026-11-09.md section 1.",
    "evidence": {
     "grep": [
      "townmine-01"
@@ -6618,8 +6615,7 @@
     "citywall-1109.md"
    ],
    "state": "open",
-   "next_step": "2026-11-09: BUILT, NOT RELEASED. Showcase citywall-01show 6c26e1ac (on showcase b9fa002e; tier 2): citywall.mjs phased wall generations with the in-place SWAP (buildrun.mjs swapDigOk: one 1x1 hole a segment at most), towers, inset road gatehouse, lamps, underpinning; civic.mjs 7 landmark kinds / 22 looks. Paper sandbox4: 22/22 looks + 21 orientation builds PASS; wall e2e 597/597 cells, 262 swaps, 0 gap violations. Offline (both showcase rings, waiver modelled): every phase complete, 0 gap violations (657 cells/42 waived; 706/67). Codex r1-r6 (r5, r6 NO BLOCKERS). Full suite ci2 485/486 (bagdiet orphan: base). Fleet port citywall-01-on-bcdba35f bde029bb (FLAT, dark): Paper 337/337, board-b offline every phase complete (393 cells/72 waived, 0 gaps); suite w30 421/425 (buildrun/oretunnel/plinth-skill pass alone: load; well: base mutant anchor absent). Registration ~/mcai-analysis/citywall-01.bde029bb.json effectwatch valid; draft queue entry; drawrec DRAW board-b, hive-b (10 bots). NOT queued. Next: owner D1-D3, then stage the showcase branch; civic on the fleet waits for townstyle-01 there.",
-   "owner_pending": "citywall-1109: the gatehouse on the extension's east road gateway (inset, 12-wide passage) as the default, or the north road R1 / the south side? Grey stone-brick face on the showcase, dark deepslate on the fleet?",
+   "next_step": "OWNER 11-10 \"defaults\": gatehouse on the extension east road gateway (inset, 12-wide); grey stone-brick on the showcase, dark deepslate on the fleet; torches until lanterns catch up. 2026-11-09: BUILT, NOT RELEASED. Showcase citywall-01show 6c26e1ac (on showcase b9fa002e; tier 2): citywall.mjs phased wall generations with the in-place SWAP (buildrun.mjs swapDigOk: one 1x1 hole a segment at most), towers, inset road gatehouse, lamps, underpinning; civic.mjs 7 landmark kinds / 22 looks. Paper sandbox4: 22/22 looks + 21 orientation builds PASS; wall e2e 597/597 cells, 262 swaps, 0 gap violations. Offline (both showcase rings, waiver modelled): every phase complete, 0 gap violations (657 cells/42 waived; 706/67). Codex r1-r6 (r5, r6 NO BLOCKERS). Full suite ci2 485/486 (bagdiet orphan: base). Fleet port citywall-01-on-bcdba35f bde029bb (FLAT, dark): Paper 337/337, board-b offline every phase complete (393 cells/72 waived, 0 gaps); suite w30 421/425 (buildrun/oretunnel/plinth-skill pass alone: load; well: base mutant anchor absent). Registration ~/mcai-analysis/citywall-01.bde029bb.json effectwatch valid; draft queue entry; drawrec DRAW board-b, hive-b (10 bots). NOT queued. Next: owner D1-D3, then stage the showcase branch; civic on the fleet waits for townstyle-01 there.",
    "evidence": {
     "grep": [
      "citywall-01show",
