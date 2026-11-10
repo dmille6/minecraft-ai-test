@@ -24364,7 +24364,7 @@ function roads2Ctx () {
   // stands in one (a record without zones -- the yard, the ziggurat -- reserves nothing through the guard; its cells still do)
   const pathCols = new Set(heads.filter(x => x.plot !== SINK_PLOTS.road && x.plot !== LAND_PLOT && x.plot !== SITEPREP_PLOT).flatMap(x => (x.head?.rec?.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => `${c.at[0]},${c.at[2]}`)))
   // country fold (Codex BLOCKER): the country band's planned cells (its cells, cuts and clears) are owned too; an unreadable head: no road
-  if (COUNTRY_ON) { const cr = countryHeadNow(); if (cr === undefined) return null; for (const k of withPlanCells(new Set(), cr)) { const [x, , z] = k.split(','); pathCols.add(`${x},${z}`) } }
+  if (COUNTRY_ON) { const cr = countryHeadNow(); if (cr === undefined) throw new Error('country record unreadable'); for (const k of withPlanCells(new Set(), cr)) { const [x, , z] = k.split(','); pathCols.add(`${x},${z}`) } }
   return { routes: t.routes, ringFor, townBoxes: boxes, landOk: (x, z) => !wallCols.has(`${x},${z}`), own: (x, z) => pathCols.has(`${x},${z}`) }
 }
 function sinkReady (kind) {
@@ -25994,7 +25994,7 @@ const GKL_ON = gkleaseOn()
 const GKW_ON = gkworkOn()   // gkwork-01
 const TRF_ON = tidyRefreshOn()   // tidyrefresh-01
 /** country-01: the country head -> rec | null (undefined: unreadable). Never throws. */
-function countryHeadNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(COUNTRY_PLOT)); return h.ok ? h.head?.rec ?? null : undefined } catch { return undefined } }
+function countryHeadNow (dir = townDir()) { try { const h = recordHead(dir, projKeyOf(COUNTRY_PLOT)); return h.ok && !(h.rejected?.length > 0) ? h.head?.rec ?? null : undefined } catch { return undefined } }   // fold r2: a rejected generation is an unread head
 /** gkclear-01: is the town's tidy stage collecting strikes (gkwork.mjs strikesClosing over every holder's file)? Cached 60 s a bot; never throws. */
 function gkwTownClosing (bot, now = Date.now()) {
   if (!GKW_ON || !GROUNDS.on || !bot) return false
