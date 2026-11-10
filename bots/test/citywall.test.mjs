@@ -333,7 +333,7 @@ await t('WIRED: the planner plot registered (shop.mjs), dispatched and waiting (
   assert.ok(/if \(proj\.plot === CITYWALL_PLOT\) return buildCitywall\(ctx, args, signal\)/.test(SK))
   assert.ok(/const palette = recordPalette\(rec, \{ palette: WALL_PALETTE \}\)/.test(SK))
   assert.ok(/\.\.\.\(isCitywall\(rec\) \? \{ swap: true, skipOpenDeps: true \} : \{\}\),\s*domain: \(\) => true, walkR: wallWalkR\(rec, home\)/.test(SK))
-  assert.ok(/wallEscape\(read0, home, \[\.\.\.rec\.cells, \.\.\.design\.cells\]/.test(SK), 'the design passes the escape proof')
+  assert.ok(/wallEscapeAsync\(read0, home, \[\.\.\.rec\.cells, \.\.\.design\.cells\]/.test(SK), 'the design passes the escape proof')   // cwstall-01: its breathing driver
   // Codex r1: the waiver counts for the next phase and applies to an upgraded (complete) ring
   assert.ok(/done: c => wallWaived\(rec, c\) \|\| \(!!bot && cellDoneHere\(bot, rec\.palette \?\? \{\}, c\)\)/.test(SK))
   assert.ok(/\(cur\.structure_complete && !isCitywall\(cur\)\)/.test(SK))

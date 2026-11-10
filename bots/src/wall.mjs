@@ -556,11 +556,34 @@ export function siteWall (read, { plan, zones = [], caps = [], plinth = [], comp
  */
 export const PIT_MAX = 4
 export const WALK_DROP = 3
-export function wallEscape (read, home, cells, { r = 64, near = r - 6, seed = null } = {}) {
+export function wallEscape (read, home, cells, opts = {}) {
+  const it = escapeSteps(read, home, cells, opts)
+  for (;;) { const n = it.next(); if (n.done) return n.value }
+}
+/**
+ * CWSTALL-01 (LIVE showcase 11-10: the citywall design visit ran 15.6-20.5 s as ONE macrotask -- no await anywhere; offline on the
+ * 11-10 17:16Z copy the escape proof alone was 2.5-3.3 s of it, six walks back to back): THE SAME PROOF, its event loop given a turn
+ * (`pause()`, default one setImmediate) between its walks. The answer is wallEscape's to the cell (one generator drives both).
+ * `aborted()` true at a pause -> null (the caller's visit stops). Never throws more than wallEscape would.
+ */
+export async function wallEscapeAsync (read, home, cells, opts = {}, { pause = () => new Promise(resolve => setImmediate(resolve)), aborted = () => false } = {}) {
+  const it = escapeSteps(read, home, cells, opts)
+  for (;;) {
+    const n = it.next()
+    if (n.done) return n.value
+    await pause()
+    if (aborted()) return null
+  }
+}
+/** wallEscape's steps: a `yield` after each walk (the drivers above decide what a yield is). */
+function * escapeSteps (read, home, cells, { r = 64, near = r - 6, seed = null } = {}) {
   const solid = new Set(cells.map(c => c.at.join(',')))
   const SOLID = { name: 'cobblestone', boundingBox: 'block' }
   const r1 = (x, y, z) => (solid.has(`${x},${y},${z}`) ? SOLID : read(x, y, z))
-  const a = walkSet(read, home, r, { drops: WALK_DROP, seed }), b = walkSet(r1, home, r, { drops: WALK_DROP, seed })
+  const a = yield * walkSetSteps(read, home, r, { drops: WALK_DROP, seed })
+  yield 'a'
+  const b = yield * walkSetSteps(r1, home, r, { drops: WALK_DROP, seed })
+  yield 'b'
   const inner = k => { const [x, , z] = k.split(',').map(Number); return Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= near }
   let under = 0, canopy = 0
   const judge = (set, rd) => {
@@ -577,10 +600,17 @@ export function wallEscape (read, home, cells, { r = 64, near = r - 6, seed = nu
     return groupsOf(keep)
   }
   const lost = judge([...a].filter(k => !b.has(k)), read)
+  yield 'lost'
   // the reverse walks: who can get home, before and after
-  const back0 = walkSet(read, home, r, { drops: WALK_DROP, reverse: true, seed }), back1 = walkSet(r1, home, r, { drops: WALK_DROP, reverse: true, seed })
+  const back0 = yield * walkSetSteps(read, home, r, { drops: WALK_DROP, reverse: true, seed })
+  yield 'back0'
+  const back1 = yield * walkSetSteps(r1, home, r, { drops: WALK_DROP, reverse: true, seed })
+  yield 'back1'
   const pen = judge([...b].filter(k => !back1.has(k) && !(a.has(k) && !back0.has(k))), r1)
-  const sa = walkSet(read, home, r, { seed }), sb = walkSet(r1, home, r, { seed })
+  yield 'pen'
+  const sa = yield * walkSetSteps(read, home, r, { seed })
+  yield 'sa'
+  const sb = yield * walkSetSteps(r1, home, r, { seed })
   let lostStrict = 0
   for (const k of sa) if (!sb.has(k) && inner(k) && !solid.has(k)) lostStrict++
   const big = g => g.filter(q => q.length > PIT_MAX)
@@ -635,7 +665,14 @@ function stepTo (read, node, x, y, z, dx, dz, drops) {
  * The feet cells a walk reaches from home within Chebyshev r -> Set "x,y,z". Pure. `drops` 1 is the builders' stand walk
  * (buildsite.mjs walkFrom), WALK_DROP the pathfinder's; `reverse` the cells from which home is reached.
  */
-export function walkSet (read, home, r, { seed = null, drops = 1, reverse = false } = {}) {
+export function walkSet (read, home, r, opts = {}) {
+  const it = walkSetSteps(read, home, r, opts)
+  for (;;) { const n = it.next(); if (n.done) return n.value }
+}
+/** cwstall-01: walkSet's walk, a `yield` every WALK_SLICE cells taken off its queue (a reverse walk on the built world was 1.0-1.4 s of one
+ *  turn offline) -> its `seen` set as the generator's return value. */
+export const WALK_SLICE = 4096
+function * walkSetSteps (read, home, r, { seed = null, drops = 1, reverse = false } = {}) {
   const node = (x, y, z) => floorOk(read(x, y - 1, z)) && passable(read(x, y, z)) && passable(read(x, y + 1, z))
   let start = seed
   for (let dy = 0; !start && dy <= 4; dy++) for (const y of [home.y + dy, home.y - dy]) if (!start && node(home.x, y, home.z)) start = [home.x, y, home.z]
@@ -645,6 +682,7 @@ export function walkSet (read, home, r, { seed = null, drops = 1, reverse = fals
   seen.add(start.join(','))
   const inR = (x, z) => Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= r
   for (let h = 0; h < q.length; h++) {
+    if (h > 0 && h % WALK_SLICE === 0) yield 'walk'
     const [x, y, z] = q[h]
     for (const [dx, dz] of DIRS4) {
       if (!reverse) {
