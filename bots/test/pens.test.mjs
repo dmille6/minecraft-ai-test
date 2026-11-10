@@ -128,6 +128,14 @@ await t('mutant: the floor left in the stands\' domain -> a builder could stand 
     assert.strictEqual(M.penDomain(REC)(sf[0], sf[2]), true)
   })
 })
+await t('wood fold (Codex BLOCKER): the record\'s ways in are BOTH gates\' approaches (a fence ring never closes the cow gate)', () => {
+  for (const [o, fr] of [['x', 'lo'], ['z', 'hi']]) {
+    const lay = P.penLayout(0, 0, o, fr)
+    const rec = P.penRecord({ f: { L: 64, lay, floorFill: [], orient: o, front: fr, box: lay.box, clear: [], grass: 0 }, x0: 0, z0: 0 }, { home: { x: 0, y: 64, z: 0 } })
+    assert.strictEqual(rec.front.length, lay.apron.length, 'every apron column')
+    for (const g of lay.gates) assert.ok(rec.front.some(([x, z]) => Math.abs(x - g.x) + Math.abs(z - g.z) === 1), `the ${g.pen} gate's approach is a way in`)
+  }
+})
 await t('the gate\'s aim (townstyle orientAim): the yaw of its facing (any face: fences-01\'s Paper rule, the pen places on the floor\'s top); an open state -> null', () => {
   assert.deepStrictEqual(TS.orientAim('spruce_fence_gate', { facing: 'south', open: false }, [0, 1, 0]), { yaw: 0, cursor: [0.5, 1, 0.5] })
   assert.strictEqual(TS.orientAim('spruce_fence_gate', { facing: 'east', open: false }, [0, 1, 0]).yaw, -90)
