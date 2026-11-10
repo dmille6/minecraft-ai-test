@@ -154,6 +154,11 @@ const REC_RE = key => new RegExp(`^${esc(key)}\\.g(\\d+)\\.json$`)
 //     for REC_VERIFY_MS + its path's own jitter [0, REC_VERIFY_JITTER_MS) after it; then the file is read again through the
 //     descriptor (bytes, sha, prev, prevSha derived afresh) and kept with a new stamp. The jitter is a hash of the path, so a
 //     process's re-reads are spread instead of landing in one synchronous stretch a minute after its start.
+//   - NO DECISION ON A CLOCK OLDER THAN THE DECISION (r3, review BLOCKER): both clocks are sampled afresh at every fact's hit
+//     decision (after its stat), and once more after the head is materialised, immediately before the answer is returned: a walk
+//     that rests on a kept fact whose verify deadline has come by then -- whatever the walk made of that generation, a rejected
+//     one included -- is not returned; neither is a walk during which the clock check emptied the cache. The walk is made again
+//     (three at most, then the plain walk, which rests on nothing kept). `verifiedAt` is only ever set by a read.
 // THE CONTRACT: generation files are written once and never rewritten in place (publishRecord, frontierpublish.py: tmp + link).
 // A change that leaves dev / ino / size / mtime / ctime untouched is served stale for at most REC_VERIFY_MS + 30 s.
 // RECCACHE=off|0|false|no is the rollback: recordHeadPlain, the walk as it was. recordChain is untouched (it reads every file).
@@ -167,8 +172,8 @@ export const REC_HEADS_MAX = 64
 export const REC_HEAD_BYTES_MAX = 32 * 1024 * 1024
 const REC_WALK_TRIES = 3
 /** reads: generation files read by recordHead (either walk); hits: generation files answered from a kept fact; drops: the cache
- *  emptied because the wall clock fell back. */
-export const recStats = { reads: 0, hits: 0, drops: 0 }
+ *  emptied because the wall clock fell back; walks: walks over kept facts (more than one a call = a walk was not returned). */
+export const recStats = { reads: 0, hits: 0, drops: 0, walks: 0 }
 // path -> { dev, ino, size, mtimeNs, ctimeNs, stampMs, verifiedAt, verifyFor, recGen, prev, prevSha, sha }, least recently used first
 const recFacts = new Map()
 // `${dir}\0${key}` -> { fact, buf }: the raw bytes `fact` was read with. Never asked WHICH generation is the head (the walk says):
@@ -176,9 +181,11 @@ const recFacts = new Map()
 const recHeads = new Map()       // least recently used first
 let recHeadBytes = 0
 let recOffsetMax = null          // the highest (wall clock - monotonic clock) any call has seen
+let recNow = 0, recMono = 0      // the two clocks as recClockTick last sampled them
+let recEpoch = 0                 // how many times the clock check has emptied the cache
 // THE TESTS' SEAM. Nothing in src/ calls the setter below (reccache.test.mjs holds that), so in a bot every field is null: the clocks
-// are Date.now() and performance.now(), `at` -- a call at each stage of a fresh read, for the tests to move a file between two
-// system calls of one synchronous function -- is never made, and `stat` -- the stat the cache is shown for a path, for the tests to
+// are Date.now() and performance.now(), `at` -- a call at each stage of a fresh read and before a walk's answer is returned, for
+// the tests to move a file or a clock between two steps of one synchronous function -- is never made, and `stat` -- the stat the cache is shown for a path, for the tests to
 // make every field repeat over other bytes (no real filesystem will on request) -- changes nothing. It cannot be reached through
 // recordHead's arguments.
 const recSeam = { now: null, mono: null, at: null, stat: null }
@@ -187,7 +194,7 @@ const recSeam = { now: null, mono: null, at: null, stat: null }
 export function recTestSeam (patch) { Object.assign(recSeam, patch ?? { now: null, mono: null, at: null, stat: null }) }
 const recForget = () => { recFacts.clear(); recHeads.clear(); recHeadBytes = 0 }
 /** Forget every kept fact and head Buffer and the clock's highest reading, and zero the counters (the tests' reset). */
-export function recCacheReset () { recForget(); recOffsetMax = null; recStats.reads = 0; recStats.hits = 0; recStats.drops = 0 }
+export function recCacheReset () { recForget(); recOffsetMax = null; recStats.reads = 0; recStats.hits = 0; recStats.drops = 0; recStats.walks = 0 }
 /** What is kept now (the tests' window on the bounds). */
 export const recCacheSize = () => ({ facts: recFacts.size, heads: recHeads.size, headBytes: recHeadBytes })
 const recStat = p => { try { const st = fs.statSync(p, { bigint: true }); return recSeam.stat ? recSeam.stat(p, st) : st } catch { return null } }
@@ -207,15 +214,17 @@ export function recVerifyJitter (p) {
   for (let i = 0; i < p.length; i++) { h ^= p.charCodeAt(i); h = Math.imul(h, 16777619) }
   return (h >>> 0) % REC_VERIFY_JITTER_MS
 }
-/** This call's clocks -> { now (wall: the racy rule's), mono (monotonic: the verify age's) }; a wall clock that fell back empties
- *  the cache first (no kept stamp is trusted across it). */
-function recClockNow () {
-  const now = recSeam.now ? recSeam.now() : Date.now()
-  const mono = recSeam.mono ? recSeam.mono() : performance.now()
-  const offset = now - mono
-  if (recClockBack(recOffsetMax, offset)) { recForget(); recStats.drops++; recOffsetMax = offset }
+/** Is the kept fact `c` inside its verify window at monotonic time `mono`? An age that is negative or not a finite number, or a
+ *  window that is not one, is NOT (a miss and a fresh read): only the seam can make one, and it must never read as a hit. */
+export const recVerifyOk = (c, mono) => { const age = mono - c.verifiedAt; return age >= 0 && age < c.verifyFor && Number.isFinite(c.verifyFor) }
+/** Sample both clocks NOW -> recNow (wall: the racy rule's), recMono (monotonic: the verify age's). A wall clock that fell back
+ *  empties the cache first (no kept stamp is trusted across it) and moves recEpoch on. */
+function recClockTick () {
+  recNow = recSeam.now ? recSeam.now() : Date.now()
+  recMono = recSeam.mono ? recSeam.mono() : performance.now()
+  const offset = recNow - recMono
+  if (recClockBack(recOffsetMax, offset)) { recForget(); recStats.drops++; recEpoch++; recOffsetMax = offset }
   else if (recOffsetMax == null || offset > recOffsetMax) recOffsetMax = offset
-  return { now, mono }
 }
 // a value the walk compares with === against a number, a string or null: an object or an array can equal none of them
 const recPrim = v => (v !== null && typeof v === 'object' ? undefined : v)
@@ -235,10 +244,12 @@ function recKeep (p, f0, f1, fact, now, mono) {
 }
 /** One generation file for the walk -> { why } (unreadable | unparseable: never kept) | a kept fact | a fresh read
  *  { recGen, prev, prevSha, sha, rec, buf, kept? } (`rec` parsed in THIS call, never held). */
-function recFactOf (p, now, mono) {
+function recFactOf (p) {
   const st0 = recStat(p)
+  recClockTick()
+  const now = recNow, mono = recMono                 // this decision's clocks: sampled after the stat, never the call's entry
   const c = recFacts.get(p)
-  if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now) && mono - c.verifiedAt < c.verifyFor) { recStats.hits++; recFacts.delete(p); recFacts.set(p, c); return c }
+  if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now) && recVerifyOk(c, mono)) { recStats.hits++; recFacts.delete(p); recFacts.set(p, c); return c }
   if (c) recFacts.delete(p)
   recStats.reads++
   // one descriptor: what is stat'ed is what is read (an open or a read that fails is `unreadable`, as it always was)
@@ -280,22 +291,33 @@ function recHeadRec (dir, key, g, e) {
   recHeadKeep(hk, e, buf)
   return JSON.parse(buf.toString('utf8'))
 }
-/** recordHeadPlain's walk over the generations' facts: the same checks in the same order, the same rejections. */
-function recWalk (dir, key, gens, now, mono) {
-  let head = null
+/** recordHeadPlain's walk over the generations' facts: the same checks in the same order, the same rejections. -> the answer |
+ *  null (not to be returned: the head's bytes were not its fact's, a kept fact this walk rests on reached its verify deadline
+ *  before the answer was ready, or the clock check emptied the cache under it). */
+function recWalk (dir, key, gens) {
+  recStats.walks++
+  recClockTick()                                     // a clock that fell back since the last call empties the cache BEFORE the walk
+  const epoch = recEpoch
+  let head = null, reused = false, since = -Infinity, due = Infinity
   const rejected = []
   for (const g of gens) {
-    const e = recFactOf(recFile(dir, key, g), now, mono)
+    const e = recFactOf(recFile(dir, key, g))
+    // a kept fact this walk rests on, WHATEVER the walk makes of it (a stale fact can reject a generation that is the head now)
+    if (e.verifyFor !== undefined) { reused = true; since = Math.max(since, e.verifiedAt); due = Math.min(due, e.verifiedAt + e.verifyFor) }
     if (e.why) { rejected.push({ gen: g, why: e.why }); continue }
     if (e.recGen !== g) { rejected.push({ gen: g, why: 'gen' }); continue }
     if (!head) { if (e.prev !== null) { rejected.push({ gen: g, why: 'no root' }); continue } head = { gen: g, e }; continue }
     if (e.prev !== head.gen || e.prevSha !== head.e.sha) { rejected.push({ gen: g, why: 'chain' }); continue }
     head = { gen: g, e }
   }
-  if (!head) return { ok: true, head: null, gens, rejected }
-  const rec = recHeadRec(dir, key, head.gen, head.e)
-  if (rec === undefined) return null
-  return { ok: true, head: { gen: head.gen, sha: head.e.sha, rec }, gens, rejected }
+  let rec = null
+  if (head) { rec = recHeadRec(dir, key, head.gen, head.e); if (rec === undefined) return null }
+  // the answer is ready: is every kept fact it rests on still inside its verify window NOW?
+  recSeam.at?.('return', null)
+  recClockTick()
+  if (recEpoch !== epoch) return null
+  if (reused && !(recMono >= since && recMono < due)) return null
+  return { ok: true, head: head ? { gen: head.gen, sha: head.e.sha, rec } : null, gens, rejected }
 }
 
 /**
@@ -308,9 +330,8 @@ export function recordHead (dir, key) {
   if (!recCacheOn()) return recordHeadPlain(dir, key)
   let gens
   try { gens = gensOf(dir, REC_RE(key)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
-  const { now, mono } = recClockNow()
-  // a head whose kept bytes are gone and whose file moved between its stat and the read: the fact is dropped and the walk made again
-  for (let i = 0; i < REC_WALK_TRIES; i++) { const r = recWalk(dir, key, gens, now, mono); if (r) return r }
+  // a walk that may not be returned (recWalk) is made again, each with its own clocks; after three the plain walk answers
+  for (let i = 0; i < REC_WALK_TRIES; i++) { const r = recWalk(dir, key, gens); if (r) return r }
   return recordHeadPlain(dir, key)
 }
 /** The walk as it was before reccache-01 (RECCACHE=off, and the cached walk's last resort): every generation read, parsed, hashed. */
