@@ -259,7 +259,7 @@ import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS, setNoSitePlot, setPrepClaim
 import { SINKS } from './shop.mjs'   // picker-01
 import { FORESTP } from './shop.mjs'   // forest-01: its switch (and the in-wall farm's retirement)
 import { PREP, prepOverlapOf, plotFootprint, prepCursor, prepKeeperWork, siteprepOn, SITEPREP_PLOT, SITEPREP_BLUEPRINT, prepFileDecision, siteRequest, withRequest, nextSeq, prepStep, withStep, prepExpire, prepActive, prepReservation, prepZoneOf, boxMeetsAny, prepCandidates, prepRank, prepEstimate, groundMemo, wetMemo, stillWater, prepChoose, plotOf, withPrep, prepOpen, prepCutOrder, retirePrep, prepAttempt, prepHoldOf, prepStallNext, prepStallsNow, prepVerifyDecision, prepClaimFor, prepPin, prepHandedIn, prepRowDetail, requestsOf } from './siteprep.mjs'   // siteprep-01
-import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf } from './sinks.mjs'   // picker-01
+import { isSinkPlot, isSinkBlueprint, sinkKindOf, SINK, SINK_STREAK, SINK_LETTER, SINK_KINDS, SINK_PLOTS, sinkPressure, sinkFundable, sinkNextGate, sinkOrder, lastSitedKind, sinkOpen, instancesOf, siteSink, appendInstance, completeInstance, sinkVisitOpts, sinkSaplingCols, sinkProgress, sinkRowDetail, roadRails, SINK_STONES, guardRecords, stoneOpenCount, noSiteStamped, noSiteUntilOf, sinkTurnDue, finiteStreakAfter } from './sinks.mjs'   // picker-01; sinkturn-01
 import { dressPressure, dressSignRole, dressSignSpots, dressRowDetail, DRESS } from './towndress.mjs'   // towndress-01
 import { cellGuard } from './towndress.mjs'   // decorator-01: the nursery's guard
 import { dressOrphans } from './towndress.mjs'   // prodserve-01: a light whose host is gone
@@ -17931,7 +17931,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     const order0 = b ? decorOrder(b, marked, order00, now) : order00
     // picker-01: the sinks in the picker's order (sinks.mjs sinkOrder); after SINK_STREAK sink visits an upkeep goes first
     const order = sinkListOrder(order0, activeMem.sinkOrder ?? [])
-    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null })
+    // sinkturn-01 (sinks.mjs SINK_TURN): after SINK_TURN.every finite visits in a row the sink tier takes this bot's next pick -- never
+    // a bot on the grounds crew's (keeperNow: the keeper or a helper lease -- the grounds are its work), and the decorator's own pick is
+    // its decor (decorator.mjs decorOrderPure), already a sink
+    const sinkTurn = !!b && sinkTurnDue(b.finiteStreak) && !keeperNow(b, now)
+    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
     // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, the visit's pick and every read of the active project (the
     // reserve, the draw, the bag) name the tidy the order sent it to, never the forest the order skipped (shop.mjs roomFallbackPick)
     const fbPick = roomFallbackPick(b?.roomFallback ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
@@ -22197,6 +22201,7 @@ async function buildShopVisit (ctx, args, signal) {
   const proj = shopActive(bot, Date.now(), { visit: true })
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
   bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
+  bot.finiteStreak = finiteStreakAfter(bot.finiteStreak, proj.plot)   // sinkturn-01: the finite visits in a row (the sink turn's count)
   bot.shopVisitPlot = proj.plot   // sinkfix-01: the plot this visit's outcome is noted against (buildShop)
   // monument-01: the ziggurat's visit is its own (computed cells, its siting, its rows)
   if (proj.plot === MONUMENT_PLOT) return buildMonument(ctx, args, signal)
