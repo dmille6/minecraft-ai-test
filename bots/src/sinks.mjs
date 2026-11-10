@@ -61,6 +61,24 @@ export const SINK_LETTER = Object.freeze({ road: 'R', tower: 'T', shrine: 'Z', d
 export const SINK_BUILDERS = 3
 /** After this many sink visits in a row a bot's next pick lets an upkeep (`due`) go first (Codex design: neither starves). */
 export const SINK_STREAK = 3
+/**
+ * SINKTURN-01 (LIVE showcase 11-09/10, 24 h to 11-10 16:30Z: 1,569 build visits, 16 to a sink -- 14 the decorator's decor on its own
+ * lease, 2 the stone tower; wood, road, shrine 0; the picker's order headed by the open tower in 2,209 of 2,209 `_sink op=pick` rows):
+ * the sink tier came after EVERY finite project with a slot for the bot (shop.mjs activeProject `freeOpen`), and the showcase always
+ * has one (the town hall, the grounds), so the sinks were never reached. THE SINK TURN: after SINK_TURN.every finite build visits in
+ * a row (`finiteStreak`), this bot's next pick is the sink tier's own (activeProject `sinkTurn`: behind the repairs and the service
+ * tier, ahead of the open finite projects) -- at most one build visit in every + 1 when a sink can take it; with none, as before.
+ * THE BLOCKED SINK YIELDS: a sink visit that changed nothing (no_effect) or aborted marks the sink idle for THIS bot for
+ * SINK_TURN.idleMs (longer than a turn's interval, ~75 min at the showcase's ~4 visits/h), so the bot's next turns rotate to the next
+ * sink in the picker's order instead of walking back to the one it could not work. SINKTURN=off is the rollback (no turn; a sink's
+ * idle mark IDLE_MS, as before). Pure.
+ */
+export const sinkTurnOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SINKTURN ?? '').trim().toLowerCase())
+export const SINK_TURN = Object.freeze({ on: sinkTurnOn(), every: 4, idleMs: 3 * 60 * 60_000 })
+/** Is this bot's next pick the sink tier's turn? `streak` its finite build visits in a row. Pure. */
+export const sinkTurnDue = (streak, { on = SINK_TURN.on, every = SINK_TURN.every } = {}) => !!on && (Number(streak) || 0) >= every
+/** The finite visits in a row after a visit to `plot` (a sink visit starts the count again). Pure. */
+export const finiteStreakAfter = (streak, plot) => (isSinkPlot(plot) ? 0 : (Number(streak) || 0) + 1)
 export const SINK = Object.freeze({
   maxOpen: 2,                 // open instances a town at once (resource model §6), across the three plots
   billMax: 512,               // an instance's whole bill: its own bounded phase (the town's chests hold 1,000 cobblestone)
@@ -1059,11 +1077,15 @@ export const SINK_WAIVE = Object.freeze({
 // fences-01: a wood fence no stand reaches is waived the same way (a ring closes with a gap: it never holds the town's sinks)
 export const sinkWaiveKind = kind => kind === 'road' || kind === 'tower' || kind === 'shrine' || kind === 'wood'
 /** -> [{ k, why }] the cells to waive now. `deferred` runVisit's [{ k, why, visits }]; `counts` stuckRead's all-time summed map
- *  { k: { visits, firstAt } }. A cell not in the record, a light/fire cell (sinkOpenRole: walk-through), one already waived, or one
- *  this visit did not defer is never waived. Pure. */
-export function sinkWaiveDue (rec, deferred = [], counts = {}, now = Date.now(), { minVisits = SINK_WAIVE.minVisits, afterMs = SINK_WAIVE.afterMs, max = SINK_WAIVE.max } = {}) {
+ *  { k: { visits, firstAt } }. A cell not in the record, a decor flower, a light/fire cell (sinkOpenRole: walk-through) unless
+ *  `lights` and its deferral was a stand's (below), one already waived, or one this visit did not defer is never waived. Pure.
+ *  SINKTURN-01 (`lights`, LIVE showcase 11-08/10: tower T3's last open cells were six torches on its top terraces, `T3-light`, deferred
+ *  `no_stand` by Iris, Juno, Kite, Lumen x2 and Maple from 11-08 16:00Z -- the waiver never took a light, so the instance stayed open,
+ *  headed the picker's order (open first) in every pick and held the tower kind's next instance for 6 days): a light or fire cell
+ *  no stand reaches is waived as a stone cell is (the tower closes without that torch); one deferred for any other reason is not. */
+export function sinkWaiveDue (rec, deferred = [], counts = {}, now = Date.now(), { minVisits = SINK_WAIVE.minVisits, afterMs = SINK_WAIVE.afterMs, max = SINK_WAIVE.max, lights = SINK_TURN.on } = {}) {
   if (!sinkWaiveKind(sinkKindOf(rec?.blueprint ?? rec?.plot))) return []
-  const cells = new Set((rec?.cells ?? []).filter(c => !sinkOpenRole(c.role)).map(c => c.at.join(',')))
+  const cells = new Map((rec?.cells ?? []).filter(c => !decorFlowerRole(c.role)).map(c => [c.at.join(','), c]))
   const have = rec?.waived ?? {}
   let room = max - Object.keys(have).length
   const out = []
@@ -1071,6 +1093,7 @@ export function sinkWaiveDue (rec, deferred = [], counts = {}, now = Date.now(),
     if (room <= 0) break
     const k = String(d?.k ?? '')
     if (!cells.has(k) || have[k] || out.some(o => o.k === k)) continue
+    if (sinkOpenRole(cells.get(k).role) && !(lights && /no_stand/.test(String(d?.why ?? '')))) continue
     const c = counts?.[k] ?? null
     const visits = Math.max(Number(c?.visits) || 0, Number(d?.visits) || 0)
     const first = Number(c?.firstAt)
