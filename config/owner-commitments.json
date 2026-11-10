@@ -6774,6 +6774,31 @@
      "docs/reports/tidyrefresh-2026-11-10.md"
     ]
    }
+  },
+  {
+   "kind": "showcase",
+   "lane": "progress",
+   "owner": "control session",
+   "max_quiet_hours": 48,
+   "id": "sinkturn-1110",
+   "title": "Sink turn (feature freeze, measured break): wood/roads/bridges live but 0 builds -- the sink tier sat below every finite project with a slot and the open tower (2 torches no stand reaches, never waivable) headed every pick; sinks get 1 build visit in 5, a blocked sink yields 3 h, a no_stand torch is waived",
+   "owner_date": "2026-11-10",
+   "memory": [
+    "sinkturn-1110.md"
+   ],
+   "state": "open",
+   "next_step": "2026-11-10: BUILT, READY TO STAGE (release agent stages it AFTER keeperstall-01show), NOT released. sinkturn-01show-on-citywall b05bfc2d on the live f7909770; restack onto keeperstall-01show once its activation is in /srv/showcase/ops/deploy.jsonl. Tier 2 (protected.py: not protected). Codex r1 NO BLOCKERS. No tripwire rule needed (shopread SK1 already reads project=tower op=waived as no mutation, cell-agnostic). Measured 24 h to 11-10 16:30Z: 16 of 1,569 build visits to a sink (14 decorator decor, 2 tower), wood/road/shrine 0; tower heads 2,209/2,209 pick rows; T3 open cells = torches 46,75,-14 and 46,75,-10 (6 no_stand deferrals each since 11-08). Read 2 h: sink share of build visits (was 1%), _build op=waived project=tower + structure_complete, _sink op=sited kind=wood|road, town hall placements/h, deaths. Rollback SINKTURN=off.",
+   "evidence": {
+    "grep": [
+     "sinkturn-01show"
+    ],
+    "branches": [
+     "sinkturn-01show-on-citywall"
+    ],
+    "paths": [
+     "docs/reports/sinkturn-2026-11-10.md"
+    ]
+   }
   }
  ]
 }
