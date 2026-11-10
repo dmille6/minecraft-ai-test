@@ -216,11 +216,31 @@ export function installServerBlockWitness (bot) {
   }
 }
 
-/** keeperstall-01: HAS THIS BOT'S CONNECTION ENDED? -> bool. minecraft-protocol's client sets `ended` false on connect and true on end;
- *  a DESTROYED SOCKET says the same (r1: mineflayer's own keepalive timeout calls client.end(), and `ended` can stay false until the
- *  socket has closed). A bot with no client (a test's fake), or a client that never said, reads as NOT ended. Pure. THE ONE
- *  DEFINITION: skills.mjs `clientEnded` is this function. */
-export const connEnded = bot => bot?._client?.ended === true || bot?._client?.socket?.destroyed === true
+/**
+ * keeperstall-01: HAS THIS BOT'S CONNECTION ENDED? -> bool. THE ONE DEFINITION (skills.mjs `clientEnded` is this function). Pure.
+ * True on any of (minecraft-protocol 1.66.2 src/client.js, readable-stream 4.7; each seen on ci2 with the locked modules, 11-10):
+ *   `_client.ended === true`                  set by the socket's close / end / timeout / fatal error (false from setSocket on)
+ *   `_client.socket.destroyed === true`       the socket is gone
+ *   `_client.serializer.writableEnded === true`   r2: client.end() was CALLED (mineflayer's keepalive timeout, a kick, bot.quit):
+ *                                             end() ends the serializer SYNCHRONOUSLY and only destroys the socket on a 30 s close
+ *                                             timer; until the socket closes `ended` and `destroyed` are both still false, and every
+ *                                             write() is already a no-op (`serializer.writable` false)
+ *   `_client.socket.writableEnded === true`   the same a turn later (the chain has ended the socket), and end() with no serializer
+ * Never true on a healthy connected client: a state change (login -> configuration -> play, and play -> configuration -> play)
+ * REPLACES the serializer with a new one and ends none; compression and encryption re-pipe, they end nothing.
+ * NOT COVERED: a connection the SERVER has dropped whose close this process has not processed yet (the event loop busy, or a dead
+ * network with no FIN) -- nothing local says so until the socket event runs; and end() followed by a state change (the new
+ * serializer reads open until the socket closes). A bot with no client (a test's fake), or a client with none of these: NOT ended.
+ */
+export const connEnded = bot => {
+  const c = bot?._client
+  if (!c) return false
+  return c.ended === true || c.socket?.destroyed === true || c.serializer?.writableEnded === true || c.socket?.writableEnded === true
+}
+/** keeperstall-01 r2: IS THIS VISIT GONE? -> bool: the skill was aborted (`signal`), or its bot's connection has ended (connEnded).
+ *  What a gone visit saw says nothing about the world: nothing of it is written to the bot's process memory (procmem.mjs) or waived
+ *  on a record. Pure. */
+export const visitGone = (bot, signal) => !!signal?.aborted || connEnded(bot)
 /**
  * -> runVisit's effects for `bot`, plus close(). Options:
  *   acks           the connection's tracker (skills.mjs shopAckInstall, installed before login); none: one is installed for

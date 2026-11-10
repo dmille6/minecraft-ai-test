@@ -235,7 +235,7 @@ import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, s
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { procMem } from './procmem.mjs'   // keeperstall-01: the keeper's clocks and give-ups live for the process, not the connection
-import { connEnded } from './buildbot.mjs'   // keeperstall-01 r1: the one notion of an ended connection (clientEnded below)
+import { connEnded, visitGone } from './buildbot.mjs'   // keeperstall-01 r1/r2: the one notion of an ended connection (clientEnded below), and of a gone visit
 import { fellFailNote, forestRestDue } from './forest.mjs'   // keeperstall-01 r1: nothing booked for a result on a dead connection
 import { bw3Strikes } from './boardwalk.mjs'   // keeperstall-01 r1
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
@@ -26913,8 +26913,9 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts: TIDY_CUT_TRIES visits)
     const read2 = tidyRead(bot)
     const cutAt = new Map(cuts.map(q => [q.at.join(','), q]))
-    // keeperstall-01 r1: never for a visit whose connection ended (boardwalk.mjs bw3Strikes: the counts outlive the connection)
-    tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: clientEnded(bot) }), k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
+    // keeperstall-01 r1/r2: never for a visit that was aborted or whose connection ended (runVisit RETURNS stop=aborted with its
+    // `tidied` list; boardwalk.mjs bw3Strikes: the counts outlive the connection, three interrupted visits would give the cuts up)
+    tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: visitGone(bot, signal) }), k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     row(status, { placed: r.placed, cleared: r.cleared, stop: r.stop, why: r.why })
     return { tried: true, status, why: `water: ${r.cleared} dug, ${r.placed} planks laid (${r.stop})`, placed: r.placed, cleared: r.cleared, stop: r.stop }
@@ -27298,7 +27299,7 @@ async function buildTidyVisit (ctx, args, signal) {
         plot = COUNTRY_PLOT; f.project = COUNTRY_PLOT; key = projKeyOf(COUNTRY_PLOT)
         rh = recordHead(dir, key)
         if (!rh.ok) return out('no_effect', 'record_unreadable', 'the country record could not be read')
-        if (role === 'keeper') procMem(bot).gkCountryAt = Date.now()
+        if (role === 'keeper' && !clientEnded(bot)) procMem(bot).gkCountryAt = Date.now()   // r2: never stamped by a visit on an ended connection
       }
     }
     f.lane = lane
@@ -27308,7 +27309,7 @@ async function buildTidyVisit (ctx, args, signal) {
   if (GKW_ON && role === 'keeper') { try { bot.gkwTown = null; const t = gkwTownRead(bot); if (t.sig) bot.gkwTried = { sig: t.sig, total: t.total, at: Date.now() } } catch { /* the stamp is advisory */ } }
   // BOARDWALK-03: the town's water, every BW3.everyMs, before the stage (the keeper's; a visit with no water work goes on to the grounds)
   if (role === 'keeper' && bw3Due(procMem(bot))) {
-    procMem(bot).bw3At = Date.now()
+    if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()   // keeperstall-01 r2: a visit on an ended connection never makes the next one wait
     const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
     if (ww.tried) return out(ww.status, 'waterwalk', ww.why, { stop: 'waterwalk', placed: ww.placed, cleared: ww.cleared }, ww.failClass ?? null)
   }
@@ -28159,7 +28160,7 @@ async function buildForest (ctx, args, signal) {
   const f = { project: FOREST_PLOT }
   // keeperstall-01 r1: THE VISIT IS GONE (aborted, or its connection ended: index.mjs's `end` does not cancel the running skill) --
   // no tree is felled from here on, and nothing this visit learns is written to the bot's process memory or waived on the record
-  const gone = () => !!signal?.aborted || clientEnded(bot)
+  const gone = () => visitGone(bot, signal)
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }

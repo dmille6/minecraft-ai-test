@@ -14,6 +14,10 @@
 //      tree on the record, for every bot. Nothing is booked for a result on an aborted or ended connection: no forest skip, no
 //      failure count, no keep, no rest, no water-cut strike (forest.mjs fellFailNote / forestRestDue, boardwalk.mjs bw3Strikes);
 //      ONE notion of "ended" (buildbot.mjs connEnded = skills.mjs clientEnded: `ended`, or a destroyed socket).
+//   r2 (review BLOCKERS). A: an ABORTED water visit on a healthy connection books no strike either (buildbot.mjs visitGone: the
+//      skill's signal, or the connection ended). B: the interval after client.end() -- `ended` false, socket not destroyed, every
+//      write a no-op for up to 30 s -- reads ENDED (the serializer's writableEnded, set synchronously by end(); proved here on the
+//      REAL minecraft-protocol client, which also reads NOT ended through every state change, compression and encryption).
 //
 // Anchored mutants (each anchor asserted present and unique, CLAUDE.md), each named after the test it must fail.
 import assert from 'node:assert'
@@ -23,6 +27,8 @@ import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import net from 'node:net'
 const { R, PJ, G, HOME, k3, server, bot } = await import('./helpers/buildfake.mjs')
 const BB = await import('../src/buildbot.mjs')
 const PM = await import('../src/procmem.mjs')
@@ -169,6 +175,9 @@ const NAMES = {
   deadFell: 'r1 A FELLING ON A DEAD CONNECTION books nothing (no skip, no failure count, never a keep -> no waive); the same result on a live one does',
   deadRest: 'r1 A FOREST VISIT THAT ENDS ON A DEAD CONNECTION does not rest the forest for the next one; a live visit that did nothing does',
   deadCuts: 'r1 A WATER VISIT ON A DEAD CONNECTION counts no strike against a cut; a live one gives it up after TIDY_CUT_TRIES',
+  cancelled: 'r2 A CANCELLED WATER VISIT ON A HEALTHY CONNECTION (signal aborted, cuts evaluated) counts no strike; live and not aborted does',
+  afterEnd: 'r2 THE INTERVAL AFTER client.end() reads ENDED (ended false, socket not destroyed, the outbound stream ended); every healthy shape reads not ended',
+  realClient: 'r2 the REAL minecraft-protocol client: NOT ended through handshake, login, compression, encryption, configuration, play and play->configuration->play; ENDED synchronously after end()',
   wiring: 'r1 skills.mjs (structural): both felling loops stop when the visit is gone and book through fellFailNote(ended: gone()); the rest, the strikes and clientEnded use the one predicate',
 }
 const skipsBreathe = async M => {
@@ -320,11 +329,52 @@ await t(`MUTANT, the breath removed from a segment's step loop: fails "${NAMES.s
 console.log('AN ENDED CONNECTION ABORTS THE VISIT (buildbot.mjs)')
 const fakeBot = client => Object.assign(new EventEmitter(), { ...(client ? { _client: client } : {}), entity: { position: { x: 0, y: 0, z: 0 }, pitch: 0, yaw: 0, onGround: true }, blockAt: () => null, inventory: { items: () => [] }, players: {} })
 const fakeClient = () => { const c = new EventEmitter(); c.write = () => {}; return c }
+// r2: the client's shapes as minecraft-protocol 1.66.2 leaves them (read off the real client on ci2, 11-10; realClientSeen re-reads them)
+const SHAPE = {
+  healthy: () => ({ ended: false, socket: { destroyed: false, writableEnded: false }, serializer: { writableEnded: false, writable: true } }),
+  afterEnd: () => ({ ended: false, socket: { destroyed: false, writableEnded: false }, serializer: { writableEnded: true, writable: false } }),      // synchronously after end()
+  turnLater: () => ({ ended: false, socket: { destroyed: false, writableEnded: true }, serializer: { writableEnded: true, writable: false } }),      // the chain ended the socket
+  noSerializer: () => ({ ended: false, socket: { destroyed: false, writableEnded: true } }),                                                          // end() before any serializer
+  closed: () => ({ ended: true, socket: { destroyed: true, writableEnded: true }, serializer: { writableEnded: true, writable: false } }),
+}
+const afterEndSeen = M => {
+  assert.strictEqual(M.connEnded({ _client: SHAPE.healthy() }), false, 'healthy')
+  for (const k of ['afterEnd', 'turnLater', 'noSerializer', 'closed']) assert.strictEqual(M.connEnded({ _client: SHAPE[k]() }), true, k)
+  // only `true` counts: a stream that never said, or a fake's other values, is not an ended one
+  for (const c of [{ serializer: {} }, { serializer: { writableEnded: undefined }, socket: { writableEnded: undefined } }, { serializer: null, socket: {} }, { serializer: { writableEnded: 'no' } }]) assert.strictEqual(M.connEnded({ _client: c }), false, JSON.stringify(c))
+  // the effects see it: aborted the moment end() was called
+  const c = Object.assign(fakeClient(), SHAPE.healthy()), e = M.botBuildEffects(fakeBot(c), {})
+  try { assert.strictEqual(e.aborted(), false); c.serializer.writableEnded = true; assert.strictEqual(e.aborted(), true, 'after end()') } finally { e.close() }
+}
+/** The REAL client (no server: an unconnected socket is enough -- end() is judged at the moment it returns). */
+const realClientSeen = M => {
+  const mc = createRequire(import.meta.url)('minecraft-protocol')
+  const c = new mc.Client(false, '1.21.8')
+  c.on('error', () => {})
+  const bot = { _client: c }
+  try {
+    c.setSocket(new net.Socket())
+    const healthy = what => { assert.strictEqual(c.ended, false, what); assert.strictEqual(M.connEnded(bot), false, `healthy: ${what}`) }
+    c.state = 'handshaking'; healthy('handshaking')
+    c.state = 'login'; healthy('login')
+    c.setCompressionThreshold(256); healthy('compression')
+    c.setEncryption(Buffer.alloc(16)); healthy('encryption')
+    c.state = 'configuration'; healthy('configuration')
+    c.state = 'play'; healthy('play')
+    c.state = 'configuration'; c.state = 'play'; healthy('play -> configuration -> play')
+    c.end('test')
+    // THE INTERVAL: neither of the old two flags says so, and the write is already a no-op
+    assert.strictEqual(c.ended, false, 'end() does not set `ended`'); assert.strictEqual(c.socket.destroyed, false, 'end() does not destroy the socket')
+    assert.strictEqual(c.serializer.writable, false, 'writes are no-ops from here')
+    assert.strictEqual(M.connEnded(bot), true, 'ENDED synchronously after end()')
+  } finally { clearTimeout(c.closeTimer); try { c.socket?.destroy() } catch { /* gone */ } }
+}
 const endedSeen = async M => {
   assert.strictEqual(M.connEnded({ _client: { ended: true } }), true)
   // r1: a destroyed socket says the same (mineflayer's keepalive timeout: client.end() first, `ended` only once the socket closed)
   assert.strictEqual(M.connEnded({ _client: { ended: false, socket: { destroyed: true } } }), true, 'a destroyed socket')
   for (const b of [null, undefined, {}, { _client: null }, { _client: {} }, { _client: { ended: false } }, { _client: { ended: 'yes' } }, { _client: { ended: false, socket: { destroyed: false } } }, { _client: { socket: null } }]) assert.strictEqual(M.connEnded(b), false, JSON.stringify(b))
+  afterEndSeen(M)
   { const c = fakeClient(); c.ended = false; c.socket = { destroyed: false }; const e = M.botBuildEffects(fakeBot(c), {})
     try { assert.strictEqual(e.aborted(), false); c.socket.destroyed = true; assert.strictEqual(e.aborted(), true, 'the socket destroyed: aborted') } finally { e.close() } }
   // the effects on a connected client: not aborted; the client ends (minecraft-protocol sets `ended` true): aborted
@@ -353,8 +403,23 @@ await t(`MUTANT, the \`_client.ended\` clause dropped: fails "${NAMES.ended}"`, 
   })
 })
 
+await t(NAMES.afterEnd, () => afterEndSeen(BB))
+await t(NAMES.realClient, () => realClientSeen(BB))
+await t(`MUTANT, the serializer clause dropped (the 30 s after end() read as connected): fails "${NAMES.afterEnd}" and "${NAMES.realClient}"`, async () => {
+  await withMutants(BOT_URL, [[' || c.serializer?.writableEnded === true', '']], async M => {
+    assert.strictEqual(M.connEnded({ _client: SHAPE.afterEnd() }), false, 'the mutant survived')
+    assert.strictEqual(M.connEnded({ _client: SHAPE.turnLater() }), true, 'the other clauses still stand in the mutant')
+    assert.throws(() => afterEndSeen(M), /afterEnd/); assert.throws(() => realClientSeen(M), /ENDED synchronously after end\(\)/)
+  })
+})
+await t(`MUTANT, the socket's writableEnded clause dropped: fails "${NAMES.afterEnd}"`, async () => {
+  await withMutants(BOT_URL, [[' || c.socket?.writableEnded === true\n', '\n']], async M => {
+    assert.strictEqual(M.connEnded({ _client: SHAPE.noSerializer() }), false, 'the mutant survived')
+    assert.throws(() => afterEndSeen(M), /noSerializer/)
+  })
+})
 await t(`MUTANT, the destroyed-socket clause dropped (two notions of "ended" again): fails "${NAMES.ended}"`, async () => {
-  await withMutants(BOT_URL, [[' || bot?._client?.socket?.destroyed === true\n', '\n']], async M => {
+  await withMutants(BOT_URL, [[' || c.socket?.destroyed === true', '']], async M => {
     assert.strictEqual(M.connEnded({ _client: { ended: false, socket: { destroyed: true } } }), false, 'the mutant survived')
     let killed = false
     try { await endedSeen(M) } catch { killed = true }
@@ -454,13 +519,13 @@ const structural = raw => {
   assert.strictEqual(fcode.split('keepDue((mem.forestFails ??= new Map()), t.key, r.why, F)').length, 2); assert.strictEqual(fcode.split('(mem.forestSkip ??= new Map()).set(t.key, now + skipMs)').length, 2)
   for (const n of [...STAYS, 'pending']) assert.ok(!new RegExp(`procMem\\([^)]*\\)\\??\\.${n}\\b`).test(code), `${n} is never carried across connections`)
   // the keeper's hook: due by the process's clock, stamped there BEFORE the visit is awaited
-  assert.strictEqual(code.split("  if (role === 'keeper' && bw3Due(procMem(bot))) {\n    procMem(bot).bw3At = Date.now()\n    const ww = await waterWalkVisit(").length, 2)
+  assert.strictEqual(code.split("  if (role === 'keeper' && bw3Due(procMem(bot))) {\n    if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()\n    const ww = await waterWalkVisit(").length, 2)
   assert.strictEqual(code.split('  const mem = (procMem(bot).bw3Given ??= new Map())').length, 2)
   assert.strictEqual(code.split("import { procMem } from './procmem.mjs'").length, 2)
 }
 await t(NAMES.onBot, () => structural(SK_RAW))
 await t(`MUTANT, \`bw3At\` stored on the bot again: fails "${NAMES.onBot}"`, () => {
-  const m = mutantText(SKILLS_URL, [['    procMem(bot).bw3At = Date.now()\n', '    bot.bw3At = Date.now()\n']])
+  const m = mutantText(SKILLS_URL, [['    if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()', '    if (!clientEnded(bot)) bot.bw3At = Date.now()']])
   assert.throws(() => structural(m), /still on the bot: bot\.bw3At/)
   // ...and a give-up map on the bot again, the same way
   const g = mutantText(SKILLS_URL, [['  const mem = (procMem(bot).bw3Given ??= new Map())', '  const mem = (bot.bw3Given ??= new Map())']])
@@ -494,7 +559,7 @@ await t('bw3Due takes the MEMORY: false inside everyMs for a FRESH bot object wh
 
 console.log('r1: A MEMORY THAT OUTLIVES THE CONNECTION LEARNS NOTHING FROM A DEAD ONE')
 // the bots as the skills see them: `ended`, or the socket destroyed before `ended` is set; and a live one
-const DEAD = [{ ended: true }, { ended: false, socket: { destroyed: true } }]
+const DEAD = [{ ended: true }, { ended: false, socket: { destroyed: true } }, SHAPE.afterEnd(), SHAPE.turnLater()]
 const LIVE = () => ({ ended: false, socket: { destroyed: false } })
 const TREE = { key: 'plot:12,64,-40', cell: [12, 64, -40], stand: [12, 64, -39] }
 /** One felling loop pass as skills.mjs buildForest books it (structural test below: both loops are these lines) -> the waives published. */
@@ -575,6 +640,51 @@ const deadVisitStrikesNothing = async (WM, ended = BB.connEnded) => {
   assert.strictEqual(visit(store, { username: 'Onyx', _client: LIVE() }), 0, 'given up')
   assert.deepStrictEqual(WM.bw3Strikes(undefined), []); assert.deepStrictEqual(WM.bw3Strikes(['a', 'b']), ['a', 'b']); assert.deepStrictEqual(WM.bw3Strikes(['a'], { ended: true }), [])
 }
+/** r2 BLOCKER A: the water visit's own lines with the visit's predicate (skills.mjs: `bw3Strikes(r.tidied, { ended: visitGone(bot, signal) })`). */
+const cancelledStrikesNothing = async BM => {
+  const k = '5,69,0', cut = { at: [5, 69, 0] }
+  const visit = (store, bot, signal) => {
+    const mem = (PM.procMemOf(store, bot).bw3Given ??= new Map())
+    const mine = [cut].filter(q => !T.tidyGivenUp(mem, q.at.join(',')))
+    const r = { stop: signal?.aborted ? 'aborted' : 'complete', tidied: mine.map(q => q.at.join(',')) }   // runVisit RETURNS, its tidied list populated
+    T.tidyNoteCuts(mem, W.bw3Strikes(r.tidied, { ended: BM.visitGone(bot, signal) }), () => true)
+    return mine.length
+  }
+  const live = () => ({ username: 'Onyx', _client: SHAPE.healthy() })
+  // a HEALTHY connection, the skill cancelled (a reflex, the watchdog), cuts evaluated and still standing: no strike, however often
+  const store = new Map()
+  for (let i = 0; i < T.TIDY_CUT_TRIES + 3; i++) visit(store, live(), { aborted: true })
+  assert.strictEqual(PM.procMemOf(store, live()).bw3Given.size, 0, 'no strike from a cancelled visit')
+  assert.strictEqual(visit(store, live(), { aborted: true }), 1, 'the cut is still tried')
+  // POSITIVE CONTROL: live and NOT aborted -- each visit is a strike, the cut is given up at TIDY_CUT_TRIES
+  for (let i = 0; i < T.TIDY_CUT_TRIES; i++) assert.strictEqual(visit(store, live(), { aborted: false }), 1)
+  assert.strictEqual(PM.procMemOf(store, live()).bw3Given.get(k), T.TIDY_CUT_TRIES); assert.strictEqual(visit(store, live(), null), 0, 'given up')
+  // the predicate: either reason alone; neither: not gone; no signal at all: the connection decides
+  assert.strictEqual(BM.visitGone(live(), { aborted: true }), true); assert.strictEqual(BM.visitGone(live(), { aborted: false }), false)
+  assert.strictEqual(BM.visitGone(live(), null), false); assert.strictEqual(BM.visitGone(live(), undefined), false)
+  for (const c of DEAD) { assert.strictEqual(BM.visitGone({ _client: c }, { aborted: false }), true, JSON.stringify(c)); assert.strictEqual(BM.visitGone({ _client: c }, null), true) }
+  assert.strictEqual(BM.visitGone({}, { aborted: true }), true, 'a bot with no client, aborted')
+  // ...and the forest's bookings take the same predicate: an aborted felling on a healthy connection books nothing
+  const fs2 = new Map()
+  assert.deepStrictEqual(fellPass(F, b => BM.visitGone(b, { aborted: true }), fs2, live(), TREE, { n: 0, why: 'off_stand' }).nf, { counted: false, keep: false })
+  assert.strictEqual(F.forestRestDue('no_effect', 'aborted', { ended: BM.visitGone(live(), { aborted: true }) }), false)
+}
+await t(NAMES.cancelled, () => cancelledStrikesNothing(BB))
+await t(`MUTANT, visitGone blind to the skill's signal (the connection only): fails "${NAMES.cancelled}"`, async () => {
+  await withMutants(BOT_URL, [['export const visitGone = (bot, signal) => !!signal?.aborted || connEnded(bot)\n', 'export const visitGone = (bot, signal) => connEnded(bot)\n']], async M => {
+    assert.strictEqual(M.visitGone({ _client: SHAPE.healthy() }, { aborted: true }), false, 'the mutant survived')
+    let msg = null
+    try { await cancelledStrikesNothing(M) } catch (e) { msg = e.message }
+    assert.ok(/no strike from a cancelled visit/.test(msg ?? ''), `killed by the named assertion (${msg})`)
+  })
+})
+await t(`MUTANT, visitGone blind to the connection (the signal only): fails "${NAMES.cancelled}"`, async () => {
+  await withMutants(BOT_URL, [['export const visitGone = (bot, signal) => !!signal?.aborted || connEnded(bot)\n', 'export const visitGone = (bot, signal) => !!signal?.aborted\n']], async M => {
+    let msg = null
+    try { await cancelledStrikesNothing(M) } catch (e) { msg = e.message }
+    assert.ok(/"ended":true|destroyed|writableEnded/.test(msg ?? ''), `killed on a dead connection's shape (${msg})`)
+  })
+})
 await t(NAMES.deadFell, () => deadFellBooksNothing(F))
 await t(NAMES.deadRest, () => deadVisitRestsNothing(F))
 await t(NAMES.deadCuts, () => deadVisitStrikesNothing(W))
@@ -618,7 +728,7 @@ const wiring = raw => {
   const a = code.indexOf('async function buildForest ('), z = code.indexOf('const FOREST_NOSITE_MS')
   assert.ok(a > 0 && z > a, 'buildForest found')
   const fb = code.slice(a, z)
-  one(fb, '  const gone = () => !!signal?.aborted || clientEnded(bot)\n', 'the one predicate: aborted, or the connection ended')
+  one(fb, '  const gone = () => visitGone(bot, signal)\n', 'the one predicate: aborted, or the connection ended')
   // both felling loops: the visit stops BEFORE the next fell, and books the result through fellFailNote with `ended: gone()`
   assert.strictEqual(fb.split('await forestFell(').length, 3, 'two felling loops')
   for (const head of ['for (const t of rt.plan.trees) {', 'for (const t of hl.trees) {']) {
@@ -643,25 +753,35 @@ const wiring = raw => {
   const wv = code.slice(code.indexOf('async function waterWalkVisit ('), code.indexOf('function tidyGuardSet ('))
   assert.ok(wv.length > 1000)
   assert.strictEqual(wv.split('tidyNoteCuts(').length, 2, 'one note in the water visit')
-  one(wv, '    tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: clientEnded(bot) }), k => {', 'the strikes go through bw3Strikes')
+  one(wv, '    tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: visitGone(bot, signal) }), k => {', 'the strikes go through bw3Strikes with the visit\'s predicate (aborted or ended)')
   one(code, 'export const clientEnded = connEnded\n', 'one definition of ended')
+  one(code, "import { connEnded, visitGone } from './buildbot.mjs'", 'the predicates are buildbot.mjs\'s')
+  // r2: the keeper's two clocks are never stamped by a visit on an ended connection (and still BEFORE the visit on a live one)
+  one(code, '.bw3At = ', 'one stamp of the water clock'); one(code, '.gkCountryAt = ', 'one stamp of the country clock')
+  one(code, "  if (role === 'keeper' && bw3Due(procMem(bot))) {\n    if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()\n    const ww = await waterWalkVisit(", 'the water clock: stamped before the visit, never on an ended connection')
+  one(code, "        if (role === 'keeper' && !clientEnded(bot)) procMem(bot).gkCountryAt = Date.now()\n", 'the country clock: never on an ended connection')
 }
 await t(NAMES.wiring, () => wiring(SK_RAW))
+// each mutant with the assertion that must kill it (its message), so a mutant killed by something else reads as a failure
 const WIRE_MUTANTS = [
-  ['the predicate without the ended connection', '  const gone = () => !!signal?.aborted || clientEnded(bot)\n', '  const gone = () => !!signal?.aborted\n'],
-  ['the retire loop fells on', '            if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break\n            if (gone()) break   // keeperstall-01 r1\n', '            if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break\n'],
-  ['the harvest loop fells on', '            if (Date.now() > deadline - 40_000) break\n            if (gone()) break   // keeperstall-01 r1\n', '            if (Date.now() > deadline - 40_000) break\n'],
-  ['the retire loop books whatever came back', '{ ended: gone(), noStand: !t.stand, skipMs: FOREST_SKIP_MS }', '{ noStand: !t.stand, skipMs: FOREST_SKIP_MS }'],
-  ['the harvest loop books whatever came back', 'fellFailNote(procMem(bot), t, r, { ended: gone(), skipMs: FOREST_SKIP_MS })', 'fellFailNote(procMem(bot), t, r, { skipMs: FOREST_SKIP_MS })'],
-  ['a waive outside the note\'s keep', '              if (nf.keep) {\n                const pub = publishRecord(dir, key, ', '              if (true) {\n                const pub = publishRecord(dir, key, '],
-  ['the rest set whatever the connection', 'if (forestRestDue(status, outcome, { ended: gone() })) procMem(bot).forestIdleUntil', 'if (forestRestDue(status, outcome)) procMem(bot).forestIdleUntil'],
-  ['the strikes counted whatever the connection', 'tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: clientEnded(bot) }), k => {', 'tidyNoteCuts(mem, r.tidied ?? [], k => {'],
-  ['two notions of ended again', 'export const clientEnded = connEnded\n', 'export const clientEnded = bot => bot?._client?.ended === true\n'],
+  ['the predicate without the ended connection', '  const gone = () => visitGone(bot, signal)\n', '  const gone = () => !!signal?.aborted\n', /the one predicate: aborted, or the connection ended/],
+  ['the retire loop fells on', '            if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break\n            if (gone()) break   // keeperstall-01 r1\n', '            if (Date.now() > deadline - 30_000 || felledAll >= FOREST.harvestMax * 8) break\n', /for \(const t of rt\.plan\.trees\) \{ stops before the fell/],
+  ['the harvest loop fells on', '            if (Date.now() > deadline - 40_000) break\n            if (gone()) break   // keeperstall-01 r1\n', '            if (Date.now() > deadline - 40_000) break\n', /for \(const t of hl\.trees\) \{ stops before the fell/],
+  ['the retire loop books whatever came back', '{ ended: gone(), noStand: !t.stand, skipMs: FOREST_SKIP_MS }', '{ noStand: !t.stand, skipMs: FOREST_SKIP_MS }', /for \(const t of rt\.plan\.trees\) \{ books with ended: gone\(\)/],
+  ['the harvest loop books whatever came back', 'fellFailNote(procMem(bot), t, r, { ended: gone(), skipMs: FOREST_SKIP_MS })', 'fellFailNote(procMem(bot), t, r, { skipMs: FOREST_SKIP_MS })', /for \(const t of hl\.trees\) \{ books with ended: gone\(\)/],
+  ['a waive outside the note\'s keep', '              if (nf.keep) {\n                const pub = publishRecord(dir, key, ', '              if (true) {\n                const pub = publishRecord(dir, key, ', /both under nf\.keep/],
+  ['the rest set whatever the connection', 'if (forestRestDue(status, outcome, { ended: gone() })) procMem(bot).forestIdleUntil', 'if (forestRestDue(status, outcome)) procMem(bot).forestIdleUntil', /the rest asks forestRestDue/],
+  ['the strikes counted whatever the connection', 'tidyNoteCuts(mem, bw3Strikes(r.tidied, { ended: visitGone(bot, signal) }), k => {', 'tidyNoteCuts(mem, r.tidied ?? [], k => {', /the strikes go through bw3Strikes/],
+  ['r2 A: the strikes blind to a cancelled visit (the connection only)', '{ ended: visitGone(bot, signal) }), k => {', '{ ended: clientEnded(bot) }), k => {', /the strikes go through bw3Strikes with the visit's predicate/],
+  ['two notions of ended again', 'export const clientEnded = connEnded\n', 'export const clientEnded = bot => bot?._client?.ended === true\n', /one definition of ended/],
+  ['r2: the water clock stamped on an ended connection', '    if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()', '    procMem(bot).bw3At = Date.now()', /the water clock: stamped before the visit, never on an ended connection/],
+  ['r2: the water clock stamped AFTER the visit', "    if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()   // keeperstall-01 r2: a visit on an ended connection never makes the next one wait\n    const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })\n", "    const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })\n    if (!clientEnded(bot)) procMem(bot).bw3At = Date.now()\n", /the water clock: stamped before the visit/],
+  ['r2: the country clock stamped on an ended connection', "if (role === 'keeper' && !clientEnded(bot)) procMem(bot).gkCountryAt = Date.now()", "if (role === 'keeper') procMem(bot).gkCountryAt = Date.now()", /the country clock: never on an ended connection/],
 ]
-for (const [what, old, neu] of WIRE_MUTANTS) {
+for (const [what, old, neu, killer] of WIRE_MUTANTS) {
   await t(`MUTANT, ${what}: fails "${NAMES.wiring}"`, () => {
     const m = mutantText(SKILLS_URL, [[old, neu]])
-    assert.throws(() => wiring(m), assert.AssertionError)
+    assert.throws(() => wiring(m), e => e instanceof assert.AssertionError && killer.test(e.message))
   })
 }
 
