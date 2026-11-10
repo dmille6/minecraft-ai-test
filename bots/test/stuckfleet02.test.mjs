@@ -94,7 +94,7 @@ await t('MUTANT: an unread neighbour read as open -- a cell on no evidence is wa
 })
 await t('wired (structural: comments stripped): the tidy visit adds orphanWaiveDue behind STUCKFLEET2, over read2', () => {
   const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  assert.strictEqual(src.split('const waive = stuckFleet2On() ? [...waive2, ...orphanWaiveDue(rec, r.deferred ?? [], read2).filter(o => !waive2.some(w => w.k === o.k))] : waive2').length, 2)
+  assert.strictEqual(src.split('const waive3 = stuckFleet2On() ? [...waive2, ...orphanWaiveDue(rec, r.deferred ?? [], read2).filter(o => !waive2.some(w => w.k === o.k))] : waive2').length, 2)
   assert.strictEqual(S.stuckFleet2On({ STUCKFLEET2: 'off' }), false); assert.strictEqual(S.stuckFleet2On({}), true)
 })
 

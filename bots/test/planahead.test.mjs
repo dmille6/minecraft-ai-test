@@ -218,7 +218,7 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const WIRES = [
   'const body0 = PLANAHEAD_ON && GROUNDS\\.on && s\\.record \\? await tidyPlanAhead\\(bot, bodyP, home, stood, signal\\) : bodyP',
-  "puWaiveDue\\(rec, \\(r\\.deferred \\?\\? \\[\\]\\)\\.map\\(d => d\\?\\.k \\?\\? d\\), \\{ already: waive1, confirm: paConfirm\\(bot, rec, home, stood\\) \\}\\)",
+  "puWaiveDue\\(rec, \\(r\\.deferred \\?\\? \\[\\]\\)\\.map\\(d => d\\?\\.k \\?\\? d\\), \\{ already: waive3, confirm: paConfirm\\(bot, rec, home, stood\\) \\}\\)",
   "const waivedK = q => guard\\.has\\(q\\.at\\.join\\(','\\)\\) \\|\\| standFeetQ\\(q\\)",
   'const cutsPa = paStands \\? cuts0\\.filter\\(q => !standFloorK\\(q\\.at\\.join',
   'const nx = standRetire\\(body0, sc\\)',
@@ -229,9 +229,9 @@ const WIRES = [
 const wired = s => { for (const re of WIRES) { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) } }
 await t('the stage is planned ahead (stands kept, reach tagged) before it publishes; the waiver takes the plan tag; a cut line fails', () => {
   wired(SK)
-  const cut = "const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1, confirm: paConfirm(bot, rec, home, stood) })] : waive1"
+  const cut = "const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive3, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive3, confirm: paConfirm(bot, rec, home, stood) })] : waive3"
   assert.ok(SK.split(cut).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  assert.throws(() => wired(SK.replace(cut, 'const waive = waive1')), assert.AssertionError)
+  assert.throws(() => wired(SK.replace(cut, 'const waive = waive3')), assert.AssertionError)
   const tagAt = SK.search(/const body0 = PLANAHEAD_ON/), pubAt = SK.slice(tagAt).search(/const pub = publishRecord\(dir, key, cur => \(fresh\(cur\) \? body : null\)/)
   assert.ok(tagAt > 0 && pubAt > 0 && pubAt < 3000, `planned ${tagAt}, then the stage publish ${pubAt} chars on`)
 })
