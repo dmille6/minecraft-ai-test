@@ -5560,7 +5560,7 @@
    "lane": "ops",
    "state": "open",
    "owner": "control session",
-   "next_step": "OWNER 11-10 \"defaults\": keep data-only reports (no Anthropic key on the canary host). 2026-11-07: BUILT + dashboard deployed (http://10.0.0.186/status/, Overview headline strip, 'Status Report' dashboard; agents: fleet /status/, worlds backups.json, showcase trip.json; nginx /agent/showcase/{releases,trip}.json). Cron '# statusreport' on .31 (3 0,5,6,11,12,17,18,23 * * *, due_slot keeps the Central slot). Narrative pass (Claude Haiku 5.5, numbers checked against the data report, fallback deterministic) proven from the Mac (~$0.001 per report); on .31 it stays OFF until the owner places ~/.config/mcai/anthropic.key (mode 600) there. NEXT: read the first 4 scheduled reports; owner: key on .31 yes/no.",
+   "next_step": "OWNER 11-10: KEEP the Haiku 5.5 narrative (key already on the canary host, ~$0.12/month). 2026-11-07: BUILT + dashboard deployed (http://10.0.0.186/status/, Overview headline strip, 'Status Report' dashboard; agents: fleet /status/, worlds backups.json, showcase trip.json; nginx /agent/showcase/{releases,trip}.json). Cron '# statusreport' on .31 (3 0,5,6,11,12,17,18,23 * * *, due_slot keeps the Central slot). Narrative pass (Claude Haiku 5.5, numbers checked against the data report, fallback deterministic) proven from the Mac (~$0.001 per report); on .31 it stays OFF until the owner places ~/.config/mcai/anthropic.key (mode 600) there. NEXT: read the first 4 scheduled reports; owner: key on .31 yes/no.",
    "max_quiet_hours": 24,
    "depends_on": [
     {
