@@ -141,3 +141,37 @@ export function orphanWaiveDue (rec, deferred = [], read, { after = ORPHAN_AFTER
   }
   return out
 }
+
+// ---- STUCKFLEET-03 (11-10): A SEALED FOUNDATION CELL THAT ALREADY HOLDS SOLID GROUND ---------------------------------------------
+// LIVE isolated-d monument (fleet e2500c84, effect audit 11-10): plinth cell 315,60,123 (seg F, role plinth) holds DIRT; its dig is
+// refused every visit `clear_failed kind=foreign result=sealed why=record_cell_315,65,123` (the column above is the ziggurat's own done
+// cells: no stand sees the block, and opening the column would undo built work). buildrun.mjs defers a sealed cell and never waives
+// it (monustuck-01: "its block stays in the cell"), and the waiver only ever sees cells that read clear -- so the plinth waited from
+// 11-06 to 11-10 (23 sealed refusals, `stuck_on_cell` with 7,248 open cells waiting on it; 0 cells placed 11-10 05:20Z-16:30Z) while
+// 11 of the record's 12 waivers sat unused. Two correct guards (do not dig under built work; do not waive a cell holding a block)
+// composed into a dead end. A buried foundation cell exists to be solid support; natural earth or stone there IS solid support.
+// REMEDY sealedSolidCand: a SEALED cell (this visit's sealed set) whose block is a full natural earth/stone block joins the waiver's
+// candidates; the waiver's own rules still decide (mayWaive: the ziggurat's foundation and core / a shop's earth fill -- never a
+// skin, stair or light; WAIVE_AFTER visits; the record's bound). The block stays where it is; the cell is counted done.
+// STUCKFLEET3=off is the rollback: the waiver's candidates exactly as before.
+export const stuckFleet3On = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STUCKFLEET3 ?? '').trim().toLowerCase())
+/** Natural full blocks that are solid support as they stand (no gravity, no plant, no leaves, no log, no scaffold-only kind). */
+export const SEALED_SOLID_RE = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|packed_mud|clay|stone|cobblestone|mossy_cobblestone|deepslate|cobbled_deepslate|tuff|granite|diorite|andesite|calcite|smooth_basalt|basalt|blackstone|netherrack|sandstone|red_sandstone|terracotta|[a-z_]+_terracotta|[a-z_]+_ore)$/
+/**
+ * REMEDY 5 -> { cells, solid }: `cand` plus the segment's OPEN cells that are SEALED this visit (`sealed(k)`) and hold a full natural
+ * solid block (`read(...at)`: boundingBox 'block' and a SEALED_SOLID_RE name), each once; `solid` the keys added (the caller names
+ * them in the waiver's why). An unread cell is never added. Pure.
+ */
+export function sealedSolidCand (open = [], cand = [], { sealed = () => false, read = () => null } = {}) {
+  const seen = new Set(cand.map(c => kOf(c.at)))
+  const cells = [...cand], solid = new Set()
+  for (const c of open ?? []) {
+    if (!Array.isArray(c?.at)) continue
+    const k = kOf(c.at)
+    if (seen.has(k) || !sealed(k)) continue
+    const b = read(...c.at)
+    if (!b || b.boundingBox !== 'block' || !SEALED_SOLID_RE.test(nm(b))) continue
+    seen.add(k); cells.push(c); solid.add(k)
+  }
+  return { cells, solid }
+}
