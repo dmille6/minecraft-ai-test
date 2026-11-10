@@ -341,7 +341,7 @@ await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopAct
   assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true \} : \{\}\)/.test(s), 'runVisit knobs')   // plotprep-03: + the replant knobs
   assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k,/.test(s), 'stage siting')
   // decorator-01: the decorator's order follows the keeper's
-  assert.ok(/const order00 = b \? keeperOrder\(b, marked, list, now\) : list\n\s*const order0 = b \? decorOrder\(b, marked, order00, now\) : order00\n\s*const order = sinkListOrder\(order0, activeMem\.sinkOrder \?\? \[\]\)\n\s*const pick = activeProject\(marked, order, /.test(s), 'the keeper order (picker-01: the sinks sorted after it)')
+  assert.ok(/const order00 = b \? keeperOrder\(b, marked, list, now\) : list\n\s*const order0 = b \? decorOrder\(b, marked, order00, now\) : order00\n\s*const order = sinkListOrder\(order0, activeMem\.sinkOrder \?\? \[\]\)\n(?:\s*\/\/[^\n]*\n)*\s*const sinkTurn = [^\n]*\n\s*const pick = activeProject\(marked, order, /.test(s), 'the keeper order (picker-01: the sinks sorted after it)')
   assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land, ext\) \} \}\)/.test(s), 'the reservation')
   assert.ok(/const recs = projectHeads\(\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
