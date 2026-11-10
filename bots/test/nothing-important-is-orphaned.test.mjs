@@ -255,6 +255,9 @@ const REQUIRED = [
   // cwstall-01show (11-10): the citywall design visit breathes; the escape proof's walks are sliced
   'bots/test/cwstall.test.mjs',
   'bots/scripts/citywall-stall-offline.mjs',
+  // pathsmem-01show (11-10): the paths extension's clock and unrouted waits outlive a reconnect
+  'bots/test/pathsmem.test.mjs',
+  'docs/reports/stallfixes-2026-11-10.md',
   'bots/src/prodserve.mjs',   // prodserve-01 (11-06): finished production projects served on their own schedule
   'bots/test/prodserve.test.mjs',   // prodserve-01 (11-06): the service tier, the stamps, the dress host-gone waiver
   'bots/test/stepwell05.test.mjs',   // stepwell-05 (11-06): the tank's crew (two builders by sector once the felling is done)

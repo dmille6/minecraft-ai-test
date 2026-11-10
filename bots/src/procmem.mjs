@@ -12,6 +12,8 @@
 //   forestSkip        Map tree key -> ms until which a failed tree is passed
 //   forestFails       Map tree key -> failures (forest.mjs keepDue)
 //   gkCountryAt       ms of the keeper's last country visit (country.mjs groundsLane)
+//   pathsExtendAt     ms of this bot's last paths extension ask (pathsmem-01: paths.mjs pathsExtendNote)
+//   pathsUnrouted     Map destination -> ms until which an unrouted one is not asked again (pathsmem-01)
 //
 // NEVER HERE (both design reviews, BLOCKER): anything that describes the OLD connection's world or body -- the unknown cells
 // (`shopUnknown`), the acknowledgement tracker (`shopAcks`), the stand memories and their pending walks (`bw3Stands`, `forestStands`,
