@@ -1360,6 +1360,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const others = new Set()
         if (byY) for (const y of new Set(open.map(c => c.at[1]))) for (const c of byY.get(y) ?? []) if (c.seg !== seg && !openRole(c.role) && !isDone(c)) others.add(kOf(c.at))
         for (const k of others) blocking.add(k)
+        // CWSTALL-01 (11-10): a swap pass already walked once (the foreign filter's `fillable`: nodesFor) -- the placement's walk is the
+        // pass's second; the visit breathes between them when due (the same breath as the loop tops: never between a check and its act)
+        if (swapNodes && winded()) { const b = await breathe(); if (b) { out.stop = b; return out } }
         const nodes = feetIn ? nodesFor(others, blocking) : nodesFor(blocking)
         const feet = e.feet()
         // BOTTOM-UP: never a cell while one below it in its column is open; never a cell still holding an uncleared block
