@@ -284,7 +284,7 @@ const wiring = src => {
   const one = re => { const m = src.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
   one("const svc = PRODSERVE\\.on && b \\? servicePickNow\\(b, marked, now, visit\\) : null")
   one("const c = serviceClaim\\(svc\\.plot, st\\?\\.gen, stamp\\)\\n\\s*if \\(!c\\.ok\\) return null")
-  one("const pick = activeProject\\(marked, order, \\{ upkeepTurn: \\(b\\?\\.sinkStreak \\?\\? 0\\) >= SINK_STREAK, service: svc\\?\\.plot \\?\\? null \\}\\)")
+  one("const pick = activeProject\\(marked, order, \\{ upkeepTurn: \\(b\\?\\.sinkStreak \\?\\? 0\\) >= SINK_STREAK, service: svc\\?\\.plot \\?\\? null, sinkTurn \\}\\)")   // sinkturn-01: + the sink turn
   one("if \\(visit && b\\) serviceBegin\\(b, svc, pick, now\\)")
   one("const serve = PRODSERVE\\.on && complete && b && isServicePlot\\(p\\.plot\\) \\? serviceDueOf\\(b, p\\.plot, rec, hubDue, now\\) : null")
   one("serviceEnd\\(ctx\\.bot, r\\?\\.stop\\)")

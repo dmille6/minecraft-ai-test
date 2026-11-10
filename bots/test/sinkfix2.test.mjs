@@ -51,18 +51,20 @@ await t('THE LOGGED PICK: the open road first, every visit aborting -- old rule:
   assert.strictEqual(picks[0], 'road')
   assert.ok(picks.slice(1).every(p => p !== 'road'), picks.join(','))
   assert.ok(picks.slice(1).every(p => ['tower', 'shrine', 'dress'].includes(p)), picks.join(','))
-  await withMutants(SHOP_PATH, [["  if (result.status === 'aborted') { if (isSinkPlot(plot)) mem.set(plot, now + IDLE_MS); return }\n", '']], async M => {
+  await withMutants(SHOP_PATH, [["  if (result.status === 'aborted') { if (isSinkPlot(plot)) mem.set(plot, now + ms); return }\n", '']], async M => {
     assert.ok(run(M).every(p => p === 'road'), 'MUTANT: an abort unmarked -- road forever, as live')
   })
   await withMutants(SHOP_PATH, [['&& !st(p).stuck && st(p).idle !== true) ?? null', '&& !st(p).stuck) ?? null']], async M => {
     assert.ok(run(M).every(p => p === 'road'), 'MUTANT: the sink tier blind to the mark -- road forever')
   })
 })
-await t('a finite project\'s abort still marks nothing; the mark lapses after IDLE_MS (the road is asked again)', () => {
+// sinkturn-01: a sink's mark lasts SINK_TURN.idleMs (SINKTURN=off: IDLE_MS, as before)
+const SINK_IDLE = S.SINK_TURN.on ? S.SINK_TURN.idleMs : SH.IDLE_MS
+await t('a finite project\'s abort still marks nothing; the mark lapses after the sink\'s idle mark (the road is asked again)', () => {
   const m = new Map(), T = 1000
   SH.noteIdle(m, 'house1', { status: 'aborted' }, T); assert.ok(!m.has('house1'))
-  SH.noteIdle(m, 'road', { status: 'aborted' }, T); assert.strictEqual(m.get('road'), T + SH.IDLE_MS)
-  assert.strictEqual(SH.activeProject(SH.idleMarks(LOGGED(), m, T + SH.IDLE_MS + 1), LIST).plot, 'road')
+  SH.noteIdle(m, 'road', { status: 'aborted' }, T); assert.strictEqual(m.get('road'), T + SINK_IDLE)
+  assert.strictEqual(SH.activeProject(SH.idleMarks(LOGGED(), m, T + SINK_IDLE + 1), LIST).plot, 'road')
 })
 
 // ---- a sink visit starts at the surface ---------------------------------------------------------------------------------------

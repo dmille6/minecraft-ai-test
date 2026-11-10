@@ -247,6 +247,9 @@ const REQUIRED = [
   // sinkfix-04 (11-04): one town-wide no-site stamp a kind; a quiet grounds order after a no-effect grounds visit
   'bots/test/sinkfix4.test.mjs',
   'bots/test/sinkwaive.test.mjs',   // sinkwaive-01 (11-06): the stone sinks' stuck-cell waiver (the tower's crown 43,78,-11)
+  // sinkturn-01show (11-10): the sinks' own turn after 4 finite visits, a blocked sink yields, a torch no stand reaches is waived
+  'bots/test/sinkturn.test.mjs',
+  'docs/reports/sinkturn-2026-11-10.md',
   'bots/src/prodserve.mjs',   // prodserve-01 (11-06): finished production projects served on their own schedule
   'bots/test/prodserve.test.mjs',   // prodserve-01 (11-06): the service tier, the stamps, the dress host-gone waiver
   'bots/test/stepwell05.test.mjs',   // stepwell-05 (11-06): the tank's crew (two builders by sector once the felling is done)
