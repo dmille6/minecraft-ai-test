@@ -484,22 +484,42 @@ def free_gb(path):
     return st.f_bavail * st.f_frsize / 1e9
 
 
-def thin(apply=False, today=None, below_gb=THIN_BELOW_FREE_GB):
+VERIFIED = '.nas-verified'          # timelapse2-1110: nas-sync writes frames/<view>/<day>/.nas-verified after a checksum match
+
+
+def nas_verified(day_dir, listdir=os.listdir, read=lambda p: open(p).read()):
+    """True when frames/<view>/<day>/ carries the NAS checksum marker AND its count still equals the day's .png count
+    (a frame published after the verify makes the day unverified again). Pure given the fs callables (tested)."""
+    try:
+        n = int(read(os.path.join(day_dir, VERIFIED)).split()[0])
+        return n == sum(1 for f in listdir(day_dir) if f.endswith('.png'))
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+def thin(apply=False, today=None, below_gb=THIN_BELOW_FREE_GB, retain_days=RETAIN_FULL_DAYS, verified=nas_verified):
     """`thin [--apply]`: report (and with --apply, when free space is below below_gb, remove) the frames thin_plan names.
-    Never touches FRAME0, event frames, the hourly representatives, or the last RETAIN_FULL_DAYS days."""
+    Never touches FRAME0, event frames, the hourly representatives, the last retain_days days, or any day whose NAS
+    copy is not checksum-verified (timelapse2-1110: local frames are pruned only after the NAS has them)."""
     today = today or dt.datetime.now(dt.timezone.utc).date()
     free = round(free_gb(ROOT), 1)
     total, nbytes, removed = 0, 0, 0
     act = apply and free < below_gb
-    paired = set(paired_stamps())
+    unverified = 0
     for v in video_views():
         d = os.path.join(ROOT, 'frames', v)
         st = []
         for day in (os.listdir(d) if os.path.isdir(d) else []):
             if os.path.isdir(os.path.join(d, day)):
                 st += [f[:-4] for f in os.listdir(os.path.join(d, day)) if f.endswith('.png')]
-        ok = (lambda s: s in paired) if v in VIEWS else (lambda s, v=v: not blemished(v, s))   # paired_stamps is unblemished
-        for s in thin_plan(st, today, usable=ok):
+        ok = lambda s, v=v: not blemished(v, s)       # timelapse2-1110: each view by its own stamps (topdown is hourly)
+        vdays = {}
+        for s in thin_plan(st, today, retain_days=retain_days, usable=ok):
+            if s[:8] not in vdays:
+                vdays[s[:8]] = bool(verified(os.path.join(d, s[:8])))
+            if not vdays[s[:8]]:
+                unverified += 1
+                continue
             p = frame_path(ROOT, v, s)
             total += 1
             nbytes += os.path.getsize(p)
@@ -507,7 +527,8 @@ def thin(apply=False, today=None, below_gb=THIN_BELOW_FREE_GB):
                 os.remove(p)
                 removed += 1
     print(json.dumps({'thin': 'applied' if act else 'report', 'free_gb': free, 'below_gb': below_gb,
-                      'candidates': total, 'candidate_gb': round(nbytes / 1e9, 2), 'removed': removed}))
+                      'candidates': total, 'candidate_gb': round(nbytes / 1e9, 2), 'removed': removed,
+                      'kept_unverified': unverified}))
     return 0
 
 
@@ -611,7 +632,7 @@ def main():
     a = ap.parse_args()
     now = dt.datetime.now(dt.timezone.utc)
     lo, hi, bucket, name = window(a.kind, a, now)
-    if a.kind == 'monthly' and not sample(paired_stamps(), lo, hi, bucket) and \
+    if a.kind == 'monthly' and not sample(all_stamps('angled'), lo, hi, bucket) and \
             not any(sample(all_stamps(x), lo, hi, bucket) for x in video_views()[len(VIEWS):]):     # a town-only month is still built (review P2)
         print(f'monthly {name}: SKIP -- no frames in that month yet')
         return 0
@@ -635,7 +656,7 @@ def main():
     for v in video_order(video_views()):
         if not all_stamps(v):
             continue
-        st = sample(paired_stamps() if v in VIEWS else all_stamps(v), lo, hi, bucket)
+        st = sample(all_stamps(v), lo, hi, bucket)          # timelapse2-1110: topdown is hourly, so not the pair's stamps
         out = os.path.join(ROOT, 'video', f'{name}-{v}.mp4')
         try:
             side = build(v, st, out, name, max_src_fps=MAX_SRC_FPS if bucket is None else FPS, smooth_job=sj)

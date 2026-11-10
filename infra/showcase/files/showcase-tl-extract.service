@@ -1,0 +1,14 @@
+[Unit]
+Description=SHOWCASE timelapse2 hourly data extract (build/pos/CoreProtect/chat per day) for the .30 videos
+
+[Service]
+Type=oneshot
+User=mike
+Environment=TL_CONF=/srv/showcase/timelapse/tl.conf
+ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_extract.py
+TimeoutStartSec=20min
+CPUWeight=5
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=100%
+MemoryMax=3G

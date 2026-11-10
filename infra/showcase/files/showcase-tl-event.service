@@ -1,0 +1,14 @@
+[Unit]
+Description=SHOWCASE timelapse2 event-driven project frames (outside the 15-min slot; yields to it)
+
+[Service]
+Type=oneshot
+User=mike
+Environment=TL_CONF=/srv/showcase/timelapse/tl.conf
+ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_event.py
+TimeoutStartSec=5min
+CPUWeight=20
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=300%
+MemoryMax=4G

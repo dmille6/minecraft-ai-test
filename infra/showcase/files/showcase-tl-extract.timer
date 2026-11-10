@@ -1,0 +1,10 @@
+[Unit]
+Description=SHOWCASE timelapse2 data extract hourly at :07
+
+[Timer]
+OnCalendar=*:07
+AccuracySec=30s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

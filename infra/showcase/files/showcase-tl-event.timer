@@ -1,0 +1,10 @@
+[Unit]
+Description=SHOWCASE timelapse2 event frames every 2 min (tl_event.py decides; guard 240 s before each slot)
+
+[Timer]
+OnCalendar=*:00/2:30
+AccuracySec=5s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

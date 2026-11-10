@@ -50,6 +50,20 @@ CHANGE_FRAC = 0.002                  # = tl_video MIN_CHANGED_FRAC: a frame "cha
 CHANGE_LEVEL = 12
 
 
+def slot_pair(cfg, t):
+    """The views published together this slot. A view in tl.conf `pair_hourly` (timelapse2-1110: topdown) is in the
+    pair only in the slot that starts on the hour (minute < capture_min); every other slot publishes the rest of the
+    pair alone. Pure (tested)."""
+    hourly = set(cfg.get('pair_hourly') or ())
+    return tuple(v for v in VIEWS if v not in hourly or t.minute < int(cfg.get('capture_min') or 15))
+
+
+def base_pair(cfg):
+    """The views in EVERY slot's pair: the missing-slot count reads these. Pure (tested)."""
+    hourly = set(cfg.get('pair_hourly') or ())
+    return tuple(v for v in VIEWS if v not in hourly) or VIEWS
+
+
 def extra_views(cfg, stamp=None):
     """Cameras beyond the pair (owner 10-25: `town`, a close-up on home). Each is captured in the SAME browser run and
     published on its own -- a failed extra frame never costs the pair, and the pair's slot accounting is unchanged.
@@ -221,7 +235,7 @@ def cam_active(cfg, cam, vstate, now, progress):
     return False, 'quiet'
 
 
-def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0):
+def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS):
     """The cameras this slot shoots, in order: the pair always first, then every DUE camera (its interval has passed
     since its last frame, 2 min of slack for timer jitter), active before idle, most overdue first, until the estimated
     cost reaches the budget. -> (views, why {view: reason}, deferred [views]). Pure (tested)."""
@@ -229,10 +243,10 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0):
     est = lambda v: float((state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') or cfg.get('frame_s')
                           or DEFAULT_FRAME_S)
     heavy_left = int(cfg.get('heavy_per_slot', DEFAULT_HEAVY_PER_SLOT))
-    left = budget_s - spent_s - sum(est(v) for v in VIEWS)
-    due, why = [], {v: 'pair' for v in VIEWS}
+    left = budget_s - spent_s - sum(est(v) for v in pair)
+    due, why = [], {v: 'pair' for v in pair}
     for v in sorted(cams):
-        if v in VIEWS or (cams[v] or {}).get('off'):
+        if v in VIEWS or (cams[v] or {}).get('off') or (cams[v] or {}).get('event_only'):
             continue
         vs = state.get(v) or {}
         act, aw = cam_active(cfg, cams[v], vs, now, progress)
@@ -242,7 +256,7 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0):
         if age + 2 >= iv:
             due.append((0 if act else 1, -age / iv, v, f'{"active" if act else "idle"} every {iv:g} min; '
                                                        f'{"never shot" if not last else f"last {age:.0f} min ago"}; {aw}'))
-    out, deferred, heavy = list(VIEWS), [], []
+    out, deferred, heavy = list(pair), [], []
     for _, _, v, w in sorted(due):
         is_heavy = bool((cams[v] or {}).get('heavy'))
         if est(v) <= left and (not is_heavy or heavy_left > 0):
@@ -535,7 +549,7 @@ def publish_pair(staged, finals, min_bytes=MIN_PNG_BYTES, size=os.path.getsize, 
     return True, None
 
 
-def capture(cfg, stamp, views=None, deadline=None, est=None):
+def capture(cfg, stamp, views=None, deadline=None, est=None, pair=VIEWS):
     """Shoot `views` (default: the pair + every extra camera due by the legacy cadence) in one browser run. deadline: an
     epoch second capture.mjs must not run a job past (each job carries its estimated cost est[view] s)."""
     spec, finals = [], []
@@ -573,7 +587,7 @@ def capture(cfg, stamp, views=None, deadline=None, est=None):
     capture.timings = job_timings(out_txt)
     got, extra = [], []
     raw_rc = rc
-    n = len(VIEWS)
+    n = len(pair)
     # the pair is judged on its own result; capture.mjs exits non-zero when ANY job failed, so the pair cannot use rc
     # alone once extra cameras share the run -- each staged file is checked instead (it exists only if its job wrote it)
     pair_ok = rc == 0 or all(os.path.exists(s['out']) for s in spec[:n])
@@ -695,9 +709,11 @@ def _capture_locked(cfg, a, t, stamp):
     progress = project_progress(cfg)
     cams, targets = resolve_cameras(cfg, state, t, progress, project_sites(cfg))
     rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot
-    views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start)
+    pair = slot_pair(cfg, t)
+    views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start, pair=pair)
     est = {v: (state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') for v in views}
-    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(rcfg, stamp, views, deadline=start + budget, est=est)
+    crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(rcfg, stamp, views, deadline=start + budget, est=est,
+                                                               pair=pair)
     timings = getattr(capture, 'timings', {})
     for p in got + extra:             # the schedule's memory: last frame, last change, per-frame cost
         v = os.path.basename(os.path.dirname(os.path.dirname(p)))
@@ -714,10 +730,9 @@ def _capture_locked(cfg, a, t, stamp):
             state[v]['target'] = targets[v]
             # the framing, for the nightly Chunky beauty render of the same project (chunky_beauty.project_view)
             state[v]['camera'] = {k: cams[v].get(k) for k in ('x', 'y', 'z', 'distance', 'rotation', 'angle', 'fov', 'label')}
-        side = frame_sidecar(cams.get(v), targets.get(v))
-        if side:
-            with open(p[:-4] + '.json', 'w') as f:
-                json.dump(side, f)
+        side = dict(frame_sidecar(cams.get(v), targets.get(v)) or {}, changed=state[v].get('changed'))
+        with open(p[:-4] + '.json', 'w') as f:
+            json.dump(side, f)
         if gray:
             os.makedirs(os.path.dirname(gpath), exist_ok=True)
             with open(gpath + '.part', 'wb') as f:
@@ -728,13 +743,13 @@ def _capture_locked(cfg, a, t, stamp):
     row.update(capture_s=cs, capture_cpu_s=ccpu, capture_rc=crc, frames=len(got),
                bytes=sum(os.path.getsize(p) for p in got + extra),
                extra={os.path.basename(os.path.dirname(os.path.dirname(p))): os.path.getsize(p) for p in extra},
-               extra_expected=[v for v in views if v not in VIEWS], deferred=deferred, deadline_skipped=skipped,
+               extra_expected=[v for v in views if v not in pair], deferred=deferred, deadline_skipped=skipped, pair=list(pair),
                frame_s={v: x for v, x in timings.items() if x != 'deadline'}, budget_s=budget,
                active=sorted(v for v in why if why[v].startswith('active')))
     if extra_err or raw_rc != 0:     # the diagnostics of an extra camera survive a published pair (review P3)
         row.update(extra_errors=extra_err, capture_raw_rc=raw_rc, capture_msg=msg[-300:])
     if a.frame0:
-        if len(got) == len(VIEWS):
+        if len(got) == len(pair):
             import hashlib, re as _re
             seed = None
             try:
@@ -751,10 +766,10 @@ def _capture_locked(cfg, a, t, stamp):
             heartbeat(cfg, dict(row, ok=False, step='frame0', why=msg))
             return 1
     f0 = frame0_time(cfg) or t
-    paired = set(frame_stamps(cfg, 'angled')) & set(frame_stamps(cfg, 'topdown'))   # a slot counts only as a PAIR
+    paired = set.intersection(*[set(frame_stamps(cfg, v)) for v in base_pair(cfg)])   # a slot counts only as a PAIR
     regular = [parse_stamp(s) for s in sorted(paired) if '-event-' not in s]
     miss, exp = missing_slots([x for x in regular if x], t, cfg['capture_min'], f0)
-    ok = crc == 0 and len(got) == len(VIEWS)
+    ok = crc == 0 and len(got) == len(pair)
     heartbeat(cfg, dict(row, ok=ok, step='done' if ok else 'capture', why=None if ok else msg,
                         missing_24h=miss, expected_24h=exp))
     return 0
