@@ -263,10 +263,13 @@ await t('a finite project with a free slot comes first; once this bot found noth
   const none = idleHall(st0()).map(s => (s.plot === 'dress' ? { ...s, sinkNext: false } : s))
   assert.strictEqual(SH.activeProject(none, LIST).plot, 'hall', 'no sink offered: as before')
 })
-await t('the sink turn is gone: no option makes a sink beat a working finite project', () => {
-  assert.strictEqual(SH.activeProject(st0(), LIST, { sinkTurn: true }).plot, 'hall')
-  const src = strip(readFileSync(SHOP_PATH, 'utf8'))
-  assert.ok(!/sinkTurn/.test(src), 'no sinkTurn in shop.mjs')
+// SINKTURN-01 (11-10): the turn is BACK -- the idle marks alone never reached a sink while a finite project kept working (LIVE showcase
+// 24 h to 11-10 16:30Z: 2 sink-tier visits of 1,569, wood/road 0). Only the `sinkTurn` option (after SINK_TURN.every finite visits:
+// sinkturn.test.mjs) puts a sink ahead of a working finite project; without it the order is as this fold left it
+await t('the sink turn (sinkturn-01): only the turn makes a sink beat a working finite project; without it, as before', () => {
+  assert.strictEqual(SH.activeProject(st0(), LIST).plot, 'hall')
+  assert.strictEqual(SH.activeProject(st0(), LIST, { sinkTurn: false }).plot, 'hall')
+  assert.strictEqual(SH.activeProject(st0(), LIST, { sinkTurn: true }).plot, 'dress')
 })
 await t('Codex r1 BLOCKER: a standing batch with signs DUE and no next batch funded is still offered once the hall is idle (never starved by it)', () => {
   const st = idleHall(st0()).map(s => (s.plot === 'dress' ? { ...s, exists: true, complete: true, sinkNext: false, due: true } : s))
