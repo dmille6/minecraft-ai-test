@@ -6875,6 +6875,237 @@
      "docs/reports/stallfixes-2026-11-10.md"
     ]
    }
+  },
+  {
+   "covers_alarms": [
+    "effect:pipeline-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-pipeline-01"
+    ],
+    "runs": [
+     "pipeline-01"
+    ]
+   },
+   "id": "effect-pipeline-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "done",
+   "title": "pipeline-01 WORKS: wait after a successful skill 11.1% of bot time (213/1,920 bot-h, 24 h to 11-09 12Z) -> 2.9% (28/960 bot-h, 11-10 03-15Z); mean gap 14.9 s -> 3.3 s; 86% of post-success model calls start < 5 s (was 12%)",
+   "next_step": "none. Cost seen: model-call latency share 4.7% -> 7.6% (prefetch); watch endpoint p95 if load rises (PIPELINE_PREFETCH=0 keeps the no-wait part).",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31.",
+   "done": {
+    "when": "2026-11-10",
+    "why": "goal moved: the removable 11.2% wait is ~3%"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:seapocket-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-seapocket-01"
+    ],
+    "runs": [
+     "seapocket-01"
+    ]
+   },
+   "id": "effect-seapocket-01",
+   "kind": "canary",
+   "lane": "survival",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "done",
+   "title": "seapocket-01 WORKS: placebo-d-Bravo pinned at 46,59,69 freed 11-09 19:47:39Z by _swim_under_start wide=1 breath=6 run=6 (the long-breath tier), 32 min after deploy; moving since (76-249 distinct cells/h). Re-pinned 11-10 00:56-06:45Z at 84,50,204 by another trap",
+   "next_step": "the second trap (flood guard: water ABOVE the roof, no dry side column; climb_flood_refused x77 in 5 h) left by a watchdog home walk after 5.8 h -- not built (no repeat since; stuckwatch 80/80 moving 16:17Z). Re-read if Bravo or another bot pins > 1 h with liquid above the roof.",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31.",
+   "done": {
+    "when": "2026-11-10",
+    "why": "goal moved: Bravo out of the bubble, by the change's own row"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:hivedrop-02*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-hivedrop-02"
+    ],
+    "runs": [
+     "hivedrop-02"
+    ]
+   },
+   "id": "effect-hivedrop-02",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "done",
+   "title": "hivedrop-02 WORKS: monument visits aborted 1,449/1,774 (82%, 24 h with hivedrop-01 live) -> 143/801 (18%, 16 h after promotion; pre-hivedrop-01 529/2,218 = 24%); monument places 181/24 h -> 3,586/24 h (pre-hivedrop-01 1,616/24 h)",
+   "next_step": "none. Places are concentrated in placebo-c (1,607) and hive-a (769); other open monuments are stuck on single cells (see stuckfleet-03 and effect-stuckfleet-01).",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31.",
+   "done": {
+    "when": "2026-11-10",
+    "why": "regression undone and beyond the old rate"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:stuckfleet-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-stuckfleet-01"
+    ],
+    "runs": [
+     "stuckfleet-01"
+    ]
+   },
+   "id": "effect-stuckfleet-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "done",
+   "title": "stuckfleet-01 WORKS: road-light waivers 0 -> 21 and monument held-cell waivers 0 -> 14 in the 12 h after promotion (11-09 02Z..11-10 02Z: none); board-b tidy (stuck 30.3 h) freed 08:27Z and placebo-a tidy (30.1 h) 08:35Z by `waived light_no_stand`; hive-a tidy 72.5 h ended 04:59Z (complete; credit unclear)",
+   "next_step": "none. Still stuck after it: skin cells (never waivable) -- isolated-a monument 304,70,95 under a leaf canopy (123 visits, 919 cells), hive-d monument L11-N (7 cells retry), board-b monument -295,65,194 access dig_max (4 cells left).",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31.",
+   "done": {
+    "when": "2026-11-10",
+    "why": "goal moved: two named tidies freed by its own waiver rows"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:stuckfleet-02*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-stuckfleet-02"
+    ],
+    "runs": [
+     "stuckfleet-02"
+    ]
+   },
+   "id": "effect-stuckfleet-02",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "done",
+   "title": "stuckfleet-02 ACTS: orphan waivers 0 -> 4 after promotion; its board-c target had already moved (stuck span ended 11-09 22:10Z, before deploy); board-c tidy not stuck at 16:15Z",
+   "next_step": "none.",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31.",
+   "done": {
+    "when": "2026-11-10",
+    "why": "acts as designed; no harm; target moved before it"
+   }
+  },
+  {
+   "covers_alarms": [
+    "effect:planahead-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-planahead-01"
+    ],
+    "runs": [
+     "planahead-01"
+    ]
+   },
+   "id": "effect-planahead-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "open",
+   "title": "planahead-01 TOO-EARLY: acts (30 tidy stages reach-proven + 22 plan_unreach waivers in 4.5 h after promotion 12:33Z, 0 possible before); tidy stuck_on_cell share 2.4% (57/2,333 visits, 24 h before the canary) -> 2.1% (12/569, 4.5 h) -- too few visits to call",
+   "next_step": "Re-read 11-11 ~13Z (24 h after promotion): tidy stuck_on_cell share and stuck goal-hours (~/ea/stuckspans.py) vs 11-09.",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31."
+  },
+  {
+   "covers_alarms": [
+    "effect:stoneworks-01*"
+   ],
+   "evidence": {
+    "grep": [
+     "effect-stoneworks-01"
+    ],
+    "runs": [
+     "stoneworks-01"
+    ]
+   },
+   "id": "effect-stoneworks-01",
+   "kind": "canary",
+   "lane": "ops",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "open",
+   "title": "stoneworks-01 WORKS (acting; volume TOO-EARLY): stone made by make_material 0 on 11-10 00:00-13:16Z (2,067 make_material rows) -> 79 stone in 7 runs, 5 towns, in the first hour after promotion; canary 13:16-16:19Z: 44 stone_bricks in the 4 pools (0 there the 13 h before)",
+   "next_step": "Re-read 11-11 ~16Z: stone + stone_bricks banked per day vs the 384 stone target; coal/plank fuel draw.",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31."
+  },
+  {
+   "covers_alarms": [
+    "goal:isolated-d/monument*"
+   ],
+   "evidence": {
+    "grep": [
+     "stuckfleet-03"
+    ],
+    "runs": [
+     "stuckfleet-03"
+    ],
+    "branches": [
+     "stuckfleet-03"
+    ]
+   },
+   "id": "stuckfleet-03",
+   "kind": "canary",
+   "lane": "progress",
+   "max_quiet_hours": 72,
+   "memory": [
+    "effectaudit-1110.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-10",
+   "state": "open",
+   "title": "stuckfleet-03: a SEALED foundation/core/fill cell already holding natural solid ground is waivable (isolated-d monument plinth 315,60,123: dirt under built cells, sealed since 11-06, 7,248 cells waiting)",
+   "next_step": "QUEUED 11-10 ~17:50Z in ~/canary-queue.json right after cobbleroom-01 (head chain logcap-02 -> cobbleroom-01 untouched); variant keyed e2500c84 = 8fa9602f, set-patch e2500c84..8fa9602f (autorebase onto whatever is live). Registration ~/mcai-analysis/stuckfleet-03.8fa9602f.json (effectwatch validate valid; licence text sealed_solid, licencecheck PASS). NO pin: the target isolated-d is never drawn without the owner, so the canary reads harm only; the GOAL reads after promotion: isolated-d _build op=waived why=sealed_solid*, then monument op=place > 0 there and goalwatch isolated-d/monument moving. An owner OK to pin isolated-d (draw_pin_owner_ok) would let the canary read the goal itself.",
+   "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31."
   }
  ]
 }
