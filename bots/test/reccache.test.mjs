@@ -9,15 +9,19 @@
 //   COUNTERS      an unchanged history that is not racily clean reads 0 generation files; a publish reads exactly the new one.
 //   RACY          a file is read on every call until it is REC_RACY_MS old, and a kept fact is not SERVED while its file reads racy.
 //   THE CLOCK     a wall clock that fell back against the monotonic one empties the cache (r1, review BLOCKER A).
+//   VERIFIED AGAIN  a fact is served for REC_VERIFY_MS + its path's jitter of MONOTONIC time, then its file is read again (r2): a
+//                 change no stat can see is served stale for one verify interval at most -- "THE RESIDUAL" below is the one test
+//                 in this file that tolerates a cached answer other than the uncached one, and only inside that interval.
 //   ONE DESCRIPTOR  a fact binds the bytes to the inode they were read from, whatever the path did around the read (r1, BLOCKER B).
 //   NOTHING SHARED  the caller may mutate head.rec, rejected and gens.
 //   NO KEPT FAILURE  an unreadable or unparseable file is read again on every call.
 //   RECCACHE=off  every file read on every call, nothing kept.
-// NO TEST HERE DEPENDS ON WALL TIME. A file's ctime cannot be set, so the racy rule's clock is set instead, through the module's
-// tests' seam (recTestSeam): AGED = the module's clock runs 10 s ahead of the real one (every file that exists reads long still,
-// however slow the host; it never runs back), or a clock the test steps by hand from the files' own stamps. The same seam's `at`
-// hook is how a test moves a file BETWEEN two system calls of one read. AGED defeats the racy rule on purpose, so every step that
-// changes a file IN PLACE (same inode) first waits 30 ms and then PROVES the ctime moved.
+// NO TEST HERE DEPENDS ON WALL TIME. A file's ctime cannot be set, so the module's clocks are set instead, through its tests' seam
+// (recTestSeam): AGED = the wall clock runs 10 s ahead of the real one (every file that exists reads long still, however slow the
+// host; it never runs back) and the monotonic clock stands still (no verify deadline passes, however slow the host); or clocks
+// the test steps by hand from the files' own stamps. The same seam's `at` hook is how a test moves a file BETWEEN two system
+// calls of one read, and its `stat` is how a test makes every stat field repeat over other bytes. AGED defeats the racy rule on
+// purpose, so every step that changes a file IN PLACE (same inode) first waits 30 ms and then PROVES the ctime moved.
 // Anchored mutants (each anchor asserted present and unique, CLAUDE.md), each named after the test that must fail on it.
 import assert from 'node:assert'
 import fs from 'node:fs'
@@ -75,10 +79,11 @@ const bstat = f => fs.statSync(f, { bigint: true })
 const stampMs = f => { const st = bstat(f); return Number((st.mtimeNs > st.ctimeNs ? st.mtimeNs : st.ctimeNs) / 1_000_000n) }
 const T0 = 1_700_000_000                                              // whole seconds: utimesSync restores such an mtime exactly
 const age = (f, n = 0) => fs.utimesSync(f, T0 + n, T0 + n)
-const AHEAD_MS = 10_000
-/** A scenario's start: nothing kept, no hook, and the module's racy clock AGED -- 10 s ahead of the real clock, so every file that
- *  exists reads long still however slow the host is, and the clock never runs back. */
-const begin = M => { M.recTestSeam(null); M.recCacheReset(); M.recTestSeam({ now: () => Date.now() + AHEAD_MS }) }
+const AHEAD_MS = 10_000, MONO0 = 1_000_000
+/** A scenario's start: nothing kept, no hook, and the module's clocks AGED -- the wall clock 10 s ahead of the real one, so every
+ *  file that exists reads long still however slow the host is, and it never runs back; the monotonic clock standing still, so no
+ *  verify deadline passes however slow the host is. */
+const begin = M => { M.recTestSeam(null); M.recCacheReset(); M.recTestSeam({ now: () => Date.now() + AHEAD_MS, mono: () => MONO0 }) }
 /** A clock the test steps by hand: wall `t`, monotonic `m` (ms). */
 const handClock = (M, t, m = 0) => { const c = { t, m }; M.recTestSeam(null); M.recCacheReset(); M.recTestSeam({ now: () => c.t, mono: () => c.m }); return c }
 /** The cached walk. */
@@ -118,6 +123,8 @@ function linkGen (d, n, body, key = KEY) {
   age(f, n)
   return buf
 }
+/** n generations by hand, a valid chain. */
+function byHand (d, n, key = KEY) { let ps = null; for (let g = 1; g <= n; g++) ps = sha(linkGen(d, g, { ...BODY(g), gen: g, prev: g === 1 ? null : g - 1, prevSha: ps }, key)) }
 /** Other bytes of the SAME size that still parse (one letter of the pad). */
 const twin = buf => { const s = buf.toString('utf8'), o = s.replace('"pad":"p', '"pad":"q'); assert.notStrictEqual(o, s); assert.strictEqual(Buffer.byteLength(o), buf.length); return Buffer.from(o) }
 /** Other bytes over a file, the same inode and size; the mtime is NOT put back (it moves to now). */
@@ -179,7 +186,7 @@ await t('the clock fell back (recClockBack): the wall-minus-monotonic offset mor
   assert.strictEqual(P.recClockBack(1000, 1000 - B), false, 'exactly the tolerance'); assert.strictEqual(P.recClockBack(1000, 1000 - B - 1), true)
 })
 /** Where the seam's setter and its fields are written, over source texts. */
-const seamWrites = texts => texts.flatMap(([name, text]) => [...text.matchAll(/recTestSeam|Object\.assign\(recSeam|recSeam\.(?:now|mono|at)\s*=(?!=)/g)].map(m => `${name}: ${m[0]}`))
+const seamWrites = texts => texts.flatMap(([name, text]) => [...text.matchAll(/recTestSeam|Object\.assign\(recSeam|recSeam\.(?:now|mono|at|stat)\s*=(?!=)/g)].map(m => `${name}: ${m[0]}`))
 await t('STRUCTURE: nothing in src/ sets the tests\' seam -- the setter is named once (its definition), its fields are written nowhere else', () => {
   // the modules themselves: other tests park `_mutant-*` / `.mut-*` copies in src/ while they run beside this one
   const read = n => { try { return fs.readFileSync(new URL(n, SRC_URL), 'utf8') } catch { return null } }
@@ -187,16 +194,21 @@ await t('STRUCTURE: nothing in src/ sets the tests\' seam -- the setter is named
   assert.ok(texts.length > 50 && texts.some(([n]) => n === 'buildproj.mjs') && texts.some(([n]) => n === 'skills.mjs'), `CONTROL: ${texts.length} modules scanned`)
   // POSITIVE CONTROL: the scan sees the source (recordHead's callers), and sees a use when there is one
   assert.ok(texts.filter(([, x]) => x.includes('recordHead(')).length >= 2, 'CONTROL: the scan did not find recordHead\'s callers')
-  eq(seamWrites([['x.mjs', 'import { recTestSeam } from "./buildproj.mjs"\nrecTestSeam({ now: () => 0 })\nrecSeam.at = f\nif (recSeam.at === f) g()']]).length, 3, 'CONTROL: the scan misses a use')
+  eq(seamWrites([['x.mjs', 'import { recTestSeam } from "./buildproj.mjs"\nrecTestSeam({ now: () => 0 })\nrecSeam.at = f\nif (recSeam.at === f) g()\nrecSeam.stat = f']]).length, 4, 'CONTROL: the scan misses a use')
   eq(seamWrites(texts), ['buildproj.mjs: recTestSeam', 'buildproj.mjs: Object.assign(recSeam'], 'the seam is set in src/')
 })
 
 console.log('EQUIVALENCE: THE CACHED WALK IS THE UNCACHED WALK, AFTER EVERY STEP')
-await t('a scripted history: publishes, a foreign generation, chain / gen / unparseable rejections, a middle generation and the root removed and put back, a same-size replacement by rename, an in-place rewrite with its mtime restored, an unreadable file, the head moving back', async () => {
+/** THE SCRIPTED HISTORY -> { reads, steps }. `cross`: both clocks jump CROSS_MS on before every step's comparison, so facts kept
+ *  early in the history pass their verify deadlines in the middle of it; otherwise AGED (no deadline passes; the counters are exact). */
+const CROSS_MS = 11_000
+async function history (cross) {
   begin(P)
+  let skew = 0
+  if (cross) P.recTestSeam({ now: () => Date.now() + AHEAD_MS + skew, mono: () => MONO0 + skew })
   const d = tmp()
   let n = 0
-  const step = async (label, fn, check) => { await fn?.(); await turn(); const r = same(P, d, `step ${++n} (${label})`); check?.(r); return r }
+  const step = async (label, fn, check) => { await fn?.(); await turn(); if (cross) skew += CROSS_MS; const r = same(P, d, `step ${++n} (${label})`); check?.(r); return r }
   await step('no record', null, r => { assert.strictEqual(r.ok, true); assert.strictEqual(r.head, null) })
   eq(on(P, path.join(d, 'nowhere')), off(P, path.join(d, 'nowhere')), 'a directory that does not exist')
   for (let i = 1; i <= 4; i++) await step(`publish g${i}`, () => chain(P, d, i), r => { assert.strictEqual(r.head.gen, i); assert.strictEqual(r.head.rec.n, i) })
@@ -234,23 +246,33 @@ await t('a scripted history: publishes, a foreign generation, chain / gen / unpa
       await step('and readable again', async () => { await nap(30); fs.chmodSync(gf(d, 3), 0o644) }, r => assert.strictEqual(r.head.gen, 11))
     } else fs.chmodSync(gf(d, 3), 0o644)
   }
-  note(`history, chmod 000 step: ${chmodSeen ? 'run' : 'SKIPPED (running as root, or the filesystem ignores the mode)'}`)
+  if (!cross) note(`history, chmod 000 step: ${chmodSeen ? 'run' : 'SKIPPED (running as root, or the filesystem ignores the mode)'}`)
   // the head moves BACK to a generation that was not read in this call: its bytes are read again and checked against its fact
   await turn(); on(P, d)
   fs.unlinkSync(gf(d, 11)); await turn()
   const m = meter(P)
   const moved = on(P, d)
-  eq(m()[0], 2, 'the head moved back: the unparseable g8 (never kept) and the new head\'s bytes, nothing else')
+  if (!cross) eq(m()[0], 2, 'the head moved back: the unparseable g8 (never kept) and the new head\'s bytes, nothing else')
+  m()
   const plain = off(P, d)
   eq(m(), [10, 0], 'CONTROL: the uncached walk reads all ten generations')
   eq(moved, plain, 'the head moved back'); assert.strictEqual(moved.head.gen, 10)
-  eq(on(P, d), plain, 'the head moved back, served'); eq(m()[0], 1, 'the new head\'s bytes are kept now: only g8 is read')
+  eq(on(P, d), plain, 'the head moved back, served'); if (!cross) eq(m()[0], 1, 'the new head\'s bytes are kept now: only g8 is read')
   // POSITIVE CONTROL: the history was really served from kept facts, not read afresh every time
   assert.ok(P.recStats.hits > 100, `the cached walk served ${P.recStats.hits} facts over the history`)
   assert.strictEqual(P.recStats.drops, 0, 'the clock check emptied the cache during the history')
   // a directory that cannot be listed is ok: false either way
   const notdir = path.join(d, 'a-file'); fs.writeFileSync(notdir, 'x')
   eq(on(P, notdir), off(P, notdir), 'not a directory'); assert.strictEqual(on(P, notdir).ok, false)
+  return { reads: P.recStats.reads, steps: n }
+}
+let agedHistory = null
+await t('a scripted history: publishes, a foreign generation, chain / gen / unparseable rejections, a middle generation and the root removed and put back, a same-size replacement by rename, an in-place rewrite with its mtime restored, an unreadable file, the head moving back', async () => { agedHistory = await history(false) })
+await t('the same history with the verify window crossing in the middle of it (both clocks 11 s on at every step): still the uncached walk at every step', async () => {
+  assert.ok(agedHistory, 'CONTROL: the history above did not finish')
+  const r = await history(true)
+  assert.ok(r.steps * CROSS_MS > 2 * (P.REC_VERIFY_MS + P.REC_VERIFY_JITTER_MS), `CONTROL: ${r.steps} steps do not span two verify windows`)
+  assert.ok(r.reads > agedHistory.reads, `CONTROL: no fact was read again mid-history (${r.reads} reads against ${agedHistory.reads})`)
 })
 await t('odd bodies are judged alike: null, a number, a string, an array, an object for gen / prev / prevSha, a second root', async () => {
   begin(P)
@@ -539,6 +561,97 @@ const scenClockBack = async M => {
 }
 await t('a wall clock that fell back against the monotonic one by more than REC_CLOCK_BACK_MS empties the cache; the answer is the uncached walk\'s', () => scenClockBack(P))
 
+console.log('VERIFIED AGAIN ON THE MONOTONIC CLOCK (r2): A FACT IS SERVED FOR REC_VERIFY_MS + ITS PATH\'S JITTER, NO LONGER')
+/** Both clocks on to monotonic time `mono`, together: no call sees the wall clock fall. */
+const goTo = (clock, mono) => { clock.t += mono - clock.m; clock.m = mono }
+/** THE RESIDUAL (both reviews of r1). A fact is kept; the file is rewritten in place at the same size and -- as the cache is shown
+ *  it (the seam's `stat`: a wall clock that fell back and recovered between two calls lets a real ctime repeat) -- with the same
+ *  five stat fields; no call sees a clock fall. Inside the fact's verify window the cached answer is the answer from BEFORE the
+ *  rewrite; from its deadline on it is the uncached walk's, for good. */
+const scenResidual = async M => {
+  for (const g of [2, 3]) {                                           // a middle generation (its fact), then the head (its fact and its kept bytes)
+    const d = tmp(); byHand(d, 3); await turn()
+    const hi = Math.max(...[1, 2, 3].map(i => stampMs(gf(d, i))))
+    const clock = handClock(M, hi + 600_000, 3_000_000), m0 = clock.m
+    const before = on(M, d); eq(on(M, d), before, 'CONTROL: kept and served')
+    const target = gf(d, g), S0 = bstat(target)
+    overwrite(target, twin(fs.readFileSync(target)))
+    M.recTestSeam({ stat: (p, st) => (p === target ? S0 : st) })
+    await turn()
+    const plain = off(M, d)
+    assert.notDeepStrictEqual(plain, before, 'CONTROL: the rewrite changed nothing'); assert.strictEqual(plain.head.gen, g); assert.strictEqual(plain.head.rec.pad[0], 'q')
+    const deadline = m0 + M.REC_VERIFY_MS + M.recVerifyJitter(target)
+    for (const at of [m0 + 1, m0 + M.REC_VERIFY_MS - 1, deadline - 1]) {
+      goTo(clock, at)
+      const a = on(M, d)
+      // THE ONLY PLACE THIS FILE TOLERATES A CACHED ANSWER THAT IS NOT THE UNCACHED ONE -- and it is exactly the answer from before
+      eq(a, before, `g${g}, ${at - m0} ms after the read: inside the verify window the answer is the one from before the rewrite`)
+      assert.notDeepStrictEqual(a, plain, 'CONTROL: the scene is not stale (the test would prove nothing)')
+    }
+    goTo(clock, deadline)
+    eq(on(M, d), plain, `g${g}: at the fact's verify deadline its file is read again`)
+    for (let i = 1; i <= 30; i++) { goTo(clock, deadline + i * 9_000); eq(on(M, d), plain, `g${g}: for good (${i * 9} s past the deadline)`) }
+    assert.strictEqual(M.recStats.drops, 0, 'CONTROL: no call saw the clock fall')
+    M.recTestSeam({ stat: null })
+  }
+}
+await t('THE RESIDUAL -- the one test that tolerates cached != uncached: a rewrite no stat can see is served stale INSIDE its fact\'s verify window only; from the deadline on the cached walk is the uncached walk for good', () => scenResidual(P))
+/** An unchanged, long-still history: nothing is read until the first fact's deadline; then each generation is read again exactly
+ *  once, in the call its own deadline (the read's monotonic time + REC_VERIFY_MS + its path's jitter) has passed. */
+const scenVerify = async M => {
+  const d = tmp(), N = 12; byHand(d, N); await turn()
+  const hi = Math.max(...Array.from({ length: N }, (_, i) => stampMs(gf(d, i + 1))))
+  const clock = handClock(M, hi + 600_000, 5_000_000), m0 = clock.m, m = meter(M)
+  const want = on(M, d); eq(m(), [N, 0], 'kept')
+  const jit = Array.from({ length: N }, (_, i) => M.recVerifyJitter(gf(d, i + 1)))
+  assert.ok(jit.every(j => Number.isInteger(j) && j >= 0 && j < M.REC_VERIFY_JITTER_MS), `the jitter leaves [0, ${M.REC_VERIFY_JITTER_MS}): ${jit}`)
+  const due = jit.map(j => m0 + M.REC_VERIFY_MS + j), order = [...new Set(due)].sort((a, b) => a - b)
+  assert.ok(order.length >= 2, 'CONTROL: twelve paths, one jitter')
+  for (const at of [m0, m0 + 1, m0 + M.REC_VERIFY_MS - 1, order[0] - 1]) { goTo(clock, at); eq(on(M, d), want, 'unchanged'); eq(m(), [0, N], `${at - m0} ms after the read: before the first deadline nothing is read`) }
+  let most = 0
+  for (const at of order) {
+    const n = due.filter(x => x === at).length
+    goTo(clock, at)
+    eq(on(M, d), want, 'unchanged'); eq(m(), [n, N - n], `${at - m0} ms after the read: exactly the generation(s) whose own deadline this is`)
+    eq(on(M, d), want, 'unchanged'); eq(m(), [0, N], `${at - m0} ms after the read, the next call: read again ONCE (the new fact carries the re-read's time)`)
+    most = Math.max(most, n)
+  }
+  assert.ok(most < N, 'the jitter spread nothing: every generation was read again in one call')
+  goTo(clock, order.at(-1) + 1); on(M, d); eq(m(), [0, N], 'each generation was read again exactly once')
+  // the second round counts from each RE-READ's own time
+  const due2 = due.map((x, i) => x + M.REC_VERIFY_MS + jit[i]), first2 = Math.min(...due2)
+  goTo(clock, first2 - 1); on(M, d); eq(m(), [0, N], 'before the second round\'s first deadline')
+  const n2 = due2.filter(x => x === first2).length
+  goTo(clock, first2); eq(on(M, d), off(M, d), 'the second round'); eq(m(), [n2 + N, N - n2], 'the second round\'s first deadline (and the uncached walk\'s reads)')
+  assert.strictEqual(M.recStats.drops, 0, 'CONTROL: no call saw the clock fall')
+}
+await t('an unchanged aged history: 0 reads until the first deadline, then each generation is read again exactly once as its own deadline passes, spread by the per-path jitter', () => scenVerify(P))
+/** The deadline is on the MONOTONIC clock: hours of wall clock read nothing again; the monotonic clock past the deadlines does. */
+const scenVerifyClock = async M => {
+  const d = tmp(), N = 5; byHand(d, N); await turn()
+  const hi = Math.max(...Array.from({ length: N }, (_, i) => stampMs(gf(d, i + 1))))
+  const clock = handClock(M, hi + 600_000, 2_000_000), m = meter(M)
+  on(M, d); eq(m(), [N, 0], 'kept'); on(M, d); eq(m(), [0, N], 'CONTROL: served')
+  clock.t += 5 * 3_600_000
+  on(M, d); eq(m(), [0, N], 'the wall clock five hours on, the monotonic clock where it was: nothing is read again')
+  const all = M.REC_VERIFY_MS + M.REC_VERIFY_JITTER_MS
+  clock.t += all; clock.m += all
+  on(M, d); eq(m(), [N, 0], 'the monotonic clock past every deadline: every generation is read again')
+  on(M, d); eq(m(), [0, N], 'once')
+  assert.strictEqual(M.recStats.drops, 0, 'CONTROL: it was the verify age, not the clock check')
+}
+await t('the verify deadline is on the monotonic clock: the wall clock hours on reads nothing again; the monotonic clock past the deadlines does', () => scenVerifyClock(P))
+await t('the jitter is the path\'s own (a hash, no dice): the same for a path every time, spread over [0, REC_VERIFY_JITTER_MS) for a record\'s generations', () => {
+  const paths = Array.from({ length: 100 }, (_, i) => `/pool/project-0_70_0.tidy.g${i + 1}.json`)
+  const j = paths.map(P.recVerifyJitter)
+  eq(paths.map(P.recVerifyJitter), j, 'not the same twice')
+  assert.ok(j.every(x => Number.isInteger(x) && x >= 0 && x < P.REC_VERIFY_JITTER_MS))
+  assert.ok(new Set(j).size >= 95, `${new Set(j).size} distinct of 100`)
+  const sixths = Array.from({ length: 6 }, (_, b) => j.filter(x => Math.floor(x * 6 / P.REC_VERIFY_JITTER_MS) === b).length)
+  assert.ok(sixths.every(n => n >= 5 && n <= 35), `not spread: ${sixths} in each sixth of the range`)
+  assert.strictEqual(P.REC_VERIFY_MS, 60_000); assert.strictEqual(P.REC_VERIFY_JITTER_MS, 30_000)
+})
+
 console.log('NOTHING SHARED: THE CALLER MAY MUTATE WHAT IT GETS')
 /** head.rec, head, rejected and gens are the caller's: wrecking them changes no later call. */
 const scenMutate = async M => {
@@ -674,29 +787,41 @@ await t('MUTANT the device dropped from the key -> "a kept fact answers only for
 await t('MUTANT the ctime dropped from the key -> "a generation rewritten IN PLACE with its mtime restored..."', () =>
   killedBy([['c.mtimeNs === st.mtimeNs && c.ctimeNs === st.ctimeNs', 'c.mtimeNs === st.mtimeNs']], scenInPlace))
 await t('MUTANT an unparseable file kept -> "an unparseable generation is read again on every call..."', () =>
-  killedBy([["catch { return { why: 'unparseable' } }", "catch { return recKeep(p, f0, f1, { why: 'unparseable' }, now) }"]], scenUnparseable))
+  killedBy([["catch { return { why: 'unparseable' } }", "catch { return recKeep(p, f0, f1, { why: 'unparseable' }, now, mono) }"]], scenUnparseable))
 await t('MUTANT a failed read kept -> "an unreadable generation is tried again on every call..."', () =>
-  killedBy([["  } catch { return { why: 'unreadable' } }", "  } catch { const fx = recStat(p); return recKeep(p, fx, fx, { why: 'unreadable' }, now) }"]], scenUnreadable))
+  killedBy([["  } catch { return { why: 'unreadable' } }", "  } catch { const fx = recStat(p); return recKeep(p, fx, fx, { why: 'unreadable' }, now, mono) }"]], scenUnreadable))
 await t('MUTANT the parsed head kept and handed out again (no fresh parse) -> "mutating head.rec, head, rejected and gens changes no later call..."', () =>
   killedBy([["recHeads.set(hk, hb); return JSON.parse(hb.buf.toString('utf8')) }", "recHeads.set(hk, hb); return (hb.rec ??= JSON.parse(hb.buf.toString('utf8'))) }"]], scenMutate))
 await t('MUTANT the racy rule skipped when a fact is KEPT -> "a generation is read on every call until the clock is REC_RACY_MS past its stamp..."', () =>
   killedBy([['if (!recFactFresh(f0, f1) || recRacy(f1, now)) return fact', 'if (!recFactFresh(f0, f1)) return fact']], scenRacy))
 await t('MUTANT (r1 A) the racy rule skipped when a fact is SERVED -> "a kept fact is NOT served while its file reads racily clean..."', () =>
-  killedBy([['if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now)) {', 'if (c && recFactFresh(c, st0)) {']], scenRacyHit))
+  killedBy([['if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now) && mono', 'if (c && recFactFresh(c, st0) && mono']], scenRacyHit))
 await t('MUTANT (r1 A) a clock that fell back is not noticed -> "a wall clock that fell back against the monotonic one..."', () =>
   killedBy([['if (recClockBack(recOffsetMax, offset)) {', 'if (false) {']], scenClockBack))
 await t('MUTANT (r1 A) the fall measured from the last reading, not the highest -> "a wall clock that fell back against the monotonic one..."', () =>
   killedBy([['else if (recOffsetMax == null || offset > recOffsetMax) recOffsetMax = offset', 'else recOffsetMax = offset']], scenClockBack))
 await t('MUTANT a kept fact trusted without the stat -> "a generation replaced by rename with other bytes of the SAME size and mtime..."', () =>
-  killedBy([['if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now)) {', 'if (c && !recRacyMs(c.stampMs, now)) {']], scenReplaced))
+  killedBy([['if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now)', 'if (c && !recRacyMs(c.stampMs, now)']], scenReplaced))
 await t('MUTANT the prevSha check skipped for a kept fact -> "a generation replaced by rename with other bytes of the SAME size and mtime..."', () =>
   killedBy([['if (e.prev !== head.gen || e.prevSha !== head.e.sha)', 'if (e.prev !== head.gen || (e.buf && e.prevSha !== head.e.sha))']], scenReplaced))
 await t('MUTANT (r1 B) the two stats taken by PATH again -> "a directory swapped away and back around one read..."', () =>
-  killedBy([['f0 = recFstat(fd)', 'f0 = recStat(p)'], ['f1 = recFstat(fd)', 'f1 = recStat(p)']], scenSwap))
+  killedBy([['f0 = recFstat(fd, p)', 'f0 = recStat(p)'], ['f1 = recFstat(fd, p)', 'f1 = recStat(p)']], scenSwap))
 await t('MUTANT (r1 B) the read made by PATH again -> "a directory swapped away and back around one read..."', () =>
   killedBy([['buf = fs.readFileSync(fd)', 'buf = fs.readFileSync(p)']], scenSwap))
 await t('MUTANT (r1 B) the stat before and the stat after not compared -> "a file rewritten between the stat before its read and the stat after it..."', () =>
   killedBy([['if (!recFactFresh(f0, f1) || recRacy(f1, now)) return fact', 'if (!f1 || recRacy(f1, now)) return fact']], scenBetweenStats))
+await t('MUTANT (r2) the verify age dropped from the hit -> "THE RESIDUAL..." and "an unchanged aged history: 0 reads until the first deadline..."', async () => {
+  const pair = [['!recRacyMs(c.stampMs, now) && mono - c.verifiedAt < c.verifyFor) {', '!recRacyMs(c.stampMs, now)) {']]
+  await killedBy(pair, scenResidual); await killedBy(pair, scenVerify)
+})
+await t('MUTANT (r2) the stamp taken from the wall clock -> "the verify deadline is on the monotonic clock..."', () =>
+  killedBy([['verifiedAt: mono,', 'verifiedAt: now,']], scenVerifyClock))
+await t('MUTANT (r2) the stamp and the age both on the wall clock -> "the verify deadline is on the monotonic clock..."', () =>
+  killedBy([['verifiedAt: mono,', 'verifiedAt: now,'], ['&& mono - c.verifiedAt < c.verifyFor) {', '&& now - c.verifiedAt < c.verifyFor) {']], scenVerifyClock))
+await t('MUTANT (r2) the stamp not refreshed by a re-read (read again on every call for ever) -> "an unchanged aged history: 0 reads until the first deadline..."', () =>
+  killedBy([['sha: sha(buf), rec, buf }, now, mono)', 'sha: sha(buf), rec, buf }, now, c ? c.verifiedAt : mono)']], scenVerify))
+await t('MUTANT (r2) the jitter removed (every generation read again in one call) -> "an unchanged aged history: 0 reads until the first deadline..."', () =>
+  killedBy([['verifyFor: REC_VERIFY_MS + recVerifyJitter(p),', 'verifyFor: REC_VERIFY_MS,']], scenVerify))
 await t('MUTANT the head\'s re-read bytes not checked against the fact\'s sha -> "the head moved back and its file is no longer the bytes..."', () =>
   killedBy([['  if (sha(buf) !== e.sha) { recFacts.delete(p); return undefined }\n', '']], scenHeadReread))
 await t('MUTANT a served head Buffer not refreshed (first in, first out) -> "the head Buffers go least recently USED first..."', () =>
@@ -732,6 +857,16 @@ await t('the cached walk against the uncached walk on a tidy-sized record', asyn
   note(`benchmark: cached, the first call (opens, fstats and reads all ${N}) ${coldMs.toFixed(1)} ms`)
   note(`benchmark: cached ${onR.map(x => x.toFixed(3)).join(' / ')} (0 generation files read; ${(offR[0] / onR[0]).toFixed(0)}x on the best rounds)`)
   note(`benchmark: of which ${N} stats ${statMs.toFixed(3)} ms and one parse of the head ${parseMs.toFixed(3)} ms, measured alone`)
+  // the verify re-reads: both clocks past every deadline -> one call reads every generation again; amortised, each generation is
+  // read once every REC_VERIFY_MS + half the jitter
+  let bump = 0
+  P.recTestSeam({ now: () => Date.now() + AHEAD_MS + bump, mono: () => MONO0 + bump })
+  on(P, d); m()
+  bump = P.REC_VERIFY_MS + P.REC_VERIFY_JITTER_MS
+  const v0 = performance.now(); on(P, d); const verifyMs = performance.now() - v0
+  eq(m(), [N, 0], 'CONTROL: the verify pass did not read every generation again'); assert.strictEqual(P.recStats.drops, 0)
+  const everyS = (P.REC_VERIFY_MS + P.REC_VERIFY_JITTER_MS / 2) / 1000, perMin = N * 60 / everyS, perRead = verifyMs / N
+  note(`benchmark: verify re-reads, amortised: ${N} generations, each read again every ${everyS} s on average = ${perMin.toFixed(0)} reads a minute x ${perRead.toFixed(3)} ms a read = ${(perMin * perRead).toFixed(1)} ms a minute (${(perMin * perRead / 600).toFixed(3)}% of one core)`)
   fs.rmSync(d, { recursive: true, force: true })
 })
 
