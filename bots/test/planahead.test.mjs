@@ -256,7 +256,7 @@ const WIRES = [
   "if \\(PLANAHEAD_ON && GROUNDS\\.on && role === 'helper'\\) visitRec = puSupply\\(visitRec\\)",
   'standRetire\\(cur, sc\\)',
   'plot: TOWNHALL_PLOT, \\.\\.\\.paSiteCtx\\(prd, TOWNHALL_PLOT\\)',
-  'plot: COTTAGE_PLOT, \\.\\.\\.paSiteCtx\\(prd, COTTAGE_PLOT\\)',
+  'stood, sectors: sp\\.sectors, plot, \\.\\.\\.paSiteCtx\\(prd, plot\\)',   // cottage2-01 fold: every cottage's siting (the ranked looks loop)
   'plot: ENCHANT_PLOT, \\.\\.\\.paSiteCtx\\(planReader\\(bot\\), ENCHANT_PLOT\\)',
 ]
 const wired = s => { for (const re of WIRES) { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) } }

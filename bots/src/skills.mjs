@@ -27207,7 +27207,7 @@ async function buildTidyVisit (ctx, args, signal) {
     // `pu` -- a tag, never a waiver (a live visit's own miss confirms it: puWaiveDue) -- and one `_build op=reach` row says the supply
     if (PLANAHEAD_ON && GROUNDS.on && s.record) {
       body.reach = await tidyReachTag(bot, body, home, stood, signal)
-      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'reach', seg: `stage${sk}`, kind: body.reach.state, n: body.reach.n, to: body.reach.open, result: `${body.reach.passes}/${body.reach.checked}/${body.reach.ms ?? '-'}ms`, why: body.reach.why ?? '-' }) }) } catch { /* telemetry */ }
+      try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'reach', seg: `stage${sk}`, kind: body.reach.state, n: body.reach.n, to: body.reach.open, result: `${body.reach.passes}/${body.reach.checked}/${body.reach.ms ?? '-'}ms`, why: body.reach.why ?? '-' }) }) } catch { /* telemetry */ }
     }
     // townterrace-01: the stage before's cells carried on (tidy.mjs stageCarry: the tripwire judges a placement against the head)
     // roughground-01: the inside-the-wall clock rides on every stage's record (inwallAtNext)
