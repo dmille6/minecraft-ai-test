@@ -128,10 +128,10 @@ await t('mutant: the floor left in the stands\' domain -> a builder could stand 
     assert.strictEqual(M.penDomain(REC)(sf[0], sf[2]), true)
   })
 })
-await t('the gate\'s aim (townstyle orientAim): on the floor\'s top face the yaw of its facing; a side face or an open state -> null', () => {
+await t('the gate\'s aim (townstyle orientAim): the yaw of its facing (any face: fences-01\'s Paper rule, the pen places on the floor\'s top); an open state -> null', () => {
   assert.deepStrictEqual(TS.orientAim('spruce_fence_gate', { facing: 'south', open: false }, [0, 1, 0]), { yaw: 0, cursor: [0.5, 1, 0.5] })
   assert.strictEqual(TS.orientAim('spruce_fence_gate', { facing: 'east', open: false }, [0, 1, 0]).yaw, -90)
-  assert.strictEqual(TS.orientAim('spruce_fence_gate', { facing: 'south', open: false }, [1, 0, 0]), null)
+  assert.strictEqual(TS.orientAim('spruce_fence_gate', { facing: 'south', open: false }, [1, 0, 0]).yaw, 0, 'wood fold: a side face takes the yaw too (fences-01, Paper)')
   assert.strictEqual(TS.orientAim('spruce_fence_gate', { facing: 'south', open: true }, [0, 1, 0]), null)
   assert.ok(TS.oriented('oak_fence_gate'))
   assert.ok(TS.stateOk({ facing: 'south', open: false, in_wall: false, powered: false }, { facing: 'south', open: false }))
