@@ -122,18 +122,136 @@ function syncDir (dir) { try { const fd = wfs.openSync(dir, 'r'); try { fs.fsync
 const recFile = (dir, key, n) => path.join(dir, `${key}.g${n}.json`)
 const REC_RE = key => new RegExp(`^${esc(key)}\\.g(\\d+)\\.json$`)
 
+// ---- RECCACHE-01: THE VERIFIED-GENERATION CACHE ------------------------------------------------------------------------------
+// LIVE showcase 11-10 (docs/reports/keeperstall-2026-11-10.md, the keeper's CPU profile): recordHead was 35% of a bot's busy CPU and
+// one shopActive pass 7-10 s of synchronous record reading -- every call read, parsed and hashed EVERY generation of the record (435
+// files, 35 MB in the pool; tidy alone 119 generations, one more an hour). A generation is written once and never rewritten
+// (publishRecord: tmp + link), so what the walk needs from a file is kept PER FILE and the walk itself is made again on every call:
+//   - a FACT = what one successfully read and parsed generation file says: { recGen, prev, prevSha, sha } and the stat it was read
+//     under { ino, size, mtimeNs, ctimeNs }. Keyed by the file's path. Never a verdict, never a head, never the chain's result,
+//     never a parsed object, never a failed read or an unparseable file (those are read again on every call).
+//   - every call lists the generations and stats EVERY one (no newest-only shortcut); a fact is served only when the stat succeeds
+//     and all four fields are the fact's (recFactFresh); anything else is read, parsed and hashed as before.
+//   - RACILY CLEAN (the listing's rule above, git's): a file whose mtime or ctime is within REC_RACY_MS of now is read and NOT kept
+//     -- an in-place rewrite inside the timestamp's granularity would leave the stat as it was. A fact is kept only when the stat
+//     before the read and the stat after it are identical. Once kept, any later change to the file moves its ctime past the fact's.
+//   - the head's `rec` is PARSED AFRESH on every call (callers mutate it): from the head generation's raw bytes, kept one Buffer a
+//     record and bound to the fact they were read with; when those are not kept (the head moved back to an older generation, or
+//     the Buffer was dropped) the head file is read again and must hash to the fact's sha, else the fact is dropped and the walk
+//     made again.
+// RECCACHE=off|0|false|no is the rollback: recordHeadPlain, the walk as it was. recordChain is untouched (it reads every file).
+export const recCacheOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.RECCACHE ?? '').trim().toLowerCase())
+export const REC_RACY_MS = 2000
+export const REC_FACTS_MAX = 8192
+export const REC_HEADS_MAX = 64
+export const REC_HEAD_BYTES_MAX = 32 * 1024 * 1024
+const REC_WALK_TRIES = 3
+/** reads: generation files read by recordHead (either walk); hits: generation files answered from a kept fact. */
+export const recStats = { reads: 0, hits: 0 }
+const recFacts = new Map()       // path -> { ino, size, mtimeNs, ctimeNs, recGen, prev, prevSha, sha }, least recently used first
+// `${dir}\0${key}` -> { fact, buf }: the raw bytes `fact` was read with. Never asked WHICH generation is the head (the walk says):
+// only parsed, when the walk's head is this very fact, validated by its stat in this call
+const recHeads = new Map()
+let recHeadBytes = 0
+/** Forget every kept fact and head Buffer, and zero the counters (the tests' reset). */
+export function recCacheReset () { recFacts.clear(); recHeads.clear(); recHeadBytes = 0; recStats.reads = 0; recStats.hits = 0 }
+/** What is kept now (the tests' window on the bounds). */
+export const recCacheSize = () => ({ facts: recFacts.size, heads: recHeads.size, headBytes: recHeadBytes })
+const recStat = p => { try { return fs.statSync(p, { bigint: true }) } catch { return null } }
+/** May the kept fact `c` answer for a file whose stat is `st` now? Only the same inode, size, mtime and ctime. */
+export const recFactFresh = (c, st) => !!c && !!st && c.ino === st.ino && c.size === st.size && c.mtimeNs === st.mtimeNs && c.ctimeNs === st.ctimeNs
+/** Racily clean: modified or changed within REC_RACY_MS of `now` (or stamped in the future) -- read, never kept. */
+export const recRacy = (st, now) => now - Number((st.mtimeNs > st.ctimeNs ? st.mtimeNs : st.ctimeNs) / 1_000_000n) < REC_RACY_MS
+// a value the walk compares with === against a number, a string or null: an object or an array can equal none of them
+const recPrim = v => (v !== null && typeof v === 'object' ? undefined : v)
+/** Keep `fact` for `p` when the file stood still around its read (the stat before = the stat after) and is not racily clean. */
+function recKeep (p, st0, fact, now) {
+  const st1 = recStat(p)
+  if (!st0 || !recFactFresh(st0, st1) || recRacy(st1, now)) return fact
+  const kept = { ino: st1.ino, size: st1.size, mtimeNs: st1.mtimeNs, ctimeNs: st1.ctimeNs, recGen: fact.recGen, prev: fact.prev, prevSha: fact.prevSha, sha: fact.sha }
+  recFacts.set(p, kept)
+  while (recFacts.size > REC_FACTS_MAX) recFacts.delete(recFacts.keys().next().value)
+  fact.kept = kept
+  return fact
+}
+/** One generation file for the walk -> { why } (unreadable | unparseable: never kept) | a kept fact | a fresh read
+ *  { recGen, prev, prevSha, sha, rec, buf, kept? } (`rec` parsed in THIS call, never held). */
+function recFactOf (p, now) {
+  const st0 = recStat(p)
+  const c = recFacts.get(p)
+  if (c && recFactFresh(c, st0)) { recStats.hits++; recFacts.delete(p); recFacts.set(p, c); return c }
+  if (c) recFacts.delete(p)
+  recStats.reads++
+  let buf
+  try { buf = fs.readFileSync(p) } catch { return { why: 'unreadable' } }
+  let rec
+  try { rec = JSON.parse(buf.toString('utf8')) } catch { return { why: 'unparseable' } }
+  return recKeep(p, st0, { recGen: rec ? recPrim(rec.gen) : undefined, prev: rec ? recPrim(rec.prev) : undefined, prevSha: rec ? recPrim(rec.prevSha) : undefined, sha: sha(buf), rec, buf }, now)
+}
+function recHeadKeep (hk, fact, buf) {
+  const old = recHeads.get(hk)
+  if (old) { recHeadBytes -= old.buf.length; recHeads.delete(hk) }
+  if (buf.length > REC_HEAD_BYTES_MAX) return
+  recHeads.set(hk, { fact, buf }); recHeadBytes += buf.length
+  while (recHeads.size > REC_HEADS_MAX || recHeadBytes > REC_HEAD_BYTES_MAX) { const [k, v] = recHeads.entries().next().value; recHeads.delete(k); recHeadBytes -= v.buf.length }
+}
+/** The head's record, parsed for THIS call -> rec | undefined (the head file is no longer the bytes its fact was read from). */
+function recHeadRec (dir, key, g, e) {
+  const hk = `${dir}\0${key}`
+  if (e.buf) { if (e.kept) recHeadKeep(hk, e.kept, e.buf); return e.rec }        // read in this call
+  const hb = recHeads.get(hk)
+  if (hb && hb.fact === e) return JSON.parse(hb.buf.toString('utf8'))
+  const p = recFile(dir, key, g)
+  recStats.reads++
+  let buf
+  try { buf = fs.readFileSync(p) } catch { recFacts.delete(p); return undefined }
+  if (sha(buf) !== e.sha) { recFacts.delete(p); return undefined }
+  recHeadKeep(hk, e, buf)
+  return JSON.parse(buf.toString('utf8'))
+}
+/** recordHeadPlain's walk over the generations' facts: the same checks in the same order, the same rejections. */
+function recWalk (dir, key, gens, now) {
+  let head = null
+  const rejected = []
+  for (const g of gens) {
+    const e = recFactOf(recFile(dir, key, g), now)
+    if (e.why) { rejected.push({ gen: g, why: e.why }); continue }
+    if (e.recGen !== g) { rejected.push({ gen: g, why: 'gen' }); continue }
+    if (!head) { if (e.prev !== null) { rejected.push({ gen: g, why: 'no root' }); continue } head = { gen: g, e }; continue }
+    if (e.prev !== head.gen || e.prevSha !== head.e.sha) { rejected.push({ gen: g, why: 'chain' }); continue }
+    head = { gen: g, e }
+  }
+  if (!head) return { ok: true, head: null, gens, rejected }
+  const rec = recHeadRec(dir, key, head.gen, head.e)
+  if (rec === undefined) return null
+  return { ok: true, head: { gen: head.gen, sha: head.e.sha, rec }, gens, rejected }
+}
+
 /**
  * THE RECORD'S HEAD -> { ok, head: { gen, sha, rec } | null, gens, rejected }. A walk ascending: the root is the lowest file
  * with prev null that parses; each later file is the head only when its prev is the head and its prevSha the head's sha;
  * anything else is rejected (skipped, never deleted). An unreadable directory is ok: false (never "no record").
+ * reccache-01: the walk runs over per-file facts (above); `head.rec` is parsed for this call and is the caller's to mutate.
+ * `opts.now` is the racy rule's clock, for the tests.
  */
-export function recordHead (dir, key) {
+export function recordHead (dir, key, opts) {
+  if (!recCacheOn()) return recordHeadPlain(dir, key)
+  const now = opts?.now ?? Date.now()            // the racy rule's clock (the tests'; every caller leaves it)
+  let gens
+  try { gens = gensOf(dir, REC_RE(key)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
+  // a head whose kept bytes are gone and whose file moved between its stat and the read: the fact is dropped and the walk made again
+  for (let i = 0; i < REC_WALK_TRIES; i++) { const r = recWalk(dir, key, gens, now); if (r) return r }
+  return recordHeadPlain(dir, key)
+}
+/** The walk as it was before reccache-01 (RECCACHE=off, and the cached walk's last resort): every generation read, parsed, hashed. */
+function recordHeadPlain (dir, key) {
   let gens
   try { gens = gensOf(dir, REC_RE(key)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
   let head = null
   const rejected = []
   for (const g of gens) {
     let buf
+    recStats.reads++
     try { buf = fs.readFileSync(recFile(dir, key, g)) } catch { rejected.push({ gen: g, why: 'unreadable' }); continue }
     let rec
     try { rec = JSON.parse(buf.toString('utf8')) } catch { rejected.push({ gen: g, why: 'unparseable' }); continue }

@@ -436,6 +436,8 @@ const REQUIRED = [
   'bots/src/procmem.mjs',
   'bots/test/keeperstall.test.mjs',
   'docs/reports/keeperstall-2026-11-10.md',
+  // reccache-01show (11-10): recordHead keeps per-file facts of the generations it has read; the walk is made again every call
+  'bots/test/reccache.test.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
