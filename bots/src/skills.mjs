@@ -189,7 +189,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots, stuckSegs, stuckLast } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
-import { groundsFallOn, groundsFall, groundsNoOrder, groundsOnly, groundsHold, groundsHoldOf } from './grounds2.mjs'   // grounds-03: cleanup as the true fallback
+import { groundsFallOn, groundsFall, groundsNoOrder, groundsOnly, groundsHold, groundsHoldOf, lateUntil } from './grounds2.mjs'   // grounds-03: cleanup as the true fallback
 import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN } from './shop.mjs'   // grounds-03: the order's ask and its hold
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
@@ -27502,6 +27502,9 @@ const GK_PARK_WAITS = 6
  */
 async function buildTidy (ctx, args, signal) {
   const t0 = Date.now()
+  // grounds-03 (Codex r1 BLOCKER): a fall-through's grounds visit starts late in the skill, and so does its sweep -- read here, the
+  // mark is the visit's (the sweep's end below is the SKILL's end less 5 s, as an ordinary visit's is; never 5 s past the runner's)
+  const used0 = Number(ctx.bot.groundsPick?.used) || 0
   ctx.bot.gkSweepRole = null
   const res = await buildTidyVisit(ctx, args, signal)
   if (!GROUNDS.on || !gkSweepOn() || !sweepAfter(ctx.bot.gkSweepRole, res)) return res
@@ -27509,7 +27512,7 @@ async function buildTidy (ctx, args, signal) {
   if (!holdsGrounds(crewState(ctx.bot, true).d)) return res
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
   let sw = null
-  try { sw = await gkSweep(ctx.bot, signal, { until: t0 + budget - 5_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; sw = null }
+  try { sw = await gkSweep(ctx.bot, signal, { until: lateUntil(t0, budget, used0) }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; sw = null }
   if (sw?.took > 0 && res.status === 'no_effect') return { ...res, status: 'success', detail: `${res.detail}; swept ${sw.took} item(s) off the town's ground (${sw.kinds})` }
   return res
 }

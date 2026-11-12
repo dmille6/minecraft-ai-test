@@ -829,6 +829,9 @@ const WIRES = [
   'const d = only ? groundsOnly({ ...L, why: only }) : groundsDecide({ ...L, open, turn, carrying: g2Carrying(bot) })',
   'if (g3Only(args)) { bot.tidyLast = { placed: 0, cleared: 0, outcome: String(gr.stop) }; return groundsResult(gr) }',
   'const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - (Number(bot.groundsPick?.used) || 0)',
+  // review r1 (Codex): the sweep after a late visit ends with the SKILL too
+  'const used0 = Number(ctx.bot.groundsPick?.used) || 0',
+  'try { sw = await gkSweep(ctx.bot, signal, { until: lateUntil(t0, budget, used0) }) }',
 ]
 const wired = src => { for (const w of WIRES) assert.strictEqual(src.split(w).length, 2, `wiring ${JSON.stringify(w.slice(0, 70))}: ${src.split(w).length - 1}`) }
 await t('every wire is in place exactly once; a cut wire fails the check', () => {
@@ -900,6 +903,26 @@ const F0 = { status: 'no_effect', stop: 'no_site', msLeft: 150_000, tailMs: 60_0
 const N0 = { skip: 'stuck_on_cell', sinceMs: 10 * MIN, cooldownMs: 10 * MIN, health: 20, healthMin: 10, freeSlots: 20, roomMin: 2, ...L0 }
 const LINKS = [[{ keeper: true }, 'keeper'], [{ decor: true }, 'decor'], [{ record: 'complete' }, 'record_complete'], [{ record: 'stuck' }, 'record_stuck'], [{ record: 'none' }, 'record_none'],
   [{ emptyUntil: L0.now + 1 }, 'spent'], [{ feet: [3, 20, 4] }, 'underground'], [{ feet: [300, 71, 4] }, 'away'], [{ feet: null }, 'unknown'], [{ slotFree: false }, 'full']]
+await t('lateUntil (review r1, Codex): the sweep after a fall-through\'s grounds visit ends 5 s before the SKILL\'s end, not 5 s before a new 180 s; an ordinary visit exactly as before', () => {
+  const SK0 = 1_000_000, B = 180_000
+  // an ordinary visit (the grounds visit IS the skill): start + 180 - 5
+  assert.strictEqual(G2.lateUntil(SK0, B), SK0 + 175_000)
+  assert.strictEqual(G2.lateUntil(SK0, B, 0), SK0 + 175_000)
+  // a fall-through that began 20 s into the skill: the tidy's t0 is SK0 + 20 s, and the sweep still ends at the skill's 175 s
+  assert.strictEqual(G2.lateUntil(SK0 + 20_000, B, 20_000), SK0 + 175_000)
+  assert.strictEqual(G2.lateUntil(SK0 + 90_000, B, 90_000), SK0 + 175_000)
+  // POSITIVE CONTROL: the sum the wrapper had (no `used`) ends it 15 s past the runner's abort
+  assert.strictEqual((SK0 + 20_000) + B - 5_000, SK0 + 195_000)
+  // a bad `used` never lengthens it
+  assert.strictEqual(G2.lateUntil(SK0, B, -5_000), SK0 + 175_000)
+  assert.strictEqual(G2.lateUntil(SK0, B, NaN), SK0 + 175_000)
+})
+await t('lateUntil MUTANT: dropping `used` from the sum fails the late case', async () => {
+  await withMutant(G2_PATH, '- Math.max(0, Number(used) || 0) - tailMs', '- tailMs', async M => {
+    assert.strictEqual(M.lateUntil(1_020_000, 180_000, 20_000), 1_195_000, 'the mutant is the old sum')
+    assert.notStrictEqual(M.lateUntil(1_020_000, 180_000, 20_000), 1_175_000)
+  })
+})
 await t('fallStops: the stops that mean "nothing here for this bot now" fall through; a stop that used the time, an interruption, an unread town file, a plan step and the grounds\' own never do', () => {
   for (const s of ['no_site', 'site_wait', 'paths_no_site', 'copper_wait', 'waiting', 'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'slots_full', 'keeper_held', 'complete', 'upkeep']) assert.strictEqual(G2.fallStops(s), true, s)
   for (const s of ['deadline', 'time', 'aborted', 'error', 'record_unreadable', 'lost_record', 'lost_lease', 'state_unwritable', 'site_unread', 'zones_unknown', 'no_plan', 'off', 'fence:slot', 'fence:segment',
