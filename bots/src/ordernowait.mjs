@@ -53,6 +53,13 @@ export function afterMet (p, afterComplete, { noWait = false, chainSkip = false 
  * could publish overlapping footprints -- the old gate had serialised them).
  */
 export const CIVIC_SITE_LEASE = 'civic-site'
+/** The siting lease's term: longer than any build visit can run (build_shop's own limit is 10 minutes), so a slow search never
+ *  outlives it (review r2, Codex BLOCKER: at the default 4 minutes a paused siting could lose it, a second bot site from records
+ *  still missing the first footprint, and both publish). The publish is made only while the lease is STILL held (siteMayPublish). */
+export const CIVIC_SITE_TTL_MS = 12 * 60_000
+/** MAY THE SITED LANDMARK BE PUBLISHED? -> bool. Pure. Only a siting that succeeded, by the bot that still holds the lease it sited
+ *  under; a lease lost meanwhile means another bot may have sited from older records: the result is discarded, nothing published. */
+export const siteMayPublish = ({ sited = false, holds = false } = {}) => !!sited && !!holds
 export const chainSkipOk = (chain, afterState, selfState = null) => !!chain && ((!!afterState && afterState.exists === false && afterState.waiting === true) || selfState?.exists === true)
 
 /** `_ordernowait_mode` detail. Pure. */

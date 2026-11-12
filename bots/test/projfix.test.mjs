@@ -169,20 +169,36 @@ await t('THE ORDER (shop.mjs activeProject): the first two landmarks found no si
   })
 })
 
-await t('REVIEW r1 (Codex): ONE landmark is sited at a time -- the town-wide lease on real files, and skills.mjs holds it round the siting AND the publish', () => {
+await t('REVIEW r1 + r2 (Codex): ONE landmark is sited at a time -- the town-wide lease on real files, its term, and skills.mjs holds it round the siting AND the publish', async () => {
   const pr = project(), dir = pr.dir, key = pr.key
   const a = PJ.takeLease(dir, key, N.CIVIC_SITE_LEASE, 'A')
   assert.ok(a.ok, 'the first bot sites')
   assert.strictEqual(PJ.takeLease(dir, key, N.CIVIC_SITE_LEASE, 'B').ok, false, 'a second bot does not site meanwhile')
   PJ.releaseLease(dir, key, N.CIVIC_SITE_LEASE, 'A', a.gen)
   assert.ok(PJ.takeLease(dir, key, N.CIVIC_SITE_LEASE, 'B').ok, 'and does once the first has published')
+  // review r2 (Codex): the term outlasts any build visit, a lease taken for it is still held at 10 minutes, and the publish needs it held
+  assert.ok(N.CIVIC_SITE_TTL_MS > 10 * 60_000, 'longer than build_shop may run')
+  const pr2 = project(), t0 = Date.now()
+  const long = PJ.takeLease(pr2.dir, pr2.key, N.CIVIC_SITE_LEASE, 'A', { now: t0, ttl: N.CIVIC_SITE_TTL_MS })
+  assert.strictEqual(PJ.holdsLease(pr2.dir, pr2.key, N.CIVIC_SITE_LEASE, 'A', long.gen, t0 + 10 * 60_000), true, 'still A\'s after ten minutes')
+  assert.strictEqual(PJ.takeLease(pr2.dir, pr2.key, N.CIVIC_SITE_LEASE, 'B', { now: t0 + 10 * 60_000, ttl: N.CIVIC_SITE_TTL_MS }).ok, false)
+  const short = project(), sh = PJ.takeLease(short.dir, short.key, N.CIVIC_SITE_LEASE, 'A', { now: t0 })
+  assert.strictEqual(PJ.holdsLease(short.dir, short.key, N.CIVIC_SITE_LEASE, 'A', sh.gen, t0 + 10 * 60_000), false, 'POSITIVE CONTROL: at the default term it is gone by then')
+  assert.deepStrictEqual([N.siteMayPublish({ sited: true, holds: true }), N.siteMayPublish({ sited: true, holds: false }), N.siteMayPublish({ sited: false, holds: true })], [true, false, false])
   const sk = code('skills.mjs')
-  const take = sk.indexOf('const siteLease = projTakeLease(dir, siteKey, CIVIC_SITE_LEASE, me)')
+  const take = sk.indexOf('const siteLease = projTakeLease(dir, siteKey, CIVIC_SITE_LEASE, me, { ttl: CIVIC_SITE_TTL_MS })')
   const busy = sk.indexOf("if (!siteLease.ok) return out('no_effect', 'site_busy',")
-  const site = sk.indexOf('ss = await civicSiteFor(bot,'), pub = sk.indexOf("if (ss.ok) pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })")
+  const site = sk.indexOf('ss = await civicSiteFor(bot,')
+  const holds = sk.indexOf('lost = !!ss.ok && !siteMayPublish({ sited: ss.ok, holds: projHoldsLease(dir, siteKey, CIVIC_SITE_LEASE, me, siteLease.gen) })')
+  const pub = sk.indexOf("if (ss.ok && !lost) pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })")
   const rel = sk.indexOf('} finally { releaseLease(dir, siteKey, CIVIC_SITE_LEASE, me, siteLease.gen) }')
-  assert.ok(take > 0 && busy > take && site > busy && pub > site && rel > pub, 'taken, refused when held, sited, published, THEN released')
+  assert.ok(take > 0 && busy > take && site > busy && holds > site && pub > holds && rel > pub, 'taken for the long term, refused when held, sited, ownership re-read, published, THEN released')
   assert.strictEqual(sk.split('await civicSiteFor(').length, 2, 'the one landmark siting, inside the lease')
+  let why = null
+  await withMutant(src('ordernowait.mjs'), 'export const siteMayPublish = ({ sited = false, holds = false } = {}) => !!sited && !!holds', 'export const siteMayPublish = ({ sited = false } = {}) => !!sited', async M => {
+    try { assert.strictEqual(M.siteMayPublish({ sited: true, holds: false }), false) } catch (err) { why = err }
+  })
+  assert.ok(why instanceof assert.AssertionError, 'MUTANT (a lost lease still publishes) survived')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -220,7 +220,7 @@ import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { helperWorked, helpersCap, tidyShare } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead, beatKeys } from './buildproj.mjs'
-import { CIVIC_SITE_LEASE } from './ordernowait.mjs'   // projfix-01: one landmark sited at a time
+import { CIVIC_SITE_LEASE, CIVIC_SITE_TTL_MS, siteMayPublish } from './ordernowait.mjs'   // projfix-01: one landmark sited at a time
 import { planaheadOn, planReachAsync, reachTag, puWaiveDue, puSupply, standClaims, standRetire, standConflicts, plannedWorld, liveUnreached } from './planahead.mjs'   // planahead-01
 import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
@@ -22602,14 +22602,17 @@ async function buildShopVisit (ctx, args, signal) {
       // lease is held from before the siting reads the town's records until its own record is published (or it found no site), so
       // the next landmark's siting always sees this one's footprint. Held by another bot: nothing is tried and nothing is waited.
       const siteKey = projKeyOf(CIVIC_PLOTS[0])
-      const siteLease = projTakeLease(dir, siteKey, CIVIC_SITE_LEASE, me)
+      const siteLease = projTakeLease(dir, siteKey, CIVIC_SITE_LEASE, me, { ttl: CIVIC_SITE_TTL_MS })
       if (!siteLease.ok) return out('no_effect', 'site_busy', `another bot is siting a landmark (${siteLease.why ?? 'held'}); ${plot} is sited after it`.slice(0, 160), { stop: 'site_wait' })
-      let ss = null, pub = null
+      let ss = null, pub = null, lost = false
       try {
         ss = await civicSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, plot, signal)
         check(signal)
-        if (ss.ok) pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+        // review r2 (Codex BLOCKER): published only while the lease it was sited under is STILL this bot's (siteMayPublish)
+        lost = !!ss.ok && !siteMayPublish({ sited: ss.ok, holds: projHoldsLease(dir, siteKey, CIVIC_SITE_LEASE, me, siteLease.gen) })
+        if (ss.ok && !lost) pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
       } finally { releaseLease(dir, siteKey, CIVIC_SITE_LEASE, me, siteLease.gen) }
+      if (lost) return out('no_effect', 'site_busy', `the siting lease was lost before the publish; ${plot} is sited again from the town as it is now`.slice(0, 160), { stop: 'site_wait' })
       if (!ss.ok && ss.why !== 'aborted') siteWaitSet(plot, ss.why === 'stock' ? 20 * 60_000 : COTTAGE_NOSITE_MS, ss.why)
       if (!ss.ok) return out('no_effect', ss.why === 'stock' ? 'stock_wait' : 'no_site', `no ${plot} site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''})`.slice(0, 160), { stop: 'site_wait' })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
