@@ -92,14 +92,17 @@ ${rel || '(none yet)'}${prev}`
 //     instead"), and each one went back into RECENTLY FINISHED for the next proposal to imitate;
 //   - the coder saw 5 skills by word overlap -- five rewrites of one ability -- and the prompt only said it "may" call them.
 
-/** What a success check asks for, in a few plain words. History lines use this, never model-written text. Pure. */
-export function describeOutcome (s) {
+/**
+ * What a success check asks for, in a few plain words. History lines use this, never model-written text. `done` false
+ * gives the goal form for a task that FAILED ("craft lantern", not "crafted lantern": a failure must not read as done). Pure.
+ */
+export function describeOutcome (s, done = true) {
   switch (s?.kind) {
-    case 'have': return `got ${s.count} ${s.item}`
-    case 'craft': return `crafted ${s.item}`
-    case 'placed': return `placed ${s.count} ${s.block}`
-    case 'structure': return `built a connected structure of ${s.min_blocks}+ blocks within a span of ${s.max_span}`
-    case 'reach': return s.y != null ? `ended ${s.dir} y=${s.y}` : `ended within ${s.within} of ${s.block}`
+    case 'have': return `${done ? 'got' : 'get'} ${s.count} ${s.item}`
+    case 'craft': return `${done ? 'crafted' : 'craft'} ${s.item}`
+    case 'placed': return `${done ? 'placed' : 'place'} ${s.count} ${s.block}`
+    case 'structure': return `${done ? 'built' : 'build'} a connected structure of ${s.min_blocks}+ blocks within a span of ${s.max_span}`
+    case 'reach': return s.y != null ? `${done ? 'ended' : 'end'} ${s.dir} y=${s.y}` : `${done ? 'ended' : 'end'} within ${s.within} of ${s.block}`
     default: return 'unknown outcome'
   }
 }
@@ -139,14 +142,16 @@ export const CURRICULUM_FORMAT = V1_FORMAT_AT > 0 ? CURRICULUM_SYSTEM.slice(V1_F
 
 export const CURRICULUM_SYSTEM_V2 = `You are the mind of a Minecraft bot exploring a world nobody has seen before. You decide what to do
 next. Nobody gives you a list. Your goals: discover new things, get better tools, build things you find interesting, and stay
-alive. The world is peaceful (no hostile mobs), there is no Nether and no End, and you cannot use any commands.
+alive. The world is peaceful (no hostile mobs), there is no Nether and no End, and you cannot use any commands. Swords
+cannot be made in a peaceful world: never propose one.
 
 Propose ONE next task: something you cannot do yet that teaches you a new ability, or a project you want to build. Keep it
 achievable in a few minutes from where you are, with what you carry or can get nearby.
 
 WHAT YOU HAVE ALREADY DONE lists every outcome you have achieved; "x7" after one means you have done it seven times. Choose
 an outcome that is not on that list, or a bigger project that combines several of them. Do not propose again an outcome
-marked x3 or more unless it is a step of something bigger. Avoid what recently failed unless you change the approach.
+marked x3 or more unless it is a step of something bigger. Avoid what recently failed unless you change the approach;
+an outcome listed under SET ASIDE failed several times in a row and will be refused for now, so get what it lacked first.
 
 Decide first, then write. "task" is ONE plain sentence of at most 200 characters that says what to do. Never write what to
 avoid, and never correct yourself inside it.
@@ -165,8 +170,11 @@ blocks within 8: ${blocks || 'none loaded'}
 nearby: ${near}`
 }
 
-/** `skills` = the library's active skills (need {signature}); `done`/`failed` = harness-written lines (describeOutcome). Pure. */
-export function curriculumUserV2 ({ state, skills, done, failed, refusal }) {
+/**
+ * `skills` = the library's active skills (need {signature}); `done`/`failed` = harness-written lines (describeOutcome);
+ * `aside` = outcome signatures the repeat rule has set aside (verifier.setAside). Pure.
+ */
+export function curriculumUserV2 ({ state, skills, done, failed, refusal, aside = [] }) {
   return `${stateLines(state)}
 
 WHAT YOU HAVE ALREADY DONE (${skills.length} skills)
@@ -177,7 +185,7 @@ ${list(done, 10)}
 
 RECENTLY FAILED
 ${list(failed, 10)}
-${refusal ? `\nYOUR LAST PROPOSAL WAS REFUSED: ${refusal}\nPropose a different task.` : ''}
+${aside.length ? `\nSET ASIDE (failed several times in a row; refused for now): ${aside.join(', ')}\n` : ''}${refusal ? `\nYOUR LAST PROPOSAL WAS REFUSED: ${refusal}\nPropose a different task.` : ''}
 What is your next task? JSON only.`
 }
 

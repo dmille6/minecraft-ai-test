@@ -6,7 +6,7 @@ import path from 'node:path'
 import { runSkill } from './sandbox.mjs'
 import { lintSkill, extractCode } from './lint.mjs'
 import { makeHandlers, observeState, inventoryCounts, Vec3 } from './facade.mjs'
-import { checkTask, alreadyMet, verify, plainTask } from './verifier.mjs'
+import { checkTask, alreadyMet, verify, plainTask, swordRefusal, repeatRefusal, noteOutcome, setAside, outcomeSignature } from './verifier.mjs'
 import { libraryPrelude } from './library.mjs'
 import { curriculumUser, coderUser, parseJsonObject, promptSet, curriculumUserV2, coderUserV2, describeOutcome } from './prompts.mjs'
 
@@ -93,11 +93,15 @@ export class VoyagerLoop {
     const P = this.prompts, v2 = P.version >= 2
     const skills = v2 ? this.library.active() : this.library.active().map(s => ({ name: s.name, description: s.description }))
 
+    // harness 2: outcomes that failed several times in a row rest for a while (verifier.noteOutcome); the proposer is told
+    const rep = v2 ? (this.hist.rep ??= {}) : null
+    const aside = v2 ? setAside(rep, it) : []
+
     // 1-2. CURRICULUM + FEASIBILITY
     let task = null, refusal = null
     for (let ask = 0; ask < 3 && !task; ask++) {
       const r = await this.llm({ purpose: 'curriculum', system: P.curriculumSystem, maxTokens: P.curriculumMaxTokens,
-        messages: [{ role: 'user', content: (v2 ? curriculumUserV2 : curriculumUser)({ state, skills, done: this.hist.done, failed: this.hist.failed, refusal }) }] })
+        messages: [{ role: 'user', content: (v2 ? curriculumUserV2 : curriculumUser)({ state, skills, done: this.hist.done, failed: this.hist.failed, refusal, ...(v2 ? { aside } : {}) }) }] })
       if (!r.ok) {
         this.log('llm_error', { purpose: 'curriculum', iteration: it, error: r.error })
         // off-slot or paused by the showcase guard: wait longer between asks (the proxy says when the slot comes back)
@@ -110,6 +114,8 @@ export class VoyagerLoop {
       // harness 2: a reply cut off at the length limit is told so (not "reply with JSON"), and the text must be one plain sentence
       if (v2 && !t && r.stop === 'max_tokens') chk = { ok: false, reason: 'your reply was cut off at the length limit before the JSON ended; reply with ONLY the JSON object' }
       if (v2 && chk.ok) chk = plainTask(t.task)
+      if (v2 && chk.ok) chk = swordRefusal(t.success)
+      if (v2 && chk.ok) chk = repeatRefusal(rep, outcomeSignature(t.success), it)
       if (chk.ok && alreadyMet(t.success, this.snapshot())) chk = { ok: false, reason: 'that check is already true right now; propose something you cannot do yet' }
       this.log(chk.ok ? 'task_proposed' : 'task_refused', { iteration: it, ask, task: t?.task ?? null, why: t?.why ?? null, success: t?.success ?? null, reason: chk.reason ?? null, raw: chk.ok ? undefined : String(r.text).slice(0, 300) })
       if (chk.ok) task = t; else refusal = chk.reason
@@ -119,7 +125,7 @@ export class VoyagerLoop {
     // 3-6. RETRIEVE, CODE, RUN, VERIFY
     const picked = v2 ? this.library.retrieve2(task) : { related: this.library.retrieve(task, 5), more: [] }
     const related = picked.related
-    let previous = null, lastWhy = 'no attempt ran'
+    let previous = null, lastWhy = 'no attempt ran', ran = false
     for (let round = 1; round <= MAX_ROUNDS && this.running; round++) {
       const now = this.getBot()?.entity ? observeState(this.getBot()) : state
       let content, cacheSplit = null
@@ -172,6 +178,7 @@ export class VoyagerLoop {
         onKill: why => { token.revoked = true; try { this.getRunner()?.interrupt(`voyager_${why}`) } catch {} } })
       token.revoked = true
       this.active = null
+      ran = true
       const used = new Set(res.marks ?? [])
       if (!(await this.idle())) {
         // the body did not come back within 20 s of the run's end: restart the process rather than act on top of it (§12 R1)
@@ -196,6 +203,7 @@ export class VoyagerLoop {
         if (task.success.kind === 'structure' && v.cells) this.library.addStructure(v.cells)
         this.log('task_done', { iteration: it, round, task: task.task, success: task.success, skill: add.name, library_kind: add.kind, reused: [...used], why: v.why, placed_cells: standing.map(c => [c.x, c.y, c.z, c.block]) })
         this.hist.done.push(v2 ? `${describeOutcome(task.success)} (skill ${add.name})` : `${task.task} (skill ${add.name})`)
+        if (v2) noteOutcome(rep, outcomeSignature(task.success), it, true)
         this.saveHist()
         return
       }
@@ -204,7 +212,9 @@ export class VoyagerLoop {
       previous = { round, code, outcome: lastWhy, log: res.log, delta: describeDelta(start, end, rec) }
     }
     this.log('task_failed', { iteration: it, task: task.task, success: task.success, why: lastWhy })
-    this.hist.failed.push(`${v2 ? describeOutcome(task.success) : task.task} -- ${String(lastWhy).slice(0, 160)}`)
+    this.hist.failed.push(`${v2 ? describeOutcome(task.success, false) : task.task} -- ${String(lastWhy).slice(0, 160)}`)
+    // only a task whose code RAN counts against its outcome: a paused model or four cut-off replies say nothing about it
+    if (v2 && ran) noteOutcome(rep, outcomeSignature(task.success), it, false, lastWhy)
     this.saveHist()
   }
 }

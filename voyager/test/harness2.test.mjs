@@ -11,7 +11,7 @@ import path from 'node:path'
 import http from 'node:http'
 import { CURRICULUM_SYSTEM, CODER_SYSTEM, curriculumUser, coderUser, CURRICULUM_SYSTEM_V2, CODER_SYSTEM_V2, CURRICULUM_FORMAT,
   curriculumUserV2, coderUserV2, describeOutcome, abilitySummary, ABILITY_IDS_PER_KIND, promptSet } from '../src/prompts.mjs'
-import { checkTask, plainTask, TASK_MAX_CHARS, KINDS, outcomeSignature } from '../src/verifier.mjs'
+import { checkTask, plainTask, TASK_MAX_CHARS, KINDS, outcomeSignature, swordRefusal, noteOutcome, setAside, repeatRefusal, repeatExempt, REPEAT_FAILS, REPEAT_REST } from '../src/verifier.mjs'
 import { Library, pickRelated, reliability, similarity } from '../src/library.mjs'
 import { VoyagerLoop } from '../src/loop.mjs'
 import { chat } from '../src/llmclient.mjs'
@@ -98,6 +98,10 @@ test('describeOutcome says each check in plain words', () => {
   assert.equal(describeOutcome({ kind: 'reach', block: 'water', within: 3 }), 'ended within 3 of water')
   assert.equal(describeOutcome(null), 'unknown outcome')
   assert.equal(describeOutcome({ kind: 'teleport' }), 'unknown outcome')
+  // a FAILED task is written as its goal: it must not read as something the bot has done
+  assert.deepEqual([{ kind: 'have', item: 'oak_log', count: 4 }, { kind: 'craft', item: 'lantern' }, { kind: 'placed', block: 'torch', count: 2 }, { kind: 'structure', min_blocks: 30, max_span: 8 },
+    { kind: 'reach', y: 40, dir: 'below' }, { kind: 'reach', block: 'water', within: 3 }].map(s => describeOutcome(s, false)),
+  ['get 4 oak_log', 'craft lantern', 'place 2 torch', 'build a connected structure of 30+ blocks within a span of 8', 'end below y=40', 'end within 3 of water'])
 })
 
 test('abilitySummary: every outcome once, repeats counted, most repeated first, bounded', () => {
@@ -430,7 +434,8 @@ test('harness 2: a task that fails every round leaves a plain line, and a cut-of
   assert.equal(rows.filter(r => r.kind === 'reply_truncated').length, 4)
   assert.match(rows.find(r => r.kind === 'task_failed').why, /^refused before running: the reply was cut off at the length limit/)
   assert.equal(loop.hist.failed.length, 1)
-  assert.match(loop.hist.failed[0], /^ended above y=80 -- refused before running: the reply was cut off/)
+  assert.match(loop.hist.failed[0], /^end above y=80 -- refused before running: the reply was cut off/)
+  assert.deepEqual(loop.hist.rep, {})                              // nothing ran, so nothing counts against the outcome
   // positive control: on harness 1 the same replies are lint refusals ("syntax error"), as measured on the 3b arms
   const h1 = rig({ harness: 1, replies: [propose('Climb the hill to see far'), cut, cut, cut, cut] })
   await h1.loop.iteration()
@@ -445,4 +450,134 @@ test('harness 2: a reply cut off after the function was complete still runs', as
   await loop.iteration()
   assert.equal(rows.filter(r => r.kind === 'reply_truncated').length, 0)
   assert.equal(rows.find(r => r.kind === 'task_done')?.skill, 'climbHigh')
+})
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The two refusals added after reading the qwen arms (11-12): swords, and an outcome that keeps failing.
+
+test('swordRefusal: no sword task reaches the coder; every other tool does; the reason names what to propose', () => {
+  for (const item of ['wooden_sword', 'stone_sword', 'iron_sword', 'golden_sword', 'diamond_sword']) {
+    for (const s of [{ kind: 'craft', item }, { kind: 'have', item, count: 1 }]) {
+      const r = swordRefusal(s)
+      assert.equal(r.ok, false, JSON.stringify(s))
+      assert.match(r.reason, new RegExp(`^${item} cannot be made in this peaceful world.*propose a pickaxe, axe, shovel or hoe`))
+    }
+  }
+  for (const s of [{ kind: 'craft', item: 'iron_pickaxe' }, { kind: 'craft', item: 'stone_axe' }, { kind: 'have', item: 'stick', count: 2 }, { kind: 'placed', block: 'torch', count: 1 },
+    { kind: 'reach', block: 'water', within: 2 }, { kind: 'structure', min_blocks: 8, max_span: 4 }, { kind: 'craft', item: 'swordfish' }, null, {}]) assert.deepEqual(swordRefusal(s), { ok: true }, JSON.stringify(s))
+  // the fleet rule this mirrors: the craft skill refuses exactly the items that end in _sword
+  const kit = fs.readFileSync(path.join(here, '../../bots/src/peacefulkit.mjs'), 'utf8')
+  assert.ok(stripComments(kit).includes("export const isSword = name => typeof name === 'string' && /_sword$/.test(name)"))
+  assert.match(CURRICULUM_SYSTEM_V2, /Swords\ncannot be made in a peaceful world: never propose one\./)
+})
+
+test('the repeat rule: three failures in a row rest an outcome, a success clears it, the rest ends by itself', () => {
+  assert.deepEqual([REPEAT_FAILS, REPEAT_REST], [3, 12])
+  const rep = {}
+  const sig = 'craft:iron_pickaxe'
+  noteOutcome(rep, sig, 10, false, 'missing_ingredients')
+  noteOutcome(rep, sig, 11, false, 'missing_ingredients')
+  assert.deepEqual(repeatRefusal(rep, sig, 12), { ok: true })      // two failures: still allowed
+  assert.deepEqual(setAside(rep, 12), [])
+  noteOutcome(rep, sig, 12, false, 'craft iron_pickaxe failed: missing_ingredients')
+  const r = repeatRefusal(rep, sig, 13)
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /^that outcome failed 3 times in a row \(last time: craft iron_pickaxe failed: missing_ingredients\) and is set aside for your next 11 tasks; propose a different outcome -- if it lacked an ingredient or a tool, propose getting that first$/)
+  assert.deepEqual(setAside(rep, 13), [sig])
+  assert.deepEqual(repeatRefusal(rep, 'have:iron_ingot', 13), { ok: true })     // the remedy is open: another outcome is not refused
+  // it ends by itself: REPEAT_REST tasks later the outcome may be tried again, and the record is pruned
+  assert.equal(repeatRefusal(rep, sig, 12 + REPEAT_REST - 1).ok, false)
+  assert.deepEqual(repeatRefusal(rep, sig, 12 + REPEAT_REST), { ok: true })
+  assert.deepEqual(setAside(rep, 12 + REPEAT_REST), [])
+  assert.equal(sig in rep.rest, false)
+  // after the rest the count starts again from zero (one more failure does not rest it at once)
+  noteOutcome(rep, sig, 30, false, 'x')
+  assert.deepEqual(repeatRefusal(rep, sig, 31), { ok: true })
+  // a success clears a streak and a rest
+  const rep2 = {}
+  noteOutcome(rep2, sig, 1, false); noteOutcome(rep2, sig, 2, false); noteOutcome(rep2, sig, 3, true); noteOutcome(rep2, sig, 4, false)
+  assert.deepEqual(repeatRefusal(rep2, sig, 5), { ok: true })
+  assert.equal(rep2.streak[sig], 1)
+  noteOutcome(rep2, sig, 5, false); noteOutcome(rep2, sig, 6, false)
+  assert.equal(repeatRefusal(rep2, sig, 7).ok, false)
+  noteOutcome(rep2, sig, 7, true)
+  assert.deepEqual(repeatRefusal(rep2, sig, 8), { ok: true })
+  // structures of one size class share a signature and are never rested
+  assert.ok(repeatExempt('structure:small') && !repeatExempt('craft:lantern'))
+  const rep3 = {}
+  for (let i = 0; i < 9; i++) noteOutcome(rep3, 'structure:small', i, false)
+  assert.deepEqual(repeatRefusal(rep3, 'structure:small', 9), { ok: true })
+  assert.deepEqual(repeatRefusal(undefined, sig, 1), { ok: true })
+  assert.deepEqual(repeatRefusal({}, sig, 1), { ok: true })
+  // the proposer is told what rests
+  const u = curriculumUserV2({ state: FIX.state, skills: [], done: [], failed: [], refusal: null, aside: ['craft:iron_pickaxe', 'have:raw_gold'] })
+  assert.ok(u.includes('SET ASIDE (failed several times in a row; refused for now): craft:iron_pickaxe, have:raw_gold'))
+  assert.equal(curriculumUserV2({ state: FIX.state, skills: [], done: [], failed: [], refusal: null }).includes('SET ASIDE'), false)
+})
+
+const proposeCraft = (item, text = `Craft one ${item} at the table`) => ({ text: JSON.stringify({ task: text, why: 'x', success: { kind: 'craft', item } }) })
+const RUNS_AND_FAILS = { text: '```javascript\nasync function tryIt(bot) {\n  const o = await bot.observe()\n  return o.pos\n}\n```' }
+
+test('harness 2 loop: a sword is refused before any code is written, and the remedy reaches the next ask; harness 1 still tries it', async () => {
+  const { loop, calls, rows } = rig({ harness: 2, replies: [{ text: JSON.stringify({ task: 'Craft a wooden sword at the table', why: 'x', success: { kind: 'craft', item: 'wooden_sword' } }) },
+    propose('Climb the hill to see far'), { text: CODE, climb: true }] })
+  loop.getBot().registry.itemsByName.wooden_sword = { id: 9 }
+  await loop.iteration()
+  const refused = rows.filter(r => r.kind === 'task_refused')
+  assert.equal(refused.length, 1)
+  assert.match(refused[0].reason, /^wooden_sword cannot be made in this peaceful world/)
+  assert.ok(calls[1].messages[0].content.includes(`YOUR LAST PROPOSAL WAS REFUSED: ${refused[0].reason}`))
+  assert.deepEqual(calls.map(c => c.purpose), ['curriculum', 'curriculum', 'code'])     // no coder call was spent on the sword
+  assert.equal(rows.find(r => r.kind === 'task_done')?.skill, 'climbHigh')
+  // positive control: harness 1 hands the sword to the coder (four rounds on the 3b arms)
+  const h1 = rig({ harness: 1, replies: [{ text: JSON.stringify({ task: 'Craft a wooden sword', why: 'x', success: { kind: 'craft', item: 'wooden_sword' } }) }, RUNS_AND_FAILS, RUNS_AND_FAILS, RUNS_AND_FAILS, RUNS_AND_FAILS] })
+  h1.loop.getBot().registry.itemsByName.wooden_sword = { id: 9 }
+  await h1.loop.iteration()
+  assert.deepEqual(h1.calls.map(c => c.purpose), ['curriculum', 'code', 'code', 'code', 'code'])
+  assert.equal(h1.rows.filter(r => r.kind === 'task_refused').length, 0)
+})
+
+test('harness 2 loop: an outcome that fails three tasks in a row is refused on the fourth, the proposer is told, another outcome goes through', async () => {
+  const fail5 = [proposeCraft('lantern'), RUNS_AND_FAILS, RUNS_AND_FAILS, RUNS_AND_FAILS, RUNS_AND_FAILS]
+  const { loop, calls, rows } = rig({ harness: 2, replies: [...fail5, ...fail5, ...fail5,
+    proposeCraft('lantern'),                               // 16: the fourth ask for the same outcome -> refused
+    propose('Climb the hill to see far'), { text: CODE, climb: true }] })
+  await loop.iteration(); await loop.iteration(); await loop.iteration()
+  assert.equal(rows.filter(r => r.kind === 'task_failed').length, 3)
+  assert.equal(rows.filter(r => r.kind === 'task_refused').length, 0)
+  assert.deepEqual(loop.hist.failed.map(l => l.split(' -- ')[0]), ['craft lantern', 'craft lantern', 'craft lantern'])
+  assert.deepEqual(Object.keys(loop.hist.rep.rest), ['craft:lantern'])
+  await loop.iteration()
+  // the proposer was told before it asked, the ask was refused with the remedy, and the next ask carried it
+  assert.ok(calls[15].messages[0].content.includes('SET ASIDE (failed several times in a row; refused for now): craft:lantern'))
+  const refused = rows.filter(r => r.kind === 'task_refused')
+  assert.equal(refused.length, 1)
+  assert.match(refused[0].reason, /^that outcome failed 3 times in a row .* set aside for your next 11 tasks; propose a different outcome/)
+  assert.ok(calls[16].messages[0].content.includes(`YOUR LAST PROPOSAL WAS REFUSED: ${refused[0].reason}`))
+  assert.equal(rows.find(r => r.kind === 'task_done')?.skill, 'climbHigh')
+  assert.equal(calls.length, 18)                                   // 15 + refused ask + accepted ask + one code call
+  // the record survives a restart: it is in history.json
+  const saved = JSON.parse(fs.readFileSync(loop.histFile, 'utf8'))
+  assert.deepEqual(Object.keys(saved.rep.rest), ['craft:lantern'])
+  // positive control: harness 1 keeps no such record and would hand the fourth ask to the coder
+  const h1 = rig({ harness: 1, replies: [...fail5, ...fail5, ...fail5, ...fail5] })
+  for (let i = 0; i < 4; i++) await h1.loop.iteration()
+  assert.equal(h1.rows.filter(r => r.kind === 'task_failed').length, 4)
+  assert.equal(h1.rows.filter(r => r.kind === 'task_refused').length, 0)
+  assert.equal(h1.loop.hist.rep, undefined)
+})
+
+test('harness 2 loop: a success between failures clears the count, so the outcome is not rested', async () => {
+  const fail5 = [propose('Climb the hill to see far'), RUNS_AND_FAILS, RUNS_AND_FAILS, RUNS_AND_FAILS, RUNS_AND_FAILS]
+  const { loop, rows } = rig({ harness: 2, replies: [...fail5, ...fail5, propose('Climb the hill to see far'), { text: CODE, climb: true }, ...fail5] })
+  await loop.iteration(); await loop.iteration()
+  assert.equal(loop.hist.rep.streak['reach:yabove80'], 2)
+  await loop.iteration()                                           // verified
+  assert.equal(rows.filter(r => r.kind === 'task_done').length, 1)
+  assert.equal('reach:yabove80' in loop.hist.rep.streak, false)
+  loop.getBot().entity.position = new Vec3(0.5, 64, 0.5)           // back down, so the check is not already true
+  await loop.iteration()                                           // fails again: the first of a new count, not the third
+  assert.equal(rows.filter(r => r.kind === 'task_failed').length, 3)
+  assert.equal(loop.hist.rep.streak['reach:yabove80'], 1)
+  assert.deepEqual(loop.hist.rep.rest, {})
 })

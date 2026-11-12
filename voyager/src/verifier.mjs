@@ -24,6 +24,66 @@ export function infeasibleName (name) {
 
 const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi
 
+// ---------------------------------------------------------------------------------------------------------------------
+// HARNESS 2 REFUSALS (11-12). Each names something the proposer can do next, from where it is.
+
+/**
+ * A sword cannot be made here: the fleet's craft skill refuses every sword in a peaceful world (owner 10-07,
+ * bots/src/peacefulkit.mjs), and every voyager world is peaceful. Harness 1's filter did not know, so the task went to
+ * four rounds of code that could not work: on the 3b arms 1,066 of 3,321 qwen proposals (32 %) and 264 of 4,664 of
+ * Haiku's were sword tasks, and not one of the 1,330 was ever verified. Pure.
+ * @returns {{ok:boolean, reason?:string}}
+ */
+export function swordRefusal (success) {
+  const item = success?.kind === 'craft' || success?.kind === 'have' ? String(success.item ?? '') : ''
+  if (!/_sword$/.test(item)) return { ok: true }
+  return { ok: false, reason: `${item} cannot be made in this peaceful world (no sword can); propose a pickaxe, axe, shovel or hoe, or something to build or gather` }
+}
+
+export const REPEAT_FAILS = 3          // this many failures in a row of one outcome ...
+export const REPEAT_REST = 12          // ... set it aside for this many of the bot's next tasks
+/** Outcomes the repeat rule never sets aside: every structure of a size class shares one signature. Pure. */
+export const repeatExempt = sig => String(sig).startsWith('structure:')
+
+/**
+ * Note a task's end in the repeat record `rep` = {streak:{sig:n}, rest:{sig:untilIteration}, why:{sig:text}} (mutated and
+ * returned). A success clears the outcome; the REPEAT_FAILS-th failure in a row sets it aside until `it + REPEAT_REST`.
+ * On the 3b arms 1,273 of 3,322 qwen proposals (38 %) and 215 of 2,443 of h1's asked again for the outcome that had just
+ * failed (q2: craft iron_pickaxe 471 times, verified 4). Replayed over the real sequences, this rule and the sword rule
+ * refuse 50 % / 59 % of q1 / q2's proposals (56 % / 63 % of their code calls) for 7 % / 6 % of their verified tasks, and
+ * 15 % / 17 % of h1 / h2's for 3 %. Pure apart from mutating `rep`.
+ */
+export function noteOutcome (rep, sig, it, ok, why = '') {
+  rep.streak ??= {}; rep.rest ??= {}; rep.why ??= {}
+  if (ok) { delete rep.streak[sig]; delete rep.rest[sig]; delete rep.why[sig]; return rep }
+  if (repeatExempt(sig)) return rep
+  rep.streak[sig] = (rep.streak[sig] ?? 0) + 1
+  rep.why[sig] = String(why).slice(0, 120)
+  if (rep.streak[sig] >= REPEAT_FAILS) { rep.rest[sig] = it + REPEAT_REST; rep.streak[sig] = 0 }
+  return rep
+}
+
+/** The outcomes set aside at iteration `it` (expired ones are dropped from `rep`). Pure apart from that pruning. */
+export function setAside (rep, it) {
+  const out = []
+  for (const [sig, until] of Object.entries(rep?.rest ?? {})) {
+    if (until > it) out.push(sig); else { delete rep.rest[sig]; delete rep.why?.[sig] }
+  }
+  return out.sort()
+}
+
+/**
+ * Is this outcome set aside right now? The reason says for how long, why it last failed, and what to propose instead.
+ * It is never a dead end: the rest ends by itself after REPEAT_REST tasks, and one success clears it. Pure.
+ * @returns {{ok:boolean, reason?:string}}
+ */
+export function repeatRefusal (rep, sig, it) {
+  const until = rep?.rest?.[sig]
+  if (!(until > it)) return { ok: true }
+  const why = rep.why?.[sig] ? ` (last time: ${rep.why[sig]})` : ''
+  return { ok: false, reason: `that outcome failed ${REPEAT_FAILS} times in a row${why} and is set aside for your next ${until - it} tasks; propose a different outcome -- if it lacked an ingredient or a tool, propose getting that first` }
+}
+
 export const TASK_MAX_CHARS = 240
 /**
  * Harness 2: is the task text ONE plain sentence? On the 3b Haiku arms a quarter of the proposals were a thought revised inside

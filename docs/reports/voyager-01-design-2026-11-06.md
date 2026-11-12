@@ -661,9 +661,9 @@ and reply cap); the backend, the spend cap and the pace stay the arm's. A safety
 as an empty reply and is named in the row. **No server-side fallback is requested**: in a model comparison a silent switch to
 another model would be counted as the arm's own answer.
 
-**Tests (ci2, 11-12):** voyager suite 72 of 72 (base 50 of 50). 22 new tests: pure functions, a whole loop iteration on each
+**Tests (ci2, 11-12):** voyager suite 77 of 77 (base 50 of 50). 27 new tests: pure functions, a whole loop iteration on each
 harness against a fake body and a scripted model with the real isolate, and the real proxy process against local fake model
-servers. 54 mutants with anchor checks: 53 killed; the survivor (the purpose's reply cap read from the arm) is equivalent on
+servers. 71 mutants with anchor checks: 70 killed; the survivor (the purpose's reply cap read from the arm) is equivalent on
 the wire because the model call clamps again. Replay of both real libraries and 4,546 real tasks: the table above.
 Independent review (Codex, read-only, one round, blockers only, on 4a3f3e6d): NO BLOCKERS. `setup.sh` creates a harness 2
 arm's proxy entry with a 12,000-token reply cap and its own $20 cap: left at 4,096, the proxy would clamp harness 2 back to
@@ -692,4 +692,40 @@ Compared per bot-hour over the same elapsed hours (0 to 48) with 3b's h1/h2 (har
    for 24 h.
 Caps at the proxy: g $40, s $100, Opus $50. Estimated spend: g about $20, s about $65 (proposals about $12 per bot-day at
 Sonnet's price plus the Haiku coder).
+
+### 19.1 Two more refusals, from reading the qwen arms (owner 11-12: "will this new harness possibly help the qwen model")
+
+The reply cap and the garbled text are Haiku's problems, not qwen's: qwen3.8's code parsed (16 lint refusals beside 11,956
+executions) and its task texts were short and plain (0 of 3,326 with an `<id>-free` word). What limited it was the proposer:
+
+| Measured on the 3b arms, whole run to 11-12 14:00Z | q1 | q2 | h1 | h2 |
+|---|---|---|---|---|
+| Proposals that were sword tasks | 450 of 1,479 (30 %) | 616 of 1,842 (33 %) | 114 of 2,438 (5 %) | 150 of 2,226 (7 %) |
+| Sword tasks ever verified | 0 | 0 | 0 | 0 |
+| Proposals for the outcome that had just failed | 559 of 1,480 (38 %) | 714 of 1,842 (39 %) | 215 of 2,443 (9 %) | not counted |
+| Executions that called a library skill | 0 of 5,064 | 3 of 6,872 | 87 of 6,980 | not counted |
+
+A sword cannot be made in these worlds: the fleet's craft skill refuses every sword in a peaceful world (owner 10-07,
+`bots/src/peacefulkit.mjs`), and the voyager filter did not know it, so each sword task spent four rounds of code.
+**This also bears on the 3b verdict:** one rule of our own harness took a third of qwen's proposals and a twentieth of
+Haiku's. The pre-registered read stands as written; this is to be stated beside it.
+
+Harness 2 now has, as well:
+- `swordRefusal`: a `craft` or `have` of any `*_sword` is refused at the proposal, with what to propose instead; the
+  proposer prompt says so too.
+- The repeat rule (`noteOutcome`, `repeatRefusal`): an outcome whose tasks fail 3 times in a row, with code that ran, is set
+  aside for the bot's next 12 tasks; the proposer is shown what is set aside; one success clears it; structures are exempt
+  (one signature per size class). It cannot dead-end: the rest ends by itself.
+- Failed history lines are written as the goal ("craft lantern -- why"), not as a thing done.
+
+Replayed over the real sequences (the model's replacement proposals are unknown, so this is calls freed, not tasks gained):
+
+| | q1 | q2 | h1 | h2 |
+|---|---|---|---|---|
+| Proposals the two rules refuse | 734 of 1,479 (50 %) | 1,094 of 1,842 (59 %) | 376 of 2,438 (15 %) | 368 of 2,226 (17 %) |
+| Code calls those proposals used | 2,889 of 5,145 (56 %) | 4,351 of 6,954 (63 %) | 1,453 of 7,637 (19 %) | 1,425 of 6,884 (21 %) |
+| Verified tasks among the refused (the cost) | 22 of 329 (7 %) | 10 of 168 (6 %) | 33 of 1,005 (3 %) | 23 of 936 (2 %) |
+| Verified share of what still runs | 41 % (was 22 %) | 21 % (was 9 %) | 47 % (was 41 %) | 49 % (was 42 %) |
+
+17 more mutants, all killed (in the 71 above).
 
