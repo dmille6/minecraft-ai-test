@@ -20,11 +20,17 @@ const t = async (name, fn) => {
 }
 /** A mutant of takeback.mjs, its anchor present and unique (CLAUDE.md), imported from the test directory. */
 async function withMutant (old, neu, fn, path = SRC) {
-  const src = readFileSync(path, 'utf8')
-  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))}`)
-  assert.ok(src.split(old).length === 2, 'the mutation target is not unique')
+  // `old` may be a list of [old, new] pairs (one mutant, several anchored replacements: each present AND unique)
+  const pairs = Array.isArray(old) ? old : [[old, neu]]
+  if (Array.isArray(old)) { path = fn ?? SRC; fn = neu }
+  let src = readFileSync(path, 'utf8')
+  for (const [o, n] of pairs) {
+    assert.ok(src.includes(o), `MUTATION DID NOT APPLY: ${JSON.stringify(o.slice(0, 70))}`)
+    assert.ok(src.split(o).length === 2, 'the mutation target is not unique')
+    src = src.replace(o, n)
+  }
   const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -132,8 +138,10 @@ function fake ({ env = {}, M = TB, digMs = 5, exclusion = [], profile = 'walk', 
   })
   bot.stopDigging = () => { digging?.() }
   let goal = null
-  // mineflayer-pathfinder index.js:142-147: the goal is set, THEN goal_updated is emitted, synchronously
-  const setGoalFake = g => { goal = g; bot.emit('goal_updated', g, false) }
+  // mineflayer-pathfinder index.js:123-147: the goal is set, THEN goal_updated is emitted, synchronously, then resetPath runs --
+  // which CONSUMES a stop() someone left pending and emits path_stop there and then (index.js:139, pathhalt.mjs's header)
+  let stopPending = false
+  const setGoalFake = g => { goal = g; bot.emit('goal_updated', g, false); if (stopPending) { stopPending = false; bot.emit('path_stop') } }
   bot.pathfinder = {
     movements: { exclusionAreasBreak: exclusion },
     isBuilding: () => false, isMining: () => false, bestHarvestTool: () => null,
@@ -164,7 +172,7 @@ function fake ({ env = {}, M = TB, digMs = 5, exclusion = [], profile = 'walk', 
   const arrive = () => { bot.emit('goal_reached', goal); goal = null }
   // a walk as the skills issue one: fenced by the real withTimeout (skills.mjs)
   const walk = (g, ms = 30_000, opts = {}) => { const p = withTimeout(bot.pathfinder.goto(g), ms, bot, { needsDrop: false, ...opts }); p.catch(() => {}); return p }
-  return { bot, cells, props, rows, gotos, tb, place, stand, name, out, arrive, walk, setGoal: setGoalFake, goalNow: () => goal }
+  return { bot, cells, props, rows, gotos, tb, place, stand, name, out, arrive, walk, setGoal: setGoalFake, goalNow: () => goal, stopLater: () => { stopPending = true } }
 }
 /** The live walk: a step placed ahead, the bot climbs it, walks one past it. -> the walk's promise and the fake. */
 function climb (opts = {}) {
@@ -231,7 +239,7 @@ await t('THE CALLER ENDS THE WALK DURING A TAKE-BACK (its timeout halts the path
   assert.strictEqual(c.name(1, 64, 0), 'dirt', 'the dig was stopped')
 })
 await t('MUTANT: the endings of others not heard -- the goal the caller gave up is walked again (killed)', async () => {
-  await withMutant("if (!call.own && ng !== goal) call.giveUp('GoalChanged')", 'void ng', async M => {
+  await withMutant("      if (ng !== goal) call.giveUp('GoalChanged')\n", '', async M => {
     const c = climb({ M, digMs: 60 })
     await c.past()
     await until(() => c.gotos[0].settled === 'GoalChanged')
@@ -330,6 +338,48 @@ await t('a newer goto owns the body: the older walk\'s take-back ends and it is 
   await until(() => c.name(1, 64, 0) === 'air')
   assert.ok(c.gotos.every((g, i) => i === 0 || g.goal === NEXT))
   await sleep(3 * T.tickMs); c.arrive(); await q
+})
+await t('REVIEW r2 (Codex): a reflex sets its own goal INSIDE our halt (a goal_updated listener) -- its goal stands, ours is never issued again', async () => {
+  const c = climb({ digMs: 30 })
+  const REFLEX = { id: 'reflex' }
+  let armed = true
+  c.bot.prependListener('goal_updated', g => { if (armed && g === null) { armed = false; c.setGoal(REFLEX) } })
+  await c.past()
+  await assert.rejects(c.p, e => e.name === 'GoalChanged')
+  await sleep(80)
+  assert.strictEqual(c.goalNow(), REFLEX, 'the reflex\'s goal stands')
+  assert.strictEqual(c.gotos.length, 1, 'never A again')
+})
+await t('MUTANT: our halt excuses every emission while it runs -- the reflex\'s goal is overwritten by A (killed)', async () => {
+  await withMutant('      if (call.own > 0 && ng === null) { call.own--; return }', '      if (call.own > 0) return', async M => {
+    const c = climb({ M, digMs: 30 })
+    const REFLEX = { id: 'reflex' }
+    let armed = true
+    c.bot.prependListener('goal_updated', g => { if (armed && g === null) { armed = false; c.setGoal(REFLEX) } })
+    await c.past()
+    await until(() => c.gotos.length === 2, 1500)
+    assert.strictEqual(c.goalNow(), c.GOAL, 'the mutant issued A over the reflex\'s goal')
+    c.arrive(); await c.p.catch(() => {})
+  })
+})
+await t('REVIEW r2 (Codex): a stop() someone left pending is consumed by our halt -- it is theirs: PathStopped, never walked again', async () => {
+  const c = climb({ digMs: 30 })
+  await sleep(3 * T.tickMs)
+  c.stopLater()                                    // pathfinder.stop() by someone else: only a flag until the next reset
+  c.stand(2, 65, 0)
+  await assert.rejects(c.p, e => e.name === 'PathStopped')
+  await sleep(80)
+  assert.strictEqual(c.gotos.length, 1); assert.deepStrictEqual(c.bot.dug, [], 'and no take-back under a stop')
+})
+await t('MUTANT (the r1 rule): everything inside our halt is taken for our own -- the stopped walk goes on (killed)', async () => {
+  await withMutant([["      if (call.own > 0 && ng === null) { call.own--; return }", "      if (call.own > 0) return"],
+    ["    const onStop = () => call.giveUp('PathStopped')", "    const onStop = () => { if (!call.own) call.giveUp('PathStopped') }"]], async M => {
+    const c = climb({ M, digMs: 30 })
+    await sleep(3 * T.tickMs)
+    c.stopLater(); c.stand(2, 65, 0)
+    await until(() => c.gotos.length === 2, 1500)
+    c.arrive(); await c.p.catch(() => {})
+  })
 })
 await t('a reflex stops the path during a take-back: PathStopped reaches the caller', async () => {
   const c = climb({ digMs: 120 })

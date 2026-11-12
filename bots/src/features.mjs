@@ -170,6 +170,16 @@ export function installPoolPrune (bot, { dir = poolStateDir(config.memory.pool),
   bot.once?.('end', () => { clearTimeout(t1); clearInterval(t2) })
   return { pass, stop: () => { clearTimeout(t1); clearInterval(t2) } }
 }
+/** takeback-01: the walk's take-back (takeback.mjs; TAKEBACK=off -> not installed) -> its handle | null. Its receipts are the place
+ *  audit's placements, so with PLACEAUDIT=off nothing is noted and nothing is taken back (its mode row still says what it is).
+ *  Kept out of installFeatures' body: test/cobble-rule reads that function's first 4,000 characters for the cap's licence row. */
+function takebackFor (bot) {
+  try {
+    const tb = installTakeback(bot, { emit: (kind, status, detail) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } } })
+    if (tb) bot.once?.('end', () => { try { tb.final() } catch { /* telemetry */ } })
+    return tb
+  } catch (e) { log('warn', 'takeback not installed', { error: e?.message }); return null }
+}
 export function installFeatures (bot) {
   try { installAtlasFeature(bot) } catch (e) { log('warn', 'atlas not installed', { error: e.message }) }
   // placeaudit-01: the `_place_town` instrument (placeaudit.mjs; TELEMETRY ONLY) and its licence row `_placeaudit_mode`
@@ -177,13 +187,7 @@ export function installFeatures (bot) {
   try {
     const on = placeAuditOn(process.env)
     logEvent({ kind: 'placeaudit_mode', status: 'success', snapshot: snapshot(bot), detail: `phase=mode v=1 on=${on ? 1 : 0}` })
-    // takeback-01: the walk's take-back (takeback.mjs; TAKEBACK=off -> not installed). Its receipts are this instrument's placements,
-    // so with PLACEAUDIT=off nothing is noted and nothing is taken back (its mode row still says what it is)
-    let tb = null
-    try {
-      tb = installTakeback(bot, { emit: (kind, status, detail) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } } })
-      if (tb) bot.once?.('end', () => { try { tb.final() } catch { /* telemetry */ } })
-    } catch (e) { log('warn', 'takeback not installed', { error: e?.message }) }
+    const tb = takebackFor(bot)   // takeback-01
     if (on) {
       const pa = attachPlaceAudit(bot, {
         home: configuredHome(config.world),

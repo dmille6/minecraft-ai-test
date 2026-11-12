@@ -32,7 +32,10 @@
 //   1. THE FENCE. Only a walk handed to skills.mjs withTimeout is ever halted (`call.fenced`): its timer calls `call.giveUp()`
 //      whatever the caller's own timeout handler then does. A goto nobody fenced is the library's own, as before.
 //   2. EVERY ENDING BY SOMEONE ELSE is heard for the whole call, not from the halt on: a goal_updated for another goal (the
-//      caller's haltPath, a new walk, a reflex's goal) and every path_stop -- except the one goal_updated our own halt emits.
+//      caller's haltPath, a new walk, a reflex's goal) and EVERY path_stop. Our own halt is excused exactly ONE goal_updated(null)
+//      and nothing else (review r2, Codex, reproduced with the real library: a listener that set a reflex's goal INSIDE our
+//      setGoal(null) was swallowed -- A -> null -> REFLEX -> A; and a stop() someone had pending is consumed by that same
+//      setGoal's resetPath, which emits path_stop there and then: it is theirs, never ours).
 //   3. THE WATCHER HALTS ONLY ITS OWN GOAL: `pathfinder.goal` must still be this call's goal, the call must be the newest goto,
 //      and nobody may have ended it.
 // After a take-back the goal is issued again only while none of that happened; otherwise the caller gets GoalChanged or
@@ -238,7 +241,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
         if (!h || held() || !((bot.health ?? 20) >= T.minHealth)) break
         const next = ripeNow(h).find(r => !r.skip)
         if (!next) break
-        if (!(await closeOne(next, () => !!call.gone || st.owner !== call))) next.skip = true
+        if (!(await closeOne(next, () => !!call.gone || st.owner !== call || held()))) next.skip = true
       }
     } catch { /* a take-back never breaks a walk */ } finally {
       for (const r of st.open) delete r.skip
@@ -261,9 +264,9 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
         if (!due) return
         call.n++; st.sum.halts++; st.recent = [...st.recent.filter(t => now() - t < 60_000), now()]
         call.due = true
-        // our own halt: its goal_updated is emitted synchronously inside setGoal, and is the one ending that is not someone else's
-        call.own = true
-        try { haltPath(bot) } finally { call.own = false }
+        // our own halt: ONE goal_updated(null), emitted synchronously inside setGoal, is the one ending that is not someone else's
+        call.own = 1
+        try { haltPath(bot) } finally { call.own = 0 }
       } catch { /* the watcher never breaks a walk */ }
     }, T.tickMs)
     iv.unref?.()
@@ -272,8 +275,11 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   const orig = pf.goto
   const run = async (self, call, goal, rest) => {
     // heard for the WHOLE call (rule 2): the library's own setGoal(goal) at each issue names this goal and is not an ending
-    const onGoal = ng => { if (!call.own && ng !== goal) call.giveUp('GoalChanged') }
-    const onStop = () => { if (!call.own) call.giveUp('PathStopped') }
+    const onGoal = ng => {
+      if (call.own > 0 && ng === null) { call.own--; return }       // exactly one: a nested setGoal or haltPath inside it still counts
+      if (ng !== goal) call.giveUp('GoalChanged')
+    }
+    const onStop = () => call.giveUp('PathStopped')                 // never ours: pathhalt never stops, so this is a stop() of someone else's
     bot.on('goal_updated', onGoal); bot.on('path_stop', onStop)
     try {
       for (;;) {
@@ -295,7 +301,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   }
   const wrapped = function (goal, ...rest) {
     if (st.closed) return orig.call(this, goal, ...rest)
-    const call = { n: 0, due: false, own: false, gone: null, fenced: false, escape: false }
+    const call = { n: 0, due: false, own: 0, gone: null, fenced: false, escape: false }
     // THE CALLER GAVE UP (skills.mjs withTimeout's timer; the listeners above): never walked again, a dig under way is stopped
     call.giveUp = why => { call.gone ??= (why === 'PathStopped' ? 'PathStopped' : 'GoalChanged'); try { if (st.busy && st.digger === call) bot.stopDigging?.() } catch { /* not digging */ } }
     try { call.escape = issuedByEscape(String(new Error().stack ?? '').split('\n').slice(1, 8)) } catch { /* unknown: a walk */ }
