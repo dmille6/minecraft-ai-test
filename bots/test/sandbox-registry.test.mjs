@@ -155,25 +155,55 @@ t('comments are stripped: an enumeration inside a comment is not a copy (and a `
   const v = enumerationViolations('S="${SERVER#sandbox}"; case "$S" in sandbox3|sandbox4) ;; esac', '.sh').join()
   for (const n of ['sandbox5', 'sandbox6', 'sandbox7', 'sandbox8']) assert.match(v, new RegExp(`not ${n}`))
 })
-t('WIRED: no driver reads the lock by hand any more; every lock-checking driver goes through requireSandboxLock(SERVER, ...)', () => {
-  const drivers = SCANNED.filter(f => /\.(cjs|mjs)$/.test(f) && f.startsWith(path.join(REPO, 'sandbox') + path.sep) && !f.includes(`${path.sep}lib${path.sep}`))
-  const code = f => stripComments(readFileSync(f, 'utf8'), path.extname(f))
-  const byHand = drivers.filter(f => /mcai-sandbox\.lock\//.test(code(f))).map(f => path.relative(REPO, f))
+// THE LOCK WIRING OF ONE DRIVER -> { checks, problems } (no problems = fine). Pure; `code` is the driver's source, comments stripped.
+// Until 11-12 this was an EXACT COUNT of the drivers on the shared check, so every change that added a driver edited
+// the same line and no two of them could be rebased over each other (gathermem-01 and ironchain-01 both made 30 into
+// 31). The rule is now per driver, so a new driver is held to it and nobody edits a number:
+//   - a driver that loads the lock library checks the lock (a check that was deleted leaves the load behind);
+//   - a driver that checks the lock loads the library (the check is the shared one, not a local copy);
+//   - every check is for SERVER, the server the driver was told to use, never a fixed name.
+// A driver that names neither is not held (the older drivers that never checked a lock are out of this rule's reach,
+// as they were out of the count's).
+function lockWiring (code) {
+  const loads = /\bsbxlock\.cjs\b/.test(code)
+  const checks = [...code.matchAll(/\brequireSandboxLock\(\s*([^,)]*)/g)].map(m => m[1].trim())
+  const out = []
+  if (loads && !checks.length) out.push('loads sandbox/lib/sbxlock.cjs but never calls requireSandboxLock: call requireSandboxLock(SERVER, <tag>) before it connects')
+  if (checks.length && !loads) out.push('calls requireSandboxLock but never loads sandbox/lib/sbxlock.cjs: the check must be the shared one')
+  for (const a of checks) if (a !== 'SERVER') out.push(`checks the lock of ${a || 'nothing'}, not of SERVER: pass the server the driver was given`)
+  return { checks, problems: out }
+}
+const DRIVERS = SCANNED.filter(f => /\.(cjs|mjs)$/.test(f) && f.startsWith(path.join(REPO, 'sandbox') + path.sep) && !f.includes(`${path.sep}lib${path.sep}`))
+const driverCode = f => stripComments(readFileSync(f, 'utf8'), path.extname(f))
+t('WIRED: no driver reads the lock by hand; every driver that loads the lock library checks the lock of SERVER through it (a rule per driver, never a count)', () => {
+  const byHand = DRIVERS.filter(f => /mcai-sandbox\.lock\//.test(driverCode(f))).map(f => path.relative(REPO, f))
   assert.deepEqual(byHand, [], 'a driver still cats the global owner file itself (it would ignore per-server locks)')
-  const wired = drivers.filter(f => /\bsbx\.requireSandboxLock\(SERVER, /.test(code(f)))
-  // 13 from sandbox58 + homefix-e2e, homefix2-e2e and drown/hf2-ab (homefix-02's drivers) + keepout/keepout-e2e (keepout-01's)
-  // + protectzone/protectzone-e2e (protectzone-01's), moved onto the shared check at merge
-  // + lavastep/lavastep-e2e (lavastep-01, merged 10-25)
-  // + poolescape/poolescape-e2e (poolescape-01's, written on the shared check from the start)
-  // + failmine/scene-e2e (the failure-mining scene library's generic driver, 10-24, tag failmine)
-  // + craft/ironsmelt-e2e (ironsmelt-01's, written on the shared check from the start)
-  // + stair/stair-e2e (shaft-02's town stair, 10-30)
-  // + coop/arms-e2e (B5's Paper arms, the cooperation tier, 10-31)
-  // + deepmine/deepmine-e2e and deepmine/bucket-probe (deepminer-01, 11-01, tag deepmine)
-  assert.equal(wired.length, 32, `expected the 32 lock-checking drivers (glass-01 glass-proof, coop arms-e2e; shafttrap-01 egress-e2e, shafttrap-02 handoff-e2e), saw ${wired.map(f => path.basename(f))}`)
-  // + townplan/townplan-e2e (townplan-01's and found-01's, moved onto the shared check at their JIT 10-23c re-stack)
-  // + lavastep/lavastep-e2e (lavastep-01's, written on the shared check from the start)
-  for (const f of wired) assert.match(code(f), /require\('\.\.\/lib\/sbxlock\.cjs'\)|from '\.\.\/lib\/sbxlock\.cjs'/, `${path.basename(f)} never imports sbx`)
+  const rows = DRIVERS.map(f => ({ file: path.relative(REPO, f), ...lockWiring(driverCode(f)) }))
+  assert.deepEqual(rows.flatMap(r => r.problems.map(why => `${r.file} ${why}`)), [])
+  // POSITIVE CONTROL on the SAME rows (a scan that read nothing has no problems either). A floor, never a count: 25
+  // drivers checked the lock when the shared check was wired; the older drivers that check nothing keep it below all.
+  const checked = rows.filter(r => r.checks.length)
+  assert.ok(checked.length >= 25, `only ${checked.length} of ${rows.length} drivers were seen checking the lock (at least 25 do)`)
+  assert.ok(checked.length < rows.length, 'every driver was seen checking the lock: the scan is matching something else')
+})
+t('MUTANT KILLED: a driver whose lock check is deleted, whose library load is deleted, or that checks a fixed server is flagged', () => {
+  const src = driverCode(path.join(REPO, 'sandbox/stair/stair-e2e.mjs'))
+  const check = "sbx.requireSandboxLock(SERVER, 'stair')", load = "import sbx from '../lib/sbxlock.cjs'"
+  assert.ok(src.split(check).length === 2, 'ANCHOR MISSING or not unique (the check)')
+  assert.ok(src.split(load).length === 2, 'ANCHOR MISSING or not unique (the load)')
+  assert.deepEqual(lockWiring(src), { checks: ['SERVER'], problems: [] })
+  assert.match(lockWiring(src.replace(check, '')).problems.join(), /never calls requireSandboxLock/)
+  assert.match(lockWiring(src.replace(load, "import sbx from './mylock.cjs'")).problems.join(), /never loads sandbox\/lib\/sbxlock\.cjs/)
+  assert.match(lockWiring(src.replace(check, "sbx.requireSandboxLock('sandbox4', 'stair')")).problems.join(), /checks the lock of 'sandbox4', not of SERVER/)
+  assert.deepEqual(lockWiring(src.replace(check, check + "\nsbx.requireSandboxLock(SERVER, 'again')")), { checks: ['SERVER', 'SERVER'], problems: [] }, 'a second check of SERVER is fine')
+})
+t('lockWiring: a check that only a comment names is no check; other load shapes count; a driver that names neither is not held', () => {
+  const strip = s => stripComments(s, '.cjs')
+  assert.match(lockWiring(strip("const sbx = require('../lib/sbxlock.cjs')\n// sbx.requireSandboxLock(SERVER, 'x')\nrun()")).problems.join(), /never calls/)
+  assert.deepEqual(lockWiring(strip("const { requireSandboxLock } = require('../lib/sbxlock.cjs')\nrequireSandboxLock(SERVER, TAG)")).problems, [])
+  assert.deepEqual(lockWiring(strip("const LOCK = req(path.join(BOT_ROOT, 'sandbox/lib/sbxlock.cjs'))\nLOCK.requireSandboxLock(SERVER, process.env.SBX_TAG || 'roadsproof')")).problems, [])
+  assert.match(lockWiring(strip("const sbx = require('../lib/sbxlock.cjs')\nsbx.requireSandboxLock()")).problems.join(), /checks the lock of nothing/)
+  assert.deepEqual(lockWiring(strip("const mineflayer = require('mineflayer')\nmineflayer.createBot({ port: 25599 })")), { checks: [], problems: [] })
 })
 t("sbxlock.sh's own name list is the registry's", () => {
   const m = readFileSync(SBXLOCK, 'utf8').match(/^NAMES="([^"]+)"/m)
