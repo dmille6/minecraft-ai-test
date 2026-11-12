@@ -51,7 +51,7 @@ await t('THE TABLE: holding the keep -> refused; short and in town with town log
   const full = G({ wood: 16 })
   assert.equal(full.act, 'refuse'); assert.equal(full.need, 0)
   assert.match(full.detail, /the town holds 4158 logs, above its 1024 limit, and you carry 16 wood \(your keep is 16\): no tree cutting/)
-  assert.match(full.detail, /Craft planks or sticks from your bag, or pick other work/, 'the remedy is something the bot can do from where it stands')
+  assert.match(full.detail, /Use the wood in your bag, or pick other work/, 'the remedy is something the bot can do from where it stands')
   assert.equal(G({ wood: 40.5 }).act, 'refuse')
   assert.deepEqual(G({ wood: 4 }), { act: 'withdraw', why: 'town_has_logs', need: 12, item: 'spruce_log', count: 12, cut: 12 })
   assert.equal(G({ wood: 15.5 }).need, 1, 'half a unit short is short')
@@ -62,6 +62,24 @@ await t('THE TABLE: holding the keep -> refused; short and in town with town log
   assert.deepEqual(G({ wood: 4, top: { name: 'oak_log', count: 0 } }), { act: 'clamp', why: 'no_town_logs', need: 12, count: 12 })
   assert.deepEqual(G({ wood: 4, triedAt: 1_000_000 - 60_000 }), { act: 'clamp', why: 'withdraw_tried', need: 12, count: 12 })
   assert.equal(G({ wood: 4, triedAt: 1_000_000 - LC.LOGGATE_LATCH_MS }).act, 'withdraw', 'the latch ends')
+})
+await t('THE RUNG COUNTS LOGS ONLY (Claude review r1 blocker): 4 logs + 48 planks = 16 units, but the wood rung reads 4/12 -> short by 8, never refused', () => {
+  const g = G({ wood: 16, rungLogs: 4 })
+  assert.deepEqual(g, { act: 'withdraw', why: 'town_has_logs', need: 8, item: 'spruce_log', count: 8, cut: 8 })
+  assert.deepEqual(G({ wood: 16, rungLogs: 4, inTown: false }), { act: 'clamp', why: 'away', need: 8, count: 8 })
+  assert.equal(G({ wood: 16, rungLogs: 12 }).act, 'refuse', 'the rung is met and the keep is held')
+  assert.equal(G({ wood: 16, rungLogs: 11 }).need, 1)
+  assert.equal(G({ wood: 40, rungLogs: 0 }).need, 12, 'all planks, no logs: the rung needs its twelve')
+  assert.equal(G({ wood: 2, rungLogs: 11 }).need, 14, 'the larger of the two shortfalls')
+  assert.equal(G({ wood: 16, rungLogs: null }).act, 'refuse', 'a rung that wants no log: the keep alone')
+})
+await t('LOGGATE_RUNG_LOGS is the gatherer chain\'s own number (restated in logcap.mjs, which imports nothing)', async () => {
+  const MS = await import('../src/milestones.mjs')
+  const rung = MS.gathererChain({ sand: false }).find(m => m.id === 'gather_oak_log_12')
+  assert.ok(rung, 'the wood rung is in the chain'); assert.ok(Array.isArray(rung.wantsAny) && rung.wantsAny.includes('oak_log') && rung.wantsAny.includes('birch_log'))
+  const bot = n => ({ inventory: { items: () => [{ name: 'oak_log', count: n }, { name: 'oak_planks', count: 64 }] } })
+  assert.equal(rung.done(bot(LC.LOGGATE_RUNG_LOGS)), true, 'met at twelve logs')
+  assert.equal(rung.done(bot(LC.LOGGATE_RUNG_LOGS - 1)), false, 'not at eleven, whatever the planks it holds')
 })
 await t('the bounded cut: never more than was asked, never more than the keep, at least a small tree when more was asked', () => {
   assert.equal(G({ wood: 0, inTown: false, count: 64 }).count, 16)
@@ -89,11 +107,11 @@ await t('PROPERTY (20,000 random cases): a bot short of wood is NEVER refused; a
     const o = { on: rnd() > 0.05, block: pick(['oak_log', 'warped_stem', 'stripped_oak_wood', 'cobblestone', 'oak_planks']), count: pick([1, 3, 16, 64, 128, undefined]),
                 cap: pick([CAPPED, { capped: true, why: 'band', logs: 900 }, { capped: true, why: 'held', logs: null }, { capped: false, why: 'below_low', logs: 10 }, null]),
                 wood, keep: 16, inTown: rnd() > 0.5, top: pick([null, { name: 'oak_log', count: 3 }, { name: 'spruce_log', count: 4000 }, { name: 'oak_log', count: 0 }]),
-                triedAt: pick([null, 1_000_000 - 1000, 1_000_000 - 3_600_000]), now: 1_000_000 }
+                triedAt: pick([null, 1_000_000 - 1000, 1_000_000 - 3_600_000]), rungLogs: pick([null, null, 0, 4, 11, 12, 40]), now: 1_000_000 }
     const g = LC.logGatherGate(o)
     const live = o.on && LC.isLogBlock(o.block) && !!o.cap?.capped
     if (!live) { assert.equal(g.act, 'pass', JSON.stringify(o)); continue }
-    if (wood < 16) {
+    if (wood < 16 || (o.rungLogs != null && o.rungLogs < 12)) {
       short++
       assert.notEqual(g.act, 'refuse', `short of wood and refused: ${JSON.stringify(o)}`)
       assert.ok(g.act === 'withdraw' || g.act === 'clamp')
@@ -130,7 +148,7 @@ await t('ADMISSION: a capped town and a bot holding its wood keep -> the gather 
   const ac = new AdmissionControl()
   const r = ac.check(structuredClone(CUT), botWith({ oak_log: 20, stone_pickaxe: 1 }), null)
   assert.equal(r.ok, false); assert.equal(r.reason, 'log_cap')
-  assert.match(r.detail, /above its 1024 limit, and you carry 20 wood \(your keep is 16\): no tree cutting\. Craft planks or sticks from your bag, or pick other work/)
+  assert.match(r.detail, /above its 1024 limit, and you carry 20 wood \(your keep is 16\): no tree cutting\. Use the wood in your bag, or pick other work/)
   assert.equal(ROWS.length, 1); assert.equal(ROWS[0].status, 'failed')
   assert.match(ROWS[0].detail, /^loggate act=refuse why=capped block=oak_log asked=16 need=-4 wood=20\.0 town_logs=4158 cap=above_high$/)
   // planks count: 64 planks = 16 units
@@ -152,6 +170,22 @@ await t('ADMISSION: short of wood IN TOWN -> the proposal is REWRITTEN to a with
   assert.equal(r.ok, true, JSON.stringify(r))
   assert.equal(r.skill, 'withdraw', 'cognitive.mjs runs admitted.skill'); assert.deepEqual(r.args, { item: 'spruce_log', count: 12 })
   assert.match(ROWS.at(-1).detail, /^loggate act=withdraw why=town_has_logs block=oak_log asked=16 need=12 wood=4\.0 town_logs=4158 cap=above_high to=withdraw:spruce_log:12$/)
+})
+await t('ADMISSION, the log rung (Claude review r1 blocker): 4 logs + 48 planks (16 units) on the wood rung -> NOT refused: the town\'s logs for the 8 it is short; with the rung met, refused', async () => {
+  world(); ROWS.length = 0
+  const MS = await import('../src/milestones.mjs')
+  const rung = MS.gathererChain({ sand: false }).find(m => m.id === 'gather_oak_log_12')
+  const wanted = new Set([rung.wants, ...rung.wantsAny])            // what cognitive.mjs #wantedItems gives admission for this rung
+  const bot = botWith({ oak_log: 4, oak_planks: 48 })
+  assert.equal(LC.bagWoodUnits(bot.inventory.items()), 16, 'the keep is held in units'); assert.equal(rung.done(bot), false, 'and the rung is open: 4/12')
+  const r = new AdmissionControl().check(structuredClone(CUT), bot, wanted)
+  assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.skill, 'withdraw'); assert.deepEqual(r.args, { item: 'spruce_log', count: 8 })
+  const far = new AdmissionControl().check(structuredClone(CUT), botWith({ oak_log: 4, oak_planks: 48 }, { at: FAR }), wanted)
+  assert.equal(far.skill, 'gather'); assert.equal(far.args.count, 8)
+  // the same bag on a rung that wants NO log (iron): the keep alone decides -> refused
+  assert.equal(new AdmissionControl().check(structuredClone(CUT), botWith({ oak_log: 4, oak_planks: 48 }), new Set(['iron_ingot', 'raw_iron'])).reason, 'log_cap')
+  // and with the rung met (12 logs + 16 planks): refused
+  assert.equal(new AdmissionControl().check(structuredClone(CUT), botWith({ oak_log: 12, oak_planks: 16 }), wanted).reason, 'log_cap')
 })
 await t('THE CHAIN THAT MUST NOT DEAD-END: the withdrawal brings nothing -> the next gather is the BOUNDED CUT, never a refusal; a withdrawal that worked re-arms it', () => {
   world(); ROWS.length = 0
@@ -215,7 +249,7 @@ async function withMutant (file, pairs, fn) {
 }
 await t('MUTANT KILLED: the admission call removed (the base: advice only) -> a capped bot holding its keep cuts anyway', async () => {
   world()
-  await withMutant('admission.mjs', [['      const g = this.#logGate(args, bot)\n', '      const g = null\n']], async M => {
+  await withMutant('admission.mjs', [['      const g = this.#logGate(args, bot, wanted)\n', '      const g = null\n']], async M => {
     const r = new M.AdmissionControl().check(structuredClone(CUT), botWith({ oak_log: 20 }), null)
     assert.equal(r.ok, true, 'the mutant refused anyway: the refusal test proves nothing'); assert.equal(r.skill, 'gather')
   })
@@ -241,6 +275,20 @@ await t('MUTANT KILLED: the latch never set at the rewrite -> the second request
     const ac = new M.AdmissionControl(), bot = botWith({ oak_log: 4 })
     assert.equal(ac.check(structuredClone(CUT), bot, null).skill, 'withdraw')
     assert.equal(ac.check(structuredClone(CUT), bot, null).skill, 'withdraw', 'the mutant cut anyway: the chain test proves nothing')
+  })
+})
+await t('MUTANT KILLED: the rung\'s own count dropped (the r1 blocker) -> 4 logs + 48 planks on the wood rung is refused', async () => {
+  await withMutant('logcap.mjs', [['  const rungNeed = Number.isFinite(rungLogs) ? LOGGATE_RUNG_LOGS - rungLogs : -Infinity\n', '  const rungNeed = -Infinity\n']], async M => {
+    assert.equal(M.logGatherGate({ on: true, block: 'oak_log', count: 16, cap: CAPPED, wood: 16, keep: 16, inTown: false, rungLogs: 4 }).act, 'refuse', 'the mutant let it cut anyway')
+  })
+})
+await t('MUTANT KILLED: admission not passing the rung to the gate -> the same bot is refused at admission', async () => {
+  world()
+  const MS = await import('../src/milestones.mjs')
+  const rung = MS.gathererChain({ sand: false }).find(m => m.id === 'gather_oak_log_12')
+  await withMutant('admission.mjs', [['      const g = this.#logGate(args, bot, wanted)\n', '      const g = this.#logGate(args, bot, null)\n']], async M => {
+    const r = new M.AdmissionControl().check(structuredClone(CUT), botWith({ oak_log: 4, oak_planks: 48 }), new Set([rung.wants, ...rung.wantsAny]))
+    assert.equal(r.reason, 'log_cap', 'the mutant admitted it anyway: the rung test proves nothing')
   })
 })
 await t('MUTANT KILLED: the gate applied to every block -> a capped bot cannot gather iron', async () => {

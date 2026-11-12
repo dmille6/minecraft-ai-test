@@ -117,7 +117,8 @@ export const logCapPromptOn = (env = process.env) => !OFF.includes(String(env?.L
 //
 // THE GATE (pure, here; AdmissionControl calls it for every gather the model proposes): for a LOG block, while the town is
 // CAPPED by a proven reading, with need = keep - the bag's wood units (logs + planks / 4; keep = woodkeep.mjs WOOD_KEEP, 16):
-//   need <= 0                        REFUSE: no tree cutting; the remedy is in the bag (craft) or other work
+//   need <= 0                        REFUSE: no tree cutting; the remedy is the wood in the bag, or other work
+//   (while the ACTIVE RUNG wants a log, need is also at least LOGGATE_RUNG_LOGS - the logs that rung counts in the bag)
 //   need > 0, in town, town has logs WITHDRAW `need` of the species the town holds most -- the logs are in its chests
 //   need > 0, anything else          CLAMP the cut to `need` (LOGGATE_CUT_MIN..LOGGATE_CUT_MAX): away from town, the town
 //                                    index shows no log, or a withdrawal was tried in the last LOGGATE_LATCH_MS and the
@@ -134,6 +135,12 @@ export const LOG_BLOCK_RX = /_(log|stem|wood|hyphae)$/
 export const isLogBlock = n => LOG_BLOCK_RX.test(String(n ?? ''))
 /** After a withdrawal was tried for a bot short of wood, its next log gather within this long is the bounded cut. */
 export const LOGGATE_LATCH_MS = 10 * 60_000
+/** THE LOG RUNG'S OWN COUNT (Claude review r1 BLOCKER): the gatherer chain's wood rung (milestones.mjs `gather_oak_log_12`,
+ *  gatherAny(LOGS, 12)) is met by LOGS ONLY -- planks count for nothing there -- while the keep above is in wood UNITS. A bot
+ *  with 4 logs and 48 planks held 16 units and would have been refused every cut while its rung read 4/12. So while the
+ *  active rung wants a log, the bot is also short by 12 - the logs it holds that the rung counts. Restated here (this module
+ *  imports nothing); loggate.test.mjs proves it is the chain's number. */
+export const LOGGATE_RUNG_LOGS = 12
 /** The bounded cut: at least a small tree's worth (a 1-log cut walks as far as a 4-log one), at most the keep. */
 export const LOGGATE_CUT_MIN = 4
 export const LOGGATE_CUT_MAX = 16
@@ -169,20 +176,23 @@ export const townLogTop = b => { try { return topOf(b) ?? null } catch { return 
  *   inTown         is the bot in its town (chestfull.mjs inTown)
  *   top            topTownLog of the town index, or null
  *   triedAt        when a withdrawal was last tried for this bot by the gate (null: never, or it succeeded)
+ *   rungLogs       the logs the ACTIVE rung counts that the bag holds, when that rung wants a log; null when it does not
  * refuse: { detail }   withdraw: { item, count, cut }   clamp: { count }   (`cut` = the clamp a withdrawal falls back to)
  */
 export function logGatherGate ({ on = logGateOn(), block, count, cap = null, wood = 0, keep = 16, inTown = false, top = null,
-                                 triedAt = null, now = Date.now(), cfg = logCapConfig() } = {}) {
+                                 triedAt = null, rungLogs = null, now = Date.now(), cfg = logCapConfig() } = {}) {
   if (!on) return { act: 'pass', why: 'off' }
   if (!isLogBlock(block)) return { act: 'pass', why: 'not_a_log' }
   if (!cap?.capped) return { act: 'pass', why: 'uncapped' }
   const w = Number.isFinite(wood) ? wood : 0
-  const need = Math.ceil(keep - w)
+  // short of the keep in wood units, OR short of the logs the active rung counts: the larger of the two
+  const rungNeed = Number.isFinite(rungLogs) ? LOGGATE_RUNG_LOGS - rungLogs : -Infinity
+  const need = Math.max(Math.ceil(keep - w), rungNeed)
   if (need <= 0) {
     const n = Number.isFinite(cap.logs) ? `${cap.logs} logs` : 'more logs than it needs'
     return { act: 'refuse', why: 'capped', need,
              detail: `the town holds ${n}, above its ${cfg.high} limit, and you carry ${Math.floor(w)} wood (your keep is ${keep}): ` +
-                     'no tree cutting. Craft planks or sticks from your bag, or pick other work' }
+                     'no tree cutting. Use the wood in your bag, or pick other work' }
   }
   const asked = Number.isFinite(Number(count)) && Number(count) > 0 ? Math.floor(Number(count)) : LOGGATE_CUT_MAX
   const cut = Math.min(asked, Math.max(LOGGATE_CUT_MIN, Math.min(LOGGATE_CUT_MAX, need)))

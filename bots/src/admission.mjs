@@ -24,7 +24,7 @@ import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
 import { repeatWorkConfig, repeatDecision, ledgerSet, PROGRESS_SKILLS, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
 import { logEvent } from './logger.mjs'
-import { townLogCapState, townLogTop, logGateOn, isLogBlock, bagWoodUnits, logGatherGate, logGateDetail } from './logcap.mjs'   // loggate-01
+import { townLogCapState, townLogTop, logGateOn, isLogBlock, bagWoodUnits, logGatherGate, logGateDetail, LOGGATE_RUNG_LOGS } from './logcap.mjs'   // loggate-01
 import { WOOD_KEEP } from './woodkeep.mjs'
 import { snapshot } from './state.mjs'
 
@@ -202,17 +202,21 @@ export class AdmissionControl {
 
   /** LOGGATE-01: the gate's decision for a proposed gather (logcap.mjs logGatherGate), or null (not a log, off, uncapped,
    *  or anything thrown: the gate never breaks a decision -- null is the base). */
-  #logGate (args, bot) {
+  #logGate (args, bot, wanted = null) {
     try {
       if (!logGateOn() || !isLogBlock(args?.block)) return null
       const cap = townLogCapState(bot)
       if (!cap?.capped) return null
-      const wood = bagWoodUnits(bot?.inventory?.items?.() ?? [])
+      const items = bot?.inventory?.items?.() ?? []
+      const wood = bagWoodUnits(items)
+      // the logs the ACTIVE rung counts (its wanted names) that the bag holds, when that rung wants a log at all
+      const want = wanted instanceof Set ? wanted : new Set(Array.isArray(wanted) ? wanted : [])
+      const rungLogs = [...want].some(isLogBlock) ? items.reduce((t, it) => t + (want.has(it?.name) && isLogBlock(it?.name) ? (it.count ?? 0) : 0), 0) : null
       const pos = bot?.entity?.position
       const near = !!pos && inTown({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, pos)
       let top = null
-      if (near && wood < WOOD_KEEP) top = townLogTop(bot)   // the town index is read only for a bot in town that is short
-      const g = logGatherGate({ block: args.block, count: args.count, cap, wood, keep: WOOD_KEEP, inTown: near, top, triedAt: this.logGateTriedAt ?? null })
+      if (near && (wood < WOOD_KEEP || (rungLogs != null && rungLogs < LOGGATE_RUNG_LOGS))) top = townLogTop(bot)   // the town index is read only for a bot in town that is short
+      const g = logGatherGate({ block: args.block, count: args.count, cap, wood, keep: WOOD_KEEP, inTown: near, top, triedAt: this.logGateTriedAt ?? null, rungLogs })
       return g.act === 'pass' ? null : { ...g, wood, cap }
     } catch { return null }
   }
@@ -454,7 +458,7 @@ export class AdmissionControl {
     // of wood is sent to the town's own logs (a withdrawal, admitted through this same check), or -- away from town, no log
     // in the index, a withdrawal tried in the last 10 min, or the withdrawal not admissible now -- cuts only what it is short.
     if (skill === 'gather') {
-      const g = this.#logGate(args, bot)
+      const g = this.#logGate(args, bot, wanted)
       if (g) {
         const asked = args.count
         if (g.act === 'refuse') {
