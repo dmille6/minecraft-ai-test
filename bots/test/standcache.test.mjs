@@ -429,10 +429,21 @@ await t('movedNear: a change after `since` inside the square moved it; outside i
   assert.strictEqual(BB.movedNear([blk(9, 300, 300)], 9, 5, at), true, 'changes 6..8 are no longer kept: unknown is moved')
   assert.strictEqual(BB.movedNear([], 4, 2, at), true, 'told of something, nothing kept')
 })
+await t('wordMoves: another name, or another state of a name whose states stand differently, is a change; a crop\'s age, a liquid\'s level, a leaf\'s distance are not; a first or unread word is', () => {
+  const W = (wasName, wasId, name, id) => BB.wordMoves(wasName == null ? null : { id: wasId, name: wasName }, { id, name })
+  assert.strictEqual(W(null, null, 'dirt', 10), true, 'a first word')
+  assert.strictEqual(W('air', 0, 'dirt', 10), true)
+  assert.strictEqual(W('dirt', 10, 'dirt', 10), false, 'the same state')
+  for (const n of ['oak_slab', 'cobblestone_stairs', 'oak_trapdoor', 'oak_door', 'snow', 'oak_fence_gate', 'composter', 'bamboo']) assert.strictEqual(W(n, 20, n, 21), true, n)
+  for (const n of ['wheat', 'carrots', 'water', 'lava', 'farmland', 'oak_leaves', 'cherry_leaves', 'birch_sapling', 'sugar_cane', 'furnace', 'grass_block']) assert.strictEqual(W(n, 20, n, 21), false, n)
+  assert.strictEqual(W('wheat', 20, 'air', 0), true, 'harvested')
+  assert.strictEqual(BB.wordMoves({ id: 1, name: 'dirt' }, { id: 99, name: null }), true, 'a state the registry cannot name')
+  assert.strictEqual(BB.wordMoves({ id: 1, name: null }, { id: 1, name: 'dirt' }), true)
+})
 await t('the witness counts what the connection is told: a block under another name (a first word counts; the same name again does not), a chunk loaded or unloaded; it keeps the last WITNESS_KEPT', () => {
   const handlers = []
   const client = { on: (ev, fn) => { if (ev === 'packet') handlers.push(fn) }, off: () => {} }
-  const names = { 1: 'dirt', 2: 'wheat', 3: 'wheat', 4: 'air' }
+  const names = { 1: 'dirt', 2: 'wheat', 3: 'wheat', 4: 'air', 5: 'oak_slab', 6: 'oak_slab' }
   const w = BB.installServerBlockWitness({ _client: client, registry: { blocksByStateId: Object.fromEntries(Object.entries(names).map(([id, name]) => [id, { name }])) } })
   const send = (name, data) => { for (const h of handlers) h(data, { name }) }
   const at = { x: 0, z: 0, r: 50 }
@@ -452,6 +463,25 @@ await t('the witness counts what the connection is told: a block under another n
   assert.deepStrictEqual([w.seq(), w.moved(4, at)], [5, false], 'a chunk far away let go')
   send('keep_alive', { keepAliveId: 1 })
   assert.strictEqual(w.seq(), 5, 'another packet is nothing')
+  // the same NAME, another state: a slab made double is another floor (counted); told the same state twice is nothing
+  send('block_change', { location: { x: 7, y: 70, z: 7 }, type: 5 })
+  send('block_change', { location: { x: 7, y: 70, z: 7 }, type: 5 })
+  assert.strictEqual(w.seq(), 6, 'the slab laid (a first word), then the same word again')
+  send('block_change', { location: { x: 7, y: 70, z: 7 }, type: 6 })
+  assert.deepStrictEqual([w.seq(), w.moved(6, at)], [7, true], 'the slab made double: the same name, a state a walk reads')
+  w.watch([7, 70, 7])
+  send('block_change', { location: { x: 7, y: 70, z: 7 }, type: 6 })
+  assert.strictEqual(w.seq(), 7, 'a watched cell told the same state: the waiters\' forgetting is not a change')
+  // review r3 (Codex): a chunk sent again may hold another block than the witness last heard -- after it, a word that only
+  // repeats the old one is a change (CONTROL just above: without a chunk in between the same word is nothing)
+  send('map_chunk', { x: 0, z: 0 })
+  const s0 = w.seq()
+  send('block_change', { location: { x: 7, y: 70, z: 7 }, type: 6 })
+  assert.deepStrictEqual([w.seq(), w.moved(s0, at)], [s0 + 1, true], 'the same word after the chunk was sent again: counted')
+  send('unload_chunk', { chunkX: 40, chunkZ: 40 })
+  const s1 = w.seq()
+  send('block_change', { location: { x: 7, y: 70, z: 7 }, type: 6 })
+  assert.strictEqual(w.seq(), s1 + 1, 'and after a chunk was let go')
   for (let i = 0; i < BB.WITNESS_KEPT + 5; i++) send('block_change', { location: { x: 1000 + i, y: 70, z: 900 }, type: 1 })
   assert.strictEqual(w.moved(5, at), true, 'more told than kept since then: moved')
   assert.strictEqual(w.moved(w.seq() - 3, at), false, 'the last few are kept, and far')
@@ -467,12 +497,13 @@ const toldScene = async (RM, { told = true } = {}) => {
     e.worldMoved = (since, at) => { asked++; assert.deepStrictEqual([at.x, at.z, at.r], [HOME.x, HOME.z, 56 + 2], 'the walk\'s own square'); return seq > since }
   }
   const v = await visit(RM, srv, record([{ seg: 'pocket', cells: [pocket] }, { seg: 'col', cells: [C1, C2, C3] }]), { standCache: true, hook, opts: { standMs: 600_000, breathe: true, breathMs: 0 } })
-  assert.ok(landed && asked > 0, 'the block landed, the witness was asked')
-  return v
+  assert.ok(landed, 'the block landed')
+  return Object.assign(v, { asked })
 }
 await t('another bot\'s block the connection was TOLD of is seen at once, with no clock (CONTROL: not told, inside the bound, the cell waits)', async () => {
   const c = await toldScene(R, { told: false })
   assert.deepStrictEqual(placedCells(c.e), [], 'control: a change the connection never heard of is not seen inside the bound')
+  assert.ok(c.asked > 0, 'control: the witness was asked')
   const v = await toldScene(R)
   assert.deepStrictEqual(placedCells(v.e), [k3(C3)], 'told: the kept walk is dropped and the cell is laid in the SAME visit')
   assert.ok(!(v.r.deferred ?? []).some(d => d.k === k3(C3)), 'and never counted as a cell no stand reaches')
@@ -486,7 +517,12 @@ await t('a witness that throws is a world that moved (the walk is made again); M
   assert.ok(off.m.walks >= 5, `control: with the kept walk off the visit walks every pass (${off.m.walks})`)
   assert.strictEqual(m.walks, off.m.walks, 'every pass walks again, as with the kept walk off')
   assert.deepStrictEqual(rows(v.e), rows(off.e))
-  await kills('!(wallNow() - walkMem.at < standMs) || toldSince(walkMem.seq)) {', '!(wallNow() - walkMem.at < standMs)) {', async RM => { const o = await toldScene(RM); assert.deepStrictEqual(placedCells(o.e), [k3(C3)], 'told: seen') })
+  // the mutant must die on the PLACEMENT (Codex r3: any other assertion is the wrong reason)
+  const told = async RM => { const o = await toldScene(RM); assert.deepStrictEqual(placedCells(o.e), [k3(C3)], 'TOLD-SEEN: the told block is seen in the same visit') }
+  await told(R)
+  let why = null
+  await withMutant('!(wallNow() - walkMem.at < standMs) || toldSince(walkMem.seq)) {', '!(wallNow() - walkMem.at < standMs)) {', async M => { try { await told(M) } catch (err) { why = err } })
+  assert.ok(why instanceof assert.AssertionError && /TOLD-SEEN/.test(String(why.message)), `the mutant survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
 })
 
 console.log('MUTANTS (each anchor present and unique; each dies on an assertion of a scene above)')

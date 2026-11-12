@@ -204,22 +204,40 @@ export function movedNear (recent, seq, since, at) {
   return recent.some(c => c[0] > since && c[1] <= x1 && c[3] >= x0 && c[2] <= z1 && c[4] >= z0)
 }
 /**
+ * standcache-01 r2: IS THIS WORD ON A CELL A CHANGE A WALK OF THE TOWN COULD READ? -> bool. Pure. `was` / `now`: { id, name } (the
+ * block's state id and name; `was` null: the witness's first word on the cell). The walk reads a block's name, its box, its
+ * shapes and its properties (buildsite.mjs walkFrom: fullCube, slabTopFloor, isPassable, isLiquid), so ANOTHER STATE UNDER THE SAME
+ * NAME counts too -- a slab made double, stairs turned, a trapdoor opened, snow a layer deeper -- except for the names whose every
+ * state stands the same (STATE_ONLY: a crop's age, a liquid's level, a leaf's distance, farmland's moisture, a furnace lit): those
+ * tick all day in a town and would drop every kept walk for nothing. An unread name or id: a change.
+ */
+export const STATE_ONLY = /^(wheat|carrots|potatoes|beetroots|nether_wart|sweet_berry_bush|melon_stem|pumpkin_stem|sugar_cane|cactus|water|lava|farmland|fire|grass_block|podzol|mycelium|redstone_wire|furnace|blast_furnace|smoker)$|_leaves$|_sapling$/
+export function wordMoves (was, now) {
+  if (!was || now?.name == null || was.name == null) return true
+  if (was.name !== now.name) return true
+  if (was.id === now.id) return false
+  return !STATE_ONLY.test(now.name)
+}
+/**
  * The SERVER'S word on a cell, from the raw packets -> { watch(cell), wait(cell, pred, ms) -> name | null, stop, seq(), moved(since, at) }.
- * standcache-01 r2: `seq()` counts what this connection has been TOLD has changed -- a block that now has another NAME than the
- * witness last heard for it (a first word on a cell counts; a crop's age or a water level under the same name does not), a chunk
- * loaded or unloaded -- and `moved(since, at)` says whether any of it since `since` lies in a square (movedNear). A walk of the town
- * kept by a build visit (buildrun.mjs nodesFor) is exactly as fresh as a new one while nothing moved: both read this bot's own view.
+ * standcache-01 r2: `seq()` counts what this connection has been TOLD has changed -- a block whose state a walk could read
+ * differently than the witness's last word on the cell (wordMoves: a first word counts; a crop's age or a water level does not), a
+ * chunk loaded or unloaded -- and `moved(since, at)` says whether any of it since `since` lies in a square (movedNear). A walk of
+ * the town kept by a build visit (buildrun.mjs nodesFor) is exactly as fresh as a new one while nothing moved: both read this
+ * bot's own view.
  */
 export function installServerBlockWitness (bot) {
   const seen = new Map()
   const waiters = []
   const nameOf = id => bot.registry?.blocksByStateId?.[id]?.name ?? null
   let seq = 0
-  const recent = []
+  const recent = [], last = new Map()   // last: a cell's last word { id, name } (never forgotten by `watch`: that is the waiters')
   const moved = (x0, z0, x1, z1) => { recent.push([++seq, x0, z0, x1, z1]); if (recent.length > WITNESS_KEPT) recent.shift() }
   const note = (x, y, z, stateId) => {
     const k = `${x},${y},${z}`, n = nameOf(stateId)
-    if (!seen.has(k) || seen.get(k) !== n) moved(x, z, x, z)
+    const now = { id: stateId, name: n }
+    if (wordMoves(last.get(k) ?? null, now)) moved(x, z, x, z)
+    last.set(k, now)
     seen.set(k, n)
     for (const w of waiters.slice()) if (w.k === k && w.pred(n)) { clearTimeout(w.timer); waiters.splice(waiters.indexOf(w), 1); w.resolve(n) }
   }
@@ -228,7 +246,10 @@ export function installServerBlockWitness (bot) {
       if (meta?.name === 'block_change' && data?.location) note(data.location.x, data.location.y, data.location.z, data.type ?? data.stateId)
       else if (meta?.name === 'multi_block_change') for (const r of decodeMultiBlock(data)) note(r.x, r.y, r.z, r.stateId)
       else if (meta?.name === 'map_chunk' || meta?.name === 'unload_chunk') {
-        // a chunk the bot can now read, or no longer can: its whole square (coordinates unread: everywhere)
+        // a chunk the bot can now read, or no longer can: its whole square (coordinates unread: everywhere). And every last word
+        // is forgotten (Codex r3): a chunk sent again may hold another block in a cell than the witness last heard, so a later
+        // word that only repeats the old one IS a change -- the next word on any cell counts as a first word
+        last.clear()
         const cx = Number(data?.x ?? data?.chunkX), cz = Number(data?.z ?? data?.chunkZ)
         if (Number.isFinite(cx) && Number.isFinite(cz)) moved(cx * 16, cz * 16, cx * 16 + 15, cz * 16 + 15); else moved(-Infinity, -Infinity, Infinity, Infinity)
       }
