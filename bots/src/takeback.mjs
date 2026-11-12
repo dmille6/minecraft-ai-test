@@ -24,8 +24,19 @@
 //
 // NO NEW REFUSAL. Nothing a walk could do before is taken away: the placement still happens, the route is still walked. The
 // bounds: at most 4 halts a goto and 12 a minute; a cell placed AGAIN within 2 minutes of being taken back is kept (`kept
-// why=reuse`: the walk needs it); a take-back spends at most 6 s; anything the caller does to the goal meanwhile (its timeout, an
-// abort, a reflex's stop) ends the take-back at once and the caller's own error is what it gets.
+// why=reuse`: the walk needs it); a take-back spends at most 6 s.
+//
+// A WALK THE CALLER GAVE UP IS NEVER WALKED AGAIN (review r1, both engines: Codex reproduced A -> null -> null -> A with the real
+// library, whose goto rejects one timer turn AFTER it stops listening; Claude: chestWalk's timeout leaves the path alone when the
+// goal is not its own, so no event ever told the take-back). Three rules:
+//   1. THE FENCE. Only a walk handed to skills.mjs withTimeout is ever halted (`call.fenced`): its timer calls `call.giveUp()`
+//      whatever the caller's own timeout handler then does. A goto nobody fenced is the library's own, as before.
+//   2. EVERY ENDING BY SOMEONE ELSE is heard for the whole call, not from the halt on: a goal_updated for another goal (the
+//      caller's haltPath, a new walk, a reflex's goal) and every path_stop -- except the one goal_updated our own halt emits.
+//   3. THE WATCHER HALTS ONLY ITS OWN GOAL: `pathfinder.goal` must still be this call's goal, the call must be the newest goto,
+//      and nobody may have ended it.
+// After a take-back the goal is issued again only while none of that happened; otherwise the caller gets GoalChanged or
+// PathStopped, exactly what the library would have given it.
 //
 // NOT IN THIS PIECE (the design's pieces 2-5): the escapes' pillars (reflex.mjs pillarOut, digStraightUp; skills surface,
 // shaftAscend), walks issued by setGoal, dug ground put back, and a stair where a spot needs a block again and again.
@@ -49,8 +60,24 @@ const AIRY = n => n === 'air' || n === 'cave_air' || n === 'void_air'
 
 /** The bot's feet cell from its position. Pure. */
 export const feetOf = p => [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
-/** Is the bot in the receipt's column, on or above the block (standing on it, or on a tower over it)? Pure. */
-export const overCell = (cell, feet) => feet[0] === cell[0] && feet[2] === cell[2] && feet[1] > cell[1]
+/** Half a body's width: a player is 0.6 wide, so it rests on every column within 0.3 of its centre. */
+export const HALF_BODY = 0.3
+/** Does a body centred at pos overlap the cell's column (review r1, Codex: a bot centred at x 2.1 still stands on the block at x 1)?
+ *  Pure. The edges count as clear: a body flush against the column does not rest on it. */
+export function overlapsColumn (cell, pos, half = HALF_BODY) {
+  return pos.x + half > cell[0] && pos.x - half < cell[0] + 1 && pos.z + half > cell[2] && pos.z - half < cell[2] + 1
+}
+/** Is the bot on or over the receipt's block (standing on it, or on a tower over it)? Pure. */
+export const overCell = (cell, pos) => overlapsColumn(cell, pos) && pos.y >= cell[1] + 0.5
+/** Is a world block a liquid, or holding one (a waterlogged stair or slab: review r1, Codex)? Pure over a prismarine block. */
+export function holdsLiquid (b) {
+  if (!b) return false
+  if (/water|lava|bubble_column|kelp|seagrass/.test(String(b.name ?? ''))) return true
+  if (b.isWaterlogged === true) return true
+  let props = null
+  try { props = typeof b.getProperties === 'function' ? b.getProperties() : (b.props ?? b._properties ?? null) } catch { props = null }
+  return !!props && (props.waterlogged === true || props.waterlogged === 'true')
+}
 /** Eye to the block's centre within reach. Pure. */
 export function inReach (cell, pos, T = TAKEBACK) {
   return Math.hypot(cell[0] + 0.5 - pos.x, cell[1] + 0.5 - (pos.y + T.eye), cell[2] + 0.5 - pos.z) <= T.reach
@@ -61,14 +88,14 @@ export function receiptFor (rec, T = TAKEBACK) {
     typeof rec.block === 'string' && rec.block !== '?' && T.profiles.includes(String(rec.profile))
 }
 /**
- * IS THE RECEIPT RIPE? -> bool. Pure. The bot has used the block (stood on or over it) or let it stand unused for unusedMs; it is no
- * longer in that column; it is on the ground and out of water; the block is within reach.
+ * IS THE RECEIPT RIPE? -> bool. Pure. The bot has used the block (stood on or over it) or let it stand unused for unusedMs; no part
+ * of its body is over that column any more (its footing is elsewhere); it is on the ground and out of water; the block is in reach.
  *   here { pos, feet, onGround, inWater }
  */
 export function ripe (r, here, now, T = TAKEBACK) {
   if (!r || r.closed || !here?.pos || !here.feet) return false
   if (!(r.used || now - r.t >= T.unusedMs)) return false
-  if (here.feet[0] === r.cell[0] && here.feet[2] === r.cell[2]) return false
+  if (overlapsColumn(r.cell, here.pos)) return false
   if (!here.onGround || here.inWater) return false
   return inReach(r.cell, here.pos, T)
 }
@@ -78,7 +105,7 @@ export function ripe (r, here, now, T = TAKEBACK) {
  *   body      a body stands on it;  priced  the walk's own break prices protect it;  liquid  water or lava touches it
  *   digMs     the dig's time with the tool in hand
  */
-export function verdictFor (r, { name = null, above = null, body = false, priced = false, liquid = false, digMs = 0 } = {}, T = TAKEBACK) {
+export function verdictFor (r, { name = null, above = null, body = false, priced = false, liquid = false, harvest = true, digMs = 0 } = {}, T = TAKEBACK) {
   if (name == null) return { act: 'deferred', why: 'unread' }
   if (name !== r.block) return { act: 'adopted', why: AIRY(name) ? 'gone' : 'changed' }
   if (above != null && !AIRY(above)) return { act: 'adopted', why: 'built_on' }
@@ -86,6 +113,8 @@ export function verdictFor (r, { name = null, above = null, body = false, priced
   if (priced) return { act: 'adopted', why: 'protected' }
   if (liquid) return { act: 'adopted', why: 'liquid' }
   if (body) return { act: 'deferred', why: 'body' }
+  // a dig the held tool cannot harvest is one skills.mjs's dig watcher stops the WALK for (watchDigging): never started
+  if (!harvest) return { act: 'left', why: 'no_tool' }
   if (!(digMs <= T.digMsMax)) return { act: 'left', why: 'slow' }
   return { act: 'dig', why: 'ripe' }
 }
@@ -102,7 +131,6 @@ export function mayHalt ({ halts = 0, recent = [], now = 0, building = false, mi
 export const issuedByEscape = frames => (frames ?? []).some(f => /\/src\/(reflex|escape|floodpocket|climbflood)\.mjs/.test(String(f)))
 /** Does a reflex hold the body now? -> bool. Pure. ctx: digtown's context { reflex, holder, skill } (digtown.mjs digPurpose's rule). */
 export const bodyHeld = ctx => !!(ctx && (ctx.reflex || (ctx.holder && ctx.holder !== ctx.skill)))
-const LIQUID = n => /water|lava|bubble_column|kelp|seagrass/.test(String(n ?? ''))
 /** The `_takeback` row's detail. Pure. */
 export function takebackDetail ({ outcome, why = '-', cell, block = '-', shape = '-', zone = null, age = 0, ms = null } = {}) {
   return `outcome=${outcome} why=${why} pos=${cell.join(',')} block=${block} shape=${shape} zone=${zone ?? 'out'} age_ms=${Math.round(age)}${ms == null ? '' : ` ms=${Math.round(ms)}`}`
@@ -125,7 +153,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   try { emit('takeback_mode', 'success', `phase=mode v=1 on=${on ? 1 : 0} reach=${T.reach} unused_ms=${T.unusedMs} halts=${T.haltsPerGoto}/${T.haltsPerMin} budget_ms=${T.budgetMs} reuse_ms=${T.reuseMs}`) } catch { /* telemetry */ }
   const pf = bot?.pathfinder
   if (!on || !pf || typeof pf.goto !== 'function' || pf.goto.__takeback) return null
-  const st = { open: [], due: false, busy: false, inside: false, recent: [], taken: new Map(), sum: emptySum(), winStart: now(), closed: false }
+  const st = { open: [], busy: false, digger: null, owner: null, recent: [], taken: new Map(), sum: emptySum(), winStart: now(), closed: false }
   const row = (r, outcome, why, ms = null) => {
     r.closed = true
     st.sum.by[outcome] = (st.sum.by[outcome] ?? 0) + 1
@@ -161,7 +189,7 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     for (const e of Object.values(bot.entities ?? {})) {
       const p = e?.position
       if (!p || e === bot.entity) continue
-      if (Math.floor(p.x) === c[0] && Math.floor(p.z) === c[2] && p.y >= c[1] + 0.5 && p.y <= c[1] + 2.5) return true
+      if (overlapsColumn(c, p, Math.max(HALF_BODY, (Number(e.width) || 0) / 2)) && p.y >= c[1] + 0.5 && p.y <= c[1] + 3) return true
     }
     return false
   }
@@ -171,20 +199,21 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
   }
   const ripeNow = h => takeOrder(st.open.filter(r => ripe(r, h, now(), T)))
   const held = () => { try { return bodyHeld(bot.__digContext?.()) } catch { return false } }
-  const wet = c => [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 1, 0]].some(d => LIQUID(blockAt([c[0] + d[0], c[1] + d[1], c[2] + d[2]])?.name))
-  const mark = h => { for (const r of st.open) if (!r.used && overCell(r.cell, h.feet)) r.used = true }
+  const wet = c => [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0], [0, 1, 0]].some(d => holdsLiquid(blockAt([c[0] + d[0], c[1] + d[1], c[2] + d[2]])))
+  const mark = h => { for (const r of st.open) if (!r.used && overCell(r.cell, h.pos)) r.used = true }
 
   /** One ripe receipt: closed with its row, or left open for a later pass. -> true when it took a turn (a dig or a closing). */
   const closeOne = async (r, ext) => {
     const b = blockAt(r.cell)
     if (b && r.block === b.name && !sees(b)) { r.tries++; if (r.tries > T.tries) row(r, 'left', 'unseen'); return false }
     const up = blockAt([r.cell[0], r.cell[1] + 1, r.cell[2]])
-    let digMs = 0
+    let digMs = 0, harvest = true
     if (b && b.name === r.block) {
       try { const tool = pf.bestHarvestTool?.(b) ?? null; if (tool) await bot.equip(tool, 'hand') } catch { /* by hand */ }
       try { digMs = Number(bot.digTime?.(b)) || 0 } catch { digMs = 0 }
+      try { if (typeof b.canHarvest === 'function') harvest = !!b.canHarvest(bot.heldItem ? bot.heldItem.type : null) } catch { harvest = true }
     }
-    const v = verdictFor(r, { name: b?.name ?? null, above: up?.name ?? null, body: bodyOn(r.cell), priced: !!b && priced(b), liquid: wet(r.cell), digMs }, T)
+    const v = verdictFor(r, { name: b?.name ?? null, above: up?.name ?? null, body: bodyOn(r.cell), priced: !!b && priced(b), liquid: wet(r.cell), harvest, digMs }, T)
     if (v.act === 'deferred') { r.tries++; if (r.tries > T.tries) row(r, 'deferred', v.why); return false }
     if (v.act !== 'dig') { row(r, v.act, v.why); return true }
     if (ext()) return false
@@ -199,75 +228,81 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     }
     return true
   }
-  /** Take back what is ripe -> true when someone else ended the walk meanwhile (the caller's timeout, an abort, a reflex's stop). */
-  // WHO ELSE ENDED THE WALK. Armed the instant after our own halt (pathhalt's setGoal(null) has already emitted its goal_updated,
-  // synchronously), so every goal_updated / path_stop from then on is someone else's: the caller's timeout or abort, a reflex's stop
-  let gone = null
-  const onGoal = () => { gone ??= 'GoalChanged'; try { if (st.busy) bot.stopDigging?.() } catch { /* not digging */ } }
-  const onStop = () => { gone ??= 'PathStopped'; try { if (st.busy) bot.stopDigging?.() } catch { /* not digging */ } }
-  const arm = () => { gone = null; bot.on('goal_updated', onGoal); bot.on('path_stop', onStop) }
-  const disarm = () => { bot.removeListener('goal_updated', onGoal); bot.removeListener('path_stop', onStop) }
-  const takeBack = async () => {
+  /** Take back what is ripe for one call. Ends at once when someone else ends the walk (call.gone) or a newer goto owns the body. */
+  const takeBack = async call => {
     const t0 = now()
-    st.busy = true
+    st.busy = true; st.digger = call
     try {
-      for (let guard = 0; guard < T.maxOpen && !gone && now() - t0 < T.budgetMs; guard++) {
+      for (let guard = 0; guard < T.maxOpen && !call.gone && st.owner === call && now() - t0 < T.budgetMs; guard++) {
         const h = here()
         if (!h || held() || !((bot.health ?? 20) >= T.minHealth)) break
         const next = ripeNow(h).find(r => !r.skip)
         if (!next) break
-        if (!(await closeOne(next, () => !!gone))) next.skip = true
+        if (!(await closeOne(next, () => !!call.gone || st.owner !== call))) next.skip = true
       }
     } catch { /* a take-back never breaks a walk */ } finally {
       for (const r of st.open) delete r.skip
-      st.busy = false; st.sum.ms += now() - t0
-      disarm()
+      st.busy = false; st.digger = null; st.sum.ms += now() - t0
       prune()
     }
-    return gone
   }
-  const watch = (counter, escape) => {
-    const survival = escape || currentDigScope()?.purpose === 'survival'
+  const watch = (call, goal) => {
+    const survival = call.escape || currentDigScope()?.purpose === 'survival'
     const iv = setInterval(() => {
       try {
         const h = here()
         if (!h) return
         mark(h)
-        if (st.due || st.busy) return
+        // only a fenced walk (rule 1), only while it is still the newest goto and nobody ended it (rule 2), only its own goal (rule 3)
+        if (call.due || st.busy || !call.fenced || call.gone || st.owner !== call || pf.goal !== goal) return
         if (!T.profiles.includes(String(bot.movementProfile ?? 'walk'))) return
-        if (!mayHalt({ halts: counter.n, recent: st.recent, now: now(), building: !!pf.isBuilding?.(), mining: !!pf.isMining?.(), survival: survival || held(), health: bot.health ?? 20 }, T)) return
+        if (!mayHalt({ halts: call.n, recent: st.recent, now: now(), building: !!pf.isBuilding?.(), mining: !!pf.isMining?.(), survival: survival || held(), health: bot.health ?? 20 }, T)) return
         const due = ripeNow(h).find(r => { const b = blockAt(r.cell); return !b || b.name !== r.block || sees(b) })
         if (!due) return
-        counter.n++; st.sum.halts++; st.recent = [...st.recent.filter(t => now() - t < 60_000), now()]
-        st.due = true
-        haltPath(bot)
-        arm()
+        call.n++; st.sum.halts++; st.recent = [...st.recent.filter(t => now() - t < 60_000), now()]
+        call.due = true
+        // our own halt: its goal_updated is emitted synchronously inside setGoal, and is the one ending that is not someone else's
+        call.own = true
+        try { haltPath(bot) } finally { call.own = false }
       } catch { /* the watcher never breaks a walk */ }
     }, T.tickMs)
     iv.unref?.()
     return () => clearInterval(iv)
   }
   const orig = pf.goto
-  const wrapped = async function (goal, ...rest) {
-    // one walk at a time is watched: a goto issued inside another (or inside a take-back) is the library's own
-    if (st.closed || st.inside) return orig.call(this, goal, ...rest)
-    st.inside = true
-    const counter = { n: 0 }
-    let escape = false
-    try { escape = issuedByEscape(String(new Error().stack ?? '').split('\n').slice(1, 8)) } catch { /* unknown: a walk */ }
+  const run = async (self, call, goal, rest) => {
+    // heard for the WHOLE call (rule 2): the library's own setGoal(goal) at each issue names this goal and is not an ending
+    const onGoal = ng => { if (!call.own && ng !== goal) call.giveUp('GoalChanged') }
+    const onStop = () => { if (!call.own) call.giveUp('PathStopped') }
+    bot.on('goal_updated', onGoal); bot.on('path_stop', onStop)
     try {
       for (;;) {
-        st.due = false
-        const stop = watch(counter, escape)
+        call.due = false
+        const stop = watch(call, goal)
         let err = null, res
-        try { res = await orig.call(this, goal, ...rest) } catch (e) { err = e } finally { stop() }
-        if (!st.due) { if (err) throw err; return res }
-        st.due = false
-        const gone = await takeBack()
-        if (!err) return res                       // it arrived as the halt landed: nothing to walk on to
-        if (gone) throw gotoError(gone)            // the caller ended the walk meanwhile: its own error, never a walk it gave up
+        try { res = await orig.call(self, goal, ...rest) } catch (e) { err = e } finally { stop() }
+        if (!call.due) { if (err) throw err; return res }
+        call.due = false
+        await takeBack(call)
+        if (!err) return res                                        // it arrived as the halt landed: nothing to walk on to
+        if (call.gone) throw gotoError(call.gone)                   // the caller ended the walk meanwhile: its own error
+        if (st.owner !== call) throw gotoError('GoalChanged')       // a newer goto owns the body
       }
-    } finally { st.inside = false }
+    } finally {
+      bot.removeListener('goal_updated', onGoal); bot.removeListener('path_stop', onStop)
+      if (st.owner === call) st.owner = null
+    }
+  }
+  const wrapped = function (goal, ...rest) {
+    if (st.closed) return orig.call(this, goal, ...rest)
+    const call = { n: 0, due: false, own: false, gone: null, fenced: false, escape: false }
+    // THE CALLER GAVE UP (skills.mjs withTimeout's timer; the listeners above): never walked again, a dig under way is stopped
+    call.giveUp = why => { call.gone ??= (why === 'PathStopped' ? 'PathStopped' : 'GoalChanged'); try { if (st.busy && st.digger === call) bot.stopDigging?.() } catch { /* not digging */ } }
+    try { call.escape = issuedByEscape(String(new Error().stack ?? '').split('\n').slice(1, 8)) } catch { /* unknown: a walk */ }
+    st.owner = call                                                 // the newest goto is the one walk that is watched
+    const p = run(this, call, goal, rest)
+    p.__takeback = call                                             // withTimeout fences it (rule 1)
+    return p
   }
   wrapped.__takeback = true
   pf.goto = wrapped

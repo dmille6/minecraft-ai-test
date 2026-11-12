@@ -519,6 +519,11 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
   // The default stays TRUE. Only a caller that has already priced the dig and
   // wants the hole may turn it off, and it must say so at the call site.
   let undiggable = null
+  // takeback-01 (takeback.mjs rule 1, THE FENCE): a goto under the take-back's watcher is halted only once a timeout holds it, and
+  // this timer tells it the caller gave up WHATEVER the timeout handler then does (chestWalk's leaves the path alone when the goal
+  // is not its own -- during a take-back it is null -- so no event would ever say so, and the goal was walked again: review r1)
+  const tbCall = promise?.__takeback ?? null
+  if (tbCall) tbCall.fenced = true
   const watch = needsDrop && (bot?.targetDigBlock !== undefined || bot?.pathfinder)
     ? watchDigging(bot, name => { undiggable = name })
     : null
@@ -526,6 +531,7 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
     promise,
     new Promise((_, rej) => {
       t = setTimeout(() => {
+        try { tbCall?.giveUp?.('GoalChanged') } catch { /* the take-back never breaks a timeout */ }
         if (onTimeout) {
           try { onTimeout() } catch { /* best effort; the reject still happens */ }
         } else {
