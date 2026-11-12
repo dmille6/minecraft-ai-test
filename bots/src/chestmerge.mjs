@@ -4,9 +4,10 @@
  * The town deposit banks every stack into an EMPTY container slot and never tops up a partial one (towndeposit.mjs
  * fitToContainer: a merge that does not go as the client predicts leaves a stack on the cursor). Bags bank small
  * stacks, so the town's chests filled with them. Measured 11-12 (the town index on the canary host, the latest
- * observation of each container: 306 containers in 7 towns, 8,559 slots): 7,797 slots used, 239 containers full --
- * and 2,689 of the used slots (34%) would be free if the partial stacks of one kind in each container were one stack.
- * Coal sat at 15 a slot (13,268 in 883), bone meal at 5 (3,558 in 744), jungle logs at 3 (1,225 in 401).
+ * observation of each container, per pool: 430 containers in 16 towns, 12,150 slots): 11,187 slots used, 343
+ * containers full -- every one of them with partial stacks to merge -- and 4,027 of the used slots (36%) would be
+ * free if the partial stacks of one kind in each container were one stack. Coal sat at 15 a slot (17,264 in 1,131),
+ * bone meal at 5 (4,458 in 906), jungle logs at 3 (3,075 in 940).
  *
  * So when the plan needs more empty slots than the open container has, the run first merges partial stacks INSIDE
  * the container -- only as many as it needs, at most MERGE_MAX -- and then banks into the slots that freed, exactly
