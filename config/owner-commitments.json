@@ -7106,6 +7106,33 @@
    "title": "stuckfleet-03: a SEALED foundation/core/fill cell already holding natural solid ground is waivable (isolated-d monument plinth 315,60,123: dirt under built cells, sealed since 11-06, 7,248 cells waiting)",
    "next_step": "QUEUED 11-10 ~17:50Z in ~/canary-queue.json right after cobbleroom-01 (head chain logcap-02 -> cobbleroom-01 untouched); variant keyed e2500c84 = 8fa9602f, set-patch e2500c84..8fa9602f (autorebase onto whatever is live). Registration ~/mcai-analysis/stuckfleet-03.8fa9602f.json (effectwatch validate valid; licence text sealed_solid, licencecheck PASS). NO pin: the target isolated-d is never drawn without the owner, so the canary reads harm only; the GOAL reads after promotion: isolated-d _build op=waived why=sealed_solid*, then monument op=place > 0 there and goalwatch isolated-d/monument moving. An owner OK to pin isolated-d (draw_pin_owner_ok) would let the canary read the goal itself.",
    "note": "OWNER 2026-11-10 \"make the changes necessary, keep working\" (feature freeze: measured breaks only): effect audit of the overnight goal-unverified KEEPs. Reads on .31 with telemetry.py stream walks (full files, rotated ones loaded), goalwatch.row_progress, pipegaps.py; positive controls and denominators in each title. Scripts ~/ea/ on .31."
+  },
+  {
+   "covers_alarms": [],
+   "evidence": {
+    "grep": [
+     "fullplace-01"
+    ],
+    "runs": [
+     "fullplace-01"
+    ],
+    "branches": [
+     "fullplace-01-on-05eec33f"
+    ]
+   },
+   "id": "fullplace-01",
+   "kind": "canary",
+   "lane": "progress",
+   "max_quiet_hours": 72,
+   "memory": [
+    "bagfull-deadend-1112.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-12",
+   "state": "open",
+   "title": "fullplace-01: a full-bag town deposit that finds every chest in reach full runs the deposit verb itself (315 town_storage_full refusals / 48 followed by a deposit in 6 h, 80 bots; hive-c 42 / 0, placebo-d 69 / 0; bags 38 of 80 at 34+ slots)",
+   "next_step": "QUEUED 11-12 04:58Z in ~/canary-queue.json right after townmine-01 (owner: deploy now); variant keyed 05eec33f = c82c1b63, set-patch 05eec33f..c82c1b63 (autorebase onto whatever is live; speculative build on townmine-01's canary 54c4835a). Registration ~/mcai-analysis/fullplace-01.c82c1b63.json (effectwatch validate: valid). Pinned hive-c + hive-a. READ after the deploy: _fullplace rows (deposit=success|failed|threw), _deposit_new_chest rows per bot-h in the canary pools, bags >= 34 in hive-c. Not in this change: the recovery's defer on unknown containers (32 of 37 new-chest decisions).",
+   "note": "OWNER 2026-11-12 \"Yes, build it and deploy now\". Measured with scripts/lib/telemetry.py (6 h full walk, 536,745 rows / 80 bots; positive control placebo-c: 168 deposit tries, 0 of 5 bags full). Tier 2 (protected.py: not protected); Codex blockers-only NO BLOCKERS; rollback FULLPLACE=off."
   }
  ]
 }
