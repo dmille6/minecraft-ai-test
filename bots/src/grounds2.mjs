@@ -26,6 +26,8 @@
 // nothing ready for this bot (groundsNone) all fall back to the ORDER in the same visit -- never a refusal; and a quota visit's stop
 // reaches the order as `grounds_turn` (groundsResult), so the order's own back-offs (stuck_on_cell: 6 h) are never tripped by it.
 // GROUNDS2=off|0|false|no restores the keeper and its helpers exactly.
+// GROUNDS-03 (below, at its own heading): cleanup as the TRUE FALLBACK -- a visit whose own project had nothing for the bot goes on to
+// the grounds, and a bot the order has nothing for is offered them. GROUNDSFALL=off restores grounds-01/02 exactly.
 
 import { GK_FIT, groundsUnfit } from './groundskeeper.mjs'
 import { pantrySum } from './park.mjs'
@@ -153,6 +155,133 @@ export function groundsAfter ({ took = 'other', keeper = false, aborted = false,
   return { empty, emptyUntil: empty && !keeper ? now + G.emptyMs : Number(emptyUntil) || 0 }
 }
 
+// ================================================================================================================================
+// GROUNDS-03 (owner 11-12: "when all projects are complete, bots should be cleaning up and teraforming"; and "yes, lets do both" to
+// making cleanup the true fallback): THE GROUNDS ARE WHERE A BUILD VISIT GOES WHEN ITS OWN PROJECT HAS NOTHING FOR THE BOT.
+// WHY (LIVE showcase, 14 bots, 24 h to 11-12 17:00Z): 24 of 32 projects complete and the open ones mostly blocked -- the stepwell
+// (2,168 cells, 0 placed, its record unchanged 92 h), the pens and a civic building (37 and 25 visits, every one `no_site`), the
+// country (49 visits, 0 placed), the wood (64 of 66 visits to the time limit, 6 blocks). Of 1,270 build_shop runs 625 ended
+// `no_effect` and 190 `success`: a visit that ended no_site / no_material / stuck_on_cell / complete simply ENDED, beside a tidy
+// with about 2,900 open cells that grounds-01 funds only every second visit (3.7% of bot time in its first hour).
+// THE SHAPE (skills.mjs buildShop / buildShopVisit / groundsBegin / groundsAsk wire it; shop.mjs buildOrder asks):
+//   1. FALL THROUGH, THE SAME VISIT (groundsFall): the order's own project ended with NO WORK DONE on a stop that says "nothing here
+//      for this bot now" (FALL_STOPS) and the skill's clock still holds a worker's visit -> the visit goes on to the grounds as a
+//      WORKER (grounds-01's path: groundsEligible, the worker's slots, groundsNone's turn-back).
+//   2. THE FIRST PROJECT'S STOP STILL REACHES THE ORDER: the visit's result is the first project's (its back-offs are its own:
+//      stuck_on_cell 6 h, no_site a day); what the grounds did is the `_grounds_quota` row's (`why=fallback:<stop>`). The opposite
+//      of the quota's rule (groundsResult), for the opposite reason.
+//   3. NO ORDER -> THE GROUNDS (groundsNoOrder): where the order has nothing for the bot (NO_ORDER_SKIPS: complete, its back-off
+//      holding, unsited and waiting, full) an eligible bot is ordered to the grounds at every cooldown, not every second visit.
+//      Such a visit's stop is hidden from the order (`grounds_turn`) AND the back-off it ran under is kept (groundsHold): the
+//      order's state holds one last stop, so without the hold the first grounds visit would erase a 6-hour back-off in 10 minutes.
+//   4. THE EMPTY RULE HOLDS for all three (groundsAfter -> emptyUntil -> groundsWork `spent`): a grounds visit that fixed nothing
+//      spends the bot's turns G.emptyMs -- no quota turn, no fall-through, no order for the grounds until then.
+// GROUNDSFALL=off|0|false|no: none of it (grounds-01/02 exactly). It acts only where GROUNDS2 is on.
+// ================================================================================================================================
+/** workMs: the least WORK a fall-through must have left -- one bounded walk to a stand (buildbot.mjs PATH_MS, 25 s) and its click. */
+export const GROUNDS3 = Object.freeze({ workMs: 30_000 })
+/** THE SWITCH -> bool. On unless GROUNDSFALL says off. Pure. */
+export const groundsFallOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.GROUNDSFALL ?? '').trim().toLowerCase())
+/**
+ * THE STOPS THAT MEAN "THIS PROJECT HAS NOTHING FOR THIS BOT NOW" (an allow-list: a stop not named here never falls through).
+ *   unsited, or waiting on its opening:   no_site site_wait paths_no_site copper_wait waiting changed retiring stopped
+ *   nothing to place with:                no_material no_tool
+ *   no cell this bot can work now:        stuck_on_cell cell_deferred deps_open body_wait felling_one
+ *   another bot's:                        slots_full keeper_held not_decorator
+ *   nothing open:                         complete upkeep
+ * NOT here, each for its reason: `deadline` / `time` (the visit used its time); `aborted`, `error` and every failed visit (an
+ * interruption is the runner's to see); `record_unreadable`, `lost_record`, `lost_lease`, `state_unwritable`, `site_unread`,
+ * `zones_unknown`, `no_plan`, `off`, `fence:*` (a town file or switch the tidy reads too: no evidence the project has no work);
+ * `replanned`, `replant_wait`, `land_planned`, `land_unplanned` (a plan step: the next visit goes on with it); the town stair's
+ * own stops and the expedition's (the bot may be underground or away, and they are their own visits); `grounds_none`,
+ * `grounds_turn` and every stop of the tidy itself (the visit WAS the grounds').
+ */
+export const FALL_STOPS = Object.freeze(['no_site', 'site_wait', 'paths_no_site', 'copper_wait', 'waiting', 'changed', 'retiring', 'stopped',
+  'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'felling_one', 'slots_full', 'keeper_held', 'not_decorator', 'complete', 'upkeep'])
+export const fallStops = stop => FALL_STOPS.includes(String(stop ?? ''))
+/**
+ * MAY THIS BOT WORK THE GROUNDS NOW, WHATEVER BROUGHT IT? -> { ok, why }. Pure. groundsDecide's links without the turn: the fall-
+ * through and the order's ask have no share to wait for. why: 'off' | 'keeper' (its order is its own) | 'decor' | 'record_<state>'
+ * | 'spent' (its last grounds visit fixed nothing: G.emptyMs) | 'underground' | 'away' | 'unknown' | 'full'.
+ */
+export function groundsWork ({ on = true, keeper = false, decor = false, record = 'none', emptyUntil = 0, feet = null, home = null, slotFree = true, now = Date.now() } = {}) {
+  const no = why => ({ ok: false, why })
+  if (!on) return no('off')
+  if (keeper) return no('keeper')
+  if (decor) return no('decor')
+  if (record !== 'open') return no(`record_${record}`)
+  if (now < (Number(emptyUntil) || 0)) return no('spent')
+  const e = groundsEligible({ feet, home })
+  if (!e.ok) return no(e.why)
+  if (!slotFree) return no('full')
+  return { ok: true, why: null }
+}
+/**
+ * DOES THIS VISIT GO ON TO THE GROUNDS? -> { fall, why, asked }. Pure.
+ *   status, stop      the first project's result           placed, cleared, planted   what it did (any of them: it worked)
+ *   grounds           the visit was the grounds' already (the order's own pick, a quota turn, an order for them)
+ *   passed            its quota turn was turned away moments ago (groundsPassed): the grounds have nothing ready, not asked twice
+ *   msLeft, tailMs    the skill's clock left, and the tail a tidy visit keeps free of it (skills.mjs ZIG_VISIT_TAIL_MS, 60 s)
+ *   ...links          groundsWork's
+ * THE TIME: msLeft - tailMs is the work a grounds visit would get (its deadline is the SKILL's end less the tail, not a new 180 s);
+ * under G.workMs (30 s: one bounded walk to a stand, 25 s, and its click) it would walk and place nothing, read EMPTY and spend the
+ * bot's turns 10 minutes for a visit that never had the time -- so at least 90 s of the 180 must be left.
+ * `asked`: the project had nothing for the bot (the row names why the grounds did not follow: `fall=<why>`).
+ * why: `fallback:<stop>` | 'off' | 'grounds' | 'worked' | 'stop' | 'passed' | 'short' | groundsWork's
+ */
+export function groundsFall ({ on = true, status = null, stop = null, placed = 0, cleared = 0, planted = 0, grounds = false, passed = false, msLeft = 0, tailMs = 60_000, G = GROUNDS3, ...links } = {}) {
+  const no = (why, asked = false) => ({ fall: false, why, asked })
+  if (!on) return no('off')
+  if (grounds) return no('grounds')
+  if (status !== 'no_effect' || [placed, cleared, planted].some(n => (Number(n) || 0) > 0)) return no('worked')
+  if (!fallStops(stop)) return no('stop')
+  if (passed) return no('passed', true)
+  if (!(Number(msLeft) - Number(tailMs) >= G.workMs)) return no('short', true)
+  const w = groundsWork({ ...links, on: true })
+  if (!w.ok) return no(w.why, true)
+  return { fall: true, why: `fallback:${stop}`, asked: true }
+}
+/**
+ * THE ORDER HAS NOTHING FOR THIS BOT: ARE THE GROUNDS ORDERED? -> { ask, why }. Pure. shop.mjs buildOrder asks where it would answer
+ * `{ order: null, skip }` for a skip in NO_ORDER_SKIPS -- the active project complete, the bot's last siting failed (a day), a
+ * stuck stop or stamp (6 h), every slot taken. NOT for `idle` (the tidy's own quiet for this bot), `underground` (it is in a
+ * mine), `health` or `room` (the bot's own state: asked here too, the order checks them after the skips this ask stands in for).
+ *   sinceMs / cooldownMs   since the bot's last build order, and the order's cooldown (`complete` is answered before it)
+ * why: `no_order:<skip>` | 'off' | 'skip' | 'cooldown' | 'health' | 'room' | groundsWork's
+ */
+export const NO_ORDER_SKIPS = Object.freeze(['complete', 'no_site', 'stuck_on_cell', 'slots_full'])
+export function groundsNoOrder ({ on = true, skip = null, sinceMs = Infinity, cooldownMs = 0, health = 20, healthMin = 10, freeSlots = 36, roomMin = 2, ...links } = {}) {
+  const no = why => ({ ask: false, why })
+  if (!on) return no('off')
+  if (!NO_ORDER_SKIPS.includes(String(skip ?? ''))) return no('skip')
+  if (!(Number(sinceMs) >= Number(cooldownMs))) return no('cooldown')
+  if (!(Number(health) > Number(healthMin))) return no('health')
+  if (!(Number(freeSlots) >= Number(roomMin))) return no('room')
+  const w = groundsWork({ ...links, on: true })
+  return w.ok ? { ask: true, why: `no_order:${skip}` } : no(w.why)
+}
+/**
+ * THE DECISION OF A VISIT ORDERED FOR THE GROUNDS (groundsDecide's shape) -> { took, why, share: 0, due: true, fall? }. Pure. The
+ * links are read again at the visit (a slot taken, a lease moved since the ask): broken, the visit is NOT the grounds' and -- the
+ * order having nothing else for this bot -- it ends there (`fall`: the link, for the row), never on the project its back-off holds.
+ */
+export function groundsOnly ({ why = 'no_order', ...links } = {}) {
+  const w = groundsWork(links)
+  return w.ok ? { took: 'tidy', why: String(why), share: 0, due: true } : { took: 'other', why: String(why), share: 0, due: true, fall: w.why }
+}
+/**
+ * THE BACK-OFF A GROUNDS VISIT MUST NOT ERASE. The order's state holds ONE last stop and its time (cognitive.mjs shopState), written
+ * by every build visit; its back-offs read them (shop.mjs buildOrder: `stuck_on_cell` 6 h, `no_site` a day). A visit ordered for
+ * the grounds WHILE one holds answers `grounds_turn` -- which, written over the stop, would end the back-off at once and send the
+ * bot back to the stuck project every cooldown; and answering the held stop again would restart its clock at every grounds visit
+ * (held for good). So the bot's last stop ON ITS OWN PROJECT is remembered beside the state (skills.mjs buildShop: set by every
+ * visit of its own project, cleared by every other build visit, untouched by a visit ordered for the grounds), and the back-offs
+ * read the state THROUGH it: the held stop and its own time. No hold: the state itself, exactly as before. Pure.
+ */
+export const HOLD_STOPS = Object.freeze(['stuck_on_cell', 'no_site'])
+export const groundsHoldOf = (stop, now = Date.now()) => (HOLD_STOPS.includes(String(stop ?? '')) ? { stop: String(stop), at: now } : null)
+export const groundsHold = (state, hold) => (hold && HOLD_STOPS.includes(hold.stop) && Number.isFinite(hold.at) ? { ...(state ?? {}), lastStop: hold.stop, lastAt: hold.at } : state)
+
 /**
  * STAIRS FIRST -> the record with every segment that holds an OPEN staircase cell (role `access`: tidy.mjs spotStair's stone steps
  * where the bots keep climbing, and the stands) moved to the front, each behind the layers it waits on (its `deps`, transitively:
@@ -232,7 +361,9 @@ export function crewPantrySum (pantry, { on = true, now = Date.now(), me = null,
   return on ? pantrySum(pantry, { now, fresh: G.workerLiveMs, live: () => true, me }) : pantrySum(pantry, { now, fresh: leaseFresh, live: leased, me })
 }
 /** `_grounds_quota`: one row a build visit -- the decision, then what the visit did. Pure. */
-export const groundsQuotaDetail = ({ on = true, turn = 0, open = null, share = 0, took = 'other', why = '-', placed = null, cleared = null, empty = false, out = '-', late = null } = {}) =>
-  `on=${on ? 1 : 0} turn=${turn} open=${open ?? '-'} share=${share} took=${took} why=${why} placed=${placed ?? '-'} cleared=${cleared ?? '-'} empty=${empty ? 1 : 0} out=${out}${late == null ? '' : ` late=${late}`}`
-/** `_grounds_mode`: the licence row, once at spawn (on=0 under GROUNDS2=off: the rollback is visible too). Pure. */
-export const groundsModeDetail = (on = grounds2On(), G = GROUNDS2) => `on=${on ? 1 : 0} v=1 big=${G.big}:${G.shareBig} small=${G.small}:${G.shareSmall} empty_ms=${G.emptyMs} max_bots=${G.maxBots}`
+/** grounds-03: `why=fallback:<the first project's stop>` (the visit went on to the grounds) and `why=no_order:<skip>` (ordered for
+ *  them); `fall=<why>` when the project had nothing for the bot and the grounds still did not follow (short, spent, full, ...). */
+export const groundsQuotaDetail = ({ on = true, turn = 0, open = null, share = 0, took = 'other', why = '-', placed = null, cleared = null, empty = false, out = '-', late = null, fall = null } = {}) =>
+  `on=${on ? 1 : 0} turn=${turn} open=${open ?? '-'} share=${share} took=${took} why=${why} placed=${placed ?? '-'} cleared=${cleared ?? '-'} empty=${empty ? 1 : 0} out=${out}${late == null ? '' : ` late=${late}`}${fall == null ? '' : ` fall=${fall}`}`
+/** `_grounds_mode`: the licence row, once at spawn (on=0 under GROUNDS2=off, fall=0 under GROUNDSFALL=off: a rollback is visible too). Pure. */
+export const groundsModeDetail = (on = grounds2On(), G = GROUNDS2, fall = on && groundsFallOn()) => `on=${on ? 1 : 0} v=1 big=${G.big}:${G.shareBig} small=${G.small}:${G.shareSmall} empty_ms=${G.emptyMs} max_bots=${G.maxBots} fall=${fall ? 1 : 0}`

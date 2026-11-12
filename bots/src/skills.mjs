@@ -189,6 +189,8 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots, stuckSegs, stuckLast } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
+import { groundsFallOn, groundsFall, groundsNoOrder, groundsOnly, groundsHold, groundsHoldOf } from './grounds2.mjs'   // grounds-03: cleanup as the true fallback
+import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN } from './shop.mjs'   // grounds-03: the order's ask and its hold
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
@@ -18859,7 +18861,7 @@ async function roomBankVisit (ctx, args, signal) {
     then = 36 - used() >= need && Date.now() - t0 <= ROOM_BUILD_AFTER_MS && !signal?.aborted ? 'build' : 'stop'
     try { logEvent({ kind: 'room_bank', status: r?.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: roomBankDetail({ plot: args?.plot ?? '-', need, planned, slotsBefore, slotsAfter: used(), banked, status: r?.status ?? '-', then }) }) } catch { /* telemetry */ }
   }
-  if (then === 'build') return buildShop(ctx, {}, signal)
+  if (then === 'build') return buildShop(ctx, {}, signal, t0)   // grounds-03: the SKILL's start goes with it (the clock a fall-through reads)
   return r?.status === 'success' ? { status: 'success', detail: `${r.detail}; the bag has ${36 - used()} free slot(s) of the build's ${need}` } : { status: 'no_effect', detail: `the room bank moved nothing (${String(r?.detail ?? '').slice(0, 120)})` }
 }
 // ANVILAPPLY-01 + ENCHANT-01 (OWNER 11-04; enchant.mjs decides, docs/reports/anvilproof-2026-11-03.md is the method): at town,
@@ -22424,7 +22426,11 @@ function enchantStationAt (bot, names) {
 }
 /** The workshop's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _enchantshop = Object.freeze({ enchantSiteFor, enchantGateRows, enchantSignWork, enchantUpkeepDue, enchantFitOne, enchantUpkeepVisit, enchantOpenNow })
-async function buildShop (ctx, args, signal) {
+async function buildShop (ctx, args, signal, t00 = null) {
+  // grounds-03 (grounds2.mjs groundsHold): the order's back-offs read this bot's last stop on its OWN project. Every build visit
+  // writes the order's last stop anew, so the remembered one is dropped here and set again below by a visit of the bot's own
+  // project -- but never by a visit ORDERED FOR THE GROUNDS (groundsAsk), which runs while a back-off holds and must not end it
+  if (!g3Only(args)) ctx.bot.g3Hold = null
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
   // bagroom-01: the share-bank visit the room refusal asked for (bagroom.mjs shareBankPlan)
@@ -22446,7 +22452,8 @@ async function buildShop (ctx, args, signal) {
   // GROUNDS-01 (grounds2.mjs): is this build visit the grounds' turn? Decided here, in code, before the pick (groundsBegin marks the
   // bot; buildShopVisit works the tidy first and shopActive names it while the visit runs); one `_grounds_quota` row a visit says the
   // decision and what the visit did, an interrupted one included (groundsEnd). GROUNDS2=off: nothing decided, no row.
-  const g2 = groundsBegin(ctx.bot)
+  const t0 = Number.isFinite(t00) ? t00 : Date.now()   // grounds-03: the SKILL's start (a room-bank visit that goes on to build hands its own on)
+  const g2 = groundsBegin(ctx.bot, Date.now(), args)
   try {
     ctx.bot.shopVisitBusy = true
     try { r = await buildShopVisit(ctx, args, signal) } catch (e) { if (e?.aborted || signal?.aborted) { note({ status: 'aborted', stop: 'aborted' }); serviceEnd(ctx.bot, 'aborted') } throw e } finally { ctx.bot.shopVisitBusy = false }
@@ -22456,8 +22463,48 @@ async function buildShop (ctx, args, signal) {
     if ((ctx.bot.shopVisitPlot === TIDY_PLOT || ctx.bot.shopVisitPlot === FOREST_PLOT) && r?.status === 'success') ctx.bot.gkWorkAt = Date.now()
     // sinkfix-03: the plot whose siting failed (shop.mjs siteRetryHolds: the order's 24-h site retry holds only that plot)
     if (r?.stop === 'no_site') ctx.bot.shopNoSitePlot = ctx.bot.shopVisitPlot ?? null
+    // GROUNDS-03 (grounds2.mjs groundsFall; owner 11-12 "lets do both"): the order's own project ended with nothing done on a stop
+    // that says it has nothing for this bot now, and the skill's clock still holds a worker's visit -> THIS visit goes on to the
+    // grounds (LIVE 24 h to 11-12 17:00Z: 625 of 1,270 build visits ended no_effect and simply ended, beside ~2,900 open tidy cells).
+    // The result stays the FIRST project's: everything above has booked it and `r` reaches the order with its own stop, so its
+    // back-offs hold as before (remembered too: an interrupted grounds leg throws, and the order then sees only `aborted`).
+    if (G3.on && !g3Only(args)) {
+      ctx.bot.g3Hold = groundsHoldOf(r?.stop)
+      try { await groundsFallLeg(ctx, args, signal, g2, r, t0) } catch (e) { r = undefined; throw e }
+    }
     return r
   } finally { groundsEnd(ctx.bot, g2, r) }
+}
+/**
+ * GROUNDS-03: THE FALL-THROUGH'S GROUNDS LEG. Decided by grounds2.mjs groundsFall over the first project's result; taken, the bot is
+ * marked as on a quota turn (`groundsPick`: buildTidyVisit's worker path with groundsNone's turn-back, shopActive's reads name the
+ * tidy) with what the skill's clock has used (`used`: the tidy's deadline is the SKILL's end, not a new 180 s), and the row's
+ * decision becomes `took=tidy why=fallback:<stop>`. Turned away before any work (groundsPassed), or refused, the row keeps the
+ * visit's own decision and names why the grounds did not follow (`fall=`). Throws only an interruption of the grounds visit.
+ */
+async function groundsFallLeg (ctx, args, signal, g, r, t0) {
+  const { bot } = ctx
+  if (signal?.aborted) return   // interrupted as the first project ended: its result stands, nothing new is begun
+  let d = null
+  try { d = groundsFallNow(bot, g, r, t0) } catch { d = null }
+  if (!d?.fall) { if (d?.asked && bot.g2Visit) bot.g2Visit = { ...bot.g2Visit, fall: d.why }; return }
+  const plot0 = bot.shopVisitPlot ?? null, v0 = bot.g2Visit ?? g
+  bot.groundsPick = { at: Date.now(), used: Date.now() - t0 }
+  if (bot.projReserve) bot.projReserve.at = -Infinity
+  bot.g2Visit = { ...v0, took: 'tidy', why: d.why }
+  bot.shopVisitPlot = TIDY_PLOT; bot.tidyLast = null
+  let gr = null
+  try { bot.shopVisitBusy = true; gr = await buildTidy(ctx, args, signal) } finally { bot.shopVisitBusy = false; bot.groundsPick = null }
+  if (groundsPassed(gr)) { bot.shopVisitPlot = plot0; bot.g2Visit = { ...v0, fall: String(gr.stop) } }
+}
+/** grounds-03: the fall-through's readings -> grounds2.mjs groundsFall's answer | null (nothing decided for this visit). The links
+ *  that read no file first: a visit that worked, used its time or was the grounds' own reads none. */
+function groundsFallNow (bot, g, r, t0, now = Date.now()) {
+  if (!G3.on || !g || !r) return null
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  const q = { status: r.status, stop: r.stop, placed: r.placed, cleared: bot.shopLast?.cleared, planted: bot.shopLast?.planted, grounds: bot.shopVisitPlot === TIDY_PLOT, passed: (bot.g2Visit ?? g).passed === true, msLeft: budget - (now - t0), tailMs: ZIG_VISIT_TAIL_MS }
+  const dry = groundsFall({ ...q, record: 'open', emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), now })
+  return dry.fall ? groundsFall({ ...q, ...g3Links(bot, now) }) : dry
 }
 async function buildShopVisit (ctx, args, signal) {
   const { bot } = ctx
@@ -22473,9 +22520,15 @@ async function buildShopVisit (ctx, args, signal) {
     bot.shopVisitPlot = TIDY_PLOT
     const gr = await buildTidy(ctx, args, signal)
     if (!groundsPassed(gr)) return groundsResult(gr)
+    // grounds-03: a visit ORDERED for the grounds has no project to go on to (the order had nothing for this bot: its back-off
+    // holds): turned away, it ends here as a grounds visit that fixed nothing (0 / 0: groundsAfter spends the bot's turns, so the
+    // order is not asked for the grounds again at every cooldown while nothing of them is ready)
+    if (g3Only(args)) { bot.tidyLast = { placed: 0, cleared: 0, outcome: String(gr.stop) }; return groundsResult(gr) }
     bot.groundsPick = null
-    if (bot.g2Visit) bot.g2Visit = { ...bot.g2Visit, took: 'other', why: String(gr.stop) }
+    if (bot.g2Visit) bot.g2Visit = { ...bot.g2Visit, took: 'other', why: String(gr.stop), passed: true }
   }
+  // grounds-03: ...and one whose links broke between the ask and the visit (groundsOnly: a slot taken, the lease moved) ends at once
+  if (g3Only(args)) { bot.shopVisitPlot = null; return groundsResult({ status: 'no_effect', detail: 'the grounds have no work for this bot now, and its order has nothing else', stop: 'grounds_none' }) }
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
   const proj = shopActive(bot, Date.now(), { visit: true })
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
@@ -22517,6 +22570,7 @@ async function buildShopVisit (ctx, args, signal) {
   const f = { project: plot }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    bot.shopLast = { cleared: Number(extra.cleared) || 0, planted: Number(extra.planted) || 0 }   // grounds-03: this visit's status counts only `placed`; a fall-through asks for all three (groundsFall)
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
   }
@@ -26850,6 +26904,10 @@ function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bo
 // GROUNDS2=off: none of this runs (the keeper and its helpers exactly as before).
 // ================================================================================================================================
 const G2 = Object.freeze({ on: GROUNDS.on && grounds2On() })
+// grounds-03 (grounds2.mjs): cleanup as the true fallback -- only where grounds-01 is on. GROUNDSFALL=off: grounds-01/02 exactly.
+const G3 = Object.freeze({ on: G2.on && groundsFallOn() })
+/** grounds-03: is this build visit one ORDERED for the grounds (groundsAsk's order: the order had nothing else for this bot)? */
+const g3Only = args => G3.on && args?.grounds === true
 const g2Home = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
 /** Does this bot's bag hold park plants above its keeps (the pantry's own read: buildTidyVisit writes exactly this)? Never throws. */
 function g2Carrying (bot) { try { const h = heldMap(bot); return Object.keys(parkItemsOf(spareOf(h, townKeeps(h, { wanted: bot.currentWants ?? [] }).keep))).length > 0 } catch { return false } }
@@ -26874,18 +26932,21 @@ function g2OpenNow (dir, rec, now = Date.now()) { try { return openNewest(openRe
  * tidy project, or a throw: nothing decided, the order as before). Counts this bot's build visit, and on its turn marks the bot
  * (`groundsPick`: buildShopVisit works the tidy, shopActive names it); the reserve is read again, for the tidy. Never throws.
  */
-function groundsBegin (bot, now = Date.now()) {
+function groundsBegin (bot, now = Date.now(), args = null) {
   if (!bot) return null
-  bot.groundsPick = null; bot.g2Visit = null; bot.tidyLast = null; bot.g2Late = null
+  bot.groundsPick = null; bot.g2Visit = null; bot.tidyLast = null; bot.g2Late = null; bot.shopLast = null
   if (!G2.on) return null
   try {
     const tidyP = projectsOn().find(p => p.plot === TIDY_PLOT)
     if (!tidyP) return null
-    const dir = townDir(), turn = (Number(bot.g2Turn) || 0) + 1
+    // grounds-03: a visit ORDERED for the grounds is decided by its links alone (groundsOnly) and is no turn of the quota's count
+    const only = g3Only(args) ? String(args.why ?? 'no_order') : null
+    const dir = townDir(), turn = (Number(bot.g2Turn) || 0) + (only ? 0 : 1)
     bot.g2Turn = turn
     const R = g2Record(dir, now), keeper = keeperLeaseNow(bot, now)
     const open = R.state === 'open' ? g2OpenNow(dir, R.rec, now) : null
-    const d = groundsDecide({ on: true, keeper, decor: decorLeaseNow(bot, now), record: R.state, open, turn, emptyUntil: bot.g2EmptyUntil ?? 0, carrying: g2Carrying(bot), feet: gkFeet(bot), home: g2Home(), slotFree: slotFreeFor(tidyP, keeperMe(bot), now, { worker: !keeper }), now })
+    const L = { on: true, keeper, decor: decorLeaseNow(bot, now), record: R.state, emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), slotFree: slotFreeFor(tidyP, keeperMe(bot), now, { worker: !keeper }), now }
+    const d = only ? groundsOnly({ ...L, why: only }) : groundsDecide({ ...L, open, turn, carrying: g2Carrying(bot) })
     if (d.took === 'tidy') { bot.groundsPick = { at: now }; if (bot.projReserve) bot.projReserve.at = -Infinity }
     bot.g2Visit = { ...d, turn, open, keeper }
     return bot.g2Visit
@@ -26907,12 +26968,40 @@ function groundsEnd (bot, g, r) {
     const last = took === 'tidy' && !aborted ? bot.tidyLast ?? null : null
     const a = groundsAfter({ took, keeper: !!v.keeper, aborted: aborted || !last, placed: last?.placed, cleared: last?.cleared, emptyUntil: bot.g2EmptyUntil ?? 0 })
     bot.g2EmptyUntil = a.emptyUntil
-    logEvent({ kind: 'grounds_quota', status: took === 'tidy' && !aborted && !a.empty ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: groundsQuotaDetail({ on: true, turn: v.turn, open: v.open, share: v.share, took, why: v.why, placed: last?.placed ?? null, cleared: last?.cleared ?? null, empty: a.empty, late: took === 'tidy' ? bot.g2Late ?? null : null, out: aborted ? 'aborted' : took === 'tidy' ? last?.outcome ?? '-' : r?.stop ?? '-' }) })
+    logEvent({ kind: 'grounds_quota', status: took === 'tidy' && !aborted && !a.empty ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: groundsQuotaDetail({ on: true, turn: v.turn, open: v.open, share: v.share, took, why: v.why, placed: last?.placed ?? null, cleared: last?.cleared ?? null, empty: a.empty, late: took === 'tidy' ? bot.g2Late ?? null : null, fall: v.fall ?? null, out: aborted ? 'aborted' : took === 'tidy' ? last?.outcome ?? '-' : r?.stop ?? '-' }) })
   } catch { /* telemetry */ }
   bot.g2Visit = null
 }
+/** grounds-03: groundsWork's links as they read now -> { on, keeper, decor, record, emptyUntil, feet, home, slotFree, now }. Throws
+ *  on an unreadable town (the caller's answer is then "not the grounds'"). */
+function g3Links (bot, now = Date.now()) {
+  const tidyP = projectsOn().find(p => p.plot === TIDY_PLOT) ?? null, keeper = keeperLeaseNow(bot, now)
+  return { on: !!tidyP, keeper, decor: decorLeaseNow(bot, now), record: g2Record(townDir(), now).state, emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), slotFree: !!tidyP && slotFreeFor(tidyP, keeperMe(bot), now, { worker: !keeper }), now }
+}
+/**
+ * GROUNDS-03: THE ORDER'S ASK (shop.mjs buildOrder, where it has nothing for this bot: `skip`) -> { order } | null. grounds2.mjs
+ * groundsNoOrder decides; the order is build_shop's own, its args saying the visit is the grounds' and why (`no_order:<skip>`: the
+ * row's `why`). Asked at every decision while the order is quiet, so the links that read no file go first (the cooldown, the spent
+ * turns, a bot in a mine) and a refusal read from the town's files stands 30 s. Never throws (no order).
+ */
+function groundsAsk ({ skip = null, now = Date.now(), state = {}, health = 20, freeSlots = 36 } = {}) {
+  try {
+    const bot = activeMem?.bot ?? null
+    if (!G3.on || !bot) return null
+    const q = { skip, sinceMs: now - (state?.lastAt ?? -Infinity), cooldownMs: SHOP_COOLDOWN_MS, health, healthMin: SHOP_HEALTH_MIN, freeSlots, roomMin: MONUMENT_BAG_SLOTS_MIN }
+    if (!groundsNoOrder({ ...q, record: 'open', emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), now }).ask) return null
+    if (now - (bot.g3NoAt ?? -Infinity) < 30_000 && now >= (bot.g3NoAt ?? 0)) return null
+    const d = groundsNoOrder({ ...q, ...g3Links(bot, now) })
+    if (!d.ask) { bot.g3NoAt = now; return null }
+    return { order: { skill: 'build_shop', args: { grounds: true, why: d.why } } }
+  } catch { return null }
+}
+/** grounds-03: the order's state as its BACK-OFFS read it -- through this bot's last stop on its own project (grounds2.mjs groundsHold). */
+const groundsHeld = state => groundsHold(state, activeMem?.bot?.g3Hold ?? null)
+// the order's hooks (shop.mjs setGroundsFall); GROUNDSFALL=off installs neither
+if (G3.on) setGroundsFall({ ask: groundsAsk, hold: groundsHeld })
 /** grounds-01: the glue's steps, for the tests and a sandbox drive: never called by the bot itself. */
-export const _grounds2 = Object.freeze({ G2, groundsBegin, groundsEnd, g2Eligible, buildersFor: (p, o) => buildersFor(p, o) })
+export const _grounds2 = Object.freeze({ G2, G3, groundsBegin, groundsEnd, groundsAsk, groundsHeld, g2Eligible, buildersFor: (p, o) => buildersFor(p, o) })
 /** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
  *  laid path) and their reservations. Throws on an unreadable file. */
 function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
@@ -27927,7 +28016,8 @@ async function buildUpkeep (ctx, args, signal) {
 async function buildTidyVisit (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
-  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
+  // grounds-03: a fall-through's grounds visit starts late in the skill -- its budget is what the skill's clock has left (`used`)
+  const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - (Number(bot.groundsPick?.used) || 0)
   // country-01: the visit's LANE picks the record chain (the inside's tidy, or the country's); every row names it
   let plot = TIDY_PLOT
   const f = { project: plot }

@@ -545,6 +545,16 @@ export function setEnchantAsk (fn) { enchantAskOf = typeof fn === 'function' ? f
  */
 let marketAskOf = null
 export function setMarketAsk (fn) { marketAskOf = typeof fn === 'function' ? fn : null }
+/**
+ * GROUNDS-03 (grounds2.mjs; owner 11-12 "when all projects are complete, bots should be cleaning up and teraforming"): the grounds'
+ * two hooks into the order (skills.mjs installs them; unset, or GROUNDSFALL=off: the order exactly as before).
+ *   ask({ skip, now, state, health, freeSlots }) -> { order } | null   asked where the order has NOTHING for this bot (buildOrder
+ *        below: the active project complete, its site retry or stuck back-off holding, its slots full) -- grounds2.mjs groundsNoOrder
+ *   hold(state) -> the state the BACK-OFFS read: the bot's last stop on its OWN project and its time (grounds2.mjs groundsHold), so a
+ *        visit ordered for the grounds while a back-off holds never ends it (its `grounds_turn` overwrites the one stop the state holds)
+ */
+let groundsFallOf = null
+export function setGroundsFall (h) { groundsFallOf = h && typeof h.ask === 'function' && typeof h.hold === 'function' ? h : null }
 /** groundskeeper-01: does THIS bot hold its town's keeper lease now (skills.mjs keeperNow; no cognitive change)? */
 let keeperOf = () => false
 export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn }
@@ -864,7 +874,17 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
  * milestone holding, after the cooldown; the record complete is no order; S1 (no site) waits a day; a full slot set, low health,
  * or a bag without room is a skip with its reason.
  */
-export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
+export function buildOrder (q = {}) {
+  const r = buildOrderOwn(q)
+  // GROUNDS-03: the order has nothing for this bot (a skip, with its reason) -> the grounds are asked: an order for them, else the
+  // skip exactly as before. The ask decides which skips it stands in for and checks the cooldown, the health and the bag's room
+  // itself (the order answers `complete` before its cooldown, and its site and stuck back-offs before the health and the room).
+  if (r.order || !r.skip || !groundsFallOf) return r
+  let g = null
+  try { g = groundsFallOf.ask({ skip: r.skip, now: q.now ?? 0, state: q.state ?? {}, health: q.health ?? 20, freeSlots: q.freeSlots ?? 36 }) } catch { g = null }
+  return g?.order ? { order: g.order, skip: null } : r
+}
+function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
   complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
@@ -906,7 +926,10 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   { let idle = false; try { idle = plot0 === TIDY_PLOT && !!idleOf(plot0) } catch { idle = false } if (idle) return { order: null, skip: 'idle' } }
   let failedSite = null
   try { failedSite = noSitePlotOf() } catch { failedSite = null }
-  if (!record && state.lastStop === 'no_site' && now - (state.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS && !prepClaimed(plot0) && siteRetryHolds(plot0, failedSite)) return { order: null, skip: 'no_site' }
+  // GROUNDS-03: the two back-offs that read the bot's last stop read it through the grounds' hold (`own`: see setGroundsFall)
+  let own = state
+  try { own = (groundsFallOf ? groundsFallOf.hold(state) : null) ?? state } catch { own = state }
+  if (!record && own.lastStop === 'no_site' && now - (own.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS && !prepClaimed(plot0) && siteRetryHolds(plot0, failedSite)) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h
@@ -917,7 +940,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
   // sinkfix-02: a sink visit starts at the surface (LIVE 11-04: three road visits ordered at y 23-26 in a mine, aborted entombed)
   if (isSinkPlot(plot0) && Array.isArray(feet) && Number.isFinite(groundY) && feet[1] < groundY - SINK_SURFACE_DY) return { order: null, skip: 'underground' }
-  if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
   let plot = record?.plot ?? null
