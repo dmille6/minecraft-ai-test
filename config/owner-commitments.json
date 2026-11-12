@@ -7133,6 +7133,32 @@
    "title": "fullplace-01: a full-bag town deposit that finds every chest in reach full runs the deposit verb itself (315 town_storage_full refusals / 48 followed by a deposit in 6 h, 80 bots; hive-c 42 / 0, placebo-d 69 / 0; bags 38 of 80 at 34+ slots)",
    "next_step": "QUEUED 11-12 04:58Z in ~/canary-queue.json right after townmine-01 (owner: deploy now); variant keyed 05eec33f = c82c1b63, set-patch 05eec33f..c82c1b63 (autorebase onto whatever is live; speculative build on townmine-01's canary 54c4835a). Registration ~/mcai-analysis/fullplace-01.c82c1b63.json (effectwatch validate: valid). Pinned hive-c + hive-a. READ after the deploy: _fullplace rows (deposit=success|failed|threw), _deposit_new_chest rows per bot-h in the canary pools, bags >= 34 in hive-c. Not in this change: the recovery's defer on unknown containers (32 of 37 new-chest decisions).",
    "note": "OWNER 2026-11-12 \"Yes, build it and deploy now\". Measured with scripts/lib/telemetry.py (6 h full walk, 536,745 rows / 80 bots; positive control placebo-c: 168 deposit tries, 0 of 5 bags full). Tier 2 (protected.py: not protected); Codex blockers-only NO BLOCKERS; rollback FULLPLACE=off."
+  },
+  {
+   "covers_alarms": [],
+   "evidence": {
+    "grep": [
+     "storage-yard-direction",
+     "yardgrow",
+     "logcap-03",
+     "sourceorder"
+    ],
+    "runs": [],
+    "branches": []
+   },
+   "id": "storage-yard-direction-1112",
+   "kind": "design",
+   "lane": "progress",
+   "max_quiet_hours": 96,
+   "memory": [
+    "owner-storage-yard-direction-1112.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-12",
+   "state": "open",
+   "title": "Storage direction (owner 11-12): growable stepped piles per kind in the yard; no stone or logs in chests; use the bag, then the yard, before gathering; a log limit that really stops tree cutting",
+   "next_step": "Owner go-ahead on the build order. Proposed: (1) the log cap as a refusal at the gather (logcap-02 is advice: 432 log gathers in 6 h in capped towns); (2) source order bag -> yard -> gather; (3) the yard on the fleet with growable stepped lanes and a log lane (yard.mjs is showcase-only, 304 blocks); (4) chests refuse stone and logs, a clerk drains them to the yard (about 57,800 logs counted in town chests).",
+   "note": "OWNER 2026-11-12 ~07:10Z, four statements quoted in the memory file. Measured with scripts/lib/telemetry.py (6 h, 539,979 rows / 80 bots). No code yet; fullplace-01 (canary) is the last chest-capacity patch unless the owner asks for more."
   }
  ]
 }
