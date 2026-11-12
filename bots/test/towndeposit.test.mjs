@@ -423,7 +423,7 @@ test('registered: a chatOnly housekeeping skill with an inventory_loss contract'
  *   openNever        openContainer stays pending until st.late() resolves it with the window
  *   fillDest(slot)   another bot fills that container slot while the bot is picking up (the pickup click's wait)
  */
-function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false, swapAfter = null, serverItem = null, resync = false }) {
+function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false, swapAfter = null, serverItem = null, truthProbe = false }) {
   const bagSlots = Array(46).fill(null)                      // the CLIENT's bag (bot.inventory)
   for (const it of items) bagSlots[it.slot] = { ...it }
   const server = { bag: bagSlots.map(x => (x ? { ...x } : null)) }
@@ -448,7 +448,14 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
     craftSync: {
       lockstep: fn => fn(), inflight: () => 0, invalidate: () => 0,
       recount: async () => ({ source: 'server', items: server.bag.slice(9, 45).filter(Boolean) }),
-      confirmCursor: async win => { const c = win?.server?.selectedItem; return { answered: true, cursorEmpty: !c, carried: c ? { itemCount: c.count } : null } },
+      // chestmerge-01 `truthProbe`: craftsync's real contract -- the probe's answer is the window's FULL state, so the
+      // client's slots and cursor become the server's (craftsync.mjs probeCursor; mineflayer applies window_items to the
+      // slots, craftsync the carried item). Between probes the client's cursor is its own prediction, right or wrong.
+      confirmCursor: async win => {
+        const c = win?.server?.selectedItem
+        if (truthProbe && win?.server) { st.probes = (st.probes ?? 0) + 1; for (let i = 0; i < win.slots.length; i++) win.slots[i] = win.server.slots[i] ? { ...win.server.slots[i] } : null; win.selectedItem = c ? { ...c } : null }
+        return { answered: true, cursorEmpty: !c, carried: c ? { itemCount: c.count } : null }
+      },
     },
     equip: async () => {}, unequip: async () => {}, moveSlotItem: async () => {}, toss: async () => {}, tossStack: async () => {}, closeWindow: () => {},
     removeListener: () => {}, once: () => {}, _client: {},
@@ -525,8 +532,6 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
         const src = win.server.slots.findIndex((x, i) => i >= win.inventoryStart && !x)
         win.server.slots[src] = { ...win.server.selectedItem, slot: src }; win.server.selectedItem = null
       } else left(win.server, slot)
-      // chestmerge-01: the refresh a lockstep click waits for -- the client's window becomes the server's
-      if (resync) { for (let i = 0; i < win.slots.length; i++) win.slots[i] = win.server.slots[i] ? { ...win.server.slots[i] } : null; win.selectedItem = win.server.selectedItem ? { ...win.server.selectedItem } : null }
     },
   }
   if (swapAfter) {   // after click N lands, another window becomes the open one (a late open, a server-opened screen)
@@ -2261,7 +2266,7 @@ test('CHESTMERGE rollback: CHESTMERGE=off turns it off (read at import); on by d
 })
 
 /** The scene every skill test starts from: a full bag (the plan banks 4 stacks) at ONE chest with no empty slot and 8 x 10 coal. */
-const cmScene = (opts = {}, chest = splitChest(2)) => { const items = fullBag(); const w = world({ items, containers: [chest], ...opts }); return { ...w, chest, items, start: total(items) + total(chest.items) } }
+const cmScene = (opts = {}, chest = splitChest(2)) => { const items = fullBag(); const w = world({ items, containers: [chest], truthProbe: true, ...opts }); return { ...w, chest, items, start: total(items) + total(chest.items) } }
 const allOf = w => total(serverBag(w)) + total(w.chest.items)
 
 test('CHESTMERGE SKILL: a chest with no empty slot but split coal -> 4 merges free the 4 slots the plan needs, the stacks are banked; the server shows it; nothing lost', async () => {
@@ -2318,39 +2323,61 @@ test('CHESTMERGE SKILL: stacks the client can see differ (a component) are never
     assert.equal(r.failClass, 'town_storage_full'); assert.equal(w.st.clicks, 0); assert.equal(rows.length, 0); assert.equal(allOf(w), w.start)
   } finally { untap(); restore() }
 })
-// THE THREE SURPRISES (another bot changed the chest between the clicks, or the server's stack was not the client's). In each
-// the stack the merge picked up goes back into the slot it came from, the merging ends, nothing reaches the bag or the ground.
-const surprise = async (opts, check) => {
+// THE SURPRISES. The fake SERVER and the fake CLIENT are separate and the client's cursor is its own prediction, as
+// mineflayer's is (it never applies the server's cursor): each scene changes the SERVER only, so the client predicts a
+// clean merge that did not happen. The run must find out from the server (the probe), put the stack back into the slot it
+// came from, and make NO deposit click in that container. Nothing reaches the bag or the ground.
+const srvOnly = fn => (slot, win) => fn(slot, win, win.server)
+const surprise = async (opts, check, { bagDelta = 0 } = {}) => {
   const restore = freshTown(); const { rows, untap } = cmRows()
   try {
     const w = cmScene(opts)
     const r = await runLate(w.bot)
     assert.equal(w.st.dropped, 0, 'nothing on the ground'); assert.equal(w.st.loadedCloses, 0, 'never a loaded close')
-    assert.equal(total(serverBag(w)), total(w.items), 'the bag holds exactly what it held: no chest stack came out')
-    assert.equal(serverBag(w).length, 36)
-    assert.equal(w.chest.items.filter(Boolean).length, 27, 'the slot the pickup emptied holds a stack again')
+    assert.equal(total(serverBag(w)) - total(w.items), bagDelta, 'what came out of the chest into the bag')
     assert.equal(rows.length, 1); assert.equal(rows[0].status, 'no_effect'); assert.match(rows[0].detail, /merged=0 verified=0 banked_stacks=0/)
     assert.deepEqual(w.st.opened, ['2,70,0', '2,70,0'], 'the container is read again after the clicks (the index is not left dirty)')
-    assert.equal(r.failClass, 'town_storage_full', 'no room was made: the base refusal, with its remedy'); assert.match(r.detail, /deposit \(no item\)/)
+    assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_deposit_failed'); assert.match(r.detail, /deposit \(no item\)/, 'the refusal names a verb the bot can run from here')
+    assert.notEqual(await memStatus('2,70,0'), 'full', 'a chest whose merge was interrupted is tried again, not remembered full')
     check(w, rows[0])
   } finally { untap(); restore() }
 }
-test('CHESTMERGE SURPRISE 1 (a part merge): the destination grew before the put-down -> the rest goes back into the emptied slot', () =>
-  surprise({ onClick: (slot, win) => { if (slot === 7 && win.selectedItem) for (const x of [win, win.server]) x.slots[7].count = 60 } }, (w, row) => {
-    assert.equal(w.st.clicks, 3, 'pick up, put down, put back'); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7/)
-    assert.deepEqual([w.chest.items[0].count, w.chest.items[7].count], [6, 64], '4 of the 10 merged, the other 6 are back in slot 0')
+test('CHESTMERGE SURPRISE 1 (a part merge the client did not see): the server\'s destination had grown -> the rest on the SERVER\'s cursor goes back into the emptied slot; no deposit click', () =>
+  surprise({ onClick: srvOnly((slot, win, srv) => { if (slot === 7 && win.selectedItem) srv.slots[7].count = 60 }) }, (w, row) => {
+    assert.equal(w.st.clicks, 3, 'pick up, put down, put back -- and not one deposit click'); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7;_cursor_returned/)
+    assert.deepEqual([w.chest.items[0].count, w.chest.items[7].count], [6, 64], '4 of the 10 merged on the server, the other 6 are back in slot 0')
+    assert.equal(w.chest.items.filter(Boolean).length, 27)
   }))
-test('CHESTMERGE SURPRISE 2 (the pickup): the stack to move changed under the click -> whatever was lifted goes straight back', () =>
-  surprise({ onClick: (slot, win) => { if (slot === 0 && !win.selectedItem) for (const x of [win, win.server]) x.slots[0].count = 7 } }, (w, row) => {
-    assert.equal(w.st.clicks, 2, 'pick up, put back'); assert.match(row.detail, /stop=picked_up_coal,_not_the_coal_to_merge/)
-    assert.deepEqual([w.chest.items[0].count, w.chest.items[7].count], [7, 10])
+test('CHESTMERGE SURPRISE 2 (the pickup): the server\'s stack was smaller than the client\'s -> the merge is not counted, the cursor is empty on the server, no deposit click', () =>
+  surprise({ onClick: srvOnly((slot, win, srv) => { if (slot === 0 && !win.selectedItem) srv.slots[0].count = 7 }) }, (w, row) => {
+    assert.equal(w.st.clicks, 2, 'the two merge clicks only'); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7;_cursor_empty/)
+    assert.equal(w.chest.items[7].count, 17, 'the server merged what it had: 10 + 7'); assert.equal(w.chest.items[0], null)
+    assert.equal(sumOf(w.chest.items, 'coal'), 77, 'the chest holds exactly the server\'s coal')
   }))
-test('CHESTMERGE SURPRISE 3 (a swap): the server\'s stack is not the one the client was sent -> the swapped-out stack goes into the emptied slot', () =>
-  surprise({ resync: true, serverItem: (i, it, opens) => (opens === 1 && i === 7 ? { ...it, components: [{ type: 'custom_name', data: 'hidden' }] } : null) }, (w, row) => {
-    assert.equal(w.st.clicks, 3); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7/)
+test('CHESTMERGE SURPRISE 3 (a swap): the server\'s stack is not the one the client was sent -> the swapped-out stack on the SERVER\'s cursor goes into the emptied slot', () =>
+  surprise({ serverItem: (i, it, opens) => (opens === 1 && i === 7 ? { ...it, components: [{ type: 'custom_name', data: 'hidden' }] } : null) }, (w, row) => {
+    assert.equal(w.st.clicks, 3); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7;_cursor_returned/)
     assert.equal(sumOf(w.chest.items, 'coal'), 80, 'both stacks are in the chest, places swapped')
     assert.equal(w.chest.items[0].components?.[0]?.data, 'hidden'); assert.equal(w.chest.items[7].components, undefined)
   }))
+test('CHESTMERGE SURPRISE 4 (the residual case): the emptied slot was filled by another bot AND the merge was partial -> the rest cannot go back; settleCursor takes it (the bag), never the ground, and the chest is counted again', () =>
+  surprise({ onClick: srvOnly((slot, win, srv) => { if (slot === 7 && win.selectedItem) { srv.slots[7].count = 60; srv.slots[0] = item('dirt', 64, 0) } }) }, (w, row) => {
+    assert.match(row.detail, /cursor_loaded/)
+    assert.equal(w.chest.items[0].name, 'dirt'); assert.equal(w.chest.items[7].count, 64)
+    assert.equal(sumOf(serverBag(w), 'coal') - sumOf(w.items, 'coal'), 6, 'the six coal are in the bag (the caller\'s server-confirmed settle), not lost')
+  }, { bagDelta: 6 }))
+test('CHESTMERGE ABORT between the two clicks (Codex r1): the picked-up stack goes back into its slot before the settle; the abort is rethrown', async () => {
+  const restore = freshTown()
+  try {
+    const ac = new AbortController()
+    const w = cmScene({ onClick: (slot, win) => { if (slot === 0 && !win.selectedItem) queueMicrotask(() => ac.abort()) } })
+    await assert.rejects(() => SKILLS.town_deposit.run({ bot: w.bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, ac.signal))
+    assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+    assert.equal(total(serverBag(w)), total(w.items), 'no chest coal in the bag')
+    assert.equal(w.chest.items[0]?.count, 10, 'the 10 coal are back in slot 0'); assert.equal(sumOf(w.chest.items, 'coal'), 80)
+    assert.equal(w.st.clicks, 2, 'the pickup and the put-back')
+  } finally { restore() }
+})
 
 /** A copy of skills.mjs (and optionally chestmerge.mjs) with one anchored edit each -> its module. Anchors are asserted present and unique. */
 async function cmMutant ({ skillsEdit = null, mergeEdit = null }, fn) {
@@ -2383,21 +2410,57 @@ test('CHESTMERGE MUTANT KILLED: the switch off (the rollback) -> the split chest
     })
   } finally { restore() }
 })
-test('CHESTMERGE MUTANT KILLED: the put-back removed -> the part-merged rest leaves the chest for the bag (what the put-back prevents)', async () => {
+const PART = { onClick: (slot, win) => { if (slot === 7 && win.selectedItem) win.server.slots[7].count = 60 } }
+test('CHESTMERGE MUTANT KILLED: the put-back click removed -> the part-merged rest leaves the town chest for the bag (what the rescue prevents)', async () => {
   const restore = freshTown()
   try {
-    await cmMutant({ skillsEdit: ['const back = async () => { if (win.selectedItem && !win.slots[m.from]) await click(m.from) }', 'const back = async () => {}'] }, async M => {
-      const w = cmScene({ onClick: (slot, win) => { if (slot === 7 && win.selectedItem) for (const x of [win, win.server]) x.slots[7].count = 60 } })
+    await cmMutant({ skillsEdit: ["    await lockstepClicks(bot, async raw => { const p = trackedClick(bot, raw, from, 0, 0); p.catch(() => {}); await within(p, 1500) }, { deadline: Date.now() + 2000 })\n", ''] }, async M => {
+      const w = cmScene(PART)
       await runLateOn(M, w.bot)
       assert.equal(w.st.dropped, 0, 'the caller\'s settleCursor still keeps it off the ground')
       assert.equal(total(serverBag(w)) - total(w.items), 6, 'MUTANT: six coal came out of the town chest into the bag, unasked')
     })
   } finally { restore() }
 })
+test('CHESTMERGE MUTANT KILLED (independent review r1): trusting the client\'s cursor -- no stop after a merge that went wrong -> the deposit clicks on top of the server\'s loaded cursor', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['    if (merge.err || win.selectedItem) return { done: [], full: false, noRoom: false,', '    if (win.selectedItem) return { done: [], full: false, noRoom: false,'] }, async M => {
+      const w = cmScene({ onClick: srvOnly((slot, win, srv) => { if (slot === 0 && !win.selectedItem) srv.slots[0].count = 7 }) })
+      await runLateOn(M, w.bot)
+      assert.ok(w.st.clicks > 2, `MUTANT: ${w.st.clicks} clicks -- deposit clicks followed the failed merge (2 on the real code)`)
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED (independent review r1): a merge counted without the server\'s word -> a part merge the client did not see is counted, and the deposit runs with the rest on the server\'s cursor', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ["const ev = clickErr ? null : await confirmCursor(bot, win, { deadline: Date.now() + Math.max(250, Math.min(1500, deadline - Date.now())) })", "const ev = clickErr ? null : { answered: true, cursorEmpty: !win.selectedItem }"] }, async M => {
+      const { rows, untap } = cmRows()
+      try {
+        const w = cmScene(PART)
+        await runLateOn(M, w.bot)
+        assert.match(rows[0].detail, /merged=[1-9]/, 'MUTANT: the client\'s prediction is taken for a merge')
+        assert.ok(w.st.clicks > 3, 'MUTANT: the run clicked on with the server\'s cursor loaded')
+      } finally { untap() }
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED (Codex r1): no rescue after an abort -> the picked-up coal ends in the bag', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['        if (mergeHold.from != null) { const from = mergeHold.from; mergeHold.from = null; await mergeRescue(bot, win, from) }\n', ''] }, async M => {
+      const ac = new AbortController()
+      const w = cmScene({ onClick: (slot, win) => { if (slot === 0 && !win.selectedItem) queueMicrotask(() => ac.abort()) } })
+      await assert.rejects(() => M.SKILLS.town_deposit.run({ bot: w.bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, ac.signal))
+      assert.equal(total(serverBag(w)) - total(w.items), 10, 'MUTANT: ten coal left the town chest for the bag')
+    })
+  } finally { restore() }
+})
 test('CHESTMERGE MUTANT KILLED: merging for the whole plan instead of what it lacks -> four merges where two were needed', async () => {
   const restore = freshTown()
   try {
-    await cmMutant({ skillsEdit: ['await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate)', 'await mergeInto(bot, win, plan.steps.length, deadline, signal, onMutate)'] }, async M => {
+    await cmMutant({ skillsEdit: ['await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate, mergeHold)', 'await mergeInto(bot, win, plan.steps.length, deadline, signal, onMutate, mergeHold)'] }, async M => {
       const chest = splitChest(2); chest.items[25] = null; chest.items[26] = null
       const w = cmScene({}, chest)
       await runLateOn(M, w.bot)
@@ -2409,7 +2472,7 @@ test('CHESTMERGE MUTANT KILLED: no re-open after a failed merge -> the container
   const restore = freshTown()
   try {
     await cmMutant({ skillsEdit: ['{ always: merged.length > 0 || !!r.merge?.err }', '{ always: false }'] }, async M => {
-      const w = cmScene({ onClick: (slot, win) => { if (slot === 7 && win.selectedItem) for (const x of [win, win.server]) x.slots[7].count = 60 } })
+      const w = cmScene(PART)
       await runLateOn(M, w.bot)
       assert.deepEqual(w.st.opened, ['2,70,0'], 'MUTANT: one open only')
     })
