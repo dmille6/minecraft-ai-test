@@ -120,19 +120,25 @@ await t('a cell no stand was found for is not searched again while the world sta
   // one segment: A a sealed pocket (no stand), B on the grass (a stand). The first click on B finds a body in the cell -> `body`,
   // nothing sent, the same pass again. A's support (the block under the pocket) is read only by A's own stand search.
   const A = [30, G - 5, 20], Bc = [34, G + 1, 20], sup = k3([A[0], A[1] - 1, A[2]])
-  const run = async (RM, standCache) => {
+  const run = async (RM, standCache, feet = null, hook = null) => {
     const srv = server({ [k3(A)]: 'air' })
     let n = 0, bodies = 1
     const read0 = srv.read
     srv.read = (x, y, z) => { if (`${x},${y},${z}` === sup) n++; return read0(x, y, z) }
-    const v = await visit(RM, srv, record([{ seg: 'S', cells: [A, Bc] }]), { standCache, botOpts: { others: () => (bodies-- > 0 ? [Bc] : []) } })
+    const v = await visit(RM, srv, record([{ seg: 'S', cells: [A, Bc] }]), { standCache, hook, botOpts: { others: () => (bodies-- > 0 ? [Bc] : []), ...(feet ? { feet } : {}) } })
     assert.strictEqual(v.r.placed, 1, 'B is laid on the second pass')
     assert.strictEqual(v.r.deferred?.[0]?.k, k3(A))
     return n
   }
-  const off = await run(R, false)
+  // B's stand, learned from a run (the first walk's target): a bot that already stands there walks nowhere on the body pass
+  let standB = null
+  await run(R, false, null, e => { const w = e.walkTo; e.walkTo = async (to, o) => { standB ??= to.slice(); return w(to, o) } })
+  assert.ok(Array.isArray(standB), 'control: the visit walked to a stand')
+  const off = await run(R, false, standB)
   assert.strictEqual(off, 3, 'off: A searched on every pass (body, placed, deferred)')
-  const scenario = async RM => assert.strictEqual(await run(RM, true), 2, 'on: not on the pass the world had not moved for; again after the placement')
+  const scenario = async RM => assert.strictEqual(await run(RM, true, standB), 2, 'on: not on the pass the world had not moved for; again after the placement')
+  // review r1 (Codex): a bot that WALKED to the stand may have changed the world on its way -- the kept walk is dropped, A is searched again
+  assert.strictEqual(await run(R, true), 3, 'on, from home: the body pass followed a real walk, so the walk is walked again')
   await kills('const noStandIn = (c, w, nodes) => standCache && noStep.get(standKey(c, w)) === nodes', 'const noStandIn = (c, w, nodes) => standCache && noStep.get(standKey(c, w)) === null', scenario)
 })
 
@@ -360,6 +366,25 @@ const lateScene = async (RM, standCache = true) => {
   assert.deepStrictEqual(placedCells(v.e), [k3(C3)], 'the late block is seen: the cell over the column is laid from on it')
 }
 await t('a silent click that lands LATER is a world change too (STANDCACHE off agrees)', async () => { await lateScene(R, false); await lateScene(R, true) })
+// REVIEW r1 (Codex BLOCKER 2), A WALK THAT CHANGES THE WORLD AND A CLICK THAT THEN SENDS NOTHING: one segment, the column's third
+// cell (no stand until the step stands) and B on the grass. The walk to B's stand lays the step (the pathfinder's own scaffold);
+// the click on B then finds a body in the cell and sends nothing. The next pass must see the step: the third cell is laid FIRST.
+const walkScene = async (RM, standCache = true) => {
+  // B hangs on the side of a standing pillar, one layer ABOVE the column's cell: a pass takes its cells lowest first, so the
+  // column's cell is searched (and found without a stand) before B is picked
+  const Bw = [37, G + 4, 24], pillar = [1, 2, 3, 4].map(dy => [36, G + dy, 24])
+  const srv = server({ [k3(C1)]: 'dirt', [k3(C2)]: 'dirt', ...Object.fromEntries(pillar.map(c => [k3(c), 'dirt'])) })
+  let walks = 0, bodies = 1
+  const hook = e => { const w = e.walkTo; e.walkTo = async (to, o) => { if (walks++ === 0) srv.set(STEP, 'dirt'); return w(to, o) } }
+  const v = await visit(RM, srv, record([{ seg: 'S', cells: [C3, Bw] }]), { standCache, hook, opts: { standMs: 600_000 }, botOpts: { others: () => (bodies-- > 0 ? [Bw] : []) } })
+  assert.ok(walks >= 2, 'the visit walked')
+  assert.deepStrictEqual(placedCells(v.e), [k3(C3), k3(Bw)], 'the step the walk laid is seen on the very next pass: the column\'s cell first, then B')
+}
+await t('a walk that changed the world is a world change, though its click sent nothing (STANDCACHE off agrees); MUTANT (a walk never drops the kept walk): the third cell waits for B\'s placement', async () => {
+  await walkScene(R, false)
+  await walkScene(R, true)
+  await kills('finally { if (!(same(f0, to) && same(e1.feet(), to))) touched() } } }', 'finally { } } }', RM => walkScene(RM, true))
+})
 // ANOTHER BOT'S BLOCK: no act of this bot's; only the clock drops the kept walk
 const otherScene = async (RM, standMs, standCache = true) => {
   const pocket = [40, G - 5, 30]
@@ -413,7 +438,7 @@ await t('an unknown cell made known without the walk moving: (structural) the vi
   // behaviour cannot reach it from the fakes without a server that never answers a dig and then does; the wiring is asserted
   const src = readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
   assert.strictEqual(src.split('walkMem.unknown !== unknown.size').length, 2)
-  assert.strictEqual(src.split('touched(').length - 1, 6, 'a call after each of the three sends, the two digs and the probe')
+  assert.strictEqual(src.split('touched(').length - 1, 7, 'a call after each of the three sends, the two digs and the probe, and one after a walk (review r1)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -630,6 +630,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   const sentAt = new Map()   // a click's cell -> the block it read at the send: a silent one that lands later is a world change too
   const noStep = new Map()   // a cell (and its wanted state) -> the node map no stand was found in: not searched again in that map
   const touched = (cell = null) => { worldGen++; if (cell && standCache) sentAt.set(kOf(cell), nm(e.read(...cell))) }
+  // (Codex r1 BLOCKER 2) A WALK CHANGES THE WORLD TOO: the pathfinder digs and scaffolds on its way, and a re-roofed record's walk
+  // digs the listed leaves over its jumps (buildbot.mjs walkTo `apexDig`) -- and a click that then sends nothing (`body`, `stand`)
+  // never reached its own `touched`. Every walk drops the kept walk, however it ends; except the walk that was none: the bot stood
+  // on the stand before it and stands there after it (an empty path: nothing planned, nothing dug -- the repeated pass of a body wait)
+  if (standCache) {
+    const e1 = e, same = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+    e = { ...e1, walkTo: async (to, o) => { const f0 = e1.feet(); try { return await e1.walkTo(to, o) } finally { if (!(same(f0, to) && same(e1.feet(), to))) touched() } } }
+  }
   const walkOpts = noFloor => ({ stood, noFloor, floors: p.floors ?? null, avoid: avoidSet })
   const sigOf = set => (set?.size ? [...set].sort().join(' ') : '')
   const nodesFor = (block = new Set(), noFloor = null) => {
