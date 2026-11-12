@@ -454,7 +454,7 @@ await t('r6 runVisit clears skip an apex leaf (the walk digs it); the same leaf 
 })
 await t('r6 MUTANT: the clears pass ignores the apex tag -- it digs the apex leaf again (killed for that reason)', async () => {
   const { PJ, G, server, bot, SITE, project, withMutant: wm } = await import('./helpers/buildfake.mjs')
-  await wm('filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name))', 'filter(c => (unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name))', async M => {
+  await wm('filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !ownNow(c))))', 'filter(c => (unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !ownNow(c))))', async M => {
     const leaf = [2, G + 2, -4]
     const srv = server({ [leaf.join(',')]: 'spruce_leaves' })
     const record = { ...SITE.record, clear: [{ at: leaf, kind: 'leaves', name: 'spruce_leaves', apex: 1 }] }
