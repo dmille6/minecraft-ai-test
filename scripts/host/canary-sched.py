@@ -826,7 +826,15 @@ _DIFF_HEAD = re.compile(r'^diff --git a/(.+) b/\1$')
 # comment into an opening `/*` would have put the change's own entry inside a block comment, and the diff still read
 # "context-only"): blank, or one single-quoted path with an optional comma, and/or a `//` comment to the end of the line.
 # No `/*`, no code, no second token. A hunk of that file with any other line in it is compared byte-exact, as code is.
+# And no character JavaScript ends a line at (Codex review r2: `// note<U+2028>/*` ends the line comment at U+2028 and
+# opens a block comment on what the regex still reads as one commented line): CR, U+2028, U+2029.
 _LIST_LINE = re.compile(r"""^\s*(?:'[^'\\]*'\s*,?)?\s*(?://.*)?$""")
+_JS_LINE_END = ('\r', '\u2028', '\u2029')
+
+
+def list_line(l):
+    """PURE. Is `l` (a hunk line without its marker) a plain list line? See _LIST_LINE."""
+    return not any(c in l for c in _JS_LINE_END) and bool(_LIST_LINE.match(l))
 
 
 def diff_sections(norm):
@@ -864,7 +872,7 @@ def diff_equiv(a, b, free=CONTEXT_FREE_PATHS):
             return None
         if changed(la) != changed(lb) or other(la) != other(lb):
             return None
-        if not all(_LIST_LINE.match(l) for l in body(la) + body(lb)):
+        if not all(list_line(l) for l in body(la) + body(lb)):
             return None
         loose.append(path)
     return 'context-only in %s' % ', '.join(loose) if loose else None

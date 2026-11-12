@@ -663,9 +663,14 @@ def t_v43_diff_equiv_pure(CS):
     assert CS.diff_equiv(code + lst("'p1',", "'p2',", "+if (x) y()"), code + lst("'p1',", "'q9',", "+if (x) y()")) is None, 'the change itself is code'
     assert CS.diff_equiv(A, code + lst("  'p1',   // why -- a note with /* inside a line comment", "")) == 'context-only in %s' % L
     for ok in ("", "  ", "  'bots/src/a.mjs',", "'a'", "  'a.mjs',   // foo-01 (11-09): text, 'quotes', // more", "  // sandrung-01 (11-07): retired"):
-        assert CS._LIST_LINE.match(ok), ok
+        assert CS.list_line(ok), ok
     for bad in ("/* x", "'a', /* x", "'a', 'b',", "x", "'a' + b,", "`a`,", '"a",', "'a\\'', b"):
-        assert not CS._LIST_LINE.match(bad), bad
+        assert not CS.list_line(bad), bad
+    # Codex review r2: a character JavaScript ends a line at, inside what reads as ONE commented line
+    for sep in ('\u2028', '\u2029', '\r'):
+        assert not CS.list_line("  'p1',   // note" + sep + "/*"), repr(sep)
+        assert CS.diff_equiv(A, code + lst("'p1',   // note" + sep + "/*", "// */")) is None, repr(sep)
+    assert CS.list_line("  'p1',   // caf\u00e9 \u2014 a note"), 'other non-ASCII in a comment is still a list line'
     secs = CS.diff_sections(A)
     assert [p for p, _ in secs] == ['bots/src/a.mjs', L] and '\n'.join('\n'.join(ls) for _, ls in secs) == A, secs
 
@@ -909,7 +914,8 @@ MUTANTS = [
      "    same = '' if h1 == h0 else None\n"),
     ('v43: context is free in EVERY file', "        if path not in free:\n            return None\n", "        if False:\n            return None\n"),
     ('v43: a different added line passes in a list', "        if changed(la) != changed(lb) or other(la) != other(lb):\n", "        if other(la) != other(lb):\n"),
-    ('v43: any line may differ in the list (a block comment over the entry)', "        if not all(_LIST_LINE.match(l) for l in body(la) + body(lb)):\n", "        if False:\n"),
+    ('v43: any line may differ in the list (a block comment over the entry)', "        if not all(list_line(l) for l in body(la) + body(lb)):\n", "        if False:\n"),
+    ('v43: a JS line end inside a list line passes', "    return not any(c in l for c in _JS_LINE_END) and bool(_LIST_LINE.match(l))\n", "    return bool(_LIST_LINE.match(l))\n"),
     ('v42: a hand-set hash is never recomputed', "        bad = patch_repair_problem(pt, src)\n        if bad:",
      "        bad = 'x'\n        if bad:"),
     ('v42: a recomputed hash is not written back', "                x['patch']['diff_sha256'] = h0\n", "                pass\n"),
