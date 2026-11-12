@@ -7185,6 +7185,33 @@
    "title": "Town cleanup and roofs (owner 11-12): walking leaves no dirt or holes, in town and outside; cleanup helpers take any open work; one stuck cell never freezes a building; one-off repair of the three roof-blocking cells",
    "next_step": "DONE: the one-off repair (showcase 07:27Z; /srv/showcase/ops/oneoff-repair-20261112-applied.json) -- read whether townhall, hall and cottage1 resume. NOT BUILT: (a) helpers take any open tidy cell and the keeper's turn is not given to a bot underground (68 of 147 tidy visits helper_idle with 2,313 fills open); (b) a cell no stand reaches in 3 visits gets a temporary stand or is passed over; (c) transit and escape placements/digs are undone or not made (showcase 24 h: about 3,500 blocks placed in town + margin by the pathfinder and pillarOut, 283 digs in town ground) -- movement code, tier 3, needs a design.",
    "note": "OWNER 2026-11-12 ~07:25Z: \"1. absolutely do this, i thought we already did this. even outside the town i want the same rules to apply 2. yes 3. yes, this makes sense 4. yes\". Measured with scripts/lib/telemetry.py on the showcase (24 h, 338k rows / 14 bots)."
+  },
+  {
+   "covers_alarms": [],
+   "evidence": {
+    "grep": [
+     "sched-v43",
+     "install-sched-v43",
+     "canary-sched v43"
+    ],
+    "runs": [],
+    "branches": [
+     "sched-v43"
+    ]
+   },
+   "id": "sched-v43-1112",
+   "kind": "tooling",
+   "lane": "progress",
+   "max_quiet_hours": 48,
+   "memory": [
+    "sched-v43-1112.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-12",
+   "state": "open",
+   "title": "canary-sched v43: a rebase whose only difference is the context of the required-paths list is the same change; no-patch-source and stale-staged-registration heads are skipped, not blocking (owner 11-12: get things where we dont keep getting stalled)",
+   "next_step": "MERGED main ec940437b; staged on the canary host (~/sched43-install/src), dry run OK, `install-sched-v43.sh --wait` running since 11-12 07:52Z for the gap after fullplace-01 closes. READ: md5sum ~/canary-sched.py == the staged b8b147bd, ~/sched43-install/wait.log `done`, the first real tick; then ironchain-01 and ironchain-02 rebase on their own at their turn (a scratch copy of v43 accepted both on tip 29c8bc57).",
+   "note": "OWNER 2026-11-12 \"lets do the rebase, and get things where we dont keep getting stalled\". Tier tooling: Codex (5 rounds, 5 blockers fixed, final NO BLOCKERS) + independent Claude (r1 one blocker fixed, r2 NO BLOCKERS); test_canary_sched 154/154 (mutants 127/127), test_autorebase 25/25 (mutants 37/38 + the survivor's case added). Queue-side the same night: toolrank-01 and gathermem-01 re-pointed at variants that rebase identically (set-patch); the four refused entries moved behind fullplace-01."
   }
  ]
 }
