@@ -133,6 +133,10 @@ await t('chainSkipOk / afterMet: only in the chain, only while the predecessor i
   assert.strictEqual(N.chainSkipOk(true, { exists: true, complete: false, waiting: true }), false, 'building: one landmark at a time')
   assert.strictEqual(N.chainSkipOk(false, { exists: false, waiting: true }), false, 'not a landmark after a landmark')
   assert.strictEqual(N.chainSkipOk(true, null), false)
+  // review r1 (Claude): a landmark that already STANDS is never paused again by the one before it coming up for another try
+  assert.strictEqual(N.chainSkipOk(true, { exists: false, waiting: false }, { exists: true, complete: false }), true)
+  assert.strictEqual(N.chainSkipOk(false, { exists: false, waiting: false }, { exists: true }), false, 'only in the chain')
+  assert.strictEqual(N.chainSkipOk(true, { exists: false, waiting: false }, { exists: false }), false, 'an unsited successor still waits for a predecessor never tried')
   assert.strictEqual(N.afterMet({ plot: 'civicM', after: 'civicS' }, false, { chainSkip: true }), true)
   assert.strictEqual(N.afterMet({ plot: 'civicM', after: 'civicS' }, false, {}), false, 'the gate as before without it')
 })
@@ -148,17 +152,37 @@ await t('THE ORDER (shop.mjs activeProject): the first two landmarks found no si
   assert.strictEqual(pick([done(paths.plot), waits(civ[0].plot), waits(civ[1].plot), ...civ.slice(2).map(p => fresh(p.plot))]), civ[2].plot, 'the third landmark is tried')
   assert.strictEqual(pick([done(paths.plot), fresh(civ[0].plot), ...civ.slice(1).map(p => fresh(p.plot))]), civ[0].plot, 'never tried: the first comes first')
   assert.strictEqual(pick([done(paths.plot), { plot: civ[0].plot, exists: true, complete: false, damaged: false }, ...civ.slice(1).map(p => fresh(p.plot))]), civ[0].plot, 'building: one at a time')
+  // a landmark half built keeps its turn while the first one's wait has just ended (it is tried again, and fails again, beside it)
+  assert.strictEqual(pick([done(paths.plot), fresh(civ[0].plot), waits(civ[1].plot), { plot: civ[2].plot, exists: true, complete: false, damaged: false }, ...civ.slice(3).map(p => fresh(p.plot))]), civ[0].plot, 'the retry comes first in the order')
+  const noF = [done(paths.plot), fresh(civ[0].plot), waits(civ[1].plot), { plot: civ[2].plot, exists: true, complete: false, damaged: false, free: true }, ...civ.slice(3).map(p => fresh(p.plot))]
+  assert.strictEqual(S.activeProject(noF.map(x => (x.plot === civ[0].plot ? { ...x, free: false } : x)), list, {})?.plot ?? null, civ[2].plot, 'and a bot the retry has no slot for goes on building the one that stands')
   let why = null
-  await withMutant(src('ordernowait.mjs'), 'export const chainSkipOk = (chain, afterState) => !!chain && !!afterState && afterState.exists === false && afterState.waiting === true', 'export const chainSkipOk = () => false', async M => {
+  await withMutant(src('ordernowait.mjs'), "(!!afterState && afterState.exists === false && afterState.waiting === true) || selfState?.exists === true)", 'false)', async M => {
     try { assert.strictEqual(M.chainSkipOk(true, { exists: false, waiting: true }), true) } catch (err) { why = err }
   })
   assert.ok(why instanceof assert.AssertionError, 'the mutant survived')
   // POSITIVE CONTROL through the order itself: the gate without the skip offers no landmark at all (the live stall)
-  await withMutant(src('shop.mjs'), 'chainSkip: chainSkipOk(isCivicPlot(p.plot) && isCivicPlot(p.after), sa)', 'chainSkip: false', async M => {
+  await withMutant(src('shop.mjs'), 'chainSkip: chainSkipOk(isCivicPlot(p.plot) && isCivicPlot(p.after), sa, s)', 'chainSkip: false', async M => {
     const l2 = [M.PROJECTS.find(p => p.plot === paths.plot), ...M.PROJECTS.filter(p => /^civic/.test(p.plot))]
     const got = M.activeProject([done(paths.plot), waits(civ[0].plot), waits(civ[1].plot), ...civ.slice(2).map(p => fresh(p.plot))], l2, {})?.plot ?? null
     assert.notStrictEqual(got, civ[2].plot, 'without the skip the third landmark waits behind two that can never be sited')
   })
+})
+
+await t('REVIEW r1 (Codex): ONE landmark is sited at a time -- the town-wide lease on real files, and skills.mjs holds it round the siting AND the publish', () => {
+  const pr = project(), dir = pr.dir, key = pr.key
+  const a = PJ.takeLease(dir, key, N.CIVIC_SITE_LEASE, 'A')
+  assert.ok(a.ok, 'the first bot sites')
+  assert.strictEqual(PJ.takeLease(dir, key, N.CIVIC_SITE_LEASE, 'B').ok, false, 'a second bot does not site meanwhile')
+  PJ.releaseLease(dir, key, N.CIVIC_SITE_LEASE, 'A', a.gen)
+  assert.ok(PJ.takeLease(dir, key, N.CIVIC_SITE_LEASE, 'B').ok, 'and does once the first has published')
+  const sk = code('skills.mjs')
+  const take = sk.indexOf('const siteLease = projTakeLease(dir, siteKey, CIVIC_SITE_LEASE, me)')
+  const busy = sk.indexOf("if (!siteLease.ok) return out('no_effect', 'site_busy',")
+  const site = sk.indexOf('ss = await civicSiteFor(bot,'), pub = sk.indexOf("if (ss.ok) pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })")
+  const rel = sk.indexOf('} finally { releaseLease(dir, siteKey, CIVIC_SITE_LEASE, me, siteLease.gen) }')
+  assert.ok(take > 0 && busy > take && site > busy && pub > site && rel > pub, 'taken, refused when held, sited, published, THEN released')
+  assert.strictEqual(sk.split('await civicSiteFor(').length, 2, 'the one landmark siting, inside the lease')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

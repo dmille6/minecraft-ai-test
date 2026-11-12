@@ -307,7 +307,7 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
     const s = st(p)
     if (s.exists && s.complete) continue
     const sa = st(list.find(q => q.plot === p.after) ?? { plot: p.after })
-    if (!afterMet(p, sa.complete, { noWait, chainSkip: chainSkipOk(isCivicPlot(p.plot) && isCivicPlot(p.after), sa) })) continue   // ordernowait-01; projfix-01
+    if (!afterMet(p, sa.complete, { noWait, chainSkip: chainSkipOk(isCivicPlot(p.plot) && isCivicPlot(p.after), sa, s) })) continue   // ordernowait-01; projfix-01
     // townstyle-03: a PLANNER (the retrofit's: it places nothing itself) is offered only when its state says it is due (waiting: false)
     if (p.planner && s.waiting !== false) continue
     // copperhall-01: an unsited project WAITING on its opening rule (the hall's copper) is not offered; the next one is

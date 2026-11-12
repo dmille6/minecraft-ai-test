@@ -220,6 +220,7 @@ import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { helperWorked, helpersCap, tidyShare } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
 import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead, beatKeys } from './buildproj.mjs'
+import { CIVIC_SITE_LEASE } from './ordernowait.mjs'   // projfix-01: one landmark sited at a time
 import { planaheadOn, planReachAsync, reachTag, puWaiveDue, puSupply, standClaims, standRetire, standConflicts, plannedWorld, liveUnreached } from './planahead.mjs'   // planahead-01
 import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
@@ -22597,11 +22598,20 @@ async function buildShopVisit (ctx, args, signal) {
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.style.wood}/${ss.record.style.roof}/${ss.record.style.stone}/${ss.record.cells.length}cells`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (isCivicPlot(plot)) {
       // civic-01: a landmark sites near its anchor (civic.mjs civicNear), its look seeded from the town, its bill in town first
-      const ss = await civicSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, plot, signal)
-      check(signal)
+      // projfix-01 (ordernowait.mjs CIVIC_SITE_LEASE; review r1, Codex BLOCKER): ONE landmark is sited at a time, town-wide -- the
+      // lease is held from before the siting reads the town's records until its own record is published (or it found no site), so
+      // the next landmark's siting always sees this one's footprint. Held by another bot: nothing is tried and nothing is waited.
+      const siteKey = projKeyOf(CIVIC_PLOTS[0])
+      const siteLease = projTakeLease(dir, siteKey, CIVIC_SITE_LEASE, me)
+      if (!siteLease.ok) return out('no_effect', 'site_busy', `another bot is siting a landmark (${siteLease.why ?? 'held'}); ${plot} is sited after it`.slice(0, 160), { stop: 'site_wait' })
+      let ss = null, pub = null
+      try {
+        ss = await civicSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, plot, signal)
+        check(signal)
+        if (ss.ok) pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
+      } finally { releaseLease(dir, siteKey, CIVIC_SITE_LEASE, me, siteLease.gen) }
       if (!ss.ok && ss.why !== 'aborted') siteWaitSet(plot, ss.why === 'stock' ? 20 * 60_000 : COTTAGE_NOSITE_MS, ss.why)
       if (!ss.ok) return out('no_effect', ss.why === 'stock' ? 'stock_wait' : 'no_site', `no ${plot} site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''})`.slice(0, 160), { stop: 'site_wait' })
-      const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.cells.length}cells/near${ss.near.join(',')}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (isCottagePlot(plot)) {
