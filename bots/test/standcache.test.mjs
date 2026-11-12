@@ -408,6 +408,87 @@ await t('another bot\'s block is seen once the kept walk is STAND_MS old; inside
   assert.deepStrictEqual(placedCells(next.e), [k3(C3)], 'the next visit lays it')
 })
 
+// REVIEW r2 (Codex BLOCKER): THE CONNECTION'S WITNESS. A kept walk that only the clock dropped could count a `no stand` for a cell
+// another builder had just made reachable (the stuck map: the 6-hour back-off, the tidy's waiver). The bot's own connection is told
+// of every block change; the kept walk is dropped the moment one lands in its square.
+console.log('THE WORLD THIS CONNECTION WAS TOLD OF (buildbot.mjs installServerBlockWitness seq / moved; buildrun.mjs toldSince)')
+const BB = await import('../src/buildbot.mjs')
+await t('movedNear: a change after `since` inside the square moved it; outside it did not; history lost is moved; nothing new is not', () => {
+  const at = { x: 0, z: 0, r: 50 }
+  const blk = (seq, x, z) => [seq, x, z, x, z]
+  assert.strictEqual(BB.movedNear([], 0, 0, at), false, 'nothing told')
+  assert.strictEqual(BB.movedNear([blk(1, 10, 10)], 1, 1, at), false, 'nothing since')
+  assert.strictEqual(BB.movedNear([blk(1, 10, 10)], 1, 0, at), true, 'a block inside')
+  assert.strictEqual(BB.movedNear([blk(1, 50, -50)], 1, 0, at), true, 'on the edge')
+  assert.strictEqual(BB.movedNear([blk(1, 51, 0)], 1, 0, at), false, 'one outside')
+  assert.strictEqual(BB.movedNear([blk(1, 300, 300), blk(2, -200, 9)], 2, 0, at), false, 'all outside')
+  assert.strictEqual(BB.movedNear([blk(1, 10, 10), blk(2, 300, 300)], 2, 1, at), false, 'the inside one was before `since`')
+  assert.strictEqual(BB.movedNear([[3, 48, 48, 63, 63]], 3, 2, at), true, 'a chunk that overlaps the square')
+  assert.strictEqual(BB.movedNear([[3, 64, 64, 79, 79]], 3, 2, at), false, 'a chunk beside it')
+  assert.strictEqual(BB.movedNear([[3, -Infinity, -Infinity, Infinity, Infinity]], 3, 2, at), true, 'a chunk whose place was unread: everywhere')
+  assert.strictEqual(BB.movedNear([blk(9, 300, 300)], 9, 5, at), true, 'changes 6..8 are no longer kept: unknown is moved')
+  assert.strictEqual(BB.movedNear([], 4, 2, at), true, 'told of something, nothing kept')
+})
+await t('the witness counts what the connection is told: a block under another name (a first word counts; the same name again does not), a chunk loaded or unloaded; it keeps the last WITNESS_KEPT', () => {
+  const handlers = []
+  const client = { on: (ev, fn) => { if (ev === 'packet') handlers.push(fn) }, off: () => {} }
+  const names = { 1: 'dirt', 2: 'wheat', 3: 'wheat', 4: 'air' }
+  const w = BB.installServerBlockWitness({ _client: client, registry: { blocksByStateId: Object.fromEntries(Object.entries(names).map(([id, name]) => [id, { name }])) } })
+  const send = (name, data) => { for (const h of handlers) h(data, { name }) }
+  const at = { x: 0, z: 0, r: 50 }
+  assert.strictEqual(handlers.length, 1, 'control: the witness listens')
+  assert.deepStrictEqual([w.seq(), w.moved(0, at)], [0, false])
+  send('block_change', { location: { x: 5, y: 70, z: 5 }, type: 2 })
+  assert.deepStrictEqual([w.seq(), w.moved(0, at)], [1, true], 'a first word on a cell')
+  send('block_change', { location: { x: 5, y: 70, z: 5 }, type: 3 })
+  assert.strictEqual(w.seq(), 1, 'the crop grew: the same name, nothing moved')
+  send('block_change', { location: { x: 5, y: 70, z: 5 }, type: 4 })
+  assert.strictEqual(w.seq(), 2, 'harvested: another name')
+  send('block_change', { location: { x: 400, y: 70, z: 5 }, type: 1 })
+  assert.deepStrictEqual([w.seq(), w.moved(2, at)], [3, false], 'far away: counted, not in the square')
+  send('map_chunk', { x: 0, z: 0 })
+  assert.deepStrictEqual([w.seq(), w.moved(3, at)], [4, true], 'a chunk loaded over the town')
+  send('unload_chunk', { chunkX: 40, chunkZ: 40 })
+  assert.deepStrictEqual([w.seq(), w.moved(4, at)], [5, false], 'a chunk far away let go')
+  send('keep_alive', { keepAliveId: 1 })
+  assert.strictEqual(w.seq(), 5, 'another packet is nothing')
+  for (let i = 0; i < BB.WITNESS_KEPT + 5; i++) send('block_change', { location: { x: 1000 + i, y: 70, z: 900 }, type: 1 })
+  assert.strictEqual(w.moved(5, at), true, 'more told than kept since then: moved')
+  assert.strictEqual(w.moved(w.seq() - 3, at), false, 'the last few are kept, and far')
+})
+// ANOTHER BOT'S BLOCK, TOLD: the same scene as the clock's (otherScene), the kept walk never expiring -- the witness alone drops it
+const toldScene = async (RM, { told = true } = {}) => {
+  const pocket = [40, G - 5, 30]
+  const srv = server({ [k3(pocket)]: 'air', [k3(C1)]: 'dirt', [k3(C2)]: 'dirt' })
+  let landed = false, seq = 0, asked = 0
+  const hook = e => {
+    e.pause = async () => { if (!landed && e.logs.some(([k, d]) => k === '_build' && d.op === 'deferred' && d.seg === 'pocket')) { landed = true; srv.set(STEP, 'dirt'); if (told) seq++ } await new Promise(resolve => setImmediate(resolve)) }
+    e.worldSeq = () => seq
+    e.worldMoved = (since, at) => { asked++; assert.deepStrictEqual([at.x, at.z, at.r], [HOME.x, HOME.z, 56 + 2], 'the walk\'s own square'); return seq > since }
+  }
+  const v = await visit(RM, srv, record([{ seg: 'pocket', cells: [pocket] }, { seg: 'col', cells: [C1, C2, C3] }]), { standCache: true, hook, opts: { standMs: 600_000, breathe: true, breathMs: 0 } })
+  assert.ok(landed && asked > 0, 'the block landed, the witness was asked')
+  return v
+}
+await t('another bot\'s block the connection was TOLD of is seen at once, with no clock (CONTROL: not told, inside the bound, the cell waits)', async () => {
+  const c = await toldScene(R, { told: false })
+  assert.deepStrictEqual(placedCells(c.e), [], 'control: a change the connection never heard of is not seen inside the bound')
+  const v = await toldScene(R)
+  assert.deepStrictEqual(placedCells(v.e), [k3(C3)], 'told: the kept walk is dropped and the cell is laid in the SAME visit')
+  assert.ok(!(v.r.deferred ?? []).some(d => d.k === k3(C3)), 'and never counted as a cell no stand reaches')
+})
+await t('a witness that throws is a world that moved (the walk is made again); MUTANT (the witness never asked): the told block is not seen', async () => {
+  const m = meter()
+  const hook = e => { e.worldSeq = () => 1; e.worldMoved = () => { throw new Error('gone') } }
+  const on = scene(1, 4), ctl = scene(1, 4)
+  const v = await visit(R, on.srv, on.rec, { standCache: true, m, hook })
+  const off = await visit(R, ctl.srv, ctl.rec, { standCache: false })
+  assert.ok(off.m.walks >= 5, `control: with the kept walk off the visit walks every pass (${off.m.walks})`)
+  assert.strictEqual(m.walks, off.m.walks, 'every pass walks again, as with the kept walk off')
+  assert.deepStrictEqual(rows(v.e), rows(off.e))
+  await kills('!(wallNow() - walkMem.at < standMs) || toldSince(walkMem.seq)) {', '!(wallNow() - walkMem.at < standMs)) {', async RM => { const o = await toldScene(RM); assert.deepStrictEqual(placedCells(o.e), [k3(C3)], 'told: seen') })
+})
+
 console.log('MUTANTS (each anchor present and unique; each dies on an assertion of a scene above)')
 await t('never invalidating (the world counter not compared): the stand a placement made is not found; the stand it destroyed is used', async () => {
   await kills('walkMem.gen !== worldGen || ', '', stepScene)
@@ -429,7 +510,7 @@ await t('the obstacle set ignored in the key (every segment answered with the wa
   await kills('const sig = `${sigOf(block)}|${sigOf(noFloor)}`', "const sig = '|'", scenario)
 })
 await t('never expiring: another bot\'s block is not seen after the kept walk\'s time', async () => {
-  await kills('|| !(wallNow() - walkMem.at < standMs)) {', ') {', async RM => { const o = await otherScene(RM, 0); assert.deepStrictEqual(placedCells(o.v.e), [k3(C3)], 'past its time the walk is walked again') })
+  await kills('|| !(wallNow() - walkMem.at < standMs) || toldSince(walkMem.seq)) {', '|| toldSince(walkMem.seq)) {', async RM => { const o = await otherScene(RM, 0); assert.deepStrictEqual(placedCells(o.v.e), [k3(C3)], 'past its time the walk is walked again') })
 })
 await t('a silent click\'s late landing ignored: the cell over the column is not laid', async () => {
   await kills("!== was) { sentAt.delete(k); worldGen++ }", "!== was) { sentAt.delete(k) }", RM => lateScene(RM, true))

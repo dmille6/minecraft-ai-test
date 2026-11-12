@@ -188,13 +188,38 @@ export function decodeMultiBlock (data) {
   return out
 }
 
-/** The SERVER'S word on a cell, from the raw packets -> { watch(cell), wait(cell, pred, ms) -> name | null, stop }. */
+/**
+ * standcache-01 r2 (Codex r2 BLOCKER): HAS THE WORLD THIS CONNECTION WAS TOLD OF MOVED NEAR `at` SINCE `since`? -> bool. Pure.
+ *   recent   the witness's last changes, oldest first: [seq, x0, z0, x1, z1] (a block: its own column; a chunk: its 16 x 16)
+ *   seq      the witness's count now          since   the count the asker kept
+ *   at       { x, z, r }: the square asked about (a town walk: home and its radius)
+ * True when a change after `since` touches the square -- and when the changes after `since` are no longer all in `recent` (more
+ * than it keeps: what was dropped cannot be read, so it moved). False only when every change since is known to lie outside.
+ */
+export const WITNESS_KEPT = 512
+export function movedNear (recent, seq, since, at) {
+  if (!(seq > since)) return false
+  if (!recent.length || recent[0][0] > since + 1) return true
+  const x0 = at.x - at.r, x1 = at.x + at.r, z0 = at.z - at.r, z1 = at.z + at.r
+  return recent.some(c => c[0] > since && c[1] <= x1 && c[3] >= x0 && c[2] <= z1 && c[4] >= z0)
+}
+/**
+ * The SERVER'S word on a cell, from the raw packets -> { watch(cell), wait(cell, pred, ms) -> name | null, stop, seq(), moved(since, at) }.
+ * standcache-01 r2: `seq()` counts what this connection has been TOLD has changed -- a block that now has another NAME than the
+ * witness last heard for it (a first word on a cell counts; a crop's age or a water level under the same name does not), a chunk
+ * loaded or unloaded -- and `moved(since, at)` says whether any of it since `since` lies in a square (movedNear). A walk of the town
+ * kept by a build visit (buildrun.mjs nodesFor) is exactly as fresh as a new one while nothing moved: both read this bot's own view.
+ */
 export function installServerBlockWitness (bot) {
   const seen = new Map()
   const waiters = []
   const nameOf = id => bot.registry?.blocksByStateId?.[id]?.name ?? null
+  let seq = 0
+  const recent = []
+  const moved = (x0, z0, x1, z1) => { recent.push([++seq, x0, z0, x1, z1]); if (recent.length > WITNESS_KEPT) recent.shift() }
   const note = (x, y, z, stateId) => {
     const k = `${x},${y},${z}`, n = nameOf(stateId)
+    if (!seen.has(k) || seen.get(k) !== n) moved(x, z, x, z)
     seen.set(k, n)
     for (const w of waiters.slice()) if (w.k === k && w.pred(n)) { clearTimeout(w.timer); waiters.splice(waiters.indexOf(w), 1); w.resolve(n) }
   }
@@ -202,6 +227,11 @@ export function installServerBlockWitness (bot) {
     try {
       if (meta?.name === 'block_change' && data?.location) note(data.location.x, data.location.y, data.location.z, data.type ?? data.stateId)
       else if (meta?.name === 'multi_block_change') for (const r of decodeMultiBlock(data)) note(r.x, r.y, r.z, r.stateId)
+      else if (meta?.name === 'map_chunk' || meta?.name === 'unload_chunk') {
+        // a chunk the bot can now read, or no longer can: its whole square (coordinates unread: everywhere)
+        const cx = Number(data?.x ?? data?.chunkX), cz = Number(data?.z ?? data?.chunkZ)
+        if (Number.isFinite(cx) && Number.isFinite(cz)) moved(cx * 16, cz * 16, cx * 16 + 15, cz * 16 + 15); else moved(-Infinity, -Infinity, Infinity, Infinity)
+      }
     } catch { /* never break the packet path */ }
   }
   bot._client?.on?.('packet', onPacket)
@@ -213,6 +243,8 @@ export function installServerBlockWitness (bot) {
       return new Promise(resolve => { const w = { k, pred, resolve, timer: null }; w.timer = setTimeout(() => { waiters.splice(waiters.indexOf(w), 1); resolve(null) }, ms); waiters.push(w) })
     },
     stop: () => { try { (bot._client?.off ?? bot._client?.removeListener)?.call(bot._client, 'packet', onPacket) } catch { /* gone */ } },
+    seq: () => seq,
+    moved: (since, at) => movedNear(recent, seq, since, at),
   }
 }
 
@@ -436,6 +468,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     aborted,
     log,
     now: () => Date.now(),
+    // standcache-01 r2: what this connection has been told has changed (installServerBlockWitness seq / moved)
+    worldSeq: () => blocks.seq(),
+    worldMoved: (since, at) => blocks.moved(since, at),
     sleep,
     spawnedAt,
     close: () => { for (const t of timers) clearTimeout(t); timers.clear(); if (own) A.stop(); blocks.stop() },

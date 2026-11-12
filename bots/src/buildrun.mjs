@@ -638,15 +638,23 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const e1 = e, same = (a, b) => !!a && !!b && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
     e = { ...e1, walkTo: async (to, o) => { const f0 = e1.feet(); try { return await e1.walkTo(to, o) } finally { if (!(same(f0, to) && same(e1.feet(), to))) touched() } } }
   }
+  // (Codex r2 BLOCKER) ...AND SO DOES EVERY OTHER BOT: a kept walk that only a CLOCK dropped could answer `no stand` for a cell
+  // another builder had just made reachable, and that negative is counted (the stuck map: a 6-hour back-off at STUCK_VISITS, the
+  // tidy's waiver at two). The connection's own witness says when the world it was TOLD of moved inside the walk's square (the
+  // effects' worldSeq / worldMoved: buildbot.mjs installServerBlockWitness -- a block under another name, a chunk loaded or gone):
+  // the kept walk is dropped at once, so it is exactly as fresh as a new walk -- both read this bot's own view of the world. No
+  // witness (a bare test bot): the clock alone, as before. A witness that throws: moved.
+  const toldNow = () => { try { const n = e.worldSeq?.(); return Number.isFinite(n) ? n : null } catch { return null } }
+  const toldSince = seq => { if (seq == null) return false; try { return !!e.worldMoved?.(seq, { x: home.x, z: home.z, r: walkR + 2 }) } catch { return true } }
   const walkOpts = noFloor => ({ stood, noFloor, floors: p.floors ?? null, avoid: avoidSet })
   const sigOf = set => (set?.size ? [...set].sort().join(' ') : '')
   const nodesFor = (block = new Set(), noFloor = null) => {
     if (!standCache) return byColumn(walkFrom(walkRd, home, block, walkR, walkOpts(noFloor)))
     for (const [k, was] of sentAt) if (nm(e.read(...k.split(',').map(Number))) !== was) { sentAt.delete(k); worldGen++ }
-    if (!walkMem || walkMem.gen !== worldGen || walkMem.unknown !== unknown.size || !(wallNow() - walkMem.at < standMs)) {
-      const graph = {}
+    if (!walkMem || walkMem.gen !== worldGen || walkMem.unknown !== unknown.size || !(wallNow() - walkMem.at < standMs) || toldSince(walkMem.seq)) {
+      const graph = {}, seq = toldNow()   // taken BEFORE the walk: it reads nothing from the socket while it runs
       const all = walkFrom(walkRd, home, new Set(), walkR, { ...walkOpts(null), graph })
-      walkMem = { gen: worldGen, unknown: unknown.size, graph, by: new Map([['|', byColumn(all)]]), at: wallNow() }
+      walkMem = { gen: worldGen, unknown: unknown.size, graph, by: new Map([['|', byColumn(all)]]), at: wallNow(), seq }
       noStep.clear()
     }
     const sig = `${sigOf(block)}|${sigOf(noFloor)}`
