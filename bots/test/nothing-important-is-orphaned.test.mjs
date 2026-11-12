@@ -154,6 +154,7 @@ const REQUIRED = [
   // their records, the design note
   'bots/src/cottage2.mjs',
   'bots/test/cottage2.test.mjs',
+  'bots/test/cottagepost.test.mjs',
   'sandbox/cottage2/furnish-proof.mjs',
   'sandbox/cottage2/furnish-proof.jsonl',
   'sandbox/cottage2/shear-e2e.mjs',

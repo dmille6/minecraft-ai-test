@@ -91,10 +91,12 @@ export function fellFirstOk (owed = [], { has = () => false, absent = null } = {
  * fellfirst-01: IS THE REPLANT'S TREE DOWN? -> bool. Pure over `read`. Its tree's clear entries (same `tree` + `plot` when tagged,
  * else every tree clear) read no longer as their listed log; a record with no tree clears reads down.
  */
-export function treeDownFor (record, r, read) {
+export function treeDownFor (record, r, read, palette = record?.palette ?? null) {
   const trees = (record?.clear ?? []).filter(c => c.kind === 'tree')
   const mine = Number.isFinite(r?.tree) && trees.some(c => Number.isFinite(c.tree)) ? trees.filter(c => c.tree === r.tree && (c.plot ?? null) === (r.plot ?? null)) : trees
-  return mine.every(c => { const b = read(...c.at); return !!b && String(b.name ?? '').replace(/\[.*\]$/, '') !== c.name })
+  // cottagepost-01: a listed trunk cell that now holds the building's OWN log (ownLog) is not the tree standing
+  const own = ownLogAt(record, palette, read)
+  return mine.every(c => { const b = read(...c.at); return !!b && (String(b.name ?? '').replace(/\[.*\]$/, '') !== c.name || own(c)) })
 }
 export function treeReplanted (replant = [], c, planted) {
   const settled = r => r.state === 'skipped' || !!planted(r.cell)
@@ -371,6 +373,25 @@ export function cellDone (b, palette, role, ws = null) {
   const add = list => { for (const c of list ?? []) { if (c === '$planks') ok.add('*planks'); else if (c.startsWith('$')) add(palette[c.slice(1)]); else ok.add(blockFamily(c)) } }
   add(palette[role])
   return ok.has(blockFamily(n)) || (ok.has('*planks') && /_planks$/.test(n))
+}
+/**
+ * cottagepost-01 (LIVE showcase 11-09..11-12, cottage1 -8,67..69,-37: a spruce stood on the corner post's column at siting, so the
+ * record lists `clear {kind:'tree', name:'spruce_log'}` on the cells its plan fills with `post: ['spruce_log']`. Every visit felled the
+ * posts it had placed -- the tree guard below let a listed log through "built" -- then could not place them again from the ground:
+ * `stuck_on_cell`, the project STALLED, and an owner one-off repair felled 3 h later). IS THIS LISTED TREE LOG THE BUILDING'S OWN
+ * BLOCK? -> bool. Pure. `c` a clear entry, `cell` the record cell on it, `b` the world block. True only for a tree clear on a record
+ * cell whose role NAMES the block's family in its palette and reads done in its state (`ws`: a post on its side is not it). Never
+ * `fill`, never a `*solid` core: any solid block passes there, so a log in one is still the tree it was listed as (monument-01).
+ */
+export function ownLog (c, cell, palette, b) {
+  if (c?.kind !== 'tree' || !cell || !b || !palette) return false
+  if (cell.role === 'fill' || palette[cell.role]?.includes?.(SOLID_ANY)) return false
+  return cellDone(b, palette, cell.role, cell.ws ?? null)
+}
+/** ownLog over a record -> (clear entry) => bool, the cell looked up by position and the block read now. Pure over `read`. */
+export function ownLogAt (record, palette, read) {
+  const cellAt = new Map((record?.cells ?? []).map(c => [kOf(c.at), c]))
+  return c => ownLog(c, cellAt.get(kOf(c.at)), palette, read(...c.at))
 }
 /** Can two segments run at once? No cell, stand or support of one lies in the other's cells (design 4.1). Pure. */
 export function concurrentOk (record, segA, segB) {
@@ -949,7 +970,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       // (Codex r2 BLOCKER: or `p.saplingUnobtained` -- this visit's draw got none, e.g. the only one sits in an unreachable or stale chest:
       // bounded the same way; felling FIRST still needs the strict absent test)
       if ((typeof p.saplingAbsent === 'function' && p.saplingAbsent(r.sapling)) || (typeof p.saplingUnobtained === 'function' && p.saplingUnobtained(r.sapling))) {
-        if (treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }
+        if (treeDownFor(record, r, rd, palette)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }
       }
       needSapling = r.sapling; continue
     }
@@ -984,11 +1005,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // -- and the next visit cleared its own wall again, then could not re-place it: `no_step` every visit for 35 min)
     const roleAt = new Map(record.cells.map(c => [kOf(c.at), c.role]))
     const builtDone = c => roleAt.has(kOf(c.at)) && isDone({ at: c.at, role: roleAt.get(kOf(c.at)) }, e.read)
+    // cottagepost-01: a listed trunk cell holding the building's own log (a post where the tree stood) is no clear at all
+    const ownNow = ownLogAt(record, palette, e.read), ownAtDig = ownLogAt(record, palette, rd)
     // THE TIDY (p.tidy, zigtidy-01: ziggurat.mjs zigTidy -- the climbing pillars left on a finished build's treads, never record
     // cells): dug after the record's own clears, highest first, under the same lease and the same per-call bound
     // reroof-04 r6: a listed jump-apex leaf (`apex: 1`, reroof.mjs reroofApexLeaves) is never dug by this pass -- low before high it walked a
     // builder down into the pit beside the workshop (Paper 11-08) -- only by the walk, before a jump-up it plans needs it (buildbot apexDig)
-    const todo = [...(record.clear ?? []).filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || nm(e.read(...c.at)) === c.name)).sort((a, b) => a.at[1] - b.at[1]),
+    const todo = [...(record.clear ?? []).filter(c => c?.apex !== 1 && (unknown.has(kOf(c.at)) || (nm(e.read(...c.at)) === c.name && !ownNow(c)))).sort((a, b) => a.at[1] - b.at[1]),
       ...(p.tidy ?? []).filter(c => !roleAt.has(kOf(c.at)) && nm(e.read(...c.at)) === c.name).sort((a, b) => (p.tidyKeepOrder ? 0 : b.at[1] - a.at[1]))]
     // groundskeeper-01 (`p.tidyKeepOrder`): the caller's order is kept -- the town tidy's cuts chained column by column from the
     // bot (tidy.mjs chainCuts: top first within a column), not highest first across the town (a walk across it between two digs)
@@ -1018,6 +1041,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // AT the dig (one guard for every path: an UNKNOWN cell resolved to a done one, r15 Codex P2) -- except a listed LOG: no
         // palette places a log, so a log "done" as a solid core (monument-01's `*solid`) is still the tree it was listed as
         if (c.kind !== 'tree' && builtDone(c)) continue
+        if (ownAtDig(c)) continue                                   // cottagepost-01: re-read AT the dig (an unknown cell resolved to a post)
         if (now() - (e.spawnedAt?.() ?? 0) < SPAWN_DIG_QUIET_MS) await e.sleep(SPAWN_DIG_QUIET_MS)
         nodes ??= nodesFor()
         // a TIDY entry evaluated here (a stand looked for) is reported (out.tidied): the caller's per-cell bound counts only these

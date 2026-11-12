@@ -108,7 +108,7 @@ await t('Codex r2: the tree DOWN and this visit\'s draw got no sapling (one sits
   assert.strictEqual(PJ.recordHead(s.pr.dir, s.pr.key).head.rec.replant[0].state, 'skipped')
 })
 await t('MUTANT: the no-sapling deferral cut -- the replant stays pending after the felling', async () => {
-  await withMutant("        if (treeDownFor(record, r, rd)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }\n", '', async M => {
+  await withMutant("        if (treeDownFor(record, r, rd, palette)) { const o = remedy(r, nodesFor(), 'no_sapling', { noMove: true }); if (o) return o; continue }\n", '', async M => {
     const s = scene()
     for (let i = 0; i < M.REPLANT_DEFERS + 3; i++) {
       const h = PJ.recordHead(s.pr.dir, s.pr.key)
