@@ -18,9 +18,14 @@
  *     the same name AND the same metadata, nbt and component lists as the server sent them (mergeKey);
  *   - "a stack that does not fit leaves the rest on the cursor": a pair is planned only when the WHOLE picked-up
  *     stack fits (count + count <= stackSize), so a merge that goes as planned ends with an empty cursor.
- * And when it does not go as planned (another bot changed the chest between the clicks), the slot the pickup
- * emptied is still empty: the cursor goes back into it with one click, and merging stops. Whatever is left is the
- * caller's server-confirmed settleCursor, as for every other click of the town deposit.
+ * EVERY MERGE IS JUDGED ON THE SERVER'S WORD (independent review r1). mineflayer never applies the server's cursor, so
+ * after a click that went differently there the client's own cursor is a wrong guess. After each merge the run asks the
+ * server (craftsync confirmCursor: the window's full state, cursor and slots) and counts the merge only when the cursor
+ * is empty, the slot it came from is empty and the destination holds the sum. Anything else: what the server's cursor
+ * holds goes back into the slot it came from (one click, while the server shows that slot empty), the merging ends,
+ * and the run makes no deposit click in that container this visit. An abort between the two clicks is rescued the same
+ * way by the caller (Codex review r1). Whatever is then left is the caller's server-confirmed settleCursor, as for
+ * every other click of the town deposit.
  *
  * Rollback: CHESTMERGE=off (the run is then exactly the base's).
  */
