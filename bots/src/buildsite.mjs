@@ -896,7 +896,9 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
       // sitecanopy-01 (`ctx.cellClears(site)` -> null | { clear } | { fail }): the caller may list more clears for this candidate (the
       // natural leaves in a styled building's own cells, sitecanopy.mjs), or fail it by name (they would never be reached)
       if (typeof ctx.cellClears === 'function') {
-        const xc = ctx.cellClears(site)
+        // siteproof-02: the hook's own steps when it has them (sitecanopy.mjs cellClearsHook `steps`: its reach test walks the town
+        // once a clear it digs) -- the search takes its turn after every one of those walks too
+        const xc = typeof ctx.cellClears.steps === 'function' ? yield * ctx.cellClears.steps(site) : ctx.cellClears(site)
         if (xc?.fail) { proofFails[xc.fail] = (proofFails[xc.fail] ?? 0) + 1; continue }
         if (xc?.clear?.length) site = { ...site, clear: [...site.clear, ...xc.clear] }
       }

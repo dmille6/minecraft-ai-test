@@ -105,6 +105,83 @@ await t('MUTANT: the earth limit is ignored -- a slope beyond the building\'s cu
   })
 })
 
+// SITEPROOF-02 (LIVE showcase 11-12 22:05Z: a bot kicked `Timed out` once a minute; its stack: walkFrom <- walk <-
+// clearsReachedBuilt <- reached <- the siting hook <- siteBlueprintSteps). The built reach walks the town again after every clear it
+// digs, straight through inside one step of the cooperative search. It is now a generator that yields after every walk.
+console.log('SITEPROOF-02: the built reach, the hook and the search hand the event loop back after every walk')
+const reachTrace = (M, cells = PAD) => {
+  const ev = []
+  const g = M.clearsReachedBuiltSteps(world(), clears(), { cells, walk: r => { ev.push('W'); return walk(r) }, stand: R.digStand })
+  let r
+  for (;;) { r = g.next(); if (r.done) break; ev.push('Y') }
+  return { seq: ev.join(''), value: r.value }
+}
+await t('clearsReachedBuiltSteps IS clearsReachedBuilt, value for value (reached and unreached), and yields after EVERY walk; the walks are many (one a clear it digs); MUTANT (no yield): two walks in a row', async () => {
+  const scenario = M => {
+    const tr = reachTrace(M)
+    assert.deepStrictEqual(tr.value, M.clearsReachedBuilt(world(), clears(), { cells: PAD, walk, stand: R.digStand }), 'the same answer')
+    assert.strictEqual(tr.value.ok, true)
+    const walks = tr.seq.split('W').length - 1
+    assert.ok(walks >= LEAVES.length, `control: a walk for every clear dug -- ${walks} walks for ${LEAVES.length} leaves`)
+    assert.ok(!tr.seq.includes('WW'), `NO-TWO-WALKS: ${tr.seq}`)
+    assert.strictEqual(walks, tr.seq.split('Y').length - 1, 'a turn for every walk')
+  }
+  scenario(SC)
+  const no = reachTrace(SC, PAD.map(c => ({ ...c, seg: 'wall' })))
+  assert.strictEqual(no.value.ok, false); assert.ok(!no.seq.includes('WW'))
+  assert.deepStrictEqual(no.value, SC.clearsReachedBuilt(world(), clears(), { cells: PAD.map(c => ({ ...c, seg: 'wall' })), walk, stand: R.digStand }))
+  let why = null
+  await withScMutant('m.get(col).push(y) } nodes = m; yield null }', 'm.get(col).push(y) } nodes = m }', async M => { try { scenario(M) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /NO-TWO-WALKS/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 90) ?? 'survived'}`)
+})
+await t('the hook: `hook(site)` and its steps give the same answer; with a stepping reach test its yields pass through; without one it is the old call straight through', () => {
+  const read = (x, y, z) => (y === 6 ? { name: 'spruce_leaves', boundingBox: 'block', props: { persistent: false } } : { name: 'air', boundingBox: 'empty' })
+  const site = { s: 4, cut: [], clear: [] }
+  const mk = extra => SC.cellClearsHook(read, { cellsOf: () => [[0, 6, 0]], reached: () => ({ ok: true }), ...extra })
+  const run = g => { let n = 0, r; for (;;) { r = g.next(); if (r.done) break; n++ } return { n, value: r.value } }
+  const plain = mk({})
+  assert.ok(plain(site)?.clear?.length === 1, 'control: the leaf is listed')
+  assert.deepStrictEqual(run(plain.steps(site)), { n: 0, value: plain(site) }, 'no stepping test: no yield, the same answer')
+  const stepping = mk({ reachedSteps: function * () { yield null; yield null; yield null; return { ok: true } } })
+  assert.deepStrictEqual(run(stepping.steps(site)), { n: 3, value: plain(site) }, 'the reach test\'s three turns pass through')
+  assert.deepStrictEqual(stepping(site), plain(site), 'the plain call runs the steps to their end')
+  const refuse = mk({ reachedSteps: function * () { yield null; return { ok: false } } })
+  assert.deepStrictEqual(refuse(site), { fail: 'leaves_unreached' })
+  const boom = mk({ reachedSteps: function * () { yield null; throw new Error('x') } })
+  assert.strictEqual(boom(site), null, 'a throw inside the steps: no listing, as before')
+})
+await t('THE SEARCH runs the hook\'s steps: every yield of the reach test is a turn of siteBlueprintSteps, and the site found is the same; MUTANT (the hook called straight through): the turns are gone', async () => {
+  const BOX = [20, -5, 30, 5]
+  const srv = server(), plain = srv.read
+  const read = (x, y, z) => (x === 25 && z === 0 && y >= G + 1 && y <= G + 9 ? { name: 'dirt', boundingBox: 'block' } : plain(x, y, z))
+  const bp = B.loadBlueprint('cottage@1f')
+  const sp = C.cottageSitingPlan(HOME, { id: 'X9', box: BOX }, [])
+  const base = { zones: [], stood: [], sectors: sp.sectors, plot: 'cottage1', earth: C.COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }
+  const opts = s => ({ cells: B.placeBlueprint(bp, s.anchor, s.s, s.orient), fill: s.fill ?? [], walk: r => B.walkFrom(r, HOME, new Set(), sp.walkR, { stood: [] }), stand: R.digStand })
+  let reachYields = 0
+  const hook = SC.cellClearsHook(read, { cellsOf: s => SC.volumeOf(B.placeBlueprint(bp, s.anchor, s.s, s.orient)), earth: { ...C.COTTAGE_EARTH, owned: () => false },
+    reached: (cl, s) => SC.clearsReachedBuilt(read, cl, opts(s)),
+    reachedSteps: function * (cl, s) { const g = SC.clearsReachedBuiltSteps(read, cl, opts(s)); for (;;) { const r = g.next(); if (r.done) return r.value; reachYields++; yield null } } })
+  const count = M => { reachYields = 0; const g = M.siteBlueprintSteps(read, plan(), bp, { ...base, cellClears: hook }); let n = 0, r; for (;;) { r = g.next(); if (r.done) break; n++ } return { n, reach: reachYields, r: r.value } }
+  const real = count(B)
+  assert.ok(real.r.ok, JSON.stringify(real.r.sectors?.map(q => q.proofFails)))
+  assert.ok(real.reach > 0, 'control: the reach test walked (and yielded) in this search')
+  const BS = new URL('../src/buildsite.mjs', import.meta.url)
+  const OLD = "const xc = typeof ctx.cellClears.steps === 'function' ? yield * ctx.cellClears.steps(site) : ctx.cellClears(site)"
+  const src = readFileSync(BS, 'utf8')
+  assert.strictEqual(src.split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-bs-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(OLD, 'const xc = ctx.cellClears(site)').replace(/from '\.\//g, "from '../src/").replace("new URL('.', import.meta.url)", "new URL('../src/', import.meta.url)"))
+  try {
+    const M = await import(out.href)
+    const m = count(M)
+    assert.deepStrictEqual(m.r.record, real.r.record, 'the same site either way')
+    assert.strictEqual(m.reach, real.reach, 'the same reach test ran (the plain call runs its steps to their end, inside one step of the search)')
+    assert.strictEqual(real.n, m.n + real.reach, `SEARCH-TURNS: ${real.n} = ${m.n} + the reach test's ${real.reach}`)
+    assert.ok(real.n > m.n, 'the mutant search has none of those turns')
+  } finally { try { unlinkSync(out) } catch {} }
+})
+
 console.log('THE CHAIN (fake server, the real siteBlueprint): a cottage with the slope\'s earth in its volume')
 await t('a dirt pillar in the building refuses every candidate (cell_not_free); with the earth listed (its own limit) the cottage sites', () => {
   const BOX = [20, -5, 30, 5]

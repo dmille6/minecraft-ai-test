@@ -202,7 +202,7 @@ import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
-import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
+import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, clearsReachedBuiltSteps, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
@@ -21934,7 +21934,13 @@ function siteCanopyCtx (read, bp, home, stood, walkR, earth = null) {
   return { cellClears: cellClearsHook(read, { cellsOf: site => (sitePadOn() ? volumeOf : c => c.map(q => q.at))(placeBlueprint(bp, site.anchor, site.s, site.orient)),
     reached: (cl, site) => (sitePadOn() && site
       ? clearsReachedBuilt(read, cl, { cells: placeBlueprint(bp, site.anchor, site.s, site.orient), fill: site.fill ?? [], walk: r => siteWalkFrom(r, home, new Set(), walkR, { stood }), stand: digStand })
-      : reroofClearsReached(read, home, cl, { stood, walkR })), ...(sitePadOn() && earth ? { earth } : {}) }) }
+      : reroofClearsReached(read, home, cl, { stood, walkR })),
+    // siteproof-02: the same test, a turn of the event loop after every walk (the cooperative search runs these steps)
+    reachedSteps: function * (cl, site) {
+      if (!(sitePadOn() && site)) return reroofClearsReached(read, home, cl, { stood, walkR })
+      return yield * clearsReachedBuiltSteps(read, cl, { cells: placeBlueprint(bp, site.anchor, site.s, site.orient), fill: site.fill ?? [], walk: r => siteWalkFrom(r, home, new Set(), walkR, { stood }), stand: digStand })
+    },
+    ...(sitePadOn() && earth ? { earth } : {}) }) }
 }
 /** The plot ids every record but `plot`'s holds. Never throws. */
 const plotsTakenBy = (plot, dir = townDir()) => { try { return projectHeads().filter(x => x.plot !== plot).map(x => x.head?.rec?.plotId).filter(Boolean) } catch { return [] } }

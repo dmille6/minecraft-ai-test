@@ -89,8 +89,11 @@ export function cellEarthClears (read, vol = [], { above, listed = new Set(), ow
  * THE SITING HOOK -> (site) -> null | { clear } | { fail }. `cellsOf(site)` the candidate's world cells; `reached(clears)` -> { ok }
  * (the caller's reach test over the town walk, given every clear of the site plus the listed leaves, low before high). Nothing to list: null (the proof as before). Never throws (a throw: no listing).
  */
-export function cellClearsHook (read, { cellsOf, reached, max = SITECANOPY_MAX, earth = null } = {}) {
-  return site => {
+export function cellClearsHook (read, { cellsOf, reached, reachedSteps = null, max = SITECANOPY_MAX, earth = null } = {}) {
+  // siteproof-02: the hook's own steps (`hook.steps(site)`, a generator the cooperative search runs with `yield *`): the reach test
+  // is the caller's `reachedSteps(clears, site)` when it names one (clearsReachedBuiltSteps: a turn after every walk), else `reached`
+  // straight through as before. `hook(site)` runs the steps to their end: the same answer either way.
+  function * steps (site) {
     try {
       const listed = new Set((site?.clear ?? []).map(c => (c?.at ?? []).join(',')))
       const vol = cellsOf(site)
@@ -108,9 +111,13 @@ export function cellClearsHook (read, { cellsOf, reached, max = SITECANOPY_MAX, 
       // the reach test runs over EVERY clear the visit digs (the site's own trees and litter with these leaves, low before high, as
       // runVisit's clears() digs them): a site leaf dug first opens the sight line to a listed one behind it
       const all = [...(site?.clear ?? []), ...cl].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
-      return reached(all, site)?.ok ? { clear: cl } : { fail: 'leaves_unreached' }
+      const rc = typeof reachedSteps === 'function' ? yield * reachedSteps(all, site) : reached(all, site)
+      return rc?.ok ? { clear: cl } : { fail: 'leaves_unreached' }
     } catch { return null }
   }
+  const hook = site => { const g = steps(site); for (;;) { const r = g.next(); if (r.done) return r.value } }
+  hook.steps = steps
+  return hook
 }
 
 /**
@@ -122,7 +129,20 @@ export function cellClearsHook (read, { cellsOf, reached, max = SITECANOPY_MAX, 
  * repeated while anything moves (at most `rounds`). LIVE showcase 11-08, the town hall's one home-facing candidate on X2 (-5,-46 W):
  * 10 of its 26 in-cell leaves (y 69-70, over the pad's middle) no stand of the town walk reaches; the floor is laid at 64.
  */
-export function clearsReachedBuilt (read, clears = [], { cells = [], fill = [], padSeg = 'pad', walk, stand, rounds = 4 } = {}) {
+export function clearsReachedBuilt (read, clears = [], opts = {}) {
+  const g = clearsReachedBuiltSteps(read, clears, opts)
+  for (;;) { const r = g.next(); if (r.done) return r.value }
+}
+/**
+ * SITEPROOF-02 (LIVE showcase 11-12 22:05Z, one hour after siteproof-01: Delta kicked `Timed out` once a minute; its stack at 100%
+ * CPU: walkFrom <- walk <- clearsReachedBuilt <- reached <- the siting hook <- siteBlueprintSteps). THE SAME TEST AS A GENERATOR,
+ * yielding after every walk of the town. The test walks once for the first clear and AGAIN after every clear it digs (a dug leaf
+ * may open the next one's stand): a candidate with 26 leaves in its cells is 26 walks and more, 1.0 to 6.0 s each on that host,
+ * straight through inside ONE step of the cooperative search -- minutes with the event loop held, the server's 30-s keep-alive
+ * missed, the bot dropped; and a dropped bot's search never ends `no_site`, so its next build order runs the same search again.
+ * The result is clearsReachedBuilt's, value for value.
+ */
+export function * clearsReachedBuiltSteps (read, clears = [], { cells = [], fill = [], padSeg = 'pad', walk, stand, rounds = 4 } = {}) {
   const k = a => a.join(',')
   const AIR = Object.freeze({ name: 'air', boundingBox: 'empty' }), S = Object.freeze({ name: 'cobblestone', boundingBox: 'block' })
   const pad = [...cells.filter(c => c?.seg === padSeg && Array.isArray(c.at)).map(c => c.at), ...fill.filter(Array.isArray)]
@@ -135,7 +155,7 @@ export function clearsReachedBuilt (read, clears = [], { cells = [], fill = [], 
     let moved = false, nodes = null
     const still = []
     for (const c of left) {
-      if (!nodes) { const m = new Map(); for (const q of walk(rd)) { const [x, y, z] = q.split(',').map(Number); const col = `${x},${z}`; if (!m.has(col)) m.set(col, []); m.get(col).push(y) } nodes = m }
+      if (!nodes) { const m = new Map(); for (const q of walk(rd)) { const [x, y, z] = q.split(',').map(Number); const col = `${x},${z}`; if (!m.has(col)) m.set(col, []); m.get(col).push(y) } nodes = m; yield null }
       if (!stand(rd, c.at, nodes)) { still.push(c); continue }
       dug.set(k(c.at), AIR); nodes = null; moved = true
     }
