@@ -211,6 +211,10 @@ await t('the live shape (11-12 16:30Z): the head of the order is segments whose 
   const late = G2.stuckSegs(rec, stuck)
   assert.deepStrictEqual([...late].sort(), ['T-0', 'T-3'])
   assert.deepStrictEqual(G2.stuckLast(rec, late).segments.map(x => x.seg), ['T-1', 'T-2', 'T-4', 'T-0', 'T-3'], 'the workable ones first, in the survey\'s order; a dep keeps its place before its dependant')
+  // review r1 (both engines): a segment that WAITS ON a stuck one goes with it, after it -- T-2 waits on T-1
+  assert.deepStrictEqual(G2.stuckLast(rec, new Set(['T-1'])).segments.map(x => x.seg), ['T-0', 'T-3', 'T-4', 'T-1', 'T-2'])
+  const chain = { segments: [{ seg: 'a' }, { seg: 'b', deps: ['a'] }, { seg: 'c', deps: ['b'] }, { seg: 'd' }], cells: [] }
+  assert.deepStrictEqual(G2.stuckLast(chain, new Set(['a'])).segments.map(x => x.seg), ['d', 'a', 'b', 'c'], 'transitively: the layer above the layer above')
   assert.deepStrictEqual(rec.segments.map(x => x.seg), ['T-0', 'T-1', 'T-2', 'T-3', 'T-4'], 'positive control: the survey\'s order had the stuck ones first; the record is not mutated')
   assert.strictEqual(G2.stuckLast(rec, new Set()), rec, 'none stuck: the record itself')
   assert.strictEqual(G2.stuckLast(rec, new Set(['T-9'])), rec, 'a name the record does not hold: the record itself')
@@ -224,10 +228,38 @@ await t('stuckSegs: only an OPEN cell of this generation at the threshold counts
   assert.deepStrictEqual([...G2.stuckSegs(rec, { '0,64,0': { visits: 366 } }, c => c.at[0] !== 0)], [], 'laid or waived since: the segment is workable again')
   assert.deepStrictEqual([...G2.stuckSegs(rec, {})], []); assert.deepStrictEqual([...G2.stuckSegs(rec, null)], []); assert.deepStrictEqual([...G2.stuckSegs(null, { a: { visits: 9 } })], [])
 })
+await t('REVIEW r1 (both engines), through the real runVisit: a stuck segment with a layer waiting on it, moved last -- the project still reads STALLED and ends stuck_on_cell; without the dependants it never does', async () => {
+  const { SITE, project, KIT, k3 } = await import('./helpers/buildfake.mjs')
+  // buildrun-stuck.test.mjs's scene: a cell sealed in bedrock (no stand reaches it), and a second segment that waits on it
+  const X = [5, G + 1, 25], Y = [9, G + 1, 25]
+  const sealed = () => Object.fromEntries([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].map(d => [k3(X.map((v, i) => v + d[i])), 'bedrock']))
+  const RECORD = { ...SITE.record,
+    cells: [{ at: X, role: 'base', seg: 'extra', stand: [X[0] - 1, G + 1, X[2]], support: [X[0], G, X[2]], face: [0, 1, 0], order: -2 },
+      { at: Y, role: 'base', seg: 'extra2', stand: [Y[0] - 1, G + 1, Y[2]], support: [Y[0], G, Y[2]], face: [0, 1, 0], order: -1 }, ...SITE.record.cells],
+    segments: [{ seg: 'extra', deps: [] }, { seg: 'extra2', deps: ['extra'] }, ...SITE.record.segments] }
+  const scenario = async M => {
+    const srv = server(sealed()), pr = project(RECORD)
+    const stops = []
+    for (let i = 0; i < R.STUCK_VISITS + 1; i++) {
+      const h = PJ.recordHead(pr.dir, pr.key), e = fakeBot(srv, 'A', { inv: { ...KIT(), stone_bricks: 91 } })
+      const rec = M.stuckLast(h.head.rec, new Set(['extra']))          // the tidy visit's reorder, as skills.mjs applies it
+      const r = await R.runVisit({ ...pr.p('A'), record: rec, recordGen: h.head.gen, stuckStalledOnly: true, skipOpenDeps: true }, e, { maxSteps: 4000 })
+      stops.push(r.stop)
+    }
+    return stops
+  }
+  const stops = await scenario(G2)
+  assert.strictEqual(stops.at(-1), 'stuck_on_cell', `with only the stuck segment and its dependant left the project is stalled: ${stops}`)
+  let why = null
+  await withMutant(G2_PATH, "    for (const s of segs) if (!all.has(s.seg) && (s.deps ?? []).some(d => all.has(d))) { all.add(s.seg); grew = true }\n", '', async M => {
+    try { const m = await scenario(M); assert.strictEqual(m.at(-1), 'stuck_on_cell', `${m}`) } catch (err) { why = err }
+  })
+  assert.ok(why instanceof assert.AssertionError, `MUTANT (the dependants left in place: never stalled) survived or died for another reason: ${why?.message ?? 'survived'}`)
+})
 await t('MUTANT: stuckLast keeps the survey\'s order -- the stuck segments stay at the head (killed); and skills.mjs wires it after the stairs', async () => {
   const rec = STUCK_REC(), late = new Set(['T-0', 'T-3'])
   let why = null
-  await withMutant(G2_PATH, "  return { ...record, segments: [...segs.filter(s => !late.has(s.seg)), ...segs.filter(s => late.has(s.seg))] }", '  return { ...record, segments: [...segs] }', async M => {
+  await withMutant(G2_PATH, "  return { ...record, segments: [...segs.filter(s => !all.has(s.seg)), ...segs.filter(s => all.has(s.seg))] }", '  return { ...record, segments: [...segs] }', async M => {
     try { assert.strictEqual(M.stuckLast(rec, late).segments[0].seg, 'T-1') } catch (err) { why = err }
   })
   assert.ok(why, 'the mutant survived')

@@ -189,14 +189,29 @@ export function stuckSegs (record, stuck = {}, open = () => true, G = GROUNDS2) 
   for (const c of record?.cells ?? []) if (c && !c.prev && Array.isArray(c.at) && hard.has(c.at.join(',')) && open(c)) out.add(c.seg)
   return out
 }
-/** STUCK LAST -> the record with those segments moved to the END of the visit's order, the others as they were (a segment waiting
- *  on one of them still waits on it: workableSeg reads the deps, not the order). None: the record itself. Nothing is waived, skipped
- *  for good or refused -- when only they are left the visit reaches them, and the project's own stuck rule answers as before. Pure. */
+/**
+ * STUCK LAST -> the record with those segments moved to the END of the visit's order, EACH WITH EVERY SEGMENT THAT WAITS ON IT
+ * (its dependants, transitively), in the order they had; the others as they were. None: the record itself. Nothing is waived,
+ * skipped for good or refused -- when only they are left the visit reaches them, and the project's own stuck rule answers as
+ * before. Pure.
+ * THE DEPENDANTS GO WITH IT (review r1, both engines): buildrun.mjs runVisit calls a project STALLED only when every open segment
+ * is deferred, and a segment joins the deferred ones through a dep ALREADY deferred when the loop reaches it. Left in its place
+ * before its stuck dep, the layer above was passed as "deps open", never deferred, so `stalled` could not come true at the
+ * record's tail: no `stuck_on_cell`, no 6-hour back-off, and the keeper's stall waiver (gkwork.mjs stallWaive) never fired -- the
+ * stage could not close. Moved after it, it inherits the deferral exactly as in the survey's order.
+ */
 export function stuckLast (record, late) {
   if (!late || !late.size) return record
   const segs = record?.segments ?? []
   if (!segs.some(s => late.has(s.seg))) return record
-  return { ...record, segments: [...segs.filter(s => !late.has(s.seg)), ...segs.filter(s => late.has(s.seg))] }
+  const all = new Set(late)
+  // the order lists a dep before its dependant (tidy.mjs: a layer after the one below), so one pass in order closes the set; a
+  // second pass covers a record that does not
+  for (let pass = 0, grew = true; grew && pass < segs.length; pass++) {
+    grew = false
+    for (const s of segs) if (!all.has(s.seg) && (s.deps ?? []).some(d => all.has(d))) { all.add(s.seg); grew = true }
+  }
+  return { ...record, segments: [...segs.filter(s => !all.has(s.seg)), ...segs.filter(s => all.has(s.seg))] }
 }
 /** Is `seg` one of the record's staircase segments (an open `access` cell in it)? Pure. */
 export const stairSeg = (record, seg, open = () => true) => seg != null && (record?.cells ?? []).some(c => c && c.seg === seg && c.role === 'access' && !c.prev && open(c))
