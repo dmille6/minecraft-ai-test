@@ -102,7 +102,7 @@ await t('WIRING: activeProject defaults to the switch, and features.mjs writes t
 
 console.log('MUTANTS')
 // projfix-01: the gate reads the `after` project's state once (its `waiting` too: a landmark behind one that found no site)
-const GATE_NEW = "    const sa = st(list.find(q => q.plot === p.after) ?? { plot: p.after })\n    if (!afterMet(p, sa.complete, { noWait, chainSkip: chainSkipOk(isCivicPlot(p.plot) && isCivicPlot(p.after), sa) })) continue   // ordernowait-01; projfix-01\n"
+const GATE_NEW = "    const sa = st(list.find(q => q.plot === p.after) ?? { plot: p.after })\n    if (!afterMet(p, sa.complete, { noWait, chainSkip: chainSkipOk(isCivicPlot(p.plot) && isCivicPlot(p.after), sa, s) })) continue   // ordernowait-01; projfix-01\n"
 const GATE_OLD = "    if (p.after && !st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete) continue\n"
 await t('MUTANT KILLED: the old gate back in activeProject -> the hall waits behind a full workshop', async () => {
   await withMutant('shop.mjs', GATE_NEW, GATE_OLD, async M => {

@@ -45,10 +45,15 @@ export function afterMet (p, afterComplete, { noWait = false, chainSkip = false 
  * home and 0 of 4,900 anchors clear the plan's core -- and shop.mjs lists each landmark `after` the one before, so five more with 36
  * to 1,636 reservation-free anchors each waited behind a building that can never be sited): MAY A LANDMARK GO AHEAD OF ITS
  * PREDECESSOR? -> bool. Pure. Only one landmark after another (`chain`), and only while the predecessor is UNSITED AND WAITING on
- * its own failed siting (the town-wide site wait: `afterState.exists` false, `afterState.waiting` true). A predecessor that is
- * building, or one never tried, still comes first: one landmark at a time, as before.
+ * its own failed siting (the town-wide site wait: `afterState.exists` false, `afterState.waiting` true) -- or once this landmark
+ * itself STANDS (`selfState.exists`: sited, being built): a building under way is never paused again because the one before it
+ * came up for another try (review r1, Claude). A predecessor that is building, or one never tried, still comes first for an
+ * UNSITED successor. Two sitings never run at once: skills.mjs takes the town's one `civic-site` lease (CIVIC_SITE_LEASE) round a
+ * landmark's siting and its publish (review r1, Codex BLOCKER: two bots siting two landmarks from the same snapshot of the records
+ * could publish overlapping footprints -- the old gate had serialised them).
  */
-export const chainSkipOk = (chain, afterState) => !!chain && !!afterState && afterState.exists === false && afterState.waiting === true
+export const CIVIC_SITE_LEASE = 'civic-site'
+export const chainSkipOk = (chain, afterState, selfState = null) => !!chain && ((!!afterState && afterState.exists === false && afterState.waiting === true) || selfState?.exists === true)
 
 /** `_ordernowait_mode` detail. Pure. */
 export const noWaitModeDetail = (sw = {}) => `on=${sw.on ? 1 : 0} plots=${NOWAIT_PLOTS.join(',')} after=${NOWAIT_AFTER} order=unchanged`
