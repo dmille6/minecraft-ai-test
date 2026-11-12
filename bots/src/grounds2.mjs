@@ -283,6 +283,14 @@ export const groundsHoldOf = (stop, now = Date.now()) => (HOLD_STOPS.includes(St
 export const groundsHold = (state, hold) => (hold && HOLD_STOPS.includes(hold.stop) && Number.isFinite(hold.at) ? { ...(state ?? {}), lastStop: hold.stop, lastAt: hold.at } : state)
 
 /**
+ * THE SWEEP'S END IN A VISIT THAT STARTED LATE -> ms (epoch). Pure. The crew's sweep after a grounds visit ends 5 s before the
+ * skill's end (skills.mjs buildTidy: `t0 + budget - 5 s`, t0 the grounds visit's start). In a fall-through the grounds visit
+ * starts `used` ms into the skill, so the same sum would end the sweep `used` ms PAST it -- a sweep walking into the runner's
+ * 180-s abort, which throws away the first project's clean result (Codex r1 BLOCKER). used 0: an ordinary visit's end exactly.
+ */
+export const lateUntil = (t0, budget, used = 0, tailMs = 5_000) => Number(t0) + Number(budget) - Math.max(0, Number(used) || 0) - tailMs
+
+/**
  * STAIRS FIRST -> the record with every segment that holds an OPEN staircase cell (role `access`: tidy.mjs spotStair's stone steps
  * where the bots keep climbing, and the stands) moved to the front, each behind the layers it waits on (its `deps`, transitively:
  * a visit passes a segment whose layer below is open and does not come back to it). The other segments keep their order after
