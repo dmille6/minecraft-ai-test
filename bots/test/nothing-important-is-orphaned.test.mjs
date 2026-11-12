@@ -159,6 +159,7 @@ const REQUIRED = [
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
   'bots/test/zigbamboo.test.mjs',
   // tidy-01 (11-01): the town-ground tidy (pillars, pits, the paths' corridors graded) and its offline proof on region copies
+  'bots/test/loggate.test.mjs',   // loggate-01 (11-12): the town log limit refuses at admission
   'bots/src/tidy.mjs',
   'bots/test/tidy.test.mjs',
   // groundskeeper-01 (owner 11-02, groundskeeper-1102): the land plan, the keeper lease, the offline proof

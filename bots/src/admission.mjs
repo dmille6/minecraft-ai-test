@@ -18,12 +18,14 @@ import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { depositVerdict, onDepositRung } from './depositoffer.mjs'
-import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
+import { bankClosed, bankClosedDetail, depositTargetOk, inTown } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
 import { repeatWorkConfig, repeatDecision, ledgerSet, PROGRESS_SKILLS, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
 import { logEvent } from './logger.mjs'
+import { townLogCapState, townLogTop, logGateOn, isLogBlock, bagWoodUnits, logGatherGate, logGateDetail } from './logcap.mjs'   // loggate-01
+import { WOOD_KEEP } from './woodkeep.mjs'
 import { snapshot } from './state.mjs'
 
 
@@ -195,6 +197,31 @@ export class AdmissionControl {
   noteSuccess(skill, args) {
     this.failedCooldowns.delete(AdmissionControl.key(skill, args))
     this.#noteRun(skill, args, true)
+    if (skill === 'withdraw' && isLogBlock(args?.item)) this.logGateTriedAt = null   // loggate-01: the withdrawal brought wood
+  }
+
+  /** LOGGATE-01: the gate's decision for a proposed gather (logcap.mjs logGatherGate), or null (not a log, off, uncapped,
+   *  or anything thrown: the gate never breaks a decision -- null is the base). */
+  #logGate (args, bot) {
+    try {
+      if (!logGateOn() || !isLogBlock(args?.block)) return null
+      const cap = townLogCapState(bot)
+      if (!cap?.capped) return null
+      const wood = bagWoodUnits(bot?.inventory?.items?.() ?? [])
+      const pos = bot?.entity?.position
+      const near = !!pos && inTown({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, pos)
+      let top = null
+      if (near && wood < WOOD_KEEP) top = townLogTop(bot)   // the town index is read only for a bot in town that is short
+      const g = logGatherGate({ block: args.block, count: args.count, cap, wood, keep: WOOD_KEEP, inTown: near, top, triedAt: this.logGateTriedAt ?? null })
+      return g.act === 'pass' ? null : { ...g, wood, cap }
+    } catch { return null }
+  }
+  #logGateRow (bot, g, args, asked, to = null) {
+    if (this.dry) return
+    try {
+      logEvent({ kind: 'loggate', status: g.act === 'refuse' ? 'failed' : 'success', snapshot: snapshot(bot),
+                 detail: logGateDetail(g, { block: args.block, asked, wood: g.wood, cap: g.cap, to }) })
+    } catch { /* telemetry */ }
   }
 
   /** REPEATWORK-01: the outcome of the key's last run. Its rung is the one it was ADMITTED on: check() writes the entry for
@@ -419,6 +446,38 @@ export class AdmissionControl {
       const n = Number(args.count)
       if (!Number.isFinite(n) || n <= 0 || n > 128) {
         return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..128` }
+      }
+    }
+
+    // LOGGATE-01 (logcap.mjs): THE TOWN'S LOG LIMIT IS A REFUSAL, NOT A PROMPT LINE. A gather of a log while the bot's town is
+    // capped: a bot that holds its wood keep is refused (432 such cuts succeeded in 6 h in capped towns, 11-12); a bot short
+    // of wood is sent to the town's own logs (a withdrawal, admitted through this same check), or -- away from town, no log
+    // in the index, a withdrawal tried in the last 10 min, or the withdrawal not admissible now -- cuts only what it is short.
+    if (skill === 'gather') {
+      const g = this.#logGate(args, bot)
+      if (g) {
+        const asked = args.count
+        if (g.act === 'refuse') {
+          this.#logGateRow(bot, g, args, asked)
+          return { ok: false, reason: 'log_cap', detail: g.detail }
+        }
+        if (g.act === 'withdraw') {
+          const p = { skill: 'withdraw', args: { item: g.item, count: g.count }, reason: proposal.reason }
+          // would the withdrawal be admitted? asked without touching the gate's state (inside a dry check, state is restored by it)
+          const probe = this.dry ? this.#check(structuredClone(p), bot, wanted) : this.dryCheck(p, bot, wanted)
+          if (probe.ok) {
+            if (this.dry) return probe
+            this.logGateTriedAt = Date.now()
+            this.#logGateRow(bot, g, args, asked, `withdraw:${g.item}:${g.count}`)
+            return this.#check(p, bot, wanted)
+          }
+          // the withdrawal is not admissible now (a cooldown, a full cursor, a learned rule): never a refusal while short of wood
+          args.count = g.cut
+          this.#logGateRow(bot, { ...g, act: 'clamp', why: `withdraw_${probe.reason ?? 'refused'}` }, args, asked, `gather:${g.cut}`)
+        } else if (g.act === 'clamp') {
+          args.count = g.count
+          this.#logGateRow(bot, g, args, asked, `gather:${g.count}`)
+        }
       }
     }
 

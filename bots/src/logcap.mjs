@@ -107,3 +107,92 @@ export function logCapLine (d, wood, { cfg = logCapConfig(), keep = 16, prompt =
 }
 /** LOGCAP_PROMPT=0|off: no observation line (the means rule stays). */
 export const logCapPromptOn = (env = process.env) => !OFF.includes(String(env?.LOGCAP_PROMPT ?? '').trim().toLowerCase())
+
+// ---- LOGGATE-01 (OWNER 2026-11-12: "could we put a limit, when we had a huge excess of logs bots stop cutting down trees?";
+// plan: docs/reports/storage-yard-plan-2026-11-12.md on main, step 1; Codex + Claude independent designs) -------------------
+// THE CAP ABOVE IS ADVICE. Measured 11-12 (fleet, telemetry.py, 6 h, 539,979 rows / 80 bots): `_logcap capped=1` in 15 of 16
+// towns (468 to 5,321 logs in the chests against HIGH 1,024; ~57,800 fleet-wide) and, in those capped towns, 432 log gathers
+// that still SUCCEEDED -- 332 of them the model's own choice at an idle decision. The cap takes one idle batch away and prints
+// the TOWN WOOD line; "a gather the model chooses for its own reasons" was left alone. Advice printed is not advice taken.
+//
+// THE GATE (pure, here; AdmissionControl calls it for every gather the model proposes): for a LOG block, while the town is
+// CAPPED by a proven reading, with need = keep - the bag's wood units (logs + planks / 4; keep = woodkeep.mjs WOOD_KEEP, 16):
+//   need <= 0                        REFUSE: no tree cutting; the remedy is in the bag (craft) or other work
+//   need > 0, in town, town has logs WITHDRAW `need` of the species the town holds most -- the logs are in its chests
+//   need > 0, anything else          CLAMP the cut to `need` (LOGGATE_CUT_MIN..LOGGATE_CUT_MAX): away from town, the town
+//                                    index shows no log, or a withdrawal was tried in the last LOGGATE_LATCH_MS and the
+//                                    bot is still short
+// THE DEAD END THIS MUST NEVER MAKE: a bot short of wood is never refused -- it withdraws, or it cuts what its own tools
+// need. A withdrawal is tried once per latch; a second request while still short is the bounded cut, whatever became of
+// the first (a failed, declined or vetoed withdrawal can never lead to a refused gather).
+// NOT TOUCHED: escape digging and pathfinding (not the gather skill), site clearing / forest / tree farm (they do not pass
+// admission), an uncapped or unread town (the cap's own fail-open), every block that is not a log.
+// LOGGATE=0|off is the rollback (admission then behaves as the base; LOGCAP keeps its idle rule and its line).
+export const logGateOn = (env = process.env) => !OFF.includes(String(env?.LOGGATE ?? '').trim().toLowerCase())
+/** A block whose cutting is tree cutting: logs and stems, their stripped and all-bark forms. */
+export const LOG_BLOCK_RX = /_(log|stem|wood|hyphae)$/
+export const isLogBlock = n => LOG_BLOCK_RX.test(String(n ?? ''))
+/** After a withdrawal was tried for a bot short of wood, its next log gather within this long is the bounded cut. */
+export const LOGGATE_LATCH_MS = 10 * 60_000
+/** The bounded cut: at least a small tree's worth (a 1-log cut walks as far as a 4-log one), at most the keep. */
+export const LOGGATE_CUT_MIN = 4
+export const LOGGATE_CUT_MAX = 16
+/** The bag's wood units (logs + planks / 4: milestones.mjs woodUnits, prompt.mjs townWoodSituation). Pure. */
+export function bagWoodUnits (items = []) {
+  let wood = 0
+  for (const it of items ?? []) {
+    const n = it?.name ?? ''
+    if (/_(log|stem)$/.test(n)) wood += it.count ?? 0
+    else if (/_planks$/.test(n)) wood += (it.count ?? 0) / 4
+  }
+  return wood
+}
+/** The log species a town stock map holds most of -> { name, count } or null. Pure. */
+export function topTownLog (stock = {}) {
+  let best = null
+  for (const [name, c] of Object.entries(stock ?? {})) {
+    const n = Number(c) || 0
+    if (n > 0 && /_(log|stem)$/.test(name) && (!best || n > best.count || (n === best.count && name < best.name))) best = { name, count: n }
+  }
+  return best
+}
+// the town's top log species, read by skills.mjs over the town index (installed there, as the cap's reader is: no skills import here)
+let topOf = () => null
+export function setTownLogTop (fn) { if (typeof fn === 'function') topOf = fn }
+/** { name, count } of the log species this bot's town holds most, or null. Never throws. */
+export const townLogTop = b => { try { return topOf(b) ?? null } catch { return null } }
+/**
+ * THE GATE'S DECISION. Pure. -> { act: 'pass' | 'refuse' | 'withdraw' | 'clamp', why, need, ... }
+ *   block, count   the gather the model proposed
+ *   cap            the town's decision (logCapNext's: { capped, why, logs }) or null
+ *   wood, keep     the bag's wood units and the personal keep
+ *   inTown         is the bot in its town (chestfull.mjs inTown)
+ *   top            topTownLog of the town index, or null
+ *   triedAt        when a withdrawal was last tried for this bot by the gate (null: never, or it succeeded)
+ * refuse: { detail }   withdraw: { item, count, cut }   clamp: { count }   (`cut` = the clamp a withdrawal falls back to)
+ */
+export function logGatherGate ({ on = logGateOn(), block, count, cap = null, wood = 0, keep = 16, inTown = false, top = null,
+                                 triedAt = null, now = Date.now(), cfg = logCapConfig() } = {}) {
+  if (!on) return { act: 'pass', why: 'off' }
+  if (!isLogBlock(block)) return { act: 'pass', why: 'not_a_log' }
+  if (!cap?.capped) return { act: 'pass', why: 'uncapped' }
+  const w = Number.isFinite(wood) ? wood : 0
+  const need = Math.ceil(keep - w)
+  if (need <= 0) {
+    const n = Number.isFinite(cap.logs) ? `${cap.logs} logs` : 'more logs than it needs'
+    return { act: 'refuse', why: 'capped', need,
+             detail: `the town holds ${n}, above its ${cfg.high} limit, and you carry ${Math.floor(w)} wood (your keep is ${keep}): ` +
+                     'no tree cutting. Craft planks or sticks from your bag, or pick other work' }
+  }
+  const asked = Number.isFinite(Number(count)) && Number(count) > 0 ? Math.floor(Number(count)) : LOGGATE_CUT_MAX
+  const cut = Math.min(asked, Math.max(LOGGATE_CUT_MIN, Math.min(LOGGATE_CUT_MAX, need)))
+  const latched = Number.isFinite(triedAt) && now - triedAt < LOGGATE_LATCH_MS
+  if (!inTown) return { act: 'clamp', why: 'away', need, count: cut }
+  if (latched) return { act: 'clamp', why: 'withdraw_tried', need, count: cut }
+  if (!top?.name || !(top.count > 0)) return { act: 'clamp', why: 'no_town_logs', need, count: cut }
+  return { act: 'withdraw', why: 'town_has_logs', need, item: top.name, count: Math.max(1, Math.min(need, 64, top.count)), cut }
+}
+/** The `_loggate` row's detail: `loggate act=refuse why=capped block=oak_log asked=16 need=-3 wood=19.0 town_logs=4158 ...`. */
+export const logGateDetail = (g, { block, asked, wood, cap, to = null } = {}) =>
+  `loggate act=${g.act} why=${g.why} block=${block} asked=${asked ?? '-'} need=${g.need ?? '-'} wood=${Number.isFinite(wood) ? wood.toFixed(1) : '-'} ` +
+  `town_logs=${cap?.logs ?? '-'} cap=${cap?.why ?? '-'}${to ? ` to=${to}` : ''}`
