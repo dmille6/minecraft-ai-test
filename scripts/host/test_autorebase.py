@@ -705,6 +705,15 @@ def t_v43_diff_equiv_pure(CS):
     assert CS.diff_equiv(A, code + _nd(L, b1, ins(gone, 5)), texts={L: '\n'.join(ins(gone, 5))}) is None, 'a removed line appeared'
     Acode = code + _nd(L, base, ins(base, 5, 'if (x) y()')); after = ins(b1, 5, 'if (x) y()')
     assert CS.diff_equiv(Acode, code + _nd(L, b1, after), texts={L: '\n'.join(after)}) is None, 'the change itself is code: byte-exact'
+    # the change also REMOVES a code line of the file (below the list): its added entry is a plain list line inside the region, but the
+    # change touches code there, so the file is compared byte-exact (kills the mutant that drops the added/removed-lines check)
+    cut_code = lambda lines: [l for l in lines if l != 'console.log(REQUIRED.length)']
+    Arm = code + _nd(L, base, cut_code(ins(base, 9)))
+    after = cut_code(ins(mk(ent[:5] + ["  'bots/test/other.test.mjs',"] + ent[6:]), 9))
+    Brm = code + _nd(L, mk(ent[:5] + ["  'bots/test/other.test.mjs',"] + ent[6:]), after)
+    assert Brm != Arm and '-console.log(REQUIRED.length)' in Arm and '-console.log(REQUIRED.length)' in Brm, 'the fixture removes the code line in both'
+    assert CS.list_region('\n'.join(after), (OPEN, CLOSE)) is not None and X in CS.list_region('\n'.join(after), (OPEN, CLOSE)), 'the region itself is whole'
+    assert CS.diff_equiv(Arm, Brm, texts={L: '\n'.join(after)}) is None, 'a removed CODE line: not a list-only change'
     # the same line added BELOW the closing line: it is not a line of the list region
     Aout = code + _nd(L, base, base + [X])
     assert CS.diff_equiv(Aout, code + _nd(L, b1 + ['// moved'], b1 + ['// moved', X]), texts={L: '\n'.join(b1 + ['// moved', X])}) is None, 'an added line outside the list region'
