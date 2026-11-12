@@ -542,6 +542,20 @@ const filledChest = (x, empty = 0, extra = {}) => chestAt(x, 70, 0, { items: Arr
 const fullBag = () => bag([['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20],
   ['oak_log', 16], ['oak_log', 10], ['white_wool', 2], ['apple', 45], ['raw_iron', 5], ['coal', 9], ['dirt', 30], ['raw_copper', 7], ...filler(22)])
 const run = (bot, signal = null) => SKILLS.town_deposit.run({ bot }, {}, signal)
+// FULLPLACE-01 (fullplace.mjs): a run that finds every chest in reach full goes on into the deposit verb when the runner's
+// clock has room for it. The clock is given here, never left to the suite's 300 ms SKILL_TIMEOUT_MS: `runClock` is a run
+// with the whole clock ahead, `runLate` one with none left (the base refusal, which still names the verb).
+const runClock = (bot, signal = null, args = {}) => SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() + 3_600_000 } } }, args, signal)
+const runLate = (bot, signal = null) => SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, signal)
+/** Watch (and stand in for) the deposit verb the chain runs, through fullplace.mjs's `fullPlaceVerb` holder (H; a mutant copy
+ *  of fullplace.mjs has its own). This file's fake town has no world for the verb's own recovery; chest-full.test.mjs and
+ *  chestcarry.test.mjs drive THAT (full chest -> a new chest placed and banked into) through the real deposit. */
+async function withVerb (H, stub, fn) {
+  const calls = []
+  assert.equal(H.run, null, 'the stand-in is null outside a test')
+  H.run = async (ctx, args, signal) => { calls.push({ ctx, args, signal }); return stub(ctx, args, signal) }
+  try { return await fn(calls) } finally { H.run = null }
+}
 const rowsOf = async fn => {
   const rows = []
   const untap = tapRecords(r => { if (r?.skill?.name === '_town_deposit') rows.push(r) })
@@ -652,7 +666,7 @@ test('SKILL: a full chest takes nothing -- no click, no cursor, no drop; the sec
   const restore = freshTown()
   try {
   const { bot, st } = world({ items: fullBag(), containers: [filledChest(2)] })
-  const r = await run(bot)
+  const r = await runLate(bot)   // no clock left for the verb (fullplace-01): the base refusal
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full')
   assert.match(r.detail, /deposit \(no item\)/, 'the remedy names a verb the bot can run from here')
   assert.equal(st.clicks, 0); assert.equal(st.dropped, 0); assert.deepEqual(st.opened, ['2,70,0'])
@@ -700,7 +714,7 @@ test('TOWNDEPOSIT-02 REFUSAL CHAIN: every chest in reach full -> town_storage_fu
     const { townContainers } = await import('../src/skills.mjs')
     const w = world({ items: fullBag(), containers: [filledChest(2), filledChest(4)] })
     assert.equal(townContainers(w.bot).length, 2, 'positive control: both chests are offered before the visit')
-    const r = await run(w.bot)
+    const r = await runLate(w.bot)   // no clock left for the verb (fullplace-01): the base refusal
     assert.equal(r.failClass, 'town_storage_full', r.detail)
     assert.match(r.detail, /deposit \(no item\) .*can build a new one/, 'the remedy is a verb the bot can run from here')
     assert.equal(townContainers(w.bot).length, 0, 'the order\'s container() is false now: no repeat trip to the same full chests')
@@ -742,6 +756,168 @@ test('TOWNDEPOSIT-02 MUTANT KILLED: with TD_FULL_EXTRA = 0 the third chest is ne
     assert.equal(r.failClass, 'town_storage_full', 'the mutant stops at the two full chests')
     assert.ok(!third.items.some(Boolean))
   } finally { restore(); for (const f of [tOut, sOut]) try { fs.unlinkSync(f) } catch {} }
+})
+// FULLPLACE-01 (OWNER 11-12): A FULL-CHEST TOWN DEPOSIT RUNS ITS OWN REMEDY. Measured 11-12 (6 h, 80 bots): 315 town_storage_full
+// refusals named the deposit verb; a deposit followed within five skills after 48 (15%); hive-c 42 refusals / 0 deposits / 0
+// new-chest rows, placebo-d 69 / 0 / 0. The verb is the only path to the full-chest recovery, so the run goes on into it.
+const FP = await import('../src/fullplace.mjs')
+const VERB_BANKED = () => ({ status: 'success', detail: 'deposited 84 item(s) into a new chest at 6,70,0 [bag 300->216 items]' })
+const VERB_REFUSED = () => ({ status: 'failed', failClass: 'storage_full', detail: 'keep working; the town is at its chest limit -- the chests are full [bag 300->300 items]' })
+const fpRows = () => { const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_fullplace') rows.push(r.skill) }); return { rows, untap } }
+test('FULLPLACE pure: the chain goes only for a full-bag run that found EVERY tried chest full, with the clock to start the verb', () => {
+  const base = { on: true, tried: [{ result: 'full' }, { result: 'full' }], msLeft: 120_000, minMs: 60_000 }
+  assert.deepEqual(FP.fullPlaceChain(base), { go: true, why: 'chests_full' })
+  assert.equal(FP.fullPlaceChain({ ...base, on: false }).why, 'off')
+  assert.equal(FP.fullPlaceChain({ ...base, tried: [] }).why, 'not_all_full')
+  assert.equal(FP.fullPlaceChain({ ...base, tried: [{ result: 'full' }, { result: 'unreachable' }] }).why, 'not_all_full')
+  assert.equal(FP.fullPlaceChain({ ...base, tail: true }).why, 'tail')
+  assert.equal(FP.fullPlaceChain({ ...base, allowOnly: true }).why, 'allowance_only', 'the verb never banks the bag allowance rows (bagbudget-01)')
+  assert.equal(FP.fullPlaceChain({ ...base, banked: 3 }).why, 'banked')
+  assert.equal(FP.fullPlaceChain({ ...base, msLeft: 59_999 }).why, 'no_time')
+  assert.equal(FP.fullPlaceChain({ ...base, msLeft: 60_000 }).go, true)
+  for (const k of ['off', 'not_all_full', 'tail', 'allowance_only', 'banked', 'no_time']) assert.equal(FP.fullPlaceChain({ ...base, on: k !== 'off', tried: k === 'not_all_full' ? [] : base.tried, tail: k === 'tail', allowOnly: k === 'allowance_only', banked: k === 'banked' ? 1 : 0, msLeft: k === 'no_time' ? 0 : base.msLeft }).go, false, k)
+  assert.equal(FP.fullPlaceMinMs(180_000), 60_000, 'production: a minute of the 180 s clock')
+  assert.equal(FP.fullPlaceMinMs(300), 100); assert.equal(FP.fullPlaceMinMs(600_000), 60_000); assert.equal(FP.fullPlaceMinMs(undefined), 60_000)
+})
+test('FULLPLACE pure: the verb\'s success is the town deposit\'s; anything else stays town_storage_full with the verb\'s own words; the row fits the logger', () => {
+  assert.equal(FP.fullPlaceResult(VERB_BANKED()).status, 'success')
+  assert.match(FP.fullPlaceResult(VERB_BANKED()).detail, /were full, so the deposit ran: deposited 84 item/)
+  const refused = FP.fullPlaceResult(VERB_REFUSED())
+  assert.equal(refused.status, 'failed'); assert.equal(refused.failClass, 'town_storage_full')
+  assert.match(refused.detail, /did not bank: keep working; the town is at its chest limit/, 'the verb\'s remedy reaches the model')
+  for (const dep of [null, { status: 'no_effect', detail: 'the cobble stays' }, { status: 'unknown' }]) assert.equal(FP.fullPlaceResult(dep).failClass, 'town_storage_full')
+  assert.match(FP.fullPlaceResult(null, new Error('boom')).detail, /it threw boom/)
+  const d = FP.fullPlaceDetail({ dep: { status: 'failed', failClass: 'storage_full', detail: 'x '.repeat(400) }, slotsBefore: 36, slotsAfter: 36, bagBefore: 900, bagAfter: 900, ms: 1234, full: 4 })
+  assert.ok(d.length <= 300, String(d.length)); assert.match(d, /^via=town_deposit deposit=failed fail=storage_full full_chests=4 slots=36->36 bag=900->900 ms=1234 why=x_x/)
+  assert.match(FP.fullPlaceDetail({ threw: new Error('no world') }), /deposit=threw fail=exception .*why=no_world/)
+})
+test('FULLPLACE CHAIN (real skill): every chest in reach full -> the deposit verb is RUN once, with no item, on the run\'s own signal; its success is the town deposit\'s, and the order does not back off', async () => {
+  const restore = freshTown(); const { rows, untap } = fpRows()
+  try {
+    const w = world({ items: fullBag(), containers: [filledChest(2), filledChest(4)] })
+    const signal = new AbortController().signal
+    await withVerb(FP.fullPlaceVerb, VERB_BANKED, async calls => {
+      const r = await runClock(w.bot, signal)
+      assert.equal(calls.length, 1, 'the remedy was run, not named')
+      assert.deepEqual(calls[0].args, { item: null }); assert.equal(calls[0].signal, signal); assert.equal(calls[0].ctx.bot, w.bot)
+      assert.equal(r.status, 'success', r.detail)
+      assert.match(r.detail, /so the deposit ran: deposited 84 item/)
+      assert.equal(townDepositOutcome(r.status, r.failClass ?? null, 1000, { backoffUntil: 5 }).backoffUntil, 0, 'a success: no 15-min backoff')
+    })
+    assert.equal(rows.length, 1, 'one _fullplace row'); assert.equal(rows[0].status, 'success')
+    assert.match(rows[0].detail, /^via=town_deposit deposit=success fail=- full_chests=2 /)
+    assert.equal(w.st.clicks, 0); assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0, 'the town deposit itself moved nothing and left no window')
+    assert.equal(w.bot.currentWindow ?? null, null, 'the verb starts with no window open')
+  } finally { untap(); restore() }
+})
+test('FULLPLACE CHAIN: the verb refuses, or throws -> failed town_storage_full (the order backs off as before) carrying the verb\'s words; an ABORT is rethrown', async () => {
+  const restore = freshTown(); const { rows, untap } = fpRows()
+  try {
+    const scene = () => world({ items: fullBag(), containers: [filledChest(2)] })
+    await withVerb(FP.fullPlaceVerb, VERB_REFUSED, async calls => {
+      const r = await runClock(scene().bot)
+      assert.equal(calls.length, 1); assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full')
+      assert.match(r.detail, /the deposit that ran next did not bank: keep working; the town is at its chest limit/)
+      assert.ok(townDepositOutcome(r.status, r.failClass, 1000, {}).backoffUntil > 1000, 'the 15-min backoff, as the base')
+    })
+    freshTown()
+    await withVerb(FP.fullPlaceVerb, () => { throw new Error('no world here') }, async calls => {
+      const r = await runClock(scene().bot)
+      assert.equal(calls.length, 1); assert.equal(r.failClass, 'town_storage_full'); assert.match(r.detail, /it threw no world here/)
+    })
+    assert.deepEqual(rows.map(x => x.detail.match(/deposit=(\w+)/)[1]), ['failed', 'threw'])
+    freshTown()
+    await withVerb(FP.fullPlaceVerb, () => { throw Object.assign(new Error('aborted'), { aborted: true }) }, async () => {
+      await assert.rejects(runClock(scene().bot), e => e.aborted === true, 'an interrupt is never swallowed')
+    })
+  } finally { untap(); restore() }
+})
+test('FULLPLACE never runs the verb: a chest with room (it banks there); a full town with no clock left; a tail run over full chests (a bag that is not full: the base advice)', async () => {
+  const restore = freshTown()
+  try {
+    await withVerb(FP.fullPlaceVerb, VERB_BANKED, async calls => {
+      const ok = await runClock(world({ items: fullBag(), containers: [filledChest(2), chestAt(-4)] }).bot)
+      assert.equal(ok.status, 'success', ok.detail); assert.equal(calls.length, 0, 'room in reach: no verb')
+      freshTown()
+      const late = await runLate(world({ items: fullBag(), containers: [filledChest(2)] }).bot)
+      assert.equal(late.failClass, 'town_storage_full'); assert.match(late.detail, /deposit \(no item\) .*can build a new one/); assert.equal(calls.length, 0, 'no clock: the refusal still names the verb')
+      freshTown()
+      const items = bag([['raw_iron', 3], ['coal', 20], ...filler(10)])
+      const tail = await runClock(world({ items, containers: [filledChest(2), filledChest(4)] }).bot, null, { tail: true })
+      assert.equal(tail.failClass, 'town_storage_full', tail.detail); assert.match(tail.detail, /deposit \(no item\)/, 'the coal tail is not rows-only: the base advice, unchanged')
+      assert.equal(calls.length, 0, 'a tail run never runs the verb')
+    })
+  } finally { restore() }
+})
+test('FULLPLACE=off is the rollback (a fresh process): the switch is off and the chain never goes', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const src = new URL('../src/fullplace.mjs', import.meta.url).href
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import('${src}').then(m => console.log(JSON.stringify([m.FULLPLACE.on, m.fullPlaceChain({ tried: [{ result: 'full' }], msLeft: 120000 })])))`],
+  { env: { ...process.env, FULLPLACE: 'off' }, encoding: 'utf8' })
+  assert.deepEqual(JSON.parse(r.stdout), [false, { go: false, why: 'off' }], r.stderr)
+  assert.equal(FP.FULLPLACE.on, true, 'positive control: on by default in this process')
+})
+/** A copy of skills.mjs (and optionally fullplace.mjs) with one anchored edit each -> its module. Anchors are asserted present and unique. */
+async function fpMutant ({ skillsEdit = null, fullplaceEdit = null }, fn) {
+  const SP = new URL('../src/skills.mjs', import.meta.url), FPU = new URL('../src/fullplace.mjs', import.meta.url)
+  const toSrc = src => src.replace(/from '\.\//g, "from '../src/")
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2, 6)}`
+  const sOut = new URL(`./_mutant-fps-${tag}.mjs`, import.meta.url), fOut = new URL(`./_mutant-fpf-${tag}.mjs`, import.meta.url)
+  let ssrc = fs.readFileSync(SP, 'utf8')
+  if (skillsEdit) { assert.equal(ssrc.split(skillsEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in skills.mjs: ${skillsEdit[0].slice(0, 60)}`); ssrc = ssrc.replace(skillsEdit[0], skillsEdit[1]) }
+  ssrc = toSrc(ssrc)
+  if (fullplaceEdit) {
+    const fsrc = fs.readFileSync(FPU, 'utf8')
+    assert.equal(fsrc.split(fullplaceEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in fullplace.mjs: ${fullplaceEdit[0].slice(0, 60)}`)
+    fs.writeFileSync(fOut, toSrc(fsrc.replace(fullplaceEdit[0], fullplaceEdit[1])))
+    const imp = "from '../src/fullplace.mjs'"
+    assert.equal(ssrc.split(imp).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: skills.mjs imports fullplace.mjs once')
+    ssrc = ssrc.replace(imp, `from './_mutant-fpf-${tag}.mjs'`)
+  }
+  fs.writeFileSync(sOut, ssrc)
+  try {
+    const M = await import(sOut.href)
+    // the holder the MUTANT skills module reads: the mutant fullplace copy's when there is one, else the real module's
+    const H = fullplaceEdit ? (await import(fOut.href)).fullPlaceVerb : FP.fullPlaceVerb
+    return await fn(M, H)
+  } finally { for (const f of [sOut, fOut]) try { fs.unlinkSync(f) } catch {} }
+}
+const runClockOn = (M, bot, args = {}) => M.SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() + 3_600_000 } } }, args, null)
+test('FULLPLACE MUTANT KILLED: the chain dead (`if (chain.go)` -> false) -> the verb is never run and the full town only gets advice (the measured failure)', async () => {
+  const restore = freshTown()
+  try {
+    await fpMutant({ skillsEdit: ['    if (chain.go) {\n', '    if (false) {\n'] }, async (M, H) => {
+      await withVerb(H, VERB_BANKED, async calls => {
+        const r = await runClockOn(M, world({ items: fullBag(), containers: [filledChest(2), filledChest(4)] }).bot)
+        assert.equal(calls.length, 0, 'the mutant ran the verb anyway: the chain test proves nothing')
+        assert.equal(r.status, 'failed'); assert.match(r.detail, /deposit \(no item\)/)
+      })
+    })
+  } finally { restore() }
+})
+test('FULLPLACE MUTANT KILLED: the verb\'s result dropped (the base refusal returned after it ran) -> a banked run still reads failed', async () => {
+  const restore = freshTown()
+  try {
+    await fpMutant({ skillsEdit: ['      const out = fullPlaceResult(dep, threw)\n', '      const out = fullPlaceResult(null, null)\n'] }, async (M, H) => {
+      await withVerb(H, VERB_BANKED, async calls => {
+        const r = await runClockOn(M, world({ items: fullBag(), containers: [filledChest(2)] }).bot)
+        assert.equal(calls.length, 1); assert.notEqual(r.status, 'success', 'the mutant reported the success anyway')
+      })
+    })
+  } finally { restore() }
+})
+test('FULLPLACE MUTANT KILLED: the rows-only and tail guards removed -> a tail run over full chests runs the verb (which never banks those rows)', async () => {
+  const restore = freshTown()
+  try {
+    await fpMutant({ fullplaceEdit: ["  if (tail) return { go: false, why: 'tail' }\n  if (allowOnly) return { go: false, why: 'allowance_only' }\n", ''] }, async (M, H) => {
+      await withVerb(H, VERB_REFUSED, async calls => {
+        const items = bag([['raw_iron', 3], ['coal', 20], ...filler(10)])
+        await runClockOn(M, world({ items, containers: [filledChest(2), filledChest(4)] }).bot, { tail: true })
+        assert.equal(calls.length, 1, 'the mutant kept the guard: this test proves nothing')
+      })
+    })
+  } finally { restore() }
 })
 // tdfull-01 x coalfirst-01 (the 16052ad8 merge): the coal TAIL (a not-full bag's coal above the keep, coalfirst-01) also looks past
 // the two nearest FULL chests (towndeposit-02) -- the two changes compose in one run, neither drops the other

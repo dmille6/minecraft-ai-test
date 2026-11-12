@@ -68,6 +68,7 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
+import { fullPlaceChain, fullPlaceResult, fullPlaceDetail, fullPlaceMinMs, fullPlaceVerb } from './fullplace.mjs'
 import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
@@ -8769,6 +8770,24 @@ async function townDeposit (ctx, _args, signal) {
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
     row('failed')
+    // FULLPLACE-01 (fullplace.mjs): THE REMEDY IS RUN, NOT NAMED. The deposit verb is the only path to the full-chest
+    // recovery (other chests, then a new one), and the model followed this refusal's advice after 15% of them (11-12).
+    // The verb runs here on the SAME runner clock (its own startedAt is the runner's), and this run reports what it did.
+    const runStart = ctx.runner?.current?.startedAt ?? (deadline - TD_BUDGET_MS)
+    const chain = fullPlaceChain({ tried, allowOnly, tail: !!tail, banked: n, msLeft: runStart + config.skills.defaultTimeoutMs - Date.now(),
+                                   minMs: fullPlaceMinMs(config.skills.defaultTimeoutMs) })
+    if (chain.go) {
+      const t0 = Date.now(), bag0 = bagTotal(items())
+      let dep = null, threw = null
+      // the deposit verb itself (fullPlaceVerb.run is a test's stand-in, null in production)
+      try { dep = await (fullPlaceVerb.run ?? deposit)(ctx, { item: null }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; threw = e }
+      const out = fullPlaceResult(dep, threw)
+      try {
+        logEvent({ kind: 'fullplace', status: out.status === 'success' ? 'success' : 'failed', snapshot: snapshot(bot),
+                   detail: fullPlaceDetail({ dep, threw, slotsBefore: slotsAfter, slotsAfter: items().length, bagBefore: bag0, bagAfter: bagTotal(items()), ms: Date.now() - t0, full: tried.length }) })
+      } catch { /* telemetry */ }
+      return out
+    }
     return { status: 'failed', failClass: 'town_storage_full',
              detail: allowOnly ? 'the town chests in reach are full; what is over the bag allowance waits for a town chest with room -- keep working'
                : 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
