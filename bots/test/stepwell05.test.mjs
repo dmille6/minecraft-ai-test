@@ -217,7 +217,7 @@ const WIRES = [
   'const slot = takeSlot(dir, key, me, nBuilders)',
   "if (slot.slot > 1 && (pending == null || pending > 0)) { releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen); return out('no_effect', 'felling_one'",
   'plan, exit: rec.exit, share,',
-  'for (let k = 1; k <= buildersFor(p); k++) {',
+  'for (let k = 1; k <= buildersFor(p, { worker }); k++) {',
   'for (let k = 1; k <= buildersFor(shopActive()); k++) {',
   'if (p?.plot !== STEPWELL_PLOT) return buildersOf(p)',
 ]
