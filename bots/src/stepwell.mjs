@@ -706,20 +706,44 @@ export function inReach (feet, c, reach = SW.reach) {
   return Math.hypot(c[0] + 0.5 - ex, c[1] + 0.5 - ey, c[2] + 0.5 - ez) <= reach
 }
 /**
+ * projfix-01 (LIVE showcase 11-09..11-12: the stepwell laid 0 of 2,168 cells for 92 hours -- six sand cells at y 64, -65,64,-81/-80/
+ * -79/-77/-76 and -64,64,-85, each `op=refused why=no_stand` eight times): the tank stands on a sand beach, EVERY floor within reach
+ * of those cells is sand, and a stand's floor was never a falling block (the nearest sandstone floor, -61,63, is 4.15 from them
+ * against a reach of 3.8). The layers go strictly top down, so y 63 -- from which they are in reach -- never started: two correct
+ * rules, one dead end.
+ * MAY A STAND'S FLOOR BE A FALLING BLOCK? -> bool. Pure. Only in a column the tank itself never touches (`own`: no cell and no cut of
+ * the plan in it -- nothing of this work digs under the bot there) and resting on a full block (`under`: the read below the floor).
+ * Inside the tank's own columns a falling floor is refused as before: a cut under it would drop the bot.
+ */
+export function fallingFloorOk (own, x, z, under) {
+  return !!own && !own.has(`${x},${z}`) && !!under && isFull(under)
+}
+const PLAN_COLS = new WeakMap()
+/** The plan's own columns -> Set "x,z" (every cell and every cut), built once a plan. Pure. */
+export function planColumns (plan) {
+  if (!plan || typeof plan !== 'object') return new Set()
+  let s = PLAN_COLS.get(plan)
+  if (!s) { s = new Set(); for (const c of [...(plan.cells ?? []), ...(plan.cut ?? [])]) if (Array.isArray(c?.at)) s.add(`${c.at[0]},${c.at[2]}`); PLAN_COLS.set(plan, s) }
+  return s
+}
+/**
  * THE STANDS FOR A CELL -> [[x, y, z] feet], best first. Pure over read. A stand is a column inside the tank's box + 2 whose top solid
- * (read now) carries open feet and head cells; the cell in reach of its eye; never the cell itself, its body or its floor. The bot's own
+ * (read now) carries open feet and head cells -- a falling block only outside the tank's own columns (fallingFloorOk); the cell in reach
+ * of its eye; never the cell itself, its body or its floor. The bot's own
  * feet first, then the nearest to the bot. `banned` stands a walk failed to reach.
  */
 export function standsFor (read, plan, c, { feet = null, banned = new Set(), max = 6 } = {}) {
   const out = []
   const [x0, z0, x1, z1] = plan.box
   const key = kOf(c)
+  const own = planColumns(plan)
   for (let x = Math.max(x0 - 2, c[0] - 4); x <= Math.min(x1 + 2, c[0] + 4); x++) {
     for (let z = Math.max(z0 - 2, c[2] - 4); z <= Math.min(z1 + 2, c[2] + 4); z++) {
       for (let y = Math.min(plan.top + 1, c[1] + 4); y >= Math.max(plan.minY, c[1] - 4); y--) {
         const fl = read(x, y - 1, z), f = read(x, y, z), h = read(x, y + 1, z)
         if (!fl || !f || !h) continue
-        if (!(isFull(fl) && !isFalling(fl) && isOpen(f) && isOpen(h))) continue
+        if (!(isFull(fl) && isOpen(f) && isOpen(h))) continue
+        if (isFalling(fl) && !fallingFloorOk(own, x, z, read(x, y - 2, z))) continue
         const s = [x, y, z]
         if ([kOf(s), k3(x, y + 1, z), k3(x, y - 1, z)].includes(key)) continue
         if (banned.has(kOf(s)) || !inReach(s, c, SW.standReach)) continue

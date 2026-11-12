@@ -44,6 +44,18 @@ export const OFFLINE_RETIRE_MS = 10_000
 // BEAT_STALE_MS means that connection's process is dead or stopped longer than the server's 30 s keepalive -- its socket is
 // closed by the server, so it can send nothing more even if it resumes
 export const PRESENCE_BEAT_MS = 10_000
+/**
+ * projfix-01 (LIVE showcase 11-12: the countryside laid 0 of 528 fills in 49 visits -- `outcome=fence:beat placed=0`): THE KEYS A
+ * CONNECTION'S HEARTBEAT COVERS -> [key]. Pure. Every listed project's key, AND THE KEY OF THE VISIT IN PROGRESS. The heartbeat
+ * beat only the listed projects; a visit that works under another key (the countryside's `country`, the water walk's) wrote its
+ * presence once at its start, and by its first fill that beat was older than OWN_BEAT_MAX_MS (15 s): fenceRefusal answered `beat`
+ * and every click was refused (its cuts, which pass no fence, landed -- so the visits looked alive). `busy`: a build visit runs now.
+ */
+export function beatKeys (projectKeys = [], visitKey = null, busy = false) {
+  const out = new Set((projectKeys ?? []).filter(k => typeof k === 'string' && k))
+  if (busy && typeof visitKey === 'string' && visitKey) out.add(visitKey)
+  return [...out]
+}
 // a sender's own beat must be younger than OWN_BEAT_MAX_MS at its fence (Codex r5 P1: a connection whose heartbeat is not
 // being published must not send); peers wait BEAT_STALE_MS >= OWN_BEAT_MAX_MS + the server's 30 s keepalive + margin, so a
 // sender suspended right after a passing fence is dropped by the server before any peer may retire it

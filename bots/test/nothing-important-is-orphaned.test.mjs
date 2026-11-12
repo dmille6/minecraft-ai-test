@@ -158,6 +158,7 @@ const REQUIRED = [
   'bots/src/cottage2.mjs',
   'bots/test/cottage2.test.mjs',
   'bots/test/cottagepost.test.mjs',
+  'bots/test/projfix.test.mjs',
   'bots/src/takeback.mjs', 'bots/test/takeback.test.mjs',
   // grounds-01 (11-12, owner "is there a better approach to grounds keeping"): cleanup as ordinary, funded project work -- the pure rules and their test
   'bots/src/grounds2.mjs', 'bots/test/grounds2.test.mjs',

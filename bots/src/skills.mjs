@@ -154,7 +154,7 @@ import { isCivicPlot, civicKindOf, civicNear, civicLookForStock, civicStockOk, C
 import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallWaiveMore, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
 import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
-import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
+import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodKitStillMs, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
 import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
@@ -219,7 +219,7 @@ import { gatherTargets, gatherStand, parkWant, GATHER_NAMES, parkItemsOf, pantry
 import { parkTopUp } from './terrace.mjs'   // gkhelpers-01: the park topped up
 import { helperWorked, helpersCap, tidyShare } from './groundskeeper.mjs'   // gkcrewcut-01; gkcrew4-01
 import { crewCaps, helperDecision, HELPER_LEASES, segColumns, crewSegOk, crewYield, helperRecord, storeFloorHoles, withFloorFix, floorView, releaseConfirmed } from './groundskeeper.mjs'   // gkhelpers-01: the grounds crew
-import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead } from './buildproj.mjs'
+import { liveLeases, recordChain, pantryWrite, pantryRead, climbRead, beatKeys } from './buildproj.mjs'
 import { planaheadOn, planReachAsync, reachTag, puWaiveDue, puSupply, standClaims, standRetire, standConflicts, plannedWorld, liveUnreached } from './planahead.mjs'   // planahead-01
 import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { landmarkOn, landmarkPlan, landmarkZones, landmarkRepair } from './landmark.mjs'   // roughground-3: the town's landmark mound
@@ -18356,7 +18356,8 @@ export function shopAckInstall (bot) {
   // PRESENCE_BEAT_MS while this connection lives (no fsync: a lost beat only delays a retirement) -- the other bots' proof that
   // this connection can still send
   // the presence is written in EVERY project's key (house-01): each project's intents are judged by its own key's presence
-  const mark = (sync = true) => { try { if (planOn()) for (const p of projectsOn()) presenceWrite(townDir(), projKeyOf(p.plot), me(), { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now(), sync }) } catch { /* the other evidence applies */ } }
+  // projfix-01 (buildproj.mjs beatKeys): and in the key of the visit in progress -- the countryside's and the water walk's are not listed
+  const mark = (sync = true) => { try { if (planOn()) for (const k of beatKeys(projectsOn().map(p => projKeyOf(p.plot)), bot.shopVisitKey ?? null, !!bot.shopVisitBusy)) presenceWrite(townDir(), k, me(), { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now(), sync }) } catch { /* the other evidence applies */ } }
   let beat = null
   // started at login -- or at once when installed after it (Claude r4 P3-1: a late install would otherwise never beat, and the
   // sender's own fence would then refuse every click)
@@ -25415,6 +25416,7 @@ async function woodKit (ctx, rec, signal) {
   if (!owed.fences && !owed.gates) return out
   const sp = woodSpeciesOf(rec) ?? 'oak'
   let need = woodKitNeed(owed, heldMap(bot))
+  let still = 0
   try {
     if (need.logs > 0) {
       const t = matsTownStock(bot)
@@ -25434,10 +25436,14 @@ async function woodKit (ctx, rec, signal) {
     }
     const logs = Object.entries(heldMap(bot)).filter(([n]) => /_log$/.test(n)).sort((a, b) => b[1] - a[1])
     const spNow = logs.find(([n]) => n === `${sp}_log`) ? sp : (logs[0]?.[0]?.replace(/_log$/, '') ?? sp)
+    // projfix-01 (woodworks.mjs woodKitStillMs): the crafting stands at the table on purpose -- declared, so the stuck watchdog does
+    // not abort the visit at 35 s with the fences half made (55 of 63 visits, LIVE 11-12); given back in the finally below
+    still = Date.now() + woodKitStillMs(need)
+    if (still > Date.now()) bot.stationaryUntil = Math.max(bot.stationaryUntil ?? 0, still)
     if (need.fences > 0) { const c0 = countItem(bot, `${spNow}_fence`); await craft(ctx, { item: `${spNow}_fence`, count: Math.ceil(need.fences / 3) * 3 }, signal); out.fences = countItem(bot, `${spNow}_fence`) - c0 }
     check(signal)
     if (need.gates > 0) { const c0 = countItem(bot, `${spNow}_fence_gate`); await craft(ctx, { item: `${spNow}_fence_gate`, count: need.gates }, signal); out.gates = countItem(bot, `${spNow}_fence_gate`) - c0 }
-  } catch (err) { if (err?.aborted || signal?.aborted) throw err; out.why = String(err?.message ?? err).slice(0, 60) }
+  } catch (err) { if (err?.aborted || signal?.aborted) throw err; out.why = String(err?.message ?? err).slice(0, 60) } finally { if (still && bot.stationaryUntil === still) bot.stationaryUntil = 0 }   // projfix-01: the window is given back
   // Codex r1 BLOCKER 1: the kit is whole or the visit does not run -- runVisit picks its next cell by height and distance, not by what
   // the bag holds, so a bag with gates but no fence (or the other way) would end every visit no_material with nothing placed
   const after = woodKitNeed(owed, heldMap(bot))

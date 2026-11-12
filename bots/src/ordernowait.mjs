@@ -33,11 +33,22 @@ export function noWaitSwitches (env = process.env, pool = '') {
  * no `after` is always met; one of NOWAIT_PLOTS whose `after` is NOWAIT_AFTER is met while `noWait` is on; every other `after` is met
  * only when complete (unchanged).
  */
-export function afterMet (p, afterComplete, { noWait = false } = {}) {
+export function afterMet (p, afterComplete, { noWait = false, chainSkip = false } = {}) {
   if (!p?.after) return true
   if (noWait && p.after === NOWAIT_AFTER && NOWAIT_PLOTS.includes(p.plot)) return true
+  // projfix-01: a landmark whose predecessor found NO SITE and waits (chainSkipOk) is tried now -- the order, not a gate
+  if (chainSkip) return true
   return !!afterComplete
 }
+/**
+ * projfix-01 (LIVE showcase 11-12: the first landmark, civicF, ended 25 of 25 visits `no_site` -- its plaza must lie within 22 of
+ * home and 0 of 4,900 anchors clear the plan's core -- and shop.mjs lists each landmark `after` the one before, so five more with 36
+ * to 1,636 reservation-free anchors each waited behind a building that can never be sited): MAY A LANDMARK GO AHEAD OF ITS
+ * PREDECESSOR? -> bool. Pure. Only one landmark after another (`chain`), and only while the predecessor is UNSITED AND WAITING on
+ * its own failed siting (the town-wide site wait: `afterState.exists` false, `afterState.waiting` true). A predecessor that is
+ * building, or one never tried, still comes first: one landmark at a time, as before.
+ */
+export const chainSkipOk = (chain, afterState) => !!chain && !!afterState && afterState.exists === false && afterState.waiting === true
 
 /** `_ordernowait_mode` detail. Pure. */
 export const noWaitModeDetail = (sw = {}) => `on=${sw.on ? 1 : 0} plots=${NOWAIT_PLOTS.join(',')} after=${NOWAIT_AFTER} order=unchanged`

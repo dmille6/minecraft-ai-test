@@ -27,7 +27,7 @@ import { cottageSwitches, COTTAGE_PLOT, COTTAGE_BUILDERS, COTTAGE_AFTER, cottage
 import { WOODS } from './townstyle.mjs'   // glass-01: the wood parts a visit crafts
 import { GLASS } from './glass.mjs'   // glass-01
 import { townhallSwitches, TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_BUILDERS, TOWNHALL_AFTER } from './townhall.mjs'   // townstyle-02
-import { noWaitSwitches, afterMet } from './ordernowait.mjs'   // ordernowait-01: the town hall and the cottage stop waiting for the workshop
+import { noWaitSwitches, afterMet, chainSkipOk } from './ordernowait.mjs'   // ordernowait-01: the town hall and the cottage stop waiting for the workshop
 import { reroofSwitches, REROOF_PLOT } from './reroof.mjs'   // townstyle-03
 import { citywallOn, CITYWALL_PLOT } from './citywall.mjs'   // citywall-01
 import { civicOn, CIVIC_PLOTS, CIVIC_ORDER, civicLooks, isCivicPlot } from './civic.mjs'   // civic-01
@@ -306,7 +306,8 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
     if (p.sink || p.upkeep) continue
     const s = st(p)
     if (s.exists && s.complete) continue
-    if (!afterMet(p, st(list.find(q => q.plot === p.after) ?? { plot: p.after }).complete, { noWait })) continue   // ordernowait-01
+    const sa = st(list.find(q => q.plot === p.after) ?? { plot: p.after })
+    if (!afterMet(p, sa.complete, { noWait, chainSkip: chainSkipOk(isCivicPlot(p.plot) && isCivicPlot(p.after), sa) })) continue   // ordernowait-01; projfix-01
     // townstyle-03: a PLANNER (the retrofit's: it places nothing itself) is offered only when its state says it is due (waiting: false)
     if (p.planner && s.waiting !== false) continue
     // copperhall-01: an unsited project WAITING on its opening rule (the hall's copper) is not offered; the next one is
