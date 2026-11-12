@@ -208,10 +208,11 @@ export function movedNear (recent, seq, since, at) {
  * block's state id and name; `was` null: the witness's first word on the cell). The walk reads a block's name, its box, its
  * shapes and its properties (buildsite.mjs walkFrom: fullCube, slabTopFloor, isPassable, isLiquid), so ANOTHER STATE UNDER THE SAME
  * NAME counts too -- a slab made double, stairs turned, a trapdoor opened, snow a layer deeper -- except for the names whose every
- * state stands the same (STATE_ONLY: a crop's age, a liquid's level, a leaf's distance, farmland's moisture, a furnace lit): those
- * tick all day in a town and would drop every kept walk for nothing. An unread name or id: a change.
+ * state stands the same (STATE_ONLY: a crop's age, a liquid's level, farmland's moisture, a furnace lit): those tick all day in a
+ * town and would drop every kept walk for nothing. NOT leaves (Codex r4): a re-roofed record's walk reads a leaf's `persistent`
+ * (reroof.mjs reroofNoLeafFloor: a natural leaf is no floor, a placed one is), so a leaf's state counts. An unread name or id: a change.
  */
-export const STATE_ONLY = /^(wheat|carrots|potatoes|beetroots|nether_wart|sweet_berry_bush|melon_stem|pumpkin_stem|sugar_cane|cactus|water|lava|farmland|fire|grass_block|podzol|mycelium|redstone_wire|furnace|blast_furnace|smoker)$|_leaves$|_sapling$/
+export const STATE_ONLY = /^(wheat|carrots|potatoes|beetroots|nether_wart|sweet_berry_bush|melon_stem|pumpkin_stem|sugar_cane|cactus|water|lava|farmland|fire|grass_block|podzol|mycelium|redstone_wire|furnace|blast_furnace|smoker)$|_sapling$/
 export function wordMoves (was, now) {
   if (!was || now?.name == null || was.name == null) return true
   if (was.name !== now.name) return true

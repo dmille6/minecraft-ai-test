@@ -429,13 +429,14 @@ await t('movedNear: a change after `since` inside the square moved it; outside i
   assert.strictEqual(BB.movedNear([blk(9, 300, 300)], 9, 5, at), true, 'changes 6..8 are no longer kept: unknown is moved')
   assert.strictEqual(BB.movedNear([], 4, 2, at), true, 'told of something, nothing kept')
 })
-await t('wordMoves: another name, or another state of a name whose states stand differently, is a change; a crop\'s age, a liquid\'s level, a leaf\'s distance are not; a first or unread word is', () => {
+await t('wordMoves: another name, or another state of a name whose states stand differently, is a change; a crop\'s age, a liquid\'s level are not; a leaf\'s state is; a first or unread word is', () => {
   const W = (wasName, wasId, name, id) => BB.wordMoves(wasName == null ? null : { id: wasId, name: wasName }, { id, name })
   assert.strictEqual(W(null, null, 'dirt', 10), true, 'a first word')
   assert.strictEqual(W('air', 0, 'dirt', 10), true)
   assert.strictEqual(W('dirt', 10, 'dirt', 10), false, 'the same state')
-  for (const n of ['oak_slab', 'cobblestone_stairs', 'oak_trapdoor', 'oak_door', 'snow', 'oak_fence_gate', 'composter', 'bamboo']) assert.strictEqual(W(n, 20, n, 21), true, n)
-  for (const n of ['wheat', 'carrots', 'water', 'lava', 'farmland', 'oak_leaves', 'cherry_leaves', 'birch_sapling', 'sugar_cane', 'furnace', 'grass_block']) assert.strictEqual(W(n, 20, n, 21), false, n)
+  // leaves count (review r4, Codex): a re-roofed record's walk reads a leaf's `persistent` (reroof.mjs reroofNoLeafFloor)
+  for (const n of ['oak_slab', 'cobblestone_stairs', 'oak_trapdoor', 'oak_door', 'snow', 'oak_fence_gate', 'composter', 'bamboo', 'oak_leaves', 'cherry_leaves']) assert.strictEqual(W(n, 20, n, 21), true, n)
+  for (const n of ['wheat', 'carrots', 'water', 'lava', 'farmland', 'birch_sapling', 'sugar_cane', 'furnace', 'grass_block']) assert.strictEqual(W(n, 20, n, 21), false, n)
   assert.strictEqual(W('wheat', 20, 'air', 0), true, 'harvested')
   assert.strictEqual(BB.wordMoves({ id: 1, name: 'dirt' }, { id: 99, name: null }), true, 'a state the registry cannot name')
   assert.strictEqual(BB.wordMoves({ id: 1, name: null }, { id: 1, name: 'dirt' }), true)
