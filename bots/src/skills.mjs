@@ -8600,7 +8600,12 @@ async function mergeRescue (bot, win, from) {
     if (!ev.answered || ev.decodeFailed) return 'unread'
     if (ev.cursorEmpty) return 'empty'
     if (bot.currentWindow !== win || win.slots[from]) return 'loaded'
-    await lockstepClicks(bot, async raw => { const p = trackedClick(bot, raw, from, 0, 0); p.catch(() => {}); await within(p, 1500) }, { deadline: Date.now() + 2000 })
+    await lockstepClicks(bot, async raw => {
+      // re-checked INSIDE the lockstep (Codex r2): its own repair runs before this callback, and the server may have closed
+      // the window meanwhile -- a chest-layout slot is never clicked into another window (settleCursor's rule E)
+      if (bot.currentWindow !== win || !win.selectedItem || win.slots[from]) throw stop('the window or the slot changed before the put-back')
+      const p = trackedClick(bot, raw, from, 0, 0); p.catch(() => {}); await within(p, 1500)
+    }, { deadline: Date.now() + 2000 })
     if (!(await waitClicks(bot, 1500))) return 'in_flight'
     ev = await confirmCursor(bot, win, { deadline: Date.now() + 1500 })
     return ev.answered && !ev.decodeFailed && ev.cursorEmpty ? 'returned' : 'loaded'
@@ -8686,7 +8691,10 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
     const t0 = Date.now()
     merge = { need: plan.steps.length - free0, free: free0, ...(await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate, mergeHold)) }
     merge.ms = Date.now() - t0
-    if (merge.err || win.selectedItem) return { done: [], full: false, noRoom: false, err: merge.err ?? 'the cursor is loaded after a merge', capRefused: { at_cap: 0, unknown: 0, outside: 0 }, stock: { claims: 0, refused: 0, valve: 0 }, reserved, merge }
+    // ... and the container is classed as the base classes it (Codex r2): the plan did not fit (`full`), and with no empty
+    // slot left in the window as the server last showed it, `noRoom` -- so it is remembered full, the run looks past it, and
+    // a run that finds every chest so goes on into the deposit verb (fullplace-01). A merge that keeps failing is not a loop.
+    if (merge.err || win.selectedItem) return { done: [], full: true, noRoom: !win.slots.slice(0, win.inventoryStart).some(x => !x), err: merge.err ?? 'the cursor is loaded after a merge', capRefused: { at_cap: 0, unknown: 0, outside: 0 }, stock: { claims: 0, refused: 0, valve: 0 }, reserved, merge }
   }
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
