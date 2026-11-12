@@ -197,6 +197,51 @@ await t('interior_unreachable: the doorway walled up LAST (in the fit-out, from 
   assert.strictEqual(B.proveSite(flat, HOME, sealed, site).why, 'interior_unreachable')
   assert.strictEqual(B.proveSite(flat, HOME, BP, site).why, 'ok')
 })
+// SITEPROOF-01 (LIVE showcase 11-12: bots dropped `Timed out` by the server; a stack from one at 100% CPU: walkFrom <- walkNow <-
+// proveSite <- siteBlueprintSteps): one proof walked the town once a segment and once more, straight through -- the cooperative
+// search could take its turn only BETWEEN proofs. The proof is now a generator that yields after every walk.
+const proofTrace = (M, site) => {
+  const ev = []
+  const stood = []; stood[Symbol.iterator] = function * () { ev.push('W') }   // walkFrom reads its seeds once a walk
+  const g = M.proveSiteSteps(flat, HOME, BP, site, { stood })
+  let r
+  for (;;) { r = g.next(); if (r.done) break; ev.push('Y') }
+  return { seq: ev.join(''), value: r.value }
+}
+await t('SITEPROOF-01: proveSiteSteps IS proveSite, value for value, and the loop gets a turn after every walk of the town (never two walks in a row); MUTANT (no yield after a segment\'s walk): two walks in a row', async () => {
+  const site = screen(flat)
+  const scenario = M => {
+    const tr = proofTrace(M, site)
+    assert.strictEqual(tr.value.why, 'ok')
+    assert.deepStrictEqual(tr.value, M.proveSite(flat, HOME, BP, site), 'the same proof')
+    assert.ok(tr.seq.split('W').length - 1 >= BP.segments.length + 1, `control: a walk a segment at least, and the finished building's (${tr.seq})`)
+    assert.ok(!tr.seq.includes('WW'), `NO-TWO-WALKS: ${tr.seq}`)
+    assert.ok(tr.seq.endsWith('W'), 'the last walk is the finished building\'s: the proof returns after it')
+  }
+  scenario(B)
+  // a refused proof is the same refusal
+  const sealed = { ...BP, segments: [...BP.segments, { seg: 'seal', layer: 5, deps: ['fit-out'] }], cells: [...BP.cells, { u: 4, v: 1, y: 1, role: 'wall', seg: 'seal' }, { u: 4, v: 1, y: 2, role: 'wall', seg: 'seal' }] }
+  const g = B.proveSiteSteps(flat, HOME, sealed, site); let r; for (;;) { r = g.next(); if (r.done) break }
+  assert.deepStrictEqual(r.value, B.proveSite(flat, HOME, sealed, site)); assert.strictEqual(r.value.why, 'interior_unreachable')
+  const OLD = 'let nodes = walkNow(), fresh = true, walks = 1\n    yield null\n'
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  let why = null
+  await withMutant(BS_PATH, OLD, 'let nodes = walkNow(), fresh = true, walks = 1\n', async M => { try { scenario(M) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /NO-TWO-WALKS/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
+})
+await t('SITEPROOF-01: the SEARCH hands its turn back inside every proof (siteBlueprintSteps runs the proof\'s own steps), and finds the same site; MUTANT (the proof run straight through): a segment\'s worth fewer turns a proof', async () => {
+  const count = M => { const g = M.siteBlueprintSteps(flat, plan(), BP, { tries: 2 }); let n = 0, r; for (;;) { r = g.next(); if (r.done) break; n++ } return { n, r: r.value } }
+  const real = count(B)
+  assert.ok(real.r.ok, real.r.why)
+  assert.deepStrictEqual(real.r.record, B.siteBlueprint(flat, plan(), BP, { tries: 2 }).record, 'the synchronous search is the same search')
+  const OLD = 'let p = yield * proveSiteSteps(read, home, bp, site, proveOpts)'
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  await withMutant(BS_PATH, OLD, 'let p = proveSite(read, home, bp, site, proveOpts)', async M => {
+    const m = count(M)
+    assert.deepStrictEqual(m.r.record, real.r.record, 'the same site either way')
+    assert.ok(real.n >= m.n + BP.segments.length, `the search's turns: ${real.n} with the proof's steps, ${m.n} with the proof straight through`)
+  })
+})
 await t('cell_not_free: a site whose clear list misses a block in the volume is refused by the proof', () => {
   const [x, , z] = cellOf(2, 2, 0)
   const read = world({ [`${x},${G + 1},${z}`]: 'dirt' })

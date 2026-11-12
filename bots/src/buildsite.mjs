@@ -596,7 +596,20 @@ const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; cons
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
  * the bottom up), then the blueprint's segments in order. `stood` = the walk's seeds, cells a bot stood on (D3).
  */
-export function proveSite (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null, avoid = null, planned = null } = {}) {
+export function proveSite (read, home, bp, site, opts = {}) {
+  const g = proveSiteSteps(read, home, bp, site, opts)
+  for (;;) { const r = g.next(); if (r.done) return r.value }
+}
+/**
+ * SITEPROOF-01 (LIVE showcase 11-12: 39 `lost connection: Timed out` in 80 minutes, each a bot offline about 5 minutes; a stack
+ * taken from a bot at 100% CPU: walkFrom <- walkNow <- proveSite <- siteBlueprintSteps <- siteBlueprintAsync). THE PROOF AS A
+ * GENERATOR: proveSite's own steps, yielding after EVERY walk of the town. One walk is 1.0 to 6.0 s on that host (walkR 48 to
+ * 136, bots/scripts/standbench.mjs, measured there), a proof walks once a segment at least and once more at its end, and the
+ * search's cooperative runner (siteBlueprintAsync) could only take its turn BETWEEN proofs -- so one proof of a ten-segment
+ * blueprint held the event loop past the server's 30-s keep-alive whenever the host was busy. Yielding between walks bounds the
+ * hold to ONE walk. The result is proveSite's, value for value: nothing is read or decided differently.
+ */
+export function * proveSiteSteps (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null, avoid = null, planned = null } = {}) {
   // planahead-01 (`planned` = { block: Set, noFloor: Set }, planahead.mjs plannedWorld): the other open records' work still to place is an
   // obstacle and never a floor, their open clears never a floor -- the proof is made in the PLANNED town, never only the town as it is
   const pBlock = planned?.block instanceof Set ? planned.block : null, pNoFloor = planned?.noFloor instanceof Set && planned.noFloor.size ? planned.noFloor : null
@@ -624,6 +637,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
     const headOf = c => (c.role === 'bed' && c.bed ? mine.find(h => h.byFoot && h.bed === c.bed) ?? null : null)
     const walkNow = () => byColumn(walkFrom(R, home, new Set([...(pBlock ?? []), ...left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))]), walkR, { stood, floors, avoid, ...(pNoFloor ? { noFloor: pNoFloor } : {}) }))
     let nodes = walkNow(), fresh = true, walks = 1
+    yield null
     while (left.length) {
       let pick = -1, step = null
       for (let i = 0; i < left.length; i++) {
@@ -631,7 +645,7 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
         step = stepFor(R, home, left[i].at, nodes, domain, left[i].ws || left[i].blind || hd ? { name: blockFor(bp, left[i].role), ws: left[i].ws ?? null, blind: !!left[i].blind, ...(hd ? { also: [hd.at] } : {}) } : null)
         if (step) { pick = i; break }
       }
-      if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; continue }
+      if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; yield null; continue }
       if (pick < 0) return { ok: false, why: 'no_step', detail: `${sg.seg} ${left.length} left, first ${left[0].role}@${left[0].at.join(',')}`, segments: segOut }
       fresh = false
       const c = left.splice(pick, 1)[0]
@@ -885,7 +899,7 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
         if (xc?.fail) { proofFails[xc.fail] = (proofFails[xc.fail] ?? 0) + 1; continue }
         if (xc?.clear?.length) site = { ...site, clear: [...site.clear, ...xc.clear] }
       }
-      let p = proveSite(read, home, bp, site, proveOpts)
+      let p = yield * proveSiteSteps(read, home, bp, site, proveOpts)
       // levelfall-01 (LIVE showcase 11-05, the workshop on X1: its one anchor's proof failed `no_step earth` -- a cave pocket y 65..68
       // under the plot's grass at 69, the fill at 65 out of every stand's reach): a caller naming `ctx.levelAlts` has the SAME anchor
       // and orientation screened and proven at its next feasible floor levels (a level whose floor is the pocket's lid fills none)
@@ -893,7 +907,7 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
         for (const L2 of (levelAltsOf(site) ?? []).slice(0, Number(ctx.levelAlts))) {
           const s2 = screenSite(read, home, bp, site.anchor, site.orient, res, { sector: byCentre ? null : sector, ...(domain ? { domain } : {}), ...(ctx.earth ? { earth: ctx.earth } : {}), level: L2 })
           if (!s2.ok) continue
-          const p2 = proveSite(read, home, bp, s2, proveOpts)
+          const p2 = yield * proveSiteSteps(read, home, bp, s2, proveOpts)
           if (p2.ok) { site = s2; p = p2; row.levelFallback = `${site.anchor.x},${site.anchor.z}/${site.orient} L${L2}`; break }
         }
       }
