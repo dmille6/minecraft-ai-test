@@ -663,8 +663,11 @@ another model would be counted as the arm's own answer.
 
 **Tests (ci2, 11-12):** voyager suite 72 of 72 (base 50 of 50). 22 new tests: pure functions, a whole loop iteration on each
 harness against a fake body and a scripted model with the real isolate, and the real proxy process against local fake model
-servers. 50 mutants with anchor checks: 49 killed; the survivor (the purpose's reply cap read from the arm) is equivalent on
+servers. 54 mutants with anchor checks: 53 killed; the survivor (the purpose's reply cap read from the arm) is equivalent on
 the wire because the model call clamps again. Replay of both real libraries and 4,546 real tasks: the table above.
+Independent review (Codex, read-only, one round, blockers only, on 4a3f3e6d): NO BLOCKERS. `setup.sh` creates a harness 2
+arm's proxy entry with a 12,000-token reply cap and its own $20 cap: left at 4,096, the proxy would clamp harness 2 back to
+harness 1's cut-offs without a word.
 
 **One result against the change.** The tasks the plain-sentence check would refuse were verified MORE often than the rest
 (658 of 1,159, 57 %, against 1,269 of 3,470, 37 %): the garbled texts are mostly easy crafts at the table. The check is kept

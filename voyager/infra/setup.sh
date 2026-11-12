@@ -92,15 +92,21 @@ import json, sys, grp
 p = "/etc/voyager/proxy.json"; d = json.load(open(p))
 for line in open(sys.argv[1]):
     if not line.strip() or line.startswith("#"): continue
-    arm, kind, model, seed = line.split()[:4]
+    parts = line.split()
+    arm, kind, model, seed = parts[:4]
+    h2 = len(parts) > 4 and parts[4] == "2"
     if arm in d["arms"]: continue
     gid = grp.getgrnam(f"voyager-{arm}").gr_gid
-    if model.startswith("claude-"):
+    if model.startswith("claude-") and h2:
+        # harness 2 asks for 10,000-token code replies: an arm left at 4,096 would be clamped back to harness 1's cut-offs
+        # without a word. Its own cap, not 3b's spend group. Prices are Haiku's: an operator sets any other model's by hand.
+        e = {"backend": "anthropic", "model": model, "inUsdPerMTok": 0.10, "outUsdPerMTok": 0.50, "capUsd": 20, "effort": "low", "inflight": 1, "perHour": 400, "maxTokens": 12000}
+    elif model.startswith("claude-"):
         e = {"backend": "anthropic", "model": model, "inUsdPerMTok": 0.10, "outUsdPerMTok": 0.50, "capUsd": 70, "spendGroup": "haiku-3b", "effort": "low", "inflight": 1, "perHour": 400, "maxTokens": 4096}
     elif kind == "control":
         e = {"backend": "ollama-raw", "url": "http://ai.ticrcorp.com:11436", "model": model, "keepAlive": "15m", "inflight": 1, "perHour": 300, "guarded": True}
     else:
-        e = {"backend": "ollama", "url": "http://ai.ticrcorp.com:11438", "model": model, "numCtx": 12288, "keepAlive": -1, "think": False, "inflight": 1, "perHour": 400, "maxTokens": 4096, "dutyFactor": 0}
+        e = {"backend": "ollama", "url": "http://ai.ticrcorp.com:11438", "model": model, "numCtx": 12288, "keepAlive": -1, "think": False, "inflight": 1, "perHour": 400, "maxTokens": 12000 if h2 else 4096, "dutyFactor": 0}
     e.update({"gid": gid, "paused": True})
     d["arms"][arm] = e
 json.dump(d, open(p + ".new", "w"), indent=1)

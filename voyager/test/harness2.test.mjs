@@ -73,6 +73,16 @@ test('the switch is wired: the entry reads VOYAGER_HARNESS, setup renders it fro
   const setup = fs.readFileSync(path.join(here, '../infra/setup.sh'), 'utf8').split('\n').filter(l => !/^\s*#/.test(l)).join('\n')
   assert.match(setup, /H="\$\(field \$a 5\)"; \[ "\$H" = 2 \] \|\| H=1/)
   assert.match(setup, /-e "s\/__HARNESS__\/\$H\/"/)
+  // a harness 2 arm's proxy entry is created with a reply cap above the 10,000 tokens the loop asks for (else the proxy
+  // clamps it back to 4,096 and the cut-offs return without a word), and outside 3b's spend group
+  const h2Entry = /if model\.startswith\("claude-"\) and h2:\n(?:\s*#.*\n)*\s*e = (\{.*\})/.exec(setup)
+  assert.ok(h2Entry, 'the harness 2 proxy entry is missing from setup.sh')
+  const entry2 = JSON.parse(h2Entry[1].replace('"model": model', '"model": "m"'))     // the one Python name in the literal
+  assert.ok(entry2.maxTokens >= promptSet(2).codeMaxTokens && entry2.maxTokens >= promptSet(2).curriculumMaxTokens)
+  assert.equal('spendGroup' in entry2, false)
+  assert.ok(entry2.capUsd > 0 && entry2.capUsd <= 20)
+  assert.match(setup, /"maxTokens": 12000 if h2 else 4096/)
+  assert.match(setup, /h2 = len\(parts\) > 4 and parts\[4\] == "2"/)
   // every arm registered today is harness 1: no 5th column on any of them
   const arms = fs.readFileSync(path.join(here, '../infra/arms.conf'), 'utf8').split('\n').filter(l => l.trim() && !l.startsWith('#'))
   assert.ok(arms.length >= 10)
