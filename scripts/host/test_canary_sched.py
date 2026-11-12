@@ -1682,6 +1682,44 @@ def t_v42_skip_kinds_pure(CS, F):
     assert CS.skip_kind('H2', 'x-01: autorebase REFUSED at step repo', st, dict(e, bundle={'members': []})) is None
 
 
+def t_v43_skip_kinds_pure(CS, F):
+    """v43 (OWNER 11-12): the two blocks only a human can clear, which touched nothing, are skippable kinds."""
+    e = {'run': 'x-01'}
+    st = {'pid_alive': {}, 'ar_job': {}, 'queue': {'entries': []}, 'journal': [], 'state_rows': [], 'humans': [], 'now': NOW}
+    k = lambda c, r: CS.skip_kind(c, 'x-01: ' + r, st, e)
+    nop = 'no variant for the fleet base abc (have: d): %s: build the variant by hand, or `queue set-patch x-01 <src_base>`' % CS.NO_PATCH_SOURCE
+    assert k('H2', nop) == 'no-patch'
+    assert CS.skip_kind('H2', 'x-01: ' + nop, st, dict(e, bundle={'members': []})) is None, 'a bundle is never skipped'
+    stale = '/home/x/mcai-analysis/registrations/x-01.json %s: reconcile it by hand (or `queue replace-variant`)' % CS.STALE_STAGED
+    assert k('H3', stale) == 'stale-registration'
+    assert k('H3', 'registration x changed since it was queued (sha256)') is None, 'another H3 is still a block'
+    assert k('H3', '/x/x-01.json unreadable: boom') is None
+    assert k('H4', stale) is None and k('H1', nop) is None, 'the text under another code is not a kind'
+    # the scheduler writes the very texts it recognises (one name each): ar_view's and variant_checks's blockers
+    assert CS.ar_view({'run': 'x-01', 'variants': {}}, {'base_full': 'a' * 40})[0].startswith(CS.NO_PATCH_SOURCE)
+
+
+def t_v43_stale_staged_registration_is_skipped(CS, F):
+    """stuckfleet-03, 11-10 23:20Z to 11-11 17:45Z: a staged copy of an older variant's registration blocked the head for
+    18 h 25 min while the slot sat idle. The run never deployed: the entry is skipped (and flagged), the queue goes on."""
+    _two(CS, F)
+    open(os.path.join(F.home, 'mcai-analysis', 'registrations', 'foo-01.json'), 'w').write('{"sha":"other"}')
+    d, st = decision(CS, F)
+    assert d[0] == 'launch' and d[1]['run'] == 'bar-01', (d[0], d[1] if d[0] != 'launch' else d[1]['run'])
+    assert [r for r, _ in st['skipped']] == ['foo-01'] and 'stale-registration' in st['skipped'][0][1], st['skipped']
+    assert CS.head_entry(st)['run'] == 'foo-01', 'the physical head is unchanged: it still needs its remedy'
+    # positive control: alone in the queue it is the same BLOCK as before (t_h3_staged_copy_differs), never a launch
+    json.dump({'version': 1, 'entries': [json.load(open(F.queue))['entries'][0]]}, open(F.queue, 'w'))
+    expect(CS, F, 'block', 'H3', 'other content')
+
+
+def t_v43_stale_staged_skip_obeys_skip_off(CS, F):
+    _two(CS, F)
+    open(os.path.join(F.home, 'mcai-analysis', 'registrations', 'foo-01.json'), 'w').write('{"sha":"other"}')
+    open(os.path.join(F.home, 'digest', 'SKIP-OFF'), 'w').close()
+    expect(CS, F, 'block', 'H3', 'other content')
+
+
 def t_v42_skipped_lab_head_r10_is_not_rerun_and_the_launch_uses_fresh_facts(CS, F):
     """Claude review r2: a lab head skipped on R10, then the target launches. Every entry's R10 answer is carried to the
     re-gather, so drawexposure runs once per entry (not again during the re-gather, which would make the launch use
@@ -1913,6 +1951,10 @@ def run_suite(path, quiet=False):
 
 # Each mutant removes or inverts ONE decision. The anchor must be present exactly once.
 MUTANTS = [
+    # v43: the stale staged registration is not a skippable kind (the 18-h block of 11-10/11)
+    ("    if code == 'H3' and STALE_STAGED in r and journal_status(run, st) not in ('open', 'live', 'closed'):\n", "    if False:\n"),
+    # v43: the no-patch-source block is not a skippable kind
+    ("        if NO_PATCH_SOURCE in r:\n", "        if False:\n"),
     ("    if cp.returncode == 1 and i is not None:\n", "    if False:\n"),
     ("    if cp.returncode == 1 and i is not None:\n", "    if cp.returncode == 1:\n"),
     ("        ep = effect_problem(P, reg, r)\n", "        ep = ''\n"),

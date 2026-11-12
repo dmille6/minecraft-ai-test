@@ -446,17 +446,30 @@ def waited_on(run, st):
             if run in (x.get('after') or []) and entry_state(x, st) not in ('done', 'cancelled')]
 
 
+# v43: the two block texts skip_kind recognises, written by ar_view (H2) and variant_checks (H3) from these same names
+NO_PATCH_SOURCE = 'no patch source, so no autorebase'
+STALE_STAGED = 'exists with other content'
+
+
 def skip_kind(code, reason, st, e):
-    """PURE. One blocker -> its skippable kind, or None. Only these four (OWNER 11-06; Codex: typed subtypes, never a
-    whole code): H1 HELD (not a not_before, not a dependency), H3 a blocked attempt that never deployed, H2 an autorebase
-    that REFUSED or whose job died (pid gone), R10 an exposure wait/refusal."""
+    """PURE. One blocker -> its skippable kind, or None. Typed subtypes, never a whole code (Codex, 11-06). OWNER 11-06,
+    four: H1 HELD (not a not_before, not a dependency), H3 a blocked attempt that never deployed, H2 an autorebase that
+    REFUSED or whose job died (pid gone), R10 an exposure wait/refusal. v43 (OWNER 11-12 "get things where we dont keep
+    getting stalled"), two more, each a block only a human can clear that touched nothing: H2 NO PATCH SOURCE (a hand-built
+    entry nobody ran `queue set-patch` on: chestcarry-01 held the slot idle 3 h 15 min on 11-11) and H3 a STALE STAGED
+    REGISTRATION of a run that never deployed (stuckfleet-03: 18 h 25 min on 11-10/11). The entry is skipped and flagged
+    as every skip is; it still cannot launch until its remedy is run."""
     run = e.get('run')
     r = reason.split(': ', 1)[1] if reason.startswith('%s: ' % run) else reason
     if code == 'H1' and r.startswith('held: '):
         return 'held'
     if code == 'H3' and r.startswith('blocked since its last attempt') and journal_status(run, st) not in ('open', 'live'):
         return 'blocked-attempt'
+    if code == 'H3' and STALE_STAGED in r and journal_status(run, st) not in ('open', 'live', 'closed'):
+        return 'stale-registration'
     if code == 'H2' and e.get('bundle') is None:
+        if NO_PATCH_SOURCE in r:
+            return 'no-patch'
         if 'autorebase REFUSED at step' in r:
             return 'autorebase-refused'
         job = st.get('ar_job') or {}
@@ -699,7 +712,7 @@ def ar_view(e, st):
         pt = e.get('patch')
         rng = None
     if not pt:
-        return ('no patch source, so no autorebase: build the variant by hand, or `queue set-patch %s <src_base>`'
+        return (NO_PATCH_SOURCE + ': build the variant by hand, or `queue set-patch %s <src_base>`'
                 % e.get('run'), False, False)
     bad = patch_problem(pt) if rng is None else ''
     if bad:
@@ -797,6 +810,63 @@ def norm_diff(text):
             continue
         out.append(l)
     return '\n'.join(out)
+
+
+# v43 (OWNER 11-12 "get things where we dont keep getting stalled"). EVERY change appends one line to the REQUIRED list of
+# bots/test/nothing-important-is-orphaned.test.mjs, so a promotion moves the CONTEXT of the next change's own line there.
+# The pick applies (.gitattributes merge=union) and every added and removed line is the reviewed one, but the normalized
+# diff differs in context, and the build refused. Measured 11-12 on the fleet tip 29c8bc57: toolrank-01 (2 context lines),
+# ironchain-01 (6) and ironchain-02 (6) each differed from their reviewed diff in context lines of that file ONLY and in
+# no added or removed line; each had stopped at "the rebased diff is NOT the reviewed diff" and waited for a human.
+# In these files -- lists of paths with no order and no logic -- context is not part of the change. Everywhere else it
+# still is (a neighbouring code line can change what the change does): the comparison there is byte-exact, as before.
+CONTEXT_FREE_PATHS = ('bots/test/nothing-important-is-orphaned.test.mjs',)
+_DIFF_HEAD = re.compile(r'^diff --git a/(.+) b/\1$')
+
+
+def diff_sections(norm):
+    """PURE. A normalized diff (norm_diff) -> [(path, [lines])] in order, split at each `diff --git a/<p> b/<p>` line.
+    A header that does not parse (a rename cannot occur under --no-renames) keeps its whole text as the path, which no
+    list names; anything before the first header is path ''."""
+    out = [('', [])]
+    for l in norm.split('\n'):
+        if l.startswith('diff --git '):
+            m = _DIFF_HEAD.match(l)
+            out.append((m.group(1) if m else l, []))
+        out[-1][1].append(l)
+    return [x for x in out if x[0] or any(x[1])]
+
+
+def diff_equiv(a, b, free=CONTEXT_FREE_PATHS):
+    """PURE. Is normalized diff `b` the same change as the reviewed normalized diff `a`? -> '' byte-identical |
+    'context-only in <paths>' (the same files in the same order; outside `free` every line identical; inside `free` every
+    added and removed line identical and in order, every other non-context line identical -- only context lines and hunk
+    boundaries differ) | None (a different change)."""
+    if a == b:
+        return ''
+    sa, sb = diff_sections(a), diff_sections(b)
+    if [p for p, _ in sa] != [p for p, _ in sb]:
+        return None
+    changed = lambda ls: [l for l in ls if l[:1] in ('+', '-')]
+    other = lambda ls: [l for l in ls if l and l[:1] not in ('+', '-', ' ') and l != '@@']
+    loose = []
+    for (path, la), (_, lb) in zip(sa, sb):
+        if la == lb:
+            continue
+        if path not in free:
+            return None
+        if changed(la) != changed(lb) or other(la) != other(lb):
+            return None
+        loose.append(path)
+    return 'context-only in %s' % ', '.join(loose) if loose else None
+
+
+def diff_norm(gdir, a, b):
+    """norm_diff(git diff a b) -- the text diff_hash hashes -- or raises."""
+    rc, out, err = gitx(gdir, *DIFF_ARGS, a, b)
+    if rc != 0:
+        raise RuntimeError('git diff %s %s failed: %s' % (a[:8], b[:8], err.strip()[-200:]))
+    return norm_diff(out)
 
 
 def movement_fails(out):
@@ -1499,7 +1569,7 @@ def variant_checks(P, e, v, base, st):
     if os.path.exists(dst):
         try:
             if sha256(dst) != v.get('registration_sha256'):
-                out.append(('H3', '%s exists with other content: reconcile it by hand (or `queue replace-variant`)' % dst))
+                out.append(('H3', '%s %s: reconcile it by hand (or `queue replace-variant`)' % (dst, STALE_STAGED)))
         except Exception as x:
             out.append(('H3', '%s unreadable: %s' % (dst, x)))
     if deployment(run_rows(st.get('journal') or [], run))[0] is not None:
@@ -3074,11 +3144,17 @@ def _ar_steps(P, job, run, base, tip):
     S('cherry-pick', '%d commit(s) onto %s -> %s, no conflicts' % (len(commits), base[:8], nt[:8]))
     # 6. (b) the diff is the reviewed diff
     h1, files1 = diff_hash(R, base, nt)
-    if h1 != h0:
+    same = '' if h1 == h0 else diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt))
+    if same is None:
         raise ArRefuse('the rebased diff is NOT the reviewed diff (normalized sha256 %s vs %s; files %s): the base changed '
                        'lines in or beside the change, so it needs a human rebase and a review'
                        % (h1[:12], h0[:12], ', '.join(files1)[:200]))
-    S('diff-identical', 'normalized diff sha256 %s == the reviewed one' % h1[:16])
+    if same:
+        # v43: the same added and removed lines; only the context of a path list moved (CONTEXT_FREE_PATHS)
+        S('diff-identical', 'the reviewed change: every added and removed line is the reviewed one; %s (a path list, v43); '
+                            'normalized diff sha256 %s, reviewed %s' % (same, h1[:16], h0[:16]))
+    else:
+        S('diff-identical', 'normalized diff sha256 %s == the reviewed one' % h1[:16])
     # 7. (d) protected.py's tier is unchanged
     PR = dict(P, git=R)
     t0 = tier_label(*protected_run(PR, pt['base'], tip))

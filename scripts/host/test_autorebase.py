@@ -98,6 +98,10 @@ PLANS = {
 }
 
 
+LIST_REL = 'bots/test/nothing-important-is-orphaned.test.mjs'     # canary-sched CONTEXT_FREE_PATHS (v43)
+LIST_LINES = ['const REQUIRED = ['] + ["  'bots/test/r%d.test.mjs'," % i for i in range(1, 11)] + [']']
+
+
 class ArFix(TC.Fix):
     def __init__(self, scenario):
         super().__init__()
@@ -114,7 +118,9 @@ class ArFix(TC.Fix):
                           ('bots/test/a.test.mjs', "import '../src/a.mjs'  // imports the changed file\n"),
                           ('bots/test/b.test.mjs', '// fixture\n'),
                           ('bots/test/c.test.mjs', "import { b } from '../src/b.mjs'  // imports nothing the change edits\n"),
-                          ('config/protected-paths.txt', 'bots/src/zzz-not-in-the-change.mjs\n')):
+                          ('config/protected-paths.txt', 'bots/src/zzz-not-in-the-change.mjs\n'),
+                          (LIST_REL, '\n'.join(LIST_LINES) + '\n'),
+                          ('.gitattributes', LIST_REL + ' merge=union\n')):      # as the real repo (phase 1 item 3, 11-06)
             os.makedirs(os.path.join(g, os.path.dirname(rel)), exist_ok=True)
             open(os.path.join(g, rel), 'w').write(body)
         os.makedirs(os.path.join(g, 'scripts', 'lib'), exist_ok=True)
@@ -123,6 +129,8 @@ class ArFix(TC.Fix):
         self.sb = sh('git', 'rev-parse', 'HEAD', cwd=g)
         # ST: the reviewed change -- line 5 of a.mjs
         self.edit_a({4: 'export const a5 = 55 // CHANGED'})
+        if scenario == 'listcontext':       # v43: the change also adds ITS line to the required-paths list
+            self.edit_list(lambda ls: ls[:4] + ["  'bots/test/foo.test.mjs',   // foo-01"] + ls[4:])
         gc(g, 'commit', '-q', '-am', 'ST: the change')
         self.st = sh('git', 'rev-parse', 'HEAD', cwd=g)
         # LB: the live fleet base, on SB
@@ -131,6 +139,8 @@ class ArFix(TC.Fix):
             self.edit_a({4: 'export const a5 = 5000'})
         elif scenario == 'diffchange':
             self.edit_a({6: 'export const a7 = 7000'})        # line 7: inside the change's 3-line context, not adjacent
+        elif scenario == 'listcontext':   # v43: a promotion rewrote a list line 3 above ours (as sandrung-01's lines went, 11-12):
+            self.edit_list(lambda ls: ls[:1] + ["  'bots/test/other.test.mjs',   // other-01 took r1's place"] + ls[2:])   # OUR hunk's context moves, no +/- line does
         elif scenario == 'tier':
             open(os.path.join(g, 'config', 'protected-paths.txt'), 'w').write('bots/src/zzz-not-in-the-change.mjs\nbots/src/a.mjs\n')
         else:
@@ -150,6 +160,11 @@ class ArFix(TC.Fix):
         self.entry = {'run': 'foo-01', 'class': '', 'after': [], 'not_before': None, 'hold': None,
                       'variants': {self.sb: {'registration': self.reg,
                                              'approved': 'test fixture: Claude APPROVE + Codex APPROVE'}}}
+
+    def edit_list(self, fn):
+        p = os.path.join(self.git, LIST_REL)
+        cur = open(p).read().splitlines()          # read BEFORE the truncating open
+        open(p, 'w').write('\n'.join(fn(cur)) + '\n')
 
     def edit_a(self, repl):
         p = os.path.join(self.git, 'bots', 'src', 'a.mjs')
@@ -619,10 +634,84 @@ def t_pure_verdict_and_norm(CS):
     assert CS.tier_label(2, '') == 'undecidable'
 
 
+def t_v43_diff_equiv_pure(CS):
+    """The same change = the same added and removed lines; context may differ ONLY inside a path list (CONTEXT_FREE_PATHS)."""
+    L = CS.CONTEXT_FREE_PATHS[0]
+    hd = lambda p: 'diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n' % (p, p, p, p)
+    code = hd('bots/src/a.mjs') + '@@\n a\n-b\n+c\n d\n'
+    lst = lambda ctx_before, ctx_after, add="+  'x.test.mjs',": hd(L) + '@@\n %s\n%s\n %s\n' % (ctx_before, add, ctx_after)
+    A = code + lst("'p1',", "'p2',")
+    assert CS.diff_equiv(A, A) == ''
+    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',")) == 'context-only in %s' % L, 'a neighbour in the list changed'
+    assert CS.diff_equiv(A, code + lst("'q8',", "'q9',")) == 'context-only in %s' % L
+    assert CS.diff_equiv(A, code + hd(L) + "@@\n 'p1',\n@@\n+  'x.test.mjs',\n 'p2',\n") == 'context-only in %s' % L, 'hunk boundaries are not the change'
+    assert CS.diff_equiv(A, code.replace(' d\n', ' e\n') + lst("'p1',", "'p2',")) is None, 'context in CODE is still part of the change'
+    assert CS.diff_equiv(A, code + lst("'p1',", "'p2',", "+  'y.test.mjs',")) is None, 'another added line'
+    assert CS.diff_equiv(A, code + lst("'p1',", "'p2',", "+  'x.test.mjs',\n+  'x.test.mjs',")) is None, 'the line added twice (chestcarry-01, 11-11)'
+    assert CS.diff_equiv(A, code + lst("'p1',", "'p2',", "-  'p0',\n+  'x.test.mjs',")) is None, 'a removed line appeared'
+    assert CS.diff_equiv(A, code) is None and CS.diff_equiv(code, A) is None, 'a file more or fewer'
+    assert CS.diff_equiv(A, lst("'p1',", "'q9',") + code) is None, 'the files in another order'
+    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',").replace('--- a/', 'old mode 100644\nnew mode 100755\n--- a/')) is None, 'a mode line'
+    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',") + '\\ No newline at end of file\n') is None
+    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',"), free=()) is None, 'no list named: byte-exact everywhere'
+    other = code + hd('bots/test/other-list.mjs') + "@@\n 'p1',\n+x\n 'p2',\n"
+    assert CS.diff_equiv(other, other.replace(" 'p2',", " 'q9',")) is None, 'a file that is not on the list'
+    secs = CS.diff_sections(A)
+    assert [p for p, _ in secs] == ['bots/src/a.mjs', L] and '\n'.join('\n'.join(ls) for _, ls in secs) == A, secs
+
+
+def t_v43_list_context_is_the_same_change(CS):
+    """toolrank-01 / ironchain-01 / ironchain-02, 11-12: the fleet's promotions moved the context of the change's own line
+    in the required-paths list; every added and removed line was the reviewed one. The build goes on and launches."""
+    F = ArFix('listcontext')
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'done', (job, F.logtail())
+        ident = [x['detail'] for x in job['steps'] if x['step'] == 'diff-identical']
+        assert len(ident) == 1 and 'context-only in %s' % LIST_REL in ident[0] and 'every added and removed line' in ident[0], ident
+        # positive control: the two normalized diffs really differ (the base's build refused exactly here)
+        R = os.path.join(F.ar, 'repo.git')
+        assert CS.diff_hash(R, F.sb, F.st)[0] != CS.diff_hash(R, F.lb, job['variant'])[0], 'the fixture does not move the context'
+        TC.expect(CS, F, 'launch')
+    finally:
+        F.cleanup()
+
+
+def t_v43_no_patch_head_is_skipped(CS):
+    """chestcarry-01, 11-11 19:40Z-22:55Z: a head with no variant for the fleet base and no patch source blocked the slot
+    until a human ran `queue set-patch`. Now it is skipped (flagged), and the walk goes on to the next entry."""
+    F = ArFix('clean')
+    try:
+        a = json.loads(json.dumps(F.entry))
+        reg2 = os.path.join(F.home, 'mcai-analysis', 'bar-01.json')
+        shutil.copy(F.reg, reg2)
+        b = dict(json.loads(json.dumps(F.entry)), run='bar-01')
+        b['variants'] = {F.sb: {'registration': reg2, 'approved': 'test fixture: Claude APPROVE + Codex APPROVE'}}
+        with TC.Env(F.env()):
+            for e in (a, b):
+                bad = CS.validate_entry(CS.paths(), e, [])
+                assert not bad, bad
+            json.dump({'version': 1, 'entries': [a, b]}, open(F.queue, 'w'))
+        d, st = TC.decision(CS, F)
+        assert [r for r, _ in st['skipped']] == ['foo-01'] and 'no-patch' in st['skipped'][0][1], (d, st['skipped'])
+        # the LAST entry is never skipped: bar-01 (no patch either) is the block the tick reports
+        assert d[0] == 'block' and any(c == 'H2' and 'bar-01' in r and 'no patch source' in r for c, r in d[1]), d
+        # and once bar-01 has a patch source, the tick builds bar-01 past the skipped head
+        rc, out = TC.human(CS, F, 'queue', 'set-patch', 'bar-01', F.sb, 'bar-on-sb')
+        assert rc == 0, out
+        rc, out = TC.human(CS, F, 'tick')
+        assert rc == 0 and 'AUTOREBASE bar-01' in out and 'SKIP foo-01' in out, out
+        F.wait_job()
+    finally:
+        F.cleanup()
+
+
 TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_clear_then_rebuild_same_sha, t_set_patch_refuses_merge_range,
          t_clean_builds_and_launches, t_conflict_pages_and_blocks, t_diff_change_refuses, t_failing_test_refuses,
          t_tier_change_refuses, t_base_flake_accepted_and_named, t_clear_flake_accepted, t_changed_flake_refused,
-         t_flaky_both_accepted]
+         t_flaky_both_accepted, t_v43_diff_equiv_pure, t_v43_list_context_is_the_same_change,
+         t_v43_no_patch_head_is_skipped]
 
 
 # --------------------------------------------------------------------------------------------- v41 bundles --
@@ -771,7 +860,8 @@ MUTANTS = [
     ('never starts a build', "    return ar_view(e, st)[2]\n", "    return False\n"),
     ('a conflicting pick is not refused', "    if rc != 0:\n        _, unmerged, _ = gitx(W, 'diff'",
      "    if False:\n        _, unmerged, _ = gitx(W, 'diff'"),
-    ('a changed diff is not refused', "    if h1 != h0:\n", "    if False:\n"),
+    ('a changed diff is not refused', "    if same is None:\n        raise ArRefuse('the rebased diff is NOT the reviewed diff",
+     "    if False:\n        raise ArRefuse('the rebased diff is NOT the reviewed diff"),
     ('a failing suite is not refused', "    if why:\n        raise ArRefuse('npm test", "    if False:\n        raise ArRefuse('npm test"),
     ('a tier change is not refused', "    if t0 != t1:\n", "    if False:\n"),
     ('a flake on the new tip alone is accepted where the change reaches',
@@ -805,6 +895,10 @@ MUTANTS = [
     ('v41: related members are not refused at the build', "    if probs:\n        raise ArRefuse('the members are related",
      "    if False:\n        raise ArRefuse('the members are related"),
     ('v41: the fast plan is never written', "        reg['fun_reads'] = plan\n", "        reg['fun_reads'] = STD_READS\n"),
+    ('v43: context in a path list still counts (the 11-12 refusals)', "    same = '' if h1 == h0 else diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt))\n",
+     "    same = '' if h1 == h0 else None\n"),
+    ('v43: context is free in EVERY file', "        if path not in free:\n            return None\n", "        if False:\n            return None\n"),
+    ('v43: a different added line passes in a list', "        if changed(la) != changed(lb) or other(la) != other(lb):\n", "        if other(la) != other(lb):\n"),
     ('v42: a hand-set hash is never recomputed', "        bad = patch_repair_problem(pt, src)\n        if bad:",
      "        bad = 'x'\n        if bad:"),
     ('v42: a recomputed hash is not written back', "                x['patch']['diff_sha256'] = h0\n", "                pass\n"),

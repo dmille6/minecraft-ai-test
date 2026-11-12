@@ -435,6 +435,7 @@ const REQUIRED = [
   'scripts/host/install-autorebase.sh',
   'scripts/host/install-autorebase-v40.sh',
   'scripts/host/install-sched-v41.sh',   // v41 bundles + fast read plan (11-03)
+  'scripts/host/install-sched-v43.sh',   // v43 (11-12): path-list context, two more skippable blocks, the effectfix-01 hook
   'scripts/host/autorebase-relay.sh',
   'scripts/host/holdtoken.py',
   'scripts/host/qwen35load.mjs',

@@ -97,8 +97,10 @@ make it deterministic), and **composed**: test the refusal chain, not the single
 - **One canary slot, ever.** The tripper matches `canary_pool` literally. Two canaries mean three
   versions, which halts the fleet. (Two lanes were evaluated and rejected 10-08.)
 - **The scheduler `~/canary-sched.py` (cron, every 5 min) launches canaries** from
-  `~/canary-queue.json`. It launches only into an empty slot, never skips the head, and never
-  retries. A human runs `rearm`, `abandon`, `closed`, `cancel` or `continue`. It takes its own
+  `~/canary-queue.json`. It launches only into an empty slot and never retries. It walks the
+  queue in order and skips an entry only for a typed block that touched nothing (held, a refused
+  or dead autorebase, an exposure wait, a blocked attempt that never deployed, and from v43 no
+  patch source and a stale staged registration); `~/digest/SKIP-OFF` restores strict head order. A human runs `rearm`, `abandon`, `closed`, `cancel` or `continue`. It takes its own
   lock. **Never wrap it in `flock`**, because that deadlocks.
 - **Installers hold `/tmp/mcai-canary.lock` (flock -n)** for their whole run. Call
   `canary-sched.py install-hold <owner> <minutes>` first and `install-release` when done.
