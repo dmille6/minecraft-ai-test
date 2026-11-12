@@ -665,7 +665,7 @@ another model would be counted as the arm's own answer.
 harness against a fake body and a scripted model with the real isolate, and the real proxy process against local fake model
 servers. 71 mutants with anchor checks: 70 killed; the survivor (the purpose's reply cap read from the arm) is equivalent on
 the wire because the model call clamps again. Replay of both real libraries and 4,546 real tasks: the table above.
-Independent review (Codex, read-only, one round, blockers only, on 4a3f3e6d): NO BLOCKERS. `setup.sh` creates a harness 2
+Independent review (Codex, read-only, one round, blockers only, on 4a3f3e6d, on main as 0c2a462a): NO BLOCKERS. `setup.sh` creates a harness 2
 arm's proxy entry with a 12,000-token reply cap and its own $20 cap: left at 4,096, the proxy would clamp harness 2 back to
 harness 1's cut-offs without a word.
 
@@ -728,7 +728,7 @@ Replayed over the real sequences (the model's replacement proposals are unknown,
 | Verified share of what still runs | 41 % (was 22 %) | 21 % (was 9 %) | 47 % (was 41 %) | 49 % (was 42 %) |
 
 17 more mutants, all killed (in the 71 above).
-Independent review of this addition (Codex, read-only, blockers only, on cb0fd132): NO BLOCKERS.
+Independent review of this addition (Codex, read-only, blockers only, on cb0fd132, on main as df919275): NO BLOCKERS.
 
 ### 19.2 Start (owner 11-12: "Yes, after 11-14")
 
