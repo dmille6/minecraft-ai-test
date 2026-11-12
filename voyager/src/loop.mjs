@@ -6,9 +6,9 @@ import path from 'node:path'
 import { runSkill } from './sandbox.mjs'
 import { lintSkill, extractCode } from './lint.mjs'
 import { makeHandlers, observeState, inventoryCounts, Vec3 } from './facade.mjs'
-import { checkTask, alreadyMet, verify } from './verifier.mjs'
+import { checkTask, alreadyMet, verify, plainTask } from './verifier.mjs'
 import { libraryPrelude } from './library.mjs'
-import { CURRICULUM_SYSTEM, curriculumUser, CODER_SYSTEM, coderUser, parseJsonObject } from './prompts.mjs'
+import { curriculumUser, coderUser, parseJsonObject, promptSet, curriculumUserV2, coderUserV2, describeOutcome } from './prompts.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 export const MAX_ROUNDS = 4
@@ -27,8 +27,9 @@ export function describeDelta (start, end, rec) {
 }
 
 export class VoyagerLoop {
-  constructor ({ getBot, getRunner, library, llm, log, arm, stateDir, budget = {}, model = null }) {
+  constructor ({ getBot, getRunner, library, llm, log, arm, stateDir, budget = {}, model = null, harness = 1 }) {
     Object.assign(this, { getBot, getRunner, library, llm, log, arm, stateDir, budget, model })
+    this.prompts = promptSet(harness)        // harness 1 unless the arm opts in (VOYAGER_HARNESS=2)
     this.running = false
     this.histFile = path.join(stateDir, 'history.json')
     try { this.hist = JSON.parse(fs.readFileSync(this.histFile, 'utf8')) } catch { this.hist = { done: [], failed: [], iterations: 0 } }
@@ -52,7 +53,7 @@ export class VoyagerLoop {
   async start () {
     if (this.running) return
     this.running = true
-    this.log('loop_start', { library: this.library.names().length })
+    this.log('loop_start', { library: this.library.names().length, harness: this.prompts.version })
     while (this.running) {
       try { await this.iteration() } catch (e) { this.log('iteration_error', { error: String(e?.stack ?? e).slice(0, 600) }); await sleep(15_000) }
       await sleep(2_000)
@@ -89,13 +90,14 @@ export class VoyagerLoop {
     const it = ++this.hist.iterations
     const reg = { items: new Set(Object.keys(bot.registry.itemsByName)), blocks: new Set(Object.keys(bot.registry.blocksByName)) }
     const state = observeState(bot, bot.voyager?.spawn ?? null)
-    const skills = this.library.active().map(s => ({ name: s.name, description: s.description }))
+    const P = this.prompts, v2 = P.version >= 2
+    const skills = v2 ? this.library.active() : this.library.active().map(s => ({ name: s.name, description: s.description }))
 
     // 1-2. CURRICULUM + FEASIBILITY
     let task = null, refusal = null
     for (let ask = 0; ask < 3 && !task; ask++) {
-      const r = await this.llm({ purpose: 'curriculum', system: CURRICULUM_SYSTEM, maxTokens: 700,
-        messages: [{ role: 'user', content: curriculumUser({ state, skills, done: this.hist.done, failed: this.hist.failed, refusal }) }] })
+      const r = await this.llm({ purpose: 'curriculum', system: P.curriculumSystem, maxTokens: P.curriculumMaxTokens,
+        messages: [{ role: 'user', content: (v2 ? curriculumUserV2 : curriculumUser)({ state, skills, done: this.hist.done, failed: this.hist.failed, refusal }) }] })
       if (!r.ok) {
         this.log('llm_error', { purpose: 'curriculum', iteration: it, error: r.error })
         // off-slot or paused by the showcase guard: wait longer between asks (the proxy says when the slot comes back)
@@ -105,6 +107,9 @@ export class VoyagerLoop {
       }
       const t = parseJsonObject(r.text)
       let chk = checkTask(t, reg)
+      // harness 2: a reply cut off at the length limit is told so (not "reply with JSON"), and the text must be one plain sentence
+      if (v2 && !t && r.stop === 'max_tokens') chk = { ok: false, reason: 'your reply was cut off at the length limit before the JSON ended; reply with ONLY the JSON object' }
+      if (v2 && chk.ok) chk = plainTask(t.task)
       if (chk.ok && alreadyMet(t.success, this.snapshot())) chk = { ok: false, reason: 'that check is already true right now; propose something you cannot do yet' }
       this.log(chk.ok ? 'task_proposed' : 'task_refused', { iteration: it, ask, task: t?.task ?? null, why: t?.why ?? null, success: t?.success ?? null, reason: chk.reason ?? null, raw: chk.ok ? undefined : String(r.text).slice(0, 300) })
       if (chk.ok) task = t; else refusal = chk.reason
@@ -112,14 +117,29 @@ export class VoyagerLoop {
     if (!task) { this.hist.failed.push(`(no valid task: ${refusal})`); this.saveHist(); return }
 
     // 3-6. RETRIEVE, CODE, RUN, VERIFY
-    const related = this.library.retrieve(task, 5)
+    const picked = v2 ? this.library.retrieve2(task) : { related: this.library.retrieve(task, 5), more: [] }
+    const related = picked.related
     let previous = null, lastWhy = 'no attempt ran'
     for (let round = 1; round <= MAX_ROUNDS && this.running; round++) {
-      const r = await this.llm({ purpose: 'code', system: CODER_SYSTEM, maxTokens: 4000,
-        messages: [{ role: 'user', content: coderUser({ task, state: this.getBot()?.entity ? observeState(this.getBot()) : state, related, previous }) }] })
+      const now = this.getBot()?.entity ? observeState(this.getBot()) : state
+      let content, cacheSplit = null
+      if (v2) {
+        const m = coderUserV2({ task, state: now, related, more: picked.more, previous })
+        content = m.prefix + m.rest
+        cacheSplit = m.prefix.length
+      } else content = coderUser({ task, state: now, related, previous })
+      const r = await this.llm({ purpose: 'code', system: P.coderSystem, maxTokens: P.codeMaxTokens, cacheSplit, messages: [{ role: 'user', content }] })
       if (!r.ok) { this.log('llm_error', { purpose: 'code', iteration: it, round, error: r.error }); lastWhy = `model error: ${r.error}`; await sleep(20_000); continue }
       const code = extractCode(r.text)
       const lint = lintSkill(code, { known: this.library.names() })
+      if (!lint.ok && v2 && r.stop === 'max_tokens') {
+        // harness 2: a cut-off reply is not a syntax error to "fix" (the same long function comes back): say it was cut off
+        // and ask for a shorter one. A cut-off reply whose function is complete lints clean and runs as usual.
+        this.log('reply_truncated', { iteration: it, round, chars: code.length })
+        previous = { round, truncated: true, code: '', outcome: 'the reply was cut off at the length limit before the function ended', log: [], delta: 'nothing ran' }
+        lastWhy = `refused before running: ${previous.outcome}`
+        continue
+      }
       if (!lint.ok) {
         this.log('lint_refused', { iteration: it, round, errors: lint.errors.slice(0, 6), src: code.slice(0, 2000) })
         previous = { round, code, outcome: `refused before running: ${lint.errors.join('; ')}`, log: [], delta: 'nothing ran' }
@@ -175,7 +195,7 @@ export class VoyagerLoop {
         for (const n of used) if (n !== add.name) this.library.markReused(n, new Date().toISOString())
         if (task.success.kind === 'structure' && v.cells) this.library.addStructure(v.cells)
         this.log('task_done', { iteration: it, round, task: task.task, success: task.success, skill: add.name, library_kind: add.kind, reused: [...used], why: v.why, placed_cells: standing.map(c => [c.x, c.y, c.z, c.block]) })
-        this.hist.done.push(`${task.task} (skill ${add.name})`)
+        this.hist.done.push(v2 ? `${describeOutcome(task.success)} (skill ${add.name})` : `${task.task} (skill ${add.name})`)
         this.saveHist()
         return
       }
@@ -184,7 +204,7 @@ export class VoyagerLoop {
       previous = { round, code, outcome: lastWhy, log: res.log, delta: describeDelta(start, end, rec) }
     }
     this.log('task_failed', { iteration: it, task: task.task, success: task.success, why: lastWhy })
-    this.hist.failed.push(`${task.task} -- ${String(lastWhy).slice(0, 160)}`)
+    this.hist.failed.push(`${v2 ? describeOutcome(task.success) : task.task} -- ${String(lastWhy).slice(0, 160)}`)
     this.saveHist()
   }
 }

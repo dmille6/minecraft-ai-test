@@ -18,6 +18,47 @@ export function relevance (task, skill) {
   return n / Math.max(1, Math.sqrt(a.size * b.size))
 }
 
+/** How proven a skill is: verified runs and later reuse count for it, failed re-runs against it. Small next to relevance. Pure. */
+export function reliability (s) {
+  return Math.min(s.verified ?? 1, 5) * 0.02 + Math.min(s.reused ?? 0, 5) * 0.05 - Math.min(s.fails ?? 0, 3) * 0.05
+}
+
+/** Word overlap of two skills' names and descriptions, 0..1 (Jaccard). Pure. */
+export function similarity (a, b) {
+  const x = words(`${a.name} ${a.description}`), y = words(`${b.name} ${b.description}`)
+  let n = 0
+  for (const w of x) if (y.has(w)) n++
+  return n / Math.max(1, x.size + y.size - n)
+}
+
+/**
+ * Harness 2 retrieval: DIFFERENT abilities, not rewrites of one. Harness 1 took the top 5 by word overlap; with 74
+ * near-identical "small structure" skills and 57 "place a torch" ones in a 3b Haiku library that was five lookalikes.
+ * Here: a skill with the task's own outcome signature ranks first; then by word overlap plus a little for being proven;
+ * and a candidate is skipped when a skill already picked has the same signature -- except that two structures count as
+ * the same only when their texts also overlap (a bridge and a hut are both "structure:small").
+ * `related` are shown with code, `more` by name only. Pure and deterministic (ties break on the name).
+ * @returns {{related: object[], more: object[]}}
+ */
+export function pickRelated (skills, task, { k = 4, more = 8 } = {}) {
+  const want = outcomeSignature(task.success)
+  const cands = []
+  for (const s of skills) {
+    const r = relevance(task, s)
+    const same = s.signature === want
+    if (r <= 0 && !same) continue
+    cands.push({ s, score: r + (same ? 1 : 0) + reliability(s) })
+  }
+  cands.sort((a, b) => b.score - a.score || (a.s.name < b.s.name ? -1 : a.s.name > b.s.name ? 1 : 0))
+  const picked = []
+  for (const { s } of cands) {
+    if (picked.length >= k + more) break
+    const dup = picked.some(p => p.signature === s.signature && (!String(s.signature).startsWith('structure:') || similarity(p, s) > 0.4))
+    if (!dup) picked.push(s)
+  }
+  return { related: picked.slice(0, k), more: picked.slice(k) }
+}
+
 /** Normalise code for duplicate detection: no comments, no whitespace runs, the function name blanked. Pure. */
 export function normalise (code) {
   return String(code).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '').replace(/\s+/g, ' ')
@@ -66,6 +107,9 @@ export class Library {
   retrieve (task, k = 5) {
     return this.active().map(s => ({ s, r: relevance(task, s) })).filter(x => x.r > 0).sort((a, b) => b.r - a.r).slice(0, k).map(x => x.s)
   }
+
+  /** Harness 2: see pickRelated. */
+  retrieve2 (task, opts) { return pickRelated(this.active(), task, opts) }
 
   /** The library skills a code body names (so they must be in its prelude), transitively. */
   closure (names) {

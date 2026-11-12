@@ -50,7 +50,9 @@ echo "setup done: $(ls /srv/voyager/worlds | tr '\n' ' ')"
 SHA="$(cat "$STAGE/SHA")"
 for a in $ARMS; do
   if [ "$(field $a 2)" = control ]; then E=control-entry.mjs; L=true; MF=3; else E=entry.mjs; L=false; MF=1000; fi
-  sed -e "s/__ARM__/$a/g" -e "s#__ENTRY__#$E#" -e "s/__LLM__/$L/" -e "s/__MODEL__/$(field $a 3)/g" -e "s/__SHA__/$SHA/" -e "s/__MAXFAIL__/$MF/" \
+  # the harness version is the registry's optional 5th column; anything but 2 is harness 1 (the stage 3 / 3b / 4 harness)
+  H="$(field $a 5)"; [ "$H" = 2 ] || H=1
+  sed -e "s/__ARM__/$a/g" -e "s#__ENTRY__#$E#" -e "s/__LLM__/$L/" -e "s/__MODEL__/$(field $a 3)/g" -e "s/__SHA__/$SHA/" -e "s/__MAXFAIL__/$MF/" -e "s/__HARNESS__/$H/" \
     /srv/voyager/code/voyager/infra/bot.env.tmpl > /etc/voyager/bot-$a.env
   chmod 0644 /etc/voyager/bot-$a.env
   install -d -m 0700 -o voyager-$a -g voyager-$a /srv/voyager/state/$a/bot /srv/voyager/state/$a/pool /srv/voyager/state/$a/voyager

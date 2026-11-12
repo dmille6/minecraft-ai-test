@@ -24,6 +24,22 @@ export function infeasibleName (name) {
 
 const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi
 
+export const TASK_MAX_CHARS = 240
+/**
+ * Harness 2: is the task text ONE plain sentence? On the 3b Haiku arms a quarter of the proposals were a thought revised inside
+ * the sentence ("craft a stone_hoe-free useful item ... no, instead"): 1,104 of 4,626 (24 %) carried an "<id>-free" word,
+ * and 0.5 % of the rest ran past 240 characters. The reason names what to write instead, so the next ask can do it. Pure.
+ * @returns {{ok:boolean, reason?:string}}
+ */
+export function plainTask (text) {
+  const t = String(text ?? '')
+  const remedy = 'write "task" as one plain sentence of at most 200 characters that says only what to do; decide before you write'
+  if (t.length > TASK_MAX_CHARS) return { ok: false, reason: `the task text is ${t.length} characters long; ${remedy}` }
+  if (/\b[a-z][a-z0-9_]*-free\b/i.test(t)) return { ok: false, reason: `the task text says what to avoid ("...-free"); ${remedy}` }
+  if (/\.\.\.|\u2026/.test(t)) return { ok: false, reason: `the task text trails off and restarts ("..."); ${remedy}` }
+  return { ok: true }
+}
+
 /**
  * Check a curriculum task before any code is written. Pure.
  * @param {object} task {task, why, success:{kind,...}}

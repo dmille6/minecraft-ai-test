@@ -75,10 +75,11 @@ function startLoop () {
   const library = new Library(path.join(STATE, 'library'))
   loop = new VoyagerLoop({
     getBot, getRunner, library, log, arm: ARM, stateDir: STATE, model: env.VOYAGER_MODEL ?? null,
+    harness: Number(env.VOYAGER_HARNESS) >= 2 ? 2 : 1,     // 1 = the stage 3 / 3b / 4 harness (default); 2 = prompts.mjs HARNESS 2
     llm: async (req) => {
       const t0 = Date.now()
       const r = await llmChat({ socketPath: SOCKET, ...req })
-      log('llm', { purpose: req.purpose, ok: r.ok, ms: Date.now() - t0, usage: r.usage ?? null, error: r.ok ? null : r.error })
+      log('llm', { purpose: req.purpose, ok: r.ok, ms: Date.now() - t0, usage: r.usage ?? null, error: r.ok ? null : r.error, stop: r.stop ?? undefined })
       return r
     },
   })

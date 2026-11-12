@@ -638,3 +638,55 @@ within a minute. Blackwell before/after: theirs (qwen2.5:32b, qwen2.5-coder:7b-h
 at 12288 = 4 of 4. Reads (timers on the worlds host, `reports/3b-*`): +24 h 11-10 05:18:45Z, +48 h 11-11, +72 h 11-12;
 final read + stop + unload (ours only, only if resident) **11-13 05:18:45Z** (11-12 23:18:45 CST). bw-guard (6,000 min) and
 the Studio guard (until 11-13 07:00Z) run on the Mac controller. Transient timers do not survive a worlds-host reboot.
+
+## 19. Harness 2 (owner 11-12: "lets fix the harness, test it very well, then try sonnet and possibly opus")
+
+Built on branch `voyager-harness2`. **Not deployed**: stage 3b is still running on harness 1 and must finish on it.
+An arm opts in with a 5th column `2` in `arms.conf` (`VOYAGER_HARNESS=2`); every arm registered today stays on harness 1,
+whose prompts are pinned by hash in `voyager/test/harness2.test.mjs` (the same bytes as 4482bc8b, the code 3b runs).
+
+**What was measured on the 3b Haiku arms (h1, h2; 11-09 05:18Z to 11-12 13:30Z) before any change:**
+
+| Limit | Measured | Harness 2 |
+|---|---|---|
+| Reply cap | 1,302 of 14,427 code replies (9.0 %) and 312 of 5,124 proposals (6.1 %) stopped at `max_tokens`; in the cut-off code replies thinking took a median 3,004 of the 4,000 tokens. The same arms had 311 "syntax error" and 73 "no code" task failures (14 % of 2,693) and, on h1, 173 "reply with one JSON object" refusals: what a cut-off reply produces, though not every one was traced to a cut-off | Code 10,000 and proposals 2,000 tokens (the arm's `maxTokens` must allow it). A cut-off reply is told it was cut off, not handed back as a syntax error |
+| Proposer's view | The first 40 skills in file order: after a restart, 11 of 146 outcomes on h1 (40 `bridge*`/`build*` skills) and 9 of 162 on h2; plus the last 10 task texts | Every outcome, grouped by check kind, with a repeat count (`torch x57`): 146 of 146 and 162 of 162, in about 2,400 to 2,600 characters instead of 8,600 to 9,300 |
+| Task text | 1,106 of 4,639 proposals (24 %) were a thought revised inside the sentence ("craft a stone_hoe-free useful item ... no, instead"); each went back into the next prompt | History lines are written by the harness from the check (`crafted lantern (skill x)`); no model-written text reaches the proposer. A text over 240 characters, with an `<id>-free` word or with `...` is refused, with what to write instead |
+| Retrieval | Top 5 by word overlap: 1.2 of the 5 slots repeated an outcome already shown (two or more repeats on 36 % of tasks); a skill for the task's exact outcome existed for 72 % of tasks and was shown for 68 % of those | The task's own outcome first, then one skill per outcome (two structures count as one only when their texts overlap): shown for 100 % (3,295 of 3,295); 4 with code and up to 8 more by name; the first message is about 20 % smaller |
+| Reuse | The prompt said the coder "may" call skills; about 20 of 950 skills were ever called | The prompt asks for it: call a listed skill for a step it already does, write new code only for the rest |
+| Cost at larger models | Only the 1,038-token system prompt was cached (11 % of input) | The task and skills part of the coder message is a cache prefix shared by all rounds of a task (`cache_split`) |
+
+**One arm, two models.** `byPurpose.curriculum` in an arm's proxy entry sends proposals to another model (its own price, effort
+and reply cap); the backend, the spend cap and the pace stay the arm's. A safety decline (`stop_reason: "refusal"`) comes back
+as an empty reply and is named in the row. **No server-side fallback is requested**: in a model comparison a silent switch to
+another model would be counted as the arm's own answer.
+
+**Tests (ci2, 11-12):** voyager suite 72 of 72 (base 50 of 50). 22 new tests: pure functions, a whole loop iteration on each
+harness against a fake body and a scripted model with the real isolate, and the real proxy process against local fake model
+servers. 50 mutants with anchor checks: 49 killed; the survivor (the purpose's reply cap read from the arm) is equivalent on
+the wire because the model call clamps again. Replay of both real libraries and 4,546 real tasks: the table above.
+
+**One result against the change.** The tasks the plain-sentence check would refuse were verified MORE often than the rest
+(658 of 1,159, 57 %, against 1,269 of 3,470, 37 %): the garbled texts are mostly easy crafts at the table. The check is kept
+because it makes the record readable and costs one extra proposal; **it is not expected to raise the success rate**, and the
+read below counts its refusals so that it can be removed if it costs iterations.
+
+**Proposed runs (not started; pre-registered here before any data).** Same two seeds as 3b (S1, S2), fresh worlds, 48 h, all
+four arms started together:
+
+| Arm | Proposer | Coder | Harness | Seed |
+|---|---|---|---|---|
+| g1, g2 | Haiku 5.5 | Haiku 5.5 | 2 | S1, S2 |
+| s1, s2 | Sonnet 5.5 | Haiku 5.5 | 2 | S1, S2 |
+
+Compared per bot-hour over the same elapsed hours (0 to 48) with 3b's h1/h2 (harness 1, same seeds, same model and pace).
+1. *Safety (hard):* 0 escapes, 0 commands executed. Else the run FAILS.
+2. *Harness 2 WORKS* if, pooled over both seeds, g reaches all of: distinct reused skills >= 2x h; code replies cut off
+   under 2 % of code calls; verified tasks >= 90 % of h; invented skills >= 90 % of h. Otherwise it does NOT, and the parts
+   are read one by one from the rows (cut-offs, refusals by reason, reuse).
+3. *A larger proposer HELPS* if s beats g, on both seeds, on at least two of: invented skills, projects finished, largest
+   standing structure, unique items, with verified tasks >= 90 % of g. Then, and only then, one Opus 5.5 proposer arm on S1
+   for 24 h.
+Caps at the proxy: g $40, s $100, Opus $50. Estimated spend: g about $20, s about $65 (proposals about $12 per bot-day at
+Sonnet's price plus the Haiku coder).
+

@@ -39,6 +39,31 @@ export function usageUsd (arm, u) {
   return (inTok * arm.inUsdPerMTok + (u?.output_tokens ?? 0) * arm.outUsdPerMTok) / 1e6
 }
 
+// ONE ARM, TWO MODELS (11-12, owner "then try sonnet and possibly opus"): `byPurpose` lets an arm send its task proposals
+// to a larger model and keep its code on the cheap one. Only the keys below can differ; the backend, the cap, the pace and
+// the socket stay the arm's. The purpose comes from the loop (harness code); generated skills run in the isolate and
+// cannot reach the socket. Whatever the bot claims, the spend cap is the arm's and is reserved at the model actually used.
+const BY_PURPOSE_KEYS = ['model', 'inUsdPerMTok', 'outUsdPerMTok', 'effort', 'maxTokens']
+/** The arm as it applies to one purpose. Pure. */
+export function armFor (arm, purpose) {
+  const o = arm?.byPurpose?.[purpose]
+  if (!o || typeof o !== 'object') return arm
+  const out = { ...arm }
+  for (const k of BY_PURPOSE_KEYS) if (o[k] != null) out[k] = o[k]
+  return out
+}
+
+/**
+ * A user message's content for the Anthropic API. With a valid `split` (harness 2: the leading characters that repeat on
+ * every round of one task) it is two text blocks with a cache breakpoint between them; otherwise the plain string, exactly
+ * as before. A split of 0, of the whole length, or of the wrong type is ignored. Pure.
+ */
+export function userContent (content, split) {
+  const s = String(content)
+  if (!Number.isInteger(split) || split < 1 || split >= s.length) return s
+  return [{ type: 'text', text: s.slice(0, split), cache_control: { type: 'ephemeral' } }, { type: 'text', text: s.slice(split) }]
+}
+
 let anthropic = null
 async function anthropicClient () {
   if (anthropic) return anthropic
@@ -61,21 +86,25 @@ async function ollamaChat (arm, { system, messages, max_tokens }) {
     const text = await r.text()
     if (!r.ok) throw new Error(`backend ${r.status}: ${text.slice(0, 160)}`)
     const d = JSON.parse(text)
-    return { text: d.message?.content ?? '', usage: { input_tokens: d.prompt_eval_count ?? 0, output_tokens: d.eval_count ?? 0, load_ms: Math.round((d.load_duration ?? 0) / 1e6) } }
+    return { text: d.message?.content ?? '', usage: { input_tokens: d.prompt_eval_count ?? 0, output_tokens: d.eval_count ?? 0, load_ms: Math.round((d.load_duration ?? 0) / 1e6) },
+      stop: d.done_reason === 'length' ? 'max_tokens' : (d.done_reason ?? null) }
   } finally { clearTimeout(t) }
 }
 
-async function anthropicChat (arm, { system, messages, max_tokens }) {
+async function anthropicChat (arm, { system, messages, max_tokens, cache_split }) {
   const c = await anthropicClient()
+  const last = messages.length - 1
   const msg = await c.messages.create({
     model: arm.model,
     max_tokens: Math.min(max_tokens ?? 2048, arm.maxTokens ?? 4096),
     system: system ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : undefined,
-    messages: messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content) })),
+    messages: messages.map((m, i) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: i === last && m.role !== 'assistant' ? userContent(m.content, cache_split) : String(m.content) })),
     output_config: { effort: arm.effort ?? 'low' },
   })
-  const text = msg.content.filter(b => b.type === 'text').map(b => b.text).join('')
-  return { text, usage: msg.usage, stop: msg.stop_reason }
+  // A safety decline is a 200 with stop_reason "refusal". No server-side fallback is requested: this is a model
+  // comparison, and a silent switch to another model would be counted as the arm's own answer. The row names it.
+  const text = (msg.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('')
+  return { text, usage: msg.usage, stop: msg.stop_reason, served: msg.model, refusal: msg.stop_reason === 'refusal' ? (msg.stop_details?.category ?? 'unspecified') : undefined }
 }
 
 // THE CONTROL's raw Ollama requests are rebuilt from an allowlist with the model forced (§12 R3).
@@ -186,7 +215,9 @@ function serveArm (name, arm) {
     for (let w = 0; arm.group && groupBusy.get(arm.group) && w < 600; w++) await new Promise(r => setTimeout(r, 500))
     if (arm.group && groupBusy.get(arm.group)) return send(429, { error: `another arm on ${arm.group} is still running` })
     // max_tokens must be a whole number 1..arm.maxTokens: a NaN or negative value must never reach the spend cap (review 11)
-    const cap = arm.maxTokens ?? 4096
+    const purpose = String(body.purpose ?? (arm.backend === 'ollama-raw' ? 'control' : '?')).slice(0, 16)
+    const eff = armFor(arm, purpose)           // the model, prices, effort and reply cap for THIS purpose
+    const cap = eff.maxTokens ?? 4096
     const mt = body.max_tokens == null ? 2048 : Number(body.max_tokens)
     if (!Number.isInteger(mt) || mt < 1) return send(400, { error: `max_tokens must be a whole number 1-${cap}` })
     body.max_tokens = Math.min(mt, cap)    // over the arm's cap: clamped (arm B-general's 8k context allows 2048)
@@ -197,21 +228,20 @@ function serveArm (name, arm) {
     if (wait > 0) await new Promise(r => setTimeout(r, Math.min(wait, 120_000)))
     const t0 = Date.now()
     let reserved = 0
-    const purpose = String(body.purpose ?? (arm.backend === 'ollama-raw' ? 'control' : '?')).slice(0, 16)
     try {
       if (arm.backend === 'anthropic') {
-        reserved = reserveUsd(arm, Buffer.byteLength(raw, 'utf8'), body.max_tokens)
+        reserved = reserveUsd(eff, Buffer.byteLength(raw, 'utf8'), body.max_tokens)
         if (!Number.isFinite(spend[sk].usd)) spend[sk].usd = arm.capUsd   // a corrupted total fails closed
         if (spendCorrupt) { row({ arm: name, purpose, refused: 'spend_record_unreadable' }); return send(503, { error: 'spend record unreadable; refusing paid calls' }) }
         if (!(reserved > 0) || spend[sk].usd + reserved > arm.capUsd) { row({ arm: name, purpose, refused: 'spend_cap', usd_total: spend[sk].usd }); return send(402, { error: `spend cap $${arm.capUsd} reached` }) }
         spend[sk].usd += reserved
         try { saveSpend() } catch (e) { spend[sk].usd -= reserved; reserved = 0; row({ arm: name, purpose, refused: 'spend_not_persisted', error: String(e.message).slice(0, 80) }); return send(503, { error: 'spend record not writable; refusing' }) }
-        const r = await anthropicChat(arm, body)
-        const usd = usageUsd(arm, r.usage)
+        const r = await anthropicChat(eff, body)
+        const usd = usageUsd(eff, r.usage)
         spend[sk].usd += usd - reserved; spend[sk].calls++   // settle the reservation to the real usage
         try { saveSpend() } catch { /* the reservation already covered it */ }
-        row({ arm: name, purpose, model: arm.model, paid: true, ms: Date.now() - t0, usage: r.usage, usd: Math.round(usd * 1e6) / 1e6, usd_total: Math.round(spend[sk].usd * 1e4) / 1e4, stop: r.stop })
-        return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0 })
+        row({ arm: name, purpose, model: eff.model, served: r.served !== eff.model ? r.served : undefined, paid: true, ms: Date.now() - t0, usage: r.usage, usd: Math.round(usd * 1e6) / 1e6, usd_total: Math.round(spend[sk].usd * 1e4) / 1e4, stop: r.stop, refusal: r.refusal })
+        return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0, stop: r.stop ?? null })
       }
       if (arm.backend === 'ollama-raw') {
         const fwd = rebuildControl(arm, body)
@@ -227,14 +257,14 @@ function serveArm (name, arm) {
         res.writeHead(r.status, { 'content-type': 'application/json' }); res.end(text); return
       }
       if (grp) await enterSlot(arm.group, grp, name)
-      const r = await ollamaChat(arm, body)
+      const r = await ollamaChat(eff, body)
       // in_bytes: the request's size, because Ollama's prompt_eval_count leaves out tokens reused from its KV cache and so
       // cannot show a prompt that outgrew num_ctx
-      row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, usage: r.usage, in_bytes: Buffer.byteLength(raw, 'utf8'), num_ctx: arm.numCtx })
-      return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0 })
+      row({ arm: name, purpose, model: eff.model, ms: Date.now() - t0, usage: r.usage, in_bytes: Buffer.byteLength(raw, 'utf8'), num_ctx: arm.numCtx, stop: r.stop === 'max_tokens' ? r.stop : undefined })
+      return send(200, { text: r.text, usage: r.usage, ms: Date.now() - t0, stop: r.stop ?? null })
     } catch (e) {
       // the reservation stays charged: a failed or timed-out paid request may still have been billed (design §12 R3)
-      row({ arm: name, purpose, model: arm.model, ms: Date.now() - t0, error: String(e?.message ?? e).slice(0, 200), usd_reserved_kept: reserved || undefined })
+      row({ arm: name, purpose, model: eff.model, ms: Date.now() - t0, error: String(e?.message ?? e).slice(0, 200), usd_reserved_kept: reserved || undefined })
       return send(502, { error: String(e?.message ?? e).slice(0, 200) })
     } finally {
       inflight--

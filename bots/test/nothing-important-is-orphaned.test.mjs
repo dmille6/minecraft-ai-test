@@ -48,6 +48,11 @@ const REQUIRED = [
   'voyager/src/loop.mjs',
   'voyager/src/entry.mjs',
   'voyager/test/sandbox-adversarial.test.mjs',
+  // harness 2 (11-12): pins the harness-1 prompts (stages 3, 3b, 4 are compared on them) and drives the real proxy process
+  'voyager/test/harness2.test.mjs',
+  'voyager/test/proxy-live.test.mjs',
+  'voyager/src/prompts.mjs',
+  'voyager/src/library.mjs',
   'voyager/test/host-probe.mjs',
   'voyager/test/cmd-probe.mjs',
   'voyager/proxy/proxy.mjs',

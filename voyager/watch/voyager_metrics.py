@@ -124,6 +124,19 @@ def arm_metrics(a, since, until, proxy_rows):
     pr = [r for r in proxy_rows if r.get('arm') == a and 'ms' in r]
     usd = sum(r.get('usd') or 0 for r in pr)
     lat = [r['ms'] for r in pr if not r.get('error')]
+    # harness 2 (11-12): which harness the arm runs, how many replies were cut off at the length limit, why tasks were
+    # refused, and (one arm, two models) the calls and dollars per model
+    starts = [r for r in v if r['kind'] == 'loop_start']
+    harness = starts[-1].get('harness', 1) if starts else None
+    stops = collections.Counter(f"{r.get('purpose')}:{r.get('stop')}" for r in pr if r.get('stop'))
+    by_model = {}
+    for r in pr:
+        if r.get('error') or not r.get('model'):
+            continue
+        m = by_model.setdefault(r['model'], {'calls': 0, 'usd': 0.0})
+        m['calls'] += 1
+        m['usd'] = round(m['usd'] + (r.get('usd') or 0), 4)
+    why_refused = collections.Counter(str(r.get('reason')).split(';')[0][:60] for r in refused)
     t0 = min((ts(r['t']) for r in hb), default=None)
     tier_h = {k: round((ts(v2) - t0).total_seconds() / 3600, 2) if t0 else None for k, v2 in tiers.items()} if tiers else {}
     per = (lambda n: round(n / bot_h, 3) if bot_h else None)
@@ -136,6 +149,8 @@ def arm_metrics(a, since, until, proxy_rows):
         'tasks': {'proposed': len(proposed), 'refused': len(refused), 'verified': len(done), 'failed': len(failed),
                   'types': dict(types)},
         'executions': k['execution'], 'lint_refused': k['lint_refused'],
+        'harness': harness, 'replies_cut_off': k['reply_truncated'], 'llm_stops': dict(stops), 'by_model': by_model,
+        'refused_why': dict(why_refused.most_common(5)),
         'unique_items': len(items), 'items': sorted(items), 'tool_tiers_first': tiers,
         'skills': {'library_files': len(lib), 'invented': len(invented), 'by_kind_at_verify': dict(kinds),
                    'reused_distinct': len(reused), 'reuse_calls': sum(reused.values()), 'demoted': sum(1 for s in lib if s.get('demoted'))},
@@ -176,6 +191,9 @@ def main():
         print(f"\n[{m['arm']}] {m['bot_hours_connected']} bot-h connected ({m['heartbeats']} heartbeats, {m['rows']} rows)")
         print(f"  tasks: {t['proposed']} proposed, {t['refused']} refused by the filter, {t['verified']} verified, {t['failed']} failed; types {t['types']}")
         print(f"  executions {m['executions']}, lint refusals {m['lint_refused']}")
+        print(f"  harness {m['harness'] or 'not known (no loop start in the window)'}; code replies cut off (harness 2 rows) {m['replies_cut_off']}; model stops {m['llm_stops']}; refused because {m['refused_why']}")
+        if len(m['by_model']) > 1:
+            print(f"  per model: {m['by_model']}")
         print(f"  unique items {m['unique_items']}; tool tiers first reached (h from start) {m['tier_hours_from_start'] or 'none'}")
         print(f"  per bot-h: {m['per_bot_h']}")
         print(f"  skills: {s['library_files']} in the library, {s['invented']} invented, {s['reused_distinct']} reused by later runs ({s['reuse_calls']} calls), {s['demoted']} demoted; at verify {s['by_kind_at_verify']}")
