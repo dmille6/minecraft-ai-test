@@ -681,6 +681,10 @@ four arms started together:
 |---|---|---|---|---|
 | g1, g2 | Haiku 5.5 | Haiku 5.5 | 2 | S1, S2 |
 | s1, s2 | Sonnet 5.5 | Haiku 5.5 | 2 | S1, S2 |
+| r1, r2 | qwen3.8:27b (Blackwell) | qwen3.8:27b | 2 | S1, S2 |
+
+r1 and r2 were added by the owner on 11-12 ("Yes, add qwen arms"), before any data: the direct test of §19.1. They cost no
+API money. Stage 4's three coder models wait until they end (the Blackwell has one free model slot).
 
 Compared per bot-hour over the same elapsed hours (0 to 48) with 3b's h1/h2 (harness 1, same seeds, same model and pace).
 1. *Safety (hard):* 0 escapes, 0 commands executed. Else the run FAILS.
@@ -690,6 +694,10 @@ Compared per bot-hour over the same elapsed hours (0 to 48) with 3b's h1/h2 (har
 3. *A larger proposer HELPS* if s beats g, on both seeds, on at least two of: invented skills, projects finished, largest
    standing structure, unique items, with verified tasks >= 90 % of g. Then, and only then, one Opus 5.5 proposer arm on S1
    for 24 h.
+4. *Harness 2 HELPS qwen* if, on both seeds, r reaches >= 1.5x q's verified tasks per bot-hour and at least q's projects
+   finished per bot-hour, where q is the 3b arm on that seed over its first 48 h after the 11-10 18:15:56Z resume (both
+   are paused by the same Blackwell guard, and both are divided by connected hours). No sword task may reach the coder.
+   Whatever the result, r is also the local baseline for stage 4 if stage 4 is run on harness 2.
 Caps at the proxy: g $40, s $100, Opus $50. Estimated spend: g about $20, s about $65 (proposals about $12 per bot-day at
 Sonnet's price plus the Haiku coder).
 
@@ -743,6 +751,17 @@ and restarts the proxy. In order:
 4. Smoke on a throwaway arm and seed for 20 minutes before the clock starts: `loop_start` says harness 2, a task is
    proposed and verified, the proxy rows show `cache_read_input_tokens` on second-round code calls and the right model per
    purpose, no errors. Stop it and remove its world.
-5. Start the four servers, then the four bots at the same moment; RUNNING markers; timers for the +24 h and +48 h reads
+5. Start the servers, then the bots at the same moment; RUNNING markers; timers for the +24 h and +48 h reads
    (`voyager_metrics.py`) and the end. Ledger row; the launch time written here.
+
+**The qwen arms r1, r2 (owner 11-12), in the same start:**
+- Register them like q1/q2 (`llm`, `qwen3.8:27b`, seeds S1, S2) with a 5th column `2`. In `proxy.json` give them q1's
+  entry (`:11438`, `numCtx` 12288, `keepAlive` -1, `think` false, 400 calls/h, no gap) and **`maxTokens` 4096**, not the
+  12,000 `setup.sh` writes for a harness 2 arm: a 10,000-token reply cannot fit beside the prompt in a 12,288 context.
+- Before their first call read `:11438/api/ps`. Ours (`qwen3.8:27b`) plus at most three others may be resident. If four
+  models that are not ours are resident, do NOT start r1/r2 (a load would evict someone else's): start g and s only.
+- Start the guard on the Mac BEFORE the bots: `voyager/watch/bw-guard.sh <state-dir> r1,r2` (1.5x of the 73 ms baseline,
+  3 minutes in a row, 15-minute pause; owner 11-10). The 3b guard for q1/q2 ends with its `bw-guard.stop` file.
+- At the end unload `qwen3.8:27b` only if it is resident and nothing else of ours needs it, as `voyager_end.sh` does.
+  Never touch the other three models. No 192.168.19x routes. Stage 4 follows, one coder model at a time.
 

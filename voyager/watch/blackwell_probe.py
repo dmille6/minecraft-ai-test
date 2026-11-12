@@ -10,6 +10,12 @@ Each minute also reads /api/ps and records the resident set.
 import json, sys, time, urllib.request
 
 URL = 'http://ai.ticrcorp.com:11438'
+def _opt(name, default, cast):
+    return cast(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else default
+FACTOR = _opt('--factor', 1.25, float)      # owner 11-10: 1.5 x baseline is acceptable for their project
+CONSEC = _opt('--consecutive', 1, int)      # minutes in a row over the limit before a trip
+WINDOW = _opt('--window', 30, int)          # p95 over the last N readings (a rolling view, so a trip can clear)
+breaches = 0
 OURS = {'qwen3.8:27b', 'qwen3-coder:30b', 'devstral-small-2:24b', 'laguna-xs-2.1:latest'}   # stage 3 B + stage 4; all else = THEIRS
 TARGET = 'qwen2.5:32b'              # the latency stand-in for their users; pinged ONLY while it is resident (a ping would load it)
 LOG = '/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/voy/blackwell-probe.jsonl'
@@ -36,6 +42,7 @@ def p95(xs):
 
 
 def main():
+    global breaches
     mode = sys.argv[1]
     minutes = int(sys.argv[sys.argv.index('--minutes') + 1]) if '--minutes' in sys.argv else 20
     base = int(sys.argv[sys.argv.index('--baseline-p95') + 1]) if '--baseline-p95' in sys.argv else None
@@ -77,8 +84,10 @@ def main():
         row = {'kind': mode, 'i': i, 't': time.strftime('%H:%M:%S', time.gmtime()), 'ms': ms, 'load_ms': load, 'resident': {k: v[:2] for k, v in res.items()}, 'p95': p95(lat)}
         open(LOG, 'a').write(json.dumps(row) + '\n')
         print(json.dumps(row), flush=True)
-        if mode == 'during' and base and len(lat) >= 5 and p95(lat) > 1.25 * base:
-            print(json.dumps({'kind': 'abort', 'p95': p95(lat), 'limit': 1.25 * base}), flush=True)
+        over = mode == 'during' and base and len(lat) >= 5 and p95(lat[-WINDOW:]) > FACTOR * base
+        breaches = breaches + 1 if over else 0
+        if breaches >= CONSEC:
+            print(json.dumps({'kind': 'abort', 'p95': p95(lat[-WINDOW:]), 'limit': FACTOR * base, 'consecutive': breaches}), flush=True)
             sys.exit(3)
         time.sleep(max(0, 60 - ms / 1000))   # one reading a minute
     print(json.dumps({'kind': f'{mode}_done', 'n': len(lat), 'p50': sorted(lat)[len(lat) // 2], 'p95': p95(lat)}), flush=True)

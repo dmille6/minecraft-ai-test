@@ -51,6 +51,9 @@ const REQUIRED = [
   // harness 2 (11-12): pins the harness-1 prompts (stages 3, 3b, 4 are compared on them) and drives the real proxy process
   'voyager/test/harness2.test.mjs',
   'voyager/test/proxy-live.test.mjs',
+  // the Blackwell guard as it actually ran for 3b (11-10 owner limits); until 11-12 it existed only in a session scratchpad
+  'voyager/watch/bw-guard.sh',
+  'voyager/watch/blackwell_probe.py',
   'voyager/src/prompts.mjs',
   'voyager/src/library.mjs',
   'voyager/test/host-probe.mjs',
