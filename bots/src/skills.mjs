@@ -70,6 +70,7 @@ import { noteExitShort } from './toolhygiene.mjs'
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
 import { fullPlaceChain, fullPlaceResult, fullPlaceDetail, fullPlaceMinMs, fullPlaceVerb } from './fullplace.mjs'
+import { CHESTMERGE, mergeKey, mergePlan, mergeVerified, mergeDetail } from './chestmerge.mjs'
 import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
@@ -8583,6 +8584,59 @@ async function openTown (bot, block, ms) {
 }
 
 /**
+ * CHESTMERGE-01 (chestmerge.mjs): ROOM MADE INSIDE AN OPEN, OWNED TOWN CONTAINER -> { plan, done, err }. Up to `need`
+ * partial stacks are merged onto another stack of the same kind in the SAME container, each freeing one slot. Every pair
+ * is revalidated against the window right before it moves and again after the pickup; a merge counts only when the
+ * cursor is empty and the destination holds the sum. ANY surprise ends the merging: the cursor goes back into the slot
+ * the pickup emptied (one click, only while that slot is still empty), and whatever is then left on it is the CALLER's
+ * settleCursor. The clicks are bankInto's own: in craftsync's lockstep, tracked, refused in another window.
+ */
+async function mergeInto (bot, win, need, deadline, signal, onMutate = null) {
+  const plan = mergePlan(win.slots.slice(0, win.inventoryStart), { need })
+  const done = []
+  let err = null
+  if (!plan.length || win.selectedItem) return { plan, done, err }
+  const is = (slot, name, count) => { const x = win.slots[slot]; return !!x && x.name === name && x.count === count }
+  try {
+    await lockstepClicks(bot, async raw => {
+      let mutating = false
+      const click = async slot => {
+        check(signal)
+        if (bot.currentWindow !== win) throw stop('the window changed')
+        if (!mutating) { mutating = true; try { onMutate?.() } catch { /* advisory */ } }
+        const p = trackedClick(bot, raw, slot, 0, 0)
+        p.catch(() => {})
+        if ((await within(p, Math.max(250, deadline - Date.now()))) === TIMED_OUT) throw stop('a click went unanswered')
+      }
+      for (const m of plan) {
+        check(signal)
+        if (Date.now() > deadline - TD_SETTLE_MS) break
+        // the container moved under the plan: this pair is left alone, never forced
+        if (win.selectedItem) break
+        if (!is(m.from, m.name, m.count) || !is(m.to, m.name, m.into) || mergeKey(win.slots[m.from]) == null || mergeKey(win.slots[m.from]) !== mergeKey(win.slots[m.to])) continue
+        // ANY SURPRISE: what the cursor holds goes into the slot the pickup emptied (one click, only while that slot is
+        // still empty -- an empty slot takes any whole stack), and the merging ends
+        const back = async () => { if (win.selectedItem && !win.slots[m.from]) await click(m.from) }
+        await click(m.from)
+        const cur = win.selectedItem
+        if (!cur || cur.name !== m.name || cur.count !== m.count || win.slots[m.from]) { await back(); throw stop(`picked up ${cur?.name ?? 'nothing'}, not the ${m.name} to merge`) }
+        // the destination re-read AFTER the pickup
+        if (!is(m.to, m.name, m.into)) { await back(); throw stop(`the ${m.name} in slot ${m.to} changed before the merge`) }
+        await click(m.to)
+        if (!win.selectedItem && is(m.to, m.name, m.sum)) { done.push(m); continue }
+        // a swap or a part merge: the server's stack was not the client's
+        await back()
+        throw stop(`the ${m.name} did not merge into slot ${m.to}`)
+      }
+    }, { deadline, signal })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    err = String(e?.message ?? e).slice(0, 80)
+  }
+  return { plan, done, err }
+}
+
+/**
  * Bank the plan into one OPEN, OWNED container. -> { done: [{ step, it, dest }], full, err }. Each step is one whole
  * stack, revalidated against the window right before it moves: a left click on its slot (the cursor must then hold
  * exactly that stack), then -- the destination re-read AFTER the pickup -- a left click on an EMPTY container slot.
@@ -8594,6 +8648,17 @@ async function openTown (bot, block, ms) {
 async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null } = {}) {
   const bag = windowBag(bot, win)
   const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail })
+  // CHESTMERGE-01: the plan needs more empty slots than the container has -> partial stacks of one kind are merged INSIDE
+  // it first, one freed slot per merge, only as many as the plan lacks. A cursor the merge could not empty ends this
+  // container's visit before any deposit click (the caller settles it).
+  let merge = null
+  const free0 = win.slots.slice(0, win.inventoryStart).filter(x => !x).length
+  if (CHESTMERGE.on && plan.steps.length > free0) {
+    const t0 = Date.now()
+    merge = { need: plan.steps.length - free0, free: free0, ...(await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate)) }
+    merge.ms = Date.now() - t0
+    if (win.selectedItem) return { done: [], full: false, noRoom: false, err: merge.err ?? 'the cursor is loaded after a merge', capRefused: { at_cap: 0, unknown: 0, outside: 0 }, stock: { claims: 0, refused: 0, valve: 0 }, reserved, merge }
+  }
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   // towndeposit-02: NO EMPTY CONTAINER SLOT at the open (the only room a whole-stack move uses) -- the caller remembers it full
@@ -8654,7 +8719,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   }
   // the claims are released by the CALLER, after the cursor is settled (Codex code r1 P1: a pending click or the cursor's
   // rescue may still move items) -- with the window's count, or a dirty mark when the window is held
-  return { done, full, noRoom, err, capRefused, stock, reserved }
+  return { done, full, noRoom, err, capRefused, stock, reserved, merge }
 }
 
 /**
@@ -8664,16 +8729,18 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
  * only when its destination slot holds that stack in the server's copy. -> { verified: [{ step, it }], ok } where ok is
  * false when the re-open did not come back (then nothing is credited and the run says unverified).
  */
-async function verifyTown (bot, block, done, ms) {
-  if (!done.length) return { verified: [], ok: true, bag: null, ix: null }
+async function verifyTown (bot, block, done, ms, { always = false } = {}) {
+  // chestmerge-01: `always` re-opens with no deposit step to verify (the container's merges are read from the same re-open)
+  if (!done.length && !always) return { verified: [], ok: true, bag: null, ix: null, slots: null }
   const win = await openTown(bot, block, ms)
-  if (!win) return { verified: [], ok: false, bag: null, ix: null }
+  if (!win) return { verified: [], ok: false, bag: null, ix: null, slots: null }
   try {
     // townindex-01: the re-open IS an open -- the server's contents after the clicks, the container known again
     const ix = townIndexObserve(bot, block.position, win, 'verify')
     const bag = {}
     for (const it of windowBag(bot, win)) bag[it.name] = (bag[it.name] ?? 0) + (it.count ?? 0)
-    return { ok: true, bag, ix, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
+    const slots = win.slots.slice(0, win.inventoryStart).map(x => (x ? { name: x.name, count: x.count } : null))
+    return { ok: true, bag, ix, slots, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
   } finally { try { win.close() } catch { /* already closed */ } }
 }
 
@@ -8795,7 +8862,7 @@ async function townDeposit (ctx, _args, signal) {
       } finally {
         settled = await settleCursor(bot, win)
         // THE RUN'S CLAIMS, released after the settle: the window's count, or (held) a dirty mark for the container
-        try { if (reservedHere.length || r.done?.length) await cobbleObserve(bot, c.position, win, { releaseAll: reservedHere, dirtyIfLost: true, lost: settled.state === 'unresolved' }) } catch { /* the claims stay live: conservative */ }
+        try { if (reservedHere.length || r.done?.length || r.merge?.plan?.length) await cobbleObserve(bot, c.position, win, { releaseAll: reservedHere, dirtyIfLost: true, lost: settled.state === 'unresolved' }) } catch { /* the claims stay live: conservative */ }
         if (ixDirty) { if (settled.state === 'unresolved') indexHold(bot, win, c.position, 'town_deposit', ixOp); else townIndexDirty(bot, c.position, 'town_deposit', 'post', ixOp) }
         if (settled.state === 'unresolved') holdUnsettled(bot, win, settled, own)
         // A WINDOW THE SERVER ALREADY CLOSED is not closed again (Codex round 2): mineflayer's close copies the window
@@ -8809,7 +8876,17 @@ async function townDeposit (ctx, _args, signal) {
       }
       clicked += r.done.length
       for (const { step } of r.done) attempted[step.name] = (attempted[step.name] ?? 0) + step.count
-      const v = await verifyTown(bot, block, r.done, openMs())
+      const merged = r.merge?.done ?? []
+      const v = await verifyTown(bot, block, r.done, openMs(), { always: merged.length > 0 || !!r.merge?.err })
+      // CHESTMERGE-01: one `_chestmerge` row per container the run tried to make room in -- what it planned, what the
+      // client saw through, and how many of those the server's copy shows on the re-open (`unread`: no re-open came back)
+      if (r.merge?.plan?.length) {
+        try {
+          const seen = v.ok && v.slots ? mergeVerified(merged, v.slots) : null
+          logEvent({ kind: 'chestmerge', status: !merged.length ? 'no_effect' : seen == null ? 'unknown' : seen === merged.length ? 'success' : 'failed', snapshot: snapshot(bot),
+                     detail: mergeDetail({ at, need: r.merge.need, free: r.merge.free, planned: r.merge.plan.length, merged: merged.length, verified: seen, banked: r.done.length, err: r.merge.err, ms: r.merge.ms }) })
+        } catch { /* telemetry */ }
+      }
       if (!v.ok) unverified += r.done.length
       if (v.bag) serverBag = v.bag
       // THE TOWN INDEX's transfer records: each VERIFIED stack, with its pre-state (this visit's open) and the re-open's id
