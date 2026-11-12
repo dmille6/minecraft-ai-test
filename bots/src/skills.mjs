@@ -188,7 +188,7 @@ import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWai
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
-import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
+import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
@@ -17929,7 +17929,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // wall-01: a repair this bot has tried REPAIR_TRIES times that still reads damaged waits behind the open projects (shop.mjs
     // repairBackoff); a VISIT's pick (build_shop) is counted (noteRepair)
     const rmem = b ? (b.shopRepairs ??= new Map()) : null
-    const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
+    const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now, { worker: G2.on && st.plot === TIDY_PLOT && !!b && !keeperLeaseNow(b, now) }) }))
     // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
     // the states before it
     // zigtidy-02: a complete record's stamp whose cells all read done now is stale (projStuckLive)
@@ -18024,17 +18024,17 @@ function hallSiteFor (bot, plan, c, stood) {
 }
 /** stepwell-05: a project's admission slots now -- the stepwell's from its record (stepwell.mjs stepwellBuildersNow: raised only after
  *  the felling, never above STEPWELL_CREW), every other project's as listed (shop.mjs buildersOf). Unreadable: the listed count. */
-function buildersFor (p) {
-  // grounds-01: at most GROUNDS2.maxBots bots on the grounds at once, the keeper among them (grounds2.mjs groundsSlots)
-  if (p?.plot === TIDY_PLOT && G2.on) return groundsSlots(buildersOf(p))
+function buildersFor (p, { worker = false } = {}) {
+  // grounds-01: at most GROUNDS2.maxBots bots on the grounds at once, the last slot the keeper's (grounds2.mjs groundsSlots)
+  if (p?.plot === TIDY_PLOT && G2.on) return groundsSlots(buildersOf(p), { worker })
   if (p?.plot !== STEPWELL_PLOT) return buildersOf(p)
   try { const h = recordHead(townDir(), projKeyOf(STEPWELL_PLOT)); return h.ok && h.head?.rec ? stepwellBuildersNow(h.head.rec) : buildersOf(p) } catch { return buildersOf(p) }
 }
 /** Has project `p` an admission slot this holder may take (none held, its own, or lapsed)? Unreadable: free (the order's own
  *  slot check then decides, as before). */
-function slotFreeFor (p, holder, now = Date.now()) {
+function slotFreeFor (p, holder, now = Date.now(), { worker = false } = {}) {
   try {
-    for (let k = 1; k <= buildersFor(p); k++) {
+    for (let k = 1; k <= buildersFor(p, { worker }); k++) {
       const st = projLeaseState(townDir(), projKeyOf(p.plot), `slot${k}`)
       if (!st || st.rec?.holder === holder || now >= st.blocksUntil) return true
     }
@@ -26864,7 +26864,7 @@ function groundsBegin (bot, now = Date.now()) {
     bot.g2Turn = turn
     const R = g2Record(dir, now), keeper = keeperLeaseNow(bot, now)
     const open = R.state === 'open' ? g2OpenNow(dir, R.rec, now) : null
-    const d = groundsDecide({ on: true, keeper, decor: decorLeaseNow(bot, now), record: R.state, open, turn, emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), slotFree: slotFreeFor(tidyP, keeperMe(bot), now), now })
+    const d = groundsDecide({ on: true, keeper, decor: decorLeaseNow(bot, now), record: R.state, open, turn, emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), slotFree: slotFreeFor(tidyP, keeperMe(bot), now, { worker: !keeper }), now })
     if (d.took === 'tidy') { bot.groundsPick = { at: now }; if (bot.projReserve) bot.projReserve.at = -Infinity }
     bot.g2Visit = { ...d, turn, open, keeper }
     return bot.g2Visit
@@ -26891,7 +26891,7 @@ function groundsEnd (bot, g, r) {
   bot.g2Visit = null
 }
 /** grounds-01: the glue's steps, for the tests and a sandbox drive: never called by the bot itself. */
-export const _grounds2 = Object.freeze({ G2, groundsBegin, groundsEnd, g2Eligible, buildersFor: p => buildersFor(p) })
+export const _grounds2 = Object.freeze({ G2, groundsBegin, groundsEnd, g2Eligible, buildersFor: (p, o) => buildersFor(p, o) })
 /** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
  *  laid path) and their reservations. Throws on an unreadable file. */
 function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
@@ -26969,7 +26969,8 @@ function crewNow (dir, key, now = Date.now()) {
 }
 /** The other live crew bots' park plants (park.mjs pantrySum over buildproj pantryRead). Never throws. */
 function crewPantry (dir, key, me, now = Date.now()) {
-  try { const live = crewNow(dir, key, now); return pantrySum(pantryRead(dir, key), { now, fresh: GK.helperTtlMs, live: h => live.has(h), me }) } catch { return {} }
+  // grounds-01 (grounds2.mjs crewPantrySum): a WORKER holds no crew lease -- its fresh pantry counts all the same
+  try { const live = crewNow(dir, key, now); return crewPantrySum(pantryRead(dir, key), { on: G2.on, now, me, leased: h => live.has(h), leaseFresh: GK.helperTtlMs }) } catch { return {} }
 }
 /** The town's park as the plan keeps it -> park | null: the land plan's copy once it carries `placed` (synced by the keeper), else
  *  the newest tidy generation that has one (the terrace stage's). Never throws. */
@@ -28152,7 +28153,7 @@ async function buildTidyVisit (ctx, args, signal) {
   const standQ = q => !!paStands && Array.isArray(q?.at) && (q.role != null ? paStands.feet : paStands.floor).has(q.at.join(','))
   const claimedQ = q => (claimsNow.length > 0 && claimEntry(q, claimsNow)) || standQ(q)
   const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
-  const slot = takeSlot(dir, key, me, lane === 'country' ? COUNTRY.builders : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT)))   // grounds-01: buildersFor (GROUNDS2.maxBots)
+  const slot = takeSlot(dir, key, me, lane === 'country' ? COUNTRY.builders : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT), { worker }))   // grounds-01: buildersFor (GROUNDS2.maxBots, the last slot the keeper's)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
   let effects = null

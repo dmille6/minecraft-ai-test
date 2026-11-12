@@ -28,8 +28,9 @@
 // GROUNDS2=off|0|false|no restores the keeper and its helpers exactly.
 
 import { GK_FIT, groundsUnfit } from './groundskeeper.mjs'
+import { pantrySum } from './park.mjs'
 
-export const GROUNDS2 = Object.freeze({ big: 500, small: 100, shareBig: 2, shareSmall: 4, emptyMs: 10 * 60_000, maxBots: 4 })
+export const GROUNDS2 = Object.freeze({ big: 500, small: 100, shareBig: 2, shareSmall: 4, emptyMs: 10 * 60_000, maxBots: 4, workerLiveMs: 45 * 60_000 })
 /** THE SWITCH -> bool. On unless GROUNDS2 says off. Pure. */
 export const grounds2On = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.GROUNDS2 ?? '').trim().toLowerCase())
 
@@ -107,8 +108,17 @@ export const groundsOrderD = (d, eligible) => (d === 'mine' ? 'mine' : eligible 
 /** THE VISIT'S ROLE -> 'keeper' (it holds the lease: the plan is its) | 'worker'. Pure. `kept`: the keeper lease was renewed or
  *  taken by this visit. */
 export const groundsRole = ({ d, kept = false } = {}) => ((d === 'mine' || d === 'take') && kept ? 'keeper' : 'worker')
-/** The tidy's admission slots under grounds-01 -> int: at most GROUNDS2.maxBots bots on the grounds at once. Pure. */
-export const groundsSlots = (n, G = GROUNDS2) => Math.max(1, Math.min(Number(n) > 0 ? Number(n) : G.maxBots, G.maxBots))
+/**
+ * The tidy's admission slots under grounds-01 -> int: at most GROUNDS2.maxBots bots on the grounds at once, and THE LAST SLOT IS
+ * THE KEEPER'S (review r1, Claude BLOCKER: with four slots anyone could take, four workers on their quota turns held them all; the
+ * keeper's visit ended `slots_full` before the waivers, the strike close-out, the completion and the plantings only it may do,
+ * and after 20 idle minutes it let its lease go -- the cells only it can waive then held every segment open). A WORKER counts one
+ * slot fewer, so slot N is never a worker's and the keeper always finds one. Pure.
+ */
+export const groundsSlots = (n, { worker = false, G = GROUNDS2 } = {}) => {
+  const all = Math.max(1, Math.min(Number(n) > 0 ? Number(n) : G.maxBots, G.maxBots))
+  return worker ? Math.max(1, all - 1) : all
+}
 /**
  * HAS A QUOTA VISIT NOTHING READY FOR THIS BOT NOW? -> bool. Pure. Nothing: no fill segment it may take (every open one held, within
  * the gap of another bot's, or waiting on a layer below) AND no cut it may dig (none listed for it, or the one clear lease is
@@ -164,6 +174,17 @@ export const stairSeg = (record, seg, open = () => true) => seg != null && (reco
  *  workable segment is one of them. Not ready: the share as it was. Pure. */
 export const stairsShare = (share, ready) => (ready ? { ...share, clearsLast: true, stairs: true } : share)
 
+/**
+ * THE CREW'S PANTRY UNDER GROUNDS-01 -> { name: n } (review r1, Codex BLOCKER: a worker holds no crew lease, so the keeper's
+ * lease-based liveness test dropped its pantry -- a worker carrying the park's last flowers whose visit ended before it planted
+ * them was invisible, the keeper passed those cells `no_flowers`, counted them done and published the stage complete over them).
+ * On: every OTHER bot's pantry written within G.workerLiveMs counts, lease or no lease (a worker comes back about every second
+ * build order, some 20 minutes; a bot that left with the flowers stops holding the stage open after that window). Off: the crew
+ * leases' rule exactly (`leased(holder)`, fresh within `leaseFresh`). Pure.
+ */
+export function crewPantrySum (pantry, { on = true, now = Date.now(), me = null, leased = () => false, leaseFresh = 12 * 60_000, G = GROUNDS2 } = {}) {
+  return on ? pantrySum(pantry, { now, fresh: G.workerLiveMs, live: () => true, me }) : pantrySum(pantry, { now, fresh: leaseFresh, live: leased, me })
+}
 /** `_grounds_quota`: one row a build visit -- the decision, then what the visit did. Pure. */
 export const groundsQuotaDetail = ({ on = true, turn = 0, open = null, share = 0, took = 'other', why = '-', placed = null, cleared = null, empty = false, out = '-' } = {}) =>
   `on=${on ? 1 : 0} turn=${turn} open=${open ?? '-'} share=${share} took=${took} why=${why} placed=${placed ?? '-'} cleared=${cleared ?? '-'} empty=${empty ? 1 : 0} out=${out}`

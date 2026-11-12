@@ -119,6 +119,8 @@ await t('groundsRecord / groundsOrderD / groundsRole / groundsSlots / groundsNon
   for (const d of ['other', 'none', 'release']) assert.strictEqual(G2.groundsRole({ d, kept: true }), 'worker', d)
   assert.strictEqual(G2.groundsRole({ d: 'take', kept: false }), 'worker', 'the take lost: it works on, never keeper_held')
   assert.deepStrictEqual([G2.groundsSlots(5), G2.groundsSlots(3), G2.groundsSlots(undefined)], [4, 3, 4])
+  // review r1 (Claude): the last slot is the keeper's -- a worker counts one fewer, never below one
+  assert.deepStrictEqual([G2.groundsSlots(5, { worker: true }), G2.groundsSlots(3, { worker: true }), G2.groundsSlots(1, { worker: true })], [3, 2, 1])
   assert.strictEqual(G2.groundsNone({ seg: null, cuts: 0, clearFree: true }), true)
   assert.strictEqual(G2.groundsNone({ seg: null, cuts: 9, clearFree: false }), true, 'the one clear lease is another bot\'s')
   assert.strictEqual(G2.groundsNone({ seg: null, cuts: 9, clearFree: true }), false, 'no fill, but a cut it may dig')
@@ -136,6 +138,38 @@ await t('the rows: `_grounds_quota` names every field; `_grounds_mode` says on=0
   assert.strictEqual(G2.groundsModeDetail(false).startsWith('on=0 '), true)
   assert.strictEqual(G2.grounds2On({}), true, 'default ON')
   for (const v of ['off', '0', 'false', 'no', ' OFF ']) assert.strictEqual(G2.grounds2On({ GROUNDS2: v }), false, v)
+})
+
+console.log('THE CREW\'S PANTRY (crewPantrySum): a worker holds no lease, and its flowers still hold the stage open (review r1)')
+await t('a worker\'s fresh pantry counts with no lease; a stale one, and my own, do not; GROUNDS2=off keeps the lease rule', async () => {
+  const P = await import('../src/park.mjs')
+  const now = 10_000_000, min = 60_000
+  const flower = [...P.PARK_ITEMS].find(n => /poppy|dandelion|tulip|daisy|cornflower|allium/.test(n)) ?? [...P.PARK_ITEMS][0]
+  const pantry = { Worker: { at: now - 20 * min, items: { [flower]: 3 } }, Gone: { at: now - 46 * min, items: { [flower]: 5 } }, Me: { at: now, items: { [flower]: 9 } } }
+  assert.deepStrictEqual(G2.crewPantrySum(pantry, { on: true, now, me: 'Me' }), { [flower]: 3 }, 'the worker\'s, 20 min old: counted; 46 min old: not; mine: never')
+  assert.deepStrictEqual(G2.crewPantrySum(pantry, { on: false, now, me: 'Me', leased: () => false }), {}, 'off: no lease, no pantry (the old rule, and the positive control for the blocker)')
+  assert.deepStrictEqual(G2.crewPantrySum({ Helper: { at: now - 5 * min, items: { [flower]: 2 } } }, { on: false, now, me: 'Me', leased: h => h === 'Helper' }), { [flower]: 2 }, 'off: a lease holder\'s fresh pantry')
+  assert.deepStrictEqual(G2.crewPantrySum({ Helper: { at: now - 20 * min, items: { [flower]: 2 } } }, { on: false, now, me: 'Me', leased: () => true }), {}, 'off: 12 minutes is the lease rule\'s window')
+  // the chain the review named: the keeper's visit passed a planting `no_flowers`; a worker's pantry holds the flowers -> the cell is
+  // HELD (park.mjs parkHeldByCrew), so the keeper does not count the stage complete over it
+  const role = [...P.PARK_PLACE_ROLES].find(r => P.elementOf(r) && P.PARK_ITEMS.has(flower) && P.haveOf({ [flower]: 1 }, P.elementOf(r)) > 0)
+  if (role) {
+    const rec = { cells: [{ at: [1, 70, 1], role, seg: 's' }] }
+    const skip = () => `no_${P.elementOf(role)}`
+    assert.strictEqual(P.parkHeldByCrew(rec, { skip, others: G2.crewPantrySum(pantry, { on: true, now, me: 'Me' }) }).length, 1, 'held: the worker carries it')
+    assert.strictEqual(P.parkHeldByCrew(rec, { skip, others: G2.crewPantrySum(pantry, { on: false, now, me: 'Me', leased: () => false }) }).length, 0, 'the lease rule dropped it: the stage would complete over the cell')
+  }
+  let why = null
+  await withMutant(G2_PATH, '  return on ? pantrySum(pantry, { now, fresh: G.workerLiveMs, live: () => true, me })', '  return false ? pantrySum(pantry, { now, fresh: G.workerLiveMs, live: () => true, me })', async M => {
+    try { assert.deepStrictEqual(M.crewPantrySum(pantry, { on: true, now, me: 'Me' }), { [flower]: 3 }) } catch (err) { why = err }
+  })
+  assert.ok(why, 'MUTANT (the lease rule under grounds-01) survived')
+})
+await t('the wiring: skills.mjs crewPantry asks crewPantrySum with the switch (structural; a cut line fails)', () => {
+  const src = fs.readFileSync(SKILLS_FILE, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const line = 'return crewPantrySum(pantryRead(dir, key), { on: G2.on, now, me, leased: h => live.has(h), leaseFresh: GK.helperTtlMs })'
+  assert.strictEqual(src.split(line).length, 2, 'the one call, on the executable path')
+  assert.ok(!/pantrySum\(pantryRead\(dir, key\)/.test(src), 'the lease-only sum is gone from crewPantry')
 })
 
 console.log('THE DECISION (groundsDecide): every link, and what each broken link falls back to -- the order, never a refusal')
@@ -484,12 +518,29 @@ await t('the keeper\'s order is its own (never the quota\'s); four bots on the g
   visitOf(SK, b, Date.now())
   const v = visitOf(SK, b, Date.now())
   assert.deepStrictEqual([v.g.took, v.g.why, v.picked], ['other', 'full', false])
-  // control: three on them -> the fourth slot is this bot's
+  // review r1 (Claude BLOCKER): THE LAST SLOT IS THE KEEPER'S. Three workers on the grounds -> a fourth worker's turn is the
+  // order's (it may not take slot 4), so the keeper is never locked out of the waivers and the completion only it may do
   const dir2 = town()
   for (let n = 1; n <= 3; n++) PJ.takeLease(dir2, TKEY, `slot${n}`, `B${n}`, { now: Date.now() })
   const b2 = mkBot()
   visitOf(SK, b2, Date.now())
-  assert.strictEqual(visitOf(SK, b2, Date.now()).picked, true)
+  const v2 = visitOf(SK, b2, Date.now())
+  assert.deepStrictEqual([v2.g.took, v2.g.why, v2.picked], ['other', 'full', false], 'three workers hold the worker slots: the fourth slot is not a worker\'s')
+  assert.strictEqual(SK._grounds2.buildersFor({ plot: 'tidy', builders: 5 }), 4, 'the keeper counts all four')
+  assert.strictEqual(SK._grounds2.buildersFor({ plot: 'tidy', builders: 5 }, { worker: true }), 3, 'a worker counts three')
+  // control: two on them -> the third slot is this bot's
+  const dir3 = town()
+  for (let n = 1; n <= 2; n++) PJ.takeLease(dir3, TKEY, `slot${n}`, `B${n}`, { now: Date.now() })
+  const b3 = mkBot()
+  visitOf(SK, b3, Date.now())
+  assert.strictEqual(visitOf(SK, b3, Date.now()).picked, true)
+})
+await t('MUTANT: a worker counts every slot -- with three workers on the grounds a fourth takes the keeper\'s slot (killed)', async () => {
+  let why = null
+  await withMutant(G2_PATH, '  return worker ? Math.max(1, all - 1) : all\n', '  return all\n', async M => {
+    try { assert.deepStrictEqual([M.groundsSlots(4, { worker: true }), M.groundsSlots(4)], [3, 4]) } catch (err) { why = err }
+  })
+  assert.ok(why, 'the mutant survived')
 })
 await t('CHAIN 1 on the glue: an empty grounds visit spends the bot\'s turns 10 minutes (row empty=1), then the grounds again; an interrupted visit spends nothing', () => {
   town()
@@ -646,7 +697,7 @@ await t('a cut is given up by a bot after TIDY_CUT_TRIES evaluated visits that l
   for (let i = 1; i <= T.TIDY_CUT_TRIES; i++) { assert.strictEqual(T.tidyGivenUp(mem, '5,71,5'), false, `try ${i}`); T.tidyNoteCuts(mem, ['5,71,5'], () => true) }
   assert.strictEqual(T.tidyGivenUp(mem, '5,71,5'), true)
   assert.strictEqual(T.TIDY_CUT_TRIES, 3)
-  assert.deepStrictEqual(Object.keys(G2.GROUNDS2).sort(), ['big', 'emptyMs', 'maxBots', 'shareBig', 'shareSmall', 'small'])
+  assert.deepStrictEqual(Object.keys(G2.GROUNDS2).sort(), ['big', 'emptyMs', 'maxBots', 'shareBig', 'shareSmall', 'small', 'workerLiveMs'])
 })
 
 console.log('THE WIRING (skills.mjs; structural: what the fakes cannot reach -- comments stripped, each line once, a cut line fails)')
@@ -657,7 +708,7 @@ const WIRES = [
   'if (!groundsPassed(gr)) return groundsResult(gr)',
   // the order and the slots
   'if (G2.on) d = groundsOrderD(d, !decorHeld && g2Eligible(bot).ok)',
-  'if (p?.plot === TIDY_PLOT && G2.on) return groundsSlots(buildersOf(p))',
+  'if (p?.plot === TIDY_PLOT && G2.on) return groundsSlots(buildersOf(p), { worker })',
   // the role: no helper lease, no turning away -- and the OLD crew path still there, under the switch
   "worker = groundsRole({ d: k.d, kept: (k.d === 'mine' || k.d === 'take') && takeKeeper(bot, k.lease).ok }) === 'worker'",
   '} else if (GROUNDS.on) {',
