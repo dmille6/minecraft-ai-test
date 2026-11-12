@@ -376,8 +376,9 @@ export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z))
  * THE SEEDS (D3, r4): cells a bot STOOD on -- home's own start cell (the nearest node within 2 of home), and every `stood` feet
  * cell inside the town circle that is a node here. Never "every plaza cell" (Codex r1 P2: a moat inside the plaza), never "beside
  * a chest" (Codex r2/r3 P2: a chest in a wall is opened from either side).
+ * standcache-01 (`graph`: an object the walk FILLS, for walkAgain): its seeds in order, every node's steps in order, the nodes' cells.
  */
-export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null, avoid = null } = {}) {
+export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null, avoid = null, graph = null } = {}) {
   const isNode = (x, y, z) => {
     // reroof-04 r5 (`avoid`: feet keys never a node -- a ledge whose fall lands off the town walk, reroof.mjs reroofFallRisk)
     if (avoid?.has(k3(x, y, z))) return false
@@ -440,7 +441,68 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stoo
   for (const [id, v] of votes) if (town < 0 || v > votes.get(town) || (v === votes.get(town) && size[id] > size[town])) town = id
   const seen = new Set(), q = []
   for (const [c] of tagged) { const key = k3(...c); if (comp.get(key) === town && !seen.has(key)) { seen.add(key); q.push(c) } }
+  if (graph) {
+    // standcache-01: the same walk, its steps kept ({ seeds: [key], adj: key -> [key], at: key -> [x, y, z], all: the Set returned })
+    graph.seeds = q.map(c => k3(...c)); graph.adj = new Map(); graph.at = new Map(q.map(c => [k3(...c), c])); graph.all = seen
+    for (let i = 0; i < q.length; i++) {
+      const to = []
+      for (const n of next(q[i], radius)) { const key = k3(...n); to.push(key); if (!seen.has(key)) { seen.add(key); q.push(n); graph.at.set(key, n) } }
+      graph.adj.set(k3(...q[i]), to)
+    }
+    return seen
+  }
   for (let i = 0; i < q.length; i++) for (const n of next(q[i], radius)) { const key = k3(...n); if (!seen.has(key)) { seen.add(key); q.push(n) } }
+  return seen
+}
+
+/**
+ * standcache-01: THE SAME WALK OVER OTHER OBSTACLES, WITHOUT READING THE WORLD AGAIN -> Set of feet keys: walkFrom(read, home, block,
+ * radius, opts)'s own result, key for key and in the same order. `graph` is what a walk with NO obstacles kept (walkFrom's `graph`:
+ * the same read, home, radius, stood, floors and avoid, block and noFloor empty) over the world as it still is.
+ * (Measured 11-12, scripts/standbench.mjs: a 1,661-segment tidy record over a 100-block walled town through the bot's own block
+ * read -- runVisit walked once per pass, 329,113 block reads and 251 ms at walkR 72, 580,284 and 484 ms at 96, and every segment's
+ * obstacles are its own open cells, so no two passes ever asked for the same walk. From the kept steps: 0 block reads, 3 ms where
+ * the obstacles touch the walk, nothing where they do not; about 15,000 reads and 17 ms where the seeds are chosen again.)
+ * WHY IT IS THE SAME WALK. An obstacle only ever takes from the walk: `block` makes a cell, the cell over it and the cell under it no
+ * node, and closes the head room of a step up from (or down to) the node two under it; `noFloor` makes the cell over it no node
+ * (walkFrom's isNode and next). And a step never CHANGES where it lands: of a neighbour column's three heights at most one is a
+ * node by what the world reads (a node's floor is a solid box, its feet and head are empty ones), so the obstacle walk's steps are
+ * exactly the kept steps less the ones an obstacle closes -- a node reached only through a closed step drops out, because the walk
+ * is walked again from the seeds over the kept steps (never patched). The seeds: an obstacle outside the town circle is never asked
+ * about while they are chosen (every cell asked about there is in a column within TOWN_R of home), so they are the kept ones; with
+ * an obstacle inside it they are chosen again by walkFrom itself (radius 0: the seeds and the town's pieces only), and if one of
+ * them is no node of the kept walk the whole walk is made the old way.
+ */
+export function walkAgain (graph, read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null, avoid = null } = {}) {
+  const { adj, at } = graph
+  const dead = new Set(), low = new Set()
+  let inTown = false
+  const take = (k, floorOnly) => {
+    const [x, y, z] = k.split(',').map(Number)
+    if (Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= TOWN_R) inTown = true
+    for (const n of floorOnly ? [k3(x, y + 1, z)] : [k, k3(x, y + 1, z), k3(x, y - 1, z)]) if (adj.has(n)) dead.add(n)
+    if (!floorOnly) { const u = k3(x, y - 2, z); if (adj.has(u)) low.add(u) }
+  }
+  for (const k of block) take(k, false)
+  for (const k of noFloor ?? []) take(k, true)
+  let seeds = graph.seeds
+  if (inTown) {
+    const g = {}
+    walkFrom(read, home, block, 0, { stood, noFloor, floors, avoid, graph: g })
+    if (!g.seeds.every(k => adj.has(k))) return walkFrom(read, home, block, radius, { stood, noFloor, floors, avoid })
+    seeds = g.seeds
+  } else if (!dead.size && !low.size) return graph.all            // no obstacle touches the kept walk: it IS the walk
+  const seen = new Set(), q = []
+  for (const k of seeds) if (!seen.has(k) && !dead.has(k)) { seen.add(k); q.push(k) }
+  for (let i = 0; i < q.length; i++) {
+    const y = at.get(q[i])[1], headShut = low.has(q[i])
+    for (const m of adj.get(q[i])) {
+      if (seen.has(m) || dead.has(m)) continue
+      const dy = at.get(m)[1] - y
+      if ((dy === 1 && headShut) || (dy === -1 && low.has(m))) continue
+      seen.add(m); q.push(m)
+    }
+  }
   return seen
 }
 

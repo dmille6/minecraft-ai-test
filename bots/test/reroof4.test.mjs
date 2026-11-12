@@ -310,7 +310,12 @@ await t('wired (structural, comments stripped): buildReroof asks reroofProve and
   assert.ok(sk.includes("    if (reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)"), 'the teardown on any stop (Codex r1 BLOCKER)')
   assert.ok(sk.includes('    if (r?.restyle && reroofTempState(bot, r)) return true'))
   const br = strip('../src/buildrun.mjs')
-  assert.ok(br.includes('walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null, avoid: avoidSet })'))
+  // standcache-01: the visit's walk is made three ways (as before with STANDCACHE off; the kept walk; an obstacle set's walk from it),
+  // each over the walk's own read with the one options object that carries the floors and the avoid set
+  assert.strictEqual(br.split('const walkOpts = noFloor => ({ stood, noFloor, floors: p.floors ?? null, avoid: avoidSet })').length, 2)
+  assert.ok(br.includes('walkFrom(walkRd, home, block, walkR, walkOpts(noFloor))'))
+  assert.ok(br.includes('walkFrom(walkRd, home, new Set(), walkR, { ...walkOpts(null), graph })'))
+  assert.ok(br.includes('walkAgain(walkMem.graph, walkRd, home, block, walkR, walkOpts(noFloor))'))
   assert.ok(br.includes('  if (!stairOpen && !p.clearsLast) { const s = await clears(); if (s) { out.stop = s; return out } }'))   // fillshare-01: a helper's clears last
   assert.strictEqual(RR.reroofFixes({ REROOF_ACCESS: 'off' }).access, false)
 })

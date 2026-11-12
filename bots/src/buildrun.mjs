@@ -28,7 +28,7 @@
 //   a timer. After the wait the block is HELD again and the face looked at again.
 
 import { performance } from 'node:perf_hooks'
-import { walkFrom, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative, refUsable } from './buildsite.mjs'
+import { walkFrom, walkAgain, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative, refUsable } from './buildsite.mjs'
 import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
@@ -62,6 +62,24 @@ export function breathDue (lastMs, nowMs, budgetMs = BREATH_MS) {
   return nowMs - lastMs >= budgetMs
 }
 const wallNow = () => performance.now()
+// standcache-01 (LIVE showcase 11-12, the town tidy -- about 4,900 cells in 1,661 segments, 2-minute visits: Gale `deferred` at 53,
+// 66 and 82 s, then aborted with nothing laid; Delta the same at 51, 60, 71 s; 10 to 16 s a cell no stand reaches, the bot standing
+// still). MEASURED 11-12 on a record of that size through the bot's own block read: the visit walked the whole town again on EVERY
+// pass of a segment -- one walkFrom a deferred cell and one a placement, 329,113 block reads and 251 ms each at walkR 72 (484 ms at
+// 96, 954 ms at 136; an M4 -- scripts/standbench.mjs -- the showcase host is slower and shared by 14 bots), 85% of a deferred cell's
+// time; and a cache keyed on the obstacles alone would never hit: a segment's obstacles are its own open cells. THE WALK IS KEPT:
+// one walk with no obstacles (its steps kept: buildsite.mjs walkFrom `graph`) for the world as this visit has seen it, and every
+// obstacle set's walk made from it without a block read (walkAgain: walkFrom's own result, key for key -- 3 ms where the obstacles
+// touch the walk, nothing where they do not). It is dropped at every world change of this bot's -- a send (a
+// placement, a tool's use: landed, refused or silent), a dig, a probe, a cell made unknown or known again, a silent click's cell
+// reading another block later -- and after STAND_MS (other bots build too; a stand from a kept walk is proved again from the feet
+// the bot has before every click: `click` and `useClick`'s re-proof, digNamed's reach and name check). 3 s: a run of deferrals takes
+// milliseconds once they cost no walk, and a pass's plan is already that old at its click (the walk to the stand lies between them);
+// a deferral stands for the rest of its visit (2 min) either way.
+// STANDCACHE=off|0|false|no: one walkFrom a pass, as before.
+export const STAND_MS = 3_000
+export const standCacheOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.STANDCACHE ?? '').trim())
+const STANDCACHE_ON = standCacheOn()
 /**
  * plotprep-03: THE ONE TREE'S REPLANTS SETTLED? -> bool. `c` a tree clear; its replants are those with the same `tree` index (and the
  * same `plot` when either names one). A clear with no tree index, or a record none of whose replants carries one, falls back to
@@ -509,7 +527,8 @@ const byColumn = keys => {
  *       grass or dirt -> dirt_path) is used from a dig stand, never placed
  *   e   effects: read, feet, bodies, walkTo, hold, has, look, nextSeq, send, waitAck, track, untrack, conn, acked, seen, dig,
  *       probe, aborted, log, now, sleep, spawnedAt; optional `pause()` (keeperstall-01: one real event-loop turn; default setImmediate)
- *   opts { maxSteps, deadline, barrierWaitMs, breathe (default: the BREATHE switch), breathMs (default BREATH_MS) }
+ *   opts { maxSteps, deadline, barrierWaitMs, breathe (default: the BREATHE switch), breathMs (default BREATH_MS),
+ *          standCache (default: the STANDCACHE switch), standMs (default STAND_MS) }
  * Stops: complete | no_sapling | no_material | no_step | deps_open | fence:<why> | aborted | max_steps | deadline | blocked |
  *        attempts_spent | unknown.
  */
@@ -529,7 +548,7 @@ export async function runVisit (p, e, opts = {}) {
 }
 /** BODY WAITS a visit spends on a cell another builder stands in before it stops (`body_wait`) instead of spending its steps. */
 export const BODY_WAITS = 20
-async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS } = {}) {
+async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, standMs = STAND_MS } = {}) {
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
@@ -604,7 +623,37 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // ...and the pathfinder never walks over one either (Codex r5 BLOCKER: the guard filtered the stands only; a walk to a safe stand could
   // still cross a risky ledge): every walk of this visit carries the set in its step fence (buildbot.mjs walkTo `avoid`)
   if (avoidSet?.size) { const e0 = e; e = { ...e0, walkTo: (s, o = {}) => e0.walkTo(s, { ...o, avoid: o?.avoid?.size ? new Set([...o.avoid, ...avoidSet]) : avoidSet }) } }
-  const nodesFor = (block = new Set(), noFloor = null) => byColumn(walkFrom(walkRd, home, block, walkR, { stood, noFloor, floors: p.floors ?? null, avoid: avoidSet }))
+  // standcache-01, THE KEPT WALK (see STAND_MS): `touched(cell)` after every act on the world; `nodesFor` answers from the walk kept
+  // for this world (walkMem: its graph, and one node map per obstacle set asked), walking again only when the world moved or the
+  // walk is STAND_MS old (the wall's clock, taken when the walk ENDED: nothing is read from the socket while it runs)
+  let worldGen = 0, walkMem = null
+  const sentAt = new Map()   // a click's cell -> the block it read at the send: a silent one that lands later is a world change too
+  const noStep = new Map()   // a cell (and its wanted state) -> the node map no stand was found in: not searched again in that map
+  const touched = (cell = null) => { worldGen++; if (cell && standCache) sentAt.set(kOf(cell), nm(e.read(...cell))) }
+  const walkOpts = noFloor => ({ stood, noFloor, floors: p.floors ?? null, avoid: avoidSet })
+  const sigOf = set => (set?.size ? [...set].sort().join(' ') : '')
+  const nodesFor = (block = new Set(), noFloor = null) => {
+    if (!standCache) return byColumn(walkFrom(walkRd, home, block, walkR, walkOpts(noFloor)))
+    for (const [k, was] of sentAt) if (nm(e.read(...k.split(',').map(Number))) !== was) { sentAt.delete(k); worldGen++ }
+    if (!walkMem || walkMem.gen !== worldGen || walkMem.unknown !== unknown.size || !(wallNow() - walkMem.at < standMs)) {
+      const graph = {}
+      const all = walkFrom(walkRd, home, new Set(), walkR, { ...walkOpts(null), graph })
+      walkMem = { gen: worldGen, unknown: unknown.size, graph, by: new Map([['|', byColumn(all)]]), at: wallNow() }
+      noStep.clear()
+    }
+    const sig = `${sigOf(block)}|${sigOf(noFloor)}`
+    let nodes = walkMem.by.get(sig)
+    if (!nodes) {
+      const walk = walkAgain(walkMem.graph, walkRd, home, block, walkR, walkOpts(noFloor))
+      nodes = walk === walkMem.graph.all ? walkMem.by.get('|') : byColumn(walk)
+      walkMem.by.set(sig, nodes)
+    }
+    return nodes
+  }
+  // standcache-01: a cell no stand was found for in THIS node map is not searched in it again (the map is a new one after every
+  // world change and every STAND_MS: nodesFor)
+  const standKey = (c, w) => `${kOf(c.at)}|${w ? JSON.stringify(w) : ''}`
+  const noStandIn = (c, w, nodes) => standCache && noStep.get(standKey(c, w)) === nodes
   const conn = e.conn?.() ?? null
   const isRetired = (i, t) => PJ.intentRetired(i, { presence: PJ.presenceRead(dir, key, i.holder), ...(e.seen?.(i.holder, t) ?? {}), now: t })
   // the mutex's holder RETIRED (offline RETIRE_MS as this bot has seen it): it cannot send (Codex r2 P2: a reused pid kept a dead
@@ -674,6 +723,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (!isClear(cell)) { cancel(); return 'refused' }   // (isClear: air, a replaceable plant, or -- p.intoWater -- water)
         if (also && !also.every(a => isClear(a))) { cancel(); return 'refused' }   // cottage2-01: a bed's head cell must be free too
         e.send(here.support, here.face, seq, here.aim ?? null)   // SYNCHRONOUS after the fence: no await between them (an aim's yaw packet is in the same write)
+        touched(cell)
         const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
         release()
         // the intent stays OPEN and is TRACKED by the connection: its acknowledgement, however late, settles it (buildack.mjs)
@@ -710,6 +760,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     let v = await e.dig(at, name)
     for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = DUG(n) ? 'confirmed' : 'standing' }
     if (v === 'unconfirmed') { unknown.add(kOf(at)); out.unknown++; e.log('_build', { op: 'unknown', cell: at, block: name }) }
+    touched()
     return v
   }
   /** An unknown cell, asked again from a stand in reach -> its server name | null (still unknown). */
@@ -719,6 +770,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     await e.walkTo(stand)
     const n = await e.probe(at)
     if (n != null) { unknown.delete(kOf(at)); e.log('_build', { op: 'known', cell: at, block: n }) }
+    touched()
     return n
   }
 
@@ -746,6 +798,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!u.can(rd(...c.at)) || !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2]))) || !u.held()) return 'refused'
     const seq = e.nextSeq()
     e.send(c.at, [0, 1, 0], seq)
+    touched(c.at)
     const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
     if (v !== 'acked') return 'silent'
     if (!u.want(e.read(...c.at), c.at, e.read)) return 'refused'
@@ -778,6 +831,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (!replaceableCell(rd(...at)) && nm(rd(...at)) !== 'air') { cancel(); return 'refused' }
       }
       e.send(support, face, seq)              // SYNCHRONOUS after the fence: nothing awaited between them
+      touched(at)
       const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
       release()
       if (v !== 'acked') { if (id) e.track?.(id, seq); return 'silent' }
@@ -861,6 +915,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           if (access.mayDig && !access.mayDig(st.at)) return fail(`${kOf(st.at)} vetoed`)
           let v = await e.dig(st.at, st.name)
           for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(st.at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }
+          touched()
           if (v !== 'confirmed') { if (v === 'unconfirmed') unknown.add(kOf(st.at)); return fail(`dig ${kOf(st.at)} ${v}`) }
           res.dug++
           e.log('_build', { op: 'access_dig', seg: c.seg, cell: st.at, block: st.name })
@@ -1409,7 +1464,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // unbanned visit would not have had), and that fallback walk is NOT refused for crossing the segment's open cells
         // (shopwalls-06 r2, Codex r1 BLOCK: with every stand's route crossing, the refusal alone would stall the cell for good)
         // townstyle-01: a state-bearing cell's step takes only a face that makes its state (wantOf: the role's block, its state)
-        for (const c of cand) { const w = wantOf(c); const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain, w) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain, w); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } }
+        for (const c of cand) { const w = wantOf(c); if (noStandIn(c, w, nodes)) continue; const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain, w) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain, w); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } if (standCache) noStep.set(standKey(c, w), nodes) }
         if (!picked) {
           // citywall-01 (`p.swap`): an ADDED clear cell no stand fills now (an underpinning under a hanging run) never holds the swap: it
           // is spent and DEFERRED (counted for the waiver), and the swap of the run's standing cells goes on (offline on board-b 11-09:

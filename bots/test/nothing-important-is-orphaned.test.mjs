@@ -61,6 +61,8 @@ const REQUIRED = [
   'bots/test/landmark.test.mjs',   // roughground-3 (11-07)
   'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/fewerdec.test.mjs',
+  'bots/test/standcache.test.mjs',   // standcache-01 (11-12): the visit's kept walk (STANDCACHE=off|on), buildsite.mjs walkAgain
+  'bots/scripts/standbench.mjs',     // standcache-01: the measurement (one walk's cost through the bot's block read; walks a tidy visit)
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
