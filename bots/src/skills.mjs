@@ -189,7 +189,7 @@ import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted 
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots, stuckSegs, stuckLast } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
-import { groundsFallOn, groundsFall, groundsNoOrder, groundsOnly, groundsHold, groundsHoldOf, lateUntil } from './grounds2.mjs'   // grounds-03: cleanup as the true fallback
+import { groundsFallOn, groundsFall, groundsNoOrder, groundsOnly, groundsHold, groundsHoldOf, lateUntil, groundsMayKeep } from './grounds2.mjs'   // grounds-03: cleanup as the true fallback
 import { setGroundsFall, SHOP_COOLDOWN_MS, SHOP_HEALTH_MIN, MONUMENT_BAG_SLOTS_MIN } from './shop.mjs'   // grounds-03: the order's ask and its hold
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
@@ -22489,7 +22489,7 @@ async function groundsFallLeg (ctx, args, signal, g, r, t0) {
   try { d = groundsFallNow(bot, g, r, t0) } catch { d = null }
   if (!d?.fall) { if (d?.asked && bot.g2Visit) bot.g2Visit = { ...bot.g2Visit, fall: d.why }; return }
   const plot0 = bot.shopVisitPlot ?? null, v0 = bot.g2Visit ?? g
-  bot.groundsPick = { at: Date.now(), used: Date.now() - t0 }
+  bot.groundsPick = { at: Date.now(), used: Date.now() - t0, late: true }
   if (bot.projReserve) bot.projReserve.at = -Infinity
   bot.g2Visit = { ...v0, took: 'tidy', why: d.why }
   bot.shopVisitPlot = TIDY_PLOT; bot.tidyLast = null
@@ -28055,7 +28055,8 @@ async function buildTidyVisit (ctx, args, signal) {
   if (GROUNDS.on && G2.on) {
     const k = keeperState(bot, true)
     if (k.d === 'release') releaseKeeper(bot, k.lease, 'term')
-    worker = groundsRole({ d: k.d, kept: (k.d === 'mine' || k.d === 'take') && takeKeeper(bot, k.lease).ok }) === 'worker'
+    // grounds-03 (Claude r2 BLOCKER): a fall-through's LATE leg never takes the keeper lease (groundsMayKeep) -- it is a worker's
+    worker = groundsRole({ d: k.d, kept: groundsMayKeep({ d: k.d, late: bot.groundsPick?.late === true }) && takeKeeper(bot, k.lease).ok }) === 'worker'
     if (worker) role = 'helper'
     f.crew = worker ? 'worker' : 'keeper'
   } else if (GROUNDS.on) {

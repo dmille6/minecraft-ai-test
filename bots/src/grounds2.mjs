@@ -283,6 +283,15 @@ export const groundsHoldOf = (stop, now = Date.now()) => (HOLD_STOPS.includes(St
 export const groundsHold = (state, hold) => (hold && HOLD_STOPS.includes(hold.stop) && Number.isFinite(hold.at) ? { ...(state ?? {}), lastStop: hold.stop, lastAt: hold.at } : state)
 
 /**
+ * MAY THIS GROUNDS VISIT TAKE (OR RENEW) THE KEEPER LEASE? -> bool. Pure. `d`: the keeper's state for this bot (`mine`, or `take`:
+ * the lease is free). Never a fall-through's LATE leg (Claude r2 BLOCKER): groundsWork turns away a bot that IS the keeper, but a
+ * FREE lease would be taken at the visit, and the keeper's own steps (the land plan, the stage's siting, the refresh, the prep) are
+ * not bounded by the visit's budget -- begun with half the skill's clock gone they can run into the runner's abort, which throws
+ * away the first project's result; and a keeper's term would begin from a visit that has no time for it. The late leg is a WORKER's.
+ */
+export const groundsMayKeep = ({ d = null, late = false } = {}) => !late && (d === 'mine' || d === 'take')
+
+/**
  * THE SWEEP'S END IN A VISIT THAT STARTED LATE -> ms (epoch). Pure. The crew's sweep after a grounds visit ends 5 s before the
  * skill's end (skills.mjs buildTidy: `t0 + budget - 5 s`, t0 the grounds visit's start). In a fall-through the grounds visit
  * starts `used` ms into the skill, so the same sum would end the sweep `used` ms PAST it -- a sweep walking into the runner's

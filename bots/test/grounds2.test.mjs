@@ -811,7 +811,8 @@ const WIRES = [
   'if (G2.on) d = groundsOrderD(d, !decorHeld && g2Eligible(bot).ok)',
   'if (p?.plot === TIDY_PLOT && G2.on) return groundsSlots(buildersOf(p), { worker })',
   // the role: no helper lease, no turning away -- and the OLD crew path still there, under the switch
-  "worker = groundsRole({ d: k.d, kept: (k.d === 'mine' || k.d === 'take') && takeKeeper(bot, k.lease).ok }) === 'worker'",
+  "worker = groundsRole({ d: k.d, kept: groundsMayKeep({ d: k.d, late: bot.groundsPick?.late === true }) && takeKeeper(bot, k.lease).ok }) === 'worker'",
+  'bot.groundsPick = { at: Date.now(), used: Date.now() - t0, late: true }',
   '} else if (GROUNDS.on) {',
   // nothing ready: the turn back before a draw; the stairs; no park gather for a worker; the open count
   "if (worker && bot.groundsPick && groundsNone({ seg: g2Seg0, cuts: cuts.length, clearFree: segFree('clear') })) {",
@@ -916,6 +917,11 @@ await t('lateUntil (review r1, Codex): the sweep after a fall-through\'s grounds
   // a bad `used` never lengthens it
   assert.strictEqual(G2.lateUntil(SK0, B, -5_000), SK0 + 175_000)
   assert.strictEqual(G2.lateUntil(SK0, B, NaN), SK0 + 175_000)
+})
+await t('groundsMayKeep (review r2, Claude): a late leg never takes or renews the keeper lease; any other visit as before', () => {
+  for (const d of ['mine', 'take']) { assert.strictEqual(G2.groundsMayKeep({ d }), true, d); assert.strictEqual(G2.groundsMayKeep({ d, late: false }), true, d); assert.strictEqual(G2.groundsMayKeep({ d, late: true }), false, `${d} late`) }
+  for (const d of ['other', 'none', 'release', null]) for (const late of [false, true]) assert.strictEqual(G2.groundsMayKeep({ d, late }), false, `${d} ${late}`)
+  assert.strictEqual(G2.groundsMayKeep(), false)
 })
 await t('lateUntil MUTANT: dropping `used` from the sum fails the late case', async () => {
   await withMutant(G2_PATH, '- Math.max(0, Number(used) || 0) - tailMs', '- tailMs', async M => {
@@ -1127,6 +1133,27 @@ async function fallVisit (M) {
   assert.deepStrictEqual([b.groundsPick, b.shopVisitBusy], [null, false], 'the marks come off')
   return { dir, b, r }
 }
+await t('review r2 (Claude): the keeper lease comes FREE while the first project runs and the visit falls through -> still a WORKER, the lease still free; MUTANT (the late leg may keep): the fall-through takes the lease', async () => {
+  const freeKeeper = dir => { for (const n of fs.readdirSync(dir)) if (/\.keeper\.lease\./.test(n)) fs.unlinkSync(path.join(dir, n)) }
+  const scenario = async M => {
+    const dir = blockedTown(M)
+    assert.deepStrictEqual(leaseFiles(dir), ['keeper.lease.g1.json'], 'control: another bot is the keeper as the visit begins (a free lease there makes the visit the keeper\'s own)')
+    const b = liveBot()
+    // the keeper's term ends as this bot's own project ends: the lease is free when the late leg begins
+    TAP.onRow = rec => { if (kindOf(rec) === 'build_visit' && detailOf(rec).startsWith('project=paths ')) freeKeeper(dir) }
+    let r = null
+    try { r = await runBuild(M, b) } finally { TAP.onRow = null }
+    assert.deepStrictEqual([r.status, r.stop], ['no_effect', 'no_site'], JSON.stringify(r))
+    const vis = rowsOf('build_visit')
+    assert.strictEqual(vis.length, 2, vis.join(' | '))
+    assert.ok(/^project=tidy .* crew=worker /.test(vis[1]), `the late leg is a worker's: ${vis[1]}`)
+    assert.deepStrictEqual(leaseFiles(dir), [], 'the keeper lease is still free')
+  }
+  await withSkills([GATE_OPEN], scenario)
+  let why = null
+  await withSkills([GATE_OPEN, ['late: bot.groundsPick?.late === true })', 'late: false })']], async M => { try { await scenario(M) } catch (err) { why = err } })
+  assert.ok(why instanceof assert.AssertionError && /late leg is a worker|still free/.test(String(why.message)), `the mutant survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
+})
 await t('ITEM 1 + 2: no_site -> the grounds in the SAME visit as a worker; the result, the site retry and the idle mark stay the paths\'; then the order (real buildOrder): a day\'s site retry from the paths\' stop, a grounds visit at every cooldown inside it, the tidy\'s own stop never seen; MUTANT (the stop not remembered): killed', async () => {
   const scenario = async M => {
     const { b, r } = await fallVisit(M)
