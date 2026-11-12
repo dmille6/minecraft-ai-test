@@ -136,7 +136,7 @@ import { LAND as LAND_TABLE } from './landplan.mjs'   // gkforever-01: the bands
 import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMeans } from './gkforever.mjs'   // gkforever-01
 import { setGroundsMeans, groundsBatchOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
 import { setHoldsGrounds, idleKindNow, belowKind, gkstayOn } from './idlework.mjs'   // gkstay-01
-import { logCapConfig, logCapNext, townLogsIn, logCapDetail, setLogCapState, LOGCAP_TTL_MS } from './logcap.mjs'   // logcap-02
+import { logCapConfig, logCapNext, townLogsIn, logCapDetail, setLogCapState, LOGCAP_TTL_MS, setTownLogTop, topTownLog } from './logcap.mjs'   // logcap-02
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
 import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
 import { stuckcloseOn, townGivenCuts, givenWaivers } from './stuckclose.mjs'   // stuckclose-01
@@ -20410,6 +20410,8 @@ export function logCapStateFor (bot, now = Date.now()) {
   } catch { return null }
 }
 setLogCapState(b => logCapStateFor(b))
+// loggate-01: the town's top log species for the gate's withdrawal (logcap.mjs townLogTop; admission.mjs reads it)
+setTownLogTop(b => topTownLog(matsTownStock(b)?.stock))
 /** gkforever-01: are two tidy records the SAME generation (one siting: its `sitedAt` and stage, and its cell and cut counts)? Pure. */
 export const tidySameGen = (a, b) => !!a && !!b && a.sitedAt === b.sitedAt && (Number(a.stage) || 0) === (Number(b.stage) || 0) && (a.cells?.length ?? 0) === (b.cells?.length ?? 0) && (a.cut?.length ?? 0) === (b.cut?.length ?? 0)
 async function buildTidy (ctx, args, signal) {
