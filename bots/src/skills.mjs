@@ -188,7 +188,7 @@ import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWai
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
-import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
+import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
@@ -26832,6 +26832,8 @@ function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bo
 // ================================================================================================================================
 const G2 = Object.freeze({ on: GROUNDS.on && grounds2On() })
 const g2Home = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+/** Does this bot's bag hold park plants above its keeps (the pantry's own read: buildTidyVisit writes exactly this)? Never throws. */
+function g2Carrying (bot) { try { const h = heldMap(bot); return Object.keys(parkItemsOf(spareOf(h, townKeeps(h, { wanted: bot.currentWants ?? [] }).keep))).length > 0 } catch { return false } }
 /** May this bot work the grounds from where it stands (grounds2.mjs groundsEligible)? Never throws (not eligible). */
 function g2Eligible (bot) { try { return groundsEligible({ feet: gkFeet(bot), home: g2Home() }) } catch { return { ok: false, why: 'unknown' } } }
 /** The tidy's record as the quota reads it -> { state, rec } (grounds2.mjs groundsRecord). Never throws ('unreadable'). */
@@ -26864,7 +26866,7 @@ function groundsBegin (bot, now = Date.now()) {
     bot.g2Turn = turn
     const R = g2Record(dir, now), keeper = keeperLeaseNow(bot, now)
     const open = R.state === 'open' ? g2OpenNow(dir, R.rec, now) : null
-    const d = groundsDecide({ on: true, keeper, decor: decorLeaseNow(bot, now), record: R.state, open, turn, emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), slotFree: slotFreeFor(tidyP, keeperMe(bot), now, { worker: !keeper }), now })
+    const d = groundsDecide({ on: true, keeper, decor: decorLeaseNow(bot, now), record: R.state, open, turn, emptyUntil: bot.g2EmptyUntil ?? 0, carrying: g2Carrying(bot), feet: gkFeet(bot), home: g2Home(), slotFree: slotFreeFor(tidyP, keeperMe(bot), now, { worker: !keeper }), now })
     if (d.took === 'tidy') { bot.groundsPick = { at: now }; if (bot.projReserve) bot.projReserve.at = -Infinity }
     bot.g2Visit = { ...d, turn, open, keeper }
     return bot.g2Visit
@@ -28153,7 +28155,7 @@ async function buildTidyVisit (ctx, args, signal) {
   const standQ = q => !!paStands && Array.isArray(q?.at) && (q.role != null ? paStands.feet : paStands.floor).has(q.at.join(','))
   const claimedQ = q => (claimsNow.length > 0 && claimEntry(q, claimsNow)) || standQ(q)
   const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
-  const slot = takeSlot(dir, key, me, lane === 'country' ? COUNTRY.builders : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT), { worker }))   // grounds-01: buildersFor (GROUNDS2.maxBots, the last slot the keeper's)
+  const slot = takeSlot(dir, key, me, lane === 'country' ? workerSlots(COUNTRY.builders, G2.on && worker) : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT), { worker }))   // grounds-01: buildersFor (GROUNDS2.maxBots, the last slot the keeper's)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
   let effects = null

@@ -48,13 +48,18 @@ export function groundsShare (open, G = GROUNDS2) {
  *   emptyUntil  this bot's turns are spent until then (its last grounds visit fixed nothing)
  * why: 'turn' | 'low' (no share at this backlog) | 'open_unknown' | 'off_turn' | 'spent'
  */
-export function groundsTurn ({ turn = 0, open = null, emptyUntil = 0, now = Date.now(), G = GROUNDS2 } = {}) {
-  const share = groundsShare(open, G)
+export function groundsTurn ({ turn = 0, open = null, emptyUntil = 0, carrying = false, now = Date.now(), G = GROUNDS2 } = {}) {
+  // A CARRIER KEEPS ITS TURN (review r2, Codex BLOCKER): a bot whose bag holds the park's plants comes back every second build
+  // visit however small the backlog -- below G.small the share is 0, its quota visits stopped, its pantry (written only by a
+  // grounds visit) went stale after G.workerLiveMs, and the keeper closed the stage `no_flowers` while it still carried them.
+  // Each of its visits writes the pantry again (well inside the window); one that plants nothing spends the turns G.emptyMs.
+  const own = groundsShare(open, G)
+  const share = own || (carrying ? G.shareBig : 0)
   if (!share) return { share, due: false, why: open == null || open === '' || !Number.isFinite(Number(open)) ? 'open_unknown' : 'low' }
   const t = Number(turn)
   if (!(Number.isInteger(t) && t > 0 && t % share === 0)) return { share, due: false, why: 'off_turn' }
   if (now < (Number(emptyUntil) || 0)) return { share, due: false, why: 'spent' }
-  return { share, due: true, why: 'turn' }
+  return { share, due: true, why: own ? 'turn' : 'carry' }
 }
 /**
  * MAY THIS BOT WORK THE GROUNDS FROM WHERE IT STANDS? -> { ok, why: null | 'underground' | 'away' | 'unknown' }. Pure. The grounds'
@@ -89,18 +94,18 @@ export function groundsRecord ({ shopDone = false, readable = true, rec = null, 
  *   slotFree the tidy has an admission slot for this bot now
  * why: 'turn' | 'off' | 'keeper' | 'decor' | 'record_<state>' | groundsTurn's | 'underground' | 'away' | 'unknown' | 'full'
  */
-export function groundsDecide ({ on = true, keeper = false, decor = false, record = 'none', open = null, turn = 0, emptyUntil = 0, feet = null, home = null, slotFree = true, now = Date.now(), G = GROUNDS2 } = {}) {
+export function groundsDecide ({ on = true, keeper = false, decor = false, record = 'none', open = null, turn = 0, emptyUntil = 0, carrying = false, feet = null, home = null, slotFree = true, now = Date.now(), G = GROUNDS2 } = {}) {
   const other = (why, share = 0) => ({ took: 'other', why, share, due: false })
   if (!on) return other('off')
   if (keeper) return other('keeper')
   if (decor) return other('decor')
   if (record !== 'open') return other(`record_${record}`)
-  const t = groundsTurn({ turn, open, emptyUntil, now, G })
+  const t = groundsTurn({ turn, open, emptyUntil, carrying, now, G })
   if (!t.due) return other(t.why, t.share)
   const e = groundsEligible({ feet, home })
   if (!e.ok) return { took: 'other', why: e.why, share: t.share, due: true }
   if (!slotFree) return { took: 'other', why: 'full', share: t.share, due: true }
-  return { took: 'tidy', why: 'turn', share: t.share, due: true }
+  return { took: 'tidy', why: t.why, share: t.share, due: true }
 }
 /** THE ORDER'S READ OF A BOT THAT DOES NOT KEEP THE GROUNDS -> keeperOrderPure's `d`: 'helper' (the tidy in its own place, with a
  *  slot) for a bot that may work them from here, 'none' (the tidy reads full: nothing offered, nothing refused) for any other. Pure. */
@@ -115,10 +120,10 @@ export const groundsRole = ({ d, kept = false } = {}) => ((d === 'mine' || d ===
  * and after 20 idle minutes it let its lease go -- the cells only it can waive then held every segment open). A WORKER counts one
  * slot fewer, so slot N is never a worker's and the keeper always finds one. Pure.
  */
-export const groundsSlots = (n, { worker = false, G = GROUNDS2 } = {}) => {
-  const all = Math.max(1, Math.min(Number(n) > 0 ? Number(n) : G.maxBots, G.maxBots))
-  return worker ? Math.max(1, all - 1) : all
-}
+export const groundsSlots = (n, { worker = false, G = GROUNDS2 } = {}) => workerSlots(Math.max(1, Math.min(Number(n) > 0 ? Number(n) : G.maxBots, G.maxBots)), worker)
+/** A lane's slots as a WORKER counts them -> one fewer, never below one; the keeper counts them all. Pure. The country lane's too
+ *  (review r2, Codex BLOCKER: its three slots were anyone's, so three workers there locked the keeper out the same way). */
+export const workerSlots = (n, worker = false) => { const all = Math.max(1, Number(n) || 1); return worker ? Math.max(1, all - 1) : all }
 /**
  * HAS A QUOTA VISIT NOTHING READY FOR THIS BOT NOW? -> bool. Pure. Nothing: no fill segment it may take (every open one held, within
  * the gap of another bot's, or waiting on a layer below) AND no cut it may dig (none listed for it, or the one clear lease is

@@ -172,6 +172,32 @@ await t('the wiring: skills.mjs crewPantry asks crewPantrySum with the switch (s
   assert.ok(!/pantrySum\(pantryRead\(dir, key\)/.test(src), 'the lease-only sum is gone from crewPantry')
 })
 
+await t('REVIEW r2 (Codex): a bot CARRYING the park\'s plants keeps a turn below the small backlog -- it comes back inside the pantry window', async () => {
+  const base = { turn: 2, now: 1_000_000 }
+  assert.deepStrictEqual(G2.groundsTurn({ ...base, open: 40 }), { share: 0, due: false, why: 'low' }, 'positive control: below 100 a bot with nothing gets no turn (how the carrier went stale)')
+  assert.deepStrictEqual(G2.groundsTurn({ ...base, open: 40, carrying: true }), { share: 2, due: true, why: 'carry' })
+  assert.deepStrictEqual(G2.groundsTurn({ ...base, open: null, carrying: true }), { share: 2, due: true, why: 'carry' }, 'an unknown count too: it holds what the park waits for')
+  assert.deepStrictEqual(G2.groundsTurn({ ...base, turn: 3, open: 40, carrying: true }), { share: 2, due: false, why: 'off_turn' }, 'every SECOND visit: the other projects keep theirs')
+  assert.deepStrictEqual(G2.groundsTurn({ ...base, open: 40, carrying: true, emptyUntil: base.now + 1 }), { share: 2, due: false, why: 'spent' }, 'a visit that planted nothing spends the turns: never a loop')
+  assert.deepStrictEqual(G2.groundsTurn({ ...base, open: 900, carrying: true }), { share: 2, due: true, why: 'turn' }, 'above the thresholds the share is the backlog\'s own')
+  const d = G2.groundsDecide({ record: 'open', open: 40, turn: 2, carrying: true, feet: [0, 70, 0], home: { x: 0, y: 70, z: 0 }, now: base.now })
+  assert.deepStrictEqual([d.took, d.why], ['tidy', 'carry'])
+  assert.strictEqual(G2.groundsDecide({ record: 'complete', open: 40, turn: 2, carrying: true, feet: [0, 70, 0], home: { x: 0, y: 70, z: 0 } }).took, 'other', 'a closed record is the keeper\'s to reopen')
+  // 2 build orders at the non-crew cadence (10 min) is 20 min: inside the 45-minute window the pantry counts for
+  assert.ok(2 * 10 * 60_000 < G2.GROUNDS2.workerLiveMs)
+  let why = null
+  await withMutant(G2_PATH, "  const share = own || (carrying ? G.shareBig : 0)\n", '  const share = own\n', async M => {
+    try { assert.strictEqual(M.groundsTurn({ ...base, open: 40, carrying: true }).due, true) } catch (err) { why = err }
+  })
+  assert.ok(why, 'MUTANT (the carrier loses its turn) survived')
+})
+await t('REVIEW r2 (Codex): the country lane\'s last slot is the keeper\'s too (workerSlots), and skills.mjs takes its slot through it', () => {
+  assert.deepStrictEqual([G2.workerSlots(3, false), G2.workerSlots(3, true), G2.workerSlots(1, true), G2.workerSlots(undefined, true)], [3, 2, 1, 1])
+  const src = fs.readFileSync(SKILLS_FILE, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.strictEqual(src.split("takeSlot(dir, key, me, lane === 'country' ? workerSlots(COUNTRY.builders, G2.on && worker) : buildersFor(").length, 2, 'the one takeSlot of the visit, both lanes counted for a worker')
+  assert.ok(!/lane === 'country' \? COUNTRY\.builders :/.test(src), 'the country lane no longer hands a worker every slot')
+})
+
 console.log('THE DECISION (groundsDecide): every link, and what each broken link falls back to -- the order, never a refusal')
 const D0 = { on: true, keeper: false, decor: false, record: 'open', open: 2927, turn: 2, emptyUntil: 0, feet: [3, 71, 4], home: H70, slotFree: true, now: 1_000_000 }
 await t('the turn is the grounds\' only when every link holds; each broken link names itself and is `other`', () => {
@@ -537,7 +563,7 @@ await t('the keeper\'s order is its own (never the quota\'s); four bots on the g
 })
 await t('MUTANT: a worker counts every slot -- with three workers on the grounds a fourth takes the keeper\'s slot (killed)', async () => {
   let why = null
-  await withMutant(G2_PATH, '  return worker ? Math.max(1, all - 1) : all\n', '  return all\n', async M => {
+  await withMutant(G2_PATH, 'return worker ? Math.max(1, all - 1) : all }', 'return all }', async M => {
     try { assert.deepStrictEqual([M.groundsSlots(4, { worker: true }), M.groundsSlots(4)], [3, 4]) } catch (err) { why = err }
   })
   assert.ok(why, 'the mutant survived')
