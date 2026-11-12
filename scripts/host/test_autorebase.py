@@ -687,6 +687,9 @@ def t_v43_diff_equiv_pure(CS):
         B, T = reb(mk(ent[:2] + ["  // note" + sep + "/*"] + ent[3:]))
         assert CS.diff_equiv(A, B, texts=T) is None, repr(sep)
     assert CS.list_line("  'p1',   // café — a note"), 'other non-ASCII in a comment is still a list line'
+    # Codex review r4: a neighbour WITHOUT its comma -- each line plain on its own, the two together a SyntaxError
+    B, T = reb(mk(ent[:3] + ["  'bots/test/r4.test.mjs'"] + ent[4:]))
+    assert B != A and CS.diff_equiv(A, B, texts=T) is None, 'every entry carries its comma, or the region is not a plain list'
     # the region itself
     assert CS.list_region('\n'.join(base), (OPEN, CLOSE)) == ent
     assert CS.list_region('\n'.join(base + base), (OPEN, CLOSE)) is None, 'two openings: which list?'
@@ -716,10 +719,10 @@ def t_v43_diff_equiv_pure(CS):
     assert CS.diff_equiv(code + _nd(other, base, ins(base, 5)), code + _nd(other, b1, ins(b1, 5)), texts={other: T[L]}) is None, 'a file that is not on the list'
     secs = CS.diff_sections(A)
     assert [p for p, _ in secs] == ['bots/src/a.mjs', L] and '\n'.join('\n'.join(ls) for _, ls in secs) == A, secs
-    for ok in ("", "  ", "  'bots/src/a.mjs',", "'a'", "  'a.mjs',   // foo-01 (11-09): text, 'quotes', // more", "  // sandrung-01 (11-07): retired",
-               "  'bots/test/stuckfleet02.test.mjs', 'bots/test/fixtures/stuckfleet02-boardc.json',  // two on one line (the real list, 11-08)", "'a','b'"):
+    for ok in ("", "  ", "  'bots/src/a.mjs',", "'a',", "  'a.mjs',   // foo-01 (11-09): text, 'quotes', // more", "  // sandrung-01 (11-07): retired",
+               "  'bots/test/stuckfleet02.test.mjs', 'bots/test/fixtures/stuckfleet02-boardc.json',  // two on one line (the real list, 11-08)", "'a','b',"):
         assert CS.list_line(ok), ok
-    for bad in ("/* x", "'a', /* x", "'a' 'b',", "'a', b,", "'a',, 'b'", "x", "'a' + b,", "`a`,", '"a",', "'a\\'', b", "]", "const REQUIRED = ["):
+    for bad in ("/* x", "'a', /* x", "'a' 'b',", "'a', b,", "'a',, 'b'", "'a'", "'a', 'b'", "  'a'   // no comma", "x", "'a' + b,", "`a`,", '"a",', "'a\\'', b", "]", "const REQUIRED = ["):
         assert not CS.list_line(bad), bad
 
 

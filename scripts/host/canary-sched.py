@@ -825,11 +825,12 @@ CONTEXT_FREE_PATHS = {'bots/test/nothing-important-is-orphaned.test.mjs': ('cons
 _DIFF_HEAD = re.compile(r'^diff --git a/(.+) b/\1$')
 # A LIST LINE, and nothing else, may differ or be added there (Codex review r1: a base that turned a neighbouring `//`
 # comment into an opening `/*` would have put the change's own entry inside a block comment, and the diff still read
-# "context-only"): blank, or single-quoted paths separated by commas (one line of the real list holds two) with an optional
-# trailing comma, and/or a `//` comment to the end of the line. No `/*`, no code, no other token. A hunk of that file with any other line in it is compared byte-exact, as code is.
+# "context-only"): blank, or single-quoted paths EACH followed by its comma (one line of the real list holds two; Codex
+# review r4: a neighbour without its comma made the rebased file a SyntaxError), and/or a `//` comment to the end of the
+# line. No `/*`, no code, no other token. A hunk of that file with any other line in it is compared byte-exact, as code is.
 # And no character JavaScript ends a line at (Codex review r2: `// note<U+2028>/*` ends the line comment at U+2028 and
 # opens a block comment on what the regex still reads as one commented line): CR, U+2028, U+2029.
-_LIST_LINE = re.compile(r"""^\s*(?:'[^'\\]*'\s*(?:,\s*'[^'\\]*'\s*)*,?)?\s*(?://.*)?$""")
+_LIST_LINE = re.compile(r"""^\s*(?:'[^'\\]*'\s*,\s*)*(?://.*)?$""")
 _JS_LINE_END = ('\r', '\u2028', '\u2029')
 
 
