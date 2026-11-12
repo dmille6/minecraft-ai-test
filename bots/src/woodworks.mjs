@@ -549,6 +549,20 @@ export function woodSpeciesOf (rec) {
  * THE KIT still to make for the owed cells -> { fences, gates, logs }: the bag's fences and gates counted (any species: any reads done),
  * the logs to draw (woodBill over what is still owed, less the bag's wood above BAG_WOOD_KEEP). Pure.
  */
+/**
+ * projfix-01 (LIVE showcase 11-12: 55 of 63 fence visits ended `_reflex_stuck no movement for 35s` -> `build_shop aborted stuck` while
+ * the kit was crafting -- 406 fence crafts and 540 plank crafts in 24 h for 6 fences placed): HOW LONG THE KIT STANDS STILL TO CRAFT
+ * -> ms. Pure. A craft is a few clicks at the table (the live median was 22 crafts in 36 s: about 1.6 s each); the window is that with
+ * a margin, never more than WOODKIT_STILL_MAX_MS -- the stuck watchdog (reflex.mjs stuckDecision) is told the bot stands on purpose.
+ */
+export const WOODKIT_STILL_MAX_MS = 120_000
+export function woodKitStillMs (need = { fences: 0, gates: 0 }) {
+  const fences = Math.max(0, Number(need?.fences) || 0), gates = Math.max(0, Number(need?.gates) || 0)
+  if (!fences && !gates) return 0
+  // fences 3 a craft, gates 1; planks and sticks behind them: about three crafts a fence craft
+  const crafts = Math.ceil(fences / 3) * 3 + gates * 3
+  return Math.min(WOODKIT_STILL_MAX_MS, 15_000 + crafts * 2_500)
+}
 export function woodKitNeed (owed = { fences: 0, gates: 0 }, held = {}) {
   const fenceHeld = FENCES.reduce((t, n) => t + (Number(held?.[n]) || 0), 0)
   const gateHeld = GATES.reduce((t, n) => t + (Number(held?.[n]) || 0), 0)
