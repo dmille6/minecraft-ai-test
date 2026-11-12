@@ -8,6 +8,7 @@
 // the chain is tested, not the single guard) -- on buildfake's world through the real runVisit, on real record and lease files
 // through the real glue (skills.mjs _grounds2, shopActive), and through shop.mjs's real buildOrder; each with its positive control
 // and anchored mutants. GROUNDS2=off is shown to restore the keeper and its helpers (a second copy of skills.mjs under the switch).
+// GROUNDS-03 (cleanup as the true fallback: the fall-through, the order's ask, the remembered back-off) has its own section below.
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -18,7 +19,7 @@ process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'hive-a'   // a named pool: the tidy and the groundskeeper on by default
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-grounds2-pool-'))
-for (const k of ['GROUNDS2', 'GROUNDSKEEPER', 'TIDY', 'GKLEASE', 'GKCREW4', 'GKCREWCUT', 'GKFILLSHARE', 'COUNTRY', 'LANDPLAN']) delete process.env[k]
+for (const k of ['GROUNDS2', 'GROUNDSFALL', 'GROUNDSKEEPER', 'TIDY', 'GKLEASE', 'GKCREW4', 'GKCREWCUT', 'GKFILLSHARE', 'COUNTRY', 'LANDPLAN']) delete process.env[k]
 const { withMutant } = await import('./helpers/mutant.mjs')
 const { EventEmitter } = await import('node:events')
 const { Vec3 } = await import('vec3')
@@ -134,7 +135,7 @@ await t('groundsRecord / groundsOrderD / groundsRole / groundsSlots / groundsNon
 await t('the rows: `_grounds_quota` names every field; `_grounds_mode` says on=0|1 and the numbers', () => {
   assert.strictEqual(G2.groundsQuotaDetail({ on: true, turn: 6, open: 2927, share: 2, took: 'tidy', why: 'turn', placed: 3, cleared: 2, empty: false, out: 'deadline' }), 'on=1 turn=6 open=2927 share=2 took=tidy why=turn placed=3 cleared=2 empty=0 out=deadline')
   assert.strictEqual(G2.groundsQuotaDetail({ on: true, turn: 5, open: null, share: 0, took: 'other', why: 'open_unknown' }), 'on=1 turn=5 open=- share=0 took=other why=open_unknown placed=- cleared=- empty=0 out=-')
-  assert.strictEqual(G2.groundsModeDetail(true), 'on=1 v=1 big=500:2 small=100:4 empty_ms=600000 max_bots=4')
+  assert.strictEqual(G2.groundsModeDetail(true), 'on=1 v=1 big=500:2 small=100:4 empty_ms=600000 max_bots=4 fall=1')
   assert.strictEqual(G2.groundsModeDetail(false).startsWith('on=0 '), true)
   assert.strictEqual(G2.grounds2On({}), true, 'default ON')
   for (const v of ['off', '0', 'false', 'no', ' OFF ']) assert.strictEqual(G2.grounds2On({ GROUNDS2: v }), false, v)
@@ -368,6 +369,7 @@ await t('still nothing (no material, no cut left): the visit is EMPTY, the bot\'
 })
 await t('THE COMPOSED TRAP: a quota visit\'s stop never reaches the order\'s back-offs (stuck_on_cell: the WHOLE build order held 6 h; no_material: an expedition)', async () => {
   const now = 1e9, lastAt = now - 20 * MIN   // past the order's 10-minute cooldown, far inside the 6 h
+  S.setGroundsFall(null)                     // grounds-01's rule alone (grounds-03's hooks into the order have their own chains below)
   // positive control: the raw stops DO trip shop.mjs's real order
   assert.deepStrictEqual(S.buildOrder({ ...base, now, state: { lastAt, lastStop: 'stuck_on_cell' } }), { order: null, skip: 'stuck_on_cell' })
   assert.strictEqual(S.buildIdle({ lastStop: 'no_material' }), true)
@@ -802,7 +804,7 @@ await t('a cut is given up by a bot after TIDY_CUT_TRIES evaluated visits that l
 console.log('THE WIRING (skills.mjs; structural: what the fakes cannot reach -- comments stripped, each line once, a cut line fails)')
 const WIRES = [
   // the visit: decided before the pick, framed by the row; the quota visit first, passed turns go on to the order
-  'const g2 = groundsBegin(ctx.bot)',
+  'const g2 = groundsBegin(ctx.bot, Date.now(), args)',
   '} finally { groundsEnd(ctx.bot, g2, r) }',
   'if (!groundsPassed(gr)) return groundsResult(gr)',
   // the order and the slots
@@ -817,6 +819,16 @@ const WIRES = [
   'if (stairsHead) { try { share = stairsShare(share, stairSeg(visitRec, workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: true }), stairOpenQ)) }',
   'if (GROUNDS.on && caps.gather && !worker && r.placed === 0 && r.cleared === 0',
   'if (worker) { try { openWrite(dir, key, me, rw, tidyLeftKeys(rw, read2, progOpts).length + prog.cutLeft) }',
+  // grounds-03: the switch and the order's hooks; the remembered stop (dropped, then set by a visit of the bot's own project); the
+  // fall-through's leg; a visit ordered for the grounds; the late visit's budget
+  'const G3 = Object.freeze({ on: G2.on && groundsFallOn() })',
+  'if (G3.on) setGroundsFall({ ask: groundsAsk, hold: groundsHeld })',
+  'if (!g3Only(args)) ctx.bot.g3Hold = null',
+  'ctx.bot.g3Hold = groundsHoldOf(r?.stop)',
+  'try { await groundsFallLeg(ctx, args, signal, g2, r, t0) } catch (e) { r = undefined; throw e }',
+  'const d = only ? groundsOnly({ ...L, why: only }) : groundsDecide({ ...L, open, turn, carrying: g2Carrying(bot) })',
+  'if (g3Only(args)) { bot.tidyLast = { placed: 0, cleared: 0, outcome: String(gr.stop) }; return groundsResult(gr) }',
+  'const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS) - (Number(bot.groundsPick?.used) || 0)',
 ]
 const wired = src => { for (const w of WIRES) assert.strictEqual(src.split(w).length, 2, `wiring ${JSON.stringify(w.slice(0, 70))}: ${src.split(w).length - 1}`) }
 await t('every wire is in place exactly once; a cut wire fails the check', () => {
@@ -869,7 +881,390 @@ await t('`_grounds_mode` is written once at spawn, on=1 with the numbers', async
   RECS.length = 0
   F.installFeatures(fakeWorld().bot)
   assert.ok(RECS.length > 3, 'positive control: the tap sees the spawn\'s rows')
-  assert.deepStrictEqual(rowsOf('grounds_mode'), ['on=1 v=1 big=500:2 small=100:4 empty_ms=600000 max_bots=4'])
+  assert.deepStrictEqual(rowsOf('grounds_mode'), ['on=1 v=1 big=500:2 small=100:4 empty_ms=600000 max_bots=4 fall=1'])
+})
+
+
+// ================================================================================================================================
+// GROUNDS-03 (owner 11-12: "when all projects are complete, bots should be cleaning up and teraforming"; "yes, lets do both"):
+// CLEANUP AS THE TRUE FALLBACK. LIVE showcase, 24 h to 11-12 17:00Z: 625 of 1,270 build visits ended `no_effect` and simply ended,
+// beside a tidy with about 2,900 open cells. The pure rules at their boundaries; then the chains -- the first project's back-off
+// still reaches the order, the grounds visit's own stop never does, an empty grounds cannot loop -- through the real build_shop and
+// shop.mjs's real buildOrder. The runner's 300 ms clock is the TIME GATE's positive control on the real module (no fall-through
+// ever has the time); the chains run on a copy of skills.mjs with that one gate opened (GATE_OPEN, anchored like a mutant).
+// ================================================================================================================================
+console.log('GROUNDS-03 THE PURE RULES (grounds2.mjs fallStops / groundsWork / groundsFall / groundsNoOrder / groundsOnly / groundsHold)')
+const SHOP_PATH = new URL('../src/shop.mjs', import.meta.url)
+const L0 = { record: 'open', emptyUntil: 0, feet: [3, 71, 4], home: H70, slotFree: true, now: 1_000_000 }
+const F0 = { status: 'no_effect', stop: 'no_site', msLeft: 150_000, tailMs: 60_000, ...L0 }
+const N0 = { skip: 'stuck_on_cell', sinceMs: 10 * MIN, cooldownMs: 10 * MIN, health: 20, healthMin: 10, freeSlots: 20, roomMin: 2, ...L0 }
+const LINKS = [[{ keeper: true }, 'keeper'], [{ decor: true }, 'decor'], [{ record: 'complete' }, 'record_complete'], [{ record: 'stuck' }, 'record_stuck'], [{ record: 'none' }, 'record_none'],
+  [{ emptyUntil: L0.now + 1 }, 'spent'], [{ feet: [3, 20, 4] }, 'underground'], [{ feet: [300, 71, 4] }, 'away'], [{ feet: null }, 'unknown'], [{ slotFree: false }, 'full']]
+await t('fallStops: the stops that mean "nothing here for this bot now" fall through; a stop that used the time, an interruption, an unread town file, a plan step and the grounds\' own never do', () => {
+  for (const s of ['no_site', 'site_wait', 'paths_no_site', 'copper_wait', 'waiting', 'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'slots_full', 'keeper_held', 'complete', 'upkeep']) assert.strictEqual(G2.fallStops(s), true, s)
+  for (const s of ['deadline', 'time', 'aborted', 'error', 'record_unreadable', 'lost_record', 'lost_lease', 'state_unwritable', 'site_unread', 'zones_unknown', 'no_plan', 'off', 'fence:slot', 'fence:segment',
+    'replanned', 'replant_wait', 'land_planned', 'grounds_none', 'grounds_turn', 'helper_idle', 'blocked', 'underground', 'room', '', null, undefined]) assert.strictEqual(G2.fallStops(s), false, String(s))
+  assert.strictEqual(G2.FALL_STOPS.length, 20); assert.ok(Object.isFrozen(G2.FALL_STOPS))
+  assert.strictEqual(new Set(G2.FALL_STOPS).size, 20)
+})
+await t('groundsWork: every link the fall-through and the ask share -- keeper, decorator, the record, the spent turns, the bot\'s place, a slot', () => {
+  assert.deepStrictEqual(G2.groundsWork(L0), { ok: true, why: null })
+  for (const [patch, why] of LINKS) assert.deepStrictEqual(G2.groundsWork({ ...L0, ...patch }), { ok: false, why }, why)
+  assert.deepStrictEqual(G2.groundsWork({ ...L0, on: false }), { ok: false, why: 'off' })
+  assert.deepStrictEqual(G2.groundsWork({ ...L0, emptyUntil: L0.now }), { ok: true, why: null }, 'the spend ends AT emptyUntil')
+  assert.deepStrictEqual(G2.groundsWork(), { ok: false, why: 'record_none' }, 'nothing read: not the grounds\'')
+})
+await t('groundsFall: no work + a fall stop + the time -> the grounds; THE TIME: 90 s of the skill\'s clock left (a 60 s tail + 30 s of work), 89.999 is short', async () => {
+  assert.deepStrictEqual(G2.groundsFall(F0), { fall: true, why: 'fallback:no_site', asked: true })
+  for (const stop of ['no_material', 'stuck_on_cell', 'complete', 'slots_full', 'deps_open']) assert.strictEqual(G2.groundsFall({ ...F0, stop }).why, `fallback:${stop}`)
+  await killedBy("  if (!(Number(msLeft) - Number(tailMs) >= G.workMs)) return no('short', true)\n", '', M => {
+    assert.deepStrictEqual(M.groundsFall({ ...F0, msLeft: 90_000 }), { fall: true, why: 'fallback:no_site', asked: true })
+    assert.deepStrictEqual(M.groundsFall({ ...F0, msLeft: 89_999 }), { fall: false, why: 'short', asked: true })
+  })
+  assert.strictEqual(G2.GROUNDS3.workMs, 30_000)
+  // of the showcase's 180 s: a first project that used 90 s still falls through, one that used 91 s does not
+  assert.strictEqual(G2.groundsFall({ ...F0, msLeft: 180_000 - 90_000 }).fall, true); assert.strictEqual(G2.groundsFall({ ...F0, msLeft: 180_000 - 91_000 }).why, 'short')
+  assert.strictEqual(G2.groundsFall({ ...F0, msLeft: undefined }).why, 'short', 'an unknown clock is no time')
+  // WORK DONE (placed, cleared or planted -- the generic visit's status counts only `placed`): never a fall-through
+  await killedBy(" || [placed, cleared, planted].some(n => (Number(n) || 0) > 0)) return no('worked')", ") return no('worked')", M => {
+    for (const did of [{ placed: 1 }, { cleared: 3 }, { planted: 1 }]) assert.deepStrictEqual(M.groundsFall({ ...F0, stop: 'no_material', ...did }), { fall: false, why: 'worked', asked: false }, JSON.stringify(did))
+  })
+  assert.deepStrictEqual(G2.groundsFall({ ...F0, status: 'success' }), { fall: false, why: 'worked', asked: false })
+  assert.deepStrictEqual(G2.groundsFall({ ...F0, status: 'failed' }), { fall: false, why: 'worked', asked: false }, 'only a visit that ran and changed nothing')
+  assert.deepStrictEqual(G2.groundsFall({ ...F0, stop: 'deadline' }), { fall: false, why: 'stop', asked: false })
+  assert.deepStrictEqual(G2.groundsFall({ ...F0, grounds: true }), { fall: false, why: 'grounds', asked: false }, 'the visit was the grounds\' already')
+  assert.deepStrictEqual(G2.groundsFall({ ...F0, passed: true }), { fall: false, why: 'passed', asked: true }, 'its quota turn was turned away moments ago')
+  assert.deepStrictEqual(G2.groundsFall({ ...F0, on: false }), { fall: false, why: 'off', asked: false })
+  for (const [patch, why] of LINKS) assert.deepStrictEqual(G2.groundsFall({ ...F0, ...patch }), { fall: false, why, asked: true }, why)
+})
+await t('groundsNoOrder: asked for complete / no_site / stuck_on_cell / slots_full, after the cooldown, with health and 2 free slots; never for idle, underground, health, room', () => {
+  assert.deepStrictEqual(G2.groundsNoOrder(N0), { ask: true, why: 'no_order:stuck_on_cell' })
+  assert.deepStrictEqual([...G2.NO_ORDER_SKIPS], ['complete', 'no_site', 'stuck_on_cell', 'slots_full'])
+  for (const skip of G2.NO_ORDER_SKIPS) assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, skip }), { ask: true, why: `no_order:${skip}` })
+  for (const skip of ['idle', 'underground', 'health', 'room', null, undefined, '']) assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, skip }), { ask: false, why: 'skip' }, String(skip))
+  assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, sinceMs: 10 * MIN - 1 }), { ask: false, why: 'cooldown' })
+  assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, sinceMs: 3 * MIN, cooldownMs: 3 * MIN }).ask, true, 'the showcase\'s 3-minute cooldown')
+  assert.deepStrictEqual([G2.groundsNoOrder({ ...N0, health: 10 }).why, G2.groundsNoOrder({ ...N0, health: 11 }).ask], ['health', true])
+  assert.deepStrictEqual([G2.groundsNoOrder({ ...N0, freeSlots: 1 }).why, G2.groundsNoOrder({ ...N0, freeSlots: 2 }).ask], ['room', true])
+  assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, on: false }), { ask: false, why: 'off' })
+  for (const [patch, why] of LINKS) assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, ...patch }), { ask: false, why }, why)
+})
+await t('groundsOnly / groundsHold / the rows: a visit ordered for the grounds; the remembered stop; `why=fallback:` `why=no_order:` `fall=`; the switch', () => {
+  assert.deepStrictEqual(G2.groundsOnly({ ...L0, why: 'no_order:no_site' }), { took: 'tidy', why: 'no_order:no_site', share: 0, due: true })
+  assert.deepStrictEqual(G2.groundsOnly({ ...L0, why: 'no_order:no_site', slotFree: false }), { took: 'other', why: 'no_order:no_site', share: 0, due: true, fall: 'full' })
+  assert.deepStrictEqual(G2.groundsHoldOf('stuck_on_cell', 5), { stop: 'stuck_on_cell', at: 5 }); assert.deepStrictEqual(G2.groundsHoldOf('no_site', 6), { stop: 'no_site', at: 6 })
+  for (const s of ['no_material', 'deadline', 'complete', 'grounds_turn', 'aborted', undefined]) assert.strictEqual(G2.groundsHoldOf(s, 5), null, String(s))
+  const st = { lastAt: 900, lastStop: 'grounds_turn', x: 1 }
+  assert.strictEqual(G2.groundsHold(st, null), st, 'no hold: the state itself, exactly as before')
+  assert.deepStrictEqual(G2.groundsHold(st, { stop: 'stuck_on_cell', at: 100 }), { lastAt: 100, lastStop: 'stuck_on_cell', x: 1 }, 'the held stop AND its own time')
+  for (const bad of [{ stop: 'deadline', at: 100 }, { stop: 'no_site', at: NaN }, { stop: 'no_site' }, {}]) assert.strictEqual(G2.groundsHold(st, bad), st, JSON.stringify(bad))
+  assert.strictEqual(G2.groundsQuotaDetail({ on: true, turn: 3, open: 2927, share: 2, took: 'tidy', why: 'fallback:no_site', placed: 4, cleared: 1, empty: false, out: 'deadline' }), 'on=1 turn=3 open=2927 share=2 took=tidy why=fallback:no_site placed=4 cleared=1 empty=0 out=deadline')
+  assert.strictEqual(G2.groundsQuotaDetail({ on: true, turn: 3, open: 2927, share: 2, took: 'other', why: 'off_turn', out: 'no_site', fall: 'short' }), 'on=1 turn=3 open=2927 share=2 took=other why=off_turn placed=- cleared=- empty=0 out=no_site fall=short')
+  assert.strictEqual(G2.groundsQuotaDetail({ took: 'tidy', why: 'turn', late: 7, fall: 'x' }).endsWith(' late=7 fall=x'), true)
+  assert.strictEqual(G2.groundsFallOn({}), true, 'default ON')
+  for (const v of ['off', '0', 'false', 'no', ' OFF ']) assert.strictEqual(G2.groundsFallOn({ GROUNDSFALL: v }), false, v)
+  assert.strictEqual(G2.groundsModeDetail(true, G2.GROUNDS2, false).endsWith(' max_bots=4 fall=0'), true, 'the rollback is visible at spawn')
+  assert.strictEqual(G2.groundsModeDetail(false).endsWith(' fall=0'), true, 'it acts only where GROUNDS2 is on')
+})
+
+console.log('GROUNDS-03 CHAIN (item 6): a blocked project AND an empty grounds -> the turns are spent 10 minutes: no fall-through, no order for the grounds, no quota turn -- never a loop')
+await t('pure chain: the empty fall-through shuts every route to the grounds for 10 minutes, and all three open again after them; MUTANT (no spend in groundsWork): killed', async () => {
+  await killedBy("  if (now < (Number(emptyUntil) || 0)) return no('spent')\n", '', M => {
+    let now = 1_000_000, emptyUntil = 0
+    const q = () => ({ ...L0, emptyUntil, now })
+    assert.strictEqual(M.groundsFall({ ...F0, stop: 'stuck_on_cell', ...q() }).fall, true, 'visit 1: the project is stuck, the visit goes on to the grounds')
+    emptyUntil = M.groundsAfter({ took: 'tidy', placed: 0, cleared: 0, emptyUntil, now }).emptyUntil   // ...which fixed nothing
+    assert.strictEqual(emptyUntil, now + 10 * MIN)
+    for (let i = 1; i <= 3; i++) {           // the order comes back every 3 minutes (the showcase's cooldown)
+      now += 3 * MIN
+      assert.deepStrictEqual(M.groundsFall({ ...F0, stop: 'stuck_on_cell', ...q() }), { fall: false, why: 'spent', asked: true }, `+${3 * i} min: no second empty fall-through`)
+      assert.deepStrictEqual(M.groundsNoOrder({ ...N0, sinceMs: 3 * MIN, cooldownMs: 3 * MIN, ...q() }), { ask: false, why: 'spent' }, `+${3 * i} min: the order is not asked for the grounds`)
+      assert.strictEqual(M.groundsDecide({ ...D0, turn: 2, emptyUntil, now }).why, 'spent', 'nor is its quota turn')
+    }
+    now += MIN                               // +10 min
+    assert.strictEqual(M.groundsFall({ ...F0, stop: 'stuck_on_cell', ...q() }).fall, true)
+    assert.strictEqual(M.groundsNoOrder({ ...N0, sinceMs: 3 * MIN, cooldownMs: 3 * MIN, ...q() }).ask, true)
+  })
+})
+
+console.log('GROUNDS-03 CHAIN (items 2 + 3) through shop.mjs\'s real buildOrder and the real glue: the bot\'s own back-off holds, and EVERY build visit inside it is the grounds\'')
+/** What cognitive.mjs keeps of a build visit: the order charges `lastAt` at issue; the visit's end writes both. */
+const ordOf = (Sx, now, state, o = {}) => Sx.buildOrder({ ...base, now, state, ...o })
+const GROUNDS_ORDER = why => ({ order: { skill: 'build_shop', args: { grounds: true, why } }, skip: null })
+const OWN_ORDER = { order: { skill: 'build_shop', args: {} }, skip: null }
+await t('the bot\'s project ended stuck_on_cell: for 6 h the order has nothing for it -- now every cooldown is a grounds visit (5 of 5, not every second), each hidden from the order, and the 6 h end when they did before; MUTANTS (no hold; the order reads the raw state): killed', async () => {
+  const H6 = S.SHOP_STUCK_RETRY_MS
+  const scenario = async (P, Sx) => {
+    town()
+    const b = mkBot(), T0 = Date.now(), rec = { plot: 'house1' }
+    SK.shopActive(b, T0)                                    // the hooks read the bot the order last saw
+    b.g3Hold = P.groundsHoldOf('stuck_on_cell', T0)         // as buildShop leaves it when the bot's own project ends stuck_on_cell (end to end below)
+    const st0 = { lastAt: T0, lastStop: 'stuck_on_cell' }
+    // positive control -- grounds-01/02: nothing for 6 h
+    Sx.setGroundsFall(null)
+    for (const dt of [11 * MIN, 3 * 3600_000, H6 - 1]) assert.deepStrictEqual(ordOf(Sx, T0 + dt, st0, { record: rec }), { order: null, skip: 'stuck_on_cell' })
+    assert.deepStrictEqual(ordOf(Sx, T0 + H6, st0, { record: rec }), OWN_ORDER)
+    Sx.setGroundsFall({ ask: X.groundsAsk, hold: P === G2 ? X.groundsHeld : st => P.groundsHold(st, b.g3Hold ?? null) })
+    RECS.length = 0
+    let state = st0
+    const seen = []
+    for (let k = 1; k <= 5; k++) {
+      const now = T0 + k * (10 * MIN + 1000)
+      const o = ordOf(Sx, now, state, { record: rec })
+      seen.push(o.order ? (o.order.args?.grounds === true ? o.order.args.why : 'own') : `skip:${o.skip}`)
+      if (o.order?.args?.grounds !== true) break
+      // the visit, as buildShop frames it; a grounds visit that worked
+      const g = X.groundsBegin(b, now, o.order.args)
+      assert.deepStrictEqual([g.took, g.why, !!b.groundsPick], ['tidy', 'no_order:stuck_on_cell', true])
+      b.shopVisitPlot = 'tidy'; b.tidyLast = { placed: 2, cleared: 1, outcome: 'stuck_on_cell' }   // the TIDY's own stuck stop...
+      const r = P.groundsResult({ status: 'success', stop: 'stuck_on_cell' })
+      X.groundsEnd(b, g, r)
+      state = { lastAt: now, lastStop: r.stop }             // ...reaches the order as `grounds_turn`
+      assert.strictEqual(state.lastStop, G2.GROUNDS_STOP)
+    }
+    assert.deepStrictEqual(seen, Array(5).fill('no_order:stuck_on_cell'), 'EVERY build visit inside the back-off is the grounds\'')
+    assert.deepStrictEqual(quotaRows(), Array(5).fill('on=1 turn=0 open=2927 share=0 took=tidy why=no_order:stuck_on_cell placed=2 cleared=1 empty=0 out=stuck_on_cell'))
+    assert.strictEqual(b.g2Turn, 0, 'none of them a turn of the quota\'s count')
+    // (a) the ORIGINAL back-off, as before: 6 h from the project's stop -- not from the last grounds visit, and not erased by one
+    assert.deepStrictEqual(ordOf(Sx, T0 + H6 - 1, state, { record: rec }), GROUNDS_ORDER('no_order:stuck_on_cell'))
+    assert.deepStrictEqual(ordOf(Sx, T0 + H6, state, { record: rec }), OWN_ORDER, 'the project is asked again exactly when it was before')
+    Sx.setGroundsFall({ ask: () => null, hold: X.groundsHeld })
+    assert.deepStrictEqual(ordOf(Sx, T0 + H6 - 1, state, { record: rec }), { order: null, skip: 'stuck_on_cell' }, 'no grounds to offer: the skip as before')
+  }
+  try {
+    await scenario(G2, S)
+    let why = null
+    await withMutant(G2_PATH, 'export const groundsHold = (state, hold) => (hold && HOLD_STOPS.includes(hold.stop) && Number.isFinite(hold.at) ? { ...(state ?? {}), lastStop: hold.stop, lastAt: hold.at } : state)', 'export const groundsHold = (state, hold) => state', async M => { try { await scenario(M, S) } catch (err) { why = err } })
+    assert.ok(why instanceof assert.AssertionError, `MUTANT (no hold: the first grounds visit erases the 6-hour back-off) survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
+    why = null
+    await withMutant(SHOP_PATH, "  if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }", "  if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }", async Sm => { try { await scenario(G2, Sm) } catch (err) { why = err } })
+    assert.ok(why instanceof assert.AssertionError, `MUTANT (the order's back-off reads the raw state) survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
+  } finally { S.setGroundsFall({ ask: X.groundsAsk, hold: X.groundsHeld }) }
+})
+await t('the ask reads the bot the order last saw: underground, the worker slots full, a spent bot or a closed record are asked nothing (the skip as before); the refusal read from the town\'s files stands 30 s', () => {
+  const state = { lastAt: 0, lastStop: 'stuck_on_cell' }
+  const ask = (b, now = Date.now()) => { SK.shopActive(b, now); return X.groundsAsk({ skip: 'stuck_on_cell', now, state, health: 20, freeSlots: 20 }) }
+  town()
+  assert.deepStrictEqual(ask(mkBot()), { order: { skill: 'build_shop', args: { grounds: true, why: 'no_order:stuck_on_cell' } } }, 'positive control')
+  assert.strictEqual(ask(mkBot('GroundsBot', { x: 3, y: 14, z: 4 })), null, 'in a mine under the town')
+  const spent = mkBot(); spent.g2EmptyUntil = Date.now() + 5 * MIN
+  assert.strictEqual(ask(spent), null)
+  assert.strictEqual(X.groundsAsk({ skip: 'idle', now: Date.now(), state }), null)
+  assert.strictEqual(X.groundsAsk({ skip: 'stuck_on_cell', now: Date.now(), state: { lastAt: Date.now() - MIN } }), null, 'inside the cooldown')
+  const dir = town()
+  for (let n = 1; n <= 3; n++) PJ.takeLease(dir, TKEY, `slot${n}`, `B${n}`, { now: Date.now() })
+  const b = mkBot()
+  assert.strictEqual(ask(b), null, 'three workers on the grounds: the last slot is the keeper\'s')
+  for (let n = 1; n <= 3; n++) PJ.releaseLease(dir, TKEY, `slot${n}`, `B${n}`, PJ.leaseState(dir, TKEY, `slot${n}`).gen)
+  assert.strictEqual(ask(b), null, 'the refusal stands 30 s (the town\'s files are not read at every decision)')
+  assert.notStrictEqual(ask(b, Date.now() + 31_000), null, 'and is asked again after them')
+  town({ tidy: tidyRec({ structure_complete: true, completeAt: Date.now() }) })
+  assert.strictEqual(ask(mkBot()), null, 'the inside complete: the next stage is the keeper\'s')
+})
+
+// ---- end to end: the real build_shop, the order's own project blocked ------------------------------------------------------------
+console.log('GROUNDS-03 END TO END (skills.mjs SKILLS.build_shop on real files; shop.mjs buildOrder): the paths cannot be sited -> the same visit goes on to the grounds')
+const DONE = (dir, plot) => PJ.publishRecord(dir, PJ.projKey(H70, plot), () => ({ v: 1, plot, cells: [], segments: [], structure_complete: true, completeAt: 1 }))
+/** A town whose order's own pick is the PATHS, which end `no_site` in milliseconds (no destination to route to): the workshop, the
+ *  stair, the house and the monument stand; the tidy is open with two fills. */
+function blockedTown (M = SK, opts = {}) { const dir = town({ tidy: FILL2(), ...opts }); for (const p of ['shaft', 'house1', 'monument']) DONE(dir, p); M.shopActiveForget(); return dir }
+/** THE TIME GATE OPENED (a copy of skills.mjs, the anchor present and unique): under the runner's 300 ms clock no visit has 90 s left. */
+const GATE_OPEN = ['tailMs: ZIG_VISIT_TAIL_MS }', 'tailMs: -1e9 }']
+const TAP = { onRow: null }
+tapRecords(r => TAP.onRow?.(r))
+await t('THE TIME GATE, on the real module (positive control): the paths end no_site with 300 ms on the clock -- the visit just ends, the row says `fall=short`, the back-off is remembered all the same', async () => {
+  blockedTown(SK)
+  const b = liveBot()
+  const r = await runBuild(SK, b)
+  assert.deepStrictEqual([r.status, r.stop], ['no_effect', 'no_site'], JSON.stringify(r))
+  const vis = rowsOf('build_visit')
+  assert.strictEqual(vis.length, 1, vis.join(' | ')); assert.ok(vis[0].startsWith('project=paths outcome=no_site stop=no_site '), vis[0])
+  assert.deepStrictEqual(quotaRows(), ['on=1 turn=1 open=2927 share=2 took=other why=off_turn placed=- cleared=- empty=0 out=no_site fall=short'])
+  assert.strictEqual(b.g2EmptyUntil ?? 0, 0)
+  assert.strictEqual(b.g3Hold?.stop, 'no_site')
+})
+/** The fall-through visit and what it must leave behind. -> { dir, b, r } */
+async function fallVisit (M) {
+  const dir = blockedTown(M)
+  const b = liveBot()
+  const r = await runBuild(M, b)
+  // (a) the visit's result is the FIRST project's: its stop, its detail
+  assert.deepStrictEqual([r.status, r.stop], ['no_effect', 'no_site'], JSON.stringify(r))
+  assert.ok(String(r.detail).startsWith('no path network'), r.detail)
+  const vis = rowsOf('build_visit')
+  assert.strictEqual(vis.length, 2, `the paths' visit, then the grounds': ${vis.join(' | ')}`)
+  assert.ok(vis[0].startsWith('project=paths outcome=no_site stop=no_site '), vis[0])
+  assert.ok(/^project=tidy outcome=deadline stop=deadline .* crew=worker /.test(vis[1]), vis[1])
+  assert.deepStrictEqual(rowsOf('keeper'), [], 'a WORKER: no lease row'); assert.deepStrictEqual(leaseFiles(dir), ['keeper.lease.g1.json'])
+  assert.deepStrictEqual(quotaRows(), ['on=1 turn=1 open=2927 share=2 took=tidy why=fallback:no_site placed=0 cleared=0 empty=1 out=deadline'])
+  assert.ok(Math.abs((b.g2EmptyUntil ?? 0) - (Date.now() + 10 * MIN)) < 5000, 'ITEM 6: the grounds leg fixed nothing (the clock) -- the bot\'s grounds turns are spent 10 minutes')
+  assert.strictEqual(b.g3Hold?.stop, 'no_site', 'the bot\'s stop on its OWN project is remembered for the order')
+  assert.strictEqual(b.shopNoSitePlot, 'paths', 'the failed siting is the paths\', as before')
+  assert.ok((b.shopIdle?.get('paths') ?? 0) > Date.now() && !b.shopIdle.has('tidy'), 'the no-effect visit is noted against the first project, as before')
+  assert.deepStrictEqual([b.groundsPick, b.shopVisitBusy], [null, false], 'the marks come off')
+  return { dir, b, r }
+}
+await t('ITEM 1 + 2: no_site -> the grounds in the SAME visit as a worker; the result, the site retry and the idle mark stay the paths\'; then the order (real buildOrder): a day\'s site retry from the paths\' stop, a grounds visit at every cooldown inside it, the tidy\'s own stop never seen; MUTANT (the stop not remembered): killed', async () => {
+  const scenario = async M => {
+    const { b, r } = await fallVisit(M)
+    S.setGroundsFall({ ask: M._grounds2.groundsAsk, hold: M._grounds2.groundsHeld })
+    const t1 = Date.now(), st1 = { lastAt: t1, lastStop: r.stop }                 // what cognitive.mjs writes after the visit
+    assert.deepStrictEqual(ordOf(S, t1 + 5 * MIN, st1), { order: null, skip: null }, 'inside the cooldown: nothing, as before')
+    // ITEM 6 at the glue: inside the spend the grounds are not ordered (the order's skip stands: the bot's turn is its other jobs' and
+    // the model's, as in any back-off); at its end they are
+    const asked = now => M._grounds2.groundsAsk({ skip: 'no_site', now, state: { lastAt: now - 10 * MIN - 1 }, health: 20, freeSlots: 20 })
+    assert.strictEqual(asked(b.g2EmptyUntil - 1), null, 'spent'); assert.notStrictEqual(asked(b.g2EmptyUntil), null)
+    const o1 = ordOf(S, t1 + 10 * MIN + 1000, st1)
+    assert.deepStrictEqual(o1, GROUNDS_ORDER('no_order:no_site'), 'the paths wait a day: the grounds are ordered (the spend of the empty leg is over too)')
+    // that visit, end to end (ten minutes on: the visit's own clock is the real one)
+    b.g2EmptyUntil = 0
+    const hold0 = { ...b.g3Hold }
+    const r2 = await runBuild(M, b, o1.order.args)
+    assert.deepStrictEqual([r2.status, r2.stop], ['no_effect', G2.GROUNDS_STOP], JSON.stringify(r2))
+    const vis = rowsOf('build_visit')
+    assert.strictEqual(vis.length, 1, vis.join(' | ')); assert.ok(/^project=tidy .* crew=worker /.test(vis[0]), `the grounds only -- never the paths inside their back-off: ${vis[0]}`)
+    assert.deepStrictEqual(quotaRows(), ['on=1 turn=1 open=2 share=0 took=tidy why=no_order:no_site placed=0 cleared=0 empty=1 out=deadline'])
+    assert.deepStrictEqual(b.g3Hold, hold0, 'a visit ordered for the grounds leaves the remembered stop alone')
+    // (b) the order now holds `grounds_turn` as its last stop -- and the paths' site retry still holds, from the paths' own stop
+    const t2 = Date.now(), st2 = { lastAt: t2, lastStop: r2.stop }
+    S.setGroundsFall({ ask: () => null, hold: M._grounds2.groundsHeld })
+    for (const dt of [20 * MIN, 12 * 3600_000]) assert.deepStrictEqual(ordOf(S, t2 + dt, st2), { order: null, skip: 'no_site' }, `+${dt / MIN} min`)
+    assert.deepStrictEqual(ordOf(S, hold0.at + S.SHOP_SITE_RETRY_MS - 1, st2), { order: null, skip: 'no_site' })
+    assert.deepStrictEqual(ordOf(S, hold0.at + S.SHOP_SITE_RETRY_MS, st2), OWN_ORDER, 'a day after the PATHS\' stop the siting is tried again -- not a day after the last grounds visit')
+    // positive control: without the hold, the grounds visit's stop has erased the back-off -- the bot is sent to site the paths again
+    S.setGroundsFall({ ask: () => null, hold: st => st })
+    assert.deepStrictEqual(ordOf(S, t2 + 20 * MIN, st2), OWN_ORDER)
+  }
+  try {
+    await withSkills([GATE_OPEN], scenario)
+    let why = null
+    await withSkills([GATE_OPEN, ['      ctx.bot.g3Hold = groundsHoldOf(r?.stop)\n', '']], async M => { try { await scenario(M) } catch (err) { why = err } })
+    assert.ok(why instanceof assert.AssertionError, `the mutant survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
+  } finally { S.setGroundsFall({ ask: X.groundsAsk, hold: X.groundsHeld }) }
+})
+await t('an INTERRUPTED grounds leg: the visit throws, the row says out=aborted and nothing is spent -- and the paths\' back-off survives the `aborted` the order then sees', async () => {
+  try {
+    await withSkills([GATE_OPEN], async M => {
+      blockedTown(M)
+      const b = liveBot(), ac = new AbortController()
+      TAP.onRow = rec => { if (kindOf(rec) === 'grounds_lane') ac.abort() }   // interrupted inside the grounds leg (its lane row is written, no step walked yet)
+      RECS.length = 0
+      let threw = null
+      try { await M.SKILLS.build_shop.run({ bot: b }, {}, ac.signal) } catch (e) { threw = e } finally { TAP.onRow = null }
+      assert.ok(threw, 'the interruption is the runner\'s to see')
+      assert.strictEqual(rowsOf('build_visit').filter(v => v.startsWith('project=paths outcome=no_site ')).length, 1, 'positive control: the paths\' visit had ended')
+      assert.deepStrictEqual(quotaRows(), ['on=1 turn=1 open=2927 share=2 took=tidy why=fallback:no_site placed=- cleared=- empty=0 out=aborted'])
+      assert.strictEqual(b.g2EmptyUntil ?? 0, 0, 'an interrupted visit is no evidence of an empty grounds')
+      assert.deepStrictEqual([b.groundsPick, b.shopVisitBusy], [null, false])
+      assert.strictEqual(b.g3Hold?.stop, 'no_site')
+      const t1 = Date.now(), st = { lastAt: t1, lastStop: 'aborted' }
+      S.setGroundsFall({ ask: () => null, hold: M._grounds2.groundsHeld })
+      assert.deepStrictEqual(ordOf(S, t1 + 20 * MIN, st), { order: null, skip: 'no_site' })
+      S.setGroundsFall({ ask: () => null, hold: s0 => s0 })
+      assert.deepStrictEqual(ordOf(S, t1 + 20 * MIN, st), OWN_ORDER, 'positive control: the raw state has lost the stop')
+      // interrupted BEFORE the grounds leg (as the paths' visit ends): nothing new is begun, the first project's result stands
+      blockedTown(M)
+      const b2 = liveBot(), ac2 = new AbortController()
+      TAP.onRow = rec => { if (kindOf(rec) === 'build_visit' && detailOf(rec).startsWith('project=paths ')) ac2.abort() }
+      RECS.length = 0
+      let r2 = null
+      try { r2 = await M.SKILLS.build_shop.run({ bot: b2 }, {}, ac2.signal) } finally { TAP.onRow = null }
+      assert.strictEqual(r2?.stop, 'no_site')
+      assert.strictEqual(rowsOf('build_visit').length, 1, rowsOf('build_visit').join(' | '))
+      assert.deepStrictEqual(quotaRows(), ['on=1 turn=1 open=2927 share=2 took=other why=off_turn placed=- cleared=- empty=0 out=no_site'])
+    })
+  } finally { TAP.onRow = null; S.setGroundsFall({ ask: X.groundsAsk, hold: X.groundsHeld }) }
+})
+await t('a visit ORDERED for the grounds never goes on to the project its back-off holds: turned away (nothing ready) it ends empty and spends the turns; its links broken at the visit (the worker slots full) it ends at once; MUTANTS (each guard cut): killed', async () => {
+  const ARGS = { grounds: true, why: 'no_order:no_site' }
+  const turnedAway = async M => {
+    const dir = blockedTown(M)
+    PJ.takeLease(dir, TKEY, 'seg-T-00-0', 'X', { now: Date.now() })       // the one open segment is another bot's, and there is no cut
+    const b = liveBot()
+    b.g3Hold = { stop: 'no_site', at: 123 }
+    const r = await runBuild(M, b, ARGS)
+    assert.deepStrictEqual([r.status, r.stop], ['no_effect', G2.GROUNDS_STOP], JSON.stringify(r))
+    assert.deepStrictEqual(rowsOf('build_visit'), [], 'no visit to the paths (their back-off holds), none to the grounds (nothing ready)')
+    assert.deepStrictEqual(quotaRows(), ['on=1 turn=0 open=2927 share=0 took=tidy why=no_order:no_site placed=0 cleared=0 empty=1 out=grounds_none'])
+    assert.ok(Math.abs((b.g2EmptyUntil ?? 0) - (Date.now() + 10 * MIN)) < 5000, 'spent: the order is not asked for the grounds again for 10 minutes')
+    assert.deepStrictEqual(b.g3Hold, { stop: 'no_site', at: 123 })
+  }
+  const linksBroken = async M => {
+    const dir = blockedTown(M)
+    for (let n = 1; n <= 3; n++) PJ.takeLease(dir, TKEY, `slot${n}`, `B${n}`, { now: Date.now() })   // taken between the ask and the visit
+    const b = liveBot()
+    const r = await runBuild(M, b, ARGS)
+    assert.deepStrictEqual([r.status, r.stop], ['no_effect', G2.GROUNDS_STOP], JSON.stringify(r))
+    assert.deepStrictEqual(rowsOf('build_visit'), [], 'no visit at all: the order had nothing else for this bot')
+    assert.deepStrictEqual(quotaRows(), ['on=1 turn=0 open=2927 share=0 took=other why=no_order:no_site placed=- cleared=- empty=0 out=grounds_turn fall=full'])
+  }
+  await turnedAway(SK); await linksBroken(SK)
+  // positive control: the same order with the segment free IS a grounds visit
+  blockedTown(SK)
+  await runBuild(SK, liveBot(), ARGS)
+  assert.ok(/^project=tidy .* crew=worker /.test(rowsOf('build_visit')[0] ?? ''), rowsOf('build_visit').join(' | '))
+  for (const [old, scenario] of [
+    ['    if (g3Only(args)) { bot.tidyLast = { placed: 0, cleared: 0, outcome: String(gr.stop) }; return groundsResult(gr) }\n', turnedAway],
+    ["  if (g3Only(args)) { bot.shopVisitPlot = null; return groundsResult({ status: 'no_effect', detail: 'the grounds have no work for this bot now, and its order has nothing else', stop: 'grounds_none' }) }\n", linksBroken],
+  ]) {
+    let why = null
+    await withSkills([[old, '']], async M => { try { await scenario(M) } catch (err) { why = err } })
+    assert.ok(why instanceof assert.AssertionError, `the mutant survived or died for another reason (${old.slice(2, 40)}): ${why?.stack?.split('\n')[0] ?? 'survived'}`)
+  }
+  S.setGroundsFall({ ask: X.groundsAsk, hold: X.groundsHeld })
+})
+await t('GROUNDSFALL=off POSITIVE CONTROL (a copy of skills.mjs under the switch, the time gate opened too): the visit just ENDS as today -- one visit, grounds-01\'s row, nothing remembered, no hook installed, the order\'s skip', async () => {
+  S.setGroundsFall(null)                                     // a process started under the switch never had the hooks
+  process.env.GROUNDSFALL = 'off'
+  try {
+    await withSkills([GATE_OPEN], async M => {
+      assert.deepStrictEqual([M._grounds2.G2.on, M._grounds2.G3.on], [true, false])
+      blockedTown(M)
+      const b = liveBot()
+      const r = await runBuild(M, b)
+      assert.deepStrictEqual([r.status, r.stop], ['no_effect', 'no_site'])
+      const vis = rowsOf('build_visit')
+      assert.strictEqual(vis.length, 1, vis.join(' | ')); assert.ok(vis[0].startsWith('project=paths '), vis[0])
+      assert.deepStrictEqual(quotaRows(), ['on=1 turn=1 open=2927 share=2 took=other why=off_turn placed=- cleared=- empty=0 out=no_site'], 'grounds-01\'s row exactly: no `fall=`')
+      assert.strictEqual(b.g3Hold ?? null, null); assert.strictEqual(b.g2EmptyUntil ?? 0, 0)
+      const t1 = Date.now(), st = { lastAt: t1, lastStop: r.stop }
+      assert.deepStrictEqual(ordOf(S, t1 + 20 * MIN, st), { order: null, skip: 'no_site' }, 'the copy installed no hook: the order as before')
+      assert.strictEqual(M._grounds2.groundsAsk({ skip: 'no_site', now: t1 + 20 * MIN, state: st }), null)
+      // and an order for the grounds means nothing under the switch: an ordinary build visit (a fresh bot's first: the order's own pick)
+      await runBuild(M, liveBot(), { grounds: true, why: 'no_order:no_site' })
+      assert.ok(rowsOf('build_visit')[0]?.startsWith('project=paths '), rowsOf('build_visit').join(' | '))
+      assert.deepStrictEqual(quotaRows(), ['on=1 turn=1 open=2927 share=2 took=other why=off_turn placed=- cleared=- empty=0 out=no_site'])
+    })
+  } finally { delete process.env.GROUNDSFALL; S.setGroundsFall({ ask: X.groundsAsk, hold: X.groundsHeld }) }
+})
+
+console.log('GROUNDS-03 ITEM 4: the inside complete, a country band open -- the ORDER\'s own visit works the band as a worker; the quota, the fall-through and the ask do not (they read the inside\'s record alone)')
+await t('inside complete + country open: shopActive offers the tidy and the visit borrows the country lane (crew=worker lane=country); groundsBegin / groundsAsk answer record_complete', async () => {
+  const C = await import('../src/country.mjs')
+  const dir = town({ tidy: tidyRec({ home: H70, r: 32, sitedAt: Date.now(), refreshAt: Date.now(), inwallAt: Date.now(), structure_complete: true, completeAt: Date.now() }) })
+  for (const p of ['shaft', 'house1', 'monument', 'paths', 'wall']) DONE(dir, p)
+  PJ.publishRecord(dir, PJ.projKey(H70, C.COUNTRY_PLOT), () => ({ v: 1, blueprint: 'country@1', plot: C.COUNTRY_PLOT, stageId: C.countryStages()[0].id, sitedAt: Date.now(), home: H70,
+    cells: [10, 11].map(x => ({ at: [x, G + 1, 40], role: 'earth', seg: 'C-00-0' })), cut: [], clear: [], replant: [], segments: [{ seg: 'C-00-0', deps: [] }], structure_complete: false }))
+  SK.shopActiveForget()
+  const b = liveBot()
+  assert.strictEqual(SK.shopActive(b, Date.now()).plot, 'tidy', 'the order: the grounds, for the band (country.mjs groundsState)')
+  assert.strictEqual(SK.shopActiveStates().find(x => x.plot === 'tidy').country, 'open')
+  // the pure lane rule for a worker (a helper with no lease name)
+  assert.deepStrictEqual(C.groundsLane({ role: 'helper', helper: null, cap: 0, inside: { open: false, due: false }, country: { demand: 'open' } }), { lane: 'country', why: 'borrow:country' })
+  assert.strictEqual(C.groundsLane({ role: 'helper', helper: null, cap: 0, inside: { open: false, due: false }, country: { demand: 'site' } }).lane, 'inside', 'a band to SITE is the keeper\'s')
+  // what stops the quota, the fall-through and the ask: skills.mjs g2Record reads the INSIDE's head alone -> groundsRecord `complete`
+  b.g2Turn = 1
+  const g = X.groundsBegin(b, Date.now())
+  assert.deepStrictEqual([g.turn, g.took, g.why], [2, 'other', 'record_complete'])
+  X.groundsEnd(b, g, { status: 'no_effect', stop: 'deadline' })
+  assert.strictEqual(X.groundsAsk({ skip: 'stuck_on_cell', now: Date.now(), state: { lastAt: 0 } }), null)
+  assert.deepStrictEqual(G2.groundsFall({ ...F0, record: 'complete' }), { fall: false, why: 'record_complete', asked: true })
+  // the order's own visit, end to end
+  const r = await runBuild(SK, b)
+  assert.strictEqual(r.stop, 'deadline', JSON.stringify(r))
+  assert.deepStrictEqual(rowsOf('grounds_lane'), ['lane=country why=borrow:country role=helper country=open'])
+  assert.ok(/^project=country outcome=deadline .* crew=worker lane=country /.test(rowsOf('build_visit')[0] ?? ''), rowsOf('build_visit').join(' | '))
+  assert.ok(rowsOf('build_seg')[0]?.startsWith('project=country seg=C-00-0 '), 'the band\'s open segment is the visit\'s')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
