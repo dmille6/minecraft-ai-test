@@ -12,6 +12,7 @@ import { log, logEvent } from './logger.mjs'
 import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's licence row
 import { snapshot } from './state.mjs'
 import { attachPlaceAudit, placeAuditOn, climbOf, CLIMB } from './placeaudit.mjs'   // placeaudit-01; access-02: the climbs ledger
+import { installTakeback } from './takeback.mjs'   // takeback-01: a walk takes back the blocks it placed
 import { climbEnqueue, prunePool, poolPruneMode } from './buildproj.mjs'   // access-02: queued, written off the placement's continuation; showdrop-01: the prune
 import { configuredHome } from './townground.mjs'   // placeaudit-01
 import { config } from './config.mjs'
@@ -176,9 +177,17 @@ export function installFeatures (bot) {
   try {
     const on = placeAuditOn(process.env)
     logEvent({ kind: 'placeaudit_mode', status: 'success', snapshot: snapshot(bot), detail: `phase=mode v=1 on=${on ? 1 : 0}` })
+    // takeback-01: the walk's take-back (takeback.mjs; TAKEBACK=off -> not installed). Its receipts are this instrument's placements,
+    // so with PLACEAUDIT=off nothing is noted and nothing is taken back (its mode row still says what it is)
+    let tb = null
+    try {
+      tb = installTakeback(bot, { emit: (kind, status, detail) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } } })
+      if (tb) bot.once?.('end', () => { try { tb.final() } catch { /* telemetry */ } })
+    } catch (e) { log('warn', 'takeback not installed', { error: e?.message }) }
     if (on) {
       const pa = attachPlaceAudit(bot, {
         home: configuredHome(config.world),
+        onPlaced: tb ? rec => tb.note(rec) : null,
         emitPlace: ({ detail, args }) => {
           try { logEvent({ kind: 'place_town', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ }
           // access-02: a surface climb in town goes to this bot's climbs ledger (the groundskeeper's staircase input)

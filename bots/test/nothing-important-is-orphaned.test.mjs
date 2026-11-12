@@ -155,6 +155,7 @@ const REQUIRED = [
   'bots/src/cottage2.mjs',
   'bots/test/cottage2.test.mjs',
   'bots/test/cottagepost.test.mjs',
+  'bots/src/takeback.mjs', 'bots/test/takeback.test.mjs',
   'sandbox/cottage2/furnish-proof.mjs',
   'sandbox/cottage2/furnish-proof.jsonl',
   'sandbox/cottage2/shear-e2e.mjs',
