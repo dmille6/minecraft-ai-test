@@ -83,10 +83,16 @@ test('the switch is wired: the entry reads VOYAGER_HARNESS, setup renders it fro
   assert.ok(entry2.capUsd > 0 && entry2.capUsd <= 20)
   assert.match(setup, /"maxTokens": 12000 if h2 else 4096/)
   assert.match(setup, /h2 = len\(parts\) > 4 and parts\[4\] == "2"/)
-  // every arm registered today is harness 1: no 5th column on any of them
-  const arms = fs.readFileSync(path.join(here, '../infra/arms.conf'), 'utf8').split('\n').filter(l => l.trim() && !l.startsWith('#'))
-  assert.ok(arms.length >= 10)
-  for (const l of arms) assert.equal(l.trim().split(/\s+/).length, 4, `a registered arm changed harness: ${l}`)
+  // the ten arms of stages 1-3b stay harness 1 for good (their results are read on it): no 5th column on any of them.
+  // A new arm may carry one, and it is 1 or 2.
+  const arms = fs.readFileSync(path.join(here, '../infra/arms.conf'), 'utf8').split('\n').filter(l => l.trim() && !l.startsWith('#')).map(l => l.trim().split(/\s+/))
+  const OLD = ['a', 'b', 'c', 'ctl', 'h1', 'h2', 'q1', 'q2', 'k1', 'k2']
+  for (const name of OLD) {
+    const row = arms.filter(a => a[0] === name)
+    assert.equal(row.length, 1, `arm ${name} is registered ${row.length} times`)
+    assert.equal(row[0].length, 4, `a stage 1-3b arm changed harness: ${row[0].join(' ')}`)
+  }
+  for (const a of arms) assert.ok(a.length === 4 || (a.length === 5 && ['1', '2'].includes(a[4])), `bad registry row: ${a.join(' ')}`)
 })
 
 test('describeOutcome says each check in plain words', () => {

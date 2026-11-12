@@ -728,4 +728,21 @@ Replayed over the real sequences (the model's replacement proposals are unknown,
 | Verified share of what still runs | 41 % (was 22 %) | 21 % (was 9 %) | 47 % (was 41 %) | 49 % (was 42 %) |
 
 17 more mutants, all killed (in the 71 above).
+Independent review of this addition (Codex, read-only, blockers only, on cb0fd132): NO BLOCKERS.
+
+### 19.2 Start (owner 11-12: "Yes, after 11-14")
+
+Not before the 3b qwen arms end (`voyager-3b-qend`, 11-14 18:15:56Z): the deploy replaces `/srv/voyager/code` for every arm
+and restarts the proxy. In order:
+1. Read 3b's final reports and write its verdict into §18, with the sword note from §19.1 beside it.
+2. Register g1, g2 (Haiku) and s1, s2 (Haiku, with the Sonnet proposer set in the proxy) in `arms.conf` on seeds S1, S2
+   with a 5th column `2`; commit; stage `git archive` of main on the worlds host (keep `node_modules`); `sudo setup.sh`.
+3. In `/etc/voyager/proxy.json`: spend groups `g-h2` (cap $40) and `s-h2` (cap $100); for s1 and s2
+   `byPurpose.curriculum = {model: claude-sonnet-5-5, inUsdPerMTok: 2, outUsdPerMTok: 10, effort: low, maxTokens: 4000}`
+   (the same effort as the Haiku arms, so the model is the only difference). Restart `voyager-proxy`.
+4. Smoke on a throwaway arm and seed for 20 minutes before the clock starts: `loop_start` says harness 2, a task is
+   proposed and verified, the proxy rows show `cache_read_input_tokens` on second-round code calls and the right model per
+   purpose, no errors. Stop it and remove its world.
+5. Start the four servers, then the four bots at the same moment; RUNNING markers; timers for the +24 h and +48 h reads
+   (`voyager_metrics.py`) and the end. Ledger row; the launch time written here.
 
