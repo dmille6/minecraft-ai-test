@@ -216,7 +216,8 @@ await t('SITEPROOF-01: proveSiteSteps IS proveSite, value for value, and the loo
     assert.deepStrictEqual(tr.value, M.proveSite(flat, HOME, BP, site), 'the same proof')
     assert.ok(tr.seq.split('W').length - 1 >= BP.segments.length + 1, `control: a walk a segment at least, and the finished building's (${tr.seq})`)
     assert.ok(!tr.seq.includes('WW'), `NO-TWO-WALKS: ${tr.seq}`)
-    assert.ok(tr.seq.endsWith('W'), 'the last walk is the finished building\'s: the proof returns after it')
+    assert.ok(tr.seq.endsWith('WY'), `EVERY-WALK-YIELDS: the finished building's walk too (the search walks again right after a proof): ${tr.seq}`)
+    assert.strictEqual(tr.seq.split('W').length, tr.seq.split('Y').length, 'a turn for every walk')
   }
   scenario(B)
   // a refused proof is the same refusal

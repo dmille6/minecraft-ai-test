@@ -606,8 +606,8 @@ export function proveSite (read, home, bp, site, opts = {}) {
  * GENERATOR: proveSite's own steps, yielding after EVERY walk of the town. One walk is 1.0 to 6.0 s on that host (walkR 48 to
  * 136, bots/scripts/standbench.mjs, measured there), a proof walks once a segment at least and once more at its end, and the
  * search's cooperative runner (siteBlueprintAsync) could only take its turn BETWEEN proofs -- so one proof of a ten-segment
- * blueprint held the event loop past the server's 30-s keep-alive whenever the host was busy. Yielding between walks bounds the
- * hold to ONE walk. The result is proveSite's, value for value: nothing is read or decided differently.
+ * blueprint held the event loop past the server's 30-s keep-alive whenever the host was busy. Yielding after EVERY walk (the
+ * finished building's too: the search walks again right after a proof) bounds the hold to ONE walk. The result is proveSite's, value for value: nothing is read or decided differently.
  */
 export function * proveSiteSteps (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null, avoid = null, planned = null } = {}) {
   // planahead-01 (`planned` = { block: Set, noFloor: Set }, planahead.mjs plannedWorld): the other open records' work still to place is an
@@ -662,6 +662,7 @@ export function * proveSiteSteps (read, home, bp, site, { stood = [], domain = n
   // the finished building: EVERY open interior floor cell is walked to from town through the open doorway
   // reroof-04 (`gone`: fill keys a temporary stand holds -- torn down once the roof stands): the finished building is walked WITHOUT them
   const final = walkFrom(gone?.size ? overlay(R, new Map([...gone].map(k => [k, AIR]))) : R, home, new Set(pBlock ?? []), walkR, { stood, floors, avoid, ...(pNoFloor ? { noFloor: pNoFloor } : {}) })
+  yield null   // siteproof-01 (Claude r1 note): after the LAST walk too -- the search's next walk (the replant's, the next level's proof) follows at once
   const solidInside = new Set(cells.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))
   const interior = bp.interior.filter(([, , y]) => y === 1).map(([u, v]) => { const { dx, dz } = rot(site.orient, u, v); return k3(site.anchor.x + dx, site.s + 1, site.anchor.z + dz) })
   // reroof-04 (`interiorNow(key)`, a retrofit: NEVER WORSE) only the interior cells the town walks to NOW must stay walked (LIVE 11-08: a
