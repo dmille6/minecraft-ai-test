@@ -423,7 +423,7 @@ test('registered: a chatOnly housekeeping skill with an inventory_loss contract'
  *   openNever        openContainer stays pending until st.late() resolves it with the window
  *   fillDest(slot)   another bot fills that container slot while the bot is picking up (the pickup click's wait)
  */
-function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false, swapAfter = null }) {
+function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false, swapAfter = null, serverItem = null, resync = false }) {
   const bagSlots = Array(46).fill(null)                      // the CLIENT's bag (bot.inventory)
   for (const it of items) bagSlots[it.slot] = { ...it }
   const server = { bag: bagSlots.map(x => (x ? { ...x } : null)) }
@@ -435,7 +435,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
     const at = w.slots[slot], cur = w.selectedItem
     if (!cur) { if (at) { w.selectedItem = { ...at }; w.slots[slot] = null } return }
     if (!at) { w.slots[slot] = { ...cur, slot }; w.selectedItem = null; return }
-    if (at.name === cur.name) { const size = mcData.itemsByName[cur.name].stackSize; const m = Math.min(size - at.count, cur.count); at.count += m; cur.count -= m; if (!cur.count) w.selectedItem = null; return }
+    if (at.name === cur.name && JSON.stringify(at.components ?? []) === JSON.stringify(cur.components ?? [])) { const size = mcData.itemsByName[cur.name].stackSize; const m = Math.min(size - at.count, cur.count); at.count += m; cur.count -= m; if (!cur.count) w.selectedItem = null; return }
     w.slots[slot] = { ...cur, slot }; w.selectedItem = { ...at }
   }
   const bot = {
@@ -467,9 +467,9 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
       st.opened.push(`${c.pos.x},${c.pos.y},${c.pos.z}`)
       if (c.unopenable || (reopenFails && st.opened.filter(x => x === `${c.pos.x},${c.pos.y},${c.pos.z}`).length > 1)) return Promise.reject(new Error('windowOpen did not fire'))
       const n = c.size ?? 27
-      const mk = () => {
+      const mk = (srv = false) => {
         const w = { slots: Array(n + 36).fill(null), selectedItem: null }
-        for (let i = 0; i < n; i++) w.slots[i] = c.items[i] ? { ...c.items[i], slot: i } : null
+        for (let i = 0; i < n; i++) w.slots[i] = c.items[i] ? { ...((srv && serverItem?.(i, c.items[i], st.opened.length)) || c.items[i]), slot: i } : null
         for (let s = 9; s < 45; s++) w.slots[s - 9 + n] = server.bag[s] ? { ...server.bag[s], slot: s - 9 + n } : null
         return w
       }
@@ -479,7 +479,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
       win.containerItems = () => win.slots.slice(0, n).filter(Boolean)
       win.firstEmptySlotRange = (a, b) => { for (let i = a; i < b; i++) if (!win.slots[i]) return i; return null }
       win.findItemRange = (a, b, type, _m, notFull) => { for (let i = a; i < b; i++) { const x = win.slots[i]; if (x && x.type === type && (!notFull || x.count < (x.stackSize ?? 64))) return { ...x, slot: i } } return null }
-      win.server = mk()
+      win.server = mk(true)
       win.close = () => {
         st.closes++
         for (let i = 0; i < n; i++) c.items[i] = win.server.slots[i] ? { ...win.server.slots[i] } : null
@@ -525,6 +525,8 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
         const src = win.server.slots.findIndex((x, i) => i >= win.inventoryStart && !x)
         win.server.slots[src] = { ...win.server.selectedItem, slot: src }; win.server.selectedItem = null
       } else left(win.server, slot)
+      // chestmerge-01: the refresh a lockstep click waits for -- the client's window becomes the server's
+      if (resync) { for (let i = 0; i < win.slots.length; i++) win.slots[i] = win.server.slots[i] ? { ...win.server.slots[i] } : null; win.selectedItem = win.server.selectedItem ? { ...win.server.selectedItem } : null }
     },
   }
   if (swapAfter) {   // after click N lands, another window becomes the open one (a late open, a server-opened screen)
@@ -2171,4 +2173,257 @@ test('LOGBANK r3 (Paper r3): in a WELL town (the stock cap binds) spruce banks d
     const wanted = B.depositPlan(items, null, { wants: ['spruce_log'] }).find(e => e.name === 'spruce_log')?.count
     assert.equal(wanted, 9, 'the mutant shape: a want is kept to 64')
   } finally { B.setStockReaders({}) }
+})
+
+
+// ---- CHESTMERGE-01 (chestmerge.mjs, OWNER 11-12 "Yes, build merging") -------------------------------------------------------
+// A town chest with no empty slot but split partial stacks makes its own room: the run merges partial stacks of one kind
+// INSIDE the container, only as many as its plan lacks, then banks into the freed slots as before. Measured 11-12 (town
+// index, 306 containers): 239 full, and 34% of the used slots would be free if each container's partial stacks were merged.
+const CM = await import('../src/chestmerge.mjs')
+const cmRows = () => { const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_chestmerge') rows.push(r.skill) }); return { rows, untap } }
+/** A chest with NO empty slot: `coal` slots of 10 coal first, then full dirt stacks (which take nothing and merge with nothing). */
+const splitChest = (x, coal = 8, extra = {}) => chestAt(x, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < coal ? item('coal', 10, i) : item('dirt', 64, i))), ...extra })
+const C = (name, count, extra = {}) => item(name, count, 0, extra)
+
+test('CHESTMERGE pure: mergeKey -- one kind is the name AND everything the server sent with it; tools and single items never merge', () => {
+  assert.equal(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 33)), 'the count is not the kind')
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('charcoal', 10)))
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { components: [{ type: 'custom_name', data: 'x' }] })), 'a component is a different kind')
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { removedComponents: ['lore'] })))
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { nbt: { type: 'compound', value: {} } })))
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { metadata: 3 })))
+  assert.equal(CM.mergeKey(C('stone_pickaxe', 1)), null, 'a tool'); assert.equal(CM.mergeKey(C('water_bucket', 1)), null, 'a stack of one')
+  assert.equal(CM.mergeKey(null), null); assert.equal(CM.mergeKey({ count: 3, stackSize: 64 }), null, 'no name')
+  const loop = { name: 'coal', count: 3, stackSize: 64, components: [] }; loop.components.push(loop)
+  assert.equal(CM.mergeKey(loop), null, 'data that cannot be compared is left alone')
+})
+test('CHESTMERGE pure: mergePlan -- the smallest stack onto the fullest that takes ALL of it; one slot a step; never more than needed', () => {
+  const slots = [C('coal', 10), C('coal', 60), C('coal', 3), C('dirt', 64), null, C('coal', 50), C('stone_pickaxe', 1), C('stone_pickaxe', 1)]
+  assert.deepEqual(CM.mergePlan(slots, { need: 1 }), [{ name: 'coal', from: 2, to: 1, count: 3, into: 60, sum: 63 }])
+  assert.deepEqual(CM.mergePlan(slots, { need: 9 }), [{ name: 'coal', from: 2, to: 1, count: 3, into: 60, sum: 63 }, { name: 'coal', from: 0, to: 5, count: 10, into: 50, sum: 60 }],
+    'the 10 does not fit the 63: it goes onto the 50; then 60 + 63 fit nowhere')
+  assert.deepEqual(CM.mergePlan(slots, { need: 0 }), []); assert.deepEqual(CM.mergePlan(slots, { need: 5, max: 1 }).length, 1)
+  assert.deepEqual(CM.mergePlan([C('coal', 40), C('coal', 30), C('coal', 64)], { need: 3 }), [], 'no pair fits one stack: nothing is planned (a part merge is never started)')
+  assert.deepEqual(CM.mergePlan([C('coal', 64), C('coal', 64)], { need: 3 }), [], 'full stacks')
+  assert.deepEqual(CM.mergePlan([C('coal', 5), C('coal', 5, { components: [{ type: 'custom_name', data: 'x' }] })], { need: 3 }), [], 'different components: never a pair')
+  assert.deepEqual(CM.mergePlan([C('ender_pearl', 9), C('ender_pearl', 9)], { need: 3 }), [], 'a stack of 16 is judged by ITS size')
+  assert.equal(CM.mergePlan([C('ender_pearl', 9), C('ender_pearl', 7)], { need: 3 }).length, 1)
+  assert.deepEqual(CM.mergePlan(null, { need: 3 }), []); assert.deepEqual(CM.mergePlan([], {}), [])
+  assert.equal(CM.MERGE_MAX, 8)
+  assert.equal(CM.mergePlan(Array.from({ length: 27 }, () => C('coal', 1)), { need: 99 }).length, 8, 'at most MERGE_MAX a visit')
+})
+test('CHESTMERGE property: over random containers every planned step is a whole-stack merge of one kind that fits; totals never change; steps = slots freed <= need', () => {
+  const r = rng(20261112)
+  const names = ['coal', 'bone_meal', 'oak_log', 'ender_pearl', 'dirt', 'stone_pickaxe']
+  let stepsSeen = 0
+  for (let n = 0; n < 400; n++) {
+    const slots = Array.from({ length: 27 }, () => {
+      if (r() < 0.1) return null
+      const name = names[Math.floor(r() * names.length)], size = mcData.itemsByName[name].stackSize
+      return C(name, 1 + Math.floor(r() * size), r() < 0.08 ? { components: [{ type: 'custom_name', data: 'x' }] } : {})
+    })
+    const need = Math.floor(r() * 12)
+    const plan = CM.mergePlan(slots, { need })
+    assert.ok(plan.length <= Math.min(need, CM.MERGE_MAX))
+    const sim = slots.map(x => (x ? { ...x } : null))
+    const sumBy = l => { const o = {}; for (const x of l) if (x) o[CM.mergeKey(x) ?? `one:${x.name}`] = (o[CM.mergeKey(x) ?? `one:${x.name}`] ?? 0) + x.count; return o }
+    const before = sumBy(sim), usedBefore = sim.filter(Boolean).length
+    for (const m of plan) {
+      const a = sim[m.from], b = sim[m.to]
+      assert.ok(a && b && m.from !== m.to, 'both slots hold a stack')
+      assert.equal(a.count, m.count); assert.equal(b.count, m.into); assert.equal(m.sum, m.count + m.into)
+      assert.ok(CM.mergeKey(a) != null && CM.mergeKey(a) === CM.mergeKey(b), 'one kind')
+      assert.ok(m.sum <= b.stackSize, 'the whole stack fits: the cursor ends empty')
+      b.count = m.sum; sim[m.from] = null; stepsSeen++
+    }
+    assert.deepEqual(sumBy(sim), before, 'nothing made, nothing lost')
+    assert.equal(usedBefore - sim.filter(Boolean).length, plan.length, 'one slot a step')
+  }
+  assert.ok(stepsSeen > 300, `positive control: the property saw ${stepsSeen} real merges`)
+})
+test('CHESTMERGE pure: mergeVerified counts a merge only when the server shows its slot at the LAST sum; the row fits the logger', () => {
+  const done = [{ name: 'coal', from: 0, to: 7, count: 10, into: 10, sum: 20 }, { name: 'coal', from: 1, to: 7, count: 10, into: 20, sum: 30 }]
+  const srv = n => { const s = Array(27).fill(null); s[7] = n == null ? null : { name: 'coal', count: n }; return s }
+  assert.equal(CM.mergeVerified(done, srv(30)), 2)
+  assert.equal(CM.mergeVerified(done, srv(20)), 0, 'the first sum alone is not the end state'); assert.equal(CM.mergeVerified(done, srv(null)), 0)
+  assert.equal(CM.mergeVerified(done, [null, null, null, null, null, null, null, { name: 'dirt', count: 30 }]), 0); assert.equal(CM.mergeVerified([], srv(30)), 0)
+  const d = CM.mergeDetail({ at: '2,70,0', need: 4, free: 0, planned: 4, merged: 4, verified: 4, banked: 4, err: 'x '.repeat(200), ms: 812.4 })
+  assert.ok(d.length <= 300, String(d.length)); assert.match(d, /^at=2,70,0 need=4 free=0 planned=4 merged=4 verified=4 banked_stacks=4 stop=x_x.* ms=812$/)
+  assert.match(CM.mergeDetail({ merged: 2 }), /verified=unread .*stop=none/)
+})
+test('CHESTMERGE rollback: CHESTMERGE=off turns it off (read at import); on by default', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const src = new URL('../src/chestmerge.mjs', import.meta.url).href
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import('${src}').then(m => console.log(JSON.stringify(m.CHESTMERGE.on)))`], { env: { ...process.env, CHESTMERGE: 'off' }, encoding: 'utf8' })
+  assert.equal(JSON.parse(r.stdout), false, r.stderr)
+  assert.equal(CM.CHESTMERGE.on, true, 'positive control: on by default in this process')
+})
+
+/** The scene every skill test starts from: a full bag (the plan banks 4 stacks) at ONE chest with no empty slot and 8 x 10 coal. */
+const cmScene = (opts = {}, chest = splitChest(2)) => { const items = fullBag(); const w = world({ items, containers: [chest], ...opts }); return { ...w, chest, items, start: total(items) + total(chest.items) } }
+const allOf = w => total(serverBag(w)) + total(w.chest.items)
+
+test('CHESTMERGE SKILL: a chest with no empty slot but split coal -> 4 merges free the 4 slots the plan needs, the stacks are banked; the server shows it; nothing lost', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const w = cmScene()
+    const coalBefore = sumOf(w.chest.items, 'coal')
+    const { out: r, rows: td } = await rowsOf(() => runLate(w.bot))
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(allOf(w), w.start, 'nothing lost'); assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+    assert.equal(w.st.clicks, 16, '4 merges and 4 deposits, two left clicks each')
+    assert.deepEqual(w.st.opened, ['2,70,0', '2,70,0'], 'one visit, one re-open')
+    assert.equal(w.chest.items.filter(i => i?.name === 'coal' && i.count === 50).length, 1, 'slots 0-3 went onto slot 7: 10 + 4 x 10')
+    assert.equal(sumOf(w.chest.items, 'coal') - coalBefore, sumOf(w.items, 'coal') - sumOf(serverBag(w), 'coal'), 'the chest\'s coal changed only by what the bag banked')
+    assert.equal(w.chest.items.filter(Boolean).length, 27, 'the freed slots hold the banked stacks')
+    assert.equal(serverBag(w).length, 32, 'the bag is four stacks lighter')
+    assert.equal(rows.length, 1); assert.equal(rows[0].status, 'success')
+    assert.match(rows[0].detail, /^at=2,70,0 need=4 free=0 planned=4 merged=4 verified=4 banked_stacks=4 stop=none ms=\d+$/)
+    assert.match(td[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 /, 'the town deposit\'s own row is the base\'s')
+    assert.notEqual(await memStatus('2,70,0'), 'full', 'a chest that took the plan is not remembered full')
+  } finally { untap(); restore() }
+})
+test('CHESTMERGE SKILL: only what the plan lacks -- two empty slots and four stacks to bank -> exactly two merges', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const chest = splitChest(2); chest.items[25] = null; chest.items[26] = null
+    const w = cmScene({}, chest)
+    const r = await runLate(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(w.st.clicks, 12, '2 merges + 4 deposits'); assert.equal(allOf(w), w.start)
+    assert.match(rows[0].detail, /need=2 free=2 planned=2 merged=2 verified=2 banked_stacks=4/)
+  } finally { untap(); restore() }
+})
+test('CHESTMERGE CONTROL: room for the whole plan -> no merge, no row (the base run); a chest of FULL stacks -> no merge, town_storage_full as before', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const roomy = splitChest(2); for (const i of [23, 24, 25, 26]) roomy.items[i] = null
+    const a = cmScene({}, roomy)
+    assert.equal((await runLate(a.bot)).status, 'success'); assert.equal(a.st.clicks, 8, 'the four deposits only')
+    assert.equal(sumOf(a.chest.items.filter(i => i?.count === 10), 'coal'), 80, 'the split coal is left as it was')
+    freshTown()
+    const b = world({ items: fullBag(), containers: [filledChest(2)] })
+    const r = await runLate(b.bot)
+    assert.equal(r.failClass, 'town_storage_full'); assert.equal(b.st.clicks, 0)
+    assert.equal(rows.length, 0, 'no merge was planned in either run: no row')
+  } finally { untap(); restore() }
+})
+test('CHESTMERGE SKILL: stacks the client can see differ (a component) are never merged -> the chest is full, exactly as the base', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 8 ? item('coal', 10, i, { components: [{ type: 'custom_name', data: `c${i}` }] }) : item('dirt', 64, i))) })
+    const w = cmScene({}, chest)
+    const r = await runLate(w.bot)
+    assert.equal(r.failClass, 'town_storage_full'); assert.equal(w.st.clicks, 0); assert.equal(rows.length, 0); assert.equal(allOf(w), w.start)
+  } finally { untap(); restore() }
+})
+// THE THREE SURPRISES (another bot changed the chest between the clicks, or the server's stack was not the client's). In each
+// the stack the merge picked up goes back into the slot it came from, the merging ends, nothing reaches the bag or the ground.
+const surprise = async (opts, check) => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const w = cmScene(opts)
+    const r = await runLate(w.bot)
+    assert.equal(w.st.dropped, 0, 'nothing on the ground'); assert.equal(w.st.loadedCloses, 0, 'never a loaded close')
+    assert.equal(total(serverBag(w)), total(w.items), 'the bag holds exactly what it held: no chest stack came out')
+    assert.equal(serverBag(w).length, 36)
+    assert.equal(w.chest.items.filter(Boolean).length, 27, 'the slot the pickup emptied holds a stack again')
+    assert.equal(rows.length, 1); assert.equal(rows[0].status, 'no_effect'); assert.match(rows[0].detail, /merged=0 verified=0 banked_stacks=0/)
+    assert.deepEqual(w.st.opened, ['2,70,0', '2,70,0'], 'the container is read again after the clicks (the index is not left dirty)')
+    assert.equal(r.failClass, 'town_storage_full', 'no room was made: the base refusal, with its remedy'); assert.match(r.detail, /deposit \(no item\)/)
+    check(w, rows[0])
+  } finally { untap(); restore() }
+}
+test('CHESTMERGE SURPRISE 1 (a part merge): the destination grew before the put-down -> the rest goes back into the emptied slot', () =>
+  surprise({ onClick: (slot, win) => { if (slot === 7 && win.selectedItem) for (const x of [win, win.server]) x.slots[7].count = 60 } }, (w, row) => {
+    assert.equal(w.st.clicks, 3, 'pick up, put down, put back'); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7/)
+    assert.deepEqual([w.chest.items[0].count, w.chest.items[7].count], [6, 64], '4 of the 10 merged, the other 6 are back in slot 0')
+  }))
+test('CHESTMERGE SURPRISE 2 (the pickup): the stack to move changed under the click -> whatever was lifted goes straight back', () =>
+  surprise({ onClick: (slot, win) => { if (slot === 0 && !win.selectedItem) for (const x of [win, win.server]) x.slots[0].count = 7 } }, (w, row) => {
+    assert.equal(w.st.clicks, 2, 'pick up, put back'); assert.match(row.detail, /stop=picked_up_coal,_not_the_coal_to_merge/)
+    assert.deepEqual([w.chest.items[0].count, w.chest.items[7].count], [7, 10])
+  }))
+test('CHESTMERGE SURPRISE 3 (a swap): the server\'s stack is not the one the client was sent -> the swapped-out stack goes into the emptied slot', () =>
+  surprise({ resync: true, serverItem: (i, it, opens) => (opens === 1 && i === 7 ? { ...it, components: [{ type: 'custom_name', data: 'hidden' }] } : null) }, (w, row) => {
+    assert.equal(w.st.clicks, 3); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7/)
+    assert.equal(sumOf(w.chest.items, 'coal'), 80, 'both stacks are in the chest, places swapped')
+    assert.equal(w.chest.items[0].components?.[0]?.data, 'hidden'); assert.equal(w.chest.items[7].components, undefined)
+  }))
+
+/** A copy of skills.mjs (and optionally chestmerge.mjs) with one anchored edit each -> its module. Anchors are asserted present and unique. */
+async function cmMutant ({ skillsEdit = null, mergeEdit = null }, fn) {
+  const toSrc = src => src.replace(/from '\.\//g, "from '../src/")
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2, 6)}`
+  const sOut = new URL(`./_mutant-cms-${tag}.mjs`, import.meta.url), mOut = new URL(`./_mutant-cmm-${tag}.mjs`, import.meta.url)
+  let ssrc = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  if (skillsEdit) { assert.equal(ssrc.split(skillsEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in skills.mjs: ${skillsEdit[0].slice(0, 60)}`); ssrc = ssrc.replace(skillsEdit[0], skillsEdit[1]) }
+  ssrc = toSrc(ssrc)
+  if (mergeEdit) {
+    const msrc = fs.readFileSync(new URL('../src/chestmerge.mjs', import.meta.url), 'utf8')
+    assert.equal(msrc.split(mergeEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in chestmerge.mjs: ${mergeEdit[0].slice(0, 60)}`)
+    fs.writeFileSync(mOut, toSrc(msrc.replace(mergeEdit[0], mergeEdit[1])))
+    const imp = "from '../src/chestmerge.mjs'"
+    assert.equal(ssrc.split(imp).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: skills.mjs imports chestmerge.mjs once')
+    ssrc = ssrc.replace(imp, `from './_mutant-cmm-${tag}.mjs'`)
+  }
+  fs.writeFileSync(sOut, ssrc)
+  try { return await fn(await import(sOut.href), mergeEdit ? await import(mOut.href) : CM) } finally { for (const f of [sOut, mOut]) try { fs.unlinkSync(f) } catch {} }
+}
+const runLateOn = (M, bot) => M.SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, null)
+test('CHESTMERGE MUTANT KILLED: the switch off (the rollback) -> the split chest is full and untouched, as on the base (the measured failure)', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ mergeEdit: ["{ on: String(process.env.CHESTMERGE ?? '').trim().toLowerCase() !== 'off' }", '{ on: false }'] }, async M => {
+      const w = cmScene()
+      const r = await runLateOn(M, w.bot)
+      assert.equal(r.failClass, 'town_storage_full'); assert.equal(w.st.clicks, 0); assert.equal(allOf(w), w.start)
+      assert.equal(sumOf(w.chest.items.filter(i => i?.count === 10), 'coal'), 80)
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED: the put-back removed -> the part-merged rest leaves the chest for the bag (what the put-back prevents)', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['const back = async () => { if (win.selectedItem && !win.slots[m.from]) await click(m.from) }', 'const back = async () => {}'] }, async M => {
+      const w = cmScene({ onClick: (slot, win) => { if (slot === 7 && win.selectedItem) for (const x of [win, win.server]) x.slots[7].count = 60 } })
+      await runLateOn(M, w.bot)
+      assert.equal(w.st.dropped, 0, 'the caller\'s settleCursor still keeps it off the ground')
+      assert.equal(total(serverBag(w)) - total(w.items), 6, 'MUTANT: six coal came out of the town chest into the bag, unasked')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED: merging for the whole plan instead of what it lacks -> four merges where two were needed', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate)', 'await mergeInto(bot, win, plan.steps.length, deadline, signal, onMutate)'] }, async M => {
+      const chest = splitChest(2); chest.items[25] = null; chest.items[26] = null
+      const w = cmScene({}, chest)
+      await runLateOn(M, w.bot)
+      assert.equal(w.st.clicks, 16, 'MUTANT: 4 merges + 4 deposits (12 clicks on the real code)')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED: no re-open after a failed merge -> the container is clicked and never read again', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['{ always: merged.length > 0 || !!r.merge?.err }', '{ always: false }'] }, async M => {
+      const w = cmScene({ onClick: (slot, win) => { if (slot === 7 && win.selectedItem) for (const x of [win, win.server]) x.slots[7].count = 60 } })
+      await runLateOn(M, w.bot)
+      assert.deepEqual(w.st.opened, ['2,70,0'], 'MUTANT: one open only')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANTS KILLED (pure): a pair that does not fit, a pair of different components, a merge the server does not show', async () => {
+  await cmMutant({ mergeEdit: ['if (g[i].count + from.count <= g[i].size) { to = g[i]; break }', 'if (true) { to = g[i]; break }'] }, async (_M, X) => {
+    assert.equal(X.mergePlan([C('coal', 40), C('coal', 30)], { need: 3 }).length, 1, 'MUTANT: a 70-coal merge is planned (a part merge: the cursor stays loaded)')
+  })
+  await cmMutant({ mergeEdit: ['it.components ?? [], it.removedComponents ?? []', '[], it.removedComponents ?? []'] }, async (_M, X) => {
+    assert.equal(X.mergePlan([C('coal', 5), C('coal', 5, { components: [{ type: 'custom_name', data: 'x' }] })], { need: 3 }).length, 1, 'MUTANT: a named stack is paired with a plain one (a swap on the server)')
+  })
+  await cmMutant({ mergeEdit: ['return !!s && s.name === f.name && s.count === f.sum', 'return !!s && s.name === f.name'] }, async (_M, X) => {
+    const srv = Array(27).fill(null); srv[7] = { name: 'coal', count: 10 }
+    assert.equal(X.mergeVerified([{ name: 'coal', from: 0, to: 7, count: 10, into: 10, sum: 20 }], srv), 1, 'MUTANT: an unmerged slot counts as verified')
+  })
 })
