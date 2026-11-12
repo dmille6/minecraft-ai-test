@@ -115,8 +115,12 @@ if ! echo "$T" | grep -qE '(BUSY|BLOCK|WAIT|IDLE|LAUNCH|AUTOREBASE|LAUNCHING|SKI
   restore $STAMP; die "tick --no-act did not decide: rolled back"
 fi
 python3 $H/canary-sched.py status > $BK/status-$STAMP.out 2>&1 || { restore $STAMP; die "status failed: rolled back"; }
-# the same entries in the same order and states as before the swap (the queue is untouched; only the code changed)
-if ! diff <(grep -v '^DECISION' $BK/status-before-$STAMP.out | awk '{print $1, $2}') <(grep -v '^DECISION' $BK/status-$STAMP.out | awk '{print $1, $2}') >/dev/null; then
+# the same ENTRY rows in the same order and states as before the swap (the queue is untouched; only the code changed).
+# Only the entry rows (the ones carrying ` hold=`): the DECISION and SKIP lines differ by design -- v43 skips a no-patch /
+# stale-registration head that v42 blocked on (Claude review r1: comparing them rolled v43 back exactly when it applied).
+rows() { grep ' hold=' "$1" | awk '{print $1, $2}'; }
+[ -n "$(rows $BK/status-before-$STAMP.out)" ] || { restore $STAMP; die "status printed no entry rows before the swap (the comparison would be empty): rolled back"; }
+if ! diff <(rows $BK/status-before-$STAMP.out) <(rows $BK/status-$STAMP.out) >/dev/null; then
   restore $STAMP; die "status lists other entries or states than before the swap: rolled back"
 fi
 GD1=$(python3 $H/verdict.py --gate-digest 2>/dev/null | md5sum | cut -c1-32)
