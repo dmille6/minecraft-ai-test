@@ -198,6 +198,47 @@ await t('REVIEW r2 (Codex): the country lane\'s last slot is the keeper\'s too (
   assert.ok(!/lane === 'country' \? COUNTRY\.builders :/.test(src), 'the country lane no longer hands a worker every slot')
 })
 
+console.log('STUCK LAST (stuckSegs / stuckLast): the segments nobody can reach go to the end of a visit\'s order')
+const STUCK_REC = () => ({
+  segments: [{ seg: 'T-0' }, { seg: 'T-1' }, { seg: 'T-2', deps: ['T-1'] }, { seg: 'T-3' }, { seg: 'T-4' }],
+  cells: [{ at: [0, 64, 0], seg: 'T-0', role: 'core' }, { at: [1, 64, 0], seg: 'T-1', role: 'core' }, { at: [1, 65, 0], seg: 'T-2', role: 'earth' },
+    { at: [3, 64, 0], seg: 'T-3', role: 'core' }, { at: [3, 64, 1], seg: 'T-3', role: 'core', prev: true }, { at: [4, 64, 0], seg: 'T-4', role: 'earth' }],
+})
+await t('the live shape (11-12 16:30Z): the head of the order is segments whose first cell was tried hundreds of times -- they go last, the rest keep their order', () => {
+  const rec = STUCK_REC()
+  // the showcase's own counts: 366 and 101 visits, and one below the threshold
+  const stuck = { '0,64,0': { visits: 366 }, '3,64,0': { visits: 101 }, '4,64,0': { visits: 5 } }
+  const late = G2.stuckSegs(rec, stuck)
+  assert.deepStrictEqual([...late].sort(), ['T-0', 'T-3'])
+  assert.deepStrictEqual(G2.stuckLast(rec, late).segments.map(x => x.seg), ['T-1', 'T-2', 'T-4', 'T-0', 'T-3'], 'the workable ones first, in the survey\'s order; a dep keeps its place before its dependant')
+  assert.deepStrictEqual(rec.segments.map(x => x.seg), ['T-0', 'T-1', 'T-2', 'T-3', 'T-4'], 'positive control: the survey\'s order had the stuck ones first; the record is not mutated')
+  assert.strictEqual(G2.stuckLast(rec, new Set()), rec, 'none stuck: the record itself')
+  assert.strictEqual(G2.stuckLast(rec, new Set(['T-9'])), rec, 'a name the record does not hold: the record itself')
+  assert.strictEqual(G2.GROUNDS2.stuckMin, 6)
+})
+await t('stuckSegs: only an OPEN cell of this generation at the threshold counts; a done cell, a prev cell and five visits do not', () => {
+  const rec = STUCK_REC()
+  assert.deepStrictEqual([...G2.stuckSegs(rec, { '4,64,0': { visits: 5 } })], [], 'five visits: still tried')
+  assert.deepStrictEqual([...G2.stuckSegs(rec, { '4,64,0': { visits: 6 } })], ['T-4'])
+  assert.deepStrictEqual([...G2.stuckSegs(rec, { '3,64,1': { visits: 50 } })], [], 'a previous generation\'s cell')
+  assert.deepStrictEqual([...G2.stuckSegs(rec, { '0,64,0': { visits: 366 } }, c => c.at[0] !== 0)], [], 'laid or waived since: the segment is workable again')
+  assert.deepStrictEqual([...G2.stuckSegs(rec, {})], []); assert.deepStrictEqual([...G2.stuckSegs(rec, null)], []); assert.deepStrictEqual([...G2.stuckSegs(null, { a: { visits: 9 } })], [])
+})
+await t('MUTANT: stuckLast keeps the survey\'s order -- the stuck segments stay at the head (killed); and skills.mjs wires it after the stairs', async () => {
+  const rec = STUCK_REC(), late = new Set(['T-0', 'T-3'])
+  let why = null
+  await withMutant(G2_PATH, "  return { ...record, segments: [...segs.filter(s => !late.has(s.seg)), ...segs.filter(s => late.has(s.seg))] }", '  return { ...record, segments: [...segs] }', async M => {
+    try { assert.strictEqual(M.stuckLast(rec, late).segments[0].seg, 'T-1') } catch (err) { why = err }
+  })
+  assert.ok(why, 'the mutant survived')
+  const src = fs.readFileSync(SKILLS_FILE, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const stairs = src.indexOf('visitRec = stairsFirst(v0, stairOpenQ,'), last = src.indexOf('visitRec = stuckLast(visitRec, late)')
+  assert.ok(stairs > 0 && last > stairs, 'stuckLast runs on the visit\'s record, after stairsFirst (a stuck staircase is last too)')
+  assert.strictEqual(src.split('stuckSegs(visitRec, vfStuckRead(dir, key, { since: Date.now() - BUILD_STUCK_FORGET_MS + 1 }), stairOpenQ)').length, 2, 'from the project\'s own stuck map, the 24-hour window the runner counts in')
+  assert.strictEqual(G2.groundsQuotaDetail({ took: 'tidy', late: 7 }).endsWith(' late=7'), true, 'the proof: the quota row says how many segments the visit left for last')
+  assert.ok(!/late=/.test(G2.groundsQuotaDetail({ took: 'other' })), 'absent when nothing was reordered')
+})
+
 console.log('THE DECISION (groundsDecide): every link, and what each broken link falls back to -- the order, never a refusal')
 const D0 = { on: true, keeper: false, decor: false, record: 'open', open: 2927, turn: 2, emptyUntil: 0, feet: [3, 71, 4], home: H70, slotFree: true, now: 1_000_000 }
 await t('the turn is the grounds\' only when every link holds; each broken link names itself and is `other`', () => {
@@ -723,7 +764,7 @@ await t('a cut is given up by a bot after TIDY_CUT_TRIES evaluated visits that l
   for (let i = 1; i <= T.TIDY_CUT_TRIES; i++) { assert.strictEqual(T.tidyGivenUp(mem, '5,71,5'), false, `try ${i}`); T.tidyNoteCuts(mem, ['5,71,5'], () => true) }
   assert.strictEqual(T.tidyGivenUp(mem, '5,71,5'), true)
   assert.strictEqual(T.TIDY_CUT_TRIES, 3)
-  assert.deepStrictEqual(Object.keys(G2.GROUNDS2).sort(), ['big', 'emptyMs', 'maxBots', 'shareBig', 'shareSmall', 'small', 'workerLiveMs'])
+  assert.deepStrictEqual(Object.keys(G2.GROUNDS2).sort(), ['big', 'emptyMs', 'maxBots', 'shareBig', 'shareSmall', 'small', 'stuckMin', 'workerLiveMs'])
 })
 
 console.log('THE WIRING (skills.mjs; structural: what the fakes cannot reach -- comments stripped, each line once, a cut line fails)')

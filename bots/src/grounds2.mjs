@@ -30,7 +30,7 @@
 import { GK_FIT, groundsUnfit } from './groundskeeper.mjs'
 import { pantrySum } from './park.mjs'
 
-export const GROUNDS2 = Object.freeze({ big: 500, small: 100, shareBig: 2, shareSmall: 4, emptyMs: 10 * 60_000, maxBots: 4, workerLiveMs: 45 * 60_000 })
+export const GROUNDS2 = Object.freeze({ big: 500, small: 100, shareBig: 2, shareSmall: 4, emptyMs: 10 * 60_000, maxBots: 4, workerLiveMs: 45 * 60_000, stuckMin: 6 })
 /** THE SWITCH -> bool. On unless GROUNDS2 says off. Pure. */
 export const grounds2On = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.GROUNDS2 ?? '').trim().toLowerCase())
 
@@ -172,6 +172,32 @@ export function stairsFirst (record, open = () => true, stone = true) {
   for (const s of [...want]) add(s)
   return { ...record, segments: [...segs.filter(s => want.has(s.seg)), ...segs.filter(s => !want.has(s.seg))] }
 }
+/**
+ * THE SEGMENTS A VISIT LEAVES FOR LAST -> Set of seg names. Pure. A segment holding an open cell that G.stuckMin or more visits,
+ * town-wide, found no stand for (the project's own stuck map: buildproj.mjs stuckRead -> { 'x,y,z': { visits } }).
+ * WHY (LIVE showcase 11-12 16:30Z, the first hour of grounds-01; record g150: 1,661 segments, 4,855 cells): the record is worked
+ * in the survey's order, and the first seven open segments (112, 119, 140, 144, 159, 186, 190 of 1,661) each begin with a cell no
+ * stand reaches -- tried 366, 347, 300, 188 and 101 times. Every visit spent six to ten seconds on each of them in turn, deferred
+ * it and ended `stuck_on_cell` with 0 to 2 cells laid in its two minutes, while some 1,470 workable segments waited behind them in
+ * the order. The give-up rule cannot reach them: it counts only a visit that RAN OUT OF WORK (gkwork.mjs leftVisit), which a
+ * two-minute visit on a backlog of 2,400 never does, and five of the seven are `opener` hollows it never waives.
+ */
+export function stuckSegs (record, stuck = {}, open = () => true, G = GROUNDS2) {
+  const hard = new Set(Object.entries(stuck ?? {}).filter(([, v]) => (Number(v?.visits) || 0) >= G.stuckMin).map(([k]) => k))
+  const out = new Set()
+  if (!hard.size) return out
+  for (const c of record?.cells ?? []) if (c && !c.prev && Array.isArray(c.at) && hard.has(c.at.join(',')) && open(c)) out.add(c.seg)
+  return out
+}
+/** STUCK LAST -> the record with those segments moved to the END of the visit's order, the others as they were (a segment waiting
+ *  on one of them still waits on it: workableSeg reads the deps, not the order). None: the record itself. Nothing is waived, skipped
+ *  for good or refused -- when only they are left the visit reaches them, and the project's own stuck rule answers as before. Pure. */
+export function stuckLast (record, late) {
+  if (!late || !late.size) return record
+  const segs = record?.segments ?? []
+  if (!segs.some(s => late.has(s.seg))) return record
+  return { ...record, segments: [...segs.filter(s => !late.has(s.seg)), ...segs.filter(s => late.has(s.seg))] }
+}
 /** Is `seg` one of the record's staircase segments (an open `access` cell in it)? Pure. */
 export const stairSeg = (record, seg, open = () => true) => seg != null && (record?.cells ?? []).some(c => c && c.seg === seg && c.role === 'access' && !c.prev && open(c))
 /** THE VISIT'S CUT/FILL SHARE WITH A STAIRCASE READY -> the share with the cuts LAST (buildrun.mjs runVisit `clearsLast`: the
@@ -191,7 +217,7 @@ export function crewPantrySum (pantry, { on = true, now = Date.now(), me = null,
   return on ? pantrySum(pantry, { now, fresh: G.workerLiveMs, live: () => true, me }) : pantrySum(pantry, { now, fresh: leaseFresh, live: leased, me })
 }
 /** `_grounds_quota`: one row a build visit -- the decision, then what the visit did. Pure. */
-export const groundsQuotaDetail = ({ on = true, turn = 0, open = null, share = 0, took = 'other', why = '-', placed = null, cleared = null, empty = false, out = '-' } = {}) =>
-  `on=${on ? 1 : 0} turn=${turn} open=${open ?? '-'} share=${share} took=${took} why=${why} placed=${placed ?? '-'} cleared=${cleared ?? '-'} empty=${empty ? 1 : 0} out=${out}`
+export const groundsQuotaDetail = ({ on = true, turn = 0, open = null, share = 0, took = 'other', why = '-', placed = null, cleared = null, empty = false, out = '-', late = null } = {}) =>
+  `on=${on ? 1 : 0} turn=${turn} open=${open ?? '-'} share=${share} took=${took} why=${why} placed=${placed ?? '-'} cleared=${cleared ?? '-'} empty=${empty ? 1 : 0} out=${out}${late == null ? '' : ` late=${late}`}`
 /** `_grounds_mode`: the licence row, once at spawn (on=0 under GROUNDS2=off: the rollback is visible too). Pure. */
 export const groundsModeDetail = (on = grounds2On(), G = GROUNDS2) => `on=${on ? 1 : 0} v=1 big=${G.big}:${G.shareBig} small=${G.small}:${G.shareSmall} empty_ms=${G.emptyMs} max_bots=${G.maxBots}`

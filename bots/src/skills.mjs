@@ -188,7 +188,7 @@ import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWai
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
-import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
+import { grounds2On, groundsEligible, groundsDecide, groundsRecord, groundsOrderD, groundsRole, groundsSlots, groundsNone, groundsPassed, groundsResult, groundsAfter, stairsFirst, stairSeg, stairsShare, groundsQuotaDetail, crewPantrySum, workerSlots, stuckSegs, stuckLast } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
 import { COUNTRY_PLOT, COUNTRY, countryOn, countryPlantOn, countryNext, countryTryOrder, countryDemand, groundsLane, groundsState, countryPlantings, countryRecord, countryNothing, laneDetail } from './country.mjs'   // country-01: the countryside lane
 import { lastInnerK, setLandInner } from './landplan.mjs'   // country-01: the inside chain ends at the wall
 import { UPKEEP_PLOT, UPKEEP_BLUEPRINT, UPKEEP, UPKEEP_PALETTE, upkeepSurvey, upkeepRecord, upkeepStale, upkeepState, upkeepTile, upkeepNextTile, upkeepQuietRun, upkeepDetail, upkeepVisitJobs, upkeepLeft, replantDone, upkeepClearOk, STRAY_PICK } from './upkeep.mjs'   // upkeep-01: the standing maintenance loop
@@ -26857,7 +26857,7 @@ function g2OpenNow (dir, rec, now = Date.now()) { try { return openNewest(openRe
  */
 function groundsBegin (bot, now = Date.now()) {
   if (!bot) return null
-  bot.groundsPick = null; bot.g2Visit = null; bot.tidyLast = null
+  bot.groundsPick = null; bot.g2Visit = null; bot.tidyLast = null; bot.g2Late = null
   if (!G2.on) return null
   try {
     const tidyP = projectsOn().find(p => p.plot === TIDY_PLOT)
@@ -26888,7 +26888,7 @@ function groundsEnd (bot, g, r) {
     const last = took === 'tidy' && !aborted ? bot.tidyLast ?? null : null
     const a = groundsAfter({ took, keeper: !!v.keeper, aborted: aborted || !last, placed: last?.placed, cleared: last?.cleared, emptyUntil: bot.g2EmptyUntil ?? 0 })
     bot.g2EmptyUntil = a.emptyUntil
-    logEvent({ kind: 'grounds_quota', status: took === 'tidy' && !aborted && !a.empty ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: groundsQuotaDetail({ on: true, turn: v.turn, open: v.open, share: v.share, took, why: v.why, placed: last?.placed ?? null, cleared: last?.cleared ?? null, empty: a.empty, out: aborted ? 'aborted' : took === 'tidy' ? last?.outcome ?? '-' : r?.stop ?? '-' }) })
+    logEvent({ kind: 'grounds_quota', status: took === 'tidy' && !aborted && !a.empty ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: groundsQuotaDetail({ on: true, turn: v.turn, open: v.open, share: v.share, took, why: v.why, placed: last?.placed ?? null, cleared: last?.cleared ?? null, empty: a.empty, late: took === 'tidy' ? bot.g2Late ?? null : null, out: aborted ? 'aborted' : took === 'tidy' ? last?.outcome ?? '-' : r?.stop ?? '-' }) })
   } catch { /* telemetry */ }
   bot.g2Visit = null
 }
@@ -28306,6 +28306,10 @@ async function buildTidyVisit (ctx, args, signal) {
     const stairOpenQ = q => !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)
     let stairsHead = false
     if (G2.on && !floorOnly && !prepNow) { try { const v0 = visitRec; visitRec = stairsFirst(v0, stairOpenQ, TIDY_PALETTE.access.some(n => !!effects?.has?.(n))); stairsHead = visitRec !== v0 } catch { /* the survey's order */ } }
+    // grounds-01 (grounds2.mjs stuckSegs / stuckLast; LIVE 11-12: seven segments at the head of the order, their first cells tried
+    // 100 to 366 times, took every visit's first minute): a segment whose open cell no stand has reached in GROUNDS2.stuckMin visits
+    // town-wide goes to the END of this visit's order -- after the stairs, so a stuck staircase is last too
+    if (G2.on && !floorOnly && !prepNow) { try { const late = stuckSegs(visitRec, vfStuckRead(dir, key, { since: Date.now() - BUILD_STUCK_FORGET_MS + 1 }), stairOpenQ); visitRec = stuckLast(visitRec, late); bot.g2Late = late.size || null } catch { /* the order as it was */ } }
     const recV = isTerrace ? { ...visitRec, cells: (visitRec.cells ?? []).filter(q => !q.prev), clear: (visitRec.clear ?? []).filter(q => (q.prep || !guardNow(q.at[0], q.at[2])) && !keptLogK.has(q.at.join(','))) } : visitRec
     // gkleft-01 (Codex r1 BLOCKER): a clear the town waived is never dug again (tidy.mjs dropWaivedClears)
     // fillshare-01 (groundskeeper.mjs tidyShare): while the stage's fills are further behind than its cuts, a helper fills first and the
