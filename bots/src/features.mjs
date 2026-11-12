@@ -13,6 +13,8 @@ import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's lic
 import { snapshot } from './state.mjs'
 import { attachPlaceAudit, placeAuditOn, climbOf, CLIMB } from './placeaudit.mjs'   // placeaudit-01; access-02: the climbs ledger
 import { installTakeback } from './takeback.mjs'   // takeback-01: a walk takes back the blocks it placed
+import { grounds2On, groundsModeDetail } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
+import { GROUNDS } from './shop.mjs'   // grounds-01's licence row: on only where the groundskeeper is
 import { climbEnqueue, prunePool, poolPruneMode } from './buildproj.mjs'   // access-02: queued, written off the placement's continuation; showdrop-01: the prune
 import { configuredHome } from './townground.mjs'   // placeaudit-01
 import { config } from './config.mjs'
@@ -209,6 +211,9 @@ export function installFeatures (bot) {
   try { bagRoomInstall(bot) } catch (e) { log('warn', 'bagroom not installed', { error: e.message }) }
   // copperhall-01: the copper hall's licence row (copperhall.mjs; the project itself is shop.mjs PROJECTS, its gate skills.mjs hallOpenNow)
   try { logEvent({ kind: 'copperhall_mode', status: 'success', snapshot: snapshot(bot), detail: copperhallModeDetail(COPPERHALL.on) }) } catch { /* telemetry */ }
+  // grounds-01: the grounds quota's licence row (grounds2.mjs; the decision is skills.mjs buildShop's, one `_grounds_quota` row a build
+  // visit; on=0 under GROUNDS2=off or where the groundskeeper is off, so the rollback is visible too)
+  try { logEvent({ kind: 'grounds_mode', status: 'success', snapshot: snapshot(bot), detail: groundsModeDetail(GROUNDS.on && grounds2On()) }) } catch { /* telemetry */ }
   // storehub-01: the sorted hall's and its clerk's licence row (storehub.mjs; the hall is shop.mjs PROJECTS, its upkeep skills.mjs
   // hubUpkeepVisit; on=0 under STOREHUB=off, so the rollback is visible too)
   try { logEvent({ kind: 'storehub_mode', status: 'success', snapshot: snapshot(bot), detail: hubModeDetail(STOREHUB) }) } catch { /* telemetry */ }
