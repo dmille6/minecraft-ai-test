@@ -258,6 +258,10 @@ export class AdmissionControl {
       milestoneCriticalAdmissions: this.milestoneCriticalAdmissions, blockedCount: { ...this.blockedCount },
       normalisations: this.normalisations, resolutions: this.resolutions }
     const hadWants = !!bot && Object.prototype.hasOwnProperty.call(bot, 'currentWants'), wants = bot?.currentWants
+    // the bank closure too (showcase restack review, Codex BLOCKER, reproduced): the deposit path asks chestfull.mjs bankClosed, which
+    // CLEARS `bot.bankClosed` when what closed it has changed (a carried chest, room in a town chest) -- a prefetch nobody ran had
+    // then reopened the bank. The dry run puts the closure back; the real check() reopens it when a decision is actually judged
+    const hadClosed = !!bot && Object.prototype.hasOwnProperty.call(bot, 'bankClosed'), closed = bot?.bankClosed
     this.dry = true
     // a COPY: #check normalises args in place, and the real check() must see the proposal as the model wrote it
     try { return this.#check(proposal && typeof proposal === 'object' ? structuredClone(proposal) : proposal, bot, wanted) }
@@ -266,6 +270,7 @@ export class AdmissionControl {
       this.dry = false
       Object.assign(this, keep)
       if (bot) { if (hadWants) bot.currentWants = wants; else delete bot.currentWants }
+      if (bot) { if (hadClosed) bot.bankClosed = closed; else delete bot.bankClosed }
     }
   }
 

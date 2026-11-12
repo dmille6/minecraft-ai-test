@@ -147,6 +147,31 @@ test('DRY CHECK MUTANT KILLED: without the restore, a dry run fills the repeat w
   })
 })
 
+test('DRY CHECK: a bank closure the deposit path would reopen is put back (showcase restack review; Codex reproduced the loss)', async () => {
+  const CF = await import('../src/chestfull.mjs')
+  const mk = () => {
+    const bot = fieldBot()
+    const items = bot.inventory.items()
+    items.push({ name: 'chest', count: 1, slot: 11, type: mcData.itemsByName.chest.id })   // what ends a craft_failed closure early
+    const at = Date.now() - CF.REOPEN_THROTTLE_MS - 1000
+    bot.bankClosed = { kind: 'craft_failed', at, until: Date.now() + 10 * 60_000, why: 'no chest could be crafted' }
+    return bot
+  }
+  // positive control: the query itself reopens this closure (that is its job, when a decision is really judged)
+  const pc = mk(); assert.equal(CF.bankClosed(pc), ''); assert.equal(pc.bankClosed, null, 'bankClosed() clears it')
+  const A = new AdmissionControl(freshLessons()); const bot = mk(); const closure = bot.bankClosed
+  A.dryCheck({ skill: 'deposit', args: { item: 'diamond' } }, bot, null)
+  assert.equal(bot.bankClosed, closure, 'the dry run left the closure exactly as it was')
+  const b2 = fieldBot(); assert.equal('bankClosed' in b2, false)
+  A.dryCheck({ skill: 'deposit', args: { item: 'diamond' } }, b2, null)
+  assert.equal('bankClosed' in b2, false, 'and adds no field to a bot that had none')
+  await withMutant(ADM_PATH, "      if (bot) { if (hadClosed) bot.bankClosed = closed; else delete bot.bankClosed }\n", '', async M => {
+    const A2 = new M.AdmissionControl(freshLessons()); const b = mk()
+    A2.dryCheck({ skill: 'deposit', args: { item: 'diamond' } }, b, null)
+    assert.equal(b.bankClosed, null, 'MUTANT: the discarded dry run reopened the bank')
+  })
+})
+
 // ---------------------------------------------------------------- the REAL loop
 const COG = await import('../src/cognitive.mjs')
 /** A runner whose every skill takes `ms`, busy meanwhile. `script(i)` -> the result of run i (default success). */
