@@ -7138,10 +7138,9 @@
    "covers_alarms": [],
    "evidence": {
     "grep": [
-     "storage-yard-direction",
-     "yardgrow",
-     "logcap-03",
-     "sourceorder"
+     "storage-yard-plan",
+     "loggate",
+     "storage-yard-direction"
     ],
     "runs": [],
     "branches": []
@@ -7157,7 +7156,7 @@
    "owner_date": "2026-11-12",
    "state": "open",
    "title": "Storage direction (owner 11-12): growable stepped piles per kind in the yard; no stone or logs in chests; use the bag, then the yard, before gathering; a log limit that really stops tree cutting",
-   "next_step": "Owner go-ahead on the build order. Proposed: (1) the log cap as a refusal at the gather (logcap-02 is advice: 432 log gathers in 6 h in capped towns); (2) source order bag -> yard -> gather; (3) the yard on the fleet with growable stepped lanes and a log lane (yard.mjs is showcase-only, 304 blocks); (4) chests refuse stone and logs, a clerk drains them to the yard (about 57,800 logs counted in town chests).",
+   "next_step": "PLAN WRITTEN 11-12: docs/reports/storage-yard-plan-2026-11-12.md (Codex + Claude independent designs, reconciled). Owner: \"plan it all now, then implement step 1, then fit in 2-4 when it is appropriate\". Step 1 = loggate-01 (the log limit as an admission refusal / withdrawal rewrite / clamped gather; tier 3) being built; steps 2-4 each their own change.",
    "note": "OWNER 2026-11-12 ~07:10Z, four statements quoted in the memory file. Measured with scripts/lib/telemetry.py (6 h, 539,979 rows / 80 bots). No code yet; fullplace-01 (canary) is the last chest-capacity patch unless the owner asks for more."
   }
  ]
