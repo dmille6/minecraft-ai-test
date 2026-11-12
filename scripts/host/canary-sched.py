@@ -822,6 +822,11 @@ def norm_diff(text):
 # still is (a neighbouring code line can change what the change does): the comparison there is byte-exact, as before.
 CONTEXT_FREE_PATHS = ('bots/test/nothing-important-is-orphaned.test.mjs',)
 _DIFF_HEAD = re.compile(r'^diff --git a/(.+) b/\1$')
+# A LIST LINE, and nothing else, may differ or be added there (Codex review r1: a base that turned a neighbouring `//`
+# comment into an opening `/*` would have put the change's own entry inside a block comment, and the diff still read
+# "context-only"): blank, or one single-quoted path with an optional comma, and/or a `//` comment to the end of the line.
+# No `/*`, no code, no second token. A hunk of that file with any other line in it is compared byte-exact, as code is.
+_LIST_LINE = re.compile(r"""^\s*(?:'[^'\\]*'\s*,?)?\s*(?://.*)?$""")
 
 
 def diff_sections(norm):
@@ -840,8 +845,8 @@ def diff_sections(norm):
 def diff_equiv(a, b, free=CONTEXT_FREE_PATHS):
     """PURE. Is normalized diff `b` the same change as the reviewed normalized diff `a`? -> '' byte-identical |
     'context-only in <paths>' (the same files in the same order; outside `free` every line identical; inside `free` every
-    added and removed line identical and in order, every other non-context line identical -- only context lines and hunk
-    boundaries differ) | None (a different change)."""
+    added and removed line identical and in order, every other non-context line identical, and EVERY hunk line of both
+    diffs a plain list line (_LIST_LINE) -- only context lines and hunk boundaries differ) | None (a different change)."""
     if a == b:
         return ''
     sa, sb = diff_sections(a), diff_sections(b)
@@ -849,6 +854,8 @@ def diff_equiv(a, b, free=CONTEXT_FREE_PATHS):
         return None
     changed = lambda ls: [l for l in ls if l[:1] in ('+', '-')]
     other = lambda ls: [l for l in ls if l and l[:1] not in ('+', '-', ' ') and l != '@@']
+    # the body lines of the hunks (context, added, removed; not the `--- a/` / `+++ b/` headers), without their marker
+    body = lambda ls: [l[1:] for l in ls if l[:1] in ('+', '-', ' ') and not l.startswith(('--- a/', '+++ b/', '--- /dev/null', '+++ /dev/null'))]
     loose = []
     for (path, la), (_, lb) in zip(sa, sb):
         if la == lb:
@@ -856,6 +863,8 @@ def diff_equiv(a, b, free=CONTEXT_FREE_PATHS):
         if path not in free:
             return None
         if changed(la) != changed(lb) or other(la) != other(lb):
+            return None
+        if not all(_LIST_LINE.match(l) for l in body(la) + body(lb)):
             return None
         loose.append(path)
     return 'context-only in %s' % ', '.join(loose) if loose else None

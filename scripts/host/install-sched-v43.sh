@@ -53,8 +53,13 @@ restore() { cp -p "$BK/backup-$1/canary-sched.py" $H/canary-sched.py.rb && mv $H
 if [ "${1:-}" = "--rollback" ]; then
   ST=${2:?usage: --rollback <STAMP>}; [ -f "$BK/backup-$ST/canary-sched.py" ] || die "no $BK/backup-$ST/canary-sched.py"
   W=$(between) || die "$W"
+  J=$(ar_running) || die "an autorebase build is in flight ($J): roll back when it has finished"   # Codex review r1
+  python3 $H/canary-sched.py install-hold rollback-sched-v43 10 || die "the slot is not free for the hold"; HELD=1
   exec 8>/tmp/mcai-canary.lock; flock -n 8 || die "/tmp/mcai-canary.lock is held"
+  W=$(between) || die "$W"
+  J=$(ar_running) || die "an autorebase build is in flight ($J)"
   restore "$ST" || die "restore failed"
+  python3 $H/canary-sched.py install-release; HELD=""
   say "restored canary-sched.py $(m5 $H/canary-sched.py | cut -c1-8)"
   exit 0
 fi
