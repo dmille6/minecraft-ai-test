@@ -128,7 +128,8 @@ console.log('THE WIRING (structural)')
 await t('buildTidy runs the visit, then the sweep for its crew role; the visit leaves the role; a sweep that took turns no_effect into success', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
   assert.ok(/const res = await buildTidyVisit\(ctx, args, signal\)\n\s*if \(!GROUNDS\.on \|\| !gkSweepOn\(\) \|\| !sweepAfter\(ctx\.bot\.gkSweepRole, res\)\) return res/.test(s), 'the wrapper')
-  assert.ok(/sw = await gkSweep\(ctx\.bot, signal, \{ until: t0 \+ budget - 5_000 \}\)/.test(s), 'the sweep call within the budget')
+  // grounds-03 (review r1): the end is grounds2.mjs lateUntil's -- t0 + budget - 5 s for an ordinary visit (its test: grounds2.test.mjs), less the time a late leg had used
+  assert.ok(/sw = await gkSweep\(ctx\.bot, signal, \{ until: lateUntil\(t0, budget, used0\) \}\)/.test(s), 'the sweep call within the budget')
   assert.ok(/!sweepAfter\(ctx\.bot\.gkSweepRole, res\)\) return res\n\s*if \(!holdsGrounds\(crewState\(ctx\.bot, true\)\.d\)\) return res\n[\s\S]{0,200}sw = await gkSweep/.test(s), 'the lease read again before the sweep (Codex r1)')
   assert.ok(/const caps = crewCaps\(role\)\n\s*bot\.gkSweepRole = GROUNDS\.on \? role : null/.test(s), 'the role left by the visit')
   assert.ok(/if \(proj\.plot === TIDY_PLOT\) return buildTidy\(ctx, args, signal\)/.test(s), 'the tidy project runs the wrapper')
