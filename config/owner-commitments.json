@@ -7158,6 +7158,33 @@
    "title": "Storage direction (owner 11-12): growable stepped piles per kind in the yard; no stone or logs in chests; use the bag, then the yard, before gathering; a log limit that really stops tree cutting",
    "next_step": "PLAN WRITTEN 11-12: docs/reports/storage-yard-plan-2026-11-12.md (Codex + Claude independent designs, reconciled). Owner: \"plan it all now, then implement step 1, then fit in 2-4 when it is appropriate\". Step 1 = loggate-01 (the log limit as an admission refusal / withdrawal rewrite / clamped gather; tier 3) being built; steps 2-4 each their own change.",
    "note": "OWNER 2026-11-12 ~07:10Z, four statements quoted in the memory file. Measured with scripts/lib/telemetry.py (6 h, 539,979 rows / 80 bots). No code yet; fullplace-01 (canary) is the last chest-capacity patch unless the owner asks for more."
+  },
+  {
+   "covers_alarms": [],
+   "evidence": {
+    "grep": [
+     "town-clean-1112",
+     "notrace",
+     "helperopen",
+     "stuckstand",
+     "oneoff-repair-20261112"
+    ],
+    "runs": [],
+    "branches": []
+   },
+   "id": "town-clean-1112",
+   "kind": "showcase",
+   "lane": "progress",
+   "max_quiet_hours": 96,
+   "memory": [
+    "showcase-roofs-keeper-1112.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-12",
+   "state": "open",
+   "title": "Town cleanup and roofs (owner 11-12): walking leaves no dirt or holes, in town and outside; cleanup helpers take any open work; one stuck cell never freezes a building; one-off repair of the three roof-blocking cells",
+   "next_step": "DONE: the one-off repair (showcase 07:27Z; /srv/showcase/ops/oneoff-repair-20261112-applied.json) -- read whether townhall, hall and cottage1 resume. NOT BUILT: (a) helpers take any open tidy cell and the keeper's turn is not given to a bot underground (68 of 147 tidy visits helper_idle with 2,313 fills open); (b) a cell no stand reaches in 3 visits gets a temporary stand or is passed over; (c) transit and escape placements/digs are undone or not made (showcase 24 h: about 3,500 blocks placed in town + margin by the pathfinder and pillarOut, 283 digs in town ground) -- movement code, tier 3, needs a design.",
+   "note": "OWNER 2026-11-12 ~07:25Z: \"1. absolutely do this, i thought we already did this. even outside the town i want the same rules to apply 2. yes 3. yes, this makes sense 4. yes\". Measured with scripts/lib/telemetry.py on the showcase (24 h, 338k rows / 14 bots)."
   }
  ]
 }
