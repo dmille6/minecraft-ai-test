@@ -634,45 +634,93 @@ def t_pure_verdict_and_norm(CS):
     assert CS.tier_label(2, '') == 'undecidable'
 
 
+def _nd(path, old, new):
+    """A normalized diff (canary-sched norm_diff's shape) of one file from its lines before and after, 3 lines of context."""
+    import difflib
+    out = ['diff --git a/%s b/%s' % (path, path), '--- a/%s' % path, '+++ b/%s' % path]
+    out += ['@@' if l.startswith('@@') else l for l in list(difflib.unified_diff(old, new, lineterm='', n=3))[2:]]
+    return '\n'.join(out) + '\n'
+
+
 def t_v43_diff_equiv_pure(CS):
-    """The same change = the same added and removed lines; context may differ ONLY inside a path list (CONTEXT_FREE_PATHS)."""
-    L = CS.CONTEXT_FREE_PATHS[0]
-    hd = lambda p: 'diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n' % (p, p, p, p)
-    code = hd('bots/src/a.mjs') + '@@\n a\n-b\n+c\n d\n'
-    lst = lambda ctx_before, ctx_after, add="+  'x.test.mjs',": hd(L) + '@@\n %s\n%s\n %s\n' % (ctx_before, add, ctx_after)
-    A = code + lst("'p1',", "'p2',")
+    """The same change = the same added and removed lines. Context may differ ONLY between plain list lines, inside a list
+    region of the REBASED file that holds nothing but plain list lines, and with the change's own lines inside it."""
+    L = next(iter(CS.CONTEXT_FREE_PATHS)); OPEN, CLOSE = CS.CONTEXT_FREE_PATHS[L]
+    X = "  'bots/test/x.test.mjs',   // foo-01"
+    ent = ["  'bots/test/r%d.test.mjs'," % i for i in range(1, 11)]
+    mk = lambda entries, tail=('', 'console.log(REQUIRED.length)'): [OPEN] + list(entries) + [CLOSE] + list(tail)
+    ins = lambda lines, at, what=X: lines[:at] + [what] + lines[at:]
+    code = _nd('bots/src/a.mjs', ['a', 'b', 'd'], ['a', 'c', 'd'])
+    base = mk(ent)
+    A = code + _nd(L, base, ins(base, 5))                                    # the reviewed change: X after r4
+    def reb(newbase, at=5, what=X, c=code):
+        after = ins(newbase, at, what)
+        return c + _nd(L, newbase, after), {L: '\n'.join(after) + '\n'}
+    same = 'context-only in %s' % L
     assert CS.diff_equiv(A, A) == ''
-    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',")) == 'context-only in %s' % L, 'a neighbour in the list changed'
-    assert CS.diff_equiv(A, code + lst("'q8',", "'q9',")) == 'context-only in %s' % L
-    assert CS.diff_equiv(A, code + hd(L) + "@@\n 'p1',\n@@\n+  'x.test.mjs',\n 'p2',\n") == 'context-only in %s' % L, 'hunk boundaries are not the change'
-    assert CS.diff_equiv(A, code.replace(' d\n', ' e\n') + lst("'p1',", "'p2',")) is None, 'context in CODE is still part of the change'
-    assert CS.diff_equiv(A, code + lst("'p1',", "'p2',", "+  'y.test.mjs',")) is None, 'another added line'
-    assert CS.diff_equiv(A, code + lst("'p1',", "'p2',", "+  'x.test.mjs',\n+  'x.test.mjs',")) is None, 'the line added twice (chestcarry-01, 11-11)'
-    assert CS.diff_equiv(A, code + lst("'p1',", "'p2',", "-  'p0',\n+  'x.test.mjs',")) is None, 'a removed line appeared'
-    assert CS.diff_equiv(A, code) is None and CS.diff_equiv(code, A) is None, 'a file more or fewer'
-    assert CS.diff_equiv(A, lst("'p1',", "'q9',") + code) is None, 'the files in another order'
-    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',").replace('--- a/', 'old mode 100644\nnew mode 100755\n--- a/')) is None, 'a mode line'
-    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',") + '\\ No newline at end of file\n') is None
-    assert CS.diff_equiv(A, code + lst("'p1',", "'q9',"), free=()) is None, 'no list named: byte-exact everywhere'
-    other = code + hd('bots/test/other-list.mjs') + "@@\n 'p1',\n+x\n 'p2',\n"
-    assert CS.diff_equiv(other, other.replace(" 'p2',", " 'q9',")) is None, 'a file that is not on the list'
-    # Codex review r1: only PLAIN LIST LINES may differ or be added there -- a `/*` in the moved context could swallow the entry
-    assert CS.diff_equiv(A, code + lst("/* voyager-01", "'p2',")) is None, 'a block comment opened above the entry'
-    assert CS.diff_equiv(A, code + lst("'p1',", "*/ 'p2',")) is None
-    assert CS.diff_equiv(A, code + lst("'p1',", "const x = REQUIRED.filter(Boolean)")) is None, 'code in the context'
-    assert CS.diff_equiv(code + lst("'p1',", "'p2',", "+if (x) y()"), code + lst("'p1',", "'q9',", "+if (x) y()")) is None, 'the change itself is code'
-    assert CS.diff_equiv(A, code + lst("  'p1',   // why -- a note with /* inside a line comment", "")) == 'context-only in %s' % L
-    for ok in ("", "  ", "  'bots/src/a.mjs',", "'a'", "  'a.mjs',   // foo-01 (11-09): text, 'quotes', // more", "  // sandrung-01 (11-07): retired"):
-        assert CS.list_line(ok), ok
-    for bad in ("/* x", "'a', /* x", "'a', 'b',", "x", "'a' + b,", "`a`,", '"a",', "'a\\'', b"):
-        assert not CS.list_line(bad), bad
+    b1 = mk(ent[:1] + ["  'bots/test/other.test.mjs',   // other-01"] + ent[2:])       # a neighbour (r2) was replaced
+    B, T = reb(b1)
+    assert B != A and CS.diff_equiv(A, B, texts=T) == same, 'the measured case: a list line beside ours changed'
+    assert CS.diff_equiv(A, B) is None and CS.diff_equiv(A, B, texts={}) is None, 'without the rebased file: not provable'
+    assert CS.diff_equiv(A, B, free={}, texts=T) is None, 'no list named: byte-exact everywhere'
+    b2 = mk(ent[:2] + ["  // sandrung-01 (11-07): retired -- a note with /* inside a line comment"] + ent[3:])
+    B, T = reb(b2)
+    assert CS.diff_equiv(A, B, texts=T) == same, 'a // comment beside ours'
+    # the change at the END of the list: its context holds the closing line and the code after it, identical in both
+    Aend = code + _nd(L, base, ins(base, 11))
+    Bend, Tend = reb(mk(ent[:8] + ["  'bots/test/other.test.mjs',"] + ent[9:]), at=11)
+    assert Bend != Aend and CS.diff_equiv(Aend, Bend, texts=Tend) == same, 'appended last: `]` and the code below are the same lines'
+    Bcode, Tcode = reb(mk(ent[:8] + ["  'bots/test/other.test.mjs',"] + ent[9:], tail=('', 'console.log(1)')), at=11)
+    assert CS.diff_equiv(Aend, Bcode, texts=Tcode) is None, 'CODE below the list differs: context in code is the change'
+    # Codex review r1: a block comment opened IN the moved context
+    B, T = reb(mk(ent[:2] + ['/* voyager-01'] + ent[3:]))
+    assert CS.diff_equiv(A, B, texts=T) is None
+    # Codex review r3: opened ABOVE the three context lines -- every hunk line is still a plain list line
+    b3 = mk(['/*'] + ent[1:2] + ["  'bots/test/other.test.mjs',"] + ent[3:9] + ['*/'] + ent[9:])   # r1 -> `/*`, r3 -> another entry, `*/` after r9
+    B, T = reb(b3)
+    assert B != A, 'the context differs (r3), so this is the tolerant path, not the byte-identical one'
+    assert all(CS.list_line(l[1:]) for l in B[len(code):].split('\n') if l[:1] in ('+', ' ') and not l.startswith('+++')), 'the hunk alone looks plain'
+    assert CS.diff_equiv(A, B, texts=T) is None, 'the list region of the rebased file is not all plain list lines'
     # Codex review r2: a character JavaScript ends a line at, inside what reads as ONE commented line
-    for sep in ('\u2028', '\u2029', '\r'):
+    for sep in (' ', ' ', '\r'):
         assert not CS.list_line("  'p1',   // note" + sep + "/*"), repr(sep)
-        assert CS.diff_equiv(A, code + lst("'p1',   // note" + sep + "/*", "// */")) is None, repr(sep)
-    assert CS.list_line("  'p1',   // caf\u00e9 \u2014 a note"), 'other non-ASCII in a comment is still a list line'
+        B, T = reb(mk(ent[:2] + ["  // note" + sep + "/*"] + ent[3:]))
+        assert CS.diff_equiv(A, B, texts=T) is None, repr(sep)
+    assert CS.list_line("  'p1',   // café — a note"), 'other non-ASCII in a comment is still a list line'
+    # the region itself
+    assert CS.list_region('\n'.join(base), (OPEN, CLOSE)) == ent
+    assert CS.list_region('\n'.join(base + base), (OPEN, CLOSE)) is None, 'two openings: which list?'
+    assert CS.list_region('\n'.join([OPEN] + ent), (OPEN, CLOSE)) is None, 'never closed'
+    assert CS.list_region('\n'.join(mk(ent[:3] + ['`'] + ent[3:])), (OPEN, CLOSE)) is None, 'a template literal opened inside'
+    assert CS.list_region(None, (OPEN, CLOSE)) is None and CS.list_region('', (OPEN, CLOSE)) is None
+    # the change's own lines
+    dup = ins(ins(b1, 5), 5)
+    assert CS.diff_equiv(A, code + _nd(L, b1, dup), texts={L: '\n'.join(dup)}) is None, 'the line added twice (chestcarry-01, 11-11)'
+    B, T = reb(b1, what="  'bots/test/y.test.mjs',")
+    assert CS.diff_equiv(A, B, texts=T) is None, 'another added line'
+    gone = [l for l in b1 if 'r7' not in l]
+    assert CS.diff_equiv(A, code + _nd(L, b1, ins(gone, 5)), texts={L: '\n'.join(ins(gone, 5))}) is None, 'a removed line appeared'
+    Acode = code + _nd(L, base, ins(base, 5, 'if (x) y()')); after = ins(b1, 5, 'if (x) y()')
+    assert CS.diff_equiv(Acode, code + _nd(L, b1, after), texts={L: '\n'.join(after)}) is None, 'the change itself is code: byte-exact'
+    # the same line added BELOW the closing line: it is not a line of the list region
+    Aout = code + _nd(L, base, base + [X])
+    assert CS.diff_equiv(Aout, code + _nd(L, b1 + ['// moved'], b1 + ['// moved', X]), texts={L: '\n'.join(b1 + ['// moved', X])}) is None, 'an added line outside the list region'
+    # files
+    B, T = reb(b1)
+    assert CS.diff_equiv(A, _nd('bots/src/a.mjs', ['a', 'b', 'e'], ['a', 'c', 'e']) + B[len(code):], texts=T) is None, 'context in CODE is still part of the change'
+    assert CS.diff_equiv(A, code, texts=T) is None and CS.diff_equiv(code, A, texts=T) is None, 'a file more or fewer'
+    assert CS.diff_equiv(A, B[len(code):] + code, texts=T) is None, 'the files in another order'
+    assert CS.diff_equiv(A, B.replace('--- a/' + L, 'old mode 100644\nnew mode 100755\n--- a/' + L), texts=T) is None, 'a mode line'
+    assert CS.diff_equiv(A, B + '\\ No newline at end of file\n', texts=T) is None
+    other = 'bots/test/other-list.mjs'
+    assert CS.diff_equiv(code + _nd(other, base, ins(base, 5)), code + _nd(other, b1, ins(b1, 5)), texts={other: T[L]}) is None, 'a file that is not on the list'
     secs = CS.diff_sections(A)
     assert [p for p, _ in secs] == ['bots/src/a.mjs', L] and '\n'.join('\n'.join(ls) for _, ls in secs) == A, secs
+    for ok in ("", "  ", "  'bots/src/a.mjs',", "'a'", "  'a.mjs',   // foo-01 (11-09): text, 'quotes', // more", "  // sandrung-01 (11-07): retired",
+               "  'bots/test/stuckfleet02.test.mjs', 'bots/test/fixtures/stuckfleet02-boardc.json',  // two on one line (the real list, 11-08)", "'a','b'"):
+        assert CS.list_line(ok), ok
+    for bad in ("/* x", "'a', /* x", "'a' 'b',", "'a', b,", "'a',, 'b'", "x", "'a' + b,", "`a`,", '"a",', "'a\\'', b", "]", "const REQUIRED = ["):
+        assert not CS.list_line(bad), bad
 
 
 def t_v43_list_context_is_the_same_change(CS):
@@ -910,11 +958,16 @@ MUTANTS = [
     ('v41: related members are not refused at the build', "    if probs:\n        raise ArRefuse('the members are related",
      "    if False:\n        raise ArRefuse('the members are related"),
     ('v41: the fast plan is never written', "        reg['fun_reads'] = plan\n", "        reg['fun_reads'] = STD_READS\n"),
-    ('v43: context in a path list still counts (the 11-12 refusals)', "    same = '' if h1 == h0 else diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt))\n",
-     "    same = '' if h1 == h0 else None\n"),
+    ('v43: context in a path list still counts (the 11-12 refusals)', "        same = diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt), texts=texts)\n",
+     "        same = None\n"),
     ('v43: context is free in EVERY file', "        if path not in free:\n            return None\n", "        if False:\n            return None\n"),
-    ('v43: a different added line passes in a list', "        if changed(la) != changed(lb) or other(la) != other(lb):\n", "        if other(la) != other(lb):\n"),
-    ('v43: any line may differ in the list (a block comment over the entry)', "        if not all(list_line(l) for l in body(la) + body(lb)):\n", "        if False:\n"),
+    ('v43: a different added line passes in a list', "        if changed(la) != changed(lb) or other(la) != other(lb) or rigid(la) != rigid(lb):\n",
+     "        if other(la) != other(lb) or rigid(la) != rigid(lb):\n"),
+    ('v43: code context below the list may differ', "        if changed(la) != changed(lb) or other(la) != other(lb) or rigid(la) != rigid(lb):\n",
+     "        if changed(la) != changed(lb) or other(la) != other(lb):\n"),
+    ('v43: the rebased list region is not checked (a block comment above the context)', "        if region is None or any(l[1:] not in region for l in edits(lb) if l[:1] == '+'):\n", "        if False:\n"),
+    ('v43: a list region with other lines in it counts as a list', "    return region if all(list_line(l) for l in region) else None\n", "    return region\n"),
+    ('v43: the change may be code in the list file', "        if not all(list_line(l[1:]) for l in edits(lb)):\n", "        if False:\n"),
     ('v43: a JS line end inside a list line passes', "    return not any(c in l for c in _JS_LINE_END) and bool(_LIST_LINE.match(l))\n", "    return bool(_LIST_LINE.match(l))\n"),
     ('v42: a hand-set hash is never recomputed', "        bad = patch_repair_problem(pt, src)\n        if bad:",
      "        bad = 'x'\n        if bad:"),

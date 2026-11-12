@@ -820,15 +820,16 @@ def norm_diff(text):
 # no added or removed line; each had stopped at "the rebased diff is NOT the reviewed diff" and waited for a human.
 # In these files -- lists of paths with no order and no logic -- context is not part of the change. Everywhere else it
 # still is (a neighbouring code line can change what the change does): the comparison there is byte-exact, as before.
-CONTEXT_FREE_PATHS = ('bots/test/nothing-important-is-orphaned.test.mjs',)
+# path -> (the list's opening line, its closing line): the ONE region of the file in which context is free (list_region)
+CONTEXT_FREE_PATHS = {'bots/test/nothing-important-is-orphaned.test.mjs': ('const REQUIRED = [', ']')}
 _DIFF_HEAD = re.compile(r'^diff --git a/(.+) b/\1$')
 # A LIST LINE, and nothing else, may differ or be added there (Codex review r1: a base that turned a neighbouring `//`
 # comment into an opening `/*` would have put the change's own entry inside a block comment, and the diff still read
-# "context-only"): blank, or one single-quoted path with an optional comma, and/or a `//` comment to the end of the line.
-# No `/*`, no code, no second token. A hunk of that file with any other line in it is compared byte-exact, as code is.
+# "context-only"): blank, or single-quoted paths separated by commas (one line of the real list holds two) with an optional
+# trailing comma, and/or a `//` comment to the end of the line. No `/*`, no code, no other token. A hunk of that file with any other line in it is compared byte-exact, as code is.
 # And no character JavaScript ends a line at (Codex review r2: `// note<U+2028>/*` ends the line comment at U+2028 and
 # opens a block comment on what the regex still reads as one commented line): CR, U+2028, U+2029.
-_LIST_LINE = re.compile(r"""^\s*(?:'[^'\\]*'\s*,?)?\s*(?://.*)?$""")
+_LIST_LINE = re.compile(r"""^\s*(?:'[^'\\]*'\s*(?:,\s*'[^'\\]*'\s*)*,?)?\s*(?://.*)?$""")
 _JS_LINE_END = ('\r', '\u2028', '\u2029')
 
 
@@ -850,29 +851,59 @@ def diff_sections(norm):
     return [x for x in out if x[0] or any(x[1])]
 
 
-def diff_equiv(a, b, free=CONTEXT_FREE_PATHS):
-    """PURE. Is normalized diff `b` the same change as the reviewed normalized diff `a`? -> '' byte-identical |
-    'context-only in <paths>' (the same files in the same order; outside `free` every line identical; inside `free` every
-    added and removed line identical and in order, every other non-context line identical, and EVERY hunk line of both
-    diffs a plain list line (_LIST_LINE) -- only context lines and hunk boundaries differ) | None (a different change)."""
+def list_region(text, marks):
+    """PURE. The lines of the list in a file's text, or None. `marks` = (opening line, closing line), each a WHOLE line.
+    None unless the opening line occurs exactly once, a closing line follows it, and every line between them is a plain
+    list line (list_line). So nothing can open a block comment or a template literal INSIDE the region, and an entry on
+    one of its lines is an entry of the list (Codex review r3: a `/*` opened ABOVE the three context lines of a hunk hid
+    the entry while every hunk line still read as a list line)."""
+    lines = (text or '').split('\n')
+    opens = [i for i, l in enumerate(lines) if l == marks[0]]
+    if len(opens) != 1:
+        return None
+    end = next((i for i in range(opens[0] + 1, len(lines)) if lines[i] == marks[1]), None)
+    if end is None:
+        return None
+    region = lines[opens[0] + 1:end]
+    return region if all(list_line(l) for l in region) else None
+
+
+def diff_equiv(a, b, free=None, texts=None):
+    """PURE. Is normalized diff `b` (the rebased change) the same change as the reviewed normalized diff `a`? ->
+    '' byte-identical | 'context-only in <paths>' | None (a different change, or not provably the same).
+    'context-only': the same files in the same order; every file outside `free` byte-identical; and for a differing file
+    in `free` (path -> the list's opening and closing line), with `texts[path]` the file AS REBASED:
+      - every added and removed line identical and in order, and every non-hunk line (headers, modes) identical;
+      - every added and removed line a plain list line (list_line);
+      - the context lines that are NOT list lines (the list's closing line, code after it) the same in both, in order;
+      - the rebased file's list region whole (list_region), with every added line a line of it.
+    So what may differ is only which plain list lines stand beside the change's own, inside a list of plain lines.
+    Not covered, as under the byte-exact rule: a base whose text ABOVE the list's opening line comments the declaration
+    out -- that is the base's state for every change, not something a rebase introduces."""
     if a == b:
         return ''
+    free = CONTEXT_FREE_PATHS if free is None else free
+    texts = texts or {}
     sa, sb = diff_sections(a), diff_sections(b)
     if [p for p, _ in sa] != [p for p, _ in sb]:
         return None
+    hdr = ('--- a/', '+++ b/', '--- /dev/null', '+++ /dev/null')
     changed = lambda ls: [l for l in ls if l[:1] in ('+', '-')]
     other = lambda ls: [l for l in ls if l and l[:1] not in ('+', '-', ' ') and l != '@@']
-    # the body lines of the hunks (context, added, removed; not the `--- a/` / `+++ b/` headers), without their marker
-    body = lambda ls: [l[1:] for l in ls if l[:1] in ('+', '-', ' ') and not l.startswith(('--- a/', '+++ b/', '--- /dev/null', '+++ /dev/null'))]
+    edits = lambda ls: [l for l in ls if l[:1] in ('+', '-') and not l.startswith(hdr)]
+    rigid = lambda ls: [l for l in ls if l[:1] == ' ' and not list_line(l[1:])]
     loose = []
     for (path, la), (_, lb) in zip(sa, sb):
         if la == lb:
             continue
         if path not in free:
             return None
-        if changed(la) != changed(lb) or other(la) != other(lb):
+        if changed(la) != changed(lb) or other(la) != other(lb) or rigid(la) != rigid(lb):
             return None
-        if not all(list_line(l) for l in body(la) + body(lb)):
+        if not all(list_line(l[1:]) for l in edits(lb)):
+            return None
+        region = list_region(texts.get(path), free[path])
+        if region is None or any(l[1:] not in region for l in edits(lb) if l[:1] == '+'):
             return None
         loose.append(path)
     return 'context-only in %s' % ', '.join(loose) if loose else None
@@ -3161,7 +3192,16 @@ def _ar_steps(P, job, run, base, tip):
     S('cherry-pick', '%d commit(s) onto %s -> %s, no conflicts' % (len(commits), base[:8], nt[:8]))
     # 6. (b) the diff is the reviewed diff
     h1, files1 = diff_hash(R, base, nt)
-    same = '' if h1 == h0 else diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt))
+    same = ''
+    if h1 != h0:
+        # v43: the rebased text of each path list the change touches (git show; a failure leaves it out = not the same)
+        texts = {}
+        for fp in CONTEXT_FREE_PATHS:
+            if fp in files1:
+                rcs, txt, _ = gitx(R, 'show', '%s:%s' % (nt, fp))
+                if rcs == 0:
+                    texts[fp] = txt
+        same = diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt), texts=texts)
     if same is None:
         raise ArRefuse('the rebased diff is NOT the reviewed diff (normalized sha256 %s vs %s; files %s): the base changed '
                        'lines in or beside the change, so it needs a human rebase and a review'
