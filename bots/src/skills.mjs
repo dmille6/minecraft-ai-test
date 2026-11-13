@@ -22271,8 +22271,8 @@ function homeFailNote (dir, id, why, project, by, soft = false) {
 }
 /** homes-02show: THE SEARCH'S MEMORY (the same file's `search`: homeplots.mjs searchNoted) -- the looks a plot's search finished and refused. */
 function homeSearch (dir = townDir()) { return homeMem(dir).search ?? {} }
-function homeSearchNote (dir, plotId, sig, lookId, why, by, life = 'ground', clearSoft = false) {
-  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, search: searchNoted(m.search ?? {}, plotId, sig, lookId, why, { by, life, clearSoft }) }) } catch { /* no memory: the look is searched again */ }
+function homeSearchNote (dir, plotId, sig, lookId, why, by, opts = {}) {
+  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, search: searchNoted(m.search ?? {}, plotId, sig, lookId, why, { ...opts, by }) }) } catch { /* no memory: the step is made again */ }
 }
 /** THE OFFER for a cottage project now (homeplots.mjs houseOffer): the layout's plots where they clear the town's reservations, then
  *  the extension's house plots; the free ones, a plot whose siting failed behind the others. Throws on an unreadable town (callers catch). */
@@ -22411,9 +22411,9 @@ async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, 
       // it still is (plotSig), are passed over; each look refused now is written to the town's file before the next is tried
       const dir = townDir(), me = bot.username ?? 'bot'
       const sig = plotSig(planReader(bot), o.plot, sp.zones, plan.home, { extra: plan.gen ?? '' })
-      // review r2 (Codex 2): progress always moves -- a look that finished soft is done for this pass (`life` soft), the pass's end
-      // clears those marks; `boxFresh`: no look had finished in this visit when the plot's turn began
-      return await searchPlotLooks(all, { plotId: o.plot.id, sig, boxFresh, memory: () => homeSearch(dir), noteLook: (id, why, life) => homeSearchNote(dir, o.plot.id, sig, id, why, me, life), clearSoft: () => homeSearchNote(dir, o.plot.id, sig, null, null, me, 'soft', true), row: f => homePlotRow(bot, { project: plot, ...f }), searchLook: lookOn })
+      // review r2/r3 (Codex): progress always moves -- every step of the plot's PASS is written to the town's file (the looks done, the
+      // visits spent, the look the box cut); `boxFresh`: no look had finished in this visit when the plot's turn began (`boxMs`: its box)
+      return await searchPlotLooks(all, { plotId: o.plot.id, sig, boxFresh, boxMs: boxFresh ? box.left() : null, memory: () => homeSearch(dir), note: (id, why, opts) => homeSearchNote(dir, o.plot.id, sig, id, why, me, opts), row: f => homePlotRow(bot, { project: plot, ...f }), searchLook: lookOn })
     }
     let last = null
     for (const cs of all) {

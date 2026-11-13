@@ -53,25 +53,40 @@
 //                          depends on the plot alone -- remembered with the plot's SIGNATURE (plotSig: its placed box, the top block
 //                          of every column of the box + 3, the reservations within 4, the plan's generation) for searchKeepMs
 //                          (24 h); a changed signature forgets it. Never when the screen met an unread cell.
-//                        the PROOF's refusal (`no_proven_site`: it depends on the walk from town, the planned town, the guards) is
-//                          believed only for proofKeepMs (30 min: long enough for the 5-min visits a plot's 24 looks take, and
-//                          no longer than the project itself waits after a failed siting, COTTAGE_NOSITE_MS) -- and NOT AT ALL
-//                          when a cell between town and the plot was unread for the siting bot, or a guard answered unreadable,
-//                          or the kept walk was found stale: such a look is simply tried again next time.
-//                        a SOFT answer (an unread approach, an unreadable guard, a stale or moving world: nothing lasting about the
-//                          plot) is no refusal -- but PROGRESS ALWAYS MOVES (review r2, Codex: twelve soft looks at 22 s each never
-//                          finished in a 100-s box, the next visit began at look 0 again, and no later plot was ever tried). A look
-//                          that finished soft is marked DONE FOR THIS PASS in the file (`softs`, each softKeepMs: 30 min, a pass of
-//                          24 looks at 5-min visits and no more), so the next visit continues after it; so is a look the search
-//                          could not finish in a whole box by itself. When a pass ends with any soft look the marks are cleared and
-//                          the plot is PASSED: it goes behind the other plots for softRetryMs (30 min: the project's own wait after
-//                          a failed siting -- six of the 5-min visits for the other plots, and soon enough to read the approach
-//                          again; never the 6 h of a real failure, which a soft pass also never shortens).
+//                        the PROOF's refusal (`no_proven_site`: it depends on the walk from town, the planned town, the guards) and a
+//                          SOFT answer (an unread approach, an unreadable guard, a stale or moving world: nothing lasting about the
+//                          plot) are DONE FOR THE PASS, never a day's word: a PASS is one sweep over the plot's looks, kept in the
+//                          file with the plot (`pass`: its start, the visits spent on it, the looks done and how). Its marks do
+//                          not age while it is under way (review r3, Codex: at the live ~33 s a look a pass of 24 is 8 visits
+//                          of ~6.7 min, 53 min -- marks that lived 30 min expired before it ended, and looks 0-4 were searched
+//                          for ever), and nothing else of the plot's memory ages out from under it; only a pass ABANDONED -- no
+//                          step of it for passKeepMs (6 h) -- is forgotten. When every look is done the
+//                          pass ENDS and is cleared: with a soft look in it the plot is PASSED (behind the others for softRetryMs,
+//                          30 min -- the project's own wait after a failed siting; never the 6 h of a real failure, which a soft
+//                          pass also never shortens); with none it is EXHAUSTED on this pass's own searches. The next pass searches
+//                          the proof's looks again: a proof's word never outlives its pass, and it is never written at all when a
+//                          cell between town and the plot was unread or a guard answered unreadable (that look is soft).
+//                        A PASS IS BOUNDED IN VISITS: after HOMEPLOT.passVisits (4) visits on one plot without finishing, the plot
+//                          is passed for this rotation with its progress KEPT, the next plot gets the visit (a whole box), and
+//                          the pass goes on where it stopped when the plot's turn comes round. FOUR: 4 x (100 s of search + the
+//                          5-min re-ask) = 26.7 min, the most that stays under the 30 min a FAILED siting holds the project for
+//                          (skills.mjs COTTAGE_NOSITE_MS; five would be 33 min) -- an unfinished plot never keeps the others
+//                          waiting longer than a failed one does. A live-shaped pass (24 looks at ~33 s, 3 a visit, 8 visits)
+//                          takes two turns; the worst case (one look a visit, 24 visits) six. Each turn makes progress: every
+//                          visit that begins with a whole box finishes a look or refuses one `slow`.
+//                        THE BOX IS THE BOUND (buildsite.mjs SITE_SEARCH_MS, 100 s: what keeps a siting under the build visit's
+//                          180 s and inside the stillness the search declares to the stuck reflex, sitebox-01 -- it is not raised or
+//                          bypassed here: that is that feature's decision, with its own read). A look the box cut gets a WHOLE box:
+//                          it goes FIRST in the plot's next visit. A look cut with a whole box to itself is a named limit, not a
+//                          silent loop: row `_homeplot op=slow plot= look= ms=`, and the look is refused for slowKeepMs (6 h, a
+//                          real failure's wait; for the pass it was cut in, however long that takes) so the plot can exhaust and
+//                          rotate honestly. THE REMEDY is not the bot's to perform and needs nothing of it: the other looks and
+//                          the other plots are tried; the look itself is tried again after the 6 h, on ground that may have changed.
 //                      `search_time` is NOT the plot's failure: nothing is noted against the plot, it stays where it is in the offer,
 //                      and the project is asked again after HOMEPLOT.resumeMs (5 min) instead of 30. A plot is EXHAUSTED (noted
-//                      failed, the tally in its row, rotated) only when every look is refused AND, where any of them is a proof's
-//                      refusal, a real search was made in THIS visit: a plot whose looks are all refused in memory but some by a
-//                      proof has those looks searched again now, never answered from memory.
+//                      failed, the tally in its row, rotated) only when a pass ENDS with every look refused, or -- from memory, with
+//                      no search -- when the screen's and the box's refusals alone cover every look. A proof's word is never
+//                      answered from memory outside its pass: a pass found complete but never closed is dropped and begun again.
 //   TWO BOTS, ONE PLOT    both start at the same first look not yet refused (the work is done twice, never wrongly); each refusal
 //                      is merged into the file as it is on disk at that moment (read, add, temp + rename), so neither writer drops
 //                      the other's looks but for a write landing between another's read and rename -- that one look is searched
@@ -89,8 +104,10 @@ import fs from 'node:fs'
  *  far a plot may move off a reservation; pathGap: how far round a reserved plot the paths' router keeps (paths.mjs pathZones' own margin:
  *  a path's reservation is its columns + 1, so a path one column from the box would push the plot); retryMs: how long a failed plot stays behind the others; rowMs: one bot repeats a `_homeplot` row at most
  *  this often (geoRowMs for `shifted` and `skipped`: where a plot lies changes only when a record does); base: the cottage projects a
- *  town has without a layout. */
-export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, pathGap: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3, searchKeepMs: 24 * 60 * 60_000, proofKeepMs: 30 * 60_000, softKeepMs: 30 * 60_000, softRetryMs: 30 * 60_000, resumeMs: 5 * 60_000, sigPad: 3, sigZones: 4, approachPad: 8 })
+ *  town has without a layout. The search's memory (the header has the why of each): searchKeepMs the screen's refusals; passKeepMs a
+ *  pass with no step for this long is abandoned; passVisits the visits one plot holds before it is passed with its progress kept;
+ *  slowKeepMs a look the box cut with a whole box; softRetryMs a passed plot behind the others; resumeMs the re-ask after a paused visit. */
+export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, pathGap: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3, searchKeepMs: 24 * 60 * 60_000, passKeepMs: 6 * 60 * 60_000, passVisits: 4, slowKeepMs: 6 * 60 * 60_000, softRetryMs: 30 * 60_000, resumeMs: 5 * 60_000, sigPad: 3, sigZones: 4, approachPad: 8 })
 
 const onOff = v => { const s = String(v ?? '').trim().toLowerCase(); return ['on', '1', 'true', 'yes'].includes(s) ? true : ['off', '0', 'false', 'no'].includes(s) ? false : null }
 /** THE SWITCH -> { on }. HOMEPLOTS=on|off; unset = on only in HOMEPLOTS_POOLS (default 'showcase'). Pure. */
@@ -342,7 +359,7 @@ export const SEARCH_STABLE = Object.freeze(['no_site', 'no_proven_site', 'no_fre
  *   guardUnread  a guard the proof asks answered unreadable (the tree guard's reservations: skills.mjs trunkReservations `why`)
  * `ground`: the SCREEN refused every candidate (nothing was screened) and met no unread cell -- the plot's own ground and reservations,
  * which the signature covers. `proof`: something was screened and no proof held, every read known, every guard readable -- true of
- * the town as it was, believed for proofKeepMs. `soft` (`world_moving`, `kept_walk_stale`, `unknown_cell`, `approach_unread`, `guard_unread`): the
+ * the town as it was, believed for the PASS it was searched in. `soft` (`world_moving`, `kept_walk_stale`, `unknown_cell`, `approach_unread`, `guard_unread`): the
  * refusal says nothing lasting about the plot -- it is not written anywhere, and it never makes a plot exhausted or failed.
  */
 export function refusalKind (s, { unread = 0, guardUnread = false } = {}) {
@@ -357,101 +374,131 @@ export function refusalKind (s, { unread = 0, guardUnread = false } = {}) {
   if (guardUnread) return { soft: 'guard_unread' }
   return { why: refusalOf(s), life: 'proof' }
 }
-/** A plot's remembered looks, if they are still its own -> { sig, at, looks, proofs } | null (another signature, or older than `keepMs`). Pure. */
-const searchEntry = (search, plotId, sig, now, keepMs) => { const e = search?.[String(plotId)]; const at = Number(e?.at); return e && e.sig === sig && sig && Number.isFinite(at) && at <= now + 60_000 && now - at < keepMs && e.looks && typeof e.looks === 'object' ? e : null }
-/** The proofs' refusals of an entry still believed -> { lookId: why }: each younger than `proofMs` (a stamp from the future is none). */
-const stampedOf = (map, now, ms, dflt) => { const out = {}; for (const [id, p] of Object.entries(map ?? {})) { const at = Number(p?.at); if (Number.isFinite(at) && at <= now + 60_000 && now - at < ms) out[id] = String(p.why ?? dflt) } return out }
-const proofsOf = (e, now, proofMs) => stampedOf(e?.proofs, now, proofMs, 'no_proven_site')
-/** The looks DONE FOR THIS PASS without a refusal (a soft answer, a look too long for a box) -> { lookId: why }: each younger than `softMs`. */
-const softsOf = (e, now, softMs) => stampedOf(e?.softs, now, softMs, 'soft')
+/** The entry's PASS if one is under way -> { at, last, visits, done: { lookId: { why, kind } }, first } | null (none, or ABANDONED: no
+ *  step of it for `passMs`). Its marks have NO life of their own: they are the pass's, however long it takes. */
+const passOf = (e, now, passMs) => { const p = e?.pass; const t = Number(p?.last ?? p?.at); return p && Number.isFinite(t) && t <= now + 60_000 && now - t < passMs && p.done && typeof p.done === 'object' ? p : null }
+/** A plot's remembered looks, if they are still its own -> the entry | null (another signature, or older than `keepMs` with no pass
+ *  under way: nothing of a plot's memory ages out from under a pass). Pure. */
+const searchEntry = (search, plotId, sig, now, keepMs, passMs) => { const e = search?.[String(plotId)]; const at = Number(e?.at); return e && e.sig === sig && sig && Number.isFinite(at) && at <= now + 60_000 && (now - at < keepMs || !!passOf(e, now, passMs)) && e.looks && typeof e.looks === 'object' ? e : null }
+/** The looks the box cut with a whole box to themselves, still refused -> { lookId: { at, ms } } (each `slowMs` from its stamp). */
+const slowOf = (e, now, slowMs) => { const out = {}; for (const [id, q] of Object.entries(e?.slow ?? {})) { const at = Number(q?.at); if (Number.isFinite(at) && at <= now + 60_000 && now - at < slowMs) out[id] = q } return out }
 /**
- * WHERE THE SEARCH OF A PLOT STANDS -> { left: [lookId], refused: n, first: index of the first look left | -1, tally, proofs: [lookId],
- * softs: [lookId], soft: the first soft look's reason | null }. Pure.
- *   search  the file's `search` ({ plotId: { sig, at, looks: { lookId: why }, proofs: { lookId: { why, at } }, softs: { ... } } })
- *   lookIds the plot's looks in the order tried
- * Refused: a look in `looks` (the screen's refusals: this signature, inside `keepMs`) or in `proofs` (a proof's: this signature,
- * inside `proofMs`). `softs`: looks done for this pass WITHOUT a refusal (inside `softMs`) -- not left, not refused. `proofs`: the
- * refused looks that only a proof refused. `tally` every refused look's reason (`why=n,...`).
+ * WHERE THE SEARCH OF A PLOT STANDS -> { left, refused, first, tally, proofs, softs, soft, slow, done, visits, promoted }. Pure.
+ *   search  the file's `search` ({ plotId: { sig, at, looks: { lookId: why }, slow: { lookId: { at, ms } },
+ *           pass: { at, last, visits, done: { lookId: { why, kind: 'proof' | 'soft' | 'slow' } }, first } } });   lookIds  the plot's looks in order
+ * `left`: the looks still to search in this pass. REFUSED (`refused`, `tally`): the screen's refusals (`looks`: this signature,
+ * `keepMs`), the box's (`slow`: `slowMs` from its stamp, and for the pass it was cut in), and the proofs' of the pass under way
+ * (`proofs`). `softs`: the pass's looks done WITHOUT a refusal
+ * (`soft`: the first one's reason). `done`: how many looks the pass has done; `visits`: the visits spent on it; `promoted`: the look
+ * the box cut last time, if it is still to search (it goes first); `first`: the index of the first look left.
  */
-export function searchLeft (search, plotId, sig, lookIds = [], now = Date.now(), keepMs = HOMEPLOT.searchKeepMs, proofMs = HOMEPLOT.proofKeepMs, softMs = HOMEPLOT.softKeepMs) {
-  const e = searchEntry(search, plotId, sig, now, keepMs)
-  const done = e?.looks ?? {}, pr = proofsOf(e, now, proofMs), sf = softsOf(e, now, softMs)
-  const why = id => (Object.hasOwn(done, id) ? String(done[id]) : Object.hasOwn(pr, id) ? pr[id] : null)
-  const softs = lookIds.filter(id => why(id) == null && Object.hasOwn(sf, id))
-  const left = lookIds.filter(id => why(id) == null && !Object.hasOwn(sf, id))
+export function searchLeft (search, plotId, sig, lookIds = [], now = Date.now(), { keepMs = HOMEPLOT.searchKeepMs, passMs = HOMEPLOT.passKeepMs, slowMs = HOMEPLOT.slowKeepMs } = {}) {
+  const e = searchEntry(search, plotId, sig, now, keepMs, passMs)
+  const ground = e?.looks ?? {}, slow = slowOf(e, now, slowMs), pass = passOf(e, now, passMs), done = pass?.done ?? {}
+  const refusal = id => (Object.hasOwn(ground, id) ? String(ground[id]) : Object.hasOwn(slow, id) || done[id]?.kind === 'slow' ? 'slow' : done[id]?.kind === 'proof' ? String(done[id].why ?? 'no_proven_site') : null)
+  const isSoft = id => refusal(id) == null && Object.hasOwn(done, id)
+  const softs = lookIds.filter(isSoft)
+  const left = lookIds.filter(id => refusal(id) == null && !Object.hasOwn(done, id))
   const counts = {}
   let refused = 0
-  for (const id of lookIds) { const w = why(id); if (w != null) { refused++; counts[w] = (counts[w] ?? 0) + 1 } }
+  for (const id of lookIds) { const w = refusal(id); if (w != null) { refused++; counts[w] = (counts[w] ?? 0) + 1 } }
   const tally = Object.entries(counts).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([w, n]) => `${w}=${n}`).join(',')
-  return { left, refused, first: left.length ? lookIds.indexOf(left[0]) : -1, tally, proofs: lookIds.filter(id => !Object.hasOwn(done, id) && Object.hasOwn(pr, id)), softs, soft: softs.length ? sf[softs[0]] : null }
+  return { left, refused, first: left.length ? lookIds.indexOf(left[0]) : -1, tally, softs, soft: softs.length ? String(done[softs[0]].why ?? 'soft') : null,
+    proofs: lookIds.filter(id => !Object.hasOwn(ground, id) && !Object.hasOwn(slow, id) && done[id]?.kind === 'proof'), slow: lookIds.filter(id => refusal(id) === 'slow' && !Object.hasOwn(ground, id)),
+    done: lookIds.filter(id => Object.hasOwn(done, id)).length, visits: Number(pass?.visits) || 0, promoted: pass?.first != null && left.includes(String(pass.first)) ? String(pass.first) : null }
 }
-/** The memory with one more look -> the file's `search` (a new object). Pure. `life`: 'ground' (the screen's refusal: `looks`),
- *  'proof' (`proofs`, each with its own stamp) or 'soft' (`softs`: done for this pass, NOT a refusal). A plot whose signature moved
- *  (or whose entry is older than `keepMs`) starts again with this one look; other plots' entries older than `keepMs` are dropped, and
- *  this plot's proofs and softs past their lives. `clearSoft`: the pass is over -- the plot's softs are dropped (lookId unused). */
-export function searchNoted (search = {}, plotId, sig, lookId, why, { now = Date.now(), by = '', life = 'ground', clearSoft = false, keepMs = HOMEPLOT.searchKeepMs, proofMs = HOMEPLOT.proofKeepMs, softMs = HOMEPLOT.softKeepMs } = {}) {
+/**
+ * THE MEMORY AFTER ONE STEP OF A PLOT'S SEARCH -> the file's `search` (a new object). Pure. A plot whose signature moved (or whose
+ * entry is older than `keepMs` with no pass under way) starts again; other plots' such entries are dropped; a pass with no step for
+ * `passMs` is forgotten (every step stamps the pass: `last`). ONE of:
+ *   a look     `lookId`, `why`, `life`: 'ground' (the screen's refusal: `looks`), 'slow' (the box cut it with a whole box: `slow`, with
+ *              `ms`, and done for the pass), 'proof' or 'soft' (done for the pass under way -- one is begun if none is). A look that is marked is no longer
+ *              the pass's promoted one.
+ *   `pass`     'visit' (a visit begins on the plot: the pass's count, a pass begun if none), 'end' (every look is done: the pass and
+ *              its marks are dropped), 'rest' (the visits' bound: the count back to 0, the progress KEPT)
+ *   `first`    the look the box cut: it goes first in the plot's next visit
+ */
+export function searchNoted (search = {}, plotId, sig, lookId, why, { now = Date.now(), by = '', life = 'ground', ms = null, pass: op = null, first = undefined, keepMs = HOMEPLOT.searchKeepMs, passMs = HOMEPLOT.passKeepMs, slowMs = HOMEPLOT.slowKeepMs } = {}) {
   const out = {}
-  for (const [k, e] of Object.entries(search ?? {})) { const at = Number(e?.at); if (Number.isFinite(at) && now - at < keepMs) out[k] = e }
-  const cur = searchEntry(search, plotId, sig, now, keepMs)
-  const looks = { ...(cur?.looks ?? {}) }, proofs = {}, softs = {}
-  for (const [id, w] of Object.entries(proofsOf(cur, now, proofMs))) proofs[id] = { why: w, at: Number(cur.proofs[id].at) }
-  if (!clearSoft) for (const [id, w] of Object.entries(softsOf(cur, now, softMs))) softs[id] = { why: w, at: Number(cur.softs[id].at) }
-  if (!clearSoft) {
+  for (const [k, e] of Object.entries(search ?? {})) { const at = Number(e?.at); if (Number.isFinite(at) && (now - at < keepMs || passOf(e, now, passMs))) out[k] = e }
+  const cur = searchEntry(search, plotId, sig, now, keepMs, passMs)
+  const looks = { ...(cur?.looks ?? {}) }, slow = { ...slowOf(cur, now, slowMs) }
+  const p0 = passOf(cur, now, passMs)
+  let pass = p0 ? { at: Number(p0.at), last: now, visits: Number(p0.visits) || 0, done: { ...p0.done }, ...(p0.first != null ? { first: String(p0.first) } : {}) } : null
+  const begin = () => (pass ??= { at: now, last: now, visits: 0, done: {} })
+  if (op === 'end') pass = null
+  else if (op === 'rest') { if (pass) pass.visits = 0 } else if (op === 'visit') begin().visits++
+  else if (first !== undefined) { if (first == null) { if (pass) delete pass.first } else begin().first = String(first) } else {
     const w = String(why ?? 'no_site').slice(0, 48), id = String(lookId)
-    // a soft answer NOW outweighs a proof's older word on the same look (that word is not this visit's): only the screen's refusal stands
-    if (life === 'soft') { delete proofs[id]; if (!Object.hasOwn(looks, id)) softs[id] = { why: w, at: now } } else if (life === 'proof') { if (!Object.hasOwn(looks, id)) proofs[id] = { why: w, at: now }; delete softs[id] } else { looks[id] = w; delete proofs[id]; delete softs[id] }
+    if (life === 'proof' || life === 'soft') { if (!Object.hasOwn(looks, id) && !Object.hasOwn(slow, id)) begin().done[id] = { why: w, kind: life } } else {
+      if (life === 'slow') { slow[id] = { at: now, ...(Number.isFinite(ms) ? { ms } : {}) }; begin().done[id] = { why: 'slow', kind: 'slow' } } else { looks[id] = w; if (pass) delete pass.done[id] }
+    }
+    if (pass?.first === id) delete pass.first
   }
-  if (clearSoft && !cur) return out
-  out[String(plotId)] = { sig, at: cur ? cur.at : now, last: now, by: String(by ?? ''), looks, ...(Object.keys(proofs).length ? { proofs } : {}), ...(Object.keys(softs).length ? { softs } : {}) }
+  if (!cur && !pass && !Object.keys(looks).length && !Object.keys(slow).length) return out
+  out[String(plotId)] = { sig, at: cur ? cur.at : now, last: now, by: String(by ?? ''), looks, ...(Object.keys(slow).length ? { slow } : {}), ...(pass ? { pass } : {}) }
   return out
 }
 /**
  * THE SEARCH OF ONE PLOT, RESUMED -> the siting's answer for the plot. Never throws but for `searchLook`'s own throw (the caller's).
  *   all         the plot's looks in the order tried ([{ id, ... }]: cottage.mjs cottage2StylesAll)
- *   memory()    the file's `search` as it is now;   noteLook(lookId, why, life)   writes one refused look into it
- *   searchLook(look) -> the siting's answer for that ONE look: { ok: true, ... } | { ok: false, why, more?, refused?, life?, ... }.
- *               `more`: the search FINISHED without a site -- the next look is tried. `refused` (+ `life`, refusalKind's) says the
- *               refusal may be remembered; a finished look with `soft` instead (an unread cell, an unreadable guard, a stale kept
- *               walk) is no refusal -- it is marked done for THIS PASS (`noteLook(id, why, 'soft')`) so that the next visit goes
- *               on after it, and when the pass is over (`clearSoft()`: its marks dropped) the plot answers `soft`: neither
- *               exhausted nor failed (siteOverPlots passes it and puts it behind the others for a short while). A failure
- *               without `more` -- `search_time`, `aborted`, `site_taken`, a `soft` that ends the plot's turn (the world moving
- *               under the fresh proof) -- ends the plot's turn as it is.
- *   boxFresh    this plot's turn began with the visit's whole search box (no look finished in the visit before it)
- * Looks already refused under `sig` are passed over (row `resumed`: the first look tried, how many are behind it). NONE LEFT at the
- * start: `exhausted` only when every look is the SCREEN's refusal -- looks only a proof refused are searched again NOW (a proof's word
- * is never the plot's failure without a search in this visit). None left after this turn's own searches: `exhausted`, the tally.
+ *   memory()    the file's `search` as it is now;   note(lookId, why, opts)   one step written into it (searchNoted's `opts`)
+ *   searchLook(look) -> the siting's answer for that ONE look: { ok: true, ... } | { ok: false, why, more?, refused?, life?, soft? }.
+ *               `more`: the search FINISHED without a site -- the next look is tried. `refused` + `life` (refusalKind's): the
+ *               screen's refusal is kept under the signature, a proof's is done for the pass. `soft` instead: no refusal, done
+ *               for the pass. A failure without `more` -- `search_time`, `aborted`, `site_taken`, a `soft` that ends the plot's
+ *               turn (the world moving under the fresh proof) -- ends the plot's turn as it is.
+ *   boxFresh    this plot's turn began with the visit's whole search box (no look finished in the visit before it); boxMs its size
+ * THE PASS (the header has the why). A visit goes on after the looks the pass has done (row `resumed`); the look the box cut last
+ * time goes first, whatever the order the looks come in now. No look to search and no pass: `exhausted` (the screen's and the box's
+ * refusals alone, from memory). The pass's visits spent (`maxVisits`): { soft: 'pass_visits' } with the progress kept -- the plot is
+ * passed for this rotation; THE REMEDY needs nothing of the bot: siteOverPlots tries the next plot in this same visit, and the pass
+ * goes on at the plot's next turn. `search_time`: the look is promoted for the next visit, or -- cut with a whole box to itself --
+ * refused `slow` (row `slow`: the look's index, the box's ms). Every look done: the pass ends and is cleared -- `soft` if a look of it
+ * was (the plot is passed), else `exhausted` with the tally.
  */
-export async function searchPlotLooks (all = [], { plotId, sig, memory = () => ({}), noteLook = () => {}, clearSoft = () => {}, boxFresh = false, searchLook, row = () => {}, now = () => Date.now() } = {}) {
+export async function searchPlotLooks (all = [], { plotId, sig, memory = () => ({}), note = () => {}, boxFresh = false, boxMs = null, maxVisits = HOMEPLOT.passVisits, searchLook, row = () => {}, now = () => Date.now() } = {}) {
   const ids = all.map(q => q.id)
-  const st = searchLeft(memory(), plotId, sig, ids, now())
-  // the pass over (review r2): every look is refused or done for this pass; with a soft one among them the plot is PASSED -- its marks
-  // are cleared, so that it is searched again when its turn comes round
-  const passed = why => { try { clearSoft() } catch { /* the marks age out */ } return { ok: false, why: 'no_proven_site', soft: String(why ?? 'not_kept') } }
-  if (!st.left.length && st.softs.length) return passed(st.soft)
-  if (!st.left.length && !st.proofs.length) return { ok: false, why: 'exhausted', detail: st.tally }
-  const todo = new Set(st.left.length ? st.left : st.proofs)
-  const behind = st.refused + st.softs.length
-  if (st.left.length && behind) row({ op: 'resumed', plot: plotId, look: st.first, of: all.length, refused: st.refused })
-  if (!st.left.length) row({ op: 'resumed', plot: plotId, look: ids.indexOf(st.proofs[0]), of: all.length, refused: st.refused - st.proofs.length, why: 'proofs_again' })
+  const step = (id, why, o) => { try { note(id, why, o) } catch { /* no memory: the step is made again */ } }
+  let st = searchLeft(memory(), plotId, sig, ids, now())
+  // a pass whose every look is done but which was never closed (the visit ended between the two writes): it is over -- and its word is
+  // not this visit's, so nothing is answered from it: a new pass begins now
+  if (!st.left.length && st.done) { step(null, null, { pass: 'end' }); st = searchLeft(memory(), plotId, sig, ids, now()) }
+  if (!st.left.length) return { ok: false, why: 'exhausted', detail: st.tally }
+  // THE VISITS' BOUND: the plot has had its visits for this rotation -- it is passed with its progress kept, the next plot gets this one
+  if (st.visits >= maxVisits) { step(null, null, { pass: 'rest' }); return { ok: false, why: 'no_proven_site', soft: 'pass_visits' } }
+  step(null, null, { pass: 'visit' })
+  if (st.refused + st.softs.length) row({ op: 'resumed', plot: plotId, look: st.promoted ? ids.indexOf(st.promoted) : st.first, of: all.length, refused: st.refused })
+  const todo = new Set(st.left)
+  const order = st.promoted ? [all[ids.indexOf(st.promoted)], ...all.filter(q => q.id !== st.promoted)] : all
   let last = null, searched = 0, softNow = null   // softNow: a soft answer in THIS turn (it holds even when its mark could not be written)
-  const mark = (id, why, life) => { try { noteLook(id, why, life) } catch { /* no memory: the look is searched again */ } }
-  for (const look of all) {
+  /** THE PASS OVER? -> the plot's answer | null (looks are left). Every look done: the pass is cleared, and the plot is passed (`soft`)
+   *  or exhausted on the pass's own searches. */
+  const closed = () => {
+    const end = searchLeft(memory(), plotId, sig, ids, now())
+    if (end.left.length && !softNow) return null
+    step(null, null, { pass: 'end' })
+    const soft = end.soft ?? softNow
+    if (soft) return { ok: false, why: last?.why ?? 'no_proven_site', ...(last?.detail ? { detail: last.detail } : {}), ...(last?.tried ? { tried: last.tried } : {}), soft }
+    return { ok: false, why: 'exhausted', detail: end.tally, ...(last?.tried ? { tried: last.tried } : {}) }
+  }
+  for (const look of order) {
     if (!todo.has(look.id)) continue
     const r = await searchLook(look)
     if (r?.ok) return r
     if (!r?.more) {
-      // PROGRESS ALWAYS MOVES: a look the search could not finish in a WHOLE box by itself is done for this pass too
-      if (r?.why === 'search_time' && !searched && boxFresh) mark(look.id, 'search_time', 'soft')
-      return r ?? { ok: false, why: 'error' }
+      if (r?.why !== 'search_time') return r ?? { ok: false, why: 'error' }
+      // THE BOX IS THE BOUND: cut with part of a box, the look goes first next visit (a whole box)...
+      if (!(boxFresh && !searched)) { step(null, null, { first: look.id }); return r }
+      // ...cut with a whole box to itself, it is refused by name -- and if it was the pass's last look, the pass is over now
+      step(look.id, 'slow', { life: 'slow', ms: boxMs }); row({ op: 'slow', plot: plotId, look: ids.indexOf(look.id), ms: boxMs ?? '-' })
+      return closed() ?? r
     }
     searched++
-    if (r.refused) mark(look.id, r.refused, r.life === 'proof' ? 'proof' : 'ground'); else { softNow ??= String(r.soft ?? 'not_kept'); mark(look.id, String(r.soft ?? 'not_kept'), 'soft') }
+    if (r.refused) step(look.id, r.refused, { life: r.life === 'proof' ? 'proof' : 'ground' }); else { softNow ??= String(r.soft ?? 'not_kept'); step(look.id, String(r.soft ?? 'not_kept'), { life: 'soft' }) }
     last = r
   }
-  const end = searchLeft(memory(), plotId, sig, ids, now())
-  if ((!end.left.length && end.softs.length) || softNow) return { ...passed(end.soft ?? softNow), why: last?.why ?? 'no_proven_site', ...(last?.tried ? { tried: last.tried } : {}) }
-  return !end.left.length && searched ? { ok: false, why: 'exhausted', detail: end.tally, ...(last?.tried ? { tried: last.tried } : {}) } : last
+  return closed() ?? last   // (null: a mark could not be written -- the look is searched again)
 }
 
 // ---- THE ROTATION --------------------------------------------------------------------------------------------------------------
@@ -543,10 +590,11 @@ export async function siteOverPlots (plots = [], siteOne, { left = () => Infinit
 }
 
 // ---- THE ROWS ------------------------------------------------------------------------------------------------------------------
-/** One `_homeplot` row's detail: `project=... op=offered|skipped|shifted|chosen|failed|resumed|paused|passed|exhausted plot=... why=...`
- *  (homes-02show: `resumed look=<index of the first look tried> of=<looks> refused=<n>`; `exhausted why=<reason=n,...>`). Pure. */
+/** One `_homeplot` row's detail: `project=... op=offered|skipped|shifted|chosen|failed|resumed|paused|passed|slow|exhausted plot=...`
+ *  (homes-02show: `resumed look=<index of the first look tried> of=<looks> refused=<n>`; `exhausted why=<reason=n,...>`;
+ *  `slow look=<index> ms=<the box>`: the look the box cut with a whole box to itself). Pure. */
 export function homePlotRowDetail (f = {}) {
-  return Object.entries({ project: f.project, op: f.op, plot: f.plot, look: f.look, of: f.of, refused: f.refused, why: f.why, shift: f.shift, box: f.box, plots: f.plots, n: f.n, skipped: f.skipped })
+  return Object.entries({ project: f.project, op: f.op, plot: f.plot, look: f.look, of: f.of, refused: f.refused, ms: f.ms, why: f.why, shift: f.shift, box: f.box, plots: f.plots, n: f.n, skipped: f.skipped })
     .filter(([, v]) => v != null).map(([k, v]) => `${k}=${String(Array.isArray(v) ? v.join(',') : v).replace(/\s+/g, '_').slice(0, k === 'plots' ? 80 : k === 'why' ? 120 : 60)}`).join(' ')
 }
 /** IS THIS ROW DUE for this bot? -> bool (and the memo is stamped). The same project, op, plot and reason at most every `everyMs`:

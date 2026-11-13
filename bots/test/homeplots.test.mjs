@@ -87,6 +87,15 @@ if (process.env.HOMEPLOTS_CHILD === 'town') {
     out.search = HP.homeSearch(dir); out.fails2 = Object.keys(HP.homeFails(dir)).sort()
     HP.homeSearchNote(dir, 'H4', 'sigC', 'cottage@2-Lfl1-', 'no_site', 'showcase-Alpha')   // the ground changed: H4 starts again
     out.searchAfter = HP.homeSearch(dir)
+    // homes-02show r3: every step of a plot's PASS goes through the same writer into the same file (the visit, a proof's mark, the
+    // look the box cut, the box's own refusal) -- and the screen's refusals and the failures stay beside them
+    HP.homeSearchNote(dir, 'H5', 'sigB', null, null, 'showcase-Alpha', { pass: 'visit' })
+    HP.homeSearchNote(dir, 'H5', 'sigB', 'cottage@2-Csl0-', 'no_proven_site:no_step', 'showcase-Alpha', { life: 'proof' })
+    HP.homeSearchNote(dir, 'H5', 'sigB', null, null, 'showcase-Bravo', { first: 'cottage@2-Csl1-' })
+    HP.homeSearchNote(dir, 'H5', 'sigB', 'cottage@2-Cfl0-', 'slow', 'showcase-Bravo', { life: 'slow', ms: 99_500 })
+    out.pass = HP.homeSearch(dir).H5; out.fails3 = Object.keys(HP.homeFails(dir)).sort()
+    HP.homeSearchNote(dir, 'H5', 'sigB', null, null, 'showcase-Bravo', { pass: 'end' })
+    out.passEnded = HP.homeSearch(dir).H5
   }
   console.log('\nJSON ' + JSON.stringify(out))
   process.exit(0)
@@ -670,6 +679,10 @@ await t('HOMEPLOTS=on: the layout first then X4, X5 (X3 is cottage1\'s); H7 move
   assert.deepStrictEqual(r.fails2, ['H1', 'X4'], 'a search write keeps the failures, a failure write keeps the searches')
   assert.deepStrictEqual([r.searchAfter.H4.sig, Object.keys(r.searchAfter.H4.looks)], ['sigC', ['cottage@2-Lfl1-']], 'the ground changed: the plot\'s looks start again')
   assert.deepStrictEqual(r.searchAfter.H5.looks, r.search.H5.looks)
+  // r3: the pass's steps in the file
+  assert.deepStrictEqual([r.pass.looks, r.pass.pass.visits, r.pass.pass.first, r.pass.pass.done, r.pass.slow['cottage@2-Cfl0-'].ms, r.pass.by], [r.search.H5.looks, 1, 'cottage@2-Csl1-', { 'cottage@2-Csl0-': { why: 'no_proven_site:no_step', kind: 'proof' }, 'cottage@2-Cfl0-': { why: 'slow', kind: 'slow' } }, 99_500, 'showcase-Bravo'])
+  assert.deepStrictEqual(r.fails3, r.fails2, 'the pass\'s writes keep the failures')
+  assert.deepStrictEqual([r.passEnded.pass, r.passEnded.looks, Object.keys(r.passEnded.slow)], [undefined, r.search.H5.looks, ['cottage@2-Cfl0-']], 'the pass ended: its marks dropped; the screen\'s and the box\'s refusals stay')
 })
 
 console.log('8b. REVIEW r1: THE PATHS\' ROUTER AND THE KEEPER\'S PERMANENT SITINGS KEEP OFF A RESERVED HOME')
