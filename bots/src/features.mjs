@@ -229,8 +229,6 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'enchantshop_mode', status: 'success', snapshot: snapshot(bot), detail: enchantModeDetail(ENCHANTSHOP) }) } catch { /* telemetry */ }
   // cottage2-01: the later cottages' licence row (on=0 outside COTTAGE2_POOLS or under COTTAGE2=off: the rollback is visible too)
   try { logEvent({ kind: 'cottage2_mode', status: 'success', snapshot: snapshot(bot), detail: `on=${COTTAGE2.on ? 1 : 0} plots=cottage2,cottage3 family=cottage@2 furnish=beds,chests,lanterns,flowers shear=1` }) } catch { /* telemetry */ }
-  // homes-01show: the layout's home plots' licence row (on=0 under HOMEPLOTS=off or in a town with no layout: the rollback is visible too)
-  try { logEvent({ kind: 'homeplots_mode', status: 'success', snapshot: snapshot(bot), detail: homePlotsModeDetail() }) } catch { /* telemetry */ }
   // ordernowait-01: the town hall and the cottage stop waiting for the workshop (on=0 outside ENCHANT_NOWAIT_POOLS or under ENCHANT_NOWAIT=off)
   try { logEvent({ kind: 'ordernowait_mode', status: 'success', snapshot: snapshot(bot), detail: noWaitModeDetail(NOWAIT) }) } catch { /* telemetry */ }
   // reroof-02: the retrofit's licence row (reroof.mjs; on=0 under REROOF=off or outside REROOF_POOLS; each fix's own switch)
@@ -315,6 +313,9 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'shaft_mode', status: 'success', snapshot: snapshot(bot), detail: `on=${SHAFT.on ? 1 : 0} blueprint=${SHAFT_BLUEPRINT} landings=${LANDING_FEET.join('+')} cooldown_s=${SHAFT_COOLDOWN_MS / 1000}` }) } catch {}
   // deepminer-01: the licence row, once per spawn -- `_deepmine_mode`, a kind the base cannot write (on=0 under DEEPMINE=off)
   try { logEvent({ kind: 'deepmine_mode', status: 'success', snapshot: snapshot(bot), detail: deepModeDetail() }) } catch {}
+  // homes-01show: the layout's home plots' licence row (on=0 under HOMEPLOTS=off or in a town with no layout: the rollback is visible too).
+  // Written AFTER the older rows: bots/test/cobble-rule.test.mjs looks for its own row within a fixed stretch of this function
+  try { logEvent({ kind: 'homeplots_mode', status: 'success', snapshot: snapshot(bot), detail: homePlotsModeDetail() }) } catch { /* telemetry */ }
   // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
   // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
   if (SHOP.on) {
