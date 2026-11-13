@@ -51,6 +51,27 @@
 //   THE RESERVE COMES BACK OR THE ROW SAYS SO: dirt first; a stone stand only with a pickaxe in the bag (by hand it takes ten
 //   seconds a block and drops nothing: `refused why=no_pickaxe`); after the take-down the bag is counted, the base walked to once
 //   for a block dug from the walk, and what is still missing is on the outcome row (`unrecovered=N`).
+// REVIEW r2 (Codex, four blockers; Claude, one), in this file's rules now:
+//   A DIRT STAND THAT GREW IS STILL THE STAND (Claude; standIs / STAND_GROWN). Vanilla spreads grass onto a dirt block with air over
+//   it from grass beside it (one block lower too) on random ticks -- inside a minute on a grass node, surely inside the ten an
+//   aborted stand waits. A `dirt` stand cell that reads grass_block, mycelium or podzol IS the stand's block wherever a name is
+//   compared (standing, the dig under the feet, the dig from the walk, the claims): the three ways dirt changes with NO ACTOR (grass
+//   and mycelium spread; a giant spruce's podzol). Not coarse_dirt or rooted_dirt (dirt never becomes them by itself: somebody
+//   placed that block), not dirt_path or farmland (a tool in somebody's hand made them: a record's tool cell is `owned`, any other
+//   is a block somebody chose there -- read as another block, as before). Stone stands do not change.
+//   THE WHOLE COLUMN IS ASKED AGAIN AT EVERY DIG (Codex): standClaims -- the owners AND what stands on the stand -- is computed
+//   immediately before every take-down dig, after every await (the tool's equip, the walk to the dig's stand), nothing awaited from
+//   there to the dig.
+//   THE OTHER RECORDS ARE READ FRESH FOR A TAKE-DOWN (Codex; standVeto): the caller's veto keeps the other projects' cells for
+//   VETO_TTL_MS only (one read serves a whole plan's burst of questions), and a take-down starts by dropping what is kept -- one
+//   read a take-down, one more only when a walk to a dig's stand outlasts the TTL.
+//   THE BUILDER COMES DOWN BEFORE ANYTHING IS GIVEN AWAY (Codex; standExit): with its feet on the stand's column and cells it may
+//   not dig (owned, built on, expired), it walks off to a node of the visit's walk beside the column that it can drop to without
+//   harm (at most FALL_MAX, the cells it falls through empty); with none, it digs down through the stand's own cells nobody owns
+//   (the receipt's age aside: a builder standing on its pillar is not left there for a doubt about who placed it); with neither,
+//   the receipt is KEPT and the row says `on_stand`. A receipt is never removed with the builder on its column.
+//   AN ABSOLUTE CUTOFF, NOT A DURATION (Codex): a stand's click is given the TIME by which the take-down must start; its hold, its
+//   look and its barrier wait end there (buildrun.mjs `by`), and nothing is sent that could not be acknowledged by then.
 // NOT THE WALK'S MESS: the stand is placed by the visit's own send (buildbot.mjs: block_place written to the connection, never
 // mineflayer's placeBlock), so placeaudit.mjs never sees it and takeback.mjs holds no receipt for it -- one owner, this file's.
 // ROWS (`_build`, op=tempstand): the decision result=plan | refused; the outcome result=done | failed; the stand itself
@@ -59,7 +80,7 @@
 // SWITCH: TEMPSTAND=off|0|false|no -> no stand, no receipt read: the visit exactly as before.
 import { stepFor, overlay, fullCube } from './buildsite.mjs'
 import { isLiquid } from './townplan.mjs'
-import { GRAVITY } from './voidfill.mjs'
+import { GRAVITY, FALL_MAX } from './voidfill.mjs'
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const kOf = a => k3(a[0], a[1], a[2])
@@ -170,7 +191,45 @@ export function planTempStand ({ read, home = { x: 0, y: 0, z: 0 }, cell, want =
 /** The receipt's cells still standing -> [[x, y, z]] highest first. Pure over `read` (an unread cell counts as standing: never cleared
  *  on a guess). */
 export function standStanding (receipt, read) {
-  return (receipt?.cells ?? []).filter(c => { const b = read(...c); return !b || nm(b) === receipt.block }).sort((a, b) => b[1] - a[1])
+  return (receipt?.cells ?? []).filter(c => { const b = read(...c); return !b || standIs(receipt.block, nm(b)) }).sort((a, b) => b[1] - a[1])
+}
+/** (r2) What a DIRT stand cell reads as once the world has grown over it with no actor: grass and mycelium spread onto dirt with air
+ *  above it, a giant spruce turns it to podzol (see the header for what is NOT here and why). */
+export const STAND_GROWN = Object.freeze({ dirt: Object.freeze(['grass_block', 'mycelium', 'podzol']) })
+/** (r2) IS THE BLOCK A CELL READS THE STAND'S BLOCK? -> bool. Pure. Its own name, or what it grows into (STAND_GROWN). */
+export const standIs = (block, name) => !!name && (name === block || (STAND_GROWN[block] ?? []).includes(name))
+/**
+ * (r2) THE WAY OFF A STAND -> [x, y, z] | null. Pure. `feet` the builder's feet cell on the stand's column, `nodes` the visit's
+ * walk ("x,z" -> [feet y]). A node in one of the four columns beside it, at the feet's height or at most `fall` below (no harm:
+ * vanilla hurts from the fourth block), every cell from that node up to the builder's head empty and dry (it steps off and drops
+ * through them). The smallest drop wins. null: no verified way off by a walk.
+ */
+export function standExit (read, feet, nodes, fall = FALL_MAX) {
+  const [x, y, z] = feet
+  let best = null
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const ny of nodes?.get(`${x + dx},${z + dz}`) ?? []) {
+      if (ny > y || y - ny > fall || (best && ny <= best[1])) continue
+      let clear = true
+      for (let yy = ny; yy <= y + 1 && clear; yy++) { const b = read(x + dx, yy, z + dz); clear = !!b && b.boundingBox === 'empty' && !isLiquid(b) }
+      if (clear) best = [x + dx, ny, z + dz]
+    }
+  }
+  return best
+}
+/** (r2) how long the caller's veto keeps the other projects' cells: one read serves a plan's burst, never a visit. */
+export const VETO_TTL_MS = 3_000
+/**
+ * (r2) THE CALLER'S VETO OVER THE OTHER RECORDS, READ FRESH -> { mayPlace(at), refresh() }. skills.mjs tempStandOf's whole rule,
+ * here so the test drives the code the bots run. `zones` the protected boxes ([x0, y0, z0, x1, y1, z1] or { box }); `others()` ->
+ * a Set of "x,y,z": every OTHER project's record cells, read now (it may throw: mayPlace throws with it, nothing is kept).
+ * The set is kept for `ttlMs` on `now()` and dropped by refresh() (a take-down's first act).
+ */
+export function standVeto ({ zones = [], others = () => new Set(), now = () => Date.now(), ttlMs = VETO_TTL_MS } = {}) {
+  let set = null, at = -Infinity
+  const cells = () => { const t = now(); if (!set || !(t - at < ttlMs)) { set = null; set = others(); at = t } return set }
+  const inZone = ([x, y, z]) => (zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  return { mayPlace: c => !inZone(c) && !cells().has(c.join(',')), refresh: () => { set = null } }
 }
 /**
  * WHAT A TAKE-DOWN MAY DIG NOW -> { dig: [[x, y, z]] highest first, adopted: [{ at, why }], held: [[x, y, z]] }. Pure.

@@ -690,13 +690,30 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   settlePendingStand(stands, now())
 
   // ---- the click (placements and saplings) -----------------------------------------------------------------------------------
-  // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand'
+  // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand' | 'late' (`cutoff` only)
   // townstyle-01: `ws` -- the cell's world state: the re-proof takes only a face that makes it, and the look and the send are AIMED
   // (here.aim: the yaw packet written with the click, the cursor at the state's half)
   // tempstand-01: `stay` -- the click of a builder ON ITS TEMPORARY STAND: nothing is walked (the feet must BE the step's stand), no
-  // stand is banned, and the re-proof never takes a face of the stand's own blocks (`notSupport`); (r1) `waitMs` caps the barrier wait
-  // at what the stand has left, so the take-down always starts inside the visit's deadline
-  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false, also = null, dom = domain, stay = false, notSupport = null, waitMs = null } = {}) => {
+  // stand is banned, and the re-proof never takes a face of the stand's own blocks (`notSupport`); (r2, Codex: a duration handed in
+  // before the hold was added to the clock after it) `cutoff` -- the TIME on the visit's clock by which the stand's take-down must
+  // start: the hold, the look and the barrier wait end there (`by`), nothing is sent whose acknowledgement could come later
+  // (MUTEX_HOLD_MS before it), and the click returns 'late' with nothing sent
+  const LATE = Symbol('late')
+  /** AN AWAIT THAT ENDS AT `cutoff` -> its value | LATE (the promise is left to finish by itself). No cutoff: the promise. */
+  const by = async (cutoff, pr) => {
+    if (cutoff == null) return pr
+    let done = false, val, err = null
+    const seen = Promise.resolve(pr).then(v => { done = true; val = v }, x => { done = true; err = x })
+    await Promise.race([seen, new Promise(turn => setImmediate(turn))])   // an answer already there costs no tick of the clock
+    while (!done) {
+      const left = cutoff - now()
+      if (left <= 0) return LATE
+      await Promise.race([seen, e.sleep(Math.min(250, left))])
+    }
+    if (err) throw err
+    return val
+  }
+  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false, also = null, dom = domain, stay = false, notSupport = null, cutoff = null } = {}) => {
     if (!stay) {
       if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
       await e.walkTo(step.stand, avoid ? { avoid } : undefined)
@@ -713,8 +730,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // ...AND ITS OWN: a jump or a step-up puts the builder's head into the cell above it for a moment -- wait for it to land
     for (let i = 0; i < 5 && e.self && inCell(e.self(), cell); i++) await e.sleep(100)
     if (e.self && inCell(e.self(), cell)) return 'body'
-    if (!(await e.hold(block))) return 'no_material'
-    await e.look(here.support, here.face, here.aim ?? null)
+    const got = await by(cutoff, e.hold(block))
+    if (got === LATE) return 'late'
+    if (!got) return 'no_material'
+    if ((await by(cutoff, e.look(here.support, here.face, here.aim ?? null))) === LATE) return 'late'
     if (e.aborted()) return 'aborted'
     let barGen = null
     if (closer) {
@@ -724,21 +743,27 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       PJ.mutexRelease(dir, key, me, { gen: m.gen })
       if (!b.ok) return 'busy'
       barGen = b.gen
-      const until = now() + Math.min(barrierWaitMs, Number.isFinite(waitMs) ? Math.max(0, waitMs) : Infinity)
+      const until = now() + barrierWaitMs
       while (!PJ.barrierClear(dir, key, me, { isRetired, now: now() }).clear) {
         if (e.aborted()) { PJ.barrierRelease(dir, key, me, barGen); return 'aborted' }
         if (now() > until) { PJ.barrierRelease(dir, key, me, barGen); return 'barrier_wait' }
-        await e.sleep(250)
+        if (cutoff != null && now() >= cutoff) { PJ.barrierRelease(dir, key, me, barGen); return 'late' }
+        await e.sleep(cutoff != null && cutoff > now() ? Math.min(250, cutoff - now()) : 250)
       }
       // the wait moved time (Claude r1 P3-1: a reflex or a meal may have changed the hand): hold the block again, look again;
       // nothing awaited after this
-      if (!(await e.hold(block))) { PJ.barrierRelease(dir, key, me, barGen); return 'no_material' }
-      await e.look(here.support, here.face, here.aim ?? null)
+      const again = await by(cutoff, e.hold(block))
+      if (again === LATE) { PJ.barrierRelease(dir, key, me, barGen); return 'late' }
+      if (!again) { PJ.barrierRelease(dir, key, me, barGen); return 'no_material' }
+      if ((await by(cutoff, e.look(here.support, here.face, here.aim ?? null))) === LATE) { PJ.barrierRelease(dir, key, me, barGen); return 'late' }
       // an abort while the re-hold or the re-look was awaited (lavastep's danger move reserves the body and aborts the skill:
       // Claude re-stack P3) sends nothing
       if (e.aborted()) { PJ.barrierRelease(dir, key, me, barGen); return 'aborted' }
     }
     try {
+      // (r2) NOTHING IS SENT that the server could acknowledge after the cutoff: the acknowledgement's own wait (MUTEX_HOLD_MS, the
+      // protocol's: never shortened) must fit before it
+      if (cutoff != null && now() + PJ.MUTEX_HOLD_MS > cutoff) return 'late'
       const seq = e.nextSeq()
       const id = PJ.intentOpen(dir, key, me, { cell, block, lease: segGen, seq, conn, now: now() })
       const cancel = () => PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() })
@@ -1004,35 +1029,52 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
    * TAKE A STAND DOWN -> { removed, left, walked } (left -1: aborted, the receipt stays). `rc` its receipt. The builder standing on
    * it digs the block under its feet, top first, and lands on the next (the access's own descent); what still stands is dug from the
    * walk, top first, like any named block (digNamed: the stand, the reach, the name and the lease re-read at the dig; `held` the
-   * lease those digs run under -- none given: the clear lease, taken here). ONLY a cell that still reads the receipt's block AND IS
-   * STILL THE STAND'S is ever dug (r1, tempstand.mjs standClaims: asked before every dig, and again after the walk to a dig's stand):
-   * a cell a record now holds or the caller vetoes, a cell under one, a stand with a block set on it, and every cell of a receipt
-   * older than TEMPSTAND.ownMs are ADOPTED -- dropped from the receipt with a row, never dug. The receipt is removed when no cell of
-   * it is left standing as the stand's (`keep`: not even then -- a silent click may still land); else it is written back with what
-   * is left, one more try counted when a dig was tried and did not land.
+   * lease those digs run under -- none given: the clear lease, taken here). ONLY a cell that still reads the receipt's block (or what
+   * dirt grows into: tempstand.mjs standIs) AND IS STILL THE STAND'S is ever dug: tempstand.mjs standClaims over the WHOLE column
+   * -- its owners and what stands on it -- is computed immediately before every dig, after every await (r2), from records read
+   * afresh for this take-down (`tstand.refresh`). A cell a record now holds or the caller vetoes, a cell under one, a stand with a
+   * block set on it, and every cell of a receipt older than TEMPSTAND.ownMs are ADOPTED -- dropped from the receipt with a row,
+   * never dug. THE BUILDER COMES DOWN FIRST (r2): on the column with cells it may not dig, it walks off by a verified way
+   * (tempstand.mjs standExit), else digs down through the stand's own cells nobody owns, else the receipt is KEPT (`on_stand`).
+   * The receipt is removed when no cell of it is left standing as the stand's (`keep`: not even then -- a silent click may still
+   * land); else it is written back with what is left, one more try counted when a dig was tried and did not land.
    */
   const standDown = async (rc, held, why, { keep = false } = {}) => {
-    const base = rc.base ?? rc.cells[0]
+    const base = rc.base ?? rc.cells[0], topY = Math.max(...rc.cells.map(c => c[1]))
     const expired = now() - rc.at > TS.TEMPSTAND.ownMs
+    try { tstand.refresh?.() } catch { /* the veto reads when asked */ }
     const covered = at => { const b = e.read(at[0], at[1] + 1, at[2]); return !!b && b.boundingBox !== 'empty' }
-    const claims = () => TS.standClaims(TS.standStanding(rc, e.read), standOwner, { expired, covered })
-    let removed = 0, walked = 0, tooled = false, tried = false   // `tried`: a dig that did not land (a lease another holds is no try)
-    for (let n = 0; n <= rc.cells.length; n++) {
-      if (e.aborted()) return { removed, left: -1, walked }
-      const f = e.feet(), under = [f[0], f[1] - 1, f[2]]
-      if (f[0] !== base[0] || f[2] !== base[2] || nm(e.read(...under)) !== rc.block) break
-      const top = claims().dig[0]
-      if (!top || kOf(top) !== kOf(under)) break                      // not the stand's any more (or not its top): never dug from here
-      if (!tooled && rc.block !== 'dirt') { tooled = true; await e.tool?.() }
-      let v = await e.dig(under, rc.block)
-      for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const q = await e.probe(under); if (q != null) v = DUG(q) ? 'confirmed' : 'standing' }
-      if (v === 'unconfirmed') { unknown.add(kOf(under)); out.unknown++; e.log('_build', { op: 'unknown', cell: under, block: rc.block }) }
-      touched()
-      if (v !== 'confirmed') { tried = true; break }
-      removed++
-      await e.settle()
+    const claims = (aged = expired) => TS.standClaims(TS.standStanding(rc, e.read), standOwner, { expired: aged, covered })
+    const onStand = () => { const f = e.feet(); return f[0] === base[0] && f[2] === base[2] && f[1] > base[1] && f[1] <= topY + 1 }
+    let removed = 0, walked = 0, tooled = false, tried = false, gone = false   // `tried`: a dig that did not land (a lease another holds is no try)
+    /** Down the stand from its top, a block under the feet at a time, while the WHOLE column's claims say that block is the next to dig. */
+    const ride = async aged => {
+      for (let n = 0; n <= rc.cells.length && onStand(); n++) {
+        if (!tooled && rc.block !== 'dirt') { tooled = true; await e.tool?.() }
+        if (e.aborted()) { gone = true; return }
+        // asked HERE, after the last await: nothing is awaited from the claims to the dig
+        const f = e.feet(), under = [f[0], f[1] - 1, f[2]], name = nm(e.read(...under))
+        const top = claims(aged).dig[0]
+        if (!onStand() || !TS.standIs(rc.block, name) || !top || kOf(top) !== kOf(under)) return   // not the stand's any more (or not its top): never dug from here
+        let v = await e.dig(under, name)
+        for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const q = await e.probe(under); if (q != null) v = DUG(q) ? 'confirmed' : 'standing' }
+        if (v === 'unconfirmed') { unknown.add(kOf(under)); out.unknown++; e.log('_build', { op: 'unknown', cell: under, block: name }) }
+        touched()
+        if (v !== 'confirmed') { tried = true; return }
+        removed++
+        await e.settle()
+      }
     }
-    const todo = claims().dig
+    await ride(expired)
+    if (gone) return { removed, left: -1, walked }
+    // (r2, Codex) STILL ON THE COLUMN (cells it may not dig, or a dig that did not land): DOWN FIRST. A verified walk off; with none,
+    // down through the stand's own cells nobody owns, its age aside; with neither the receipt is kept below
+    if (onStand()) {
+      const exit = TS.standExit(rd, e.feet(), nodesFor())
+      if (exit) { await e.walkTo(exit); if (e.aborted()) return { removed, left: -1, walked } }
+      if (onStand()) { await ride(false); if (gone) return { removed, left: -1, walked } }
+    }
+    const todo = onStand() ? [] : claims().dig
     if (todo.length) {
       let lease = null, heldFn = held
       if (!heldFn) { lease = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() }); if (lease.ok) heldFn = () => PJ.holdsLease(dir, key, 'seg-clear', me, lease.gen, now()) }
@@ -1040,20 +1082,31 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         for (const at of heldFn ? todo : []) {
           if (e.aborted()) return { removed, left: -1, walked }
           if (unknown.has(kOf(at)) && (await resolveUnknown(at)) == null) break
-          if (nm(rd(...at)) !== rc.block) continue
+          if (!TS.standIs(rc.block, nm(rd(...at)))) continue
           if (!tooled && rc.block !== 'dirt') { tooled = true; await e.tool?.() }
-          // the ownership asked AGAIN after the walk, nothing awaited from there to the dig (digNamed's `safe`)
-          const v = await digNamed(at, rc.block, heldFn, null, () => standOwner(at) === 'mine')
+          // THE WHOLE COLUMN asked AGAIN after the walk, nothing awaited from there to the dig (digNamed's `safe`): this cell must
+          // be the next one the claims would dig -- still the stand's, nothing set on the stand meanwhile
+          const next = () => { const c = claims().dig[0]; return !!c && kOf(c) === kOf(at) }
+          let v = await digNamed(at, nm(rd(...at)), heldFn, null, next)
+          // it grew over during the walk (dirt -> grass): the same cell under its new name
+          if (v === 'gone' && TS.standIs(rc.block, nm(rd(...at)))) v = await digNamed(at, nm(rd(...at)), heldFn, null, next)
           if (v === 'aborted') return { removed, left: -1, walked }
           if (v !== 'confirmed') { if (v !== 'fence' && v !== 'unsafe') tried = true; break }   // top first: nothing is dug from under a block that stands
           removed++; walked++
         }
       } finally { if (lease?.ok) PJ.releaseLease(dir, key, 'seg-clear', me, lease.gen) }
     }
+    // NEVER GIVEN AWAY, NEVER CLEARED WITH THE BUILDER ON ITS COLUMN: the receipt keeps every cell that stands, the row says so
+    if (onStand()) {
+      const standing = TS.standStanding(rc, e.read)
+      PJ.standWrite(dir, key, rc.holder, { ...rc, cells: (standing.length ? standing : rc.cells).slice().sort((a, b) => a[1] - b[1]), tries: rc.tries + (tried ? 1 : 0) }, { now: now() })
+      tsRow({ cell: base, block: rc.block, result: 'left', n: removed, why: `${why} on_stand left=${standing.length}` })
+      return { removed, left: Math.max(1, standing.length), walked }
+    }
     const cl = claims()
     const left = [...cl.dig, ...cl.held]
-    const gone = new Set(cl.adopted.map(a => kOf(a.at)))
-    if (left.length || keep) PJ.standWrite(dir, key, rc.holder, { ...rc, cells: (left.length ? left : rc.cells.filter(c => !gone.has(kOf(c)))).slice().sort((a, b) => a[1] - b[1]), tries: rc.tries + (tried ? 1 : 0) }, { now: now() })
+    const given = new Set(cl.adopted.map(a => kOf(a.at)))
+    if (left.length || keep) PJ.standWrite(dir, key, rc.holder, { ...rc, cells: (left.length ? left : rc.cells.filter(c => !given.has(kOf(c)))).slice().sort((a, b) => a[1] - b[1]), tries: rc.tries + (tried ? 1 : 0) }, { now: now() })
     else PJ.standWrite(dir, key, rc.holder, null)
     if (cl.adopted.length) tsRow({ cell: cl.adopted[0].at, block: rc.block, result: 'adopted', n: cl.adopted.length, why: cl.adopted[0].why })
     tsRow({ cell: base, block: rc.block, result: left.length ? 'left' : 'removed', n: removed, why: `${why}${left.length ? ` left=${left.length}` : ''}${keep && !left.length ? ' receipt_kept' : ''}` })
@@ -1116,7 +1169,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     const held = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, lease.gen(), now())
     const aborted = () => { res.result = 'aborted'; res.stop = 'aborted'; return res }
     // (r1, Codex BLOCKER 3) THE TAKE-DOWN STARTS BY `end`, whatever is awaited before it: the walk and every rise are checked against
-    // it, the work's clicks wait at a barrier no longer than what is left (click `waitMs`), and T.tailMs is the take-down's own
+    // it, the work's clicks are handed it as their ABSOLUTE cutoff (r2: click `cutoff`), and T.tailMs is the take-down's own
     const end = deadline - T.tailMs
     // (r1, Claude's note b) THE RESERVE: the bag's count of the stand's block before the first rise; after the take-down what is
     // missing beyond the cells this stand laid with that same block is waited for (a drop is picked up half a second after it
@@ -1128,7 +1181,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       const lost = () => Math.max(0, bag0 - laidSame - bag(plan.block))
       if (!lost() || e.aborted()) return 0
       await e.sleep(700)
-      if (lost() && !e.aborted() && now() <= deadline) { await e.walkTo(plan.base); if (!e.aborted()) await e.sleep(300) }
+      if (lost() && !e.aborted() && now() <= deadline && AIR(nm(rd(...plan.base)))) { await e.walkTo(plan.base); if (!e.aborted()) await e.sleep(300) }
       return lost()
     }
     const fail = async (why, keep = false) => {
@@ -1156,12 +1209,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       if (!may) return fail(`${kOf(at)} vetoed`)
       let v = null
       for (let t = 0; t < 3; t++) {
+        if (now() + PJ.MUTEX_HOLD_MS > end) break                     // (r2) a rise's acknowledgement must fit before the take-down's time
         v = await placeHere(at, null, plan.block, [x, f - 1, z], [0, 1, 0], seg, lease.gen(), { rise: true, feetY: f, kept: !segBlocks.has(plan.block) })
         if (v === 'aborted' || v.startsWith('fence:') || e.feet()[1] > f) break
         await e.sleep(150)
       }
       if (v === 'aborted') return aborted()
-      if (e.feet()[1] !== f + 1) return fail(`pillar ${kOf(at)} ${v}`, v === 'silent')
+      if (e.feet()[1] !== f + 1) return fail(v == null || now() + PJ.MUTEX_HOLD_MS > end ? 'late on the pillar' : `pillar ${kOf(at)} ${v}`, v === 'silent')
     }
     // THE WORK: every cell of this segment the top reaches, lowest first, each by the visit's own click from where the builder stands
     const until = Math.min(end, now() + T.workMs)
@@ -1184,7 +1238,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       const block = blockFor(palette, c.role, e.has)
       if (!block) break
       const head = headAt(c)
-      const v = await click(c.at, block, step, seg, lease.gen(), { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, c.role, c.ws), ws: c.ws ?? null, blind: !!c.blind, also: head ? [head] : null, stay: true, notSupport: standKeys, waitMs: until - now() })
+      const v = await click(c.at, block, step, seg, lease.gen(), { closer: CLOSER_SEGS.has(seg), want: b => cellDone(b, palette, c.role, c.ws), ws: c.ws ?? null, blind: !!c.blind, also: head ? [head] : null, stay: true, notSupport: standKeys, cutoff: until })
+      if (v === 'late') break                                         // (r2) the take-down's time: nothing was sent
       if ((v === 'placed' || v === 'misplaced') && block === plan.block) laidSame++
       if (v === 'placed') { res.worked++; standWorked++; out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: c.at, block, kind: 'tempstand', ...(c.ws ? { st: stateTag(c.ws) } : {}) }); continue }
       if (v === 'misplaced') { out.placed++; out.misplaced = (out.misplaced ?? 0) + 1; tally(block); bump(c.at); continue }
@@ -1215,7 +1270,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       if (rc.tries >= TS.TEMPSTAND.downTries && !(now() - rc.at > TS.TEMPSTAND.ownMs)) { if (!TS.standStanding(rc, e.read).length) PJ.standWrite(dir, key, rc.holder, null); continue }
       const d = await standDown(rc, null, 'leftover')
       if (e.aborted()) { out.stop = 'aborted'; return out }
-      if (d.walked && rc.holder === me && rc.base && now() <= deadline) { await e.walkTo(rc.base); if (e.aborted()) { out.stop = 'aborted'; return out } }
+      if (d.walked && !d.left && rc.holder === me && rc.base && now() <= deadline && AIR(nm(rd(...rc.base)))) { await e.walkTo(rc.base); if (e.aborted()) { out.stop = 'aborted'; return out } }
     }
   }
 

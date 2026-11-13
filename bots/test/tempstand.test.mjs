@@ -39,6 +39,23 @@ async function withStandMutant (old, neu, fn) {
   writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
+const RUN_PATH = new URL('../src/buildrun.mjs', import.meta.url)
+/** (r2) A VISIT UNDER A MUTANT OF tempstand.mjs: buildrun.mjs as it is, importing the mutant. The anchor present and unique; the
+ *  scenario gets (the visit's module, the mutant tempstand module) and must fail on the assertion it NAMES. */
+const killsTS = async (old, neu, scenario, tag) => {
+  await scenario(R, TS)
+  const src = readFileSync(TS_PATH, 'utf8')
+  assert.ok(src.split(old).length === 2, `ANCHOR MISSING OR NOT UNIQUE: ${JSON.stringify(old.slice(0, 70))}`)
+  const id = `${process.pid}-${Math.random().toString(36).slice(2)}`
+  const tsOut = new URL(`./_mutant-ts-${id}.mjs`, import.meta.url), runOut = new URL(`./_mutant-run-${id}.mjs`, import.meta.url)
+  const run = readFileSync(RUN_PATH, 'utf8')
+  assert.ok(run.split("from './tempstand.mjs'").length === 2, 'buildrun.mjs imports tempstand.mjs once')
+  writeFileSync(tsOut, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  writeFileSync(runOut, run.replace("from './tempstand.mjs'", `from './_mutant-ts-${id}.mjs'`).replace(/from '\.\/(?!_mutant)/g, "from '../src/"))
+  let why = null
+  try { const M = await import(runOut.href), MT = await import(tsOut.href); try { await scenario(M, MT) } catch (err) { why = err } } finally { for (const f of [tsOut, runOut]) { try { unlinkSync(f) } catch {} } }
+  assert.ok(why instanceof assert.AssertionError && String(why.message).includes(`${tag}:`), `the mutant survived or died for another reason than ${tag}: ${why?.message?.slice(0, 120) ?? 'survived'}`)
+}
 const k = a => a.join(',')
 
 // ---- the scene -------------------------------------------------------------------------------------------------------------------
@@ -49,9 +66,9 @@ const record = (extra = []) => ({ v: 1, plot: 'shop', cells: [...POST.map(at => 
 /** The fake bot with a body (voidfill.test.mjs): walks teleport, a pillar's place lifts it (land after rise), a dig underfoot drops it. */
 function body (srv, name = 'A', { inv = { oak_planks: 16, dirt: 8 }, feet = [2, G + 1, 0], pickup = true, ...o } = {}) {
   const e = bot(srv, name, { inv, feet, ...o })
-  // a dug block comes back to the bag (`pickup: false`: it does not -- a drop out of reach, a stone dug by hand)
+  // a dug block comes back to the bag as what it DROPS (grass, mycelium and podzol drop dirt); `pickup: false`: it does not
   const dig0 = e.dig
-  e.dig = async (c, n) => { const was = srv.read(...c)?.name; const v = await dig0(c, n); if (pickup && v === 'confirmed' && was && was !== 'air' && srv.read(...c)?.name === 'air') inv[was] = (inv[was] ?? 0) + 1; return v }
+  e.dig = async (c, n) => { const was = srv.read(...c)?.name; const v = await dig0(c, n); const drop = TS.STAND_GROWN.dirt.includes(was) ? 'dirt' : was; if (pickup && v === 'confirmed' && was && was !== 'air' && srv.read(...c)?.name === 'air') inv[drop] = (inv[drop] ?? 0) + 1; return v }
   let at = feet.slice(), risen = false
   e.feet = () => at.slice()
   e.walks = []
@@ -515,18 +532,21 @@ await t('r1: a veto that cannot be read (it throws) digs nothing and gives nothi
 const clocked = (srv, o = {}) => { const e = body(srv, 'A', o); e.clock = Date.now(); e.now = () => e.clock; e.sleep = async ms => { e.clock += ms }; return e }
 const ROOF = () => ({ ...record(), cells: record().cells.map(c => ({ ...c, seg: 'roof-edge' })), segments: [{ seg: 'roof-edge', deps: [] }] })
 const barrierCapped = async Mod => {
-  // as reported: 50 s left, a roof-edge cell (a CLOSER: its click waits at the barrier) and another holder's outstanding intent
+  // as reported (r1), then as reproduced (r2): a roof-edge cell (a CLOSER: its click waits at the barrier), another holder's
+  // outstanding intent, and a HOLD that takes 16 s before the barrier is reached -- a duration handed in before the hold put the
+  // cutoff 16 s late. 46 s left (a stand needs TEMPSTAND.minMs = 45 s when it starts)
   const srv = server(), pr = project(ROOF(), ['A', 'B'])
   await visit(Mod, pr, clocked(srv))
   const e = clocked(srv)
   PJ.intentOpen(pr.dir, pr.key, 'B', { cell: [0, G + 9, 0], block: 'oak_planks', lease: 1, seq: 1, conn: 'B-c1', now: e.clock })
-  const deadline = e.clock + 50_000
+  const deadline = e.clock + 46_000
   let dugAt = null
   const dig0 = e.dig; e.dig = async (c, n) => { dugAt ??= e.clock; return dig0(c, n) }
+  const hold0 = e.hold; e.hold = async n => { if (n === 'oak_planks') e.clock += 16_000; return hold0(n) }
   const r = await visit(Mod, pr, e, { opts: { deadline } })
   assert.strictEqual(everDirt(srv).length, 1, `the positive control: a stand was built (${JSON.stringify(tsRows(e))})`)
   assert.strictEqual(srv.read(...TOP).name, 'air', 'the positive control: the barrier never cleared, the cell was not laid')
-  assert.ok(dugAt != null && dugAt <= deadline - TS.TEMPSTAND.tailMs + R.BARRIER_WAIT_MS / 10, `BARRIER-CAPPED: the take-down started ${dugAt == null ? 'never' : `${Math.round((dugAt - (deadline - 50_000)) / 1000)} s in`}, the visit had 50 s`)
+  assert.ok(dugAt != null && dugAt <= deadline - TS.TEMPSTAND.tailMs, `BARRIER-CAPPED: the take-down started ${dugAt == null ? 'never' : `${((dugAt - (deadline - 46_000)) / 1000).toFixed(2)} s in`}; it must start by ${(46_000 - TS.TEMPSTAND.tailMs) / 1000} s (the visit had 46 s)`)
   assert.ok(e.clock <= deadline, `and the whole visit ended inside its deadline (${Math.round((e.clock - deadline) / 1000)} s over)`)
   assert.deepStrictEqual(dirtIn(srv), [], 'the stand is down'); assert.deepStrictEqual(receipts(pr), [])
   assert.notStrictEqual(r.stop, 'aborted')
@@ -556,6 +576,230 @@ await t('r1: a rise that eats the budget: the next rise is not started, the half
   assert.deepStrictEqual(rows.slice(1).map(d => `${d.result} ${d.why ?? ''}`.trim()), ['removed failed', 'failed late on the pillar'], JSON.stringify(rows))
   assert.strictEqual(everDirt(srv).length, 1, 'one block was placed, the second never'); assert.deepStrictEqual(dirtIn(srv), []); assert.deepStrictEqual(receipts(pr), [])
 })
+
+// ---- review r2, Codex BLOCKER 5: an absolute cutoff -- nothing awaited in a stand's click moves the take-down's time ---------------
+const takeDownBy = (e, deadline, dugAt, tag) => assert.ok(dugAt != null && dugAt <= deadline - TS.TEMPSTAND.tailMs, `${tag}: the take-down started ${dugAt == null ? 'never' : `${((dugAt - (deadline - 46_000)) / 1000).toFixed(2)} s in`}; it must start by ${(46_000 - TS.TEMPSTAND.tailMs) / 1000} s`)
+const noLateSend = async Mod => {
+  // a hold that leaves less than the acknowledgement's own wait before the cutoff: nothing is sent, the take-down starts
+  const srv = server(), pr = project(record())
+  await visit(Mod, pr, clocked(srv))
+  const e = clocked(srv), deadline = e.clock + 46_000
+  let dugAt = null, sentTop = 0
+  const dig0 = e.dig; e.dig = async (c, n) => { dugAt ??= e.clock; return dig0(c, n) }
+  const hold0 = e.hold; e.hold = async n => { if (n === 'oak_planks') e.clock += 28_000; return hold0(n) }
+  // a click that IS sent late gets no answer, and its wait takes all the time it is given (on the test's clock)
+  const send0 = e.send, silent = new Set(); e.send = (sup, face, seq, aim) => { if (k(sup.map((v, i) => v + face[i])) === k(TOP)) { sentTop++; silent.add(seq); return } return send0(sup, face, seq, aim) }
+  const wait0 = e.waitAck; e.waitAck = async (seq, ms) => { if (silent.has(seq)) { e.clock += ms; return 'silent' } return wait0(seq, ms) }
+  await visit(Mod, pr, e, { opts: { deadline } })
+  assert.strictEqual(everDirt(srv).length, 1, `the positive control: a stand was built (${JSON.stringify(tsRows(e))})`)
+  takeDownBy(e, deadline, dugAt, 'NO-LATE-SEND')
+  assert.strictEqual(sentTop, 0, 'nothing was sent that could not be acknowledged in time')
+  assert.deepStrictEqual(dirtIn(srv), []); assert.deepStrictEqual(receipts(pr), [])
+}
+await t('r2: a click whose acknowledgement could come after the cutoff is not sent; the take-down starts in time', () => noLateSend(R))
+const holdBounded = async Mod => {
+  // a hold that HANGS (an equip the server never answers; it lets go 300 ms of real time later, 40 s on the visit's clock)
+  const srv = server(), pr = project(record())
+  await visit(Mod, pr, clocked(srv))
+  const e = clocked(srv), deadline = e.clock + 46_000
+  let dugAt = null
+  const dig0 = e.dig; e.dig = async (c, n) => { dugAt ??= e.clock; return dig0(c, n) }
+  const hold0 = e.hold; e.hold = n => (n === 'oak_planks' ? new Promise(resolve => setTimeout(() => { e.clock += 40_000; resolve(hold0(n)) }, 300)) : hold0(n))
+  await visit(Mod, pr, e, { opts: { deadline } })
+  assert.strictEqual(everDirt(srv).length, 1, `the positive control: a stand was built (${JSON.stringify(tsRows(e))})`)
+  takeDownBy(e, deadline, dugAt, 'HOLD-BOUNDED')
+  assert.deepStrictEqual(dirtIn(srv), []); assert.deepStrictEqual(receipts(pr), [])
+  await new Promise(resolve => setTimeout(resolve, 350))   // the hung hold lets go: nobody waits for it any more
+}
+await t('r2: a hold that hangs ends at the cutoff: the take-down starts in time, the hold is left to itself', () => holdBounded(R))
+
+// ---- review r2, Claude BLOCKER: a dirt stand that turned to grass is still the stand -----------------------------------------------
+await t('standIs / standStanding: dirt reads as itself, grass_block, mycelium, podzol; never coarse dirt, a path, farmland or stone', async () => {
+  for (const n of ['dirt', 'grass_block', 'mycelium', 'podzol']) assert.strictEqual(TS.standIs('dirt', n), true, n)
+  for (const n of ['coarse_dirt', 'rooted_dirt', 'dirt_path', 'farmland', 'cobblestone', 'air', '', null]) assert.strictEqual(TS.standIs('dirt', n), false, String(n))
+  assert.strictEqual(TS.standIs('cobblestone', 'cobblestone'), true); assert.strictEqual(TS.standIs('cobblestone', 'grass_block'), false, 'a stone stand does not grow')
+  const srv = server({ '1,71,1': 'grass_block', '1,70,1': 'dirt', '2,70,2': 'dirt_path' })
+  assert.deepStrictEqual(TS.standStanding({ block: 'dirt', cells: [[1, 70, 1], [1, 71, 1], [2, 70, 2], [3, 70, 3]] }, srv.read), [[1, 71, 1], [1, 70, 1]], 'highest first; the path and the air are not the stand')
+})
+/** The top of the stand greens: 'visit' between the place and the take-down (when the cell's own click is sent); 'ground' / 'on'
+ *  between an abort and the next visit's leftover pass (the bot on the ground / still on its pillar); 'tall' a stand of two. */
+const greens = async (Mod, when) => {
+  let srv, pr, e, cells
+  if (when === 'visit' || when === 'tall') {
+    const P4 = [1, 2, 3, 4].map(i => [PX, G + i, PZ])
+    srv = server(); pr = project(when === 'tall' ? { ...record(), cells: P4.map(at => ({ at, role: 'post', seg: 'A' })) } : record())
+    const mem = {}
+    for (let i = 0; i < (when === 'tall' ? 2 : 1); i++) await visit(Mod, pr, body(srv), { stand: { mayPlace: () => true, mem } })
+    cells = []
+    e = body(srv, 'A', { ack: (target, held) => { if (held === 'dirt') cells.push(target.slice()); if (held === 'oak_planks' && cells.length) srv.set(cells.at(-1), 'grass_block'); return 'ok' } })
+    const r = await visit(Mod, pr, e, { stand: { mayPlace: () => true, mem } })
+    assert.strictEqual(cells.length, when === 'tall' ? 2 : 1, `the positive control: the stand was built (${JSON.stringify(tsRows(e))})`)
+    assert.strictEqual(r.stop, 'complete', 'the positive control: the cell was laid from it')
+  } else {
+    const f = await receiptFirst(Mod); srv = f.srv; pr = f.pr; cells = f.dirt.map(c => c.split(',').map(Number))
+    srv.set(cells[0], 'grass_block')
+    e = body(srv, 'A', { feet: when === 'on' ? [cells[0][0], cells[0][1] + 1, cells[0][2]] : [2, G + 1, 0] })
+    await visit(Mod, pr, e)
+  }
+  assert.deepStrictEqual(cells.map(c => srv.read(...c).name), cells.map(() => 'air'), `GRASS: a stand cell that greened is the stand's block: taken down (${JSON.stringify(tsRows(e))})`)
+  assert.deepStrictEqual(receipts(pr), [], 'and the receipt is cleared only because the world reads it gone')
+  assert.ok(tsRows(e).some(d => d.result === 'removed' && d.n === cells.length), JSON.stringify(tsRows(e)))
+  assert.deepStrictEqual(Object.values(solids(srv)).filter(n => n !== 'oak_planks'), [], 'nothing but the post is left')
+  if (when === 'visit' || when === 'tall') assert.strictEqual(e.inv.dirt, 8, 'the reserve came back as dirt (grass drops dirt)')
+}
+for (const when of ['visit', 'tall', 'ground', 'on']) await t(`r2: the stand's top turns to grass (${when}): the stand is fully removed, the receipt cleared`, () => greens(R, when))
+await t('r2: the positive control for grass -- a stand cell that reads another block (coarse dirt) is NOT dug, as before', async () => {
+  const { srv, pr, dirt } = await receiptFirst(R)
+  const at = dirt[0].split(',').map(Number); srv.set(at, 'coarse_dirt')
+  await visit(R, pr, body(srv))
+  assert.strictEqual(srv.read(...at).name, 'coarse_dirt')
+})
+
+// ---- review r2, Codex BLOCKER 2: the whole column is asked again at every dig ---------------------------------------------------------
+/** As reproduced: the leftover pass picks a dirt pillar; DURING the walk to the dig's stand another builder sets sand on it. */
+const columnAtDig = async Mod => {
+  const { srv, pr, dirt } = await receiptFirst(Mod)
+  const at = dirt[0].split(',').map(Number), over = [at[0], at[1] + 1, at[2]]
+  const e3 = body(srv)
+  const walk0 = e3.walkTo; e3.walkTo = async (...a) => { srv.set(over, 'sand'); return walk0(...a) }
+  await visit(Mod, pr, e3)
+  assert.strictEqual(srv.read(...over).name, 'sand', 'the positive control: the sand was set during the walk')
+  assert.strictEqual(srv.read(...at).name, 'dirt', 'COLUMN-AT-DIG: a block set on the stand during the walk: its support is not dug')
+  assert.ok(tsRows(e3).some(d => d.result === 'adopted' && d.why === 'built_on'), JSON.stringify(tsRows(e3)))
+}
+await t('r2: sand set on the stand during the walk to the dig: the dirt under it is not dug (adopted built_on)', () => columnAtDig(R))
+/** The dig under the feet: the pickaxe's equip is awaited BEFORE the claims; the cell is taken while it is equipped. */
+const toolThenAsk = async Mod => {
+  const srv = server(), pr = project(record())
+  const at = [4, G + 1, 4]
+  srv.set(at, 'cobblestone')
+  PJ.standWrite(pr.dir, pr.key, 'A', { block: 'cobblestone', base: at, cells: [at], target: TOP, seg: 'A', at: Date.now() })
+  const e = body(srv, 'A', { feet: [at[0], at[1] + 1, at[2]] })
+  let taken = false, tools = 0
+  e.tool = async () => { tools++; taken = true }
+  await visit(Mod, pr, e, { stand: { mayPlace: q => !(taken && k(q) === k(at)), mem: {} } })
+  assert.ok(tools >= 1, 'the positive control: the pickaxe was asked for')
+  assert.strictEqual(srv.read(...at).name, 'cobblestone', 'TOOL-THEN-ASK: taken while the pickaxe was equipped: not dug')
+}
+await t('r2: under the feet nothing is awaited between the claims and the dig (the tool is equipped first)', () => toolThenAsk(R))
+
+// ---- review r2, Codex BLOCKER 3: the other records are read fresh for a take-down ---------------------------------------------------
+const OTHER = PJ.projKey(HOME, 'other')
+const otherRec = at => ({ v: 1, plot: 'other', cells: [{ at, role: 'post', seg: 'A' }], segments: [{ seg: 'A', deps: [] }], clear: [], replant: [] })
+/** The veto the bots run (tempstand.mjs standVeto: skills.mjs tempStandOf's rule) over REAL record files in the project's directory. */
+const vetoOver = (TSmod, pr, o = {}) => {
+  const v = { reads: 0 }
+  Object.assign(v, TSmod.standVeto({ others: () => { v.reads++; return new Set((PJ.recordHead(pr.dir, OTHER).head?.rec?.cells ?? []).map(c => c.at.join(','))) }, ...o }))
+  return v
+}
+const freshVeto = async (Mod, TSmod = TS) => {
+  // another project publishes a record on the stand's cell BETWEEN the plan and the take-down (when the stand's block lands)
+  const srv = server(), pr = project(record())
+  const veto = vetoOver(TSmod, pr, { ttlMs: 3_600_000 })   // an hour: only the take-down's own fresh read can see the new record
+  await visit(Mod, pr, body(srv), { stand: { ...veto, mem: {} } })
+  let mine = null
+  const e = body(srv, 'A', { ack: (target, held) => { if (held === 'dirt') { mine = target.slice(); PJ.publishRecord(pr.dir, OTHER, () => otherRec(mine)) } return 'ok' } })
+  const r0 = veto.reads
+  await visit(Mod, pr, e, { stand: { mayPlace: veto.mayPlace, refresh: veto.refresh, mem: {} } })
+  assert.ok(mine && srv.read(...TOP).name === 'oak_planks', `the positive control: the stand was built and the cell laid (${JSON.stringify(tsRows(e))})`)
+  assert.strictEqual(srv.read(...mine).name, 'dirt', 'FRESH-VETO: a cell another project took after the plan is seen at the take-down: not dug')
+  assert.ok(tsRows(e).some(d => d.result === 'adopted' && d.why === 'owned'), JSON.stringify(tsRows(e)))
+  assert.strictEqual(veto.reads - r0, 2, 'one read for the plan, ONE for the take-down -- never one a cell')
+}
+await t('r2: a record published between the plan and the take-down is read: the stand cell it took is adopted (one read a take-down)', () => freshVeto(R))
+const freshAfterWalk = async (Mod, TSmod = TS) => {
+  // the leftover pass; the other project publishes DURING the walk to the dig's stand, which outlasts the veto's TTL
+  const { srv, pr, dirt } = await receiptFirst(Mod)
+  const at = dirt[0].split(',').map(Number)
+  let clock = 1_000_000
+  const veto = vetoOver(TSmod, pr, { now: () => clock })
+  const e3 = body(srv)
+  const walk0 = e3.walkTo; e3.walkTo = async (...a) => { if (clock === 1_000_000) { clock += TSmod.VETO_TTL_MS + 1; PJ.publishRecord(pr.dir, OTHER, () => otherRec(at)) } return walk0(...a) }
+  const digs = []
+  const dig0 = e3.dig; e3.dig = async (c, n) => { digs.push(k(c)); return dig0(c, n) }
+  await visit(Mod, pr, e3, { stand: { mayPlace: veto.mayPlace, refresh: veto.refresh, mem: {} } })
+  assert.ok(clock > 1_000_000, 'the positive control: the leftover pass walked to a dig')
+  assert.ok(srv.read(...at).name === 'dirt' && !digs.includes(dirt[0]), `FRESH-AFTER-WALK: taken during a walk longer than the TTL: read again at the dig, never dug (digs ${digs})`)
+}
+await t('r2: a walk to the dig that outlasts the veto\'s TTL: the records are read again at the dig', () => freshAfterWalk(R))
+await t('standVeto: zones and the other records\' cells veto; one read serves a burst; refresh and the TTL read again; a failed read throws and keeps nothing', async () => {
+  let clock = 0, reads = 0, set = new Set(['1,70,1']), fail = false
+  const v = TS.standVeto({ zones: [{ box: [10, 60, 10, 20, 80, 20] }, [30, 60, 30, 31, 80, 31]], others: () => { reads++; if (fail) throw new Error('unread'); return set }, now: () => clock })
+  assert.deepStrictEqual([v.mayPlace([1, 70, 1]), v.mayPlace([2, 70, 2]), v.mayPlace([15, 70, 15]), v.mayPlace([30, 70, 31])], [false, true, false, false])
+  for (let i = 0; i < 500; i++) v.mayPlace([i, 70, 0])
+  assert.strictEqual(reads, 1, 'a plan\'s burst of questions is one read')
+  set = new Set(['2,70,2'])
+  assert.strictEqual(v.mayPlace([2, 70, 2]), true, 'inside the TTL the kept set answers (the bound)')
+  v.refresh(); assert.strictEqual(v.mayPlace([2, 70, 2]), false, 'refresh: read again'); assert.strictEqual(reads, 2)
+  set = new Set(); clock += TS.VETO_TTL_MS; assert.strictEqual(v.mayPlace([2, 70, 2]), true, 'the TTL passed: read again'); assert.strictEqual(reads, 3)
+  fail = true; clock += TS.VETO_TTL_MS
+  assert.throws(() => v.mayPlace([2, 70, 2]), /unread/); fail = false
+  assert.strictEqual(v.mayPlace([2, 70, 2]), true); assert.strictEqual(reads, 5, 'a failed read kept nothing: the next question reads')
+})
+await t('skills.mjs tempStandOf IS that veto (structural: comments stripped): standVeto over projectHeads, its refresh handed to the visit, nothing kept for the visit', () => {
+  const sk = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  const body0 = sk.slice(sk.indexOf('function tempStandOf (bot, c, plot) {')); const fn = body0.slice(0, body0.indexOf('\n}\n'))
+  assert.ok(fn.length > 100 && fn.length < 1500, 'the function is found')
+  assert.ok(fn.includes("const veto = standVeto({ zones: c?.zones ?? [], others: () => new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) })"))
+  assert.ok(fn.includes('mayPlace: veto.mayPlace, refresh: veto.refresh'))
+  assert.ok(!/\?\?=\s*new Set/.test(fn), 'no set kept for the visit')
+})
+
+// ---- review r2, Codex BLOCKER 4: the builder comes down before anything is given away ----------------------------------------------
+await t('standExit: a node beside the column at most FALL_MAX below, the way down to it empty; the smallest drop; none -> null', async () => {
+  const srv = server()
+  const nodes = new Map([['5,4', [G + 1]], ['3,4', [G + 1]], ['4,5', [G + 3]]])
+  assert.deepStrictEqual(TS.standExit(srv.read, [4, G + 4, 4], nodes), [4, G + 3, 5], 'the smallest drop')
+  assert.deepStrictEqual(TS.standExit(srv.read, [4, G + 4, 4], new Map([['5,4', [G + 1]]])), [5, G + 1, 4], 'three down: no harm')
+  assert.strictEqual(TS.standExit(srv.read, [4, G + 5, 4], new Map([['5,4', [G + 1]]])), null, 'four down hurts: never')
+  assert.strictEqual(TS.standExit(srv.read, [4, G + 2, 4], new Map([['5,4', [G + 3]]])), null, 'never up')
+  const walled = server({ [k([5, G + 3, 4])]: 'stone' })
+  assert.strictEqual(TS.standExit(walled.read, [4, G + 2, 4], new Map([['5,4', [G + 1]]])), null, 'the head would not pass')
+  const wet = server({ [k([5, G + 1, 4])]: 'water' })
+  assert.strictEqual(TS.standExit(wet.read, [4, G + 2, 4], new Map([['5,4', [G + 1]]])), null, 'never into water')
+  assert.strictEqual(TS.standExit(srv.read, [4, G + 2, 4], new Map()), null)
+})
+const DONE = () => Object.fromEntries(POST.map(q => [k(q), 'oak_planks']))
+/** As reproduced: an EXPIRED three-block stand, a COMPLETED project, the bot on top of the pillar. */
+const getsDown = async Mod => {
+  const col = [1, 2, 3].map(i => [4, G + i, 4])
+  const srv = server({ ...DONE(), ...Object.fromEntries(col.map(c => [k(c), 'dirt'])) }), pr = project(record())
+  PJ.standWrite(pr.dir, pr.key, 'A', { block: 'dirt', base: col[0], cells: col, target: TOP, seg: 'A', at: Date.now() - TS.TEMPSTAND.ownMs - 1 })
+  const e = body(srv, 'A', { feet: [4, G + 4, 4] })
+  const r = await visit(Mod, pr, e)
+  assert.strictEqual(r.stop, 'complete', 'the positive control: the project is complete')
+  const f = e.feet()
+  assert.ok(!(f[0] === 4 && f[2] === 4) && f[1] === G + 1 && Math.abs(f[0] - 4) + Math.abs(f[2] - 4) === 1, `GOT-DOWN: the builder walked off the pillar to the ground beside it before the stand was given away (feet ${f}, walks ${e.walks.map(k).join(' ')})`)
+  assert.deepStrictEqual(col.map(c => srv.read(...c).name), ['dirt', 'dirt', 'dirt'], 'an expired stand is not dug when there is a way off')
+  const row = tsRows(e).find(d => d.result === 'adopted')
+  assert.deepStrictEqual([row?.why, row?.n], ['expired', 3], JSON.stringify(tsRows(e)))
+  assert.deepStrictEqual(receipts(pr), [], 'given away only once the builder is down')
+}
+await t('r2: an expired stand with the builder on top: it walks off by a verified way FIRST, then the stand is adopted', () => getsDown(R))
+/** The same pillar boxed in at the builder's height (no way off by a walk). `owned`: every cell is somebody's now. */
+const boxed = (owned, extra = {}) => {
+  const col = [[4, G + 1, 4]], f = [4, G + 2, 4]
+  const walls = Object.fromEntries([[1, 0], [-1, 0], [0, 1], [0, -1]].flatMap(([dx, dz]) => [1, 2, 3].map(i => [k([4 + dx, G + i, 4 + dz]), 'stone'])))
+  const srv = server({ ...DONE(), ...walls, [k(col[0])]: 'dirt' }), pr = project(record())
+  PJ.standWrite(pr.dir, pr.key, 'A', { block: 'dirt', base: col[0], cells: col, target: TOP, seg: 'A', at: Date.now() - TS.TEMPSTAND.ownMs - 1, ...extra })
+  return { srv, pr, col, e: body(srv, 'A', { feet: f }), stand: { mayPlace: () => !owned, mem: {} } }
+}
+await t('r2: no way off by a walk: the builder digs down through the stand\'s own cells nobody owns (its age aside)', async () => {
+  const { srv, pr, col, e, stand } = boxed(false)
+  await visit(R, pr, e, { stand })
+  assert.deepStrictEqual(e.feet(), col[0], 'down on the base'); assert.strictEqual(srv.read(...col[0]).name, 'air')
+  assert.deepStrictEqual(receipts(pr), [])
+})
+const keptOnStand = async Mod => {
+  const { srv, pr, col, e, stand } = boxed(true)
+  await visit(Mod, pr, e, { stand })
+  assert.deepStrictEqual(e.feet(), [4, G + 2, 4], 'the positive control: no way off, and the cell under it is not its to dig')
+  assert.strictEqual(srv.read(...col[0]).name, 'dirt')
+  assert.deepStrictEqual(PJ.standRead(pr.dir, pr.key, { holder: 'A' })[0]?.cells, col, `KEPT-ON-STAND: the receipt is never removed with the builder on its column (${JSON.stringify(tsRows(e))})`)
+  assert.ok(tsRows(e).some(d => d.result === 'left' && /on_stand/.test(d.why)), JSON.stringify(tsRows(e)))
+  assert.ok(!tsRows(e).some(d => d.result === 'adopted'), 'and nothing is given away from under it')
+}
+await t('r2: neither a way off nor a cell it may dig: the receipt is KEPT and the row says on_stand', () => keptOnStand(R))
 
 // ---- review r1, Claude's note b: the reserve comes back, or the row says so ---------------------------------------------------------
 await t('r1: a stone stand only with a pickaxe in the bag (dirt first; by hand a stone block is ten seconds and drops nothing)', async () => {
@@ -694,10 +938,30 @@ await t('MUTANT (r1): a new stand over an open receipt dies on RECEIPT-OPEN', ()
 const OWNER = "  const standOwner = at => { try { return standTakenSet().has(kOf(at)) || !(tstand.mayPlace ?? (() => true))(at) ? 'owned' : 'mine' } catch { return 'unknown' } }\n"
 await t('MUTANT (r1): a take-down that asks nobody dies on ADOPTED (from the walk)', () => kills(OWNER, "  const standOwner = () => 'mine'\n", M => adopted(M, 'off'), 'ADOPTED'))
 await t('MUTANT (r1): a take-down that asks nobody dies on ADOPTED (under the feet)', () => kills(OWNER, "  const standOwner = () => 'mine'\n", M => adopted(M, 'on'), 'ADOPTED'))
-await t('MUTANT (r1): no second ask after the walk dies on ADOPTED-AT-DIG', () =>
-  kills("          const v = await digNamed(at, rc.block, heldFn, null, () => standOwner(at) === 'mine')\n", '          const v = await digNamed(at, rc.block, heldFn, null, null)\n', adoptedAtDig, 'ADOPTED-AT-DIG'))
-await t('MUTANT (r1): the barrier wait uncapped on a stand dies on BARRIER-CAPPED', () =>
-  kills('      const until = now() + Math.min(barrierWaitMs, Number.isFinite(waitMs) ? Math.max(0, waitMs) : Infinity)\n', '      const until = now() + barrierWaitMs\n', barrierCapped, 'BARRIER-CAPPED'))
+const NEXT = '          const next = () => { const c = claims().dig[0]; return !!c && kOf(c) === kOf(at) }\n'
+await t('MUTANT (r1): no second ask after the walk dies on ADOPTED-AT-DIG', () => kills(NEXT, '          const next = null\n', adoptedAtDig, 'ADOPTED-AT-DIG'))
+await t('MUTANT (r2): only the owner asked after the walk (r1\'s check) dies on COLUMN-AT-DIG', () => kills(NEXT, "          const next = () => standOwner(at) === 'mine'\n", columnAtDig, 'COLUMN-AT-DIG'))
+await t('MUTANT (r2): the tool equipped between the claims and the dig (r1\'s order) dies on TOOL-THEN-ASK', () =>
+  kills("        if (!tooled && rc.block !== 'dirt') { tooled = true; await e.tool?.() }\n        if (e.aborted()) { gone = true; return }\n        // asked HERE, after the last await: nothing is awaited from the claims to the dig\n        const f = e.feet(), under = [f[0], f[1] - 1, f[2]], name = nm(e.read(...under))\n        const top = claims(aged).dig[0]\n        if (!onStand() || !TS.standIs(rc.block, name) || !top || kOf(top) !== kOf(under)) return   // not the stand's any more (or not its top): never dug from here\n",
+    "        if (e.aborted()) { gone = true; return }\n        const f = e.feet(), under = [f[0], f[1] - 1, f[2]], name = nm(e.read(...under))\n        const top = claims(aged).dig[0]\n        if (!onStand() || !TS.standIs(rc.block, name) || !top || kOf(top) !== kOf(under)) return\n        if (!tooled && rc.block !== 'dirt') { tooled = true; await e.tool?.() }\n", toolThenAsk, 'TOOL-THEN-ASK'))
+await t('MUTANT (r1/r2): the barrier wait not ended at the cutoff dies on BARRIER-CAPPED', () =>
+  kills("        if (cutoff != null && now() >= cutoff) { PJ.barrierRelease(dir, key, me, barGen); return 'late' }\n", '', barrierCapped, 'BARRIER-CAPPED'))
+await t('MUTANT (r2): a click sent with no room for its acknowledgement dies on NO-LATE-SEND', () =>
+  kills("      if (cutoff != null && now() + PJ.MUTEX_HOLD_MS > cutoff) return 'late'\n", '', noLateSend, 'NO-LATE-SEND'))
+await t('MUTANT (r2): a hold awaited without the cutoff dies on HOLD-BOUNDED', () =>
+  kills('    const got = await by(cutoff, e.hold(block))\n', '    const got = await e.hold(block)\n', holdBounded, 'HOLD-BOUNDED'))
+await t('MUTANT (r2): no fresh read at the take-down dies on FRESH-VETO', () =>
+  kills('    try { tstand.refresh?.() } catch { /* the veto reads when asked */ }\n', '', freshVeto, 'FRESH-VETO'))
+await t('MUTANT (r2, tempstand.mjs): a veto with no TTL dies on FRESH-AFTER-WALK', () =>
+  killsTS('if (!set || !(t - at < ttlMs)) {', 'if (!set) {', freshAfterWalk, 'FRESH-AFTER-WALK'))
+for (const when of ['visit', 'tall', 'ground', 'on']) {
+  await t(`MUTANT (r2, tempstand.mjs): a stand's block compared by its name alone dies on GRASS (${when})`, () =>
+    killsTS('export const standIs = (block, name) => !!name && (name === block || (STAND_GROWN[block] ?? []).includes(name))', 'export const standIs = (block, name) => !!name && name === block', M => greens(M, when), 'GRASS'))
+}
+await t('MUTANT (r2): no descent before the adoption dies on GOT-DOWN', () =>
+  kills('    if (onStand()) {\n      const exit = TS.standExit(rd, e.feet(), nodesFor())\n', '    if (false) {\n      const exit = TS.standExit(rd, e.feet(), nodesFor())\n', getsDown, 'GOT-DOWN'))
+await t('MUTANT (r2): a receipt removed with the builder on its column dies on KEPT-ON-STAND', () =>
+  kills('    if (onStand()) {\n      const standing = TS.standStanding(rc, e.read)\n', '    if (false) {\n      const standing = TS.standStanding(rc, e.read)\n', keptOnStand, 'KEPT-ON-STAND'))
 await t('MUTANT (tempstand.mjs): standDue without its threshold lets a first miss through', async () => {
   await withStandMutant('  return keys.filter(k => (Number(counts?.[k]?.visits) || 0) >= after)', '  return keys.filter(k => (Number(counts?.[k]?.visits) || 0) >= 0)', async M => {
     assert.deepStrictEqual(TS.standDue({}, ['1,2,3']), [], 'the real one')

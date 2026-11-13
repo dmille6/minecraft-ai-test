@@ -245,7 +245,7 @@ import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_C
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
 import { standCells as projStandCells } from './buildproj.mjs'   // tempstand-01: the fresh stand receipts (the tidy never lists them)
-import { tempStandOn } from './tempstand.mjs'
+import { tempStandOn, standVeto } from './tempstand.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
@@ -25018,12 +25018,12 @@ const wallStuckOn = () => !['off', '0', 'false', 'no'].includes(String(process.e
  */
 function tempStandOf (bot, c, plot) {
   if (!tempStandOn()) return {}
-  let others = null
-  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
-  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
   // (r1) NOT caught here: a read that fails THROWS -- the visit refuses a placement on it, and a take-down neither digs nor gives the cell
   // away on it (buildrun.mjs standOwner: `unknown`)
-  return { tempStand: { mem: (bot.tempStandMem ??= {}), mayPlace: at => !inZone(at) && !otherCells().has(at.join(',')) } }
+  // (r2, Codex) the other projects' cells are NOT kept for the visit: tempstand.mjs standVeto keeps one read VETO_TTL_MS and a take-down
+  // drops it first (`refresh`) -- a cell another project took after the plan is seen at the dig
+  const veto = standVeto({ zones: c?.zones ?? [], others: () => new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) })
+  return { tempStand: { mem: (bot.tempStandMem ??= {}), mayPlace: veto.mayPlace, refresh: veto.refresh } }
 }
 function wallStuckOf (c, plot = WALL_PLOT) {
   if (!wallStuckOn()) return {}
