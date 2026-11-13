@@ -331,13 +331,45 @@ test('SEARCH SCOPE: an exempt profile\'s failed search is not the ban\'s: it nei
 })
 test('ROWS: the licence and the positive control say what is installed and what it did', () => {
   const zone = CZ.cleanZoneOf(HOME)
-  assert.equal(CZ.cleanZoneModeDetail({}, zone), 'on=1 r=64 y_min=58 home=0,70,0 fail_n=2 fail_ms=180000 timeout_n=4 timeout_ms=180000 release_ms=120000 release_r=3')
+  assert.equal(CZ.cleanZoneModeDetail({}, zone), 'on=1 r=64 y_min=58 home=0,70,0 fail_n=2 fail_ms=180000 timeout_n=4 timeout_ms=180000 timeout_min_ms=2000 release_ms=120000 release_r=3')
   assert.match(CZ.cleanZoneModeDetail({ CLEANZONE: 'off' }, null), /^on=0 r=- y_min=- home=- /)
   const cz = CZ.makeCleanZone({ zone: () => zone })
   const prev = CZ.cleanZoneSnap(cz)
   cz.vetoed = 7; cz.searches = 3; cz.touched = 2; cz.failed = 1; cz.releases = 1; cz.freed = 1
   assert.equal(CZ.cleanZoneHitsDetail(cz, prev), 'vetoed=7 searches=3 touched=2 failed=1 releases=1 freed=1 total_vetoed=7 total_releases=1')
   assert.equal(CZ.cleanZoneHitsDetail(cz, CZ.cleanZoneSnap(cz)), 'vetoed=0 searches=0 touched=0 failed=0 releases=0 freed=0 total_vetoed=7 total_releases=1')
+})
+
+test('THE VALVE ignores the timeout of a search given less than timeoutMinMs (the idle 800 ms probe), but not its noPath', () => {
+  let t = 0
+  const cz = CZ.makeCleanZone({ zone: () => CZ.cleanZoneOf(HOME), now: () => t })
+  const end = (status, timeout) => { const s = { ...cz.begin({ start: V(0, 70, 0), timeout }), vetoed: 2 }; cz.settle(s, { status }); t += 1000 }
+  for (let i = 0; i < 12; i++) end('timeout', 800)
+  assert.equal(cz.releases, 0, 'twelve 800 ms probes timing out open nothing')
+  assert.equal(cz.failed, 12, 'they are still counted as searches the ban failed')
+  for (let i = 0; i < CZ.CLEAN_ZONE.timeoutN; i++) end('timeout', undefined)
+  assert.equal(cz.releases, 1, 'POSITIVE CONTROL: the library default (no timeout given) counts')
+  t += 10 * 60_000
+  for (let i = 0; i < CZ.CLEAN_ZONE.timeoutN; i++) end('timeout', 5000)
+  assert.equal(cz.releases, 2, 'and so does a full 5 s search')
+  t += 10 * 60_000
+  end('noPath', 800); end('noPath', 800)
+  assert.equal(cz.releases, 3, 'a short probe that DRAINED its heap is an enclosed bot: it counts')
+})
+test('THE SEARCH WRAPPER hands the search\'s own timeout to the valve', () => {
+  const m = moves(world(pitCells()), { ban: {} })
+  const pf = fakePathfinder(); CZ.installCleanZoneSearch(pf, m.__cz)
+  const seen = []
+  const begin = m.__cz.begin; m.__cz.begin = (a) => { const s = begin(a); seen.push([a.timeout, s.short]); return s }
+  runSearch(pf, m, PIT, OUT, { timeout: 800 }); runSearch(pf, m, PIT, OUT, { timeout: 5000 }); runSearch(pf, m, PIT, OUT)
+  assert.deepEqual(seen, [[800, true], [5000, false], [undefined, false]])
+})
+test('MUTANT KILLED: without the short-search check, twelve idle probes open the valve', async () => {
+  await withMutant(CZ_URL, '    if (s.short) return\n', '', async (mod) => {
+    const cz = mod.makeCleanZone({ zone: () => mod.cleanZoneOf(HOME), now: () => 0 })
+    for (let i = 0; i < 12; i++) { const s = { ...cz.begin({ start: V(0, 70, 0), timeout: 800 }), vetoed: 2 }; cz.settle(s, { status: 'timeout' }) }
+    assert.ok(cz.releases >= 1)
+  })
 })
 
 // ---- the wiring (structural: behaviour cannot reach index.mjs's bot construction) ------------------------------------------

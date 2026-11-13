@@ -25,7 +25,9 @@
 //   1. Another route: stairs, paths, gates, swimming. The search still has every move that places nothing.
 //   2. THE VALVE, deterministic, in this file: a search the ban touched that ends without a path is counted.
 //        - `noPath` (the A* ran out of cells: the bot is enclosed, a pit) twice from the same spot within failMs, or
-//        - `timeout` timeoutN times within timeoutMs (the bot can move but nothing it reaches goes where it must),
+//        - `timeout` timeoutN times within timeoutMs (the bot can move but nothing it reaches goes where it must) -- only a
+//          search given at least timeoutMinMs to think: reflex.mjs canStartAPath's 800 ms probe timing out says nothing
+//          (Claude review 11-13: it runs every 60 s on an idle bot and would open the valve by itself),
 //      and the ban is LIFTED for every search that starts within releaseR of that spot for releaseMs. The bot towers out exactly
 //      as the base would. Only uncapped searches are counted (a capped probe -- reachprobe, digapproach -- running out of its
 //      radius says nothing about being enclosed); a released spot frees capped searches too, so the probe and the walk agree.
@@ -41,7 +43,7 @@ import { homeOf } from './townground.mjs'
 // The windows are sized on the decision loop, not on one skill: a bot whose walk failed is asked again ~30 s later (the
 // decision cooldown) and a skill may take a minute, so two failures can be two minutes apart and the release must still be open
 // when the next walk starts.
-export const CLEAN_ZONE = Object.freeze({ failN: 2, failMs: 180_000, sameR: 2, timeoutN: 4, timeoutMs: 180_000, releaseMs: 120_000, releaseR: 3, hitsMs: 10 * 60_000 })
+export const CLEAN_ZONE = Object.freeze({ failN: 2, failMs: 180_000, sameR: 2, timeoutN: 4, timeoutMs: 180_000, timeoutMinMs: 2000, releaseMs: 120_000, releaseR: 3, hitsMs: 10 * 60_000 })
 /** THE SWITCH: CLEANZONE=off|0|false|no -> not installed. On by default. Pure. */
 export const cleanZoneOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.CLEANZONE ?? '').trim())
 
@@ -105,10 +107,10 @@ export function makeCleanZone ({ zone = () => null, on = true, now = () => Date.
     return true
   }
   /** A search starts -> its scope { start, capped, free, vetoed, done }. */
-  cz.begin = ({ start = null, goal = null, radius = -1 } = {}) => {
+  cz.begin = ({ start = null, goal = null, radius = -1, timeout = null } = {}) => {
     const st = cellOf(start)
     cz.searches++
-    return { start: st, goal, capped: fin(radius) && radius >= 0, free: on && !!st && cz.freeAt(st), vetoed: 0, done: false }
+    return { start: st, goal, capped: fin(radius) && radius >= 0, short: fin(timeout) && timeout < T.timeoutMinMs, free: on && !!st && cz.freeAt(st), vetoed: 0, done: false }
   }
   const open = (at, why, s, t) => {
     cz.release = { at, until: t + T.releaseMs }
@@ -136,6 +138,7 @@ export function makeCleanZone ({ zone = () => null, on = true, now = () => Date.
       if (n >= T.failN) open(cz.lastFail.at, 'no_path', s, t)
       return
     }
+    if (s.short) return
     cz.timeouts = cz.timeouts.filter(u => u > t - T.timeoutMs)
     cz.timeouts.push(t)
     if (cz.timeouts.length >= T.timeoutN) open(s.start, 'timeouts', s, t)
@@ -192,7 +195,7 @@ export function installCleanZoneSearch (pathfinder, cz) {
   pathfinder.getPathFromTo = function * (movements, startPos, goal, options = {}) {
     const radius = options?.searchRadius ?? pathfinder.searchRadius
     // an exempt profile's search is not the ban's business: it neither counts toward the valve nor uses it
-    const s = movements?.cleanZone === false ? null : cz.begin({ start: startPos, goal, radius })
+    const s = movements?.cleanZone === false ? null : cz.begin({ start: startPos, goal, radius, timeout: options?.timeout })
     const g = orig.call(this, movements, startPos, goal, options)
     let step = scoped(s, () => g.next())
     while (!step.done) {
@@ -216,4 +219,4 @@ export function cleanZoneHitsDetail (c, prev = {}) {
 export const cleanZoneSnap = c => ({ vetoed: c?.vetoed ?? 0, searches: c?.searches ?? 0, touched: c?.touched ?? 0, failed: c?.failed ?? 0, releases: c?.releases ?? 0, freed: c?.freed ?? 0 })
 /** The licence row (`_cleanzone_mode`, once per spawn). Pure. */
 export const cleanZoneModeDetail = (env = process.env, zone = null, T = CLEAN_ZONE) =>
-  `on=${cleanZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} y_min=${zone?.yMin ?? '-'} home=${zone ? `${zone.hx},${zone.hy},${zone.hz}` : '-'} fail_n=${T.failN} fail_ms=${T.failMs} timeout_n=${T.timeoutN} timeout_ms=${T.timeoutMs} release_ms=${T.releaseMs} release_r=${T.releaseR}`
+  `on=${cleanZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} y_min=${zone?.yMin ?? '-'} home=${zone ? `${zone.hx},${zone.hy},${zone.hz}` : '-'} fail_n=${T.failN} fail_ms=${T.failMs} timeout_n=${T.timeoutN} timeout_ms=${T.timeoutMs} timeout_min_ms=${T.timeoutMinMs} release_ms=${T.releaseMs} release_r=${T.releaseR}`
