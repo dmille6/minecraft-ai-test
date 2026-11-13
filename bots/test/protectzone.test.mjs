@@ -9,6 +9,9 @@
 process.env.LOG_DIR ??= '/tmp'
 process.env.STATE_DIR ??= '/tmp'
 process.env.HOME_X = '200'; process.env.HOME_Y = '65'; process.env.HOME_Z = '200'
+// cleanzone-02 (11-13) keeps the ground from gather in a 64-block square around home; this file's fixtures put the free dirt
+// inside it, and what it tests is the protected-zone layer alone, so that rule is off here (gatherzone.test.mjs tests it).
+process.env.GATHERZONE = 'off'
 
 import assert from 'node:assert/strict'
 import test from 'node:test'

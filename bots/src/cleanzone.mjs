@@ -38,7 +38,7 @@
 // ROWS: `_cleanzone_mode` once per spawn (the licence); `_cleanzone_hits` every hitsMs (the positive control: neighbours removed,
 // searches touched, searches the ban failed, releases); `_cleanzone op=release` per release.
 import { PLACE_TOWN_R, PLACE_MARGIN, PLACE_TOWN_DEPTH } from './placeaudit.mjs'
-import { homeOf } from './townground.mjs'
+import { homeOf, isTerrain } from './townground.mjs'
 
 // The windows are sized on the decision loop, not on one skill: a bot whose walk failed is asked again ~30 s later (the
 // decision cooldown) and a skill may take a minute, so two failures can be two minutes apart and the release must still be open
@@ -220,3 +220,61 @@ export const cleanZoneSnap = c => ({ vetoed: c?.vetoed ?? 0, searches: c?.search
 /** The licence row (`_cleanzone_mode`, once per spawn). Pure. */
 export const cleanZoneModeDetail = (env = process.env, zone = null, T = CLEAN_ZONE) =>
   `on=${cleanZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} y_min=${zone?.yMin ?? '-'} home=${zone ? `${zone.hx},${zone.hy},${zone.hz}` : '-'} fail_n=${T.failN} fail_ms=${T.failMs} timeout_n=${T.timeoutN} timeout_ms=${T.timeoutMs} timeout_min_ms=${T.timeoutMinMs} release_ms=${T.releaseMs} release_r=${T.releaseR}`
+
+// ---- CLEANZONE-02: NO GATHERING OF THE GROUND INSIDE THE ZONE ---------------------------------------------------------------
+//
+// WHY (owner 11-13, after the first hour of the ban: "Yes, build it"). The ban stops a WALK from leaving blocks; it does not
+// stop a bot choosing `gather dirt` where it stands. The first hour's valve rows: 7 of 32 releases at one pit near 17,32,
+// where two bots were gathering dirt at y 52-59 inside the town, digging the pit deeper and then needing the valve to get out.
+// townground.mjs already keeps the town's ground from gather -- but its box is 16 blocks around home, sized for the junk
+// well on the fleet's towns, and the showcase town reaches 45 from home with its margin at 64.
+//
+// WHAT: a gather TARGET that is terrain (townground.mjs TERRAIN less its ores: dirt, grass, sand, gravel, stone and its kin
+// -- never a log, a leaf, a crop or an ore) inside the zone's square is not taken, AT ANY DEPTH: a floor on the rule would only make
+// the nearest eligible dirt the one straight down, which is the pit again. ONE EXCEPTION: a bot that is itself below the
+// band (feet under home.y - deep: it is in the mine) may take terrain that is also below it -- the rock around it.
+//
+// THE REMEDY IS PERFORMED, NOT ADVISED (skills.mjs gatherRun): when the rule emptied the search, gather walks to the nearest
+// point `out` blocks beyond the zone's edge (gatherExitPoints, nearest first, never across the town) and searches again
+// from there. Only when no exit is reached does it fail, and then it names the exit a `goto` can be given.
+// GATHERZONE=off -> gather is exactly the base's.
+export const GATHER_ZONE = Object.freeze({ deep: 24, out: 6, walkMs: 25_000, exits: 2 })
+// ORES STAY AS THEY ARE (townground.mjs counts `_ore` as terrain; this rule does not): iron and coal are reached by the ore
+// tunnel, which has its own price on the town's ground, and the pits this rule is for were dug for dirt.
+const ORE = /_ore$/
+/** THE SWITCH: GATHERZONE=off|0|false|no -> off. On by default. Pure. */
+export const gatherZoneOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.GATHERZONE ?? '').trim())
+/** Is the column inside the zone's square, whatever its height? Pure. */
+export const inZoneSquare = (zone, x, z) => !!zone && fin(x) && fin(z) && Math.abs(Math.floor(x) - zone.hx) <= zone.R && Math.abs(Math.floor(z) - zone.hz) <= zone.R
+/**
+ * May gather NOT take this cell? -> bool. Pure. `feetY` is the bot's own height (unknown: the exception does not apply).
+ * No zone (no home) -> false: it FAILS OPEN, the bot gathers exactly as the base.
+ */
+export function gatherZoneRefuses (zone, p, blockName, feetY = null, T = GATHER_ZONE) {
+  if (!zone || !p || !isTerrain(blockName) || ORE.test(blockName) || !inZoneSquare(zone, p.x, p.z)) return false
+  const deepY = zone.hy - T.deep
+  if (fin(feetY) && feetY < deepY && fin(p.y) && p.y < deepY) return false
+  return true
+}
+/**
+ * WHERE TO WALK so the next search starts beyond the zone -> [{ x, z }], nearest first. Pure. The four points `out` blocks
+ * past the square's edge at the bot's own coordinate on the other axis; a bot already beyond the square on an axis is never
+ * sent to the far side of town along it (townground.mjs walkOutPoints' rule). Empty when there is no zone or no position.
+ */
+export function gatherExitPoints (from, zone, T = GATHER_ZONE) {
+  if (!zone || !from || !fin(Number(from.x)) || !fin(Number(from.z))) return []
+  const x = Math.floor(Number(from.x)), z = Math.floor(Number(from.z)), R = zone.R + T.out
+  const outX = Math.abs(x - zone.hx) > zone.R ? Math.sign(x - zone.hx) : 0, outZ = Math.abs(z - zone.hz) > zone.R ? Math.sign(z - zone.hz) : 0
+  return [
+    { d: (zone.hx + R) - x, x: zone.hx + R, z, sx: 1, sz: 0 }, { d: x - (zone.hx - R), x: zone.hx - R, z, sx: -1, sz: 0 },
+    { d: (zone.hz + R) - z, x, z: zone.hz + R, sx: 0, sz: 1 }, { d: z - (zone.hz - R), x, z: zone.hz - R, sx: 0, sz: -1 },
+  ].filter(o => o.d >= 0 && !(outX && o.sx === -outX) && !(outZ && o.sz === -outZ)).sort((a, b) => a.d - b.d).map(({ x, z }) => ({ x, z }))
+}
+/** What the refusal says when no exit was reached: where the ground may be taken, as a place a `goto` can be given. Pure. */
+export function gatherZoneRemedy (zone, exit = null) {
+  const where = exit ? `goto ${exit.x} ${zone?.hy ?? 70} ${exit.z} and gather there` : `gather more than ${zone?.R ?? '?'} blocks from home`
+  return `the town's ground is kept within ${zone?.R ?? '?'} blocks of home (dirt, sand, gravel and stone are not taken there): ${where}`
+}
+/** The `_gather_zone` licence detail (once per bot process). Pure. */
+export const gatherZoneModeDetail = (env = process.env, zone = null, T = GATHER_ZONE) =>
+  `op=mode on=${gatherZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} deep_y=${zone ? zone.hy - T.deep : '-'} out=${T.out} walk_ms=${T.walkMs} exits=${T.exits}`

@@ -8,6 +8,10 @@
 process.env.LOG_DIR ??= '/tmp'
 process.env.STATE_DIR ??= '/tmp'
 process.env.HOME_X = '200'; process.env.HOME_Y = '65'; process.env.HOME_Z = '200'
+// cleanzone-02 (11-13) keeps the ground from gather in a WIDER square (64 around home). This file tests the 16-block layer
+// on its own -- its fixtures put the free dirt 19-21 blocks from home -- so that rule is off here; gatherzone.test.mjs drives
+// the two together (its fixtures sit outside this box and inside that one).
+process.env.GATHERZONE = 'off'
 
 import assert from 'node:assert/strict'
 import test from 'node:test'

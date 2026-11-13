@@ -101,6 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
+import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -352,6 +353,17 @@ import { columnAt, sitesNear, keepOutPart, KEEPOUT_KIND, KEEPOUT_SEARCH, KEEPOUT
 import { stationKeepOut, stationWellDetail, nearWell } from './wellcare.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
 const townHome = () => configuredHome(config.world)
+// CLEANZONE-02 (cleanzone.mjs): gather does not take the ground inside the clean zone. The zone is computed once per home
+// (the matcher below runs per cell: no allocation there); GATHERZONE=off or no home -> null -> the base exactly.
+let _gzMemo = { key: null, zone: null }
+function gatherZoneNow () {
+  if (!gatherZoneOn(process.env)) return null
+  const h = townHome(), key = h ? `${h.x},${h.y},${h.z}` : ''
+  if (_gzMemo.key !== key) _gzMemo = { key, zone: h ? cleanZoneOf(h) : null }
+  return _gzMemo.zone
+}
+const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z && gatherZoneRefuses(z, p, name, bot?.entity?.position?.y) }
+const _gzModeSaid = new WeakSet()
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -1700,6 +1712,12 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
     throw Object.assign(new Error(`town_ground: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${townOk.remedy}`),
       { failClass: 'no_safe_target' })
   }
+  // CLEANZONE-02: the same independent conjunction for the clean zone (the admission may be stale: a walk moved the bot)
+  if (gatherZoneHit(bot, block.position, block.name)) {
+    try { logEvent({ kind: 'gather_zone', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
+    throw Object.assign(new Error(`clean_zone: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${gatherZoneRemedy(gatherZoneNow())}`),
+      { failClass: 'no_safe_target' })
+  }
   if (!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)) {
     throw Object.assign(
       new Error(`unsafe_now: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
@@ -2287,6 +2305,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   const excluded = new Set()
   const key = q => `${q.x},${q.y},${q.z}`
   let townSkipped = 0   // town-ground candidates the enumeration skipped this round (the _town_ground row)
+  let zoneSkipped = 0   // cleanzone-02: clean-zone ground the enumeration skipped this round
+  let zoneWalked = 0    // cleanzone-02: exits this run walked to (the remedy, performed)
+  let zoneExit = null   // cleanzone-02: the last exit tried (named when the run fails)
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
   // Rounds this RUN whose candidates came only from the cover fallback. Run-scoped
   // on purpose: `viaCover` resets every round, and the question this answers is
@@ -2333,12 +2354,14 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
+      !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&   // cleanzone-02: an independent conjunction, as the town's ground is
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     const shopCells = shopCellsNow()?.cells ?? null   // shop-01 r2: the workshop's record cells are never a gather target
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
+      if (b.position && gatherZoneHit(bot, b.position, b.name)) { zoneSkipped++; return false }   // cleanzone-02: AT ENUMERATION, for the same reason
       if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
@@ -2383,6 +2406,34 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // over a drop is NOT "nothing found": it goes on to the round's count (its skip row, the base-ranked front) and the
     // all-floors refusal below, with every later round's shape -- so this early return is only for a search with no such skip
     const caveInBorder = () => cave.skipped().filter(v => horizontalDistanceFromSpawn(v.at) <= config.world.borderRadius)
+    // CLEANZONE-02: THE REMEDY IS PERFORMED. The clean zone emptied this search (it skipped ground and nothing else was in
+    // range): walk to the nearest exit beyond the zone and search again from there -- at most GATHER_ZONE.exits walks a run.
+    // Only when no exit is reached does the run fail, naming the exit a `goto` can be given.
+    const zoneSkippedNow = zoneSkipped; zoneSkipped = 0
+    if (positions.length === 0 && zoneSkippedNow > 0 && !caveInBorder().length) {
+      const gz = gatherZoneNow(), from = bot.entity?.position?.floored?.() ?? null
+      if (gz && !_gzModeSaid.has(bot)) { _gzModeSaid.add(bot); try { logEvent({ kind: 'gather_zone', status: 'success', detail: gatherZoneModeDetail(process.env, gz) }) } catch { /* telemetry */ } }
+      const exits = gz && from && inZoneSquare(gz, from.x, from.z) ? gatherExitPoints(from, gz) : []
+      if (collected === 0 && zoneWalked < GATHER_ZONE.exits && zoneWalked < exits.length) {
+        const to = exits[zoneWalked]; zoneWalked++; zoneExit = to
+        const t0 = Date.now(); let walkErr = null
+        try {
+          await withTimeout(bot.pathfinder.goto(new goals.GoalNearXZ(to.x, to.z, 3)), GATHER_ZONE.walkMs, bot, { what: 'walking out of the town before gathering' })
+        } catch (e) { if (e?.aborted) throw e; walkErr = e }
+        check(signal)
+        const at = bot.entity?.position?.floored?.() ?? null
+        const outNow = !!at && !inZoneSquare(gz, at.x, at.z)
+        try { logEvent({ kind: 'gather_zone', status: outNow ? 'success' : 'failed', snapshot: snapshot(bot), detail: `op=walkout block=${blockName} skipped=${zoneSkippedNow} from=${from.x},${from.y},${from.z} to=${to.x},${to.z} out=${outNow ? 1 : 0} try=${zoneWalked} ms=${Date.now() - t0}${walkErr ? ` err=${String(walkErr?.message ?? walkErr).replace(/\s+/g, '_').slice(0, 60)}` : ''}` }) } catch { /* telemetry */ }
+        continue
+      }
+      if (collected === 0) {
+        try { logEvent({ kind: 'gather_zone', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=search block=${blockName} skipped=${zoneSkippedNow} walked=${zoneWalked}` }) } catch { /* telemetry */ }
+        // 'no_safe_target', town_ground's own class at the swing: there IS dirt here, it may not be taken (and cavefall.test
+        // holds the FIRST 'nothing_found' of this function to the early return below)
+        return { status: 'failed', failClass: 'no_safe_target',
+                 detail: `no ${blockName} within ${maxDistance} blocks that may be taken: ${gatherZoneRemedy(gz, zoneExit ?? exits[0] ?? null)}` + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
+      }
+    }
     if (positions.length === 0 && !caveInBorder().length) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }

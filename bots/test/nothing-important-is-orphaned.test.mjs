@@ -34,6 +34,8 @@ const REQUIRED = [
   // cleanzone-01 (11-13): no route places a block in the town or its margin; the valve lets a trapped bot out and writes where
   'bots/src/cleanzone.mjs',
   'bots/test/cleanzone.test.mjs',
+  // cleanzone-02 (11-13): gather does not take the ground inside the clean zone; it walks out and searches again
+  'bots/test/gatherzone.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
