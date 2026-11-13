@@ -280,6 +280,15 @@ export const buildersOf = p => p?.builders ?? BUILDERS_MAX
  */
 export function activeProject (states = [], list = projectsOn(), { upkeepTurn = false, noWait = NOWAIT.on, service = null, sinkTurn = false } = {}) {
   const st = p => states.find(s => s?.plot === p.plot) ?? { plot: p.plot, exists: false, complete: false, damaged: false }
+  // LEAFFELL-01SHOW r2 (Codex r2 BLOCKER, reproduced: the re-roofed hall held on zone_closed read `due`, and after three road visits
+  // the upkeep turn picked it ahead of the workable road -- the order then skipped, every cooldown of the hold): a project this bot's
+  // last visit ended WAITING on (`held`: waitBackoff) is out of EVERY selection below -- the service pick, the repairs, the sink and
+  // its turn, the open order, the due and upkeep picks, the fallbacks -- by picking over the list without it. Only when nothing
+  // else is in the list is a held project the answer (the order then skips under its stop's name and the grounds are asked).
+  if (list.some(p => st(p).held === true)) {
+    const rest = list.filter(p => st(p).held !== true)
+    if (rest.length) return activeProject(states, rest, { upkeepTurn, noWait, service, sinkTurn })
+  }
   // PRODSERVE-01 (prodserve.mjs servicePick): a finished production plot whose service is due by the town's schedule and this bot's
   // fair share goes FIRST -- ahead of the repairs, the open projects and the sinks, every one of which the showcase always has
   if (service) { const sp = list.find(p => p.plot === service); if (sp) return sp }
@@ -493,11 +502,12 @@ export function noteWait (mem, plot, result, now = Date.now()) {
 }
 /** The waiting stop that holds a plot for this bot now -> 'leaf_decay' | 'zone_closed' | null. Pure. */
 export const waitHeld = (mem, plot, now = Date.now()) => { const e = mem?.get?.(plot); return e && Number(e.until) > now && Object.hasOwn(WAIT_STOPS, e.stop) ? e.stop : null }
-/** The states with this bot's held projects stepped aside, exactly as stuckBackoff steps a stuck one aside (complete: only `due`,
- *  after every open project; open: not `free`, the next open project first; never a sink pick, never a service pick). Pure. */
+/** The states with this bot's held projects stepped aside: stuckBackoff's shape (complete: only `due`; open: not `free`; `stuck`: never
+ *  a sink pick, never prodserve's service pick) AND `held` -- activeProject takes a held project out of every selection path (r2: `due`
+ *  alone still won the upkeep turn's pick). Pure. */
 export function waitBackoff (states = [], mem = null, now = Date.now()) {
   if (!mem?.size) return states
-  return states.map(st => (st?.exists && waitHeld(mem, st.plot, now) ? (st.complete ? { ...st, damaged: false, due: true, stuck: true } : { ...st, free: false, stuck: true }) : st))
+  return states.map(st => (st?.exists && waitHeld(mem, st.plot, now) ? (st.complete ? { ...st, damaged: false, due: true, stuck: true, held: true } : { ...st, free: false, stuck: true, held: true }) : st))
 }
 let waitOf = () => null
 export function setWaitNow (fn) { if (typeof fn === 'function') waitOf = fn }

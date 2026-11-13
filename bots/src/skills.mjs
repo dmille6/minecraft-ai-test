@@ -207,6 +207,7 @@ import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, clearsReachedBuiltSte
 import { LEAFFELL_ON, rowDue as leafRowDue, leafBlockerText } from './leaffell.mjs'   // leaffell-01show: an unreached natural leaf asks for its trunk, not a stand
 import { replantFor as siteReplantFor, overlay as siteOverlay } from './buildsite.mjs'   // leaffell-01show: the saplings owed for a tree felled for its leaves
 import { trunkGuard } from './buildsite.mjs'   // leaffell-01show r1: the retrofit's trunk guard is the siting's own reservation rule
+import { reservationsStrict } from './buildsite.mjs'   // leaffell-01show r2: ...over reservations whose every input says whether it was read
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
@@ -17399,6 +17400,51 @@ export const townPlanNow = bot => {
   return bot.townPlan?.plan ? bot.townPlan : null
 }
 
+/**
+ * leaffell-01show r2 (Codex r2 BLOCKER): THE RESERVATIONS' RECORD FILES, READ STRICTLY -> { farm: { ok, why, cells: [[x, z]] }, wells:
+ * { ok, why, cells: [[x, y, z]] } }. Pure over the directory (`dir` the town's, `home` { x, y, z }; `fsx` node:fs). The same files
+ * treeFarmCells and shopCtx read -- which answer "none" for a file that exists and cannot be read -- with ABSENT told from UNREADABLE:
+ *   the tree farm     `treefarm-<home>.g<N>.json`: no such file: ok, empty. Files exist and NONE parses (treeFarmRecordCells' rule, the
+ *                     lid's: the highest that parses is the record), or the directory cannot be listed: `treefarm_unreadable`
+ *   the junk well     `junkwell-plinth-<home>.json` (its plinth's columns) and the newest `junkwell-site-<home>.g<N>.json` (its site): a
+ *                     missing file: ok, nothing. One that exists and does not parse: `wells_unreadable`
+ * Never throws.
+ */
+export function reservationFilesStrict (dir, home, fsx = fs) {
+  const hk = `${home?.x}_${home?.y}_${home?.z}`
+  const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const bad = why => ({ ok: false, why, cells: [] })
+  let names = []
+  let listed = true
+  try { names = fsx.readdirSync(dir) } catch (e) { if (e?.code !== 'ENOENT') listed = false }
+  const gensOf = stem => { const re = new RegExp(`^${esc(stem)}\\.g(\\d+)\\.json$`); return names.map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a) }
+  const farm = (() => {
+    if (!listed) return bad('treefarm_unreadable')
+    const stem = `treefarm-${hk}`, gens = gensOf(stem)
+    if (!gens.length) return { ok: true, why: null, cells: [] }
+    for (const g of gens) {
+      try {
+        const r = JSON.parse(fsx.readFileSync(path.join(dir, `${stem}.g${g}.json`), 'utf8'))
+        if (!r || typeof r !== 'object') continue
+        const cells = []
+        for (const c of r?.record?.cells ?? r?.cells ?? []) if (Number.isFinite(c?.x) && Number.isFinite(c?.z)) cells.push([c.x, c.z])
+        return { ok: true, why: null, cells }
+      } catch { /* the next lower */ }
+    }
+    return bad('treefarm_unreadable')
+  })()
+  const wells = (() => {
+    if (!listed) return bad('wells_unreadable')
+    const cells = []
+    try { cells.push(...plinthCells(JSON.parse(fsx.readFileSync(path.join(dir, `junkwell-plinth-${hk}.json`), 'utf8')))) } catch (e) { if (e?.code !== 'ENOENT') return bad('wells_unreadable') }
+    const stem = `junkwell-site-${hk}`, g = gensOf(stem)[0]
+    if (g != null) {
+      try { const sx = JSON.parse(fsx.readFileSync(path.join(dir, `${stem}.g${g}.json`), 'utf8')); if ([sx?.x, sx?.y, sx?.z].every(Number.isFinite)) cells.push([sx.x, sx.y, sx.z]) } catch { return bad('wells_unreadable') }
+    }
+    return { ok: true, why: null, cells }
+  })()
+  return { farm, wells }
+}
 /** The tree farm's record cells (`treefarm-<home>.g<N>.json`, the highest that parses) -> Set "x,z". Never throws. */
 function treeFarmCells () {
   const out = new Set()
@@ -21863,10 +21909,12 @@ const leafZoneClosed = bot => (x, y, z) => { try { return !!blocked(bot.protectZ
  * by the town's reservations and planted from a stand of the town walk (the visit's `replantDomain`). Unreadable: no cell (no tree is felled).
  */
 function reroofLeafCtx (bot, plan, rec, read, home, stood, walkR) {
-  const resNow = () => { try { const c = shopCtx(bot); return reservations(plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { return null } }
+  // r2 (Codex r2 BLOCKER): the guard's reservations are read STRICTLY, once a proof -- an input that exists and cannot be read (the tree
+  // farm's record, the well's files, the zones, the monument's record) closes EVERY trunk, the reason in the row (trunkReservations)
+  const sr = trunkReservations(bot, plan)
   const replantFor = (trees, clear) => {
     try {
-      const res = resNow()
+      const res = sr.res
       if (!res) return { ok: false, cells: [] }
       const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
       const pad = (rec.cells ?? []).filter(q => q?.seg === 'pad' && Array.isArray(q.at)).map(q => [q.at[0], q.at[2]])
@@ -21876,18 +21924,41 @@ function reroofLeafCtx (bot, plan, rec, read, home, stood, walkR) {
     } catch { return { ok: false, cells: [] } }
   }
   // r1 (Codex r1 BLOCKER): the trunk guard is the siting's own -- never a log in a protected zone, and never one in a plan reservation
-  // (the tree farm's columns, a well, a plan box or path, the monument's apron: buildsite.mjs trunkReserved); reservations unread: nothing felled
-  return { closed: trunkGuard(resNow(), leafZoneClosed(bot)), replantFor }
+  // (the tree farm's columns, a well, a plan box or path, the monument's apron: buildsite.mjs trunkReserved)
+  return { closed: trunkGuard(sr.res, leafZoneClosed(bot), sr.why), replantFor }
+}
+/**
+ * leaffell-01show r2: THE RESERVATIONS THE RETROFIT'S TRUNK GUARD TRUSTS -> buildsite.mjs reservationsStrict's answer ({ res } | { res:
+ * null, why }). Every input shopCtx reads leniently is read here so that "absent" and "unreadable" differ: the protected zones
+ * (`zonesKnown`), the tree farm's record and the junk well's files (reservationFilesStrict), the monument's record (its head read
+ * with nothing skipped). The plan is the caller's head. For the trunk guard ONLY: every siting reads shopCtx as before. Never throws.
+ */
+function trunkReservations (bot, plan) {
+  try {
+    const zv = townPlanZones(bot)
+    const files = reservationFilesStrict(townDir(), { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+    let z0 = { ok: true, why: null, z0: null }
+    if (projectsOn().some(p => p.plot === MONUMENT_PLOT)) {
+      const m = recordHead(townDir(), projKeyOf(MONUMENT_PLOT))
+      if (!m?.ok || recordUnread(m)) z0 = { ok: false, why: 'monument_unreadable', z0: null }
+      else if (Array.isArray(m.head?.rec?.box)) z0 = { ok: true, why: null, z0: { box: m.head.rec.box } }
+    }
+    return reservationsStrict(plan, { zonesKnown: !!zv?.known, zones: zv?.zones ?? [], farm: files.farm, wells: files.wells, z0 })
+  } catch { return { res: null, why: 'reservations_unread' } }
 }
 /**
  * leaffell-01show: A STYLED BUILDING'S SITING, FELL-FIRST -> siteBlueprint ctx additions | {} (LEAFFELL=off). `leafFell.plan(site)`:
  * leafFellPlan's options for one candidate (its own cells, the cells it will set a log in, every record's cells, the protected zones);
- * `leafReplantDomain`: the saplings such a site owes are planted from the town walk. Never throws.
+ * `leafReplantDomain`: the saplings such a site owes are planted from the town walk. `plan` the town's head plan (the trunk guard's
+ * reservations). Never throws.
  */
-function leafFellCtx (bot, bp, plot) {
+function leafFellCtx (bot, bp, plot, plan = null) {
   if (!LEAFFELL_ON) return {}
   try {
-    const owned = recordOwned(), closed = leafZoneClosed(bot)
+    // r2: the plan's trunk guard is the retrofit's -- a protected zone, a plan reservation, and reservations read STRICTLY (an input that
+    // exists and cannot be read closes every trunk: trunkReservations), once a search
+    const sr = trunkReservations(bot, plan)
+    const owned = recordOwned(), closed = trunkGuard(sr.res, leafZoneClosed(bot), sr.why)
     const logRole = role => (bp.palette?.[role] ?? []).some(n => /_(log|wood|stem|hyphae)$/.test(String(n)) || /^\$.*log/.test(String(n)))
     return { leafReplantDomain: () => true,
       leafFell: {
@@ -21960,7 +22031,7 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     const bp = styledBlueprint(blueprintOf(TOWNHALL_BLUEPRINT), ts.style)
     const prd = planReader(bot)
     const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT, ...paSiteCtx(prd, TOWNHALL_PLOT), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, { ...(sp.earth ?? TOWNHALL_EARTH), owned: recordOwned() }),
-      ...leafFellCtx(bot, bp, TOWNHALL_PLOT),   // leaffell-01show
+      ...leafFellCtx(bot, bp, TOWNHALL_PLOT, plan),   // leaffell-01show
       earth: sp.earth ?? TOWNHALL_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -22050,7 +22121,7 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
       const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
       const prd = planReader(bot)
       const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot, ...paSiteCtx(prd, plot), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
-        ...leafFellCtx(bot, bp, plot),   // leaffell-01show
+        ...leafFellCtx(bot, bp, plot, plan),   // leaffell-01show
         earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
       { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)

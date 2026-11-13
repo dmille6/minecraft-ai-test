@@ -187,7 +187,21 @@ export const trunkReserved = (res, [x, y, z]) => (res.column(x, z, y, y) || cell
 /** THE TRUNK GUARD of a fell-first plan (leaffell.mjs leafFellPlan `closed`) -> (x, y, z) -> reason | null: `trunk_closed` in a protected
  *  zone (`zoneClosed`), `leaf_tree_reserved` in a reservation (trunkReserved), `reservations_unread` when the town's reservations could
  *  not be read (`res` null: nothing is felled on a guess). Pure. */
-export const trunkGuard = (res, zoneClosed = null) => (x, y, z) => (zoneClosed?.(x, y, z) ? 'trunk_closed' : !res ? 'reservations_unread' : trunkReserved(res, [x, y, z]))
+export const trunkGuard = (res, zoneClosed = null, unread = 'reservations_unread') => (x, y, z) => (zoneClosed?.(x, y, z) ? 'trunk_closed' : !res ? String(unread || 'reservations_unread') : trunkReserved(res, [x, y, z]))
+/**
+ * leaffell-01show r2 (Codex r2 BLOCKER): THE RESERVATIONS A TRUNK GUARD MAY TRUST -> { res, why: null } | { res: null, why }. Pure.
+ * reservations() over inputs that each SAY whether they were read: the siting's own readers answer "none" for a record that is absent
+ * AND for one that exists and cannot be read (skills.mjs treeFarmCells: an unparseable farm record is an empty farm), so the guard
+ * built on them let a tree of an unreadable tree farm be felled. `inputs` = { zonesKnown, zones, farm: { ok, why, cells: [[x, z]] },
+ * wells: { ok, why, cells: [[x, y, z]] }, z0: { ok, why, z0 } }; an input that is not `ok` (or missing) names the refusal: nothing is
+ * felled on a guess. A record that is ABSENT is ok and empty.
+ */
+export function reservationsStrict (plan, { zonesKnown = false, zones = [], farm = null, wells = null, z0 = null } = {}) {
+  if (!plan) return { res: null, why: 'plan_unread' }
+  if (!zonesKnown) return { res: null, why: 'zones_unknown' }
+  for (const [name, inp] of [['treefarm', farm], ['wells', wells], ['monument', z0]]) if (!inp?.ok) return { res: null, why: String(inp?.why ?? `${name}_unread`) }
+  return { res: reservations(plan, { zones, wells: wells.cells ?? [], farm: farm.cells ?? [], z0: z0.z0 ?? null }), why: null }
+}
 /** The connected logs of a tree from one log (26-neighbour, bounded) -> [[x, y, z]]. Pure. */
 export function treeOf (read, start, max = TREE.maxLogs) {
   const seen = new Set([k3(...start)]), out = [start], q = [start]
