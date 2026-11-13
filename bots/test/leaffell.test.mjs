@@ -642,7 +642,7 @@ await t('the retrofit, the two styled sitings, the visit and the effects are wir
   assert.ok(sk.includes('...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })'))
   assert.ok(bb.includes("const d = zoneDecision({ zones, op: 'dig', cell: { x: c[0], y: c[1], z: c[2] }, purpose: 'target', name, nameRule: zoneGuardOn(),"), 'the effects ask the guard\'s own decision')
   assert.ok(bs.includes("if (typeof ctx.cellClears === 'function' && ctx.leafFell !== undefined) ctx.cellClears.leafFell = ctx.leafFell"))
-  assert.ok(br.includes('standMs = STAND_MS, leafFell = LEAFFELL_ON } = {}) {'), 'the visit\'s default is the switch')
+  assert.ok(br.includes('standMs = STAND_MS, leafFell = LEAFFELL_ON, tempStand: tempStandOpt = TEMPSTAND_ON } = {}) {'), 'the visit\'s default is the switch (tempstand-01\'s option sits beside it)')
   assert.ok(br.includes("        if (leafFell && typeof e.zoneClosed === 'function') {"))
   // r1: the hold, the trunk guard, the cooperative proofs
   assert.ok(sk.includes('    const marked = idleMarks(waitBackoff(waited, b?.shopWait ?? null, now), b?.shopIdle ?? null, now)'), 'the picker reads the holds')
