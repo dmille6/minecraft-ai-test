@@ -113,6 +113,8 @@ function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok', items = [], 
         // 'nopath': the library's own rejection when the A* drained its heap; 'changed': another goal took over;
         // 'short': the bot gets 6 blocks toward the exit and no further; 'stay': the library's empty-path RESOLVE
         if (walk === 'nopath') throw Object.assign(new Error('No path to the goal!'), { name: 'NoPath' })
+        // 'budget': skills.mjs withTimeout's own rejection when the walk's time ran out (the bot did not move)
+        if (walk === 'budget') throw Object.assign(new Error('walking out of the town before gathering exceeded 25000ms'), { failClass: 'walking out of the town before gathering_budget', budgetExceeded: true })
         if (walk === 'changed') throw Object.assign(new Error('The goal was changed before it could be completed!'), { name: 'GoalChanged' })
         if (walk === 'hang') return new Promise((resolve, reject) => { hang.reject = reject })
         const p = bot.entity.position
@@ -186,8 +188,8 @@ test('CHAIN: the walk is taken over by another goal -> not a trap; the next exit
 })
 // THE DEAD END CODEX NAMED (review 11-13): a bot with nothing to climb with, in a pit inside the zone. No route starts where
 // it stands, so it cannot walk out; the dirt beside it is its way out (climbPrerequisite asks for exactly that).
-for (const mode of ['stay', 'nopath']) {
-  test(`CHAIN, TRAPPED (${mode === 'stay' ? 'the walk resolves on an empty path' : 'the walk rejects NoPath'}): the bot keeps the ground beside it -- a few cells, near where it stands, and no more`, async () => {
+for (const mode of ['stay', 'nopath', 'budget']) {
+  test(`CHAIN, TRAPPED (${mode === 'stay' ? 'the walk resolves on an empty path' : mode === 'nopath' ? 'the walk rejects NoPath' : 'the walk spends its whole budget without moving'}): the bot keeps the ground beside it -- a few cells, near where it stands, and no more`, async () => {
     const pit = []
     for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])      // around the bot
     const { bot, digs, walks } = gatherWorld({ dirt: [...pit, ...zoneDirt.filter(([x]) => x >= 230)], at: [224.5, 64, 200.5], walk: mode })
@@ -208,12 +210,31 @@ test('MUTANT KILLED: without the trap, the pit is the dead end -- a bot that can
     assert.equal(digs.length, 0); assert.notEqual(r.status, 'success')
   })
 })
+test('MUTANT KILLED: without the budget case, a bot whose walk times out where it stands is refused and gets no dirt (the loop Iris ran nine times)', async () => {
+  const src = readFileSync(new URL('../src/cleanzone.mjs', import.meta.url), 'utf8')
+  const old = "  if (err && err.name !== 'NoPath' && err.budgetExceeded !== true) return false\n"
+  assert.ok(src.split(old).length === 2, 'ANCHOR MISSING or not unique')
+  const czOut = new URL(`./_mutant-cz-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(czOut, src.replace(old, "  if (err && err.name !== 'NoPath') return false\n").replace(/from '\.\//g, "from '../src/"))
+  try {
+    const name = czOut.pathname.split('/').pop()
+    await withMutantsAll(SKILLS_URL, [["from './cleanzone.mjs'   // cleanzone-02", `from '../test/${name}'   // cleanzone-02`]], async mod => {
+      const pit = []
+      for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])
+      const { bot, digs, walks } = gatherWorld({ dirt: pit, at: [224.5, 64, 200.5], walk: 'budget' })
+      const r = await run(mod, bot, { block: 'dirt', count: 16 })
+      assert.equal(digs.length, 0); assert.equal(walks.length, CZ.GATHER_ZONE.exits); assert.equal(r.status, 'failed')
+    })
+  } finally { try { unlinkSync(czOut) } catch {} }
+})
 test('TRAP, pure: only a walk that went nowhere with no route (resolved, or NoPath) is a trap; it allows few cells, near, briefly', () => {
   const from = { x: 224, y: 64, z: 200 }
   assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, null), true, 'resolved without moving: the empty path')
   assert.equal(CZ.gatherWalkTrapped(from, { x: 225, y: 63, z: 201 }, Object.assign(new Error('x'), { name: 'NoPath' })), true)
   assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, Object.assign(new Error('x'), { name: 'GoalChanged' })), false, 'a reflex took the goal: not a trap')
-  assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, Object.assign(new Error('walking exceeded 25000ms'), { budgetExceeded: true })), false, 'a timeout is not a trap')
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, Object.assign(new Error('walking exceeded 25000ms'), { budgetExceeded: true })), true, 'the whole budget spent without moving: no route starts here either (Iris, 11-13)')
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 240, y: 64, z: 200 }, Object.assign(new Error('walking exceeded 25000ms'), { budgetExceeded: true })), false, 'a budget that ran out on a bot that MOVED is a long walk, not a trap')
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, new Error('some other failure')), false, 'an unnamed failure is not a trap')
   assert.equal(CZ.gatherWalkTrapped(from, { x: 226, y: 64, z: 200 }, null), false, 'it moved')
   assert.equal(CZ.gatherWalkTrapped(from, null, null), false)
   const trap = CZ.gatherTrapOf({ x: 224, y: 64, z: 200 }, 1000)

@@ -240,8 +240,8 @@ export const cleanZoneModeDetail = (env = process.env, zone = null, T = CLEAN_ZO
 // A BOT THAT CANNOT LEAVE WHERE IT STANDS KEEPS ITS WAY OUT (Codex review 11-13, a blocker: a bot with no scaffold in a
 // shallow pit inside the zone must gather the dirt beside it to climb -- climbPrerequisite demands it -- and the ban on
 // placing means it cannot walk out either). When the walk to an exit did not move the bot (mineflayer-pathfinder's goto
-// RESOLVES on an empty path, and rejects `NoPath` otherwise: both are "no route starts here"; a changed goal or a timeout
-// is neither), the rule is lifted for at most trapMax cells within trapR of that spot for trapMs. Written `op=trapped`.
+// RESOLVES on an empty path, and rejects `NoPath` otherwise: both are "no route starts here", and so is a walk that spent
+// its whole budget without moving; a changed goal is not), the rule is lifted for at most trapMax cells within trapR of that spot for trapMs. Written `op=trapped`.
 // GATHERZONE=off -> gather is exactly the base's.
 export const GATHER_ZONE = Object.freeze({ deep: 24, out: 6, walkMs: 25_000, exits: 2, trapR: 3, trapMax: 8, trapMs: 90_000, trapMove: 2, climbTries: 2 })
 // ORES STAY AS THEY ARE (townground.mjs counts `_ore` as terrain; this rule does not): iron and coal are reached by the ore
@@ -279,7 +279,12 @@ export function gatherExitPoints (from, zone, T = GATHER_ZONE) {
  *  rejected with (null: it resolved); `from` / `at` the bot's cell before and after. */
 export function gatherWalkTrapped (from, at, err = null, T = GATHER_ZONE) {
   if (!from || !at) return false
-  if (err && err.name !== 'NoPath') return false
+  // ... or the walk ran out its WHOLE budget without moving (cleanzone-03, measured on the showcase 11-13 16:31-16:57Z: Iris
+  // stood at -33,64,-28; her searches never drained -- a large enclosed space times out, it does not answer NoPath -- so
+  // each 25-s walk ended on skills.mjs withTimeout's budget, the trap never fired, and gather -> two walks -> refused ran
+  // nine times in 26 minutes; 16 of the hour's 17 failed walk-outs were hers, while the bots that could move covered 46-55
+  // blocks inside the same budget). A changed goal is still not a trap: something else took the walk.
+  if (err && err.name !== 'NoPath' && err.budgetExceeded !== true) return false
   return Math.abs(at.x - from.x) < T.trapMove && Math.abs(at.z - from.z) < T.trapMove
 }
 /** The trap a walk found -> { at: [x, y, z], until, left }. Pure. */
