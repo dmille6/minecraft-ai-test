@@ -878,6 +878,13 @@ export function siteStillBegin (bot, maxMs, { now = Date.now(), marginMs = 15_00
   bot.stationaryUntil = Math.max(Number(bot.stationaryUntil) || 0, until)
   return { bot, until }
 }
+/**
+ * sitebox-01 (Claude r1 BLOCKER): DOES THIS ANSWER END THE WHOLE SITING? -> 'aborted' | 'search_time' | null. Pure. A siting that
+ * tries several blueprints, styles or bands in a loop (the cottage's styles, the yard's sizes, the hub's steps) ends at the FIRST
+ * search the box ended: ONE box a siting -- else every try gets its own 100 s, the visit runs to the runner's 180-s abort standing
+ * still, and nothing is recorded (worse than the reflex's 35 s). `aborted` ends it as before.
+ */
+export const siteLoopEnds = s => (s?.why === 'aborted' ? 'aborted' : s?.why === 'search_time' ? 'search_time' : null)
 /** sitebox-01: ...given back -- only this search's own declaration (a later, longer one of another's stands). */
 export function siteStillEnd (token) { if (token?.bot && token.bot.stationaryUntil === token.until) token.bot.stationaryUntil = 0 }
 /** THE SEARCH as a generator: yields between anchors and proofs (siteBlueprint runs it straight through). */

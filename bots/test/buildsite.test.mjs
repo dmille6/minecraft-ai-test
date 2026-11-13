@@ -314,6 +314,17 @@ await t('SITEBOX-01: the hook is called once round every search, however it ends
   await withMutant(BS_PATH, OLD, "  } finally { /* never given back */ }\n", async M => { try { await scenario(M) } catch (e) { why = e } })
   assert.ok(why instanceof assert.AssertionError && /HOOK-PAIRS/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 90) ?? 'survived'}`)
 })
+await t('SITEBOX-01 (review r1, Claude): one box a SITING -- a caller that tries several blueprints in a loop ends at the first search the box ended (and at an abort, as before), never at another refusal; the three looping callers use it', () => {
+  assert.strictEqual(B.siteLoopEnds({ ok: false, why: 'search_time' }), 'search_time')
+  assert.strictEqual(B.siteLoopEnds({ ok: false, why: 'aborted' }), 'aborted')
+  for (const s of [{ ok: true, why: 'ok' }, { ok: false, why: 'no_proven_site' }, { ok: false, why: 'no_free_sector' }, null, undefined, {}]) assert.strictEqual(B.siteLoopEnds(s), null, JSON.stringify(s))
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  // every `for` loop that awaits the search ends through siteLoopEnds: three loops (yard, hub, cottage), no bare `aborted`-only exit left in one
+  assert.strictEqual(sk.split("{ const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }").length - 1, 3, 'the three looping sitings')
+  const calls = sk.split('await siteBlueprintAsync(').length - 1
+  assert.strictEqual(calls, 6, `control: six cooperative searches in skills.mjs (${calls})`)
+  assert.strictEqual(sk.split("if (s.why === 'aborted') return { ok: false, why: 'aborted'").length - 1, 3, 'the three single-search sitings (town hall, landmark, enchanting workshop) keep their own exit: their one failed search IS the siting\'s answer')
+})
 await t('SITEBOX-01 wired (structural, comments stripped): skills.mjs installs the declaration over this process\'s bot under the switch; the stuck reflex reads stationaryUntil', () => {
   const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const sk = strip('../src/skills.mjs')

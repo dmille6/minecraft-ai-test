@@ -128,7 +128,7 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint, walkFrom as siteWalkFrom } from './buildsite.mjs'
-import { siteBoxOn, setSiteSearchHook, siteStillBegin, siteStillEnd } from './buildsite.mjs'   // sitebox-01: a site search declares the bot still, and has a time box
+import { siteBoxOn, setSiteSearchHook, siteStillBegin, siteStillEnd, siteLoopEnds } from './buildsite.mjs'   // sitebox-01: a site search declares the bot still, and has a time box
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
 import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's keep
@@ -18002,7 +18002,7 @@ async function yardSiteFor (bot, plan, c, stood, signal = null) {
       // cooperative (buildsite.mjs siteBlueprintAsync): a search out to 80 runs 10-60 s and must never stall the bot's keep-alives
       const s = await siteBlueprintAsync(read, plan, blueprintOf(step.blueprint), { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors, plot: YARD_PLOT,
         earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, sectorBy: step.sectorBy, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted })
-      if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+      { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${step.blueprint}/${step.band}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
       if (s.ok) {
         // the search yields for 10-60 s (Claude r1 note): a record, marker or reservation published meanwhile is read again
@@ -21225,7 +21225,7 @@ async function hubSiteFor (bot, plan, c, stood, signal = null) {
     for (const step of hubSitingPlan(plan.home, store)) {
       const s = await siteBlueprintAsync(read, plan, bp, { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: [{ sector: null, source: step.source }], plot: HUB_PLOT,
         earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted })
-      if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+      { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${step.source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
       if (!s.ok) continue
       // 'store': only a site whose pad lies within HUB_SITE.storeGap of the storehouse is "beside" it (the domain reaches farther so a
@@ -21980,7 +21980,7 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
       const prd = planReader(bot)
       const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot, ...paSiteCtx(prd, plot), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
         earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
-      if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
+      { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
       if (!s.ok) { last = { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried }; continue }
       const fresh = cottageSitingPlan(plan.home, o.plot, zonesNow()).zones
