@@ -17404,8 +17404,10 @@ export const townPlanNow = bot => {
  * leaffell-01show r2 (Codex r2 BLOCKER): THE RESERVATIONS' RECORD FILES, READ STRICTLY -> { farm: { ok, why, cells: [[x, z]] }, wells:
  * { ok, why, cells: [[x, y, z]] } }. Pure over the directory (`dir` the town's, `home` { x, y, z }; `fsx` node:fs). The same files
  * treeFarmCells and shopCtx read -- which answer "none" for a file that exists and cannot be read -- with ABSENT told from UNREADABLE:
- *   the tree farm     `treefarm-<home>.g<N>.json`: no such file: ok, empty. Files exist and NONE parses (treeFarmRecordCells' rule, the
- *                     lid's: the highest that parses is the record), or the directory cannot be listed: `treefarm_unreadable`
+ *   the tree farm     `treefarm-<home>.g<N>.json`: no such file: ok, empty. The NEWEST generation is the record: when it cannot be
+ *                     read or parsed, or the directory cannot be listed: `treefarm_unreadable`. r3 (Codex r3 BLOCKER): NOT the lid's
+ *                     rule (treeFarmRecordCells: the highest that parses) -- an older generation lacks the columns the newest
+ *                     added, so trusting it let a tree on a newer column be felled. The wells' newest site is read the same way
  *   the junk well     `junkwell-plinth-<home>.json` (its plinth's columns) and the newest `junkwell-site-<home>.g<N>.json` (its site): a
  *                     missing file: ok, nothing. One that exists and does not parse: `wells_unreadable`
  * Never throws.
@@ -17422,14 +17424,14 @@ export function reservationFilesStrict (dir, home, fsx = fs) {
     if (!listed) return bad('treefarm_unreadable')
     const stem = `treefarm-${hk}`, gens = gensOf(stem)
     if (!gens.length) return { ok: true, why: null, cells: [] }
-    for (const g of gens) {
+    for (const g of gens.slice(0, 1)) {   // r3: the newest only -- an older generation is never the fallback
       try {
         const r = JSON.parse(fsx.readFileSync(path.join(dir, `${stem}.g${g}.json`), 'utf8'))
         if (!r || typeof r !== 'object') continue
         const cells = []
         for (const c of r?.record?.cells ?? r?.cells ?? []) if (Number.isFinite(c?.x) && Number.isFinite(c?.z)) cells.push([c.x, c.z])
         return { ok: true, why: null, cells }
-      } catch { /* the next lower */ }
+      } catch { /* unreadable: refused below */ }
     }
     return bad('treefarm_unreadable')
   })()

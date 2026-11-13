@@ -71,9 +71,24 @@ await t('THE BLOCKER: the farm\'s record exists and CANNOT BE PARSED -- every tr
   const lenient = B.reservations(plan(), { farm: [] })
   assert.strictEqual(LF.leafFellPlan(read, CLEAR, [[1, 4, 0]], { closed: B.trunkGuard(lenient) }).ok, true, 'the defect, shown')
 })
-await t('a torn NEWEST generation over an older one that parses reads the older record (the lid rule\'s own: skills.mjs treeFarmRecordCells); a directory that cannot be listed is unreadable', () => {
-  const g = guarded(SK, town({ [`treefarm-${HK}.g5.json`]: '{"record"', [`treefarm-${HK}.g4.json`]: farmRec([[3, 0]]) }))
-  assert.deepStrictEqual(g.files.farm, { ok: true, why: null, cells: [[3, 0]] }); assert.strictEqual(g.pl.blockers[0].why, 'leaf_tree_reserved 3,4,0')
+await t('r3 THE BLOCKER (Codex r3): a torn NEWEST generation is NOT answered from an older one -- g4 lacks the column g5 added (3,0), so nothing is felled (`treefarm_unreadable`); a directory that cannot be listed is unreadable', () => {
+  // POSITIVE CONTROL: g4 alone, the newest and readable, reserves only (40,40) -- the tree at 3,0 is felled (what the fallback would do)
+  const older = guarded(SK, town({ [`treefarm-${HK}.g4.json`]: farmRec([[40, 40]]) }))
+  assert.deepStrictEqual(older.files.farm, { ok: true, why: null, cells: [[40, 40]] }); assert.strictEqual(older.pl.ok, true); assert.strictEqual(older.pl.fell.length, 4)
+  // CONTROL: g5 readable over g4 -- the newest is the record, its tree refused as reserved
+  const whole = guarded(SK, town({ [`treefarm-${HK}.g5.json`]: farmRec([[40, 40], [3, 0]]), [`treefarm-${HK}.g4.json`]: farmRec([[40, 40]]) }))
+  assert.deepStrictEqual(whole.files.farm.cells, [[40, 40], [3, 0]]); assert.strictEqual(whole.pl.blockers[0].why, 'leaf_tree_reserved 3,4,0')
+  for (const body of ['{"record"', '', 'null']) {
+    const g = guarded(SK, town({ [`treefarm-${HK}.g5.json`]: body, [`treefarm-${HK}.g4.json`]: farmRec([[40, 40]]) }))
+    assert.deepStrictEqual(g.files.farm, { ok: false, why: 'treefarm_unreadable', cells: [] }, JSON.stringify(body))
+    assert.deepStrictEqual([g.sr.res, g.sr.why], [null, 'treefarm_unreadable'])
+    assert.strictEqual(g.pl.ok, false); assert.deepStrictEqual(g.pl.fell, [], 'nothing felled'); assert.strictEqual(g.pl.blockers[0].why, 'treefarm_unreadable 3,4,0')
+  }
+  // generations sort by number, not by name: g10 is newer than g9
+  assert.deepStrictEqual(SK.reservationFilesStrict(town({ [`treefarm-${HK}.g10.json`]: '{', [`treefarm-${HK}.g9.json`]: farmRec([[3, 0]]) }), HOME).farm.why, 'treefarm_unreadable')
+  // the newest generation's file gone between the listing and the read is unreadable too, not "the next lower"
+  const gone = { readdirSync: () => [`treefarm-${HK}.g5.json`, `treefarm-${HK}.g4.json`], readFileSync: f => { if (String(f).endsWith('.g5.json')) { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e } return farmRec([[40, 40]]) } }
+  assert.deepStrictEqual(SK.reservationFilesStrict('/town', HOME, gone).farm, { ok: false, why: 'treefarm_unreadable', cells: [] })
   const eacces = { readdirSync: () => { const e = new Error('EACCES'); e.code = 'EACCES'; throw e }, readFileSync: fs.readFileSync }
   const f = SK.reservationFilesStrict('/nowhere', HOME, eacces)
   assert.deepStrictEqual([f.farm.why, f.wells.why], ['treefarm_unreadable', 'wells_unreadable'])
@@ -93,6 +108,13 @@ await t('MUTANT (skills.mjs): an unparseable farm record read as an empty farm (
   await withMutant(SKILLS_URL, "    return bad('treefarm_unreadable')\n  })()\n", "    return { ok: true, why: null, cells: [] }\n  })()\n", async M => {
     const g = guarded(M, town({ [`treefarm-${HK}.g3.json`]: '{"record": {"cells": [{"x": 3' }))
     assert.strictEqual(g.pl.ok, true, 'the mutant fells the tree of a farm it could not read'); assert.strictEqual(g.pl.fell.length, 4)
+  })
+})
+await t('r3 MUTANT (skills.mjs): a torn newest generation falls back to the older one again (the r2 rule) -- the tree on the column only the newest held is felled (killed for that reason)', async () => {
+  await withMutant(SKILLS_URL, '    for (const g of gens.slice(0, 1)) {', '    for (const g of gens) {', async M => {
+    const g = guarded(M, town({ [`treefarm-${HK}.g5.json`]: '{"record"', [`treefarm-${HK}.g4.json`]: farmRec([[40, 40]]) }))
+    assert.deepStrictEqual(g.files.farm, { ok: true, why: null, cells: [[40, 40]] }, 'the mutant trusts g4')
+    assert.strictEqual(g.pl.ok, true, 'the mutant fells the tree g5 reserved'); assert.strictEqual(g.pl.fell.length, 4)
   })
 })
 
