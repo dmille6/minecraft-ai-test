@@ -79,6 +79,9 @@ done
 [ "$(m5 $H/canary-sched.py)" = "$SCHED_BASE" ] || [ "$(m5 $H/canary-sched.py)" = "$(m5 $S/canary-sched.py)" ] \
   || die "live canary-sched.py is not v43 ($SCHED_BASE): re-merge"
 python3 -m py_compile "$S/canary-sched.py" || die "does not compile"
+# v44 is the look-ahead, the held skip and the page guard ONLY. The context-only rule for code (def code_context, the
+# identity check v45 changes) failed two review rounds on 11-13 and must never go in under this name (Codex review of v44).
+grep -q 'code_context' "$S/canary-sched.py" && die "the staged canary-sched.py holds the context-only code rule (code_context): that is v45, not v44 -- stage sched-v44b's sha"
 
 say "2. tests (staging, nice 10)"
 mkdir -p $BK
