@@ -232,7 +232,7 @@ await t('skills.mjs buildReroof asks the obstacles, the reach, the doorstep and 
   const atR = re => { const m = pw.match(re); assert.ok(m, String(re)); return m.index }
   assert.ok(atR(/reroofObstacles\(read, addedAt, \{ decor, recordAt/) < atR(/const p = fx\.leafFell \? await proveY\(clear, null\) : proveWith\(clear, null\)/))
   assert.ok(atR(/const proveWith = \(cl, extra = null\) => proveSite\(PR, home, bpAdd, \{[^\n]*clear: cl, fill: fillOf\(extra\) \}/) < atR(/let rc = reroofClearsReached\(PR, home, clear0/))
-  assert.ok(at(/const pr = await reroofProve\(read, home, rec, bpOld, bpAdd/) < at(/if \(!pr\.ok\) return fail\(pr\.why, pr\.detail\)/))
+  assert.ok(at(/ pr = await reroofProve\(read, home, rec, bpOld, bpAdd/) < at(/if \(!pr\.ok\) return fail\(pr\.why, pr\.detail\)/))   // (the plan runs in the search's box: `let pr` + a try)
   assert.ok(at(/publishRecord\(dir, decorKey\(\), cur => decorRetire\(cur, keys/) < at(/reroofRecord\(cur, p\.cells, bpNew, style, \{ clear, temp: pr\.temp, notch: pr\.notch, replant: pr\.replant \?\? \[\], leaf: pr\.leaf \?\? null \}\)/), 'the decor cells retired before the roof is published')
   assert.ok(/avoid: REROOF_FIX\.avoid && REROOF_SW\.on \? reroofPendingCells\(/.test(SK), 'the decor siting ctx carries the pending cells')
   assert.ok(/f\[plot\] = reroofFailBump\(f\[plot\], \{ fresh: REROOF_FIX\.fresh \}\)/.test(SK) && /failed: reroofFails\(dir\), fresh: REROOF_FIX\.fresh \}/.test(SK))

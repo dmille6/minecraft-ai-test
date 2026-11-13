@@ -153,7 +153,7 @@ import { CIVIC_WALK_R } from './civic.mjs'   // civic-01: the town walk's radius
 import { CIVIC_PLOTS } from './civic.mjs'   // civic-01: the landmarks' plots are sited apart
 import { isCivicPlot, civicKindOf, civicNear, civicLookForStock, civicStockOk, CIVIC_SITE } from './civic.mjs'   // civic-01
 import { CITYWALL_PLOT, citywallDesign, citywallGeneration, citywallNext, designOf, isCitywall, CITYWALL_KEEP, citywallWaiveMore, citywallGatePick, citywallStyleFor, walkSeed } from './citywall.mjs'   // citywall-01
-import { REROOF_FIX, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
+import { REROOF_FIX, reroofPlanStop, reroofPlanEnds, reroofClearsReached, reroofFailBump, reroofPendingCells, reroofProve, reroofFloors, reroofNoLeafFloor, reroofSeeds, reroofStairFeet, reroofApexKeys, reroofFallRisk, reroofTempCells, reroofDismantleDue, reroofDismantle, reroofTempStanding, reroofTempView } from './reroof.mjs'   // reroof-02, reroof-03, reroof-04
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodKitStillMs, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
@@ -21874,9 +21874,17 @@ async function buildReroof (ctx, args, signal) {
   // stair, the digs' reach in the build order) -- the Paper driver and the offline replays run the same function
   // leaffell-01show: a listed natural leaf no stand reaches asks for its trunk -- the proof may list a tree nobody owns (never one in a
   // protected zone: `closed`) and names the saplings it owes (`replantFor`: the siting's own replant cells, planted from the town walk)
-  const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })
+  // r5 (Codex, on sitebox-01): the plan runs in the search's box (reroof.mjs reroofPlanStop / reroofPlanEnds) -- the bot is declared
+  // still for it, so the stuck reflex leaves a working plan alone, and a plan that uses the box up is a failed proof like any other
+  const rbox = siteBox(), still = REROOF_FIX.leafFell && siteBoxOn() ? siteStillBegin(bot, rbox.left()) : null
+  let pr
+  try {
+    pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => reroofPlanStop(signal?.aborted, rbox.left()) } : {}) })
+  } finally { siteStillEnd(still) }
+  const planEnd = reroofPlanEnds(pr, signal?.aborted, rbox.left())
+  if (planEnd === 'search_time') return fail('search_time', 'the plan used its box up')
   // r1: an interrupted plan ended at its next turn -- no failed-proof count, no site wait; the interruption is the runner's
-  if (!pr.ok && pr.why === 'aborted') { check(signal); return out('no_effect', 'aborted', `${t.plot}: the retrofit's proof was interrupted`) }
+  if (planEnd === 'aborted') { check(signal); return out('no_effect', 'aborted', `${t.plot}: the retrofit's proof was interrupted`) }
   if (!pr.ok && pr.leafBlocker) leafRow(bot, t.plot, { ok: false, cell: pr.leafBlocker.at, why: leafBlockerText(pr.leafBlocker) })
   if (!pr.ok) return fail(pr.why, pr.detail)
   const { p, clear, step } = pr

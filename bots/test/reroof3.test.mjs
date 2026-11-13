@@ -146,7 +146,7 @@ await t('wired (structural, comments stripped): buildReroof passes its own cells
   assert.ok(rr.includes('if (rc.ok || !fx.ordered) return { ok: rc.ok, clear: clear0, p: p0, rc }'))
   assert.ok(rr.includes('const g = reroofCanopyGrow(read, clear0, list => ordered(list, p0.cells), { own, recordAt, roofTrees: fx.roofTree })'))
   assert.ok(rr.includes("blockOf: c => ({ name: nameOf(c.role), boundingBox: c.role === 'light' ? 'empty' : 'block'"))
-  assert.ok(sk.includes('const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })'))
+  assert.ok(sk.includes('pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => reroofPlanStop(signal?.aborted, rbox.left()) } : {}) })'))
   assert.ok(sk.includes('reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch, replant: pr.replant ?? [], leaf: pr.leaf ?? null })'))
   assert.ok(RR.reroofModeDetail(true, RR.reroofFixes({})).includes('rooftree=1 ordered=1'))
   assert.strictEqual(RR.reroofFixes({ REROOF_ORDERED: 'off' }).ordered, false)

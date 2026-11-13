@@ -639,7 +639,7 @@ await t('the retrofit, the two styled sitings, the visit and the effects are wir
   assert.ok(sk.includes('  if (!LEAFFELL_ON) return {}'))
   assert.ok(sk.includes("const leafFellVisitOpts = (bot, rec) => (LEAFFELL_ON && rec?.leaffell?.trees ? { replantDomain: () => true, replantGoOn: true, saplingAbsent: swSaplingAbsent(bot) } : {})"), 'never replantPerTree: the read\'s G5 counts the record\'s whole replant list at each felling')
   assert.ok(sk.includes('    Object.assign(storeOpts, leafFellVisitOpts(bot, rec))'))
-  assert.ok(sk.includes('...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })'))
+  assert.ok(sk.includes('...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => reroofPlanStop(signal?.aborted, rbox.left()) } : {}) })'))
   assert.ok(bb.includes("const d = zoneDecision({ zones, op: 'dig', cell: { x: c[0], y: c[1], z: c[2] }, purpose: 'target', name, nameRule: zoneGuardOn(),"), 'the effects ask the guard\'s own decision')
   assert.ok(bs.includes("if (typeof ctx.cellClears === 'function' && ctx.leafFell !== undefined) ctx.cellClears.leafFell = ctx.leafFell"))
   assert.ok(br.includes('standMs = STAND_MS, leafFell = LEAFFELL_ON, tempStand: tempStandOpt = TEMPSTAND_ON } = {}) {'), 'the visit\'s default is the switch (tempstand-01\'s option sits beside it)')
@@ -652,8 +652,12 @@ await t('the retrofit, the two styled sitings, the visit and the effects are wir
   assert.ok(sk.includes('  const sr = trunkReservations(bot, plan)') && sk.includes('const files = reservationFilesStrict(townDir(), { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })'))
   assert.ok(sk.includes('    return reservationsStrict(plan, { zonesKnown: !!zv?.known, zones: zv?.zones ?? [], farm: files.farm, wells: files.wells, z0 })'))
   assert.ok(bs.includes('if (xc?.fellLogs?.some(at => trunkReserved(res, at))) {'), 'the siting asks the same helper')
-  assert.ok(sk.includes("  if (!pr.ok && pr.why === 'aborted') { check(signal); return out('no_effect', 'aborted',"), 'an interrupted proof is no failed proof (no count, no site wait)')
-  assert.ok(sk.indexOf("if (!pr.ok && pr.why === 'aborted')") < sk.indexOf('if (!pr.ok) return fail(pr.why, pr.detail)'))
+  assert.ok(sk.includes("  if (planEnd === 'aborted') { check(signal); return out('no_effect', 'aborted',"), 'an interrupted proof is no failed proof (no count, no site wait)')
+  assert.ok(sk.indexOf("if (planEnd === 'aborted')") < sk.indexOf('if (!pr.ok) return fail(pr.why, pr.detail)'))
+  // r5 (Codex, on sitebox-01): the plan in the search's box -- one box, the bot declared still for exactly the plan, the box's end a failed proof
+  assert.strictEqual(sk.split('  const rbox = siteBox(), still = REROOF_FIX.leafFell && siteBoxOn() ? siteStillBegin(bot, rbox.left()) : null').length, 2)
+  assert.strictEqual(sk.split('  } finally { siteStillEnd(still) }\n  const planEnd = reroofPlanEnds(pr, signal?.aborted, rbox.left())').length, 2, 'the hold ends with the plan, however it ends')
+  assert.ok(sk.indexOf("  if (planEnd === 'search_time') return fail('search_time', 'the plan used its box up')") > 0 && sk.indexOf("if (planEnd === 'search_time')") < sk.indexOf("if (planEnd === 'aborted')"), 'the box\'s end takes the failed proof\'s site wait (fail), never the interruption\'s free exit')
   assert.ok(rr.includes('const p = fx.leafFell ? await proveY(clear, null) : proveWith(clear, null)') && rr.includes('const q = fx.leafFell ? await proveY(clear, keys) : proveWith(clear, keys)'), 'the roof\'s own proofs are driven as steps (bots/test/reroof4.test.mjs traces the whole plan)')
 })
 

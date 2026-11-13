@@ -650,6 +650,17 @@ const tick = () => new Promise(r => setImmediate(r))
  *  named, an interrupted plan ENDS at its next turn (thrown here, answered by reroofProve as { ok: false, why: 'aborted' }): a re-roof
  *  plan is minutes of walks, and before this nothing but its end could stop it. Switch off, or no `aborted`: the plain turn. */
 const REROOF_ABORTED = Symbol('reroof-aborted')
+/**
+ * r5 (Codex, the restack onto sitebox-01): THE RETROFIT'S PLAN RUNS IN THE SEARCH'S BOX. The plan is not a siteBlueprintAsync search,
+ * so sitebox-01's hook and time box never reached it: a plan of minutes was cut by the stuck reflex at ~35 s, ended `aborted` with
+ * no failed-proof hold, and the same building was planned again at the next visit, for ever. skills.mjs gives the plan the siting's
+ * box (buildsite.mjs siteBox) and declares the bot still for it (siteStillBegin); these two say when it stops and how it ended. Pure.
+ *   reroofPlanStop(interrupted, left) -> bool: the plan's `aborted()` -- the runner's interruption, or the box used up
+ *   reroofPlanEnds(pr, interrupted, left) -> null | 'aborted' | 'search_time': a plan that stopped on the BOX (not interrupted) is an
+ *     ordinary failed proof, `search_time`: the caller counts it and sets the site wait; an interruption stays the runner's
+ */
+export const reroofPlanStop = (interrupted, left) => !!interrupted || !(left > 0)
+export const reroofPlanEnds = (pr, interrupted, left) => (!pr || pr.ok || pr.why !== 'aborted' ? null : (!interrupted && !(left > 0) ? 'search_time' : 'aborted'))
 const plainTick = tick
 const turnOf = (fx, aborted) => (fx?.leafFell && typeof aborted === 'function' ? async () => { await plainTick(); if (aborted()) throw REROOF_ABORTED } : plainTick)
 /** (LEAVES) A reader whose NATURAL leaves are an obstacle but no floor (a fence's box: blocks the walk, the sight line, the head) -> reader.

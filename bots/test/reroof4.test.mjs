@@ -302,7 +302,7 @@ await t('MUTANT: `stairFirst` ignored -- the clear comes first again (killed for
 await t('wired (structural, comments stripped): buildReroof asks reroofProve and publishes temp+notch; the shop visit passes the floors and tears the stair down; recordDamaged asks the stair\'s state', () => {
   const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const sk = strip('../src/skills.mjs')
-  assert.strictEqual(sk.split('const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })').length, 2)
+  assert.strictEqual(sk.split('pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => reroofPlanStop(signal?.aborted, rbox.left()) } : {}) })').length, 2)
   assert.ok(sk.includes('reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch, replant: pr.replant ?? [], leaf: pr.leaf ?? null })'))
   assert.ok(sk.includes("    Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))"))
   assert.ok(sk.includes('...(REROOF_FIX.fallSafe && home ? { avoid: rd => reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90,'), 'the visit avoids the risky ledges')
@@ -531,6 +531,38 @@ await t('`aborted()`: an interrupted plan ends at its next turn ({ ok: false, wh
   const never = await planTrace(RR, {}, { aborted: () => false })
   sameAnswer(never.r, onTrace.r)
   assert.ok(!never.seq.includes('WW'))
+})
+await t('r5 (Codex, on sitebox-01) THE PLAN IN THE SEARCH\'S BOX: a plan that uses its box up stops at its next turn and ends `search_time` (a failed proof: the caller sets the site wait); an interruption stays `aborted`; a plan that finishes is neither', async () => {
+  // the pure rules
+  assert.deepStrictEqual([RR.reroofPlanStop(false, 5_000), RR.reroofPlanStop(false, 0), RR.reroofPlanStop(true, 5_000), RR.reroofPlanStop(false, Infinity)], [false, true, true, false], 'PLAN-STOP')
+  assert.strictEqual(RR.reroofPlanEnds({ ok: false, why: 'aborted' }, false, 0), 'search_time', 'BOX-IS-A-FAILED-PROOF')
+  assert.strictEqual(RR.reroofPlanEnds({ ok: false, why: 'aborted' }, true, 0), 'aborted', 'an interruption is the runner\'s, even at the box\'s end')
+  assert.strictEqual(RR.reroofPlanEnds({ ok: false, why: 'aborted' }, true, 9_000), 'aborted')
+  assert.deepStrictEqual([RR.reroofPlanEnds({ ok: true }, false, 0), RR.reroofPlanEnds({ ok: false, why: 'clear_unreached' }, false, 0), RR.reroofPlanEnds(null, false, 0)], [null, null, null], 'a plan that ended by itself keeps its own answer')
+  // composed with the real plan: the box runs out after five turns, nobody interrupts
+  let turns = 0
+  const left = () => (turns > 5 ? 0 : 60_000)
+  const boxed = await planTrace(RR, {}, { aborted: () => { turns++; return RR.reroofPlanStop(false, left()) } })
+  assert.deepStrictEqual([boxed.r.ok, boxed.r.why], [false, 'aborted'])
+  assert.ok(boxed.walks < onTrace.walks, `BOX-STOPS-THE-PLAN: ended after ${boxed.walks} walks of ${onTrace.walks}`)
+  assert.strictEqual(RR.reroofPlanEnds(boxed.r, false, left()), 'search_time', 'BOX-ENDS-NAMED')
+  // SITEBOX off (the box is infinite): the plan runs to its own end, as before
+  const free = await planTrace(RR, {}, { aborted: () => RR.reroofPlanStop(false, Infinity) })
+  sameAnswer(free.r, onTrace.r)
+})
+await t('r5 MUTANTS (reroof.mjs): a box that never stops the plan dies on BOX-STOPS-THE-PLAN; a box\'s end read as an interruption dies on BOX-ENDS-NAMED', async () => {
+  let why = null
+  await withMutant(RR_PATH, 'export const reroofPlanStop = (interrupted, left) => !!interrupted || !(left > 0)\n', 'export const reroofPlanStop = (interrupted, left) => !!interrupted\n', async M => {
+    let turns = 0; const left = () => (turns > 5 ? 0 : 60_000)
+    const m = await planTrace(M, {}, { aborted: () => { turns++; return M.reroofPlanStop(false, left()) } })
+    try { assert.ok(m.r.why === 'aborted' && m.walks < onTrace.walks, 'BOX-STOPS-THE-PLAN') } catch (e) { why = e }
+  })
+  assert.ok(why instanceof assert.AssertionError && /BOX-STOPS-THE-PLAN/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
+  why = null
+  await withMutant(RR_PATH, "(!interrupted && !(left > 0) ? 'search_time' : 'aborted'))\n", "'aborted')\n", async M => {
+    try { assert.strictEqual(M.reroofPlanEnds({ ok: false, why: 'aborted' }, false, 0), 'search_time', 'BOX-ENDS-NAMED') } catch (e) { why = e }
+  })
+  assert.ok(why instanceof assert.AssertionError && /BOX-ENDS-NAMED/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
