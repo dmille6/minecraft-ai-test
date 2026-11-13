@@ -2364,7 +2364,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     const notTown = id => b => {
       if (!b || b.type !== id) return false
       if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
-      if (b.position && gatherZoneHit(bot, b.position, b.name)) { zoneSkipped++; return false }   // cleanzone-02: AT ENUMERATION, for the same reason
+      // cleanzone-02: AT ENUMERATION, for the same reason. Counted IN RANGE only: mineflayer calls the matcher before its own
+      // distance test, and a zone cell beyond the search is not what emptied it (Claude review 11-13)
+      if (b.position && gatherZoneHit(bot, b.position, b.name)) { if (searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) zoneSkipped++; return false }
       if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
@@ -2412,11 +2414,15 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // CLEANZONE-02: THE REMEDY IS PERFORMED. The clean zone emptied this search (it skipped ground and nothing else was in
     // range): walk to the nearest exit beyond the zone and search again from there -- at most GATHER_ZONE.exits walks a run.
     // Only when no exit is reached does the run fail, naming the exit a `goto` can be given.
+    // ONLY FOR A BOT INSIDE THE SQUARE (Claude review 11-13, a blocker): one that stands beyond it -- it walked out, or was
+    // never in -- has performed the remedy already; with nothing to take there the answer is the base's `nothing_found`
+    // below (a place-scoped lesson), not a refusal telling it to go where it is.
     const zoneSkippedNow = zoneSkipped; zoneSkipped = 0
-    if (positions.length === 0 && zoneSkippedNow > 0 && !caveInBorder().length) {
-      const gz = gatherZoneNow(), from = bot.entity?.position?.floored?.() ?? null
+    const gzFrom = bot.entity?.position?.floored?.() ?? null
+    if (positions.length === 0 && zoneSkippedNow > 0 && !caveInBorder().length && gzFrom && inZoneSquare(gatherZoneNow(), gzFrom.x, gzFrom.z)) {
+      const gz = gatherZoneNow(), from = gzFrom
       if (gz && !_gzModeSaid.has(bot)) { _gzModeSaid.add(bot); try { logEvent({ kind: 'gather_zone', status: 'success', detail: gatherZoneModeDetail(process.env, gz) }) } catch { /* telemetry */ } }
-      const exits = gz && from && inZoneSquare(gz, from.x, from.z) ? gatherExitPoints(from, gz) : []
+      const exits = gatherExitPoints(from, gz)
       if (collected === 0 && zoneWalked < GATHER_ZONE.exits && zoneWalked < exits.length) {
         const to = exits[zoneWalked]; zoneWalked++; zoneExit = to
         const t0 = Date.now(); let walkErr = null
@@ -2432,6 +2438,13 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         const outNow = !!at && !inZoneSquare(gz, at.x, at.z)
         // NO ROUTE STARTS HERE (a pit): the bot keeps its way out -- the ground beside it, a few cells, for a short while
         if (!outNow && gatherWalkTrapped(from, at, walkErr)) {
+          // ... unless it already holds what a climb needs (Claude review 11-13): then the way out is `surface`, not more digging
+          const held = scaffoldCount(bot.inventory?.items?.() ?? [])
+          if (held >= GATHER_ZONE.trapMax) {
+            try { logEvent({ kind: 'gather_zone', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=trapped_holding block=${blockName} pos=${at.x},${at.y},${at.z} held=${held}` }) } catch { /* telemetry */ }
+            return { status: 'failed', failClass: 'no_safe_target',
+                     detail: `no ${blockName} here that may be taken, and no route starts where you stand: you hold ${held} blocks to climb with -- use surface to get out, then gather beyond the town (${gatherZoneRemedy(gz, to)})` }
+          }
           bot.gatherTrap = gatherTrapOf(at, Date.now())
           try { logEvent({ kind: 'gather_zone', status: 'success', snapshot: snapshot(bot), detail: `op=trapped block=${blockName} pos=${at.x},${at.y},${at.z} to=${to.x},${to.z} r=${GATHER_ZONE.trapR} max=${GATHER_ZONE.trapMax} ms=${GATHER_ZONE.trapMs}` }) } catch { /* telemetry */ }
           continue

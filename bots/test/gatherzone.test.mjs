@@ -31,7 +31,7 @@ async function withMutantsAll (url, pairs, fn) {
   writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
-const ENUM = ["      if (b.position && gatherZoneHit(bot, b.position, b.name)) { zoneSkipped++; return false }", "      if (false) { zoneSkipped++; return false }"]
+const ENUM = ["      if (b.position && gatherZoneHit(bot, b.position, b.name)) { if (searchFrom", "      if (false) { if (searchFrom"]
 const SAFE = ["      !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&", "      true &&"]
 const SWING = ["  else if (gatherZoneHit(bot, block.position, block.name)) {\n", "  else if (false) {\n"]
 
@@ -78,7 +78,7 @@ test('SWITCH and WORDS: GATHERZONE=off turns it off; the remedy names a place a 
 // ---- the refusal chain through the REAL gather -----------------------------------------------------------------------
 // townground.test.mjs's fake bot (findBlocks behaves like mineflayer's: palette pre-check without a position, then per cell),
 // with a pathfinder.goto that WALKS: a GoalNearXZ moves the bot there (walk: 'ok'), throws (walk: 'fail') or goes nowhere.
-function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok' }) {
+function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok', items = [], matcherFirst = false }) {
   const D = mcData.blocksByName.dirt, AIRT = mcData.blocksByName.air
   const set = new Set(dirt.map(([x, y, z]) => `${x},${y},${z}`))
   const rock = new Set(dirt.map(([x, y, z]) => `${x},${y - 1},${z}`))
@@ -93,13 +93,15 @@ function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok' }) {
   const bot = {
     entity: { position: new Vec3(...at), velocity: new Vec3(0, 0, 0), onGround: true, yaw: 0 },
     health: 20, food: 20,
-    inventory: { items: () => [], emptySlotCount: () => 30 },
+    inventory: { items: () => items, emptySlotCount: () => 30 },
     registry: { blocksByName: mcData.blocksByName, blocks: mcData.blocks, itemsByName: mcData.itemsByName },
     blockAt: p => blk(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)),
     findBlocks ({ matching, maxDistance = 16, count = 1 }) {
       const fn = typeof matching === 'function' ? matching : (b => b && (Array.isArray(matching) ? matching.includes(b.type) : b.type === matching))
       if (!fn({ type: D.id, name: 'dirt' })) return []
-      return [...set].map(k => blk(...k.split(',').map(Number))).filter(b => b.position.distanceTo(bot.entity.position) <= maxDistance && fn(b))
+      // matcherFirst: as mineflayer does it (blocks.js: the matcher is asked BEFORE the distance test)
+      const inRange = b => b.position.distanceTo(bot.entity.position) <= maxDistance
+      return [...set].map(k => blk(...k.split(',').map(Number))).filter(b => matcherFirst ? (fn(b) && inRange(b)) : (inRange(b) && fn(b)))
         .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)).slice(0, count).map(b => b.position)
     },
     collectBlock: { movements: {} },
@@ -233,6 +235,49 @@ test('ABORT: an interrupt during the walk halts the path at once and the run end
   assert.ok(hang.halts >= 1, 'the path was halted (setGoal(null))')
   assert.equal(digs.length, 0)
   assert.ok(out.e || out.r?.status !== 'success', 'an interrupted gather is not a success')
+})
+test('A BOT BEYOND THE SQUARE has performed the remedy: with nothing to take there the answer is the base\'s nothing_found, never "go where you are"', async () => {
+  // standing on the east exit; the zone's dirt is in range behind it, nothing else
+  const edge = []
+  for (let i = 0; i < 12; i++) edge.push([258 + (i % 6), 63, 199 + Math.floor(i / 6)])
+  const a = gatherWorld({ dirt: edge, at: [270.5, 64, 200.5] })
+  const ra = await run(SK, a.bot)
+  assert.deepEqual(a.walks, []); assert.equal(a.digs.length, 0)
+  assert.equal(ra.failClass, 'nothing_found', JSON.stringify(ra).slice(0, 200))
+  assert.doesNotMatch(String(ra.detail), /goto -?\d+ 65 -?\d+ and gather there/)
+  // and the same after a walk out that found nothing beyond the exit
+  const b = gatherWorld({ dirt: zoneDirt, at: [224.5, 64, 200.5], walk: 'ok' })
+  const rb = await run(SK, b.bot)
+  assert.deepEqual(b.walks, [[270, 200]], 'one walk; a bot that is out is not walked again')
+  assert.equal(b.digs.length, 0)
+  assert.equal(rb.failClass, 'nothing_found', JSON.stringify(rb).slice(0, 200))
+})
+test('ONLY ZONE CELLS IN RANGE COUNT: the zone\'s dirt beyond the search did not empty it -> the base\'s nothing_found, no walk', async () => {
+  const far = []
+  for (let i = 0; i < 12; i++) far.push([150 + (i % 6), 63, 199 + Math.floor(i / 6)])     // 50+ blocks west of the bot, in the zone
+  const { bot, digs, walks } = gatherWorld({ dirt: far, at: [210.5, 64, 200.5], matcherFirst: true })
+  const r = await run(SK, bot)
+  assert.deepEqual(walks, [], 'nothing in range was skipped: no walk')
+  assert.equal(digs.length, 0); assert.equal(r.failClass, 'nothing_found')
+})
+test('MUTANT KILLED: without the range guard, zone cells beyond the search send the bot walking', async () => {
+  await withMutantsAll(SKILLS_URL, [["{ if (searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) zoneSkipped++; return false }", "{ zoneSkipped++; return false }"]], async mod => {
+    const far = []
+    for (let i = 0; i < 12; i++) far.push([150 + (i % 6), 63, 199 + Math.floor(i / 6)])
+    const { bot, walks } = gatherWorld({ dirt: far, at: [210.5, 64, 200.5], matcherFirst: true })
+    await run(mod, bot)
+    assert.ok(walks.length > 0)
+  })
+})
+test('TRAPPED BUT HOLDING WHAT A CLIMB NEEDS: no digging beside the bot; the refusal names surface', async () => {
+  const pit = []
+  for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])
+  const { bot, digs, walks } = gatherWorld({ dirt: pit, at: [224.5, 64, 200.5], walk: 'stay', items: [{ name: 'dirt', count: 64, type: mcData.itemsByName.dirt.id }] })
+  const r = await run(SK, bot, { block: 'dirt', count: 16 })
+  assert.equal(walks.length, 1); assert.equal(digs.length, 0)
+  assert.equal(bot.gatherTrap, undefined, 'no trap is granted')
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'no_safe_target')
+  assert.match(String(r.detail), /you hold \d+ blocks to climb with -- use surface to get out/)
 })
 test('CHAIN, the exception: a bot down in the mine takes the ground around it without walking anywhere', async () => {
   const deep = []
