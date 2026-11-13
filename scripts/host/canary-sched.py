@@ -136,6 +136,17 @@ a canary takes 3.3-3.85 h (draw <= 0.67 h, +180 read, promotion); 26 canaries in
           with a 60-min tripwire, so a 90-min 20-bot canary is the stricter path. The autorebase writes it; `queue add`
           refuses an unjustified one; H7 re-checks it at launch; ~/digest/FAST-OFF turns it off. canary-loop.sh v39
           and funread.py accept only the two plans in READ_PLANS.
+
+V44 (OWNER 2026-11-13: "how do we fix this reoccuring stall with rebase errors" -> "Yes, build step 1"). The two parts of
+that step that two reviews passed, each for a stall that was measured, and one guard. (The third part -- accepting a
+rebase that only moved CONTEXT lines of code -- is not in v44: the identity check is what v43 has, byte for byte.)
+  1. LOOK AHEAD SPEC_DEPTH entries (spec_target): during a canary's read the next THREE queued changes are rebased onto
+     the canary sha, one build at a time, not only the first. A speculative build that is REFUSED pages the PHONE
+     (level 'warn' with FAILED in its text: pager.py page_tier) and says the run will need a hand rebase before it
+     reaches the head: known hours before the slot is empty.
+  2. A HELD entry can always be passed (skip_kind 'held-no-variant'): glass-01 (11-13) was held AND had no variant for
+     the fleet base; its H2 text was not a skippable kind, so a held entry blocked the head 45 min with an empty slot.
+  3. GUARD: the "built" page of a finished autorebase can no longer turn the DONE job into a refused one (ar_build).
 """
 import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, datetime as dt
 
@@ -166,6 +177,8 @@ AR_RERUN_TIMEOUT_S = 900
 AR_RERUN_BUDGET_S = 80 * 60   # v40: all re-runs of one build; past it no new run starts and an undecided file refuses
 AR_REMOTE_WAIT_S = 100 * 60   # v42: the remote full suite (ci2/.30 via the Mac relay) must answer within this, else local
 SPEC_OFF_NAME = 'SPEC-OFF'    # v42: ~/digest/SPEC-OFF = no speculative build during a canary's read
+SPEC_DEPTH = 3                # v44: the speculative build looks this many eligible entries past the live canary (was 1)
+SPEC_REFUSED_LEVEL = 'warn'   # v44: the page level of a REFUSED speculative build -- with FAILED in its text it reaches the phone
 BUNDLE_MAX = 3           # v41: members per bundle (Codex: start with pairs; Claude: up to four) -- three
 STD_READS, FAST_READS = '90 180', '45 90'
 READ_PLANS = {STD_READS: 240, FAST_READS: 150}   # fun_reads -> deadline_min; canary-loop.sh and funread.py hold the same
@@ -449,6 +462,9 @@ def waited_on(run, st):
 # v43: the two block texts skip_kind recognises, written by ar_view (H2) and variant_checks (H3) from these same names
 NO_PATCH_SOURCE = 'no patch source, so no autorebase'
 STALE_STAGED = 'exists with other content'
+# v44: the H2 text head_blockers writes for an entry with no variant for the fleet base, whatever follows it (ar_view's
+# "autorebase cannot run: ...", "autorebase will cherry-pick ...", "... is building", "REFUSED at step ...")
+NO_VARIANT = 'no variant for the fleet base'
 
 
 def skip_kind(code, reason, st, e):
@@ -458,7 +474,15 @@ def skip_kind(code, reason, st, e):
     getting stalled"), two more, each a block only a human can clear that touched nothing: H2 NO PATCH SOURCE (a hand-built
     entry nobody ran `queue set-patch` on: chestcarry-01 held the slot idle 3 h 15 min on 11-11) and H3 a STALE STAGED
     REGISTRATION of a run that never deployed (stuckfleet-03: 18 h 25 min on 11-10/11). The entry is skipped and flagged
-    as every skip is; it still cannot launch until its remedy is run."""
+    as every skip is; it still cannot launch until its remedy is run.
+    v44 (OWNER 11-13), one more: the missing-variant H2 of an entry that is ALSO HELD ('held-no-variant'). Measured
+    11-13: glass-01 was held (H1) and had no variant for the fleet base (H2 "autorebase cannot run: patch has no
+    diff_sha256", and after a `queue set-patch`, "autorebase will cherry-pick ..."); neither H2 text was a kind, so
+    skip_reason refused the skip and a held entry blocked the head for 45 min with the slot empty. A held entry cannot
+    launch whatever its H2 says, and no build starts for it (ar_should_start stops at its H1; spec_target stops at a
+    hold), so passing it loses nothing: when the hold is released the H2 is judged on its own again. ONLY with the hold:
+    the same H2 on an entry that is not held is not a kind here. Not covered: the H2 "the fleet base could not be
+    resolved" (a fault of the fleet, not of the entry; the next entry has it too)."""
     run = e.get('run')
     r = reason.split(': ', 1)[1] if reason.startswith('%s: ' % run) else reason
     if code == 'H1' and r.startswith('held: '):
@@ -475,6 +499,8 @@ def skip_kind(code, reason, st, e):
         job = st.get('ar_job') or {}
         if 'went silent' in r and str(job.get('pid') or '') not in (st.get('pid_alive') or {}):
             return 'autorebase-dead'
+        if e.get('hold') and r.startswith(NO_VARIANT):
+            return 'held-no-variant'             # v44: after the kinds above, so each of those keeps its own name
     if code == 'R10':
         return 'exposure'
     return None
@@ -665,8 +691,8 @@ def head_blockers(e, st):
         out.append(('H2', 'the fleet base could not be resolved to a full sha', False))
     elif base not in vs:
         why, waiting, _ = ar_view(e, st)
-        out.append(('H2', 'no variant for the fleet base %s (have: %s): %s'
-                    % (base[:7], ', '.join(k[:7] for k in vs) or 'none', why), waiting))
+        out.append(('H2', '%s %s (have: %s): %s'
+                    % (NO_VARIANT, base[:7], ', '.join(k[:7] for k in vs) or 'none', why), waiting))
     else:
         for code, why in (st.get('variant_checks') or []):
             out.append((code, why, False))
@@ -765,10 +791,20 @@ def ar_should_start(st):
 def spec_target(st):
     """PURE. v42 (OWNER 11-06: build the next variant DURING the current canary's read; 50 of 55 canaries KEEP, so the
     canary sha is the next fleet base). -> (entry, canary full sha) or None. Only while a canary is LIVE (declared,
-    its run live) and only for the entry that would launch after it: the first entry after the live run in queue
+    its run live) and only for an entry that would launch after it: an entry after the live run in queue
     order that is ready, unheld, a single run with a patch source, whose `after` is done or the live run, with no variant
     and no job (any state: never a retry) for the canary sha, and no other build running. A REVERT leaves the variant
-    unused (keyed on a sha that never became the base)."""
+    unused (keyed on a sha that never became the base).
+    v44 (OWNER 11-13): the walk goes SPEC_DEPTH eligible entries deep, not one. v42-v43 returned None as soon as the
+    FIRST entry had its variant or a job for the canary sha, so the second and third were first rebased when each
+    reached the head with the slot already empty, and a refusal was found only then. Now an entry that already has its
+    variant, or a job in any state, for the canary sha is PASSED
+    OVER (it counts toward the depth; its job is never retried) and the next eligible one is returned. Every other
+    condition still ENDS the walk, as before: not ready, held, a bundle, no patch source, an `after` that is neither
+    done nor the live run -- nothing behind such an entry is built ahead. One build at a time (ar_busy; ar_start
+    checks again). A variant built for the second or third entry is the one it launches on when the entries ahead of it
+    are skipped, refused or do not KEEP; when they KEEP, the base moves and it is rebased again during THEIR read --
+    what the early build buys then is the early refusal (ar_build pages a refused speculative build to the phone)."""
     if st.get('spec_off'):
         return None
     man = st.get('manifest') if isinstance(st.get('manifest'), dict) else {}
@@ -783,6 +819,7 @@ def spec_target(st):
     idx = next((i for i, x in enumerate(entries) if x.get('run') == L), None)
     if idx is None or st.get('ar_busy'):
         return None
+    passed = 0
     for e in entries[idx + 1:]:
         es = entry_state(e, st)
         if es in ('done', 'cancelled', 'bundled'):
@@ -792,7 +829,10 @@ def spec_target(st):
         if any(a != L and journal_status(a, st) != 'closed' for a in e.get('after') or []):
             return None
         if csha in (e.get('variants') or {}) or (st.get('spec_jobs') or {}).get(e.get('run')):
-            return None
+            passed += 1                          # v44: it has its variant, or was tried (never a retry): look further
+            if passed >= SPEC_DEPTH:
+                return None
+            continue
         return e, csha
     return None
 
@@ -2318,13 +2358,17 @@ def ar_page(P, level, run, msg):
 def ar_start(P, st, e, base=None):
     """Create the job file EXCLUSIVELY (a second tick can never start a second build, and a crash before the helper
     writes its pid leaves `starting`, which goes stale -> blocked, never retried), then start the helper detached.
-    v42: base = the live canary's sha for a SPECULATIVE build (spec_target), else the fleet base."""
+    v42: base = the live canary's sha for a SPECULATIVE build (spec_target), else the fleet base.
+    v44: a speculative job says so in its file (`spec`), so ar_build can page its refusal as what it is."""
+    spec = bool(base) and base != st.get('base_full')
     run, base, tip = e['run'], base or st['base_full'], ar_token(e)
     p = ar_job_path(P, run, base, tip)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     src_base = (e.get('patch') or {}).get('base') or ''
     job = {'state': 'starting', 'run': run, 'base': base, 'tip': tip, 'src_base': src_base,
            'at': iso(now()), 'hb': iso(now()), 'step': 'start', 'steps': []}
+    if spec:
+        job['spec'] = True
     for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
         j = ar_read_job(q) or {}
         hb = ts(j.get('hb') or j.get('at'))
@@ -2721,13 +2765,36 @@ def ar_build(P, run, base, tip):
     try:
         res = _ar_steps(P, job, run, base, tip)
         job.end('done', **res)
-        ar_page(P, 'info', run, 'built %s for fleet base %s (%s); the next free-slot tick launches it'
-                % (res['variant'][:8], base[:8], res['branch']))
+        try:
+            ar_page(P, 'info', run, 'built %s for fleet base %s (%s); the next free-slot tick launches it'
+                    % (res['variant'][:8], base[:8], res['branch']))
+        except Exception as x:
+            # v44 (review of 11-13): the variant is queued and the job is DONE. An info page that could not be written
+            # (a full disk, an unwritable ~/digest) fell into the handler below, which rewrote the job as "refused"
+            # (crashed) while the next tick launched the variant all the same. It is a line in the build log, no more.
+            print('%s the "built" page could not be written (%s: %s); the job is done' % (iso(now()), type(x).__name__, x), flush=True)
         return 0
     except ArRefuse as x:
         why = str(x)
         job.step(job.job.get('step') or '?', 'REFUSED: ' + why, ok=False)
         job.end('refused', why=why)
+        if job.job.get('spec'):
+            # v44 (OWNER 11-13): a SPECULATIVE build (onto the live canary's sha, during its read) blocks nothing yet --
+            # the run is not at the head and that sha is not the fleet base -- so it is not the 'error' page of a
+            # blocked head, and it says what is owed. The job is never retried (spec_target passes it over; at the
+            # head ar_view reads it as REFUSED), so without a hand rebase the run is skipped or blocks when it gets there.
+            # THE LEVEL (review r1): pager.py page_tier sends a 'flag' to the DIGEST unless its text says the slot waits
+            # ('has waited', 'no journal line yet'), and this one does not wait -- as a flag it would never reach the
+            # phone, which defeats "known hours before the slot is empty". 'warn' is the lowest level that fits and
+            # reaches the phone: page_tier pages a warn whose text carries one of its PAGE_WORDS, here FAILED (an
+            # 'info' with that word would be pushed too, but a refusal is not information; 'error' is the blocked
+            # head). test_autorebase.py holds this row against pager.py's own page_tier, so neither side can drift.
+            # ONCE per run and canary sha: this is the build's only exit for a refusal and a job is never built twice.
+            ar_page(P, SPEC_REFUSED_LEVEL, run, '%s: the SPECULATIVE autorebase onto the live canary %s FAILED (refused at step %s): %s -- %s '
+                    'will need a hand rebase before it reaches the head (build the variant on %s by hand and `queue '
+                    'add-variant`, or fix the cause and `canary-sched.py autorebase-clear %s <why>`); nothing is blocked yet'
+                    % (run, base[:8], job.job.get('step'), why[:400], run, base[:8], run))
+            return 3
         ar_page(P, 'error', run, '%s BLOCKED: no variant for fleet base %s and the autorebase refused at step %s: %s -- '
                 'build it by hand (`queue add-variant`) or fix and `canary-sched.py autorebase-clear %s <why>`'
                 % (run, base[:8], job.job.get('step'), why[:400], run))

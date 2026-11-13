@@ -782,11 +782,97 @@ def t_v43_no_patch_head_is_skipped(CS):
         F.cleanup()
 
 
+def _behind_a_live_canary(CS, F):
+    """foo-01 (its patch SB..ST) waits behind live-01, the LIVE canary: the fleet base is SB, the canary's sha is LB."""
+    F.enqueue(CS)
+    rc, out = TC.human(CS, F, 'queue', 'set-patch', 'foo-01', F.sb, 'foo-on-sb')
+    assert rc == 0, out
+    q = json.load(open(F.queue))
+    foo = q['entries'][0]
+    reg_l = os.path.join(F.home, 'mcai-analysis', 'live-01.json'); shutil.copy(F.reg, reg_l)
+    live = dict(json.loads(json.dumps(foo)), run='live-01', patch=None)
+    live['variants'][F.sb]['registration'] = reg_l
+    foo['after'] = ['live-01']
+    json.dump({'version': 1, 'entries': [live, foo]}, open(F.queue, 'w'))
+    td = TC.dt.timedelta
+    F.regfile('live-01', F.lb[:7])
+    F.j('live-01', 'draw', NOW - td(hours=1)); F.j('live-01', 'drawn', NOW - td(minutes=50))
+    F.j('live-01', 'deployed', NOW - td(minutes=45), 'board-a %s' % TC.Z(NOW - td(minutes=45)))
+    F.add_proc(80, ['bash', '/home/mike/canary-loop.sh', 'live-01'])
+    F.base = F.sb
+    F.set_manifest('board-a', F.lb[:7])
+
+
+def t_v44_speculative_refusal_reaches_the_phone_and_names_the_hand_rebase(CS):
+    """A SPECULATIVE build (onto the live canary's sha, during its read) that refuses blocks nothing yet, so it is not the
+    'error' page of a blocked head -- but it must reach the PHONE, hours before the slot is empty (review r1: a 'flag'
+    is digest-only). The row is held against pager.py's own page_tier. Once per run and canary sha. The refusal of a
+    build for the HEAD is the 'error' page it always was."""
+    PG = load(os.path.join(HERE, 'pager.py'), 'pager_for_autorebase_test')
+    F = ArFix('conflict')
+    try:
+        _behind_a_live_canary(CS, F)
+        rc, out = TC.human(CS, F, 'tick')
+        assert rc == 0 and 'SPECULATIVE AUTOREBASE foo-01 onto the live canary %s' % F.lb[:8] in out, out
+        job = F.wait_job()
+        assert job['state'] == 'refused' and job.get('spec') is True and job['base'] == F.lb, job
+        assert 'does not apply cleanly' in job['why'], job['why']
+        rc, out = TC.human(CS, F, 'tick')                  # never a retry, and not a second page
+        assert rc == 0 and 'SPECULATIVE' not in out and len(F.job()) == 1, out
+        pg = [p for p in F.pages() if 'refused at step' in p['msg']]
+        assert len(pg) == 1 and pg[0]['run'] == 'foo-01', F.pages()
+        assert pg[0]['level'] == CS.SPEC_REFUSED_LEVEL == 'warn', pg[0]
+        assert PG.page_tier(pg[0]) == PG.AL.TIER_PAGE, 'the pager must PUSH this row: %s' % pg[0]
+        assert PG.page_tier(dict(pg[0], level='flag')) == PG.AL.TIER_DIGEST, 'positive control: as a flag it is digest-only (review r1)'
+        assert PG.page_tier(dict(pg[0], msg=pg[0]['msg'].replace('FAILED', 'was'))) == PG.AL.TIER_DIGEST, 'and a warn pages only by that word'
+        assert 'SPECULATIVE autorebase onto the live canary %s FAILED' % F.lb[:8] in pg[0]['msg'], pg[0]['msg']
+        assert 'foo-01 will need a hand rebase before it reaches the head' in pg[0]['msg'] and 'does not apply cleanly' in pg[0]['msg'], pg[0]['msg']
+        assert not any(p['level'] == 'error' for p in F.pages()), 'nothing is blocked yet: %s' % F.pages()
+    finally:
+        F.cleanup()
+    F = ArFix('conflict')                                  # the same refusal for the HEAD: unchanged
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'refused' and 'spec' not in job, job
+        pg = [p for p in F.pages() if 'refused at step' in p['msg']]
+        assert len(pg) == 1 and pg[0]['level'] == 'error' and 'foo-01 BLOCKED: no variant for fleet base %s' % F.lb[:8] in pg[0]['msg'], F.pages()
+        assert 'hand rebase before it reaches the head' not in pg[0]['msg'], pg[0]['msg']
+    finally:
+        F.cleanup()
+
+
+def t_v44_built_page_cannot_fail_the_build(CS):
+    """The "built" page is written AFTER the job is DONE and its variant queued. When it raised (here: the page file
+    cannot be created), ar_build's crash handler rewrote the job as "refused" while the next tick launched that variant
+    all the same. Now the failure is one line in the build log; the job stays done and the variant launches."""
+    F = ArFix('clean')
+    try:
+        seed(CS, F)
+        blocker = os.path.join(F.d, 'a-file'); open(blocker, 'w').close()
+        rc, out = TC.human(CS, F, 'tick', SCHED_PAGE=os.path.join(blocker, 'page.jsonl'))
+        assert rc == 0 and 'AUTOREBASE foo-01' in out, out
+        F.wait_job()
+        # the page is attempted AFTER the job says done: wait for the build to say what became of it, then read the job
+        t = time.time() + 30
+        while time.time() < t and 'page could not be written' not in F.logtail():
+            time.sleep(0.2)
+        assert 'the "built" page could not be written' in F.logtail(), 'positive control: the page was refused by the fixture: %s' % F.logtail()
+        job = F.job()[-1]
+        assert job['state'] == 'done' and 'variant' in job and 'why' not in job, job
+        v = json.load(open(F.queue))['entries'][0]['variants'].get(F.lb)
+        assert v and v['canary_sha'] == job['variant'], 'the variant is queued'
+        TC.expect(CS, F, 'launch')
+    finally:
+        F.cleanup()
+
+
 TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_clear_then_rebuild_same_sha, t_set_patch_refuses_merge_range,
          t_clean_builds_and_launches, t_conflict_pages_and_blocks, t_diff_change_refuses, t_failing_test_refuses,
          t_tier_change_refuses, t_base_flake_accepted_and_named, t_clear_flake_accepted, t_changed_flake_refused,
          t_flaky_both_accepted, t_v43_diff_equiv_pure, t_v43_list_context_is_the_same_change,
-         t_v43_no_patch_head_is_skipped]
+         t_v43_no_patch_head_is_skipped, t_v44_speculative_refusal_reaches_the_phone_and_names_the_hand_rebase,
+         t_v44_built_page_cannot_fail_the_build]
 
 
 # --------------------------------------------------------------------------------------------- v41 bundles --
@@ -988,6 +1074,13 @@ MUTANTS = [
      "    if False:"),
     ('v42: no local fallback when the remote is silent', "    if rc_t is None:\n        S('full-suite', 'npm test (full, nice 10)",
      "    if False:\n        S('full-suite', 'npm test (full, nice 10)"),
+    ('v44: a refused SPECULATIVE build pages as a blocked head', "        if job.job.get('spec'):\n", "        if False:\n"),
+    ('v44: a refused SPECULATIVE build is a flag (digest only)', "SPEC_REFUSED_LEVEL = 'warn'", "SPEC_REFUSED_LEVEL = 'flag'"),
+    ('v44: the speculative refusal loses the word the pager pushes a warn for', "FAILED (refused at step %s): %s -- %s '\n", "refused at step %s: %s -- %s '\n"),
+    ('v44: a speculative job does not say so', "    if spec:\n        job['spec'] = True\n", "    if False:\n        job['spec'] = True\n"),
+    ('v44: a "built" page that cannot be written turns a done job into a refused one',
+     "        except Exception as x:\n            # v44 (review of 11-13): the variant is queued and the job is DONE.",
+     "        except ZeroDivisionError as x:\n            # v44 (review of 11-13): the variant is queued and the job is DONE."),
 ]
 
 
