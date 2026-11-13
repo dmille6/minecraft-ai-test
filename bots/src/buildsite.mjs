@@ -562,20 +562,42 @@ export function walkAgain (graph, read, home, block = new Set(), radius = WALK_R
  *     dirtyKeys  iterables of "x,y,z" keys: every cell `readNow` answers differently from `read`
  *     staticBlock / noFloor   the obstacles common to every question (the planned town: proveSiteSteps `planned`), part of the kept walk
  * THE ANSWER IS walkFrom(readNow, home, block, radius, opts)'s OWN, key for key and in its order (the proof is not weakened: a stand
- * is chosen by the order of a column's heights, stepFor). Where a change lies within TOWN_R + 1 of home the seeds could move, and
- * the walk is made the old way (`fallback`). One kept walk a (radius, seeds, common obstacles): a search of one plot keeps at most three.
- * A cache lives one siting of one plot (skills.mjs cottageSiteOn): the kept walk is as old as that search's own block reads may be.
+ * is chosen by the order of a column's heights, stepFor) -- WHILE THE WORLD UNDER THE KEPT WALK HAS NOT MOVED. Where a change lies
+ * within TOWN_R + 1 of home the seeds could move, and the walk is made the old way (`fallback`). One kept walk a (radius, seeds,
+ * common obstacles): a search of one plot keeps at most three.
+ * WHEN THE WORLD MOVES (review r1, Codex: another bot cut a trench between the town and the plot after the walk was kept; the kept
+ * walk still crossed it and a site was proven that a fresh walk refused). The kept walk is DROPPED and made again, as standcache-01's
+ * is (buildrun.mjs nodesFor):
+ *   seqNow() / movedSince(seq, { x, z, r })   the connection's own witness (buildbot.mjs installServerBlockWitness: a block a walk
+ *              could read differently -- its STATE_ONLY rule -- a chunk loaded or gone), asked before EVERY question; the sequence is
+ *              taken BEFORE the walk is made. A witness that throws: moved. While nothing moved in the walk's square the kept walk is
+ *              exactly as fresh as a new one: both read this bot's own view.
+ *   keepMs     with NO witness (a bare bot, a test): the kept walk's age limit, WALK_KEEP_MS -- 10 s, about one look's search once
+ *              its walks are kept, and under the least time another bot needs to dig a trench across an approach.
+ * AND WHAT A KEPT WALK PROVED IS NEVER PUBLISHED ON ITS WORD ALONE: siteAgainFresh proves the accepted site again with no kept walk.
+ * A cache lives one siting of one plot (skills.mjs cottageSiteOn).
  */
 /** Counters (tests, the walk bench): `walks` every walk that READ the town (walkFrom without a kept walk), `full` the kept walks a
- *  cache made, `local` the questions answered from one, `fallback` the ones a change near the town sent the old way. */
-export const walkStats = { walks: 0, full: 0, local: 0, fallback: 0 }
+ *  cache made, `local` the questions answered from one, `fallback` the ones a change near the town sent the old way, `dropped` the
+ *  kept walks given up because the world moved under them (or they aged out). */
+export const walkStats = { walks: 0, full: 0, local: 0, fallback: 0, dropped: 0 }
+export const WALK_KEEP_MS = 10_000
 const colsNear = (keys, out) => { for (const k of keys) { const i = k.indexOf(','), j = k.lastIndexOf(','); const x = Number(k.slice(0, i)), z = Number(k.slice(j + 1)); for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) out.add(k2(x + dx, z + dz)) } }
-export function makeWalkCache () {
+export function makeWalkCache ({ seqNow = null, movedSince = null, keepMs = WALK_KEEP_MS, now = () => Date.now() } = {}) {
   const bases = new Map(), ids = new WeakMap()
   let nextId = 1
   const idOf = o => { if (!o) return 0; if (!ids.has(o)) ids.set(o, nextId++); return ids.get(o) }
+  const witnessed = typeof seqNow === 'function' && typeof movedSince === 'function'
+  const told = () => { try { const n = seqNow(); return Number.isFinite(n) ? n : null } catch { return null } }
+  // has the world moved under this kept walk? the witness's word on the walk's square; with no witness (or one that cannot say), its age
+  const stale = (b, home, radius) => {
+    if (witnessed && b.seq != null) { try { return !!movedSince(b.seq, { x: home.x, z: home.z, r: radius + 2 }) } catch { return true } }
+    return !(now() - b.at < keepMs)
+  }
   return {
     bases,
+    /** Every kept walk given up (the caller saw the world differ from what a kept walk proved: siteAgainFresh). */
+    drop () { if (bases.size) { walkStats.dropped += bases.size; bases.clear() } },
     bind (read, home, radius = WALK_R, { stood = [], floors = null, avoid = null } = {}) {
       const sk = `${home.x},${home.y},${home.z}|${radius}|${stood.map(c => (Array.isArray(c) ? c.join(',') : '')).join(';')}|${idOf(floors)}|${idOf(avoid)}`
       return {
@@ -586,14 +608,32 @@ export function makeWalkCache () {
           if (staticBlock?.size) { const own = []; for (const k of block) if (!staticBlock.has(k)) own.push(k); colsNear(own, dirty) } else colsNear(block, dirty)
           for (const c of dirty) { const i = c.indexOf(','); if (Math.max(Math.abs(Number(c.slice(0, i)) - home.x), Math.abs(Number(c.slice(i + 1)) - home.z)) <= TOWN_R + 1) { walkStats.fallback++; return walkFrom(readNow, home, block, radius, opts) } }
           const key = `${sk}|${idOf(staticBlock)}|${idOf(noFloor)}`
-          let graph = bases.get(key)
-          if (!graph) { graph = {}; walkFrom(read, home, staticBlock ?? new Set(), radius, { ...opts, graph }); bases.set(key, graph); walkStats.full++ }
+          let b = bases.get(key)
+          if (b && stale(b, home, radius)) { bases.delete(key); walkStats.dropped++; b = null }
+          if (!b) {
+            const seq = witnessed ? told() : null, at = now()   // taken BEFORE the walk: it reads nothing from the socket while it runs
+            const graph = {}
+            walkFrom(read, home, staticBlock ?? new Set(), radius, { ...opts, graph })
+            b = { graph, seq, at }; bases.set(key, b); walkStats.full++
+          }
           walkStats.local++
-          return walkFrom(readNow, home, block, radius, { ...opts, base: { graph, dirty } })
+          return walkFrom(readNow, home, block, radius, { ...opts, base: { graph: b.graph, dirty } })
         },
       }
     },
   }
+}
+/**
+ * homes-02show review r1 (Codex 1b): THE SITE A KEPT WALK ACCEPTED, PROVEN AGAIN FROM NOTHING KEPT -> siteBlueprintAsync's answer for
+ * that ONE site (its anchor and orientation: `ctx.only`), screened, cleared, proven and replanted over `read` -- a reader made NOW --
+ * with plain walks of the town (`walkCache` taken out of the ctx whatever the caller left in it). The caller publishes THIS answer's
+ * record, never the kept walk's; an answer that is not ok says the world is no longer what the kept walk saw: nothing is published,
+ * the look is not refused (it was never refused on the world as it is) and the kept walks are dropped (makeWalkCache `drop`).
+ */
+export function siteAgainFresh (s, read, plan, bp, ctx = {}, opts = {}) {
+  const { walkCache, ...rest } = ctx
+  void walkCache
+  return siteBlueprintAsync(read, plan, bp, { ...rest, only: { x: s.record.anchor[0], z: s.record.anchor[1], orient: s.record.orient } }, opts)
 }
 
 /**
@@ -1025,6 +1065,8 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
           // the anchor is a pad cell (rot(orient, 0, 0) is 0, 0): with a named domain, an anchor outside it or its sector is the
           // screen's own `domain` / `sector` refusal, counted without the footprint walk (the wider scan stays cheap)
           if (domain && !domain(x, z)) { rejects.domain = (rejects.domain ?? 0) + 1; continue }
+          // homes-02show r1 (`ctx.only` = { x, z, orient }: siteAgainFresh): this ONE candidate and no other
+          if (ctx.only && (x !== ctx.only.x || z !== ctx.only.z || orient !== ctx.only.orient)) continue
           if (byCentre && sector) { const [qx, qz] = at2({ x, z }, orient, cu, cv); if (sectorOf(home, qx, qz) !== sector) { rejects.sector = (rejects.sector ?? 0) + 1; continue } } else if (domain && sector && sectorOf(home, x, z) !== sector) { rejects.sector = (rejects.sector ?? 0) + 1; continue }
           // stockyard-01: a caller may name its earthwork limits (`ctx.earth`: the yard's 17 x 15 floor); else screenSite's EARTH
           const r = screenSite(read, home, bp, { x, z }, orient, res, { sector: byCentre ? null : sector, ...(domain ? { domain } : {}), ...(ctx.earth ? { earth: ctx.earth } : {}) })

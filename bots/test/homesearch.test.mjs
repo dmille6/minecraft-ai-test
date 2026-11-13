@@ -95,21 +95,78 @@ await t('MUTANT the kept steps taken in the changed columns too: the answer is n
   assert.ok((await sameWalks(M)).diff > 0, 'the mutant differs somewhere')
   assert.strictEqual((await sameWalks(B, { trials: 2 })).diff, 0)
 })
+// REVIEW r1 (Codex 1a, 3): THE BACKING WORLD MOVES after the walk was kept -- no overlay, no dirty key: another bot's trench
+/** A world another bot can dig in: the fake server, and the witness this bot's connection would keep (buildbot.mjs
+ *  installServerBlockWitness: seq(), moved(since, { x, z, r })). */
+function liveWorld (srv = F.server()) {
+  const told = []
+  return { srv, read: srv.read, seq: () => told.length, moved: (since, at) => told.slice(since).some(([x, z]) => Math.abs(x - at.x) <= at.r && Math.abs(z - at.z) <= at.r),
+    dig: (x, z, depth = 3) => { for (let y = G; y > G - depth; y--) srv.set([x, y, z], 'air'); told.push([x, z]) } }
+}
+/** The trench: two columns wide, three deep, right across the fake world between the town and the east plots (inside the town circle). */
+const TRENCH_X = [14, 15]   // west of the plots' own margin (the signature reads box + 3: from x 17)
+const trench = w => { for (let z = -60; z <= 60; z++) for (const x of TRENCH_X) w.dig(x, z) }
+await t('THE WORLD MOVES UNDER THE KEPT WALK (a trench cut after it was made, nothing declared): with the connection\'s witness the kept walk is DROPPED and the answer is a fresh walk\'s; with no witness, after WALK_KEEP_MS; inside it the kept walk is stale (what the fresh final proof is for)', () => {
+  const far = k => Number(k.split(',')[0]) > 20
+  const run = (opts, { tick = 0 } = {}) => {
+    const w = liveWorld(); let now = 1e12
+    const walker = B.makeWalkCache(opts(w, () => now)).bind(w.read, HOME, 48, { stood: [] })
+    const before = [...walker.walk(w.read, new Set(), [])]
+    assert.ok(before.some(far), 'POSITIVE CONTROL: the kept walk reaches the land east of the trench\'s line')
+    trench(w); now += tick
+    return { got: [...walker.walk(w.read, new Set(), [])], want: [...B.walkFrom(w.read, HOME, new Set(), 48, { stood: [] })] }
+  }
+  const d0 = B.walkStats.dropped
+  const witnessed = run(w => ({ seqNow: w.seq, movedSince: w.moved }))
+  assert.ok(!witnessed.want.some(far), 'POSITIVE CONTROL: a fresh walk does not cross the trench')
+  assert.deepStrictEqual(witnessed.got, witnessed.want, 'the witness: dropped, made again -- the fresh walk\'s answer, key for key')
+  assert.strictEqual(B.walkStats.dropped - d0, 1)
+  const aged = run((w, now) => ({ now }), { tick: B.WALK_KEEP_MS })
+  assert.deepStrictEqual(aged.got, aged.want, 'no witness: dropped at its age limit')
+  const young = run((w, now) => ({ now }), { tick: B.WALK_KEEP_MS - 1 })
+  assert.ok(young.got.some(far) && !young.want.some(far), 'no witness, inside the limit: STALE -- never published on its word (siteAgainFresh)')
+  // a change the witness places OUTSIDE the walk's square drops nothing; a witness that throws reads as moved
+  const w = liveWorld(), walker = B.makeWalkCache({ seqNow: w.seq, movedSince: w.moved }).bind(w.read, HOME, 48, { stood: [] })
+  walker.walk(w.read, new Set(), []); const d1 = B.walkStats.dropped
+  w.dig(58, 58); walker.walk(w.read, new Set(), []); assert.strictEqual(B.walkStats.dropped, d1, 'a block beyond the walk\'s square')
+  const boom = B.makeWalkCache({ seqNow: () => 0, movedSince: () => { throw new Error('x') } }).bind(w.read, HOME, 48, { stood: [] })
+  boom.walk(w.read, new Set(), []); boom.walk(w.read, new Set(), []); assert.strictEqual(B.walkStats.dropped, d1 + 1)
+  assert.strictEqual(B.WALK_KEEP_MS, 10_000)
+})
+await t('MUTANT the witness\'s word ignored: after the trench the kept walk still answers, and it is not the fresh walk\'s answer', async () => {
+  const M = await mutantOf('buildsite.mjs', "    if (witnessed && b.seq != null) { try { return !!movedSince(b.seq, { x: home.x, z: home.z, r: radius + 2 }) } catch { return true } }\n", '    if (witnessed && b.seq != null) return false\n')
+  const w = liveWorld(), walker = M.makeWalkCache({ seqNow: w.seq, movedSince: w.moved }).bind(w.read, HOME, 48, { stood: [] })
+  walker.walk(w.read, new Set(), []); trench(w)
+  assert.notDeepStrictEqual([...walker.walk(w.read, new Set(), [])], [...B.walkFrom(w.read, HOME, new Set(), 48, { stood: [] })])
+})
 // THE COUNT: one plot (9 x 9 east of home, flat), the family's 24 looks, the real siting -- walks that read the town
 const NINE = Object.freeze({ id: 'H1', kind: 'house', layout: true, pad: [21, -3, 27, 3], box: [20, -4, 28, 4] })
 const ALL = C.cottage2StylesAll(STOCK, { pool: 'fake', plot: 'cottage2', plotId: 'H1', others: [] })
 const ctxOf = (plot, zones = [], extra = {}) => { const sp = C.cottageSitingPlan(HOME, plot, zones); return { zones: sp.zones, stood: [], sectors: sp.sectors, plot: 'cottage2', earth: sp.earth ?? C.COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line, tries: 3, ...extra } }
 const bpOf = cs => C.styledBlueprint(B.loadBlueprint(cs.id), cs.style)
 const slim = s => (s.ok ? { ok: true, at: s.record.anchor, orient: s.record.orient, cells: s.record.cells.map(c => [c.at.join(','), c.stand.join(','), c.order].join('/')) } : { ok: false, why: s.why, fails: s.sectors.map(r => [r.screened, r.proofFails]) })
-await t('WALKS THAT READ THE TOWN, one plot\'s 24 looks: every look\'s answer is the same (site, cells, stands, order) and the walks fall from one a proof step to one a plot', () => {
-  const run = cache => { const w0 = B.walkStats.walks; const out = ALL.map(cs => slim(B.siteBlueprint(F.server().read, F.plan(), bpOf(cs), ctxOf(NINE, [], cache ? { walkCache: cache } : {})))); return { out, walks: B.walkStats.walks - w0 } }
-  const before = run(null), after = run(B.makeWalkCache())
-  assert.deepStrictEqual(after.out, before.out, 'not one answer differs: the proof is not weakened')
-  const sited = before.out.filter(o => o.ok).length
-  console.log(`        walks that read the town, 24 looks on one plot (${sited} sited, ${24 - sited} with no candidate): before ${before.walks}, after ${after.walks}`)
-  assert.strictEqual(sited, 12, 'the twelve square looks site on a 9 x 9; the long bodies have no candidate')
+await t('WALKS THAT READ THE TOWN, one plot\'s 24 looks: every look\'s answer is the same (site, cells, stands, order); a plot REFUSED after its proofs: one walk a proof step -> ONE; the look that is ACCEPTED: the kept walk + one fresh proof\'s walks', async () => {
+  const all = (srv, cache) => { const w0 = B.walkStats.walks; const out = ALL.map(cs => slim(B.siteBlueprint(srv.read, F.plan(), bpOf(cs), ctxOf(NINE, [], cache ? { walkCache: cache } : {})))); return { out, walks: B.walkStats.walks - w0 } }
+  // every answer the same, kept walk or not (flat ground: the twelve square looks site, the long bodies have no candidate)
+  const flatB = all(F.server(), null), flatA = all(F.server(), B.makeWalkCache())
+  assert.deepStrictEqual(flatA.out, flatB.out, 'not one answer differs: the proof is not weakened')
+  assert.strictEqual(flatB.out.filter(o => o.ok).length, 12)
+  // REFUSED AFTER ITS PROOFS: the doorway walled up outside the plot -- every square look is proven segment by segment, then refused
+  const walled = () => { const srv = F.server(); for (const z of [-1, 0, 1]) for (const y of [G + 1, G + 2]) srv.set([20, y, z], 'stone'); return srv }
+  const before = all(walled(), null), after = all(walled(), B.makeWalkCache())
+  assert.deepStrictEqual(after.out, before.out)
+  assert.deepStrictEqual([before.out.filter(o => o.ok).length, before.out.filter(o => o.why === 'no_proven_site').length], [0, 12])
   assert.ok(before.walks >= 12 * 8, `before: a walk a segment of every proof (${before.walks})`)
   assert.strictEqual(after.walks, 1, 'after: ONE walk of the town for the plot')
+  // THE ACCEPTED LOOK (review r1): the kept walk's site is proven AGAIN with plain walks before it is published (siteAgainFresh)
+  const one = cache => { const w0 = B.walkStats.walks; const s = B.siteBlueprint(F.server().read, F.plan(), bpOf(ALL[0]), ctxOf(NINE, [], cache ? { walkCache: cache } : {})); return { s, walks: B.walkStats.walks - w0 } }
+  const plain = one(null), kept = one(B.makeWalkCache())
+  const w1 = B.walkStats.walks
+  const again = await B.siteAgainFresh(kept.s, F.server().read, F.plan(), bpOf(ALL[0]), ctxOf(NINE, [], { walkCache: B.makeWalkCache() }), { sliceMs: 0 })
+  const fresh = B.walkStats.walks - w1
+  assert.deepStrictEqual(slim(again), slim(plain.s), 'the fresh proof\'s record is the plain search\'s')
+  assert.deepStrictEqual([kept.walks, fresh], [1, plain.walks], 'the kept walk, then exactly one proof\'s walks')
+  console.log(`        walks that read the town -- 24 looks on a plot refused after its proofs: before ${before.walks}, after ${after.walks}; the look that is accepted: before ${plain.walks}, after ${kept.walks} + ${fresh} (its fresh proof)`)
 })
 await t('...and a look with NO candidate costs no walk at all, before or after (the cheap refusals already come first)', () => {
   const long = ALL.find(cs => /cottage@2-L/.test(cs.id))
@@ -182,11 +239,11 @@ await t('plotSig: the same ground, the same signature; a cut, a fill, a felled t
 await t('the memory: refused looks are passed over under the SAME signature inside 24 h; another signature, or a day, starts again; the tally', () => {
   const ids = ['a', 'b', 'c', 'd'], now = 1e12
   let m = {}
-  assert.deepStrictEqual(H.searchLeft(m, 'H1', 's1', ids, now), { left: ids, refused: 0, first: 0, tally: '' })
+  assert.deepStrictEqual(H.searchLeft(m, 'H1', 's1', ids, now), { left: ids, refused: 0, first: 0, tally: '', proofs: [] })
   m = H.searchNoted(m, 'H1', 's1', 'a', 'no_site:liquid', { now, by: 'A' })
   m = H.searchNoted(m, 'H1', 's1', 'b', 'no_proven_site:cell_not_free', { now: now + 1000, by: 'B' })
   m = H.searchNoted(m, 'H1', 's1', 'c', 'no_site:liquid', { now: now + 2000, by: 'A' })
-  assert.deepStrictEqual(H.searchLeft(m, 'H1', 's1', ids, now + 3000), { left: ['d'], refused: 3, first: 3, tally: 'no_site:liquid=2,no_proven_site:cell_not_free=1' })
+  assert.deepStrictEqual(H.searchLeft(m, 'H1', 's1', ids, now + 3000), { left: ['d'], refused: 3, first: 3, tally: 'no_site:liquid=2,no_proven_site:cell_not_free=1', proofs: [] })
   assert.deepStrictEqual([m.H1.at, m.H1.last, m.H1.by], [now, now + 2000, 'A'], 'the first refusal dates the memory')
   assert.deepStrictEqual(H.searchLeft(m, 'H2', 's1', ids, now).left, ids, 'another plot')
   assert.deepStrictEqual(H.searchLeft(m, 'H1', 's2', ids, now + 3000).left, ids, 'THE WORLD CHANGED: the plot\'s looks are all to try again')
@@ -199,6 +256,34 @@ await t('the memory: refused looks are passed over under the SAME signature insi
   assert.deepStrictEqual(Object.keys(m3).sort(), ['H3'], 'entries older than a day are dropped on a write')
   assert.strictEqual(H.HOMEPLOT.searchKeepMs, 24 * 3_600_000)
   assert.deepStrictEqual(Object.keys(m.H1.looks), ['a', 'b', 'c']); assert.strictEqual(Object.isFrozen(H.SEARCH_STABLE), true)
+})
+await t('REVIEW r1 -- a PROOF\'s refusal is believed 30 min, never a day: its own stamp, its own life; the SCREEN\'s refusal of the same look outlives it; the looks only a proof refused are named', () => {
+  const ids = ['a', 'b', 'c'], now = 1e12, P = H.HOMEPLOT.proofKeepMs
+  assert.strictEqual(P, 30 * 60_000); assert.ok(P > 3 * H.HOMEPLOT.resumeMs && P < H.HOMEPLOT.searchKeepMs)
+  let m = H.searchNoted({}, 'H1', 's1', 'a', 'no_site:liquid', { now, life: 'ground' })
+  m = H.searchNoted(m, 'H1', 's1', 'b', 'no_proven_site:no_step', { now: now + 1000, life: 'proof' })
+  assert.deepStrictEqual(m.H1.looks, { a: 'no_site:liquid' }); assert.deepStrictEqual(m.H1.proofs, { b: { why: 'no_proven_site:no_step', at: now + 1000 } })
+  const at = t0 => H.searchLeft(m, 'H1', 's1', ids, t0)
+  assert.deepStrictEqual([at(now + 2000).left, at(now + 2000).proofs, at(now + 2000).tally], [['c'], ['b'], 'no_proven_site:no_step=1,no_site:liquid=1'])
+  assert.deepStrictEqual([at(now + 1000 + P - 1).left, at(now + 1000 + P).left], [['c'], ['b', 'c']], 'the proof\'s refusal is over after 30 min; the screen\'s stands')
+  assert.deepStrictEqual(H.searchLeft(m, 'H1', 's2', ids, now + 2000).left, ids, 'another signature forgets both')
+  // a later write keeps the proofs still believed and drops the ones that are over; a screen refusal of a look replaces its proof
+  const later = H.searchNoted(m, 'H1', 's1', 'c', 'no_proven_site:no_step', { now: now + 1000 + P, life: 'proof' })
+  assert.deepStrictEqual(Object.keys(later.H1.proofs), ['c'])
+  assert.deepStrictEqual(H.searchNoted(m, 'H1', 's1', 'b', 'no_site', { now: now + 5000, life: 'ground' }).H1, { sig: 's1', at: now, last: now + 5000, by: '', looks: { a: 'no_site:liquid', b: 'no_site' } })
+})
+await t('REVIEW r1 -- how a refused look is remembered (refusalKind): the SCREEN\'s refusal with every cell read -> `ground`; a PROOF\'s -> `proof`; an unread cell, an unread approach, an unreadable guard, a stale kept walk -> `soft` (written nowhere)', () => {
+  const screen = (rejects = { domain: 9, liquid: 30 }) => ({ ok: false, why: 'no_site', sectors: [{ screened: 0, rejects, proofFails: {} }] })
+  const proof = (proofFails = { no_step: 3 }) => ({ ok: false, why: 'no_proven_site', sectors: [{ screened: 3, rejects: { domain: 9 }, proofFails }] })
+  assert.deepStrictEqual(H.refusalKind(screen()), { why: 'no_site:liquid', life: 'ground' })
+  assert.deepStrictEqual(H.refusalKind(screen(), { unread: 40, guardUnread: true }), { why: 'no_site:liquid', life: 'ground' }, 'the screen reads the plot alone: the approach and the guard do not touch it')
+  assert.deepStrictEqual(H.refusalKind(screen({ domain: 9, unknown: 2, liquid: 30 })), { soft: 'unknown_cell' }, 'the screen met an unread cell')
+  assert.deepStrictEqual(H.refusalKind(proof()), { why: 'no_proven_site:no_step', life: 'proof' })
+  assert.deepStrictEqual(H.refusalKind(proof(), { unread: 1 }), { soft: 'approach_unread' }, 'Claude (ii): ground the siting bot has not loaded')
+  assert.deepStrictEqual(H.refusalKind(proof(), { guardUnread: true }), { soft: 'guard_unread' }, 'Claude (iii): the tree guard could not be read')
+  assert.deepStrictEqual(H.refusalKind(proof({ unknown: 1, no_step: 2 })), { soft: 'unknown_cell' })
+  assert.deepStrictEqual(H.refusalKind({ ...proof(), stale: true }), { soft: 'kept_walk_stale' })
+  assert.strictEqual(H.refusalKind({ ok: true }), null); assert.strictEqual(H.refusalKind({ ok: false, why: 'search_time', sectors: [] }), null)
 })
 await t('refusalOf: a finished search\'s reason with what refused most (the screen\'s when nothing was screened, the proof\'s when something was)', () => {
   assert.strictEqual(H.refusalOf({ why: 'no_site', sectors: [{ screened: 0, rejects: { domain: 28000, liquid: 30, zone: 6 }, proofFails: {} }] }), 'no_site:liquid')
@@ -220,30 +305,45 @@ const H2P = Object.freeze({ id: 'H2', kind: 'house', layout: true, pad: [-27, -3
 const BLOCKERS = [[27, 74, -2], [23, 75, 2], [27, 72, 2], [27, 74, 2]]
 const world = (more = []) => { const srv = F.server(); for (const at of [...BLOCKERS, ...more]) srv.set(at, 'stone'); return srv }
 const FIT = ALL.findIndex(cs => cs.id === 'cottage@2-Csl0-')
-/** One VISIT: skills.mjs cottageSiteFor's own shape -- siteOverPlots over the offered plots, each plot searchPlotLooks with the real
- *  siteBlueprintAsync for a look; a 100-s search box on a fake clock (a finished look costs `cost`; a spent box gives the next
- *  search 0 ms, which the real search answers `search_time`). `mem`: the town file ({ fails, search }), shared by every visit. */
-async function visit (srv, mem, plots, { cost = 22_000, boxMs = 100_000, now = Date.now(), who = 'A', looks = () => ALL, ctx = {} } = {}) {
+/** How many looks of a plot the memory holds refused: the screen's and the proofs'. */
+const refusedN = (mem, id = 'H1') => Object.keys(mem.search[id]?.looks ?? {}).length + Object.keys(mem.search[id]?.proofs ?? {}).length
+/** One VISIT: skills.mjs cottageSiteFor's own shape -- siteOverPlots over the offered plots, each plot searchPlotLooks, and for a
+ *  look skills.mjs lookOn's steps with the real pieces: the search with the plot's ONE kept walk (siteBlueprintAsync), what it
+ *  accepts proven AGAIN fresh (siteAgainFresh) and only that record answered, a refusal remembered as refusalKind says. A 100-s box
+ *  on a fake clock (a finished look costs `cost`; a spent box gives the next search 0 ms, which the real search answers
+ *  `search_time`). `mem`: the town file ({ fails, search }). `w`: a liveWorld (its witness is the connection's) or a fake server.
+ *  `between(i)`: what another bot does after look i's kept-walk search and before its fresh proof. */
+async function visit (w, mem, plots, { cost = 22_000, boxMs = 100_000, now = Date.now(), who = 'A', looks = () => ALL, witness = false, unread = 0, guardUnread = false, between = null, M = B, proofs = 'fresh' } = {}) {
+  const srv = w.srv ?? w
   let spent = 0
   const box = { left: () => Math.max(0, boxMs - spent) }
-  const rows = [], searched = []
+  const rows = [], searched = [], published = []
   const siteOne = plot => {
     const all = looks(plot), sig = H.plotSig(srv.read, plot, [], HOME)
+    const cache = M.makeWalkCache(witness ? { seqNow: w.seq, movedSince: w.moved } : { now: () => now + spent })
     return H.searchPlotLooks(all, { plotId: plot.id, sig, now: () => now, memory: () => mem.search,
-      noteLook: (id, why) => { mem.search = H.searchNoted(mem.search, plot.id, sig, id, why, { now, by: who }) },
+      noteLook: (id, why, life) => { mem.search = H.searchNoted(mem.search, plot.id, sig, id, why, { now, by: who, life }) },
       row: f => rows.push(f),
       searchLook: async cs => {
-        const bp = bpOf(cs)
-        const s = await B.siteBlueprintAsync(srv.read, F.plan(), bp, ctxOf(plot, [], ctx), { sliceMs: 0, maxMs: box.left() })
-        const end = B.siteLoopEnds(s)
-        if (end) return { ok: false, why: end }
-        spent += cost; searched.push(`${plot.id}:${all.indexOf(cs)}`)
-        if (!s.ok) return { ok: false, why: s.why, more: true, ...(H.SEARCH_STABLE.includes(s.why) ? { refused: H.refusalOf(s) } : {}) }
-        return { ok: true, why: 'ok', look: cs.id, record: C.cottageRecordOf(s.record, bp, cs.style, { plotId: plot.id }) }
+        const bp = bpOf(cs), i = all.indexOf(cs), ctx = ctxOf(plot, [], { walkCache: cache })
+        const s = await M.siteBlueprintAsync(srv.read, F.plan(), bp, ctx, { sliceMs: 0, maxMs: box.left() })
+        if (M.siteLoopEnds(s)) return { ok: false, why: M.siteLoopEnds(s) }
+        spent += cost; searched.push(`${plot.id}:${i}`)
+        if (!s.ok) { const k = H.refusalKind(s, { unread, guardUnread }); return { ok: false, why: s.why, more: true, ...(k?.life ? { refused: k.why, life: k.life } : k?.soft ? { soft: k.soft } : {}) } }
+        between?.(i, plot)
+        let rec = s.record
+        if (proofs === 'fresh') {
+          const s2 = await M.siteAgainFresh(s, srv.read, F.plan(), bp, ctx, { sliceMs: 0, maxMs: box.left() })
+          if (M.siteLoopEnds(s2)) return { ok: false, why: M.siteLoopEnds(s2) }
+          if (!s2.ok) { cache.drop(); return { ok: false, why: 'no_proven_site', more: true, soft: H.refusalKind({ ...s2, stale: true }).soft } }
+          rec = s2.record
+        }
+        published.push(`${plot.id}:${i}`)
+        return { ok: true, why: 'ok', look: cs.id, record: C.cottageRecordOf(rec, bp, cs.style, { plotId: plot.id }) }
       } }).then(r => (r?.why === 'search_time' ? { ...r, resume: true } : r))
   }
   const r = await H.siteOverPlots(plots, siteOne, { left: box.left, row: f => rows.push(f), noteFail: (p, why) => { mem.fails = H.failNoted(mem.fails, p.id, { why, project: 'cottage2', by: who, now }) } })
-  return { r, rows: rows.map(f => [f.op, f.plot, f.look ?? f.why ?? ''].join(':').replace(/:$/, '')), searched }
+  return { r, rows: rows.map(f => [f.op, f.plot, f.look ?? f.why ?? ''].join(':').replace(/:$/, '')), searched, published }
 }
 await t('POSITIVE CONTROL: in this world exactly looks 13 and 20 of the plot\'s 24 fit; the first is past look 9', () => {
   assert.ok(FIT >= 9, `look ${FIT}`)
@@ -259,7 +359,7 @@ await t('THREE VISITS: 0-4 refused and the box ends (`paused`, nothing noted aga
   assert.deepStrictEqual(v1.rows, ['chosen:H1', 'paused:H1:search_time'])
   assert.deepStrictEqual(mem.fails, {}, '`search_time` is not the plot\'s failure')
   assert.deepStrictEqual(H.houseOffer({ layout: [NINE, H2P], fails: mem.fails, now: 1e12 + 1 }).plots.map(p => p.id), ['H1', 'H2'], 'the plot keeps its place: no rotation')
-  assert.strictEqual(Object.keys(mem.search.H1.looks).length, 5)
+  assert.strictEqual(refusedN(mem), 5); assert.deepStrictEqual([Object.keys(mem.search.H1.looks).length, Object.keys(mem.search.H1.proofs).length], [2, 3], 'the long bodies by the screen, the square looks by proof')
   const v2 = await visit(srv, mem, [NINE, H2P], { now: 1e12 + 5 * 60_000, who: 'B' })
   assert.deepStrictEqual(v2.rows, ['chosen:H1', 'resumed:H1:5', 'paused:H1:search_time'])
   assert.deepStrictEqual(v2.searched, ['H1:5', 'H1:6', 'H1:7', 'H1:8', 'H1:9'], 'never the first five again')
@@ -269,7 +369,7 @@ await t('THREE VISITS: 0-4 refused and the box ends (`paused`, nothing noted aga
   assert.ok(v3.r.ok, v3.r.why)
   assert.deepStrictEqual([v3.r.plotId, v3.r.look, v3.r.record.blueprint, v3.r.record.plotId], ['H1', 'cottage@2-Csl0-', 'cottage@2-Csl0-', 'H1'])
   assert.ok(v3.r.record.cells.length > 150 && meets(NINE.box, v3.r.record.box), 'a whole cottage record on the plot')
-  assert.strictEqual(Object.keys(mem.search.H1.looks).length, 13); assert.deepStrictEqual(mem.fails, {})
+  assert.strictEqual(refusedN(mem), 13); assert.deepStrictEqual(mem.fails, {})
   assert.strictEqual(H.homePlotRowDetail({ project: 'cottage2', op: 'resumed', plot: 'H1', look: 10, of: 24, refused: 10 }), 'project=cottage2 op=resumed plot=H1 look=10 of=24 refused=10')
 })
 await t('WITHOUT THE MEMORY (slice 1: three looks a visit, the same three every visit) the fitting look is never reached -- the live failure', async () => {
@@ -285,24 +385,28 @@ await t('EXHAUSTION ROTATES: with nothing fitting, the plot\'s 24 looks are refu
   let v = null, n = 0
   const firstOk = B.siteBlueprint(srv.read, F.plan(), bpOf(ALL[FIT]), ctxOf(NINE))
   assert.strictEqual(firstOk.ok, false, 'POSITIVE CONTROL: the fitting look is blocked too')
-  for (; n < 8; n++) { v = await visit(srv, mem, [NINE, H2P], { now: 1e12 + n * 300_000 }); if (v.r.why !== 'search_time') break; assert.deepStrictEqual(mem.fails, {}) }
+  for (; n < 8; n++) { v = await visit(srv, mem, [NINE, H2P], { now: 1e12 + n * 300_000 }); if (v.rows.some(r => /^exhausted:H1:/.test(r))) break; assert.deepStrictEqual(mem.fails, {}) }
   assert.strictEqual(n, 4, 'four paused visits, the fifth ends the plot')
   assert.ok(v.rows.some(r => /^exhausted:H1:/.test(r)), JSON.stringify(v.rows))
   const ex = v.rows.find(r => /^exhausted:H1:/.test(r))
   assert.ok(/no_site=12/.test(ex) && /no_proven_site:cell_not_free=12/.test(ex), `the tally of reasons: ${ex}`)
   assert.deepStrictEqual([mem.fails.H1.why, mem.fails.H1.n], ['exhausted', 1])
   assert.ok(v.rows.includes('chosen:H2'), 'the next plot in the same visit')
-  assert.ok(v.r.ok && v.r.plotId === 'H2', `...and it is sited (${v.r.why})`)
+  assert.deepStrictEqual([v.r.why, v.r.resume, v.rows.at(-1)], ['search_time', true, 'paused:H2:search_time'], 'H2\'s look is accepted as the box ends: its fresh proof is the next visit\'s (never published unproven)')
+  const next = await visit(srv, mem, H.houseOffer({ layout: [NINE, H2P], fails: mem.fails, now: 1e12 + (n + 1) * 300_000 }).plots, { now: 1e12 + (n + 1) * 300_000 })
+  assert.ok(next.r.ok && next.r.plotId === 'H2' && next.rows[0] === 'chosen:H2', `...and it is sited (${next.r.why})`)
   assert.deepStrictEqual(H.houseOffer({ layout: [NINE, H2P], fails: mem.fails, now: 1e12 + n * 300_000 + 1 }).plots.map(p => p.id), ['H2', 'H1'], 'H1 behind the others for 6 h')
-  // back at the plot after the 6 h, the ground unchanged: exhausted at once, WITHOUT a search (the memory is a day's)
+  // back at the plot after the 6 h, the ground unchanged: the SCREEN's twelve refusals still stand (a day, under the signature); the
+  // twelve a PROOF refused are over (30 min) and are searched again -- never answered from memory
   const again = await visit(srv, { fails: {}, search: mem.search }, [NINE], { now: 1e12 + 7 * 3_600_000 })
-  assert.deepStrictEqual([again.r.why, again.searched, again.rows[1].split(':')[0]], ['exhausted', [], 'exhausted'])
+  assert.deepStrictEqual([again.r.why, again.rows[1]], ['search_time', 'resumed:H1:0'])
+  assert.deepStrictEqual(again.searched, ['H1:0', 'H1:2', 'H1:4', 'H1:5', 'H1:6'], 'the square looks only: the long bodies\' refusal is the plot\'s own')
   assert.strictEqual(H.homePlotRowDetail({ project: 'cottage2', op: 'exhausted', plot: 'H1', why: 'no_site=12,no_proven_site:cell_not_free=12' }), 'project=cottage2 op=exhausted plot=H1 why=no_site=12,no_proven_site:cell_not_free=12')
 })
 await t('A CHANGED WORLD RESETS THE MEMORY: the blockers gone after visit 1 (the signature moves) -> the search starts at look 0 again and look 0 is sited', async () => {
   const mem = { fails: {}, search: {} }
   const v1 = await visit(world(), mem, [NINE], { now: 1e12 })
-  assert.strictEqual(Object.keys(mem.search.H1.looks).length, 5)
+  assert.strictEqual(refusedN(mem), 5)
   const v2 = await visit(F.server(), mem, [NINE], { now: 1e12 + 300_000 })   // the same plot, the hanging blocks cut
   assert.deepStrictEqual(v2.rows, ['chosen:H1'], 'no `resumed` row: nothing is passed over')
   assert.deepStrictEqual(v2.searched, ['H1:0']); assert.ok(v2.r.ok); assert.strictEqual(v2.r.look, ALL[0].id)
@@ -312,9 +416,106 @@ await t('TWO BOTS ON ONE PLOT at once: both start at the same look (the work is 
   const srv = world(), mem = { fails: {}, search: {} }
   const [a, b] = await Promise.all([visit(srv, mem, [NINE], { now: 1e12, who: 'A' }), visit(srv, mem, [NINE], { now: 1e12, who: 'B', cost: 34_000 })])
   assert.deepStrictEqual(a.searched, ['H1:0', 'H1:1', 'H1:2', 'H1:3', 'H1:4']); assert.deepStrictEqual(b.searched, ['H1:0', 'H1:1', 'H1:2'])
-  assert.deepStrictEqual(Object.keys(mem.search.H1.looks).length, 5, 'the union: five looks refused')
+  assert.deepStrictEqual(refusedN(mem), 5, 'the union: five looks refused')
   const v = await visit(srv, mem, [NINE], { now: 1e12 + 300_000 })
   assert.deepStrictEqual(v.rows.slice(0, 2), ['chosen:H1', 'resumed:H1:5'])
+})
+await t('REVIEW r1 (Codex 1b) THE TRENCH, end to end: the kept walk accepts look 0; another bot cuts a trench before it is published; the fresh proof refuses it -- NOTHING is published for the plot, the look is not remembered, the plot is passed (not failed) and the next plot is sited', async () => {
+  const w = liveWorld(), mem = { fails: {}, search: {} }
+  let cut = false
+  const v = await visit(w, mem, [NINE, H2P], { now: 1e12, cost: 1_000, between: (i, plot) => { if (plot.id === 'H1' && !cut) { cut = true; trench(w) } } })
+  assert.ok(cut, 'POSITIVE CONTROL: the kept walk DID accept look 0 on H1 (the reviewer\'s `ok: true`)')
+  assert.ok(!v.published.some(x => /^H1:/.test(x)), `nothing published on H1: ${v.published}`)
+  assert.ok(!Object.hasOwn(mem.search.H1?.looks ?? {}, ALL[0].id) && !Object.hasOwn(mem.search.H1?.proofs ?? {}, ALL[0].id), 'look 0 is NOT remembered as refused')
+  assert.ok(v.searched.length > 12 && v.searched.includes('H1:2'), 'the search went on to the next looks')
+  assert.deepStrictEqual(mem.fails, {}, 'the plot is not failed')
+  assert.ok(v.rows.some(x => /^passed:H1:kept_walk_stale/.test(x)), JSON.stringify(v.rows.filter(x => !/^chosen|^resumed/.test(x))))
+  assert.ok(v.r.ok && v.r.plotId === 'H2', 'the next plot, west of the town, is sited in the same visit')
+  assert.deepStrictEqual(v.published, ['H2:0'])
+  // the looks after it were refused on a walk made AGAIN (the stale one was dropped): the long bodies by the screen, the square by proof
+  assert.deepStrictEqual([Object.keys(mem.search.H1.looks).length, Object.keys(mem.search.H1.proofs).length], [12, 11])
+})
+await t('...with the connection\'s witness (Codex 1a) the trench drops the kept walk before the next look: that look is refused by its own search, exactly as a fresh search refuses it', async () => {
+  const w = liveWorld()
+  const cache = B.makeWalkCache({ seqNow: w.seq, movedSince: w.moved })
+  const s0 = B.siteBlueprint(w.read, F.plan(), bpOf(ALL[0]), ctxOf(NINE, [], { walkCache: cache }))
+  assert.ok(s0.ok, 'the kept walk is warm: look 0 sites')
+  trench(w)
+  const kept = B.siteBlueprint(w.read, F.plan(), bpOf(ALL[2]), ctxOf(NINE, [], { walkCache: cache })), fresh = B.siteBlueprint(w.read, F.plan(), bpOf(ALL[2]), ctxOf(NINE))
+  assert.deepStrictEqual([fresh.ok, fresh.why], [false, 'no_proven_site'])
+  assert.deepStrictEqual(slim(kept), slim(fresh))
+  // the reviewer's reproduction, with no witness and inside the age limit: the kept walk says ok, the fresh proof says no
+  const w2 = liveWorld(), c2 = B.makeWalkCache({ now: () => 1e12 })
+  B.siteBlueprint(w2.read, F.plan(), bpOf(ALL[0]), ctxOf(NINE, [], { walkCache: c2 })); trench(w2)
+  const stale = B.siteBlueprint(w2.read, F.plan(), bpOf(ALL[2]), ctxOf(NINE, [], { walkCache: c2 }))
+  assert.strictEqual(stale.ok, true, 'REPRODUCED: cached ok:true')
+  const again = await B.siteAgainFresh(stale, w2.read, F.plan(), bpOf(ALL[2]), ctxOf(NINE, [], { walkCache: c2 }), { sliceMs: 0 })
+  assert.deepStrictEqual([again.ok, again.why], [false, 'no_proven_site'], '...and the fresh proof refuses it before anything is published')
+})
+await t('MUTANT the fresh proof made with the kept walk left in: the site behind the trench is PUBLISHED', async () => {
+  const M = await mutantOf('buildsite.mjs', "  const { walkCache, ...rest } = ctx\n  void walkCache\n", '  const rest = ctx\n')
+  const w = liveWorld(), mem = { fails: {}, search: {} }
+  let cut = false
+  const v = await visit(w, mem, [NINE, H2P], { now: 1e12, cost: 1_000, M, between: (i, plot) => { if (plot.id === 'H1' && !cut) { cut = true; trench(w) } } })
+  assert.deepStrictEqual(v.published, ['H1:0'], 'the mutant publishes a cottage no bot can walk to')
+})
+await t('REVIEW r1 (Codex 2) THE APPROACH BROKEN, THEN RESTORED: with the trench every look is refused and the plot is exhausted (a real search); the trench filled in, the SAME signature -- the next visit searches the proof-refused looks again and SITES look 0 (it read `exhausted` for 24 h before)', async () => {
+  const w = liveWorld(), mem = { fails: {}, search: {} }
+  trench(w)
+  const sig0 = H.plotSig(w.read, NINE, [], HOME)
+  const v1 = await visit(w, mem, [NINE], { now: 1e12, cost: 1_000 })
+  assert.deepStrictEqual([v1.r.why, v1.searched.length, v1.published], ['exhausted', 24, []])
+  assert.deepStrictEqual([Object.keys(mem.search.H1.looks).length, Object.keys(mem.search.H1.proofs).length, mem.fails.H1.why], [12, 12, 'exhausted'])
+  for (let z = -60; z <= 60; z++) for (const x of TRENCH_X) for (let y = G; y > G - 3; y--) w.srv.set([x, y, z], y === G ? 'grass_block' : 'stone')   // another bot fills the trench in
+  assert.strictEqual(H.plotSig(w.read, NINE, [], HOME), sig0, 'the plot\'s own signature has not moved: the trench is far from it')
+  const v2 = await visit(w, mem, [NINE], { now: 1e12 + 10 * 60_000, cost: 1_000 })
+  assert.deepStrictEqual(v2.rows.slice(0, 2), ['chosen:H1', 'resumed:H1:0'], 'the proofs\' refusals are searched again, never answered from memory')
+  assert.ok(v2.r.ok, v2.r.why); assert.deepStrictEqual([v2.r.look, v2.published], [ALL[0].id, ['H1:0']])
+  assert.strictEqual(H.homePlotRowDetail({ project: 'cottage2', op: 'resumed', plot: 'H1', look: 0, of: 24, refused: 12, why: 'proofs_again' }), 'project=cottage2 op=resumed plot=H1 look=0 of=24 refused=12 why=proofs_again')
+  // and with ONLY the screen's refusals (a plot no look has a candidate on) the answer from memory is right: exhausted, no search
+  const pond = F.server(); for (let x = 17; x <= 31; x++) for (let z = -7; z <= 7; z++) pond.set([x, G, z], 'water')
+  const mem2 = { fails: {}, search: {} }
+  const p1 = await visit(pond, mem2, [NINE], { now: 1e12, cost: 1_000 }), p2 = await visit(pond, mem2, [NINE], { now: 1e12 + 3_600_000, cost: 1_000 })
+  assert.deepStrictEqual([p1.r.why, p1.searched.length, mem2.search.H1.proofs, p2.r.why, p2.searched], ['exhausted', 24, undefined, 'exhausted', []])
+})
+await t('MUTANT a proof\'s refusal kept like the screen\'s: after the approach is restored the plot is answered `exhausted` from memory and never searched', async () => {
+  const M = await mutantOf('homeplots.mjs', "  if (life === 'proof') { if (!Object.hasOwn(looks, id)) proofs[id] = { why: w, at: now } } else { looks[id] = w; delete proofs[id] }\n", '  looks[id] = w\n')
+  let search = {}
+  for (const [i, cs] of ALL.entries()) search = M.searchNoted(search, 'H1', 's', cs.id, 'no_proven_site:no_step', { now: 1e12 + i, life: 'proof' })
+  let ran = 0
+  const r = await H.searchPlotLooks(ALL, { plotId: 'H1', sig: 's', now: () => 1e12 + 600_000, memory: () => search, searchLook: async () => { ran++; return { ok: true } } })
+  assert.deepStrictEqual([r.why, ran], ['exhausted', 0], 'the mutant\'s memory: exhausted, no search')
+  let real = {}
+  for (const [i, cs] of ALL.entries()) real = H.searchNoted(real, 'H1', 's', cs.id, 'no_proven_site:no_step', { now: 1e12 + i, life: 'proof' })
+  const ok = await H.searchPlotLooks(ALL, { plotId: 'H1', sig: 's', now: () => 1e12 + 600_000, memory: () => real, searchLook: async () => ({ ok: true }) })
+  assert.strictEqual(ok.ok, true, 'the real memory: the looks are searched again')
+})
+await t('REVIEW r1 (Claude ii, iii) GROUND NOT LOADED / A GUARD UNREADABLE: the proofs\' refusals are written NOWHERE, the plot is passed (not failed, not exhausted), and the next visit searches it again', async () => {
+  const w = liveWorld(); trench(w)   // every candidate unreached, as on ground the siting bot has not loaded
+  for (const opts of [{ unread: 40 }, { guardUnread: true }]) {
+    const mem = { fails: {}, search: {} }
+    const v = await visit(w, mem, [NINE, H2P], { now: 1e12, cost: 1_000, ...opts })
+    assert.deepStrictEqual(mem.search.H1.proofs, undefined, 'no proof refusal is stored')
+    assert.strictEqual(Object.keys(mem.search.H1.looks).length, 12, 'the screen\'s refusals (the long bodies) are the plot\'s own: kept')
+    assert.deepStrictEqual(mem.fails, {}); assert.ok(v.rows.some(x => new RegExp(`^passed:H1:${opts.unread ? 'approach_unread' : 'guard_unread'}`).test(x)), JSON.stringify(v.rows.slice(-4)))
+    assert.ok(v.r.ok && v.r.plotId === 'H2')
+    const v2 = await visit(w, mem, [NINE], { now: 1e12 + 300_000, cost: 1_000, ...opts })
+    assert.strictEqual(v2.searched.length, 12, 'the twelve square looks are searched again, every visit, until the ground can be read')
+    assert.notStrictEqual(v2.r.why, 'exhausted')
+  }
+})
+await t('`exhausted` is never reached on a proof\'s word without a search in THIS visit: a plot whose every look is refused in memory, some by a proof, has those looks searched now; a search that met an unread approach leaves it un-exhausted', async () => {
+  let search = {}
+  for (const [i, cs] of ALL.entries()) search = H.searchNoted(search, 'H1', 's', cs.id, i % 2 ? 'no_site' : 'no_proven_site:no_step', { now: 1e12, life: i % 2 ? 'ground' : 'proof' })
+  const ran = [], rows = []
+  const r = await H.searchPlotLooks(ALL, { plotId: 'H1', sig: 's', now: () => 1e12 + 60_000, memory: () => search, row: f => rows.push(`${f.op}:${f.look}:${f.refused}:${f.why}`),
+    noteLook: (id, why, life) => { search = H.searchNoted(search, 'H1', 's', id, why, { now: 1e12 + 60_000, life }) }, searchLook: async cs => { ran.push(ALL.indexOf(cs)); return { ok: false, why: 'no_proven_site', more: true, refused: 'no_proven_site:no_step', life: 'proof' } } })
+  assert.deepStrictEqual(ran, [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22], 'the proof-refused looks only')
+  assert.deepStrictEqual([r.why, rows], ['exhausted', ['resumed:0:12:proofs_again']], 'exhausted after a real search')
+  const soft = await H.searchPlotLooks(ALL, { plotId: 'H1', sig: 's', now: () => 1e12 + 120_000, memory: () => search, searchLook: async () => ({ ok: false, why: 'no_proven_site', more: true, soft: 'approach_unread' }) })
+  assert.deepStrictEqual([soft.why, soft.soft], ['no_proven_site', 'approach_unread'], 'never exhausted on a search that could not read the approach')
+  const d = await H.siteOverPlots([NINE, H2P], p => (p.id === 'H1' ? soft : { ok: true }), { noteFail: () => { throw new Error('a soft plot is never noted') }, row: () => {} })
+  assert.deepStrictEqual([d.ok, d.plotId], [true, 'H2'])
 })
 await t('the driver: a `resume` answer notes nothing and ends the visit; `exhausted` is noted and the next plot tried; the old `search_time` (no memory) is still the plot\'s failure', async () => {
   const plots = [NINE, H2P]
@@ -333,13 +534,13 @@ await t('MUTANT `search_time` treated as the plot\'s failure again: the plot is 
   assert.deepStrictEqual(noted, ['H1'])
 })
 await t('MUTANT a refused look not passed over: the second visit searches look 0 again and the fitting look is never reached', async () => {
-  const M = await mutantOf('homeplots.mjs', '    if (!left.has(look.id)) continue\n', '')
+  const M = await mutantOf('homeplots.mjs', '    if (!todo.has(look.id)) continue\n', '')
   const srv = world(), mem = { fails: {}, search: {} }
   const seen = []
   for (let i = 0; i < 2; i++) {
     let spent = 0
     await M.searchPlotLooks(ALL, { plotId: 'H1', sig: 's', memory: () => mem.search, noteLook: (id, why) => { mem.search = H.searchNoted(mem.search, 'H1', 's', id, why, { now: 1e12 }) },
-      searchLook: async cs => { if (spent >= 100_000) return { ok: false, why: 'search_time' }; spent += 22_000; seen.push(ALL.indexOf(cs)); const s = B.siteBlueprint(srv.read, F.plan(), bpOf(cs), ctxOf(NINE)); return s.ok ? { ok: true } : { ok: false, why: s.why, refused: H.refusalOf(s) } } })
+      searchLook: async cs => { if (spent >= 100_000) return { ok: false, why: 'search_time' }; spent += 22_000; seen.push(ALL.indexOf(cs)); const s = B.siteBlueprint(srv.read, F.plan(), bpOf(cs), ctxOf(NINE)); return s.ok ? { ok: true } : { ok: false, why: s.why, more: true, refused: H.refusalOf(s) } } })
   }
   assert.deepStrictEqual(seen, [0, 1, 2, 3, 4, 0, 1, 2, 3, 4])
 })
@@ -427,11 +628,19 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/g
 const WIRES = {
   'skills.mjs': {
     'HOMESEARCH chooses the whole family or the three looks': ['HOMESEARCH.on ? cottage2StylesAll(stock, lookOpts) : cottage2Styles(stock, lookOpts)', 'cottage2Styles(stock, lookOpts)'],
-    'the kept walk is made only under the switch': ['    const walkCache = HOMESEARCH.on ? makeWalkCache() : null\n', '    const walkCache = makeWalkCache()\n'],
+    'the kept walk is made only under the switch, with the connection\'s witness': ['    const walkCache = HOMESEARCH.on ? makeWalkCache(witness ? { seqNow: () => witness.seq(), movedSince: (since, at) => witness.moved(since, at) } : {}) : null\n', '    const walkCache = HOMESEARCH.on ? makeWalkCache() : null\n'],
+    'the witness listens for the plot\'s search and is stopped after it': ["    if (HOMESEARCH.on && typeof bot._client?.on === 'function') { try { witness = installServerBlockWitness(bot) } catch { witness = null } }\n", '\n'],
+    'the witness is stopped however the search ends': ['  } finally { try { witness?.stop() } catch { /* gone with the connection */ } }\n', '  } finally { /* never stopped */ }\n'],
+    'what the kept walk accepted is proven again fresh': ['        const s2 = await siteAgainFresh(s, frd, plan, bp, {', '        const s2 = await Promise.resolve(s, frd, plan, bp, {'],
+    'a site the fresh proof refuses is not published, not refused, and the kept walks are dropped': ["        if (!s2.ok) { walkCache.drop(); return { ok: false, why: 'no_proven_site', detail: `kept_walk_stale ${s2.why}`, tried, more: true, soft: refusalKind({ ...s2, stale: true }).soft } }\n", '\n'],
+    'the record published is the fresh proof\'s': ['      return { ok: true, why: \'ok\', record: cottageRecordOf(rec, bp, cs.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }\n', '      return { ok: true, why: \'ok\', record: cottageRecordOf(s.record, bp, cs.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }\n'],
+    'a refusal is remembered as its kind says, given the unread approach and the guard': ['        const k = HOMESEARCH.on ? refusalKind(s, { unread: unreadSeen, guardUnread }) : null\n', '        const k = HOMESEARCH.on ? refusalKind(s) : null\n'],
+    'the approach\'s unread columns are counted across the plot\'s looks': ['        unreadSeen = Math.max(unreadSeen, prd.unreadIn(approach))\n', '\n'],
+    'the tree guard\'s unreadable answer is asked once a plot': ['    if (HOMESEARCH.on && LEAFFELL_ON) { try { guardUnread = !!trunkReservations(bot, plan).why } catch { guardUnread = true } }\n', '\n'],
     'the search and the canopy hook are given the kept walk, and the plot\'s one planned town': ['        ...(walkCache ? { walkCache, ...pa0, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, null, walkCache) } : {}),', '        ...({}),'],
-    'a finished, refused look carries its reason for the memory': ["more: true, ...(SEARCH_STABLE.includes(s.why) ? { refused: refusalOf(s) } : {}) }", 'more: true }'],
-    'the plot is searched through the memory, its looks written to the town\'s file': ["      return await searchPlotLooks(all, { plotId: o.plot.id, sig, memory: () => homeSearch(dir), noteLook: (id, why) => homeSearchNote(dir, o.plot.id, sig, id, why, me), row: f => homePlotRow(bot, { project: plot, ...f }), searchLook: lookOn })\n", '      return await lookOn(all[0])\n'],
-    'the signature is the plot\'s ground and reservations now': ['      const sig = plotSig(planReader(bot), o.plot, sp.zones, plan.home)\n', "      const sig = 'x'\n"],
+    'a finished, refused look carries its reason and its life, or says it is soft': ["tried, more: true, ...(k?.life ? { refused: k.why, life: k.life } : k?.soft ? { soft: k.soft } : {}) }", 'tried, more: true }'],
+    'the plot is searched through the memory, its looks written to the town\'s file': ["      return await searchPlotLooks(all, { plotId: o.plot.id, sig, memory: () => homeSearch(dir), noteLook: (id, why, life) => homeSearchNote(dir, o.plot.id, sig, id, why, me, life), row: f => homePlotRow(bot, { project: plot, ...f }), searchLook: lookOn })\n", '      return await lookOn(all[0])\n'],
+    'the signature is the plot\'s ground and reservations now': ['      const sig = plotSig(planReader(bot), o.plot, sp.zones, plan.home, { extra: plan.gen ?? \'\' })\n', "      const sig = 'x'\n"],
     '`search_time` with the memory on is a resume, never the plot\'s failure': [".then(r => (HOMESEARCH.on && r?.why === 'search_time' ? { ...r, resume: true } : r))", ''],
     'a resumed search is asked again after resumeMs, not 30 min': ['siteWaitSet(plot, ss.resume === true ? HOMEPLOT.resumeMs : COTTAGE_NOSITE_MS, ss.why)', 'siteWaitSet(plot, COTTAGE_NOSITE_MS, ss.why)'],
     'the cottage on a layout plot is not refused by an unfinished road': ['return yieldRoads ? homeZones(zs, landHead()) : zs }', 'return zs }'],

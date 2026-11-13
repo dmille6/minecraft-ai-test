@@ -45,16 +45,24 @@
 //                      segment and once at its end, a candidate with leaves in its cells once a leaf (sitecanopy.mjs), each walk
 //                      reading the whole town out to walkR (1.0 - 6.0 s on that host). buildsite.mjs makeWalkCache keeps ONE walk of
 //                      the unchanged town a search and answers every question from it, reading only the columns the question changed.
-//   THE SEARCH RESUMES    a plot is tried with EVERY look of the family (cottage2.mjs cottageLooksAll: 24), in one fixed order. A look
-//                      the search finished and REFUSED (`no_site`, `no_proven_site`: the screen's and the proof's reasons, which do
-//                      not change by themselves) is remembered in the town's file with the plot's SIGNATURE (plotSig: its placed box,
-//                      the top block of every column of the box + 3, the reservations within 4 of it); the next visit starts at the
-//                      first look not yet refused. A changed signature (the ground was graded, a tree felled, a chunk read that was
-//                      not, a neighbour's reservation moved) forgets the plot's looks; so does HOMEPLOT.searchKeepMs (24 h, the
-//                      order's own no-site retry: what the signature cannot see -- the walk from town, the planned town -- is asked
-//                      again once a day). `search_time` is NOT the plot's failure: nothing is noted against the plot, it stays where
-//                      it is in the offer, and the project is asked again after HOMEPLOT.resumeMs (5 min) instead of 30. Only a plot
-//                      whose every look is refused is EXHAUSTED: noted failed (the tally of reasons in its row) and rotated.
+//   THE SEARCH RESUMES    a plot is tried with EVERY look of the family (cottage2.mjs cottageLooksAll: 24), in one fixed order, and
+//                      the next visit starts at the first look not refused. WHAT IS REMEMBERED, AND FOR HOW LONG (review r1, Codex 2
+//                      and Claude: every refusal was kept a day, so an approach broken for a minute, ground the siting bot had not
+//                      loaded or a tree guard that could not be read stored all 24 looks and the plot read `exhausted` for 24 h):
+//                        the SCREEN's refusal (`no_site`: no candidate passed the door, the reservations, the earthwork, the trees)
+//                          depends on the plot alone -- remembered with the plot's SIGNATURE (plotSig: its placed box, the top block
+//                          of every column of the box + 3, the reservations within 4, the plan's generation) for searchKeepMs
+//                          (24 h); a changed signature forgets it. Never when the screen met an unread cell.
+//                        the PROOF's refusal (`no_proven_site`: it depends on the walk from town, the planned town, the guards) is
+//                          believed only for proofKeepMs (30 min: long enough for the 5-min visits a plot's 24 looks take, and
+//                          no longer than the project itself waits after a failed siting, COTTAGE_NOSITE_MS) -- and NOT AT ALL
+//                          when a cell between town and the plot was unread for the siting bot, or a guard answered unreadable,
+//                          or the kept walk was found stale: such a look is simply tried again next time.
+//                      `search_time` is NOT the plot's failure: nothing is noted against the plot, it stays where it is in the offer,
+//                      and the project is asked again after HOMEPLOT.resumeMs (5 min) instead of 30. A plot is EXHAUSTED (noted
+//                      failed, the tally in its row, rotated) only when every look is refused AND, where any of them is a proof's
+//                      refusal, a real search was made in THIS visit: a plot whose looks are all refused in memory but some by a
+//                      proof has those looks searched again now, never answered from memory.
 //   TWO BOTS, ONE PLOT    both start at the same first look not yet refused (the work is done twice, never wrongly); each refusal
 //                      is merged into the file as it is on disk at that moment (read, add, temp + rename), so neither writer drops
 //                      the other's looks but for a write landing between another's read and rename -- that one look is searched
@@ -73,7 +81,7 @@ import fs from 'node:fs'
  *  a path's reservation is its columns + 1, so a path one column from the box would push the plot); retryMs: how long a failed plot stays behind the others; rowMs: one bot repeats a `_homeplot` row at most
  *  this often (geoRowMs for `shifted` and `skipped`: where a plot lies changes only when a record does); base: the cottage projects a
  *  town has without a layout. */
-export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, pathGap: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3, searchKeepMs: 24 * 60 * 60_000, resumeMs: 5 * 60_000, sigPad: 3, sigZones: 4 })
+export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, pathGap: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3, searchKeepMs: 24 * 60 * 60_000, proofKeepMs: 30 * 60_000, resumeMs: 5 * 60_000, sigPad: 3, sigZones: 4, approachPad: 8 })
 
 const onOff = v => { const s = String(v ?? '').trim().toLowerCase(); return ['on', '1', 'true', 'yes'].includes(s) ? true : ['off', '0', 'false', 'no'].includes(s) ? false : null }
 /** THE SWITCH -> { on }. HOMEPLOTS=on|off; unset = on only in HOMEPLOTS_POOLS (default 'showcase'). Pure. */
@@ -284,10 +292,11 @@ const AIRISH = /^(air|cave_air|void_air|short_grass|tall_grass|fern|large_fern|s
 /**
  * A PLOT'S SIGNATURE -> string. Pure over `read`. What a refused look was refused ON: the plot's placed box; the TOP block (its height
  * and name; `u` unread) of every column of the box + `pad` (the stands' domain), scanned from home.y + 24 down 40; the reservations
- * within `near` of the box (their boxes and reasons, sorted). Cheap (a few thousand reads, no walk). A cut, a fill, a felled tree, a
- * decayed crown, a chunk now loaded or a reservation that moved changes it; what it cannot see is bounded by HOMEPLOT.searchKeepMs.
+ * within `near` of the box (their boxes and reasons, sorted); `extra` (the plan's generation). Cheap (a few thousand reads, no walk).
+ * A cut, a fill, a felled tree, a decayed crown, a chunk now loaded or a reservation that moved changes it. It covers what the SCREEN
+ * reads -- which is why only the screen's refusals are kept under it (refusalKind `ground`).
  */
-export function plotSig (read, plot, zones = [], home = { y: 70 }, { pad = HOMEPLOT.sigPad, near = HOMEPLOT.sigZones } = {}) {
+export function plotSig (read, plot, zones = [], home = { y: 70 }, { pad = HOMEPLOT.sigPad, near = HOMEPLOT.sigZones, extra = '' } = {}) {
   const b = plot?.box
   if (!ok4(b)) return ''
   const parts = [b.join(',')]
@@ -302,6 +311,7 @@ export function plotSig (read, plot, zones = [], home = { y: 70 }, { pad = HOMEP
   const zs = []
   for (const z of zones ?? []) { const q = zoneBox4(z); if (q && meets(g, q)) zs.push(`${q.join(',')}${z.why ?? ''}`) }
   parts.push(zs.sort().join(';'))
+  parts.push(String(extra ?? ''))   // the plan's generation: the screen's plan reservations (its cells, boxes, wells) are the plan's
   return `${fnv32(parts.join('|')).toString(36)}.${parts.length}`
 }
 /** The reason a finished search refused a look, with what refused most -> e.g. `no_site:liquid`, `no_proven_site:cell_not_free`,
@@ -313,62 +323,99 @@ export function refusalOf (s) {
   const top = Object.entries(tally).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]
   return `${s?.why ?? 'no_site'}${top ? `:${top[0]}` : ''}`
 }
-/** The reasons a search may remember: it FINISHED and refused the look. Never `search_time`, `aborted` or a town's reason. */
+/** The reasons a search may remember at all: it FINISHED and refused the look. Never `search_time`, `aborted` or a town's reason. */
 export const SEARCH_STABLE = Object.freeze(['no_site', 'no_proven_site', 'no_free_sector'])
-/** A plot's remembered looks, if they are still its own -> { sig, at, looks } | null (another signature, or older than `keepMs`). Pure. */
-const searchEntry = (search, plotId, sig, now, keepMs) => { const e = search?.[String(plotId)]; const at = Number(e?.at); return e && e.sig === sig && sig && Number.isFinite(at) && at <= now + 60_000 && now - at < keepMs && e.looks && typeof e.looks === 'object' ? e : null }
 /**
- * WHERE THE SEARCH OF A PLOT STANDS -> { left: [lookId], refused: n, first: index of the first look left | -1, tally }. Pure.
- *   search  the file's `search` ({ plotId: { sig, at, looks: { lookId: why } } });  lookIds  the plot's looks in the order tried
- * Only looks refused under THIS signature and inside `keepMs` count; `tally` their reasons (`why=n,...`, most first).
+ * HOW A FINISHED, REFUSED LOOK IS REMEMBERED -> { why, life: 'ground' | 'proof' } | { soft: reason } (not at all) | null (not a
+ * finished refusal). Pure.
+ *   s            buildsite.mjs siteBlueprint's answer for the look (`stale`: siteAgainFresh found the kept walk's site unproven)
+ *   unread       cells between town and the plot the siting bot could not read during this search (skills.mjs: the reader's own count)
+ *   guardUnread  a guard the proof asks answered unreadable (the tree guard's reservations: skills.mjs trunkReservations `why`)
+ * `ground`: the SCREEN refused every candidate (nothing was screened) and met no unread cell -- the plot's own ground and reservations,
+ * which the signature covers. `proof`: something was screened and no proof held, every read known, every guard readable -- true of
+ * the town as it was, believed for proofKeepMs. `soft` (`kept_walk_stale`, `unknown_cell`, `approach_unread`, `guard_unread`): the
+ * refusal says nothing lasting about the plot -- it is not written anywhere, and it never makes a plot exhausted or failed.
  */
-export function searchLeft (search, plotId, sig, lookIds = [], now = Date.now(), keepMs = HOMEPLOT.searchKeepMs) {
-  const e = searchEntry(search, plotId, sig, now, keepMs)
-  const done = e?.looks ?? {}
-  const left = lookIds.filter(id => !Object.hasOwn(done, id))
-  const counts = {}
-  for (const id of lookIds) if (Object.hasOwn(done, id)) { const w = String(done[id]); counts[w] = (counts[w] ?? 0) + 1 }
-  const tally = Object.entries(counts).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([w, n]) => `${w}=${n}`).join(',')
-  return { left, refused: lookIds.length - left.length, first: left.length ? lookIds.indexOf(left[0]) : -1, tally }
+export function refusalKind (s, { unread = 0, guardUnread = false } = {}) {
+  if (!s || s.ok) return null
+  if (s.stale) return { soft: 'kept_walk_stale' }
+  if (!SEARCH_STABLE.includes(s.why)) return null
+  const sum = pick => (s.sectors ?? []).reduce((n, r) => n + (Number(pick(r)) || 0), 0)
+  if (sum(r => r.rejects?.unknown) > 0 || sum(r => r.proofFails?.unknown) > 0) return { soft: 'unknown_cell' }
+  if (!sum(r => r.screened)) return { why: refusalOf(s), life: 'ground' }
+  if (unread > 0) return { soft: 'approach_unread' }
+  if (guardUnread) return { soft: 'guard_unread' }
+  return { why: refusalOf(s), life: 'proof' }
 }
-/** The memory with one more refused look -> the file's `search` (a new object). Pure. A plot whose signature moved (or whose looks
- *  are older than `keepMs`) starts again with this one look; other plots' entries older than `keepMs` are dropped. */
-export function searchNoted (search = {}, plotId, sig, lookId, why, { now = Date.now(), by = '', keepMs = HOMEPLOT.searchKeepMs } = {}) {
+/** A plot's remembered looks, if they are still its own -> { sig, at, looks, proofs } | null (another signature, or older than `keepMs`). Pure. */
+const searchEntry = (search, plotId, sig, now, keepMs) => { const e = search?.[String(plotId)]; const at = Number(e?.at); return e && e.sig === sig && sig && Number.isFinite(at) && at <= now + 60_000 && now - at < keepMs && e.looks && typeof e.looks === 'object' ? e : null }
+/** The proofs' refusals of an entry still believed -> { lookId: why }: each younger than `proofMs` (a stamp from the future is none). */
+const proofsOf = (e, now, proofMs) => { const out = {}; for (const [id, p] of Object.entries(e?.proofs ?? {})) { const at = Number(p?.at); if (Number.isFinite(at) && at <= now + 60_000 && now - at < proofMs) out[id] = String(p.why ?? 'no_proven_site') } return out }
+/**
+ * WHERE THE SEARCH OF A PLOT STANDS -> { left: [lookId], refused: n, first: index of the first look left | -1, tally, proofs: [lookId] }.
+ * Pure.   search  the file's `search` ({ plotId: { sig, at, looks: { lookId: why }, proofs: { lookId: { why, at } } } })
+ *         lookIds the plot's looks in the order tried
+ * Refused: a look in `looks` (the screen's refusals: this signature, inside `keepMs`) or in `proofs` (a proof's: this signature,
+ * inside `proofMs`). `proofs`: the refused looks that only a proof refused. `tally` every refused look's reason (`why=n,...`).
+ */
+export function searchLeft (search, plotId, sig, lookIds = [], now = Date.now(), keepMs = HOMEPLOT.searchKeepMs, proofMs = HOMEPLOT.proofKeepMs) {
+  const e = searchEntry(search, plotId, sig, now, keepMs)
+  const done = e?.looks ?? {}, pr = proofsOf(e, now, proofMs)
+  const why = id => (Object.hasOwn(done, id) ? String(done[id]) : Object.hasOwn(pr, id) ? pr[id] : null)
+  const left = lookIds.filter(id => why(id) == null)
+  const counts = {}
+  for (const id of lookIds) { const w = why(id); if (w != null) counts[w] = (counts[w] ?? 0) + 1 }
+  const tally = Object.entries(counts).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([w, n]) => `${w}=${n}`).join(',')
+  return { left, refused: lookIds.length - left.length, first: left.length ? lookIds.indexOf(left[0]) : -1, tally, proofs: lookIds.filter(id => !Object.hasOwn(done, id) && Object.hasOwn(pr, id)) }
+}
+/** The memory with one more refused look -> the file's `search` (a new object). Pure. `life`: 'ground' (the screen's: `looks`) or
+ *  'proof' (`proofs`, each with its own stamp). A plot whose signature moved (or whose entry is older than `keepMs`) starts again
+ *  with this one look; other plots' entries older than `keepMs` are dropped, and this plot's proofs older than `proofMs`. */
+export function searchNoted (search = {}, plotId, sig, lookId, why, { now = Date.now(), by = '', life = 'ground', keepMs = HOMEPLOT.searchKeepMs, proofMs = HOMEPLOT.proofKeepMs } = {}) {
   const out = {}
   for (const [k, e] of Object.entries(search ?? {})) { const at = Number(e?.at); if (Number.isFinite(at) && now - at < keepMs) out[k] = e }
   const cur = searchEntry(search, plotId, sig, now, keepMs)
-  out[String(plotId)] = { sig, at: cur ? cur.at : now, last: now, by: String(by ?? ''), looks: { ...(cur?.looks ?? {}), [String(lookId)]: String(why ?? 'no_site').slice(0, 48) } }
+  const looks = { ...(cur?.looks ?? {}) }, proofs = {}
+  for (const [id, w] of Object.entries(proofsOf(cur, now, proofMs))) proofs[id] = { why: w, at: Number(cur.proofs[id].at) }
+  const w = String(why ?? 'no_site').slice(0, 48), id = String(lookId)
+  if (life === 'proof') { if (!Object.hasOwn(looks, id)) proofs[id] = { why: w, at: now } } else { looks[id] = w; delete proofs[id] }
+  out[String(plotId)] = { sig, at: cur ? cur.at : now, last: now, by: String(by ?? ''), looks, ...(Object.keys(proofs).length ? { proofs } : {}) }
   return out
 }
-
 /**
  * THE SEARCH OF ONE PLOT, RESUMED -> the siting's answer for the plot. Never throws but for `searchLook`'s own throw (the caller's).
  *   all         the plot's looks in the order tried ([{ id, ... }]: cottage.mjs cottage2StylesAll)
- *   memory()    the file's `search` as it is now;   noteLook(lookId, why)   writes one refused look into it
- *   searchLook(look) -> the siting's answer for that ONE look: { ok: true, ... } | { ok: false, why, refused?, ... }. `refused` (a
- *               reason, refusalOf's) says the search FINISHED and refused the look for a reason that does not change by itself: it
- *               is remembered and the next look is tried. Any other failure -- `search_time`, `aborted`, `site_taken` -- ends the
- *               plot's turn as it is: the look was not refused and is tried again next time.
- * Looks already refused under `sig` are passed over (row `resumed`: the first look tried, how many are behind it); none left, before
- * or after this turn: { ok: false, why: 'exhausted', detail: the reasons' tally }.
+ *   memory()    the file's `search` as it is now;   noteLook(lookId, why, life)   writes one refused look into it
+ *   searchLook(look) -> the siting's answer for that ONE look: { ok: true, ... } | { ok: false, why, more?, refused?, life?, ... }.
+ *               `more`: the search FINISHED without a site -- the next look is tried. `refused` (+ `life`, refusalKind's) says the
+ *               refusal may be remembered; a finished look with `soft` instead (an unread cell, an unreadable guard, a stale kept
+ *               walk) is written nowhere and tried again next time, and a turn that met one answers `soft` for the plot: it is
+ *               neither exhausted nor failed (siteOverPlots passes on to the next plot and notes nothing). Any other failure --
+ *               `search_time`, `aborted`, `site_taken` -- ends the plot's turn as it is.
+ * Looks already refused under `sig` are passed over (row `resumed`: the first look tried, how many are behind it). NONE LEFT at the
+ * start: `exhausted` only when every look is the SCREEN's refusal -- looks only a proof refused are searched again NOW (a proof's word
+ * is never the plot's failure without a search in this visit). None left after this turn's own searches: `exhausted`, the tally.
  */
 export async function searchPlotLooks (all = [], { plotId, sig, memory = () => ({}), noteLook = () => {}, searchLook, row = () => {}, now = () => Date.now() } = {}) {
   const ids = all.map(q => q.id)
   const st = searchLeft(memory(), plotId, sig, ids, now())
-  if (!st.left.length) return { ok: false, why: 'exhausted', detail: st.tally }
-  if (st.refused) row({ op: 'resumed', plot: plotId, look: st.first, of: all.length, refused: st.refused })
-  const left = new Set(st.left)
-  let last = null
+  if (!st.left.length && !st.proofs.length) return { ok: false, why: 'exhausted', detail: st.tally }
+  const todo = new Set(st.left.length ? st.left : st.proofs)
+  if (st.left.length && st.refused) row({ op: 'resumed', plot: plotId, look: st.first, of: all.length, refused: st.refused })
+  if (!st.left.length) row({ op: 'resumed', plot: plotId, look: ids.indexOf(st.proofs[0]), of: all.length, refused: st.refused - st.proofs.length, why: 'proofs_again' })
+  let last = null, searched = 0, soft = null
   for (const look of all) {
-    if (!left.has(look.id)) continue
+    if (!todo.has(look.id)) continue
     const r = await searchLook(look)
     if (r?.ok) return r
-    if (!r?.refused) return r ?? { ok: false, why: 'error' }
-    try { noteLook(look.id, r.refused) } catch { /* no memory: the look is searched again */ }
+    if (!r?.more) return r ?? { ok: false, why: 'error' }
+    searched++
+    if (r.refused) { try { noteLook(look.id, r.refused, r.life === 'proof' ? 'proof' : 'ground') } catch { /* no memory: the look is searched again */ } } else soft ??= String(r.soft ?? 'not_kept')
     last = r
   }
+  if (soft) return { ok: false, why: last.why, ...(last.detail ? { detail: last.detail } : {}), ...(last.tried ? { tried: last.tried } : {}), soft }
   const end = searchLeft(memory(), plotId, sig, ids, now())
-  return end.left.length ? last : { ok: false, why: 'exhausted', detail: end.tally, ...(last?.tried ? { tried: last.tried } : {}) }
+  return !end.left.length && searched ? { ok: false, why: 'exhausted', detail: end.tally, ...(last?.tried ? { tried: last.tried } : {}) } : last
 }
 
 // ---- THE ROTATION --------------------------------------------------------------------------------------------------------------
@@ -431,6 +478,8 @@ export const TOWN_WHYS = Object.freeze(['aborted', 'stock_unknown', 'no_wood', '
  *                                          noted, the plot keeps its place, the visit ends (row `paused`) and the next continues it
  *   { why: 'exhausted', detail: tally }    every look of the plot has been refused: noted failed (row `exhausted`, the tally) and the
  *                                          NEXT plot is tried, as for any plot that failed
+ *   { why, soft: reason }                  the plot's search met an unread approach, an unreadable guard or a stale kept walk: nothing
+ *                                          is noted (row `passed`), the NEXT plot is tried, and this one is searched again next visit
  */
 export async function siteOverPlots (plots = [], siteOne, { left = () => Infinity, noteFail = () => {}, row = () => {} } = {}) {
   let last = null
@@ -443,6 +492,8 @@ export async function siteOverPlots (plots = [], siteOne, { left = () => Infinit
     last = r ?? { ok: false, why: 'error' }
     if (TOWN_WHYS.includes(last.why)) return last
     if (last.resume === true && last.why === 'search_time') { row({ op: 'paused', plot: p.id, why: last.detail ?? last.why }); return last }
+    // review r1: a plot whose search met something that says nothing lasting about it (`soft`) is passed over -- not failed, not noted
+    if (last.soft) { row({ op: 'passed', plot: p.id, why: `${last.soft}:${last.why}` }); continue }
     try { noteFail(p, last.why) } catch { /* no memory: the next attempt starts here again */ }
     row(last.why === 'exhausted' ? { op: 'exhausted', plot: p.id, why: last.detail ?? '-' } : { op: 'failed', plot: p.id, why: last.why })
     if (last.why === 'search_time') return last
@@ -451,7 +502,7 @@ export async function siteOverPlots (plots = [], siteOne, { left = () => Infinit
 }
 
 // ---- THE ROWS ------------------------------------------------------------------------------------------------------------------
-/** One `_homeplot` row's detail: `project=... op=offered|skipped|shifted|chosen|failed|resumed|paused|exhausted plot=... why=...`
+/** One `_homeplot` row's detail: `project=... op=offered|skipped|shifted|chosen|failed|resumed|paused|passed|exhausted plot=... why=...`
  *  (homes-02show: `resumed look=<index of the first look tried> of=<looks> refused=<n>`; `exhausted why=<reason=n,...>`). Pure. */
 export function homePlotRowDetail (f = {}) {
   return Object.entries({ project: f.project, op: f.op, plot: f.plot, look: f.look, of: f.of, refused: f.refused, why: f.why, shift: f.shift, box: f.box, plots: f.plots, n: f.n, skipped: f.skipped })
