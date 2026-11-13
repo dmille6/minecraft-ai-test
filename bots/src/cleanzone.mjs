@@ -237,8 +237,13 @@ export const cleanZoneModeDetail = (env = process.env, zone = null, T = CLEAN_ZO
 // THE REMEDY IS PERFORMED, NOT ADVISED (skills.mjs gatherRun): when the rule emptied the search, gather walks to the nearest
 // point `out` blocks beyond the zone's edge (gatherExitPoints, nearest first, never across the town) and searches again
 // from there. Only when no exit is reached does it fail, and then it names the exit a `goto` can be given.
+// A BOT THAT CANNOT LEAVE WHERE IT STANDS KEEPS ITS WAY OUT (Codex review 11-13, a blocker: a bot with no scaffold in a
+// shallow pit inside the zone must gather the dirt beside it to climb -- climbPrerequisite demands it -- and the ban on
+// placing means it cannot walk out either). When the walk to an exit did not move the bot (mineflayer-pathfinder's goto
+// RESOLVES on an empty path, and rejects `NoPath` otherwise: both are "no route starts here"; a changed goal or a timeout
+// is neither), the rule is lifted for at most trapMax cells within trapR of that spot for trapMs. Written `op=trapped`.
 // GATHERZONE=off -> gather is exactly the base's.
-export const GATHER_ZONE = Object.freeze({ deep: 24, out: 6, walkMs: 25_000, exits: 2 })
+export const GATHER_ZONE = Object.freeze({ deep: 24, out: 6, walkMs: 25_000, exits: 2, trapR: 3, trapMax: 8, trapMs: 90_000, trapMove: 2 })
 // ORES STAY AS THEY ARE (townground.mjs counts `_ore` as terrain; this rule does not): iron and coal are reached by the ore
 // tunnel, which has its own price on the town's ground, and the pits this rule is for were dug for dirt.
 const ORE = /_ore$/
@@ -270,6 +275,19 @@ export function gatherExitPoints (from, zone, T = GATHER_ZONE) {
     { d: (zone.hz + R) - z, x, z: zone.hz + R, sx: 0, sz: 1 }, { d: z - (zone.hz - R), x, z: zone.hz - R, sx: 0, sz: -1 },
   ].filter(o => o.d >= 0 && !(outX && o.sx === -outX) && !(outZ && o.sz === -outZ)).sort((a, b) => a.d - b.d).map(({ x, z }) => ({ x, z }))
 }
+/** Did the walk to an exit leave the bot where it was, with no route starting there? -> bool. Pure. `err` is what the walk
+ *  rejected with (null: it resolved); `from` / `at` the bot's cell before and after. */
+export function gatherWalkTrapped (from, at, err = null, T = GATHER_ZONE) {
+  if (!from || !at) return false
+  if (err && err.name !== 'NoPath') return false
+  return Math.abs(at.x - from.x) < T.trapMove && Math.abs(at.z - from.z) < T.trapMove
+}
+/** The trap a walk found -> { at: [x, y, z], until, left }. Pure. */
+export const gatherTrapOf = (at, now, T = GATHER_ZONE) => ({ at: [at.x, at.y, at.z], until: now + T.trapMs, left: T.trapMax })
+/** Does a live trap let gather take this cell? -> bool. Pure: in time, cells left, within trapR of the spot on every axis. */
+export function gatherTrapAllows (trap, p, now, T = GATHER_ZONE) {
+  return !!trap && !!p && trap.until > now && trap.left > 0 && nearCell([p.x, p.y, p.z], trap.at, T.trapR)
+}
 /** What the refusal says when no exit was reached: where the ground may be taken, as a place a `goto` can be given. Pure. */
 export function gatherZoneRemedy (zone, exit = null) {
   const where = exit ? `goto ${exit.x} ${zone?.hy ?? 70} ${exit.z} and gather there` : `gather more than ${zone?.R ?? '?'} blocks from home`
@@ -277,4 +295,4 @@ export function gatherZoneRemedy (zone, exit = null) {
 }
 /** The `_gather_zone` licence detail (once per bot process). Pure. */
 export const gatherZoneModeDetail = (env = process.env, zone = null, T = GATHER_ZONE) =>
-  `op=mode on=${gatherZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} deep_y=${zone ? zone.hy - T.deep : '-'} out=${T.out} walk_ms=${T.walkMs} exits=${T.exits}`
+  `op=mode on=${gatherZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} deep_y=${zone ? zone.hy - T.deep : '-'} out=${T.out} walk_ms=${T.walkMs} exits=${T.exits} trap_r=${T.trapR} trap_max=${T.trapMax}`

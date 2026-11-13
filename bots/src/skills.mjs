@@ -101,7 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
-import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
+import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -362,7 +362,8 @@ function gatherZoneNow () {
   if (_gzMemo.key !== key) _gzMemo = { key, zone: h ? cleanZoneOf(h) : null }
   return _gzMemo.zone
 }
-const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z && gatherZoneRefuses(z, p, name, bot?.entity?.position?.y) }
+// ... unless the bot is trapped there (bot.gatherTrap, set by gatherRun when its walk out went nowhere): it keeps its way out
+const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z && gatherZoneRefuses(z, p, name, bot?.entity?.position?.y) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now()) }
 const _gzModeSaid = new WeakSet()
 
 /**
@@ -1713,7 +1714,9 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
       { failClass: 'no_safe_target' })
   }
   // CLEANZONE-02: the same independent conjunction for the clean zone (the admission may be stale: a walk moved the bot)
-  if (gatherZoneHit(bot, block.position, block.name)) {
+  // a cell the trap lets through is counted here, where it is dug (the enumeration and the target filter only ask)
+  if (bot?.gatherTrap && gatherTrapAllows(bot.gatherTrap, block.position, Date.now()) && gatherZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y)) bot.gatherTrap.left--
+  else if (gatherZoneHit(bot, block.position, block.name)) {
     try { logEvent({ kind: 'gather_zone', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
     throw Object.assign(new Error(`clean_zone: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${gatherZoneRemedy(gatherZoneNow())}`),
       { failClass: 'no_safe_target' })
@@ -2417,12 +2420,22 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       if (collected === 0 && zoneWalked < GATHER_ZONE.exits && zoneWalked < exits.length) {
         const to = exits[zoneWalked]; zoneWalked++; zoneExit = to
         const t0 = Date.now(); let walkErr = null
+        // halt on abort, and remove the listener when the walk ends (gotoLegs' pattern: Codex review 11-13 -- a reflex's
+        // interrupt only aborts the signal, and this walk would have gone on for up to walkMs)
+        const onAbort = () => haltPath(bot)
+        signal?.addEventListener('abort', onAbort, { once: true })
         try {
           await withTimeout(bot.pathfinder.goto(new goals.GoalNearXZ(to.x, to.z, 3)), GATHER_ZONE.walkMs, bot, { what: 'walking out of the town before gathering' })
-        } catch (e) { if (e?.aborted) throw e; walkErr = e }
+        } catch (e) { if (e?.aborted) throw e; walkErr = e } finally { signal?.removeEventListener?.('abort', onAbort) }
         check(signal)
         const at = bot.entity?.position?.floored?.() ?? null
         const outNow = !!at && !inZoneSquare(gz, at.x, at.z)
+        // NO ROUTE STARTS HERE (a pit): the bot keeps its way out -- the ground beside it, a few cells, for a short while
+        if (!outNow && gatherWalkTrapped(from, at, walkErr)) {
+          bot.gatherTrap = gatherTrapOf(at, Date.now())
+          try { logEvent({ kind: 'gather_zone', status: 'success', snapshot: snapshot(bot), detail: `op=trapped block=${blockName} pos=${at.x},${at.y},${at.z} to=${to.x},${to.z} r=${GATHER_ZONE.trapR} max=${GATHER_ZONE.trapMax} ms=${GATHER_ZONE.trapMs}` }) } catch { /* telemetry */ }
+          continue
+        }
         try { logEvent({ kind: 'gather_zone', status: outNow ? 'success' : 'failed', snapshot: snapshot(bot), detail: `op=walkout block=${blockName} skipped=${zoneSkippedNow} from=${from.x},${from.y},${from.z} to=${to.x},${to.z} out=${outNow ? 1 : 0} try=${zoneWalked} ms=${Date.now() - t0}${walkErr ? ` err=${String(walkErr?.message ?? walkErr).replace(/\s+/g, '_').slice(0, 60)}` : ''}` }) } catch { /* telemetry */ }
         continue
       }

@@ -33,7 +33,7 @@ async function withMutantsAll (url, pairs, fn) {
 }
 const ENUM = ["      if (b.position && gatherZoneHit(bot, b.position, b.name)) { zoneSkipped++; return false }", "      if (false) { zoneSkipped++; return false }"]
 const SAFE = ["      !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&", "      true &&"]
-const SWING = ["  if (gatherZoneHit(bot, block.position, block.name)) {\n", "  if (false) {\n"]
+const SWING = ["  else if (gatherZoneHit(bot, block.position, block.name)) {\n", "  else if (false) {\n"]
 
 // ---- pure ----------------------------------------------------------------------------------------------------------
 test('RULE: terrain inside the zone\'s square is not a gather target at any depth; logs, leaves, crops and ores are', () => {
@@ -72,7 +72,7 @@ test('SWITCH and WORDS: GATHERZONE=off turns it off; the remedy names a place a 
   for (const v of [undefined, '', '1', 'on']) assert.equal(CZ.gatherZoneOn({ GATHERZONE: v }), true)
   assert.match(CZ.gatherZoneRemedy(ZONE, { x: 270, z: 205 }), /within 64 blocks of home .*: goto 270 65 205 and gather there$/)
   assert.match(CZ.gatherZoneRemedy(ZONE), /gather more than 64 blocks from home$/)
-  assert.equal(CZ.gatherZoneModeDetail({}, ZONE), 'op=mode on=1 r=64 deep_y=41 out=6 walk_ms=25000 exits=2')
+  assert.equal(CZ.gatherZoneModeDetail({}, ZONE), 'op=mode on=1 r=64 deep_y=41 out=6 walk_ms=25000 exits=2 trap_r=3 trap_max=8')
 })
 
 // ---- the refusal chain through the REAL gather -----------------------------------------------------------------------
@@ -82,7 +82,7 @@ function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok' }) {
   const D = mcData.blocksByName.dirt, AIRT = mcData.blocksByName.air
   const set = new Set(dirt.map(([x, y, z]) => `${x},${y},${z}`))
   const rock = new Set(dirt.map(([x, y, z]) => `${x},${y - 1},${z}`))
-  const digs = [], walks = [], events = []
+  const digs = [], walks = [], events = [], hang = { reject: null, halts: 0 }
   const blk = (x, y, z) => {
     const isDirt = set.has(`${x},${y},${z}`)
     const isRock = !isDirt && rock.has(`${x},${y},${z}`)
@@ -103,19 +103,26 @@ function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok' }) {
         .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)).slice(0, count).map(b => b.position)
     },
     collectBlock: { movements: {} },
-    pathfinder: { movements: {}, setMovements () {}, setGoal () {}, stop () {}, isMining: () => false,
+    pathfinder: { movements: {}, setMovements () {}, stop () {}, isMining: () => false,
+      setGoal (g) { if (g === null) { hang.halts++; hang.reject?.(Object.assign(new Error('The goal was changed before it could be completed!'), { name: 'GoalChanged' })); hang.reject = null } },
       async goto (goal) {
         if (goal?.constructor?.name !== 'GoalNearXZ') return
         walks.push([goal.x, goal.z]); events.push('walk')
-        if (walk === 'fail') throw new Error('No path to the goal!')
-        if (walk === 'ok') bot.entity.position = new Vec3(goal.x + 0.5, bot.entity.position.y, goal.z + 0.5)
+        // 'nopath': the library's own rejection when the A* drained its heap; 'changed': another goal took over;
+        // 'short': the bot gets 6 blocks toward the exit and no further; 'stay': the library's empty-path RESOLVE
+        if (walk === 'nopath') throw Object.assign(new Error('No path to the goal!'), { name: 'NoPath' })
+        if (walk === 'changed') throw Object.assign(new Error('The goal was changed before it could be completed!'), { name: 'GoalChanged' })
+        if (walk === 'hang') return new Promise((resolve, reject) => { hang.reject = reject })
+        const p = bot.entity.position
+        if (walk === 'ok') bot.entity.position = new Vec3(goal.x + 0.5, p.y, goal.z + 0.5)
+        if (walk === 'short') bot.entity.position = new Vec3(p.x + 6 * Math.sign(goal.x - p.x), p.y, p.z + 6 * Math.sign(goal.z - p.z))
       } },
     nearestEntity: () => null, entities: {},
     async dig (b) { digs.push(b.position); events.push('dig'); set.delete(`${b.position.x},${b.position.y},${b.position.z}`) },
     async equip () {}, async lookAt () {}, assertNav () {}, chat () {}, setControlState () {}, clearControlStates () {},
     withGatherMovements: async fn => fn(),
   }
-  return { bot, digs, walks, events }
+  return { bot, digs, walks, events, hang }
 }
 // 40 dirt cells in the zone, 25-32 blocks east of home: OUTSIDE townground's 16-block box (the base takes them), INSIDE the zone
 const zoneDirt = []
@@ -154,22 +161,78 @@ test('CHAIN: dirt outside the zone already in reach -> no walk; the search reach
   assert.equal(events[0], 'dig', `the first thing gather did was dig, not walk (${events.join(' ')})`)
   assert.ok(events.indexOf('walk') === -1 || events.indexOf('walk') >= digs.filter(p => p.x >= 266).length, 'no walk before the reachable dirt was taken')
 })
-test('CHAIN: only the zone\'s dirt anywhere -> two exits walked, then a refusal that names an exit; nothing dug', async () => {
-  const { bot, digs, walks } = gatherWorld({ dirt: zoneDirt, at: [224.5, 64, 200.5], walk: 'stay' })
+test('CHAIN: only the zone\'s dirt anywhere and walks that stop short -> two exits tried, then a refusal that names one; nothing dug', async () => {
+  const { bot, digs, walks } = gatherWorld({ dirt: zoneDirt, at: [210.5, 64, 200.5], walk: 'short' })
   const r = await run(SK, bot)
   assert.equal(digs.length, 0)
   assert.equal(walks.length, CZ.GATHER_ZONE.exits, 'the exits were tried, no more')
-  assert.notEqual(r.status, 'success')
+  assert.notEqual(walks[0].join(), walks[1].join(), 'a different exit the second time')
+  assert.equal(r.status, 'failed')
+  assert.equal(r.failClass, 'no_safe_target', 'the ground is there and may not be taken: town_ground\'s own class, not nothing_found')
   assert.match(String(r.detail), /town's ground is kept within 64 blocks of home .*goto -?\d+ 65 -?\d+ and gather there/, `the refusal names the place: ${r.detail}`)
+  assert.equal(bot.gatherTrap, undefined, 'a bot that moved is not trapped')
 })
-test('CHAIN: the walk itself fails (no path) -> the next exit is tried, then the same refusal; nothing dug, nothing thrown', async () => {
-  const { bot, digs, walks } = gatherWorld({ dirt: [...zoneDirt, ...outside], at: [224.5, 64, 200.5], walk: 'fail' })
+test('CHAIN: the walk is taken over by another goal -> not a trap; the next exit is tried, then the refusal; nothing dug, nothing thrown', async () => {
+  const { bot, digs, walks } = gatherWorld({ dirt: [...zoneDirt, ...outside], at: [224.5, 64, 200.5], walk: 'changed' })
   const r = await run(SK, bot)
   assert.equal(digs.length, 0)
   assert.equal(walks.length, CZ.GATHER_ZONE.exits)
-  assert.notEqual(walks[0].join(), walks[1].join(), 'a different exit the second time')
   assert.equal(r.status, 'failed'); assert.match(String(r.detail), /goto -?\d+ 65 -?\d+ and gather there/)
-  assert.equal(r.failClass, 'no_safe_target', 'the ground is there and may not be taken: town_ground\'s own class, not nothing_found')
+  assert.equal(bot.gatherTrap, undefined)
+})
+// THE DEAD END CODEX NAMED (review 11-13): a bot with nothing to climb with, in a pit inside the zone. No route starts where
+// it stands, so it cannot walk out; the dirt beside it is its way out (climbPrerequisite asks for exactly that).
+for (const mode of ['stay', 'nopath']) {
+  test(`CHAIN, TRAPPED (${mode === 'stay' ? 'the walk resolves on an empty path' : 'the walk rejects NoPath'}): the bot keeps the ground beside it -- a few cells, near where it stands, and no more`, async () => {
+    const pit = []
+    for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])      // around the bot
+    const { bot, digs, walks } = gatherWorld({ dirt: [...pit, ...zoneDirt.filter(([x]) => x >= 230)], at: [224.5, 64, 200.5], walk: mode })
+    const r = await run(SK, bot, { block: 'dirt', count: 16 })
+    assert.equal(walks.length, 1, 'one walk was enough to know')
+    assert.ok(digs.length > 0, `the trapped bot got its dirt (${JSON.stringify(r).slice(0, 200)})`)
+    assert.ok(digs.length <= CZ.GATHER_ZONE.trapMax, `at most trapMax cells (${digs.length})`)
+    for (const p of digs) assert.ok(Math.abs(p.x - 224) <= CZ.GATHER_ZONE.trapR && Math.abs(p.z - 200) <= CZ.GATHER_ZONE.trapR && Math.abs(p.y - 64) <= CZ.GATHER_ZONE.trapR, `only beside the bot: ${p}`)
+    assert.ok(bot.gatherTrap && bot.gatherTrap.left === CZ.GATHER_ZONE.trapMax - digs.length, 'each cell taken is counted')
+  })
+}
+test('MUTANT KILLED: without the trap, the pit is the dead end -- a bot that cannot walk out gets no dirt at all', async () => {
+  await withMutantsAll(SKILLS_URL, [["&& !gatherTrapAllows(bot?.gatherTrap, p, Date.now()) }", "}"]], async mod => {
+    const pit = []
+    for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])
+    const { bot, digs } = gatherWorld({ dirt: pit, at: [224.5, 64, 200.5], walk: 'stay' })
+    const r = await run(mod, bot, { block: 'dirt', count: 16 })
+    assert.equal(digs.length, 0); assert.notEqual(r.status, 'success')
+  })
+})
+test('TRAP, pure: only a walk that went nowhere with no route (resolved, or NoPath) is a trap; it allows few cells, near, briefly', () => {
+  const from = { x: 224, y: 64, z: 200 }
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, null), true, 'resolved without moving: the empty path')
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 225, y: 63, z: 201 }, Object.assign(new Error('x'), { name: 'NoPath' })), true)
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, Object.assign(new Error('x'), { name: 'GoalChanged' })), false, 'a reflex took the goal: not a trap')
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 224, y: 64, z: 200 }, Object.assign(new Error('walking exceeded 25000ms'), { budgetExceeded: true })), false, 'a timeout is not a trap')
+  assert.equal(CZ.gatherWalkTrapped(from, { x: 226, y: 64, z: 200 }, null), false, 'it moved')
+  assert.equal(CZ.gatherWalkTrapped(from, null, null), false)
+  const trap = CZ.gatherTrapOf({ x: 224, y: 64, z: 200 }, 1000)
+  assert.deepEqual(trap, { at: [224, 64, 200], until: 1000 + CZ.GATHER_ZONE.trapMs, left: CZ.GATHER_ZONE.trapMax })
+  assert.equal(CZ.gatherTrapAllows(trap, { x: 227, y: 61, z: 197 }, 2000), true, 'within trapR on every axis')
+  assert.equal(CZ.gatherTrapAllows(trap, { x: 228, y: 64, z: 200 }, 2000), false, 'one too far')
+  assert.equal(CZ.gatherTrapAllows(trap, { x: 224, y: 64, z: 200 }, trap.until), false, 'expired')
+  assert.equal(CZ.gatherTrapAllows({ ...trap, left: 0 }, { x: 224, y: 64, z: 200 }, 2000), false, 'spent')
+  assert.equal(CZ.gatherTrapAllows(null, { x: 224, y: 64, z: 200 }, 2000), false)
+})
+test('ABORT: an interrupt during the walk halts the path at once and the run ends; the listener is gone afterwards', async () => {
+  const { bot, digs, hang } = gatherWorld({ dirt: [...zoneDirt, ...outside], at: [224.5, 64, 200.5], walk: 'hang' })
+  const ac = new AbortController()
+  const t0 = Date.now()
+  const p = SK.SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, ac.signal).then(r => ({ r }), e => ({ e }))
+  await new Promise(resolve => setTimeout(resolve, 80))
+  assert.ok(hang.reject, 'the walk is under way')
+  ac.abort()
+  const out = await p
+  assert.ok(Date.now() - t0 < 5000, `the run ended on the interrupt, not on the ${CZ.GATHER_ZONE.walkMs} ms walk budget (${Date.now() - t0} ms)`)
+  assert.ok(hang.halts >= 1, 'the path was halted (setGoal(null))')
+  assert.equal(digs.length, 0)
+  assert.ok(out.e || out.r?.status !== 'success', 'an interrupted gather is not a success')
 })
 test('CHAIN, the exception: a bot down in the mine takes the ground around it without walking anywhere', async () => {
   const deep = []
