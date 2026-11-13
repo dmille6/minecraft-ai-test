@@ -4,19 +4,19 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-13T11:20:01Z._
+_Generated 2026-11-13T12:20:01Z._
 
 | | Now |
 |---|---|
 | **Fleet** | `b5ec000e` = regcount-01 `b5ec000e` (KEEP 11-13 09:51Z, promoted 11-13 10:01Z) on gathermem-01 `41e0c5fd` (KEEP 11-13 08:03Z, promoted 11-13 08:13Z) on chestmerge-01 `e525ddbd` (KEEP 11-13 02:33Z, promoted 11-13 02:44Z) on stationsback-01 `d045828c` (KEEP 11-12 22:37Z, promoted 11-12 22:47Z) on ironchain-01 `8924d4de` (KEEP 11-12 18:30Z, promoted 11-12 18:40Z) on loggate-01 `482b05c5` (KEEP 11-12 14:20Z, promoted 11-12 14:30Z) |
-| **Canary in slot** | EMPTY (last close regcount-01 KEEP 11-13 09:51Z) |
-| **Queue (front)** | ironchain-02 -> glass-01 -> boardwalk-03 -> villageunlock-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> market-02 -> market-03 -> +9 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
-| **Scheduler** | block H2 glass-01: no variant for the fleet base b5ec000 (have: 565f115): autorebase cannot run: patch has no diff_sha256 / K ironchain-02 skipped (autorebase-refused): ironchain-02: no variant for the fleet base b5ec000 (have: bcdba35, 07c |
-| **Showcase release** | `b2b10bb8` (52,111 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release b2b10bb8's protected tree: restack by hand; row 11-13 10:25Z) |
+| **Canary in slot** | **ironchain-02** running (no `deployed` row yet: drawing or preflight) |
+| **Queue (front)** | boardwalk-03 -> villageunlock-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> market-02 -> market-03 -> roughground-01 -> irongap-01 -> +7 more. Held: glass-01 (HELD: 11-13 control: hand rebase onto b5ec000e (353360f5, branch glass-01-on-b5ec000e) applies w...); forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
+| **Scheduler** | busy S2 running: canary-loop.sh (pid 2351349: bash /home/mike/canary-loop.sh ironchain-02) / S7 ironchain-02 is live |
+| **Showcase release** | `b2b10bb8` (53,780 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release b2b10bb8's protected tree: restack by hand; row 11-13 11:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
-| **Projects (daily audit)** | project audit fleet (11-12T12:05Z, 7 d, 172 projects, 15,016,143 lines / 80 bots): 1 broken, 8 underused, 81 effective, 58 unmeasured, 24 - -- isolated-a/shop BROKEN; showcase: project audit showcase (11-12T12:05Z, 7 d, 39 projects, 2,012,080 lines / 15 bots): 3 dormant, 13 effective, 12 unmeasured, 11 - -- showcase/canefarm DORMANT; showcase/enchantshop DORMANT; showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-13T10:35:01Z STALLED: 208. OPSAUDIT 2026-11-12 FLAGS: 11 (1 high). 130 active alarm(s): stuck goals 16 (board-c/shaft@355_73_147, hive-a/monument@355_73_147, hive-b/tidy@355_73_147, hive-d/tidy@68_65_68, isolated-a/monument@355_73_147, isolated-b/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:gklease-02:h72, effectwatch effect:gkwork-01:h24 |
+| **Projects (daily audit)** | project audit fleet (11-13T12:05Z, 7 d, 172 projects, 15,541,353 lines / 80 bots): 2 broken, 7 underused, 84 effective, 55 unmeasured, 24 - -- isolated-a/shop BROKEN; placebo-a/house1 BROKEN; showcase: project audit showcase (11-13T12:05Z, 7 d, 43 projects, 2,130,942 lines / 15 bots): 2 dormant, 14 effective, 15 unmeasured, 12 - -- showcase/enchantshop DORMANT; showcase/treefarm DORMANT |
+| **Open alarms** | STALLCHECK 2026-11-13T11:35:01Z STALLED: 208. OPSAUDIT 2026-11-12 FLAGS: 11 (1 high). 129 active alarm(s): stuck goals 14 (board-c/shaft@355_73_147, hive-a/monument@355_73_147, hive-b/tidy@355_73_147, hive-d/tidy@68_65_68, isolated-a/monument@355_73_147, isolated-b/monument@355_73_147 ...); driftwatch drift:value_per_bot_h, effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:gklease-02:h72, effectwatch effect:gkwork-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
