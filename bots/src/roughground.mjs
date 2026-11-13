@@ -31,11 +31,16 @@
 //   SCAFFOLD  every ledgered climb (placeaudit.mjs climbOf: the pathfinder's and the reflexes' pillars, steps and bridges) whose
 //             spoil still stands ABOVE the ground round it is cut with the spoil over it -- the bots' own scaffold, taken back by
 //             the keeper (the placing code is protected movement: it stays as it is).
+//   LITTER    litter-01: every block a walk handed on (litter.mjs: a take-back receipt that ran out with the block standing) is cut,
+//             EXACTLY that cell, wherever this survey may cut a ledgered scaffold (`refuse`) and litter.mjs litterVerdict takes it:
+//             the steps and pillar feet SCAFFOLD's "above the ground round it" leaves standing. A column of handed blocks comes
+//             down from its top.
 // NEVER: a record cell, a column within `near` of one (a build's own footprint), a column `avoid` names that is not a build's box (a
 // zone, a well, the farm, the tree farm), the stock yard or the tree farm (noLitter), a site-prep reservation, a column a cut, fill or
 // staircase of this stage already uses, a cell beside liquid. ROUGH=off is the rollback (the stage as it was).
 
 import { regradeWork, REGRADE, regradeOn } from './regrade.mjs'   // roughground-4: the wide-area regrade
+import { litterVerdict } from './litter.mjs'   // litter-01: the walk's handed blocks, cell by cell
 
 export const ROUGH = Object.freeze({ regrade: true, floatMin: 2, floatReach: 5, clumpMax: 9, cutMax: 6, holeMax: 9, holeBox: 4, fillMax: 4, smoothN: 6, hollow: true, stands: true, platMax: 3, banks: true, topsoil: true, lawnMin: 4, near: 1, cap: 1200, medMin: 16, inwallEveryMs: 60 * 60_000 })
 /** THE SWITCH: ROUGH=off|0|false|no -> no rough survey, no inside-the-wall re-survey; on by default. Pure. */
@@ -121,12 +126,14 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
  *   avoid, cells, noLitter, reserved   the stage's guards (as surveyInwall's);  busy  Set "x,z" this stage already works
  *   nearCells the cells whose column's RING is kept too (the standing builds': FLAT_PLOTS' cells are not in it)
  *   climbs    the bots' ledgered scaffold ([{ x, y, z, shape }], placeaudit.mjs);  home  nearest-first order
+ *   litter    litter-01: the walks' handed blocks ([{ at, block, t, claimed? }], buildproj.mjs litterRead); `out.litter` says what became of
+ *             each one in this box ([{ k, t, v: 'take' | 'held' | 'dropped', why }]; one outside the box is not this survey's)
  */
-export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], yLo = -64, standOff = () => false, T = ROUGH , env = process.env } = {}) {
+export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], litter = [], yLo = -64, standOff = () => false, T = ROUGH , env = process.env } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
-  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, hollows: 0, stands: 0, topsoil: 0, banks: 0, regraded: 0 }
-  const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], platforms: [], clear: [], skipped, census }
+  const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, hollows: 0, stands: 0, topsoil: 0, banks: 0, regraded: 0, handed: 0 }
+  const out = { ok: true, why: 'ok', cut: [], fill: [], pillars: [], pits: [], platforms: [], clear: [], skipped, census, litter: [] }
   if (!home || !Array.isArray(box) || typeof col !== 'function' || !spoil) return { ...out, ok: false, why: 'no_box' }
   const colsOf = set => new Set([...set].map(k => { const [x, , z] = String(k).split(','); return `${x},${z}` }))
   const cellCols = colsOf(cells), nearCols = colsOf(nearCells)
@@ -445,12 +452,54 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
     if (blocks.some(q => sideLiquid(...q.at))) { skip('scaffold_water'); continue }
     order.push([dist(c.x, c.z), () => { if (used.has(k2(c.x, c.z))) return; used.add(k2(c.x, c.z)); census.scaffold++; const id = `rl${out.pillars.length}`; out.pillars.push({ id, col: [c.x, c.z], top: blocks.at(-1).at[1], base: Math.max(...ring), h: blocks.length, kind: 'scaffold' }); for (const q of blocks.reverse()) cuts.push({ ...q, pillar: id }) }])
   }
+  // ---- LITTER (litter-01): the blocks a walk handed on, exactly their cells. After SCAFFOLD in the order: a column that rule takes
+  // (the block and the spoil over it) is taken there, and the entry reads folded by its cell all the same (litter.mjs litterTally) ----
+  const litCols = new Map()
+  const seenL = new Set()
+  for (const e of litter ?? []) {
+    if (!Array.isArray(e?.at) || e.at.length !== 3 || !e.at.every(Number.isInteger) || typeof e.block !== 'string') continue
+    const kc = e.at.join(',')
+    if (seenL.has(kc)) continue
+    seenL.add(kc)
+    const k = k2(e.at[0], e.at[2])
+    if (!litCols.has(k)) litCols.set(k, [])
+    litCols.get(k).push(e)
+  }
+  const litLate = []   // the takes waiting on the cap and the order: named after it
+  for (const [k, list] of litCols) {
+    const [x, z] = k.split(',').map(Number)
+    const say = (e, v, why) => out.litter.push({ k: e.at.join(','), t: Number(e.t) || 0, v, why })
+    // the column: the survey's own refusals, as a ledgered scaffold meets them (beside a build it is still taken, never a record's column)
+    const why = refuse(x, z)
+    if (why === 'outside') continue
+    if (why && why !== 'build') { for (const e of list) say(e, why === 'planned' ? 'held' : 'dropped', why); continue }
+    if (cellCols.has(k)) { for (const e of list) say(e, 'dropped', 'record_col'); continue }
+    const ring = N8.filter(([dx, dz]) => !cellCols.has(k2(x + dx, z + dz))).map(([dx, dz]) => g(x + dx, z + dz)).filter(Number.isFinite)
+    const take = []
+    for (const e of [...list].sort((a, b) => b.at[1] - a.at[1])) {
+      const y = e.at[1]
+      const b = read(x, y, z), up = read(x, y + 1, z)
+      const v = litterVerdict(e, { name: b ? nm(b) : null, above: up ? nm(up) : null, aboveTaken: take.length > 0 && take.at(-1).at[1] === y + 1, record: e.claimed === true || cells.has(`${x},${y},${z}`), spoil: !!b && spoil.test(nm(b)), ring, reach: T.floatReach + 1, wet: sideLiquid(x, y, z) || liquid(read(x, y - 1, z)) })
+      if (v.v === 'take') take.push({ at: [x, y, z], name: nm(b), e, why: v.why }); else say(e, v.v, v.why)
+    }
+    if (!take.length) continue
+    const grp = { take, done: null }
+    litLate.push(grp)
+    order.push([dist(x, z), () => {
+      if (used.has(k)) { grp.done = 'planned'; return }
+      used.add(k); grp.done = 'take'; census.handed += take.length
+      const id = `rx${out.pillars.length}`
+      out.pillars.push({ id, col: [x, z], top: take[0].at[1], base: ring.length ? Math.max(...ring) : null, h: take.length, kind: 'litter' })
+      for (const q of take) cuts.push({ at: q.at, name: q.name, pillar: id })
+    }])
+  }
   // nearest home first, under the cap (a cell is taken once: a later entry on a used column is dropped)
   order.sort((a, b) => a[0] - b[0])
   for (const [, fn] of order) {
     if (cuts.length + fills.length >= T.cap) { skip('cap'); continue }
     fn()
   }
+  for (const grp of litLate) for (const q of grp.take) out.litter.push({ k: q.at.join(','), t: Number(q.e.t) || 0, v: grp.done === 'take' ? 'take' : 'held', why: grp.done === 'take' ? q.why : (grp.done ?? 'cap') })
   // ---- ROUGHGROUND-4: THE WIDE-AREA REGRADE over every open column no rule above took (regrade.mjs): rough ground wider than a
   // clump blended into 1-block steps toward the median ground round it, natural relief kept, in tiles nearest home first ----
   if (T.regrade && regradeOn(env)) {   // the release fold (Codex BLOCKER): REGRADE=off is the rollback

@@ -805,16 +805,17 @@ export function inwallBoxes (wall, home, ext = null, r = TIDY.r) {
  * roughground-01: THE ROUGH SURVEY OVER SOME BOXES, merged into `into` ({ cut, fill, pillars, pits }: mutated, ids namespaced `r<i>:`)
  * -> { census, skipped } summed. Pure over `read` (roughground.mjs surveyRough with the tidy's column, SPOIL and build reasons).
  */
-export function roughIn (read, { home, boxes = [], within = () => true, avoid, cells, records = null, noLitter, reserved, busy = new Set(), climbs = [], standOff = () => false, env = process.env } = {}, into) {
+export function roughIn (read, { home, boxes = [], within = () => true, avoid, cells, records = null, noLitter, reserved, busy = new Set(), climbs = [], litter = [], standOff = () => false, env = process.env } = {}, into) {
   const nearCells = records ? nearCellsOf(records) : cells
   const yHi = home.y + TIDY.dy, yLo = home.y - TIDY.dy
   const memo = new Map()
   const col = (x, z) => { const k = k2(x, z); if (!memo.has(k)) memo.set(k, tidyColumn(read, x, z, { yHi, yLo })); return memo.get(k) }
-  const sum = { census: {}, skipped: {}, platforms: [], clear: [] }   // roughground-1c: the stands and their leaves
+  const sum = { census: {}, skipped: {}, platforms: [], clear: [], litter: [] }   // roughground-1c: the stands and their leaves; litter-01: the handed blocks' verdicts
   const used = new Set(busy)
   boxes.forEach((box, i) => {
-    const r = surveyRough(read, { home, box, within, col, spoil: SPOIL, buildWhy: BUILD_WHY, avoid, cells, nearCells, noLitter, reserved, busy: used, climbs, yLo, standOff, env })
+    const r = surveyRough(read, { home, box, within, col, spoil: SPOIL, buildWhy: BUILD_WHY, avoid, cells, nearCells, noLitter, reserved, busy: used, climbs, litter, yLo, standOff, env })
     if (!r.ok) return
+    for (const q of r.litter ?? []) sum.litter.push(q)   // litter-01 (the boxes are disjoint: an entry is judged in one)
     const ns = v => `r${i}:${v}`
     for (const c of r.cut) { into.cut.push({ ...c, pillar: ns(c.pillar) }); used.add(k2(c.at[0], c.at[2])) }
     for (const f of r.fill) { into.fill.push({ ...f, pit: ns(f.pit) }); used.add(k2(f.at[0], f.at[2])) }
@@ -1489,8 +1490,11 @@ export function bandTrees (read, { home, box, inBand = () => true, corridor = ()
   return { stumps, fells, skipped }
 }
 
+/** litter-01: a stage's hand-off result -> { read: the entries the caller read from the bots' files, seen: this stage's verdicts
+ *  ([{ k, t, v, why }], roughground.mjs surveyRough `litter`) }. Pure. The caller's rows (litter.mjs litterTally); never on a record. */
+const litterOut = (terrace, seen) => ({ read: (terrace?.litter ?? []).length, seen: seen ?? [] })
 /**
- * A STAGE'S SITING -> { ok, why, record, survey, road }. Pure over `read`. Stage 0 is siteTidy itself (tidy-01). A later stage:
+ * A STAGE'S SITING -> { ok, why, record, survey, road, litter }. Pure over `read`. Stage 0 is siteTidy itself (tidy-01). A later stage:
  * tidy-01's survey over its band (rMin, rMax] when it has one, and the earthwork of its road columns (landplan.mjs stageRoadCols)
  * graded with `lim`, their trunks felled with replant cells owed, and `lights` torches beside the roads; the record is tidy-01's
  * (tidyRecord: layered fills, cuts, clears) with `stage`. A column the road touches is the road's alone. `null` record: nothing to
@@ -1575,7 +1579,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       sv0.cut = [...sv0.cut]; sv0.pillars = [...sv0.pillars]
       // Codex 1c r1 BLOCKER: a stand never stands on a wall extension's reserved plot (the whole box)
       const plotBoxesR = (terrace?.wallext?.plots ?? []).map(q => q?.box).filter(b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite))
-      sv0.rough = roughIn(read, { home, boxes, env, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [], standOff: (x, z) => plotBoxesR.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }, sv0)
+      sv0.rough = roughIn(read, { home, boxes, env, avoid, cells, records: terrace?.records ?? null, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, busy: busyR, climbs: terrace?.climbs ?? [], litter: terrace?.litter ?? [], standOff: (x, z) => plotBoxesR.some(b => x >= b[0] && x <= b[2] && z >= b[1] && z <= b[3]) }, sv0)
     }
     // plotprep-01: the plots' levelling cuts and fills, the trees' logs (clears), the stands' cells (access fills, layered)
     // roughground-1c: the rough survey's stands are platforms too (laid as access fills, torn down by platformTeardown)
@@ -1606,7 +1610,9 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
       record.cut = record.cut.map(c => (tag.has(c.at.join(',')) ? { ...c, plot: tag.get(c.at.join(',')) } : c))
     }
     if (record && (pp.plots.length || platsKept.length)) record.plotprep = { plots: pp.plots, platforms: platsKept, skipped: pp.skipped }
-    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null }
+    // litter-01: what became of the walks' handed blocks in this stage's boxes (never on the record: the caller's rows)
+    const litter = litterOut(terrace, sv0.rough?.litter)
+    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null, litter }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
     // access-01: the staircase cells are role `access` (TIDY_PALETTE.access: stone, never dirt)
@@ -1614,7 +1620,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
     record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
       access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: { census: sv.rough.census, skipped: sv.rough.skipped } } : {}) }
-    return { ok: true, why: 'ok', record, survey: sv, road: null }
+    return { ok: true, why: 'ok', record, survey: sv, road: null, litter }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
   // country-01: `classic: false` -- the band's own survey alone (surveyInwall over the band's columns, which keeps off the wall boxes),
@@ -1660,6 +1666,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   // outbands-01: the band's own clean-up (strays, holes, litter, climbs), its stumps and its road trees (bandTrees), over the band's
   // columns less the walls' insides and every column this stage already works
   let band = null, bandPlat = []   // roughground-1c: the band's stands
+  let bandLitter = null            // litter-01: the handed blocks' verdicts in this band
   const bandClear = [], bandTrunks = [], busy = new Set()
   if (outbandsOn(env) && st.rMax > 0) {
     const boxes = inwallBoxes(terrace?.wall ?? null, home, terrace?.wallext ?? null)
@@ -1685,7 +1692,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     let roughB = null
     if (roughOn(env)) {
       const acc = { cut: [], fill: [], pillars: [], pits: [] }
-      roughB = roughIn(read, { home, boxes: [bx], env, within: (x, z) => inBand(x, z) && !treeK.has(k2(x, z)), avoid, cells, records: terrace?.records ?? null, noLitter, reserved, busy, climbs: terrace?.climbs ?? [] }, acc)
+      roughB = roughIn(read, { home, boxes: [bx], env, within: (x, z) => inBand(x, z) && !treeK.has(k2(x, z)), avoid, cells, records: terrace?.records ?? null, noLitter, reserved, busy, climbs: terrace?.climbs ?? [], litter: terrace?.litter ?? [] }, acc)
       for (const c of acc.cut) { s.cut.push({ ...c, pillar: `o${c.pillar}` }); busy.add(k2(c.at[0], c.at[2])) }
       for (const f of acc.fill) { s.fill.push({ ...f, pit: `o${f.pit}` }); busy.add(k2(f.at[0], f.at[2])) }
       for (const q of acc.pillars) s.pillars.push({ ...q, id: `o${q.id}` })
@@ -1699,10 +1706,11 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     band = { strays: sv.ok ? sv.pillars.filter(q => !q.onBuild).length : 0, holes: sv.ok ? sv.pits.length : 0, litter: sv.ok ? sv.litter : 0,
       stumps: tr.stumps.length, fells: tr.fells.length, ...(sv.ok ? {} : { why: sv.why }), skipped: { ...(sv.skipped ?? {}), ...tr.skipped }, ...(roughB ? { rough: { census: roughB.census, skipped: roughB.skipped } } : {}) }
     bandPlat = roughB?.platforms ?? []
+    bandLitter = roughB?.litter ?? null
   }
   const lightAt = roadLights(read, rcols, { home, avoid: (x, z) => avoid(x, z) ?? (rk.has(k2(x, z)) || busy.has(k2(x, z)) ? 'road' : null), n: lights, cells })
   let record = tidyRecord(s, { home, plan, now, r: Math.max(st.rMax, st.upto ?? -1, TIDY.r) })
-  if (!record && !road.clear.length && !lightAt.length && !bandClear.length) return { ok: true, why: 'nothing', record: null, survey, road, band }
+  if (!record && !road.clear.length && !lightAt.length && !bandClear.length) return { ok: true, why: 'nothing', record: null, survey, road, band, litter: litterOut(terrace, bandLitter) }
   record ??= { v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r: Math.max(st.upto ?? -1, TIDY.r), cells: [], clear: [], cut: [], replant: [], segments: [], zones: [], pillars: 0, pits: 0, skipped: {}, bom: { earth: 0 }, builders_max: TIDY_BUILDERS, structure_complete: false, plan: plan?.gen != null ? { gen: plan.gen } : null, sitedAt: now }
   record.clear = [...(record.clear ?? [])]
   for (const c of [...road.clear, ...bandClear]) if (!record.clear.some(q => q.at.join(',') === c.at.join(','))) record.clear.push(c)
@@ -1725,7 +1733,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   record.road = { cols: rcols.length, cut: road.cut.length, fill: road.fill.length, trees: road.trees.length, replant: record.replant.length, lights: lightAt.length, skipped: road.skipped, walk: road.walk ?? null }
   if (band) record.band = band
   record.r = Math.max(record.r ?? 0, st.upto ?? -1, st.rMax ?? -1)
-  return { ok: true, why: 'ok', record, survey, road, band }
+  return { ok: true, why: 'ok', record, survey, road, band, litter: litterOut(terrace, bandLitter) }
 }
 
 /**

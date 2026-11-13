@@ -803,6 +803,50 @@ export function climbRead (dir, { since = -Infinity } = {}) {
   return out
 }
 
+// ---- litter-01: the walk's hand-off to the cleanup crew (litter.mjs) -----------------------------------------------------------
+// One file a bot (`litter-<bot>.json`), written whole by that bot alone (a temp file renamed into place: a reader sees the old file
+// or the new one, never a torn one) and only read by the keeper's survey. Async on the writer's side: a hand-off is made from a
+// placement's continuation, which never waits on the disk (the climbs ledger's rule).
+const litterFile = (dir, holder) => path.join(dir, `litter-${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const LITTER_RE = /^litter-[A-Za-z0-9_-]+\.json$/
+const litterRow = e => !!e && Array.isArray(e.at) && e.at.length === 3 && e.at.every(Number.isInteger) && typeof e.block === 'string' && e.block !== '' && Number.isFinite(e.t)
+/** Replace the holder's litter file -> true | false. Never throws. */
+export async function litterWrite (dir, holder, entries, { now = Date.now() } = {}) {
+  let tmp = null
+  try {
+    await fs.promises.mkdir(dir, { recursive: true })
+    const f = litterFile(dir, holder)
+    tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    await fs.promises.writeFile(tmp, JSON.stringify({ v: 1, holder, at: now, entries: (entries ?? []).filter(litterRow) }), { flag: 'wx' })
+    await fs.promises.rename(tmp, f)
+    dropListings()
+    return true
+  } catch {
+    if (tmp) { try { await fs.promises.unlink(tmp) } catch { /* never made, or renamed */ } }
+    return false
+  }
+}
+/** The holder's own entries (its file from before a restart) -> [{ at, block, t, shape }] | null (none, or unreadable). Never throws. */
+export async function litterReadOwn (dir, holder) {
+  try {
+    const r = JSON.parse(await fs.promises.readFile(litterFile(dir, holder), 'utf8'))
+    return Array.isArray(r?.entries) ? r.entries.filter(litterRow) : null
+  } catch { return null }
+}
+/** Every bot's handed blocks since `since` -> [{ at, block, t, shape, by }]. [] when none or unreadable (an unread file hands nothing). */
+export function litterRead (dir, { since = -Infinity } = {}) {
+  const out = []
+  let names = []
+  try { names = listMatch(dir, LITTER_RE) } catch { return out }
+  for (const n of names) {
+    const r = readJ(path.join(dir, n))
+    if (!Array.isArray(r?.entries)) continue
+    const by = String(r.holder ?? n.slice(7, -5))
+    for (const e of r.entries) if (litterRow(e) && e.t >= since) out.push({ at: e.at.slice(0, 3), block: e.block, t: e.t, shape: String(e.shape ?? '-'), by })
+  }
+  return out
+}
+
 // ---- intents ------------------------------------------------------------------------------------------------------------------
 
 const intentFile = (dir, key, holder) => path.join(dir, `${key}.intents.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)

@@ -43,6 +43,8 @@
 //
 // NOT IN THIS PIECE (the design's pieces 2-5): the escapes' pillars (reflex.mjs pillarOut, digStraightUp; skills surface,
 // shaftAscend), walks issued by setGoal, dug ground put back, and a stair where a spot needs a block again and again.
+// LEFT BEHIND (litter-01): a receipt that closes `left` is passed to `onLeft` -- litter.mjs hands the town's and the margin's to the
+// cleanup crew with their cells. Nothing here changes what is dug.
 // ROWS: `_takeback_mode` at install; `_takeback` per receipt closed; `_takeback_sum` every 10 minutes when anything happened.
 // SWITCH: TAKEBACK=off|0|false|no -> not installed (the mode row says on=0).
 import { Vec3 } from 'vec3'
@@ -149,9 +151,10 @@ const gotoError = name => Object.assign(new Error(name === 'PathStopped' ? 'Path
 /**
  * Install on one bot -> { note, state, final } | null (off, no pathfinder, or already installed). Never throws into the caller.
  *   emit(kind, status, detail)   one row;  now()  the clock;  timers  false in tests (no summary timer)
+ *   onLeft(receipt, why)         litter-01: called for every receipt that closes `left` (expired, unseen, overflow, slow, no_tool)
  * `note(rec)` is placeaudit's `onPlaced`: a placement that landed.
  */
-export function installTakeback (bot, { emit = () => {}, now = () => Date.now(), env = process.env, T = TAKEBACK, timers = true } = {}) {
+export function installTakeback (bot, { emit = () => {}, now = () => Date.now(), env = process.env, T = TAKEBACK, timers = true, onLeft = null } = {}) {
   const on = takebackOn(env)
   try { emit('takeback_mode', 'success', `phase=mode v=1 on=${on ? 1 : 0} reach=${T.reach} unused_ms=${T.unusedMs} halts=${T.haltsPerGoto}/${T.haltsPerMin} budget_ms=${T.budgetMs} reuse_ms=${T.reuseMs}`) } catch { /* telemetry */ }
   const pf = bot?.pathfinder
@@ -161,6 +164,8 @@ export function installTakeback (bot, { emit = () => {}, now = () => Date.now(),
     r.closed = true
     st.sum.by[outcome] = (st.sum.by[outcome] ?? 0) + 1
     try { emit('takeback', outcome === 'dug' ? 'success' : outcome === 'failed' ? 'failed' : 'no_effect', takebackDetail({ outcome, why, cell: r.cell, block: r.block, shape: r.shape, zone: r.zone, age: now() - r.t, ms })) } catch { /* telemetry */ }
+    // litter-01 (`onLeft`): a receipt that closes `left` is handed on with its cell and its block (litter.mjs: the cleanup crew's)
+    if (outcome === 'left' && onLeft) { try { onLeft(r, why) } catch { /* the hand-off never breaks a walk */ } }
   }
   const prune = () => {
     const t = now()

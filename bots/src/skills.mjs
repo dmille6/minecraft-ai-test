@@ -186,6 +186,9 @@ import { fillWant, earthDirt, TIDY_VISIT_FILLS, soilSkip, platformTeardown, plat
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
+import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
+import { litterOn, litterTally, litterClaimed, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
+import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
@@ -27897,6 +27900,26 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
     try { effects?.close() } catch { /* gone */ }
   }
 }
+const LITTER_ON = litterOn()   // litter-01
+/** litter-01: every bot's handed blocks for a survey (litter.mjs; buildproj.mjs litterRead) -> [{ at, block, t, shape, by }], a cell
+ *  another project's record names marked `claimed` (litter.mjs litterClaimed over `records`: the survey's own, tidyInputs'); [] under
+ *  LITTER=off or when the files cannot be read (an unread file hands nothing). Never throws. */
+function litterForSurvey (dir, records) {
+  if (!LITTER_ON) return []
+  try { return litterClaimed(litterRead(dir, { since: Date.now() - LITTER.keepMs }), records) } catch { return [] }
+}
+/** litter-01: THE INTAKE'S ROWS after a publish that was accepted (`_litter op=folded`, `op=dropped`: litter.mjs intakeRows). `lit` the
+ *  survey's verdicts (tidy.mjs siteStage `litter`), `added` the cuts this publish put on the record, `known` the keys it named before,
+ *  `since` its last survey. Telemetry only; never throws. */
+function litterIntakeLog (bot, lit, { added = [], known = [], since = 0, where = '-', gen = null } = {}) {
+  if (!LITTER_ON || !lit || !(lit.read > 0)) return
+  try {
+    const ty = litterTally(lit, { added: new Set(added.map(q => q.at.join(','))), known: new Set(known), since })
+    for (const r of litterIntakeRows(ty, { where, gen })) logEvent({ kind: 'litter', status: r.status, snapshot: snapshot(bot), detail: r.detail })
+  } catch { /* telemetry */ }
+}
+/** The keys a record names (its fills, cuts, clears and waivers) -> ["x,y,z"]. Pure. */
+const recordKeys = rec => [...(rec?.cells ?? []), ...(rec?.cut ?? []), ...(rec?.clear ?? [])].filter(q => Array.isArray(q?.at)).map(q => q.at.join(',')).concat(Object.keys(rec?.waived ?? {}))
 /** THE TIDY'S DIG GUARD -> Set "x,y,z": a cell ANOTHER project's record names now (a project sited since the survey) is never the
  *  tidy's: never dug, never filled; nor a marker placed after the stage was sited (groundskeeper-01 on the showcase, Codex + Claude r1
  *  BLOCKER), nor a bridge site's cell (bridgepost-01). Throws when the records cannot be read (the caller stops). tidyrefresh-01: the
@@ -27925,6 +27948,8 @@ function stageSurveyInputs (bot, I, dir, signal) {
   // roughground-01: 7 days of them -- the survey takes back the bots' scaffold still standing (climbSpots keeps its own 48 h)
   try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
   const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+  // litter-01: the blocks the walks handed on (every bot's file), for the rough survey's exact cuts
+  terrace.litter = litterForSurvey(dir, I.records)
   return { land, read, last, lights, terrace }
 }
 /**
@@ -27967,6 +27992,9 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   if (pub.result !== 'accepted') return null
   try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
   const h2 = recordHead(dir, key)
+  // litter-01: what the refresh did with the walks' handed blocks (folded: a cut this refresh added at the handed cell, read back
+  // from the head -- after the claims' retirement in the same publish)
+  litterIntakeLog(bot, s.litter, { added: (h2.ok ? h2.head?.rec?.cut ?? [] : []).filter(q => q.added === now), known: recordKeys(r0), since: tidySurveyedAt(r0) ?? 0, where: 'refresh', gen: pub.gen })
   return h2.ok && h2.head ? h2 : null
 }
 /** country-01: a cell set with a record's plan added (its cells, cuts and clears) -- the other lane's work is never this lane's. Pure. */
@@ -27994,6 +28022,8 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
   try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
   // the band survey's inputs (siteStage `terrace`: the wall boxes the band keeps off, the records, the bots' climbs)
   const bandIn = { wall: I.wall, wallext: I.wallext, records: I.records, caps: I.caps, climbs, have: {}, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+  bandIn.litter = litterForSurvey(dir, I.records)   // litter-01: the walks' handed blocks in the band
+  let litB = null
   const th = recordHead(dir, projKeyOf(TIDY_PLOT))
   if (!th.ok) throw new Error('tidy record unreadable')
   const cells = withPlanCells(I.cells, th.head?.rec ?? null)
@@ -28016,6 +28046,7 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
     const plant = countryPlantOn() ? countryPlantings(read, { home: I.home, band: s0, inWall, busy, avoid: I.avoid, reserved: I.reserved, corridor, pathCols, cells, seed: Number(land.seed) >>> 0 }) : null
     rec = countryRecord(earth, plant, { stage: s0, home: I.home })
     census = { band: s.band ?? null, plant: plant?.census ?? null }
+    litB = s.litter ?? null
     tried.push(`${s0.id}:${rec ? 'work' : 'nothing'}`)
     if (rec) break
   }
@@ -28023,6 +28054,7 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
   const body = rec ? { ...rec, state: 'open', sitedBy: me } : countryNothing({ stage: st, home: I.home, now: Date.now(), by: me })
   const pub = publishRecord(dir, key, cur => (countryNext(cur) ? stageCarry(body, cur) : null), { by: me })
   if (pub.result === 'error' || pub.result === 'lost') return { ok: false, why: `publish_${pub.result}`, tried }
+  if (pub.result === 'accepted') litterIntakeLog(bot, litB, { added: rec?.cut ?? [], where: `country:${st.id}`, gen: pub.gen })   // litter-01
   if (pub.result === 'accepted') {
     const pc = census?.plant
     try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: COUNTRY_PLOT, op: rec ? 'sited' : 'nothing', cell: [I.home.x, I.home.y, I.home.z], seg: st.id, n: rec ? (rec.cells ?? []).filter(q => q.plant).length : 0, kind: `cut${rec?.cut?.length ?? 0}/fill${rec ? (rec.cells ?? []).filter(q => !q.plant && !q.prev).length : 0}/clear${rec?.clear?.length ?? 0}/grove${pc?.groves ?? 0}:${pc?.saplings ?? 0}/drift${pc?.drifts ?? 0}:${pc?.flowers ?? 0}`, why: tried.join(',').slice(0, 160), gen: pub.gen }) }) } catch { /* telemetry */ }
@@ -28362,6 +28394,8 @@ async function buildTidyVisit (ctx, args, signal) {
     // roughground-01: the inside-the-wall clock rides on every stage's record (inwallAtNext)
     const pub = publishRecord(dir, key, cur => (fresh(cur) ? (GROUNDS.on ? { ...stageCarry(body, cur), inwallAt: inChecked ?? inwallAtNext(cur, body) } : body) : null), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
+    // litter-01: what the siting did with the walks' handed blocks (a new record: every cut at a handed cell is folded)
+    if (pub.result === 'accepted') litterIntakeLog(bot, s.litter, { added: s.record ? (body.cut ?? []) : [], since: tidySurveyedAt(rh.head?.rec) ?? 0, where: 'sited', gen: pub.gen })
     if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], ...(GROUNDS.on ? { seg: `stage${sk}`, n: s.record?.replant?.length ?? 0 } : {}), kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     // townterrace-01: the park is a land-plan zone -- published once on the land record (a reservation every later siting keeps
     // off: landplan.mjs parkZones), so the next terrace siting keeps it in place and its trees are never felled

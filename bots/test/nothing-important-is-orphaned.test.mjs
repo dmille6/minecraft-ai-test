@@ -163,6 +163,8 @@ const REQUIRED = [
   'bots/test/cottagepost.test.mjs',
   'bots/test/projfix.test.mjs',
   'bots/src/takeback.mjs', 'bots/test/takeback.test.mjs',
+  // litter-01 (11-13): what a walk could not take back is handed to the cleanup crew -- the rules, the sink, and their test
+  'bots/src/litter.mjs', 'bots/test/litter.test.mjs',
   // grounds-01 (11-12, owner "is there a better approach to grounds keeping"): cleanup as ordinary, funded project work -- the pure rules and their test
   'bots/src/grounds2.mjs', 'bots/test/grounds2.test.mjs',
   'sandbox/cottage2/furnish-proof.mjs',

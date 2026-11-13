@@ -13,6 +13,8 @@ import { lavatargetModeDetail } from './lavatarget.mjs'   // lavatarget-01's lic
 import { snapshot } from './state.mjs'
 import { attachPlaceAudit, placeAuditOn, climbOf, CLIMB } from './placeaudit.mjs'   // placeaudit-01; access-02: the climbs ledger
 import { installTakeback } from './takeback.mjs'   // takeback-01: a walk takes back the blocks it placed
+import { litterSink } from './litter.mjs'   // litter-01: what a walk could not take back is handed to the cleanup crew
+import { litterWrite, litterReadOwn } from './buildproj.mjs'   // litter-01: the hand-off file (one a bot, in the town's directory)
 import { grounds2On, groundsModeDetail } from './grounds2.mjs'   // grounds-01: cleanup as ordinary, funded project work
 import { GROUNDS } from './shop.mjs'   // grounds-01's licence row: on only where the groundskeeper is
 import { climbEnqueue, prunePool, poolPruneMode } from './buildproj.mjs'   // access-02: queued, written off the placement's continuation; showdrop-01: the prune
@@ -177,8 +179,13 @@ export function installPoolPrune (bot, { dir = poolStateDir(config.memory.pool),
  *  Kept out of installFeatures' body: test/cobble-rule reads that function's first 4,000 characters for the cap's licence row. */
 function takebackFor (bot) {
   try {
-    const tb = installTakeback(bot, { emit: (kind, status, detail) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } } })
+    const emit = (kind, status, detail) => { try { logEvent({ kind, status, snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } }
+    // litter-01: this bot's hand-off file beside the town's records (litter.mjs; LITTER=off -> no sink, nothing written)
+    let lit = null
+    try { lit = litterSink({ dir: poolStateDir(config.memory.pool), holder: bot.username ?? 'bot', io: { read: litterReadOwn, write: litterWrite }, emit }) } catch { lit = null }
+    const tb = installTakeback(bot, { emit, onLeft: lit ? (r, why) => lit.left(r, why) : null })
     if (tb) bot.once?.('end', () => { try { tb.final() } catch { /* telemetry */ } })
+    if (tb && lit) bot.once?.('end', () => { try { lit.final() } catch { /* telemetry */ } })
     return tb
   } catch (e) { log('warn', 'takeback not installed', { error: e?.message }); return null }
 }
