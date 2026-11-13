@@ -365,6 +365,18 @@ function gatherZoneNow () {
 // ... unless the bot is trapped there (bot.gatherTrap, set by gatherRun when its walk out went nowhere): it keeps its way out
 const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z && gatherZoneRefuses(z, p, name, bot?.entity?.position?.y) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now()) }
 const _gzModeSaid = new WeakSet()
+// What the bot holds that THE PATHFINDER can tower with: its own list (movements.scafoldingBlocks, item ids), not
+// exit-contract's scaffoldCount -- that one counts sand, gravel and stripped logs, which the pathfinder never places, so a
+// pit bot holding 64 sand was walked three times toward a tower it could not build (Claude review 11-13). No list -> 0.
+function towerBlocksHeld (bot) {
+  try {
+    const ids = new Set(bot?.pathfinder?.movements?.scafoldingBlocks ?? [])
+    if (!ids.size) return 0
+    let n = 0
+    for (const it of bot.inventory?.items?.() ?? []) if (ids.has(it.type)) n += it.count ?? 0
+    return n
+  } catch { return 0 }
+}
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -2443,7 +2455,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
           // WALK is. cleanzone-01's valve lifts the placing ban where two searches found no route, so the same walk is made
           // again from the same spot -- the third search towers out with what the bot holds. Performed here, not advised:
           // `surface` answers already_surfaced at this height (Codex review 11-13). The exit is not used up by a retry.
-          const held = scaffoldCount(bot.inventory?.items?.() ?? [])
+          const held = towerBlocksHeld(bot)
           if (held >= GATHER_ZONE.trapMax) {
             if (zoneClimb < GATHER_ZONE.climbTries) {
               zoneClimb++; zoneWalked--

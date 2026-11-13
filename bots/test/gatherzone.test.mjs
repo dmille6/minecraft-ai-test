@@ -78,7 +78,7 @@ test('SWITCH and WORDS: GATHERZONE=off turns it off; the remedy names a place a 
 // ---- the refusal chain through the REAL gather -----------------------------------------------------------------------
 // townground.test.mjs's fake bot (findBlocks behaves like mineflayer's: palette pre-check without a position, then per cell),
 // with a pathfinder.goto that WALKS: a GoalNearXZ moves the bot there (walk: 'ok'), throws (walk: 'fail') or goes nowhere.
-function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok', items = [], matcherFirst = false }) {
+function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok', items = [], matcherFirst = false, tower = [mcData.itemsByName.dirt.id, mcData.itemsByName.cobblestone.id] }) {
   const D = mcData.blocksByName.dirt, AIRT = mcData.blocksByName.air
   const set = new Set(dirt.map(([x, y, z]) => `${x},${y},${z}`))
   const rock = new Set(dirt.map(([x, y, z]) => `${x},${y - 1},${z}`))
@@ -105,7 +105,7 @@ function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok', items = [], 
         .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)).slice(0, count).map(b => b.position)
     },
     collectBlock: { movements: {} },
-    pathfinder: { movements: {}, setMovements () {}, stop () {}, isMining: () => false,
+    pathfinder: { movements: { scafoldingBlocks: tower }, setMovements () {}, stop () {}, isMining: () => false,
       setGoal (g) { if (g === null) { hang.halts++; hang.reject?.(Object.assign(new Error('The goal was changed before it could be completed!'), { name: 'GoalChanged' })); hang.reject = null } },
       async goto (goal) {
         if (goal?.constructor?.name !== 'GoalNearXZ') return
@@ -247,12 +247,21 @@ test('A BOT BEYOND THE SQUARE has performed the remedy: with nothing to take the
   assert.deepEqual(a.walks, []); assert.equal(a.digs.length, 0)
   assert.equal(ra.failClass, 'nothing_found', JSON.stringify(ra).slice(0, 200))
   assert.doesNotMatch(String(ra.detail), /goto -?\d+ 65 -?\d+ and gather there/)
-  // and the same after a walk out that found nothing beyond the exit
-  const b = gatherWorld({ dirt: zoneDirt, at: [224.5, 64, 200.5], walk: 'ok' })
+  // and the same after a walk out that found nothing beyond the exit, with the zone's dirt IN RANGE of the exit too
+  const b = gatherWorld({ dirt: [...zoneDirt, ...edge], at: [224.5, 64, 200.5], walk: 'ok' })
   const rb = await run(SK, b.bot)
   assert.deepEqual(b.walks, [[270, 200]], 'one walk; a bot that is out is not walked again')
   assert.equal(b.digs.length, 0)
   assert.equal(rb.failClass, 'nothing_found', JSON.stringify(rb).slice(0, 200))
+})
+test('MUTANT KILLED: without the inside-the-square condition, the bot that walked out is walked again', async () => {
+  await withMutantsAll(SKILLS_URL, [[" && gzFrom && inZoneSquare(gatherZoneNow(), gzFrom.x, gzFrom.z)) {", " && gzFrom) {"]], async mod => {
+    const edge = []
+    for (let i = 0; i < 12; i++) edge.push([258 + (i % 6), 63, 199 + Math.floor(i / 6)])
+    const { bot, walks } = gatherWorld({ dirt: [...zoneDirt, ...edge], at: [224.5, 64, 200.5], walk: 'ok' })
+    const r = await run(mod, bot)
+    assert.ok(walks.length > 1, `the mutant walks a bot that is already out a second time (${walks.length} walks, ${r.failClass})`)
+  })
 })
 test('ONLY ZONE CELLS IN RANGE COUNT: the zone\'s dirt beyond the search did not empty it -> the base\'s nothing_found, no walk', async () => {
   const far = []
@@ -290,6 +299,18 @@ test('TRAPPED AND HOLDING, and the walks never find a route: a bounded number of
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'no_safe_target')
   assert.match(String(r.detail), /you hold \d+ blocks to climb with: .*goto 270 65 200 and gather there/)
   assert.doesNotMatch(String(r.detail), /surface/)
+})
+test('SAND IS NOT A TOWER: a pit bot holding 64 sand (which the pathfinder never places) is trapped like an empty-handed one and keeps the ground beside it', async () => {
+  const pit = []
+  for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])
+  const { bot, digs, walks } = gatherWorld({ dirt: pit, at: [224.5, 64, 200.5], walk: 'stay', items: [{ name: 'sand', count: 64, type: mcData.itemsByName.sand.id }, { name: 'gravel', count: 32, type: mcData.itemsByName.gravel.id }] })
+  await run(SK, bot, { block: 'dirt', count: 16 })
+  assert.equal(walks.length, 1, 'no repeated walk toward a tower it cannot build')
+  assert.ok(digs.length > 0 && digs.length <= CZ.GATHER_ZONE.trapMax, 'the trap is granted')
+  // and with no tower list at all the answer is the same (0 held), never a crash
+  const w2 = gatherWorld({ dirt: pit, at: [224.5, 64, 200.5], walk: 'stay', items: [{ name: 'dirt', count: 64, type: mcData.itemsByName.dirt.id }], tower: [] })
+  await run(SK, w2.bot, { block: 'dirt', count: 16 })
+  assert.equal(w2.walks.length, 1); assert.ok(w2.digs.length > 0)
 })
 test('MUTANT KILLED: without the repeated walk, a bot that could have climbed out is refused after one walk', async () => {
   await withMutantsAll(SKILLS_URL, [["            if (zoneClimb < GATHER_ZONE.climbTries) {", "            if (false) {"]], async mod => {
