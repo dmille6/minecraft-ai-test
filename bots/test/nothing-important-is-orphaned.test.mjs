@@ -39,6 +39,8 @@ const tGit = (n, f) => { if (CTX.ok) return t(n, f); skipped++; console.log(`  S
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // sched-v44 (11-13): canary-sched looks three entries ahead, a held entry can be passed; its installer
+  'scripts/host/install-sched-v44.sh',
   // voyager-01 (11-06): the creative-bot pilot -- design, the sandbox and its adversarial tests, the proxy, watcher, plugin, units
   'docs/reports/voyager-01-design-2026-11-06.md',
   'docs/reports/effect-audit-2026-11-07.md',
