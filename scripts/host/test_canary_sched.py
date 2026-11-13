@@ -1928,6 +1928,158 @@ def t_v42_remote_answer_pure(CS, F):
     assert CS.remote_answer({'rc': 0}, None) is None
 
 
+# ------------------------------------------------------------------------- v44 (OWNER 11-13: the rebase stalls) --
+def _spec_more(F, runs, have=(), held=(), tried=None, edit=None):
+    """After _spec: more entries behind foo-01 (copies of it under other run ids, each with its patch source). `have` =
+    runs that already hold a variant for the live canary's sha, `held` = runs with a hold, `tried` = {run: job state} of
+    an autorebase job for that sha, `edit` = {run: fields} written over the entry."""
+    q = json.load(open(F.queue))
+    foo = q['entries'][1]
+    for r in runs:
+        q['entries'].append(dict(json.loads(json.dumps(foo)), run=r, after=[]))
+    for e in q['entries'][1:]:
+        if e['run'] in have:
+            e['variants'][F.other] = dict(e['variants'][F.base], canary_sha=F.other)
+        if e['run'] in held:
+            e['hold'] = 'owner: not yet'
+        e.update((edit or {}).get(e['run']) or {})
+    json.dump(q, open(F.queue, 'w'))
+    jd = os.path.join(F.home, 'autorebase', 'jobs')
+    for r, state in (tried or {}).items():
+        os.makedirs(jd, exist_ok=True)
+        json.dump({'state': state, 'run': r, 'base': F.other}, open(os.path.join(jd, '%s--x.json' % r), 'w'))
+
+
+def _spec_run(CS, F):
+    d, st = decision(CS, F)
+    assert d[0] == 'busy', d
+    sp = CS.spec_target(st)
+    return sp[0]['run'] if sp else None
+
+
+def t_v44_spec_looks_past_an_entry_that_has_its_variant(CS, F):
+    """v42-v43 stopped at the FIRST entry behind the live canary once it had its variant (or a job) for the canary sha, so
+    the second and third were rebased only at the head, with the slot empty. v44 passes it over and builds the next."""
+    _spec(CS, F)
+    _spec_more(F, ['bar-01', 'baz-01'])
+    assert _spec_run(CS, F) == 'foo-01', 'positive control: with nothing built, the first entry is the target'
+    _spec_more(F, [], have=['foo-01'])
+    assert _spec_run(CS, F) == 'bar-01', 'the first has its variant for the canary sha: the second is built'
+    _spec_more(F, [], tried={'bar-01': 'refused'})
+    assert _spec_run(CS, F) == 'baz-01', 'the second was tried and REFUSED (never a retry): the third is built'
+
+
+def t_v44_spec_a_finished_or_refused_job_is_passed_not_retried(CS, F):
+    for state in ('refused', 'done', 'starting'):       # `starting` with no heartbeat: a helper that died at once
+        _spec(CS, F)
+        _spec_more(F, ['bar-01'], tried={'foo-01': state})
+        assert _spec_run(CS, F) == 'bar-01', state
+        shutil.rmtree(os.path.join(F.home, 'autorebase'))
+        open(F.journal, 'w').close()
+
+
+def t_v44_spec_depth_is_three(CS, F):
+    _spec(CS, F)
+    _spec_more(F, ['bar-01', 'baz-01', 'qux-01'], have=['foo-01', 'bar-01'])
+    assert CS.SPEC_DEPTH == 3
+    assert _spec_run(CS, F) == 'baz-01', 'positive control: the THIRD entry is within the depth'
+    _spec_more(F, [], have=['baz-01'])
+    assert _spec_run(CS, F) is None, 'three entries passed: the fourth (qux-01, eligible, nothing built) is beyond the depth'
+
+
+def t_v44_spec_every_other_condition_still_ends_the_walk(CS, F):
+    """Passing over is ONLY for an entry that has its variant or a job. A held entry, one with no patch source, a bundle,
+    one waiting on an unfinished run: the walk ends there, as in v42 -- nothing BEHIND it is built ahead."""
+    for name, kw in (('held', {'held': ['bar-01']}), ('no patch source', {'edit': {'bar-01': {'patch': None}}}),
+                     ('a bundle', {'edit': {'bar-01': {'bundle': {'members': ['a-01', 'b-01']}}}}),
+                     ('waits on an unfinished run', {'edit': {'bar-01': {'after': ['zzz-01']}}})):
+        _spec(CS, F)
+        _spec_more(F, ['bar-01', 'baz-01'], have=['foo-01'], **kw)
+        assert _spec_run(CS, F) is None, '%s: bar-01 ends the walk although baz-01 behind it is eligible' % name
+        open(F.journal, 'w').close()
+    _spec(CS, F)
+    _spec_more(F, ['bar-01', 'baz-01'], have=['foo-01'], edit={'bar-01': {'after': ['live-01']}})
+    assert _spec_run(CS, F) == 'bar-01', 'positive control: the same queue with nothing in the way builds bar-01'
+
+
+def t_v44_spec_one_build_at_a_time(CS, F):
+    _spec(CS, F)
+    _spec_more(F, ['bar-01'], have=['foo-01'])
+    jp = os.path.join(F.home, 'autorebase', 'jobs', 'zzz-01--x.json'); os.makedirs(os.path.dirname(jp))
+    json.dump({'state': 'running', 'run': 'zzz-01', 'base': F.base, 'hb': Z(NOW - dt.timedelta(minutes=1))}, open(jp, 'w'))
+    assert _spec_run(CS, F) is None, 'a build is running: no second one, however deep the walk may look'
+    os.unlink(jp)
+    assert _spec_run(CS, F) == 'bar-01', 'positive control: without the running job bar-01 is the target'
+
+
+GLASS_H2 = ('autorebase cannot run: patch has no diff_sha256',
+            'autorebase will cherry-pick 1a2b3c4d..5e6f7a8b onto it (one background build, then a later tick launches)')
+
+
+def t_v44_held_no_variant_kind_pure(CS, F):
+    """glass-01, 11-13: held (H1) AND no variant for the fleet base (H2). Neither H2 text was a skippable kind, so the held
+    entry blocked the head 45 min with the slot empty. The H2 of a HELD entry is a kind; the same H2 without the hold is not."""
+    held = {'run': 'x-01', 'hold': 'owner: sand first'}
+    free = {'run': 'x-01', 'hold': None}
+    st = {'pid_alive': {}, 'ar_job': None, 'queue': {'entries': []}, 'journal': [], 'state_rows': [], 'humans': [], 'now': NOW}
+    for why in GLASS_H2 + ('autorebase of 1a2b3c4d..5e6f7a8b is building (step suite, pid 7, heartbeat x)',):
+        r = 'x-01: %s abc1234 (have: d00d000): %s' % (CS.NO_VARIANT, why)
+        assert CS.skip_kind('H2', r, st, held) == 'held-no-variant', why
+        assert CS.skip_kind('H2', r, st, free) is None, 'not held: %s' % why
+        assert CS.skip_kind('H2', r, st, dict(held, bundle={'members': []})) is None, 'a bundle is never skipped'
+        assert CS.skip_kind('H3', r, st, held) is None, 'the text under another code is not a kind'
+        got = CS.skip_reason(held, [('H1', 'x-01: held: owner: sand first'), ('H2', r)], st)
+        assert got.startswith('x-01 skipped (held, held-no-variant)'), got
+        assert CS.skip_reason(free, [('H2', r)], st) == '', 'not held: the same H2 still stops the walk'
+        assert CS.skip_reason(dict(held, bundle={'members': []}), [('H1', 'x-01: held: x'), ('H2', r)], st) == ''
+    assert CS.skip_kind('H2', 'x-01: the fleet base could not be resolved to a full sha', st, held) is None, \
+        'a fault of the fleet, not of the entry'
+    # a held entry with ANOTHER blocker that is no kind is still not skipped
+    r = 'x-01: %s abc1234 (have: d00d000): %s' % (CS.NO_VARIANT, GLASS_H2[0])
+    assert CS.skip_reason(held, [('H1', 'x-01: held: x'), ('H1', 'x-01: not before 2026-11-14T00:00:00Z'), ('H2', r)], st) == ''
+    # the scheduler writes the text it recognises
+    hb = CS.head_blockers({'run': 'x-01', 'variants': {}}, dict(st, base_full='a' * 40))
+    assert [c for c, _, _ in hb] == ['H2'] and hb[0][1].startswith(CS.NO_VARIANT), hb
+
+
+def _glass(CS, F, patch, hold):
+    """foo-01 has a variant only for ANOTHER base (so none for the fleet base) and `patch`; bar-01 is launchable."""
+    _two(CS, F)
+    q = json.load(open(F.queue))
+    foo = q['entries'][0]
+    foo['variants'] = {F.canary: dict(foo['variants'][F.base], canary_sha=F.canary)}
+    foo['patch'] = patch
+    foo['hold'] = hold
+    json.dump(q, open(F.queue, 'w'))
+
+
+def t_v44_held_head_with_no_variant_is_passed(CS, F):
+    for patch, word in (({'base': F.canary, 'tip': F.canary, 'branch': 'glass'}, 'patch has no diff_sha256'),
+                        ({'base': F.canary, 'tip': F.canary, 'diff_sha256': '0' * 64, 'branch': 'glass'}, 'will cherry-pick')):
+        _glass(CS, F, patch, 'owner: sand first')
+        d, st = decision(CS, F)
+        assert d[0] == 'launch' and d[1]['run'] == 'bar-01', (word, d[0], d[1] if d[0] != 'launch' else d[1]['run'])
+        assert [r for r, _ in st['skipped']] == ['foo-01'] and 'held-no-variant' in st['skipped'][0][1], st['skipped']
+        # positive control: the held head really carries that H2 (the block of 11-13), and SKIP-OFF brings it back
+        hb = CS.head_blockers(CS.head_entry(st), dict(st, ar_job=None))
+        assert [c for c, _, _ in hb] == ['H1', 'H2'] and word in hb[1][1], hb
+        open(os.path.join(F.home, 'digest', 'SKIP-OFF'), 'w').close()
+        expect(CS, F, 'block', 'H1', 'held')
+        os.unlink(os.path.join(F.home, 'digest', 'SKIP-OFF'))
+        with Env(F.env()):
+            st2 = CS.gather(CS.paths())
+            assert not CS.ar_should_start(st2), 'and no build starts for the held entry'
+
+
+def t_v44_unheld_head_with_no_variant_is_not_passed(CS, F):
+    _glass(CS, F, {'base': F.canary, 'tip': F.canary, 'branch': 'glass'}, None)
+    d, st = expect(CS, F, 'block', 'H2', 'patch has no diff_sha256')
+    assert not st['skipped'], st['skipped']
+    _glass(CS, F, {'base': F.canary, 'tip': F.canary, 'diff_sha256': '0' * 64, 'branch': 'glass'}, None)
+    d, st = expect(CS, F, 'wait', 'H2', 'will cherry-pick')
+    assert not st['skipped'], st['skipped']
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
 
 
@@ -1951,6 +2103,14 @@ def run_suite(path, quiet=False):
 
 # Each mutant removes or inverts ONE decision. The anchor must be present exactly once.
 MUTANTS = [
+    # v44: the missing-variant H2 of a HELD entry is not a kind (glass-01, 11-13: 45 min with the slot empty)
+    ("        if e.get('hold') and r.startswith(NO_VARIANT):\n            return 'held-no-variant'", "        if False:\n            return 'held-no-variant'"),
+    # v44: that H2 is a kind for an entry that is NOT held too
+    ("        if e.get('hold') and r.startswith(NO_VARIANT):\n            return 'held-no-variant'", "        if r.startswith(NO_VARIANT):\n            return 'held-no-variant'"),
+    # v44: the speculative walk ends at an entry that has its variant or a job (v42-v43: one entry deep)
+    ("                return None\n            continue\n        return e, csha\n", "                return None\n            return None\n        return e, csha\n"),
+    # v44: the speculative walk has no depth
+    ("            if passed >= SPEC_DEPTH:\n                return None\n", "            if False:\n                return None\n"),
     # v43: the stale staged registration is not a skippable kind (the 18-h block of 11-10/11)
     ("    if code == 'H3' and STALE_STAGED in r and journal_status(run, st) not in ('open', 'live', 'closed'):\n", "    if False:\n"),
     # v43: the no-patch-source block is not a skippable kind
