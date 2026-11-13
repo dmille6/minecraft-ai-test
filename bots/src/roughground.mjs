@@ -127,9 +127,10 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
  *   nearCells the cells whose column's RING is kept too (the standing builds': FLAT_PLOTS' cells are not in it)
  *   climbs    the bots' ledgered scaffold ([{ x, y, z, shape }], placeaudit.mjs);  home  nearest-first order
  *   litter    litter-01: the walks' handed blocks ([{ at, block, t, claimed? }], buildproj.mjs litterRead); `out.litter` says what became of
- *             each one in this box ([{ k, t, v: 'take' | 'held' | 'dropped', why }]; one outside the box is not this survey's)
+ *             each one in this box ([{ k, t, v: 'take' | 'held' | 'dropped', why }]; one outside the box is not this survey's);
+ *             `now` the survey's clock (an entry past litter.mjs LITTER.keepMs is `old`); its cuts carry `handed: 1`
  */
-export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], litter = [], yLo = -64, standOff = () => false, T = ROUGH , env = process.env } = {}) {
+export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], litter = [], now = Date.now(), yLo = -64, standOff = () => false, T = ROUGH , env = process.env } = {}) {
   const skipped = {}
   const skip = (why, n = 1) => { skipped[why] = (skipped[why] ?? 0) + n }
   const census = { floating: 0, float_high: 0, clumps: 0, holes: 0, stations: 0, scaffold: 0, smoothed: 0, hollows: 0, stands: 0, topsoil: 0, banks: 0, regraded: 0, handed: 0 }
@@ -479,7 +480,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
     for (const e of [...list].sort((a, b) => b.at[1] - a.at[1])) {
       const y = e.at[1]
       const b = read(x, y, z), up = read(x, y + 1, z)
-      const v = litterVerdict(e, { name: b ? nm(b) : null, above: up ? nm(up) : null, aboveTaken: take.length > 0 && take.at(-1).at[1] === y + 1, record: e.claimed === true || cells.has(`${x},${y},${z}`), spoil: !!b && spoil.test(nm(b)), ring, reach: T.floatReach + 1, wet: sideLiquid(x, y, z) || liquid(read(x, y - 1, z)) })
+      const v = litterVerdict(e, { name: b ? nm(b) : null, above: up ? nm(up) : null, aboveTaken: take.length > 0 && take.at(-1).at[1] === y + 1, record: e.claimed === true || cells.has(`${x},${y},${z}`), spoil: !!b && spoil.test(nm(b)), ring, reach: T.floatReach + 1, wet: sideLiquid(x, y, z) || liquid(read(x, y - 1, z)), now })
       if (v.v === 'take') take.push({ at: [x, y, z], name: nm(b), e, why: v.why }); else say(e, v.v, v.why)
     }
     if (!take.length) continue
@@ -490,7 +491,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       used.add(k); grp.done = 'take'; census.handed += take.length
       const id = `rx${out.pillars.length}`
       out.pillars.push({ id, col: [x, z], top: take[0].at[1], base: ring.length ? Math.max(...ring) : null, h: take.length, kind: 'litter' })
-      for (const q of take) cuts.push({ at: q.at, name: q.name, pillar: id })
+      for (const q of take) cuts.push({ at: q.at, name: q.name, pillar: id, handed: 1 })   // review r1: read again at the dig (litter.mjs handedBare)
     }])
   }
   // nearest home first, under the cap (a cell is taken once: a later entry on a used column is dropped)

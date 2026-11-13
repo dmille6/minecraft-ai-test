@@ -13,6 +13,11 @@
 //     `margin`, becomes an entry { at: [x, y, z], block, t, shape } in this bot's own file in the town's directory
 //     (`litter-<bot>.json`, buildproj.mjs litterWrite: a temp file renamed into place). Bounded: LITTER.maxEntries, the oldest
 //     dropped; an entry older than LITTER.keepMs is dropped. The write is queued and made off the walk (litterSink).
+//   AN ENTRY IS BELIEVED FOR THREE HOURS (review r1, Codex 1; LITTER.keepMs). An entry says "this bot placed <block> at this cell";
+//     the intake can only read the cell's NAME. Once the handed block is gone and ground has been put back in the same cell, the
+//     name is the same (and dirt that greened reads as the ground round it): the name alone cannot tell the handed block from its
+//     replacement. So the claim is believed only while it is fresh: the intake runs hourly, three hours gives an entry at least two
+//     surveys, and an older one is dropped unread (`old`) -- by the owner's next write, and by the intake whatever the file says.
 //   THE INTAKE (the keeper's survey: tidy.mjs siteStage -> roughIn -> roughground.mjs surveyRough `litter`, so the hourly refresh of
 //     an open record, a stage's siting and a country band's siting all take it): an entry is a cut of the survey -- EXACTLY its cell --
 //     when the survey's own column rule lets a ledgered scaffold be cut there (surveyRough `refuse`: the box, the yard and tree farm,
@@ -20,6 +25,15 @@
 //     A cell on another project's own dig list (its `clear` or `cut`) is that project's too (litterClaimed).
 //     The cut rides the survey into the record (tidyrefresh.mjs refreshMerge: never a busy column, a guarded or a named cell) and is
 //     dug by the visit's own cut path (buildrun.mjs `p.tidy`: the `_build op=clear kind=tidy` row a surveyed pillar logs).
+//   NOTHING IS FOLDED OVER AN UNREADABLE RECORD (review r1, Codex 2; litterIntake): skills.mjs projectHeads skips a head it cannot
+//     read, so a project whose record is unreadable loses its cells at every reader built on it. The intake first reads every
+//     guarded project STRICTLY (tempstand.mjs otherCellsStrict: it throws when a head is not ok or its newest generation is
+//     rejected); when that throws the survey gets NO entry (`_litter op=dropped why=records_unread`), and they wait for the next.
+//   BUILT ON, AGAIN AT THE DIG (review r1, Codex 3; handedBare): a cut that came from the hand-off carries `handed: 1` on the
+//     record, and the visit reads the cell over it immediately before the dig (skills.mjs `tidyOk`, which buildrun.mjs asks before
+//     the walk and again after it): anything but air there and the cut is not dug in that visit -- it waits as a cut beside water
+//     waits (runVisit `tidyWet`), is counted toward the crew's give-up, and is named (`_litter op=dropped why=built_on_at_dig`).
+//     A handed pillar is dug top first, so the block under a handed block is bare by the time it is asked.
 //   NEVER TAKEN (litterVerdict, takeback.mjs verdictFor's reading at the intake): a cell that no longer holds the handed block
 //     (`gone`, `changed`), a record's cell (`record`), a cell with anything but air on it that is not a handed block taken with it
 //     (`built_on`), a block at or under the lowest ground round it (`in_ground`: it fills a hole the survey would fill again, or it
@@ -28,17 +42,19 @@
 //     LITTER.greens names that one change as the same block. The cut carries the name the cell reads NOW (the visit digs by name).
 //
 // WHO REMOVES AN ENTRY: ONLY ITS OWNER, BY AGE OR BY THE BOUND. The file has one writer (the bot it is named for); the intake only
-// reads. So nothing races: an entry is read again at every survey until it is LITTER.keepMs old. A folded entry reads `known` from
+// reads. So nothing races: an entry is read again at every survey until it is LITTER.keepMs (three hours) old. A folded entry reads `known` from
 // then on (its cell is on the record); a dropped one is dropped again, and the `dropped` row counts it only the first time (entries
 // handed since the record's last survey).
 // ROWS: `_litter_mode` at install; `_litter op=handed` (the placing bot, at most one a LITTER.rowMs); `_litter op=folded` and
-// `_litter op=dropped` (the keeper, one each a survey that read an entry).
+// `_litter op=dropped` (the keeper, one each a survey that read an entry); `_litter op=dropped why=records_unread` (a survey that
+// folded nothing: a record could not be read); `_litter op=dropped why=built_on_at_dig` (a visit that left a handed cut standing).
 // SWITCH: LITTER=off|0|false|no -> nothing written, nothing read, nothing folded.
 
 export const LITTER = Object.freeze({
   whys: Object.freeze(['expired', 'unseen']),     // takeback's `left` reasons with the block still standing where the bot left it
   zones: Object.freeze(['town', 'margin']),       // placeaudit.mjs placeZone
-  maxEntries: 256, keepMs: 7 * 24 * 60 * 60_000,  // a bot's file; the climbs ledger's own 7 days
+  maxEntries: 256,                                // a bot's file
+  keepMs: 3 * 60 * 60_000,                        // how long an entry is believed: at least two of the hourly surveys (the header)
   flushMs: 2_000, rowMs: 600_000,
   greens: Object.freeze({ dirt: 'grass_block' }),
   rowCells: 4,
@@ -90,10 +106,11 @@ export function sameBlock (handed, name, T = LITTER) {
  *   aboveTaken  the cell over it is a handed block this same survey takes (a pillar comes down from its top)
  *   record      a record or the plan names the cell;  spoil  the block is the bots' material (tidy.mjs SPOIL)
  *   ring        the ground heights of the columns round it that are not a record's;  reach  how far over them a bot digs
- *   wet         water or lava against it
+ *   wet         water or lava against it;  now  the survey's clock: an entry older than T.keepMs is `old`, whatever the cell reads
  * `held` is asked again at the next survey (nothing was read, or nothing is known yet); `dropped` is not the crew's.
  */
-export function litterVerdict (e, { name = null, above = null, aboveTaken = false, record = false, spoil = true, ring = [], reach = Infinity, wet = false } = {}, T = LITTER) {
+export function litterVerdict (e, { name = null, above = null, aboveTaken = false, record = false, spoil = true, ring = [], reach = Infinity, wet = false, now = null } = {}, T = LITTER) {
+  if (Number.isFinite(now) && !(now - e.t <= T.keepMs)) return { v: 'dropped', why: 'old' }
   if (name == null) return { v: 'held', why: 'unread' }
   const same = sameBlock(e.block, name, T)
   if (!same) return { v: 'dropped', why: AIRY(name) ? 'gone' : 'changed' }
@@ -108,6 +125,36 @@ export function litterVerdict (e, { name = null, above = null, aboveTaken = fals
   if (wet) return { v: 'dropped', why: 'water' }
   return { v: 'take', why: same }
 }
+/**
+ * THE ENTRIES A SURVEY MAY FOLD -> { entries, unread: null | { n, why } }. Never throws. `read()` every bot's entries (buildproj.mjs
+ * litterRead); `strict()` the guarded projects read strictly (tempstand.mjs otherCellsStrict: it THROWS when one cannot be read or its
+ * newest generation is rejected). A strict read that throws: NO entry for this survey (`unread`: how many waited, and why). Else the
+ * entries with the other records' claims marked (litterClaimed).
+ */
+export function litterIntake ({ read = () => [], strict = () => new Set(), records = [] } = {}) {
+  let entries = []
+  try { entries = read() ?? [] } catch { entries = [] }
+  if (!entries.length) return { entries: [], unread: null }
+  try { strict() } catch (e) { return { entries: [], unread: { n: entries.length, why: String(e?.message ?? e).replace(/\s+/g, '_').slice(0, 60) } } }
+  return { entries: litterClaimed(entries, records), unread: null }
+}
+/**
+ * AT THE DIG: MAY THIS CUT BE DUG NOW? -> bool. Pure over `read`. A cut that came from the hand-off (`handed` on the record's cut
+ * entry) only while the cell over it reads AIR now -- something set on it since the survey is someone's, and an unread cell is no
+ * evidence. Any other cut: true (the caller's other checks stand).
+ */
+export function handedBare (cut, read) {
+  if (!cut?.handed) return true
+  const up = read(cut.at[0], cut.at[1] + 1, cut.at[2])
+  return !!up && AIRY(String(up.name ?? '').replace(/\[.*\]$/, ''))
+}
+/** The handed cuts a visit left standing because something is on them now -> ["x,y,z"]. Pure. `waited`: runVisit's `tidyWet` keys. */
+export function builtOnHeld (rec, waited = [], read = () => null) {
+  const w = new Set(waited ?? [])
+  return (rec?.cut ?? []).filter(c => c?.handed && w.has(K(c.at)) && !handedBare(c, read)).map(c => K(c.at))
+}
+export const unreadDetail = u => `op=dropped n=${u.n} why=records_unread record=${u.why}`
+export const builtOnDetail = (keys, T = LITTER) => `op=dropped n=${keys.length} why=built_on_at_dig cells=${keys.slice(0, T.rowCells).join(';') || '-'}`
 /**
  * THE INTAKE'S COUNT -> { read, seen, folded: [key], greened, known, held: { why: n }, dropped: { why: n }, old }. Pure.
  *   lit    { read, seen: [{ k, t, v, why }] }: the survey's verdicts (tidy.mjs siteStage `litter`)
@@ -156,7 +203,7 @@ const SINKS = new Map()
  */
 export function litterSink ({ dir, holder, io, emit = () => {}, now = () => Date.now(), env = process.env, T = LITTER, timers = true, shared = SINKS } = {}) {
   const on = litterOn(env)
-  try { emit('litter_mode', 'success', `phase=mode v=1 on=${on ? 1 : 0} max=${T.maxEntries} keep_h=${Math.round(T.keepMs / 3_600_000)} whys=${T.whys.join('+')}`) } catch { /* telemetry */ }
+  try { emit('litter_mode', 'success', `phase=mode v=1 on=${on ? 1 : 0} max=${T.maxEntries} keep_h=${Math.round(T.keepMs / 360_000) / 10} whys=${T.whys.join('+')}`) } catch { /* telemetry */ }
   if (!on || !dir || !holder || typeof io?.write !== 'function') return null
   const key = `${dir}\n${holder}`
   if (!shared.has(key)) shared.set(key, { entries: [], loaded: false, dirty: false, busy: false, again: false, timer: null, rowTimer: null, sum: { n: 0, by: {} }, written: 0, failed: 0 })

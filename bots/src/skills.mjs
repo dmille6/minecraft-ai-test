@@ -187,7 +187,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
-import { litterOn, litterTally, litterClaimed, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
+import { litterOn, litterTally, litterIntake, handedBare, builtOnHeld, unreadDetail as litterUnreadDetail, builtOnDetail as litterBuiltOnDetail, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
 import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
@@ -27901,12 +27901,16 @@ async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL
   }
 }
 const LITTER_ON = litterOn()   // litter-01
-/** litter-01: every bot's handed blocks for a survey (litter.mjs; buildproj.mjs litterRead) -> [{ at, block, t, shape, by }], a cell
- *  another project's record names marked `claimed` (litter.mjs litterClaimed over `records`: the survey's own, tidyInputs'); [] under
- *  LITTER=off or when the files cannot be read (an unread file hands nothing). Never throws. */
-function litterForSurvey (dir, records) {
+/** litter-01: every bot's handed blocks for a survey (litter.mjs litterIntake; buildproj.mjs litterRead) -> [{ at, block, t, shape,
+ *  by }], a cell another project's record names marked `claimed` (`records`: the survey's own, tidyInputs'); [] under LITTER=off or
+ *  when the files cannot be read (an unread file hands nothing). Review r1 (Codex 2): the guarded projects are read STRICTLY first
+ *  (tempstand.mjs otherCellsStrict, tempStandOf's reader -- never projectHeads(), which skips a head it cannot read): one unreadable,
+ *  or its newest generation rejected, and this survey folds NOTHING (`_litter op=dropped why=records_unread`). Never throws. */
+function litterForSurvey (bot, dir, records) {
   if (!LITTER_ON) return []
-  try { return litterClaimed(litterRead(dir, { since: Date.now() - LITTER.keepMs }), records) } catch { return [] }
+  const r = litterIntake({ read: () => litterRead(dir, { since: Date.now() - LITTER.keepMs }), strict: () => otherCellsStrict(projectsGuarded().map(p => p.plot), null, pl => recordHead(dir, projKeyOf(pl))), records })
+  if (r.unread) { try { logEvent({ kind: 'litter', status: 'no_effect', snapshot: snapshot(bot), detail: litterUnreadDetail(r.unread) }) } catch { /* telemetry */ } }
+  return r.entries
 }
 /** litter-01: THE INTAKE'S ROWS after a publish that was accepted (`_litter op=folded`, `op=dropped`: litter.mjs intakeRows). `lit` the
  *  survey's verdicts (tidy.mjs siteStage `litter`), `added` the cuts this publish put on the record, `known` the keys it named before,
@@ -27949,7 +27953,7 @@ function stageSurveyInputs (bot, I, dir, signal) {
   try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
   const terrace = { records: I.records, wall: I.wall, wallext: I.wallext, caps: I.caps, climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
   // litter-01: the blocks the walks handed on (every bot's file), for the rough survey's exact cuts
-  terrace.litter = litterForSurvey(dir, I.records)
+  terrace.litter = litterForSurvey(bot, dir, I.records)
   return { land, read, last, lights, terrace }
 }
 /**
@@ -28022,7 +28026,7 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
   try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
   // the band survey's inputs (siteStage `terrace`: the wall boxes the band keeps off, the records, the bots' climbs)
   const bandIn = { wall: I.wall, wallext: I.wallext, records: I.records, caps: I.caps, climbs, have: {}, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
-  bandIn.litter = litterForSurvey(dir, I.records)   // litter-01: the walks' handed blocks in the band
+  bandIn.litter = litterForSurvey(bot, dir, I.records)   // litter-01: the walks' handed blocks in the band
   let litB = null
   const th = recordHead(dir, projKeyOf(TIDY_PLOT))
   if (!th.ok) throw new Error('tidy record unreadable')
@@ -28675,7 +28679,7 @@ async function buildTidyVisit (ctx, args, signal) {
       ...tempStandOf(bot, c, TIDY_PLOT), ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree; tempstand-01
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
-      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && !roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it
+      ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && !roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) && handedBare(q, rd) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it; litter-01 r1: a handed cut is dug only while nothing stands on it NOW
       ...(parkish ? { useFor: q => (q.role === 'till' ? hoeUse : q.role === 'meadow' ? mealUse : null), openRole: role => OPEN_ROLES.has(role) } : {}),
       // gkhelpers-01: the crew's segments -- never one within GK.segGap columns of another bot's live one, a raced take yielded, and a
       // segment whose layer below is open passed (the next independent one worked)
@@ -28689,6 +28693,9 @@ async function buildTidyVisit (ctx, args, signal) {
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
     // roughground-1b (Codex r1): a crust cut held because a body stood in its hollow is not a try (never given up for it)
     const heldHollow = new Set((r.tidyWet ?? []).filter(k => Array.isArray(cutAt.get(k)?.hollow)))
+    // litter-01 r1 (Codex 3): a handed cut this visit left standing because something was set on it since the survey is named
+    // (it stays a try: after TIDY_CUT_TRIES the crew gives it up, as any cut it may not dig)
+    try { const bo = builtOnHeld(rec, r.tidyWet ?? [], read2); if (bo.length) logEvent({ kind: 'litter', status: 'no_effect', snapshot: snapshot(bot), detail: litterBuiltOnDetail(bo) }) } catch { /* telemetry */ }
     tidyNoteCuts(mem, (r.tidied ?? []).filter(k => !heldHollow.has(k)), k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
     // THE WAIVER (wall.mjs wallWaiveDue, generic over record cells): a fill this visit deferred, counted WALL_WAIVE_AFTER visits by
     // the stuck map, is named on the record so the tidy closes
