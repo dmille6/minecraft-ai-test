@@ -401,6 +401,20 @@ export const REPAIR_WINDOW_MS = 60 * 60_000
  */
 /** sinkfix-02: how far under the town's ground a bot may be when a sink visit is ordered (deeper: it is in a mine). */
 export const SINK_SURFACE_DY = 8
+/**
+ * mineorder-01 (showcase 11-13, 75 min on 66b6173e: 7 of 31 aborted build visits were orders given to bots at y 6-21 in the mine --
+ * yard, wallext and tidy visits that ended entombed or stuck before the bot reached the town): EVERY project's visit starts at the
+ * surface, as a sink's does (sinkfix-02), except the two that are worked below it -- the town stair (its own rule, shaftgeom.mjs
+ * stairStartRefusal) and the step well (its builder stands down the well between visits). A bot with no active plot is asked as
+ * before (a new town's first siting). THE REMEDY IS THE BOT'S OWN: it is in the mine on its own goal and comes up with its load; the
+ * order is asked again at its next decision and the cooldown is not charged (the sinks' rule, live since 11-04).
+ *   mineOrderOn(env) -> bool    MINEORDER=off: the sinks' rule alone, as before
+ *   startsBelow(plot, feet, groundY) -> bool. Pure.
+ */
+export const mineOrderOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.MINEORDER ?? '').trim())
+export const BELOW_PLOTS = Object.freeze([SHAFT_PLOT, STEPWELL_PLOT])
+export const startsBelow = (plot, feet, groundY, { on = mineOrderOn() } = {}) => Array.isArray(feet) && Number.isFinite(feet[1]) && Number.isFinite(groundY) && feet[1] < groundY - SINK_SURFACE_DY &&
+  (isSinkPlot(plot) || (!!on && plot != null && !BELOW_PLOTS.includes(plot)))
 export const IDLE_MS = 60 * 60_000   // = REPAIR_WINDOW_MS: a no-effect project is asked again once an hour by each bot
 export const IDLE_NOT_A_VISIT = Object.freeze(new Set(['slots_full', 'off', 'zones_unknown', 'no_plan', 'aborted', 'record_unreadable', 'lost_record', 'state_unwritable', 'room', 'underground']))
 export function noteIdle (mem, plot, result, now = Date.now()) {
@@ -981,7 +995,8 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
   // the town is asked again when it is up (its own surface or the stair's ascent; the order's cooldown is not charged)
   if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
   // sinkfix-02: a sink visit starts at the surface (LIVE 11-04: three road visits ordered at y 23-26 in a mine, aborted entombed)
-  if (isSinkPlot(plot0) && Array.isArray(feet) && Number.isFinite(groundY) && feet[1] < groundY - SINK_SURFACE_DY) return { order: null, skip: 'underground' }
+  // mineorder-01: ... and so does every other project's, but the stair's and the step well's (startsBelow)
+  if (startsBelow(plot0, feet, groundY)) return { order: null, skip: 'underground' }
   if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   // leaffell-01show r1: the pick is still the project this bot's last visit ended WAITING on (noteWait; waitBackoff put every other
   // project first): no order for it until its hold is over -- the skip carries the stop's name, and the grounds are asked instead
