@@ -245,7 +245,7 @@ import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_C
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
 import { standCells as projStandCells } from './buildproj.mjs'   // tempstand-01: the fresh stand receipts (the tidy never lists them)
-import { tempStandOn, standVeto } from './tempstand.mjs'
+import { tempStandOn, standVeto, otherCellsStrict } from './tempstand.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
@@ -25018,11 +25018,14 @@ const wallStuckOn = () => !['off', '0', 'false', 'no'].includes(String(process.e
  */
 function tempStandOf (bot, c, plot) {
   if (!tempStandOn()) return {}
-  // (r1) NOT caught here: a read that fails THROWS -- the visit refuses a placement on it, and a take-down neither digs nor gives the cell
-  // away on it (buildrun.mjs standOwner: `unknown`)
-  // (r2, Codex) the other projects' cells are NOT kept for the visit: tempstand.mjs standVeto keeps one read VETO_TTL_MS and a take-down
-  // drops it first (`refresh`) -- a cell another project took after the plan is seen at the dig
-  const veto = standVeto({ zones: c?.zones ?? [], others: () => new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) })
+  // (r3, Codex) THE OTHER RECORDS ARE READ STRICTLY, never through projectHeads(): that reader SKIPS a head that is not ok and
+  // swallows every exception, so an owner whose record could not be read was simply missing from the list and its cells read as free
+  // (r1's comment here said a failed read throws; it did not). tempstand.mjs otherCellsStrict over each guarded project's own
+  // recordHead THROWS when one cannot be read or its newest generation is rejected; nothing is caught here, so the visit refuses a
+  // placement on it and a take-down neither digs nor gives the cell away (buildrun.mjs standOwner: `unknown`; the receipt is kept)
+  // (r2, Codex) the other projects' cells are NOT kept for the visit: tempstand.mjs standVeto keeps one read VETO_TTL_MS, and (r3)
+  // every ask of a take-down's column drops it first (`refresh`) -- a cell another project took meanwhile is seen at the dig
+  const veto = standVeto({ zones: c?.zones ?? [], others: () => otherCellsStrict(projectsGuarded().map(p => p.plot), plot, pl => recordHead(townDir(), projKeyOf(pl))) })
   return { tempStand: { mem: (bot.tempStandMem ??= {}), mayPlace: veto.mayPlace, refresh: veto.refresh } }
 }
 function wallStuckOf (c, plot = WALL_PLOT) {

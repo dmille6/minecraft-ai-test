@@ -62,6 +62,8 @@ const k = a => a.join(',')
 const PX = 10, PZ = 0
 const POST = [1, 2, 3].map(i => [PX, G + i, PZ]), TOP = POST[2]
 const PAL = { post: ['oak_planks'], rail: ['oak_planks'], mud: ['dirt'] }
+/** The post already built: a COMPLETED project (the take-down scenes that want nothing else from the visit). */
+const DONE = () => Object.fromEntries(POST.map(q => [k(q), 'oak_planks']))
 const record = (extra = []) => ({ v: 1, plot: 'shop', cells: [...POST.map(at => ({ at, role: 'post', seg: 'A' })), ...extra], segments: [{ seg: 'A', deps: [] }, ...(extra.length ? [{ seg: 'B', deps: ['A'] }] : [])], clear: [], replant: [] })
 /** The fake bot with a body (voidfill.test.mjs): walks teleport, a pillar's place lifts it (land after rise), a dig underfoot drops it. */
 function body (srv, name = 'A', { inv = { oak_planks: 16, dirt: 8 }, feet = [2, G + 1, 0], pickup = true, ...o } = {}) {
@@ -345,7 +347,15 @@ await t('buildproj: standWrite / standRead / standCells -- one file a holder, fr
   const rc = { block: 'dirt', base: [1, 70, 1], cells: [[1, 70, 1], [1, 71, 1]], target: [2, 73, 1], seg: 'A', at: 1_000_000 }
   assert.strictEqual(PJ.standWrite(pr.dir, pr.key, 'A', rc), true)
   assert.strictEqual(PJ.standWrite(pr.dir, pr.key, 'B', { ...rc, cells: [[5, 70, 5]], base: [5, 70, 5], at: 1_000_000 - 20 * 60_000 }), true)
-  assert.deepStrictEqual(PJ.standRead(pr.dir, pr.key, { holder: 'A' }), [{ holder: 'A', at: 1_000_000, block: 'dirt', base: [1, 70, 1], cells: [[1, 70, 1], [1, 71, 1]], target: [2, 73, 1], seg: 'A', tries: 0 }])
+  assert.deepStrictEqual(PJ.standRead(pr.dir, pr.key, { holder: 'A' }), [{ holder: 'A', at: 1_000_000, block: 'dirt', base: [1, 70, 1], cells: [[1, 70, 1], [1, 71, 1]], target: [2, 73, 1], seg: 'A', tries: 0, topY: 71 }])
+  // (r3) the stand's ORIGINAL top: written with it, kept when the cells shrink, never read lower than the highest cell
+  assert.strictEqual(PJ.standWrite(pr.dir, pr.key, 'T', { ...rc, cells: [[1, 70, 1]], topY: 72 }), true)
+  const shrunk = PJ.standRead(pr.dir, pr.key, { holder: 'T' })[0]
+  assert.deepStrictEqual([shrunk.cells, shrunk.topY, TS.standTop(shrunk)], [[[1, 70, 1]], 72, 72], 'one cell left standing, the top still the original')
+  assert.strictEqual(PJ.standWrite(pr.dir, pr.key, 'T', { ...rc, topY: 60 }), true)
+  assert.strictEqual(PJ.standRead(pr.dir, pr.key, { holder: 'T' })[0].topY, 71, 'never lower than its highest cell')
+  assert.deepStrictEqual([TS.standTop({ cells: [[1, 70, 1], [1, 71, 1]] }), TS.standTop({ cells: [[1, 70, 1]], topY: 72 })], [71, 72], 'standTop: no topY -> the highest cell')
+  assert.strictEqual(PJ.standWrite(pr.dir, pr.key, 'T', null), true)
   assert.deepStrictEqual(PJ.standRead(pr.dir, pr.key, { exclude: 'A' }).map(r => r.holder), ['B'])
   assert.deepStrictEqual(PJ.standRead(pr.dir, pr.key).map(r => r.holder).sort(), ['A', 'B'])
   assert.deepStrictEqual([...PJ.standCells(pr.dir, { now: 1_000_000 + 60_000 })].sort(), ['1,70,1', '1,71,1'], 'the fresh receipt\'s cells; the stale one\'s are ordinary litter')
@@ -375,6 +385,7 @@ const receiptFirst = async Mod => {
   assert.strictEqual(dirt.length, 1, 'the positive control: the aborted visit left its block standing')
   const rc = PJ.standRead(pr.dir, pr.key, { holder: 'A' })
   assert.strictEqual(rc.length, 1, 'the receipt names it'); assert.deepStrictEqual(rc[0].cells.map(k), dirt); assert.strictEqual(rc[0].block, 'dirt'); assert.deepStrictEqual(rc[0].target, TOP)
+  assert.strictEqual(rc[0].topY, Number(dirt[0].split(',')[1]), '(r3) and the stand\'s top, as the visit wrote it')
   assert.ok(PJ.standCells(pr.dir).has(dirt[0]), 'and the tidy\'s survey is told of it while it is fresh')
   return { srv, pr, dirt }
 }
@@ -704,46 +715,198 @@ const freshVeto = async (Mod, TSmod = TS) => {
   assert.ok(mine && srv.read(...TOP).name === 'oak_planks', `the positive control: the stand was built and the cell laid (${JSON.stringify(tsRows(e))})`)
   assert.strictEqual(srv.read(...mine).name, 'dirt', 'FRESH-VETO: a cell another project took after the plan is seen at the take-down: not dug')
   assert.ok(tsRows(e).some(d => d.result === 'adopted' && d.why === 'owned'), JSON.stringify(tsRows(e)))
-  assert.strictEqual(veto.reads - r0, 2, 'one read for the plan, ONE for the take-down -- never one a cell')
+  // (r3) every ask of the take-down's column is one read (before the dig, after the way off, at the receipt): never one a cell
+  assert.strictEqual(veto.reads - r0, 4, `one read for the plan, one for each of the take-down's three asks of the column -- never one a cell (${veto.reads - r0})`)
 }
-await t('r2: a record published between the plan and the take-down is read: the stand cell it took is adopted (one read a take-down)', () => freshVeto(R))
-const freshAfterWalk = async (Mod, TSmod = TS) => {
-  // the leftover pass; the other project publishes DURING the walk to the dig's stand, which outlasts the veto's TTL
+await t('r2: a record published between the plan and the take-down is read: the stand cell it took is adopted (r3: one read an ask of the column)', () => freshVeto(R))
+/** The leftover pass; the other project publishes DURING the walk to the dig's stand, `elapsed` ms long on the veto's clock. */
+const freshAfterWalk = async (Mod, TSmod = TS, elapsed = TSmod.VETO_TTL_MS + 1, tag = 'FRESH-AFTER-WALK') => {
   const { srv, pr, dirt } = await receiptFirst(Mod)
   const at = dirt[0].split(',').map(Number)
   let clock = 1_000_000
   const veto = vetoOver(TSmod, pr, { now: () => clock })
   const e3 = body(srv)
-  const walk0 = e3.walkTo; e3.walkTo = async (...a) => { if (clock === 1_000_000) { clock += TSmod.VETO_TTL_MS + 1; PJ.publishRecord(pr.dir, OTHER, () => otherRec(at)) } return walk0(...a) }
+  const walk0 = e3.walkTo; e3.walkTo = async (...a) => { if (clock === 1_000_000) { clock += elapsed; PJ.publishRecord(pr.dir, OTHER, () => otherRec(at)) } return walk0(...a) }
   const digs = []
   const dig0 = e3.dig; e3.dig = async (c, n) => { digs.push(k(c)); return dig0(c, n) }
   await visit(Mod, pr, e3, { stand: { mayPlace: veto.mayPlace, refresh: veto.refresh, mem: {} } })
   assert.ok(clock > 1_000_000, 'the positive control: the leftover pass walked to a dig')
-  assert.ok(srv.read(...at).name === 'dirt' && !digs.includes(dirt[0]), `FRESH-AFTER-WALK: taken during a walk longer than the TTL: read again at the dig, never dug (digs ${digs})`)
+  assert.ok(srv.read(...at).name === 'dirt' && !digs.includes(dirt[0]), `${tag}: taken during a ${elapsed} ms walk: read again at the dig, never dug (digs ${digs})`)
+  assert.ok(tsRows(e3).some(d => d.result === 'adopted' && d.why === 'owned'), JSON.stringify(tsRows(e3)))
 }
 await t('r2: a walk to the dig that outlasts the veto\'s TTL: the records are read again at the dig', () => freshAfterWalk(R))
-await t('standVeto: zones and the other records\' cells veto; one read serves a burst; refresh and the TTL read again; a failed read throws and keeps nothing', async () => {
+// ---- review r3, Codex BLOCKER 1: the read immediately before EACH dig is fresh ------------------------------------------------------
+await t('r3 THE BLOCKER (Codex 1): the same walk at 1,000 ms -- INSIDE the veto\'s TTL: the records are still read again at the dig, the cell is never dug', () => freshAfterWalk(R, TS, 1_000, 'FRESH-AT-DIG'))
+/** The dig under the feet: a two-block stand, the builder on top; the other project takes the LOWER cell while the top one is dug.
+ *  The veto's clock never moves: only a read made for that dig can see the new record. */
+const freshUnderFeet = async (Mod, TSmod = TS) => {
+  const col = [1, 2].map(i => [4, G + i, 4])
+  const srv = server({ ...DONE(), ...Object.fromEntries(col.map(c => [k(c), 'dirt'])) }), pr = project(record())
+  PJ.standWrite(pr.dir, pr.key, 'A', { block: 'dirt', base: col[0], cells: col, target: TOP, seg: 'A', at: Date.now() })
+  const veto = vetoOver(TSmod, pr, { now: () => 1_000_000 })
+  const e = body(srv, 'A', { feet: [4, G + 3, 4] })
+  const digs = []
+  const dig0 = e.dig; e.dig = async (c, n) => { digs.push(k(c)); const v = await dig0(c, n); if (digs.length === 1) PJ.publishRecord(pr.dir, OTHER, () => otherRec(col[0])); return v }
+  await visit(Mod, pr, e, { stand: { mayPlace: veto.mayPlace, refresh: veto.refresh, mem: {} } })
+  assert.ok(digs[0] === k(col[1]) && srv.read(...col[1]).name === 'air', `the positive control: the top block was dug from under the feet (${digs})`)
+  assert.ok(srv.read(...col[0]).name === 'dirt' && !digs.includes(k(col[0])), `FRESH-UNDER-FEET: taken while the block above it was dug: read again before the next dig, never dug (digs ${digs})`)
+  assert.ok(tsRows(e).some(d => d.result === 'adopted' && d.why === 'owned'), JSON.stringify(tsRows(e)))
+}
+await t('r3: under the feet too: a cell taken while the block above it was dug is read at ITS dig, never dug', () => freshUnderFeet(R))
+/** standVeto's own rules, every deciding assertion tagged (the mutants below die on them). */
+const vetoRules = async (TSmod = TS) => {
   let clock = 0, reads = 0, set = new Set(['1,70,1']), fail = false
-  const v = TS.standVeto({ zones: [{ box: [10, 60, 10, 20, 80, 20] }, [30, 60, 30, 31, 80, 31]], others: () => { reads++; if (fail) throw new Error('unread'); return set }, now: () => clock })
+  const v = TSmod.standVeto({ zones: [{ box: [10, 60, 10, 20, 80, 20] }, [30, 60, 30, 31, 80, 31]], others: () => { reads++; if (fail) throw new Error('unread'); return set }, now: () => clock })
   assert.deepStrictEqual([v.mayPlace([1, 70, 1]), v.mayPlace([2, 70, 2]), v.mayPlace([15, 70, 15]), v.mayPlace([30, 70, 31])], [false, true, false, false])
   for (let i = 0; i < 500; i++) v.mayPlace([i, 70, 0])
   assert.strictEqual(reads, 1, 'a plan\'s burst of questions is one read')
   set = new Set(['2,70,2'])
   assert.strictEqual(v.mayPlace([2, 70, 2]), true, 'inside the TTL the kept set answers (the bound)')
   v.refresh(); assert.strictEqual(v.mayPlace([2, 70, 2]), false, 'refresh: read again'); assert.strictEqual(reads, 2)
-  set = new Set(); clock += TS.VETO_TTL_MS; assert.strictEqual(v.mayPlace([2, 70, 2]), true, 'the TTL passed: read again'); assert.strictEqual(reads, 3)
-  fail = true; clock += TS.VETO_TTL_MS
-  assert.throws(() => v.mayPlace([2, 70, 2]), /unread/); fail = false
-  assert.strictEqual(v.mayPlace([2, 70, 2]), true); assert.strictEqual(reads, 5, 'a failed read kept nothing: the next question reads')
-})
-await t('skills.mjs tempStandOf IS that veto (structural: comments stripped): standVeto over projectHeads, its refresh handed to the visit, nothing kept for the visit', () => {
-  const sk = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+  set = new Set(); clock += TSmod.VETO_TTL_MS; assert.strictEqual(v.mayPlace([2, 70, 2]), true, 'VETO-TTL: the TTL passed: read again'); assert.strictEqual(reads, 3)
+  // (r3) a failed read THROWS for every question, and is kept like a good one: a burst over an unreadable record is ONE read
+  fail = true; clock += TSmod.VETO_TTL_MS
+  let threw = 0
+  for (let i = 0; i < 500; i++) { try { v.mayPlace([i, 70, 0]) } catch (err) { if (/unread/.test(err.message)) threw++ } }
+  assert.strictEqual(threw, 500, 'VETO-UNREAD: a read that failed never answers -- every question of the burst throws, none passes')
+  assert.strictEqual(reads, 4, 'and the burst over an unreadable record is one read')
+  fail = false
+  assert.throws(() => v.mayPlace([2, 70, 2]), /unread/, 'inside the TTL the failure is kept (never an empty set)'); assert.strictEqual(reads, 4)
+  v.refresh(); assert.strictEqual(v.mayPlace([2, 70, 2]), true, 'refresh: read again'); assert.strictEqual(reads, 5)
+  fail = true; v.refresh(); assert.throws(() => v.mayPlace([2, 70, 2]), /unread/); assert.strictEqual(reads, 6)
+  fail = false; clock += TSmod.VETO_TTL_MS; assert.strictEqual(v.mayPlace([2, 70, 2]), true, 'the TTL passed: a failure is read again too'); assert.strictEqual(reads, 7)
+  assert.throws(() => TSmod.standVeto({ others: () => null }).mayPlace([0, 0, 0]), 'no set is no answer')
+}
+await t('standVeto: zones and the other records\' cells veto; one read serves a burst; refresh and the TTL read again; a failed read throws, for the whole burst, on one read', () => vetoRules(TS))
+/** The wiring of skills.mjs tempStandOf (comments stripped) -> null | what is missing. */
+const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
+const STRICT_WIRE = "const veto = standVeto({ zones: c?.zones ?? [], others: () => otherCellsStrict(projectsGuarded().map(p => p.plot), plot, pl => recordHead(townDir(), projKeyOf(pl))) })"
+const vetoWiring = src => {
+  const sk = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
   const body0 = sk.slice(sk.indexOf('function tempStandOf (bot, c, plot) {')); const fn = body0.slice(0, body0.indexOf('\n}\n'))
-  assert.ok(fn.length > 100 && fn.length < 1500, 'the function is found')
-  assert.ok(fn.includes("const veto = standVeto({ zones: c?.zones ?? [], others: () => new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) })"))
-  assert.ok(fn.includes('mayPlace: veto.mayPlace, refresh: veto.refresh'))
-  assert.ok(!/\?\?=\s*new Set/.test(fn), 'no set kept for the visit')
+  if (!(fn.length > 100 && fn.length < 1500)) return 'the function is not found'
+  if (!fn.includes(STRICT_WIRE)) return 'the veto is not standVeto over otherCellsStrict over each guarded project\'s own recordHead'
+  if (fn.includes('projectHeads(')) return 'the swallowing reader (projectHeads) is in the veto'
+  if (/\bcatch\b/.test(fn)) return 'a failed read is caught here'
+  if (!fn.includes('mayPlace: veto.mayPlace, refresh: veto.refresh')) return 'the veto\'s refresh is not handed to the visit'
+  if (/\?\?=\s*new Set/.test(fn)) return 'a set is kept for the visit'
+  return null
+}
+await t('skills.mjs tempStandOf IS that veto (structural: comments stripped): standVeto over the STRICT reader (r3: never projectHeads), nothing caught, its refresh handed to the visit, nothing kept for the visit', () => {
+  const src = fs.readFileSync(SKILLS_PATH, 'utf8')
+  assert.strictEqual(vetoWiring(src), null)
+  // MUTANTS of the wiring (each anchor present and unique): r2's reader back; the failed read caught as "no cells"
+  const R2 = "others: () => new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) })"
+  const STRICT = "others: () => otherCellsStrict(projectsGuarded().map(p => p.plot), plot, pl => recordHead(townDir(), projKeyOf(pl))) })"
+  assert.ok(src.split(STRICT).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.match(vetoWiring(src.replace(STRICT, R2)) ?? 'survived', /otherCellsStrict/)
+  assert.match(vetoWiring(src.replace(STRICT, `others: () => { try { return ${STRICT.slice('others: () => '.length, -3)} } catch { return new Set() } } })`)) ?? 'survived', /otherCellsStrict|caught/)
 })
+
+// ---- review r3, Codex BLOCKER 4: an unreadable record is not an empty one -----------------------------------------------------------
+const PLOTS = ['shop', 'other']
+/** The production reader's shape (skills.mjs tempStandOf): otherCellsStrict over each guarded project's own recordHead, REAL files. */
+const strictOthers = (TSmod, pr) => () => TSmod.otherCellsStrict(PLOTS, 'shop', p => PJ.recordHead(pr.dir, PJ.projKey(HOME, p)))
+/** skills.mjs projectHeads' rule (the reader r2 used): a head that is ok is taken as it is, one that is not is skipped. */
+const lenientOthers = pr => () => new Set(PLOTS.filter(p => p !== 'shop').map(p => PJ.recordHead(pr.dir, PJ.projKey(HOME, p))).filter(h => h.ok && h.head).flatMap(h => (h.head.rec?.cells ?? []).map(q => q.at.join(','))))
+/** As reproduced: the other project's record ADOPTS `at` (its g2), then that generation becomes unreadable; g1 (elsewhere) still parses. */
+const tornOther = (pr, at) => {
+  PJ.publishRecord(pr.dir, OTHER, () => otherRec([40, G + 1, 40]))
+  const g2 = PJ.publishRecord(pr.dir, OTHER, cur => ({ ...cur, cells: [...cur.cells, { at, role: 'post', seg: 'A' }] }))
+  assert.strictEqual(lenientOthers(pr)().has(k(at)), true, 'the positive control: while g2 reads, the cell is the other project\'s')
+  fs.writeFileSync(`${pr.dir}/${OTHER}.g${g2.gen}.json`, '{"v": 1, "cells": [')
+}
+const strictRules = async (TSmod = TS) => {
+  const at = [4, G + 1, 4]
+  const none = project(record())
+  assert.deepStrictEqual([...strictOthers(TSmod, none)()], [], 'no record at all: read, and empty -- an ABSENT record is no refusal')
+  PJ.publishRecord(none.dir, OTHER, () => otherRec(at))
+  assert.deepStrictEqual([...strictOthers(TSmod, none)()], [k(at)], 'a readable record: its cells')
+  assert.deepStrictEqual([...TSmod.otherCellsStrict(PLOTS, 'other', p => PJ.recordHead(none.dir, PJ.projKey(HOME, p)))].sort(), POST.map(k).sort(), 'the visit\'s own plot is left out')
+  let asked = []
+  TSmod.otherCellsStrict(PLOTS, 'shop', p => { asked.push(p); return { ok: true, head: null, gens: [], rejected: [] } })
+  assert.deepStrictEqual(asked, ['other'], 'and never read')
+  // the directory cannot be listed (recordHead: ok false)
+  let unlisted = null
+  try { TSmod.otherCellsStrict(PLOTS, 'shop', () => ({ ok: false, head: null, gens: [], rejected: [] })) } catch (err) { unlisted = err }
+  assert.match(String(unlisted?.message ?? 'no throw'), /^record_unread other$/, 'STRICT-UNLISTED: a head that is not ok throws, naming the plot')
+  // the newest generation torn: recordHead answers ok with the OLDER generation -- the lenient reader's set omits the owner's cell
+  const pr = project(record())
+  tornOther(pr, at)
+  const h = PJ.recordHead(pr.dir, OTHER)
+  assert.deepStrictEqual([h.ok, h.head?.gen, h.rejected.map(r => r.gen)], [true, h.gens[0], [h.gens.at(-1)]], 'the positive control: recordHead is ok, its head the older generation')
+  assert.deepStrictEqual([...lenientOthers(pr)()], [k([40, G + 1, 40])], 'the defect, shown: projectHeads\' rule returns a list without the cell')
+  let torn = null
+  try { strictOthers(TSmod, pr)() } catch (err) { torn = err }
+  assert.match(String(torn?.message ?? 'no throw'), /^record_unread other$/, 'STRICT-TORN: a rejected newest generation throws')
+  // an OLDER generation rejected under a newest that reads is no refusal (the head is the newest)
+  const next = PJ.publishRecord(pr.dir, OTHER, cur => ({ ...cur, cells: [...cur.cells, { at: [41, G + 1, 41], role: 'post', seg: 'A' }] }))
+  assert.notStrictEqual(next.result, 'error')
+  assert.ok([...strictOthers(TSmod, pr)()].includes(k([41, G + 1, 41])), 'a later generation that reads is the head again: no refusal for a torn file under it')
+}
+await t('r3 otherCellsStrict over real record files: absent -- empty; readable -- its cells; the directory unlisted or the NEWEST generation torn -- it THROWS (projectHeads\' rule shown returning a partial list)', () => strictRules(TS))
+/** The reviewer's sequence at a visit: a leftover stand; the other project adopts its cell; that record becomes unreadable; the take-down. */
+const strictHeads = async (Mod, TSmod = TS, others = strictOthers) => {
+  const { srv, pr, dirt } = await receiptFirst(Mod)
+  const at = dirt[0].split(',').map(Number)
+  tornOther(pr, at)
+  const veto = TSmod.standVeto({ others: others(TSmod, pr) })
+  const e3 = body(srv)
+  const digs = []
+  const dig0 = e3.dig; e3.dig = async (c, n) => { digs.push(k(c)); return dig0(c, n) }
+  await visit(Mod, pr, e3, { stand: { mayPlace: veto.mayPlace, refresh: veto.refresh, mem: {} } })
+  return { srv, pr, dirt, at, e3, digs }
+}
+const strictAtTakeDown = async (Mod, TSmod = TS) => {
+  const { srv, pr, dirt, at, e3, digs } = await strictHeads(Mod, TSmod)
+  assert.ok(srv.read(...at).name === 'dirt' && !digs.includes(dirt[0]), `STRICT-HEADS: the owner's record cannot be read: nothing is dug on a partial list (digs ${digs})`)
+  const rc = PJ.standRead(pr.dir, pr.key, { holder: 'A' })[0]
+  assert.deepStrictEqual(rc?.cells.map(k), dirt, 'the receipt is kept, the cell still on it'); assert.strictEqual(rc.tries, 0, 'and it is no failed try')
+  assert.ok(!tsRows(e3).some(d => d.result === 'adopted'), `nothing given away either: ${JSON.stringify(tsRows(e3))}`)
+  assert.ok(tsRows(e3).some(d => d.result === 'left' && /leftover left=1/.test(d.why)), JSON.stringify(tsRows(e3)))
+}
+await t('r3 THE BLOCKER (Codex 4): the owner\'s record unreadable at the take-down, through the production reader\'s shape -- nothing dug, nothing adopted, the receipt kept', () => strictAtTakeDown(R))
+await t('r3 the positive control for that: the SAME files through projectHeads\' rule (skip what is not ok) -- the owner\'s cell is dug', async () => {
+  const { srv, at, digs, dirt } = await strictHeads(R, TS, (_, pr) => lenientOthers(pr))
+  assert.ok(srv.read(...at).name === 'air' && digs.includes(dirt[0]), 'the defect, shown')
+})
+const strictAtPlan = async (Mod, TSmod = TS) => {
+  const srv = server(), pr = project(record())
+  await visit(Mod, pr, body(srv))
+  tornOther(pr, [40, G + 2, 40])
+  let reads = 0, asks = 0
+  const read = strictOthers(TSmod, pr)
+  const veto = TSmod.standVeto({ others: () => { reads++; return read() }, now: () => 1_000_000 })
+  const e = body(srv)
+  const r = await visit(Mod, pr, e, { stand: { mayPlace: q => { asks++; return veto.mayPlace(q) }, refresh: veto.refresh, mem: {} } })
+  assert.deepStrictEqual(everDirt(srv), [], `STRICT-PLAN: no stand is planned over records that cannot be read (${JSON.stringify(tsRows(e))})`)
+  assert.ok(tsRows(e).length && tsRows(e).every(d => d.result === 'refused' && /^vetoed /.test(d.why)), JSON.stringify(tsRows(e)))
+  assert.deepStrictEqual(receipts(pr), []); assert.notStrictEqual(r.stop, 'complete')
+  assert.ok(asks > 20 && reads === 1, `STRICT-BURST: the plan's ${asks} questions over an unreadable record are one read (${reads})`)
+}
+await t('r3: the plan refuses too (every column `vetoed`, nothing placed, no receipt), and its burst of questions is one read', () => strictAtPlan(R))
+
+// ---- review r3, Codex BLOCKER 2: the receipt keeps the stand's ORIGINAL top ----------------------------------------------------------
+/** As reproduced: a boxed-in three-block dirt pillar whose TOP block was replaced with cobblestone; the builder at the original top
+ *  throughout; three visits. */
+const keptAcrossVisits = async Mod => {
+  const col = [1, 2, 3].map(i => [4, G + i, 4]), feet = [4, G + 4, 4]
+  const walls = Object.fromEntries([[1, 0], [-1, 0], [0, 1], [0, -1]].flatMap(([dx, dz]) => [1, 2, 3, 4, 5].map(i => [k([4 + dx, G + i, 4 + dz]), 'stone'])))
+  const srv = server({ ...DONE(), ...walls, [k(col[0])]: 'dirt', [k(col[1])]: 'dirt', [k(col[2])]: 'cobblestone' }), pr = project(record())
+  PJ.standWrite(pr.dir, pr.key, 'A', { block: 'dirt', base: col[0], cells: col, target: TOP, seg: 'A', at: Date.now() })
+  const e = body(srv, 'A', { feet })
+  for (const n of [1, 2, 3]) {
+    await visit(Mod, pr, e)
+    assert.deepStrictEqual(e.feet(), feet, 'the positive control: the builder is on the original top, boxed in')
+    const rc = PJ.standRead(pr.dir, pr.key, { holder: 'A' })[0]
+    assert.ok(rc, `KEPT-ACROSS-VISITS: visit ${n}: the receipt is never adopted away with the builder on the stand's original top (${JSON.stringify(tsRows(e).slice(-2))})`)
+    assert.deepStrictEqual([rc.cells, rc.topY], [col.slice(0, 2), col[2][1]], `visit ${n}: the two dirt cells still on it, the top the ORIGINAL one`)
+    assert.ok(!tsRows(e).some(d => d.result === 'adopted'), `visit ${n}: nothing given away: ${JSON.stringify(tsRows(e))}`)
+    assert.ok(/on_stand/.test(tsRows(e).at(-1).why), JSON.stringify(tsRows(e).at(-1)))
+  }
+  assert.deepStrictEqual(col.map(c => srv.read(...c).name), ['dirt', 'dirt', 'cobblestone'], 'and nothing was dug')
+}
+await t('r3 THE BLOCKER (Codex 2): a kept receipt keeps its ORIGINAL top -- the builder still up there is on the stand at every later visit, the receipt stays', () => keptAcrossVisits(R))
 
 // ---- review r2, Codex BLOCKER 4: the builder comes down before anything is given away ----------------------------------------------
 await t('standExit: a node beside the column at most FALL_MAX below, the way down to it empty; the smallest drop; none -> null', async () => {
@@ -759,7 +922,6 @@ await t('standExit: a node beside the column at most FALL_MAX below, the way dow
   assert.strictEqual(TS.standExit(wet.read, [4, G + 2, 4], new Map([['5,4', [G + 1]]])), null, 'never into water')
   assert.strictEqual(TS.standExit(srv.read, [4, G + 2, 4], new Map()), null)
 })
-const DONE = () => Object.fromEntries(POST.map(q => [k(q), 'oak_planks']))
 /** As reproduced: an EXPIRED three-block stand, a COMPLETED project, the bot on top of the pillar. */
 const getsDown = async Mod => {
   const col = [1, 2, 3].map(i => [4, G + i, 4])
@@ -950,10 +1112,30 @@ await t('MUTANT (r2): a click sent with no room for its acknowledgement dies on 
   kills("      if (cutoff != null && now() + PJ.MUTEX_HOLD_MS > cutoff) return 'late'\n", '', noLateSend, 'NO-LATE-SEND'))
 await t('MUTANT (r2): a hold awaited without the cutoff dies on HOLD-BOUNDED', () =>
   kills('    const got = await by(cutoff, e.hold(block))\n', '    const got = await e.hold(block)\n', holdBounded, 'HOLD-BOUNDED'))
-await t('MUTANT (r2): no fresh read at the take-down dies on FRESH-VETO', () =>
-  kills('    try { tstand.refresh?.() } catch { /* the veto reads when asked */ }\n', '', freshVeto, 'FRESH-VETO'))
-await t('MUTANT (r2, tempstand.mjs): a veto with no TTL dies on FRESH-AFTER-WALK', () =>
-  killsTS('if (!set || !(t - at < ttlMs)) {', 'if (!set) {', freshAfterWalk, 'FRESH-AFTER-WALK'))
+const CLAIMS = '    const claims = (aged = expired) => { fresh(); return TS.standClaims(TS.standStanding(rc, e.read), standOwner, { expired: aged, covered }) }\n'
+const CLAIMS_KEPT = '    const claims = (aged = expired) => TS.standClaims(TS.standStanding(rc, e.read), standOwner, { expired: aged, covered })\n'
+await t('MUTANT (r2): no fresh read at the take-down dies on FRESH-VETO', () => kills(CLAIMS, CLAIMS_KEPT, freshVeto, 'FRESH-VETO'))
+await t('MUTANT (r3): ONE fresh read a take-down (r2\'s rule) dies on FRESH-AT-DIG -- the claim made during a 1,000 ms walk is dug', () =>
+  kills(CLAIMS, `    fresh()\n${CLAIMS_KEPT}`, M => freshAfterWalk(M, TS, 1_000, 'FRESH-AT-DIG'), 'FRESH-AT-DIG'))
+await t('MUTANT (r3): ONE fresh read a take-down (r2\'s rule) dies on FRESH-UNDER-FEET', () => kills(CLAIMS, `    fresh()\n${CLAIMS_KEPT}`, freshUnderFeet, 'FRESH-UNDER-FEET'))
+await t('MUTANT (r3): the stand\'s top read from the cells still standing (r2\'s rule) dies on KEPT-ACROSS-VISITS', () =>
+  kills('    const base = rc.base ?? rc.cells[0], topY = TS.standTop(rc)\n', '    const base = rc.base ?? rc.cells[0], topY = Math.max(...rc.cells.map(c => c[1]))\n', keptAcrossVisits, 'KEPT-ACROSS-VISITS'))
+/** A mutant of tempstand.mjs alone under a pure scenario: it must fail on the assertion it NAMES. */
+const killsPure = async (old, neu, scenario, tag) => {
+  await scenario(TS)
+  let why = null
+  await withStandMutant(old, neu, async MT => { try { await scenario(MT) } catch (err) { why = err } })
+  assert.ok(why instanceof assert.AssertionError && String(why.message).includes(`${tag}:`), `the mutant survived or died for another reason than ${tag}: ${why?.message?.slice(0, 120) ?? 'survived'}`)
+}
+await t('MUTANT (r2, tempstand.mjs): a veto with no TTL dies on VETO-TTL', () => killsPure('if ((!set && !err) || !(t - at < ttlMs)) {', 'if (!set && !err) {', vetoRules, 'VETO-TTL'))
+await t('MUTANT (r3, tempstand.mjs): a failed read kept as an EMPTY set (fail open) dies on VETO-UNREAD', () =>
+  killsPure("try { set = others() } catch (e) { err = e ?? new Error('unread') } }", 'try { set = others() } catch { set = new Set() } }', vetoRules, 'VETO-UNREAD'))
+const TORN = '    if ((h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) throw new Error(`record_unread ${p}`)\n'
+await t('MUTANT (r3, tempstand.mjs): a head that is not ok SKIPPED (projectHeads\' rule) dies on STRICT-UNLISTED', () =>
+  killsPure('    if (!h?.ok) throw new Error(`record_unread ${p}`)\n', '    if (!h?.ok) continue\n', strictRules, 'STRICT-UNLISTED'))
+await t('MUTANT (r3, tempstand.mjs): a torn newest generation answered from the older one dies on STRICT-TORN', () => killsPure(TORN, '', strictRules, 'STRICT-TORN'))
+await t('MUTANT (r3, tempstand.mjs): the same, at the visit: the owner\'s cell is dug -- dies on STRICT-HEADS', () => killsTS(TORN, '', strictAtTakeDown, 'STRICT-HEADS'))
+await t('MUTANT (r3, tempstand.mjs): the same, at the plan: a stand is planned over an unreadable record -- dies on STRICT-PLAN', () => killsTS(TORN, '', strictAtPlan, 'STRICT-PLAN'))
 for (const when of ['visit', 'tall', 'ground', 'on']) {
   await t(`MUTANT (r2, tempstand.mjs): a stand's block compared by its name alone dies on GRASS (${when})`, () =>
     killsTS('export const standIs = (block, name) => !!name && (name === block || (STAND_GROWN[block] ?? []).includes(name))', 'export const standIs = (block, name) => !!name && name === block', M => greens(M, when), 'GRASS'))

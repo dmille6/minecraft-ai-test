@@ -637,7 +637,9 @@ export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt
 // ---- tempstand-01: the temporary stand's receipt (tempstand.mjs; buildrun.mjs runVisit `p.tempStand`) ------------------------------
 // ONE FILE PER HOLDER AND PROJECT, written (temp + rename, fsynced) BEFORE the first block of a stand is placed and removed only when
 // the world reads every one of its cells gone: a visit that is interrupted leaves it, and the next visit to the project takes the
-// stand down first. { v, holder, at, block, base, cells: [[x, y, z]] bottom-up, target, seg, tries }.
+// stand down first. { v, holder, at, block, base, cells: [[x, y, z]] bottom-up, target, seg, tries, topY }.
+// (r3) `topY`: the y of the stand's ORIGINAL top cell. `cells` shrinks to what still stands as a take-down goes; topY never does
+// (never read lower than the highest cell; a receipt without one: its highest cell) -- tempstand.mjs standTop.
 const standFile = (dir, key, holder) => path.join(dir, `${key}.tempstand.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 const STAND_RE = key => new RegExp(`^${esc(key)}\\.tempstand\\.[A-Za-z0-9_-]+\\.json$`)
 const STAND_ANY_RE = /^project-.+\.tempstand\.[A-Za-z0-9_-]+\.json$/
@@ -646,7 +648,7 @@ const standOf = j => {
   if (!j || typeof j.holder !== 'string' || typeof j.block !== 'string' || !Array.isArray(j.cells)) return null
   const cells = j.cells.filter(int3).map(c => c.slice())
   if (!cells.length || cells.length > 8) return null
-  return { holder: j.holder, at: Number(j.at) || 0, block: j.block, base: int3(j.base) ? j.base.slice() : null, cells, target: int3(j.target) ? j.target.slice() : null, seg: j.seg ?? null, tries: Math.max(0, Math.floor(Number(j.tries) || 0)) }
+  return { holder: j.holder, at: Number(j.at) || 0, block: j.block, base: int3(j.base) ? j.base.slice() : null, cells, target: int3(j.target) ? j.target.slice() : null, seg: j.seg ?? null, tries: Math.max(0, Math.floor(Number(j.tries) || 0)), topY: Math.max(Number.isInteger(j.topY) ? j.topY : -Infinity, ...cells.map(c => c[1])) }
 }
 /** The project's stand receipts -> [receipt] ([] when none or unreadable). `holder`: that holder's own only; `exclude`: every other's. */
 export function standRead (dir, key, { holder = null, exclude = null } = {}) {
@@ -664,7 +666,7 @@ export function standWrite (dir, key, holder, receipt, { now = Date.now() } = {}
     if (!receipt) { try { wfs.unlinkSync(f) } catch (e) { if (e?.code !== 'ENOENT') return false } syncDir(dir); return true }
     wfs.mkdirSync(dir, { recursive: true })
     const tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
-    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: Number.isFinite(receipt.at) ? receipt.at : now, block: receipt.block, base: receipt.base ?? null, cells: receipt.cells, target: receipt.target ?? null, seg: receipt.seg ?? null, tries: receipt.tries ?? 0 }))
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: Number.isFinite(receipt.at) ? receipt.at : now, block: receipt.block, base: receipt.base ?? null, cells: receipt.cells, target: receipt.target ?? null, seg: receipt.seg ?? null, tries: receipt.tries ?? 0, topY: Number.isInteger(receipt.topY) ? receipt.topY : null }))
     wfs.renameSync(tmp, f)
     return true
   } catch { return false }

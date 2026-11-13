@@ -1032,7 +1032,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
    * lease those digs run under -- none given: the clear lease, taken here). ONLY a cell that still reads the receipt's block (or what
    * dirt grows into: tempstand.mjs standIs) AND IS STILL THE STAND'S is ever dug: tempstand.mjs standClaims over the WHOLE column
    * -- its owners and what stands on it -- is computed immediately before every dig, after every await (r2), from records read
-   * afresh for this take-down (`tstand.refresh`). A cell a record now holds or the caller vetoes, a cell under one, a stand with a
+   * afresh for EVERY such ask (r3: `claims` drops what the veto keeps first -- a cell taken during a one-second walk is seen).
+   * A cell a record now holds or the caller vetoes, a cell under one, a stand with a
    * block set on it, and every cell of a receipt older than TEMPSTAND.ownMs are ADOPTED -- dropped from the receipt with a row,
    * never dug. THE BUILDER COMES DOWN FIRST (r2): on the column with cells it may not dig, it walks off by a verified way
    * (tempstand.mjs standExit), else digs down through the stand's own cells nobody owns, else the receipt is KEPT (`on_stand`).
@@ -1040,11 +1041,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
    * land); else it is written back with what is left, one more try counted when a dig was tried and did not land.
    */
   const standDown = async (rc, held, why, { keep = false } = {}) => {
-    const base = rc.base ?? rc.cells[0], topY = Math.max(...rc.cells.map(c => c[1]))
+    // (r3, Codex) the stand's ORIGINAL top (the receipt's topY), never the highest cell still standing: see onStand
+    const base = rc.base ?? rc.cells[0], topY = TS.standTop(rc)
     const expired = now() - rc.at > TS.TEMPSTAND.ownMs
-    try { tstand.refresh?.() } catch { /* the veto reads when asked */ }
     const covered = at => { const b = e.read(at[0], at[1] + 1, at[2]); return !!b && b.boundingBox !== 'empty' }
-    const claims = (aged = expired) => TS.standClaims(TS.standStanding(rc, e.read), standOwner, { expired: aged, covered })
+    // (r3, Codex) EVERY ask of the column reads the other records AGAIN (r2 read once a take-down, and a claim made during a short
+    // walk was missed): what the veto keeps is dropped first, so the claims immediately before each dig never answer from memory
+    const fresh = () => { try { tstand.refresh?.() } catch { /* the veto reads when asked */ } }
+    const claims = (aged = expired) => { fresh(); return TS.standClaims(TS.standStanding(rc, e.read), standOwner, { expired: aged, covered }) }
     const onStand = () => { const f = e.feet(); return f[0] === base[0] && f[2] === base[2] && f[1] > base[1] && f[1] <= topY + 1 }
     let removed = 0, walked = 0, tooled = false, tried = false, gone = false   // `tried`: a dig that did not land (a lease another holds is no try)
     /** Down the stand from its top, a block under the feet at a time, while the WHOLE column's claims say that block is the next to dig. */
@@ -1162,7 +1166,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!plan) { res.result = 'refused'; return res }
     V.accessNote(mem, memKey(target), now(), { window: T.retryMs })
     standUsed = true
-    const rc = { holder: me, at: now(), block: plan.block, base: plan.base, cells: plan.cells, target: target.at, seg, tries: 0 }
+    const rc = { holder: me, at: now(), block: plan.block, base: plan.base, cells: plan.cells, target: target.at, seg, tries: 0, topY: plan.top[1] - 1 }
     // THE RECEIPT FIRST: nothing is placed that no file names
     if (!PJ.standWrite(dir, key, me, rc, { now: now() })) { tsRow({ seg, cell: target.at, result: 'refused', why: 'receipt_unwritten' }); res.result = 'refused'; return res }
     tsRow({ seg, cell: target.at, block: plan.block, n: plan.h, result: 'plan', to: kOf(plan.base) })
