@@ -408,13 +408,33 @@ export const SINK_SURFACE_DY = 8
  * stairStartRefusal) and the step well (its builder stands down the well between visits). A bot with no active plot is asked as
  * before (a new town's first siting). THE REMEDY IS THE BOT'S OWN: it is in the mine on its own goal and comes up with its load; the
  * order is asked again at its next decision and the cooldown is not charged (the sinks' rule, live since 11-04).
+ * r1 (Codex BLOCKER): LOW IS NOT UNDERGROUND. A cane bank or a meadow 12 under home is open-air surface (canefarm.mjs sites down to
+ * home.y - 16); its builder standing on its own site read `underground` and the project was never ordered again. So the new rule
+ * refuses only a bot that is below the line AND UNDER A ROOF OF GROUND: `open` (skyOpen over the bot's world, skills.mjs' hook) must
+ * read false. Unknown (no hook, an unread column) is never a refusal. The sinks' own rule is as it was, line for line.
  *   mineOrderOn(env) -> bool    MINEORDER=off: the sinks' rule alone, as before
- *   startsBelow(plot, feet, groundY) -> bool. Pure.
+ *   startsBelow(plot, feet, groundY, { open }) -> bool. Pure.
+ *   skyOpen(read, feet, top) -> true (nothing solid above the head up to `top`) | false (a solid block: a roof of ground) | null
+ *     (an unread cell: unknown). Leaves are no roof (a bot under a tree is at the surface). Pure.
+ *   setSkyOpen(fn): the hook, fn(feet) -> true | false | null
  */
 export const mineOrderOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.MINEORDER ?? '').trim())
 export const BELOW_PLOTS = Object.freeze([SHAFT_PLOT, STEPWELL_PLOT])
-export const startsBelow = (plot, feet, groundY, { on = mineOrderOn() } = {}) => Array.isArray(feet) && Number.isFinite(feet[1]) && Number.isFinite(groundY) && feet[1] < groundY - SINK_SURFACE_DY &&
-  (isSinkPlot(plot) || (!!on && plot != null && !BELOW_PLOTS.includes(plot)))
+export const startsBelow = (plot, feet, groundY, { on = mineOrderOn(), open = null } = {}) => Array.isArray(feet) && Number.isFinite(feet[1]) && Number.isFinite(groundY) && feet[1] < groundY - SINK_SURFACE_DY &&
+  (isSinkPlot(plot) || (!!on && plot != null && !BELOW_PLOTS.includes(plot) && open === false))
+export function skyOpen (read, feet, top) {
+  if (typeof read !== 'function' || !Array.isArray(feet) || !feet.every(Number.isFinite) || !Number.isFinite(top)) return null
+  for (let y = feet[1] + 2; y <= top; y++) {
+    const b = read(feet[0], y, feet[2])
+    if (!b) return null
+    if (b.boundingBox === 'block' && !/_leaves$/.test(String(b.name ?? ''))) return false
+  }
+  return true
+}
+let skyOpenOf = null
+export function setSkyOpen (fn) { skyOpenOf = typeof fn === 'function' ? fn : null }
+/** The hook's answer for a bot below the line (asked only there: one short column read) -> true | false | null. Never throws. */
+const skyOf = (feet, groundY) => { if (!skyOpenOf || !Array.isArray(feet) || !Number.isFinite(groundY) || !(feet[1] < groundY - SINK_SURFACE_DY)) return null; try { const v = skyOpenOf(feet); return v === true || v === false ? v : null } catch { return null } }
 export const IDLE_MS = 60 * 60_000   // = REPAIR_WINDOW_MS: a no-effect project is asked again once an hour by each bot
 export const IDLE_NOT_A_VISIT = Object.freeze(new Set(['slots_full', 'off', 'zones_unknown', 'no_plan', 'aborted', 'record_unreadable', 'lost_record', 'state_unwritable', 'room', 'underground']))
 export function noteIdle (mem, plot, result, now = Date.now()) {
@@ -996,7 +1016,7 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
   if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
   // sinkfix-02: a sink visit starts at the surface (LIVE 11-04: three road visits ordered at y 23-26 in a mine, aborted entombed)
   // mineorder-01: ... and so does every other project's, but the stair's and the step well's (startsBelow)
-  if (startsBelow(plot0, feet, groundY)) return { order: null, skip: 'underground' }
+  if (startsBelow(plot0, feet, groundY, { open: skyOf(feet, groundY) })) return { order: null, skip: 'underground' }
   if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   // leaffell-01show r1: the pick is still the project this bot's last visit ended WAITING on (noteWait; waitBackoff put every other
   // project first): no order for it until its hold is over -- the skip carries the stop's name, and the grounds are asked instead
