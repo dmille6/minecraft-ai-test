@@ -549,6 +549,11 @@ await t('r2 handedOld: a cut is believed LITTER.keepMs from its fold; a mark tha
   assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW + K3), false, 'the last believed instant')
   assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW + K3 + 1), true)
   assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW - 30_000), false, 'a clock a little behind the fold')
+  // r3 (Codex): the reader's clock far behind the folder's -- the fold time lies in its future: not believed (it was diggable 27 real hours)
+  assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW - LT.LITTER.skewMs), false, 'the skew bound itself')
+  assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW - LT.LITTER.skewMs - 1), true, 'FUTURE-FOLD-IS-OLD')
+  assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW - 20 * HOUR), true, 'FUTURE-FOLD-IS-OLD (the reviewer\'s 24 h skew, four real hours on)')
+  assert.strictEqual(LT.handedBare({ at: STEP, handed: NOW }, () => ({ name: 'air' }), NOW - 20 * HOUR), false, 'and never dug: handedBare asks the same rule')
   for (const h of [1, true, 'yes', Infinity, -5]) assert.strictEqual(LT.handedOld({ at: STEP, handed: h }, NOW), true, `handed: ${h} is not a time: old`)
   assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, undefined), true, 'no clock: old (fail closed)')
   for (const c of [{ at: STEP }, { at: STEP, handed: 0 }, null]) assert.strictEqual(LT.handedOld(c, NOW + 10 * K3), false, 'not a hand-off\'s cut')
@@ -582,7 +587,7 @@ await t('r2 the positive control: the same sequence with the keeper back after o
 async function withNeverOld (fn) {
   const tag = `${process.pid}-${Math.random().toString(36).slice(2)}`
   const lsrc = readFileSync(P('litter.mjs'), 'utf8')
-  const A = 'export const handedOld = (cut, now, T = LITTER) => !!cut?.handed && !(Number.isFinite(cut.handed) && cut.handed > 1 && Number.isFinite(now) && now - cut.handed <= T.keepMs)'
+  const A = 'export const handedOld = (cut, now, T = LITTER) => !!cut?.handed && !(Number.isFinite(cut.handed) && cut.handed > 1 && Number.isFinite(now) && now - cut.handed <= T.keepMs && now - cut.handed >= -T.skewMs)'
   assert.strictEqual(lsrc.split(A).length, 2, 'ANCHOR MISSING OR NOT UNIQUE (handedOld)')
   const tsrc = readFileSync(P('tidy.mjs'), 'utf8')
   const B = "import { handedOld } from './litter.mjs'"
@@ -764,6 +769,14 @@ await t('skills.mjs (structural, comments stripped): every survey reads the hand
     ['dig-row', build('const bo = builtOnHeld(rec, r.tidyWet ?? [], read2); ', 'const bo = []; ')],
   ]
   for (const [why, m] of mutants) assert.strictEqual(wired(m), why, `the mutant dies as ${why}`)
+})
+
+await t('r3 mutant (litter.mjs): without the skew bound a fold time 20 h in the reader\'s future is believed, and the replacement would be dug', async () => {
+  let why = null
+  await withMutant(P('litter.mjs'), ' && now - cut.handed >= -T.skewMs)', ')', async M => {
+    try { assert.strictEqual(M.handedOld({ at: STEP, handed: NOW }, NOW - 20 * HOUR), true, 'FUTURE-FOLD-IS-OLD') } catch (e) { why = e }
+  })
+  assert.ok(why instanceof assert.AssertionError && /FUTURE-FOLD-IS-OLD/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -61,6 +61,7 @@ export const LITTER = Object.freeze({
   maxEntries: 256,                                // a bot's file
   keepMs: 3 * 60 * 60_000,                        // how long an entry is believed: at least two of the hourly surveys (the header)
   flushMs: 2_000, rowMs: 600_000,
+  skewMs: 60_000,                                 // r3: a fold time further than this AHEAD of the reader's clock is not believed
   greens: Object.freeze({ dirt: 'grass_block' }),
   rowCells: 4,
 })
@@ -149,9 +150,12 @@ export function litterIntake ({ read = () => [], strict = () => new Set(), recor
  * ground, and dug it by name. The cut now carries WHEN it was folded (`handed`: the survey's clock, ms) and is believed for keepMs
  * from then: past it the cut reads as NOT STANDING (tidy.mjs cutStanding: done, like a cut whose block changed its name -- no wait,
  * no stuck segment) and handedBare refuses it. A mark that is not a time (`handed: 1`, a hand-written record) is old: fail closed.
+ * r3 (Codex): A FOLD TIME IN THE FUTURE IS NOT BELIEVED EITHER. The fold is one bot's clock and the dig another's; with the reader's
+ * clock a day behind, `now - handed` was -20 h and the cut stayed diggable 27 real hours. More than LITTER.skewMs ahead of the
+ * reader's clock: old (fail closed). The showcase's bots share one host and one clock; the bound is for the day they do not.
  * -> bool. Pure.
  */
-export const handedOld = (cut, now, T = LITTER) => !!cut?.handed && !(Number.isFinite(cut.handed) && cut.handed > 1 && Number.isFinite(now) && now - cut.handed <= T.keepMs)
+export const handedOld = (cut, now, T = LITTER) => !!cut?.handed && !(Number.isFinite(cut.handed) && cut.handed > 1 && Number.isFinite(now) && now - cut.handed <= T.keepMs && now - cut.handed >= -T.skewMs)
 /**
  * AT THE DIG: MAY THIS CUT BE DUG NOW? -> bool. Pure over `read`. A cut that came from the hand-off (`handed` on the record's cut
  * entry) only while the cell over it reads AIR now -- something set on it since the survey is someone's, and an unread cell is no
