@@ -204,6 +204,8 @@ import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CR
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
 import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, clearsReachedBuiltSteps, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
+import { LEAFFELL_ON, rowDue as leafRowDue, leafBlockerText } from './leaffell.mjs'   // leaffell-01show: an unreached natural leaf asks for its trunk, not a stand
+import { replantFor as siteReplantFor, overlay as siteOverlay } from './buildsite.mjs'   // leaffell-01show: the saplings owed for a tree felled for its leaves
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
@@ -21816,7 +21818,10 @@ async function buildReroof (ctx, args, signal) {
   const recordAt = (x, y, z) => recCells.has(`${x},${y},${z}`)
   // reroof-04: the whole proof in reroof.mjs (reroofProve: obstacles, doorstep, roof-slab floors, the door-side eave notch, a temporary
   // stair, the digs' reach in the build order) -- the Paper driver and the offline replays run the same function
-  const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX })
+  // leaffell-01show: a listed natural leaf no stand reaches asks for its trunk -- the proof may list a tree nobody owns (never one in a
+  // protected zone: `closed`) and names the saplings it owes (`replantFor`: the siting's own replant cells, planted from the town walk)
+  const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR) : {}) })
+  if (!pr.ok && pr.leafBlocker) leafRow(bot, t.plot, { ok: false, cell: pr.leafBlocker.at, why: leafBlockerText(pr.leafBlocker) })
   if (!pr.ok) return fail(pr.why, pr.detail)
   const { p, clear, step } = pr
   const ob = { retire: pr.retire ?? [] }
@@ -21829,12 +21834,65 @@ async function buildReroof (ctx, args, signal) {
     if (dp.result !== 'accepted' && dp.result !== 'nothing') return out('no_effect', 'lost_record', `${t.plot}: the decor cells were not retired (${dp.result})`)
     if (dp.result === 'accepted') for (const a of ob.retire) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: SINK_PLOTS.decor, op: 'retired', cell: a, kind: `reroof:${t.plot}`, gen: dp.gen ?? '-' }) }) } catch { /* telemetry */ } }
   }
-  const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && !cur.style && cur.cells?.length === rec.cells.length ? reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch }) : null), { by: me })
+  const pub = publishRecord(dir, key, cur => (cur && cur.structure_complete && !cur.style && cur.cells?.length === rec.cells.length ? reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch, replant: pr.replant ?? [], leaf: pr.leaf ?? null }) : null), { by: me })
   if (pub.result === 'accepted') bot.shopDamage = null   // the building's damage read is fresh: its open roof is its repair now
+  if (pub.result === 'accepted' && pr.leaf) leafRow(bot, t.plot, { ok: true, cell: clear.find(q => q.decay === 1)?.at ?? clear.find(q => q.kind === 'tree' || q.kind === 'remains')?.at ?? null, ...pr.leaf })
   if (pub.result !== 'accepted') return out('no_effect', 'lost_record', `${t.plot}: the new generation was not published (${pub.result})`)
   try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: t.plot, op: 'reroof', kind: `${bpNew.id}/${t.form}/${style.roof}/${added.length}cells${clear.length ? `/clear${clear.length}` : ''}${step ? '/doorstep' : ''}${pr.notch ? `/notch${pr.notch}` : ''}${pr.temp ? `/temp${pr.temp.size}` : ''}${pr.approach ? `/approach${pr.approach.fills}f${pr.approach.cuts}c` : ''}`, gen: pub.gen }) }) } catch { /* telemetry */ }
   return out('success', 'published', `${t.plot}: ${bpNew.id} (${t.form}, ${style.roof}) gen ${pub.gen}, ${p.cells.length} cells to build${clear.length ? `, ${clear.length} to dig first` : ''}${step ? ', a doorstep' : ''}`)
 }
+/** leaffell-01show: ONE `build` ROW PER LEAF DECISION (op leaf_fell: leaves that wait for their trunk, the logs and trees listed for it;
+ *  op leaf_keep: the leaf that keeps the old answer, and why), at most once per cell every LEAF_ROW_MS on this bot. Never throws. */
+function leafRow (bot, plot, d) {
+  try {
+    if (!leafRowDue((bot.leafRows ??= new Map()), `${plot}|${d.ok ? 'fell' : 'keep'}|${(d.cell ?? []).join(',')}`)) return
+    logEvent({ kind: 'build', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: d.ok ? 'leaf_fell' : 'leaf_keep', cell: d.cell ?? null, kind: d.ok ? `decay${d.decay ?? 0}/fell${d.fell ?? 0}/trees${d.trees ?? 0}` : 'leaves', why: d.ok ? null : d.why }) })
+  } catch { /* telemetry */ }
+}
+/** leaffell-01show: is a dig at this cell the protected-zone guard's to refuse (the zones' own boxes; unread: closed)? Never throws. */
+const leafZoneClosed = bot => (x, y, z) => { try { return !!blocked(bot.protectZones?.() ?? [], x, y, z) } catch { return true } }
+/**
+ * leaffell-01show: THE RETROFIT PROOF'S FELL-FIRST CONTEXT -> { closed, replantFor }. `replantFor(trees, clear)` -> buildsite.mjs
+ * replantFor's answer for the trees the proof would fell beside the building: the replant band round its pad (8..24), each cell legal
+ * by the town's reservations and planted from a stand of the town walk (the visit's `replantDomain`). Unreadable: no cell (no tree is felled).
+ */
+function reroofLeafCtx (bot, plan, rec, read, home, stood, walkR) {
+  const replantFor = (trees, clear) => {
+    try {
+      const c = shopCtx(bot)
+      const res = reservations(plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 })
+      const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
+      const pad = (rec.cells ?? []).filter(q => q?.seg === 'pad' && Array.isArray(q.at)).map(q => [q.at[0], q.at[2]])
+      const padXZ = pad.length ? pad : [[rec.box[0], rec.box[1]], [rec.box[2], rec.box[3]]]
+      const walk = siteWalkFrom(siteOverlay(read, new Map(clear.map(q => [q.at.join(','), AIRB]))), home, new Set(), walkR, { stood })
+      return siteReplantFor(read, home, { trees, pad: padXZ, ring: [] }, res, walk, () => true)
+    } catch { return { ok: false, cells: [] } }
+  }
+  return { closed: leafZoneClosed(bot), replantFor }
+}
+/**
+ * leaffell-01show: A STYLED BUILDING'S SITING, FELL-FIRST -> siteBlueprint ctx additions | {} (LEAFFELL=off). `leafFell.plan(site)`:
+ * leafFellPlan's options for one candidate (its own cells, the cells it will set a log in, every record's cells, the protected zones);
+ * `leafReplantDomain`: the saplings such a site owes are planted from the town walk. Never throws.
+ */
+function leafFellCtx (bot, bp, plot) {
+  if (!LEAFFELL_ON) return {}
+  try {
+    const owned = recordOwned(), closed = leafZoneClosed(bot)
+    const logRole = role => (bp.palette?.[role] ?? []).some(n => /_(log|wood|stem|hyphae)$/.test(String(n)) || /^\$.*log/.test(String(n)))
+    return { leafReplantDomain: () => true,
+      leafFell: {
+        plan: site => { const cells = placeBlueprint(bp, site.anchor, site.s, site.orient); return { own: new Set(cells.map(q => q.at.join(','))), planned: new Set(cells.filter(q => logRole(q.role)).map(q => q.at.join(','))), recordAt: (x, y, z) => owned([x, y, z]), closed } },
+        onDecision: (site, lf) => leafRow(bot, plot, lf.ok ? { ok: true, cell: lf.decay[0] ?? lf.fell[0]?.at ?? null, decay: lf.decay.length, fell: lf.fell.length, trees: lf.trees.length } : { ok: false, cell: lf.blockers?.[0]?.at ?? null, why: leafBlockerText(lf.blockers?.[0]) }),
+      } }
+  } catch { return {} }
+}
+/** leaffell-01show: the visit options of a record that owes saplings for trees felled for their leaves (`rec.leaffell.trees`): the
+ *  replants -- EVERY replant of the record, an older one the building's own stand domain never reached included -- are planted from the
+ *  town walk; a tree still falls only once every replant of the record is settled (B4 as it is: the read's G5 judges each felling by
+ *  the record's whole replant list, so never `replantPerTree` here); one whose own sapling kind exists nowhere in town falls first
+ *  (fellfirst-01's rule, its row `first=1`); a replant's remedy does not end the visit. */
+const leafFellVisitOpts = (bot, rec) => (LEAFFELL_ON && rec?.leaffell?.trees ? { replantDomain: () => true, replantGoOn: true, saplingAbsent: swSaplingAbsent(bot) } : {})
 /** reroof-04: a re-roofed record's visit options -- its new roof's slab cells are floors to the walk (REROOF_ACCESS). Pure over rec, stood. */
 const reroofVisitOpts = (rec, stood, home = null) => (REROOF_FIX.access && rec?.restyle ? { floors: reroofFloors((rec.cells ?? []).filter(c => /^reroof-/.test(String(c?.seg ?? '')))),
   // r5: the ledges whose fall lands off the town walk are never a stand or a step (computed once a visit over the visit's own walk view)
@@ -21893,6 +21951,7 @@ async function townhallSiteFor (bot, plan, c, stood, signal = null) {
     const bp = styledBlueprint(blueprintOf(TOWNHALL_BLUEPRINT), ts.style)
     const prd = planReader(bot)
     const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot: TOWNHALL_PLOT, ...paSiteCtx(prd, TOWNHALL_PLOT), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, { ...(sp.earth ?? TOWNHALL_EARTH), owned: recordOwned() }),
+      ...leafFellCtx(bot, bp, TOWNHALL_PLOT),   // leaffell-01show
       earth: sp.earth ?? TOWNHALL_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
     if (s.why === 'aborted') return { ok: false, why: 'aborted', tried }
     tried.push(`${sp.sectors[0].source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -21982,6 +22041,7 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
       const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
       const prd = planReader(bot)
       const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot, ...paSiteCtx(prd, plot), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
+        ...leafFellCtx(bot, bp, plot),   // leaffell-01show
         earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
       { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
@@ -22891,6 +22951,7 @@ async function buildShopVisit (ctx, args, signal) {
     if (isCottageBlueprint(rec.blueprint)) Object.assign(storeOpts, cottageVisitOpts(rec))
     if (rec.blueprint === TOWNHALL_BLUEPRINT) Object.assign(storeOpts, townhallVisitOpts(rec))   // townstyle-02
     Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))   // reroof-04: a re-roofed record's new roof slabs are floors to its walk
+    Object.assign(storeOpts, leafFellVisitOpts(bot, rec))   // leaffell-01show: the saplings owed for trees felled for their leaves
     // cottage2-01: a furnishing that WAITS (no bed, no 3 wool of a colour; no flower; no lantern, no iron) is done for the visit
     if (isCottage2Blueprint(rec.blueprint)) storeOpts.alsoDone = c => cottageCellWaits(bot, rec, c)
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })

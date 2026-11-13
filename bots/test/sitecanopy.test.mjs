@@ -132,7 +132,7 @@ await t('wired (structural: comments stripped): the cottage and the town hall si
   assert.strictEqual(sk.split('...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, { ...(sp.earth ?? TOWNHALL_EARTH), owned: recordOwned() }),').length, 2, 'the town hall (thprep-01: its earth limit too)')
   assert.ok(/else if \(\/_leaves\$\/\.test\(name\)\) \{ try \{ props = b\.getProperties\?\.\(\) \?\? null \}/.test(sk), 'planReader reads a leaf\'s persistent')
   const bs = strip('../src/buildsite.mjs')
-  assert.ok(/const xc = typeof ctx\.cellClears\.steps === 'function' \? yield \* ctx\.cellClears\.steps\(site\) : ctx\.cellClears\(site\)\n\s+if \(xc\?\.fail\) \{ proofFails\[xc\.fail\] = \(proofFails\[xc\.fail\] \?\? 0\) \+ 1; continue \}\n\s+if \(xc\?\.clear\?\.length\) site = \{ \.\.\.site, clear: \[\.\.\.site\.clear, \.\.\.xc\.clear\] \}\n\s+\}\n\s+let p = yield \* proveSiteSteps/.test(bs))   // siteproof-01: the proof's own steps (the same proof, a turn after every walk)
+  assert.ok(/const xc = typeof ctx\.cellClears\.steps === 'function' \? yield \* ctx\.cellClears\.steps\(site\) : ctx\.cellClears\(site\)\n\s+if \(xc\?\.fail\) \{ proofFails\[xc\.fail\] = \(proofFails\[xc\.fail\] \?\? 0\) \+ 1; [^\n]*continue \}\n[\s\S]{0,900}?\} else if \(xc\?\.clear\?\.length\) site = \{ \.\.\.site, clear: \[\.\.\.site\.clear, \.\.\.xc\.clear\] \}\n\s+\}\n\s+let p = yield \* proveSiteSteps/.test(bs))   // leaffell-01show: the fail's detail and the fell-first merge sit between   // siteproof-01: the proof's own steps (the same proof, a turn after every walk)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

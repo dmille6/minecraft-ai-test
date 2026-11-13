@@ -15,6 +15,8 @@
 // the candidate fails its proof `leaves_unreached`. The listed leaves are the record's `clear` (the tripwire's G2: a dig on a listed
 // clear of the record). SITECANOPY=off is the rollback (every siting as before).
 
+import { leafFellSteps, leafBlockerText } from './leaffell.mjs'   // leaffell-01show: an unreached natural leaf asks for its trunk, not a stand
+
 const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 export const sitecanopyOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SITECANOPY ?? '').trim().toLowerCase())
 export const sitePadOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SITEPAD ?? '').trim().toLowerCase())   // thprep-01's rollback
@@ -89,11 +91,11 @@ export function cellEarthClears (read, vol = [], { above, listed = new Set(), ow
  * THE SITING HOOK -> (site) -> null | { clear } | { fail }. `cellsOf(site)` the candidate's world cells; `reached(clears)` -> { ok }
  * (the caller's reach test over the town walk, given every clear of the site plus the listed leaves, low before high). Nothing to list: null (the proof as before). Never throws (a throw: no listing).
  */
-export function cellClearsHook (read, { cellsOf, reached, reachedSteps = null, max = SITECANOPY_MAX, earth = null } = {}) {
+export function cellClearsHook (read, { cellsOf, reached, reachedSteps = null, max = SITECANOPY_MAX, earth = null, leafFell = null } = {}) {
   // siteproof-02: the hook's own steps (`hook.steps(site)`, a generator the cooperative search runs with `yield *`): the reach test
   // is the caller's `reachedSteps(clears, site)` when it names one (clearsReachedBuiltSteps: a turn after every walk), else `reached`
   // straight through as before. `hook(site)` runs the steps to their end: the same answer either way.
-  function * steps (site) {
+  function * steps (site, lfx = hook.leafFell) {
     try {
       const listed = new Set((site?.clear ?? []).map(c => (c?.at ?? []).join(',')))
       const vol = cellsOf(site)
@@ -112,11 +114,27 @@ export function cellClearsHook (read, { cellsOf, reached, reachedSteps = null, m
       // runVisit's clears() digs them): a site leaf dug first opens the sight line to a listed one behind it
       const all = [...(site?.clear ?? []), ...cl].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
       const rc = typeof reachedSteps === 'function' ? yield * reachedSteps(all, site) : reached(all, site)
+      // leaffell-01show (`leafFell` = { plan(site, vol) -> leafFellPlan's options, onDecision?(site, answer) }; null: as before): the digs
+      // the reach test found no stand for are asked what HOLDS them -- a natural leaf whose trunk comes down is no blocker (marked
+      // `decay`), a tree nobody owns that holds one is listed whole (`trees`: its saplings owed, the search's replantFor) and the
+      // reach test runs again over the longer list (its own steps: a turn after every walk). Anything else: the old answer, the
+      // leaf and the reason named (`detail`).
+      if (!rc?.ok && lfx && Array.isArray(rc?.unreached)) {
+        const again = typeof reachedSteps === 'function' ? list => reachedSteps(list, site) : function * (list) { return reached(list, site) }
+        const lf = yield * leafFellSteps(read, all, rc, again, lfx.plan?.(site, vol) ?? {})
+        try { lfx.onDecision?.(site, lf) } catch { /* telemetry */ }
+        if (!lf.ok) return { fail: 'leaves_unreached', detail: leafBlockerText(lf.blockers?.[0]) }
+        // the hook's own leaves (marked where they only wait for a trunk) and the logs the plan adds; the site's own entries are marked by the search (`decay`)
+        const mine = new Set([...cl, ...lf.fell].map(c => c.at.join(',')))
+        return { clear: lf.clear.filter(c => mine.has(c.at.join(','))), decay: lf.decay,
+          ...(lf.trees.length ? { trees: lf.trees } : {}), ...(lf.fell.length ? { fellLogs: lf.fell.map(c => c.at) } : {}), leaf: { decay: lf.decay.length, fell: lf.fell.length, trees: lf.trees.length } }
+      }
       return rc?.ok ? { clear: cl } : { fail: 'leaves_unreached' }
     } catch { return null }
   }
   const hook = site => { const g = steps(site); for (;;) { const r = g.next(); if (r.done) return r.value } }
   hook.steps = steps
+  hook.leafFell = leafFell   // leaffell-01show: the search may name it after the hook is made (buildsite.mjs siteBlueprintSteps `ctx.leafFell`)
   return hook
 }
 

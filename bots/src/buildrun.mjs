@@ -29,6 +29,7 @@
 
 import { performance } from 'node:perf_hooks'
 import { walkFrom, walkAgain, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative, refUsable } from './buildsite.mjs'
+import { LEAFFELL_ON, leafWait, segLeafWait, rowDue } from './leaffell.mjs'   // leaffell-01show: a cell under a decaying leaf waits; a zone-refused clear is set aside
 import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
 import * as V from './voidfill.mjs'
@@ -548,7 +549,9 @@ export async function runVisit (p, e, opts = {}) {
 }
 /** BODY WAITS a visit spends on a cell another builder stands in before it stops (`body_wait`) instead of spending its steps. */
 export const BODY_WAITS = 20
-async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, standMs = STAND_MS } = {}) {
+/** leaffell-01show: the visit's memory when the caller names none (`p.leafMem`): a waiting leaf's first wait, a set-aside clear's row. */
+const LEAF_MEM = new Map()
+async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, standMs = STAND_MS, leafFell = LEAFFELL_ON } = {}) {
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
@@ -686,14 +689,14 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // -> 'placed' | 'refused' | 'silent' | 'busy' | 'fence:<why>' | 'barrier_wait' | 'body' | 'no_material' | 'stand'
   // townstyle-01: `ws` -- the cell's world state: the re-proof takes only a face that makes it, and the look and the send are AIMED
   // (here.aim: the yaw packet written with the click, the cursor at the state's half)
-  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false, also = null } = {}) => {
+  const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false, also = null, dom = domain } = {}) => {
     if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
     await e.walkTo(step.stand, avoid ? { avoid } : undefined)
     if (e.aborted()) return 'aborted'          // the pending walk stays: the next visit bans its stand (settlePendingStand)
     if (stands) stands.pending = null
     // RE-PROVED WHERE THE BOT IS: the same stand rules from the feet it actually has
     const feet = e.feet()
-    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), domain, ws || blind || also ? { name: block, ws, blind, ...(also ? { also } : {}) } : null)
+    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), dom, ws || blind || also ? { name: block, ws, blind, ...(also ? { also } : {}) } : null)
     if (!here) { banStand(stands, kOf(cell), kOf(step.stand), now()); return 'stand' }
     if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]) || (also ?? []).some(a => inCell(b, a)))) return 'body'
     if (also && e.self && also.some(a => inCell(e.self(), a))) return 'body'
@@ -1046,12 +1049,15 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       needSapling = r.sapling; continue
     }
     const nodes = nodesFor()
-    const step = stepFor(rd, home, r.cell, nodes, domain)
+    // leaffell-01show (`p.replantDomain`): a record that fells a tree BESIDE its building for the leaves it holds plants the sapling from
+    // the town walk -- the building's own stand domain (its pad + 3) holds no stand for a replant cell 8 or more from its walls
+    const rpDom = leafFell && typeof p.replantDomain === 'function' ? p.replantDomain : domain
+    const step = stepFor(rd, home, r.cell, nodes, rpDom)
     if (!step || step.support[1] !== r.cell[1] - 1) { const o = remedy(r, nodes, 'no_step'); if (o) return o; continue }
     if (!renewSlot()) { out.stop = 'fence:slot'; return out }
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
     if (!seg.ok) { out.stop = 'deps_open'; out.why = 'the clear lease is held'; return out }
-    const v = await click(r.cell, r.sapling, step, 'clear', seg.gen, { want: b => SAPLING.test(nm(b)) })
+    const v = await click(r.cell, r.sapling, step, 'clear', seg.gen, { want: b => SAPLING.test(nm(b)), dom: rpDom })
     PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen)
     // a silent replant click is counted (Claude read r3 P3-1: its late acknowledgement may have planted the sapling untallied, so
     // the bag row must not read as a clean exit)
@@ -1069,6 +1075,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // plotprep-03 (`p.replantPerTree`): B4 is "never a tree before ITS sapling" -- a felled tree whose clear and replants carry the
   // same `tree` (and `plot`) waits only for its own replants (tidy.mjs plotPrep tags both); an untagged one waits for every replant
   const treeReady = c => (p.replantPerTree ? treeReplanted(record.replant ?? [], c, cell => SAPLING.test(nm(rd(...cell)))) : replanted())
+  const zoned = new Map(), zonedNew = [], leafMem = p.leafMem ?? LEAF_MEM
+  const clearAt = new Map((record.clear ?? []).filter(c => Array.isArray(c?.at)).map(c => [kOf(c.at), c]))
   const clears = async () => {
     // ONLY THE BLOCK THE RECORD NAMES THERE: a cell already built into (the pad laid over a felled trunk's cell) is never dug;
     // an UNKNOWN cell is asked again first. AND NEVER A RECORD CELL THAT READS DONE (Paper 10-25 SHOP-TERRAIN board-a: a town's
@@ -1124,7 +1132,18 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // upkeep-01 (`p.clearOk(clear, read)`, Codex r3 BLOCKER 1): any other listed clear is dug only while the caller's check holds NOW --
         // read here and again after the walk (digNamed's `safe`): the upkeep's remains only while their own replant reads a sapling
         if (c.kind !== 'tidy' && p.clearOk && !p.clearOk(c, rd)) continue
-        if (!digStand(rd, c.at, nodes)) continue                    // no stand reaches it now: nothing tried, nothing counted
+        const st0 = digStand(rd, c.at, nodes)
+        if (!st0) continue                                          // no stand reaches it now: nothing tried, nothing counted
+        // leaffell-01show (`e.zoneClosed(cell, name, feet)` -> the zone's id | null: buildbot.mjs asks the guard's own decision for a dig
+        // from that stand): a listed clear the protected-zone rule refuses is SET ASIDE for the visit -- no walk, no dig, no step spent
+        // (LIVE 11-12: the tower's 9 leaf clears in village-taiga-6_1 were walked to and refused on every visit, 243 refusals, nothing
+        // recorded) -- and named once (`clear_zoned`: the first cell, how many, the zone). The rule itself is the guard's.
+        if (leafFell && typeof e.zoneClosed === 'function') {
+          if (zoned.has(kOf(c.at))) continue
+          let z = null
+          try { z = e.zoneClosed(c.at, c.name, st0) } catch { z = null }
+          if (z) { zoned.set(kOf(c.at), String(z)); zonedNew.push(c); continue }
+        }
         const g = guard(); if (g) return g
         tried++
         const v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
@@ -1138,7 +1157,17 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (v === 'confirmed') { out.cleared++; if (first) out.felledFirst = (out.felledFirst ?? 0) + 1; e.log('_build', { op: 'clear', cell: c.at, block: c.name, kind: c.kind, ...(c.kind === 'tree' ? { saplings: `${(record.replant ?? []).filter(r => r.state !== 'skipped' && SAPLING.test(nm(rd(...r.cell)))).length}/${(record.replant ?? []).filter(r => r.state !== 'skipped').length}` } : {}), ...(first ? { first: 1 } : {}) }) }
       }
       return null
-    } finally { PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen) }
+    } finally {
+      PJ.releaseLease(dir, key, 'seg-clear', me, seg.gen)
+      // leaffell-01show: ONE row for the clears this pass set aside (a later pass of the visit adds none; the same cells again within
+      // LEAF_ROW_MS on a later visit: no row)
+      if (zonedNew.length) {
+        const c0 = zonedNew[0]
+        out.zoned = [...zoned.keys()]
+        try { if (rowDue(leafMem, `${key}|zoned|${kOf(c0.at)}`, wallNow())) e.log('_build', { op: 'clear_zoned', cell: c0.at, block: c0.name, kind: c0.kind, n: zonedNew.length, why: `zone ${zoned.get(kOf(c0.at))}` }) } catch { /* telemetry */ }
+        zonedNew.length = 0
+      }
+    }
   }
   // reroof-04 (`p.stairFirst`): a record whose TEMPORARY stair (cells marked temp) still stands open builds it before any clear -- its
   // proof reached the digs over the stair; clears() runs again once that segment finishes (the `finished` pass below)
@@ -1604,6 +1633,24 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
               break
             }
           }
+          // leaffell-01show: every cell of this segment that still holds a block holds a natural leaf the record lists as DECAYING (its
+          // trunk a listed clear, or already down: leaffell.mjs leafWait) -- the segment WAITS and the visit goes on with the next
+          // independent one: no deferral is counted (never stuck_on_cell, never the 6-hour back-off), the visit ends `leaf_decay`,
+          // and after LEAF_WAIT_MS on one leaf the cell is what it was before (blocked)
+          // ...and a cell held by a listed clear the protected-zone rule refuses (set aside above) waits the same way (`zone_closed`):
+          // the visit goes on to its other segments instead of ending `blocked` here
+          if (leafFell) {
+            const heldAt = open.filter(c => !isClear(c.at)).map(c => c.at)
+            const lw = segLeafWait(heldAt, at => (zoned.has(kOf(at)) ? { wait: true, why: 'zone_closed' } : leafWait(rd, at, { listed: q => clearAt.get(kOf(q)) ?? null, mem: leafMem, memKey: key, now: wallNow() })))
+            if (lw.wait) {
+              const leaves = heldAt.filter(at => !zoned.has(kOf(at)))
+              out.leafWait = (out.leafWait ?? 0) + leaves.length
+              out.zonedWait = (out.zonedWait ?? 0) + (heldAt.length - leaves.length)
+              deferredSegs.add(seg)
+              try { if (leaves.length && rowDue(leafMem, `${key}|wait|${kOf(leaves[0])}`, wallNow())) e.log('_build', { op: 'leaf_decay', seg, cell: leaves[0], block: nm(rd(...leaves[0])), n: leaves.length, why: lw.why }) } catch { /* telemetry */ }
+              break
+            }
+          }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'
           out.why = `${seg}: ${open.length} open, ${cand.length} placeable now`
           return out
@@ -1635,8 +1682,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   { let r = null; try { r = settleStuck(true) } catch { /* the next visit counts (Claude r22 P3) */ } if (r) { out.stop = r.stop; out.why = r.why; return out } }
   // gkhelpers-01: a visit that passed segments (their layer below open, or another bot's too near) and found nothing else ends
   // deps_open, as before the crew's option
-  out.stop = record.cells.every(c => isDone(c)) ? 'complete' : needSapling ? 'no_sapling' : out.waits ? 'clears_wait' : (out.depsWaited || out.segsNear) ? 'deps_open' : 'unknown'
+  out.stop = record.cells.every(c => isDone(c)) ? 'complete' : needSapling ? 'no_sapling' : out.leafWait ? 'leaf_decay' : out.zonedWait ? 'zone_closed' : out.waits ? 'clears_wait' : (out.depsWaited || out.segsNear) ? 'deps_open' : 'unknown'
   if (out.stop === 'no_sapling') out.why = `${needSapling}: withdraw saplings from town (C1)`
+  if (out.stop === 'leaf_decay') out.why = `${out.leafWait} cell(s) wait for natural leaves to decay (their trunk is listed or down): asked again next visit`
+  if (out.stop === 'zone_closed') out.why = `${out.zonedWait} cell(s) hold a listed clear inside a protected zone (first ${[...zoned.keys()][0] ?? '-'}, ${[...zoned.values()][0] ?? '-'}): set aside, the rest of the build goes on`
   return out
 }
 

@@ -919,6 +919,8 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
   // a caller may judge the sector by the footprint's CENTRE (`ctx.sectorBy: 'centre'`: the yard, a land-plan zone is a 45-degree
   // wedge and an 18 x 26 floor fits inside one only far out); unset, every footprint cell must lie in the sector, as before
   const byCentre = ctx.sectorBy === 'centre'
+  // leaffell-01show (`ctx.leafFell`, sitecanopy.mjs cellClearsHook): the hook's fell-first options for this search (null: none)
+  if (typeof ctx.cellClears === 'function' && ctx.leafFell !== undefined) ctx.cellClears.leafFell = ctx.leafFell
   const cu = Math.floor(bp.footprint.u / 2), cv = Math.floor(bp.footprint.v / 2)
   for (const { sector, source } of secs) {
     const rejects = {}, ok = []
@@ -955,8 +957,15 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
         // siteproof-02: the hook's own steps when it has them (sitecanopy.mjs cellClearsHook `steps`: its reach test walks the town
         // once a clear it digs) -- the search takes its turn after every one of those walks too
         const xc = typeof ctx.cellClears.steps === 'function' ? yield * ctx.cellClears.steps(site) : ctx.cellClears(site)
-        if (xc?.fail) { proofFails[xc.fail] = (proofFails[xc.fail] ?? 0) + 1; continue }
-        if (xc?.clear?.length) site = { ...site, clear: [...site.clear, ...xc.clear] }
+        if (xc?.fail) { proofFails[xc.fail] = (proofFails[xc.fail] ?? 0) + 1; if (xc.detail && (row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} ${xc.fail} ${xc.detail}`.slice(0, 120)); continue }
+        // leaffell-01show (sitecanopy.mjs cellClearsHook `leafFell`): a tree the hook lists so the leaves it holds decay is felled only
+        // where the screen fells its own -- never a log in a plan reservation or a zone (`leaf_tree_reserved`: the next candidate)
+        if (xc?.fellLogs?.some(([x, y, z]) => res.column(x, z, y, y) || cellInZones(x, y, z, res.zones))) { proofFails.leaf_tree_reserved = (proofFails.leaf_tree_reserved ?? 0) + 1; continue }
+        if (xc?.leaf) {
+          // ...the leaves that only wait for a trunk are marked on the site's own list too, and the trees' saplings join the site's
+          const dk = new Set((xc.decay ?? []).map(a => a.join(',')))
+          site = { ...site, clear: [...site.clear.map(c => (dk.has(c.at.join(',')) ? { ...c, decay: 1 } : c)), ...(xc.clear ?? [])], trees: [...site.trees, ...(xc.trees ?? [])], felled: site.felled + (xc.trees?.length ?? 0), leaf: xc.leaf }
+        } else if (xc?.clear?.length) site = { ...site, clear: [...site.clear, ...xc.clear] }
       }
       let p = yield * proveSiteSteps(read, home, bp, site, proveOpts)
       // levelfall-01 (LIVE showcase 11-05, the workshop on X1: its one anchor's proof failed `no_step earth` -- a cave pocket y 65..68
@@ -977,15 +986,21 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
       const over = new Map()
       for (const c of site.clear) over.set(k3(...c.at), AIR)
       for (const c of site.fill) over.set(k3(...c), SOLID('cobblestone'))
-      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), walkR, { stood }), typeof ctx.standDomain === 'function' ? ctx.standDomain : null)
+      // leaffell-01show (`ctx.leafReplantDomain`): a site that fells a tree BESIDE its pad for its leaves plants the saplings from the town
+      // walk (the visit: buildrun.mjs `p.replantDomain`) -- the stands' own domain (the pad + 3) holds no cell of the replant band (8..24)
+      const rpDomain = site.leaf?.trees && typeof ctx.leafReplantDomain === 'function' ? ctx.leafReplantDomain : typeof ctx.standDomain === 'function' ? ctx.standDomain : null
+      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), walkR, { stood }), rpDomain)
       if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }
       const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
       const record = {
         v: 1, blueprint: bp.id, plot: ctx.plot ?? 'shop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
         box: [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)], s: site.s, floor: site.g0,
         earthwork: { fill: site.fill.length, cut: site.cut.length, litter: site.litter },
-        fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name })),
-        trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), felled: site.felled, replant: rp.cells,
+        fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name, ...(c.decay === 1 ? { decay: 1 } : {}), ...(Number.isFinite(c.tree) ? { tree: c.tree } : {}) })),
+        ...(site.leaf ? { leaffell: { ...site.leaf } } : {}),
+        trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), felled: site.felled,
+        // leaffell-01show: a tree felled for its leaves carries a `tree` tag; its sapling carries the same (replantFor answers in the trees' order)
+        replant: rp.cells.map((c, i) => (Number.isFinite(site.trees[i]?.tree) ? { ...c, tree: site.trees[i].tree } : c)),
         cells: p.cells, segments: p.segments, interior: p.interior, bom: billOf(bp, p.cells), builders_max: 2,
         structure_complete: false, plan: { gen: plan.gen }, stood_seeds: stood.length,
         ...(walkR !== WALK_R ? { walkR } : {}),

@@ -20,6 +20,7 @@
 //              Codex r1 P3, cooperation A2): the fill never spends the bot's own stockpile.
 
 import pkg from 'mineflayer-pathfinder'
+import { zoneDecision, zoneGuardOn } from './protectzone.mjs'   // leaffell-01show: the guard's own decision, asked before a clear's walk
 import { Vec3 } from 'vec3'
 import { installAckTracker } from './buildack.mjs'
 import { DIG_CONFIRM_MS } from './buildrun.mjs'
@@ -432,6 +433,16 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       // boardwalk-03: a block dug out of water reads WATER once the lake flows back in: gone either way
       const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS)
       return n ? 'confirmed' : 'unconfirmed'
+    },
+    // leaffell-01show: WOULD THE PROTECTED-ZONE GUARD REFUSE A BUILD'S DIG OF THIS CELL? -> the zone's id | null. The guard's own
+    // decision (protectzone.mjs zoneDecision: a dig that is no survival dig, the feet the stand's -- the deep exemption reads them),
+    // asked BEFORE the walk: buildrun.mjs runVisit sets such a clear aside instead of walking to a dig the guard then refuses
+    zoneClosed: (c, name = null, feet = null) => {
+      const zones = bot.protectZones?.() ?? []
+      if (!zones.length) return null
+      const d = zoneDecision({ zones, op: 'dig', cell: { x: c[0], y: c[1], z: c[2] }, purpose: 'target', name, nameRule: zoneGuardOn(),
+        feet: Array.isArray(feet) ? { x: feet[0], y: feet[1], z: feet[2] } : (bot.entity?.position ?? null) })
+      return d ? String(d.zone?.id ?? 'zone') : null
     },
     probe: async c => {
       for (const d of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
