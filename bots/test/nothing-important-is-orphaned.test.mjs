@@ -31,6 +31,9 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // cleanzone-01 (11-13): no route places a block in the town or its margin; the valve lets a trapped bot out and writes where
+  'bots/src/cleanzone.mjs',
+  'bots/test/cleanzone.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
