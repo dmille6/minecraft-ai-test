@@ -32,10 +32,30 @@
 //   with, and the stand is dug back before the visit ends) -- so `no_material` is not a dead end for a builder that holds its reserve.
 //   PROGRESS IS NOT STUCK: a visit that laid a cell from a stand never stamps the project stalled and never stops stuck_on_cell; the
 //   cells still without a stand stay counted and get the next visit's stand (one a visit).
+// REVIEW r1 (Codex, four blockers; Claude, three notes), all in this file's rules now:
+//   ONE OPEN RECEIPT A HOLDER AND PROJECT: while this holder's receipt for the project is on disk (a stand it could not take down),
+//   it plans no new stand there -- a new receipt would replace the old one and the old blocks would be nobody's (`refused
+//   why=receipt_open`). The dead end is bounded by the receipt's own life (ownMs, below).
+//   A CELL SOMEBODY NOW OWNS IS NEVER DUG (standClaims): at every take-down dig -- the visit's own and the leftover pass, under the
+//   feet and from the walk, read again after the walk to the dig's stand -- the stand cell must still pass the placement's own test
+//   (no cell, clear, cut or replant of this record; the caller's veto: another record's cell, a zone). One that does not is ADOPTED:
+//   dropped from the receipt with a row, and so is every stand cell under it and every stand with a block set on top of it
+//   (takeback.mjs's `built_on`). A veto that cannot be read adopts nothing and digs nothing: the receipt waits.
+//   A RECEIPT ACTS FOR ownMs ONLY (Claude's note c). The world carries no mark of who placed a block: a stand the grounds crew cut,
+//   with a later fill of the same block in the same cell that no record lists any more, reads exactly like the stand. It cannot be
+//   told apart, so it is bounded: the receipt's `at` is when the stand was placed, and after ownMs (an hour: less than the tidy's
+//   own survey -> cut -> survey -> fill, its surveys an hour apart and a stand listed only once its receipt is staleMs old) the
+//   cells still standing are adopted (`why=expired`) and never dug by a visit -- litter for the grounds crew, by its own rules.
+//   THE DEADLINE BOUNDS EVERY AWAIT ON THE STAND: the take-down starts by deadline - tailMs. The walk to the base and every rise are
+//   checked against it, and the click's barrier wait on a stand is capped at what is left (buildrun.mjs click `waitMs`).
+//   THE RESERVE COMES BACK OR THE ROW SAYS SO: dirt first; a stone stand only with a pickaxe in the bag (by hand it takes ten
+//   seconds a block and drops nothing: `refused why=no_pickaxe`); after the take-down the bag is counted, the base walked to once
+//   for a block dug from the walk, and what is still missing is on the outcome row (`unrecovered=N`).
 // NOT THE WALK'S MESS: the stand is placed by the visit's own send (buildbot.mjs: block_place written to the connection, never
 // mineflayer's placeBlock), so placeaudit.mjs never sees it and takeback.mjs holds no receipt for it -- one owner, this file's.
 // ROWS (`_build`, op=tempstand): the decision result=plan | refused; the outcome result=done | failed; the stand itself
-// result=removed | left (why=done | failed | leftover). The cell's own place row carries kind=tempstand.
+// result=removed | left (why=done | failed | leftover) and result=adopted (why=owned | built_on | expired). The cell's own place
+// row carries kind=tempstand.
 // SWITCH: TEMPSTAND=off|0|false|no -> no stand, no receipt read: the visit exactly as before.
 import { stepFor, overlay, fullCube } from './buildsite.mjs'
 import { isLiquid } from './townplan.mjs'
@@ -57,6 +77,7 @@ export const TEMPSTAND = Object.freeze({
   retryMs: 2 * 60 * 60_000,  // ... inside this window
   downTries: 3,              // visits that try to take a leftover stand down before it is left to the grounds crew
   staleMs: 10 * 60_000,      // a receipt this old is no running visit's: any bot's visit takes the stand down; the tidy may list it
+  ownMs: 60 * 60_000,        // a receipt older than this digs nothing: what stands in its cells is adopted (see the header)
   blocks: Object.freeze(['dirt', 'cobblestone', 'cobbled_deepslate']),
 })
 /** THE SWITCH. Pure. */
@@ -150,6 +171,30 @@ export function planTempStand ({ read, home = { x: 0, y: 0, z: 0 }, cell, want =
  *  on a guess). */
 export function standStanding (receipt, read) {
   return (receipt?.cells ?? []).filter(c => { const b = read(...c); return !b || nm(b) === receipt.block }).sort((a, b) => b[1] - a[1])
+}
+/**
+ * WHAT A TAKE-DOWN MAY DIG NOW -> { dig: [[x, y, z]] highest first, adopted: [{ at, why }], held: [[x, y, z]] }. Pure.
+ *   standing     the receipt's cells still reading its block, highest first (standStanding)
+ *   ownerOf(at)  'mine' (the placement's own test still passes) | 'owned' (a record's cell now, or the caller's veto) | 'unknown'
+ *   expired      the receipt is older than TEMPSTAND.ownMs;  covered(at)  a block stands on the cell that is not the stand's
+ * Top first: an expired receipt adopts everything (`expired`); a stand with a block set on its top adopts everything (`built_on`);
+ * an owned cell is adopted (`owned`) with every cell under it (`built_on`: nothing is dug from under a block that is somebody's);
+ * from an unknown cell down nothing is dug and nothing adopted (`held`: asked again next visit).
+ */
+export function standClaims (standing = [], ownerOf = () => 'mine', { expired = false, covered = () => false } = {}) {
+  const out = { dig: [], adopted: [], held: [] }
+  if (!standing.length) return out
+  if (expired) { out.adopted = standing.map(at => ({ at, why: 'expired' })); return out }
+  if (covered(standing[0])) { out.adopted = standing.map(at => ({ at, why: 'built_on' })); return out }
+  let mode = 'dig'
+  for (const at of standing) {
+    if (mode === 'held') { out.held.push(at); continue }
+    if (mode === 'adopt') { out.adopted.push({ at, why: 'built_on' }); continue }
+    const o = ownerOf(at)
+    if (o === 'mine') out.dig.push(at)
+    else if (o === 'owned') { out.adopted.push({ at, why: 'owned' }); mode = 'adopt' } else { out.held.push(at); mode = 'held' }
+  }
+  return out
 }
 /** IS A RECEIPT ANOTHER HOLDER'S RUNNING VISIT'S? -> bool. Pure: younger than `staleMs` and not this holder's own. */
 export const standLive = (receipt, me, now, staleMs = TEMPSTAND.staleMs) => !!receipt && receipt.holder !== me && now - (Number(receipt.at) || 0) < staleMs

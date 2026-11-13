@@ -411,6 +411,8 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     // reserve is kept to pillar with, and the stand's blocks are dug back in the same visit): the whole count, and a hold that does
     // not ask the keeps
     countAll: n => count(n),
+    // tempstand-01 r1: is a pickaxe in the bag (two uses left, `tool`'s own rule)? A stone stand is dug back only with one
+    pickaxe: () => items().some(i => /_pickaxe$/.test(i.name) && (Number(i.maxDurability) || 0) - (Number(i.durabilityUsed) || 0) >= 2),
     holdKept: async n => {
       const it = items().find(i => i.name === n)
       if (!it) return false

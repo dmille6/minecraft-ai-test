@@ -25014,13 +25014,16 @@ const wallStuckOn = () => !['off', '0', 'false', 'no'].includes(String(process.e
  * tempstand.mjs): a placeable cell no stand reaches, deferred in an earlier visit too, is clicked from a temporary pillar that the same
  * visit takes down. `mayPlace`: never a protected zone, never another project's record cell (the record's own are the visit's to keep
  * out); `mem`: this bot's attempts a cell, kept for the process. TEMPSTAND=off is the rollback: {} -- the visit exactly as before.
+ * The same `mayPlace` is asked again at every take-down dig: a stand cell another project has taken since is never dug.
  */
 function tempStandOf (bot, c, plot) {
   if (!tempStandOn()) return {}
   let others = null
   const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
   const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
-  return { tempStand: { mem: (bot.tempStandMem ??= {}), mayPlace: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } } } }
+  // (r1) NOT caught here: a read that fails THROWS -- the visit refuses a placement on it, and a take-down neither digs nor gives the cell
+  // away on it (buildrun.mjs standOwner: `unknown`)
+  return { tempStand: { mem: (bot.tempStandMem ??= {}), mayPlace: at => !inZone(at) && !otherCells().has(at.join(',')) } }
 }
 function wallStuckOf (c, plot = WALL_PLOT) {
   if (!wallStuckOn()) return {}
