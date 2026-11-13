@@ -7,7 +7,9 @@ Each scenario seeds a queue whose head has a variant only for SB, declares the p
 
   clean       the pick applies, the diff is identical, tests pass  -> a variant for LB is queued, the next tick LAUNCHES it
   conflict    LB edits the changed line                           -> refused at the cherry-pick, the head BLOCKED, paged
-  diffchange  LB edits a line inside the change's context         -> the pick is clean, the diff differs: refused
+  diffchange  LB edits a line inside the change's context         -> the pick is clean, only CONTEXT of code differs:
+              v44 ACCEPTS it (the change is not protected), names it and pages a flag; with ~/digest/CONTEXT-STRICT, and
+              in `diffchange-prot` (the same LB, the changed file on the protected list at SB), it is refused as before
   failtest    a test the change breaks fails in full and alone    -> refused at npm test
   tier        LB lists the changed file as protected              -> refused: tier none -> 3
   baseflake   a test fails on the new tip AND on the base         -> accepted, named in the registration
@@ -118,7 +120,8 @@ class ArFix(TC.Fix):
                           ('bots/test/a.test.mjs', "import '../src/a.mjs'  // imports the changed file\n"),
                           ('bots/test/b.test.mjs', '// fixture\n'),
                           ('bots/test/c.test.mjs', "import { b } from '../src/b.mjs'  // imports nothing the change edits\n"),
-                          ('config/protected-paths.txt', 'bots/src/zzz-not-in-the-change.mjs\n'),
+                          ('config/protected-paths.txt', 'bots/src/zzz-not-in-the-change.mjs\n' +
+                           ('bots/src/a.mjs\n' if scenario == 'diffchange-prot' else '')),   # v44: protected on BOTH bases
                           (LIST_REL, '\n'.join(LIST_LINES) + '\n'),
                           ('.gitattributes', LIST_REL + ' merge=union\n')):      # as the real repo (phase 1 item 3, 11-06)
             os.makedirs(os.path.join(g, os.path.dirname(rel)), exist_ok=True)
@@ -137,7 +140,7 @@ class ArFix(TC.Fix):
         gc(g, 'checkout', '-q', '--detach', self.sb)
         if scenario == 'conflict':
             self.edit_a({4: 'export const a5 = 5000'})
-        elif scenario == 'diffchange':
+        elif scenario in ('diffchange', 'diffchange-prot'):
             self.edit_a({6: 'export const a7 = 7000'})        # line 7: inside the change's 3-line context, not adjacent
         elif scenario == 'listcontext':   # v43: a promotion rewrote a list line 3 above ours (as sandrung-01's lines went, 11-12):
             self.edit_list(lambda ls: ls[:1] + ["  'bots/test/other.test.mjs',   // other-01 took r1's place"] + ls[2:])   # OUR hunk's context moves, no +/- line does
@@ -404,14 +407,239 @@ def t_conflict_pages_and_blocks(CS):
 
 
 def t_diff_change_refuses(CS):
+    """v44: the fixture is `diffchange-prot` -- the SAME context-only difference in code, on a change that is PROTECTED
+    (tier 3 on both bases). There a neighbouring line is the reviewers' business: byte-exact, refused as before v44.
+    (The unprotected `diffchange` this test used until v43 is now accepted: t_v44_code_context_accepted_when_not_protected.)"""
+    F = ArFix('diffchange-prot')
+    try:
+        seed(CS, F)
+        assert json.load(open(F.queue))['entries'][0]['variants'][F.sb]['protected'] is True, 'the fixture is not protected'
+        job = tick_and_wait(CS, F)
+        assert any(s['step'] == 'cherry-pick' and s['ok'] for s in job['steps']), 'the pick must have been clean'
+        assert_blocked_no_retry(CS, F, job, 'cherry-pick', 'NOT the reviewed diff')
+        assert 'only context lines of code differ (bots/src/a.mjs 1)' in job['why'] and 'protected (tier 3 on the source base, 3 on' in job['why'], job['why']
+        assert not any('accepted a context-only' in p['msg'] for p in F.pages()), F.pages()
+    finally:
+        F.cleanup()
+
+
+def _accepted_page(F):
+    return [p for p in F.pages() if 'autorebase accepted a context-only rebase of code' in p['msg']]
+
+
+def t_v44_code_context_accepted_when_not_protected(CS):
+    """ironchain-02 (11-12), boardwalk-03 (11-13): the pick was clean, every added and removed line the reviewed one, and
+    1-3 context lines of a code file differed; the build refused and a human registered the same sha by hand. For a
+    change that is not protected the build goes on (the suite runs), says so in the step row, the registration and
+    `approved`, pages ONE flag, and the variant launches like any other."""
     F = ArFix('diffchange')
     try:
         seed(CS, F)
         job = tick_and_wait(CS, F)
-        assert any(s['step'] == 'cherry-pick' and s['ok'] for s in job['steps']), 'the pick must have been clean'
-        assert_blocked_no_retry(CS, F, job, 'cherry-pick', 'NOT the reviewed diff')
+        assert job['state'] == 'done', (job, F.logtail())
+        ident = [x['detail'] for x in job['steps'] if x['step'] == 'diff-identical']
+        assert len(ident) == 1 and 'CONTEXT-ONLY IN CODE' in ident[0] and 'context-only (code) in bots/src/a.mjs' in ident[0], ident
+        assert '1 context line(s) differ (bots/src/a.mjs 1)' in ident[0], ident
+        steps = [x['step'] for x in job['steps']]
+        assert steps.index('diff-identical') < steps.index('tier') < steps.index('tests'), 'the order of the rows is unchanged, and the suite ran: %s' % steps
+        assert any(x['step'] == 'tier' and 'tier none' in x['detail'] for x in job['steps']), job['steps']
+        # positive control: the two normalized diffs really differ (v43 refused exactly here), in context only
+        R = os.path.join(F.ar, 'repo.git')
+        assert CS.diff_hash(R, F.sb, F.st)[0] != CS.diff_hash(R, F.lb, job['variant'])[0], 'the fixture does not move the context'
+        assert CS.code_context_counts(CS.diff_norm(R, F.sb, F.st), CS.diff_norm(R, F.lb, job['variant'])) == {'bots/src/a.mjs': 1}
+        v = json.load(open(F.queue))['entries'][0]['variants'][F.lb]
+        reg = json.load(open(v['registration']))
+        for text in (v['approved'], reg['notes']):
+            assert 'CONTEXT-ONLY REBASE OF CODE' in text and 'bots/src/a.mjs 1' in text and 'a blockers-only look is owed' in text, text
+            assert 'normalized diff identical' not in text, 'the text must not claim a byte-identical diff: %s' % text
+        assert v['protected'] is False, v
+        pg = _accepted_page(F)
+        assert len(pg) == 1 and pg[0]['level'] == 'flag' and pg[0]['run'] == 'foo-01', F.pages()
+        assert ('foo-01: autorebase accepted a context-only rebase of code in bots/src/a.mjs (1 context lines); the suite ran; '
+                'a blockers-only look is owed') in pg[0]['msg'], pg[0]['msg']
+        assert not any(p['level'] == 'error' for p in F.pages()), F.pages()
+        TC.expect(CS, F, 'launch')                         # the flag blocks nothing
+        rc, out = TC.human(CS, F, 'tick')
+        assert rc == 0 and 'LAUNCH foo-01' in out, out
     finally:
         F.cleanup()
+
+
+def t_v44_context_strict_restores_byte_exact(CS):
+    """The kill switch: with ~/digest/CONTEXT-STRICT the SAME unprotected build is refused as v43 refused it."""
+    F = ArFix('diffchange')
+    try:
+        seed(CS, F)
+        open(os.path.join(F.home, 'digest', 'CONTEXT-STRICT'), 'w').close()
+        job = tick_and_wait(CS, F)
+        assert any(s['step'] == 'cherry-pick' and s['ok'] for s in job['steps']), 'the pick must have been clean'
+        assert_blocked_no_retry(CS, F, job, 'cherry-pick', 'NOT the reviewed diff')
+        assert 'CONTEXT-STRICT is present' in job['why'] and 'only context lines of code differ' in job['why'], job['why']
+        assert not _accepted_page(F), F.pages()
+    finally:
+        F.cleanup()
+
+
+def t_v44_notes_say_which_identity_held(CS):
+    """`approved` and the registration notes said "normalized diff identical" in every case (v43's path-list case too).
+    Each of the three cases now says what was actually compared; only the code case pages."""
+    for scenario, want, never in (('clean', 'normalized diff identical (sha256 ', 'context-only'),
+                                  ('listcontext', 'every added and removed line identical, context-only in %s (a path list' % LIST_REL,
+                                   'normalized diff identical')):
+        F = ArFix(scenario)
+        try:
+            seed(CS, F)
+            job = tick_and_wait(CS, F)
+            assert job['state'] == 'done', (scenario, job, F.logtail())
+            v = json.load(open(F.queue))['entries'][0]['variants'][F.lb]
+            for text in (v['approved'], json.load(open(v['registration']))['notes']):
+                assert want in text and never not in text and 'CONTEXT-ONLY REBASE OF CODE' not in text, (scenario, text)
+            assert not _accepted_page(F), (scenario, F.pages())
+        finally:
+            F.cleanup()
+
+
+def _behind_a_live_canary(CS, F):
+    """foo-01 (its patch SB..ST) waits behind live-01, the LIVE canary: the fleet base is SB, the canary's sha is LB."""
+    F.enqueue(CS)
+    rc, out = TC.human(CS, F, 'queue', 'set-patch', 'foo-01', F.sb, 'foo-on-sb')
+    assert rc == 0, out
+    q = json.load(open(F.queue))
+    foo = q['entries'][0]
+    reg_l = os.path.join(F.home, 'mcai-analysis', 'live-01.json'); shutil.copy(F.reg, reg_l)
+    live = dict(json.loads(json.dumps(foo)), run='live-01', patch=None)
+    live['variants'][F.sb]['registration'] = reg_l
+    foo['after'] = ['live-01']
+    json.dump({'version': 1, 'entries': [live, foo]}, open(F.queue, 'w'))
+    td = TC.dt.timedelta
+    F.regfile('live-01', F.lb[:7])
+    F.j('live-01', 'draw', NOW - td(hours=1)); F.j('live-01', 'drawn', NOW - td(minutes=50))
+    F.j('live-01', 'deployed', NOW - td(minutes=45), 'board-a %s' % TC.Z(NOW - td(minutes=45)))
+    F.add_proc(80, ['bash', '/home/mike/canary-loop.sh', 'live-01'])
+    F.base = F.sb
+    F.set_manifest('board-a', F.lb[:7])
+
+
+def t_v44_speculative_refusal_is_a_flag_that_names_the_hand_rebase(CS):
+    """A SPECULATIVE build (onto the live canary's sha, during its read) that refuses blocks nothing yet: its page is a
+    'flag' that says the run will need a hand rebase before it reaches the head -- hours before the slot is empty. The
+    refusal of a build for the HEAD is the 'error' page it always was."""
+    F = ArFix('conflict')
+    try:
+        _behind_a_live_canary(CS, F)
+        rc, out = TC.human(CS, F, 'tick')
+        assert rc == 0 and 'SPECULATIVE AUTOREBASE foo-01 onto the live canary %s' % F.lb[:8] in out, out
+        job = F.wait_job()
+        assert job['state'] == 'refused' and job.get('spec') is True and job['base'] == F.lb, job
+        assert 'does not apply cleanly' in job['why'], job['why']
+        pg = [p for p in F.pages() if 'refused at step' in p['msg']]
+        assert len(pg) == 1 and pg[0]['level'] == 'flag' and pg[0]['run'] == 'foo-01', F.pages()
+        assert 'SPECULATIVE autorebase onto the live canary %s' % F.lb[:8] in pg[0]['msg'], pg[0]['msg']
+        assert 'foo-01 will need a hand rebase before it reaches the head' in pg[0]['msg'] and 'does not apply cleanly' in pg[0]['msg'], pg[0]['msg']
+        assert not any(p['level'] == 'error' for p in F.pages()), 'nothing is blocked yet: %s' % F.pages()
+        rc, out = TC.human(CS, F, 'tick')                  # never a retry
+        assert rc == 0 and 'SPECULATIVE' not in out and len(F.job()) == 1, out
+    finally:
+        F.cleanup()
+    F = ArFix('conflict')                                  # the same refusal for the HEAD: unchanged
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'refused' and 'spec' not in job, job
+        pg = [p for p in F.pages() if 'refused at step' in p['msg']]
+        assert len(pg) == 1 and pg[0]['level'] == 'error' and 'foo-01 BLOCKED: no variant for fleet base %s' % F.lb[:8] in pg[0]['msg'], F.pages()
+        assert 'hand rebase before it reaches the head' not in pg[0]['msg'], pg[0]['msg']
+    finally:
+        F.cleanup()
+
+
+def t_v44_code_context_pure(CS):
+    """The rule for CODE (diff_equiv code=True): the same files, every non-hunk line, the same number of hunks, and in
+    each hunk -- with the context lines that differ taken out -- the same sequence. Off by default; never for a path list."""
+    P = 'bots/src/skills/boardwalk.mjs'
+    Z = _nd('bots/src/z.mjs', ['a', 'b', 'd'], ['a', 'c', 'd'])        # another file, identical on both sides, AFTER ours
+    src = ["import { a } from './a.mjs'", "import { b } from './b.mjs'", "import { c } from './c.mjs'", '',
+           'export function walk() {', '  return a() + b()', '}', ''] + ['// line %d' % i for i in range(1, 13)] + ['export const tail = 1']
+
+    def change(lines, tail=False):          # the reviewed change: an import after c's, and the body uses it
+        out = list(lines)
+        out.insert(out.index("import { c } from './c.mjs'") + 1, "import { plank } from './plank.mjs'")
+        out[out.index('  return a() + b()')] = '  return a() + b() + plank()'
+        if tail:
+            out[out.index('export const tail = 1')] = 'export const tail = 2'
+        return out
+    glass = src[:2] + ["import { glass } from './glass.mjs'"] + src[2:]     # the measured shape: a neighbouring import landed
+    A, B = _nd(P, src, change(src)) + Z, _nd(P, glass, change(glass)) + Z
+    code = 'context-only (code) in %s' % P
+    assert A != B and [l for l in A.split('\n') if l[:1] in '+-'] == [l for l in B.split('\n') if l[:1] in '+-'], 'the fixture: same +/- lines'
+    assert CS.diff_equiv(A, B, code=True) == code, 'the measured case: one context line of a code file differs'
+    assert CS.diff_equiv(A, B) is None and CS.diff_equiv(A, B, texts={}) is None, 'off by default: byte-exact, as before v44'
+    assert CS.diff_equiv(A, A, code=True) == '' and CS.diff_equiv(B, A, code=True) == code
+    assert CS.code_context_counts(A, B) == {P: 1}, CS.code_context_counts(A, B)
+    three = src[:1] + ["import { g1 } from './g1.mjs'", "import { g2 } from './g2.mjs'", "import { c } from './c.mjs'"] + src[3:]
+    assert CS.diff_equiv(A, _nd(P, three, change(three)) + Z, code=True) == code and \
+        CS.code_context_counts(A, _nd(P, three, change(three)) + Z) == {P: 2}, 'two context lines replaced'
+    # the three results stay distinguishable
+    assert all(isinstance(x, str) and x.startswith('context-only') for x in (code,)) and CS.diff_equiv(A, B) is None
+    # an ADDED or REMOVED line that differs is another change
+    assert CS.diff_equiv(A, B.replace("+import { plank } from './plank.mjs'", "+import { plank } from './plonk.mjs'"), code=True) is None
+    assert CS.diff_equiv(A, B.replace('-  return a() + b()', '-  return a() - b()'), code=True) is None
+    assert CS.diff_equiv(A, B.replace('+  return a() + b() + plank()', '+  return a() + b() + plank()\n+  // more'), code=True) is None
+    swapped = B.replace("+import { plank } from './plank.mjs'\n", '').replace('+  return a() + b() + plank()\n',
+                                                                               "+  return a() + b() + plank()\n+import { plank } from './plank.mjs'\n")
+    assert sorted(l for l in swapped.split('\n') if l[:1] in '+-') == sorted(l for l in B.split('\n') if l[:1] in '+-')
+    assert CS.diff_equiv(A, swapped, code=True) is None, 'the same lines in another order'
+    # the number of hunks: the reviewed change has TWO (the tail edit is far below); the rebased one lost the second
+    A2 = _nd(P, src, change(src, tail=True)) + Z
+    assert A2.count('@@') == 3 and B.count('@@') == 2, 'the fixture: two hunks in our file, one in Z'
+    assert CS.diff_equiv(A2, B, code=True) is None and CS.diff_equiv(B, A2, code=True) is None, 'a hunk more or fewer'
+    near = glass[:9] + glass[19:]                              # the base lost the lines between: the two hunks MERGE
+    M = _nd(P, near, change(near, tail=True)) + Z
+    assert M.count('@@') == 2 and [l for l in M.split('\n') if l[:1] in '+-'] == [l for l in A2.split('\n') if l[:1] in '+-']
+    assert CS.diff_equiv(A2, M, code=True) is None, 'the same +/- lines in ONE hunk instead of two'
+    B2 = _nd(P, glass, change(glass, tail=True)) + Z
+    assert CS.diff_equiv(A2, B2, code=True) == code, 'positive control: two hunks on both sides, context of the first differs'
+    # a non-hunk line (file header, mode) that differs
+    assert CS.diff_equiv(A, B.replace('--- a/' + P, 'old mode 100644\nnew mode 100755\n--- a/' + P), code=True) is None, 'a mode line'
+    assert CS.diff_equiv(A, B.replace('--- a/' + P, '--- /dev/null'), code=True) is None, 'a file header'
+    assert CS.diff_equiv(_nd(P, src, change(src)), _nd(P, glass, change(glass)) + '\\ No newline at end of file\n', code=True) is None
+    # files: one more, one fewer, another order
+    assert CS.diff_equiv(A, B[:-len(Z)], code=True) is None and CS.diff_equiv(A[:-len(Z)], B, code=True) is None
+    assert CS.diff_equiv(A, Z + B[:-len(Z)], code=True) is None
+    # the SAME context lines with the change's line on the other side of a shared neighbour is not "context-only"
+    head = 'diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n' % (P, P, P, P)
+    Ha, Hb = head + '@@\n k1\n k2\n+x\n k3\n k4\n' + Z, head + '@@\n k1\n+x\n k2\n k3\n k9\n' + Z
+    assert CS.diff_equiv(Ha, Hb, code=True) is None, 'x moved above k2, a line both diffs share'
+    assert CS.diff_equiv(Ha, head + '@@\n k1\n k2\n+x\n k3\n k9\n' + Z, code=True) == code, 'positive control: only k4 -> k9'
+    assert CS.diff_equiv(Ha, head + '@@\n k1\n+x\n k2\n k3\n k4\n' + Z, code=True) is None, 'the same context, x elsewhere: no context line differs'
+    # a path list keeps ITS rule (v43), never the code rule -- with code=True too
+    L = next(iter(CS.CONTEXT_FREE_PATHS)); OPEN, CLOSE = CS.CONTEXT_FREE_PATHS[L]
+    X = "  'bots/test/x.test.mjs',   // foo-01"
+    ent = ["  'bots/test/r%d.test.mjs'," % i for i in range(1, 11)]
+    mk = lambda entries: [OPEN] + list(entries) + [CLOSE, '', 'console.log(REQUIRED.length)']
+    ins = lambda lines: lines[:5] + [X] + lines[5:]
+    LA = _nd(L, mk(ent), ins(mk(ent)))
+    ok = mk(ent[:1] + ["  'bots/test/other.test.mjs',   // other-01"] + ent[2:])
+    bad = mk(ent[:2] + ['/* voyager-01'] + ent[3:])               # Codex r1 of v43: a block comment opened in the moved context
+    T = lambda lines: {L: '\n'.join(ins(lines)) + '\n'}
+    assert CS.diff_equiv(LA, _nd(L, ok, ins(ok)), texts=T(ok), code=True) == 'context-only in %s' % L, 'the list rule answers, and says so'
+    sec = lambda d: CS.diff_sections(d)[0][1]
+    assert CS.code_context(sec(LA), sec(_nd(L, bad, ins(bad)))) == 1, 'positive control: the CODE rule alone would accept it'
+    assert CS.diff_equiv(LA, _nd(L, bad, ins(bad)), texts=T(bad), code=True) is None, 'a list file is judged by the list rule only'
+    assert CS.diff_equiv(LA, _nd(L, ok, ins(ok)), code=True) is None, 'and without the rebased text it is not provable, as in v43'
+    assert CS.diff_equiv(A + LA, B + _nd(L, ok, ins(ok)), texts=T(ok), code=True) == '%s; context-only in %s' % (code, L), 'both at once'
+    assert CS.diff_equiv(A + LA, B + _nd(L, ok, ins(ok)), texts=T(ok)) is None, 'by default the code file still refuses'
+    assert CS.code_context_counts(A + LA, B + _nd(L, ok, ins(ok))) == {P: 1}, 'the list file is not counted as code'
+    # the pieces
+    assert CS.hunk_parts(['diff --git a/x b/x', '--- a/x', '+++ b/x', '@@', ' a', '+b', '@@', '-c', '']) == \
+        (['diff --git a/x b/x', '--- a/x', '+++ b/x'], [[' a', '+b'], ['-c', '']])
+    # WHEN the build may use it: not protected on BOTH bases, and no kill switch
+    cp = CS.code_context_problem
+    assert cp('none', 'none', False) == ''
+    for t in ('3', 'tooling', 'undecidable'):
+        for pair in ((t, t), (t, 'none'), ('none', t)):
+            assert 'protected' in cp(pair[0], pair[1], False), pair
+    assert 'CONTEXT-STRICT is present' in cp('none', 'none', True) and cp('3', '3', True)
 
 
 def t_failing_test_refuses(CS):
@@ -786,7 +1014,9 @@ TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_clear_then_re
          t_clean_builds_and_launches, t_conflict_pages_and_blocks, t_diff_change_refuses, t_failing_test_refuses,
          t_tier_change_refuses, t_base_flake_accepted_and_named, t_clear_flake_accepted, t_changed_flake_refused,
          t_flaky_both_accepted, t_v43_diff_equiv_pure, t_v43_list_context_is_the_same_change,
-         t_v43_no_patch_head_is_skipped]
+         t_v43_no_patch_head_is_skipped, t_v44_code_context_pure, t_v44_code_context_accepted_when_not_protected,
+         t_v44_context_strict_restores_byte_exact, t_v44_notes_say_which_identity_held,
+         t_v44_speculative_refusal_is_a_flag_that_names_the_hand_rebase]
 
 
 # --------------------------------------------------------------------------------------------- v41 bundles --
@@ -970,8 +1200,29 @@ MUTANTS = [
     ('v41: related members are not refused at the build', "    if probs:\n        raise ArRefuse('the members are related",
      "    if False:\n        raise ArRefuse('the members are related"),
     ('v41: the fast plan is never written', "        reg['fun_reads'] = plan\n", "        reg['fun_reads'] = STD_READS\n"),
-    ('v43: context in a path list still counts (the 11-12 refusals)', "        same = diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt), texts=texts)\n",
+    ('v43: context in a path list still counts (the 11-12 refusals)', "        same = diff_equiv(na, nb, texts=texts, code=not code_off)\n",
      "        same = None\n"),
+    ('v44: the build never uses the code rule (ironchain-02, boardwalk-03)', "        same = diff_equiv(na, nb, texts=texts, code=not code_off)\n",
+     "        same = diff_equiv(na, nb, texts=texts)\n"),
+    ('v44: a PROTECTED change gets the code rule too', "    if t0 != 'none' or t1 != 'none':\n", "    if False:\n"),
+    ('v44: CONTEXT-STRICT is ignored', "    if strict:\n        return '%s is present", "    if False:\n        return '%s is present"),
+    ('v44: the code rule is on by default', "def diff_equiv(a, b, free=None, texts=None, code=False):\n",
+     "def diff_equiv(a, b, free=None, texts=None, code=True):\n"),
+    ('v44: a path list is judged by the code rule', "        if path not in free and code and code_context(la, lb):\n",
+     "        if code and code_context(la, lb):\n"),
+    ('v44: any added or removed line passes as context-only code',
+     "        if [l for i, l in enumerate(ua) if not ctx(l) or i in ka] != [l for i, l in enumerate(ub) if not ctx(l) or i in kb]:\n",
+     "        if False:\n"),
+    ('v44: the place of the change among shared context is not compared',
+     "        if [l for i, l in enumerate(ua) if not ctx(l) or i in ka] != [l for i, l in enumerate(ub) if not ctx(l) or i in kb]:\n",
+     "        if [l for l in ua if not ctx(l)] != [l for l in ub if not ctx(l)]:\n"),
+    ('v44: a hunk more or fewer passes', "    if len(xa) != len(xb):\n        return None\n", "    if False:\n        return None\n"),
+    ('v44: a differing file header or mode passes', "    if ha != hb:\n        return None\n", "    if False:\n        return None\n"),
+    ('v44: an accepted context-only rebase of code is not paged', "    if ctx_code:\n        # v44: one page", "    if False:\n        # v44: one page"),
+    ('v44: the notes claim a byte-identical diff for a context-only rebase of code',
+     "    if ctx_code:\n        # v44: the same added and removed lines in the same hunks", "    if False:\n        # v44: the same added and removed lines in the same hunks"),
+    ('v44: a refused SPECULATIVE build pages as a blocked head', "        if job.job.get('spec'):\n", "        if False:\n"),
+    ('v44: a speculative job does not say so', "    if spec:\n        job['spec'] = True\n", "    if False:\n        job['spec'] = True\n"),
     ('v43: context is free in EVERY file', "        if path not in free:\n            return None\n", "        if False:\n            return None\n"),
     ('v43: a different added line passes in a list', "        if changed(la) != changed(lb) or other(la) != other(lb) or rigid(la) != rigid(lb):\n",
      "        if other(la) != other(lb) or rigid(la) != rigid(lb):\n"),

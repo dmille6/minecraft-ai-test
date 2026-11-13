@@ -136,8 +136,26 @@ a canary takes 3.3-3.85 h (draw <= 0.67 h, +180 read, promotion); 26 canaries in
           with a 60-min tripwire, so a 90-min 20-bot canary is the stricter path. The autorebase writes it; `queue add`
           refuses an unjustified one; H7 re-checks it at launch; ~/digest/FAST-OFF turns it off. canary-loop.sh v39
           and funread.py accept only the two plans in READ_PLANS.
+
+V44 (OWNER 2026-11-13: "how do we fix this reoccuring stall with rebase errors" -> "Yes, build step 1"). Three items, each
+for a stall that was measured:
+  1. A CONTEXT-ONLY REBASE OF CODE is the reviewed change when the change is NOT PROTECTED (tier none on both bases).
+     ironchain-02 (11-12) and boardwalk-03 (11-13) each picked with no conflict and every added and removed line the
+     reviewed one, and were refused because 1-3 context lines of a code file differed (another change had landed a
+     neighbouring import line); each waited for a human who verified exactly that and registered it by hand. Now: the
+     same files, the same non-hunk lines, the same number of hunks, each hunk's added and removed lines identical, in
+     order and at the same place among the context both diffs share (code_context) -> accepted, named in the step row,
+     the registration and `approved`, and paged once at 'flag' (a blockers-only look is owed; it never blocks the
+     launch). The suite still runs on the rebased tree. A PROTECTED change (tier 3, tooling, undecidable) keeps the
+     byte-exact rule; the path-list rule of v43 (CONTEXT_FREE_PATHS) is unchanged and still judges its own files.
+     ~/digest/CONTEXT-STRICT restores byte-exact for code.
+  2. LOOK AHEAD SPEC_DEPTH entries (spec_target): during a canary's read the next THREE queued changes are rebased onto
+     the canary sha, one build at a time, not only the first. A speculative build that is REFUSED pages at 'flag' and
+     says the run will need a hand rebase before it reaches the head: known hours before the slot is empty.
+  3. A HELD entry can always be passed (skip_kind 'held-no-variant'): glass-01 (11-13) was held AND had no variant for
+     the fleet base; its H2 text was not a skippable kind, so a held entry blocked the head 45 min with an empty slot.
 """
-import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, datetime as dt
+import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, difflib, datetime as dt
 
 UTC = dt.timezone.utc
 CLOSED_PHASES = ('promoted', 'torn-down')
@@ -166,6 +184,8 @@ AR_RERUN_TIMEOUT_S = 900
 AR_RERUN_BUDGET_S = 80 * 60   # v40: all re-runs of one build; past it no new run starts and an undecided file refuses
 AR_REMOTE_WAIT_S = 100 * 60   # v42: the remote full suite (ci2/.30 via the Mac relay) must answer within this, else local
 SPEC_OFF_NAME = 'SPEC-OFF'    # v42: ~/digest/SPEC-OFF = no speculative build during a canary's read
+SPEC_DEPTH = 3                # v44: the speculative build looks this many eligible entries past the live canary (was 1)
+CONTEXT_STRICT_NAME = 'CONTEXT-STRICT'   # v44: ~/digest/CONTEXT-STRICT = a rebase that moves CODE context is refused again
 BUNDLE_MAX = 3           # v41: members per bundle (Codex: start with pairs; Claude: up to four) -- three
 STD_READS, FAST_READS = '90 180', '45 90'
 READ_PLANS = {STD_READS: 240, FAST_READS: 150}   # fun_reads -> deadline_min; canary-loop.sh and funread.py hold the same
@@ -236,6 +256,7 @@ def paths():
         'ar_backoff': g('SCHED_AR_BACKOFF_S', '60,180'),  # v40: the sleep before the 2nd, 3rd re-run alone on the new tip
         'ar_remote_wait': g('SCHED_AR_REMOTE_WAIT_S', str(AR_REMOTE_WAIT_S)),
         'spec_off': os.path.join(D, SPEC_OFF_NAME),
+        'context_strict': os.path.join(D, CONTEXT_STRICT_NAME),   # v44: present = byte-exact for code, as before v44
     }
 
 
@@ -449,6 +470,9 @@ def waited_on(run, st):
 # v43: the two block texts skip_kind recognises, written by ar_view (H2) and variant_checks (H3) from these same names
 NO_PATCH_SOURCE = 'no patch source, so no autorebase'
 STALE_STAGED = 'exists with other content'
+# v44: the H2 text head_blockers writes for an entry with no variant for the fleet base, whatever follows it (ar_view's
+# "autorebase cannot run: ...", "autorebase will cherry-pick ...", "... is building", "REFUSED at step ...")
+NO_VARIANT = 'no variant for the fleet base'
 
 
 def skip_kind(code, reason, st, e):
@@ -458,7 +482,15 @@ def skip_kind(code, reason, st, e):
     getting stalled"), two more, each a block only a human can clear that touched nothing: H2 NO PATCH SOURCE (a hand-built
     entry nobody ran `queue set-patch` on: chestcarry-01 held the slot idle 3 h 15 min on 11-11) and H3 a STALE STAGED
     REGISTRATION of a run that never deployed (stuckfleet-03: 18 h 25 min on 11-10/11). The entry is skipped and flagged
-    as every skip is; it still cannot launch until its remedy is run."""
+    as every skip is; it still cannot launch until its remedy is run.
+    v44 (OWNER 11-13), one more: the missing-variant H2 of an entry that is ALSO HELD ('held-no-variant'). Measured
+    11-13: glass-01 was held (H1) and had no variant for the fleet base (H2 "autorebase cannot run: patch has no
+    diff_sha256", and after a `queue set-patch`, "autorebase will cherry-pick ..."); neither H2 text was a kind, so
+    skip_reason refused the skip and a held entry blocked the head for 45 min with the slot empty. A held entry cannot
+    launch whatever its H2 says, and no build starts for it (ar_should_start stops at its H1; spec_target stops at a
+    hold), so passing it loses nothing: when the hold is released the H2 is judged on its own again. ONLY with the hold:
+    the same H2 on an entry that is not held is not a kind here. Not covered: the H2 "the fleet base could not be
+    resolved" (a fault of the fleet, not of the entry; the next entry has it too)."""
     run = e.get('run')
     r = reason.split(': ', 1)[1] if reason.startswith('%s: ' % run) else reason
     if code == 'H1' and r.startswith('held: '):
@@ -475,6 +507,8 @@ def skip_kind(code, reason, st, e):
         job = st.get('ar_job') or {}
         if 'went silent' in r and str(job.get('pid') or '') not in (st.get('pid_alive') or {}):
             return 'autorebase-dead'
+        if e.get('hold') and r.startswith(NO_VARIANT):
+            return 'held-no-variant'             # v44: after the kinds above, so each of those keeps its own name
     if code == 'R10':
         return 'exposure'
     return None
@@ -665,8 +699,8 @@ def head_blockers(e, st):
         out.append(('H2', 'the fleet base could not be resolved to a full sha', False))
     elif base not in vs:
         why, waiting, _ = ar_view(e, st)
-        out.append(('H2', 'no variant for the fleet base %s (have: %s): %s'
-                    % (base[:7], ', '.join(k[:7] for k in vs) or 'none', why), waiting))
+        out.append(('H2', '%s %s (have: %s): %s'
+                    % (NO_VARIANT, base[:7], ', '.join(k[:7] for k in vs) or 'none', why), waiting))
     else:
         for code, why in (st.get('variant_checks') or []):
             out.append((code, why, False))
@@ -765,10 +799,20 @@ def ar_should_start(st):
 def spec_target(st):
     """PURE. v42 (OWNER 11-06: build the next variant DURING the current canary's read; 50 of 55 canaries KEEP, so the
     canary sha is the next fleet base). -> (entry, canary full sha) or None. Only while a canary is LIVE (declared,
-    its run live) and only for the entry that would launch after it: the first entry after the live run in queue
+    its run live) and only for an entry that would launch after it: an entry after the live run in queue
     order that is ready, unheld, a single run with a patch source, whose `after` is done or the live run, with no variant
     and no job (any state: never a retry) for the canary sha, and no other build running. A REVERT leaves the variant
-    unused (keyed on a sha that never became the base)."""
+    unused (keyed on a sha that never became the base).
+    v44 (OWNER 11-13): the walk goes SPEC_DEPTH eligible entries deep, not one. v42-v43 returned None as soon as the
+    FIRST entry had its variant or a job for the canary sha, so the second and third were first rebased when each
+    reached the head with the slot already empty, and a refusal was found only then. Now an entry that already has its
+    variant, or a job in any state, for the canary sha is PASSED
+    OVER (it counts toward the depth; its job is never retried) and the next eligible one is returned. Every other
+    condition still ENDS the walk, as before: not ready, held, a bundle, no patch source, an `after` that is neither
+    done nor the live run -- nothing behind such an entry is built ahead. One build at a time (ar_busy; ar_start
+    checks again). A variant built for the second or third entry is the one it launches on when the entries ahead of it
+    are skipped, refused or do not KEEP; when they KEEP, the base moves and it is rebased again during THEIR read --
+    what the early build buys then is the early refusal (ar_build pages a refused speculative build at 'flag')."""
     if st.get('spec_off'):
         return None
     man = st.get('manifest') if isinstance(st.get('manifest'), dict) else {}
@@ -783,6 +827,7 @@ def spec_target(st):
     idx = next((i for i, x in enumerate(entries) if x.get('run') == L), None)
     if idx is None or st.get('ar_busy'):
         return None
+    passed = 0
     for e in entries[idx + 1:]:
         es = entry_state(e, st)
         if es in ('done', 'cancelled', 'bundled'):
@@ -792,7 +837,10 @@ def spec_target(st):
         if any(a != L and journal_status(a, st) != 'closed' for a in e.get('after') or []):
             return None
         if csha in (e.get('variants') or {}) or (st.get('spec_jobs') or {}).get(e.get('run')):
-            return None
+            passed += 1                          # v44: it has its variant, or was tried (never a retry): look further
+            if passed >= SPEC_DEPTH:
+                return None
+            continue
         return e, csha
     return None
 
@@ -869,9 +917,99 @@ def list_region(text, marks):
     return region if all(list_line(l) for l in region) else None
 
 
-def diff_equiv(a, b, free=None, texts=None):
+# v44 (OWNER 11-13 "how do we fix this reoccuring stall with rebase errors" -> "Yes, build step 1"). v43 freed the context
+# of ONE path list and kept CODE byte-exact, and the stall moved there. Measured: ironchain-02 (11-12) and boardwalk-03
+# (11-13) each cherry-picked with NO conflict, every added and removed line the reviewed one, and stopped at "the rebased
+# diff is NOT the reviewed diff" because 1-3 CONTEXT lines of a code file differed (another change had landed a
+# neighbouring import line). Each then waited for a human, who verified exactly that and registered the variant by hand.
+# So that verification is done here, mechanically (code_context), for a change that is NOT PROTECTED, and the suite --
+# which runs on the rebased tree in every case -- is what answers "does a neighbouring line change what it does".
+# A PROTECTED change (protected.py tier 3 / tooling / undecidable on either base) keeps the byte-exact rule: there a
+# neighbouring line is the reviewers' business (code_context_problem). Every accepted case is named in its step row, its
+# registration and its `approved` text and paged once at 'flag' for a blockers-only look after the fact.
+def hunk_parts(ls):
+    """PURE. One file's section of a normalized diff (diff_sections) -> (head, hunks). `head` = every line before the first
+    hunk: the `diff --git` line, mode lines, `---` / `+++`, and a binary patch whole (it has no hunk). `hunks` = the lines
+    of each hunk after its `@@`, in order: context (' '), added, removed, and anything else git writes inside one
+    (the no-newline-at-end-of-file marker; the empty string after the diff's last newline)."""
+    head, hunks = [], []
+    for l in ls:
+        if l == '@@':
+            hunks.append([])
+        elif hunks:
+            hunks[-1].append(l)
+        else:
+            head.append(l)
+    return head, hunks
+
+
+def code_context(la, lb):
+    """PURE. v44. Two sections of ONE file (reviewed `la`, rebased `lb`) that are not byte-identical: is `lb` the same
+    change with other CONTEXT? -> the number of context lines that differ (>= 1), or None. ALL of:
+      - every non-hunk line identical (file headers, modes; so a binary patch, which has no hunk, is byte-exact);
+      - the same number of hunks (a base that merged or split two hunks moved the change's own lines together or apart);
+      - in each hunk, with the context lines that DIFFER taken out of both, the two hunks are the same sequence. So
+        every line that is not context -- added, removed, a no-newline marker -- is identical and in order, AND the
+        change's lines stand at the same place among the context lines both diffs share. (Comparing the added and
+        removed lines alone would read a line added ABOVE a shared neighbour in one diff and BELOW it in the other
+        as "context-only".)
+    SHARED = difflib's matching blocks over the two hunks' context lines (the longest common run first, then left and
+    right of it, until the gaps between the blocks have no line in common): an order-preserving pairing, so a context
+    line counts as differing only when the matching gap of the other diff holds no equal line. The count is per hunk
+    max(context lines) - shared ones."""
+    (ha, xa), (hb, xb) = hunk_parts(la), hunk_parts(lb)
+    if ha != hb:
+        return None
+    if len(xa) != len(xb):
+        return None
+    ctx = lambda l: l[:1] == ' '
+    n = 0
+    for ua, ub in zip(xa, xb):
+        ia, ib = [i for i, l in enumerate(ua) if ctx(l)], [i for i, l in enumerate(ub) if ctx(l)]
+        ka, kb = set(), set()
+        for m in difflib.SequenceMatcher(None, [ua[i] for i in ia], [ub[i] for i in ib], autojunk=False).get_matching_blocks():
+            ka.update(ia[m.a:m.a + m.size]); kb.update(ib[m.b:m.b + m.size])
+        if [l for i, l in enumerate(ua) if not ctx(l) or i in ka] != [l for i, l in enumerate(ub) if not ctx(l) or i in kb]:
+            return None
+        n += max(len(ia), len(ib)) - len(ka)
+    return n or None
+
+
+def code_context_counts(a, b, free=None):
+    """PURE. v44. {path: context lines that differ} for every file of the normalized diffs `a` (reviewed) and `b` (rebased)
+    whose section differs and that code_context accepts; the path lists in `free` are left out (their rule is diff_equiv's)."""
+    free = CONTEXT_FREE_PATHS if free is None else free
+    sa, sb = diff_sections(a), diff_sections(b)
+    if [p for p, _ in sa] != [p for p, _ in sb]:
+        return {}
+    out = {}
+    for (path, la), (_, lb) in zip(sa, sb):
+        n = code_context(la, lb) if la != lb and path not in free else None
+        if n:
+            out[path] = n
+    return out
+
+
+def code_context_problem(t0, t1, strict):
+    """PURE. v44. '' when the build may accept a context-only rebase of CODE, else why not. t0 / t1 = tier_label of the
+    change on its source base / on the new base. Only `none` on BOTH is "not protected" (protected.py exit 0, what
+    validate_entry records as protected False): 3, tooling and undecidable are protected (undecidable = protected is
+    protected.py's own rule), and so is a tier that changed (step 7 refuses that one anyway). `strict` = the kill
+    switch ~/digest/CONTEXT-STRICT is present."""
+    if strict:
+        return '%s is present (byte-exact for code)' % CONTEXT_STRICT_NAME
+    if t0 != 'none' or t1 != 'none':
+        return 'the change is protected (tier %s on the source base, %s on the new one): byte-exact for code' % (t0, t1)
+    return ''
+
+
+def diff_equiv(a, b, free=None, texts=None, code=False):
     """PURE. Is normalized diff `b` (the rebased change) the same change as the reviewed normalized diff `a`? ->
-    '' byte-identical | 'context-only in <paths>' | None (a different change, or not provably the same).
+    '' byte-identical | 'context-only in <paths>' | 'context-only (code) in <paths>[; context-only in <paths>]' (v44,
+    only with code=True) | None (a different change, or not provably the same).
+    code=True (v44; the build passes it only when code_context_problem is ''): a differing file that is NOT in `free`
+    is the same change when code_context says so. The default keeps every such file byte-exact, as before v44. A file
+    in `free` is judged by the list rule below in both cases, never by the code rule.
     'context-only': the same files in the same order; every file outside `free` byte-identical; and for a differing file
     in `free` (path -> the list's opening and closing line), with `texts[path]` the file AS REBASED:
       - every added and removed line identical and in order, and every non-hunk line (headers, modes) identical;
@@ -893,9 +1031,12 @@ def diff_equiv(a, b, free=None, texts=None):
     other = lambda ls: [l for l in ls if l and l[:1] not in ('+', '-', ' ') and l != '@@']
     edits = lambda ls: [l for l in ls if l[:1] in ('+', '-') and not l.startswith(hdr)]
     rigid = lambda ls: [l for l in ls if l[:1] == ' ' and not list_line(l[1:])]
-    loose = []
+    loose, loose_code = [], []
     for (path, la), (_, lb) in zip(sa, sb):
         if la == lb:
+            continue
+        if path not in free and code and code_context(la, lb):
+            loose_code.append(path)              # v44
             continue
         if path not in free:
             return None
@@ -907,7 +1048,9 @@ def diff_equiv(a, b, free=None, texts=None):
         if region is None or any(l[1:] not in region for l in edits(lb) if l[:1] == '+'):
             return None
         loose.append(path)
-    return 'context-only in %s' % ', '.join(loose) if loose else None
+    out = (['context-only (code) in %s' % ', '.join(loose_code)] if loose_code else []) + \
+          (['context-only in %s' % ', '.join(loose)] if loose else [])
+    return '; '.join(out) or None
 
 
 def diff_norm(gdir, a, b):
@@ -1895,6 +2038,7 @@ def gather(P, full=True, r10=None):
     st['base_full'] = full_sha(P, man.get('declared_code_version'))
     st['rollout_procs'] = rollout_procs(P)
     st['spec_off'] = os.path.exists(P['spec_off'])
+    st['context_strict'] = os.path.exists(P['context_strict'])   # v44 (the BUILD reads the file itself: it is another process)
     st['canary_full'] = full_sha(P, man.get('canary_code_version')) if man.get('canary_code_version') else None
     st['ar_busy'], st['spec_jobs'] = False, {}
     for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
@@ -2318,13 +2462,17 @@ def ar_page(P, level, run, msg):
 def ar_start(P, st, e, base=None):
     """Create the job file EXCLUSIVELY (a second tick can never start a second build, and a crash before the helper
     writes its pid leaves `starting`, which goes stale -> blocked, never retried), then start the helper detached.
-    v42: base = the live canary's sha for a SPECULATIVE build (spec_target), else the fleet base."""
+    v42: base = the live canary's sha for a SPECULATIVE build (spec_target), else the fleet base.
+    v44: a speculative job says so in its file (`spec`), so ar_build can page its refusal as what it is."""
+    spec = bool(base) and base != st.get('base_full')
     run, base, tip = e['run'], base or st['base_full'], ar_token(e)
     p = ar_job_path(P, run, base, tip)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     src_base = (e.get('patch') or {}).get('base') or ''
     job = {'state': 'starting', 'run': run, 'base': base, 'tip': tip, 'src_base': src_base,
            'at': iso(now()), 'hb': iso(now()), 'step': 'start', 'steps': []}
+    if spec:
+        job['spec'] = True
     for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
         j = ar_read_job(q) or {}
         hb = ts(j.get('hb') or j.get('at'))
@@ -2728,6 +2876,16 @@ def ar_build(P, run, base, tip):
         why = str(x)
         job.step(job.job.get('step') or '?', 'REFUSED: ' + why, ok=False)
         job.end('refused', why=why)
+        if job.job.get('spec'):
+            # v44 (OWNER 11-13): a SPECULATIVE build (onto the live canary's sha, during its read) blocks nothing yet --
+            # the run is not at the head and that sha is not the fleet base -- so it is a 'flag', not the 'error' page
+            # of a blocked head, and it says what is owed. The job is never retried (spec_target passes it over; at the
+            # head ar_view reads it as REFUSED), so without a hand rebase the run is skipped or blocks when it gets there.
+            ar_page(P, 'flag', run, '%s: the SPECULATIVE autorebase onto the live canary %s refused at step %s: %s -- %s '
+                    'will need a hand rebase before it reaches the head (build the variant on %s by hand and `queue '
+                    'add-variant`, or fix the cause and `canary-sched.py autorebase-clear %s <why>`); nothing is blocked yet'
+                    % (run, base[:8], job.job.get('step'), why[:400], run, base[:8], run))
+            return 3
         ar_page(P, 'error', run, '%s BLOCKED: no variant for fleet base %s and the autorebase refused at step %s: %s -- '
                 'build it by hand (`queue add-variant`) or fix and `canary-sched.py autorebase-clear %s <why>`'
                 % (run, base[:8], job.job.get('step'), why[:400], run))
@@ -3193,30 +3351,52 @@ def _ar_steps(P, job, run, base, tip):
     S('cherry-pick', '%d commit(s) onto %s -> %s, no conflicts' % (len(commits), base[:8], nt[:8]))
     # 6. (b) the diff is the reviewed diff
     h1, files1 = diff_hash(R, base, nt)
-    same = ''
+    # v44: the protected tier of the change on BOTH bases is read HERE, before the identity check, because it decides
+    # which rule that check uses for code (code_context_problem). Step 7 still refuses a tier that changed, in its place.
+    PR = dict(P, git=R)
+    t0 = tier_label(*protected_run(PR, pt['base'], tip))
+    t1 = tier_label(*protected_run(PR, base, nt))
+    code_off = code_context_problem(t0, t1, os.path.exists(P['context_strict']))
+    same, na, nb, texts = '', '', '', {}
     if h1 != h0:
         # v43: the rebased text of each path list the change touches (git show; a failure leaves it out = not the same)
-        texts = {}
         for fp in CONTEXT_FREE_PATHS:
             if fp in files1:
                 rcs, txt, _ = gitx(R, 'show', '%s:%s' % (nt, fp))
                 if rcs == 0:
                     texts[fp] = txt
-        same = diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt), texts=texts)
+        na, nb = diff_norm(R, pt['base'], tip), diff_norm(R, base, nt)
+        same = diff_equiv(na, nb, texts=texts, code=not code_off)
+    hint = ''
+    if same is None and code_off and diff_equiv(na, nb, texts=texts, code=True):
+        # v44: say so when the ONLY difference is context in code, so the human rebase knows what it is looking at
+        hint = ' -- every added and removed line IS the reviewed one and only context lines of code differ (%s), but %s' % (
+            ', '.join('%s %d' % kv for kv in sorted(code_context_counts(na, nb).items()))[:160], code_off)
     if same is None:
         raise ArRefuse('the rebased diff is NOT the reviewed diff (normalized sha256 %s vs %s; files %s): the base changed '
-                       'lines in or beside the change, so it needs a human rebase and a review'
-                       % (h1[:12], h0[:12], ', '.join(files1)[:200]))
-    if same:
+                       'lines in or beside the change, so it needs a human rebase and a review%s'
+                       % (h1[:12], h0[:12], ', '.join(files1)[:200], hint))
+    ctx_code = code_context_counts(na, nb) if same.startswith('context-only (code)') else {}
+    if ctx_code:
+        # v44: the same added and removed lines in the same hunks; context lines of CODE moved, the change not protected
+        nctx = sum(ctx_code.values())
+        ident = ('every added and removed line identical, CONTEXT-ONLY REBASE OF CODE (v44, not protected): %s; %d context '
+                 'line(s) differ (%s); normalized diff sha256 %s, reviewed %s; a blockers-only look is owed'
+                 % (same, nctx, ', '.join('%s %d' % kv for kv in sorted(ctx_code.items())), h1[:16], h0[:16]))
+        S('diff-identical', 'the reviewed change: every added and removed line is the reviewed one; CONTEXT-ONLY IN CODE (v44, '
+                            'not protected: tier none on both bases): %s; %d context line(s) differ (%s); normalized diff '
+                            'sha256 %s, reviewed %s' % (same, nctx, ', '.join('%s %d' % kv for kv in sorted(ctx_code.items())),
+                                                        h1[:16], h0[:16]))
+    elif same:
         # v43: the same added and removed lines; only the context of a path list moved (CONTEXT_FREE_PATHS)
+        ident = 'every added and removed line identical, %s (a path list; normalized diff sha256 %s, reviewed %s)' % (
+            same, h1[:16], h0[:16])
         S('diff-identical', 'the reviewed change: every added and removed line is the reviewed one; %s (a path list, v43); '
                             'normalized diff sha256 %s, reviewed %s' % (same, h1[:16], h0[:16]))
     else:
+        ident = 'normalized diff identical (sha256 %s)' % h1[:16]
         S('diff-identical', 'normalized diff sha256 %s == the reviewed one' % h1[:16])
-    # 7. (d) protected.py's tier is unchanged
-    PR = dict(P, git=R)
-    t0 = tier_label(*protected_run(PR, pt['base'], tip))
-    t1 = tier_label(*protected_run(PR, base, nt))
+    # 7. (d) protected.py's tier is unchanged (read above, before the identity check: v44)
     if t0 != t1:
         raise ArRefuse('protected.py tier changed: %s on the source base, %s on %s -- needs the review that tier asks for'
                        % (t0, t1, base[:8]))
@@ -3235,9 +3415,9 @@ def _ar_steps(P, job, run, base, tip):
     reg['sha'] = nt
     reg['registered_at'] = iso(now())
     note = ('[AUTOREBASE] %s @ %s on fleet base %s (branch %s): canary-sched cherry-picked %s..%s (%d commit(s), the '
-            'reviewed variant on %s) with no conflicts; normalized diff identical (sha256 %s); protected tier %s '
+            'reviewed variant on %s) with no conflicts; %s; protected tier %s '
             'unchanged; eslint ok; %s. ' % (run, nt[:8], base[:8], branch, pt['base'][:8], tip[:8], len(commits),
-                                            pt['base'][:8], h1[:16], t1, summary))
+                                            pt['base'][:8], ident, t1, summary))
     if reg.get('lab') is not True:
         # v41: the read plan is decided HERE, mechanically, on the diff that will deploy (H7 re-checks it at launch)
         plan, pwhy = ar_read_plan(P, R, base, nt, t1, reg)
@@ -3255,6 +3435,13 @@ def _ar_steps(P, job, run, base, tip):
     # 12. the variant, through the same validation as a hand-added one
     approved = '%s || AUTOREBASE (canary-sched v40) onto %s: %s' % (src.get('approved') or '', base[:8], note.strip())
     _ar_add_variant(P, S, run, base, nt, regp, approved, reads_src)
+    if ctx_code:
+        # v44: one page, AFTER the variant is queued (so "accepted" and "the suite ran" are true), at 'flag': it asks
+        # for a look after the fact and blocks nothing -- the next free-slot tick launches the variant as any other
+        ar_page(P, 'flag', run, '%s: autorebase accepted a context-only rebase of code in %s (%d context lines); the suite '
+                'ran; a blockers-only look is owed (variant %s on %s; compare `git diff %s %s` with `git diff %s %s`)'
+                % (run, ', '.join(sorted(ctx_code)), sum(ctx_code.values()), nt[:8], base[:8], pt['base'][:8], tip[:8],
+                   base[:8], nt[:8]))
     gitx(R, 'worktree', 'remove', '--force', W)
     shutil.rmtree(W, ignore_errors=True)
     return {'variant': nt, 'branch': branch, 'registration': regp, 'tests': summary}
@@ -4037,6 +4224,8 @@ def cmd_status(P):
               % (st['r11_expired'][0], st['r11_expired'][2], st['r11_expired'][1], R11_EXPIRE_H))
     for run, why in st.get('skipped') or []:
         print('SKIP %s' % why)
+    if st.get('context_strict'):
+        print('%s present: the autorebase refuses a rebase that moves context lines of code (v44 rule off)' % CONTEXT_STRICT_NAME)
     if st.get('install_hold') is not None:
         print('INSTALL-HOLD auto-release: %s' % ('YES, ' + st['hold_release'][1] if st['hold_release'][0]
                                                  else (st['hold_release'][1] or 'no (live)')))
