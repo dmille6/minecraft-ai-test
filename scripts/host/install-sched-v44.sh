@@ -4,13 +4,16 @@
 #
 # v44 = the installed v43 (md5 b8b147bd) plus, each for a stall that was measured:
 #   - the autorebase accepts a CONTEXT-ONLY REBASE OF CODE for a change that is NOT PROTECTED (tier none on both bases):
-#     no conflict, the same files, the same non-hunk lines, the same number of hunks, every added and removed line the
-#     reviewed one and in its place among the shared context. ironchain-02 (11-12) and boardwalk-03 (11-13) were refused
-#     for 1-3 context lines of a code file and waited for a hand registration. The suite still runs; the step row, the
-#     registration and `approved` say so; ONE page at 'flag' asks for a blockers-only look. A protected change keeps the
-#     byte-exact rule; the path-list rule of v43 is unchanged. KILL SWITCH: `touch ~/digest/CONTEXT-STRICT` (no reinstall).
+#     no conflict, the same files, non-hunk lines and number of hunks, every added and removed line the reviewed one, and
+#     in the REBASED FILE every reviewed context line still standing around the change in order -- the base may only
+#     have INSERTED whole lines, at most 3 on a side -- under the same enclosing function line, at one unambiguous
+#     place. ironchain-02 (11-12) and boardwalk-03 (11-13) were refused for 1-3 context lines of a code file and waited
+#     for a hand registration. The suite still runs; the step row, the registration and `approved` say so; ONE page at
+#     'flag' asks for a blockers-only look. A protected change keeps the byte-exact rule; the path-list rule of v43 is
+#     unchanged. KILL SWITCH: `touch ~/digest/CONTEXT-STRICT` (no reinstall; any form of that name is ON).
 #   - the speculative build during a canary's read looks THREE queued entries ahead (SPEC_DEPTH), not one; a speculative
-#     build that is refused pages at 'flag' and says the run will need a hand rebase before it reaches the head.
+#     build that is refused pages the phone (level 'warn', FAILED) and says the run will need a hand rebase before it
+#     reaches the head.
 #   - one more skippable block kind: the missing-variant H2 of an entry that is also HELD (glass-01, 11-13: a held entry
 #     blocked the head 45 min with the slot empty).
 # ONLY ~/canary-sched.py is replaced. canary-loop.sh, verdict.py, funread.py, the gate bundle, the queue, the crontab and

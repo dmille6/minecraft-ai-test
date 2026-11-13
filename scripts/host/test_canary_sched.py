@@ -2127,7 +2127,7 @@ MUTANTS = [
     # v44: the speculative walk has no depth
     ("            if passed >= SPEC_DEPTH:\n                return None\n", "            if False:\n                return None\n"),
     # v44: the kill switch of the context-only code rule is not read into state
-    ("    st['context_strict'] = os.path.exists(P['context_strict'])", "    st['context_strict'] = False"),
+    ("    st['context_strict'] = context_strict(P['context_strict'])", "    st['context_strict'] = False"),
     # v43: the stale staged registration is not a skippable kind (the 18-h block of 11-10/11)
     ("    if code == 'H3' and STALE_STAGED in r and journal_status(run, st) not in ('open', 'live', 'closed'):\n", "    if False:\n"),
     # v43: the no-patch-source block is not a skippable kind

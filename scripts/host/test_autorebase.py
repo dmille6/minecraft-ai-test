@@ -7,9 +7,10 @@ Each scenario seeds a queue whose head has a variant only for SB, declares the p
 
   clean       the pick applies, the diff is identical, tests pass  -> a variant for LB is queued, the next tick LAUNCHES it
   conflict    LB edits the changed line                           -> refused at the cherry-pick, the head BLOCKED, paged
-  diffchange  LB edits a line inside the change's context         -> the pick is clean, only CONTEXT of code differs:
-              v44 ACCEPTS it (the change is not protected), names it and pages a flag; with ~/digest/CONTEXT-STRICT, and
-              in `diffchange-prot` (the same LB, the changed file on the protected list at SB), it is refused as before
+  diffchange  LB edits a line inside the change's context         -> the pick is clean, the diff differs: refused
+  ctxinsert   v44: LB INSERTS a line inside the change's context  -> every reviewed context line still stands around the
+              change: accepted for a change that is not protected (named, one flag page); refused with
+              ~/digest/CONTEXT-STRICT and in `ctxinsert-prot` (the changed file on the protected list at SB)
   failtest    a test the change breaks fails in full and alone    -> refused at npm test
   tier        LB lists the changed file as protected              -> refused: tier none -> 3
   baseflake   a test fails on the new tip AND on the base         -> accepted, named in the registration
@@ -121,7 +122,7 @@ class ArFix(TC.Fix):
                           ('bots/test/b.test.mjs', '// fixture\n'),
                           ('bots/test/c.test.mjs', "import { b } from '../src/b.mjs'  // imports nothing the change edits\n"),
                           ('config/protected-paths.txt', 'bots/src/zzz-not-in-the-change.mjs\n' +
-                           ('bots/src/a.mjs\n' if scenario == 'diffchange-prot' else '')),   # v44: protected on BOTH bases
+                           ('bots/src/a.mjs\n' if scenario == 'ctxinsert-prot' else '')),   # v44: protected on BOTH bases
                           (LIST_REL, '\n'.join(LIST_LINES) + '\n'),
                           ('.gitattributes', LIST_REL + ' merge=union\n')):      # as the real repo (phase 1 item 3, 11-06)
             os.makedirs(os.path.join(g, os.path.dirname(rel)), exist_ok=True)
@@ -140,8 +141,10 @@ class ArFix(TC.Fix):
         gc(g, 'checkout', '-q', '--detach', self.sb)
         if scenario == 'conflict':
             self.edit_a({4: 'export const a5 = 5000'})
-        elif scenario in ('diffchange', 'diffchange-prot'):
+        elif scenario == 'diffchange':
             self.edit_a({6: 'export const a7 = 7000'})        # line 7: inside the change's 3-line context, not adjacent
+        elif scenario in ('ctxinsert', 'ctxinsert-prot'):     # v44: a line INSERTED between lines 2 and 3 (context of the change at 5)
+            self.edit_a({1: 'export const a2 = 2\nexport const a2b = 22'})
         elif scenario == 'listcontext':   # v43: a promotion rewrote a list line 3 above ours (as sandrung-01's lines went, 11-12):
             self.edit_list(lambda ls: ls[:1] + ["  'bots/test/other.test.mjs',   // other-01 took r1's place"] + ls[2:])   # OUR hunk's context moves, no +/- line does
         elif scenario == 'tier':
@@ -407,18 +410,12 @@ def t_conflict_pages_and_blocks(CS):
 
 
 def t_diff_change_refuses(CS):
-    """v44: the fixture is `diffchange-prot` -- the SAME context-only difference in code, on a change that is PROTECTED
-    (tier 3 on both bases). There a neighbouring line is the reviewers' business: byte-exact, refused as before v44.
-    (The unprotected `diffchange` this test used until v43 is now accepted: t_v44_code_context_accepted_when_not_protected.)"""
-    F = ArFix('diffchange-prot')
+    F = ArFix('diffchange')
     try:
         seed(CS, F)
-        assert json.load(open(F.queue))['entries'][0]['variants'][F.sb]['protected'] is True, 'the fixture is not protected'
         job = tick_and_wait(CS, F)
         assert any(s['step'] == 'cherry-pick' and s['ok'] for s in job['steps']), 'the pick must have been clean'
         assert_blocked_no_retry(CS, F, job, 'cherry-pick', 'NOT the reviewed diff')
-        assert 'only context lines of code differ (bots/src/a.mjs 1)' in job['why'] and 'protected (tier 3 on the source base, 3 on' in job['why'], job['why']
-        assert not any('accepted a context-only' in p['msg'] for p in F.pages()), F.pages()
     finally:
         F.cleanup()
 
@@ -429,24 +426,26 @@ def _accepted_page(F):
 
 def t_v44_code_context_accepted_when_not_protected(CS):
     """ironchain-02 (11-12), boardwalk-03 (11-13): the pick was clean, every added and removed line the reviewed one, and
-    1-3 context lines of a code file differed; the build refused and a human registered the same sha by hand. For a
-    change that is not protected the build goes on (the suite runs), says so in the step row, the registration and
-    `approved`, pages ONE flag, and the variant launches like any other."""
-    F = ArFix('diffchange')
+    1-3 context lines of a code file differed because another change had INSERTED a neighbouring line; the build refused
+    and a human registered the same sha by hand. For a change that is not protected the build goes on (the suite runs),
+    says so in the step row, the registration and `approved`, pages ONE flag, and the variant launches like any other."""
+    F = ArFix('ctxinsert')
     try:
         seed(CS, F)
         job = tick_and_wait(CS, F)
         assert job['state'] == 'done', (job, F.logtail())
         ident = [x['detail'] for x in job['steps'] if x['step'] == 'diff-identical']
         assert len(ident) == 1 and 'CONTEXT-ONLY IN CODE' in ident[0] and 'context-only (code) in bots/src/a.mjs' in ident[0], ident
-        assert '1 context line(s) differ (bots/src/a.mjs 1)' in ident[0], ident
+        assert '1 context line(s) inserted by the base (bots/src/a.mjs 1)' in ident[0], ident
         steps = [x['step'] for x in job['steps']]
         assert steps.index('diff-identical') < steps.index('tier') < steps.index('tests'), 'the order of the rows is unchanged, and the suite ran: %s' % steps
         assert any(x['step'] == 'tier' and 'tier none' in x['detail'] for x in job['steps']), job['steps']
-        # positive control: the two normalized diffs really differ (v43 refused exactly here), in context only
+        # positive control: the two normalized diffs really differ (v43 refused exactly here), and so does the function
+        # text of the two hunk headers -- the inserted line pushed `a2` out of the hunk and git names it
         R = os.path.join(F.ar, 'repo.git')
         assert CS.diff_hash(R, F.sb, F.st)[0] != CS.diff_hash(R, F.lb, job['variant'])[0], 'the fixture does not move the context'
-        assert CS.code_context_counts(CS.diff_norm(R, F.sb, F.st), CS.diff_norm(R, F.lb, job['variant'])) == {'bots/src/a.mjs': 1}
+        fa, fb = CS.hunk_funcs(CS.diff_raw(R, F.sb, F.st)), CS.hunk_funcs(CS.diff_raw(R, F.lb, job['variant']))
+        assert fa == {'bots/src/a.mjs': ['export const a1 = 1']} and fb == {'bots/src/a.mjs': ['export const a2 = 2']}, (fa, fb)
         v = json.load(open(F.queue))['entries'][0]['variants'][F.lb]
         reg = json.load(open(v['registration']))
         for text in (v['approved'], reg['notes']):
@@ -458,6 +457,7 @@ def t_v44_code_context_accepted_when_not_protected(CS):
         assert ('foo-01: autorebase accepted a context-only rebase of code in bots/src/a.mjs (1 context lines); the suite ran; '
                 'a blockers-only look is owed') in pg[0]['msg'], pg[0]['msg']
         assert not any(p['level'] == 'error' for p in F.pages()), F.pages()
+        assert not any(x['step'] == 'page-failed' for x in job['steps']), job['steps']
         TC.expect(CS, F, 'launch')                         # the flag blocks nothing
         rc, out = TC.human(CS, F, 'tick')
         assert rc == 0 and 'LAUNCH foo-01' in out, out
@@ -465,17 +465,72 @@ def t_v44_code_context_accepted_when_not_protected(CS):
         F.cleanup()
 
 
-def t_v44_context_strict_restores_byte_exact(CS):
-    """The kill switch: with ~/digest/CONTEXT-STRICT the SAME unprotected build is refused as v43 refused it."""
-    F = ArFix('diffchange')
+def t_v44_protected_change_stays_byte_exact(CS):
+    """The SAME inserted line beside a change that is PROTECTED (tier 3 on both bases): there a neighbouring line is the
+    reviewers' business. Byte-exact, refused as before v44, and the refusal says what the difference is."""
+    F = ArFix('ctxinsert-prot')
     try:
         seed(CS, F)
-        open(os.path.join(F.home, 'digest', 'CONTEXT-STRICT'), 'w').close()
+        assert json.load(open(F.queue))['entries'][0]['variants'][F.sb]['protected'] is True, 'the fixture is not protected'
         job = tick_and_wait(CS, F)
         assert any(s['step'] == 'cherry-pick' and s['ok'] for s in job['steps']), 'the pick must have been clean'
         assert_blocked_no_retry(CS, F, job, 'cherry-pick', 'NOT the reviewed diff')
-        assert 'CONTEXT-STRICT is present' in job['why'] and 'only context lines of code differ' in job['why'], job['why']
+        assert 'the base only inserted lines beside it (bots/src/a.mjs 1)' in job['why'] and 'protected (tier 3 on the source base, 3 on' in job['why'], job['why']
         assert not _accepted_page(F), F.pages()
+    finally:
+        F.cleanup()
+
+
+def t_v44_context_strict_restores_byte_exact(CS):
+    """The kill switch: with ~/digest/CONTEXT-STRICT the SAME unprotected build is refused as v43 refused it. Here the
+    switch is a DANGLING SYMLINK (review r1: os.path.exists said it was absent, so the switch failed open)."""
+    F = ArFix('ctxinsert')
+    try:
+        seed(CS, F)
+        os.symlink(os.path.join(F.d, 'no-such-target'), os.path.join(F.home, 'digest', 'CONTEXT-STRICT'))
+        assert not os.path.exists(os.path.join(F.home, 'digest', 'CONTEXT-STRICT')), 'the fixture: exists() does not see it'
+        job = tick_and_wait(CS, F)
+        assert any(s['step'] == 'cherry-pick' and s['ok'] for s in job['steps']), 'the pick must have been clean'
+        assert_blocked_no_retry(CS, F, job, 'cherry-pick', 'NOT the reviewed diff')
+        assert 'CONTEXT-STRICT is present' in job['why'] and 'the base only inserted lines beside it' in job['why'], job['why']
+        assert not _accepted_page(F), F.pages()
+        rc, out = TC.human(CS, F, 'status')
+        assert rc == 0 and 'CONTEXT-STRICT present' in out, out
+    finally:
+        F.cleanup()
+
+
+def t_v44_changed_context_line_refuses_and_says_why(CS):
+    """`diffchange` (t_diff_change_refuses) is an unprotected change whose reviewed context line was CHANGED by the base, not
+    pushed aside: the code rule is on and refuses it, and the refusal names the file and the reason for the human."""
+    F = ArFix('diffchange')
+    try:
+        seed(CS, F)
+        job = tick_and_wait(CS, F)
+        assert job['state'] == 'refused' and 'NOT the reviewed diff' in job['why'], job
+        assert 'not a context-only rebase of code (v44): bots/src/a.mjs: hunk 1: a reviewed context line is gone or changed' in job['why'], job['why']
+        assert any(x['step'] == 'cherry-pick' and x['ok'] for x in job['steps']) and not _accepted_page(F)
+    finally:
+        F.cleanup()
+
+
+def t_v44_accept_page_cannot_fail_the_build(CS):
+    """Review r1: the flag page is written AFTER the variant is queued. If it raised, the job ended "refused" (crashed)
+    while the next tick launched that variant. The page path is made unwritable for the build: the job is still DONE,
+    the failure is a step row, and the variant launches."""
+    F = ArFix('ctxinsert')
+    try:
+        seed(CS, F)
+        blocker = os.path.join(F.d, 'a-file'); open(blocker, 'w').close()
+        rc, out = TC.human(CS, F, 'tick', SCHED_PAGE=os.path.join(blocker, 'page.jsonl'))
+        assert rc == 0 and 'AUTOREBASE foo-01' in out, out
+        job = F.wait_job()
+        assert job['state'] == 'done' and 'variant' in job, (job, F.logtail())
+        assert any(x['step'] == 'page-failed' and 'IS queued' in x['detail'] for x in job['steps']), [x['step'] for x in job['steps']]
+        assert not _accepted_page(F), 'positive control: the page really could not be written'
+        v = json.load(open(F.queue))['entries'][0]['variants'].get(F.lb)
+        assert v and v['canary_sha'] == job['variant'], 'the variant is queued'
+        TC.expect(CS, F, 'launch')
     finally:
         F.cleanup()
 
@@ -520,10 +575,12 @@ def _behind_a_live_canary(CS, F):
     F.set_manifest('board-a', F.lb[:7])
 
 
-def t_v44_speculative_refusal_is_a_flag_that_names_the_hand_rebase(CS):
-    """A SPECULATIVE build (onto the live canary's sha, during its read) that refuses blocks nothing yet: its page is a
-    'flag' that says the run will need a hand rebase before it reaches the head -- hours before the slot is empty. The
-    refusal of a build for the HEAD is the 'error' page it always was."""
+def t_v44_speculative_refusal_reaches_the_phone_and_names_the_hand_rebase(CS):
+    """A SPECULATIVE build (onto the live canary's sha, during its read) that refuses blocks nothing yet, so it is not the
+    'error' page of a blocked head -- but it must reach the PHONE, hours before the slot is empty (review r1: a 'flag'
+    is digest-only). The row is held against pager.py's own page_tier. Once per run and canary sha. The refusal of a
+    build for the HEAD is the 'error' page it always was."""
+    PG = load(os.path.join(HERE, 'pager.py'), 'pager_for_autorebase_test')
     F = ArFix('conflict')
     try:
         _behind_a_live_canary(CS, F)
@@ -532,13 +589,17 @@ def t_v44_speculative_refusal_is_a_flag_that_names_the_hand_rebase(CS):
         job = F.wait_job()
         assert job['state'] == 'refused' and job.get('spec') is True and job['base'] == F.lb, job
         assert 'does not apply cleanly' in job['why'], job['why']
+        rc, out = TC.human(CS, F, 'tick')                  # never a retry, and not a second page
+        assert rc == 0 and 'SPECULATIVE' not in out and len(F.job()) == 1, out
         pg = [p for p in F.pages() if 'refused at step' in p['msg']]
-        assert len(pg) == 1 and pg[0]['level'] == 'flag' and pg[0]['run'] == 'foo-01', F.pages()
-        assert 'SPECULATIVE autorebase onto the live canary %s' % F.lb[:8] in pg[0]['msg'], pg[0]['msg']
+        assert len(pg) == 1 and pg[0]['run'] == 'foo-01', F.pages()
+        assert pg[0]['level'] == CS.SPEC_REFUSED_LEVEL == 'warn', pg[0]
+        assert PG.page_tier(pg[0]) == PG.AL.TIER_PAGE, 'the pager must PUSH this row: %s' % pg[0]
+        assert PG.page_tier(dict(pg[0], level='flag')) == PG.AL.TIER_DIGEST, 'positive control: as a flag it is digest-only (review r1)'
+        assert PG.page_tier(dict(pg[0], msg=pg[0]['msg'].replace('FAILED', 'was'))) == PG.AL.TIER_DIGEST, 'and a warn pages only by that word'
+        assert 'SPECULATIVE autorebase onto the live canary %s FAILED' % F.lb[:8] in pg[0]['msg'], pg[0]['msg']
         assert 'foo-01 will need a hand rebase before it reaches the head' in pg[0]['msg'] and 'does not apply cleanly' in pg[0]['msg'], pg[0]['msg']
         assert not any(p['level'] == 'error' for p in F.pages()), 'nothing is blocked yet: %s' % F.pages()
-        rc, out = TC.human(CS, F, 'tick')                  # never a retry
-        assert rc == 0 and 'SPECULATIVE' not in out and len(F.job()) == 1, out
     finally:
         F.cleanup()
     F = ArFix('conflict')                                  # the same refusal for the HEAD: unchanged
@@ -553,86 +614,196 @@ def t_v44_speculative_refusal_is_a_flag_that_names_the_hand_rebase(CS):
         F.cleanup()
 
 
-def t_v44_code_context_pure(CS):
-    """The rule for CODE (diff_equiv code=True): the same files, every non-hunk line, the same number of hunks, and in
-    each hunk -- with the context lines that differ taken out -- the same sequence. Off by default; never for a path list."""
-    P = 'bots/src/skills/boardwalk.mjs'
-    Z = _nd('bots/src/z.mjs', ['a', 'b', 'd'], ['a', 'c', 'd'])        # another file, identical on both sides, AFTER ours
-    src = ["import { a } from './a.mjs'", "import { b } from './b.mjs'", "import { c } from './c.mjs'", '',
-           'export function walk() {', '  return a() + b()', '}', ''] + ['// line %d' % i for i in range(1, 13)] + ['export const tail = 1']
+def real_pick(CS, src, change, base, path='bots/src/x.mjs'):
+    """REAL git, the way the build does it: commit S holds `src` (lines), C = `change` on S (the reviewed change), L =
+    `base` on S (the fleet moved on), and C is cherry-picked onto L = N. -> (the normalized diff S..C, the normalized diff
+    L..N, {path: the file at N}, (hunk_funcs of the two raw diffs)); None when the pick conflicts."""
+    import tempfile
+    d = tempfile.mkdtemp(prefix='ar-pick-')
+    try:
+        sh('git', 'init', '-q', cwd=d)
+        os.makedirs(os.path.dirname(os.path.join(d, path)))
 
-    def change(lines, tail=False):          # the reviewed change: an import after c's, and the body uses it
-        out = list(lines)
-        out.insert(out.index("import { c } from './c.mjs'") + 1, "import { plank } from './plank.mjs'")
-        out[out.index('  return a() + b()')] = '  return a() + b() + plank()'
-        if tail:
-            out[out.index('export const tail = 1')] = 'export const tail = 2'
-        return out
-    glass = src[:2] + ["import { glass } from './glass.mjs'"] + src[2:]     # the measured shape: a neighbouring import landed
-    A, B = _nd(P, src, change(src)) + Z, _nd(P, glass, change(glass)) + Z
+        def commit(lines, msg):
+            open(os.path.join(d, path), 'w').write('\n'.join(lines) + '\n')
+            gc(d, 'add', '-A'); gc(d, 'commit', '-q', '-m', msg)
+            return sh('git', 'rev-parse', 'HEAD', cwd=d)
+        S = commit(src, 'S'); C = commit(change, 'C')
+        gc(d, 'checkout', '-q', '--detach', S)
+        L = commit(base, 'L')
+        if subprocess.run(['git', '-c', 'user.email=t@t', '-c', 'user.name=t', 'cherry-pick', C], cwd=d, capture_output=True).returncode:
+            return None
+        N = sh('git', 'rev-parse', 'HEAD', cwd=d)
+        ra, rb = CS.diff_raw(d, S, C), CS.diff_raw(d, L, N)
+        return CS.norm_diff(ra), CS.norm_diff(rb), {path: open(os.path.join(d, path)).read()}, (CS.hunk_funcs(ra), CS.hunk_funcs(rb))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def t_v44_code_context_pure(CS):
+    """The rule for CODE (diff_equiv code=True), on REAL picks: every reviewed context line must still stand around the
+    change in the rebased file; the base may only have INSERTED a few whole lines; the same enclosing function; one
+    unambiguous place. Off by default; never for a path list; not provable without the rebased text and function text."""
+    P = 'bots/src/x.mjs'
     code = 'context-only (code) in %s' % P
-    assert A != B and [l for l in A.split('\n') if l[:1] in '+-'] == [l for l in B.split('\n') if l[:1] in '+-'], 'the fixture: same +/- lines'
-    assert CS.diff_equiv(A, B, code=True) == code, 'the measured case: one context line of a code file differs'
-    assert CS.diff_equiv(A, B) is None and CS.diff_equiv(A, B, texts={}) is None, 'off by default: byte-exact, as before v44'
-    assert CS.diff_equiv(A, A, code=True) == '' and CS.diff_equiv(B, A, code=True) == code
-    assert CS.code_context_counts(A, B) == {P: 1}, CS.code_context_counts(A, B)
-    three = src[:1] + ["import { g1 } from './g1.mjs'", "import { g2 } from './g2.mjs'", "import { c } from './c.mjs'"] + src[3:]
-    assert CS.diff_equiv(A, _nd(P, three, change(three)) + Z, code=True) == code and \
-        CS.code_context_counts(A, _nd(P, three, change(three)) + Z) == {P: 2}, 'two context lines replaced'
-    # the three results stay distinguishable
-    assert all(isinstance(x, str) and x.startswith('context-only') for x in (code,)) and CS.diff_equiv(A, B) is None
-    # an ADDED or REMOVED line that differs is another change
-    assert CS.diff_equiv(A, B.replace("+import { plank } from './plank.mjs'", "+import { plank } from './plonk.mjs'"), code=True) is None
-    assert CS.diff_equiv(A, B.replace('-  return a() + b()', '-  return a() - b()'), code=True) is None
-    assert CS.diff_equiv(A, B.replace('+  return a() + b() + plank()', '+  return a() + b() + plank()\n+  // more'), code=True) is None
-    swapped = B.replace("+import { plank } from './plank.mjs'\n", '').replace('+  return a() + b() + plank()\n',
-                                                                               "+  return a() + b() + plank()\n+import { plank } from './plank.mjs'\n")
-    assert sorted(l for l in swapped.split('\n') if l[:1] in '+-') == sorted(l for l in B.split('\n') if l[:1] in '+-')
-    assert CS.diff_equiv(A, swapped, code=True) is None, 'the same lines in another order'
-    # the number of hunks: the reviewed change has TWO (the tail edit is far below); the rebased one lost the second
-    A2 = _nd(P, src, change(src, tail=True)) + Z
-    assert A2.count('@@') == 3 and B.count('@@') == 2, 'the fixture: two hunks in our file, one in Z'
-    assert CS.diff_equiv(A2, B, code=True) is None and CS.diff_equiv(B, A2, code=True) is None, 'a hunk more or fewer'
-    near = glass[:9] + glass[19:]                              # the base lost the lines between: the two hunks MERGE
-    M = _nd(P, near, change(near, tail=True)) + Z
-    assert M.count('@@') == 2 and [l for l in M.split('\n') if l[:1] in '+-'] == [l for l in A2.split('\n') if l[:1] in '+-']
-    assert CS.diff_equiv(A2, M, code=True) is None, 'the same +/- lines in ONE hunk instead of two'
-    B2 = _nd(P, glass, change(glass, tail=True)) + Z
-    assert CS.diff_equiv(A2, B2, code=True) == code, 'positive control: two hunks on both sides, context of the first differs'
-    # a non-hunk line (file header, mode) that differs
-    assert CS.diff_equiv(A, B.replace('--- a/' + P, 'old mode 100644\nnew mode 100755\n--- a/' + P), code=True) is None, 'a mode line'
-    assert CS.diff_equiv(A, B.replace('--- a/' + P, '--- /dev/null'), code=True) is None, 'a file header'
-    assert CS.diff_equiv(_nd(P, src, change(src)), _nd(P, glass, change(glass)) + '\\ No newline at end of file\n', code=True) is None
-    # files: one more, one fewer, another order
-    assert CS.diff_equiv(A, B[:-len(Z)], code=True) is None and CS.diff_equiv(A[:-len(Z)], B, code=True) is None
-    assert CS.diff_equiv(A, Z + B[:-len(Z)], code=True) is None
-    # the SAME context lines with the change's line on the other side of a shared neighbour is not "context-only"
+    EQ = lambda r, **kw: CS.diff_equiv(r[0], r[1], **dict({'texts': r[2], 'code': True, 'funcs': r[3]}, **kw))
+    WHY = lambda r: CS.code_context_files(r[0], r[1], texts=r[2], funcs=r[3])[P]
+    assert '-U%d' % CS.DIFF_CONTEXT in CS.DIFF_ARGS and CS.CODE_CONTEXT_MAX == 3
+    # ---- the two MEASURED shapes: another change INSERTED a neighbouring line (an import)
+    imp = ["import { a } from './a.mjs'", "import { b } from './b.mjs'", "import { c } from './c.mjs'", "import { d } from './d.mjs'",
+           "import { e } from './e.mjs'", '', 'export function walk() {', '  return a() + b()', '}', ''] + ['// line %d' % i for i in range(1, 13)]
+    PLANK, GLASS = "import { plank } from './plank.mjs'", "import { glass } from './glass.mjs'"
+
+    def ours(lines, body=False):            # the reviewed change: an import after e's (and, with body, the function uses it)
+        out = list(lines)
+        out.insert(out.index("import { e } from './e.mjs'") + 1, PLANK)
+        if body:
+            out[out.index('  return a() + b()')] = '  return a() + b() + plank()'
+        return out
+    above = real_pick(CS, imp, ours(imp), imp[:3] + [GLASS] + imp[3:])            # two lines above ours
+    assert above and above[0] != above[1], 'the fixture: a clean pick whose diff differs'
+    assert [l for l in above[0].split('\n') if l[:1] in '+-'] == [l for l in above[1].split('\n') if l[:1] in '+-'], 'same +/- lines'
+    assert EQ(above) == code and WHY(above) == (1, ''), (EQ(above), WHY(above))
+    assert CS.diff_equiv(above[0], above[1]) is None and CS.diff_equiv(above[0], above[1], texts=above[2], funcs=above[3]) is None, \
+        'off by default: byte-exact, as before v44'
+    assert EQ(above, texts={}) is None and EQ(above, texts=None) is None, 'no rebased file text: not provable'
+    assert EQ(above, funcs=None) is None and EQ(above, funcs=(above[3][0], {})) is None, 'no function text: not provable'
+    assert EQ(above, texts={P: '\n'.join(ours(imp)) + '\n'}) is None, 'a text the rebased hunk does not stand in'
+    # git's header text DIFFERS between these two diffs (the inserted import pushed `c` out of the hunk and became the
+    # nearest "function line" above it): comparing the header text alone would refuse the measured case. run_funcs
+    # compares the function line that encloses the CHANGE: `e`'s import in both.
+    assert above[3][0][P] != above[3][1][P], above[3]
+    below = real_pick(CS, imp, ours(imp, body=True), imp[:6] + [GLASS] + imp[6:])  # below ours: after the blank line under the imports
+    assert below and below[0] != below[1] and EQ(below) == code and WHY(below)[0] == 1, (below and WHY(below))
+    assert real_pick(CS, imp, ours(imp), imp[:5] + [GLASS] + imp[5:]) is None, 'positive control: a line inserted AT our place conflicts'
+    # ---- inside a function body: foo() and bar() hold the same lines
+    body = ['  const a = 1', '  const b = 2', '  const c = 3', '  old()', '  const d = 4', '  const e = 5', '  const f = 6', '}', '']
+    fb = ['function foo() {'] + body + ['function bar() {'] + body
+    chg = fb[:4] + ['  newCall()'] + fb[5:]                                         # old() of foo
+    put = lambda lines, at, *new: lines[:at] + list(new) + lines[at:]
+    for at in (2, 6):                                                               # between a and b; between d and e
+        r = real_pick(CS, fb, chg, put(fb, at, '  const inserted = 0'))
+        assert r and EQ(r) == code and WHY(r) == (1, ''), (at, r and WHY(r))
+    # (b) the bound: three inserted lines on a side, not four
+    three = real_pick(CS, fb, chg, put(fb, 6, '  const i1 = 0', '  const i2 = 0', '  const i3 = 0'))
+    four = real_pick(CS, fb, chg, put(fb, 6, '  const i1 = 0', '  const i2 = 0', '  const i3 = 0', '  const i4 = 0'))
+    assert three and EQ(three) == code and WHY(three) == (3, ''), three and WHY(three)
+    assert four and four[0] != four[1] and EQ(four) is None and 'at most 3' in WHY(four)[1], four and WHY(four)
+    both = real_pick(CS, fb, chg, put(put(fb, 6, '  const i1 = 0', '  const i2 = 0', '  const i3 = 0'), 2, '  const j1 = 0', '  const j2 = 0', '  const j3 = 0'))
+    assert both and EQ(both) == code and WHY(both) == (6, ''), 'three on EACH side: %s' % (both and (WHY(both),))
+    # (a) a reviewed context line the base CHANGED or DELETED: a human looks
+    r = real_pick(CS, fb, chg, [('  const b = 22' if i == 2 else l) for i, l in enumerate(fb)])
+    assert r and r[0] != r[1] and EQ(r) is None and 'gone or changed' in WHY(r)[1], r and WHY(r)
+    r = real_pick(CS, fb, chg, fb[:2] + fb[3:])
+    assert r and r[0] != r[1] and EQ(r) is None and 'gone or changed' in WHY(r)[1], r and WHY(r)
+    # ... also when a line was INSERTED on the other side (each side is walked on its own)
+    r = real_pick(CS, fb, chg, put([('  const b = 22' if i == 2 else l) for i, l in enumerate(fb)], 6, '  const inserted = 0'))
+    assert r and EQ(r) is None, 'changed ABOVE, inserted below'
+    r = real_pick(CS, fb, chg, put([('  const e = 55' if i == 6 else l) for i, l in enumerate(fb)], 2, '  const inserted = 0'))
+    assert r and EQ(r) is None, 'changed BELOW, inserted above'
+    # ... and BETWEEN two runs of one hunk
+    g = ['const top = 0'] + ['  g%d()' % i for i in range(1, 13)]
+    g2 = [{3: '  G3()', 7: '  G7()'}.get(i, l) for i, l in enumerate(g)]            # two runs, g4 g5 g6 between them
+    r = real_pick(CS, g, g2, put(g, 5, '  inserted()'))
+    assert r and EQ(r) == code and WHY(r) == (1, ''), 'a line inserted between the two runs: %s' % (r and (WHY(r),))
+    r = real_pick(CS, g, g2, put([('  g5changed()' if i == 5 else l) for i, l in enumerate(g)], 10, '  inserted()'))
+    assert r and r[0] != r[1] and EQ(r) is None, 'a reviewed line BETWEEN the runs changed (and a line inserted below)'
+    # ---- the blocker of review r1: the reviewed lines in ANOTHER FUNCTION
+    a = ['// top', '', 'function a() {', '  init();', '  run();', '  done();', '}', '', 'export const z = 1']
+    alog = a[:5] + ['  log();'] + a[5:]
+    copy = ['// top', '', 'function a() {', '  init2();', '  run();', '  done();', '}', 'function aOld() {', '  init();', '  run();', '  done();', '}', '', 'export const z = 1']
+    r = real_pick(CS, a, alog, copy)
+    assert r and 'function aOld() {\n  init();\n  run();\n  log();\n' in r[2][P], 'the fixture: git put log() into aOld(): %s' % (r and r[2][P])
+    assert EQ(r) is None, 'the copy: log() landed in aOld()'
+    short = ['// top', '', 'function a() {', '  x();', '}', 'function aOld() {', '  init();', '  run();', '  done();', '}', '', 'export const z = 1']
+    r = real_pick(CS, a, alog, short)                       # `function a() {` is now within three lines above aOld's body
+    assert r and 'function aOld() {\n  init();\n  run();\n  log();\n' in r[2][P] and EQ(r) is None and 'enclosing function' in WHY(r)[1], r and WHY(r)
+    fo = ['// top', 'function foo() {', '  pre()', '  old()', '  post()', '}', '', 'export const z = 1']
+    r = real_pick(CS, fo, [l.replace('old()', 'newCall()') for l in fo],
+                  ['// top', 'function foo() {', '  other()', '}', 'function bar() {', '  pre()', '  old()', '  post()', '}', '', 'export const z = 1'])
+    assert r and 'function bar() {\n  pre()\n  newCall()\n' in r[2][P], 'the fixture: the same -old() +newCall() landed under bar(): %s' % (r and r[2][P])
+    assert EQ(r) is None and 'enclosing function' in WHY(r)[1], WHY(r)
+    # (c) inside a body the hunk shows no function line: the header's text decides
+    r = real_pick(CS, fb, chg, put(fb, 2, '  const inserted = 0'))
+    assert r[3] == ({P: ['function foo() {']}, {P: ['function foo() {']}) and EQ(r) == code
+    assert EQ(r, funcs=(r[3][0], {P: ['function bar() {']})) is None and EQ(r, funcs=({P: ['']}, r[3][1])) is None, 'another function text'
+    # ---- synthetic: none of the six context lines is the reviewed one
     head = 'diff --git a/%s b/%s\n--- a/%s\n+++ b/%s\n' % (P, P, P, P)
-    Ha, Hb = head + '@@\n k1\n k2\n+x\n k3\n k4\n' + Z, head + '@@\n k1\n+x\n k2\n k3\n k9\n' + Z
-    assert CS.diff_equiv(Ha, Hb, code=True) is None, 'x moved above k2, a line both diffs share'
-    assert CS.diff_equiv(Ha, head + '@@\n k1\n k2\n+x\n k3\n k9\n' + Z, code=True) == code, 'positive control: only k4 -> k9'
-    assert CS.diff_equiv(Ha, head + '@@\n k1\n+x\n k2\n k3\n k4\n' + Z, code=True) is None, 'the same context, x elsewhere: no context line differs'
-    # a path list keeps ITS rule (v43), never the code rule -- with code=True too
+    NF = lambda *ds: tuple(CS.hunk_funcs(d) for d in ds)
+    Ha, Hm = head + '@@\n k1\n k2\n k3\n+x\n k4\n k5\n k6\n', head + '@@\n m1\n m2\n m3\n+x\n m4\n m5\n m6\n'
+    txt = lambda *ls: {P: '\n'.join(ls) + '\n'}
+    assert CS.diff_equiv(Ha, Hm, texts=txt('t', 'm1', 'm2', 'm3', 'x', 'm4', 'm5', 'm6', 'e'), code=True, funcs=NF(Ha, Hm)) is None, \
+        'all context different'
+    # (d) the rebased hunk at TWO places of the rebased file
+    Hb = head + '@@\n k2\n INS\n k3\n+x\n k4\n k5\n k6\n'
+    blk = ['k1', 'k2', 'INS', 'k3', 'x', 'k4', 'k5', 'k6']
+    assert CS.diff_equiv(Ha, Hb, texts=txt('t', *(blk + ['m'] + blk + ['e'])), code=True, funcs=NF(Ha, Hb)) is None, 'two places'
+    assert CS.diff_equiv(Ha, Hb, texts=txt('t', *(blk + ['m'] + [l.replace('x', 'y') for l in blk] + ['e'])), code=True, funcs=NF(Ha, Hb)) == code, \
+        'positive control: one place'
+    # ---- the edge of the file is part of what was reviewed
+    top = ['const l%d = %d' % (i, i) for i in range(1, 9)]
+    tchg = top[:1] + ['const mine = 0'] + top[1:]                                   # at line 2: ONE context line above, the file's first
+    r = real_pick(CS, top, tchg, ['const n1 = 0'] + top)
+    assert r and r[0] != r[1] and EQ(r) == code and WHY(r) == (1, ''), 'one line inserted above the first line: %s' % (r and (WHY(r),))
+    r = real_pick(CS, top, tchg, ['const n%d = 0' % i for i in range(1, 5)] + top)
+    assert r and EQ(r) is None and 'at most 3' in WHY(r)[1], 'four lines above the first line'
+    echg = top[:6] + ['const mine = 0'] + top[6:]                                   # two context lines below, the file's last
+    r = real_pick(CS, top, echg, top + ['const n1 = 0'])
+    assert r and r[0] != r[1] and EQ(r) == code and WHY(r) == (1, ''), 'one line appended to the file: %s' % (r and (WHY(r),))
+    r = real_pick(CS, top, echg, top + ['const n%d = 0' % i for i in range(1, 5)])
+    assert r and EQ(r) is None, 'four lines appended to the file'
+    # ---- the guards that were there before
+    assert EQ(above, texts={P: above[2][P].replace('plank', 'plonk')}) is None
+    plonk = (above[0], above[1].replace('+' + PLANK, '+' + PLANK.replace('plank', 'plonk')), {P: above[2][P].replace('plank', 'plonk')}, above[3])
+    assert EQ(plonk) is None, 'another ADDED line (the rebased file agrees with the rebased diff: only the reviewed diff says plank)'
+    two = real_pick(CS, imp, [l.replace('// line 12', '// line twelve') for l in ours(imp)], imp[:3] + [GLASS] + imp[3:])
+    assert two and two[0].count('@@') == 2 and two[1].count('@@') == 2 and EQ(two) == code, 'two hunks on both sides, the first with an inserted line'
+    assert CS.diff_equiv(two[0], above[1], texts=above[2], code=True, funcs=(two[3][0], above[3][1])) is None, 'the second hunk is gone'
+    assert CS.diff_equiv(above[0], two[1], texts=two[2], code=True, funcs=(above[3][0], two[3][1])) is None, 'a hunk more'
+    near = [l for l in imp[:3] + [GLASS] + imp[3:] if not l.startswith('// line') or l in ('// line 11', '// line 12')]
+    tail = lambda lines: [('  return a() - b()' if l == '  return a() + b()' else '// line twelve' if l == '// line 12' else l) for l in lines]
+    far, merged = real_pick(CS, imp, tail(imp), imp[:3] + [GLASS] + imp[3:]), real_pick(CS, imp, tail(imp), near)
+    assert far and far[0].count('@@') == 2 and far[0] == far[1], 'positive control: an insertion outside both hunks changes nothing'
+    assert merged and merged[1].count('@@') == 1 and EQ(merged) is None, 'the base lost the lines between: two hunks became one'
+    mode = above[1].replace('--- a/' + P, 'old mode 100644\nnew mode 100755\n--- a/' + P)
+    assert EQ((above[0], mode, above[2], above[3])) is None, 'a mode line'
+    assert EQ((above[0], above[1] + '\\ No newline at end of file\n', above[2], above[3])) is None
+    Z = _nd('bots/src/z.mjs', ['a', 'b', 'd'], ['a', 'c', 'd'])
+    assert EQ((above[0] + Z, above[1] + Z, above[2], above[3])) == code, 'another file, identical on both sides'
+    assert EQ((above[0] + Z, above[1], above[2], above[3])) is None and EQ((above[0], above[1] + Z, above[2], above[3])) is None
+    assert EQ((above[0] + Z, Z + above[1], above[2], above[3])) is None, 'the files in another order'
+    # ---- a path list keeps ITS rule (v43), never the code rule -- with code=True too
     L = next(iter(CS.CONTEXT_FREE_PATHS)); OPEN, CLOSE = CS.CONTEXT_FREE_PATHS[L]
     X = "  'bots/test/x.test.mjs',   // foo-01"
     ent = ["  'bots/test/r%d.test.mjs'," % i for i in range(1, 11)]
     mk = lambda entries: [OPEN] + list(entries) + [CLOSE, '', 'console.log(REQUIRED.length)']
-    ins = lambda lines: lines[:5] + [X] + lines[5:]
+    ins = lambda lines: put(lines, lines.index(ent[3]) + 1, X)                     # our entry after r4
     LA = _nd(L, mk(ent), ins(mk(ent)))
-    ok = mk(ent[:1] + ["  'bots/test/other.test.mjs',   // other-01"] + ent[2:])
-    bad = mk(ent[:2] + ['/* voyager-01'] + ent[3:])               # Codex r1 of v43: a block comment opened in the moved context
+    ok = mk(ent[:1] + ["  'bots/test/other.test.mjs',   // other-01"] + ent[2:])     # r2 REPLACED: fine for a list, not for code
+    bad = mk(ent[:2] + ['/* voyager-01'] + ent[2:])                                # a block comment INSERTED beside ours
     T = lambda lines: {L: '\n'.join(ins(lines)) + '\n'}
-    assert CS.diff_equiv(LA, _nd(L, ok, ins(ok)), texts=T(ok), code=True) == 'context-only in %s' % L, 'the list rule answers, and says so'
+    LO, LB = _nd(L, ok, ins(ok)), _nd(L, bad, ins(bad))
+    assert CS.diff_equiv(LA, LO, texts=T(ok), code=True, funcs=NF(LA, LO)) == 'context-only in %s' % L, 'the list rule answers, and says so'
     sec = lambda d: CS.diff_sections(d)[0][1]
-    assert CS.code_context(sec(LA), sec(_nd(L, bad, ins(bad)))) == 1, 'positive control: the CODE rule alone would accept it'
-    assert CS.diff_equiv(LA, _nd(L, bad, ins(bad)), texts=T(bad), code=True) is None, 'a list file is judged by the list rule only'
-    assert CS.diff_equiv(LA, _nd(L, ok, ins(ok)), code=True) is None, 'and without the rebased text it is not provable, as in v43'
-    assert CS.diff_equiv(A + LA, B + _nd(L, ok, ins(ok)), texts=T(ok), code=True) == '%s; context-only in %s' % (code, L), 'both at once'
-    assert CS.diff_equiv(A + LA, B + _nd(L, ok, ins(ok)), texts=T(ok)) is None, 'by default the code file still refuses'
-    assert CS.code_context_counts(A + LA, B + _nd(L, ok, ins(ok))) == {P: 1}, 'the list file is not counted as code'
-    # the pieces
+    assert CS.code_context(sec(LA), sec(LB), T(bad)[L], [''], ['']) == (1, ''), 'positive control: the CODE rule alone would accept the inserted line'
+    assert CS.diff_equiv(LA, LB, texts=T(bad), code=True, funcs=NF(LA, LB)) is None, 'a list file is judged by the list rule only'
+    both = (above[0] + LA, above[1] + LO, dict(above[2], **T(ok)), above[3])
+    assert EQ(both) == '%s; context-only in %s' % (code, L), 'both at once'
+    assert CS.diff_equiv(both[0], both[1], texts=both[2], funcs=both[3]) is None, 'by default the code file still refuses'
+    assert set(CS.code_context_files(both[0], both[1], texts=both[2], funcs=both[3])) == {P}, 'the list file is not judged as code'
+    # ---- the pieces
     assert CS.hunk_parts(['diff --git a/x b/x', '--- a/x', '+++ b/x', '@@', ' a', '+b', '@@', '-c', '']) == \
         (['diff --git a/x b/x', '--- a/x', '+++ b/x'], [[' a', '+b'], ['-c', '']])
+    assert CS.hunk_runs([' a', '-b', '+B', ' c', ' d', '+e', '']) == ([['a'], ['c', 'd'], []], [['-b', '+B'], ['+e']])
+    assert CS.hunk_runs(['+e', ' a']) == ([[], ['a']], [['+e']])
+    raw = 'diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n@@ -1,3 +1,4 @@\n a\n+b\n@@ -9,3 +10,3 @@ function f() {  \n-c\n+d\n'
+    assert CS.hunk_funcs(raw) == {'x': ['', 'function f() {']} and CS.hunk_funcs(CS.norm_diff(raw)) == {'x': ['', '']}
+    assert CS.func_line('function f() {') and CS.func_line('_x') and CS.func_line('$y') and CS.func_line("import a from 'a'")
+    assert not CS.func_line('  indented()') and not CS.func_line('') and not CS.func_line('}') and not CS.func_line('// c')
+    assert CS.run_funcs(['   x()', '-old()', ' function g() {', '   y()', '+z()'], 'function f() {') == ['function f() {', 'function g() {']
+    assert CS.run_funcs([' function h() {', '   x()', '+z()'], 'function f() {') == ['function h() {'], 'the hunk\'s own line is nearer than the header\'s'
+    assert CS.context_walk(['a', 'b', 'c', 'd'], 3, -1, ['d', 'b', 'a']) == 1 and CS.context_walk(['a', 'b', 'c'], 0, 1, ['a', 'c']) == 1
+    assert CS.context_walk(['a', 'b', 'c'], 0, 1, ['c', 'a']) is None and CS.context_walk(['a'], 0, 1, []) == 0
     # WHEN the build may use it: not protected on BOTH bases, and no kill switch
     cp = CS.code_context_problem
     assert cp('none', 'none', False) == ''
@@ -640,6 +811,36 @@ def t_v44_code_context_pure(CS):
         for pair in ((t, t), (t, 'none'), ('none', t)):
             assert 'protected' in cp(pair[0], pair[1], False), pair
     assert 'CONTEXT-STRICT is present' in cp('none', 'none', True) and cp('3', '3', True)
+
+
+def t_v44_kill_switch_fails_closed(CS):
+    """Review r1: `os.path.exists` is False for a dangling symlink and for any stat error, so the switch turned itself OFF
+    exactly when something was wrong with it. Any form of the name is ON; any error but "no such name" is ON."""
+    import tempfile
+    d = tempfile.mkdtemp(prefix='ar-strict-')
+    try:
+        p = os.path.join(d, 'CONTEXT-STRICT')
+        assert CS.context_strict(p) is False, 'absent: off'
+        os.symlink(os.path.join(d, 'nowhere'), p)
+        assert not os.path.exists(p) and CS.context_strict(p) is True, 'a dangling symlink is ON'
+        os.unlink(p); os.mkdir(p)
+        assert CS.context_strict(p) is True, 'a directory of that name is ON'
+        os.rmdir(p); open(p, 'w').close()
+        assert CS.context_strict(p) is True
+        os.unlink(p)
+
+        def boom(exc):
+            def lstat(path):
+                raise exc
+            return lstat
+        assert CS.context_strict(p, lstat=boom(PermissionError(13, 'denied'))) is True, 'cannot tell: STRICT'
+        assert CS.context_strict(p, lstat=boom(NotADirectoryError(20, 'not a directory'))) is True
+        assert CS.context_strict(p, lstat=boom(RuntimeError('anything'))) is True
+        assert CS.context_strict(p, lstat=boom(FileNotFoundError(2, 'no such file'))) is False, 'only a clean ENOENT is off'
+        f = os.path.join(d, 'a-file'); open(f, 'w').close()
+        assert CS.context_strict(os.path.join(f, 'CONTEXT-STRICT')) is True, 'the REAL error for a parent that is a file (ENOTDIR): strict'
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def t_failing_test_refuses(CS):
@@ -1014,9 +1215,11 @@ TESTS = [t_pure_verdict_and_norm, t_no_patch_blocks_like_before, t_clear_then_re
          t_clean_builds_and_launches, t_conflict_pages_and_blocks, t_diff_change_refuses, t_failing_test_refuses,
          t_tier_change_refuses, t_base_flake_accepted_and_named, t_clear_flake_accepted, t_changed_flake_refused,
          t_flaky_both_accepted, t_v43_diff_equiv_pure, t_v43_list_context_is_the_same_change,
-         t_v43_no_patch_head_is_skipped, t_v44_code_context_pure, t_v44_code_context_accepted_when_not_protected,
-         t_v44_context_strict_restores_byte_exact, t_v44_notes_say_which_identity_held,
-         t_v44_speculative_refusal_is_a_flag_that_names_the_hand_rebase]
+         t_v43_no_patch_head_is_skipped, t_v44_code_context_pure, t_v44_kill_switch_fails_closed,
+         t_v44_code_context_accepted_when_not_protected, t_v44_protected_change_stays_byte_exact,
+         t_v44_context_strict_restores_byte_exact, t_v44_changed_context_line_refuses_and_says_why,
+         t_v44_accept_page_cannot_fail_the_build, t_v44_notes_say_which_identity_held,
+         t_v44_speculative_refusal_reaches_the_phone_and_names_the_hand_rebase]
 
 
 # --------------------------------------------------------------------------------------------- v41 bundles --
@@ -1200,28 +1403,49 @@ MUTANTS = [
     ('v41: related members are not refused at the build', "    if probs:\n        raise ArRefuse('the members are related",
      "    if False:\n        raise ArRefuse('the members are related"),
     ('v41: the fast plan is never written', "        reg['fun_reads'] = plan\n", "        reg['fun_reads'] = STD_READS\n"),
-    ('v43: context in a path list still counts (the 11-12 refusals)', "        same = diff_equiv(na, nb, texts=texts, code=not code_off)\n",
+    ('v43: context in a path list still counts (the 11-12 refusals)', "        same = diff_equiv(na, nb, texts=texts, code=not code_off, funcs=funcs)\n",
      "        same = None\n"),
-    ('v44: the build never uses the code rule (ironchain-02, boardwalk-03)', "        same = diff_equiv(na, nb, texts=texts, code=not code_off)\n",
-     "        same = diff_equiv(na, nb, texts=texts)\n"),
+    ('v44: the build never uses the code rule (ironchain-02, boardwalk-03)', "        same = diff_equiv(na, nb, texts=texts, code=not code_off, funcs=funcs)\n",
+     "        same = diff_equiv(na, nb, texts=texts, funcs=funcs)\n"),
     ('v44: a PROTECTED change gets the code rule too', "    if t0 != 'none' or t1 != 'none':\n", "    if False:\n"),
     ('v44: CONTEXT-STRICT is ignored', "    if strict:\n        return '%s is present", "    if False:\n        return '%s is present"),
-    ('v44: the code rule is on by default', "def diff_equiv(a, b, free=None, texts=None, code=False):\n",
-     "def diff_equiv(a, b, free=None, texts=None, code=True):\n"),
-    ('v44: a path list is judged by the code rule', "        if path not in free and code and code_context(la, lb):\n",
-     "        if code and code_context(la, lb):\n"),
-    ('v44: any added or removed line passes as context-only code',
-     "        if [l for i, l in enumerate(ua) if not ctx(l) or i in ka] != [l for i, l in enumerate(ub) if not ctx(l) or i in kb]:\n",
-     "        if False:\n"),
-    ('v44: the place of the change among shared context is not compared',
-     "        if [l for i, l in enumerate(ua) if not ctx(l) or i in ka] != [l for i, l in enumerate(ub) if not ctx(l) or i in kb]:\n",
-     "        if [l for l in ua if not ctx(l)] != [l for l in ub if not ctx(l)]:\n"),
-    ('v44: a hunk more or fewer passes', "    if len(xa) != len(xb):\n        return None\n", "    if False:\n        return None\n"),
-    ('v44: a differing file header or mode passes', "    if ha != hb:\n        return None\n", "    if False:\n        return None\n"),
+    ('v44: the code rule is on by default', "def diff_equiv(a, b, free=None, texts=None, code=False, funcs=None):\n",
+     "def diff_equiv(a, b, free=None, texts=None, code=True, funcs=None):\n"),
+    ('v44: a path list is judged by the code rule', "        if path not in free and code and code_context(la, lb, texts.get(path), FA.get(path), FB.get(path))[0]:\n",
+     "        if code and code_context(la, lb, texts.get(path), FA.get(path), FB.get(path))[0]:\n"),
+    ('v44 (a): the reviewed context ABOVE the change is not looked for', "        up = context_walk(T, spans[0][0] - 1, -1, ca[0][::-1])\n",
+     "        up = context_walk(T, spans[0][0] - 1, -1, [])\n"),
+    ('v44 (a): the reviewed context BELOW the change is not looked for', "        down = context_walk(T, spans[-1][1], 1, ca[-1])\n",
+     "        down = context_walk(T, spans[-1][1], 1, [])\n"),
+    ('v44 (a): the reviewed context BETWEEN two runs is not looked for', "0, 1, ca[i + 1]) for i in range(len(spans) - 1)]\n",
+     "0, 1, []) for i in range(len(spans) - 1)]\n"),
+    ('v44 (a): a line inserted beyond the file edge the reviewed hunk reached is not counted (above)',
+     "        if len(ca[0]) < DIFF_CONTEXT:\n", "        if False:\n"),
+    ('v44 (a): ... (below)', "        if len(ca[-1]) < DIFF_CONTEXT:\n", "        if False:\n"),
+    ('v44 (b): any number of inserted lines passes', "        if max(ins) > CODE_CONTEXT_MAX:\n", "        if False:\n"),
+    ('v44 (c): the enclosing function is not compared (aOld(), foo() / bar())', "        if run_funcs(ua, fa[k]) != run_funcs(ub, fb[k]):\n", "        if False:\n"),
+    ('v44 (c): the hunk header\'s function text is ignored', "            out.append(last if last is not None else head_func[:80].rstrip())\n",
+     "            out.append(last)\n"),
+    ('v44 (c): ONLY the header text is compared (it refuses the measured import case)', "        if func_line(l[1:]):\n            last = l[1:81].rstrip()\n",
+     "        if False:\n            last = l[1:81].rstrip()\n"),
+    ('v44 (d): the first of several places is taken', "        if len(hits) != 1:\n", "        if not hits:\n"),
+    ('v44: another added or removed line passes as context-only code', "        if ra != rb or not ra:\n", "        if not ra:\n"),
+    ('v44: a hunk more or fewer passes', "    if len(xa) != len(xb):\n        return None, ", "    if False:\n        return None, "),
+    ('v44: a differing file header or mode passes', "    if ha != hb:\n        return None, ", "    if False:\n        return None, "),
+    ('v44: the kill switch fails OPEN on an error', "    except FileNotFoundError:\n        return False\n    except Exception:\n        return True\n",
+     "    except FileNotFoundError:\n        return False\n    except Exception:\n        return False\n"),
+    ('v44: the kill switch follows a symlink (a dangling one is off)', "        lstat(path)\n        return True\n", "        os.stat(path)\n        return True\n"),
     ('v44: an accepted context-only rebase of code is not paged', "    if ctx_code:\n        # v44: one page", "    if False:\n        # v44: one page"),
+    ('v44: a page that cannot be written fails the build', "        except Exception as x:\n            try:\n                S('page-failed'",
+     "        except ZeroDivisionError as x:\n            try:\n                S('page-failed'"),
+    ('v44: a "built" page that cannot be written turns a done job into a refused one',
+     "        except Exception as x:\n            # v44 (review r1, the same hazard as the flag page in _ar_steps)",
+     "        except ZeroDivisionError as x:\n            # v44 (review r1, the same hazard as the flag page in _ar_steps)"),
     ('v44: the notes claim a byte-identical diff for a context-only rebase of code',
-     "    if ctx_code:\n        # v44: the same added and removed lines in the same hunks", "    if False:\n        # v44: the same added and removed lines in the same hunks"),
+     "    if ctx_code:\n        # v44: the same added and removed lines, every reviewed", "    if False:\n        # v44: the same added and removed lines, every reviewed"),
     ('v44: a refused SPECULATIVE build pages as a blocked head', "        if job.job.get('spec'):\n", "        if False:\n"),
+    ('v44: a refused SPECULATIVE build is a flag (digest only)', "SPEC_REFUSED_LEVEL = 'warn'", "SPEC_REFUSED_LEVEL = 'flag'"),
+    ('v44: the speculative refusal loses the word the pager pushes a warn for', "FAILED (refused at step %s): %s -- %s '\n", "refused at step %s: %s -- %s '\n"),
     ('v44: a speculative job does not say so', "    if spec:\n        job['spec'] = True\n", "    if False:\n        job['spec'] = True\n"),
     ('v43: context is free in EVERY file', "        if path not in free:\n            return None\n", "        if False:\n            return None\n"),
     ('v43: a different added line passes in a list', "        if changed(la) != changed(lb) or other(la) != other(lb) or rigid(la) != rigid(lb):\n",

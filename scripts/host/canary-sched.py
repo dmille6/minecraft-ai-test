@@ -142,20 +142,24 @@ for a stall that was measured:
   1. A CONTEXT-ONLY REBASE OF CODE is the reviewed change when the change is NOT PROTECTED (tier none on both bases).
      ironchain-02 (11-12) and boardwalk-03 (11-13) each picked with no conflict and every added and removed line the
      reviewed one, and were refused because 1-3 context lines of a code file differed (another change had landed a
-     neighbouring import line); each waited for a human who verified exactly that and registered it by hand. Now: the
-     same files, the same non-hunk lines, the same number of hunks, each hunk's added and removed lines identical, in
-     order and at the same place among the context both diffs share (code_context) -> accepted, named in the step row,
+     neighbouring import line); each waited for a human who verified exactly that and registered it by hand. Now
+     (code_context; the rule of review r1, after the first one accepted the reviewed lines in another function): the
+     same files, non-hunk lines and number of hunks, the same runs of added and removed lines, and in the REBASED FILE
+     every reviewed context line still standing around the change in the reviewed order -- the base may only have
+     INSERTED whole lines, at most CODE_CONTEXT_MAX on a side -- under the same enclosing function line, at one
+     unambiguous place. A reviewed context line that is gone or changed refuses. Accepted = named in the step row,
      the registration and `approved`, and paged once at 'flag' (a blockers-only look is owed; it never blocks the
      launch). The suite still runs on the rebased tree. A PROTECTED change (tier 3, tooling, undecidable) keeps the
      byte-exact rule; the path-list rule of v43 (CONTEXT_FREE_PATHS) is unchanged and still judges its own files.
-     ~/digest/CONTEXT-STRICT restores byte-exact for code.
+     ~/digest/CONTEXT-STRICT restores byte-exact for code (it fails closed: context_strict).
   2. LOOK AHEAD SPEC_DEPTH entries (spec_target): during a canary's read the next THREE queued changes are rebased onto
-     the canary sha, one build at a time, not only the first. A speculative build that is REFUSED pages at 'flag' and
-     says the run will need a hand rebase before it reaches the head: known hours before the slot is empty.
+     the canary sha, one build at a time, not only the first. A speculative build that is REFUSED pages the PHONE
+     (level 'warn' with FAILED in its text: pager.py page_tier) and says the run will need a hand rebase before it
+     reaches the head: known hours before the slot is empty.
   3. A HELD entry can always be passed (skip_kind 'held-no-variant'): glass-01 (11-13) was held AND had no variant for
      the fleet base; its H2 text was not a skippable kind, so a held entry blocked the head 45 min with an empty slot.
 """
-import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, difflib, datetime as dt
+import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, datetime as dt
 
 UTC = dt.timezone.utc
 CLOSED_PHASES = ('promoted', 'torn-down')
@@ -185,6 +189,7 @@ AR_RERUN_BUDGET_S = 80 * 60   # v40: all re-runs of one build; past it no new ru
 AR_REMOTE_WAIT_S = 100 * 60   # v42: the remote full suite (ci2/.30 via the Mac relay) must answer within this, else local
 SPEC_OFF_NAME = 'SPEC-OFF'    # v42: ~/digest/SPEC-OFF = no speculative build during a canary's read
 SPEC_DEPTH = 3                # v44: the speculative build looks this many eligible entries past the live canary (was 1)
+SPEC_REFUSED_LEVEL = 'warn'   # v44: the page level of a REFUSED speculative build -- with FAILED in its text it reaches the phone
 CONTEXT_STRICT_NAME = 'CONTEXT-STRICT'   # v44: ~/digest/CONTEXT-STRICT = a rebase that moves CODE context is refused again
 BUNDLE_MAX = 3           # v41: members per bundle (Codex: start with pairs; Claude: up to four) -- three
 STD_READS, FAST_READS = '90 180', '45 90'
@@ -812,7 +817,7 @@ def spec_target(st):
     done nor the live run -- nothing behind such an entry is built ahead. One build at a time (ar_busy; ar_start
     checks again). A variant built for the second or third entry is the one it launches on when the entries ahead of it
     are skipped, refused or do not KEEP; when they KEEP, the base moves and it is rebased again during THEIR read --
-    what the early build buys then is the early refusal (ar_build pages a refused speculative build at 'flag')."""
+    what the early build buys then is the early refusal (ar_build pages a refused speculative build to the phone)."""
     if st.get('spec_off'):
         return None
     man = st.get('manifest') if isinstance(st.get('manifest'), dict) else {}
@@ -927,6 +932,21 @@ def list_region(text, marks):
 # A PROTECTED change (protected.py tier 3 / tooling / undecidable on either base) keeps the byte-exact rule: there a
 # neighbouring line is the reviewers' business (code_context_problem). Every accepted case is named in its step row, its
 # registration and its `approved` text and paged once at 'flag' for a blockers-only look after the fact.
+#
+# REVIEW r1 (Claude + Codex, 11-13), the blocker both found: the first rule placed the change only among the context lines
+# the two diffs SHARED, with no floor, so the reviewed lines were accepted in ANOTHER FUNCTION. Reproduced with real git:
+# `function a() { init(); run(); done(); }`, the change adds `log();` after `run();`; the new base copies the function to
+# `aOld()` and rewrites the first body line of `a()`; the pick is clean and puts `log();` into `aOld()`; the rule said
+# "context-only". Also accepted: the same `-old(); +newCall();` under `function foo()` and under `function bar()`, and the
+# same `+X` between six context lines of which none was the reviewed one. So the rule is now the other way round: it
+# does not ask what the two diffs share, it asks whether EVERY reviewed context line still stands around the change in
+# the REBASED FILE (code_context: a-d). The only thing a base may have done is INSERT whole lines, and few of them.
+DIFF_CONTEXT = 3          # the -U3 of DIFF_ARGS: a hunk side with fewer context lines reached the start / end of its file
+CODE_CONTEXT_MAX = 3      # v44: lines a base may have INSERTED on one side of a change (the measured cases: 1-3 in all)
+_HUNK_HEAD = re.compile(r'^@@ -\d+(,\d+)? \+\d+(,\d+)? @@(.*)$')
+_FUNC_LINE = re.compile(r'[A-Za-z_$]')
+
+
 def hunk_parts(ls):
     """PURE. One file's section of a normalized diff (diff_sections) -> (head, hunks). `head` = every line before the first
     hunk: the `diff --git` line, mode lines, `---` / `+++`, and a binary patch whole (it has no hunk). `hunks` = the lines
@@ -943,51 +963,190 @@ def hunk_parts(ls):
     return head, hunks
 
 
-def code_context(la, lb):
+def hunk_funcs(text):
+    """PURE. A diff, RAW (as git wrote it) or normalized -> {path: [per hunk, the text git printed after the hunk header's
+    second `@@`: the nearest "function line" above the hunk; '' when it printed none]}. norm_diff erases that text (it
+    moves with every rebase) and its hash must stay what it is, so the code rule reads it from the raw diffs, here. A
+    normalized diff has none to give: every hunk ''."""
+    out, path = {}, ''
+    for l in text.split('\n'):
+        if l.startswith('diff --git '):
+            m = _DIFF_HEAD.match(l)
+            path = m.group(1) if m else l
+            out.setdefault(path, [])
+        elif l == '@@':
+            out.setdefault(path, []).append('')
+        elif l.startswith('@@ '):
+            m = _HUNK_HEAD.match(l)
+            if m:
+                out.setdefault(path, []).append(m.group(3).strip())
+    return out
+
+
+def func_line(l):
+    """PURE. Is `l` (a line without its diff marker) a function line by git's DEFAULT rule (xdiff def_ff: it starts with a
+    letter, `_` or `$`)? That rule wrote the hunk headers' function text unless a userdiff driver is configured (none
+    is: gitx ignores the user's and the system's config, and .gitattributes names no diff driver)."""
+    return bool(_FUNC_LINE.match(l))
+
+
+def hunk_runs(u):
+    """PURE. One hunk's lines -> (ctx, runs). `runs` = its maximal runs of lines that are not context (added, removed, a
+    no-newline marker), markers kept; `ctx` = the len(runs) + 1 context segments before, between and after them, markers
+    stripped. The empty string after the diff's last newline is not a line of the hunk."""
+    ctx, runs, on = [[]], [], False
+    for l in u:
+        if l == '':
+            continue
+        if l[:1] == ' ':
+            if on:
+                ctx.append([])
+            ctx[-1].append(l[1:])
+            on = False
+        else:
+            if not on:
+                runs.append([])
+            runs[-1].append(l)
+            on = True
+    if on:
+        ctx.append([])
+    return ctx, runs
+
+
+def run_funcs(u, head_func):
+    """PURE. For each run of a hunk (hunk_runs): the function line that ENCLOSES it -- the nearest function line among the
+    hunk's own lines above the run, else the text of the hunk header (`head_func`). Both as git prints one: at most 80
+    characters, trailing blanks stripped.
+    Why not the header text alone (review r1 asked for exactly that): it is the nearest function line above the hunk's
+    FIRST line, and an inserted line moves that first line. In top-level code -- an import block, where git's default
+    rule calls every line a function line -- a base that inserts ONE import above ours pushes a reviewed context line
+    out of the hunk, and that line becomes the header text: the two measured cases would be refused for what they are.
+    The line that encloses the CHANGE is what must not differ, and this is it: the header text decides whenever the
+    hunk shows no function line above the change (a change inside a function body: foo() / bar())."""
+    out, last = [], None
+    on = False
+    for l in u:
+        if l == '':
+            continue
+        if l[:1] != ' ' and not on:
+            out.append(last if last is not None else head_func[:80].rstrip())
+        on = l[:1] != ' '
+        if func_line(l[1:]):
+            last = l[1:81].rstrip()
+    return out
+
+
+def context_walk(T, i, step, want):
+    """PURE. From index i of the lines T, moving by `step` (-1 up, +1 down): find the lines `want` in that order, each the
+    NEAREST one not yet passed. -> how many other lines were passed over on the way (lines a base inserted), or None
+    when one of `want` is not there at all."""
+    skipped = 0
+    for c in want:
+        while 0 <= i < len(T) and T[i] != c:
+            skipped += 1
+            i += step
+        if not 0 <= i < len(T):
+            return None
+        i += step
+    return skipped
+
+
+def code_context(la, lb, text=None, fa=None, fb=None):
     """PURE. v44. Two sections of ONE file (reviewed `la`, rebased `lb`) that are not byte-identical: is `lb` the same
-    change with other CONTEXT? -> the number of context lines that differ (>= 1), or None. ALL of:
+    change in the same place, the base having only INSERTED a few whole lines beside it? -> (n, '') with n >= 1 the
+    number of inserted lines, or (None, why not). `text` = the file AS REBASED; `fa` / `fb` = hunk_funcs of the two
+    diffs for this file. ALL of:
       - every non-hunk line identical (file headers, modes; so a binary patch, which has no hunk, is byte-exact);
       - the same number of hunks (a base that merged or split two hunks moved the change's own lines together or apart);
-      - in each hunk, with the context lines that DIFFER taken out of both, the two hunks are the same sequence. So
-        every line that is not context -- added, removed, a no-newline marker -- is identical and in order, AND the
-        change's lines stand at the same place among the context lines both diffs share. (Comparing the added and
-        removed lines alone would read a line added ABOVE a shared neighbour in one diff and BELOW it in the other
-        as "context-only".)
-    SHARED = difflib's matching blocks over the two hunks' context lines (the longest common run first, then left and
-    right of it, until the gaps between the blocks have no line in common): an order-preserving pairing, so a context
-    line counts as differing only when the matching gap of the other diff holds no equal line. The count is per hunk
-    max(context lines) - shared ones."""
+      - in each hunk the same runs of added and removed lines, line for line (a hunk with a no-newline marker: byte-exact);
+      (c) each run enclosed by the same function line in both diffs (run_funcs);
+      (d) the rebased hunk -- its added lines with its context -- stands at exactly ONE place in the rebased file;
+      (a) walking outward from the change in the rebased file, EVERY reviewed context line is there, in the reviewed
+          order: above the first run, below the last, and between two runs. A reviewed context line that is gone or
+          changed refuses -- a human looks. Where the reviewed hunk reached the start or the end of its file (fewer than
+          DIFF_CONTEXT lines on that side), the file's edge is part of what was reviewed: every line now beyond the
+          reviewed ones counts as inserted;
+      (b) at most CODE_CONTEXT_MAX lines inserted on each side of a hunk, and between two of its runs.
+    Not provable = not the same: no rebased text, no function text for both diffs."""
     (ha, xa), (hb, xb) = hunk_parts(la), hunk_parts(lb)
     if ha != hb:
-        return None
+        return None, 'a file header or mode line differs'
     if len(xa) != len(xb):
-        return None
-    ctx = lambda l: l[:1] == ' '
+        return None, 'the reviewed diff has %d hunk(s) there, the rebased one %d' % (len(xa), len(xb))
+    if not isinstance(text, str):
+        return None, 'the rebased file could not be read'
+    if fa is None or fb is None or len(fa) != len(xa) or len(fb) != len(xb):
+        return None, 'the function text of the hunk headers is not known for both diffs'
+    T = text.split('\n')
+    if T and T[-1] == '':
+        T.pop()
     n = 0
-    for ua, ub in zip(xa, xb):
-        ia, ib = [i for i, l in enumerate(ua) if ctx(l)], [i for i, l in enumerate(ub) if ctx(l)]
-        ka, kb = set(), set()
-        for m in difflib.SequenceMatcher(None, [ua[i] for i in ia], [ub[i] for i in ib], autojunk=False).get_matching_blocks():
-            ka.update(ia[m.a:m.a + m.size]); kb.update(ib[m.b:m.b + m.size])
-        if [l for i, l in enumerate(ua) if not ctx(l) or i in ka] != [l for i, l in enumerate(ub) if not ctx(l) or i in kb]:
-            return None
-        n += max(len(ia), len(ib)) - len(ka)
-    return n or None
+    for k, (ua, ub) in enumerate(zip(xa, xb)):
+        (ca, ra), (_, rb) = hunk_runs(ua), hunk_runs(ub)
+        if ra != rb or not ra:
+            return None, 'hunk %d: an added or removed line differs, or stands in another run' % (k + 1)
+        if run_funcs(ua, fa[k]) != run_funcs(ub, fb[k]):
+            return None, 'hunk %d: the enclosing function differs (%r reviewed, %r rebased)' % (
+                k + 1, run_funcs(ua, fa[k])[0][:60], run_funcs(ub, fb[k])[0][:60])
+        if [l for l in ua if l] == [l for l in ub if l]:
+            continue
+        if any(l[:1] == '\\' for l in ua + ub):
+            return None, 'hunk %d: a no-newline marker in a hunk that is not byte-identical' % (k + 1)
+        new = [l[1:] for l in ub if l[:1] in (' ', '+')]
+        hits = [i for i in range(len(T) - len(new) + 1) if T[i:i + len(new)] == new] if new else []
+        if len(hits) != 1:
+            return None, 'hunk %d: the rebased hunk stands at %d places in the rebased file' % (k + 1, len(hits))
+        j, spans, on = hits[0], [], False
+        for l in ub:
+            if l == '':
+                continue
+            if l[:1] != ' ' and not on:
+                spans.append([j, j])
+            on = l[:1] != ' '
+            j += l[:1] in (' ', '+')
+            if on:
+                spans[-1][1] = j
+        up = context_walk(T, spans[0][0] - 1, -1, ca[0][::-1])
+        down = context_walk(T, spans[-1][1], 1, ca[-1])
+        mid = [context_walk(T[spans[i][1]:spans[i + 1][0]], 0, 1, ca[i + 1]) for i in range(len(spans) - 1)]
+        if up is None or down is None or None in mid:
+            return None, 'hunk %d: a reviewed context line is gone or changed around the change' % (k + 1)
+        if len(ca[0]) < DIFF_CONTEXT:
+            up = spans[0][0] - len(ca[0])              # the reviewed hunk began at the file's first line
+        if len(ca[-1]) < DIFF_CONTEXT:
+            down = len(T) - spans[-1][1] - len(ca[-1])  # ... ended at its last line
+        ins = [up, down] + [spans[i + 1][0] - spans[i][1] - len(ca[i + 1]) for i in range(len(spans) - 1)]
+        if max(ins) > CODE_CONTEXT_MAX:
+            return None, 'hunk %d: %d lines were inserted on one side of the change (at most %d)' % (k + 1, max(ins), CODE_CONTEXT_MAX)
+        n += sum(ins)
+    return (n, '') if n else (None, 'no inserted line found although the hunks differ')
 
 
-def code_context_counts(a, b, free=None):
-    """PURE. v44. {path: context lines that differ} for every file of the normalized diffs `a` (reviewed) and `b` (rebased)
-    whose section differs and that code_context accepts; the path lists in `free` are left out (their rule is diff_equiv's)."""
+def code_context_files(a, b, free=None, texts=None, funcs=None):
+    """PURE. v44. {path: (n, why)} -- code_context's answer for every file of the normalized diffs `a` (reviewed) and `b`
+    (rebased) whose section differs; the path lists in `free` are left out (their rule is diff_equiv's). `texts` = {path:
+    the file as rebased}, `funcs` = (hunk_funcs of the reviewed raw diff, of the rebased one)."""
     free = CONTEXT_FREE_PATHS if free is None else free
+    FA, FB = funcs or ({}, {})
     sa, sb = diff_sections(a), diff_sections(b)
     if [p for p, _ in sa] != [p for p, _ in sb]:
         return {}
-    out = {}
-    for (path, la), (_, lb) in zip(sa, sb):
-        n = code_context(la, lb) if la != lb and path not in free else None
-        if n:
-            out[path] = n
-    return out
+    return {path: code_context(la, lb, (texts or {}).get(path), FA.get(path), FB.get(path))
+            for (path, la), (_, lb) in zip(sa, sb) if la != lb and path not in free}
+
+
+def context_strict(path, lstat=os.lstat):
+    """v44. Is the kill switch ~/digest/CONTEXT-STRICT on? It FAILS CLOSED (review r1: os.path.exists answered False for a
+    dangling symlink and for any stat error, which turned the switch OFF exactly when something was wrong with it): the
+    name existing in any form -- a file, a directory, a symlink to nothing -- is on, and so is every error other than
+    "no such name" (os.path.lexists would swallow those too). Only a clean ENOENT is off."""
+    try:
+        lstat(path)
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return True
 
 
 def code_context_problem(t0, t1, strict):
@@ -1003,13 +1162,14 @@ def code_context_problem(t0, t1, strict):
     return ''
 
 
-def diff_equiv(a, b, free=None, texts=None, code=False):
+def diff_equiv(a, b, free=None, texts=None, code=False, funcs=None):
     """PURE. Is normalized diff `b` (the rebased change) the same change as the reviewed normalized diff `a`? ->
     '' byte-identical | 'context-only in <paths>' | 'context-only (code) in <paths>[; context-only in <paths>]' (v44,
     only with code=True) | None (a different change, or not provably the same).
     code=True (v44; the build passes it only when code_context_problem is ''): a differing file that is NOT in `free`
-    is the same change when code_context says so. The default keeps every such file byte-exact, as before v44. A file
-    in `free` is judged by the list rule below in both cases, never by the code rule.
+    is the same change when code_context says so, given `texts[path]` (the file AS REBASED) and `funcs` = (hunk_funcs
+    of the reviewed raw diff, of the rebased one); without either it is not provable. The default keeps every such
+    file byte-exact, as before v44. A file in `free` is judged by the list rule below in both cases, never by the code rule.
     'context-only': the same files in the same order; every file outside `free` byte-identical; and for a differing file
     in `free` (path -> the list's opening and closing line), with `texts[path]` the file AS REBASED:
       - every added and removed line identical and in order, and every non-hunk line (headers, modes) identical;
@@ -1032,10 +1192,11 @@ def diff_equiv(a, b, free=None, texts=None, code=False):
     edits = lambda ls: [l for l in ls if l[:1] in ('+', '-') and not l.startswith(hdr)]
     rigid = lambda ls: [l for l in ls if l[:1] == ' ' and not list_line(l[1:])]
     loose, loose_code = [], []
+    FA, FB = funcs or ({}, {})
     for (path, la), (_, lb) in zip(sa, sb):
         if la == lb:
             continue
-        if path not in free and code and code_context(la, lb):
+        if path not in free and code and code_context(la, lb, texts.get(path), FA.get(path), FB.get(path))[0]:
             loose_code.append(path)              # v44
             continue
         if path not in free:
@@ -1053,12 +1214,17 @@ def diff_equiv(a, b, free=None, texts=None, code=False):
     return '; '.join(out) or None
 
 
-def diff_norm(gdir, a, b):
-    """norm_diff(git diff a b) -- the text diff_hash hashes -- or raises."""
+def diff_raw(gdir, a, b):
+    """git diff a b as git wrote it (DIFF_ARGS) -- norm_diff of it is the text diff_hash hashes -- or raises."""
     rc, out, err = gitx(gdir, *DIFF_ARGS, a, b)
     if rc != 0:
         raise RuntimeError('git diff %s %s failed: %s' % (a[:8], b[:8], err.strip()[-200:]))
-    return norm_diff(out)
+    return out
+
+
+def diff_norm(gdir, a, b):
+    """norm_diff(git diff a b) -- the text diff_hash hashes -- or raises."""
+    return norm_diff(diff_raw(gdir, a, b))
 
 
 def movement_fails(out):
@@ -2038,7 +2204,7 @@ def gather(P, full=True, r10=None):
     st['base_full'] = full_sha(P, man.get('declared_code_version'))
     st['rollout_procs'] = rollout_procs(P)
     st['spec_off'] = os.path.exists(P['spec_off'])
-    st['context_strict'] = os.path.exists(P['context_strict'])   # v44 (the BUILD reads the file itself: it is another process)
+    st['context_strict'] = context_strict(P['context_strict'])   # v44 (the BUILD reads the file itself: it is another process)
     st['canary_full'] = full_sha(P, man.get('canary_code_version')) if man.get('canary_code_version') else None
     st['ar_busy'], st['spec_jobs'] = False, {}
     for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
@@ -2869,8 +3035,14 @@ def ar_build(P, run, base, tip):
     try:
         res = _ar_steps(P, job, run, base, tip)
         job.end('done', **res)
-        ar_page(P, 'info', run, 'built %s for fleet base %s (%s); the next free-slot tick launches it'
-                % (res['variant'][:8], base[:8], res['branch']))
+        try:
+            ar_page(P, 'info', run, 'built %s for fleet base %s (%s); the next free-slot tick launches it'
+                    % (res['variant'][:8], base[:8], res['branch']))
+        except Exception as x:
+            # v44 (review r1, the same hazard as the flag page in _ar_steps): the variant is queued and the job is DONE.
+            # An info page that cannot be written fell into the handler below, which rewrote the job as "refused"
+            # (crashed) while the next tick launched the variant. It is a line in the build log, nothing more.
+            print('%s the "built" page could not be written (%s: %s); the job is done' % (iso(now()), type(x).__name__, x), flush=True)
         return 0
     except ArRefuse as x:
         why = str(x)
@@ -2878,10 +3050,17 @@ def ar_build(P, run, base, tip):
         job.end('refused', why=why)
         if job.job.get('spec'):
             # v44 (OWNER 11-13): a SPECULATIVE build (onto the live canary's sha, during its read) blocks nothing yet --
-            # the run is not at the head and that sha is not the fleet base -- so it is a 'flag', not the 'error' page
-            # of a blocked head, and it says what is owed. The job is never retried (spec_target passes it over; at the
+            # the run is not at the head and that sha is not the fleet base -- so it is not the 'error' page of a
+            # blocked head, and it says what is owed. The job is never retried (spec_target passes it over; at the
             # head ar_view reads it as REFUSED), so without a hand rebase the run is skipped or blocks when it gets there.
-            ar_page(P, 'flag', run, '%s: the SPECULATIVE autorebase onto the live canary %s refused at step %s: %s -- %s '
+            # THE LEVEL (review r1): pager.py page_tier sends a 'flag' to the DIGEST unless its text says the slot waits
+            # ('has waited', 'no journal line yet'), and this one does not wait -- as a flag it would never reach the
+            # phone, which defeats "known hours before the slot is empty". 'warn' is the lowest level that fits and
+            # reaches the phone: page_tier pages a warn whose text carries one of its PAGE_WORDS, here FAILED (an
+            # 'info' with that word would be pushed too, but a refusal is not information; 'error' is the blocked
+            # head). test_autorebase.py holds this row against pager.py's own page_tier, so neither side can drift.
+            # ONCE per run and canary sha: this is the build's only exit for a refusal and a job is never built twice.
+            ar_page(P, SPEC_REFUSED_LEVEL, run, '%s: the SPECULATIVE autorebase onto the live canary %s FAILED (refused at step %s): %s -- %s '
                     'will need a hand rebase before it reaches the head (build the variant on %s by hand and `queue '
                     'add-variant`, or fix the cause and `canary-sched.py autorebase-clear %s <why>`); nothing is blocked yet'
                     % (run, base[:8], job.job.get('step'), why[:400], run, base[:8], run))
@@ -3356,37 +3535,46 @@ def _ar_steps(P, job, run, base, tip):
     PR = dict(P, git=R)
     t0 = tier_label(*protected_run(PR, pt['base'], tip))
     t1 = tier_label(*protected_run(PR, base, nt))
-    code_off = code_context_problem(t0, t1, os.path.exists(P['context_strict']))
-    same, na, nb, texts = '', '', '', {}
+    code_off = code_context_problem(t0, t1, context_strict(P['context_strict']))
+    same, na, nb, texts, funcs = '', '', '', {}, None
     if h1 != h0:
-        # v43: the rebased text of each path list the change touches (git show; a failure leaves it out = not the same)
-        for fp in CONTEXT_FREE_PATHS:
-            if fp in files1:
-                rcs, txt, _ = gitx(R, 'show', '%s:%s' % (nt, fp))
-                if rcs == 0:
-                    texts[fp] = txt
-        na, nb = diff_norm(R, pt['base'], tip), diff_norm(R, base, nt)
-        same = diff_equiv(na, nb, texts=texts, code=not code_off)
+        # the file AS REBASED (git show; a failure leaves it out = not the same): v43 for each path list the change
+        # touches, v44 for every changed file -- the code rule looks for the reviewed context IN the rebased file
+        for fp in files1:
+            rcs, txt, _ = gitx(R, 'show', '%s:%s' % (nt, fp))
+            if rcs == 0:
+                texts[fp] = txt
+        raw_a, raw_b = diff_raw(R, pt['base'], tip), diff_raw(R, base, nt)
+        na, nb, funcs = norm_diff(raw_a), norm_diff(raw_b), (hunk_funcs(raw_a), hunk_funcs(raw_b))
+        same = diff_equiv(na, nb, texts=texts, code=not code_off, funcs=funcs)
+    # v44: code_context's answer per differing code file -- the counts of an accepted case, the reasons of a refused one
+    files_cc = code_context_files(na, nb, texts=texts, funcs=funcs)
     hint = ''
-    if same is None and code_off and diff_equiv(na, nb, texts=texts, code=True):
-        # v44: say so when the ONLY difference is context in code, so the human rebase knows what it is looking at
-        hint = ' -- every added and removed line IS the reviewed one and only context lines of code differ (%s), but %s' % (
-            ', '.join('%s %d' % kv for kv in sorted(code_context_counts(na, nb).items()))[:160], code_off)
+    if same is None and code_off and diff_equiv(na, nb, texts=texts, code=True, funcs=funcs):
+        # v44: say so when the ONLY difference is lines the base inserted beside the change, so the human rebase knows
+        hint = ' -- every added and removed line IS the reviewed one and the base only inserted lines beside it (%s), but %s' % (
+            ', '.join('%s %d' % (f, n) for f, (n, _) in sorted(files_cc.items()))[:160], code_off)
+    elif same is None and not code_off and [1 for n, _ in files_cc.values() if not n]:
+        # v44: the code rule was on and said no: name the file and the reason, for the human who rebases it
+        hint = ' -- not a context-only rebase of code (v44): %s' % '; '.join(
+            '%s: %s' % (f, w) for f, (n, w) in sorted(files_cc.items()) if not n)[:300]
     if same is None:
         raise ArRefuse('the rebased diff is NOT the reviewed diff (normalized sha256 %s vs %s; files %s): the base changed '
                        'lines in or beside the change, so it needs a human rebase and a review%s'
                        % (h1[:12], h0[:12], ', '.join(files1)[:200], hint))
-    ctx_code = code_context_counts(na, nb) if same.startswith('context-only (code)') else {}
+    ctx_code = {f: n for f, (n, _) in files_cc.items() if n} if same.startswith('context-only (code)') else {}
     if ctx_code:
-        # v44: the same added and removed lines in the same hunks; context lines of CODE moved, the change not protected
+        # v44: the same added and removed lines, every reviewed context line still around them in the rebased file;
+        # the base INSERTED lines beside the change (code_context), and the change is not protected
         nctx = sum(ctx_code.values())
         ident = ('every added and removed line identical, CONTEXT-ONLY REBASE OF CODE (v44, not protected): %s; %d context '
-                 'line(s) differ (%s); normalized diff sha256 %s, reviewed %s; a blockers-only look is owed'
+                 'line(s) inserted by the base (%s), every reviewed context line still in place; normalized diff sha256 %s, '
+                 'reviewed %s; a blockers-only look is owed'
                  % (same, nctx, ', '.join('%s %d' % kv for kv in sorted(ctx_code.items())), h1[:16], h0[:16]))
         S('diff-identical', 'the reviewed change: every added and removed line is the reviewed one; CONTEXT-ONLY IN CODE (v44, '
-                            'not protected: tier none on both bases): %s; %d context line(s) differ (%s); normalized diff '
-                            'sha256 %s, reviewed %s' % (same, nctx, ', '.join('%s %d' % kv for kv in sorted(ctx_code.items())),
-                                                        h1[:16], h0[:16]))
+                            'not protected: tier none on both bases): %s; %d context line(s) inserted by the base (%s), every '
+                            'reviewed context line still in place; normalized diff sha256 %s, reviewed %s'
+                            % (same, nctx, ', '.join('%s %d' % kv for kv in sorted(ctx_code.items())), h1[:16], h0[:16]))
     elif same:
         # v43: the same added and removed lines; only the context of a path list moved (CONTEXT_FREE_PATHS)
         ident = 'every added and removed line identical, %s (a path list; normalized diff sha256 %s, reviewed %s)' % (
@@ -3437,11 +3625,20 @@ def _ar_steps(P, job, run, base, tip):
     _ar_add_variant(P, S, run, base, nt, regp, approved, reads_src)
     if ctx_code:
         # v44: one page, AFTER the variant is queued (so "accepted" and "the suite ran" are true), at 'flag': it asks
-        # for a look after the fact and blocks nothing -- the next free-slot tick launches the variant as any other
-        ar_page(P, 'flag', run, '%s: autorebase accepted a context-only rebase of code in %s (%d context lines); the suite '
-                'ran; a blockers-only look is owed (variant %s on %s; compare `git diff %s %s` with `git diff %s %s`)'
-                % (run, ', '.join(sorted(ctx_code)), sum(ctx_code.values()), nt[:8], base[:8], pt['base'][:8], tip[:8],
-                   base[:8], nt[:8]))
+        # for a look after the fact and blocks nothing -- the next free-slot tick launches the variant as any other.
+        # Review r1: it must not be able to RAISE either. The variant is queued by now; an exception here would end
+        # the job as "refused" while the next tick launches that variant. A page that cannot be written is a step row.
+        try:
+            ar_page(P, 'flag', run, '%s: autorebase accepted a context-only rebase of code in %s (%d context lines); the suite '
+                    'ran; a blockers-only look is owed (variant %s on %s; compare `git diff %s %s` with `git diff %s %s`)'
+                    % (run, ', '.join(sorted(ctx_code)), sum(ctx_code.values()), nt[:8], base[:8], pt['base'][:8], tip[:8],
+                       base[:8], nt[:8]))
+        except Exception as x:
+            try:
+                S('page-failed', 'the flag page for the context-only rebase of code could not be written (%s: %s); the variant '
+                                 'IS queued and a blockers-only look is still owed' % (type(x).__name__, x))
+            except Exception:
+                pass
     gitx(R, 'worktree', 'remove', '--force', W)
     shutil.rmtree(W, ignore_errors=True)
     return {'variant': nt, 'branch': branch, 'registration': regp, 'tests': summary}
