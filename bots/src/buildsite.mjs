@@ -635,6 +635,36 @@ export function siteAgainFresh (s, read, plan, bp, ctx = {}, opts = {}) {
   void walkCache
   return siteBlueprintAsync(read, plan, bp, { ...rest, only: { x: s.record.anchor[0], z: s.record.anchor[1], orient: s.record.orient } }, opts)
 }
+/**
+ * homes-02show review r2 (Codex 1): ...AND THE FRESH PROOF ITSELF MUST HAVE STOOD ON A WORLD THAT HELD STILL. A reader keeps what it
+ * read (skills.mjs planReader), and the proof hands the event loop back between its walks: a trench that arrives after its first
+ * walk is told to the witness, but the later walks read the kept ground, and the proof answered ok.
+ *   readOf(o)   a NEW reader (`o.memo === false`: one that keeps nothing);   ctxOf(read)   the search's ctx for that reader
+ *   optsOf()    siteBlueprintAsync's options now (the time left of the box);  seqNow / movedSince / area   the connection's witness
+ *               (makeWalkCache's) and the walk's square { x, z, r }
+ * WITH THE WITNESS: its sequence is taken BEFORE the reader is made and asked again at the proof's END -- told of nothing in the
+ * area, the answer (ok or not) stands; told of a change, the proof is made ONCE more on a new reader, and if the world moved under
+ * that one too the answer is { ok: false, moved: true }: nothing is published, nothing is remembered, the plot is passed this visit.
+ * WITH NO WITNESS (a bare bot, a test) the reader keeps NOTHING: every walk of the proof reads the world as it is at that walk, and
+ * the proof's LAST walk is the finished building walked to from town -- a cut across the approach at any time before it refuses the
+ * site. (Not used where there is a witness: an unkept reader reads every block of every walk again.)
+ */
+export const STEADY_TRIES = 2
+export async function siteAgainSteady (s, plan, bp, { readOf, ctxOf, optsOf = () => ({}), seqNow = null, movedSince = null, area = null } = {}) {
+  const witnessed = typeof seqNow === 'function' && typeof movedSince === 'function' && !!area
+  for (let i = 0; i < STEADY_TRIES; i++) {
+    let mark = null
+    if (witnessed) { try { const n = seqNow(); mark = Number.isFinite(n) ? n : null } catch { mark = null } }
+    const read = readOf(witnessed && mark != null ? {} : { memo: false })
+    const s2 = await siteAgainFresh(s, read, plan, bp, ctxOf(read), optsOf())
+    if (siteLoopEnds(s2)) return s2
+    if (!witnessed || mark == null) return s2
+    let moved = true
+    try { moved = !!movedSince(mark, area) } catch { moved = true }
+    if (!moved) return s2
+  }
+  return { ok: false, why: 'no_proven_site', moved: true, record: null, sectors: [] }
+}
 
 /**
  * IS THE SEGMENT eye -> point OPEN? Exact voxel traversal (Amanatides-Woo) from the eye's cell to the point; every cell entered

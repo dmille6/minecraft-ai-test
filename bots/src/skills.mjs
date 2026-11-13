@@ -144,7 +144,7 @@ import { isCottagePlot, COTTAGE_PLOTS, cottage2Styles, furnitureCrafted, furnish
 import { HOMEPLOTS, resolveHomePlots, homePlotZones, houseOffer, siteOverPlots, failNoted, homePlotRowDetail, homeRowDue } from './homeplots.mjs'   // homes-01show: the layout's home plots, the rotation
 import { laterHomeHeld, chainWaits, homePlotAt, pathInputsWithHomes } from './homeplots.mjs'   // homes-01show review r1: the switch's hold, the chain's wait, the plots kept off
 import { HOMESEARCH, HOMEPLOT, homeZones, plotSig, refusalKind, searchNoted, searchPlotLooks } from './homeplots.mjs'   // homes-02show: the search resumes; unfinished roads yield
-import { makeWalkCache, siteAgainFresh } from './buildsite.mjs'   // homes-02show: one kept walk of the town a plot's search; what it accepts is proven again fresh
+import { makeWalkCache, siteAgainSteady } from './buildsite.mjs'   // homes-02show: one kept walk of the town a plot's search; what it accepts is proven again fresh
 import { installServerBlockWitness } from './buildbot.mjs'   // homes-02show r1: the connection's witness drops a kept walk the world moved under
 import { cottage2StylesAll } from './cottage.mjs'   // homes-02show: every look of the family
 import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
@@ -17427,7 +17427,9 @@ const planOn = () => TOWNPLAN.on && config.memory.scope !== 'isolated'
 const planHomeP = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
 const planKeyNow = () => planKey(planHomeP())
 /** The planner's reader: name, box, shapes, a snow layer's props; memoised for the reader's own life (one tick, one order). */
-function planReader (bot) {
+function planReader (bot, { memo: keep = true } = {}) {
+  // homes-02show r2 (`memo: false`): a reader that keeps NOTHING -- every read is the world as it is now (buildsite.mjs siteAgainSteady,
+  // where no witness can say whether the world moved under a kept reader)
   const memo = new Map()
   // homes-02show r1 (`read.unreadIn(box)`): the columns this reader could NOT read (a chunk this bot has not loaded) inside a box
   // [x0, z0, x1, z1] -- a proof that met one says nothing lasting about a plot (homeplots.mjs refusalKind). At most 4,096 are kept;
@@ -17436,7 +17438,7 @@ function planReader (bot) {
   let nullsOver = false
   const read = (x, y, z) => {
     const k = `${x},${y},${z}`
-    if (memo.has(k)) return memo.get(k)
+    if (keep && memo.has(k)) return memo.get(k)
     let v = null
     try {
       const b = bot.blockAt(new Vec3(x, y, z))
@@ -17452,7 +17454,7 @@ function planReader (bot) {
         v = { name, boundingBox: b.boundingBox, shapes: b.shapes, props }
       }
     } catch { v = null }
-    memo.set(k, v)
+    if (keep) memo.set(k, v)
     if (v == null) { if (nulls.size < 4096) nulls.add(`${x},${z}`); else nullsOver = true }
     return v
   }
@@ -22264,13 +22266,13 @@ function homeMem (dir = townDir()) { try { const j = JSON.parse(fs.readFileSync(
 function homeMemWrite (dir, next) { const f = homeFailFile(dir); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ v: 1, fails: next.fails ?? {}, ...(next.search && Object.keys(next.search).length ? { search: next.search } : {}) })); fs.renameSync(tmp, f) }
 function homeFails (dir = townDir()) { return homeMem(dir).fails ?? {} }
 // each writer merges into the file AS IT IS ON DISK NOW (read, add, temp + rename): another bot's plots and looks are kept
-function homeFailNote (dir, id, why, project, by) {
-  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, fails: failNoted(m.fails ?? {}, id, { why, project, by }) }) } catch { /* no memory: the next attempt starts at the same plot */ }
+function homeFailNote (dir, id, why, project, by, soft = false) {
+  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, fails: failNoted(m.fails ?? {}, id, { why, project, by, soft }) }) } catch { /* no memory: the next attempt starts at the same plot */ }
 }
 /** homes-02show: THE SEARCH'S MEMORY (the same file's `search`: homeplots.mjs searchNoted) -- the looks a plot's search finished and refused. */
 function homeSearch (dir = townDir()) { return homeMem(dir).search ?? {} }
-function homeSearchNote (dir, plotId, sig, lookId, why, by, life = 'ground') {
-  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, search: searchNoted(m.search ?? {}, plotId, sig, lookId, why, { by, life }) }) } catch { /* no memory: the look is searched again */ }
+function homeSearchNote (dir, plotId, sig, lookId, why, by, life = 'ground', clearSoft = false) {
+  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, search: searchNoted(m.search ?? {}, plotId, sig, lookId, why, { by, life, clearSoft }) }) } catch { /* no memory: the look is searched again */ }
 }
 /** THE OFFER for a cottage project now (homeplots.mjs houseOffer): the layout's plots where they clear the town's reservations, then
  *  the extension's house plots; the free ones, a plot whose siting failed behind the others. Throws on an unreadable town (callers catch). */
@@ -22322,7 +22324,7 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
       if (!o.open) return { ok: false, why: o.why, tried }
       // homes-02show: the box ending with looks of the plot still untried is NOT the plot's failure (`resume`: siteOverPlots)
       return cottageSiteOn(bot, plan, c, stood, signal, plot, o, box, tried, () => !plotsTaken(townDir(), plot).includes(p.id)).then(r => (HOMESEARCH.on && r?.why === 'search_time' ? { ...r, resume: true } : r))
-    }, { left: () => box.left(), noteFail: (p, why) => homeFailNote(dir, p.id, why, plot, me), row: f => homePlotRow(bot, { project: plot, ...f }) })
+    }, { left: () => box.left(), noteFail: (p, why) => homeFailNote(dir, p.id, why, plot, me), noteSoft: (p, why) => homeFailNote(dir, p.id, `soft:${why}`, plot, me, true), row: f => homePlotRow(bot, { project: plot, ...f }) })
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
 }
 /** THE COTTAGE'S SITING ON ONE PLOT (`o`: cottageOpening's answer for it) -> cottageSiteFor's answer. The siting as it was before
@@ -22330,6 +22332,7 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
  *  Throws on an unreadable town (cottageSiteFor and siteOverPlots catch). */
 async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, stillFree) {
   let witness = null
+  const boxFresh = tried.length === 0
   try {
     // homes-02show: on a LAYOUT plot the corridor of an unfinished road refuses nothing (homeplots.mjs homeZones)
     const yieldRoads = HOMESEARCH.on && o.plot.layout === true
@@ -22384,11 +22387,15 @@ async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, 
       // world is no longer what the kept walk saw -- nothing is published, the look is not refused, the kept walks are dropped
       let rec = s.record
       if (walkCache) {
-        const frd = planReader(bot), lf2 = leafFellCtx(bot, bp, plot, plan)
-        const s2 = await siteAgainFresh(s, frd, plan, bp, { plot, stood, zones: sp.zones, farm: c.farm, wells: c.wells, z0: c.z0, sectors: sp.sectors, ...paSiteCtx(frd, plot), ...siteCanopyCtx(frd, bp, plan.home, stood, sp.walkR, null, null), ...lf2,
-          earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { maxMs: box.left(), aborted: () => !!signal?.aborted })
+        // review r2 (Codex 1): ...on a world that HELD STILL while the proof ran (buildsite.mjs siteAgainSteady: the witness asked at
+        // the proof's end, once more on a new reader if it moved; moved twice: nothing published, nothing remembered, the plot passed)
+        const lf2 = leafFellCtx(bot, bp, plot, plan)
+        const s2 = await siteAgainSteady(s, plan, bp, { readOf: ro => planReader(bot, ro), optsOf: () => ({ maxMs: box.left(), aborted: () => !!signal?.aborted }),
+          ctxOf: frd => ({ plot, stood, zones: sp.zones, farm: c.farm, wells: c.wells, z0: c.z0, sectors: sp.sectors, ...paSiteCtx(frd, plot), ...siteCanopyCtx(frd, bp, plan.home, stood, sp.walkR, null, null), ...lf2, earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }),
+          ...(witness ? { seqNow: () => witness.seq(), movedSince: (since, at) => witness.moved(since, at), area: { x: plan.home.x, z: plan.home.z, r: sp.walkR + 2 } } : {}) })
         const end2 = siteLoopEnds(s2)
         if (end2) return { ok: false, why: end2, tried }
+        if (s2.moved) { walkCache.drop(); return { ok: false, why: 'no_proven_site', detail: 'world_moving', tried, soft: refusalKind(s2).soft } }   // no `more`: the plot's turn ends
         if (!s2.ok) { walkCache.drop(); return { ok: false, why: 'no_proven_site', detail: `kept_walk_stale ${s2.why}`, tried, more: true, soft: refusalKind({ ...s2, stale: true }).soft } }
         rec = s2.record
       }
@@ -22404,7 +22411,9 @@ async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, 
       // it still is (plotSig), are passed over; each look refused now is written to the town's file before the next is tried
       const dir = townDir(), me = bot.username ?? 'bot'
       const sig = plotSig(planReader(bot), o.plot, sp.zones, plan.home, { extra: plan.gen ?? '' })
-      return await searchPlotLooks(all, { plotId: o.plot.id, sig, memory: () => homeSearch(dir), noteLook: (id, why, life) => homeSearchNote(dir, o.plot.id, sig, id, why, me, life), row: f => homePlotRow(bot, { project: plot, ...f }), searchLook: lookOn })
+      // review r2 (Codex 2): progress always moves -- a look that finished soft is done for this pass (`life` soft), the pass's end
+      // clears those marks; `boxFresh`: no look had finished in this visit when the plot's turn began
+      return await searchPlotLooks(all, { plotId: o.plot.id, sig, boxFresh, memory: () => homeSearch(dir), noteLook: (id, why, life) => homeSearchNote(dir, o.plot.id, sig, id, why, me, life), clearSoft: () => homeSearchNote(dir, o.plot.id, sig, null, null, me, 'soft', true), row: f => homePlotRow(bot, { project: plot, ...f }), searchLook: lookOn })
     }
     let last = null
     for (const cs of all) {
