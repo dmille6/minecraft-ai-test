@@ -261,7 +261,7 @@ import { mineExt, standOf as stairStandOf } from './shaftgeom.mjs'   // townmine
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
-import { noteWait, waitBackoff, waitHeld, setWaitNow, setSkyOpen, skyOpen } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
+import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
@@ -26852,8 +26852,8 @@ export function keeperNow (bot, now = Date.now()) {
 setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
 setNoSitePlot(() => activeMem?.bot?.shopNoSitePlot ?? null)   // sinkfix-03
 setWaitNow(plot => waitHeld(activeMem?.bot?.shopWait ?? null, plot, Date.now()))   // leaffell-01show r1: the order's skip while a waiting hold is on
-// mineorder-01 r1: is the bot under a roof of ground? (the order refuses a build visit only below the line AND under one)
-setSkyOpen(feet => { const b = activeMem?.bot; return b?.blockAt ? skyOpen((x, y, z) => b.blockAt(new Vec3(x, y, z)), feet, config.world.homeY + 24) : null })
+// mineorder-01 r2: how much stands over the bot? (the order refuses a build visit only below the line AND with the town's ground over it)
+setOverHead(feet => { const b = activeMem?.bot; return b?.blockAt ? overHead((x, y, z) => b.blockAt(new Vec3(x, y, z)), feet, config.world.homeY + 24) : null })
 // sinkfix-04: the tidy's quiet order; the siteprep-02 fold (Codex fold BLOCKER): never for the keeper with site-request work (shop.mjs tidyQuiet)
 setIdleNow(plot => {
   const b = activeMem?.bot ?? null
