@@ -128,7 +128,7 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint, walkFrom as siteWalkFrom } from './buildsite.mjs'
-import { siteBoxOn, setSiteSearchHook, siteStillBegin, siteStillEnd, siteLoopEnds } from './buildsite.mjs'   // sitebox-01: a site search declares the bot still, and has a time box
+import { siteBoxOn, setSiteSearchHook, siteStillBegin, siteStillEnd, siteLoopEnds, siteBox } from './buildsite.mjs'   // sitebox-01: a site search declares the bot still, and has a time box
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
 import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's keep
@@ -17998,10 +17998,11 @@ async function yardSiteFor (bot, plan, c, stood, signal = null) {
     const zones = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
     const sectors = yardSectors(landHead(), projectSectors(plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null))
     const read = planReader(bot)
+    const box = siteBox()   // sitebox-01: ONE box for the whole siting (every size's search draws on it)
     for (const step of yardSitingPlan(plan.home, { size: yardSize(), bpOf: id => blueprintOf(id) })) {
       // cooperative (buildsite.mjs siteBlueprintAsync): a search out to 80 runs 10-60 s and must never stall the bot's keep-alives
       const s = await siteBlueprintAsync(read, plan, blueprintOf(step.blueprint), { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors, plot: YARD_PLOT,
-        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, sectorBy: step.sectorBy, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted })
+        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, sectorBy: step.sectorBy, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
       { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${step.blueprint}/${step.band}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
       if (s.ok) {
@@ -21222,9 +21223,10 @@ async function hubSiteFor (bot, plan, c, stood, signal = null) {
     const store = others.find(r => r?.plot === STORE_PLOT) ?? null
     const read = planReader(bot)
     const bp = blueprintOf(HUB_BLUEPRINT)
+    const box = siteBox()   // sitebox-01: ONE box for the whole siting (the store step and the ring draw on it)
     for (const step of hubSitingPlan(plan.home, store)) {
       const s = await siteBlueprintAsync(read, plan, bp, { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: [{ sector: null, source: step.source }], plot: HUB_PLOT,
-        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted })
+        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
       { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${step.source}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
       if (!s.ok) continue
@@ -21975,11 +21977,12 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
     const css = plot === COTTAGE_PLOT ? [cottageStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })] : cottage2Styles(stock, { pool: process.env.MEMORY_POOL ?? '', plot, plotId: o.plot.id ?? '', others })
     if (!css.length) return { ok: false, why: 'no_wood', tried }
     let last = null
+    const box = siteBox()   // sitebox-01: ONE box for the whole siting (every look's search draws on it)
     for (const cs of css) {
       const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
       const prd = planReader(bot)
       const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot, ...paSiteCtx(prd, plot), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
-        earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted })
+        earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
       { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
       if (!s.ok) { last = { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried }; continue }

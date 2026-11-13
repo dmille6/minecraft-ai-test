@@ -885,6 +885,17 @@ export function siteStillBegin (bot, maxMs, { now = Date.now(), marginMs = 15_00
  * still, and nothing is recorded (worse than the reflex's 35 s). `aborted` ends it as before.
  */
 export const siteLoopEnds = s => (s?.why === 'aborted' ? 'aborted' : s?.why === 'search_time' ? 'search_time' : null)
+/**
+ * sitebox-01 (review r2, Codex and Claude): ONE BOX A SITING -> { left(now?) -> ms }. A siting that searches more than once takes
+ * one box at its start and gives each search only what is LEFT of it (`maxMs: box.left()`): tries that each end "no site" inside
+ * their own 100 s must not add up past the visit (three cottage looks at 65 s each = 195 s standing still, the runner's abort at
+ * 180 s, nothing recorded). A spent box leaves 0: the next search ends `search_time` at its first turn, and siteLoopEnds ends the
+ * siting. SITEBOX off: Infinity (no box). Pure but for the clock it is given.
+ */
+export function siteBox (ms = siteBoxOn() ? SITE_SEARCH_MS : Infinity, now = Date.now()) {
+  const until = now + ms
+  return { left: (t = Date.now()) => (Number.isFinite(until) ? Math.max(0, until - t) : Infinity) }
+}
 /** sitebox-01: ...given back -- only this search's own declaration (a later, longer one of another's stands). */
 export function siteStillEnd (token) { if (token?.bot && token.bot.stationaryUntil === token.until) token.bot.stationaryUntil = 0 }
 /** THE SEARCH as a generator: yields between anchors and proofs (siteBlueprint runs it straight through). */
