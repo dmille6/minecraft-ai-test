@@ -66,6 +66,7 @@ const REQUIRED = [
   'bots/src/pipeline.mjs',          // pipeline-01: pipelined decisions (PIPELINE=off|shadow|on)
   'bots/test/pipeline.test.mjs',
   'docs/reports/pipeline-design-2026-11-09.md',
+  'bots/src/tempstand.mjs', 'bots/test/tempstand.test.mjs',   // tempstand-01 (11-12): a cell no stand reaches is clicked from a temporary pillar, taken down in the same visit (TEMPSTAND=off|on)
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)

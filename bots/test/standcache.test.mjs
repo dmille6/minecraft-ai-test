@@ -556,7 +556,8 @@ await t('an unknown cell made known without the walk moving: (structural) the vi
   // behaviour cannot reach it from the fakes without a server that never answers a dig and then does; the wiring is asserted
   const src = readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
   assert.strictEqual(src.split('walkMem.unknown !== unknown.size').length, 2)
-  assert.strictEqual(src.split('touched(').length - 1, 7, 'a call after each of the three sends, the two digs and the probe, and one after a walk (review r1)')
+  // tempstand-01: an eighth -- the dig under the builder's own feet when a temporary stand comes down (buildrun.mjs standDown)
+  assert.strictEqual(src.split('touched(').length - 1, 8, 'a call after each of the three sends, the three digs and the probe, and one after a walk (review r1)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

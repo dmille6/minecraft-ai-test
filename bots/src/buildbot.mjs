@@ -407,6 +407,16 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       return bot.heldItem?.name === n
     },
     has,
+    // tempstand-01 (buildrun.mjs runVisit `p.tempStand`): a temporary stand may be made of the bag's KEPT blocks too (the scaffold
+    // reserve is kept to pillar with, and the stand's blocks are dug back in the same visit): the whole count, and a hold that does
+    // not ask the keeps
+    countAll: n => count(n),
+    holdKept: async n => {
+      const it = items().find(i => i.name === n)
+      if (!it) return false
+      if (bot.heldItem?.name !== n) { try { await bot.equip(it, 'hand') } catch (e) { if (e?.aborted) throw e } }
+      return bot.heldItem?.name === n
+    },
     look: async (support, face, aim = null) => {
       try {
         await bot.lookAt(new Vec3(support[0] + 0.5 + face[0] * 0.5, support[1] + 0.5 + face[1] * 0.5, support[2] + 0.5 + face[2] * 0.5), true)

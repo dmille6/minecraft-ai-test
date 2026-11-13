@@ -634,6 +634,51 @@ export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt
   } catch { return false }
 }
 
+// ---- tempstand-01: the temporary stand's receipt (tempstand.mjs; buildrun.mjs runVisit `p.tempStand`) ------------------------------
+// ONE FILE PER HOLDER AND PROJECT, written (temp + rename, fsynced) BEFORE the first block of a stand is placed and removed only when
+// the world reads every one of its cells gone: a visit that is interrupted leaves it, and the next visit to the project takes the
+// stand down first. { v, holder, at, block, base, cells: [[x, y, z]] bottom-up, target, seg, tries }.
+const standFile = (dir, key, holder) => path.join(dir, `${key}.tempstand.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const STAND_RE = key => new RegExp(`^${esc(key)}\\.tempstand\\.[A-Za-z0-9_-]+\\.json$`)
+const STAND_ANY_RE = /^project-.+\.tempstand\.[A-Za-z0-9_-]+\.json$/
+const int3 = a => Array.isArray(a) && a.length === 3 && a.every(Number.isInteger)
+const standOf = j => {
+  if (!j || typeof j.holder !== 'string' || typeof j.block !== 'string' || !Array.isArray(j.cells)) return null
+  const cells = j.cells.filter(int3).map(c => c.slice())
+  if (!cells.length || cells.length > 8) return null
+  return { holder: j.holder, at: Number(j.at) || 0, block: j.block, base: int3(j.base) ? j.base.slice() : null, cells, target: int3(j.target) ? j.target.slice() : null, seg: j.seg ?? null, tries: Math.max(0, Math.floor(Number(j.tries) || 0)) }
+}
+/** The project's stand receipts -> [receipt] ([] when none or unreadable). `holder`: that holder's own only; `exclude`: every other's. */
+export function standRead (dir, key, { holder = null, exclude = null } = {}) {
+  if (holder != null) { const r = standOf(readJ(standFile(dir, key, holder))); return r ? [r] : [] }
+  let names = []
+  try { names = listMatch(dir, STAND_RE(key)) } catch { return [] }
+  const skip = exclude != null ? path.basename(standFile(dir, key, exclude)) : null
+  return names.filter(n => n !== skip).map(n => standOf(readJ(path.join(dir, n)))).filter(Boolean)
+}
+/** Replace THIS HOLDER's receipt (temp + rename, fsynced); `receipt` null removes it. -> true | false (never throws: the caller
+ *  places nothing on false). */
+export function standWrite (dir, key, holder, receipt, { now = Date.now() } = {}) {
+  try {
+    const f = standFile(dir, key, holder)
+    if (!receipt) { try { wfs.unlinkSync(f) } catch (e) { if (e?.code !== 'ENOENT') return false } syncDir(dir); return true }
+    wfs.mkdirSync(dir, { recursive: true })
+    const tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: Number.isFinite(receipt.at) ? receipt.at : now, block: receipt.block, base: receipt.base ?? null, cells: receipt.cells, target: receipt.target ?? null, seg: receipt.seg ?? null, tries: receipt.tries ?? 0 }))
+    wfs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** EVERY project's stand cells in `dir` whose receipt is younger than `ttl` -> Set of "x,y,z" (the tidy's survey never lists a stand
+ *  whose visit may still be running: skills.mjs tidyInputs). An older receipt's blocks are ordinary litter to it. Never throws. */
+export function standCells (dir, { now = Date.now(), ttl = 10 * 60_000 } = {}) {
+  const out = new Set()
+  let names = []
+  try { names = listMatch(dir, STAND_ANY_RE) } catch { return out }
+  for (const n of names) { const r = standOf(readJ(path.join(dir, n))); if (r && now - r.at < ttl) for (const c of r.cells) out.add(c.join(',')) }
+  return out
+}
+
 // ---- drawn (Paper 10-25 SHOP-KILL / CHAIN-1: the project's materials in the holder's bag) --------------------------------------
 
 const drawnFile = (dir, key, holder) => path.join(dir, `${key}.drawn.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)

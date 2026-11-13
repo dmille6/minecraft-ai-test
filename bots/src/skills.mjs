@@ -244,6 +244,8 @@ import { runVisit, cellDone as buildCellDone, workableSeg, segComplete as buildS
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
+import { standCells as projStandCells } from './buildproj.mjs'   // tempstand-01: the fresh stand receipts (the tidy never lists them)
+import { tempStandOn } from './tempstand.mjs'
 import { SINK_WAIVE, sinkWaiveDue, sinkWaived, sinkDeferTally, sinkDeferMerge, sinkWaiveKind } from './sinks.mjs'   // sinkwaive-01: the stone sinks' stuck-cell waiver
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { botBuildEffects } from './buildbot.mjs'
@@ -23035,6 +23037,7 @@ async function buildShopVisit (ctx, args, signal) {
     if (rec.blueprint === TOWNHALL_BLUEPRINT) Object.assign(storeOpts, townhallVisitOpts(rec))   // townstyle-02
     Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))   // reroof-04: a re-roofed record's new roof slabs are floors to its walk
     Object.assign(storeOpts, leafFellVisitOpts(bot, rec))   // leaffell-01show: the saplings owed for trees felled for their leaves
+    Object.assign(storeOpts, tempStandOf(bot, c, plot))   // tempstand-01: a cell no stand reaches, deferred before, is clicked from a temporary pillar
     // cottage2-01: a furnishing that WAITS (no bed, no 3 wool of a colour; no flower; no lantern, no iron) is done for the visit
     if (isCottage2Blueprint(rec.blueprint)) storeOpts.alsoDone = c => cottageCellWaits(bot, rec, c)
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
@@ -24738,6 +24741,7 @@ async function buildMonument (ctx, args, signal) {
     } catch { tidy = [] }
     const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: zigBambooOn() ? ZIG_FOREIGN_GROWN : ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
+      ...tempStandOf(bot, c, MONUMENT_PLOT),   // tempstand-01
       access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
@@ -25004,6 +25008,20 @@ function wallInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
  * record cell. WALLSTUCK=off is the rollback: the wall visit exactly as before.
  */
 const wallStuckOn = () => !['off', '0', 'false', 'no'].includes(String(process.env.WALLSTUCK ?? '').trim().toLowerCase())
+/**
+ * TEMPSTAND-01 (owner 11-12: a stuck cell must not freeze a building; LIVE the same day: the wall extension 803 of 886 on 13 cells, the
+ * monument on 2, a cottage corner post, a fleet tidy 53 hours on one cell). The visit's option (buildrun.mjs runVisit `tempStand`,
+ * tempstand.mjs): a placeable cell no stand reaches, deferred in an earlier visit too, is clicked from a temporary pillar that the same
+ * visit takes down. `mayPlace`: never a protected zone, never another project's record cell (the record's own are the visit's to keep
+ * out); `mem`: this bot's attempts a cell, kept for the process. TEMPSTAND=off is the rollback: {} -- the visit exactly as before.
+ */
+function tempStandOf (bot, c, plot) {
+  if (!tempStandOn()) return {}
+  let others = null
+  const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== plot).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+  const inZone = ([x, y, z]) => (c?.zones ?? []).some(zb => { const b = zb?.box ?? zb; return Array.isArray(b) && b.length >= 6 && x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5] })
+  return { tempStand: { mem: (bot.tempStandMem ??= {}), mayPlace: at => { try { return !inZone(at) && !otherCells().has(at.join(',')) } catch { return false } } } }
+}
 function wallStuckOf (c, plot = WALL_PLOT) {
   if (!wallStuckOn()) return {}
   let others = null
@@ -25251,7 +25269,7 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
     // a segment this bot found BLOCKED lately waits; the visit works the others (wall.mjs wallVisitRecord)
     const blocked = K.plot === WALL_PLOT ? (bot.wallBlocked ??= new Map()) : (bot.wallextBlocked ??= new Map())
     const r = await runVisit({ dir, key, me, home, stood, record: wallVisitRecord(rec, blocked), recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: K.plot === WALL_PLOT ? (bot.wallStands ??= { pending: null, bans: {} }) : (bot.wallextStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      ...(isCitywall(rec) ? { swap: true, skipOpenDeps: true } : {}),   // citywall-01: the in-place swap
+      ...tempStandOf(bot, c, K.plot), ...(isCitywall(rec) ? { swap: true, skipOpenDeps: true } : {}),   // citywall-01: the in-place swap; tempstand-01
       domain: () => true, walkR: wallWalkR(rec, home), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,
       ...wallStuckOf(c, K.plot), ...(wallStuckOn() ? { alsoDone: q => wallWaived(rec, q) } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
     { const bs = blockedSeg(r.stop, r.why); if (bs) blocked.set(bs, Date.now()) }
@@ -26717,6 +26735,9 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // siteprep-01: a prepping plot is every stage's refusal -- but its own grading's (`prepExcept`: that request's zone ignored)
   const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), [...recordZones(recs).filter(z => !(prepExcept && z?.id === prepExcept)), ...hallPadZones(P.plan), ...townMarkerZones()])
   const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(x => x.at.join(','))))
+  // tempstand-01: a temporary stand whose visit may still be on it (a FRESH receipt: buildproj.mjs standCells) is never surveyed as
+  // litter to cut; a stale receipt's blocks are ordinary litter, so an abandoned stand is the grounds crew's
+  if (tempStandOn()) { try { for (const k of projStandCells(dir)) cells.add(k) } catch { /* the survey as before */ } }
   const ph = recordHead(dir, projKeyOf(PATHS_PLOT))
   if (!ph.ok) throw new Error('paths record unreadable')
   const pathsRec = ph.head?.rec ?? null
@@ -28603,7 +28624,7 @@ async function buildTidyVisit (ctx, args, signal) {
     if (stairsHead) { try { share = stairsShare(share, stairSeg(visitRec, workableSeg(visitRec, read, palette, tidySegOk, waivedK, { skipOpenDeps: true }), stairOpenQ)) } catch { /* the share as it was */ } }
     const r = await runVisit({ dir, key, me, home, stood, record: GKW_ON ? dropWaivedClears(recV) : recV, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? share.clearMax : TIDY_CLEAR_MAX, ...(share.clearsLast ? { clearsLast: true } : {}), alsoDone: q => waivedK(q) || noTorch(q) || noSoil(q) || !!skipV(q), stuckStalledOnly: true,
-      ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree
+      ...tempStandOf(bot, c, TIDY_PLOT), ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true } : {}),   // plotprep-03: the remedies go on, B4 per tree; tempstand-01
       // the owner's 11-01 water rule (tidy.mjs): a fill or a dam may go into water, and every tidy cut is re-checked at the dig -- no
       // water beside it at its height, else it waits for its dam (TIDY_WATER=strict: no placement into water; the check stays)
       ...(GROUNDS.on ? { intoWater: tidyWater() !== 'strict', tidyOk: (q, rd) => cutSafeNow(rd, q.at, tidyWater()) && !otherBodyOnCell(bot, q.at) && !roughCutWaits({ at: q.at, read: rd, self: bot.entity?.position ?? null, others: playersSeen(bot) }) && hollowClear(q, c => otherBodyOnCell(bot, c) || ownBodyIn(bot, c)) } : {}),   // roughground-1b: a crust cut waits while a body is in the hollow under it
