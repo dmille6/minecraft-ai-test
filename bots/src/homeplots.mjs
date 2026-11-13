@@ -103,14 +103,31 @@ export const isLaterHome = (plot, names = COTTAGE_NAMES) => names.indexOf(String
  *  (skills.mjs cottageOpenNow / cottageSiteFor ask only for a project with NO record: a sited one is past both). */
 export const laterHomeHeld = (plot, on = HOMEPLOTS.on, names = COTTAGE_NAMES) => !on && isLaterHome(plot, names)
 /**
- * DOES THIS COTTAGE WAIT ON THE ONE BEFORE IT, WITHOUT A READ? -> bool. Pure. The cottages are chained (`after`: each after the one
- * before stands) and shop.mjs activeProject offers an open project only when its `after` is complete -- so in the order's status pass
- * (skills.mjs shopActive) a cottage whose predecessor's state in THIS pass is not complete cannot be the active project: it reports
- * `waiting` from the chain alone, and neither its record nor the town's (the offer reads every record) is read for it.
+ * DOES THIS LATER HOME WAIT ON THE COTTAGE BEFORE IT, WITHOUT A READ? -> bool. Pure. The cottages are chained (`after`: each after the
+ * one before stands) and shop.mjs activeProject offers an open project only when its `after` is complete -- so in the order's status
+ * pass (skills.mjs shopActive) a LATER HOME (cottage4 .., the ones the layout added: isLaterHome) whose predecessor's state in THIS
+ * pass is not complete reports `waiting` from the chain alone, and neither its record nor the town's (the offer reads every record)
+ * is read for it.
  *   p     the PROJECTS entry ({ plot, after });   done  Map plot -> complete, the cottages' states already computed this pass
  * A predecessor not in `done` (never computed here) answers false: the project is read as before.
+ *
+ * ONLY THE LATER HOMES (review r2, Codex: the first shape took every cottage, and changed a town with NO layout -- cottage1 standing,
+ * cottage2 sited and held on `leaf_decay` / `zone_closed`, cottage3 unsited with a free plot: activeProject's last fallback, "the last
+ * project not waiting", took cottage3 at the base and the complete cottage1 with cottage3 newly `waiting`). The first three cottages
+ * are read and answered EXACTLY as the base in every town -- no layout, a layout, the switch on or off -- so the rollback is exact
+ * for them too (a rule keyed on the layout's presence alone would still change them in the showcase with HOMEPLOTS off). A town with
+ * no layout has no later home: nothing here ever answers true there.
+ * WHAT THE PICK DOES IN THAT SEQUENCE IN A TOWN WITH A LAYOUT:
+ *   cottage2 held, cottage3 unsited   the base's pick, unchanged: cottage4 .. wait behind cottage3, the fallback takes cottage3 (not
+ *                                     waiting), and the order answers a `build_shop` visit that sites it.
+ *   cottage4 held, cottage5 unsited   (the same one step on, among the later homes) cottage5 .. wait from the chain, so the fallback
+ *                                     takes the last project that stands -- cottage3, complete; the order answers no order, skip
+ *                                     `complete`, and the grounds are asked in its place (grounds2.mjs NO_ORDER_SKIPS) -- where a
+ *                                     fifth home sited ahead of an unfinished fourth would have been the base rule's answer.
+ * THE COST of keeping the first three as they were: cottage3 behind an unfinished cottage2 still costs one read of the town's records
+ * a pass, as it does at the base; the five later homes cost none.
  */
-export const chainWaits = (p, done, names = COTTAGE_NAMES) => names.includes(String(p?.plot ?? '')) && names.includes(String(p?.after ?? '')) && done instanceof Map && done.has(p.after) && done.get(p.after) !== true
+export const chainWaits = (p, done, names = COTTAGE_NAMES) => isLaterHome(p?.plot, names) && names.includes(String(p?.after ?? '')) && done instanceof Map && done.has(p.after) && done.get(p.after) !== true
 
 // ---- THE PLOTS AMONG THE TOWN'S RESERVATIONS --------------------------------------------------------------------------------
 const meets = (b, q) => b[0] <= q[2] && b[2] >= q[0] && b[1] <= q[3] && b[3] >= q[1]

@@ -17917,8 +17917,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // showdrop-01 (`stateOf`: shopActivePrime's one project): this pass for that project alone -> its state; the memo untouched
     if (stateOf || !(activeMem?.states && activeMem.sig === sig && now - activeMem.at < 60_000)) {
       // homes-01show (review r1: the pass read every record twice an unsited cottage, seven of them): the cottages' states of THIS
-      // pass (`before`: the prime's, one project a turn) -- a cottage whose predecessor does not stand complete cannot be the active
-      // project (shop.mjs activeProject: `after`), so it WAITS from the chain alone and nothing is read for it (homeplots.mjs chainWaits)
+      // pass (`before`: the prime's, one project a turn) -- a LATER HOME (cottage4 ..: the layout's) whose predecessor does not stand
+      // complete WAITS from the chain alone and nothing is read for it (homeplots.mjs chainWaits). r2 (Codex): never the first three
+      // cottages, and so never anything in a town with no layout -- they are read and answered exactly as before
       const cotDone = new Map((before ?? []).filter(s => isCottagePlot(s?.plot)).map(s => [s.plot, !!(s.exists && s.complete)]))
       const states = (stateOf ? [stateOf] : list).map(p => {
         if (chainWaits(p, cotDone)) { cotDone.set(p.plot, false); return { plot: p.plot, exists: false, complete: false, damaged: false, due: false, dueFirst: false, waiting: true } }

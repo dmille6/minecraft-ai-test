@@ -112,6 +112,46 @@ if (process.env.HOMEPLOTS_CHILD === 'pass') {
   console.log('\nJSON ' + JSON.stringify(out))
   process.exit(0)
 }
+if (process.env.HOMEPLOTS_CHILD === 'seq') {
+  // REVIEW r2 (Codex): cottage1 stands, cottage2 is sited and unfinished, cottage3 is unsited with a free extension plot; the projects
+  // after the cottages are off, the earlier ones finished; cottage2's last visit ended `leaf_decay` (shop.mjs noteWait / waitBackoff)
+  const home = { x: Number(process.env.HOME_X ?? '0'), y: 70, z: 0 }
+  const dir = process.env.POOL_STATE_DIR
+  const PJ = await import('../src/buildproj.mjs'); const LP = await import('../src/landplan.mjs')
+  const key = plot => PJ.projKey(home, plot)
+  const pub = (plot, rec) => PJ.publishRecord(dir, key(plot), () => rec, { by: 't' })
+  pub('wallext', { v: 1, plot: 'wallext', blueprint: 'wallext@1', zones: [], cells: [], structure_complete: true, plots: [{ id: 'X1', kind: 'hall', box: [40, 40, 58, 52] }, { id: 'X3', kind: 'house', box: [60, 40, 70, 50] }, { id: 'X4', kind: 'house', box: [60, 54, 70, 64] }, { id: 'X5', kind: 'house', box: [74, 40, 84, 50] }] })
+  pub('land', { v: 1, plot: 'land', blueprint: LP.LAND_BLUEPRINT, home, corridors: [], roads: [], cells: [], structure_complete: true })
+  pub('enchantshop', { v: 1, plot: 'enchantshop', blueprint: 'enchantshop@1', box: [42, 42, 56, 50], cells: [], structure_complete: true })
+  pub('cottage1', { v: 1, plot: 'cottage1', blueprint: 'cottage@1s', plotId: 'X3', box: [62, 42, 68, 48], cells: [], structure_complete: true })
+  // HOMEPLOTS_SKILLS: a mutant copy of skills.mjs (the parent builds it, its anchor asserted first); else the real one
+  const SK = await import(process.env.HOMEPLOTS_SKILLS || '../src/skills.mjs'); const S = await import('../src/shop.mjs')
+  const walks = fn => { const w0 = PJ.recStats.walks; fn(); return PJ.recStats.walks - w0 }
+  const isC = plot => /^cottage\d+$/.test(plot)
+  const pass = () => { SK.shopActiveForget(); const n = walks(() => SK.shopActive(null, Date.now())); return { n, states: SK.shopActiveStates() } }
+  const cots = st => st.filter(x => isC(x.plot)).map(x => ({ plot: x.plot, exists: !!x.exists, complete: !!x.complete, waiting: x.waiting === true }))
+  /** The real activeProject over the pass's own states: the list cut after the last cottage, every earlier project finished, `held`'s last visit a waiting stop. */
+  const picks = (st, held) => {
+    const list = S.projectsOn(); const lt = list.slice(0, list.map(q => isC(q.plot)).lastIndexOf(true) + 1)
+    const adj = st.map(x => (isC(x.plot) ? x : { plot: x.plot, exists: true, complete: true, damaged: false, due: false }))
+    const mem = new Map(); S.noteWait(mem, held, { stop: 'leaf_decay', status: 'no_effect' }, Date.now())
+    return { free: S.activeProject(adj, lt, { noWait: true })?.plot ?? null, held: S.activeProject(S.waitBackoff(adj, mem, Date.now()), lt, { noWait: true })?.plot ?? null }
+  }
+  const out = { projects: S.projectsOn().length, cottages: S.projectsOn().filter(q => isC(q.plot)).length }
+  out.A = pass().n                                                   // cottage1 standing, the rest unsited
+  out.heads = walks(() => SK.scafTownRecords())
+  pub('cottage2', { v: 1, plot: 'cottage2', blueprint: 'cottage@2-Csg0-', plotId: 'X4', box: [62, 56, 68, 62], cells: [], structure_complete: false })
+  const s1 = pass(); out.S = s1.n; out.cots = cots(s1.states); out.pick = picks(s1.states, 'cottage2')
+  if (out.cottages > 3) {
+    // the same one step on, among the later homes: cottage2 and cottage3 stand, cottage4 is sited and held, cottage5 unsited
+    PJ.publishRecord(dir, key('cottage2'), cur => ({ ...cur, structure_complete: true }), { by: 't' })
+    pub('cottage3', { v: 1, plot: 'cottage3', blueprint: 'cottage@2-Csg0-', plotId: 'X5', box: [76, 42, 82, 48], cells: [], structure_complete: true })
+    pub('cottage4', { v: 1, plot: 'cottage4', blueprint: 'cottage@2-Csg0-', plotId: 'H3', box: [-35, -60, -29, -54], cells: [], structure_complete: false })
+    const s2 = pass(); out.cots2 = cots(s2.states); out.pick2 = picks(s2.states, 'cottage4')
+  }
+  console.log('\nJSON ' + JSON.stringify(out))
+  process.exit(0)
+}
 
 // ---- THE TEST -----------------------------------------------------------------------------------------------------------------
 const F = await import('./helpers/buildfake.mjs')
@@ -136,7 +176,7 @@ async function mutantOf (old, neu) {
 }
 const childMemo = new Map()
 const child = (mode, env) => {
-  const k = mode === 'lists' || mode === 'pass' ? `${mode}|${JSON.stringify(env)}` : null   // the lists and the pass: one child an env
+  const k = mode !== 'town' ? `${mode}|${JSON.stringify(env)}` : null   // the lists, the pass, the sequence: one child an env
   if (k && childMemo.has(k)) return childMemo.get(k)
   const r = childRun(mode, env)
   if (k) childMemo.set(k, r)
@@ -538,9 +578,14 @@ await t('the switch\'s hold and the chain\'s wait (pure): a later home only, onl
   assert.deepStrictEqual(['cottage3', 'cottage4'].map(p => H.laterHomeHeld(p, true, names)), [false, false], 'on: nothing held')
   assert.strictEqual(H.laterHomeHeld('cottage4', false, H.cottagePlotNames(0)), false, 'a town with no layout has no later home')
   const p = (plot, after) => ({ plot, after })
-  assert.strictEqual(H.chainWaits(p('cottage3', 'cottage2'), new Map([['cottage2', false]]), names), true)
-  assert.strictEqual(H.chainWaits(p('cottage3', 'cottage2'), new Map([['cottage2', true]]), names), false, 'the predecessor stands: read as before')
-  assert.strictEqual(H.chainWaits(p('cottage3', 'cottage2'), new Map(), names), false, 'the predecessor not seen this pass: read as before')
+  assert.strictEqual(H.chainWaits(p('cottage4', 'cottage3'), new Map([['cottage3', false]]), names), true)
+  assert.strictEqual(H.chainWaits(p('cottage8', 'cottage7'), new Map([['cottage7', false]]), names), true)
+  assert.strictEqual(H.chainWaits(p('cottage4', 'cottage3'), new Map([['cottage3', true]]), names), false, 'the predecessor stands: read as before')
+  assert.strictEqual(H.chainWaits(p('cottage4', 'cottage3'), new Map(), names), false, 'the predecessor not seen this pass: read as before')
+  // review r2: ONLY the later homes -- the first three cottages never wait from the chain, with a layout or without one
+  assert.strictEqual(H.chainWaits(p('cottage3', 'cottage2'), new Map([['cottage2', false]]), names), false)
+  assert.strictEqual(H.chainWaits(p('cottage2', 'cottage1'), new Map([['cottage1', false]]), names), false)
+  for (const plot of ['cottage2', 'cottage3']) assert.strictEqual(H.chainWaits(p(plot, `cottage${Number(plot.slice(7)) - 1}`), new Map([['cottage1', false], ['cottage2', false]]), H.cottagePlotNames(0)), false, 'no layout: nothing ever waits from the chain')
   assert.strictEqual(H.chainWaits(p('cottage1', 'enchantshop'), new Map([['enchantshop', false]]), names), false, 'the first cottage follows the workshop, not a cottage')
   assert.strictEqual(H.chainWaits(p('civicM', 'civicF'), new Map([['civicF', false]]), names), false, 'only the cottages')
 })
@@ -549,10 +594,10 @@ await t('MUTANT the switch\'s hold dropped: with HOMEPLOTS off an unsited later 
   assert.strictEqual(M.laterHomeHeld('cottage4', false, M.cottagePlotNames(8)), false)
   assert.strictEqual(H.laterHomeHeld('cottage4', false, H.cottagePlotNames(8)), true)
 })
-await t('MUTANT the chain\'s wait dropped: every unsited cottage is read again', async () => {
+await t('MUTANT the chain\'s wait dropped: every unsited later home is read again', async () => {
   const M = await mutantOf('done.has(p.after) && done.get(p.after) !== true', 'done.has(p.after) && done.get(p.after) === null')
-  assert.strictEqual(M.chainWaits({ plot: 'cottage3', after: 'cottage2' }, new Map([['cottage2', false]]), M.cottagePlotNames(3)), false)
-  assert.strictEqual(H.chainWaits({ plot: 'cottage3', after: 'cottage2' }, new Map([['cottage2', false]]), H.cottagePlotNames(3)), true)
+  assert.strictEqual(M.chainWaits({ plot: 'cottage5', after: 'cottage4' }, new Map([['cottage4', false]]), M.cottagePlotNames(8)), false)
+  assert.strictEqual(H.chainWaits({ plot: 'cottage5', after: 'cottage4' }, new Map([['cottage4', false]]), H.cottagePlotNames(8)), true)
 })
 await t('MUTANT the floor of three dropped from the names: a town with no layout loses its cottages', async () => {
   const M = await mutantOf('Array.from({ length: Math.max(HOMEPLOT.base, Math.floor(Number(n)) || 0) }', 'Array.from({ length: Math.floor(Number(n)) || 0 }')
@@ -698,21 +743,18 @@ await t('A NEW PARK is never sited on a reserved home plot; the terrace still gr
 
 console.log('8c. REVIEW r1: THE STATUS PASS -- WHAT IT READS, AND THE ROLLBACK\'S SEQUENCE (a child a switch state)')
 const passOn = () => child('pass', { MEMORY_POOL: 'showcase' }), passOff = () => child('pass', { MEMORY_POOL: 'showcase', HOMEPLOTS: 'off' })
-await t('READS A PASS (recordHead calls): a cottage behind an unfinished one reads NOTHING; the one that may be next reads the town\'s records ONCE; eight projects cost what three did', () => {
+await t('READS A PASS (recordHead calls): a later home behind an unfinished cottage reads NOTHING; the cottage that may be next reads the town\'s records ONCE; the switch adds no read', () => {
   const on = passOn(), off = passOff()
-  console.log(`        reads a status pass, cottage1 standing and cottage2..8 unsited: on ${on.A.n} (${on.projects} projects, ${on.cottages} cottages), off ${off.A.n}; one read of the town's records ${on.heads}; cottage2 alone ${on.w2}, cottage5 alone ${on.w5}`)
   assert.deepStrictEqual([on.cottages, off.cottages], [8, 8])
   assert.ok(on.heads >= 40, `POSITIVE CONTROL: the counter sees the reads (${on.heads} for one read of every record)`)
-  // the chain: cottage2 may be next (not waiting); cottage3..8 wait without a read
-  assert.deepStrictEqual(on.A.cots.map(c => c.waiting), [false, false, true, true, true, true, true, true])
+  // cottage2 may be next; cottage3 is read as the base reads it (review r2); cottage4..8 wait without a read
+  assert.deepStrictEqual(on.A.cots.map(c => c.waiting), [false, false, false, true, true, true, true, true])
   assert.deepStrictEqual([on.w5, on.st5.waiting, on.st5.exists], [0, true, false], 'cottage5 behind an unsited cottage4: no recordHead call at all')
   assert.ok(on.w5alone >= 1, 'POSITIVE CONTROL: with its predecessor unknown it is read as before')
   assert.ok(on.w2 >= on.heads && on.w2 <= on.heads + 2, `cottage2: its own record and ONE read of the town's (${on.w2} vs ${on.heads}); it was two reads of the town's`)
   assert.strictEqual(on.st2.waiting, undefined, 'and it is open')
   assert.ok(off.w2 >= off.heads && off.w2 <= off.heads + 2, `off: the same (${off.w2})`)
-  // the whole pass: measured 11-13 in this scenario -- the base release 213, the first homes commit 795 on / 233 off
   assert.strictEqual(on.A.n, off.A.n, 'the switch adds no read')
-  assert.ok(on.A.n <= 213, `not above the base release's 213 (${on.A.n})`)
 })
 await t('THE ROLLBACK (Codex 3): cottage4 never sited + off -> not offered, the retrofit not held; cottage4 sited + off -> still the order\'s project, the hold ends when it is finished', () => {
   const on = passOn(), off = passOff()
@@ -733,6 +775,65 @@ await t('THE ROLLBACK (Codex 3): cottage4 never sited + off -> not offered, the 
   assert.strictEqual(on.activeD, 'cottage5')
   assert.ok(!/^cottage[5-8]$/.test(off.activeD), `off: nothing new is started (${off.activeD})`)
   assert.deepStrictEqual(off.D.cots.filter(c => /^cottage[5-8]$/.test(c.plot)).map(c => c.waiting), [true, true, true, true])
+})
+
+console.log('8d. REVIEW r2 (Codex): A TOWN WITH NO LAYOUT IS THE BASE IN THE STATUS PASS, ANSWERS AND READS ALIKE')
+// the base release b2b10bb8, this same child scenario run on its source 11-13 (the showcase pool, home 0 and home 400 alike):
+const BASE = Object.freeze({ projects: 40, A: 213, S: 171, heads: 41, pickFree: 'cottage2', pickHeld: 'cottage3' })
+const NOLAYOUT = { MEMORY_POOL: 'showcase', HOME_X: '400' }   // the showcase's switches, re-homed: no layout entry
+await t('(a) NO LAYOUT, the reviewer\'s sequence through the real status pass and the real activeProject: the BASE\'s pick (cottage3) and the BASE\'s recordHead counts', () => {
+  for (const env of [NOLAYOUT, { ...NOLAYOUT, HOMEPLOTS: 'off' }, { ...NOLAYOUT, HOMEPLOTS: 'on' }]) {
+    const r = child('seq', env)
+    assert.deepStrictEqual([r.projects, r.cottages], [BASE.projects, 3], JSON.stringify(env))
+    assert.deepStrictEqual(r.cots, [{ plot: 'cottage1', exists: true, complete: true, waiting: false }, { plot: 'cottage2', exists: true, complete: false, waiting: false }, { plot: 'cottage3', exists: false, complete: false, waiting: false }], 'cottage3 open-but-unoffered, never `waiting`')
+    assert.strictEqual(r.pick.free, BASE.pickFree, 'POSITIVE CONTROL: not held, cottage2 is the project')
+    assert.strictEqual(r.pick.held, BASE.pickHeld, 'cottage2 held on leaf_decay: the fallback takes cottage3, as the base does')
+    assert.deepStrictEqual([r.A, r.S, r.heads], [BASE.A, BASE.S, BASE.heads], 'recordHead calls: the pass with cottage1 standing, the sequence\'s pass, one read of the records')
+  }
+})
+await t('(b) WITH THE LAYOUT (switch on and off): the same pick, cottage3, and the order answers a build visit for it; one step on (cottage4 held, cottage5 unsited) the fallback takes the standing cottage3, the order answers `complete`, and the grounds are asked', async () => {
+  const G2 = await import('../src/grounds2.mjs')
+  const nl = child('seq', NOLAYOUT)
+  for (const env of [{ MEMORY_POOL: 'showcase' }, { MEMORY_POOL: 'showcase', HOMEPLOTS: 'off' }]) {
+    const r = child('seq', env)
+    assert.strictEqual(r.cottages, 8)
+    assert.deepStrictEqual(r.cots.map(c => [c.exists, c.waiting]), [[true, false], [true, false], [false, false], [false, true], [false, true], [false, true], [false, true], [false, true]], 'cottage3 as the base; the later homes wait')
+    assert.deepStrictEqual([r.pick.free, r.pick.held], ['cottage2', 'cottage3'], 'the base\'s pick, unchanged')
+    // one step on: cottage4 sited and held, cottage5.. waiting from the chain -> the last project that stands
+    assert.deepStrictEqual(r.cots2.slice(3).map(c => [c.exists, c.complete, c.waiting]), [[true, false, false], [false, false, true], [false, false, true], [false, false, true], [false, false, true]])
+    assert.deepStrictEqual([r.pick2.free, r.pick2.held], ['cottage4', 'cottage3'])
+    // recordHead calls with a layout: the base's, plus the five more records in each read of the town's records -- nothing else
+    console.log(`        recordHead calls a pass (cottage1 standing, the rest unsited): no layout ${nl.A} (base ${BASE.A}); layout ${env.HOMEPLOTS === 'off' ? 'off' : 'on'} ${r.A}; the sequence's pass: no layout ${nl.S} (base ${BASE.S}), layout ${r.S}; one read of the records ${nl.heads} / ${r.heads}`)
+    assert.strictEqual(r.heads - nl.heads, 5, 'five more records')
+    assert.strictEqual((r.A - nl.A) % 5, 0); assert.ok(r.A - nl.A <= 5 * 6 && r.A > nl.A, `only the longer reads (${r.A} vs ${nl.A})`)
+  }
+  assert.strictEqual(child('seq', { MEMORY_POOL: 'showcase' }).A, child('seq', { MEMORY_POOL: 'showcase', HOMEPLOTS: 'off' }).A, 'the switch adds no read')
+  // THE ORDER'S ANSWERS for those picks (shop.mjs buildOrder, no hooks in this process): an unsited pick is a build visit; a standing
+  // one is no order, skip `complete` -- a skip the grounds stand in for (grounds2.mjs: the ask goes on to the grounds' own links)
+  assert.deepStrictEqual(S.buildOrder({ on: true, shared: true, atTown: true, now: 1e12, state: {}, record: null, complete: false }), { order: { skill: 'build_shop', args: {} }, skip: null })
+  assert.deepStrictEqual(S.buildOrder({ on: true, shared: true, atTown: true, now: 1e12, state: {}, record: { plot: 'cottage3', structure_complete: true }, complete: true }), { order: null, skip: 'complete' })
+  assert.ok(G2.NO_ORDER_SKIPS.includes('complete'))
+  assert.notStrictEqual(G2.groundsNoOrder({ skip: 'complete' }).why, 'skip', 'the grounds are asked')
+  assert.strictEqual(G2.groundsNoOrder({ skip: 'room' }).why, 'skip', 'POSITIVE CONTROL: a skip they do not stand in for')
+})
+await t('(c) MUTANT the chain\'s wait taken by EVERY cottage (the r1 shape), run through skills.mjs in a town with no layout: (a) dies -- cottage3 reads `waiting`, the pick is cottage1, the reads are not the base\'s', () => {
+  const old = "isLaterHome(p?.plot, names) && names.includes(String(p?.after ?? '')) && done instanceof Map", neu = "names.includes(String(p?.plot ?? '')) && names.includes(String(p?.after ?? '')) && done instanceof Map"
+  const hp = readFileSync(HP_PATH, 'utf8'), sk = SK_SRC
+  assert.strictEqual(hp.split(old).length - 1, 1, 'ANCHOR MISSING OR NOT UNIQUE (homeplots.mjs chainWaits)')
+  const imp = "from './homeplots.mjs'"
+  assert.strictEqual(sk.split(imp).length - 1, 2, 'ANCHOR: skills.mjs imports homeplots.mjs twice')
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2)}`
+  const hpOut = new URL(`./_mutant-homeplots-seq-${tag}.mjs`, import.meta.url), skOut = new URL(`./_mutant-skills-seq-${tag}.mjs`, import.meta.url)
+  let r = null
+  try {
+    writeFileSync(hpOut, hp.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+    writeFileSync(skOut, sk.split(imp).join(`from './_mutant-homeplots-seq-${tag}.mjs'`).replace(/from '\.\/(?!_mutant-)/g, "from '../src/"))
+    r = childRun('seq', { ...NOLAYOUT, HOMEPLOTS_SKILLS: skOut.href })
+  } finally { for (const f of [hpOut, skOut]) { try { unlinkSync(f) } catch { /* gone */ } } }
+  assert.strictEqual(r.cots[2].waiting, true, 'the mutant: cottage3 waits from the chain')
+  assert.strictEqual(r.pick.held, 'cottage1', 'the mutant\'s pick is the complete cottage1 (Codex\'s reproduction)')
+  assert.notStrictEqual(r.pick.held, BASE.pickHeld); assert.notStrictEqual(r.S, BASE.S); assert.notStrictEqual(r.A, BASE.A)
+  assert.strictEqual(r.pick.free, BASE.pickFree, 'POSITIVE CONTROL: the mutant copy runs the same pass')
 })
 
 console.log('9. THE ROWS')
