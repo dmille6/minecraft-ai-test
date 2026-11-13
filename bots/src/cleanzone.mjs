@@ -79,6 +79,17 @@ export function landsInZone (toPlace, zone) {
 const cellOf = p => (p && fin(Number(p.x)) && fin(Number(p.y)) && fin(Number(p.z))) ? [Math.floor(Number(p.x)), Math.floor(Number(p.y)), Math.floor(Number(p.z))] : null
 /** Two cells within r of each other on every axis? Pure. */
 export const nearCell = (a, b, r) => Array.isArray(a) && Array.isArray(b) && Math.abs(a[0] - b[0]) <= r && Math.abs(a[1] - b[1]) <= r && Math.abs(a[2] - b[2]) <= r
+const AROUND = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1], [2, 0, 0], [-2, 0, 0], [0, 2, 0], [0, -2, 0], [0, 0, 2], [0, 0, -2], [1, 0, 1], [1, 0, -1], [-1, 0, 1], [-1, 0, -1]]
+/** Does a search for `goal` end on cell `c` and on none of the cells around it? Pure over the goal's own isEnd. A goal that
+ *  throws, or has no isEnd, ends nowhere we can vouch for. */
+export function endsOnlyAt (goal, c) {
+  try {
+    if (typeof goal?.isEnd !== 'function' || !Array.isArray(c)) return false
+    if (goal.isEnd({ x: c[0], y: c[1], z: c[2] }) !== true) return false
+    for (const [dx, dy, dz] of AROUND) if (goal.isEnd({ x: c[0] + dx, y: c[1] + dy, z: c[2] + dz })) return false
+    return true
+  } catch { return false }
+}
 const goalText = (goal) => {
   const at = (goal?.pos && typeof goal.pos === 'object') ? goal.pos : goal
   const c = cellOf(at)
@@ -111,12 +122,12 @@ export function makeCleanZone ({ zone = () => null, on = true, now = () => Date.
     return true
   }
   cz.revoke = () => { cz.pass = null }
-  /** Is this search's goal the cell the pass names, and the pass still good? */
+  /** Is the pass still good, and does this search END ONLY ON the cell it names? (Codex r1: a GoalNear or GoalFollow with the
+   *  same coordinates ends elsewhere and gets no pass -- the goal's own isEnd is asked, never its fields.) */
   cz.passFor = (goal, t = now()) => {
     const p = cz.pass
     if (!p || !(p.until > t)) return false
-    const c = cellOf((goal?.pos && typeof goal.pos === 'object') ? goal.pos : goal)
-    return !!c && c[0] === p.at[0] && c[1] === p.at[1] && c[2] === p.at[2]
+    return endsOnlyAt(goal, p.at)
   }
   /** THE A* STEP: is this neighbour removed? */
   cz.drops = (toPlace) => {
@@ -357,11 +368,13 @@ export function wellStepDecision ({ on = true, ban = false, feet = null, stand =
 /**
  * RUN ONE WALK UNDER A PASS -> { ran, err }. The pass is revoked however the walk ends (a throw, an abort): a pass never
  * outlives its walk. `walk()` is the caller's bounded goto; its error is handed back for the caller's own rules (an abort is
- * rethrown there).
+ * rethrown there). `halt()` is called when the walk THREW, before the pass goes (Codex r1: mineflayer-pathfinder 2.4.5 rejects
+ * goto on noPath / timeout and keeps walking the partial path it found -- a route planned under the pass must not go on being
+ * walked, and laid, after it).
  */
-export async function permittedWalk (cz, cell, ms, walk) {
+export async function permittedWalk (cz, cell, ms, walk, halt = null) {
   if (typeof cz?.permit !== 'function' || !cz.permit(cell, ms)) return { ran: false, err: null }
-  try { await walk(); return { ran: true, err: null } } catch (err) { return { ran: true, err } } finally { cz.revoke() }
+  try { await walk(); return { ran: true, err: null } } catch (err) { try { halt?.() } catch { /* the halt never hides the walk's error */ } return { ran: true, err } } finally { cz.revoke() }
 }
 /** What the refusal adds when the step could not be laid: a move the bot can make from the well's foot. Pure. */
 export const wellStepRemedy = why => (why === 'no_blocks'

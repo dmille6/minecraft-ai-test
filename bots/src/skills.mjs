@@ -10108,7 +10108,9 @@ async function disposeWell (ctx, _args, signal) {
       if (!_wsModeSaid) { _wsModeSaid = true; try { logEvent({ kind: 'well_step', status: 'success', snapshot: snapshot(bot), detail: wellStepModeDetail(process.env) }) } catch {} }
       if (ask.go) {
         const t0 = Date.now()
-        const w = await permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }))
+        const stepGoal = new goals.GoalBlock(stand.x, stand.y, stand.z)
+        // a walk that ended in an error is STOPPED before the pass goes, if it is still this walk's goal the pathfinder holds
+        const w = await permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(bot.pathfinder.goto(stepGoal), HK_PATH_MS, 'pathfinding', { path: true }), () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })
         if (w.err && (w.err.aborted || signal?.aborted)) throw w.err
         check(signal)
         try { logEvent({ kind: 'well_step', status: onStand() ? 'success' : 'failed', snapshot: snapshot(bot), detail: wellStepDetail({ op: 'climb', why: w.ran ? ask.why : 'no_pass', stand, from, held, reached: onStand(), ms: Date.now() - t0, err: w.err?.name ?? w.err?.message ?? null }) }) } catch {}

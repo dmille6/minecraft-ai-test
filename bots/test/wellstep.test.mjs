@@ -125,6 +125,29 @@ test('THE PASS IS FOR ONE GOAL: every other search stays banned while it is held
   assert.equal(r.cz.passed, 0)
   assert.equal(r.search().status, 'success', 'and the stand\'s own walk still has it')
 })
+test('THE PASS IS FOR A WALK THAT ENDS ON THE STAND (Codex r1): the same coordinates under a looser goal get none', () => {
+  const r = rig()
+  r.cz.permit(STAND, 25_000)
+  const near = r.search(new goals.GoalNear(STAND.x, STAND.y, STAND.z, 2))
+  assert.ok(refused(near), `GoalNear ends two cells away: ${near.status}`)
+  assert.ok(refused(r.search(new goals.GoalGetToBlock(STAND.x, STAND.y, STAND.z))), 'GoalGetToBlock ends beside it')
+  assert.ok(refused(r.search(new goals.GoalXZ(STAND.x, STAND.z))), 'GoalXZ ends at any height')
+  assert.equal(r.cz.passed, 0)
+  assert.equal(CZ.endsOnlyAt(TO_STAND, [6, 73, 0]), true)
+  assert.equal(CZ.endsOnlyAt(TO_STAND, [6, 72, 0]), false)
+  assert.equal(CZ.endsOnlyAt(new goals.GoalNear(6, 73, 0, 1), [6, 73, 0]), false)
+  assert.equal(CZ.endsOnlyAt({ x: 6, y: 73, z: 0 }, [6, 73, 0]), false, 'coordinates alone are not a goal')
+  assert.equal(CZ.endsOnlyAt({ isEnd () { throw new Error('x') } }, [6, 73, 0]), false)
+  assert.equal(CZ.endsOnlyAt(null, [6, 73, 0]), false)
+})
+test('MUTANT KILLED: a pass matched on coordinates lets a GoalNear place', async () => {
+  await withMutant(CZ_URL, 'return endsOnlyAt(goal, p.at)', "{ const c = cellOf(goal); return !!c && c[0] === p.at[0] && c[1] === p.at[1] && c[2] === p.at[2] }", async (mod) => {
+    const r = rig({ mod })
+    r.cz.permit(STAND, 25_000)
+    assert.equal(r.search(new goals.GoalNear(STAND.x, STAND.y, STAND.z, 2)).status, 'success', 'the mutant lets the looser walk through')
+    assert.equal(r.cz.passed, 1)
+  })
+})
 test('THE PASS ENDS: when revoked, after its time, and never later than passMaxMs; a ban that is off grants none', () => {
   const r = rig()
   r.cz.permit(STAND, 25_000); r.cz.revoke()
@@ -153,13 +176,21 @@ test('PERMITTED WALK: the pass is held for the walk and gone after it -- on succ
   const thrown = await CZ.permittedWalk(r.cz, STAND, 25_000, async () => { throw boom })
   assert.equal(thrown.ran, true); assert.equal(thrown.err, boom, 'the error is handed back for the caller\'s abort rule')
   assert.equal(r.cz.pass, null, 'a pass never outlives its walk')
+  // a walk that THREW is halted while the pass is still held (Codex r1); a walk that arrived is not
+  const seen = []
+  await CZ.permittedWalk(r.cz, STAND, 25_000, async () => { throw new Error('NoPath') }, () => seen.push(r.cz.pass ? 'held' : 'gone'))
+  assert.deepEqual(seen, ['held'], 'halted once, before the revoke')
+  await CZ.permittedWalk(r.cz, STAND, 25_000, async () => {}, () => seen.push('arrived'))
+  assert.deepEqual(seen, ['held'])
+  const kept = await CZ.permittedWalk(r.cz, STAND, 25_000, async () => { throw boom }, () => { throw new Error('halt broke') })
+  assert.equal(kept.err, boom, 'a halt that throws never hides the walk\'s error'); assert.equal(r.cz.pass, null)
   let ran = false
   assert.deepEqual(await CZ.permittedWalk(rig({ on: false }).cz, STAND, 25_000, async () => { ran = true }), { ran: false, err: null })
   assert.deepEqual(await CZ.permittedWalk(null, STAND, 25_000, async () => { ran = true }), { ran: false, err: null })
   assert.equal(ran, false, 'no pass, no second walk')
 })
 test('MUTANT KILLED: a pass that does not look at the goal lifts the ban for every walk', async () => {
-  await withMutant(CZ_URL, "return !!c && c[0] === p.at[0] && c[1] === p.at[1] && c[2] === p.at[2]", 'return !!c', async (mod) => {
+  await withMutant(CZ_URL, 'return endsOnlyAt(goal, p.at)', 'return true', async (mod) => {
     const r = rig({ mod })
     r.cz.permit(STAND, 25_000)
     assert.equal(r.search(MID).status, 'success', 'the mutant lets the other walk place too')
@@ -173,10 +204,18 @@ test('MUTANT KILLED: a pass that never expires', async () => {
   })
 })
 test('MUTANT KILLED: a permitted walk that does not revoke leaves the pass behind', async () => {
-  await withMutant(CZ_URL, "catch (err) { return { ran: true, err } } finally { cz.revoke() }", 'catch (err) { return { ran: true, err } }', async (mod) => {
+  await withMutant(CZ_URL, "return { ran: true, err } } finally { cz.revoke() }", 'return { ran: true, err } }', async (mod) => {
     const r = rig({ mod })
     await mod.permittedWalk(r.cz, STAND, 25_000, async () => {})
     assert.notEqual(r.cz.pass, null)
+  })
+})
+test('MUTANT KILLED: a permitted walk that does not halt a failed walk', async () => {
+  await withMutant(CZ_URL, "catch (err) { try { halt?.() } catch { /* the halt never hides the walk's error */ } return", 'catch (err) { return', async (mod) => {
+    const r = rig({ mod })
+    let halted = 0
+    await mod.permittedWalk(r.cz, STAND, 25_000, async () => { throw new Error('NoPath') }, () => { halted++ })
+    assert.equal(halted, 0)
   })
 })
 test('THE DECISION: only at the well, only under a live ban, only with something to lay; each refusal says which', () => {
@@ -220,7 +259,8 @@ function wiringProblems (src) {
   const iFirst = body.indexOf('bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z))')
   const iAsk = at('wellStepDecision({ on: wellStepOn(process.env), ban: bot.cleanZoneBan?.on === true, feet: q(), stand, held })', 'the decision is asked with the switch, the live ban, the feet, the stand and the bag')
   const iHeld = at('const held = towerBlocksHeld(bot)', 'the bag is counted in blocks the walk can lay')
-  const iWalk = at('permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, \'pathfinding\', { path: true }))', 'the second walk runs under a pass for the stand, bounded as the first')
+  at('const stepGoal = new goals.GoalBlock(stand.x, stand.y, stand.z)', 'the second walk\'s goal is the stand\'s own cell')
+  const iWalk = at('permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(bot.pathfinder.goto(stepGoal), HK_PATH_MS, \'pathfinding\', { path: true }), () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })', 'the second walk runs under a pass for the stand, bounded as the first, and is halted if it fails')
   const iAbort = at('if (w.err && (w.err.aborted || signal?.aborted)) throw w.err', 'an abort of the second walk is rethrown')
   const iFail = at("return fail('well_unreachable', 'unreachable',", 'the refusal')
   at('${wellStepRemedy(stepWhy)}`)', 'the refusal names the step\'s remedy')
@@ -237,6 +277,8 @@ test('WIRING MUTANTS: each missing piece is named', () => {
   assert.match(mut('ban: bot.cleanZoneBan?.on === true, feet: q(), stand, held })', 'ban: true, feet: q(), stand, held })'), /the decision is asked.*found 0/)
   assert.match(mut('        if (w.err && (w.err.aborted || signal?.aborted)) throw w.err\n', ''), /an abort of the second walk is rethrown: found 0/)
   assert.match(mut('const w = await permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(', 'const w = await permittedWalk(null, stand, HK_PATH_MS, () => g.bound('), /the second walk runs under a pass/)
+  assert.match(mut(", () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })", ')'), /is halted if it fails: found 0/)
+  assert.match(mut('const stepGoal = new goals.GoalBlock(stand.x, stand.y, stand.z)', 'const stepGoal = new goals.GoalNear(stand.x, stand.y, stand.z, 2)'), /the stand's own cell: found 0/)
   assert.match(mut('the next town visit tries again${wellStepRemedy(stepWhy)}`)', 'the next town visit tries again`)'), /the refusal names the step's remedy: found 0/)
-  assert.match(mut('      if (ask.go) {\n        const t0 = Date.now()\n        const w = await permittedWalk(', '      {\n        const t0 = Date.now()\n        const w = await permittedWalk('), /under `if \(ask\.go\)`/)
+  assert.match(mut('      if (ask.go) {\n        const t0 = Date.now()\n        const stepGoal = ', '      {\n        const t0 = Date.now()\n        const stepGoal = '), /under `if \(ask\.go\)`/)
 })
