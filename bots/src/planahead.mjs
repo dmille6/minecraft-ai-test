@@ -29,6 +29,7 @@
 //      plan, Claude B2) for a building's proof (buildsite.mjs proveSite `planned`).
 import { walkFrom, stepFor, overlay } from './buildsite.mjs'
 import { digStand } from './buildrun.mjs'
+import { COTTAGE_NAMES_GUARD } from './homeplots.mjs'   // homes-01show: every cottage project's name (three without a layout)
 
 export const PA = Object.freeze({
   walkR: 104,          // the tidy's walk radius (the in-wall stage reaches 88 from home; + a stand's reach)
@@ -218,7 +219,7 @@ export function supplyOf (rec, openKeys = []) {
 // ---- stand claims -------------------------------------------------------------------------------------------------------------
 
 /** The building plots whose open records claim their proof stands (claim-01's plots + the styled cottages). */
-export const STAND_PLOTS = Object.freeze(['townhall', 'cottage1', 'cottage2', 'cottage3', 'enchantshop', 'hall', 'storehub', 'house1', 'shop', 'civicF', 'civicM', 'civicB', 'civicH', 'civicP', 'civicS', 'civicL'])   // citywall fold: civic.mjs CIVIC_PLOTS
+export const STAND_PLOTS = Object.freeze(['townhall', ...COTTAGE_NAMES_GUARD, 'enchantshop', 'hall', 'storehub', 'house1', 'shop', 'civicF', 'civicM', 'civicB', 'civicH', 'civicP', 'civicS', 'civicL'])   // citywall fold: civic.mjs CIVIC_PLOTS
 /**
  * THE OPEN BUILDINGS' STAND CLAIMS -> { feet: Map key -> plot (feet and head: must stay passable), floor: Map key -> plot (must stay) }.
  * Pure. Only a record not structure_complete; only a cell not yet waived; the stand of each proof cell (proveSite's `stand`).

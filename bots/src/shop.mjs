@@ -24,6 +24,7 @@ import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   
 import { hubSwitches, HUB_PLOT, HUB_BLUEPRINT, HUB_BUILDERS } from './storehub.mjs'   // storehub-01
 import { enchantSwitches, ENCHANT_PLOT, ENCHANT_BLUEPRINT, ENCHANT_BUILDERS } from './enchantshop.mjs'   // enchantshop-01
 import { cottageSwitches, COTTAGE_PLOT, COTTAGE_BUILDERS, COTTAGE_AFTER, cottageBlueprintId, COTTAGE_PLOTS, isCottagePlot, cottageAfterOf, cottage2Switches } from './cottage.mjs'   // townstyle-01; cottage2-01
+import { COTTAGE_PLOTS_GUARD } from './cottage.mjs'   // homes-01show: a later home sited before HOMEPLOTS=off stays guarded
 import { WOODS } from './townstyle.mjs'   // glass-01: the wood parts a visit crafts
 import { GLASS } from './glass.mjs'   // glass-01
 import { townhallSwitches, TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_BUILDERS, TOWNHALL_AFTER } from './townhall.mjs'   // townstyle-02
@@ -234,6 +235,9 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: UPKEEP_PLOT, blueprint: UPKEEP_BLUEPRINT, builders: UPKEEP.builders, upkeep: true }),
   Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? 1 + Math.max(GK.helpersMax, GK.helpersBig ?? 0) : TIDY_BUILDERS }),   // gkcrew4-01: slots for the big cap   // gkhelpers-01: the keeper and its helpers
 ])
+/** homes-01show: the cottage projects that are NOT offered now (HOMEPLOTS=off in a town with a layout: cottage4 ..) but whose record,
+ *  sited while the switch was on, is still read and guarded (projectsGuarded). Empty while the switch is on, and in every other town. */
+export const COTTAGE_GUARD_ONLY = Object.freeze(COTTAGE_PLOTS_GUARD.filter(p => !COTTAGE_PLOTS.includes(p)).map(p => Object.freeze({ plot: p, blueprint: 'cottage@2-Csg0-', after: `cottage${Number(p.slice(7)) - 1}`, builders: COTTAGE_BUILDERS })))
 export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on, sinks = SINKS.on, kinds = SINKS.kinds, crop = CROPFARM.on, hub = STOREHUB.on, ext = TOWNWALLEXT.on, demo = WALLDEMO.on, ench = ENCHANTSHOP.on, cane = CANEFARM.on, decor = DECORATE.on, cot = COTTAGE.on, th = TOWNHALL.on, rr = REROOF.on, well = STEPWELL.on, forest = FORESTP.on, cot2 = COTTAGE2.on, upk = UPKEEPP.on, cw = CITYWALL.on, civic = CIVIC.on, pen = PENS.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === PENS_PLOT ? pen && crop && farm && paths && on : p.plot === UPKEEP_PLOT ? upk : p.plot === FOREST_PLOT ? forest && wall && paths && on : p.sink ? sinks && kinds.includes(sinkKindOf(p.plot)) && (sinkKindOf(p.plot) !== 'decor' || decor) : p.plot === STEPWELL_PLOT ? well : p.plot === HUB_PLOT ? hub && store && on : p.plot === WALLEXT_PLOT ? ext && wall && hub && store && paths && on : p.plot === WALLDEMO_PLOT ? demo && ext && wall && hub && store && paths && on : p.plot === ENCHANT_PLOT ? ench && ext && wall && hub && store && paths && on : isCottagePlot(p.plot) ? cot && (p.plot === COTTAGE_PLOT || cot2) && ench && ext && wall && hub && store && paths && on : p.plot === TOWNHALL_PLOT ? th && ench && ext && wall && hub && store && paths && on : p.plot === REROOF_PLOT ? rr && hub && store && paths && on : p.plot === CITYWALL_PLOT ? cw && wall && paths && on : isCivicPlot(p.plot) ? civic && wall && paths && on : p.plot === CROPFARM_PLOT ? crop && farm && paths && on : p.plot === CANEFARM_PLOT ? cane && farm && paths && on : p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on && !forest : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
  *  switching the stair off stops its building and its use, never its protection (Codex design r0: "switching off must not erase
@@ -265,6 +269,8 @@ export const projectsGuarded = (list = projectsOn()) => {
   for (const p of PROJECTS) if (p.plot === ENCHANT_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)
   // townstyle-01: a sited cottage stays guarded whatever its switch
   for (const p of PROJECTS) if (isCottagePlot(p.plot) && !out.some(q => q.plot === p.plot)) out.push(p)   // cottage2-01: every cottage
+  // homes-01show: ...and a later home sited before HOMEPLOTS=off (not in PROJECTS then: never offered, its record still a reservation)
+  for (const p of COTTAGE_GUARD_ONLY) if (!out.some(q => q.plot === p.plot)) out.push(p)
   for (const p of PROJECTS) if (p.plot === TOWNHALL_PLOT && !out.some(q => q.plot === p.plot)) out.push(p)   // townstyle-02
   // upkeep-01: nor the upkeep's job list (a stray to dig, a replant: the ground's, never a protected build)
   return out.filter(p => p.plot !== UPKEEP_PLOT)

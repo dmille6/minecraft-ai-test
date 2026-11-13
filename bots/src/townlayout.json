@@ -1,0 +1,23 @@
+{
+ "v": 1,
+ "source": "the town layout the owner approved 2026-11-13 (eight 7 x 7 home boxes [x0, z0, x1, z1]; owner, same day: a plot that meets a road corridor may be moved or the road rerouted, 'either, as long as the thing gets built', and 'yes' to all eight homes becoming cottage projects). homeplots.mjs widens each box by one block on every side (the cottage's stand ring) and checks the pool and the home, as townsectors.json is checked",
+ "pools": {
+  "showcase": {
+   "home": {
+    "x": 0,
+    "y": 70,
+    "z": 0
+   },
+   "homes": [
+    [13, -20, 19, -14],
+    [14, 12, 20, 18],
+    [-35, -60, -29, -54],
+    [-34, -85, -28, -79],
+    [-23, -84, -17, -78],
+    [-24, -60, -18, -54],
+    [24, -44, 30, -38],
+    [-24, -22, -18, -16]
+   ]
+  }
+ }
+}
