@@ -36,6 +36,8 @@ const REQUIRED = [
   'bots/test/cleanzone.test.mjs',
   // cleanzone-02 (11-13): gather does not take the ground inside the clean zone; it walks out and searches again
   'bots/test/gatherzone.test.mjs',
+  // wellstep-01 (11-13): the junk well's stand is reached again -- the failed walk is tried once more with a pass for that goal
+  'bots/test/wellstep.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',

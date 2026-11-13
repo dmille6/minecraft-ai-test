@@ -102,6 +102,7 @@ import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs' 
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
+import { wellStepOn, wellStepDecision, permittedWalk, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -10030,6 +10031,7 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
   cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.acc?.capLast ?? ph.cap ?? null, stock: ph.acc?.stockThrown ?? 0, yardKept: ph.yardKept ?? 0 })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
+let _wsModeSaid = false   // wellstep-01: its licence row, once per spawn (the first walk that fails at the well)
 async function disposeWell (ctx, _args, signal) {
   // `_args.pruned` (name -> count): what THIS bot's prune_town just took out of a town chest (stocktarget design 3.5);
   // never the model's (chatOnly), and never more than the server-verified take
@@ -10095,8 +10097,27 @@ async function disposeWell (ctx, _args, signal) {
       try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       check(signal)
     }
+    // WELLSTEP-01 (cleanzone.mjs): the walk failed AT the well -- once more with a pass for this one goal, so the walk may lay the
+    // step the ground lost (the tidy cut it; the clean zone forbade putting it back: 0 of 124 disposals in 5 h, LIVE 11-13)
+    let stepWhy = null
+    if (!onStand()) {
+      const held = towerBlocksHeld(bot)
+      const ask = wellStepDecision({ on: wellStepOn(process.env), ban: bot.cleanZoneBan?.on === true, feet: q(), stand, held })
+      stepWhy = ask.why
+      const from = [Math.floor(q().x), Math.floor(q().y), Math.floor(q().z)]
+      if (!_wsModeSaid) { _wsModeSaid = true; try { logEvent({ kind: 'well_step', status: 'success', snapshot: snapshot(bot), detail: wellStepModeDetail(process.env) }) } catch {} }
+      if (ask.go) {
+        const t0 = Date.now()
+        const w = await permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }))
+        if (w.err && (w.err.aborted || signal?.aborted)) throw w.err
+        check(signal)
+        try { logEvent({ kind: 'well_step', status: onStand() ? 'success' : 'failed', snapshot: snapshot(bot), detail: wellStepDetail({ op: 'climb', why: w.ran ? ask.why : 'no_pass', stand, from, held, reached: onStand(), ms: Date.now() - t0, err: w.err?.name ?? w.err?.message ?? null }) }) } catch {}
+      } else if (ask.why !== 'no_ban') {
+        try { logEvent({ kind: 'well_step', status: 'no_effect', snapshot: snapshot(bot), detail: wellStepDetail({ op: 'skip', why: ask.why, stand, from, held }) }) } catch {}
+      }
+    }
     if (onStand() && !centredOn(bot, stand)) await centreOn(bot, stand, signal)
-    if (!onStand()) return fail('well_unreachable', 'unreachable', `could not reach the junk well's standing cell at ${stand.x},${stand.y},${stand.z} (the bot is at ${q().x.toFixed(2)},${q().y.toFixed(2)},${q().z.toFixed(2)}); the next town visit tries again`)
+    if (!onStand()) return fail('well_unreachable', 'unreachable', `could not reach the junk well's standing cell at ${stand.x},${stand.y},${stand.z} (the bot is at ${q().x.toFixed(2)},${q().y.toFixed(2)},${q().z.toFixed(2)}); the next town visit tries again${wellStepRemedy(stepWhy)}`)
     const near2 = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
     if (near2) return skip('player_near', `wait for ${near2.who} to move off the town junk well (${near2.dist.toFixed(1)} blocks): it opens only with nobody within 5`)
     stationary = Date.now() + VISIT_BUDGET_MS

@@ -43,7 +43,7 @@ import { homeOf, isTerrain } from './townground.mjs'
 // The windows are sized on the decision loop, not on one skill: a bot whose walk failed is asked again ~30 s later (the
 // decision cooldown) and a skill may take a minute, so two failures can be two minutes apart and the release must still be open
 // when the next walk starts.
-export const CLEAN_ZONE = Object.freeze({ failN: 2, failMs: 180_000, sameR: 2, timeoutN: 4, timeoutMs: 180_000, timeoutMinMs: 2000, releaseMs: 120_000, releaseR: 3, hitsMs: 10 * 60_000 })
+export const CLEAN_ZONE = Object.freeze({ failN: 2, failMs: 180_000, sameR: 2, timeoutN: 4, timeoutMs: 180_000, timeoutMinMs: 2000, releaseMs: 120_000, releaseR: 3, hitsMs: 10 * 60_000, passMaxMs: 60_000 })
 /** THE SWITCH: CLEANZONE=off|0|false|no -> not installed. On by default. Pure. */
 export const cleanZoneOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.CLEANZONE ?? '').trim())
 
@@ -93,9 +93,31 @@ const goalText = (goal) => {
  * AND ended timeout / noPath), releases (the valve opened), freed (searches that ran with the ban lifted).
  */
 export function makeCleanZone ({ zone = () => null, on = true, now = () => Date.now(), emit = null, T = CLEAN_ZONE } = {}) {
-  const cz = { on, T, cur: null, vetoed: 0, searches: 0, touched: 0, failed: 0, releases: 0, freed: 0, lastFail: null, timeouts: [], release: null }
+  const cz = { on, T, cur: null, vetoed: 0, searches: 0, touched: 0, failed: 0, releases: 0, freed: 0, lastFail: null, timeouts: [], release: null, pass: null, passes: 0, passed: 0 }
   /** Is the ban lifted for a search starting at `start` right now? */
   cz.freeAt = (start, t = now()) => !!(cz.release && cz.release.until > t && nearCell(cz.release.at, start, T.releaseR))
+  /**
+   * WELLSTEP-01: ONE GOAL'S PASS. A skill that must stand on ONE town cell (the junk well's stand) and has just failed to walk
+   * there asks for the ban to be lifted for searches TO THAT CELL only, for at most T.passMaxMs: the walk may then lay the step
+   * the ground lost. Every other search stays banned while the pass is held. -> granted?
+   */
+  cz.permit = (cell, ms, t = now()) => {
+    const c = cellOf(cell)
+    const max = Number(T.passMaxMs) || 60_000
+    if (!on || !c || !(Number(ms) > 0)) return false
+    cz.pass = { at: c, until: t + Math.min(Number(ms), max) }
+    cz.passes++
+    try { emit?.(`op=pass goal=${c.join(',')} ms=${Math.min(Number(ms), max)}`) } catch { /* a row never breaks a walk */ }
+    return true
+  }
+  cz.revoke = () => { cz.pass = null }
+  /** Is this search's goal the cell the pass names, and the pass still good? */
+  cz.passFor = (goal, t = now()) => {
+    const p = cz.pass
+    if (!p || !(p.until > t)) return false
+    const c = cellOf((goal?.pos && typeof goal.pos === 'object') ? goal.pos : goal)
+    return !!c && c[0] === p.at[0] && c[1] === p.at[1] && c[2] === p.at[2]
+  }
   /** THE A* STEP: is this neighbour removed? */
   cz.drops = (toPlace) => {
     if (!on) return false
@@ -110,7 +132,9 @@ export function makeCleanZone ({ zone = () => null, on = true, now = () => Date.
   cz.begin = ({ start = null, goal = null, radius = -1, timeout = null } = {}) => {
     const st = cellOf(start)
     cz.searches++
-    return { start: st, goal, capped: fin(radius) && radius >= 0, short: fin(timeout) && timeout < T.timeoutMinMs, free: on && !!st && cz.freeAt(st), vetoed: 0, done: false }
+    const pass = on && cz.passFor(goal)
+    if (pass) cz.passed++
+    return { start: st, goal, capped: fin(radius) && radius >= 0, short: fin(timeout) && timeout < T.timeoutMinMs, free: pass || (on && !!st && cz.freeAt(st)), pass, vetoed: 0, done: false }
   }
   const open = (at, why, s, t) => {
     cz.release = { at, until: t + T.releaseMs }
@@ -213,10 +237,10 @@ export function installCleanZoneSearch (pathfinder, cz) {
 /** THE POSITIVE CONTROL (`_cleanzone_hits`, every hitsMs): the counters since the last row and in total. Pure. */
 export function cleanZoneHitsDetail (c, prev = {}) {
   const d = k => (c?.[k] ?? 0) - (prev?.[k] ?? 0)
-  return `vetoed=${d('vetoed')} searches=${d('searches')} touched=${d('touched')} failed=${d('failed')} releases=${d('releases')} freed=${d('freed')} total_vetoed=${c?.vetoed ?? 0} total_releases=${c?.releases ?? 0}`
+  return `vetoed=${d('vetoed')} searches=${d('searches')} touched=${d('touched')} failed=${d('failed')} releases=${d('releases')} freed=${d('freed')} total_vetoed=${c?.vetoed ?? 0} total_releases=${c?.releases ?? 0} passes=${d('passes')} passed=${d('passed')}`
 }
 /** The counters to diff against next time. Pure. */
-export const cleanZoneSnap = c => ({ vetoed: c?.vetoed ?? 0, searches: c?.searches ?? 0, touched: c?.touched ?? 0, failed: c?.failed ?? 0, releases: c?.releases ?? 0, freed: c?.freed ?? 0 })
+export const cleanZoneSnap = c => ({ vetoed: c?.vetoed ?? 0, searches: c?.searches ?? 0, touched: c?.touched ?? 0, failed: c?.failed ?? 0, releases: c?.releases ?? 0, freed: c?.freed ?? 0, passes: c?.passes ?? 0, passed: c?.passed ?? 0 })
 /** The licence row (`_cleanzone_mode`, once per spawn). Pure. */
 export const cleanZoneModeDetail = (env = process.env, zone = null, T = CLEAN_ZONE) =>
   `on=${cleanZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} y_min=${zone?.yMin ?? '-'} home=${zone ? `${zone.hx},${zone.hy},${zone.hz}` : '-'} fail_n=${T.failN} fail_ms=${T.failMs} timeout_n=${T.timeoutN} timeout_ms=${T.timeoutMs} timeout_min_ms=${T.timeoutMinMs} release_ms=${T.releaseMs} release_r=${T.releaseR}`
@@ -301,3 +325,49 @@ export function gatherZoneRemedy (zone, exit = null) {
 /** The `_gather_zone` licence detail (once per bot process). Pure. */
 export const gatherZoneModeDetail = (env = process.env, zone = null, T = GATHER_ZONE) =>
   `op=mode on=${gatherZoneOn(env) ? 1 : 0} r=${zone?.R ?? '-'} deep_y=${zone ? zone.hy - T.deep : '-'} out=${T.out} walk_ms=${T.walkMs} exits=${T.exits} trap_r=${T.trapR} trap_max=${T.trapMax}`
+
+// ---- WELLSTEP-01: THE JUNK WELL'S STAND IS REACHED AGAIN -------------------------------------------------------------------
+//
+// WHY (LIVE showcase 11-13, 14 bots): dispose_well 0 successes of 124 from 18:12Z (8-15 an hour for the 19 h before; all 210
+// successes stood at 12,74,6). At 18:12:01Z a tidy visit cut 7,69,4, the one-block step of the only walk up to the stand; the
+// first rise became two blocks. The same cut on 11-12 17:48Z healed in 12 minutes: a walk laid a dirt step there (`_takeback
+// outcome=adopted shape=step`). Today the ban above forbids that placement, and the valve does not help a one-shot walk
+// (`op=release goal=GoalBlock@12,74,6` fired twice; the order had already ended). Two correct rules composed into a dead end:
+// bags stop emptying, and the town visit's order is spent on a throw that cannot happen (build orders 148 -> 63 per 2 h).
+// THE REMEDY IS PERFORMED, by the order itself: the walk to the stand that failed is tried ONCE more with a pass for that one
+// goal (makeCleanZone permit). Whatever it lays is recorded as every pathfinder placement is (`_place_town`), and the take-back
+// keeps a step that is walked on and removes the rest. Switch: WELLSTEP=off.
+export const WELL_STEP = Object.freeze({ nearR: 16, below: 12, minBlocks: 1 })
+export const wellStepOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.WELLSTEP ?? '').trim())
+/**
+ * MAY THE FAILED WALK TO THE STAND BE TRIED AGAIN WITH A PASS? -> { go, why }. Pure.
+ * `off` the switch; `no_ban` the ban is not installed or off (the first walk could already place: a second changes nothing);
+ * `far` the bot is not at the well (more than nearR beside it or more than `below` under it: wellcare's hold is that case's);
+ * `no_blocks` nothing in the bag the walk could lay.
+ */
+export function wellStepDecision ({ on = true, ban = false, feet = null, stand = null, held = 0, T = WELL_STEP } = {}) {
+  if (!on) return { go: false, why: 'off' }
+  if (!ban) return { go: false, why: 'no_ban' }
+  const f = cellOf(feet), s = cellOf(stand)
+  if (!f || !s) return { go: false, why: 'far' }
+  if (Math.max(Math.abs(f[0] - s[0]), Math.abs(f[2] - s[2])) > T.nearR || s[1] - f[1] > T.below) return { go: false, why: 'far' }
+  if (!(held >= T.minBlocks)) return { go: false, why: 'no_blocks' }
+  return { go: true, why: 'unreachable' }
+}
+/**
+ * RUN ONE WALK UNDER A PASS -> { ran, err }. The pass is revoked however the walk ends (a throw, an abort): a pass never
+ * outlives its walk. `walk()` is the caller's bounded goto; its error is handed back for the caller's own rules (an abort is
+ * rethrown there).
+ */
+export async function permittedWalk (cz, cell, ms, walk) {
+  if (typeof cz?.permit !== 'function' || !cz.permit(cell, ms)) return { ran: false, err: null }
+  try { await walk(); return { ran: true, err: null } } catch (err) { return { ran: true, err } } finally { cz.revoke() }
+}
+/** What the refusal adds when the step could not be laid: a move the bot can make from the well's foot. Pure. */
+export const wellStepRemedy = why => (why === 'no_blocks'
+  ? ' -- the walk up has lost a step and the bag holds no dirt or cobblestone to lay it: take a few from the town chests (withdraw), and the next visit lays the step'
+  : '')
+/** The `_well_step` row. Pure. */
+export const wellStepDetail = ({ op, why = '-', stand = null, from = null, held = 0, reached = null, ms = null, err = null }) =>
+  `op=${op} why=${why} stand=${stand ? `${stand.x},${stand.y},${stand.z}` : '-'} from=${from ? from.join(',') : '-'} held=${held}${reached == null ? '' : ` reached=${reached ? 1 : 0}`}${ms == null ? '' : ` ms=${ms}`}${err ? ` err=${String(err).replace(/\s+/g, '_').slice(0, 60)}` : ''}`
+export const wellStepModeDetail = (env = process.env, T = WELL_STEP) => `op=mode on=${wellStepOn(env) ? 1 : 0} near_r=${T.nearR} below=${T.below} min_blocks=${T.minBlocks} pass_max_ms=${CLEAN_ZONE.passMaxMs}`

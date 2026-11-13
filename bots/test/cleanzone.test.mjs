@@ -336,8 +336,8 @@ test('ROWS: the licence and the positive control say what is installed and what 
   const cz = CZ.makeCleanZone({ zone: () => zone })
   const prev = CZ.cleanZoneSnap(cz)
   cz.vetoed = 7; cz.searches = 3; cz.touched = 2; cz.failed = 1; cz.releases = 1; cz.freed = 1
-  assert.equal(CZ.cleanZoneHitsDetail(cz, prev), 'vetoed=7 searches=3 touched=2 failed=1 releases=1 freed=1 total_vetoed=7 total_releases=1')
-  assert.equal(CZ.cleanZoneHitsDetail(cz, CZ.cleanZoneSnap(cz)), 'vetoed=0 searches=0 touched=0 failed=0 releases=0 freed=0 total_vetoed=7 total_releases=1')
+  assert.equal(CZ.cleanZoneHitsDetail(cz, prev), 'vetoed=7 searches=3 touched=2 failed=1 releases=1 freed=1 total_vetoed=7 total_releases=1 passes=0 passed=0')
+  assert.equal(CZ.cleanZoneHitsDetail(cz, CZ.cleanZoneSnap(cz)), 'vetoed=0 searches=0 touched=0 failed=0 releases=0 freed=0 total_vetoed=7 total_releases=1 passes=0 passed=0')
 })
 
 test('THE VALVE ignores the timeout of a search given less than timeoutMinMs (the idle 800 ms probe), but not its noPath', () => {
