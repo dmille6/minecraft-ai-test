@@ -2311,6 +2311,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let zoneSkipped = 0   // cleanzone-02: clean-zone ground the enumeration skipped this round
   let zoneWalked = 0    // cleanzone-02: exits this run walked to (the remedy, performed)
   let zoneExit = null   // cleanzone-02: the last exit tried (named when the run fails)
+  let zoneClimb = 0     // cleanzone-02: walks repeated from a pit by a bot that holds what a climb needs
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
   // Rounds this RUN whose candidates came only from the cover fallback. Run-scoped
   // on purpose: `viaCover` resets every round, and the question this answers is
@@ -2438,12 +2439,20 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         const outNow = !!at && !inZoneSquare(gz, at.x, at.z)
         // NO ROUTE STARTS HERE (a pit): the bot keeps its way out -- the ground beside it, a few cells, for a short while
         if (!outNow && gatherWalkTrapped(from, at, walkErr)) {
-          // ... unless it already holds what a climb needs (Claude review 11-13): then the way out is `surface`, not more digging
+          // ... unless it already holds what a climb needs (Claude review 11-13): then more digging is not its way out, the
+          // WALK is. cleanzone-01's valve lifts the placing ban where two searches found no route, so the same walk is made
+          // again from the same spot -- the third search towers out with what the bot holds. Performed here, not advised:
+          // `surface` answers already_surfaced at this height (Codex review 11-13). The exit is not used up by a retry.
           const held = scaffoldCount(bot.inventory?.items?.() ?? [])
           if (held >= GATHER_ZONE.trapMax) {
-            try { logEvent({ kind: 'gather_zone', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=trapped_holding block=${blockName} pos=${at.x},${at.y},${at.z} held=${held}` }) } catch { /* telemetry */ }
+            if (zoneClimb < GATHER_ZONE.climbTries) {
+              zoneClimb++; zoneWalked--
+              try { logEvent({ kind: 'gather_zone', status: 'success', snapshot: snapshot(bot), detail: `op=walk_again block=${blockName} pos=${at.x},${at.y},${at.z} to=${to.x},${to.z} held=${held} try=${zoneClimb}` }) } catch { /* telemetry */ }
+              continue
+            }
+            try { logEvent({ kind: 'gather_zone', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=trapped_holding block=${blockName} pos=${at.x},${at.y},${at.z} held=${held} walks=${zoneClimb + 1}` }) } catch { /* telemetry */ }
             return { status: 'failed', failClass: 'no_safe_target',
-                     detail: `no ${blockName} here that may be taken, and no route starts where you stand: you hold ${held} blocks to climb with -- use surface to get out, then gather beyond the town (${gatherZoneRemedy(gz, to)})` }
+                     detail: `no ${blockName} here that may be taken, and ${zoneClimb + 1} walks out found no route from where you stand though you hold ${held} blocks to climb with: ${gatherZoneRemedy(gz, to)}` }
           }
           bot.gatherTrap = gatherTrapOf(at, Date.now())
           try { logEvent({ kind: 'gather_zone', status: 'success', snapshot: snapshot(bot), detail: `op=trapped block=${blockName} pos=${at.x},${at.y},${at.z} to=${to.x},${to.z} r=${GATHER_ZONE.trapR} max=${GATHER_ZONE.trapMax} ms=${GATHER_ZONE.trapMs}` }) } catch { /* telemetry */ }

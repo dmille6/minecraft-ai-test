@@ -116,6 +116,8 @@ function gatherWorld ({ dirt, at = [200.5, 64, 200.5], walk = 'ok', items = [], 
         if (walk === 'changed') throw Object.assign(new Error('The goal was changed before it could be completed!'), { name: 'GoalChanged' })
         if (walk === 'hang') return new Promise((resolve, reject) => { hang.reject = reject })
         const p = bot.entity.position
+        // 'valve': the first two walks find no route (resolve, unmoved); from the third the route exists (cleanzone-01's valve)
+        if (walk === 'valve' && walks.length >= 3) bot.entity.position = new Vec3(goal.x + 0.5, p.y, goal.z + 0.5)
         if (walk === 'ok') bot.entity.position = new Vec3(goal.x + 0.5, p.y, goal.z + 0.5)
         if (walk === 'short') bot.entity.position = new Vec3(p.x + 6 * Math.sign(goal.x - p.x), p.y, p.z + 6 * Math.sign(goal.z - p.z))
       } },
@@ -269,15 +271,34 @@ test('MUTANT KILLED: without the range guard, zone cells beyond the search send 
     assert.ok(walks.length > 0)
   })
 })
-test('TRAPPED BUT HOLDING WHAT A CLIMB NEEDS: no digging beside the bot; the refusal names surface', async () => {
+test('TRAPPED BUT HOLDING WHAT A CLIMB NEEDS: no digging beside the bot; the SAME walk is made again and the third gets out (the valve), then the dirt beyond', async () => {
+  const pit = []
+  for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])
+  const { bot, digs, walks } = gatherWorld({ dirt: [...pit, ...outside], at: [224.5, 64, 200.5], walk: 'valve', items: [{ name: 'dirt', count: 64, type: mcData.itemsByName.dirt.id }] })
+  const r = await run(SK, bot, { block: 'dirt', count: 1 })
+  assert.deepEqual(walks, [[270, 200], [270, 200], [270, 200]], `three walks to the same exit (${JSON.stringify(r).slice(0, 160)})`)
+  assert.equal(bot.gatherTrap, undefined, 'no trap is granted to a bot that can climb')
+  assert.ok(digs.length > 0 && digs.every(p => !inSquare(p)), 'nothing dug in the zone; the dirt beyond the exit was taken')
+})
+test('TRAPPED AND HOLDING, and the walks never find a route: a bounded number of walks, then a refusal that names the exit as a goto (not surface)', async () => {
   const pit = []
   for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])
   const { bot, digs, walks } = gatherWorld({ dirt: pit, at: [224.5, 64, 200.5], walk: 'stay', items: [{ name: 'dirt', count: 64, type: mcData.itemsByName.dirt.id }] })
   const r = await run(SK, bot, { block: 'dirt', count: 16 })
-  assert.equal(walks.length, 1); assert.equal(digs.length, 0)
-  assert.equal(bot.gatherTrap, undefined, 'no trap is granted')
+  assert.equal(walks.length, 1 + CZ.GATHER_ZONE.climbTries); assert.equal(digs.length, 0)
+  assert.equal(bot.gatherTrap, undefined)
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'no_safe_target')
-  assert.match(String(r.detail), /you hold \d+ blocks to climb with -- use surface to get out/)
+  assert.match(String(r.detail), /you hold \d+ blocks to climb with: .*goto 270 65 200 and gather there/)
+  assert.doesNotMatch(String(r.detail), /surface/)
+})
+test('MUTANT KILLED: without the repeated walk, a bot that could have climbed out is refused after one walk', async () => {
+  await withMutantsAll(SKILLS_URL, [["            if (zoneClimb < GATHER_ZONE.climbTries) {", "            if (false) {"]], async mod => {
+    const pit = []
+    for (let i = 0; i < 30; i++) pit.push([223 + (i % 6), 63, 198 + Math.floor(i / 6)])
+    const { bot, digs, walks } = gatherWorld({ dirt: [...pit, ...outside], at: [224.5, 64, 200.5], walk: 'valve', items: [{ name: 'dirt', count: 64, type: mcData.itemsByName.dirt.id }] })
+    const r = await run(mod, bot, { block: 'dirt', count: 1 })
+    assert.equal(walks.length, 1); assert.equal(digs.length, 0); assert.equal(r.status, 'failed')
+  })
 })
 test('CHAIN, the exception: a bot down in the mine takes the ground around it without walking anywhere', async () => {
   const deep = []

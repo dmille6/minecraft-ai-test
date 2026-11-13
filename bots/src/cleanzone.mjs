@@ -243,7 +243,7 @@ export const cleanZoneModeDetail = (env = process.env, zone = null, T = CLEAN_ZO
 // RESOLVES on an empty path, and rejects `NoPath` otherwise: both are "no route starts here"; a changed goal or a timeout
 // is neither), the rule is lifted for at most trapMax cells within trapR of that spot for trapMs. Written `op=trapped`.
 // GATHERZONE=off -> gather is exactly the base's.
-export const GATHER_ZONE = Object.freeze({ deep: 24, out: 6, walkMs: 25_000, exits: 2, trapR: 3, trapMax: 8, trapMs: 90_000, trapMove: 2 })
+export const GATHER_ZONE = Object.freeze({ deep: 24, out: 6, walkMs: 25_000, exits: 2, trapR: 3, trapMax: 8, trapMs: 90_000, trapMove: 2, climbTries: 2 })
 // ORES STAY AS THEY ARE (townground.mjs counts `_ore` as terrain; this rule does not): iron and coal are reached by the ore
 // tunnel, which has its own price on the town's ground, and the pits this rule is for were dug for dirt.
 const ORE = /_ore$/
