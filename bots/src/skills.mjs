@@ -140,6 +140,7 @@ import { ENCHANT_PLOT, ENCHANT_BLUEPRINT, FIT_GAP_MS, FIT_IDLE_MS, FIT_LEASE_MS,
          ENCHANT_STATION_FIND, ENCHANT_STATION_BAN_MS, fitAvail, fitStates, fitNext, fitGates, fitDue, fitVisitRecord, slotState, gateDetail, fitRowDetail, cargoOwed as fitCargoOwed, cargoAfter as fitCargoAfter } from './enchantshop.mjs'   // enchantshop-01
 import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottageStyle, styledBlueprint, cottageRecordOf, cottageVisitOpts, isCottageBlueprint, recordPalette } from './cottage.mjs'   // townstyle-01
 import { isCottagePlot, COTTAGE_PLOTS, cottage2Styles, furnitureCrafted, furnishWaits, bedColourFor, cottageChestKeys, SHEAR, sheepWool, shearDue, bedsOwed } from './cottage.mjs'   // cottage2-01
+import { HOMEPLOTS, resolveHomePlots, homePlotZones, houseOffer, siteOverPlots, failNoted, homePlotRowDetail, homeRowDue } from './homeplots.mjs'   // homes-01show: the layout's home plots, the rotation
 import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
@@ -18148,8 +18149,31 @@ function projectHeads () {
     // rims keep off it; only the one claim of that request, and the keeper's own work on it, ignore its zone (prepZones `except`)
     const sp = siteprepHead(dir)
     if (sp) out.push({ plot: SITEPREP_PLOT, key: projKeyOf(SITEPREP_PLOT), head: { rec: prepReservation(sp) } })
+    // homes-01show: the layout's home plots, each where it clears every reservation above, are the land plan's too (`land:plot`):
+    // every OTHER siting keeps off them; the cottage that takes one drops its own (cottage.mjs cottageSitingPlan)
+    if (HOMEPLOTS.on) out.homePlots = homePlotsReserve(out, `${land?.gen ?? '-'}|${sp?.gen ?? '-'}`)
   } catch { /* none */ }
   return out
+}
+/** homes-01show: THE LAYOUT'S PLOTS AS THEY LIE NOW among the town's reservations (homeplots.mjs resolveHomePlots over every head's
+ *  zones; the layout's own zones never count against it; a plot no cottage's door could face home from is moved too) ->
+ *  [plot | { skip }]. Deterministic in the heads: the reservation (homePlotsReserve) and the cottage's offer (housePlotsNow) read the
+ *  same boxes. */
+function homePlotsResolved (heads) { return resolveHomePlots(HOMEPLOTS.layout, recordZones(heads.map(x => x.head?.rec).filter(Boolean)), { home: HOMEPLOTS.home }) }
+let homeResolvedMemo = null
+/** homes-01show: the placed plots join the land plan's reservation in `heads` (its pseudo-record: the keeper's own refusals never read
+ *  it, so the plots are still tidied) -> the placed plots | null. No land plan: no reservation (the cottage's siting still takes the
+ *  plots). The placing is done once a state of the town's records (`sig`: every head's generation; `extra`: the land plan's and the
+ *  site requests' -- their heads here are reservations without one): projectHeads is read many times an order. Never throws. */
+function homePlotsReserve (heads, extra = '') {
+  try {
+    const sig = `${extra}|${heads.map(x => `${x.plot}:${x.head?.gen ?? '-'}`).join(',')}`
+    if (homeResolvedMemo?.sig !== sig) homeResolvedMemo = { sig, resolved: homePlotsResolved(heads) }
+    const li = heads.find(x => x.plot === LAND_PLOT)
+    const zs = homePlotZones(homeResolvedMemo.resolved)
+    if (li?.head?.rec && zs.length) li.head = { ...li.head, rec: { ...li.head.rec, zones: [...(li.head.rec.zones ?? []), ...zs] } }
+    return homeResolvedMemo.resolved
+  } catch { return null /* no reservation: the siting's own zones still refuse */ }
 }
 /** SITEPREP-01: the switch (the showcase's: the keeper's grounds and the sinks on, SITEPREP / SITEPREP_POOLS). */
 const SITEPREP = Object.freeze({ on: GROUNDS.on && SINKS.on && siteprepOn(process.env, process.env.MEMORY_POOL ?? '') })
@@ -22108,14 +22132,69 @@ const COTTAGE_NOSITE_MS = 30 * 60_000
 const plotsTaken = (dir = townDir(), plot = COTTAGE_PLOT) => { try { return projectHeads().filter(x => x.plot !== plot).map(x => x.head?.rec?.plotId).filter(Boolean) } catch { return [] } }
 /** Is the unsited cottage open (the extension sited with a free house-size plot, no failed siting waiting)? Never throws.
  *  cottage2-01: any cottage plot (a later one under COTTAGE2 too); each waits on its own plot's failed siting */
-function cottageOpenNow (dir = townDir(), plot = COTTAGE_PLOT) { try { return COTTAGE_SW.on && (plot === COTTAGE_PLOT || COTTAGE2_SW.on) && Date.now() >= siteWaitUntil(plot, dir) && cottageOpening(enchantExtNow(dir), plotsTaken(dir, plot)).open } catch { return false } }
+function cottageOpenNow (dir = townDir(), plot = COTTAGE_PLOT) { try { return COTTAGE_SW.on && (plot === COTTAGE_PLOT || COTTAGE2_SW.on) && Date.now() >= siteWaitUntil(plot, dir) && cottageOpening(housePlotsNow(dir, plot), plotsTaken(dir, plot)).open } catch { return false } }
+// ---- HOMES-01SHOW: THE LAYOUT'S HOME PLOTS, THE ROTATION (homeplots.mjs has every rule) -------------------------------------------
+/** The per-plot memory of failed sitings (town-wide, beside the cottage's record): { v, fails: { plotId: { at, why, n, project, by } } }. */
+const homeFailFile = (dir = townDir()) => path.join(dir, `${projKeyOf(COTTAGE_PLOT)}.plotfails.json`)
+function homeFails (dir = townDir()) { try { return JSON.parse(fs.readFileSync(homeFailFile(dir), 'utf8'))?.fails ?? {} } catch { return {} } }
+function homeFailNote (dir, id, why, project, by) {
+  try { const f = homeFailFile(dir); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ v: 1, fails: failNoted(homeFails(dir), id, { why, project, by }) })); fs.renameSync(tmp, f) } catch { /* no memory: the next attempt starts at the same plot */ }
+}
+/** THE OFFER for a cottage project now (homeplots.mjs houseOffer): the layout's plots where they clear the town's reservations, then
+ *  the extension's house plots; the free ones, a plot whose siting failed behind the others. Throws on an unreadable town (callers catch). */
+function homeOfferNow (dir = townDir(), plot = COTTAGE_PLOT) {
+  const heads = projectHeads()
+  const resolved = heads.homePlots ?? homePlotsResolved(heads)   // projectHeads' own placing (one a state of the records)
+  return { ...houseOffer({ layout: resolved, ext: enchantExtNow(dir), taken: heads.filter(x => x.plot !== plot).map(x => x.head?.rec?.plotId).filter(Boolean), fails: homeFails(dir) }), resolved }
+}
+/**
+ * THE HOUSE PLOTS A COTTAGE MAY TAKE NOW -> cottage.mjs cottageOpening's `ext` ({ plots }) | null. HOMEPLOTS off, or a town with no
+ * layout: the wall extension's own record, exactly as before. On: the offer's plots in the order they are tried (cottagePlotOf takes
+ * the first: the layout's first, a failed plot last). Throws on an unreadable town (callers catch: the project waits).
+ */
+function housePlotsNow (dir = townDir(), plot = COTTAGE_PLOT) {
+  if (!HOMEPLOTS.on) return enchantExtNow(dir)
+  return { plots: homeOfferNow(dir, plot).plots }
+}
+/** One `_homeplot` row (op=offered|skipped|shifted|chosen|failed), the same row from one bot at most every HOMEPLOT.rowMs. Never throws. */
+function homePlotRow (bot, f) {
+  try {
+    if (!homeRowDue((bot.homePlotRows ??= new Map()), f)) return
+    logEvent({ kind: 'homeplot', status: f.op === 'failed' || f.op === 'skipped' ? 'no_effect' : 'success', snapshot: snapshot(bot), detail: homePlotRowDetail(f) })
+  } catch { /* telemetry */ }
+}
 /** TOWNSTYLE-01: THE COTTAGE'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. The style first (the
  *  town's stock, the plot's seed: cottage.mjs cottageStyle), then the styled blueprint sited on the plot like the enchanting workshop. */
 async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAGE_PLOT) {
   const tried = []
   try {
-    const o = cottageOpening(enchantExtNow(), plotsTaken(townDir(), plot))
-    if (!o.open) return { ok: false, why: o.why, tried }
+    const box = siteBox()   // sitebox-01: ONE box for the whole siting (every look's search draws on it; homes-01show: every plot's)
+    if (!HOMEPLOTS.on) {
+      // as before homes-01show: the extension's first free house plot, and only that one
+      const o = cottageOpening(enchantExtNow(), plotsTaken(townDir(), plot))
+      if (!o.open) return { ok: false, why: o.why, tried }
+      return await cottageSiteOn(bot, plan, c, stood, signal, plot, o, box, tried, () => cottageOpening(enchantExtNow(), plotsTaken(townDir(), plot)).plot?.id === o.plot.id)
+    }
+    // homes-01show: the layout's plots first, then the extension's; a plot whose siting fails is remembered and the NEXT is tried in
+    // the same visit while the one box lasts (homeplots.mjs siteOverPlots) -- the next visit never starts at the plot that failed
+    const dir = townDir(), me = bot.username ?? 'bot'
+    const offer = homeOfferNow(dir, plot)
+    for (const p of offer.resolved) if (!p.skip && (p.shift[0] || p.shift[1])) homePlotRow(bot, { project: plot, op: 'shifted', plot: p.id, why: p.why, shift: p.shift, box: p.box })
+    for (const k of offer.skipped) homePlotRow(bot, { project: plot, op: 'skipped', plot: k.id, why: k.why })
+    homePlotRow(bot, { project: plot, op: 'offered', plots: offer.plots.map(p => p.id), n: offer.plots.length, skipped: offer.skipped.length, ...(offer.plots.length ? {} : { why: offer.why }) })
+    if (!offer.plots.length) return { ok: false, why: offer.why, tried }
+    return await siteOverPlots(offer.plots, p => {
+      const o = cottageOpening({ plots: [p] }, [])
+      if (!o.open) return { ok: false, why: o.why, tried }
+      return cottageSiteOn(bot, plan, c, stood, signal, plot, o, box, tried, () => !plotsTaken(townDir(), plot).includes(p.id))
+    }, { left: () => box.left(), noteFail: (p, why) => homeFailNote(dir, p.id, why, plot, me), row: f => homePlotRow(bot, { project: plot, ...f }) })
+  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
+}
+/** THE COTTAGE'S SITING ON ONE PLOT (`o`: cottageOpening's answer for it) -> cottageSiteFor's answer. The siting as it was before
+ *  homes-01show; `box` the siting's one search box, `stillFree()` whether the plot is still this cottage's to take after the search.
+ *  Throws on an unreadable town (cottageSiteFor and siteOverPlots catch). */
+async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, stillFree) {
+  {
     const zonesNow = () => [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
     const sp0 = cottageSitingPlan(plan.home, o.plot, zonesNow())
     const sp = sp0 ? { ...sp0, plot } : null
@@ -22132,7 +22211,6 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
     const css = plot === COTTAGE_PLOT ? [cottageStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })] : cottage2Styles(stock, { pool: process.env.MEMORY_POOL ?? '', plot, plotId: o.plot.id ?? '', others })
     if (!css.length) return { ok: false, why: 'no_wood', tried }
     let last = null
-    const box = siteBox()   // sitebox-01: ONE box for the whole siting (every look's search draws on it)
     for (const cs of css) {
       const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
       const prd = planReader(bot)
@@ -22146,12 +22224,14 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
       const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
       if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
       // cottage2-01: the plot another cottage's siting took meanwhile is no site (the opening is read again: two sitings never share a plot)
-      if (plot !== COTTAGE_PLOT && cottageOpening(enchantExtNow(), plotsTaken(townDir(), plot)).plot?.id !== o.plot.id) return { ok: false, why: 'site_taken', detail: `plot ${o.plot.id} taken during the search`, tried }
+      if (plot !== COTTAGE_PLOT && !stillFree()) return { ok: false, why: 'site_taken', detail: `plot ${o.plot.id} taken during the search`, tried }
       return { ok: true, why: 'ok', record: cottageRecordOf(s.record, bp, cs.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
     }
     return last ?? { ok: false, why: 'no_site', tried }
-  } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
+  }
 }
+/** Test hooks (homes-01show): the offer, the house plots a cottage is given, the per-plot memory, the opening. */
+export const _homePlots = Object.freeze({ housePlotsNow, homeOfferNow, homeFails, homeFailNote, cottageOpenNow })
 // ---- COTTAGE2-01: THE FURNISHING'S WAIT, THE WOOL, THE CHESTS ----------------------------------------------------------------
 /** What the bag and the town hold of a name (the bag's count + the town index's). Never throws. */
 function cottageHave (bot) {

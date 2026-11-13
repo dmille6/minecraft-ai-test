@@ -20,6 +20,7 @@
 import { rot } from './townplan.mjs'
 import { styleOf, stylePalette, seedOf, WOODS, DARKNESS, logOf } from './townstyle.mjs'
 import { isCottage2Blueprint, lookOf, frameOf, cottage2Id, cottageLooksFor, recordLook, lookCode, COTTAGE2_NEED, BEDS, WOOLS, BOX_PLANTS } from './cottage2.mjs'
+import { COTTAGE_NAMES, COTTAGE_NAMES_GUARD } from './homeplots.mjs'   // homes-01show: a cottage project for each of the layout's homes
 
 export const COTTAGE_PLOT = 'cottage1'
 /** The blueprint family: `cottage@1s` (eaves to the front) and `cottage@1f` (gable to the front). */
@@ -117,9 +118,14 @@ export const recordPalette = (rec, bp) => (rec?.palette && typeof rec.palette ==
 
 // ---- COTTAGE2-01: MORE COTTAGES, EACH ITS OWN LOOK; THE FURNISHING; THE WOOL ---------------------------------------------------
 // (OWNER 11-08 "charm and uniqueness ... chests and beds"; cottage2.mjs is the blueprint family; design docs/reports/cottage2-design-2026-11-08.md)
-/** The cottage projects in order: the first (its @1 blueprint, sited before cottage2-01) and two more on the extension's next house plots. */
-export const COTTAGE_PLOTS = Object.freeze([COTTAGE_PLOT, 'cottage2', 'cottage3'])
-export const isCottagePlot = plot => COTTAGE_PLOTS.includes(String(plot ?? ''))
+/** The cottage projects in order: the first (its @1 blueprint, sited before cottage2-01) and two more on the extension's next house plots.
+ *  homes-01show (homeplots.mjs COTTAGE_NAMES): with HOMEPLOTS on in a town with a layout, one for each of the layout's homes (eight in the
+ *  showcase: cottage1 .. cottage8), each still after the one before; off, or no layout: these three, as before. */
+export const COTTAGE_PLOTS = COTTAGE_NAMES
+/** homes-01show: every cottage project a RECORD may exist for, whatever HOMEPLOTS says (a sited later home stays guarded and stays a
+ *  cottage after the switch goes off: shop.mjs projectsGuarded). The same list as COTTAGE_PLOTS while the switch is on or with no layout. */
+export const COTTAGE_PLOTS_GUARD = COTTAGE_NAMES_GUARD
+export const isCottagePlot = plot => COTTAGE_PLOTS_GUARD.includes(String(plot ?? ''))
 /** The project each later cottage waits for (the order: one at a time, each after the one before stands). */
 export const cottageAfterOf = plot => { const i = COTTAGE_PLOTS.indexOf(plot); return i > 0 ? COTTAGE_PLOTS[i - 1] : COTTAGE_AFTER }
 /** THE SWITCH -> { on } for the LATER cottages (cottage2, cottage3) and their furnishing. COTTAGE2=on|off; unset = on only in
