@@ -829,19 +829,57 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
  * the event loop back every `sliceMs` (a wide search -- the yard's, out to 80 -- runs 10-60 s: a bot that never yields misses its
  * keep-alives); `aborted()` true ends it with { ok: false, why: 'aborted' }. Never changes the result.
  */
-export async function siteBlueprintAsync (read, plan, bp, ctx = {}, { sliceMs = 40, aborted = () => false } = {}) {
+export async function siteBlueprintAsync (read, plan, bp, ctx = {}, { sliceMs = 40, aborted = () => false, maxMs = siteBoxOn() ? SITE_SEARCH_MS : Infinity } = {}) {
   const g = siteBlueprintSteps(read, plan, bp, ctx)
-  let t = Date.now()
-  for (;;) {
-    const r = g.next()
-    if (r.done) return r.value
-    if (Date.now() - t >= sliceMs) {
-      await new Promise(resolve => setImmediate(resolve))
-      if (aborted()) return { ok: false, why: 'aborted', record: null, sectors: [] }
-      t = Date.now()
+  const t0 = Date.now()
+  let token = null
+  try { token = siteSearchHook ? siteSearchHook.begin({ maxMs }) : null } catch { token = null }
+  try {
+    let t = Date.now()
+    for (;;) {
+      const r = g.next()
+      if (r.done) return r.value
+      if (Date.now() - t >= sliceMs) {
+        await new Promise(resolve => setImmediate(resolve))
+        if (aborted()) return { ok: false, why: 'aborted', record: null, sectors: [] }
+        // sitebox-01: the search's own time box (see SITE_SEARCH_MS) -- an ordinary "no site", by name
+        if (Date.now() - t0 >= maxMs) return { ok: false, why: 'search_time', detail: `${Math.round((Date.now() - t0) / 1000)}s`, record: null, sectors: [] }
+        t = Date.now()
+      }
     }
-  }
+  } finally { try { if (siteSearchHook) siteSearchHook.end(token) } catch { /* the hook never costs the search */ } }
 }
+/**
+ * SITEBOX-01 (LIVE showcase 11-13 00:49-01:55Z, after siteproof-01/02 made the search hand the event loop back between walks: 33 of
+ * 80 build visits `aborted`, 24 by `interrupt:stuck` at about 33 s with not one row inside; 26 of the 33 by bots whose project had
+ * NO RECORD -- a siting). A cooperative search stands the bot still while it runs, the stuck reflex (reflex.mjs stuckDecision: no
+ * movement for 35 s) aborted the visit mid-search, the search never ended, `no_site` was never recorded (so no site retry hold and
+ * no idle mark), and the bot ran the same search again at its next build order. Before the search yielded it froze the bot instead,
+ * which hid this (and got bots kicked).
+ * TWO THINGS, together:
+ *   1. THE SEARCH DECLARES THE BOT STILL while it runs (`setSiteSearchHook`: skills.mjs installs siteStillBegin / siteStillEnd over
+ *      bot.stationaryUntil -- the declaration the composter and the wood kit already make, honoured by stuckDecision), given back
+ *      when the search ends however it ends.
+ *   2. THE SEARCH HAS A TIME BOX (`maxMs`, SITE_SEARCH_MS = 100 s: under a build visit's 180 s, over the 10-60 s a wide search
+ *      takes): past it the answer is `{ ok: false, why: 'search_time' }` -- to every caller an ordinary failed siting, so the visit
+ *      ends `no_site` and the order's existing site retry hold and idle mark apply. Never a new stop name.
+ * SITEBOX=off|0|false|no: no box and no declaration (the search as before).
+ */
+export const SITE_SEARCH_MS = 100_000
+export const siteBoxOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.SITEBOX ?? '').trim())
+let siteSearchHook = null
+/** sitebox-01: `{ begin({ maxMs }) -> token, end(token) }` called round every cooperative search (skills.mjs installs it); null clears. */
+export function setSiteSearchHook (h) { siteSearchHook = h && typeof h.begin === 'function' && typeof h.end === 'function' ? h : null }
+/** sitebox-01: THE DECLARATION -> token | null. The bot stands still by design until the search's box ends (+ `marginMs`: the last
+ *  step may be a walk of the town); a longer declaration already made is kept. No bot, or no box (maxMs not finite): nothing declared. */
+export function siteStillBegin (bot, maxMs, { now = Date.now(), marginMs = 15_000 } = {}) {
+  if (!bot || !(Number.isFinite(maxMs) && maxMs > 0)) return null
+  const until = now + maxMs + marginMs
+  bot.stationaryUntil = Math.max(Number(bot.stationaryUntil) || 0, until)
+  return { bot, until }
+}
+/** sitebox-01: ...given back -- only this search's own declaration (a later, longer one of another's stands). */
+export function siteStillEnd (token) { if (token?.bot && token.bot.stationaryUntil === token.until) token.bot.stationaryUntil = 0 }
 /** THE SEARCH as a generator: yields between anchors and proofs (siteBlueprint runs it straight through). */
 export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
   const home = plan?.home

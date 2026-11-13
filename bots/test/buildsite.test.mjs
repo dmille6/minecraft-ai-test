@@ -243,6 +243,84 @@ await t('SITEPROOF-01: the SEARCH hands its turn back inside every proof (siteBl
     assert.ok(real.n >= m.n + BP.segments.length, `the search's turns: ${real.n} with the proof's steps, ${m.n} with the proof straight through`)
   })
 })
+// SITEBOX-01 (LIVE showcase 11-13: 33 of 80 build visits aborted, 24 by the stuck reflex at ~33 s, 26 by bots siting a project): the
+// cooperative search declares the bot still while it runs and has a time box that ends as an ordinary failed siting.
+await t('SITEBOX-01: the search\'s time box ends it `search_time` (to a caller: a failed siting, never `aborted`); with no box it finds the site as before; MUTANT (the box never checked): the search runs on', async () => {
+  const scenario = async M => {
+    const free = await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: Infinity })
+    assert.ok(free.ok, 'control: without a box the site is found')
+    assert.deepStrictEqual(free.record, M.siteBlueprint(flat, plan(), BP, { tries: 2 }).record)
+    const boxed = await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 0 })
+    assert.deepStrictEqual([boxed.ok, boxed.why, boxed.record, boxed.sectors], [false, 'search_time', null, []], `SEARCH-BOXED: ${JSON.stringify([boxed.ok, boxed.why])}`)
+    assert.ok(/^\d+s$/.test(boxed.detail), boxed.detail)
+    // an abort still wins over the box (the skill is ending: nothing is booked as a failed siting)
+    const ab = await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 0, aborted: () => true })
+    assert.strictEqual(ab.why, 'aborted')
+  }
+  await scenario(B)
+  const OLD = "        if (Date.now() - t0 >= maxMs) return { ok: false, why: 'search_time',"
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  let why = null
+  await withMutant(BS_PATH, OLD, "        if (false) return { ok: false, why: 'search_time',", async M => { try { await scenario(M) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /SEARCH-BOXED/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 90) ?? 'survived'}`)
+})
+await t('SITEBOX-01: the switch and the default box -- SITEBOX unset is on (100 s), off|0|false|no is no box', () => {
+  assert.strictEqual(B.SITE_SEARCH_MS, 100_000)
+  assert.strictEqual(B.siteBoxOn({}), true)
+  for (const v of ['off', '0', 'false', 'no', ' OFF ']) assert.strictEqual(B.siteBoxOn({ SITEBOX: v }), false, v)
+  assert.strictEqual(B.siteBoxOn({ SITEBOX: 'on' }), true)
+})
+await t('SITEBOX-01: the declaration -- the bot is still until the box ends plus a margin; a longer one already made is kept; given back only if it is this search\'s; no bot or no box declares nothing', () => {
+  const bot = { stationaryUntil: 0 }
+  const tk = B.siteStillBegin(bot, 100_000, { now: 1_000_000 })
+  assert.deepStrictEqual([bot.stationaryUntil, tk.until], [1_115_000, 1_115_000], 'now + box + 15 s')
+  B.siteStillEnd(tk)
+  assert.strictEqual(bot.stationaryUntil, 0, 'given back')
+  // a longer declaration of another's (the wood kit, the composter) is kept, and is not taken away at the end
+  const b2 = { stationaryUntil: 9_000_000 }
+  const t2 = B.siteStillBegin(b2, 100_000, { now: 1_000_000 })
+  assert.strictEqual(b2.stationaryUntil, 9_000_000); B.siteStillEnd(t2); assert.strictEqual(b2.stationaryUntil, 9_000_000)
+  // another declaration made DURING the search stands at its end
+  const b3 = { stationaryUntil: 0 }
+  const t3 = B.siteStillBegin(b3, 100_000, { now: 1_000_000 }); b3.stationaryUntil = 2_000_000; B.siteStillEnd(t3)
+  assert.strictEqual(b3.stationaryUntil, 2_000_000)
+  assert.strictEqual(B.siteStillBegin(null, 100_000), null)
+  const b4 = { stationaryUntil: 0 }
+  assert.strictEqual(B.siteStillBegin(b4, Infinity), null); assert.strictEqual(b4.stationaryUntil, 0, 'no box: nothing declared')
+  B.siteStillEnd(null)
+})
+await t('SITEBOX-01: the hook is called once round every search, however it ends (found, boxed, aborted, a read that throws) and never costs the search; MUTANT (the end not in a finally): a thrown search leaves the bot declared still', async () => {
+  const scenario = async M => {
+    const calls = []
+    M.setSiteSearchHook({ begin: o => { calls.push(['begin', o.maxMs]); return calls.length }, end: tk => calls.push(['end', tk]) })
+    try {
+      await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 5000 })
+      await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 0 })
+      await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 5000, aborted: () => true })
+      let n = 0
+      const boom = (x, y, z) => { if (++n > 400) throw new Error('read gone'); return flat(x, y, z) }
+      await assert.rejects(() => M.siteBlueprintAsync(boom, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 5000 }), /read gone/)
+      assert.deepStrictEqual(calls.map(c => c[0]), ['begin', 'end', 'begin', 'end', 'begin', 'end', 'begin', 'end'], `HOOK-PAIRS: ${calls.map(c => c[0]).join(',')}`)
+      assert.deepStrictEqual(calls.filter(c => c[0] === 'end').map(c => c[1]), [1, 3, 5, 7], 'each end gets its own begin\'s token')
+      // a hook that throws never costs the search
+      M.setSiteSearchHook({ begin: () => { throw new Error('x') }, end: () => { throw new Error('y') } })
+      assert.ok((await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: Infinity })).ok)
+    } finally { M.setSiteSearchHook(null) }
+  }
+  await scenario(B)
+  const OLD = "  } finally { try { if (siteSearchHook) siteSearchHook.end(token) } catch { /* the hook never costs the search */ } }\n"
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  let why = null
+  await withMutant(BS_PATH, OLD, "  } finally { /* never given back */ }\n", async M => { try { await scenario(M) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /HOOK-PAIRS/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 90) ?? 'survived'}`)
+})
+await t('SITEBOX-01 wired (structural, comments stripped): skills.mjs installs the declaration over this process\'s bot under the switch; the stuck reflex reads stationaryUntil', () => {
+  const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const sk = strip('../src/skills.mjs')
+  assert.strictEqual(sk.split('if (siteBoxOn()) setSiteSearchHook({ begin: ({ maxMs }) => siteStillBegin(activeMem?.bot ?? null, maxMs), end: siteStillEnd })').length, 2)
+  const rf = strip('../src/reflex.mjs')
+  assert.ok(/const declared = Number\(stationaryUntil\) > now/.test(rf), 'the reflex honours the declaration')
+})
 await t('cell_not_free: a site whose clear list misses a block in the volume is refused by the proof', () => {
   const [x, , z] = cellOf(2, 2, 0)
   const read = world({ [`${x},${G + 1},${z}`]: 'dirt' })

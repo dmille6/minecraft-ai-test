@@ -128,6 +128,7 @@ import { placeGuardCells, withoutLidPrice } from './lidplace.mjs'   // lidplace-
 import { FOUND, FOUND_LEASE_MS, stationRule, foundMeans, takeFoundLease, renewFoundLease, holdsFoundLease, releaseFoundLease, foundRowDetail, foundLeaseState } from './found.mjs'
 // shop-01 (the workshop): the planner, the project files, the visit, the adapter, the policy
 import { loadBlueprint, siteBlueprint, siteBlueprintAsync, plinthCells, reservations, projectSectors, placeBlueprint, walkFrom as siteWalkFrom } from './buildsite.mjs'
+import { siteBoxOn, setSiteSearchHook, siteStillBegin, siteStillEnd } from './buildsite.mjs'   // sitebox-01: a site search declares the bot still, and has a time box
 import { proveSite, planTownCells } from './buildsite.mjs'   // storehouse-01
 import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, storeDomain, storeTidy } from './storehouse.mjs'   // storehouse-01
 import { clerkKeepOf } from './storehub.mjs'   // storehub-01: the clerk throw's keep
@@ -27006,6 +27007,9 @@ function groundsAsk ({ skip = null, now = Date.now(), state = {}, health = 20, f
 const groundsHeld = state => groundsHold(state, activeMem?.bot?.g3Hold ?? null)
 // the order's hooks (shop.mjs setGroundsFall); GROUNDSFALL=off installs neither
 if (G3.on) setGroundsFall({ ask: groundsAsk, hold: groundsHeld })
+// sitebox-01 (buildsite.mjs): while a cooperative site search runs, this process's bot is declared still (the stuck reflex's
+// stationaryUntil), and the declaration is given back when the search ends. SITEBOX=off installs nothing.
+if (siteBoxOn()) setSiteSearchHook({ begin: ({ maxMs }) => siteStillBegin(activeMem?.bot ?? null, maxMs), end: siteStillEnd })
 /** grounds-01: the glue's steps, for the tests and a sandbox drive: never called by the bot itself. */
 export const _grounds2 = Object.freeze({ G2, G3, groundsBegin, groundsEnd, groundsAsk, groundsHeld, g2Eligible, buildersFor: (p, o) => buildersFor(p, o) })
 /** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
