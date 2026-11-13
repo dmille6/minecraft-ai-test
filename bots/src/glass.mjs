@@ -23,7 +23,7 @@
 //
 // Rollback: GLASS=off -> no sand and no glaze order (the panes kind and every blueprint as before).
 
-import { COTTAGE_NAMES_GUARD } from './homeplots.mjs'   // homes-01show: every cottage project's name (three without a layout)
+import { COTTAGE_NAMES } from './homeplots.mjs'   // homes-01show: every cottage project's name (three without a layout)
 
 export const GLASS_V = 1
 export const glassMode = (env = {}) => ({ on: !['off', '0', 'false', 'no'].includes(String(env?.GLASS ?? '').trim().toLowerCase()) })
@@ -51,7 +51,7 @@ export const GLAZE_PER_ORDER = 8
 export const GLAZE_NONE_MS = 60 * 60 * 1000
 
 /** The building plots whose records may name window cells (fleet: shop, house1; the showcase's styled buildings too). */
-export const GLASS_PLOTS = Object.freeze(['shop', 'house1', 'house2', 'house3', ...COTTAGE_NAMES_GUARD, 'hall', 'townhall', 'storehub', 'enchantshop', 'storehouse'])
+export const GLASS_PLOTS = Object.freeze(['shop', 'house1', 'house2', 'house3', ...COTTAGE_NAMES, 'hall', 'townhall', 'storehub', 'enchantshop', 'storehouse'])
 
 /** THE WINDOW PALETTE (glass-01): glass when the town has it, else a wood TRAPDOOR of the building's species (crafted by the
  *  build visit, townstyle.mjs woodPartsPlan), else the wall itself -- a window never stalls a building. Blueprints share it. */
