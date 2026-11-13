@@ -76,10 +76,7 @@ await t('buildOrder: a sink visit is not ordered in a mine (feet 8+ under the to
     assert.deepStrictEqual(SH.buildOrder({ ...base, feet: [-3, 70, 26] }).order, { skill: 'build_shop', args: {} })
     assert.deepStrictEqual(SH.buildOrder({ ...base, feet: [-3, 64, 26] }).order, { skill: 'build_shop', args: {} }, 'a dip in town is not a mine')
     SH.setActivePlot(() => 'house1')
-    // mineorder-01 (11-13): a finite project's visit starts at the surface too; MINEORDER=off is the rule as it was here
-    assert.strictEqual(SH.buildOrder({ ...base, feet: [-3, 26, 26] }).skip, 'underground', 'mineorder-01: a finite project is not ordered in a mine either')
-    const was = process.env.MINEORDER; process.env.MINEORDER = 'off'
-    try { assert.deepStrictEqual(SH.buildOrder({ ...base, feet: [-3, 26, 26] }).order, { skill: 'build_shop', args: {} }, 'POSITIVE CONTROL (MINEORDER=off): a finite project as before') } finally { if (was === undefined) delete process.env.MINEORDER; else process.env.MINEORDER = was }
+    assert.deepStrictEqual(SH.buildOrder({ ...base, feet: [-3, 26, 26] }).order, { skill: 'build_shop', args: {} }, 'POSITIVE CONTROL: a finite project unchanged')
   } finally { SH.setActivePlot(() => null) }
 })
 

@@ -20,11 +20,14 @@ async function withMutant (file, old, neu, fn) {
 }
 const base = { on: true, shared: true, atTown: true, planned: true, now: 1e12, state: {}, record: null, complete: false, freeSlots: 10, groundY: 70 }
 const ORDER = { skill: 'build_shop', args: {} }
-const ask = (M, plot, feet, extra = {}) => { M.setActivePlot(() => plot); try { return M.buildOrder({ ...base, feet, ...extra }) } finally { M.setActivePlot(() => null) } }
+// `sky`: what the hook answers for the bot's column -- false (a roof of ground: the mine), true (open air), null (unknown), or 'none' (no hook installed)
+const ask = (M, plot, feet, extra = {}, sky = false) => { M.setActivePlot(() => plot); M.setSkyOpen(sky === 'none' ? null : () => sky); try { return M.buildOrder({ ...base, feet, ...extra }) } finally { M.setActivePlot(() => null); M.setSkyOpen(null) } }
 
 console.log('THE RULE (shop.mjs startsBelow)')
 await t('startsBelow: 9 or more under the town\'s ground is below for every project but the stair and the step well; a sink as before; unknown position or ground, or no plot: never', () => {
-  const on = { on: true }, off = { on: false }
+  const on = { on: true, open: false }, off = { on: false, open: false }
+  assert.deepStrictEqual([SH.startsBelow('yard', [19, 9, -30], 70, { on: true, open: true }), SH.startsBelow('yard', [19, 9, -30], 70, { on: true, open: null }), SH.startsBelow('yard', [19, 9, -30], 70, { on: true })], [false, false, false], 'LOW-IS-NOT-UNDERGROUND: open air, or unknown, is never refused')
+  assert.strictEqual(SH.startsBelow('road', [19, 9, -30], 70, { on: true, open: true }), true, 'the sinks\' rule is as it was (no sky asked)')
   assert.deepStrictEqual(['yard', 'wallext', 'tidy', 'house1', 'cottage2'].map(p => SH.startsBelow(p, [19, 9, -30], 70, on)), [true, true, true, true, true], 'BELOW-EVERY-PROJECT')
   assert.deepStrictEqual([SHAFT_PLOT, STEPWELL_PLOT].map(p => SH.startsBelow(p, [19, 9, -30], 70, on)), [false, false], 'WORKED-BELOW')
   assert.strictEqual(SH.startsBelow('yard', [0, 62, 0], 70, on), false, 'eight under (a dip, the lake shore) is not a mine')
@@ -56,6 +59,30 @@ await t('THE CHAIN: the skip is not turned into a grounds order (the grounds ref
   assert.deepStrictEqual(state, {}, 'the refusal writes nothing to the order\'s state')
   assert.deepStrictEqual(ask(SH, 'yard', [19, 71, -30], { state, now: base.now + 1000 }).order, ORDER, 'REMEDY-REACHED: up, and asked again at once')
 })
+await t('r1 (Codex BLOCKER) LOW SURFACE IS NOT A MINE: a builder standing on an open-air cane bank 12 under home is ordered (the sky above it is open); under a roof of ground at the same depth it is not; with the sky unknown, or no hook, it is ordered as before', () => {
+  assert.deepStrictEqual(ask(SH, 'canefarm', [-9, 61, -29], { groundY: 72 }, true).order, ORDER, 'LOW-SURFACE-ORDERED')
+  assert.strictEqual(ask(SH, 'canefarm', [-9, 61, -29], { groundY: 72 }, false).skip, 'underground')
+  assert.deepStrictEqual(ask(SH, 'canefarm', [-9, 61, -29], { groundY: 72 }, null).order, ORDER, 'unknown is never a refusal')
+  assert.deepStrictEqual(ask(SH, 'canefarm', [-9, 61, -29], { groundY: 72 }, 'none').order, ORDER, 'no hook: as before')
+  // the hook is asked only below the line (one short column read there, none at the surface)
+  let asked = 0
+  SH.setActivePlot(() => 'yard'); SH.setSkyOpen(() => { asked++; return false })
+  try { SH.buildOrder({ ...base, feet: [0, 71, 0] }); assert.strictEqual(asked, 0); SH.buildOrder({ ...base, feet: [0, 20, 0] }); assert.strictEqual(asked, 1) } finally { SH.setActivePlot(() => null); SH.setSkyOpen(null) }
+  // a hook that throws is an unknown
+  SH.setActivePlot(() => 'yard'); SH.setSkyOpen(() => { throw new Error('unloaded') })
+  try { assert.deepStrictEqual(SH.buildOrder({ ...base, feet: [0, 20, 0] }).order, ORDER) } finally { SH.setActivePlot(() => null); SH.setSkyOpen(null) }
+})
+await t('skyOpen: air and leaves above the head are open sky; one solid block is a roof; an unread cell is unknown; the scan starts above the head and ends at `top`', () => {
+  const col = m => (x, y, z) => (y in m ? m[y] : { name: 'air', boundingBox: 'empty' })
+  const stone = { name: 'stone', boundingBox: 'block' }, leaf = { name: 'spruce_leaves', boundingBox: 'block' }
+  assert.strictEqual(SH.skyOpen(col({}), [0, 61, 0], 94), true)
+  assert.strictEqual(SH.skyOpen(col({ 70: leaf, 71: leaf }), [0, 61, 0], 94), true, 'under a tree is the surface')
+  assert.strictEqual(SH.skyOpen(col({ 66: stone }), [0, 20, 0], 94), false, 'SOLID-IS-A-ROOF')
+  assert.strictEqual(SH.skyOpen(col({ 62: stone }), [0, 61, 0], 94), true, 'the block at head height is not above the head (feet 61: head 62, the scan starts at 63)')
+  assert.strictEqual(SH.skyOpen(col({ 95: stone }), [0, 61, 0], 94), true, 'nothing above `top` is read')
+  assert.strictEqual(SH.skyOpen(col({ 80: null }), [0, 61, 0], 94), null, 'unread: unknown')
+  assert.deepStrictEqual([SH.skyOpen(null, [0, 61, 0], 94), SH.skyOpen(col({}), null, 94), SH.skyOpen(col({}), [0, 61, 0], NaN)], [null, null, null])
+})
 await t('MINEORDER=off: a finite project is ordered in the mine as before; a sink is still refused', () => {
   const was = process.env.MINEORDER; process.env.MINEORDER = 'off'
   try {
@@ -67,7 +94,7 @@ await t('MINEORDER=off: a finite project is ordered in the mine as before; a sin
 console.log('MUTANTS (shop.mjs)')
 await t('the rule only for sinks (as before) dies on IN-THE-MINE; the step well not exempt dies on STEPWELL-BELOW', async () => {
   let why = null
-  await withMutant(SHOP_PATH, "  (isSinkPlot(plot) || (!!on && plot != null && !BELOW_PLOTS.includes(plot)))\n", '  (isSinkPlot(plot))\n', async M => {
+  await withMutant(SHOP_PATH, "  (isSinkPlot(plot) || (!!on && plot != null && !BELOW_PLOTS.includes(plot) && open === false))\n", '  (isSinkPlot(plot))\n', async M => {
     try { assert.strictEqual(ask(M, 'yard', [19, 9, -30]).skip, 'underground', 'IN-THE-MINE yard') } catch (e) { why = e }
   })
   assert.ok(why instanceof assert.AssertionError && /IN-THE-MINE/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
@@ -77,9 +104,24 @@ await t('the rule only for sinks (as before) dies on IN-THE-MINE; the step well 
   })
   assert.ok(why instanceof assert.AssertionError && /STEPWELL-BELOW/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
 })
+await t('r1 MUTANTS: the sky not asked (every low bot refused) dies on LOW-SURFACE-ORDERED; leaves read as a roof die on the tree', async () => {
+  let why = null
+  await withMutant(SHOP_PATH, ' && !BELOW_PLOTS.includes(plot) && open === false))\n', ' && !BELOW_PLOTS.includes(plot)))\n', async M => {
+    try { assert.deepStrictEqual(ask(M, 'canefarm', [-9, 61, -29], { groundY: 72 }, true).order, ORDER, 'LOW-SURFACE-ORDERED') } catch (e) { why = e }
+  })
+  assert.ok(why instanceof assert.AssertionError && /LOW-SURFACE-ORDERED/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
+  why = null
+  await withMutant(SHOP_PATH, "    if (b.boundingBox === 'block' && !/_leaves$/.test(String(b.name ?? ''))) return false\n", "    if (b.boundingBox === 'block') return false\n", async M => {
+    const leaf = { name: 'spruce_leaves', boundingBox: 'block' }
+    try { assert.strictEqual(M.skyOpen((x, y) => (y === 70 ? leaf : { name: 'air', boundingBox: 'empty' }), [0, 61, 0], 94), true, 'UNDER-A-TREE') } catch (e) { why = e }
+  })
+  assert.ok(why instanceof assert.AssertionError && /UNDER-A-TREE/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
+})
 await t('WIRING (structural, comments stripped): the order asks startsBelow once, in place of the sinks\' own line', () => {
   const sk = readFileSync(SHOP_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  assert.strictEqual(sk.split("  if (startsBelow(plot0, feet, groundY)) return { order: null, skip: 'underground' }").length, 2)
+  assert.strictEqual(sk.split("  if (startsBelow(plot0, feet, groundY, { open: skyOf(feet, groundY) })) return { order: null, skip: 'underground' }").length, 2)
+  const skills = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.strictEqual(skills.split('setSkyOpen(feet => { const b = activeMem?.bot; return b?.blockAt ? skyOpen((x, y, z) => b.blockAt(new Vec3(x, y, z)), feet, config.world.homeY + 24) : null })').length, 2, 'the hook is installed over the bot\'s own world')
   assert.ok(!sk.includes('if (isSinkPlot(plot0) && Array.isArray(feet)'), 'the old line is gone (one rule, not two)')
 })
 
