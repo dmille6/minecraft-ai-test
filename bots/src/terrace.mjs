@@ -731,7 +731,7 @@ export function parkLayout (read, pbox, { seed = 0, top, orig, soilTop, have = {
  *   walkFrom           the town's edge (tidy.mjs townEdge): a grading that leaves fewer columns inside walkable-and-back from it, or
  *                      more stuck-prone ones, is not taken (every blend refused: no grading at all; the trees and the park stay)
  */
-export async function siteTerrace (read, { home, plan = null, land = null, avoid = () => null, cells = new Set(), records = [], wall = null, caps = [], have = {}, walkFrom = null, seed = null, now = Date.now(), pause = null, water = 'strict', T = TERRACE } = {}) {
+export async function siteTerrace (read, { home, plan = null, land = null, avoid = () => null, cells = new Set(), records = [], wall = null, caps = [], have = {}, walkFrom = null, seed = null, now = Date.now(), pause = null, water = 'strict', keepOff = null, T = TERRACE } = {}) {
   if (!home) return { ok: false, why: 'no_home', record: null }
   const box = wallInterior(wall, home)
   const road = corridorAt(land)
@@ -806,7 +806,9 @@ export async function siteTerrace (read, { home, plan = null, land = null, avoid
   const fillCols = new Set(gr.fill.map(f => k2(f.at[0], f.at[2])))
   const soilTop = (x, z) => { const t = top(x, z); if (!Number.isFinite(t)) return false; return fillCols.has(k2(x, z)) || SOIL_RE.test(nm(read(x, t, z))) }
   const near = (x, z) => { const a = guard(x, z); return !!a && /road|path/.test(String(a)) }
-  const pbox = parkPrev?.box ?? parkSite(gr.H, gr.kept, box, { seed: s0, home, near: (x, z) => near(x, z) || N8.some(([dx, dz]) => near(x + dx, z + dz)), T })?.box ?? null
+  // homes-01show (`keepOff(x, z)`: a reserved home plot): a NEW park is never sited on one (its reservation would take the home's place);
+  // the grading above still works the plot, and a park already on the land plan stays where it is
+  const pbox = parkPrev?.box ?? parkSite(gr.H, gr.kept, box, { seed: s0, home, near: (x, z) => near(x, z) || !!keepOff?.(x, z) || N8.some(([dx, dz]) => near(x + dx, z + dz)), T })?.box ?? null
   const after = tidyOverlay(read, { cut: gr.cut, clear: fellRec.clear, cells: [] })
   const park = pbox ? parkLayout(after, pbox, { seed: s0, top, orig, soilTop, have, water: (x, y, z) => nm(read(x, y, z)) === 'water', near, T }) : null
   if (!park) skipped.park_no_site = 1

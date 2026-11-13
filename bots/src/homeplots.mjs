@@ -7,9 +7,13 @@
 // up to 4 blocks, else skipped by name), the offer (the layout's plots first, then the extension's house plots), the ROTATION past a
 // plot whose siting failed, the driver that sites over the offered plots inside one search box, the cottage projects' names, the rows.
 //
-//   HOMEPLOTS=on|off   unset = on only in HOMEPLOTS_POOLS (default 'showcase'). OFF, or a town with no layout entry: the cottage's
-//                      siting, its three projects and the land plan's reservation are exactly as before (skills.mjs housePlotsNow
-//                      answers the extension's own record; cottage.mjs COTTAGE_PLOTS has three names).
+//   HOMEPLOTS=on|off   unset = on only in HOMEPLOTS_POOLS (default 'showcase'). A town with no layout entry: everything exactly as
+//                      before (three cottage projects, the extension's first free plot). OFF in a town WITH a layout: no layout plot
+//                      is offered, reserved or kept off (skills.mjs housePlotsNow answers the extension's own record) and a later
+//                      home (cottage4 ..) that was NEVER SITED is never offered or sited (laterHomeHeld: it waits) -- but one that
+//                      already HAS a record stays an ordinary project: it is finished and repaired, and the retrofit's one-at-a-time
+//                      wait on it (reroof.mjs reroofNext `styled_open`) ends by itself (review r1, Codex: a record left guarded but
+//                      unworked held the planner for good). So the project LIST follows the layout, never the switch.
 //   THE PLOT           the approved 7 x 7 pad widened by 2: 11 x 11, the wall extension's own house-plot size (wall.mjs WALLEXT
 //                      plotSizes), the least on which EVERY look of the cottage family fits. MEASURED 11-13 on flat ground with the
 //                      real siting (buildsite.mjs siteBlueprint + cottageSitingPlan), the eight showcase pads widened by 1 (9 x 9, the
@@ -37,10 +41,11 @@ import fs from 'node:fs'
 
 /** widens: how far the approved pad is widened on every side, the first that can be placed (11 x 11, then 9 x 9); pad / ring: the
  *  cottage's square pad and its stand ring; minSide: the least plot side a cottage opens on (cottage.mjs cottageOpening); shiftMax: how
- *  far a plot may move off a reservation; retryMs: how long a failed plot stays behind the others; rowMs: one bot repeats a `_homeplot` row at most
+ *  far a plot may move off a reservation; pathGap: how far round a reserved plot the paths' router keeps (paths.mjs pathZones' own margin:
+ *  a path's reservation is its columns + 1, so a path one column from the box would push the plot); retryMs: how long a failed plot stays behind the others; rowMs: one bot repeats a `_homeplot` row at most
  *  this often (geoRowMs for `shifted` and `skipped`: where a plot lies changes only when a record does); base: the cottage projects a
  *  town has without a layout. */
-export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3 })
+export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, pathGap: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3 })
 
 const onOff = v => { const s = String(v ?? '').trim().toLowerCase(); return ['on', '1', 'true', 'yes'].includes(s) ? true : ['off', '0', 'false', 'no'].includes(s) ? false : null }
 /** THE SWITCH -> { on }. HOMEPLOTS=on|off; unset = on only in HOMEPLOTS_POOLS (default 'showcase'). Pure. */
@@ -88,11 +93,24 @@ export const HOMEPLOTS = freezeDeep(homePlotsAtLoad())
 /** The cottage projects of a town with `n` layout homes -> ['cottage1', ..., 'cottage<max(3, n)>'] (frozen). Pure. Three without a
  *  layout, as before homes-01show; one a home with one (the owner's "yes": eight in the showcase). */
 export const cottagePlotNames = (n = 0) => Object.freeze(Array.from({ length: Math.max(HOMEPLOT.base, Math.floor(Number(n)) || 0) }, (_, i) => `cottage${i + 1}`))
-/** The cottage projects OFFERED (shop.mjs PROJECTS; cottage.mjs COTTAGE_PLOTS): three with HOMEPLOTS off or no layout. */
-export const COTTAGE_NAMES = cottagePlotNames(HOMEPLOTS.on ? HOMEPLOTS.layout.length : 0)
-/** Every cottage project a record may exist for, WHATEVER the switch (shop.mjs projectsGuarded; the tidy's, the stands' and the glass's
- *  plot lists): HOMEPLOTS=off stops the later homes being offered, never a sited one's protection. */
-export const COTTAGE_NAMES_GUARD = cottagePlotNames(HOMEPLOTS.layout.length)
+/** The town's cottage projects (cottage.mjs COTTAGE_PLOTS; shop.mjs PROJECTS; the tidy's, the stands' and the glass's plot lists): by
+ *  the LAYOUT, whatever the switch -- HOMEPLOTS=off stops a later home being offered or sited (laterHomeHeld), never a sited one's
+ *  place in the order or its protection. Three in a town with no layout. */
+export const COTTAGE_NAMES = cottagePlotNames(HOMEPLOTS.layout.length)
+/** Is this one of the homes the layout added (cottage4 ..)? Pure. */
+export const isLaterHome = (plot, names = COTTAGE_NAMES) => names.indexOf(String(plot ?? '')) >= HOMEPLOT.base
+/** IS AN UNSITED COTTAGE HELD BY THE SWITCH? -> bool. Pure. HOMEPLOTS off: a later home with no record is never opened and never sited
+ *  (skills.mjs cottageOpenNow / cottageSiteFor ask only for a project with NO record: a sited one is past both). */
+export const laterHomeHeld = (plot, on = HOMEPLOTS.on, names = COTTAGE_NAMES) => !on && isLaterHome(plot, names)
+/**
+ * DOES THIS COTTAGE WAIT ON THE ONE BEFORE IT, WITHOUT A READ? -> bool. Pure. The cottages are chained (`after`: each after the one
+ * before stands) and shop.mjs activeProject offers an open project only when its `after` is complete -- so in the order's status pass
+ * (skills.mjs shopActive) a cottage whose predecessor's state in THIS pass is not complete cannot be the active project: it reports
+ * `waiting` from the chain alone, and neither its record nor the town's (the offer reads every record) is read for it.
+ *   p     the PROJECTS entry ({ plot, after });   done  Map plot -> complete, the cottages' states already computed this pass
+ * A predecessor not in `done` (never computed here) answers false: the project is read as before.
+ */
+export const chainWaits = (p, done, names = COTTAGE_NAMES) => names.includes(String(p?.plot ?? '')) && names.includes(String(p?.after ?? '')) && done instanceof Map && done.has(p.after) && done.get(p.after) !== true
 
 // ---- THE PLOTS AMONG THE TOWN'S RESERVATIONS --------------------------------------------------------------------------------
 const meets = (b, q) => b[0] <= q[2] && b[2] >= q[0] && b[1] <= q[3] && b[3] >= q[1]
@@ -173,6 +191,25 @@ export function resolveHomePlots (layout = [], zones = [], { home = null, max = 
 /** The placed plots as the land plan's reservation zones (landplan.mjs landPlotZones' shape: `land:plot`, the plot's id) -> [zone].
  *  Pure. A skipped plot reserves nothing (what it met already does). */
 export const homePlotZones = (resolved = []) => resolved.filter(p => !p.skip && ok4(p.box)).map(p => ({ box: [p.box[0], -64, p.box[1], p.box[2], 320, p.box[3]], why: 'land:plot', id: String(p.id) }))
+
+/** WHICH RESERVED HOME PLOT IS THIS COLUMN IN? -> (x, z) -> the plot's id | null. Pure. `resolved` resolveHomePlots' answer (a skipped
+ *  plot reserves nothing); `margin` blocks round the box. The groundskeeper's PERMANENT sitings ask it (the landmark mound, a new park:
+ *  skills.mjs tidyInputs `homePlot`) -- its own refusals never read the land plan's reservation, so that the plots are still tidied. */
+export function homePlotAt (resolved = [], margin = 0) {
+  const bs = (resolved ?? []).filter(p => p && !p.skip && ok4(p.box)).map(p => [String(p.id), p.box[0] - margin, p.box[1] - margin, p.box[2] + margin, p.box[3] + margin])
+  return (x, z) => { for (const b of bs) if (x >= b[1] && x <= b[3] && z >= b[2] && z <= b[4]) return b[0]; return null }
+}
+/**
+ * THE PATHS' ROUTER KEEPS OFF A RESERVED HOME (review r1, Codex: paths.mjs pathAvoid reads a record's CELLS, and the reservation is
+ * only the land pseudo-record's zones -- a path could be published across a plot, which then read `blocked:project:paths`) -> the
+ * router's inputs with every placed plot's box + HOMEPLOT.pathGap among its `zones` (pathAvoid's `zone` refusal: a leg goes round, a
+ * destination is still reached from outside). Pure. No placed plot (HOMEPLOTS off, no layout): THE SAME OBJECT, exactly as before.
+ * Only the router's inputs (skills.mjs buildPaths, pathsExtendDue): the tidy, the wall and the farms read pathsInputs unchanged.
+ */
+export function pathInputsWithHomes (P, resolved = null, margin = HOMEPLOT.pathGap) {
+  const zs = homePlotZones(resolved ?? []).map(z => ({ box: [z.box[0] - margin, z.box[1], z.box[2] - margin, z.box[3] + margin, z.box[4], z.box[5] + margin], why: z.why, id: z.id }))
+  return zs.length ? { ...P, zones: [...(P?.zones ?? []), ...zs] } : P
+}
 
 // ---- THE ROTATION --------------------------------------------------------------------------------------------------------------
 /** A plot's failure inside the wait -> its stamp | null. A stamp from the future (a clock that jumped) is no failure: it could never age. */
@@ -264,5 +301,6 @@ export function homeRowDue (memo, f = {}, now = Date.now(), everyMs = f.op === '
   if (memo.size > 256) for (const [k, at] of memo) if (now - at >= HOMEPLOT.geoRowMs) memo.delete(k)
   return true
 }
-/** The licence row's detail (features.mjs `_homeplots_mode`: on=0 under HOMEPLOTS=off or in a town with no layout). Pure. */
-export const homePlotsModeDetail = (h = HOMEPLOTS, names = COTTAGE_NAMES) => `on=${h.on ? 1 : 0} switch=${h.sw ? 1 : 0} plots=${h.layout.length} projects=${names.length} shift=${HOMEPLOT.shiftMax} retry_h=${HOMEPLOT.retryMs / 3_600_000}`
+/** The licence row's detail (features.mjs `_homeplots_mode`: on=0 under HOMEPLOTS=off or in a town with no layout; `later`: whether a
+ *  later home is opened unsited, or only finished once sited). Pure. */
+export const homePlotsModeDetail = (h = HOMEPLOTS, names = cottagePlotNames(h.layout.length)) => `on=${h.on ? 1 : 0} switch=${h.sw ? 1 : 0} plots=${h.layout.length} projects=${names.length} later=${h.layout.length <= HOMEPLOT.base ? 'none' : h.on ? 'open' : 'sited_only'} shift=${HOMEPLOT.shiftMax} retry_h=${HOMEPLOT.retryMs / 3_600_000}`

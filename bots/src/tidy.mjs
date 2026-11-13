@@ -25,7 +25,7 @@
 import { forestReplantCells } from './forest.mjs'   // forest-01: felled outside trees replanted in the forest's rows
 import { townhallEntranceCols } from './townhall.mjs'   // the batch9 fold: the town hall's way in is no stair
 import { cottageEntranceCols } from './cottage.mjs'   // the batch fold: the cottage's way in is no stair
-import { COTTAGE_NAMES_GUARD } from './homeplots.mjs'   // homes-01show: every cottage project's name (three without a layout)
+import { COTTAGE_NAMES } from './homeplots.mjs'   // homes-01show: every cottage project's name (three without a layout)
 import { enchantEntranceCols } from './enchantshop.mjs'   // the showcase wallext2 fold: the workshop's way in is no stair
 import { hubEntranceCols } from './storehub.mjs'   // the showcase gkaccess fold: the hall's way in is no stair
 import { isLiquid, isFurniture, replaceableCell } from './townplan.mjs'
@@ -1024,7 +1024,7 @@ export function plotRetire (rec, sited) {
 // there at work time (whoever's visit) and the keeper retires them from the record (claimRetire), so no count, no stuck map and no
 // re-survey sees them. Its replants stay (G5, as plotRetire). CLAIM=off is the rollback.
 export const claimOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.CLAIM ?? '').trim().toLowerCase())
-export const CLAIM_PLOTS = Object.freeze(['townhall', ...COTTAGE_NAMES_GUARD, 'civicF', 'civicM', 'civicB', 'civicH', 'civicP', 'civicS', 'civicL'])   // cottage2-01: every cottage; citywall fold: every civic landmark (civic.mjs CIVIC_PLOTS)
+export const CLAIM_PLOTS = Object.freeze(['townhall', ...COTTAGE_NAMES, 'civicF', 'civicM', 'civicB', 'civicH', 'civicP', 'civicS', 'civicL'])   // cottage2-01: every cottage; citywall fold: every civic landmark (civic.mjs CIVIC_PLOTS)
 export const CLAIM_RING = 1
 /** THE CLAIMS -> [{ plot, box: [x0, z0, x1, z1] }]: one per record of a CLAIM plot that lists anything. Pure. */
 export function buildingClaims (records = [], { plots = CLAIM_PLOTS, ring = CLAIM_RING } = {}) {
