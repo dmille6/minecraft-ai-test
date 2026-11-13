@@ -37,6 +37,34 @@
 //                      after every other plot has had its turn; the ground it failed on (trees, a grade, a neighbour's reservation)
 //                      changes over hours, not minutes -- the stuck-cell rule's own back-off (shop.mjs SHOP_STUCK_RETRY_MS, 6 h).
 
+//
+// HOMES-02SHOW (slice 1b; LIVE 11-13, the first hour: cottage2's three visits all ended `search_time` at the 100-s box, nothing sited).
+//   HOMESEARCH=on|off  the slice's own switch (unset = on where HOMEPLOTS is on; needs it). Off: slice 1 exactly.
+//   WHERE THE TIME WENT   never the screen (no walk of the town is made before a candidate has passed every cheap refusal: the domain,
+//                      the door, the reservations and zones, the earthwork, the trees) -- the WALKS: each proof walks the town once a
+//                      segment and once at its end, a candidate with leaves in its cells once a leaf (sitecanopy.mjs), each walk
+//                      reading the whole town out to walkR (1.0 - 6.0 s on that host). buildsite.mjs makeWalkCache keeps ONE walk of
+//                      the unchanged town a search and answers every question from it, reading only the columns the question changed.
+//   THE SEARCH RESUMES    a plot is tried with EVERY look of the family (cottage2.mjs cottageLooksAll: 24), in one fixed order. A look
+//                      the search finished and REFUSED (`no_site`, `no_proven_site`: the screen's and the proof's reasons, which do
+//                      not change by themselves) is remembered in the town's file with the plot's SIGNATURE (plotSig: its placed box,
+//                      the top block of every column of the box + 3, the reservations within 4 of it); the next visit starts at the
+//                      first look not yet refused. A changed signature (the ground was graded, a tree felled, a chunk read that was
+//                      not, a neighbour's reservation moved) forgets the plot's looks; so does HOMEPLOT.searchKeepMs (24 h, the
+//                      order's own no-site retry: what the signature cannot see -- the walk from town, the planned town -- is asked
+//                      again once a day). `search_time` is NOT the plot's failure: nothing is noted against the plot, it stays where
+//                      it is in the offer, and the project is asked again after HOMEPLOT.resumeMs (5 min) instead of 30. Only a plot
+//                      whose every look is refused is EXHAUSTED: noted failed (the tally of reasons in its row) and rotated.
+//   TWO BOTS, ONE PLOT    both start at the same first look not yet refused (the work is done twice, never wrongly); each refusal
+//                      is merged into the file as it is on disk at that moment (read, add, temp + rename), so neither writer drops
+//                      the other's looks but for a write landing between another's read and rename -- that one look is searched
+//                      again. A record published meanwhile ends the other siting `site_taken`, as before.
+//   UNFINISHED ROADS YIELD   (owner 11-13: "either, as long as the thing gets built") a `land:road` corridor of a road the land plan
+//                      could not finish (`ok: false`) no longer moves or skips a layout plot, and no longer refuses the cottage on
+//                      it (homeZones); the plot is reserved as before, so the paths' router goes round it, and the road's own stage
+//                      leaves its columns on the plot alone (tidy.mjs siteStage `roadOff`). A finished road (`ok: true`) is a
+//                      corridor as it was. The land record is never edited.
+
 import fs from 'node:fs'
 
 /** widens: how far the approved pad is widened on every side, the first that can be placed (11 x 11, then 9 x 9); pad / ring: the
@@ -45,7 +73,7 @@ import fs from 'node:fs'
  *  a path's reservation is its columns + 1, so a path one column from the box would push the plot); retryMs: how long a failed plot stays behind the others; rowMs: one bot repeats a `_homeplot` row at most
  *  this often (geoRowMs for `shifted` and `skipped`: where a plot lies changes only when a record does); base: the cottage projects a
  *  town has without a layout. */
-export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, pathGap: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3 })
+export const HOMEPLOT = Object.freeze({ v: 1, widens: Object.freeze([2, 1]), pad: 7, ring: 1, pathGap: 1, minSide: 9, shiftMax: 4, retryMs: 6 * 60 * 60_000, rowMs: 10 * 60_000, geoRowMs: 6 * 60 * 60_000, kind: 'house', base: 3, searchKeepMs: 24 * 60 * 60_000, resumeMs: 5 * 60_000, sigPad: 3, sigZones: 4 })
 
 const onOff = v => { const s = String(v ?? '').trim().toLowerCase(); return ['on', '1', 'true', 'yes'].includes(s) ? true : ['off', '0', 'false', 'no'].includes(s) ? false : null }
 /** THE SWITCH -> { on }. HOMEPLOTS=on|off; unset = on only in HOMEPLOTS_POOLS (default 'showcase'). Pure. */
@@ -88,6 +116,9 @@ export function homePlotsAtLoad (env = process.env, data = readTownLayout()) {
 }
 const freezeDeep = o => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const v of Object.values(o)) freezeDeep(v) } return o }
 export const HOMEPLOTS = freezeDeep(homePlotsAtLoad())
+/** homes-02show: THE SLICE'S SWITCH -> { on }. HOMESEARCH=on|off; unset = on. It acts only where HOMEPLOTS is on (`homes`). Pure. */
+export function homeSearchSwitches (env = process.env, homes = HOMEPLOTS.on) { return { on: !!homes && (onOff(env?.HOMESEARCH) ?? true) } }
+export const HOMESEARCH = Object.freeze(homeSearchSwitches())
 
 // ---- THE COTTAGE PROJECTS' NAMES --------------------------------------------------------------------------------------------
 /** The cottage projects of a town with `n` layout homes -> ['cottage1', ..., 'cottage<max(3, n)>'] (frozen). Pure. Three without a
@@ -228,6 +259,118 @@ export function pathInputsWithHomes (P, resolved = null, margin = HOMEPLOT.pathG
   return zs.length ? { ...P, zones: [...(P?.zones ?? []), ...zs] } : P
 }
 
+// ---- HOMES-02SHOW: UNFINISHED ROADS YIELD -----------------------------------------------------------------------------------
+/**
+ * THE ZONES A HOME PLOT ANSWERS TO -> [zone]. Pure. `zones` as shop.mjs recordZones gives them (the land plan's corridors among them,
+ * `land:road`: every road's columns + its margin, merged, with no road named); `land` the land record. With the rule `on` and a
+ * land record whose roads all carry their columns: the corridors are taken out and each FINISHED road's (`ok === true`) columns put
+ * back, one zone a column + `margin` (the corridor's own: landplan.mjs LAND.margin) -- so an unfinished road's corridor no longer
+ * moves, skips or refuses a home. Off, no land record, or a record without the roads' columns: `zones` itself, as before.
+ */
+export function homeZones (zones = [], land = null, on = HOMESEARCH.on, margin = 1) {
+  const roads = land?.roads
+  if (!on || !Array.isArray(roads) || !roads.length || !roads.every(r => Array.isArray(r?.cols))) return zones
+  const out = (zones ?? []).filter(z => !isRoad(z?.why))
+  for (const r of roads) {
+    if (r.ok !== true) continue
+    for (const c of r.cols) if (Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) out.push({ box: [c[0] - margin, -64, c[1] - margin, c[0] + margin, 320, c[1] + margin], why: 'land:road', id: String(r.id ?? '') })
+  }
+  return out
+}
+
+// ---- HOMES-02SHOW: THE SEARCH'S MEMORY --------------------------------------------------------------------------------------
+const fnv32 = str => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0 } return h >>> 0 }
+const AIRISH = /^(air|cave_air|void_air|short_grass|tall_grass|fern|large_fern|snow|dead_bush)$/   // a tuft of grass is not the ground
+/**
+ * A PLOT'S SIGNATURE -> string. Pure over `read`. What a refused look was refused ON: the plot's placed box; the TOP block (its height
+ * and name; `u` unread) of every column of the box + `pad` (the stands' domain), scanned from home.y + 24 down 40; the reservations
+ * within `near` of the box (their boxes and reasons, sorted). Cheap (a few thousand reads, no walk). A cut, a fill, a felled tree, a
+ * decayed crown, a chunk now loaded or a reservation that moved changes it; what it cannot see is bounded by HOMEPLOT.searchKeepMs.
+ */
+export function plotSig (read, plot, zones = [], home = { y: 70 }, { pad = HOMEPLOT.sigPad, near = HOMEPLOT.sigZones } = {}) {
+  const b = plot?.box
+  if (!ok4(b)) return ''
+  const parts = [b.join(',')]
+  for (let x = b[0] - pad; x <= b[2] + pad; x++) {
+    for (let z = b[1] - pad; z <= b[3] + pad; z++) {
+      let top = 'e'
+      for (let y = home.y + 24; y >= home.y - 16; y--) { const q = read(x, y, z); if (!q) { top = 'u'; break } const n = String(q.name ?? '').replace(/\[.*\]$/, ''); if (!AIRISH.test(n)) { top = `${y}${n}`; break } }
+      parts.push(top)
+    }
+  }
+  const g = [b[0] - near, b[1] - near, b[2] + near, b[3] + near]
+  const zs = []
+  for (const z of zones ?? []) { const q = zoneBox4(z); if (q && meets(g, q)) zs.push(`${q.join(',')}${z.why ?? ''}`) }
+  parts.push(zs.sort().join(';'))
+  return `${fnv32(parts.join('|')).toString(36)}.${parts.length}`
+}
+/** The reason a finished search refused a look, with what refused most -> e.g. `no_site:liquid`, `no_proven_site:cell_not_free`,
+ *  `no_site` (nothing was screened in the plot at all). Pure. `s` buildsite.mjs siteBlueprint's answer. */
+export function refusalOf (s) {
+  const tally = {}
+  const proven = (s?.sectors ?? []).some(r => r.screened)
+  for (const r of s?.sectors ?? []) for (const [k, v] of Object.entries((proven ? r.proofFails : r.rejects) ?? {})) if (k !== 'domain') tally[k] = (tally[k] ?? 0) + v
+  const top = Object.entries(tally).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0]
+  return `${s?.why ?? 'no_site'}${top ? `:${top[0]}` : ''}`
+}
+/** The reasons a search may remember: it FINISHED and refused the look. Never `search_time`, `aborted` or a town's reason. */
+export const SEARCH_STABLE = Object.freeze(['no_site', 'no_proven_site', 'no_free_sector'])
+/** A plot's remembered looks, if they are still its own -> { sig, at, looks } | null (another signature, or older than `keepMs`). Pure. */
+const searchEntry = (search, plotId, sig, now, keepMs) => { const e = search?.[String(plotId)]; const at = Number(e?.at); return e && e.sig === sig && sig && Number.isFinite(at) && at <= now + 60_000 && now - at < keepMs && e.looks && typeof e.looks === 'object' ? e : null }
+/**
+ * WHERE THE SEARCH OF A PLOT STANDS -> { left: [lookId], refused: n, first: index of the first look left | -1, tally }. Pure.
+ *   search  the file's `search` ({ plotId: { sig, at, looks: { lookId: why } } });  lookIds  the plot's looks in the order tried
+ * Only looks refused under THIS signature and inside `keepMs` count; `tally` their reasons (`why=n,...`, most first).
+ */
+export function searchLeft (search, plotId, sig, lookIds = [], now = Date.now(), keepMs = HOMEPLOT.searchKeepMs) {
+  const e = searchEntry(search, plotId, sig, now, keepMs)
+  const done = e?.looks ?? {}
+  const left = lookIds.filter(id => !Object.hasOwn(done, id))
+  const counts = {}
+  for (const id of lookIds) if (Object.hasOwn(done, id)) { const w = String(done[id]); counts[w] = (counts[w] ?? 0) + 1 }
+  const tally = Object.entries(counts).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([w, n]) => `${w}=${n}`).join(',')
+  return { left, refused: lookIds.length - left.length, first: left.length ? lookIds.indexOf(left[0]) : -1, tally }
+}
+/** The memory with one more refused look -> the file's `search` (a new object). Pure. A plot whose signature moved (or whose looks
+ *  are older than `keepMs`) starts again with this one look; other plots' entries older than `keepMs` are dropped. */
+export function searchNoted (search = {}, plotId, sig, lookId, why, { now = Date.now(), by = '', keepMs = HOMEPLOT.searchKeepMs } = {}) {
+  const out = {}
+  for (const [k, e] of Object.entries(search ?? {})) { const at = Number(e?.at); if (Number.isFinite(at) && now - at < keepMs) out[k] = e }
+  const cur = searchEntry(search, plotId, sig, now, keepMs)
+  out[String(plotId)] = { sig, at: cur ? cur.at : now, last: now, by: String(by ?? ''), looks: { ...(cur?.looks ?? {}), [String(lookId)]: String(why ?? 'no_site').slice(0, 48) } }
+  return out
+}
+
+/**
+ * THE SEARCH OF ONE PLOT, RESUMED -> the siting's answer for the plot. Never throws but for `searchLook`'s own throw (the caller's).
+ *   all         the plot's looks in the order tried ([{ id, ... }]: cottage.mjs cottage2StylesAll)
+ *   memory()    the file's `search` as it is now;   noteLook(lookId, why)   writes one refused look into it
+ *   searchLook(look) -> the siting's answer for that ONE look: { ok: true, ... } | { ok: false, why, refused?, ... }. `refused` (a
+ *               reason, refusalOf's) says the search FINISHED and refused the look for a reason that does not change by itself: it
+ *               is remembered and the next look is tried. Any other failure -- `search_time`, `aborted`, `site_taken` -- ends the
+ *               plot's turn as it is: the look was not refused and is tried again next time.
+ * Looks already refused under `sig` are passed over (row `resumed`: the first look tried, how many are behind it); none left, before
+ * or after this turn: { ok: false, why: 'exhausted', detail: the reasons' tally }.
+ */
+export async function searchPlotLooks (all = [], { plotId, sig, memory = () => ({}), noteLook = () => {}, searchLook, row = () => {}, now = () => Date.now() } = {}) {
+  const ids = all.map(q => q.id)
+  const st = searchLeft(memory(), plotId, sig, ids, now())
+  if (!st.left.length) return { ok: false, why: 'exhausted', detail: st.tally }
+  if (st.refused) row({ op: 'resumed', plot: plotId, look: st.first, of: all.length, refused: st.refused })
+  const left = new Set(st.left)
+  let last = null
+  for (const look of all) {
+    if (!left.has(look.id)) continue
+    const r = await searchLook(look)
+    if (r?.ok) return r
+    if (!r?.refused) return r ?? { ok: false, why: 'error' }
+    try { noteLook(look.id, r.refused) } catch { /* no memory: the look is searched again */ }
+    last = r
+  }
+  const end = searchLeft(memory(), plotId, sig, ids, now())
+  return end.left.length ? last : { ok: false, why: 'exhausted', detail: end.tally, ...(last?.tried ? { tried: last.tried } : {}) }
+}
+
 // ---- THE ROTATION --------------------------------------------------------------------------------------------------------------
 /** A plot's failure inside the wait -> its stamp | null. A stamp from the future (a clock that jumped) is no failure: it could never age. */
 const recentFail = (fails, id, now, retryMs) => { const at = Number(fails?.[id]?.at); return Number.isFinite(at) && at <= now + 60_000 && now - at < retryMs ? at : null }
@@ -283,6 +426,11 @@ export const TOWN_WHYS = Object.freeze(['aborted', 'stock_unknown', 'no_wood', '
  *   noteFail(plot, why)   the per-plot memory's writer            row({ op, plot, why })   the `_homeplot` row's writer
  * A plot that fails for its own reason (no site, no proven site, a too-long search, an error) is noted and the NEXT plot is tried in
  * the same visit; `search_time` ends the visit's siting (the box is spent) with the plot noted, so the next visit starts at another.
+ * homes-02show (the search's memory: skills.mjs cottageSiteOn answers these two):
+ *   { why: 'search_time', resume: true }   the box ended with looks of this plot still untried: NOT the plot's failure -- nothing is
+ *                                          noted, the plot keeps its place, the visit ends (row `paused`) and the next continues it
+ *   { why: 'exhausted', detail: tally }    every look of the plot has been refused: noted failed (row `exhausted`, the tally) and the
+ *                                          NEXT plot is tried, as for any plot that failed
  */
 export async function siteOverPlots (plots = [], siteOne, { left = () => Infinity, noteFail = () => {}, row = () => {} } = {}) {
   let last = null
@@ -294,24 +442,26 @@ export async function siteOverPlots (plots = [], siteOne, { left = () => Infinit
     if (r?.ok) return { ...r, plotId: p.id }
     last = r ?? { ok: false, why: 'error' }
     if (TOWN_WHYS.includes(last.why)) return last
+    if (last.resume === true && last.why === 'search_time') { row({ op: 'paused', plot: p.id, why: last.detail ?? last.why }); return last }
     try { noteFail(p, last.why) } catch { /* no memory: the next attempt starts here again */ }
-    row({ op: 'failed', plot: p.id, why: last.why })
+    row(last.why === 'exhausted' ? { op: 'exhausted', plot: p.id, why: last.detail ?? '-' } : { op: 'failed', plot: p.id, why: last.why })
     if (last.why === 'search_time') return last
   }
   return last ?? { ok: false, why: 'search_time' }
 }
 
 // ---- THE ROWS ------------------------------------------------------------------------------------------------------------------
-/** One `_homeplot` row's detail: `project=... op=offered|skipped|shifted|chosen|failed plot=... why=...`. Pure. */
+/** One `_homeplot` row's detail: `project=... op=offered|skipped|shifted|chosen|failed|resumed|paused|exhausted plot=... why=...`
+ *  (homes-02show: `resumed look=<index of the first look tried> of=<looks> refused=<n>`; `exhausted why=<reason=n,...>`). Pure. */
 export function homePlotRowDetail (f = {}) {
-  return Object.entries({ project: f.project, op: f.op, plot: f.plot, why: f.why, shift: f.shift, box: f.box, plots: f.plots, n: f.n, skipped: f.skipped })
-    .filter(([, v]) => v != null).map(([k, v]) => `${k}=${String(Array.isArray(v) ? v.join(',') : v).replace(/\s+/g, '_').slice(0, k === 'plots' ? 80 : 60)}`).join(' ')
+  return Object.entries({ project: f.project, op: f.op, plot: f.plot, look: f.look, of: f.of, refused: f.refused, why: f.why, shift: f.shift, box: f.box, plots: f.plots, n: f.n, skipped: f.skipped })
+    .filter(([, v]) => v != null).map(([k, v]) => `${k}=${String(Array.isArray(v) ? v.join(',') : v).replace(/\s+/g, '_').slice(0, k === 'plots' ? 80 : k === 'why' ? 120 : 60)}`).join(' ')
 }
 /** IS THIS ROW DUE for this bot? -> bool (and the memo is stamped). The same project, op, plot and reason at most every `everyMs`:
  *  HOMEPLOT.rowMs, and geoRowMs for `shifted` / `skipped` (the 30-min wait after a failed siting already spaces the visits; this
  *  bounds the rows that say the same thing at every one of them). */
 export function homeRowDue (memo, f = {}, now = Date.now(), everyMs = f.op === 'shifted' || f.op === 'skipped' ? HOMEPLOT.geoRowMs : HOMEPLOT.rowMs) {
-  const sig = `${f.project ?? ''}|${f.op ?? ''}|${f.plot ?? ''}|${f.why ?? ''}|${Array.isArray(f.plots) ? f.plots.join(',') : ''}`
+  const sig = `${f.project ?? ''}|${f.op ?? ''}|${f.plot ?? ''}|${f.why ?? ''}|${f.look ?? ''}|${Array.isArray(f.plots) ? f.plots.join(',') : ''}`
   const last = memo.get(sig)
   if (Number.isFinite(last) && now - last < everyMs && now >= last) return false
   memo.set(sig, now)
@@ -320,4 +470,4 @@ export function homeRowDue (memo, f = {}, now = Date.now(), everyMs = f.op === '
 }
 /** The licence row's detail (features.mjs `_homeplots_mode`: on=0 under HOMEPLOTS=off or in a town with no layout; `later`: whether a
  *  later home is opened unsited, or only finished once sited). Pure. */
-export const homePlotsModeDetail = (h = HOMEPLOTS, names = cottagePlotNames(h.layout.length)) => `on=${h.on ? 1 : 0} switch=${h.sw ? 1 : 0} plots=${h.layout.length} projects=${names.length} later=${h.layout.length <= HOMEPLOT.base ? 'none' : h.on ? 'open' : 'sited_only'} shift=${HOMEPLOT.shiftMax} retry_h=${HOMEPLOT.retryMs / 3_600_000}`
+export const homePlotsModeDetail = (h = HOMEPLOTS, names = cottagePlotNames(h.layout.length), search = h.on && homeSearchSwitches(process.env, h.on).on) => `on=${h.on ? 1 : 0} switch=${h.sw ? 1 : 0} plots=${h.layout.length} projects=${names.length} later=${h.layout.length <= HOMEPLOT.base ? 'none' : h.on ? 'open' : 'sited_only'} shift=${HOMEPLOT.shiftMax} retry_h=${HOMEPLOT.retryMs / 3_600_000} search=${search ? 1 : 0}`

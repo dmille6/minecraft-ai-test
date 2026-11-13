@@ -142,6 +142,9 @@ import { COTTAGE_PLOT, COTTAGE_EARTH, cottageOpening, cottageSitingPlan, cottage
 import { isCottagePlot, COTTAGE_PLOTS, cottage2Styles, furnitureCrafted, furnishWaits, bedColourFor, cottageChestKeys, SHEAR, sheepWool, shearDue, bedsOwed } from './cottage.mjs'   // cottage2-01
 import { HOMEPLOTS, resolveHomePlots, homePlotZones, houseOffer, siteOverPlots, failNoted, homePlotRowDetail, homeRowDue } from './homeplots.mjs'   // homes-01show: the layout's home plots, the rotation
 import { laterHomeHeld, chainWaits, homePlotAt, pathInputsWithHomes } from './homeplots.mjs'   // homes-01show review r1: the switch's hold, the chain's wait, the plots kept off
+import { HOMESEARCH, HOMEPLOT, homeZones, plotSig, refusalOf, SEARCH_STABLE, searchNoted, searchPlotLooks } from './homeplots.mjs'   // homes-02show: the search resumes; unfinished roads yield
+import { makeWalkCache } from './buildsite.mjs'   // homes-02show: one kept walk of the town a plot's search
+import { cottage2StylesAll } from './cottage.mjs'   // homes-02show: every look of the family
 import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
 import { woodPartsPlan, woodPartCraftable, oriented as orientedBlock } from './townstyle.mjs'   // townstyle-01: the stairs, slabs and trapdoors a styled build crafts; which blocks carry a state
 import { TOWNHALL_PLOT, TOWNHALL_BLUEPRINT, TOWNHALL_EARTH, townhallOpening, townhallSitingPlan, townhallStyle, townhallRecordOf, townhallVisitOpts } from './townhall.mjs'   // townstyle-02
@@ -18159,7 +18162,7 @@ function projectHeads () {
     if (sp) out.push({ plot: SITEPREP_PLOT, key: projKeyOf(SITEPREP_PLOT), head: { rec: prepReservation(sp) } })
     // homes-01show: the layout's home plots, each where it clears every reservation above, are the land plan's too (`land:plot`):
     // every OTHER siting keeps off them; the cottage that takes one drops its own (cottage.mjs cottageSitingPlan)
-    if (HOMEPLOTS.on) out.homePlots = homePlotsReserve(out, `${land?.gen ?? '-'}|${sp?.gen ?? '-'}`)
+    if (HOMEPLOTS.on) out.homePlots = homePlotsReserve(out, `${land?.gen ?? '-'}|${sp?.gen ?? '-'}`, land)
   } catch { /* none */ }
   return out
 }
@@ -18167,16 +18170,17 @@ function projectHeads () {
  *  zones; the layout's own zones never count against it; a plot no cottage's door could face home from is moved too) ->
  *  [plot | { skip }]. Deterministic in the heads: the reservation (homePlotsReserve) and the cottage's offer (housePlotsNow) read the
  *  same boxes. */
-function homePlotsResolved (heads) { return resolveHomePlots(HOMEPLOTS.layout, recordZones(heads.map(x => x.head?.rec).filter(Boolean)), { home: HOMEPLOTS.home }) }
+// homes-02show (`land`: the land record): a corridor of a road the plan could not finish no longer moves or skips a plot (homeplots.mjs homeZones)
+function homePlotsResolved (heads, land = landHead()) { return resolveHomePlots(HOMEPLOTS.layout, homeZones(recordZones(heads.map(x => x.head?.rec).filter(Boolean)), land), { home: HOMEPLOTS.home }) }
 let homeResolvedMemo = null
 /** homes-01show: the placed plots join the land plan's reservation in `heads` (its pseudo-record: the keeper's own refusals never read
  *  it, so the plots are still tidied) -> the placed plots | null. No land plan: no reservation (the cottage's siting still takes the
  *  plots). The placing is done once a state of the town's records (`sig`: every head's generation; `extra`: the land plan's and the
  *  site requests' -- their heads here are reservations without one): projectHeads is read many times an order. Never throws. */
-function homePlotsReserve (heads, extra = '') {
+function homePlotsReserve (heads, extra = '', land = null) {
   try {
     const sig = `${extra}|${heads.map(x => `${x.plot}:${x.head?.gen ?? '-'}`).join(',')}`
-    if (homeResolvedMemo?.sig !== sig) homeResolvedMemo = { sig, resolved: homePlotsResolved(heads) }
+    if (homeResolvedMemo?.sig !== sig) homeResolvedMemo = { sig, resolved: homePlotsResolved(heads, land) }
     const li = heads.find(x => x.plot === LAND_PLOT)
     const zs = homePlotZones(homeResolvedMemo.resolved)
     if (li?.head?.rec && zs.length) li.head = { ...li.head, rec: { ...li.head.rec, zones: [...(li.head.rec.zones ?? []), ...zs] } }
@@ -22118,17 +22122,20 @@ function recordOwned () {
 }
 /** sitecanopy-01: the styled building's siting hook -- the natural leaves in a candidate's own cells listed (each reached from the town
  *  walk, reroof.mjs reroofClearsReached), or null with SITECANOPY=off. */
-function siteCanopyCtx (read, bp, home, stood, walkR, earth = null) {
+function siteCanopyCtx (read, bp, home, stood, walkR, earth = null, walkCache = null) {
   if (!sitecanopyOn()) return {}
   // thprep-01: the leaves are reached from the town walk OR from the building's own laid floor (runVisit re-runs its clears after the pad)
+  // homes-02show (`walkCache`): the reach test's walks from the search's ONE kept walk (`dirty`: the cells the test dug and laid)
+  const walker = walkCache ? walkCache.bind(read, home, walkR, { stood }) : null
+  const walkOf = (r, dirty) => (walker && dirty ? walker.walk(r, new Set(), dirty) : siteWalkFrom(r, home, new Set(), walkR, { stood }))
   return { cellClears: cellClearsHook(read, { cellsOf: site => (sitePadOn() ? volumeOf : c => c.map(q => q.at))(placeBlueprint(bp, site.anchor, site.s, site.orient)),
     reached: (cl, site) => (sitePadOn() && site
-      ? clearsReachedBuilt(read, cl, { cells: placeBlueprint(bp, site.anchor, site.s, site.orient), fill: site.fill ?? [], walk: r => siteWalkFrom(r, home, new Set(), walkR, { stood }), stand: digStand })
+      ? clearsReachedBuilt(read, cl, { cells: placeBlueprint(bp, site.anchor, site.s, site.orient), fill: site.fill ?? [], walk: walkOf, stand: digStand })
       : reroofClearsReached(read, home, cl, { stood, walkR })),
     // siteproof-02: the same test, a turn of the event loop after every walk (the cooperative search runs these steps)
     reachedSteps: function * (cl, site) {
       if (!(sitePadOn() && site)) return reroofClearsReached(read, home, cl, { stood, walkR })
-      return yield * clearsReachedBuiltSteps(read, cl, { cells: placeBlueprint(bp, site.anchor, site.s, site.orient), fill: site.fill ?? [], walk: r => siteWalkFrom(r, home, new Set(), walkR, { stood }), stand: digStand })
+      return yield * clearsReachedBuiltSteps(read, cl, { cells: placeBlueprint(bp, site.anchor, site.s, site.orient), fill: site.fill ?? [], walk: walkOf, stand: digStand })
     },
     ...(sitePadOn() && earth ? { earth } : {}) }) }
 }
@@ -22146,9 +22153,17 @@ function cottageOpenNow (dir = townDir(), plot = COTTAGE_PLOT) { try { return CO
 // ---- HOMES-01SHOW: THE LAYOUT'S HOME PLOTS, THE ROTATION (homeplots.mjs has every rule) -------------------------------------------
 /** The per-plot memory of failed sitings (town-wide, beside the cottage's record): { v, fails: { plotId: { at, why, n, project, by } } }. */
 const homeFailFile = (dir = townDir()) => path.join(dir, `${projKeyOf(COTTAGE_PLOT)}.plotfails.json`)
-function homeFails (dir = townDir()) { try { return JSON.parse(fs.readFileSync(homeFailFile(dir), 'utf8'))?.fails ?? {} } catch { return {} } }
+function homeMem (dir = townDir()) { try { const j = JSON.parse(fs.readFileSync(homeFailFile(dir), 'utf8')); return j && typeof j === 'object' ? j : {} } catch { return {} } }
+function homeMemWrite (dir, next) { const f = homeFailFile(dir); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ v: 1, fails: next.fails ?? {}, ...(next.search && Object.keys(next.search).length ? { search: next.search } : {}) })); fs.renameSync(tmp, f) }
+function homeFails (dir = townDir()) { return homeMem(dir).fails ?? {} }
+// each writer merges into the file AS IT IS ON DISK NOW (read, add, temp + rename): another bot's plots and looks are kept
 function homeFailNote (dir, id, why, project, by) {
-  try { const f = homeFailFile(dir); const tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ v: 1, fails: failNoted(homeFails(dir), id, { why, project, by }) })); fs.renameSync(tmp, f) } catch { /* no memory: the next attempt starts at the same plot */ }
+  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, fails: failNoted(m.fails ?? {}, id, { why, project, by }) }) } catch { /* no memory: the next attempt starts at the same plot */ }
+}
+/** homes-02show: THE SEARCH'S MEMORY (the same file's `search`: homeplots.mjs searchNoted) -- the looks a plot's search finished and refused. */
+function homeSearch (dir = townDir()) { return homeMem(dir).search ?? {} }
+function homeSearchNote (dir, plotId, sig, lookId, why, by) {
+  try { const m = homeMem(dir); homeMemWrite(dir, { ...m, search: searchNoted(m.search ?? {}, plotId, sig, lookId, why, { by }) }) } catch { /* no memory: the look is searched again */ }
 }
 /** THE OFFER for a cottage project now (homeplots.mjs houseOffer): the layout's plots where they clear the town's reservations, then
  *  the extension's house plots; the free ones, a plot whose siting failed behind the others. Throws on an unreadable town (callers catch). */
@@ -22198,7 +22213,8 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
     return await siteOverPlots(offer.plots, p => {
       const o = cottageOpening({ plots: [p] }, [])
       if (!o.open) return { ok: false, why: o.why, tried }
-      return cottageSiteOn(bot, plan, c, stood, signal, plot, o, box, tried, () => !plotsTaken(townDir(), plot).includes(p.id))
+      // homes-02show: the box ending with looks of the plot still untried is NOT the plot's failure (`resume`: siteOverPlots)
+      return cottageSiteOn(bot, plan, c, stood, signal, plot, o, box, tried, () => !plotsTaken(townDir(), plot).includes(p.id)).then(r => (HOMESEARCH.on && r?.why === 'search_time' ? { ...r, resume: true } : r))
     }, { left: () => box.left(), noteFail: (p, why) => homeFailNote(dir, p.id, why, plot, me), row: f => homePlotRow(bot, { project: plot, ...f }) })
   } catch (e) { return { ok: false, why: 'error', detail: String(e?.message ?? e).slice(0, 60), tried } }
 }
@@ -22207,7 +22223,9 @@ async function cottageSiteFor (bot, plan, c, stood, signal = null, plot = COTTAG
  *  Throws on an unreadable town (cottageSiteFor and siteOverPlots catch). */
 async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, stillFree) {
   {
-    const zonesNow = () => [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
+    // homes-02show: on a LAYOUT plot the corridor of an unfinished road refuses nothing (homeplots.mjs homeZones)
+    const yieldRoads = HOMESEARCH.on && o.plot.layout === true
+    const zonesNow = () => { const zs = [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]; return yieldRoads ? homeZones(zs, landHead()) : zs }
     const sp0 = cottageSitingPlan(plan.home, o.plot, zonesNow())
     const sp = sp0 ? { ...sp0, plot } : null
     if (!sp) return { ok: false, why: 'no_plan', tried }
@@ -22220,18 +22238,26 @@ async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, 
     const others = projectHeads().filter(x => isCottagePlot(x.plot) && x.plot !== plot).map(x => x.head?.rec).filter(Boolean)
     // cottage2-01: a LATER cottage tries its ranked looks in turn (cottage.mjs cottage2Styles: each a different footprint or face, all
     // differing from every sited cottage in two axes) -- replay 11-08: the long eave-front look found no proven site on X5's ground
-    const css = plot === COTTAGE_PLOT ? [cottageStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })] : cottage2Styles(stock, { pool: process.env.MEMORY_POOL ?? '', plot, plotId: o.plot.id ?? '', others })
-    if (!css.length) return { ok: false, why: 'no_wood', tried }
-    let last = null
-    for (const cs of css) {
+    // homes-02show: ...and with the search's memory EVERY look of the family, in one order (cottage2StylesAll: those three first)
+    const lookOpts = { pool: process.env.MEMORY_POOL ?? '', plot, plotId: o.plot.id ?? '', others }
+    const all = plot === COTTAGE_PLOT ? [cottageStyle(stock, { pool: process.env.MEMORY_POOL ?? '', plotId: o.plot.id ?? '' })] : HOMESEARCH.on ? cottage2StylesAll(stock, lookOpts) : cottage2Styles(stock, lookOpts)
+    if (!all.length) return { ok: false, why: 'no_wood', tried }
+    // homes-02show: one kept walk of the town answers every walk of this plot's search (buildsite.mjs makeWalkCache); the planned town
+    // is read once a plot (its obstacles are part of the kept walk)
+    const walkCache = HOMESEARCH.on ? makeWalkCache() : null
+    const pa0 = HOMESEARCH.on ? paSiteCtx(planReader(bot), plot) : null   // (the same obstacle sets for every look: the kept walk is keyed on them)
+    /** ONE LOOK's search on the plot -> the siting's answer; `more`: the search finished and refused it (the next look is tried),
+     *  `refused` its reason when that reason does not change by itself (homeplots.mjs SEARCH_STABLE: the search's memory keeps it). */
+    const lookOn = async cs => {
       const bp = styledBlueprint(blueprintOf(cs.id), cs.style)
       const prd = planReader(bot)
       const s = await siteBlueprintAsync(prd, plan, bp, { zones: sp.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors: sp.sectors, plot, ...paSiteCtx(prd, plot), ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR),
+        ...(walkCache ? { walkCache, ...pa0, ...siteCanopyCtx(prd, bp, plan.home, stood, sp.walkR, null, walkCache) } : {}),   // homes-02show: the plot's ONE planned town, the same hook with its walks from the kept walk
         ...leafFellCtx(bot, bp, plot, plan),   // leaffell-01show
         earth: sp.earth ?? COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
       { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${sp.sectors[0].source}:${cs.id}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
-      if (!s.ok) { last = { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried }; continue }
+      if (!s.ok) return { ok: false, why: s.why, detail: JSON.stringify((s.sectors ?? []).map(r => r.rejects)).slice(0, 80), tried, more: true, ...(SEARCH_STABLE.includes(s.why) ? { refused: refusalOf(s) } : {}) }
       const fresh = cottageSitingPlan(plan.home, o.plot, zonesNow()).zones
       const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
       if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
@@ -22239,11 +22265,24 @@ async function cottageSiteOn (bot, plan, c, stood, signal, plot, o, box, tried, 
       if (plot !== COTTAGE_PLOT && !stillFree()) return { ok: false, why: 'site_taken', detail: `plot ${o.plot.id} taken during the search`, tried }
       return { ok: true, why: 'ok', record: cottageRecordOf(s.record, bp, cs.style, { plotId: o.plot.id ?? null, walkR: sp.walkR }), tried }
     }
+    if (HOMESEARCH.on) {
+      // THE SEARCH RESUMES (homeplots.mjs searchPlotLooks): the looks this plot's search already finished and refused, on the ground as
+      // it still is (plotSig), are passed over; each look refused now is written to the town's file before the next is tried
+      const dir = townDir(), me = bot.username ?? 'bot'
+      const sig = plotSig(planReader(bot), o.plot, sp.zones, plan.home)
+      return await searchPlotLooks(all, { plotId: o.plot.id, sig, memory: () => homeSearch(dir), noteLook: (id, why) => homeSearchNote(dir, o.plot.id, sig, id, why, me), row: f => homePlotRow(bot, { project: plot, ...f }), searchLook: lookOn })
+    }
+    let last = null
+    for (const cs of all) {
+      const r = await lookOn(cs)
+      if (!r.more) return r
+      last = { ok: false, why: r.why, detail: r.detail, tried }
+    }
     return last ?? { ok: false, why: 'no_site', tried }
   }
 }
 /** Test hooks (homes-01show): the offer, the house plots a cottage is given, the per-plot memory, the opening. */
-export const _homePlots = Object.freeze({ housePlotsNow, homeOfferNow, homeFails, homeFailNote, cottageOpenNow, cottageSiteFor })
+export const _homePlots = Object.freeze({ housePlotsNow, homeOfferNow, homeFails, homeFailNote, cottageOpenNow, cottageSiteFor, homeSearch, homeSearchNote })
 // ---- COTTAGE2-01: THE FURNISHING'S WAIT, THE WOOL, THE CHESTS ----------------------------------------------------------------
 /** What the bag and the town hold of a name (the bag's count + the town index's). Never throws. */
 function cottageHave (bot) {
@@ -22935,7 +22974,8 @@ async function buildShopVisit (ctx, args, signal) {
       // cottage2-01: every cottage plot the same way (a later one its own look)
       const ss = await cottageSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal, plot)
       check(signal)
-      if (!ss.ok && ss.why !== 'aborted') siteWaitSet(plot, COTTAGE_NOSITE_MS, ss.why)
+      // homes-02show: a search the box ended with looks still untried (`resume`) is continued after HOMEPLOT.resumeMs, not the 30 min
+      if (!ss.ok && ss.why !== 'aborted') siteWaitSet(plot, ss.resume === true ? HOMEPLOT.resumeMs : COTTAGE_NOSITE_MS, ss.why)
       const noSite = `no cottage site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160)
       // the stop is `site_wait` (the town-wide wait above), never the order's 24-h `no_site` retry (the enchanting workshop's r5 rule)
       if (!ss.ok) return out('no_effect', ss.why === 'no_extension' || ss.why === 'no_house_plot' ? 'plot_wait' : 'no_site', noSite, { stop: 'site_wait' })
@@ -28133,7 +28173,7 @@ async function siteCountry (bot, c, h, dir, key, me, next, signal) {
   let climbs = []
   try { climbs = climbRead(dir, { since: Date.now() - 7 * 24 * 60 * 60_000 }) } catch { climbs = [] }
   // the band survey's inputs (siteStage `terrace`: the wall boxes the band keeps off, the records, the bots' climbs)
-  const bandIn = { wall: I.wall, wallext: I.wallext, records: I.records, caps: I.caps, climbs, have: {}, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }
+  const bandIn = { wall: I.wall, wallext: I.wallext, records: I.records, caps: I.caps, climbs, have: {}, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)), keepOff: I.homePlot ?? null }   // homes-02show: a road's stage keeps off a reserved home plot
   bandIn.litter = litterForSurvey(bot, dir, I.records)   // litter-01: the walks' handed blocks in the band
   let litB = null
   const th = recordHead(dir, projKeyOf(TIDY_PLOT))

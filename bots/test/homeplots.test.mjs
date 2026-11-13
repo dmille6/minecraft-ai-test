@@ -70,6 +70,23 @@ if (process.env.HOMEPLOTS_CHILD === 'town') {
     // the land plan moves (a generation without the corridor): the plots are placed again -- H7 is back where it is drawn
     PJ.publishRecord(dir, key('land'), cur => ({ ...cur, corridors: [] }), { by: 't' })
     out.landZones4 = landZones()
+    // homes-02show: the land plan names its roads -- the corridor through H7 is the UNFINISHED ring's, then a FINISHED road's
+    const ringCols = []
+    for (let z = -50; z <= -30; z++) ringCols.push([30, z, 70], [31, z, 70])
+    const corr = [{ box: [29, -64, -51, 32, 320, -29], why: 'land:road' }]
+    PJ.publishRecord(dir, key('land'), cur => ({ ...cur, corridors: corr, roads: [{ id: 'ring', kind: 'ring', ok: false, reached: 11, of: 21, cols: ringCols }] }), { by: 't' })
+    out.h7Unfinished = landZones().find(z => z.id === 'H7')?.box ?? null
+    out.roadZonesKept = landZones().filter(z => z.why === 'land:road').length   // the land plan's own reservation is as it was
+    PJ.publishRecord(dir, key('land'), cur => ({ ...cur, roads: [{ id: 'ring', kind: 'ring', ok: true, reached: 21, of: 21, cols: ringCols }] }), { by: 't' })
+    out.h7Finished = landZones().find(z => z.id === 'H7')?.box ?? null
+    // TWO BOTS, ONE FILE: each writer merges into the file as it is on disk -- a failure and two bots' refused looks all stay
+    HP.homeSearchNote(dir, 'H4', 'sigA', 'cottage@2-Lsl0c', 'no_site:liquid', 'showcase-Alpha')
+    HP.homeSearchNote(dir, 'H4', 'sigA', 'cottage@2-Csl1c', 'no_proven_site:cell_not_free', 'showcase-Bravo')
+    HP.homeFailNote(dir, 'X4', 'exhausted', 'cottage2', 'showcase-Bravo')
+    HP.homeSearchNote(dir, 'H5', 'sigB', 'cottage@2-Lsl0c', 'no_site', 'showcase-Alpha')
+    out.search = HP.homeSearch(dir); out.fails2 = Object.keys(HP.homeFails(dir)).sort()
+    HP.homeSearchNote(dir, 'H4', 'sigC', 'cottage@2-Lfl1-', 'no_site', 'showcase-Alpha')   // the ground changed: H4 starts again
+    out.searchAfter = HP.homeSearch(dir)
   }
   console.log('\nJSON ' + JSON.stringify(out))
   process.exit(0)
@@ -185,7 +202,7 @@ const child = (mode, env) => {
 const childRun = (mode, env) => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'homeplots-'))
   const e = { ...process.env, HOMEPLOTS_CHILD: mode, POOL_STATE_DIR: path.join(tmp, 'pool'), LOG_DIR: tmp, STATE_DIR: tmp, ...env }
-  for (const k of ['HOMEPLOTS', 'HOMEPLOTS_POOLS', 'HOME_X', 'HOME_Y', 'HOME_Z', 'COTTAGE', 'COTTAGE2', 'MEMORY_POOL']) if (!(k in env)) delete e[k]
+  for (const k of ['HOMEPLOTS', 'HOMEPLOTS_POOLS', 'HOMESEARCH', 'HOME_X', 'HOME_Y', 'HOME_Z', 'COTTAGE', 'COTTAGE2', 'MEMORY_POOL']) if (!(k in env)) delete e[k]
   fs.mkdirSync(e.POOL_STATE_DIR, { recursive: true })
   const txt = execFileSync(process.execPath, [fileURLToPath(import.meta.url)], { env: e, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 32 * 1024 * 1024 })
   const line = txt.split('\n').filter(l => l.startsWith('JSON ')).pop()
@@ -515,7 +532,7 @@ await t('a plot placed over ground only the SITING refuses (a protected zone, th
   assert.deepStrictEqual(zs.map(z => [z.id, z.box[0], z.box[2], z.box[3], z.box[5]]), [['H1', 19, -5, 29, 5], ['H2', -29, -5, -19, 5]])
 })
 await t('MUTANT the visit stops at the first failed plot: with H1 a pond the second plot is never tried and nothing is sited', async () => {
-  const M = await mutantOf("    row({ op: 'failed', plot: p.id, why: last.why })\n    if (last.why === 'search_time') return last\n", "    row({ op: 'failed', plot: p.id, why: last.why })\n    return last\n")
+  const M = await mutantOf("    if (last.why === 'search_time') return last\n  }\n  return last ?? { ok: false, why: 'search_time' }\n", "    return last\n  }\n  return last ?? { ok: false, why: 'search_time' }\n")
   const v = await visit(pond(), FL, { M })
   assert.strictEqual(v.r.ok, false); assert.deepStrictEqual(v.rows.map(f => `${f.op}:${f.plot}`), ['chosen:H1', 'failed:H1'])
   assert.ok((await visit(pond(), FL)).r.ok, 'the real driver sites H2')
@@ -548,7 +565,7 @@ await t('IN THE SHOWCASE POOL (child): eight projects, each after the one before
   for (const p of r.plots) { assert.ok(r.on_.includes(p), `${p} offered`); assert.ok(r.guarded.includes(p), `${p} guarded`); assert.ok(r.claim.includes(p) && r.stand.includes(p) && r.glass.includes(p), `${p} claims its volume, its stands, its windows`) }
   assert.deepStrictEqual([r.after3, r.after7], ['cottage4', 'cottage8'], 'still one after another')
   assert.deepStrictEqual(r.held, [false, false, false, false], 'on: no home is held')
-  assert.strictEqual(r.mode, 'on=1 switch=1 plots=8 projects=8 later=open shift=4 retry_h=6')
+  assert.strictEqual(r.mode, 'on=1 switch=1 plots=8 projects=8 later=open shift=4 retry_h=6 search=1')
 })
 await t('HOMEPLOTS=off IN THE SHOWCASE POOL (child): the LIST is the layout\'s (review r1); a later home never sited is HELD, one already sited stays in the order', () => {
   const off = child('lists', { MEMORY_POOL: 'showcase', HOMEPLOTS: 'off' }), on = child('lists', { MEMORY_POOL: 'showcase' })
@@ -560,7 +577,7 @@ await t('HOMEPLOTS=off IN THE SHOWCASE POOL (child): the LIST is the layout\'s (
   assert.strictEqual(off.sited4, 'cottage4'); assert.strictEqual(on.sited4, 'cottage4')
   // NEVER SITED + OFF: the status pass reports it waiting -> never offered, nor any after it; the order rests on what stands
   assert.ok(off.never4 && !/^cottage[4-8]$/.test(off.never4), `never an unsited later home (${off.never4})`); assert.strictEqual(on.after3, 'cottage4', 'POSITIVE CONTROL: on, the fourth follows the third')
-  assert.strictEqual(off.mode, 'on=0 switch=0 plots=8 projects=8 later=sited_only shift=4 retry_h=6')
+  assert.strictEqual(off.mode, 'on=0 switch=0 plots=8 projects=8 later=sited_only shift=4 retry_h=6 search=0')
 })
 await t('A TOWN WITH NO ENTRY (a fleet pool with HOMEPLOTS=on; the showcase re-homed) (child): three projects, exactly as before', () => {
   for (const env of [{ MEMORY_POOL: 'hive-a', HOMEPLOTS: 'on', COTTAGE: 'on', COTTAGE2: 'on' }, { MEMORY_POOL: 'showcase', HOME_X: '400' }]) {
@@ -642,6 +659,17 @@ await t('HOMEPLOTS=on: the layout first then X4, X5 (X3 is cottage1\'s); H7 move
   // the placing follows the records: with the corridor gone from the land plan's next generation, H7 is as drawn again
   assert.deepStrictEqual(r.landZones3.find(z => z.id === 'H7').box, [19, -64, -46, 29, 320, -36], 'still shifted while the corridor stands')
   assert.deepStrictEqual(r.landZones4.find(z => z.id === 'H7').box, [22, -64, -46, 32, 320, -36])
+  // homes-02show, through the same files: the corridor back, now the UNFINISHED ring's by the land record's own roads -> H7 stays as
+  // drawn and reserved (the land plan's reservation still carries the corridor); the ring FINISHED -> H7 is moved off it, as before
+  assert.deepStrictEqual(r.h7Unfinished, [22, -64, -46, 32, 320, -36]); assert.strictEqual(r.roadZonesKept, 1)
+  assert.deepStrictEqual(r.h7Finished, [18, -64, -46, 28, 320, -36], 'clear of the finished road\'s columns and their margin (x 29..32)')
+  // two bots, one file (read, add, temp + rename): both bots' refused looks, the other plot's, and the failure noted between them
+  assert.deepStrictEqual(Object.keys(r.search).sort(), ['H4', 'H5'])
+  assert.deepStrictEqual(r.search.H4.looks, { 'cottage@2-Lsl0c': 'no_site:liquid', 'cottage@2-Csl1c': 'no_proven_site:cell_not_free' })
+  assert.deepStrictEqual([r.search.H4.sig, r.search.H4.by, r.search.H5.sig], ['sigA', 'showcase-Bravo', 'sigB'])
+  assert.deepStrictEqual(r.fails2, ['H1', 'X4'], 'a search write keeps the failures, a failure write keeps the searches')
+  assert.deepStrictEqual([r.searchAfter.H4.sig, Object.keys(r.searchAfter.H4.looks)], ['sigC', ['cottage@2-Lfl1-']], 'the ground changed: the plot\'s looks start again')
+  assert.deepStrictEqual(r.searchAfter.H5.looks, r.search.H5.looks)
 })
 
 console.log('8b. REVIEW r1: THE PATHS\' ROUTER AND THE KEEPER\'S PERMANENT SITINGS KEEP OFF A RESERVED HOME')
@@ -821,7 +849,7 @@ await t('(c) MUTANT the chain\'s wait taken by EVERY cottage (the r1 shape), run
   const hp = readFileSync(HP_PATH, 'utf8'), sk = SK_SRC
   assert.strictEqual(hp.split(old).length - 1, 1, 'ANCHOR MISSING OR NOT UNIQUE (homeplots.mjs chainWaits)')
   const imp = "from './homeplots.mjs'"
-  assert.strictEqual(sk.split(imp).length - 1, 2, 'ANCHOR: skills.mjs imports homeplots.mjs twice')
+  assert.strictEqual(sk.split(imp).length - 1, 3, 'ANCHOR: skills.mjs imports homeplots.mjs three times')
   const tag = `${process.pid}-${Math.random().toString(36).slice(2)}`
   const hpOut = new URL(`./_mutant-homeplots-seq-${tag}.mjs`, import.meta.url), skOut = new URL(`./_mutant-skills-seq-${tag}.mjs`, import.meta.url)
   let r = null
@@ -844,7 +872,7 @@ await t('`_homeplot` rows: project, op, plot, why (and the shift, the box, the p
   assert.strictEqual(H.homePlotRowDetail({ project: 'cottage3', op: 'skipped', plot: 'H2', why: 'blocked:project:cottage2' }), 'project=cottage3 op=skipped plot=H2 why=blocked:project:cottage2')
   const all = H.homePlotRowDetail({ project: 'cottage8', op: 'offered', plots: ['H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'H7', 'H8', 'X4', 'X5'], n: 10, skipped: 0 })
   assert.ok(all.length <= 300 && all.includes('plots=H1,H2,H3,H4,H5,H6,H7,H8,X4,X5 n=10'), all)
-  assert.strictEqual(H.homePlotsModeDetail({ on: false, sw: true, layout: [] }), 'on=0 switch=1 plots=0 projects=3 later=none shift=4 retry_h=6')
+  assert.strictEqual(H.homePlotsModeDetail({ on: false, sw: true, layout: [] }), 'on=0 switch=1 plots=0 projects=3 later=none shift=4 retry_h=6 search=0')
 })
 await t('rate-limited: the same row from one bot at most every 10 min; `shifted` / `skipped` every 6 h; another plot or reason is its own row', () => {
   const memo = new Map(), f = { project: 'cottage2', op: 'failed', plot: 'H1', why: 'no_site' }
@@ -873,16 +901,16 @@ const WIRES = {
   'the paths\' extension check uses the router\'s inputs': ['    const D = pathDests(pathsRouteInputs(bot, shopCtx(bot), h))\n', '    const D = pathDests(pathsInputs(bot, shopCtx(bot), h))\n'],
   'the router\'s inputs are pathsInputs with the placed plots': ['  return pathInputsWithHomes(P, P.homePlots ?? null)\n', '  return P\n'],
   'the landmark\'s site refuses a reserved home plot': ['|| !!I.reserved(x, z) || !!I.homePlot(x, z) || boxes.some(', '|| !!I.reserved(x, z) || boxes.some('],
-  'a new park\'s site is given the home plots': ['.then(() => check(signal)), keepOff: I.homePlot ?? null }\n', '.then(() => check(signal)) }\n'],
+  'a new park\'s site is given the home plots': ['climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)), keepOff: I.homePlot ?? null }', 'climbs, have, pause: () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal)) }'],
   'the keeper\'s inputs carry the placed plots': ['  const homePlot = homePlotAt(P.homePlots ?? [])\n', '  const homePlot = () => null\n'],
   'HOMEPLOTS off: the siting is the extension\'s first free plot and only that': ["      const o = cottageOpening(enchantExtNow(), plotsTaken(townDir(), plot))\n      if (!o.open) return { ok: false, why: o.why, tried }\n      return await cottageSiteOn(bot, plan, c, stood, signal, plot, o, box, tried, () => cottageOpening(enchantExtNow(), plotsTaken(townDir(), plot)).plot?.id === o.plot.id)\n    }\n", '    }\n'],
   'HOMEPLOTS off decides which siting runs': ['    if (!HOMEPLOTS.on) {\n', '    if (false) {\n'],
   'the siting goes over the offered plots': ['    return await siteOverPlots(offer.plots, p => {\n', '    return await siteOverPlots(offer.plots.slice(0, 1), p => {\n'],
   'a failed plot is written to the town\'s memory': ['noteFail: (p, why) => homeFailNote(dir, p.id, why, plot, me)', 'noteFail: () => {}'],
   'the offer reads the memory and the other records\' plots': ["taken: heads.filter(x => x.plot !== plot).map(x => x.head?.rec?.plotId).filter(Boolean), fails: homeFails(dir) })", 'taken: [], fails: {} })'],
-  'the plots are reserved in the land plan\'s pseudo-record': ["    if (HOMEPLOTS.on) out.homePlots = homePlotsReserve(out, `${land?.gen ?? '-'}|${sp?.gen ?? '-'}`)\n", '    if (false) out.homePlots = homePlotsReserve(out)\n'],
-  'the reservation is placed again when any record moves': ["    if (homeResolvedMemo?.sig !== sig) homeResolvedMemo = { sig, resolved: homePlotsResolved(heads) }\n", '    homeResolvedMemo ??= { sig, resolved: homePlotsResolved(heads) }\n'],
-  'the resolver is given every head\'s zones and the home': ['resolveHomePlots(HOMEPLOTS.layout, recordZones(heads.map(x => x.head?.rec).filter(Boolean)), { home: HOMEPLOTS.home })', 'resolveHomePlots(HOMEPLOTS.layout, [], { home: HOMEPLOTS.home })'],
+  'the plots are reserved in the land plan\'s pseudo-record': ["    if (HOMEPLOTS.on) out.homePlots = homePlotsReserve(out, `${land?.gen ?? '-'}|${sp?.gen ?? '-'}`, land)\n", '    if (false) out.homePlots = homePlotsReserve(out)\n'],
+  'the reservation is placed again when any record moves': ["    if (homeResolvedMemo?.sig !== sig) homeResolvedMemo = { sig, resolved: homePlotsResolved(heads, land) }\n", '    homeResolvedMemo ??= { sig, resolved: homePlotsResolved(heads, land) }\n'],
+  'the resolver is given every head\'s zones and the home': ['resolveHomePlots(HOMEPLOTS.layout, homeZones(recordZones(heads.map(x => x.head?.rec).filter(Boolean)), land), { home: HOMEPLOTS.home })', 'resolveHomePlots(HOMEPLOTS.layout, [], { home: HOMEPLOTS.home })'],
   'the row is its own kind, never a `_build` row': ["logEvent({ kind: 'homeplot', status:", "logEvent({ kind: 'build', status:"],
 }
 const wired = src => { const c = strip(src); for (const [name, [line]] of Object.entries(WIRES)) assert.strictEqual(c.split(line).length - 1, 1, `not wired once: ${name}`) }
