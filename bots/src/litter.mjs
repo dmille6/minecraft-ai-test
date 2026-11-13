@@ -153,6 +153,10 @@ export function litterIntake ({ read = () => [], strict = () => new Set(), recor
  * r3 (Codex): A FOLD TIME IN THE FUTURE IS NOT BELIEVED EITHER. The fold is one bot's clock and the dig another's; with the reader's
  * clock a day behind, `now - handed` was -20 h and the cut stayed diggable 27 real hours. More than LITTER.skewMs ahead of the
  * reader's clock: old (fail closed). The showcase's bots share one host and one clock; the bound is for the day they do not.
+ * ACCEPTED LIMIT (r4, Codex; the control session's call, told to the owner): a reader whose clock runs HOURS BEHIND the folder's
+ * believes a cut for keepMs of ITS OWN time once its clock passes the fold time -- real age is not bounded across two clocks that
+ * disagree, and nothing here can bound it. A town's bots run on one host (one clock); leases, cooldowns and stuck stamps in this
+ * codebase rest on the same assumption.
  * -> bool. Pure.
  */
 export const handedOld = (cut, now, T = LITTER) => !!cut?.handed && !(Number.isFinite(cut.handed) && cut.handed > 1 && Number.isFinite(now) && now - cut.handed <= T.keepMs && now - cut.handed >= -T.skewMs)
