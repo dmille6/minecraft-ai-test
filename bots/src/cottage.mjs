@@ -20,6 +20,7 @@
 import { rot } from './townplan.mjs'
 import { styleOf, stylePalette, seedOf, WOODS, DARKNESS, logOf } from './townstyle.mjs'
 import { isCottage2Blueprint, lookOf, frameOf, cottage2Id, cottageLooksFor, recordLook, lookCode, COTTAGE2_NEED, BEDS, WOOLS, BOX_PLANTS } from './cottage2.mjs'
+import { cottageLooksAll } from './cottage2.mjs'   // homes-02show: every look of the family, for the search that resumes
 import { COTTAGE_NAMES } from './homeplots.mjs'   // homes-01show: a cottage project for each of the layout's homes
 
 export const COTTAGE_PLOT = 'cottage1'
@@ -146,6 +147,13 @@ export function cottage2Styles (town = {}, { pool = '', plot = 'cottage2', plotI
   const key = `${pool}/${plot}/${plotId}`
   const woods = WOODS.filter(w => (Number(town?.[logOf(w)]) || 0) >= COTTAGE2_NEED.wall)
   return cottageLooksFor(key, woods, others.map(recordLook).filter(Boolean), n).map(pick => styleOfPick(town, key, pick))
+}
+/** homes-02show: EVERY look a later cottage may be tried with on a plot, in the order tried (cottage2.mjs cottageLooksAll: the ranked
+ *  picks of cottage2Styles first, then the rest of the family) -> [{ style, id }]. Pure. */
+export function cottage2StylesAll (town = {}, { pool = '', plot = 'cottage2', plotId = '', others = [] } = {}) {
+  const key = `${pool}/${plot}/${plotId}`
+  const woods = WOODS.filter(w => (Number(town?.[logOf(w)]) || 0) >= COTTAGE2_NEED.wall)
+  return cottageLooksAll(key, woods, others.map(recordLook).filter(Boolean)).map(pick => styleOfPick(town, key, pick))
 }
 function styleOfPick (town, key, pick) {
   const n = name => Number(town?.[name]) || 0

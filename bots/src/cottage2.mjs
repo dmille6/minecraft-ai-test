@@ -237,6 +237,25 @@ export function cottageLooksFor (key, woods = [], others = [], n = 3) {
   const picked = out.length ? out : [pairs.reduce((m, p) => (score(p) > score(m) ? p : m), pairs[0])]
   return picked.map(p => ({ look: p.look, wood: p.wood }))
 }
+/**
+ * homes-02show: EVERY LOOK A PLOT MAY BE TRIED WITH, in the order tried -> [{ look, wood }], one entry a LOOK. Pure. cottageLooksFor's
+ * own picks first (up to four: the most different from the neighbours, each another footprint or face), then every other look by the
+ * same rank (those that differ from every neighbour in LOOK_MIN_DIFF axes before those that do not: a home that looks like its
+ * neighbour is still a home -- owner 11-13 "as long as the thing gets built"), each with its best-ranked wood. The siting's screen
+ * and proof read a look's CELLS, never its wood, so a look refused on a plot is refused whatever the wood.
+ */
+export function cottageLooksAll (key, woods = [], others = []) {
+  if (!woods.length) return []
+  const first = cottageLooksFor(key, woods, others, 4)
+  const pairs = []
+  for (const look of allLooks()) for (const wood of woods) pairs.push({ look, wood, h: fnv(`${key}|${lookCode(look)}|${wood}`) })
+  pairs.sort((a, b) => a.h - b.h || lookCode(a.look).localeCompare(lookCode(b.look)) || a.wood.localeCompare(b.wood))
+  const score = p => Math.min(...others.map(o => lookDiff({ ...p.look, wood: p.wood }, o)), LOOK_AXES.length)
+  const ranked = pairs.map((p, i) => ({ p, i, sc: score(p) })).sort((a, b) => b.sc - a.sc || a.i - b.i).map(x => x.p)
+  const out = [], seen = new Set()
+  for (const p of [...first, ...ranked]) { const c = lookCode(p.look); if (seen.has(c)) continue; seen.add(c); out.push({ look: p.look, wood: p.wood }) }
+  return out
+}
 /** A sited cottage record's look for the neighbour rule ({ body, front, roof, chim, wood }). The first cottage (@1s / @1f) is a C body
  *  gable with no chimney. Pure. */
 export function recordLook (rec) {

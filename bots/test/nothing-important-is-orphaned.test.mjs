@@ -173,6 +173,8 @@ const REQUIRED = [
   'bots/src/litter.mjs', 'bots/test/litter.test.mjs',
   // homes-01show (11-13, owner: the approved layout's eight homes as cottage projects): the layout's data, its rules, their test
   'bots/src/townlayout.json', 'bots/src/homeplots.mjs', 'bots/test/homeplots.test.mjs',
+  // homes-02show (11-13): the search that resumes, the kept walk, unfinished roads yield -- its test
+  'bots/test/homesearch.test.mjs',
   // grounds-01 (11-12, owner "is there a better approach to grounds keeping"): cleanup as ordinary, funded project work -- the pure rules and their test
   'bots/src/grounds2.mjs', 'bots/test/grounds2.test.mjs',
   'sandbox/cottage2/furnish-proof.mjs',

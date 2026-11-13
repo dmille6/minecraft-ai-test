@@ -1630,7 +1630,10 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
   // never tidy-01's square survey (it reaches inside the wall when a country band starts at 0)
   const survey = st.rMax > 0 && classic !== false ? surveyTidy(read, { home, avoid, cells, r: st.rMax, rMin: st.rMin, water, waterOk }) : { ok: true, cut: [], fill: [], pillars: [], pits: [], skipped: {} }
   if (!survey.ok) return { ok: false, why: survey.why, record: null, survey, road: null }
-  const rcols = stageRoadCols(land, st, { L })
+  // homes-02show (`terrace.keepOff(x, z)`: a reserved home plot, skills.mjs tidyInputs `homePlot`): a road's stage leaves its columns
+  // on a home plot alone -- only an UNFINISHED road's corridor can lie on one (homeplots.mjs homeZones: a finished road moves the plot)
+  const roadOff = typeof terrace?.keepOff === 'function' ? terrace.keepOff : null
+  const rcols = roadOff ? stageRoadCols(land, st, { L }).filter(([x, z]) => !roadOff(x, z)) : stageRoadCols(land, st, { L })
   let road = rcols.length ? roadWork(read, rcols, { home, cells, avoid, waterOk, lim: { ...(lim ?? gradeLim(read, 6, water)), water } }) : { cut: [], fill: [], clear: [], trees: [], skipped: {} }
   // NEVER WORSE (offline, hive-d: a ring graded 4 over the plaza's edge cut the town off its roads): with `walkFrom` (the town's
   // edge columns), the walk from the town -- over all the land, and along the roads -- is measured on the ground as it is and as

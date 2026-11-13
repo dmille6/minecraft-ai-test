@@ -173,7 +173,8 @@ export function * clearsReachedBuiltSteps (read, clears = [], { cells = [], fill
     let moved = false, nodes = null
     const still = []
     for (const c of left) {
-      if (!nodes) { const m = new Map(); for (const q of walk(rd)) { const [x, y, z] = q.split(',').map(Number); const col = `${x},${z}`; if (!m.has(col)) m.set(col, []); m.get(col).push(y) } nodes = m; yield null }
+      // homes-02show: the walk is told the cells this read differs in (buildsite.mjs makeWalkCache answers it from one kept walk)
+      if (!nodes) { const m = new Map(); for (const q of walk(rd, [dug.keys(), laid])) { const [x, y, z] = q.split(',').map(Number); const col = `${x},${z}`; if (!m.has(col)) m.set(col, []); m.get(col).push(y) } nodes = m; yield null }
       if (!stand(rd, c.at, nodes)) { still.push(c); continue }
       dug.set(k(c.at), AIR); nodes = null; moved = true
     }
