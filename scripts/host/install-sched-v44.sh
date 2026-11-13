@@ -79,6 +79,7 @@ done
 [ "$(m5 $H/canary-sched.py)" = "$SCHED_BASE" ] || [ "$(m5 $H/canary-sched.py)" = "$(m5 $S/canary-sched.py)" ] \
   || die "live canary-sched.py is not v43 ($SCHED_BASE): re-merge"
 python3 -m py_compile "$S/canary-sched.py" || die "does not compile"
+grep -q '^def code_context' "$S/canary-sched.py" && die "the staged canary-sched.py is v45 (it holds the context-only code rule): stage v44's sha, or use install-sched-v45.sh"
 
 say "2. tests (staging, nice 10)"
 mkdir -p $BK

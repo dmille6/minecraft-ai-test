@@ -147,6 +147,21 @@ rebase that only moved CONTEXT lines of code -- is not in v44: the identity chec
   2. A HELD entry can always be passed (skip_kind 'held-no-variant'): glass-01 (11-13) was held AND had no variant for
      the fleet base; its H2 text was not a skippable kind, so a held entry blocked the head 45 min with an empty slot.
   3. GUARD: the "built" page of a finished autorebase can no longer turn the DONE job into a refused one (ar_build).
+
+V45 (the third part of the same OWNER decision, after three review rounds). A CONTEXT-ONLY REBASE OF CODE is the reviewed
+change when the change is NOT PROTECTED (tier none on both bases). ironchain-02 (11-12) and boardwalk-03 (11-13) each
+picked with no conflict and every added and removed line the reviewed one, and were refused because 1-3 context lines
+of a code file differed (another change had landed a neighbouring import line); each waited for a human who verified
+exactly that and registered it by hand. The rule (code_context, a-g): the same files, non-hunk lines and number of
+hunks, the same runs of added and removed lines, and in the REBASED FILE every reviewed context line still standing
+around the change in the reviewed order -- the base may only have INSERTED whole lines, at most CODE_CONTEXT_MAX on a
+side, each of them a PLAIN line (blank, a comment, an import, a statement that opens, closes and steers nothing) --
+under the same function line, the same chain of enclosing scopes and the same open blocks as in the reviewed file, at
+one unambiguous place. Anything else refuses, as before. Accepted = named in the step row, the registration and
+`approved`, and paged once at 'flag' (a blockers-only look is owed; it never blocks the launch). The suite still runs
+on the rebased tree. A PROTECTED change (tier 3, tooling, undecidable) keeps the byte-exact rule; the path-list rule
+of v43 (CONTEXT_FREE_PATHS) is unchanged and still judges its own files. ~/digest/CONTEXT-STRICT restores byte-exact
+for code (it fails closed: context_strict).
 """
 import os, sys, json, re, glob, hashlib, subprocess, fcntl, tempfile, shutil, time, datetime as dt
 
@@ -179,6 +194,7 @@ AR_REMOTE_WAIT_S = 100 * 60   # v42: the remote full suite (ci2/.30 via the Mac 
 SPEC_OFF_NAME = 'SPEC-OFF'    # v42: ~/digest/SPEC-OFF = no speculative build during a canary's read
 SPEC_DEPTH = 3                # v44: the speculative build looks this many eligible entries past the live canary (was 1)
 SPEC_REFUSED_LEVEL = 'warn'   # v44: the page level of a REFUSED speculative build -- with FAILED in its text it reaches the phone
+CONTEXT_STRICT_NAME = 'CONTEXT-STRICT'   # v45: ~/digest/CONTEXT-STRICT = a rebase that moves CODE context is refused again
 BUNDLE_MAX = 3           # v41: members per bundle (Codex: start with pairs; Claude: up to four) -- three
 STD_READS, FAST_READS = '90 180', '45 90'
 READ_PLANS = {STD_READS: 240, FAST_READS: 150}   # fun_reads -> deadline_min; canary-loop.sh and funread.py hold the same
@@ -249,6 +265,7 @@ def paths():
         'ar_backoff': g('SCHED_AR_BACKOFF_S', '60,180'),  # v40: the sleep before the 2nd, 3rd re-run alone on the new tip
         'ar_remote_wait': g('SCHED_AR_REMOTE_WAIT_S', str(AR_REMOTE_WAIT_S)),
         'spec_off': os.path.join(D, SPEC_OFF_NAME),
+        'context_strict': os.path.join(D, CONTEXT_STRICT_NAME),   # v45: present = byte-exact for code, as before v45
     }
 
 
@@ -909,9 +926,398 @@ def list_region(text, marks):
     return region if all(list_line(l) for l in region) else None
 
 
-def diff_equiv(a, b, free=None, texts=None):
+# v45 (OWNER 11-13 "how do we fix this reoccuring stall with rebase errors" -> "Yes, build step 1"). v43 freed the context
+# of ONE path list and kept CODE byte-exact, and the stall moved there. Measured: ironchain-02 (11-12) and boardwalk-03
+# (11-13) each cherry-picked with NO conflict, every added and removed line the reviewed one, and stopped at "the rebased
+# diff is NOT the reviewed diff" because 1-3 CONTEXT lines of a code file differed (another change had landed a
+# neighbouring import line). Each then waited for a human, who verified exactly that and registered the variant by hand.
+# So that verification is done here, mechanically (code_context), for a change that is NOT PROTECTED, and the suite --
+# which runs on the rebased tree in every case -- is what answers "does a neighbouring line change what it does".
+# A PROTECTED change (protected.py tier 3 / tooling / undecidable on either base) keeps the byte-exact rule: there a
+# neighbouring line is the reviewers' business (code_context_problem). Every accepted case is named in its step row, its
+# registration and its `approved` text and paged once at 'flag' for a blockers-only look after the fact.
+#
+# REVIEW r1 (Claude + Codex, 11-13), the blocker both found: the first rule placed the change only among the context lines
+# the two diffs SHARED, with no floor, so the reviewed lines were accepted in ANOTHER FUNCTION. Reproduced with real git:
+# `function a() { init(); run(); done(); }`, the change adds `log();` after `run();`; the new base copies the function to
+# `aOld()` and rewrites the first body line of `a()`; the pick is clean and puts `log();` into `aOld()`; the rule said
+# "context-only". Also accepted: the same `-old(); +newCall();` under `function foo()` and under `function bar()`, and the
+# same `+X` between six context lines of which none was the reviewed one. So the rule is now the other way round: it
+# does not ask what the two diffs share, it asks whether EVERY reviewed context line still stands around the change in
+# the REBASED FILE (code_context: a-d). The only thing a base may have done is INSERT whole lines, and few of them.
+#
+# REVIEW r2 (Codex, 11-13), two more acceptances, both with real git. (1) Python: `class C` / `def foo(self)` calling
+# a() b() c() old() d() e() f(); the change replaces old() by newer(); the base leaves foo() calling other() and adds
+# `def bar(self)` holding a() inserted() b() c() old() d() e() f(). The pick lands in bar(), every reviewed context
+# line stands around it, and both hunk headers say `class C:` -- git's default rule takes the column-0 line, never the
+# indented `def`. (2) JS: `function f()` with a(); b(); c(); old(); d(); e(); f(); the base inserts `  if (false) {`
+# before b(); and `  }` before e();. The merge is clean, the reviewed context is all there, and the reviewed call now
+# sits in a dead block. So three more conditions, each on what rule (a) had left open:
+#   (e) the CHAIN OF ENCLOSING SCOPES of every run, read by indentation in the reviewed file and in the rebased one, is
+#       the same line for line (scope_chain) -- foo() is not bar(), whatever the header says;
+#   (f) every INSERTED line is PLAIN (plain_line): it opens nothing, closes nothing and steers nothing;
+#   (g) what is left OPEN above every run -- braces, a block comment, a triple quote, a template -- is the same in both
+#       files (open_above): a block opened ABOVE the three lines rule (a) looks at, around lines that were not
+#       re-indented, moves neither the context nor the indentation. (Review r2 asked for (e) and (f); (g) is what
+#       trying to break them found: `function inner() {` ten lines up, `}` ten lines down, one plain line beside
+#       the change.)
+# What no rule here sees, and the byte-exact rule never saw either: a base that changed what the code does WITHOUT
+# touching the nesting or the reviewed lines' neighbourhood -- a `return` twenty lines up, a plain statement beside
+# the change that assigns or throws through a call, and in a language whose blocks need neither braces nor
+# indentation (a shell's `if ...; then` / `fi`) a block opened outside the three lines. That is what the suite and
+# the look that is owed are for.
+DIFF_CONTEXT = 3          # the -U3 of DIFF_ARGS: a hunk side with fewer context lines reached the start / end of its file
+CODE_CONTEXT_MAX = 3      # v45: lines a base may have INSERTED on one side of a change (the measured cases: 1-3 in all)
+_HUNK_HEAD = re.compile(r'^@@ -\d+(,\d+)? \+\d+(,\d+)? @@(.*)$')
+_FUNC_LINE = re.compile(r'[A-Za-z_$]')
+# (f) a COMPLETE one-line import: JS `import ... from '...'` / `import '...'`, Python `from x import y` / `import x`, and
+# `const x = require('...')`. The only inserted line that may hold braces (`import { a } from`), so it is spelled out.
+_IMPORT_LINE = re.compile(r"""^\s*(?:
+      import\s+[\w$*\s,]*(?:\{[\w$\s,]*\})?[\w$*\s,]*\s+from\s+(['"])[^'"\\]+\1\s*;?
+    | import\s+(['"])[^'"\\]+\2\s*;?
+    | from\s+[\w.]+\s+import\s+[\w.*]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.*]+(?:\s+as\s+\w+)?)*
+    | import\s+[\w.]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.]+(?:\s+as\s+\w+)?)*
+    | (?:const|let|var)\s+(?:[\w$]+|\{[\w$\s,:]*\})\s*=\s*require\((['"])[^'"\\]+\3\)\s*;?
+    )\s*$""", re.X)
+# (f) a line that STEERS: it starts (after an optional `label:` and an optional `#`, the preprocessor's) with a control or
+# block word. The first row is the list review r2 gave; the second is the same idea in a shell, Ruby/Lua and cpp. The
+# words of the third row are also everyday names (`done()` is a callback), so they count only when they stand alone.
+_STEER_LINE = re.compile(r"""(?:[A-Za-z_$][\w$]*\s*:\s*)?\#?\s*(?:
+      (?:if|else|elif|for|while|do|switch|case|default|try|catch|except|finally|with|function|class|def|return|break|continue|throw|raise|yield
+        |exit|goto|until|elsif|unless|async|ifdef|ifndef|endif)\b
+    | (?:then|fi|done|esac|end|begin)(?=\s|;|$)
+    )""", re.X)
+# (f) what opens or closes something BIGGER than a line wherever it stands, inside a comment too: a block comment, a
+# Python triple quote, a template literal's `${` (bots: `// ${f()}` inside a multi-line template still runs f)
+_SPAN_TOKENS = ('/*', '*/', '"' * 3, "'" * 3, '${')
+_COMMENT_LINE = re.compile(r'//|#(?:[ !]|$)')                   # `# text`, `#!shebang`; `#name` is a JS private member: code
+_SCOPE_SKIP = re.compile(r'\s*(?://|#(?:[ !]|$)|/\*|\*(?:[ /]|$))')
+
+
+def hunk_parts(ls):
+    """PURE. One file's section of a normalized diff (diff_sections) -> (head, hunks). `head` = every line before the first
+    hunk: the `diff --git` line, mode lines, `---` / `+++`, and a binary patch whole (it has no hunk). `hunks` = the lines
+    of each hunk after its `@@`, in order: context (' '), added, removed, and anything else git writes inside one
+    (the no-newline-at-end-of-file marker; the empty string after the diff's last newline)."""
+    head, hunks = [], []
+    for l in ls:
+        if l == '@@':
+            hunks.append([])
+        elif hunks:
+            hunks[-1].append(l)
+        else:
+            head.append(l)
+    return head, hunks
+
+
+def hunk_funcs(text):
+    """PURE. A diff, RAW (as git wrote it) or normalized -> {path: [per hunk, the text git printed after the hunk header's
+    second `@@`: the nearest "function line" above the hunk; '' when it printed none]}. norm_diff erases that text (it
+    moves with every rebase) and its hash must stay what it is, so the code rule reads it from the raw diffs, here. A
+    normalized diff has none to give: every hunk ''."""
+    out, path = {}, ''
+    for l in text.split('\n'):
+        if l.startswith('diff --git '):
+            m = _DIFF_HEAD.match(l)
+            path = m.group(1) if m else l
+            out.setdefault(path, [])
+        elif l == '@@':
+            out.setdefault(path, []).append('')
+        elif l.startswith('@@ '):
+            m = _HUNK_HEAD.match(l)
+            if m:
+                out.setdefault(path, []).append(m.group(3).strip())
+    return out
+
+
+def func_line(l):
+    """PURE. Is `l` (a line without its diff marker) a function line by git's DEFAULT rule (xdiff def_ff: it starts with a
+    letter, `_` or `$`)? That rule wrote the hunk headers' function text unless a userdiff driver is configured (none
+    is: gitx ignores the user's and the system's config, and .gitattributes names no diff driver)."""
+    return bool(_FUNC_LINE.match(l))
+
+
+def hunk_runs(u):
+    """PURE. One hunk's lines -> (ctx, runs). `runs` = its maximal runs of lines that are not context (added, removed, a
+    no-newline marker), markers kept; `ctx` = the len(runs) + 1 context segments before, between and after them, markers
+    stripped. The empty string after the diff's last newline is not a line of the hunk."""
+    ctx, runs, on = [[]], [], False
+    for l in u:
+        if l == '':
+            continue
+        if l[:1] == ' ':
+            if on:
+                ctx.append([])
+            ctx[-1].append(l[1:])
+            on = False
+        else:
+            if not on:
+                runs.append([])
+            runs[-1].append(l)
+            on = True
+    if on:
+        ctx.append([])
+    return ctx, runs
+
+
+def run_funcs(u, head_func):
+    """PURE. For each run of a hunk (hunk_runs): the function line that ENCLOSES it -- the nearest function line among the
+    hunk's own lines above the run, else the text of the hunk header (`head_func`). Both as git prints one: at most 80
+    characters, trailing blanks stripped.
+    Why not the header text alone (review r1 asked for exactly that): it is the nearest function line above the hunk's
+    FIRST line, and an inserted line moves that first line. In top-level code -- an import block, where git's default
+    rule calls every line a function line -- a base that inserts ONE import above ours pushes a reviewed context line
+    out of the hunk, and that line becomes the header text: the two measured cases would be refused for what they are.
+    The line that encloses the CHANGE is what must not differ, and this is it: the header text decides whenever the
+    hunk shows no function line above the change (a change inside a function body: foo() / bar())."""
+    out, last = [], None
+    on = False
+    for l in u:
+        if l == '':
+            continue
+        if l[:1] != ' ' and not on:
+            out.append(last if last is not None else head_func[:80].rstrip())
+        on = l[:1] != ' '
+        if func_line(l[1:]):
+            last = l[1:81].rstrip()
+    return out
+
+
+def context_walk(T, i, step, want):
+    """PURE. From index i of the lines T, moving by `step` (-1 up, +1 down): find the lines `want` in that order, each the
+    NEAREST one not yet passed. -> the indices they were found at, in that order, or None when one of `want` is not
+    there at all. The lines passed over on the way are the ones a base inserted."""
+    out = []
+    for c in want:
+        while 0 <= i < len(T) and T[i] != c:
+            i += step
+        if not 0 <= i < len(T):
+            return None
+        out.append(i)
+        i += step
+    return out
+
+
+def hunk_spans(T, u):
+    """PURE. Where does the hunk `u` stand in the file lines T? -> (spans, places): `places` = at how many indices the
+    hunk's NEW side (its context and added lines, in order) occurs in T; `spans` = for the first of them, [start, end)
+    of each run's added lines (start == end for a run that only removes), or None when places is 0."""
+    new = [l[1:] for l in u if l[:1] in (' ', '+')]
+    hits = [i for i in range(len(T) - len(new) + 1) if T[i:i + len(new)] == new] if new else []
+    if not hits:
+        return None, 0
+    j, spans, on = hits[0], [], False
+    for l in u:
+        if l == '':
+            continue
+        if l[:1] != ' ' and not on:
+            spans.append([j, j])
+        on = l[:1] != ' '
+        j += l[:1] in (' ', '+')
+        if on:
+            spans[-1][1] = j
+    return spans, len(hits)
+
+
+def plain_line(l):
+    """PURE. v45 (f). May a base have INSERTED this line beside a reviewed change without a human looking? Only a line
+    that opens nothing, closes nothing and steers nothing:
+      - blank;
+      - a whole-line comment (`// ...`, `# ...`);
+      - a complete one-line import (_IMPORT_LINE);
+      - a statement with no `{` or `}`, its `(` `)` and `[` `]` balanced, of which no part (split at `;`, `&&`, `||`:
+        `a(); return`, `[ -f x ] || exit 1`) starts with a control or block word (_STEER_LINE), that does not start
+        with a decorator's `@`, holds no heredoc `<<`, and does not END in a way that takes the next line with it:
+        `:` (a Python block, a label), a backslash, or an operator (`&&`, `=`, `=>`, `?`, `.` ...).
+    And none of them may hold a token that opens or closes more than a line (_SPAN_TOKENS), an odd number of
+    backticks, or a character JavaScript ends a line at (_JS_LINE_END: `// note<U+2028>return` is not a comment to
+    its end). When unsure a line is not plain: the build refuses and a human looks, as before v45.
+    NOT judged: what a plain statement DOES (`ready = false`, `process.exit()`). The base's code is the base's; the
+    suite ran on it."""
+    s = l.strip()
+    if not s:
+        return True
+    if any(t in s for t in _SPAN_TOKENS) or s.count('`') % 2 or any(c in l for c in _JS_LINE_END):
+        return False
+    if _IMPORT_LINE.match(l) or _COMMENT_LINE.match(s):
+        return True
+    if '{' in s or '}' in s or s.count('(') != s.count(')') or s.count('[') != s.count(']'):
+        return False
+    if s[-1] in ':\\=+-*/%&|^!?<>.~' or s[0] == '@' or '<<' in s:
+        return False
+    return not any(_STEER_LINE.match(part.strip()) for part in re.split(r';|&&|\|\|', s))
+
+
+def indent_of(l):
+    """PURE. The width of a line's leading blanks (a tab counts one: both files are read the same way)."""
+    return len(l) - len(l.lstrip(' \t'))
+
+
+def scope_chain(T, i, first):
+    """PURE. v45 (e). The lines that ENCLOSE a change standing below index i of the file lines T, read by indentation:
+    walking up from T[i], every line that is neither blank nor a comment and is indented LESS than anything seen so
+    far joins the chain, until one at column 0 has. `first` = the change's own first line (its indentation is where
+    "so far" starts; a blank one starts at no limit). Trailing blanks stripped. In `class C:` / `    def bar(self):` /
+    `        newer()` the chain is [`    def bar(self):`, `class C:`]."""
+    cur = indent_of(first) if first.strip() else float('inf')
+    out = []
+    while i >= 0 and cur > 0:
+        l = T[i]
+        i -= 1
+        if not l.strip() or _SCOPE_SKIP.match(l):
+            continue
+        if indent_of(l) < cur:
+            cur = indent_of(l)
+            out.append(l.rstrip())
+    return out
+
+
+def open_above(T, i):
+    """PURE. v45 (g). What the lines T[:i] leave OPEN, counted as characters -- strings, comments and regexes included,
+    in both files alike: (`{` minus `}`, `/*` minus `*/`, and whether the triple quotes of either kind and the backticks
+    come in an odd number). Only a base that added something UNBALANCED above the change makes the two files differ: a
+    block or a comment it opened around the change, or (rarely) a lone brace in a string -- which then refuses, and a
+    human looks."""
+    text = '\n'.join(T[:i])
+    return (text.count('{') - text.count('}'), text.count('/*') - text.count('*/'),
+            text.count('"' * 3) % 2, text.count("'" * 3) % 2, text.count('`') % 2)
+
+
+def code_context(la, lb, text=None, fa=None, fb=None, text_a=None):
+    """PURE. v45. Two sections of ONE file (reviewed `la`, rebased `lb`) that are not byte-identical: is `lb` the same
+    change in the same place, the base having only INSERTED a few plain lines beside it? -> (n, '') with n >= 1 the
+    number of inserted lines, or (None, why not). `text` = the file AS REBASED, `text_a` = the file AS REVIEWED (at the
+    source tip); `fa` / `fb` = hunk_funcs of the two diffs for this file. ALL of:
+      - every non-hunk line identical (file headers, modes; so a binary patch, which has no hunk, is byte-exact);
+      - the same number of hunks (a base that merged or split two hunks moved the change's own lines together or apart);
+      - in each hunk the same runs of added and removed lines, line for line (a hunk with a no-newline marker: byte-exact);
+      (c) each run enclosed by the same function line in both diffs (run_funcs);
+      (d) the rebased hunk -- its added lines with its context -- stands at exactly ONE place in the rebased file (and
+          the reviewed hunk at exactly one place in the reviewed file: (e) and (g) are read there);
+      (a) walking outward from the change in the rebased file, EVERY reviewed context line is there, in the reviewed
+          order: above the first run, below the last, and between two runs. A reviewed context line that is gone or
+          changed refuses -- a human looks. Where the reviewed hunk reached the start or the end of its file (fewer than
+          DIFF_CONTEXT lines on that side), the file's edge is part of what was reviewed: every line now beyond the
+          reviewed ones counts as inserted;
+      (b) at most CODE_CONTEXT_MAX lines inserted on each side of a hunk, and between two of its runs;
+      (f) every inserted line a plain line (plain_line);
+      (e) each run under the same chain of enclosing scopes in the reviewed file and in the rebased one (scope_chain);
+      (g) ... with the same things left open above it: braces, a block comment, a triple quote, a template (open_above).
+    Not provable = not the same: no rebased text, no reviewed text, no function text for both diffs."""
+    (ha, xa), (hb, xb) = hunk_parts(la), hunk_parts(lb)
+    if ha != hb:
+        return None, 'a file header or mode line differs'
+    if len(xa) != len(xb):
+        return None, 'the reviewed diff has %d hunk(s) there, the rebased one %d' % (len(xa), len(xb))
+    if not isinstance(text, str) or not isinstance(text_a, str):
+        return None, 'the %s file could not be read' % ('rebased' if not isinstance(text, str) else 'reviewed')
+    if fa is None or fb is None or len(fa) != len(xa) or len(fb) != len(xb):
+        return None, 'the function text of the hunk headers is not known for both diffs'
+    T, TA = text.split('\n'), text_a.split('\n')
+    for X in (T, TA):
+        if X and X[-1] == '':
+            X.pop()
+    n = 0
+    for k, (ua, ub) in enumerate(zip(xa, xb)):
+        (ca, ra), (_, rb) = hunk_runs(ua), hunk_runs(ub)
+        if ra != rb or not ra:
+            return None, 'hunk %d: an added or removed line differs, or stands in another run' % (k + 1)
+        if run_funcs(ua, fa[k]) != run_funcs(ub, fb[k]):
+            return None, 'hunk %d: the enclosing function differs (%r reviewed, %r rebased)' % (
+                k + 1, run_funcs(ua, fa[k])[0][:60], run_funcs(ub, fb[k])[0][:60])
+        if [l for l in ua if l] == [l for l in ub if l]:
+            continue
+        if any(l[:1] == '\\' for l in ua + ub):
+            return None, 'hunk %d: a no-newline marker in a hunk that is not byte-identical' % (k + 1)
+        spans, places = hunk_spans(T, ub)
+        if places != 1:
+            return None, 'hunk %d: the rebased hunk stands at %d places in the rebased file' % (k + 1, places)
+        spans_a, places_a = hunk_spans(TA, ua)
+        if places_a != 1:
+            return None, 'hunk %d: the reviewed hunk stands at %d places in the reviewed file' % (k + 1, places_a)
+        s0, e1 = spans[0][0], spans[-1][1]
+        up = context_walk(T, s0 - 1, -1, ca[0][::-1])
+        down = context_walk(T, e1, 1, ca[-1])
+        mid = [context_walk(T, spans[i][1], 1, ca[i + 1]) for i in range(len(spans) - 1)]
+        if up is None or down is None or None in mid or [1 for i, m in enumerate(mid) if m and m[-1] >= spans[i + 1][0]]:
+            return None, 'hunk %d: a reviewed context line is gone or changed around the change' % (k + 1)
+        lo = up[-1] if up else s0
+        if len(ca[0]) < DIFF_CONTEXT:
+            lo = 0                                     # the reviewed hunk began at the file's first line
+        hi = down[-1] + 1 if down else e1
+        if len(ca[-1]) < DIFF_CONTEXT:
+            hi = len(T)                                # ... ended at its last line
+        ins = [[i for i in range(lo, s0) if i not in up], [i for i in range(e1, hi) if i not in down]] + \
+              [[i for i in range(spans[j][1], spans[j + 1][0]) if i not in m] for j, m in enumerate(mid)]
+        if max(len(x) for x in ins) > CODE_CONTEXT_MAX:
+            return None, 'hunk %d: %d lines were inserted on one side of the change (at most %d)' % (
+                k + 1, max(len(x) for x in ins), CODE_CONTEXT_MAX)
+        odd = [T[i] for x in ins for i in x if not plain_line(T[i])]
+        if odd:
+            return None, 'hunk %d: an inserted line is not a plain line: %r' % (k + 1, odd[0].strip()[:60])
+        for j, run in enumerate(ra):
+            first = next((l[1:] for l in run if l[1:].strip()), '')
+            if scope_chain(TA, spans_a[j][0] - 1, first) != scope_chain(T, spans[j][0] - 1, first):
+                return None, 'hunk %d: the enclosing scopes differ (%r reviewed, %r rebased)' % (
+                    k + 1, ' < '.join(x.strip()[:30] for x in scope_chain(TA, spans_a[j][0] - 1, first))[:70],
+                    ' < '.join(x.strip()[:30] for x in scope_chain(T, spans[j][0] - 1, first))[:70])
+            if open_above(TA, spans_a[j][0]) != open_above(T, spans[j][0]):
+                return None, 'hunk %d: a block or a comment is open above the change in one file only (%s reviewed, %s rebased)' % (
+                    k + 1, open_above(TA, spans_a[j][0]), open_above(T, spans[j][0]))
+        n += sum(len(x) for x in ins)
+    return (n, '') if n else (None, 'no inserted line found although the hunks differ')
+
+
+def code_context_files(a, b, free=None, texts=None, funcs=None, reviewed=None):
+    """PURE. v45. {path: (n, why)} -- code_context's answer for every file of the normalized diffs `a` (reviewed) and `b`
+    (rebased) whose section differs; the path lists in `free` are left out (their rule is diff_equiv's). `texts` = {path:
+    the file as rebased}, `reviewed` = {path: the file as reviewed}, `funcs` = (hunk_funcs of the reviewed raw diff, of
+    the rebased one)."""
+    free = CONTEXT_FREE_PATHS if free is None else free
+    FA, FB = funcs or ({}, {})
+    sa, sb = diff_sections(a), diff_sections(b)
+    if [p for p, _ in sa] != [p for p, _ in sb]:
+        return {}
+    return {path: code_context(la, lb, (texts or {}).get(path), FA.get(path), FB.get(path), (reviewed or {}).get(path))
+            for (path, la), (_, lb) in zip(sa, sb) if la != lb and path not in free}
+
+
+def context_strict(path, lstat=os.lstat):
+    """v45. Is the kill switch ~/digest/CONTEXT-STRICT on? It FAILS CLOSED (review r1: os.path.exists answered False for a
+    dangling symlink and for any stat error, which turned the switch OFF exactly when something was wrong with it): the
+    name existing in any form -- a file, a directory, a symlink to nothing -- is on, and so is every error other than
+    "no such name" (os.path.lexists would swallow those too). Only a clean ENOENT is off."""
+    try:
+        lstat(path)
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception:
+        return True
+
+
+def code_context_problem(t0, t1, strict):
+    """PURE. v45. '' when the build may accept a context-only rebase of CODE, else why not. t0 / t1 = tier_label of the
+    change on its source base / on the new base. Only `none` on BOTH is "not protected" (protected.py exit 0, what
+    validate_entry records as protected False): 3, tooling and undecidable are protected (undecidable = protected is
+    protected.py's own rule), and so is a tier that changed (step 7 refuses that one anyway). `strict` = the kill
+    switch ~/digest/CONTEXT-STRICT is present."""
+    if strict:
+        return '%s is present (byte-exact for code)' % CONTEXT_STRICT_NAME
+    if t0 != 'none' or t1 != 'none':
+        return 'the change is protected (tier %s on the source base, %s on the new one): byte-exact for code' % (t0, t1)
+    return ''
+
+
+def diff_equiv(a, b, free=None, texts=None, code=False, funcs=None, reviewed=None):
     """PURE. Is normalized diff `b` (the rebased change) the same change as the reviewed normalized diff `a`? ->
-    '' byte-identical | 'context-only in <paths>' | None (a different change, or not provably the same).
+    '' byte-identical | 'context-only in <paths>' | 'context-only (code) in <paths>[; context-only in <paths>]' (v45,
+    only with code=True) | None (a different change, or not provably the same).
+    code=True (v45; the build passes it only when code_context_problem is ''): a differing file that is NOT in `free`
+    is the same change when code_context says so, given `texts[path]` (the file AS REBASED), `reviewed[path]` (the file
+    AS REVIEWED) and `funcs` = (hunk_funcs of the reviewed raw diff, of the rebased one); without any of them it is
+    not provable. The default keeps every such
+    file byte-exact, as before v45. A file in `free` is judged by the list rule below in both cases, never by the code rule.
     'context-only': the same files in the same order; every file outside `free` byte-identical; and for a differing file
     in `free` (path -> the list's opening and closing line), with `texts[path]` the file AS REBASED:
       - every added and removed line identical and in order, and every non-hunk line (headers, modes) identical;
@@ -933,9 +1339,13 @@ def diff_equiv(a, b, free=None, texts=None):
     other = lambda ls: [l for l in ls if l and l[:1] not in ('+', '-', ' ') and l != '@@']
     edits = lambda ls: [l for l in ls if l[:1] in ('+', '-') and not l.startswith(hdr)]
     rigid = lambda ls: [l for l in ls if l[:1] == ' ' and not list_line(l[1:])]
-    loose = []
+    loose, loose_code = [], []
+    FA, FB = funcs or ({}, {})
     for (path, la), (_, lb) in zip(sa, sb):
         if la == lb:
+            continue
+        if path not in free and code and code_context(la, lb, texts.get(path), FA.get(path), FB.get(path), (reviewed or {}).get(path))[0]:
+            loose_code.append(path)              # v45
             continue
         if path not in free:
             return None
@@ -947,15 +1357,22 @@ def diff_equiv(a, b, free=None, texts=None):
         if region is None or any(l[1:] not in region for l in edits(lb) if l[:1] == '+'):
             return None
         loose.append(path)
-    return 'context-only in %s' % ', '.join(loose) if loose else None
+    out = (['context-only (code) in %s' % ', '.join(loose_code)] if loose_code else []) + \
+          (['context-only in %s' % ', '.join(loose)] if loose else [])
+    return '; '.join(out) or None
+
+
+def diff_raw(gdir, a, b):
+    """git diff a b as git wrote it (DIFF_ARGS) -- norm_diff of it is the text diff_hash hashes -- or raises."""
+    rc, out, err = gitx(gdir, *DIFF_ARGS, a, b)
+    if rc != 0:
+        raise RuntimeError('git diff %s %s failed: %s' % (a[:8], b[:8], err.strip()[-200:]))
+    return out
 
 
 def diff_norm(gdir, a, b):
     """norm_diff(git diff a b) -- the text diff_hash hashes -- or raises."""
-    rc, out, err = gitx(gdir, *DIFF_ARGS, a, b)
-    if rc != 0:
-        raise RuntimeError('git diff %s %s failed: %s' % (a[:8], b[:8], err.strip()[-200:]))
-    return norm_diff(out)
+    return norm_diff(diff_raw(gdir, a, b))
 
 
 def movement_fails(out):
@@ -1935,6 +2352,7 @@ def gather(P, full=True, r10=None):
     st['base_full'] = full_sha(P, man.get('declared_code_version'))
     st['rollout_procs'] = rollout_procs(P)
     st['spec_off'] = os.path.exists(P['spec_off'])
+    st['context_strict'] = context_strict(P['context_strict'])   # v45 (the BUILD reads the file itself: it is another process)
     st['canary_full'] = full_sha(P, man.get('canary_code_version')) if man.get('canary_code_version') else None
     st['ar_busy'], st['spec_jobs'] = False, {}
     for q in glob.glob(os.path.join(P['ar_home'], 'jobs', '*.json')):
@@ -3260,30 +3678,65 @@ def _ar_steps(P, job, run, base, tip):
     S('cherry-pick', '%d commit(s) onto %s -> %s, no conflicts' % (len(commits), base[:8], nt[:8]))
     # 6. (b) the diff is the reviewed diff
     h1, files1 = diff_hash(R, base, nt)
-    same = ''
-    if h1 != h0:
-        # v43: the rebased text of each path list the change touches (git show; a failure leaves it out = not the same)
-        texts = {}
-        for fp in CONTEXT_FREE_PATHS:
-            if fp in files1:
-                rcs, txt, _ = gitx(R, 'show', '%s:%s' % (nt, fp))
-                if rcs == 0:
-                    texts[fp] = txt
-        same = diff_equiv(diff_norm(R, pt['base'], tip), diff_norm(R, base, nt), texts=texts)
-    if same is None:
-        raise ArRefuse('the rebased diff is NOT the reviewed diff (normalized sha256 %s vs %s; files %s): the base changed '
-                       'lines in or beside the change, so it needs a human rebase and a review'
-                       % (h1[:12], h0[:12], ', '.join(files1)[:200]))
-    if same:
-        # v43: the same added and removed lines; only the context of a path list moved (CONTEXT_FREE_PATHS)
-        S('diff-identical', 'the reviewed change: every added and removed line is the reviewed one; %s (a path list, v43); '
-                            'normalized diff sha256 %s, reviewed %s' % (same, h1[:16], h0[:16]))
-    else:
-        S('diff-identical', 'normalized diff sha256 %s == the reviewed one' % h1[:16])
-    # 7. (d) protected.py's tier is unchanged
+    # v45: the protected tier of the change on BOTH bases is read HERE, before the identity check, because it decides
+    # which rule that check uses for code (code_context_problem). Step 7 still refuses a tier that changed, in its place.
     PR = dict(P, git=R)
     t0 = tier_label(*protected_run(PR, pt['base'], tip))
     t1 = tier_label(*protected_run(PR, base, nt))
+    code_off = code_context_problem(t0, t1, context_strict(P['context_strict']))
+    same, na, nb, texts, funcs, reviewed = '', '', '', {}, None, {}
+    if h1 != h0:
+        # the file AS REBASED (git show; a failure leaves it out = not the same): v43 for each path list the change
+        # touches, v45 for every changed file -- the code rule looks for the reviewed context IN the rebased file --
+        # and the file AS REVIEWED, at the source tip: the scopes that enclose the change are compared between the two
+        for fp in files1:
+            rcs, txt, _ = gitx(R, 'show', '%s:%s' % (nt, fp))
+            if rcs == 0:
+                texts[fp] = txt
+            rcs, txt, _ = gitx(R, 'show', '%s:%s' % (tip, fp))
+            if rcs == 0:
+                reviewed[fp] = txt
+        raw_a, raw_b = diff_raw(R, pt['base'], tip), diff_raw(R, base, nt)
+        na, nb, funcs = norm_diff(raw_a), norm_diff(raw_b), (hunk_funcs(raw_a), hunk_funcs(raw_b))
+        same = diff_equiv(na, nb, texts=texts, code=not code_off, funcs=funcs, reviewed=reviewed)
+    # v45: code_context's answer per differing code file -- the counts of an accepted case, the reasons of a refused one
+    files_cc = code_context_files(na, nb, texts=texts, funcs=funcs, reviewed=reviewed)
+    hint = ''
+    if same is None and code_off and diff_equiv(na, nb, texts=texts, code=True, funcs=funcs, reviewed=reviewed):
+        # v45: say so when the ONLY difference is lines the base inserted beside the change, so the human rebase knows
+        hint = ' -- every added and removed line IS the reviewed one and the base only inserted lines beside it (%s), but %s' % (
+            ', '.join('%s %d' % (f, n) for f, (n, _) in sorted(files_cc.items()))[:160], code_off)
+    elif same is None and not code_off and [1 for n, _ in files_cc.values() if not n]:
+        # v45: the code rule was on and said no: name the file and the reason, for the human who rebases it
+        hint = ' -- not a context-only rebase of code (v45): %s' % '; '.join(
+            '%s: %s' % (f, w) for f, (n, w) in sorted(files_cc.items()) if not n)[:300]
+    if same is None:
+        raise ArRefuse('the rebased diff is NOT the reviewed diff (normalized sha256 %s vs %s; files %s): the base changed '
+                       'lines in or beside the change, so it needs a human rebase and a review%s'
+                       % (h1[:12], h0[:12], ', '.join(files1)[:200], hint))
+    ctx_code = {f: n for f, (n, _) in files_cc.items() if n} if same.startswith('context-only (code)') else {}
+    if ctx_code:
+        # v45: the same added and removed lines, every reviewed context line still around them in the rebased file;
+        # the base INSERTED lines beside the change (code_context), and the change is not protected
+        nctx = sum(ctx_code.values())
+        ident = ('every added and removed line identical, CONTEXT-ONLY REBASE OF CODE (v45, not protected): %s; %d context '
+                 'line(s) inserted by the base (%s), every reviewed context line still in place; normalized diff sha256 %s, '
+                 'reviewed %s; a blockers-only look is owed'
+                 % (same, nctx, ', '.join('%s %d' % kv for kv in sorted(ctx_code.items())), h1[:16], h0[:16]))
+        S('diff-identical', 'the reviewed change: every added and removed line is the reviewed one; CONTEXT-ONLY IN CODE (v45, '
+                            'not protected: tier none on both bases): %s; %d context line(s) inserted by the base (%s), every '
+                            'reviewed context line still in place; normalized diff sha256 %s, reviewed %s'
+                            % (same, nctx, ', '.join('%s %d' % kv for kv in sorted(ctx_code.items())), h1[:16], h0[:16]))
+    elif same:
+        # v43: the same added and removed lines; only the context of a path list moved (CONTEXT_FREE_PATHS)
+        ident = 'every added and removed line identical, %s (a path list; normalized diff sha256 %s, reviewed %s)' % (
+            same, h1[:16], h0[:16])
+        S('diff-identical', 'the reviewed change: every added and removed line is the reviewed one; %s (a path list, v43); '
+                            'normalized diff sha256 %s, reviewed %s' % (same, h1[:16], h0[:16]))
+    else:
+        ident = 'normalized diff identical (sha256 %s)' % h1[:16]
+        S('diff-identical', 'normalized diff sha256 %s == the reviewed one' % h1[:16])
+    # 7. (d) protected.py's tier is unchanged (read above, before the identity check: v45)
     if t0 != t1:
         raise ArRefuse('protected.py tier changed: %s on the source base, %s on %s -- needs the review that tier asks for'
                        % (t0, t1, base[:8]))
@@ -3302,9 +3755,9 @@ def _ar_steps(P, job, run, base, tip):
     reg['sha'] = nt
     reg['registered_at'] = iso(now())
     note = ('[AUTOREBASE] %s @ %s on fleet base %s (branch %s): canary-sched cherry-picked %s..%s (%d commit(s), the '
-            'reviewed variant on %s) with no conflicts; normalized diff identical (sha256 %s); protected tier %s '
+            'reviewed variant on %s) with no conflicts; %s; protected tier %s '
             'unchanged; eslint ok; %s. ' % (run, nt[:8], base[:8], branch, pt['base'][:8], tip[:8], len(commits),
-                                            pt['base'][:8], h1[:16], t1, summary))
+                                            pt['base'][:8], ident, t1, summary))
     if reg.get('lab') is not True:
         # v41: the read plan is decided HERE, mechanically, on the diff that will deploy (H7 re-checks it at launch)
         plan, pwhy = ar_read_plan(P, R, base, nt, t1, reg)
@@ -3322,6 +3775,22 @@ def _ar_steps(P, job, run, base, tip):
     # 12. the variant, through the same validation as a hand-added one
     approved = '%s || AUTOREBASE (canary-sched v40) onto %s: %s' % (src.get('approved') or '', base[:8], note.strip())
     _ar_add_variant(P, S, run, base, nt, regp, approved, reads_src)
+    if ctx_code:
+        # v45: one page, AFTER the variant is queued (so "accepted" and "the suite ran" are true), at 'flag': it asks
+        # for a look after the fact and blocks nothing -- the next free-slot tick launches the variant as any other.
+        # Review r1: it must not be able to RAISE either. The variant is queued by now; an exception here would end
+        # the job as "refused" while the next tick launches that variant. A page that cannot be written is a step row.
+        try:
+            ar_page(P, 'flag', run, '%s: autorebase accepted a context-only rebase of code in %s (%d context lines); the suite '
+                    'ran; a blockers-only look is owed (variant %s on %s; compare `git diff %s %s` with `git diff %s %s`)'
+                    % (run, ', '.join(sorted(ctx_code)), sum(ctx_code.values()), nt[:8], base[:8], pt['base'][:8], tip[:8],
+                       base[:8], nt[:8]))
+        except Exception as x:
+            try:
+                S('page-failed', 'the flag page for the context-only rebase of code could not be written (%s: %s); the variant '
+                                 'IS queued and a blockers-only look is still owed' % (type(x).__name__, x))
+            except Exception:
+                pass
     gitx(R, 'worktree', 'remove', '--force', W)
     shutil.rmtree(W, ignore_errors=True)
     return {'variant': nt, 'branch': branch, 'registration': regp, 'tests': summary}
@@ -4104,6 +4573,8 @@ def cmd_status(P):
               % (st['r11_expired'][0], st['r11_expired'][2], st['r11_expired'][1], R11_EXPIRE_H))
     for run, why in st.get('skipped') or []:
         print('SKIP %s' % why)
+    if st.get('context_strict'):
+        print('%s present: the autorebase refuses a rebase that moves context lines of code (v45 rule off)' % CONTEXT_STRICT_NAME)
     if st.get('install_hold') is not None:
         print('INSTALL-HOLD auto-release: %s' % ('YES, ' + st['hold_release'][1] if st['hold_release'][0]
                                                  else (st['hold_release'][1] or 'no (live)')))

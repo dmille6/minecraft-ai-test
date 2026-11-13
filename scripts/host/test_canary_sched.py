@@ -2080,6 +2080,21 @@ def t_v44_unheld_head_with_no_variant_is_not_passed(CS, F):
     assert not st['skipped'], st['skipped']
 
 
+def t_v45_context_strict_is_wired(CS, F):
+    """The kill switch of the context-only code rule: a name, a path, read into state (as SPEC-OFF is), shown by status."""
+    with Env(F.env()):
+        P = CS.paths()
+        assert P['context_strict'] == os.path.join(F.home, 'digest', CS.CONTEXT_STRICT_NAME) and CS.CONTEXT_STRICT_NAME == 'CONTEXT-STRICT'
+        assert CS.gather(P)['context_strict'] is False
+    rc, out = human(CS, F, 'status')
+    assert rc == 0 and 'CONTEXT-STRICT' not in out, out
+    open(os.path.join(F.home, 'digest', 'CONTEXT-STRICT'), 'w').close()
+    with Env(F.env()):
+        assert CS.gather(CS.paths())['context_strict'] is True
+    rc, out = human(CS, F, 'status')
+    assert rc == 0 and 'CONTEXT-STRICT present' in out, out
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith('t_')]
 
 
@@ -2111,6 +2126,8 @@ MUTANTS = [
     ("                return None\n            continue\n        return e, csha\n", "                return None\n            return None\n        return e, csha\n"),
     # v44: the speculative walk has no depth
     ("            if passed >= SPEC_DEPTH:\n                return None\n", "            if False:\n                return None\n"),
+    # v45: the kill switch of the context-only code rule is not read into state
+    ("    st['context_strict'] = context_strict(P['context_strict'])", "    st['context_strict'] = False"),
     # v43: the stale staged registration is not a skippable kind (the 18-h block of 11-10/11)
     ("    if code == 'H3' and STALE_STAGED in r and journal_status(run, st) not in ('open', 'live', 'closed'):\n", "    if False:\n"),
     # v43: the no-patch-source block is not a skippable kind
