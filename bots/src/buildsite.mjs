@@ -176,6 +176,18 @@ export function reservations (plan, ctx = {}) {
   return { column, zones: ctx.zones ?? [] }
 }
 
+/**
+ * leaffell-01show r1 (Codex r1 BLOCKER): IS A TRUNK'S LOG IN A RESERVATION? -> 'leaf_tree_reserved' | null. Pure. The screen's own tree
+ * rule (`tree_in_reservation`: a plan cell, box or path, a well, the tree farm's columns, the monument's apron -- reservations(); a
+ * protected zone or an avoid box -- its zones), asked of a tree that is felled only so the leaves it holds decay. ONE rule for the
+ * styled sitings (siteBlueprintSteps) and the retrofit (trunkGuard: skills.mjs reroofLeafCtx): the retrofit asked only the protected
+ * zones, so a tree of the separately recorded tree farm that held a roof leaf would have been felled and replanted elsewhere.
+ */
+export const trunkReserved = (res, [x, y, z]) => (res.column(x, z, y, y) || cellInZones(x, y, z, res.zones ?? []) ? 'leaf_tree_reserved' : null)
+/** THE TRUNK GUARD of a fell-first plan (leaffell.mjs leafFellPlan `closed`) -> (x, y, z) -> reason | null: `trunk_closed` in a protected
+ *  zone (`zoneClosed`), `leaf_tree_reserved` in a reservation (trunkReserved), `reservations_unread` when the town's reservations could
+ *  not be read (`res` null: nothing is felled on a guess). Pure. */
+export const trunkGuard = (res, zoneClosed = null) => (x, y, z) => (zoneClosed?.(x, y, z) ? 'trunk_closed' : !res ? 'reservations_unread' : trunkReserved(res, [x, y, z]))
 /** The connected logs of a tree from one log (26-neighbour, bounded) -> [[x, y, z]]. Pure. */
 export function treeOf (read, start, max = TREE.maxLogs) {
   const seen = new Set([k3(...start)]), out = [start], q = [start]
@@ -960,7 +972,7 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
         if (xc?.fail) { proofFails[xc.fail] = (proofFails[xc.fail] ?? 0) + 1; if (xc.detail && (row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} ${xc.fail} ${xc.detail}`.slice(0, 120)); continue }
         // leaffell-01show (sitecanopy.mjs cellClearsHook `leafFell`): a tree the hook lists so the leaves it holds decay is felled only
         // where the screen fells its own -- never a log in a plan reservation or a zone (`leaf_tree_reserved`: the next candidate)
-        if (xc?.fellLogs?.some(([x, y, z]) => res.column(x, z, y, y) || cellInZones(x, y, z, res.zones))) { proofFails.leaf_tree_reserved = (proofFails.leaf_tree_reserved ?? 0) + 1; continue }
+        if (xc?.fellLogs?.some(at => trunkReserved(res, at))) { proofFails.leaf_tree_reserved = (proofFails.leaf_tree_reserved ?? 0) + 1; continue }
         if (xc?.leaf) {
           // ...the leaves that only wait for a trunk are marked on the site's own list too, and the trees' saplings join the site's
           const dk = new Set((xc.decay ?? []).map(a => a.join(',')))

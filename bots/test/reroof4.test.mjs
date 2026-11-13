@@ -302,7 +302,7 @@ await t('MUTANT: `stairFirst` ignored -- the clear comes first again (killed for
 await t('wired (structural, comments stripped): buildReroof asks reroofProve and publishes temp+notch; the shop visit passes the floors and tears the stair down; recordDamaged asks the stair\'s state', () => {
   const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const sk = strip('../src/skills.mjs')
-  assert.strictEqual(sk.split('const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR) : {}) })').length, 2)
+  assert.strictEqual(sk.split('const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })').length, 2)
   assert.ok(sk.includes('reroofRecord(cur, p.cells, bpNew, style, { clear, temp: pr.temp, notch: pr.notch, replant: pr.replant ?? [], leaf: pr.leaf ?? null })'))
   assert.ok(sk.includes("    Object.assign(storeOpts, reroofVisitOpts(rec, stood, home))"))
   assert.ok(sk.includes('...(REROOF_FIX.fallSafe && home ? { avoid: rd => reroofFallRisk(rd, siteWalkFrom(rd, home, new Set(), Number.isFinite(rec.walkR) ? rec.walkR : 90,'), 'the visit avoids the risky ledges')
@@ -480,6 +480,57 @@ await t('r6 wired (structural, comments stripped): the shop visit\'s fall guard 
   assert.ok(/if \(typeof apexDig === 'function'\) \{/.test(bb) && /for \(const d of apexDigs\(\{ x: f0\[0\], y: f0\[1\], z: f0\[2\] \}, path0, read, apexDig\)\)/.test(bb))
   assert.ok(/const apex = walk0 && fx\.apex \? reroofApexLeaves\(/.test(strip('../src/reroof.mjs')))
   assert.strictEqual(RR.reroofFixes({ REROOF_APEX: 'off' }).apex, false); assert.strictEqual(RR.reroofFixes({}).apex, true)
+})
+
+// ---- LEAFFELL-01SHOW r1 (Codex r1 BLOCKER; the live defect: re-roof plans of 12 to 14 minutes with the event loop held) ---------------------
+// THE WHOLE PLAN'S TRACE on the live hall: a W for every walk of the town (walkFrom reads its seeds once a walk: the `stood` iterator,
+// as buildsite.test.mjs's SITEPROOF-01 marks them) and a T for every turn of the event loop the plan gave up (a setImmediate chain
+// started before the plan: it runs first in every turn). With the switch on: never two walks without a turn between.
+console.log('LEAFFELL-01SHOW r1: THE PLAN HANDS THE LOOP BACK AFTER EVERY WALK')
+async function planTrace (M, env = {}, extra = {}) {
+  const ev = []
+  const seeds = M.reroofSeeds(FX.stood, HALL.box)
+  const stood = seeds.slice()
+  stood[Symbol.iterator] = function * () { ev.push('W'); yield * seeds }
+  stood.filter = () => stood                       // reroofProve's own seed filter (reroofSeeds) keeps the marked list
+  let live = true
+  const beat = () => { if (live) { ev.push('T'); setImmediate(beat) } }
+  setImmediate(beat)
+  try {
+    const r = await M.reroofProve(liveRead, HOME, HALL, bpOld, bpAdd, { stood, walkR: 90, domain, recordAt: (x, y, z) => OTHER.has(`${x},${y},${z}`), fx: M.reroofFixes(env), ...extra })
+    return { r, seq: ev.join(''), walks: ev.filter(x => x === 'W').length }
+  } finally { live = false }
+}
+const sameAnswer = (a, b) => assert.deepStrictEqual([a.ok, a.why, a.notch, a.clear?.length, a.temp?.size ?? 0, a.p?.cells?.length], [b.ok, b.why, b.notch, b.clear?.length, b.temp?.size ?? 0, b.p?.cells?.length])
+let onTrace = null
+await t('the switch ON: across the whole plan (the full roof, the door approach or notch, every stair tried, every reach) no two walks without a turn between; the answer is the old one', async () => {
+  onTrace = await planTrace(RR)
+  assert.strictEqual(onTrace.r.ok, true, `${onTrace.r.why} ${onTrace.r.detail}`)
+  assert.ok(onTrace.walks >= 20, `control: the plan walks the town many times (${onTrace.walks})`)
+  assert.ok(!onTrace.seq.includes('WW'), `NO-TWO-WALKS: ...${onTrace.seq.slice(Math.max(0, onTrace.seq.indexOf('WW') - 12), onTrace.seq.indexOf('WW') + 14)}`)
+})
+await t('POSITIVE CONTROL (LEAFFELL=off, the live plan): the same plan holds the loop over runs of walks -- and answers the same', async () => {
+  const off = await planTrace(RR, { LEAFFELL: 'off' })
+  assert.ok(off.seq.includes('WW'), 'the instrument sees the defect it is there for')
+  assert.ok(/W{4,}/.test(off.seq), `a whole proof straight through: longest run ${Math.max(...off.seq.split('T').map(x => x.length))} walks`)
+  sameAnswer(off.r, onTrace.r)
+})
+await t('MUTANT: the roof\'s own proof run straight through again (proveWith) -- walks back to back (killed for that reason)', async () => {
+  let why = null
+  await withMutant(RR_PATH, '  const p = fx.leafFell ? await proveY(clear, null) : proveWith(clear, null)\n', '  const p = proveWith(clear, null)\n', async M => {
+    const m = await planTrace(M)
+    try { assert.ok(!m.seq.includes('WW'), 'NO-TWO-WALKS') } catch (e) { why = e }
+  })
+  assert.ok(why instanceof assert.AssertionError && /NO-TWO-WALKS/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
+})
+await t('`aborted()`: an interrupted plan ends at its next turn ({ ok: false, why: aborted }) instead of running to its end; with the switch off it is not asked (as before)', async () => {
+  let turns = 0
+  const cut = await planTrace(RR, {}, { aborted: () => ++turns > 5 })
+  assert.deepStrictEqual([cut.r.ok, cut.r.why], [false, 'aborted'])
+  assert.ok(cut.walks <= 6 && cut.walks < onTrace.walks, `ended after ${cut.walks} walks of ${onTrace.walks}`)
+  const never = await planTrace(RR, {}, { aborted: () => false })
+  sameAnswer(never.r, onTrace.r)
+  assert.ok(!never.seq.includes('WW'))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

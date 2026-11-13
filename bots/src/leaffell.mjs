@@ -84,7 +84,7 @@ export function leafSupport (read, at, { dist = LEAF_DIST, planned = null } = {}
  * sapling, logs }], blockers: [{ at, name, why }] }. Pure.
  *   clear      the listed digs ({ at, name, kind }); unreached  the cells of it the reach test found no stand for
  *   own        Set of the building's own cell keys (standing and to place); recordAt(x, y, z) -> any record holds the cell
- *   closed(x, y, z) -> truthy when a dig there is refused or owed to someone else (a protected zone, a reservation)
+ *   closed(x, y, z) -> truthy when a dig there is refused or owed to someone else (a protected zone, a reservation); a string names why
  *   planned    Set of keys where the build will place a log-class block (it will hold the leaves round it)
  *   rooted     Set of the STANDING building's cell keys: a tree rooted on one (a sapling that took on its roof) owes no sapling
  * An unreached cell is DECAYING when it reads a natural leaf and every log that holds it (leafSupport) is a listed dig a stand reaches,
@@ -110,7 +110,9 @@ export function leafFellPlan (read, clear = [], unreached = [], { own = new Set(
     const logs = treeOf(read, log, maxLogs)
     if (logs.length + fell.size > maxLogs) return set(logs, { ok: false, why: 'tree_too_big' })
     if (logs.some(q => own.has(k(q)) || recordAt(...q))) return set(logs, { ok: false, why: 'record_log' })
-    if (logs.some(q => closed(...q))) return set(logs, { ok: false, why: 'trunk_closed' })
+    // (`closed` may name its own reason -- buildsite.mjs trunkGuard: trunk_closed for a protected zone, leaf_tree_reserved for a plan
+    // reservation, the siting's own word; any other truthy answer reads trunk_closed)
+    for (const q of logs) { const c = closed(...q); if (c) return set(logs, { ok: false, why: typeof c === 'string' ? c : 'trunk_closed' }) }
     const below = ([x, y, z]) => read(x, y - 1, z)
     const bases = logs.filter(q => { const n = nm(below(q)); return !HOLDS.test(n) && !LEAVES.test(n) })
     if (bases.some(q => !below(q))) return set(logs, { ok: false, why: 'unread_near' })

@@ -469,6 +469,38 @@ export const SHAFT_STUCK_RETRY_MS = 30 * 60_000
 // storehouse-01 r4 (LIVE showcase 11-01 14:45Z: the three torches deferred no_stand while a spruce's leaves walled the doorway in,
 // and the stamp held the whole order 6 h): a storehouse stamp holds 30 min, as the stair's -- its next visit tidies the doorway first
 export const stuckWindowOf = plot => (plot === SHAFT_PLOT || plot === STORE_PLOT ? SHAFT_STUCK_RETRY_MS : SHOP_STUCK_RETRY_MS)
+/**
+ * LEAFFELL-01SHOW r1 (Codex r1 BLOCKER): A VISIT THAT ENDED WAITING HOLDS ITS PROJECT FOR THIS BOT. buildrun.mjs runVisit's two waiting
+ * stops -- `leaf_decay` (cells under leaves that decay once their trunk is down) and `zone_closed` (cells a protected zone closes) --
+ * mean "nothing more here for this bot until the world changes", and no back-off knew them: with no sink to yield to, the idle mark
+ * (noteIdle) holds nothing, activeProject returns the same project and every order cooldown (3 min on the showcase) sent the bot back
+ * to it. The neighbours' own shapes, per bot and per plot: a mark like the idle mark's (noteWait: plot -> { stop, until }), the stuck
+ * back-off's step aside in the picker (waitBackoff: a held project waits behind the others, as stuckBackoff's does) and, where it is
+ * still the pick, the order's skip under the stop's own name (buildOrder: `waitOf`, as sinkfix-04's `idleOf` quiets the tidy) -- which
+ * the grounds stand in for (grounds2.mjs NO_ORDER_SKIPS). How long: `leaf_decay` LEAF_RETRY_MS (decay takes minutes; the visit's own
+ * wait on a leaf is bounded by leaffell.mjs LEAF_WAIT_MS), `zone_closed` SHOP_STUCK_RETRY_MS (nothing there changes by itself).
+ */
+export const SHOP_LEAF_RETRY_MS = 5 * 60_000
+export const WAIT_STOPS = Object.freeze({ leaf_decay: SHOP_LEAF_RETRY_MS, zone_closed: SHOP_STUCK_RETRY_MS })
+/** A visit's result marks (a waiting stop) or ends (any other visit that happened) the hold of its plot. Pure over `mem` (mutated:
+ *  Map plot -> { stop, until }). A visit that did not happen (IDLE_NOT_A_VISIT, an abort) neither marks nor ends it. */
+export function noteWait (mem, plot, result, now = Date.now()) {
+  if (!mem || !plot || !result) return
+  const stop = String(result.stop ?? '')
+  if (Object.hasOwn(WAIT_STOPS, stop)) { mem.set(plot, { stop, until: now + WAIT_STOPS[stop] }); return }
+  if (result.status === 'aborted' || IDLE_NOT_A_VISIT.has(stop)) return
+  mem.delete(plot)
+}
+/** The waiting stop that holds a plot for this bot now -> 'leaf_decay' | 'zone_closed' | null. Pure. */
+export const waitHeld = (mem, plot, now = Date.now()) => { const e = mem?.get?.(plot); return e && Number(e.until) > now && Object.hasOwn(WAIT_STOPS, e.stop) ? e.stop : null }
+/** The states with this bot's held projects stepped aside, exactly as stuckBackoff steps a stuck one aside (complete: only `due`,
+ *  after every open project; open: not `free`, the next open project first; never a sink pick, never a service pick). Pure. */
+export function waitBackoff (states = [], mem = null, now = Date.now()) {
+  if (!mem?.size) return states
+  return states.map(st => (st?.exists && waitHeld(mem, st.plot, now) ? (st.complete ? { ...st, damaged: false, due: true, stuck: true } : { ...st, free: false, stuck: true }) : st))
+}
+let waitOf = () => null
+export function setWaitNow (fn) { if (typeof fn === 'function') waitOf = fn }
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
@@ -941,6 +973,9 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
   // sinkfix-02: a sink visit starts at the surface (LIVE 11-04: three road visits ordered at y 23-26 in a mine, aborted entombed)
   if (isSinkPlot(plot0) && Array.isArray(feet) && Number.isFinite(groundY) && feet[1] < groundY - SINK_SURFACE_DY) return { order: null, skip: 'underground' }
   if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  // leaffell-01show r1: the pick is still the project this bot's last visit ended WAITING on (noteWait; waitBackoff put every other
+  // project first): no order for it until its hold is over -- the skip carries the stop's name, and the grounds are asked instead
+  { let w = null; try { w = waitOf(plot0) } catch { w = null } if (w && Object.hasOwn(WAIT_STOPS, w)) return { order: null, skip: w } }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
   let plot = record?.plot ?? null

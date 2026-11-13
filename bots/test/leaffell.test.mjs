@@ -10,12 +10,15 @@
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { performance } from 'node:perf_hooks'
+process.env.SHOP_COOLDOWN_MS = String(3 * 60_000)   // the live showcase's order cooldown (read once, when shop.mjs loads)
 const { R, PJ, G, HOME, k3, server, bot, BP, SITE, project, plan, withMutant } = await import('./helpers/buildfake.mjs')
 const B = await import('../src/buildsite.mjs')
 const C = await import('../src/cottage.mjs')
 const RR = await import('../src/reroof.mjs')
 const SC = await import('../src/sitecanopy.mjs')
 const LF = await import('../src/leaffell.mjs')
+const S = await import('../src/shop.mjs')
+const G2 = await import('../src/grounds2.mjs')
 const SRC = f => new URL(`../src/${f}`, import.meta.url)
 
 let pass = 0, fail = 0
@@ -202,13 +205,13 @@ function scene ({ persistent = 'false', trunk = true } = {}) {
 const bpC = B.loadBlueprint('cottage@1f')
 // the canopy's east half (x >= 25) is out of every stand's sight in these scenes; everything else is reached
 const halfReach = cl => { const un = cl.filter(c => /_leaves$/.test(c.name) && c.at[0] >= 25).map(c => c.at); return { ok: !un.length, unreached: un } }
-function site (read, { leafFell = true, replantWide = true, mod = SC, closed = () => null, decisions = [] } = {}) {
+function site (read, { leafFell = true, replantWide = true, mod = SC, closed = () => null, decisions = [], farm = [], bmod = B } = {}) {
   const sp = C.cottageSitingPlan(HOME, { id: 'X9', box: BOX }, [])
-  const ctx = { zones: [], stood: [], sectors: sp.sectors, plot: 'cottage1', earth: sp.earth ?? C.COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line,
+  const ctx = { zones: [], farm, stood: [], sectors: sp.sectors, plot: 'cottage1', earth: sp.earth ?? C.COTTAGE_EARTH, domain: sp.domain, standDomain: sp.standDomain, walkR: sp.walkR, line: sp.line,
     cellClears: mod.cellClearsHook(read, { cellsOf: s => B.placeBlueprint(bpC, s.anchor, s.s, s.orient).map(c => c.at), reached: halfReach }),
     ...(leafFell ? { leafFell: { plan: s => ({ own: new Set(B.placeBlueprint(bpC, s.anchor, s.s, s.orient).map(c => c.at.join(','))), closed }), onDecision: (s, lf) => decisions.push(lf) } } : {}),
     ...(replantWide ? { leafReplantDomain: () => true } : {}) }
-  return B.siteBlueprint(read, plan(), bpC, ctx)
+  return bmod.siteBlueprint(read, plan(), bpC, ctx)
 }
 const fails = s => Object.assign({}, ...(s.sectors ?? []).map(r => r.proofFails ?? {}))
 
@@ -254,6 +257,34 @@ await t('a trunk inside a protected zone is never felled: the old answer, the le
   assert.strictEqual(s.ok, false); assert.ok(fails(s).leaves_unreached > 0)
   assert.ok(/trunk_closed/.test(decisions[0].blockers[0].why))
   assert.ok((s.sectors ?? []).some(r => (r.proofEx ?? []).some(x => /leaves_unreached trunk_closed:\d+,\d+,-?\d+ spruce_leaves@/.test(x))), JSON.stringify(s.sectors.map(r => r.proofEx)))
+})
+await t('r1: a trunk in a PLAN RESERVATION (the tree farm\'s columns) is never felled for its leaves -- the candidates fail `leaf_tree_reserved`; CONTROL: the same trunk unreserved is felled (above)', () => {
+  const s = site(scene(), { farm: [[TRUNK[0], TRUNK[1]]] })
+  assert.strictEqual(s.ok, false)
+  assert.ok(fails(s).leaf_tree_reserved > 0 && !(fails(s).leaves_unreached > 0), JSON.stringify(fails(s)))
+})
+await t('r1: ONE trunk rule for the sitings and the retrofit (buildsite.mjs trunkReserved / trunkGuard): the same reason, a zone first, unread reservations fell nothing', () => {
+  const res = B.reservations(plan(), { farm: [[3, 0]] }), open = B.reservations(plan(), {})
+  assert.strictEqual(B.trunkReserved(res, [3, 2, 0]), 'leaf_tree_reserved'); assert.strictEqual(B.trunkReserved(res, [5, 2, 2]), 'leaf_tree_reserved', 'the farm\'s columns reach 2 out')
+  assert.strictEqual(B.trunkReserved(res, [9, 2, 0]), null); assert.strictEqual(B.trunkReserved(open, [3, 2, 0]), null)
+  assert.strictEqual(B.trunkReserved({ column: () => null, zones: [{ box: [3, 0, 0, 3, 9, 0] }] }, [3, 2, 0]), 'leaf_tree_reserved', 'a zone or an avoid box of the reservations too')
+  // the retrofit's plan (leafFellPlan with the guard skills.mjs reroofLeafCtx passes): the tree() fixture's trunk stands at 3,1..4,0
+  const m = tree()
+  const kept = LF.leafFellPlan(world(m), clearOf(m, ['1,4,0']), [[1, 4, 0]], { closed: B.trunkGuard(res) })
+  assert.strictEqual(kept.ok, false); assert.deepStrictEqual(kept.fell, [])
+  assert.strictEqual(kept.blockers[0].why, 'leaf_tree_reserved 3,4,0', 'the siting\'s own word')
+  const felled = LF.leafFellPlan(world(m), clearOf(m, ['1,4,0']), [[1, 4, 0]], { closed: B.trunkGuard(open) })
+  assert.strictEqual(felled.ok, true, 'CONTROL: the same trunk, no reservation on it'); assert.strictEqual(felled.fell.length, 4)
+  assert.strictEqual(LF.leafFellPlan(world(m), clearOf(m, ['1,4,0']), [[1, 4, 0]], { closed: B.trunkGuard(open, (x, y, z) => x === 3 && y === 1) }).blockers[0].why, 'trunk_closed 3,4,0', 'a protected zone names itself')
+  assert.strictEqual(LF.leafFellPlan(world(m), clearOf(m, ['1,4,0']), [[1, 4, 0]], { closed: B.trunkGuard(null) }).blockers[0].why, 'reservations_unread 3,4,0', 'the town\'s reservations unreadable: nothing is felled on a guess')
+})
+await t('r1 MUTANT (buildsite.mjs): the trunk rule answers nothing -- the tree farm\'s tree is felled by both paths (killed for that reason)', async () => {
+  await withSrcMutant('buildsite.mjs', "export const trunkReserved = (res, [x, y, z]) => (res.column(x, z, y, y) || cellInZones(x, y, z, res.zones ?? []) ? 'leaf_tree_reserved' : null)\n", 'export const trunkReserved = () => null\n', async M => {
+    const s = site(scene(), { farm: [[TRUNK[0], TRUNK[1]]], bmod: M })
+    assert.ok(s.ok && s.record.clear.some(c => c.kind === 'tree'), 'the siting fells the reserved trunk')
+    const m = tree()
+    assert.strictEqual(LF.leafFellPlan(world(m), clearOf(m, ['1,4,0']), [[1, 4, 0]], { closed: M.trunkGuard(M.reservations(plan(), { farm: [[3, 0]] })) }).ok, true, 'and so does the retrofit')
+  })
 })
 await t('a PLACED canopy (persistent) is never judged decaying: the old answer', () => {
   // the hook lists natural leaves only, so a hedge never reaches the reach test: the candidates fail the proof as before
@@ -373,8 +404,13 @@ await t('a zone-refused clear is SET ASIDE: no dig sent, one `clear_zoned` row n
   assert.ok(asked.length >= 1 && asked[0][1] === 'spruce_leaves' && Array.isArray(asked[0][2]), 'the guard is asked with the block and the stand')
   const rows = logs.filter(([kk, d]) => kk === '_build' && d.op === 'clear_zoned')
   assert.strictEqual(rows.length, 1)
-  assert.deepStrictEqual([rows[0][1].cell, rows[0][1].n, rows[0][1].why], [PADC, 1, 'zone village-taiga-6_1'])
+  assert.deepStrictEqual([rows[0][1].cell, rows[0][1].n], [PADC, 1])
+  assert.match(rows[0][1].why, /^closed by protected zone village-taiga-6_1: never dug by a bot; set aside, the project goes on without it$/, 'the row says what closes it and what happens next')
   assert.strictEqual(r.stop, 'zone_closed', `${r.stop} ${r.why}`); assert.deepStrictEqual(r.zoned, [k3(PADC)]); assert.ok(r.placed > 30)
+  // the stop's detail names the remedy in plain words, whole inside the visit row's 120 characters
+  assert.match(r.why, /^1 cell\(s\) closed by protected zone village-taiga-6_1 \(-?\d+,\d+,-?\d+\): bots never dig there; built without them; not waived$/)
+  assert.ok(r.why.length <= 120, `${r.why.length} chars`)
+  assert.ok(!(r.deferred ?? []).some(d => d.k === k3(PADC)), 'not deferred: neither the stuck count nor a waiver (sinkWaiveDue / wallWaiveDue read `deferred`) sees it')
   // the next visit of this bot within LEAF_ROW_MS: set aside again, no second row
   const again = await visit(R, { cells: padLeaf, clear: [{ ...LEAFC, decay: undefined }], digRefuse: refuseLeaf, zoneClosed: zc, mem })
   assert.ok(!again.dug.includes(k3(PADC)))
@@ -424,6 +460,107 @@ await t('MUTANT (buildrun.mjs): the guard\'s answer is ignored -- the refused cl
   })
 })
 
+// ---- THE ORDER: does a project whose visit ended waiting come back at the next cooldown? (r1, Codex blocker 1) -------------------------
+console.log('THE ORDER (the real shop.mjs activeProject / buildOrder; grounds2.mjs)')
+const MIN = 60_000, CD = S.SHOP_COOLDOWN_MS
+const ORD = { on: true, shared: true, atTown: true, holds: false, state: {}, record: null, complete: false, slotsFree: true, health: 20, freeSlots: 20 }
+const OWN_ORDER = { order: { skill: 'build_shop', args: {} }, skip: null }
+const HUB = { plot: 'storehub' }, HOUSE = { plot: 'house2' }, TOWER = { plot: 'tower', sink: true }, ROAD = { plot: 'road', sink: true }
+/** One bot's order as skills.mjs wires it: the states through waitBackoff then idleMarks (shopActive), the pick's record to buildOrder. */
+function orderChain (Sx, { list, states, hold = true }) {
+  const idle = new Map(), wait = new Map()
+  let clock = 0
+  Sx.setWaitNow(plot => (hold ? Sx.waitHeld(wait, plot, clock) : null))
+  const pick = now => Sx.activeProject(Sx.idleMarks(hold ? Sx.waitBackoff(states, wait, now) : states, idle, now), list)
+  const order = (now, state) => { clock = now; const p = pick(now); return { pick: p.plot, ...Sx.buildOrder({ ...ORD, now, state, record: { plot: p.plot } }) } }
+  const visited = (plot, res, now) => { Sx.noteIdle(idle, plot, res, now); if (hold) Sx.noteWait(wait, plot, res, now); return { lastAt: now, lastStop: res.stop } }
+  return { order, visited, wait }
+}
+await t('CD is the showcase\'s 3 minutes here (the scene of the blocker)', () => assert.strictEqual(CD, 3 * MIN))
+await t('POSITIVE CONTROL (Codex r1 blocker, the base\'s order): the re-roofed hall is the only work, its visit ends leaf_decay with nothing done -- the idle mark holds nothing without a sink and the SAME project is ordered at every cooldown', () => {
+  const c = orderChain(S, { list: [HUB], states: [{ plot: 'storehub', exists: true, complete: true, damaged: true }], hold: false })
+  const T0 = 1_000_000
+  let st = c.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, T0)
+  for (let i = 1; i <= 4; i++) {
+    const o = c.order(T0 + i * CD, st)
+    assert.deepStrictEqual(o, { pick: 'storehub', ...OWN_ORDER }, `cooldown ${i}: ordered again`)
+    st = c.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, T0 + i * CD)
+  }
+  // ...and the same for zone_closed, which nothing ever changes
+  const z = orderChain(S, { list: [TOWER], states: [{ plot: 'tower', exists: true, complete: true, sinkOpen: true }], hold: false })
+  const sz = z.visited('tower', { status: 'no_effect', stop: 'zone_closed' }, T0)
+  assert.deepStrictEqual(z.order(T0 + S.orderCooldown('tower'), sz).order, OWN_ORDER.order, 'the tower again, every sink cooldown')
+})
+await t('the hold: a visit that ended leaf_decay is NOT ordered again at the next cooldown -- the skip names the stop; the project comes back when the leaf\'s retry is due (5 min), and a visit that then works ends the hold', () => {
+  const c = orderChain(S, { list: [HUB], states: [{ plot: 'storehub', exists: true, complete: true, damaged: true }] })
+  const T0 = 1_000_000
+  const st = c.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, T0)
+  assert.deepStrictEqual(c.order(T0 + CD, st), { pick: 'storehub', order: null, skip: 'leaf_decay' })
+  assert.deepStrictEqual(c.order(T0 + S.SHOP_LEAF_RETRY_MS - 1, { ...st, lastAt: T0 - CD }), { pick: 'storehub', order: null, skip: 'leaf_decay' }, 'to the last millisecond of the hold')
+  assert.deepStrictEqual(c.order(T0 + S.SHOP_LEAF_RETRY_MS, { ...st, lastAt: T0 - CD }), { pick: 'storehub', ...OWN_ORDER }, 'minutes, not an hour: decay takes minutes')
+  assert.strictEqual(S.SHOP_LEAF_RETRY_MS, 5 * MIN); assert.ok(S.SHOP_LEAF_RETRY_MS < S.IDLE_MS)
+  c.visited('storehub', { status: 'success', stop: 'complete' }, T0 + 6 * MIN)
+  assert.strictEqual(c.wait.has('storehub'), false, 'a visit that happened and did not wait ends the hold')
+  c.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, T0 + 7 * MIN); c.visited('storehub', { status: 'aborted', stop: 'aborted' }, T0 + 8 * MIN); c.visited('storehub', { status: 'no_effect', stop: 'slots_full' }, T0 + 8 * MIN)
+  assert.strictEqual(S.waitHeld(c.wait, 'storehub', T0 + 8 * MIN), 'leaf_decay', 'a visit that did not happen (an abort, a full slot set) neither marks nor ends it')
+})
+await t('the hold: zone_closed holds its project 6 h for this bot (nothing there changes by itself) -- and only that project: another open project is the pick at once, another sink takes the tower\'s place', () => {
+  const T0 = 1_000_000, H6 = S.SHOP_STUCK_RETRY_MS
+  assert.strictEqual(S.WAIT_STOPS.zone_closed, H6); assert.strictEqual(H6, 6 * 60 * MIN)
+  // alone: no order for it, 6 h
+  const a = orderChain(S, { list: [TOWER], states: [{ plot: 'tower', exists: true, complete: true, sinkOpen: true }] })
+  const st = a.visited('tower', { status: 'no_effect', stop: 'zone_closed' }, T0)
+  for (const dt of [S.orderCooldown('tower'), 60 * MIN, H6 - 1]) assert.deepStrictEqual(a.order(T0 + dt, { ...st, lastAt: T0 - H6 }), { pick: 'tower', order: null, skip: 'zone_closed' }, String(dt))
+  assert.deepStrictEqual(a.order(T0 + H6, { ...st, lastAt: T0 - H6 }).order, OWN_ORDER.order, 'asked again after the hold')
+  // a visit that PLACED blocks and then ended zone_closed holds too (everything else of the project is built: the stop is the visit\'s last word)
+  const p = orderChain(S, { list: [TOWER], states: [{ plot: 'tower', exists: true, complete: true, sinkOpen: true }] })
+  assert.strictEqual(p.order(T0 + CD, p.visited('tower', { status: 'success', stop: 'zone_closed' }, T0)).skip, 'zone_closed')
+  // beside an open house and another sink: the bot works those -- its whole build order is never held
+  const states = [{ plot: 'house2', exists: true, complete: false, free: true }, { plot: 'tower', exists: true, complete: true, sinkOpen: true }, { plot: 'road', exists: true, complete: true, sinkOpen: true }]
+  const b = orderChain(S, { list: [HOUSE, TOWER, ROAD], states })
+  const sb = b.visited('tower', { status: 'no_effect', stop: 'zone_closed' }, T0)
+  assert.deepStrictEqual(b.order(T0 + CD, sb), { pick: 'house2', ...OWN_ORDER })
+  const sinks = orderChain(S, { list: [TOWER, ROAD], states: states.slice(1) })
+  const ss = sinks.visited('tower', { status: 'no_effect', stop: 'zone_closed' }, T0)
+  assert.deepStrictEqual(sinks.order(T0 + S.orderCooldown('road'), ss), { pick: 'road', ...OWN_ORDER }, 'the next sink kind, not the held tower')
+  assert.strictEqual(S.waitBackoff(states, sinks.wait, T0 + CD).find(x => x.plot === 'tower').stuck, true, 'stepped aside as a stuck project is (never a sink pick, never a service pick)')
+  assert.strictEqual(S.waitBackoff(states, sinks.wait, T0 + H6).find(x => x.plot === 'tower').stuck, undefined)
+})
+await t('the grounds stand in: the SAME visit falls through to the cleanup on either stop (FALL_STOPS), and while the hold is on the order asks the grounds (NO_ORDER_SKIPS)', () => {
+  const L = { record: 'open', emptyUntil: 0, feet: [3, 71, 4], home: { x: 0, y: 70, z: 0 }, slotFree: true, now: 1_000_000 }
+  for (const stop of ['leaf_decay', 'zone_closed']) {
+    assert.deepStrictEqual(G2.groundsFall({ status: 'no_effect', stop, msLeft: 150_000, tailMs: 60_000, ...L }), { fall: true, why: `fallback:${stop}`, asked: true })
+    assert.strictEqual(G2.groundsFall({ status: 'success', stop, placed: 4, msLeft: 150_000, tailMs: 60_000, ...L }).fall, false, 'a visit that built something used its time: no second leg')
+    assert.deepStrictEqual(G2.groundsNoOrder({ skip: stop, sinceMs: CD, cooldownMs: CD, health: 20, healthMin: 10, freeSlots: 20, roomMin: 2, ...L }), { ask: true, why: `no_order:${stop}` })
+  }
+  assert.strictEqual(G2.fallStops('blocked'), false, 'POSITIVE CONTROL: the stop these visits ended on before never fell through')
+  // through the real buildOrder with the grounds\' ask wired as skills.mjs wires it (setGroundsFall)
+  const GROUNDS = { skill: 'build_shop', args: { grounds: true, why: 'no_order:leaf_decay' } }
+  S.setGroundsFall({ ask: ({ skip, now, state }) => { const d = G2.groundsNoOrder({ skip, sinceMs: now - (state?.lastAt ?? -Infinity), cooldownMs: CD, health: 20, healthMin: 10, freeSlots: 20, roomMin: 2, ...L, now }); return d.ask ? { order: { skill: 'build_shop', args: { grounds: true, why: d.why } } } : null }, hold: s => s })
+  try {
+    const c = orderChain(S, { list: [HUB], states: [{ plot: 'storehub', exists: true, complete: true, damaged: true }] })
+    const st = c.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, 1_000_000)
+    assert.deepStrictEqual(c.order(1_000_000 + CD, st), { pick: 'storehub', order: GROUNDS, skip: null }, 'the cooldown is a grounds visit, not the hall again')
+  } finally { S.setGroundsFall(null) }
+})
+await t('r1 MUTANT (shop.mjs): the order never asks the hold -- the held project is ordered again at the next cooldown (the live loop; killed for that reason)', async () => {
+  await withSrcMutant('shop.mjs', "  { let w = null; try { w = waitOf(plot0) } catch { w = null } if (w && Object.hasOwn(WAIT_STOPS, w)) return { order: null, skip: w } }\n", '', async M => {
+    const c = orderChain(M, { list: [HUB], states: [{ plot: 'storehub', exists: true, complete: true, damaged: true }] })
+    const st = c.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, 1_000_000)
+    assert.deepStrictEqual(c.order(1_000_000 + CD, st), { pick: 'storehub', ...OWN_ORDER })
+  })
+})
+await t('r1 MUTANT (shop.mjs): a held project does not step aside -- it stays the pick ahead of the open house (killed for that reason)', async () => {
+  await withSrcMutant('shop.mjs', "  if (!mem?.size) return states\n  return states.map(st => (st?.exists && waitHeld(mem, st.plot, now) ?", "  if (!mem?.size) return states\n  return states.map(st => (false ?", async M => {
+    const states = [{ plot: 'storehub', exists: true, complete: true, damaged: true }, { plot: 'house2', exists: true, complete: false, free: true }]
+    const c = orderChain(M, { list: [HUB, HOUSE], states })
+    const st = c.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, 1_000_000)
+    assert.strictEqual(c.order(1_000_000 + CD, st).pick, 'storehub', 'the mutant keeps the bot off the house (its order skipped)')
+    const real = orderChain(S, { list: [HUB, HOUSE], states })
+    assert.deepStrictEqual(real.order(1_000_000 + CD, real.visited('storehub', { status: 'no_effect', stop: 'leaf_decay' }, 1_000_000)), { pick: 'house2', ...OWN_ORDER })
+  })
+})
+
 console.log('THE WIRING (structural: comments stripped)')
 await t('the retrofit, the two styled sitings, the visit and the effects are wired to the one switch', () => {
   const strip = f => readFileSync(SRC(f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -437,11 +574,20 @@ await t('the retrofit, the two styled sitings, the visit and the effects are wir
   assert.ok(sk.includes('  if (!LEAFFELL_ON) return {}'))
   assert.ok(sk.includes("const leafFellVisitOpts = (bot, rec) => (LEAFFELL_ON && rec?.leaffell?.trees ? { replantDomain: () => true, replantGoOn: true, saplingAbsent: swSaplingAbsent(bot) } : {})"), 'never replantPerTree: the read\'s G5 counts the record\'s whole replant list at each felling')
   assert.ok(sk.includes('    Object.assign(storeOpts, leafFellVisitOpts(bot, rec))'))
-  assert.ok(sk.includes('...(REROOF_FIX.leafFell ? reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR) : {}) })'))
+  assert.ok(sk.includes('...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })'))
   assert.ok(bb.includes("const d = zoneDecision({ zones, op: 'dig', cell: { x: c[0], y: c[1], z: c[2] }, purpose: 'target', name, nameRule: zoneGuardOn(),"), 'the effects ask the guard\'s own decision')
   assert.ok(bs.includes("if (typeof ctx.cellClears === 'function' && ctx.leafFell !== undefined) ctx.cellClears.leafFell = ctx.leafFell"))
   assert.ok(br.includes('standMs = STAND_MS, leafFell = LEAFFELL_ON } = {}) {'), 'the visit\'s default is the switch')
   assert.ok(br.includes("        if (leafFell && typeof e.zoneClosed === 'function') {"))
+  // r1: the hold, the trunk guard, the cooperative proofs
+  assert.ok(sk.includes('    const marked = idleMarks(waitBackoff(waited, b?.shopWait ?? null, now), b?.shopIdle ?? null, now)'), 'the picker reads the holds')
+  assert.ok(sk.includes('try { noteWait((ctx.bot.shopWait ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) }'), 'every visit\'s result marks or ends its plot\'s hold')
+  assert.ok(sk.includes('setWaitNow(plot => waitHeld(activeMem?.bot?.shopWait ?? null, plot, Date.now()))'), 'the order\'s hook')
+  assert.ok(sk.includes('  return { closed: trunkGuard(resNow(), leafZoneClosed(bot)), replantFor }'), 'the retrofit\'s trunk guard is the siting\'s reservation rule')
+  assert.ok(bs.includes('if (xc?.fellLogs?.some(at => trunkReserved(res, at))) {'), 'the siting asks the same helper')
+  assert.ok(sk.includes("  if (!pr.ok && pr.why === 'aborted') { check(signal); return out('no_effect', 'aborted',"), 'an interrupted proof is no failed proof (no count, no site wait)')
+  assert.ok(sk.indexOf("if (!pr.ok && pr.why === 'aborted')") < sk.indexOf('if (!pr.ok) return fail(pr.why, pr.detail)'))
+  assert.ok(rr.includes('const p = fx.leafFell ? await proveY(clear, null) : proveWith(clear, null)') && rr.includes('const q = fx.leafFell ? await proveY(clear, keys) : proveWith(clear, keys)'), 'the roof\'s own proofs are driven as steps (bots/test/reroof4.test.mjs traces the whole plan)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

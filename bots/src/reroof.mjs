@@ -646,6 +646,12 @@ export function reroofDoorSide (rec) {
 }
 /** The event loop's turn between two expensive proof steps (a bot answers its keep-alives: reroofProve is async for that alone). */
 const tick = () => new Promise(r => setImmediate(r))
+/** leaffell-01show r1: THE PLAN'S TURN -> async () => void. One turn of the event loop; with the switch on and the caller's `aborted()`
+ *  named, an interrupted plan ENDS at its next turn (thrown here, answered by reroofProve as { ok: false, why: 'aborted' }): a re-roof
+ *  plan is minutes of walks, and before this nothing but its end could stop it. Switch off, or no `aborted`: the plain turn. */
+const REROOF_ABORTED = Symbol('reroof-aborted')
+const plainTick = tick
+const turnOf = (fx, aborted) => (fx?.leafFell && typeof aborted === 'function' ? async () => { await plainTick(); if (aborted()) throw REROOF_ABORTED } : plainTick)
 /** (LEAVES) A reader whose NATURAL leaves are an obstacle but no floor (a fence's box: blocks the walk, the sight line, the head) -> reader.
  *  Unread properties count as natural (the safe side for a floor). Pure. */
 export function reroofNoLeafFloor (read) {
@@ -881,7 +887,15 @@ export async function reroofLeafFell (read, r0, extra, { reach, prove, replantFo
  * fx.access); a `no_step` proof tries the temporary stairs (reroofAccess, nearest the failing cell first, REROOF_TEMP_TRIES); then the
  * listed digs' reach (the ground walk, else the build order with the canopy grown -- reroof-03), re-proven with the chosen stair.
  */
-export async function reroofProve (read, home, rec, bpOld, bpAdd0, { stood: stood0 = [], walkR = 90, domain = null, decor = null, recordAt = () => null, fx = reroofFixes({}), closed = null, replantFor = null } = {}) {
+export async function reroofProve (read, home, rec, bpOld, bpAdd0, ctx = {}) {
+  // leaffell-01show r1 (`ctx.aborted()`): an interrupted plan ends at its next turn of the event loop (switch on)
+  try { return await reroofProvePlan(read, home, rec, bpOld, bpAdd0, ctx) } catch (e) { if (e === REROOF_ABORTED) return { ok: false, why: 'aborted', detail: 'interrupted', notch: 0 }; throw e }
+}
+async function reroofProvePlan (read, home, rec, bpOld, bpAdd0, { stood: stood0 = [], walkR = 90, domain = null, decor = null, recordAt = () => null, fx = reroofFixes({}), closed = null, replantFor = null, aborted = null } = {}) {
+  // leaffell-01show r1 (Codex r1 BLOCKER): with the switch on EVERY walk of the plan is followed by a turn of the event loop before the
+  // next one -- `tick` the plan's turn (turnOf), `turn` the turns the switch adds between two walks that ran back to back
+  const tick = turnOf(fx, aborted)   // (shadows the module's plain turn: every `await tick()` below is the plan's)
+  const turn = () => (fx.leafFell ? tick() : null)
   const anchor = { x: rec.anchor[0], z: rec.anchor[1] }
   // (SEEDS) a cell a bot once STOOD on inside the building's own box -- on its flat roof, LIVE: bots that pillared up -- seeds no walk
   // here: a visit's pathfinder cannot get there from the ground (Paper sandbox4 11-08: the workshop's builder dropped off the roof and
@@ -890,7 +904,7 @@ export async function reroofProve (read, home, rec, bpOld, bpAdd0, { stood: stoo
   // (NOTCH) the eave course never hangs at head height over a cell the town walks now (LIVE 11-08: the hall's and the enchanting
   // workshop's front rows are walked at one above the pad -- an eave there cut every path to the door: interior 0/95, 0/88)
   // -- only when the full roof's proof fails, and only the DOOR side's eave (the side the doorway faces: reroofDoorSide)
-  const run = bpAdd => reroofProveWith(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor, recordAt, fx, closed, replantFor })
+  const run = bpAdd => reroofProveWith(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor, recordAt, fx, closed, replantFor, aborted })
   const full = await run(bpAdd0)
   if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  full', full.ok ? 'OK' : `${full.why} ${full.detail}`)
   if (full.ok || !fx.access || !['interior_unreachable', 'no_step'].includes(full.why)) return { ...full, notch: 0 }
@@ -905,12 +919,13 @@ export async function reroofProve (read, home, rec, bpOld, bpAdd0, { stood: stoo
     const ap = reroofApproach(PR0, { from: reroofDoorFront(rec, bpOld), walked, block, box: rec.box, recordAt })
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  approach', ap ? `fills ${JSON.stringify(ap.fills)} cuts ${JSON.stringify(ap.cuts.map(c => c.at))}` : 'none')
     if (ap && (ap.fills.length || ap.cuts.length)) {
-      const withAp = await reroofProveWith(read, home, rec, bpOld, bpAdd0, { stood, walkR, domain, decor, recordAt, fx, approach: ap, closed, replantFor })
+      const withAp = await reroofProveWith(read, home, rec, bpOld, bpAdd0, { stood, walkR, domain, decor, recordAt, fx, approach: ap, closed, replantFor, aborted })
       if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  full+approach', withAp.ok ? 'OK' : `${withAp.why} ${withAp.detail}`)
       if (withAp.ok) return { ...withAp, notch: 0, approach: { fills: ap.fills.length, cuts: ap.cuts.length } }
     }
   }
   const side = reroofDoorSide(rec)
+  await turn()   // (the proof before this ended on a walk; the notch walks the town again)
   const notch = side ? reroofEaveNotch(placeBlueprint(bpAdd0, anchor, rec.s, rec.orient), walkFrom(read, home, new Set(), walkR, { stood }), { box: rec.box, side }) : new Set()
   if (!notch.size) return { ...full, notch: 0 }
   await tick()
@@ -919,7 +934,9 @@ export async function reroofProve (read, home, rec, bpOld, bpAdd0, { stood: stoo
   return cut.ok ? { ...cut, notch: notch.size } : { ...full, notch: 0 }
 }
 /** reroofProve's proof over one proof blueprint (the full roof, or the roof with its door-side eave notched). Pure. */
-async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], walkR = 90, domain = null, decor = null, recordAt = () => null, fx = reroofFixes({}), approach = null, closed = null, replantFor = null } = {}) {
+async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], walkR = 90, domain = null, decor = null, recordAt = () => null, fx = reroofFixes({}), approach = null, closed = null, replantFor = null, aborted = null } = {}) {
+  const tick = turnOf(fx, aborted)   // (shadows the module's plain turn)
+  const turn = () => (fx.leafFell ? tick() : null)   // leaffell-01show r1: a turn between two walks that ran back to back
   const anchor = { x: rec.anchor[0], z: rec.anchor[1] }
   const placed = placeBlueprint(bpAdd, anchor, rec.s, rec.orient)
   const addedAt = placed.map(c => c.at)
@@ -943,6 +960,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   // leaf 31,71,-71 at box + 4) are LISTED but never dug by the clears pass (low before high it walked down into the pit to dig them, r5e)
   // and never asked of the proof: the walk digs one only when a jump it plans needs it (buildbot.mjs apexDig), from the lower cell
   const apex = walk0 && fx.apex ? reroofApexLeaves(read, walk0, { box: rec.box, recordAt: exitAt, inner: exits }) : []
+  await turn()   // (walk0 above, this walk below)
   const now = fx.access ? walkFrom(read, home, new Set(), walkR, { stood, avoid }) : null
   // (LEAVES) the proof walks on no natural leaves (fx.access): a canopy is dug, or decays once its trunk is gone (Paper sandbox4 11-08: the
   // workshop's builder reached its roof over a spruce crown, dug the crown, dropped and never got back) -- an obstacle, never a floor
@@ -1010,7 +1028,9 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   const extra0 = [...(approach?.cuts ?? []).map(c => ({ at: c.at.slice(), name: c.name, kind: 'cut' })), ...exits.map(c => ({ at: c.at.slice(), name: c.name, kind: 'leaves' }))]
   const clear = [...ob.clear, ...extra0.filter((c, i, a) => !ob.clear.some(d => d.at.join(',') === c.at.join(',')) && a.findIndex(d => d.at.join(',') === c.at.join(',')) === i)].sort((a, b) => a.at[1] - b.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2])
   await tick()
-  const p = proveWith(clear, null)
+  // leaffell-01show r1 (Codex r1 BLOCKER): the roof's OWN proof is driven as steps too (proveWith drains proveSiteSteps without a turn:
+  // a walk a segment and one more, straight through -- the live defect, re-roof plans of 12 to 14 minutes with the loop held)
+  const p = fx.leafFell ? await proveY(clear, null) : proveWith(clear, null)
   const unreached = r => `${r.rc.unreached.length}/${r.clear.length} first ${r.clear.find(c => c.at.join(',') === r.rc.unreached[0].join(','))?.name}@${r.rc.unreached[0].join(',')}`
   let fail0 = null
   if (p.ok) {
@@ -1029,6 +1049,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
   if (!fx.access || !['no_step', 'clear_unreached'].includes(fail0.why)) return fail0
   const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
   const R = overlay(PR, new Map(clear.map(c => [c.at.join(','), AIRB])))
+  await turn()   // (a reach test or a replant walk ended just above)
   const walked = walkFrom(R, home, new Set(), walkR, { stood, avoid })
   const tops = placed.filter(c => c.ws?.type === 'top')
   const lowEave = tops.length ? Math.min(...tops.map(c => c.at[1])) : null
@@ -1046,7 +1067,7 @@ async function reroofProveWith (read, home, rec, bpOld, bpAdd, { stood = [], wal
     const keys = new Set(set.flatMap(st => st.cells.map(c => c.join(','))))
     if (keys.size > REROOF_TEMP_MAX * 2) continue
     await tick()
-    const q = proveWith(clear, keys)
+    const q = fx.leafFell ? await proveY(clear, keys) : proveWith(clear, keys)   // r1: each stair's proof as steps too
     if (typeof process !== 'undefined' && process.env?.REROOF_DEBUG) console.log('  stair', set.map(st => JSON.stringify(st.eave)).join('+'), keys.size, q.ok ? 'OK' : `${q.why} ${q.detail}`)
     if (!q.ok) continue
     // r6: a stair one of whose steps would drop a builder where it cannot walk back is not taken (the visit's fall guard avoids it)

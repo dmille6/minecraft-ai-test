@@ -186,7 +186,7 @@ export const groundsFallOn = (env = process.env) => !['off', '0', 'false', 'no']
  * THE STOPS THAT MEAN "THIS PROJECT HAS NOTHING FOR THIS BOT NOW" (an allow-list: a stop not named here never falls through).
  *   unsited, or waiting on its opening:   no_site site_wait paths_no_site copper_wait waiting changed retiring stopped
  *   nothing to place with:                no_material no_tool
- *   no cell this bot can work now:        stuck_on_cell cell_deferred deps_open body_wait felling_one
+ *   no cell this bot can work now:        stuck_on_cell cell_deferred deps_open body_wait felling_one leaf_decay zone_closed
  *   another bot's:                        slots_full keeper_held not_decorator
  *   nothing open:                         complete upkeep
  * NOT here, each for its reason: `deadline` / `time` (the visit used its time); `aborted`, `error` and every failed visit (an
@@ -197,7 +197,10 @@ export const groundsFallOn = (env = process.env) => !['off', '0', 'false', 'no']
  * `grounds_turn` and every stop of the tidy itself (the visit WAS the grounds').
  */
 export const FALL_STOPS = Object.freeze(['no_site', 'site_wait', 'paths_no_site', 'copper_wait', 'waiting', 'changed', 'retiring', 'stopped',
-  'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'felling_one', 'slots_full', 'keeper_held', 'not_decorator', 'complete', 'upkeep'])
+  'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'felling_one', 'slots_full', 'keeper_held', 'not_decorator', 'complete', 'upkeep',
+  // leaffell-01show r1: the visit's two waiting stops (buildrun.mjs runVisit: every open cell left waits on leaves that decay, or is
+  // closed by a protected zone) -- nothing here for this bot now
+  'leaf_decay', 'zone_closed'])
 export const fallStops = stop => FALL_STOPS.includes(String(stop ?? ''))
 /**
  * MAY THIS BOT WORK THE GROUNDS NOW, WHATEVER BROUGHT IT? -> { ok, why }. Pure. groundsDecide's links without the turn: the fall-
@@ -249,7 +252,9 @@ export function groundsFall ({ on = true, status = null, stop = null, placed = 0
  *   sinceMs / cooldownMs   since the bot's last build order, and the order's cooldown (`complete` is answered before it)
  * why: `no_order:<skip>` | 'off' | 'skip' | 'cooldown' | 'health' | 'room' | groundsWork's
  */
-export const NO_ORDER_SKIPS = Object.freeze(['complete', 'no_site', 'stuck_on_cell', 'slots_full'])
+// leaffell-01show r1: ...and the two waiting holds (shop.mjs noteWait / buildOrder `waitOf`: this bot's last visit to the pick ended
+// leaf_decay or zone_closed and its hold is not over)
+export const NO_ORDER_SKIPS = Object.freeze(['complete', 'no_site', 'stuck_on_cell', 'slots_full', 'leaf_decay', 'zone_closed'])
 export function groundsNoOrder ({ on = true, skip = null, sinceMs = Infinity, cooldownMs = 0, health = 20, healthMin = 10, freeSlots = 36, roomMin = 2, ...links } = {}) {
   const no = why => ({ ask: false, why })
   if (!on) return no('off')

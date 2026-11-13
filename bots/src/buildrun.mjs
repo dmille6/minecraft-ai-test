@@ -1164,7 +1164,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       if (zonedNew.length) {
         const c0 = zonedNew[0]
         out.zoned = [...zoned.keys()]
-        try { if (rowDue(leafMem, `${key}|zoned|${kOf(c0.at)}`, wallNow())) e.log('_build', { op: 'clear_zoned', cell: c0.at, block: c0.name, kind: c0.kind, n: zonedNew.length, why: `zone ${zoned.get(kOf(c0.at))}` }) } catch { /* telemetry */ }
+        try { if (rowDue(leafMem, `${key}|zoned|${kOf(c0.at)}`, wallNow())) e.log('_build', { op: 'clear_zoned', cell: c0.at, block: c0.name, kind: c0.kind, n: zonedNew.length, why: `closed by protected zone ${zoned.get(kOf(c0.at))}: never dug by a bot; set aside, the project goes on without it` }) } catch { /* telemetry */ }
         zonedNew.length = 0
       }
     }
@@ -1685,7 +1685,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   out.stop = record.cells.every(c => isDone(c)) ? 'complete' : needSapling ? 'no_sapling' : out.leafWait ? 'leaf_decay' : out.zonedWait ? 'zone_closed' : out.waits ? 'clears_wait' : (out.depsWaited || out.segsNear) ? 'deps_open' : 'unknown'
   if (out.stop === 'no_sapling') out.why = `${needSapling}: withdraw saplings from town (C1)`
   if (out.stop === 'leaf_decay') out.why = `${out.leafWait} cell(s) wait for natural leaves to decay (their trunk is listed or down): asked again next visit`
-  if (out.stop === 'zone_closed') out.why = `${out.zonedWait} cell(s) hold a listed clear inside a protected zone (first ${[...zoned.keys()][0] ?? '-'}, ${[...zoned.values()][0] ?? '-'}): set aside, the rest of the build goes on`
+  // (leaffell-01show r1: the refusal's remedy in plain words -- nothing for the bot to do there, and what happens next. Such a cell is
+  // NOT deferred, so no waiver counts it (sinks.mjs sinkWaiveDue and wall.mjs wallWaiveDue read only the visit's `deferred` cells): the
+  // project stays open on it until the zone file or the record changes; the order holds it for this bot -- shop.mjs WAIT_STOPS)
+  // (kept under the visit row's 120 characters: shop.mjs buildVisitDetail cuts `why` there)
+  if (out.stop === 'zone_closed') out.why = `${out.zonedWait} cell(s) closed by protected zone ${[...zoned.values()][0] ?? '-'} (${[...zoned.keys()][0] ?? '-'}): bots never dig there; built without them; not waived`
   return out
 }
 

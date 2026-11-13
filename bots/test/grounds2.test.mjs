@@ -933,8 +933,8 @@ await t('fallStops: the stops that mean "nothing here for this bot now" fall thr
   for (const s of ['no_site', 'site_wait', 'paths_no_site', 'copper_wait', 'waiting', 'no_material', 'no_tool', 'stuck_on_cell', 'cell_deferred', 'deps_open', 'body_wait', 'slots_full', 'keeper_held', 'complete', 'upkeep']) assert.strictEqual(G2.fallStops(s), true, s)
   for (const s of ['deadline', 'time', 'aborted', 'error', 'record_unreadable', 'lost_record', 'lost_lease', 'state_unwritable', 'site_unread', 'zones_unknown', 'no_plan', 'off', 'fence:slot', 'fence:segment',
     'replanned', 'replant_wait', 'land_planned', 'grounds_none', 'grounds_turn', 'helper_idle', 'blocked', 'underground', 'room', '', null, undefined]) assert.strictEqual(G2.fallStops(s), false, String(s))
-  assert.strictEqual(G2.FALL_STOPS.length, 20); assert.ok(Object.isFrozen(G2.FALL_STOPS))
-  assert.strictEqual(new Set(G2.FALL_STOPS).size, 20)
+  assert.strictEqual(G2.FALL_STOPS.length, 22); assert.ok(Object.isFrozen(G2.FALL_STOPS))   // leaffell-01show r1: + leaf_decay, zone_closed (bots/test/leaffell.test.mjs)
+  assert.strictEqual(new Set(G2.FALL_STOPS).size, 22)
 })
 await t('groundsWork: every link the fall-through and the ask share -- keeper, decorator, the record, the spent turns, the bot\'s place, a slot', () => {
   assert.deepStrictEqual(G2.groundsWork(L0), { ok: true, why: null })
@@ -968,7 +968,7 @@ await t('groundsFall: no work + a fall stop + the time -> the grounds; THE TIME:
 })
 await t('groundsNoOrder: asked for complete / no_site / stuck_on_cell / slots_full, after the cooldown, with health and 2 free slots; never for idle, underground, health, room', () => {
   assert.deepStrictEqual(G2.groundsNoOrder(N0), { ask: true, why: 'no_order:stuck_on_cell' })
-  assert.deepStrictEqual([...G2.NO_ORDER_SKIPS], ['complete', 'no_site', 'stuck_on_cell', 'slots_full'])
+  assert.deepStrictEqual([...G2.NO_ORDER_SKIPS], ['complete', 'no_site', 'stuck_on_cell', 'slots_full', 'leaf_decay', 'zone_closed'])   // leaffell-01show r1: the two waiting holds
   for (const skip of G2.NO_ORDER_SKIPS) assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, skip }), { ask: true, why: `no_order:${skip}` })
   for (const skip of ['idle', 'underground', 'health', 'room', null, undefined, '']) assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, skip }), { ask: false, why: 'skip' }, String(skip))
   assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, sinceMs: 10 * MIN - 1 }), { ask: false, why: 'cooldown' })

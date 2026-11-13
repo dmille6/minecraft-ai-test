@@ -230,7 +230,7 @@ await t('skills.mjs buildReroof asks the obstacles, the reach, the doorstep and 
   const RRS = strip(fs.readFileSync(new URL('../src/reroof.mjs', import.meta.url), 'utf8'))
   const pw = RRS.slice(RRS.indexOf('function reroofProveWith'))
   const atR = re => { const m = pw.match(re); assert.ok(m, String(re)); return m.index }
-  assert.ok(atR(/reroofObstacles\(read, addedAt, \{ decor, recordAt/) < atR(/const p = proveWith\(clear, null\)/))
+  assert.ok(atR(/reroofObstacles\(read, addedAt, \{ decor, recordAt/) < atR(/const p = fx\.leafFell \? await proveY\(clear, null\) : proveWith\(clear, null\)/))
   assert.ok(atR(/const proveWith = \(cl, extra = null\) => proveSite\(PR, home, bpAdd, \{[^\n]*clear: cl, fill: fillOf\(extra\) \}/) < atR(/let rc = reroofClearsReached\(PR, home, clear0/))
   assert.ok(at(/const pr = await reroofProve\(read, home, rec, bpOld, bpAdd/) < at(/if \(!pr\.ok\) return fail\(pr\.why, pr\.detail\)/))
   assert.ok(at(/publishRecord\(dir, decorKey\(\), cur => decorRetire\(cur, keys/) < at(/reroofRecord\(cur, p\.cells, bpNew, style, \{ clear, temp: pr\.temp, notch: pr\.notch, replant: pr\.replant \?\? \[\], leaf: pr\.leaf \?\? null \}\)/), 'the decor cells retired before the roof is published')

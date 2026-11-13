@@ -206,6 +206,7 @@ import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellc
 import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, clearsReachedBuiltSteps, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
 import { LEAFFELL_ON, rowDue as leafRowDue, leafBlockerText } from './leaffell.mjs'   // leaffell-01show: an unreached natural leaf asks for its trunk, not a stand
 import { replantFor as siteReplantFor, overlay as siteOverlay } from './buildsite.mjs'   // leaffell-01show: the saplings owed for a tree felled for its leaves
+import { trunkGuard } from './buildsite.mjs'   // leaffell-01show r1: the retrofit's trunk guard is the siting's own reservation rule
 import { STEPWELL_PLOT, STEPWELL_BLUEPRINT, SW as SWELL, stepwellCandidates, surveyStepwell, stepwellBetter, stepwellRecord, stepwellSeed, planOfRecord, stepwellDamaged, stepwellStopped, fellView, fellPending, FELL_PALETTE, planTank as stepwellPlanTank, standsFit } from './stepwell.mjs'   // stepwell-01
 import { runStepwellVisit, stepwellBotEffects } from './stepwellvisit.mjs'   // stepwell-01
 import { descentOn, surveyDescent, stepwellWithDescent, descentDone as stepwellDescentDone, stepwellClearOfMine } from './stepwell.mjs'   // stepwell-02: the descent
@@ -257,6 +258,7 @@ import { mineExt, standOf as stairStandOf } from './shaftgeom.mjs'   // townmine
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, repairBackoff, noteRepair, stuckBackoff, noteIdle, idleMarks, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's ask
+import { noteWait, waitBackoff, waitHeld, setWaitNow } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
@@ -17941,7 +17943,9 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // zigtidy-02: a complete record's stamp whose cells all read done now is stale (projStuckLive)
     const waited = stuckBackoff(states, plot => projStuckLive(projKeyOf(plot), now), now)
     // sinkfix-01: this bot's own no-effect visits (shop.mjs idleMarks): such a project yields to a wanted sink for IDLE_MS
-    const marked = idleMarks(waited, b?.shopIdle ?? null, now)
+    // leaffell-01show r1: ...and a project this bot's own last visit ended WAITING on (leaf_decay, zone_closed: shop.mjs noteWait) steps
+    // aside the same way until its hold is over (waitBackoff); then this bot's idle marks, as before
+    const marked = idleMarks(waitBackoff(waited, b?.shopWait ?? null, now), b?.shopIdle ?? null, now)
     // PRODSERVE-01: a finished production plot due by the town's schedule and this bot's fair share goes first (prodserve.mjs)
     const svc = PRODSERVE.on && b ? servicePickNow(b, marked, now, visit) : null
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
@@ -21820,7 +21824,9 @@ async function buildReroof (ctx, args, signal) {
   // stair, the digs' reach in the build order) -- the Paper driver and the offline replays run the same function
   // leaffell-01show: a listed natural leaf no stand reaches asks for its trunk -- the proof may list a tree nobody owns (never one in a
   // protected zone: `closed`) and names the saplings it owes (`replantFor`: the siting's own replant cells, planted from the town walk)
-  const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR) : {}) })
+  const pr = await reroofProve(read, home, rec, bpOld, bpAdd, { stood, walkR, domain, decor: decorRec, recordAt, fx: REROOF_FIX, ...(REROOF_FIX.leafFell ? { ...reroofLeafCtx(bot, h.head.plan, rec, read, home, stood, walkR), aborted: () => !!signal?.aborted } : {}) })
+  // r1: an interrupted plan ended at its next turn -- no failed-proof count, no site wait; the interruption is the runner's
+  if (!pr.ok && pr.why === 'aborted') { check(signal); return out('no_effect', 'aborted', `${t.plot}: the retrofit's proof was interrupted`) }
   if (!pr.ok && pr.leafBlocker) leafRow(bot, t.plot, { ok: false, cell: pr.leafBlocker.at, why: leafBlockerText(pr.leafBlocker) })
   if (!pr.ok) return fail(pr.why, pr.detail)
   const { p, clear, step } = pr
@@ -21857,10 +21863,11 @@ const leafZoneClosed = bot => (x, y, z) => { try { return !!blocked(bot.protectZ
  * by the town's reservations and planted from a stand of the town walk (the visit's `replantDomain`). Unreadable: no cell (no tree is felled).
  */
 function reroofLeafCtx (bot, plan, rec, read, home, stood, walkR) {
+  const resNow = () => { try { const c = shopCtx(bot); return reservations(plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 }) } catch { return null } }
   const replantFor = (trees, clear) => {
     try {
-      const c = shopCtx(bot)
-      const res = reservations(plan, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0 })
+      const res = resNow()
+      if (!res) return { ok: false, cells: [] }
       const AIRB = Object.freeze({ name: 'air', boundingBox: 'empty' })
       const pad = (rec.cells ?? []).filter(q => q?.seg === 'pad' && Array.isArray(q.at)).map(q => [q.at[0], q.at[2]])
       const padXZ = pad.length ? pad : [[rec.box[0], rec.box[1]], [rec.box[2], rec.box[3]]]
@@ -21868,7 +21875,9 @@ function reroofLeafCtx (bot, plan, rec, read, home, stood, walkR) {
       return siteReplantFor(read, home, { trees, pad: padXZ, ring: [] }, res, walk, () => true)
     } catch { return { ok: false, cells: [] } }
   }
-  return { closed: leafZoneClosed(bot), replantFor }
+  // r1 (Codex r1 BLOCKER): the trunk guard is the siting's own -- never a log in a protected zone, and never one in a plan reservation
+  // (the tree farm's columns, a well, a plan box or path, the monument's apron: buildsite.mjs trunkReserved); reservations unread: nothing felled
+  return { closed: trunkGuard(resNow(), leafZoneClosed(bot)), replantFor }
 }
 /**
  * leaffell-01show: A STYLED BUILDING'S SITING, FELL-FIRST -> siteBlueprint ctx additions | {} (LEAFFELL=off). `leafFell.plan(site)`:
@@ -22511,7 +22520,8 @@ async function buildShop (ctx, args, signal, t00 = null) {
   // sinkfix-02: an ABORT is noted too (a sink's marks it: shop.mjs noteIdle), then rethrown; and the KEEPER's own no-effect grounds
   // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
   // yield only to a wanted sink, for IDLE_MS
-  const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } }
+  // leaffell-01show r1: ...and a visit that ended WAITING (leaf_decay, zone_closed) holds its plot for this bot (shop.mjs noteWait)
+  const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } try { noteWait((ctx.bot.shopWait ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } }
   let r
   // gklease-01 (release fold, Codex BLOCKER): a visit IN PROGRESS is marked, so the footprint timer's keeperOrder never releases the
   // grounds lease under a running tidy/forest visit (a replacement keeper would work beside the old one)
@@ -26733,6 +26743,7 @@ export function keeperNow (bot, now = Date.now()) {
 }
 setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
 setNoSitePlot(() => activeMem?.bot?.shopNoSitePlot ?? null)   // sinkfix-03
+setWaitNow(plot => waitHeld(activeMem?.bot?.shopWait ?? null, plot, Date.now()))   // leaffell-01show r1: the order's skip while a waiting hold is on
 // sinkfix-04: the tidy's quiet order; the siteprep-02 fold (Codex fold BLOCKER): never for the keeper with site-request work (shop.mjs tidyQuiet)
 setIdleNow(plot => {
   const b = activeMem?.bot ?? null
