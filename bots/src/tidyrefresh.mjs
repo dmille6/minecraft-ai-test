@@ -23,6 +23,8 @@
 //       work already planned no longer fills the 1,200-cell cap: each refresh takes the next page, nearest home first.
 // TIDYREFRESH=off is the rollback (no refresh, no town give-up: the record as before).
 
+import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life is done with (pure)
+
 export const TIDYREFRESH = Object.freeze({ everyMs: 60 * 60_000, addMax: 1200, inwallId: 'inwall' })
 /** THE SWITCH: TIDYREFRESH=off|0|false|no -> off; on by default. Pure. */
 export const tidyRefreshOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.TIDYREFRESH ?? '').trim())
@@ -53,12 +55,13 @@ export function refreshDue (rec, { now = Date.now(), env = process.env, T = TIDY
 /**
  * THE COLUMNS THE RECORD STILL WORKS -> Set "x,z". Pure over `read`. Every cut still standing (unread = standing) that is not
  * waived, every fill not done (`done(cell)`: the visit's own done test) that is not carried (`prev`) or waived, every clear still
- * standing that is not waived.
+ * standing that is not waived. litter-01 r2: never a hand-off's cut past its life (litter.mjs handedOld at `now`): nobody will dig
+ * it, so it must not keep its column out of every later survey.
  */
-export function openColumns (rec, read, { done = () => false } = {}) {
+export function openColumns (rec, read, { done = () => false, now = Date.now() } = {}) {
   const w = rec?.waived ?? null
   const out = new Set()
-  for (const c of rec?.cut ?? []) { if (hasOwn(w, kOf(c.at))) continue; const b = read(...c.at); if (!b || nm(b) === c.name) out.add(colOf(c.at)) }
+  for (const c of rec?.cut ?? []) { if (hasOwn(w, kOf(c.at)) || handedOld(c, now)) continue; const b = read(...c.at); if (!b || nm(b) === c.name) out.add(colOf(c.at)) }
   for (const c of rec?.cells ?? []) { if (c.prev || hasOwn(w, kOf(c.at))) continue; if (!done(c)) out.add(colOf(c.at)) }
   for (const c of rec?.clear ?? []) { if (hasOwn(w, kOf(c.at))) continue; const b = read(...c.at); if (!b || nm(b) === c.name) out.add(colOf(c.at)) }
   return out
@@ -170,13 +173,13 @@ export const refreshClaimed = (rec, claims = [], retire = () => null) => (Array.
  * and they are no work). The `why` names the remedy: the next inside-the-wall survey plans the cut again.
  */
 export const CUT_GIVEN_WHY = 'cut_given_up: no crew visit could dig it; the next inside-the-wall survey plans it again'
-export function cutGiveUps (rec, read, { given = () => false } = {}) {
+export function cutGiveUps (rec, read, { given = () => false, now = Date.now() } = {}) {
   const w = rec?.waived ?? null
   const out = []
   const gone = new Set()
   for (const c of rec?.cut ?? []) {
     const k = kOf(c.at)
-    if (hasOwn(w, k) || !given(k)) continue
+    if (hasOwn(w, k) || !given(k) || handedOld(c, now)) continue   // litter-01 r2: an expired hand-off's cut is done already: no waiver
     const b = read(...c.at)
     if (!b || nm(b) !== c.name) continue
     out.push({ k, why: CUT_GIVEN_WHY }); gone.add(k)

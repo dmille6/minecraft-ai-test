@@ -254,11 +254,11 @@ await t('a handed step that reads as terrain is cut, exactly its cell; the contr
   assert.strictEqual(base.ok, true); assert.deepStrictEqual(cutK(base), [], 'today: the step stays (SCAFFOLD takes only what stands above the ground round it)')
   assert.deepStrictEqual(base.litter, { read: 0, seen: [] })
   const s = stage(srv, { litter: [E(STEP)] })
-  assert.deepStrictEqual(s.record.cut, [{ at: STEP, kind: 'tidy', name: 'dirt', handed: 1 }], 'the tidy\'s own cut entry (kind tidy: the visit digs it as it digs a surveyed pillar), marked as the hand-off\'s')
+  assert.deepStrictEqual(s.record.cut, [{ at: STEP, kind: 'tidy', name: 'dirt', handed: NOW }], 'the tidy\'s own cut entry (kind tidy: the visit digs it as it digs a surveyed pillar), marked as the hand-off\'s with the time it was folded')
   assert.deepStrictEqual(s.litter, { read: 1, seen: [{ k: xyz(...STEP), t: ET, v: 'take', why: 'same' }] })
   assert.strictEqual(s.record.inwall.rough.census.handed, 1)
   assert.ok(!('litter' in s.record) && !JSON.stringify(s.record).includes('"seen"'), 'the verdicts are the caller\'s rows, never on the record')
-  assert.deepStrictEqual(T.tidyCuts(s.record, srv.read).map(c => c.at), [STEP], 'the visit\'s cut list')
+  assert.deepStrictEqual(T.tidyCuts(s.record, srv.read, null, NOW + HOUR).map(c => c.at), [STEP], 'the visit\'s cut list')
   // the mutant: siteStage no longer passes the hand-off to the survey
   await withMutant(P('tidy.mjs'), "climbs: terrace?.climbs ?? [], litter: terrace?.litter ?? [], now, standOff:", "climbs: terrace?.climbs ?? [], now, standOff:", async M => {
     assert.deepStrictEqual(cutK(stage(srv, { litter: [E(STEP)], stageMod: M })), [])
@@ -347,7 +347,7 @@ await t('a handed pillar comes down whole, from its top; with its top built on n
   assert.deepStrictEqual([cutK(s3), seenOf(s3)[xyz(...STEP)]], [[], 'dropped:built_on'])
   const g = riseWorld(); g.set(STEP, 'grass_block')
   const sg = stage(g, { litter: [E(STEP)] })
-  assert.deepStrictEqual(sg.record.cut, [{ at: STEP, kind: 'tidy', name: 'grass_block', handed: 1 }]); assert.strictEqual(seenOf(sg)[xyz(...STEP)], 'take:greened')
+  assert.deepStrictEqual(sg.record.cut, [{ at: STEP, kind: 'tidy', name: 'grass_block', handed: NOW }]); assert.strictEqual(seenOf(sg)[xyz(...STEP)], 'take:greened')
 })
 await t('r1 STALE: an entry past LITTER.keepMs is never folded, whatever the cell reads (ground put back where the handed dirt stood reads grass_block); mutants: the long life back, the survey without its clock', async () => {
   // the handed dirt is long gone; the cell holds ground again, grass like the lawn round it -- by its name, the greened hand-off
@@ -419,7 +419,7 @@ await t('the refresh of an open record: a busy column is held, a cell another pr
 })
 
 console.log('THE CHAIN: the real take-back\'s expiry -> the file -> the survey -> the record -> the visit\'s dig')
-const chain = async (M = TB, { LM = LT, after = null, tidyOk = true } = {}) => {
+const chain = async (M = TB, { LM = LT, TM = T, after = null, tidyOk = true, visitAfter = 60_000 } = {}) => {
   const dir = tmp('chain'), rows = []
   const srv = riseWorld()
   srv.set([-12, G + 4, -9], 'dirt')
@@ -452,22 +452,24 @@ const chain = async (M = TB, { LM = LT, after = null, tidyOk = true } = {}) => {
   const head = PJ.recordHead(dir, key).head
   const ty = LT.litterTally(s.litter, { added: new Set(head.rec.cut.filter(c => c.added === now).map(c => c.at.join(','))), since: r0.sitedAt })
   // the next cleanup visit: the visit's own cut list through the real runner
-  const cuts = T.chainCuts(T.tidyCuts(head.rec, srv.read), [0, 0])
+  // (r2) the visit's clock: `visitAfter` ms after the fold -- the visit's list and its dig-time check read the cut's age from it
+  const visitAt = now + visitAfter
+  if (after) after(srv)                                  // the world moves between the publish and the visit
+  const cuts = TM.chainCuts(TM.tidyCuts(head.rec, srv.read, null, visitAt), [0, 0])
   const slot = PJ.takeSlot(dir, key, 'Keeper', 1)
   const e = fakeBuilder(srv, 'Keeper', { feet: [0, G + 1, 0] })
-  if (after) after(srv)                                  // the world moves between the publish and the visit
   const before = new Map(srv.cells)
   // skills.mjs's `tidyOk` asks litter.mjs handedBare last (the wiring test below reads that line); runVisit asks it before the walk
   // and again immediately before the dig
-  const r = await R.runVisit({ dir, key, me: 'Keeper', home: HOME, stood: [], record: head.rec, tidy: cuts, recordGen: head.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 48, tidyKeepOrder: true, ...(tidyOk ? { tidyOk: (q, rd) => LM.handedBare(q, rd) } : {}) }, e, { maxSteps: 400 })
+  const r = await R.runVisit({ dir, key, me: 'Keeper', home: HOME, stood: [], record: head.rec, tidy: cuts, recordGen: head.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 48, tidyKeepOrder: true, ...(tidyOk ? { tidyOk: (q, rd) => LM.handedBare(q, rd, visitAt) } : {}) }, e, { maxSteps: 400 })
   const dug = [...before.keys()].filter(k => before.get(k) !== 'air' && srv.read(...k.split(',').map(Number)).name === 'air').sort()
-  return { dir, rows, litter, pub, head, ty, e, dug, srv, r }
+  return { dir, rows, litter, pub, head, ty, e, dug, srv, r, cuts, foldAt: now, visitAt }
 }
 await t('a step the walk left behind is in the bot\'s file, on the record\'s cut list after the refresh, and dug by the next visit: that block, by the tidy\'s own row', async () => {
   const c = await chain()
   assert.deepStrictEqual(c.litter, [{ at: STEP, block: 'dirt', t: c.litter[0].t, shape: 'step', by: 'Gale' }], 'the far, out-of-town placement was never handed')
   assert.strictEqual(c.pub.result, 'accepted')
-  assert.ok(c.head.rec.cut.some(q => q.at.join(',') === xyz(...STEP) && q.kind === 'tidy' && q.name === 'dirt' && q.handed === 1), JSON.stringify(c.head.rec.cut))
+  assert.ok(c.head.rec.cut.some(q => q.at.join(',') === xyz(...STEP) && q.kind === 'tidy' && q.name === 'dirt' && q.handed === c.foldAt), JSON.stringify(c.head.rec.cut))
   assert.ok(c.head.rec.cut.some(q => !q.handed), 'control: the record\'s own cut is not marked')
   assert.deepStrictEqual(c.ty.folded, [xyz(...STEP)])
   assert.match(LT.intakeRows(c.ty, { where: 'refresh', gen: c.pub.gen })[0].detail, /^op=folded n=1 why=refresh read=1 seen=1 /)
@@ -492,20 +494,23 @@ console.log('REVIEW r1: built on since the survey (at the dig); an unreadable re
 const fenceOn = srv => srv.set([STEP[0], STEP[1] + 1, STEP[2]], 'oak_fence')
 await t('r1 BUILT-ON-AT-DIG: a fence set on the handed block after the publish -> the real visit leaves the dirt standing, digs the rest, and the cut is named', async () => {
   const c = await chain(TB, { after: fenceOn })
-  assert.ok(c.head.rec.cut.some(q => q.at.join(',') === xyz(...STEP) && q.handed === 1), 'control: the cut is on the record (the survey saw it bare)')
+  assert.ok(c.head.rec.cut.some(q => q.at.join(',') === xyz(...STEP) && q.handed === c.foldAt), 'control: the cut is on the record (the survey saw it bare)')
+  assert.ok(c.cuts.some(q => q.at.join(',') === xyz(...STEP)), 'control: and on the visit\'s list (a minute old)')
   assert.strictEqual(c.srv.read(...STEP).name, 'dirt', 'BUILT-ON-AT-DIG: the dirt under the fence stands')
   assert.strictEqual(c.srv.read(STEP[0], STEP[1] + 1, STEP[2]).name, 'oak_fence')
   assert.deepStrictEqual(c.dug, [xyz(-12, G + 4, -9)], 'control: the same visit digs the record\'s other cut')
   assert.ok((c.r.tidyWet ?? []).includes(xyz(...STEP)), 'it waited, as a cut beside water waits')
   assert.ok((c.r.tidied ?? []).includes(xyz(...STEP)), 'and is a try: the crew gives it up after TIDY_CUT_TRIES')
-  const bo = LT.builtOnHeld(c.head.rec, c.r.tidyWet, c.srv.read)
+  const bo = LT.builtOnHeld(c.head.rec, c.r.tidyWet, c.srv.read, c.visitAt)
   assert.deepStrictEqual(bo, [xyz(...STEP)])
   assert.strictEqual(LT.builtOnDetail(bo), `op=dropped n=1 why=built_on_at_dig cells=${xyz(...STEP)}`)
   // the same visit with nothing on it digs it (the first chain test); a cut that is not the hand-off's is never asked this
-  assert.strictEqual(LT.handedBare({ at: STEP, kind: 'tidy', name: 'dirt' }, c.srv.read), true)
-  assert.strictEqual(LT.handedBare({ at: STEP, kind: 'tidy', name: 'dirt', handed: 1 }, c.srv.read), false)
-  assert.strictEqual(LT.handedBare({ at: STEP, handed: 1 }, () => null), false, 'unread above: not dug')
-  assert.deepStrictEqual(LT.builtOnHeld(c.head.rec, [xyz(-12, G + 4, -9)], c.srv.read), [], 'a cut that waited for another reason is not named built on')
+  assert.strictEqual(LT.handedBare({ at: STEP, kind: 'tidy', name: 'dirt' }, c.srv.read, c.visitAt), true)
+  assert.strictEqual(LT.handedBare({ at: STEP, kind: 'tidy', name: 'dirt', handed: c.foldAt }, c.srv.read, c.visitAt), false)
+  assert.strictEqual(LT.handedBare({ at: [0, G + 1, 9], handed: c.foldAt }, c.srv.read, c.visitAt), true, 'control: a fresh handed cut with air on it')
+  assert.strictEqual(LT.handedBare({ at: STEP, handed: c.foldAt }, () => null, c.visitAt), false, 'unread above: not dug')
+  assert.deepStrictEqual(LT.builtOnHeld(c.head.rec, [xyz(-12, G + 4, -9)], c.srv.read, c.visitAt), [], 'a cut that waited for another reason is not named built on')
+  assert.deepStrictEqual(LT.builtOnHeld(c.head.rec, c.r.tidyWet, c.srv.read, c.foldAt + LT.LITTER.keepMs + 1), [], 'nor one that only ran out of its life (r2)')
 })
 await t('r1 mutants: without the dig-time reading (litter.mjs handedBare), and without the cut\'s mark (tidy.mjs tidyRecord), the visit digs the dirt from under the fence', async () => {
   await withMutant(P('litter.mjs'), "  return !!up && AIRY(String(up.name ?? '').replace(/\\[.*\\]$/, ''))\n", '  return !!up\n', async M => {
@@ -514,26 +519,119 @@ await t('r1 mutants: without the dig-time reading (litter.mjs handedBare), and w
     assert.strictEqual(c.srv.read(STEP[0], STEP[1] + 1, STEP[2]).name, 'oak_fence')
   })
   // the mark is what the check reads: a record whose hand-off cuts are not marked is dug the old way
-  await withMutant(P('tidy.mjs'), ', ...(c.handed ? { handed: 1 } : {}) }))', ' }))', async M => {
+  await withMutant(P('tidy.mjs'), ', ...(c.handed ? { handed: c.handed } : {}) }))', ' }))', async M => {
     const srv = riseWorld()
     const rec = stage(srv, { litter: [E(STEP)], stageMod: M }).record
     assert.deepStrictEqual(rec.cut, [{ at: STEP, kind: 'tidy', name: 'dirt' }], 'mutant: no mark')
     fenceOn(srv)
-    assert.strictEqual(LT.handedBare(rec.cut[0], srv.read), true, 'mutant: so the dig is not held')
+    assert.strictEqual(LT.handedBare(rec.cut[0], srv.read, NOW + 1), true, 'mutant: so the dig is not held')
+    assert.strictEqual(LT.handedBare(stage(riseWorld(), { litter: [E(STEP)] }).record.cut[0], srv.read, NOW + 1), false, 'control: the real record\'s cut is held under the fence')
   })
 })
 await t('r1: a handed pillar still comes down whole through the real visit (top first: the block under a handed block is bare when it is asked)', async () => {
   const srv = server()
   for (const d of [1, 2, 3]) srv.set([3, G + d, 0], 'dirt')
-  const cuts = T.chainCuts([3, 2, 1].map(d => ({ at: [3, G + d, 0], kind: 'tidy', name: 'dirt', handed: 1 })), [0, 0])
+  const cuts = T.chainCuts([3, 2, 1].map(d => ({ at: [3, G + d, 0], kind: 'tidy', name: 'dirt', handed: NOW })), [0, 0])
   const rec = { v: 1, blueprint: T.TIDY_BLUEPRINT, plot: 'tidy', home: HOME, r: 32, cells: [], clear: [], cut: cuts, replant: [], segments: [] }
   const dir = tmp('pillar'), key = PJ.projKey(HOME, 'tidy')
   const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
   const slot = PJ.takeSlot(dir, key, 'A', 1)
   const e = fakeBuilder(srv, 'A', { feet: [0, G + 1, 0] })
-  await R.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, tidy: cuts, recordGen: pub.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 48, tidyKeepOrder: true, tidyOk: (q, rd) => LT.handedBare(q, rd) }, e, { maxSteps: 400 })
+  await R.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, tidy: cuts, recordGen: pub.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 48, tidyKeepOrder: true, tidyOk: (q, rd) => LT.handedBare(q, rd, NOW + HOUR) }, e, { maxSteps: 400 })
   assert.deepStrictEqual([1, 2, 3].map(d => srv.read(3, G + d, 0).name), ['air', 'air', 'air'])
 })
+console.log('REVIEW r2: a folded cut expires too')
+/** The reviewer's sequence: the handed dirt is removed and dirt terrain restored in the same cell, air above (by name, the same cut). */
+const replaced = srv => { srv.set(STEP, 'air'); srv.set(STEP, 'dirt') }
+const fillDone = srv => q => cellDone(srv.read(...q.at), T.TIDY_PALETTE, q.role)
+await t('r2 handedOld: a cut is believed LITTER.keepMs from its fold; a mark that is not a time is old; a cut that is not the hand-off\'s never is', () => {
+  const K3 = LT.LITTER.keepMs
+  assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW + K3), false, 'the last believed instant')
+  assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW + K3 + 1), true)
+  assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, NOW - 30_000), false, 'a clock a little behind the fold')
+  for (const h of [1, true, 'yes', Infinity, -5]) assert.strictEqual(LT.handedOld({ at: STEP, handed: h }, NOW), true, `handed: ${h} is not a time: old`)
+  assert.strictEqual(LT.handedOld({ at: STEP, handed: NOW }, undefined), true, 'no clock: old (fail closed)')
+  for (const c of [{ at: STEP }, { at: STEP, handed: 0 }, null]) assert.strictEqual(LT.handedOld(c, NOW + 10 * K3), false, 'not a hand-off\'s cut')
+})
+await t('r2 EXPIRED: folded at t0, the block replaced by dirt, the keeper back at t0 + keepMs + 1 -- the real visit does NOT dig it, and nothing waits on it (the progress, the refresh\'s open columns, the give-up)', async () => {
+  const c = await chain(TB, { after: replaced, visitAfter: LT.LITTER.keepMs + 1 })
+  assert.ok(c.head.rec.cut.some(q => q.at.join(',') === xyz(...STEP) && q.handed === c.foldAt), 'control: the cut is on the record, by its name still "standing"')
+  assert.strictEqual(c.srv.read(...STEP).name, 'dirt', 'EXPIRED: the replacement stands')
+  assert.deepStrictEqual(c.dug, [xyz(-12, G + 4, -9)], 'control: the same visit digs the record\'s other cut')
+  assert.ok(!c.cuts.some(q => q.at.join(',') === xyz(...STEP)), 'never on the visit\'s list')
+  assert.ok(!(c.r.tidied ?? []).includes(xyz(...STEP)) && !(c.r.tidyWet ?? []).includes(xyz(...STEP)), 'so never tried, never waited on')
+  assert.ok(!/stuck|defer/.test(String(c.r.stop ?? '')), `the visit is not stuck on it (${c.r.stop})`)
+  // what the stage reads after the visit: no cut left (the completion's count), the column free for the next survey, no waiver owed
+  const prog = T.tidyProgress(c.head.rec, c.srv.read, { fillDone: fillDone(c.srv), now: c.visitAt })
+  assert.deepStrictEqual([prog.cutLeft, prog.cutDone, prog.fillLeft], [0, 2, 0], 'the progress: both cuts done, nothing open')
+  assert.deepStrictEqual([...TR.openColumns(c.head.rec, c.srv.read, { done: fillDone(c.srv), now: c.visitAt })], [], 'the refresh: no open column')
+  assert.deepStrictEqual(TR.cutGiveUps(c.head.rec, c.srv.read, { given: () => true, now: c.visitAt }), [], 'no waiver for it')
+  assert.strictEqual(T.cutStanding(c.srv.read, c.head.rec.cut.find(q => q.handed), c.visitAt), false)
+  // the instant before, all three still read it open (the control for each reader)
+  const t1 = c.foldAt + LT.LITTER.keepMs
+  assert.strictEqual(T.tidyProgress(c.head.rec, c.srv.read, { fillDone: fillDone(c.srv), now: t1 }).cutLeft, 1)
+  assert.deepStrictEqual([...TR.openColumns(c.head.rec, c.srv.read, { done: fillDone(c.srv), now: t1 })], ['5,3'])
+  assert.deepStrictEqual(TR.cutGiveUps(c.head.rec, c.srv.read, { given: () => true, now: t1 }).map(d => d.k), [xyz(...STEP)])
+})
+await t('r2 the positive control: the same sequence with the keeper back after one hour -- the visit digs the cut (inside its life the name is believed)', async () => {
+  const c = await chain(TB, { after: replaced, visitAfter: HOUR })
+  assert.deepStrictEqual(c.dug, [xyz(-12, G + 4, -9), xyz(...STEP)].sort())
+  assert.strictEqual(c.srv.read(...STEP).name, 'air')
+})
+/** BOTH readers of the cut's age on a litter.mjs where a cut never expires: the mutant, and a tidy.mjs that imports it. */
+async function withNeverOld (fn) {
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2)}`
+  const lsrc = readFileSync(P('litter.mjs'), 'utf8')
+  const A = 'export const handedOld = (cut, now, T = LITTER) => !!cut?.handed && !(Number.isFinite(cut.handed) && cut.handed > 1 && Number.isFinite(now) && now - cut.handed <= T.keepMs)'
+  assert.strictEqual(lsrc.split(A).length, 2, 'ANCHOR MISSING OR NOT UNIQUE (handedOld)')
+  const tsrc = readFileSync(P('tidy.mjs'), 'utf8')
+  const B = "import { handedOld } from './litter.mjs'"
+  assert.strictEqual(tsrc.split(B).length, 2, 'ANCHOR MISSING OR NOT UNIQUE (tidy.mjs import)')
+  const lf = new URL(`./_mutant-${tag}-litter.mjs`, import.meta.url), tf = new URL(`./_mutant-${tag}-tidy.mjs`, import.meta.url)
+  writeFileSync(lf, lsrc.replace(A, 'export const handedOld = () => false').replace(/from '\.\//g, "from '../src/"))
+  writeFileSync(tf, tsrc.replace(B, `import { handedOld } from './_mutant-${tag}-litter.mjs'`).replace(/from '\.\/(?!_mutant-)/g, "from '../src/"))
+  try { return await fn(await import(lf.href), await import(tf.href)) } finally { for (const f of [lf, tf]) { try { unlinkSync(f) } catch {} } }
+}
+await t('r2 mutants: a cut that never expires (handedOld always false) digs the replacement; each reader alone still holds it; cutStanding and openColumns without the age wait for ever', async () => {
+  await withNeverOld(async (LM, TM) => {
+    const c = await chain(TB, { after: replaced, visitAfter: LT.LITTER.keepMs + 1, LM, TM })
+    assert.strictEqual(c.srv.read(...STEP).name, 'air', 'mutant: the replacement is dug four hours on')
+    // two layers: with only the dig-time check gone the visit's list still leaves it out; with only the list's gone the dig refuses it
+    const digOnly = await chain(TB, { after: replaced, visitAfter: LT.LITTER.keepMs + 1, LM })
+    assert.strictEqual(digOnly.srv.read(...STEP).name, 'dirt', 'the list alone holds it')
+    const listOnly = await chain(TB, { after: replaced, visitAfter: LT.LITTER.keepMs + 1, TM })
+    assert.ok(listOnly.cuts.some(q => q.at.join(',') === xyz(...STEP)), 'control: the mutant list has it')
+    assert.strictEqual(listOnly.srv.read(...STEP).name, 'dirt', 'the dig-time check alone holds it')
+  })
+  const cut = { at: STEP, kind: 'tidy', name: 'dirt', handed: NOW }, rec = { cut: [cut], cells: [] }
+  const srv = riseWorld(), late = NOW + LT.LITTER.keepMs + 1
+  assert.strictEqual(T.tidyProgress(rec, srv.read, { fillDone: () => true, now: late }).cutLeft, 0)
+  await withMutant(P('tidy.mjs'), 'if (handedOld(c, now)) return false; ', '', async M => {
+    assert.strictEqual(M.tidyProgress(rec, srv.read, { fillDone: () => true, now: late }).cutLeft, 1, 'mutant: the stage counts it open for ever')
+    assert.deepStrictEqual(M.tidyCuts(rec, srv.read, null, late).map(q => q.at), [STEP], 'mutant: and lists it')
+  })
+  assert.deepStrictEqual([...TR.openColumns(rec, srv.read, { now: late })], [])
+  await withMutant(P('tidyrefresh.mjs'), 'if (hasOwn(w, kOf(c.at)) || handedOld(c, now)) continue; const b = read(...c.at); if (!b || nm(b) === c.name) out.add(colOf(c.at)) }\n  for (const c of rec?.cells', 'if (hasOwn(w, kOf(c.at))) continue; const b = read(...c.at); if (!b || nm(b) === c.name) out.add(colOf(c.at)) }\n  for (const c of rec?.cells', async M => {
+    assert.deepStrictEqual([...M.openColumns(rec, srv.read, { now: late })], ['5,3'], 'mutant: its column is never surveyed again')
+  })
+})
+await t('r2 `handed: 1` (a mark that is not a time) is never dug: not listed, and refused at the dig by the real visit even when it is listed', async () => {
+  const run = async handed => {
+    const srv = server(); srv.set([3, G + 1, 0], 'dirt')
+    const cuts = [{ at: [3, G + 1, 0], kind: 'tidy', name: 'dirt', handed }]
+    const rec = { v: 1, blueprint: T.TIDY_BLUEPRINT, plot: 'tidy', home: HOME, r: 32, cells: [], clear: [], cut: cuts, replant: [], segments: [] }
+    const dir = tmp('mark'), key = PJ.projKey(HOME, 'tidy')
+    const pub = PJ.publishRecord(dir, key, () => ({ ...rec }))
+    const slot = PJ.takeSlot(dir, key, 'A', 1)
+    const e = fakeBuilder(srv, 'A', { feet: [0, G + 1, 0] })
+    // the list handed to the runner WHOLE (as a caller that forgot the age would): the dig-time check is the last word
+    await R.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, tidy: cuts, recordGen: pub.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: 48, clearMax: 48, tidyKeepOrder: true, tidyOk: (q, rd) => LT.handedBare(q, rd, NOW + 1000) }, e, { maxSteps: 400 })
+    return { name: srv.read(3, G + 1, 0).name, listed: T.tidyCuts(rec, srv.read, null, NOW + 1000).length, left: T.tidyProgress(rec, srv.read, { fillDone: () => true, now: NOW + 1000 }).cutLeft }
+  }
+  assert.deepStrictEqual(await run(1), { name: 'dirt', listed: 0, left: 0 }, 'handed: 1 -- never dug, never listed, nothing left waiting')
+  assert.deepStrictEqual(await run(NOW), { name: 'air', listed: 0, left: 0 }, 'control: a cut folded a second ago is dug by the same visit')
+})
+
 // the production reader's shape (skills.mjs litterForSurvey): otherCellsStrict over every guarded project's own recordHead, REAL files
 const PLOTS = ['tidy', 'cottage1']
 const OTHER = PJ.projKey(HOME, 'cottage1')

@@ -29,11 +29,16 @@
 //     read, so a project whose record is unreadable loses its cells at every reader built on it. The intake first reads every
 //     guarded project STRICTLY (tempstand.mjs otherCellsStrict: it throws when a head is not ok or its newest generation is
 //     rejected); when that throws the survey gets NO entry (`_litter op=dropped why=records_unread`), and they wait for the next.
-//   BUILT ON, AGAIN AT THE DIG (review r1, Codex 3; handedBare): a cut that came from the hand-off carries `handed: 1` on the
-//     record, and the visit reads the cell over it immediately before the dig (skills.mjs `tidyOk`, which buildrun.mjs asks before
+//   BUILT ON, AGAIN AT THE DIG (review r1, Codex 3; handedBare): a cut that came from the hand-off carries `handed` on the
+//     record (r2: the time it was folded), and the visit reads the cell over it immediately before the dig (skills.mjs `tidyOk`, which buildrun.mjs asks before
 //     the walk and again after it): anything but air there and the cut is not dug in that visit -- it waits as a cut beside water
 //     waits (runVisit `tidyWet`), is counted toward the crew's give-up, and is named (`_litter op=dropped why=built_on_at_dig`).
 //     A handed pillar is dug top first, so the block under a handed block is bare by the time it is asked.
+//   A FOLDED CUT EXPIRES TOO (review r2, Codex; handedOld): the cut is believed for LITTER.keepMs from its fold, like the entry it
+//     came from. Past it the cut is DONE everywhere a cut's standing is read -- tidy.mjs cutStanding (the visit's list, the
+//     progress, the give-up count, site prep's open columns), tidyrefresh.mjs openColumns (its column is free for the next survey)
+//     and cutGiveUps (no waiver), the completion's unread test -- and handedBare refuses it at the dig. The refresh never folds
+//     the same cell twice on one record (refreshMerge `known`): a block handed there again waits for the next record.
 //   NEVER TAKEN (litterVerdict, takeback.mjs verdictFor's reading at the intake): a cell that no longer holds the handed block
 //     (`gone`, `changed`), a record's cell (`record`), a cell with anything but air on it that is not a handed block taken with it
 //     (`built_on`), a block at or under the lowest ground round it (`in_ground`: it fills a hole the survey would fill again, or it
@@ -139,19 +144,30 @@ export function litterIntake ({ read = () => [], strict = () => new Set(), recor
   return { entries: litterClaimed(entries, records), unread: null }
 }
 /**
+ * r2 (Codex): A FOLDED CUT EXPIRES TOO. r1 bounded the ENTRY (keepMs in the owner's file and at the intake), but the cut it became
+ * kept only `handed: 1`: a keeper away four hours came back to a cut whose block had been removed and whose cell held restored
+ * ground, and dug it by name. The cut now carries WHEN it was folded (`handed`: the survey's clock, ms) and is believed for keepMs
+ * from then: past it the cut reads as NOT STANDING (tidy.mjs cutStanding: done, like a cut whose block changed its name -- no wait,
+ * no stuck segment) and handedBare refuses it. A mark that is not a time (`handed: 1`, a hand-written record) is old: fail closed.
+ * -> bool. Pure.
+ */
+export const handedOld = (cut, now, T = LITTER) => !!cut?.handed && !(Number.isFinite(cut.handed) && cut.handed > 1 && Number.isFinite(now) && now - cut.handed <= T.keepMs)
+/**
  * AT THE DIG: MAY THIS CUT BE DUG NOW? -> bool. Pure over `read`. A cut that came from the hand-off (`handed` on the record's cut
  * entry) only while the cell over it reads AIR now -- something set on it since the survey is someone's, and an unread cell is no
  * evidence. Any other cut: true (the caller's other checks stand).
  */
-export function handedBare (cut, read) {
+export function handedBare (cut, read, now = Date.now(), T = LITTER) {
   if (!cut?.handed) return true
+  if (handedOld(cut, now, T)) return false
   const up = read(cut.at[0], cut.at[1] + 1, cut.at[2])
   return !!up && AIRY(String(up.name ?? '').replace(/\[.*\]$/, ''))
 }
-/** The handed cuts a visit left standing because something is on them now -> ["x,y,z"]. Pure. `waited`: runVisit's `tidyWet` keys. */
-export function builtOnHeld (rec, waited = [], read = () => null) {
+/** The handed cuts a visit left standing because something is on them now -> ["x,y,z"]. Pure. `waited`: runVisit's `tidyWet` keys.
+ *  r2: never one that only ran out of its life during the visit (handedOld: that is not "built on"). */
+export function builtOnHeld (rec, waited = [], read = () => null, now = Date.now(), T = LITTER) {
   const w = new Set(waited ?? [])
-  return (rec?.cut ?? []).filter(c => c?.handed && w.has(K(c.at)) && !handedBare(c, read)).map(c => K(c.at))
+  return (rec?.cut ?? []).filter(c => c?.handed && w.has(K(c.at)) && !handedOld(c, now, T) && !handedBare(c, read, now, T)).map(c => K(c.at))
 }
 export const unreadDetail = u => `op=dropped n=${u.n} why=records_unread record=${u.why}`
 export const builtOnDetail = (keys, T = LITTER) => `op=dropped n=${keys.length} why=built_on_at_dig cells=${keys.slice(0, T.rowCells).join(';') || '-'}`

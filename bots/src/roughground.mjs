@@ -128,7 +128,7 @@ export function floatingSegs (read, x, z, { top, med, yLo, spoil, T = ROUGH }) {
  *   climbs    the bots' ledgered scaffold ([{ x, y, z, shape }], placeaudit.mjs);  home  nearest-first order
  *   litter    litter-01: the walks' handed blocks ([{ at, block, t, claimed? }], buildproj.mjs litterRead); `out.litter` says what became of
  *             each one in this box ([{ k, t, v: 'take' | 'held' | 'dropped', why }]; one outside the box is not this survey's);
- *             `now` the survey's clock (an entry past litter.mjs LITTER.keepMs is `old`); its cuts carry `handed: 1`
+ *             `now` the survey's clock (an entry past litter.mjs LITTER.keepMs is `old`); its cuts carry `handed: <now>`, when they were folded
  */
 export function surveyRough (read, { home, box, within = () => true, col, spoil, buildWhy = /^$/, avoid = () => null, cells = new Set(), nearCells = cells, noLitter = () => false, reserved = () => false, busy = new Set(), climbs = [], litter = [], now = Date.now(), yLo = -64, standOff = () => false, T = ROUGH , env = process.env } = {}) {
   const skipped = {}
@@ -491,7 +491,7 @@ export function surveyRough (read, { home, box, within = () => true, col, spoil,
       used.add(k); grp.done = 'take'; census.handed += take.length
       const id = `rx${out.pillars.length}`
       out.pillars.push({ id, col: [x, z], top: take[0].at[1], base: ring.length ? Math.max(...ring) : null, h: take.length, kind: 'litter' })
-      for (const q of take) cuts.push({ at: q.at, name: q.name, pillar: id, handed: 1 })   // review r1: read again at the dig (litter.mjs handedBare)
+      for (const q of take) cuts.push({ at: q.at, name: q.name, pillar: id, handed: Number.isFinite(now) ? now : Date.now() })   // r1: read again at the dig (litter.mjs handedBare); r2: WHEN it was folded -- the cut expires (handedOld)
     }])
   }
   // nearest home first, under the cap (a cell is taken once: a later entry on a used column is dropped)

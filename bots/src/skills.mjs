@@ -189,6 +189,7 @@ import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWai
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
 import { litterOn, litterTally, litterIntake, handedBare, builtOnHeld, unreadDetail as litterUnreadDetail, builtOnDetail as litterBuiltOnDetail, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
 import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
+import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life
 import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
 import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
 import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
@@ -28761,7 +28762,7 @@ async function buildTidyVisit (ctx, args, signal) {
       for (const q of rw.cells ?? []) { if (!PARK_ROLES.has(q.role) && !q.opener) continue; if (buildCellDone(read2(...q.at), palette, q.role)) continue; const w = skip2(q); if (w) why[w] = (why[w] ?? 0) + 1 }
       if (Object.keys(why).length) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'park_skip', kind: Object.entries(why).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160), n: Object.values(why).reduce((a, b) => a + b, 0) }) }) } catch { /* telemetry */ } }
     }
-    const unread = [...(rw.cut ?? []), ...(rw.cells ?? []).filter(q => !q.prev)].some(q => !read2(...q.at))   // Codex r2: never a PREV cell
+    const unread = [...(rw.cut ?? []).filter(q => !handedOld(q, Date.now())), ...(rw.cells ?? []).filter(q => !q.prev)].some(q => !read2(...q.at))   // Codex r2: never a PREV cell; litter-01 r2: nor a hand-off's cut past its life (done unread)
     // groundskeeper-01 (Codex r1 BLOCKER 2): the record's clears (a felled road trunk, head-room leaves) are work too -- left
     // standing, the stage stays open until this bot's visits have made no clear progress GK_CLEAR_VISITS times (then named)
     let clearsOk = true

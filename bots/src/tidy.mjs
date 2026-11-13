@@ -32,6 +32,7 @@ import { sitePaths, pathDests, NATURAL } from './paths.mjs'
 import { stageOf, stageRoadCols, zoneAt, corridorAt, walkReach, LAND, INWALL_STAGE } from './landplan.mjs'   // groundskeeper-01; gkstage-01
 import { PARK_PALETTE } from './park.mjs'   // townterrace-01: the park's roles
 import { siteTerrace, terraceOn, TERRACE_STAGE, farmGuardOf, inWallTrees, TERRACE } from './terrace.mjs'
+import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut expires
 import { surveyRough, roughOn, nearCellsOf } from './roughground.mjs'   // roughground-01: the ground the inside rules miss   // townterrace-01: the terrace stage; plotprep-01: the plots' trees
 
 export const TIDY_PLOT = 'tidy'
@@ -336,7 +337,7 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
   // after every ground layer: runVisit stops `deps_open` there)
   const lk = sg => { const m = /^T-(\d+)-(\d+)$/.exec(sg); return [Number(m[2]), Number(m[1])] }
   segments.sort((a, b) => { const [ka, ga] = lk(a.seg), [kb, gb] = lk(b.seg); return ka - kb || ga - gb })
-  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name, ...(c.hollow ? { hollow: c.hollow } : {}), ...(c.handed ? { handed: 1 } : {}) }))   // roughground-1b: the hollow under a crust cut rides on it; litter-01 r1: a hand-off's cut says so (read again at the dig)
+  const cut = [...s.cut].sort((a, b) => b.at[1] - a.at[1] || a.at[0] - b.at[0] || a.at[2] - b.at[2]).map(c => ({ at: c.at, kind: 'tidy', name: c.name, ...(c.hollow ? { hollow: c.hollow } : {}), ...(c.handed ? { handed: c.handed } : {}) }))   // roughground-1b: the hollow under a crust cut rides on it; litter-01 r1: a hand-off's cut says so (read again at the dig)
   return {
     v: 1, blueprint: TIDY_BLUEPRINT, plot: TIDY_PLOT, home: { x: home.x, y: home.y, z: home.z }, r,
     cells, clear: [...(s.clear ?? [])].sort((a, b) => a.at[1] - b.at[1]), cut, replant: [], segments, zones: [],
@@ -347,14 +348,15 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
 }
 
 /** A cut block still standing (the world holds the block it was listed for; unread = still standing). Pure. */
-export const cutStanding = (read, c) => { const b = read(...c.at); return !b || nm(b) === c.name }
+// litter-01 r2: a hand-off's cut past its life is not standing (litter.mjs handedOld): it is done with, never dug, never waited on
+export const cutStanding = (read, c, now = Date.now()) => { if (handedOld(c, now)) return false; const b = read(...c.at); return !b || nm(b) === c.name }
 /**
  * THE PROGRESS -> { cutLeft, fillLeft, cutDone, fillDone }. Pure. `fillDone(cell)` is the visit's done test (buildrun.mjs cellDone
  * with TIDY_PALETTE, or a waiver); a cut is left while it stands and is not given up (`given(key)`).
  */
-export function tidyProgress (rec, read, { fillDone, given = () => false } = {}) {
+export function tidyProgress (rec, read, { fillDone, given = () => false, now = Date.now() } = {}) {
   let cutLeft = 0, cutDone = 0, fillLeft = 0, fillD = 0
-  for (const c of rec?.cut ?? []) { if (cutStanding(read, c) && !given(c.at.join(','))) cutLeft++; else cutDone++ }
+  for (const c of rec?.cut ?? []) { if (cutStanding(read, c, now) && !given(c.at.join(','))) cutLeft++; else cutDone++ }   // litter-01 r2: `now` -- a hand-off's cut past its life is done
   for (const c of rec?.cells ?? []) { if (fillDone(c)) fillD++; else fillLeft++ }
   return { cutLeft, cutDone, fillLeft, fillDone: fillD }
 }
@@ -369,7 +371,7 @@ export function tidyNoteCuts (mem, tidied = [], standing = () => true) {
 }
 export const tidyGivenUp = (mem, k, tries = TIDY_CUT_TRIES) => (mem?.get(k) ?? 0) >= tries
 /** The visit's cut list (buildrun.mjs `p.tidy`): the cuts still standing that this bot has not given up, top first. Pure. */
-export const tidyCuts = (rec, read, mem = null) => (rec?.cut ?? []).filter(c => cutStanding(read, c) && !tidyGivenUp(mem, c.at.join(',')))
+export const tidyCuts = (rec, read, mem = null, now = Date.now()) => (rec?.cut ?? []).filter(c => cutStanding(read, c, now) && !tidyGivenUp(mem, c.at.join(',')))
 /** Is a COMPLETE tidy due its re-survey (TIDY_RESURVEY_MS after its completion)? A completion in the future reads not due. Pure. */
 export const tidyDue = (rec, now = Date.now()) => rec?.blueprint === TIDY_BLUEPRINT && rec?.structure_complete === true && Number.isFinite(Number(rec.completeAt)) && Number(rec.completeAt) <= now + 60_000 && now - Number(rec.completeAt) >= TIDY_RESURVEY_MS
 /** A NOTHING-TO-DO record (the survey found no pillar and no pit): complete at once, surveyed again after TIDY_RESURVEY_MS. Pure. */
