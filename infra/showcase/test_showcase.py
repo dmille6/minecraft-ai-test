@@ -922,6 +922,27 @@ class SoakGate(unittest.TestCase):
         self.assertIn('one change at a time', act(newer, B, 210))
         self.assertEqual(SO.activation_soak_refusal([], A, self.T0), None, 'the first release ever')
 
+    def test_a_failed_activation_leaves_the_release_before_it_live(self):
+        # Codex r2: activate() journals `activated` for B, B fails verification, and only `ROLLBACK back_to=A` follows
+        z = lambda m: (self.T0 + dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        B = 'bbbbbbbb-6dd0ded8-fdd64ead'
+        rows = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'})) + [
+            {'t': z(200), 'event': 'activated', 'release': B, 'previous': self.LIVE},
+            {'t': z(210), 'event': 'ROLLBACK', 'release': B, 'back_to': self.LIVE, 'bad': ['showcase-Alpha']}]
+        live = SO.live_of(rows)
+        self.assertEqual((live['release'], live['previous'], live['t']), (self.LIVE, B, z(210)))
+        why = SO.soak_refusal(rows, self.T0 + dt.timedelta(minutes=220)) or ''
+        self.assertIn(self.LIVE + ' went live ' + z(210), why, 'what is running is judged, from the moment it came back')
+        self.assertNotIn('the live release ' + B, why)
+        fix = 'bbbbbbbb failed verification on Alpha: 0 rows on the new version after 600 s'
+        self.assertEqual(SO.soak_refusal(rows, self.T0 + dt.timedelta(minutes=220), 'bbbbbbbb', fix), None, 'a fix of the release that failed goes out')
+        self.assertEqual(SO.read_row_refusal(rows, 'KEEP', fix, harness=self.LIVE), None)
+        self.assertIn('the harness runs ' + B, SO.read_row_refusal(rows, 'KEEP', fix, harness=B) or '', 'a journal that disagrees with the harness is not read against')
+        # a ROLLBACK that names nothing to go back to changes nothing
+        nowhere = rows[:-1] + [{'t': z(210), 'event': 'ROLLBACK', 'release': B, 'back_to': None}]
+        self.assertEqual(SO.live_of(nowhere)['release'], B)
+        self.assertEqual(SO.live_of([]), None)
+
     def test_the_switch_is_wired_into_activate(self):
         src = open(os.path.join(HERE, 'showcase_ops.py')).read()
         code = re.sub(r'(^|[^:\'"])#.*$', r'\1', src, flags=re.M)
@@ -955,6 +976,7 @@ class SoakGate(unittest.TestCase):
                 SO.now_utc = lambda: self.T0 + dt.timedelta(minutes=181)
                 self.assertEqual(SO.cmd_read(ns), 0)
                 self.assertEqual(SO.soak_refusal(SO.FR.load_jsonl(SO.DEPLOY), self.T0 + dt.timedelta(minutes=182)), None, 'the +181 one does')
+                self.assertEqual(SO.FR.load_jsonl(SO.DEPLOY)[-1]['release'], self.LIVE)
                 bad = type('A', (), {'run': 'x', 'decision': 'fine', 'why': why, 'by': None})()
                 n = len(SO.FR.load_jsonl(SO.DEPLOY))
                 self.assertEqual(SO.cmd_read(bad), 1)

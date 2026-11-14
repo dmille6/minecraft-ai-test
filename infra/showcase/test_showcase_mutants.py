@@ -26,8 +26,10 @@ MUTANTS = [
     ('showcase_ops.py', "                and str(r.get('decision') or '').strip().upper().startswith(READ_DECISIONS)):", "                and True):", 'test_what_does_not_open_it'),
     ('showcase_ops.py', "        if not any(x.startswith(str(fix_of)) for x in fixable):", "        if False:", 'test_a_fix_must_name_the_live_release_and_say_why'),
     ('showcase_ops.py', "        if not fix_of or len(str(fix_of)) < 8 or not fix_why or len(str(fix_why).strip()) < FIX_WHY_MIN:", "        if not fix_of:", 'test_a_fix_must_name_the_live_release_and_say_why'),
-    ('showcase_ops.py', "    live = acts[-1]                      # the NEWEST activation", "    live = acts[0]                      # the NEWEST activation", 'test_the_11_13_afternoon_is_refused'),
-    ('showcase_ops.py', "    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated']\n", "    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated' and r.get('release')]\n", 'test_nothing_live_and_unreadable_rows'),
+    ('showcase_ops.py', "        if r.get('event') == 'activated':\n            live = r\n", "        if r.get('event') == 'activated' and live is None:\n            live = r\n", 'test_the_11_13_afternoon_is_refused'),
+    ('showcase_ops.py', "        elif r.get('event') == 'ROLLBACK' and r.get('back_to'):", "        elif False:", 'test_a_failed_activation_leaves_the_release_before_it_live'),
+    ('showcase_ops.py', "    if harness and str(went_live['release']) != str(harness):", "    if False:", 'test_a_failed_activation_leaves_the_release_before_it_live'),
+    ('showcase_ops.py', "        if r.get('event') == 'activated':\n            live = r\n", "        if r.get('event') == 'activated' and r.get('release'):\n            live = r\n", 'test_nothing_live_and_unreadable_rows'),
     # OWNER 11-07: the owner's authorization counts for its exact sha only, from the owner only, with a quote
     ('showcase_ops.py', "    if not (HEX40.fullmatch(str(oa.get('sha') or '')) and oa.get('sha') == psha):", "    if False:",
      'test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only'),
