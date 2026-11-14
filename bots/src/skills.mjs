@@ -32281,7 +32281,7 @@ export function climbAdvice(stopped) {
   }
   if (s.includes('will not break')) {
     // roofclimb-01: NOT "run surface again" (the same column answers the same). Another cell under plain ground is another climb.
-    return ' — what is over this spot is built or protected and surface leaves it standing: step to a spot with only dirt or stone overhead and run surface there'
+    return ' — what is over this spot is built or protected and surface leaves it standing: if you can step to a spot with only dirt or stone overhead, run surface there'
   }
   return ' — run surface again to keep climbing'
 }
@@ -32361,7 +32361,7 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
       failClass: 'already_surfaced',
       gap: `at_y${y}`,
       detail: `already at y=${y}, at or above sea level ${SEA_LEVEL} — ` +
-              (roofWhy === 'built' ? `what is over you is built or protected (${roofBuilt}) and surface leaves it standing; leave on foot with goto or explore, or step to a spot with only dirt or stone overhead and run surface there`
+              (roofWhy === 'built' ? `what is over you is built or protected (${roofBuilt}) and surface leaves it standing; leave on foot with goto or explore, or if you can step to a spot with only dirt or stone overhead, run surface there`
                                    : `nothing to climb; use gather, explore or goto from here`),
     }
   }
@@ -32534,9 +32534,10 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
 
   if (roofWhy === 'roofed') {
     const q = roofAt()
-    roofRow(roofOut ? 'success' : 'failed', { op: 'end', at: `${q.x},${q.y},${q.z}`, top: TOP, out: roofOut ? 1 : 0, climbed: Math.round(climbed), ms: Date.now() - CLIMB_T0, stop: lastStop })
-    // JUDGED ON THE ROOF: open sky over the bot and height gained (a sidestep alone is not a climb)
-    if (roofOut && climbed >= 1) return { status: 'success', placed: undefined, detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, out from under the roof, ${how}` }
+    // JUDGED ON THE ROOF: open sky over the bot and height gained (a sidestep alone is not a climb); the row says what the skill returns
+    const roofDone = roofOut && climbed >= 1
+    roofRow(roofDone ? 'success' : 'failed', { op: 'end', at: `${q.x},${q.y},${q.z}`, top: TOP, out: roofOut ? 1 : 0, done: roofDone ? 1 : 0, climbed: Math.round(climbed), ms: Date.now() - CLIMB_T0, stop: roofDone ? null : lastStop })
+    if (roofDone) return { status: 'success', placed: undefined, detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, out from under the roof, ${how}` }
   } else if (endY >= TOP) {
     return { status: 'success', placed: undefined,
              detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ${how}` }
