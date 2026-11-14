@@ -768,6 +768,7 @@ const REQUIRED = [
   'infra/capsule/scorecard/projects.py',   // time capsule: one row per town project
   'infra/capsule/scorecard/pitmap-baseline.txt',   // time capsule: baseline of 2026-11-14T15:50:17Z
   'infra/capsule/scorecard/projects-baseline.json',
+  'infra/freshworld/worldrec.sh',   // owner 11-14: read-only copy of a world's region files every 15 minutes (rehearsal-0 recorder)
   'docs/reports/camera-design-2026-11-14.md',   // owner 11-14: cameras from a world's first moment, project cameras that stop, isometric + 4K (design, not built)
 ]
 

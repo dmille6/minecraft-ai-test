@@ -73,6 +73,10 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
    use it as a test of our new bots and platform as time goes on". Done, see the section below.
 7. **Cameras are part of a world from its first moment (owner 11-14 ~15:50Z).** See "Cameras and timelapses" below.
 
+8. **Cameras, three decisions (owner 11-14 ~17:45Z, "do what you recommend"):** rehearsal-0 is recorded by a read-only
+   copy every 15 minutes (since 17:47Z); the nine showcase cameras on finished projects are off (since 17:48Z); the world
+   record is kept every 15 minutes for 14 days, hourly to 90 days, daily forever. Details in the camera design.
+
 ## Showcase time capsule (made 2026-11-14)
 
 The showcase town as saved at **15:50:17Z** with saving held and flushed. One archive, 433 MB:
@@ -146,8 +150,9 @@ ones not thought of yet. Live cameras are then a choice of what to render now.
 - One fleet settings file (of 81) still names the Blackwell address. Whether a running bot uses it is not checked.
 - **The showcase is already on the 5080.** At ~15:00Z all 15 showcase settings files read
   `OLLAMA_BASE_URLS=http://10.0.0.72:11434|qwen2.5:7b-instruct` and none names the tunnel port; brainwatch at 14:50Z:
-  94 model decisions by 14 bots in 10 min, with 30 endpoint failures by 11 bots. Who switched it and when is not
-  established here (it was dark on the Studio tunnel from 08:31Z). So the C0 load test is no longer synthetic for the
+  94 model decisions by 14 bots in 10 min, with 30 endpoint failures by 11 bots. The showcase ops journal has it: an owner-directed
+  setting at 14:43:49Z by another session, from gemma4:26b through the Studio tunnel to qwen2.5 on the 5080 as a stopgap
+  (it was dark on the tunnel from 08:31Z; backup `/srv/showcase/ops/env-bak-20261114T1440Z-qwen-stopgap/`). So the C0 load test is no longer synthetic for the
   showcase: it is a read of the real load, plus a synthetic stream for the rehearsal's 12 bots. The Studio tunnel unit
   still runs and flaps (1,131 restarts); it is removed when C0 closes.
 - A scheduled task (`voyager-harness2-start-1114`, 18:30Z) was set to start six new Voyager arms for 48 h on the Anthropic

@@ -37,10 +37,17 @@ This is a design. Nothing in it is built or installed.
 | B4 | Rendering and capture move to the ops VM | medium | before the worlds host is retired (C4) |
 | B5 | Completion beauty render and the render-from-the-record job | medium | after B1 |
 
-**Decisions for the owner**
-1. Rehearsal-0 has no capture. Start a read-only copy of its world files every 15 minutes now (section 4), or leave it?
-2. Retire the nine cameras on finished projects on the showcase now (their frames so far are kept)?
-3. Retention for the record: every 15 minutes for 14 days, hourly to 90 days, daily forever. Agree, or keep more?
+**Owner decisions, 2026-11-14 ~17:45Z ("for all three questions do what you recommend or think is best")**
+1. **Rehearsal-0 is being recorded.** `infra/freshworld/worldrec.sh`, installed on VM 118 as `~/worldrec/worldrec.sh`, in
+   mike's crontab every 15 minutes since 17:47Z. It reads the world's region files and `level.dat` and writes only under
+   `~/worldrec/snaps` (unchanged files are hard links); no save hold, no command to the server. First copy: 36 files in
+   1 s; the second, 20 s later, copied 3 changed files. It stops itself after 2026-11-16T15:00Z or below 25 GB free.
+   Owed after the run: move the snapshot tree to the NAS, remove the crontab line, render frame zero from the day-0
+   snapshot. Not recorded: 14:46Z to 17:47Z.
+2. **The nine cameras on finished projects are off** on the showcase since 17:48:36Z (`"off": true` in `tl.conf`, a switch
+   the capture already supports; backup `tl.conf.bak-20261114-finishedcams`; journalled in the showcase ops journal). Ten
+   cameras stay on. No frame or video was deleted.
+3. **Retention for the record:** every 15 minutes for 14 days, hourly to 90 days, daily forever.
 
 ## 1. What exists today (read 11-14 on the showcase VM)
 
@@ -69,7 +76,9 @@ This is a design. Nothing in it is built or installed.
   history. Only its day-0 snapshot exists. The 11-10 camera plan for fresh worlds was never installed.
 - **Finished projects are still filmed at near full rate.** On 11-13 the nine fixed project cameras took 96 to 194 frames
   each. Their projects (shop, house1, monument, paths, wall, storehouse, hall, shaft) are `complete` in the town records
-  and treefarm is `retired`. The idle slow-down is configured but did not slow them; why was not established.
+  and treefarm is `retired`. The idle slow-down did not slow them because `cam_active()` in
+  `infra/showcase/tl_showcase.py` counts a changed frame as activity: a bot walking past or the light changing keeps a
+  finished project's camera "active". Section 3.3 replaces that with the project's recorded state.
 - **The isometric camera is a perspective view** at a 45 degree turn, not a true (orthographic) isometric.
 - **Project cameras are made by hand,** one config entry at a time (the config has 30-odd dated backups from adding them).
 - **The pipeline lives on two VMs,** one of which the plan retires, and renders on the same VM the bots play on.
@@ -157,7 +166,6 @@ a thinned stretch can be rendered again.
 
 ## 5. Not confirmed
 
-- Why the configured idle slow-down did not slow the finished projects' cameras.
 - Whether restic or borg is installed anywhere, and the NAS-side frame inventory and size.
 - The time for one 4K beauty frame, and for a full map render of a restored snapshot.
 - Orthographic rendering at a tilt in the installed map renderer.
