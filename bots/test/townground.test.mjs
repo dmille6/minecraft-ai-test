@@ -423,7 +423,8 @@ test('CHAIN mine: roofed ABOVE sea level -> the climb really rises through the r
   assert.ok(bot._digs.some(p => p.x > 216), `a stair was cut outside town after the climb (${r.status} ${String(r.detail).slice(0, 120)})`)
 })
 test('MUTANT KILLED: surface without the named top refuses at once above sea level ("already_surfaced") and the bot never rises', async () => {
-  await withMutant(SKILLS_URL, '  const TOP = Number.isFinite(args?._toY) ? Math.max(SEA_LEVEL, args._toY) : SEA_LEVEL\n', '  const TOP = SEA_LEVEL\n', async mod => {
+  // roofclimb-01 (11-14): the top is a `let` now (a ground roof above sea level names its own); the internal caller's top is still this line
+  await withMutant(SKILLS_URL, '  let TOP = Number.isFinite(args?._toY) ? Math.max(SEA_LEVEL, args._toY) : SEA_LEVEL\n', '  let TOP = SEA_LEVEL\n', async mod => {
     const bot = roofedWorld()
     const r = await runMine(mod, bot)
     assert.equal(bot.maxY, 65, 'no climb')
