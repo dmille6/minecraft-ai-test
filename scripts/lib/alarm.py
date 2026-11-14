@@ -105,7 +105,7 @@ def tier_of(source, key=''):
         # a collapse or a thing that no longer happens is digest (blind:activity too, by the rule below)
         return TIER_PAGE if str(key).startswith(('stopped:', 'stopwatch:')) else TIER_DIGEST
     if s.startswith('routewatch'):    # routewatch (11-14): a walk that WAS there and is gone PAGES (and its own crash key);
-        # a service with no plain walk ever seen is a to-do for the digest
+        # a service with no plain walk ever seen, and a search that did not finish (unsure:), are for the digest
         return TIER_PAGE if str(key).startswith(('lost:', 'routewatch:')) else TIER_DIGEST
     if s in DIGEST_SOURCES:
         return TIER_DIGEST

@@ -105,55 +105,140 @@ with tempfile.TemporaryDirectory() as d:
     check(RD.dump(os.path.join(d, 'nowhere'), 0, 15, 0, 15, 64, 95)['missing_chunks'] == 1, 'a region file that is not there too')
 
 # ---- the walk: the REAL A* over the well's stair (the showcase's, in small) --------------------------------------------
-def stair_dump(step=True):
+def stair_dump(step=True, extra=()):
     """ground top y 69 over x -4..10, z -4..4; a one-wide stair along z = 0 rising a block a step (tops 70, 71, 72 at x 3, 4, 5)
     to the stand's block at x 6 (top 72, feet 73). step=False: the first tread (3,70,0) is cut -- a two-block rise."""
-    cells = [[x, y, z, 0] for x in range(-4, 11) for z in range(-4, 5) for y in (68, 69)]
+    cells = [[x, y, z, 0] for x in range(-4, 11) for z in range(-4, 5) for y in (66, 67, 68, 69)]
     cells += [[4, y, 0, 0] for y in (70, 71)] + [[x, y, 0, 0] for x in (5, 6) for y in (70, 71, 72)]
     if step: cells.append([3, 70, 0, 1])
-    return {'palette': [{'name': 'stone', 'props': {}}, {'name': 'grass_block', 'props': {'snowy': 'false'}}], 'cells': cells, 'floor_y': 68}
+    return {'palette': [{'name': 'stone', 'props': {}}, {'name': 'grass_block', 'props': {'snowy': 'false'}}, {'name': 'white_carpet', 'props': {}}],
+            'cells': cells + [list(e) for e in extra], 'floor_y': 66}
 D = [{'key': 'dispose_well@6,73,0', 'cell': [6, 73, 0], 'uses': 210, 'bots': 14}, {'key': 'town_deposit@-2,70,2', 'cell': [-2, 70, 2], 'uses': 20, 'bots': 9},
      {'key': 'smelt_town@5,60,0', 'cell': [5, 60, 0], 'uses': 6, 'bots': 3}]
-def run(dump):
-    return RW.replay(dump, [(0, 70, 0)], D, 'node', os.path.join(HERE, 'routereplay.mjs'), MODULES, timeout_ms=1500)
-whole, unknown = run(stair_dump(True))
-check(whole['dispose_well@6,73,0']['status'] == 'success' and whole['dispose_well@6,73,0']['path'][-1] == [6, 73, 0], f"with its step the stand is walked to ({len(whole['dispose_well@6,73,0']['path'])} steps)")
-check([3, 71, 0] in whole['dispose_well@6,73,0']['path'], 'over the tread at 3,70,0')
+REPLAY = os.path.join(HERE, 'routereplay.mjs')
+def run(dump, dests=D, starts=((0, 70, 0),), ms=1500):
+    return RW.replay(dump, list(starts), dests, 'node', REPLAY, MODULES, timeout_ms=ms)
+whole, unknown, info = run(stair_dump(True))
+W = 'dispose_well@6,73,0'
+check(whole[W]['status'] == 'success' and whole[W]['path'][-1] == [6, 73, 0], f"with its step the stand is walked to ({len(whole[W]['path'])} steps)")
+check([3, 71, 0] in whole[W]['path'], 'over the tread at 3,70,0')
 check(whole['town_deposit@-2,70,2']['status'] == 'success' and unknown == [], 'and so is a chest on the flat')
-check(whole['smelt_town@5,60,0']['status'] == 'bad_cell', 'a cell inside stone is named as not standable, never searched')
-cut, _ = run(stair_dump(False))
-check(cut['dispose_well@6,73,0']['status'] in ('noPath', 'timeout', 'partial') and cut['dispose_well@6,73,0']['path'] == [], f"LIVE 11-13 18:12Z shape: the tread cut, an empty bag has no way up ({cut['dispose_well@6,73,0']['status']})")
+check(whole['smelt_town@5,60,0']['status'] == 'bad_cell', 'a cell inside stone is named as having no room, never searched')
+check(sorted(info['rules']) == ['corner', 'shore'] and info['starts_ok'] == 1, f"the live release's corner and shore rules are installed from its src ({info['rules']})")
+cut, _, _ = run(stair_dump(False))
+check(cut[W]['status'] == 'unsure' and cut[W]['path'] == [] and 'the search ended' in cut[W]['why'], f"LIVE 11-13 18:12Z shape: the tread cut -- over open ground the open search only runs out of time, and says so ({cut[W]['status']}: {cut[W].get('why')})")
 check(cut['town_deposit@-2,70,2']['status'] == 'success', 'POSITIVE CONTROL: the same run still walks to the chest')
+bound = [{'key': W, 'cell': [6, 73, 0], 'radius': RW.confirm_radius(8), 'timeout_ms': 8000}]
+conf_cut, _, _ = run(stair_dump(False), bound)
+check(conf_cut[W]['status'] == 'noPath', f"THE BOUNDED SEARCH ENDS: no walk within the detour is definitive ({conf_cut[W]['status']} in {conf_cut[W]['ms']} ms, {conf_cut[W]['visited']} nodes)")
+conf_whole, _, _ = run(stair_dump(True), bound)
+check(conf_whole[W]['status'] == 'success', 'POSITIVE CONTROL: the same bounded search finds the stair when its step is there')
+# Codex r1: what a body may stand in is the pathfinder's own answer
+carpet, _, _ = run(stair_dump(True, extra=[(6, 73, 0, 2)]))
+check(carpet[W]['status'] == 'success', f"a carpet on the stand is walked onto, not called a wall ({carpet[W]['status']})")
+boxed, _, _ = run(stair_dump(True, extra=[(0, 70, 0, 0), (0, 71, 0, 0)]))
+check(boxed[W]['status'] == 'unsure' and 'no start is standable' in boxed[W]['why'], 'a start buried in stone starts nothing: unsure, never a walk out of rock')
+two, _, info2 = run(stair_dump(True, extra=[(0, 70, 0, 0), (0, 71, 0, 0)]), starts=((0, 70, 0), (-1, 70, 0)))
+check(two[W]['status'] == 'success' and two[W]['from'] == [-1, 70, 0] and info2['starts_ok'] == 1, 'and the next start is used')
+# Codex r1: the box's bottom is invented stone -- a walk that needs it is not a walk
+pit = {'palette': [{'name': 'stone', 'props': {}}], 'floor_y': 66,
+       'cells': [[x, 69, z, 0] for x in range(-3, 1) for z in (-1, 0, 1)] + [[x, 69, z, 0] for x in range(6, 10) for z in (-1, 0, 1)] +
+                [[x, 66, z, 0] for x in range(-3, 10) for z in (-1, 0, 1)]}
+island = [{'key': 'town_deposit@8,70,0', 'cell': [8, 70, 0], 'uses': 5, 'bots': 3}]
+STEPS = [[3, 67, 0, 0], [4, 67, 0, 0], [4, 68, 0, 0], [5, 67, 0, 0], [5, 68, 0, 0]]      # up from the pit floor to the far platform
+pit = dict(pit, cells=pit['cells'] + STEPS)
+ok_floor, _, _ = run(pit, island)
+check(ok_floor['town_deposit@8,70,0']['status'] == 'unsure' and 'leaves the ground that was read' in ok_floor['town_deposit@8,70,0'].get('why', ''), f"two platforms joined only across the box's bottom layer: not a walk ({ok_floor['town_deposit@8,70,0']['status']}: {ok_floor['town_deposit@8,70,0'].get('why')})")
+deeper = dict(pit, floor_y=60, cells=pit['cells'] + [[x, y, z, 0] for x in range(-3, 10) for z in (-1, 0, 1) for y in (64, 65)])
+check(run(deeper, island)[0]['town_deposit@8,70,0']['status'] == 'success', 'POSITIVE CONTROL: the same crossing with the ground under it read too is a walk')
+
+# ---- the region reader's two failure modes (Codex r1) --------------------------------------------------------------------
+with tempfile.TemporaryDirectory() as d:
+    raw = zlib.compress(nbt({'sections': [{'Y': 4, 'block_states': {'palette': [{'Name': 'minecraft:diamond_block'}]}}]}))
+    head = bytearray(8192); struct.pack_into('>I', head, 0, (2 << 8) | 1)
+    open(os.path.join(d, 'r.0.0.mca'), 'wb').write(bytes(head) + (struct.pack('>IB', 1, 0x82) + b'\x00' * 4091))
+    open(os.path.join(d, 'c.0.0.mcc'), 'wb').write(raw)
+    ext = RD.dump(d, 0, 15, 0, 15, 64, 64)
+    check(ext['chunks'] == 1 and len(ext['cells']) == 256 and ext['palette'][0]['name'] == 'diamond_block', 'a chunk kept in an external .mcc file is read from it')
+    os.remove(os.path.join(d, 'c.0.0.mcc'))
+    gone = RD.dump(d, 0, 15, 0, 15, 64, 64)
+    check(gone['chunks'] == 0 and gone['missing_chunks'] == 1, 'and without the file the chunk is MISSING, not a crash and not empty ground')
+    real_stamp, n = RD._stamp, [0]
+    def moving(region_dir, names):
+        n[0] += 1
+        return {k: (n[0], 0, 0) for k in names}
+    RD._stamp = moving
+    try:
+        try:
+            RD.dump(d, 0, 15, 0, 15, 64, 64); unsteady = False
+        except RD.Unsteady:
+            unsteady = True
+    finally:
+        RD._stamp = real_stamp
+    check(unsteady and n[0] == 6, f'region files that change under every read: Unsteady after three tries ({n[0]} stamps), never a mixed box')
 
 # ---- the verdicts -----------------------------------------------------------------------------------------------------
 w_whole, w_cut = RW.world_of(stair_dump(True)), RW.world_of(stair_dump(False))
-al, st1 = RW.judge(D, whole, {}, w_whole, NOW)
-check(st1['dispose_well@6,73,0']['status'] == 'walk' and st1['dispose_well@6,73,0']['route'][0][:3] and set(al) == {'nowalk:smelt_town@5,60,0'}, f'first run: the walks are kept; only the unreachable cell is said ({sorted(al)})')
-check('not standable in the save' in al['nowalk:smelt_town@5,60,0'] and '6 uses by 3 bots' in al['nowalk:smelt_town@5,60,0'], 'with its uses and why')
-tread = [f for f in st1['dispose_well@6,73,0']['route'] if f[:3] == [3, 71, 0]]
+al, st1 = RW.judge(D, whole, {}, {}, w_whole, NOW)
+check(st1[W]['status'] == 'walk' and st1[W]['route'][0][:3] and set(al) == {'nowalk:smelt_town@5,60,0'}, f'first run: the walks are kept; only the unreachable cell is said ({sorted(al)})')
+check('no room for a body in the save' in al['nowalk:smelt_town@5,60,0'] and '6 uses by 3 bots' in al['nowalk:smelt_town@5,60,0'], 'with its uses and why')
+tread = [f for f in st1[W]['route'] if f[:3] == [3, 71, 0]]
 check(tread and tread[0][3] == 'grass_block', 'the kept route knows what each step stands on')
 later = NOW + dt.timedelta(hours=1)
-al2, st2 = RW.judge(D, cut, st1, w_cut, later)
-line = al2.get('lost:dispose_well@6,73,0', '')
-check('lost:dispose_well@6,73,0' in al2 and 'under 3,71,0: grass_block -> air' in line, 'THE CUT IS NAMED: ' + line[:150])
-check('210 uses by 14 bots' in line and 'GONE (since 2026-11-13T20:50:00Z' in line, 'with who used it and since when')
-check(st2['dispose_well@6,73,0']['status'] == 'lost' and st2['dispose_well@6,73,0']['route'] == st1['dispose_well@6,73,0']['route'], 'the kept route is held while the walk is lost')
-al3, st3 = RW.judge(D, cut, st2, w_cut, later + dt.timedelta(hours=5))
-check('GONE (since 2026-11-13T20:50:00Z' in al3['lost:dispose_well@6,73,0'], 'five hours on it is still lost, since the same time')
-al4, st4 = RW.judge(D, whole, st3, w_whole, later + dt.timedelta(hours=6))
-check('lost:dispose_well@6,73,0' not in al4 and st4['dispose_well@6,73,0']['status'] == 'walk' and st4['dispose_well@6,73,0']['since'] == AL._iso(later + dt.timedelta(hours=6)), 'the walk back, the alarm is gone and the route is kept anew')
-aln, stn = RW.judge(D, cut, {}, w_cut, NOW)
-check('nowalk:dispose_well@6,73,0' in aln and 'lost:dispose_well@6,73,0' not in aln, 'POSITIVE CONTROL: never seen walked is `nowalk` (digest), not `lost`')
+todo = RW.to_confirm(D, cut, st1)
+check([t['key'] for t in todo] == [W] and todo[0]['radius'] == RW.confirm_radius(st1[W]['steps']) and todo[0]['timeout_ms'] == RW.CONFIRM_MS, f"a failed walk with a kept route goes to the bounded search ({todo})")
+check(RW.to_confirm(D, whole, st1) == [] and RW.to_confirm(D, cut, {}) == [], 'a walk that was found, or one never kept, does not')
+# Codex r1: the open search running out of time is NOT a loss
+al_u, st_u = RW.judge(D, cut, {}, st1, w_cut, later)
+check('lost:' + W not in al_u and 'unsure:' + W in al_u and st_u[W]['status'] == 'walk' and st_u[W]['route'] == st1[W]['route'], 'a search that ran out of time changes nothing and pages nothing: ' + al_u.get('unsure:' + W, '')[:110])
+check('under 3,71,0: grass_block -> air' in al_u['unsure:' + W], 'but it says what it saw on the kept route')
+al_t, _ = RW.judge(D, cut, {W: {'status': 'unsure', 'why': 'the search ended timeout'}}, st1, w_cut, later)
+check('lost:' + W not in al_t, 'nor does a bounded search that ran out of time')
+al2, st2 = RW.judge(D, cut, conf_cut, st1, w_cut, later)
+line = al2.get('lost:' + W, '')
+check('lost:' + W in al2 and 'under 3,71,0: grass_block -> air' in line, 'THE BOUNDED SEARCH ENDED noPath: the loss pages and THE CUT IS NAMED: ' + line[:140])
+check('210 uses by 14 bots' in line and 'GONE (since 2026-11-13T20:50:00Z' in line and 'no walk within a detour of' in line, 'with who used it, since when, and the detour searched')
+check(st2[W]['status'] == 'lost' and st2[W]['route'] == st1[W]['route'], 'the kept route is held while the walk is lost')
+al3, st3 = RW.judge(D, cut, {}, st2, w_cut, later + dt.timedelta(hours=5))
+check('GONE (since 2026-11-13T20:50:00Z' in al3.get('lost:' + W, ''), 'five hours on, with no search finishing, it is still lost since the same time')
+# Codex r1: a broken service stops being used -- it is still watched, and its page stays
 quiet_d = [d for d in D if 'dispose_well' not in d['key']]
-_, stq = RW.judge(quiet_d, whole, st1, w_whole, later)
-check(stq['dispose_well@6,73,0'].get('quiet') and stq['dispose_well@6,73,0']['route'], 'a service nobody used today keeps its route')
-_, sto = RW.judge(quiet_d, whole, {'dispose_well@6,73,0': dict(st1['dispose_well@6,73,0'], seen='2026-11-01T00:00:00Z')}, w_whole, later)
-check('dispose_well@6,73,0' not in sto, 'for a week, then it is forgotten')
+wd = RW.watched(quiet_d, st3)
+check([d['key'] for d in wd][-1] == W and wd[-1]['quiet'] and wd[-1]['cell'] == [6, 73, 0], 'a lost walk nobody uses any more is still a destination')
+al5, st5 = RW.judge(wd, cut, {}, st3, w_cut, later + dt.timedelta(days=9))
+check('lost:' + W in al5 and 'not used in the last 24 h' in al5['lost:' + W] and st5[W]['status'] == 'lost', 'nine days unused it is still lost and still said')
+al4, st4 = RW.judge(wd, whole, {}, st5, w_whole, later + dt.timedelta(days=9, hours=1))
+check('lost:' + W not in al4 and st4[W]['status'] == 'walk' and st4[W]['since'] == AL._iso(later + dt.timedelta(days=9, hours=1)), 'ONLY A WALK FOUND clears it')
+al6, st6 = RW.judge(D, cut, {W: dict(whole[W])}, st2, w_whole, later + dt.timedelta(hours=2))
+check(st6[W]['status'] == 'walk', 'a walk found by the bounded search counts as found')
+aln, stn = RW.judge(D, cut, {}, {}, w_cut, NOW)
+check('nowalk:' + W in aln and 'lost:' + W not in aln, 'POSITIVE CONTROL: never seen walked is `nowalk` (digest), not `lost`')
+kept_q = RW.watched(quiet_d, st1)
+_, stq = RW.judge(kept_q, whole, {}, st1, w_whole, later)
+check(stq[W]['status'] == 'walk' and stq[W]['seen'] == st1[W]['seen'], 'a kept walk nobody used today is still checked, and its last use stays')
+_, sto = RW.judge(RW.watched(quiet_d, {W: dict(st1[W], seen='2026-11-01T00:00:00Z')}), whole, {}, {W: dict(st1[W], seen='2026-11-01T00:00:00Z')}, w_whole, later)
+check(W not in sto, 'for a week; then a WALK is forgotten (a lost one never: above)')
 check(RW.what_changed([[3, 71, 0, 'grass_block', '', '']], {(3, 71, 0): 'dirt', (3, 72, 0): 'cobblestone'}) == ['under 3,71,0: grass_block -> air', 'at 3,71,0: air -> dirt', 'above 3,71,0: air -> cobblestone'], 'what_changed names a block gone from under, and a block put in the way')
-for k in ('lost:dispose_well@6,73,0', 'routewatch:showcase'):
+check(RW.cell_of('dispose_well@12,74,6') == [12, 74, 6] and RW.cell_of('make_material@-15,71,0') == [-15, 71, 0] and RW.cell_of('nonsense') is None, 'a key carries its cell')
+for k in ('lost:' + W, 'routewatch:showcase'):
     check(AL.tier_of('routewatch-showcase', k) == AL.TIER_PAGE, f'{k} pages')
-for k in ('nowalk:smelt_town@5,60,0', 'blind:save'):
+for k in ('nowalk:smelt_town@5,60,0', 'unsure:' + W, 'blind:save'):
     check(AL.tier_of('routewatch-showcase', k) == AL.TIER_DIGEST, f'{k} goes to the digest')
+
+# ---- the state file (Codex r1) -------------------------------------------------------------------------------------------
+with tempfile.TemporaryDirectory() as d:
+    sp, pp = os.path.join(d, 'routewatch-showcase.json'), os.path.join(d, 'routewatch-showcase.pushstate.json')
+    check(RW.read_state(sp, pp, NOW) == ({}, None), 'no state and no push state: the first run, in silence')
+    json.dump({'lost:' + W: {'since': 's', 'line': 'x'}, 'nowalk:smelt_town@5,60,0': {'line': 'y'}}, open(pp, 'w'))
+    st, problem = RW.read_state(sp, pp, NOW)
+    check(problem and 'is gone' in problem and st[W]['status'] == 'lost' and st[W]['cell'] == [6, 73, 0] and len(st) == 1, f'a state file that vanished: the lost walk is taken back from the push state and the loss is said ({problem})')
+    alr, str_ = RW.judge(RW.watched([], st), {}, {}, st, w_cut, NOW)
+    check('lost:' + W in alr and 'lost with the state file' in alr['lost:' + W], 'and it is still lost, saying its route went with the file')
+    open(sp, 'w').write('{"state": {"x": ')
+    st, problem = RW.read_state(sp, pp, NOW)
+    check(problem and 'unreadable' in problem and W in st, 'a torn state file the same')
+    json.dump({'state': st2}, open(sp, 'w'))
+    check(RW.read_state(sp, pp, NOW) == (json.loads(json.dumps(st2)), None), 'a good one is read as it was written')
 
 # ---- mutants (the anchor must be present and unique) ---------------------------------------------------------------------
 SRC = open(os.path.join(HERE, 'routewatch.py')).read()
@@ -164,10 +249,29 @@ def mutant(old, new):
     return ns
 def killed(name, got):
     check(got, 'MUTANT KILLED: ' + name)
-m = mutant("        had = p.get('route')\n", "        had = None\n")
-killed('without the kept route a lost walk is only a to-do', 'lost:dispose_well@6,73,0' not in m['judge'](D, cut, st1, w_cut, later)[0])
-m = mutant("since = p.get('since') if p.get('status') == 'lost' else AL._iso(now)", "since = AL._iso(now)")
-killed('a loss that forgets when it began', 'GONE (since 2026-11-13T20:50:00Z' not in m['judge'](D, cut, st2, w_cut, later + dt.timedelta(hours=5))[0]['lost:dispose_well@6,73,0'])
+m = mutant("        if was_lost or (had and c.get('status') == 'noPath'):", "        if was_lost or had:")
+killed('a search that only ran out of time pages a loss', 'lost:' + W in m['judge'](D, cut, {}, st1, w_cut, later)[0])
+m = mutant("        if was_lost or (had and c.get('status') == 'noPath'):", "        if had and c.get('status') == 'noPath':")
+killed('a loss that clears itself when no search finishes', 'lost:' + W not in m['judge'](D, cut, {}, st2, w_cut, later + dt.timedelta(hours=5))[0])
+m = mutant("            since = p.get('since') if was_lost else AL._iso(now)", "            since = AL._iso(now)")
+killed('a loss that forgets when it began', 'GONE (since 2026-11-13T20:50:00Z' not in m['judge'](D, cut, {}, st2, w_cut, later + dt.timedelta(hours=5))[0]['lost:' + W])
+m = mutant("        if k in have or not isinstance(p, dict) or not (p.get('route') or p.get('status') == 'lost'):", "        if True:")
+killed('a broken service nobody uses drops out of the watch', all(d['key'] != W for d in m['watched'](quiet_d, st3)))
+m = mutant("        if state[k]['status'] != 'lost' and seen is not None and now - seen > dt.timedelta(days=KEEP_DAYS):", "        if seen is not None and now - seen > dt.timedelta(days=KEEP_DAYS):")
+killed('a lost walk forgotten after a week', W not in m['judge'](wd, cut, {}, st3, w_cut, later + dt.timedelta(days=9))[1])
+RSRC = open(REPLAY).read()
+def replay_mutant(old, new):
+    assert RSRC.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old
+    f = os.path.join(HERE, '_routereplay_mutant_%d.mjs' % os.getpid())
+    open(f, 'w').write(RSRC.replace(old, new))
+    return f
+def with_replay(f, dump, dests, starts=((0, 70, 0),)):
+    try:
+        return RW.replay(dump, list(starts), dests, 'node', f, MODULES, timeout_ms=1500)[0]
+    finally:
+        os.remove(f)
+killed('a replay that trusts the box\'s invented floor', with_replay(replay_mutant("const read = (y) => y > floorY + 1", "const read = (y) => true"), pit, island)['town_deposit@8,70,0']['status'] == 'success')
+killed('a replay that starts from inside rock', with_replay(replay_mutant("const starts = (job.starts ?? []).filter(standOn)", "const starts = (job.starts ?? [])"), stair_dump(True, extra=[(0, 70, 0, 0), (0, 71, 0, 0)]), D)[W]['status'] != 'unsure')
 m = mutant("if r['name'] not in TOWN_SKILLS or r['status'] != 'success':", "if r['name'] not in TOWN_SKILLS:")
 killed('failures counted as uses', m['services'](rows, homes[0])[0]['uses'] == 14)
 m = mutant("        return (math.floor(pos['x']), math.floor(pos['y'] + 0.5), math.floor(pos['z']))", "        return (math.floor(pos['x']), math.floor(pos['y']), math.floor(pos['z']))")

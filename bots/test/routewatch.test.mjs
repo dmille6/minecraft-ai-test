@@ -16,6 +16,6 @@ console.log(out.split('\n').filter(l => /FAIL|Error|Traceback/.test(l)).join('\n
 assert.equal(r.status, 0, out.slice(-1500))
 const pass = (out.match(/^ {2}PASS {2}/gm) ?? []).length
 const killed = (out.match(/^ {2}PASS {2}MUTANT KILLED/gm) ?? []).length
-assert.ok(pass >= 48, `expected at least 48 checks, ran ${pass}`)
-assert.ok(killed >= 5, `expected at least 5 mutants killed, saw ${killed}`)
+assert.ok(pass >= 79, `expected at least 79 checks, ran ${pass}`)
+assert.ok(killed >= 10, `expected at least 10 mutants killed, saw ${killed}`)
 console.log(`routewatch: ok (${pass} checks, ${killed} mutants killed)`)
