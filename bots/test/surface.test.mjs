@@ -111,6 +111,9 @@ await t('partial progress is distinct from going nowhere', async () => {
 
 await t('a bot already at the surface is refused, not credited', async () => {
   const bot = climbBot({ y: 70 })
+  // roofclimb-01: "at the surface" is open sky over the bot. This fixture's world is stone everywhere, and under a ground
+  // roof the climb now has a top to reach (roofclimb.test.mjs); the air over a surfaced bot is said here.
+  bot.blockAt = p => (p.y > 70 ? { name: 'air', boundingBox: 'empty' } : { name: 'stone', boundingBox: 'block' })
   const r = await run(bot)
   assert.equal(r.status, 'failed')
   assert.equal(r.failClass, 'already_surfaced',

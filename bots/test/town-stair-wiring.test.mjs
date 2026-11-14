@@ -158,8 +158,11 @@ await t('build_shop dispatches the stair to its own visit; mine asks the stair B
   assert.ok(mineAt > 0 && hop > mineAt && refusal > hop, `${mineAt} ${hop} ${refusal}`)
   const surf = SRC.indexOf('async function surfaceClimb(ctx, args, signal, { until = null } = {}) {')
   const up = SRC.indexOf('const up = await stairAscend(ctx, signal)', surf)
-  const already = SRC.indexOf('if (startY >= TOP) {', surf)
-  assert.ok(surf > 0 && up > surf && already > up, `${surf} ${up} ${already}`)
+  // roofclimb-01 (11-14): the refusal reads the bot's height NOW (a walk to open sky may have run); the roof's own top is asked
+  // after the stair and before the refusal
+  const roof = SRC.indexOf('if (!Number.isFinite(args?._toY) && startY >= SEA_LEVEL) {', surf)
+  const already = SRC.indexOf('if (bot.entity.position.y >= TOP) {', surf)
+  assert.ok(surf > 0 && up > surf && roof > up && already > roof, `${surf} ${up} ${roof} ${already}`)
   assert.strictEqual(SRC.split('stairKeepOut(stairRecordNow())').length, 2, 'mine composes the stair part')
 })
 
