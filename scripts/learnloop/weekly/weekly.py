@@ -1092,6 +1092,28 @@ def idle_heartbeat(last, due_note):
     return ('ok', None, None, due_note)
 
 
+PAUSE_FILE = os.path.join(HOME, 'PAUSED')
+
+
+def pause_reason(path=None):
+    """The first line of ~/learnloop/PAUSED, or None when there is no such file. The owner paused the loop on 11-14 for
+    the consolidation (docs/decisions/consolidation-2026-11-14.md). The tick keeps running while paused: a cron line
+    commented out reads as a STALE heartbeat, an alarm for a thing nobody broke."""
+    try:
+        with open(path or PAUSE_FILE) as fh:
+            return (fh.readline().strip() or 'no reason written')[:160]
+    except FileNotFoundError:
+        return None
+
+
+def idle_plan(paused, due, due_note):
+    """With no round open: start one, or stay idle -> ('start' | 'idle', heartbeat note). Pure. A pause stops only a NEW
+    round: an open round is not asked here and runs on (a half-done round holds trained candidates on the card)."""
+    if paused is not None:
+        return ('idle', 'PAUSED, no new round starts (remove ~/learnloop/PAUSED to resume): %s' % paused)
+    return ('start', '') if due else ('idle', due_note)
+
+
 def heartbeat(status, R=None, note='', round_id=None, phase=None):
     hb = {'at': iso(), 'status': status, 'round': R.id if R else round_id, 'note': note,
           'phase': next_phase(R.state, phases(R.cfg)) if R else phase, 'best': (registry().get('best') or {}).get('alias')}
@@ -1149,10 +1171,12 @@ def main(argv=None):
         raise SystemExit('register --marker is a human step: see the HELD entry in the round dir and canary-sched.py queue add')
     R = current_round()
     if R is None:
-        if round_due(last_started(), now(), json.load(open(os.path.join(os.path.dirname(scripts_root()), 'config', 'learnloop-weekly.json')))['cadence_days']):
+        due = round_due(last_started(), now(), json.load(open(os.path.join(os.path.dirname(scripts_root()), 'config', 'learnloop-weekly.json')))['cadence_days'])
+        plan, idle_note = idle_plan(pause_reason(), due, 'idle: next round due %d days after %s' % (7, iso(last_started())))
+        if plan == 'start':
             R = new_round()
         else:
-            st, rid, ph, note = idle_heartbeat(last_round_state(), 'idle: next round due %d days after %s' % (7, iso(last_started())))
+            st, rid, ph, note = idle_heartbeat(last_round_state(), idle_note)
             heartbeat(st, None, note, round_id=rid, phase=ph); return 0
     r = advance(R)
     heartbeat({'closed': 'ok', 'wait': 'ok', 'failed': 'failed', 'steps': 'ok'}[r], R, R.state['phases'].get(next_phase(R.state, phases(R.cfg)) or '', {}).get('wait', ''))

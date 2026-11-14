@@ -48,10 +48,36 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
 - New work is weighed by whether it survives the two-world end state. Fleet-pool plumbing does not.
 - Deleting a VM or data needs the owner's yes at that time.
 
+## Owner decisions, 2026-11-14 ~15:15Z ("Yes, defaults")
+
+1. **The fleet queue takes no new work, fixes only.** Entries already queued keep running until the trunk merge (C1)
+   starts. A fix means: a regression a kept canary caused, a death or halt cause, or something the consolidation needs.
+2. **If the load test shows no room on the 5080, fleet pools retire early**, the two whose projects the daily audit flags
+   BROKEN first (isolated-a, placebo-a on 11-13). Stopping a pool is: stop its bots, keep its world save and logs.
+3. **The learning loop and the Voyager pilot are paused until the fleet is retired (C4).**
+   - Learning loop: `~/learnloop/PAUSED` on the canary host. `weekly.py tick` keeps running and keeps the heartbeat fresh
+     but starts no new round; remove the file to resume. The nightly archive (`nightly.py`) is left running.
+   - Voyager: stage 3b (q1, q2) ends on its own timer 11-14 18:16Z and its verdict is still to be written. No further
+     stage starts.
+4. **Go-ahead for the C0 load test** on Sunday 11-15 after 14:30Z.
+
+## Found 11-14, to settle in C0
+
+- The 3090 has a second tenant that is not this project: a llama-server from `~/ethan-gpu` holding about 14.5 GB of the
+  24 GB, with the card at 100% when read. What is left for this project on that card is about 9 GB unless the owner moves it.
+- One fleet settings file (of 81) still names the Blackwell address. Whether a running bot uses it is not checked.
+- **The showcase is already on the 5080.** At 15:30Z all 15 showcase settings files read
+  `OLLAMA_BASE_URLS=http://10.0.0.72:11434|qwen2.5:7b-instruct` and none names the tunnel port; brainwatch at 14:50Z:
+  94 model decisions by 14 bots in 10 min, with 30 endpoint failures by 11 bots. Who switched it and when is not
+  established here (it was dark on the Studio tunnel from 08:31Z). So the C0 load test is no longer synthetic for the
+  showcase: it is a read of the real load, plus a synthetic stream for the rehearsal's 12 bots. The Studio tunnel unit
+  still runs and flaps (1,131 restarts); it is removed when C0 closes.
+- A scheduled task (`voyager-harness2-start-1114`, 18:30Z) was set to start six new Voyager arms for 48 h on the Anthropic
+  API and the Blackwell, approved 11-12. It conflicts with decision 3 above. It was cut back to closing stage 3b only;
+  the owner can restore it.
+
 ## Open owner decisions
 
-1. Stop adding new entries to the fleet queue from now (fixes only)?
-2. Learning loop and the Voyager pilot: keep on the 3090, or pause until C4 is done?
-3. If the load test shows no room: may fleet pools retire early?
-4. How long to keep the fleet's world saves and raw logs after C4 (suggested: 30 days on the NAS).
-5. Are VMs 204 eval-mc and 205 eval-agents this project's?
+1. How long to keep the fleet's world saves and raw logs after C4 (suggested: 30 days on the NAS).
+2. Are VMs 204 eval-mc and 205 eval-agents this project's?
+3. The second tenant on the 3090: does it stay?

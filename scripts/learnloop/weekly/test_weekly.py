@@ -682,6 +682,30 @@ def a_resumed_ladder_reads_the_same_items_at_each_rung():
 
 
 @t
+def a_paused_loop_starts_no_round_and_says_so():
+    # owner 11-14 (consolidation): the loop is paused by a file, the tick keeps its heartbeat fresh, no round starts
+    due_note = 'idle: next round due 7 days after 2026-11-08T12:10:02Z'
+    assert W.idle_plan(None, True, due_note) == ('start', '')                 # positive control: unpaused and due starts
+    assert W.idle_plan(None, False, due_note) == ('idle', due_note)
+    plan, note = W.idle_plan('owner 11-14: consolidation', True, due_note)
+    assert plan == 'idle' and note.startswith('PAUSED') and 'owner 11-14: consolidation' in note and '~/learnloop/PAUSED' in note
+    assert W.idle_plan('x', False, due_note)[0] == 'idle'
+    d = tempfile.mkdtemp(); p = os.path.join(d, 'PAUSED')
+    assert W.pause_reason(p) is None                                          # no file: not paused
+    open(p, 'w').write('owner 11-14: consolidation\nsecond line\n'); assert W.pause_reason(p) == 'owner 11-14: consolidation'
+    open(p, 'w').write(''); assert W.pause_reason(p) == 'no reason written'    # an empty file still pauses
+    # the fleet-status line reads a paused loop as ok and shows why (a failed last round would still read failed)
+    st, rid, ph, n2 = W.idle_heartbeat(None, note)
+    assert st == 'ok' and n2 == note
+    sys.path.insert(0, os.path.join(HERE, '..', '..', 'host'))
+    import fleetstatus as FS
+    hb = os.path.join(d, 'hb.json'); t0 = dt.datetime(2026, 11, 14, 16, 0, tzinfo=dt.timezone.utc)
+    json.dump({'at': '2026-11-14T15:50:00Z', 'status': st, 'round': rid, 'phase': ph, 'note': n2, 'best': 'b'}, open(hb, 'w'))
+    line = FS.learnloop_weekly_line(t0, hb, round_dir=d)
+    assert not line.startswith('!!') and 'PAUSED' in line, line
+
+
+@t
 def a_failed_round_stays_on_the_idle_heartbeat():
     due = 'idle: next round due 7 days after 2026-11-08T12:10:02Z'
     failed = {'id': '20261108', 'status': 'failed', 'started': '2026-11-08T12:10:02Z',
@@ -796,6 +820,9 @@ def mutants_are_killed():
         ("        n = e['serve_oom'] = int(e.get('serve_oom') or 0) + 1", "        n = e['serve_oom'] = 1", a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round),
         ("    return sum(int(r) * minutes for r in done_rungs) % wrap", "    return 0", a_resumed_ladder_reads_the_same_items_at_each_rung),
         ("    if last and last.get('status') == 'failed':", "    if False:", a_failed_round_stays_on_the_idle_heartbeat),
+        ("    if paused is not None:", "    if False:", a_paused_loop_starts_no_round_and_says_so),
+        ("    return ('start', '') if due else ('idle', due_note)", "    return ('start', '')", a_paused_loop_starts_no_round_and_says_so),
+        ("            return (fh.readline().strip() or 'no reason written')[:160]", "            return fh.readline().strip()[:160] or None", a_paused_loop_starts_no_round_and_says_so),
         ("    return [ex(cfg['eval_items'])] + [ex(f) for f in cfg.get('forbid_items') or []]", "    return [ex(cfg['eval_items'])]", the_round_reads_the_pinned_gate_set_version),
     ]
     alive = [c[0] for c in cases + wcases if not mutant(wp, c[0], c[1], c[2])] + [c[0] for c in bcases if not mutant(bp, c[0], c[1], c[2])] \
