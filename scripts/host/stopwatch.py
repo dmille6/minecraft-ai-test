@@ -25,7 +25,13 @@ THE THREE VERDICTS, each with its denominator in the line:
                    The line carries the last success and the commonest failure.
                    IT STAYS UP UNTIL THE THING WORKS AGAIN (the latch, Claude review r1): as the broken hours slide
                    into BASE its rate falls, a backed-off scheduler tries less, a host goes quiet -- none of that is a
-                   recovery. A latched key is released by a success in CUR, or by hand (`--release skill:<name>`).
+                   recovery. A latched key is released by a success NEWER than the failures it was latched on (Codex
+                   review r1: the last success before the break stays inside CUR for two hours), or by hand
+                   (`--release skill:<name>`). A state file that cannot be read is a watcher failure, and the keys it
+                   held are taken back from the push state rather than cleared.
+THE WALK MUST BE WHOLE (Codex review r1). "No success seen" is only a finding when every log file in the window was read: an
+unreadable generation that held the success would otherwise page. A file that cannot be read fails the run under its own
+paging key (stopwatch:<label>), and the latch is kept.
   collapsed:<key>  BASE worked and CUR works at less than a third of BASE's rate over >= COLLAPSE_TRIES runs. Digest.
   vanished:<key>   BASE ran it in >= VANISH_HOURS of its hours, >= VANISH_PER_H an hour, and CUR never ran it. Digest (a
                    finished project stops being ordered; a broken scheduler looks the same, so it is said, not paged).
@@ -204,15 +210,20 @@ def hold(alarms, cur, latched, now):
     for ak, line in alarms.items():
         if ak.startswith('stopped:'):
             key = ak[len('stopped:'):]
-            keep[key] = {'since': (latched.get(key) or {}).get('since') or AL._iso(now), 'line': line}
+            was = latched.get(key) or {}
+            c = cur.get(key) or _blank()
+            # `after`: the newest failure it was latched on -- only a success later than that is a recovery
+            keep[key] = {'since': was.get('since') or AL._iso(now), 'after': was.get('after') or AL._iso(c['streak_to'] or now), 'line': line}
     for key, was in (latched or {}).items():
         if key in keep:
             continue
         c = cur.get(key) or _blank()
-        if c['ok'] > 0:
+        after = AL._ts_or_none(was.get('after')) if isinstance(was, dict) else None
+        if c['last_ok'] is not None and (after is None or c['last_ok'] > after):
             released.append(key)
             continue
         keep[key] = was
+        out.pop('vanished:' + key, None); out.pop('collapsed:' + key, None)     # said once, as what it is: still stopped
         out['stopped:' + key] = (f"{key} STILL STOPPED (said {was.get('since')}): no success since; {c['fail']} failed of {c['runs']} runs in "
                                  f"the last {CUR_H} h. First said: {str(was.get('line'))[:400]}")
     return out, keep, sorted(released)
@@ -245,9 +256,9 @@ def load_rows(root, lo, hi):
     """The skill logs, one bot at a time through lib/telemetry's rotation-aware stream, keeping five small fields a row
     (Claude review r1: Events.load holds every raw row -- about 2 GB for the showcase's 26 h; this is about 190 MB)."""
     from lib import telemetry as TM
-    out = []
+    out, unread = [], []
     for bot in sorted(d for d in os.listdir(root) if not d.startswith('_') and 'FIXTURE' not in d and os.path.isdir(os.path.join(root, d))):
-        for t, d in TM.stream_rows(root, bot, lo, hi, 'skill'):
+        for t, d in TM.stream_rows(root, bot, lo, hi, 'skill', errors=unread):
             sk = d.get('skill') or {}
             if not sk.get('name'):
                 continue
@@ -255,15 +266,36 @@ def load_rows(root, lo, hi):
             if 'FIXTURE' in str(name):
                 continue
             out.append({'t': t, 'name': sk['name'], 'status': sk.get('status'), 'detail': str(sk.get('detail') or '')[:240], 'bot': name})
+    if unread:
+        raise IncompleteWalk(f'{len(unread)} log file(s) could not be read: ' + ', '.join(unread[:4]))
     return out
 
 
-def read_latch(path):
+class IncompleteWalk(RuntimeError):
+    """A log file in the window could not be read: "no success seen" would not be a finding."""
+
+
+def read_latch(path, push_path, now):
+    """-> (latched, problem). No state file yet: ({}, None). A state file that cannot be read or is not ours: the stopped keys
+    are taken back from the push state (lib/alarm's own file, {alarm key: ...}) and the problem is said -- never an empty
+    latch in silence (Codex review r1: the next run would overwrite it and push CLEARED)."""
+    if not os.path.exists(path):
+        return {}, None
     try:
         v = json.load(open(path)).get('latched')
-        return v if isinstance(v, dict) else {}
-    except (OSError, ValueError, AttributeError):
-        return {}
+        if isinstance(v, dict) and all(isinstance(x, dict) for x in v.values()):
+            return v, None
+        problem = 'no latch in it'
+    except (OSError, ValueError, AttributeError) as e:
+        problem = type(e).__name__
+    back = {}
+    try:
+        for k in json.load(open(push_path)):
+            if str(k).startswith('stopped:'):
+                back[str(k)[len('stopped:'):]] = {'since': 'before a lost state file', 'after': AL._iso(now), 'line': 'taken back from the push state'}
+    except (OSError, ValueError, TypeError):
+        pass
+    return back, f'state file {os.path.basename(path)} unreadable ({problem}); {len(back)} stopped key(s) taken back from the push state'
 
 
 def main(argv=None):
@@ -281,10 +313,14 @@ def main(argv=None):
     now = (dt.datetime.fromisoformat(a.now.replace('Z', '+00:00')) if a.now else dt.datetime.now(UTC)).replace(microsecond=0)
     sd = os.path.expanduser(a.state_dir)
     state = os.path.join(sd, f'stopwatch-{a.label}.json')
-    latched = {} if a.no_state else {k: v for k, v in read_latch(state).items() if k not in set(a.release)}
+    push_state = os.path.join(sd, f'stopwatch-{a.label}.pushstate.json')
+    latched, lost = ({}, None) if a.no_state else read_latch(state, push_state, now)
+    latched = {k: v for k, v in latched.items() if k not in set(a.release)}
     try:
         rows = load_rows(a.logs, now - dt.timedelta(hours=CUR_H + BASE_H), now)
         rep = collect(rows, now, a.label, latched)
+        if lost:
+            rep['alarms'][f'stopwatch:{a.label}'] = f'stopwatch {a.label}: {lost}'
     except Exception as e:      # a watcher that crashes must alarm, not go quiet -- and must not clear what it had said
         rep = {'generated_at': AL._iso(now), 'label': a.label, 'error': f'{type(e).__name__}: {str(e)[:300]}', 'latched': latched, 'released': [],
                'alarms': {f'stopwatch:{a.label}': f'stopwatch {a.label} FAILED: {type(e).__name__}: {str(e)[:200]}',
@@ -296,7 +332,7 @@ def main(argv=None):
     if a.no_state:
         return 0
     AL.write_json_atomic(state, rep)
-    AL.raise_alarms(f'stopwatch-{a.label}', rep['alarms'], now, os.path.join(sd, f'stopwatch-{a.label}.pushstate.json'),
+    AL.raise_alarms(f'stopwatch-{a.label}', rep['alarms'], now, push_state,
                     log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
     if a.ship:
         AL.ship_row(a.ship, {'kind': f'{a.label}_stopwatch', 't': AL._iso(now), 'ok': not rep['alarms'],

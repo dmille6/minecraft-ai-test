@@ -572,16 +572,21 @@ def _tag_date(path):
         return None
 
 
-def stream_rows(root, bot, since, until, stream='skill'):
+def stream_rows(root, bot, since, until, stream='skill', errors=None):
     """Yield (t, row) for one bot's `stream` ('skill' or 'llm') with since <= t < until, rotation-aware, in FILE order
     (callers sort: skill rows are written at their END but stamped with their START). Rows of the skill stream without
-    skill.name are yielded too -- the caller decides; nothing is dropped here."""
+    skill.name are yielded too -- the caller decides; nothing is dropped here.
+    `errors` (a list, stopwatch 11-14): every file that could not be stat'ed, opened or read to its end is appended as
+    'name (ExceptionType)' instead of being passed over in silence -- a caller that turns "no success seen" into a page must
+    know the walk was whole. None (the default) is the old behaviour."""
     lo = since.strftime('%Y-%m-%dT%H:%M:%S')
     hi = until.strftime('%Y-%m-%dT%H:%M:%S')
     for f in bot_files(root, bot, stream):
         try:
             mt = datetime.datetime.fromtimestamp(os.path.getmtime(f), datetime.timezone.utc)
-        except OSError:
+        except OSError as e:
+            if errors is not None:
+                errors.append('%s (%s)' % (os.path.basename(f), type(e).__name__))
             continue
         if mt < since:
             continue
@@ -602,5 +607,7 @@ def stream_rows(root, bot, since, until, stream='skill'):
                         continue
                     if since <= t < until:
                         yield t, d
-        except (OSError, EOFError):
+        except (OSError, EOFError) as e:
+            if errors is not None:
+                errors.append('%s (%s)' % (os.path.basename(f), type(e).__name__))
             continue

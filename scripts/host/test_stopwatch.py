@@ -139,6 +139,18 @@ rep = SW.collect(alive, NOW, 'showcase', {'skill:dispose_well': {'since': '2026-
 check(W not in rep['alarms'] and rep['released'] == ['skill:dispose_well'] and rep['latched'] == {} and 'works again: skill:dispose_well' in rep['summary'], 'ONE SUCCESS releases it, and the summary says it works again')
 rep = SW.collect(dead, NOW, 'showcase', {'skill:dispose_well': {'since': '2026-11-13T19:20:00Z', 'line': 'x'}})
 check(rep['latched']['skill:dispose_well']['since'] == '2026-11-13T19:20:00Z', 'a key still judged stopped keeps the time it was first said')
+# Codex review r1: the last success BEFORE the break is still inside CUR for two hours -- it is not a recovery
+pre = NOW - dt.timedelta(minutes=50)
+st_rows = filler() + base_well + [row(pre, 'dispose_well')] + spread(pre + dt.timedelta(minutes=2), NOW - dt.timedelta(minutes=1), 13, 'dispose_well', 'failed', WELL_FAIL, bots=5)
+rep = SW.collect(st_rows, NOW, 'showcase')
+la = rep['latched'].get('skill:dispose_well') or {}
+check(W in rep['alarms'] and AL._ts_or_none(la.get('after')) and AL._ts_or_none(la['after']) > pre, f"a streak page latches with the time of its newest failure ({la.get('after')})")
+nxt = NOW + H                                                   # an hour on: three bots up, the 19:30 success still in the window
+quiet_next = spread(nxt - 26 * H, nxt - 2 * H, 2400, 'explore') + [row(pre, 'dispose_well')] + spread(nxt - 2 * H, nxt, 200, 'explore', bots=3)
+rep2 = SW.collect(quiet_next, nxt, 'showcase', rep['latched'])
+check(W in rep2['alarms'] and rep2['released'] == [], 'the success from before the break does not release the latch an hour later')
+rep3 = SW.collect(quiet_next + [row(nxt - dt.timedelta(minutes=4), 'dispose_well')], nxt, 'showcase', rep['latched'])
+check(W not in rep3['alarms'] and rep3['released'] == ['skill:dispose_well'], 'POSITIVE CONTROL: a success after its newest failure does')
 
 # ---- collapsed ----
 craft = filler() + spread(BASE0, CUR0, 70, 'craft') + spread(BASE0, CUR0, 14, 'craft', 'failed', 'x') + spread(CUR0, NOW, 20, 'craft', 'failed', 'No room for stick: the bag is 36/36') + \
@@ -225,6 +237,32 @@ with tempfile.TemporaryDirectory() as logs, tempfile.TemporaryDirectory() as sd:
     out = subprocess.run(cmd[:6] + [notdir] + cmd[7:] + ['--now', NOW.isoformat()], capture_output=True, text=True)
     st = json.load(open(os.path.join(sd, 'stopwatch-showcase.json')))
     check(out.returncode == 0 and set(st['alarms']) == {'stopwatch:showcase', W} and 'CHECK FAILED' in out.stdout, f"a run that cannot read pages as stopwatch:showcase and keeps the latch ({sorted(st['alarms'])})")
+    # Codex review r1: a state file that cannot be read loses no latch, and says so
+    open(os.path.join(sd, 'stopwatch-showcase.json'), 'w').write('{"latched": {"skill:dispose')
+    json.dump({W: {'since': 's', 'last_push': NOW.isoformat(), 'line': 'x'}, 'vanished:order:x': {'since': 's', 'last_push': NOW.isoformat(), 'line': 'y'}}, open(os.path.join(sd, 'stopwatch-showcase.pushstate.json'), 'w'))
+    open(os.path.join(sd, 'ALARMS.log'), 'w').close()
+    with tempfile.TemporaryDirectory() as logs3:
+        write_logs(logs3, filler() + base_well)                 # the well is simply not tried in CUR: nothing would re-raise it
+        out = subprocess.run(cmd[:6] + [logs3] + cmd[7:] + ['--now', NOW.isoformat()], capture_output=True, text=True)
+        st = json.load(open(os.path.join(sd, 'stopwatch-showcase.json')))
+        check(set(st['alarms']) == {'stopwatch:showcase', W} and 'unreadable' in st['alarms']['stopwatch:showcase'], f"a torn state file: the stopped key is taken back from the push state and the loss pages ({sorted(st['alarms'])})")
+        check('CLEARED' not in ''.join(l for l in open(os.path.join(sd, 'ALARMS.log')) if 'stopped:' in l), 'and the well is not CLEARED')
+        # Codex review r1: a log file that cannot be read fails the run instead of paging "no success seen"
+        os.remove(os.path.join(sd, 'stopwatch-showcase.json')); os.remove(os.path.join(sd, 'stopwatch-showcase.pushstate.json'))
+        gen = os.path.join(logs3, BOTS[0], f'skill-{BOTS[0]}.jsonl-20261113')
+        open(gen, 'w').write('{"@timestamp":"%sZ","bot":{"name":"%s"},"skill":{"name":"dispose_well","status":"success"}}\n' % ((NOW - dt.timedelta(minutes=30)).strftime('%Y-%m-%dT%H:%M:%S.000'), BOTS[0]))
+        os.chmod(gen, 0)
+        try:
+            errs = []
+            from lib import telemetry as TM
+            n_quiet = sum(1 for _ in TM.stream_rows(logs3, BOTS[0], BASE0, NOW, 'skill'))
+            n_said = sum(1 for _ in TM.stream_rows(logs3, BOTS[0], BASE0, NOW, 'skill', errors=errs))
+            check(n_quiet == n_said and len(errs) == 1 and 'PermissionError' in errs[0], f'stream_rows passes an unreadable file over as before, and names it when asked ({errs})')
+            out = subprocess.run(cmd[:6] + [logs3] + cmd[7:] + ['--now', NOW.isoformat()], capture_output=True, text=True)
+            st = json.load(open(os.path.join(sd, 'stopwatch-showcase.json')))
+            check(set(st['alarms']) == {'stopwatch:showcase'} and 'could not be read' in st['alarms']['stopwatch:showcase'], f"an unreadable log file is a failed run, never a verdict ({sorted(st['alarms'])})")
+        finally:
+            os.chmod(gen, 0o644)
     empty = os.path.join(sd, 'empty'); os.makedirs(empty)
     out = subprocess.run(cmd[:6] + [empty] + cmd[7:] + ['--now', NOW.isoformat(), '--no-state'], capture_output=True, text=True)
     check('NOT JUDGED' in out.stdout and '0 bots wrote rows' in out.stdout, 'no logs at all is said as not judged, never as health')
@@ -249,7 +287,12 @@ killed('without the span a ninety-second burst pages', W in mutant('n_run >= STR
 killed('a streak that a success does not reset pages on a working well', W in mutant("s['streak_by_bot'], s['streak_from'], s['streak_to'] = Counter(), None, None", 'pass')(reset_case))
 killed('without the sort, rows that arrive newest-first hide the streak', W not in mutant("rows = sorted(rows, key=lambda r: r['t'])", 'rows = list(rows)')(shuffled))
 killed('without the latch a held page is dropped', W not in mutant("        keep[key] = was\n", "        continue\n")(spread(BASE0, CUR0, 2400, 'explore') + base_well, {'skill:dispose_well': {'since': 's', 'line': 'x'}}))
-killed('a latch that a success does not release never clears', W in mutant("        if c['ok'] > 0:\n            released.append(key)\n            continue\n", '')(alive, {'skill:dispose_well': {'since': 's', 'line': 'x'}}))
+killed('a latch that a success does not release never clears', W in mutant("        if c['last_ok'] is not None and (after is None or c['last_ok'] > after):\n            released.append(key)\n            continue\n", '')(alive, {'skill:dispose_well': {'since': 's', 'line': 'x'}}))
+ns_ = {'__name__': 'stopwatch_mutant', '__file__': os.path.join(HERE, 'stopwatch.py')}
+old_ = "if c['last_ok'] is not None and (after is None or c['last_ok'] > after):"
+assert SRC.count(old_) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old_
+exec(compile(SRC.replace(old_, "if c['ok'] > 0:"), 'stopwatch_mutant', 'exec'), ns_)
+killed('a latch released by any success in the window is released by the one before the break', W not in ns_['collect'](quiet_next, nxt, 'showcase', rep['latched'])['alarms'])
 killed('without the bot floor a stopped host is judged', set(mutant("    if len(cur_bots) < need:", "    if False:")(quiet)) != {'blind:activity'})
 killed('without the row floor a thin host is judged', set(mutant("if base_n and (cur_n / cur_h) < MIN_ROW_SHARE * (base_n / base_h):", "if False:")(thin)) != {'blind:activity'})
 killed('without the habit rule a rare skill is called vanished', 'vanished:skill:rare' in mutant("return bool(b) and len(b['hours']) >= VANISH_HOURS and b['runs'] / base_h >= VANISH_PER_H", "return bool(b)")(filler() + spread(BASE0, CUR0, 80, 'rare')))
