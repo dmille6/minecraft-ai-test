@@ -497,6 +497,32 @@ test('a walk that was found and not finished is NOT followed by digging: the wal
   assert.match(r2.detail, /No path to the goal/)
   assert.deepEqual([np.log.digs, np.log.places], [[], []])
   assert.equal(np.bot.pathfinder.goal, null, 'the failed walk was halted')
+  // ...AND NOT FOR EVER (review r4, Claude note 2): the same cell asked again does not try the walk twice; it climbs
+  const r3 = await surface(np.bot)
+  assert.equal(r3.status, 'success', r3.detail)
+  assert.equal(Math.floor(np.bot.pathfinder ? np.bot.entity.position.y : 0), 71)
+  assert.deepEqual(np.log.digs, ['cobblestone@1,70,5'])
+  assert.equal(np.log.searches, 1, 'no second sky search from that cell')
+  assert.equal(np.bot.roofWalkFailed, null, 'and the note is spent')
+})
+
+test('OPEN SKY IS OPEN SKY (review r4, Claude blocker): a deep cell of the same sealed pocket is not "out", and the bot is not walked down to it', async () => {
+  // the pocket, a doorway east, and a shaft cell at 4,63,6 under the SAME roof: five open cells over a head standing there. With the
+  // roof rule's `under` bound read as sky, the search ended on that cell: "walked out ... to open sky at 4,63,6", five down, sealed.
+  const w = pocket()
+  for (const y of [68, 69]) w.set(3, y, 6, 'air')
+  for (let y = 63; y <= 69; y++) w.set(4, y, 6, 'air')
+  assert.equal(S.roofClimbPlan(w.blockAt, V(4, 63, 6)), null, 'POSITIVE CONTROL: by the roof rule that cell has no roof to climb (its roof is five over the head)')
+  assert.equal(S.skyOpenOver(w.blockAt, V(4, 63, 6)), false, 'and no open sky either: the roof at 70 is over it')
+  assert.equal(S.skyOpenOver(w.blockAt, V(4, 71, 6)), true, 'the plaza above has')
+  assert.equal(S.skyOpenOver(p => (p.y === 74 ? { name: 'spruce_leaves', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }), V(1, 68, 5)), true, 'leaves are not a lid')
+  const { bot, log } = simBot(w, { search: plugin(w).search, walk: (b, g) => { b.entity.position = V(g.x + 0.5, g.y, g.z + 0.5); b.emit('goal_reached', g) } })
+  const r = await surface(bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(r.via, undefined, 'not a walk')
+  assert.deepEqual([Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y), Math.floor(bot.entity.position.z)], [1, 71, 5], 'up through its own roof')
+  assert.deepEqual(log.digs, ['cobblestone@1,70,5'])
+  assert.deepEqual(log.goals.filter(Boolean), [], 'no walk was issued')
 })
 
 test('THE BODY IS CENTRED ON ITS CELL BEFORE THE FIRST SWING (review r3, Claude note 4): off centre it cannot rise through a one-cell hole', async () => {
@@ -601,7 +627,7 @@ test('MUTANTS: each guard is the thing that holds', async () => {
     assert.deepEqual(log.digs, ['cobblestone@1,70,5'], 'MUTANT 3 SURVIVED')
   })
   // 4. the walk is judged on its promise -> a walk that lied is credited and the bot stays under the roof
-  await withMutant(SKILLS_URL, "        if (!roof) return { status: 'success', via: 'sky_walk',", "        if (!werr) return { status: 'success', via: 'sky_walk',", async M => {
+  await withMutant(SKILLS_URL, "        if (open) return { status: 'success', via: 'sky_walk',", "        if (!werr) return { status: 'success', via: 'sky_walk',", async M => {
     const w = pocket({ door: true })
     const { bot } = simBot(w, { search: plugin(w).search, walk: (b, g) => b.emit('goal_reached', g) })
     const r = await surface(bot, {}, M)
@@ -722,6 +748,15 @@ test('MUTANTS: each guard is the thing that holds', async () => {
     const { bot } = simBot(pocket(), { onDig: () => setTimeout(() => ac.abort(), 400) })
     await M.SKILLS.surface.run({ bot }, {}, ac.signal).then(() => null, e => e)
     assert.equal(bot.roofClimbOwed ?? null, null, 'MUTANT 22 SURVIVED')
+  })
+  // 23. sky is read by the roof rule's bound -> the sealed bot is walked five down and credited
+  await withMutant(SKILLS_URL, "  isEnd (n) { return skyOpenOver(this.blockAt, new Vec3(n.x, n.y, n.z)) }", "  isEnd (n) { return roofClimbPlan(this.blockAt, new Vec3(n.x, n.y, n.z)) == null }", async M => {
+    const w = pocket()
+    for (const y of [68, 69]) w.set(3, y, 6, 'air')
+    for (let y = 63; y <= 69; y++) w.set(4, y, 6, 'air')
+    const { bot, log } = simBot(w, { search: plugin(w).search, walk: (b, g) => { b.entity.position = V(g.x + 0.5, g.y, g.z + 0.5); b.emit('goal_reached', g) } })
+    await surface(bot, {}, M)
+    assert.deepEqual([Math.floor(bot.entity.position.x), Math.floor(bot.entity.position.y), log.digs.length], [4, 63, 0], 'MUTANT 23 SURVIVED')
   })
   // 11. no abort listener -> an interrupted walk goes on (it would end at the walk's own 20 s; here: still pending after 600 ms)
   await withMutant(SKILLS_URL, "        signal?.addEventListener?.('abort', onAbort, { once: true })\n        try { await withTimeout(walkToGoal(bot, skyGoal,", "        try { await withTimeout(walkToGoal(bot, skyGoal,", async M => {

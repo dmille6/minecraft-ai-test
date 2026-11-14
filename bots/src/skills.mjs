@@ -31664,7 +31664,7 @@ export const ROOF_GROUND = /^(stone|deepslate|granite|diorite|andesite|tuff|calc
 // under: the roof begins within this many open cells over the HEAD (measured on the showcase's 11-14 04:25Z region copy: 1,080 of
 // the 1,082 sealed cells; a block further up is an overhang, not this bot's roof -- review r3, Claude note 1: nine blocks laid in
 // the open to one eight above)
-export const ROOF_CLIMB = Object.freeze({ up: 40, under: 4, skyPlanMs: 600, skyWalkMs: 20_000, centreMs: 4000, owedMs: 30 * 60_000, sidesteps: 3 })
+export const ROOF_CLIMB = Object.freeze({ up: 40, under: 4, skyPlanMs: 600, skyWalkMs: 20_000, walkAgainMs: 10 * 60_000, centreMs: 4000, owedMs: 30 * 60_000, sidesteps: 3 })
 export const roofClimbOn = (env = typeof process !== 'undefined' ? process.env : {}) => !/^(off|0|false|no)$/i.test(String(env?.ROOFCLIMB ?? '').trim())
 /** Record cells a roofed climb may pass through, by plot AND role: paving and earth fill at ground level (plain ground under a
  *  record's name). Everything else a record owns is kept -- also the tidy's own stone access steps, lights and plantings
@@ -31731,11 +31731,17 @@ export function surfaceTop ({ y, toY = null, roof = null, on = true, owed = null
   if (roof.built != null || !Number.isFinite(roof.toY)) return { top: SEA_LEVEL, why: 'built' }
   return { top: Math.max(SEA_LEVEL, roof.toY), why: 'roofed' }
 }
-/** A goal met by any cell with open sky over it (roofClimbPlan answers null there). A flood from the feet: no heuristic. */
+/**
+ * OPEN SKY OVER A CELL -> bool. Pure. Nothing with a body but leaves within ROOF_CLIMB.up over it. NOT "no roof to climb": the
+ * roof rule's `under` bound is for what a climb may start under, and read as sky it sent a sealed bot to the deepest cell of
+ * its pocket and called that out (review r4, Claude blocker: five down to 4,63,6, `success via sky_walk`).
+ */
+export const skyOpenOver = (blockAt, feet) => roofClimbPlan(blockAt, feet, { under: ROOF_CLIMB.up }) == null
+/** A goal met by any cell with open sky over it (skyOpenOver). A flood from the feet: no heuristic. */
 export class GoalOpenSky extends goals.Goal {
   constructor (blockAt) { super(); this.blockAt = blockAt }
   heuristic () { return 0 }
-  isEnd (n) { return roofClimbPlan(this.blockAt, new Vec3(n.x, n.y, n.z)) == null }
+  isEnd (n) { return skyOpenOver(this.blockAt, new Vec3(n.x, n.y, n.z)) }
   hasChanged () { return false }
   isValid () { return true }
 }
@@ -32396,9 +32402,14 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
     } else
     if (top.why === 'roofed') {
       const from = roofAt()
-      const sky = await skyWalkPlan({ search: bot.pathfinder.getPathFromTo?.bind(bot.pathfinder), movements: bot.pathfinder.movements, from: bot.entity.position, blockAt: q => bot.blockAt(q) })
+      // A WALK FOUND FROM THIS VERY CELL A MOMENT AGO AND NOT FINISHED IS NOT ASKED FOR TWICE (review r4, Claude note 2: a found
+      // walk that can never be finished answered path_interrupted for ever). The second call climbs: bounded by `under`.
+      const wf = bot.roofWalkFailed
+      const again = !!wf && wf.x === from.x && wf.y === from.y && wf.z === from.z && Date.now() - wf.at <= ROOF_CLIMB.walkAgainMs && Date.now() >= wf.at
+      const sky = again ? { status: 'skipped' } : await skyWalkPlan({ search: bot.pathfinder.getPathFromTo?.bind(bot.pathfinder), movements: bot.pathfinder.movements, from: bot.entity.position, blockAt: q => bot.blockAt(q) })
       check(signal)
       roofRow('success', { op: 'plan', why: 'roofed', at: `${from.x},${from.y},${from.z}`, top: roof.top, n: roof.n, sky: sky.status, to: sky.to ? `${sky.to.x},${sky.to.y},${sky.to.z}` : null })
+      bot.roofWalkFailed = null
       if (sky.status === 'success') {
         const t0 = Date.now(); let werr = null
         const skyGoal = new goals.GoalBlock(sky.to.x, sky.to.y, sky.to.z)
@@ -32414,11 +32425,13 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
           werr = e
         } finally { signal?.removeEventListener?.('abort', onAbort) }
         check(signal)
-        roof = roofNow()
         const q = roofAt()
-        roofRow(roof ? 'no_effect' : 'success', { op: 'walk', to: `${sky.to.x},${sky.to.y},${sky.to.z}`, at: `${q.x},${q.y},${q.z}`, out: roof ? 0 : 1, ms: Date.now() - t0, err: werr ? (werr.name || 'error') : null })
-        // JUDGED ON THE ROOF, never on how the walk's promise ended
-        if (!roof) return { status: 'success', via: 'sky_walk', detail: `walked out from under the roof to open sky at ${q.x},${q.y},${q.z}` }
+        let open = false
+        try { open = skyOpenOver(p => bot.blockAt(p), q) } catch { open = false }
+        roofRow(open ? 'success' : 'no_effect', { op: 'walk', to: `${sky.to.x},${sky.to.y},${sky.to.z}`, at: `${q.x},${q.y},${q.z}`, out: open ? 1 : 0, ms: Date.now() - t0, err: werr ? (werr.name || 'error') : null })
+        // JUDGED ON THE SKY OVER THE BOT, never on how the walk's promise ended
+        if (open) return { status: 'success', via: 'sky_walk', detail: `walked out from under the roof to open sky at ${q.x},${q.y},${q.z}` }
+        bot.roofWalkFailed = { x: q.x, y: q.y, z: q.z, at: Date.now() }
         // A WALK WAS FOUND: NOTHING IS DUG IN THIS CALL (review r3, Claude note 1: a found walk that ended GoalChanged fell through
         // to the climb). The walk exists, so the remedy is the walk, and it is named.
         return { status: 'failed', failClass: 'path_interrupted', gap: `at_y${Math.round(bot.entity.position.y)}`,
