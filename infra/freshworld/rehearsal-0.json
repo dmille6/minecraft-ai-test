@@ -1,0 +1,82 @@
+{
+ "manifest_version": 1,
+ "run": "rehearsal-0",
+ "kind": "rehearsal",
+ "purpose": "Find where a town breaks when bots start on an unseen world with nobody helping. Not a finish-line run: World 1 (fw-t10, Cherry Reach) and World 2 (fw-s10, Twin Banks) stay unseen for those.",
+ "owner_decisions": [
+  "2026-11-09: finish line = M1-M3 plus the owner's yes on M5, on two fresh worlds, at the small footprint (docs/reports/finish-line-2026-11-09.md)",
+  "2026-11-10: World 1 = fw-t10 at Cherry Reach, World 2 = fw-s10 at Twin Banks; new worlds wait for the new building styles",
+  "2026-11-14: one trunk and a rehearsal run manifest approved (\"Yes, start both\")"
+ ],
+ "status": "draft",
+ "ready_when": "every field under `open` is answered, the day-0 snapshot exists, and the owner has said yes to a rehearsal world on a throwaway seed",
+
+ "world": {
+  "name": "fw-s12",
+  "seed": "-7714712650192453840",
+  "server": "Paper 1.21.8 build 60, the showcase's version",
+  "spawn": [0, 94, 0],
+  "site": {
+   "id": "D Birch Loop",
+   "centre_xz": [332, -68],
+   "mean_y": 68,
+   "score": 77.9,
+   "known_difficulty": "32% tree cover (old-growth birch and dark forest): heavy felling before any plot is clear",
+   "source": "the 2026-11-10 seed screen (seeds.md, site table); chosen offline from a seed copy, as the owner approved on 11-06"
+  },
+  "town_site_file": null,
+  "day0_snapshot": null,
+  "admin_edits_before_day0": "none allowed except generating chunks"
+ },
+
+ "code": {
+  "sha": null,
+  "sha_rule": "the showcase release that is live when the run starts; rehearsal 0 does not wait for the one-trunk merge",
+  "flags_file": null,
+  "flags_rule": "a copy of the showcase's settings taken at the start, kept beside this manifest's run record with its sha256"
+ },
+
+ "bots": {
+  "count": 12,
+  "roster": null,
+  "pool_name": null,
+  "brain": "the same model endpoint the showcase uses at the start; name it and its model here before the run"
+ },
+
+ "rules": {
+  "length_hours": 48,
+  "admin_edits": "none: no teleport, no give, no setblock or fill, no world-file edits",
+  "owner_one_off_repairs": "each one is an assistance entry and marks the run assisted",
+  "code_changes": "allowed in a rehearsal; each one is logged with its sha and the run restarts from the day-0 snapshot",
+  "restart_rule": "a restart is a new run id (rehearsal-1, rehearsal-2, ...) with its own manifest copied from this one",
+  "finish_line_runs_differ": "7 days, code frozen, any code change or admin edit restarts the 7-day clock"
+ },
+
+ "assistance_log": [],
+
+ "daily_card": {
+  "written_by": null,
+  "criteria": [
+   {"id": "reached_site", "measure": "bots within 64 blocks of the site centre / bots", "pass": "all, within 2 h of the start"},
+   {"id": "town_core", "measure": "the plan's core project completed", "pass": "within 12 h"},
+   {"id": "roofed_houses", "measure": "completed house, cottage or hall plots that still stand when re-read", "pass": "1 by 24 h, 2 by 48 h"},
+   {"id": "storage", "measure": "a completed storehouse, storehub or shopchest", "pass": "1 by 48 h"},
+   {"id": "working_share", "measure": "busytime productive / observed bot-seconds", "pass": "> 50%"},
+   {"id": "longest_stuck_goal", "measure": "longest STUCK goal, grounds clean-up included", "pass": "<= 6 h"},
+   {"id": "deaths", "measure": "_death rows x 100 / bot-hours", "pass": "< 1.0"},
+   {"id": "stuck_bots", "measure": "bots inside a 2-block box for a whole clock hour", "pass": "0"},
+   {"id": "admin_edits", "measure": "entries in assistance_log", "pass": "0"}
+  ],
+  "note": "the 48-hour thresholds are rehearsal targets set on 11-14, not the finish-line thresholds; the 7-day ones are in docs/reports/finish-line-2026-11-09.md"
+ },
+
+ "open": [
+  {"id": "owner_yes_rehearsal_world", "question": "May a rehearsal world run on a throwaway seed now? (11-06: the sandbox stage-1 run was not chosen)"},
+  {"id": "host", "question": "Which VM runs it: a new one on the large node, or an existing idle one?"},
+  {"id": "pool_name", "question": "About 43 switches in the showcase build are keyed on the pool name; the rehearsal either runs under the showcase's pool name on its own world or each switch must list the new name"},
+  {"id": "brain_capacity", "question": "Can the showcase's model endpoint serve 12 more bots? Not measured"},
+  {"id": "day0_from_spawn", "question": "Nobody has seen bots go from spawn to a town core unattended; rehearsal 0 exists to find where that breaks"},
+  {"id": "daily_card_writer", "question": "No script writes this card yet; finishline.py has no fresh-world column"},
+  {"id": "telemetry_stream", "question": "Which log stream and dashboard the rehearsal world writes to"}
+ ]
+}

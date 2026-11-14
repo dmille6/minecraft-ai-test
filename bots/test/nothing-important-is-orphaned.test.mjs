@@ -709,6 +709,8 @@ const REQUIRED = [
   'scripts/host/brainwatch.py',
   'scripts/host/test_brainwatch.py',
   'bots/test/brainwatch.test.mjs',
+  // fresh-world rehearsal (11-14, owner "Yes, start both"): the run manifest -- world, code, roster, rules, daily card, open questions
+  'infra/freshworld/rehearsal-0.json',
   'scripts/host/test_pager.py',
   'scripts/host/test_union_merge.py',
   'scripts/host/test_suite_run.py',
