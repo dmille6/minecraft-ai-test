@@ -66,7 +66,10 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
 ## Found 11-14, to settle in C0
 
 - The 3090 has a second tenant that is not this project: a llama-server from `~/ethan-gpu` holding about 14.5 GB of the
-  24 GB, with the card at 100% when read. What is left for this project on that card is about 9 GB unless the owner moves it.
+  24 GB, with the card at 100% when read. **Owner 11-14: it stays ("thats a different project"). Never stop, unload or
+  move it.** So this project has about 9 GB and a share of the compute on that card: room for one small model (qwen2.5 7B
+  measured 5.9 GB there), not two, and not a training run beside it. Plan on the 5080 as the one real serving card and
+  the 3090 as the fallback; the bot count for the two worlds is set by the 5080.
 - One fleet settings file (of 81) still names the Blackwell address. Whether a running bot uses it is not checked.
 - **The showcase is already on the 5080.** At ~15:00Z all 15 showcase settings files read
   `OLLAMA_BASE_URLS=http://10.0.0.72:11434|qwen2.5:7b-instruct` and none names the tunnel port; brainwatch at 14:50Z:
@@ -82,4 +85,4 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
 
 1. How long to keep the fleet's world saves and raw logs after C4 (suggested: 30 days on the NAS).
 2. Are VMs 204 eval-mc and 205 eval-agents this project's?
-3. The second tenant on the 3090: does it stay?
+3. Voyager harness 2 (six arms, approved 11-12): stays paused under decision 3 unless the owner says to run it.
