@@ -586,6 +586,122 @@ def the_round_reads_the_pinned_gate_set_version():
                                                                   ('b4', 'run:b4', 'best'), ('cand-c2-q8', 'cand-c2-q8', 'extra')]
 
 
+# The refusal exactly as round 20261108 recorded it on 11-08 22:29Z (state.json, phase replay, error), shortened in the middle.
+OOM_1108 = ("llgpu serve learnloop-weekly run:20261108-qwen35-9b/cand-q8_0.gguf 20261108-qwen35-9b failed (2): "
+            "0.27.063.164 E ggml_backend_cuda_buffer_type_alloc_buffer: allocating 1536.00 MiB on device 0: cudaMalloc failed: out of memory\n"
+            "0.27.063.206 E ggml_backend_buft_alloc_buffer_n_default: failed to allocate CUDA0 buffer of size 1610612736\n"
+            "0.27.076.452 E srv  server_run_i: exiting due to model loading error\nREFUSED: server did not come up\n ")
+
+
+class FakeRound:
+    def __init__(self):
+        self.state = {'phases': {}}; self.saves = 0
+
+    def save(self):
+        self.saves += 1
+
+
+def _with_gpu(fake, fn):
+    saved = (W.gpu, W.release)
+    calls = []
+    W.gpu = lambda *a, **k: (calls.append(a), fake(*a, **k))[1]
+    W.release = lambda: calls.append(('release',))
+    try:
+        return fn(), calls
+    finally:
+        W.gpu, W.release = saved
+
+
+@t
+def a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round():
+    assert W.serve_oom(OOM_1108)                                             # the positive control: the real refusal
+    assert not W.serve_oom('llgpu serve x failed (2): error loading model: bad magic\nREFUSED: server did not come up')
+    assert not W.serve_oom('cudaMalloc failed: out of memory')               # not the dispatcher's refusal: not a serve
+    assert not W.serve_oom('REFUSED: no model file for run:x/cand-q8_0.gguf')
+    assert W.serve_oom_verdict(1) == 'wait' and W.serve_oom_verdict(W.SERVE_OOM_TRIES - 1) == 'wait'
+    assert W.serve_oom_verdict(W.SERVE_OOM_TRIES) == 'fail'
+
+    def oom(*a, **k):
+        if a[0] == 'serve':
+            raise W.Fail(OOM_1108)
+        return ''
+    R_ = FakeRound()
+    try:
+        _with_gpu(oom, lambda: W.serve(R_, 'replay', 'run:x/cand-q8_0.gguf', 'x')); raise AssertionError('no wait')
+    except W.Wait as w:
+        assert 'try 1 of %d' % W.SERVE_OOM_TRIES in str(w)
+    assert R_.state['phases']['replay']['serve_oom'] == 1 and R_.saves == 1
+    # the GPU is given back before the wait (the claim is taken again on the next tick)
+    R2 = FakeRound()
+    try:
+        _, calls = _with_gpu(oom, lambda: W.serve(R2, 'latency', 'k', 'x'))
+    except W.Wait:
+        calls = None
+    saved = (W.gpu, W.release); seen = []
+    W.gpu = lambda *a, **k: (seen.append(a[0]), oom(*a, **k))[1]; W.release = lambda: seen.append('release')
+    try:
+        try:
+            W.serve(FakeRound(), 'latency', 'k', 'x')
+        except W.Wait:
+            pass
+    finally:
+        W.gpu, W.release = saved
+    assert seen == ['serve', 'unserve', 'release'], seen
+    # the last allowed try fails the round, and says how many were made
+    R3 = FakeRound(); R3.state['phases']['replay'] = {'serve_oom': W.SERVE_OOM_TRIES - 1}
+    try:
+        _with_gpu(oom, lambda: W.serve(R3, 'replay', 'k', 'x')); raise AssertionError('no fail')
+    except W.Fail as f:
+        assert 'did not fit on the GPU in %d tries' % W.SERVE_OOM_TRIES in str(f)
+    # any other serve failure is not retried and not counted
+    def broken(*a, **k):
+        if a[0] == 'serve':
+            raise W.Fail('llgpu serve failed (2): error loading model\nREFUSED: server did not come up')
+        return ''
+    R4 = FakeRound()
+    try:
+        _with_gpu(broken, lambda: W.serve(R4, 'replay', 'k', 'x')); raise AssertionError('no fail')
+    except W.Fail as f:
+        assert 'error loading model' in str(f)
+    assert R4.state['phases'] == {} and R4.saves == 0
+    # a load that works is one call and leaves no mark
+    R5 = FakeRound()
+    _, calls = _with_gpu(lambda *a, **k: 'READY', lambda: W.serve(R5, 'replay', 'k', 'x'))
+    assert [c[0] for c in calls] == ['serve'] and R5.state['phases'] == {}
+
+
+@t
+def a_resumed_ladder_reads_the_same_items_at_each_rung():
+    L, minutes = [4, 6, 8, 10, 12, 14, 17, 20, 25, 30, 40], 3
+    off, done = 0, []
+    for r in L:                                       # the one-go ladder: off = (off + r * minutes) % 800 after each rung
+        assert W.ladder_offset(done, minutes) == off, (r, done)
+        off = (off + r * minutes) % 800; done.append(str(r))
+    assert W.ladder_offset([], 3) == 0 and W.ladder_offset({'4': {}, '6': {}}, 3) == 30
+    assert W.ladder_offset([str(r) for r in L], 5) == (sum(L) * 5) % 800 == 130            # wraps at 800
+
+
+@t
+def a_failed_round_stays_on_the_idle_heartbeat():
+    due = 'idle: next round due 7 days after 2026-11-08T12:10:02Z'
+    failed = {'id': '20261108', 'status': 'failed', 'started': '2026-11-08T12:10:02Z',
+              'phases': {'harvest': {'status': 'done'}, 'replay': {'status': 'failed', 'error': OOM_1108}}}
+    st, rid, ph, note = W.idle_heartbeat(failed, due)
+    assert (st, rid, ph) == ('failed', '20261108', 'replay') and 'NOT RETRIED' in note and due in note and 'llgpu serve' in note
+    assert W.idle_heartbeat(dict(failed, status='closed'), due) == ('ok', None, None, due)
+    assert W.idle_heartbeat(None, due) == ('ok', None, None, due)
+    # the fleet-status line reads it as an alarm that names the round and the phase (scripts/host/fleetstatus.py)
+    sys.path.insert(0, os.path.join(HERE, '..', '..', 'host'))
+    import fleetstatus as FS
+    with tempfile.TemporaryDirectory() as d:
+        hp = os.path.join(d, 'hb.json'); now = dt.datetime(2026, 11, 14, 6, 30, tzinfo=UTC)
+        json.dump({'at': '2026-11-14T06:20:02Z', 'status': st, 'round': rid, 'phase': ph, 'note': note, 'best': 'b'}, open(hp, 'w'))
+        line = FS.learnloop_weekly_line(now, hp, d)
+        assert line.startswith('!! ') and 'round 20261108 failed at replay' in line, line
+        json.dump({'at': '2026-11-14T06:20:02Z', 'status': 'ok', 'round': None, 'phase': None, 'note': due, 'best': 'b'}, open(hp, 'w'))
+        assert FS.learnloop_weekly_line(now, hp, d).startswith('learning loop weekly: ok')
+
+
 # ---------------------------------------------------------------- mutants
 
 def mutant(path, old, new, test):
@@ -672,6 +788,14 @@ def mutants_are_killed():
     ]
     wcases = [
         ("    if want and got != want:", "    if False:", the_round_reads_the_pinned_gate_set_version),
+        ("    return 'server did not come up' in m and ('out of memory' in m or 'failed to allocate' in m)", "    return True", a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round),
+        ("    return 'server did not come up' in m and ('out of memory' in m or 'failed to allocate' in m)", "    return False", a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round),
+        ("    return 'wait' if tries < limit else 'fail'", "    return 'wait'", a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round),
+        ("        if not serve_oom(f):\n            raise\n", "", a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round),
+        ("        gpu('unserve', HOLDER, check=False); release()\n        raise Wait('GPU memory short", "        raise Wait('GPU memory short", a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round),
+        ("        n = e['serve_oom'] = int(e.get('serve_oom') or 0) + 1", "        n = e['serve_oom'] = 1", a_model_that_does_not_fit_waits_and_only_a_lasting_one_fails_the_round),
+        ("    return sum(int(r) * minutes for r in done_rungs) % wrap", "    return 0", a_resumed_ladder_reads_the_same_items_at_each_rung),
+        ("    if last and last.get('status') == 'failed':", "    if False:", a_failed_round_stays_on_the_idle_heartbeat),
         ("    return [ex(cfg['eval_items'])] + [ex(f) for f in cfg.get('forbid_items') or []]", "    return [ex(cfg['eval_items'])]", the_round_reads_the_pinned_gate_set_version),
     ]
     alive = [c[0] for c in cases + wcases if not mutant(wp, c[0], c[1], c[2])] + [c[0] for c in bcases if not mutant(bp, c[0], c[1], c[2])] \

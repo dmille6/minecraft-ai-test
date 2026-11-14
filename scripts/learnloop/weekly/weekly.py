@@ -622,6 +622,51 @@ def model_list(R):
     return out
 
 
+# A MODEL THAT DOES NOT FIT BESIDE THE 3090'S OTHER TENANT IS A WAIT, NOT THE END OF THE ROUND. Round 20261108 stopped for
+# good at `replay` on 11-08 22:29Z: the 9B candidate loaded its weights and then could not allocate one 1.5 GB KV buffer
+# (the same file had loaded a week earlier; the other server on the card held more that evening). Nothing retried it, and
+# two trained candidates sat unscored for six days. The memory the other tenant holds changes by the hour, so the load is
+# tried again on later ticks; only a model that never fits in SERVE_OOM_TRIES ticks fails the round.
+SERVE_OOM_TRIES = 36          # ticks: 6 h at the 10-minute cron
+
+
+def serve_oom(msg):
+    """Is this `serve` refusal the GPU running out of memory while the model loaded? Pure. Both parts are needed: the
+    dispatcher's own "server did not come up", and CUDA's out-of-memory words in the log tail it prints. A server that
+    did not come up for any other reason (a broken file, a bad flag) is not retried."""
+    m = str(msg).lower()
+    return 'server did not come up' in m and ('out of memory' in m or 'failed to allocate' in m)
+
+
+def serve_oom_verdict(tries, limit=SERVE_OOM_TRIES):
+    """After the `tries`-th out-of-memory load of one phase: 'wait' (try again next tick) or 'fail'. Pure."""
+    return 'wait' if tries < limit else 'fail'
+
+
+def serve(R, ph, key, alias):
+    """Start the model server for phase `ph`. An out-of-memory load gives the GPU back and waits for the next tick,
+    counted in the phase's state (`serve_oom`); every other failure, and the SERVE_OOM_TRIES-th one, fails the round."""
+    try:
+        gpu('serve', HOLDER, key, alias, timeout=900)
+    except Fail as f:
+        if not serve_oom(f):
+            raise
+        e = R.state['phases'].setdefault(ph, {})
+        n = e['serve_oom'] = int(e.get('serve_oom') or 0) + 1
+        R.save()
+        if serve_oom_verdict(n) == 'fail':
+            raise Fail('%s did not fit on the GPU in %d tries: %s' % (alias, n, str(f)[-900:]))
+        gpu('unserve', HOLDER, check=False); release()
+        raise Wait('GPU memory short loading %s (try %d of %d): the card\'s other tenant holds more than usual' % (alias, n, SERVE_OOM_TRIES))
+
+
+def ladder_offset(done_rungs, minutes, wrap=800):
+    """The item offset a model's NEXT ladder rung starts at -> int. Pure. Each rung r uses r * minutes items, so the
+    offset is fixed by the rungs already run; a ladder that resumes on a later tick therefore reads the same items at
+    each rung as a model that ran it in one go (every model sees the SAME items at each rung, Claude r1)."""
+    return sum(int(r) * minutes for r in done_rungs) % wrap
+
+
 def batchload(R, alias, items, out, mode, param, n, temperature, api='oai', bots_dir=None, offset=0):
     env = {'LLM_TEMPERATURE': str(temperature)}
     cmd = ['nice', '-n', '10', 'node', os.path.join(scripts_root(), 'host', 'batchload.mjs'), ex(bots_dir or R.cfg['bots_dir']), items, out,
@@ -644,7 +689,7 @@ def ph_replay(R):
             if os.path.exists(out):
                 os.replace(out, out + '.incomplete-%d' % int(time.time()))
             R.log('replay %s (%s) %s' % (alias, role, key))
-            gpu('serve', HOLDER, key, alias, timeout=900)
+            serve(R, 'replay', key, alias)
             batchload(R, alias, items, out, 'closed', R.cfg['replay']['conc'], len(ids), 0)
             got = len(answered(out, ids))
             if got < len(ids):
@@ -665,7 +710,7 @@ def ph_latency(R):
         claim('latency')
         for (alias, key, role, _), rate in pending:
             out = R.p('latency', '%s-r%d.jsonl' % (alias, rate))
-            gpu('serve', HOLDER, key, alias, timeout=900)          # restarted before every run: no cache carried over
+            serve(R, 'latency', key, alias)                         # restarted before every run: no cache carried over
             batchload(R, alias, items, out, 'open', rate, rate * lc['minutes'], 0.7)
             s = latency_summary(lines(out), lc['minutes'], rate); s['role'] = role
             res['%s@%d' % (alias, rate)] = s
@@ -703,13 +748,13 @@ def ph_latency_ladder(R):
     if any(todo(m[0]) is not None for m in want):
         claim('latency')
         for alias, key, role, _ in want:
-            off = 0                                            # every model sees the SAME items at each rung (Claude r1)
+            off = ladder_offset(res.get(alias, {}), lc['minutes'])   # every model sees the SAME items at each rung (Claude r1)
             while True:
                 r = todo(alias)
                 if r is None:
                     break
                 out = R.p('latency', '%s-L%d.jsonl' % (alias, r))
-                gpu('serve', HOLDER, key, alias, timeout=900)          # cold cache before every rung
+                serve(R, 'latency', key, alias)                         # cold cache before every rung
                 n = r * lc['minutes']
                 batchload(R, alias, ex(lc['ladder_items']), out, 'open', r, n, 0.7, api='native', bots_dir=lc['ladder_bots_dir'], offset=off)
                 off = (off + n) % 800
@@ -1022,9 +1067,34 @@ def last_started():
     return t
 
 
-def heartbeat(status, R=None, note=''):
-    hb = {'at': iso(), 'status': status, 'round': R.id if R else None, 'note': note,
-          'phase': next_phase(R.state, phases(R.cfg)) if R else None, 'best': (registry().get('best') or {}).get('alias')}
+def last_round_state():
+    """The state of the round that started last, or None."""
+    best = None
+    if os.path.isdir(ROUNDS):
+        for d in os.listdir(ROUNDS):
+            sp = os.path.join(ROUNDS, d, 'state.json')
+            if os.path.exists(sp):
+                s = json.load(open(sp))
+                if best is None or s['started'] > best['started']:
+                    best = s
+    return best
+
+
+def idle_heartbeat(last, due_note):
+    """What the heartbeat says while no round is open -> (status, round id, phase, note). Pure. A round that FAILED is
+    not retried by the pipeline (a person decides), so the failure must stay on the heartbeat until the next round
+    starts: round 20261108 failed at 22:29Z, and ten minutes later the heartbeat said "ok, idle" for six days."""
+    if last and last.get('status') == 'failed':
+        ph = next((p for p, e in (last.get('phases') or {}).items() if e.get('status') == 'failed'), None)
+        err = str(((last.get('phases') or {}).get(ph) or {}).get('error') or '').strip().splitlines()
+        return ('failed', last.get('id'), ph,
+                'NOT RETRIED: a person resumes or leaves it; %s. %s' % (due_note, (err[0] if err else '')[:160]))
+    return ('ok', None, None, due_note)
+
+
+def heartbeat(status, R=None, note='', round_id=None, phase=None):
+    hb = {'at': iso(), 'status': status, 'round': R.id if R else round_id, 'note': note,
+          'phase': next_phase(R.state, phases(R.cfg)) if R else phase, 'best': (registry().get('best') or {}).get('alias')}
     tmp = os.path.join(HOME, 'weekly-heartbeat.json.tmp'); json.dump(hb, open(tmp, 'w'), indent=1)
     os.replace(tmp, os.path.join(HOME, 'weekly-heartbeat.json'))
 
@@ -1082,7 +1152,8 @@ def main(argv=None):
         if round_due(last_started(), now(), json.load(open(os.path.join(os.path.dirname(scripts_root()), 'config', 'learnloop-weekly.json')))['cadence_days']):
             R = new_round()
         else:
-            heartbeat('ok', None, 'idle: next round due %d days after %s' % (7, iso(last_started()))); return 0
+            st, rid, ph, note = idle_heartbeat(last_round_state(), 'idle: next round due %d days after %s' % (7, iso(last_started())))
+            heartbeat(st, None, note, round_id=rid, phase=ph); return 0
     r = advance(R)
     heartbeat({'closed': 'ok', 'wait': 'ok', 'failed': 'failed', 'steps': 'ok'}[r], R, R.state['phases'].get(next_phase(R.state, phases(R.cfg)) or '', {}).get('wait', ''))
     return 0

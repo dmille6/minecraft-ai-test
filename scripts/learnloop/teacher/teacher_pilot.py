@@ -46,7 +46,7 @@ ARMS = {'B': {'vendor': 'anthropic', 'model': 'claude-opus-5-5', 'in': 2.0, 'out
         'C': {'vendor': 'openai', 'model': 'gpt-6.1-sol', 'in': 1.0, 'out': 5.0}}
 CAP_USD = {'anthropic': 100.0, 'openai': 100.0}
 CAP_FRAC = 0.80
-MAC_HOSTS = ('mini4',)
+MAC_HOSTS = ('mini4', 'macminim4')    # lower case; the mini answers to MacMiniM4 since about 11-11 (owner OK 11-14 to add it)
 BATCH_USD = 10.0
 TOK_FACTOR = 1.35
 INFORMED_EXTRA = 600
@@ -184,7 +184,7 @@ def mac_only():
     """Submit/poll/fetch run on the Mac mini that holds the keys, nowhere else (Codex r1 P2)."""
     import socket
     host = socket.gethostname().split('.')[0]
-    if sys.platform != 'darwin' or host not in MAC_HOSTS:
+    if sys.platform != 'darwin' or host.lower() not in MAC_HOSTS:
         raise SystemExit('REFUSED: the paid-teacher client runs only on the Mac mini (%s), not on %s/%s' % (MAC_HOSTS, sys.platform, host))
 
 

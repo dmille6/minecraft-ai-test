@@ -276,6 +276,24 @@ def t_paid_verbs_refuse_off_the_mac():
         socket.gethostname = saved
 
 
+def t_the_mini_is_known_by_both_its_names_and_nothing_else():
+    import socket
+    saved = (socket.gethostname, sys.platform)
+    try:
+        sys.platform = 'darwin'
+        for name in ('mini4', 'mini4.local', 'MacMiniM4', 'MacMiniM4.local', 'macminim4.lan'):
+            socket.gethostname = lambda n=name: n
+            T.mac_only()                                           # no refusal
+        for name, plat in (('MacBook-Pro', 'darwin'), ('macmini', 'darwin'), ('mini44', 'darwin'), ('MacMiniM4', 'linux')):
+            socket.gethostname = lambda n=name: n; sys.platform = plat
+            try:
+                T.mac_only(); raise AssertionError('ran as %s on %s' % (name, plat))
+            except SystemExit as e:
+                assert 'only on the Mac mini' in str(e)
+    finally:
+        socket.gethostname, sys.platform = saved
+
+
 def t_informed_subset_is_deterministic():
     it = items(1000)
     assert T.informed_ids(it) == T.informed_ids(list(reversed(it))) and len(T.informed_ids(it)) == 200
