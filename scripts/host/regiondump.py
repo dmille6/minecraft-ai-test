@@ -105,7 +105,54 @@ def section_blocks(sec):
         yield i, e
 
 
-def dump(region_dir, x0, x1, z0, z1, y0, y1):
+class Unsteady(RuntimeError):
+    """The region files changed while they were read: no box was seen whole."""
+
+
+def _stamp(region_dir, names):
+    out = {}
+    for n in names:
+        try:
+            st = os.stat(os.path.join(region_dir, n))
+            out[n] = (st.st_mtime_ns, st.st_size, st.st_ino)
+        except OSError:
+            out[n] = None
+    return out
+
+
+def dump(region_dir, x0, x1, z0, z1, y0, y1, tries=3):
+    """The box, read while no region file under it changed (Codex r1: a save between two chunk reads could show the old
+    version of one chunk beside the new version of the next). Re-read up to `tries` times; then Unsteady."""
+    names = sorted({'r.%d.%d.mca' % (cx >> 5, cz >> 5) for cx in range(x0 >> 4, (x1 >> 4) + 1) for cz in range(z0 >> 4, (z1 >> 4) + 1)})
+    for _ in range(max(1, tries)):
+        before = _stamp(region_dir, names)
+        out = _dump_once(region_dir, x0, x1, z0, z1, y0, y1)
+        if _stamp(region_dir, names) == before:
+            return out
+    raise Unsteady(f'the region files under the box changed during {tries} reads')
+
+
+def _chunk_bytes(region_dir, f, cx, cz, off):
+    """One chunk's NBT bytes. The compression byte's high bit says the data is in an external c.<cx>.<cz>.mcc file (a chunk
+    over 1 MiB; PaperMC SectorTool SPECIFICATION.md, "Chunk data") -- Codex r1: it was parsed as an empty inline payload."""
+    f.seek((off >> 8) * 4096)
+    ln, ct = struct.unpack('>IB', f.read(5))
+    if ct & 0x80:
+        with open(os.path.join(region_dir, 'c.%d.%d.mcc' % (cx, cz)), 'rb') as e:
+            raw = e.read()
+        ct &= 0x7F
+    else:
+        raw = f.read(ln - 1)
+    if ct == 2:
+        return zlib.decompress(raw)
+    if ct == 1:
+        return gzip.decompress(raw)
+    if ct == 3:
+        return raw
+    raise ValueError('chunk %d,%d: compression type %d is not read here' % (cx, cz, ct))
+
+
+def _dump_once(region_dir, x0, x1, z0, z1, y0, y1):
     palette, pal_ix, cells = [], {}, []
     got = missing = 0
     oldest = None
@@ -120,14 +167,12 @@ def dump(region_dir, x0, x1, z0, z1, y0, y1):
                     if off == 0:
                         missing += 1
                         continue
-                    f.seek((off >> 8) * 4096)
-                    ln, ct = struct.unpack('>IB', f.read(5))
-                    raw = f.read(ln - 1)
-            except OSError:
-                missing += 1
+                    data = _chunk_bytes(region_dir, f, cx, cz, off)
+            except (OSError, struct.error, zlib.error, ValueError):
+                missing += 1          # a chunk that cannot be read is MISSING (the caller refuses a box with one), never empty ground
                 continue
             oldest = mt if oldest is None else min(oldest, mt)
-            nbt = parse_nbt(zlib.decompress(raw) if ct == 2 else gzip.decompress(raw) if ct == 1 else raw)
+            nbt = parse_nbt(data)
             got += 1
             for sec in nbt.get('sections') or []:
                 sy = sec.get('Y')
