@@ -4,7 +4,8 @@
     python3 regiondump.py --region /srv/showcase/server/world/region --box -80 80 -80 80 --y 52 100 > blocks.json
     from regiondump import dump     # dump(region_dir, x0, x1, z0, z1, y0, y1) -> the same dict
 
--> { saved: iso (the oldest region file's mtime: the box is no newer than that), chunks, missing_chunks, floor_y: y0,
+-> { saved: iso (the OLDEST region file's mtime under the box), saved_newest: iso (the newest: the server last saved then;
+     a region file nothing changed in is not rewritten, so the oldest alone says little), chunks, missing_chunks, floor_y: y0,
      palette: [{name, props}], cells: [[x, y, z, palette index]] }   every non-air block with y0 <= y <= y1 in the box.
 The file is the server's own save (Paper autosaves every few minutes), so the answer is minutes old, never live; `saved` says
 how old. Nothing is written and the server is not asked anything. Anvil: 1.18+ sections (block_states palette + packed
@@ -155,7 +156,7 @@ def _chunk_bytes(region_dir, f, cx, cz, off):
 def _dump_once(region_dir, x0, x1, z0, z1, y0, y1):
     palette, pal_ix, cells = [], {}, []
     got = missing = 0
-    oldest = None
+    oldest = newest = None
     for cx in range(x0 >> 4, (x1 >> 4) + 1):
         for cz in range(z0 >> 4, (z1 >> 4) + 1):
             p = os.path.join(region_dir, 'r.%d.%d.mca' % (cx >> 5, cz >> 5))
@@ -172,6 +173,7 @@ def _dump_once(region_dir, x0, x1, z0, z1, y0, y1):
                 missing += 1          # a chunk that cannot be read is MISSING (the caller refuses a box with one), never empty ground
                 continue
             oldest = mt if oldest is None else min(oldest, mt)
+            newest = mt if newest is None else max(newest, mt)
             nbt = parse_nbt(data)
             got += 1
             for sec in nbt.get('sections') or []:
@@ -191,7 +193,8 @@ def _dump_once(region_dir, x0, x1, z0, z1, y0, y1):
                         ix = pal_ix[k] = len(palette)
                         palette.append({'name': str(e.get('Name')).replace('minecraft:', ''), 'props': {a: str(b) for a, b in props.items()}})
                     cells.append([x, y, z, ix])
-    return {'saved': dt.datetime.fromtimestamp(oldest, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if oldest else None,
+    iso = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if t else None
+    return {'saved': iso(oldest), 'saved_newest': iso(newest),
             'chunks': got, 'missing_chunks': missing, 'floor_y': y0, 'box': [x0, x1, z0, z1, y0, y1], 'palette': palette, 'cells': cells}
 
 

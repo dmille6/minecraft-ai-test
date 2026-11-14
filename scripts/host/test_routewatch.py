@@ -64,8 +64,8 @@ def pack(indices, n_pal):
         for j, ix in enumerate(indices[i:i + per]): v |= ix << (j * bits)
         longs.append(v - (1 << 64) if v >= (1 << 63) else v)
     return tuple(longs)
-def write_region(d, chunks):
-    """chunks: {(cx, cz): [(section Y, palette [(name, props)], {(x, y, z) local: palette index})]} into r.0.0.mca"""
+def write_region(d, chunks, name='r.0.0.mca'):
+    """chunks: {(cx, cz) LOCAL to the region file, 0..31: [(section Y, palette [(name, props)], {(x, y, z) local: palette index})]}"""
     head = bytearray(8192); body = b''; sector = 2
     for (cx, cz), secs in chunks.items():
         sections = []
@@ -80,7 +80,7 @@ def write_region(d, chunks):
         blob += b'\x00' * (-len(blob) % 4096)
         struct.pack_into('>I', head, 4 * (cx + cz * 32), (sector << 8) | (len(blob) // 4096))
         sector += len(blob) // 4096; body += blob
-    open(os.path.join(d, 'r.0.0.mca'), 'wb').write(bytes(head) + body)
+    open(os.path.join(d, name), 'wb').write(bytes(head) + body)
 with tempfile.TemporaryDirectory() as d:
     many = [('minecraft:air', None)] + [('minecraft:stone', None), ('minecraft:dirt', None), ('minecraft:grass_block', {'snowy': 'false'})] + \
            [('minecraft:oak_trapdoor', {'half': 'top', 'open': 'true', 'facing': f}) for f in ('north', 'south', 'east', 'west')] + \
@@ -103,6 +103,17 @@ with tempfile.TemporaryDirectory() as d:
     miss = RD.dump(d, 0, 47, 0, 15, 64, 95)
     check(miss['missing_chunks'] == 1 and miss['chunks'] == 2, 'a chunk that is not in the file is counted missing, never read as empty ground')
     check(RD.dump(os.path.join(d, 'nowhere'), 0, 15, 0, 15, 64, 95)['missing_chunks'] == 1, 'a region file that is not there too')
+    # NEGATIVE coordinates (the town spans -80..80): chunk (-1,-1) is slot (31,31) of r.-1.-1.mca, chunk (-33,0) slot (31,0) of r.-2.0.mca,
+    # and a NEGATIVE section Y is a signed byte. Stated here as numbers, not by the reader's own arithmetic.
+    write_region(d, {(31, 31): [(4, [('minecraft:air', None), ('minecraft:gold_block', None)], {(15, 0, 15): 1, (0, 1, 0): 1})]}, 'r.-1.-1.mca')
+    write_region(d, {(31, 0): [(4, [('minecraft:air', None), ('minecraft:iron_block', None)], {(15, 2, 3): 1})]}, 'r.-2.0.mca')
+    neg = RD.dump(d, -16, -1, -16, -1, 64, 79)
+    gn = {(x, y, z): neg['palette'][i]['name'] for x, y, z, i in neg['cells']}
+    check(gn == {(-1, 64, -1): 'gold_block', (-16, 65, -16): 'gold_block'}, f'chunk (-1,-1): local 15,0,15 is world -1,64,-1 and local 0,1,0 is world -16,65,-16 ({gn})')
+    far = RD.dump(d, -528, -513, 0, 15, 64, 79)
+    check({(x, y, z) for x, y, z, i in far['cells']} == {(-513, 66, 3)}, 'chunk (-33,0) is read from r.-2.0.mca: local 15,2,3 is world -513,66,3')
+    both = RD.dump(d, -16, 15, -16, 15, 64, 95)
+    check(both['chunks'] == 2 and both['missing_chunks'] == 2 and both['saved_newest'] >= both['saved'], f"a box over four region files counts what it could not read ({both['chunks']} read, {both['missing_chunks']} missing)")
 
 # ---- the walk: the REAL A* over the well's stair (the showcase's, in small) --------------------------------------------
 def stair_dump(step=True, extra=()):
@@ -218,6 +229,14 @@ _, stq = RW.judge(kept_q, whole, {}, st1, w_whole, later)
 check(stq[W]['status'] == 'walk' and stq[W]['seen'] == st1[W]['seen'], 'a kept walk nobody used today is still checked, and its last use stays')
 _, sto = RW.judge(RW.watched(quiet_d, {W: dict(st1[W], seen='2026-11-01T00:00:00Z')}), whole, {}, {W: dict(st1[W], seen='2026-11-01T00:00:00Z')}, w_whole, later)
 check(W not in sto, 'for a week; then a WALK is forgotten (a lost one never: above)')
+# Claude r1: the stand itself built over is a service that moved a cell, not a lost walk
+chest_world = dict(w_whole); chest_world[(6, 73, 0)] = 'chest'
+bad = dict(whole); bad[W] = {'key': W, 'cell': [6, 73, 0], 'status': 'bad_cell', 'path': []}
+alb, stb = RW.judge(D, bad, {W: {'status': 'bad_cell'}}, st1, chest_world, later)
+check('lost:' + W not in alb and 'built:' + W in alb and 'chest' in alb['built:' + W] and 'route' not in stb[W], 'a chest placed on the stand: digest, the kept route dropped, no page: ' + alb.get('built:' + W, '')[:100])
+check(AL.tier_of('routewatch-showcase', 'built:' + W) == AL.TIER_DIGEST, 'built: goes to the digest')
+alb2, _ = RW.judge(D, bad, {}, st2, chest_world, later)
+check('lost:' + W in alb2, 'POSITIVE CONTROL: a walk already LOST stays lost whatever stands on the cell now')
 check(RW.what_changed([[3, 71, 0, 'grass_block', '', '']], {(3, 71, 0): 'dirt', (3, 72, 0): 'cobblestone'}) == ['under 3,71,0: grass_block -> air', 'at 3,71,0: air -> dirt', 'above 3,71,0: air -> cobblestone'], 'what_changed names a block gone from under, and a block put in the way')
 check(RW.cell_of('dispose_well@12,74,6') == [12, 74, 6] and RW.cell_of('make_material@-15,71,0') == [-15, 71, 0] and RW.cell_of('nonsense') is None, 'a key carries its cell')
 for k in ('lost:' + W, 'routewatch:showcase'):
@@ -239,6 +258,61 @@ with tempfile.TemporaryDirectory() as d:
     check(problem and 'unreadable' in problem and W in st, 'a torn state file the same')
     json.dump({'state': st2}, open(sp, 'w'))
     check(RW.read_state(sp, pp, NOW) == (json.loads(json.dumps(st2)), None), 'a good one is read as it was written')
+
+# ---- the command, end to end: logs in the logs' shape, a region file, the real replay ----------------------------------
+def region_from(dump_dict, d):
+    """the stair fixture as chunk (0,0)/( -1,*) region files: x -4..10, z -4..4 -> shift by +8,+8 into chunk (0,0) local coords"""
+    pal = [('minecraft:air', None)] + [('minecraft:' + p['name'], p['props'] or None) for p in dump_dict['palette']]
+    chunks = {(cx, cz): {} for cx in (0, 1) for cz in (0, 1)}          # the box 0..16 touches four chunks: all four are written
+    for x, y, z, i in dump_dict['cells']:
+        X, Z = x + 8, z + 8
+        chunks[(X >> 4, Z >> 4)].setdefault(y >> 4, {})[(X & 15, y & 15, Z & 15)] = i + 1
+    write_region(d, {c: ([(sy, pal, cells) for sy, cells in sorted(secs.items())] or [(4, [('minecraft:air', None)], {})]) for c, secs in chunks.items()})
+def log_rows(root, rows_):
+    by = {}
+    for r in rows_:
+        by.setdefault(r['bot'], []).append(r)
+    for bot, rs in by.items():
+        os.makedirs(os.path.join(root, bot), exist_ok=True)
+        with open(os.path.join(root, bot, f'skill-{bot}.jsonl'), 'w') as f:
+            for r in rs:
+                f.write('{"@timestamp":"%sZ",' % r['t'].strftime('%Y-%m-%dT%H:%M:%S.000') + json.dumps({'bot': {'name': bot, 'pos': r['pos']}, 'skill': {'name': r['name'], 'status': r['status']}})[1:] + '\n')
+with tempfile.TemporaryDirectory() as logs, tempfile.TemporaryDirectory() as reg, tempfile.TemporaryDirectory() as sd:
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    def lr(name, pos, bot, mins): return {'t': now - dt.timedelta(minutes=mins), 'name': name, 'status': 'success', 'pos': {'x': pos[0], 'y': pos[1], 'z': pos[2]}, 'bot': BOTS[bot % 4]}
+    # everything shifted +8,+8 with the region fixture: home 8,70,8, the stand 14,73,8, a chest stand at 6,70,10
+    log_rows(logs, [lr('home', (8.5, 70, 8.5), i, 30 + i) for i in range(6)] + [lr('dispose_well', (14.5, 73, 8.5), i, 40 + i) for i in range(5)] + [lr('town_deposit', (6.5, 70, 10.5), i, 50 + i) for i in range(4)])
+    cmd = [sys.executable, '-B', os.path.join(HERE, 'routewatch.py'), '--label', 'showcase', '--logs', logs, '--region', reg, '--modules', MODULES, '--state-dir', sd, '--no-push', '--timeout-ms', '1500', '--town-r', '8', '--pad', '0']
+    WK = 'dispose_well@14,73,8'
+    region_from(stair_dump(True), reg)
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    st = json.load(open(os.path.join(sd, 'routewatch-showcase.json')))
+    check(out.returncode == 0 and st['state'][WK]['status'] == 'walk' and st['alarms'] == {} and '2 watched, 2 walked, 0 LOST' in out.stdout, 'run 1, the stair whole: both services walked, nothing said: ' + out.stdout.strip()[:120])
+    region_from(stair_dump(False), reg)
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    st = json.load(open(os.path.join(sd, 'routewatch-showcase.json')))
+    line = st['alarms'].get('lost:' + WK, '')
+    check('under 11,71,8: grass_block -> air' in line and st['state'][WK]['status'] == 'lost', 'run 2, the tread cut in the region file: LOST, and the cut is named: ' + line[:130])
+    check(st['state']['town_deposit@6,70,10']['status'] == 'walk', 'POSITIVE CONTROL: the chest is still walked to in the same run')
+    os.rename(os.path.join(reg, 'r.0.0.mca'), os.path.join(reg, 'r.0.0.mca.away'))
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    st = json.load(open(os.path.join(sd, 'routewatch-showcase.json')))
+    check('blind:save' in st['alarms'] and 'lost:' + WK in st['alarms'] and st['state'][WK]['status'] == 'lost', f"run 3, the save unreadable: not judged, and the loss is STILL said ({sorted(st['alarms'])})")
+    notdir = os.path.join(sd, 'a-file'); open(notdir, 'w').write('x')
+    out = subprocess.run(cmd[:6] + [notdir] + cmd[7:], capture_output=True, text=True)
+    st = json.load(open(os.path.join(sd, 'routewatch-showcase.json')))
+    check(out.returncode == 0 and set(st['alarms']) == {'routewatch:showcase', 'lost:' + WK} and st['state'][WK]['route'], f"run 4, the watcher crashes: its own key pages, the loss and its kept route are kept ({sorted(st['alarms'])})")
+    log_ = open(os.path.join(sd, 'ALARMS.log')).read()
+    check('CLEARED' not in ''.join(l for l in log_.splitlines() if 'lost:' in l), 'and the loss was never CLEARED on the way')
+    os.rename(os.path.join(reg, 'r.0.0.mca.away'), os.path.join(reg, 'r.0.0.mca'))
+    region_from(stair_dump(True), reg)
+    out = subprocess.run(cmd, capture_output=True, text=True)
+    st = json.load(open(os.path.join(sd, 'routewatch-showcase.json')))
+    check(st['alarms'] == {} and st['state'][WK]['status'] == 'walk', 'run 5, the tread back: the walk is found and the alarm is gone')
+    old_save = now - dt.timedelta(hours=2)
+    os.utime(os.path.join(reg, 'r.0.0.mca'), (old_save.timestamp(), old_save.timestamp()))
+    out = subprocess.run(cmd + ['--no-state'], capture_output=True, text=True)
+    check('NOT JUDGED' in out.stdout and 'blind:save' in out.stdout, 'a save two hours old is not judged')
 
 # ---- mutants (the anchor must be present and unique) ---------------------------------------------------------------------
 SRC = open(os.path.join(HERE, 'routewatch.py')).read()

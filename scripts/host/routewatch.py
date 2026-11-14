@@ -23,6 +23,7 @@ THE VERDICTS:
   unsure:<skill>@x,y,z   a kept walk was not found and not ruled out (the search ran out of time). Digest; nothing changes.
   nowalk:<skill>@x,y,z   no plain walk from the town centre, and none ever seen. Digest: bots get there some other way
                          (from outside, by the clean zone's valve) and every visit costs them; a to-do for the builders.
+  built:<skill>@x,y,z    the cell bots stood on is built over now (a chest, a pile): the service moved a cell. Digest.
   blind:<what>           nothing could be judged (no services found, the save unreadable). Digest.
   routewatch:<label>     the watcher itself failed. PAGES.
 THE POSITIVE CONTROL is printed every run: services found, walks found, the longest walk, how old the save is.
@@ -80,7 +81,7 @@ def find_home(rows):
     return [k for k, _ in c.most_common(STARTS)]
 
 
-def services(rows, home):
+def services(rows, home, town_r=TOWN_R):
     """PURE. -> [{key, cell, uses, bots, skill}] the cells town skills succeeded on, most used first."""
     if not home:
         return []
@@ -90,7 +91,7 @@ def services(rows, home):
         if r['name'] not in TOWN_SKILLS or r['status'] != 'success':
             continue
         c = feet_cell(r['pos'])
-        if not c or c[1] < MIN_Y or max(abs(c[0] - hx), abs(c[2] - hz)) > TOWN_R:
+        if not c or c[1] < MIN_Y or max(abs(c[0] - hx), abs(c[2] - hz)) > town_r:
             continue
         k = (r['name'], c)
         use[k] += 1
@@ -181,6 +182,15 @@ def judge(dests, results, confirms, prev, world, now):
             continue
         had = p.get('route')
         was_lost = p.get('status') == 'lost'
+        if r.get('status') == 'bad_cell' and (had or p.get('status') == 'built') and not was_lost:
+            # the cell bots stood on is built over (a chest, a pile, a wall): the service moved a cell, the walk is not lost
+            # (Claude r1: this paged "GONE ... at -2,70,0: air -> chest" every 2 h with nothing wrong). The kept route goes.
+            if not d.get('quiet'):
+                x, y, z = d['cell']
+                state[k] = dict(base, status='built', since=p.get('since') if p.get('status') == 'built' else AL._iso(now))
+                alarms['built:' + k] = (f"the cell bots stood on for {k} is taken now ({world.get((x, y, z)) or world.get((x, y + 1, z)) or 'no room'}; {used}): "
+                                        f"the service is used from another cell, and this one drops out when its uses age out")
+            continue
         if was_lost or (had and c.get('status') == 'noPath'):
             since = p.get('since') if was_lost else AL._iso(now)
             ch = what_changed(had, world) if had else []
@@ -282,22 +292,22 @@ def collect(a, now, prev):
     if not homes:
         rep['alarms']['blind:home'] = f'{a.label} routes not judged: no successful `home` in the last {LOOK_H} h ({len(rows)} rows read)'
         return rep
-    dests = services(rows, homes[0])
+    dests = services(rows, homes[0], a.town_r)
     if not dests:
         rep['alarms']['blind:services'] = (f'{a.label} routes not judged: no town skill succeeded {MIN_USES}+ times by {MIN_BOTS}+ bots at '
                                            f'one cell in the last {LOOK_H} h ({len(rows)} rows read)')
         return rep
     hx, _, hz = homes[0]
-    r = TOWN_R + PAD
+    r = a.town_r + a.pad
     try:
         dump = RD.dump(a.region, hx - r, hx + r, hz - r, hz + r, Y_LO, Y_HI)
     except RD.Unsteady as e:
         rep['alarms']['blind:save'] = f'{a.label} routes not judged: {e}'
         return rep
-    saved = AL._ts_or_none(dump.get('saved'))
-    rep['save'] = {'saved': dump.get('saved'), 'chunks': dump['chunks'], 'missing_chunks': dump['missing_chunks'], 'blocks': len(dump['cells'])}
+    saved = AL._ts_or_none(dump.get('saved_newest') or dump.get('saved'))     # when the server last saved under the box
+    rep['save'] = {'saved': dump.get('saved_newest'), 'oldest_file': dump.get('saved'), 'chunks': dump['chunks'], 'missing_chunks': dump['missing_chunks'], 'blocks': len(dump['cells'])}
     if not dump['cells'] or dump['missing_chunks'] or saved is None or now - saved > a.save_max_age or saved > now + dt.timedelta(minutes=5):
-        rep['alarms']['blind:save'] = (f"{a.label} routes not judged: the save could not be read whole or is old (saved {dump.get('saved')}, "
+        rep['alarms']['blind:save'] = (f"{a.label} routes not judged: the save could not be read whole or is old (last saved {dump.get('saved_newest')}, "
                                        f"{dump['chunks']} chunks, {dump['missing_chunks']} missing, {len(dump['cells'])} blocks)")
         return rep
     dests = watched(dests, prev)
@@ -330,6 +340,8 @@ def main(argv=None):
     ap.add_argument('--node', default='node')
     ap.add_argument('--replay', default=os.path.join(HERE, 'routereplay.mjs'))
     ap.add_argument('--timeout-ms', type=int, default=3000)
+    ap.add_argument('--town-r', type=int, default=TOWN_R, help='services within this of home (the clean zone: 48 + 16)')
+    ap.add_argument('--pad', type=int, default=PAD, help='ground read beyond it, so a walk may go round')
     ap.add_argument('--state-dir', default='~/digest')
     ap.add_argument('--ship')
     ap.add_argument('--no-push', action='store_true')
