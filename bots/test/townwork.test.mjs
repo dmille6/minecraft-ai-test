@@ -232,7 +232,7 @@ const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l
 const COG = strip(fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
 test('WIRING (cognitive.mjs): the board runs before the workshop step, the step stands down when the board owns, refusals and outcomes reach boardAfter', () => {
   const hook = "if (!order && this.wbMode !== 'off') {"
-  const shop = 'if (!order && SHOP.on && !boardOwns) {'
+  const shop = "if (!order && SHOP.on && !boardOwns && leasedTried !== 'build_shop') order = this.#shopOrder(snap, ready)"   // one trunk (11-14): main's B5 one-line step
   for (const s of [hook, shop]) assert.equal(COG.split(s).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${s}`)
   assert.ok(COG.indexOf(hook) < COG.indexOf(shop), 'the board decides before the workshop step')
   assert.equal(COG.split('if (!check.ok && order?.board) this.#boardAfter(order, null, { refused: true })').length, 2, 'a refused board order is backed off')

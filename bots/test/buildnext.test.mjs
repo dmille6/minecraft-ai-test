@@ -19,6 +19,8 @@ for (const k of ['MONUMENT', 'MONUMENT_POOLS', 'HOUSE', 'PATHS', 'PATHS_POOLS', 
 process.env.SHAFT = 'off'
 process.env.TIDY = 'off'
 process.env.TREEFARM = 'off'   // an unsited farm would be the next eligible project: the chain keeps to the monument and the wall
+// one trunk (11-14): main's showcase-pool projects would each be the next eligible one too -- off here for the same reason
+for (const k of ['SHOPCHEST', 'STOREHOUSE', 'COPPERHALL', 'YARD']) process.env[k] = 'off'
 process.env.STARVE = 'off'      // starve-01 has its own chain test (stuckproj.test.mjs): this one isolates the holds
 
 const S = await import('../src/shop.mjs')

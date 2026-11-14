@@ -4,7 +4,7 @@
 // so nothing sets bot.copperTunnelUntil: the copper branch is INERT here. Behaviour: copper tunnels only with the flag (positive
 // control: iron, diamond and coal as before); the wiring structural; an anchored mutant.
 import assert from 'node:assert'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 const OT = await import('../src/oretunnel.mjs')
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 5).join('\n        ')}`) } }
@@ -19,8 +19,11 @@ await t('copper ore tunnels only on the trip flag; POSITIVE CONTROL: iron and di
   assert.strictEqual(OT.tunnelKindsFor('diamond_ore', { diamond: true }).label, 'diamond')
   assert.deepStrictEqual(OT.COPPER_TUNNEL_KINDS, ['copper_ore', 'deepslate_copper_ore'])
 })
-await t('INERT on the fleet: no copper hall module and nothing sets copperTunnelUntil (gatherRun only reads it)', () => {
-  assert.ok(!existsSync(new URL('../src/copperhall.mjs', import.meta.url)), 'the fleet has no copper hall')
+await t('INERT on the fleet: the copper hall is off in a fleet pool and nothing sets copperTunnelUntil (gatherRun only reads it)', async () => {
+  // one trunk (11-14): the module is on main now; on a fleet pool the hall's switch is off (POSITIVE CONTROL: on in the showcase pool)
+  const { copperhallOn } = await import('../src/copperhall.mjs')
+  assert.strictEqual(copperhallOn({}, 'hive-a'), false, 'the copper hall is off in a fleet pool')
+  assert.strictEqual(copperhallOn({}, 'showcase'), true, 'control: on in the showcase pool')
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(!/copperTunnelUntil\s*=[^=]/.test(src), 'something sets copperTunnelUntil')
   assert.strictEqual((src.match(/\(Number\(bot\.copperTunnelUntil\) \|\| 0\) > Date\.now\(\)/g) ?? []).length, 2, 'the two gatherRun reads')
