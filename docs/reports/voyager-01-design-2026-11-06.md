@@ -639,6 +639,76 @@ at 12288 = 4 of 4. Reads (timers on the worlds host, `reports/3b-*`): +24 h 11-1
 final read + stop + unload (ours only, only if resident) **11-13 05:18:45Z** (11-12 23:18:45 CST). bw-guard (6,000 min) and
 the Studio guard (until 11-13 07:00Z) run on the Mac controller. Transient timers do not survive a worlds-host reboot.
 
+### 18.1 Stage 3b verdict (written 11-14 18:45Z; `reports/3b-final.txt`, `reports/3b-q-final.txt`)
+
+**Verdict: Haiku WINS. qwen3.8:27b is not a substitute for Haiku 5.5 in this harness.** By the letter of bar 2 the qwen
+arm is INCONCLUSIVE (it had model answers for 76 % of its hours, under the 85 % bar), but no way of counting its hours
+brings it near the COMPETITIVE line, so the direction is not in doubt.
+
+The two arms did not run in the same window. Haiku and the controls ran 11-09 05:18:45Z to 11-13 05:18:45Z as designed.
+qwen was paused by the Blackwell guard two hours in and never resumed (found 11-10), so its 96 h were restarted and run
+11-10 18:15:56Z to 11-14 18:15:56Z (owner 11-10). The end ran on time at 18:16Z: every bot and server stopped, nothing left
+running on the worlds host.
+
+| Per bot | h1 (S1) | h2 (S2) | q1 (S1) | q2 (S2) | k1 (S1) | k2 (S2) |
+|---|---|---|---|---|---|---|
+| bot-h connected (of 96) | 95.2 | 77.5 | 91.5 | 95.7 | 95.1 | 95.4 |
+| bot-h with model answers (10-min bins holding an ok `llm` row) | - | - | **71.7** | **74.0** | - | - |
+| verified tasks | 1,226 | 1,132 | 535 | 336 | - | - |
+| verified per connected bot-h | 12.9 | 14.6 | 5.8 | 3.5 | - | - |
+| verified per active bot-h | - | - | 7.5 | 4.5 | - | - |
+| projects finished (per bot-h; q per active h) | 491 (5.2) | 390 (5.0) | 125 (1.7) | 43 (0.6) | - | - |
+| invented / reused skills | 154 / 23 | 170 / 31 | 40 / 0 | 44 / 1 | - | - |
+| unique items | 111 | 117 | 48 | 53 | 31 | 33 |
+| iron tools (h from start) | 2.3 | 2.4 | held at the resume | held at the resume | 34.3 | 7.2 |
+| deaths | 0 | 1 | 1 | 1 | 1 | 0 |
+| sandbox violations / commands executed | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| cost | $21.41 | $20.91 | GPU time | GPU time | GPU time | GPU time |
+
+Against the bar:
+1. **Safety: MET.** 0 sandbox violations, 0 command attempts, 0 server-denied commands, all six bots.
+2. **Validity: Haiku MET** (172.7 of 192 bot-h, 90 %; h2 alone was 81 %). **Controls MET** (190.4, 99 %). **qwen NOT MET**:
+   connected 187.2 bot-h (97 %), but with model answers only 145.7 (76 %). See "what took qwen's hours" below.
+3. **The question.** Pooled over both seeds, qwen per ACTIVE bot-hour (its most favourable count): 6.0 verified against
+   Haiku's 13.7 (**44 %**, bar 80 %) and 1.15 projects finished against 5.10 (**23 %**, bar 50 %). By seed: S1 58 % and 34 %,
+   S2 31 % and 12 %. Per connected hour it is lower still (4.7 verified, 34 %). Both qwen bots had iron tools. Reuse is
+   judged (Haiku reused 23 and 31 distinct skills, over the 10 line): qwen reused 0 and 1. Not MATCHES, not COMPETITIVE:
+   **Haiku WINS.**
+4. **Creativity vs the control: MET by both.** Unique items 111 / 117 (Haiku) and 48 / 53 (qwen) against 31 / 33.
+5. **Survival: Haiku MET** (1 death in 172.7 bot-h, 0.006 per bot-h, against the control's 1 in 190.4, 0.005; the line is
+   2x). **qwen just over the line** (2 deaths in 187.2 connected bot-h, 0.011 against a line of 0.0105). These are counts of
+   1 and 2; this row is named, not a finding.
+
+Haiku spent $42.32 of the $70 cap ($0.13 per invented skill, under the $0.25 bar from section 8).
+
+**What took qwen's hours (say these beside the q numbers):**
+- **Site outage, 11-14.** ai.ticrcorp.com (the Blackwell) stopped answering at about 08:30Z. The last model answers were
+  q1 08:27:51Z and q2 08:30:30Z; from then to the end (9.75 h) every call was `llm_error: fetch failed` (about 85 an hour
+  per bot, 802 and 803 rows). The units stayed "active" throughout: uptime is not work.
+- **Guard pauses.** The Blackwell guard paused both bots 77 times, 15 min each (19.25 h of wall clock, for the Blackwell's
+  other project; owner limit 1.5x of baseline).
+- **q1 watcher stop** 11-14 02:08Z to 06:17Z (4.1 h, restarted by hand).
+- Hourly call cap refusals (293 rows q1, 560 rows q2), which Haiku's arms shared.
+- The end's unload of qwen3.8:27b could NOT be checked: the Blackwell was unreachable (`reports/3b-q-unload.txt` holds only
+  the failed reads). **Owed when it answers:** read `/api/ps` on :11438 and unload qwen3.8:27b only if it is resident;
+  touch no other model.
+
+**The sword finding (section 19.1), which bears on this verdict.** A sword cannot be crafted in these worlds: the fleet's
+craft skill refuses every sword in a peaceful world, and the voyager filter did not know it. Over the whole run q1 proposed a
+sword task 679 times of 2,422 (28 %) and q2 1,012 of 3,139 (32 %); Haiku's were 132 of 2,880 (5 %) and 182 of 2,718 (7 %); none was ever
+verified, and each one spent four rounds of code. So one rule of our own harness took about a third of qwen's proposals
+and a twentieth of Haiku's. The replay in 19.1 puts qwen's verified share of what would still run at 41 % and 21 % (from 22 %
+and 9 %) with the sword and repeat rules, against Haiku's 47 % and 49 %: the gap would narrow on S1 and stay wide on S2. That
+was never run live. The pre-registered read stands as written.
+
+**Caveats.** Two seeds, one bot per arm per seed; the arms ran in different 96-h windows; reuse stayed low in every arm.
+Haiku's outputs are evaluation-only, never training data.
+
+**What follows: nothing starts.** The owner shelved Voyager on 11-14 (`docs/decisions/consolidation-2026-11-14.md`, owner
+decisions 3 and 5). Harness 2 (section 19) and its six approved arms were NOT started; stage 4 was not started. The approved
+run list stays in section 19 for a one-off the owner asks for. Worlds, logs, reports and skill libraries are kept on the
+worlds host.
+
 ## 19. Harness 2 (owner 11-12: "lets fix the harness, test it very well, then try sonnet and possibly opus")
 
 Built on branch `voyager-harness2`. **Not deployed**: stage 3b is still running on harness 1 and must finish on it.
