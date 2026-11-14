@@ -15,6 +15,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
+    # owner 11-14, one change at a time (showcase_ops.soak_refusal)
+    ('showcase_ops.py', "            if tr is not None and tr >= t0 + soak:", "            if tr is not None:", 'test_what_does_not_open_it'),
+    ('showcase_ops.py', "        if (isinstance(r, dict) and r.get('event') == 'read' and str(r.get('release')) == rel\n", "        if (isinstance(r, dict) and r.get('event') == 'read'\n", 'test_what_does_not_open_it'),
+    ('showcase_ops.py', "                and str(r.get('decision') or '').strip().upper().startswith(READ_DECISIONS)):", "                and True):", 'test_what_does_not_open_it'),
+    ('showcase_ops.py', "        if not any(x.startswith(str(fix_of)) for x in fixable):", "        if False:", 'test_a_fix_must_name_the_live_release_and_say_why'),
+    ('showcase_ops.py', "        if not fix_of or len(str(fix_of)) < 8 or not fix_why or len(str(fix_why).strip()) < FIX_WHY_MIN:", "        if not fix_of:", 'test_a_fix_must_name_the_live_release_and_say_why'),
+    ('showcase_ops.py', "    live = acts[-1]\n    rel = str(live['release'])", "    live = acts[0]\n    rel = str(live['release'])", 'test_the_11_13_afternoon_is_refused'),
     # OWNER 11-07: the owner's authorization counts for its exact sha only, from the owner only, with a quote
     ('showcase_ops.py', "    if not (HEX40.fullmatch(str(oa.get('sha') or '')) and oa.get('sha') == psha):", "    if False:",
      'test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only'),
@@ -140,7 +147,7 @@ MUTANTS = [
      'test_a_cached_plain_release_is_never_reused_as_a_piece_release'),
     ('showcase_ops.py', "if k in ('piece', 'prev', 'prev_release', 'mode')):", "if k in ('piece', 'prev', 'mode')):",
      'test_a_piece_release_from_another_predecessor_is_not_reused'),
-    ('tl_showcase.py', "    out, deferred, heavy = list(VIEWS), [], []\n", "    out, deferred, heavy = [], [], []\n",
+    ('tl_showcase.py', "    out, deferred, heavy = list(pair), [], []\n", "    out, deferred, heavy = [], [], []\n",
      'test_plan_pair_first_due_by_interval_active_first_inside_budget'),
     ('tl_showcase.py', "        if age + 2 >= iv:\n", "        if age >= iv:\n",
      'test_plan_pair_first_due_by_interval_active_first_inside_budget'),
