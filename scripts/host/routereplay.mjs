@@ -8,9 +8,11 @@
 //
 //   node routereplay.mjs <job.json> [--modules /srv/showcase/harness]      -> one JSON object on stdout
 // job: { version, palette: [{name, props}], cells: [[x, y, z, paletteIndex]], floor_y, starts: [[x,y,z]],
-//        dests: [{key, cell: [x,y,z], radius?, timeout_ms?}], timeout_ms }   (cells: every non-air block of the box; below
-//        floor_y is stone). radius: the search is BOUNDED to walks costing at most the straight distance + radius, so it ENDS
-//        (noPath is then "no walk within that detour": definitive, where an unbounded search over open ground only runs out of time)
+//        dests: [{key, cell: [x,y,z], max_cost?, timeout_ms?}], timeout_ms }   (cells: every non-air block of the box; below
+//        floor_y is stone). max_cost: the search is BOUNDED to walks costing at most that, so it ENDS (noPath is then "no walk
+//        that cheap": definitive, where an unbounded search over open ground only runs out of time). The caller sets it from
+//        the kept walk's own cost, so the kept walk itself is always inside the bound (Codex r2: a bound from the straight
+//        distance excluded a long U-shaped walk that was still there).
 // out: { ok, blocks, rules, starts_ok, results: [{key, cell, status, from, ms, visited, path: [[x,y,z]]}] }
 //   status: success   a walk was found, and every step of it is on ground that was READ
 //           noPath    the search ran out of places to go: definitive
@@ -94,16 +96,20 @@ for (const d of job.dests ?? []) {
   let best = null
   let every = true                               // did EVERY start end definitively (noPath)?
   const budget = Number(d.timeout_ms) || timeout
-  const radius = Number.isFinite(d.radius) && d.radius >= 0 ? d.radius : -1
+  const goal = new goals.GoalBlock(x, y, z)
   for (const s of starts) {
     const t0 = Date.now()
+    const from = new Move(s[0], s[1], s[2], 0, 0)
+    // AStar prunes a node when g + h > h(start) + searchRadius: a total-cost bound of max_cost is that radius
+    const radius = Number.isFinite(d.max_cost) && d.max_cost >= 0 ? Math.max(0, d.max_cost - goal.heuristic(from)) : -1
     // one slice, as long as the whole budget: `partial` (the slice ended) and `timeout` (the budget ended) both mean
     // the search did not finish
-    const r = new AStar(new Move(s[0], s[1], s[2], 0, 0), m, new goals.GoalBlock(x, y, z), budget, budget, radius).compute()
+    const r = new AStar(from, m, goal, budget, budget, radius).compute()
     const pathCells = r.status === 'success' ? r.path.map(n => [n.x, n.y, n.z]) : []
     const onRead = pathCells.every(c => read(c[1])) && read(s[1])
     const status = r.status === 'success' ? (onRead ? 'success' : 'unsure') : r.status === 'noPath' ? 'noPath' : 'unsure'
     const one = { key: d.key, cell: d.cell, status, from: s, ms: Date.now() - t0, visited: r.visitedNodes, path: status === 'success' ? pathCells : [],
+                  ...(status === 'success' ? { cost: r.cost } : {}),
                   ...(status === 'unsure' ? { why: r.status === 'success' ? 'the walk found leaves the ground that was read' : `the search ended ${r.status}` } : {}) }
     if (status === 'success') { best = one; break }
     if (status !== 'noPath') every = false
