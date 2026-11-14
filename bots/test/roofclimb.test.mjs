@@ -11,8 +11,22 @@ import { createRequire } from 'node:module'
 import { EventEmitter } from 'node:events'
 import { Vec3 } from 'vec3'
 
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+process.env.LOG_DIR ??= fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-rc-logs-'))
+process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
+process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-rc-pool-'))   // the town's build records: none until a test writes one
+
 const require_ = createRequire(import.meta.url)
 const S = await import('../src/skills.mjs')
+const { projKey } = await import('../src/buildproj.mjs')
+/** One build record with one cell, written as the projects write theirs; removed by the returned function. */
+function record (plot, at, block = 'cobblestone') {
+  const f = path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 70, z: 0 }, plot)}.g1.json`)
+  fs.writeFileSync(f, JSON.stringify({ gen: 1, prev: null, cells: [{ at, block, role: 'base', state: 'placed' }] }))
+  return () => { try { fs.unlinkSync(f) } catch {} }
+}
 const SKILLS_URL = new URL('../src/skills.mjs', import.meta.url)
 const V = (x, y, z) => new Vec3(x, y, z)
 
@@ -111,12 +125,17 @@ test('roofClimbPlan: ground over the bot is a roof to climb; open sky, a tree, a
   const feet = V(1, 68, 5)
   assert.equal(S.roofClimbPlan(at({}), feet), null, 'open sky')
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'cobblestone' }), feet), { toY: 71, top: 70, n: 1 }, 'the plaza floor over the pocket')
-  assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 71: 'grass_block', 75: 'stone' }), feet), { toY: 76, top: 75, n: 3 }, 'the HIGHEST ground block is the roof')
+  // THE FIRST SLAB (review r1, Claude blocker 2): two open cells over ground end the roof; what hangs higher is not climbed to
+  assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 71: 'grass_block', 75: 'stone' }), feet), { toY: 72, top: 71, n: 2 }, 'the slab over the bot, not the block four above it')
+  assert.deepEqual(S.roofClimbPlan(at({ 70: 'cobblestone', 78: 'cobblestone' }), feet), { toY: 71, top: 70, n: 1 }, 'one block eight above the plaza is not the roof')
+  assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 72: 'stone' }), feet), { toY: 73, top: 72, n: 2 }, 'a one-high gap is no room to stand: the slab goes on')
+  assert.deepEqual(S.roofClimbPlan(at({ 74: 'dirt' }), feet), { toY: 75, top: 74, n: 1 }, 'a roof high over a deep pocket is still its roof')
+  assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 71: 'stone_bricks' }), feet), { built: 'stone_bricks', at: 71, why: 'will not break stone_bricks (built)' }, 'built ON the slab refuses')
   assert.equal(S.roofClimbPlan(at({ 72: 'spruce_leaves', 73: 'spruce_leaves' }), feet), null, 'leaves over the bot are not a roof')
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 71: 'spruce_log' }), feet), { built: 'spruce_log', at: 71, why: 'will not break spruce_log (built)' }, 'a trunk is never dug: the tree stays')
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 74: 'spruce_leaves' }), feet), { toY: 71, top: 70, n: 1 }, 'ground under leaves: the ground is the roof')
   assert.deepEqual(S.roofClimbPlan(at({ 72: 'spruce_planks' }), feet), { built: 'spruce_planks', at: 72, why: 'will not break spruce_planks (built)' }, 'a plank roof is built')
-  assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 73: 'stone_bricks' }), feet), { built: 'stone_bricks', at: 73, why: 'will not break stone_bricks (built)' }, 'anything built anywhere in the column refuses the whole climb')
+  assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 73: 'stone_bricks' }), feet), { toY: 71, top: 70, n: 1 }, 'built over open air above the slab is not in the way: the climb ends under it, in the open')
   // ONE AUTHORITY (review r1): a ground kind in a cell the escape profile may not break is refused in the plan, by the same judge the swing asks
   const priced = b => (b.name === 'cobblestone' ? 100 : 0)
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'cobblestone' }), feet, { breakCosts: [priced] }), { built: 'cobblestone', at: 70, why: 'will not break cobblestone (protected)' })
@@ -132,6 +151,15 @@ test('roofClimbPlan: ground over the bot is a roof to climb; open sky, a tree, a
   assert.equal(S.roofClimbPlan(at({ 69: 'dirt' }), feet), null, 'the head cell is not overhead (dy starts at 2, as terrainRoofTop)')
   assert.equal(S.roofClimbPlan(() => null, feet), null, 'unloaded reads as open')
   assert.equal(S.roofClimbPlan(at({ 110: 'stone' }), feet), null, 'beyond 40 up is not looked at')
+  // THE BUILD RECORDS (review r1, Claude blocker 1): ground by name, a project's by record
+  const P = { name: 'cobblestone', position: { x: 1, y: 70, z: 5 } }
+  assert.equal(S.roofDigRefusal(P, [], () => 'monument'), "will not break cobblestone (the monument's)")
+  assert.equal(S.roofDigRefusal(P, [], () => false), null, 'no record: plain ground')
+  assert.equal(S.roofDigRefusal(P, [], () => 'paths'), null, 'paving passes: the plaza floor is the measured roof')
+  assert.equal(S.roofDigRefusal(P, [], () => 'tidy'), null)
+  assert.equal(S.roofDigRefusal(P, [], () => null), 'will not break cobblestone (the build records are unread)', 'unread refuses')
+  assert.equal(S.roofDigRefusal(P, [], () => { throw new Error('x') }), 'will not break cobblestone (the build records are unread)')
+  assert.equal(S.roofDigRefusal({ name: 'spruce_leaves', position: P.position }, [], () => 'monument'), null, 'leaves are never a record to keep')
   for (const n of ['glass', 'oak_slab', 'cobblestone_stairs', 'bricks', 'chest', 'crafting_table', 'white_wool', 'oxidized_cut_copper']) assert.equal(S.ROOF_GROUND.test(n), false, `${n} is built`)
   for (const n of ['dirt', 'grass_block', 'cobblestone', 'stone', 'dirt_path', 'gravel', 'sand', 'iron_ore', 'deepslate_coal_ore']) assert.equal(S.ROOF_GROUND.test(n), true, `${n} is ground`)
 })
@@ -227,9 +255,62 @@ test('a cell the ESCAPE profile may not break is never dug: refused in the plan,
   assert.deepEqual([log.digs, log.places, log.searches], [[], [], 0])
 })
 
+test("a project's BUILD RECORD is never dug, though its blocks are ground by name; paving passes (review r1, Claude blocker 1)", async () => {
+  // POSITIVE CONTROL first: with no record the same pocket is climbed (THE POCKET above); with a paths record on the roof cell too
+  let undo = record('paths', [1, 70, 5])
+  try {
+    const a = simBot(pocket())
+    const r = await surface(a.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.deepEqual(a.log.digs, ['cobblestone@1,70,5'])
+  } finally { undo() }
+  // the monument's cell over the pocket: refused in the plan, nothing dug
+  undo = record('monument', [1, 70, 5])
+  try {
+    await new Promise(r => setTimeout(r, 30))
+    const b = simBot(pocket())
+    // the reader caches for 10 s: ask as the planner would after it (the dig asks fresh)
+    S.escapeRecordSnapshot(b.bot, Date.now(), { fresh: true })
+    const r = await surface(b.bot)
+    assert.deepEqual([r.status, r.failClass], ['failed', 'already_surfaced'], r.detail)
+    assert.match(r.detail, /built or protected \(cobblestone, the monument's\)/)
+    assert.deepEqual([b.log.digs, b.log.places], [[], []])
+  } finally { undo() }
+  // a record that appears AFTER the plan is met at the swing (the swing reads fresh)
+  const c = simBot(pocket())
+  S.escapeRecordSnapshot(c.bot, Date.now(), { fresh: true })
+  const late = await S.shaftAscend(c.bot, 71, new AbortController().signal, { mayDig: b => { const u = record('monument', [1, 70, 5]); try { return S.roofDigRefusal(b, [], q => S.escapeRecordAt(c.bot, q, Date.now(), { fresh: true })) } finally { u() } } })
+  assert.deepEqual([late.stopped, c.log.digs], ["will not break cobblestone (the monument's)", []])
+  S.escapeRecordSnapshot(c.bot, Date.now(), { fresh: true })
+})
+
+test('AN OVERHANG HIGH ABOVE IS NOT THE ROOF (review r1, Claude blocker 2): the climb ends on the plaza, not eight blocks up a pillar', async () => {
+  const w = pocket()
+  w.set(1, 78, 5, 'cobblestone')
+  const { bot, log } = simBot(w)
+  const r = await surface(bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(Math.floor(bot.entity.position.y), 71, 'on the plaza')
+  assert.deepEqual(log.digs, ['cobblestone@1,70,5'], 'the block eight above was never swung at')
+  assert.deepEqual(log.places, ['1,68,5', '1,69,5', '1,70,5'], 'nothing placed above the ground')
+  assert.equal(w.nameAt(1, 78, 5), 'cobblestone')
+})
+
+test('part of the way is said as part of the way', async () => {
+  // two blocks to pillar with, three needed: one above the pocket floor... the climb stops short and says so
+  const { bot, log } = simBot(pocket(), { blocks: 2 })
+  const r = await surface(bot)
+  assert.deepEqual([r.status, r.failClass], ['failed', 'travel_incomplete'], r.detail)
+  assert.match(r.detail, /climbed 2 blocks to y=70, not yet out from under the roof/)
+  assert.match(r.detail, /no scaffold/)
+  assert.match(r.detail, /gather 8\+ dirt or cobblestone/)
+  assert.doesNotMatch(r.detail, /no altitude gained|below sea level/)
+  assert.equal(log.places.length, 2)
+})
+
 test('the column is judged again at every swing: something built that appears over it mid-climb is left standing', async () => {
   // after the roof block is dug, planks are laid over the column (another bot roofing): the next swing meets them
-  const { bot, log } = simBot(pocket(), { onDig: (b, w) => { if (b.position.y === 70) w.set(1, 72, 5, 'oak_planks') } })
+  const { bot, log } = simBot(pocket(), { onDig: (b, w) => { if (b.position.y === 70) w.set(1, 71, 5, 'oak_planks') } })
   const r = await surface(bot)
   assert.notEqual(r.status, 'success', r.detail)
   assert.deepEqual(log.digs, ['cobblestone@1,70,5'], 'the planks were never swung at')
@@ -399,10 +480,10 @@ test('MUTANTS: each guard is the thing that holds', async () => {
   await withMutant(SKILLS_URL, "  if (!(y >= SEA_LEVEL)) return { top: SEA_LEVEL, why: 'below_sea' }\n", '', async M => {
     assert.deepEqual(M.surfaceTop({ y: 40, roof: { toY: 71, top: 70, n: 1 } }), { top: 71, why: 'roofed' }, 'MUTANT 6 SURVIVED')
   })
-  // 7. leaves count as built (pure): a bot under a tree's leaves and a dirt roof is refused
-  await withMutant(SKILLS_URL, "    if (/_leaves$/.test(name)) continue\n", '', async M => {
-    const at = p => (p.y === 70 ? { name: 'dirt', boundingBox: 'block' } : p.y === 72 ? { name: 'spruce_leaves', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
-    assert.deepEqual(M.roofClimbPlan(at, V(1, 68, 5)), { toY: 73, top: 72, n: 2 }, 'MUTANT 7 SURVIVED')
+  // 7. leaves count as a roof (pure): a bot standing under a tree is sent up through its canopy
+  await withMutant(SKILLS_URL, "    if (!b || b.boundingBox !== 'block' || /_leaves$/.test(name)) {", "    if (!b || b.boundingBox !== 'block') {", async M => {
+    const at = p => (p.y === 72 ? { name: 'spruce_leaves', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+    assert.deepEqual(M.roofClimbPlan(at, V(1, 68, 5)), { toY: 73, top: 72, n: 1 }, 'MUTANT 7 SURVIVED')
   })
   // 8. the escape profile's prices are not asked -> a protected cell is dug
   await withMutant(SKILLS_URL, "    try { if (fn(block) > 0) return `will not break ${name} (protected)` } catch { return `will not break ${name} (protection unread)` }\n", '', async M => {
@@ -412,9 +493,9 @@ test('MUTANTS: each guard is the thing that holds', async () => {
   })
   // 9. the swing is not judged -> planks laid over the column mid-climb are dug
   await withMutant(SKILLS_URL, "      if (mayDig) { const no = mayDig(head); if (no) return { gained: p.y - startY, stopped: no } }\n", '', async M => {
-    const { bot, log } = simBot(pocket(), { onDig: (b, w) => { if (b.position.y === 70) w.set(1, 72, 5, 'oak_planks') } })
+    const { bot, log } = simBot(pocket(), { onDig: (b, w) => { if (b.position.y === 70) w.set(1, 71, 5, 'oak_planks') } })
     await surface(bot, {}, M)
-    assert.ok(log.digs.includes('oak_planks@1,72,5'), `MUTANT 9 SURVIVED: ${log.digs}`)
+    assert.ok(log.digs.includes('oak_planks@1,71,5'), `MUTANT 9 SURVIVED: ${log.digs}`)
   })
   // 10. the search keeps the plugin's post-processing -> the end over a dirt path is the cell below it
   await withMutant(SKILLS_URL, "{ timeout: ms, tickTimeout: 40, optimizePath: false }", "{ timeout: ms, tickTimeout: 40 }", async M => {
@@ -423,6 +504,17 @@ test('MUTANTS: each guard is the thing that holds', async () => {
     const pl = plugin(path)
     const c = await M.skyWalkPlan({ search: pl.search, movements: pl.moves, from: V(1.5, 68, 5.5), blockAt: path.blockAt })
     assert.equal(c.to?.y, 67, `MUTANT 10 SURVIVED: ${JSON.stringify(c)}`)
+  })
+  // 12. the first-slab stop is gone -> the pillar goes up to the overhang (eight above the plaza)
+  await withMutant(SKILLS_URL, "      if (top != null && ++gap >= 2) break\n", '', async M => {
+    const w = pocket(); w.set(1, 78, 5, 'cobblestone')
+    const { bot } = simBot(w)
+    await surface(bot, {}, M)
+    assert.equal(Math.floor(bot.entity.position.y), 79, 'MUTANT 12 SURVIVED')
+  })
+  // 13. the build records are not asked -> the monument's cell is dug
+  await withMutant(SKILLS_URL, "    if (rec !== false && !ROOF_RECORD_PASS.has(String(rec))) return `will not break ${name} (the ${rec}'s)`\n", '', async M => {
+    assert.equal(M.roofDigRefusal({ name: 'cobblestone', position: { x: 1, y: 70, z: 5 } }, [], () => 'monument'), null, 'MUTANT 13 SURVIVED')
   })
   // 11. no abort listener -> an interrupted walk goes on (it would end at the walk's own 20 s; here: still pending after 600 ms)
   await withMutant(SKILLS_URL, "        signal?.addEventListener?.('abort', onAbort, { once: true })\n        try { await withTimeout(walkToGoal(bot, skyGoal,", "        try { await withTimeout(walkToGoal(bot, skyGoal,", async M => {
