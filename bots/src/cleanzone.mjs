@@ -376,6 +376,39 @@ export async function permittedWalk (cz, cell, ms, walk, halt = null) {
   if (typeof cz?.permit !== 'function' || !cz.permit(cell, ms)) return { ran: false, err: null }
   try { await walk(); return { ran: true, err: null } } catch (err) { try { halt?.() } catch { /* the halt never hides the walk's error */ } return { ran: true, err } } finally { cz.revoke() }
 }
+/**
+ * ONE WALK, LISTENED TO THE END -> a promise: resolved when the pathfinder says `goal_reached`, rejected by name (NoPath,
+ * Timeout, GoalChanged, PathStopped) when it gives up. `start()` is the caller's own `bot.pathfinder.setGoal(goal)` (the steering
+ * stays in the caller's file).
+ * WHY NOT THE LIBRARY'S goto (LIVE 11-14 00:51-00:55Z, the first four climbs of this piece: `reached=0 ms=198..295`, no error,
+ * no search row): mineflayer-pathfinder 2.4.5 goto.js resolves on ANY `path_update` whose path is empty, whatever its status.
+ * A bot standing under the stand is already on the cell the heuristic likes best, so the search's first 40-ms slice answers
+ * `partial` with an empty path -- and goto says done a quarter of a second in, with the real search barely begun. Here a
+ * `partial` is waited through; a `timeout` (the 5-s think budget: the pathfinder walks the part it found and searches again)
+ * is waited through `maxTimeouts` times; `noPath` is final.
+ */
+export function walkToGoal (bot, goal, start, { maxTimeouts = 2 } = {}) {
+  const err = (name, message) => Object.assign(new Error(message), { name })
+  return new Promise((resolve, reject) => {
+    let timeouts = 0, done = false
+    const end = (e) => {
+      if (done) return
+      done = true
+      bot.removeListener('goal_reached', onReached); bot.removeListener('path_update', onUpdate)
+      bot.removeListener('goal_updated', onGoal); bot.removeListener('path_stop', onStop)
+      setTimeout(() => (e ? reject(e) : resolve()), 0)
+    }
+    const onReached = () => end()
+    const onUpdate = (r) => {
+      if (r?.status === 'noPath') return end(err('NoPath', 'No path to the goal!'))
+      if (r?.status === 'timeout' && ++timeouts > maxTimeouts) return end(err('Timeout', 'Took to long to decide path to goal!'))
+    }
+    const onGoal = (g) => { if (g !== goal) end(err('GoalChanged', 'The goal was changed before it could be completed!')) }
+    const onStop = () => end(err('PathStopped', 'Path was stopped before it could be completed! Thus, the desired goal was not reached.'))
+    bot.on('goal_reached', onReached); bot.on('path_update', onUpdate); bot.on('goal_updated', onGoal); bot.on('path_stop', onStop)
+    try { start() } catch (e) { end(e) }
+  })
+}
 /** What the refusal adds when the step could not be laid: a move the bot can make from the well's foot. Pure. */
 export const wellStepRemedy = why => (why === 'no_blocks'
   ? ' -- the walk up has lost a step and the bag holds no dirt or cobblestone to lay it: take a few from the town chests (withdraw), and the next visit lays the step'

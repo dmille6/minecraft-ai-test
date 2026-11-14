@@ -102,7 +102,7 @@ import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs' 
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
-import { wellStepOn, wellStepDecision, permittedWalk, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
+import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -10109,8 +10109,10 @@ async function disposeWell (ctx, _args, signal) {
       if (ask.go) {
         const t0 = Date.now()
         const stepGoal = new goals.GoalBlock(stand.x, stand.y, stand.z)
-        // a walk that ended in an error is STOPPED before the pass goes, if it is still this walk's goal the pathfinder holds
-        const w = await permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(bot.pathfinder.goto(stepGoal), HK_PATH_MS, 'pathfinding', { path: true }), () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })
+        // walkToGoal, not the library's goto: that one resolves on the search's first empty `partial` slice (LIVE 11-14: four climbs
+        // ended in a quarter second, unsearched). A walk that ended in an error is STOPPED before the pass goes, if it is still
+        // this walk's goal the pathfinder holds
+        const w = await permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(walkToGoal(bot, stepGoal, () => bot.pathfinder.setGoal(stepGoal)), HK_PATH_MS, 'pathfinding', { path: true }), () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })
         if (w.err && (w.err.aborted || signal?.aborted)) throw w.err
         check(signal)
         try { logEvent({ kind: 'well_step', status: onStand() ? 'success' : 'failed', snapshot: snapshot(bot), detail: wellStepDetail({ op: 'climb', why: w.ran ? ask.why : 'no_pass', stand, from, held, reached: onStand(), ms: Date.now() - t0, err: w.err?.name ?? w.err?.message ?? null }) }) } catch {}

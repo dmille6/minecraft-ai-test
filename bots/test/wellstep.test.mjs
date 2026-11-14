@@ -247,6 +247,70 @@ test('THE SWITCH, THE REMEDY AND THE ROWS', () => {
   assert.match(CZ.cleanZoneHitsDetail(c, CZ.cleanZoneSnap({ passes: 1, passed: 1 })), / passes=1 passed=2$/)
 })
 
+// ---- walkToGoal: the walk is listened to its end (LIVE 11-14: the library's goto said done on the first empty slice) ------
+const { EventEmitter } = require_('node:events')
+const libGoto = require_('mineflayer-pathfinder/lib/goto.js')
+function fakeBot () {
+  const bot = new EventEmitter()
+  bot.pathfinder = { goal: null, setGoal (g) { this.goal = g; bot.emit('goal_updated', g) } }
+  return bot
+}
+const settle = async (p) => { let out = 'pending'; p.then(() => { out = 'resolved' }, e => { out = e.name }); await new Promise(r => setTimeout(r, 5)); return out }
+const walk = (bot, goal, o) => CZ.walkToGoal(bot, goal, () => bot.pathfinder.setGoal(goal), o)
+test('POSITIVE CONTROL (the defect): the library\'s goto resolves on the first `partial` slice with an empty path', async () => {
+  const bot = fakeBot()
+  const p = libGoto(bot, TO_STAND)
+  bot.emit('path_update', { status: 'partial', path: [] })
+  assert.equal(await settle(p), 'resolved', 'done, a slice into a search that has not finished')
+})
+test('WALK TO GOAL: the same slice is waited through; the walk ends when the pathfinder says goal_reached', async () => {
+  const bot = fakeBot()
+  const p = walk(bot, TO_STAND)
+  assert.equal(bot.pathfinder.goal, TO_STAND, 'the caller\'s start() set the goal')
+  bot.emit('path_update', { status: 'partial', path: [] })
+  assert.equal(await settle(p), 'pending')
+  bot.emit('path_update', { status: 'partial', path: [{}] }); bot.emit('path_update', { status: 'success', path: [{}, {}] })
+  assert.equal(await settle(p), 'pending', 'a found path is not an arrival')
+  bot.emit('goal_reached', TO_STAND)
+  assert.equal(await settle(p), 'resolved')
+  for (const e of ['goal_reached', 'path_update', 'goal_updated', 'path_stop']) assert.equal(bot.listenerCount(e), 0, `${e} listener removed`)
+})
+test('WALK TO GOAL gives up by name: noPath at once, a third timeout, another goal, a stop', async () => {
+  let bot = fakeBot(); let p = walk(bot, TO_STAND)
+  bot.emit('path_update', { status: 'noPath', path: [] })
+  assert.equal(await settle(p), 'NoPath', 'an empty noPath is a failure, not an arrival')
+  bot = fakeBot(); p = walk(bot, TO_STAND)
+  bot.emit('path_update', { status: 'timeout', path: [{}] }); bot.emit('path_update', { status: 'timeout', path: [{}] })
+  assert.equal(await settle(p), 'pending', 'two think budgets are waited through: the pathfinder walks its part and searches again')
+  bot.emit('path_update', { status: 'timeout', path: [{}] })
+  assert.equal(await settle(p), 'Timeout')
+  bot = fakeBot(); p = walk(bot, TO_STAND, { maxTimeouts: 0 })
+  bot.emit('path_update', { status: 'timeout', path: [] })
+  assert.equal(await settle(p), 'Timeout')
+  bot = fakeBot(); p = walk(bot, TO_STAND)
+  bot.emit('goal_updated', TO_STAND)
+  assert.equal(await settle(p), 'pending', 'its own goal again is not a change')
+  bot.emit('goal_updated', MID)
+  assert.equal(await settle(p), 'GoalChanged')
+  bot = fakeBot(); p = walk(bot, TO_STAND)
+  bot.emit('goal_updated', null)
+  assert.equal(await settle(p), 'GoalChanged', 'a cleared goal (haltPath, the runner\'s stop) ends the walk')
+  bot = fakeBot(); p = walk(bot, TO_STAND)
+  bot.emit('path_stop')
+  assert.equal(await settle(p), 'PathStopped')
+  bot = fakeBot()
+  assert.equal(await settle(CZ.walkToGoal(bot, TO_STAND, () => { throw Object.assign(new Error('x'), { name: 'Boom' }) })), 'Boom', 'a start that throws is the walk\'s error')
+  assert.equal(bot.listenerCount('path_update'), 0)
+})
+test('MUTANT KILLED: a walk that takes an empty path for an arrival ends on the first slice', async () => {
+  await withMutant(CZ_URL, "if (r?.status === 'noPath') return end(err('NoPath', 'No path to the goal!'))", "if (r?.path?.length === 0) return end()\n      if (r?.status === 'noPath') return end(err('NoPath', 'No path to the goal!'))", async (mod) => {
+    const bot = fakeBot()
+    const p = mod.walkToGoal(bot, TO_STAND, () => bot.pathfinder.setGoal(TO_STAND))
+    bot.emit('path_update', { status: 'partial', path: [] })
+    assert.equal(await settle(p), 'resolved')
+  })
+})
+
 // ---- the wiring: what behaviour cannot reach (disposeWell has no end-to-end harness) -------------------------------------
 function wiringProblems (src) {
   const code = strip(src)
@@ -260,7 +324,7 @@ function wiringProblems (src) {
   const iAsk = at('wellStepDecision({ on: wellStepOn(process.env), ban: bot.cleanZoneBan?.on === true, feet: q(), stand, held })', 'the decision is asked with the switch, the live ban, the feet, the stand and the bag')
   const iHeld = at('const held = towerBlocksHeld(bot)', 'the bag is counted in blocks the walk can lay')
   at('const stepGoal = new goals.GoalBlock(stand.x, stand.y, stand.z)', 'the second walk\'s goal is the stand\'s own cell')
-  const iWalk = at('permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(bot.pathfinder.goto(stepGoal), HK_PATH_MS, \'pathfinding\', { path: true }), () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })', 'the second walk runs under a pass for the stand, bounded as the first, and is halted if it fails')
+  const iWalk = at('permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(walkToGoal(bot, stepGoal, () => bot.pathfinder.setGoal(stepGoal)), HK_PATH_MS, \'pathfinding\', { path: true }), () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })', 'the second walk runs under a pass for the stand, listened to its end, bounded as the first, and is halted if it fails')
   const iAbort = at('if (w.err && (w.err.aborted || signal?.aborted)) throw w.err', 'an abort of the second walk is rethrown')
   const iFail = at("return fail('well_unreachable', 'unreachable',", 'the refusal')
   at('${wellStepRemedy(stepWhy)}`)', 'the refusal names the step\'s remedy')
@@ -278,6 +342,7 @@ test('WIRING MUTANTS: each missing piece is named', () => {
   assert.match(mut('        if (w.err && (w.err.aborted || signal?.aborted)) throw w.err\n', ''), /an abort of the second walk is rethrown: found 0/)
   assert.match(mut('const w = await permittedWalk(bot.cleanZoneBan, stand, HK_PATH_MS, () => g.bound(', 'const w = await permittedWalk(null, stand, HK_PATH_MS, () => g.bound('), /the second walk runs under a pass/)
   assert.match(mut(", () => { if (bot.pathfinder?.goal === stepGoal) haltPath(bot) })", ')'), /is halted if it fails: found 0/)
+  assert.match(mut('g.bound(walkToGoal(bot, stepGoal, () => bot.pathfinder.setGoal(stepGoal)), HK_PATH_MS', 'g.bound(bot.pathfinder.goto(stepGoal), HK_PATH_MS'), /listened to its end.*found 0/)
   assert.match(mut('const stepGoal = new goals.GoalBlock(stand.x, stand.y, stand.z)', 'const stepGoal = new goals.GoalNear(stand.x, stand.y, stand.z, 2)'), /the stand's own cell: found 0/)
   assert.match(mut('the next town visit tries again${wellStepRemedy(stepWhy)}`)', 'the next town visit tries again`)'), /the refusal names the step's remedy: found 0/)
   assert.match(mut('      if (ask.go) {\n        const t0 = Date.now()\n        const stepGoal = ', '      {\n        const t0 = Date.now()\n        const stepGoal = '), /under `if \(ask\.go\)`/)
