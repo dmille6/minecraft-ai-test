@@ -185,6 +185,14 @@ Courses A and B are restored fresh for every run, so two versions of the code ca
 - And the owner's eye: before-and-after 4K pictures of each course, and a yes that the land looks good. Numbers gate the
   junk; only he gates "beautiful".
 
+### Evaluation of the present cleanup code (owner 11-14: "evaluate with both Claude and Codex ... the right way or start fresh")
+
+Done 11-14: [`docs/reports/land-eval-2026-11-14/RECOMMENDATION.md`](../reports/land-eval-2026-11-14/RECOMMENDATION.md).
+Both engines, working alone, said **restructure around a new core**: replace what decides the ground that should exist,
+what is junk and when a repair is done; keep the code that makes a bot dig and place safely and the two prevention
+features. Build order N1 ground ledger (no bot code), N2 debts for temporary blocks that do not expire, N3 planner with
+acceptance by reading the world, N4 speed of the kept worker code. Awaiting the owner's yes.
+
 ### Order of work
 
 | Step | What | When (estimate) |
