@@ -16,8 +16,8 @@ WHAT IT DOES, every hour:
   4. THE ROUTE FOUND IS KEPT (its cells and the blocks under, at and above each step) in the state file.
 
 THE VERDICTS:
-  lost:<skill>@x,y,z     the walk was there at an earlier run and a BOUNDED search (no walk within a detour half as long
-                         again as the kept one) ends with nowhere left to go. PAGES, and stays until a walk is found again:
+  lost:<skill>@x,y,z     the walk was there at an earlier run and a BOUNDED search (no walk costing up to half as much
+                         again as the kept one did) ends with nowhere left to go, from EVERY start. PAGES, and stays until a walk is found again:
                          a service that stops being used because it is broken is still checked.
                          The line names WHAT CHANGED on the kept route ("under 7,70,4: grass_block -> air"): the cut itself.
   unsure:<skill>@x,y,z   a kept walk was not found and not ruled out (the search ran out of time). Digest; nothing changes.
@@ -58,7 +58,7 @@ MIN_USES, MIN_BOTS = 3, 2
 MAX_DESTS = 40
 STARTS = 3
 SAVE_MAX_AGE = dt.timedelta(minutes=30)
-CONFIRM_MIN = 24       # the least detour (blocks of cost) a confirming search is bounded to
+CONFIRM_MIN = 24       # the slack (cost) a confirming search is given beyond half as much again as the kept walk
 CONFIRM_MS = 20000     # ... and its time
 KEEP_DAYS = 7          # a kept walk nobody uses is forgotten after this; a LOST one never
 # the skills whose success cell is a town service (where the bot stood when it worked)
@@ -146,9 +146,15 @@ def watched(dests, prev):
     return out
 
 
-def confirm_radius(steps):
-    """The detour a confirming search is bounded to: half as long again as the kept walk, and at least CONFIRM_MIN."""
-    return max(CONFIRM_MIN, int(math.ceil((steps or 0) * 0.5)) + 16)
+def confirm_cost(kept):
+    """The cost a confirming search is bounded to: half as much again as the KEPT WALK'S OWN COST, plus CONFIRM_MIN -- so the
+    kept walk, if it is still there, is always inside the bound (Codex r2: a bound measured from the straight distance cut
+    off a long walk between two near cells and called it gone). A state without a cost (an older one) is priced from its
+    steps: a step never costs less than 1, and three a step is more than any walked step costs."""
+    cost = kept.get('cost')
+    if not isinstance(cost, (int, float)) or cost <= 0:
+        cost = 3.0 * (kept.get('steps') or 0)
+    return int(math.ceil(cost * 1.5)) + CONFIRM_MIN
 
 
 def to_confirm(dests, results, prev):
@@ -157,7 +163,7 @@ def to_confirm(dests, results, prev):
     for d in dests:
         p = prev.get(d['key']) or {}
         if (results.get(d['key']) or {}).get('status') != 'success' and p.get('route'):
-            out.append({'key': d['key'], 'cell': d['cell'], 'radius': confirm_radius(p.get('steps')), 'timeout_ms': CONFIRM_MS})
+            out.append({'key': d['key'], 'cell': d['cell'], 'max_cost': confirm_cost(p), 'timeout_ms': CONFIRM_MS})
     return out
 
 
@@ -176,7 +182,7 @@ def judge(dests, results, confirms, prev, world, now):
         if r.get('status') == 'success' or c.get('status') == 'success':
             path = r['path'] if r.get('status') == 'success' else c['path']
             state[k] = dict(base, status='walk', since=p.get('since') if p.get('status') == 'walk' else AL._iso(now),
-                            route=footprint(path, world), steps=len(path))
+                            route=footprint(path, world), steps=len(path), cost=(r if r.get('status') == 'success' else c).get('cost'))
             if p.get('status') == 'lost':
                 state[k]['seen'] = AL._iso(now)      # a walk that came back is news: it is kept from now, used or not
             continue
@@ -194,10 +200,10 @@ def judge(dests, results, confirms, prev, world, now):
         if was_lost or (had and c.get('status') == 'noPath'):
             since = p.get('since') if was_lost else AL._iso(now)
             ch = what_changed(had, world) if had else []
-            state[k] = dict(base, status='lost', since=since, route=had, steps=p.get('steps'))
+            state[k] = dict(base, status='lost', since=since, route=had, steps=p.get('steps'), cost=p.get('cost'))
             alarms['lost:' + k] = (f"the walk to {k} is GONE (since {since}; {used}): "
                                    + ('; '.join(ch) if ch else 'no block of the kept route changed -- the ground beside it did' if had else 'its kept route was lost with the state file')
-                                   + (f". The kept route had {p.get('steps')} steps; no walk within a detour of {confirm_radius(p.get('steps'))} more." if had else '.'))
+                                   + (f". The kept route had {p.get('steps')} steps; no walk costing up to {confirm_cost(p)} (half as much again as it did)." if had else '.'))
         elif had:      # a walk is kept and no search finished: nothing is known, nothing changes
             ch = what_changed(had, world)
             state[k] = dict(p, **base)
@@ -238,7 +244,7 @@ def load_rows(root, lo, hi):
 def replay(dump, starts, dests, node, script, modules, timeout_ms=3000, version='1.21.8'):
     """Run routereplay.mjs -> {key: result}. Raises when node fails (the caller's crash path)."""
     job = dict(dump, version=version, timeout_ms=timeout_ms, starts=[list(s) for s in starts],
-               dests=[{k: d[k] for k in ('key', 'cell', 'radius', 'timeout_ms') if k in d} for d in dests])
+               dests=[{k: d[k] for k in ('key', 'cell', 'max_cost', 'timeout_ms') if k in d} for d in dests])
     with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as f:
         json.dump(job, f)
         path = f.name
@@ -258,31 +264,45 @@ def replay(dump, starts, dests, node, script, modules, timeout_ms=3000, version=
 
 
 def read_state(path, push_path, now):
-    """-> (state, problem). The first run ever (no state file, no push state): ({}, None). A state file that is missing while
-    the push state exists, or that cannot be read: every `lost:` key is taken back from the push state (it stays lost until
-    a walk is found) and the problem is said -- never a silent fresh start (Codex r1: losses would become `nowalk` and their
-    pages clear)."""
-    problem = None
+    """-> (state, problem). The first run ever (neither file exists): ({}, None).
+    The push state (lib/alarm's own file) is written AFTER the state file, so when the two disagree about what is lost the
+    push state is the newer word: a `lost:` key it holds is lost here too, and a loss it no longer holds is over (Codex r2:
+    a state write that failed left an old `walk` beside a paged loss, or an old loss beside a cleared one). A state file
+    that is gone or torn, or a push state that cannot be read, is said -- never a silent fresh start."""
+    problems = []
+    state = None
     if os.path.exists(path):
         try:
             st = json.load(open(path)).get('state')
             if isinstance(st, dict) and all(isinstance(v, dict) for v in st.values()):
-                return st, None
-            problem = 'no state in it'
+                state = st
+            else:
+                problems.append(f'state file {os.path.basename(path)} has no state in it')
         except (OSError, ValueError, AttributeError) as e:
-            problem = type(e).__name__
-    try:
-        pushed = [str(k) for k in json.load(open(push_path))]
-    except (OSError, ValueError, TypeError):
-        pushed = None
-    if problem is None and pushed is None:
+            problems.append(f'state file {os.path.basename(path)} unreadable ({type(e).__name__})')
+    pushed = None
+    if os.path.exists(push_path):
+        try:
+            pushed = {str(k) for k in json.load(open(push_path))}
+        except (OSError, ValueError, TypeError) as e:
+            problems.append(f'push state {os.path.basename(push_path)} unreadable ({type(e).__name__}): what was paged is not known')
+    if state is None and pushed is None and not problems:
         return {}, None                                      # nothing was ever written: the first run
-    back = {}
-    for k in pushed or []:
-        if k.startswith('lost:') and cell_of(k[5:]):
-            back[k[5:]] = {'status': 'lost', 'since': 'before a lost state file', 'cell': cell_of(k[5:]), 'seen': AL._iso(now)}
-    return back, (f"state file {os.path.basename(path)} {'unreadable (' + problem + ')' if problem else 'is gone'}: the kept routes are forgotten; "
-                  f"{len(back)} lost walk(s) taken back from the push state")
+    if state is None and not problems:
+        problems.append(f'state file {os.path.basename(path)} is gone')
+    state = state if state is not None else {}
+    if pushed is not None:
+        lost_keys = {k[5:] for k in pushed if k.startswith('lost:') and cell_of(k[5:])}
+        for k in sorted(lost_keys):
+            if (state.get(k) or {}).get('status') != 'lost':
+                state[k] = dict(state.get(k) or {}, status='lost', since=(state.get(k) or {}).get('since') or 'before a lost state write',
+                                cell=(state.get(k) or {}).get('cell') or cell_of(k), seen=AL._iso(now))
+        for k, v in list(state.items()):
+            if v.get('status') == 'lost' and k not in lost_keys and not problems:
+                state[k] = dict(v, status='walk') if v.get('route') else None      # its page was cleared: the loss is over
+                if state[k] is None:
+                    del state[k]
+    return state, ('; '.join(problems) + ': the kept routes are checked against the push state') if problems else None
 
 
 def collect(a, now, prev):
@@ -292,7 +312,7 @@ def collect(a, now, prev):
     if not homes:
         rep['alarms']['blind:home'] = f'{a.label} routes not judged: no successful `home` in the last {LOOK_H} h ({len(rows)} rows read)'
         return rep
-    dests = services(rows, homes[0], a.town_r)
+    dests = watched(services(rows, homes[0], a.town_r), prev)     # kept and lost walks stay watched when nobody uses them (Codex r2)
     if not dests:
         rep['alarms']['blind:services'] = (f'{a.label} routes not judged: no town skill succeeded {MIN_USES}+ times by {MIN_BOTS}+ bots at '
                                            f'one cell in the last {LOOK_H} h ({len(rows)} rows read)')
@@ -310,14 +330,13 @@ def collect(a, now, prev):
         rep['alarms']['blind:save'] = (f"{a.label} routes not judged: the save could not be read whole or is old (last saved {dump.get('saved_newest')}, "
                                        f"{dump['chunks']} chunks, {dump['missing_chunks']} missing, {len(dump['cells'])} blocks)")
         return rep
-    dests = watched(dests, prev)
     results, unknown, info = replay(dump, homes, dests, a.node, a.replay, a.modules, a.timeout_ms)
     rep['replay'] = info
     if not info.get('starts_ok'):
         rep['alarms']['blind:starts'] = f"{a.label} routes not judged: none of the cells `home` ends on ({homes}) is standable in the save"
         return rep
     again = to_confirm(dests, results, prev)
-    confirms = replay(dump, homes[:1], again, a.node, a.replay, a.modules, CONFIRM_MS)[0] if again else {}
+    confirms = replay(dump, homes, again, a.node, a.replay, a.modules, CONFIRM_MS)[0] if again else {}    # from EVERY start
     world = world_of(dump)
     rep['alarms'], rep['state'] = judge(dests, results, confirms, prev, world, now)
     walks = [s for s in rep['state'].values() if s.get('status') == 'walk']
@@ -377,8 +396,17 @@ def main(argv=None):
     except OSError as e:        # a full disk must not also silence the alarm (Codex r1)
         rep['alarms'][f'routewatch:{a.label}'] = f'routewatch {a.label} FAILED to write its state ({type(e).__name__}: {str(e)[:120]}): the kept routes are not saved'
         print('  !! ' + rep['alarms'][f'routewatch:{a.label}'])
-    AL.raise_alarms(f'routewatch-{a.label}', rep['alarms'], now, push_state,
-                    log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
+    try:
+        AL.raise_alarms(f'routewatch-{a.label}', rep['alarms'], now, push_state,
+                        log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
+    except OSError as e:        # the same full disk stops ALARMS.log too (Codex r2): send what pages, directly
+        pages = [v for k, v in sorted(rep['alarms'].items()) if AL.tier_of(f'routewatch-{a.label}', k) == AL.TIER_PAGE]
+        print(f'  !! the alarm log could not be written ({type(e).__name__}); {len(pages)} paging line(s) sent directly')
+        if pages and not a.no_push:
+            try:
+                AL.send(f'routewatch-{a.label}: {len(pages)} alarm(s), and the host cannot write its alarm log', '\n'.join(pages)[:3000])
+            except Exception:
+                pass
     if a.ship:
         AL.ship_row(a.ship, {'kind': f'{a.label}_routewatch', 't': AL._iso(now), 'ok': not any(k.startswith(('lost:', 'routewatch:')) for k in rep['alarms']),
                              'event': 'route_lost' if any(k.startswith('lost:') for k in rep['alarms']) else 'routes_ok',

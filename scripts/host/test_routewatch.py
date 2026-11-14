@@ -139,11 +139,25 @@ check(sorted(info['rules']) == ['corner', 'shore'] and info['starts_ok'] == 1, f
 cut, _, _ = run(stair_dump(False))
 check(cut[W]['status'] == 'unsure' and cut[W]['path'] == [] and 'the search ended' in cut[W]['why'], f"LIVE 11-13 18:12Z shape: the tread cut -- over open ground the open search only runs out of time, and says so ({cut[W]['status']}: {cut[W].get('why')})")
 check(cut['town_deposit@-2,70,2']['status'] == 'success', 'POSITIVE CONTROL: the same run still walks to the chest')
-bound = [{'key': W, 'cell': [6, 73, 0], 'radius': RW.confirm_radius(8), 'timeout_ms': 8000}]
+KEPT = {'steps': len(whole[W]['path']), 'cost': whole[W]['cost']}
+check(isinstance(whole[W]['cost'], (int, float)) and whole[W]['cost'] >= len(whole[W]['path']), f"a found walk carries its cost ({whole[W]['cost']} for {len(whole[W]['path'])} steps)")
+check(RW.confirm_cost(KEPT) == int(math.ceil(KEPT['cost'] * 1.5)) + RW.CONFIRM_MIN and RW.confirm_cost({'steps': 10}) == 45 + RW.CONFIRM_MIN, 'the bound is half as much again as the kept walk cost, plus slack; a state with no cost is priced from its steps')
+bound = [{'key': W, 'cell': [6, 73, 0], 'max_cost': RW.confirm_cost(KEPT), 'timeout_ms': 8000}]
 conf_cut, _, _ = run(stair_dump(False), bound)
 check(conf_cut[W]['status'] == 'noPath', f"THE BOUNDED SEARCH ENDS: no walk within the detour is definitive ({conf_cut[W]['status']} in {conf_cut[W]['ms']} ms, {conf_cut[W]['visited']} nodes)")
 conf_whole, _, _ = run(stair_dump(True), bound)
 check(conf_whole[W]['status'] == 'success', 'POSITIVE CONTROL: the same bounded search finds the stair when its step is there')
+# Codex r2: a long walk between two cells that are NEAR each other. A wall with one gap far away: 2 blocks apart, ~40 steps round.
+uwalk = {'palette': [{'name': 'stone', 'props': {}}], 'floor_y': 60,
+         'cells': [[x, y, z, 0] for x in range(-2, 4) for z in range(-2, 22) for y in (68, 69)] + [[1, y, z, 0] for z in range(-2, 20) for y in (70, 71, 72)]}
+UD = [{'key': 'town_deposit@2,70,0', 'cell': [2, 70, 0], 'uses': 9, 'bots': 4}]
+ufree, _, _ = run(uwalk, UD)
+uk = {'steps': len(ufree['town_deposit@2,70,0']['path']), 'cost': ufree['town_deposit@2,70,0']['cost']}
+check(ufree['town_deposit@2,70,0']['status'] == 'success' and uk['steps'] >= 38, f"a walk round a long wall between two cells two blocks apart ({uk['steps']} steps, cost {uk['cost']})")
+ub, _, _ = run(uwalk, [dict(UD[0], max_cost=RW.confirm_cost(uk), timeout_ms=8000)])
+check(ub['town_deposit@2,70,0']['status'] == 'success', 'THE KEPT WALK IS ALWAYS INSIDE ITS OWN BOUND: the bounded search finds it')
+tight, _, _ = run(uwalk, [dict(UD[0], max_cost=30, timeout_ms=8000)])
+check(tight['town_deposit@2,70,0']['status'] == 'noPath', 'POSITIVE CONTROL: a bound below its cost ends noPath (what a bound from the straight distance did)')
 # Codex r1: what a body may stand in is the pathfinder's own answer
 carpet, _, _ = run(stair_dump(True, extra=[(6, 73, 0, 2)]))
 check(carpet[W]['status'] == 'success', f"a carpet on the stand is walked onto, not called a wall ({carpet[W]['status']})")
@@ -197,7 +211,7 @@ tread = [f for f in st1[W]['route'] if f[:3] == [3, 71, 0]]
 check(tread and tread[0][3] == 'grass_block', 'the kept route knows what each step stands on')
 later = NOW + dt.timedelta(hours=1)
 todo = RW.to_confirm(D, cut, st1)
-check([t['key'] for t in todo] == [W] and todo[0]['radius'] == RW.confirm_radius(st1[W]['steps']) and todo[0]['timeout_ms'] == RW.CONFIRM_MS, f"a failed walk with a kept route goes to the bounded search ({todo})")
+check([t['key'] for t in todo] == [W] and todo[0]['max_cost'] == RW.confirm_cost(st1[W]) and st1[W]['cost'] == whole[W]['cost'] and todo[0]['timeout_ms'] == RW.CONFIRM_MS, f"a failed walk with a kept route goes to the bounded search, bounded by its own kept cost ({todo})")
 check(RW.to_confirm(D, whole, st1) == [] and RW.to_confirm(D, cut, {}) == [], 'a walk that was found, or one never kept, does not')
 # Codex r1: the open search running out of time is NOT a loss
 al_u, st_u = RW.judge(D, cut, {}, st1, w_cut, later)
@@ -208,7 +222,7 @@ check('lost:' + W not in al_t, 'nor does a bounded search that ran out of time')
 al2, st2 = RW.judge(D, cut, conf_cut, st1, w_cut, later)
 line = al2.get('lost:' + W, '')
 check('lost:' + W in al2 and 'under 3,71,0: grass_block -> air' in line, 'THE BOUNDED SEARCH ENDED noPath: the loss pages and THE CUT IS NAMED: ' + line[:140])
-check('210 uses by 14 bots' in line and 'GONE (since 2026-11-13T20:50:00Z' in line and 'no walk within a detour of' in line, 'with who used it, since when, and the detour searched')
+check('210 uses by 14 bots' in line and 'GONE (since 2026-11-13T20:50:00Z' in line and 'no walk costing up to' in line, 'with who used it, since when, and the bound searched')
 check(st2[W]['status'] == 'lost' and st2[W]['route'] == st1[W]['route'], 'the kept route is held while the walk is lost')
 al3, st3 = RW.judge(D, cut, {}, st2, w_cut, later + dt.timedelta(hours=5))
 check('GONE (since 2026-11-13T20:50:00Z' in al3.get('lost:' + W, ''), 'five hours on, with no search finishing, it is still lost since the same time')
@@ -244,7 +258,7 @@ for k in ('lost:' + W, 'routewatch:showcase'):
 for k in ('nowalk:smelt_town@5,60,0', 'unsure:' + W, 'blind:save'):
     check(AL.tier_of('routewatch-showcase', k) == AL.TIER_DIGEST, f'{k} goes to the digest')
 
-# ---- the state file (Codex r1) -------------------------------------------------------------------------------------------
+# ---- the state file and the push state (Codex r1, r2) --------------------------------------------------------------------
 with tempfile.TemporaryDirectory() as d:
     sp, pp = os.path.join(d, 'routewatch-showcase.json'), os.path.join(d, 'routewatch-showcase.pushstate.json')
     check(RW.read_state(sp, pp, NOW) == ({}, None), 'no state and no push state: the first run, in silence')
@@ -257,7 +271,20 @@ with tempfile.TemporaryDirectory() as d:
     st, problem = RW.read_state(sp, pp, NOW)
     check(problem and 'unreadable' in problem and W in st, 'a torn state file the same')
     json.dump({'state': st2}, open(sp, 'w'))
-    check(RW.read_state(sp, pp, NOW) == (json.loads(json.dumps(st2)), None), 'a good one is read as it was written')
+    check(RW.read_state(sp, pp, NOW) == (json.loads(json.dumps(st2)), None), 'a good one that agrees with the push state is read as it was written')
+    # the two files disagree: the push state is written last, so it is the newer word
+    json.dump({'state': st1}, open(sp, 'w'))                   # the state write of the LOSS failed: it still says walk
+    st, problem = RW.read_state(sp, pp, NOW)
+    check(problem is None and st[W]['status'] == 'lost' and st[W]['route'] == json.loads(json.dumps(st1[W]['route'])), 'an old `walk` beside a paged loss: it is lost, and its kept route is still there to compare')
+    json.dump({'state': st2}, open(sp, 'w')); json.dump({}, open(pp, 'w'))   # the state write of the RECOVERY failed
+    st, problem = RW.read_state(sp, pp, NOW)
+    check(problem is None and st[W]['status'] == 'walk', 'an old loss beside a cleared page: the loss is over, not paged a second time')
+    open(pp, 'w').write('{"lost:')
+    st, problem = RW.read_state(sp, pp, NOW)
+    check(problem and 'push state' in problem and st[W]['status'] == 'lost', 'a push state that cannot be read is said, and the state file is believed as it is')
+    os.remove(sp)
+    st, problem = RW.read_state(sp, pp, NOW)
+    check(st == {} and problem and 'push state' in problem and 'is gone' not in (problem.split(';')[0]), f'state gone AND push state torn: said, never taken for a first run ({problem})')
 
 # ---- the command, end to end: logs in the logs' shape, a region file, the real replay ----------------------------------
 def region_from(dump_dict, d):
@@ -333,6 +360,10 @@ m = mutant("        if k in have or not isinstance(p, dict) or not (p.get('route
 killed('a broken service nobody uses drops out of the watch', all(d['key'] != W for d in m['watched'](quiet_d, st3)))
 m = mutant("        if state[k]['status'] != 'lost' and seen is not None and now - seen > dt.timedelta(days=KEEP_DAYS):", "        if seen is not None and now - seen > dt.timedelta(days=KEEP_DAYS):")
 killed('a lost walk forgotten after a week', W not in m['judge'](wd, cut, {}, st3, w_cut, later + dt.timedelta(days=9))[1])
+m = mutant("    confirms = replay(dump, homes, again, a.node, a.replay, a.modules, CONFIRM_MS)[0] if again else {}", "    confirms = replay(dump, homes[:1], again, a.node, a.replay, a.modules, CONFIRM_MS)[0] if again else {}")
+check('homes[:1], again' not in SRC, 'the confirming search is given every start (Codex r2; a mutant here needs two homes and a region file: the anchor is asserted present)')
+m = mutant("    return int(math.ceil(cost * 1.5)) + CONFIRM_MIN", "    return 30")
+killed('a bound that ignores the kept walk\'s cost calls a long walk gone', run(uwalk, [dict(UD[0], max_cost=m['confirm_cost'](uk), timeout_ms=8000)])[0]['town_deposit@2,70,0']['status'] == 'noPath')
 RSRC = open(REPLAY).read()
 def replay_mutant(old, new):
     assert RSRC.count(old) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old

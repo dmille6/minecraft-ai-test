@@ -124,7 +124,9 @@ def _stamp(region_dir, names):
 def dump(region_dir, x0, x1, z0, z1, y0, y1, tries=3):
     """The box, read while no region file under it changed (Codex r1: a save between two chunk reads could show the old
     version of one chunk beside the new version of the next). Re-read up to `tries` times; then Unsteady."""
-    names = sorted({'r.%d.%d.mca' % (cx >> 5, cz >> 5) for cx in range(x0 >> 4, (x1 >> 4) + 1) for cz in range(z0 >> 4, (z1 >> 4) + 1)})
+    chunks = [(cx, cz) for cx in range(x0 >> 4, (x1 >> 4) + 1) for cz in range(z0 >> 4, (z1 >> 4) + 1)]
+    # the region files AND every chunk's external file, there or not (Codex r2: an .mcc swapped under the read was not seen)
+    names = sorted({'r.%d.%d.mca' % (cx >> 5, cz >> 5) for cx, cz in chunks} | {'c.%d.%d.mcc' % c for c in chunks})
     for _ in range(max(1, tries)):
         before = _stamp(region_dir, names)
         out = _dump_once(region_dir, x0, x1, z0, z1, y0, y1)
