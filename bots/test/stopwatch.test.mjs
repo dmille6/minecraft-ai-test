@@ -15,6 +15,6 @@ console.log(out.split('\n').filter(l => /FAIL|Error|Traceback/.test(l)).join('\n
 assert.equal(r.status, 0, out.slice(-1500))
 const pass = (out.match(/^ {2}PASS {2}/gm) ?? []).length
 const killed = (out.match(/^ {2}PASS {2}MUTANT KILLED/gm) ?? []).length
-assert.ok(pass >= 95, `expected at least 95 checks, ran ${pass}`)
-assert.ok(killed >= 15, `expected at least 15 mutants killed, saw ${killed}`)
+assert.ok(pass >= 101, `expected at least 101 checks, ran ${pass}`)
+assert.ok(killed >= 16, `expected at least 16 mutants killed, saw ${killed}`)
 console.log(`stopwatch: ok (${pass} checks, ${killed} mutants killed)`)

@@ -151,6 +151,15 @@ rep2 = SW.collect(quiet_next, nxt, 'showcase', rep['latched'])
 check(W in rep2['alarms'] and rep2['released'] == [], 'the success from before the break does not release the latch an hour later')
 rep3 = SW.collect(quiet_next + [row(nxt - dt.timedelta(minutes=4), 'dispose_well')], nxt, 'showcase', rep['latched'])
 check(W not in rep3['alarms'] and rep3['released'] == ['skill:dispose_well'], 'POSITIVE CONTROL: a success after its newest failure does')
+# Codex r2: a second break moves `after` forward -- a success between the two breaks is not a recovery from the second
+old_latch = {'skill:dispose_well': {'since': '2026-11-13T15:00:00Z', 'after': '2026-11-13T15:00:00Z', 'line': 'x'}}
+rep4 = SW.collect(st_rows, NOW, 'showcase', old_latch)
+check(rep4['latched']['skill:dispose_well']['after'] == la['after'] and rep4['latched']['skill:dispose_well']['since'] == '2026-11-13T15:00:00Z', 'a verdict raised again moves `after` to its own newest failure and keeps `since`')
+check(W in SW.collect(quiet_next, nxt, 'showcase', rep4['latched'])['alarms'], 'so the success between the two breaks does not release it')
+# Codex r2: a latch with no `after` is judged against `since`; with neither it is kept
+check(W in SW.collect(quiet_next, nxt, 'showcase', {'skill:dispose_well': {'since': NOW.isoformat(), 'line': 'x'}})['alarms'], 'no `after`: a success older than `since` does not release')
+check(W not in SW.collect(quiet_next, nxt, 'showcase', {'skill:dispose_well': {'since': (pre - H).isoformat(), 'line': 'x'}})['alarms'], 'POSITIVE CONTROL: a success newer than `since` does')
+check(W in SW.collect(quiet_next + [row(nxt - dt.timedelta(minutes=4), 'dispose_well')], nxt, 'showcase', {'skill:dispose_well': {'line': 'x'}})['alarms'], 'neither time readable: kept (released by hand)')
 
 # ---- collapsed ----
 craft = filler() + spread(BASE0, CUR0, 70, 'craft') + spread(BASE0, CUR0, 14, 'craft', 'failed', 'x') + spread(CUR0, NOW, 20, 'craft', 'failed', 'No room for stick: the bag is 36/36') + \
@@ -287,9 +296,15 @@ killed('without the span a ninety-second burst pages', W in mutant('n_run >= STR
 killed('a streak that a success does not reset pages on a working well', W in mutant("s['streak_by_bot'], s['streak_from'], s['streak_to'] = Counter(), None, None", 'pass')(reset_case))
 killed('without the sort, rows that arrive newest-first hide the streak', W not in mutant("rows = sorted(rows, key=lambda r: r['t'])", 'rows = list(rows)')(shuffled))
 killed('without the latch a held page is dropped', W not in mutant("        keep[key] = was\n", "        continue\n")(spread(BASE0, CUR0, 2400, 'explore') + base_well, {'skill:dispose_well': {'since': 's', 'line': 'x'}}))
-killed('a latch that a success does not release never clears', W in mutant("        if c['last_ok'] is not None and (after is None or c['last_ok'] > after):\n            released.append(key)\n            continue\n", '')(alive, {'skill:dispose_well': {'since': 's', 'line': 'x'}}))
+ns2_ = {'__name__': 'stopwatch_mutant', '__file__': os.path.join(HERE, 'stopwatch.py')}
+old2_ = "'after': AL._iso(c['streak_to'] or now), 'line': line}"
+assert SRC.count(old2_) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old2_
+exec(compile(SRC.replace(old2_, "'after': was.get('after') or AL._iso(c['streak_to'] or now), 'line': line}"), 'stopwatch_mutant', 'exec'), ns2_)
+stale = ns2_['collect'](st_rows, NOW, 'showcase', old_latch)['latched']
+killed('an `after` that never moves lets a success between two breaks release', W not in ns2_['collect'](quiet_next, nxt, 'showcase', stale)['alarms'])
+killed('a latch that a success does not release never clears', W in mutant("        if c['last_ok'] is not None and after is not None and c['last_ok'] > after:\n            released.append(key)\n            continue\n", '')(alive, {'skill:dispose_well': {'since': '2026-11-13T19:20:00Z', 'line': 'x'}}))
 ns_ = {'__name__': 'stopwatch_mutant', '__file__': os.path.join(HERE, 'stopwatch.py')}
-old_ = "if c['last_ok'] is not None and (after is None or c['last_ok'] > after):"
+old_ = "if c['last_ok'] is not None and after is not None and c['last_ok'] > after:"
 assert SRC.count(old_) == 1, 'ANCHOR MISSING OR NOT UNIQUE: ' + old_
 exec(compile(SRC.replace(old_, "if c['ok'] > 0:"), 'stopwatch_mutant', 'exec'), ns_)
 killed('a latch released by any success in the window is released by the one before the break', W not in ns_['collect'](quiet_next, nxt, 'showcase', rep['latched'])['alarms'])

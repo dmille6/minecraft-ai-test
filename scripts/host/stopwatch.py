@@ -212,14 +212,16 @@ def hold(alarms, cur, latched, now):
             key = ak[len('stopped:'):]
             was = latched.get(key) or {}
             c = cur.get(key) or _blank()
-            # `after`: the newest failure it was latched on -- only a success later than that is a recovery
-            keep[key] = {'since': was.get('since') or AL._iso(now), 'after': was.get('after') or AL._iso(c['streak_to'] or now), 'line': line}
+            # `after`: the newest failure of the verdict -- only a success later than that is a recovery. It moves forward
+            # every time the verdict is raised again (Codex r2: a success between two breaks is older than the second break)
+            keep[key] = {'since': was.get('since') or AL._iso(now), 'after': AL._iso(c['streak_to'] or now), 'line': line}
     for key, was in (latched or {}).items():
         if key in keep:
             continue
         c = cur.get(key) or _blank()
-        after = AL._ts_or_none(was.get('after')) if isinstance(was, dict) else None
-        if c['last_ok'] is not None and (after is None or c['last_ok'] > after):
+        # a latch written without `after` is judged against the time it was first said; one with neither is kept (Codex r2)
+        after = (AL._ts_or_none(was.get('after')) or AL._ts_or_none(was.get('since'))) if isinstance(was, dict) else None
+        if c['last_ok'] is not None and after is not None and c['last_ok'] > after:
             released.append(key)
             continue
         keep[key] = was
