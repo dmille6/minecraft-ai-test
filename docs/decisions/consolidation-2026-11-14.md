@@ -63,6 +63,12 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
    fires 11-15 15:30Z: it reads the real load, adds a one-hour synthetic stream for the rehearsal's 12 bots, writes the
    verdict here, and stops no pool by itself.
 
+5. **Voyager is shelved, not part of the end state (owner 11-14 ~15:30Z):** "its an interesting project and we can
+   occasionally test when new local models come out to see how close they get to frontier models, but i dont think it
+   adds value to the project compared to the real cost". Harness 2's six arms are not started. Stage 3b is closed and its
+   verdict written; the harness stays on main as an occasional benchmark for a new local model that fits the home cards.
+   A benchmark run is a one-off the owner asks for, not a standing job, and it uses no Blackwell and no paid API by default.
+
 ## Found 11-14, to settle in C0
 
 - The 3090 has a second tenant that is not this project: a llama-server from `~/ethan-gpu` holding about 14.5 GB of the
@@ -85,4 +91,3 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
 
 1. How long to keep the fleet's world saves and raw logs after C4 (suggested: 30 days on the NAS).
 2. Are VMs 204 eval-mc and 205 eval-agents this project's?
-3. Voyager harness 2 (six arms, approved 11-12): stays paused under decision 3 unless the owner says to run it.
