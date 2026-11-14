@@ -31617,26 +31617,47 @@ export const LOG_SURFACE_GATHER_MS = 40_000
  * there was nothing to climb. Advice that cannot be followed from under a roof.
  *
  * WHAT. Above sea level, when the column over the bot is closed by GROUND (ROOF_GROUND: what the bots' own digging and
- * pillaring leaves, never planks, bricks, glass or anything else built -- a house roof is not terrain to dig), the climb's top
- * is one above that roof's highest block: the same climb mine's town walk-out already asks for by `_toY`. First a WALK to open
- * sky is searched with the walk's own profile; one found is walked (a ledge is left on foot, nothing is dug). Only a search
- * that found no such walk leaves the climb. The zones' and the keep-outs' own dig guards still judge every block.
- *   roofClimbPlan -> null (open sky, or only a tree over the bot) | { built, at } (something built is over it) | { toY, top, n }
+ * pillaring leaves, never planks, bricks, glass, a trunk or anything else built -- a house roof is not terrain to dig), the
+ * climb's top is one above that roof's highest block: the same climb mine's town walk-out already asks for by `_toY`. First a
+ * WALK to open sky is searched with the walk's own profile; one found is walked (a ledge is left on foot, nothing is dug).
+ * Only a search that found no such walk leaves the climb.
+ * THE CLIMB IS ITS OWN COLUMN, BY HAND (review r1, Codex blocker 1: an ascent-profile route to a height may leave the column
+ * and break what stands BESIDE it -- reproduced through oak planks): no pathfinder stage runs for a roofed climb, only
+ * shaftAscend, and ONE authority judges every block, in the plan and again at each swing (roofDigRefusal): a ground kind, and
+ * not a cell the ESCAPE profile itself may not break (bot.ascentMovements.exclusionAreasBreak: the wells, the plan's cells, the
+ * protected zones). A sidestep's new column is judged again from scratch. Success is open sky over the bot, never a height.
+ *   roofClimbPlan -> null (open sky, or only leaves over the bot) | { built, at } (something built or protected is over it) |
+ *                    { toY, top, n }
  *   surfaceTop    -> { top, why }: caller | below_sea | off | open | built | roofed
  * SWITCH: ROOFCLIMB=off|0|false|no -> the old sea-level top. ROWS: `_roof_climb` op=plan / op=walk / op=end.
  */
 export const ROOF_GROUND = /^(stone|deepslate|granite|diorite|andesite|tuff|calcite|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|sandstone|red_sandstone|snow_block|moss_block|cobblestone|cobbled_deepslate|dirt_path|(deepslate_)?(coal|iron|copper|gold|redstone|lapis|diamond|emerald)_ore)$/
 export const ROOF_CLIMB = Object.freeze({ up: 40, skyPlanMs: 600, skyWalkMs: 20_000 })
 export const roofClimbOn = (env = typeof process !== 'undefined' ? process.env : {}) => !/^(off|0|false|no)$/i.test(String(env?.ROOFCLIMB ?? '').trim())
-export function roofClimbPlan (blockAt, feet, { up = ROOF_CLIMB.up } = {}) {
+/**
+ * MAY THE ROOFED CLIMB BREAK THIS BLOCK? -> null (yes) | a reason beginning "will not break" (never "cannot break": that is the
+ * hand's hardness refusal and asks for a pickaxe). Pure. Leaves are passed; a ground kind is passed unless one of `breakCosts`
+ * (the escape profile's exclusionAreasBreak entries: block -> price) prices its cell or cannot be read.
+ */
+export function roofDigRefusal (block, breakCosts = []) {
+  const name = String(block?.name || '')
+  if (/_leaves$/.test(name)) return null
+  if (!ROOF_GROUND.test(name)) return `will not break ${name || 'an unread block'} (built)`
+  for (const fn of breakCosts ?? []) {
+    try { if (fn(block) > 0) return `will not break ${name} (protected)` } catch { return `will not break ${name} (protection unread)` }
+  }
+  return null
+}
+export function roofClimbPlan (blockAt, feet, { up = ROOF_CLIMB.up, breakCosts = [] } = {}) {
   if (!feet || typeof blockAt !== 'function') return null
   let top = null, n = 0
   for (let dy = 2; dy <= up; dy++) {
     const b = blockAt(feet.offset(0, dy, 0))
     if (!b || b.boundingBox !== 'block') continue
     const name = String(b.name || '')
-    if (TREE_OVERHEAD.test(name)) continue
-    if (!ROOF_GROUND.test(name)) return { built: name, at: feet.y + dy }
+    if (/_leaves$/.test(name)) continue
+    const no = roofDigRefusal(b, breakCosts)
+    if (no) return { built: name, at: feet.y + dy, why: no }
     top = feet.y + dy; n++
   }
   return top == null ? null : { toY: top + 1, top, n }
@@ -31665,7 +31686,9 @@ export class GoalOpenSky extends goals.Goal {
  */
 export async function skyWalkPlan ({ search, movements, from, blockAt, ms = ROOF_CLIMB.skyPlanMs, now = () => Date.now(), pause = () => new Promise(r => setTimeout(r, 0)) } = {}) {
   let it = null
-  try { it = search?.(movements, from, new GoalOpenSky(blockAt), { timeout: ms, tickTimeout: 40 }) } catch { it = null }
+  // optimizePath:false (review r1, Codex blocker 2, reproduced on the installed plugin): its post-processing turns the search's
+  // cells into standing POSITIONS (a dirt path's 67.9375 for the cell 68), and a floored position is another cell
+  try { it = search?.(movements, from, new GoalOpenSky(blockAt), { timeout: ms, tickTimeout: 40, optimizePath: false }) } catch { it = null }
   if (!it) return { status: 'partial' }
   const end = now() + ms
   while (now() < end) {
@@ -31788,7 +31811,7 @@ export function shaftDigBudget (head, tool, env) {
 }
 
 export async function shaftAscend(bot, targetY, signal,
-                                  { maxSteps = 96, deadline = Infinity, claim = null } = {}) {
+                                  { maxSteps = 96, deadline = Infinity, claim = null, mayDig = null } = {}) {
   // TAKE THE BODY BEFORE CLIMBING.
   //
   // The sibling pillar in reflex.mjs does this and says why: "pathfinder
@@ -31912,6 +31935,8 @@ export async function shaftAscend(bot, targetY, signal,
     }
 
     if (head && head.name !== 'air' && head.boundingBox !== 'empty') {
+      // roofclimb-01: a caller's own judge of the block over the head (null = every caller before it: nothing is asked)
+      if (mayDig) { const no = mayDig(head); if (no) return { gained: p.y - startY, stopped: no } }
       const tool = bestTool(bot, head)
       // PRICE THE DIG FROM THE BLOCK, NOT FROM A CONSTANT. The flat 15,000ms
       // this replaces is exactly the bare-handed break time of deepslate and
@@ -32254,6 +32279,10 @@ export function climbAdvice(stopped) {
   if (s.includes('no height gained')) {
     return ' — this spot is blocked overhead: move somewhere more open, then run surface again'
   }
+  if (s.includes('will not break')) {
+    // roofclimb-01: NOT "run surface again" (the same column answers the same). Another cell under plain ground is another climb.
+    return ' — what is over this spot is built or protected and surface leaves it standing: step to a spot with only dirt or stone overhead and run surface there'
+  }
   return ' — run surface again to keep climbing'
 }
 
@@ -32279,27 +32308,36 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
   // ROOFCLIMB-01: UNDER A GROUND ROOF ABOVE SEA LEVEL THE TOP IS THE ROOF'S (see roofClimbPlan). A walk to open sky first.
   let roofWhy = null, roofBuilt = null
   const roofRow = (status, o) => { try { logEvent({ kind: 'roof_climb', status, snapshot: snapshot(bot), detail: roofClimbDetail(o) }) } catch { /* telemetry */ } }
+  const roofAt = () => { const p = bot.entity.position; return new Vec3(Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)) }
+  // what an ESCAPE may not break (index.mjs: the wells, the plan's cells, the zones; no workshop footprint), read at each call
+  const roofCosts = () => bot.ascentMovements?.exclusionAreasBreak ?? []
+  const roofNow = () => { try { return roofClimbPlan(q => bot.blockAt(q), roofAt(), { breakCosts: roofCosts() }) } catch { return { built: 'unread', at: null, why: 'will not break an unread column' } } }
   if (!Number.isFinite(args?._toY) && startY >= SEA_LEVEL) {
-    const at = () => { const p = bot.entity.position; return new Vec3(Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)) }
-    const roofNow = () => { try { return roofClimbPlan(q => bot.blockAt(q), at()) } catch { return null } }
     const on = roofClimbOn(process.env)
-    let roof = roofNow()
+    let roof = on ? roofNow() : null
     let top = surfaceTop({ y: startY, roof, on })
     if (top.why === 'roofed') {
-      const from = at()
+      const from = roofAt()
       const sky = await skyWalkPlan({ search: bot.pathfinder.getPathFromTo?.bind(bot.pathfinder), movements: bot.pathfinder.movements, from: bot.entity.position, blockAt: q => bot.blockAt(q) })
       check(signal)
       roofRow('success', { op: 'plan', why: 'roofed', at: `${from.x},${from.y},${from.z}`, top: roof.top, n: roof.n, sky: sky.status, to: sky.to ? `${sky.to.x},${sky.to.y},${sky.to.z}` : null })
       if (sky.status === 'success') {
         const t0 = Date.now(); let werr = null
         const skyGoal = new goals.GoalBlock(sky.to.x, sky.to.y, sky.to.z)
+        // halt on abort, and remove the listener when the walk ends (gotoLegs' pattern; review r1, Codex blocker 3: an interrupt
+        // only aborts the signal, and this walk would have gone on steering for up to skyWalkMs)
+        const onAbort = () => { if (bot.pathfinder?.goal === skyGoal) haltPath(bot) }
+        check(signal)
+        signal?.addEventListener?.('abort', onAbort, { once: true })
         try { await withTimeout(walkToGoal(bot, skyGoal, () => bot.pathfinder.setGoal(skyGoal)), ROOF_CLIMB.skyWalkMs, bot, { what: 'walking out from under the roof' }) } catch (e) {
-          if (e?.aborted || signal?.aborted) throw e
-          werr = e; if (bot.pathfinder?.goal === skyGoal) haltPath(bot)
-        }
+          if (bot.pathfinder?.goal === skyGoal) haltPath(bot)
+          if (e?.aborted) throw e
+          check(signal)   // an interrupt that ended the walk as GoalChanged is the abort, not a failed walk
+          werr = e
+        } finally { signal?.removeEventListener?.('abort', onAbort) }
         check(signal)
         roof = roofNow()
-        const q = at()
+        const q = roofAt()
         roofRow(roof ? 'no_effect' : 'success', { op: 'walk', to: `${sky.to.x},${sky.to.y},${sky.to.z}`, at: `${q.x},${q.y},${q.z}`, out: roof ? 0 : 1, ms: Date.now() - t0, err: werr ? (werr.name || 'error') : null })
         // JUDGED ON THE ROOF, never on how the walk's promise ended
         if (!roof) return { status: 'success', via: 'sky_walk', detail: `walked out from under the roof to open sky at ${q.x},${q.y},${q.z}` }
@@ -32307,10 +32345,10 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
       }
       if (top.why === 'roofed') TOP = top.top
     } else if (roof) {
-      const from = at()
+      const from = roofAt()
       roofRow('no_effect', { op: 'plan', why: top.why, at: `${from.x},${from.y},${from.z}`, built: roof.built ?? null, top: roof.top ?? roof.at ?? null })
     }
-    roofWhy = top.why; roofBuilt = roof?.built ?? null
+    roofWhy = top.why; roofBuilt = roof?.built != null ? `${roof.built}${/protect/.test(roof.why ?? '') ? ', protected' : ''}` : null
   }
 
   // Already up here. Report it as a refusal, not a success: a call that cannot
@@ -32323,7 +32361,7 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
       failClass: 'already_surfaced',
       gap: `at_y${y}`,
       detail: `already at y=${y}, at or above sea level ${SEA_LEVEL} — ` +
-              (roofWhy === 'built' ? `the roof over you is built (${roofBuilt}), not ground, and surface does not break it; walk out with goto or explore`
+              (roofWhy === 'built' ? `what is over you is built or protected (${roofBuilt}) and surface leaves it standing; leave on foot with goto or explore, or step to a spot with only dirt or stone overhead and run surface there`
                                    : `nothing to climb; use gather, explore or goto from here`),
     }
   }
@@ -32378,7 +32416,31 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
   // ours rather than the terrain's.
   let plannerCommitted = false
 
-  while (bot.entity.position.y < TOP && Date.now() < DEADLINE) {
+  // ROOFCLIMB-01: A ROOFED CLIMB IS THE SHAFT ALONE, UP ITS OWN COLUMN (review r1, Codex blocker 1). Every block is judged by
+  // roofDigRefusal before the swing; the column is read again after every stage (a liquid sidestep changes it), and the
+  // climb ends when open sky is over the bot, when something built or protected is, or after two stages without height.
+  let roofOut = false
+  if (roofWhy === 'roofed') {
+    usedDig = true
+    const mayDig = b => roofDigRefusal(b, roofCosts())
+    while (Date.now() < DEADLINE) {
+      check(signal)
+      const roof = roofNow()
+      if (!roof) { roofOut = true; break }
+      if (roof.built != null) { lastStop = roof.why ?? `will not break ${roof.built} (built)`; break }
+      TOP = roof.toY
+      const claim = runner?.claimBody?.('climb') ?? null
+      let shaft
+      try { shaft = await shaftAscend(bot, TOP, signal, { deadline: DEADLINE, claim, mayDig }) }
+      finally { claim?.release?.() }
+      lastStop = shaft.stopped ?? lastStop
+      if (shaft.gained >= 1) { stalls = 0; continue }
+      if (/^will not break/.test(String(shaft.stopped ?? '')) || ++stalls >= 2) break
+    }
+    if (!roofOut) roofOut = !roofNow()
+  }
+
+  while (roofWhy !== 'roofed' && bot.entity.position.y < TOP && Date.now() < DEADLINE) {
     check(signal)
     const y0 = bot.entity.position.y
     const stageY = Math.min(TOP, Math.round(y0) + STEP_UP)
@@ -32470,8 +32532,12 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
   const climbed = endY - startY
   const how = usedDig ? 'digging where it had to' : 'without digging'
 
-  if (roofWhy === 'roofed') { const q = bot.entity.position; roofRow(endY >= TOP ? 'success' : 'failed', { op: 'end', at: `${Math.floor(q.x)},${Math.floor(q.y + 1e-6)},${Math.floor(q.z)}`, top: TOP, reached: endY >= TOP ? 1 : 0, climbed: Math.round(climbed), ms: Date.now() - CLIMB_T0, stop: lastStop }) }
-  if (endY >= TOP) {
+  if (roofWhy === 'roofed') {
+    const q = roofAt()
+    roofRow(roofOut ? 'success' : 'failed', { op: 'end', at: `${q.x},${q.y},${q.z}`, top: TOP, out: roofOut ? 1 : 0, climbed: Math.round(climbed), ms: Date.now() - CLIMB_T0, stop: lastStop })
+    // JUDGED ON THE ROOF: open sky over the bot and height gained (a sidestep alone is not a climb)
+    if (roofOut && climbed >= 1) return { status: 'success', placed: undefined, detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, out from under the roof, ${how}` }
+  } else if (endY >= TOP) {
     return { status: 'success', placed: undefined,
              detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ${how}` }
   }
