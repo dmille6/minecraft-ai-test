@@ -127,6 +127,11 @@ Gaps:
 - Isometric views: not confirmed to exist. Project cameras stopping at completion: not confirmed.
 - The render jobs run on the worlds host, which is retired at C4: they move to the ops VM.
 
+**Design (11-14, not built): [`docs/reports/camera-design-2026-11-14.md`](../reports/camera-design-2026-11-14.md).**
+Measured there: the showcase has 19 cameras incl. an isometric one (perspective, not true isometric) and two 4K ones;
+on 11-13 it wrote 4.8 GB of frames, 2.1 GB of it from nine cameras whose projects are complete or retired; a
+block-deduplicated copy of the world differed by 6.6 MB of 180 MB over 108 minutes.
+
 Design direction (proposed, not built): **save the world, not just the pictures.** A small copy of the world's region
 files every few minutes from minute zero costs little and lets any camera, angle or resolution be rendered later, even
 ones not thought of yet. Live cameras are then a choice of what to render now.
