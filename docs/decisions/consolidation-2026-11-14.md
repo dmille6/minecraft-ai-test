@@ -48,25 +48,27 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
 - New work is weighed by whether it survives the two-world end state. Fleet-pool plumbing does not.
 - Deleting a VM or data needs the owner's yes at that time.
 
-## Owner decisions, 2026-11-14 ~15:15Z ("Yes, defaults")
+## Owner decisions, 2026-11-14 ~14:57Z ("Yes, defaults")
 
 1. **The fleet queue takes no new work, fixes only.** Entries already queued keep running until the trunk merge (C1)
    starts. A fix means: a regression a kept canary caused, a death or halt cause, or something the consolidation needs.
 2. **If the load test shows no room on the 5080, fleet pools retire early**, the two whose projects the daily audit flags
    BROKEN first (isolated-a, placebo-a on 11-13). Stopping a pool is: stop its bots, keep its world save and logs.
 3. **The learning loop and the Voyager pilot are paused until the fleet is retired (C4).**
-   - Learning loop: `~/learnloop/PAUSED` on the canary host. `weekly.py tick` keeps running and keeps the heartbeat fresh
+   - Learning loop: `~/learnloop/PAUSED` on the canary host (written 11-14 15:01Z, code 39d6c6aa3 installed). `weekly.py tick` keeps running and keeps the heartbeat fresh
      but starts no new round; remove the file to resume. The nightly archive (`nightly.py`) is left running.
    - Voyager: stage 3b (q1, q2) ends on its own timer 11-14 18:16Z and its verdict is still to be written. No further
      stage starts.
-4. **Go-ahead for the C0 load test** on Sunday 11-15 after 14:30Z.
+4. **Go-ahead for the C0 load test** on Sunday 11-15 after 14:30Z. Scheduled task `consolidation-c0-capacity-read-1115`
+   fires 11-15 15:30Z: it reads the real load, adds a one-hour synthetic stream for the rehearsal's 12 bots, writes the
+   verdict here, and stops no pool by itself.
 
 ## Found 11-14, to settle in C0
 
 - The 3090 has a second tenant that is not this project: a llama-server from `~/ethan-gpu` holding about 14.5 GB of the
   24 GB, with the card at 100% when read. What is left for this project on that card is about 9 GB unless the owner moves it.
 - One fleet settings file (of 81) still names the Blackwell address. Whether a running bot uses it is not checked.
-- **The showcase is already on the 5080.** At 15:30Z all 15 showcase settings files read
+- **The showcase is already on the 5080.** At ~15:00Z all 15 showcase settings files read
   `OLLAMA_BASE_URLS=http://10.0.0.72:11434|qwen2.5:7b-instruct` and none names the tunnel port; brainwatch at 14:50Z:
   94 model decisions by 14 bots in 10 min, with 30 endpoint failures by 11 bots. Who switched it and when is not
   established here (it was dark on the Studio tunnel from 08:31Z). So the C0 load test is no longer synthetic for the
