@@ -198,7 +198,7 @@ import { stairStepAt, stairTrapOn, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   /
 import { renewLease as projRenewLease } from './buildproj.mjs'   // deepminer-01: the deep miner's lease
 import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, blocked, placeBlocked, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { TREEFARM_BAND as ESCAPE_TREEFARM_BAND } from './escapeguard.mjs'   // escapeguard-01
-import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE } from './lidrule.mjs'
+import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory, LID_WOOD, LID_BREAKABLE, LID_GROUND, lidGroundOn } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel, stepCells } from './minewell.mjs'
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs: the pure rules; index.mjs: the dig guard + route)
@@ -6655,8 +6655,9 @@ function lidJudge (bot, c) {
   // the WELLS UNREADABLE is the bot's own failure, not evidence about the lid: refused, but with no memory (`unknown`)
   if (well === null) return { blocked: true, refusal: 'the town\'s well cells could not be read', unknown: true, s }
   const lid = lidCell(bot, s.lid)
-  // lidplank-01: a wood lid is judged against the BUILD RECORDS (read only for a wood lid: the rest never needs them)
-  const record = lid && LID_WOOD.test(lid.name ?? '') && !LID_BREAKABLE.test(lid.name) ? lidRecordAt(bot, c.offset(0, 1, 0)) : undefined
+  // lidplank-01: a wood lid is judged against the BUILD RECORDS (read only for a record-gated lid: the rest never needs them);
+  // lidground-01: natural ground on a lid is gated the same way (lidrule.mjs LID_GROUND, switch LIDGROUND=off)
+  const record = lid && (LID_WOOD.test(lid.name ?? '') || (lidGroundOn() && LID_GROUND.test(lid.name ?? ''))) && !LID_BREAKABLE.test(lid.name) ? lidRecordAt(bot, c.offset(0, 1, 0)) : undefined
   const refusal = lidClearRefusal({ lid, above: lidCell(bot, s.above), sides: s.sides.map(b => lidCell(bot, b)), well, record }) ??
     (serverLidBlocks(lid) ? null : `${lid.name} does not block a lid on the server`)
   return { blocked: true, refusal, s }
