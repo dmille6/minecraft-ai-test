@@ -1,0 +1,19 @@
+[Unit]
+Description=REHEARSAL Paper server (fresh-world rehearsal; a throwaway seed, never a finish-line world) -- infra/freshworld/rehearsal-0.json
+After=network-online.target
+
+[Service]
+Type=simple
+User=minecraft
+WorkingDirectory=/srv/rehearsal/server
+# The fleet's jar (1.21.8 build 60), the showcase's heap and memory ceiling (infra/showcase/files/showcase-paper.service).
+ExecStart=/usr/bin/java -Xms2G -Xmx8G -jar paper.jar nogui
+Restart=always
+RestartSec=15
+AllowedCPUs=0-5
+MemoryMax=12G
+Nice=-5
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

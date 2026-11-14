@@ -1,0 +1,65 @@
+{
+ "version": 1,
+ "world": "fw-s12",
+ "seed": "-7714712650192453840",
+ "run": "rehearsal-0",
+ "home": [
+  366,
+  72,
+  -34
+ ],
+ "board": [
+  369,
+  72,
+  -34
+ ],
+ "border_radius": 5000,
+ "builds_core": true,
+ "town_plan": null,
+ "why_no_town_plan": "the bots plan the town themselves: no orientation, size or plot is handed to them (the release reads a seed file only from the town's own directory, and none is put there)",
+ "site": {
+  "name": "D Birch Loop",
+  "scouted_centre_xz": [
+   332,
+   -68
+  ],
+  "search": {
+   "tool": "infra/showcase/site_search.py",
+   "from": [
+    332,
+    -68
+   ],
+   "step": 48,
+   "rings": 1,
+   "limits": {
+    "core_relief": 5,
+    "area_relief": 10,
+    "cave_probes": 8,
+    "area_wet": 0.03,
+    "area_canopy": 0.3,
+    "wood_hits": 6
+   },
+   "candidates": 9,
+   "passed": 1
+  },
+  "chosen": {
+   "x": 366,
+   "z": -34,
+   "score": -16.45,
+   "base_y": 69,
+   "core_relief": 5,
+   "area_relief": 7,
+   "area_wet": 0.024,
+   "area_canopy": 0.215,
+   "wood_hits": 9,
+   "water_hits": 20,
+   "nearest_water": 96,
+   "core_water": 0,
+   "cave_probes": 0,
+   "controls_ok": true
+  },
+  "ground_at_home": "grass_block at y 71 (dirt below, air above), read from the server 11-14; the bots stand at y 72",
+  "note": "the scouted centre itself fails the town-plan limits (core relief 7 > 5, 9.7% wet > 3%); the one candidate of nine that passes is 48 blocks to its south-east"
+ },
+ "world_rules": "scripts/place-town.py world_rules through infra/showcase/pregen.py, as on every project world: the standard gamerules, world spawn at the home, border centred on the home (radius 5000), chunks pre-generated to 1,024 blocks; no block was placed or removed"
+}

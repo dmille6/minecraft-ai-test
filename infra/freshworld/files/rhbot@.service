@@ -1,0 +1,28 @@
+[Unit]
+Description=REHEARSAL bot (%i) -- runs only the release in /srv/rehearsal/harness; started only on the owner's word
+After=network-online.target rehearsal-paper.service rehearsal-brain-tunnel.service
+StartLimitIntervalSec=300
+StartLimitBurst=10
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mcbot
+Group=mcbot
+WorkingDirectory=/srv/rehearsal/harness
+EnvironmentFile=/srv/rehearsal/harness/env/%i.env
+# The showcase's live drop-in (20-shop-cooldown.conf, read 11-14), so the rehearsal runs the showcase's settings.
+Environment=SHOP_COOLDOWN_MS=180000
+# Same envelope as the showcase's mcshow@.service (768 MB heap, 1G cgroup ceiling).
+ExecStart=/usr/bin/node --max-old-space-size=768 --heapsnapshot-near-heap-limit=1 src/index.mjs
+Restart=always
+RestartSec=10
+MemoryMax=1G
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/log/mcai /var/lib/mcai
+
+[Install]
+WantedBy=multi-user.target

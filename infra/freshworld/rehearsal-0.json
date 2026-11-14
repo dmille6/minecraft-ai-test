@@ -7,52 +7,91 @@
   "2026-11-09: finish line = M1-M3 plus the owner's yes on M5, on two fresh worlds, at the small footprint (docs/reports/finish-line-2026-11-09.md)",
   "2026-11-10: World 1 = fw-t10 at Cherry Reach, World 2 = fw-s10 at Twin Banks; new worlds wait for the new building styles",
   "2026-11-14: one trunk and a rehearsal run manifest approved (\"Yes, start both\")",
-  "2026-11-14: a rehearsal world on a throwaway seed approved (\"1. yes\"); the host is the control session's choice (\"check each one and decide which is best\")"
+  "2026-11-14: a rehearsal world on a throwaway seed approved (\"1. yes\"); the host is the control session's choice (\"check each one and decide which is best\")",
+  "2026-11-14: \"Start now, we have the credits\" (the rehearsal setup; starting the 48-hour run itself is still the owner's word)"
  ],
- "status": "draft",
- "ready_when": "every field under `open` is answered and the day-0 snapshot exists",
-
+ "status": "setup: world and bots built, NOT started; blocked on the model endpoint",
+ "ready_when": "the model endpoint question under `open` is answered, the day-0 snapshot exists (world.day0_snapshot) and the owner says start",
  "host": {
   "vm": "vm-minecraft-ai-v2 (vmid 118, on the large node)",
   "why": "retired since September, no players, already runs Paper 1.21.8 build 60 (the showcase's build) as a service; the large node has about 131 GB RAM free at 33% CPU",
-  "now": "6 vCPU, 12 GB, 100 GB disk (93 GB free)",
-  "wanted": "12 vCPU, 24 GB: the showcase VM carries Paper and 14 bots at a load of 4-7 with about 9 GB in use",
+  "now": "12 vCPU, 24 GB (resized 11-14), 100 GB disk",
+  "wanted": null,
   "old_world": "its August testbed world stays where it is, never deleted; the rehearsal is a new level name beside it",
-  "not_chosen": "mc-playground: its node is full and carries the house's firewall and DNS. vm-minecraft-ai and vm-minecraft-bots: the instance-1 pair retired 08-21, no guest agent, older images"
+  "not_chosen": "mc-playground: its node is full and carries the house's firewall and DNS. vm-minecraft-ai and vm-minecraft-bots: the instance-1 pair retired 08-21, no guest agent, older images",
+  "layout": "/srv/rehearsal/{server,releases,harness,tools,secrets,ops,snapshots}; units rehearsal-paper.service and rhbot@<name>.service (installed, bots not enabled); built by infra/freshworld/setup-rehearsal.sh",
+  "old_services": "minecraft.service and observe-fleet.service (the August testbed) stopped and disabled 11-14; the old world directory is untouched",
+  "firewall": "on: ssh and the game port from the lab network only; RCON is local"
  },
-
  "world": {
   "name": "fw-s12",
   "seed": "-7714712650192453840",
   "server": "Paper 1.21.8 build 60, the showcase's version",
-  "spawn": [0, 94, 0],
+  "spawn": [
+   0,
+   94,
+   0
+  ],
   "site": {
    "id": "D Birch Loop",
-   "centre_xz": [332, -68],
+   "centre_xz": [
+    332,
+    -68
+   ],
    "mean_y": 68,
    "score": 77.9,
    "known_difficulty": "32% tree cover (old-growth birch and dark forest): heavy felling before any plot is clear",
-   "source": "the 2026-11-10 seed screen (seeds.md, site table); chosen offline from a seed copy, as the owner approved on 11-06"
+   "source": "the 2026-11-10 seed screen (seeds.md, site table); chosen offline from a seed copy, as the owner approved on 11-06",
+   "home_xz": [
+    366,
+    -34
+   ],
+   "home": [
+    366,
+    72,
+    -34
+   ],
+   "chosen_by": "infra/showcase/site_search.py from the scouted centre: 1 of 9 candidates passed the town-plan limits, 48 blocks south-east of it (the centre itself: core relief 7 > 5, 9.7% wet > 3%)"
   },
-  "town_site_file": null,
+  "town_site_file": "infra/freshworld/rehearsal-0.town-site.json",
   "day0_snapshot": null,
-  "admin_edits_before_day0": "none allowed except generating chunks"
+  "admin_edits_before_day0": "none: chunk generation and the world rules above only",
+  "world_rules": "the project's standard, as on every world (scripts/place-town.py world_rules via infra/showcase/pregen.py): gamerules, WORLD SPAWN AT THE HOME, border radius 5000 centred on the home, chunks pre-generated to 1,024 blocks. No block was placed or removed.",
+  "server_settings": "the showcase's live server.properties (the repo base with allow-flight=true); no plugins (the showcase has CoreProtect, SkinsRestorer and spark: logging, skins and profiling only)"
  },
-
  "code": {
-  "sha": null,
+  "sha": "46286e9e3c3fd9bf1793585ca055f13df2bcb091",
   "sha_rule": "the showcase release that is live when the run starts; rehearsal 0 does not wait for the one-trunk merge",
-  "flags_file": null,
-  "flags_rule": "a copy of the showcase's settings taken at the start, kept beside this manifest's run record with its sha256"
+  "flags_file": "/srv/rehearsal/harness/env/rh0-*.env on the VM (12 files, 46 keys each), built by infra/freshworld/make_rehearsal_env.py from the release's control.env",
+  "flags_rule": "a copy of the showcase's settings taken at the start, kept beside this manifest's run record with its sha256",
+  "release": "46286e9e-6dd0ded8-fdd64ead (roofclimb-01show; the showcase release live since 2026-11-14 06:21Z), copied whole from the showcase VM; all 226 source files match the git commit blob for blob",
+  "flags_sha256": "6d85a694238375f23843c842288c1fbf1c7f2cec41c29e749c41d45f4d7461d9",
+  "unit_setting": "SHOP_COOLDOWN_MS=180000, the showcase's one live unit drop-in"
  },
-
  "bots": {
   "count": 12,
-  "roster": null,
-  "pool_name": null,
-  "brain": "the same model endpoint the showcase uses at the start; name it and its model here before the run"
+  "roster": [
+   "rh0-Alpha",
+   "rh0-Bravo",
+   "rh0-Comet",
+   "rh0-Delta",
+   "rh0-Echo",
+   "rh0-Frost",
+   "rh0-Gale",
+   "rh0-Haven",
+   "rh0-Iris",
+   "rh0-Juno",
+   "rh0-Kite",
+   "rh0-Lumen"
+  ],
+  "pool_name": "showcase",
+  "brain": {
+   "endpoint": "http://127.0.0.1:11612 (gemma4:26b), the showcase's setting, NOT connected: no tunnel is installed on this VM",
+   "measured_2026-11-14": "the 14 showcase bots made 15.2 answered calls a minute (7,287 in 00:00-08:00Z), mean 4.0 s, p95 8.4 s; summed call time was 102% of the clock, so the Studio model was busy the whole time. 12 more bots would add about 86% more demand. No spare capacity was measured.",
+   "outage": "since 2026-11-14 08:31Z the Studio does not answer on its ssh port from the showcase VM or the controller: the showcase had 0 answered calls and about 1,440 failed calls an hour from 09:00Z to 14:00Z"
+  },
+  "pool_name_why": "35 switches in the release default to the pool name `showcase` and one size table compares against it; another name would switch the town features off. The world, host and state directories are separate, and rows are told apart by exp.instance = rehearsal and exp.block = rehearsal-0."
  },
-
  "rules": {
   "length_hours": 48,
   "admin_edits": "none: no teleport, no give, no setblock or fill, no world-file edits",
@@ -61,31 +100,89 @@
   "restart_rule": "a restart is a new run id (rehearsal-1, rehearsal-2, ...) with its own manifest copied from this one",
   "finish_line_runs_differ": "7 days, code frozen, any code change or admin edit restarts the 7-day clock"
  },
-
  "assistance_log": [],
-
  "daily_card": {
-  "written_by": null,
+  "written_by": "scripts/host/rehearsalcard.py --manifest <this file> on the VM (tests: scripts/host/test_rehearsalcard.py, 28 checks, 7 mutants)",
   "criteria": [
-   {"id": "reached_site", "measure": "bots within 64 blocks of the site centre / bots", "pass": "all, within 2 h of the start"},
-   {"id": "town_core", "measure": "the plan's core project completed", "pass": "within 12 h"},
-   {"id": "roofed_houses", "measure": "completed house, cottage or hall plots that still stand when re-read", "pass": "1 by 24 h, 2 by 48 h"},
-   {"id": "storage", "measure": "a completed storehouse, storehub or shopchest", "pass": "1 by 48 h"},
-   {"id": "working_share", "measure": "busytime productive / observed bot-seconds", "pass": "> 50%"},
-   {"id": "longest_stuck_goal", "measure": "longest STUCK goal, grounds clean-up included", "pass": "<= 6 h"},
-   {"id": "deaths", "measure": "_death rows x 100 / bot-hours", "pass": "< 1.0"},
-   {"id": "stuck_bots", "measure": "bots inside a 2-block box for a whole clock hour", "pass": "0"},
-   {"id": "admin_edits", "measure": "entries in assistance_log", "pass": "0"}
+   {
+    "id": "reached_site",
+    "measure": "bots whose newest position is within 64 blocks of the home / bots",
+    "pass": "all (the world spawn is at the home, so this is a check that they stay, not a journey)"
+   },
+   {
+    "id": "town_core",
+    "measure": "the workshop (`shop`, the first project of every town) completed",
+    "pass": "within 12 h"
+   },
+   {
+    "id": "roofed_houses",
+    "measure": "completed house, cottage or hall plots that still stand when re-read",
+    "pass": "1 by 24 h, 2 by 48 h",
+    "note": "\"still standing\" is not re-read yet; the card says so"
+   },
+   {
+    "id": "storage",
+    "measure": "a completed storehouse, storehub or shopchest",
+    "pass": "1 by 48 h"
+   },
+   {
+    "id": "working_share",
+    "measure": "busytime productive / observed bot-seconds",
+    "pass": "> 50%"
+   },
+   {
+    "id": "longest_stuck_goal",
+    "measure": "longest STUCK goal, grounds clean-up included",
+    "pass": "<= 6 h",
+    "note": "unread for now: no stuck-goal reader runs on the rehearsal host"
+   },
+   {
+    "id": "deaths",
+    "measure": "_death rows x 100 / bot-hours",
+    "pass": "< 1.0"
+   },
+   {
+    "id": "stuck_bots",
+    "measure": "bots inside a 2-block box for a whole clock hour",
+    "pass": "0"
+   },
+   {
+    "id": "admin_edits",
+    "measure": "entries in assistance_log",
+    "pass": "0"
+   }
   ],
   "note": "the 48-hour thresholds are rehearsal targets set on 11-14, not the finish-line thresholds; the 7-day ones are in docs/reports/finish-line-2026-11-09.md"
  },
-
  "open": [
-  {"id": "host_resize", "question": "The chosen VM is 6 vCPU / 12 GB; the resize to 12 / 24 needs a VM restart and is not done"},
-  {"id": "pool_name", "question": "About 43 switches in the showcase build are keyed on the pool name; the rehearsal either runs under the showcase's pool name on its own world or each switch must list the new name"},
-  {"id": "brain_capacity", "question": "Can the showcase's model endpoint serve 12 more bots? Not measured"},
-  {"id": "day0_from_spawn", "question": "Nobody has seen bots go from spawn to a town core unattended; rehearsal 0 exists to find where that breaks"},
-  {"id": "daily_card_writer", "question": "No script writes this card yet; finishline.py has no fresh-world column"},
-  {"id": "telemetry_stream", "question": "Which log stream and dashboard the rehearsal world writes to"}
+  {
+   "id": "model_endpoint",
+   "question": "Which model serves the 12 rehearsal bots? The Studio is unreachable since 11-14 08:31Z and was fully busy with the showcase before that; reaching it from this VM also needs a new restricted key on the Studio. The local GPUs are barred to the showcase by make_env.py so canary arms stay equal."
+  },
+  {
+   "id": "stuck_goal_reader",
+   "question": "The longest-stuck-goal criterion has no reader on this host"
+  },
+  {
+   "id": "still_standing",
+   "question": "A completed house is not re-read from the world"
+  },
+  {
+   "id": "elasticsearch",
+   "question": "Rows stay in files on the VM; no dashboard shows the rehearsal"
+  }
+ ],
+ "started_at": null,
+ "telemetry": {
+  "stream": "the bots' own log files on the VM (/var/log/mcai/rh0-*/skill-*.jsonl and llm-*.jsonl), read with scripts/lib/telemetry.py; a separate host, so nothing mixes with the showcase or the fleet",
+  "elasticsearch": "not shipped: a writer account limited to rehearsal index names would have to be created on the log host first (as infra/showcase/es-showcase-setup.sh does for the showcase)",
+  "proof": "none yet: no bot has run, so there is no row to count; the card prints the row, bot and hour totals of every read as its positive control"
+ },
+ "start_procedure": [
+  "connect the model endpoint and prove one answered call from the VM",
+  "start rehearsal-paper.service and wait for Done",
+  "start the 12 rhbot@ units 12 s apart",
+  "write started_at (UTC) into the copy of this manifest on the VM and here",
+  "run rehearsalcard.py at +1 h, then daily"
  ]
 }
