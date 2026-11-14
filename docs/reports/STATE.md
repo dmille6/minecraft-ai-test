@@ -4,20 +4,20 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-14T17:20:02Z._
+_Generated 2026-11-14T18:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `5904919d` = lidground-01 `5904919d` (KEEP 11-14 08:28Z, promoted 11-14 08:38Z) on roughground-01 `e32152d8` (KEEP 11-14 03:02Z, promoted 11-14 03:12Z) on villageunlock-01 `0c9a6138` (KEEP 11-13 23:35Z, promoted 11-13 23:45Z) on boardwalk-03 `960f8a24` (KEEP 11-13 20:10Z, promoted 11-13 20:20Z) on ironchain-02 `6683f96b` (KEEP 11-13 15:47Z, promoted 11-13 15:57Z) on regcount-01 `b5ec000e` (KEEP 11-13 09:51Z, promoted 11-13 10:01Z) |
-| **Canary in slot** | EMPTY (last close lidground-01 KEEP 11-14 08:28Z) |
-| **Queue (front)** | glass-01 -> irongap-01 -> obsidian-01 -> roughground-02 -> roughground-04 -> bamboowalk-01 -> kittrim-01 -> pathsfix-01 -> pause30-01 -> coalsale-01 -> +5 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
-| **Scheduler** | block H2 roughground-02: no variant for the fleet base 5904919 (have: 9aa9b1c): autorebase REFUSED at step worktree: the cherry-pick of 9aa9b1c1..6819822c onto 5904919d does not apply cleanly: conflict in bots/src/skills.mjs (t add/rm <path |
-| **Showcase release** | `46286e9e` (51,706 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 46286e9e's protected tree: restack by hand; row 11-14 16:25Z) |
+| **Fleet** | `5904919d` = lidground-01 `5904919d` (KEEP 11-14 08:28Z, promoted 11-14 08:38Z) on roughground-01 `e32152d8` (KEEP 11-14 03:02Z, promoted 11-14 03:12Z) on villageunlock-01 `0c9a6138` (KEEP 11-13 23:35Z, promoted 11-13 23:45Z) on boardwalk-03 `960f8a24` (KEEP 11-13 20:10Z, promoted 11-13 20:20Z) on ironchain-02 `6683f96b` (KEEP 11-13 15:47Z, promoted 11-13 15:57Z) on regcount-01 `b5ec000e` (KEEP 11-13 09:51Z, promoted 11-13 10:01Z). Live builds: {'147802fdce330ede9d4e15e1315391a443ddbf67+3c9d96': 20, '5904919d5383c6b6c381b028595e1a60cf903656+71c0bc': 60} |
+| **Canary in slot** | **glass-01** deployed 11-14 18:03Z; reads +90 11-14 19:33Z, +180 11-14 21:03Z; KEEP auto-promotes ~10 min after the +180 KEEP |
+| **Queue (front)** | irongap-01 -> obsidian-01 -> roughground-02 -> roughground-04 -> bamboowalk-01 -> kittrim-01 -> pathsfix-01 -> pause30-01 -> coalsale-01 -> coalsale-02 -> +4 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
+| **Scheduler** | busy S1 canary declared: 147802fdce330ede9d4e15e1315391a443ddbf67 on hive-a,placebo-d,hive-b,board-d / S6 open loop: canary 147802f is deployed on hive-a,placebo-d,hive-b,board-d with no KEEP/REVERT/INCONCLUSIVE recorded — read it before st |
+| **Showcase release** | `46286e9e` (51,915 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 46286e9e's protected tree: restack by hand; row 11-14 17:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | servea-40bots-1114: owner-direct-check 11-14 15:30Z |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
 | **Projects (daily audit)** | project audit fleet (11-14T12:05Z, 7 d, 188 projects, 15,443,471 lines / 80 bots): 3 broken, 1 dormant, 5 underused, 88 effective, 51 unmeasured, 40 - -- isolated-a/shop BROKEN; placebo-a/house1 BROKEN; placebo-d/wall BROKEN; isolated-d/well DORMANT; showcase: project audit showcase (11-14T12:05Z, 7 d, 43 projects, 2,229,052 lines / 15 bots): 2 dormant, 14 effective, 15 unmeasured, 12 - -- showcase/enchantshop DORMANT; showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-14T16:35:01Z STALLED: 184. OPSAUDIT 2026-11-13 FLAGS: 13 (2 high). 67 active alarm(s): stuck goals 20 (board-a/waterwalk@355_73_147, board-b/waterwalk@-249_65_144, board-c/shaft@355_73_147, hive-a/monument@355_73_147, hive-c/tidy@-68_68_-68, hive-c/waterwalk@-68_68_-68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:gathermem-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-14T17:35:01Z STALLED: 185. OPSAUDIT 2026-11-13 FLAGS: 13 (2 high). 65 active alarm(s): stuck goals 19 (board-a/waterwalk@355_73_147, board-b/waterwalk@-249_65_144, board-c/shaft@355_73_147, hive-a/monument@355_73_147, hive-c/tidy@-68_68_-68, hive-c/waterwalk@-68_68_-68 ...); driftwatch drift:items_per_bot_h, driftwatch drift:value_per_bot_h, effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:gathermem-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
