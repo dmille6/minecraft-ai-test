@@ -32,7 +32,7 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
 | C0 | Home GPUs only. Load test, then the showcase and the rehearsal served from the 5080/3090; Studio tunnel removed; every other outside endpoint found and removed | 24-h showcase read with the model answering, no `dark:model` page | load test 11-15 after 14:30Z; switch 11-16; closed 11-17 |
 | C1 | One trunk: showcase line merged into main (78 conflicted files), pool differences as flags, one release path. Fleet canary launches held for the length of the merge | both lines run a build that is on main; suite green | 11-16 (after 11:00Z) to about 11-20 |
 | C2 | Rehearsal-0: 12 bots, 48 h, fresh seed, no admin edits, on VM 118. **Started 11-14 14:46:09Z by another session** | rehearsal card: town progress, nothing stuck over 6 h | ends 11-16 14:46Z |
-| C3 | Test world replaces the fleet as the first stop for changes. If rehearsal-0 passed, that world carries on as the test world, grown to about 20 bots. Fleet shrinks to make GPU room | 7 days and at least 3 releases through test world then showcase; stopwatch, brainwatch and the death alarm working on the test world | 11-23 to 11-30 |
+| C3 | **Owner 11-14: the test world is the LAND WORLD first (land work only, no town; see "The land world").** Test world replaces the fleet as the first stop for changes. If rehearsal-0 passed, that world carries on as the test world, grown to about 20 bots. Fleet shrinks to make GPU room | 7 days and at least 3 releases through test world then showcase; stopwatch, brainwatch and the death alarm working on the test world | 11-23 to 11-30 |
 | C4 | Retire the 16-world fleet: queue entries folded into the trunk or dropped (listed for the owner), bots and worlds stopped, saves and raw logs archived to the NAS, crons on block2-bots moved to the ops VM | VMs 201/202 stopped 7 days with nothing missed; owner's yes on each delete | stop 11-30; delete about 12-07 |
 | C5 | Shrink the rest: test hosts 4 to 1-2, Elasticsearch retention, VMs 122/204/205 if confirmed ours, showcase releases, autorebase worktrees, 3090 model files, local worktrees and branches; delete scheduler, autorebase, restack and promotion-merge code | final count: 5 VMs (plus test hosts) | week of 12-07 |
 
@@ -153,16 +153,53 @@ What the record says about that code today (it supports the concern):
   given up. Homes get no levelling.
 - Prevention did help: keeping the pathfinder from placing blocks in town cut stray blocks from 173 to 57 an hour.
 
-Proposed to the owner (not yet agreed, nothing built):
-1. **Two practice tests, run on copies, before any permanent new town.** Cleanup: restore the time capsule, let the bots
-   clean for a set time, run the scorecard. Levelling: a copy of raw fresh terrain (rehearsal-0's day-0 snapshot), the bots
-   prepare a set of plots and build nothing, measure flat, solid underneath, no spoil left. Hours per run, repeatable, on
-   VM 118 once rehearsal-0 ends.
-2. **A gate:** the permanent test town is not born until both tests pass a bar the owner sets.
-3. **In the new town, the core is prepared first** (plaza, storage, first homes and the roads between), then plot by plot.
-   No building starts on a plot whose ground has not passed a mechanical check.
-4. **A mess meter:** the scorecard runs hourly on the live world; over a set limit, building stops and cleaning goes first.
-5. Rehearsal-0 is measured for how fast today's bots make mess on raw land, from the copies taken every 15 minutes.
+**OWNER DECISION 11-14 ~18:15Z:** "before we do the real new showcase worlds let's build a world and just focus on
+cleanup, leveling terraforming and making the land beautiful. Let's not worry about building the town. Let's get this code
+right before we start building the town."
+
+### The land world
+
+- **What it is:** a world where the bots do land work only: clean up junk, pillars and floating blocks, fill holes, level
+  and terrace plots, blend edges and shores, replant, plant. No houses, walls, shops or other town projects.
+- **Which world:** rehearsal-0's world carries on as the land world when the rehearsal ends (11-16 14:46Z), on the same VM
+  (118, no new VM). It is raw land with 48 hours of real bot wear on it, and it has been recorded every 15 minutes since
+  11-14 17:47Z. The rehearsal's own read by its session comes first.
+- **This changes plan step C3.** The "test world" is the land world first. The town-building test world and any new
+  showcase world are born only after the land bar below is passed and the owner says the land looks right.
+
+### Three courses, so a fix is tested in hours and not on a live town
+
+| Course | Start state | The bots' job | Measured by |
+|---|---|---|---|
+| A. Cleanup | a restored copy of the showcase time capsule | clean the old town's mess | the capsule scorecard: pits, air under the lawn, open fills |
+| B. Levelling | a copy of rehearsal-0's untouched day-0 terrain, with a set of marked plots (hill, shore, forest, flat) | prepare each plot, build nothing | per plot: level, solid underneath, no spoil left nearby, edges blended, trees handled |
+| C. Living | the land world itself | live and work there for days | the mess meter, hourly: junk must not grow |
+
+Courses A and B are restored fresh for every run, so two versions of the code can be compared on the same ground.
+
+### The bar (proposed numbers; the owner can change them)
+
+- A: at least 90% of the pits gone, the big ones included; at least 90% of the air under the lawn filled; no new junk.
+- B: 9 of 10 plots pass the ground check with no admin help.
+- C: the mess meter stays under its limit for 7 days running.
+- And the owner's eye: before-and-after 4K pictures of each course, and a yes that the land looks good. Numbers gate the
+  junk; only he gates "beautiful".
+
+### Order of work
+
+| Step | What | When (estimate) |
+|---|---|---|
+| L0 | No bot code: an inventory of the land code (about 7,200 lines: tidy, buildsite, terrace, siteprep, landplan, roughground, cleanzone, groundskeeper) saying what each part does, where it refuses and why; the scorecard grown into the mess meter; the plots for course B chosen; rehearsal-0's mess growth read from its recorded copies | now to 11-16 |
+| L1 | A land-only mode (no switch for it was found in the live code on 11-14), the start gate and the recorder from the camera design | with the trunk merge, from 11-16 |
+| L2 | Filling what today's rule cannot: big pits and the gap under a lawn | after L1 |
+| L3 | Levelling and terracing for any plot, not two building kinds | after L2 |
+| L4 | The beauty pass: edges, shores, replanting, flowers | after L3 |
+
+Each of L2 to L4 is tried on courses A and B before it reaches the land world. The land code lives on the showcase's
+code line, so this work starts on the one trunk (C1), not before it.
+
+**Effect on the schedule:** the new town has no calendar date any more; it is born when the bar is passed. The fleet's
+retirement (C4) does not wait for that: the land world is a test world and serves as the first stop for changes.
 
 ## Found 11-14, to settle in C0
 
