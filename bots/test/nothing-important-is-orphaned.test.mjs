@@ -602,6 +602,10 @@ const REQUIRED = [
   'docs/reports/phase1-autopilot-design-2026-11-06.md',
   'scripts/host/pager.py',
   'scripts/host/hourwatch.py',
+  // stopwatch (11-14, owner "clean up this test, implement, stage, queue, fix loop"): what worked yesterday and does not work now
+  'scripts/host/stopwatch.py',
+  'scripts/host/test_stopwatch.py',
+  'bots/test/stopwatch.test.mjs',
   'scripts/host/test_pager.py',
   'scripts/host/test_union_merge.py',
   'scripts/host/test_suite_run.py',
