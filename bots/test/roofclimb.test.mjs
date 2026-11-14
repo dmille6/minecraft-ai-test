@@ -130,7 +130,12 @@ test('roofClimbPlan: ground over the bot is a roof to climb; open sky, a tree, a
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 71: 'grass_block', 75: 'stone' }), feet), { toY: 72, top: 71, n: 2 }, 'the slab over the bot, not the block four above it')
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'cobblestone', 78: 'cobblestone' }), feet), { toY: 71, top: 70, n: 1 }, 'one block eight above the plaza is not the roof')
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 72: 'stone' }), feet), { toY: 73, top: 72, n: 2 }, 'a one-high gap is no room to stand: the slab goes on')
-  assert.deepEqual(S.roofClimbPlan(at({ 74: 'dirt' }), feet), { toY: 75, top: 74, n: 1 }, 'a roof high over a deep pocket is still its roof')
+  // IT BEGINS CLOSE OVER THE HEAD (review r3, Claude note 1): at most ROOF_CLIMB.under open cells; 1,080 of the 1,082 sealed cells measured
+  assert.equal(S.ROOF_CLIMB.under, 4)
+  assert.deepEqual(S.roofClimbPlan(at({ 74: 'dirt' }), feet), { toY: 75, top: 74, n: 1 }, 'four open cells over the head (70..73): still its roof')
+  assert.equal(S.roofClimbPlan(at({ 75: 'dirt' }), feet), null, 'five: an overhang, not a roof')
+  assert.equal(S.roofClimbPlan(at({ 78: 'cobblestone' }), feet), null, 'one block eight above a bot in the open is nothing to climb to')
+  assert.equal(S.roofClimbPlan(at({ 78: 'spruce_planks' }), feet), null, 'nor is a built one')
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 71: 'stone_bricks' }), feet), { built: 'stone_bricks', at: 71, why: 'will not break stone_bricks (built)' }, 'built ON the slab refuses')
   assert.equal(S.roofClimbPlan(at({ 72: 'spruce_leaves', 73: 'spruce_leaves' }), feet), null, 'leaves over the bot are not a roof')
   assert.deepEqual(S.roofClimbPlan(at({ 70: 'dirt', 71: 'spruce_log' }), feet), { built: 'spruce_log', at: 71, why: 'will not break spruce_log (built)' }, 'a trunk is never dug: the tree stays')
@@ -151,7 +156,7 @@ test('roofClimbPlan: ground over the bot is a roof to climb; open sky, a tree, a
   assert.equal(S.roofClimbPlan(at({ 70: 'torch' }), feet), null, 'a block with no body is not a roof')
   assert.equal(S.roofClimbPlan(at({ 69: 'dirt' }), feet), null, 'the head cell is not overhead (dy starts at 2, as terrainRoofTop)')
   assert.equal(S.roofClimbPlan(() => null, feet), null, 'unloaded reads as open')
-  assert.equal(S.roofClimbPlan(at({ 110: 'stone' }), feet), null, 'beyond 40 up is not looked at')
+  assert.equal(S.roofClimbPlan(at({ 110: 'stone' }), feet), null, 'far overhead is not looked at')
   // THE BUILD RECORDS (review r1, Claude blocker 1): ground by name, a project's by record
   const P = { name: 'cobblestone', position: { x: 1, y: 70, z: 5 } }
   assert.equal(S.roofDigRefusal(P, [], () => 'monument'), "will not break cobblestone (the monument's)")
@@ -352,15 +357,23 @@ test('AN UNFINISHED CLIMB IS STILL OWED (review r3, Codex blocker 4): fetch the 
 })
 
 test('AN OVERHANG HIGH ABOVE IS NOT THE ROOF (review r1, Claude blocker 2): the climb ends on the plaza, not eight blocks up a pillar', async () => {
-  const w = pocket()
-  w.set(1, 78, 5, 'cobblestone')
-  const { bot, log } = simBot(w)
-  const r = await surface(bot)
-  assert.equal(r.status, 'success', r.detail)
-  assert.equal(Math.floor(bot.entity.position.y), 71, 'on the plaza')
-  assert.deepEqual(log.digs, ['cobblestone@1,70,5'], 'the block eight above was never swung at')
-  assert.deepEqual(log.places, ['1,68,5', '1,69,5', '1,70,5'], 'nothing placed above the ground')
-  assert.equal(w.nameAt(1, 78, 5), 'cobblestone')
+  for (const up of [74, 78]) {   // three above the plaza (inside the scan) and eight above it
+    const w = pocket()
+    w.set(1, up, 5, 'cobblestone')
+    const { bot, log } = simBot(w)
+    const r = await surface(bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(Math.floor(bot.entity.position.y), 71, 'on the plaza')
+    assert.deepEqual(log.digs, ['cobblestone@1,70,5'], 'the block above was never swung at')
+    assert.deepEqual(log.places, ['1,68,5', '1,69,5', '1,70,5'], 'nothing placed above the ground')
+    assert.equal(w.nameAt(1, up, 5), 'cobblestone')
+  }
+  // A BOT IN THE OPEN under a block eight above is not roofed at all: the old refusal, nothing laid (Claude r3 note 1)
+  const open = world({ '1,79,5': 'cobblestone' })
+  const o = simBot(open, { at: [1.5, 71, 5.5] })
+  const r = await surface(o.bot)
+  assert.equal(r.detail, 'already at y=71, at or above sea level 63 — nothing to climb; use gather, explore or goto from here')
+  assert.deepEqual([o.log.digs, o.log.places, o.log.searches], [[], [], 0])
 })
 
 test('part of the way is said as part of the way', async () => {
@@ -425,22 +438,40 @@ test('a way out on foot is WALKED and nothing is dug or placed', async () => {
   assert.match(r.detail, /walked out from under the roof to open sky at \d+,68,6/)
 })
 
-test('a walk that was found and then failed leaves the climb, judged on the roof and not on the promise', async () => {
+test('a walk that was found and not finished is NOT followed by digging: the walk is the remedy and it is named (review r3, Claude note 1)', async () => {
   const w = pocket({ door: true })
-  // the walk "arrives" without the bot having moved: the library's own false done
+  // the walk "arrives" without the bot having moved: the library's own false done. Judged on the roof: not credited, and not dug either
   const lied = simBot(w, { search: plugin(w).search, walk: (b, g) => b.emit('goal_reached', g) })
   const r = await surface(lied.bot)
-  assert.equal(r.status, 'success', r.detail)
-  assert.equal(r.via, undefined, 'not credited to the walk')
-  assert.equal(Math.floor(lied.bot.entity.position.y), 71)
-  assert.deepEqual(lied.log.digs, ['cobblestone@1,70,5'])
-  // the walk ends noPath: the goal is cleared and the climb goes on
+  assert.deepEqual([r.status, r.failClass, r.via], ['failed', 'path_interrupted', undefined], r.detail)
+  assert.match(r.detail, /a walk out from under the roof to open sky at \d+,68,6 was found and not finished/)
+  assert.match(r.detail, /goto \d+ 6, or run surface again/)
+  assert.deepEqual([lied.log.digs, lied.log.places], [[], []])
+  assert.equal(Math.floor(lied.bot.entity.position.y), 68)
+  // the walk ends noPath: the goal is cleared, nothing is dug
   const w2 = pocket({ door: true })
   const np = simBot(w2, { search: plugin(w2).search, walk: (b) => b.emit('path_update', { status: 'noPath' }) })
   const r2 = await surface(np.bot)
-  assert.equal(r2.status, 'success', r2.detail)
-  assert.equal(Math.floor(np.bot.entity.position.y), 71)
-  assert.equal(np.bot.pathfinder.goal, null, 'the failed walk was halted before the climb')
+  assert.equal(r2.failClass, 'path_interrupted', r2.detail)
+  assert.match(r2.detail, /No path to the goal/)
+  assert.deepEqual([np.log.digs, np.log.places], [[], []])
+  assert.equal(np.bot.pathfinder.goal, null, 'the failed walk was halted')
+})
+
+test('THE BODY IS CENTRED ON ITS CELL BEFORE THE FIRST SWING (review r3, Claude note 4): off centre it cannot rise through a one-cell hole', async () => {
+  const at = []
+  const { bot, log } = simBot(pocket(), { at: [1.21, 68, 5.78], onDig: () => at.push([bot.entity.position.x, bot.entity.position.z]),
+    // the plugin's own behaviour for a goal on the bot's cell: met at once, and fullStop snaps a body more than 0.2 off (index.js:330-345)
+    walk: (b, g) => { const p = b.entity.position; if (Math.floor(p.x) === g.x && Math.floor(p.z) === g.z) { b.entity.position = V(g.x + 0.5, p.y, g.z + 0.5); b.emit('goal_reached', g) } } })
+  const r = await surface(bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(at, [[1.5, 5.5]], 'the first swing was made from the cell\'s centre')
+  assert.ok(log.goals.includes('1,68,5'), `a goal on its own cell was set: ${log.goals}`)
+  assert.equal(bot.pathfinder.goal, null)
+  // a centred bot is asked nothing (THE POCKET above: its goals are empty)
+  const c = simBot(pocket())
+  await surface(c.bot)
+  assert.deepEqual(c.log.goals.filter(Boolean), [])
 })
 
 test('a BUILT roof is never dug: the old refusal, saying why', async () => {
@@ -575,10 +606,10 @@ test('MUTANTS: each guard is the thing that holds', async () => {
   })
   // 12. the first-slab stop is gone -> the pillar goes up to the overhang (eight above the plaza)
   await withMutant(SKILLS_URL, "      if (top != null && ++gap >= 2) break\n", '', async M => {
-    const w = pocket(); w.set(1, 78, 5, 'cobblestone')
+    const w = pocket(); w.set(1, 74, 5, 'cobblestone')
     const { bot } = simBot(w)
     await surface(bot, {}, M)
-    assert.equal(Math.floor(bot.entity.position.y), 79, 'MUTANT 12 SURVIVED')
+    assert.equal(Math.floor(bot.entity.position.y), 75, 'MUTANT 12 SURVIVED')
   })
   // 13. the build records are not asked -> the monument's cell is dug
   await withMutant(SKILLS_URL, "    if (rec !== false) return `will not break ${name} (the ${rec}'s)`\n", '', async M => {
@@ -616,6 +647,26 @@ test('MUTANTS: each guard is the thing that holds', async () => {
     const r = await surface(bot, {}, M)
     assert.equal(r.failClass, 'already_surfaced', 'MUTANT 17 SURVIVED')
     assert.equal(Math.floor(bot.entity.position.y), 69)
+  })
+  // 18. the roof may begin anywhere overhead -> a bot in the open is sent up a pillar to a block eight above it
+  await withMutant(SKILLS_URL, "      if (top == null && dy - 1 > under) return null\n", '', async M => {
+    const o = simBot(world({ '1,79,5': 'cobblestone' }), { at: [1.5, 71, 5.5] })
+    await surface(o.bot, {}, M)
+    assert.ok(o.log.places.length >= 8, `MUTANT 18 SURVIVED: ${o.log.places.length} placed`)
+  })
+  // 19. a found walk that was not finished falls through to the climb -> the roof is dug though a way out on foot exists
+  await withMutant(SKILLS_URL, "        return { status: 'failed', failClass: 'path_interrupted', gap: `at_y${Math.round(bot.entity.position.y)}`,\n                 detail: `a walk out from under the roof", "        if (false) return { status: 'failed', failClass: 'path_interrupted', gap: `at_y${Math.round(bot.entity.position.y)}`,\n                 detail: `a walk out from under the roof", async M => {
+    const w = pocket({ door: true })
+    const { bot, log } = simBot(w, { search: plugin(w).search, walk: (b, g) => b.emit('goal_reached', g) })
+    await surface(bot, {}, M)
+    assert.deepEqual(log.digs, ['cobblestone@1,70,5'], 'MUTANT 19 SURVIVED')
+  })
+  // 20. no centring -> the first swing is made from where the body stood, 0.29 off the cell's centre
+  await withMutant(SKILLS_URL, "      if (roofOff() > 0.2) {\n        const g0 =", "      if (false) {\n        const g0 =", async M => {
+    const at = []
+    const { bot } = simBot(pocket(), { at: [1.21, 68, 5.78], onDig: () => at.push(bot.entity.position.x) })
+    await surface(bot, {}, M)
+    assert.deepEqual(at, [1.21], 'MUTANT 20 SURVIVED')
   })
   // 11. no abort listener -> an interrupted walk goes on (it would end at the walk's own 20 s; here: still pending after 600 ms)
   await withMutant(SKILLS_URL, "        signal?.addEventListener?.('abort', onAbort, { once: true })\n        try { await withTimeout(walkToGoal(bot, skyGoal,", "        try { await withTimeout(walkToGoal(bot, skyGoal,", async M => {
