@@ -614,6 +614,10 @@ const REQUIRED = [
   'scripts/host/stopwatch.py',
   'scripts/host/test_stopwatch.py',
   'bots/test/stopwatch.test.mjs',
+  // brainwatch (11-14): the model-dark alarm -- the bots run but no model answers
+  'scripts/host/brainwatch.py',
+  'scripts/host/test_brainwatch.py',
+  'bots/test/brainwatch.test.mjs',
   'scripts/host/test_pager.py',
   'scripts/host/test_union_merge.py',
   'scripts/host/test_suite_run.py',
