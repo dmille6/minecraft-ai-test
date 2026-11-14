@@ -10,7 +10,7 @@
   "2026-11-14: a rehearsal world on a throwaway seed approved (\"1. yes\"); the host is the control session's choice (\"check each one and decide which is best\")",
   "2026-11-14: \"Start now, we have the credits\" (the rehearsal setup; starting the 48-hour run itself is still the owner's word)"
  ],
- "status": "setup: world and bots built, NOT started; blocked on the model endpoint",
+ "status": "ready except for the model endpoint: world, day-0 snapshot, release, 12 bot units and the daily card exist; NOT started",
  "ready_when": "the model endpoint question under `open` is answered, the day-0 snapshot exists (world.day0_snapshot) and the owner says start",
  "host": {
   "vm": "vm-minecraft-ai-v2 (vmid 118, on the large node)",
@@ -54,7 +54,13 @@
    "chosen_by": "infra/showcase/site_search.py from the scouted centre: 1 of 9 candidates passed the town-plan limits, 48 blocks south-east of it (the centre itself: core relief 7 > 5, 9.7% wet > 3%)"
   },
   "town_site_file": "infra/freshworld/rehearsal-0.town-site.json",
-  "day0_snapshot": null,
+  "day0_snapshot": {
+   "file": "/srv/rehearsal/snapshots/day0-fw-s12.tar.zst (on the VM)",
+   "sha256": "ccb0b10d8e067891d482e00f5edfdebb60453d0416ca2608facf64a356bdd36c",
+   "bytes": 143681977,
+   "taken": "2026-11-14T14:31:21Z",
+   "state": "81 of 81 pre-generation tiles done, no forceloaded chunk left, 0 players ever; Paper stopped cleanly before the copy and left stopped and disabled so the world does not age before the run"
+  },
   "admin_edits_before_day0": "none: chunk generation and the world rules above only",
   "world_rules": "the project's standard, as on every world (scripts/place-town.py world_rules via infra/showcase/pregen.py): gamerules, WORLD SPAWN AT THE HOME, border radius 5000 centred on the home, chunks pre-generated to 1,024 blocks. No block was placed or removed.",
   "server_settings": "the showcase's live server.properties (the repo base with allow-flight=true); no plugins (the showcase has CoreProtect, SkinsRestorer and spark: logging, skins and profiling only)"
