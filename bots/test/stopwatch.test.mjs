@@ -1,7 +1,8 @@
 // STOPWATCH (owner 11-14: the stopped-working alarm). The host watcher's tests run here so `npm test` cannot be green while
 // they are red: scripts/host/test_stopwatch.py -- the three verdicts on rows shaped like the showcase's 11-13 junk well
-// (0 of 37, the 17-failure streak), each beside its positive control, the blind host, the real reader over log files, the
-// state file / ALARMS.log / heartbeat row, the tiers in lib/alarm, and every anchored mutant killed.
+// (0 of 36, the 17-failure streak), each beside its positive control; the latch (a page stays up until the thing works again);
+// neutral statuses; the chance guard; the blind host; the reader over log files; the state file / ALARMS.log / heartbeat row;
+// the tiers in lib/alarm; and every anchored mutant killed.
 import assert from 'node:assert'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
@@ -14,6 +15,6 @@ console.log(out.split('\n').filter(l => /FAIL|Error|Traceback/.test(l)).join('\n
 assert.equal(r.status, 0, out.slice(-1500))
 const pass = (out.match(/^ {2}PASS {2}/gm) ?? []).length
 const killed = (out.match(/^ {2}PASS {2}MUTANT KILLED/gm) ?? []).length
-assert.ok(pass >= 48, `expected at least 48 checks, ran ${pass}`)
-assert.ok(killed >= 5, `expected at least 5 mutants killed, saw ${killed}`)
+assert.ok(pass >= 87, `expected at least 87 checks, ran ${pass}`)
+assert.ok(killed >= 14, `expected at least 14 mutants killed, saw ${killed}`)
 console.log(`stopwatch: ok (${pass} checks, ${killed} mutants killed)`)

@@ -8,16 +8,24 @@ clean zone). Every one-hour read that day looked at its own piece's rows and cal
 that would have paged in the first hour: WHAT WORKED YESTERDAY AND DOES NOT WORK NOW?
 
 WHAT IT WATCHES. Every thing the bots do that the logs name:
-  skill:<name>    a skill run (a row whose kind does not start with `_`); it WORKED when status is success
+  skill:<name>    a skill run (a row whose kind does not start with `_`). It WORKED when status is success and FAILED when
+                  status is failed / timeout / error / rejected. Every other status is NEITHER (Claude review r1): no_effect
+                  is the code's "correctly declined to act" (nothing to bank, already full), aborted an interrupt, unknown
+                  a result nobody could tell -- they are runs (the thing still happens) but never tries.
   order:<skill>   a scheduler work order (`_work_order`, its first word); it only has a count
 Two windows: CUR, the last CUR_H (2) hours, and BASE, the BASE_H (24) hours before it.
 
 THE THREE VERDICTS, each with its denominator in the line:
-  stopped:<key>    BASE worked (>= BASE_OK successes at a rate >= BASE_RATE) and CUR was tried (>= CUR_TRIES runs by >=
-                   CUR_BOTS bots) and NOT ONE worked -- or, sooner, BASE worked at least half the time and the LAST
-                   STREAK_TRIES runs in CUR, by >= STREAK_BOTS bots, all failed (the well: 12 failures in a row by 18:55Z,
-                   while the 2-h window still held its last successes until 20:11Z). PAGES. The line carries the last
-                   success and the commonest failure.
+  stopped:<key>    BASE worked (>= BASE_OK successes at a rate >= BASE_RATE) and CUR failed >= CUR_TRIES times, by >=
+                   CUR_BOTS bots, and NOT ONE try worked -- or, sooner, the NEWEST tries in CUR all failed: >= STREAK_TRIES
+                   of them over >= STREAK_SPAN (the well: a streak by 18:55Z while the 2-h window still held its last
+                   successes until 20:11Z). One bot counts for at most BOT_CAP failures (a looping bot is not the town),
+                   and the failures must be more than chance: a thing that worked at rate r in BASE fails n times running
+                   with probability (1-r)^n, which must be <= CHANCE (8 are enough at 85 %, about 26 at 30 %). PAGES.
+                   The line carries the last success and the commonest failure.
+                   IT STAYS UP UNTIL THE THING WORKS AGAIN (the latch, Claude review r1): as the broken hours slide
+                   into BASE its rate falls, a backed-off scheduler tries less, a host goes quiet -- none of that is a
+                   recovery. A latched key is released by a success in CUR, or by hand (`--release skill:<name>`).
   collapsed:<key>  BASE worked and CUR works at less than a third of BASE's rate over >= COLLAPSE_TRIES runs. Digest.
   vanished:<key>   BASE ran it in >= VANISH_HOURS of its hours, >= VANISH_PER_H an hour, and CUR never ran it. Digest (a
                    finished project stops being ordered; a broken scheduler looks the same, so it is said, not paged).
@@ -26,6 +34,7 @@ rows, is `blind:activity` (digest) -- haltwatch owns a stopped showcase, and a q
 THE POSITIVE CONTROL is printed every run: rows walked, bots seen, keys judged, and the key with the most successes in CUR.
 
     python3 -B stopwatch.py --label showcase --ship /var/log/showcase/heartbeat.jsonl     (cron 20 * * * * on 10.0.0.40)
+    python3 -B stopwatch.py --label showcase --release skill:dispose_well                 (retired on purpose: drop the latch)
     python3 -B stopwatch.py --label showcase --no-state                                    (a dry look: prints, pushes nothing)
     python3 -B stopwatch.py --label showcase --no-state --now 2026-11-13T20:15:00Z         (what it would have said then)
 
@@ -35,6 +44,7 @@ through lib/alarm (deduplicated; re-pushed every 2 h until acked: `pager.py ack 
 """
 import argparse
 import datetime as dt
+import json
 import os
 import re
 import sys
@@ -48,18 +58,20 @@ UTC = dt.timezone.utc
 CUR_H = 2
 BASE_H = 24
 BASE_OK = 12            # successes in BASE before a key counts as "worked yesterday"
-BASE_RATE = 0.25        # ... at this share of its runs
-CUR_TRIES = 8           # runs in CUR before "not one worked" means anything
-CUR_BOTS = 2            # ... by this many different bots (one stuck bot is not the town)
-STREAK_TRIES = 12       # the newest runs in CUR, all failed ...
-STREAK_BOTS = 3         # ... by this many bots ...
-STREAK_RATE = 0.5       # ... of a thing that worked at least this often in BASE
+BASE_RATE = 0.25        # ... at this share of its tries
+CUR_TRIES = 8           # failures in CUR (capped per bot) before "not one worked" means anything
+CUR_BOTS = 2            # ... by this many different bots
+BOT_CAP = 4             # one bot counts for at most this many failures (a looping bot is not the town)
+CHANCE = 1e-4           # (1 - BASE rate) ** failures must be at most this
+STREAK_TRIES = 12       # the newest tries in CUR, all failed (capped per bot: at least three bots)
+STREAK_SPAN = dt.timedelta(minutes=10)   # ... over at least this long (a burst in one minute is one event)
 COLLAPSE_TRIES = 20
 COLLAPSE_FACTOR = 1 / 3
-VANISH_HOURS = 18       # BASE hours (of 24) the key ran in
+VANISH_HOURS = 18       # BASE hours the key ran in
 VANISH_PER_H = 4.0
 MIN_BOTS = {'showcase': 8, 'fleet': 40}
 MIN_ROW_SHARE = 0.25    # CUR rows per hour against BASE's, below which the host is not judged
+FAIL = frozenset({'failed', 'timeout', 'error', 'rejected'})
 # never judged: a run of these is not work that can "stop working" (a chat, a probe, a pause)
 SKIP = frozenset({'status', 'chat', 'wait', 'idle', 'look'})
 
@@ -70,7 +82,7 @@ def norm_reason(detail):
 
 
 def keys_of(row):
-    """One log row -> [(key, ok)] it counts toward. ok is None for a key that only has a count (an order)."""
+    """One log row -> [(key, ok)]. ok: True worked, False failed, None neither (a run, never a try)."""
     name = str(row.get('name') or '')
     if not name:
         return []
@@ -79,11 +91,22 @@ def keys_of(row):
         return [('order:' + first, None)] if re.fullmatch(r'[a-z_]{2,40}', first) else []
     if name.startswith('_') or name in SKIP:
         return []
-    return [('skill:' + name, row.get('status') == 'success')]
+    st = row.get('status')
+    return [('skill:' + name, True if st == 'success' else False if st in FAIL else None)]
+
+
+def _blank():
+    return {'runs': 0, 'ok': 0, 'fail': 0, 'hours': set(), 'last_ok': None, 'last_ok_bot': None, 'fails': Counter(),
+            'fail_by_bot': Counter(), 'streak_by_bot': Counter(), 'streak_from': None, 'streak_to': None}
+
+
+def capped(by_bot):
+    """Failures with one bot counted for at most BOT_CAP."""
+    return sum(min(n, BOT_CAP) for n in by_bot.values())
 
 
 def summarize(rows, lo, hi):
-    """rows (dicts with t, name, status, detail, bot) in [lo, hi) -> {key: stats}, and the window's bots and row count."""
+    """rows IN TIME ORDER (dicts with t, name, status, detail, bot) in [lo, hi) -> ({key: stats}, bots seen, rows seen)."""
     out, bots, n = {}, set(), 0
     for r in rows:
         t = r.get('t')
@@ -94,22 +117,21 @@ def summarize(rows, lo, hi):
         if bot:
             bots.add(bot)
         for key, ok in keys_of(r):
-            s = out.setdefault(key, {'tries': 0, 'ok': 0, 'bots': set(), 'hours': set(), 'last_ok': None, 'last_ok_bot': None,
-                                     'fails': Counter(), 'streak': 0, 'streak_bots': set()})
-            s['tries'] += 1
+            s = out.setdefault(key, _blank())
+            s['runs'] += 1
             s['hours'].add(t.replace(minute=0, second=0, microsecond=0))
-            if bot:
-                s['bots'].add(bot)
-            if ok:
+            if ok is True:
                 s['ok'] += 1
-                s['streak'], s['streak_bots'] = 0, set()
+                s['streak_by_bot'], s['streak_from'], s['streak_to'] = Counter(), None, None
                 if s['last_ok'] is None or t > s['last_ok']:
                     s['last_ok'], s['last_ok_bot'] = t, bot
             elif ok is False:
+                s['fail'] += 1
                 s['fails'][norm_reason(r.get('detail'))] += 1
-                s['streak'] += 1                # rows arrive in time order (collect sorts them): the run of failures at the END
-                if bot:
-                    s['streak_bots'].add(bot)
+                s['fail_by_bot'][bot or '?'] += 1
+                s['streak_by_bot'][bot or '?'] += 1          # the run of failures at the END of the window
+                s['streak_from'] = s['streak_from'] or t
+                s['streak_to'] = t
     return out, bots, n
 
 
@@ -117,41 +139,50 @@ def _hm(t):
     return t.strftime('%m-%d %H:%MZ') if t else 'none in the window'
 
 
+def _habit(b, base_h):
+    return bool(b) and len(b['hours']) >= VANISH_HOURS and b['runs'] / base_h >= VANISH_PER_H
+
+
 def judge(cur, base, cur_h=CUR_H, base_h=BASE_H):
     """PURE. (cur stats, base stats) -> {alarm key: line}. See the module text for the three verdicts."""
     alarms = {}
     for key in sorted(set(cur) | set(base)):
-        c = cur.get(key) or {'tries': 0, 'ok': 0, 'bots': set(), 'hours': set(), 'fails': Counter(), 'streak': 0, 'streak_bots': set()}
+        c = cur.get(key) or _blank()
         b = base.get(key)
         if not b:
             continue                      # new today: nothing to compare with
         counted = key.startswith('skill:')
-        b_rate = b['ok'] / b['tries'] if b['tries'] else 0.0
+        b_tries = b['ok'] + b['fail']
+        b_rate = b['ok'] / b_tries if b_tries else 0.0
         worked = counted and b['ok'] >= BASE_OK and b_rate >= BASE_RATE
-        was = f"the {base_h} h before: {b['ok']} ok of {b['tries']} ({b_rate:.0%}), last ok {_hm(b['last_ok'])}" + \
+        was = f"the {base_h} h before: {b['ok']} ok of {b_tries} tries ({b_rate:.0%}), last ok {_hm(b['last_ok'])}" + \
               (f" by {b['last_ok_bot']}" if b.get('last_ok_bot') else '')
-        if worked and c['ok'] == 0 and c['tries'] >= CUR_TRIES and len(c['bots']) >= CUR_BOTS:
-            top = c['fails'].most_common(1)
-            alarms['stopped:' + key] = (f"{key} STOPPED WORKING: 0 ok of {c['tries']} tries by {len(c['bots'])} bots in the last "
-                                        f"{cur_h} h; {was}" + (f"; commonest failure x{top[0][1]}: {top[0][0]}" if top else ''))
+        top = c['fails'].most_common(1)
+        why = f"; commonest failure x{top[0][1]}: {top[0][0]}" if top else ''
+        n_all = capped(c['fail_by_bot'])
+        if worked and c['ok'] == 0 and n_all >= CUR_TRIES and len(c['fail_by_bot']) >= CUR_BOTS and (1 - b_rate) ** n_all <= CHANCE:
+            alarms['stopped:' + key] = (f"{key} STOPPED WORKING: 0 ok of {c['fail']} tries by {len(c['fail_by_bot'])} bots in the last "
+                                        f"{cur_h} h; {was}{why}")
             continue
-        if worked and b_rate >= STREAK_RATE and c.get('streak', 0) >= STREAK_TRIES and len(c.get('streak_bots', ())) >= STREAK_BOTS:
-            top = c['fails'].most_common(1)
-            alarms['stopped:' + key] = (f"{key} STOPPED WORKING: the last {c['streak']} tries, by {len(c['streak_bots'])} bots, all failed "
-                                        f"({c['ok']} ok of {c['tries']} in the last {cur_h} h); {was}"
-                                        + (f"; commonest failure x{top[0][1]}: {top[0][0]}" if top else ''))
+        n_run = capped(c['streak_by_bot'])
+        span = (c['streak_to'] - c['streak_from']) if c['streak_from'] else dt.timedelta(0)
+        if worked and n_run >= STREAK_TRIES and span >= STREAK_SPAN and (1 - b_rate) ** n_run <= CHANCE:
+            alarms['stopped:' + key] = (f"{key} STOPPED WORKING: the last {sum(c['streak_by_bot'].values())} tries, by "
+                                        f"{len(c['streak_by_bot'])} bots since {c['streak_from'].strftime('%H:%MZ')}, all failed "
+                                        f"({c['ok']} ok of {c['ok'] + c['fail']} in the last {cur_h} h); {was}{why}")
             continue
-        if worked and c['tries'] >= COLLAPSE_TRIES and c['ok'] > 0 and (c['ok'] / c['tries']) < b_rate * COLLAPSE_FACTOR:
-            top = c['fails'].most_common(1)
-            alarms['collapsed:' + key] = (f"{key} works a third as often: {c['ok']} ok of {c['tries']} ({c['ok'] / c['tries']:.0%}) in the "
-                                          f"last {cur_h} h; {was}" + (f"; commonest failure x{top[0][1]}: {top[0][0]}" if top else ''))
+        c_tries = c['ok'] + c['fail']
+        if worked and c_tries >= COLLAPSE_TRIES and c['ok'] > 0 and (c['ok'] / c_tries) < b_rate * COLLAPSE_FACTOR:
+            alarms['collapsed:' + key] = (f"{key} works a third as often: {c['ok']} ok of {c_tries} ({c['ok'] / c_tries:.0%}) in the "
+                                          f"last {cur_h} h; {was}{why}")
             continue
-        # a skill the scheduler orders is said once, as its order (order:<name> is judged in this same loop)
-        if counted and ('order:' + key[6:]) in base and ('order:' + key[6:]) not in cur:
+        # a skill the scheduler ordered all day is said once, as its order (order:<name> is judged in this same loop)
+        ok_ = 'order:' + key[6:]
+        if counted and _habit(base.get(ok_), base_h) and ok_ not in cur:
             continue
-        if c['tries'] == 0 and len(b['hours']) >= VANISH_HOURS and b['tries'] / base_h >= VANISH_PER_H:
-            alarms['vanished:' + key] = (f"{key} no longer happens: 0 in the last {cur_h} h; the {base_h} h before: {b['tries']} "
-                                         f"({b['tries'] / base_h:.1f} an hour, in {len(b['hours'])} of its hours)")
+        if c['runs'] == 0 and _habit(b, base_h):
+            alarms['vanished:' + key] = (f"{key} no longer happens: 0 in the last {cur_h} h; the {base_h} h before: {b['runs']} "
+                                         f"({b['runs'] / base_h:.1f} an hour, in {len(b['hours'])} of its hours)")
     return alarms
 
 
@@ -166,63 +197,105 @@ def blind(label, cur_bots, cur_n, base_n, cur_h=CUR_H, base_h=BASE_H):
     return None
 
 
-def collect(rows, now, label):
-    """rows -> the report (verdicts, denominators, the positive control)."""
+def hold(alarms, cur, latched, now):
+    """PURE. THE LATCH. (this run's alarms, CUR stats, the keys latched before {key: {since, line}}) ->
+    (alarms with every still-stopped key in them, the new latch, the keys released by a success)."""
+    out, keep, released = dict(alarms), {}, []
+    for ak, line in alarms.items():
+        if ak.startswith('stopped:'):
+            key = ak[len('stopped:'):]
+            keep[key] = {'since': (latched.get(key) or {}).get('since') or AL._iso(now), 'line': line}
+    for key, was in (latched or {}).items():
+        if key in keep:
+            continue
+        c = cur.get(key) or _blank()
+        if c['ok'] > 0:
+            released.append(key)
+            continue
+        keep[key] = was
+        out['stopped:' + key] = (f"{key} STILL STOPPED (said {was.get('since')}): no success since; {c['fail']} failed of {c['runs']} runs in "
+                                 f"the last {CUR_H} h. First said: {str(was.get('line'))[:400]}")
+    return out, keep, sorted(released)
+
+
+def collect(rows, now, label, latched=None):
+    """rows -> the report (verdicts, denominators, the positive control, the latch)."""
+    rows = sorted(rows, key=lambda r: r['t'])
     lo_cur = now - dt.timedelta(hours=CUR_H)
     lo_base = lo_cur - dt.timedelta(hours=BASE_H)
-    rows = sorted(rows, key=lambda r: r['t'])
     cur, cur_bots, cur_n = summarize(rows, lo_cur, now)
     base, base_bots, base_n = summarize(rows, lo_base, lo_cur)
     rep = {'generated_at': AL._iso(now), 'label': label, 'cur': [AL._iso(lo_cur), AL._iso(now)], 'base': [AL._iso(lo_base), AL._iso(lo_cur)],
            'rows': {'cur': cur_n, 'base': base_n}, 'bots': {'cur': len(cur_bots), 'base': len(base_bots)},
-           'keys': {'cur': len(cur), 'base': len(base)}, 'alarms': {}}
+           'keys': {'cur': len(cur), 'base': len(base)}}
     b = blind(label, cur_bots, cur_n, base_n)
-    if b:
-        rep['alarms']['blind:activity'] = b
-    else:
-        rep['alarms'].update(judge(cur, base))
+    found = {'blind:activity': b} if b else judge(cur, base)
+    rep['alarms'], rep['latched'], rep['released'] = hold(found, cur, latched or {}, now)
     best = max(((k, s['ok']) for k, s in cur.items() if k.startswith('skill:')), key=lambda kv: kv[1], default=(None, 0))
     rep['control'] = {'key': best[0], 'ok': best[1]}
     n = Counter(k.split(':', 1)[0] for k in rep['alarms'])
     rep['summary'] = (f"{label} stopwatch: {n['stopped']} stopped, {n['collapsed']} collapsed, {n['vanished']} vanished"
-                      f"{' (NOT JUDGED)' if b else ''}; {cur_n} rows by {len(cur_bots)} bots in the last {CUR_H} h, {base_n} in the "
+                      f"{' (NOT JUDGED)' if b else ''}{'; works again: ' + ', '.join(rep['released']) if rep['released'] else ''}; "
+                      f"{cur_n} rows by {len(cur_bots)} bots in the last {CUR_H} h, {base_n} in the "
                       f"{BASE_H} h before; {len(cur)} keys now, {len(base)} before; most successes now: {best[0]} ({best[1]})")
     return rep
 
 
-def load_rows(paths, lo, hi):
-    """The skill logs through lib/telemetry (the project's one reader: rotation, binary files, the memory cap)."""
-    from lib.telemetry import Events
-    ev = Events.load(paths=paths, since=lo, until=hi) if paths else Events.load(since=lo, until=hi)
-    return [{'t': r['t'], 'name': r['name'], 'status': r.get('status'), 'detail': r.get('detail'), 'bot': r.get('bot')}
-            for r in ev.rows if 'FIXTURE' not in str((r.get('bot') or {}).get('name') or '')]
+def load_rows(root, lo, hi):
+    """The skill logs, one bot at a time through lib/telemetry's rotation-aware stream, keeping five small fields a row
+    (Claude review r1: Events.load holds every raw row -- about 2 GB for the showcase's 26 h; this is about 190 MB)."""
+    from lib import telemetry as TM
+    out = []
+    for bot in sorted(d for d in os.listdir(root) if not d.startswith('_') and 'FIXTURE' not in d and os.path.isdir(os.path.join(root, d))):
+        for t, d in TM.stream_rows(root, bot, lo, hi, 'skill'):
+            sk = d.get('skill') or {}
+            if not sk.get('name'):
+                continue
+            name = (d.get('bot') or {}).get('name') or bot
+            if 'FIXTURE' in str(name):
+                continue
+            out.append({'t': t, 'name': sk['name'], 'status': sk.get('status'), 'detail': str(sk.get('detail') or '')[:240], 'bot': name})
+    return out
+
+
+def read_latch(path):
+    try:
+        v = json.load(open(path)).get('latched')
+        return v if isinstance(v, dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--label', required=True, help='showcase | fleet (names the state file and the alarm source)')
-    ap.add_argument('--paths', help='skill log glob (default: lib/telemetry\'s, /var/log/mcai/*/skill-*.jsonl*)')
+    ap.add_argument('--logs', default='/var/log/mcai', help='the skill log root (one directory a bot)')
     ap.add_argument('--state-dir', default='~/digest')
     ap.add_argument('--ship', help='append a kind=<label>_stopwatch row to this filebeat-shipped file')
+    ap.add_argument('--release', action='append', default=[], metavar='KEY',
+                    help='drop the latch of a key retired on purpose (skill:<name>); repeatable')
     ap.add_argument('--no-push', action='store_true')
-    ap.add_argument('--no-state', action='store_true', help='print only: no state file, no ALARMS.log, no push')
+    ap.add_argument('--no-state', action='store_true', help='print only: no state file read or written, no ALARMS.log, no push')
     ap.add_argument('--now')
     a = ap.parse_args(argv)
     now = (dt.datetime.fromisoformat(a.now.replace('Z', '+00:00')) if a.now else dt.datetime.now(UTC)).replace(microsecond=0)
+    sd = os.path.expanduser(a.state_dir)
+    state = os.path.join(sd, f'stopwatch-{a.label}.json')
+    latched = {} if a.no_state else {k: v for k, v in read_latch(state).items() if k not in set(a.release)}
     try:
-        rows = load_rows(a.paths, now - dt.timedelta(hours=CUR_H + BASE_H), now)
-        rep = collect(rows, now, a.label)
-    except Exception as e:      # a watcher that crashes must alarm, not go quiet
-        rep = {'generated_at': AL._iso(now), 'label': a.label, 'error': f'{type(e).__name__}: {str(e)[:300]}',
-               'alarms': {f'stopwatch:{a.label}': f'stopwatch {a.label} FAILED: {type(e).__name__}: {str(e)[:200]}'}}
+        rows = load_rows(a.logs, now - dt.timedelta(hours=CUR_H + BASE_H), now)
+        rep = collect(rows, now, a.label, latched)
+    except Exception as e:      # a watcher that crashes must alarm, not go quiet -- and must not clear what it had said
+        rep = {'generated_at': AL._iso(now), 'label': a.label, 'error': f'{type(e).__name__}: {str(e)[:300]}', 'latched': latched, 'released': [],
+               'alarms': {f'stopwatch:{a.label}': f'stopwatch {a.label} FAILED: {type(e).__name__}: {str(e)[:200]}',
+                          **{'stopped:' + k: f"{k} STILL STOPPED (said {v.get('since')}); this run could not judge" for k, v in latched.items()}}}
         rep['summary'] = f'{a.label} stopwatch: CHECK FAILED ({rep["error"][:120]})'
     print(rep['summary'])
     for line in rep['alarms'].values():
         print('  !! ' + line)
     if a.no_state:
         return 0
-    sd = os.path.expanduser(a.state_dir)
-    AL.write_json_atomic(os.path.join(sd, f'stopwatch-{a.label}.json'), rep)
+    AL.write_json_atomic(state, rep)
     AL.raise_alarms(f'stopwatch-{a.label}', rep['alarms'], now, os.path.join(sd, f'stopwatch-{a.label}.pushstate.json'),
                     log_path=os.path.join(sd, 'ALARMS.log'), push=not a.no_push)
     if a.ship:
