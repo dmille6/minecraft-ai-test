@@ -823,6 +823,116 @@ def mrow(sha, run='main-rel', reviews=None, tests=_UNSET):
     return r
 
 
+class SoakGate(unittest.TestCase):
+    """ONE CHANGE AT A TIME (owner 11-14): a stage waits for the live release's 3-h read, or names the fix it is."""
+    T0 = dt.datetime(2026, 11, 13, 16, 29, 1, tzinfo=dt.timezone.utc)
+    LIVE = '52d8285f-6dd0ded8-fdd64ead'
+    PREV = '326e8be4-6dd0ded8-fdd64ead'
+
+    def rows(self, *extra):
+        z = lambda t: t.strftime('%Y-%m-%dT%H:%M:%SZ')
+        base = [{'t': z(self.T0 - dt.timedelta(hours=5)), 'event': 'activated', 'release': self.PREV, 'previous': 'x'},
+                {'t': z(self.T0 - dt.timedelta(hours=1)), 'event': 'read', 'release': self.PREV, 'decision': 'KEEP (older release)'},
+                {'t': z(self.T0), 'event': 'activated', 'release': self.LIVE, 'previous': self.PREV}]
+        return base + [dict(r, t=z(self.T0 + dt.timedelta(minutes=m))) for m, r in extra]
+
+    def ref(self, rows, after_min, **kw):
+        return SO.soak_refusal(rows, self.T0 + dt.timedelta(minutes=after_min), **kw) or ''
+
+    def test_the_11_13_afternoon_is_refused(self):
+        # LIVE 11-13: cleanzone-03show was staged 70 min after cleanzone-02show went live, on a +60 read
+        rows = self.rows((66, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP (the rule acts)'}))
+        why = self.ref(rows, 70)
+        self.assertIn('one change at a time', why)
+        self.assertIn(self.LIVE, why)
+        self.assertIn('its read is due 2026-11-13T19:29:01Z (in 110 min)', why)
+        self.assertIn('--fix-of 52d8285f', why, 'the refusal names the way past it')
+
+    def test_a_read_three_hours_in_opens_it(self):
+        rows = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP (+180)'}))
+        self.assertEqual(self.ref(rows, 182), '')
+        for d in ('REVERT (deaths)', 'inconclusive: one visit', ' Keep'):
+            self.assertEqual(self.ref(self.rows((180, {'event': 'read', 'release': self.LIVE, 'decision': d})), 200), '', d)
+
+    def test_what_does_not_open_it(self):
+        late = self.ref(self.rows(), 400)
+        self.assertIn('its read was due 2026-11-13T19:29:01Z and is not written', late, 'time alone never opens it')
+        early = self.rows((179, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP (+179)'}))
+        self.assertIn('one change at a time', self.ref(early, 400), 'a read a minute short of the soak')
+        other = self.rows((200, {'event': 'read', 'release': self.PREV, 'decision': 'KEEP'}))
+        self.assertIn('one change at a time', self.ref(other, 400), 'a read of another release')
+        for d in ('RULE RESTORED (a test, not a verdict)', 'PASS', '', None):
+            rows = self.rows((200, {'event': 'read', 'release': self.LIVE, 'decision': d}))
+            self.assertIn('one change at a time', self.ref(rows, 400), f'decision {d!r} is not a verdict')
+        check = self.rows((200, {'event': 'rollout-check', 'release': self.LIVE, 'verdict': 'PASS'}))
+        self.assertIn('one change at a time', self.ref(check, 400), 'the cron check is not a read')
+        # the read of an EARLIER activation of the same release does not count for this one
+        z = lambda t: t.strftime('%Y-%m-%dT%H:%M:%SZ')
+        again = [{'t': z(self.T0 - dt.timedelta(hours=9)), 'event': 'activated', 'release': self.LIVE},
+                 {'t': z(self.T0 - dt.timedelta(hours=5)), 'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}] + self.rows()
+        self.assertIn('one change at a time', self.ref(again, 30), 'a release activated again is read again')
+
+    def test_a_fix_of_the_live_release_goes_straight_out(self):
+        why = 'dispose_well 0 ok of 124 since 18:12Z: the tidy cut the step up and the clean zone forbids laying it'
+        self.assertEqual(self.ref(self.rows(), 20, fix_of='52d8285f', fix_why=why), '')
+        self.assertEqual(self.ref(self.rows(), 20, fix_of=self.LIVE, fix_why=why), '')
+        self.assertEqual(self.ref(self.rows(), 20, fix_of='326e8be4', fix_why=why), '', 'after a rollback: a fix of the release it replaced')
+
+    def test_a_fix_must_name_the_live_release_and_say_why(self):
+        why = 'dispose_well 0 ok of 124 since 18:12Z: the tidy cut the step up and the clean zone forbids laying it'
+        self.assertIn('neither the live release', self.ref(self.rows(), 20, fix_of='dc6a87cf', fix_why=why))
+        self.assertIn('go together', self.ref(self.rows(), 20, fix_of='52d8285f'))
+        self.assertIn('go together', self.ref(self.rows(), 20, fix_why=why))
+        self.assertIn('go together', self.ref(self.rows(), 20, fix_of='52d8285f', fix_why='it is broken'))
+        self.assertIn('go together', self.ref(self.rows(), 20, fix_of='52d8', fix_why=why), 'a prefix too short to name a release')
+        # naming a fix never weakens a stage the gate would have passed anyway, and never passes a wrong one
+        opened = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}))
+        self.assertIn('neither the live release', self.ref(opened, 200, fix_of='dc6a87cf', fix_why=why))
+
+    def test_nothing_live_and_unreadable_rows(self):
+        self.assertEqual(SO.soak_refusal([], self.T0), None, 'the first release has nothing to wait for')
+        self.assertEqual(SO.soak_refusal([{'event': 'staged', 'release': 'x'}, 'torn', None], self.T0), None)
+        bad = [{'t': 'yesterday', 'event': 'activated', 'release': self.LIVE}]
+        self.assertIn('cannot read when', SO.soak_refusal(bad, self.T0), 'an activation with no time fails closed')
+        naive = [{'t': '2026-11-13T16:29:01', 'event': 'activated', 'release': self.LIVE}]
+        self.assertIn('cannot read when', SO.soak_refusal(naive, self.T0))
+
+    def test_the_gate_is_wired_into_both_stages_and_recorded(self):
+        src = open(os.path.join(HERE, 'showcase_ops.py')).read()
+        code = re.sub(r'(^|[^:\'"])#.*$', r'\1', src, flags=re.M)
+        for fn in ('stage_main', 'stage_piece'):
+            body = code[code.index(f'def {fn}('):]
+            body = body[:body.index('\ndef ', 10)]
+            i = body.index("sok, srec = soak_admit(a)")
+            self.assertEqual(body.count("sok, srec = soak_admit(a)"), 1, fn)
+            self.assertIn("if not sok and soak_enforced():\n        return refuse(srec['why'])", body, fn)
+            self.assertIn("rec['soak'] = srec", body, fn)
+            self.assertLess(i, body.index('replay_admit('), f'{fn}: the gate is asked before the 20-minute replay')
+            self.assertLess(body.index("rec['soak'] = srec"), body.index('ok, out = stage('), f'{fn}: recorded in the release before it is staged')
+        follow = code[code.index('def cmd_follow('):]
+        self.assertNotIn('soak_admit', follow[:follow.index('\ndef ', 10)], 'the follower is not gated')
+
+    def test_soak_admit_reads_the_journal_and_records_the_fix(self):
+        why = 'dispose_well 0 ok of 124 since 18:12Z: the tidy cut the step up and the clean zone forbids laying it'
+        with tempfile.TemporaryDirectory() as d:
+            old = SO.DEPLOY, SO.SOAK_ENFORCE
+            SO.DEPLOY, SO.SOAK_ENFORCE = os.path.join(d, 'deploy.jsonl'), os.path.join(d, 'SOAK_GATE')
+            try:
+                with open(SO.DEPLOY, 'w') as f:
+                    for r in self.rows():
+                        f.write(json.dumps(r) + '\n')
+                ns = lambda **k: type('A', (), k)()
+                ok, rec = SO.soak_admit(ns(fix_of=None, fix_why=None), self.T0 + dt.timedelta(minutes=30))
+                self.assertEqual((ok, rec['ok'], rec['enforced']), (False, False, False))
+                self.assertIn('one change at a time', rec['why'])
+                open(SO.SOAK_ENFORCE, 'w').close()
+                ok, rec = SO.soak_admit(ns(fix_of='52d8285f', fix_why=why), self.T0 + dt.timedelta(minutes=30))
+                self.assertEqual((ok, rec['enforced'], rec['fix_of'], rec['fix_why']), (True, True, '52d8285f', why))
+                self.assertNotIn('why', rec)
+            finally:
+                SO.DEPLOY, SO.SOAK_ENFORCE = old
+
+
 class MainRelease(unittest.TestCase):
     def ref(self, sha=S2, rel=R40, tip=S2, rows=None, carries=None, revoked=(), revoked_in=no_cherry, changed=None, globs=GLOBS,
             kept=(False, 'never kept')):

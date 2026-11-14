@@ -710,6 +710,11 @@ def stage_main(a, sha, feed, last, ledger):
         return refuse(f'{AUTO} is on: the follower owns releases while it is (remove it to stage from main)')
     if not last.get('verified'):
         return refuse('the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
+    sok, srec = soak_admit(a)   # ONE CHANGE AT A TIME (owner 11-14)
+    if not sok and soak_enforced():
+        return refuse(srec['why'])
+    if not sok:
+        print('WARNING (SOAK_GATE off): ' + srec['why'])
     main_tip = git('rev-parse', '--verify', '--quiet', 'origin/main^{commit}', check=False) or None
     cur = current_release()
     rel_sha = getattr(a, 'against', None) and (resolve(a.against) or a.against) or (cur or {}).get('sha')
@@ -728,6 +733,7 @@ def stage_main(a, sha, feed, last, ledger):
     covers = make_covers(is_anc, docs_only_change)
     row = [r for r in rows if isinstance(r, dict) and r.get('run') and covers(r.get('sha'), sha)][-1]
     rec = gate_record(row, 'main', bool(pats), protected_hits(prot(rel_sha, sha), pats))
+    rec['soak'] = srec
     rok, rrec = replay_admit(sha, rel_sha, a)
     if not rok and replay_enforced():
         return refuse('PRE-ACTIVATION REPLAY: ' + '; '.join(rrec.get('why') or ['refused']))
@@ -765,6 +771,11 @@ def stage_piece(a, sha, feed, last):
         return refuse(f'a piece stages only in the progress lane ({LANE} present, {AUTO} absent)')
     if not last.get('verified'):
         return refuse('the newest observation is not verified; run `showcase_ops.py follow --observe-only`')
+    sok, srec = soak_admit(a)   # ONE CHANGE AT A TIME (owner 11-14)
+    if not sok and soak_enforced():
+        return refuse(srec['why'])
+    if not sok:
+        print('WARNING (SOAK_GATE off): ' + srec['why'])
     cur = current_release()
     rel_sha = getattr(a, 'against', None) and (resolve(a.against) or a.against) or (cur or {}).get('sha')
     rows = FR.load_jsonl(PIECES)
@@ -789,6 +800,7 @@ def stage_piece(a, sha, feed, last):
     rec = {'mode': 'piece', 'pieces': {r: gate_record(newest[r], 'piece', bool(pats),
                                                       protected_hits(prot(newest[r]['base'], newest[r]['sha']), pats))
                                        for r in runs}}
+    rec['soak'] = srec
     rok, rrec = replay_admit(sha, rel_sha, a)
     if not rok and replay_enforced():
         return refuse('PRE-ACTIVATION REPLAY: ' + '; '.join(rrec.get('why') or ['refused']))
@@ -810,6 +822,81 @@ def stage_piece(a, sha, feed, last):
                             'sha': newest[r]['sha'], **{k: oa.get(k) for k in ('who', 'when', 'quote', 'reason')}})
     print('STAGED ' + out)
     return 0
+
+
+# ------------------------------------------------------------------------------------------------ one change at a time
+# OWNER 11-14 ("lets make changes to clean up this test, implement, stage, queue, fix loop we have"). On 11-13 six releases
+# went onto the same 14 bots in a day, from two sessions: when building fell, the wrong piece was blamed first, and the junk
+# well a release had broken stayed broken for five hours under three one-hour reads that each looked at their own piece.
+# THE RULE: a new piece or main release is staged only when the LIVE release has a read row (KEEP / REVERT / INCONCLUSIVE)
+# written at least SOAK after it went live. THE ONE WAY PAST IT is a fix of what the live release shows: `--fix-of <the live
+# release, or the one it replaced>` with `--fix-why "<what it shows, with numbers>"`, both journalled in the release.
+# The follower's own stages (cmd_follow) are not gated: they are the fleet's promotions, already read on the fleet.
+SOAK = dt.timedelta(hours=3)
+FIX_WHY_MIN = 30
+READ_DECISIONS = ('KEEP', 'REVERT', 'INCONCLUSIVE')
+# The deploy switch (as REPLAY_GATE): present = an unread live release REFUSES the stage; absent = the gate still runs, is
+# recorded in the release (ok: false) and printed as a WARNING.
+SOAK_ENFORCE = f'{ROOT}/SOAK_GATE'
+
+
+def soak_enforced():
+    return os.path.exists(SOAK_ENFORCE)
+
+
+def _row_time(row):
+    try:
+        t = dt.datetime.fromisoformat(str(row.get('t')).replace('Z', '+00:00'))
+        return t if t.tzinfo else None
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
+    """PURE. ONE CHANGE AT A TIME -> why (a refusal that names what to do) | None.
+    deploy_rows: ops/deploy.jsonl. The live release is the newest `activated` row; nothing activated yet -> None."""
+    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated' and r.get('release')]
+    if not acts:
+        return None
+    live = acts[-1]
+    rel = str(live['release'])
+    t0 = _row_time(live)
+    if fix_of is not None or fix_why is not None:
+        if not fix_of or len(str(fix_of)) < 8 or not fix_why or len(str(fix_why).strip()) < FIX_WHY_MIN:
+            return (f'--fix-of <release, 8+ characters> and --fix-why "<what the live release shows, with its numbers; '
+                    f'{FIX_WHY_MIN}+ characters>" go together')
+        fixable = [rel] + ([str(live['previous'])] if live.get('previous') else [])
+        if not any(x.startswith(str(fix_of)) for x in fixable):
+            return (f'--fix-of {fix_of} is neither the live release {rel} nor the one it replaced'
+                    f'{" (" + fixable[1] + ")" if len(fixable) > 1 else ""}: the way past the gate is a fix of what the LIVE release shows')
+        return None
+    if t0 is None:
+        return f'one change at a time: cannot read when {rel} went live (its activated row has no time); fix the journal row first'
+    for r in deploy_rows:
+        if (isinstance(r, dict) and r.get('event') == 'read' and str(r.get('release')) == rel
+                and str(r.get('decision') or '').strip().upper().startswith(READ_DECISIONS)):
+            tr = _row_time(r)
+            if tr is not None and tr >= t0 + soak:
+                return None
+    due = t0 + soak
+    wait = due - now
+    when = (f'its read is due {FR.iso(due)} (in {int(wait.total_seconds() // 60)} min)' if wait > dt.timedelta(0)
+            else f'its read was due {FR.iso(due)} and is not written')
+    return (f'one change at a time: {rel} went live {FR.iso(t0)} and has no read row (KEEP / REVERT / INCONCLUSIVE) written '
+            f'{int(soak.total_seconds() // 3600)} h or more after that; {when}. Read it and journal the decision, then stage; '
+            f'or, for a fix of what it broke: --fix-of {rel[:8]} --fix-why "<what the live release shows>"')
+
+
+def soak_admit(a, now=None):
+    """-> (ok, record). The gate over the real journal; `record` goes into the release's gate."""
+    fix_of, fix_why = getattr(a, 'fix_of', None), getattr(a, 'fix_why', None)
+    why = soak_refusal(FR.load_jsonl(DEPLOY), now or now_utc(), fix_of, fix_why)
+    rec = {'ok': why is None, 'enforced': soak_enforced()}
+    if why:
+        rec['why'] = why[:300]
+    if fix_of and why is None:
+        rec['fix_of'], rec['fix_why'] = str(fix_of), str(fix_why).strip()[:300]
+    return why is None, rec
 
 
 # ------------------------------------------------------------------------------------------------ the pre-activation replay
@@ -1527,6 +1614,9 @@ def main():
     s.add_argument('--piece', default=None, help='the progress lane: <run>[,<run>...] -- PIECES.jsonl lines stacked on the current release')
     s.add_argument('--main', action='store_true', help='FOLLOW MAIN: a sha on origin/main, staged directly (release-log line needed)')
     s.add_argument('--dry-run', action='store_true', help='decide and print; stage nothing, journal nothing')
+    s.add_argument('--fix-of', default=None, metavar='RELEASE', help='one change at a time: this stage FIXES what the live release '
+                   '(or the one it replaced) shows; the only way to stage before the live release has its read')
+    s.add_argument('--fix-why', default=None, metavar='TEXT', help='with --fix-of: what the live release shows, with its numbers')
     s.add_argument('--against', default=None, help='with --dry-run: judge as if this sha were the current release')
     s.add_argument('--reader', default=None, help='the candidate shopread.py the release will run under (default: the installed one)')
     s.add_argument('--reader-ok', action='append', default=[], metavar="KIND:FIELD[=VALUE]",

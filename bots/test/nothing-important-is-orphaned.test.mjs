@@ -603,6 +603,8 @@ const REQUIRED = [
   'scripts/host/pager.py',
   'scripts/host/hourwatch.py',
   // stopwatch (11-14, owner "clean up this test, implement, stage, queue, fix loop"): what worked yesterday and does not work now
+  // soakgate (11-14): the release tool's own tests run from npm test
+  'bots/test/showcase-ops.test.mjs',
   'scripts/host/stopwatch.py',
   'scripts/host/test_stopwatch.py',
   'bots/test/stopwatch.test.mjs',
