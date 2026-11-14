@@ -7200,7 +7200,7 @@
     ]
    },
    "id": "sched-v43-1112",
-   "kind": "tooling",
+   "kind": "host",
    "lane": "progress",
    "max_quiet_hours": 48,
    "memory": [
@@ -7212,6 +7212,60 @@
    "title": "canary-sched v43: a rebase whose only difference is the context of the required-paths list is the same change; no-patch-source and stale-staged-registration heads are skipped, not blocking (owner 11-12: get things where we dont keep getting stalled)",
    "next_step": "MERGED main ec940437b; staged on the canary host (~/sched43-install/src), dry run OK, `install-sched-v43.sh --wait` running since 11-12 07:52Z for the gap after fullplace-01 closes. READ: md5sum ~/canary-sched.py == the staged b8b147bd, ~/sched43-install/wait.log `done`, the first real tick; then ironchain-01 and ironchain-02 rebase on their own at their turn (a scratch copy of v43 accepted both on tip 29c8bc57).",
    "note": "OWNER 2026-11-12 \"lets do the rebase, and get things where we dont keep getting stalled\". Tier tooling: Codex (5 rounds, 5 blockers fixed, final NO BLOCKERS) + independent Claude (r1 one blocker fixed, r2 NO BLOCKERS); test_canary_sched 154/154 (mutants 127/127), test_autorebase 25/25 (mutants 37/38 + the survivor's case added). Queue-side the same night: toolrank-01 and gathermem-01 re-pointed at variants that rebase identically (set-patch); the four refused entries moved behind fullplace-01."
+  },
+  {
+   "covers_alarms": [],
+   "evidence": {
+    "grep": [
+     "one trunk",
+     "one-trunk",
+     "trunk-fleet-into-main"
+    ],
+    "runs": [],
+    "branches": [
+     "trunk-fleet-into-main"
+    ]
+   },
+   "id": "one-trunk-1114",
+   "kind": "showcase",
+   "lane": "ops",
+   "max_quiet_hours": 96,
+   "memory": [
+    "one-trunk-plan-1114.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-14",
+   "state": "open",
+   "title": "One trunk (owner 11-14, after the Codex + Claude whole-project review): main, the fleet build and the showcase build become one line of code; pool differences are switches, not branches",
+   "next_step": "DONE 11-14: the fleet build 5904919d is in main (merge 9d0099d70, main c84c06f9f; suite 471/473, the two reds are main's own; Codex NO BLOCKERS). NEXT, after the 11-16 11:00Z credit reset: merge the live showcase release into main (a plain merge conflicts in 78 files, 37 in bots/src; protected files take the fleet side and the showcase's changes are re-applied, everything else takes the showcase side; tier 3, both engines), hold fleet canary launches for the length of that merge (owner yes 11-14), then release the trunk to the showcase only under the soak gate. AFTER: retire restack and autorebase copies, move STATE and ledger commits off main, fold or drop the never-deployed queue entries.",
+   "note": "OWNER 2026-11-14: \"Yes, plan it\"; \"Yes, start both\" (the fleet build into main; the rehearsal manifest); on pausing fleet canary launches during the showcase merge: \"yes\". Measured 11-14: bots/src on main had not changed since 11-06; the live showcase release 9428a256 had 555 bot-code commits main lacked; 1,104 of 1,343 remote branches unmerged; canary reads since 10-28: 84 KEEP, 2 REVERT of 86."
+  },
+  {
+   "covers_alarms": [],
+   "evidence": {
+    "grep": [
+     "rehearsal-0",
+     "freshworld:"
+    ],
+    "runs": [],
+    "branches": [],
+    "paths": [
+     "infra/freshworld/rehearsal-0.json"
+    ]
+   },
+   "id": "rehearsal-0-1114",
+   "kind": "host",
+   "lane": "progress",
+   "max_quiet_hours": 96,
+   "memory": [
+    "one-trunk-plan-1114.md"
+   ],
+   "owner": "control session",
+   "owner_date": "2026-11-14",
+   "state": "open",
+   "title": "Fresh-world rehearsal (owner 11-14): a 12-bot town on a throwaway seed (fw-s12, site D Birch Loop), 48-hour runs from one day-0 copy, scored by a daily card; the two finish-line worlds stay unseen",
+   "next_step": "DONE 11-14: the manifest infra/freshworld/rehearsal-0.json (draft); the host is chosen: the retired testbed VM vm-minecraft-ai-v2 (vmid 118, the large node), which already runs the showcase's Paper build. NOT BUILT: resize that VM, a new level beside its old world (kept, never deleted), the showcase release and its settings for 12 bots, the model endpoint (capacity for 12 more bots not measured), the telemetry stream, the site file for D, the day-0 copy, the daily card script.",
+   "note": "OWNER 2026-11-14: \"1. yes\" (a rehearsal world on a throwaway seed; this reverses the 11-06 'not chosen' on a sandbox run); \"2. check each one and decide which is best, i dont care\" (the host). The 11-10 decision stands: World 1 (fw-t10) and World 2 (fw-s10) wait for the new building styles. Host check 11-14: the large node has about 131 GB RAM free at 33% CPU; the fast node is full (152 GB promised on 94) and carries the house's firewall and DNS, so its playground VM was not chosen."
   }
  ]
 }

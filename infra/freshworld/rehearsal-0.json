@@ -6,10 +6,20 @@
  "owner_decisions": [
   "2026-11-09: finish line = M1-M3 plus the owner's yes on M5, on two fresh worlds, at the small footprint (docs/reports/finish-line-2026-11-09.md)",
   "2026-11-10: World 1 = fw-t10 at Cherry Reach, World 2 = fw-s10 at Twin Banks; new worlds wait for the new building styles",
-  "2026-11-14: one trunk and a rehearsal run manifest approved (\"Yes, start both\")"
+  "2026-11-14: one trunk and a rehearsal run manifest approved (\"Yes, start both\")",
+  "2026-11-14: a rehearsal world on a throwaway seed approved (\"1. yes\"); the host is the control session's choice (\"check each one and decide which is best\")"
  ],
  "status": "draft",
- "ready_when": "every field under `open` is answered, the day-0 snapshot exists, and the owner has said yes to a rehearsal world on a throwaway seed",
+ "ready_when": "every field under `open` is answered and the day-0 snapshot exists",
+
+ "host": {
+  "vm": "vm-minecraft-ai-v2 (vmid 118, on the large node)",
+  "why": "retired since September, no players, already runs Paper 1.21.8 build 60 (the showcase's build) as a service; the large node has about 131 GB RAM free at 33% CPU",
+  "now": "6 vCPU, 12 GB, 100 GB disk (93 GB free)",
+  "wanted": "12 vCPU, 24 GB: the showcase VM carries Paper and 14 bots at a load of 4-7 with about 9 GB in use",
+  "old_world": "its August testbed world stays where it is, never deleted; the rehearsal is a new level name beside it",
+  "not_chosen": "mc-playground: its node is full and carries the house's firewall and DNS. vm-minecraft-ai and vm-minecraft-bots: the instance-1 pair retired 08-21, no guest agent, older images"
+ },
 
  "world": {
   "name": "fw-s12",
@@ -71,8 +81,7 @@
  },
 
  "open": [
-  {"id": "owner_yes_rehearsal_world", "question": "May a rehearsal world run on a throwaway seed now? (11-06: the sandbox stage-1 run was not chosen)"},
-  {"id": "host", "question": "Which VM runs it: a new one on the large node, or an existing idle one?"},
+  {"id": "host_resize", "question": "The chosen VM is 6 vCPU / 12 GB; the resize to 12 / 24 needs a VM restart and is not done"},
   {"id": "pool_name", "question": "About 43 switches in the showcase build are keyed on the pool name; the rehearsal either runs under the showcase's pool name on its own world or each switch must list the new name"},
   {"id": "brain_capacity", "question": "Can the showcase's model endpoint serve 12 more bots? Not measured"},
   {"id": "day0_from_spawn", "question": "Nobody has seen bots go from spawn to a town core unattended; rehearsal 0 exists to find where that breaks"},
