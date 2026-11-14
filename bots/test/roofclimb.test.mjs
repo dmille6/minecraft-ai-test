@@ -410,6 +410,47 @@ test('shaftAscend asks its caller\'s judge before the swing, and asks nothing wh
   assert.equal(yes.gained, 3); assert.deepEqual(b.log.digs, ['cobblestone@1,70,5'])
 })
 
+test('PUSHED TO ANOTHER COLUMN WHILE CENTRING, the climb plans THAT column (review r4, Codex blocker 1): never the old top', async () => {
+  // column x=1: roof through y76 (top 77). The centring walk ends with the body in column x=2 (roof: one dirt at 70) and another goal set.
+  const w = pocket()
+  for (let y = 71; y <= 76; y++) w.set(1, y, 5, 'stone')
+  const { bot, log } = simBot(w, { at: [1.21, 68, 5.78], walk: (b) => { b.entity.position = V(2.5, 68, 5.5); const other = { x: 9, y: 9, z: 9 }; b.pathfinder.goal = other; b.emit('goal_updated', other) } })
+  const r = await surface(bot)
+  const at = bot.entity.position.floored()
+  assert.deepEqual([at.x, at.y, at.z], [2, 71, 5], r.detail)
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(log.digs, ['dirt@2,70,5'])
+  assert.ok(log.places.every(c => Number(c.split(',')[1]) <= 70), `nothing above the plaza: ${log.places}`)
+  // (the shaft itself takes the body before it climbs -- its own haltPath, as for every climb -- so the other goal is gone by now)
+})
+
+test('AN INTERRUPTED CLIMB IS OWED TOO (review r4, Codex blocker 2): aborted after the roof dig, the next call finishes it', async () => {
+  const ac = new AbortController()
+  const { bot, log } = simBot(pocket(), { onDig: () => setTimeout(() => ac.abort(), 400) })   // one block laid, then the interrupt
+  const err = await S.SKILLS.surface.run({ bot }, {}, ac.signal).then(() => null, e => e)
+  assert.equal(err?.aborted, true, String(err?.message))
+  const y = Math.floor(bot.entity.position.y)
+  assert.ok(y >= 68 && y < 71, `in the hole, got y=${y}`)
+  assert.deepEqual(bot.roofClimbOwed && [bot.roofClimbOwed.x, bot.roofClimbOwed.z, bot.roofClimbOwed.toY], [1, 5, 71])
+  const r = await surface(bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(Math.floor(bot.entity.position.y), 71)
+  assert.equal(bot.roofClimbOwed, null)
+})
+
+test('unread build records at the plan: nothing is dug and the words are "again in a minute", not another spot (review r4)', async () => {
+  const bad = path.join(process.env.POOL_STATE_DIR, `${projKey({ x: 0, y: 70, z: 0 }, 'monument')}.g1.json`)
+  fs.writeFileSync(bad, '{ not json')
+  try {
+    const { bot, log } = simBot(pocket()); S.escapeRecordSnapshot(bot, Date.now(), { fresh: true })
+    const r = await surface(bot)
+    assert.deepEqual([r.status, r.failClass], ['failed', 'already_surfaced'], r.detail)
+    assert.match(r.detail, /build records could not be read just now, so nothing over you is dug: run surface again in a minute/)
+    assert.doesNotMatch(r.detail, /goto or explore|step to a spot/)
+    assert.deepEqual([log.digs, log.places], [[], []])
+  } finally { fs.unlinkSync(bad); S.escapeRecordSnapshot({ worldId: null }, Date.now(), { fresh: true }) }
+})
+
 test('AN INTERRUPT ENDS THE WALK AT ONCE (review r1, Codex blocker 3): the goal is cleared, the listeners are gone, the abort is the abort', async () => {
   const w = pocket({ door: true })
   const { bot, log } = simBot(w, { search: plugin(w).search, walk: () => {} })   // a walk that never ends
@@ -667,6 +708,20 @@ test('MUTANTS: each guard is the thing that holds', async () => {
     const { bot } = simBot(pocket(), { at: [1.21, 68, 5.78], onDig: () => at.push(bot.entity.position.x) })
     await surface(bot, {}, M)
     assert.deepEqual(at, [1.21], 'MUTANT 20 SURVIVED')
+  })
+  // 21. the column is not read again after centring -> the pushed bot takes the old column's top (blocks past the plaza)
+  await withMutant(SKILLS_URL, "        if (c.x !== q.x || c.z !== q.z) { if (++moves >= ROOF_CLIMB.sidesteps) { lastStop = 'moved off every column tried'; break } continue }\n", '', async M => {
+    const w = pocket(); for (let y = 71; y <= 76; y++) w.set(1, y, 5, 'stone')
+    const { bot, log } = simBot(w, { at: [1.21, 68, 5.78], walk: (b) => { b.entity.position = V(2.5, 68, 5.5); const other = { x: 9, y: 9, z: 9 }; b.pathfinder.goal = other; b.emit('goal_updated', other) } })
+    await surface(bot, {}, M)
+    assert.ok(log.places.some(c => Number(c.split(',')[1]) > 70), `MUTANT 21 SURVIVED: ${log.places}`)
+  })
+  // 22. owed only on a normal exit -> an aborted climb is owed nothing
+  await withMutant(SKILLS_URL, "    } finally {\n      // WHAT IS STILL OWED:", "    } finally { if (signal?.aborted) return undefined\n      // WHAT IS STILL OWED:", async M => {
+    const ac = new AbortController()
+    const { bot } = simBot(pocket(), { onDig: () => setTimeout(() => ac.abort(), 400) })
+    await M.SKILLS.surface.run({ bot }, {}, ac.signal).then(() => null, e => e)
+    assert.equal(bot.roofClimbOwed ?? null, null, 'MUTANT 22 SURVIVED')
   })
   // 11. no abort listener -> an interrupted walk goes on (it would end at the walk's own 20 s; here: still pending after 600 ms)
   await withMutant(SKILLS_URL, "        signal?.addEventListener?.('abort', onAbort, { once: true })\n        try { await withTimeout(walkToGoal(bot, skyGoal,", "        try { await withTimeout(walkToGoal(bot, skyGoal,", async M => {

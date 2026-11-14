@@ -32446,7 +32446,8 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
       failClass: 'already_surfaced',
       gap: `at_y${y}`,
       detail: `already at y=${y}, at or above sea level ${SEA_LEVEL} — ` +
-              (roofWhy === 'built' ? `what is over you is built or protected (${roofBuilt}) and surface leaves it standing; leave on foot with goto or explore, or if you can step to a spot with only dirt or stone overhead, run surface there`
+              (roofWhy === 'built' && /records are unread/.test(roofBuilt ?? '') ? `the town's build records could not be read just now, so nothing over you is dug: run surface again in a minute`
+               : roofWhy === 'built' ? `what is over you is built or protected (${roofBuilt}) and surface leaves it standing; leave on foot with goto or explore, or if you can step to a spot with only dirt or stone overhead, run surface there`
                                    : `nothing to climb; use gather, explore or goto from here`),
     }
   }
@@ -32512,6 +32513,7 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
     // OUT IS STANDING ABOVE THE SLAB IT STARTED UNDER, in that slab's own column: a column that reads open after its roof was dug
     // is a hole the bot still stands in (caught by this piece's own test: two blocks to pillar with, three needed, "out" at 70)
     let target = roofTarget, moves = 0
+    try {
     while (Date.now() < DEADLINE) {
       check(signal)
       const q = roofAt()
@@ -32531,12 +32533,19 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
       // pathfinder's fullStop snaps a body more than 0.2 off; VERIFIED in the row, never assumed.
       if (roofOff() > 0.2) {
         const g0 = new goals.GoalBlock(q.x, q.y, q.z)
+        const onAbort = () => { if (bot.pathfinder?.goal === g0) haltPath(bot) }
+        check(signal)
+        signal?.addEventListener?.('abort', onAbort, { once: true })
         try { await withTimeout(walkToGoal(bot, g0, () => bot.pathfinder.setGoal(g0)), ROOF_CLIMB.centreMs, bot, { what: 'centring under the roof', needsDrop: false }) } catch (e) {
           if (bot.pathfinder?.goal === g0) haltPath(bot)
           if (e?.aborted) throw e
           check(signal)
-        }
-        roofRow(roofOff() > 0.2 ? 'failed' : 'success', { op: 'centre', at: `${q.x},${q.y},${q.z}`, off: roofOff().toFixed(2) })
+        } finally { signal?.removeEventListener?.('abort', onAbort) }
+        const c = roofAt()
+        roofRow(roofOff() > 0.2 ? 'failed' : 'success', { op: 'centre', at: `${q.x},${q.y},${q.z}`, now: `${c.x},${c.y},${c.z}`, off: roofOff().toFixed(2) })
+        // THE BODY MAY HAVE BEEN MOVED WHILE IT WAITED (review r4, Codex blocker 1: pushed to the next column, it took the old
+        // column's top there -- nine blocks to y77): another column is planned from the top of the loop, before any swing or block
+        if (c.x !== q.x || c.z !== q.z) { if (++moves >= ROOF_CLIMB.sidesteps) { lastStop = 'moved off every column tried'; break } continue }
       }
       const claim = runner?.claimBody?.('climb') ?? null
       let shaft
@@ -32544,16 +32553,22 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
       finally { claim?.release?.() }
       lastStop = shaft.stopped ?? null
       // a liquid sidestep: the new column is planned before anything else is dug or laid; at most ROOF_CLIMB.sidesteps a call
-      if (shaft.moved) { if (++moves > ROOF_CLIMB.sidesteps) { lastStop = 'liquid over every column tried'; break } continue }
+      if (shaft.moved) { if (++moves >= ROOF_CLIMB.sidesteps) { lastStop = 'liquid over every column tried'; break } continue }
       const stop = String(shaft.stopped ?? '')
       if (/^will not break/.test(stop) || stop.includes('no scaffold')) break   // the same answer from the same cell: said once
       if (shaft.gained >= 1) { stalls = 0; continue }
       if (++stalls >= 2) break
     }
-    // WHAT IS STILL OWED: this column's top, while the bot stands under it in that column (roofOwedFor; cleared when out)
-    const q = roofAt()
-    bot.roofClimbOwed = !roofOut && target && target.x === q.x && target.z === q.z && bot.entity.position.y < target.toY
-      ? { x: target.x, z: target.z, toY: target.toY, at: Date.now(), world: bot.worldId ?? null } : null
+    } finally {
+      // WHAT IS STILL OWED: this column's top, while the bot stands under it in that column (roofOwedFor; cleared when out). On
+      // EVERY exit, an abort's too (review r4, Codex blocker 2: interrupted after the roof dig, the bot stood in the hole with
+      // nothing owed and the next call answered "nothing to climb")
+      try {
+        const q = roofAt()
+        bot.roofClimbOwed = !roofOut && target && target.x === q.x && target.z === q.z && bot.entity.position.y < target.toY
+          ? { x: target.x, z: target.z, toY: target.toY, at: Date.now(), world: bot.worldId ?? null } : null
+      } catch { /* no position: nothing is owed */ }
+    }
   }
 
   while (roofWhy !== 'roofed' && bot.entity.position.y < TOP && Date.now() < DEADLINE) {
