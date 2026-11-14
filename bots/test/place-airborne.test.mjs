@@ -54,8 +54,9 @@ test('placeBlock is bounded, or one silent spot eats every candidate', () => {
   assert.equal(bare.length, 0,
     `every placeBlock(ref) must be wrapped; found ${bare.length} bare`)
   const wrapped = EXEC.match(/withTimeout\(bot\.placeBlock\(ref\b/g) ?? []
-  assert.equal(wrapped.length, 2,
-    `place() and build() both wrap it -- expected 2, found ${wrapped.length}`)
+  // glass-01 (2026-11-08): + the glaze walk's pane place, wrapped like the other two
+  assert.equal(wrapped.length, 3,
+    `place(), build() and the glaze walk's pane place all wrap it -- expected 3, found ${wrapped.length}`)
   assert.match(EXEC, /const PLACE_ACK_MS = [0-9_]+/, 'and the ceiling is a real constant')
 })
 
