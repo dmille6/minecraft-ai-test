@@ -19,7 +19,9 @@
 //           bad_cell  the destination has no room for a body in the save
 // The walk profile is index.mjs's WALK profile with an empty bag: canDig false, no parkour, maxDropDown 6, no block to place
 // (the pathfinder places only what the bag holds), plus the live release's own corner and shore rules when its src is
-// beside the modules (cornermoves.mjs, watermoves.mjs: no imports of their own). READ ONLY: it touches no server and no bot.
+// beside the modules (cornermoves.mjs, watermoves.mjs: no imports of their own). NOT MODELLED: doors, gates and trapdoors are
+// shut (as for the live bots: canOpenDoors is off), the well column's price and the lid price are not applied (they price a
+// walk, they do not forbid one). READ ONLY: it touches no server and no bot.
 import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -28,7 +30,7 @@ import { pathToFileURL } from 'node:url'
 const args = process.argv.slice(2)
 const mi = args.indexOf('--modules')
 const modules = mi >= 0 ? args[mi + 1] : process.cwd()
-const jobPath = args.find((a, i) => !a.startsWith('--') && i !== mi + 1)
+const jobPath = args.find((a, i) => !a.startsWith('--') && (mi < 0 || i !== mi + 1))
 if (!jobPath) { console.error('usage: routereplay.mjs <job.json> [--modules <dir with node_modules>]'); process.exit(2) }
 const require_ = createRequire(path.join(path.resolve(modules), 'package.json'))
 const job = JSON.parse(readFileSync(jobPath, 'utf8'))
