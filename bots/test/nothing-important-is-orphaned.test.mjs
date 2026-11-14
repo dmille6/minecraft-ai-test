@@ -605,6 +605,12 @@ const REQUIRED = [
   // stopwatch (11-14, owner "clean up this test, implement, stage, queue, fix loop"): what worked yesterday and does not work now
   // soakgate (11-14): the release tool's own tests run from npm test
   'bots/test/showcase-ops.test.mjs',
+  // routewatch (11-14): can the bots still walk to the town's services -- the real A* over the saved ground, hourly
+  'scripts/host/routewatch.py',
+  'scripts/host/routereplay.mjs',
+  'scripts/host/regiondump.py',
+  'scripts/host/test_routewatch.py',
+  'bots/test/routewatch.test.mjs',
   'scripts/host/stopwatch.py',
   'scripts/host/test_stopwatch.py',
   'bots/test/stopwatch.test.mjs',
