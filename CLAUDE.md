@@ -120,6 +120,23 @@ make it deterministic), and **composed**: test the refusal chain, not the single
   (`!! promotion ... does NOT merge into main`). Do not race it; re-fetch. A page means a hand merge.
 - A gate's install state is its **digest**, not its name: `gatedigest.py` compares the live bundle
   against the registered one. Do not grep for a version string.
+- **The showcase takes one change at a time** (owner 11-14; `/srv/showcase/SOAK_GATE`). `showcase_ops.py stage`
+  and a first `activate` are refused until the LIVE release has a read (KEEP / REVERT /
+  INCONCLUSIVE) written at least 3 h after it went live. Write reads with
+  `showcase_ops.py read --run <run> --decision "KEEP (...)" --why "<numbers>"`, never by hand. The
+  one way past is a fix of what the live release shows: `stage ... --fix-of <live release or the one
+  it replaced> --fix-why "<what it shows>"`. Going back to a release that was live before is never
+  gated. (11-13: six releases on 14 bots in a day; the wrong piece was blamed first.)
+- **`stopwatch.py` pages when something that worked yesterday never works now** (showcase, hourly,
+  `~/digest/stopwatch-showcase.json`). A `stopped:` page stays up until that thing succeeds again;
+  retire one on purpose with `--release skill:<name>`. Before calling a piece a KEEP, read what it
+  says: a one-hour read of your own piece's rows does not see what else you broke. (11-13: the
+  junk well was dead 5 h under three KEEPs.)
+- **Before a release that changes how bots walk or place, replay the real route.** Read the blocks
+  from the saved region and run the real A* over them (the 11-14 well replay: 17 ms to show the
+  route, after a live release had failed for want of it). `mineflayer-pathfinder`'s `goto`
+  resolves on any empty `path_update`, a `partial` one included: use `walkToGoal`
+  (`cleanzone.mjs`) when arrival matters.
 
 ## Commits and merges
 
