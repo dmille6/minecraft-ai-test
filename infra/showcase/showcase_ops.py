@@ -746,6 +746,7 @@ def stage_main(a, sha, feed, last, ledger):
                     extra={'mode': 'main', 'piece': [row.get('run')], 'gate': rec, 'prev': rel_sha, 'prev_release': prev})
     if not ok:
         return refuse(out)
+    journal_soak(os.path.basename(out), sha, srec)
     append(PIECES, {'event': 'staged', 't': FR.iso(now_utc()), 'sha': sha, 'release': os.path.basename(out), 'prev': rel_sha, **rec})
     print('STAGED ' + out)
     return 0
@@ -813,6 +814,7 @@ def stage_piece(a, sha, feed, last):
                     extra={'piece': runs, 'gate': rec, 'prev': rel_sha, 'prev_release': prev})
     if not ok:
         return refuse(out)   # a conflicting cached release included (Codex r2 P3)
+    journal_soak(os.path.basename(out), sha, srec)
     append(PIECES, {'event': 'staged', 't': FR.iso(now_utc()), 'sha': sha, 'release': os.path.basename(out), 'prev': rel_sha,
                     'piece': runs})
     for r in runs:   # an owner-authorized protected piece is journalled where every release is (ops/deploy.jsonl)
@@ -855,10 +857,13 @@ def _row_time(row):
 def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
     """PURE. ONE CHANGE AT A TIME -> why (a refusal that names what to do) | None.
     deploy_rows: ops/deploy.jsonl. The live release is the newest `activated` row; nothing activated yet -> None."""
-    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated' and r.get('release')]
+    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated']
     if not acts:
         return None
-    live = acts[-1]
+    live = acts[-1]                      # the NEWEST activation, readable or not (Codex r1: never fall back to an older one)
+    if not live.get('release'):
+        return ('one change at a time: the newest activated row in the journal names no release, so what is live cannot be '
+                'told; fix that row first (ops/deploy.jsonl)')
     rel = str(live['release'])
     t0 = _row_time(live)
     if fix_of is not None or fix_why is not None:
@@ -876,7 +881,7 @@ def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
         if (isinstance(r, dict) and r.get('event') == 'read' and str(r.get('release')) == rel
                 and str(r.get('decision') or '').strip().upper().startswith(READ_DECISIONS)):
             tr = _row_time(r)
-            if tr is not None and tr >= t0 + soak:
+            if tr is not None and t0 + soak <= tr <= now:   # never a read dated ahead of the clock (Claude r1)
                 return None
     due = t0 + soak
     wait = due - now
@@ -887,13 +892,68 @@ def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
             f'or, for a fix of what it broke: --fix-of {rel[:8]} --fix-why "<what the live release shows>"')
 
 
+def activation_soak_refusal(deploy_rows, release, now):
+    """PURE. THE SAME RULE AT THE SWITCH (Claude r1: asked only at stage, two releases staged while X was live and read both
+    passed, and went live ten minutes apart -- the 11-13 two-session shape). -> why | None.
+    A release that has been live before is a way BACK (a rollback, a return) and is never gated. A release going live for
+    the first time is judged against what is live NOW, with the fix it was admitted as (its newest `soak-admit` row)."""
+    rows = [r for r in deploy_rows if isinstance(r, dict)]
+    if any(r.get('event') == 'activated' and str(r.get('release')) == str(release) for r in rows):
+        return None
+    adm = [r for r in rows if r.get('event') == 'soak-admit' and str(r.get('release')) == str(release)]
+    fix_of, fix_why = (adm[-1].get('fix_of'), adm[-1].get('fix_why')) if adm else (None, None)
+    why = soak_refusal(rows, now, fix_of or None, fix_why or None)
+    return why and (why + f' [activating {release}: a fix admission is recorded by staging it again with --fix-of / --fix-why]')
+
+
+def read_row_refusal(deploy_rows, decision, why_text):
+    """PURE. May this read be journalled for the live release? -> why not | None."""
+    went_live = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated']
+    if not went_live or not went_live[-1].get('release'):
+        return 'nothing is live to read (no activated row with a release)'
+    if not str(decision or '').strip().upper().startswith(READ_DECISIONS):
+        return f'a read\'s decision starts with one of {" / ".join(READ_DECISIONS)} (then anything: "KEEP (throws 11/h)")'
+    if len(str(why_text or '').strip()) < FIX_WHY_MIN:
+        return f'--why carries the numbers the decision rests on ({FIX_WHY_MIN}+ characters: the window, the denominator, the script)'
+    return None
+
+
+def cmd_read(a):
+    """`read --run <run> --decision "KEEP (...)" --why "<numbers>"`: the read row of the LIVE release, written in the one shape
+    the gate reads (Claude r1: read rows were hand-written; a short release id or a naive time silently did not count)."""
+    lk = lock()
+    rows = FR.load_jsonl(DEPLOY)
+    bad = read_row_refusal(rows, a.decision, a.why)
+    if bad:
+        print('REFUSED: ' + bad)
+        return 1
+    live = [r for r in rows if isinstance(r, dict) and r.get('event') == 'activated'][-1]
+    now = now_utc()
+    row = {'t': FR.iso(now), 'event': 'read', 'release': str(live['release']), 'run': a.run, 'decision': a.decision.strip(),
+           'why': a.why.strip(), 'by': a.by or 'operator'}
+    append(DEPLOY, row)
+    t0 = _row_time(live)
+    opens = t0 is not None and now >= t0 + SOAK
+    print(f"READ journalled for {row['release']}: {row['decision'][:80]}")
+    print('  one change at a time: this read OPENS the gate' if opens else
+          f"  one change at a time: this read is before {FR.iso(t0 + SOAK) if t0 else '?'} and does NOT open the gate; write the "
+          f'{int(SOAK.total_seconds() // 3600)}-h read then')
+    return 0
+
+
+def journal_soak(release, sha, rec):
+    """The admission, journalled where every release is (Codex r1: a release served from the staged cache keeps the gate
+    record it was BUILT with, so RELEASE.json alone would lose a later --fix-of admission)."""
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'soak-admit', 'release': release, 'sha': sha, **rec})
+
+
 def soak_admit(a, now=None):
     """-> (ok, record). The gate over the real journal; `record` goes into the release's gate."""
     fix_of, fix_why = getattr(a, 'fix_of', None), getattr(a, 'fix_why', None)
     why = soak_refusal(FR.load_jsonl(DEPLOY), now or now_utc(), fix_of, fix_why)
     rec = {'ok': why is None, 'enforced': soak_enforced()}
     if why:
-        rec['why'] = why[:300]
+        rec['why'] = why        # whole: its last words are the remedy (Claude r1: a 300-character cut ended at `--fix-of`)
     if fix_of and why is None:
         rec['fix_of'], rec['fix_why'] = str(fix_of), str(fix_why).strip()[:300]
     return why is None, rec
@@ -1194,6 +1254,14 @@ def cmd_activate(a):
     if bad:
         print(f'REFUSED: {bad}; nothing switched')
         return 1
+    # ONE CHANGE AT A TIME at the switch too (owner 11-14): a release going live for the first time, against what is live now
+    swhy = activation_soak_refusal(FR.load_jsonl(DEPLOY), os.path.basename(os.path.abspath(a.release)), now_utc())
+    if swhy and soak_enforced():
+        print(f'REFUSED: {swhy}; nothing switched')
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'activate-refused', 'release': os.path.basename(os.path.abspath(a.release)), 'why': swhy[:300]})
+        return 1
+    if swhy:
+        print('WARNING (SOAK_GATE off): ' + swhy)
     cur = current_release()
     return activate(os.path.abspath(a.release), prev_admissible=release_admissible(cur),
                     snapshot=getattr(a, 'no_snapshot', None) is None, no_snapshot_why=getattr(a, 'no_snapshot', None))
@@ -1625,6 +1693,11 @@ def main():
     t = sub.add_parser('activate')
     t.add_argument('release')
     t.add_argument('--no-snapshot', default=None, metavar='WHY', help='skip the world snapshot (journalled with WHY)')
+    rd = sub.add_parser('read', help='journal the read of the LIVE release (the row the one-change-at-a-time gate reads)')
+    rd.add_argument('--run', required=True)
+    rd.add_argument('--decision', required=True, help='KEEP | REVERT | INCONCLUSIVE, then anything: "KEEP (throws 11/h)"')
+    rd.add_argument('--why', required=True, help='the numbers: window, denominator, script')
+    rd.add_argument('--by', default=None)
     r = sub.add_parser('record', help='append a release-log line (tests + reviews) to PIECES.jsonl')
     r.add_argument('--run', required=True)
     r.add_argument('--sha', required=True)
@@ -1647,7 +1720,7 @@ def main():
     q = sub.add_parser('quarantine', help='trip-cron on a Z1 quarantine: stop only the trapped bots')
     q.add_argument('--json', default=f'{OPS}/trip-last.json')
     a = ap.parse_args()
-    return {'follow': cmd_follow, 'stage': cmd_stage, 'activate': cmd_activate, 'gate': cmd_gate, 'record': cmd_record,
+    return {'follow': cmd_follow, 'stage': cmd_stage, 'activate': cmd_activate, 'gate': cmd_gate, 'record': cmd_record, 'read': cmd_read,
             'world-edit': cmd_world_edit, 'replay-fresh': cmd_replay_fresh, 'status': cmd_status,
             'trip-remedy': cmd_trip_remedy, 'quarantine': cmd_quarantine}[a.cmd](a)
 

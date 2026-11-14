@@ -16,12 +16,18 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
     # owner 11-14, one change at a time (showcase_ops.soak_refusal)
-    ('showcase_ops.py', "            if tr is not None and tr >= t0 + soak:", "            if tr is not None:", 'test_what_does_not_open_it'),
+    ('showcase_ops.py', "            if tr is not None and t0 + soak <= tr <= now:", "            if tr is not None and tr <= now:", 'test_what_does_not_open_it'),
+    ('showcase_ops.py', "            if tr is not None and t0 + soak <= tr <= now:", "            if tr is not None and t0 + soak <= tr:", 'test_a_read_dated_ahead_of_the_clock_does_not_open_it'),
+    ('showcase_ops.py', "    if any(r.get('event') == 'activated' and str(r.get('release')) == str(release) for r in rows):\n        return None\n    adm", "    if True:\n        return None\n    adm", 'test_the_same_rule_at_the_switch'),
+    ('showcase_ops.py', "    fix_of, fix_why = (adm[-1].get('fix_of'), adm[-1].get('fix_why')) if adm else (None, None)", "    fix_of, fix_why = (adm[0].get('fix_of'), adm[0].get('fix_why')) if adm else (None, None)", 'test_the_same_rule_at_the_switch'),
+    ('showcase_ops.py', "        rec['why'] = why        # whole", "        rec['why'] = why[:300]        # whole", 'test_soak_admit_reads_the_journal_and_records_the_fix'),
+    ('showcase_ops.py', "    if not str(decision or '').strip().upper().startswith(READ_DECISIONS):\n        return f'a read", "    if False:\n        return f'a read", 'test_the_read_command_writes_the_row_the_gate_reads'),
     ('showcase_ops.py', "        if (isinstance(r, dict) and r.get('event') == 'read' and str(r.get('release')) == rel\n", "        if (isinstance(r, dict) and r.get('event') == 'read'\n", 'test_what_does_not_open_it'),
     ('showcase_ops.py', "                and str(r.get('decision') or '').strip().upper().startswith(READ_DECISIONS)):", "                and True):", 'test_what_does_not_open_it'),
     ('showcase_ops.py', "        if not any(x.startswith(str(fix_of)) for x in fixable):", "        if False:", 'test_a_fix_must_name_the_live_release_and_say_why'),
     ('showcase_ops.py', "        if not fix_of or len(str(fix_of)) < 8 or not fix_why or len(str(fix_why).strip()) < FIX_WHY_MIN:", "        if not fix_of:", 'test_a_fix_must_name_the_live_release_and_say_why'),
-    ('showcase_ops.py', "    live = acts[-1]\n    rel = str(live['release'])", "    live = acts[0]\n    rel = str(live['release'])", 'test_the_11_13_afternoon_is_refused'),
+    ('showcase_ops.py', "    live = acts[-1]                      # the NEWEST activation", "    live = acts[0]                      # the NEWEST activation", 'test_the_11_13_afternoon_is_refused'),
+    ('showcase_ops.py', "    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated']\n", "    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated' and r.get('release')]\n", 'test_nothing_live_and_unreadable_rows'),
     # OWNER 11-07: the owner's authorization counts for its exact sha only, from the owner only, with a quote
     ('showcase_ops.py', "    if not (HEX40.fullmatch(str(oa.get('sha') or '')) and oa.get('sha') == psha):", "    if False:",
      'test_owner_authorization_replaces_the_fleet_keep_for_that_sha_only'),
