@@ -7257,7 +7257,7 @@
    "id": "rehearsal-0-1114",
    "kind": "host",
    "lane": "progress",
-   "max_quiet_hours": 96,
+   "max_quiet_hours": 30,
    "memory": [
     "one-trunk-plan-1114.md"
    ],
@@ -7265,9 +7265,8 @@
    "owner_date": "2026-11-14",
    "state": "open",
    "title": "Fresh-world rehearsal (owner 11-14): a 12-bot town on a throwaway seed (fw-s12, site D Birch Loop), 48-hour runs from one day-0 copy, scored by a daily card; the two finish-line worlds stay unseen",
-   "next_step": "BUILT 11-14 (owner: \"Start now, we have the credits\"), main 08541c53d: VM 118 resized to 12 vCPU / 24 GB, its old services off, its old world untouched; level fw-s12 with the showcase's server settings and the standard world rules; home 366,72,-34 (1 of 9 site candidates passed); the live showcase release 46286e9e copied and checked blob for blob; 12 bot units (not enabled); the day-0 snapshot (sha256 ccb0b10d...); scripts/host/rehearsalcard.py with its test. Paper is stopped so the world does not age. BLOCKED ON THE OWNER: which model serves the 12 bots. The Studio has not answered since 11-14 08:31Z and was busy 102% of the clock with the 14 showcase bots before that; a path from this VM also needs a new restricted key there. NOT BUILT: a stuck-goal reader on that host, a re-read of completed houses, Elasticsearch shipping. START = infra/freshworld/rehearsal-0.json `start_procedure`.",
-   "note": "OWNER 2026-11-14: \"1. yes\" (a rehearsal world on a throwaway seed; this reverses the 11-06 'not chosen' on a sandbox run); \"2. check each one and decide which is best, i dont care\" (the host). The 11-10 decision stands: World 1 (fw-t10) and World 2 (fw-s10) wait for the new building styles. Host check 11-14: the large node has about 131 GB RAM free at 33% CPU; the fast node is full (152 GB promised on 94) and carries the house's firewall and DNS, so its playground VM was not chosen.",
-   "owner_pending": "Which model endpoint serves the 12 rehearsal bots (the Studio is down and was already full)?"
+   "next_step": "RUNNING since 2026-11-14T14:46:09Z, ends 11-16 14:46Z (owner 11-14: model = \"Local 3090\"): Paper and 12 bots on VM 118, the showcase release 46286e9e, model qwen2.5:7b-instruct on the 3090 (Ollama started there for this run, NOT enabled at boot). First 3 minutes: 12 of 12 bots joined, 1,483 skill rows, 0 restarts, model calls answered. READS OWED by the control session: +1 h (15:46Z 11-14), +24 h (14:46Z 11-15), +48 h close (14:46Z 11-16) -- the card is /srv/rehearsal/ops/card-latest.txt on the VM, hourly. At the close: stop the 12 rhbot@ units and rehearsal-paper, write what broke and in what order, and restore the day-0 snapshot before any next run. NOT BUILT: a stuck-goal reader on that host, a re-read of completed houses, Elasticsearch shipping.",
+   "note": "OWNER 2026-11-14: \"1. yes\" (a rehearsal world on a throwaway seed; this reverses the 11-06 'not chosen' on a sandbox run); \"2. check each one and decide which is best, i dont care\" (the host). The 11-10 decision stands: World 1 (fw-t10) and World 2 (fw-s10) wait for the new building styles. Host check 11-14: the large node has about 131 GB RAM free at 33% CPU; the fast node is full (152 GB promised on 94) and carries the house's firewall and DNS, so its playground VM was not chosen."
   }
  ]
 }

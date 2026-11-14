@@ -8,10 +8,11 @@
   "2026-11-10: World 1 = fw-t10 at Cherry Reach, World 2 = fw-s10 at Twin Banks; new worlds wait for the new building styles",
   "2026-11-14: one trunk and a rehearsal run manifest approved (\"Yes, start both\")",
   "2026-11-14: a rehearsal world on a throwaway seed approved (\"1. yes\"); the host is the control session's choice (\"check each one and decide which is best\")",
-  "2026-11-14: \"Start now, we have the credits\" (the rehearsal setup; starting the 48-hour run itself is still the owner's word)"
+  "2026-11-14: \"Start now, we have the credits\" (the rehearsal setup; starting the 48-hour run itself is still the owner's word)",
+  "2026-11-14: the model for the 12 bots: \"Local 3090\""
  ],
- "status": "ready except for the model endpoint: world, day-0 snapshot, release, 12 bot units and the daily card exist; NOT started",
- "ready_when": "the model endpoint question under `open` is answered, the day-0 snapshot exists (world.day0_snapshot) and the owner says start",
+ "status": "RUNNING since 2026-11-14T14:46:09Z (48 hours): Paper and 12 bots on VM 118",
+ "ready_when": null,
  "host": {
   "vm": "vm-minecraft-ai-v2 (vmid 118, on the large node)",
   "why": "retired since September, no players, already runs Paper 1.21.8 build 60 (the showcase's build) as a service; the large node has about 131 GB RAM free at 33% CPU",
@@ -68,10 +69,10 @@
  "code": {
   "sha": "46286e9e3c3fd9bf1793585ca055f13df2bcb091",
   "sha_rule": "the showcase release that is live when the run starts; rehearsal 0 does not wait for the one-trunk merge",
-  "flags_file": "/srv/rehearsal/harness/env/rh0-*.env on the VM (12 files, 46 keys each), built by infra/freshworld/make_rehearsal_env.py from the release's control.env",
+  "flags_file": "/srv/rehearsal/harness/env/rh0-*.env on the VM (12 files, 46 keys each), built by infra/freshworld/make_rehearsal_env.py from the release's control.env (rebuilt 11-14 with the 3090 model; the earlier digest 6d85a694... named the unconnected Studio endpoint)",
   "flags_rule": "a copy of the showcase's settings taken at the start, kept beside this manifest's run record with its sha256",
   "release": "46286e9e-6dd0ded8-fdd64ead (roofclimb-01show; the showcase release live since 2026-11-14 06:21Z), copied whole from the showcase VM; all 226 source files match the git commit blob for blob",
-  "flags_sha256": "6d85a694238375f23843c842288c1fbf1c7f2cec41c29e749c41d45f4d7461d9",
+  "flags_sha256": "bd181450fa2eedcf16915f5f7d1b003f105012c9ed3bcb82d359b8e4680c3976",
   "unit_setting": "SHOP_COOLDOWN_MS=180000, the showcase's one live unit drop-in"
  },
  "bots": {
@@ -92,9 +93,12 @@
   ],
   "pool_name": "showcase",
   "brain": {
-   "endpoint": "http://127.0.0.1:11612 (gemma4:26b), the showcase's setting, NOT connected: no tunnel is installed on this VM",
-   "measured_2026-11-14": "the 14 showcase bots made 15.2 answered calls a minute (7,287 in 00:00-08:00Z), mean 4.0 s, p95 8.4 s; summed call time was 102% of the clock, so the Studio model was busy the whole time. 12 more bots would add about 86% more demand. No spare capacity was measured.",
-   "outage": "since 2026-11-14 08:31Z the Studio does not answer on its ssh port from the showcase VM or the controller: the showcase had 0 answered calls and about 1,440 failed calls an hour from 09:00Z to 14:00Z"
+   "endpoint": "http://10.0.0.16:11434 (Ollama on the RTX 3090 VM), model qwen2.5:7b-instruct -- the model and code path all 80 fleet bots use",
+   "differs_from_showcase": "the showcase runs gemma4:26b on the Studio behind a proxy that switches thinking off. The gemma variant on the 3090 (gemma4-12b-nothink-q8) spent its whole reply thinking when called the way the bots call it (empty content in a 300-token test), and the bots do not send the switch, so it was not used.",
+   "measured_2026-11-14": "from the VM: 6 of 6 valid actions, 0.95 s mean per warm call on a 2,500-token prompt (first call 18.5 s to load). In the first 2.5 minutes of the run: 3 answered calls, 0 failed, median 1.1 s, 3 of 3 schema-valid.",
+   "service": "ollama.service on the 3090 VM was STARTED for this run, not enabled at boot (it had been stopped since 11-08): a reboot of that VM leaves the bots without a model until it is started again. The GPU also carries an unrelated small server (6 GB); with this model 11.6 of 24.6 GB are in use.",
+   "studio_before": "the 14 showcase bots made 15.2 answered calls a minute (7,287 in 00:00-08:00Z), mean 4.0 s, p95 8.4 s; summed call time was 102% of the clock, so the Studio model was busy the whole time. 12 more bots would add about 86% more demand. No spare capacity was measured.",
+   "studio_outage": "since 2026-11-14 08:31Z the Studio does not answer on its ssh port from the showcase VM or the controller: the showcase had 0 answered calls and about 1,440 failed calls an hour from 09:00Z to 14:00Z"
   },
   "pool_name_why": "35 switches in the release default to the pool name `showcase` and one size table compares against it; another name would switch the town features off. The world, host and state directories are separate, and rows are told apart by exp.instance = rehearsal and exp.block = rehearsal-0."
  },
@@ -162,10 +166,6 @@
  },
  "open": [
   {
-   "id": "model_endpoint",
-   "question": "Which model serves the 12 rehearsal bots? The Studio is unreachable since 11-14 08:31Z and was fully busy with the showcase before that; reaching it from this VM also needs a new restricted key on the Studio. The local GPUs are barred to the showcase by make_env.py so canary arms stay equal."
-  },
-  {
    "id": "stuck_goal_reader",
    "question": "The longest-stuck-goal criterion has no reader on this host"
   },
@@ -178,17 +178,20 @@
    "question": "Rows stay in files on the VM; no dashboard shows the rehearsal"
   }
  ],
- "started_at": null,
+ "started_at": "2026-11-14T14:46:09Z",
  "telemetry": {
   "stream": "the bots' own log files on the VM (/var/log/mcai/rh0-*/skill-*.jsonl and llm-*.jsonl), read with scripts/lib/telemetry.py; a separate host, so nothing mixes with the showcase or the fleet",
   "elasticsearch": "not shipped: a writer account limited to rehearsal index names would have to be created on the log host first (as infra/showcase/es-showcase-setup.sh does for the showcase)",
-  "proof": "none yet: no bot has run, so there is no row to count; the card prints the row, bot and hour totals of every read as its positive control"
+  "proof": "2.5 minutes after the start: 1,272 skill rows from 12 of 12 bots, every row labelled pool=showcase, instance=rehearsal, block=rehearsal-0 and code version 46286e9e; 0 unit restarts",
+  "card_cron": "hourly at :07 on the VM (user mike): /srv/rehearsal/ops/card-latest.txt, appended to card-history.txt"
  },
  "start_procedure": [
-  "connect the model endpoint and prove one answered call from the VM",
-  "start rehearsal-paper.service and wait for Done",
-  "start the 12 rhbot@ units 12 s apart",
-  "write started_at (UTC) into the copy of this manifest on the VM and here",
-  "run rehearsalcard.py at +1 h, then daily"
+  "DONE 2026-11-14T14:46:09Z: Paper started, 12 bots 12 s apart, all 12 joined"
+ ],
+ "ends_at": "2026-11-16T14:46:09Z",
+ "reads_owed": [
+  "+1 h (15:46Z 11-14)",
+  "+24 h (14:46Z 11-15)",
+  "+48 h (14:46Z 11-16): the close, with KEEP-style words: what broke, in what order"
  ]
 }

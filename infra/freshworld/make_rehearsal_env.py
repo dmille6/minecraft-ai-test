@@ -15,6 +15,9 @@ env exactly as `infra/showcase/make_env.py` takes it (its `policy_of` is reused,
       release reads them in config.mjs and logger.mjs and nowhere else): they are what tells a rehearsal row from a
       showcase row.
   BOT_NAME is `rh0-<Name>`, so no bot shares a name with a showcase bot.
+  THE MODEL is the rehearsal's own (--brain, --model).  OWNER 2026-11-14, asked which model serves the 12 bots with the
+      Studio unreachable and already full: "Local 3090". So the 3090 (10.0.0.16), which the showcase may never use, is
+      allowed HERE and only here; the 5080 (the fleet's model host) and the 192.168.19x network stay refused.
 """
 import argparse, importlib.util, json, os, re, sys
 from pathlib import Path
@@ -28,16 +31,20 @@ NAMES = SME.NAMES[:12]                      # Alpha .. Lumen
 PREFIX = 'rh0-'
 POOL = 'showcase'                           # see the docstring: the release's switches key on this name
 LABEL = 'rehearsal'
-BRAIN = SME.BRAIN                           # the VM's own tunnel end; the endpoint behind it is the manifest's call
-BRAIN_MODEL = SME.BRAIN_MODEL
+FORBIDDEN_HOSTS = tuple(h for h in SME.FORBIDDEN_HOSTS if h != '10.0.0.16')   # see the docstring (owner 11-14)
+assert FORBIDDEN_HOSTS == ('10.0.0.72', '192.168.19'), FORBIDDEN_HOSTS
 
 
-def build_env(control, i, site, sha, run):
+def build_env(control, i, site, sha, run, brain, model):
     """-> ordered list of (key, value) for bot NAMES[i]."""
     if not re.fullmatch(r'[0-9a-f]{40}', sha or ''):
         raise ValueError(f'sha must be 40 hex, got {sha!r}')
     if not re.fullmatch(r'rehearsal-[0-9]+', run or ''):
         raise ValueError(f'run must be rehearsal-<n>, got {run!r}')
+    if not re.fullmatch(r'http://[0-9a-z.\-]+:[0-9]+', brain or ''):
+        raise ValueError(f'brain must be http://host:port, got {brain!r}')
+    if not model or '|' in model or ' ' in model:
+        raise ValueError(f'model name {model!r} is not usable in OLLAMA_BASE_URLS')
     name = PREFIX + NAMES[i]
     if len(name) > 16:
         raise ValueError(f'{name} is longer than the 16-character Minecraft limit')
@@ -52,18 +59,18 @@ def build_env(control, i, site, sha, run):
         ('MEMORY_POOL', POOL), ('MEMORY_SCOPE', 'board'),
         ('EXP_ARM', LABEL), ('EXP_INSTANCE', LABEL), ('EXP_BLOCK', run),
         ('RUN_ID', f'{run}-{sha[:8]}'),
-        ('OLLAMA_MODEL', BRAIN_MODEL),
-        ('OLLAMA_BASE_URLS', f'{BRAIN}|{BRAIN_MODEL}'),
-        ('OLLAMA_BASE_URL', BRAIN),
+        ('OLLAMA_MODEL', model),
+        ('OLLAMA_BASE_URLS', f'{brain}|{model}'),
+        ('OLLAMA_BASE_URL', brain),
         ('CODE_VERSION', sha),
         ('VIEWER_PORT', str(3200 + i)),
         ('LOG_DIR', f'/var/log/mcai/{name}'), ('STATE_DIR', f'/var/lib/mcai/{name}'),
     ]
     rows = sorted(pol.items()) + mine
     text = '\n'.join(f'{k}={v}' for k, v in rows)
-    for h in SME.FORBIDDEN_HOSTS:
+    for h in FORBIDDEN_HOSTS:
         if h in text:
-            raise ValueError(f'refusing: the env would name {h} (a bench model host; never used by a rehearsal)')
+            raise ValueError(f'refusing: the env would name {h} (the fleet\'s model host or the barred network; never used by a rehearsal)')
     return rows
 
 
@@ -74,6 +81,8 @@ def main():
     ap.add_argument('--sha', required=True)
     ap.add_argument('--run', required=True)
     ap.add_argument('--out-dir', required=True)
+    ap.add_argument('--brain', required=True, help='the model endpoint, http://host:port')
+    ap.add_argument('--model', required=True, help='the model name the endpoint serves')
     ap.add_argument('--bots', type=int, default=12)
     a = ap.parse_args()
     if not 1 <= a.bots <= len(NAMES):
@@ -82,12 +91,12 @@ def main():
     site = json.load(open(a.site))
     os.makedirs(a.out_dir, exist_ok=True)
     for i in range(a.bots):
-        rows = build_env(control, i, site, a.sha, a.run)
+        rows = build_env(control, i, site, a.sha, a.run, a.brain, a.model)
         p = os.path.join(a.out_dir, f'{PREFIX}{NAMES[i]}.env')
         with open(p + '.tmp', 'w') as f:
             f.write('\n'.join(f'{k}={v}' for k, v in rows) + '\n')
         os.replace(p + '.tmp', p)
-    print(f'wrote {a.bots} env files for {a.sha[:8]} ({a.run}) to {a.out_dir}')
+    print(f'wrote {a.bots} env files for {a.sha[:8]} ({a.run}) to {a.out_dir}; model {a.model} at {a.brain}')
 
 
 if __name__ == '__main__':

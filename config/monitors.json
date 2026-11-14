@@ -660,6 +660,19 @@
    "consumer": "the owner: http://10.0.0.186/status/weekly/weekly-latest.html, linked from every status report's headline block",
    "kind": "report",
    "note": "OWNER 11-09 course correction point 1: the four headline numbers weekly. Mondays 03:40Z. Rollback: delete the '# statusreport-weekly' cron line"
+  },
+  {
+   "id": "rehearsalcard",
+   "host": "188",
+   "cron": "host/rehearsalcard.py --manifest /srv/rehearsal/rehearsal-0.json",
+   "outputs": [
+    "/srv/rehearsal/ops/card-latest.txt",
+    "/srv/rehearsal/ops/card-history.txt"
+   ],
+   "fresh_hours": 2,
+   "consumer": "the control session: read at +1 h, +24 h and +48 h of each rehearsal run (infra/freshworld/rehearsal-0.json `reads_owed`); nobody is paged from it",
+   "kind": "report",
+   "note": "OWNER 11-14 fresh-world rehearsal. Hourly at :07 on VM 118 (user mike). Not watched by stallcheck (that host is not one it reads). Rollback: delete the '# rehearsalcard' cron line"
   }
  ]
 }
