@@ -31,7 +31,7 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
 |---|---|---|---|
 | C0 | Home GPUs only. Load test, then the showcase and the rehearsal served from the 5080/3090; Studio tunnel removed; every other outside endpoint found and removed | 24-h showcase read with the model answering, no `dark:model` page | load test 11-15 after 14:30Z; switch 11-16; closed 11-17 |
 | C1 | One trunk: showcase line merged into main (78 conflicted files), pool differences as flags, one release path. Fleet canary launches held for the length of the merge | both lines run a build that is on main; suite green | 11-16 (after 11:00Z) to about 11-20 |
-| C2 | Rehearsal-0: 12 bots, 48 h, fresh seed, no admin edits, on VM 118 | rehearsal card: town progress, nothing stuck over 6 h | about 11-17 to 11-19 |
+| C2 | Rehearsal-0: 12 bots, 48 h, fresh seed, no admin edits, on VM 118. **Started 11-14 14:46:09Z by another session** | rehearsal card: town progress, nothing stuck over 6 h | ends 11-16 14:46Z |
 | C3 | Test world replaces the fleet as the first stop for changes. If rehearsal-0 passed, that world carries on as the test world, grown to about 20 bots. Fleet shrinks to make GPU room | 7 days and at least 3 releases through test world then showcase; stopwatch, brainwatch and the death alarm working on the test world | 11-23 to 11-30 |
 | C4 | Retire the 16-world fleet: queue entries folded into the trunk or dropped (listed for the owner), bots and worlds stopped, saves and raw logs archived to the NAS, crons on block2-bots moved to the ops VM | VMs 201/202 stopped 7 days with nothing missed; owner's yes on each delete | stop 11-30; delete about 12-07 |
 | C5 | Shrink the rest: test hosts 4 to 1-2, Elasticsearch retention, VMs 122/204/205 if confirmed ours, showcase releases, autorebase worktrees, 3090 model files, local worktrees and branches; delete scheduler, autorebase, restack and promotion-merge code | final count: 5 VMs (plus test hosts) | week of 12-07 |
@@ -68,6 +68,68 @@ Dates are estimates. A step starts when the gate before it is passed, not on the
    adds value to the project compared to the real cost". Harness 2's six arms are not started. Stage 3b is closed and its
    verdict written; the harness stays on main as an occasional benchmark for a new local model that fits the home cards.
    A benchmark run is a one-off the owner asks for, not a standing job, and it uses no Blackwell and no paid API by default.
+
+6. **A time capsule of the showcase, kept as a standing test (owner 11-14 ~15:45Z):** "lets make a timecapsule now. and
+   use it as a test of our new bots and platform as time goes on". Done, see the section below.
+7. **Cameras are part of a world from its first moment (owner 11-14 ~15:50Z).** See "Cameras and timelapses" below.
+
+## Showcase time capsule (made 2026-11-14)
+
+The showcase town as saved at **15:50:17Z** with saving held and flushed. One archive, 433 MB:
+`capsule-20261114T1550Z.tar.zst`, sha256 `5b33ef3b19d578da40e17e9f8004eaf35c09ce9dcb88da09304ff4b46ead333b`.
+
+- **Permanent copy:** NAS `10.0.0.5:/volume1/homes/mike/showcase-capsules/capsule-20261114T1550Z/`, read-only, outside
+  every backup rotation; checksum read back from the NAS. Working copies: the showcase VM (`/srv/showcase/capsule/`), the
+  worlds host (`/srv/showcase-backup/capsules/`), VM 118 (`~/capsule-test/`). The NAS is reached from the worlds host with
+  its backup key; when that host is retired (C4) the key and this path move to the ops VM.
+- **Inside:** the world, the block-history database (523,533 block rows), plugins and server settings, the bots' own
+  records (project, tidy, atlas, per-bot state), every release record and the ops journals, the server runtime, the live
+  bot code (release 46286e9e-6dd0ded8-fdd64ead), the measuring scripts and their baseline. Passwords are left out; three
+  settings files are stored with those values replaced. Restore notes: `infra/capsule/README-capsule-20261114T1550Z.md`
+  (the same file is inside the archive and beside it on the NAS).
+- **Proven by a restore, not assumed:** unpacked on a different host (VM 118), all 169 world files matched their
+  checksums, both measuring scripts gave output identical to the baseline, and a Paper 1.21.8-60 server started on a copy
+  of the restored world (`Done (15.880s)`, CoreProtect enabled) and shut down cleanly. Not proven: bots joining a restored
+  copy.
+- **Baseline scorecard** (within 48 blocks of home): 368 open pits (791 columns, 2,416 blocks to fill); 26,116 air
+  blocks under the ground top in 32 hollows (the lawn is a deck over a gap); 2,181 of 5,790 planned tidy fills still open;
+  23 of 34 town projects complete, 7 open. Scripts and full output: `infra/capsule/scorecard/`.
+- **How it is used as a test:** restore to a COPY (never edit the capsule), run the new bots on it for a set time with no
+  admin world edits, run the same scorecard, compare with the baseline. The same capsule can be restored again for every
+  later version, so results are comparable across versions. First run: when the test world path (C3) works. The
+  measuring scripts are a first cut; a better measure can always be run on the capsule to get its own baseline.
+- **Disclosure:** the restore test ran on VM 118 at about 15:53-15:56Z. Rehearsal-0 had been started there at 14:46Z by
+  another session, which this session had not seen. The test unpacked 1.7 GB, ran the two scripts and ran a second Paper
+  server (4 GB heap, port 25599) for about 20 seconds. No port or file of the rehearsal was touched; the rehearsal's read
+  should name that window.
+
+## Cameras and timelapses (owner 11-14)
+
+The owner's words: cameras "from the very first moment the world is created to monitor and showcase the world building";
+some that "focus on whatever project or projects are going on, but once those projects are complete we can stop those
+timelapses since nothing will change"; "some top down and isometric, some 4k really beautiful rendering timelapses so i
+can showcase this process".
+
+Requirements:
+1. **From frame zero.** No world starts without its capture running. This is a gate on C3 (test world) and on any new
+   showcase world.
+2. **Project cameras that end.** A camera follows each active project and stops when the project is complete.
+3. **Views:** top-down, isometric, and 4K beauty renders.
+
+What exists today (showcase only, from the 11-07 and 11-10 work; not re-checked today): hourly top-down map frames with
+bot trails, event-driven project build clips, daily before/after, a daily reel, a weekly film, two 4K cameras (town and
+active project), nightly Chunky beauty renders.
+
+Gaps:
+- **Rehearsal-0 started today with no capture at all** (its server has no map or block-history plugin). Its day-0
+  snapshot exists, so frame zero can still be rendered; the hours since are not being captured.
+- A fresh-world camera plan was written on 11-10 and is not installed anywhere.
+- Isometric views: not confirmed to exist. Project cameras stopping at completion: not confirmed.
+- The render jobs run on the worlds host, which is retired at C4: they move to the ops VM.
+
+Design direction (proposed, not built): **save the world, not just the pictures.** A small copy of the world's region
+files every few minutes from minute zero costs little and lets any camera, angle or resolution be rendered later, even
+ones not thought of yet. Live cameras are then a choice of what to render now.
 
 ## Found 11-14, to settle in C0
 

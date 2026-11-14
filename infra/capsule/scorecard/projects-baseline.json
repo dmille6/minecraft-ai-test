@@ -1,0 +1,355 @@
+{
+ "files": 5723,
+ "plots": 34,
+ "by_state": {
+  "complete": 23,
+  "open": 7,
+  "standing": 1,
+  "plan": 1,
+  "None": 1,
+  "retired": 1
+ },
+ "structure_complete": 27,
+ "rows": [
+  {
+   "plot": "canefarm",
+   "blueprint": "canefarm@1",
+   "gen": 2,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 8,
+   "completeAt": 1793828287546,
+   "at": 1793828287515
+  },
+  {
+   "plot": "civicH",
+   "blueprint": "civic@1-Hw",
+   "gen": 1,
+   "state": "open",
+   "structure_complete": false,
+   "cells": 103,
+   "completeAt": null,
+   "at": 1794538932017
+  },
+  {
+   "plot": "civicM",
+   "blueprint": "civic@1-M24",
+   "gen": 1,
+   "state": "open",
+   "structure_complete": false,
+   "cells": 117,
+   "completeAt": null,
+   "at": 1794556238090
+  },
+  {
+   "plot": "cottage1",
+   "blueprint": "cottage@1f",
+   "gen": 23,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 186,
+   "completeAt": 1794511625762,
+   "at": 1794511625752
+  },
+  {
+   "plot": "country",
+   "blueprint": "country@1",
+   "gen": 2,
+   "state": "open",
+   "structure_complete": false,
+   "cells": 561,
+   "completeAt": null,
+   "at": 1794435859147
+  },
+  {
+   "plot": "cropfarm",
+   "blueprint": "cropfarm@1",
+   "gen": 2,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 21,
+   "completeAt": 1793780999275,
+   "at": 1793780999246
+  },
+  {
+   "plot": "decor",
+   "blueprint": "decor@1",
+   "gen": 24,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 65,
+   "completeAt": 1793869947543,
+   "at": 1794620969953
+  },
+  {
+   "plot": "dress",
+   "blueprint": "dress@1",
+   "gen": 13,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 69,
+   "completeAt": 1794153892894,
+   "at": 1794153892883
+  },
+  {
+   "plot": "enchantshop",
+   "blueprint": "enchantshop@1",
+   "gen": 23,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 503,
+   "completeAt": 1793970455988,
+   "at": 1793970455957
+  },
+  {
+   "plot": "forest",
+   "blueprint": "forest@1",
+   "gen": 9,
+   "state": "standing",
+   "structure_complete": true,
+   "cells": 83,
+   "completeAt": 1794087061668,
+   "at": 1794143571215
+  },
+  {
+   "plot": "hall",
+   "blueprint": "hall@1",
+   "gen": 24,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 807,
+   "completeAt": 1793934473332,
+   "at": 1794644943846
+  },
+  {
+   "plot": "house1",
+   "blueprint": "house@1",
+   "gen": 3,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 191,
+   "completeAt": 1793278776600,
+   "at": 1793944438775
+  },
+  {
+   "plot": "land",
+   "blueprint": "land@1",
+   "gen": 9,
+   "state": "plan",
+   "structure_complete": true,
+   "cells": 0,
+   "completeAt": null,
+   "at": 1794071540787
+  },
+  {
+   "plot": "monument",
+   "blueprint": "ziggurat@1",
+   "gen": 2,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 4889,
+   "completeAt": 1793302741661,
+   "at": 1793302741639
+  },
+  {
+   "plot": "paths",
+   "blueprint": "paths@1",
+   "gen": 24,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 620,
+   "completeAt": 1794356108494,
+   "at": 1794502877818
+  },
+  {
+   "plot": "road",
+   "blueprint": "road@1",
+   "gen": 8,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 146,
+   "completeAt": 1794563003107,
+   "at": 1794563003106
+  },
+  {
+   "plot": "shaft",
+   "blueprint": "shaft@2",
+   "gen": 10,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 1625,
+   "completeAt": 1793694288181,
+   "at": 1794354305086
+  },
+  {
+   "plot": "shop",
+   "blueprint": "workshop@1",
+   "gen": 4,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 254,
+   "completeAt": 1793212631279,
+   "at": 1793947695394
+  },
+  {
+   "plot": "shopchest",
+   "blueprint": "shopchest@1",
+   "gen": 2,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 2,
+   "completeAt": 1793542097015,
+   "at": 1793542096980
+  },
+  {
+   "plot": "shrine",
+   "blueprint": "shrine@1",
+   "gen": 2,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 95,
+   "completeAt": 1793776756036,
+   "at": 1793776756004
+  },
+  {
+   "plot": "siteprep",
+   "blueprint": "siteprep@1",
+   "gen": 26,
+   "state": null,
+   "structure_complete": true,
+   "cells": 0,
+   "completeAt": null,
+   "at": 1794557452467
+  },
+  {
+   "plot": "stepwell",
+   "blueprint": "stepwell@1",
+   "gen": 28,
+   "state": "open",
+   "structure_complete": false,
+   "cells": 2168,
+   "completeAt": null,
+   "at": 1794645151079
+  },
+  {
+   "plot": "storehouse",
+   "blueprint": "storehouse@1",
+   "gen": 2,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 99,
+   "completeAt": 1793546183435,
+   "at": 1793546183413
+  },
+  {
+   "plot": "storehub",
+   "blueprint": "storehub@1",
+   "gen": 65,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 604,
+   "completeAt": 1793869524015,
+   "at": 1794196793897
+  },
+  {
+   "plot": "tidy",
+   "blueprint": "tidy@1",
+   "gen": 180,
+   "state": "open",
+   "structure_complete": false,
+   "cells": 5790,
+   "completeAt": null,
+   "at": 1794639992918
+  },
+  {
+   "plot": "tower",
+   "blueprint": "tower@1",
+   "gen": 12,
+   "state": "open",
+   "structure_complete": false,
+   "cells": 901,
+   "completeAt": 1794553404906,
+   "at": 1794563183220
+  },
+  {
+   "plot": "townhall",
+   "blueprint": "townhall@1",
+   "gen": 16,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 569,
+   "completeAt": 1794511038621,
+   "at": 1794511038611
+  },
+  {
+   "plot": "treefarm",
+   "blueprint": "treefarm@1",
+   "gen": 4,
+   "state": "retired",
+   "structure_complete": true,
+   "cells": 0,
+   "completeAt": 1793478228215,
+   "at": 1794064822500
+  },
+  {
+   "plot": "wall",
+   "blueprint": "wall@1",
+   "gen": 6,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 827,
+   "completeAt": 1793409161358,
+   "at": 1793913044281
+  },
+  {
+   "plot": "walldemo",
+   "blueprint": "walldemo@1",
+   "gen": 2,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 0,
+   "completeAt": 1793913044266,
+   "at": 1793913044260
+  },
+  {
+   "plot": "wallext",
+   "blueprint": "wallext@1",
+   "gen": 12,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 886,
+   "completeAt": 1793906240054,
+   "at": 1794603556893
+  },
+  {
+   "plot": "waterwalk",
+   "blueprint": "waterwalk@1",
+   "gen": 1,
+   "state": "open",
+   "structure_complete": false,
+   "cells": 0,
+   "completeAt": null,
+   "at": 1794287669623
+  },
+  {
+   "plot": "wood",
+   "blueprint": "wood@1",
+   "gen": 4,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 49,
+   "completeAt": 1794554850252,
+   "at": 1794554850243
+  },
+  {
+   "plot": "yard",
+   "blueprint": "yard@1",
+   "gen": 11,
+   "state": "complete",
+   "structure_complete": true,
+   "cells": 349,
+   "completeAt": 1793689409575,
+   "at": 1794640735756
+  }
+ ]
+}

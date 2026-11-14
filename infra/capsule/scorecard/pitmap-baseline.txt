@@ -1,0 +1,38 @@
+CONTROL saved 2026-11-14T15:50:17Z newest 2026-11-14T15:50:17Z cells 166869 chunks 64 missing 0
+columns 11025 top kinds [('grass_block', 6170), ('cobblestone', 2762), ('stone', 460), ('dirt', 451), ('dirt_path', 367), ('stone_bricks', 188), ('spruce_planks', 160), ('spruce_stairs', 130), ('spruce_slab', 76), ('crafting_table', 23), ('diorite', 19), ('spruce_fence', 18)]
+tidy record g180: skipped {"stray_natural": 53, "beside_natural": 50, "stray_hollow": 18, "hole_deep": 3, "stray_tall": 2, "reserved": 47} | waived 40 | inwall keys ['box', 'boxes', 'pillars', 'litter', 'holes', 'cut', 'fill', 'skipped', 'access', 'ledger', 'rough']
+inwall {"box": 4, "boxes": 2, "pillars": 996, "litter": 15, "holes": 748, "cut": 1100, "fill": 1622, "skipped": 6, "access": 3, "ledger": 40, "rough": 2}
+record cells 16793 by plot [('monument', 4889), ('stepwell', 2168), ('shaft', 1625), ('tower', 901), ('wallext', 886), ('wall', 827), ('hall', 807), ('paths', 620), ('storehub', 604), ('townhall', 569), ('country', 557), ('enchantshop', 503), ('yard', 349), ('shop', 254)]
+tidy fill cells 5790 still open 2181
+
+OPEN PITS (top >= 2 under the median within 3): 791 columns in 368 pits; blocks to fill 2416
+  by size: 1 col 234 | 2-9 127 | 10-30 7 | >30 0
+   29 cols x -48..-25 z -16..-12  floor y 64..68  deepest 6  blocks 103 | tidy plans a fill in 1 cols | other records {} | wet cols 0
+   25 cols x 40..46 z 16..22  floor y 61..66  deepest 6  blocks 74 | tidy plans a fill in 0 cols | other records {'country': 30} | wet cols 0
+   16 cols x -20..-14 z 16..19  floor y 63..64  deepest 4  blocks 55 | tidy plans a fill in 4 cols | other records {} | wet cols 0
+   16 cols x 44..48 z -34..-30  floor y 63..66  deepest 5  blocks 60 | tidy plans a fill in 0 cols | other records {'country': 22} | wet cols 0
+   14 cols x -17..-10 z 33..36  floor y 65..67  deepest 3  blocks 31 | tidy plans a fill in 0 cols | other records {'hall': 12} | wet cols 0
+   14 cols x 20..26 z 33..35  floor y 66..73  deepest 9  blocks 53 | tidy plans a fill in 0 cols | other records {} | wet cols 0
+   11 cols x 45..48 z 26..30  floor y 64..66  deepest 4  blocks 33 | tidy plans a fill in 0 cols | other records {'country': 20} | wet cols 0
+    9 cols x -48..-43 z -46..-44  floor y 61..64  deepest 6  blocks 35 | tidy plans a fill in 0 cols | other records {'country': 5} | wet cols 0
+    9 cols x 14..18 z -45..-41  floor y 65..66  deepest 3  blocks 20 | tidy plans a fill in 5 cols | other records {} | wet cols 0
+    8 cols x 38..41 z 23..26  floor y 63..67  deepest 5  blocks 26 | tidy plans a fill in 0 cols | other records {'country': 14} | wet cols 0
+    8 cols x -41..-38 z -47..-45  floor y 61..64  deepest 5  blocks 25 | tidy plans a fill in 0 cols | other records {'country': 2} | wet cols 0
+    8 cols x -7..-2 z -31..-30  floor y 62..65  deepest 7  blocks 33 | tidy plans a fill in 1 cols | other records {} | wet cols 0
+    8 cols x 28..30 z 23..26  floor y 64..68  deepest 6  blocks 26 | tidy plans a fill in 3 cols | other records {} | wet cols 0
+    8 cols x -19..-16 z 1..3  floor y 63..67  deepest 4  blocks 22 | tidy plans a fill in 4 cols | other records {} | wet cols 0
+
+ROOFED HOLLOWS (air within 8 under the ground top): 7742 columns in 32 hollows; air blocks 26116
+  by size: 1 col 18 | 2-9 13 | 10-30 0 | >30 1
+  7683 cols x -48..48 z -48..48  air y 52..81  air blocks 26007 | tidy plans a fill in 143 cols | other records {'monument': 515, 'paths': 344, 'wall': 295} | roof {'grass_block': 4406, 'cobblestone': 1968, 'dirt': 363}
+    8 cols x -19..-14 z -6..-4  air y 61..66  air blocks 22 | tidy plans a fill in 0 cols | other records {} | roof {'grass_block': 4, 'stone': 2, 'cobblestone': 2}
+    6 cols x -48..-47 z -34..-31  air y 66..67  air blocks 9 | tidy plans a fill in 0 cols | other records {'monument': 6} | roof {'cobblestone': 6}
+    6 cols x 0..2 z -1..1  air y 61..74  air blocks 18 | tidy plans a fill in 1 cols | other records {} | roof {'grass_block': 3, 'cobblestone': 1, 'crafting_table': 1}
+    3 cols x -48..-46 z -26..-26  air y 66..68  air blocks 3 | tidy plans a fill in 0 cols | other records {'monument': 3} | roof {'cobblestone': 3}
+    2 cols x -11..-11 z 12..13  air y 60..60  air blocks 2 | tidy plans a fill in 0 cols | other records {'paths': 1} | roof {'grass_block': 1, 'dirt_path': 1}
+    2 cols x 9..9 z -44..-43  air y 57..60  air blocks 7 | tidy plans a fill in 0 cols | other records {} | roof {'cobblestone': 1, 'stone': 1}
+    2 cols x 9..9 z 1..2  air y 67..67  air blocks 2 | tidy plans a fill in 0 cols | other records {} | roof {'grass_block': 2}
+    2 cols x -12..-11 z -9..-9  air y 71..72  air blocks 3 | tidy plans a fill in 0 cols | other records {} | roof {'grass_block': 2}
+    2 cols x 4..5 z 6..6  air y 63..69  air blocks 4 | tidy plans a fill in 0 cols | other records {} | roof {'grass_block': 1, 'cobblestone': 1}
+    2 cols x -10..-9 z 11..11  air y 61..61  air blocks 2 | tidy plans a fill in 0 cols | other records {'paths': 2} | roof {'dirt_path': 2}
+    2 cols x 10..11 z -13..-13  air y 69..72  air blocks 5 | tidy plans a fill in 0 cols | other records {} | roof {'dirt': 2}

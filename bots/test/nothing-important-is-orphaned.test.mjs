@@ -763,6 +763,11 @@ const REQUIRED = [
   'bots/test/planahead.test.mjs',   // planahead-01
   'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
   'docs/decisions/consolidation-2026-11-14.md',   // owner 11-14: the consolidation plan of record (two worlds, 5080 + 3090 only, steps C0-C5)
+  'infra/capsule/README-capsule-20261114T1550Z.md',   // owner 11-14: the showcase time capsule's restore notes (the archive is on the NAS)
+  'infra/capsule/scorecard/pitmap.py',   // time capsule: the pit and hollow measure, paths by CAPSULE_REGION / CAPSULE_POOL
+  'infra/capsule/scorecard/projects.py',   // time capsule: one row per town project
+  'infra/capsule/scorecard/pitmap-baseline.txt',   // time capsule: baseline of 2026-11-14T15:50:17Z
+  'infra/capsule/scorecard/projects-baseline.json',
 ]
 
 t('every load-bearing path exists in the working tree', () => {
