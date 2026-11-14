@@ -98,7 +98,8 @@ await t('RULE: the bot\'s lid test (unchanged) and the server\'s rule (an approx
   assert.equal(L.serverLidBlocks(AIR), false)
 })
 await t('LICENCE: the mode detail names the rule; features.mjs::installFeatures (from the index.mjs spawn handler) writes `_lidclear_mode` once per spawn on the executable path (comments stripped)', () => {
-  assert.equal(L.lidClearModeDetail(), `phase=mode recount=clear dig=equip breakable=cobble budget_max=${L.LID_DIG_MAX_MS}`)
+  assert.equal(L.lidClearModeDetail({}), `phase=mode recount=clear dig=equip breakable=cobble budget_max=${L.LID_DIG_MAX_MS} ground=1`)
+  assert.equal(L.lidClearModeDetail({ LIDGROUND: 'off' }), `phase=mode recount=clear dig=equip breakable=cobble budget_max=${L.LID_DIG_MAX_MS} ground=0`, 'lidground-01: the switch is in the licence row')
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const wired = src => {
     const c = strip(src)
@@ -682,6 +683,136 @@ await t('MUTANT KILLED: dropping the waterlogged check digs beside a waterlogged
   await withMutant(LID_PATH, "const wet = b => LIQUID.test(b?.name ?? '') || b?.props?.waterlogged === true || b?.props?.waterlogged === 'true'",
     "const wet = b => LIQUID.test(b?.name ?? '')", async M => {
       assert.equal(M.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, AIR, { name: 'oak_stairs', props: { waterlogged: true } }, AIR] }), null)
+    })
+})
+
+// ------------------------------------------------------------------------------------------------- LIDGROUND-01
+// Natural ground on a town chest (fleet 11-14: 1,889 `_lid_clear outcome=refused` rows in 6 h on 14 chests in 9 towns; lids
+// tuff, stone, granite, diorite, dripstone_block, gravel, sand) comes off when no build record holds the cell.
+const GROUND = ['stone', 'granite', 'diorite', 'andesite', 'tuff', 'deepslate', 'calcite', 'dripstone_block', 'gravel', 'sand', 'red_sand']
+// the fake world knows few block names as solid (fakeworld.mjs SOLID): these tests' lids are full cubes, as on the server
+const FULL = new Set([...GROUND, 'stone_bricks'])
+const solid = w => { const at0 = w.bot.blockAt; w.bot.blockAt = p => { const b = at0(p); if (b && FULL.has(b.name)) { b.boundingBox = 'block'; b.shapes = [[0, 0, 0, 1, 1, 1]]; b.hardness = 1.5 } return b }; return w }
+const withEnv = async (k, v, fn) => { const had = Object.prototype.hasOwnProperty.call(process.env, k), was = process.env[k]; process.env[k] = v; try { return await fn() } finally { if (had) process.env[k] = was; else delete process.env[k] } }
+await t('LIDGROUND-01 RULE: a natural ground block comes off a lid only when every build record was read and none holds the cell; a record keeps it, named; unread records keep it; built kinds stay shut; the hazards still apply; LIDGROUND=off is the old rule', async () => {
+  const R = (lid, record, extra = {}) => L.lidClearRefusal({ lid: { name: lid }, above: AIR, sides: sides4(), record, ...extra })
+  for (const n of GROUND) {
+    assert.equal(R(n, false), null, `${n}: no record -> breakable`)
+    assert.match(R(n, 'workshop') ?? '', new RegExp(`${n} is part of the workshop record`))
+    assert.match(R(n, undefined) ?? '', /is not a block a bot may break off a lid \(the build records were not read\)/, `${n}: unknown records`)
+    assert.match(R(n, null) ?? '', /were not read/, `${n}: a record that could not be read`)
+    assert.equal(L.lidRecordGated(n), true, `${n} is judged against the records`)
+    assert.equal(L.lidMaterialRefusal(n, { record: false, ground: false }), `${n} is not a block a bot may break off a lid`, `${n}: switch off -> the old refusal, word for word`)
+    assert.equal(L.lidRecordGated(n, { ground: false }), false)
+  }
+  // what a bot BUILDS with is not ground, whatever the records say (positive control for the refusal: these are still shut)
+  for (const n of ['stone_bricks', 'smooth_stone', 'polished_andesite', 'polished_granite', 'sandstone', 'cut_sandstone', 'deepslate_bricks', 'cobbled_deepslate_wall', 'stone_slab', 'stone_stairs', 'ladder', 'iron_ore', 'obsidian', 'bedrock', 'glass', 'chest']) {
+    assert.match(R(n, false) ?? '', /is not a block a bot may break off a lid$/, `${n} stays refused`)
+    assert.equal(L.lidRecordGated(n), false)
+  }
+  assert.equal(L.lidRecordGated('cobblestone'), false, 'the old breakables are not record-gated')
+  assert.equal(L.lidRecordGated('oak_planks'), true, 'wood still is')
+  // the hazards are unchanged: sand under sand (hive-d -55,59,137), water beside, the junk well
+  assert.match(L.lidClearRefusal({ lid: { name: 'sand' }, above: { name: 'sand' }, sides: sides4(), record: false }), /sand above the lid would fall/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'gravel' }, above: { name: 'gravel' }, sides: sides4(), record: false }), /would fall/)
+  assert.equal(L.lidClearRefusal({ lid: { name: 'gravel' }, above: { name: 'chest' }, sides: sides4(), record: false }), null, 'hive-c -66,69,-58: gravel under a chest is clearable')
+  assert.equal(L.lidClearRefusal({ lid: { name: 'stone' }, above: { name: 'stone' }, sides: sides4({ name: 'stone' }), record: false }), null, 'isolated-b 354,72,150: stone under stone, in rock')
+  assert.match(L.lidClearRefusal({ lid: { name: 'tuff' }, above: AIR, sides: [AIR, { name: 'water' }, AIR, AIR], record: false }), /water or lava/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'tuff' }, above: { name: 'lava' }, sides: sides4(), record: false }), /water or lava/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'tuff' }, above: AIR, sides: sides4(), record: false, well: true }), /junk well/)
+  for (const v of ['off', 'OFF', '0', 'false', 'no', ' off ']) assert.equal(L.lidGroundOn({ LIDGROUND: v }), false, `LIDGROUND=${v}`)
+  for (const v of [undefined, '', 'on', '1']) assert.equal(L.lidGroundOn({ LIDGROUND: v }), true)
+})
+await t('LIDGROUND-01 ACTUATOR: tuff in no record -> dug (`_lid_clear outcome=dug lid=tuff`); the same tuff in the workshop record or the town plan -> refused, named, no dig; LIDGROUND=off -> the old refusal, no dig', async () => {
+  for (const lid of ['tuff', 'stone', 'granite', 'diorite', 'dripstone_block', 'gravel', 'sand']) {
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid })); w.bot.townPlan = null
+    const n0 = RECS.length
+    const r = await clear(w)
+    assert.equal(r.outcome, 'dug', `${lid}: ${r.detail}`); assert.equal(w.nameAt(5, 65, 0), 'air')
+    assert.deepEqual(w.digs.map(d => [d.at, d.scope?.purpose]), [['5,65,0', 'lid']])
+    assert.match(rowsSince(n0, '_lid_clear')[0], new RegExp(`^outcome=dug by=test at=5,64,0 .*lid=${lid} `))
+  }
+  {
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid: 'tuff' })); workshopRecord()
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused'); assert.match(r.detail, /tuff is part of the workshop record/); assert.equal(w.digs.length, 0)
+  }
+  {
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid: 'stone' })); w.bot.townPlan = { gen: 1, plan: {}, cells: new Set(['5,65,0']) }
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused'); assert.match(r.detail, /stone is part of the townplan record/); assert.equal(w.digs.length, 0)
+  }
+  {
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid: 'tuff' })); treeFarmRecord()
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused'); assert.match(r.detail, /tuff is part of the treefarm record/); assert.equal(w.digs.length, 0)
+  }
+  await withEnv('LIDGROUND', 'off', async () => {
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid: 'tuff' })); w.bot.townPlan = null
+    const n0 = RECS.length
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused'); assert.equal(w.digs.length, 0); assert.equal(w.nameAt(5, 65, 0), 'tuff')
+    assert.match(rowsSince(n0, '_lid_clear')[0], /outcome=refused .*lid=tuff .*why=tuff is not a block a bot may break off a lid$/, 'the fleet row of 11-14, word for word')
+  })
+  {
+    // built stone is not ground: stone_bricks in NO record stays shut (control: the same world with tuff was dug above)
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid: 'stone_bricks' })); w.bot.townPlan = null
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused'); assert.match(r.detail, /stone_bricks is not a block a bot may break off a lid/); assert.equal(w.digs.length, 0)
+  }
+})
+await t('LIDGROUND-01 CHAIN: count_town on a town whose chest sits under UNRECORDED tuff (placebo-c 351,72,144) -> walks, digs it, OPENS, counts (unknown_after=0) -> the town judges the bag; CONTROL LIDGROUND=off: `lid_blocked`, nothing counted, the bag stays unjudged', async () => {
+  {
+    const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64), tool('stone_pickaxe', 10)], 'tuff'); solid(w)
+    try {
+      await withEnv('LIDGROUND', 'off', async () => {
+        SK.resetCobbleReconcile(); w.bot.townPlan = null
+        assert.equal(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown', 'positive control: the town cannot judge')
+        const n0 = RECS.length, o0 = w.spy.opened.length
+        const r = await runCount(w)
+        assert.notEqual(r.counted, 1, 'the old rule counts nothing')
+        assert.equal(w.nameAt(5, 65, 0), 'tuff'); assert.equal(w.spy.opened.length - o0, 0)
+        assert.match(rowsSince(n0, '_stock_recount')[0], /counted=0 tried=1 unknown_after=[1-9]\d* fails=lid_blocked:1 /, 'the fleet row of 11-14')
+        assert.equal(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown', 'still unjudged: the deposit banks nothing')
+      })
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+  {
+    const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64), tool('stone_pickaxe', 10)], 'tuff'); solid(w)
+    try {
+      SK.resetCobbleReconcile(); w.bot.townPlan = null
+      assert.equal(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown', 'positive control: the town cannot judge')
+      const n0 = RECS.length, o0 = w.spy.opened.length
+      const r = await runCount(w)
+      assert.equal(r.status, 'success', r.detail); assert.equal(r.counted, 1)
+      assert.equal(w.nameAt(5, 65, 0), 'air', 'the tuff was dug')
+      assert.equal(w.spy.opened.length - o0, 1, 'the server opened it')
+      assert.match(rowsSince(n0, '_lid_clear')[0], /^outcome=dug by=count_town at=5,64,0 .*lid=tuff /)
+      assert.match(rowsSince(n0, '_stock_recount')[0], /counted=1 tried=1 unknown_after=0 /)
+      assert.notEqual(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown', 'judged on the count')
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+})
+await t('LIDGROUND-01 MUTANTS KILLED: the ground family dropped from the rule -> tuff is refused again; the record ignored -> the workshop\'s own stone is dug; built stone let into the family -> stone_bricks is dug', async () => {
+  await withMutant(LID_PATH, "  if (!LID_WOOD.test(name) && !(ground && LID_GROUND.test(name))) return `${name} is not a block a bot may break off a lid`",
+    "  if (!LID_WOOD.test(name)) return `${name} is not a block a bot may break off a lid`", async M => {
+      assert.match(M.lidClearRefusal({ lid: { name: 'tuff' }, above: AIR, sides: sides4(), record: false }) ?? '', /tuff is not a block a bot may break off a lid/, 'the mutant is the old rule')
+      assert.equal(M.lidClearRefusal({ lid: { name: 'oak_planks' }, above: AIR, sides: sides4(), record: false }), null, 'control: wood is untouched by the mutant')
+    })
+  await withMutant(SKILLS_PATH, "LID_BREAKABLE.test(lid.name) ? lidRecordAt(bot, c.offset(0, 1, 0)) : undefined", "LID_BREAKABLE.test(lid.name) ? false : undefined", async M => {
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid: 'stone' })); workshopRecord()
+    const r = await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+    assert.equal(r.outcome, 'dug', 'the mutant digs a record cell of stone')
+  })
+  await withMutant(SKILLS_PATH, "(lidGroundOn() && LID_GROUND.test(lid.name ?? ''))", 'false', async M => {
+    // the record is never READ for ground -> `undefined` -> refused "(the build records were not read)": the chest stays shut
+    const w = solid(lidWorld([tool('stone_pickaxe', 10)], { lid: 'tuff' })); w.bot.townPlan = null
+    const r = await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+    assert.equal(r.outcome, 'refused'); assert.match(r.detail, /build records were not read/)
+  })
+  await withMutant(LID_PATH, 'export const LID_GROUND = /^(stone|granite|diorite|andesite|tuff|deepslate|calcite|dripstone_block|gravel|sand|red_sand)$/',
+    'export const LID_GROUND = /^(stone|stone_bricks|granite|diorite|andesite|tuff|deepslate|calcite|dripstone_block|gravel|sand|red_sand)$/', async M => {
+      assert.equal(M.lidClearRefusal({ lid: { name: 'stone_bricks' }, above: AIR, sides: sides4(), record: false }), null, 'the mutant breaks built stone')
     })
 })
 
