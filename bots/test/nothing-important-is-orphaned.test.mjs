@@ -762,6 +762,7 @@ const REQUIRED = [
   'bots/src/planahead.mjs',   // planahead-01 (11-09, owner: plan the town ahead -- plan-time reach, stand claims)
   'bots/test/planahead.test.mjs',   // planahead-01
   'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
+  'docs/decisions/consolidation-2026-11-14.md',   // owner 11-14: the consolidation plan of record (two worlds, 5080 + 3090 only, steps C0-C5)
 ]
 
 t('every load-bearing path exists in the working tree', () => {

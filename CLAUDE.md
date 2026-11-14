@@ -148,6 +148,11 @@ make it deterministic), and **composed**: test the refusal chain, not the single
 
 ## Standing constraints from the owner
 
+- **Consolidation is under way (owner 11-14): read
+  [`docs/decisions/consolidation-2026-11-14.md`](docs/decisions/consolidation-2026-11-14.md).** End state: two
+  worlds (a test world and the showcase), models on the 5080 and the 3090 only, five VMs. Until it is done:
+  no new VMs, hosts or outside model endpoints; weigh new work by whether it survives the two-world end
+  state (fleet-pool plumbing does not); deleting a VM or data needs the owner's yes at that time.
 - **Bots must survive, move, gather and build in any Minecraft world.** The fix is code.
   **Bots changing the world is fine and wanted.** What is restricted is tools and admin edits:
   no teleporting, no `/give`, no `/setblock` or `/fill`, no WorldEdit, no world-file edits. The
