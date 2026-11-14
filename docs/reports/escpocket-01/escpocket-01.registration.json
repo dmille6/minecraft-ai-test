@@ -1,0 +1,82 @@
+{
+ "run_id": "escpocket-01",
+ "sha": "8d899a0a95730a9ab5948ef09257dcb4cf8c9014",
+ "registered_at": "2026-11-07T15:20:59Z",
+ "promotion": "fleet-wide",
+ "target_pools": [
+  "isolated-d"
+ ],
+ "target_bots": [
+  "isolated-d-Echo"
+ ],
+ "target_note": "The draw MUST contain isolated-d: isolated-d-Echo is pinned at 358,58,180 behind its own pillar dirt (358,55,180) since 11-07 07:17Z (pinned_min 320 at 13:48Z, ongoing at 15:01Z). A draw without isolated-d is UNEXPOSED for the pocket dig -> INCONCLUSIVE, not KEEP. The trap price and the pillar cap preflight are fleet-wide.",
+ "change_rows": [
+  "_escpocket_mode",
+  "_trap_site_recorded",
+  "_swim_under_start",
+  "_swim_under",
+  "_climb_flood_guard"
+ ],
+ "licence": {
+  "class": "kind",
+  "kind": "_escpocket_mode",
+  "min_rows": 1,
+  "note": "Written only by this build: one `_escpocket_mode on=1 dig=wide_tier reach=4.5 max_digs=2 dig_ms<=12000 trap_ttl_h=12 trap_cost=101 pillar_cap=1` row per spawn (features.mjs). ESCPOCKET=0 -> on=0 (the rollback)."
+ },
+ "effect": {
+  "version": 1,
+  "targets": [
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_swim_under"
+    },
+    "direction": "increase",
+    "minimum": 0.5,
+    "scale": "relative",
+    "primary": true,
+    "claim": "escapes from wet-ceiling pockets up: 8 `_swim_under` rows on 7 bots in the 24 h to 11-07 15:01Z (2,229,748 skill rows, 80 bots); the pinned isolated-d-Echo has no swim at all since 07:17Z (its own plug) -- the pocket dig frees it (Paper 3/3 on the live reconstruction)"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_swim_under_refused"
+    },
+    "direction": "decrease",
+    "minimum": 0.5,
+    "scale": "relative",
+    "claim": "pinned bot-time proxy: 143 `_swim_under_refused` rows in 24 h, all on 3 isolated-d bots (Echo 47 today, pinned ~7.7 bot-h today at 358,58,180)"
+   }
+  ],
+  "guardrails": [
+   {
+    "metric": "failclass.rate.v1",
+    "params": {
+     "name": "_death",
+     "fail_class": "drowning"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "kind.rate.v1",
+    "params": {
+     "name": "_death"
+    },
+    "direction": "decrease"
+   },
+   {
+    "metric": "items.per_bot_hour.v1",
+    "params": {},
+    "direction": "increase"
+   }
+  ],
+  "exposure": {},
+  "note": "direction = the GOOD direction. Names checked against the 24-h walk: `_swim_under` 8, `_swim_under_refused` 143, `_death` (the kind; 'death' is not one), fail_class 'drowning' (not 'drowned'). The read's OWN lines (+90/+180): `_swim_under_start ... dig=` (new detail; the base never writes it) and its `_swim_under` outcome; `_trap_site_recorded`; `_climb_flood_guard caller=pillar_cap` (each one a pillar that would have plugged a wet column); a drowned `_death` within 2 min of a `_swim_under_start dig=` = REVERT. Hand measure: Echo's pin at 358,58,180 ends (positions from its rows)."
+ },
+ "notes": "escpocket-01 (tier 3, protected: escdead.mjs, reflex.mjs, swimunder.mjs, index.mjs, worldfacts.mjs) on the live fleet 45defefa. MEASURED 11-07: Echo re-entered the 358,58,180 pocket at 07:16:58Z (a noPath partial A* path to the column bottom + mineflayer-pathfinder holding jump in water) and its marooned pillar put dirt into the falling-water column at 358,55,180; the 11-07 03:16Z cut + that dirt + air at 358,62 reproduces every live row (swim narrow AND wide '3 water cells searched', startCells, breach). escdead's wide arm DID arm (wide=1 after 30 min); it had no exit to find. CHANGE: (1) the pocket dig: on the wide tier one block (two sideways) bordering the reachable water, at feet level or below, <= 4.5 from the eye, not furniture/gravity/lava-adjacent/guarded, <= 12 s floating, dug while the body floats in place, then the swim; (2) pillarOut's column-cap preflight from a wet start (no placement into a column whose cap the climb will refuse; a dry side exit below the cap passes); (3) trap sites: every swim out records the pocket + the column it rose by, pool-wide 12 h, priced 101 on every path, the wide tier at once in a recorded trap. The breach reason names the closing cell. ESCPOCKET=0 = the base. Design docs/reports/escpocket-2026-11-07.md (main).",
+ "draw_pin_pools": [
+  "isolated-d"
+ ],
+ "draw_pin_owner_ok": "OWNER 2026-11-06 ~14:00Z (escdead-01): drawing isolated-d is explicitly allowed (the memory experiment is retired); same pool, same target pocket",
+ "fun_reads": "90 180"
+}

@@ -9,6 +9,9 @@ process.env.BOT_NAME = process.env.BOT_NAME || 'TownBot'
 process.env.MEMORY_SCOPE = process.env.MEMORY_SCOPE || 'isolated'
 process.env.LOG_LEVEL = 'error'
 process.env.BOT_ROLE = 'gatherer'
+// sandrung-01: these fixtures model the four-rung gatherer chain (bags carry the rung's 8 sand, held by HELD_TARGETS), so the
+// file pins the switch ON; the retired default (no sand rung, no held sand) is asserted in sandrung.test.mjs.
+process.env.SANDRUNG = '1'
 process.env.LLM_DECISION_COOLDOWN_MS = '50'
 process.env.POOL_STATE_DIR = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'td-pool-'))
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
@@ -420,7 +423,7 @@ test('registered: a chatOnly housekeeping skill with an inventory_loss contract'
  *   openNever        openContainer stays pending until st.late() resolves it with the window
  *   fillDest(slot)   another bot fills that container slot while the bot is picking up (the pickup click's wait)
  */
-function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false, swapAfter = null }) {
+function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false, swapAfter = null, serverItem = null, truthProbe = false }) {
   const bagSlots = Array(46).fill(null)                      // the CLIENT's bag (bot.inventory)
   for (const it of items) bagSlots[it.slot] = { ...it }
   const server = { bag: bagSlots.map(x => (x ? { ...x } : null)) }
@@ -432,7 +435,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
     const at = w.slots[slot], cur = w.selectedItem
     if (!cur) { if (at) { w.selectedItem = { ...at }; w.slots[slot] = null } return }
     if (!at) { w.slots[slot] = { ...cur, slot }; w.selectedItem = null; return }
-    if (at.name === cur.name) { const size = mcData.itemsByName[cur.name].stackSize; const m = Math.min(size - at.count, cur.count); at.count += m; cur.count -= m; if (!cur.count) w.selectedItem = null; return }
+    if (at.name === cur.name && JSON.stringify(at.components ?? []) === JSON.stringify(cur.components ?? [])) { const size = mcData.itemsByName[cur.name].stackSize; const m = Math.min(size - at.count, cur.count); at.count += m; cur.count -= m; if (!cur.count) w.selectedItem = null; return }
     w.slots[slot] = { ...cur, slot }; w.selectedItem = { ...at }
   }
   const bot = {
@@ -445,7 +448,14 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
     craftSync: {
       lockstep: fn => fn(), inflight: () => 0, invalidate: () => 0,
       recount: async () => ({ source: 'server', items: server.bag.slice(9, 45).filter(Boolean) }),
-      confirmCursor: async win => { const c = win?.server?.selectedItem; return { answered: true, cursorEmpty: !c, carried: c ? { itemCount: c.count } : null } },
+      // chestmerge-01 `truthProbe`: craftsync's real contract -- the probe's answer is the window's FULL state, so the
+      // client's slots and cursor become the server's (craftsync.mjs probeCursor; mineflayer applies window_items to the
+      // slots, craftsync the carried item). Between probes the client's cursor is its own prediction, right or wrong.
+      confirmCursor: async win => {
+        const c = win?.server?.selectedItem
+        if (truthProbe && win?.server) { st.probes = (st.probes ?? 0) + 1; for (let i = 0; i < win.slots.length; i++) win.slots[i] = win.server.slots[i] ? { ...win.server.slots[i] } : null; win.selectedItem = c ? { ...c } : null }
+        return { answered: true, cursorEmpty: !c, carried: c ? { itemCount: c.count } : null }
+      },
     },
     equip: async () => {}, unequip: async () => {}, moveSlotItem: async () => {}, toss: async () => {}, tossStack: async () => {}, closeWindow: () => {},
     removeListener: () => {}, once: () => {}, _client: {},
@@ -464,9 +474,9 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
       st.opened.push(`${c.pos.x},${c.pos.y},${c.pos.z}`)
       if (c.unopenable || (reopenFails && st.opened.filter(x => x === `${c.pos.x},${c.pos.y},${c.pos.z}`).length > 1)) return Promise.reject(new Error('windowOpen did not fire'))
       const n = c.size ?? 27
-      const mk = () => {
+      const mk = (srv = false) => {
         const w = { slots: Array(n + 36).fill(null), selectedItem: null }
-        for (let i = 0; i < n; i++) w.slots[i] = c.items[i] ? { ...c.items[i], slot: i } : null
+        for (let i = 0; i < n; i++) w.slots[i] = c.items[i] ? { ...((srv && serverItem?.(i, c.items[i], st.opened.length)) || c.items[i]), slot: i } : null
         for (let s = 9; s < 45; s++) w.slots[s - 9 + n] = server.bag[s] ? { ...server.bag[s], slot: s - 9 + n } : null
         return w
       }
@@ -476,7 +486,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
       win.containerItems = () => win.slots.slice(0, n).filter(Boolean)
       win.firstEmptySlotRange = (a, b) => { for (let i = a; i < b; i++) if (!win.slots[i]) return i; return null }
       win.findItemRange = (a, b, type, _m, notFull) => { for (let i = a; i < b; i++) { const x = win.slots[i]; if (x && x.type === type && (!notFull || x.count < (x.stackSize ?? 64))) return { ...x, slot: i } } return null }
-      win.server = mk()
+      win.server = mk(true)
       win.close = () => {
         st.closes++
         for (let i = 0; i < n; i++) c.items[i] = win.server.slots[i] ? { ...win.server.slots[i] } : null
@@ -539,6 +549,20 @@ const filledChest = (x, empty = 0, extra = {}) => chestAt(x, 70, 0, { items: Arr
 const fullBag = () => bag([['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20],
   ['oak_log', 16], ['oak_log', 10], ['white_wool', 2], ['apple', 45], ['raw_iron', 5], ['coal', 9], ['dirt', 30], ['raw_copper', 7], ...filler(22)])
 const run = (bot, signal = null) => SKILLS.town_deposit.run({ bot }, {}, signal)
+// FULLPLACE-01 (fullplace.mjs): a run that finds every chest in reach full goes on into the deposit verb when the runner's
+// clock has room for it. The clock is given here, never left to the suite's 300 ms SKILL_TIMEOUT_MS: `runClock` is a run
+// with the whole clock ahead, `runLate` one with none left (the base refusal, which still names the verb).
+const runClock = (bot, signal = null, args = {}) => SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() + 3_600_000 } } }, args, signal)
+const runLate = (bot, signal = null) => SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, signal)
+/** Watch (and stand in for) the deposit verb the chain runs, through fullplace.mjs's `fullPlaceVerb` holder (H; a mutant copy
+ *  of fullplace.mjs has its own). This file's fake town has no world for the verb's own recovery; chest-full.test.mjs and
+ *  chestcarry.test.mjs drive THAT (full chest -> a new chest placed and banked into) through the real deposit. */
+async function withVerb (H, stub, fn) {
+  const calls = []
+  assert.equal(H.run, null, 'the stand-in is null outside a test')
+  H.run = async (ctx, args, signal) => { calls.push({ ctx, args, signal }); return stub(ctx, args, signal) }
+  try { return await fn(calls) } finally { H.run = null }
+}
 const rowsOf = async fn => {
   const rows = []
   const untap = tapRecords(r => { if (r?.skill?.name === '_town_deposit') rows.push(r) })
@@ -649,7 +673,7 @@ test('SKILL: a full chest takes nothing -- no click, no cursor, no drop; the sec
   const restore = freshTown()
   try {
   const { bot, st } = world({ items: fullBag(), containers: [filledChest(2)] })
-  const r = await run(bot)
+  const r = await runLate(bot)   // no clock left for the verb (fullplace-01): the base refusal
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full')
   assert.match(r.detail, /deposit \(no item\)/, 'the remedy names a verb the bot can run from here')
   assert.equal(st.clicks, 0); assert.equal(st.dropped, 0); assert.deepEqual(st.opened, ['2,70,0'])
@@ -697,7 +721,7 @@ test('TOWNDEPOSIT-02 REFUSAL CHAIN: every chest in reach full -> town_storage_fu
     const { townContainers } = await import('../src/skills.mjs')
     const w = world({ items: fullBag(), containers: [filledChest(2), filledChest(4)] })
     assert.equal(townContainers(w.bot).length, 2, 'positive control: both chests are offered before the visit')
-    const r = await run(w.bot)
+    const r = await runLate(w.bot)   // no clock left for the verb (fullplace-01): the base refusal
     assert.equal(r.failClass, 'town_storage_full', r.detail)
     assert.match(r.detail, /deposit \(no item\) .*can build a new one/, 'the remedy is a verb the bot can run from here')
     assert.equal(townContainers(w.bot).length, 0, 'the order\'s container() is false now: no repeat trip to the same full chests')
@@ -739,6 +763,168 @@ test('TOWNDEPOSIT-02 MUTANT KILLED: with TD_FULL_EXTRA = 0 the third chest is ne
     assert.equal(r.failClass, 'town_storage_full', 'the mutant stops at the two full chests')
     assert.ok(!third.items.some(Boolean))
   } finally { restore(); for (const f of [tOut, sOut]) try { fs.unlinkSync(f) } catch {} }
+})
+// FULLPLACE-01 (OWNER 11-12): A FULL-CHEST TOWN DEPOSIT RUNS ITS OWN REMEDY. Measured 11-12 (6 h, 80 bots): 315 town_storage_full
+// refusals named the deposit verb; a deposit followed within five skills after 48 (15%); hive-c 42 refusals / 0 deposits / 0
+// new-chest rows, placebo-d 69 / 0 / 0. The verb is the only path to the full-chest recovery, so the run goes on into it.
+const FP = await import('../src/fullplace.mjs')
+const VERB_BANKED = () => ({ status: 'success', detail: 'deposited 84 item(s) into a new chest at 6,70,0 [bag 300->216 items]' })
+const VERB_REFUSED = () => ({ status: 'failed', failClass: 'storage_full', detail: 'keep working; the town is at its chest limit -- the chests are full [bag 300->300 items]' })
+const fpRows = () => { const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_fullplace') rows.push(r.skill) }); return { rows, untap } }
+test('FULLPLACE pure: the chain goes only for a full-bag run that found EVERY tried chest full, with the clock to start the verb', () => {
+  const base = { on: true, tried: [{ result: 'full' }, { result: 'full' }], msLeft: 120_000, minMs: 60_000 }
+  assert.deepEqual(FP.fullPlaceChain(base), { go: true, why: 'chests_full' })
+  assert.equal(FP.fullPlaceChain({ ...base, on: false }).why, 'off')
+  assert.equal(FP.fullPlaceChain({ ...base, tried: [] }).why, 'not_all_full')
+  assert.equal(FP.fullPlaceChain({ ...base, tried: [{ result: 'full' }, { result: 'unreachable' }] }).why, 'not_all_full')
+  assert.equal(FP.fullPlaceChain({ ...base, tail: true }).why, 'tail')
+  assert.equal(FP.fullPlaceChain({ ...base, allowOnly: true }).why, 'allowance_only', 'the verb never banks the bag allowance rows (bagbudget-01)')
+  assert.equal(FP.fullPlaceChain({ ...base, banked: 3 }).why, 'banked')
+  assert.equal(FP.fullPlaceChain({ ...base, msLeft: 59_999 }).why, 'no_time')
+  assert.equal(FP.fullPlaceChain({ ...base, msLeft: 60_000 }).go, true)
+  for (const k of ['off', 'not_all_full', 'tail', 'allowance_only', 'banked', 'no_time']) assert.equal(FP.fullPlaceChain({ ...base, on: k !== 'off', tried: k === 'not_all_full' ? [] : base.tried, tail: k === 'tail', allowOnly: k === 'allowance_only', banked: k === 'banked' ? 1 : 0, msLeft: k === 'no_time' ? 0 : base.msLeft }).go, false, k)
+  assert.equal(FP.fullPlaceMinMs(180_000), 60_000, 'production: a minute of the 180 s clock')
+  assert.equal(FP.fullPlaceMinMs(300), 100); assert.equal(FP.fullPlaceMinMs(600_000), 60_000); assert.equal(FP.fullPlaceMinMs(undefined), 60_000)
+})
+test('FULLPLACE pure: the verb\'s success is the town deposit\'s; anything else stays town_storage_full with the verb\'s own words; the row fits the logger', () => {
+  assert.equal(FP.fullPlaceResult(VERB_BANKED()).status, 'success')
+  assert.match(FP.fullPlaceResult(VERB_BANKED()).detail, /were full, so the deposit ran: deposited 84 item/)
+  const refused = FP.fullPlaceResult(VERB_REFUSED())
+  assert.equal(refused.status, 'failed'); assert.equal(refused.failClass, 'town_storage_full')
+  assert.match(refused.detail, /did not bank: keep working; the town is at its chest limit/, 'the verb\'s remedy reaches the model')
+  for (const dep of [null, { status: 'no_effect', detail: 'the cobble stays' }, { status: 'unknown' }]) assert.equal(FP.fullPlaceResult(dep).failClass, 'town_storage_full')
+  assert.match(FP.fullPlaceResult(null, new Error('boom')).detail, /it threw boom/)
+  const d = FP.fullPlaceDetail({ dep: { status: 'failed', failClass: 'storage_full', detail: 'x '.repeat(400) }, slotsBefore: 36, slotsAfter: 36, bagBefore: 900, bagAfter: 900, ms: 1234, full: 4 })
+  assert.ok(d.length <= 300, String(d.length)); assert.match(d, /^via=town_deposit deposit=failed fail=storage_full full_chests=4 slots=36->36 bag=900->900 ms=1234 why=x_x/)
+  assert.match(FP.fullPlaceDetail({ threw: new Error('no world') }), /deposit=threw fail=exception .*why=no_world/)
+})
+test('FULLPLACE CHAIN (real skill): every chest in reach full -> the deposit verb is RUN once, with no item, on the run\'s own signal; its success is the town deposit\'s, and the order does not back off', async () => {
+  const restore = freshTown(); const { rows, untap } = fpRows()
+  try {
+    const w = world({ items: fullBag(), containers: [filledChest(2), filledChest(4)] })
+    const signal = new AbortController().signal
+    await withVerb(FP.fullPlaceVerb, VERB_BANKED, async calls => {
+      const r = await runClock(w.bot, signal)
+      assert.equal(calls.length, 1, 'the remedy was run, not named')
+      assert.deepEqual(calls[0].args, { item: null }); assert.equal(calls[0].signal, signal); assert.equal(calls[0].ctx.bot, w.bot)
+      assert.equal(r.status, 'success', r.detail)
+      assert.match(r.detail, /so the deposit ran: deposited 84 item/)
+      assert.equal(townDepositOutcome(r.status, r.failClass ?? null, 1000, { backoffUntil: 5 }).backoffUntil, 0, 'a success: no 15-min backoff')
+    })
+    assert.equal(rows.length, 1, 'one _fullplace row'); assert.equal(rows[0].status, 'success')
+    assert.match(rows[0].detail, /^via=town_deposit deposit=success fail=- full_chests=2 /)
+    assert.equal(w.st.clicks, 0); assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0, 'the town deposit itself moved nothing and left no window')
+    assert.equal(w.bot.currentWindow ?? null, null, 'the verb starts with no window open')
+  } finally { untap(); restore() }
+})
+test('FULLPLACE CHAIN: the verb refuses, or throws -> failed town_storage_full (the order backs off as before) carrying the verb\'s words; an ABORT is rethrown', async () => {
+  const restore = freshTown(); const { rows, untap } = fpRows()
+  try {
+    const scene = () => world({ items: fullBag(), containers: [filledChest(2)] })
+    await withVerb(FP.fullPlaceVerb, VERB_REFUSED, async calls => {
+      const r = await runClock(scene().bot)
+      assert.equal(calls.length, 1); assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full')
+      assert.match(r.detail, /the deposit that ran next did not bank: keep working; the town is at its chest limit/)
+      assert.ok(townDepositOutcome(r.status, r.failClass, 1000, {}).backoffUntil > 1000, 'the 15-min backoff, as the base')
+    })
+    freshTown()
+    await withVerb(FP.fullPlaceVerb, () => { throw new Error('no world here') }, async calls => {
+      const r = await runClock(scene().bot)
+      assert.equal(calls.length, 1); assert.equal(r.failClass, 'town_storage_full'); assert.match(r.detail, /it threw no world here/)
+    })
+    assert.deepEqual(rows.map(x => x.detail.match(/deposit=(\w+)/)[1]), ['failed', 'threw'])
+    freshTown()
+    await withVerb(FP.fullPlaceVerb, () => { throw Object.assign(new Error('aborted'), { aborted: true }) }, async () => {
+      await assert.rejects(runClock(scene().bot), e => e.aborted === true, 'an interrupt is never swallowed')
+    })
+  } finally { untap(); restore() }
+})
+test('FULLPLACE never runs the verb: a chest with room (it banks there); a full town with no clock left; a tail run over full chests (a bag that is not full: the base advice)', async () => {
+  const restore = freshTown()
+  try {
+    await withVerb(FP.fullPlaceVerb, VERB_BANKED, async calls => {
+      const ok = await runClock(world({ items: fullBag(), containers: [filledChest(2), chestAt(-4)] }).bot)
+      assert.equal(ok.status, 'success', ok.detail); assert.equal(calls.length, 0, 'room in reach: no verb')
+      freshTown()
+      const late = await runLate(world({ items: fullBag(), containers: [filledChest(2)] }).bot)
+      assert.equal(late.failClass, 'town_storage_full'); assert.match(late.detail, /deposit \(no item\) .*can build a new one/); assert.equal(calls.length, 0, 'no clock: the refusal still names the verb')
+      freshTown()
+      const items = bag([['raw_iron', 3], ['coal', 20], ...filler(10)])
+      const tail = await runClock(world({ items, containers: [filledChest(2), filledChest(4)] }).bot, null, { tail: true })
+      assert.equal(tail.failClass, 'town_storage_full', tail.detail); assert.match(tail.detail, /deposit \(no item\)/, 'the coal tail is not rows-only: the base advice, unchanged')
+      assert.equal(calls.length, 0, 'a tail run never runs the verb')
+    })
+  } finally { restore() }
+})
+test('FULLPLACE=off is the rollback (a fresh process): the switch is off and the chain never goes', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const src = new URL('../src/fullplace.mjs', import.meta.url).href
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import('${src}').then(m => console.log(JSON.stringify([m.FULLPLACE.on, m.fullPlaceChain({ tried: [{ result: 'full' }], msLeft: 120000 })])))`],
+  { env: { ...process.env, FULLPLACE: 'off' }, encoding: 'utf8' })
+  assert.deepEqual(JSON.parse(r.stdout), [false, { go: false, why: 'off' }], r.stderr)
+  assert.equal(FP.FULLPLACE.on, true, 'positive control: on by default in this process')
+})
+/** A copy of skills.mjs (and optionally fullplace.mjs) with one anchored edit each -> its module. Anchors are asserted present and unique. */
+async function fpMutant ({ skillsEdit = null, fullplaceEdit = null }, fn) {
+  const SP = new URL('../src/skills.mjs', import.meta.url), FPU = new URL('../src/fullplace.mjs', import.meta.url)
+  const toSrc = src => src.replace(/from '\.\//g, "from '../src/")
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2, 6)}`
+  const sOut = new URL(`./_mutant-fps-${tag}.mjs`, import.meta.url), fOut = new URL(`./_mutant-fpf-${tag}.mjs`, import.meta.url)
+  let ssrc = fs.readFileSync(SP, 'utf8')
+  if (skillsEdit) { assert.equal(ssrc.split(skillsEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in skills.mjs: ${skillsEdit[0].slice(0, 60)}`); ssrc = ssrc.replace(skillsEdit[0], skillsEdit[1]) }
+  ssrc = toSrc(ssrc)
+  if (fullplaceEdit) {
+    const fsrc = fs.readFileSync(FPU, 'utf8')
+    assert.equal(fsrc.split(fullplaceEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in fullplace.mjs: ${fullplaceEdit[0].slice(0, 60)}`)
+    fs.writeFileSync(fOut, toSrc(fsrc.replace(fullplaceEdit[0], fullplaceEdit[1])))
+    const imp = "from '../src/fullplace.mjs'"
+    assert.equal(ssrc.split(imp).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: skills.mjs imports fullplace.mjs once')
+    ssrc = ssrc.replace(imp, `from './_mutant-fpf-${tag}.mjs'`)
+  }
+  fs.writeFileSync(sOut, ssrc)
+  try {
+    const M = await import(sOut.href)
+    // the holder the MUTANT skills module reads: the mutant fullplace copy's when there is one, else the real module's
+    const H = fullplaceEdit ? (await import(fOut.href)).fullPlaceVerb : FP.fullPlaceVerb
+    return await fn(M, H)
+  } finally { for (const f of [sOut, fOut]) try { fs.unlinkSync(f) } catch {} }
+}
+const runClockOn = (M, bot, args = {}) => M.SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() + 3_600_000 } } }, args, null)
+test('FULLPLACE MUTANT KILLED: the chain dead (`if (chain.go)` -> false) -> the verb is never run and the full town only gets advice (the measured failure)', async () => {
+  const restore = freshTown()
+  try {
+    await fpMutant({ skillsEdit: ['    if (chain.go) {\n', '    if (false) {\n'] }, async (M, H) => {
+      await withVerb(H, VERB_BANKED, async calls => {
+        const r = await runClockOn(M, world({ items: fullBag(), containers: [filledChest(2), filledChest(4)] }).bot)
+        assert.equal(calls.length, 0, 'the mutant ran the verb anyway: the chain test proves nothing')
+        assert.equal(r.status, 'failed'); assert.match(r.detail, /deposit \(no item\)/)
+      })
+    })
+  } finally { restore() }
+})
+test('FULLPLACE MUTANT KILLED: the verb\'s result dropped (the base refusal returned after it ran) -> a banked run still reads failed', async () => {
+  const restore = freshTown()
+  try {
+    await fpMutant({ skillsEdit: ['      const out = fullPlaceResult(dep, threw)\n', '      const out = fullPlaceResult(null, null)\n'] }, async (M, H) => {
+      await withVerb(H, VERB_BANKED, async calls => {
+        const r = await runClockOn(M, world({ items: fullBag(), containers: [filledChest(2)] }).bot)
+        assert.equal(calls.length, 1); assert.notEqual(r.status, 'success', 'the mutant reported the success anyway')
+      })
+    })
+  } finally { restore() }
+})
+test('FULLPLACE MUTANT KILLED: the rows-only and tail guards removed -> a tail run over full chests runs the verb (which never banks those rows)', async () => {
+  const restore = freshTown()
+  try {
+    await fpMutant({ fullplaceEdit: ["  if (tail) return { go: false, why: 'tail' }\n  if (allowOnly) return { go: false, why: 'allowance_only' }\n", ''] }, async (M, H) => {
+      await withVerb(H, VERB_REFUSED, async calls => {
+        const items = bag([['raw_iron', 3], ['coal', 20], ...filler(10)])
+        await runClockOn(M, world({ items, containers: [filledChest(2), filledChest(4)] }).bot, { tail: true })
+        assert.equal(calls.length, 1, 'the mutant kept the guard: this test proves nothing')
+      })
+    })
+  } finally { restore() }
 })
 // tdfull-01 x coalfirst-01 (the 16052ad8 merge): the coal TAIL (a not-full bag's coal above the keep, coalfirst-01) also looks past
 // the two nearest FULL chests (towndeposit-02) -- the two changes compose in one run, neither drops the other
@@ -1300,7 +1486,7 @@ test('COBBLEKEEP CHAIN CONTROL: town counted complete at CAP-64 -> the real town
 test('COBBLEKEEP CHAIN, MUTANT KILLED: stonecap\'s floor-only well switch leaves the dead end (the bank refuses, the well says below)', async () => {
   const SP = new URL('../src/skills.mjs', import.meta.url)
   const src = fs.readFileSync(SP, 'utf8')
-  const old = "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })"
+  const old = "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly, noRoom })"
   assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
   const out = new URL(`./_mutant-ck-${process.pid}.mjs`, import.meta.url)
   fs.writeFileSync(out, src.replace(old, "    const v = cobbleTownViewFor(bot); void h; return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'").replace(/from '\.\//g, "from '../src/"))
@@ -1992,4 +2178,352 @@ test('LOGBANK r3 (Paper r3): in a WELL town (the stock cap binds) spruce banks d
     const wanted = B.depositPlan(items, null, { wants: ['spruce_log'] }).find(e => e.name === 'spruce_log')?.count
     assert.equal(wanted, 9, 'the mutant shape: a want is kept to 64')
   } finally { B.setStockReaders({}) }
+})
+
+
+// ---- CHESTMERGE-01 (chestmerge.mjs, OWNER 11-12 "Yes, build merging") -------------------------------------------------------
+// A town chest with no empty slot but split partial stacks makes its own room: the run merges partial stacks of one kind
+// INSIDE the container, only as many as its plan lacks, then banks into the freed slots as before. Measured 11-12 (town
+// index, 430 containers in 16 towns): 343 full, and 36% of the used slots would be free if each container's partial stacks were merged.
+const CM = await import('../src/chestmerge.mjs')
+const cmRows = () => { const rows = []; const untap = tapRecords(r => { if (r?.skill?.name === '_chestmerge') rows.push(r.skill) }); return { rows, untap } }
+/** A chest with NO empty slot: `coal` slots of 10 coal first, then full dirt stacks (which take nothing and merge with nothing). */
+const splitChest = (x, coal = 8, extra = {}) => chestAt(x, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < coal ? item('coal', 10, i) : item('dirt', 64, i))), ...extra })
+const C = (name, count, extra = {}) => item(name, count, 0, extra)
+
+test('CHESTMERGE pure: mergeKey -- one kind is the name AND everything the server sent with it; tools and single items never merge', () => {
+  assert.equal(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 33)), 'the count is not the kind')
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('charcoal', 10)))
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { components: [{ type: 'custom_name', data: 'x' }] })), 'a component is a different kind')
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { removedComponents: ['lore'] })))
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { nbt: { type: 'compound', value: {} } })))
+  assert.notEqual(CM.mergeKey(C('coal', 10)), CM.mergeKey(C('coal', 10, { metadata: 3 })))
+  assert.equal(CM.mergeKey(C('stone_pickaxe', 1)), null, 'a tool'); assert.equal(CM.mergeKey(C('water_bucket', 1)), null, 'a stack of one')
+  assert.equal(CM.mergeKey(null), null); assert.equal(CM.mergeKey({ count: 3, stackSize: 64 }), null, 'no name')
+  const loop = { name: 'coal', count: 3, stackSize: 64, components: [] }; loop.components.push(loop)
+  assert.equal(CM.mergeKey(loop), null, 'data that cannot be compared is left alone')
+})
+test('CHESTMERGE pure: mergePlan -- the smallest stack onto the fullest that takes ALL of it; one slot a step; never more than needed', () => {
+  const slots = [C('coal', 10), C('coal', 60), C('coal', 3), C('dirt', 64), null, C('coal', 50), C('stone_pickaxe', 1), C('stone_pickaxe', 1)]
+  assert.deepEqual(CM.mergePlan(slots, { need: 1 }), [{ name: 'coal', from: 2, to: 1, count: 3, into: 60, sum: 63 }])
+  assert.deepEqual(CM.mergePlan(slots, { need: 9 }), [{ name: 'coal', from: 2, to: 1, count: 3, into: 60, sum: 63 }, { name: 'coal', from: 0, to: 5, count: 10, into: 50, sum: 60 }],
+    'the 10 does not fit the 63: it goes onto the 50; then 60 + 63 fit nowhere')
+  assert.deepEqual(CM.mergePlan(slots, { need: 0 }), []); assert.deepEqual(CM.mergePlan(slots, { need: 5, max: 1 }).length, 1)
+  assert.deepEqual(CM.mergePlan([C('coal', 40), C('coal', 30), C('coal', 64)], { need: 3 }), [], 'no pair fits one stack: nothing is planned (a part merge is never started)')
+  assert.deepEqual(CM.mergePlan([C('coal', 64), C('coal', 64)], { need: 3 }), [], 'full stacks')
+  assert.deepEqual(CM.mergePlan([C('coal', 5), C('coal', 5, { components: [{ type: 'custom_name', data: 'x' }] })], { need: 3 }), [], 'different components: never a pair')
+  assert.deepEqual(CM.mergePlan([C('ender_pearl', 9), C('ender_pearl', 9)], { need: 3 }), [], 'a stack of 16 is judged by ITS size')
+  assert.equal(CM.mergePlan([C('ender_pearl', 9), C('ender_pearl', 7)], { need: 3 }).length, 1)
+  assert.deepEqual(CM.mergePlan(null, { need: 3 }), []); assert.deepEqual(CM.mergePlan([], {}), [])
+  assert.equal(CM.MERGE_MAX, 8)
+  assert.equal(CM.mergePlan(Array.from({ length: 27 }, () => C('coal', 1)), { need: 99 }).length, 8, 'at most MERGE_MAX a visit')
+})
+test('CHESTMERGE property: over random containers every planned step is a whole-stack merge of one kind that fits; totals never change; steps = slots freed <= need', () => {
+  const r = rng(20261112)
+  const names = ['coal', 'bone_meal', 'oak_log', 'ender_pearl', 'dirt', 'stone_pickaxe']
+  let stepsSeen = 0
+  for (let n = 0; n < 400; n++) {
+    const slots = Array.from({ length: 27 }, () => {
+      if (r() < 0.1) return null
+      const name = names[Math.floor(r() * names.length)], size = mcData.itemsByName[name].stackSize
+      return C(name, 1 + Math.floor(r() * size), r() < 0.08 ? { components: [{ type: 'custom_name', data: 'x' }] } : {})
+    })
+    const need = Math.floor(r() * 12)
+    const plan = CM.mergePlan(slots, { need })
+    assert.ok(plan.length <= Math.min(need, CM.MERGE_MAX))
+    const sim = slots.map(x => (x ? { ...x } : null))
+    const sumBy = l => { const o = {}; for (const x of l) if (x) o[CM.mergeKey(x) ?? `one:${x.name}`] = (o[CM.mergeKey(x) ?? `one:${x.name}`] ?? 0) + x.count; return o }
+    const before = sumBy(sim), usedBefore = sim.filter(Boolean).length
+    for (const m of plan) {
+      const a = sim[m.from], b = sim[m.to]
+      assert.ok(a && b && m.from !== m.to, 'both slots hold a stack')
+      assert.equal(a.count, m.count); assert.equal(b.count, m.into); assert.equal(m.sum, m.count + m.into)
+      assert.ok(CM.mergeKey(a) != null && CM.mergeKey(a) === CM.mergeKey(b), 'one kind')
+      assert.ok(m.sum <= b.stackSize, 'the whole stack fits: the cursor ends empty')
+      b.count = m.sum; sim[m.from] = null; stepsSeen++
+    }
+    assert.deepEqual(sumBy(sim), before, 'nothing made, nothing lost')
+    assert.equal(usedBefore - sim.filter(Boolean).length, plan.length, 'one slot a step')
+  }
+  assert.ok(stepsSeen > 300, `positive control: the property saw ${stepsSeen} real merges`)
+})
+test('CHESTMERGE pure: mergeVerified counts a merge only when the server shows its slot at the LAST sum; the row fits the logger', () => {
+  const done = [{ name: 'coal', from: 0, to: 7, count: 10, into: 10, sum: 20 }, { name: 'coal', from: 1, to: 7, count: 10, into: 20, sum: 30 }]
+  const srv = n => { const s = Array(27).fill(null); s[7] = n == null ? null : { name: 'coal', count: n }; return s }
+  assert.equal(CM.mergeVerified(done, srv(30)), 2)
+  assert.equal(CM.mergeVerified(done, srv(20)), 0, 'the first sum alone is not the end state'); assert.equal(CM.mergeVerified(done, srv(null)), 0)
+  assert.equal(CM.mergeVerified(done, [null, null, null, null, null, null, null, { name: 'dirt', count: 30 }]), 0); assert.equal(CM.mergeVerified([], srv(30)), 0)
+  const d = CM.mergeDetail({ at: '2,70,0', need: 4, free: 0, planned: 4, merged: 4, verified: 4, banked: 4, err: 'x '.repeat(200), ms: 812.4 })
+  assert.ok(d.length <= 300, String(d.length)); assert.match(d, /^at=2,70,0 need=4 free=0 planned=4 merged=4 verified=4 banked_stacks=4 stop=x_x.* ms=812$/)
+  assert.match(CM.mergeDetail({ merged: 2 }), /verified=unread .*stop=none/)
+})
+test('CHESTMERGE rollback: CHESTMERGE=off turns it off (read at import); on by default', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const src = new URL('../src/chestmerge.mjs', import.meta.url).href
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', `import('${src}').then(m => console.log(JSON.stringify(m.CHESTMERGE.on)))`], { env: { ...process.env, CHESTMERGE: 'off' }, encoding: 'utf8' })
+  assert.equal(JSON.parse(r.stdout), false, r.stderr)
+  assert.equal(CM.CHESTMERGE.on, true, 'positive control: on by default in this process')
+})
+
+/** The scene every skill test starts from: a full bag (the plan banks 4 stacks) at ONE chest with no empty slot and 8 x 10 coal. */
+const cmScene = (opts = {}, chest = splitChest(2)) => { const items = fullBag(); const w = world({ items, containers: [chest], truthProbe: true, ...opts }); return { ...w, chest, items, start: total(items) + total(chest.items) } }
+const allOf = w => total(serverBag(w)) + total(w.chest.items)
+
+test('CHESTMERGE SKILL: a chest with no empty slot but split coal -> 4 merges free the 4 slots the plan needs, the stacks are banked; the server shows it; nothing lost', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const w = cmScene()
+    const coalBefore = sumOf(w.chest.items, 'coal')
+    const { out: r, rows: td } = await rowsOf(() => runLate(w.bot))
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(allOf(w), w.start, 'nothing lost'); assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+    assert.equal(w.st.clicks, 16, '4 merges and 4 deposits, two left clicks each')
+    assert.deepEqual(w.st.opened, ['2,70,0', '2,70,0'], 'one visit, one re-open')
+    assert.equal(w.chest.items.filter(i => i?.name === 'coal' && i.count === 50).length, 1, 'slots 0-3 went onto slot 7: 10 + 4 x 10')
+    assert.equal(sumOf(w.chest.items, 'coal') - coalBefore, sumOf(w.items, 'coal') - sumOf(serverBag(w), 'coal'), 'the chest\'s coal changed only by what the bag banked')
+    assert.equal(w.chest.items.filter(Boolean).length, 27, 'the freed slots hold the banked stacks')
+    assert.equal(serverBag(w).length, 32, 'the bag is four stacks lighter')
+    assert.equal(rows.length, 1); assert.equal(rows[0].status, 'success')
+    assert.match(rows[0].detail, /^at=2,70,0 need=4 free=0 planned=4 merged=4 verified=4 banked_stacks=4 stop=none ms=\d+$/)
+    assert.match(td[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 /, 'the town deposit\'s own row is the base\'s')
+    assert.notEqual(await memStatus('2,70,0'), 'full', 'a chest that took the plan is not remembered full')
+  } finally { untap(); restore() }
+})
+test('CHESTMERGE SKILL: only what the plan lacks -- two empty slots and four stacks to bank -> exactly two merges', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const chest = splitChest(2); chest.items[25] = null; chest.items[26] = null
+    const w = cmScene({}, chest)
+    const r = await runLate(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(w.st.clicks, 12, '2 merges + 4 deposits'); assert.equal(allOf(w), w.start)
+    assert.match(rows[0].detail, /need=2 free=2 planned=2 merged=2 verified=2 banked_stacks=4/)
+  } finally { untap(); restore() }
+})
+test('CHESTMERGE CONTROL: room for the whole plan -> no merge, no row (the base run); a chest of FULL stacks -> no merge, town_storage_full as before', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const roomy = splitChest(2); for (const i of [23, 24, 25, 26]) roomy.items[i] = null
+    const a = cmScene({}, roomy)
+    assert.equal((await runLate(a.bot)).status, 'success'); assert.equal(a.st.clicks, 8, 'the four deposits only')
+    assert.equal(sumOf(a.chest.items.filter(i => i?.count === 10), 'coal'), 80, 'the split coal is left as it was')
+    freshTown()
+    const b = world({ items: fullBag(), containers: [filledChest(2)] })
+    const r = await runLate(b.bot)
+    assert.equal(r.failClass, 'town_storage_full'); assert.equal(b.st.clicks, 0)
+    assert.equal(rows.length, 0, 'no merge was planned in either run: no row')
+  } finally { untap(); restore() }
+})
+test('CHESTMERGE SKILL: stacks the client can see differ (a component) are never merged -> the chest is full, exactly as the base', async () => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 8 ? item('coal', 10, i, { components: [{ type: 'custom_name', data: `c${i}` }] }) : item('dirt', 64, i))) })
+    const w = cmScene({}, chest)
+    const r = await runLate(w.bot)
+    assert.equal(r.failClass, 'town_storage_full'); assert.equal(w.st.clicks, 0); assert.equal(rows.length, 0); assert.equal(allOf(w), w.start)
+  } finally { untap(); restore() }
+})
+// THE SURPRISES. The fake SERVER and the fake CLIENT are separate and the client's cursor is its own prediction, as
+// mineflayer's is (it never applies the server's cursor): each scene changes the SERVER only, so the client predicts a
+// clean merge that did not happen. The run must find out from the server (the probe), put the stack back into the slot it
+// came from, and make NO deposit click in that container. Nothing reaches the bag or the ground.
+const srvOnly = fn => (slot, win) => fn(slot, win, win.server)
+const surprise = async (opts, check, { bagDelta = 0, slotFreed = false } = {}) => {
+  const restore = freshTown(); const { rows, untap } = cmRows()
+  try {
+    const w = cmScene(opts)
+    const r = await runLate(w.bot)
+    assert.equal(w.st.dropped, 0, 'nothing on the ground'); assert.equal(w.st.loadedCloses, 0, 'never a loaded close')
+    assert.equal(total(serverBag(w)) - total(w.items), bagDelta, 'what came out of the chest into the bag')
+    assert.equal(rows.length, 1); assert.equal(rows[0].status, 'no_effect'); assert.match(rows[0].detail, /merged=0 verified=0 banked_stacks=0/)
+    assert.deepEqual(w.st.opened, ['2,70,0', '2,70,0'], 'the container is read again after the clicks (the index is not left dirty)')
+    // Codex r2: the container is classed as the base classes it. No empty slot on the server's word -> FULL: remembered,
+    // looked past, and (every chest so) the run goes on into the deposit verb -- a merge that keeps failing is not a loop.
+    assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full', 'the plan did not fit: the base\'s refusal (and, with the clock, its remedy)'); assert.match(r.detail, /deposit \(no item\)/, 'the refusal names a verb the bot can run from here')
+    assert.equal(await memStatus('2,70,0') === 'full', !slotFreed, 'remembered full exactly when the server shows no empty slot')
+    check(w, rows[0])
+  } finally { untap(); restore() }
+}
+test('CHESTMERGE SURPRISE 1 (a part merge the client did not see): the server\'s destination had grown -> the rest on the SERVER\'s cursor goes back into the emptied slot; no deposit click', () =>
+  surprise({ onClick: srvOnly((slot, win, srv) => { if (slot === 7 && win.selectedItem) srv.slots[7].count = 60 }) }, (w, row) => {
+    assert.equal(w.st.clicks, 3, 'pick up, put down, put back -- and not one deposit click'); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7;_cursor_returned/)
+    assert.deepEqual([w.chest.items[0].count, w.chest.items[7].count], [6, 64], '4 of the 10 merged on the server, the other 6 are back in slot 0')
+    assert.equal(w.chest.items.filter(Boolean).length, 27)
+  }))
+test('CHESTMERGE SURPRISE 2 (the pickup): the server\'s stack was smaller than the client\'s -> the merge is not counted, the cursor is empty on the server, no deposit click', () =>
+  surprise({ onClick: srvOnly((slot, win, srv) => { if (slot === 0 && !win.selectedItem) srv.slots[0].count = 7 }) }, (w, row) => {
+    assert.equal(w.st.clicks, 2, 'the two merge clicks only'); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7;_cursor_empty/)
+    assert.equal(w.chest.items[7].count, 17, 'the server merged what it had: 10 + 7'); assert.equal(w.chest.items[0], null)
+    assert.equal(sumOf(w.chest.items, 'coal'), 77, 'the chest holds exactly the server\'s coal')
+  }, { slotFreed: true }))
+test('CHESTMERGE SURPRISE 3 (a swap): the server\'s stack is not the one the client was sent -> the swapped-out stack on the SERVER\'s cursor goes into the emptied slot', () =>
+  surprise({ serverItem: (i, it, opens) => (opens === 1 && i === 7 ? { ...it, components: [{ type: 'custom_name', data: 'hidden' }] } : null) }, (w, row) => {
+    assert.equal(w.st.clicks, 3); assert.match(row.detail, /stop=the_coal_did_not_merge_into_slot_7;_cursor_returned/)
+    assert.equal(sumOf(w.chest.items, 'coal'), 80, 'both stacks are in the chest, places swapped')
+    assert.equal(w.chest.items[0].components?.[0]?.data, 'hidden'); assert.equal(w.chest.items[7].components, undefined)
+  }))
+test('CHESTMERGE SURPRISE 4 (the residual case): the emptied slot was filled by another bot AND the merge was partial -> the rest cannot go back; settleCursor takes it (the bag), never the ground, and the chest is counted again', () =>
+  surprise({ onClick: srvOnly((slot, win, srv) => { if (slot === 7 && win.selectedItem) { srv.slots[7].count = 60; srv.slots[0] = item('dirt', 64, 0) } }) }, (w, row) => {
+    assert.match(row.detail, /cursor_loaded/)
+    assert.equal(w.chest.items[0].name, 'dirt'); assert.equal(w.chest.items[7].count, 64)
+    assert.equal(sumOf(serverBag(w), 'coal') - sumOf(w.items, 'coal'), 6, 'the six coal are in the bag (the caller\'s server-confirmed settle), not lost')
+  }, { bagDelta: 6 }))
+test('CHESTMERGE ABORT between the two clicks (Codex r1): the picked-up stack goes back into its slot before the settle; the abort is rethrown', async () => {
+  const restore = freshTown()
+  try {
+    const ac = new AbortController()
+    const w = cmScene({ onClick: (slot, win) => { if (slot === 0 && !win.selectedItem) queueMicrotask(() => ac.abort()) } })
+    await assert.rejects(() => SKILLS.town_deposit.run({ bot: w.bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, ac.signal))
+    assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+    assert.equal(total(serverBag(w)), total(w.items), 'no chest coal in the bag')
+    assert.equal(w.chest.items[0]?.count, 10, 'the 10 coal are back in slot 0'); assert.equal(sumOf(w.chest.items, 'coal'), 80)
+    assert.equal(w.st.clicks, 2, 'the pickup and the put-back')
+  } finally { restore() }
+})
+
+/** A copy of skills.mjs (and optionally chestmerge.mjs) with one anchored edit each -> its module. Anchors are asserted present and unique. */
+async function cmMutant ({ skillsEdit = null, mergeEdit = null }, fn) {
+  const toSrc = src => src.replace(/from '\.\//g, "from '../src/")
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2, 6)}`
+  const sOut = new URL(`./_mutant-cms-${tag}.mjs`, import.meta.url), mOut = new URL(`./_mutant-cmm-${tag}.mjs`, import.meta.url)
+  let ssrc = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  if (skillsEdit) { assert.equal(ssrc.split(skillsEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in skills.mjs: ${skillsEdit[0].slice(0, 60)}`); ssrc = ssrc.replace(skillsEdit[0], skillsEdit[1]) }
+  ssrc = toSrc(ssrc)
+  if (mergeEdit) {
+    const msrc = fs.readFileSync(new URL('../src/chestmerge.mjs', import.meta.url), 'utf8')
+    assert.equal(msrc.split(mergeEdit[0]).length, 2, `ANCHOR MISSING OR NOT UNIQUE in chestmerge.mjs: ${mergeEdit[0].slice(0, 60)}`)
+    fs.writeFileSync(mOut, toSrc(msrc.replace(mergeEdit[0], mergeEdit[1])))
+    const imp = "from '../src/chestmerge.mjs'"
+    assert.equal(ssrc.split(imp).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: skills.mjs imports chestmerge.mjs once')
+    ssrc = ssrc.replace(imp, `from './_mutant-cmm-${tag}.mjs'`)
+  }
+  fs.writeFileSync(sOut, ssrc)
+  try { return await fn(await import(sOut.href), mergeEdit ? await import(mOut.href) : CM) } finally { for (const f of [sOut, mOut]) try { fs.unlinkSync(f) } catch {} }
+}
+const runLateOn = (M, bot) => M.SKILLS.town_deposit.run({ bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, null)
+test('CHESTMERGE MUTANT KILLED: the switch off (the rollback) -> the split chest is full and untouched, as on the base (the measured failure)', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ mergeEdit: ["{ on: String(process.env.CHESTMERGE ?? '').trim().toLowerCase() !== 'off' }", '{ on: false }'] }, async M => {
+      const w = cmScene()
+      const r = await runLateOn(M, w.bot)
+      assert.equal(r.failClass, 'town_storage_full'); assert.equal(w.st.clicks, 0); assert.equal(allOf(w), w.start)
+      assert.equal(sumOf(w.chest.items.filter(i => i?.count === 10), 'coal'), 80)
+    })
+  } finally { restore() }
+})
+const PART = { onClick: (slot, win) => { if (slot === 7 && win.selectedItem) win.server.slots[7].count = 60 } }
+test('CHESTMERGE MUTANT KILLED: the put-back click removed -> the part-merged rest leaves the town chest for the bag (what the rescue prevents)', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ["      const p = trackedClick(bot, raw, from, 0, 0); p.catch(() => {}); await within(p, 1500)\n", ''] }, async M => {
+      const w = cmScene(PART)
+      await runLateOn(M, w.bot)
+      assert.equal(w.st.dropped, 0, 'the caller\'s settleCursor still keeps it off the ground')
+      assert.equal(total(serverBag(w)) - total(w.items), 6, 'MUTANT: six coal came out of the town chest into the bag, unasked')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED (independent review r1): trusting the client\'s cursor -- no stop after a merge that went wrong -> the deposit clicks on top of the server\'s loaded cursor', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['    if (merge.err || win.selectedItem) return { done: [], full: true,', '    if (win.selectedItem) return { done: [], full: true,'] }, async M => {
+      const w = cmScene({ onClick: srvOnly((slot, win, srv) => { if (slot === 0 && !win.selectedItem) srv.slots[0].count = 7 }) })
+      await runLateOn(M, w.bot)
+      assert.ok(w.st.clicks > 2, `MUTANT: ${w.st.clicks} clicks -- deposit clicks followed the failed merge (2 on the real code)`)
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED (independent review r1): a merge counted without the server\'s word -> a part merge the client did not see is counted, and the deposit runs with the rest on the server\'s cursor', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ["const ev = clickErr ? null : await confirmCursor(bot, win, { deadline: Date.now() + Math.max(250, Math.min(1500, deadline - Date.now())) })", "const ev = clickErr ? null : { answered: true, cursorEmpty: !win.selectedItem }"] }, async M => {
+      const { rows, untap } = cmRows()
+      try {
+        const w = cmScene(PART)
+        await runLateOn(M, w.bot)
+        assert.match(rows[0].detail, /merged=[1-9]/, 'MUTANT: the client\'s prediction is taken for a merge')
+        assert.ok(w.st.clicks > 3, 'MUTANT: the run clicked on with the server\'s cursor loaded')
+      } finally { untap() }
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED (Codex r1): no rescue after an abort -> the picked-up coal ends in the bag', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['        if (mergeHold.from != null) { const from = mergeHold.from; mergeHold.from = null; await mergeRescue(bot, win, from) }\n', ''] }, async M => {
+      const ac = new AbortController()
+      const w = cmScene({ onClick: (slot, win) => { if (slot === 0 && !win.selectedItem) queueMicrotask(() => ac.abort()) } })
+      await assert.rejects(() => M.SKILLS.town_deposit.run({ bot: w.bot, runner: { current: { startedAt: Date.now() - 3_600_000 } } }, {}, ac.signal))
+      assert.equal(total(serverBag(w)) - total(w.items), 10, 'MUTANT: ten coal left the town chest for the bag')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE CHAIN (Codex r2): every chest in reach ends in a failed merge with no empty slot -> the run goes on into the deposit verb, as for any full town', async () => {
+  const restore = freshTown()
+  try {
+    const w = cmScene(PART)
+    await withVerb(FP.fullPlaceVerb, VERB_BANKED, async calls => {
+      const r = await runClock(w.bot)
+      assert.equal(calls.length, 1, 'the full-chest remedy is RUN, not named'); assert.equal(r.status, 'success', r.detail)
+    })
+    assert.equal(await memStatus('2,70,0'), 'full')
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED (Codex r2): a failed merge classed as `none` -> the chest is not remembered full and the full-chest remedy never runs', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ["return { done: [], full: true, noRoom: !win.slots.slice(0, win.inventoryStart).some(x => !x), err: merge.err ?? 'the cursor is loaded after a merge',", "return { done: [], full: false, noRoom: false, err: merge.err ?? 'the cursor is loaded after a merge',"] }, async M => {
+      const w = cmScene(PART)
+      const r = await runLateOn(M, w.bot)
+      assert.equal(r.failClass, 'town_deposit_failed', 'MUTANT: not town_storage_full'); assert.notEqual(await memStatus('2,70,0'), 'full')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED (Codex r2): the put-back without its re-check inside the lockstep -> it clicks in a window that is no longer the chest', async () => {
+  const restore = freshTown()
+  try {
+    // the server closes the chest while the rescue waits for its lockstep: the fake's lockstep swaps the open window first
+    const scene = () => { const w = cmScene(PART); const ls = w.bot.craftSync.lockstep; let n = 0; w.bot.craftSync.lockstep = fn => { if (++n === 2) w.bot.currentWindow = { foreign: true, slots: [], selectedItem: null }; return ls(fn) }; return w }
+    const real = scene(); await runLate(real.bot)
+    assert.equal(real.st.foreignClicks ?? 0, 0, 'the real code: no click lands in the other window')
+    freshTown()
+    await cmMutant({ skillsEdit: ["      if (bot.currentWindow !== win || !win.selectedItem || win.slots[from]) throw stop('the window or the slot changed before the put-back')\n", ''] }, async M => {
+      const w = scene(); await runLateOn(M, w.bot)
+      assert.equal(w.st.foreignClicks, 1, 'MUTANT: the put-back clicked a chest slot number into another window')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED: merging for the whole plan instead of what it lacks -> four merges where two were needed', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate, mergeHold)', 'await mergeInto(bot, win, plan.steps.length, deadline, signal, onMutate, mergeHold)'] }, async M => {
+      const chest = splitChest(2); chest.items[25] = null; chest.items[26] = null
+      const w = cmScene({}, chest)
+      await runLateOn(M, w.bot)
+      assert.equal(w.st.clicks, 16, 'MUTANT: 4 merges + 4 deposits (12 clicks on the real code)')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANT KILLED: no re-open after a failed merge -> the container is clicked and never read again', async () => {
+  const restore = freshTown()
+  try {
+    await cmMutant({ skillsEdit: ['{ always: merged.length > 0 || !!r.merge?.err }', '{ always: false }'] }, async M => {
+      const w = cmScene(PART)
+      await runLateOn(M, w.bot)
+      assert.deepEqual(w.st.opened, ['2,70,0'], 'MUTANT: one open only')
+    })
+  } finally { restore() }
+})
+test('CHESTMERGE MUTANTS KILLED (pure): a pair that does not fit, a pair of different components, a merge the server does not show', async () => {
+  await cmMutant({ mergeEdit: ['if (g[i].count + from.count <= g[i].size) { to = g[i]; break }', 'if (true) { to = g[i]; break }'] }, async (_M, X) => {
+    assert.equal(X.mergePlan([C('coal', 40), C('coal', 30)], { need: 3 }).length, 1, 'MUTANT: a 70-coal merge is planned (a part merge: the cursor stays loaded)')
+  })
+  await cmMutant({ mergeEdit: ['it.components ?? [], it.removedComponents ?? []', '[], it.removedComponents ?? []'] }, async (_M, X) => {
+    assert.equal(X.mergePlan([C('coal', 5), C('coal', 5, { components: [{ type: 'custom_name', data: 'x' }] })], { need: 3 }).length, 1, 'MUTANT: a named stack is paired with a plain one (a swap on the server)')
+  })
+  await cmMutant({ mergeEdit: ['return !!s && s.name === f.name && s.count === f.sum', 'return !!s && s.name === f.name'] }, async (_M, X) => {
+    const srv = Array(27).fill(null); srv[7] = { name: 'coal', count: 10 }
+    assert.equal(X.mergeVerified([{ name: 'coal', from: 0, to: 7, count: 10, into: 10, sum: 20 }], srv), 1, 'MUTANT: an unmerged slot counts as verified')
+  })
 })

@@ -362,8 +362,12 @@ await t('CHAIN (composed, design 4 chain 4): a 34-slot bag with junk + torch -> 
   assert.ok(p.steps.some(s => s.name === 'torch') && !p.steps.some(s => ['egg', 'flint'].includes(s.name)), JSON.stringify(p.steps))
   const after = items.filter(x => !p.steps.some(s => s.slot === x.slot))
   assert.ok(after.length < 34, `the bank took the bag under the trigger: ${after.length}`)
-  const full = W.wellOrder({ now: NOW, slots: after.length, freeSlots: 36 - after.length, junkStacks: W.disposePlan(after).junkStacks, distHome: 3, well: { open: false, attended: false } })
-  assert.equal(full.order, null, 'the 34-slot order is off at 33')
+  // idlework-02: with the band off (IDLEWORK_WELL=0) the 34-slot order is off at 33, as junkout-01 designed; with the band on
+  // (the default outside the showcase) the town dispose is also due at 29-33 (well.mjs wellBandDue) -- either way the junk goes
+  const full = W.wellOrder({ now: NOW, slots: after.length, freeSlots: 36 - after.length, junkStacks: W.disposePlan(after).junkStacks, distHome: 3, well: { open: false, attended: false }, bandOn: false })
+  assert.equal(full.order, null, 'the 34-slot order is off at 33 (band off)')
+  const band = W.wellOrder({ now: NOW, slots: after.length, freeSlots: 36 - after.length, junkStacks: W.disposePlan(after).junkStacks, distHome: 3, well: { open: false, attended: false }, bandOn: true })
+  assert.equal(band.order?.skill, 'dispose_well', 'idlework-02: the band order at 33')
   const v = W.wellVisitOrder(visitArgs({ slots: after.length, visitJunkStacks: W.disposePlan(after).junkStacks }))
   assert.equal(v.order?.skill, 'dispose_well'); assert.equal(v.order.args.visit, true)
 })

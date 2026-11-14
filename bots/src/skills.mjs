@@ -36,6 +36,7 @@ import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyO
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
 import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword, unwantedSword } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
+import { sbOn, chaseStationDrop, waitStationDrop, digWithRetry } from './stationsback.mjs'   // stationsback-01
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict, chainPeak } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
@@ -68,6 +69,8 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
+import { fullPlaceChain, fullPlaceResult, fullPlaceDetail, fullPlaceMinMs, fullPlaceVerb } from './fullplace.mjs'
+import { CHESTMERGE, mergeKey, mergePlan, mergeVerified, mergeDetail } from './chestmerge.mjs'
 import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
@@ -92,9 +95,11 @@ import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH
 // plinthfirst-01: every new junk well is a raised one (its own statement)
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
+import { WELL_BAND, WELL_BAND_SLOTS } from './well.mjs'   // idlework-02: the band dispose
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
-import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
+import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision, tunnelTargets } from './oretunnel.mjs'
+import { IRONCHAIN_B } from './ironchain.mjs'   // ironchain-01 (B): the tunnel's target rule
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -128,7 +133,7 @@ import { STORE_PLOT, STORE_BLUEPRINT, STORE_PALETTE, storeSite, storeRecord, sto
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
 import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, sitePaths, extendPaths, pathDests, newDests, pathSaplingCols, pathWalkR, pathProgress, pathWaiveDue, pathWaived, pathsNoSite, pathsNoSiteRec, pathsDue, pathsSiteStop, fleetPathsOn, pathAvoid } from './paths.mjs'   // paths-01
-import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived } from './wall.mjs'   // wall-01
+import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX } from './wall.mjs'   // wall-01
 import { expeditionOn, markersOn as exMarkersOn, expeditionModeDetail, expeditionAdmit, bearingVec, ringOf, tripBearing, legTarget, turnReason, standableAt, crumbDue, nextCrumb, markerHome, markerDue, markerSpot, naturalTree, zoneHit, haulOf, bankableHaul, depositBase, kitNeed, tripDetail, EXPEDITION_KEY, EXPEDITION_SLOTS, MARKER_EVERY, MARKER_MIN_HOME, GATHER_MS, DEPOSIT_MIN_MS, OUT_SHARE, KIT as EX_KIT, TRAIL_TTL_MS } from './expedition.mjs'   // expedition-01
 import { torchSafe, outShareOf, multiCall, trailAge, PLANNER_V } from './expedition.mjs'   // wholemap-s1a
 import { swimWidth as exSwimWidth, gatherSpare, heldGate, GATE_RETRIES } from './expedition.mjs'   // expwater-01
@@ -139,6 +144,21 @@ import { setCopperAsk, COPPERHALL as COPPERHALL_ON } from './shop.mjs'   // copp
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
+import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
+import { GK, GK_LEASE, keeperDecision, termStart, keeperOrderPure, keeperWanted } from './groundskeeper.mjs'   // groundskeeper-01: the keeper lease
+import { GK_FIT, gkleaseOn, groundsUnfit, groundsIdle, groundsLeaseCheck, keeperGroundsFirst } from './groundskeeper.mjs'   // gklease-01
+import { LAND_PLOT, LAND_BLUEPRINT, landOn, landSeed, planLand, landReservation, landSaplingCols, nextStage, landStages, sitedSectors } from './landplan.mjs'   // groundskeeper-01; yardzone-01: sited sectors pinned
+import { LAND as LAND_TABLE } from './landplan.mjs'   // gkforever-01: the bands out to GKF.radius
+import { gkfOn, gkfLand, gkfDue, gkfDeadCarry, gkfVisitWorked, gkfNoWork, gkfMeans } from './gkforever.mjs'   // gkforever-01
+import { setGroundsMeans, groundsBatchOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
+import { setHoldsGrounds, idleKindNow, belowKind, gkstayOn } from './idlework.mjs'   // gkstay-01
+import { logCapConfig, logCapNext, townLogsIn, logCapDetail, setLogCapState, LOGCAP_TTL_MS, setTownLogTop, topTownLog } from './logcap.mjs'   // logcap-02
+import { unfitPersist } from './groundskeeper.mjs'   // gkstay-01
+import { gkworkOn, GKW, visitEmpty, visitWorked, gkwVisit, softHoldsGive, keeperAfterVisit, stallWaive, heldWhy } from './gkwork.mjs'   // gkwork-01
+import { stuckcloseOn, townGivenCuts, givenWaivers } from './stuckclose.mjs'   // stuckclose-01
+import { retryRead } from './buildretry.mjs'   // stuckclose-01: the town's retry ledger, read by the tidy
+import { tidyRoughness } from './tidy.mjs'   // gkforever-01: the interior's census
+import { BOT_MAT as BOT_MAT_RE, BW3, BW3_PLOT, BW3_PALETTE, bw3On, bw3WalkOn, bw3Evidence, bw3Work, bw3HasWork, bw3PlanksOwed, bw3DeckFor, bw3RecordBody, bw3Detail } from './boardwalk.mjs'   // boardwalk-03
 import { TREEFARM_PLOT, TREEFARM_BLUEPRINT, FARM_PALETTE, FARM_FOREIGN, farmPalette, farmAlsoDone, farmBlocked, farmBounds, lightsFor, siteFarm, pickSpecies, farmDue, harvestList, harvestRow, farmFootprint, farmProgress, farmCensus, siteTreesLeft, cutsLeft, siteTreeWaive, treeHeldCols, farmStampHeld } from './treefarm.mjs'   // treefarm-04
 import { projKey, recordHead, publishRecord, takeSlot, takeLease as projTakeLease, releaseLease, holdsLease as projHoldsLease, leaseState as projLeaseState, intentClose as projIntentClose, presenceWrite, recordGenNow, PRESENCE_BEAT_MS, drawnRead, drawnWrite, stuckAt as projStuckAt, stuckWrite as projStuckWrite } from './buildproj.mjs'
 import { installAckTracker } from './buildack.mjs'
@@ -146,6 +166,9 @@ import { runVisit, cellDone as buildCellDone, workableSeg, STUCK_FORGET_MS as BU
 import { zigFor, ZIG_PALETTE, ZIG_FOREIGN, ZIG_FOREIGN_GROWN, zigBambooOn, ZIG_CLEAR_MAX, zigFeetIn, zigHidden, zigOnSite, zigWant, zigSplitFoundation, MONUMENT_PLOT, MONUMENT_BLUEPRINT, monumentBox, zigAvoid, columnOf, siteZiggurat, zigRecord, zigDomain, zigWalkR, zigProgress, zigTidy, ZIG_TIDY_VISITS, zigTreadTops, isZigBlueprint, zigPaletteOf } from './ziggurat.mjs'   // monument-01
 import { zigDesignVersion, zigSeed, zigDesign, zigCandidates, zigDesignName } from './zigdesign.mjs'   // ziggurat v2 (OWNER 10-29)
 import { stuckRead as vfStuckRead } from './buildproj.mjs'
+import { stuckFleetOn, lightWaiveDue, stuckFleet2On, orphanWaiveDue } from './stuckfleet.mjs'   // stuckfleet-01, stuckfleet-02
+import { planaheadOn, planReachAsync, reachTag, puWaiveDue, standClaims, standRetire, plannedWorld, liveUnreached } from './planahead.mjs'   // planahead-01
+import { replaceableCell as paReplaceable } from './townplan.mjs'   // planahead-01: a planned cell read done
 import { stuckCellsOn, sealedPocket, recWaived, shopMayWaive, zigMayWaive, WAIVE_MAX_SHOP, WAIVE_MAX_ZIG, stampLiftable, visitOpts as stuckVisitOpts, withWaived, completeWithWaived, readBlock, tidyDeadOn } from './stuckcells.mjs'   // stuckcells-01, tidydead-01
 import { ACCESS_DIG_MAX as VF_ACCESS_DIG_MAX, ACCESS_SPARE as VF_ACCESS_SPARE } from './voidfill.mjs'
 import { canopyOn, naturalProps } from './canopy.mjs'   // canopy-01
@@ -154,14 +177,29 @@ import { botBuildEffects } from './buildbot.mjs'
 import { SHAFT_PLOT, SHAFT_BLUEPRINT, siteCandidates as stairCandidates, surveySite as stairSurvey, betterSurvey as stairBetter, stairRecord, noSiteRecord as stairNoSite, truncatedRecord as stairTruncated, droppedLandingRecord as stairDropped, isStairRecord, stairDamaged, stairDue, landingUsable, chooseLanding, nearStair, roofed as stairRoofed, stairKeepOut, shaftRowDetail, shaftUseDetail, LINING_ITEMS, isFull as stairFull, SITE_GAP as STAIR_SITE_GAP } from './shaftgeom.mjs'   // shaft-02, the town stair
 import { runStairVisit, stairRead, stairBotEffects, stairItems, stairLiningCount, withStairClaim } from './shaftvisit.mjs'   // shaft-02
 import { runStairEgress } from './shaftvisit.mjs'   // shafttrap-01: the visit's way out
+import { TOWNMINE, hasMine, mineState, mineSiteRefusal, mineSiteCheck, withMine, mineStopped, hallRoute, hallUsable, galleryOf, galleryNext, fixturesMissing, torchesMissing, mineRowDetail, fixtureCellSafe as mineFixtureSafe, mineRoomDropped, mineStallNoted, BUILD_UNITS_CALL as MINE_BUILD_UNITS, GALLERY as MINE_GALLERY, FIXTURE_ITEMS as MINE_FIXTURES, BUILD_COOLDOWN_MS as MINE_BUILD_COOLDOWN_MS } from './townmine.mjs'   // townmine-01
+import { mineExt, standOf as stairStandOf } from './shaftgeom.mjs'   // townmine-01
+import { runStairDescent } from './shaftvisit.mjs'   // stairuse-01: the way down
+import { stairUseOn, stairEntryClass, landingRoute, descentDetail, stairStepAt as stairStepOf } from './shaftgeom.mjs'   // stairuse-01
 import { workshopStations, preferWorkshop, stationKind, preferredNow, skipAfterRun, WORKSHOP_SKIP_MS, WORKSHOP_REACH } from './workbench.mjs'   // workbench-01
 import { tableCandidates, TABLE_TRIES } from './workbench.mjs'   // bagdiet-01: the craft's table candidates
+import { sweepTownGiven } from './stations.mjs'   // gklease-02: the sweep's give-up is the town's
+import { columnCovered, tidyWaived } from './groundskeeper.mjs'   // gklease-02: open sky is the surface; a waived tidy cell is done
+import { stnOn, STN, SWEEP, STATION_NAMES, inTownSurface, townStations, townKeep, designatedCell, smeltRetake, furnaceEmpty, strayStations, noteSweep, sweepGivenUp, withdrawFirst, spareTables, stationRowDetail, sweepVisitDetail } from './stations.mjs'   // stations-01
+import { SPARE_FUEL_TICKS } from './smelting.mjs'   // stations-01 SURPLUS: a spare table burns in the bot's own smelt
 import { PROJECT_VISIT_HOLD, LIGHT_BANK_MIN_MS, bankBackDue } from './shop.mjs'   // bagdiet-01: the light projects' hold and bank-back gate
+import { setUnlockAsk } from './shop.mjs'   // villageunlock-01 (T3a): the order's ask
+import { VU, unlockSwitch, unlockModeDetail, penAround, trackStill, stuckCandidates, nextToggle, reachOf, toggleable, unlockDetail, barrierExits, villagerStillPenned, penKey, takeLease } from './villageunlock.mjs'
+import { withUnlockScope } from './protectzone.mjs'
 import { SHOP, SHOP_BLUEPRINT, tidyIsRepair, stuckStale, stuckOtherWork, SHOP_PLOT, PROJECTS, SHOP_BILL_CAP, BUILDERS_MAX, SHOP_VISIT_MS, SHOP_SKILL_MS, SHOP_BANK_MIN_MS, TOWN_R as SHOP_TOWN_R, STOOD_REPEAT_MS, footprintCells, billOf, needFromTown, visitNeeds, planksFromLogs, billInTown, shopAllow, drawnHeld, ownCounts, drawnAfter, shareState, leftoverNames, bagBalance, buildBagDetail, stoodAppend, stoodRead, buildRowDetail, buildSegDetail, buildVisitDetail, saplingBox, saplingAllowedAt, saplingCandidateOk, SAPLING_MARGIN, recordCellKeys, recordCellHit, projectsOn, activeProject, recordZones, buildersOf, setActivePlot, setExpeditionAsk, repairBackoff, noteRepair, stuckBackoff, SHAFT, SHAFT_BUILDERS, projectsGuarded } from './shop.mjs'
 import { unsitedWaitOn, unsitedBackoff, unsitedRead, unsitedWrite, setUnsitedOf } from './shop.mjs'   // idlework-01 B: an unsited project yields its turn
+import { GROUNDS, setKeeperNow, SHOP_STUCK_RETRY_MS } from './shop.mjs'   // groundskeeper-01; gkstall-01: the stuck keeper's rest
+import { buildNextOn, nextBreakerOn, nextNote, nextHeld, nextBackoff, setNextHoldOf, NEXT_K, NEXT_HOLD_MS } from './shop.mjs'   // buildnext-01: never idle on a blocked project
+import { LIGHT_PLOTS } from './shop.mjs'   // workboard-01: the job's bag rule
+import { boardJob, jobBlocked, WB as WORKBOARD_T } from './townwork.mjs'   // workboard-01: the town work board (phase A)
 import { groupOfItem } from './townindex.mjs'
 import { LEDGER, recordStation, furnaceSlots, ledgerHomeKey, ledgerStationDetail, readLedger } from './ledger.mjs'   // ledger-01
-import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
+import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch, COBBLEROOM, cobbleRoomNote, cobbleNoRoomFresh, wellTakesCobble } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
@@ -178,6 +216,7 @@ import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS, SMELT_MS
 import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 // mats-01 (building tier section 3): the materials job's decisions
 import { KINDS, PLANKS_OF, MATS_LEASE_TTL_MS, MATS_MIN_COVERAGE, matsReserve, matsBuffers, orderInputs, partCount, reserveCount, touchedNames,
+  STONEWORKS, LADDER_KINDS, fuelPlan, fuelToLoad, withFuelReserve, effectiveBuffer, oreWaiting, stoneScaffoldHeld,   // stoneworks-01
   furnaceQualifies, batchFor, planksToLoad, newNote, returnPlan, noteSettled, obligations, recoveryContentsOk, takeAllowed, recipeUsing, isPlanks, toolCounts,
   recoveryBalance, reserveKeyOf, matsRecountable, MATS_RETURN_WAIT_MS, matsReturnWaitMs, recoveryVerdict, BUFFERED_PARTS, backSeenTouched,
   MATS_RETURN_MAX, MATS_RETURN_MAX_AGE_MS, matsBalance, forbiddenCounts, matsDetail,
@@ -191,7 +230,7 @@ import { IRONSMELT, SMELT_RULEOUT, SMELT_IRON_INPUT, SMELT_IRON_OUTPUT, SMELT_OU
          ironSmeltCount, ironBankPlan } from './smeltjob.mjs'   // ironsmelt-01
 import { withDigScope } from './digtown.mjs'
 import { returnOverdue as deepReturnOverdue, trailProgress as deepTrailProgress, legSealTargets as deepLegSealTargets } from './deepmine.mjs'   // deepminer-01 r1
-import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
+import { DEEPMINE, DEEPMINE_PLOT, deepRowDetail, tripKit as deepTripKit, tripTarget as deepTripTarget, newTrip as deepNewTrip, returnWhy as deepReturnWhy, workKinds as deepWorkKinds, trailPush as deepTrailPush, trailBack as deepTrailBack, stairRoute as deepStairRoute, routeIndex as deepRouteIndex, branchCells as deepBranchCells, branchNext as deepBranchNext, sealTargets as deepSealTargets, isNatural as deepIsNatural, IRON_FEET as DEEP_IRON_FEET, DEEP_FEET as DEEP_DEEP_FEET, DEEP_OK as DEEP_OK_Y, LEASE_TTL_MS as DEEPMINE_LEASE_TTL_MS, COOLDOWN_MS as DEEPMINE_COOLDOWN_MS, FAIL_BACKOFF_MS as DEEPMINE_FAIL_BACKOFF_MS, BRANCH_LEN as DEEP_BRANCH_LEN, BRANCHES_MAX as DEEP_BRANCHES_MAX, TORCH_EVERY as DEEP_TORCH_EVERY, RETURN_TRIES as DEEP_RETURN_TRIES, CALLS_MAX as DEEP_CALLS_MAX, PICK_DIAMONDS as DEEP_PICK_DIAMONDS, DIAMOND_KINDS as DEEP_DIAMOND_KINDS } from './deepmine.mjs'   // deepminer-01
 import { planOf as stairPlanOf, firstUndone as stairFirstUndone, standFor as stairStandFor, stairCellKeys } from './shaftgeom.mjs'   // deepminer-01: the stair's repair on the way down
 import { egressReserveMs, egressDetail } from './shaftgeom.mjs'   // shafttrap-01: a stair visit ends at the collar
 import { stairStepAt, stairTrapOn, EGRESS_REFLEX_MS } from './shaftgeom.mjs'   // shafttrap-02: the reflexes hand a bot on the stair to the egress
@@ -204,6 +243,8 @@ import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, ke
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs: the pure rules; index.mjs: the dig guard + route)
 import { columnAt, sitesNear, keepOutPart, KEEPOUT_KIND, KEEPOUT_SEARCH, KEEPOUT_RADIUS, KEEPOUT_HEIGHT, KEEPOUT_COOLDOWN_MS,
          addCooldown, noteKeepout, exitTargets, outwardBearings, encodeCells, cellsInColumns, siteKey, routeForbids } from './keepout.mjs'
+// gathermem-01: a bot remembers the gather targets that just failed it, and the places a gather just found nothing takeable
+import { gatherMemOn, noteTargetFailure, clearTarget, rememberedTarget, rankByMemory, allRemembered, noteAreaRefusal, AREA_CLASSES } from './gathermem.mjs'
 // wellcare-01 fix 3 (its own statement): a station never on a junk well's cells
 import { stationKeepOut, stationWellDetail, nearWell } from './wellcare.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
@@ -1657,7 +1698,9 @@ export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { f
     // cobblekeep-01 (cobblecap.mjs wellCobbleSwitch): the AVAILABLE floor as before, OR the bank's own at-cap refusal of
     // this smallest stack on counted stock (no incoming reservation); cobble a withdraw holds is never thrown
     const h = withdrawHolds()
-    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })
+    // cobbleroom-01: and, below the cap, when this bot's own deposit just found no town container with room for a whole stack
+    const noRoom = COBBLEROOM.on && cobbleNoRoomFresh(bot?.cobbleNoRoom)
+    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly, noRoom })
   } catch { return 'unknown' }
 }
 
@@ -1706,7 +1749,7 @@ export function valveProof (bot, items = bot?.inventory?.items?.() ?? []) {
     if (items.length < TD_TRIGGER_SLOTS) return false
     const peaceful = foodSkipNow(bot).active
     if (startableJunk(items, { apples: peaceful, plants: peaceful, level: 0 }) > 0) return false
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) })
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot, items)), stock: stockWellOpts(bot, items) })
     return plan.junkStacks === 0
   } catch { return false }
 }
@@ -1833,7 +1876,7 @@ const TUNNEL_TRIES = 3
 // the old `mine({y})` escalation, for iron -- and for COAL since coalfirst-01 (oretunnel.mjs tunnelKindsFor; `kinds` and
 // `label` name the ore, the rest of the tunnel is unchanged). Every refusal names a remedy the bot can perform from where it
 // stands and carries a class with no vote; the outcome row is written from the inventory, not the plan.
-async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KINDS, label = 'iron' } = {}) {
+async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KINDS, label = 'iron', eligible = null } = {}) {
   const { bot, runner } = ctx
   const t0 = Date.now()
   deadlineMs = Math.min(150_000, deadlineMs)
@@ -1856,8 +1899,18 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KIN
   const found = bot.findBlocks({ matching: ids, maxDistance: CANDIDATE_RADIUS, count: 64 }) ?? []
   // The ORE's own dig happens outside the pathfinder, so its hazard check happens here.
   const home = { x: config.world.homeX, z: config.world.homeZ }
-  const candidates = rankCandidates(feet, found.filter(q => breakHazard(at, bot.blockAt(q)) === 0 && !nearHome(q, home)))
+  // ironchain-01 (B): gather's own per-cell rule too (oretunnel.mjs tunnelTargets): never the town stair's ore
+  const tt = tunnelTargets(found, { hazard: q => breakHazard(at, bot.blockAt(q)), home, eligible: IRONCHAIN_B ? eligible : null })
+  const candidates = rankCandidates(feet, tt.safe)
+  // THE CHANGE ROW (ironchain-01): written only by this build, once per tunnel that skipped an ore gather may not take
+  if (tt.ineligible > 0) {
+    try { logEvent({ kind: 'ironchain_tunnel', status: 'no_effect', snapshot: snapshot(bot), detail: `${label}: skipped ${tt.ineligible} ore(s) gather may not take (town structure, town ground, keep-out, cave floor); ${tt.safe.length} eligible, ${tt.unsafe} unsafe` }) } catch { /* telemetry never costs the tunnel */ }
+  }
   if (!candidates.length) {
+    if (tt.ineligible > 0) {
+      return out({ status: 'failed', failClass: 'no_tunnel', detail: `${label} within ${CANDIDATE_RADIUS} blocks, but none gather may take: ${tt.ineligible} in a town structure, town ground or a keep-out, ${tt.unsafe} beside liquid or a falling block -- mine down to new rock` },
+                 `refused: ${found.length} found, 0 eligible (${tt.ineligible} ineligible, ${tt.unsafe} unsafe)`)
+    }
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `${label} within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
   }
   const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home: townHome() ?? home })
@@ -1952,6 +2005,24 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000, kinds = IRON_KIN
 }
 
 /**
+ * IRONCHAIN-01 (B): GATHER'S PER-CELL RULE, as the ore tunnel's `eligible` (oretunnel.mjs tunnelTargets) -> (q) => boolean.
+ * The round's enumeration conjunction (gatherRun's notTown), read-only -- no skip counters, no rows: town ground, the record
+ * cells (shopCellsNow: the workshop, the houses and the town stair -- "the town stair's cells are gather targets never"),
+ * keep-out columns, cave floors. An unreadable cell is never a target. Exported for its behaviour tests.
+ */
+export function tunnelEligibleOf ({ nameAt = () => null, home = null, shopCells = null, koSites = null, caveSkip = () => false } = {}) {
+  return q => {
+    try {
+      if (townDigClass(q, nameAt(q), home) === 'ground') return false
+      if (shopCells && shopCells.has(`${q.x},${q.y},${q.z}`)) return false
+      if (koSites && columnAt(koSites, q)) return false
+      return !caveSkip(q)
+    } catch { return false }
+  }
+}
+export { tunnelToOre }   // ironchain-01: its target choice is tested on the real pathfinder (bots/test/ironchain.test.mjs)
+
+/**
  * KEEPOUT-01: THE KEEP-OUT SCOPE of one gather / mine / `_keepout_exit` run. With a live fire site within `near` of the bot
  * it sets `bot.keepoutRoute` (index.mjs reads it: the column-free route and the break veto, only while this run holds the
  * body) and hands the run its working set of sites; with none it is exactly the base (fn(null)). Nested runs (gather's
@@ -2006,6 +2077,23 @@ function keepoutCooldown (bot, skill, block, site) {
 async function gather(ctx, args, signal) {
   return withKeepout(ctx, 'gather', async ko => {
     const r = await gatherRun(ctx, args ?? {}, signal, ko)
+    // GATHERMEM-01: a run that found nothing takeable HERE is refused here for a few minutes (admission reads it); an abort
+    // throws past this line, so an interruption never writes one
+    try {
+      const at = ctx.bot?.entity?.position
+      // never from a cancelled run (a reflex took the body: Claude + Codex r1 BLOCKER), never with a full bag or a run that
+      // marked its answer as the bag's (Codex r1 BLOCKER: tunnelToOre's inventory_full falls through to `unreachable`)
+      const bagFull = (ctx.bot?.inventory?.emptySlotCount?.() ?? 1) === 0
+      if (gatherMemOn() && !signal?.aborted && !bagFull && r?.memoClass !== 'none' && r?.status !== 'success' && args?.block && at) {
+        const fc = r?.memoClass ?? r?.failClass
+        const before = (ctx.bot.gatherAreas ?? []).length
+        ctx.bot.gatherAreas = noteAreaRefusal(ctx.bot.gatherAreas, { block: args.block, pos: { x: at.x, y: at.y, z: at.z }, failClass: fc })
+        if (fc === 'remembered' || AREA_CLASSES.has(fc)) {
+          logEvent({ kind: 'gathermem', status: 'no_effect', snapshot: snapshot(ctx.bot),
+                     detail: `op=area block=${args.block} class=${fc} areas=${before}->${ctx.bot.gatherAreas.length}` })
+        }
+      }
+    } catch { /* the memory may never cost the skill its answer */ }
     if (!ko || !ko.skipped || r?.status === 'success') return r
     // ONLY A FAILURE KEEP-OUT CAN HAVE CAUSED (Claude r1 P3-4): no candidate left, none reachable, none safe -- never a full bag,
     // a budget or an interruption, which say nothing about the column
@@ -2150,6 +2238,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   // gather that tunnels on every round is a gather that never returns.
   let escalated = false
   let mineSaid = null
+  let memoBagSaid = false   // gathermem-01: a tunnel refused for a full bag -- the run's answer writes no area entry
+  const runFrom = bot.entity?.position ? { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z } : null   // gathermem-01
   const maxRounds = count * 4 + 8
 
   while (collected < count && rounds < maxRounds) {
@@ -2178,7 +2268,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     // coalfirst-01: coal tunnels too, so its candidates get the same six-face check
-    const ironStrict = tunnelKindsFor(blockName) != null
+    const ironStrict = tunnelKindsFor(blockName, { copper: (Number(bot.copperTunnelUntil) || 0) > Date.now() }) != null   // copperrun-02: a trip's copper too
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
@@ -2363,7 +2453,27 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // the probe walks and collectblock digs, so `noPath` here would be an
     // over-broad refusal, and refusals that outrun their evidence are the most
     // repeated mistake in this file.
-    const probe = probeReachable(bot, reachable, { goals })
+    // GATHERMEM-01: the cells this bot failed from about here in the last few minutes are tried LAST, never dropped
+    // (gathermem.mjs rankByMemory); when every candidate is one of them, the run ends without walking the same failing
+    // routes again, and the wrapper refuses this (gather, block) here for a few minutes
+    const memBlock = viaSource ?? blockName
+    let probeFrom = reachable
+    if (gatherMemOn() && (bot.gatherTargets ?? []).length) {
+      const here = bot.entity.position
+      const ranked = rankByMemory(reachable.filter(q => !excluded.has(key(q))), q => !!rememberedTarget(bot.gatherTargets, { block: memBlock, cell: q, pos: here }))
+      if (allRemembered({ fresh: ranked.fresh, remembered: ranked.remembered, collected, rounds })) {
+        try { logEvent({ kind: 'gathermem', status: 'no_effect', snapshot: snapshot(bot), detail: `op=all_remembered block=${memBlock} candidates=${ranked.remembered}` }) } catch { /* telemetry */ }
+        return { status: 'failed', failClass: 'unreachable', memoClass: 'remembered',
+                 detail: `${blockName}: all ${ranked.remembered} candidate(s) within reach of here failed you in the last ` +
+                         `few minutes -- not walking to them again; gather another block, or walk away and gather it there` }
+      }
+      if (ranked.remembered && ranked.fresh) {
+        if (rounds === 1) { try { logEvent({ kind: 'gathermem', status: 'success', detail: `op=rank block=${memBlock} fresh=${ranked.fresh} remembered=${ranked.remembered}` }) } catch { /* telemetry */ } }
+        reachable = ranked.list
+        probeFrom = reachable.slice(0, ranked.fresh)   // the A* slate is the nearest FRESH candidates (its slate is 4, by distance)
+      }
+    }
+    const probe = probeReachable(bot, probeFrom, { goals })
     if (probe) {
       if (probe.hit) {
         const i = reachable.findIndex(q =>
@@ -2553,15 +2663,19 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // bitten before by deriving a failure class from prose.
       // IRON TUNNELS TO THE ORE IT CAN SEE (oretunnel.mjs), instead of stairing toward dryness. Once per run.
       // coalfirst-01: and coal (oretunnel.mjs tunnelKindsFor), with the same tunnel
-      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true })   // deepminer-01: diamond ore tunnels on a deep miner's call
+      const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true }) ?? ((Number(bot.copperTunnelUntil) || 0) > Date.now() ? tunnelKindsFor(viaSource ?? blockName, { copper: true }) : null)   // deepminer-01: diamond ore tunnels on a deep miner's call; copperrun-02: copper on the hall's trip
       if (tk && !escalated) {
         escalated = true
         check(signal)
-        const dug = await tunnelToOre(ctx, signal, { deadlineMs: SKILL_CONTRACTS.gather.maxMs - (Date.now() - gatherT0) - 30_000, kinds: tk.kinds, label: tk.label })
+        // ironchain-01 (B): the tunnel aims only at a cell this round's enumeration would take (notTown's conjunction, read-only:
+        // town ground, the record cells -- the town stair's lining --, keep-out columns, cave floors)
+        const tunnelEligible = tunnelEligibleOf({ nameAt: q => bot.blockAt(q)?.name, home: townHome(), shopCells, koSites: ko?.sites ?? null, caveSkip: cave.skip })
+        const dug = await tunnelToOre(ctx, signal, { deadlineMs: SKILL_CONTRACTS.gather.maxMs - (Date.now() - gatherT0) - 30_000, kinds: tk.kinds, label: tk.label, eligible: tunnelEligible })
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel exposed the ore; gather's own collection takes it
         // inventory_full FALLS THROUGH (Claude review): its remedy, deposit, cannot be performed while the chests are full.
         if (dug?.need || dug?.failClass === 'pickaxe_short') return dug   // the remedy is the answer
+        if (dug?.failClass === 'inventory_full') memoBagSaid = true        // gathermem-01: the answer below is the bag's, not the place's
       }
       if (WORTH_TUNNELLING.test(viaSource ?? blockName) && !escalated) {
         escalated = true
@@ -2574,7 +2688,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel may have exposed one
       }
-      return { status: 'failed', failClass: 'unreachable',
+      return { status: 'failed', failClass: 'unreachable', ...(memoBagSaid ? { memoClass: 'none' } : {}),
                detail: `${blockName} found but every candidate is buried — use mine to dig down` +
                        belowGroundHint(bot) +
                        (mineSaid ? ` [mine said: ${String(mineSaid).slice(0, 110)}]` : '') }
@@ -2599,6 +2713,19 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // once the bot has moved, so this must not become a persistent blacklist.
     // The lessons store is where a durable claim would belong, and a transient
     // geometric fact is not one.
+    // GATHERMEM-01 (Codex r1 BLOCKER): a FALLBACK list (another block that yields it, or foliage-covered logs) is built after
+    // the ranking above -- rank it here, by its own block, with the same all-remembered rule
+    if ((viaSource || viaCover) && gatherMemOn() && (bot.gatherTargets ?? []).length) {
+      const here = bot.entity.position, fb = viaSource ?? blockName
+      const ranked = rankByMemory(reachable.filter(q => !excluded.has(key(q))), q => !!rememberedTarget(bot.gatherTargets, { block: fb, cell: q, pos: here }))
+      if (allRemembered({ fresh: ranked.fresh, remembered: ranked.remembered, collected, rounds })) {
+        try { logEvent({ kind: 'gathermem', status: 'no_effect', snapshot: snapshot(bot), detail: `op=all_remembered block=${fb} candidates=${ranked.remembered} via=${viaSource ? 'source' : 'cover'}` }) } catch { /* telemetry */ }
+        return { status: 'failed', failClass: 'unreachable', memoClass: 'remembered',
+                 detail: `${blockName}: all ${ranked.remembered} candidate(s) within reach of here failed you in the last ` +
+                         `few minutes -- not walking to them again; gather another block, or walk away and gather it there` }
+      }
+      if (ranked.remembered && ranked.fresh) reachable = ranked.list
+    }
     const nextUp = reachable.find(q => !excluded.has(key(q)))
     if (!nextUp) {
       // Every candidate has already refused us this run. Re-scanning cannot
@@ -2623,6 +2750,12 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     }
     const target = bot.blockAt(nextUp)
     if (!target || target.name !== (viaSource ?? blockName)) { excluded.add(key(nextUp)); continue }
+    // "FROM ABOUT HERE" IS WHERE THE RUN WAS ASKED FROM, not where this attempt set out: a run walks between attempts (to the
+    // moat's edge, the barren reposition), and the next run starts where the decision was taken (Paper drill 11-07: per-attempt
+    // positions 5-9 blocks apart left 1 of 3 failed cells remembered)
+    const setOutFrom = runFrom
+    // a full bag says nothing about the cell (Codex design: never learn from bag saturation)
+    const noteFailed = why => { if (gatherMemOn() && setOutFrom && !signal?.aborted && !((bot.inventory?.emptySlotCount?.() ?? 1) === 0)) bot.gatherTargets = noteTargetFailure(bot.gatherTargets, { block: target.name, cell: target.position, from: setOutFrom, why }) }
 
     try {
       // The budget has to cover PLANNING PLUS DOING. It was 10000ms while
@@ -2713,6 +2846,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // yield, and re-picking it is what produced streaks of up to 58 attempts
       // on a single position.
       excluded.add(key(target.position))
+      noteFailed('threw')   // gathermem-01 (an abort rethrew above: an interruption is never remembered)
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     } finally {
       // A CANCELLED SKILL MUST CANCEL THE LIBRARY TOO.
@@ -2770,6 +2904,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // A barren round means this target gave nothing even though nothing threw.
       // Same reasoning as the catch above: do not come back to it this run.
       excluded.add(key(target.position))
+      noteFailed('barren')   // gathermem-01: ...nor first, on the next run from about here
       if (barren >= BARREN_LIMIT) {
         // Name the actual cause. "Unreachable" and "ran out of time getting
         // there" call for different responses -- the first means go somewhere
@@ -2814,6 +2949,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         bot.entity.position.z + (Math.random() * 10 - 5), 2)).catch(() => {})
     } else {
       barren = 0
+      if (gatherMemOn()) bot.gatherTargets = clearTarget(bot.gatherTargets, { block: target.name, cell: target.position })   // gathermem-01
     }
     collected = gained
   }
@@ -3772,6 +3908,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       logEvent({ kind: 'cobble_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
                  detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom} town_before=${r.townBefore ?? '?'} town_after=${r.townAfter ?? '?'} complete=${r.complete ?? '?'} cap=${TOWN_COBBLE_CAP} at_cap=${r.atCap} unknown=${r.unknown} outside=${r.outside} unknown_keys=${after.unknown.length}${r.unknownKey ? ` first_unknown=${r.unknownKey}` : ''}` })
     }
+    // cobbleroom-01: what this deposit learned about the TOWN's room for a whole cobble stack (cobblecap.mjs cobbleRoomNote):
+    // the junk well's cobble switch reads it (cobbleWellCap), so cobble the bank has no room for has an exit below the cap
+    try { bot.cobbleNoRoom = cobbleRoomNote(bot.cobbleNoRoom, cobbleRows, { inTown: inTown(homeVec(), chestBlock.position) }) } catch { /* the note is advisory */ }
   }
   // COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS: existing storage only; both reviews 10-07): when everything this
   // deposit could not place was cobble, the chests are simply full for it -- no recovery, no new chest, no bank closure.
@@ -4856,8 +4995,8 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const readName = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? blockNameOf(bot, b) : null }
   const claims = readClaims(dir, key)
   reconcileClaims({ dir, key, claims, read: readName, world })
-  budget = chestBudget({ claims, world })
   const carried = carriedChest(bot.inventory.items())
+  budget = chestBudget({ claims, world, carried: !!carried })   // chestcarry-01: a chest already in the bag has the larger limits
   const next0 = fullChestNext({ nearHome, unknown, budget, carried: !!carried })
   // THE GREENFIELD STORE FIRST (found-01, build spec 2.2): with a town plan whose storehouse has a free READY cell, the new chest
   // goes there -- the section cap, not the recovery's budget (design 5 F3). TOWNPLAN=off, FOUND=off or no such cell: the base.
@@ -5041,7 +5180,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     row('stock_target', 'no_effect', { stage: 'place' })
     return { status: 'no_effect', failClass: null, detail: 'nothing banked: the town holds its stock target of what is left -- the chest is not placed (town stock target)' }
   }
-  const claim = planPlaced ? { ok: true, n: 'plan' } : claimNewChest({ dir, key, site, world })
+  const claim = planPlaced ? { ok: true, n: 'plan' } : claimNewChest({ dir, key, site, world, carried: !!carried })   // chestcarry-01: carried BEFORE any craft
   if (!claim.ok) {
     releaseStock()
     shut('refuse_cap', claim.why, claim.until)
@@ -5280,6 +5419,11 @@ async function craft(ctx, args, signal, depth = 0, owed = 0) {
   // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs). Admission refuses it first; this covers every other caller (chat).
   const noSword = swordCraftRefusal(args?.item, depth === 0 && foodSkipNow(ctx.bot).active)
   if (noSword) return { status: 'no_effect', detail: noSword }
+  // STATIONS-01 WITHDRAW: a crafting table or furnace in town comes from the town chests first (the sweep banks them there); the
+  // craft runs only for what the withdraw did not bring
+  const wd = await stationFromTown(ctx, args, signal)
+  if (wd?.done) return wd.result
+  if (wd?.took > 0) args = { ...args, count: Math.max(1, Math.floor(Number(args?.count ?? 1) || 1)) - wd.took }
   const placedHere = []
   const progress = { item: args?.item ?? null, requested: Math.max(1, Math.floor(Number(args?.count ?? 1) || 1)),
                      executions: 0, produced: 0 }
@@ -5313,6 +5457,28 @@ async function craft(ctx, args, signal, depth = 0, owed = 0) {
     }
   }
   return retook ? { ...out, detail: `${out.detail} (${retook})` } : out
+}
+
+/**
+ * STATIONS-01 WITHDRAW: A STATION FROM THE TOWN CHESTS INSTEAD OF A CRAFT -> { done, result, took } | null. In town (stnTown), a bot
+ * holding none of the station, the town index showing one in the chests (stations.mjs withdrawFirst): matsWithdraw takes up to the
+ * count asked; all of it -> done (a success: the station is in the bag); part -> the craft makes the rest. One `_station_use` row.
+ */
+async function stationFromTown (ctx, args, signal) {
+  const { bot } = ctx
+  const item = args?.item
+  if (!stnOn('withdraw') || !STATION_NAMES.includes(item)) return null
+  const want = Math.max(1, Math.floor(Number(args?.count ?? 1) || 1))
+  let st, stock = 0
+  try { st = stnTown(bot); stock = Number(matsTownStock(bot)?.stock?.[item]) || 0 } catch { return null }
+  if (!withdrawFirst({ item, held: countItem(bot, item), inTown: st.inTown, stock })) return null
+  const before = countItem(bot, item)
+  let why = '-'
+  try { const w = await matsWithdraw(ctx, { [item]: Math.min(want, stock) }, signal, 20_000, matsReserve().table); why = w.short ? 'short' : 'ok' } catch (e) { if (e?.aborted || signal?.aborted) throw e; why = String(e?.message ?? e).slice(0, 60) }
+  const took = Math.max(0, countItem(bot, item) - before)
+  try { logEvent({ kind: 'station_use', status: took > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ name: item, by: 'craft', outcome: took > 0 ? `withdrew${took}` : 'none_withdrawn', why: `stock=${stock}_${why}`, src: 'chest' }) }) } catch { /* telemetry */ }
+  if (took >= want) return { done: true, took, result: { status: 'success', item, requested: want, executions: 0, produced: 0, withdrew: took, detail: `took ${took}x ${item} from the town chest instead of crafting one` } }
+  return { done: false, took }
 }
 
 async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = [], owed = 0, progress = {}) {
@@ -5353,8 +5519,14 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
     } catch { /* the nearest alone, as before */ }
     // workbench-01: a town job's craft (ctx.preferWorkshop) tries the complete workshop's own table first, within the same 32,
     // then the nearest one as before when the workshop's could not be reached
-    const wsTables = ctx.preferWorkshop ? [...(bot.shopStations?.tables ?? [])].map(k => bot.blockAt?.(keyVec(k))).filter(b => b && bot.registry.blocks[b.type]?.name === 'crafting_table' && bot.entity.position.distanceTo(b.position) <= WORKSHOP_REACH) : []
-    const tableTries = preferWorkshop([...wsTables, ...nearTables].filter(Boolean), b => posKey(b.position), bot.shopStations?.tables)
+    // stations-01 REUSE: in town every craft does the same with the TOWN's tables (the workshop's, else the designated cells),
+    // looked up by key within STN.reach
+    const stT = stnOn('reuse') && !ctx.preferWorkshop ? stnTown(bot) : null
+    const prefT = ctx.preferWorkshop ? bot.shopStations?.tables : stT?.inTown ? stT.ts?.tables : null
+    const prefR = ctx.preferWorkshop ? WORKSHOP_REACH : STN.reach
+    const wsTables = prefT?.size ? [...prefT].map(k => bot.blockAt?.(keyVec(k))).filter(b => b && bot.registry.blocks[b.type]?.name === 'crafting_table' && bot.entity.position.distanceTo(b.position) <= prefR) : []
+    const tableTries = preferWorkshop([...wsTables, ...nearTables].filter(Boolean), b => posKey(b.position), prefT)
+    if (stT?.inTown && wsTables.length) { try { logEvent({ kind: 'station_use', status: 'success', snapshot: snapshot(bot), detail: stationRowDetail({ at: wsTables[0].position, name: 'crafting_table', by: 'craft', outcome: 'town_station', why: item, src: stT.ts?.source }) }) } catch { /* telemetry */ } }
     for (const [ti, tableBlock] of tableTries.entries()) {
       check(signal)
       // Two attempts at getting close, because the first often fails on the
@@ -5362,10 +5534,12 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       // own block, or one leaf between it and the goal. GoalNear(1) puts it
       // adjacent; GoalNear(3) is the fallback that still leaves it in reach.
       // BAGDIET-01: a later candidate gets the looser goal alone (a bounded third and fourth walk, not two each)
+      // stations-01: a town station further off gets the walk its distance needs (about 4 blocks a second), up to 40 s
+      const walkMs = wsTables.includes(tableBlock) ? Math.min(40000, Math.max(12000, Math.ceil(bot.entity.position.distanceTo(tableBlock.position) / 3) * 1000)) : 12000
       for (const range of (ti === 0 ? [1, 3] : [3])) {
         try {
           await withTimeout(bot.pathfinder.goto(
-            new goals.GoalNear(tableBlock.position.x, tableBlock.position.y, tableBlock.position.z, range)), 12000, bot)
+            new goals.GoalNear(tableBlock.position.x, tableBlock.position.y, tableBlock.position.z, range)), walkMs, bot)
           break
         } catch { /* try the looser goal, then let the reach check below decide */ }
       }
@@ -5573,8 +5747,10 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
           if (built.status === 'success') made.push('crafting_table')
           else if (STOP_CLASSES.has(built.failClass)) return { ...built, ...nothingMade, detail: `${built.detail} [making a crafting_table for ${item}]` }
         }
-        const put = await place(ctx, { item: 'crafting_table' }, signal)
-        if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
+        // stations-01 REUSE: in a town with no table standing, the first one goes to the designated cell and STAYS (the town's)
+        const desig = await placeDesignated(ctx, 'crafting_table', signal, stnOn('reuse') ? stnTown(bot) : null)
+        const put = desig ?? await place(ctx, { item: 'crafting_table' }, signal)
+        if (put.status === 'success' && put.at && !desig) placedHere.push(watchPlaced(bot, put.at))
         if (put.status === 'success') made.push('placed crafting_table')
         // Kept so the refusal below can say what actually stopped it.
         else stationFailure = put.detail || put.failClass || ''
@@ -6076,6 +6252,15 @@ function craftRoomNow(bot, plan, owedTables, items = bot.inventory.items()) {
   return admitRoom(items, plan, { owedTables, pickupNear: pickupNearest(bot.entity?.position, bot.entities) })
 }
 
+/** IRONCHAIN-02 (pickswings.mjs): can the bag make ONE `item` by the craft skill's own whole-tree plan? A crafting table
+ *  counts as ready when carried or within 32 blocks (craft walks to it); otherwise the plan must make one too. Never throws. */
+export function craftableFromBag (bot, item) {
+  try {
+    const carried = bot.inventory.items().some(it => it.name === 'crafting_table')
+    const near = !carried && !!bot.findBlock?.({ matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table', maxDistance: 32 })
+    return !!craftPlanFor(bot, item, 1, carried || near)?.ok
+  } catch { return false }
+}
 /** craftplan.mjs's view of this bot: what it holds, and every recipe as { yield, table, ingredients, ref }. */
 function craftPlanFor (bot, item, count, tableReady) {
   const have = Object.fromEntries(heldCounts(bot.inventory.items()))
@@ -6131,8 +6316,11 @@ async function runCraftPlan (ctx, plan, { item, count, signal, table, rs, placed
     if (step.recipe.table && !station) {
       station = findStation()
       if (!station) {
-        const put = await place(ctx, { item: 'crafting_table' }, signal)
-        if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
+        // stations-01 REUSE (Codex r1 BLOCKER 1): the planned tree's table too -- a plan town's first goes to the designated cell
+        // and stays; otherwise the temporary table, taken back after
+        const desig = await placeDesignated(ctx, 'crafting_table', signal, stnOn('reuse') ? stnTown(bot) : null)
+        const put = desig ?? await place(ctx, { item: 'crafting_table' }, signal)
+        if (put.status === 'success' && put.at && !desig) placedHere.push(watchPlaced(bot, put.at))
         station = put.status === 'success' && put.at && bot.blockAt(put.at)?.name === 'crafting_table' ? bot.blockAt(put.at) : findStation()
         if (!station) {
           return { status: 'failed', failClass: 'needs_station', gap: 'crafting_table', ...tally(),
@@ -6213,13 +6401,14 @@ function ingredientsBack(before, now, consumes = []) {
  * is not crafting_table -> crafting_table (a break, an unload, a world switch) taints it, even if a crafting table
  * stands there again by the retake. No way to watch (no block events) is "unsure", and unsure is left alone.
  */
-function watchPlaced(bot, at) {
-  const w = { at, stateId: bot.blockAt?.(at)?.stateId, changed: null, stop: () => {} }
+function watchPlaced(bot, at, name = 'crafting_table') {
+  // stations-01 RETAKE (stationkeep-01's): any station name (smelt watches the furnace it placed); a furnace lighting keeps its name
+  const w = { at, name, stateId: bot.blockAt?.(at)?.stateId, changed: null, stop: () => {} }
   if (typeof bot.on !== 'function') { w.changed = 'no block events to watch it by'; return w }
   const ev = `blockUpdate:${new Vec3(at.x, at.y, at.z)}`   // prismarine-world's per-cell event: blockUpdate:(x, y, z)
   const fn = (was, now) => {
     if (w.changed) return
-    if (was?.name !== 'crafting_table' || now?.name !== 'crafting_table') w.changed = `${was?.name ?? 'unknown'} -> ${now?.name ?? 'unknown'}`
+    if (was?.name !== name || now?.name !== name) w.changed = `${was?.name ?? 'unknown'} -> ${now?.name ?? 'unknown'}`
   }
   // ITS CHUNK UNLOADING loses the history: a break while it was unloaded sends no blockUpdate, and the reload just
   // shows whatever stands there now (Codex review). prismarine-world emits the column's corner.
@@ -6231,6 +6420,128 @@ function watchPlaced(bot, at) {
     try { const off = (bot.off ?? bot.removeListener); off?.call(bot, ev, fn); off?.call(bot, 'chunkColumnUnload', onUnload) } catch {}
   }
   return w
+}
+
+/** STATIONSBACK-01: the station still stands at `at` -> its block (the retry digs it), else null. Never throws. */
+function stationStill (bot, at, name) {
+  try { const b = bot.blockAt?.(at); return b?.name === name ? b : null } catch { return null }
+}
+/**
+ * STATIONSBACK-01: THE RETRY'S OWNERSHIP WATCH, armed BEFORE the first dig (while the caller's own watch still runs, so there is no
+ * unwatched gap through the cancelled swing and the settle -- Codex r1 blocker: a station broken and re-placed in that gap
+ * passed a name-only re-check). null when off. The caller stops it on every path.
+ */
+function retryWatch (bot, at, name) { return sbOn() ? watchPlaced(bot, at, name) : null }
+/** The retry may dig only a cell that never changed since retryWatch was armed and still holds the station -> its block, or null. */
+function retryRecheck (bot, rw, at, name) { return rw && !rw.changed ? stationStill(bot, at, name) : null }
+/** THE RETRY'S GUARD at its swing: the same watch asked again (any change since it was armed, or another block there: not ours). */
+function retryGuard (bot, at, name, w) {
+  const guard = () => {
+    try {
+      if (w.changed) throw Object.assign(new Error(`changed before the retry (${w.changed}); not provably ours`), { failClass: 'not_ours' })
+      const now = bot.blockAt?.(at)
+      if (now?.name !== name) throw Object.assign(new Error(`now ${now?.name ?? 'unknown'}`), { failClass: 'not_ours' })
+    } finally { w.stop() }
+  }
+  guard.stop = () => w.stop()
+  return guard
+}
+/** STATIONSBACK-01: one dig of a retake -- the first under the caller's guard, a retry (`again`) under a fresh retryGuard. */
+async function retryDig (bot, again, block, signal, beforeDig, at, name, rw) {
+  if (!again) return collectManually(bot, block, signal, { beforeDig })
+  if (!rw) throw Object.assign(new Error('no ownership watch for a retry'), { failClass: 'not_ours' })
+  const g = retryGuard(bot, at, name, rw)
+  try { return await collectManually(bot, again, signal, { beforeDig: g }) } finally { g.stop() }
+}
+
+/**
+ * STATIONS-01: DIG BACK ONE STATION -> a phrase for the caller's detail, or null (stationkeep-01's retakeStation). `w` is a watch
+ * (watchPlaced) of a station THIS CALL placed (smelt's furnace), or of a stray the groundskeepers' sweep proved (`w.stray`: no
+ * placement to prove; the caller holds the furnace lease and proved it empty). Never when aborted, when the block is not that
+ * station, when the watch saw it change, with no room, or with no tool that harvests it (a furnace dug bare-handed drops nothing).
+ * The dig is collectManually's (walk, best tool, dig, read-back, pickup); the station must ARRIVE in the bag. One
+ * `_station_retaken` (or `_station_swept`) row. An abort mid-dig rethrows. The watch is stopped on every path.
+ */
+async function retakeStation (ctx, w, signal, by = 'smelt') {
+  const { bot } = ctx
+  const name = w.name ?? 'furnace'
+  const at = w.at
+  const kind = w.stray ? 'station_swept' : 'station_retaken'
+  const row = (outcome, why) => { try { logEvent({ kind, status: outcome === 'back' ? 'success' : outcome === 'failed' ? 'failed' : 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ at, name, by, outcome, why }) }) } catch { /* telemetry */ } }
+  try {
+    if (signal?.aborted) { row('left', 'aborted; an aborted skill does not dig'); return null }
+    const block = bot.blockAt?.(at)
+    if (block?.name !== name) { row('gone', `no longer a ${name} (${block?.name ?? 'unknown'})`); return null }
+    if (w.changed) { row('left', `changed since placement (${w.changed}); not provably ours`); return `left the ${name}: it changed since it was placed` }
+    const def = bot.registry?.itemsByName?.[name]
+    if (!roomForOne(bot.inventory.items(), name, def?.stackSize ?? 64)) { row('left', `no room to carry it (${bot.inventory.items().length}/${BAG_SLOTS} slots)`); return `left the ${name}: no room to carry it` }
+    const ht = bot.registry?.blocksByName?.[name]?.harvestTools
+    if (ht && !bot.inventory.items().some(i => ht[i.type])) { row('left', 'no tool that harvests it in the bag'); return `left the ${name}: no tool to carry it` }
+    const before = countItem(bot, name)
+    const beforeDig = () => {
+      if (w.changed) throw Object.assign(new Error(`changed since placement (${w.changed}); not provably ours`), { failClass: 'not_ours' })
+      const now = bot.blockAt?.(at)
+      if (now?.name !== name) throw Object.assign(new Error(`now ${now?.name ?? 'unknown'}`), { failClass: 'not_ours' })
+      w.stop()
+    }
+    let retried = ''
+    const rw = retryWatch(bot, at, name)
+    try {
+      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, if the cell never changed
+      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, name, rw), recheck: () => retryRecheck(bot, rw, at, name) })
+      if (r.retried) retried = ' (dig retried)'
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) { row('left', 'aborted mid-dig'); throw e }
+      row(e?.failClass === 'not_ours' ? 'left' : 'failed', `dig: ${String(e?.message ?? e).slice(0, 80)}`)
+      return `could not take the ${name} back`
+    } finally { rw?.stop() }
+    let back = countItem(bot, name) > before
+    for (let i = 0; i < 15 && !back; i++) { await sleep(100, signal); back = countItem(bot, name) > before }
+    // STATIONSBACK-01: NOT BACK -> look for its drop (up to 1.5 s) and walk into its pickup box, as craft's table retake does
+    let walked = ''
+    if (!back && sbOn()) {
+      try {
+        const c = await chaseStationDrop(bot, { at, name, before, signal, Goal: pickupGoalClass(goals), inPickupBox, withTimeout, sleep, count: () => countItem(bot, name) })
+        back = c.back; walked = c.how
+      } catch (e) { if (e?.aborted || signal?.aborted) { row('left', 'aborted walking to its drop'); throw e } walked = ` (chase: ${String(e?.message ?? e).slice(0, 40)})` }
+    }
+    row(back ? 'back' : 'failed', back ? `dug and back in the bag${walked}${retried}` : `dug but it did not arrive (${bot.blockAt?.(at)?.name ?? 'unknown'} there now)${walked}${retried}`)
+    return back ? `took the ${name} back` : `dug the ${name} but it did not arrive`
+  } finally { try { w.stop() } catch { /* already stopped */ } }
+}
+
+/**
+ * STATIONS-01: THE TOWN'S STATIONS FROM HERE -> { inTown, ts, home, s }. In town = the town square at the surface (stations.mjs
+ * inTownSurface over the plan's home and half-width); ts = the workshop's fit-out (bot.shopStations, refreshed every 60 s), else
+ * the plan's work-plot cells (stations.mjs townStations). Never throws (no plan: not in town).
+ */
+function stnTown (bot) {
+  try {
+    const plan = townPlanNow(bot)?.plan ?? null
+    if (!plan?.home) return { inTown: false, ts: null, home: null, s: null }
+    return { inTown: inTownSurface(bot.entity?.position, plan.home, plan.s), ts: townStations(bot.shopStations, plan), home: plan.home, s: plan.s }
+  } catch { return { inTown: false, ts: null, home: null, s: null } }
+}
+/** Is the cell free for a station (air or a replaceable plant)? Never throws (unread: no). */
+const stnFree = bot => at => { try { const b = bot.blockAt?.(new Vec3(at[0], at[1], at[2])); return !!b && placeableInto(b) } catch { return false } }
+/**
+ * STATIONS-01 REUSE: PUT A STATION AT THE TOWN'S DESIGNATED CELL (the plan's work plot, a town with no workshop station) -> place()'s
+ * result with `at`, or null when there is no designated cell to use. The walk is to the cell's stand; the station stays (the town's).
+ */
+async function placeDesignated (ctx, kind, signal, st) {
+  const { bot } = ctx
+  if (!stnOn('reuse') || !st?.inTown || st.ts?.source !== 'plan' || countItem(bot, kind) < 1) return null
+  const c = designatedCell(st.ts, kind, stnFree(bot))
+  if (!c) return null
+  const [x, y, z] = c.at
+  for (const range of [1, 2]) {
+    check(signal)
+    try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(...(c.stand ?? c.at), range)), 30000, bot); break } catch (e) { if (e?.aborted) throw e }
+  }
+  check(signal)
+  const put = await place(ctx, { item: kind, x, y, z }, signal, { by: 'stations' })
+  try { logEvent({ kind: 'station_use', status: put.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ at: c.at, name: kind, by: 'designated', outcome: put.status === 'success' ? 'placed' : 'refused', why: put.status === 'success' ? 'the_town_designated_cell' : (put.detail ?? put.failClass ?? '-'), src: 'plan' }) }) } catch { /* telemetry */ }
+  return put.status === 'success' ? { ...put, at: put.at ?? new Vec3(x, y, z), designated: true } : null
 }
 
 /** Failure classes that end the whole recipe tree instead of being reported as a missing ingredient. */
@@ -6588,15 +6899,19 @@ async function retakeWatched(ctx, watched, signal) {
       if (late) throw Object.assign(new Error(`changed since placement (${late}); not provably ours`), { failClass: 'not_ours' })
       w.stop()
     }
+    let retried = ''
+    const rw = retryWatch(bot, at, 'crafting_table')
     try {
-      await collectManually(bot, block, signal, { beforeDig })
+      // STATIONSBACK-01: a dig a concurrent reflex cancelled (mineflayer stopDigging) is retried once, if the cell never changed
+      const r = await digWithRetry({ bot, sleep, signal, dig: again => retryDig(bot, again, block, signal, beforeDig, at, 'crafting_table', rw), recheck: () => retryRecheck(bot, rw, at, 'crafting_table') })
+      if (r.retried) retried = ' (dig retried)'
     } catch (e) {
       if (e?.aborted || signal?.aborted) { row('left', 'aborted mid-dig'); throw e }
       if (e?.failClass === 'not_ours') { row('left', `${e.message} (seen at the dig)`); said.push('left the table: it changed while the bot walked to it'); continue }
       row('failed', `dig failed: ${String(e?.message ?? e).slice(0, 80)}`)
       said.push(`could not take the table back: ${String(e?.message ?? e).slice(0, 60)}`)
       continue
-    }
+    } finally { rw?.stop() }
     let back = countItem(bot, 'crafting_table') > before
     for (let i = 0; i < 4 && !back; i++) { await sleep(100, signal); back = countItem(bot, 'crafting_table') > before }
     // NOT BACK: WALK INTO ITS PICKUP BOX (sandbox 46c4836, 1 of 4: the drop came to rest just outside the box and
@@ -6605,14 +6920,19 @@ async function retakeWatched(ctx, watched, signal) {
     let walked = ''
     if (!back) {
       const centre = at.offset ? at.offset(0.5, 0.5, 0.5) : new Vec3(at.x + 0.5, at.y + 0.5, at.z + 0.5)
-      const drop = bot.nearestEntity?.(e => {
+      // STATIONSBACK-01: the drop is LOOKED FOR up to 1.5 s, not once (50 of 184 retakes 11-09 read "not in sight" and 41 of
+      // the 56 failures saw the table picked up passively within 120 s: it was there)
+      const looked = sbOn() ? await waitStationDrop(bot, { at, name: 'crafting_table', before, sleep, signal, count: () => countItem(bot, 'crafting_table') }) : null
+      back = countItem(bot, 'crafting_table') > before
+      const drop = back ? null : looked ?? bot.nearestEntity?.(e => {
         if (e?.name !== 'item' || !e.position) return false
         let n = null
         try { n = e.getDroppedItem?.()?.name } catch {}
         return n === 'crafting_table' && e.position.distanceTo(centre) < TABLE_DROP_R
       })
       const Goal = pickupGoalClass(goals)
-      if (drop && Goal) {
+      if (back) walked = ' (arrived while it looked for the drop)'
+      else if (drop && Goal) {
         if (!inPickupBox(bot.entity?.position, drop.position)) {
           try { await withTimeout(bot.pathfinder.goto(new Goal(drop.position)), 8_000, bot) } catch (e) {
             if (e?.aborted || signal?.aborted) { row('left', 'aborted walking to its drop'); throw e }
@@ -6625,8 +6945,8 @@ async function retakeWatched(ctx, watched, signal) {
     }
     // BAGDIET-01: a LATE arrival is still an arrival (the bag's window update can trail the collect): one bounded last look
     for (let i = 0; i < TABLE_LATE_LOOKS && !back; i++) { await sleep(100, signal); back = countItem(bot, 'crafting_table') > before }
-    if (back) { row('success', `dug and back in the bag${walked}`); said.push('took the table back') } else {
-      row('failed', `dug but it did not arrive (${bot.blockAt(at)?.name ?? 'unknown'} there now)${walked}`)
+    if (back) { row('success', `dug and back in the bag${walked}${retried}`); said.push('took the table back') } else {
+      row('failed', `dug but it did not arrive (${bot.blockAt(at)?.name ?? 'unknown'} there now)${walked}${retried}`)
       said.push('dug the table but it did not arrive')
     }
   }
@@ -8387,6 +8707,92 @@ async function openTown (bot, block, ms) {
 }
 
 /**
+ * CHESTMERGE-01: THE STACK A MERGE LEFT ON THE CURSOR GOES BACK INTO THE SLOT IT CAME FROM -> 'empty' (the server's cursor
+ * was empty: nothing to do) | 'returned' (put back, and the server says the cursor is empty) | 'loaded' | 'unread' |
+ * 'in_flight' (the caller's settleCursor decides those three). Everything here is judged on the SERVER's word:
+ * mineflayer 4.37 never applies the server's cursor, so after a click that went differently there its own cursor is a
+ * wrong guess in either direction (independent review r1: a part merge left the rest on the server's cursor while the
+ * client believed it empty, and the deposit clicked on top of it). confirmCursor's answer is the window's full state:
+ * the cursor AND the slots. The put-back is one click on `from`, only while the server shows that slot empty -- an empty
+ * slot takes any whole stack.
+ */
+async function mergeRescue (bot, win, from) {
+  try {
+    if (!(await waitClicks(bot, 1500))) return 'in_flight'
+    let ev = await confirmCursor(bot, win, { deadline: Date.now() + 1500 })
+    if (!ev.answered || ev.decodeFailed) return 'unread'
+    if (ev.cursorEmpty) return 'empty'
+    if (bot.currentWindow !== win || win.slots[from]) return 'loaded'
+    await lockstepClicks(bot, async raw => {
+      // re-checked INSIDE the lockstep (Codex r2): its own repair runs before this callback, and the server may have closed
+      // the window meanwhile -- a chest-layout slot is never clicked into another window (settleCursor's rule E)
+      if (bot.currentWindow !== win || !win.selectedItem || win.slots[from]) throw stop('the window or the slot changed before the put-back')
+      const p = trackedClick(bot, raw, from, 0, 0); p.catch(() => {}); await within(p, 1500)
+    }, { deadline: Date.now() + 2000 })
+    if (!(await waitClicks(bot, 1500))) return 'in_flight'
+    ev = await confirmCursor(bot, win, { deadline: Date.now() + 1500 })
+    return ev.answered && !ev.decodeFailed && ev.cursorEmpty ? 'returned' : 'loaded'
+  } catch { return 'unread' }
+}
+
+/**
+ * CHESTMERGE-01 (chestmerge.mjs): ROOM MADE INSIDE AN OPEN, OWNED TOWN CONTAINER -> { plan, done, err }. Up to `need`
+ * partial stacks are merged onto another stack of the same kind in the SAME container, each freeing one slot. A merge
+ * is two clicks in craftsync's lockstep (bankInto's own click: tracked, refused in another window), and then THE
+ * SERVER'S WORD: a merge counts only when the server says the cursor is empty, the slot it came from is empty and the
+ * destination holds the sum. Anything else ends the merging: mergeRescue puts what the server's cursor holds back into
+ * the slot it came from, and `err` is set -- the caller then makes NO deposit click in this container this visit.
+ * `hold.from` names the slot of a merge in progress for the whole time its stack may be on the cursor, so a throw out
+ * of here (an abort between the two clicks) can be rescued by the caller the same way (Codex review r1).
+ */
+async function mergeInto (bot, win, need, deadline, signal, onMutate = null, hold = {}) {
+  const plan = mergePlan(win.slots.slice(0, win.inventoryStart), { need })
+  const done = []
+  let err = null
+  if (!plan.length || win.selectedItem) return { plan, done, err }
+  const is = (slot, name, count) => { const x = win.slots[slot]; return !!x && x.name === name && x.count === count }
+  let mutating = false
+  for (const m of plan) {
+    check(signal)
+    if (Date.now() > deadline - TD_SETTLE_MS) break
+    // the container moved under the plan: this pair is left alone, never forced
+    if (!is(m.from, m.name, m.count) || !is(m.to, m.name, m.into) || mergeKey(win.slots[m.from]) == null || mergeKey(win.slots[m.from]) !== mergeKey(win.slots[m.to])) continue
+    hold.from = m.from
+    let clickErr = null
+    try {
+      await lockstepClicks(bot, async raw => {
+        const click = async slot => {
+          check(signal)
+          if (bot.currentWindow !== win) throw stop('the window changed')
+          if (!mutating) { mutating = true; try { onMutate?.() } catch { /* advisory */ } }
+          const p = trackedClick(bot, raw, slot, 0, 0)
+          p.catch(() => {})
+          if ((await within(p, Math.max(250, deadline - Date.now()))) === TIMED_OUT) throw stop('a click went unanswered')
+        }
+        await click(m.from)
+        const cur = win.selectedItem
+        if (!cur || cur.name !== m.name || cur.count !== m.count) throw stop(`picked up ${cur?.name ?? 'nothing'}, not the ${m.name} to merge`)
+        // the destination re-read AFTER the pickup
+        if (!is(m.to, m.name, m.into)) throw stop(`the ${m.name} in slot ${m.to} changed before the merge`)
+        await click(m.to)
+      }, { deadline, signal })
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      clickErr = String(e?.message ?? e).slice(0, 60)
+    }
+    // THE SERVER'S WORD, after every merge (its answer is the window's full state: the cursor and the slots)
+    const ev = clickErr ? null : await confirmCursor(bot, win, { deadline: Date.now() + Math.max(250, Math.min(1500, deadline - Date.now())) })
+    if (ev?.answered && !ev.decodeFailed && ev.cursorEmpty && !win.slots[m.from] && is(m.to, m.name, m.sum)) { hold.from = null; done.push(m); continue }
+    const why = clickErr ?? (!ev?.answered ? `no server evidence after the merge (${ev?.why ?? '-'})` : `the ${m.name} did not merge into slot ${m.to}`)
+    const back = await mergeRescue(bot, win, m.from)
+    hold.from = null
+    err = `${why}; cursor ${back}`.slice(0, 80)
+    break
+  }
+  return { plan, done, err }
+}
+
+/**
  * Bank the plan into one OPEN, OWNED container. -> { done: [{ step, it, dest }], full, err }. Each step is one whole
  * stack, revalidated against the window right before it moves: a left click on its slot (the cursor must then hold
  * exactly that stack), then -- the destination re-read AFTER the pickup -- a left click on an EMPTY container slot.
@@ -8395,11 +8801,26 @@ async function openTown (bot, block, ms) {
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, mergeHold = {} } = {}) {
   const bag = windowBag(bot, win)
   const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail })
   // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
   const plan = accept ? { ...plan0, steps: plan0.steps.filter(st => accept(st.name)) } : plan0
+  // CHESTMERGE-01: the plan needs more empty slots than the container has -> partial stacks of one kind are merged INSIDE
+  // it first, one freed slot per merge, only as many as the plan lacks. A merge that did not go as planned ends this
+  // container's visit before any deposit click (independent review r1: the deposit must never click on a cursor the
+  // server may still hold); the caller settles the cursor with the server's word, as always.
+  let merge = null
+  const free0 = win.slots.slice(0, win.inventoryStart).filter(x => !x).length
+  if (CHESTMERGE.on && plan.steps.length > free0) {
+    const t0 = Date.now()
+    merge = { need: plan.steps.length - free0, free: free0, ...(await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate, mergeHold)) }
+    merge.ms = Date.now() - t0
+    // ... and the container is classed as the base classes it (Codex r2): the plan did not fit (`full`), and with no empty
+    // slot left in the window as the server last showed it, `noRoom` -- so it is remembered full, the run looks past it, and
+    // a run that finds every chest so goes on into the deposit verb (fullplace-01). A merge that keeps failing is not a loop.
+    if (merge.err || win.selectedItem) return { done: [], full: true, noRoom: !win.slots.slice(0, win.inventoryStart).some(x => !x), err: merge.err ?? 'the cursor is loaded after a merge', capRefused: { at_cap: 0, unknown: 0, outside: 0 }, stock: { claims: 0, refused: 0, valve: 0 }, reserved, merge }
+  }
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   // towndeposit-02: NO EMPTY CONTAINER SLOT at the open (the only room a whole-stack move uses) -- the caller remembers it full
@@ -8463,7 +8884,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   }
   // the claims are released by the CALLER, after the cursor is settled (Codex code r1 P1: a pending click or the cursor's
   // rescue may still move items) -- with the window's count, or a dirty mark when the window is held
-  return { done, full, noRoom, err, capRefused, stock, reserved }
+  return { done, full, noRoom, err, capRefused, stock, reserved, merge }
 }
 
 /**
@@ -8473,16 +8894,18 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
  * only when its destination slot holds that stack in the server's copy. -> { verified: [{ step, it }], ok } where ok is
  * false when the re-open did not come back (then nothing is credited and the run says unverified).
  */
-async function verifyTown (bot, block, done, ms) {
-  if (!done.length) return { verified: [], ok: true, bag: null, ix: null }
+async function verifyTown (bot, block, done, ms, { always = false } = {}) {
+  // chestmerge-01: `always` re-opens with no deposit step to verify (the container's merges are read from the same re-open)
+  if (!done.length && !always) return { verified: [], ok: true, bag: null, ix: null, slots: null }
   const win = await openTown(bot, block, ms)
-  if (!win) return { verified: [], ok: false, bag: null, ix: null }
+  if (!win) return { verified: [], ok: false, bag: null, ix: null, slots: null }
   try {
     // townindex-01: the re-open IS an open -- the server's contents after the clicks, the container known again
     const ix = townIndexObserve(bot, block.position, win, 'verify')
     const bag = {}
     for (const it of windowBag(bot, win)) bag[it.name] = (bag[it.name] ?? 0) + (it.count ?? 0)
-    return { ok: true, bag, ix, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
+    const slots = win.slots.slice(0, win.inventoryStart).map(x => (x ? { name: x.name, count: x.count } : null))
+    return { ok: true, bag, ix, slots, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
   } finally { try { win.close() } catch { /* already closed */ } }
 }
 
@@ -8615,14 +9038,17 @@ async function townDeposit (ctx, _args, signal) {
       const own = ownInventory(bot, win)
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
+      const mergeHold = { from: null }
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, mergeHold })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
+        // CHESTMERGE-01: a merge cut short between its two clicks (an abort) -- its stack goes back into its own slot first
+        if (mergeHold.from != null) { const from = mergeHold.from; mergeHold.from = null; await mergeRescue(bot, win, from) }
         settled = await settleCursor(bot, win)
         // THE RUN'S CLAIMS, released after the settle: the window's count, or (held) a dirty mark for the container
-        try { if (reservedHere.length || r.done?.length) await cobbleObserve(bot, c.position, win, { releaseAll: reservedHere, dirtyIfLost: true, lost: settled.state === 'unresolved' }) } catch { /* the claims stay live: conservative */ }
+        try { if (reservedHere.length || r.done?.length || ixDirty) await cobbleObserve(bot, c.position, win, { releaseAll: reservedHere, dirtyIfLost: true, lost: settled.state === 'unresolved' }) } catch { /* the claims stay live: conservative */ }
         if (ixDirty) { if (settled.state === 'unresolved') indexHold(bot, win, c.position, 'town_deposit', ixOp); else townIndexDirty(bot, c.position, 'town_deposit', 'post', ixOp) }
         if (settled.state === 'unresolved') holdUnsettled(bot, win, settled, own)
         // A WINDOW THE SERVER ALREADY CLOSED is not closed again (Codex round 2): mineflayer's close copies the window
@@ -8636,7 +9062,17 @@ async function townDeposit (ctx, _args, signal) {
       }
       clicked += r.done.length
       for (const { step } of r.done) attempted[step.name] = (attempted[step.name] ?? 0) + step.count
-      const v = await verifyTown(bot, block, r.done, openMs())
+      const merged = r.merge?.done ?? []
+      const v = await verifyTown(bot, block, r.done, openMs(), { always: merged.length > 0 || !!r.merge?.err })
+      // CHESTMERGE-01: one `_chestmerge` row per container the run tried to make room in -- what it planned, what the
+      // client saw through, and how many of those the server's copy shows on the re-open (`unread`: no re-open came back)
+      if (r.merge?.plan?.length) {
+        try {
+          const seen = v.ok && v.slots ? mergeVerified(merged, v.slots) : null
+          logEvent({ kind: 'chestmerge', status: !merged.length ? 'no_effect' : seen == null ? 'unknown' : seen === merged.length ? 'success' : 'failed', snapshot: snapshot(bot),
+                     detail: mergeDetail({ at, need: r.merge.need, free: r.merge.free, planned: r.merge.plan.length, merged: merged.length, verified: seen, banked: r.done.length, err: r.merge.err, ms: r.merge.ms }) })
+        } catch { /* telemetry */ }
+      }
       if (!v.ok) unverified += r.done.length
       if (v.bag) serverBag = v.bag
       // THE TOWN INDEX's transfer records: each VERIFIED stack, with its pre-state (this visit's open) and the re-open's id
@@ -8688,6 +9124,24 @@ async function townDeposit (ctx, _args, signal) {
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
     row('failed')
+    // FULLPLACE-01 (fullplace.mjs): THE REMEDY IS RUN, NOT NAMED. The deposit verb is the only path to the full-chest
+    // recovery (other chests, then a new one), and the model followed this refusal's advice after 15% of them (11-12).
+    // The verb runs here on the SAME runner clock (its own startedAt is the runner's), and this run reports what it did.
+    const runStart = ctx.runner?.current?.startedAt ?? (deadline - TD_BUDGET_MS)
+    const chain = fullPlaceChain({ tried, allowOnly, tail: !!tail, banked: n, msLeft: runStart + config.skills.defaultTimeoutMs - Date.now(),
+                                   minMs: fullPlaceMinMs(config.skills.defaultTimeoutMs) })
+    if (chain.go) {
+      const t0 = Date.now(), bag0 = bagTotal(items())
+      let dep = null, threw = null
+      // the deposit verb itself (fullPlaceVerb.run is a test's stand-in, null in production)
+      try { dep = await (fullPlaceVerb.run ?? deposit)(ctx, { item: null }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; threw = e }
+      const out = fullPlaceResult(dep, threw)
+      try {
+        logEvent({ kind: 'fullplace', status: out.status === 'success' ? 'success' : 'failed', snapshot: snapshot(bot),
+                   detail: fullPlaceDetail({ dep, threw, slotsBefore: slotsAfter, slotsAfter: items().length, bagBefore: bag0, bagAfter: bagTotal(items()), ms: Date.now() - t0, full: tried.length }) })
+      } catch { /* telemetry */ }
+      return out
+    }
     return { status: 'failed', failClass: 'town_storage_full',
              detail: allowOnly ? 'the town chests in reach are full; what is over the bag allowance waits for a town chest with room -- keep working'
                : 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
@@ -9521,7 +9975,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         // THE CAP RE-READ AT EVERY COBBLE CLICK (Codex r1 P1: another bot may take cobble out between two stacks); the last
         // reading is what the row reports
         acc.capLast = cobbleWellCap(bot)
-        if (acc.capLast !== 'at_cap') continue
+        if (!wellTakesCobble(acc.capLast)) continue
         acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
         // A PRUNED COBBLE STACK writes its _stock_prune row like every other group (Claude code r2 P3: prune clicks were
         // under-counted), with stonecap's own numbers: the available floor, the cap, the bot's 64
@@ -9672,10 +10126,10 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.swordsAllowed = !pit && !listedOnly && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
       out.cap = pit || listedOnly ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
       out.stock = pit || listedOnly ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: listedOnly ? keep : null })   // the bag AS THE SERVER HOLDS IT
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: wellTakesCobble(out.cap), stock: out.stock, keep })   // the bag AS THE SERVER HOLDS IT (idlework-02: the visit's keep holds in the band's whole plan too)
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
-      out.acc.cobbleAllowed = out.cap === 'at_cap'
+      out.acc.cobbleAllowed = wellTakesCobble(out.cap)
       out.acc.stockAllowed = !!out.stock
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       // THE SHAFT IS READ SEALED AGAIN IMMEDIATELY BEFORE THE FIRST THROW (wellsite-01, Codex r1 P1): the well was judged
@@ -9803,7 +10257,10 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) })
+  // idlework-02 (well.mjs wellBandDue): a VISIT from a bag in the 29-33 band throws the town dispose's whole plan (cobble only at
+  // the proven cap, the bot's 64 kept; at-target stock), the goal's wanted names still kept; below the band, listed junk only
+  const band = visit && WELL_BAND.on && slotsBefore >= WELL_BAND_SLOTS
+  const entryPlan = visit && !band ? disposePlan(items(), { keep }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot)), stock: pruneStockOpts(bot, pruned), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -9826,7 +10283,7 @@ async function disposeWell (ctx, _args, signal) {
     bot.stationaryUntil = stationary
     const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
-    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit, keep })
+    ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal, pruned, listedOnly: visit && !band, keep })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
     if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true
@@ -11868,7 +12325,7 @@ export function pruneTarget (bot, items = bot?.inventory?.items?.() ?? []) {
 }
 /** The well's own rule as a function of a bag (well.mjs disposePlan, every stack): what pruneAccepted asks. */
 function pruneWellRule (bot) {
-  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) }).stacks
+  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot, items)), stock: stockWellOpts(bot, items) }).stacks
 }
 
 /**
@@ -12631,10 +13088,19 @@ function heldMap (bot, items = bot.inventory?.items?.() ?? []) {
 async function smelt (ctx, args, signal, opts = {}) {
   const session = { lease: null, furnace: null, leaseN: null, unleased: false, prior: {}, held: [], closing: null, opts }
   try {
-    const r = await smeltInner(ctx, args ?? {}, signal, session)
+    let r = await smeltInner(ctx, args ?? {}, signal, session)
+    // stations-01 RETAKE: a call that put a furnace down and stopped BEFORE loading anything (out of reach, no budget, a blocked
+    // slot) takes it back too: nothing of this call's went in, and the watch says it never changed; another session's lease keeps it
+    if (session.placedWatch && !session.loadTried && !session.placedDesignated && !signal?.aborted) {
+      const w = session.placedWatch, k = posKey(w.at)
+      session.placedWatch = null
+      if (k !== session.furnace && furnaceLeasedNow(k)) { try { logEvent({ kind: 'station_retaken', status: 'no_effect', snapshot: snapshot(ctx.bot), detail: stationRowDetail({ at: w.at, name: 'furnace', by: 'smelt', outcome: 'left', why: 'leased_by_another' }) }) } catch { /* telemetry */ } w.stop() }
+      else { const said = await retakeStation(ctx, w, signal, 'smelt'); if (said) r = { ...r, detail: `${r.detail ?? ''}; ${said}` } }
+    }
     return { ...r, furnace: session.furnace, lease: session.unleased ? 'unleased' : session.leaseN, prior: session.prior,
              drainStop: session.drainStop ?? null, closing: session.closing }
   } finally {
+    try { session.placedWatch?.stop() } catch { /* stations-01: never left listening */ }
     endLease(session)
     // ONE ROW PER LEASE ACTUALLY HELD, timed from its acquisition to just before its release (Codex code r1 P1-4, Claude
     // r1 P2-4): a session that switched furnaces (it placed its own) logs both, each with its own interval.
@@ -12659,7 +13125,7 @@ const leaseHolder = bot => `${bot?.username ?? config.bot?.name ?? 'bot'}:${proc
  * Furnaces within `radius`, nearest first; a furnace whose lease another bot holds is skipped (furnacelease.mjs).
  * `avoid(pos)` excludes furnaces this caller may not use (none in stage 1).
  */
-export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir = null, prefer = null } = {}) {
+export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir = null, prefer = null, preferReach = WORKSHOP_REACH } = {}) {
   const isFurnace = b => bot.registry?.blocks?.[b.type]?.name === 'furnace'
   let blocks = []
   if (typeof bot.findBlocks === 'function') {
@@ -12675,7 +13141,7 @@ export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir 
     for (const k of prefer) {
       if (have.has(k)) continue
       const b = bot.blockAt?.(keyVec(k))
-      if (b?.position && isFurnace(b) && (!me || me.distanceTo(b.position) <= WORKSHOP_REACH)) blocks.push(b)
+      if (b?.position && isFurnace(b) && (!me || me.distanceTo(b.position) <= preferReach)) blocks.push(b)
     }
   }
   blocks = blocks.filter(b => b?.position && !avoid(b.position))
@@ -12706,6 +13172,8 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   const allowFuels = Array.isArray(session.opts?.fuels) ? new Set(session.opts.fuels) : null
   const heldFor = items => {
     const h = heldMap(bot, items)
+    // stations-01 SURPLUS: only the SPARE tables (past the one the bag keeps) are fuel here; with the part off, none
+    if (h.crafting_table != null) { const sp = spareTables(h.crafting_table); if (sp > 0) h.crafting_table = sp; else delete h.crafting_table }
     if (!allowFuels) return h
     return Object.fromEntries(Object.entries(h).filter(([n]) => n === item || allowFuels.has(n)))
   }
@@ -12726,7 +13194,8 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   // Plan BEFORE walking. Discovering "you have no fuel" after a 40-second hike
   // to a furnace spends the decision to learn something the inventory already
   // knew, and travel is where 80% of this fleet's deposit failures went.
-  const dry = smeltPlan({ held: heldFor(), item, count,
+  const extraFuel = stnOn('surplus') ? SPARE_FUEL_TICKS : null   // stations-01 SURPLUS
+  const dry = smeltPlan({ held: heldFor(), item, count, extraFuel,
                           budgetMs: Math.max(0, deadline - Date.now()), hasFurnace: true })
   if (!dry.ok && dry.reason === 'not_smeltable') {
     return { status: 'failed', failClass: 'bad_target',
@@ -12755,8 +13224,13 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   // A LEASED FURNACE IS NOT OURS (smeltjob-01): the nearest one no other session holds, its lease taken here and held
   // by `session` until the wrapper's finally. Taking a new furnace releases the one held before.
   let busy = []
-  const take = () => {
-    const pk = pickLeasedFurnace(bot, { avoid: session.opts?.avoid ?? (() => false), prefer: session.opts?.prefer ?? null })
+  // STATIONS-01 REUSE: in town, a smelt no caller steered tries the town's furnaces first (the workshop's, else the designated
+  // cells), looked up by key within STN.reach; away from town, as before
+  const stT = stnOn('reuse') && !session.opts?.prefer ? stnTown(bot) : null
+  const townPrefer = stT?.inTown && stT.ts?.furnaces?.size ? preferredNow(stT.ts.furnaces, bot.wsFurnaceSkip, Date.now()) : null
+  const take = (only = null) => {
+    // a furnace this call just put down is the job's furnace (`only`): its slots are the ones read before it is dug back
+    const pk = pickLeasedFurnace(bot, { avoid: session.opts?.avoid ?? (() => false), prefer: only ?? session.opts?.prefer ?? townPrefer, preferReach: only ? WORKSHOP_REACH : townPrefer ? STN.reach : WORKSHOP_REACH })
     // THE TOWN JOB FAILS CLOSED (Codex code r1 P2-5): a lease that could not be recorded (the fail-open path) is no
     // exclusion, so a deterministic job does not share a furnace on it; the model's/rung's smelt keeps the base behaviour.
     if (pk.block && pk.unleased && session.opts?.requireLease) { try { pk.lease?.release?.() } catch { /* noop lease */ } busy = ['(the lease could not be recorded)']; return null }
@@ -12772,13 +13246,24 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   const findFurnace = take
   let block = findFurnace()
   let placed = 0
-  if (!block && bot.inventory.items().some(i => i.name === 'furnace')) {
+  // stations-01 RETAKE: the furnace this call puts down is watched from its placement, and dug back once the job is drained;
+  // one put at the town's designated cell stays (the town's)
+  const watchMine = put => { if (put?.at && !session.placedWatch) { session.placedWatch = watchPlaced(bot, put.at, 'furnace'); session.placedDesignated = !!put.designated } }
+  const mineFirst = put => (put?.at ? take(new Set([posKey(put.at)])) : null) ?? findFurnace()
+  if (!block && !busy.length && stT?.inTown) {
+    // stations-01 REUSE: a town with no furnace standing puts its first one at the designated cell, never at a random spot
+    const put = await placeDesignated(ctx, 'furnace', signal, stT)
+    if (put) { placed = 1; watchMine(put); block = mineFirst(put) }
+  }
+  // stations-01 REUSE: in town with the town's furnaces all in use, the remedy is time (furnace_busy below), never a new one
+  const townBusy = !block && !!townPrefer?.size && busy.length > 0
+  if (!block && !townBusy && bot.inventory.items().some(i => i.name === 'furnace')) {
     check(signal)
     // The SAME `place` the crafting-table path uses -- it searches eight
     // horizontal neighbours plus a step up or down and READS THE BLOCK BACK,
     // which is the repair that made the tech tree work at all.
     const put = await place(ctx, { item: 'furnace' }, signal)
-    if (put.status === 'success') { placed = 1; block = findFurnace() }
+    if (put.status === 'success') { placed = 1; if (stnOn('retake')) watchMine(put); block = stnOn('retake') ? mineFirst(put) : findFurnace() }
   }
   // EVERY FURNACE IN REACH IS IN ANOTHER BOT'S SESSION and none is carried: a transient fact, not a lesson. A busy furnace
   // is never a reason to CRAFT one (that would recreate the scatter -- Claude r2 N4); the remedy is time.
@@ -12826,7 +13311,8 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
       const put = await place(ctx, { item: 'furnace' }, signal)
       if (put.status === 'success') {
         placed = 1
-        const mine = findFurnace()
+        if (stnOn('retake')) watchMine(put)
+        const mine = stnOn('retake') ? mineFirst(put) : findFurnace()
         if (mine) {
           block = mine
           reach = bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5))
@@ -12854,7 +13340,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): a smelt that is ALREADY happening prefers the carried wooden
   // swords the switch calls unwanted as its fuel. Only here, at the furnace: the dry plans above never count them, so a
   // sword can never start a smelt job. The switch is read again before EACH sword goes in (below).
-  const plan = smeltPlan({ held: heldFor(), item, count, budgetMs, hasFurnace: true,
+  const plan = smeltPlan({ held: heldFor(), item, count, budgetMs, hasFurnace: true, extraFuel,
                            // the job's allow-list excludes the peaceful kit's swords too (Codex code r2 P2): coal only (JOB_FUELS)
                            swordFuel: allowFuels && !allowFuels.has('wooden_sword') ? 0 : swordFuelCount(bot.inventory?.items?.() ?? [], foodSkipNow(bot).active) })
   if (!plan.ok) {
@@ -13038,6 +13524,7 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
     // the load's record comes only after the clicks: a disconnect between them left the open's EMPTY newest over a furnace
     // holding the batch. This entry (state holds) supersedes it first; a load that never lands costs one drain walk.
     ledgerIntent(bot, block.position, furnace, session.opts?.by ?? 'smelt', plan.input, plan.batch)
+    session.loadTried = true   // stations-01: from here the retake reads the slots
     await furnace.putInput(inDef.id, null, plan.batch)
     await loadNext()
     loaded = true
@@ -13116,6 +13603,23 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
 
   const gained = countItem(bot, plan.output) - before
   const ran = Date.now() >= deadline - SMELT_RECOVERY_MS
+  // STATIONS-01 RETAKE: THE FURNACE THIS CALL PLACED GOES BACK INTO THE BAG once the job is drained (stations.mjs smeltRetake: it
+  // IS the job's furnace, and the last read of its window shows no input, output or fuel), unless another session leases it now
+  let retook = null
+  if (session.placedWatch) {
+    const w = session.placedWatch
+    const cnt = which => { const v = fslot(which); return v === undefined ? undefined : (v?.count ?? 0) }
+    const k = posKey(w.at)
+    const d = smeltRetake({ placed: k, used: session.furnace, designated: !!session.placedDesignated, aborted: !!signal?.aborted, input: cnt('inputItem'), output: cnt('outputItem'), fuel: cnt('fuelItem') })
+    const others = k !== session.furnace && furnaceLeasedNow(k)
+    if (d.retake && !others) retook = await retakeStation(ctx, w, signal, 'smelt')
+    else {
+      try { logEvent({ kind: 'station_retaken', status: 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ at: w.at, name: 'furnace', by: 'smelt', outcome: 'left', why: others ? 'leased_by_another' : d.why }) }) } catch { /* telemetry */ }
+      w.stop()
+    }
+    session.placedWatch = null
+  }
+  const tail = retook ? `; ${retook}` : ''
 
   // SUCCESS IS A MEASUREMENT OR IT IS NOT A SUCCESS. `status` earned 115
   // recorded wins for doing nothing because a promise resolved; the count of
@@ -13126,18 +13630,18 @@ async function smeltInner (ctx, { item, count = 1 }, signal, session) {
       detail: `smelted ${gained}x ${plan.output} from ${plan.input} ` +
               `(batch ${plan.batch}, burned ${Object.entries(burned).map(([k, v]) => `${v}x ${k}`).join(' + ') || `${plan.fuel.count}x ${plan.fuel.name}`}` +
               `${placed ? ', placed the furnace first' : ''})` +
-              (gained < plan.batch ? ` — ${plan.batch - gained} still to do, call smelt again` : ''),
+              (gained < plan.batch ? ` — ${plan.batch - gained} still to do, call smelt again` : '') + tail,
     }
   }
   if (ran) {
     return { status: 'unknown', failClass: 'smelt_budget',
              detail: `the furnace was still burning when this call's ${Math.round(SMELT_DEADLINE_MS / 1000)}s ran out; ` +
-                     `the ${plan.input} and fuel are back in your inventory — call smelt again to continue` }
+                     `the ${plan.input} and fuel are back in your inventory — call smelt again to continue` + tail }
   }
   return { status: 'no_effect',
-           detail: loaded
+           detail: (loaded
              ? `the furnace produced no ${plan.output}; the ${plan.input} and fuel are back in your inventory`
-             : `nothing was loaded into the furnace` }
+             : `nothing was loaded into the furnace`) + tail }
 }
 
 // ----------------------------------------------------- smelt_town / furnace_drain (smeltjob-01) -----
@@ -13955,7 +14459,9 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
  * WINDOW's bag before the drain, the bag after the close (mineflayer copies the window's bag back only then).
  * -> { made, prior, burned, furnaceLeft, furnace, lease, uncertain, stop, tried }
  */
-export async function matsSession (ctx, { input, n, planksName, out: outName, own, onLoad = null }, signal, deadline) {
+export async function matsSession (ctx, { input, n, planksName, fuelN = null, out: outName, own, onLoad = null }, signal, deadline) {
+  // stoneworks-01: `planksName` is the session's FUEL name (planks, or a ladder fuel: bamboo, a sapling, coal) and `fuelN` its
+  // exact count (mats.mjs fuelToLoad); unset, the base's planksToLoad(n)
   const { bot } = ctx
   const res = { made: 0, prior: {}, burned: 0, furnaceLeft: {}, furnace: '-', lease: '-', uncertain: false, stop: null, tried: [] }
   // EVERY QUALIFYING CHANCE THE CLOCK AFFORDS (Paper r3 furn: three foreign furnaces nearer than the one clean one left it
@@ -14002,7 +14508,7 @@ export async function matsSession (ctx, { input, n, planksName, out: outName, ow
         continue
       }
       res.furnace = cand.k; res.lease = lease.n
-      const want = planksToLoad(n)
+      const want = fuelN ?? planksToLoad(n)
       const priorOut = rd('outputItem')
       // THE LOAD RECORD, BEFORE ANYTHING GOES IN: a kill from here on leaves a note mats_return can drain against
       const inputBefore = (() => { try { return (furnace.items?.() ?? []).reduce((t, it) => t + (it?.name === input ? (it.count ?? 0) : 0), 0) } catch { return undefined } })()
@@ -14263,6 +14769,7 @@ async function makeMaterial (ctx, args, signal) {
               deposited: {}, furnaceLeft: {}, prior: {}, families: {}, forbidden: {}, verdict: null, furnace: '-', lease: '-',
               reserveSrc: null, stock: {}, t0: Date.now(), ml: null, inputsLeft: {}, stoneLeft: null }
   let result = null, uncertain = false, note = null, lease = null, bag0 = {}, forbidden0 = {}, names = [], leaseT0 = null, furnaceDone = true, held0All = null
+  let LFbank = null, LFacct = null    // stoneworks-01: the town ladder fuel to give back unburned; the ladder fuel for the balance
   const pl = countPlacements(bot)
   try {
     // THE COUNT REMEDY (mats.mjs materialOrder: the index below its coverage, containers it does not know in reach)
@@ -14277,21 +14784,34 @@ async function makeMaterial (ctx, args, signal) {
     const town = matsTownStock(bot)
     if (!town || !(town.coverage >= MATS_MIN_COVERAGE)) { f.stop = 'index_coverage'; return (result = { status: 'no_effect', detail: `the town index knows ${town ? Math.round(town.coverage * 100) : 0}% of the town's containers; the materials job waits for the recount` }) }
     f.stock = { [K.part]: partCount(K.part, town.stock), cobblestone: reserveCount('cobblestone', town.stock), logs: reserveCount('logs', town.stock), copper_ingot: reserveCount('copper_ingot', town.stock), sand: reserveCount('sand', town.stock) }
-    if ((B.table[K.part] ?? 0) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
-    const prev = readMatsNote(bot)
-    if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
     // the project reserve (OWNER 10-27): a project part's order draws on the lowered table while the workshop is active
     const PR = matsKindForProject(kind) ? projectReserveNow(bot, Date.now(), { fresh: true }) : { active: false, gen: '-' }
-    const E = effectiveReserve(R.table, { active: PR.active, forProject: matsKindForProject(kind) })
-    const PD = projectDraw(bot, R.table, { forProject: matsKindForProject(kind) })
-    const inp = orderInputs(kind, { bagSpare: matsBagSpare(bot), stock: town.stock, reserve: E.table })
+    // stoneworks-01: the buffer NOW (bricks rise while a project is active: mats.mjs effectiveBuffer, the order's own rule)
+    if (effectiveBuffer(K.part, B.table, { project: !!PR.active }) - partCount(K.part, town.stock) < K.makes) { f.stop = 'stocked'; return (result = { status: 'no_effect', detail: `the town holds its buffer of ${K.part} (a whole batch would pass it)` }) }
+    const prev = readMatsNote(bot)
+    if (prev) { f.stop = 'note_open'; return (result = { status: 'no_effect', detail: 'an earlier materials order is not reconciled; mats_return runs first' }) }
+    // stoneworks-01: the cobble kinds burn the fuel ladder (mats.mjs fuelPlan); the coal rung's town take is judged on the coal keep
+    const ladder = STONEWORKS.on && LADDER_KINDS.has(kind)
+    const RT = ladder ? withFuelReserve(R.table) : R.table
+    if (ladder && oreWaiting(kind, town.stock)) { f.stop = 'ore_first'; return (result = { status: 'no_effect', detail: 'the town holds raw ore the smelt job turns into ingots first; the trading stone waits' }) }
+    const E = effectiveReserve(RT, { active: PR.active, forProject: matsKindForProject(kind) })
+    const PD = projectDraw(bot, RT, { forProject: matsKindForProject(kind) })
+    const spare = matsBagSpare(bot)
+    const fuelP = ladder ? fuelPlan({ n: K.smelt.n, bagSpare: spare, stock: town.stock, reserve: E.table, on: true }) : null
+    if (ladder && !fuelP) { f.stop = 'no_fuel'; return (result = { status: 'no_effect', detail: `no fuel on the ladder (bamboo, spare saplings, logs above the reserve, coal above ${RT.coal}) for a ${kind} batch now` }) }
+    const inp = orderInputs(kind, { bagSpare: spare, stock: town.stock, reserve: E.table, fuel: fuelP })
     if (!inp) { f.stop = 'inputs'; return (result = { status: 'no_effect', detail: `the town has no ${kind} inputs above its reserve now` }) }
+    const LF = inp.fuel && inp.fuel.rung !== 'planks' ? inp.fuel : null     // a ladder fuel other than planks
+    // stoneworks-01 (Codex code r1 BLOCKER): the stone the deposit would keep as the bag's scaffold could never be banked
+    if (kind === 'stone' && stoneScaffoldHeld(heldMap(bot), { fromBag: inp.fromBag, made: LF ? LF.batch : K.smelt.n }) > 0) { f.stop = 'scaffold'; return (result = { status: 'no_effect', detail: 'the bag holds no 8 cheaper scaffold (cobblestone, cobbled_deepslate) beside the stone: the deposit would keep the stone made' }) }
+    if (inp.fuel) f.fuel = `${inp.fuel.rung}:${inp.fuel.name}`
+    if (LF) { LFacct = { name: LF.name, ticks: LF.ticks }; if (Object.keys(LF.take ?? {}).length) LFbank = LF.name }
     f.log = inp.log ?? '-'
     lease = matsLease(bot)
     if (lease.unleased) { f.stop = 'lease_unavailable'; lease = null; return (result = { status: 'no_effect', detail: 'the town materials lease cannot be recorded here; the job waits' }) }
     if (!lease.ok) { f.stop = 'lease_busy'; lease = null; return (result = { status: 'no_effect', detail: 'another bot is making materials in this town now' }) }
     leaseT0 = Date.now()
-    names = touchedNames(kind, inp.log)
+    names = touchedNames(kind, inp.log, LF?.name ?? null)
     const held0 = heldMap(bot)
     held0All = held0
     bag0 = Object.fromEntries(names.map(n => [n, held0[n] ?? 0]))
@@ -14305,7 +14825,7 @@ async function makeMaterial (ctx, args, signal) {
     const reserveMs = K.smelt ? (unit * SMELT_MS_PER_ITEM + SMELT_RECOVERY_MS + 40_000) : 45_000
     let w
     try {
-      w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, R.table, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
+      w = Object.keys(inp.take).length ? await matsWithdraw(ctx, inp.take, signal, reserveMs, RT, PD.allow, PD.onTook, PD.onUncertain) : { took: {}, unsettled: false, short: false, capped: 0 }
     } finally {
       if (PD.used.lowered) f.reserveSrc = 'project'   // the read judges this row on the lowered floor (matsread.py), an abort too
     }
@@ -14315,8 +14835,29 @@ async function makeMaterial (ctx, args, signal) {
     if (w.short) { f.stop = w.capped ? 'withdraw_reserve' : 'withdraw_short'; return (result = { status: 'no_effect', detail: `the town containers looked in did not hold the order's inputs above the reserve (${Object.entries(inp.take).map(([n, c]) => `${c} ${n}`).join(', ')}); what was taken stays in the bag for the town deposit` }) }
     const deadline = withdrawClock(ctx).deadline - 25_000      // the crafts and the bank keep 25 s
     let planksName = null
-    // 3-5. THE PLANKS AND THE SESSION (smelt kinds)
-    if (K.smelt) {
+    // 3-5. THE PLANKS AND THE SESSION (smelt kinds); stoneworks-01: a ladder fuel's session first, the base's planks path below
+    if (K.smelt && LF) {
+      const input = K.smelt.input
+      const n = Math.min(batchFor(kind, deadline - Date.now() - SMELT_RECOVERY_MS - 15_000), LF.batch)
+      if (!(n > 0)) { f.stop = 'late'; return (result = { status: 'no_effect', detail: 'the withdraw used the job\'s clock; nothing was smelted (the inputs stay in the bag for the town deposit)' }) }
+      if (LF) {
+        // stoneworks-01: A LADDER FUEL -- no planks crafted; exactly fuelToLoad(n) of it, from the bag (bamboo, saplings) or the
+        // town take (coal)
+        planksName = LF.name
+        const fuelN = fuelToLoad(n, LF.ticks)
+        if ((heldMap(bot)[LF.name] ?? 0) < fuelN) { f.stop = 'fuel_short'; return (result = { status: 'no_effect', detail: `the bag holds fewer than ${fuelN} ${LF.name} for the batch` }) }
+        f.expected = fuelN
+        const r = await matsSession(ctx, { input, n, planksName, fuelN, out: K.smelt.out, own: null,
+          onLoad: ld => { note.furnace = ld.furnace; note.loaded = ld; writeMatsNote(bot, note) } }, signal, deadline)
+        f.smelted = r.made; f.burned = r.burned; f.furnaceLeft = r.furnaceLeft; f.furnace = r.furnace; f.lease = r.lease; f.cut = !!r.cut
+        f.wsF = stationKind(r.furnace, bot.shopStations?.furnaces)
+        for (const [k2, c] of Object.entries(r.prior ?? {})) f.prior[k2] = (f.prior[k2] ?? 0) + c
+        if (r.uncertain) uncertain = true
+        furnaceDone = !r.uncertain && !Object.keys(r.furnaceLeft ?? {}).length
+        if (r.stop !== 'done' && r.stop !== 'short') { f.stop = `session:${r.stop}`; if (r.tried.length) f.stop += `(${r.tried.slice(0, 3).join(';')})` }
+      }
+    }
+    if (K.smelt && !LF) {
       const log = inp.log
       const input = K.smelt.input === 'log' ? log : K.smelt.input
       const n = batchFor(kind, deadline - Date.now() - SMELT_RECOVERY_MS - 15_000)
@@ -14370,7 +14911,11 @@ async function makeMaterial (ctx, args, signal) {
       if (note && !aborted) {
         for (const [n, c] of Object.entries(f.took)) releaseWithdrawHold(n, c)
         // each deposit booked AND in the note as it lands (Codex r5 P2-4): an abort on the walk to the next chest keeps it
-        await matsBank(ctx, obligations(kind).filter(n => n !== 'stone' && n !== 'charcoal'), bag0, signal, {}, {
+        // stoneworks-01: the stone kind's part IS stone (banked); a town fuel the session did not burn (coal) goes back -- only what
+        // the bag holds above its opening count, so the bot's own coal never leaves
+        const bankNames = obligations(kind).filter(n => (kind === 'stone' || n !== 'stone') && n !== 'charcoal')
+        if (LFbank && !bankNames.includes(LFbank)) bankNames.push(LFbank)
+        await matsBank(ctx, bankNames, bag0, signal, {}, {
           onBanked: (n2, c2) => { f.deposited[n2] = (f.deposited[n2] ?? 0) + c2; note.deposited = { ...f.deposited }; try { writeMatsNote(bot, note) } catch { /* the next write */ } } })
         const bagNow = heldMap(bot)
         const plan = returnPlan(note, bagNow)
@@ -14391,7 +14936,7 @@ async function makeMaterial (ctx, args, signal) {
     const held1 = heldMap(bot)
     const bag1 = Object.fromEntries(names.map(n => [n, held1[n] ?? 0]))
     const b = matsBalance({ kind, bag0, bag1, withdrawn: f.took, deposited: f.deposited, prior: f.prior, furnaceLeft: f.furnaceLeft,
-                            burnedPlanks: f.burned, smelted: f.smelted, forbidden0, forbidden1: forbiddenCounts(held1), uncertain: uncertain || aborted,
+                            burnedPlanks: f.burned, smelted: f.smelted, forbidden0, forbidden1: forbiddenCounts(held1), uncertain: uncertain || aborted, fuel: LFacct,
                             cut: f.cut, placed: f.placed })
     f.families = b.families; f.forbidden = b.forbidden; f.verdict = b.verdict
     const t0b = toolCounts(held0All ?? {}), t1b = toolCounts(held1)
@@ -14623,6 +15168,8 @@ async function mine(ctx, { y: targetY = 12 }, signal, ko = null) {
   // SHAFT-02: THE TOWN STAIR FIRST (design section 6). A real descent near the town's stair walks down it to a verified landing
   // -- no digging, so it comes BEFORE the home refusal (a walk from home to the collar digs nothing at home). Any failure leaves
   // mine exactly as it was (the checks below run from wherever the bot stands); a goal at the landing is the whole call.
+  // stairuse-01: the way down may now dig -- only a foreign block out of the stair's own AIR cells, 19-26 out from home (the
+  // stair's ring, beyond the home refusal's 12): the record says air, the dig restores it
   {
     const hop = await stairDescend(ctx, goalY, signal)
     if (hop?.done) return { status: 'success', detail: `reached the town stair's landing at y=${hop.landing} (the stair, no digging)`, via: 'town_stair' }
@@ -17139,10 +17686,12 @@ const stoodKey = () => projKeyOf(SHOP_PLOT)
  * an unreadable state is the workshop (the job as before).
  */
 let activeMem = null
-export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) {
+export function shopActive (bot = null, now = Date.now(), { visit = false } = {}) { return shopActiveAll(bot, now, { visit }).pick }
+/** workboard-01: shopActive's pick AND the marked states it chose from -> { pick, states } (states null: one project, or a throw). */
+export function shopActiveAll (bot = null, now = Date.now(), { visit = false } = {}) {
   try {
     const list = projectsOn()
-    if (list.length === 1) return list[0]
+    if (list.length === 1) return { pick: list[0], states: null }
     const dir = townDir()
     if (bot) activeMem = { ...(activeMem ?? {}), bot }
     const sig = `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
@@ -17190,15 +17739,31 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
     // idlework-01 B x starve-01 (rebase onto stuckproj-01): the two marks never meet -- unsitedBackoff marks only a project with
     // NO record (`exists` false), starveMark only one WITH an open record -- so an unsited project is never offered first as
     // starved, a starved one is never held as unsited, and each keeps its own rollback (UNSITEDWAIT=0, STARVE=0)
+    // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
+    // buildnext-01: a project THIS bot is held on (its own stuck_on_cell, its empty-visit breaker) waits behind the others
+    // (shop.mjs nextBackoff): the next eligible one is this call's pick. BUILDNEXT=0: exactly as before
+    const waitedN = buildNextOn() && b ? nextBackoff(waitedU, plot => buildNextHeld(b, plot, now)) : waitedU
+    const order = b ? keeperOrder(b, waitedN, list, now) : list
+    // gkforever-01 x starve-01 (rebase onto stuckproj-01): a bot whose order leads with the grounds (keeperOrderPure returns a NEW
+    // order, the tidy first, only for the lease's holder or a CREW bot on a grounds lap) is never sent to a starved project -- that
+    // visit is the grounds'; every other bot still is (STARVE). The tidy itself is never starve-marked (starveMark skips it)
+    const keeper = order !== list
     // starve-01: an open project no builder has taken in STARVE_MS is offered first (shop.mjs starveMark); a VISIT's starved pick
     // is this bot's for STARVE_MS (`tried`) and stays its pick until the visit ends (`starvePick`: its own slot lease refreshes the
     // stamp, and the reserve and bag reads mid-visit must name the project the visit is on)
-    const starve = starveOn() && b
+    const starve = starveOn() && b && !keeper
     // the stamps are read at most every STARVE_READ_MS (a lease listing of a large town directory per open project per call)
     const sc = starve ? (b.starveReads ??= new Map()) : null
     const lastTake = plot => { const c0 = sc.get(plot); if (c0 && now - c0.at < STARVE_READ_MS && now >= c0.at) return c0.v; const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }
-    const marked = starve ? starveMark(waitedU, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedU
-    let pick = activeProject(marked, list)
+    const marked = starve ? starveMark(waitedN, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedN
+    let pick = activeProject(marked, order)
+    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
+    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
+    const bp = b?.boardPick
+    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
+      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+      if (sp && st && jobBlocked(st) == null) pick = sp
+    }
     if (starve && visit) {
       const st = marked.find(x => x?.plot === pick.plot)
       if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null
@@ -17207,8 +17772,58 @@ export function shopActive (bot = null, now = Date.now(), { visit = false } = {}
       if (sp && st && !st.complete) pick = sp
     }
     if (visit) noteRepair(rmem, pick, states, now)
-    return pick
-  } catch { return projectsOn()[0] }
+    return { pick, states: marked }
+  } catch { return { pick: projectsOn()[0], states: null } }
+}
+/**
+ * WORKBOARD-01 (townwork.mjs): THE TOWN'S JOB FOR THIS BOT NOW -> townwork.mjs boardJob ({ plot, workable, why, starved, cands }), or
+ * null when the board cannot read the town (the shop off, no town plan, a single project, a throw): then the board stands aside.
+ * The job IS shopActive's pick (one rule: keeper/crew, repairs, starve, stuck, unsited, buildnext), workable or not. Never throws.
+ */
+export function boardJobNow (bot, now = Date.now()) {
+  try {
+    if (!SHOP.on || !bot || !townPlanNow(bot)) return null
+    const { pick, states } = shopActiveAll(bot, now)
+    if (!states) return null
+    return boardJob(pick, states)
+  } catch { return null }
+}
+/** WORKBOARD-01: claim one of `plot`'s admission slots BEFORE the walk (buildproj.mjs takeSlot: the visit's own takeSlot renews
+ *  it in place, so a traveller holds the slot it will build in) -> { ok, slot, gen } | { ok: false, why }. Never throws. */
+export function boardClaim (bot, plot, now = Date.now()) {
+  try {
+    const p = projectsOn().find(q => q.plot === plot)
+    if (!p) return { ok: false, why: 'no_project' }
+    return takeSlot(townDir(), projKeyOf(plot), bot?.username ?? config.bot?.name ?? 'bot', buildersOf(p), { now, ttl: WORKBOARD_T.claimTtlMs })
+  } catch { return { ok: false, why: 'claim_failed' } }
+}
+/** WORKBOARD-01: give a claim back (ours by name and generation: a visit that renewed it moved the generation, so this is a no-op
+ *  then). Never throws. */
+export function boardRelease (bot, plot, claim) {
+  try { if (claim && Number.isFinite(claim.slot)) releaseLease(townDir(), projKeyOf(plot), `slot${claim.slot}`, bot?.username ?? config.bot?.name ?? 'bot', claim.gen) } catch { /* it lapses at its ttl */ }
+}
+/** WORKBOARD-01: pin the job's project for this bot's next visit (shopActiveAll honours it WB.claimTtlMs). */
+export function boardPin (bot, plot, now = Date.now()) { if (bot) bot.boardPick = plot ? { plot, at: now } : null }
+/** WORKBOARD-01: the job's bag rule: a light plot needs 2 free slots, every other 8 (shop.mjs LIGHT_PLOTS). */
+export const boardLight = plot => LIGHT_PLOTS.has(plot)
+/** buildnext-01: is `plot` held for bot `b` now (its breaker, its own last stuck_on_cell)? -> reason | null. Never throws. */
+function buildNextHeld (b, plot, now = Date.now()) {
+  try { return nextHeld(plot, { mem: b?.shopNext ?? null, stuck: b?.shopStuckPlot ?? null, now, breaker: nextBreakerOn() }) } catch { return null }
+}
+setNextHoldOf(plot => (activeMem?.bot ? buildNextHeld(activeMem.bot, plot) : null))
+export const buildNextHeldForTest = buildNextHeld
+/** buildnext-01: a visit's result into the bot's scoped holds (shop.mjs nextNote / nextHeld). The why is compared with its numbers
+ *  blanked: an empty visit's progress count moves with OTHER builders' work, and this bot's visit is still the same empty visit. */
+export function buildNextAfter (bot, plot, r, now = Date.now()) {
+  if (!bot || !plot || !r) return null
+  const work = r.status === 'success' || (Number(r.placed) || 0) > 0
+  if (r.stop === 'stuck_on_cell') bot.shopStuckPlot = { plot, at: now }
+  else if (work && bot.shopStuckPlot?.plot === plot) bot.shopStuckPlot = null
+  if (!nextBreakerOn()) return null
+  const sig = `${r.stop ?? '-'}|${String(r.detail ?? '').replace(/-?\d+(\.\d+)?/g, 'N').slice(0, 160)}`
+  const nt = nextNote((bot.shopNext ??= new Map()), plot, { work, sig, now })
+  if (nt.tripped) { try { logEvent({ kind: 'build_next', status: 'success', snapshot: snapshot(bot), detail: `op=hold project=${plot} why=repeat n=${NEXT_K} stop=${r.stop ?? '-'} until=${new Date(now + NEXT_HOLD_MS).toISOString()}` }) } catch { /* telemetry */ } }
+  return nt
 }
 /**
  * COPPERHALL-01: may the hall open now? -> copperhall.mjs hallOpening over the town index's copper (matsTownStock) and the reserve
@@ -17313,13 +17928,39 @@ const unsitedOfPlot = plot => { if (!plot) return null; const f = unsitedRead(to
 setUnsitedOf(unsitedOfPlot)
 const shopBlueprint = () => blueprintOf(shopActive().blueprint)
 /** Every project's record head that exists -> [{ plot, key, head }]. Never throws. */
+/** scaftown-01 (index.mjs's 60 s area refresh): the town's project records -> [rec] (the wall rings come from these). Never throws. */
+export function scafTownRecords () {
+  try { return projectHeads().map(x => x?.head?.rec).filter(Boolean) } catch { return [] }
+}
 function projectHeads () {
   const out = []
   try {
     const dir = townDir()
     for (const p of projectsGuarded()) { const key = projKeyOf(p.plot); const h = recordHead(dir, key); if (h.ok && h.head) out.push({ plot: p.plot, key, head: h.head }) }
+    // groundskeeper-01: the town's land plan (landplan.mjs) as a RESERVATION -- its road corridors are every later siting's zones
+    // (recordZones: houses, the stair, the wall's gateways, the tree farm), no cells
+    const land = landHead(dir)
+    if (land) out.push({ plot: LAND_PLOT, key: projKeyOf(LAND_PLOT), head: { rec: landReservation(land) } })
   } catch { /* none */ }
   return out
+}
+/** GROUNDSKEEPER-01: the switch for the land plan (LANDPLAN=off: no plan sited or read). */
+const LANDP = Object.freeze({ on: GROUNDS.on && landOn() })
+/** GKFOREVER-01 (gkforever.mjs): the parts' switches, read once (GKFOREVER=0: groundskeeper-01 exactly). */
+const GKFS = Object.freeze(Object.fromEntries(['clock', 'dead', 'level', 'crew', 'idle'].map(p => [p, GROUNDS.on && gkfOn(p)])))
+/** The stage table the grounds work through: out to GKF.radius with the clock on, else groundskeeper-01's (to 80). */
+const gkLandL = () => (GKFS.clock ? gkfLand(LAND_TABLE) : LAND_TABLE)
+/** The last stage's number (0 with the land plan off: the town square alone). A town whose land plan is not sited yet reads the
+ *  whole table, so its stage 0 completing asks for stage 1 (the plan's own visit), as groundskeeper-01 did. Pure but for switches. */
+const gkLastK = () => (LANDP.on ? landStages(gkLandL()).at(-1).k : 0)
+/** gkforever-01 CLOCK: is this tidy record due a new generation now, and from which stage (gkforever.mjs gkfDue)? Never throws. */
+function gkfDueOf (r, now = Date.now()) {
+  try { return gkfDue(r, { now, lastK: gkLastK(), interiorAt: r?.gkf?.interiorAt ?? null }) } catch { return { due: false, from: null, why: 'error' } }
+}
+/** The town's land plan record (`project-<home>.land`) -> its body | null (none, off, or unreadable). Never throws. */
+function landHead (dir = townDir()) {
+  if (!LANDP.on) return null
+  try { const h = recordHead(dir, projKeyOf(LAND_PLOT)); return h.ok && h.head?.rec?.blueprint === LAND_BLUEPRINT ? h.head.rec : null } catch { return null }
 }
 /** The project's record head in this town -> recordHead's answer. Never throws. */
 /** When any builder's visit last reported stuck_on_cell (the order's project-wide back-off) -> ms | null. Never throws. */
@@ -17410,6 +18051,9 @@ function recordCellDone (bot, r, c) {
     // pathsclose-01: a WAIVED path cell (the record's own list) is done
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
     if (r.blueprint === WALL_BLUEPRINT && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done
+    // gklease-02: a waived TIDY cell is done, so the 6-h stuck stamp a stalled visit wrote before its waiver goes stale (shop.mjs
+    // stuckStale) -- LIVE 11-06 22-23Z: hive-d, isolated-a, board-c, placebo-c, hive-b had 0 tidy visits by any bot for 6 h after one
+    if (GKL2_ON && r.blueprint === TIDY_BLUEPRINT && tidyWaived(r, c)) return true
     const b = read(...c.at)
     if (!b) return false
     const extra = stuckCellsDone(r)
@@ -17636,7 +18280,10 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
     if (r.blueprint === TREEFARM_BLUEPRINT) return tidy && !!farmDueFor(bot, r)
     // tidy-01: a finished tidy is never DAMAGED (the bots' next pillars are the next survey's): only DUE its re-survey (tidy.mjs
     // tidyDue), after every open project
-    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)
+    // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
+    if (r?.blueprint === TIDY_BLUEPRINT && gkStageDue(r)) return tidy
+    // stations-01 SWEEP: ...or the town has a stray station to take up (cached, never throws)
+    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && (tidyDue(r) || strayDue(bot))
     // shaft-02: the town stair judges its own cells (shaftgeom.mjs stairDamaged); a no-site record is only DUE, after its retry
     if (r?.blueprint === SHAFT_BLUEPRINT) return stairDamaged(stairRead(bot), r) || (tidy && stairDue(r))
     // monument-01: a sealed core cell of the ziggurat is done (ziggurat.mjs zigHidden), as its visit judges it; v2: the record's
@@ -17699,6 +18346,8 @@ export function shopFootprintRefresh (bot) {
     }
     bot.shopFootprint = fp
     bot.shopSaplingBox = recs.length ? recs.map(r => (r.blueprint === PATHS_BLUEPRINT ? pathSaplingCols(r) : r.blueprint === WALL_BLUEPRINT ? wallSaplingCols(r) : saplingBox(r))).filter(Boolean) : null
+    // groundskeeper-01: no sapling in a road corridor (owner 10-27: no planting in footprints)
+    try { const lc = landSaplingCols(landHead(dir)); if (lc) bot.shopSaplingBox = [...(bot.shopSaplingBox ?? []), lc] } catch { /* the plan's keep-out waits */ }
     bot.shopCells = cells
     bot.shopStations = workshopStations(hs[0]?.head?.rec ?? null)
     shopActive(bot)
@@ -18618,7 +19267,8 @@ function stuckCellsPublish (bot, dir, key, rec, r, me, plot) {
 }
 async function buildShop (ctx, args, signal) {
   // starve-01: a starved pick is held for this visit only (shopActive `starvePick`)
-  try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) ctx.bot.starvePick = null } catch { /* the window ends it */ } }
+  // workboard-01: the board's pin is for ONE visit too (the next board order pins again)
+  try { return await buildShopVisit(ctx, args, signal) } finally { try { if (ctx?.bot) ctx.bot.starvePick = null } catch { /* the window ends it */ } try { if (ctx?.bot) ctx.bot.boardPick = null } catch { /* its ttl ends it */ } }
 }
 /**
  * idlework-01 B: a visit that ends `no_site` and leaves no record stamps that PROJECT unsited (shop.mjs unsitedWrite), so the next
@@ -18629,7 +19279,13 @@ async function buildShopVisit (ctx, args, signal) {
   // expedition-01: the expedition's visit (the order's args say which)
   if (args?.expedition === true) return expeditionVisit(ctx, args, signal)
   const proj = shopActive(bot, Date.now(), { visit: true })
-  const r = await buildShopOn(proj, ctx, args, signal)
+  let r
+  try { r = await buildShopOn(proj, ctx, args, signal) } catch (e) {
+    // buildnext-01: an abort or a throw breaks the breaker's streak (a server interruption is never a repeated project failure)
+    try { if (nextBreakerOn() && bot) nextNote((bot.shopNext ??= new Map()), proj.plot, { broken: true }) } catch { /* memory only */ }
+    throw e
+  }
+  try { if (buildNextOn() && bot) buildNextAfter(bot, proj.plot, r) } catch { /* memory only: the order's own gates hold */ }
   if (unsitedWaitOn() && r?.stop === 'no_site') {
     try {
       const dir = townDir(), key = projKeyOf(proj.plot), h = recordHead(dir, key)
@@ -18639,6 +19295,8 @@ async function buildShopVisit (ctx, args, signal) {
       }
     } catch { /* the stamp is best effort: the order's own back-off still holds */ }
   }
+  // gklease-01: a grounds visit that did something is the holder's work (groundsIdle's clock)
+  if (proj?.plot === TIDY_PLOT && r?.status === 'success') bot.gkWorkAt = Date.now()
   return r
 }
 async function buildShopOn (proj, ctx, args, signal) {
@@ -19003,6 +19661,9 @@ async function buildStair (ctx, args, signal) {
     })
     const fence = () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } }
     const e = stairBotEffects(bot, effects, { signal, fence, log: (op, d) => stairRow(bot, op, { k: d.k, at: d.at, why: d.why, feet: d.feet ?? '-' }) })
+    // stairuse-01: the visit's walk to a deep stand falls back to the stair's own way down (shaftvisit.mjs runStairVisit `e.descend`)
+    // (its deadline keeps the egress's reserve from step k: the visit's way out after it -- Claude r1 note 1)
+    if (stairUseOn()) e.descend = k => visitDescend(bot, rec, signal, t0 + budget - STAIR_VISIT_TAIL_MS - egressReserveMs(k), k, e)
     const now = () => Date.now()
     // shaft-03: the whole visit holds the 'stair' body claim (withStairClaim: the entombment reflex stands down inside the stair)
     // shafttrap-01: ...and so does the egress after it (the visit ends at the collar, never deep in the stair)
@@ -19022,7 +19683,9 @@ async function buildStair (ctx, args, signal) {
         publishRecord(dir, key, cur => (cur && isStairRecord(cur) && (cur.landings ?? []).includes(feet) ? stairDropped(cur, feet, { now: now(), why }) : null), { by: me })
         stairRecMem = null
       },
-    }, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS, reserve: egressReserveMs })
+      // townmine-01: an upper bay with a liquid in it is dropped from the mine's plan (the upkeep never seals into a room)
+      onDropRoom: async (k, why) => { publishRecord(dir, key, cur => mineRoomDropped(cur, k, { now: now(), why }), { by: me }); stairRecMem = null },
+    }, e, { deadline: t0 + budget - STAIR_VISIT_TAIL_MS, reserve: egressReserveMs, maxK: rec.K })   // townmine-01: the deep extension is the deep miner's
       egress = await visitEgress(bot, rec, signal, t0 + budget - EGRESS_TAIL_MS, e)
       return v
     })
@@ -19095,6 +19758,27 @@ async function visitEgress (bot, rec, signal, deadline, e0 = null, walk = null) 
     }, { exit: rec.exit, deadline })
     return r
   } finally { try { fx?.close() } catch { /* gone */ } }
+}
+
+/** stairuse-01: THE VISIT'S WAY DOWN TO STEP k (shaftvisit.mjs runStairDescent on the visit's own effects: its server-witnessed dig,
+ *  the town-deposit hop walk) -> its result. One `_shaft op=descent` row, one `op=descent_dig` per block cleared. Throws only an
+ *  abort. */
+async function visitDescend (bot, rec, signal, deadline, k, e) {
+  const plan = stairPlanOf(rec)
+  const t0 = Date.now()
+  return runStairDescent(plan, {
+    get read () { return stairRead(bot) },
+    feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
+    walkTo: c => stairWalk(bot, c, c === rec.exit ? STAIR_DOWN_MS : EGRESS_HOP_MS, signal),
+    dig: c => e.dig(c),
+    occupied: c => bodyOnCell(bot, c),
+    now: () => Date.now(),
+    aborted: () => !!signal?.aborted,
+    log: (op, d) => {
+      if (op === 'descent_dig') { stairRow(bot, 'descent_dig', { k: d.k, at: d.at, why: 'foreign_in_air' }); return }
+      try { logEvent({ kind: 'shaft', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=descent ${descentDetail({ ...d, entry: 'visit', ms: Date.now() - t0 })}` }) } catch { /* telemetry */ }
+    },
+  }, { to: k, exit: rec.exit, deadline })
 }
 
 // shafttrap-02: THE REFLEXES' WAY OUT OF THE STAIR (reflex.mjs marooned/entombed arms; shaftgeom.mjs egressHandoff). LIVE fleet
@@ -19221,6 +19905,10 @@ export async function stairDescend (ctx, goalY, signal) {
     const built = (rec.landings_built ?? []).filter(f => !(Date.now() - (bot.stairFails.get(f) ?? -Infinity) < STAIR_BACKOFF_MS))
     const feet = chooseLanding(built, p.y, goalY)
     if (feet == null) return null
+    // stairuse-01: THE WAY DOWN FROM WHERE THE BOT STANDS -- offered from the surface or the stair only (a bot in a mine goes on
+    // mining: a `_shaft_skip` row, no attempt, no landing backed off), walked down a few stands at a time, a foreign block in the
+    // stair's own air cells dug on the way; STAIRUSE=off: the descent below, as before
+    if (stairUseOn()) return await stairDescendSteps(ctx, rec, feet, goalY, signal)
     const use = landingUsable(stairRead(bot), rec, feet)
     const t0 = Date.now(), fromY = Math.floor(p.y)
     const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: fromY, to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, ...extra }) }) } catch { /* telemetry */ } }
@@ -19230,6 +19918,71 @@ export async function stairDescend (ctx, goalY, signal) {
     row(true, 'arrived')
     return { arrived: true, landing: feet, done: goalY >= feet - 1 }
   } catch (e) { if (e?.aborted || signal?.aborted) throw e; return null }
+}
+/**
+ * STAIRUSE-01: MINE'S DESCENT, STEP BY STEP (stairDescend with STAIRUSE on) -> null (not taken, or failed: mine goes on as today) |
+ * { arrived, landing, done }. The start is classed (shaftgeom.mjs stairEntryClass): `away` (a mine off the stair) is no attempt;
+ * the route from the bot's own step (or the collar) to the landing is checked with a foreign block in an air cell allowed (the walk
+ * digs it: landingRoute), then shaftvisit.mjs runStairDescent walks it on the reflex-safe hop walk (stairWalkOwned: a goal another
+ * owner set is never halted). A failure ON THE STAIR backs that landing off for this bot (10 min, as before); an approach failure
+ * (the walk to the collar) does not. Rows: one `_shaft_use` per attempt (entry=, cleared=), one `_shaft op=descent`, one
+ * `op=descent_dig` per block cleared; `_shaft_skip` for a start that is no attempt.
+ */
+const STAIR_APPROACH_WAIT_MS = 2 * 60_000
+async function stairDescendSteps (ctx, rec, feet, goalY, signal) {
+  const { bot } = ctx
+  const p = bot.entity.position
+  const here = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
+  const plan = stairPlanOf(rec)
+  const entry = stairEntryClass(plan, here)
+  if (entry !== 'stair' && entry !== 'surface') {
+    try { logEvent({ kind: 'shaft_skip', status: 'no_effect', snapshot: snapshot(bot), detail: `dir=down why=${entry} landing=${feet} from=${here[1]} goal=${goalY}` }) } catch { /* telemetry */ }
+    return null
+  }
+  const fromK = entry === 'stair' ? (stairStepOf(plan, here)?.k ?? -1) : -1
+  // an approach (the collar walk) that failed waits STAIR_APPROACH_WAIT_MS for this bot (Claude r1 note 2: a yard the walk cannot
+  // leave would otherwise cost every mine call a 90 s walk); no landing is backed off for it
+  if (entry === 'surface' && Date.now() - (bot.stairApproachFail ?? -Infinity) < STAIR_APPROACH_WAIT_MS) return null
+  const t0 = Date.now()
+  const row = (ok, why, extra = {}) => { try { logEvent({ kind: 'shaft_use', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: shaftUseDetail({ dir: 'down', ok, why, landing: feet, from: here[1], to: Math.floor(bot.entity.position.y), goal: goalY, ms: Date.now() - t0, entry, ...extra }) }) } catch { /* telemetry */ } }
+  const use = landingRoute(stairRead(bot), rec, feet, fromK)
+  if (!use.ok) { row(false, use.why); return null }
+  // the dig's effects (the server-witnessed dig) only when a block is in the way: most descents dig nothing
+  let fx = null, e0 = null
+  const digOne = async c => {
+    if (!e0) {
+      const acks = (bot.shopAcks ??= shopAckInstall(bot))
+      fx = botBuildEffects(bot, { acks, keep: {}, withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+        aborted: () => !!signal?.aborted, log: () => {}, spawnedAt: () => bot.shopSpawnAt ?? 0 })
+      e0 = stairBotEffects(bot, fx, { signal, log: () => {} })
+    }
+    return e0.dig(c)
+  }
+  let r = null
+  try {
+    r = await withStairClaim(ctx.runner, () => runStairDescent(plan, {
+      get read () { return stairRead(bot) },
+      feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
+      // the hop: the reflex-safe walk (a goal another owner set is never halted); the collar approach the long surface walk
+      walkTo: c => (typeof bot.withTownDepositWalk === 'function' ? stairWalkOwned(bot, c, c === rec.exit ? STAIR_DOWN_MS : EGRESS_HOP_MS, signal ?? { aborted: false }) : stairWalk(bot, c, EGRESS_HOP_MS, signal)),
+      dig: c => digOne(c),
+      occupied: c => bodyOnCell(bot, c),
+      now: () => Date.now(),
+      aborted: () => !!signal?.aborted,
+      log: (op, d) => {
+        if (op === 'descent_dig') { stairRow(bot, 'descent_dig', { k: d.k, at: d.at, why: 'foreign_in_air' }); return }
+        try { logEvent({ kind: 'shaft', status: d.ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=descent ${descentDetail({ ...d, entry, ms: Date.now() - t0 })}` }) } catch { /* telemetry */ }
+      },
+    }, { to: use.landing.k, landing: use.landing, exit: rec.exit, deadline: t0 + STAIR_DOWN_MS }))
+  } finally { try { fx?.close() } catch { /* gone */ } }
+  if (!r?.ok) {
+    // ON THE STAIR (a hop, a tread, a liquid, a dig refused): this landing waits 10 min for this bot; the collar walk does not
+    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now()); else bot.stairApproachFail = Date.now()
+    row(false, r?.why ?? 'none', { cleared: r?.cleared ?? 0 })
+    return null
+  }
+  row(true, 'arrived', { cleared: r.cleared })
+  return { arrived: true, landing: feet, done: goalY >= feet - 1 }
 }
 /**
  * SURFACE'S ASCENT THROUGH THE TOWN STAIR -> null (not taken: today's climb) | { ok, detail }. A ROOFED bot (under rock) below the
@@ -19314,7 +20067,8 @@ export function deepStairNow () {
   if (!isStairRecord(rec)) return { usable: false, why: 'no_stair', rec }
   if (!rec.structure_complete) return { usable: false, why: 'stair_unfinished', rec }
   if (!(rec.landings_built ?? []).includes(DEEP_IRON_FEET) || !Array.isArray(rec.exit)) return { usable: false, why: 'no_bottom_landing', rec }
-  return { usable: true, why: null, rec }
+  // townmine-01: the town mine's state rides along (deepmine.mjs tripTarget: an open mine is built first); off -> null, as before
+  return { usable: true, why: null, rec, mine: TOWNMINE.on ? mineState(rec) : null }
 }
 /** Walk route[from..to] a few stands at a time on the town-deposit profile (no digs) -> { ok, at } (the index reached). */
 async function deepHops (bot, route, from, to, signal, deadline) {
@@ -19383,7 +20137,7 @@ async function deepTrailWalk (bot, cell, ms, signal) {
 async function deepRepair (ctx, rec, route, signal, deadline) {
   const { bot } = ctx
   const plan = stairPlanOf(rec)
-  const w = stairFirstUndone(stairRead(bot), plan)
+  const w = stairFirstUndone(stairRead(bot), plan, { maxK: rec.K })   // townmine-01: the stair proper (the extension is the build trip's)
   if (!w) return 'repaired'
   if (w.kind === 'unknown') return 'unknown'
   const stand = stairStandFor(plan, w, rec.exit, stairRead(bot))
@@ -19398,7 +20152,7 @@ async function deepRepair (ctx, rec, route, signal, deadline) {
     fx = deepEffects(bot, signal, () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } })
     // inside the 'stair' body claim like every stair visit (town-stair-stuck WIRED: the entombment reflex reads the stair as walled in)
     const vr = await withStairClaim(ctx.runner, () => runStairVisit({ rec, exit: rec.exit, built: new Set(rec.landings_built ?? []),
-      onLanding: async () => true, onStop: async () => {}, onDropLanding: async () => {} }, fx.e, { deadline: Math.min(deadline, Date.now() + DEEP_REPAIR_MS), unitsMax: 4 }))
+      onLanding: async () => true, onStop: async () => {}, onDropLanding: async () => {} }, fx.e, { deadline: Math.min(deadline, Date.now() + DEEP_REPAIR_MS), unitsMax: 4, maxK: rec.K }))
     stairRow(bot, 'visit', { k: vr.k ?? '-', why: `deep_repair:${vr.stop}`, n: `${vr.dug}d/${vr.placed}p/${vr.units}u/0t` })
     return vr.stop === 'complete' ? 'repaired' : vr.stop
   } finally { releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen); try { fx?.B?.close?.() } catch { /* gone */ } }
@@ -19473,13 +20227,221 @@ function deepClose (bot, end, why) {
   try { releaseLease(townDir(), projKeyOf(DEEPMINE_PLOT), `slot${t.slot}`, bot.username ?? 'bot', t.gen) } catch { /* lapses at its TTL */ }
   const kit = deepTripKit(bot.inventory?.items?.() ?? [])
   const got = (kit.diamonds - (t.diamonds0 ?? 0)) + (kit.rawIron - (t.rawIron0 ?? 0))
-  bot.deepMineCooldownUntil = Date.now() + (end === 'home' && (t.found ?? 0) > 0 ? DEEPMINE_COOLDOWN_MS : DEEPMINE_FAIL_BACKOFF_MS)
+  // townmine-01: a build trip that cut cells comes back for the next part soon (its work is the mine, not ore)
+  bot.deepMineCooldownUntil = Date.now() + (t.target === 'build' && end === 'home' && (t.cells ?? 0) + (t.sealed ?? 0) > 0 ? MINE_BUILD_COOLDOWN_MS : end === 'home' && (t.found ?? 0) > 0 ? DEEPMINE_COOLDOWN_MS : DEEPMINE_FAIL_BACKOFF_MS)
   deepRow(bot, 'end', { end, why, found: t.found ?? 0, n: `cells${t.cells ?? 0}/seal${t.sealed ?? 0}/torch${t.torches ?? 0}/br${t.branches ?? 0}/calls${t.calls}/net${got}`, ms: Date.now() - t.startedAt, status: end === 'home' ? 'success' : 'no_effect' })
+  // townmine-01 (Claude code r1 BLOCKER 3): a build trip that cut nothing counts toward parking the build; one that cut clears it
+  if (t.target === 'build' && TOWNMINE.on) { try { publishRecord(townDir(), projKeyOf(SHAFT_PLOT), cur => mineStallNoted(cur, (t.cells ?? 0) + (t.sealed ?? 0), { now: Date.now() }), { by: bot.username ?? 'bot' }); stairRecMem = null } catch { /* the next trip notes it */ } }
   t.phase = 'closed'
   t.end = end
   bot.deepTrip = null
 }
 /** deep_mine -- ONE PHASE STEP OF THE TOWN DEEP MINER'S TRIP (cognitive.mjs issues it; chatOnly, housekeeping). */
+// ================================================================================================================================
+// TOWNMINE-01: THE TOWN MINE (townmine.mjs; shaftgeom.mjs mineRooms; design docs/reports/townmine-design-2026-11-09.md). The deep
+// miner sites it on the finished stair, BUILDS it on 'build' trips (the stair's own visit code on the extended plan, a liquid in a
+// deep step sealed), puts the hall's fixtures and the torches in, and WORKS its galleries on iron and diamond trips.
+// ================================================================================================================================
+const deepMineRow = (bot, op, d = {}) => { try { logEvent({ kind: 'townmine', status: d.status ?? 'success', snapshot: snapshot(bot), detail: mineRowDetail({ op, ...d }) }) } catch { /* telemetry */ } }
+/** What the mine must keep clear of -> { known, forbid(x, y, z) -> 'zone' | 'record' | null }. Never throws (unknown zones: known false). */
+function deepMineForbid (bot) {
+  try {
+    const c = shopCtx(bot)
+    const boxes = (c.zones ?? []).map(z => z?.box ?? z).filter(b => Array.isArray(b) && b.length >= 6)
+    let others = null
+    const otherCells = () => (others ??= new Set(projectHeads().filter(x => x.plot !== SHAFT_PLOT).flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))))
+    return {
+      known: !!c.zonesKnown,
+      forbid: (x, y, z) => (boxes.some(b => x >= b[0] && x <= b[3] && y >= b[1] && y <= b[4] && z >= b[2] && z <= b[5]) ? 'zone' : (otherCells().has(`${x},${y},${z}`) ? 'record' : null)),
+    }
+  } catch { return { known: false, forbid: () => 'unread' } }
+}
+/** SITE THE MINE on the finished stair (once: a refused site is written as `no_site` and not asked again). -> the record now. */
+function deepMineSite (bot, rec) {
+  const why0 = mineSiteRefusal(rec)
+  if (why0) return rec
+  const fz = deepMineForbid(bot)
+  if (!fz.known) { deepMineRow(bot, 'no_site', { why: 'zones_unknown' }); return rec }
+  const ext = mineExt(rec.site.g, { now: Date.now(), by: bot.username ?? 'bot' })
+  const sited = withMine(rec, ext)
+  const oldKeys = new Set((rec.cells ?? []).map(c => c.at.join(',')))
+  const chk = mineSiteCheck(stairPlanOf(sited), fz.forbid, { oldKeys })
+  const body = chk.ok ? sited : { ...rec, ext: { v: 1, blueprint: ext.blueprint, state: 'no_site', why: `${chk.why}@${chk.at?.join(',')}`, sitedAt: ext.sitedAt } }
+  const pub = publishRecord(townDir(), projKeyOf(SHAFT_PLOT), cur => (cur && isStairRecord(cur) && !hasMine(cur) ? { ...cur, ext: body.ext, cells: body.cells, box: body.box } : null), { by: bot.username ?? 'bot' })
+  stairRecMem = null
+  deepMineRow(bot, chk.ok ? 'sited' : 'no_site', { why: chk.ok ? `Kb${ext.Kb}/bottom${ext.bottom}` : body.ext.why, k: ext.Kb, n: pub.result })
+  return stairRecordNow() ?? rec
+}
+/** The hall's fixtures and the mine's torches, as far as the call's time goes -> { fixtures, torches, missing }. */
+async function deepMineFinish (ctx, trip, plan, fx, signal, deadline) {
+  const { bot } = ctx
+  const out = { fixtures: 0, torches: 0, missing: 0 }
+  trip.fixTried ??= {}
+  for (const f of fixturesMissing(stairRead(bot), plan)) {
+    check(signal)
+    if (Date.now() > deadline) break
+    if ((trip.fixTried[f.item] ?? 0) >= 2 || !fx.B.has(f.item)) { out.missing++; continue }
+    trip.fixTried[f.item] = (trip.fixTried[f.item] ?? 0) + 1
+    if (!(await fx.e.walkTo(f.stand))) { out.missing++; continue }
+    const me = deepFeet(bot)
+    // SEAL FIRST (a liquid behind the wall cell the fixture stands in), then open the cell, then the fixture
+    for (const sc of deepSealTargets(stairRead(bot), [f.at], [me, [me[0], me[1] + 1, me[2]]])) { if ((await fx.e.place(sc)) === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: `fixture:${sc.join(',')}` }) } }
+    // Codex code r1 BLOCKER 2: the wall cell is opened only when every face of it reads dry NOW (a seal that did not take waits)
+    const unsafe = mineFixtureSafe(stairRead(bot), f.at)
+    if (unsafe) { out.missing++; deepMineRow(bot, 'fixture', { why: `${f.item}:${unsafe}`, at: f.at, status: 'no_effect' }); continue }
+    const b = stairRead(bot)(...f.at)
+    if (b && !stairFull(b) && b.boundingBox !== 'empty') { out.missing++; continue }
+    if (b && b.boundingBox !== 'empty') {
+      if (!deepIsNatural(b)) { out.missing++; continue }
+      const r = await withDigScope(bot, { purpose: 'target', by: 'deep_mine' }, () => fx.e.dig(f.at))
+      if (r !== 'confirmed') { out.missing++; continue }
+    }
+    const r = await fx.e.placeItem(f.at, f.item)
+    if (r === 'confirmed') { out.fixtures++; deepMineRow(bot, 'fixture', { why: f.item, at: f.at }) } else { out.missing++; deepMineRow(bot, 'fixture', { why: `${f.item}:${r}`, at: f.at, status: 'no_effect' }) }
+  }
+  // THE TORCHES, bottom up from where the bot is (each tried once a trip): a step's from the stand above it, a room's from its column
+  trip.torchTried ??= []
+  if (fx.B.has('torch')) {
+    const tried = new Set(trip.torchTried)
+    const want = torchesMissing(stairRead(bot), plan).filter(t => !tried.has(t.at.join(','))).sort((a, b) => b.k - a.k).slice(0, 24)
+    for (const t of want) {
+      check(signal)
+      if (Date.now() > deadline || !fx.B.has('torch')) break
+      trip.torchTried.push(t.at.join(','))
+      const room = (plan.rooms ?? []).find(r => r.torches.some(q => q.at.join(',') === t.at.join(',')))
+      const stand = room ? room.cols.reduce((a, c) => (Math.max(Math.abs(c.air[0][0] - t.at[0]), Math.abs(c.air[0][2] - t.at[2])) < Math.max(Math.abs(a.air[0][0] - t.at[0]), Math.abs(a.air[0][2] - t.at[2])) ? c : a)).air[0] : stairStandOf(plan, Math.max(0, t.k - 1))
+      const here = deepFeet(bot)
+      if (Math.max(Math.abs(here[0] - stand[0]), Math.abs(here[1] - stand[1]), Math.abs(here[2] - stand[2])) > 0 && !(await fx.e.walkTo(stand))) continue
+      try { if (await fx.e.torch(t.at, t.support)) { out.torches++; trip.torches = (trip.torches ?? 0) + 1 } } catch (err) { if (err?.aborted) throw err }
+    }
+  }
+  if (out.torches) deepMineRow(bot, 'torch', { n: out.torches })
+  return out
+}
+/** ONE BUILD CALL: the stair's visit code on the extended plan from where the bot stands (repairs above first, then the next deep
+ *  steps, bays and the hall; a liquid in a deep step sealed), then the fixtures and torches when the structure stands. */
+async function deepMineBuild (ctx, trip, signal, deadline) {
+  const { bot } = ctx
+  const rec = stairRecordNow()
+  if (!hasMine(rec)) return { stop: 'no_mine', units: 0 }
+  const st = mineState(rec)
+  if (st.stopped) { trip.built = true; return { stop: 'stopped', units: 0 } }
+  const plan = stairPlanOf(rec)
+  const dir = townDir(), key = projKeyOf(SHAFT_PLOT), me = bot.username ?? 'bot'
+  const slot = takeSlot(dir, key, me, SHAFT_BUILDERS)
+  if (!slot.ok) return { stop: 'stair_busy', units: 0 }
+  let fx = null
+  try {
+    fx = deepEffects(bot, signal, () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } })
+    let vr = { stop: 'complete', units: 0, dug: 0, placed: 0, torches: 0, k: null }
+    if (!st.complete) {
+      vr = await withStairClaim(ctx.runner, () => runStairVisit({ rec, plan, exit: rec.exit, built: new Set(rec.landings_built ?? []),
+        onLanding: async () => true,
+        onStop: async (k, why) => {
+          publishRecord(dir, key, cur => (hasMine(cur) && ['open', 'stalled'].includes(cur.ext.state) ? mineStopped(cur, k, { now: Date.now(), why }) : null), { by: me })
+          stairRecMem = null
+          deepMineRow(bot, 'stop', { why, k })
+        },
+        onDropLanding: async () => {},
+        onDropRoom: async (k, why) => { publishRecord(dir, key, cur => mineRoomDropped(cur, k, { now: Date.now(), why }), { by: me }); stairRecMem = null; deepMineRow(bot, 'stop', { why: `room_${why}`, k }) } }, fx.e, { deadline, unitsMax: MINE_BUILD_UNITS, sealDeep: true }))
+      trip.cells = (trip.cells ?? 0) + (vr.dug ?? 0)
+      trip.sealed = (trip.sealed ?? 0) + (vr.placed ?? 0)
+      trip.torches = (trip.torches ?? 0) + (vr.torches ?? 0)
+      deepMineRow(bot, 'build', { why: vr.stop, k: vr.k ?? '-', n: `${vr.dug}d/${vr.placed}p/${vr.units}u/${vr.torches}t`, ms: Date.now() - (trip.callAt ?? Date.now()) })
+      if (vr.stop === 'complete') {
+        const pub = publishRecord(dir, key, cur => (hasMine(cur) && ['open', 'stalled'].includes(cur.ext.state) ? { ...cur, ext: { ...cur.ext, state: 'complete', completeAt: Date.now(), stalls: 0, retryAt: null } } : null), { by: me })   // Claude r2 note 1: a stalled mine past its retry completes too
+        stairRecMem = null
+        if (pub.result === 'accepted') deepMineRow(bot, 'complete', { k: plan.K, n: pub.gen ?? '-' })
+      }
+    }
+    if (vr.stop === 'complete' && Date.now() < deadline) {
+      const f = await deepMineFinish(ctx, trip, stairPlanOf(stairRecordNow() ?? rec), fx, signal, deadline)
+      const now1 = stairRecordNow()
+      if (!f.missing && !fixturesMissing(stairRead(bot), plan).length && hasMine(now1) && !now1.ext.furnished) {
+        publishRecord(dir, key, cur => (hasMine(cur) && !cur.ext.furnished ? { ...cur, ext: { ...cur.ext, furnished: Date.now() } } : null), { by: me })
+        stairRecMem = null
+      }
+      trip.built = true
+    } else if (['no_material', 'no_pickaxe'].includes(vr.stop)) {
+      // the bag's blocks or pickaxe ran out: the trip's own return clock (returnWhy seal_blocks / pickaxe) takes it home
+    } else if (!['time', 'units', 'complete'].includes(vr.stop)) {
+      trip.buildFails = (trip.buildFails ?? 0) + 1
+      if (trip.buildFails >= 3) trip.built = true   // the trip goes home ('built'); the next build trip starts again from the top
+    }
+    return vr
+  } finally { releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen); try { fx?.B?.close?.() } catch { /* gone */ } }
+}
+/** ONE GALLERY SLOT (townmine.mjs galleryNext): walked to, probed, dug, sealed and lit a cell at a time; every stand joins the trail. */
+async function deepGallery (ctx, trip, level, signal, deadline) {
+  const { bot } = ctx
+  const rec = stairRecordNow()
+  if (!isStairRecord(rec)) return { cells: 0, stop: 'no_stair' }
+  const plan = stairPlanOf(rec)
+  const gal = galleryOf(plan, level)
+  if (!gal) return { cells: 0, stop: 'no_gallery' }
+  const fz = deepMineForbid(bot)
+  if (!fz.known) return { cells: 0, stop: 'zones_unknown' }
+  trip.galSkip ??= []
+  const nx = galleryNext(stairRead(bot), gal, { skip: id => trip.galSkip.includes(`${level}:${id}`), forbid: c => fz.forbid(...c) })
+  if (!nx) return { cells: 0, stop: 'gallery_done' }
+  const here = deepFeet(bot)
+  if (Math.max(Math.abs(here[0] - nx.stand[0]), Math.abs(here[1] - nx.stand[1]), Math.abs(here[2] - nx.stand[2])) > 0) {
+    const ok = await withStairClaim(ctx.runner, async () => (await stairWalk(bot, nx.stand, DEEP_HOP_MS * 3, signal)) || deepTrailWalk(bot, nx.stand, DEEP_HOP_MS * 3, signal))
+    if (!ok) { trip.galSkip.push(`${level}:${nx.slot.id}`); return { cells: 0, stop: 'walk', slot: nx.slot.id } }
+  }
+  const cells = nx.slot.cells
+  const { B, e } = deepEffects(bot, signal)
+  const open = new Set([nx.stand.join(','), [nx.stand[0], nx.stand[1] + 1, nx.stand[2]].join(',')])
+  for (let j = 0; j < nx.i; j++) { open.add(cells[j].feet.join(',')); open.add(cells[j].head.join(',')) }
+  let i = nx.i, stop = 'end', tries = 0, dug = 0
+  try {
+    return await withStairClaim(ctx.runner, async () => {
+      for (let guard = 0; guard < cells.length * 4; guard++) {
+        check(signal)
+        if (Date.now() > deadline) { stop = 'time'; break }
+        // a cell the town keeps (a zone, another record) ends the slot before it
+        if (i < cells.length && (fz.forbid(...cells[i].feet) || fz.forbid(...cells[i].head))) { stop = 'kept'; trip.galSkip.push(`${level}:${nx.slot.id}`); break }
+        const op = deepBranchNext(stairRead(bot), cells, i, open)
+        if (op.op === 'stop') {
+          if (op.why === 'lava' || op.why === 'water') {
+            const me4 = deepFeet(bot)
+            for (const sc of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)), [me4, [me4[0], me4[1] + 1, me4[2]]])) {
+              if ((await e.place(sc)) === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: sc.join(',') }) }
+            }
+          }
+          stop = op.why
+          if (op.why !== 'end') trip.galSkip.push(`${level}:${nx.slot.id}`)
+          break
+        }
+        if (op.op === 'dig') {
+          if (!e.toolOk()) { stop = 'pickaxe'; break }
+          const r = await e.dig(op.at)
+          if (r !== 'confirmed') { if (++tries >= 2) { stop = `dig_${r}`; trip.galSkip.push(`${level}:${nx.slot.id}`); break } continue }
+          dug++
+          open.add(op.at.join(','))
+          const me3 = deepFeet(bot)
+          for (const s2 of deepSealTargets(stairRead(bot), [...open].map(k => k.split(',').map(Number)), [me3, [me3[0], me3[1] + 1, me3[2]]])) {
+            const pr = await e.place(s2)
+            if (pr === 'confirmed') { trip.sealed = (trip.sealed ?? 0) + 1; deepRow(bot, 'seal', { why: s2.join(',') }) } else { stop = `seal_${pr}`; break }
+          }
+          if (stop !== 'end') break
+          continue
+        }
+        if (!(await stairWalk(bot, op.to, DEEP_HOP_MS, signal))) { stop = 'step'; break }
+        trip.trail = deepTrailPush(trip.trail, deepFeet(bot))
+        trip.cells = (trip.cells ?? 0) + 1
+        i = op.i + 1; tries = 0
+        // a torch every GALLERY.torchEvery cells, on the floor two cells behind (never required)
+        if (i % MINE_GALLERY.torchEvery === 0 && B.has('torch')) {
+          const behind = cells[i - 2]?.feet
+          if (behind) { try { if (await e.torch(behind, [behind[0], behind[1] - 1, behind[2]])) trip.torches = (trip.torches ?? 0) + 1 } catch (err) { if (err?.aborted) throw err } }
+        }
+      }
+      deepMineRow(bot, 'gallery', { level, why: stop, slot: nx.slot.id, cells: i - nx.i, n: dug })
+      return { cells: i - nx.i, stop, slot: nx.slot.id }
+    })
+  } finally { try { B.close?.() } catch { /* gone */ } }
+}
 async function deepMine (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now(), deadline = t0 + DEEP_STEP_MS
@@ -19489,18 +20451,31 @@ async function deepMine (ctx, args, signal) {
   const dir = townDir(), key = projKeyOf(DEEPMINE_PLOT)
   // ---- a new trip: the lease first (single occupancy), the kit and the stair checked again at the start --------------------------
   if (!bot.deepTrip) {
-    const st = deepStairNow()
+    let st = deepStairNow()
     if (!st.usable) return out('no_effect', `no usable town stair (${st.why})`)
+    // TOWNMINE-01: the finished stair gets its mine sited at the first trip (once; a refused site is written and not asked again)
+    if (TOWNMINE.on && !mineSiteRefusal(st.rec)) { deepMineSite(bot, st.rec); st = deepStairNow() }
     const kit = deepTripKit(bot.inventory?.items?.() ?? [])
-    const target = deepTripTarget(kit)
+    const target = deepTripTarget(kit, st.mine ?? null)
     if (!target) return out('no_effect', 'the bag cannot pay for a trip (pickaxe uses)')
     const slot = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS })
     if (!slot.ok) return out('no_effect', `the town's deep miner slot is taken (${slot.why})`)
-    bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron }
+    bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron, ...(TOWNMINE.on ? { coal: true, mine: true } : {}) }
+    // TOWNMINE-01: A BUILD TRIP carries the hall's fixtures (from town, else made from the bag's planks and cobble); never required
+    if (target === 'build' || (TOWNMINE.on && st.mine?.complete && !st.rec?.ext?.furnished)) {
+      const has = n => (bot.inventory?.items?.() ?? []).some(i => i.name === n)
+      const want = {}
+      for (const n of MINE_FIXTURES) if (!has(n)) want[n] = 1
+      if (Object.keys(want).length) { try { await matsWithdraw(ctx, want, signal, 20_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+      for (const n of MINE_FIXTURES) if (!has(n)) { try { await craft(ctx, { item: n, count: 1 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    }
     // TORCHES AND BLOCKS FROM TOWN at the start (the stair visit's own top-up: matsWithdraw under the town's reserve; the town
     // deposit banks a bag's torches, so a miner would otherwise go down with none). Never required: a short take is only a row.
-    if (kit.torches < 8 || kit.seal < 48) {
-      try { await matsWithdraw(ctx, { ...(kit.torches < 8 ? { torch: 16 } : {}), ...(kit.seal < 48 ? { cobblestone: 64 } : {}) }, signal, 30_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    {
+      const k2 = deepTripKit(bot.inventory?.items?.() ?? [])   // townmine-01 r1 note 3: after the fixture crafts (a furnace is 8 cobble)
+      if (k2.torches < 8 || k2.seal < 48) {
+        try { await matsWithdraw(ctx, { ...(k2.torches < 8 ? { torch: 16 } : {}), ...(k2.seal < 48 ? { cobblestone: 64 } : {}) }, signal, 30_000, matsReserve().table) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      }
     }
     deepRow(bot, 'start', { why: `uses${kit.uses}/iron${kit.ironUses}/seal${kit.seal}/free${kit.free}/torch${deepTripKit(bot.inventory?.items?.() ?? []).torches}` })
   }
@@ -19510,25 +20485,77 @@ async function deepMine (ctx, args, signal) {
   {
     const g = projRenewLease(dir, key, `slot${trip.slot}`, me, trip.gen, { ttl: DEEPMINE_LEASE_TTL_MS })
     if (g != null) trip.gen = g
-    else { const s = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS }); if (s.ok) { trip.slot = s.slot; trip.gen = s.gen } else if (['descend', 'deepen', 'work'].includes(trip.phase)) { trip.phase = 'return'; trip.returnWhy = 'lease_lost' } }
+    else { const s = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS }); if (s.ok) { trip.slot = s.slot; trip.gen = s.gen } else if (['descend', 'deepen', 'work', 'build'].includes(trip.phase)) { trip.phase = 'return'; trip.returnWhy = 'lease_lost' } }
   }
   const st = deepStairNow()
   const rec = st.rec
   const route = isStairRecord(rec) ? deepStairRoute(rec, DEEP_IRON_FEET) : null
+  // TOWNMINE-01: with the town mine sited, the way back is every step's stand of the extended stair (the trail leads to it)
+  const mineOn = TOWNMINE.on && hasMine(rec) && !!trip.mine
+  const minePlan = mineOn ? stairPlanOf(rec) : null
+  const backRoute = mineOn ? minePlan.steps.slice(0, trip.target === 'build' || trip.viaHall || st.mine?.complete ? minePlan.steps.length : (minePlan.K16 ?? minePlan.K) + 1).map((_, k) => stairStandOf(minePlan, k)) : route
   // the trail is sampled while the bot walks, digs and tunnels (a stand on the ground every TRAIL_GAP)
   const sampler = setInterval(() => { try { if (bot.entity?.onGround && trip.phase !== 'return') trip.trail = deepTrailPush(trip.trail, deepFeet(bot)) } catch { /* sampling */ } }, 500)
   try {
     const kitNow = () => deepTripKit(bot.inventory?.items?.() ?? [])
     // NOT UNDERGROUND ANY MORE (Claude r1 B1: a death respawns the bot at home with its kit -- keepInventory -- and the trip would
     // go on at the surface, mine digging from the respawn point with the credit, branches in town): home and bank
-    if (['deepen', 'work'].includes(trip.phase) && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {
+    // townmine-01 (Paper 11-09: a build trip's first unit was a bay near the top, and the trip turned home before it): a build trip
+    // inside the stair's own box is on the stair whatever its height; outside it, the rule as before
+    const inStairBox = trip.phase === 'build' && Array.isArray(rec?.box) && (() => { const q = bot.entity.position; return q.x >= rec.box[0] - 1 && q.x <= rec.box[2] + 2 && q.z >= rec.box[1] - 1 && q.z <= rec.box[3] + 2 })()
+    if (['deepen', 'work', 'build'].includes(trip.phase) && !inStairBox && bot.entity.position.y > deepSurfaceY(stairRecordNow())) {
       trip.phase = 'return'; trip.returnWhy = 'not_underground'; trip.returnTries = DEEP_RETURN_TRIES; trip.surfaced = false
       deepRow(bot, 'turn', { why: 'not_underground' })
     }
     if (trip.phase === 'return' && deepReturnOverdue(trip)) trip.returnTries = Math.max(trip.returnTries ?? 0, DEEP_RETURN_TRIES)
-    if (['deepen', 'work'].includes(trip.phase)) {
+    if (['deepen', 'work', 'build'].includes(trip.phase)) {
       const why = deepReturnWhy(trip, { kit: kitNow(), health: bot.health })
       if (why) { trip.phase = 'return'; trip.returnWhy = why; deepRow(bot, 'turn', { why }) }
+    }
+    // ---- TOWNMINE-01 descend: a build trip to the mine's frontier, a diamond trip down the finished mine to its hall --------------
+    if (trip.phase === 'descend' && mineOn && (trip.target === 'build' || (trip.target === 'diamond' && st.mine?.complete && !trip.noHall))) {
+      const read = stairRead(bot)
+      let way = null
+      if (trip.target === 'build') {
+        const w = stairFirstUndone(read, minePlan)
+        const toK = !w ? minePlan.K : (w.kind === 'step' ? Math.max(0, w.k - 1) : w.k)
+        way = backRoute.slice(0, toK + 1)
+      } else {
+        const u = hallUsable(read, minePlan)
+        if (u.ok) way = hallRoute(minePlan)
+        else { trip.noHall = true; deepMineRow(bot, 'hall_unusable', { why: u.why, status: 'no_effect' }) }
+      }
+      if (way) {
+        let at = deepRouteIndex(way, deepFeet(bot))
+        if (at < 0) {
+          await stairWalk(bot, rec.exit, 45_000, signal)
+          if (!(await stairWalk(bot, way[0], DEEP_HOP_MS, signal))) { trip.descendTries = (trip.descendTries ?? 0) + 1; if (trip.descendTries >= 3) deepClose(bot, 'collar', 'walk'); return out('no_effect', 'could not reach the town stair\'s collar') }
+          at = 0
+        }
+        const h = await withStairClaim(ctx.runner, () => deepHops(bot, way, at, way.length - 1, signal, deadline))
+        if (!h.ok && h.why === 'time') return out('success', `walking down the town mine: stand ${h.at} of ${way.length - 1}`)
+        if (!h.ok && trip.target !== 'build') {
+          trip.descendTries = (trip.descendTries ?? 0) + 1
+          if (trip.descendTries >= 3) { trip.phase = 'return'; trip.returnWhy = 'descend_walk' }
+          return out('no_effect', `stopped in the town mine at stand ${h.at} of ${way.length - 1} (${h.why})`)
+        }
+        // a build trip that stops short builds from there (the visit's own scan repairs what blocked the walk, top down)
+        // the trail back (Claude code r1 BLOCKER 2): from the hall, its columns back to the bottom step's stand (on the way back route)
+        trip.trail = trip.target === 'build' ? [deepFeet(bot)] : way.slice(minePlan.K)
+        trip.phase = trip.target === 'build' ? 'build' : 'work'
+        trip.arrivedAt = Date.now()
+        trip.viaHall = trip.target === 'diamond'
+        deepRow(bot, 'landing', { why: `${trip.target === 'build' ? 'mine_frontier' : 'mine_hall'}:hops${h.at}`, ms: Date.now() - t0 })
+        return out('success', trip.target === 'build' ? `walked down to the town mine's frontier (stand ${h.at})` : 'walked down the town mine to its hall')
+      }
+    }
+    // ---- TOWNMINE-01 build: the mine's next units (deepMineBuild); home when it stands, the bag or the clock says so ----------------
+    if (trip.phase === 'build') {
+      trip.callAt = t0
+      const r = await deepMineBuild(ctx, trip, signal, deadline)
+      if (r.stop === 'stair_busy') { trip.buildBusy = (trip.buildBusy ?? 0) + 1; if (trip.buildBusy >= 3) trip.built = true }
+      if (r.stop === 'no_mine') trip.built = true
+      return out((r.dug ?? 0) + (r.placed ?? 0) > 0 ? 'success' : 'no_effect', `building the town mine: ${r.stop} at step ${r.k ?? '-'} (${r.dug ?? 0} dug, ${r.placed ?? 0} placed)`)
     }
     // ---- descend: the collar, then the stair a hop at a time; a blocked step is repaired first ---------------------------------
     if (trip.phase === 'descend') {
@@ -19566,7 +20593,8 @@ async function deepMine (ctx, args, signal) {
         if (trip.descendTries >= 3) { trip.phase = 'return'; trip.returnWhy = 'descend_walk' }
         return out('no_effect', `stopped on the town stair at step ${h.at} of ${route.length - 1} (${h.why})`)
       }
-      trip.trail = [route[route.length - 1]]
+      // TOWNMINE-01: the trail back starts at the 16 landing's step (the stub's cells lead to it: the way back is the steps' stands)
+      trip.trail = mineOn ? route.slice(-(1 + (stairPlanOf(rec).landings.find(l => l.feet === DEEP_IRON_FEET)?.cols.length ?? 0))) : [route[route.length - 1]]
       trip.phase = trip.target === 'diamond' ? 'deepen' : 'work'
       if (trip.phase === 'work') trip.arrivedAt = Date.now()
       deepRow(bot, 'landing', { why: `hops${route.length - 1}`, ms: Date.now() - t0 })
@@ -19611,7 +20639,15 @@ async function deepMine (ctx, args, signal) {
       // nothing of this kind: after every kind has had a turn, a branch moves the search
       if ((trip.kindIdx % kinds.length) !== 0) return out('no_effect', `no ${kind} in reach at y=${y} (${r?.failClass ?? r?.status ?? '-'})`)
       if ((trip.branches ?? 0) >= DEEP_BRANCHES_MAX) { trip.misses = (trip.misses ?? 0) + 1; return out('no_effect', 'every branch dug; no ore in reach') }
-      const b = await deepBranch(ctx, trip, signal, deadline)
+      // TOWNMINE-01: the town mine's GALLERY (the iron one from the 16 landing's stub end; the diamond one from the hall) instead of a
+      // branch from where the bot stands (LIVE: 2,030 iron branches in 3 d started inside the stub and dug nothing)
+      const level = mineOn ? (trip.target === 'iron' ? 'iron' : (trip.viaHall ? 'diamond' : null)) : null
+      if (level && trip.viaHall && !rec?.ext?.furnished && !trip.fixDone) {
+        trip.fixDone = true
+        const fx = deepEffects(bot, signal)
+        try { await deepMineFinish(ctx, trip, minePlan, fx, signal, deadline) } finally { try { fx.B.close?.() } catch { /* gone */ } }
+      }
+      const b = level ? await deepGallery(ctx, trip, level, signal, deadline) : await deepBranch(ctx, trip, signal, deadline)
       trip.branches = (trip.branches ?? 0) + 1
       trip.misses = (trip.misses ?? 0) + 1
       deepRow(bot, 'branch', { why: b.stop, n: b.cells })
@@ -19631,7 +20667,7 @@ async function deepMine (ctx, args, signal) {
         deepClose(bot, 'stranded', trip.returnWhy ?? 'trail'); return out('failed', 'the way back is lost; the trip is abandoned (the exit contract and surface take over)', 'other')
       }
       const feet = deepFeet(bot)
-      const ri = route ? deepRouteIndex(route, feet) : -1
+      const ri = backRoute ? deepRouteIndex(backRoute, feet) : -1
       let onRoute = ri >= 0 ? ri : -1
       if (onRoute < 0) {
         const back = deepTrailBack(trip.trail, feet)
@@ -19667,7 +20703,7 @@ async function deepMine (ctx, args, signal) {
             if (++fails >= 3) break
           }
         })
-        if (route) onRoute = deepRouteIndex(route, deepFeet(bot))
+        if (backRoute) onRoute = deepRouteIndex(backRoute, deepFeet(bot))
         if (onRoute < 0) {
           // PROGRESS IS THE TRAIL INDEX, not stands walked (Paper 11-01: one stand back and forth every call never counted)
           const prog = deepTrailProgress(trip.trail, deepFeet(bot))
@@ -19677,7 +20713,7 @@ async function deepMine (ctx, args, signal) {
           return out(walked ? 'success' : 'no_effect', `walking the trail back (${walked} stands)`)
         }
       }
-      const h = await withStairClaim(ctx.runner, () => deepHops(bot, route, onRoute, 0, signal, deadline))
+      const h = await withStairClaim(ctx.runner, () => deepHops(bot, backRoute, onRoute, 0, signal, deadline))
       if (!h.ok) { if (h.at === onRoute) trip.returnTries = (trip.returnTries ?? 0) + 1; return out('no_effect', `climbing the town stair: step ${h.at} (${h.why})`) }
       await stairWalk(bot, rec.exit, DEEP_HOP_MS, signal)
       trip.phase = 'bank'
@@ -20391,7 +21427,8 @@ async function buildWall (ctx, args, signal) {
  *  Throws on an unreadable file. */
 function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
   const P = pathsInputs(bot, c, h, dir)
-  const recs = projectHeads().map(x => x.head.rec).filter(Boolean)
+  // groundskeeper-01: the land plan's corridors are the tidy's work, never its refusal
+  const recs = projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head.rec).filter(Boolean)
   const home = P.plan.home
   const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), recordZones(recs))
   const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(x => x.at.join(','))))
@@ -20402,6 +21439,497 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   return { home, avoid, cells, pin, plan: P.plan }
 }
 const tidyRead = bot => (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+const PLANAHEAD_ON = planaheadOn()   // planahead-01 (PLANAHEAD=off: no reach tag, no plan waiver, no stand claims)
+/** planahead-01: is a planned cell of another record read FINISHED (a clear dug, a cell or fill laid)? Unread: not finished. Pure over `read`. */
+const paDone = read => (r, c) => { const b = read(...c.at); if (!b) return false; return c.role === 'clear' ? b.boundingBox === 'empty' : b.boundingBox !== 'empty' && !paReplaceable(b) }
+/** planahead-01: every project's record (plot named) -> [rec]. Never throws (none). */
+/** planahead-01 (Codex r1 BLOCKER 1): the plan waiver's FRESH conclusive check over the bot's live world (planahead.mjs liveUnreached:
+ *  no stand now and every read known), a record cell a fill, else a clear. Never throws (a failure confirms nothing). */
+const paConfirm = (bot, rec, home, stood) => { try { const cells = new Set((rec?.cells ?? []).filter(q => Array.isArray(q?.at)).map(q => q.at.join(','))); return liveUnreached(tidyRead(bot), home, { stood, walkR: tidyWalkR(rec), fill: k => cells.has(k) }) } catch { return () => false } }
+const paRecords = () => { try { return projectHeads().map(x => ({ ...x.head.rec, plot: x.head.rec?.plot ?? x.plot })) } catch { return [] } }
+/**
+ * PLANAHEAD-01: A NEW TIDY STAGE PLANNED AHEAD -> the body to publish. Never throws. (1) the open buildings' proof STANDS are claimed:
+ * a stage fill on a stand's feet or head, a cut of its floor, is never planned (planahead.mjs standRetire); (2) the REACH TAG: the stage's
+ * open cuts and fills worked to a fixed point in the town's own walk, in the planned world of the other open records (planReachAsync);
+ * the cells no order reaches are tagged `pu` -- a tag, never a waiver (a live visit's own miss confirms it: puWaiveDue). An unread
+ * cell, an error or the budget: an `unchecked` tag (tags nothing: the stage publishes as before).
+ */
+async function tidyPlanAhead (bot, body0, home, stood, signal = null) {
+  let body = body0
+  try { const sc = standClaims(paRecords()); const nx = standRetire(body0, sc); if (nx) body = nx } catch { body = body0 }
+  try {
+    const read = tidyRead(bot), waived = body?.waived ?? {}
+    const fills = [], cuts = []
+    let unread = 0
+    for (const q of body?.cells ?? []) {
+      if (!Array.isArray(q?.at) || q.prev || Object.prototype.hasOwnProperty.call(waived, q.at.join(','))) continue
+      const b = read(...q.at)
+      if (!b) { unread++; continue }
+      if (!buildCellDone(b, TIDY_PALETTE, q.role)) fills.push(q)
+    }
+    for (const q of [...(body?.cut ?? []), ...(body?.clear ?? [])]) {
+      if (!Array.isArray(q?.at) || q.prev) continue
+      const b = read(...q.at)
+      if (!b) { unread++; continue }
+      if (b.boundingBox !== 'empty') cuts.push(q.at)
+    }
+    if (unread) return { ...body, reach: { ...reachTag({ state: 'unchecked', open: { fills: fills.length, cuts: cuts.length } }), why: `unread:${unread}` } }
+    const planned = plannedWorld(paRecords(), { self: TIDY_PLOT, done: paDone(read) })
+    const p = bot?.entity?.position
+    const feet = p ? [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)] : null
+    const r = await planReachAsync(read, fills, cuts, { home, stood: feet ? [...stood, feet] : stood, walkR: tidyWalkR(body), planned }, { aborted: () => !!signal?.aborted })
+    return { ...body, reach: { ...reachTag(r), ...(r.why ? { why: r.why } : {}) } }
+  } catch (e) { return { ...body, reach: { ...reachTag({ state: 'unchecked' }), why: `error:${String(e?.message ?? e).slice(0, 40)}` } } }
+}
+
+// ================================================================================================================================
+// STATIONS-01 SWEEP (stations.mjs): THE GROUNDSKEEPERS TAKE UP THE TOWN'S STRAY TABLES AND FURNACES. The tidy's visit (the keeper and
+// its helper) surveys every crafting table and furnace round home (findBlocks over the loaded town and rings), keeps the town's own
+// (the workshop's or the designated cells), every project record cell, the protected zones, a village's (a bell near), a hopper's,
+// and takes up to SWEEP.max of the rest, nearest the bot first. A furnace is taken only under this bot's lease, unlit, and proven
+// EMPTY by its own window (a furnace with anything in it is furnace_drain's, never dug here). The copies past the bag allowance's
+// one of each go to the town chests at the next town deposit. STN_SWEEP=0 (or STATIONS=0): no sweep.
+// ================================================================================================================================
+/** The survey now -> stations.mjs strayStations' result + { found }. Throws when the town's records or zones cannot be read (the
+ *  caller treats that as nothing to do: fail closed). */
+function strayNow (bot) {
+  const st = stnTown(bot)
+  const home = st.home
+  if (!home) throw new Error('no plan')
+  const zv = townPlanZones(bot)
+  if (!zv.known) throw new Error('zones unknown')
+  const recs = projectHeads().map(x => x.head.rec).filter(Boolean)
+  const cells = new Set(recs.flatMap(q => (q.cells ?? []).filter(c => Array.isArray(c?.at)).map(c => c.at.join(','))))
+  // Codex r1 BLOCKER 2: the plan's designated cells are the town's too once a workshop stands (stations.mjs townKeep)
+  const keep = townKeep(st.ts)
+  const nameOf = b => bot.registry?.blocks?.[b.type]?.name
+  const centre = new Vec3(home.x, home.y, home.z)
+  const reach = Math.ceil(SWEEP.R * 1.42)
+  const found = (bot.findBlocks?.({ point: centre, maxDistance: reach, count: SWEEP.found, matching: b => STATION_NAMES.includes(nameOf(b)) }) ?? []).map(p => {
+    const b = bot.blockAt?.(p)
+    if (!b || !STATION_NAMES.includes(b.name)) return null
+    let lit = false
+    try { const v = b.getProperties?.()?.lit; lit = v === true || v === 'true' } catch { lit = false }
+    return { at: [p.x, p.y, p.z], name: b.name, lit }
+  }).filter(Boolean)
+  const bells = (bot.findBlocks?.({ point: centre, maxDistance: reach, count: 32, matching: b => nameOf(b) === 'bell' }) ?? []).map(p => [p.x, p.y, p.z])
+  const hopper = k => { const v = keyVec(k); return [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]].some(([dx, dy, dz]) => bot.blockAt?.(v.offset(dx, dy, dz))?.name === 'hopper') }
+  const mem = bot.stnSweepGiven
+  const townMaps = GKL2_ON ? sweepMapsRead() : []   // gklease-02
+  const pos = bot.entity?.position
+  return { ...strayStations(found, { home, from: pos ? { x: pos.x, y: pos.y, z: pos.z } : null, cells, keep, zone: (x, y, z) => !!zoneAtPos(zv.zones, { x, y, z }), bells, hopper, leased: k => furnaceLeasedNow(k), given: k => sweepGivenUp(mem, k) || (GKL2_ON && sweepTownGiven(townMaps, k)) }), found: found.length }
+}
+/** Does the town have a stray to sweep (the tidy's order: a complete tidy with strays is a repair visit)? Cached SWEEP.cacheMs;
+ *  never throws (unreadable = no). */
+export function strayDue (bot, now = Date.now()) {
+  if (!stnOn('sweep')) return false
+  if (bot.stnStrayCache && now - bot.stnStrayCache.at < SWEEP.cacheMs) return bot.stnStrayCache.v
+  let v = false
+  try { v = strayNow(bot).sweep.length > 0 } catch { v = false }
+  bot.stnStrayCache = { at: now, v }
+  return v
+}
+/**
+ * ONE STRAY FURNACE, PROVEN EMPTY THEN DUG -> the retake's phrase, or a `left ...` phrase. The lease first (another session's, or
+ * none recordable: left), the walk, then -- the furnace still unlit -- its window opened and read ONCE (stations.mjs furnaceEmpty:
+ * every slot read empty; unknown is not empty) and closed; then the dig, still under the lease. Never drains.
+ */
+export async function sweepFurnace (ctx, c, signal) {
+  const { bot } = ctx
+  const pos = new Vec3(...c.at)
+  const left = why => { try { logEvent({ kind: 'station_swept', status: 'no_effect', snapshot: snapshot(bot), detail: stationRowDetail({ at: c.at, name: 'furnace', by: 'tidy', outcome: 'left', why }) }) } catch { /* telemetry */ } return `left the furnace: ${why}` }
+  const isLit = blk => { try { const v = blk?.getProperties?.()?.lit; return v === true || v === 'true' } catch { return true } }
+  let dir = null
+  try { dir = townDir() } catch { dir = null }
+  if (!dir) return left('no_town_dir')
+  const lease = acquireFurnaceLease(dir, pos, leaseHolder(bot), { what: 'sweep' })
+  if (!lease.ok) return left('leased')
+  try {
+    if (lease.unleased) return left('lease_unrecordable')
+    for (const range of [1, 3]) {
+      check(signal)
+      try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)), 20000, bot); break } catch (e) { if (e?.aborted) throw e }
+    }
+    check(signal)
+    if (bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5)) > STATION_REACH) return left('unreachable')
+    let block = bot.blockAt?.(pos)
+    if (block?.name !== 'furnace') return left('gone')
+    if (isLit(block)) return left('lit')
+    try { await bot.lookAt(pos.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
+    let win
+    try { win = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} }) } catch (e) { if (e?.aborted) throw e; return left('window') }
+    const seen = readFurnaceWindow(win)
+    // ledger-01's opener rule: every opened furnace window is an open-phase record, before any click (ledger.test STRUCTURAL)
+    if (LEDGER.on) { try { ledgerObserve(bot, pos, win, 'sweep', 'open', seen) } catch { /* the record is advisory here */ } }
+    try { win.close() } catch { /* closed */ }
+    const proof = furnaceEmpty(seen)
+    if (!proof.ok) return left(proof.why)
+    block = bot.blockAt?.(pos)
+    if (block?.name !== 'furnace' || isLit(block)) return left('changed')
+    return (await retakeStation(ctx, { at: pos, name: 'furnace', stray: true, changed: null, stop: () => {} }, signal, 'tidy')) ?? left('gone')
+  } finally { try { lease.release?.() } catch { /* expires by TTL */ } }
+}
+/** STATIONS-01: take up to SWEEP.max strays, nearest the bot first, until `deadline` -> { tried, back, s }. One `_station_sweep` row a
+ *  visit that looked; one `_station_swept` row a stray. A stray tried that still stands counts toward this bot's give-up. */
+async function sweepStrays (ctx, signal, { deadline = Date.now() + SWEEP.ms } = {}) {
+  const { bot } = ctx
+  if (!stnOn('sweep')) return { tried: 0, back: 0, s: null }
+  let s
+  try { s = strayNow(bot) } catch { return { tried: 0, back: 0, s: null } }
+  // gklease-02 (Codex r1 BLOCKER): a restarted bot starts from its own persisted tries (unexpired), so the town's count survives it
+  const mem = (bot.stnSweepGiven ??= GKL2_ON ? sweepMapSeed(bot.username ?? 'bot') : new Map())
+  const end = Math.min(deadline, Date.now() + SWEEP.ms)
+  let back = 0, leftN = 0
+  const tried = []
+  for (const c of s.sweep.slice(0, SWEEP.max)) {
+    if (Date.now() >= end) break
+    check(signal)
+    tried.push(c.at.join(','))
+    const said = c.name === 'furnace' ? await sweepFurnace(ctx, c, signal) : await retakeStation(ctx, { at: new Vec3(...c.at), name: c.name, stray: true, changed: null, stop: () => {} }, signal, 'tidy')
+    if (said?.startsWith('took')) back++
+    else leftN++
+  }
+  noteSweep(mem, tried, k => STATION_NAMES.includes(bot.blockAt?.(keyVec(k))?.name))
+  if (GKL2_ON && tried.length) sweepMapWrite(bot.username ?? 'bot', mem)   // gklease-02: the town's give-up
+  bot.stnStrayCache = null
+  if (s.found || tried.length) { try { logEvent({ kind: 'station_sweep', status: back > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: sweepVisitDetail({ found: s.found, strays: s.sweep.length, tried: tried.length, back, left: leftN, skipped: s.skipped }) }) } catch { /* telemetry */ } }
+  return { tried: tried.length, back, s }
+}
+
+// ================================================================================================================================
+// GROUNDSKEEPER-01: THE KEEPER LEASE AND THE LAND PLAN (groundskeeper.mjs, landplan.mjs; tidy.mjs siteStage). One bot a town holds
+// the `keeper` lease on the tidy's record key; the tidy is its first project and its order returns every GK.cooldownMs; it works
+// the land plan's stages town -> roads -> outward bands. GROUNDSKEEPER=off: tidy-01 as before. LANDPLAN=off: stage 0 only.
+// ================================================================================================================================
+const keeperMe = bot => bot?.username ?? config.bot?.name ?? 'bot'
+/** The keeper lease now and this bot's decision (groundskeeper.mjs keeperDecision). Never throws: unreadable reads 'other'. */
+function keeperState (bot, work, now = Date.now()) {
+  try {
+    const lease = projLeaseState(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, { ttl: GK.leaseTtlMs })
+    return { d: keeperDecision({ lease, me: keeperMe(bot), now, work, restUntil: bot?.gkRestUntil ?? 0 }), lease }
+  } catch { return { d: 'other', lease: null } }
+}
+/** Take or renew the keeper lease (its term carried on) -> { ok, gen }. One `_keeper` row op=keeper_take on a new term. */
+function takeKeeper (bot, lease, now = Date.now()) {
+  const me = keeperMe(bot)
+  const renewal = lease?.rec?.holder === me && now < (lease.holdsUntil ?? 0)
+  // gklease-01 (Codex r1 BLOCKER): the fitness gate at the ACQUISITION boundary -- every new take (the order's read and a visit's start)
+  { const u = renewal ? null : gkUnfitNow(bot); if (u) return { ok: false, why: `unfit:${u}` } }
+  // gkstay-01 (Codex r1 BLOCKER): nor over an open idle batch that goes below -- every new take (the order's read and buildTidy's visit start)
+  if (!renewal && GKSTAY_ON && belowKind(idleKindNow())) return { ok: false, why: 'below_batch' }
+  const r = projTakeLease(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, me, { now, ttl: GK.leaseTtlMs, meta: { term0: termStart(lease, me, now) } })
+  if (r.ok && !renewal) { try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_take', gen: r.gen }) }) } catch { /* telemetry */ } }
+  bot.gkCache = null
+  return r
+}
+/** Let the keeper lease go (no work, or the term is over: then this bot rests GK.restMs). One `_keeper` row op=keeper_release. */
+function releaseKeeper (bot, lease, why, now = Date.now()) {
+  try { releaseLease(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, keeperMe(bot), lease?.gen) } catch { /* lapses */ }
+  if (why === 'term') bot.gkRestUntil = now + GK.restMs
+  bot.gkCache = null
+  try { logEvent({ kind: 'keeper', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'keeper_release', why, gen: lease?.gen ?? '-' }) }) } catch { /* telemetry */ }
+}
+/** Does THIS bot hold its town's keeper lease now? Cached 30 s; never throws. (shop.mjs buildOrder's keeper cooldown) */
+export function keeperNow (bot, now = Date.now()) {
+  if (!GROUNDS.on || !bot) return false
+  if (bot.gkCache && now - bot.gkCache.at < 30_000) return bot.gkCache.v
+  let v = false
+  try { const l = projLeaseState(townDir(), projKeyOf(TIDY_PLOT), GK_LEASE, { ttl: GK.leaseTtlMs }); v = !!l && l.rec?.holder === keeperMe(bot) && now < l.holdsUntil } catch { v = false }
+  bot.gkCache = { at: now, v }
+  return v
+}
+setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
+/** A complete tidy stage the land plan has a next stage after (the keeper's next band) -- due at once, not after 48 h. Pure but
+ *  for the switches. */
+function gkStageDue (r) {
+  // gkforever-01 CLOCK: the grounds never complete -- the next band at once, the interior every GKF.interiorMs, the ring order again
+  // GKF.cycleMs after the last band (with or without a land plan)
+  if (GKFS.clock) return r?.blueprint === TIDY_BLUEPRINT && gkfDueOf(r).due
+  if (!LANDP.on || !r?.structure_complete || tidyDue(r)) return false
+  return nextStage(Number.isFinite(Number(r.stage)) ? Number(r.stage) : 0) != null
+}
+/**
+ * THE KEEPER'S PROJECT ORDER (shopActive) -> the PROJECTS list to pick from. `states` (activeProject's) is adjusted in place: for
+ * the KEEPER the tidy comes first and a due stage reads open; for any other bot the tidy reads full (`free: false`: its grounds are
+ * another's). A bot finding no keeper while the grounds want work takes the lease (at most every GK.takeEveryMs); a keeper whose
+ * grounds want nothing, or whose term is over, lets it go.
+ */
+function keeperOrder (bot, states, list, now = Date.now()) {
+  if (!GROUNDS.on) return list
+  if (!list.some(p => p.plot === TIDY_PLOT)) return list
+  const work = keeperWanted(states, { shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, crew: GKFS.crew })
+  const k = keeperState(bot, work, now)
+  let d = k.d
+  if (d === 'release') { releaseKeeper(bot, k.lease, work ? 'term' : 'no_work', now); d = 'none' }
+  // GKLEASE-01 (groundskeeper.mjs groundsLeaseCheck): a holder that cannot work the grounds from where it is (in a mine, away), or
+  // that has done no grounds work for GK_FIT.idleMs, lets the lease go and rests; an unfit bot never takes it
+  // GKSTAY-01: a HOLDER is released as unfit only after UNFIT_HOLD_MS of it without a break (a dirt pit: no hand-off); a take still
+  // needs the bot fit now -- and no open idle batch that goes below (iron, coal); a holder whose open batch goes below hands over
+  const unfitNow = GKL_ON ? gkUnfitNow(bot) : null
+  const up = unfitPersist(bot.gkUnfitSince ?? null, unfitNow, now)
+  bot.gkUnfitSince = up.since
+  const below = GKSTAY_ON && belowKind(idleKindNow())
+  if (GKSTAY_ON && d === 'mine' && below) { releaseKeeper(bot, k.lease, 'handoff', now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' }
+  if (GKL_ON && (d === 'mine' || d === 'take')) {
+    const unfit = d === 'mine' ? (up.held ? unfitNow : null) : (unfitNow ?? (below ? 'below_batch' : null))
+    const c = groundsLeaseCheck({ d, unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
+    if (c.release) { releaseKeeper(bot, k.lease, c.release, now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' } else if (d === 'take' && !c.take) d = 'none'
+  }
+  if (d === 'take' && now - (bot.gkTakeAt ?? -Infinity) >= GK.takeEveryMs) { bot.gkTakeAt = now; if (takeKeeper(bot, k.lease, now).ok) d = 'mine' }
+  const r = keeperOrderPure(states, list, { d, shopPlot: SHOP_PLOT, tidyPlot: TIDY_PLOT, crew: GKFS.crew, grounds: GKFS.idle && groundsBatchOpen() })
+  // gklease-01 rule 3: the keeper's grounds before the town's other repairs (every other bot keeps the repair tier)
+  const st1 = GKL_ON && d === 'mine' && work ? keeperGroundsFirst(r.states, { grounds: [TIDY_PLOT] }) : r.states
+  for (let i = 0; i < states.length; i++) states[i] = st1[i]
+  return r.order
+}
+/** gklease-01: the switch, and the bot's feet -> [x, y, z] | null. */
+const GKL_ON = gkleaseOn()
+const GKW_ON = gkworkOn()   // gkwork-01
+const SCL_ON = stuckcloseOn()   // stuckclose-01
+/** stuckclose-01: the cuts of `rec` the TOWN gives up now (stuckclose.mjs townGivenCuts over the tidy's buildretry ledger) -> Map.
+ *  Never throws (unreadable: none given). */
+function tidyTownGiven (dir, key, rec, read) {
+  if (!SCL_ON) return new Map()
+  try { return townGivenCuts(rec, retryRead(dir, key), { standing: c => cutStanding(read, c) }) } catch { return new Map() }
+}
+const GKSTAY_ON = gkstayOn()   // gkstay-01
+setHoldsGrounds(b => keeperNow(b))   // gkstay-01: the idle lap reads whether this bot holds the keeper lease
+function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
+/** gklease-01: why this bot cannot work the grounds from where it is (groundskeeper.mjs groundsUnfit) -> why | null (switch off: null). */
+function gkUnfitNow (bot) { try { if (!GKL_ON) return null; const feet = gkFeet(bot); return groundsUnfit({ feet, home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, covered: GKL2_ON ? gkCovered(bot, feet) : null }) } catch { return null } }
+/** gklease-02: the switch (GKLEASE2=0: the rules before it), a roof over the bot (groundskeeper.mjs columnCovered), the tidy's waived cells,
+ *  and the town's sweep maps (stations.mjs sweepTownGiven). Never throw. */
+const GKL2_ON = !['0', 'off', 'false', 'no'].includes(String(process.env.GKLEASE2 ?? '1').trim().toLowerCase())
+function gkCovered (bot, feet) { try { return columnCovered((x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }, feet) } catch { return null } }
+const sweepMapFile = holder => path.join(townDir(), `stations.sweep.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function sweepMapsRead () {
+  const out = []
+  try { for (const n of fs.readdirSync(townDir())) if (n.startsWith('stations.sweep.') && n.endsWith('.json')) { try { out.push(JSON.parse(fs.readFileSync(path.join(townDir(), n), 'utf8'))?.tries ?? {}) } catch { /* skipped */ } } } catch { /* none */ }
+  return out
+}
+function sweepMapSeed (holder, now = Date.now()) {
+  try { const j = JSON.parse(fs.readFileSync(sweepMapFile(holder), 'utf8')); return new Map(Object.entries(j?.tries ?? {}).filter(([, v]) => v && Number.isFinite(v.at) && now - v.at < SWEEP.giveUpMs && v.at <= now + 60_000)) } catch { return new Map() }
+}
+function sweepMapWrite (holder, mem) {
+  try {
+    const f = sweepMapFile(holder), tmp = `${f}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, holder, tries: Object.fromEntries([...mem].filter(([, v]) => v && Number.isFinite(v.at))) }))
+    fs.renameSync(tmp, f)
+  } catch { /* the bot's own memory still holds */ }
+}
+/** The land plan's siting inputs: the paths' refusals over every other project (never the paths' own record: a road crosses a
+ *  laid path) and their reservations. Throws on an unreadable file. */
+function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
+  const P = pathsInputs(bot, c, h, dir)
+  const recs = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT && x.plot !== PATHS_PLOT).map(x => x.head.rec).filter(Boolean)
+  const avoid = pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home: P.plan.home })
+  const rz = recordZones(recs)
+  const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return String(zb.why ?? 'project') } return null }
+  return { plan: P.plan, home: P.plan.home, avoid, reserved, caps: P.caps, composter: P.composter, sited: sitedSectors(P.plan.home, recs) }
+}
+/** The land plan's unread-column tolerance: a plan whose routing met more unread columns than this waits (asked again next
+ *  visit), at most LAND_UNREAD_TRIES times a connection, then it is published as read. */
+const LAND_UNREAD_MAX = 400
+const LAND_UNREAD_TRIES = 3
+/** Plan and publish the town's land plan -> { ok, why, land }. Awaits between road legs (the event loop). */
+async function landPlanNow (bot, dir, signal) {
+  const I = landInputs(bot)
+  const read = planReader(bot)
+  const pause = () => new Promise(resolve => setImmediate(resolve)).then(() => check(signal))
+  const r = await planLand(read, { home: I.home, plan: I.plan, seed: landSeed(config.memory.pool, I.home), avoid: I.avoid, reserved: I.reserved, limOf: n => gradeLim(read, n), caps: I.caps, composter: I.composter, sited: I.sited, now: Date.now(), pause })
+  if (!r.ok) return { ok: false, why: r.why, land: null }
+  bot.gkLandTries = (bot.gkLandTries ?? 0) + 1
+  if (r.plan.unread > LAND_UNREAD_MAX && bot.gkLandTries < LAND_UNREAD_TRIES) return { ok: false, why: `unread:${r.plan.unread}`, land: null }
+  const pub = publishRecord(dir, projKeyOf(LAND_PLOT), cur => (cur ? null : r.plan), { by: keeperMe(bot) })
+  if (pub.result === 'accepted') {
+    try { logEvent({ kind: 'land_plan', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'land_planned', kind: `ring${r.plan.ringR}/${r.plan.roads.map(q => `${q.id}:${q.reached}/${q.of}`).join(',')}`, n: r.plan.corridors.length, why: `unread:${r.plan.unread}`, gen: pub.gen }) }) } catch { /* telemetry */ }
+  }
+  return { ok: pub.result === 'accepted' || pub.result === 'nothing', why: pub.result, land: landHead(dir) }
+}
+/** GROUNDSKEEPER-01: a stage's extra bill -> { torch?, <sapling>? }: its open road lights less the bag's torches, and one sapling
+ *  for every replant cell not planted yet, less the bag's. Pure over `read`. */
+export function gkExtraBill (rec, read, held = {}, done = () => false) {
+  const out = {}
+  const lights = (rec?.cells ?? []).filter(q => q.role === 'light' && !done(q)).length
+  if (lights > (held.torch ?? 0)) out.torch = lights - (held.torch ?? 0)
+  const want = {}
+  for (const r of rec?.replant ?? []) if (r.state !== 'skipped' && !/_sapling$|_propagule$/.test(String(read(...r.cell)?.name ?? ''))) want[r.sapling] = (want[r.sapling] ?? 0) + 1
+  for (const [n, v] of Object.entries(want)) if (v > (held[n] ?? 0)) out[n] = v - (held[n] ?? 0)
+  return out
+}
+/**
+ * GKFOREVER-01: THE GROUNDS CENSUS (the effect's world count, one `_grounds_census` row a new generation): the stage the survey
+ * started at and the one it sited, the holes (pits + one-deep dips), the bots' pillars and steps, the fills and cuts listed, the
+ * cells carried as given up, and -- on an interior audit -- the town square's roughness (4-adjacent read-ground column pairs that
+ * differ by 2+ and 5+: tidy.mjs tidyRoughness). Never throws.
+ */
+function groundsCensus (bot, { s, k0, sk, why, gen, read, home }) {
+  try {
+    const sv = s?.survey ?? {}
+    const pits = (sv.pits ?? []).filter(p => !p.dip).length, dips = (sv.pits ?? []).filter(p => p.dip).length
+    const rough = k0 === 0 ? tidyRoughness(read, home) : null
+    logEvent({ kind: 'grounds_census', status: 'success', snapshot: snapshot(bot),
+      args: { from: k0, stage: sk, why, gen, pits, dips, pillars: (sv.pillars ?? []).length, fill: s?.record?.cells?.length ?? 0, cut: s?.record?.cut?.length ?? 0,
+        clear: s?.record?.clear?.length ?? 0, dead: sv.skipped?.dead ?? 0, pairs: rough?.pairs ?? null, d2: rough?.d2 ?? null, d5: rough?.d5 ?? null },
+      detail: `grounds census from=${k0} stage=${sk} why=${why} pits=${pits} dips=${dips} pillars=${(sv.pillars ?? []).length} fill=${s?.record?.cells?.length ?? 0} cut=${s?.record?.cut?.length ?? 0} dead=${sv.skipped?.dead ?? 0}${rough ? ` rough=${rough.d2}/${rough.pairs}` : ''} gen=${gen}` })
+  } catch { /* telemetry never breaks the visit */ }
+}
+/**
+ * GKFOREVER-01 IDLE: may this bot take a grounds lap now (gkforever.mjs gkfMeans)? The town's tidy has work (no record yet, an open
+ * one, or one due now), a builder slot is free for this bot, and its last grounds visit did not find "no work" within GKF.barMs.
+ * Cached 60 s a bot; never throws (false).
+ */
+export function groundsMeansFor (bot, now = Date.now()) {
+  if (!GKFS.idle || !bot || !SHOP.on || !projectsOn().some(p => p.plot === TIDY_PLOT)) return false
+  if (bot.gkfMeansCache && now - bot.gkfMeansCache.at < 60_000) return bot.gkfMeansCache.v
+  let v = false
+  try {
+    const h = recordHead(townDir(), projKeyOf(TIDY_PLOT))
+    const rec = h.ok ? h.head?.rec ?? null : null
+    const work = h.ok && (!rec || !rec.structure_complete || gkfDueOf(rec, now).due)
+    v = gkfMeans({ on: true, work, slotFree: slotFreeFor(projectsOn().find(p => p.plot === TIDY_PLOT), bot.username ?? config.bot?.name ?? null, now), noWorkAt: bot.gkfNoWorkAt ?? null, now })
+  } catch { v = false }
+  bot.gkfMeansCache = { at: now, v }
+  return v
+}
+setGroundsMeans(b => groundsMeansFor(b))
+/**
+ * LOGCAP-02: THE TOWN LOG CAP'S READER (logcap.mjs) -> the decision { capped, why, logs, coverage, at } for this bot's town, or
+ * null. The town index's log count (matsTownStock: a LOWER BOUND) and its coverage, decided with the cap's hysteresis on the
+ * bot (bot.logCapPrev), cached LOGCAP_TTL_MS. A `_logcap` row at the first decision and at every change of `capped`: the
+ * licence and the mechanism line. Never throws (null: the base).
+ */
+export function logCapStateFor (bot, now = Date.now()) {
+  if (!bot) return null
+  try {
+    const c = bot.logCapCache
+    if (c && now - c.at < LOGCAP_TTL_MS) return c.d
+    const cfg = logCapConfig()
+    let read = null
+    if (cfg.on) {
+      try { const t = matsTownStock(bot); read = t ? { ok: true, logs: townLogsIn(t.stock), coverage: t.coverage } : { ok: false } } catch { read = { ok: false } }
+    }
+    const prev = bot.logCapPrev ?? null
+    const d = logCapNext(prev, read, cfg, now)
+    bot.logCapPrev = d
+    bot.logCapCache = { at: now, d }
+    if (!prev || !!prev.capped !== !!d.capped) {
+      try { logEvent({ kind: 'logcap', status: 'success', snapshot: snapshot(bot), args: { capped: d.capped ? 1 : 0, why: d.why, logs: d.logs, high: cfg.high, low: cfg.low, coverage: d.coverage, src: cfg.src }, detail: logCapDetail(d, cfg) }) } catch { /* telemetry */ }
+    }
+    return d
+  } catch { return null }
+}
+setLogCapState(b => logCapStateFor(b))
+// loggate-01: the town's top log species for the gate's withdrawal (logcap.mjs townLogTop; admission.mjs reads it)
+setTownLogTop(b => topTownLog(matsTownStock(b)?.stock))
+/** gkforever-01: are two tidy records the SAME generation (one siting: its `sitedAt` and stage, and its cell and cut counts)? Pure. */
+export const tidySameGen = (a, b) => !!a && !!b && a.sitedAt === b.sitedAt && (Number(a.stage) || 0) === (Number(b.stage) || 0) && (a.cells?.length ?? 0) === (b.cells?.length ?? 0) && (a.cut?.length ?? 0) === (b.cut?.length ?? 0)
+// ================================================================================================================================
+// BOARDWALK-03 (OWNER 11-08, boardwalk.mjs): the bots' dirt and cobble standing in the town's water -- a plank walkway in place where
+// the bots cross, dug out everywhere else. Only cells the evidence file proves the bots placed (genesis: the world's own jar and
+// seed made water there), only while the world still shows them. The keeper's tidy visit runs it every BW3.everyMs (before its
+// stage work, so it always happens: a lap of its own, not the tail of a full visit). BOARDWALK3=off: nothing.
+// ================================================================================================================================
+const BW3S = { on: bw3On(), walk: bw3WalkOn() }
+const bw3Docs = new Map()
+/** The pool's evidence file (bots/src/waterstrays/<pool>.json), read once a process -> the parsed doc | null. Never throws. */
+function bw3Doc (pool) {
+  if (bw3Docs.has(pool)) return bw3Docs.get(pool)
+  let d = null
+  try { if (/^[a-z0-9-]+$/.test(String(pool))) d = JSON.parse(fs.readFileSync(new URL(`./waterstrays/${pool}.json`, import.meta.url), 'utf8')) } catch { d = null }
+  bw3Docs.set(pool, d)
+  return d
+}
+/** Is the water visit due for this bot now (switch, clock)? Pure but for the switch. */
+export const bw3Due = (bot, now = Date.now(), every = BW3.everyMs) => BW3S.on && now - (Number(bot?.bw3At) || 0) >= every
+/** One water visit -> { tried, status, why, placed, cleared, stop }. `tried` false: nothing was walked to or dug (no file, no work). */
+async function waterWalkVisit (ctx, signal, { deadline = Date.now() + SHOP_SKILL_MS } = {}) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const no = why => ({ tried: false, why })
+  const home = planHomeP()
+  const ev = bw3Evidence(bw3Doc(config.memory.pool), { pool: config.memory.pool, home })
+  if (!ev.ok) return no(ev.why)
+  let guard
+  try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return no('record_unreadable') }
+  const read = planReader(bot)
+  const w = bw3Work(ev.lines, read, { guard: k => guard.has(k), walkOn: BW3S.walk, home })
+  const mem = (bot.bw3Given ??= new Map())
+  const cuts = w.cuts.filter(q => !tidyGivenUp(mem, q.at.join(',')))
+  if (!cuts.length && !(w.stats.deck > w.stats.deckDone)) return no(bw3HasWork(w) ? 'given_up' : 'nothing')
+  if (deadline - t0 < BW3.minVisitMs) return no('late')
+  const dir = townDir(), key = projKeyOf(BW3_PLOT), me = bot.username ?? 'bot'
+  // THE RECORD (the fence's generation): the deck cells as sited; written again only when that cell list changes
+  const body = bw3RecordBody(w, ev, { home, by: me })
+  let rh = recordHead(dir, key)
+  if (!rh.ok) return no('record_unreadable')
+  if (!rh.head || rh.head.rec?.sig !== body.sig) {
+    const pub = publishRecord(dir, key, cur => (cur?.sig === body.sig ? null : body), { by: me })
+    if (pub.result === 'error' || pub.result === 'lost') return no('lost_record')
+    rh = recordHead(dir, key)
+    if (!rh.ok || !rh.head) return no('record_unreadable')
+  }
+  const slot = takeSlot(dir, key, me, BW3.builders)
+  if (!slot.ok) return no('slots_full')
+  const slotRef = { gen: slot.gen }
+  const placedBy = {}
+  let effects = null, planks = 0
+  const row = (status, extra) => { try { logEvent({ kind: 'waterwalk', status, snapshot: snapshot(bot), detail: bw3Detail({ stats: w.stats, cuts: cuts.length, planks, ...extra }) }) } catch { /* telemetry */ } }
+  try {
+    const acks = (bot.shopAcks ??= shopAckInstall(bot))
+    presenceWrite(dir, key, me, { conn: acks.conn, now: acks.loginAt ?? Date.now(), beat: Date.now() })
+    // THE PLANKS: the open deck cells less the bag's planks, drawn as the town's logs above the reserve (the project draw) and
+    // crafted here; a town with no spare logs leaves the deck cells for a later visit (the cuts go on)
+    const held0 = heldMap(bot)
+    const spare = Object.entries(held0).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
+    const owe = bw3PlanksOwed(w, spare)
+    if (owe > 0) {
+      try {
+        const town = matsTownStock(bot)?.stock ?? {}
+        const pf = planksFromLogs({ oak_planks: owe }, { spare: () => 0, town })
+        if (pf) {
+          const R0 = matsReserve().table
+          const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow })
+          const wd = await matsWithdraw(ctx, { [pf.log]: pf.logs }, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain)
+          const got = Number(wd.took?.[pf.log]) || 0
+          if (got > 0) { try { await craft(ctx, { item: pf.planks, count: got * 4 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+        }
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      planks = Object.entries(heldMap(bot)).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
+    }
+    check(signal)
+    // NO DIG WITHOUT ITS PLANK (Codex r1 BLOCKER 2, r2): the visit opens only as many deck cells as the bag holds planks
+    const planksNow = Object.entries(heldMap(bot)).filter(([n]) => /_planks$/.test(n)).reduce((t, [, c]) => t + c, 0)
+    const rec = bw3DeckFor(w.record, planksNow, q => buildCellDone(read(...q.at), BW3_PALETTE, q.role))
+    effects = botBuildEffects(bot, {
+      acks,
+      withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
+      aborted: () => !!signal?.aborted,
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: kind === '_build_seg' ? buildSegDetail({ project: BW3_PLOT, ...d }) : buildRowDetail({ project: BW3_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      spawnedAt: () => bot.shopSpawnAt ?? 0,
+    })
+    bot.shopUnknown ??= new Set()
+    const stood = stoodRead(dir, stoodKey(), home)
+    const r = await runVisit({ dir, key, me, home, stood, record: rec, tidy: cuts, tidyKeepOrder: true, recordGen: rh.head.gen, foreign: BOT_MAT_RE, palette: BW3_PALETTE, res: null, resFailed: false,
+      slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.bw3Stands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, walkR: BW3.walkR, blockLayer: false, clearMax: BW3.cutsPerVisit, stuckStalledOnly: true, wet: true, alsoDone: q => guard.has(q.at.join(',')) },
+    effects, { deadline: Math.min(deadline, t0 + SHOP_SKILL_MS - ZIG_VISIT_TAIL_MS), maxSteps: 300 })
+    // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts: TIDY_CUT_TRIES visits)
+    const read2 = tidyRead(bot)
+    const cutAt = new Map(cuts.map(q => [q.at.join(','), q]))
+    tidyNoteCuts(mem, r.tidied ?? [], k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
+    const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
+    row(status, { placed: r.placed, cleared: r.cleared, stop: r.stop, why: r.why })
+    return { tried: true, status, why: `water: ${r.cleared} dug, ${r.placed} planks laid (${r.stop})`, placed: r.placed, cleared: r.cleared, stop: r.stop }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    row('failed', { stop: 'error', why: String(e?.message ?? e) })
+    return { tried: true, status: 'failed', failClass: 'other', why: String(e?.message ?? e).slice(0, 100), placed: 0, cleared: 0, stop: 'error' }
+  } finally {
+    releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
+    try { effects?.close() } catch { /* gone */ }
+  }
+}
 async function buildTidy (ctx, args, signal) {
   const { bot } = ctx
   const t0 = Date.now()
@@ -20409,6 +21937,8 @@ async function buildTidy (ctx, args, signal) {
   const f = { project: TIDY_PLOT }
   const out = (status, outcome, detail, extra = {}, failClass = null) => {
     Object.assign(f, extra, { outcome, why: detail, ms: Date.now() - t0 })
+    // gkforever-01 IDLE: the grounds lap counts this bot's visits that changed the ground, and ends on one that found no work
+    if (GKFS.idle) { try { if (gkfVisitWorked(extra)) bot.gkfWorked = (Number(bot.gkfWorked) || 0) + 1; else if (gkfNoWork(extra.stop ?? outcome)) { bot.gkfNoWorkAt = Date.now(); bot.gkfMeansCache = null } } catch { /* counters only */ } }
     try { logEvent({ kind: 'build_visit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: buildVisitDetail(f) }) } catch { /* telemetry */ }
     return { status, ...(failClass ? { failClass } : {}), detail, ...(extra.placed ? { placed: extra.placed } : {}), stop: extra.stop ?? outcome }
   }
@@ -20422,29 +21952,112 @@ async function buildTidy (ctx, args, signal) {
   const stood = stoodRead(dir, stoodKey(), home)
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', 'the tidy record could not be read')
-  if (!rh.head || tidyDue(rh.head.rec)) {
+  // GROUNDSKEEPER-01: only the town's keeper works the grounds (groundskeeper.mjs): a free lease is taken here, a renewal carries
+  // its term on; a holder whose term is over lets it go and rests (another bot of the town takes it); the others work the other
+  // projects (shopActive marks the tidy full for them)
+  if (GROUNDS.on) {
+    const k = keeperState(bot, true)
+    if (k.d === 'release') { releaseKeeper(bot, k.lease, 'term'); return out('no_effect', 'keeper_term', 'this bot\'s term as the town\'s groundskeeper is over; another bot of the town takes the grounds', { stop: 'keeper_term' }) }
+    // gkforever-01 CREW: a bot that is not the keeper works the grounds as a HELPER (the tidy's builder slot is its admission)
+    if (k.d === 'other' && !GKFS.crew) return out('no_effect', 'keeper_held', `the town's grounds are ${k.lease?.rec?.holder ?? 'another bot'}'s (the groundskeeper lease); the other projects are this bot's`, { stop: 'keeper_held' })
+    if (k.d === 'none' && !GKFS.crew) return out('no_effect', 'keeper_rest', 'this bot rests from the groundskeeper lease; the other projects are its', { stop: 'keeper_rest' })
+    if (k.d !== 'other' && k.d !== 'none' && !takeKeeper(bot, k.lease).ok && !GKFS.crew) return out('no_effect', 'keeper_held', 'the groundskeeper lease was taken first by another bot', { stop: 'keeper_held' })
+  }
+  // BOARDWALK-03: the town's water, every BW3.everyMs, before the stage (a visit with no water work goes on to the grounds)
+  if (bw3Due(bot)) {
+    bot.bw3At = Date.now()
+    const ww = await waterWalkVisit(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+    if (ww.tried) return out(ww.status, 'waterwalk', ww.why, { stop: 'waterwalk', placed: ww.placed, cleared: ww.cleared }, ww.failClass ?? null)
+  }
+  // GROUNDSKEEPER-01: a complete stage with a next one (landplan.mjs ring order) is sited at once, the band after it
+  // gkforever-01 CLOCK: the record due (gkforever.mjs gkfDue) names the stage the survey starts from: the interior first when its
+  // audit is GKF.interiorMs old, else the next band; after the last band the ring order again
+  const gkD = GKFS.clock && rh.head ? gkfDueOf(rh.head.rec) : null
+  const gkNext = gkD ? (gkD.due ? { k: gkD.from } : null) : GROUNDS.on && LANDP.on && rh.head && gkStageDue(rh.head.rec) ? nextStage(Number(rh.head.rec.stage) || 0) : null
+  if (!rh.head || tidyDue(rh.head.rec) || gkNext) {
     // THE SURVEY (tidy.mjs siteTidy): the bots' pillars and pits round home, and the paths' corridors graded when the paths have no
     // network; a re-survey (TIDY_RESURVEY_MS after a completion) is a new generation of the same record
     let I, s
-    try { I = tidyInputs(bot, c, h, dir); s = siteTidy(planReader(bot), { ...I, now: Date.now() }) } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
+    const k0 = gkNext ? gkNext.k : 0
+    // the stages past the town need the land plan: sited once, in a visit of its own (its routing yields between legs)
+    if (GROUNDS.on && k0 >= 1 && !landHead(dir)) {
+      let lp
+      try { lp = await landPlanNow(bot, dir, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; lp = { ok: false, why: String(e?.message ?? e).slice(0, 60) } }
+      if (!lp.ok || !lp.land) return out('no_effect', 'land_unplanned', `the town's land plan could not be sited (${lp.why}); asked again next visit`, { stop: 'land_unplanned' })
+      return out('success', 'land_planned', `the town's land plan is sited: ring ${lp.land.ringR}, ${lp.land.roads.length - 1} spokes, ${lp.land.corridors.length} corridor boxes`, { stop: 'land_planned' })
+    }
+    try {
+      I = tidyInputs(bot, c, h, dir)
+      if (GROUNDS.on) {
+        // the first stage from k0 with work (tidy.mjs siteStage; stage 0 is siteTidy itself)
+        const land = landHead(dir), read = planReader(bot), last = land ? landStages(gkLandL()).at(-1).k : 0
+        // gkforever-01 DEAD: the cells the record gave up on stay given up in every later generation for GKF.deadMs
+        const dead = GKFS.dead && rh.head ? gkfDeadCarry(rh.head.rec) : null
+        let lights = 0
+        try { lights = Math.min(8, lightsFor(matsTownStock(bot)?.stock?.torch, matsReserve().table?.torch)) } catch { lights = 0 }
+        for (let k = k0; k <= Math.max(k0, last); k++) {
+          s = siteStage(read, { ...I, land, stage: k, lim: gradeLim(read, 6), lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), L: gkLandL(), level: GKFS.level, dead })
+          s.k = k
+          if (!s.ok || s.record) break
+        }
+      } else s = siteTidy(planReader(bot), { ...I, now: Date.now() })
+    } catch { return out('no_effect', 'site_unread', 'the town\'s records could not be read', { stop: 'site_unread' }) }
     if (!s.ok) return out('no_effect', 'no_site', `no tidy (${s.why})`, { stop: 'no_site' })
-    const fresh = cur => !cur || tidyDue(cur)
-    const body = s.record ? { ...s.record, state: 'open', sitedBy: me } : tidyNothing({ home, now: Date.now(), by: me, skipped: s.survey?.skipped ?? {} })
+    const sk = s.k ?? 0
+    // gkforever-01 CLOCK: any due record takes the new generation (the survey may start below the record's stage: the interior)
+    const fresh = GKFS.clock ? (cur => !cur || gkfDueOf(cur).due) : (cur => !cur || tidyDue(cur) || (GROUNDS.on && gkStageDue(cur) && (Number(cur.stage) || 0) < sk))
+    const bodyP = s.record ? { ...(GROUNDS.on ? coreFills(s.record) : s.record), state: 'open', sitedBy: me } : { ...tidyNothing({ home, now: Date.now(), by: me, skipped: { ...(s.survey?.skipped ?? {}), ...(s.road?.skipped ?? {}) } }), ...(GROUNDS.on ? { stage: sk } : {}) }
+    // planahead-01: the stage is planned ahead BEFORE it is published (tidyPlanAhead: the open buildings' stands kept, the reach tagged),
+    // and one `_build op=reach` row says the supply
+    const body0 = PLANAHEAD_ON && GROUNDS.on && s.record ? await tidyPlanAhead(bot, bodyP, home, stood, signal) : bodyP
+    if (body0.reach) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'reach', seg: `stage${sk}`, kind: body0.reach.state, n: body0.reach.n, to: body0.reach.open, result: `${body0.reach.passes}/${body0.reach.checked}/${body0.reach.ms ?? '-'}ms`, why: `${body0.reach.why ?? '-'};stands:${Object.values(body0.standClaimed ?? {}).reduce((a, b) => a + b, 0)}` }) }) } catch { /* telemetry */ } }
+    // gkforever-01: the record carries the interior's audit clock and the given-up cells
+    const now1 = Date.now(), prevG = rh.head?.rec?.gkf ?? null
+    const body = GKFS.clock || GKFS.dead ? { ...body0, gkf: { interiorAt: k0 === 0 ? now1 : (prevG?.interiorAt ?? null), from: k0, why: gkD?.why ?? 'first' }, ...(GKFS.dead && rh.head ? { gkfDead: gkfDeadCarry(rh.head.rec, { now: now1 }) } : {}) } : body0
     const pub = publishRecord(dir, key, cur => (fresh(cur) ? body : null), { by: me })
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
-    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    if (pub.result === 'accepted' && (GKFS.clock || GKFS.level)) groundsCensus(bot, { s, k0, sk, why: gkD?.why ?? 'first', gen: pub.gen, read: planReader(bot), home })
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], ...(GROUNDS.on ? { seg: `stage${sk}`, n: s.record?.replant?.length ?? 0 } : {}), kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     rh = recordHead(dir, key)
     if (!rh.ok || !rh.head) return out('no_effect', 'record_unreadable', 'the tidy record could not be read back')
   }
+  // planahead-01 (Codex fold BLOCKER, fleet): an open building's claimed STANDS are retired from the stage the visit works (a building
+  // sited AFTER the stage was published): a fill on its feet or head, a cut or clear of its floor, leaves the record (planahead.mjs
+  // standRetire -- retired, never refused-and-waited), and the visit guards them (standFeetQ, standFloorK, the clears it is handed)
+  let paStands = null
+  if (PLANAHEAD_ON && GROUNDS.on && rh.head?.rec && !rh.head.rec.structure_complete) {
+    try {
+      paStands = standClaims(paRecords())
+      if (paStands.feet.size || paStands.floor.size) {
+        let n = null
+        const pub = publishRecord(dir, key, cur => { const nx = cur && !cur.structure_complete ? standRetire(cur, paStands) : null; n = nx?.standClaimed ?? null; return nx }, { by: me })
+        if (pub.result === 'accepted') {
+          try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'stand_retired', kind: Object.entries(n ?? {}).map(([a, b]) => `${a}:${b}`).join('+') || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+          const h3 = recordHead(dir, key); if (h3.ok && h3.head) rh = h3
+        }
+      }
+    } catch { paStands = null }
+  }
   const rec = rh.head.rec
-  if (rec.structure_complete) return out('no_effect', 'complete', 'the town ground is tidy')
+  if (rec.structure_complete) {
+    // STATIONS-01 SWEEP: a complete stage's visit (strayDue made it a repair) takes up the town's stray stations, nothing else
+    if (stnOn('sweep')) {
+      const sw = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+      if (sw.tried) return out(sw.back > 0 ? 'success' : 'no_effect', 'swept', `the town ground is tidy; took up ${sw.back} of ${sw.tried} stray station(s) tried (${sw.s?.sweep?.length ?? 0} strays seen)`, { stop: 'swept', cleared: sw.back })
+    }
+    return out('no_effect', 'complete', 'the town ground is tidy')
+  }
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())
   // a cell ANOTHER project's record names now (a project sited since the survey) is never the tidy's: never dug, never filled (read
   // as done)
   let guard
   try { guard = new Set(projectHeads().flatMap(x => (x.head.rec?.cells ?? []).map(q => q.at.join(',')))) } catch { return out('no_effect', 'record_unreadable', 'the other projects\' records could not be read') }
-  const waivedK = q => guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))
+  // planahead-01 (the work-time guard): an open building's claimed STAND is never filled (feet, head) nor its floor cut, whatever
+  // generation the visit works -- read as done / given (planahead.mjs standClaims; a building sited after the stage was published)
+  const standFeetQ = q => !!paStands && Array.isArray(q?.at) && paStands.feet.has(q.at.join(','))
+  const standFloorK = k => !!paStands && paStands.floor.has(k)
+  const waivedK = q => guard.has(q.at.join(',')) || standFeetQ(q) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))
   const slot = takeSlot(dir, key, me, buildersOf(projectsOn().find(p => p.plot === TIDY_PLOT)))
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -20468,9 +22081,11 @@ async function buildTidy (ctx, args, signal) {
     const read = planReader(bot)
     // THE BILL: the open fills (any earth: the bag's spare dirt first, then cobblestone), less the bag's spare dirt and cobblestone,
     // drawn as cobblestone (the town's stone reserve: the project allowance), SHOP_BILL_CAP a visit
-    const open = (rec.cells ?? []).filter(q => !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
+    const open = (rec.cells ?? []).filter(q => q.role !== 'light' && !waivedK(q) && !buildCellDone(read(...q.at), palette, q.role)).length
     const want = Math.max(0, open - spare('dirt') - spare('cobblestone'))
-    const need = want > 0 ? needFromTown({ cobblestone: want }, {}, SHOP_BILL_CAP) : {}
+    // groundskeeper-01: a stage's road lights (torches) and its felled trunks' saplings, less what the bag holds
+    const extra = GROUNDS.on ? gkExtraBill(rec, read, held0, q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)) : {}
+    const need = want > 0 || Object.keys(extra).length ? needFromTown({ ...(want > 0 ? { cobblestone: want } : {}), ...extra }, {}, SHOP_BILL_CAP) : {}
     let took = {}
     bag0 = held0
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
@@ -20492,39 +22107,97 @@ async function buildTidy (ctx, args, signal) {
     bot.shopUnknown ??= new Set()
     // the cuts still standing that this bot has not given up, top first (runVisit `tidy`: dug after the record's clears, under the
     // clear lease, never a record cell)
-    const cuts = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')))
-    const r = await runVisit({ ...canopyOf(bot, c, TIDY_PLOT), dir, key, me, home, stood, record: rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: TIDY_CLEAR_MAX, alsoDone: q => waivedK(q), stuckStalledOnly: true,
+    // stuckclose-01: nor a cut the town has given up (the retry ledger holds it: no walk would be made to it anyway)
+    const tg0 = tidyTownGiven(dir, key, rec, read)
+    const cuts0 = tidyCuts(rec, read, mem).filter(q => !guard.has(q.at.join(',')) && !tg0.has(q.at.join(',')))
+    // groundskeeper-01: the cuts in WALKING order from where the bot stands (tidy.mjs chainCuts), kept so by runVisit
+    const fp = bot.entity?.position
+    // planahead-01: never a cut of a claimed floor (the visit start retired them; this holds if that publish was lost)
+    const cutsPa = paStands ? cuts0.filter(q => !standFloorK(q.at.join(','))) : cuts0
+    const cuts = GROUNDS.on ? chainCuts(cutsPa, fp ? [Math.floor(fp.x), Math.floor(fp.z)] : [home.x, home.z]) : cutsPa
+    const noTorch = q => GROUNDS.on && q.role === 'light' && countItem(bot, 'torch') < 1
+    const r = await runVisit({ ...canopyOf(bot, c, TIDY_PLOT), dir, key, me, home, stood, record: paStands ? { ...rec, clear: (rec.clear ?? []).filter(q => !(Array.isArray(q?.at) && standFloorK(q.at.join(',')))) } : rec, tidy: cuts, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.tidyStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      domain: () => true, walkR: tidyWalkR(rec), blockLayer: false, clearMax: GROUNDS.on ? GK.clearMax : TIDY_CLEAR_MAX, alsoDone: q => waivedK(q) || noTorch(q), stuckStalledOnly: true,
+      ...(GROUNDS.on ? { tidyKeepOrder: true, deferSpent: true } : {}),
+      ...(SCL_ON ? { tidyTownCount: true } : {}),
       // tidydead-01: a hard cell (a block no dig stand reaches, a fill no click lands on) is deferred, so the waiver below can name it
       ...(tidyDeadOn() ? { hardDefers: true } : {}) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    let swept = null
+    // STATIONS-01 SWEEP: the town's stray stations, with what is left of the visit (SWEEP.minMs at least)
+    if (stnOn('sweep') && t0 + budget - ZIG_VISIT_TAIL_MS - Date.now() >= SWEEP.minMs && r.stop !== 'aborted') { try { swept = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
     tidyNoteCuts(mem, r.tidied ?? [], k => { const q = cutAt.get(k); return !!q && cutStanding(read2, q) })
     // THE WAIVER (wall.mjs wallWaiveDue, generic over record cells): a fill this visit deferred, counted WALL_WAIVE_AFTER visits by
     // the stuck map, is named on the record so the tidy closes
-    let rw = rec
+    let rw = rec, waivedN = 0
     try {
-      const waive = wallWaiveDue(rec, r.deferred ?? [])
+      // gkstall-01: the keeper's grounds waive after GK_WAIVE_AFTER visits, with room for a tenth of the stage (tidy.mjs gkWaiveOpts)
+      const waive0 = wallWaiveDue(rec, r.deferred ?? [], GROUNDS.on ? gkWaiveOpts(rec, WALL_WAIVE_MAX) : {})
+      // gkwork-01 rule 4: a STALLED stage (stuck_on_cell: nothing else open) whose waiver room is spent waives the cells the town's stuck
+      // map has counted past the tenth (gkwork.mjs stallWaive), so the cells waiting on them become work
+      const waive1 = GKW_ON && GROUNDS.on && !waive0.length ? stallWaive(rec, r.deferred ?? [], { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
+      // stuckfleet-01 (stuckfleet.mjs lightWaiveDue; LIVE hive-a/hive-c/isolated-a/isolated-d tidy, 3-33 h on ONE road light): a road
+      // light no stand reaches is waived after LIGHT_WAIVE_AFTER deferring visits -- neither waiver above ever takes a light
+      const waive2 = stuckFleetOn() ? [...waive1, ...lightWaiveDue(rec, r.deferred ?? []).filter(l => !waive1.some(w => w.k === l.k))] : waive1
+      // stuckfleet-02 (stuckfleet.mjs orphanWaiveDue; LIVE board-c tidy: 372,66,152 over two waived cells, no face to click, the stall
+      // share spent): a cell orphaned by the waiver below it -- and the open column over it -- is waived, at most half the stage in all
+      const waive3 = stuckFleet2On() ? [...waive2, ...orphanWaiveDue(rec, r.deferred ?? [], read2).filter(o => !waive2.some(w => w.k === o.k))] : waive2
+      // planahead-01: a cell the stage's plan tagged unreached that THIS visit deferred too is waived now (two independent negatives:
+      // planahead.mjs puWaiveDue), in the same room as the waivers above
+      const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive3, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive3, confirm: paConfirm(bot, rec, home, stood) })] : waive3
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
-          if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
+          if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length || !tidySameGen(cur, rec)) return null
           const w = { ...(cur.waived ?? {}) }
           for (const d of waive) if (!w[d.k]) w[d.k] = { why: d.why, at: Date.now(), by: me }
           return { ...cur, waived: w }
         }, { by: me })
-        if (pub.result === 'accepted') for (const d of waive) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
+        if (pub.result === 'accepted') { waivedN = waive.length; for (const d of waive) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } } }
         const h2 = recordHead(dir, key); if (h2.ok && h2.head) rw = h2.head.rec
       }
     } catch { /* counted again next visit */ }
+    // gkstall-01: a visit that waived ends cell_waived (asked again at the keeper's cooldown), never the 6-h stuck_on_cell back-off;
+    // a KEEPER still stuck (no waiver room) lets the lease go, so the grounds never sit with a holder whose order is backed off
+    const stop1 = GROUNDS.on ? gkStopAfterWaive(r.stop, waivedN) : r.stop
+    if (GROUNDS.on && stop1 === 'stuck_on_cell') { try { const k = keeperState(bot, true); if (k.lease?.rec?.holder === me) { releaseKeeper(bot, k.lease, 'stuck'); bot.gkRestUntil = Date.now() + SHOP_STUCK_RETRY_MS } } catch { /* the lease lapses */ } }
     // COMPLETE when every cut is down (or given up by this bot) and every fill reads laid (or waived) -- READ ground only: an unread
     // cut or fill cell is left, never done on no evidence
-    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) })
+    // stuckclose-01: a cut the TOWN has failed RETRY_VISITS visits (the ledger read after this visit settled it) is given up too
+    const tg = tidyTownGiven(dir, key, rw, read2)
+    const prog = tidyProgress(rw, read2, { fillDone: q => guard.has(q.at.join(',')) || standFeetQ(q) || (!!rw.waived && Object.prototype.hasOwnProperty.call(rw.waived, q.at.join(','))) || noTorch(q) || buildCellDone(read2(...q.at), palette, q.role), given: k => guard.has(k) || tidyGivenUp(mem, k) || tg.has(k) })
     const unread = [...(rw.cut ?? []), ...(rw.cells ?? [])].some(q => !read2(...q.at))
-    if (!prog.cutLeft && !prog.fillLeft && !unread) {
+    // groundskeeper-01 (Codex r1 BLOCKER 2): the record's clears (a felled road trunk, head-room leaves) are work too -- left
+    // standing, the stage stays open until this bot's visits have made no clear progress GK_CLEAR_VISITS times (then named)
+    let clearsOk = true
+    if (GROUNDS.on) {
+      const left = tidyClearsLeft(rw, read2)
+      if (left) {
+        const cm = (bot.gkClears ??= new Map()), ck = String(rw.sitedAt ?? rh.head.gen)
+        const n = r.cleared > 0 ? 0 : (cm.get(ck) ?? 0) + 1
+        cm.set(ck, n)
+        clearsOk = n >= GK_CLEAR_VISITS
+        if (clearsOk) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'clears_given_up', n: left, visits: n }) }) } catch { /* telemetry */ } }
+      }
+    }
+    // GKWORK-01 rules 1 and 5: the TOWN counts the empty visits (gkwork.mjs: one strike file per holder); at GKW.emptyVisits the soft
+    // hold (the per-bot clears wait, which the keeper rotation never lets reach its bound) gives way and the stage completes
+    let gkw = null
+    if (GKW_ON && GROUNDS.on) {
+      const empty = visitEmpty({ cutLeft: prog.cutLeft, fillLeft: prog.fillLeft, placed: r.placed, cleared: r.cleared, planted: r.planted, unread })
+      gkw = gkwVisit(dir, key, me, rw, { empty, worked: visitWorked(r) })
+      const clears0 = clearsOk
+      ;({ clearsOk } = softHoldsGive({ clearsOk, close: gkw.close }))
+      if (empty) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: gkw.close ? 'stage_close' : 'stage_held', kind: heldWhy({ clearsLeft: tidyClearsLeft(rw, read2), clearsOk: clears0, unread }), n: gkw.total, visits: GKW.emptyVisits }) }) } catch { /* telemetry */ } }
+    }
+    if (!prog.cutLeft && !prog.fillLeft && !unread && clearsOk) {
       const now = Date.now()
-      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length } : null), { by: me })
-      completed = true
+      // gkforever-01 (Codex r1 BLOCKER 1): with a crew, another builder may have finished this stage and sited the next while this
+      // visit ran: only THIS generation is completed (tidySameGen), and the visit is complete only when it is
+      // stuckclose-01: the cuts the town gave up are named on `waived`, so gkfDeadCarry keeps them out of the next generations a while
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete && tidySameGen(cur, rec) ? { ...cur, structure_complete: true, state: 'complete', completeAt: now, given: [...mem].filter(([, n]) => n >= 1).length, ...(tg.size ? { waived: givenWaivers(cur.waived, tg, { now, by: me }), townGiven: tg.size } : {}) } : null), { by: me })
+      completed = pub.result === 'accepted' || (() => { try { const h3 = recordHead(dir, key); return !!(h3.ok && h3.head?.rec?.structure_complete && tidySameGen(h3.head.rec, rec)) } catch { return false } })()
       if (drawn0 && !drawnWrite(dir, key, me, {})) drawnFails++
       if (pub.result === 'accepted') {
         try { logEvent({ kind: 'structure_complete', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'complete', kind: TIDY_BLUEPRINT, gen: pub.gen ?? '-', n: prog.cutDone + prog.fillDone }) }) } catch { /* telemetry */ }
@@ -20538,11 +22211,16 @@ async function buildTidy (ctx, args, signal) {
         }
       }
     }
+    // GKWORK-01 rule 3: a keeper whose empty visit could not complete the stage although the town's strikes are in (a hard hold it
+    // cannot work from here) lets the lease go now and rests (gkwork.mjs keeperAfterVisit) -- never 20 min idle with it
+    if (gkw?.empty && !completed) {
+      try { const k = keeperState(bot, true); if (keeperAfterVisit({ keeper: k.lease?.rec?.holder === me, empty: gkw.empty, completed, close: gkw.close }) === 'release') { releaseKeeper(bot, k.lease, 'no_work_now'); bot.gkRestUntil = Date.now() + GK_FIT.restMs } } catch { /* the lease lapses */ }
+    }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
-    return out(status, completed ? 'complete' : r.stop, `${r.why ?? r.stop}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}`, { stop: completed ? 'complete' : r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${tg.size ? `; town gave up ${tg.size} cut(s)` : ''}${swept?.tried ? `; took up ${swept.back} of ${swept.tried} stray station(s)` : ''}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
@@ -21048,6 +22726,87 @@ export function planComposterSite (bot, { home, read }) {
   return last
 }
 
+// VILLAGEUNLOCK-01 (T3a, trading design 2026-11-03; OWNER 11-03 "we can edit the world when it comes to opening doors etc"):
+// a jobless villager standing in one cell for 20 min inside a small pen of OPEN trapdoors / CLOSED fence gates gets the pen's
+// barriers toggled (villageunlock.mjs penAround decides; sandbox4 11-03: the whole ring closed -> a job in 5.7 s). The merchant
+// scout's sightings feed the stuck tracker (unlockSee); buildOrder asks unlockAsk in its idle branch; village_unlock walks there
+// and toggles, each activation inside protectzone's withUnlockScope naming that one cell. Never a dig, a placement, a door, a
+// bed, a job site. VILLAGEUNLOCK=off -> no ask.
+const VUON = { on: unlockSwitch() }
+const vuStill = new Map(), vuTried = new Map()
+let vuBot = null, vuLastAt = -Infinity
+/** The scout's hook (merchantscout.mjs onSightings): every scan's sightings. Never throws. */
+export function unlockSee (sightings, now = Date.now()) { try { trackStill(vuStill, sightings, now) } catch { /* telemetry */ } }
+const vuBlockAt = bot => (x, y, z) => { const b = bot?.blockAt?.(new Vec3(x, y, z)); return b ? { name: b.name, props: b.getProperties?.() ?? {} } : null }
+/** shop.mjs buildOrder's unlock ask (set at install). -> { order } | null. Never throws. */
+export function unlockAsk ({ now = Date.now(), health = 20 } = {}, bot = vuBot) {
+  try {
+    if (!VUON.on || !bot || health <= 10 || now - vuLastAt < VU.perBotMs) return null
+    for (const c of stuckCandidates(vuStill, vuTried, now, bot.entity?.position)) {
+      const pen = penAround(vuBlockAt(bot), c)
+      if (!pen.pen) { if (pen.why !== 'unloaded') vuTried.set(c.uuid, now); continue }
+      vuLastAt = now; vuTried.set(c.uuid, now)
+      return { order: { skill: 'village_unlock', args: { x: c.x, y: c.y, z: c.z, uuid: c.uuid, zone: c.zone ?? null } } }
+    }
+    return null
+  } catch { return null }
+}
+/** village_unlock: walk to the villager, re-read its pen, toggle each barrier still toggleable, nearest first; one row. */
+async function villageUnlock (ctx, args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const v = { x: Number(args?.x), y: Number(args?.y), z: Number(args?.z) }
+  const done = []
+  let pen = null
+  const end = (status, stop) => {
+    try { logEvent({ kind: 'village_unlock', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: unlockDetail({ villager: v, zone: args?.zone ?? null, pen, done, stop }), args: { villager: `${Math.floor(v.x)},${Math.floor(v.y)},${Math.floor(v.z)}`, uuid: args?.uuid ?? null, zone: args?.zone ?? null, toggles: pen?.toggles?.length ?? 0, done, stop } }) } catch { /* telemetry */ }
+    return { status, detail: `village_unlock: ${stop} (${done.length} toggled)` }
+  }
+  if (![v.x, v.y, v.z].every(Number.isFinite)) return end('failed', 'bad_args')
+  let gerr = '', leaseFile = null
+  const release = () => { if (leaseFile) { try { if (JSON.parse(fs.readFileSync(leaseFile, 'utf8')).bot === bot.username) fs.unlinkSync(leaseFile) } catch { /* gone */ } leaseFile = null } }
+  try { await goto(ctx, { x: Math.floor(v.x), y: Math.floor(v.y), z: Math.floor(v.z), range: 4 }, signal, { until: Date.now() + 90_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; gerr = String(e?.message ?? e).slice(0, 50) }
+  check(signal)
+  pen = penAround(vuBlockAt(bot), v)
+  if (!pen.pen) return end('no_effect', `no_pen:${pen.why}`)
+  // THE VILLAGER IS STILL THERE, jobless, in this pen (Codex r1 blocker 3): never change an empty enclosure
+  const ve = Object.values(bot.entities ?? {}).find(e => e?.uuid && e.uuid === args?.uuid)
+  const still = villagerStillPenned(ve, pen)
+  if (still !== 'ok') return end('no_effect', still)
+  // ONE BOT PER PEN (Codex r1 blocker 1; re-check: a stale-lease takeover raced): villageunlock.mjs takeLease, announce then check
+  const lease = takeLease({ dir: poolStateDir(config.memory.pool), key: penKey(pen), name: bot.username })
+  if (!lease.ok) return end('no_effect', lease.why)
+  leaseFile = lease.file
+  const skip = new Set()
+  try {
+  for (let i = 0; i <= pen.toggles.length; i++) {
+    check(signal)
+    const nt = nextToggle(pen.toggles.filter(q => !skip.has(`${q.x},${q.y},${q.z}`)), vuBlockAt(bot), bot.entity.position)
+    if (!nt) break
+    if (reachOf(nt, bot.entity.position) > VU.reach) {
+      try { await goto(ctx, { x: nt.x, y: nt.y, z: nt.z, range: 3 }, signal, { until: Date.now() + 30_000 }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; gerr = String(e?.message ?? e).slice(0, 50) }
+      check(signal)
+      if (reachOf(nt, bot.entity.position) > VU.reach + 0.5) return end(done.length ? 'success' : 'failed', `unreachable:${nt.x},${nt.y},${nt.z}${gerr ? ` goto:${gerr}` : ''}`)
+    }
+    // RE-READ JUST BEFORE THE CLICK (Codex r1 blocker 1): after the walk it must still be an open barrier that leads out
+    const b = bot.blockAt(new Vec3(nt.x, nt.y, nt.z))
+    const cell = pen.cells.find(c => Math.abs(c.x - nt.x) + Math.abs(c.z - nt.z) === 1)
+    if (!b || !cell || !toggleable(vuBlockAt(bot)(nt.x, nt.y, nt.z)) || !barrierExits(vuBlockAt(bot), nt.x, nt.y, nt.z, nt.x - cell.x, nt.z - cell.z)) { skip.add(`${nt.x},${nt.y},${nt.z}`); continue }
+    try { await withUnlockScope([nt], () => bot.activateBlock(b)) } catch (e) { return end(done.length ? 'success' : 'failed', `refused:${String(e?.message ?? e).slice(0, 60)}`) }
+    await sleep(400, signal)
+    const after = vuBlockAt(bot)(nt.x, nt.y, nt.z)
+    if (!after || toggleable(after)) return end(done.length ? 'success' : 'failed', `unchanged:${nt.x},${nt.y},${nt.z}`)
+    done.push(`${nt.x},${nt.y},${nt.z}`)
+  }
+  return end(done.length ? 'success' : 'no_effect', 'done')
+  } finally { release() }
+}
+/** VILLAGEUNLOCK-01, once per spawn (features.mjs): the ask is wired and the licence row written. Never throws. */
+export function villageUnlockInstall (bot) {
+  vuBot = bot
+  if (VUON.on) setUnlockAsk(unlockAsk)
+  try { logEvent({ kind: 'villageunlock_mode', status: 'success', snapshot: snapshot(bot), detail: unlockModeDetail(VUON.on) }) } catch { /* telemetry */ }
+}
 export const SKILL_CONTRACTS = {
   goto:     { expects: ['position'],              maxMs: 120_000 },
   explore:  { expects: ['position'],              maxMs: 120_000 },
@@ -21101,6 +22860,7 @@ export const SKILL_CONTRACTS = {
   // own verified count of parts made (mats_effect); the recovery's is that count or the bag's loss of what it banked
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
+  village_unlock: { expects: ['position'], maxMs: 180_000 },   // villageunlock-01: its evidence is the `_village_unlock` row
   deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
@@ -22296,6 +24056,7 @@ export const SKILLS = {
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
   build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
+  village_unlock: { run: villageUnlock, usage: 'village_unlock', args: [], chatOnly: true },   // villageunlock-01 (buildOrder issues it; never the model's)
   deep_mine: { run: deepMine, usage: 'deep_mine', args: [], chatOnly: true },   // deepminer-01 (cognitive.mjs issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },

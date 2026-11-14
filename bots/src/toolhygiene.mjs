@@ -27,6 +27,26 @@ export const ESCAPE_PICK_NAMES = Object.freeze(new Set(['wooden_pickaxe', 'stone
 /** Stations a bot needs one of: a carried one is placed by the skill that uses it (craft, smelt). */
 export const STATIONS = Object.freeze(new Set(['crafting_table', 'furnace']))
 
+// TOOLRANK-01 (11-09, owner-approved "bots don't craft lower-tier tools they don't need"). MEASURED 6 h to 11-09 ~14:30Z (80 bots,
+// 515 craft rows): 157 successful wooden/stone tool crafts, 134 by bots holding a usable (> FLOOR) better-tier copy of the same
+// kind -- 96 pickaxes, 23 shovels, 15 axes; 132 of the 134 the model's own proposals. This rule never covered axes/shovels/hoes/
+// swords at all (the toolkit gives every bot an iron axe and shovel), and for pickaxes it counted only a 40+-use stone copy as
+// cover, so a bot holding the toolkit's PAIR (an iron-or-better pickaxe at the trip line + a usable stone spare under 40) made
+// stone pickaxe after stone pickaxe. Two additions, after every existing exemption (task wants, escape reserve, exit reserve,
+// open exit shortfall) -- so they only ever refuse what those already admit as surplus:
+//   OTHER TOOLS  axe/shovel/hoe/sword: refused beside a same-kind copy of the same tier or better with > FLOOR uses.
+//   THE PAIR     wooden/stone pickaxe: refused beside an iron-or-better pickaxe with >= TRIP_USES AND a spare of the item's
+//                tier or better (rank <= stone) with > FLOOR uses -- the toolkit's one stone spare is already carried.
+// TOOLRANK=off is the base exactly. Pure.
+const OFFV = v => v != null && /^(0|off|false|no)$/i.test(String(v).trim())
+export const TOOLRANK = Object.freeze({ on: !OFFV(typeof process !== 'undefined' ? process.env?.TOOLRANK : null) })
+/** The trip line an iron-or-better pickaxe must hold to stand as the pair's main pick (toolkit IRONPICK_TRIP_USES / MIN_TRIP_USES). */
+export const PAIR_MAIN_USES = MIN_TRIP_USES
+const OTHER_TOOL_RE = /^(wooden|golden|stone|iron|diamond|netherite)_(axe|shovel|hoe|sword)$/
+/** -> { rank, kind } of an axe/shovel/hoe/sword, else null. Pure. */
+export const otherTool = name => { const m = OTHER_TOOL_RE.exec(String(name ?? '')); return m ? { rank: HARVEST_RANK[m[1]], kind: m[2] } : null }
+const fmtUses = n => (Number.isFinite(n) ? `${n} uses left` : 'unknown durability (counted as full)')
+
 /** Uses a held copy needs before a craft of `item` is redundant: the ladder's own line for stone, else above FLOOR. */
 export function craftCoverNeed (item) {
   return item === 'stone_pickaxe' ? Math.max(FLOOR + 1, MIN_TRIP_USES) : FLOOR + 1
@@ -49,7 +69,7 @@ const taskWants = (wanted, item) => !!wanted && (wanted instanceof Set ? wanted.
  *           `mine` refuses below that line and its remedy is another pickaxe (Codex review, round 1).
  * The copy named is the fullest covering one; it does everything another copy would (dig with it).
  */
-export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYGIENE.on, y = null, exitShort = null, now = Date.now() } = {}) {
+export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYGIENE.on, y = null, exitShort = null, now = Date.now(), toolrank = TOOLRANK.on } = {}) {
   if (!on || typeof item !== 'string' || taskWants(wanted, item)) return null
   const bag = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
   if (STATIONS.has(item)) {
@@ -59,6 +79,17 @@ export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYG
       ? 'smelt places a carried furnace by itself (or: place item=furnace)'
       : 'craft uses a carried crafting_table by itself (or: place item=crafting_table)'
     return { item, kind: 'station', held: item, uses: null, need: 1, pickUses: null, exitNeed: null, detail: `you already carry ${n === 1 ? 'a' : n} ${item} -- ${how}; no second one is needed` }
+  }
+  // TOOLRANK-01 OTHER TOOLS: an axe/shovel/hoe/sword beside a same-kind copy of the same tier or better that still works
+  const ot = otherTool(item)
+  if (ot) {
+    if (!toolrank) return null
+    const cover = bag.filter(it => { const o = otherTool(it.name); return o && o.kind === ot.kind && o.rank >= ot.rank && remaining(it) > FLOOR })
+      .sort((a, b) => (otherTool(b.name).rank - otherTool(a.name).rank) || (remaining(b) - remaining(a)))[0]
+    if (!cover) return null
+    const left = remaining(cover)
+    return { item, kind: 'tool', held: cover.name, uses: Number.isFinite(left) ? left : null, need: FLOOR + 1, pickUses: null, exitNeed: null,
+      detail: `you already hold a ${cover.name} with ${fmtUses(left)} -- it does everything a ${item} does${ot.kind === 'sword' ? '' : ' and is picked for the job by itself'}; use it, and craft a ${item} only when no ${ot.kind} of that tier or better has more than ${FLOOR} uses` }
   }
   const rank = pickRank(item)
   if (rank == null) return null
@@ -76,7 +107,7 @@ export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYG
   // stone digs in the probe, the burn iron retention removed. Iron and better are covered by the same rank or higher.
   const cover = bag.filter(it => { const r = pickRank(it.name); return r != null && r >= rank && (rank >= 3 || r <= 2) && remaining(it) >= need })
     .sort((a, b) => (remaining(b) - remaining(a)) || (pickRank(b.name) - pickRank(a.name)))[0]
-  if (!cover) return null
+  if (!cover) return toolrank && rank <= 2 ? pairCovers(item, rank, bag, exitNeed) : null
   const left = remaining(cover)
   const usesText = Number.isFinite(left) ? `${left} uses left` : 'unknown durability (counted as full)'
   const tierWord = item.replace(/_pickaxe$/, '')
@@ -84,6 +115,18 @@ export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYG
     item, kind: 'pickaxe', held: cover.name, uses: Number.isFinite(left) ? left : null, need, pickUses, exitNeed,
     detail: `you already hold a ${cover.name} with ${usesText} (a ${tierWord}-or-better pickaxe with ${need}+ uses is all any goal asks for) -- dig with it; craft another ${item} when it is below ${need}`,
   }
+}
+
+/** TOOLRANK-01 THE PAIR: a wooden/stone pickaxe beside an iron-or-better main pick (>= PAIR_MAIN_USES) and a spare of the item's
+ *  tier or better, at most stone (> FLOOR) -> the refusal, else null. Pure. Asked only after every exemption above admitted. */
+export function pairCovers (item, rank, bag, exitNeed = null) {
+  const byUses = (a, b) => remaining(b) - remaining(a)
+  const main = bag.filter(it => (pickRank(it.name) ?? 0) >= 3 && remaining(it) >= PAIR_MAIN_USES).sort(byUses)[0]
+  const spare = bag.filter(it => { const r = pickRank(it.name); return r != null && r >= rank && r <= 2 && remaining(it) > FLOOR }).sort(byUses)[0]
+  if (!main || !spare) return null
+  const m = remaining(main); const sp = remaining(spare)
+  return { item, kind: 'pickaxe_pair', held: `${main.name}+${spare.name}`, uses: Number.isFinite(sp) ? sp : null, need: FLOOR + 1, pickUses: pickaxeUses(bag), exitNeed,
+    detail: `you already carry the toolkit's pair: a ${main.name} with ${fmtUses(m)} and a ${spare.name} spare with ${fmtUses(sp)} -- dig with them (the cheapest one that harvests is picked for you); craft another ${item} when the spare is down to ${FLOOR}` }
 }
 
 /** How long a `mine` refusal for want of pickaxe swings keeps pickaxe crafts admitted (cognitive PREREQ_TTL_MS). */

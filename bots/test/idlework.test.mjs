@@ -229,16 +229,34 @@ await t('deposit_surplus at a chest: real surplus is still asked for (positive c
   assert.equal(surplus.done(bot), true)
   CHEST.v = false
 })
-await t('Codex r1 BLOCK: a six-iron batch at the chest is below depositDue\'s 12 -- admission refuses it, so the rung is met (no 45-min wait)', () => {
+await t('Codex r1 BLOCK, DEPOSITRUNG=0 (the old gate): a six-iron batch at the chest is below depositDue\'s 12 -- admission refuses it, so the rung is met (no 45-min wait)', () => {
   CHEST.v = true
-  ITEMS = [{ name: 'raw_iron', count: 6 }, { name: 'iron_pickaxe', count: 1, maxDurability: 250 }]
-  assert.ok(BK.depositPlan(ITEMS).length > 0, 'the plan would move the iron')
-  assert.equal(MS.depositRefused(ITEMS), true)
-  assert.equal(surplus.done(bot), true)
-  ITEMS = [{ name: 'raw_iron', count: 14 }]
-  assert.equal(MS.depositRefused(ITEMS), false, 'positive control: 14 is due')
-  assert.equal(surplus.done(bot), false)
-  CHEST.v = false
+  const was = process.env.DEPOSITRUNG
+  process.env.DEPOSITRUNG = '0'
+  try {
+    ITEMS = [{ name: 'raw_iron', count: 6 }, { name: 'iron_pickaxe', count: 1, maxDurability: 250 }]
+    assert.ok(BK.depositPlan(ITEMS).length > 0, 'the plan would move the iron')
+    assert.equal(MS.depositRefused(ITEMS), true)
+    assert.equal(surplus.done(bot), true)
+    ITEMS = [{ name: 'raw_iron', count: 14 }]
+    assert.equal(MS.depositRefused(ITEMS), false, 'positive control: 14 is due')
+    assert.equal(surplus.done(bot), false)
+  } finally { if (was === undefined) delete process.env.DEPOSITRUNG; else process.env.DEPOSITRUNG = was; CHEST.v = false }
+})
+await t('decbundle-01: with the `#N` fix (default) the gate admits a six-iron batch on the deposit rung, so the rung asks for it (banked, not skipped); nothing to bank is still met', async () => {
+  CHEST.v = true
+  try {
+    ITEMS = [{ name: 'raw_iron', count: 6 }, { name: 'iron_pickaxe', count: 1, maxDurability: 250 }]
+    assert.equal(MS.depositRefused(ITEMS), false)
+    assert.equal(surplus.done(bot), false)
+    // THE GATE AGREES (the reason this changed): the same bag, deposit {} on deposit_surplus#N, at the chest, is admitted
+    const DO = await import('../src/depositoffer.mjs')
+    assert.equal(DO.depositVerdict({ planLength: BK.depositPlan(ITEMS).length, bankable: BK.bankableInventory(ITEMS, { wants: BK.DEPOSIT_ALWAYS }).count,
+      occupiedSlots: ITEMS.length, distHome: 0, storageWithin48: true, onDepositMilestone: DO.onDepositRung('deposit_surplus#3207') }).ok, true)
+    ITEMS = [{ name: 'iron_pickaxe', count: 1, maxDurability: 250 }]
+    assert.equal(MS.depositRefused(ITEMS), true, 'positive control: a plan that moves nothing is still refused')
+    assert.equal(surplus.done(bot), true)
+  } finally { CHEST.v = false }
 })
 await t('Codex r1 BLOCK: a noBar give-up never reads as an `attempts` skip (cognitive tells peers skipped.at(-1) is unreachable on that reason)', () => {
   MS._idleReset(); ITEMS = mkItems(); DIST = 3; CHEST.v = false

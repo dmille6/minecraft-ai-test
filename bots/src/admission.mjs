@@ -10,17 +10,25 @@
 // you can query in Kibana.
 
 import { cooldownHit, KEEPOUT_COOLDOWN_MS, KEEPOUT_COOLDOWN_NEAR } from './keepout.mjs'
-import { SKILLS, actionKey, foodSkipNow, stockRefusedRow } from './skills.mjs'
+import { gatherMemOn, areaRefusal, areaRefusalDetail } from './gathermem.mjs'
+import { SKILLS, actionKey, foodSkipNow, stockRefusedRow, craftableFromBag } from './skills.mjs'
 import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
-import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
+import { bankableInventory, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { depositVerdict, onDepositRung } from './depositoffer.mjs'
+import { bankClosed, bankClosedDetail, depositTargetOk, inTown } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
+import { swingRewrite } from './pickswings.mjs'   // ironchain-02: an iron pickaxe asked for swings, with no iron, is a stone one
+import { repeatWorkConfig, repeatDecision, ledgerSet, PROGRESS_SKILLS, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
+import { logEvent } from './logger.mjs'
+import { townLogCapState, townLogTop, logGateOn, isLogBlock, bagWoodUnits, logGatherGate, logGateDetail, LOGGATE_RUNG_LOGS } from './logcap.mjs'   // loggate-01
+import { WOOD_KEEP } from './woodkeep.mjs'
+import { snapshot } from './state.mjs'
 
 
 const REPEAT_WINDOW = 4
@@ -162,6 +170,13 @@ export function depositItemArg (items, item) {
   return held ? { item: name, missing: false } : { item: name, missing: true }
 }
 
+/** gathermem-01: the area entry refusing (gather, block) where `bot` stands -> entry | null. GATHERMEM=0: never. */
+function gatherAreaHit (bot, block, now = Date.now()) {
+  if (!gatherMemOn() || !block || !Array.isArray(bot?.gatherAreas) || !bot.gatherAreas.length) return null
+  const p = bot.entity?.position
+  return p ? areaRefusal(bot.gatherAreas, { block, pos: { x: p.x, y: p.y, z: p.z }, now }) : null
+}
+
 export class AdmissionControl {
   constructor(lessons = null) {
     this.lessons = lessons
@@ -170,6 +185,12 @@ export class AdmissionControl {
     this.blockedCount = {}             // per-key block tally, for probation
     this.vetoStreak = 0                // consecutive learned_avoid rejections
     this.activeMilestoneId = null      // set by the cognitive layer each decision
+    // REPEATWORK-01 (repeatwork.mjs): the window does not refuse a gather whose last run of that key, on this rung, gained
+    this.repeatWork = repeatWorkConfig(process.env)
+    this.lastRun = new Map()           // key -> { gain, milestoneId, targeted }: the key's LAST run (bounded, LEDGER_MAX)
+    this.rwTally = null                // one repeatwork_tally row per 10 min
+    this.rwBot = null                  // the bot the last check() judged: the tally row's snapshot
+    this.rwWhy = null                  // this proposal's repeat outcome, handed from #check to check()
   }
 
   static key(skill, args) { return actionKey(skill, args) }
@@ -178,10 +199,64 @@ export class AdmissionControl {
   noteFailure(skill, args) {
     this.failedCooldowns.set(AdmissionControl.key(skill, args),
                              Date.now() + config.skills.failedCooldownMs)
+    this.#noteRun(skill, args, false)
   }
 
+  /** Called by the cognitive layer only for a VALUABLE success: the contract was met and the gain is one the rung wants. */
   noteSuccess(skill, args) {
     this.failedCooldowns.delete(AdmissionControl.key(skill, args))
+    this.#noteRun(skill, args, true)
+    if (skill === 'withdraw' && isLogBlock(args?.item)) this.logGateTriedAt = null   // loggate-01: the withdrawal brought wood
+  }
+
+  /** LOGGATE-01: the gate's decision for a proposed gather (logcap.mjs logGatherGate), or null (not a log, off, uncapped,
+   *  or anything thrown: the gate never breaks a decision -- null is the base). */
+  #logGate (args, bot, wanted = null) {
+    try {
+      if (!logGateOn() || !isLogBlock(args?.block)) return null
+      const cap = townLogCapState(bot)
+      if (!cap?.capped) return null
+      const items = bot?.inventory?.items?.() ?? []
+      const wood = bagWoodUnits(items)
+      // the logs the ACTIVE rung counts (its wanted names) that the bag holds, when that rung wants a log at all
+      const want = wanted instanceof Set ? wanted : new Set(Array.isArray(wanted) ? wanted : [])
+      const rungLogs = [...want].some(isLogBlock) ? items.reduce((t, it) => t + (want.has(it?.name) && isLogBlock(it?.name) ? (it.count ?? 0) : 0), 0) : null
+      const pos = bot?.entity?.position
+      const near = !!pos && inTown({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, pos)
+      let top = null
+      if (near && (wood < WOOD_KEEP || (rungLogs != null && rungLogs < LOGGATE_RUNG_LOGS))) top = townLogTop(bot)   // the town index is read only for a bot in town that is short
+      const g = logGatherGate({ block: args.block, count: args.count, cap, wood, keep: WOOD_KEEP, inTown: near, top, triedAt: this.logGateTriedAt ?? null, rungLogs })
+      return g.act === 'pass' ? null : { ...g, wood, cap }
+    } catch { return null }
+  }
+  #logGateRow (bot, g, args, asked, to = null) {
+    if (this.dry) return
+    try {
+      logEvent({ kind: 'loggate', status: g.act === 'refuse' ? 'failed' : 'success', snapshot: snapshot(bot),
+                 detail: logGateDetail(g, { block: args.block, asked, wood: g.wood, cap: g.cap, to }) })
+    } catch { /* telemetry */ }
+  }
+
+  /** REPEATWORK-01: the outcome of the key's last run. Its rung is the one it was ADMITTED on: check() writes the entry for
+   *  every admission (each path, the early ones included); a key with no entry (evicted) earns nothing. */
+  #noteRun(skill, args, gain) {
+    try {
+      const key = AdmissionControl.key(skill, args)
+      const prev = this.lastRun.get(key)
+      ledgerSet(this.lastRun, key, { gain: gain && !!prev, milestoneId: prev?.milestoneId ?? null, targeted: prev?.targeted === true })
+      if (PROGRESS_SKILLS.has(skill)) this.#rwCount(gain ? 'gather_gains' : 'gather_fails')
+    } catch { /* bookkeeping must never break a decision */ }
+  }
+
+  /** REPEATWORK-01: one repeatwork_tally row per bot per 10 min (repeatwork.mjs tallyLine). */
+  #rwCount(...whats) {
+    const now = Date.now()
+    this.rwTally ??= { t0: now, c: {} }
+    for (const w of whats) this.rwTally.c[w] = (this.rwTally.c[w] ?? 0) + 1
+    if (now - this.rwTally.t0 >= REPEAT_WORK_TALLY_MS) {
+      try { logEvent({ kind: 'repeatwork_tally', status: 'success', detail: repeatWorkTallyLine({ secs: (now - this.rwTally.t0) / 1000, c: this.rwTally.c }), snapshot: this.rwBot ? snapshot(this.rwBot) : undefined }) } catch { /* telemetry only */ }
+      this.rwTally = { t0: now, c: {} }
+    }
   }
 
   /** Called after an escape action, so the model gets a clean slate to choose from. */
@@ -202,9 +277,51 @@ export class AdmissionControl {
     const key = AdmissionControl.key(skill, args)
     const until = this.failedCooldowns.get(key)
     if (until && now < until) return 'cooldown'
+    // GATHERMEM-01: a (gather, block) that found nothing takeable where the bot now stands -- an order is not issued into it
+    if (skill === 'gather' && gatherAreaHit(this.lastBot, args?.block, now)) return 'gather_area'
     if ((this.lessons?.failCount?.(skill, args) ?? 0) >= 4) return 'learned_avoid'
-    if (this.recent.filter(k => k === key).length >= REPEAT_WINDOW) return 'repeat_loop'
+    // REPEATWORK-01: the same decision check() makes (repeatwork.mjs repeatDecision)
+    if (this.#repeat(skill, key).refuse) return 'repeat_loop'
     return null
+  }
+
+  /** REPEATWORK-01: the window's decision for this key, through the one pure rule (memoryRefuses and check both ask here). */
+  #repeat(skill, key) {
+    return repeatDecision({ cfg: this.repeatWork, skill, repeats: this.recent.filter(k => k === key).length, window: REPEAT_WINDOW,
+                            last: this.lastRun.get(key), milestoneId: this.activeMilestoneId ?? null })
+  }
+
+  /**
+   * WOULD check() REFUSE THIS DEPOSIT ON ITS DEPOSIT RULES? -> depositVerdict's { ok } | { ok: false, reason } (bank_closed /
+   * deposit_nothing_to_bank / deposit_not_worth_it). DEPOSITOFFER-01: check() decides with this, and the prompt's offer asks
+   * it with item = null (the widest deposit: a named plan is a subset of the unnamed one). No rows and no wants written to
+   * the bot; the one write is bankClosed()'s own lapse/reopen of bot.bankClosed (chestfull.mjs), which the deposit_surplus
+   * rung's done() and the prompt already trigger every tick. `pre` lets check() pass what it already computed.
+   */
+  depositRunnable(bot, item = null, wanted = null, milestoneId = this.activeMilestoneId, pre = null) {
+    const closed = bankClosed(bot)
+    if (closed) return { ok: false, reason: 'bank_closed' }
+    const items = pre?.items ?? bot.inventory?.items?.() ?? []
+    const wants = pre?.wants ?? [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
+    const noSwords = pre?.noSwords ?? foodSkipNow(bot).active
+    const bank = pre?.bank ?? bankableInventory(items, { wants, noSwords })
+    const capNames = item == null ? ['cobblestone', 'cobbled_deepslate'] : /^(cobblestone|cobbled_deepslate)$/.test(item) ? [item] : []
+    const reconcile = capNames.some(n => bankableExclusion(items, n, { wants, noSwords }) === 'town_cobble_unknown') && cobbleReconcileProbe().can
+    return depositVerdict({
+      planLength: depositPlan(items, item, { wants, noSwords }).length,
+      reconcile,
+      bankable: bank.count,
+      occupiedSlots: items.length,
+      distHome: horizontalDistanceFromSpawn(bot.entity.position),
+      // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it. Read only when needed.
+      storageWithin48: () => !!bot.findBlock?.({
+        matching: b => ['chest','barrel','trapped_chest']
+          .includes(bot.registry?.blocks?.[b.type]?.name) &&
+          depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
+      // THE `#N` FIX: sustaining ids are `deposit_surplus#3207`; `=== 'deposit_surplus'` was never true on the fleet
+      // (DEPOSITRUNG=0 is its rollback: depositoffer.mjs onDepositRung)
+      onDepositMilestone: onDepositRung(milestoneId),
+    })
   }
 
   /**
@@ -244,6 +361,46 @@ export class AdmissionControl {
    * @returns {{ok: true, skill, args} | {ok: false, reason: string, detail: string}}
    */
   check(proposal, bot, wanted = null) {
+    this.lastBot = bot ?? this.lastBot   // gathermem-01: memoryRefuses reads where the bot stands (it is not passed one)
+    const out = this.#check(proposal, bot, wanted)
+    // REPEATWORK-01: EVERY admission -- normal, milestone_critical, forced, bootstrap, the safety orders -- starts the key's
+    // run with no gain on this rung (both reviews r1: an early return used to keep an older run's verdict). Only the run's
+    // own valuable outcome (noteSuccess) turns it on.
+    if (out?.ok) {
+      try {
+        ledgerSet(this.lastRun, AdmissionControl.key(out.skill, out.args), { gain: false, milestoneId: this.activeMilestoneId ?? null,
+          targeted: !!(wanted && ((wanted instanceof Set ? wanted.size : wanted.length) > 0)) })
+      } catch { /* bookkeeping must never break a decision */ }
+    }
+    // REPEATWORK-01's tally: every proposal judged (model and order alike), refused or admitted
+    const why = this.rwWhy; this.rwWhy = null
+    try { if (bot) this.rwBot = bot; this.#rwCount('checks', out?.ok ? 'admitted' : 'refused', ...(why ? [why] : [])) } catch { /* telemetry only */ }
+    return out
+  }
+
+  /**
+   * PIPELINE-01 (pipeline.mjs): WOULD check() ADMIT THIS NOW? The same #check, with nothing written: the repeat window,
+   * the veto streak, the probation counters (in memory and persisted), the counters and the bot's deposit wants are put
+   * back, and no row is logged. A prefetched pick is judged here first, so the gate's state only ever sees the ONE
+   * proposal a decision runs through check().
+   */
+  dryCheck(proposal, bot, wanted = null) {
+    const keep = { recent: this.recent.slice(), vetoStreak: this.vetoStreak, forcedAdmissions: this.forcedAdmissions,
+      milestoneCriticalAdmissions: this.milestoneCriticalAdmissions, blockedCount: { ...this.blockedCount },
+      normalisations: this.normalisations, resolutions: this.resolutions, rwWhy: this.rwWhy }
+    const hadWants = !!bot && Object.prototype.hasOwnProperty.call(bot, 'currentWants'), wants = bot?.currentWants
+    this.dry = true
+    // a COPY: #check normalises args in place, and the real check() must see the proposal as the model wrote it
+    try { return this.#check(proposal && typeof proposal === 'object' ? structuredClone(proposal) : proposal, bot, wanted) }
+    catch (e) { return { ok: false, reason: 'dry_error', detail: String(e?.message ?? e).slice(0, 120) } }
+    finally {
+      this.dry = false
+      Object.assign(this, keep)
+      if (bot) { if (hadWants) bot.currentWants = wants; else delete bot.currentWants }
+    }
+  }
+
+  #check(proposal, bot, wanted = null) {
     if (!proposal || typeof proposal !== 'object') {
       return { ok: false, reason: 'no_proposal', detail: 'model produced nothing usable' }
     }
@@ -308,6 +465,38 @@ export class AdmissionControl {
       }
     }
 
+    // LOGGATE-01 (logcap.mjs): THE TOWN'S LOG LIMIT IS A REFUSAL, NOT A PROMPT LINE. A gather of a log while the bot's town is
+    // capped: a bot that holds its wood keep is refused (432 such cuts succeeded in 6 h in capped towns, 11-12); a bot short
+    // of wood is sent to the town's own logs (a withdrawal, admitted through this same check), or -- away from town, no log
+    // in the index, a withdrawal tried in the last 10 min, or the withdrawal not admissible now -- cuts only what it is short.
+    if (skill === 'gather') {
+      const g = this.#logGate(args, bot, wanted)
+      if (g) {
+        const asked = args.count
+        if (g.act === 'refuse') {
+          this.#logGateRow(bot, g, args, asked)
+          return { ok: false, reason: 'log_cap', detail: g.detail }
+        }
+        if (g.act === 'withdraw') {
+          const p = { skill: 'withdraw', args: { item: g.item, count: g.count }, reason: proposal.reason }
+          // would the withdrawal be admitted? asked without touching the gate's state (inside a dry check, state is restored by it)
+          const probe = this.dry ? this.#check(structuredClone(p), bot, wanted) : this.dryCheck(p, bot, wanted)
+          if (probe.ok) {
+            if (this.dry) return probe
+            this.logGateTriedAt = Date.now()
+            this.#logGateRow(bot, g, args, asked, `withdraw:${g.item}:${g.count}`)
+            return this.#check(p, bot, wanted)
+          }
+          // the withdrawal is not admissible now (a cooldown, a full cursor, a learned rule): never a refusal while short of wood
+          args.count = g.cut
+          this.#logGateRow(bot, { ...g, act: 'clamp', why: `withdraw_${probe.reason ?? 'refused'}` }, args, asked, `gather:${g.cut}`)
+        } else if (g.act === 'clamp') {
+          args.count = g.count
+          this.#logGateRow(bot, g, args, asked, `gather:${g.count}`)
+        }
+      }
+    }
+
     // KEEPOUT-01: A REFUSED (gather, block) OR mine IS SUPPRESSED NEAR THE COLUMN (keepout.mjs cooldownHit; design 4.6 rows 2-3).
     // The run that met the column ended without a dig and charged a 10-min cooldown; within 32 blocks of the column the same
     // proposal is refused HERE, so the next decision is a different one. The remedy is a move the bot can make from here.
@@ -319,6 +508,15 @@ export class AdmissionControl {
                          `every candidate near is in the column above a marked lava pool (${hit.site.x},${hit.site.y},${hit.site.z}); ` +
                          `walk ${KEEPOUT_COOLDOWN_NEAR}+ blocks from it, or do something else (${Math.ceil((hit.until - Date.now()) / 1000)}s left)` }
       }
+    }
+
+    // GATHERMEM-01: A GATHER THAT JUST FOUND NOTHING TAKEABLE HERE IS NOT RUN AGAIN HERE FOR A FEW MINUTES (gathermem.mjs).
+    // The run that wrote the entry scanned this spot and found every candidate unsafe, buried, refused or just failed; the
+    // same scan from the same spot returns the same answer, and 8,411 same-spot repeats cost the fleet 93.7 bot-h a day.
+    // The detail names a remedy executable from here (mine for an ore, another block, or walk away), and the entry expires.
+    if (skill === 'gather') {
+      const hit = gatherAreaHit(bot, args.block)
+      if (hit) return { ok: false, reason: 'gather_area', detail: areaRefusalDetail(hit) }
     }
 
     // SWIM_TO IS FOR WATER, AND SAYING SO HERE SAVES A WHOLE DECISION.
@@ -421,27 +619,16 @@ export class AdmissionControl {
       // container never counted) is the one empty plan a deposit can change -- it counts the uncounted ones. Only where the
       // deposit WILL count (both reviews r2): in town by the deposit's own boundary (inTown, not distance from the origin),
       // with an uncounted container outside its backoff (the probe), and for the requested name only.
-      const capNames = args?.item == null ? ['cobblestone', 'cobbled_deepslate'] : /^(cobblestone|cobbled_deepslate)$/.test(args.item) ? [args.item] : []
-      const reconcile = capNames.some(n => bankableExclusion(items, n, { wants, noSwords }) === 'town_cobble_unknown') && cobbleReconcileProbe().can
-      if (!depositPlan(items, args?.item ?? null, { wants, noSwords }).length && !reconcile) {
+      // DEPOSITOFFER-01: the decision is depositRunnable (below) -- the same reader the prompt's offer asks with item = null
+      const dv = this.depositRunnable(bot, args?.item ?? null, wanted, this.activeMilestoneId, { items, wants, noSwords, bank })
+      if (dv.reason === 'deposit_nothing_to_bank') {
         // THE CAP'S REFUSAL IS A ROW HERE TOO (Codex fold-r1 P2: a bag holding only capped surplus is refused here, before
         // any skill runs, so the skill's rows never see it); throttled -- admission is asked on every proposal
-        stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
+        // PIPELINE-01 dryCheck (Codex r1): no row and no throttle stamp for a refusal that is only asked about
+        if (!this.dry) stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants, noSwords }) }
       }
-      const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
-      const due = reconcile || depositDue({
-        bankable: bank.count,
-        distHome: horizontalDistanceFromSpawn(bot.entity.position),
-        // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
-        storageWithin48: !!bot.findBlock?.({
-          matching: b => ['chest','barrel','trapped_chest']
-            .includes(bot.registry?.blocks?.[b.type]?.name) &&
-            depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
-        onDepositMilestone,
-        occupiedSlots: items.length,
-      })
-      if (!due) {
+      if (dv.reason === 'deposit_not_worth_it') {
         return { ok: false, reason: 'deposit_not_worth_it',
                  detail: `${bank.count} bankable items and no storage in reach — ` +
                          `bank it when you are next near the chest, not from out here` }
@@ -526,6 +713,15 @@ export class AdmissionControl {
       // detail names the remedy (dig with the held copy / the skill places the carried station).
       const redundant = redundantCraft(args.item, bot.inventory?.items?.() ?? [], { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })
       if (redundant) return { ok: false, reason: 'redundant_craft', detail: redundant.detail, redundant }
+      // IRONCHAIN-02 (pickswings.mjs): admitted above ONLY for a swing reserve, an iron pickaxe the bag cannot make becomes the
+      // stone one it can -- rewritten in place, as block names are (cognitive.mjs runs `admitted.args`); one row per rewrite
+      const swing = swingRewrite({ item: args.item, items: bot.inventory?.items?.() ?? [], wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort,
+                                   stoneMakeable: () => craftableFromBag(bot, 'stone_pickaxe'), ironMakeable: () => craftableFromBag(bot, 'iron_pickaxe') })
+      if (swing) {
+        args.item = swing.to
+        args.count = 1   // the plan the rule asked was for ONE stone copy (Claude r1 note)
+        try { logEvent({ kind: 'pick_swings', status: 'success', detail: swing.detail, snapshot: snapshot(bot) }) } catch { /* telemetry never costs the decision */ }
+      }
       // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07; the food policy's switch). Before any walk to a table.
       const noSword = swordCraftRefusal(args.item, foodSkipNow(bot).active)
       if (noSword) return { ok: false, reason: 'peaceful_no_sword', detail: noSword }
@@ -748,7 +944,10 @@ export class AdmissionControl {
       // shape in this codebase.
       const k = AdmissionControl.key(skill, args)
       // Persisted: a reconnect must not reset the countdown (see bumpBlocked).
-      const n = this.lessons?.bumpBlocked
+      // PIPELINE-01 dryCheck: the count this proposal WOULD reach, nothing written (persisted or in memory)
+      const n = this.dry
+        ? (this.lessons?.bumpBlocked ? (this.lessons.data?.progress?.blocked?.[k] ?? 0) : (this.blockedCount[k] ?? 0)) + 1
+        : this.lessons?.bumpBlocked
         ? this.lessons.bumpBlocked(k)
         : (this.blockedCount[k] = (this.blockedCount[k] ?? 0) + 1)
 
@@ -786,9 +985,16 @@ export class AdmissionControl {
     }
 
     // --- oscillation guard --------------------------------------------------
+    // REPEATWORK-01: ...unless this gather's last run, on this rung, gained what the rung wants (repeatwork.mjs)
     const repeats = this.recent.filter(k => k === key).length
-    if (repeats >= REPEAT_WINDOW) {
+    const rd = this.#repeat(skill, key)
+    if (rd.refuse) {
+      this.rwWhy = 'repeat_refused'   // counted by check() with the rest of this proposal's keys (one write)
       return { ok: false, reason: 'repeat_loop', detail: `chose the identical action ${repeats}x in a row` }
+    }
+    if (rd.why === 'progress') {
+      this.rwWhy = 'progress_admits'
+      if (!this.dry) try { logEvent({ kind: 'repeat_progress', status: 'success', detail: `${key} repeats=${repeats} rung=${this.activeMilestoneId ?? '-'} -- its last run on this rung gained a wanted item`.slice(0, 300), snapshot: snapshot(bot) }) } catch { /* telemetry only */ }
     }
 
     this.recent.push(key)

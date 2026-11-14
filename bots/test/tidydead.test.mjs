@@ -4,6 +4,9 @@
 // The tidy waives only cells a visit DEFERRED (wall.mjs wallWaiveDue), and neither stop deferred: both projects stood for good.
 // Tested by what the visit DOES on the fake server (test/helpers/buildfake.mjs); each control is the live stop; each remedy is
 // killed by a mutant whose anchor is asserted present and unique (withMutant).
+// buildretry-01: this file proves ITS project remedy alone, its CONTROLS the live stop before it: the default deferral (BUILDRETRY,
+// buildrun.mjs) would mask both, so it is off here; the composition of the two is tested in buildretry.test.mjs
+process.env.BUILDRETRY = '0'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { readFileSync } from 'node:fs'

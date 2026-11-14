@@ -115,12 +115,47 @@ const REQUIRED = [
   'sandbox/coop/arms-read.py',
   'docs/reports/coop-b5-2026-10-31.md',
   // tidydead-01 (11-05): the tidy's hard cells (a block no stand reaches, a fill no click lands on) are deferred so its waiver names them
+  'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
+  'bots/test/gklease2.test.mjs',   // gklease-02 (11-07): the stale tidy stamp, open sky, the town's sweep give-up
+  'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
+  'bots/test/gkwork.test.mjs',   // gkwork-01 (11-07)
+  'bots/src/stuckfleet.mjs',   // stuckfleet-01 (11-08): road lights, held monument cells and capped cells no remedy reached
+  'bots/test/stuckfleet02.test.mjs', 'bots/test/fixtures/stuckfleet02-boardc.json',  // stuckfleet-02 (11-08): a cell orphaned by the waiver below it
+  'bots/test/stuckfleet.test.mjs',   // stuckfleet-01 (11-08)
+  'bots/test/stuckfleet03.test.mjs',   // stuckfleet-03 (11-10): a sealed foundation cell already holding solid ground is waivable
+  'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
   'bots/test/tidydead.test.mjs',
+  'bots/src/stuckclose.mjs',   // stuckclose-01 (11-08): a tidy stage whose last cuts the town cannot reach closes
+  'bots/test/stuckclose.test.mjs',   // stuckclose-01 (11-08)
+  'bots/test/cobbleroom.test.mjs',   // cobbleroom-01 (11-09): cobble below the cap with no room to bank it goes down the well
+  'bots/test/chestcarry.test.mjs',   // chestcarry-01 (11-09): a carried chest is placed past the 4-a-day new-chest budget
   // stuckproj-01 (11-05): canopy-01 (a tree grown on a build is cut back so a stand sees the cell) + starve-01 (a starved open project gets a builder)
   'bots/src/canopy.mjs',
   'bots/test/stuckproj.test.mjs',
+  'bots/test/hivedrop.test.mjs',          // hivedrop-01: the canopy re-plan + loop yields (keepalive), the evictor's end stop
+  'bots/test/plankeep.test.mjs',          // hivedrop-02: the walk plan kept across a yield (monument/tidy start interruptions)
   // dirtrung-01 (11-04): the dirt rung is met by a stack of dirt + stone family (gather_dirt_16 held 22.8% of decisions)
   'bots/test/dirtrung.test.mjs',
+  // sandrung-01 (11-07): the gatherer chain's sand rung retired (7.5% of fleet time, gather sand 11.7% ok, no sand reached a town)
+  'bots/src/sandrung.mjs',
+  'bots/test/sandrung.test.mjs',
+  // logcap-02 (11-08): the town log gathering cap (owner: logs 60k in town chests, 15,985 banked in a day)
+  'bots/src/logcap.mjs',
+  'bots/test/logcap2.test.mjs',
+  // ironchain-01 (11-09): the ore tunnel aims only at ore gather may take (184 of 246 'tunnelled, still buried' were the town stair's lining)
+  'bots/src/ironchain.mjs',
+  'bots/test/ironchain.test.mjs',
+  'sandbox/ironchain/lining-e2e.mjs',
+  // gathermem-01 (11-07): per-bot memory of failed gather targets + same-spot refusal (93.7 bot-h/24 h of same-spot repeats)
+  'bots/src/gathermem.mjs',
+  'bots/test/gathermem.test.mjs',
+  'sandbox/gathermem/gathermem-e2e.mjs',
+  // ironchain-02 (11-09): an iron pickaxe asked only for swings, with no iron in the bag, is a stone one (95 of 110 short-ingot crafts)
+  'bots/src/pickswings.mjs',
+  'bots/test/pickswings.test.mjs',
+  // repeatwork-01 (11-04): the repeat window does not refuse a gather whose last run on the rung gained a wanted item
+  'bots/src/repeatwork.mjs',
+  'bots/test/repeatwork.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',
@@ -194,6 +229,9 @@ const REQUIRED = [
   'bots/test/idlework.test.mjs',
   'bots/test/idlework-sites.test.mjs',
   'docs/reports/idlework-design-2026-11-06.md',
+  // idlework-02 (11-06): the bag stop, the 29-33 band dispose, the depth-aware iron/coal hint
+  'bots/test/idlework2.test.mjs',
+  'docs/reports/idlework2-design-2026-11-06.md',
   'bots/src/dropdig.mjs',
   'bots/test/dropdig.test.mjs',
   'bots/test/fixtures/dropdig-cuts.json',
@@ -206,12 +244,21 @@ const REQUIRED = [
   // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
   'bots/src/fewerdec.mjs',
   'bots/test/fewerdec.test.mjs',
+  'bots/src/pipeline.mjs',          // pipeline-01: pipelined decisions (PIPELINE=off|shadow|on)
+  'bots/test/pipeline.test.mjs',
+  'docs/reports/pipeline-design-2026-11-09.md',
+  'bots/src/vetoremedy.mjs',
+  'bots/test/vetoremedy.test.mjs',
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
   // deepminer-01 (11-01): the town deep miner (the trip, the branch layout, the way back) and its Paper driver
   'bots/src/deepmine.mjs',
   'bots/test/deepmine.test.mjs',
+  // townmine-01 (11-09, owner "i want all of those things done"): the town mine -- the stair extended to -53, bays, hall, galleries
+  'bots/src/townmine.mjs',
+  'bots/test/townmine.test.mjs',
+  'bots/scripts/townmine-render.mjs',   // townmine-01: its pictures, drawn from the bots' own plan
   'sandbox/deepmine/deepmine-e2e.mjs',
   'docs/reports/deepminer-2026-11-01.md',
   'bots/src/shaftgeom.mjs',
@@ -336,6 +383,18 @@ const REQUIRED = [
   // copperrun-01 (11-03): the waiting hall's bill drives a copper gather (copperhall.mjs copperRunOrder; shop.mjs buildOrder's ask)
   'bots/test/copperrun.test.mjs',
   'bots/test/fixtures/copperhall-01-terrain-20261102.json',
+  'bots/src/handcap.mjs',  // handcap-01 (11-06): a shaft cap the bare hand breaks is a climb, not a pickaxe ask
+  'bots/test/handcap.test.mjs',
+  'bots/src/escdead.mjs',  // escdead-01 (11-06): the wide swim, the flood-in breach, the pin clock (phase 2.3)
+  'bots/test/escdead.test.mjs',
+  'bots/test/escpocket.test.mjs',
+  'bots/test/seapocket.test.mjs',
+  'bots/test/fixtures/seapocket-placebo-d-46_59_69-1109.json',
+  'bots/test/fixtures/escpocket-isolated-d-358_58_180-1107.json',
+  'bots/test/fixtures/escdead-isolated-d-358_58_180-1106.json',
+  'bots/test/fixtures/escdead-hive-c-124_52_64-1106.json',
+  'docs/reports/escdead-design-2026-11-06.md',
+  'bots/test/copperrun02-fleet.test.mjs',  // copperrun-02's protected part on the fleet (inert there: no copper hall)
   // voidfill-01 (10-30): a sealed void in a project record repaired from inside; its test reproduces the showcase ziggurat's
   // own geometry from the fixture (the record's cells and a read-only scan of the world)
   'bots/src/voidfill.mjs',
@@ -361,8 +420,40 @@ const REQUIRED = [
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
   'bots/test/zigbamboo.test.mjs',
   // tidy-01 (11-01): the town-ground tidy (pillars, pits, the paths' corridors graded) and its offline proof on region copies
+  'bots/test/loggate.test.mjs',   // loggate-01 (11-12): the town log limit refuses at admission
   'bots/src/tidy.mjs',
   'bots/test/tidy.test.mjs',
+  // groundskeeper-01 (owner 11-02, groundskeeper-1102): the land plan, the keeper lease, the offline proof
+  'bots/src/landplan.mjs',
+  'bots/src/groundskeeper.mjs',
+  'bots/test/groundskeeper.test.mjs',
+  'bots/scripts/landplan-offline.mjs',
+  // gkforever-01 (owner 11-06): the grounds never run out (clock, dead carry, level, crew, the grounds lap)
+  'bots/src/gkforever.mjs',
+  'bots/src/roughground.mjs',   // roughground-01 (11-07)
+  'bots/test/roughground.test.mjs',   // roughground-01 (11-07)
+  'bots/test/gkforever.test.mjs',
+  'bots/test/chestcarry.test.mjs',   // chestcarry-01 (11-09): a carried chest is placed past the 4-a-day new-chest budget
+  'docs/reports/gkforever-design-2026-11-06.md',
+  // stations-01 (owner 11-06): the town's tables and furnaces (take-back, the groundskeepers' sweep, town stations, chest first, spare fuel)
+  // toolrank-01 (11-09, owner-approved): no lower-tier tool beside a working better one (other tools + the pickaxe pair)
+  'bots/test/toolrank.test.mjs',
+  'bots/src/stations.mjs',
+  'bots/test/stations.test.mjs',
+  // stationsback-01 (11-09): a dug station reaches the bag (the drop chased over time, a reflex-cancelled dig retried once)
+  'bots/src/stationsback.mjs',
+  'bots/test/stationsback.test.mjs',
+  'docs/reports/stations-design-2026-11-06.md',
+  'docs/reports/stations-2026-11-06/codex-design.txt',
+  'docs/reports/stations-2026-11-06/scan.py',
+  'docs/reports/stations-2026-11-06/m1.py',
+  // phase 2 (codeeval 11-06): buildretry-01 the build retry hole; buildnext-01 never idle on a blocked project; buildwait-01 the engine's intended waits
+  'bots/src/buildretry.mjs',
+  'bots/test/buildretry.test.mjs',
+  'bots/test/buildnext.test.mjs',
+  'bots/test/buildwait.test.mjs',
+  'docs/reports/phase2-build-design-2026-11-06.md',
+  'docs/reports/groundskeeper-2026-11-02.md',
   'bots/scripts/tidy-offline.mjs',
   'docs/reports/tidy-01-2026-11-01.md',
   // stuckcells-01 (11-01): the cells every project waits on (snow read, sealed pocket, waiver, blocked deferral, stair support chain)
@@ -655,6 +746,12 @@ const REQUIRED = [
   // pinned draw (11-06): draw_pin_pools + draw_pin_owner_ok, honoured in fun mode (escdead-01, treefarm-05)
   'scripts/drawpin.py',
   'scripts/test_drawpin.py',
+  // depositoffer-01 (11-04): deposit leaves the per-call skill enum when the gate would refuse it; the deposit rung's floor
+  'bots/src/depositoffer.mjs',
+  'bots/test/depositoffer.test.mjs',
+  'bots/src/planahead.mjs',   // planahead-01 (11-09, owner: plan the town ahead -- plan-time reach, stand claims)
+  'bots/test/planahead.test.mjs',   // planahead-01
+  'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
 ]
 
 t('every load-bearing path exists in the working tree', () => {

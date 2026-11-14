@@ -14,6 +14,8 @@ import { elevation, descendOrder, descentDone, supportOf, respawnfallOn, SPAWN_W
 import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
+// cobbleroom-01: the well's two cobble exits (the proven cap, and no room to bank it)
+import { wellTakesCobble } from './cobblecap.mjs'
 import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, shopShareHeld, projectPartReserve, drainPickNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
@@ -30,6 +32,9 @@ import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsT
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
 import { shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt, shopActive } from './skills.mjs'
 import { poolStateDir } from './worldfacts.mjs'
+import { boardJobNow, boardClaim, boardRelease, boardPin, boardLight } from './skills.mjs'   // workboard-01: the town work board
+import { workboardMode, boardEligible, boardStep, boardAfter, boardDetail, rowDue, WB } from './townwork.mjs'   // workboard-01
+import { groundsBatchOpen } from './idlework.mjs'   // workboard-01: phase A's population (a grounds lap)
 import { SHOP, buildOrder } from './shop.mjs'
 import { ROLES, readRoles, leaseFor, leasedFirst, leaseId, roleRowDetail, pruneReleased } from './roles.mjs'   // B5: the role leases
 // coalfirst-01 (OWNER 10-29): the coal run (coalrun.mjs decides; this supplies readings and keeps the state)
@@ -43,6 +48,7 @@ import { hasTripPickaxe, nearHome } from './oretunnel.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
+import { depositOfferConfig, offeredSkills, tallyLine as depositOfferTallyLine, TALLY_MS as DEPOSIT_OFFER_TALLY_MS } from './depositoffer.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
@@ -79,6 +85,8 @@ import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
 import { fewerDecConfig, pauseWaitDecision, decisionSig, vetoSkipDecision, continueAfterRun, continueOrder, continueSchedule, continueWait } from './fewerdec.mjs'
+import { vetoRemedyConfig, vetoRemedy, takeRemedy } from './vetoremedy.mjs'
+import { pipelineConfig, prefetchAtStart, runningLine, armAfterRun, noWaitAllowed, prefetchUsable, noteRunP, pipelineDetail, tallyLine as pipeTallyLine, PIPELINE_TALLY_MS } from './pipeline.mjs'
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -420,6 +428,24 @@ export class CognitiveLoop {
     this.contState = null      // CONTINUE: the gather that may fill the cooldown ({ skill, args, n })
     this.contWindow = null     // CONTINUE: the open cooldown window ({ until, early })
     this.fdTally = null        // one fewerdec_tally row per 10 min: what the three rules did
+    // VETO REMEDY (vetoremedy.mjs; idlegap): a model veto on `return` / `deposit_surplus` queues the rung's own skill for the next tick
+    this.vetoRemedy = vetoRemedyConfig(process.env)
+    // WORKBOARD-01 (townwork.mjs): the switch, this bot's per-job back-offs, the rows' rate limit
+    this.wbMode = workboardMode(process.env)
+    this.boardMem = { jobs: {}, travelUntil: 0 }
+    this.boardRows = {}
+    // PIPELINE-01 (pipeline.mjs): the switch, the one in-flight prefetch, the arm the last run left, this bot's per-skill
+    // success estimate for runs alive at the prefetch point, the no-wait decisions of the last minute, the tally
+    this.pipe = pipelineConfig(process.env)
+    this.prefetch = null       // { armId, milestoneId, startedAt, done, doneAt, res, user, tokens, dropped, promise, key }
+    this.pipeArm = null        // { id, at, ok } -- set at the end of every tick that ran something
+    this.pipeArmSeq = 0
+    this.pipeStats = {}
+    this.pipeNoWait = []
+    this.pipeTally = null
+    this.pipeEpoch = 0         // bumped by notify() for every non-idle tick it starts: a decision waiting on a prefetch is stale
+    this.pendingRemedy = null  // { order, at, milestoneId }: used once, by the very next tick
+    this.remedyHistory = []    // [{ rule, at }] the last hour's queued remedies: the exposure budget
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
     this.schema = skillSchema(SKILL_NAMES)
     this.system = buildSystemPrompt(SKILL_NAMES)
@@ -427,6 +453,11 @@ export class CognitiveLoop {
     this.stopped = false
     this.lastOutcome = null
     this.decisions = 0
+    // DEPOSITOFFER-01 (depositoffer.mjs): a model call whose UNNAMED deposit the gate would refuse is not offered `deposit`
+    // at all -- the per-call skill enum drops it (the grammar enforces it); the system prompt stays as it is (cached).
+    this.depositOffer = depositOfferConfig(process.env)
+    this.schemaNoDeposit = skillSchema(SKILL_NAMES.filter(n => n !== 'deposit'))
+    this.doTally = null        // one depositoffer_tally row per 10 min (depositoffer.mjs tallyLine)
   }
 
   start() {
@@ -521,6 +552,8 @@ export class CognitiveLoop {
     if (detail) this.memory.addEvent(detail)
     if (!this.running || this.stopped) return
     if (this.runner.isBusy()) return   // a decision is already being acted on
+    // PIPELINE-01 (Codex r1 BLOCKER): a non-idle tick about to start makes any decision still waiting on a prefetch stale
+    if (trigger !== 'idle') this.pipeEpoch = (this.pipeEpoch ?? 0) + 1
     this.#tick(trigger)
   }
 
@@ -529,6 +562,7 @@ export class CognitiveLoop {
    * snapshot genuinely differs, then clears the repeat window.
    */
   async #escape() {
+    this.lastEscapeAt = Date.now()   // VETO REMEDY: a tick that relocated queues no remedy (vetoremedy.mjs)
     const p = this.bot.entity?.position
     if (!p) return
     const ang = Math.random() * Math.PI * 2
@@ -1141,6 +1175,32 @@ export class CognitiveLoop {
    * out that is backing off (roomState) or that the gate's memory would refuse (AdmissionControl.memoryRefuses: cooldown,
    * learned failures, a full repeat window) -- so the next remedy, or the model, takes the turn instead of a refused order.
    */
+  /** The model's prompt for `milestone` (DEPOSITOFFER-01's offer, then buildUserPrompt): the tick's and a prefetch's. */
+  #composePrompt({ milestone, ready, room, trigger, lastOutcome, sentinel }) {
+    // DEPOSITOFFER-01: the gate's own deposit reader, item = null, BEFORE the prompt (the CARRYING line goes with the option)
+    let depOffer = { skills: SKILL_NAMES, suppressed: null, why: null }
+    if (this.depositOffer.on) {
+      try {
+        depOffer = offeredSkills({ cfg: this.depositOffer, names: SKILL_NAMES,
+                                   verdict: this.admission.depositRunnable(this.bot, null, this.#wantedItems(milestone), milestone?.id ?? null) })
+      } catch { depOffer = { skills: SKILL_NAMES, suppressed: null, why: null, readFailed: true } }
+    }
+    const built = buildUserPrompt({
+      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone), depositOffered: !depOffer.suppressed,
+      lastOutcome, trigger, sentinel,
+      noRoom: ready?.noRoom ? { item: ready.noRoom.item, short: ready.noRoom.short, text: room?.text ?? null } : null,
+      // Own experience first, then what peers reported. Peer lines carry the
+      // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
+      // weigh first-hand knowledge against hearsay, and so a bad fact can be
+      // traced to whoever published it rather than merely suspected.
+      lessons: [
+        ...this.lessons.promptLines(this.bot.entity?.position),
+        ...(this.worldFacts?.promptLines(this.bot.entity?.position) ?? []),
+      ],
+    })
+    return { ...built, depOffer }
+  }
+
   #roomRemedy(noRoom) {
     try {
       const now = Date.now()
@@ -1206,9 +1266,105 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /**
+   * WORKBOARD-01: THE BOARD'S TURN -> townwork.mjs boardStep ({ order, owns, why }). Only on a grounds lap of the idle_work rung
+   * (phase A's population); reads the town's job (skills.mjs boardJobNow), the bot's fitness (boardEligible) and the gate's memory
+   * (memoryRefuses, a READ), claims the job's slot before a walk, pins the job's project, and writes the `workboard` row.
+   */
+  #boardOrder(milestone, ready) {
+    const bot = this.bot
+    const now = Date.now()
+    // A CLAIM NOTHING USES GOES BACK (Claude code review r1 note 1): a walk that arrived, or a board order an exit displaced, left a
+    // claim (and a pin) that only this tick's own build_shop for the same job may keep -- the visit's takeSlot renews it in place
+    const held = this.boardHeldClaim
+    this.boardHeldClaim = null
+    const lap = String(milestone?.id ?? '').startsWith('idle_work') && groundsBatchOpen()
+    const p = bot.entity?.position
+    const dist = p ? Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) : Infinity
+    const dy = p ? p.y - config.world.homeY : 0
+    // the cheap reads first: off the lap, or where no job could be taken, the town's job is never read (a lease listing per project)
+    const pre = lap ? boardEligible({ lap, health: 20, freeSlots: 36, light: true, dist, dy, now }) : { ok: false, why: 'not_grounds_lap' }
+    const st = pre.ok ? this.#boardStep(milestone, ready, { now, p, dist, dy }) : { order: null, owns: false, why: pre.why }
+    if (held && st.order?.board?.plot !== held.plot) { boardRelease(bot, held.plot, held.claim); if (bot.boardPick?.plot === held.plot) boardPin(bot, null, now) }
+    // the arrived walk's claim rides on the build_shop it was for (Codex code review r1 BLOCKER: a visit that re-picked another project
+    // would leave it held to its ttl): #boardAfter gives it back -- a no-op when the visit's own takeSlot renewed it (the generation moved)
+    else if (held && st.order && !st.order.board.claim) { st.order.board.claim = held.claim; this.boardHeldClaim = held }
+    return st
+  }
+
+  /** WORKBOARD-01: the board's step once the bot could take a job -> boardStep's answer, the claim and pin on an order, the rows. */
+  #boardStep(milestone, ready, { now, p, dist, dy }) {
+    const bot = this.bot
+    const lap = true
+    const job = boardJobNow(bot, now)
+    const elig = boardEligible({ lap, holds: milestoneHolds({ order: null, ready }), health: bot.health ?? 20,
+      freeSlots: 36 - (bot.inventory?.items?.() ?? []).length, light: !!job?.plot && boardLight(job.plot), dist,
+      dy, travelHeldUntil: this.boardMem?.travelUntil ?? 0, now })
+    const st = boardStep({ mode: this.wbMode, elig, job, mem: this.boardMem, now, refuses: (s, a) => this.admission.memoryRefuses(s, a) })
+    const f = { mode: this.wbMode, plot: job?.plot ?? '-', dist: Number.isFinite(dist) ? Math.round(dist) : '-', cands: job?.cands ?? 0, starved: job?.starved ? 1 : 0 }
+    if (st.order) {
+      const b = st.order.board
+      if (b.travel) {
+        const c = boardClaim(bot, b.plot, now)
+        if (!c?.ok) {
+          this.boardMem = boardAfter(this.boardMem, { plot: b.plot, travel: true, declined: true, now }).mem
+          this.#boardRow('yield', 'claim_failed', f, now)
+          return { order: null, owns: true, why: 'claim_failed' }
+        }
+        b.claim = { slot: c.slot, gen: c.gen }
+        f.slot = c.slot; f.gen = c.gen
+      }
+      boardPin(bot, b.plot, now)
+      // until its outcome is read (#boardAfter), the order's claim is held here: an order the descent / keep-out exit displaced
+      // never reaches #boardAfter, so the next board turn gives its claim back
+      this.boardHeldClaim = b.claim ? { plot: b.plot, claim: b.claim } : null
+      try { logEvent({ kind: 'workboard', status: 'success', detail: boardDetail({ op: 'issue', skill: st.order.skill, why: st.why, ...f }) }) } catch { /* telemetry only */ }
+      return st
+    }
+    this.#boardRow(this.wbMode === 'shadow' && String(st.why).startsWith('shadow') ? 'shadow' : 'yield', st.why, f, now)
+    return st
+  }
+
+  /** WORKBOARD-01: a yield/shadow row, at most once per reason per WB.rowEveryMs. Never throws. */
+  #boardRow(op, why, f, now) {
+    try {
+      const rd = rowDue(this.boardRows, `${op}:${why}`, now)
+      this.boardRows = rd.last
+      if (rd.emit) logEvent({ kind: 'workboard', status: 'no_effect', detail: boardDetail({ op, why, ...f }) })
+    } catch { /* telemetry only */ }
+  }
+
+  /** WORKBOARD-01: a board order's outcome -> its back-offs (townwork.mjs boardAfter), the claim back when the walk did not
+   *  arrive (or never ran), the pin dropped when nothing follows, and the `end` row. Never throws. */
+  #boardAfter(order, r, { declined = false, refused = false } = {}) {
+    try {
+      const b = order.board
+      const now = Date.now()
+      const p = this.bot.entity?.position
+      const arrived = !!b.travel && !refused && !declined && !!p && Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) <= WB.townR
+      const out = boardAfter(this.boardMem, { plot: b.plot, travel: !!b.travel, refused, declined, arrived, r, now })
+      this.boardMem = out.mem
+      this.boardHeldClaim = null
+      if (b.travel && !arrived) { boardRelease(this.bot, b.plot, b.claim); boardPin(this.bot, null, now) }
+      // a walk that arrived keeps its claim for ONE more board turn: that turn's build_shop for the job keeps it, anything else gives it back
+      if (b.travel && arrived) this.boardHeldClaim = { plot: b.plot, claim: b.claim }
+      if (!b.travel && (refused || declined)) boardPin(this.bot, null, now)
+      if (!b.travel && b.claim) boardRelease(this.bot, b.plot, b.claim)
+      logEvent({ kind: 'workboard', status: out.worked || arrived ? 'success' : 'no_effect',
+        detail: boardDetail({ op: 'end', mode: this.wbMode, skill: order.skill, plot: b.plot,
+          status: refused ? 'refused' : declined ? 'declined' : (r?.status ?? '-'),
+          stop: b.travel ? (arrived ? 'arrived' : 'not_arrived') : (r?.stop ?? '-'), placed: Number(r?.placed) || 0,
+          worked: b.travel ? null : (out.worked ? 'yes' : 'no'), backoff_s: Math.round(out.backoffMs / 1000) }) })
+    } catch { /* the board's memory only */ }
+  }
+
   async #tick(trigger) {
     { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
+    // PIPELINE-01: a non-idle tick (death, a reflex handoff) spends the no-wait arm before anything else, and the armed
+    // early timer goes with it (Claude r1 note): it would otherwise fire as `idle` while this tick is still deciding and ask
+    // the model beside it. This tick reschedules at its end, as every tick does.
+    if (trigger !== 'idle' && this.pipeArm?.noWait) { this.pipeArm = { ...this.pipeArm, noWait: false }; clearTimeout(this.nextTimer) }
     // PAUSEWAIT (fewerdec.mjs): inside the runner's failure pause every skill is refused, so an idle tick asks nothing and
     // wakes when the pause ends. Non-idle triggers (death, a reflex handoff, startup) are never held here.
     {
@@ -1232,24 +1388,18 @@ export class CognitiveLoop {
     }
 
     const milestone = this.#activeTask()
+    // REPEATWORK-01 (both reviews r1): the gate's rung is THIS tick's before any order asks memoryRefuses (CONTINUE, VETOSKIP,
+    // remedies) -- set again below before check(), unchanged; a stale rung let a continuation pass that check() then refused
+    this.admission.activeMilestoneId = milestone?.id ?? null
     const sentinel = makeSentinel()
     // NO CRAFT ORDER WITHOUT ROOM (orderroom-01; workorder.mjs readyFor, skills.mjs craftRoomCheck): computed BEFORE the
     // prompt, so the prompt stops advertising a craft the bag cannot hold and names the remedy instead.
     const ready = readyFor(this.bot, milestone, { wearFailedRecently: Date.now() - (this.roomWearFailAt?.[milestone?.wants] ?? -Infinity) < ROOM_WEAR_TRUST_MS })
     const room = ready.noRoom ? this.#roomRemedy(ready.noRoom) : null
-    const { user, tokens, dropped, affordance } = buildUserPrompt({
-      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone),
-      lastOutcome: this.lastOutcome, trigger, sentinel,
-      noRoom: ready.noRoom ? { item: ready.noRoom.item, short: ready.noRoom.short, text: room?.text ?? null } : null,
-      // Own experience first, then what peers reported. Peer lines carry the
-      // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
-      // weigh first-hand knowledge against hearsay, and so a bad fact can be
-      // traced to whoever published it rather than merely suspected.
-      lessons: [
-        ...this.lessons.promptLines(this.bot.entity?.position),
-        ...(this.worldFacts?.promptLines(this.bot.entity?.position) ?? []),
-      ],
-    })
+    // DEPOSITOFFER-01 + the prompt: one composer (#composePrompt), so a PIPELINE-01 prefetch asks the model exactly as a tick does
+    const composed = this.#composePrompt({ milestone, ready, room, trigger, lastOutcome: this.lastOutcome, sentinel })
+    const depOffer = composed.depOffer
+    const { user, tokens, dropped, affordance } = composed
 
     const snap = snapshot(this.bot)
     if (snap.game) snap.game.biome = biomeAt(this.bot)
@@ -1405,7 +1555,7 @@ export class CognitiveLoop {
         // read on every decision anywhere in the world was a hot-path cost)
         const atTown = distHome <= TOWN_RADIUS
         // ...and at town every targeted group at its target (stocktarget design 3.4: the available floor, the keeps)
-        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: atTown && cobbleWellCap(bot, items) === 'at_cap', stock: atTown ? stockWellOpts(bot, items) : null })   // a peaceful world's swords count (well.mjs swordGoes)
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: atTown && wellTakesCobble(cobbleWellCap(bot, items)), stock: atTown ? stockWellOpts(bot, items) : null })   // a peaceful world's swords count (well.mjs swordGoes)
         const buildPlanJunk = disposePlan(items)   // the pit-first build tosses neither cobble nor swords (Claude coupling review P3)
         const r = wellOrder({
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,
@@ -1557,11 +1707,19 @@ export class CognitiveLoop {
     // (10 min per bot-hour) is this bot's own make_material + mats_return time over the last hour.
     // (B5: the body is #matsOrder, so a MAKE role lease can ask it first; asked once per decision)
     if (!order && leasedTried !== 'make_material') order = this.#matsOrder(snap, ready)
+    // WORKBOARD-01 (townwork.mjs; codeeval phase 3 item 1): THE TOWN WORK BOARD, phase A. On a grounds lap the town's build/tidy job
+    // (shopActive's pick, when workable) is ORDERED -- a claimed slot and `home` when away, `build_shop` pinned to the job at town --
+    // and the model is asked only when no job fits. It OWNS the workshop slot for that population (the shop step below stands
+    // down, so the shop's per-bot cooldown and the board's per-job back-offs never both decide). WORKBOARD=off: exactly as before.
+    let boardOwns = false
+    if (!order && this.wbMode !== 'off') {
+      try { const wb = this.#boardOrder(milestone, ready); boardOwns = !!wb.owns; if (wb.order) order = wb.order } catch { /* a world read must never break the decision loop */ }
+    }
     // THE WORKSHOP (shop-01; shop.mjs buildOrder decides, this supplies readings and keeps the state). After the materials job,
     // only with NOTHING chosen above: at town, shared towns only, never a trip; SHOP=off switches it off. The cooldown is charged
     // at issue and refunded on a decline (refundDeclined).
     // (B5: the body is #shopOrder, so a BUILD role lease can ask it first; asked once per decision)
-    if (!order && SHOP.on && leasedTried !== 'build_shop') order = this.#shopOrder(snap, ready)
+    if (!order && SHOP.on && !boardOwns && leasedTried !== 'build_shop') order = this.#shopOrder(snap, ready)
     // THE COAL RUN (coalfirst-01; coalrun.mjs coalRunOrder decides, this supplies readings and keeps the state). After every
     // town job, only with NOTHING chosen above (a ready milestone step, the deposit, every town order and the building jobs
     // win): while the town index shows the town short of coal, gather the coal ore in reach -- gather's own guards decide every
@@ -1680,6 +1838,14 @@ export class CognitiveLoop {
     // CONTINUE (fewerdec.mjs): with no work order at all, the gather the model chose last -- if it served the task and
     // gained items -- fills the cooldown. AFTER every order (planting included); the descent and keep-out exits below
     // still override it.
+    // VETO REMEDY (vetoremedy.mjs): the remedy a model veto queued on the previous tick -- used once, AFTER every order (any
+    // order wins), before the continuation; the descent and keep-out exits below still override it.
+    // A remedy DROPPED here (the rung changed, the TTL ran out) leaves an idle tick ~250 ms after the veto: it waits out the
+    // veto's own cooldown below instead of asking the model early (Claude review note 1).
+    let remedyDropUntil = 0
+    { const pend = this.pendingRemedy; this.pendingRemedy = null
+      if (!order) { const vr = takeRemedy({ cfg: this.vetoRemedy, pending: pend, trigger, milestoneId: milestone?.id ?? null, now: Date.now() }); if (vr) { order = vr; this.#fdCount('veto_remedy') }
+        else if (pend && trigger === 'idle') remedyDropUntil = (pend.at ?? 0) + config.llm.decisionCooldownMs } }
     if (!order) { const co = continueOrder({ cfg: this.fewerDec, cont: this.contState, trigger, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a) }); if (co) { order = co; this.#fdCount('continue') } }
     { const sd = this.#skyDescendOrder(order); if (sd) { if (order) Object.assign(this, refundDeclined(order.skill, this)); Object.assign(this, visitDisplacedRefund(order, this)); order = sd } }
     // found-01 (Codex JIT 10-23c r1 P2): the found slot charged its visit and cooldown when it ISSUED; an order the exit replaces
@@ -1696,13 +1862,17 @@ export class CognitiveLoop {
       logEvent({ kind: 'work_order',
                  detail: `${order.skill} ${JSON.stringify(order.args)} — ${order.why}`,
                  snapshot: snap })
+      // PIPELINE-01: an order takes this turn, so the prefetch (asked for the model's turn) is void
+      this.#pipeDrop('order')
     }
     // VETOSKIP (fewerdec.mjs): right after a vetoed model call, with nothing changed, one idle tick is not asked again.
     const fdSig = order ? null : decisionSig({ milestoneId: milestone?.id, pos: this.bot.entity?.position, items: this.bot.inventory?.items?.() ?? [] })
     // CONTINUE: inside the cooldown window, an idle tick with no order and no continuation waits out the rest of it --
     // the model is never asked earlier than it was before this change.
     if (!order) {
-      const w = continueWait({ cfg: this.fewerDec, window: this.contWindow, now: Date.now(), trigger })
+      // PIPELINE-01 NO WAIT AFTER SUCCESS (on): the last run succeeded and armed this tick -- the window is not waited out
+      const pipeNoWait = this.#pipeNoWait(trigger)
+      const w = Math.max(pipeNoWait ? 0 : continueWait({ cfg: this.fewerDec, window: this.contWindow, now: Date.now(), trigger }), remedyDropUntil - Date.now())
       if (w > 0) { this.lastDecisionAt = Date.now(); this.#fdCount('continue_wait'); this.#scheduleNext(Math.max(50, w)); return }
       this.contWindow = null
     }
@@ -1715,10 +1885,18 @@ export class CognitiveLoop {
         return this.#skipDecision('vetoskip', `${vs.why}: ${last.skill} ${JSON.stringify(last.args ?? {})}`.slice(0, 200), this.fewerDec.vetoSkipDelayMs)
       }
     }
+    // PIPELINE-01 PREFETCH: the call made while the last skill ran stands in for this one when it passes every check and
+    // the gate's dry run (on); otherwise -- and always in shadow -- the model is asked now, as before
+    const pipeTake = order ? null : await this.#pipeTake({ trigger, milestone })
+    if (pipeTake?.abandon) { this.#pipeCount('superseded'); this.#pipeRow(pipeTake, null); this.lastDecisionAt = Date.now(); return }
     const res = order
       ? { schemaValid: true, latencyMs: 0, raw: null,
           proposal: { skill: order.skill, args: order.args, reason: order.why } }
-      : await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
+      : pipeTake?.res ?? await this.llm.decide({ system: this.system, user, sentinel, schema: depOffer.suppressed ? this.schemaNoDeposit : this.schema })
+    if (pipeTake) this.#pipeRow(pipeTake, res)
+    // DEPOSITOFFER-01's tally: one MODEL call's counts, written together (below) so a row never splits a decision
+    const doKeys = order ? null : ['model_calls', depOffer.suppressed ? 'suppressed' : 'offered', ...(depOffer.readFailed ? ['read_failed'] : []),
+      ...(depOffer.suppressed ? [`sup_${depOffer.why}`, `pick_${String(res.proposal?.skill ?? 'none').replace(/[^a-z_]/g, '').slice(0, 24) || 'none'}`] : [])]
     this.decisions++
     this.lastDecisionAt = Date.now()
 
@@ -1737,8 +1915,11 @@ export class CognitiveLoop {
       const check = this.admission.check(res.proposal, this.bot, wantedNow)
       if (check.ok) admitted = check
       else rejection = check
+      if (doKeys && !check.ok) doKeys.push('model_refused', ...(res.proposal?.skill === 'deposit' ? ['deposit_refused'] : []))
       // coalfirst-01: a coal run the gate refused never ran -- its pending mark goes (the cooldown charged at issue stands)
       if (!check.ok && order?.args?.coalrun === true) this.coalRunState = { ...(this.coalRunState ?? {}), pending: false }
+      // workboard-01: a board order the gate refused backs that job off for this bot (townwork.mjs boardAfter) -- never re-issued
+      if (!check.ok && order?.board) this.#boardAfter(order, null, { refused: true })
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
       // snapshot is the bag the refusal judged; `wanted` and `source` must always read 0 / model).
       if (rejection?.reason === 'redundant_craft' && rejection.redundant) {
@@ -1757,9 +1938,11 @@ export class CognitiveLoop {
       }
     }
 
+    if (doKeys) this.#doCount(...doKeys)
     // Execute (or not), then record ONE row describing the whole decision.
     let outcome = { status: 'aborted', detail: rejection?.detail ?? res.error ?? 'no action' }
     let runFailClass = null
+    let runMeta = null   // PIPELINE-01: this tick's run -- { id, source, skill, ms, interruptedBy, declined }
     if (admitted) {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
@@ -1767,7 +1950,13 @@ export class CognitiveLoop {
       // CONTINUE (Claude review note 1): a continuation does not take a place in the gate's repeat window, so the model's
       // own repeat of a good gather is judged as before; the continuation is bounded by FEWERDEC_CONTINUE_MAX instead.
       if (order?.continuation && admitted.kind === 'normal') this.admission.forgetLastAdmitted(AdmissionControl.key(admitted.skill, admitted.args))
+      this.#doCount('skills_run')
+      const pipeSource = order ? (order.continuation ? 'continue' : 'order') : 'model'
+      const pipeRun = this.#pipeAtRunStart({ source: pipeSource, admitted, milestone })
+      const runT0 = Date.now()
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
+      if (pipeRun.timer) clearTimeout(pipeRun.timer)
+      runMeta = { id: pipeRun.id, source: pipeSource, skill: admitted.skill, ms: Date.now() - runT0, interruptedBy: r.interruptedBy ?? null, declined: runnerDeclined(r) }
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
       // THE RUNNER DECLINED (homefix-01, declined.mjs -- one set, `runner_reserved` included): the skill never ran, so no
@@ -1804,6 +1993,8 @@ export class CognitiveLoop {
       if (!declined && admitted.skill === 'make_material') this.matsState = matsOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.matsState ?? {})
       // THE WORKSHOP (shop-01): the visit's stop rides with the cooldown (S1: no_site waits a day)
       if (!declined && admitted.skill === 'build_shop') this.shopState = { ...(this.shopState ?? {}), lastAt: Date.now(), lastStop: r.stop ?? r.failClass ?? r.status }
+      // workboard-01: the board order's outcome into its back-offs and its `end` row (a decline included: it never ran)
+      if (order?.board && admitted.skill === order.skill) this.#boardAfter(order, r, { declined })
       // coalfirst-01: the coal run's outcome (a decline refunds the cooldown; no coal gained backs off)
       if (admitted.skill === 'gather' && admitted.args?.coalrun === true) {
         const coalNow = (this.bot.inventory?.items?.() ?? []).filter(it => it?.name === 'coal').reduce((n, it) => n + (it.count ?? 0), 0)
@@ -2027,6 +2218,19 @@ export class CognitiveLoop {
           logEvent({ kind: 'livelock_not_fixated', status: 'no_effect', detail: `${fx.reason}: moved ${fx.moved ?? '?'} gained ${fx.gained ?? '?'} over ${fx.n} samples / ${Math.round((fx.span ?? 0) / 1000)} s (rejections ${this.consecutiveRejections}${rejection?.reason === 'repeat_loop' ? ', repeat_loop' : ''})`, snapshot: snapshot(this.bot) })
         } else if (!(this.livelockLatchedUntil > Date.now())) await this.#escape()
       }
+      // VETO REMEDY (vetoremedy.mjs): the rung's own skill is queued for the next tick -- not after a relocation this tick
+      // (the bot is somewhere else now and the model decides there), never for a refused ORDER
+      if (!((this.lastEscapeAt ?? -Infinity) >= started)) {
+        try {
+          const vr = vetoRemedy({ cfg: this.vetoRemedy, trigger, milestoneId: milestone?.id ?? null, proposal: res.proposal, rejection,
+                                  fromOrder: !!order, memoryRefuses: (sk, a) => this.admission.memoryRefuses(sk, a),
+                                  history: this.remedyHistory, now: Date.now() })
+          if (vr) {
+            this.pendingRemedy = { order: vr, at: Date.now(), milestoneId: milestone?.id ?? null }
+            this.remedyHistory = [...this.remedyHistory.filter(h => Date.now() - h.at < 3_600_000), { rule: vr.rule, at: Date.now() }]
+          }
+        } catch { /* a remedy must never cost the bot its decision */ }
+      }
     }
     if (admitted) this.consecutiveRejections = 0
     // VETOSKIP's memory: the last MODEL decision and its veto; an order in between clears it (its outcome is newer news).
@@ -2116,7 +2320,9 @@ export class CognitiveLoop {
       // res.model is what SERVED the decision, which is not config.llm.model
       // when the pool degraded to an endpoint pinned to a smaller one.
       model: res.model ?? config.llm.model, endpoint: res.endpoint,
-      res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
+      // PIPELINE-01: a used prefetch is logged with the prompt the model actually answered
+      res, promptText: pipeTake?.res ? pipeTake.user : user, tokensEstimated: pipeTake?.res ? pipeTake.tokens : tokens,
+      droppedEvents: pipeTake?.res ? pipeTake.dropped : dropped,
       proposal: res.proposal, rejection, outcome, admission: admitted,
       milestone: milestone.id, systemPrompt: this.system, perceptionSnapshot: percept,
     })
@@ -2145,7 +2351,159 @@ export class CognitiveLoop {
     const cs = continueSchedule({ cfg: this.fewerDec, ranOk: executed && outcome.status === 'success', window: this.contWindow,
                                   now: Date.now(), cooldownMs: config.llm.decisionCooldownMs })
     this.contWindow = cs.window
-    this.#scheduleNext(cs.delayMs)
+    // PIPELINE-01: what this tick's run arms (the prefetch's use, and in `on` the no-wait next tick)
+    this.#pipeEnd({ executed, status: outcome.status, runMeta })
+    // PIPELINE-01 (on): an armed no-wait tick comes after nextDelayMs (only a success arms it, so no veto remedy is pending)
+    if (this.pipeArm?.noWait) { this.#scheduleNext(Math.min(cs.delayMs, this.pipe.nextDelayMs)); return }
+    // VETO REMEDY: a queued remedy runs on the next tick, not after the cooldown (it replaces that tick's model call)
+    this.#scheduleNext(this.pendingRemedy ? Math.min(cs.delayMs, this.vetoRemedy.delayMs) : cs.delayMs)
+  }
+
+  // ---------------------------------------------------------------- PIPELINE-01 (pipeline.mjs)
+
+  /** One pipeline_tally row per bot per 10 min: prefetches, uses, drops by reason, arms, no-wait ticks. */
+  #pipeCount (what) {
+    if (!this.pipe?.active) return
+    const now = Date.now()
+    this.pipeTally ??= { t0: now, c: {} }
+    this.pipeTally.c[what] = (this.pipeTally.c[what] ?? 0) + 1
+    if (now - this.pipeTally.t0 >= PIPELINE_TALLY_MS) {
+      try { logEvent({ kind: 'pipeline_tally', status: 'success', detail: pipeTallyLine({ secs: (now - this.pipeTally.t0) / 1000, c: this.pipeTally.c }), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+      this.pipeTally = { t0: now, c: {} }
+    }
+  }
+
+  /** A run starts: give it an id, and arm the prefetch timer when the rule says so. -> { id, timer } */
+  #pipeAtRunStart ({ source, admitted, milestone }) {
+    const id = ++this.pipeArmSeq
+    if (!this.pipe.active) return { id, timer: null }
+    let st = { go: false, why: 'error' }
+    try { st = prefetchAtStart({ cfg: this.pipe, source, skill: admitted.skill, stats: this.pipeStats, pending: !!(this.prefetch && !this.prefetch.done) }) } catch { /* never cost the run */ }
+    if (!st.go) { this.#pipeCount(`nopf_${st.why}`); return { id, timer: null } }
+    const timer = setTimeout(() => this.#pipeLaunch({ id, admitted, milestone }), this.pipe.prefetchAfterMs)
+    return { id, timer }
+  }
+
+  /** The prefetch itself: the prompt of this moment with the running skill as LAST ACTION, asked in the background. */
+  #pipeLaunch ({ id, admitted, milestone }) {
+    try {
+      if (this.stopped || !this.running || !this.runner.isBusy()) return
+      const sentinel = makeSentinel()
+      // the tick's own readiness read (orderroom-01), so the prefetch's prompt names the same room remedy
+      const wearAt = this.roomWearFailAt?.[milestone?.wants] ?? -Infinity
+      const ready = readyFor(this.bot, milestone, { wearFailedRecently: Date.now() - wearAt < ROOM_WEAR_TRUST_MS })
+      const room = ready.noRoom ? this.#roomRemedy(ready.noRoom) : null
+      const cp = this.#composePrompt({ milestone, ready, room, trigger: 'idle', lastOutcome: runningLine(admitted.skill, admitted.args), sentinel })
+      const pf = { armId: id, milestoneId: milestone?.id ?? null, startedAt: Date.now(), done: false, doneAt: null, res: null,
+                   user: cp.user, tokens: cp.tokens, dropped: cp.dropped }
+      // never rejects: a failed call is a result with no proposal (llm.decide does not throw for the model's misbehaviour)
+      pf.promise = Promise.resolve()
+        .then(() => this.llm.decide({ system: this.system, user: cp.user, sentinel, schema: cp.depOffer.suppressed ? this.schemaNoDeposit : this.schema }))
+        .then(res => { pf.res = res }, e => { pf.res = { schemaValid: false, proposal: null, error: String(e?.message ?? e).slice(0, 120) } })
+        .finally(() => { pf.done = true; pf.doneAt = Date.now() })
+      if (this.prefetch) this.#pipeDrop('replaced')
+      this.prefetch = pf
+      this.#pipeCount('prefetch')
+    } catch { /* a prefetch must never cost the bot anything */ }
+  }
+
+  /** The prefetch is void (an order took the turn, the run did not arm, ...): one row, then it is forgotten. */
+  #pipeDrop (why) {
+    const pf = this.prefetch
+    if (!pf) return
+    this.prefetch = null
+    this.#pipeCount(`drop_${why}`)
+    try {
+      const p = pf.res?.proposal
+      logEvent({ kind: 'pipeline', status: 'no_effect',
+                 detail: pipelineDetail({ mode: this.pipe.mode, use: 'dropped', why, pre: p?.skill ? AdmissionControl.key(p.skill, p.args) : null,
+                   ageMs: Date.now() - pf.startedAt, latMs: pf.res?.latencyMs ?? null, ptok: pf.res?.prompt_tokens ?? null, ctok: pf.res?.completion_tokens ?? null }),
+                 snapshot: snapshot(this.bot) })
+    } catch { /* telemetry only */ }
+  }
+
+  /** The tick after an armed run, in `on`: skip the cooldown window's wait (the runaway guard was asked at arm time). */
+  #pipeNoWait (trigger) {
+    if (!this.pipe.on || !this.pipeArm?.noWait) return false
+    // a non-idle tick (death, a reflex handoff) SPENDS the arm (Claude r1 note): the 500 ms timer tick that may still fire
+    // after it must wait the window as before, not make a second model call beside the reflex's decision
+    if (trigger !== 'idle' || this.pendingTrigger) { this.pipeArm = { ...this.pipeArm, noWait: false }; return false }
+    this.pipeArm = { ...this.pipeArm, noWait: false }   // one no-wait decision per arm
+    this.#pipeCount('nowait')
+    return true
+  }
+
+  /** At the model call: judge the prefetch (everything, then the gate's dry run). `res` is set only when it is USED (on). */
+  async #pipeTake ({ trigger, milestone }) {
+    const pf = this.prefetch
+    if (!this.pipe.prefetch || !pf) return null
+    this.prefetch = null
+    const t0 = Date.now()
+    const ask = () => prefetchUsable({ cfg: this.pipe, pf, arm: this.pipeArm, trigger, pendingTrigger: this.pendingTrigger,
+                                      milestoneId: milestone?.id ?? null, now: Date.now() })
+    let u = ask(), waitMs = 0
+    // ON waits for a prefetch still in flight (bounded); SHADOW never delays the bot and records it as in flight
+    if (u.use && !pf.done) {
+      if (this.pipe.on) {
+        const epoch = this.pipeEpoch ?? 0
+        await Promise.race([pf.promise, new Promise(r => setTimeout(r, this.pipe.waitCapMs))])
+        waitMs = Date.now() - t0
+        // A DEATH OR A REFLEX HANDOFF DURING THE WAIT (Codex r1 BLOCKER): notify() started a newer tick, which owns the
+        // decision and reschedules at its end -- this one gives up the turn (no prefetch, no fresh call beside it)
+        if ((this.pipeEpoch ?? 0) !== epoch) return { abandon: true, use: false, why: 'superseded', waitMs, ageMs: t0 - pf.startedAt, pf,
+                                                       pre: pf.res?.proposal?.skill ? AdmissionControl.key(pf.res.proposal.skill, pf.res.proposal.args) : null }
+        u = pf.done ? ask() : { use: false, why: 'wait_cap' }
+      } else u = { use: false, why: 'in_flight' }
+    }
+    const p = pf.res?.proposal
+    if (u.use) {
+      let dry = null
+      try { dry = this.admission.dryCheck(p, this.bot, this.#wantedItems(milestone)) } catch (e) { dry = { ok: false, reason: 'dry_error' } }
+      if (!dry?.ok) u = { use: false, why: `dry_${dry?.reason ?? 'none'}` }
+    }
+    this.#pipeCount(u.use ? (this.pipe.on ? 'used' : 'would_use') : `nouse_${u.why}`)
+    const ev = { use: u.use, why: u.why, waitMs, ageMs: t0 - pf.startedAt, armAt: this.pipeArm?.at ?? null, at: t0,
+                 pre: p?.skill ? AdmissionControl.key(p.skill, p.args) : null, pf }
+    if (this.pipe.on && u.use) return { ...ev, res: pf.res, user: pf.user, tokens: pf.tokens, dropped: pf.dropped }
+    return { ...ev, res: null }
+  }
+
+  /** One `pipeline` row per judged prefetch: used / fallback (on), would_use / would_drop (shadow), with the fresh pick. */
+  #pipeRow (ev, res) {
+    try {
+      const fresh = ev.res ? null : (res?.proposal?.skill ? AdmissionControl.key(res.proposal.skill, res.proposal.args) : null)
+      const agree = ev.pre && fresh ? ev.pre === fresh : null
+      const use = ev.abandon ? 'superseded' : this.pipe.on ? (ev.res ? 'used' : 'fallback') : (ev.use ? 'would_use' : 'would_drop')
+      // what the decision did not have to wait for: on = the call's latency minus what was still awaited; shadow = the gap
+      // since the armed run ended plus the fresh call (what `on` would have removed)
+      const savedMs = ev.res ? Math.max(0, (ev.pf.res?.latencyMs ?? 0) - ev.waitMs)
+        : (!this.pipe.on && ev.use && ev.armAt != null ? Math.max(0, ev.at - ev.armAt) + (res?.latencyMs ?? 0) : null)
+      logEvent({ kind: 'pipeline', status: ev.res ? 'success' : 'no_effect',
+                 detail: pipelineDetail({ mode: this.pipe.mode, use, why: ev.why, pre: ev.pre, fresh, agree, ageMs: ev.ageMs, waitMs: ev.waitMs,
+                   latMs: ev.pf.res?.latencyMs ?? null, savedMs, ptok: ev.pf.res?.prompt_tokens ?? null, ctok: ev.pf.res?.completion_tokens ?? null }),
+                 snapshot: snapshot(this.bot) })
+      if (agree != null) this.#pipeCount(agree ? 'agree' : 'disagree')
+    } catch { /* telemetry only */ }
+  }
+
+  /** The end of a tick: update the skill estimate, arm (or not) the next decision, void a prefetch the run did not arm. */
+  #pipeEnd ({ executed, status, runMeta }) {
+    if (!this.pipe.active) return
+    try {
+      const now = Date.now()
+      if (!runMeta) { this.pipeArm = null; this.#pipeDrop('no_run'); return }
+      // the estimate is over runs still going at the prefetch point: exactly the runs a prefetch is made for
+      if (runMeta.source === 'model' && runMeta.ms >= this.pipe.prefetchAfterMs) this.pipeStats = noteRunP(this.pipeStats, runMeta.skill, !!executed && status === 'success', this.pipe.alpha)
+      const a = armAfterRun({ cfg: this.pipe, executed, declined: runMeta.declined, status, interruptedBy: runMeta.interruptedBy,
+                              pendingTrigger: this.pendingTrigger, paused: !!this.runner.paused, runMs: runMeta.ms })
+      this.#pipeCount(a.arm ? 'armed' : `unarmed_${a.why}`)
+      const noWait = a.arm && noWaitAllowed({ cfg: this.pipe, recent: this.pipeNoWait, now })
+      if (noWait) this.pipeNoWait = [...this.pipeNoWait.filter(t => now - t < 60_000), now]
+      else if (a.arm && this.pipe.on) this.#pipeCount('nowait_capped')
+      this.pipeArm = { id: runMeta.id, at: now, ok: a.arm, noWait }
+      if (!a.arm) this.#pipeDrop(a.why)
+      else if (this.prefetch && this.prefetch.armId !== runMeta.id) this.#pipeDrop('stale_run')
+    } catch { this.pipeArm = null }
   }
 
   /** One fewerdec_tally row per bot per 10 min (counts of skips, waits and continuations), for the canary read. */
@@ -2157,6 +2515,18 @@ export class CognitiveLoop {
       const c = this.fdTally.c
       try { logEvent({ kind: 'fewerdec_tally', status: 'success', detail: `secs=${Math.round((now - this.fdTally.t0) / 1000)} ` + Object.entries(c).sort().map(([k, v]) => `${k}=${v}`).join(' '), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
       this.fdTally = { t0: now, c: {} }
+    }
+  }
+
+  /** DEPOSITOFFER-01: one depositoffer_tally row per bot per 10 min -- offers suppressed and why, refusals per model call,
+   *  model calls per minute, skills run per bot-hour (depositoffer.mjs tallyLine), for the canary read. */
+  #doCount (...whats) {
+    const now = Date.now()
+    this.doTally ??= { t0: now, c: {} }
+    for (const what of whats) this.doTally.c[what] = (this.doTally.c[what] ?? 0) + 1
+    if (now - this.doTally.t0 >= DEPOSIT_OFFER_TALLY_MS) {
+      try { logEvent({ kind: 'depositoffer_tally', status: 'success', detail: depositOfferTallyLine({ secs: (now - this.doTally.t0) / 1000, c: this.doTally.c }), snapshot: snapshot(this.bot) }) } catch { /* telemetry only */ }
+      this.doTally = { t0: now, c: {} }
     }
   }
 }

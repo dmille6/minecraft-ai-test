@@ -100,17 +100,20 @@ await t('the stair\'s own damage test: a finished stair stands; a tread gone rea
 
 console.log('THE USE (fake bot over a finished stair)')
 const stub = feet => G.stubEnd(plan.landings.find(l => l.feet === feet))
-await t('mine 16 from the surface near the stair: walks down to the 16 landing\'s stub end, done', async () => {
+// stairuse-01: the descents below are the base's (STAIRUSE=off: one walk, verified from the top); stair-descent.test.mjs and the
+// block after these have the step-by-step descent
+const legacy = fn => async () => { process.env.STAIRUSE = 'off'; try { await fn() } finally { delete process.env.STAIRUSE } }
+await t('mine 16 from the surface near the stair: walks down to the 16 landing\'s stub end, done', legacy(async () => {
   const bot = fakeBot(worldOf())
   const r = await K.stairDescend(ctx(bot), 16, null)
   assert.deepStrictEqual(r, { arrived: true, landing: 16, done: true })
   assert.deepStrictEqual(bot.walks, [stub(16)])
-})
-await t('mine 0: down to 16, not done (mine digs on from the stub end); mine 40: the 48 landing', async () => {
+}))
+await t('mine 0: down to 16, not done (mine digs on from the stub end); mine 40: the 48 landing', legacy(async () => {
   const b1 = fakeBot(worldOf()); assert.deepStrictEqual(await K.stairDescend(ctx(b1), 0, null), { arrived: true, landing: 16, done: false })
   const b2 = fakeBot(worldOf()); assert.deepStrictEqual(await K.stairDescend(ctx(b2), 40, null), { arrived: true, landing: 48, done: false })
-})
-await t('declined (null, today\'s mine): a step-sized call, no pickaxe, far from the stair, a broken route', async () => {
+}))
+await t('declined (null, today\'s mine): a step-sized call, no pickaxe, far from the stair, a broken route', legacy(async () => {
   assert.strictEqual(await K.stairDescend(ctx(fakeBot(worldOf())), 66, null), null)
   assert.strictEqual(await K.stairDescend(ctx(fakeBot(worldOf(), { pick: false })), 16, null), null)
   assert.strictEqual(await K.stairDescend(ctx(fakeBot(worldOf(), { pos: { x: 200.5, y: 71, z: 0.5 } })), 16, null), null)
@@ -119,14 +122,92 @@ await t('declined (null, today\'s mine): a step-sized call, no pickaxe, far from
   const b = fakeBot(broken)
   assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
   assert.deepStrictEqual(b.walks, [], 'never walked')
-})
-await t('a walk that does not arrive: null, and that landing is not tried again by this bot for 10 min', async () => {
+}))
+await t('a walk that does not arrive: null, and that landing is not tried again by this bot for 10 min', legacy(async () => {
   const b = fakeBot(worldOf(), { moves: false })
   assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
   assert.strictEqual(b.walks.length, 1)
   const again = await K.stairDescend(ctx(b), 16, null)
   assert.ok(again === null || again.landing !== 16)
   assert.ok(b.walks.length <= 2 && b.walks.every(w => w.join() !== stub(16).join() || b.walks.indexOf(w) === 0), 'the 16 is backed off')
+}))
+
+console.log('STAIRUSE-01: THE DESCENT STEP BY STEP (fake bot, the same finished stair)')
+const { tapRecords } = await import('../src/logger.mjs')
+const TAPPED = []
+tapRecords(rec => TAPPED.push(rec))
+const rowsOf = kind => TAPPED.filter(r => r.skill?.name === `_${kind}`)
+const recNow = () => K.stairRecordNow()
+await t('from the surface: the collar exit first, then hops down the stair to the 16 stub end, done; one _shaft_use row with entry=surface', async () => {
+  const n0 = rowsOf('shaft_use').length
+  const bot = fakeBot(worldOf())
+  const r = await K.stairDescend(ctx(bot), 16, null)
+  assert.deepStrictEqual(r, { arrived: true, landing: 16, done: true })
+  assert.deepStrictEqual(bot.walks[0], recNow().exit, 'the collar exit first')
+  assert.deepStrictEqual(bot.walks.at(-1), stub(16), 'the stub end last')
+  assert.ok(bot.walks.length > 10, `hops (${bot.walks.length} walks), not one long goto`)
+  const rows = rowsOf('shaft_use').slice(n0)
+  assert.strictEqual(rows.length, 1)
+  assert.match(rows[0].skill.detail, /dir=down ok=1 why=arrived landing=16 .* entry=surface cleared=0/)
+})
+await t('from the 48 landing\'s stub end (on the stair): down to 16 from its own step (no collar walk), entry=stair', async () => {
+  const s = stub(48)
+  const bot = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+  const r = await K.stairDescend(ctx(bot), 16, null)
+  assert.deepStrictEqual(r, { arrived: true, landing: 16, done: true })
+  assert.ok(!bot.walks.some(w => w.join() === recNow().exit.join()), 'never back up to the exit')
+  assert.match(rowsOf('shaft_use').at(-1).skill.detail, /entry=stair/)
+})
+await t('from a MINE near the stair (y 40, off it): no attempt -- null, no _shaft_use row, a _shaft_skip row, no landing backed off; then from the surface it descends (COMPOSED)', async () => {
+  const n0 = rowsOf('shaft_use').length, s0 = rowsOf('shaft_skip').length
+  const world = (x, y, z) => (y >= 40 && y <= 41 && Math.abs(z) <= 1 && x >= 4 && x <= 12 ? 'air' : worldOf()(x, y, z))   // a tunnel west of the stair's box
+  const bot = fakeBot(world, { pos: { x: 8.5, y: 40, z: 0.5 } })
+  assert.strictEqual(await K.stairDescend(ctx(bot), 16, null), null)
+  assert.deepStrictEqual(bot.walks, [], 'never walked')
+  assert.strictEqual(rowsOf('shaft_use').length, n0, 'no attempt row')
+  assert.match(rowsOf('shaft_skip').slice(s0)[0]?.skill.detail ?? '', /dir=down why=away landing=16 from=40/)
+  assert.ok(!(bot.stairFails?.get(16) > 0), 'the 16 is not backed off')
+  Object.assign(bot.entity.position, { x: 10.5, y: 71, z: 0.5 })
+  assert.deepStrictEqual(await K.stairDescend(ctx(bot), 16, null), { arrived: true, landing: 16, done: true }, 'the same bot at the surface uses the stair')
+})
+await t('a missing tread on the route: refused before any walk (landingRoute), the step named; a liquid the same', async () => {
+  const tread = plan.steps[10].tread
+  const broken = (x, y, z) => (x === tread[0] && y === tread[1] && z === tread[2] ? 'air' : worldOf()(x, y, z))
+  const b = fakeBot(broken)
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  assert.deepStrictEqual(b.walks, [])
+  assert.match(rowsOf('shaft_use').at(-1).skill.detail, /why=step10:tread/)
+})
+await t('the collar walk that does not arrive: null, why=approach, and the landing is NOT backed off (an approach is no stair fault)', async () => {
+  const b = fakeBot(worldOf(), { moves: false })
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  assert.match(rowsOf('shaft_use').at(-1).skill.detail, /why=approach/)
+  assert.ok(!(b.stairFails?.get(16) > 0))
+})
+await t('after a failed approach this bot waits 2 min before the next collar walk (no 90 s walk every mine call); the landing stays open', async () => {
+  const b = fakeBot(worldOf(), { moves: false })
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  const n = b.walks.length
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  assert.strictEqual(b.walks.length, n, 'no second walk inside the wait')
+  b.stairApproachFail = Date.now() - 2 * 60_000 - 1
+  await K.stairDescend(ctx(b), 16, null)
+  assert.ok(b.walks.length > n, 'asked again after it')
+})
+await t('MUTANT KILLED: an approach failure backs the landing off again (as the base did for every walk)', async () => {
+  await withSkillsMutant("    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now()); else bot.stairApproachFail = Date.now()", '    bot.stairFails.set(feet, Date.now())', async M => {
+    const b = fakeBot(worldOf(), { moves: false })
+    assert.strictEqual(await M.stairDescend(ctx(b), 16, null), null)
+    assert.ok(b.stairFails.get(16) > 0, 'the mutant backs it off')
+  })
+})
+await t('MUTANT KILLED: without the entry class a bot in a mine walks for the stair again (an attempt that cannot succeed)', async () => {
+  await withSkillsMutant("  if (entry !== 'stair' && entry !== 'surface') {", '  if (false) {', async M => {
+    const world = (x, y, z) => (y >= 40 && y <= 41 && Math.abs(z) <= 1 && x >= 4 && x <= 12 ? 'air' : worldOf()(x, y, z))   // a tunnel west of the stair's box
+    const b = fakeBot(world, { pos: { x: 8.5, y: 40, z: 0.5 } })
+    await M.stairDescend(ctx(b), 16, null)
+    assert.ok(b.walks.length > 0, 'the mutant walks')
+  })
 })
 await t('surface from the 32 stub end (under rock), SHAFTTRAP=off (the base): plans, walks up to the collar exit', async () => {
   process.env.SHAFTTRAP = 'off'

@@ -11,6 +11,7 @@
 import { haltPath } from './pathhalt.mjs'
 import { activeReflexOf } from './pickuplog.mjs'   // telemetry only: names the arm for the pickup log
 import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted, TOOL_HYGIENE, remaining, HARD_STOP, toolFor } from './toolfor.mjs'
+import { usablePickaxes, ESCDEAD_ON } from './toolfor.mjs'   // escdead-01 (b): the one usable-pickaxe rule
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -57,6 +58,7 @@ import { poolEscapeOn, wading, choosePoolStep, poolStep, swimToWall, keepoutMark
          poolSpotKey, poolRowDetail, poolBlockOf, poolBlockCount, POOL_MAX_STEPS, POOL_BUDGET_MS, POOL_STEP_HOLD_MS, POOL_STEP_WALK_MS,
          POOL_STEP_TRIES } from './poolescape.mjs'
 import { MAX_DIG_MS } from './digbudget.mjs'
+import { handBreaksCap } from './handcap.mjs'   // handcap-01: a cap the bare hand breaks is a climb, not a pickaxe ask
 // lavastep-01 (F1, docs/reports/mineshaft-safety-2026-10-23.md): the danger arm's verified, bounded move
 import { lavastepOn } from './lavastep.mjs'
 import { dropDigOn, dropAdmission, DD_FAIL_MEMORY_MS } from './dropdig.mjs'   // dropanddig-01: dig the pocket standing
@@ -70,6 +72,8 @@ import { makeDangerMover } from './lavastepmove.mjs'
 import { ceilingPlugPlan, stepPlugPlan, chooseStepPlug, sparePlugs, plugDue, plugSoFar, plugStreak, plugSamePlace, PLUG_MAX, PLUG_ROUNDS, PLUG_CLEAR_UP,
          PLUG_BUDGET_MS, PLUG_SETTLE_MS, PLUG_STEP_RETRIES, PLUG_SURFACE_MS, isUtilityBlock } from './plugcut.mjs'
 import { swimUnderOn, swimUnderPlan, swimUnderAdmit, swimUnder, swimUnderBackoffMs, swimNoPlanBackoffMs, swimUnderRowDetail, startCells } from './swimunder.mjs'
+import { escDeadOn, pinStep, pinnedFor, pinMinMs, swimSearchFor, breachPlan, breachAdmit, floodBreach, breachBackoffMs, breachRowDetail, BREACH_DIG_MS } from './escdead.mjs'   // escdead-01
+import { escPocketOn, pocketDigOk, pocketDigPlan, pocketDigDetail, pocketDig, POCKET_DIG_MS, trapSiteFrom, inTrap, swimTierFor, longBreathPlan, SU_LONG_WET_RUN } from './escdead.mjs'   // escpocket-01, seapocket-01
 import { configuredHome } from './townground.mjs'
 import { tripHoldsBody } from './deepmine.mjs'   // deepminer-01: an open deep trip owns the body between its calls
 // ceilescape-01: a ramp swing that cannot finish is never started (ceilescape.mjs decides; escapeStairUp executes)
@@ -1860,18 +1864,59 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (!isWaterCell(at(o.x, o.y, o.z))) return null
     if (poolEscaping || swimmingUnder || strandedRunning > 0) return null
     if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
-    const key = poolSpotKey(p), st = swimSpots.get(key)
+    const key = poolSpotKey(p)
+    const start = [o.x, o.y, o.z]
+    // escdead-01 (a): on a pin of 30 min or more the search widens (radius 8, descent 4; the breath bound unchanged). A
+    // no-plan back-off earned by the NARROW search is not a fact about the wide one (Codex design): it does not hold it.
+    // escpocket-01: a pocket the pool has swum out of (a live trap site) gets the wide search at once -- the record is the
+    // evidence the 30-min pin clock waits for.
+    const pocketOn = escPocketOn()
+    const trapHere = pocketOn && inTrap(bot.trapCellsNow?.(), start)
+    const wide = swimTierFor(pinnedMsOf(bot), { known: trapHere })
+    const st0 = swimSpots.get(key), st = st0 && (!wide.radius || st0.wide) ? st0 : null
     if (st && Date.now() < st.until) return null
-    const plan = swimUnderPlan({ at, start: [o.x, o.y, o.z] })
+    let plan = swimUnderPlan({ at, start, ...wide })
     const eye = at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))
+    const headAirNow = !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block'
+    // escpocket-01: NO SWIM OUT ON THE WIDE TIER -> THE POCKET DIG (escdead.mjs pocketDigPlan). One block (two for a sideways
+    // opening) bordering the reachable water, at feet level or below, within reach, dug from here with the head in air: a
+    // plug the bot placed itself (Echo 11-07: dirt at 358,55,180 under its own pillar) is the case. The block must be a pocket
+    // dig's kind, not guarded (a build record, a zone), and diggable from this floating stance inside POCKET_DIG_MS.
+    // seapocket-01: no swim within the base breath bound on the wide tier -> the long-breath search (escdead.mjs longBreathPlan),
+    // before any dig: a swim that changes nothing in the world is preferred to one that digs first
+    // ...unless a long-breath firing already FAILED at this spot (Claude r1 note): then the pocket dig is asked first, and the
+    // long tier only if no dig opens a way (a long swim that keeps failing at one corner never shuts out a 5-cell dig route)
+    let breath = 0
+    const longFirst = !(st0?.breath > 0)
+    const tryLong = () => {
+      if (plan.ok || !wide.radius || !pocketOn) return
+      const lb = longBreathPlan({ at, start, tier: wide })
+      if (lb?.ok) { plan = lb; breath = SU_LONG_WET_RUN }
+    }
+    if (longFirst) tryLong()
+    let pocket = null
+    if (!plan.ok && wide.radius && pocketOn && headAirNow) {
+      // the time is the ACTUATOR'S tool's: bestTool = applyToolPolicy = toolFor(block, items, { pinned: pinnedNow }) -- the same
+      // choice, read here without applyToolPolicy's hand swap (a planning read must not equip anything; Claude r1 note)
+      const items = bot.inventory?.items?.() ?? []
+      const pinned = pinnedNow(bot)
+      const digOk = (b) => {
+        if (!pocketDigOk(b) || !guardMay(bot, b)) return false
+        const ms = predictedDigMs(b, toolFor(b, items, { pinned }).item ?? null, digEnv(bot))
+        return Number.isFinite(ms) && ms <= POCKET_DIG_MS
+      }
+      const pd = pocketDigPlan({ at, start, eye: [p.x, p.y + 1.62, p.z], digOk, ...wide })
+      if (pd.ok && pd.dig) { plan = pd.plan; pocket = pd } else if (!pd.ok) plan = { ...plan, reason: pd.reason }
+    }
+    if (!longFirst) tryLong()
     const adm = swimUnderAdmit({ plan, oxygen: bot.oxygenLevel, health: bot.health, headAir: !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block' })
     if (!adm.ok) {
       // no way out within reach is a fact of this place: back off like a failed firing. Air or health is a wait, not a fact.
       const tries = (st?.failures ?? 0) + (plan.ok ? 0 : 1)
-      if (!plan.ok) swimSpots.set(key, { failures: plan.unloaded > 0 ? (st?.failures ?? 0) : tries, until: Date.now() + swimNoPlanBackoffMs(tries, plan) })
+      if (!plan.ok) swimSpots.set(key, { failures: plan.unloaded > 0 ? (st?.failures ?? 0) : tries, until: Date.now() + swimNoPlanBackoffMs(tries, plan), wide: !!wide.radius })
       if (!plan.ok || throttled('swim_under_wait', 60_000)) {
         logEvent({ kind: 'swim_under_refused', status: 'no_effect', snapshot: snapshot(bot),
-                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} -- ${adm.why} | ${startCells(at, [o.x, o.y, o.z])}` })
+                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} wide=${wide.radius ? 1 : 0}${trapHere ? ' trap=1' : ''} -- ${adm.why} | ${startCells(at, [o.x, o.y, o.z])}` })
       }
       return null
     }
@@ -1892,13 +1937,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const held = runner?.activeReservation?.() ?? null
       if (held && held.owner !== 'swimunder') return null
       logEvent({ kind: 'swim_under_start', status: 'success', snapshot: snapshot(bot),
-                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} ` +
+                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} exit=${plan.exit} cells=${plan.route.length} wide=${wide.radius ? 1 : 0}${trapHere ? ' trap=1' : ''}${breath ? ` breath=${breath}` : ''}${pocketDigDetail(pocket)} ` +
                          `wet=${plan.wet} run=${plan.wetRun} air=${bot.oxygenLevel} hp=${bot.health} via ${plan.route.map(c => c.join(',')).join(' ')}` })
       renew()
       keep = setInterval(renew, 5_000)
       for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
       try { bot.pathfinder?.setGoal?.(null) } catch {}
-      res = await swimUnder(bot, { plan, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
+      // escpocket-01: THE POCKET DIG, from here, head in air; then the swim is planned on the world as it now is
+      if (pocket) res = await pocketDigRun(pocket, { alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
+                                                     yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), start, wide, at })
+      if (pocket && !res) plan = pocket.plan
+      if (!res) res = await swimUnder(bot, { plan, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
                                    yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), oxygen: () => bot.oxygenLevel, renew })
     } catch (e) {
       res = { outcome: 'failed', why: `threw: ${e.message}`, len: plan.route.length }
@@ -1910,11 +1959,157 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     }
     if (res.outcome === 'out') swimSpots.delete(key)
     else if (res.outcome !== 'yielded') {
-      swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries) })
+      swimSpots.set(key, { failures: tries, until: Date.now() + swimUnderBackoffMs(tries), wide: !!wide.radius, breath })
       if (swimSpots.size > 32) swimSpots.delete(swimSpots.keys().next().value)
     }
     logEvent({ kind: 'swim_under', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
-               snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}` })
+               snapshot: snapshot(bot), detail: `hook=${hook} ${swimUnderRowDetail(res)}${breath ? ` breath=${breath}` : ''}${pocketDigDetail(pocket)}${res.dug != null ? ` dug=${res.dug}` : ''}` })
+    // escpocket-01: THE POCKET IS RECORDED (pool-wide, 12 h): its cells and the column the body rose in by are priced out of
+    // every path, and a bot found in it gets the wide search at once (Bravo re-entered within a minute; Echo 84 min later)
+    if (res.outcome === 'out' && pocketOn) recordTrap(trapSiteFrom({ start, route: plan.route, via: pocket ? 'pocket_dig' : 'swim', by: bot.username }))
+    return res
+  }
+  // escpocket-01: the pocket dig (escdead.mjs pocketDig: the body floats in place, ownership and air every tick) -> null (dug,
+  // the swim re-planned on the live world: go on) | a swim result ({ outcome: 'yielded' | 'failed', why }) that ends the firing
+  const pocketDigRun = async (pd, { alive, yieldTo, start, wide, at }) => {
+    // THE SWING: ownership before AND after the equip (Codex r1 BLOCKER 3: a yielded swing never changes the new owner's hand)
+    const dig = async (b, lost) => {
+      // before bestTool too (Codex r2 BLOCKER 2): applyToolPolicy may swap the hand itself
+      if (lost()) throw new Error('ownership lost before the tool choice')
+      const tool = bestTool(bot, b)
+      if (lost()) throw new Error('ownership lost before the equip')
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      if (!guardMay(bot, b)) throw new Error(`the ${b.name} is guarded`)
+      if (lost()) throw new Error('ownership lost after the equip')
+      // THE LOOK FIRST, THEN OWNERSHIP, THEN THE SWING WITH NO AWAIT BEFORE block_dig (Codex r3 BLOCKER: mineflayer's dig awaits
+      // its own lookAt before it sets targetDigBlock, so a yield during that look left an abandoned swing that later cancelled
+      // the new owner's dig and mined this cell anyway)
+      await bot.lookAt(b.position.offset(0.5, 0.5, 0.5), true).catch(() => {})
+      if (lost()) throw new Error('ownership lost after the look')
+      await digBounded(bot, b, POCKET_DIG_MS, { noLook: true })
+    }
+    const r = await pocketDig(bot, { pd, dig, alive, yieldTo, oxygen: () => bot.oxygenLevel })
+    const len = pd.plan?.route?.length ?? 0
+    if (r.outcome !== 'dug') return { outcome: r.outcome, why: r.why, len, dug: r.dug }
+    const re = swimUnderPlan({ at, start, ...wide })
+    if (!re.ok) return { outcome: 'failed', why: `pocket dug (${r.dug}) but no swim out: ${re.reason}`, len, dug: r.dug }
+    pd.plan = re
+    return null
+  }
+  // escpocket-01: the pool's trap record (worldfacts) and this bot's own (a busy pool lock never loses the bot's own record)
+  const ownTraps = []
+  bot.ownTrapSites = () => ownTraps
+  const recordTrap = (site) => {
+    if (!site) return
+    try {
+      const i = ownTraps.findIndex(t => t.x === site.x && t.y === site.y && t.z === site.z)
+      if (i >= 0) ownTraps.splice(i, 1)
+      ownTraps.push(site); if (ownTraps.length > 16) ownTraps.shift()
+      const pooled = worldFacts?.reportTrap?.(site) ?? null
+      bot.refreshTrapCells?.()
+      logEvent({ kind: 'trap_site_recorded', status: 'success', snapshot: snapshot(bot),
+                 detail: `at=${site.x},${site.y},${site.z} via=${site.via} cells=${site.cells.length} pool=${pooled ? 1 : 0} ${site.cells.join(' ')}` })
+    } catch (e) { log('warn', 'trap record failed', { err: e.message }) }
+  }
+  // ESCDEAD-01 (a): THE FLOOD-IN BREACH (escdead.mjs). After the flood refusal and a swim-under that did not get out, a body
+  // pinned 30 min or more with its head in air, full air and health >= 18 breaks its roof when the water over the roof is
+  // OPEN TO AIR within 10 cells, and swims straight up. Water is terrain (owner). Same ownership as swimUnderTry: the float
+  // hold, the stranded ladder and the in-wall exit stand aside while it steers; the drowning rescue pre-empts every tick (the
+  // pocket floods once the roof is open, so the rescue is the backstop, not a turn back). A roof whose water is closed above
+  // (dirt over one water cell, 358,58,180) is refused with the reason: the flood guard's trade, unchanged.
+  let breaching = false
+  const breachSpots = new Map()
+  const floodBreachTry = async (hook, grantOf) => {
+    if (!escDeadOn()) return null
+    const p = bot.entity?.position
+    if (!p) return null
+    const o = p.floored()
+    if (poolEscaping || swimmingUnder || breaching || strandedRunning > 0) return null
+    if (!ownsBody(grantOf)() || airPocketWanted() || drowningOwnsBody()) return null
+    const key = poolSpotKey(p), st = breachSpots.get(key)
+    if (st && Date.now() < st.until) return null
+    const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+    const plan = breachPlan({ at, feet: [o.x, o.y, o.z] })
+    const eye = at(Math.floor(p.x), Math.floor(p.y + 1.62), Math.floor(p.z))
+    const pinnedMs = pinnedMsOf(bot)
+    // another body in the pocket (any player within 2 cells horizontally and vertically of the feet cell)
+    let others = 0
+    try {
+      for (const e of Object.values(bot.entities ?? {})) {
+        if (!e || e === bot.entity || e.type !== 'player' || !e.position) continue
+        if (Math.abs(e.position.x - p.x) <= 2.5 && Math.abs(e.position.z - p.z) <= 2.5 && Math.abs(e.position.y - p.y) <= 2.5) others++
+      }
+    } catch { /* no entity table: none known */ }
+    const adm = breachAdmit({ plan, pinnedMs, oxygen: bot.oxygenLevel, health: bot.health, others,
+                              headAir: !!eye && !isWaterCell(eye) && eye.boundingBox !== 'block' })
+    if (adm.ok && plan.roof) {
+      const roof = at(...plan.roof)
+      if (roof && !guardMay(bot, roof)) { adm.ok = false; adm.why = `the roof ${roof.name} is guarded (a build record or a protected structure)` }
+      // THE DIG MUST FIT ITS BOUND (Claude r1 note 3): a floating body digs 5x slower; a roof the 12 s cannot break is
+      // refused here, not tried and backed off every firing
+      else if (roof) {
+        const tool = toolFor(roof, bot.inventory?.items?.() ?? [], { pinned: true }).item ?? null
+        const ms = predictedDigMs(roof, tool, digEnv(bot))
+        if (!Number.isFinite(ms) || ms > BREACH_DIG_MS) { adm.ok = false; adm.why = `the roof ${roof.name} takes ${Number.isFinite(ms) ? Math.round(ms) : '?'} ms to dig from here, over ${BREACH_DIG_MS}` }
+      }
+    }
+    if (!adm.ok) {
+      if (throttled(`flood_breach_refused:${key}`, 10 * 60_000)) {
+        logEvent({ kind: 'flood_breach_refused', status: 'no_effect', snapshot: snapshot(bot),
+                   detail: `hook=${hook} at=${o.x},${o.y},${o.z} pinned_min=${Math.round(pinnedMs / 60_000)} -- ${adm.why}` })
+      }
+      // a roof that can never be breached is a fact of this place: back off like a failed firing (a short pin is a wait)
+      if (!plan.ok) breachSpots.set(key, { failures: st?.failures ?? 0, until: Date.now() + 10 * 60_000 })
+      return null
+    }
+    breaching = true
+    steerRamp(true)
+    let resv = null
+    const renew = () => {
+      try {
+        if (typeof runner?.reserve !== 'function') return
+        const cur = runner.activeReservation?.() ?? null
+        if (cur && !(resv && cur.gen === resv.gen)) return
+        resv = runner.reserve('floodbreach', 20_000, 'floodbreach')
+      } catch {}
+    }
+    const tries = (st?.failures ?? 0) + 1
+    let res, keep = null
+    try {
+      const held = runner?.activeReservation?.() ?? null
+      if (held && held.owner !== 'floodbreach') return null
+      logEvent({ kind: 'flood_breach_start', status: 'success', snapshot: snapshot(bot),
+                 detail: `hook=${hook} at=${o.x},${o.y},${o.z} tries=${tries} roof=${plan.roof.join(',')}:${at(...plan.roof)?.name ?? '?'} ` +
+                         `water=${plan.water} top=${plan.top.join(',')} pinned_min=${Math.round(pinnedMs / 60_000)} air=${bot.oxygenLevel} hp=${bot.health}` })
+      renew()
+      keep = setInterval(renew, 5_000)
+      for (let w = 0; w < 30 && runner?.current; w++) await sleep(100)
+      try { bot.pathfinder?.setGoal?.(null) } catch {}
+      const owns = () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current && !drowningOwnsBody()
+      const dig = async (block) => {
+        const tool = bestTool(bot, block)   // pinned: the one rule's last swing; the hand when it is the cheapest
+        if (tool) await bot.equip(tool, 'hand').catch(() => {})
+        // OWNERSHIP AFTER THE EQUIP (Codex r1 BLOCKER 1): a body another owner took is never flooded
+        if (!owns()) throw new Error('ownership lost before the roof dig')
+        await digBounded(bot, block, BREACH_DIG_MS)
+      }
+      res = await floodBreach(bot, { plan, dig, alive: () => ownsBody(grantOf)() && !airPocketWanted() && !runner?.current,
+                                     yieldTo: () => drowningOwnsBody() || arbiterYield(grantOf), oxygen: () => bot.oxygenLevel, renew })
+    } catch (e) {
+      res = { outcome: 'failed', why: `threw: ${e.message}` }
+    } finally {
+      clearInterval(keep)
+      breaching = false
+      steerRamp(false)
+      try { if (resv) runner.releaseReservation(resv.gen) } catch {}
+    }
+    if (res.outcome === 'out') breachSpots.delete(key)
+    else if (res.outcome !== 'yielded') {
+      breachSpots.set(key, { failures: tries, until: Date.now() + breachBackoffMs(tries) })
+      if (breachSpots.size > 32) breachSpots.delete(breachSpots.keys().next().value)
+    }
+    logEvent({ kind: 'flood_breach', status: res.outcome === 'out' ? 'success' : res.outcome === 'yielded' ? 'no_effect' : 'failed',
+               snapshot: snapshot(bot), detail: `hook=${hook} ${breachRowDetail(res)}` })
     return res
   }
   let strandedSince = 0
@@ -1943,6 +2138,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // lavastep-01: the relaxation's end conditions (no entity, death, the air rescue, in water, expiry, moved off, a new
     // DANGER cell) run FIRST, before every early return below (Codex code r2 P2); it never throws
     try { lavastepMover?.tick() } catch { /* the mover's own guard */ }
+    try { pinTick(bot) } catch { /* escdead-01: the pin clock never breaks the tick (no entity: no clock) */ }
     if (!bot.entity) return
 
     try {
@@ -3425,6 +3621,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (!fb.progressed && !fb.preempted) {
               const so = await swimUnderTry('marooned', () => maroonGrant).catch(e => { log('warn', 'swim under failed', { err: e.message }); return null })
               if (so?.outcome === 'out') { floodRefusals = 0; lastMaroonCheck = Date.now() }
+              // escdead-01 (a): still pinned under a wet roof -> the flood-in breach (pinned 30 min, the water open to air)
+              else if (so?.outcome !== 'yielded') {
+                const bo = await floodBreachTry('marooned', () => maroonGrant).catch(e => { log('warn', 'flood breach failed', { err: e.message }); return null })
+                if (bo?.outcome === 'out') { floodRefusals = 0; lastMaroonCheck = Date.now() }
+              }
             }
           } else if (climbOutcomeRoute(pillarOutcome) === 'guarded') {
             // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE. The same shape as the flood branch: the
@@ -3736,6 +3937,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (!fb.preempted && !fb.progressed) {
               const so = await swimUnderTry('entombed', () => entombedGrant).catch(e => { log('warn', 'swim under failed', { err: e.message }); return null })
               if (so?.outcome === 'out') { floodRefusals = 0; climbRefusals = 0; refusalPlaceStreak = 0; lastEscapeAt = Date.now() }
+              // escdead-01 (a): still pinned under a wet roof -> the flood-in breach (pinned 30 min, the water open to air)
+              else if (so?.outcome !== 'yielded') {
+                const bo = await floodBreachTry('entombed', () => entombedGrant).catch(e => { log('warn', 'flood breach failed', { err: e.message }); return null })
+                if (bo?.outcome === 'out') { floodRefusals = 0; climbRefusals = 0; refusalPlaceStreak = 0; lastEscapeAt = Date.now() }
+              }
             }
           }
           else if (climbOutcomeRoute(climbed) === 'guarded') {
@@ -4066,7 +4272,7 @@ export function canFinishClimb ({ have, need, headroomBlocked = false }) {
  * lags by a tick, and a tool that breaks one swing early is the entire failure
  * being prevented.
  */
-export function mayDigForEscape (items = [], block = null) {
+export function mayDigForEscape (items = [], block = null, { pinned = false, on = ESCDEAD_ON } = {}) {
   // ONLY WHAT ACTUALLY NEEDS A TOOL.
   //
   // The first version refused ALL escape digging without a spare pickaxe. But
@@ -4081,16 +4287,14 @@ export function mayDigForEscape (items = [], block = null) {
   // stone case is the one that ends escapes permanently.
   if (block && block.boundingBox === 'empty') return true
   if (block && SOFT_BLOCK.test(block.name)) return true
-  let usable = 0
-  for (const it of items) {
-    if (!it?.name || !/_pickaxe$/.test(it.name)) continue
-    // Unknown durability counts as FULL, not as spent. Assuming a tool is dead
-    // when the server does not report durability would refuse every escape --
-    // a different total outage, arriving through the safety guard.
-    const max = it.maxDurability
-    const left = max ? max - (it.durabilityUsed ?? 0) : Infinity
-    if (left > 1) usable += 1
-  }
+  // ESCDEAD-01 (b): A PINNED ESCAPE IS NOT BOUND BY THE RESERVE (toolfor.mjs usablePickaxes, the one rule). After 30 min in
+  // one 3-block box the last pickaxe is protecting a way out that is not being taken; the dig may spend it, last swing
+  // included (toolFor's pinned hard stop), and with no copy left the hand digs.
+  if (pinned && on) return true
+  // Unknown durability counts as FULL, not as spent (usablePickaxes: remaining() is Infinity). Assuming a tool is dead
+  // when the server does not report durability would refuse every escape -- a different total outage, arriving through
+  // the safety guard. A copy counts while it has more than HARD_STOP (1) use left.
+  const usable = usablePickaxes(items)
   // ZERO IS NOT ONE, AND THE RESERVE RULE DOES NOT REACH IT.
   //
   // This was `usable > 1`, so a bot with NO pickaxe was refused for the same
@@ -4118,8 +4322,28 @@ export function mayDigForEscape (items = [], block = null) {
 function bestTool(bot, block) {
   // The cheapest tool that does the job, never the fastest (iron-retention plan v3, 2026-09-15). The escape digs
   // were the second-largest iron sink after work itself; toolFor() applies the harvest table and the floor.
-  return applyToolPolicy(bot, block)
+  // escdead-01 (b): a PINNED body's escape dig may swing a pickaxe's last use (toolfor.mjs, the one rule)
+  return applyToolPolicy(bot, block, { pinned: pinnedNow(bot) })
 }
+
+/**
+ * ESCDEAD-01: THE PIN CLOCK, one per body (escdead.mjs pinStep: the body in one 3-block box). The reflex tick steps it; the
+ * escape digs (bestTool, mayDigForEscape, the pool rung's poolToolOk), the wide swim-under search and the flood-in breach
+ * read it. A new body (death, respawn, reconnect: a new bot.entity) starts a new clock.
+ */
+const pinClocks = new WeakMap()
+export function pinTick (bot, now = Date.now()) {
+  const e = bot?.entity
+  if (!e) return null
+  const prev = pinClocks.get(bot)
+  const st = pinStep(prev && prev.body === e ? prev.st : null, e.position, now)
+  pinClocks.set(bot, { body: e, st })
+  return st
+}
+/** How long this body has been pinned -> ms. */
+export const pinnedMsOf = (bot, now = Date.now()) => { const c = pinClocks.get(bot); return c && c.body === bot?.entity ? pinnedFor(c.st, now) : 0 }
+/** Is this body pinned long enough for the escdead exceptions -> boolean (false with ESCDEAD=0). */
+export const pinnedNow = (bot, now = Date.now()) => escDeadOn() && pinnedMsOf(bot, now) >= pinMinMs()
 
 function shaftCap(bot, maxClearance = 12) {
   const p = bot.entity.position
@@ -4140,7 +4364,32 @@ export function shaftCapNeedsTool(bot, maxClearance = 12) {
   if (ceilingFloodRisk(bot, cap.dy)) return null
   const handCanHarvest = cap.block.canHarvest?.(null) === true
   if (handCanHarvest || bestTool(bot, cap.block)) return null
+  // HANDCAP-01 (handcap.mjs): the climb breaks its headroom bare-handed, so a cap the hand BREAKS within the climb's own
+  // refusal rule is not a tool problem -- the state is `climb`, not `need_pickaxe` (whose table-and-craft remedy a bot in a
+  // shaft, or inside a protected zone, cannot perform). Unknown dig time keeps the old answer.
+  const bareMs = predictedDigMs(cap.block, null)
+  if (handBreaksCap(bareMs)) {
+    noteHandCap(bot, cap, bareMs)
+    return null
+  }
   return cap
+}
+
+/** HANDCAP-01's row: once per cap cell per 10 min, so the read can count the bots it turned from `need_pickaxe` to `climb`. */
+function noteHandCap (bot, cap, bareMs) {
+  try {
+    const at = cap.block?.position
+    const key = at ? `${at.x},${at.y},${at.z}` : `dy${cap.dy}`
+    const now = Date.now()
+    if (bot.__handCapRow?.key === key && now - bot.__handCapRow.t < 10 * 60_000) return
+    bot.__handCapRow = { key, t: now }
+    const pk = (bot.inventory?.items?.() ?? []).filter(it => /_pickaxe$/.test(it?.name ?? ''))
+      .map(it => `${it.name}:${it.maxDurability ? it.maxDurability - (it.durabilityUsed ?? 0) : '?'}`).join(',') || 'none'
+    logEvent({ kind: 'maroon_handcap', status: 'success',
+               detail: `cap ${cap.block?.name ?? '?'} at ${key} (${cap.dy} overhead) breaks bare-handed in ~${Math.round(bareMs)}ms ` +
+                       `-- climb, not need_pickaxe; pickaxes=${pk}`,
+               snapshot: snapshot(bot) })
+  } catch { /* telemetry */ }
 }
 
 /**
@@ -5846,8 +6095,9 @@ export async function poolEscape (bot, { alive = () => true, yieldTo = () => nul
   const inv = () => bot.inventory?.items?.() ?? []
   const planned = new Map()   // tool slot -> digs already spent this firing (poolToolOk is cumulative)
   const handFor = (b) => {
-    let tool = toolFor(b, inv()).item ?? null
-    if (tool && !poolToolOk(tool, inv(), (planned.get(tool.slot) ?? 0) + 1)) tool = null
+    const pin = pinnedNow(bot)   // escdead-01 (b): the one rule, the same pin for the choice and the check (Codex r1 note)
+    let tool = toolFor(b, inv(), { pinned: pin }).item ?? null
+    if (tool && !poolToolOk(tool, inv(), (planned.get(tool.slot) ?? 0) + 1, { pinned: pin })) tool = null
     const env = digEnv(bot)
     const plan = escapeDigPlan({
       bareHardnessMs: predictedDigMs(b, null), bareActualMs: predictedDigMs(b, null, env),
@@ -6469,6 +6719,46 @@ export function restRoofFloodRisk (bot) {
   return reason
 }
 
+/**
+ * ESCPOCKET-01: THE CAP OF A WET PILLAR'S COLUMN -> { cap: [x,y,z], reason } | null. Pure.
+ * LIVE 11-07 07:16:58Z, isolated-d-Echo at feet y=56 in the falling-water column under the 358,58,180 pocket: the marooned
+ * arm pillared (`_marooned` "an open column above"), one dirt went into the column at 358,55,180, the body rose to y=58 and
+ * the flood guard refused the granite roof at y=60 (water at y=61) one jump later -- and that dirt was the plug that kept it
+ * pinned 5 h+ (swimunder: "3 water cells searched", narrow and wide). The early checks read only feet+2 (the head0 check,
+ * restRoofFloodRisk); the cap was feet+4. So from a WET start the column is scanned up to the first block within the climb,
+ * and that block is read with the same overheadBreakRisk the climb will ask at the top (submerged as the body will be there).
+ * A cap at feet+2 or lower is the existing checks' (null here), and so is a column with a dry side opening below its cap (the
+ * climb stops there). Dry starts are unchanged.
+ */
+export function columnCapRisk ({ at = () => null, feet, maxUp = PILLAR_MAX_BLOCKS } = {}) {
+  if (!Array.isArray(feet) || feet.length !== 3) return null
+  const [x, y, z] = feet
+  if (!isWaterCell(at(x, y, z))) return null
+  // A SIDE WAY OUT BELOW THE CAP (Codex r1 BLOCKER 2): the climb stops wherever it can step off (pillarOut's canStartAPath), so a
+  // dry opening beside the column at the body's two heights, anywhere the climb passes under the cap, is no refusal here
+  const dry = b => !!b && bodyPassable(b) && !isWaterCell(b) && !isLavaCell(b)
+  const sideOut = fy => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => dry(at(x + dx, fy, z + dz)) && dry(at(x + dx, fy + 1, z + dz)))
+  for (let cy = y + 1; cy <= y + 2 + maxUp; cy++) {
+    const b = at(x, cy, z)
+    if (!b) return null
+    if (b.boundingBox !== 'block') continue
+    if (cy <= y + 2) return null
+    for (let fy = y; fy <= cy - 2; fy++) if (sideOut(fy)) return null
+    const sub = isWaterCell(at(x, cy - 1, z)) && isWaterCell(at(x, cy - 2, z))
+    const reason = overheadBreakRisk({ at: (dx, dy, dz) => at(x + dx, cy + dy, z + dz), submerged: sub })
+    return reason ? { cap: [x, cy, z], reason } : null
+  }
+  return null
+}
+/** columnCapRisk on the live world, with the flood guard's row (caller=pillar_cap) on a refusal -> reason | null. */
+export function capFloodRisk (bot, maxBlocks = PILLAR_MAX_BLOCKS) {
+  const fp = bot.entity.position
+  const r = columnCapRisk({ at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)), feet: [Math.floor(fp.x), Math.floor(fp.y), Math.floor(fp.z)], maxUp: maxBlocks })
+  if (!r) return null
+  logFloodGuard(bot, { caller: 'pillar_cap', reason: r.reason, cell: new Vec3(...r.cap), submerged: false })
+  return r.reason
+}
+
 export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
   // THE GATE (arbiter, Codex final pass): every actuator step asks whether this
   // climb still owns the body. A refused or revoked grant ends the climb at the
@@ -6485,6 +6775,9 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
         upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK
     // SWIMUNDER-01: the wet roof is also read from where a floating body rests (restRoofFloodRisk, below)
     if (swimUnderOn() && restRoofFloodRisk(bot)) return FLOOD_RISK
+    // escpocket-01: ...and the CAP OF THE OPEN COLUMN this pillar would climb (columnCapRisk, below): from a wet start every
+    // block placed goes into the water the swim out needs, and the climb ends at that cap's flood refusal anyway
+    if (escPocketOn() && capFloodRisk(bot, maxBlocks)) return FLOOD_RISK
     // escapeguard-01: A GUARDED CEILING IS NOT A SHORTAGE EITHER. Asked before the block count, for the flood check's reason:
     // the climb's first dig would be refused, so the bot goes to the ramp (another bearing), not for 26 dirt
     if (head0 && head0.boundingBox === 'block' && !guardMay(bot, head0)) return ESCAPE_GUARDED
@@ -6572,6 +6865,10 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     if (!alive()) return 'preempted'
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
+    // escpocket-01: THE CAP AGAIN BEFORE EVERY PLACEMENT (Paper 11-07, the column scene on d5dcceab: an entombed arm that began on
+    // dry ground had the body moved into the wet column, and its pillar then placed the plug) -- a wet body never pillars into
+    // a column its climb will be refused at the top of
+    if (escPocketOn() && capFloodRisk(bot, maxBlocks - i)) return FLOOD_RISK
     bot.setControlState('jump', true)
     await sleep(300)
     if (!alive()) { bot.setControlState('jump', false); return 'preempted' }   // airpocket-01 (Codex r3): never place after a yield
@@ -6944,11 +7241,13 @@ async function plugFaces (bot, p, { what = 'ceiling', plan, clear, yieldTo = () 
   return ok ? out(true, `plugged ${placed} (${what})`) : out(false, `the ${what} stayed wet after the plugs`)
 }
 
-async function digBounded(bot, block, ms = 8000) {
+async function digBounded(bot, block, ms = 8000, { noLook = false } = {}) {
   let t
   try {
     await Promise.race([
-      bot.dig(block),
+      // escpocket-01: noLook = the caller already looked; mineflayer's dig then reaches block_dig with no await in between, so
+      // an ownership check made just before it still holds when the swing starts (Codex r3)
+      noLook ? bot.dig(block, 'ignore') : bot.dig(block),
       new Promise((_, rej) => { t = setTimeout(() => {
         try { bot.stopDigging?.() } catch { /* not digging */ }
         rej(new Error(`dig exceeded ${ms}ms`))
@@ -6969,7 +7268,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
   // cannot make this dig safe, so asking for one is the wrong remedy.
   if (blocking && blocking.name !== 'air' && upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK
   if (blocking && blocking.boundingBox === 'block' && !guardMay(bot, blocking)) return ESCAPE_GUARDED   // escapeguard-01
-  if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking)) {
+  if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking, { pinned: pinnedNow(bot) })) {
     logEvent({ kind: 'maroon_dig_refused', status: 'failed',
                detail: `will not dig out on the last pickaxe: ${blocking?.name ?? 'the ceiling'} ` +
                        'needs a tool, and breaking it here ends every future ' +

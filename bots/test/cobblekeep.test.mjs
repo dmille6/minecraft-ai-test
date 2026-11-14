@@ -330,7 +330,7 @@ await t('MUTANT KILLED: ignoring the withdraw hold would throw plinth funds', as
   })
 })
 await t('MUTANT KILLED: the skills.mjs switch not passing the hold', async () => {
-  await withMutant(SKILLS_PATH, '{ cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })', '{ cap: TOWN_COBBLE_CAP, held: 0, floorOnly })', async M => {
+  await withMutant(SKILLS_PATH, '{ cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly, noRoom })', '{ cap: TOWN_COBBLE_CAP, held: 0, floorOnly, noRoom })', async M => {
     const w = await atCapTown(CAP + 40, fullCobbleBag())
     try {
       B.setWithdrawHold('cobblestone', 64, Date.now() + 60_000)

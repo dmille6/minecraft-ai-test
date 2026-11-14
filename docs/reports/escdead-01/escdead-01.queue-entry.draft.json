@@ -1,0 +1,20 @@
+{
+ "run": "escdead-01",
+ "class": "",
+ "after": ["handcap-01"],
+ "not_before": null,
+ "hold": null,
+ "note": "DRAFT (escdead-01 fork, 11-06; the control session queues it -- this file does NOT edit ~/canary-queue.json and carries NO patch block). SURVIVAL entry (S lane), phase 2.3: the wide swim + the flood-in breach + one usable-pickaxe rule + terrain zone depth, ONE entry (one ESCDEAD=0 rollback). Built on gkforever-01 9e9284d7 with handcap-01 cherry-picked under it (byte-identical): after handcap-01 promotes, the autorebase onto the new tip is the handcap commits dropping out. DRAW: MUST contain isolated-d (Delta+Echo, 358,58,180, ~100 h each) and should contain hive-c (Bravo under a lake); a draw without isolated-d is unexposed -> INCONCLUSIVE (survival.md S3, swimunder-01's miss). Tier 3 (reflex.mjs, poolescape.mjs, exit-contract.mjs, protectzone.mjs): canary slot, not the owner-direct lane.",
+ "variants": {
+  "__BASE_SHA__": {
+   "registration": "/home/mike/mcai-analysis/escdead-01.__SHORT__.json",
+   "approved": "__APPROVED__",
+   "canary_sha": "__FINAL_SHA__",
+   "branch": "escdead-01",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {},
+   "protected": true,
+   "protected_why": "PROTECTED (tier 3): bots/src/exit-contract.mjs bots/src/poolescape.mjs bots/src/protectzone.mjs bots/src/reflex.mjs tier=3"
+  }
+ }
+}

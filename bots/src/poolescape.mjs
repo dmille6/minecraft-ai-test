@@ -22,6 +22,7 @@ import { bodyPassable, isWaterCell, isLavaCell, isFallingBlock, isMeltingIce } f
 import { blocked } from './protectzone.mjs'
 import { routeForbids } from './keepout.mjs'
 import { townDigClass } from './townground.mjs'
+import { usablePickaxes, remaining, HARD_STOP, ESCDEAD_ON } from './toolfor.mjs'   // escdead-01 (b): the one usable-pickaxe rule
 
 /** POOLESCAPE=0 turns the rung off (the one-setting rollback); anything else, or unset, leaves it on. */
 export const poolEscapeOn = (env = typeof process !== 'undefined' ? process.env : {}) => String(env?.POOLESCAPE ?? '1') !== '0'
@@ -265,15 +266,15 @@ export function poolForbid ({ cell, feet = null, fireSites = [] } = {}) {
  * (escapeDigPlan: hardness decides IF, the situation decides WHICH HAND), so no dead end comes of it. Any other copy
  * may dig while it keeps more than HARD_STOP (1) use after the planned digs. Unknown durability counts as full.
  */
-export function poolToolOk (tool, items = [], planned = 1) {
+export function poolToolOk (tool, items = [], planned = 1, { pinned = false, on = ESCDEAD_ON } = {}) {
   if (!tool) return true
-  const left = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUsed ?? 0) : Infinity)
   const n = Math.max(1, planned)
-  if (/_pickaxe$/.test(tool.name ?? '')) {
-    const usable = (Array.isArray(items) ? items : []).filter(it => /_pickaxe$/.test(it?.name ?? '') && left(it) > 1).length
-    if (usable <= 1) return false
-  }
-  return left(tool) - n > 1
+  // ESCDEAD-01 (b): the one rule (toolfor.mjs usablePickaxes). A PINNED escape is not bound by the reserve and may plan a
+  // copy down to its last use; otherwise, unchanged: never the bag's last usable pickaxe, and the tool keeps more than
+  // HARD_STOP uses after the planned digs.
+  if (pinned && on) return remaining(tool) - n >= 0
+  if (/_pickaxe$/.test(tool.name ?? '') && usablePickaxes(items) <= 1) return false
+  return remaining(tool) - n > HARD_STOP
 }
 
 /**

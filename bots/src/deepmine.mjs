@@ -30,6 +30,7 @@
 // Pure except the switch: no bot, no world. The effects live in skills.mjs (deepMine).
 
 import { isWet, isLava, isFalling, isOpen, isFull, planOf, standOf, isStairRecord, LINING_ITEMS } from './shaftgeom.mjs'
+import { BUILD_USES } from './townmine.mjs'   // townmine-01
 
 // ---- the switch ---------------------------------------------------------------------------------------------------------------
 export function deepMineOn (env = process.env, pool = '') {
@@ -81,6 +82,7 @@ export const IRON_GOAL = 24                  // an iron trip goes home with this
 export const PICK_DIAMONDS = 3               // diamond_pickaxe = 3 diamonds + 2 sticks
 export const DIAMOND_KINDS = Object.freeze(['diamond_ore', 'deepslate_diamond_ore'])
 export const IRON_ORE_KINDS = Object.freeze(['iron_ore', 'deepslate_iron_ore'])
+export const COAL_ORE_KINDS = Object.freeze(['coal_ore', 'deepslate_coal_ore'])   // townmine-01: the owner's "iron, coal and diamonds"
 
 // ---- the bag ----------------------------------------------------------------------------------------------------------------------
 const usesLeft = it => Math.max(0, (Number(it?.maxDurability) || 0) - (Number(it?.durabilityUsed) || 0))
@@ -109,9 +111,14 @@ export function tripKit (items = [], slots = 36) {
   }
   return { uses, lowUses, ironUses, seal, free: Math.max(0, slots - n), diamonds, rawIron, torches }
 }
-/** WHICH TRIP THIS BAG PAYS FOR -> 'diamond' | 'iron' | null. Pure. */
-export function tripTarget (kit) {
+/**
+ * WHICH TRIP THIS BAG PAYS FOR -> 'build' | 'diamond' | 'iron' | null. Pure. townmine-01: while the town's mine is sited and not
+ * finished (`mine` = townmine.mjs mineState: sited, not complete, not stopped), a bag with BUILD_USES and SEAL_MIN blocks builds it
+ * first (it is the way down every later trip takes); otherwise as before.
+ */
+export function tripTarget (kit, mine = null) {
   if (!kit) return null
+  if (mine?.sited && !mine.complete && !mine.stopped && kit.uses >= BUILD_USES && kit.seal >= SEAL_MIN) return 'build'
   if (kit.ironUses >= IRON_PICK_MIN && kit.lowUses + Math.max(0, kit.ironUses - IRON_PICK_MIN) >= DIAMOND_DESCENT_USES) return 'diamond'
   if (kit.uses >= IRON_TRIP_USES) return 'iron'
   return null
@@ -136,7 +143,7 @@ export function deepMineOrder ({ on = DEEPMINE.on, now = Date.now(), holds = fal
   if (!kit) return no('bag')
   if (kit.free < MIN_FREE) return no('room')
   if (kit.seal < SEAL_MIN) return no('seal_blocks')
-  const target = tripTarget(kit)
+  const target = tripTarget(kit, stair?.mine ?? null)
   if (!target) return no('pickaxe')
   const l = typeof lease === 'function' ? lease() : lease
   if (!l?.free) return no('lease_busy')
@@ -152,7 +159,7 @@ export function deepTripOrder (trip) {
 }
 
 // ---- the trip -------------------------------------------------------------------------------------------------------------------
-export const PHASES = Object.freeze(['descend', 'deepen', 'work', 'return', 'bank', 'closed'])
+export const PHASES = Object.freeze(['descend', 'deepen', 'work', 'build', 'return', 'bank', 'closed'])
 export function newTrip ({ id, target, now = Date.now(), landing = IRON_FEET, slot = 1, gen = null, from = null } = {}) {
   return { id, target, phase: 'descend', startedAt: now, landing, slot, gen, trail: [], calls: 0, branches: 0, misses: 0, found: 0,
     arrivedAt: null, returnTries: 0, deepenTries: 0, bearing: 0, from, cells: 0, sealed: 0, torches: 0, end: null }
@@ -174,6 +181,8 @@ export function returnWhy (trip, { now = Date.now(), kit = null, health = 20 } =
     if (trip.target === 'diamond' && kit.diamonds - (trip.diamonds0 ?? 0) >= DIAMOND_GOAL) return 'goal'
     if (trip.target === 'iron' && kit.rawIron - (trip.rawIron0 ?? 0) >= IRON_GOAL) return 'goal'
   }
+  // townmine-01: a build trip goes home when the mine is finished (or stopped), never on the ore clocks below
+  if (trip.target === 'build') return trip.built ? 'built' : (trip.arrivedAt != null && now - trip.arrivedAt > WORK_MS ? 'work_time' : null)
   if (trip.arrivedAt != null && now - trip.arrivedAt > WORK_MS) return 'work_time'
   if ((trip.misses ?? 0) >= MISSES_MAX) return 'no_ore'
   if ((trip.branches ?? 0) >= BRANCHES_MAX && (trip.misses ?? 0) > 0) return 'branches'
@@ -186,7 +195,7 @@ export function returnOverdue (trip, now = Date.now()) {
 /** The ore kinds this trip works at this depth. Pure: diamonds only below y=0 (they barely generate above: scan 11-01). */
 export function workKinds (trip, y) {
   if (trip?.target === 'diamond' && Number.isFinite(y) && y < 0) return [...DIAMOND_KINDS, ...IRON_ORE_KINDS]
-  return [...IRON_ORE_KINDS]
+  return trip?.coal ? [...IRON_ORE_KINDS, ...COAL_ORE_KINDS] : [...IRON_ORE_KINDS]
 }
 
 /**
@@ -196,7 +205,7 @@ export function workKinds (trip, y) {
  * nobody advances any more) the reflexes own the body again.
  */
 export function tripHoldsBody (trip, now = Date.now()) {
-  return !!trip && ['deepen', 'work', 'return'].includes(trip.phase) && now - (trip.startedAt ?? 0) < TRIP_MAX_MS + 10 * 60_000
+  return !!trip && ['deepen', 'work', 'return', 'build'].includes(trip.phase) && now - (trip.startedAt ?? 0) < TRIP_MAX_MS + 10 * 60_000   // townmine-01: a build trip at the frontier too
 }
 /** The pause before the next decision while a trip is open (the fleet's 20 s cooldown is a gap the reflexes read as idle). */
 export const TRIP_NEXT_MS = 1_000

@@ -44,6 +44,7 @@ const HOME = { x: 700, y: 120, z: 700 }
 const CHESTS = { A: { x: 702, y: 120, z: 700 }, B: { x: 697, y: 120, z: 700 } }
 const at = c => `${c.x} ${c.y} ${c.z}`
 const stacks = (id, n) => Array.from({ length: n }, () => [id, 64])
+const split = (id, each, n) => Array.from({ length: n }, () => [id, each])
 const wool = n => Array.from({ length: n }, (_, i) => ['white_wool', 1 + (i % 3)])      // never bankable, never kept by a rule
 // THE FULL BAG (the unit test's fullBag): 3 stone pickaxes (spent 1 use / best 120 / spare 60), cobblestone 64+64+20, oak_log
 // 64+64+10, apple 45, raw_iron 5, coal 9, dirt 30, raw_copper 7, 22 wool = 36/36. Expected bank: the 60-use pickaxe,
@@ -69,6 +70,16 @@ const SPEC = {
   // (e) chest A has two empty slots, chest B is empty: the visit spans both and creditCap holds across them
   'twochests': { bag: [['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['raw_copper', 5], ['raw_gold', 3], ['stone_pickaxe', 1, 11], ['stone_pickaxe', 1, 50], ...wool(28)],
                  chests: { A: [...stacks('diorite', 25)], B: [] } },
+  // CHESTMERGE-01 (11-12). The only chest has NO empty slot, but split stacks of one kind. cand: the run merges as many
+  // partial stacks INSIDE the chest as its plan lacks slots (4 here), then banks the 4 stacks; ctrl (the base): fullchest.
+  // (g) 8 x 10 coal + 19 full stacks: four merges onto one stack (10 -> 50), four slots freed, four stacks banked
+  'splitchest': { bag: FULL_BAG, chests: { A: [...split('coal', 10, 8), ...stacks('diorite', 19)] } },
+  // (h) the same with two slots already empty: exactly two merges
+  'splitpart': { bag: FULL_BAG, chests: { A: [...split('coal', 10, 8), ...stacks('diorite', 17)] } },
+  // (i) four kinds, the measured shapes (bone meal 5 a slot, logs 3, diamonds 8, a stack of 16): bone_meal x2, diamond, ender_pearl
+  'splitmix': { bag: FULL_BAG, chests: { A: [...split('bone_meal', 5, 3), ...split('jungle_log', 3, 2), ...split('diamond', 8, 2), ...split('ender_pearl', 7, 2), ...stacks('diorite', 18)] } },
+  // (j) split stacks that do NOT fit one stack (40 + 40) and unstackables: nothing to merge -> town_storage_full, no click
+  'splitnone': { bag: FULL_BAG, chests: { A: [...split('coal', 40, 2), ['stone_pickaxe', 1, 71], ['stone_pickaxe', 1, 71], ...stacks('diorite', 23)] } },
 }
 const WINDOW_MS = 100000        // the first town scan can wait TD_SCAN_MS (30 s) plus a decision's cadence
 const CTRL_WINDOW_MS = 60000    // the control: no order is expected; then the model's verb when the scene has one
@@ -227,7 +238,7 @@ async function runTrial (scene, k) {
     before: { ...before, totals: tb }, mid: { ...mid, totals: tm }, after: { ...after, totals: ta },
     afterLogout: { chest: afterLogout.chest, ground: afterLogout.ground, totals: { chest: tl.chest, ground: tl.ground } },
     conserved: diff(all(tb), all(ta)) || 'yes',
-    rows: rows.filter(x => /town_deposit|deposit|_work_order|_pickups|_death|reflex|_stuck/.test(x.name)),
+    rows: rows.filter(x => /town_deposit|deposit|chestmerge|fullplace|_work_order|_pickups|_death|reflex|_stuck/.test(x.name)),
     trace: { clicks: tr.filter(e => e.pkt === 'click').map(e => ({ t: e.ts - t0, win: e.win, slot: e.slot, mode: e.mode, btn: e.btn })),
       closes: tr.filter(e => /close_window/.test(e.pkt)).map(e => ({ t: e.ts - t0, pkt: e.pkt, win: e.win })),
       places: tr.filter(e => e.pkt === 'block_place').length, digs: tr.filter(e => e.pkt === 'block_dig').length,
@@ -235,9 +246,10 @@ async function runTrial (scene, k) {
     out: lines(botOut).filter(l => /town_deposit|deposit|rejected|spawned|work_order/i.test(l)).map(l => l.slice(0, 300)).slice(-40) }
   fs.appendFileSync(RES, JSON.stringify(r) + '\n')
   const td = rows.filter(x => x.name === '_town_deposit').map(x => `${x.status}:${x.detail.slice(0, 220)}`).join(' || ')
-  const verbRow = rows.filter(x => x.name === 'deposit').map(x => `${x.name}:${x.status}:${x.detail.slice(0, 120)}`).join(' || ')
+  const verbRow = rows.filter(x => x.name === 'deposit' || x.name === '_chestmerge' || x.name === '_fullplace').map(x => `${x.name}:${x.status}:${x.detail.slice(0, 160)}`).join(' || ')
   console.log(`${r.id.padEnd(20)} order=${r.started} bag ${before.bagUsed}->${after.bagUsed} chest ${before.chestUsed}->${after.chestUsed} picks bag[${picks(before.bag)}]->[${picks(after.bag)}] chest[${picks(after.chest)}]` +
     ` d(bag){${diff(tb.bag, ta.bag)}} d(chest){${diff(tb.chest, ta.chest)}} ground[${after.ground.map(g => g.id + 'x' + g.count).join(',')}] logout-ground[${afterLogout.ground.map(g => g.id + 'x' + g.count).join(',')}] conserved=${r.conserved}` +
+    ` chestslots{${Object.entries(after.chest).filter(([, it]) => it.id !== 'diorite').map(([s, it]) => `${s}:${it.id}x${it.count}`).join(' ')}}` +
     ` clicks=${r.trace.clicks.length} places=${r.trace.places} digs=${r.trace.digs} marks=${JSON.stringify(marks)} | ${td} | ${verbRow}`)
 }
 

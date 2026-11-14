@@ -107,8 +107,10 @@ const once = (src, re, what) => { const m = src.match(new RegExp(re.source, 'g')
 await t('WIRED: shopActive applies unsitedBackoff after the stuck back-off; build_shop stamps a no_site visit with no record', () => {
   once(SK, /const waitedU = unsitedWaitOn\(\) \? unsitedBackoff\(waited, unsitedOfPlot, now\) : waited/, 'the backoff in shopActive')
   // rebase onto stuckproj-01: the pick reads waitedU through starve-01's marks (an unsited state is never marked starved)
-  once(SK, /const marked = starve \? starveMark\(waitedU, \{[^\n]*\}\) : waitedU/, 'starve marks the unsited-backed states')
-  once(SK, /let pick = activeProject\(marked, list\)/, 'the pick reads it')
+  // buildnext-01: the bot's scoped holds (nextBackoff) apply to the unsited-backed states, and starve marks those
+  once(SK, /const waitedN = buildNextOn\(\) && b \? nextBackoff\(waitedU, [^\n]*\) : waitedU/, 'the scoped holds read the unsited-backed states')
+  once(SK, /const marked = starve \? starveMark\(waitedN, \{[^\n]*\}\) : waitedN/, 'starve marks the unsited-backed states')
+  once(SK, /let pick = activeProject\(marked, (list|order)\)/, 'the pick reads it')
   once(SK, /if \(unsitedWaitOn\(\) && r\?\.stop === 'no_site'\) \{/, 'the stamp on no_site')
   once(SK, /if \(h\.ok && !h\.head && unsitedWrite\(dir, key, \{ plot: proj\.plot/, 'only with no record')
   once(SK, /build_shop: \{ run: buildShop, /, 'the skill runs the wrapper')

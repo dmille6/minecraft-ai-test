@@ -36,6 +36,30 @@ export const LAND_MS = 1_500
 // never the clicked block of a probe, and never a support (they open, toggle or act): buildsite.mjs USES plus the rest
 // (r2, Claude r1 P3-7: crafter, chiseled bookshelf, flower pots and candles act on an empty-hand click)
 export const INTERACTABLE = /_trapdoor$|_door$|chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|_bed$|_button$|^lever$|_fence_gate$|^anvil$|_anvil$|^bell$|^brewing_stand$|^composter$|^cartography_table$|^loom$|^stonecutter$|^grindstone$|^smithing_table$|^enchanting_table$|^beacon$|^dispenser$|^dropper$|^note_block$|^jukebox$|^repeater$|^comparator$|^daylight_detector$|_sign$|^cake$|^respawn_anchor$|^lodestone$|^campfire$|^soul_campfire$|^crafter$|^chiseled_bookshelf$|^flower_pot$|^potted_|candle$|candle_cake$/
+/**
+ * BUILDWAIT-01 (codeeval 2026-11-06 phase 2.4): THE ENGINE'S INTENDED WAITS ARE DECLARED to the stuck reflex (reflex.mjs stuckDecision:
+ * `bot.stationaryUntil`), so a visit standing still ON PURPOSE -- an acknowledgement, a dig's server confirmation, a probe's answer,
+ * the closer barrier, a body wait, the spawn quiet, a pillar step's rise / land / settle -- is not killed as stuck. Never a walk,
+ * never planning, never a whole dig call (bot.dig sets targetDigBlock itself). Each window is bounded by its own wait AND by a fixed
+ * allowance after the visit's last PROGRESS (a confirmed dig, a placement): STILL_ALLOW_MS, so repeated short waits with nothing
+ * done cannot hold the reflex off for good (Codex design). The window is released on the wait's exit; another skill's longer
+ * window is never shortened. BUILDWAIT=0 is the rollback (no window is ever written).
+ *
+ * MEASURED (fleet .31, 24 h, 614 aborted build visits, 593 placed nothing, 9.3 bot-h; 436 with a `_reflex_stuck` row in the 4 s
+ * before): in the 35 s before the stuck row, 80 had _path_* rows (a walk failing: the reflex is right), 52 were clearing or placing
+ * from one stand (isolated-a-Delta: 14 leaves in 37 s, each a ~1-tick dig the 0.5 s reflex tick rarely sees), 128+45 had no build
+ * row yet (the chest draw before the engine: not this change), 113 were quiet after a clear with no row at all. The cause of the
+ * quiet ones is not in the rows: every abort now names the engine's operation in flight (`_build op=interrupted kind=<op>`).
+ */
+export const STILL_ALLOW_MS = 60_000
+export const buildWaitOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.BUILDWAIT ?? '').trim().toLowerCase())
+/** A declared window's end -> ms | null (nothing to declare). Pure. `ms` the wait's own bound, `lastProgress` the visit's last
+ *  progress, `prev` the bot's current stationaryUntil (another skill's window: never shortened). */
+export function stillUntil ({ now = 0, ms = 0, lastProgress = 0, prev = 0, allow = STILL_ALLOW_MS } = {}) {
+  const until = Math.min(now + Math.max(0, Number(ms) || 0), lastProgress + allow)
+  if (!(until > now)) return null
+  return Math.max(Number(prev) || 0, until)
+}
 const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3 : f[0] < 0 ? 4 : 5)
 
 /**
@@ -194,6 +218,20 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
   const blocks = installServerBlockWitness(bot)
   const timers = new Set()
   const sleep = ms => new Promise(r => setTimeout(r, ms))
+  // buildwait-01: the declared windows and the operation in flight (named on an abort)
+  let lastProgress = Date.now(), cur = { op: 'start', at: Date.now(), cell: null }
+  const mark = (op, cell = null) => { cur = { op, at: Date.now(), cell } }
+  const progress = () => { lastProgress = Date.now() }
+  const still = ms => {
+    if (!buildWaitOn()) return () => {}
+    const prev = Number(bot.stationaryUntil) || 0
+    const mine = stillUntil({ now: Date.now(), ms, lastProgress, prev })
+    if (mine == null) return () => {}
+    bot.stationaryUntil = mine
+    return () => { if (bot.stationaryUntil === mine) bot.stationaryUntil = prev > Date.now() ? prev : 0 }
+  }
+  /** Run `fn` inside a declared window of `ms` (named `op` in the trace). */
+  const within = async (op, ms, fn) => { mark(op); const release = still(ms); try { return await fn() } finally { release() } }
   const items = () => bot.inventory?.items?.() ?? []
   const count = n => items().filter(i => i.name === n).reduce((s, i) => s + (i.count ?? 1), 0)
   const spare = n => count(n) - (Number(keep?.[n]) || 0)
@@ -209,7 +247,8 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     })
     try { bot.swingArm?.('right') } catch { /* cosmetic */ }
   }
-  return {
+  const riseInner = feetY => fx.__riseInner(feetY), landInner = () => fx.__landInner(), settleInner = () => fx.__settleInner()
+  const fx = {
     read,
     feet: () => { const p = bot.entity.position; return [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] },
     self: () => { const p = bot.entity.position; return { x: p.x, y: p.y, z: p.z, w: bot.entity.width ?? 0.6, h: bot.entity.height ?? 1.8 } },
@@ -217,6 +256,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       .filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb', 'arrow'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < BODY_RADIUS)
       .map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 })),
     walkTo: async (s, { avoid = null } = {}) => {
+      mark('walk', s)
       let timer = null, late = false
       try {
         // storehouse-01: the A* never routes through the segment's open cells (stepFence), so a stand behind them is reached the long
@@ -256,7 +296,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     look: async (support, face) => { try { await bot.lookAt(new Vec3(support[0] + 0.5 + face[0] * 0.5, support[1] + 0.5 + face[1] * 0.5, support[2] + 0.5 + face[2] * 0.5), true) } catch { /* not fatal */ } },
     nextSeq: () => A.tracker.next(),
     send: write,
-    waitAck: (seq, ms) => A.tracker.wait(seq, ms),
+    waitAck: (seq, ms) => within('ack', ms + 250, () => A.tracker.wait(seq, ms)),
     track: (id, seq) => A.track(id, seq),
     untrack: id => A.untrack(id),
     conn: () => A.conn ?? null,
@@ -268,8 +308,12 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       if (expect && b.name !== expect) return 'refused'          // not the named block (gone, or replaced): never dug
       if (b.name === 'air' || b.name === 'cave_air') return 'confirmed'
       blocks.watch(c)
+      mark('dig', c)
       try { await bot.dig(b, true) } catch (e) { if (e?.aborted || aborted()) throw e; return 'refused' }
-      const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS)
+      // boardwalk-03: a block dug out of water reads WATER once the lake flows back in (the air update may come first or be folded
+      // into the same tick's multi-block change): gone either way
+      const n = await within('confirm', DIG_CONFIRM_MS + 250, () => blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS))
+      if (n) progress()
       return n ? 'confirmed' : 'unconfirmed'
     },
     probe: async c => {
@@ -287,7 +331,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
         const seq = A.tracker.next()
         write(nb, face, seq)
         // THE SERVER'S WORD ON THE CELL, or nothing: any name the server sends for it (air, or the block that still stands)
-        return await blocks.wait(c, () => true, PROBE_MS)
+        return await within('probe', PROBE_MS + 250, () => blocks.wait(c, () => true, PROBE_MS))
       }
       return null
     },
@@ -296,7 +340,16 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     // jump released) and its landing (LAND: jump released, on the ground or LAND_MS); SETTLE after a dig underfoot (the drop);
     // TOOL: the pickaxe with the most uses left (at least 2) in hand for the access's digs, nothing changed without one
     count: n => Math.max(0, spare(n)),
-    rise: async feetY => {
+    rise: feetY => within('rise', RISE_MS + 200, () => riseInner(feetY)),
+    land: () => within('land', LAND_MS + 300, () => landInner()),
+    settle: () => within('settle', LAND_MS + 300, () => settleInner()),
+    // buildwait-01: buildrun.mjs declares its own bounded waits (barrier, body, spawn quiet) and its progress; the trace
+    still,
+    within,
+    progress,
+    mark,
+    current: () => ({ ...cur, ms: Date.now() - cur.at }),
+    __riseInner: async feetY => {
       bot.setControlState('jump', true)
       const t0 = Date.now()
       while (Date.now() - t0 < RISE_MS) {
@@ -307,14 +360,14 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       bot.setControlState('jump', false)
       return false
     },
-    land: async () => {
+    __landInner: async () => {
       bot.setControlState('jump', false)
       const t0 = Date.now()
       await sleep(100)
       while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
       await sleep(50)
     },
-    settle: async () => {
+    __settleInner: async () => {
       const t0 = Date.now()
       await sleep(150)
       while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
@@ -333,4 +386,5 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     spawnedAt,
     close: () => { for (const t of timers) clearTimeout(t); timers.clear(); if (own) A.stop(); blocks.stop() },
   }
+  return fx
 }

@@ -35,6 +35,8 @@ export const SU_MAX_LEN = 14          // cells in a plan
 export const SU_MIN_OXYGEN = 19       // admission: air (0..20 scale, oxygen.mjs AIR_SCALE) all but full
 export const SU_MIN_HEALTH = 14       // admission
 export const SU_ABORT_OXYGEN = 10     // turn back at or below this much air (half the bar: >= 7 s of breath left)
+export const SU_BACK_TICKS = 30        // seapocket-01: one head-wet cell of the way back, budgeted (physics: ~21 ticks a cell)
+export const SU_BACK_RESERVE = 60     // seapocket-01: ticks of air kept on top of the way back
 export const SU_STEP_MS = 3000        // one cell, at most (a water cell is ~0.5 s at ~2 b/s; corners and the bob cost more)
 export const SU_BUDGET_MS = 25_000    // one firing, out and back
 export const SU_BACKOFF_MS = [5, 10, 20, 40, 60].map(m => m * 60_000)
@@ -155,7 +157,8 @@ export function swimUnderPlan ({ at = () => null, start, radius = SU_RADIUS, max
     }
   }
   const pick = found ?? openExit
-  if (!pick) return { ...no(`no way out within ${radius} cells (${best.size} water cells searched${unloaded ? `, ${unloaded} cell reads not loaded` : ''})`), unloaded }
+  // escpocket-01: the searched water cells ride on a refusal (pocketDigPlan reads which blocks border the reachable water)
+  if (!pick) return { ...no(`no way out within ${radius} cells (${best.size} water cells searched${unloaded ? `, ${unloaded} cell reads not loaded` : ''})`), unloaded, nodes: [...best.keys()] }
   const route = []
   let wetRun = 0
   for (let n = pick; n && n.prev; n = n.prev) { route.unshift(n.c); wetRun = Math.max(wetRun, n.run) }
@@ -229,9 +232,17 @@ export function swimUnderStep ({ pos, vel = { x: 0, y: 0, z: 0 }, from, to, ceil
 
 /** SHOULD THE FIRING TURN BACK -> reason | null. Pure. */
 export function swimUnderAbort ({ oxygen = null, health = 20, health0 = 20, stepMs = 0, elapsedMs = 0, yielded = null, changed = null,
-  wetAhead = null, wetBack = null } = {}) {
+  wetAhead = null, wetBack = null, longRun = false } = {}) {
   if (yielded) return `yielded: ${yielded}`
   if (changed) return `the way changed: ${changed}`
+  // seapocket-01 (Codex r1 BLOCKER): A LONG-BREATH PLAN (head-wet run over SU_MAX_WET_RUN) KEEPS THE WAY BACK PAID FOR. Air
+  // (15 ticks a unit) must cover every head-wet cell behind at SU_BACK_TICKS each plus SU_BACK_RESERVE; when it does not, the
+  // firing turns back now -- unless the nearer breath is ahead (fewer wet cells ahead than behind), where pressing on is the
+  // shorter way to air. The base plans (run <= 5) are unchanged.
+  if (longRun && Number.isFinite(oxygen) && Number.isFinite(wetBack) && oxygen * 15 < wetBack * SU_BACK_TICKS + SU_BACK_RESERVE &&
+      !(Number.isFinite(wetAhead) && wetAhead < wetBack)) {
+    return `air ${oxygen} of 20 no longer pays the way back (${wetBack} wet cells)`
+  }
   // LOW AIR TURNS BACK ONLY WHEN BACK IS THE NEARER AIR (Claude r1 note 1): with fewer head-under-water cells ahead than
   // behind, pressing on is the shorter way to a breath; the stall and budget clocks still bound it
   if (Number.isFinite(oxygen) && oxygen <= SU_ABORT_OXYGEN && !(Number.isFinite(wetAhead) && Number.isFinite(wetBack) && wetAhead < wetBack)) {
@@ -335,7 +346,7 @@ export async function swimUnder (bot, { plan, alive = () => true, yieldTo = () =
         res.minAir = Math.min(Number.isFinite(res.minAir) ? res.minAir : 20, air)
         const ab = back ? (now() - s0 > SU_STEP_MS * 2 ? `no progress back for ${now() - s0} ms`
                            : now() - tBack > SU_BUDGET_MS ? `the way back over the ${SU_BUDGET_MS / 1000} s budget` : null)
-                        : swimUnderAbort({ oxygen: air, health: bot.health, health0: res.hp0, stepMs: now() - s0, elapsedMs: now() - t0, wetAhead, wetBack })
+                        : swimUnderAbort({ oxygen: air, health: bot.health, health0: res.hp0, stepMs: now() - s0, elapsedMs: now() - t0, wetAhead, wetBack, longRun: (plan.wetRun ?? 0) > SU_MAX_WET_RUN })
         if (ab) return { stop: ab }
         const p = bot.entity.position
         const st = last

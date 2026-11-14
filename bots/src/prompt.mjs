@@ -10,6 +10,7 @@
 // truncates.
 
 import { SKILLS } from './skills.mjs'
+import { gatherMemOn, areaLine } from './gathermem.mjs'
 import { fuelTicks, smeltRecipeFor } from './smelting.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
@@ -19,10 +20,12 @@ import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
-import { redundantCraft } from './toolhygiene.mjs'
+import { redundantCraft, otherTool } from './toolhygiene.mjs'
 // The peaceful kit (peacefulkit.mjs): no sword is offered while the food policy's switch is active.
 import { peacefulFoodActive } from './foodskip.mjs'
 import { isSword } from './peacefulkit.mjs'
+import { townLogCapState, logCapLine } from './logcap.mjs'   // logcap-02: the TOWN WOOD line
+import { WOOD_KEEP } from './woodkeep.mjs'
 
 const MAX_EVENTS = 12
 // Rough but adequate: we only need to know when we are near the ceiling, and
@@ -560,7 +563,7 @@ export function craftableNow (bot, milestone = null, wantedSet = null, noRoomIte
       // NO ROOM, NOT ADVERTISED (orderroom-01): the craft's own room check withheld this craft; the HINT names the remedy.
       if (name === noRoomItem) continue
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
-      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue
+      if ((name.endsWith('_pickaxe') || otherTool(name)) && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue   // toolrank-01: other tools too
       const it = bot.registry?.itemsByName?.[name]
       if (!it) continue
       const r = bot.recipesFor(it.id, null, 1, hasTable ? true : null)
@@ -730,7 +733,26 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null }) {
+/** LOGCAP-02: the TOWN WOOD line (logcap.mjs logCapLine) for this bot -> a line or ''. Never throws. */
+export function townWoodSituation (bot) {
+  try {
+    const items = bot?.inventory?.items?.() ?? []
+    let wood = 0
+    for (const it of items) { const n = it?.name ?? ''; if (/_(log|stem)$/.test(n)) wood += it.count ?? 0; else if (/_planks$/.test(n)) wood += (it.count ?? 0) / 4 }
+    return logCapLine(townLogCapState(bot), wood, { keep: WOOD_KEEP })
+  } catch { return '' }
+}
+
+/** gathermem-01: the GATHER REFUSED HERE line (gathermem.mjs areaLine), '' when none or GATHERMEM=0. */
+export function gatherAreaLine (bot, now = Date.now()) {
+  try {
+    if (!gatherMemOn() || !Array.isArray(bot?.gatherAreas) || !bot.gatherAreas.length) return ''
+    const p = bot.entity?.position
+    return p ? areaLine(bot.gatherAreas, { pos: { x: p.x, y: p.y, z: p.z }, now }) : ''
+  } catch { return '' }
+}
+
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null, depositOffered = true }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
   const inv = inventorySummary(bot)
@@ -749,9 +771,11 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     `INVENTORY: ${invStr}`,
     craftableNow(bot, milestone, wanted, noRoom?.item ?? null),
     smeltableNow(bot),
-    depositSituation(bot, memory),
+    depositOffered ? depositSituation(bot, memory) : '',   // DEPOSITOFFER-01: no CARRYING line when deposit is not offered
+    townWoodSituation(bot),   // logcap-02: the town store is at its log cap (only for a bot already holding its own wood)
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
     actionable.line,
+    gatherAreaLine(bot),   // gathermem-01: the gathers that just found nothing takeable here, named BEFORE the decision
     waterSituation(bot),
     bucketSituation(bot),
     yContext(p.y),

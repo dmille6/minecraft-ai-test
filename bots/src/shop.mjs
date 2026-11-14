@@ -15,6 +15,9 @@ import { storehouseOn, STORE_PLOT, STORE_BLUEPRINT, STORE_BUILDERS } from './sto
 import { copperhallOn, HALL_PLOT, HALL_BLUEPRINT, HALL_BUILDERS } from './copperhall.mjs'   // copperhall-01
 import { yardOn, YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS } from './yard.mjs'   // stockyard-01
 import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } from './shopchest.mjs'
+import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
+import { gkfOn, gkfBuilders } from './gkforever.mjs'   // gkforever-01: the crew
+import { groundsBatchOpen } from './idlework.mjs'   // gkforever-01: a grounds lap's order cooldown
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -100,6 +103,9 @@ export const COPPERHALL = Object.freeze({ on: copperhallOn(process.env, process.
 /** STOCKYARD-01: THE TOWN STOCKPILE YARD (yard.mjs; OWNER 11-02 ~13:00Z), before the tidy (last): never ahead of an open project (an
  *  unsited yard that cannot site would hold the order), no `after`; one builder. YARD=off is the rollback; on in the showcase pool only until a fleet rollout. */
 export const YARD = Object.freeze({ on: yardOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** GROUNDSKEEPER-01 (groundskeeper.mjs): one leased bot a town works the tidy -- its only builder (the lease is the slot, the yard
+ *  clerk's pattern) -- through the land plan's stages; GROUNDSKEEPER=off is tidy-01 exactly as before (3 builders). */
+export const GROUNDS = Object.freeze({ on: TIDY.on && gkOn(process.env, process.env.MEMORY_POOL ?? '') })
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -112,7 +118,8 @@ export const PROJECTS = Object.freeze([
   Object.freeze({ plot: STORE_PLOT, blueprint: STORE_BLUEPRINT, after: SHOP_PLOT, builders: STORE_BUILDERS }),
   Object.freeze({ plot: HALL_PLOT, blueprint: HALL_BLUEPRINT, after: STORE_PLOT, builders: HALL_BUILDERS }),
   Object.freeze({ plot: YARD_PLOT, blueprint: YARD_BLUEPRINT, builders: YARD_BUILDERS }),
-  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: TIDY_BUILDERS }),
+  // gkforever-01 CREW (GKF_CREW): the keeper and a helper (gkforever.mjs GKF.crew); off: the keeper alone (groundskeeper-01)
+  Object.freeze({ plot: TIDY_PLOT, blueprint: TIDY_BLUEPRINT, builders: GROUNDS.on ? gkfBuilders(gkfOn('crew')) : TIDY_BUILDERS }),
 ])
 export const projectsOn = (on = HOUSE.on, mon = MONUMENT.on, paths = PATHS.on, wall = TOWNWALL.on, shaft = SHAFT.on, farm = TREEFARM.on, tidy = TIDY.on, store = STOREHOUSE.on, chest = SHOPCHEST.on, hall = COPPERHALL.on, yard = YARD.on) => PROJECTS.filter(p => p.plot === SHOP_PLOT || (p.plot === YARD_PLOT ? yard : p.plot === SHAFT_PLOT ? shaft : p.plot === MONUMENT_PLOT ? mon : p.plot === PATHS_PLOT ? paths && on : p.plot === WALL_PLOT ? wall && paths && on : p.plot === TREEFARM_PLOT ? farm && paths && on : p.plot === TIDY_PLOT ? tidy : p.plot === STORE_PLOT ? store && on : p.plot === SHOPCHEST_PLOT ? chest && on : p.plot === HALL_PLOT ? hall && store && on : on))
 /** The projects whose records are PROTECTED (keep-outs, the footprint, siting zones): the ones on, plus the town stair always --
@@ -146,7 +153,10 @@ export function activeProject (states = [], list = projectsOn()) {
   if (open.length) {
     // starve-01: an open project no builder has taken in STARVE_MS (starveMark) first, the longest-starved first
     const starved = open.filter(p => st(p).starved && st(p).free !== false).sort((a, b) => (st(b).starvedFor ?? 0) - (st(a).starvedFor ?? 0))
-    return starved[0] ?? open.find(p => st(p).free !== false) ?? open[0]
+    // buildnext-01: every open project held (stuck, unsited, full, this bot's breaker) -> a complete project's due upkeep that has
+    // a slot comes before the first held one (the order's own gates then decide), never a held one ahead of free work
+    const dueP = buildNextOn() ? list.find(p => { const s = st(p); return s.exists && s.complete && s.due && s.free !== false }) : null
+    return starved[0] ?? open.find(p => st(p).free !== false) ?? dueP ?? open[0]
   }
   // wall-01: a complete project that only wants a visit for its upkeep (`due`: the ziggurat's tidy) after every open one
   // sortstore-01: an upkeep marked `dueFirst` (the storehouse's labels and tidy: bounded, at most once per 10 min a bot) goes ahead of
@@ -361,9 +371,74 @@ export function unsitedBackoff (states = [], unsitedOf = null, now = Date.now())
     return unsitedFresh(at, now) ? { ...st, free: false, unsited: true } : st
   })
 }
+/**
+ * BUILDNEXT-01 (codeeval 2026-11-06 phase 2.2): NEVER IDLE ON A BLOCKED PROJECT. Two per-bot holds, each scoped to ITS project, so
+ * the order moves to the town's next eligible project in the same call (shopActive marks a held project not `free`, as stuckBackoff
+ * does; activeProject takes the next free one) and holds the order only when nothing else is workable:
+ *   STUCK    the bot's own stuck_on_cell stop holds ITS project SHOP_STUCK_RETRY_MS, not every project (buildOrder's unscoped
+ *            `state.lastStop` hold, shop.mjs, held all of a bot's building 6 h after one project's stuck cell: isolated-a 219,
+ *            hive-b 161, placebo-c 160, placebo-b 107 stuck_on_cell skips in 24 h)
+ *   BREAKER  NEXT_K identical EMPTY visits (no placement, no clear: the same stop and the same why) by this bot on one project,
+ *            each within NEXT_GAP_MS of the last, hold that project NEXT_HOLD_MS for this bot (fleet 24 h: 2,309 of 3,859 build
+ *            visits were zero-placed and identical to the bot's previous one, 31.7 bot-h; 66 runs of 10+). Work clears it; an abort
+ *            breaks the streak; another project's visit neither counts nor clears it.
+ * BUILDNEXT=0 is the rollback (the old unscoped hold, no breaker, activeProject's old fallback); BUILDNEXT_BREAKER=0 the breaker alone.
+ */
+export const buildNextOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.BUILDNEXT ?? '').trim().toLowerCase())
+export const nextBreakerOn = (env = process.env) => buildNextOn(env) && !['0', 'off', 'false', 'no'].includes(String(env?.BUILDNEXT_BREAKER ?? '').trim().toLowerCase())
+export const NEXT_K = 3
+export const NEXT_HOLD_MS = 30 * 60_000
+export const NEXT_GAP_MS = 60 * 60_000
+/**
+ * A VISIT'S RESULT INTO THE BREAKER -> { tripped, n }. Pure over `mem` (Map plot -> { sig, n, at, until }, the bot's own). `work` the
+ * visit placed or cleared something; `sig` its stop + why; `broken` an abort / a throw (the streak ends, nothing counted).
+ */
+export function nextNote (mem, plot, { work = false, sig = '', broken = false, now = Date.now(), k = NEXT_K, hold = NEXT_HOLD_MS, gap = NEXT_GAP_MS } = {}) {
+  if (!mem || !plot) return { tripped: false, n: 0 }
+  const e = mem.get(plot)
+  if (work || broken) { mem.delete(plot); return { tripped: false, n: 0 } }
+  const n = e && e.sig === sig && now - e.at <= gap && !(e.until > now) ? e.n + 1 : 1
+  const tripped = n >= k
+  mem.set(plot, { sig, n: tripped ? 0 : n, at: now, until: tripped ? now + hold : (e?.until > now ? e.until : 0) })
+  return { tripped, n }
+}
+/** Is `plot` held for this bot now -> 'repeat' | 'stuck_on_cell' | null. Pure. `mem` the breaker's map, `stuck` the bot's own last
+ *  stuck_on_cell { plot, at } (the scoped hold). */
+export function nextHeld (plot, { mem = null, stuck = null, now = Date.now(), breaker = true } = {}) {
+  if (!plot) return null
+  if (breaker && mem?.get?.(plot)?.until > now) return 'repeat'
+  if (stuck?.plot === plot && Number.isFinite(stuck.at) && stuck.at <= now + 60_000 && now - stuck.at < stuckWindowOf(plot)) return 'stuck_on_cell'
+  return null
+}
+/** A held project waits behind the others -> states. Pure: open -> not `free`; complete and only due -> not due. A throw reads as none. */
+export function nextBackoff (states = [], heldOf = null) {
+  if (typeof heldOf !== 'function') return states
+  return states.map(st => {
+    if (!st) return st
+    let h = null
+    try { h = heldOf(st.plot) } catch { h = null }
+    if (!h) return st
+    if (st.exists && st.complete) return st.damaged ? st : { ...st, due: false, nextHeld: h }
+    return { ...st, free: false, nextHeld: h }
+  })
+}
+/** The bot's scoped holds for the order (skills.mjs installs: nextHeld over the bot's breaker and its last stuck plot). */
+let nextHoldOf = () => null
+export function setNextHoldOf (fn) { if (typeof fn === 'function') nextHoldOf = fn }
 /** The active plot's stamp for the order (skills.mjs installs it: the town's file). */
 let unsitedOfPlot = () => null
 export function setUnsitedOf (fn) { if (typeof fn === 'function') unsitedOfPlot = fn }
+/** groundskeeper-01: does THIS bot hold its town's keeper lease now (skills.mjs keeperNow; no cognitive change)? */
+let keeperOf = () => false
+export function setKeeperNow (fn) { if (typeof fn === 'function') keeperOf = fn }
+/** The order's cooldown for a plot -> ms: the stair's SHAFT_COOLDOWN_MS, the KEEPER's tidy GK.cooldownMs (its grounds are its job),
+ *  else SHOP_COOLDOWN_MS. Pure but for the keeper hook. */
+export function orderCooldown (plot) {
+  if (plot === SHAFT_PLOT) return SHAFT_COOLDOWN_MS
+  // gkforever-01: a bot on a grounds lap (idlework.mjs) is asked back at the keeper's cooldown too
+  if (plot === TIDY_PLOT) { let k = false; try { k = !!keeperOf() || (gkfOn('idle') && groundsBatchOpen()) } catch { k = false } if (k) return GK.cooldownMs }
+  return SHOP_COOLDOWN_MS
+}
 export const SHOP_BILL_CAP = 4 * 64                      // at most this many blocks drawn per visit
 export const SHOP_VISIT_MS = 8 * 60_000
 // the walks a footprint is priced on (design 4.4 scope, Codex r1 P2): WORK and TRAVEL. The escape and reflex walks (ascend,
@@ -660,11 +735,22 @@ export function spendableFor (item, stock = {}, { reserve = {}, claims = {} } = 
  * milestone holding, after the cooldown; the record complete is no order; S1 (no site) waits a day; a full slot set, low health,
  * or a bag without room is a skip with its reason.
  */
+/** VILLAGEUNLOCK-01 (T3a): the village unlock's ask (skills.mjs unlockAsk). The fleet build has no idle branch (the showcase's
+ *  expedition / copper asks are not on this line), so it is asked once the town plan exists, before the project's own order:
+ *  rate-limited inside (30 min per bot, 6 h per villager, a pool lease per pen) and null almost always. -> { order } | null.
+ *  Unset (or VILLAGEUNLOCK=off): never asked. */
+let unlockAskOf = null
+export function setUnlockAsk (fn) { unlockAskOf = typeof fn === 'function' ? fn : null }
 export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
   complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
+  if (unlockAskOf) {
+    let ul = null
+    try { ul = unlockAskOf({ now, health }) } catch { ul = null }
+    if (ul?.order) return { order: ul.order, skip: null }
+  }
   // EXPEDITION-01 (owner showcase item 5): a bot the town's projects cannot use (all complete, or its last visit found no
   // material) may go on a short expedition -- the same order, the visit's args say which (skills.mjs buildShop)
   // copperrun-01: the waiting hall's copper first (its own skips say why not); then the expedition exactly as before
@@ -682,7 +768,7 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // shaft-02: the town stair's visit is asked again after SHAFT_COOLDOWN_MS (its record's plot, or the active plot unsited)
   let plot0 = record?.plot ?? null
   if (!record) { try { plot0 = activePlotOf() } catch { plot0 = null } }
-  if (now - (state.lastAt ?? -Infinity) < (plot0 === SHAFT_PLOT ? SHAFT_COOLDOWN_MS : SHOP_COOLDOWN_MS)) return { order: null, skip: null }
+  if (now - (state.lastAt ?? -Infinity) < orderCooldown(plot0)) return { order: null, skip: null }
   if (!record && unsitedWaitOn()) {
     // idlework-01 B: the no_site back-off is the ACTIVE PROJECT's stamp (any bot's visit), not this bot's last stop
     let at = null
@@ -697,7 +783,13 @@ export function buildOrder ({ on = SHOP.on, shared = true, atTown = false, holds
   // shaft-03: the stair's visit starts at the surface or on the stair (shaftgeom.mjs stairStartRefusal): a bot in a mine under
   // the town is asked again when it is up (its own surface or the stair's ascent; the order's cooldown is not charged)
   if (plot0 === SHAFT_PLOT && stairStartRefusal(record, feet, groundY)) return { order: null, skip: 'underground' }
-  if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  if (buildNextOn()) {
+    // buildnext-01: the bot's holds are its PROJECT's (the stuck cell's, the breaker's); a held active project means nothing else is
+    // workable (shopActive moved past it otherwise)
+    let hold = null
+    try { hold = nextHoldOf(plot0) } catch { hold = null }
+    if (hold) return { order: null, skip: hold }
+  } else if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
   let plot = record?.plot ?? null

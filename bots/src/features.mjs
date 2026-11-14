@@ -24,6 +24,8 @@ import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
 import { junkoutModeDetail } from './bagallowance.mjs'   // junkout-01's licence row (its own statement)
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
+import { handCapModeDetail } from './handcap.mjs'   // handcap-01's licence row
+import { escDeadModeDetail, escPocketModeDetail, seaPocketModeDetail } from './escdead.mjs'   // escdead-01's + escpocket-01's licence rows
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
 import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
 import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
@@ -80,6 +82,10 @@ export function installShowchat (bot, { env = process.env, pool = config.memory.
   return sp
 }
 import { deepModeDetail } from './deepmine.mjs'   // deepminer-01's licence row
+import { configuredHome } from './townground.mjs'   // placeaudit-fleet-01
+import { attachPlaceAudit, placeAuditOn } from './placeaudit.mjs'   // placeaudit-fleet-01 (scaftown-01's instrument, from the showcase's placeaudit-01)
+import { merchantScoutInstall } from './merchantscout.mjs'   // trading-scout-01: read-only merchant sightings + XP rows
+import { villageUnlockInstall, unlockSee } from './skills.mjs'   // villageunlock-01 (T3a): the ask + the scout's stuck feed
 
 /** Once per spawn, from index.mjs's spawn handler. Never throws. */
 export function installFeatures (bot) {
@@ -92,6 +98,23 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'yard_mode', status: 'success', snapshot: snapshot(bot), detail: yardModeDetail(YARD.on) }) } catch { /* telemetry */ }
   // showchat-01: the showcase's announcements (`_showchat_mode`; on=0 outside the showcase pool or under SHOWCHAT=off)
   try { installShowchat(bot) } catch (e) { log('warn', 'showchat not installed', { error: e.message }) }
+  // placeaudit-fleet-01: the `_place_town` instrument (placeaudit.mjs; TELEMETRY ONLY) and its licence row `_placeaudit_mode`
+  // (PLACEAUDIT=off -> on=0, not wrapped). The showcase's since 11-04; on the fleet WITHOUT the climbs ledger (no keeper reads it here).
+  try {
+    const on = placeAuditOn(process.env)
+    logEvent({ kind: 'placeaudit_mode', status: 'success', snapshot: snapshot(bot), detail: `phase=mode v=1 on=${on ? 1 : 0}` })
+    if (on) {
+      const pa = attachPlaceAudit(bot, {
+        home: configuredHome(config.world),
+        emitPlace: ({ detail, args }) => { try { logEvent({ kind: 'place_town', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+        emitSummary: ({ detail, args }) => { try { logEvent({ kind: 'place_town_sum', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+      })
+      if (pa) bot.once?.('end', () => { try { pa.final() } catch { /* telemetry */ } })
+    }
+  } catch (e) { log('warn', 'place audit not attached', { error: e?.message }) }
+  // trading-scout-01: `_merchantscout_mode` + `_merchant_seen` / `_xp` rows (merchantscout.mjs; read-only, MERCHANTSCOUT=off -> on=0)
+  try { merchantScoutInstall(bot, { zonesOf: b => townPlanZones(b).zones, onSightings: unlockSee }) } catch (e) { log('warn', 'merchant scout not installed', { error: e.message }) }
+  try { villageUnlockInstall(bot) } catch (e) { log('warn', 'village unlock not installed', { error: e.message }) }
   // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
   try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
   // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
@@ -112,6 +135,14 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'toolkit_ironpick_mode', status: 'success', snapshot: snapshot(bot), detail: ironpickModeDetail() }) } catch {}
   // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
   try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
+  // handcap-01: the licence row (handcap.mjs; MAROON_HANDCAP=off is the rollback)
+  try { logEvent({ kind: 'handcap_mode', status: 'success', snapshot: snapshot(bot), detail: handCapModeDetail() }) } catch { /* telemetry */ }
+  // escdead-01: the licence row (escdead.mjs; ESCDEAD=0 is the rollback)
+  try { logEvent({ kind: 'escdead_mode', status: 'success', snapshot: snapshot(bot), detail: escDeadModeDetail() }) } catch { /* telemetry */ }
+  // escpocket-01: the licence row (escdead.mjs; ESCPOCKET=0 is the rollback)
+  try { logEvent({ kind: 'escpocket_mode', status: 'success', snapshot: snapshot(bot), detail: escPocketModeDetail() }) } catch { /* telemetry */ }
+  // seapocket-01: the licence row (escdead.mjs; ESCPOCKET=0 is the rollback)
+  try { logEvent({ kind: 'seapocket_mode', status: 'success', snapshot: snapshot(bot), detail: seaPocketModeDetail() }) } catch { /* telemetry */ }
   // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)
   try { logEvent({ kind: 'plinth021_mode', status: 'success', snapshot: snapshot(bot), detail: plinth021ModeDetail({ shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
   // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail); CONFIGURATION only

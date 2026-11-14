@@ -39,6 +39,23 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Vec3 } from 'vec3'
 import { digPurpose, currentDigScope } from './digtown.mjs'
+import { ESCDEAD_ON } from './toolfor.mjs'   // escdead-01 (c): ESCDEAD=0 restores the floor_y rule at the chokepoint
+import { AsyncLocalStorage } from 'node:async_hooks'
+
+// THE VILLAGE UNLOCK (T3a villageunlock-01, trading design 2026-11-03; OWNER 11-03 ~21:45Z: "we can edit the world when it comes
+// to opening doors etc, that is fine"). The ONE use this guard lets through in a zone: bot.activateBlock on a trapdoor or a
+// fence gate, while the village_unlock skill runs with that exact cell in its scope (withUnlockScope). A toggle changes the
+// block's open state, never its name: the showcase tripwire's S4 integrity compares names, so nothing is removed or changed
+// there (showcase_trip.py selftest pins it). Every other op, every other block (doors, chests, beds, job sites) and every
+// other caller stays refused exactly as before.
+export const UNLOCKABLE = /^(minecraft:)?[a-z_]+_(trapdoor|fence_gate)$/
+const unlockStore = new AsyncLocalStorage()
+/** Run fn with these cells ({x,y,z}) open to activateBlock inside a zone. */
+export const withUnlockScope = (cells, fn) => unlockStore.run({ cells: new Set((cells ?? []).map(c => `${c.x},${c.y},${c.z}`)) }, fn)
+/** -> bool. Pure but for the scope store: an unlockable block name, at a cell the running unlock named. */
+export function unlockAllowed (name, cell, scope = unlockStore.getStore()) {
+  return !!scope && !!cell && UNLOCKABLE.test(String(name ?? '')) && !String(name).includes('iron_') && scope.cells.has(`${cell.x},${cell.y},${cell.z}`)
+}
 
 export const ZONES_FILE = 'protected-zones.json'
 export const ZONES_VERSION = 1
@@ -107,21 +124,60 @@ export const zoneAtPos = (zones, p) => (p ? zoneAt(zones, p.x, p.y, p.z) : null)
  * cave pocket under a village digs its way out sideways; a bot outside can never tunnel in, and the village (at or above
  * floor_y) is closed to everyone. `feet` null: no exemption.
  */
-export function blocked (zones, x, y, z, feet = null) {
+export function blocked (zones, x, y, z, feet = null, deep = null) {
   if (!zones || !zones.length) return null
   const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
   if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(cz)) return null
   // EVERY ZONE HOLDING THE CELL (Codex r3 P2): one zone's deep exemption never opens a cell another zone closes
-  for (let i = 0; i < zones.length; i++) if (blockedIn(zones[i], cx, cy, cz, feet)) return zones[i]
+  for (let i = 0; i < zones.length; i++) if (blockedIn(zones[i], cx, cy, cz, feet, deep)) return zones[i]
   return null
 }
 
-/** One zone's verdict on an integer cell (no allocation: the A* hot path). Pure. */
-export function blockedIn (q, cx, cy, cz, feet = null) {
+/**
+ * One zone's verdict on an integer cell (no allocation: the A* hot path, which passes no `deep`). Pure.
+ * ESCDEAD-01 (c): DEPTH FROM THE TERRAIN SURFACE. `deep(x, y, z)` (optional; the chokepoint passes terrainDeep over the live
+ * world) answers "is this cell under natural ground in its own column". A cell is in the deep part when it is below floor_y
+ * OR deep; the bot is when its feet are below floor_y OR deep. showcase-Gale, 11-05/06: 22 h at y 58 inside the taiga
+ * village's column, 4 above floor_y 54 but at the bottom of a shaft capped by stone -- under the hill, nowhere near a village
+ * block -- and every transit place and the pickaxe's table refused. Without `deep`, exactly the floor_y rule.
+ */
+export function blockedIn (q, cx, cy, cz, feet = null, deep = null) {
   if (!(cx >= q.x0 && cx <= q.x1 && cy >= q.y0 && cy <= q.y1 && cz >= q.z0 && cz <= q.z1)) return false
-  if (q.floorY == null || !feet || cy >= q.floorY) return true
+  if (q.floorY == null || !feet) return true
+  if (cy >= q.floorY && !(deep && deep(cx, cy, cz))) return true
   const fx = Math.floor(feet.x), fy = Math.floor(feet.y), fz = Math.floor(feet.z)
-  return !(fy < q.floorY && fx >= q.x0 && fx <= q.x1 && fz >= q.z0 && fz <= q.z1)
+  if (!(fx >= q.x0 && fx <= q.x1 && fz >= q.z0 && fz <= q.z1)) return true
+  return !(fy < q.floorY || (deep && deep(fx, fy, fz)))
+}
+
+/** ESCDEAD-01 (c): blocks of the ground itself (never a village block: cobblestone, planks, logs, sandstone, terracotta,
+ *  glass and wool are all OUT). A cell whose first solid block above is one of these is under the terrain surface. */
+export const NATURAL_TERRAIN = /^(stone|granite|diorite|andesite|deepslate|tuff|calcite|dripstone_block|smooth_basalt|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|gravel|sand|red_sand|clay|mud|moss_block|amethyst_block|budding_amethyst|bedrock|(deepslate_)?[a-z]+_ore)$/
+/** How far up the column terrainDeep looks for the ground over a cell. */
+export const DEEP_SCAN = 24
+/** How many blocks of natural ground must cover a cell (Codex design: never the top layer of the surface itself). */
+export const DEEP_COVER = 2
+/**
+ * IS THIS CELL UNDER THE TERRAIN SURFACE -> boolean. Pure over `at(x, y, z)` (null = unloaded: not deep). The cell itself
+ * must be open (air, water) or natural ground; then walks up the column from the cell above, DEEP_SCAN cells: deep when the first block with a collision box is natural ground AND at
+ * least DEEP_COVER natural blocks lie over the cell before any other kind of block (a village's roof, floor, wall, path:
+ * not deep) or the end of the scan. Open sky over a single layer is the surface, not depth.
+ */
+export function terrainDeep (at, x, y, z, { scan = DEEP_SCAN, cover = DEEP_COVER } = {}) {
+  // THE CELL ITSELF FIRST (Codex r1 BLOCKER 2): a solid block that is not natural ground -- a buried village foundation, a
+  // cobblestone floor under two blocks of stone -- is never deep, whatever covers it. Air, water and ground pass.
+  const self = at(x, y, z)
+  if (!self) return false
+  if (self.boundingBox === 'block' && !NATURAL_TERRAIN.test(self.name ?? '')) return false
+  let n = 0
+  for (let dy = 1; dy <= scan; dy++) {
+    const b = at(x, y + dy, z)
+    if (!b) return false
+    if (b.boundingBox !== 'block') continue
+    if (!NATURAL_TERRAIN.test(b.name ?? '')) return false
+    if (++n >= cover) return true
+  }
+  return false
 }
 
 /**
@@ -236,8 +292,8 @@ export const SURVIVAL_OPS = new Set(['dig', 'place', 'use'])
  * THE GUARD'S ONE DECISION -> null (allowed) | { zone }. Pure. `op` in dig | place | use | open | sleep | craft; `cell` the
  * block's cell; `purpose` digPurpose's answer for this call.
  */
-export function zoneDecision ({ zones, op, cell, purpose = null, feet = null }) {
-  const z = cell ? blocked(zones, cell.x, cell.y, cell.z, feet) : null
+export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, deep = null }) {
+  const z = cell ? blocked(zones, cell.x, cell.y, cell.z, feet, deep) : null
   if (!z) return null
   if (purpose === 'survival' && SURVIVAL_OPS.has(op)) return null
   return { zone: z }
@@ -364,7 +420,8 @@ export function standableY (bot, x, z, y0) {
  * (as digtown reads it); `onRefuse({ op, zone, at, purpose, by, remedy })` telemetry. Installed AFTER attachDigTown so a
  * refused dig never reaches the instrument (it is not a dig). Every wrapper is a pass-through when no zone is loaded.
  */
-export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse = () => {} } = {}) {
+export const DEEP_MEMO_MS = 5_000
+export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse = () => {}, deepOn = ESCDEAD_ON } = {}) {
   if (!bot || typeof zones !== 'function' || bot.__protectZone) return null
   bot.__protectZone = true
   const purposeOf = () => {
@@ -390,14 +447,26 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     p.catch(() => {})
     return p
   }
+  // ESCDEAD-01 (c): the live world's terrain depth, for the chokepoint only (the pathfinder's price, findBlocks and mine's
+  // keep-out keep the floor_y rule: they plan, and a scan per candidate is the A* hot path). Memo per cell for DEEP_MEMO_MS.
+  const memo = new Map()
+  const atXYZ = (x, y, z) => { try { return bot.blockAt?.(new Vec3(x, y, z)) ?? null } catch { return null } }
+  const deepAt = deepOn ? (x, y, z) => {
+    const k = `${x},${y},${z}`, now = Date.now(), hit = memo.get(k)
+    if (hit && now - hit.t < DEEP_MEMO_MS) return hit.v
+    if (memo.size > 512) memo.clear()
+    const v = terrainDeep(atXYZ, x, y, z)
+    memo.set(k, { v, t: now })
+    return v
+  } : null
   /** -> a rejected promise, or null to proceed. */
   const gate = (op, cell) => {
     const list = zones()
     if (!list || !list.length || !cell) return null
-    const z = blocked(list, cell.x, cell.y, cell.z, bot.entity?.position ?? null)
+    const z = blocked(list, cell.x, cell.y, cell.z, bot.entity?.position ?? null, deepAt)
     if (!z) return null
     const purpose = SURVIVAL_OPS.has(op) ? purposeOf().purpose : null
-    if (!zoneDecision({ zones: list, op, cell, purpose, feet: bot.entity?.position ?? null })) { noteProtectZone(bot, 'survival_allowed'); return null }
+    if (!zoneDecision({ zones: list, op, cell, purpose, feet: bot.entity?.position ?? null, deep: deepAt })) { noteProtectZone(bot, 'survival_allowed'); return null }
     return refuse(op, z, cell)
   }
   // THE INNER USE OF AN APPROVED CALL (Codex r1 P2): openBlock, craft and sleep reach bot.activateBlock themselves, UNAWAITED.
@@ -415,13 +484,16 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     if (r && typeof r.then === 'function') { r.then(done, done); return r }
     done(); return r
   }
-  const wrap = (name, op, cellsFor, { approve = false } = {}) => {
+  const wrap = (name, op, cellsFor, { approve = false, allow = null } = {}) => {
     const orig = bot[name]
     if (typeof orig !== 'function') return
     const w = function (...a) {
       let cells = []
       try { cells = cellsFor(...a).filter(Boolean) } catch { cells = [] }
       if (op === 'use' && cells.length && approved.has(keyOf(cells[0]))) return orig.apply(this, a)
+      let ok = false
+      if (allow && cells.length) { try { ok = !!allow(...a) } catch { ok = false } }
+      if (ok) { noteProtectZone(bot, 'unlock_allowed'); return orig.apply(this, a) }
       for (const c of cells) { const r = gate(op, c); if (r) return r }
       return approve ? hold(cells[0], () => orig.apply(this, a)) : orig.apply(this, a)
     }
@@ -437,7 +509,7 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     const d = { position: { x: ref.position.x + face.x, y: ref.position.y + face.y, z: ref.position.z + face.z } }
     return [cellOf(ref), cellOf(d), cellOf({ position: { x: d.position.x, y: d.position.y + 1, z: d.position.z } })]
   })
-  wrap('activateBlock', 'use', b => [cellOf(b)])
+  wrap('activateBlock', 'use', b => [cellOf(b)], { allow: b => unlockAllowed(b?.name, cellOf(b)) })
   wrap('openBlock', 'open', b => [cellOf(b)], { approve: true })
   wrap('sleep', 'sleep', b => [cellOf(b)], { approve: true })
   wrap('craft', 'craft', (_r, _n, table) => [cellOf(table)], { approve: true })

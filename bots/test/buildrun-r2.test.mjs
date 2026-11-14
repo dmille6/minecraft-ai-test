@@ -57,7 +57,7 @@ await t('AN UNANSWERED PROBE CONFIRMS NOTHING (Codex r1 P2): the cell stays UNKN
   const r2 = await R.runVisit({ ...s.p('A'), unknown }, bot(s.srv, 'A', { probe: async () => 'air' }), { maxSteps: 2000 })
   assert.ok(!unknown.has(k3(s.at))); assert.strictEqual(r2.stop, 'complete', JSON.stringify(r2))
 })
-await t('MUTANT the probe read as the client\'s air again (ghost air promoted to cleared)', () => both("for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = AIR(n) ? 'confirmed' : 'standing' }", "for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { await e.probe(at); if (isClear(at)) v = 'confirmed' }", async M => {
+await t('MUTANT the probe read as the client\'s air again (ghost air promoted to cleared)', () => both("for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { const n = await e.probe(at); if (n != null) v = DUG(n) ? 'confirmed' : 'standing' }", "for (let i = 0; v === 'unconfirmed' && i < PROBES_MAX; i++) { await e.probe(at); if (isClear(at)) v = 'confirmed' }", async M => {
   const { r } = await ghostScene(M, async () => null)
   assert.strictEqual(r.cleared, 0)
 }))

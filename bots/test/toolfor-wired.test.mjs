@@ -17,7 +17,8 @@ t('skills.bestTool and reflex.bestTool return toolFor(...).item and no fastest-t
   for (const f of ['skills.mjs', 'reflex.mjs']) {
     const s = src(f)
     // skills.mjs forwards `opts` since 2026-09-28 (the harvest dig's lastSwing opt-in); reflex.mjs does not
-    once(s, f === 'skills.mjs' ? 'return applyToolPolicy(bot, block, opts)' : 'return applyToolPolicy(bot, block)', f)
+    // escdead-01: reflex.mjs forwards the PIN CLOCK (a pinned escape dig may swing a pickaxe's last use)
+    once(s, f === 'skills.mjs' ? 'return applyToolPolicy(bot, block, opts)' : 'return applyToolPolicy(bot, block, { pinned: pinnedNow(bot) })', f)
     assert.equal(s.includes('bestTime'), false, `${f}: the digTime-minimising loop is gone`)
   }
 })

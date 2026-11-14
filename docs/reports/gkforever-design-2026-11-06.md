@@ -98,11 +98,3 @@ project (target 0), the census holes + dips and the interior's rough share (d2/p
 Nothing new: digs and placements go through `runVisit` exactly as tidy-01 and groundskeeper-01 (KEEP / reviewed) do; the
 one-deep fill and the one-high cut are the same operations at depth 1. No sandbox proof is needed for piece 1. Piece 2 rests on
 the decorator's Paper proofs (proof2 6/6, proof3 4/4).
-
-## Built (piece 1)
-
-Branch `gkforever-01` @ `f428e5dc` on decbundle-01 `3690e867`. Codex r1 (blockers only): 2 BLOCKERS -- an old crew visit could
-complete or waive a newer stage (now fenced by `tidySameGen`; a visit is complete only when its own generation is) and a road light
-given up on was listed again (now filtered by the dead carry); r2 BLOCKERS none. Tier 2 (not protected). `bots/test/gkforever.test.mjs`
-30/30 (behaviour, the composed refusal chain, 8 anchored mutants, wiring). Full suite ci2 (git context) **403/403 files passed**.
-Registration and draft queue entry: `docs/reports/gkforever-2026-11-06/`.

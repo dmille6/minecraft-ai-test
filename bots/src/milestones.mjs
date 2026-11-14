@@ -17,12 +17,18 @@
 import { WOOD_KEEP } from './woodkeep.mjs'
 import { equivalentTools } from './skills.mjs'
 import { RUNNER_DECLINED } from './declined.mjs'
-import { bankableInventory, depositPlan, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositPlan, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { depositVerdict, depositRungFixOn } from './depositoffer.mjs'   // decbundle-01: the gate's own deposit decision
 import { idleWorkOn, idlePick, idleStep, idleMet, idleBar, countOf, IDLE_NEEDS, SCOUT_DIST } from './idlework.mjs'
+import { idleRotation, groundsMeans, setGroundsOpen } from './idlework.mjs'   // gkforever-01: the grounds lap
+import { idleBagMeans, idleBagFull, idleDepthHint } from './idlework.mjs'   // idlework-02: the bag stop, the depth-aware hint
+import { holderMeans, holdsGrounds, setIdleKindNow } from './idlework.mjs'   // gkstay-01: a lease holder's lap stays on the surface
+import { logCapMeans, logCapMet, townLogCapped } from './logcap.mjs'   // logcap-02: the town log gathering cap
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem, snapshot } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
+import { sandRungOn } from './sandrung.mjs'
 import { log, logEvent } from './logger.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 
@@ -440,9 +446,24 @@ export const MILESTONES_BY_ROLE = {
     // within 180 s: oak 13.9% success over 3,302 runs, birch 38.6% over 132 --
     // 2.8x, while the fleet asked oak 25:1.
     M.gatherAny(LOGS, 12, 'Wood too.', 'log', 'gather_oak_log_12'),
-    M.gather('sand', 8, 'Found near water.'),
+    // SANDRUNG-01 (sandrung.mjs): the sand rung is in the chain only with SANDRUNG=1 -- see gathererChain below.
+    ...(sandRungOn() ? [SAND_RUNG()] : []),
     M.gather('cobblestone', 8, 'Needs a pickaxe; expect this to be hard without one.'),
   ],
+}
+
+/** SANDRUNG-01: the retired rung, exactly as it was (SANDRUNG=1 restores it in place, between wood and cobblestone). */
+function SAND_RUNG () { return M.gather('sand', 8, 'Found near water.') }
+/**
+ * THE GATHERER CHAIN AS THE SWITCH SAYS NOW -> rung[]. The controller builds its chain from this at construction, so the
+ * switch is read where the chain is made (MILESTONES_BY_ROLE.gatherer is the same list at module load). `sand` true puts
+ * the sand rung back between wood and cobblestone; false (the default) leaves dirt -> wood -> cobblestone.
+ */
+export function gathererChain ({ sand = sandRungOn() } = {}) {
+  const base = MILESTONES_BY_ROLE.gatherer.filter(m => m.id !== 'gather_sand_8')
+  if (!sand) return base
+  const i = base.findIndex(m => m.id === 'gather_cobblestone_8')
+  return [...base.slice(0, i), SAND_RUNG(), ...base.slice(i)]
 }
 
 export const MILESTONES = MILESTONES_BY_ROLE.scout   // default / back-compat
@@ -618,6 +639,8 @@ const TECH_LADDER = [
     progress: b => `${countItem(b, 'raw_iron') + countItem(b, 'iron_ingot')}/3 iron ` +
                    `(${countItem(b, 'raw_iron')} raw, ${countItem(b, 'iron_ingot')} smelted)`,
     hint: 'gather with block=iron_ore.',
+    // idlework-02: at iron depth the hint names a `mine` target the gate accepts (idlework.mjs idleDepthHint), never y=16 again
+    hintFor: b => (Number.isFinite(b?.entity?.position?.y) && b.entity.position.y <= 18 ? idleDepthHint('iron', b.entity.position.y) : null),
   }, b => ironInReach(b) && hasTripPickaxe(b?.inventory?.items?.() ?? [])),   // a pickaxe that can pay the trip, not a name
   // IRON. The rung the ladder terminated one step short of; the note below this
   // array explains why it could not be added until `smelt` existed.
@@ -797,10 +820,14 @@ const homeDist = b => b.entity.position.distanceTo({ x: config.world.homeX, y: b
 export function idleMeans (b) {
   const items = b?.inventory?.items?.() ?? []
   const pick = items.some(it => /_pickaxe$/.test(it?.name ?? '') && usesLeft(it) >= 2)
-  return { iron: hasTripPickaxe(items), logs: true, coal: pick }
+  // idlework-02: a bag at the stop opens no bag-filling batch (idlework.mjs idleBagMeans): its lap is a grounds or scout lap
+  // gkstay-01: a grounds lease holder's lap opens no batch that goes below (idlework.mjs holderMeans)
+  // logcap-02: a town whose store holds its log cap has no `logs` batch (logcap.mjs logCapMeans): the lap walks to its next kind
+  return logCapMeans(holderMeans(idleBagMeans({ iron: hasTripPickaxe(items), logs: true, coal: pick, grounds: groundsMeans(b) }, items.length), holdsGrounds(b)), townLogCapped(b))
 }
 const bagCountsOf = b => { const c = {}; for (const it of b?.inventory?.items?.() ?? []) if (it?.name) c[it.name] = (c[it.name] ?? 0) + (Number(it.count) || 0); return c }
 const idleNeed = () => IDLE_NEEDS[IDLE.state?.kind] ?? null
+setIdleKindNow(() => IDLE.state?.kind ?? null)   // gkstay-01: the open batch's kind, for the keeper lease (skills.mjs keeperOrder)
 function idleRow (phase, extra = {}) {
   try {
     const st = IDLE.state
@@ -812,10 +839,12 @@ function idleRow (phase, extra = {}) {
 /** Advance the lap's batch for `cycle` on bot `b` -> the state. Opens (and rows) a new batch on a new cycle. */
 function idleAdvance (b, cycle) {
   const open = !IDLE.state || IDLE.state.cycle !== cycle
-  const kind = open ? idlePick(cycle, { means: idleMeans(b), barred: IDLE.barred }) : IDLE.state.kind
+  const kind = open ? idlePick(cycle, { means: idleMeans(b), barred: IDLE.barred, rotation: idleRotation() }) : IDLE.state.kind
   const need = IDLE_NEEDS[kind]
-  IDLE.state = idleStep(IDLE.state, cycle, kind, need ? countOf(bagCountsOf(b), need.count) : 0)
-  if (open) { IDLE.metAt = null; idleRow('open') }
+  // gkforever-01: a grounds batch counts the bot's own visits that changed the ground (skills.mjs buildTidy), never the bag
+  const n = kind === 'grounds' ? (Number(b?.gkfWorked) || 0) : need ? countOf(bagCountsOf(b), need.count) : 0
+  IDLE.state = idleStep(IDLE.state, cycle, kind, n, Date.now(), b?.inventory?.items?.()?.length ?? null)
+  if (open) { IDLE.metAt = null; idleRow('open', { slots: IDLE.state.slotsAt }) }
   return IDLE.state
 }
 const idleDone = (b, cycle) => {
@@ -823,31 +852,47 @@ const idleDone = (b, cycle) => {
   const st = idleAdvance(b, cycle ?? 0)
   let dist = 0
   try { dist = homeDist(b) } catch { dist = 0 }
-  const met = idleMet(st, { dist })
-  if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met') }
+  const slots = b?.inventory?.items?.()?.length ?? null
+  const base = idleMet(st, { dist, noWorkAt: Number(b?.gkfNoWorkAt) || null, slots })
+  // logcap-02: a logs batch open when its town is capped is met at once (logcap.mjs logCapMet): the lap goes on to `return`
+  const capMet = !base && logCapMet(st.kind, townLogCapped(b))
+  const met = base || capMet
+  // idlework-02: the met row says when the bag stop ended the batch (the read's mechanism line: `bag_stop`)
+  if (met && IDLE.metAt == null && st.kind !== 'none') { IDLE.metAt = Date.now(); idleRow('met', capMet ? { slots, reason: 'logcap' } : idleBagFull(st, slots) ? { slots, reason: 'bag_stop' } : { slots }) }
   return met
 }
+// gkforever-01: an open grounds batch (shop.mjs: the tidy order comes back at the keeper's cooldown; skills.mjs: the tidy first)
+setGroundsOpen(() => idleWorkOn() && IDLE.state?.kind === 'grounds' && IDLE.metAt == null)
 const IDLE_RUNG = {
   id: 'idle_work',
   noBar: true,
   get wants () { return idleWorkOn() ? idleNeed()?.wants ?? null : null },
-  get wantsAny () { return idleWorkOn() ? (idleNeed()?.wantsAny ?? null) : null },
+  get wantsAny () { return idleWorkOn() && idleNeed()?.wantsAny?.length ? idleNeed().wantsAny : null },   // gkforever-01: the grounds lap wants no item
   get hint () {
     if (IDLE.state?.kind === 'scout') return 'goto somewhere 80+ blocks from home, staying inside the border.'
     return idleNeed()?.hint ?? 'nothing to do here.'
   },
+  // idlework-02: the iron and coal hints read the bot's depth (idlework.mjs idleDepthHint); null -> the static hint above
+  hintFor: b => (idleWorkOn() && (IDLE.state?.kind === 'iron' || IDLE.state?.kind === 'coal') ? idleDepthHint(IDLE.state.kind, b?.entity?.position?.y) : null),
   describe: () => (IDLE.state?.kind === 'scout' ? 'Scout terrain away from home and come back.' : idleNeed()?.describe ?? 'Nothing to do.'),
   progress: b => {
     const st = IDLE.state
     if (st?.kind === 'scout') { let d = 0; try { d = Math.round(homeDist(b)) } catch { d = 0 } return `${d}/${SCOUT_DIST} blocks out` }
+    if (st?.kind === 'grounds') return `${st?.gained ?? 0}/${idleNeed()?.n ?? 0} grounds visits this lap`
     return `${st?.gained ?? 0}/${idleNeed()?.n ?? 0} ${idleNeed()?.label ?? ''} gathered this trip`
   },
   done: (b, cycle) => idleDone(b, cycle),
   // a genuine batch: on, a work or scout kind, and met (the step-over when off or 'none' is not a completion)
   fulfilled: (b, cycle) => idleWorkOn() && IDLE.state?.cycle === (cycle ?? 0) && IDLE.state.kind !== 'none' && idleDone(b, cycle),
   // does an exhausted chain re-enter for the next lap? (as it did for the patrol, unless nothing is left to ask)
-  reopens: (b, cycle) => idleWorkOn() && idlePick((cycle ?? 0) + 1, { means: idleMeans(b), barred: IDLE.barred }) !== 'none',
+  reopens: (b, cycle) => idleWorkOn() && idlePick((cycle ?? 0) + 1, { means: idleMeans(b), barred: IDLE.barred, rotation: idleRotation() }) !== 'none',
   onSkip: (reason) => { idleRow('skip', { reason }); IDLE.barred = idleBar(IDLE.barred, IDLE.state?.kind) },
+}
+
+/** A rung's hint for this bot: hintFor(bot) when it answers a string, else the static hint. Never throws. */
+export function hintOf (m, b) {
+  if (typeof m?.hintFor === 'function') { try { const h = m.hintFor(b); if (typeof h === 'string' && h) return h } catch { /* the static hint */ } }
+  return m?.hint
 }
 
 export const SUSTAINING = [
@@ -964,12 +1009,17 @@ export const SUSTAINING = [
  * never banked. With IDLEWORK_RETURNFIRST on (default) `return` comes first. =0 is the rollback (the old order). Pure.
  */
 export const returnFirstOn = (env = process.env) => !/^\s*0\s*$/.test(String(env?.IDLEWORK_RETURNFIRST ?? '1'))   // (a regex, not trim-compare: dirtrung.test's mutant anchors on the dirt switch's form)
-/** Would admission refuse a plain deposit AT the chest, on this rung? (its depositPlan is empty, or depositDue says not due:
- *  fewer than 12 bankable with under 30 slots used -- Codex r1 BLOCK: a six-iron batch is below it). Pure over the items. */
-export function depositRefused (items = []) {
-  if (!depositPlan(items).length) return true
+/** Would admission refuse a plain deposit AT the chest, on this rung? Asked through the gate's own pure decision
+ *  (depositoffer.mjs depositVerdict) so the rung and the gate cannot disagree. DECBUNDLE-01: with the `#N` fix on
+ *  (DEPOSITRUNG, default) the gate's floor on the deposit rung is 1, so only a plan that moves nothing is refused -- a six-iron
+ *  batch is banked; DEPOSITRUNG=0 is the old gate (the rung id never matched: fewer than 12 bankable with under 30 slots used is
+ *  refused -- idlework-01's Codex r1 BLOCK). Pure over the items and env. */
+export function depositRefused (items = [], env = process.env) {
+  const planLength = depositPlan(items).length
+  if (!planLength) return true
   const bankable = bankableInventory(items, { wants: DEPOSIT_ALWAYS }).count
-  return !depositDue({ bankable, distHome: 0, storageWithin48: true, onDepositMilestone: true, occupiedSlots: items.length })
+  return !depositVerdict({ planLength, bankable, occupiedSlots: items.length, distHome: 0, storageWithin48: true,
+                           onDepositMilestone: depositRungFixOn(env) }).ok
 }
 /** deposit_surplus at its last step (surplus counted, the bank open): met with no chest in reach, or -- return-first on -- when
  *  the deposit's own plan would move nothing (admission refuses that deposit as deposit_nothing_to_bank). Pure. */
@@ -996,7 +1046,7 @@ export class MilestoneController {
     // nothing to switch TO: current() returned null off the end of the fixed
     // chain and the bot idled with "Nothing to do" permanently. All five bots
     // reached that state. Appending it is what those messages always meant.
-    this.chain = [...(MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout), ...SUSTAINING_RUN]
+    this.chain = [...(role === 'gatherer' ? gathererChain() : (MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout)), ...SUSTAINING_RUN]
     this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}
@@ -1263,7 +1313,8 @@ export class MilestoneController {
       // left the ladder object and the whole thing was inert (Codex pass 1, which
       // proved it by calling status() and printing statusHasWantsAny:false).
       wantsAny: m.wantsAny ?? null,
-      describe, progress, hint: m.hint,
+      // idlework-02: a rung's depth-aware hint (hintFor(bot) -> string | null), else its static one
+      describe, progress, hint: hintOf(m, this.bot),
     }
   }
 

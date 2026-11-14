@@ -4,6 +4,8 @@
 // the paths' corridors (the legs the paths' router finds with fill/cut 4 and spoil cuttable), then asks the paths again.
 // Behaviour on buildfake's flat world (stone below G, grass at G); structural assertions only for wiring.
 import assert from 'node:assert'
+// roughground-01: these tests pin tidy-01's and gkforever's own rules; the rough survey (on by default) is roughground.test.mjs's
+process.env.ROUGH = 'off'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 const { G, HOME, server, plan, bot, PJ, R } = await import('./helpers/buildfake.mjs')
 const T = await import('../src/tidy.mjs')
@@ -287,7 +289,7 @@ console.log('WIRING (structural: build_shop reaches the visit; a finished tidy i
 const code = readFileSync(SKILLS_PATH, 'utf8').split('\n').map(l => l.replace(/^\s*\/\/.*$/, '').replace(/\s+\/\/ .*$/, '')).join('\n')
 await t('skills.mjs: build_shop dispatches the tidy; recordDamaged answers its re-survey; completion asks the paths again', async () => {
   assert.strictEqual(code.split('if (proj.plot === TIDY_PLOT) return buildTidy(ctx, args, signal)').length, 2)
-  assert.strictEqual(code.split('if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)').length, 2)
+  assert.strictEqual(code.split('if (r?.blueprint === TIDY_BLUEPRINT) return tidy && (tidyDue(r) || strayDue(bot))').length, 2)   // stations-01: or a stray station
   assert.strictEqual(code.split('const pp = publishRecord(dir, pk, cur => pathsRetryNow(cur, now, pathsNoSiteRec), { by: me })').length, 2)
   assert.match(code, /async function buildTidy \(ctx, args, signal\)/)
 })
