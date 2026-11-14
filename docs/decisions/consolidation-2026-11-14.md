@@ -140,6 +140,30 @@ Design direction (proposed, not built): **save the world, not just the pictures.
 files every few minutes from minute zero costs little and lets any camera, angle or resolution be rendered later, even
 ones not thought of yet. Live cameras are then a choice of what to render now.
 
+## No more ugly worlds: cleanup and levelling are proven before a new town is born (owner 11-14)
+
+The owner, 11-14 ~18:00Z, on whether a new world should be sited, planned, cleared and levelled before building: "My
+concern is that our cleanup code and our leveling and terraforming code don't work and I figured this would be a good way
+to test it. I don't want another ugly world with junk and holes everywhere."
+
+What the record says about that code today (it supports the concern):
+- Cleanup fills only small open holes (the keeper's rule: up to 9 columns, 4 deep; never under a roof). On the capsule,
+  68 of the pits are too big for it and 26,116 air blocks sit under the lawn with nothing built to fill them.
+- Site preparation works for two building kinds (tower, shrine). Of its two recent attempts one was abandoned and one
+  given up. Homes get no levelling.
+- Prevention did help: keeping the pathfinder from placing blocks in town cut stray blocks from 173 to 57 an hour.
+
+Proposed to the owner (not yet agreed, nothing built):
+1. **Two practice tests, run on copies, before any permanent new town.** Cleanup: restore the time capsule, let the bots
+   clean for a set time, run the scorecard. Levelling: a copy of raw fresh terrain (rehearsal-0's day-0 snapshot), the bots
+   prepare a set of plots and build nothing, measure flat, solid underneath, no spoil left. Hours per run, repeatable, on
+   VM 118 once rehearsal-0 ends.
+2. **A gate:** the permanent test town is not born until both tests pass a bar the owner sets.
+3. **In the new town, the core is prepared first** (plaza, storage, first homes and the roads between), then plot by plot.
+   No building starts on a plot whose ground has not passed a mechanical check.
+4. **A mess meter:** the scorecard runs hourly on the live world; over a set limit, building stops and cleaning goes first.
+5. Rehearsal-0 is measured for how fast today's bots make mess on raw land, from the copies taken every 15 minutes.
+
 ## Found 11-14, to settle in C0
 
 - The 3090 has a second tenant that is not this project: a llama-server from `~/ethan-gpu` holding about 14.5 GB of the
