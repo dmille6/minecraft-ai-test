@@ -854,13 +854,28 @@ def _row_time(row):
         return None
 
 
+def live_of(deploy_rows):
+    """PURE. What the journal says is live -> the row that made it so, shaped as an activation ({release, t, previous}) | None.
+    The newest `activated` row -- unless a `ROLLBACK` row follows it: a failed activation writes `activated` for B and then
+    `ROLLBACK release=B back_to=A` with no activated row for A (Codex r2: the gate and the read then judged B, which is not
+    running). After it, A is live since the rollback, and B is the release it replaced."""
+    live = None
+    for r in deploy_rows:
+        if not isinstance(r, dict):
+            continue
+        if r.get('event') == 'activated':
+            live = r
+        elif r.get('event') == 'ROLLBACK' and r.get('back_to'):
+            live = {'event': 'activated', 'release': r['back_to'], 't': r.get('t'), 'previous': r.get('release'), 'via': 'ROLLBACK'}
+    return live
+
+
 def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
     """PURE. ONE CHANGE AT A TIME -> why (a refusal that names what to do) | None.
     deploy_rows: ops/deploy.jsonl. The live release is the newest `activated` row; nothing activated yet -> None."""
-    acts = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated']
-    if not acts:
+    live = live_of(deploy_rows)          # the NEWEST activation, readable or not (Codex r1: never fall back to an older one)
+    if live is None:
         return None
-    live = acts[-1]                      # the NEWEST activation, readable or not (Codex r1: never fall back to an older one)
     if not live.get('release'):
         return ('one change at a time: the newest activated row in the journal names no release, so what is live cannot be '
                 'told; fix that row first (ops/deploy.jsonl)')
@@ -906,11 +921,15 @@ def activation_soak_refusal(deploy_rows, release, now):
     return why and (why + f' [activating {release}: a fix admission is recorded by staging it again with --fix-of / --fix-why]')
 
 
-def read_row_refusal(deploy_rows, decision, why_text):
-    """PURE. May this read be journalled for the live release? -> why not | None."""
-    went_live = [r for r in deploy_rows if isinstance(r, dict) and r.get('event') == 'activated']
-    if not went_live or not went_live[-1].get('release'):
+def read_row_refusal(deploy_rows, decision, why_text, harness=None):
+    """PURE. May this read be journalled for the live release? -> why not | None. `harness`: the release the harness link
+    points at now (None = not known); a journal that disagrees with it is not read against (Codex r2)."""
+    went_live = live_of(deploy_rows)
+    if not went_live or not went_live.get('release'):
         return 'nothing is live to read (no activated row with a release)'
+    if harness and str(went_live['release']) != str(harness):
+        return (f'the journal says {went_live["release"]} is live but the harness runs {harness}: a read would be written against '
+                f'the wrong release; activate (or journal the rollback of) what is running, then read')
     if not str(decision or '').strip().upper().startswith(READ_DECISIONS):
         return f'a read\'s decision starts with one of {" / ".join(READ_DECISIONS)} (then anything: "KEEP (throws 11/h)")'
     if len(str(why_text or '').strip()) < FIX_WHY_MIN:
@@ -923,11 +942,11 @@ def cmd_read(a):
     the gate reads (Claude r1: read rows were hand-written; a short release id or a naive time silently did not count)."""
     lk = lock()
     rows = FR.load_jsonl(DEPLOY)
-    bad = read_row_refusal(rows, a.decision, a.why)
+    bad = read_row_refusal(rows, a.decision, a.why, os.path.basename(os.path.realpath(HARNESS)) if os.path.islink(HARNESS) else None)
     if bad:
         print('REFUSED: ' + bad)
         return 1
-    live = [r for r in rows if isinstance(r, dict) and r.get('event') == 'activated'][-1]
+    live = live_of(rows)
     now = now_utc()
     row = {'t': FR.iso(now), 'event': 'read', 'release': str(live['release']), 'run': a.run, 'decision': a.decision.strip(),
            'why': a.why.strip(), 'by': a.by or 'operator'}
