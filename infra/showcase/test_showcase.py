@@ -889,13 +889,93 @@ class SoakGate(unittest.TestCase):
         opened = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}))
         self.assertIn('neither the live release', self.ref(opened, 200, fix_of='dc6a87cf', fix_why=why))
 
+    def test_a_read_dated_ahead_of_the_clock_does_not_open_it(self):
+        rows = self.rows((600, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}))
+        self.assertIn('one change at a time', self.ref(rows, 200), 'a read stamped 10 h in is not a read at 3 h 20')
+        self.assertEqual(self.ref(rows, 601), '', 'the control: once the clock passes it, it counts')
+
+    def test_the_same_rule_at_the_switch(self):
+        z = lambda m: (self.T0 + dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        A, B = 'aaaaaaaa-6dd0ded8-fdd64ead', 'bbbbbbbb-6dd0ded8-fdd64ead'
+        act = lambda rows, rel, m: SO.activation_soak_refusal(rows, rel, self.T0 + dt.timedelta(minutes=m)) or ''
+        # LIVE is read at 3 h; two sessions each stage a piece and both pass the stage gate
+        read = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}))
+        self.assertEqual(self.ref(read, 190), '')
+        self.assertEqual(act(read, A, 200), '', 'the first of them goes live')
+        after_a = read + [{'t': z(200), 'event': 'activated', 'release': A, 'previous': self.LIVE}]
+        why = act(after_a, B, 210)
+        self.assertIn('one change at a time', why, 'the second, ten minutes later, does not (LIVE 11-13: the two-session shape)')
+        self.assertIn(A, why)
+        self.assertIn('activating ' + B, why)
+        # going BACK is never gated: a release that has been live before
+        self.assertEqual(act(after_a, self.LIVE, 205), '', 'a rollback to the release before')
+        self.assertEqual(act(after_a, self.PREV, 205), '', 'or to any older one')
+        self.assertEqual(act(after_a, A, 205), '', 're-activating the live release')
+        # a fix admitted at stage goes live at once, while it is still a fix of what is live
+        fix = 'dispose_well 0 ok of 9 climbs: goto resolved on the first empty partial slice'
+        admitted = after_a + [{'t': z(206), 'event': 'soak-admit', 'release': B, 'ok': True, 'fix_of': 'aaaaaaaa', 'fix_why': fix}]
+        self.assertEqual(act(admitted, B, 210), '')
+        stale = admitted + [{'t': z(208), 'event': 'activated', 'release': 'cccccccc-6dd0ded8-fdd64ead', 'previous': 'dddddddd-6dd0ded8-fdd64ead'}]
+        self.assertIn('neither the live release', act(stale, B, 210), 'a fix of a release that is no longer live nor just replaced is not a pass')
+        # the newest admission is the one that counts
+        newer = admitted + [{'t': z(207), 'event': 'soak-admit', 'release': B, 'ok': False, 'why': 'x'}]
+        self.assertIn('one change at a time', act(newer, B, 210))
+        self.assertEqual(SO.activation_soak_refusal([], A, self.T0), None, 'the first release ever')
+
+    def test_the_switch_is_wired_into_activate(self):
+        src = open(os.path.join(HERE, 'showcase_ops.py')).read()
+        code = re.sub(r'(^|[^:\'"])#.*$', r'\1', src, flags=re.M)
+        body = code[code.index('def cmd_activate('):]
+        body = body[:body.index('\ndef ', 10)]
+        self.assertEqual(body.count('swhy = activation_soak_refusal(FR.load_jsonl(DEPLOY), os.path.basename(os.path.abspath(a.release)), now_utc())'), 1)
+        self.assertIn("if swhy and soak_enforced():\n        print(f'REFUSED: {swhy}; nothing switched')", body)
+        self.assertLess(body.index('if swhy and soak_enforced():'), body.index('return activate('), 'asked before anything is switched')
+        act = code[code.index('def activate('):]
+        self.assertNotIn('soak', act[:act.index('\ndef ', 10)], 'activate() itself (the follower, the tripwire\'s rollback) is not gated')
+
+    def test_the_read_command_writes_the_row_the_gate_reads(self):
+        why = 'wellread.py 01:38-04:40Z, 14 bots: dispose_well 31 ok of 33; _well_step climbs reached 2 of 2'
+        self.assertIn('nothing is live', SO.read_row_refusal([], 'KEEP', why) or '')
+        self.assertIn('starts with one of', SO.read_row_refusal(self.rows(), 'looks fine', why) or '')
+        self.assertIn('--why carries the numbers', SO.read_row_refusal(self.rows(), 'KEEP', 'ok') or '')
+        self.assertEqual(SO.read_row_refusal(self.rows(), 'keep (throws 11/h)', why), None)
+        with tempfile.TemporaryDirectory() as d:
+            old = SO.DEPLOY, SO.lock, SO.now_utc
+            SO.DEPLOY, SO.lock = os.path.join(d, 'deploy.jsonl'), (lambda: None)
+            try:
+                with open(SO.DEPLOY, 'w') as f:
+                    for r in self.rows():
+                        f.write(json.dumps(r) + '\n')
+                ns = type('A', (), {'run': 'cleanzone-02show', 'decision': 'KEEP (the rule acts)', 'why': why, 'by': None})()
+                SO.now_utc = lambda: self.T0 + dt.timedelta(minutes=66)
+                self.assertEqual(SO.cmd_read(ns), 0)
+                rows = SO.FR.load_jsonl(SO.DEPLOY)
+                self.assertEqual((rows[-1]['event'], rows[-1]['release'], rows[-1]['t']), ('read', self.LIVE, '2026-11-13T17:35:01Z'))
+                self.assertIn('one change at a time', SO.soak_refusal(rows, self.T0 + dt.timedelta(minutes=70)) or '', 'a +66 read does not open it')
+                SO.now_utc = lambda: self.T0 + dt.timedelta(minutes=181)
+                self.assertEqual(SO.cmd_read(ns), 0)
+                self.assertEqual(SO.soak_refusal(SO.FR.load_jsonl(SO.DEPLOY), self.T0 + dt.timedelta(minutes=182)), None, 'the +181 one does')
+                bad = type('A', (), {'run': 'x', 'decision': 'fine', 'why': why, 'by': None})()
+                n = len(SO.FR.load_jsonl(SO.DEPLOY))
+                self.assertEqual(SO.cmd_read(bad), 1)
+                self.assertEqual(len(SO.FR.load_jsonl(SO.DEPLOY)), n, 'a refused read writes nothing')
+            finally:
+                SO.DEPLOY, SO.lock, SO.now_utc = old
+
     def test_nothing_live_and_unreadable_rows(self):
         self.assertEqual(SO.soak_refusal([], self.T0), None, 'the first release has nothing to wait for')
         self.assertEqual(SO.soak_refusal([{'event': 'staged', 'release': 'x'}, 'torn', None], self.T0), None)
+        # the NEWEST activation is the live one even when its row is broken: never an older, read one in its place
+        z = lambda t: t.strftime('%Y-%m-%dT%H:%M:%SZ')
+        older_read = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}))
+        self.assertEqual(SO.soak_refusal(older_read, self.T0 + dt.timedelta(hours=4)), None, 'the control: it would pass')
+        nameless = older_read + [{'t': z(self.T0 + dt.timedelta(hours=3, minutes=30)), 'event': 'activated'}]
+        self.assertIn('names no release', SO.soak_refusal(nameless, self.T0 + dt.timedelta(hours=4)) or '')
+        self.assertIn('names no release', SO.soak_refusal([{'t': z(self.T0), 'event': 'activated', 'release': ''}], self.T0) or '')
         bad = [{'t': 'yesterday', 'event': 'activated', 'release': self.LIVE}]
-        self.assertIn('cannot read when', SO.soak_refusal(bad, self.T0), 'an activation with no time fails closed')
+        self.assertIn('cannot read when', SO.soak_refusal(bad, self.T0) or '', 'an activation with no time fails closed')
         naive = [{'t': '2026-11-13T16:29:01', 'event': 'activated', 'release': self.LIVE}]
-        self.assertIn('cannot read when', SO.soak_refusal(naive, self.T0))
+        self.assertIn('cannot read when', SO.soak_refusal(naive, self.T0) or '')
 
     def test_the_gate_is_wired_into_both_stages_and_recorded(self):
         src = open(os.path.join(HERE, 'showcase_ops.py')).read()
@@ -909,6 +989,9 @@ class SoakGate(unittest.TestCase):
             self.assertIn("rec['soak'] = srec", body, fn)
             self.assertLess(i, body.index('replay_admit('), f'{fn}: the gate is asked before the 20-minute replay')
             self.assertLess(body.index("rec['soak'] = srec"), body.index('ok, out = stage('), f'{fn}: recorded in the release before it is staged')
+            self.assertEqual(body.count('journal_soak(os.path.basename(out), sha, srec)'), 1, fn)
+            self.assertLess(body.index('ok, out = stage('), body.index('journal_soak('), f'{fn}: journalled once the stage (new or cached) is in hand')
+            self.assertLess(body.index('return refuse(out)'), body.index('journal_soak('), f'{fn}: never for a stage that failed')
         follow = code[code.index('def cmd_follow('):]
         self.assertNotIn('soak_admit', follow[:follow.index('\ndef ', 10)], 'the follower is not gated')
 
@@ -925,10 +1008,19 @@ class SoakGate(unittest.TestCase):
                 ok, rec = SO.soak_admit(ns(fix_of=None, fix_why=None), self.T0 + dt.timedelta(minutes=30))
                 self.assertEqual((ok, rec['ok'], rec['enforced']), (False, False, False))
                 self.assertIn('one change at a time', rec['why'])
+                self.assertTrue(rec['why'].rstrip().endswith('--fix-why "<what the live release shows>"'),
+                                'the whole refusal: its last words are the remedy (a 300-character cut ended at --fix-of)')
                 open(SO.SOAK_ENFORCE, 'w').close()
                 ok, rec = SO.soak_admit(ns(fix_of='52d8285f', fix_why=why), self.T0 + dt.timedelta(minutes=30))
                 self.assertEqual((ok, rec['enforced'], rec['fix_of'], rec['fix_why']), (True, True, '52d8285f', why))
                 self.assertNotIn('why', rec)
+                # the admission is journalled by itself: a release served from the staged cache keeps its old RELEASE.json
+                SO.journal_soak('9428a256-6dd0ded8-fdd64ead', 'a' * 40, rec)
+                last = json.loads(open(SO.DEPLOY).read().splitlines()[-1])
+                self.assertEqual((last['event'], last['release'], last['fix_of'], last['ok'], last['enforced']),
+                                 ('soak-admit', '9428a256-6dd0ded8-fdd64ead', '52d8285f', True, True))
+                self.assertEqual(SO.soak_refusal(SO.FR.load_jsonl(SO.DEPLOY), self.T0 + dt.timedelta(minutes=31), '52d8285f', why), None,
+                                 'and its own row never reads as an activation or a read')
             finally:
                 SO.DEPLOY, SO.SOAK_ENFORCE = old
 
