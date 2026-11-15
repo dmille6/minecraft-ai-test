@@ -205,6 +205,13 @@ jobs. At today's pace of about 1,000 fills in 30 hours that is about 26 days (ar
 why the worker code's speed is a step of its own. Open for the owner: in 601 columns the lawn now sits one block higher
 than the original ground over the hollow; the plan fills the hollow and leaves that grass one block proud.
 
+**Where stairs are needed (11-15): [`stair-spots.md`](../reports/land-eval-2026-11-14/stair-spots.md).** From 40,669
+positioned climb and escape events on the showcase (11-13 17:00Z to 11-15 04:00Z, 14 bots): 54% happen below y 50, so
+most of the climbing is in the bots' own diggings, not on the lawn. Named places: the west mine yard (15.9% of all
+events; one proper stair shaft and a filled pit field), a cave under the east hill, the shared mine stair (399 of 776
+uses failed; a tread sits in an open cave), the junk well (236 of 431 attempts failed; a four-step stair on its west
+face), and five storage chest cells no bot can reach (the same five in all 950 audit rows). Not built.
+
 **The cause (11-15): [`dirt-loop.md`](../reports/land-eval-2026-11-14/dirt-loop.md).** Dirt is what the bots gather most
 (48% of gather actions on 11-12) because the escape code climbs with dirt first; a request for dirt takes the block under
 the grass and leaves a roofed gap. The 11-13 rule stopped it inside the town square but moved it to a ring just outside:

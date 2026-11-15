@@ -776,6 +776,7 @@ const REQUIRED = [
   'scripts/host/test_groundplan.py',
   'bots/test/groundplan.test.mjs',
   'docs/reports/land-eval-2026-11-14/plan-first-run.md',
+  'docs/reports/land-eval-2026-11-14/stair-spots.md',   // owner 11-15 (stairs, not junk dirt piles): where the showcase bots keep climbing and escaping
   'docs/reports/land-eval-2026-11-14/dirt-loop.md',   // why the bots hollow out the ground, what the 11-13 rule moved, what would stop it
   'docs/reports/land-eval-2026-11-14/RECOMMENDATION.md',   // owner 11-14: keep / restructure / start fresh for the land cleanup code: both engines say restructure around a new core
   'docs/reports/land-eval-2026-11-14/QUESTION.md',   // the brief both evaluators got
