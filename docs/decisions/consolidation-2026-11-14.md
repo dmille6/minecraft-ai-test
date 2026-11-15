@@ -252,6 +252,11 @@ Five prevention changes are listed there.
   cobblestone, one layer of dirt is always left under the grass (the dirt-cap rule), and no void is left. One handsome
   entrance about three wide outside the wall, shared with the town's stone mine (whose stair fails 399 of 776 uses today),
   and the gather rule walks a bot that needs dirt there instead of "six blocks past the edge".
+  **Owner, ~16:30Z: "One shared mine".** Decided: ONE town mine with one entrance about three wide outside the wall, made
+  to look good (framed arch, proper stairs, lanterns); the dirt gallery near the top, worked by swapping each dirt block
+  for cobblestone under the dirt cap; stone and ore further down by the same stairs. It replaces the shared mine stair
+  that fails today and the "walk six blocks past the edge" remedy. Order: a design pass (both engines) after the two
+  prevention pieces; a new kind of town project, so it is built on the one trunk. Not built.
 - ~05:00Z, **the fill rule: "Yes, dirt cap".** Ground that is put back is cobblestone below and ONE layer of dirt
   directly under the surface block (the grass). Why the cap: grass spreads only onto dirt, so with cobblestone right
   under it a broken grass block would stay grey for good. Cobblestone is what the town has in surplus; the cap roughly
