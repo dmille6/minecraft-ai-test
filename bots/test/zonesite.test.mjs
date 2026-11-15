@@ -237,6 +237,30 @@ await t('MUTANT (the wait takes the whole segment as soon as one cell is closed)
     assert.strictEqual(zoned.r.stop, 'zone_closed'); assert.notStrictEqual(zoned.r.stop, plain.r.stop)
   })
 })
+// review r3 blocker: A CELL OVER A ZONE-CLOSED CELL, same segment, same column, waits with it -- never placed over the open hole
+const COL = (() => { const by = new Map(); for (const c of SITE.record.cells) { const k = `${c.seg}|${c.at[0]},${c.at[2]}`; by.set(k, [...(by.get(k) ?? []), c]) } return [...by.values()].find(v => v.length >= 2).sort((a, b) => a.at[1] - b.at[1]) })()
+const LOW = COL[0].at, UP = COL[1].at
+const lowClosed = c => (k3(c) === k3(LOW) ? VILLAGE.id : null)
+await t('the fixture: two cells of one segment stacked in a column; with no zone both are built', async () => {
+  assert.strictEqual(COL[0].seg, COL[1].seg); assert.deepStrictEqual([UP[0], UP[2]], [LOW[0], LOW[2]]); assert.strictEqual(UP[1], LOW[1] + 1)
+  const { r, srv } = await visit(R, { maxSteps: 2000 })
+  assert.strictEqual(r.stop, 'complete', `${r.stop}: ${r.why}`); assert.notStrictEqual(srv.read(...LOW).name, 'air'); assert.notStrictEqual(srv.read(...UP).name, 'air')
+})
+await t('the lower one closed: the cell over it is NOT built over the open hole, is not deferred, and the visit ends zone_closed', async () => {
+  const { r, srv, sends, logs } = await visit(R, { placeClosed: lowClosed, maxSteps: 2000 })
+  assert.strictEqual(srv.read(...LOW).name, 'air'); assert.strictEqual(srv.read(...UP).name, 'air', 'nothing over the open hole')
+  assert.ok(!sends.includes(k3(UP)) && !sends.includes(k3(LOW)), 'neither was clicked')
+  assert.strictEqual(r.stop, 'zone_closed', `${r.stop}: ${r.why}`); assert.ok(r.zonedWait >= 2, `both wait (${r.zonedWait})`)
+  assert.ok(!logs.some(([k, d]) => k === '_build' && d.op === 'deferred' && [k3(UP), k3(LOW)].includes(k3(d.cell ?? []))), 'no deferral row names either')
+  assert.ok(r.placed > 20, `the rest is built (${r.placed})`)
+})
+await t('MUTANT (the cell over a closed cell is not set aside with it): it is worked as a stuck cell -- the visit never says zone_closed', async () => {
+  await withMutant('buildrun.mjs', "        const shut = shut0.length ? openAll.filter(c => shut0.includes(c) || c.at[1] > (shutLow.get(`${c.at[0]},${c.at[2]}`) ?? Infinity)) : shut0", '        const shut = shut0', async M => {
+    const { r, srv } = await visit(M, { placeClosed: lowClosed, maxSteps: 2000 })
+    assert.strictEqual(srv.read(...UP).name, 'air', 'the bottom-up rule still holds it')
+    assert.notStrictEqual(r.stop, 'zone_closed', r.stop)
+  })
+})
 await t('THE BACKSTOP: a send the adapter refuses (false) books no click -- no acknowledgement is waited for, the cell stays empty, the rest is built', async () => {
   const { r, srv, waited, seqOf } = await visit(R, { sendFalse: tgt => k3(tgt) === k3(SHUT) })
   assert.ok(seqOf.size >= 1, 'the refused send happened')

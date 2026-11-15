@@ -1613,12 +1613,18 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // stuck_on_cell, no waiver, no 6-hour back-off). Every OTHER open cell of the segment is worked exactly as before (its
         // digs, its deferrals, its remedies); with only closed cells left the segment WAITS like a zone-closed clear: the visit
         // goes on with its other segments and ends `zone_closed` (the order holds the project for this bot: shop.mjs WAIT_STOPS)
-        const shut = openAll.filter(c => isClear(c.at) && placeZoned(c.at))
+        const shut0 = openAll.filter(c => isClear(c.at) && placeZoned(c.at))
+        // ...AND EVERY OPEN CELL OF THE SEGMENT OVER ONE OF THEM IN ITS COLUMN (Codex r3 blocker): the bottom-up rule holds a cell
+        // over an open one, and that hole stays open -- such a cell waits with it (never placed against a side over the hole,
+        // never dug in a swap, never deferred)
+        const shutLow = new Map()
+        for (const c of shut0) { const ck = `${c.at[0]},${c.at[2]}`; shutLow.set(ck, Math.min(shutLow.get(ck) ?? Infinity, c.at[1])) }
+        const shut = shut0.length ? openAll.filter(c => shut0.includes(c) || c.at[1] > (shutLow.get(`${c.at[0]},${c.at[2]}`) ?? Infinity)) : shut0
         const open = shut.length ? openAll.filter(c => !shut.includes(c)) : openAll
         if (shut.length) out.zonedPlace = [...zonedPlace.values()].filter(Boolean).length
         if (!open.length) {
           out.zonedWait = (out.zonedWait ?? 0) + shut.length
-          sayZoned(seg, shut[0].at, blockFor(palette, shut[0].role, e.has) ?? null, placeZoned(shut[0].at), shut.length)
+          sayZoned(seg, shut0[0].at, blockFor(palette, shut0[0].role, e.has) ?? null, placeZoned(shut0[0].at), shut.length)
           deferredSegs.add(seg)
           break
         }
@@ -1646,7 +1652,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // reaches would otherwise hold the whole run's swap for good, two guards composing into a dead end; offline 11-09, 404 `blocked`)
         let swapNodes = null
         const fillable = q => { swapNodes ??= nodesFor(new Set(open.filter(o => !openRole(o.role)).map(o => kOf(o.at)))); return !!stepZ(rd, home, q.at, swapNodes, domain, wantOf(q)) }
-        const swapOk = c => !p.swap || !c.sw || swapDigOk(c, open, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!blockFor(palette, q.role, e.has), fillable })
+        // (zonesite-01show, Codex r3: the swap's hole rule reads EVERY open cell -- a zone-closed hole is a hole)
+        const swapOk = c => !p.swap || !c.sw || swapDigOk(c, openAll, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!blockFor(palette, q.role, e.has), fillable })
         // a swapped cell left standing over a hole no stand fills (its underpinning spent) is DEFERRED once -- the waiver closes it as its
         // old block -- never held open for good
         if (p.swap) for (const c of open) if (c.sw && !isClear(c.at) && !sealed.has(kOf(c.at)) && swapOverHole(c, open, q => isClear(q.at) && (tries.get(kOf(q.at)) ?? 0) >= BUILD_ATTEMPTS)) { sealed.add(kOf(c.at)); deferredCells.push(kOf(c.at)); deferredSegs.add(seg); deferWhy.set(kOf(c.at), 'swap hole_under') }
@@ -1833,7 +1840,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // BOTTOM-UP: never a cell while one below it in its column is open; never a cell still holding an uncleared block
         // citywall-01 (Codex r3 BLOCKER): in a swap visit a STANDING swapped cell below (its old block: a support, only the wrong one) never
         // holds the cell above -- a sealed lower swap would strand the hole dug over it for good
-        const below = c => open.some(o => o !== c && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1] && !(p.swap && o.sw && !isClear(o.at)))
+        const below = c => openAll.some(o => o !== c && o.at[0] === c.at[0] && o.at[2] === c.at[2] && o.at[1] < c.at[1] && !(p.swap && o.sw && !isClear(o.at)))   // zonesite-01show: over every open cell
         // a fill a builder stands IN (feetIn): a cell ANOTHER builder's body is in is passed over for now, never an attempt (two
         // builders each standing in the other's next cell spent both cells' attempts every visit: the fake server, 10-29)
         const bodies = feetIn ? (e.bodies?.() ?? []) : []
