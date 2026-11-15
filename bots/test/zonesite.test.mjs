@@ -158,8 +158,8 @@ await t('MUTANT (the adapter\'s send no longer asks): the packet into the zone i
 console.log('THE VISIT (buildrun.mjs runVisit on the fake server)')
 const PAD = SITE.record.cells.filter(c => c.seg === 'pad')
 const SHUT = PAD[30].at
-async function visit (M, { placeClosed = null, sendFalse = null, maxSteps = 400 } = {}) {
-  const srv = server(), pr = project(SITE.record)
+async function visit (M, { placeClosed = null, sendFalse = null, maxSteps = 400, cells = {} } = {}) {
+  const srv = server(cells), pr = project(SITE.record)
   const h = PJ.recordHead(pr.dir, pr.key)
   const e = bot(srv, 'A')
   const walks = [], sends = [], waited = [], seqOf = new Map()
@@ -212,10 +212,29 @@ await t('...and no walk is spent on it: the visit with the closed cell walks no 
   const a = await visit(R), b = await visit(R, { placeClosed: closedAt })
   assert.ok(b.walks.length <= a.walks.length, `${b.walks.length} walks with the closed cell, ${a.walks.length} without`)
 })
-await t('MUTANT (the wait is gone): the segment falls through to the old endings', async () => {
-  await withMutant('buildrun.mjs', '          if (shut.length) {\n            out.zonedWait', '          if (false) {\n            out.zonedWait', async M => {
-    const { r } = await visit(M, { placeClosed: closedAt })
-    assert.notStrictEqual(r.stop, 'zone_closed', r.stop)
+await t('MUTANT (the closed cells stay among the open ones): the cell is tried and the visit never says zone_closed', async () => {
+  await withMutant('buildrun.mjs', '        const open = shut.length ? openAll.filter(c => !shut.includes(c)) : openAll', '        const open = openAll', async M => {
+    const { r, srv } = await visit(M, { placeClosed: closedAt })
+    assert.strictEqual(srv.read(...SHUT).name, 'air', 'the click\'s own check still holds')
+    assert.notStrictEqual(r.stop, 'zone_closed', `the mutant spends attempts instead (${r.stop})`)
+  })
+})
+// review r2 blocker: ANOTHER open cell of the same segment keeps its own handling -- the wait never pre-empts it
+const HELD = PAD[31].at
+await t('a zone-closed cell beside a cell held by a block the visit may not dig: the visit ends exactly as it does without the zone', async () => {
+  const cells = { [k3(HELD)]: 'obsidian' }
+  const plain = await visit(R, { cells }), zoned = await visit(R, { cells, placeClosed: closedAt })
+  assert.notStrictEqual(plain.r.stop, 'complete'); assert.notStrictEqual(plain.r.stop, 'zone_closed', plain.r.stop)
+  assert.strictEqual(zoned.r.stop, plain.r.stop, `the other cell's ending stands (${zoned.r.stop}: ${zoned.r.why})`)
+  assert.strictEqual(zoned.srv.read(...SHUT).name, 'air'); assert.strictEqual(zoned.r.zonedPlace, 1, 'the closed cell is still set aside and counted')
+  const rowsOf = v => v.logs.filter(([k, d]) => k === '_build' && ['deferred', 'stuck_on_cell'].includes(d.op)).map(([, d]) => [d.op, d.why ?? '', k3(d.cell ?? [])])
+  assert.deepStrictEqual(rowsOf(zoned), rowsOf(plain), 'the same deferral rows, none of them the closed cell\'s')
+})
+await t('MUTANT (the wait takes the whole segment as soon as one cell is closed): the held cell\'s own ending is lost', async () => {
+  await withMutant('buildrun.mjs', '        const open = shut.length ? openAll.filter(c => !shut.includes(c)) : openAll', '        const open = shut.length ? [] : openAll', async M => {
+    const cells = { [k3(HELD)]: 'obsidian' }
+    const plain = await visit(R, { cells }), zoned = await visit(M, { cells, placeClosed: closedAt })
+    assert.strictEqual(zoned.r.stop, 'zone_closed'); assert.notStrictEqual(zoned.r.stop, plain.r.stop)
   })
 })
 await t('THE BACKSTOP: a send the adapter refuses (false) books no click -- no acknowledgement is waited for, the cell stays empty, the rest is built', async () => {

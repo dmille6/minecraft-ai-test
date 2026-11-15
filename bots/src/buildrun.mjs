@@ -1605,9 +1605,23 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (winded()) { const b = await breathe(); if (b) { out.stop = b; return out } }
         const g = guard(); if (g) { out.stop = g; return out }
         const mine = record.cells.filter(c => c.seg === seg)
-        const open = mine.filter(c => !isDone(c))
-        row.open = open.length; row.done = mine.length - open.length
-        if (!open.length) { finished = true; break }
+        const openAll = mine.filter(c => !isDone(c))
+        row.open = openAll.length; row.done = mine.length - openAll.length
+        if (!openAll.length) { finished = true; break }
+        // zonesite-01show (Codex r1 blocker 1, r2 blocker 1): THE OPEN CELLS THE PROTECTED-ZONE GUARD CLOSES TO A PLACEMENT (clear
+        // now: nothing of theirs to dig) are SET ASIDE for the visit -- never a candidate, never an attempt, never deferred (no
+        // stuck_on_cell, no waiver, no 6-hour back-off). Every OTHER open cell of the segment is worked exactly as before (its
+        // digs, its deferrals, its remedies); with only closed cells left the segment WAITS like a zone-closed clear: the visit
+        // goes on with its other segments and ends `zone_closed` (the order holds the project for this bot: shop.mjs WAIT_STOPS)
+        const shut = openAll.filter(c => isClear(c.at) && placeZoned(c.at))
+        const open = shut.length ? openAll.filter(c => !shut.includes(c)) : openAll
+        if (shut.length) out.zonedPlace = [...zonedPlace.values()].filter(Boolean).length
+        if (!open.length) {
+          out.zonedWait = (out.zonedWait ?? 0) + shut.length
+          sayZoned(seg, shut[0].at, blockFor(palette, shut[0].role, e.has) ?? null, placeZoned(shut[0].at), shut.length)
+          deferredSegs.add(seg)
+          break
+        }
         if (now() - segAt >= PJ.LEASE_TTL_MS * RENEW_AT) { const ng = PJ.renewLease(dir, key, `seg-${seg}`, me, segGen, { now: now() }); if (!ng) { out.stop = 'fence:segment'; return out } segGen = ng; segAt = now() }
         if (!renewSlot()) { out.stop = 'fence:slot'; return out }
         // AN UNKNOWN RECORD CELL (a dig of a foreign block the server never answered, this visit or an earlier one): asked again
@@ -1825,25 +1839,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const bodies = feetIn ? (e.bodies?.() ?? []) : []
         const occupied = c => bodies.some(b => inCell(b, c.at) || inCell(b, [c.at[0], c.at[1] + 1, c.at[2]]))
         // cottage2-01: a bed's head (`byFoot`) is never a candidate: its foot's click places it
-        // zonesite-01show: never a cell the protected-zone guard closes to a placement (placeZoned)
-        const cand = open.filter(c => !c.byFoot && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at) && !occupied(c) && !placeZoned(c.at))
+        const cand = open.filter(c => !c.byFoot && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at) && !occupied(c))
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
         if (!cand.length && bodies.length && open.some(c => occupied(c) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))) {
           if (++bodyWaits > BODY_WAITS) { out.stop = 'body_wait'; out.why = `${seg}: the open cells left are under another builder`; return out }
           await e.sleep(500); continue
-        }
-        // zonesite-01show (Codex r1 blocker 1): NOTHING PLACEABLE IS LEFT BUT CELLS THE GUARD CLOSES -- the segment WAITS, like a
-        // zone-closed clear below: never an attempt, never deferred (no stuck_on_cell, no waiver, no 6-hour back-off); the visit goes
-        // on with its other segments and ends `zone_closed` (the order holds the project for this bot: shop.mjs WAIT_STOPS)
-        if (!cand.length) {
-          const shut = open.filter(c => !c.byFoot && isClear(c.at) && placeZoned(c.at))
-          if (shut.length) {
-            out.zonedWait = (out.zonedWait ?? 0) + shut.length
-            out.zonedPlace = [...zonedPlace.values()].filter(Boolean).length
-            sayZoned(seg, shut[0].at, blockFor(palette, shut[0].role, e.has) ?? null, placeZoned(shut[0].at), shut.length)
-            deferredSegs.add(seg)
-            break
-          }
         }
         let picked = null, step = null, fellBack = false
         // a cell whose every stand is banned falls back to them (r1 Codex note: never a deferral -- and F4's 6 h stuck back-off -- the
