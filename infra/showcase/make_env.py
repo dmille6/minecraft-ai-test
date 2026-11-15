@@ -71,9 +71,12 @@ def load_brain(path=None):
     if not os.path.exists(path):
         return brain_of(None)
     try:
-        return brain_of(json.load(open(path)))
+        setting = json.load(open(path))
     except json.JSONDecodeError as e:
         raise ValueError(f'{path} is not JSON: {e}')
+    if not isinstance(setting, dict):       # a file holding `null` is a broken setting: brain_of(None) is for NO file only
+        raise ValueError(f'{path} must be a JSON object, got {type(setting).__name__}')
+    return brain_of(setting)
 
 
 def model_family(model):

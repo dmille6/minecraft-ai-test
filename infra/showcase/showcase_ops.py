@@ -576,10 +576,28 @@ def write_envs(release_dir, rel):
     site = json.load(open(SITE))
     os.makedirs(f'{release_dir}/env', exist_ok=True)
     brain = ME.load_brain(BRAIN_FILE)      # the one brain setting (a malformed file raises: no env is written from it)
-    for i, n in enumerate(ME.NAMES):
-        rows = ME.build_env(control, i, site, rel['sha'], brain=brain)
-        with open(f'{release_dir}/env/{ME.PREFIX}{n}.env', 'w') as f:
+    # all fifteen are built before one is written (a refusal leaves every file as it was); each file is replaced whole
+    built = [(n, ME.build_env(control, i, site, rel['sha'], brain=brain)) for i, n in enumerate(ME.NAMES)]
+    for n, rows in built:
+        p = f'{release_dir}/env/{ME.PREFIX}{n}.env'
+        with open(p + '.tmp', 'w') as f:
             f.write('\n'.join(f'{k}={v}' for k, v in rows) + '\n')
+        os.chmod(p + '.tmp', 0o644)
+        os.replace(p + '.tmp', p)
+
+
+def refresh_envs(release_dir, rel):
+    """Write a release's env files from the brain setting AS IT IS NOW -> None, or why they could not be written.
+    A release's env files date from its staging; `stage` hands back an already staged release untouched, so without this
+    an activation could put the bots on a brain the setting no longer names (Codex r1, 11-15). No siting file: nothing to
+    write (stage does not write them either)."""
+    if not os.path.exists(SITE):
+        return None
+    try:
+        write_envs(release_dir, rel)
+    except (ValueError, OSError) as e:
+        return f'{type(e).__name__}: {e}'[:240]
+    return None
 
 
 def cmd_stage(a):
@@ -1184,6 +1202,16 @@ def newest_row(bot):
 def activate(release_dir, verify_s=600, prev_admissible=True, snapshot=True, no_snapshot_why=None, cause=None):
     rel = json.load(open(f'{release_dir}/RELEASE.json'))
     prev = os.path.realpath(HARNESS) if os.path.islink(HARNESS) else None
+    # THE ENV FILES FOLLOW THE BRAIN SETTING at every switch (refresh_envs). They cannot be written -> no switch.
+    ewhy = refresh_envs(release_dir, rel)
+    if ewhy:
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'activate-refused', 'release': os.path.basename(release_dir),
+                        'why': f'env files not written from the brain setting: {ewhy}'[:300]})
+        print(f'REFUSED: the env files could not be written from the brain setting ({ewhy}); nothing switched')
+        if not prev_admissible:
+            subprocess.run(['/srv/showcase/bin/stop-bots.sh', 'rollback: env files not written and the current release is inadmissible'],
+                           env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
+        return 1
     # THE WORLD SNAPSHOT before anything switches (fun mode: code rollback does not undo what a release did to the world).
     # No snapshot -> no switch; skipping it takes an explicit, journalled reason.
     if snapshot:
@@ -1230,6 +1258,12 @@ def activate(release_dir, verify_s=600, prev_admissible=True, snapshot=True, no_
         print(f'STOPPED: rollback target failed verification {bad}')
         return 1
     if prev:
+        try:        # going back: the previous release's env files follow the setting too (best effort; the switch back goes on)
+            bwhy = refresh_envs(prev, json.load(open(f'{prev}/RELEASE.json')))
+        except (OSError, ValueError) as e:
+            bwhy = str(e)[:200]
+        if bwhy:
+            print(f'WARNING: the env files of {os.path.basename(prev)} were not rewritten from the brain setting: {bwhy}')
         os.symlink(prev, tmp)
         os.replace(tmp, HARNESS)
         for b in bots:
@@ -1593,23 +1627,28 @@ def gate_checks():
     # THE BRAIN CHECKS TEST THE BRAIN THE BOTS ARE SET TO (11-15): one setting (make_env.brain_of) names it for the env
     # files, this health check, the replay below and start-bots.sh's served share. Before, all three tested the Studio
     # while the owner's 11-14 stopgap had the bots on the 5080, and the town could not be started through the gate.
-    try:
-        brain = ME.load_brain(BRAIN_FILE)
-    except ValueError as e:
-        brain = None
-        out.append((False, 'the brain setting', f'{e}; remedy: correct {BRAIN_FILE}, or remove it for the Studio proxy'))
-    if brain:
-        out.append(brain_check(brain, health(brain)))
-        out.append(env_brain_check(brain, harness_envs()))
+    brain, lines = gate_brain()
+    out.extend(lines)
     fb = subprocess.run(['systemctl', 'is-active', 'filebeat'], capture_output=True, text=True).stdout.strip()
     acked, dropped, failed = filebeat_shipping()
     out.append((fb == 'active' and acked > 0 and dropped == 0,
                 'filebeat active and shipping (15 min: acked > 0, dropped 0)',
                 f'{fb}; acked {acked}, dropped {dropped}, failed {failed}'
                 + ('' if dropped == 0 else ' -- a dropped event is a mapping rejection: fix before starting')))
+    # no readable setting -> model '' -> no replay matches it: the replay line fails beside the setting's own line
     rep_ok, rep_why = replay_ok(replay_last(), (rel or {}).get('sha'), now_utc(), model=(brain or {}).get('model', ''))
     out.append((rep_ok, 'brain replay passed on this release (< 24 h)', rep_why))
     return out
+
+
+def gate_brain(get=None):
+    """The gate's brain lines -> (brain or None, [(ok, check, detail)]). A setting that cannot be read is ONE failing line
+    with its remedy (and no brain: the replay line then fails too), never a crash of the gate."""
+    try:
+        brain = ME.load_brain(BRAIN_FILE)                                  # the gate tests the setting, nothing else
+    except ValueError as e:
+        return None, [(False, 'the brain setting', f'{e}; remedy: correct {BRAIN_FILE}, or remove it for the Studio proxy')]
+    return brain, [brain_check(brain, health(brain, get or http_json)), env_brain_check(brain, harness_envs())]
 
 
 def brain_check(brain, h):

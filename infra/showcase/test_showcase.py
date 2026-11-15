@@ -650,9 +650,10 @@ class BrainSetting(unittest.TestCase):
             self.assertEqual(ME.load_brain(p), ME.brain_of(None), 'no file: the designed default')
             json.dump(QWEN, open(p, 'w'))
             self.assertEqual(ME.load_brain(p)['model'], 'qwen2.5:7b-instruct')
-            open(p, 'w').write('{"url": ')
-            with self.assertRaises(ValueError):
-                ME.load_brain(p)                    # a broken file is never read as "no setting"
+            for broken in ('{"url": ', 'null', '[]', '"http://10.0.0.72:11434"', '0', ''):
+                open(p, 'w').write(broken)
+                with self.assertRaises(ValueError, msg=repr(broken)):
+                    ME.load_brain(p)                # a broken file is never read as "no setting" (`null` was: Codex r1)
 
     def test_health_asks_the_configured_brain(self):
         asked = []
@@ -753,11 +754,42 @@ class BrainSetting(unittest.TestCase):
                 SO.write_envs(d + '/rel', {'sha': B40})            # and a rewrite goes back to the designed proxy
                 e = ME.parse_env(open(d + '/rel/env/showcase-Onyx.env').read())
                 self.assertEqual(e['OLLAMA_BASE_URLS'], 'http://127.0.0.1:11612|gemma4:26b')
-                open(d + '/BRAIN.json', 'w').write('not json')
-                with self.assertRaises(ValueError):
-                    SO.write_envs(d + '/rel', {'sha': B40})        # a broken setting writes nothing
+                before = open(d + '/rel/env/showcase-Onyx.env').read()
+                for broken in ('not json', 'null'):
+                    open(d + '/BRAIN.json', 'w').write(broken)
+                    with self.assertRaises(ValueError):
+                        SO.write_envs(d + '/rel', {'sha': B40})    # a broken setting writes nothing
+                self.assertEqual(open(d + '/rel/env/showcase-Onyx.env').read(), before)
+                self.assertEqual(sorted(os.listdir(d + '/rel/env')), sorted(f'showcase-{n}.env' for n in ME.NAMES))
             finally:
                 SO.SITE, SO.BRAIN_FILE, SO.HARNESS = keep
+
+    def test_the_gate_tests_the_setting(self):
+        with tempfile.TemporaryDirectory() as d:
+            keep = (SO.BRAIN_FILE, SO.HARNESS)
+            SO.BRAIN_FILE, SO.HARNESS = d + '/BRAIN.json', d + '/rel'
+            asked = []
+
+            def get(url):
+                asked.append(url)
+                return {'models': [{'name': 'qwen2.5:7b-instruct'}]} if url.endswith('/api/tags') else {'ok': True}
+            try:
+                brain, lines = SO.gate_brain(get)                  # no file: the designed proxy is what is asked
+                self.assertEqual((brain['model'], asked), ('gemma4:26b', ['http://127.0.0.1:11612/healthz']))
+                self.assertEqual([l[0] for l in lines], [True, True])
+                json.dump(QWEN, open(d + '/BRAIN.json', 'w'))
+                brain, lines = SO.gate_brain(get)                  # the owner's setting: the 5080 is what is asked
+                self.assertEqual((brain['model'], asked[-1]), ('qwen2.5:7b-instruct', 'http://10.0.0.72:11434/api/tags'))
+                self.assertEqual([l[0] for l in lines], [True, True])
+                for broken in ('null', '{"url": 1}'):
+                    open(d + '/BRAIN.json', 'w').write(broken)
+                    n = len(asked)
+                    brain, lines = SO.gate_brain(get)              # unreadable: one failing line, nothing asked
+                    self.assertIsNone(brain)
+                    self.assertEqual([(l[0], l[1]) for l in lines], [(False, 'the brain setting')])
+                    self.assertEqual(len(asked), n)
+            finally:
+                SO.BRAIN_FILE, SO.HARNESS = keep
 # the showcase release R, then a STACK: matset (M1) <- mats (M2) <- shop (S1 <- S2); X is a stray commit on top; Q a side branch
 # from R; D is a docs-only commit on S2 (a review record after the approval)
 R40, M1, M2, S1, S2, X40, Q40, D40 = ('e' * 40), ('1' * 40), ('2' * 40), ('3' * 40), ('4' * 40), ('5' * 40), ('6' * 40), ('7' * 40)
@@ -1418,6 +1450,59 @@ class ActivateSnapshot(unittest.TestCase):
         SO.snapshot_world = lambda why, tag: self.fail('must not snapshot')
         self.assertEqual(SO.activate(self.new, snapshot=False, no_snapshot_why='Paper down for maintenance'), 0)
         self.assertEqual(self.events(), ['snapshot-skipped', 'activated'])
+
+
+class ActivateEnvs(ActivateSnapshot):
+    """Codex r1 (11-15): `stage` hands back an already staged release untouched and `activate` restarted the bots on its
+    env files as staged. The env files follow the brain setting at every switch, and a setting that cannot be read
+    refuses the switch."""
+
+    def setUp(self):
+        super().setUp()
+        self.saved.update({k: getattr(SO, k) for k in ('SITE', 'BRAIN_FILE')})
+        SO.SITE, SO.BRAIN_FILE = os.path.join(self.d, 'site.json'), os.path.join(self.d, 'BRAIN.json')
+        json.dump(SITE, open(SO.SITE, 'w'))
+        SO.snapshot_world = lambda why, tag: (True, '/snaps/x')
+        for r in (self.old, self.new):
+            open(os.path.join(r, 'control.env'), 'w').write(CONTROL + '\n')
+            SO.write_envs(r, json.load(open(os.path.join(r, 'RELEASE.json'))))      # staged before any setting: gemma4
+
+    def brain_of_release(self, r):
+        return ME.parse_env(open(os.path.join(r, 'env', 'showcase-Alpha.env')).read())['OLLAMA_BASE_URLS']
+
+    def test_an_already_staged_release_goes_live_on_the_setting(self):
+        self.assertEqual(self.brain_of_release(self.new), 'http://127.0.0.1:11612|gemma4:26b')
+        json.dump(QWEN, open(SO.BRAIN_FILE, 'w'))
+        self.assertEqual(SO.activate(self.new), 0)
+        self.assertEqual(os.path.realpath(SO.HARNESS), os.path.realpath(self.new))
+        self.assertEqual(self.brain_of_release(self.new), 'http://10.0.0.72:11434|qwen2.5:7b-instruct')
+        self.assertEqual(self.brain_of_release(self.old), 'http://127.0.0.1:11612|gemma4:26b', 'only the release going live')
+
+    def test_a_setting_that_cannot_be_read_switches_nothing(self):
+        open(SO.BRAIN_FILE, 'w').write('null')
+        SO.snapshot_world = lambda why, tag: self.fail('refused before the snapshot')
+        self.assertEqual(SO.activate(self.new), 1)
+        self.assertEqual(os.path.realpath(SO.HARNESS), os.path.realpath(self.old))
+        self.assertEqual(self.events(), ['activate-refused'])
+        self.assertIn('brain setting', json.loads(open(SO.DEPLOY).read().splitlines()[-1])['why'])
+        self.assertEqual(self.stops, [])
+        self.assertEqual(SO.activate(self.new, prev_admissible=False), 1)
+        self.assertTrue(self.stops and 'stop-bots' in self.stops[0][0], 'an inadmissible current release still stops')
+
+    def test_a_rollback_after_a_failed_verify_puts_the_old_release_on_the_setting(self):
+        json.dump(QWEN, open(SO.BRAIN_FILE, 'w'))
+        keep = (SO.verify, SO.time)
+        import types
+        SO.running_bots = lambda: ['showcase-Alpha']
+        SO.verify = lambda bots, exp, t0, wait: ['showcase-Alpha:skill']
+        SO.time = types.SimpleNamespace(time=lambda: 0.0, sleep=lambda s: None)
+        try:
+            self.assertEqual(SO.activate(self.new), 1)
+        finally:
+            SO.verify, SO.time = keep
+        self.assertEqual(os.path.realpath(SO.HARNESS), os.path.realpath(self.old))
+        self.assertEqual(self.events()[-1], 'ROLLBACK')
+        self.assertEqual(self.brain_of_release(self.old), 'http://10.0.0.72:11434|qwen2.5:7b-instruct')
 
 
 class Admissible(unittest.TestCase):
