@@ -1,0 +1,33 @@
+1. **A/C — The height invariant does not guarantee an escape with an empty bag.** [topdown.mjs:119](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/topdown.mjs:119) and [topdown.mjs:120](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/topdown.mjs:120).
+
+   Concrete scene, outside the clean zone: bot at `(100.5,71,100.5)`, empty inventory. A 3×3 platform spans `x,z=99..101`: grass at `y=70`, dirt at `68..69`, solid support below. Protected fences occupy the eight perimeter cells at `y=71`. Surrounding ground is protected glass; no other scaffold sources are within range.
+
+   The center grass is **pitted** because four fences stand beside it at `y=71`. Every perimeter grass block is **roofed** by its fence; underlying dirt is also roofed. Both dirt and grass searches therefore empty. The bot cannot jump over the fences’ 1.5-block collision height, and cannot break the protected fence.
+
+   With `TOPDOWN=off`, the existing second fallback takes the exposed center grass. The bot drops one block and collects it, then can gather exposed dirt and obtain the blocks to pillar over the fence. The new rule prevents that first step. This is a dirt-gathering escape failure, not the accepted miner-floor limitation. `mine`’s staircase also encounters the protected perimeter ([skills.mjs:15640](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/skills.mjs:15640)).
+
+   A protected glass lip plus low ceiling produces the same missing-headroom problem. The grid “invariant” test proves column heights, not a traversable jump: [topdown.test.mjs:120](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:120).
+
+2. **D — One retained, unreachable candidate suppresses a usable grass fallback.** [skills.mjs:2465](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/skills.mjs:2465), [skills.mjs:2735](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/skills.mjs:2735), [skills.mjs:2937](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/skills.mjs:2937).
+
+   Bot at `(100.5,70,100.5)`, empty bag. Flat terrain over `x,z=92..108`: grass `y=69`, dirt `66..68`, stone below. Add one floating dirt block at `(96,78,96)`.
+
+   A dependency-free probe confirmed that the starting section accepts **only that floating block** before reaching 256 refusals. It is exposed and safe, so it enters `reachable`, despite having no reachable digging stance. Its height prevents gathering it from the lawn without scaffolding.
+
+   After collection fails, a reposition that stays in the same section produces the same retained candidate. Because `reachable` remains nonempty, the grass fallback does not run; the excluded-candidate check terminates the run.
+
+   With `TOPDOWN=off`, the nearest 32 dirt cells are buried ground cells—the floating block is absent. The existing second fallback consequently selects accessible grass. The change introduces this failure.
+
+3. **F — The final diagnostic test cannot detect a failed gather.** [topdown.test.mjs:685](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:685), [topdown.test.mjs:694](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:694).
+
+   Each of exactly 24 iterations increments either `kept` or `lost`. Its sole assertion, `kept + lost === 24`, therefore passes even when every run produces zero digs. Calling it diagnostic does not change that it contributes a passing test without checking an outcome.
+
+Before release, the owner should also know:
+
+- **B:** The lowest contiguous roof run matches the stated rule, but cannot establish enclosure or escape. A second roof is ignored after an intervening air cell. `coverFor` reads through **F+1**, intentionally, and costs at most `F−cellY+1` reads; pitted adds four. With the search radius capped at 48, this is bounded per candidate. I found no concrete event-loop stall from this scan. [topdown.mjs:98](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/topdown.mjs:98)
+- **A/C:** Ordinary grassy one-deep holes still offer grass at feet level, including under an overhang. A freely escapable pillar/ridge is not itself a blocker. Water requires the existing liquid checks; I found no separate water regression. Slab/path fractional heights are floored as specified. Walking upward can change acceptance into a swing refusal, but the failed cell is excluded; I did not establish a separate repeated-swing blocker. [skills.mjs:1769](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/skills.mjs:1769), [skills.mjs:3056](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/skills.mjs:3056)
+- **E:** No scaffold-order blocker found. The combined cobblestone/deepslate keep is reapplied on selection; plug and seal selectors still exclude unsupported falling blocks, and counts remain counts rather than ranks. [toolfor.mjs:391](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/toolfor.mjs:391), [poolescape.mjs:284](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/poolescape.mjs:284), [reflex.mjs:1429](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/reflex.mjs:1429)
+- **Earlier regressions:** The universal r1 empty-bag escape claim fails in blocker 1. The existing hollow fixtures retain their comparisons with the base. Trap admission is captured before decrement, preserving the eighth permitted cell. Decisions retain no cross-call state or new trap; sand/gravel share the terrain predicates. At-feet tunnel walls and side recesses remain admitted, including below an untakeable rim. Evidence: [skills.mjs:1759](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/skills.mjs:1759), [topdown.mjs:113](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/src/topdown.mjs:113), [topdown.test.mjs:445](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:445).
+- **F:** The stricter-comparison pure test is sound: its two-block cover distinguishes `t <= F` from `t <= F+1`. Mutation helpers require present, unique anchors. Neither establishes physical escape safety. [topdown.test.mjs:37](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:37), [topdown.test.mjs:181](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:181)
+
+No files changed. Pure probes ran; integration execution was blocked by missing `vec3`, so the regression statements above are code/test inspection, not a fresh suite pass.

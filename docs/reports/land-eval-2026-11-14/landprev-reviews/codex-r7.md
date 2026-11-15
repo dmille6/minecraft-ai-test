@@ -1,0 +1,3 @@
+1. **Mutant anchors no longer apply.** [topdown.test.mjs:61](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:61) (`ENUM`) still matches `{ feetY: tdFeetY }`, and [topdown.test.mjs:84](/Users/darrellmiller/Documents/code-minecraft-ai/.wt-landprev/bots/test/topdown.test.mjs:84) (`GROUND_OFF`) still matches the old `topDownCell(...feetY...)` call. Both anchors have **zero occurrences** in current `skills.mjs`. Consequently, the mutant tests at lines 627 and 706–708 throw `MUTATION DID NOT APPLY` before exercising their scenarios.
+
+Owner: Update those two anchors before release. The changed FEET LEVELS test and its three mutants passed in memory; no files were edited.

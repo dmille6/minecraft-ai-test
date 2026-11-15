@@ -1,0 +1,21 @@
+DELTA review, fifth round, of a change to a Minecraft bot (mineflayer, Node) before release to a live town of 14 bots. BLOCKERS ONLY. A blocker is: a real bug; a way a bot ends up stuck, trapped or looping because of this change that the unchanged code (TOPDOWN=off) would not also cause; an event-loop stall; a way the rule is silently off or silently stricter than stated; a test that cannot fail or a mutant whose anchor does not apply. Something the unchanged code does equally badly is NOT a blocker. No style notes. Do not edit any file.
+
+You are in a git worktree, branch `landprev-01show`, tip fc12c7ae1. Review `git diff e0830c910..HEAD` (three files), reading each changed function in full with its callers, and confirm it does not break what the whole change (`git diff 46286e9e3..HEAD`; 46286e9e3 is the live release) does. PROTECTED code (bots/src/skills.mjs gather / gatherRun / collectManually); owner-authorized 2026-11-15.
+
+The whole change in two lines: with F = the bot's feet level, a terrain cell under a roof is not a gather target when that roof tops out at or below F; an open terrain cell with ground higher on two or more sides is not deepened when it lies below F; farmland and dirt_path are never a source; the enumeration gives up after 256 in-range refusals; the fallback takes the block on top that yields the item. Plus the escape's scaffold order: rock before dirt.
+
+Round four (on e0830c910) found, and this delta is meant to fix:
+ 1. `pitted` counted any solid block as a higher side, so a bot boxed in by fences, planks or glass was refused the block under its feet where the base digs it. Fix: only TERRAIN counts as a higher side (`groundAt` in skills.mjs, `hemmedIn` / `isPitted` in topdown.mjs).
+ 2. After a given-up search, one accepted but unreachable cell kept the list non-empty and the grass fallback was never asked. Fix: in gatherRun where `nextUp` is chosen, when every candidate has refused the bot this run, the round's exact search was given up and no fallback ran, the source fallback is asked before ending unreachable.
+ 3. A diagnostic test could not fail. Fix: it asserts every run dug and at least 16 of 24 widened a scrape.
+ 4. A bot on dirt_path, farmland, mud or soul sand was judged one level low. Fix: `feetLevel(y) = floor(y + 0.2)` used at the enumeration, the target filter and the swing.
+ 5. The header claimed the bot "can jump out". Fix: it now claims heights only.
+
+Check, with file:line evidence:
+ a. Each fix does what it says and nothing else changed behaviour.
+ b. Fix 2: can the new fallback step loop, run more than once a run, run when it should not (so that a search that was working is redirected), or leave `positions` / `excluded` / `viaSource` in a state the rest of the round misreads? What does the run return when the fallback also finds nothing?
+ c. Fix 1: is there any caller that still passes solidity where ground is meant, or the reverse (the ROOF test must still treat a fence or planks over a cell as a roof)? Does `groundAt` read a block name for every side and what does it do with an unread block?
+ d. Fix 4: is `feetLevel` used at all three points and nowhere mixed with a plain floor; can +0.2 put a bot one level HIGH in a state that makes the rule stricter than stated (mid-jump, swimming up, standing on a slab is deliberately one low)?
+ e. The new and changed tests: any that pass for the wrong reason; any mutant anchor not unique.
+
+Answer "NO BLOCKERS" or a numbered list of blockers with file:line and a concrete failing scenario with coordinates. Then one or two lines on anything the owner should know.

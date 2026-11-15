@@ -1,0 +1,27 @@
+THIRD-ROUND review of a change to a Minecraft bot (mineflayer, Node) before it is released to a live town of 14 bots. BLOCKERS ONLY. A blocker is: a real bug; a way a bot ends up stuck, trapped or looping because of this change; a refusal with no remedy the bot can perform from where it stands; an event-loop stall; a way the rule is silently off or silently stricter than stated; a test that cannot fail or a mutant whose anchor does not apply. No style notes. Do not edit any file.
+
+You are in a git worktree, branch `landprev-01show`, tip bb96f0825. The whole change is `git diff 46286e9e3..HEAD` (46286e9e3 is the live release). Read it, then the changed functions in full with their callers. PROTECTED code (bots/src/skills.mjs gather / gatherRun / collectManually; one telemetry-only change in bots/src/reflex.mjs); the owner authorized it on 2026-11-15.
+
+History you need. The bots gathered dirt (their cheapest climbing block) from UNDER the grass and left roofed hollows. Rounds one and two of review found that every attempt to ration what a bot under cover may take (a trap, a remembered shelter, remedies naming `surface` or `goto`) produced a dead end or a loop, and that a bot-level "is it in a pit" test had holes (a 2x2 pit). All of that was REMOVED. What is left is deliberately small:
+
+ bots/src/topdown.mjs + wiring in skills.mjs (enumeration matcher in range, target conjunction, swing guard):
+  - made ground (farmland, dirt_path) is never a gather target, for any bot;
+  - an OPEN terrain cell with higher ground on two or more sides ("pitted") is not deepened;
+  - a terrain cell under a roof near the surface (fewer than 8 solid blocks over it) is refused ONLY when the bot's head reaches the surface over it: refuse iff botFeetY + 1 >= coverTopY(cell). A bot lower than that takes the cell exactly as the base does;
+  - a cell the clean zone's own trap lets through lifts the roofed and pitted verdicts (never made ground), the answer taken once before the zone's line counts the trap down;
+  - the enumeration gives up after 256 in-range skips or 16,384 block reads, keeping the cells it had accepted (re-asked through the whole matcher chain);
+  - the remedy for an emptied search is gather's existing fallback to any block that yields the item (the grass on top); the only new failure text is for a bot in the open.
+ bots/src/toolfor.mjs: the escape's scaffold order is rock first (cobblestone and the stone kinds), then dirt, then sand and gravel, cobblestone dropping behind those while the bot holds 3 or fewer.
+
+THE CLAIMED INVARIANT, which is what this round must try to break: "A refused cell's cover top is at most one above the bot's feet, so the bot is at most one block down: it can step out, and a drop on the rim is within its pickup reach. So no refusal can strand a bot that the base would not also strand." Known and accepted limit, NOT a blocker unless it strands a bot: on a slope a bot at the foot can still tunnel into the uphill side from the third column on.
+
+Answer each with file:line evidence:
+A. Break the invariant if you can. Construct concrete states (give coordinates) where, with this change and not without it, a bot that needs climbing blocks ends with none and nothing it is told works: consider a 2-deep hole of every footprint (1x1, 1x2, 2x2, L-shaped), a 2-deep hole whose rim is not grass (stone rim, sand rim, leaves, a slab, water at the rim, the rim inside the town's protected ground or the clean zone, the rim owned by a build record or a keep-out), a bot standing in water one block below the bank, a bot on a ledge with a cliff above, a bot inside a tree's canopy, a bot at the bottom of a 1-deep scrape that is 1x1 with a roof block next to it, snow layers and carpets, a bot riding nothing but standing on a slab or a path block (feet y fractional), a bot that is swimming (feet y fractional and moving). For each: what gather dirt and gather cobblestone do, and whether the base (TOPDOWN=off) would have left it better off.
+B. The fallback's pickup: when the rule sends a bot in the open (or in a 2-deep hole) to the grass on top, does the drop reach it? Trace collectManually and the pickup step. Is there a geometry at "at most one block down" where the drop is NOT within reach?
+C. Feet height: where does botFeetY come from at each of the three check points, is it floored consistently with the cell y, and what happens when the position is unknown, fractional (slab, path, soul sand, swimming, mid-jump) or stale?
+D. `pitted` applies to every bot with no exemption. Can it by itself deny the only source to a bot the base would have served (a bot standing in a 1x1 hole asked for sand in a desert, a bot in a mine stair, a bot on a single-block floor)? If so, is that bot also stranded?
+E. Which collection path does production use: collectManually or the collectblock plugin (COLLECTBLOCK_ENABLED)? If the plugin path is live, the swing guard and the `op=from_below` row do not run there: is the rule then weaker or silently off, and do the enumeration and target filters still hold?
+F. Cost and stalls: any path to an unbounded or repeated synchronous scan in one round.
+G. Tests: any rule in the diff that no test would catch if removed; any mutant whose anchor is not unique; any test that passes for the wrong reason.
+
+Answer "NO BLOCKERS" or a numbered list of blockers with file:line and a concrete failing scenario (coordinates). Then, separately and briefly, what the owner should know before release.
