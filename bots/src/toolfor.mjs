@@ -362,25 +362,38 @@ export function freeSlots (bot) {
 export const tossAverted = (heldName, how, full) => !!full && !!heldName && TOOL_RE.test(heldName) && ['filler', 'hotbar_other', 'kept_tool'].includes(how)
 
 /**
- * THE SCAFFOLD A BOT PLACES, CHEAPEST FIRST (both engines, 09-30: escapes placed ~1,170-1,250 logs/day while cheaper blocks
- * were held -- the reflex took the first PLACEABLE stack in inventory order). Rank: cheap non-falling blocks, then
- * falling ones (sand, gravel -- every site places onto a solid top face, where they hold), then cobblestone (the pickaxe
- * material), then planks, then logs/wood/stems; within a rank the biggest stack. Never refuses: a bot holding only wood
- * still climbs with wood.
+ * THE SCAFFOLD A BOT PLACES (both engines, 09-30: escapes placed ~1,170-1,250 logs/day while cheaper blocks were held --
+ * the reflex took the first PLACEABLE stack in inventory order).
+ *
+ * COBBLESTONE BEFORE DIRT (owner 2026-11-15: "lets use cobblestone before dirt"). Dirt used to be first, and that made
+ * dirt the thing the bots gather most: 1,853 of 3,891 gather actions on the showcase on 11-12, dug from under the grass
+ * of the town and then of the ring around it (docs/reports/land-eval-2026-11-14/dirt-loop.md on main). Cobblestone is
+ * what mining leaves over; the bots throw it down the junk well while they dig the lawn up for dirt.
+ * Rank: rock a bot has no other use for (cobblestone and the stone kinds), then dirt, then the falling blocks (sand,
+ * gravel -- every site places onto a solid top face, where they hold), then planks, then logs; within a rank the biggest
+ * stack. THE PICKAXE'S THREE ARE KEPT (Claude review 09-30: cobblestone is the stone-pickaxe material last-swing exists to
+ * recover): while a bot holds SCAFFOLD_PICK_KEEP or fewer cobblestone and cobbled deepslate together, those rank after
+ * the falling blocks, as cobblestone did before. Never refuses: a bot holding only wood still climbs with wood.
  */
+export const SCAFFOLD_PICK_KEEP = 3
+const COBBLE = /^(cobblestone|cobbled_deepslate)$/
 const SCAFFOLD_RANK = [
-  [0, /^(dirt|coarse_dirt|rooted_dirt|stone|andesite|diorite|granite|deepslate|tuff|netherrack|sandstone|red_sandstone|dripstone_block)$/],
-  [1, /^(sand|gravel)$/],
-  // COBBLESTONE AFTER THE OTHER CHEAP BLOCKS (Claude review): it is the stone-pickaxe material last-swing exists to
-  // recover. Still before any wood.
-  [2, /^(cobblestone|cobbled_deepslate)$/],
-  [3, /_planks$/],
-  [4, /(_log|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/],
+  [0, /^(cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|deepslate|tuff|netherrack|sandstone|red_sandstone|dripstone_block)$/],
+  [1, /^(dirt|coarse_dirt|rooted_dirt)$/],
+  [2, /^(sand|gravel)$/],
+  // rank 3 is cobblestone at or under the pickaxe's keep (scaffoldRankFor)
+  [4, /_planks$/],
+  [5, /(_log|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/],
 ]
+/** The rank of a block by its name alone (cobblestone as when it is plentiful). null = not scaffold. */
 export const scaffoldRank = name => { for (const [r, re] of SCAFFOLD_RANK) if (re.test(name)) return r; return null }
+/** The rank given what the bot holds: cobblestone drops behind the falling blocks while only the pickaxe's keep is left. Pure. */
+export const scaffoldRankFor = (name, cobbleHeld) => COBBLE.test(name) && cobbleHeld <= SCAFFOLD_PICK_KEEP ? 3 : scaffoldRank(name)
 export function pickScaffold (items = [], placeable = /./) {
-  const c = (Array.isArray(items) ? items : []).filter(it => it?.name && placeable.test(it.name) && scaffoldRank(it.name) != null)
-  c.sort((a, b) => (scaffoldRank(a.name) - scaffoldRank(b.name)) || ((b.count ?? 0) - (a.count ?? 0)))
+  const all = Array.isArray(items) ? items : []
+  const cobbleHeld = all.reduce((n, it) => n + (it?.name && COBBLE.test(it.name) ? (it.count ?? 0) : 0), 0)
+  const c = all.filter(it => it?.name && placeable.test(it.name) && scaffoldRank(it.name) != null)
+  c.sort((a, b) => (scaffoldRankFor(a.name, cobbleHeld) - scaffoldRankFor(b.name, cobbleHeld)) || ((b.count ?? 0) - (a.count ?? 0)))
   return c[0] ?? null
 }
 
