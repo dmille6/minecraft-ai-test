@@ -148,17 +148,36 @@ await t('FEET LEVEL: floor(y + 0.2) -- path and farmland (70.9375), soul sand an
   for (const y of [70.9375, 70.875, 71.0]) assert.equal(TD.feetLevel(y), 71, String(y))
   assert.equal(TD.feetLevel(70.5), 70); assert.equal(TD.feetLevel(null), null)
 })
-await t('FEET LEVEL OFF THE GROUND (review round 5): in the air or swimming the bot is judged one level low, never high -- mid-jump at 71.85 over ground at 71 reads 70, not 72, and the dirt under a roof above its feet is not refused', async () => {
-  assert.equal(TD.feetLevel(71.85, false), 70); assert.equal(TD.feetLevel(72.2, false), 71); assert.equal(TD.feetLevel(71.0, false), 70)
-  assert.equal(TD.feetLevel(71.85, true), 72, 'positive control: on the ground the margin applies')
-  assert.equal(TD.feetLevel(71.85), 72, 'an unknown ground state is taken as standing')
-  // Codex's scene: exposed dirt at (101,71,100) under a grass roof at (101,72,100), the bot mid-jump at y 71.85
-  const solid = (x, y, z) => x === 101 && z === 100 && (y === 72 || y === 71)
-  const cell = { x: 101, y: 71, z: 100 }
-  assert.equal(TD.topDownVerdict(solid, cell, 'dirt', TD.feetLevel(71.85, false)), null, 'mid-jump: not refused')
-  assert.equal(TD.topDownVerdict(solid, cell, 'dirt', TD.feetLevel(73.0, true)), 'roofed', 'positive control: standing on that roof, the dirt under it is refused')
-  await withMutantsAll(TOPDOWN_URL, [["onGround === false ? Math.floor(y) - 1 : ", '']], async TDm => {
-    assert.equal(TDm.topDownVerdict(solid, cell, 'dirt', TDm.feetLevel(71.85, false)), 'roofed', 'MUTANT KILLED: without the off-ground case the jumping bot is refused')
+await t('FEET LEVELS (reviews 5 and 6): every level the bot may be at -- one while standing on a full or nearly full block, two on a slab, two in the air or swimming -- and a cell is refused only when EVERY level refuses it', async () => {
+  assert.deepEqual(TD.feetLevels(71.0), [71]); assert.deepEqual(TD.feetLevels(70.9375), [71]); assert.deepEqual(TD.feetLevels(70.875), [71])
+  assert.deepEqual(TD.feetLevels(70.5), [70, 71], 'a slab: either level')
+  assert.deepEqual(TD.feetLevels(71.85, false), [70, 71], 'mid-jump from 71'); assert.deepEqual(TD.feetLevels(72.2, false), [71, 72]); assert.deepEqual(TD.feetLevels(71.0, false), [70, 71])
+  assert.deepEqual(TD.feetLevels(null), []); assert.deepEqual(TD.feetLevels(71.85), [72], 'an unknown ground state is taken as standing')
+  // CODEX r5: exposed dirt at (101,71,100) under a grass roof at (101,72,100); the bot jumps from a floor at 71
+  const roof1 = (x, y, z) => x === 101 && z === 100 && (y === 72 || y === 71)
+  const c1 = { x: 101, y: 71, z: 100 }
+  assert.equal(TD.topDownCellAt(roof1, c1, 'dirt', TD.feetLevels(71.85, false)), null, 'mid-jump: not refused (its roof is above the feet)')
+  assert.equal(TD.topDownCellAt(roof1, c1, 'dirt', TD.feetLevels(73.0))?.kind, 'roofed', 'positive control: standing on that roof, the dirt under it is refused')
+  // CLAUDE r6: dirt at (0,60,0), air at 61, ground at 62-63 over it, ground on all four sides at y 61 -- the floor of a small
+  // hollow under an overhang. Standing beside it at level 62 the cover rises above the feet: taken. One level LOW finds no
+  // cover and the pitted test refuses, so "judged low" alone was stricter than the truth.
+  const hollow = (x, y, z) => (x === 0 && z === 0 && (y === 60 || y === 62 || y === 63)) || (Math.abs(x) + Math.abs(z) === 1 && y === 61)
+  const c2 = { x: 0, y: 60, z: 0 }
+  assert.equal(TD.topDownCell(hollow, c2, 'dirt', 62)?.kind, 'under', 'standing at 62: taken, from under its cover')
+  assert.equal(TD.topDownCell(hollow, c2, 'dirt', 61)?.kind, 'pitted', 'positive control: at level 61 alone the same cell is refused')
+  assert.equal(TD.topDownCellAt(hollow, c2, 'dirt', TD.feetLevels(62.5, false))?.kind, 'under', 'jumping or swimming at 62.5: either level may be true, one of them takes it -> taken')
+  assert.equal(TD.topDownCellAt(hollow, c2, 'dirt', TD.feetLevels(62.5, true))?.kind, 'under', 'on a slab at 62.5: the same')
+  assert.equal(TD.topDownCellAt(hollow, c2, 'dirt', [61])?.kind, 'pitted'); assert.equal(TD.topDownCellAt(hollow, c2, 'dirt', [60, 61])?.kind ?? null, null, 'at 60 the cell is at the feet: never refused')
+  assert.equal(TD.topDownCellAt(hollow, c2, 'farmland', TD.feetLevels(62.5, false))?.kind, 'made', 'made ground does not depend on the level')
+  assert.equal(TD.topDownCellAt(hollow, c2, 'farmland', [])?.kind, 'made'); assert.equal(TD.topDownCellAt(hollow, c2, 'dirt', []), null, 'no level known: only made ground is refused')
+  await withMutantsAll(TOPDOWN_URL, [['  if (onGround === false) return [lo - 1, lo]\n', '  if (onGround === false) return [lo - 1]\n']], async TDm => {
+    assert.equal(TDm.topDownCellAt(hollow, c2, 'dirt', TDm.feetLevels(62.5, false))?.kind, 'pitted', 'MUTANT KILLED: judged one level low only, the hollow\'s floor is refused (review 6)')
+  })
+  await withMutantsAll(TOPDOWN_URL, [['  if (onGround === false) return [lo - 1, lo]\n', '  if (onGround === false) return [lo + 1]\n']], async TDm => {
+    assert.equal(TDm.topDownCellAt(roof1, c1, 'dirt', TDm.feetLevels(71.85, false))?.kind, 'roofed', 'MUTANT KILLED: judged one level high, the jumping bot is refused (review 5)')
+  })
+  await withMutantsAll(TOPDOWN_URL, [['  if (taken.length) return taken.find(c => c) ?? null\n', '']], async TDm => {
+    assert.equal(TDm.topDownCellAt(hollow, c2, 'dirt', TDm.feetLevels(62.5, false))?.kind, 'pitted', 'MUTANT KILLED: refused at ONE level is not refused at every level')
   })
 })
 await t('GROUND SIDES ONLY: a fence, planks or glass beside a cell is not a higher side (groundAt); two terrain sides are', () => {

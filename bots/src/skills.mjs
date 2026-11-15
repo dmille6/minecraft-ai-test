@@ -101,7 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns, isTerrain } from './townground.mjs'
-import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCell, topDownRefusal, roofOverY, feetLevel } from './topdown.mjs'   // topdown-01
+import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCellAt, topDownRefusal, roofOverY, feetLevel, feetLevels } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
@@ -374,14 +374,16 @@ const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z 
 // feet: a cell is refused as roofed only when a cover over it tops out at or below the bot's feet, as pitted only below its
 // feet; a cell the clean zone's trap lets through is taken; made ground is never taken by anyone. No bot-level state.
 const roofAt = bot => (x, y, z) => isRoofBlock(bot.blockAt(new Vec3(x, y, z)))
-const feetYOf = bot => feetLevel(bot?.entity?.position?.y, bot?.entity?.onGround)   // the one feet level: enumeration, target filter, swing
+const feetYOf = bot => feetLevel(bot?.entity?.position?.y)   // one number, for the telemetry only
+// every level the bot's feet may be at (a slab, a jump, swimming: two): the rule refuses a cell only at ALL of them
+const feetLevelsOf = bot => feetLevels(bot?.entity?.position?.y, bot?.entity?.onGround)
 // a higher side for the pitted test is GROUND: a terrain roof block (a fence, planks or glass beside a cell is not)
 const groundAt = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return isRoofBlock(b) && isTerrain(b?.name) }
-// Does this rule refuse the cell? -> false | the refused kind ('made' | 'pitted' | 'roofed'). `feetY` undefined -> the bot's
-// now; `trapLets` undefined -> asked now.
-const topDownHit = (bot, p, name, { feetY, trapLets } = {}) => {
+// Does this rule refuse the cell? -> false | the refused kind ('made' | 'pitted' | 'roofed'). `feet` undefined -> the levels
+// the bot's feet may be at now; `trapLets` undefined -> asked now.
+const topDownHit = (bot, p, name, { feet, trapLets } = {}) => {
   if (!topDownOn() || !p) return false
-  const cell = topDownCell(roofAt(bot), p, name, feetY === undefined ? feetYOf(bot) : feetY, groundAt(bot))
+  const cell = topDownCellAt(roofAt(bot), p, name, feet === undefined ? feetLevelsOf(bot) : feet, groundAt(bot))
   if (!cell) return false
   return topDownRefusal(cell, { trapLets: trapLets === undefined ? gatherTrapAllows(bot?.gatherTrap, p, Date.now()) : trapLets }) ? cell.kind : false
 }
@@ -2419,7 +2421,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     // topdown-01: the bot's feet at the search's own point (the enumeration asks with them)
-    const tdFeetY = feetYOf(bot)
+    const tdFeetY = feetLevelsOf(bot)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&   // cleanzone-02: an independent conjunction, as the town's ground is
       !topDownHit(bot, p, bot.blockAt(p)?.name) &&   // topdown-01: an independent conjunction too (its situation read now)
@@ -2438,7 +2440,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // is done with 32 found, and a search given up below keeps only what it had accepted by then
       // Given up (TD_GIVE_UP) after TOPDOWN.giveUp refusals in this one search; a cell the rule accepts never counts
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) {
-        const roofHit = topDownHit(bot, b.position, b.name, { feetY: tdFeetY })
+        const roofHit = topDownHit(bot, b.position, b.name, { feet: tdFeetY })
         if (roofHit) { roofSearch++; if (roofHit === 'made') roofMadeSearch++ }
         if (topDownGiveUp(roofSearch)) throw TD_GIVE_UP
         if (roofHit) return false
@@ -2987,7 +2989,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // topdown-01: a covered terrain cell about to be taken because the bot stands below its cover (counted once taken: op=from_below,
       // the measure of what undermining is left from inside pits, hollows and caves)
       const tdFeet = feetYOf(bot), tdOver = topDownOn() && isTerrain(target.name) && !/_ore$/.test(target.name) ? roofOverY(roofAt(bot), target.position) : null
-      const tdGap = tdOver != null && Number.isFinite(tdFeet) && !topDownHit(bot, target.position, target.name, { feetY: tdFeet, trapLets: false }) ? tdOver - tdFeet : null
+      const tdGap = tdOver != null && Number.isFinite(tdFeet) && !topDownHit(bot, target.position, target.name, { trapLets: false }) ? tdOver - tdFeet : null
       if (mustCollectManually(target.name)) {
         await collectManually(bot, target, signal)
         if (tdGap != null) { const c = _tdBelow.get(bot); if (c) { c.n++; c.gap = c.gap == null ? tdGap : Math.min(c.gap, tdGap) } }
