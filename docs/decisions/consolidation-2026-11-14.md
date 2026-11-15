@@ -213,6 +213,12 @@ Five prevention changes are listed there.
   junk dirt piles"**. Direction for the land work: where bots need to get up, down or across again and again, the answer
   is a built stair or levelled ground, not a pillar each time. This becomes its own step (P6) after P1 and P2; the
   places are already in the logs (every spot where the no-placing rule had to be lifted, every repeated escape).
+- ~05:00Z, **the fill rule: "Yes, dirt cap".** Ground that is put back is cobblestone below and ONE layer of dirt
+  directly under the surface block (the grass). Why the cap: grass spreads only onto dirt, so with cobblestone right
+  under it a broken grass block would stay grey for good. Cobblestone is what the town has in surplus; the cap roughly
+  halves the dirt a two-or-three-deep hollow needs. The planner (N3) records the fill cells as intended, so the ledger
+  does not keep reporting them as changed. A column with no surface block left (an open pit) is filled the same way and
+  topped with dirt, which grass then covers.
 
 ### Order of work
 
