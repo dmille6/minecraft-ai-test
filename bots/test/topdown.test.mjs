@@ -74,12 +74,15 @@ const SCAN_UNBOUNDED = [['  while (h <= F && !solidAt(x, h, z)) h++\n  if (h > F
 const CMP_OFF = ["  if (c) return c.t <= F ? { kind: 'roofed', h: c.h, t: c.t } : { kind: 'under', h: c.h }", "  if (c) return { kind: 'roofed', h: c.h, t: c.t }"]
 const CMP_MORE = ["  if (c) return c.t <= F ?", "  if (c) return c.t <= F + 1 ?"]
 const CMP_LESS = ["  if (c) return c.t <= F ?", "  if (c) return c.t <= F - 1 ?"]
-const PITH_OFF = ['  return F >= y + 1 && isPitted(solidAt, p) ?', '  return isPitted(solidAt, p) ?']
-const PITH_MORE = ['  return F >= y + 1 && isPitted(solidAt, p) ?', '  return F >= y && isPitted(solidAt, p) ?']
-const PITH_LESS = ['  return F >= y + 1 && isPitted(solidAt, p) ?', '  return F >= y + 2 && isPitted(solidAt, p) ?']
+const PITH_OFF = ['  return F >= y + 1 && isPitted(groundAt, p) ?', '  return isPitted(groundAt, p) ?']
+const PITH_MORE = ['  return F >= y + 1 && isPitted(groundAt, p) ?', '  return F >= y && isPitted(groundAt, p) ?']
+const PITH_LESS = ['  return F >= y + 1 && isPitted(groundAt, p) ?', '  return F >= y + 2 && isPitted(groundAt, p) ?']
 const LEAVES = [" && !LEAVES.test(String(b.name ?? ''))", '']
 const PIT_5 = ['pit: 2,', 'pit: 5,']
 const MADE_OFF = ["  if (isMadeGround(blockName)) return { kind: 'made' }\n", '']
+const FEET_FLOOR = ['Math.floor(y + 0.2)', 'Math.floor(y)']
+const GROUND_OFF = ['  const cell = topDownCell(roofAt(bot), p, name, feetY === undefined ? feetYOf(bot) : feetY, groundAt(bot))', '  const cell = topDownCell(roofAt(bot), p, name, feetY === undefined ? feetYOf(bot) : feetY)']
+const MERGE_OFF = ['    if (!nextUp && roofGaveUp && !viaSource) {', '    if (false) {']
 const MADE_LIFT = ["  if (cell.kind === 'made') return true\n  if (trapLets) return false\n", "  if (trapLets) return false\n  if (cell.kind === 'made') return true\n"]
 
 // ---- pure ------------------------------------------------------------------------------------------------------------
@@ -114,8 +117,10 @@ await t('VERDICT and REFUSAL: made always; roofed (cover tops out at or below th
   assert.equal(TD.topDownRefusal({ kind: 'roofed' }), true); assert.equal(TD.topDownRefusal({ kind: 'roofed' }, { trapLets: true }), false)
   assert.equal(TD.topDownRefusal({ kind: 'under' }), false); assert.equal(TD.topDownRefusal(null), false)
 })
-await t('THE INVARIANT, over a grid (cell height, every column of roof blocks over 12 cells, feet): a roofed refusal -> the cover tops out at or below the feet (walking surface at most ONE above them); a pitted refusal -> the cell is below the feet; at or above the feet only made ground is ever refused', () => {
-  let roofed = 0, pitted = 0, checked = 0
+// WHAT IS PROVEN, about HEIGHTS (not that the bot can leave: a pathfinder step up needs the rim at most 1.2 above the floor,
+// two blocks of headroom, and the walk profile cannot dig; a bot boxed in by non-terrain blocks relies on the escape reflexes)
+await t('THE HEIGHT CLAIMS, over a grid (every column of roof blocks over 12 cells, with and without two ground sides, feet 55-75): (i) roofed only when the cover tops out at or below the feet; (ii) pitted only below the feet with 2+ ground sides; (iii) terrain at or above the feet is never refused', () => {
+  let roofed = 0, pitted = 0, atOrAbove = 0, checked = 0
   for (let mask = 0; mask < (1 << 12); mask++) {
     const colCells = []; for (let i = 0; i < 12; i++) if (mask & (1 << i)) colCells.push([0, 61 + i, 0])
     for (const sides of [[], [[1, 61, 0], [0, 61, 1]]]) {
@@ -123,18 +128,31 @@ await t('THE INVARIANT, over a grid (cell height, every column of roof blocks ov
       for (let F = 55; F <= 75; F++) {
         checked++
         const cell = TD.topDownCell(solid, P, 'dirt', F)
-        if (!TD.topDownRefusal(cell)) continue
-        assert.ok(P.y < F, `refused a cell at or above the feet (mask ${mask}, F ${F})`)
+        const refused = TD.topDownRefusal(cell)
+        if (P.y >= F) { atOrAbove++; assert.equal(refused, false, `(iii) refused terrain at or above the feet (mask ${mask}, F ${F})`); continue }
+        if (!refused) continue
         if (cell.kind === 'roofed') {
           roofed++
           let top = cell.h; while (solid(0, top + 1, 0)) top++
-          assert.ok(top <= F, `the cover tops out at ${top} above the feet ${F} (mask ${mask})`)
-          assert.ok(top + 1 <= F + 1, 'the walking surface over it is at most one above the feet')
-        } else { assert.equal(cell.kind, 'pitted'); pitted++ }
+          assert.ok(top <= F, `(i) the cover tops out at ${top}, above the feet ${F} (mask ${mask})`)
+        } else {
+          assert.equal(cell.kind, 'pitted'); pitted++
+          assert.ok(P.y < F && TD.hemmedIn(solid, P) >= 2, `(ii) mask ${mask}, F ${F}`)
+        }
       }
     }
   }
-  assert.ok(roofed > 1000 && pitted > 100, `positive control: ${roofed} roofed and ${pitted} pitted refusals over ${checked} cases`)
+  assert.ok(roofed > 1000 && pitted > 100 && atOrAbove > 1000, `positive control: ${roofed} roofed, ${pitted} pitted refusals, ${atOrAbove} cases at or above the feet, of ${checked}`)
+})
+await t('FEET LEVEL: floor(y + 0.2) -- path and farmland (70.9375), soul sand and mud (70.875) and a full block (71.0) give 71; a slab (70.5) gives 70 (left one lower: looser, never stricter)', () => {
+  for (const y of [70.9375, 70.875, 71.0]) assert.equal(TD.feetLevel(y), 71, String(y))
+  assert.equal(TD.feetLevel(70.5), 70); assert.equal(TD.feetLevel(null), null)
+})
+await t('GROUND SIDES ONLY: a fence, planks or glass beside a cell is not a higher side (groundAt); two terrain sides are', () => {
+  const sides = [[1, 61, 0], [-1, 61, 0], [0, 61, 1], [0, 61, -1]]
+  const solid = solidSet(sides)
+  assert.equal(TD.topDownVerdict(solid, P, 'dirt', 61, () => false), null, 'four fences: not pitted')
+  assert.equal(TD.topDownVerdict(solid, P, 'dirt', 61), 'pitted', 'four ground sides (the default reader)')
 })
 // the case table (lawn top S = 70): the cell, the column over it, the bot's feet -> refused?
 const CASES = [
@@ -561,6 +579,59 @@ await t('K1 READS, and MUTANT KILLED: the scan\'s upper bound removed reads the 
   })
 })
 
+// ---- review r5 ----------------------------------------------------------------------------------------------------------
+// Codex 1 / Claude 1: a bot boxed in by fences, planks or glass on a small platform -- those are not ground, so its floor is
+// not pitted, and it takes it as the base does
+const boxedIn = (ring, heights) => () => { const c = plain(); for (let x = 99; x <= 101; x++) for (let z = 99; z <= 101; z++) if (!(x === 100 && z === 100)) for (const y of heights) c.set(key(x, y, z), ring) ; return c }
+const fencedPlatform = () => { const c = boxedIn('oak_fence', [SURF + 1])(); for (let x = 98; x <= 102; x++) for (let z = 98; z <= 102; z++) if (Math.abs(x - 100) === 2 || Math.abs(z - 100) === 2) for (const y of [SURF + 1, SURF + 2]) c.set(key(x, y, z), 'glass'); return c }
+for (const [what, make] of [['Codex: a 3x3 platform, fences on its eight perimeter cells, glass round them', fencedPlatform], ['Claude: oak planks at y 71-72 on all four sides', boxedIn('oak_planks', [SURF + 1, SURF + 2])], ['Claude: oak fences at y 71', boxedIn('oak_fence', [SURF + 1])]]) {
+  await t(`BOXED IN BY BLOCKS THAT ARE NOT GROUND (${what}): the first cell dug is TOPDOWN=off's -- the grass under its feet`, async () => {
+    const res = await bothWays(make, [100.5, SURF + 1, 100.5], { block: 'dirt', count: 1 })
+    assert.deepEqual(res.on.digs.slice(0, 1).map(keyOf), res.off.digs.slice(0, 1).map(keyOf), `${JSON.stringify(res.on.digs.map(keyOf))} vs ${JSON.stringify(res.off.digs.map(keyOf))}`)
+    assert.equal(res.on.digs[0]?.y, SURF, 'the block under its feet')
+  })
+}
+await t('MUTANT KILLED: the ground condition removed (any roof block a higher side) -> the fenced bot is refused its floor', async () => {
+  await withMutantsAll(SKILLS_URL, [GROUND_OFF], async mod => {
+    const w = gatherWorld({ cells: boxedIn('oak_fence', [SURF + 1])(), at: [100.5, SURF + 1, 100.5], pickup: true, reach: true })
+    await run(mod, w.bot, { block: 'dirt', count: 1 })
+    assert.ok(!w.digs.some(d => d.x === 100 && d.z === 100 && d.y === SURF), JSON.stringify(w.digs.map(keyOf)))
+  })
+})
+await t('MUTANT KILLED: feet floored without the 0.2 -> a bot on a path (y 70.9375) is judged a level lower and the dirt under the grass beside it is taken', async () => {
+  // the bot stands on dirt_path at (100,70,100) (surface 70.9375); the dirt under the neighbouring grass lies in a trench's wall
+  // and a 1-high bump past the trench (dirt at 70, grass at 71): its cover tops out at 71, the bot's real feet level
+  const road = () => { const c = trench(plain(), 101, SURF, SURF - 1); c.set(key(100, SURF, 100), 'dirt_path'); c.set(key(102, SURF, 100), 'dirt'); c.set(key(102, SURF + 1, 100), 'grass_block'); return c }
+  const real = gatherWorld({ cells: road(), at: [100.5, SURF + 0.9375, 100.5] })
+  await run(SK, real.bot, { block: 'dirt', count: 1 })
+  assert.ok(real.digs.every(d => !(d.name === 'dirt' && d.straight)), `real: ${JSON.stringify(real.digs.map(keyOf))}`)
+  await withTopdownMutant([FEET_FLOOR], async (TDm, SKm) => {
+    const w = gatherWorld({ cells: road(), at: [100.5, SURF + 0.9375, 100.5] })
+    await run(SKm, w.bot, { block: 'dirt', count: 1 })
+    assert.ok(w.digs.some(d => d.name === 'dirt' && d.straight), JSON.stringify(w.digs.map(keyOf)))
+  })
+})
+// Codex 2 / Claude 4: a given-up exact search kept one accepted but unreachable cell -- a dirt block floating one over the lawn,
+// 6.4 from the bot's eye (beyond canDigBlock's 5.1; the harness does not walk). Codex placed it 8 over the lawn at (96,78,96):
+// there cavefall.mjs already refuses it as a floor over a harmful drop, so the base's second fallback takes the grass anyway;
+// one block up it is a safe target, accepted, kept, and unusable
+const floating = () => { const c = plain(); c.set(key(96, SURF + 2, 105), 'dirt'); return c }
+await t('A GIVEN-UP SEARCH ALSO ASKS THE FALLBACK: a floating dirt block kept, unreachable -> the grass is taken, as TOPDOWN=off takes it; rows: op=skip gave_up=1 and gather_via_source grass_block -- holding the drop needs the walk the harness does not model', async () => {
+  const res = await bothWays(floating, [100.5, SURF + 1, 100.5], { block: 'dirt', count: 2 })
+  assert.ok(res.off.digs.some(d => d.name === 'grass_block'), 'positive control: the base takes the grass')
+  assert.ok(res.on.digs.some(d => d.name === 'grass_block'), `${JSON.stringify(res.on.digs.map(keyOf))} ${JSON.stringify(res.on.r).slice(0, 160)}`)
+  assert.ok(tdRows('skip').some(x => /gave_up=1$/.test(x.skill.detail)), JSON.stringify(tdRows('skip').map(x => x.skill.detail)))
+  assert.ok(rowsOf('gather_via_source').some(x => /grass_block yields it/.test(x.skill.detail)), JSON.stringify(rowsOf('gather_via_source').map(x => x.skill.detail)))
+})
+await t('MUTANT KILLED: the merge removed -> the floating block alone, the run ends unreachable with nothing dug', async () => {
+  await withMutantsAll(SKILLS_URL, [MERGE_OFF], async mod => {
+    const w = gatherWorld({ cells: floating(), at: [100.5, SURF + 1, 100.5], pickup: true, reach: true })
+    const r = await run(mod, w.bot, { block: 'dirt', count: 2 })
+    assert.ok(!w.digs.some(d => d.name === 'grass_block'), JSON.stringify(w.digs.map(keyOf)))
+    assert.notEqual(r.status, 'success')
+  })
+})
+
 // ---- the clean zone's trap: a 1-deep trench (the bot's feet at the lawn), where this rule still refuses its walls --------
 const zoneTrench = (cells = plain({ ox: 2930, oz: 2900 })) => { for (let z = 2992; z <= 3008; z++) cells.delete(key(3031, SURF, z)); return cells }
 async function zoneTrapDigs (mod, cells = zoneTrench()) {
@@ -679,7 +750,7 @@ await t('THE SECOND FALLBACK\'S SKIPS do not leak into the next round', async ()
   assert.ok(real.digs.some(d => d.name === 'grass_block'), show(real.r, real.digs)); assert.deepEqual(real.skip, [])
   await withMutantsAll(SKILLS_URL, [LEAK], async mod => { const m = await go(mod); assert.ok(m.skip.length > 0) })
 })
-await t('CLAUDE r3 NOTE (diagnostic): on the plain, an open 3x3 scrape near the bot -- kept by a given-up search, or lost to iteration order (a new scrape begun)?', async () => {
+await t('CLAUDE r3 NOTE, A MEASURED TENDENCY (not a guarantee): on the plain an open 3x3 scrape 2-4 blocks from the bot is widened in at least 16 of 24 placements (19 measured); every run digs', async () => {
   let kept = 0, lost = 0
   const where = []
   for (const dx of [-4, -2, 0, 2, 4]) for (const dz of [-4, -2, 0, 2, 4]) {
@@ -688,10 +759,11 @@ await t('CLAUDE r3 NOTE (diagnostic): on the plain, an open 3x3 scrape near the 
     const w = gatherWorld({ cells: c })
     await run(SK, w.bot)
     const d = w.digs[0]
+    assert.ok(d, `the run at ${dx},${dz} dug nothing`)
     if (d && d.y === SURF - 1 && Math.abs(d.x - (100 + dx)) <= 1 && Math.abs(d.z - (100 + dz)) <= 1) kept++; else { lost++; where.push(`${dx},${dz}`) }
   }
   console.log(`  CLAUDE NOTE: of 24 open 3x3 scrapes 2-4 blocks from the bot, the first dig was in the scrape ${kept} times; ${lost} times it began a new one (${where.join(' ')})`)
-  assert.equal(kept + lost, 24)
+  assert.equal(kept + lost, 24); assert.ok(kept >= 16, `widened ${kept} of 24`)
 })
 console.log(`
 ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0)
