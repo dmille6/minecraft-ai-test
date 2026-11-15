@@ -202,8 +202,17 @@ Its grass top is the original surface and the dirt under it was dug out by the b
 (48% of gather actions on 11-12) because the escape code climbs with dirt first; a request for dirt takes the block under
 the grass and leaves a roofed gap. The 11-13 rule stopped it inside the town square but moved it to a ring just outside:
 on the rehearsal world the band 65 to 70 blocks from home has 174 damaged columns per 1,000 against 23 to 43 inside.
-Five prevention changes are listed there; the first (take ground from the top, never from under a roof) touches protected
-gather code and waits for the owner's yes.
+Five prevention changes are listed there.
+
+**Owner authorizations and direction, 2026-11-15:**
+- ~03:25Z, asked "Do you authorize changing the protected gather code so bots take ground only from the top?": **"Yes,
+  authorize"**. Covers `bots/src/skills.mjs` gather / gatherRun / collectManually for that change (P1).
+- ~03:40Z: **"lets use cobblestone before dirt"**. Covers the escape's scaffold pick and the bag's climbing reserve
+  (protected `bankable.mjs`, `scaffold.mjs`, and `reflex.mjs` pickScaffold) for that change (P2).
+- ~03:40Z: **"lets build good ways to navigate around areas like building stairs and leveling the land before building
+  junk dirt piles"**. Direction for the land work: where bots need to get up, down or across again and again, the answer
+  is a built stair or levelled ground, not a pillar each time. This becomes its own step (P6) after P1 and P2; the
+  places are already in the logs (every spot where the no-placing rule had to be lifted, every repeated escape).
 
 ### Order of work
 
