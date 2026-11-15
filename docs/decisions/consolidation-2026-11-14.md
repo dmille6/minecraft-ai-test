@@ -281,9 +281,91 @@ retirement (C4) does not wait for that: the land world is a test world and serve
   (it was dark on the tunnel from 08:31Z; backup `/srv/showcase/ops/env-bak-20261114T1440Z-qwen-stopgap/`). So the C0 load test is no longer synthetic for the
   showcase: it is a read of the real load, plus a synthetic stream for the rehearsal's 12 bots. The Studio tunnel unit
   still runs and flaps (1,131 restarts); it is removed when C0 closes.
+  **Settled 11-15 (C0 read):** the showcase ops journal row `owner-direct-setting` of 11-14 14:43:49Z is the move, made by
+  another control session on the owner's words ("move to qwen while i sort out why the studio went down", then "Yes,
+  override for now"). The bots' own logs agree: 8,228 of 8,228 model calls failed in 08:15-14:15Z (`fetch failed`), and
+  every answered call from 11-15 03:30Z on names `10.0.0.72:11434`. On 11-15 16:00Z the tunnel unit was still enabled and
+  restarting (5,535 restarts). Not removed in this run.
 - A scheduled task (`voyager-harness2-start-1114`, 18:30Z) was set to start six new Voyager arms for 48 h on the Anthropic
   API and the Blackwell, approved 11-12. It conflicts with decision 3 above. It was cut back to closing stage 3b only;
   the owner can restore it.
+
+## C0 capacity read 2026-11-15
+
+**Verdict: FITS WITHOUT THE REHEARSAL.** The 5080 carries the fleet as it runs today plus the showcase's 14 bots, with
+little room left. It does not also carry the rehearsal's 12 bots. The rehearsal does not need it today: its 12 bots are
+served by the 3090, which is a home card, and are answered well there.
+
+All numbers are from the bots' own `llm-*.jsonl` rows, read with `scripts/lib/telemetry.py` `stream_rows` (full walks,
+rotated files included). "Calls" are model calls an endpoint answered; work orders (rows with no model call) are left
+out. Latency is the client's `llm.latency_ms`.
+
+**Where each world is served (11-15):**
+- Fleet, 80 bots: 40 on the 4B (llama-server, 5080 `:18080`), 40 on qwen2.5 (Ollama, 5080 `:11434`). No fleet call in any
+  window below went anywhere but 10.0.0.72.
+- Showcase, 14 bots: qwen2.5 on the 5080 Ollama since 11-14 14:43:49Z. **Stopped by its tripwire 11-15 09:49:49Z** (0 bot
+  units running at 15:30Z), so it put no load on the 5080 during the test.
+- Rehearsal-0, 12 bots: qwen2.5 on the **3090** (`10.0.0.16:11434`), 12 of 12 bots, every answered call. (The release's
+  `control.env` on VM 118 names the 5080 first; the bots' own settings files, which this account cannot read, evidently do
+  not.) No outside endpoint.
+
+**The real load, three 6-hour windows:**
+
+| Window | Endpoint | Bots | Calls/min (peak minute) | p50 / p95 |
+|---|---|---|---|---|
+| 11-14 08:15-14:15Z, before the showcase moved | 5080 qwen2.5, fleet | 60 | 90.8 (116) | 2.83 / 4.71 s |
+| | 5080 4B, fleet | 20 | 32.2 (49) | 1.47 / 2.80 s |
+| 11-15 03:30-09:30Z, fleet + showcase on the 5080 | 5080 qwen2.5, fleet | 40 (+4 on fallback) | 61.6 (85) | 3.09 / 4.99 s |
+| | 5080 qwen2.5, showcase | 14 | 15.4 (22) | 3.08 / 5.01 s |
+| | 5080 4B, fleet | 40 | 54.1 (75) | 2.24 / 3.84 s |
+| | 3090 qwen2.5, rehearsal | 12 | 15.7 (24) | 1.77 / 3.02 s |
+| 11-15 09:30-15:30Z, showcase stopped | 5080 qwen2.5, fleet | 40 (+4) | 74.3 (99) | 3.05 / 4.94 s |
+| | 5080 4B, fleet | 40 | 65.2 (90) | 2.52 / 4.30 s |
+| | 3090 qwen2.5, rehearsal | 12 | 15.8 (23) | 1.67 / 2.79 s |
+
+- Endpoint failures: 0 of 41,634 fleet model calls (03:30-09:30Z), 0 of 50,221 (09:30-15:30Z), 0 of 5,533 showcase calls,
+  0 of 5,668 rehearsal calls. Positive control for the zero: the same reader finds 8,228 failed calls by 14 showcase bots
+  in 11-14 08:15-14:15Z, when the Studio was dark.
+- Schema-valid decisions: 99.9% or more of answered calls on every endpoint in every window.
+- Bots with no valid decision in a whole clock hour: 0 of 80 fleet bots and 0 of 12 rehearsal bots over 5 whole hours in
+  each window; 0 of 14 showcase bots while it ran. Positive control: the dark window flags all 14 showcase bots.
+- The 5080 answered about 131 calls a minute in total in the middle window and 140 in the last. Moving 20 bots to the 4B on
+  11-14 14:22Z slowed the 4B from p95 2.8 s to 3.8-4.3 s (the 24-hour read of that move, journal row `servea-40bots-1114`
+  11-15 14:43Z: INCONCLUSIVE, stay at 40, do not go to 60).
+
+**The synthetic stream (the only added load).** `batchload.mjs`, open mode, from the canary host, 600 learning-loop
+evaluation items, to the 5080 Ollama qwen2.5 (the endpoint the showcase uses; the 4B read was not in the 4B's favour on
+capacity, so the default stood). Install-hold `c0-capacity` 15:35:01Z to 16:11:45Z; no canary was in the slot. Journal rows
+`c0-capacity-1115` `load-test-start` / `load-test-end`. Because the showcase was stopped, the rungs read as: rung 1 puts
+the showcase's load back, rung 2 is the showcase plus the rehearsal.
+
+| | Added | Fleet qwen2.5 p50 / p95 | Worst 5 min p95 | Fleet 4B p95 | Synthetic p50 / p95 |
+|---|---|---|---|---|---|
+| 30 min before (15:05-15:35Z) | 0 | 2.93 / 4.74 s at 72.2/min | 4.89 s | 4.23 s | - |
+| Rung 1, 15:35-16:06Z | 14.4/min (420 answers, 420 valid, 0 failed) | 3.22 / 5.03 s at 68.7/min | 5.28 s | 4.22 s | 3.14 / 4.78 s |
+| Rung 2, 16:06-16:11Z, **stopped** | 27.6/min (141 answers, 141 valid, 0 failed) | 3.57 / 6.41 s at 71.8/min | **6.40 s** | 4.13 s | 3.62 / 5.65 s |
+
+- Rung 2 was stopped by the rule after its first whole 5-minute window (16:05-16:10Z: fleet p95 6.40 s over 370 calls,
+  limit 6 s). 141 of its planned 840 calls were sent. No endpoint failure, no halt or model-dark page. So "fails at 28" rests
+  on five minutes, not thirty; what makes it believable is that the hour before the test already sat 0.6 to 1.7 s under
+  the limit.
+- The 4B endpoint did not move under either rung.
+- Not measured: the showcase's own latency under the stream (it was stopped); the 3090 beyond what the rehearsal asks of it.
+- A slip in this run: the first monitor process was replaced four minutes into rung 1 (its launch call would have timed
+  out and released the hold). The generator and the hold were never interrupted; the journal has one start and one end row.
+
+**What it would take to put the rehearsal on the 5080 too (arithmetic, not measured).** Ollama on the 5080 held at about
+84 calls a minute (fleet 69 + 14) and failed at about 100 (72 + 28). With the showcase (15) and the rehearsal (16) on it,
+the fleet's qwen2.5 bots would have to come down from about 72 to about 53 calls a minute: **about 10 bots, two pools, off
+the qwen2.5 side** (a qwen2.5 bot makes about 1.8 calls a minute). The two pools pre-approved for early retirement,
+isolated-a and placebo-a, are both on the **4B** server. Stopping them frees the same card but a different server, and
+how much that helps Ollama was not measured: it needs its own 30-minute rung afterwards.
+
+**What this means for C0.** No pool has to be retired today: the showcase fits on the 5080 beside the whole fleet, and the
+rehearsal fits on the 3090 (about 6 GB beside the other tenant). Every world is then on a home card, which is what C0 asks.
+What remains for C0: the showcase's qwen2.5 setting is still recorded as a stopgap for gemma on the Studio, so the owner
+has to say it is the showcase's model now; then the Studio tunnel unit is removed and the 24-hour read written. The fleet
+settings file that names the Blackwell was not checked in this run.
 
 ## Open owner decisions
 
