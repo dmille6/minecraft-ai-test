@@ -243,6 +243,15 @@ Five prevention changes are listed there.
      the dig-down rule covers the whole town square (not 16 blocks around home), and the walking pathfinder may place
      cobblestone (`scaffold.mjs`).
   3. The desktop app stays open (the scheduled jobs and background work depend on it).
+- ~16:20Z, **a dirt mine (owner's idea):** "instead of the bots digging a new hole every time they need dirt, could we
+  create a 'dirt mine' where there is a dirt mine entrance outside the city, and they go down the mine and grab dirt from
+  one single entrance to keep the land clean and free. i'd want the mine entrance to look nice, a few blocks wide so more
+  than one bot could enter and exit at a time?" This replaces the "one borrow pit" item (P3). What I told him and proposed
+  (not yet agreed, nothing built): dirt is only about three blocks deep under the grass, so a gallery that simply takes it
+  is the same hollow we are stopping; the mine therefore SWAPS: each dirt block taken from the gallery is put back as
+  cobblestone, one layer of dirt is always left under the grass (the dirt-cap rule), and no void is left. One handsome
+  entrance about three wide outside the wall, shared with the town's stone mine (whose stair fails 399 of 776 uses today),
+  and the gather rule walks a bot that needs dirt there instead of "six blocks past the edge".
 - ~05:00Z, **the fill rule: "Yes, dirt cap".** Ground that is put back is cobblestone below and ONE layer of dirt
   directly under the surface block (the grass). Why the cap: grass spreads only onto dirt, so with cobblestone right
   under it a broken grass block would stay grey for good. Cobblestone is what the town has in surplus; the cap roughly
