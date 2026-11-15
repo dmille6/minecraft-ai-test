@@ -198,6 +198,13 @@ acceptance by reading the world, N4 speed of the kept worker code. Owner 11-14: 
 Its grass top is the original surface and the dirt under it was dug out by the bots, 2,200 to 3,700 blocks a day from
 11-07 to 11-13, by every bot alike; it all but stopped on 11-14. So the lawn's target is to put the dirt back.
 
+**The cause (11-15): [`dirt-loop.md`](../reports/land-eval-2026-11-14/dirt-loop.md).** Dirt is what the bots gather most
+(48% of gather actions on 11-12) because the escape code climbs with dirt first; a request for dirt takes the block under
+the grass and leaves a roofed gap. The 11-13 rule stopped it inside the town square but moved it to a ring just outside:
+on the rehearsal world the band 65 to 70 blocks from home has 174 damaged columns per 1,000 against 23 to 43 inside.
+Five prevention changes are listed there; the first (take ground from the top, never from under a roof) touches protected
+gather code and waits for the owner's yes.
+
 ### Order of work
 
 | Step | What | When (estimate) |
