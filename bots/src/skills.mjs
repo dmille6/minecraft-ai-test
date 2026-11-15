@@ -101,6 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
+import { topDownOn, topDownRefuses, topDownRemedy, topDownModeDetail, isRoofBlock } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
@@ -372,6 +373,11 @@ function gatherZoneNow () {
 }
 // ... unless the bot is trapped there (bot.gatherTrap, set by gatherRun when its walk out went nowhere): it keeps its way out
 const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z && gatherZoneRefuses(z, p, name, bot?.entity?.position?.y) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now()) }
+// TOPDOWN-01 (owner 11-15): ground under a roof near the surface is not a gather target (topdown.mjs). A cell the trap
+// lets through stays takeable: a bot that cannot leave where it stands keeps its way out.
+const roofAt = bot => (x, y, z) => isRoofBlock(bot.blockAt(new Vec3(x, y, z)))
+const topDownHit = (bot, p, name) => topDownOn() && !!p && topDownRefuses(roofAt(bot), p, name) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now())
+const _tdModeSaid = new WeakSet()
 const _gzModeSaid = new WeakSet()
 // What the bot holds that THE PATHFINDER can tower with: its own list (movements.scafoldingBlocks, item ids), not
 // exit-contract's scaffoldCount -- that one counts sand, gravel and stripped logs, which the pathfinder never places, so a
@@ -1741,6 +1747,12 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
     throw Object.assign(new Error(`clean_zone: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${gatherZoneRemedy(gatherZoneNow())}`),
       { failClass: 'no_safe_target' })
   }
+  // TOPDOWN-01: the same independent conjunction at the swing (the admission may be stale: the ground changed under it)
+  if (topDownHit(bot, block.position, block.name)) {
+    try { logEvent({ kind: 'gather_topdown', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
+    throw Object.assign(new Error(`under_roof: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${topDownRemedy(block.name, 1, 0)}`),
+      { failClass: 'no_safe_target' })
+  }
   if (!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)) {
     throw Object.assign(
       new Error(`unsafe_now: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
@@ -2329,6 +2341,8 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   const key = q => `${q.x},${q.y},${q.z}`
   let townSkipped = 0   // town-ground candidates the enumeration skipped this round (the _town_ground row)
   let zoneSkipped = 0   // cleanzone-02: clean-zone ground the enumeration skipped this round
+  let roofSkipped = 0   // topdown-01: ground under a roof the enumeration skipped this round
+  let roofSaid = false  // topdown-01: the run's one `_gather_topdown` row
   let zoneWalked = 0    // cleanzone-02: exits this run walked to (the remedy, performed)
   let zoneExit = null   // cleanzone-02: the last exit tried (named when the run fails)
   let zoneClimb = 0     // cleanzone-02: walks repeated from a pit by a bot that holds what a climb needs
@@ -2379,6 +2393,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&   // cleanzone-02: an independent conjunction, as the town's ground is
+      !topDownHit(bot, p, bot.blockAt(p)?.name) &&   // topdown-01: an independent conjunction too
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     const shopCells = shopCellsNow()?.cells ?? null   // shop-01 r2: the workshop's record cells are never a gather target
@@ -2388,6 +2403,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // cleanzone-02: AT ENUMERATION, for the same reason. Counted IN RANGE only: mineflayer calls the matcher before its own
       // distance test, and a zone cell beyond the search is not what emptied it (Claude review 11-13)
       if (b.position && gatherZoneHit(bot, b.position, b.name)) { if (searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) zoneSkipped++; return false }
+      // topdown-01: AT ENUMERATION as well, IN RANGE only (the column above each cell is read, and mineflayer calls the
+      // matcher before its own distance test): the 32 the search returns are the nearest that lie open or deep
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && topDownHit(bot, b.position, b.name)) { roofSkipped++; return false }
       if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
@@ -2426,6 +2444,14 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       }
     }
 
+    // TOPDOWN-01: what the rule skipped this round, and what the search then found (the remedy is the fallback above:
+    // the block on top yields the item and lies open). One row a run, and the licence row once per bot process.
+    const roofSkippedNow = roofSkipped; roofSkipped = 0
+    if (topDownOn() && !_tdModeSaid.has(bot)) { _tdModeSaid.add(bot); try { logEvent({ kind: 'gather_topdown', status: 'success', detail: topDownModeDetail() }) } catch { /* telemetry */ } }
+    if (roofSkippedNow > 0 && !roofSaid) {
+      roofSaid = true
+      try { logEvent({ kind: 'gather_topdown', status: positions.length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=skip block=${blockName} skipped=${roofSkippedNow} via=${viaSource ?? '-'} found=${positions.length}` }) } catch { /* telemetry */ }
+    }
     const skippedNow = townSkipped
     if (townSkipped) { noteTownGround(bot, 'gather_skipped', townSkipped); townSkipped = 0 }
     // CAVEFALL-01 (Codex r4 P2-1, Claude r5): a search that enumeration emptied because candidates in the border were floors
@@ -2493,7 +2519,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
         : { status: 'failed', failClass: 'nothing_found',
-            detail: `no ${blockName} within ${maxDistance} blocks` +
+            detail: (roofSkippedNow > 0 ? topDownRemedy(blockName, roofSkippedNow, maxDistance) : `no ${blockName} within ${maxDistance} blocks`) +
               (skippedNow ? ` outside the town's ground (${TOWN_GROUND_HALF} blocks around home is kept: walk ${TOWN_GROUND_HALF + 4}+ blocks from home)` : '') +
               (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') +
               belowGroundHint(bot) }
