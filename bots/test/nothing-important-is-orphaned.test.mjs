@@ -40,6 +40,8 @@ const REQUIRED = [
   'bots/test/wellstep.test.mjs',
   // roofclimb-01 (11-14, owner "Yes, fix it"): surface climbs out from under a ground roof above sea level
   'bots/test/roofclimb.test.mjs',
+  // zonesite-01show (11-15): a sink never stands in a protected zone -- the siting guard, the builder's click, the retirement
+  'bots/test/zonesite.test.mjs',
   // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
   'docs/reports/mineshaft-2026-10-30/design.md',
   'sandbox/stair/stair-e2e.mjs',

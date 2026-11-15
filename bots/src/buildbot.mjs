@@ -37,6 +37,31 @@ export const LAND_MS = 1_500
 // (r2, Claude r1 P3-7: crafter, chiseled bookshelf, flower pots and candles act on an empty-hand click)
 export const INTERACTABLE = /_trapdoor$|_door$|chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|_bed$|_button$|^lever$|_fence_gate$|^anvil$|_anvil$|^bell$|^brewing_stand$|^composter$|^cartography_table$|^loom$|^stonecutter$|^grindstone$|^smithing_table$|^enchanting_table$|^beacon$|^dispenser$|^dropper$|^note_block$|^jukebox$|^repeater$|^comparator$|^daylight_detector$|_sign$|^cake$|^respawn_anchor$|^lodestone$|^campfire$|^soul_campfire$|^crafter$|^chiseled_bookshelf$|^flower_pot$|^potted_|candle$|candle_cake$/
 const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3 : f[0] < 0 ? 4 : 5)
+/**
+ * ZONESITE-01SHOW: THE BUILDER'S CLICK, JUDGED BY THE ZONE GUARD'S OWN DECISION -> the zone's id | null. Pure. The visit places with
+ * its own block_place packet (above), which never reaches protectzone's chokepoint on bot._genericPlace (LIVE showcase 11-15: 27
+ * tower cells laid in village-taiga-6_1, `_protect_zone` counting nothing). The chokepoint's three cells with their roles: the
+ * reference, the destination (reference + face) and the cell above it; a build's click is never a survival placement.
+ */
+export function clickZone (zones, support, face, feet = null) {
+  if (!Array.isArray(zones) || !zones.length || !Array.isArray(support) || !Array.isArray(face)) return null
+  const ref = { x: support[0], y: support[1], z: support[2] }
+  const dest = { x: ref.x + face[0], y: ref.y + face[1], z: ref.z + face[2] }
+  for (const [cell, role] of [[ref, 'ref'], [dest, 'dest'], [{ x: dest.x, y: dest.y + 1, z: dest.z }, 'above']]) {
+    const d = zoneDecision({ zones, op: 'place', cell, purpose: 'target', feet, role, nameRule: zoneGuardOn() })
+    if (d) return String(d.zone?.id ?? 'zone')
+  }
+  return null
+}
+/** ...and one CELL a build would fill (the destination and the cell above it; the reference is judged at the click) -> id | null. */
+export function cellZone (zones, cell, feet = null) {
+  if (!Array.isArray(zones) || !zones.length || !Array.isArray(cell)) return null
+  for (const [c, role] of [[{ x: cell[0], y: cell[1], z: cell[2] }, 'dest'], [{ x: cell[0], y: cell[1] + 1, z: cell[2] }, 'above']]) {
+    const d = zoneDecision({ zones, op: 'place', cell: c, purpose: 'target', feet, role, nameRule: zoneGuardOn() })
+    if (d) return String(d.zone?.id ?? 'zone')
+  }
+  return null
+}
 /** townstyle-01: a notchian yaw (degrees; south 0, west 90) -> mineflayer's radians (conversions.js toNotchianYaw = deg(PI - yaw)). */
 export const yawRad = deg => Math.PI - (deg * Math.PI) / 180
 /** The pitch a look packet carries: the bot's own, notchian (conversions.js toNotchianPitch = deg(-pitch)). */
@@ -428,7 +453,18 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       } catch { /* not fatal */ }
     },
     nextSeq: () => A.tracker.next(),
-    send: write,   // (support, face, seq, aim?) -- townstyle-01's aimed click when `aim` is given
+    // zonesite-01show: NOTHING IS SENT into a protected zone -> false (the caller books no click); an unreadable zone list refuses
+    send: (support, face, seq, aim = null) => {   // townstyle-01's aimed click when `aim` is given
+      let z = null
+      try { z = clickZone(bot.protectZones?.() ?? [], support, face, bot.entity?.position ?? null) } catch { z = 'zones_unread' }
+      if (z) { try { log('_build', { op: 'click_zoned', cell: [support[0] + face[0], support[1] + face[1], support[2] + face[2]], why: `closed by protected zone ${z}: nothing sent` }) } catch { /* telemetry */ } return false }
+      write(support, face, seq, aim)
+      return true
+    },
+    // ...and asked BEFORE the walk (buildrun.mjs click): WOULD THE GUARD REFUSE A BUILD'S PLACEMENT AT THIS CELL? -> id | null
+    placeClosed: c => {
+      try { return cellZone(bot.protectZones?.() ?? [], c, bot.entity?.position ?? null) } catch { return 'zones_unread' }
+    },
     waitAck: (seq, ms) => A.tracker.wait(seq, ms),
     track: (id, seq) => A.track(id, seq),
     untrack: id => A.untrack(id),

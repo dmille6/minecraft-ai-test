@@ -714,6 +714,18 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     return val
   }
   const click = async (cell, block, step, seg, segGen, { closer = false, want = null, avoid = null, ws = null, blind = false, also = null, dom = domain, stay = false, notSupport = null, cutoff = null } = {}) => {
+    // zonesite-01show (`e.placeClosed(cell)` -> the zone's id | null: buildbot.mjs asks the protected-zone guard's own decision): a
+    // cell the guard closes to a build's placement is never walked to and never clicked -- 'zoned', an attempt like a refusal (the
+    // caller's count: the cell defers, the visit goes on), named once a visit (`place_zoned`)
+    if (typeof e.placeClosed === 'function') {
+      let z = null
+      try { z = e.placeClosed(cell) } catch { z = null }
+      if (z) {
+        out.zonedPlace = (out.zonedPlace ?? 0) + 1
+        if (out.zonedPlace === 1) { try { e.log('_build', { op: 'place_zoned', seg, cell, block, why: `closed by protected zone ${z}: never built by a bot; the record's owner retires it` }) } catch { /* telemetry */ } }
+        return 'zoned'
+      }
+    }
     if (!stay) {
       if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
       await e.walkTo(step.stand, avoid ? { avoid } : undefined)
@@ -776,7 +788,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (why) { cancel(); return `fence:${why}` }
         if (!isClear(cell)) { cancel(); return 'refused' }   // (isClear: air, a replaceable plant, or -- p.intoWater -- water)
         if (also && !also.every(a => isClear(a))) { cancel(); return 'refused' }   // cottage2-01: a bed's head cell must be free too
-        e.send(here.support, here.face, seq, here.aim ?? null)   // SYNCHRONOUS after the fence: no await between them (an aim's yaw packet is in the same write)
+        // zonesite-01show: `false` -- the guard closed the click's reference, destination or the cell above (nothing was sent)
+        if (e.send(here.support, here.face, seq, here.aim ?? null) === false) { cancel(); return 'zoned' }   // SYNCHRONOUS after the fence: no await between them (an aim's yaw packet is in the same write)
         touched(cell)
         const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
         release()
@@ -851,7 +864,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (why) return `fence:${why}`
     if (!u.can(rd(...c.at)) || !AIR(nm(rd(c.at[0], c.at[1] + 1, c.at[2]))) || !u.held()) return 'refused'
     const seq = e.nextSeq()
-    e.send(c.at, [0, 1, 0], seq)
+    if (e.send(c.at, [0, 1, 0], seq) === false) return 'refused'   // zonesite-01show: the zone guard closed it; nothing was sent
     touched(c.at)
     const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
     if (v !== 'acked') return 'silent'
@@ -885,7 +898,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (refused) { cancel(); return `fence:${refused}` }
         if (!replaceableCell(rd(...at)) && nm(rd(...at)) !== 'air') { cancel(); return 'refused' }
       }
-      e.send(support, face, seq)              // SYNCHRONOUS after the fence: nothing awaited between them
+      // zonesite-01show: `false` -- the zone guard closed it and nothing was sent (the intent is cancelled, an attempt like a refusal)
+      if (e.send(support, face, seq) === false) { if (id) { PJ.intentClose(dir, key, me, id, 'cancelled', { now: now() }); id = null } return 'refused' }   // SYNCHRONOUS after the fence: nothing awaited between them
       touched(at)
       const v = await e.waitAck(seq, PJ.MUTEX_HOLD_MS)
       release()

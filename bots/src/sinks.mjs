@@ -1036,6 +1036,66 @@ export function completeInstance (cur, now = Date.now()) {
   const ins = instancesOf(cur).map((i, k, a) => (k === a.length - 1 && !i.completeAt ? { ...i, completeAt: now } : i))
   return { ...cur, instances: ins, structure_complete: true, state: 'complete', completeAt: now }
 }
+// ---- zonesite-01show: a sink never stands in a protected zone -----------------------------------------------------------------------
+// LIVE showcase 11-15 09:11Z: the sixth tower (T6, 297 cells) was sited wholly inside the protected village zone and its floor's 27
+// cobblestone laid before the tripwire stopped the town (S6 H3 zone 27). TWO HOLES. The siting guard found the zone and then read
+// its `why` -- a record's zone names itself there, a protected zone or an avoid box ({ id, box }) has none -- so the hit read as
+// "no reason": free ground. And the builder's own click (buildbot.mjs: a raw block_place) never reached protectzone's chokepoint.
+/**
+ * WHY A COLUMN IS CLOSED BY A ZONE BOX -> the reason | null. Pure. ANY box of `zs` ([x0,y0,z0,x1,y1,z1]) holding the column over
+ * [y0, y1] refuses: a record's zone by its own `why`, a protected zone or an avoid box as `zone:<id>`. Never "a hit with no reason".
+ */
+export function zoneReason (zs, x, z, y0 = -Infinity, y1 = Infinity) {
+  for (const q of zs ?? []) {
+    const b = q?.box
+    if (Array.isArray(b) && b.length === 6 && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4]) return String(q.why ?? `zone:${q.id ?? 'protected'}`)
+  }
+  return null
+}
+/** The cells of one instance of a stepped record (a tower's, a shrine's: every segment is `<id>-...`). Pure. */
+export const instanceCells = (rec, id) => (rec?.cells ?? []).filter(c => String(c?.seg ?? '').startsWith(`${id}-`))
+/**
+ * THE OPEN INSTANCE THE PROTECTED-ZONE RULE CLOSES -> { id, zone, n, cells, first } | null. Pure. Only the NEWEST instance of an
+ * open record is asked (the only one a visit builds); `closed(at)` -> the zone's id | null is the guard's own answer for a
+ * placement at that cell. A standing instance is never retired, whatever the zones say now (it is the town's history); a `closed`
+ * that throws (the zones unread) retires nothing.
+ */
+export function zonedInstance (rec, closed) {
+  if (!rec || rec.structure_complete) return null
+  const ins = instancesOf(rec), last = ins[ins.length - 1]
+  if (!last?.id || last.completeAt) return null
+  const own = instanceCells(rec, last.id)
+  let n = 0, zone = null, first = null
+  for (const c of own) {
+    let z = null
+    try { z = closed(c.at) } catch { return null }   // an answer that could not be had retires nothing (the click's own guard refuses)
+    if (z) { n++; zone ??= String(z); first ??= c.at }
+  }
+  return n ? { id: String(last.id), zone, n, cells: own.length, first } : null
+}
+/**
+ * RETIRE THE NEWEST, OPEN INSTANCE -> the new record | null (not the newest, standing already, or a record that is not open). Pure:
+ * appendInstance undone -- its cells, segments, palette roles, bill, zone, and the clears and replants inside that zone -- and the
+ * record reads complete again on the instances before it (the next visit's gate may site another, clear of the zones). The blocks
+ * already laid stay in the world: no bot digs in a protected zone.
+ */
+export function dropInstance (cur, id) {
+  const ins = instancesOf(cur), last = ins[ins.length - 1]
+  if (!cur || cur.structure_complete || !last || String(last.id) !== String(id) || last.completeAt) return null
+  const pre = `${id}-`, zwhy = `project:${cur.plot}:${id}`
+  const zb = (cur.zones ?? []).find(z => z?.why === zwhy)?.box ?? null
+  const inZb = at => Array.isArray(zb) && Array.isArray(at) && at[0] >= zb[0] && at[0] <= zb[3] && at[2] >= zb[2] && at[2] <= zb[5]
+  const rest = ins.slice(0, -1)
+  const bom = { ...(cur.bom ?? {}) }
+  delete bom[id]
+  return {
+    ...cur, instances: rest, cells: (cur.cells ?? []).filter(c => !String(c?.seg ?? '').startsWith(pre)),
+    segments: (cur.segments ?? []).filter(s => !String(s?.seg ?? '').startsWith(pre)),
+    palette: Object.fromEntries(Object.entries(cur.palette ?? {}).filter(([k]) => !k.startsWith(pre))),
+    clear: (cur.clear ?? []).filter(c => !inZb(c?.at)), replant: (cur.replant ?? []).filter(r => !inZb(r?.cell ?? r?.at)),
+    zones: (cur.zones ?? []).filter(z => z?.why !== zwhy), bom, structure_complete: true, state: 'complete',
+  }
+}
 /** The visit's options for a sink record (buildrun.mjs runVisit): the stands' domain (every instance's box + 6), the walk's radius,
  *  the layer rule, the foreign blocks a visit may dig from an open cell, the walk-through roles. Pure. */
 export function sinkVisitOpts (rec, home) {

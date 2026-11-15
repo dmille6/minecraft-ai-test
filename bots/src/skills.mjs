@@ -299,6 +299,8 @@ import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the 
 import { servicePick, isServicePlot, stampNext, stampReleaseDue, stampOfHead, serviceOffer, serviceRowDetail, SERVICE_PLOTS } from './prodserve.mjs'   // prodserve-01
 import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
 import { ornamentKind } from './sinks.mjs'   // fences-01: dress, decor and wood spend their own supply, never the stone
+import { zoneReason, zonedInstance, dropInstance } from './sinks.mjs'   // zonesite-01show: a sink never stands in a protected zone
+import { cellZone } from './buildbot.mjs'   // zonesite-01show: the zone guard's own answer for a build's placement at a cell
 import { roadsOn, lampsOn, trafficRoutes, trafficFile, ROADS, roadFloors, roadKitNeed, endedRoutes } from './roads.mjs'   // roads-01: traffic-routed stone roads + lamp posts
 import { wallInteriors } from './wall.mjs'   // decorator-01: the town's walls first
 import { digStand } from './buildrun.mjs'   // decorator-01: the pot fill's stand
@@ -25799,7 +25801,9 @@ function sinkGuardFor (c, plan, { noZ0 = false, kind = null, prepExcept = null }
   const roadOwn = kind === 'road' && roads2On()
   const zs = [...c.zones, ...recordZones(others).filter(z => !(prepExcept && z?.id === prepExcept)).filter(z => !(roadOwn && /^(land:road|project:paths)/.test(String(z?.why ?? '')))), ...hallPadZones(plan), ...townMarkerZones()]
   const res = reservations(plan, { zones: zs, wells: c.wells, farm: c.farm, z0: noZ0 ? null : c.z0 })
-  return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? (zs.find(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] && y1 >= b[1] && y0 <= b[4] })?.why ?? null)
+  // zonesite-01show: a zone box that holds the column ALWAYS refuses (sinks.mjs zoneReason) -- a protected zone carries no `why`,
+  // and the old `find(...)?.why ?? null` read its hit as free ground (LIVE 11-15: tower T6 sited inside village-taiga-6_1)
+  return (x, z, y0, y1) => res.column(x, z, y0, y1) ?? zoneReason(zs, x, z, y0, y1)
 }
 /** What a design may spend -> { avail: { stone: n }, torch, campfire }: the town's stock above 64 of each stone plus this bot's bag
  *  above its keeps; torches when the town (above its reserve) and the bag hold 8, a campfire when either holds one. Never throws. */
@@ -26753,6 +26757,23 @@ async function buildSink (ctx, args, signal, proj) {
   let rh = recordHead(dir, key)
   if (!rh.ok) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read`)
   let rec0 = rh.head?.rec ?? null
+  // ZONESITE-01SHOW: AN OPEN TOWER OR SHRINE WITH A CELL THE PROTECTED-ZONE RULE CLOSES IS RETIRED before anything is walked or
+  // built (sinks.mjs zonedInstance / dropInstance): the record goes back to its standing instances, the next visit's gate sites
+  // again -- clear of the zones now (sinkGuardFor). Decided again on the record in force inside the publish; a record that cannot
+  // be written ends the visit `zone_closed` (the order waits: shop.mjs WAIT_STOPS), never a build of it.
+  if (rec0 && (kind === 'tower' || kind === 'shrine')) {
+    const closedAt = at => cellZone(bot.protectZones?.() ?? [], at)
+    const zi = zonedInstance(rec0, closedAt)
+    if (zi) {
+      let pub = null
+      try { pub = publishRecord(dir, key, cur => { const z2 = zonedInstance(cur, closedAt); return z2 ? dropInstance(cur, z2.id) : null }, { by: me }) } catch { pub = null }
+      try { logEvent({ kind: 'sink', status: pub?.result === 'accepted' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: sinkRowDetail({ op: 'retire', kind, id: zi.id, n: zi.n, cells: zi.cells, cell: zi.first, why: `zone:${zi.zone} ${zi.n} of ${zi.cells} cells closed; record ${pub?.result ?? 'error'}` }) }) } catch { /* telemetry */ }
+      rh = recordHead(dir, key)
+      if (!rh.ok) return out('no_effect', 'record_unreadable', `the ${plot} record could not be read`)
+      rec0 = rh.head?.rec ?? null
+      if (rec0 && zonedInstance(rec0, closedAt)) return out('no_effect', 'zone_closed', `${zi.id} has ${zi.n} cell(s) in protected zone ${zi.zone}: bots never build there; its retirement was not written (${pub?.result ?? 'error'}), asked again next visit`.slice(0, 160), { stop: 'zone_closed' })
+    }
+  }
   // DECORATOR-01: the decor is the DECORATOR's alone (decorator.mjs): its lease renewed, the empty pots of its standing batches filled,
   // and -- its next batch due -- the nursery worked for flowers before the gate is asked (the bag's plants size the batch)
   if (kind === 'decor') {
