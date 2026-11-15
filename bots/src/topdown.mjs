@@ -33,10 +33,14 @@
 // rule (made ground apart). (iv) This is NOT a proof that the bot can leave: mineflayer-pathfinder's step up needs the rim
 // at most 1.2 above the floor (fences and walls count 1.5), two blocks of headroom, and the walk profile cannot dig. A bot
 // boxed in at its feet level by blocks that are not terrain relies on the escape reflexes, exactly as before this change.
-// The bot's feet level is feetLevel(y, onGround): floor(y + 0.2) while it stands on something (a path or farmland block is a
-// little short of a full block), and floor(y) - 1 while it is in the air or swimming (review round 5: with the margin a bot
-// mid-jump at y 71.85 read as 72 and was refused a cell whose roof was above its feet). One helper for the search, the target
-// filter and the swing. Off the ground the bot is judged one level LOW: looser for that moment, never stricter.
+// THE BOT'S FEET LEVEL IS NOT ALWAYS KNOWN TO THE BLOCK. feetLevels(y, onGround) gives every level it may be at: one level
+// while it stands on a full block, or on a path, farmland or soul sand block (a little short of full: floor(y + 0.2)); two
+// while it stands on a slab (the level below and the one above), and two while it is in the air or swimming (floor(y) - 1 and
+// floor(y): a jump from 71 passes through y 71.0-72.25). A CELL IS REFUSED ONLY WHEN IT IS REFUSED AT EVERY SUCH LEVEL
+// (topDownCellAt). Reviews 5 and 6 are why: a margin alone read a jumping bot one level HIGH, and judging it one level low
+// was not simply looser either -- with the cover's lowest block exactly at the bot's true level, one level lower finds no
+// cover and the pitted test refuses a cell the standing bot takes. Asking every level the bot may be at cannot be stricter
+// than the truth, whichever of them is the truth. One helper for the search, the target filter and the swing.
 // (Review rounds 1-3 showed that every bot-level notion of "sheltered" -- a trap, a climb remedy, "not from below",
 // a pit test by the walls round the bot, a head-height comparison -- produced a dead end or a loop.)
 //
@@ -130,9 +134,31 @@ export function topDownCell (solidAt, p, blockName, feetY, groundAt = solidAt) {
   return F >= y + 1 && isPitted(groundAt, p) ? { kind: 'pitted' } : null
 }
 
-/** THE BOT'S FEET LEVEL: floor(y + 0.2). A bot on dirt_path or farmland (y = n + 0.9375), mud or soul sand (n + 0.875) stands
- *  on level n + 1, as on grass; a bot on a slab (n + 0.5) is deliberately left one lower -- looser, never stricter. Pure. */
-export const feetLevel = (y, onGround = true) => !Number.isFinite(y) ? null : onGround === false ? Math.floor(y) - 1 : Math.floor(y + 0.2)
+/** ONE LEVEL FOR A STANDING BOT: floor(y + 0.2). A bot on dirt_path or farmland (y = n + 0.9375), mud or soul sand (n + 0.875)
+ *  stands on level n + 1, as on grass. Used by feetLevels and for the telemetry's one number. Pure. */
+export const feetLevel = y => Number.isFinite(y) ? Math.floor(y + 0.2) : null
+/** EVERY LEVEL THE BOT'S FEET MAY BE AT -> [F, ...] lowest first; [] when the height is unknown. Pure. Standing on a full
+ *  block or one a little short of full: one level. On a slab: two. In the air or swimming (onGround === false): two. */
+export function feetLevels (y, onGround = true) {
+  if (!Number.isFinite(y)) return []
+  const lo = Math.floor(y)
+  if (onGround === false) return [lo - 1, lo]
+  const F = feetLevel(y)
+  return F > lo || y === lo ? [F] : [lo, lo + 1]
+}
+/**
+ * THE CELL'S VERDICT FOR A BOT WHOSE FEET MAY BE AT ANY OF `levels` -> what topDownCell gives, chosen so that the cell is
+ * refused only when EVERY level refuses it. Pure. Made ground does not depend on the level. No level known: only made
+ * ground is refused (the rule fails open). If any level takes the cell, that level's answer is returned (an `under` one
+ * first, so the from-below count sees it).
+ */
+export function topDownCellAt (solidAt, p, blockName, levels, groundAt = solidAt) {
+  const ls = Array.isArray(levels) ? levels : [levels]
+  const cells = (ls.length ? ls : [null]).map(F => topDownCell(solidAt, p, blockName, F, groundAt))
+  const taken = cells.filter(c => !c || c.kind === 'under')
+  if (taken.length) return taken.find(c => c) ?? null
+  return cells[0]
+}
 export const topDownVerdict = (solidAt, p, blockName, feetY, groundAt = solidAt) => topDownCell(solidAt, p, blockName, feetY, groundAt)?.kind ?? null
 
 /**
