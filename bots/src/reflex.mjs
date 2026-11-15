@@ -10,7 +10,7 @@
 
 import { haltPath } from './pathhalt.mjs'
 import { activeReflexOf } from './pickuplog.mjs'   // telemetry only: names the arm for the pickup log
-import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted, TOOL_HYGIENE, remaining, HARD_STOP, toolFor } from './toolfor.mjs'
+import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldPickOf, scaffoldRank, tossAverted, TOOL_HYGIENE, remaining, HARD_STOP, toolFor } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -3759,9 +3759,9 @@ async function safeEmptyHand (bot, site) {
 /** The escape's scaffold, cheapest first (pickScaffold). `_scaffold_pick` when it spares a stack the old inventory-order pick would have spent. */
 function scaffoldFor (bot, site) {
   const items = bot.inventory?.items?.() ?? []
-  const chosen = pickScaffold(items, PLACEABLE)
-  const old = items.find(it => PLACEABLE.test(it.name))
-  if (chosen && old && chosen.name !== old.name && scaffoldRank(old.name) > scaffoldRank(chosen.name)) {
+  // landprev-01show: the same order pickScaffold used, the cobblestone keep included (toolfor.mjs scaffoldPickOf)
+  const { chosen, old, spared } = scaffoldPickOf(items, PLACEABLE)
+  if (spared) {
     logEvent({ kind: 'scaffold_pick', status: 'success', detail: `${site}: ${chosen.name} instead of ${old.name}` })
   }
   return chosen
