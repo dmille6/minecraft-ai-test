@@ -101,7 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
-import { topDownOn, topDownRefuses, topDownRemedy, topDownModeDetail, isRoofBlock } from './topdown.mjs'   // topdown-01
+import { topDownOn, topDownRefuses, topDownRemedy, topDownModeDetail, isRoofBlock, topDownTrapCounts, topDownGiveUp } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
@@ -378,6 +378,8 @@ const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z 
 const roofAt = bot => (x, y, z) => isRoofBlock(bot.blockAt(new Vec3(x, y, z)))
 const topDownHit = (bot, p, name) => topDownOn() && !!p && topDownRefuses(roofAt(bot), p, name) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now())
 const _tdModeSaid = new WeakSet()
+// topdown-01: thrown from gather's matcher to abandon one search (TOPDOWN.giveUp), caught around that findBlocks call only
+const TD_GIVE_UP = Object.freeze({ topDownGiveUp: true })
 const _gzModeSaid = new WeakSet()
 // What the bot holds that THE PATHFINDER can tower with: its own list (movements.scafoldingBlocks, item ids), not
 // exit-contract's scaffoldCount -- that one counts sand, gravel and stripped logs, which the pathfinder never places, so a
@@ -1739,6 +1741,8 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
     throw Object.assign(new Error(`town_ground: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${townOk.remedy}`),
       { failClass: 'no_safe_target' })
   }
+  // topdown-01: does the trap let this cell through? Asked once, BEFORE the zone's line below may count the trap down
+  const tdTrapLets = !!bot?.gatherTrap && gatherTrapAllows(bot.gatherTrap, block.position, Date.now())
   // CLEANZONE-02: the same independent conjunction for the clean zone (the admission may be stale: a walk moved the bot)
   // a cell the trap lets through is counted here, where it is dug (the enumeration and the target filter only ask)
   if (bot?.gatherTrap && gatherTrapAllows(bot.gatherTrap, block.position, Date.now()) && gatherZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y)) bot.gatherTrap.left--
@@ -1747,8 +1751,10 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
     throw Object.assign(new Error(`clean_zone: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${gatherZoneRemedy(gatherZoneNow())}`),
       { failClass: 'no_safe_target' })
   }
-  // TOPDOWN-01: the same independent conjunction at the swing (the admission may be stale: the ground changed under it)
-  if (topDownHit(bot, block.position, block.name)) {
+  // TOPDOWN-01: the same independent conjunction at the swing (the admission may be stale: the ground changed under it).
+  // A cell the trap lets through and only this rule refuses is counted here, as the zone's are above (topDownTrapCounts)
+  if (tdTrapLets && topDownOn() && topDownTrapCounts(tdTrapLets, topDownRefuses(roofAt(bot), block.position, block.name), gatherZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y))) bot.gatherTrap.left--
+  else if (topDownHit(bot, block.position, block.name)) {
     try { logEvent({ kind: 'gather_topdown', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
     throw Object.assign(new Error(`under_roof: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${topDownRemedy(block.name, 1, 0)}`),
       { failClass: 'no_safe_target' })
@@ -2343,6 +2349,9 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let zoneSkipped = 0   // cleanzone-02: clean-zone ground the enumeration skipped this round
   let roofSkipped = 0   // topdown-01: ground under a roof the enumeration skipped this round
   let roofSaid = false  // topdown-01: the run's one `_gather_topdown` row
+  let roofSearch = 0    // topdown-01: in-range cells this rule skipped in the CURRENT findBlocks call (TOPDOWN.giveUp)
+  let roofGaveUp = false   // topdown-01: a search this round was abandoned
+  let roofHits = []     // topdown-01: in-range cells the CURRENT findBlocks call's matcher accepted
   let zoneWalked = 0    // cleanzone-02: exits this run walked to (the remedy, performed)
   let zoneExit = null   // cleanzone-02: the last exit tried (named when the run fails)
   let zoneClimb = 0     // cleanzone-02: walks repeated from a pit by a bot that holds what a climb needs
@@ -2405,7 +2414,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       if (b.position && gatherZoneHit(bot, b.position, b.name)) { if (searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) zoneSkipped++; return false }
       // topdown-01: AT ENUMERATION as well, IN RANGE only (the column above each cell is read, and mineflayer calls the
       // matcher before its own distance test): the 32 the search returns are the nearest that lie open or deep
-      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && topDownHit(bot, b.position, b.name)) { roofSkipped++; return false }
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && topDownHit(bot, b.position, b.name)) { roofSkipped++; if (topDownGiveUp(++roofSearch)) throw TD_GIVE_UP; return false }
       if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
@@ -2413,11 +2422,23 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // in range only: mineflayer calls the matcher before its own distance test (blocks.js:185), so the memo -- and the
       // round's skip count -- would otherwise hold cells findBlocks discards (Codex r4 P2-3)
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false
+      // topdown-01: what this search has accepted so far, in range (kept if the search is given up: findBlocks' own list is lost)
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) roofHits.push(b.position.clone ? b.position.clone() : b.position)
       return true
     }
+    // topdown-01: one findBlocks with the matcher above. A search this rule abandoned (TD_GIVE_UP) returns what its matcher had
+    // accepted before it stopped (nearest 32), which is empty where everything near is roofed: then the fallback is asked
+    const findGround = id => {
+      roofSearch = 0; roofHits = []
+      try { return bot.findBlocks({ matching: notTown(id), maxDistance, count: 32 }) } catch (e) {
+        if (e !== TD_GIVE_UP) throw e
+        roofGaveUp = true
+        return roofHits.sort((a, b) => a.distanceTo(searchFrom) - b.distanceTo(searchFrom)).slice(0, 32)
+      }
+    }
+    roofGaveUp = false
     ko?.refresh?.()
-    let positions = bot
-      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })
+    let positions = findGround(type.id)
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
     let viaSource = null
     // How many foliage-covered logs the fallback below admitted this round, or 0.
@@ -2429,8 +2450,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         if (alt === blockName) continue
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
-        const found = bot
-          .findBlocks({ matching: notTown(altType.id), maxDistance, count: 32 })
+        const found = findGround(altType.id)
           .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
         if (found.length) {
           positions = found
@@ -2450,7 +2470,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     if (topDownOn() && !_tdModeSaid.has(bot)) { _tdModeSaid.add(bot); try { logEvent({ kind: 'gather_topdown', status: 'success', detail: topDownModeDetail() }) } catch { /* telemetry */ } }
     if (roofSkippedNow > 0 && !roofSaid) {
       roofSaid = true
-      try { logEvent({ kind: 'gather_topdown', status: positions.length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=skip block=${blockName} skipped=${roofSkippedNow} via=${viaSource ?? '-'} found=${positions.length}` }) } catch { /* telemetry */ }
+      try { logEvent({ kind: 'gather_topdown', status: positions.length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=skip block=${blockName} skipped=${roofSkippedNow} via=${viaSource ?? '-'} found=${positions.length}${roofGaveUp ? ' gave_up=1' : ''}` }) } catch { /* telemetry */ }
     }
     const skippedNow = townSkipped
     if (townSkipped) { noteTownGround(bot, 'gather_skipped', townSkipped); townSkipped = 0 }
@@ -2683,8 +2703,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         if (alt === blockName) continue
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
-        const found = bot
-          .findBlocks({ matching: notTown(altType.id), maxDistance, count: 32 })
+        const found = findGround(altType.id)
           .filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
         const cand = found.filter(exposed).filter(safeTarget)
         const ok = [...cand.filter(approachable), ...cand.filter(q => !approachable(q))]
