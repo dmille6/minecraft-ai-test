@@ -58,14 +58,18 @@ t('THE CLIMB OPTS OUT: it wants the hole, not the cobble', () => {
   const digs = code.match(/withTimeout\(bot\.dig\([^;]*?\}\)/gs) ?? []
   // + wear_out's dig (2026-09-29). lidclear-01 (2026-10-16): deposit's and withdraw's two chest-lid digs became ONE, in
   // clearChestLid, wrapped in the dig instrument's scope -- asserted separately below (it opts out: it wants the lid gone)
-  assert.equal(digs.length, 7, `expected 7 bare dig call sites, found ${digs.length}`)
+  // glass-01 (2026-11-08): + the sand dig and the window dig (glassSandWalk / glassGlazeWalk)
+  assert.equal(digs.length, 9, `expected 9 bare dig call sites, found ${digs.length}`)
   const lidDigs = code.match(/withTimeout\(withDigScope\(bot, \{ purpose: 'lid', by \}, \(\) => bot\.dig\([^;]*?\}\)/gs) ?? []
   assert.equal(lidDigs.length, 1, 'the one chest-lid dig (clearChestLid)')
   assert.match(lidDigs[0], /needsDrop:\s*false/, 'the lid dig wants the hole: a bare hand never harvests cobblestone')
   const optedOut = digs.filter(d => /needsDrop:\s*false/.test(d))
   // wear_out opts out too: it digs to BREAK THE TOOL, and the drop is irrelevant (hygiene.mjs)
-  assert.equal(optedOut.length, 6,
-    'the two escape digs, the staircase re-dig, place()\'s make-room dig, goto\'s float dig and wear_out\'s dig ' +
+  // glass-01: the sand dig counts its own pick-ups (got / nopick, stops after three misses) and the window dig opens the
+  // window cell for a pane, so neither may wait on the harvest watchdog
+  assert.equal(optedOut.length, 8,
+    'the two escape digs, the staircase re-dig, place()\'s make-room dig, goto\'s float dig, wear_out\'s dig, ' +
+    'the glass sand dig (it counts its own pick-ups) and the window dig (it wants the cell open for a pane) ' +
     'may opt out (the chest-lid dig opts out too, asserted above) — they want the HOLE, not the drop. The staircase one ' +
     'recovers a dig the server did not accept; make-room opens one cell for a station ' +
     'in a tunnel; the float dig breaks what the pathfinder planned to break but will ' +

@@ -432,6 +432,8 @@ const REQUIRED = [
   'bots/src/gkforever.mjs',
   'bots/src/roughground.mjs',   // roughground-01 (11-07)
   'bots/test/roughground.test.mjs',   // roughground-01 (11-07)
+  'bots/src/regrade.mjs',   // roughground-4 (11-07): the wide-area regrade
+  'bots/test/regrade.test.mjs',   // roughground-4 (11-07)
   'bots/test/gkforever.test.mjs',
   'bots/test/chestcarry.test.mjs',   // chestcarry-01 (11-09): a carried chest is placed past the 4-a-day new-chest budget
   'docs/reports/gkforever-design-2026-11-06.md',

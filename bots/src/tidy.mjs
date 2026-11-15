@@ -38,7 +38,9 @@ export const SPOIL = /^(dirt|coarse_dirt|grass_block|cobblestone|mossy_cobblesto
 export const TIDY_PALETTE = Object.freeze({ earth: ['dirt', 'cobblestone', 'coarse_dirt', 'cobbled_deepslate', '*solid'],
   // groundskeeper-01: a BURIED fill cell (under a column's top fill) takes the town's surplus cobblestone first (a sink for the
   // resource model, resource-model-1102); the top stays dirt (it greens); a road's light is a torch
-  core: ['cobblestone', 'cobbled_deepslate', 'dirt', 'coarse_dirt', '*solid'], light: ['torch'] })
+  core: ['cobblestone', 'cobbled_deepslate', 'dirt', 'coarse_dirt', '*solid'], light: ['torch'],
+  // roughground-2: a lawn cell laid again where the bots' cobble stood -- dirt (the grass round it greens it), done once dirt or grass
+  topsoil: ['dirt', 'grass_block'] })
 /** A complete tidy is surveyed again after this long (the bots keep digging and climbing). */
 export const TIDY_RESURVEY_MS = 48 * 60 * 60_000
 /** A cut a bot found no stand for (or that did not come down) in this many of its visits is given up by that bot; the record
@@ -270,7 +272,7 @@ export function tidyRecord (s, { home, plan = null, now = Date.now(), r = TIDY.r
       const k = f.at[1] - base.get(k2(f.at[0], f.at[2]))
       const seg = segOf(group, k)
       if (!segs.has(seg)) { segs.add(seg); segments.push({ seg, deps: k > 0 ? [segOf(group, k - 1)] : [] }) }
-      cells.push({ at: f.at, role: 'earth', seg })
+      cells.push({ at: f.at, role: f.role === 'topsoil' ? 'topsoil' : 'earth', seg })   // roughground-2: a lawn's topsoil is dirt only
     }
   }
   // every group's ground layer first, then every group's next (a visit meets a layer whose dependency another builder holds only
