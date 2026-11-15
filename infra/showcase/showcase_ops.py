@@ -906,7 +906,10 @@ def soak_clock(deploy_rows):
        | 'start'      (since = the newest start's run_since, or its row time when run_since is unreadable or out of order)
        | 'not_started' (the activation says running_bots 0 and no start-verified follows: since None, the 3 h have not begun)
        | 'no_time'    (the row the clock rests on has no readable time: since None; never an older row in its place)
-    Only start-verified resets it: a planned server restart (start-bots-after-restart) is minutes, and is not a new soak."""
+    Only start-verified resets it, and EVERY one does: any run of start-bots.sh on the live release starts the 3 h again (a
+    return from quarantine, visuals/restart-sr.sh), which fails closed. A restart that starts the units itself and journals
+    only start-bots-after-restart does not. NOT COUNTED YET (second review, a design call): a stop-bots with no start after
+    it -- bots stopped 20 min after the switch still read as running until they are started again."""
     live, at = _live_at(deploy_rows)
     out = {'live': live, 'since': None, 'how': 'no_time', 'activated': None}
     if live is None or not live.get('release'):

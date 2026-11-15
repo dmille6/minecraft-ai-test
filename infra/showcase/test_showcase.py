@@ -1287,6 +1287,11 @@ class SoakGate(unittest.TestCase):
         before = [{'t': z(-600), 'event': 'activated', 'release': self.LIVE}, {'t': z(-590), 'event': 'start-verified', 'release': self.LIVE, 'run_since': z(-594)}] + read
         self.assertEqual(SO.soak_clock(before)['how'], 'activation')
         self.assertEqual(self.ref(before, 400), '')
+        # ...and when this activation had no bot running, that earlier start does not start this run's clock (second review:
+        # the label alone killed the mutant; this is the gate's answer)
+        cold = [dict(r, running_bots=0) if r.get('t') == z(0) else r for r in before]
+        self.assertEqual(SO.soak_clock(cold)['how'], 'not_started')
+        self.assertIn('have not begun', self.ref(cold, 400), 'a read 3 h after a switch with no bot running opens nothing')
 
     def test_the_start_time_is_run_since_when_it_can_be_trusted(self):
         z = lambda m: (self.T0 + dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ')
