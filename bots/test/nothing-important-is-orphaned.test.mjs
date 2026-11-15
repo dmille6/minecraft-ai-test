@@ -772,6 +772,10 @@ const REQUIRED = [
   'scripts/host/test_groundledger.py',
   'bots/test/groundledger.test.mjs',
   'docs/reports/land-eval-2026-11-14/ledger-first-run.md',
+  'scripts/host/groundplan.py',   // owner 11-15, step N3 (offline half): the ledger's damage turned into fill, cut and pick-up jobs under the dirt-cap rule
+  'scripts/host/test_groundplan.py',
+  'bots/test/groundplan.test.mjs',
+  'docs/reports/land-eval-2026-11-14/plan-first-run.md',
   'docs/reports/land-eval-2026-11-14/dirt-loop.md',   // why the bots hollow out the ground, what the 11-13 rule moved, what would stop it
   'docs/reports/land-eval-2026-11-14/RECOMMENDATION.md',   // owner 11-14: keep / restructure / start fresh for the land cleanup code: both engines say restructure around a new core
   'docs/reports/land-eval-2026-11-14/QUESTION.md',   // the brief both evaluators got
