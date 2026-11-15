@@ -182,7 +182,8 @@ def the_whole_map_skips_chunks_never_saved_again_and_bands_by_distance(G):
             cells = [[x, y, z, 0 if y < 70 else 1] for x in range(x0, x1 + 1) for z in range(z0, z1 + 1) for y in range(60, 71)]
             if d == 'live' and (x0 >> 4, z0 >> 4) == (1, 0):
                 cells += [[x0, 71, z0, 2], [x0, 72, z0, 2]]              # a dirt pillar at the chunk's corner
-            return {'palette': [{'name': n} for n in names], 'cells': cells, 'missing_chunks': 0, 'chunks': 1}
+            return {'palette': [{'name': n} for n in names], 'cells': cells, 'missing_chunks': 0, 'chunks': 1,
+                    'unfinished_chunks': 1 if (d == 'live' and (x0 >> 4, z0 >> 4) == (9, 9)) else 0}
     stamps = {'base': {(0, 0): 5, (1, 0): 5, (9, 9): 5}, 'live': {(0, 0): 5, (1, 0): 6, (9, 9): 5}}
     real = G.chunk_stamps
     G.chunk_stamps = lambda d: stamps[d]
@@ -193,7 +194,8 @@ def the_whole_map_skips_chunks_never_saved_again_and_bands_by_distance(G):
         assert s['columns_by_band']['64'] == {'pillar': 1, 'natural': 255} and rows == [[1, 0, 24, {'pillar': 1}]], (s, rows)
         RD.calls.clear()
         s2, _ = G.whole_map(RD, 'base', 'live', 0, 0, y_lo=60, y_hi=80, same_copy=False)   # a regenerated base: every chunk is read
-        assert s2['chunks_read'] == 3 and s2['chunks_saved_again'] is None, s2
+        # chunk (9, 9) never finished generating in the live save: it is left out and counted, never read as empty ground
+        assert s2['chunks_read'] == 2 and s2['chunks_unfinished'] == 1 and s2['chunks_saved_again'] is None, s2
     finally:
         G.chunk_stamps = real
 
@@ -211,6 +213,7 @@ MUTANTS = [
     ("    if THING_RE.search(name):\n        return THING", "    if False:\n        return THING", a_torch_or_a_table_is_a_thing_not_ground),
     ("                if d <= r:", "                if True:", the_ledger_counts_columns_by_ring_and_the_control_is_all_natural),
     ("    todo = [c for c in shared if not same_copy or bs[c] != ls[c]]", "    todo = list(shared)", the_whole_map_skips_chunks_never_saved_again_and_bands_by_distance),
+    ("        if bd.get('unfinished_chunks') or ld.get('unfinished_chunks'):     # half-generated: its missing ground is not a pit", "        if False:", the_whole_map_skips_chunks_never_saved_again_and_bands_by_distance),
 ]
 
 

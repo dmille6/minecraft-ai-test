@@ -212,6 +212,14 @@ events; one proper stair shaft and a filled pit field), a cave under the east hi
 uses failed; a tread sits in an open cave), the junk well (236 of 431 attempts failed; a four-step stair on its west
 face), and five storage chest cells no bot can reach (the same five in all 950 audit rows). Not built.
 
+**The showcase over the whole map (11-15): [`showcase-whole-map.md`](../reports/land-eval-2026-11-14/showcase-whole-map.md).**
+The untouched world was regenerated for the whole map on ci3 (24,025 chunks, 17 minutes) and matches the older copy on
+99.58% of solid cells; the rest is small differences in rock and ore patches, so a regeneration has a noise floor (2.3%
+of columns in chunks no bot ever visited read as changed). 17,176 finished chunks were read. Not natural: 87% of columns
+within 64 blocks of home, 29% from 65 to 128, 9% from 129 to 256, 7% from 257 to 512, 2% beyond. After the noise floor
+about 13,000 columns in about 1,800 chunks beyond 128 blocks are probably the bots' work. The 12 most changed chunks are
+all within 72 blocks of home. A new world does not have this noise: its frame-zero copy is exact.
+
 **The cause (11-15): [`dirt-loop.md`](../reports/land-eval-2026-11-14/dirt-loop.md).** Dirt is what the bots gather most
 (48% of gather actions on 11-12) because the escape code climbs with dirt first; a request for dirt takes the block under
 the grass and leaves a roofed gap. The 11-13 rule stopped it inside the town square but moved it to a ring just outside:

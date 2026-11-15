@@ -265,6 +265,9 @@ def main(argv=None):
         if d['missing_chunks'] or not d['chunks']:
             raise SystemExit('REFUSED: the %s save has %d missing chunk(s) under the box (%d read): a missing chunk is not empty ground'
                              % (nm, d['missing_chunks'], d['chunks']))
+        if d.get('unfinished_chunks'):
+            raise SystemExit('REFUSED: the %s save has %d chunk(s) under the box that never finished generating: their missing ground is not a pit'
+                             % (nm, d['unfinished_chunks']))
     p = plan(G.columns_of(bd), G.columns_of(ld), cx, cz, a.radius, y_lo, y_hi,
              G.owned_cells(a.pool) if a.pool else None, a.mine_depth, a.tile, a.job_max)
     print(render(p['summary'], bd, ld))

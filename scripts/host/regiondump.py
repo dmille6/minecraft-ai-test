@@ -157,7 +157,7 @@ def _chunk_bytes(region_dir, f, cx, cz, off):
 
 def _dump_once(region_dir, x0, x1, z0, z1, y0, y1):
     palette, pal_ix, cells = [], {}, []
-    got = missing = 0
+    got = missing = unfinished = 0
     oldest = newest = None
     for cx in range(x0 >> 4, (x1 >> 4) + 1):
         for cz in range(z0 >> 4, (z1 >> 4) + 1):
@@ -178,6 +178,10 @@ def _dump_once(region_dir, x0, x1, z0, z1, y0, y1):
             newest = mt if newest is None else max(newest, mt)
             nbt = parse_nbt(data)
             got += 1
+            # a chunk the server never finished generating holds only part of its ground (11-15: 6,780 such chunks at the edge of the
+            # showcase's map read as 1.44 million false pits). Its cells are still returned; the count lets a caller refuse it.
+            if str(nbt.get('Status') or 'minecraft:full').replace('minecraft:', '') != 'full':
+                unfinished += 1
             for sec in nbt.get('sections') or []:
                 sy = sec.get('Y')
                 if sy is None or sy * 16 + 15 < y0 or sy * 16 > y1:
@@ -197,7 +201,7 @@ def _dump_once(region_dir, x0, x1, z0, z1, y0, y1):
                     cells.append([x, y, z, ix])
     iso = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if t else None
     return {'saved': iso(oldest), 'saved_newest': iso(newest),
-            'chunks': got, 'missing_chunks': missing, 'floor_y': y0, 'box': [x0, x1, z0, z1, y0, y1], 'palette': palette, 'cells': cells}
+            'chunks': got, 'missing_chunks': missing, 'unfinished_chunks': unfinished, 'floor_y': y0, 'box': [x0, x1, z0, z1, y0, y1], 'palette': palette, 'cells': cells}
 
 
 def main(argv=None):

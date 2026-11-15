@@ -265,7 +265,7 @@ def whole_map(RD, base_dir, live_dir, cx, cz, own=None, mine_depth=8, y_lo=-64, 
     shared = sorted(set(bs) & set(ls))
     todo = [c for c in shared if not same_copy or bs[c] != ls[c]]
     by_band = {b: collections.Counter() for b in BANDS}
-    cells, rows, unread = collections.Counter(), [], 0
+    cells, rows, unread, unfinished = collections.Counter(), [], 0, 0
     for n, (kx, kz) in enumerate(todo):
         box = (kx * 16, kx * 16 + 15, kz * 16, kz * 16 + 15, y_lo, y_hi)
         try:
@@ -275,6 +275,9 @@ def whole_map(RD, base_dir, live_dir, cx, cz, own=None, mine_depth=8, y_lo=-64, 
             continue
         if bd['missing_chunks'] or ld['missing_chunks']:
             unread += 1
+            continue
+        if bd.get('unfinished_chunks') or ld.get('unfinished_chunks'):     # half-generated: its missing ground is not a pit
+            unfinished += 1
             continue
         bc, lc = columns_of(bd), columns_of(ld)
         cc = collections.Counter()
@@ -290,15 +293,15 @@ def whole_map(RD, base_dir, live_dir, cx, cz, own=None, mine_depth=8, y_lo=-64, 
         if progress and n % 200 == 0:
             progress(n, len(todo))
     summary = {'center': [cx, cz], 'chunks_shared': len(shared), 'chunks_saved_again': len(todo) if same_copy else None,
-               'chunks_read': len(todo) - unread, 'chunks_unread': unread, 'columns_by_band': {str(b): dict(c) for b, c in by_band.items()},
+               'chunks_read': len(todo) - unread - unfinished, 'chunks_unread': unread, 'chunks_unfinished': unfinished, 'columns_by_band': {str(b): dict(c) for b, c in by_band.items()},
                'cells': dict(cells)}
     return summary, rows
 
 
 def render_whole(summary, rows):
     out = ['GROUND LEDGER, WHOLE MAP  centre %s' % summary['center'],
-           'CONTROL chunks in both saves %s | saved again since the untouched copy %s | read %s | unreadable %s' % (
-               summary['chunks_shared'], summary['chunks_saved_again'], summary['chunks_read'], summary['chunks_unread']),
+           'CONTROL chunks in both saves %s | saved again since the untouched copy %s | read %s | unreadable %s | never finished generating, left out %s' % (
+               summary['chunks_shared'], summary['chunks_saved_again'], summary['chunks_read'], summary['chunks_unread'], summary['chunks_unfinished']),
            '', 'columns by class, by distance from the centre (bands; only chunks that were read):',
            '  %8s %9s %s' % ('up to', 'columns', '  '.join('%10s' % c for c in CLASSES))]
     for b, c in summary['columns_by_band'].items():
@@ -363,6 +366,9 @@ def main(argv=None):
         if d['missing_chunks'] or not d['chunks']:
             raise SystemExit('REFUSED: the %s save has %d missing chunk(s) under the box (%d read): a missing chunk is not empty ground'
                              % (nm, d['missing_chunks'], d['chunks']))
+        if d.get('unfinished_chunks'):
+            raise SystemExit('REFUSED: the %s save has %d chunk(s) under the box that never finished generating: their missing ground is not a pit'
+                             % (nm, d['unfinished_chunks']))
     summary, rows = ledger(columns_of(bd), columns_of(ld), cx, cz, a.radius, y_lo, y_hi,
                            owned_cells(a.pool) if a.pool else None, a.mine_depth)
     print(render(summary, bd, ld))
