@@ -22,15 +22,19 @@
 //   is refused the cave's walls and floor. There is no depth constant.
 //
 // NO SHAFTS (pitted). Once the grass is dug the dirt under it lies open; taking that, then the next, sinks a pit. An
-// uncovered cell with 2 or more of its four sides higher (a roof block at c.y + 1) is refused, but only when it lies BELOW
+// uncovered cell with 2 or more of its four sides higher (GROUND -- a terrain roof block -- at c.y + 1; a fence, planks or
+// glass is not a higher side) is refused, but only when it lies BELOW
 // the bot's feet (F >= c.y + 1): the bot would be deepening a hole at or below its own feet. A bot beside such a cell at its
 // own level takes it (a recess in the wall of the hole it stands in). A scrape widens before it deepens.
 //
-// THE INVARIANT (proved over a grid in topdown.test.mjs): whenever a cell is refused as roofed, the top of its cover is at
-// or below the bot's feet, so the walking surface over it is at most ONE above the bot's feet: the bot can jump out with
-// nothing in its bag, and no claim about rim material or pickup reach is needed. Whenever a cell is refused as pitted, it
-// lies below the bot's feet. Therefore every cell at the bot's own feet level or above that the base would take is still
-// taken. (Review rounds 1-3 showed that every bot-level notion of "sheltered" -- a trap, a climb remedy, "not from below",
+// WHAT IS PROVEN (over a grid in topdown.test.mjs), about HEIGHTS: (i) a cell is refused as roofed only when its cover tops
+// out at or below the bot's feet; (ii) a cell is refused as pitted only when it lies below the bot's feet and stands lower
+// than ground on two or more sides; (iii) therefore terrain at the bot's own feet level or above is never refused by this
+// rule (made ground apart). (iv) This is NOT a proof that the bot can leave: mineflayer-pathfinder's step up needs the rim
+// at most 1.2 above the floor (fences and walls count 1.5), two blocks of headroom, and the walk profile cannot dig. A bot
+// boxed in at its feet level by blocks that are not terrain relies on the escape reflexes, exactly as before this change.
+// The bot's feet level is feetLevel(y) = floor(y + 0.2), one helper for the search, the target filter and the swing.
+// (Review rounds 1-3 showed that every bot-level notion of "sheltered" -- a trap, a climb remedy, "not from below",
 // a pit test by the walls round the bot, a head-height comparison -- produced a dead end or a loop.)
 //
 // KNOWN LIMIT. On a hillside rising one block a column, a bot at its foot (feet S+1) is refused the first uphill column
@@ -53,7 +57,8 @@
 //
 // A BOUNDED SEARCH. Where everything near is refused, mineflayer's findBlocks cannot stop early. After `giveUp` in-range
 // cells skipped by this rule in one search, the caller abandons that search and keeps only what it had accepted before it
-// stopped, asked again through the whole matcher chain; the fallback (the block on top) is asked next, the same way. Only
+// stopped, asked again through the whole matcher chain; the fallback (the block on top) is asked next, the same way, and
+// again when every kept cell proved unusable (a block floating over the lawn). Only
 // REFUSALS count: a cell the rule accepts never helps abandon a search (review r4: a read budget that counted accepted cells
 // threw away a miner's own tunnel walls). The scan reads at most F - c.y + 1 cells, plus 4 for the pitted test, so the reads
 // spent on refusals before a give-up are at most giveUp x (maxDistance + 6); no read budget is needed.
@@ -75,7 +80,8 @@ export const topDownOn = (env = process.env) => !/^(off|0|false|no)$/i.test(Stri
 /** Is this block a roof? A full block that is not foliage. `b` is a mineflayer block or null (unread: not a roof). Pure. */
 export const isRoofBlock = b => !!b && b.boundingBox === 'block' && !LEAVES.test(String(b.name ?? ''))
 
-/** How many of the cell's four horizontal neighbours have a roof block at y+1 (the ground beside it stands higher)? Pure. */
+/** How many of the cell's four horizontal neighbours have ground at y+1 (the ground beside it stands higher)? Pure.
+ *  `solidAt` here is a GROUND reader (topDownCell's groundAt): a fence, a wall, planks, glass or a log is not a higher side. */
 export function hemmedIn (solidAt, p) {
   if (!p || typeof solidAt !== 'function') return 0
   const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
@@ -109,17 +115,22 @@ export function coverFor (solidAt, p, feetY) {
 /**
  * The cell's verdict for a bot whose feet are at `feetY` -> null (taken) | { kind: 'made' | 'roofed' | 'pitted' } | { kind:
  * 'under', h } (covered, but the cover rises above the bot: taken, and counted as taken from below). Pure.
+ * `groundAt(x, y, z)` -> truthy for a TERRAIN roof block: only ground makes a higher side for the pitted test (review r5).
  */
-export function topDownCell (solidAt, p, blockName, feetY) {
+export function topDownCell (solidAt, p, blockName, feetY, groundAt = solidAt) {
   if (!p || !isTerrain(blockName) || ORE.test(blockName)) return null
   if (isMadeGround(blockName)) return { kind: 'made' }
   if (!Number.isFinite(feetY)) return null
   const F = Math.floor(feetY), y = Math.floor(p.y)
   const c = coverFor(solidAt, p, F)
   if (c) return c.t <= F ? { kind: 'roofed', h: c.h, t: c.t } : { kind: 'under', h: c.h }
-  return F >= y + 1 && isPitted(solidAt, p) ? { kind: 'pitted' } : null
+  return F >= y + 1 && isPitted(groundAt, p) ? { kind: 'pitted' } : null
 }
-export const topDownVerdict = (solidAt, p, blockName, feetY) => topDownCell(solidAt, p, blockName, feetY)?.kind ?? null
+
+/** THE BOT'S FEET LEVEL: floor(y + 0.2). A bot on dirt_path or farmland (y = n + 0.9375), mud or soul sand (n + 0.875) stands
+ *  on level n + 1, as on grass; a bot on a slab (n + 0.5) is deliberately left one lower -- looser, never stricter. Pure. */
+export const feetLevel = y => Number.isFinite(y) ? Math.floor(y + 0.2) : null
+export const topDownVerdict = (solidAt, p, blockName, feetY, groundAt = solidAt) => topDownCell(solidAt, p, blockName, feetY, groundAt)?.kind ?? null
 
 /**
  * Does the rule refuse a cell (topDownCell)? Pure. made: always (every bot, the trap's cells too). roofed and pitted: unless
