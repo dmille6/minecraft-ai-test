@@ -52,8 +52,8 @@ await t('MUTANT the misplaced booking dropped: the wrong-state block leaves the 
     assert.notStrictEqual(kit[n] - e.inv[n], r.placedBy[n] ?? 0, 'the mutant leaves one stair unbooked')
   }))
 await t('MUTANT the aim dropped from the send: the roof never completes', () => withMutant(
-  "        e.send(here.support, here.face, seq, here.aim ?? null)",
-  "        e.send(here.support, here.face, seq)", async M => {
+  "        if (e.send(here.support, here.face, seq, here.aim ?? null) === false) { cancel(); return 'zoned' }",   // zonesite-01show: the send answers false when the zone guard closes it
+  "        if (e.send(here.support, here.face, seq) === false) { cancel(); return 'zoned' }", async M => {
     const { r } = await buildCottage('s', { Mod: M })
     assert.notStrictEqual(r.stop, 'complete')
   }))
