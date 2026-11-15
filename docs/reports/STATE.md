@@ -4,20 +4,20 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-15T06:20:01Z._
+_Generated 2026-11-15T07:20:01Z._
 
 | | Now |
 |---|---|
-| **Fleet** | `01ab2784` = roughground-04 `01ab2784` (KEEP 11-15 04:46Z, promoted 11-15 04:59Z) on roughground-02 `382cda91` (KEEP 11-15 01:14Z, promoted 11-15 01:25Z) on glass-01 `147802fd` (KEEP 11-14 21:05Z, promoted 11-14 21:16Z) on lidground-01 `5904919d` (KEEP 11-14 08:28Z, promoted 11-14 08:38Z) on roughground-01 `e32152d8` (KEEP 11-14 03:02Z, promoted 11-14 03:12Z) on villageunlock-01 `0c9a6138` (KEEP 11-13 23:35Z, promoted 11-13 23:45Z) |
-| **Canary in slot** | **pause30-01** running (no `deployed` row yet: drawing or preflight) |
+| **Fleet** | `01ab2784` = roughground-04 `01ab2784` (KEEP 11-15 04:46Z, promoted 11-15 04:59Z) on roughground-02 `382cda91` (KEEP 11-15 01:14Z, promoted 11-15 01:25Z) on glass-01 `147802fd` (KEEP 11-14 21:05Z, promoted 11-14 21:16Z) on lidground-01 `5904919d` (KEEP 11-14 08:28Z, promoted 11-14 08:38Z) on roughground-01 `e32152d8` (KEEP 11-14 03:02Z, promoted 11-14 03:12Z) on villageunlock-01 `0c9a6138` (KEEP 11-13 23:35Z, promoted 11-13 23:45Z). Live builds: {'01ab2784ca1b462945a15b565e4fd115d13ecba6+52cc2a': 60, 'c3cf4cff5fcebd486620c2bdee32ce17f51ef50b+481f91': 20} |
+| **Canary in slot** | **pause30-01** deployed 11-15 06:29Z; reads +90 11-15 07:59Z, +180 11-15 09:29Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | irongap-01 -> obsidian-01 -> bamboowalk-01 -> kittrim-01 -> pathsfix-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> market-02 -> +1 more. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
-| **Scheduler** | busy S2 running: canary-loop.sh (pid 2919506: bash /home/mike/canary-loop.sh pause30-01) / S7 pause30-01 is live |
-| **Showcase release** | `46286e9e` (50,789 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 46286e9e's protected tree: restack by hand; row 11-15 05:25Z) |
+| **Scheduler** | busy S1 canary declared: c3cf4cff5fcebd486620c2bdee32ce17f51ef50b on hive-c,hive-d,placebo-d,hive-a / S6 open loop: canary c3cf4cf is deployed on hive-c,hive-d,placebo-d,hive-a with no KEEP/REVERT/INCONCLUSIVE recorded — read it before star |
+| **Showcase release** | `46286e9e` (51,067 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 46286e9e's protected tree: restack by hand; row 11-15 06:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Owner-direct / rollouts (24 h)** | servea-40bots-1114: owner-direct-check 11-14 15:30Z |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
 | **Projects (daily audit)** | project audit fleet (11-14T12:05Z, 7 d, 188 projects, 15,443,471 lines / 80 bots): 3 broken, 1 dormant, 5 underused, 88 effective, 51 unmeasured, 40 - -- isolated-a/shop BROKEN; placebo-a/house1 BROKEN; placebo-d/wall BROKEN; isolated-d/well DORMANT; showcase: project audit showcase (11-14T12:05Z, 7 d, 43 projects, 2,229,052 lines / 15 bots): 2 dormant, 14 effective, 15 unmeasured, 12 - -- showcase/enchantshop DORMANT; showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-15T05:35:01Z STALLED: 187. OPSAUDIT 2026-11-14 FLAGS: 8 (0 high). 62 active alarm(s): stuck goals 15 (board-a/tidy@355_73_147, board-a/waterwalk@355_73_147, board-b/waterwalk@-249_65_144, board-d/waterwalk@355_73_147, hive-a/monument@355_73_147, hive-d/monument@68_65_68 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gklease-02:h72, effectwatch effect:gkwork-01:h24 |
+| **Open alarms** | STALLCHECK 2026-11-15T06:35:01Z STALLED: 186. OPSAUDIT 2026-11-14 FLAGS: 8 (0 high). 64 active alarm(s): stuck goals 18 (board-a/tidy@355_73_147, board-a/waterwalk@355_73_147, board-b/waterwalk@-249_65_144, board-d/waterwalk@355_73_147, hive-a/monument@355_73_147, hive-b/tidy@355_73_147 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gklease-02:h72, effectwatch effect:gkwork-01:h24 |
 <!-- GENERATED:END -->
 
 ## Notes
