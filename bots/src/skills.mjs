@@ -374,7 +374,7 @@ const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z 
 // feet: a cell is refused as roofed only when a cover over it tops out at or below the bot's feet, as pitted only below its
 // feet; a cell the clean zone's trap lets through is taken; made ground is never taken by anyone. No bot-level state.
 const roofAt = bot => (x, y, z) => isRoofBlock(bot.blockAt(new Vec3(x, y, z)))
-const feetYOf = bot => feetLevel(bot?.entity?.position?.y)   // the one feet level: enumeration, target filter, swing
+const feetYOf = bot => feetLevel(bot?.entity?.position?.y, bot?.entity?.onGround)   // the one feet level: enumeration, target filter, swing
 // a higher side for the pitted test is GROUND: a terrain roof block (a fence, planks or glass beside a cell is not)
 const groundAt = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return isRoofBlock(b) && isTerrain(b?.name) }
 // Does this rule refuse the cell? -> false | the refused kind ('made' | 'pitted' | 'roofed'). `feetY` undefined -> the bot's

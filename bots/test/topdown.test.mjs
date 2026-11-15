@@ -148,6 +148,19 @@ await t('FEET LEVEL: floor(y + 0.2) -- path and farmland (70.9375), soul sand an
   for (const y of [70.9375, 70.875, 71.0]) assert.equal(TD.feetLevel(y), 71, String(y))
   assert.equal(TD.feetLevel(70.5), 70); assert.equal(TD.feetLevel(null), null)
 })
+await t('FEET LEVEL OFF THE GROUND (review round 5): in the air or swimming the bot is judged one level low, never high -- mid-jump at 71.85 over ground at 71 reads 70, not 72, and the dirt under a roof above its feet is not refused', async () => {
+  assert.equal(TD.feetLevel(71.85, false), 70); assert.equal(TD.feetLevel(72.2, false), 71); assert.equal(TD.feetLevel(71.0, false), 70)
+  assert.equal(TD.feetLevel(71.85, true), 72, 'positive control: on the ground the margin applies')
+  assert.equal(TD.feetLevel(71.85), 72, 'an unknown ground state is taken as standing')
+  // Codex's scene: exposed dirt at (101,71,100) under a grass roof at (101,72,100), the bot mid-jump at y 71.85
+  const solid = (x, y, z) => x === 101 && z === 100 && (y === 72 || y === 71)
+  const cell = { x: 101, y: 71, z: 100 }
+  assert.equal(TD.topDownVerdict(solid, cell, 'dirt', TD.feetLevel(71.85, false)), null, 'mid-jump: not refused')
+  assert.equal(TD.topDownVerdict(solid, cell, 'dirt', TD.feetLevel(73.0, true)), 'roofed', 'positive control: standing on that roof, the dirt under it is refused')
+  await withMutantsAll(TOPDOWN_URL, [["onGround === false ? Math.floor(y) - 1 : ", '']], async TDm => {
+    assert.equal(TDm.topDownVerdict(solid, cell, 'dirt', TDm.feetLevel(71.85, false)), 'roofed', 'MUTANT KILLED: without the off-ground case the jumping bot is refused')
+  })
+})
 await t('GROUND SIDES ONLY: a fence, planks or glass beside a cell is not a higher side (groundAt); two terrain sides are', () => {
   const sides = [[1, 61, 0], [-1, 61, 0], [0, 61, 1], [0, 61, -1]]
   const solid = solidSet(sides)
