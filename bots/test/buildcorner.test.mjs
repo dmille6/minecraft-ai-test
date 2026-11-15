@@ -100,7 +100,8 @@ await t('WIRED: runVisit settles a pending walk at its start, marks it at the cl
   assert.ok(/const stands = p\.stands \?\? null\s*settlePendingStand\(stands, now\(\)\)/.test(visit))
   assert.ok(/if \(stands\) stands\.pending = \{ cell: kOf\(cell\), stand: kOf\(step\.stand\), at: now\(\) \}\s*await e\.walkTo\(step\.stand, avoid \? \{ avoid \} : undefined\)\s*if \(e\.aborted\(\)\) return 'aborted'\s*if \(stands\) stands\.pending = null/.test(visit))
   assert.ok(/if \(!here\) \{ banStand\(stands, kOf\(cell\), kOf\(step\.stand\), now\(\)\); return 'stand' \}/.test(visit))
-  assert.ok(/const bans = standBans\(stands, kOf\(c\.at\), now\(\)\); const kept = bans\.size \? stepFor\(rd, home, c\.at, nodesWithout\(nodes, bans\), domain(, w)?\) : null; step = kept \?\? stepFor\(rd, home, c\.at, nodes, domain(, w)?\)/.test(visit), 'banned first, the unbanned pick as the fallback')
+  // (zonesite-01show: the visit's steps go through stepZ -- stepFor, never against a support the zone guard closes)
+  assert.ok(/const bans = standBans\(stands, kOf\(c\.at\), now\(\)\); const kept = bans\.size \? stepZ\(rd, home, c\.at, nodesWithout\(nodes, bans\), domain(, w)?\) : null; step = kept \?\? stepZ\(rd, home, c\.at, nodes, domain(, w)?\)/.test(visit), 'banned first, the unbanned pick as the fallback')
   const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/stands: \(bot\.shopStands \?\?= \{ pending: null, bans: \{\} \}\)/.test(SK), 'build_shop keeps the memory on the bot')
 })
@@ -125,7 +126,7 @@ await t('WIRED: the build walk refuses a crossing plan before walking; the click
   assert.ok(/export const PLAN_MS = 150\b/.test(bb))
   const br = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
   assert.ok(/await click\(picked\.at, block, step, seg, segGen, \{ closer: CLOSER_SEGS\.has\(seg\), want: b => cellDone\(b, palette, picked\.role(, picked\.ws)?\), avoid: fellBack \|\| feetIn \? null : blocking(, ws: picked\.ws \?\? null, blind: !!picked\.blind)?(, also: pickedHead \? \[pickedHead\] : null)? \}\)/.test(br), 'the click passes avoid, except on the all-banned fallback')
-  assert.ok(/step = kept \?\? stepFor\(rd, home, c\.at, nodes, domain(, w)?\); if \(step\) \{ picked = c; fellBack = bans\.size > 0 && !kept; break \}/.test(br), 'fellBack marks the all-banned pick')
+  assert.ok(/step = kept \?\? stepZ\(rd, home, c\.at, nodes, domain(, w)?\); if \(step\) \{ picked = c; fellBack = bans\.size > 0 && !kept; break \}/.test(br), 'fellBack marks the all-banned pick')
 })
 
 // reroof-04 r5: THE LIVE CAVITY by the storage hub (Paper sandbox4 11-08, the region pasted): the pathfinder's plan out of 14,67,-47 is ONE

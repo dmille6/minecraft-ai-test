@@ -437,6 +437,12 @@ await t('buildSink retires a zoned tower or shrine BEFORE the decor work, the ga
   assert.ok(body.includes("if (rec0 && zonedInstance(rec0, closedAt)) return out('no_effect', 'zone_closed',"))
   assert.ok(body.includes("    const closedAt = at => cellZone(bot.protectZones?.() ?? [], at)"))
 })
+await t('buildrun.mjs: every step the visit computes goes through stepZ (the closed-support test); stepFor is called once, inside it', () => {
+  const br = strip(readFileSync(SRC('buildrun.mjs'), 'utf8'))
+  assert.strictEqual(br.split('stepFor(').length - 1, 1, 'one call of stepFor in the file')
+  assert.ok(br.includes('  const stepZ = (read, hm, cell, nodes, dom = null, want = null) => stepFor(read, hm, cell, nodes, dom, supportOk ? { ...(want ?? {}), supportOk } : want)\n'))
+  assert.ok(br.split('stepZ(rd, home, ').length - 1 >= 7, 'the visit\'s seven steps')
+})
 await t('the order waits on zone_closed (shop.mjs WAIT_STOPS): the refusal has a remedy and is not asked every decision', () => {
   assert.ok(Object.hasOwn(SH.WAIT_STOPS, 'zone_closed') && SH.WAIT_STOPS.zone_closed > 0)
 })
