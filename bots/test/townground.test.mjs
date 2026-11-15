@@ -67,7 +67,7 @@ async function withPlannerMutant (old, neu, fn) {
   writeFileSync(sk, skSrc.replace("from './minewell.mjs'", `from './_mutant-mw-${tag}.mjs'`).replace(/from '\.\/(?!_mutant-mw-)/g, "from '../src/"))
   try { return await fn(await import(sk.href)) } finally { for (const u of [mw, sk]) { try { unlinkSync(u) } catch {} } }
 }
-const ENUM = ["      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n"]
+const ENUM = ["    let positions = findGround(type.id)\n", "    let positions = bot.findBlocks({ matching: type.id, maxDistance, count: 32 })\n"]
 const SAFE = ["    const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&\n", "    const baseSafe = p => true &&\n"]   // CAVEFALL-01: safeTarget = !caveSkip && baseSafe
 const SWING = ["  if (!townOk.ok) {\n    noteTownGround(bot, 'gather_refused')", "  if (false) {\n    noteTownGround(bot, 'gather_refused')"]
 
@@ -220,7 +220,7 @@ test('CHAIN gather: only town dirt anywhere -> a refusal naming where to go (and
 })
 
 test('MUTANT KILLED: filtering after the search (no enumeration filter) starves gather -- the outside dirt is never found', async () => {
-  await withMutant(SKILLS_URL, "      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n", async mod => {
+  await withMutant(SKILLS_URL, "    let positions = findGround(type.id)\n", "    let positions = bot.findBlocks({ matching: type.id, maxDistance, count: 32 })\n", async mod => {
     const { bot, digs } = gatherWorld({ dirt: [...townDirt, ...outside] })
     await mod.SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(() => null)
     assert.ok(!digs.some(p => p.x >= 219), 'the mutant does not reach the outside dirt (the starvation Codex r1 P1 named)')
