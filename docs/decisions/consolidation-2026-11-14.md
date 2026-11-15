@@ -191,7 +191,12 @@ Done 11-14: [`docs/reports/land-eval-2026-11-14/RECOMMENDATION.md`](../reports/l
 Both engines, working alone, said **restructure around a new core**: replace what decides the ground that should exist,
 what is junk and when a repair is done; keep the code that makes a bot dig and place safely and the two prevention
 features. Build order N1 ground ledger (no bot code), N2 debts for temporary blocks that do not expire, N3 planner with
-acceptance by reading the world, N4 speed of the kept worker code. Awaiting the owner's yes.
+acceptance by reading the world, N4 speed of the kept worker code. Owner 11-14: "Go ahead and start".
+
+**N1 first version built 11-15** (`scripts/host/groundledger.py`): first runs in
+[`ledger-first-run.md`](../reports/land-eval-2026-11-14/ledger-first-run.md). Finding: the showcase lawn is not a deck.
+Its grass top is the original surface and the dirt under it was dug out by the bots, 2,200 to 3,700 blocks a day from
+11-07 to 11-13, by every bot alike; it all but stopped on 11-14. So the lawn's target is to put the dirt back.
 
 ### Order of work
 

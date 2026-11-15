@@ -768,6 +768,10 @@ const REQUIRED = [
   'infra/capsule/scorecard/projects.py',   // time capsule: one row per town project
   'infra/capsule/scorecard/pitmap-baseline.txt',   // time capsule: baseline of 2026-11-14T15:50:17Z
   'infra/capsule/scorecard/projects-baseline.json',
+  'scripts/host/groundledger.py',   // owner 11-14, step N1: what was done to a world's ground since it was untouched, column by column
+  'scripts/host/test_groundledger.py',
+  'bots/test/groundledger.test.mjs',
+  'docs/reports/land-eval-2026-11-14/ledger-first-run.md',
   'docs/reports/land-eval-2026-11-14/RECOMMENDATION.md',   // owner 11-14: keep / restructure / start fresh for the land cleanup code: both engines say restructure around a new core
   'docs/reports/land-eval-2026-11-14/QUESTION.md',   // the brief both evaluators got
   'docs/reports/land-eval-2026-11-14/evidence.md',   // the evidence pack both evaluators got
