@@ -713,6 +713,9 @@ export function stepFor (read, home, cell, nodes, domain = null, want = null) {
     const sup = [cx + fx, cy + fy, cz + fz]
     if (!refUsable(read(...sup))) continue
     const normal = [0 - fx, 0 - fy, 0 - fz]   // never -0 (a record compares and serialises cleanly)
+    // zonesite-01show (`want.supportOk(support, face)`, Codex r1 blocker 2): never a support the protected-zone guard would refuse
+    // the click against -- a cell beside a zone takes its OTHER supports (the block below, a side outside the zone)
+    if (typeof want?.supportOk === 'function' && !want.supportOk(sup, normal)) continue
     // townstyle-01: A STATE-BEARING CELL (`want` = { name, ws }) takes only a face whose click makes that state (townstyle.mjs
     // orientAim: a top face never makes a top half, a log's axis is its face's); the step carries the click's `aim` (yaw, cursor)
     const aim = want?.ws ? orientAim(want.name, want.ws, normal) : null

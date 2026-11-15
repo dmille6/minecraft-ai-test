@@ -461,6 +461,10 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       write(support, face, seq, aim)
       return true
     },
+    // ...and of one support + face, for the step's choice (buildsite.mjs stepFor `want.supportOk`) -> id | null
+    clickClosed: (support, face) => {
+      try { return clickZone(bot.protectZones?.() ?? [], support, face, bot.entity?.position ?? null) } catch { return 'zones_unread' }
+    },
     // ...and asked BEFORE the walk (buildrun.mjs click): WOULD THE GUARD REFUSE A BUILD'S PLACEMENT AT THIS CELL? -> id | null
     placeClosed: c => {
       try { return cellZone(bot.protectZones?.() ?? [], c, bot.entity?.position ?? null) } catch { return 'zones_unread' }

@@ -698,6 +698,23 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // before the hold was added to the clock after it) `cutoff` -- the TIME on the visit's clock by which the stand's take-down must
   // start: the hold, the look and the barrier wait end there (`by`), nothing is sent whose acknowledgement could come later
   // (MUTEX_HOLD_MS before it), and the click returns 'late' with nothing sent
+  // zonesite-01show: WHAT THE PROTECTED-ZONE GUARD CLOSES TO THIS VISIT'S PLACEMENTS (the effects ask the guard's own decision:
+  // buildbot.mjs placeClosed / clickClosed; a fake without them closes nothing). A cell is asked once a visit.
+  const zonedPlace = new Map()   // "x,y,z" -> the zone's id | null
+  const placeZoned = at => {
+    if (typeof e.placeClosed !== 'function') return null
+    const k = kOf(at)
+    if (!zonedPlace.has(k)) { let z = null; try { z = e.placeClosed(at) } catch { z = null } zonedPlace.set(k, z ? String(z) : null) }
+    return zonedPlace.get(k)
+  }
+  const supportOk = typeof e.clickClosed === 'function' ? (sup, face) => { try { return !e.clickClosed(sup, face) } catch { return true } } : null
+  /** stepFor, never against a support the guard closes (the step's `want` carries the test) */
+  const stepZ = (read, hm, cell, nodes, dom = null, want = null) => stepFor(read, hm, cell, nodes, dom, supportOk ? { ...(want ?? {}), supportOk } : want)
+  const sayZoned = (seg, cell, block, z, n = 1) => {
+    if (out.zonedSaid) return
+    out.zonedSaid = true
+    try { e.log('_build', { op: 'place_zoned', seg, cell, block, n, why: `closed by protected zone ${z}: never built by a bot; the record keeps it open until it or the zone changes` }) } catch { /* telemetry */ }
+  }
   const LATE = Symbol('late')
   /** AN AWAIT THAT ENDS AT `cutoff` -> its value | LATE (the promise is left to finish by itself). No cutoff: the promise. */
   const by = async (cutoff, pr) => {
@@ -717,15 +734,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // zonesite-01show (`e.placeClosed(cell)` -> the zone's id | null: buildbot.mjs asks the protected-zone guard's own decision): a
     // cell the guard closes to a build's placement is never walked to and never clicked -- 'zoned', an attempt like a refusal (the
     // caller's count: the cell defers, the visit goes on), named once a visit (`place_zoned`)
-    if (typeof e.placeClosed === 'function') {
-      let z = null
-      try { z = e.placeClosed(cell) } catch { z = null }
-      if (z) {
-        out.zonedPlace = (out.zonedPlace ?? 0) + 1
-        if (out.zonedPlace === 1) { try { e.log('_build', { op: 'place_zoned', seg, cell, block, why: `closed by protected zone ${z}: never built by a bot; the record's owner retires it` }) } catch { /* telemetry */ } }
-        return 'zoned'
-      }
-    }
+    { const z = placeZoned(cell); if (z) { out.zonedPlace = [...zonedPlace.values()].filter(Boolean).length; sayZoned(seg, cell, block, z); return 'zoned' } }
     if (!stay) {
       if (stands) stands.pending = { cell: kOf(cell), stand: kOf(step.stand), at: now() }
       await e.walkTo(step.stand, avoid ? { avoid } : undefined)
@@ -734,7 +743,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     }
     // RE-PROVED WHERE THE BOT IS: the same stand rules from the feet it actually has
     const feet = e.feet()
-    const here = stepFor(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), dom, ws || blind || also ? { name: block, ws, blind, ...(also ? { also } : {}) } : null)
+    const here = stepZ(rd, home, cell, new Map([[`${feet[0]},${feet[2]}`, [feet[1]]]]), dom, ws || blind || also ? { name: block, ws, blind, ...(also ? { also } : {}) } : null)
     if (stay && (!here || kOf(feet) !== kOf(step.stand) || !!notSupport?.has(kOf(here.support)))) return 'stand'
     if (!here) { banStand(stands, kOf(cell), kOf(step.stand), now()); return 'stand' }
     if ((e.bodies() ?? []).some(b => inCell(b, cell) || inCell(b, [cell[0], cell[1] + 1, cell[2]]) || (also ?? []).some(a => inCell(b, a)))) return 'body'
@@ -1249,7 +1258,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
       let c = null, step = null
       for (const q of openNow) {
         if (q.byFoot || (tries.get(kOf(q.at)) ?? 0) >= BUILD_ATTEMPTS || !isClear(q.at) || under(q)) continue
-        const s = stepFor(rd, home, q.at, hereNodes, domain, wantOf(q))
+        const s = stepZ(rd, home, q.at, hereNodes, domain, wantOf(q))
         if (s && !standKeys.has(kOf(s.support))) { c = q; step = s; break }
       }
       if (!c) break
@@ -1364,7 +1373,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // leaffell-01show (`p.replantDomain`): a record that fells a tree BESIDE its building for the leaves it holds plants the sapling from
     // the town walk -- the building's own stand domain (its pad + 3) holds no stand for a replant cell 8 or more from its walls
     const rpDom = leafFell && typeof p.replantDomain === 'function' ? p.replantDomain : domain
-    const step = stepFor(rd, home, r.cell, nodes, rpDom)
+    const step = stepZ(rd, home, r.cell, nodes, rpDom)
     if (!step || step.support[1] !== r.cell[1] - 1) { const o = remedy(r, nodes, 'no_step'); if (o) return o; continue }
     if (!renewSlot()) { out.stop = 'fence:slot'; return out }
     const seg = PJ.takeLease(dir, key, 'seg-clear', me, { now: now() })
@@ -1374,9 +1383,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // a silent replant click is counted (Claude read r3 P3-1: its late acknowledgement may have planted the sapling untallied, so
     // the bag row must not read as a clean exit)
     if (v === 'silent') out.silent++
-    if (v === 'placed') { out.planted++; tally(r.sapling); e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else if (v === 'stand' || v === 'refused') {
+    if (v === 'placed') { out.planted++; tally(r.sapling); e.log('_build', { op: 'replant', cell: r.cell, block: r.sapling }) } else if (v.startsWith('fence') || v === 'aborted') { out.stop = v; return out } else if (v === 'stand' || v === 'refused' || v === 'zoned') {
       // the walk did not reach the proven stand, or the server refused the sapling: the same remedy as no step (r19, both r18
       // reviews: any other outcome ended the visit no_step, every visit, forever)
+      // zonesite-01show (Codex r1 blocker 3): a sapling cell the protected-zone guard closes is moved, deferred, then skipped the same way
       const o = remedy(r, nodesFor(), v); if (o) return o
     } else { out.stop = v; out.why = `replant ${r.cell.join(',')}: ${v}`; return out }   // busy, body, silent: transient, retried next visit
   }
@@ -1621,7 +1631,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // (an ADDED clear cell -- an underpinning under a hanging run -- holds the dig back only while a stand can fill it NOW: one no stand
         // reaches would otherwise hold the whole run's swap for good, two guards composing into a dead end; offline 11-09, 404 `blocked`)
         let swapNodes = null
-        const fillable = q => { swapNodes ??= nodesFor(new Set(open.filter(o => !openRole(o.role)).map(o => kOf(o.at)))); return !!stepFor(rd, home, q.at, swapNodes, domain, wantOf(q)) }
+        const fillable = q => { swapNodes ??= nodesFor(new Set(open.filter(o => !openRole(o.role)).map(o => kOf(o.at)))); return !!stepZ(rd, home, q.at, swapNodes, domain, wantOf(q)) }
         const swapOk = c => !p.swap || !c.sw || swapDigOk(c, open, { clear: q => isClear(q.at), tries: q => tries.get(kOf(q.at)) ?? 0, has: q => !!blockFor(palette, q.role, e.has), fillable })
         // a swapped cell left standing over a hole no stand fills (its underpinning spent) is DEFERRED once -- the waiver closes it as its
         // old block -- never held open for good
@@ -1815,18 +1825,32 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         const bodies = feetIn ? (e.bodies?.() ?? []) : []
         const occupied = c => bodies.some(b => inCell(b, c.at) || inCell(b, [c.at[0], c.at[1] + 1, c.at[2]]))
         // cottage2-01: a bed's head (`byFoot`) is never a candidate: its foot's click places it
-        const cand = open.filter(c => !c.byFoot && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at) && !occupied(c))
+        // zonesite-01show: never a cell the protected-zone guard closes to a placement (placeZoned)
+        const cand = open.filter(c => !c.byFoot && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at) && !occupied(c) && !placeZoned(c.at))
           .sort((a, b) => a.at[1] - b.at[1] || Math.hypot(a.at[0] - feet[0], a.at[2] - feet[2]) - Math.hypot(b.at[0] - feet[0], b.at[2] - feet[2]))
         if (!cand.length && bodies.length && open.some(c => occupied(c) && (tries.get(kOf(c.at)) ?? 0) < BUILD_ATTEMPTS && !below(c) && isClear(c.at))) {
           if (++bodyWaits > BODY_WAITS) { out.stop = 'body_wait'; out.why = `${seg}: the open cells left are under another builder`; return out }
           await e.sleep(500); continue
+        }
+        // zonesite-01show (Codex r1 blocker 1): NOTHING PLACEABLE IS LEFT BUT CELLS THE GUARD CLOSES -- the segment WAITS, like a
+        // zone-closed clear below: never an attempt, never deferred (no stuck_on_cell, no waiver, no 6-hour back-off); the visit goes
+        // on with its other segments and ends `zone_closed` (the order holds the project for this bot: shop.mjs WAIT_STOPS)
+        if (!cand.length) {
+          const shut = open.filter(c => !c.byFoot && isClear(c.at) && placeZoned(c.at))
+          if (shut.length) {
+            out.zonedWait = (out.zonedWait ?? 0) + shut.length
+            out.zonedPlace = [...zonedPlace.values()].filter(Boolean).length
+            sayZoned(seg, shut[0].at, blockFor(palette, shut[0].role, e.has) ?? null, placeZoned(shut[0].at), shut.length)
+            deferredSegs.add(seg)
+            break
+          }
         }
         let picked = null, step = null, fellBack = false
         // a cell whose every stand is banned falls back to them (r1 Codex note: never a deferral -- and F4's 6 h stuck back-off -- the
         // unbanned visit would not have had), and that fallback walk is NOT refused for crossing the segment's open cells
         // (shopwalls-06 r2, Codex r1 BLOCK: with every stand's route crossing, the refusal alone would stall the cell for good)
         // townstyle-01: a state-bearing cell's step takes only a face that makes its state (wantOf: the role's block, its state)
-        for (const c of cand) { const w = wantOf(c); if (noStandIn(c, w, nodes)) continue; const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepFor(rd, home, c.at, nodesWithout(nodes, bans), domain, w) : null; step = kept ?? stepFor(rd, home, c.at, nodes, domain, w); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } if (standCache) noStep.set(standKey(c, w), nodes) }
+        for (const c of cand) { const w = wantOf(c); if (noStandIn(c, w, nodes)) continue; const bans = standBans(stands, kOf(c.at), now()); const kept = bans.size ? stepZ(rd, home, c.at, nodesWithout(nodes, bans), domain, w) : null; step = kept ?? stepZ(rd, home, c.at, nodes, domain, w); if (step) { picked = c; fellBack = bans.size > 0 && !kept; break } if (standCache) noStep.set(standKey(c, w), nodes) }
         if (!picked) {
           // citywall-01 (`p.swap`): an ADDED clear cell no stand fills now (an underpinning under a hanging run) never holds the swap: it
           // is spent and DEFERRED (counted for the waiver), and the swap of the run's standing cells goes on (offline on board-b 11-09:
@@ -1862,7 +1886,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
               for (const q of fb.cells) {
                 const g = guard(); if (g) { out.stop = g; return out }
                 if ((tries.get(`f:${kOf(q)}`) ?? 0) >= BUILD_ATTEMPTS) { deferWhy.set(kOf(c.at), `footing attempts ${kOf(q)}`); break }
-                const fstep = stepFor(rd, home, q, nodes, domain)
+                const fstep = stepZ(rd, home, q, nodes, domain)
                 if (!fstep) { deferWhy.set(kOf(c.at), `footing no_stand ${kOf(q)}`); break }
                 const fv = await click(q, block, fstep, seg, segGen, { want: b => isSolid(b), avoid: blocking })
                 if (fv === 'placed') { laid++; out.placed++; tally(block); e.log('_build', { op: 'place', seg, cell: q, block, kind: 'footing' }); continue }
@@ -2014,7 +2038,11 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // NOT deferred, so no waiver counts it (sinks.mjs sinkWaiveDue and wall.mjs wallWaiveDue read only the visit's `deferred` cells): the
   // project stays open on it until the zone file or the record changes; the order holds it for this bot -- shop.mjs WAIT_STOPS)
   // (kept under the visit row's 120 characters: shop.mjs buildVisitDetail cuts `why` there)
-  if (out.stop === 'zone_closed') out.why = `${out.zonedWait} cell(s) closed by protected zone ${[...zoned.values()][0] ?? '-'} (${[...zoned.keys()][0] ?? '-'}): bots never dig there; built without them; not waived`
+  // (zonesite-01show: ...or a cell it closes to a placement: the same wait, the same words)
+  if (out.stop === 'zone_closed') {
+    const zp = [...zonedPlace.entries()].find(([, v]) => v)
+    out.why = `${out.zonedWait} cell(s) closed by protected zone ${[...zoned.values()][0] ?? zp?.[1] ?? '-'} (${[...zoned.keys()][0] ?? zp?.[0] ?? '-'}): bots never ${zoned.size ? 'dig' : 'build'} there; built without them; not waived`
+  }
   return out
 }
 

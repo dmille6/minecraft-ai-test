@@ -10,7 +10,7 @@
 import assert from 'node:assert'
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-const { R, PJ, HOME, k3, server, bot, SITE, project } = await import('./helpers/buildfake.mjs')
+const { B, R, PJ, G, HOME, k3, server, bot, BP, SITE, project } = await import('./helpers/buildfake.mjs')
 const S = await import('../src/sinks.mjs')
 const SH = await import('../src/shop.mjs')
 const BB = await import('../src/buildbot.mjs')
@@ -132,6 +132,7 @@ await t('THE ADAPTER (botBuildEffects.send): a click into the zone writes NO pac
     assert.deepStrictEqual(logs.map(([k, d]) => [k, d.op, d.cell]), [['_build', 'click_zoned', [58, 65, -25]]])
     assert.ok(/village-taiga-6_1/.test(logs[0][1].why))
     assert.strictEqual(e.placeClosed([58, 65, -25]), VILLAGE.id); assert.strictEqual(e.placeClosed([40, 65, -25]), null)
+    assert.strictEqual(e.clickClosed([49, 65, 0], [-1, 0, 0]), VILLAGE.id, 'a support in the zone, the cell outside it'); assert.strictEqual(e.clickClosed([47, 65, 0], [1, 0, 0]), null)
   } finally { e.close() }
 })
 await t('POSITIVE CONTROL: the same click outside the zone is written (one block_place, its sequence) and answers true', () => {
@@ -180,23 +181,41 @@ await t('POSITIVE CONTROL: with no zone the pad cell is built like every other',
   assert.strictEqual(srv.read(...SHUT).name === 'air', false, 'the cell holds its block'); assert.ok(sends.includes(k3(SHUT))); assert.ok(r.placed > 20, `placed ${r.placed}`)
   assert.strictEqual(r.zonedPlace, undefined)
 })
-await t('a cell the zone guard closes is never clicked and never built; it is named ONCE; the visit builds the rest', async () => {
+await t('a cell the zone guard closes is never clicked and never built; it is named ONCE; the visit builds the rest and ends zone_closed', async () => {
   const { r, srv, sends, logs } = await visit(R, { placeClosed: closedAt })
   assert.strictEqual(srv.read(...SHUT).name, 'air', 'nothing stands in the closed cell')
   assert.ok(!sends.includes(k3(SHUT)), 'no click was sent for it')
-  assert.ok(r.zonedPlace >= 1, `counted (${r.zonedPlace})`); assert.ok(r.placed > 20, `the rest is built (${r.placed})`)
+  assert.strictEqual(r.zonedPlace, 1, 'one closed cell'); assert.ok(r.zonedWait >= 1); assert.ok(r.placed > 20, `the rest is built (${r.placed})`)
   const rows = logs.filter(([k, d]) => k === '_build' && d.op === 'place_zoned')
   assert.strictEqual(rows.length, 1, 'one row a visit'); assert.deepStrictEqual(rows[0][1].cell, SHUT); assert.ok(/village-taiga-6_1/.test(rows[0][1].why))
   assert.ok(!PAD.filter(c => k3(c.at) !== k3(SHUT)).some(c => srv.read(...c.at).name === 'air'), 'every other pad cell stands')
+  // THE REFUSAL'S OWN WORDS AND ITS WAIT (review r1 blocker 1): never an attempt, never deferred, never stuck -- `zone_closed`
+  assert.strictEqual(r.stop, 'zone_closed', `${r.stop}: ${r.why}`)
+  assert.ok(/closed by protected zone village-taiga-6_1/.test(r.why) && r.why.includes(k3(SHUT)) && /never build there/.test(r.why), r.why)
+  assert.ok(!logs.some(([k, d]) => k === '_build' && d.op === 'deferred' && k3(d.cell) === k3(SHUT)), 'the closed cell is not deferred')
+  assert.ok(!r.stuck && !(r.deferred ?? []).includes(k3(SHUT)), 'nor counted toward stuck_on_cell or a waiver')
+  assert.ok(Object.hasOwn(SH.WAIT_STOPS, r.stop), 'the order holds the project for this bot instead of asking again at once')
+})
+await t('...visit after visit: the same answer, nothing spent, the stuck map never names the closed cell', async () => {
+  const srv = server(), pr = project(SITE.record)
+  const stops = []
+  for (let i = 0; i < 3; i++) {
+    const h = PJ.recordHead(pr.dir, pr.key), e = bot(srv, 'A')
+    e.placeClosed = closedAt
+    const r = await R.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen }, e, { maxSteps: 400 })
+    stops.push(r.stop)
+  }
+  assert.deepStrictEqual(stops, ['zone_closed', 'zone_closed', 'zone_closed'])
+  assert.strictEqual(srv.read(...SHUT).name, 'air')
 })
 await t('...and no walk is spent on it: the visit with the closed cell walks no more than the visit without it', async () => {
   const a = await visit(R), b = await visit(R, { placeClosed: closedAt })
   assert.ok(b.walks.length <= a.walks.length, `${b.walks.length} walks with the closed cell, ${a.walks.length} without`)
 })
-await t('MUTANT (buildrun.mjs click no longer asks before the walk): the closed cell is clicked and built', async () => {
-  await withMutant('buildrun.mjs', "      if (z) {\n        out.zonedPlace = (out.zonedPlace ?? 0) + 1", "      if (false) {\n        out.zonedPlace = (out.zonedPlace ?? 0) + 1", async M => {
-    const { srv, sends } = await visit(M, { placeClosed: closedAt })
-    assert.ok(sends.includes(k3(SHUT))); assert.notStrictEqual(srv.read(...SHUT).name, 'air')
+await t('MUTANT (the wait is gone): the segment falls through to the old endings', async () => {
+  await withMutant('buildrun.mjs', '          if (shut.length) {\n            out.zonedWait', '          if (false) {\n            out.zonedWait', async M => {
+    const { r } = await visit(M, { placeClosed: closedAt })
+    assert.notStrictEqual(r.stop, 'zone_closed', r.stop)
   })
 })
 await t('THE BACKSTOP: a send the adapter refuses (false) books no click -- no acknowledgement is waited for, the cell stays empty, the rest is built', async () => {
@@ -210,6 +229,87 @@ await t('MUTANT (the click ignores the adapter\'s false): it waits for an acknow
   await withMutant('buildrun.mjs', "        if (e.send(here.support, here.face, seq, here.aim ?? null) === false) { cancel(); return 'zoned' }", '        e.send(here.support, here.face, seq, here.aim ?? null)', async M => {
     const { waited, seqOf } = await visit(M, { sendFalse: tgt => k3(tgt) === k3(SHUT), maxSteps: 60 })
     assert.ok([...seqOf.keys()].some(q => waited.includes(q)), 'the mutant waits on the unsent click')
+  })
+})
+
+console.log('A SUPPORT IN THE ZONE, THE CELL OUTSIDE IT (review r1 blocker 2: buildsite.mjs stepFor `want.supportOk`)')
+// a cell one above the ground with a block beside it: two supports -- the ground below (first in the builder's order) and the side
+const EDGE = [3, G + 1, 3], BELOW = [3, G, 3], SIDE = [4, G + 1, 3]
+const edgeWorld = () => server({ [k3(SIDE)]: 'stone' })
+const nodesRound = c => { const m = new Map(); for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) if ((dx || dz) && !(c[0] + dx === SIDE[0] && c[2] + dz === SIDE[2])) m.set(`${c[0] + dx},${c[2] + dz}`, [G + 1]); return m }
+const FREE = B.stepFor(edgeWorld().read, HOME, EDGE, nodesRound(EDGE), () => true)
+await t('POSITIVE CONTROL: with nothing closed the step takes one of the two supports; with THAT support closed it takes the other', () => {
+  const rd = edgeWorld().read, any = () => true
+  assert.ok([k3(BELOW), k3(SIDE)].includes(k3(FREE.support)), `the free choice is one of the two (${FREE.support})`)
+  const asked = []
+  const other = B.stepFor(rd, HOME, EDGE, nodesRound(EDGE), any, { supportOk: (sup, face) => { asked.push([k3(sup), k3(face)]); return k3(sup) !== k3(FREE.support) } })
+  assert.ok(other, 'a legal click still exists')
+  assert.strictEqual(k3(other.support), k3(FREE.support) === k3(BELOW) ? k3(SIDE) : k3(BELOW), 'the other support')
+  assert.deepStrictEqual(other.support.map((v, i) => v + other.face[i]), EDGE, 'its face still points at the cell')
+  assert.ok(asked.some(([sup, face]) => sup === k3(FREE.support) && face === k3(FREE.face)), 'the test is handed the support and the face of the click')
+  assert.strictEqual(B.stepFor(rd, HOME, EDGE, nodesRound(EDGE), any, { supportOk: () => false }), null, 'every support closed: no step (the cell defers like any cell no stand reaches)')
+  assert.deepStrictEqual(B.stepFor(rd, HOME, EDGE, nodesRound(EDGE), any, { supportOk: () => true }), FREE, 'a test that closes nothing changes nothing')
+})
+await t('THE VISIT uses it: a cell whose first support the guard closes is still built, against its other support, and no send is refused', async () => {
+  const shutSupport = [SHUT[0], SHUT[1] - 1, SHUT[2]]
+  const srv = server(), pr = project(SITE.record)
+  const h = PJ.recordHead(pr.dir, pr.key), e = bot(srv, 'A')
+  const asked = [], sent = []
+  e.clickClosed = (sup, face) => { asked.push(k3(sup)); return k3(sup) === k3(shutSupport) ? VILLAGE.id : null }
+  const s0 = e.send; e.send = (sup, face, seq, aim) => { sent.push([k3(sup), k3(sup.map((v, i) => v + face[i]))]); return s0(sup, face, seq, aim) }
+  const r = await R.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen }, e, { maxSteps: 400 })
+  assert.ok(asked.includes(k3(shutSupport)), 'the closed support was asked about')
+  assert.ok(!sent.some(([sup]) => sup === k3(shutSupport)), 'no click was sent against the closed support')
+  assert.notStrictEqual(srv.read(...SHUT).name, 'air', 'the cell is built all the same'); assert.ok(sent.some(([, tgt]) => tgt === k3(SHUT)))
+  assert.strictEqual(r.stop, 'complete', `${r.stop}: ${r.why}`)
+})
+await t('MUTANT (stepFor ignores supportOk): the click goes against the closed support', async () => {
+  await withMutant('buildsite.mjs', "    if (typeof want?.supportOk === 'function' && !want.supportOk(sup, normal)) continue\n", '', async M => {
+    const s = M.stepFor(edgeWorld().read, HOME, EDGE, nodesRound(EDGE), () => true, { supportOk: sup => k3(sup) !== k3(FREE.support) })
+    assert.deepStrictEqual(s.support, FREE.support)
+  })
+})
+
+console.log('A SAPLING CELL THE GUARD CLOSES (review r1 blocker 3: the replant\'s own remedy)')
+const padLog = (() => { const q = B.footprint(BP, { x: SITE.record.anchor[0], z: SITE.record.anchor[1] }, SITE.record.orient).pad[30]; return [q[0], G + 1, q[1]] })()
+const RP = { cell: [SITE.record.box[2] + 3, G + 1, SITE.record.box[1]], species: 'oak', sapling: 'oak_sapling', state: 'pending' }
+const treeRecord = () => ({ ...SITE.record, clear: [{ at: padLog, kind: 'tree', name: 'oak_log' }], replant: [{ ...RP }] })
+async function treeVisits (M, { placeClosed = null, max = 8 } = {}) {
+  const srv = server({ [k3(padLog)]: 'oak_log' }), pr = project(treeRecord())
+  const stops = []
+  for (let i = 0; i < max; i++) {
+    const h = PJ.recordHead(pr.dir, pr.key), e = bot(srv, 'A')
+    if (placeClosed) e.placeClosed = placeClosed
+    const r = await M.runVisit({ ...pr.p('A'), record: h.head.rec, recordGen: h.head.gen }, e, { maxSteps: 2000 })
+    stops.push(r.stop)
+    if (r.stop === 'complete') break
+  }
+  return { stops, srv, head: PJ.recordHead(pr.dir, pr.key).head.rec }
+}
+const rpClosed = c => (k3(c) === k3(RP.cell) ? VILLAGE.id : null)
+await t('POSITIVE CONTROL: with no zone the sapling is planted where the record says and the build completes', async () => {
+  const { stops, srv } = await treeVisits(R)
+  assert.strictEqual(stops.at(-1), 'complete', String(stops)); assert.strictEqual(srv.read(...RP.cell).name, 'oak_sapling')
+})
+await t('the chain: the cell is closed -> the record MOVES the replant -> the next visit plants it elsewhere -> the tree falls -> complete', async () => {
+  const { stops, srv, head } = await treeVisits(R, { placeClosed: rpClosed })
+  assert.strictEqual(stops[0], 'replanned', `the first visit moves it (${stops})`)
+  assert.strictEqual(stops.at(-1), 'complete', `the build completes (${stops})`)
+  assert.strictEqual(srv.read(...RP.cell).name, 'air', 'nothing was planted in the closed cell')
+  const moved = head.replant[0]
+  assert.notStrictEqual(k3(moved.cell), k3(RP.cell)); assert.strictEqual(srv.read(...moved.cell).name, 'oak_sapling', 'the sapling stands at the cell it was moved to')
+  assert.strictEqual(srv.read(...padLog).name === 'oak_log', false, 'the tree came down')
+})
+await t('MUTANT (a zoned replant is not the remedy\'s): every visit ends `zoned`, the tree never falls, nothing is built on it', async () => {
+  await withMutant('buildrun.mjs', "else if (v === 'stand' || v === 'refused' || v === 'zoned') {", "else if (v === 'stand' || v === 'refused') {", async M => {
+    const { stops, srv } = await treeVisits(M, { placeClosed: rpClosed, max: 3 })
+    assert.deepStrictEqual(stops, ['zoned', 'zoned', 'zoned']); assert.strictEqual(srv.read(...padLog).name, 'oak_log')
+  })
+})
+await t('MUTANT (buildrun.mjs click no longer asks before the walk): the sapling is planted in the closed cell', async () => {
+  await withMutant('buildrun.mjs', "    { const z = placeZoned(cell); if (z) {", "    { const z = null; if (z) {", async M => {
+    const { srv } = await treeVisits(M, { placeClosed: rpClosed, max: 2 })
+    assert.strictEqual(srv.read(...RP.cell).name, 'oak_sapling')
   })
 })
 
