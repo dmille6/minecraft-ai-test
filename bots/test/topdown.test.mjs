@@ -7,6 +7,8 @@ process.env.LOG_DIR ??= '/tmp'
 process.env.STATE_DIR ??= '/tmp'
 // home far away: neither the town's ground (townground.mjs) nor the clean zone (cleanzone.mjs) reaches this test's world
 process.env.HOME_X = '3000'; process.env.HOME_Y = '65'; process.env.HOME_Z = '3000'
+// a border wide enough that the town at 3000 is inside it (the BLOCKER-2 test works inside the clean zone there)
+process.env.WORLD_BORDER_RADIUS = '100000'
 
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
@@ -20,13 +22,15 @@ const CZ = await import('../src/cleanzone.mjs')
 const LG = await import('../src/logger.mjs')
 const SK = await import('../src/skills.mjs')
 let pass = 0, fail = 0
-const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${String(e.message).slice(0, 600)}`) } }
+const t = async (name, fn) => { try { await fn(); pass++; if (process.env.TEST_VERBOSE) console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${String(e.message).slice(0, 600)}`) } }
 const SKILLS_URL = new URL('../src/skills.mjs', import.meta.url)
 const TOPDOWN_URL = new URL('../src/topdown.mjs', import.meta.url)
 
 const rows = []
 LG.tapRecords(r => rows.push(r))
 const rowsOf = kind => rows.filter(r => r?.skill?.name === `_${kind}`)
+const trappedRows = () => rowsOf('gather_topdown').filter(r => /^op=trapped /.test(r.skill.detail))
+const near = (d, at, r = CZ.GATHER_ZONE.trapR) => Math.abs(d.x - Math.floor(at[0])) <= r && Math.abs(d.y - Math.floor(at[1])) <= r && Math.abs(d.z - Math.floor(at[2])) <= r
 
 // gatherzone.test.mjs's helper: every anchor present and unique, or the test fails (a mutant that did not apply is not "killed")
 function mutantSource (url, pairs) {
@@ -54,13 +58,20 @@ async function withTopdownMutant (pairs, fn) {
   } finally { try { unlinkSync(tdOut) } catch {} }
 }
 // the three conjuncts in skills.mjs, and the trap exception
-const ENUM = ['      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && topDownHit(bot, b.position, b.name)) { roofSkipped++;', '      if (false) { roofSkipped++;']
-const SAFE = ['      !topDownHit(bot, p, bot.blockAt(p)?.name) &&', '      true &&']
-const SWING = ['  else if (topDownHit(bot, block.position, block.name)) {\n', '  else if (false) {\n']
+const ENUM = ['        const roofHit = topDownHit(bot, b.position, b.name, tdShelter, tdSolid)', '        const roofHit = false']
+const SAFE = ['      !topDownHit(bot, p, bot.blockAt(p)?.name, tdShelter) &&', '      true &&']
+const SWING = ['  if (tdVerdict) {\n', '  if (false) {\n']
 // the follow-ups: the trap's count at the swing, the search's bound
-const TRAPCOUNT = ['ZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y))) bot.gatherTrap.left--\n  else if (topDownHit', 'ZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y))) void 0\n  else if (topDownHit']
-const GIVEUP = [' if (topDownGiveUp(++roofSearch)) throw TD_GIVE_UP;', '']
-const TRAP = ['topDownRefuses(roofAt(bot), p, name) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now())', 'topDownRefuses(roofAt(bot), p, name)']
+const TRAPCOUNT = ['bot?.entity?.position?.y))) bot.gatherTrap.left--\n    } else {', 'bot?.entity?.position?.y))) void 0\n    } else {']
+const GIVEUP = ['        if (topDownGiveUp(roofSearch, TOPDOWN, roofReads)) throw TD_GIVE_UP\n', '']
+const TRAP = ["(v === 'refused' && !gatherTrapAllows(bot?.gatherTrap, p, Date.now()))", "v === 'refused'"]
+// review r1: the trap asked once at the swing; the sheltered bot's trap; kept cells through the whole chain; the second fallback
+const SWING_REASK = ["    if (tdVerdict === 'refused' && tdTrapLets) {\n", "    if (tdVerdict === 'refused' && gatherTrapAllows(bot.gatherTrap, block.position, Date.now())) {\n"]
+const TRAP_INSTALL = ['        bot.gatherTrap = { ...gatherTrapOf(at, Date.now()), shelter: tdShelter }\n', '        void 0\n']
+const REFILTER = ['        return bot.findBlocks({ matching: b => (b?.position ? ks.has(', '        return kept; return bot.findBlocks({ matching: b => (b?.position ? ks.has(']
+const KEPT_NONE = ['        if (!kept.length) return []\n', '        return []\n']
+const LEAK = ['        const found = findGround(altType.id, { count: false })', '        const found = findGround(altType.id)']
+const INRANGE = ['      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) {\n        const roofHit', '      if (b.position) {\n        const roofHit']
 // the two deep cases and the leaves exception in topdown.mjs
 const DEEP_STRAIGHT = ["  if (n >= T.deep) return 'deep'\n", '']
 const DEEP_FLOOR = ["    return t >= T.deep ? 'deep' : 'roofed'", "    return 'roofed'"]
@@ -68,6 +79,10 @@ const LEAVES = [" && !LEAVES.test(String(b.name ?? ''))", '']
 const PIT_OFF = ["  return cover === 'open' && isPitted(solidAt, p, T)\n", "  return false\n"]
 const PIT_5 = ['pit: 2,', 'pit: 5,']
 const MADE_OFF = ['  if (isMadeGround(blockName)) return true\n', '']
+const SHELTER_OFF = ["  if (coverOf(solidAt, f, T) !== 'open') return { kind: 'roofed', feetY: f.y }\n  if (hemmedIn(solidAt, f) >= T.hole) return { kind: 'pit', feetY: f.y }\n", '']
+const SHORT_OFF = ["  return (Number(held) || 0) < need ? 'trap' : 'climb'", "  return 'trap'"]
+const BELOW_OFF = ["  return Math.floor(p.y) >= shelter.feetY + 1 && coverOf(solidAt, p, T) === 'open'", '  return false']
+const READS_OFF = ['skipped >= T.giveUp || reads >= T.readBudget', 'skipped >= T.giveUp']
 
 // ---- pure ------------------------------------------------------------------------------------------------------------
 const solidSet = cells => { const s = new Set(cells.map(c => c.join(','))); return (x, y, z) => s.has(`${x},${y},${z}`) }
@@ -162,8 +177,8 @@ await t('TRAP COUNT and GIVE-UP, pure: the swing counts a cell only the rule ref
 await t('SWITCH, ROW and WORDS: TOPDOWN=off turns it off; the remedy names what a bot can do (gather where it lies open, `mine`)', () => {
   for (const v of ['off', '0', 'false', 'no', 'OFF', ' off ']) assert.equal(TD.topDownOn({ TOPDOWN: v }), false, v)
   for (const v of [undefined, '', '1', 'on']) assert.equal(TD.topDownOn({ TOPDOWN: v }), true, String(v))
-  assert.equal(TD.topDownModeDetail({}), 'op=mode on=1 deep=8 air=16 pit=2 give_up=256')
-  assert.equal(TD.topDownModeDetail({ TOPDOWN: 'off' }), 'op=mode on=0 deep=8 air=16 pit=2 give_up=256')
+  assert.equal(TD.topDownModeDetail({}), 'op=mode on=1 deep=8 air=16 pit=2 hole=3 give_up=256 reads=16384')
+  assert.equal(TD.topDownModeDetail({ TOPDOWN: 'off' }), 'op=mode on=0 deep=8 air=16 pit=2 hole=3 give_up=256 reads=16384')
   const r = TD.topDownRemedy('dirt', 12, 32)
   assert.match(r, /^no dirt open to the sky within 32 blocks \(12 under a roof/)
   assert.match(r, /gather where it lies open/); assert.match(r, /`mine`/)
@@ -188,18 +203,24 @@ await t('MUTANTS KILLED (topdown.mjs): without either deep case a mine is "roofe
 })
 
 // ---- the refusal chain through the REAL gather -----------------------------------------------------------------------
-// A world of NAMED cells (key -> block name; air elsewhere). findBlocks behaves like mineflayer's: a palette pre-check with no
-// position for every kind present, then the matcher per cell, asked BEFORE the distance test (blocks.js), from the floored
-// position. A dig records what lay over the cell at that moment.
+// A world of NAMED cells (key -> block name; air elsewhere). findBlocks is mineflayer 4.37.1's own walk (blocks.js 156-206):
+// sections of 16x16x16 visited by prismarine-world's OctahedronIterator outward from the bot's section, a palette pre-check
+// per section with position-less blocks, then every cell of the section in x, y, z order through bot.blockAt -- and it
+// stops once a layer is finished with `count` found. A dig records what lay over the cell at that moment.
+const { OctahedronIterator } = require_('prismarine-world').iterators
 const key = (x, y, z) => `${x},${y},${z}`
 function openAbove (cells, x, y, z) {
   for (let yy = y + 1; yy <= y + 60; yy++) { const n = cells.get(key(x, yy, z)); if (n && TD.isRoofBlock(blockNamed(n))) return false }
   return true
 }
-// `pickup`: a dig puts its drop in the bag (as the real pickup would), so `count` ends the run
-const DROP = { grass_block: 'dirt', dirt: 'dirt', stone: 'cobblestone', farmland: 'dirt', dirt_path: 'dirt' }
-function gatherWorld ({ cells, at = [100.5, 64, 100.5], items = [], pickup = false }) {
-  const digs = [], searches = []
+// `pickup`: a dig puts its drop in the bag only when the bot could collect it: the drop falls to the first solid block under
+// the dug cell, and is collected when it rests from three below the bot's feet (a safe drop into a scrape) to two above (vanilla's
+// pickup box: the body, 1.8 tall, expanded 0.5 up), within gather's own pickup walk (radius 8). A drop resting higher -- the lawn
+// over a cave, a deep pit's rim -- is NOT collected: the bot cannot climb to it.
+const DROP = { grass_block: 'dirt', dirt: 'dirt', stone: 'cobblestone', cobblestone: 'cobblestone', farmland: 'dirt', dirt_path: 'dirt' }
+function gatherWorld ({ cells, at = [100.5, 64, 100.5], items = [], pickup = false, reach = false }) {
+  const digs = [], searches = [], uncollected = []
+  const counts = { reads: 0 }
   const solid = (x, y, z) => TD.isRoofBlock(blockNamed(cells.get(key(x, y, z))))
   const blk = (x, y, z) => {
     const name = cells.get(key(x, y, z)) ?? 'air'
@@ -207,29 +228,58 @@ function gatherWorld ({ cells, at = [100.5, 64, 100.5], items = [], pickup = fal
     return { name, type: t.id, position: new Vec3(x, y, z), boundingBox: t.boundingBox, diggable: name !== 'air',
              canHarvest: () => true, digTime: () => 50, material: t.material, hardness: name === 'air' ? 0 : (t.hardness ?? 1) }
   }
+  const sectionKinds = () => {
+    const m = new Map()
+    for (const k of cells.keys()) {
+      const [x, y, z] = k.split(',').map(Number)
+      const sk = key(Math.floor(x / 16), Math.floor(y / 16), Math.floor(z / 16))
+      if (!m.has(sk)) m.set(sk, new Set(['air']))
+      m.get(sk).add(cells.get(k))
+    }
+    return m
+  }
   const bot = {
     entity: { position: new Vec3(...at), velocity: new Vec3(0, 0, 0), onGround: true, yaw: 0 },
-    health: 20, food: 20,
+    health: 20, food: 20, game: { minY: -64, height: 384 },
     inventory: { items: () => items, emptySlotCount: () => 30 },
     // `items` too, as mineflayer's registry has it: drops.mjs reads drop ids through it (without it no block yields dirt)
     registry: { blocksByName: mcData.blocksByName, blocks: mcData.blocks, itemsByName: mcData.itemsByName, items: mcData.items },
-    blockAt: p => blk(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)),
-    findBlocks ({ matching, maxDistance = 16, count = 1 }) {
-      const fn0 = typeof matching === 'function' ? matching : (b => b && (Array.isArray(matching) ? matching.includes(b.type) : b.type === matching))
-      const rec = { calls: 0 }; searches.push(rec)
-      const fn = b => { rec.calls++; return fn0(b) }
-      const kinds = new Set(cells.values())
-      if (![...kinds].some(n => fn({ type: mcData.blocksByName[n].id, name: n }))) return []
-      const from = bot.entity.position.floored()
-      const out = []
-      // nearest first: mineflayer walks the sections outward from the bot (an octahedron), so near cells are asked first; the
-      // order matters once the search can be given up (TOPDOWN.giveUp)
-      const ks = [...cells.keys()].map(k => k.split(',').map(Number)).sort((a, b) => new Vec3(...a).distanceTo(from) - new Vec3(...b).distanceTo(from))
-      for (const xyz of ks) {
-        const b = blk(...xyz)
-        if (fn(b) && b.position.distanceTo(from) <= maxDistance) out.push(b.position)
-      }
-      return out.sort((a, b) => a.distanceTo(from) - b.distanceTo(from)).slice(0, count)
+    blockAt: p => { counts.reads++; return blk(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)) },
+    findBlocks (options) {
+      const m0 = options.matching
+      const fn0 = typeof m0 === 'function' ? m0 : (b => b && (Array.isArray(m0) ? m0.includes(b.type) : b.type === m0))
+      const rec = { calls: 0, readsAtStart: counts.reads }; searches.push(rec)
+      const matcher = b => { rec.calls++; return fn0(b) }
+      const point = (options.point || bot.entity.position).floored()
+      const maxDistance = options.maxDistance || 16
+      const count = options.count || 1
+      const start = new Vec3(Math.floor(point.x / 16), Math.floor(point.y / 16), Math.floor(point.z / 16))
+      const it = new OctahedronIterator(start, Math.ceil((maxDistance + 8) / 16))
+      const visited = new Set(), kinds = sectionKinds()
+      let blocks = [], startedLayer = 0, next = start
+      try {
+        while (next) {
+          const sk = key(next.x, next.y, next.z)
+          const pal = kinds.get(sk)
+          if (pal && !visited.has(sk) && [...pal].some(n => matcher({ type: mcData.blocksByName[n].id, name: n, position: null }))) {
+            const begin = new Vec3(next.x * 16, next.y * 16, next.z * 16)
+            const cursor = begin.clone()
+            for (cursor.x = begin.x; cursor.x < begin.x + 16; cursor.x++) {
+              for (cursor.y = begin.y; cursor.y < begin.y + 16; cursor.y++) {
+                for (cursor.z = begin.z; cursor.z < begin.z + 16; cursor.z++) {
+                  if (matcher(bot.blockAt(cursor)) && cursor.distanceTo(point) <= maxDistance) blocks.push(cursor.clone())
+                }
+              }
+            }
+          }
+          visited.add(sk)
+          if (startedLayer !== it.apothem && blocks.length >= count) break
+          startedLayer = it.apothem
+          next = it.next()
+        }
+      } finally { rec.reads = counts.reads - rec.readsAtStart }
+      blocks.sort((a, b) => a.distanceTo(point) - b.distanceTo(point))
+      return blocks.slice(0, count)
     },
     collectBlock: { movements: {} },
     pathfinder: { movements: { scafoldingBlocks: [mcData.itemsByName.dirt.id, mcData.itemsByName.cobblestone.id] }, setMovements () {}, stop () {}, isMining: () => false, setGoal () {}, async goto () {} },
@@ -240,17 +290,26 @@ function gatherWorld ({ cells, at = [100.5, 64, 100.5], items = [], pickup = fal
       digs.push({ x, y, z, name, open: openAbove(cells, x, y, z), straight: TD.isRoofBlock(blockNamed(cells.get(key(x, y + 1, z)))), refused: TD.topDownRefuses(solid, { x, y, z }, name), hem: TD.hemmedIn(solid, { x, y, z }) })
       cells.delete(key(x, y, z))
       const drop = DROP[name]
-      if (pickup && drop) { const it = items.find(i => i.name === drop); if (it) it.count++; else items.push({ name: drop, count: 1, type: mcData.itemsByName[drop].id }) }
+      if (!pickup || !drop) return
+      let rest = y
+      while (rest > -64 && !solid(x, rest - 1, z)) rest--
+      const f = bot.entity.position.floored()
+      const near = Math.hypot(x + 0.5 - bot.entity.position.x, z + 0.5 - bot.entity.position.z) <= 8
+      if (near && rest >= f.y - 3 && rest <= f.y + 2) { const it = items.find(i => i.name === drop); if (it) it.count++; else items.push({ name: drop, count: 1, type: mcData.itemsByName[drop].id }) }
+      else uncollected.push({ x, y, z, name, rest })
     },
     async equip () {}, async lookAt () {}, assertNav () {}, chat () {}, setControlState () {}, clearControlStates () {},
     withGatherMovements: async fn => fn(),
   }
-  return { bot, digs, searches }
+  // `reach`: mineflayer's canDigBlock (digging.js 220-226): diggable and the block centre within 5.1 of the eye -- no line of sight
+  if (reach) bot.canDigBlock = b => !!b && b.diggable && b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.65, 0)) <= 5.1
+  const held = () => items.reduce((n, i) => n + (['dirt', 'cobblestone'].includes(i.name) ? i.count : 0), 0)
+  return { bot, digs, searches, uncollected, counts, held }
 }
 // A plain: stone, then `dirt` layers, then the cap (grass_block) at `top`, over [x0..x1] x [z0..z1]
-function plain ({ x0 = 92, x1 = 108, z0 = 92, z1 = 108, top = 63, dirt = 3, floor = 58, cap = 'grass_block', capAt = null } = {}) {
+function plain ({ x0 = 92, x1 = 108, z0 = 92, z1 = 108, top = 63, dirt = 3, floor = 58, cap = 'grass_block', capAt = null, ox = 0, oz = 0 } = {}) {
   const cells = new Map()
-  for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
+  for (let x = x0 + ox; x <= x1 + ox; x++) for (let z = z0 + oz; z <= z1 + oz; z++) {
     for (let y = floor; y < top - dirt; y++) cells.set(key(x, y, z), 'stone')
     for (let y = top - dirt; y < top; y++) cells.set(key(x, y, z), 'dirt')
     cells.set(key(x, top, z), capAt?.(x, z) ?? cap)
@@ -292,7 +351,7 @@ await t('(2b) the op=mode row is written once per bot process, not per run', asy
   const { bot } = gatherWorld({ cells: trench(plain()) })
   await run(SK, bot); await run(SK, bot)
   assert.equal(rowsOf('gather_topdown').filter(r => /^op=mode /.test(r.skill.detail)).length, 1)
-  assert.equal(rowsOf('gather_topdown').find(r => /^op=mode /.test(r.skill.detail)).skill.detail, 'op=mode on=1 deep=8 air=16 pit=2 give_up=256')
+  assert.equal(rowsOf('gather_topdown').find(r => /^op=mode /.test(r.skill.detail)).skill.detail, 'op=mode on=1 deep=8 air=16 pit=2 hole=3 give_up=256 reads=16384')
 })
 await t('(3) CHAIN: dirt lying open to the sky is taken as before, with no fallback and no skip of it', async () => {
   rows.length = 0
@@ -318,10 +377,15 @@ await t('(4) CHAIN: a bot 20 blocks down in rock takes the rock around it; the s
   const r = await run(SK, deep.bot, { block: 'stone', count: 1 })
   assert.ok(deep.digs.length > 0, `the miner takes the rock: ${show(r, deep.digs)}`)
   for (const d of deep.digs) assert.ok(d.name === 'stone' && d.y >= 39 && d.y <= 42 && d.x >= 97 && d.x <= 103 && d.z >= 97 && d.z <= 103, `the rock of its room: ${JSON.stringify(d)}`)
-  const shallow = gatherWorld({ cells: rock(56), at: [100.5, 56, 100.5] })
+  // 5 down is near the surface: the room's rock is refused. Holding what a climb needs, the bot digs nothing and is told to
+  // climb; with an empty bag it is a sheltered bot short of blocks (review r1): the trap's few cells beside it, no more
+  const shallow = gatherWorld({ cells: rock(56), at: [100.5, 56, 100.5], items: [{ name: 'cobblestone', count: 8, type: mcData.itemsByName.cobblestone.id }] })
   const rs = await run(SK, shallow.bot, { block: 'stone', count: 1 })
-  assert.equal(shallow.digs.length, 0, `5 down is near the surface: ${show(rs, shallow.digs)}`)
-  assert.notEqual(rs.status, 'success')
+  assert.equal(shallow.digs.length, 0, `5 down, holding a climb: ${show(rs, shallow.digs)}`)
+  assert.match(String(rs.detail), /`surface`/)
+  const empty = gatherWorld({ cells: rock(56), at: [100.5, 56, 100.5] })
+  const re = await run(SK, empty.bot, { block: 'stone', count: 16 })
+  assert.ok(empty.digs.length <= CZ.GATHER_ZONE.trapMax && empty.digs.every(d => near(d, [100.5, 56, 100.5])), `5 down, empty bag: the trap only: ${show(re, empty.digs)}`)
 })
 await t('(5) CHAIN: a cell the gather trap allows is taken although roofed (a bot that cannot leave keeps its way out); without the trap it is not', async () => {
   const at = [101.5, 60, 100.5]   // in the trench, on its stone floor
@@ -394,7 +458,8 @@ await t('MUTANT KILLED (chain): without the leaves exception, the grass under a 
   await withTopdownMutant([LEAVES], async (TDm, SKm) => {
     const { bot, digs } = gatherWorld({ cells: canopy() })
     await run(SKm, bot)
-    assert.equal(digs.length, 0, JSON.stringify(digs.slice(0, 4)))
+    // the mutant reads the canopy as a roof over the GRASS (refused) and over the bot itself (sheltered: the trap's cells)
+    assert.ok(!digs.some(d => d.name === 'grass_block'), JSON.stringify(digs.slice(0, 4)))
   })
 })
 await t('MUTANT KILLED (chain): without the straight-above deep case, the miner 20 down cannot take the walls of its room', async () => {
@@ -407,13 +472,17 @@ await t('MUTANT KILLED (chain): without the straight-above deep case, the miner 
     for (let x = 96; x <= 104; x++) { cells.set(key(x, 39, 100), 'obsidian'); cells.set(key(x, 42, 100), 'obsidian') }
     return cells
   }
+  rows.length = 0
   const real = gatherWorld({ cells: rock(), at: [100.5, 40, 100.5] })
   const r = await run(SK, real.bot, { block: 'stone', count: 1 })
   assert.ok(real.digs.some(d => d.name === 'stone'), `positive control: the walls are taken: ${show(r, real.digs)}`)
+  assert.equal(trappedRows().length, 0, 'the real rule takes them as a mine: no trap needed')
   await withTopdownMutant([DEEP_STRAIGHT], async (TDm, SKm) => {
-    const { bot, digs } = gatherWorld({ cells: rock(), at: [100.5, 40, 100.5] })
+    rows.length = 0
+    const { bot } = gatherWorld({ cells: rock(), at: [100.5, 40, 100.5] })
     await run(SKm, bot, { block: 'stone', count: 1 })
-    assert.ok(!digs.some(d => d.name === 'stone'), JSON.stringify(digs.slice(0, 4)))
+    // the mutant refuses the walls of the mine; only the sheltered bot's trap gets the miner its rock
+    assert.equal(trappedRows().length, 1)
   })
 })
 
@@ -486,6 +555,7 @@ const bigSlab = () => {
   for (const x of [112, 113]) { for (let y = 58; y <= 62; y++) cells.set(key(x, y, 100), 'stone'); cells.set(key(x, 63, 100), 'dirt') }
   return cells
 }
+const REAL12 = {}
 await t('(12) A BOUNDED SEARCH, CHAIN: past 256 roofed cells the search is given up -- the open dirt beyond is NOT reached, the grass on top is taken; the row says gave_up=1', async () => {
   rows.length = 0
   const cells = bigSlab(), total = cells.size
@@ -495,7 +565,7 @@ await t('(12) A BOUNDED SEARCH, CHAIN: past 256 roofed cells the search is given
   assert.ok(!digs.some(d => d.x >= 112), 'the open dirt past the slab was not reached')
   const skip = rowsOf('gather_topdown').find(r => /^op=skip /.test(r.skill.detail))
   assert.match(skip.skill.detail, /^op=skip block=dirt skipped=256 via=grass_block found=\d+ gave_up=1$/)
-  assert.ok(searches[0].calls < total / 2, `the first search stopped early: ${searches[0].calls} matcher calls of ${total} cells`)
+  REAL12.calls = searches[0].calls; REAL12.total = total
 })
 await t('(6b) has no gave_up: a slab under 256 cells is searched to the end', async () => {
   rows.length = 0
@@ -511,8 +581,293 @@ await t('MUTANT KILLED: without the bound the search walks every cell and reache
     const cells = bigSlab(), total = cells.size
     const { bot, digs, searches } = gatherWorld({ cells })
     await run(mod, bot)
-    assert.ok(searches[0].calls >= total, `${searches[0].calls} matcher calls of ${total} cells`)
+    assert.ok(searches[0].calls > REAL12.calls, `the mutant's first search asked the matcher ${searches[0].calls} times, the real one ${REAL12.calls}`)
     assert.ok(digs.some(d => d.x >= 112), 'the open dirt was reached')
+  })
+})
+
+// ---- review r1 (Codex + Claude): the sheltered bot, the trap asked once, the whole chain, the reads, the library's walk -----
+const NEED = 8   // skills.mjs climbPrerequisite('no scaffold').count, what the trap and the climb are measured against
+await t('SHELTER, pure: roofed or deep feet -> roofed; open with 3+ sides solid at head height -> pit; a 1-deep scrape, a trench, open ground -> none', () => {
+  const at = { x: 0, y: 60, z: 0 }
+  assert.deepEqual(TD.shelteredAt(solidSet([[0, 63, 0]]), at), { kind: 'roofed', feetY: 60 }, 'a cave: a ceiling two over the head')
+  assert.deepEqual(TD.shelteredAt(solidSet(col(0, 0, 62, 90)), at), { kind: 'roofed', feetY: 60 }, 'deep in a mine')
+  const sides = y => [[1, y, 0], [-1, y, 0], [0, y, 1], [0, y, -1]]
+  assert.equal(TD.shelteredAt(solidSet(sides(60)), at), null, 'a 1-deep scrape: the sides end at the feet')
+  assert.deepEqual(TD.shelteredAt(solidSet([...sides(60), ...sides(61)]), at), { kind: 'pit', feetY: 60 }, 'a 1x1 pit 2 deep')
+  assert.deepEqual(TD.shelteredAt(solidSet([...sides(61)].slice(0, 3)), at), { kind: 'pit', feetY: 60 }, 'three sides is the bottom of a hole')
+  assert.equal(TD.shelteredAt(solidSet([[1, 61, 0], [-1, 61, 0]]), at), null, 'a 1-wide trench (two sides): it can walk along it')
+  assert.equal(TD.shelteredAt(solidSet([]), at), null)
+  assert.equal(TD.shelteredAt(solidSet([]), null), null)
+  assert.equal(TD.pitRimY(solidSet([...sides(61), ...sides(62), ...sides(63)]), at), 63 + 1, 'the rim: on top of the walls (feet 64)')
+})
+await t('FROM BELOW, pure: for a sheltered bot an OPEN terrain cell at or above its head is refused; at its feet, roofed, deep, or an ore is the old rule; no shelter, no effect', () => {
+  const sh = { kind: 'roofed', feetY: 57 }
+  assert.equal(TD.fromBelow(solidSet([]), { x: 0, y: 63, z: 0 }, 'grass_block', sh), true, 'the lawn over the cave')
+  assert.equal(TD.fromBelow(solidSet([]), { x: 0, y: 58, z: 0 }, 'dirt', sh), true, 'at head height')
+  assert.equal(TD.fromBelow(solidSet([]), { x: 0, y: 57, z: 0 }, 'dirt', sh), false, 'at the feet: not from below')
+  assert.equal(TD.fromBelow(solidSet(col(0, 0, 64, 90)), { x: 0, y: 63, z: 0 }, 'stone', sh), false, 'deep: not open')
+  assert.equal(TD.fromBelow(solidSet([]), { x: 0, y: 63, z: 0 }, 'iron_ore', sh), false, 'an ore')
+  assert.equal(TD.fromBelow(solidSet([]), { x: 0, y: 63, z: 0 }, 'grass_block', null), false, 'no shelter')
+  assert.equal(TD.topDownRefusesFor(solidSet([]), { x: 0, y: 63, z: 0 }, 'grass_block', null), false)
+  assert.equal(TD.topDownRefusesFor(solidSet([]), { x: 0, y: 63, z: 0 }, 'grass_block', sh), true)
+})
+await t('DECISION and WORDS, pure: short of a climb -> trap; holding it -> climb; the sheltered remedy names surface (roofed) or a goto onto the rim (pit), never "gather where it lies open" as the first step', () => {
+  assert.equal(TD.shelterDecision(null, 0, NEED), null)
+  assert.equal(TD.shelterDecision({ kind: 'roofed', feetY: 1 }, NEED - 1, NEED), 'trap')
+  assert.equal(TD.shelterDecision({ kind: 'roofed', feetY: 1 }, NEED, NEED), 'climb')
+  const roofed = TD.topDownShelterRemedy('dirt', { kind: 'roofed', feetY: 57 }, 12, NEED)
+  assert.match(roofed, /under a roof .* You hold 12 blocks, a climb needs 8: `surface`/)
+  const pit = TD.topDownShelterRemedy('dirt', { kind: 'pit', feetY: 60 }, 9, NEED, { x: 101, y: 64, z: 100 })
+  assert.match(pit, /at the bottom of a hole .* `goto 101 64 100`/)
+  assert.ok(!/^no dirt open to the sky/.test(roofed) && !/Take ground from the top: gather where it lies open/.test(roofed), 'differs from the open-ground remedy')
+  assert.match(TD.topDownShelterRemedy('dirt', { kind: 'roofed', feetY: 57 }, 0, NEED), /you hold 0 of the 8 blocks a climb needs/)
+})
+await t('THE NEED: the trap and the climb are measured against climbPrerequisite("no scaffold").count, not a second number', () => {
+  assert.equal(SK.climbPrerequisite('no scaffold').count, NEED)
+})
+await t('MUTANTS KILLED (pure): shelter off, shortage off, from-below off, read budget off', async () => {
+  await withTopdownMutant([SHELTER_OFF], async M => { assert.equal(M.shelteredAt(solidSet([[0, 63, 0]]), { x: 0, y: 60, z: 0 }), null) })
+  await withTopdownMutant([SHORT_OFF], async M => { assert.equal(M.shelterDecision({ kind: 'roofed', feetY: 1 }, NEED, NEED), 'trap') })
+  await withTopdownMutant([BELOW_OFF], async M => { assert.equal(M.fromBelow(solidSet([]), { x: 0, y: 63, z: 0 }, 'grass_block', { kind: 'roofed', feetY: 57 }), false) })
+  await withTopdownMutant([READS_OFF], async M => { assert.equal(M.topDownGiveUp(0, M.TOPDOWN, M.TOPDOWN.readBudget), false) })
+  assert.equal(TD.topDownGiveUp(0, TD.TOPDOWN, TD.TOPDOWN.readBudget), true, 'positive control: the real budget gives up')
+})
+
+// A cave 5 below a grassy plain: base stone 50-55, the cave's layer (y 56-58) of `layer`, a 2-block stone ceiling (59-60),
+// dirt 61-62, grass 63. The cave is the air at x 98-102, z 98-102, y 57-58; the bot stands on its floor at (100, 57, 100).
+// The lawn right over it is 4.85 from the bot's eye: canDigBlock says yes, through the rock.
+function caveWorld (layer = 'dirt', { ox = 0, oz = 0 } = {}) {
+  const cells = new Map()
+  for (let x = 92 + ox; x <= 108 + ox; x++) for (let z = 92 + oz; z <= 108 + oz; z++) {
+    for (let y = 50; y <= 55; y++) cells.set(key(x, y, z), 'stone')
+    for (let y = 56; y <= 58; y++) cells.set(key(x, y, z), layer)
+    for (const y of [59, 60]) cells.set(key(x, y, z), 'stone')
+    for (const y of [61, 62]) cells.set(key(x, y, z), 'dirt')
+    cells.set(key(x, 63, z), 'grass_block')
+  }
+  for (let x = 98 + ox; x <= 102 + ox; x++) for (let z = 98 + oz; z <= 102 + oz; z++) for (const y of [57, 58]) cells.delete(key(x, y, z))
+  return cells
+}
+const CAVE_AT = [100.5, 57, 100.5]
+const caveRun = async (mod, { layer = 'dirt', block = 'dirt', items = [], ox = 0, oz = 0 } = {}) => {
+  rows.length = 0
+  const w = gatherWorld({ cells: caveWorld(layer, { ox, oz }), at: [CAVE_AT[0] + ox, CAVE_AT[1], CAVE_AT[2] + oz], pickup: true, reach: true, items })
+  const r = await run(mod, w.bot, { block, count: 16 })
+  return { ...w, r }
+}
+await t('(13) POSITIVE CONTROL, TOPDOWN=off: the bot in the cave takes the ground beside it and ends holding blocks', async () => {
+  process.env.TOPDOWN = 'off'
+  try {
+    for (const [layer, block] of [['dirt', 'dirt'], ['stone', 'cobblestone']]) {
+      const { digs, held, r } = await caveRun(SK, { layer, block })
+      assert.ok(held() > 0, `${block}: holds ${held()}: ${show(r, digs)}`)
+      assert.ok(!digs.some(d => d.y >= 61), `${block}: the base does not reach the lawn either here (the cave's own ground is nearer)`)
+    }
+  } finally { delete process.env.TOPDOWN }
+})
+for (const [layer, block] of [['dirt', 'dirt'], ['stone', 'cobblestone']]) {
+  await t(`(13) CHAIN, ${block}: the bot in a cave under a 2-block ceiling with an empty bag gets the trap, takes at most trapMax cells beside it, ends holding the climb's ${NEED}, the lawn untouched, one op=trapped row`, async () => {
+    const { digs, held, uncollected, r } = await caveRun(SK, { layer, block })
+    assert.ok(digs.length > 0 && digs.length <= CZ.GATHER_ZONE.trapMax, `${digs.length} digs: ${show(r, digs)}`)
+    assert.ok(digs.every(d => near(d, CAVE_AT)), `only within the trap's reach: ${JSON.stringify(digs)}`)
+    assert.ok(!digs.some(d => d.y >= 61), 'the lawn and the ground under it untouched')
+    assert.deepEqual(uncollected, [], 'nothing dug that it could not collect')
+    assert.ok(held() >= NEED, `ends holding ${held()} (need ${NEED})`)
+    assert.equal(trappedRows().length, 1)
+    assert.match(trappedRows()[0].skill.detail, new RegExp(`^op=trapped at=100,57,100 kind=roofed holds=0 need=${NEED} block=`))
+  })
+}
+await t('(14) CHAIN: the same bot already holding what a climb needs: nothing dug, the lawn untouched, no trap; the remedy names `surface`', async () => {
+  const { digs, r } = await caveRun(SK, { items: [{ name: 'dirt', count: NEED, type: mcData.itemsByName.dirt.id }] })
+  assert.equal(digs.length, 0, show(r, digs))
+  assert.equal(trappedRows().length, 0)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'no_safe_target')
+  assert.match(String(r.detail), /under a roof .* You hold 8 blocks, a climb needs 8: `surface`/)
+})
+await t('(15) CHAIN: a 1x1 pit 4 deep, empty bag: it ends holding blocks from the pit\'s walls; no rim grass is dug out of its reach', async () => {
+  rows.length = 0
+  const cells = plain()
+  for (let y = 60; y <= 63; y++) cells.delete(key(100, y, 100))
+  const { bot, digs, held, uncollected } = gatherWorld({ cells, at: [100.5, 60, 100.5], pickup: true, reach: true })
+  const r = await run(SK, bot, { block: 'dirt', count: 16 })
+  assert.ok(held() > 0, `holds ${held()}: ${show(r, digs)}`)
+  assert.ok(!digs.some(d => d.y === 63), 'no rim grass')
+  assert.deepEqual(uncollected, [], 'nothing dug out of its reach')
+  assert.match(trappedRows()[0]?.skill?.detail ?? '', /kind=pit/)
+})
+await t('(16) CHAIN: with no home set at all (no town, no clean zone), the cave bot still gets the trap and its blocks', async () => {
+  const saved = { x: process.env.HOME_X, y: process.env.HOME_Y, z: process.env.HOME_Z }
+  delete process.env.HOME_X; delete process.env.HOME_Y; delete process.env.HOME_Z
+  try {
+    const { digs, held, r } = await caveRun(SK)
+    assert.ok(held() >= NEED && digs.every(d => near(d, CAVE_AT)), `${held()}: ${show(r, digs)}`)
+    assert.equal(trappedRows().length, 1)
+  } finally { process.env.HOME_X = saved.x; process.env.HOME_Y = saved.y; process.env.HOME_Z = saved.z }
+})
+await t('(17) CHAIN: a bot standing in the open on the lawn over the cave is not sheltered: it takes the grass as before, no trap', async () => {
+  rows.length = 0
+  const { bot, digs } = gatherWorld({ cells: caveWorld(), at: [100.5, 64, 100.5], pickup: true, reach: true })
+  const r = await run(SK, bot, { block: 'dirt', count: 1 })
+  assert.equal(digs[0]?.name, 'grass_block', show(r, digs)); assert.equal(digs[0].y, 63)
+  assert.equal(trappedRows().length, 0)
+})
+await t('MUTANT KILLED (13 without the shelter): no trap, and the lawn is dug from below where the drop cannot be collected', async () => {
+  await withTopdownMutant([SHELTER_OFF], async (TDm, SKm) => {
+    const { digs, held, uncollected } = await caveRun(SKm)
+    assert.ok(digs.some(d => d.y === 63) && uncollected.length > 0 && held() === 0, JSON.stringify({ digs: digs.slice(0, 3), held: held() }))
+  })
+})
+await t('MUTANT KILLED (14 without the shortage): the bot holding a climb is exempted too and digs', async () => {
+  await withTopdownMutant([SHORT_OFF], async (TDm, SKm) => {
+    const { digs } = await caveRun(SKm, { items: [{ name: 'dirt', count: NEED, type: mcData.itemsByName.dirt.id }] })
+    assert.ok(digs.length > 0)
+  })
+})
+await t('MUTANT KILLED (13 without from-below): the lawn is dug from under the rock and lies out of reach', async () => {
+  await withTopdownMutant([BELOW_OFF], async (TDm, SKm) => {
+    const { digs, uncollected } = await caveRun(SKm)
+    assert.ok(digs.some(d => d.y === 63 && d.name === 'grass_block') && uncollected.length > 0, JSON.stringify(digs.slice(0, 3)))
+  })
+})
+await t('MUTANT KILLED (13 without the trap install): the stranded bot ends with nothing', async () => {
+  await withMutantsAll(SKILLS_URL, [TRAP_INSTALL], async mod => {
+    const { digs, held, r } = await caveRun(mod)
+    assert.equal(held(), 0, show(r, digs)); assert.equal(digs.length, 0)
+  })
+})
+
+// BLOCKER 2: inside the clean zone (home 3000,65,3000: 30 out, past the town's 16-block box, inside the zone's 64), a trench
+// wall cell is refused by BOTH rules; the trap's last cell must be taken, not counted and refused
+const zoneTrapRun = async (mod) => {
+  const w = gatherWorld({ cells: trench(plain({ ox: 2930, oz: 2900 }), 3031), at: [3031.5, 60, 3000.5], pickup: true })
+  w.bot.gatherTrap = CZ.gatherTrapOf({ x: 3031, y: 60, z: 3000 }, Date.now())
+  const r = await run(mod, w.bot, { block: 'dirt', count: 16 })
+  return { ...w, r }
+}
+await t('BLOCKER 2, CHAIN: a trapped bot in the zone, cells both rules refuse: exactly trapMax are taken (the last is not counted and refused)', async () => {
+  const { bot, digs, r } = await zoneTrapRun(SK)
+  const both = digs.filter(d => d.refused && CZ.gatherZoneRefuses(CZ.cleanZoneOf({ x: 3000, y: 65, z: 3000 }), d, d.name, 60))
+  assert.ok(both.length > 0, `positive control: cells both rules refuse were taken: ${show(r, digs)}`)
+  assert.equal(digs.length, CZ.GATHER_ZONE.trapMax, show(r, digs))
+  assert.equal(both.length, CZ.GATHER_ZONE.trapMax)
+  assert.equal(bot.gatherTrap.left, 0)
+})
+await t('MUTANT KILLED: the swing re-asks the trap after the zone counted it -> trapMax - 1', async () => {
+  await withMutantsAll(SKILLS_URL, [SWING_REASK], async mod => {
+    const { digs } = await zoneTrapRun(mod)
+    assert.equal(digs.length, CZ.GATHER_ZONE.trapMax - 1)
+  })
+})
+
+// ITEM 3: the kept cells of a given-up search go through the whole matcher chain (protectzone.mjs's findBlocks wrapper)
+const PZ = await import('../src/protectzone.mjs')
+const bareBeside = (x, z) => (x >= 99 && x <= 101 && z >= 99 && z <= 101) ? 'dirt' : null
+const pzRun = async (mod) => {
+  rows.length = 0
+  const w = gatherWorld({ cells: plain({ capAt: bareBeside }), pickup: true })
+  const zones = PZ.parseZones({ version: 1, zones: [{ id: 'patch', kind: 'fixture', label: 'the zone patch', box: [99, 0, 99, 101, 90, 101] }] }).zones
+  const refused = []
+  PZ.attachProtectZone(w.bot, { zones: () => zones, context: () => ({ skill: 'gather', args: null, reflex: null, holder: null }), onRefuse: x => refused.push(x) })
+  const r = await run(mod, w.bot, { block: 'dirt', count: 1 })
+  return { ...w, r, refused }
+}
+await t('ITEM 3, CHAIN: a given-up search does not hand back the cells the protected-zone wrapper drops (the bare patch in a zone)', async () => {
+  const { digs, refused, r } = await pzRun(SK)
+  assert.ok(!digs.some(d => d.x >= 99 && d.x <= 101 && d.z >= 99 && d.z <= 101), show(r, digs))
+  assert.equal(refused.filter(x => x.op === 'dig').length, 0, 'never even tried at the swing')
+  assert.ok(rowsOf('gather_topdown').some(x => /gave_up=1/.test(x.skill.detail)), 'positive control: the search was given up')
+})
+await t('MUTANT KILLED: the kept cells returned without the whole chain -> the zone\'s cells are the targets', async () => {
+  await withMutantsAll(SKILLS_URL, [REFILTER], async mod => {
+    const { digs, refused } = await pzRun(mod)
+    assert.ok(refused.some(x => x.op === 'dig') || digs.some(d => d.x >= 99 && d.x <= 101 && d.z >= 99 && d.z <= 101), JSON.stringify({ refused: refused.length, digs: digs.slice(0, 3) }))
+  })
+})
+// ITEM 5: the kept cells are returned (explicit); the in-range guard
+await t('ITEM 5, CHAIN: a search given up after accepting open cells returns them -- the bare patch is dug, not the grass, and the row says gave_up=1', async () => {
+  rows.length = 0
+  const { bot, digs } = gatherWorld({ cells: plain({ capAt: bareBeside }), pickup: true })
+  const r = await run(SK, bot, { block: 'dirt', count: 1 })
+  assert.ok(rowsOf('gather_topdown').some(x => /^op=skip .* gave_up=1$/.test(x.skill.detail)), 'given up')
+  assert.ok(digs.length > 0 && digs.every(d => d.name === 'dirt' && d.y === 63), show(r, digs))
+})
+await t('MUTANT KILLED: a given-up search that returns nothing loses the patch beside the bot (the grass is taken instead)', async () => {
+  await withMutantsAll(SKILLS_URL, [KEPT_NONE], async mod => {
+    const { bot, digs } = gatherWorld({ cells: plain({ capAt: bareBeside }), pickup: true })
+    await run(mod, bot, { block: 'dirt', count: 1 })
+    assert.ok(digs.length > 0 && digs[0].name === 'grass_block', JSON.stringify(digs.slice(0, 3)))
+  })
+})
+const INRANGE_READS = {}
+const farOnly = () => plain({ ox: 36 })   // the plain at x 128-144: the bot at x 100 is 28+ away from its edge, 33+ from most cells
+await t('ITEM 5, CHAIN: roofed dirt only BEYOND the search -> no rule reads for it, no skip row, the base\'s "no dirt within 32" (not the remedy)', async () => {
+  rows.length = 0
+  const cells = new Map([...farOnly()].filter(([k]) => Number(k.split(',')[0]) >= 133))
+  const { bot, digs, searches } = gatherWorld({ cells })
+  const r = await run(SK, bot)
+  assert.equal(digs.length, 0)
+  assert.match(String(r.detail), /^no dirt within 32 blocks/, show(r, digs))
+  assert.ok(!rowsOf('gather_topdown').some(x => /^op=skip/.test(x.skill.detail)))
+  assert.ok(searches[0].calls > 0, 'positive control: the far cells were offered to the matcher')
+  INRANGE_READS.real = searches[0].reads
+})
+await t('MUTANT KILLED: without the in-range guard the far cells are read, skipped, and the run ends with the remedy', async () => {
+  await withMutantsAll(SKILLS_URL, [INRANGE], async mod => {
+    rows.length = 0
+    const cells = new Map([...farOnly()].filter(([k]) => Number(k.split(',')[0]) >= 133))
+    const { bot, searches } = gatherWorld({ cells })
+    const r = await run(mod, bot)
+    assert.match(String(r.detail), /open to the sky/)
+    assert.ok(rowsOf('gather_topdown').some(x => /^op=skip block=dirt skipped=[1-9]/.test(x.skill.detail)), 'the far cells were read and skipped')
+  })
+})
+// ITEM 4: a bot 20 down inside a deep stone mass gathering stone: every cell in its section is deep (8 reads each, accepted)
+const stoneMass = () => {
+  const cells = new Map()
+  for (let x = 84; x <= 116; x++) for (let z = 84; z <= 116; z++) { for (let y = 24; y <= 62; y++) cells.set(key(x, y, z), 'stone'); cells.set(key(x, 63, z), 'grass_block') }
+  for (let x = 98; x <= 102; x++) for (let z = 98; z <= 102; z++) for (const y of [40, 41]) cells.delete(key(x, y, z))
+  return cells
+}
+const massReads = async (mod, env = null) => {
+  if (env) process.env.TOPDOWN = env
+  try {
+    const { bot, digs, searches } = gatherWorld({ cells: stoneMass(), at: [100.5, 40, 100.5] })
+    const r = await run(mod, bot, { block: 'stone', count: 1 })
+    return { reads: searches[0].reads, calls: searches[0].calls, digs, r }
+  } finally { if (env) delete process.env.TOPDOWN }
+}
+await t('ITEM 4, CHAIN: the read budget bounds the extra reads of the first search (stone mass); the miner still takes the rock of its room', async () => {
+  const off = await massReads(SK, 'off'), on = await massReads(SK)
+  let mut = null
+  await withTopdownMutant([READS_OFF], async (TDm, SKm) => { mut = await massReads(SKm) })
+  console.log(`  READS first search: off=${off.reads} on=${on.reads} (extra ${on.reads - off.reads}) no-budget=${mut.reads} (extra ${mut.reads - off.reads}) budget=${TD.TOPDOWN.readBudget}`)
+  assert.ok(on.digs.length > 0 && on.digs.every(d => d.y >= 39 && d.y <= 42), show(on.r, on.digs))
+  assert.ok(on.reads - off.reads <= TD.TOPDOWN.readBudget + 64, `extra ${on.reads - off.reads}`)
+  assert.ok(mut.reads - off.reads > TD.TOPDOWN.readBudget * 1.5, `the mutant reads ${mut.reads - off.reads} extra`)
+})
+// ITEM 7: the second fallback's skips do not leak into the next round
+await t('ITEM 7, CHAIN: skips from the second fallback search are not counted in the next round (no op=skip row when the rule never emptied a search)', async () => {
+  const leakWorld = () => {
+    const cells = new Map()
+    for (let x = 92; x <= 108; x++) for (let z = 92; z <= 108; z++) { for (let y = 58; y <= 62; y++) cells.set(key(x, y, z), 'stone'); cells.set(key(x, 63, z), 'grass_block') }
+    for (const x of [99, 100]) cells.set(key(x, 63, 100), 'dirt')                    // open dirt, unsafe to break (below)
+    for (let x = 104; x <= 106; x++) cells.set(key(x, 64, 100), 'stone')            // three roofed grass cells
+    return cells
+  }
+  const go = async mod => {
+    rows.length = 0
+    const w = gatherWorld({ cells: leakWorld(), pickup: true })
+    w.bot.collectBlock.movements.safeToBreak = b => b?.name !== 'dirt'
+    const r = await run(mod, w.bot, { block: 'dirt', count: 2 })
+    return { ...w, r, skip: rowsOf('gather_topdown').filter(x => /^op=skip/.test(x.skill.detail)) }
+  }
+  const real = await go(SK)
+  assert.ok(real.digs.some(d => d.name === 'grass_block'), `positive control: the second fallback took grass: ${show(real.r, real.digs)}`)
+  assert.deepEqual(real.skip.map(x => x.skill.detail), [])
+  await withMutantsAll(SKILLS_URL, [LEAK], async mod => {
+    const m = await go(mod)
+    assert.ok(m.skip.length > 0, 'the mutant counts the second fallback\'s skips into the next round')
   })
 })
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0)

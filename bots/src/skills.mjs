@@ -101,7 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
-import { topDownOn, topDownRefuses, topDownRemedy, topDownModeDetail, isRoofBlock, topDownTrapCounts, topDownGiveUp } from './topdown.mjs'   // topdown-01
+import { TOPDOWN, topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownTrapCounts, topDownGiveUp, topDownVerdict, shelteredAt, shelterDecision, topDownShelterRemedy, pitRimY } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
@@ -373,7 +373,23 @@ const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z 
 // TOPDOWN-01 (owner 11-15): ground under a roof near the surface is not a gather target (topdown.mjs). A cell the trap
 // lets through stays takeable: a bot that cannot leave where it stands keeps its way out.
 const roofAt = bot => (x, y, z) => isRoofBlock(bot.blockAt(new Vec3(x, y, z)))
-const topDownHit = (bot, p, name) => topDownOn() && !!p && topDownRefuses(roofAt(bot), p, name) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now())
+// the bot's own situation (topdown.mjs shelteredAt): null in the open, else { kind: 'roofed' | 'pit', feetY }
+// A bot trapped by this rule keeps the situation it was trapped in while the trap lasts: widening the bottom of a pit takes the
+// walls at its head away (no longer `pit` by the four sides) and the rim is still out of its reach (review r1, test 15)
+const shelterOf = bot => {
+  try {
+    const f = bot?.entity?.position?.floored?.()
+    const sh = f ? shelteredAt(roofAt(bot), f) : null
+    if (sh) return sh
+    const t = bot?.gatherTrap
+    return t?.shelter && t.until > Date.now() ? t.shelter : null
+  } catch { return null }
+}
+// `shelter` undefined -> read now (the swing); gatherRun passes the round's. `solid` lets gatherRun count the rule's reads.
+// -> null | 'refused' | 'below' (topdown.mjs topDownVerdict)
+const topDownVerdictHere = (bot, p, name, shelter, solid) => (topDownOn() && p) ? topDownVerdict(solid ?? roofAt(bot), p, name, shelter === undefined ? shelterOf(bot) : shelter) : null
+// the trap lifts 'refused' only: a cell seen from below is never the trapped bot's way out (it cannot collect the drop)
+const topDownHit = (bot, p, name, shelter, solid) => { const v = topDownVerdictHere(bot, p, name, shelter, solid); return v === 'below' || (v === 'refused' && !gatherTrapAllows(bot?.gatherTrap, p, Date.now())) }
 const _tdModeSaid = new WeakSet()
 // topdown-01: thrown from gather's matcher to abandon one search (TOPDOWN.giveUp), caught around that findBlocks call only
 const TD_GIVE_UP = Object.freeze({ topDownGiveUp: true })
@@ -1749,12 +1765,18 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
       { failClass: 'no_safe_target' })
   }
   // TOPDOWN-01: the same independent conjunction at the swing (the admission may be stale: the ground changed under it).
-  // A cell the trap lets through and only this rule refuses is counted here, as the zone's are above (topDownTrapCounts)
-  if (tdTrapLets && topDownOn() && topDownTrapCounts(tdTrapLets, topDownRefuses(roofAt(bot), block.position, block.name), gatherZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y))) bot.gatherTrap.left--
-  else if (topDownHit(bot, block.position, block.name)) {
-    try { logEvent({ kind: 'gather_topdown', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
-    throw Object.assign(new Error(`under_roof: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${topDownRemedy(block.name, 1, 0)}`),
-      { failClass: 'no_safe_target' })
+  // ONE answer from the trap (tdTrapLets, asked before the zone's line counted it down): a cell it lets through is taken,
+  // and counted here when only this rule refuses it (topDownTrapCounts); the zone's line counted one both refuse
+  const tdShelter = shelterOf(bot)
+  const tdVerdict = topDownVerdictHere(bot, block.position, block.name, tdShelter)
+  if (tdVerdict) {
+    if (tdVerdict === 'refused' && tdTrapLets) {
+      if (topDownTrapCounts(tdTrapLets, true, gatherZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y))) bot.gatherTrap.left--
+    } else {
+      try { logEvent({ kind: 'gather_topdown', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
+      throw Object.assign(new Error(`under_roof: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${tdShelter ? topDownShelterRemedy(block.name, tdShelter, towerBlocksHeld(bot), climbPrerequisite('no scaffold').count) : topDownRemedy(block.name, 1, 0)}`),
+        { failClass: 'no_safe_target' })
+    }
   }
   if (!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)) {
     throw Object.assign(
@@ -2347,8 +2369,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let roofSkipped = 0   // topdown-01: ground under a roof the enumeration skipped this round
   let roofSaid = false  // topdown-01: the run's one `_gather_topdown` row
   let roofSearch = 0    // topdown-01: in-range cells this rule skipped in the CURRENT findBlocks call (TOPDOWN.giveUp)
+  let roofReads = 0     // topdown-01: blocks this rule read in the CURRENT findBlocks call (TOPDOWN.readBudget)
   let roofGaveUp = false   // topdown-01: a search this round was abandoned
   let roofHits = []     // topdown-01: in-range cells the CURRENT findBlocks call's matcher accepted
+  let tdTrapTried = false  // topdown-01: the sheltered bot's trap is installed at most once a run
   let zoneWalked = 0    // cleanzone-02: exits this run walked to (the remedy, performed)
   let zoneExit = null   // cleanzone-02: the last exit tried (named when the run fails)
   let zoneClimb = 0     // cleanzone-02: walks repeated from a pit by a bot that holds what a climb needs
@@ -2397,9 +2421,12 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     const ironStrict = tunnelKindsFor(blockName) != null
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
+    // topdown-01: the bot's own situation, read once a round (the enumeration and the target filter ask with it)
+    const tdShelter = topDownOn() ? shelterOf(bot) : null
+    const tdSolid = (x, y, z) => { roofReads++; return isRoofBlock(bot.blockAt(new Vec3(x, y, z))) }
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&   // cleanzone-02: an independent conjunction, as the town's ground is
-      !topDownHit(bot, p, bot.blockAt(p)?.name) &&   // topdown-01: an independent conjunction too
+      !topDownHit(bot, p, bot.blockAt(p)?.name, tdShelter) &&   // topdown-01: an independent conjunction too
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     const shopCells = shopCellsNow()?.cells ?? null   // shop-01 r2: the workshop's record cells are never a gather target
@@ -2410,8 +2437,16 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // distance test, and a zone cell beyond the search is not what emptied it (Claude review 11-13)
       if (b.position && gatherZoneHit(bot, b.position, b.name)) { if (searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) zoneSkipped++; return false }
       // topdown-01: AT ENUMERATION as well, IN RANGE only (the column above each cell is read, and mineflayer calls the
-      // matcher before its own distance test): the 32 the search returns are the nearest that lie open or deep
-      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && topDownHit(bot, b.position, b.name)) { roofSkipped++; if (topDownGiveUp(++roofSearch)) throw TD_GIVE_UP; return false }
+      // matcher before its own distance test), so what the search returns is takeable under this rule. NOT always the 32 nearest:
+      // mineflayer walks section by section (blocks.js 166-196: sections outward, cells x/y/z inside) and stops once a layer
+      // is done with 32 found, and a search given up below keeps only what it had accepted by then
+      // Given up (TD_GIVE_UP) after TOPDOWN.giveUp skips or TOPDOWN.readBudget reads in this one search
+      if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) {
+        const roofHit = topDownHit(bot, b.position, b.name, tdShelter, tdSolid)
+        if (roofHit) roofSearch++
+        if (topDownGiveUp(roofSearch, TOPDOWN, roofReads)) throw TD_GIVE_UP
+        if (roofHit) return false
+      }
       if (shopCells && b.position && shopCells.has(`${b.position.x},${b.position.y},${b.position.z}`)) return false
       // KEEPOUT-01: a candidate in a fire column is skipped AT ENUMERATION (as the town's ground is), so the 32 the search
       // returns are the nearest OUTSIDE every column -- the search centre moves, inside this run's own budget
@@ -2419,19 +2454,27 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // in range only: mineflayer calls the matcher before its own distance test (blocks.js:185), so the memo -- and the
       // round's skip count -- would otherwise hold cells findBlocks discards (Codex r4 P2-3)
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance && cave.skip(b.position)) return false
-      // topdown-01: what this search has accepted so far, in range (kept if the search is given up: findBlocks' own list is lost)
+      // topdown-01: what this matcher has accepted so far, in range (kept if the search is given up: findBlocks' own list is
+      // lost). Only a candidate: a wrapper outside this matcher (protectzone.mjs) may still drop it, so the kept list is asked
+      // through the whole chain again before it is used (findGround)
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) roofHits.push(b.position.clone ? b.position.clone() : b.position)
       return true
     }
     // topdown-01: one findBlocks with the matcher above. A search this rule abandoned (TD_GIVE_UP) returns what its matcher had
-    // accepted before it stopped (nearest 32), which is empty where everything near is roofed: then the fallback is asked
-    const findGround = id => {
-      roofSearch = 0; roofHits = []
+    // accepted before it stopped -- asked again through the WHOLE matcher chain (bot.findBlocks as wrapped, e.g. protectzone.mjs),
+    // restricted to those cells -- which is empty where everything near is roofed: then the fallback is asked.
+    // `count`: this search's skips go into the round's count (the row, the remedy); the second fallback's do not (Claude review)
+    const findGround = (id, { count = true } = {}) => {
+      roofSearch = 0; roofReads = 0; roofHits = []
       try { return bot.findBlocks({ matching: notTown(id), maxDistance, count: 32 }) } catch (e) {
         if (e !== TD_GIVE_UP) throw e
         roofGaveUp = true
-        return roofHits.sort((a, b) => a.distanceTo(searchFrom) - b.distanceTo(searchFrom)).slice(0, 32)
-      }
+        const kept = roofHits.sort((a, b) => a.distanceTo(searchFrom) - b.distanceTo(searchFrom)).slice(0, 32)
+        if (!kept.length) return []
+        const ks = new Set(kept.map(q => `${q.x},${q.y},${q.z}`))
+        const r = Math.ceil(Math.max(...kept.map(q => q.distanceTo(searchFrom))))
+        return bot.findBlocks({ matching: b => (b?.position ? ks.has(`${b.position.x},${b.position.y},${b.position.z}`) : b?.type === id), maxDistance: Math.max(1, r), count: kept.length })
+      } finally { if (count) roofSkipped += roofSearch }
     }
     roofGaveUp = false
     ko?.refresh?.()
@@ -2531,6 +2574,32 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         return { status: 'failed', failClass: 'no_safe_target',
                  detail: `no ${blockName} within ${maxDistance} blocks that may be taken: ${gatherZoneRemedy(gz, zoneExit ?? exits[0] ?? null)}` + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
       }
+    }
+    // TOPDOWN-01, A SHELTERED BOT (Codex + Claude review r1, blocker 1): under a roof or at the bottom of a hole, with this
+    // rule's refusals in the round and nothing to take, a bot SHORT of what a climb needs keeps the ground within reach of where
+    // it stands -- the clean zone's own trap (gatherTrapOf: trapR, trapMax cells, counted at the swing, trapMs), installed once a
+    // run, and the search is asked again. One that HOLDS what a climb needs is not exempted: it is told to climb, from there.
+    // Asked where the search came back empty AND where it found only cells that cannot be reached (buried, unsafe): a bot in
+    // a cave 5 down asking for cobblestone finds the deep rock under it, all buried. -> 'again' | a result | null
+    const tdShelterStep = () => {
+      if (!(roofSkippedNow > 0 && tdShelter)) return null
+      const held = towerBlocksHeld(bot), need = climbPrerequisite('no scaffold').count
+      const at = bot.entity.position.floored()
+      if (shelterDecision(tdShelter, held, need) === 'trap' && !tdTrapTried) {
+        tdTrapTried = true
+        bot.gatherTrap = { ...gatherTrapOf(at, Date.now()), shelter: tdShelter }
+        try { logEvent({ kind: 'gather_topdown', status: 'success', snapshot: snapshot(bot), detail: `op=trapped at=${at.x},${at.y},${at.z} kind=${tdShelter.kind} holds=${held} need=${need} block=${blockName}` }) } catch { /* telemetry */ }
+        return 'again'
+      }
+      if (collected !== 0) return null   // a run that took something ends as the base's success below
+      const rim = tdShelter.kind === 'pit' ? { x: at.x + 1, y: pitRimY(roofAt(bot), at), z: at.z } : null
+      return { status: 'failed', failClass: 'no_safe_target',
+               detail: topDownShelterRemedy(blockName, tdShelter, held, need, rim) + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
+    }
+    if (positions.length === 0 && !caveInBorder().length) {
+      const td = tdShelterStep()
+      if (td === 'again') continue
+      if (td) return td
     }
     if (positions.length === 0 && !caveInBorder().length) {
       return collected > 0
@@ -2700,7 +2769,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         if (alt === blockName) continue
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
-        const found = findGround(altType.id)
+        const found = findGround(altType.id, { count: false })
           .filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
         const cand = found.filter(exposed).filter(safeTarget)
         const ok = [...cand.filter(approachable), ...cand.filter(q => !approachable(q))]
@@ -2763,6 +2832,10 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         front: caveFront() }) }) } catch { /* a measurement may never cost the skill its turn */ }
     }
     if (reachable.length === 0) {
+      // topdown-01: the sheltered bot's trap or its climb (above), also when what was found cannot be reached
+      const td = tdShelterStep()
+      if (td === 'again') continue
+      if (td) return td
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
       }
