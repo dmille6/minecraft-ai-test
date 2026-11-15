@@ -851,7 +851,9 @@ def stage_piece(a, sha, feed, last):
 # went onto the same 14 bots in a day, from two sessions: when building fell, the wrong piece was blamed first, and the junk
 # well a release had broken stayed broken for five hours under three one-hour reads that each looked at their own piece.
 # THE RULE: a new piece or main release is staged only when the LIVE release has a read row (KEEP / REVERT / INCONCLUSIVE)
-# written at least SOAK after it went live. THE ONE WAY PAST IT is a fix of what the live release shows: `--fix-of <the live
+# written at least SOAK after it went live AND ITS BOTS WERE RUNNING (soak_clock: the later of the activation and the newest
+# start-verified for it; 11-15, a release activated with no bot running had its 3 h counted while nothing ran).
+# THE ONE WAY PAST IT is a fix of what the live release shows: `--fix-of <the live
 # release, or the one it replaced>` with `--fix-why "<what it shows, with numbers>"`, both journalled in the release.
 # The follower's own stages (cmd_follow) are not gated: they are the fleet's promotions, already read on the fleet.
 SOAK = dt.timedelta(hours=3)
@@ -879,28 +881,67 @@ def live_of(deploy_rows):
     The newest `activated` row -- unless a `ROLLBACK` row follows it: a failed activation writes `activated` for B and then
     `ROLLBACK release=B back_to=A` with no activated row for A (Codex r2: the gate and the read then judged B, which is not
     running). After it, A is live since the rollback, and B is the release it replaced."""
-    live = None
-    for r in deploy_rows:
+    return _live_at(deploy_rows)[0]
+
+
+def _live_at(deploy_rows):
+    """PURE. live_of's row and the position in the journal of the row that made it live -> (live | None, index)."""
+    live, at = None, -1
+    for i, r in enumerate(deploy_rows):
         if not isinstance(r, dict):
             continue
         if r.get('event') == 'activated':
-            live = r
+            live, at = r, i
         elif r.get('event') == 'ROLLBACK' and r.get('back_to'):
-            live = {'event': 'activated', 'release': r['back_to'], 't': r.get('t'), 'previous': r.get('release'), 'via': 'ROLLBACK'}
-    return live
+            live, at = {'event': 'activated', 'release': r['back_to'], 't': r.get('t'), 'previous': r.get('release'), 'via': 'ROLLBACK'}, i
+    return live, at
+
+
+def soak_clock(deploy_rows):
+    """PURE. WHEN THE LIVE RELEASE'S 3 H BEGAN -> {live, since, how, activated}. The soak is of bots RUNNING the release, so
+    the clock is the later of the activation and the newest `start-verified` row for that release after it (LIVE 11-15:
+    19772bb2 was activated 16:45:11Z with running_bots 0 and its bots started 19:35:32Z; a +72 min read printed "OPENS the
+    gate". The same after a long stop: activated with bots, tripped, started again hours later).
+    how: 'activation' (bots were running at the switch and no start follows: since = the activation)
+       | 'start'      (since = the newest start's run_since, or its row time when run_since is unreadable or out of order)
+       | 'not_started' (the activation says running_bots 0 and no start-verified follows: since None, the 3 h have not begun)
+       | 'no_time'    (the row the clock rests on has no readable time: since None; never an older row in its place)
+    Only start-verified resets it: a planned server restart (start-bots-after-restart) is minutes, and is not a new soak."""
+    live, at = _live_at(deploy_rows)
+    out = {'live': live, 'since': None, 'how': 'no_time', 'activated': None}
+    if live is None or not live.get('release'):
+        return out
+    rel = str(live['release'])
+    t_act = out['activated'] = _row_time(live)
+    starts = [r for r in deploy_rows[at + 1:]
+              if isinstance(r, dict) and r.get('event') == 'start-verified' and str(r.get('release')) == rel]
+    if not starts:
+        if t_act is None:
+            return out
+        if live.get('running_bots') == 0:
+            return dict(out, how='not_started')
+        return dict(out, since=t_act, how='activation')
+    last = starts[-1]                    # the NEWEST start, readable or not
+    row_t = _row_time(last)
+    run_t = _row_time({'t': last.get('run_since')})
+    if row_t is None or t_act is None:
+        return out
+    began = run_t if run_t is not None and t_act <= run_t <= row_t else row_t
+    return dict(out, since=max(began, t_act), how='start')
 
 
 def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
     """PURE. ONE CHANGE AT A TIME -> why (a refusal that names what to do) | None.
     deploy_rows: ops/deploy.jsonl. The live release is the newest `activated` row; nothing activated yet -> None."""
-    live = live_of(deploy_rows)          # the NEWEST activation, readable or not (Codex r1: never fall back to an older one)
+    clock = soak_clock(deploy_rows)
+    live = clock['live']                 # the NEWEST activation, readable or not (Codex r1: never fall back to an older one)
     if live is None:
         return None
     if not live.get('release'):
         return ('one change at a time: the newest activated row in the journal names no release, so what is live cannot be '
                 'told; fix that row first (ops/deploy.jsonl)')
     rel = str(live['release'])
-    t0 = _row_time(live)
+    t0, t_act = clock['since'], clock['activated']
     if fix_of is not None or fix_why is not None:
         if not fix_of or len(str(fix_of)) < 8 or not fix_why or len(str(fix_why).strip()) < FIX_WHY_MIN:
             return (f'--fix-of <release, 8+ characters> and --fix-why "<what the live release shows, with its numbers; '
@@ -910,6 +951,15 @@ def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
             return (f'--fix-of {fix_of} is neither the live release {rel} nor the one it replaced'
                     f'{" (" + fixable[1] + ")" if len(fixable) > 1 else ""}: the way past the gate is a fix of what the LIVE release shows')
         return None
+    fix_way = f'--fix-of {rel[:8]} --fix-why "<what the live release shows>"'
+    if clock['how'] == 'not_started':
+        return (f'one change at a time: {rel} was activated {FR.iso(t_act)} with no bot running and no start-verified row follows '
+                f'it, so its {int(soak.total_seconds() // 3600)} h have not begun. Start the bots (start-bots.sh journals '
+                f'start-verified), read it {int(soak.total_seconds() // 3600)} h after that start and journal the decision, then '
+                f'stage; or, for a fix of what it broke: {fix_way}')
+    if t0 is None and t_act is not None:
+        return (f'one change at a time: cannot read when the bots were started on {rel} (its newest start-verified row has no '
+                f'time); fix the journal row first')
     if t0 is None:
         return f'one change at a time: cannot read when {rel} went live (its activated row has no time); fix the journal row first'
     for r in deploy_rows:
@@ -922,9 +972,11 @@ def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
     wait = due - now
     when = (f'its read is due {FR.iso(due)} (in {int(wait.total_seconds() // 60)} min)' if wait > dt.timedelta(0)
             else f'its read was due {FR.iso(due)} and is not written')
-    return (f'one change at a time: {rel} went live {FR.iso(t0)} and has no read row (KEEP / REVERT / INCONCLUSIVE) written '
+    since = (f'{rel} went live {FR.iso(t0)}' if clock['how'] == 'activation'
+             else f'the bots were started on {rel} at {FR.iso(t0)} (it was activated {FR.iso(t_act)}; the soak counts from the start)')
+    return (f'one change at a time: {since} and has no read row (KEEP / REVERT / INCONCLUSIVE) written '
             f'{int(soak.total_seconds() // 3600)} h or more after that; {when}. Read it and journal the decision, then stage; '
-            f'or, for a fix of what it broke: --fix-of {rel[:8]} --fix-why "<what the live release shows>"')
+            f'or, for a fix of what it broke: {fix_way}')
 
 
 def activation_soak_refusal(deploy_rows, release, now):
@@ -971,12 +1023,15 @@ def cmd_read(a):
     row = {'t': FR.iso(now), 'event': 'read', 'release': str(live['release']), 'run': a.run, 'decision': a.decision.strip(),
            'why': a.why.strip(), 'by': a.by or 'operator'}
     append(DEPLOY, row)
-    t0 = _row_time(live)
+    clock = soak_clock(rows)
+    t0 = clock['since']
     opens = t0 is not None and now >= t0 + SOAK
     print(f"READ journalled for {row['release']}: {row['decision'][:80]}")
     print('  one change at a time: this read OPENS the gate' if opens else
+          '  one change at a time: no bot has been started on this release (no start-verified row since its activation), so '
+          'this read does NOT open the gate' if clock['how'] == 'not_started' else
           f"  one change at a time: this read is before {FR.iso(t0 + SOAK) if t0 else '?'} and does NOT open the gate; write the "
-          f'{int(SOAK.total_seconds() // 3600)}-h read then')
+          f"{int(SOAK.total_seconds() // 3600)}-h read then{' (the soak counts from the bots start)' if clock['how'] == 'start' else ''}")
     return 0
 
 

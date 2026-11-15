@@ -1204,6 +1204,138 @@ class SoakGate(unittest.TestCase):
         naive = [{'t': '2026-11-13T16:29:01', 'event': 'activated', 'release': self.LIVE}]
         self.assertIn('cannot read when', SO.soak_refusal(naive, self.T0) or '')
 
+    # ---- the soak is of bots RUNNING the release (soak_clock; LIVE 11-15)
+    REL15 = '19772bb2-6dd0ded8-fdd64ead'
+
+    def rows15(self, *extra):
+        """The real 11-15 journal shape: activated with no bot running, started by hand 2 h 50 later, read at +72 min of running."""
+        return [{'t': '2026-11-14T06:21:34Z', 'event': 'activated', 'release': '46286e9e-6dd0ded8-fdd64ead', 'previous': 'x', 'running_bots': 14},
+                {'t': '2026-11-14T09:28:43Z', 'event': 'read', 'release': '46286e9e-6dd0ded8-fdd64ead', 'decision': 'KEEP (+180)'},
+                {'t': '2026-11-15T09:49:49Z', 'event': 'stop-bots', 'why': 'tripwire'},
+                {'t': '2026-11-15T16:45:11Z', 'event': 'activated', 'release': self.REL15, 'previous': '46286e9e-6dd0ded8-fdd64ead', 'running_bots': 0},
+                *extra]
+
+    START15 = {'t': '2026-11-15T19:39:11Z', 'event': 'start-verified', 'release': REL15, 'bots': 14, 'held_out': ['showcase-Nova'],
+               'run_since': '2026-11-15T19:35:32Z', 'how': 'direct start by hand', 'served': {'decisions': 46, 'share': 1.0}}
+    READ15 = {'t': '2026-11-15T20:47:08Z', 'event': 'read', 'release': REL15, 'decision': 'INCONCLUSIVE (+60 from the start)'}
+
+    @staticmethod
+    def at(s):
+        return dt.datetime.fromisoformat(s.replace('Z', '+00:00'))
+
+    def test_the_11_15_read_does_not_open_it(self):
+        # activated 16:45:11Z, bots started 19:35:32Z, read 20:47:08Z: 4 h after the switch, 72 min of running
+        rows = self.rows15(self.START15, self.READ15)
+        c = SO.soak_clock(rows)
+        self.assertEqual((c['how'], SO.FR.iso(c['since']), SO.FR.iso(c['activated'])), ('start', '2026-11-15T19:35:32Z', '2026-11-15T16:45:11Z'))
+        why = SO.soak_refusal(rows, self.at('2026-11-15T20:50:00Z')) or ''
+        self.assertIn('the bots were started on 19772bb2-6dd0ded8-fdd64ead at 2026-11-15T19:35:32Z', why)
+        self.assertIn('its read is due 2026-11-15T22:35:32Z (in 105 min)', why)
+        self.assertIn('--fix-of 19772bb2', why, 'the way past it is still named')
+        # the control: the same rows with bots running at the switch and no later start -- that read opens it
+        ran = [dict(r, running_bots=14) if r.get('release') == self.REL15 and r['event'] == 'activated' else r for r in self.rows15(self.READ15)]
+        self.assertEqual(SO.soak_refusal(ran, self.at('2026-11-15T20:50:00Z')), None)
+        # a read a second short of 3 h of running does not open it; one at 3 h does
+        short = rows + [dict(self.READ15, t='2026-11-15T22:35:31Z', decision='KEEP (+180)')]
+        self.assertIn('one change at a time', SO.soak_refusal(short, self.at('2026-11-15T23:00:00Z')) or '')
+        full = rows + [dict(self.READ15, t='2026-11-15T22:35:32Z', decision='KEEP (+180)')]
+        self.assertEqual(SO.soak_refusal(full, self.at('2026-11-15T23:00:00Z')), None)
+
+    def test_a_release_whose_bots_never_started_has_no_clock(self):
+        rows = self.rows15(dict(self.READ15, t='2026-11-15T20:00:00Z'))
+        self.assertEqual(SO.soak_clock(rows)['how'], 'not_started')
+        why = SO.soak_refusal(rows, self.at('2026-11-16T09:00:00Z')) or ''
+        self.assertIn('activated 2026-11-15T16:45:11Z with no bot running', why)
+        self.assertIn('3 h have not begun', why)
+        # the remedy is named and each way out works: start the bots and read, or name the fix
+        self.assertIn('start-bots.sh journals start-verified', why)
+        self.assertIn('--fix-of 19772bb2', why)
+        fix = 'the start gate refuses it: 2 of 17 lines fail on the model endpoint, 0 bots run'
+        self.assertEqual(SO.soak_refusal(rows, self.at('2026-11-16T09:00:00Z'), '19772bb2', fix), None, 'a release that cannot start is fixed past the gate')
+        started = rows + [dict(self.START15, t='2026-11-16T09:10:00Z', run_since='2026-11-16T09:05:00Z'),
+                          dict(self.READ15, t='2026-11-16T12:05:00Z', decision='KEEP (+180)')]
+        self.assertEqual(SO.soak_refusal(started, self.at('2026-11-16T12:06:00Z')), None, 'started, then read 3 h later: open')
+        # an activation row from before running_bots was written (no key) is a release that was running
+        old = [{k: v for k, v in r.items() if k != 'running_bots'} for r in rows]
+        self.assertEqual(SO.soak_clock(old)['how'], 'activation')
+
+    def test_a_long_stop_starts_the_clock_again(self):
+        # activated with bots, read at +181 (open), then stopped and started again 6 h 36 in: the old read is of the run before
+        read = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP (+180)'}))
+        self.assertEqual(self.ref(read, 400), '', 'the control: open before the restart')
+        z = lambda m: (self.T0 + dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        again = read + [{'t': z(400), 'event': 'start-verified', 'release': self.LIVE, 'bots': '15', 'run_since': z(396)}]
+        why = self.ref(again, 410)
+        self.assertIn(f'the bots were started on {self.LIVE} at {z(396)}', why)
+        self.assertIn(f'its read is due {z(576)}', why)
+        self.assertEqual(self.ref(again + [{'t': z(576), 'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}], 577), '')
+        # the NEWEST start is the clock, never the first
+        twice = again + [{'t': z(500), 'event': 'start-verified', 'release': self.LIVE, 'run_since': z(497)},
+                         {'t': z(580), 'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}]
+        self.assertIn(f'its read is due {z(677)}', self.ref(twice, 600), 'a read 3 h after the first start is not 3 h after the second')
+
+    def test_what_does_not_move_the_clock(self):
+        z = lambda m: (self.T0 + dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        read = self.rows((181, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP (+180)'}))
+        for label, row in (('a start of another release', {'t': z(300), 'event': 'start-verified', 'release': self.PREV, 'run_since': z(296)}),
+                           ('a planned server restart', {'t': z(300), 'event': 'start-bots-after-restart'}),
+                           ('a start that was only asked for', {'t': z(300), 'event': 'start-requested', 'release': self.LIVE}),
+                           ('a start that failed', {'t': z(300), 'event': 'start-failed', 'release': self.LIVE, 'why': 'gate failed'})):
+            self.assertEqual(self.ref(read + [row], 400), '', label)
+            self.assertEqual(SO.soak_clock(read + [row])['how'], 'activation', label)
+        # a start-verified of this release from BEFORE this activation (an earlier time it was live) is not this run's start
+        before = [{'t': z(-600), 'event': 'activated', 'release': self.LIVE}, {'t': z(-590), 'event': 'start-verified', 'release': self.LIVE, 'run_since': z(-594)}] + read
+        self.assertEqual(SO.soak_clock(before)['how'], 'activation')
+        self.assertEqual(self.ref(before, 400), '')
+
+    def test_the_start_time_is_run_since_when_it_can_be_trusted(self):
+        z = lambda m: (self.T0 + dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        since = lambda row: SO.soak_clock(self.rows() + [row])['since']
+        ok = {'t': z(400), 'event': 'start-verified', 'release': self.LIVE, 'run_since': z(396)}
+        self.assertEqual(SO.FR.iso(since(ok)), z(396))
+        for label, rs in (('missing', None), ('not a time', 'soon'), ('no zone', z(396)[:-1]), ('after its own row', z(401)), ('before the activation', z(-5))):
+            self.assertEqual(SO.FR.iso(since(dict(ok, run_since=rs))), z(400), f'run_since {label}: the row time')
+        # the newest start with no readable time fails closed: never the older, readable start in its place
+        rows = self.rows() + [ok, {'t': 'later', 'event': 'start-verified', 'release': self.LIVE, 'run_since': z(500)},
+                              {'t': z(600), 'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}]
+        self.assertEqual(self.ref(self.rows() + [ok, {'t': z(600), 'event': 'read', 'release': self.LIVE, 'decision': 'KEEP'}], 601), '', 'the control')
+        self.assertIn('cannot read when the bots were started', self.ref(rows, 601))
+        self.assertEqual(SO.soak_clock(rows)['since'], None)
+
+    def test_the_read_command_says_what_the_gate_will_say(self):
+        import contextlib
+        import io
+        why = 'towerturn.py 19:35:32-20:35:32Z, 14 bots, 0 tower visits of 27 building visits; 0 deaths'
+        ns = type('A', (), {'run': 'zonesite-01show', 'decision': 'INCONCLUSIVE (not exercised)', 'why': why, 'by': None})()
+
+        def said(rows, now):
+            with tempfile.TemporaryDirectory() as d:
+                old = SO.DEPLOY, SO.lock, SO.now_utc
+                SO.DEPLOY, SO.lock, SO.now_utc = os.path.join(d, 'deploy.jsonl'), (lambda: None), (lambda: self.at(now))
+                try:
+                    with open(SO.DEPLOY, 'w') as f:
+                        for r in rows:
+                            f.write(json.dumps(r) + '\n')
+                    out = io.StringIO()
+                    with contextlib.redirect_stdout(out):
+                        self.assertEqual(SO.cmd_read(ns), 0)
+                    return out.getvalue(), SO.soak_refusal(SO.FR.load_jsonl(SO.DEPLOY), self.at(now))
+                finally:
+                    SO.DEPLOY, SO.lock, SO.now_utc = old
+        text, gate = said(self.rows15(self.START15), '2026-11-15T20:47:08Z')      # LIVE 11-15: this one printed OPENS
+        self.assertIn('is before 2026-11-15T22:35:32Z and does NOT open the gate', text)
+        self.assertIn('the soak counts from the bots start', text)
+        self.assertNotIn('OPENS', text)
+        self.assertTrue(gate, 'and the gate agrees')
+        text, gate = said(self.rows15(self.START15), '2026-11-15T22:35:32Z')
+        self.assertIn('this read OPENS the gate', text)
+        self.assertEqual(gate, None, 'and the gate agrees')
+        text, gate = said(self.rows15(), '2026-11-15T22:35:32Z')
+        self.assertIn('no bot has been started on this release', text)
+        self.assertIn('does NOT open the gate', text)
+        self.assertNotIn('OPENS', text)
+        self.assertIn('have not begun', gate or '')
+
     def test_the_gate_is_wired_into_both_stages_and_recorded(self):
         src = open(os.path.join(HERE, 'showcase_ops.py')).read()
         code = re.sub(r'(^|[^:\'"])#.*$', r'\1', src, flags=re.M)

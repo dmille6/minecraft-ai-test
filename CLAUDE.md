@@ -122,7 +122,8 @@ make it deterministic), and **composed**: test the refusal chain, not the single
   against the registered one. Do not grep for a version string.
 - **The showcase takes one change at a time** (owner 11-14; `/srv/showcase/SOAK_GATE`). `showcase_ops.py stage`
   and a first `activate` are refused until the LIVE release has a read (KEEP / REVERT /
-  INCONCLUSIVE) written at least 3 h after it went live. Write reads with
+  INCONCLUSIVE) written at least 3 h after it went live with its bots running (the 3 h count from the newest
+  `start-verified` for it, when one follows the activation). Write reads with
   `showcase_ops.py read --run <run> --decision "KEEP (...)" --why "<numbers>"`, never by hand. The
   one way past is a fix of what the live release shows: `stage ... --fix-of <live release or the one
   it replaced> --fix-why "<what it shows>"`. Going back to a release that was live before is never
