@@ -80,6 +80,30 @@ Untouched world: the day-0 snapshot (sha256 ccb0b10d..., taken before any bot jo
 In under ten hours, 12 bots left 594 columns changed that no build owns, most of it in the first three hours, and
 already 267 undermined columns and 189 open pits. Loose things at 9.7 h: 8 chests, 5 crafting tables, 2 furnaces.
 
+## 3. The whole map (rehearsal world), 11-15
+
+Owner: "is this list of things to fix only within town or over the whole map?" The runs above were near the town only.
+`groundledger.py --whole-map` reads every chunk the two saves share and, when the untouched save is a true copy, skips
+the chunks whose save stamp never changed. Rehearsal world, 9.7 hours in, all heights (y -64 to 255):
+
+- The map is 23,828 chunks. The bots caused 1,893 of them (8%) to be saved again; all 1,893 were read, none unreadable.
+  330 chunks hold anything that is not natural.
+
+| Blocks from home | Columns read | Undermined | Pits | Over a gap | Pillar or raised | Filled | Changed | Build |
+|---|---|---|---|---|---|---|---|---|
+| up to 64 | 16,641 | 267 | 188 | 76 | 42 | 89 | 295 | 263 |
+| 65 to 128 | 49,408 | 1,465 | 283 | 121 | 69 | 94 | 228 | 0 |
+| 129 to 256 | 197,120 | 114 | 38 | 247 | 33 | 213 | 124 | 0 |
+| 257 to 512 | 221,439 | 0 | 0 | 52 | 0 | 64 | 11 | 0 |
+
+Nothing was touched beyond 512 blocks. Of the 4,113 changed columns that no build owns, 3,217 (78%) are within 128
+blocks of home, and the twelve most changed chunks are all 26 to 90 blocks out. Far from town the marks are mostly single
+placed blocks (over a gap, filled): crossings and climbs, not digging. (This run reads all heights, so its inner band
+counts more than the first table, which read y 48 to 112.)
+
+**The showcase cannot be listed map-wide yet.** Its world is 23,956 chunks; the regenerated untouched copy covers 1,849
+(about 340 blocks around home). A map-wide list needs the untouched world regenerated for every chunk the bots reached.
+
 ## Limits of this first version
 
 - "Build" means a cell listed in a project record. Ground a project digs on purpose (the mine stair, a cellar) is not

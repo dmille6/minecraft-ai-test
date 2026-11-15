@@ -167,6 +167,37 @@ def the_ledger_counts_columns_by_ring_and_the_control_is_all_natural(G):
     assert dict(s['placed_names']) == {'dirt': 3} and dict(s['dug_names']) == {'grass_block': 1}, s
 
 
+@t
+def the_whole_map_skips_chunks_never_saved_again_and_bands_by_distance(G):
+    assert [G.band_of(d) for d in (0, 64, 65, 128, 300, 1000)] == [64, 64, 128, 128, 512, 1024]
+    assert G.band_of(10 ** 7) == 10 ** 9
+
+    class RD:                                           # two saves of three chunks; only chunk (1, 0) was saved again
+        calls = []
+
+        @staticmethod
+        def dump(d, x0, x1, z0, z1, y0, y1):
+            RD.calls.append((d, x0 >> 4, z0 >> 4))
+            names = ['stone', 'grass_block', 'dirt']
+            cells = [[x, y, z, 0 if y < 70 else 1] for x in range(x0, x1 + 1) for z in range(z0, z1 + 1) for y in range(60, 71)]
+            if d == 'live' and (x0 >> 4, z0 >> 4) == (1, 0):
+                cells += [[x0, 71, z0, 2], [x0, 72, z0, 2]]              # a dirt pillar at the chunk's corner
+            return {'palette': [{'name': n} for n in names], 'cells': cells, 'missing_chunks': 0, 'chunks': 1}
+    stamps = {'base': {(0, 0): 5, (1, 0): 5, (9, 9): 5}, 'live': {(0, 0): 5, (1, 0): 6, (9, 9): 5}}
+    real = G.chunk_stamps
+    G.chunk_stamps = lambda d: stamps[d]
+    try:
+        s, rows = G.whole_map(RD, 'base', 'live', 0, 0, y_lo=60, y_hi=80)
+        assert s['chunks_shared'] == 3 and s['chunks_saved_again'] == 1 and s['chunks_read'] == 1, s
+        assert {c[1:] for c in RD.calls} == {(1, 0)}, RD.calls          # the untouched chunks were never read
+        assert s['columns_by_band']['64'] == {'pillar': 1, 'natural': 255} and rows == [[1, 0, 24, {'pillar': 1}]], (s, rows)
+        RD.calls.clear()
+        s2, _ = G.whole_map(RD, 'base', 'live', 0, 0, y_lo=60, y_hi=80, same_copy=False)   # a regenerated base: every chunk is read
+        assert s2['chunks_read'] == 3 and s2['chunks_saved_again'] is None, s2
+    finally:
+        G.chunk_stamps = real
+
+
 MUTANTS = [
     ("    if base == live:\n        return None", "    if False:\n        return None", an_untouched_column_is_natural),
     ("        return 'soil' if base in SOIL and live in SOIL else 'replaced'", "        return 'replaced'", an_untouched_column_is_natural),
@@ -179,6 +210,7 @@ MUTANTS = [
     ("    elif any(y in owned for y in placed + dug + replaced):", "    elif False:", a_build_record_owns_its_cells),
     ("    if THING_RE.search(name):\n        return THING", "    if False:\n        return THING", a_torch_or_a_table_is_a_thing_not_ground),
     ("                if d <= r:", "                if True:", the_ledger_counts_columns_by_ring_and_the_control_is_all_natural),
+    ("    todo = [c for c in shared if not same_copy or bs[c] != ls[c]]", "    todo = list(shared)", the_whole_map_skips_chunks_never_saved_again_and_bands_by_distance),
 ]
 
 

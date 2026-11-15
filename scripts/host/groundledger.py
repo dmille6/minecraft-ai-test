@@ -225,6 +225,92 @@ def ledger(base_cols, live_cols, cx, cz, radius, y_lo, y_hi, own=None, mine_dept
     return summary, rows
 
 
+BANDS = (64, 128, 256, 512, 1024, 10 ** 9)
+
+
+def band_of(d, bands=BANDS):
+    """The first band edge a distance falls within. Pure."""
+    for b in bands:
+        if d <= b:
+            return b
+    return bands[-1]
+
+
+def chunk_stamps(region_dir):
+    """{(cx, cz): the chunk's save stamp} for every chunk present in a region directory (the 4-byte stamps in each file's
+    header; 0 offsets are absent chunks)."""
+    import struct
+    out = {}
+    for f in os.listdir(region_dir):
+        m = re.match(r'r\.(-?\d+)\.(-?\d+)\.mca$', f)
+        if not m:
+            continue
+        with open(os.path.join(region_dir, f), 'rb') as fh:
+            head = fh.read(8192)
+        if len(head) < 8192:
+            continue
+        rx, rz = int(m.group(1)), int(m.group(2))
+        for i in range(1024):
+            if struct.unpack_from('>I', head, 4 * i)[0]:
+                out[(rx * 32 + (i & 31), rz * 32 + (i >> 5))] = struct.unpack_from('>I', head, 4096 + 4 * i)[0]
+    return out
+
+
+def whole_map(RD, base_dir, live_dir, cx, cz, own=None, mine_depth=8, y_lo=-64, y_hi=255, same_copy=True, progress=None):
+    """Every chunk the two saves share -> (summary, per-chunk rows). With same_copy (the base is a COPY of the same world,
+    not a regeneration) a chunk whose save stamp is unchanged was never saved again and is skipped as untouched: that is
+    what makes a whole map affordable. rows: [chunk x, chunk z, distance of its centre from home, {class: columns}]."""
+    own = own or {}
+    bs, ls = chunk_stamps(base_dir), chunk_stamps(live_dir)
+    shared = sorted(set(bs) & set(ls))
+    todo = [c for c in shared if not same_copy or bs[c] != ls[c]]
+    by_band = {b: collections.Counter() for b in BANDS}
+    cells, rows, unread = collections.Counter(), [], 0
+    for n, (kx, kz) in enumerate(todo):
+        box = (kx * 16, kx * 16 + 15, kz * 16, kz * 16 + 15, y_lo, y_hi)
+        try:
+            bd, ld = RD.dump(base_dir, *box), RD.dump(live_dir, *box)
+        except Exception:                                   # noqa: BLE001 -- an unreadable chunk is counted, never guessed
+            unread += 1
+            continue
+        if bd['missing_chunks'] or ld['missing_chunks']:
+            unread += 1
+            continue
+        bc, lc = columns_of(bd), columns_of(ld)
+        cc = collections.Counter()
+        for x in range(box[0], box[1] + 1):
+            for z in range(box[2], box[3] + 1):
+                c = classify_column(bc.get((x, z), {}), lc.get((x, z), {}), y_lo, y_hi, frozenset(own.get((x, z), ())), mine_depth)
+                cc[c['cls']] += 1
+                by_band[band_of(max(abs(x - cx), abs(z - cz)))][c['cls']] += 1
+                cells['placed'] += len(c['placed']); cells['dug_surface'] += len(c['dug']); cells['mined_below'] += c['mined']
+                cells['loose_things'] += len(c['things'])
+        if set(cc) - {'natural'}:
+            rows.append([kx, kz, max(abs(kx * 16 + 8 - cx), abs(kz * 16 + 8 - cz)), {k: v for k, v in cc.items() if k != 'natural'}])
+        if progress and n % 200 == 0:
+            progress(n, len(todo))
+    summary = {'center': [cx, cz], 'chunks_shared': len(shared), 'chunks_saved_again': len(todo) if same_copy else None,
+               'chunks_read': len(todo) - unread, 'chunks_unread': unread, 'columns_by_band': {str(b): dict(c) for b, c in by_band.items()},
+               'cells': dict(cells)}
+    return summary, rows
+
+
+def render_whole(summary, rows):
+    out = ['GROUND LEDGER, WHOLE MAP  centre %s' % summary['center'],
+           'CONTROL chunks in both saves %s | saved again since the untouched copy %s | read %s | unreadable %s' % (
+               summary['chunks_shared'], summary['chunks_saved_again'], summary['chunks_read'], summary['chunks_unread']),
+           '', 'columns by class, by distance from the centre (bands; only chunks that were read):',
+           '  %8s %9s %s' % ('up to', 'columns', '  '.join('%10s' % c for c in CLASSES))]
+    for b, c in summary['columns_by_band'].items():
+        tot = sum(c.values())
+        if tot:
+            out.append('  %8s %9d %s' % ('beyond' if int(b) >= 10 ** 9 else b, tot, '  '.join('%10d' % c.get(k, 0) for k in CLASSES)))
+    out += ['', 'cells: %s' % summary['cells'], 'chunks with anything not natural: %d' % len(rows), 'the 12 most changed chunks (chunk x, z, blocks from home, classes):']
+    for r in sorted(rows, key=lambda r: -sum(r[3].values()))[:12]:
+        out.append('   %5d %5d  %5d  %s' % (r[0], r[1], r[2], r[3]))
+    return '\n'.join(out)
+
+
 def render(summary, base_meta, live_meta):
     out = ['GROUND LEDGER  centre %s  radius %d  y %s' % (summary['center'], summary['radius'], summary['y']),
            'CONTROL base saved %s..%s chunks %s missing %s | live saved %s..%s chunks %s missing %s' % (
@@ -248,16 +334,27 @@ def main(argv=None):
     ap.add_argument('--live', help='region directory of the world now')
     ap.add_argument('--center', nargs=2, type=int, required=True, metavar=('X', 'Z'))
     ap.add_argument('--radius', type=int, default=64)
-    ap.add_argument('--ground-y', type=int, required=True, help='about where the ground is (the town home y)')
+    ap.add_argument('--ground-y', type=int, default=None, help='about where the ground is (the town home y); not used by --whole-map')
     ap.add_argument('--below', type=int, default=24)
     ap.add_argument('--above', type=int, default=40)
     ap.add_argument('--mine-depth', type=int, default=8)
     ap.add_argument('--pool', help='directory of project-*.g*.json records')
     ap.add_argument('--json')
     ap.add_argument('--self-check', action='store_true', help='compare the base with itself: every column must be natural')
+    ap.add_argument('--whole-map', action='store_true', help='every chunk both saves hold, by distance from the centre')
+    ap.add_argument('--regenerated-base', action='store_true', help='--whole-map: the base is a regeneration, not a copy, so no chunk can be skipped by its save stamp')
     a = ap.parse_args(argv)
     import regiondump as RD
     cx, cz = a.center
+    if a.whole_map:
+        summary, rows = whole_map(RD, a.base, a.live, cx, cz, owned_cells(a.pool) if a.pool else None, a.mine_depth, same_copy=not a.regenerated_base,
+                                  progress=lambda n, t: print('  ... chunk %d of %d' % (n, t), file=sys.stderr, flush=True))
+        print(render_whole(summary, rows))
+        if a.json:
+            json.dump({'summary': summary, 'row_fields': ['chunk_x', 'chunk_z', 'blocks_from_home', 'classes'], 'rows': rows}, open(a.json, 'w'))
+        return 0
+    if a.ground_y is None:
+        raise SystemExit('--ground-y is required unless --whole-map')
     y_lo, y_hi = a.ground_y - a.below, a.ground_y + a.above
     box = (cx - a.radius, cx + a.radius, cz - a.radius, cz + a.radius, y_lo, y_hi)
     bd = RD.dump(a.base, *box)
