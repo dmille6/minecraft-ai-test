@@ -58,7 +58,7 @@ async function withTopdownMutant (pairs, fn) {
     return await withMutantsAll(SKILLS_URL, [["from './topdown.mjs'   // topdown-01", `from '../test/${name}'   // topdown-01`]], SKm => fn(TDm, SKm))
   } finally { try { unlinkSync(tdOut) } catch {} }
 }// skills.mjs: the three conjuncts, the trap's one answer, the search's bound and its row, the kept cells, the second fallback
-const ENUM = ['        const roofHit = topDownHit(bot, b.position, b.name, { feetY: tdFeetY })', '        const roofHit = false']
+const ENUM = ['        const roofHit = topDownHit(bot, b.position, b.name, { feet: tdFeetY })', '        const roofHit = false']
 const SAFE = ['      !topDownHit(bot, p, bot.blockAt(p)?.name) &&   // topdown-01', '      true &&   // topdown-01']
 const SWING = ['  if (topDownHit(bot, block.position, block.name, { trapLets: tdTrapLets })) {', '  if (false) {']
 const SWING_REASK = ['  if (topDownHit(bot, block.position, block.name, { trapLets: tdTrapLets })) {', '  if (topDownHit(bot, block.position, block.name)) {']
@@ -81,7 +81,7 @@ const LEAVES = [" && !LEAVES.test(String(b.name ?? ''))", '']
 const PIT_5 = ['pit: 2,', 'pit: 5,']
 const MADE_OFF = ["  if (isMadeGround(blockName)) return { kind: 'made' }\n", '']
 const FEET_FLOOR = ['Math.floor(y + 0.2)', 'Math.floor(y)']
-const GROUND_OFF = ['  const cell = topDownCell(roofAt(bot), p, name, feetY === undefined ? feetYOf(bot) : feetY, groundAt(bot))', '  const cell = topDownCell(roofAt(bot), p, name, feetY === undefined ? feetYOf(bot) : feetY)']
+const GROUND_OFF = ['  const cell = topDownCellAt(roofAt(bot), p, name, feet === undefined ? feetLevelsOf(bot) : feet, groundAt(bot))', '  const cell = topDownCellAt(roofAt(bot), p, name, feet === undefined ? feetLevelsOf(bot) : feet)']
 const MERGE_OFF = ['    if (!nextUp && roofGaveUp && !viaSource) {', '    if (false) {']
 const MADE_LIFT = ["  if (cell.kind === 'made') return true\n  if (trapLets) return false\n", "  if (trapLets) return false\n  if (cell.kind === 'made') return true\n"]
 
