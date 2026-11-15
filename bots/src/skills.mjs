@@ -101,7 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns, isTerrain } from './townground.mjs'
-import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCell, topDownRefusal, roofOverY } from './topdown.mjs'   // topdown-01
+import { topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownCell, topDownRefusal, roofOverY, feetLevel } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
@@ -376,12 +376,14 @@ const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z 
 // feet: a cell is refused as roofed only when a cover over it tops out at or below the bot's feet, as pitted only below its
 // feet; a cell the clean zone's trap lets through is taken; made ground is never taken by anyone. No bot-level state.
 const roofAt = bot => (x, y, z) => isRoofBlock(bot.blockAt(new Vec3(x, y, z)))
-const feetYOf = bot => { const y = bot?.entity?.position?.y; return Number.isFinite(y) ? Math.floor(y) : null }
+const feetYOf = bot => feetLevel(bot?.entity?.position?.y)   // the one feet level: enumeration, target filter, swing
+// a higher side for the pitted test is GROUND: a terrain roof block (a fence, planks or glass beside a cell is not)
+const groundAt = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return isRoofBlock(b) && isTerrain(b?.name) }
 // Does this rule refuse the cell? -> false | the refused kind ('made' | 'pitted' | 'roofed'). `feetY` undefined -> the bot's
 // now; `trapLets` undefined -> asked now.
 const topDownHit = (bot, p, name, { feetY, trapLets } = {}) => {
   if (!topDownOn() || !p) return false
-  const cell = topDownCell(roofAt(bot), p, name, feetY === undefined ? feetYOf(bot) : feetY)
+  const cell = topDownCell(roofAt(bot), p, name, feetY === undefined ? feetYOf(bot) : feetY, groundAt(bot))
   if (!cell) return false
   return topDownRefusal(cell, { trapLets: trapLets === undefined ? gatherTrapAllows(bot?.gatherTrap, p, Date.now()) : trapLets }) ? cell.kind : false
 }
@@ -2419,7 +2421,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
     // topdown-01: the bot's feet at the search's own point (the enumeration asks with them)
-    const tdFeetY = bot.entity?.position?.floored?.()?.y ?? null
+    const tdFeetY = feetYOf(bot)
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&   // cleanzone-02: an independent conjunction, as the town's ground is
       !topDownHit(bot, p, bot.blockAt(p)?.name) &&   // topdown-01: an independent conjunction too (its situation read now)
@@ -2938,7 +2940,17 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     // once the bot has moved, so this must not become a persistent blacklist.
     // The lessons store is where a durable claim would belong, and a transient
     // geometric fact is not one.
-    const nextUp = reachable.find(q => !excluded.has(key(q)))
+    let nextUp = reachable.find(q => !excluded.has(key(q)))
+    // topdown-01 (review r5): a search this rule gave up kept only cells that proved unusable (a block floating over the lawn):
+    // ask the fallback (the block on top), as when the search found nothing
+    if (!nextUp && roofGaveUp && !viaSource) {
+      for (const alt of sourcesOf(bot.registry, blockName)) {
+        const altType = alt === blockName ? null : bot.registry?.blocksByName?.[alt]
+        if (!altType) continue
+        const ok = findGround(altType.id, { count: false }).filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius).filter(exposed).filter(safeTarget).filter(q => !excluded.has(key(q)))
+        if (ok.length) { reachable = ok; viaSource = alt; nextUp = ok[0]; logEvent({ kind: 'gather_via_source', status: 'success', snapshot: snapshot(bot), detail: `the ${blockName} a given-up search kept could not be taken; ${alt} yields it — ${ok.length} candidate(s)` }); break }
+      }
+    }
     if (!nextUp) {
       // Every candidate has already refused us this run. Re-scanning cannot
       // produce a different answer, so stop rather than spend the budget.
