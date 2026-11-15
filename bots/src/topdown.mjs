@@ -66,7 +66,7 @@ export function topDownRefuses (solidAt, p, blockName, T = TOPDOWN) {
 
 /** What the run says when the rule emptied its search and nothing that yields the item lay open either. Pure. */
 export const topDownRemedy = (blockName, skipped, maxDistance) =>
-  `no ${blockName} open to the sky within ${maxDistance} blocks (${skipped} lie under a roof near the surface and are left: taking them hollows the ground). ` +
+  `no ${blockName} open to the sky ${maxDistance > 0 ? `within ${maxDistance} blocks` : 'here'} (${skipped} under a roof near the surface left: taking them hollows the ground). ` +
   'Take ground from the top: gather where it lies open, or `mine` to go down for rock'
 
 /** The `_gather_topdown` licence detail (once per bot process). Pure. */
