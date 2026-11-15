@@ -1,5 +1,5 @@
 // TOPDOWN-01 (owner 2026-11-15, "Yes, authorize": gather takes ground only from the top). The piece is ONE thing: a bot
-// STANDING IN THE OPEN must not tunnel under the grass.
+// standing on the ground must not tunnel under that ground.
 //
 // WHY. `gather dirt` matches blocks NAMED dirt, and on a plain those lie under the grass. The bot dug its way to them and
 // left the grass standing: a roof over a gap. Measured 11-15 (docs/reports/land-eval-2026-11-14/dirt-loop.md, on main):
@@ -8,7 +8,7 @@
 // minute, the same habit moved to the ring just past the town's edge (488 undermined columns in the band 65-70 blocks out
 // after 9.7 hours). The gather rule says WHERE ground may be taken. This one says HOW: from the top.
 //
-// THE RULE (for a bot in the open). A terrain block (townground.mjs TERRAIN less its ores) is not a gather target while it is
+// THE RULE. A terrain block (townground.mjs TERRAIN less its ores) is not a gather target while it is
 // UNDER A ROOF NEAR THE SURFACE:
 //   open    nothing solid above it within `air` cells: it lies open to the sky. TAKEN.
 //   deep    `deep` or more solid blocks lie over it (straight above, or as the roof of the space it floors): that is a
@@ -28,20 +28,25 @@
 // widens before it deepens: the centre of a scraped patch (no higher side) and its edges (one) are taken, its corners
 // (two) are not. A deep cell is never pitted: in a mine the deep verdict wins.
 //
-// MADE GROUND IS NEVER A SOURCE, for any bot. farmland and dirt_path are left open or not, by a sheltered bot too and for a
-// cell the clean zone's trap lets through: gather's fallback lists them among the blocks that yield dirt, and with this rule
+// MADE GROUND IS NEVER A SOURCE, for any bot. farmland and dirt_path are left open or not, by a bot below its cover too and
+// for a cell the clean zone's trap lets through: gather's fallback lists them among the blocks that yield dirt, and with this rule
 // it fires far more often; outside the town square it would dig up a field or a path. The exact search for dirt never
 // matches them (they are reached only as fallback alternates), so this can strand no one: a bot whose only source in reach
 // is a field ends as the base does when it finds nothing.
 //
-// A SHELTERED BOT IS EXEMPT (shelteredAt: its feet cell under a roof -- a cave, a pocket, a mine -- or at the bottom of a hole,
-// three or more sides solid at head height). It gathers exactly as the base does, its situation read fresh every time it is
-// asked (at the search, at the target filter, at the swing), with no memory. WHY: two rounds of review (Codex and Claude,
-// 11-15) showed that every attempt to ration a sheltered bot -- refusing its walls, then a trap of a few cells, a climb
-// remedy, "not from below" -- produced a dead end or a loop: the lawn broken from underneath through the rock with its drop
-// out of reach, a `goto` onto a rim that returns at once, `surface` answering already_surfaced, a remembered shelter
-// following the bot onto the lawn, sand holes renewed every run. What a sheltered bot still takes that this rule refuses a
-// bot in the open is COUNTED (op=sheltered, once a run) to decide the next piece.
+// WHO IS REFUSED: ONE HEIGHT COMPARISON PER CELL (review r3). A roofed cell is refused only while the bot's head reaches the
+// surface over it: refuse iff feetY + 1 >= coverTopY(cell), the top of what covers the cell. When the bot is lower than that,
+// the cell is taken exactly as the base takes it. WHY THIS IS THE RIGHT INVARIANT: the rule exists to stop a bot standing on
+// the ground from tunnelling under that ground. A bot whose head is below the surface over a cell is already down a hole, a
+// cave or a mine relative to that cell; refusing it there protects nothing and can strand it. And when a cell IS refused,
+// the bot's head is at or above the surface over it, so it is at most one block down: it can step out, and a drop on the rim
+// is within its reach. So no refusal can strand. (Two rounds of review showed that every bot-level notion of "sheltered" --
+// a trap, a climb remedy, "not from below", a pit test by the walls round the bot -- produced a dead end or a loop: a 2x2 pit
+// had only two walls round each of its cells, so its bot was "in the open" and broke rim grass it could not reach.)
+// pitted (an OPEN cell with 2+ sides higher) and made ground are refused for every bot. What a bot still takes from below
+// a cover is COUNTED (op=from_below n= lowest_gap=, once a run) to size what undermining is left.
+// KNOWN LIMIT: on a slope the cover over a cell in the hillside is the hill above it, so a bot at the foot takes cells whose
+// cover's top is 2 or more above its feet -- it can tunnel into a hillside that way (see the slope test).
 //
 // A cell the clean zone's trap lets through (cleanzone.mjs gatherTrapAllows) is let through here too, made ground excepted;
 // the trap's answer is asked ONCE at the swing, before the zone's line counts it down (review r1 blocker 2). This rule never
@@ -54,13 +59,12 @@
 // whole matcher chain. Where everything near is roofed that is nothing, so the fallback (the block on top) is asked next,
 // the same way. An abandoned search can miss open ground farther out.
 //
-// ROWS: `_gather_topdown` once per gather run that skipped anything (op=skip ... sheltered=0|1 [kind=], gave_up=1 when a
-// search was abandoned), op=sheltered once a run when a sheltered bot took a cell this rule refuses in the open, and once
-// per bot process (op=mode).
+// ROWS: `_gather_topdown` once per gather run that skipped anything (op=skip, gave_up=1 when a search was abandoned),
+// op=from_below once a run when it took roofed cells from below their cover, and once per bot process (op=mode).
 // SWITCH: TOPDOWN=off|0|false|no -> gather is exactly the base's.
 import { isTerrain, TOWN_GROUND_HALF } from './townground.mjs'
 
-export const TOPDOWN = Object.freeze({ deep: 8, air: 16, pit: 2, hole: 3, giveUp: 256, readBudget: 16384 })
+export const TOPDOWN = Object.freeze({ deep: 8, air: 16, pit: 2, giveUp: 256, readBudget: 16384 })
 const ORE = /_ore$/
 const MADE = /^(farmland|dirt_path)$/
 const LEAVES = /_leaves$/
@@ -76,21 +80,28 @@ export const isRoofBlock = b => !!b && b.boundingBox === 'block' && !LEAVES.test
  * Straight above: `deep` or more solid cells in a row -> deep; one to deep-1, then a gap -> roofed. Nothing solid straight
  * above: look up through at most `air` empty cells; no roof -> open; a roof `deep` or more thick -> deep; thinner -> roofed.
  */
-export function coverOf (solidAt, p, T = TOPDOWN) {
-  if (!p || typeof solidAt !== 'function') return 'open'
+export const coverOf = (solidAt, p, T = TOPDOWN) => coverScan(solidAt, p, T).cover
+
+/** coverOf's scan -> { cover, top }: `top` is the y of the top block of what covers a ROOFED cell (else null). Pure. */
+function coverScan (solidAt, p, T = TOPDOWN) {
+  if (!p || typeof solidAt !== 'function') return { cover: 'open', top: null }
   const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
   let n = 0
   while (n < T.deep && solidAt(x, y + 1 + n, z)) n++
-  if (n >= T.deep) return 'deep'
-  if (n > 0) return 'roofed'
+  if (n >= T.deep) return { cover: 'deep', top: null }
+  if (n > 0) return { cover: 'roofed', top: y + n }
   for (let g = 1; g <= T.air; g++) {
     if (!solidAt(x, y + 1 + g, z)) continue
     let t = 0
     while (t < T.deep && solidAt(x, y + 1 + g + t, z)) t++
-    return t >= T.deep ? 'deep' : 'roofed'
+    return t >= T.deep ? { cover: 'deep', top: null } : { cover: 'roofed', top: y + g + t }
   }
-  return 'open'
+  return { cover: 'open', top: null }
 }
+
+/** For a ROOFED cell: the y of the top block of what covers it -- the top of the solid run straight above, or of the roof over
+ *  the air above it. null for an open or deep cell. Pure. */
+export const coverTopY = (solidAt, p, T = TOPDOWN) => coverScan(solidAt, p, T).top
 
 /** How many of the cell's four horizontal neighbours have a roof block at y+1 (the ground beside it stands higher)? Pure. */
 export function hemmedIn (solidAt, p) {
@@ -118,43 +129,33 @@ export const topDownRefuses = (solidAt, p, blockName, T = TOPDOWN) => topDownVer
 export const topDownGiveUp = (skipped, T = TOPDOWN, reads = 0) => skipped >= T.giveUp || reads >= T.readBudget
 
 /**
- * THE BOT'S OWN SITUATION -> null | { kind: 'roofed' | 'pit', feetY }. Pure. `feet` is the bot's floored feet cell.
- * roofed: its feet cell is not open to the sky (coverOf roofed or deep: a cave, a pocket, a mine).
- * pit: open above, but `hole` (3) or more of its four sides are solid at HEAD height (feet + 1) or just above it (feet + 2).
- * Such a side is a wall the bot cannot step over (a step up needs both cells over the step free), so three of them are the
- * bottom of a hole: a 1x1 pit 2 or more deep has four. The cell above the head counts too because a bot at the bottom of a
- * deep pit cuts notches at head height as it gathers there; a notch under solid ground is no way out, and without it the
- * bot would count as "in the open" after two notches (a 5-deep pit, round three). A bot in a 1-deep scrape has none (the
- * scrape's sides end at its feet), nor has one in a 1-wide trench (two), which can walk along it.
+ * The cell's verdict under this rule -> null (taken) | { kind: 'made' } | { kind: 'pitted' } | { kind: 'roofed', top }. Pure.
+ * made: farmland or dirt_path. pitted: open, at the bottom of a hole (2+ sides higher). roofed: `top` is coverTopY.
  */
-export function shelteredAt (solidAt, feet, T = TOPDOWN) {
-  if (!feet || typeof solidAt !== 'function') return null
-  const f = { x: Math.floor(feet.x), y: Math.floor(feet.y), z: Math.floor(feet.z) }
-  if (coverOf(solidAt, f, T) !== 'open') return { kind: 'roofed', feetY: f.y }
-  let walls = 0
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (solidAt(f.x + dx, f.y + 1, f.z + dz) || solidAt(f.x + dx, f.y + 2, f.z + dz)) walls++
-  if (walls >= T.hole) return { kind: 'pit', feetY: f.y }
-  return null
-}
-
-/**
- * The cell's verdict under this rule -> null (taken) | 'made' | 'cover'. Pure.
- * made: farmland or dirt_path. cover: roofed, or open at the bottom of a hole (pitted).
- */
-export function topDownVerdict (solidAt, p, blockName, T = TOPDOWN) {
+export function topDownCell (solidAt, p, blockName, T = TOPDOWN) {
   if (!p || !isTerrain(blockName) || ORE.test(blockName)) return null
-  if (isMadeGround(blockName)) return 'made'
-  const cover = coverOf(solidAt, p, T)
-  if (cover === 'roofed') return 'cover'
-  return cover === 'open' && isPitted(solidAt, p, T) ? 'cover' : null
+  if (isMadeGround(blockName)) return { kind: 'made' }
+  const { cover, top } = coverScan(solidAt, p, T)
+  if (cover === 'roofed') return { kind: 'roofed', top }
+  return cover === 'open' && isPitted(solidAt, p, T) ? { kind: 'pitted' } : null
 }
+export const topDownVerdict = (solidAt, p, blockName, T = TOPDOWN) => topDownCell(solidAt, p, blockName, T)?.kind ?? null
+
+/** Is the bot (feet at `feetY`) below the cover of a roofed cell whose cover's top is `top`: its head under that surface? Pure. */
+export const belowCover = (feetY, top) => Number.isFinite(feetY) && Number.isFinite(top) && feetY + 1 < top
 
 /**
- * Does the rule refuse a cell with this verdict, given who asks? Pure. MADE GROUND IS ALWAYS REFUSED. A 'cover' verdict is
- * lifted for a SHELTERED bot (it gathers as the base does) and for a cell the clean zone's trap lets through.
+ * Does the rule refuse a cell (topDownCell) for a bot whose feet are at `feetY`? Pure.
+ * made: always (every bot, the trap's cells too). pitted: unless the clean zone's trap lets the cell through. roofed: unless
+ * the trap lets it through, or the bot stands BELOW its cover (belowCover: its head under the surface over the cell).
  */
-export const topDownRefusal = (verdict, { sheltered = false, trapLets = false } = {}) =>
-  verdict === 'made' || (verdict === 'cover' && !sheltered && !trapLets)
+export function topDownRefusal (cell, { feetY = null, trapLets = false } = {}) {
+  if (!cell) return false
+  if (cell.kind === 'made') return true
+  if (trapLets) return false
+  if (cell.kind === 'pitted') return true
+  return cell.kind === 'roofed' && !belowCover(feetY, cell.top)
+}
 
 /** What the run says when the rule emptied its search and nothing that yields the item lay open either. Pure. */
 export const topDownRemedy = (blockName, skipped, maxDistance) =>
@@ -162,4 +163,4 @@ export const topDownRemedy = (blockName, skipped, maxDistance) =>
   `Take ground from the top: gather where it lies open, or \`mine\` to go down for rock (mine digs nothing within 12 blocks of home: walk out at least ${TOWN_GROUND_HALF + 4} blocks from home first)`
 
 /** The `_gather_topdown` licence detail (once per bot process). Pure. */
-export const topDownModeDetail = (env = process.env, T = TOPDOWN) => `op=mode on=${topDownOn(env) ? 1 : 0} deep=${T.deep} air=${T.air} pit=${T.pit} hole=${T.hole} give_up=${T.giveUp} reads=${T.readBudget}`
+export const topDownModeDetail = (env = process.env, T = TOPDOWN) => `op=mode on=${topDownOn(env) ? 1 : 0} deep=${T.deep} air=${T.air} pit=${T.pit} give_up=${T.giveUp} reads=${T.readBudget}`
