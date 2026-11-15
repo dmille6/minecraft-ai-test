@@ -33,7 +33,10 @@
 // rule (made ground apart). (iv) This is NOT a proof that the bot can leave: mineflayer-pathfinder's step up needs the rim
 // at most 1.2 above the floor (fences and walls count 1.5), two blocks of headroom, and the walk profile cannot dig. A bot
 // boxed in at its feet level by blocks that are not terrain relies on the escape reflexes, exactly as before this change.
-// The bot's feet level is feetLevel(y) = floor(y + 0.2), one helper for the search, the target filter and the swing.
+// The bot's feet level is feetLevel(y, onGround): floor(y + 0.2) while it stands on something (a path or farmland block is a
+// little short of a full block), and floor(y) - 1 while it is in the air or swimming (review round 5: with the margin a bot
+// mid-jump at y 71.85 read as 72 and was refused a cell whose roof was above its feet). One helper for the search, the target
+// filter and the swing. Off the ground the bot is judged one level LOW: looser for that moment, never stricter.
 // (Review rounds 1-3 showed that every bot-level notion of "sheltered" -- a trap, a climb remedy, "not from below",
 // a pit test by the walls round the bot, a head-height comparison -- produced a dead end or a loop.)
 //
@@ -129,7 +132,7 @@ export function topDownCell (solidAt, p, blockName, feetY, groundAt = solidAt) {
 
 /** THE BOT'S FEET LEVEL: floor(y + 0.2). A bot on dirt_path or farmland (y = n + 0.9375), mud or soul sand (n + 0.875) stands
  *  on level n + 1, as on grass; a bot on a slab (n + 0.5) is deliberately left one lower -- looser, never stricter. Pure. */
-export const feetLevel = y => Number.isFinite(y) ? Math.floor(y + 0.2) : null
+export const feetLevel = (y, onGround = true) => !Number.isFinite(y) ? null : onGround === false ? Math.floor(y) - 1 : Math.floor(y + 0.2)
 export const topDownVerdict = (solidAt, p, blockName, feetY, groundAt = solidAt) => topDownCell(solidAt, p, blockName, feetY, groundAt)?.kind ?? null
 
 /**
