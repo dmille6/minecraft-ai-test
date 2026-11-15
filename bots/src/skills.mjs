@@ -101,7 +101,7 @@ import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { townCoalTotal, projectSiteHit, COAL_SITE_MARGIN } from './coalrun.mjs'   // coalfirst-01, coalsite-01
 import { IRON_KINDS, tunnelKindsFor, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, stepHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
-import { TOPDOWN, topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownTrapCounts, topDownGiveUp, topDownVerdict, shelteredAt, shelterDecision, topDownShelterRemedy, pitRimY } from './topdown.mjs'   // topdown-01
+import { TOPDOWN, topDownOn, topDownRemedy, topDownModeDetail, isRoofBlock, topDownGiveUp, topDownVerdict, topDownRefusal, shelteredAt } from './topdown.mjs'   // topdown-01
 import { GATHER_ZONE, gatherZoneOn, cleanZoneOf, gatherZoneRefuses, inZoneSquare, gatherExitPoints, gatherZoneRemedy, gatherZoneModeDetail, gatherWalkTrapped, gatherTrapOf, gatherTrapAllows } from './cleanzone.mjs'   // cleanzone-02: no gathering of the ground inside the clean zone
 import { wellStepOn, wellStepDecision, permittedWalk, walkToGoal, wellStepRemedy, wellStepDetail, wellStepModeDetail } from './cleanzone.mjs'   // wellstep-01: the junk well's stand is reached again (its own statement)
 import pkg from 'mineflayer-pathfinder'
@@ -373,26 +373,18 @@ function gatherZoneNow () {
 }
 // ... unless the bot is trapped there (bot.gatherTrap, set by gatherRun when its walk out went nowhere): it keeps its way out
 const gatherZoneHit = (bot, p, name) => { const z = gatherZoneNow(); return !!z && gatherZoneRefuses(z, p, name, bot?.entity?.position?.y) && !gatherTrapAllows(bot?.gatherTrap, p, Date.now()) }
-// TOPDOWN-01 (owner 11-15): ground under a roof near the surface is not a gather target (topdown.mjs). A cell the trap
-// lets through stays takeable: a bot that cannot leave where it stands keeps its way out.
+// TOPDOWN-01 (owner 11-15): a bot IN THE OPEN takes ground only from the top (topdown.mjs). A sheltered bot is exempt (it
+// gathers as the base does); a cell the clean zone's trap lets through is taken; made ground is never taken by anyone.
 const roofAt = bot => (x, y, z) => isRoofBlock(bot.blockAt(new Vec3(x, y, z)))
-// the bot's own situation (topdown.mjs shelteredAt): null in the open, else { kind: 'roofed' | 'pit', feetY }
-// A bot trapped by this rule keeps the situation it was trapped in while the trap lasts: widening the bottom of a pit takes the
-// walls at its head away (no longer `pit` by the four sides) and the rim is still out of its reach (review r1, test 15)
-const shelterOf = bot => {
-  try {
-    const f = bot?.entity?.position?.floored?.()
-    const sh = f ? shelteredAt(roofAt(bot), f) : null
-    if (sh) return sh
-    const t = bot?.gatherTrap
-    return t?.shelter && t.until > Date.now() ? t.shelter : null
-  } catch { return null }
+// the bot's own situation, read fresh every time it is asked (topdown.mjs shelteredAt): null in the open. No memory.
+const shelterOf = (bot, at = null) => { try { const f = at ?? bot?.entity?.position?.floored?.(); return f ? shelteredAt(roofAt(bot), f) : null } catch { return null } }
+// Does this rule refuse the cell? `shelter` undefined -> read now; `trapLets` undefined -> asked now; `solid` counts reads.
+const topDownHit = (bot, p, name, { shelter, trapLets, solid } = {}) => {
+  if (!topDownOn() || !p) return false
+  const v = topDownVerdict(solid ?? roofAt(bot), p, name)
+  if (!v) return false
+  return topDownRefusal(v, { sheltered: !!(shelter === undefined ? shelterOf(bot) : shelter), trapLets: trapLets === undefined ? gatherTrapAllows(bot?.gatherTrap, p, Date.now()) : trapLets })
 }
-// `shelter` undefined -> read now (the swing); gatherRun passes the round's. `solid` lets gatherRun count the rule's reads.
-// -> null | 'refused' | 'below' (topdown.mjs topDownVerdict)
-const topDownVerdictHere = (bot, p, name, shelter, solid) => (topDownOn() && p) ? topDownVerdict(solid ?? roofAt(bot), p, name, shelter === undefined ? shelterOf(bot) : shelter) : null
-// the trap lifts 'refused' only: a cell seen from below is never the trapped bot's way out (it cannot collect the drop)
-const topDownHit = (bot, p, name, shelter, solid) => { const v = topDownVerdictHere(bot, p, name, shelter, solid); return v === 'below' || (v === 'refused' && !gatherTrapAllows(bot?.gatherTrap, p, Date.now())) }
 const _tdModeSaid = new WeakSet()
 // topdown-01: thrown from gather's matcher to abandon one search (TOPDOWN.giveUp), caught around that findBlocks call only
 const TD_GIVE_UP = Object.freeze({ topDownGiveUp: true })
@@ -1767,19 +1759,12 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
     throw Object.assign(new Error(`clean_zone: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${gatherZoneRemedy(gatherZoneNow())}`),
       { failClass: 'no_safe_target' })
   }
-  // TOPDOWN-01: the same independent conjunction at the swing (the admission may be stale: the ground changed under it).
-  // ONE answer from the trap (tdTrapLets, asked before the zone's line counted it down): a cell it lets through is taken,
-  // and counted here when only this rule refuses it (topDownTrapCounts); the zone's line counted one both refuse
-  const tdShelter = shelterOf(bot)
-  const tdVerdict = topDownVerdictHere(bot, block.position, block.name, tdShelter)
-  if (tdVerdict) {
-    if (tdVerdict === 'refused' && tdTrapLets) {
-      if (topDownTrapCounts(tdTrapLets, true, gatherZoneRefuses(gatherZoneNow(), block.position, block.name, bot?.entity?.position?.y))) bot.gatherTrap.left--
-    } else {
-      try { logEvent({ kind: 'gather_topdown', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
-      throw Object.assign(new Error(`under_roof: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${tdShelter ? topDownShelterRemedy(block.name, tdShelter, towerBlocksHeld(bot), climbPrerequisite('no scaffold').count) : topDownRemedy(block.name, 1, 0)}`),
-        { failClass: 'no_safe_target' })
-    }
+  // TOPDOWN-01: the same independent conjunction at the swing (the admission may be stale: the ground changed under it), with
+  // the trap's ONE answer (tdTrapLets, asked before the zone's line counted it down: review r1 blocker 2)
+  if (topDownHit(bot, block.position, block.name, { trapLets: tdTrapLets })) {
+    try { logEvent({ kind: 'gather_topdown', status: 'refused', snapshot: snapshot(bot), detail: `op=refused at=swing block=${block.name} pos=${block.position.x},${block.position.y},${block.position.z}` }) } catch { /* telemetry */ }
+    throw Object.assign(new Error(`under_roof: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${topDownRemedy(block.name, 1, 0)}`),
+      { failClass: 'no_safe_target' })
   }
   if (!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)) {
     throw Object.assign(
@@ -2375,7 +2360,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
   let roofReads = 0     // topdown-01: blocks this rule read in the CURRENT findBlocks call (TOPDOWN.readBudget)
   let roofGaveUp = false   // topdown-01: a search this round was abandoned
   let roofHits = []     // topdown-01: in-range cells the CURRENT findBlocks call's matcher accepted
-  let tdTrapTried = false  // topdown-01: the sheltered bot's trap is installed at most once a run
+  let tdShelteredSaid = false   // topdown-01: the run's one op=sheltered row
   let zoneWalked = 0    // cleanzone-02: exits this run walked to (the remedy, performed)
   let zoneExit = null   // cleanzone-02: the last exit tried (named when the run fails)
   let zoneClimb = 0     // cleanzone-02: walks repeated from a pit by a bot that holds what a climb needs
@@ -2424,12 +2409,12 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     const ironStrict = tunnelKindsFor(blockName) != null
     // THE BASE'S TARGET CONJUNCTION (town ground, keep-out, isSafeToBreak or the shoreline exemption, iron's six faces),
     // defined here so the emptied-search exposure below asks exactly what the base would have (Codex r5 P2-2)
-    // topdown-01: the bot's own situation, read once a round (the enumeration and the target filter ask with it)
-    const tdShelter = topDownOn() ? shelterOf(bot) : null
+    // topdown-01: the bot's situation at the search's own point, read for this search (the enumeration asks with it)
+    const tdShelter = topDownOn() ? shelterOf(bot, bot.entity?.position?.floored?.() ?? null) : null
     const tdSolid = (x, y, z) => { roofReads++; return isRoofBlock(bot.blockAt(new Vec3(x, y, z))) }
     const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
       !gatherZoneHit(bot, p, bot.blockAt(p)?.name) &&   // cleanzone-02: an independent conjunction, as the town's ground is
-      !topDownHit(bot, p, bot.blockAt(p)?.name, tdShelter) &&   // topdown-01: an independent conjunction too
+      !topDownHit(bot, p, bot.blockAt(p)?.name) &&   // topdown-01: an independent conjunction too (its situation read now)
       !(ko && columnAt(ko.sites, p)) &&   // keepout-01: an independent conjunction too (a candidate from any route, e.g. the source fallback)
       (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     const shopCells = shopCellsNow()?.cells ?? null   // shop-01 r2: the workshop's record cells are never a gather target
@@ -2445,7 +2430,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // is done with 32 found, and a search given up below keeps only what it had accepted by then
       // Given up (TD_GIVE_UP) after TOPDOWN.giveUp skips or TOPDOWN.readBudget reads in this one search
       if (b.position && searchFrom && b.position.distanceTo(searchFrom) <= maxDistance) {
-        const roofHit = topDownHit(bot, b.position, b.name, tdShelter, tdSolid)
+        const roofHit = topDownHit(bot, b.position, b.name, { shelter: tdShelter, solid: tdSolid })
         if (roofHit) roofSearch++
         if (topDownGiveUp(roofSearch, TOPDOWN, roofReads)) throw TD_GIVE_UP
         if (roofHit) return false
@@ -2513,7 +2498,7 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
     if (topDownOn() && !_tdModeSaid.has(bot)) { _tdModeSaid.add(bot); try { logEvent({ kind: 'gather_topdown', status: 'success', detail: topDownModeDetail() }) } catch { /* telemetry */ } }
     if (roofSkippedNow > 0 && !roofSaid) {
       roofSaid = true
-      try { logEvent({ kind: 'gather_topdown', status: positions.length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=skip block=${blockName} skipped=${roofSkippedNow} via=${viaSource ?? '-'} found=${positions.length}${roofGaveUp ? ' gave_up=1' : ''}` }) } catch { /* telemetry */ }
+      try { logEvent({ kind: 'gather_topdown', status: positions.length ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=skip block=${blockName} skipped=${roofSkippedNow} via=${viaSource ?? '-'} found=${positions.length}${roofGaveUp ? ' gave_up=1' : ''} sheltered=${tdShelter ? 1 : 0}${tdShelter ? ` kind=${tdShelter.kind}` : ''}` }) } catch { /* telemetry */ }
     }
     const skippedNow = townSkipped
     if (townSkipped) { noteTownGround(bot, 'gather_skipped', townSkipped); townSkipped = 0 }
@@ -2578,37 +2563,11 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
                  detail: `no ${blockName} within ${maxDistance} blocks that may be taken: ${gatherZoneRemedy(gz, zoneExit ?? exits[0] ?? null)}` + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
       }
     }
-    // TOPDOWN-01, A SHELTERED BOT (Codex + Claude review r1, blocker 1): under a roof or at the bottom of a hole, with this
-    // rule's refusals in the round and nothing to take, a bot SHORT of what a climb needs keeps the ground within reach of where
-    // it stands -- the clean zone's own trap (gatherTrapOf: trapR, trapMax cells, counted at the swing, trapMs), installed once a
-    // run, and the search is asked again. One that HOLDS what a climb needs is not exempted: it is told to climb, from there.
-    // Asked where the search came back empty AND where it found only cells that cannot be reached (buried, unsafe): a bot in
-    // a cave 5 down asking for cobblestone finds the deep rock under it, all buried. -> 'again' | a result | null
-    const tdShelterStep = () => {
-      if (!(roofSkippedNow > 0 && tdShelter)) return null
-      const held = towerBlocksHeld(bot), need = climbPrerequisite('no scaffold').count
-      const at = bot.entity.position.floored()
-      if (shelterDecision(tdShelter, held, need) === 'trap' && !tdTrapTried) {
-        tdTrapTried = true
-        bot.gatherTrap = { ...gatherTrapOf(at, Date.now()), shelter: tdShelter }
-        try { logEvent({ kind: 'gather_topdown', status: 'success', snapshot: snapshot(bot), detail: `op=trapped at=${at.x},${at.y},${at.z} kind=${tdShelter.kind} holds=${held} need=${need} block=${blockName}` }) } catch { /* telemetry */ }
-        return 'again'
-      }
-      if (collected !== 0) return null   // a run that took something ends as the base's success below
-      const rim = tdShelter.kind === 'pit' ? { x: at.x + 1, y: pitRimY(roofAt(bot), at), z: at.z } : null
-      return { status: 'failed', failClass: 'no_safe_target',
-               detail: topDownShelterRemedy(blockName, tdShelter, held, need, rim) + (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') }
-    }
-    if (positions.length === 0 && !caveInBorder().length) {
-      const td = tdShelterStep()
-      if (td === 'again') continue
-      if (td) return td
-    }
     if (positions.length === 0 && !caveInBorder().length) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
         : { status: 'failed', failClass: 'nothing_found',
-            detail: (roofSkippedNow > 0 ? topDownRemedy(blockName, roofSkippedNow, maxDistance) : `no ${blockName} within ${maxDistance} blocks`) +
+            detail: (roofSkippedNow > 0 && !tdShelter ? topDownRemedy(blockName, roofSkippedNow, maxDistance) : `no ${blockName} within ${maxDistance} blocks`) +   // topdown-01: the open-ground remedy only to a bot in the open
               (skippedNow ? ` outside the town's ground (${TOWN_GROUND_HALF} blocks around home is kept: walk ${TOWN_GROUND_HALF + 4}+ blocks from home)` : '') +
               (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') +
               belowGroundHint(bot) }
@@ -2835,10 +2794,6 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
         front: caveFront() }) }) } catch { /* a measurement may never cost the skill its turn */ }
     }
     if (reachable.length === 0) {
-      // topdown-01: the sheltered bot's trap or its climb (above), also when what was found cannot be reached
-      const td = tdShelterStep()
-      if (td === 'again') continue
-      if (td) return td
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
       }
@@ -3010,8 +2965,12 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       // 40s leaves ~35s for walking and chopping after the worst-case 5s plan,
       // and stays under the 45s stuck reflex so a genuinely wedged bot is still
       // rescued rather than sitting out its whole budget.
+      // topdown-01: a sheltered bot about to take a cell this rule refuses a bot in the open (the rule stood aside): one
+      // op=sheltered row a run once it is taken -- how much undermining still happens from inside pits and hollows
+      const tdAside = (!tdShelteredSaid && topDownOn() && topDownVerdict(roofAt(bot), target.position, target.name) === 'cover') ? shelterOf(bot) : null
       if (mustCollectManually(target.name)) {
         await collectManually(bot, target, signal)
+        if (tdAside) { tdShelteredSaid = true; try { logEvent({ kind: 'gather_topdown', status: 'success', snapshot: snapshot(bot), detail: `op=sheltered kind=${tdAside.kind} block=${target.name} pos=${target.position.x},${target.position.y},${target.position.z}` }) } catch { /* telemetry */ } }
       } else {
         // ABANDONING A PROMISE DOES NOT STOP THE WORK BEHIND IT.
         //
