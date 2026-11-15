@@ -4,7 +4,7 @@
 // 1,018 bot-hours, 73,384 model calls = 96.1/min fleet, 1.20/min/bot):
 //   - 43.2% of model calls are vetoed by the admission gate and 6.5% are refused by the runner's failure pause, so half
 //     the calls produce nothing (0.22 and 0.07 items per call, against 1.68 for an admitted one).
-//   - The runner pause (runner.mjs: three consecutive failures -> EVERY skill is refused for pauseRecoveryMs, 120 s) is a
+//   - The runner pause (runner.mjs: three consecutive failures -> EVERY skill is refused for pauseRecoveryMs, 120 s then, 30 s since pause30-01) is a
 //     state the loop already holds. 4,730 of the 4,755 model calls made inside a pause were `idle` ticks, and every one of
 //     them was refused whatever the model said: the answer cannot matter.
 //   - After a `repeat_loop` veto with the state unchanged (same milestone, same 8x4x8 cell, same coarse inventory), the
