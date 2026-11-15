@@ -19,9 +19,12 @@ r = json.load(open(rel + '/RELEASE.json'))
 control = ME.parse_env(open(rel + '/control.env').read())
 # The CONTROL bot's own env (its home, border, scope, role), so the rebuilt system prompt can equal the one the bench
 # bot sent (the hash control); only the brain endpoint, the model and the code version are the showcase's.
+# THE BRAIN SETTING (make_env.load_brain: BRAIN.json, or the designed Studio proxy): the replay goes through the endpoint
+# the bots are set to and must be served by its model (11-15: it replayed through the Studio while the bots ran elsewhere).
+brain = ME.load_brain()
 env = dict(control)
-env.update(OLLAMA_BASE_URLS=f'{ME.BRAIN}|{ME.BRAIN_MODEL}', OLLAMA_BASE_URL=ME.BRAIN, OLLAMA_MODEL=ME.BRAIN_MODEL,
-           CODE_VERSION=r['sha'])
+env.update(OLLAMA_BASE_URLS=f"{brain['url']}|{brain['model']}", OLLAMA_BASE_URL=brain['url'], OLLAMA_MODEL=brain['model'],
+           REPLAY_EXPECT_MODEL=brain['model'], CODE_VERSION=r['sha'])
 with tempfile.TemporaryDirectory() as tmp:
     env.update(LOG_DIR=tmp + '/log', STATE_DIR=tmp + '/state')
     os.makedirs(env['LOG_DIR']); os.makedirs(env['STATE_DIR'])

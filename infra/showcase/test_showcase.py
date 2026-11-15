@@ -585,6 +585,179 @@ class GuardScript(unittest.TestCase):
 
 # ------------------------------------------------------------------------------------------------ stage --piece (the lane)
 SO = load('showcase_ops', 'showcase_ops.py')
+
+
+QWEN = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama',
+        'owner': 'OWNER 2026-11-14 14:40Z: showcase on qwen2.5 at the 5080 while the Studio is unreachable'}
+
+
+def strip_sh_comments(src):
+    return '\n'.join(l for l in src.splitlines() if not l.lstrip().startswith('#'))
+
+
+class BrainSetting(unittest.TestCase):
+    """11-15: the owner's 11-14 stopgap put the showcase bots on qwen2.5 at the 5080 by editing 15 env files; the start
+    gate's health check, its replay and the start's served share still tested gemma4 through the Studio tunnel, so the
+    town could not be started through start-bots.sh, and every activation wrote gemma4 back into the env files. The
+    brain is now ONE setting that all of them read."""
+
+    def test_no_setting_is_the_designed_studio_proxy(self):
+        b = ME.brain_of(None)
+        self.assertEqual((b['url'], b['model'], b['kind'], b['owner']), ('http://127.0.0.1:11612', 'gemma4:26b', 'proxy', None))
+        self.assertEqual(ME.build_env(ME.parse_env(CONTROL), 0, SITE, B40), ME.build_env(ME.parse_env(CONTROL), 0, SITE, B40, brain=b))
+
+    def test_an_owner_setting_names_the_brain_in_the_three_keys_only(self):
+        b = ME.brain_of(dict(QWEN))
+        base = dict(ME.build_env(ME.parse_env(CONTROL), 3, SITE, B40))
+        rows = dict(ME.build_env(ME.parse_env(CONTROL), 3, SITE, B40, brain=b))
+        self.assertEqual(rows['OLLAMA_MODEL'], 'qwen2.5:7b-instruct')
+        self.assertEqual(rows['OLLAMA_BASE_URL'], 'http://10.0.0.72:11434')
+        self.assertEqual(rows['OLLAMA_BASE_URLS'], 'http://10.0.0.72:11434|qwen2.5:7b-instruct')
+        self.assertEqual({k for k in rows if rows[k] != base[k]}, set(ME.BRAIN_KEYS))
+
+    def test_a_bench_host_in_a_policy_key_still_refuses_under_a_setting(self):
+        c = ME.parse_env(CONTROL + '\nSOME_FALLBACK=http://10.0.0.72:11434')
+        with self.assertRaises(ValueError):
+            ME.build_env(c, 0, SITE, B40, brain=ME.brain_of(dict(QWEN)))
+
+    def test_a_bench_host_brain_needs_the_owner_setting(self):
+        # a brain dict that never went through brain_of (no owner) is held to the 10-20 rule: no bench host anywhere
+        with self.assertRaises(ValueError):
+            ME.build_env(ME.parse_env(CONTROL), 0, SITE, B40, brain=dict(QWEN, owner=None))
+
+    def test_what_a_setting_may_not_say(self):
+        for bad, why in [
+                (dict(QWEN, url='http://192.168.190.20:11434'), 'the forbidden network'),
+                (dict(QWEN, url='http://10.0.0.31:11434'), 'a host that is not a model host'),
+                (dict(QWEN, url='http://8.8.8.8:11434'), 'an outside endpoint'),
+                (dict(QWEN, url='http://10.0.0.72:11434/v1'), 'a path'),
+                (dict(QWEN, url='https://10.0.0.72:11434'), 'https'),
+                (dict(QWEN, url='http://10.0.0.72.evil.example:11434'), 'a hostname that starts like an allowed address'),
+                (dict(QWEN, url=None), 'no url'),
+                (dict(QWEN, model=''), 'no model'),
+                (dict(QWEN, model='a b|c'), 'a model that is not a name'),
+                (dict(QWEN, kind='openai'), 'an unknown kind'),
+                (dict(QWEN, owner=''), 'no owner'),
+                (dict(QWEN, owner='me'), 'an owner too short to say who and when'),
+                ({k: v for k, v in QWEN.items() if k != 'owner'}, 'owner missing'),
+                ([QWEN], 'not an object'), ('http://10.0.0.72:11434', 'a bare string')]:
+            with self.assertRaises(ValueError, msg=why):
+                ME.brain_of(bad)
+
+    def test_the_setting_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'BRAIN.json')
+            self.assertEqual(ME.load_brain(p), ME.brain_of(None), 'no file: the designed default')
+            json.dump(QWEN, open(p, 'w'))
+            self.assertEqual(ME.load_brain(p)['model'], 'qwen2.5:7b-instruct')
+            open(p, 'w').write('{"url": ')
+            with self.assertRaises(ValueError):
+                ME.load_brain(p)                    # a broken file is never read as "no setting"
+
+    def test_health_asks_the_configured_brain(self):
+        asked = []
+
+        def get(reply):
+            def f(url):
+                asked.append(url)
+                return reply
+            return f
+        self.assertTrue(SO.health(ME.brain_of(None), get({'ok': True}))['ok'])
+        self.assertEqual(asked[-1], 'http://127.0.0.1:11612/healthz')
+        q = ME.brain_of(dict(QWEN))
+        self.assertTrue(SO.health(q, get({'models': [{'name': 'qwen2.5:7b-instruct'}, {'name': 'other'}]}))['ok'])
+        self.assertEqual(asked[-1], 'http://10.0.0.72:11434/api/tags')
+        self.assertFalse(SO.health(q, get({'models': [{'name': 'gemma4:26b'}]}))['ok'], 'answers, but not with the model')
+        self.assertFalse(SO.health(q, get({'ok': False, 'error': 'refused'}))['ok'])
+        self.assertFalse(SO.health(q, get({'models': 'x'}))['ok'])
+        self.assertFalse(SO.health(ME.brain_of(None), get({'ok': False, 'error': 'refused'}))['ok'])
+
+    def test_the_gate_line_names_what_it_tested(self):
+        ok, name, _ = SO.brain_check(ME.brain_of(None), {'ok': True})
+        self.assertEqual((ok, name), (True, 'brain proxy healthy through the tunnel'))
+        ok, name, _ = SO.brain_check(ME.brain_of(dict(QWEN)), {'ok': True})
+        self.assertTrue(ok)
+        self.assertIn('qwen2.5:7b-instruct at http://10.0.0.72:11434', name)
+        self.assertFalse(SO.brain_check(ME.brain_of(dict(QWEN)), {'ok': False, 'models': []})[0])
+
+    def envs(self, brain):
+        return {ME.PREFIX + n: '\n'.join(f'{k}={v}' for k, v in ME.build_env(ME.parse_env(CONTROL), i, SITE, B40, brain=brain))
+                for i, n in enumerate(ME.NAMES)}
+
+    def test_the_11_15_state_fails_the_gate_with_a_remedy(self):
+        # env files hand-set to the 5080, no setting: the gate was testing the Studio for bots that never use it
+        hand = self.envs(ME.brain_of(dict(QWEN)))
+        ok, name, why = SO.env_brain_check(ME.brain_of(None), hand)
+        self.assertFalse(ok)
+        self.assertIn('15 of 15 differ', why)
+        self.assertIn('write-envs', why)
+        self.assertIn('BRAIN.json', why)
+        # with the owner's setting written, the same env files pass, and so do the default's own
+        self.assertTrue(SO.env_brain_check(ME.brain_of(dict(QWEN)), hand)[0])
+        self.assertTrue(SO.env_brain_check(ME.brain_of(None), self.envs(None))[0])
+        # one bot edited by hand is named
+        one = dict(hand)
+        one['showcase-Gale'] = one['showcase-Gale'].replace('OLLAMA_MODEL=qwen2.5:7b-instruct', 'OLLAMA_MODEL=other')
+        self.assertEqual(SO.env_brain_mismatch(one, ME.brain_of(dict(QWEN))), ['showcase-Gale'])
+        # no env files yet: start-bots.sh writes them from the setting
+        self.assertTrue(SO.env_brain_check(ME.brain_of(None), {})[0])
+
+    def test_a_replay_of_another_brain_is_not_a_replay_of_this_one(self):
+        r = {'t': FR.iso(T0), 'pass': True, 'release': B40, 'n': 50, 'valid': 50, 'served': {'qwen2.5:7b-instruct': 50}}
+        self.assertTrue(SO.replay_ok(r, B40, T0, model='qwen2.5:7b-instruct')[0])
+        self.assertFalse(SO.replay_ok(r, B40, T0, model='gemma4:26b')[0], 'passed on qwen, the setting says gemma4')
+        self.assertFalse(SO.replay_ok(dict(r, served={'qwen2.5:7b-instruct': 49, 'gemma4:26b': 1}), B40, T0,
+                                      model='qwen2.5:7b-instruct')[0], 'two models answered')
+        self.assertFalse(SO.replay_ok({k: v for k, v in r.items() if k != 'served'}, B40, T0, model='qwen2.5:7b-instruct')[0])
+        self.assertFalse(SO.replay_ok(dict(r, **{'pass': False}), B40, T0, model='qwen2.5:7b-instruct')[0])
+
+    def test_the_served_share_counts_the_configured_model(self):
+        ran = {'qwen2.5:7b-instruct': 95, 'unserved': 5}
+        self.assertTrue(SO.served_share(ran, 'qwen2.5:7b-instruct')[0])
+        self.assertFalse(SO.served_share(ran, 'gemma4:26b')[0], 'the 11-15 failure: the share counted gemma4 by name')
+        self.assertTrue(SO.served_share({'gemma4:26b': 90, 'qwen2.5:7b-instruct': 10}, 'gemma4:26b')[0])
+        self.assertFalse(SO.served_share({'gemma4:26b': 89, 'qwen2.5:7b-instruct': 11}, 'gemma4:26b')[0])
+        self.assertFalse(SO.served_share({}, 'gemma4:26b')[0], 'no decision at all is not a pass')
+        self.assertEqual(SO.served_share({'qwen2.5:7b-instruct': 3, 'unserved': 1}, 'qwen2.5:7b-instruct')[1:], (4, 0.75))
+
+    def test_the_writers_and_scripts_are_wired_to_the_setting(self):
+        # structural: what behaviour tests cannot reach from here (shell and node entry points, the one env writer)
+        start = strip_sh_comments(open(os.path.join(HERE, 'start-bots.sh')).read())
+        self.assertNotIn('gemma4', start, 'start-bots.sh names no model: the setting does')
+        self.assertEqual(start.count('if ! python3 $B/showcase_ops.py served-share --since "$T0"; then'), 1)
+        rp = open(os.path.join(HERE, 'replay-prompts.sh')).read()
+        self.assertEqual(rp.count('brain = ME.load_brain()'), 1)
+        self.assertEqual(rp.count("REPLAY_EXPECT_MODEL=brain['model']"), 1)
+        self.assertNotIn('ME.BRAIN_MODEL', rp)
+        mjs = '\n'.join(l for l in open(os.path.join(HERE, 'replay-prompts.mjs')).read().splitlines() if not l.lstrip().startswith('//'))
+        self.assertEqual(mjs.count('served[EXPECT_MODEL] === n'), 1)
+        self.assertEqual(mjs.count("const EXPECT_MODEL = process.env.REPLAY_EXPECT_MODEL || 'gemma4:26b'"), 1)
+        self.assertNotIn("served['gemma4:26b']", mjs)
+
+    def test_write_envs_and_the_gate_read_the_setting_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(d + '/rel/env')
+            open(d + '/rel/control.env', 'w').write(CONTROL + '\n')
+            json.dump(SITE, open(d + '/site.json', 'w'))
+            json.dump(QWEN, open(d + '/BRAIN.json', 'w'))
+            keep = (SO.SITE, SO.BRAIN_FILE, SO.HARNESS)
+            SO.SITE, SO.BRAIN_FILE, SO.HARNESS = d + '/site.json', d + '/BRAIN.json', d + '/rel'
+            try:
+                SO.write_envs(d + '/rel', {'sha': B40})
+                e = ME.parse_env(open(d + '/rel/env/showcase-Onyx.env').read())
+                self.assertEqual(e['OLLAMA_BASE_URLS'], 'http://10.0.0.72:11434|qwen2.5:7b-instruct')
+                self.assertEqual(len(SO.harness_envs()), 15)
+                self.assertTrue(SO.env_brain_check(ME.load_brain(SO.BRAIN_FILE), SO.harness_envs())[0])
+                os.remove(d + '/BRAIN.json')                       # the setting removed: the same files now disagree
+                self.assertFalse(SO.env_brain_check(ME.load_brain(SO.BRAIN_FILE), SO.harness_envs())[0])
+                SO.write_envs(d + '/rel', {'sha': B40})            # and a rewrite goes back to the designed proxy
+                e = ME.parse_env(open(d + '/rel/env/showcase-Onyx.env').read())
+                self.assertEqual(e['OLLAMA_BASE_URLS'], 'http://127.0.0.1:11612|gemma4:26b')
+                open(d + '/BRAIN.json', 'w').write('not json')
+                with self.assertRaises(ValueError):
+                    SO.write_envs(d + '/rel', {'sha': B40})        # a broken setting writes nothing
+            finally:
+                SO.SITE, SO.BRAIN_FILE, SO.HARNESS = keep
 # the showcase release R, then a STACK: matset (M1) <- mats (M2) <- shop (S1 <- S2); X is a stray commit on top; Q a side branch
 # from R; D is a docs-only commit on S2 (a review record after the approval)
 R40, M1, M2, S1, S2, X40, Q40, D40 = ('e' * 40), ('1' * 40), ('2' * 40), ('3' * 40), ('4' * 40), ('5' * 40), ('6' * 40), ('7' * 40)

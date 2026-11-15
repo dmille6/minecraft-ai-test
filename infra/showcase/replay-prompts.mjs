@@ -7,8 +7,9 @@
 // For each WHOLE prompt the feed shipped (under the logger's 6000-char cut, carrying its saw_end sentinel): the system
 // prompt is rebuilt from this release (buildSystemPrompt over the same skill list the bot uses) and its template hash
 // compared with the row's system_hash -- the positive control that the replay sends what the bench sent -- then
-// LlmClient.decide() runs against the env's endpoint (127.0.0.1:11612). PASS: >= 48 of 50 schema-valid with the
-// matching sentinel and EVERY served model gemma4:26b.
+// LlmClient.decide() runs against the env's endpoint (the brain setting: 127.0.0.1:11612 unless the owner set another).
+// PASS: >= 48 of 50 schema-valid with the matching sentinel and EVERY answer served by the setting's model
+// (REPLAY_EXPECT_MODEL, handed in by replay-prompts.sh; gemma4:26b when absent).
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -47,11 +48,12 @@ const n = rows.length
 const promptsFrom = String((feed.control_env || {}).version || '').split('+')[0]
 const sameBuild = promptsFrom === (process.env.CODE_VERSION || '')
 const hashOk = sameBuild ? hashMatch === n : true
-const pass = n >= 50 && valid >= 48 && Object.keys(served).length === 1 && served['gemma4:26b'] === n && hashOk
+const EXPECT_MODEL = process.env.REPLAY_EXPECT_MODEL || 'gemma4:26b'
+const pass = n >= 50 && valid >= 48 && Object.keys(served).length === 1 && served[EXPECT_MODEL] === n && hashOk
 const out = { t: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), release: (process.env.CODE_VERSION || '').slice(0, 40),
   n, valid, served, system_hash: myHash, system_hash_matches: hashMatch,
   hash_control: sameBuild ? (hashOk ? 'all match' : 'MISMATCH') : `not applicable: prompts from ${promptsFrom.slice(0, 8)}`,
-  endpoint: config.llm.baseUrls,
+  endpoint: config.llm.baseUrls, expect_model: EXPECT_MODEL,
   p50_ms: lat[Math.floor(n / 2)] ?? null, p95_ms: lat[Math.floor(n * 0.95)] ?? null, pass }
 fs.writeFileSync(outPath, JSON.stringify(out, null, 1) + '\n')
 console.log(JSON.stringify(out))

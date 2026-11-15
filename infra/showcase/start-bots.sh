@@ -84,25 +84,13 @@ if [ $fail -ne 0 ]; then
   echo "VERIFY FAILED: $missing -- stopping the bots (stop-bots.sh)"
   SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: $missing"; fail "verify failed: $missing"; exit 1
 fi
-echo "== served-model share since this start (must be >= 90% gemma4 before AUTO_FOLLOW goes on)"
-if ! python3 - "$T0" <<'PY'
-import collections, datetime as dt, glob, json, sys
-t0 = float(sys.argv[1]); c = collections.Counter()
-for p in glob.glob('/var/log/mcai/showcase-[A-Z]*/llm-*.jsonl'):
-    if 'FIXTURE' in p: continue
-    for l in open(p, errors='replace'):
-        try:
-            r = json.loads(l)
-            if dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00')).timestamp() < t0: continue
-            c[(r.get('llm') or {}).get('model') or 'unserved'] += 1
-        except (ValueError, KeyError): pass
-n = sum(c.values()); g = sum(v for k, v in c.items() if str(k).startswith('gemma4'))
-print(f'   {n} decisions since start: {dict(c)}')
-sys.exit(0 if n and g / n >= 0.9 else 1)
-PY
-then
-  echo "VERIFY FAILED: the brain is not serving gemma4 (see the share above) -- stopping the bots"
-  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: gemma4 share < 90%"; fail "gemma4 share < 90%"; exit 1
+# The share is counted against THE BRAIN SETTING (showcase_ops.py served-share reads make_env's one setting, the same one
+# the gate's health check, the replay and the env files use). 11-15: it counted gemma4 by name while the owner's 11-14
+# stopgap had the bots on qwen2.5, so a start through this script would have started the town and stopped it again.
+echo "== served-model share since this start (must be >= 90% the brain setting's model before AUTO_FOLLOW goes on)"
+if ! python3 $B/showcase_ops.py served-share --since "$T0"; then
+  echo "VERIFY FAILED: the brain is not serving the model it is set to (see the share above) -- stopping the bots"
+  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: brain setting's model share < 90%"; fail "brain setting's model share < 90%"; exit 1
 fi
 journal start-verified "$(python3 -c 'import json,sys; print(json.dumps({"release": sys.argv[1], "expected_version": sys.argv[2], "bots": 15, "run_since": sys.argv[3]}))' "$(basename "$REL")" "$EXPECT" "$(date -u -d "@$T0" +%FT%TZ)")"
 GATED=$(python3 -c "import json; r=json.load(open('$REL/RELEASE.json')); print(1 if r.get('piece') or r.get('mode') == 'main' else 0)")

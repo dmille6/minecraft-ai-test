@@ -46,6 +46,7 @@ RELEASES = f'{ROOT}/releases'
 ARTIFACTS = f'{ROOT}/artifacts'
 SITE = f'{ROOT}/town-site.json'
 REQUIRED = f'{ROOT}/REQUIRED_KEPT'
+BRAIN_FILE = f'{ROOT}/BRAIN.json'       # make_env.BRAIN_FILE: the one brain setting (absent = the designed Studio proxy)
 REVOKED = f'{ROOT}/REVOKED'
 PIECES = f'{ROOT}/PIECES.jsonl'
 AUTO = f'{ROOT}/AUTO_FOLLOW'
@@ -574,8 +575,9 @@ def write_envs(release_dir, rel):
     control = ME.parse_env(open(f'{release_dir}/control.env').read())
     site = json.load(open(SITE))
     os.makedirs(f'{release_dir}/env', exist_ok=True)
+    brain = ME.load_brain(BRAIN_FILE)      # the one brain setting (a malformed file raises: no env is written from it)
     for i, n in enumerate(ME.NAMES):
-        rows = ME.build_env(control, i, site, rel['sha'])
+        rows = ME.build_env(control, i, site, rel['sha'], brain=brain)
         with open(f'{release_dir}/env/{ME.PREFIX}{n}.env', 'w') as f:
             f.write('\n'.join(f'{k}={v}' for k, v in rows) + '\n')
 
@@ -1588,17 +1590,71 @@ def gate_checks():
                 'the town is stamped (or the plan builds its own core)',
                 'remedy: stamp-town (after the siting file exists), or the plan declares "builds_core": true'))
     out.append((os.path.exists(f'{ROOT}/timelapse/FRAME0.json'), 'frame 0 captured', 'remedy: tl_showcase.py capture --frame0'))
-    h = health()
-    out.append((h.get('ok') is True, 'brain proxy healthy through the tunnel',
-                str(h) if not h.get('ok') else 'gemma4 loaded, not paused'))
+    # THE BRAIN CHECKS TEST THE BRAIN THE BOTS ARE SET TO (11-15): one setting (make_env.brain_of) names it for the env
+    # files, this health check, the replay below and start-bots.sh's served share. Before, all three tested the Studio
+    # while the owner's 11-14 stopgap had the bots on the 5080, and the town could not be started through the gate.
+    try:
+        brain = ME.load_brain(BRAIN_FILE)
+    except ValueError as e:
+        brain = None
+        out.append((False, 'the brain setting', f'{e}; remedy: correct {BRAIN_FILE}, or remove it for the Studio proxy'))
+    if brain:
+        out.append(brain_check(brain, health(brain)))
+        out.append(env_brain_check(brain, harness_envs()))
     fb = subprocess.run(['systemctl', 'is-active', 'filebeat'], capture_output=True, text=True).stdout.strip()
     acked, dropped, failed = filebeat_shipping()
     out.append((fb == 'active' and acked > 0 and dropped == 0,
                 'filebeat active and shipping (15 min: acked > 0, dropped 0)',
                 f'{fb}; acked {acked}, dropped {dropped}, failed {failed}'
                 + ('' if dropped == 0 else ' -- a dropped event is a mapping rejection: fix before starting')))
-    rep_ok, rep_why = replay_ok(replay_last(), (rel or {}).get('sha'), now_utc())
+    rep_ok, rep_why = replay_ok(replay_last(), (rel or {}).get('sha'), now_utc(), model=(brain or {}).get('model', ''))
     out.append((rep_ok, 'brain replay passed on this release (< 24 h)', rep_why))
+    return out
+
+
+def brain_check(brain, h):
+    """The gate's health line for the configured brain -> (ok, check, detail). Pure. The Studio proxy keeps its 10-20 name."""
+    ok = h.get('ok') is True
+    if brain['kind'] == 'proxy' and not brain.get('owner'):
+        return ok, 'brain proxy healthy through the tunnel', str(h) if not ok else 'gemma4 loaded, not paused'
+    name = f"brain answers: {brain['model']} at {brain['url']} (owner setting {BRAIN_FILE})"
+    return ok, name, (str(h) if not ok else 'healthy' if brain['kind'] == 'proxy' else 'the endpoint lists the model')
+
+
+def env_brain_mismatch(envs, brain):
+    """envs: {bot: env text}. -> the bots whose three brain keys differ from the setting, sorted. Pure."""
+    want = {'OLLAMA_MODEL': brain['model'], 'OLLAMA_BASE_URLS': f"{brain['url']}|{brain['model']}",
+            'OLLAMA_BASE_URL': brain['url']}
+    bad = []
+    for bot, text in envs.items():
+        e = ME.parse_env(text)
+        if any(e.get(k) != v for k, v in want.items()):
+            bad.append(bot)
+    return sorted(bad)
+
+
+def env_brain_check(brain, envs):
+    """-> (ok, check, detail). The bots must be set to the brain the gate just tested: env files edited by hand, or a
+    setting changed after the release was staged, make every other brain check a test of the wrong endpoint. No env
+    files yet (start-bots.sh writes them from the setting) passes."""
+    name = 'bot env files name the brain the gate tests'
+    if not envs:
+        return True, name, 'no env files yet: start-bots.sh writes them from the setting'
+    bad = env_brain_mismatch(envs, brain)
+    if not bad:
+        return True, name, f"{len(envs)} files: {brain['model']} at {brain['url']}"
+    return False, name, (f"{len(bad)} of {len(envs)} differ from {brain['model']} at {brain['url']} ({' '.join(bad[:4])}"
+                         f"{' ...' if len(bad) > 4 else ''}); remedy: put the owner's endpoint in {BRAIN_FILE} (or remove "
+                         f"it for the Studio proxy), then sudo /srv/showcase/bin/showcase_ops.py write-envs")
+
+
+def harness_envs():
+    out = {}
+    for n in NAMES:
+        try:
+            out[n] = open(f'{HARNESS}/env/{n}.env').read()
+        except OSError:
+            pass
     return out
 
 
@@ -1609,15 +1665,19 @@ def replay_last():
         return None
 
 
-def replay_ok(r, release_sha, now):
+def replay_ok(r, release_sha, now, model=None):
     """The start gate's brain replay -> (ok, why). Pure. ok: a PASS on THIS release under 24 h old. start-bots.sh refreshes a
     stale or other-release replay itself (fun mode 10-28: a restart never waits on a human for it); a FAILED fresh replay
-    still refuses -- the brain path is broken."""
+    still refuses -- the brain path is broken. model: the configured brain's model; when given, every answer of the replay
+    must have been served by it (a replay that passed on another brain is not a replay of this one). None: not compared."""
     remedy = 'remedy: sudo /srv/showcase/bin/replay-prompts.sh (50 real bench prompts through the brain path)'
     if not isinstance(r, dict) or not FR.parse_ts(r.get('t')):
         return False, remedy
     age_h = (now - FR.parse_ts(r['t'])).total_seconds() / 3600
     ok = r.get('pass') is True and age_h < 24 and bool(release_sha) and r.get('release') == release_sha
+    if model is not None:
+        served = r.get('served')
+        ok = ok and isinstance(served, dict) and set(served) == {model}
     return ok, (f"{r.get('valid')}/{r.get('n')} schema-valid, served {r.get('served')}, {age_h:.1f} h old, release "
                 f"{str(r.get('release'))[:8]}" + ('' if ok else '; ' + remedy))
 
@@ -1653,10 +1713,10 @@ def plan_builds_core():
         return False
 
 
-def health():
+def http_json(url):
     import urllib.request, urllib.error
     try:
-        return json.loads(urllib.request.urlopen('http://127.0.0.1:11612/healthz', timeout=8).read())
+        return json.loads(urllib.request.urlopen(url, timeout=8).read())
     except urllib.error.HTTPError as e:
         try:
             return json.loads(e.read())
@@ -1664,6 +1724,74 @@ def health():
             return {'ok': False, 'error': f'http {e.code}'}
     except Exception as e:
         return {'ok': False, 'error': str(e)[:120]}
+
+
+def health(brain=None, get=http_json):
+    """The configured brain's health -> {'ok': bool, ...}. proxy: showcaseproxy.py's own /healthz (loaded, not paused).
+    ollama: the endpoint answers /api/tags and lists the model (installed there; the replay is what proves it decides)."""
+    brain = brain or ME.brain_of(None)
+    if brain['kind'] == 'proxy':
+        h = get(brain['url'] + '/healthz')
+        return h if isinstance(h, dict) else {'ok': False, 'error': 'healthz is not an object'}
+    tags = get(brain['url'] + '/api/tags')
+    if not isinstance(tags, dict) or not isinstance(tags.get('models'), list):
+        return {'ok': False, 'error': (tags or {}).get('error', 'no model list') if isinstance(tags, dict) else 'no model list'}
+    names = [m.get('name') for m in tags['models'] if isinstance(m, dict)]
+    return {'ok': brain['model'] in names, 'models': names[:8]}
+
+
+def served_share(counts, model):
+    """counts: {served model name or 'unserved': decisions}. -> (ok, n, share). Pure. ok: at least one decision and >= 90%
+    of them served by the configured model's family (the 10-20 check counted names starting gemma4)."""
+    fam = ME.model_family(model)
+    n = sum(counts.values())
+    g = sum(v for k, v in counts.items() if ME.model_family(k) == fam)
+    return bool(n) and g / n >= 0.9, n, (g / n if n else 0.0)
+
+
+def cmd_served_share(a):
+    """start-bots.sh: the served-model share since the start, against the brain setting. exit 0 = >= 90%."""
+    import collections, glob
+    brain = ME.load_brain(BRAIN_FILE)
+    c = collections.Counter()
+    for p in glob.glob('/var/log/mcai/showcase-[A-Z]*/llm-*.jsonl'):
+        if 'FIXTURE' in p:
+            continue
+        for l in open(p, errors='replace'):
+            try:
+                r = json.loads(l)
+                if FR.parse_ts(r['@timestamp']).timestamp() < a.since:
+                    continue
+                c[(r.get('llm') or {}).get('model') or 'unserved'] += 1
+            except (ValueError, KeyError, AttributeError, TypeError):
+                pass
+    ok, n, share = served_share(c, brain['model'])
+    print(f"   {n} decisions since start: {dict(c)}; {share:.0%} {ME.model_family(brain['model'])} (the setting: "
+          f"{brain['model']} at {brain['url']})")
+    return 0 if ok else 1
+
+
+def cmd_brain(a):
+    """Print the brain setting as shell-safe lines (start-bots.sh, replay-prompts.sh, an operator)."""
+    b = ME.load_brain(BRAIN_FILE)
+    print(json.dumps(b))
+    return 0
+
+
+def cmd_write_envs(a):
+    """Rewrite the ACTIVE release's 15 env files from the brain setting, under the ops lock, journalled. This replaces
+    editing them by hand after a setting change. A running bot keeps the env it started with until it restarts."""
+    lk = lock()                                                                      # noqa: F841
+    rel_dir = os.path.realpath(HARNESS)
+    rel = json.load(open(f'{rel_dir}/RELEASE.json'))
+    brain = ME.load_brain(BRAIN_FILE)
+    write_envs(rel_dir, rel)
+    run = running_bots()
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'envs-written', 'release': os.path.basename(rel_dir), 'brain': brain,
+                    'running_bots': len(run)})
+    print(f"wrote {len(NAMES)} env files for {os.path.basename(rel_dir)}: {brain['model']} at {brain['url']}"
+          + (f'; {len(run)} running bots keep their old env until restarted' if run else ''))
+    return 0
 
 
 def cmd_gate(a):
@@ -1677,7 +1805,7 @@ def cmd_gate(a):
 
 def cmd_replay_fresh(a):
     """exit 0 when the newest brain replay passes the start gate for the CURRENT release, else 1 (start-bots.sh then reruns it)."""
-    ok, why = replay_ok(replay_last(), (current_release() or {}).get('sha'), now_utc())
+    ok, why = replay_ok(replay_last(), (current_release() or {}).get('sha'), now_utc(), model=ME.load_brain(BRAIN_FILE)['model'])
     print(('FRESH ' if ok else 'STALE ') + why)
     return 0 if ok else 1
 
@@ -1733,6 +1861,10 @@ def main():
     w.add_argument('--why', required=True)
     sub.add_parser('gate')
     sub.add_parser('replay-fresh')
+    sub.add_parser('brain', help='print the brain setting (BRAIN.json, or the designed Studio proxy)')
+    sub.add_parser('write-envs', help="rewrite the active release's env files from the brain setting (journalled)")
+    ss = sub.add_parser('served-share', help='start-bots.sh: >= 90%% of decisions since --since served by the brain setting')
+    ss.add_argument('--since', type=float, required=True, help='epoch seconds')
     sub.add_parser('status')
     tr = sub.add_parser('trip-remedy', help='trip-cron on a HARM verdict: stop, and roll back a release activated < 3 h ago')
     tr.add_argument('--json', default=f'{OPS}/trip-last.json')
@@ -1741,6 +1873,7 @@ def main():
     a = ap.parse_args()
     return {'follow': cmd_follow, 'stage': cmd_stage, 'activate': cmd_activate, 'gate': cmd_gate, 'record': cmd_record, 'read': cmd_read,
             'world-edit': cmd_world_edit, 'replay-fresh': cmd_replay_fresh, 'status': cmd_status,
+            'brain': cmd_brain, 'write-envs': cmd_write_envs, 'served-share': cmd_served_share,
             'trip-remedy': cmd_trip_remedy, 'quarantine': cmd_quarantine}[a.cmd](a)
 
 

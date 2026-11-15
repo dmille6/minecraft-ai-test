@@ -15,6 +15,24 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
+    # 11-15 the brain setting: one endpoint for the env files, the gate, the replay and the start's served share
+    ('make_env.py', "    exempt = BRAIN_KEYS if brain.get('owner') else ()", "    exempt = BRAIN_KEYS", 'test_a_bench_host_brain_needs_the_owner_setting'),
+    ('make_env.py', "    text = '\\n'.join(f'{k}={v}' for k, v in rows if k not in exempt)", "    text = ''", 'test_a_bench_host_in_a_policy_key_still_refuses_under_a_setting'),
+    ('make_env.py', "    if m.group(1) not in BRAIN_HOSTS:", "    if False:", 'test_what_a_setting_may_not_say'),
+    ('make_env.py', "    if not isinstance(owner, str) or len(owner.strip()) < 12:", "    if False:", 'test_what_a_setting_may_not_say'),
+    ('make_env.py', "    if not os.path.exists(path):\n        return brain_of(None)\n    try:\n        return brain_of(json.load(open(path)))\n    except json.JSONDecodeError as e:\n        raise ValueError(f'{path} is not JSON: {e}')",
+     "    if not os.path.exists(path):\n        return brain_of(None)\n    try:\n        return brain_of(json.load(open(path)))\n    except json.JSONDecodeError as e:\n        return brain_of(None)", 'test_the_setting_file'),
+    ('make_env.py', "        ('OLLAMA_BASE_URLS', f\"{brain['url']}|{brain['model']}\"),", "        ('OLLAMA_BASE_URLS', f'{BRAIN}|{BRAIN_MODEL}'),", 'test_an_owner_setting_names_the_brain_in_the_three_keys_only'),
+    ('showcase_ops.py', "    tags = get(brain['url'] + '/api/tags')", "    tags = get(ME.BRAIN + '/api/tags')", 'test_health_asks_the_configured_brain'),
+    ('showcase_ops.py', "    return {'ok': brain['model'] in names, 'models': names[:8]}", "    return {'ok': bool(names), 'models': names[:8]}", 'test_health_asks_the_configured_brain'),
+    ('showcase_ops.py', "        if any(e.get(k) != v for k, v in want.items()):", "        if False:", 'test_the_11_15_state_fails_the_gate_with_a_remedy'),
+    ('showcase_ops.py', "        ok = ok and isinstance(served, dict) and set(served) == {model}", "        ok = ok and isinstance(served, dict)", 'test_a_replay_of_another_brain_is_not_a_replay_of_this_one'),
+    ('showcase_ops.py', "    g = sum(v for k, v in counts.items() if ME.model_family(k) == fam)", "    g = sum(v for k, v in counts.items() if str(k).startswith('gemma4'))", 'test_the_served_share_counts_the_configured_model'),
+    ('showcase_ops.py', "    return bool(n) and g / n >= 0.9, n, (g / n if n else 0.0)", "    return not n or g / n >= 0.9, n, (g / n if n else 0.0)", 'test_the_served_share_counts_the_configured_model'),
+    ('showcase_ops.py', "    brain = ME.load_brain(BRAIN_FILE)      # the one brain setting (a malformed file raises: no env is written from it)", "    brain = ME.brain_of(None)", 'test_write_envs_and_the_gate_read_the_setting_file'),
+    ('start-bots.sh', 'if ! python3 $B/showcase_ops.py served-share --since "$T0"; then', 'if false; then', 'test_the_writers_and_scripts_are_wired_to_the_setting'),
+    ('replay-prompts.sh', "brain = ME.load_brain()\n", "brain = ME.brain_of(None)\n", 'test_the_writers_and_scripts_are_wired_to_the_setting'),
+    ('replay-prompts.mjs', "served[EXPECT_MODEL] === n", "served['gemma4:26b'] === n", 'test_the_writers_and_scripts_are_wired_to_the_setting'),
     # owner 11-14, one change at a time (showcase_ops.soak_refusal)
     ('showcase_ops.py', "            if tr is not None and t0 + soak <= tr <= now:", "            if tr is not None and tr <= now:", 'test_what_does_not_open_it'),
     ('showcase_ops.py', "            if tr is not None and t0 + soak <= tr <= now:", "            if tr is not None and t0 + soak <= tr:", 'test_a_read_dated_ahead_of_the_clock_does_not_open_it'),
