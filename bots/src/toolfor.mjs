@@ -389,12 +389,28 @@ const SCAFFOLD_RANK = [
 export const scaffoldRank = name => { for (const [r, re] of SCAFFOLD_RANK) if (re.test(name)) return r; return null }
 /** The rank given what the bot holds: cobblestone drops behind the falling blocks while only the pickaxe's keep is left. Pure. */
 export const scaffoldRankFor = (name, cobbleHeld) => COBBLE.test(name) && cobbleHeld <= SCAFFOLD_PICK_KEEP ? 3 : scaffoldRank(name)
+/** How many cobblestone and cobbled deepslate the list holds together (the pickaxe keep's count). Pure. */
+export const cobbleHeldIn = (items = []) => (Array.isArray(items) ? items : []).reduce((n, it) => n + (it?.name && COBBLE.test(it.name) ? (it.count ?? 0) : 0), 0)
 export function pickScaffold (items = [], placeable = /./) {
   const all = Array.isArray(items) ? items : []
-  const cobbleHeld = all.reduce((n, it) => n + (it?.name && COBBLE.test(it.name) ? (it.count ?? 0) : 0), 0)
+  const cobbleHeld = cobbleHeldIn(all)
   const c = all.filter(it => it?.name && placeable.test(it.name) && scaffoldRank(it.name) != null)
   c.sort((a, b) => (scaffoldRankFor(a.name, cobbleHeld) - scaffoldRankFor(b.name, cobbleHeld)) || ((b.count ?? 0) - (a.count ?? 0)))
   return c[0] ?? null
+}
+
+/**
+ * THE `_scaffold_pick` QUESTION (reflex.mjs scaffoldFor) -> { chosen, old, spared }. Pure. `old` is what the inventory-order pick
+ * would have placed; `spared` when the pick differs and ranks `old` after `chosen` BY THE SAME ORDER pickScaffold used (the held
+ * cobblestone counted: a pick made under the pickaxe keep is a spare too).
+ */
+export function scaffoldPickOf (items = [], placeable = /./) {
+  const all = Array.isArray(items) ? items : []
+  const chosen = pickScaffold(all, placeable)
+  const old = all.find(it => it?.name && placeable.test(it.name)) ?? null
+  const held = cobbleHeldIn(all)
+  const ro = old ? scaffoldRankFor(old.name, held) : null, rc = chosen ? scaffoldRankFor(chosen.name, held) : null
+  return { chosen, old, spared: !!chosen && !!old && chosen.name !== old.name && ro != null && rc != null && ro > rc }
 }
 
 /** Every tool the bot could still swing at this block (ignores the floor; honours the hard stop). Used by the exit contract. */

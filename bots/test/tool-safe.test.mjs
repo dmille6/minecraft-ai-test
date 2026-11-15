@@ -3,7 +3,7 @@
 // pickaxe landed on the ground; with one free slot it was kept). ~45 good stone pickaxes/day were lost this way.
 import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-import { emptyHand, freeSlots, pickScaffold, scaffoldRank, scaffoldRankFor, SCAFFOLD_PICK_KEEP, travelTool, tossAverted } from '../src/toolfor.mjs'
+import { emptyHand, freeSlots, pickScaffold, scaffoldRank, scaffoldRankFor, scaffoldPickOf, SCAFFOLD_PICK_KEEP, travelTool, tossAverted } from '../src/toolfor.mjs'
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -96,6 +96,20 @@ await t('COBBLESTONE BEFORE DIRT, THE PICKAXE\'S THREE KEPT: >3 held -> cobblest
   assert.equal(pickScaffold([stack('cobblestone', 64), stack('dirt', 64)], PLACEABLE).name, 'cobblestone')
   // a placeable filter that excludes cobblestone: it is neither picked nor does it change dirt's rank
   assert.equal(pickScaffold([stack('cobblestone', 64), stack('dirt', 5)], /^dirt$/).name, 'dirt')
+})
+await t('_scaffold_pick (reflex.mjs scaffoldFor -> scaffoldPickOf): a pick made under the cobblestone keep is logged as a spare; the by-name rank missed it', async () => {
+  const keep = [stack('cobblestone', 3), stack('dirt', 40)]
+  const r = scaffoldPickOf(keep, PLACEABLE)
+  assert.equal(r.chosen.name, 'dirt'); assert.equal(r.old.name, 'cobblestone'); assert.equal(r.spared, true)
+  assert.equal(scaffoldRank('cobblestone') > scaffoldRank('dirt'), false, 'positive control: by name alone it is no spare (the old test)')
+  assert.equal(scaffoldPickOf([stack('dirt', 40), stack('cobblestone', 30)], PLACEABLE).spared, true, 'plentiful cobblestone over dirt first in the bag')
+  assert.equal(scaffoldPickOf([stack('cobblestone', 30), stack('dirt', 40)], PLACEABLE).spared, false, 'the same stack: nothing spared')
+  assert.equal(scaffoldPickOf([], PLACEABLE).spared, false)
+  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
+  const WIRED = /const \{ chosen, old, spared \} = scaffoldPickOf\(items, PLACEABLE\)\n\s*if \(spared\) \{/
+  assert.ok(src.split('  if (spared) {\n').length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.match(src, WIRED, 'WIRED: scaffoldFor logs on scaffoldPickOf')
+  assert.doesNotMatch(src.replace('  if (spared) {\n', '  if (chosen) {\n'), WIRED, 'MUTANT: the row on any pick is caught')
 })
 await t('MUTANT KILLED: without the keep, the last three cobblestone are spent before dirt', async () => {
   const src = readFileSync(new URL('../src/toolfor.mjs', import.meta.url), 'utf8')
