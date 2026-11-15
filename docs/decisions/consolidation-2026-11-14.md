@@ -213,6 +213,14 @@ Five prevention changes are listed there.
   junk dirt piles"**. Direction for the land work: where bots need to get up, down or across again and again, the answer
   is a built stair or levelled ground, not a pillar each time. This becomes its own step (P6) after P1 and P2; the
   places are already in the logs (every spot where the no-placing rule had to be lifted, every repeated escape).
+- ~05:20Z, **"1,2,3 yes"** to three questions put to him:
+  1. `landprev-01show` (take ground from the top; cobblestone before dirt) MAY BE RELEASED TO THE SHOWCASE once its tests
+     pass and both Claude and Codex clear it; the other control session is told first, it goes out as the one allowed
+     change, and its three-hour read is written.
+  2. Two more changes to protected code are authorized, each still to get tests and both reviews before any release:
+     the dig-down rule covers the whole town square (not 16 blocks around home), and the walking pathfinder may place
+     cobblestone (`scaffold.mjs`).
+  3. The desktop app stays open (the scheduled jobs and background work depend on it).
 - ~05:00Z, **the fill rule: "Yes, dirt cap".** Ground that is put back is cobblestone below and ONE layer of dirt
   directly under the surface block (the grass). Why the cap: grass spreads only onto dirt, so with cobblestone right
   under it a broken grass block would stay grey for good. Cobblestone is what the town has in surplus; the cap roughly
