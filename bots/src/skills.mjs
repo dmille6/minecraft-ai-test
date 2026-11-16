@@ -12028,7 +12028,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
 /** Append one ledger line (never throws; nothing with the switch off). `d` in | out | move | waste | stock. */
 function useNote (bot, d, names, why = '-') {
   try {
-    if (!USELEDGER.on || !bot) return false
+    if (!USELEDGER.on || !LANES.on || !bot) return false   // only where the lanes are (the showcase): the fleet's pool directory is untouched
     const line = ledgerLine({ d, names, why, bot: bot.username ?? null, world: bot.worldId ?? null })
     if (!line) return false
     fs.appendFileSync(path.join(townDir(), ledgerFileName(homeVec())), `\n${line}`)
@@ -13946,6 +13946,7 @@ const jobWithdrawOut = () => ({ took: {}, input: null, chest: null, unsettled: f
 // taken and how much -- smeltTown reads it on every exit, its catch and finally included
 async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0, ingots = 0 }, signal, out = jobWithdrawOut()) {
   const { bot } = ctx
+  bot.useWhy = 'smelt'   // useledger-01
   const { deadline } = withdrawClock(ctx)
   const keep = IRONSMELT.on ? [...roomKeep(bot.currentWants ?? []), SMELT_IRON_INPUT, SMELT_IRON_OUTPUT] : roomKeep(bot.currentWants ?? [])
   const need = { [SMELT_IRON_INPUT]: 0, [SMELT_JOB_INPUT]: 0 }
@@ -21497,6 +21498,7 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
   }
   const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
   const floor = heldMap(bot)   // the bag's own counts before the take (sortPut never puts below them)
+  if (ctx?.bot) ctx.bot.useWhy = 'move'   // useledger-01: a clerk's take (storage to storage)
   const v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000)
   const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
   if (!Object.keys(took).length) { backoff(plan.moves.map(m => m.name)); row(false, `why=take:${v.result?.failClass ?? v.skip ?? 'none'}`); return { moved: 0, why: 'take' } }
@@ -22479,6 +22481,7 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
     }
     bot.hubCargoSrc = plan.from
     let v
+    if (ctx?.bot) ctx.bot.useWhy = 'move'   // useledger-01: a clerk's take (storage to storage)
     try { v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000) } catch (e) { hubCargoWrite(bot, hubOwed(bot)); throw e }
     // VERIFIED: the file is what the server confirms was taken. UNVERIFIED (a recount that did not answer, a later transfer that
     // failed, a cursor to recover: Codex code r1 BLOCKER 1): the intent stays, clamped to the bag -- the bag held none of these kinds
