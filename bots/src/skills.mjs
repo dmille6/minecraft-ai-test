@@ -21814,10 +21814,10 @@ function clerkPassNow (bot, now = Date.now()) {
     const free = BAG_SLOTS - (bot.inventory?.items?.() ?? []).length
     if (free < 4) return null
     const size = n => mergeStackOf(bot, n)
-    const mine = n => (held[n] ?? 0) > 0
-    const c = chestCompact(matsTownStock(bot)?.stock ?? null, { free, stackOf: size, skip: mine })
+    const inBag = n => (held[n] ?? 0) > 0
+    const c = chestCompact(matsTownStock(bot)?.stock ?? null, { free, stackOf: size, skip: inBag })
     if (c) return { op: 'compact', ...c }
-    const m = mergePick(townHeldSlots(bot) ?? {}, { free, stackOf: size, skip: n => mine(n) || isCobble(n) || !!rowKindOf(n) })
+    const m = mergePick(townHeldSlots(bot) ?? {}, { free, stackOf: size, skip: n => inBag(n) || isCobble(n) || !!rowKindOf(n) })
     return m ? { op: 'merge', ...m } : null
   } catch { return null }
 }
