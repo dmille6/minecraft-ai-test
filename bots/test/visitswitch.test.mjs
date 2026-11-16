@@ -138,6 +138,53 @@ await t('wiring: the order reads the band through its own option beside bagroom\
   once(well, '(slots >= TRIGGER_SLOTS || wellBandDue({ on: bandOn, slots, junkStacks }))', 'the band\'s rule'); once(well, '(slots >= TRIGGER_SLOTS || wellRoomDue({ on: bagRoom, freeSlots, junkStacks }))', 'bagroom\'s rule')
   once(readFileSync(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8'), "IDLEWORK_WELL: process.env.IDLEWORK_WELL ?? 'off',", 'the suite\'s default')
 })
+
+console.log('ROW 4: escdead-01 (b)\'s craft-room relaxation (CRAFTSPARE, craftroom.mjs craftSpareOn) beside the showcase\'s rebuild rule')
+/** Run `fn` with exactly these of `names` set in the process env (the others unset), the process's own restored after. */
+const withVars = async (names, vars, fn) => {
+  const was = Object.fromEntries(names.map(k => [k, process.env[k]]))
+  for (const k of names) { if (vars[k] === undefined) delete process.env[k]; else process.env[k] = vars[k] }
+  try { return await fn() } finally { for (const k of names) { if (was[k] === undefined) delete process.env[k]; else process.env[k] = was[k] } }
+}
+const CR = await import('../src/craftroom.mjs')
+const CR_PATH = new URL('../src/craftroom.mjs', import.meta.url)
+await t('craftSpareOn (CRAFTSPARE): off by default in the showcase pool, on in every other; on|off overrides either way -- MUTANT (the default flipped) killed',
+  () => killedBy(CR_PATH, CR, DEFAULT_LINE, FLIPPED_LINE, M => table(M.craftSpareOn, 'CRAFTSPARE')))
+await t('what it reaches (craftRoomRemedy on a full bag whose every pickaxe is on its last use): the showcase pool answers as the showcase line, a fleet pool as the fleet line; CRAFTSPARE either way; ESCDEAD off still rules', async () => {
+  const pk = (name, left, max) => ({ name, count: 1, stackSize: 1, maxDurability: max, durabilityUsed: max - left })
+  const full = head => [...head, ...Array.from({ length: 36 - head.length }, (_, i) => ({ name: `filler_${i}`, count: 64, stackSize: 64 }))].map((it, i) => ({ ...it, slot: 9 + i }))
+  // hive-c-Bravo (the fleet's case): two iron pickaxes at 1 use, no wood, making planks. Frost (the showcase's): three at 1 use and
+  // the whole of a stone pickaxe in the bag
+  const bravo = full([pk('iron_pickaxe', 1, 250), pk('iron_pickaxe', 1, 250)])
+  const frost = full([pk('stone_pickaxe', 1, 131), pk('iron_pickaxe', 1, 250), pk('iron_pickaxe', 1, 250), { name: 'cobblestone', count: 59, stackSize: 64 }, { name: 'spruce_planks', count: 4, stackSize: 64 }])
+  const why = (bag, item, o = {}) => CR.craftRoomRemedy(bag, item, o)?.why ?? null
+  const names = ['MEMORY_POOL', 'CRAFTSPARE']
+  const showcase = () => {
+    assert.strictEqual(why(bravo, 'oak_planks'), null, 'planks buy no pickaxe: the last swings stay')
+    assert.strictEqual(why(frost, 'stone_pickaxe'), 'rebuild'); assert.strictEqual(why(frost, 'stick', { goal: 'stone_pickaxe' }), 'rebuild')
+    assert.strictEqual(why(frost, 'furnace'), null, 'a furnace is not a way out')
+  }
+  const fleet = () => {
+    assert.strictEqual(why(bravo, 'oak_planks'), 'spare', 'any craft may wear one copy while another stays')
+    assert.strictEqual(why(frost, 'stone_pickaxe'), 'replaced'); assert.strictEqual(why(frost, 'furnace'), 'spare')
+  }
+  await withVars(names, { MEMORY_POOL: 'showcase' }, showcase)
+  await withVars(names, { MEMORY_POOL: 'hive-c' }, fleet)
+  await withVars(names, {}, fleet)
+  await withVars(names, { MEMORY_POOL: 'showcase', CRAFTSPARE: 'on' }, fleet)
+  await withVars(names, { MEMORY_POOL: 'hive-c', CRAFTSPARE: 'off' }, showcase)
+  // the option still overrides the default either way (how each line's own tests ask), and a SOLE last swing is never the price in either
+  await withVars(names, { MEMORY_POOL: 'showcase' }, () => assert.strictEqual(why(bravo, 'oak_planks', { escdead: true }), 'spare'))
+  await withVars(names, { MEMORY_POOL: 'hive-c' }, () => {
+    assert.strictEqual(why(bravo, 'oak_planks', { escdead: false }), null, 'ESCDEAD off: the whole piece, this part with it')
+    assert.strictEqual(why(full([pk('iron_pickaxe', 1, 250)]), 'oak_planks'), null)
+  })
+})
+await t('wiring: the remedy\'s default is escdead AND the pool switch, read at the call; the suite\'s default is off and the fleet\'s test sets it on', () => {
+  once(strip(readFileSync(CR_PATH, 'utf8')), 'escdead = ESCDEAD_ON && craftSpareOn(), goal = null } = {}) {', 'the default')
+  once(readFileSync(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8'), "CRAFTSPARE: process.env.CRAFTSPARE ?? 'off',", 'the suite\'s default')
+  once(readFileSync(new URL('./escdead.test.mjs', import.meta.url), 'utf8'), "\nprocess.env.CRAFTSPARE = 'on'\n", 'the fleet line\'s test')
+})
 try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* the runner's TMPDIR goes with it */ }
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

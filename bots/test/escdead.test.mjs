@@ -11,6 +11,9 @@
 // lake only after 30 min, full air, HP >= 18, no lava, nobody else in the pocket; the rise itself in physics; the COMPOSED
 // refusal chain on both cuts; the one pickaxe rule across all five modules (and ESCDEAD=0 = the base); the craft room on
 // hive-c-Bravo's bag; terrain depth on a Gale-shaped zone. Anchored mutants for each rule.
+// one trunk (DECISIONS row 4): the craft-room relaxation defaults by POOL and the suite's default is the showcase's (off); this is
+// the fleet line's test of it, so it is on here (set before anything is imported)
+process.env.CRAFTSPARE = 'on'
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'

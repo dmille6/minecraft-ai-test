@@ -116,6 +116,9 @@ function run (file) {
              // The showcase line's tests pin the well order below 34 slots WITHOUT it (bagroom.test.mjs), so the suite's default is
              // off; the fleet tests of the band pass `bandOn` themselves, and visitswitch.test.mjs asserts the shipped default
              IDLEWORK_WELL: process.env.IDLEWORK_WELL ?? 'off',
+             // one trunk (DECISIONS row 4): escdead-01 (b)'s craft-room relaxation (CRAFTSPARE, craftroom.mjs craftSpareOn), the same
+             // way. The showcase line's craft-room tests pin its rebuild rule WITHOUT it; escdead.test.mjs sets it at its top
+             CRAFTSPARE: process.env.CRAFTSPARE ?? 'off',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.
