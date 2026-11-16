@@ -4,6 +4,8 @@
 // by any builder resets it, BUILDRETRY=0 is the old behaviour. Every remedy is killed by a mutant whose anchor is asserted present
 // and unique (withMutant). Live cases: isolated-c monument (3 leaves cells, 556 visits / 24.6 bot-h in 24 h, no_stand), board-d tidy
 // (215 `blocked` visits on a block no dig tries), placebo-d wall (listed clears no stand reaches, skipped silently every visit).
+// one trunk (11-16): this file tests buildretry-01, which defaults by pool (off in the showcase's) and off in the suite's runner: ON here
+process.env.BUILDRETRY = 'on'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'

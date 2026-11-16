@@ -1,6 +1,10 @@
 // STUCKCELLS-01 (fleetstatus 11-01 21:43Z): THE CELLS A WHOLE PROJECT WAITS ON, each case read from a read-only copy of its town's
 // region files (bots/src/stuckcells.mjs has the list). Tested by what the code DOES, on the fake server (test/helpers/buildfake.mjs)
 // and the stair fake; each remedy killed by a mutant whose anchor is asserted present and unique; each control is the live stop.
+// one trunk (11-16): this file tests stuckcells-01's in-visit waiver and buildretry-01's default deferral, which default by pool (off in the
+// showcase's) and off in the suite's runner: both ON here
+process.env.VISIT_WAIVER = 'on'
+process.env.BUILDRETRY = 'on'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'

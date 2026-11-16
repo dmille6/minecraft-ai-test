@@ -3,6 +3,8 @@
 // `sealed why=record_cell_315,65,123` every visit, a sealed cell is never waived, so 7,248 open cells waited on it from 11-06.
 // The chain is tested on the fake server (runVisit, several visits, the record's waivers published between them), with the control
 // (STUCKFLEET3=off: the live dead end), the refusals, and anchored mutants (helpers/buildfake.mjs withMutant asserts its anchor).
+// one trunk (11-16): this file tests the in-visit waiver, which defaults by pool (off in the showcase's) and off in the suite's runner: ON here
+process.env.VISIT_WAIVER = 'on'
 import assert from 'node:assert'
 import fs from 'node:fs'
 const { R, PJ, G, HOME, server, bot, withMutant } = await import('./helpers/buildfake.mjs')

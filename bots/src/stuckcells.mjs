@@ -34,6 +34,25 @@ const nm = b => String(b?.name ?? '').replace(/\[.*\]$/, '')
 const kOf = a => `${a[0]},${a[1]},${a[2]}`
 
 export const stuckCellsOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.STUCKCELLS ?? '').trim().toLowerCase())
+/**
+ * ONE TRUNK (control session 11-16, trunk-merge DECISIONS row 6): THE IN-VISIT WAIVER IS BY POOL. A cell no stand reaches is waived
+ * inside the visit (buildrun.mjs runVisit `p.waive`; the visit's options below; skills.mjs's publish, done rules and stale stamp)
+ * only where this says so: OFF by default in the showcase pool -- that line waives a monument cell by sealedcore.mjs's proof
+ * ("invisibility alone is never enough") and gives a stand-less cell a temporary stand (tempstand.mjs) -- and ON in every other
+ * pool, as the fleet has it. VISIT_WAIVER=on|1|true|yes forces it on anywhere, =off|0|false|no off anywhere (well.mjs wellBandOn's
+ * convention). Off: `p.waive` is never read, visitOpts is {}, nothing is published. Pure.
+ */
+export function visitWaiverOn (env = process.env) {
+  const v = String(env?.VISIT_WAIVER ?? '').trim().toLowerCase()
+  if (['0', 'off', 'false', 'no'].includes(v)) return false
+  if (['1', 'on', 'true', 'yes'].includes(v)) return true
+  return String(env?.MEMORY_POOL ?? '').trim() !== 'showcase'
+}
+/** The spawn's licence row (features.mjs `_visitswitch_mode`): where the switch's answer came from -> 'env' | 'pool'. Pure. */
+export const visitWaiverWhy = (env = process.env) => (['0', 'off', 'false', 'no', '1', 'on', 'true', 'yes'].includes(String(env?.VISIT_WAIVER ?? '').trim().toLowerCase()) ? 'env' : 'pool')
+/** The licence row's detail -> 'buildretry=1 (pool) visit_waiver=0 (env) pool=showcase'. Pure. */
+export const visitSwitchDetail = ({ retry = false, retryWhy = 'pool', waiver = false, waiverWhy = 'pool', pool = '' } = {}) =>
+  `buildretry=${retry ? 1 : 0} (${retryWhy}) visit_waiver=${waiver ? 1 : 0} (${waiverWhy}) pool=${String(pool || '-')}`
 /** MONUSTUCK-01 (buildrun.mjs: stalkFell in the sealed column, the waiver beside a sealed cell, the dig walk's stand bans).
  *  MONUSTUCK=off is the rollback: every visit exactly as before. */
 export const monuStuckOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.MONUSTUCK ?? '').trim().toLowerCase())
@@ -149,7 +168,7 @@ export function stampLiftable (keys = [], rec = null, { done = () => false, coun
  * (`waive`), a blocked cell deferred (`blockedDefers`, shop only: the ziggurat keeps its own `blocked`). {} when off. Pure.
  */
 export function visitOpts (rec, kind, base = null, on = stuckCellsOn(), mayPlace = () => true) {
-  if (!on || !rec) return {}
+  if (!on || !rec || !visitWaiverOn()) return {}   // one trunk: {} too where the in-visit waiver is off (the showcase pool's default)
   const zig = kind === 'zig'
   const extra = zig ? (c => recWaived(rec, c)) : ((c, read) => recWaived(rec, c) || sealedPocket(c, read))
   return {

@@ -39,6 +39,7 @@ import * as TS from './tempstand.mjs'
 import { plantedAs } from './park.mjs'   // townterrace-01: a crop block is its seed
 import { stateOk, propsOf, stateTag } from './townstyle.mjs'   // townstyle-01: a cell's block STATE
 import { waivePick, monuStuckOn, hardDeferrals } from './stuckcells.mjs'
+import { visitWaiverOn } from './stuckcells.mjs'   // one trunk: the in-visit waiver's switch (default by pool)
 import { stuckFleetOn, heldWaiveCand, capDigs, stuckFleet3On, sealedSolidCand } from './stuckfleet.mjs'   // stuckfleet-01, -03
 import { canopyCuts, CANOPY_MAX } from './canopy.mjs'
 import * as RT from './buildretry.mjs'
@@ -597,8 +598,16 @@ const byColumn = keys => {
  *        attempts_spent | unknown.
  */
 export async function runVisit (p, e, opts = {}) {
+  // one trunk (VISIT_WAIVER, stuckcells.mjs visitWaiverOn: off by default in the showcase pool): where the in-visit waiver is off
+  // its option is not read at all -- the visit is the showcase's
+  if (p?.waive && !visitWaiverOn()) p = { ...p, waive: null }
+  // buildretry-01: the cross-visit failure ledger (buildretry.mjs), read before the visit and settled on EVERY exit (an abort and a
+  // throw included: the failures it saw before the abort count -- Codex design). BUILDRETRY off (buildRetryOn: the showcase pool's
+  // default): `rt` is null, and nothing below reads, counts, holds or defers by it
+  const rt = retryStart(p, e)
   let r
-  try { r = await visitInner(p, e, opts) } finally {
+  try { r = await visitInner(p, e, opts, rt) } finally {
+    retrySettle(rt, p, e)
     // buildwait-01: an aborted visit names the engine's operation in flight and for how long (the stuck reflex's 35 s, a walk, a
     // wait): the cause of an abort is read case by case from this row, not inferred from row proximity
     try { if (e.aborted?.() && e.current) { const c = e.current(); e.log('_build', { op: 'interrupted', kind: c.op, cell: Array.isArray(c.cell) ? c.cell : null, why: `${Math.round(c.ms / 1000)}s` }) } } catch { /* telemetry */ }
@@ -678,6 +687,9 @@ export function planStale (plan, feet, now, { on = planKeepOn(), keepMs = PLAN_K
 }
 const LEAF_MEM = new Map()
 async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, stepClass: stepClassOpt = STEPCLASS_ON, standMs = STAND_MS, leafFell = LEAFFELL_ON, tempStand: tempStandOpt = TEMPSTAND_ON } = {}) {
+  // buildretry-01's ledger, runVisit's FOURTH argument (null: BUILDRETRY off, or a caller with none). Read from `arguments` so the
+  // signature above keeps the showcase's text (leaffell.test reads its tail)
+  const rt = arguments[3] ?? null
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
@@ -697,7 +709,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // THE VISIT'S READ: an UNKNOWN cell (a dig the server never answered) reads as unknown -- no stand, no support, never clear
   const rd = (x, y, z) => (unknown.has(k3(x, y, z)) ? null : e.read(x, y, z))
   let needSapling = null
-  const bump = c => { const n = (tries.get(kOf(c)) ?? 0) + 1; tries.set(kOf(c), n); return n }
+  // buildretry-01: a cell this visit failed at -- once a visit, its first reason -- is the ledger's entry (retrySettle); no ledger: nothing
+  const fail = (at, why) => { if (rt && !rt.failed.has(kOf(at))) rt.failed.set(kOf(at), String(why)) }
+  const bump = c => { const n = (tries.get(kOf(c)) ?? 0) + 1; tries.set(kOf(c), n); if (n >= BUILD_ATTEMPTS) fail(c, 'attempts'); return n }
   let steps = 0
   const guard = () => {
     if (e.aborted()) return 'aborted'
@@ -734,7 +748,17 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // townterrace-01 (`p.intoWater`, the owner's 11-01 water rule): a record cell holding WATER is open to a placement too (an
   // embankment, a dam: the block replaces the water); never lava, never a waterlogged block
   const isClear = at => { const b = rd(...at); return !!b && (nm(b) === 'air' || replaceableCell(b) || (!!p.intoWater && /^(water|bubble_column)$/.test(nm(b)))) }
-  const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role, c.ws) || (!!alsoDone && alsoDone(c, r))
+  // stuckcells-01 (`p.waive`): the cells this visit waived count done from the moment they are waived (the record is written by
+  // the caller after the visit, from out.waived). Nothing waived (the waiver off, or no `p.waive`): the two below are the visit's own
+  const waivedNow = new Map()
+  const alsoDoneV = (c, r) => (!!alsoDone && alsoDone(c, r)) || (waivedNow.size > 0 && waivedNow.has(kOf(c.at)))
+  const isDone = (c, r = rd) => cellDone(r(...c.at), palette, c.role, c.ws) || (!!alsoDone && alsoDone(c, r)) || (waivedNow.size > 0 && waivedNow.has(kOf(c.at)))
+  // buildretry-01: a HELD record cell (RETRY_VISITS failing visits) starts this visit with its attempts spent -- no foreign dig, no
+  // click, no unknown probe, no remedy walk; the segment's deferral below names it. It stays OPEN (never counted done)
+  if (rt) {
+    rt.isDone = c => isDone(c)
+    for (const c of record.cells) { const k = kOf(c.at); if (rt.held.has(k) && !isDone(c)) { tries.set(k, BUILD_ATTEMPTS); rt.skipped.add(k) } }
+  }
   // townstyle-01: what a state-bearing cell's step must make ({ name, ws }; the name only says WHICH KIND of block: stairs, slab, log),
   // and whether its cell holds its own block in the wrong state
   // cottage2-01: a bed foot's click also fills its HEAD (the record cell `byFoot` of the same `bed`): never a stand there, never a click
@@ -1586,6 +1610,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         // list (monument-01) leaves the rest of the visit for the segments instead of ending it at max_steps in the clears
         if (tried >= (p.clearMax ?? Infinity)) return null
         if (e.aborted()) return 'aborted'
+        if (rt?.held.has(kOf(c.at))) { rt.skipped.add(kOf(c.at)); continue }           // buildretry-01: held -- no walk, no dig
+        if (rt?.failed.has(kOf(c.at))) continue                                          // ...and a dig of it failed this visit: not again
         // never a tree before its sapling (B4) -- fellfirst-01: unless no sapling of its kind exists anywhere the crew could draw it
         // (`p.saplingAbsent`), when the tree is felled FIRST and its own drops replant it (its row says `first=1`)
         let first = false
@@ -1626,6 +1652,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         tried++
         const v = await digNamed(c.at, c.name, held, nodes, c.kind === 'tidy' && p.tidyOk ? () => p.tidyOk(c, rd) : c.kind !== 'tidy' && p.clearOk ? () => p.clearOk(c, rd) : null)
         if (v === 'unsafe') { (out.tidyWet ??= []).push(kOf(c.at)); nodes = null; continue }
+        if (!['confirmed', 'gone', 'fence', 'aborted'].includes(v)) fail(c.at, v)
         if (v !== 'no_stand') nodes = null
         // zigtidy-02: a tidy walk that did not arrive ends the tidy (the lease freed for a builder who can), the visit goes on
         if (v === 'unreached' && c.kind === 'tidy') return null
@@ -1663,6 +1690,8 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   // wallstuck-01: the foreign cells whose column could not be opened (`p.sealed`), and why each deferred cell was deferred (the
   // visit's `deferred`: the caller's waiver names it)
   const sealed = new Set(), deferWhy = new Map()
+  // tidydead-01 (`p.hardDefers`) and buildretry-01: the cells whose clear THIS visit could not reach, and each cell's last click result
+  const unreachedClears = new Set(), lastTry = new Map()
   // THE STUCK MAP, settled on EVERY exit (Codex r21 P2 / Claude P3-1: written only at the loop's end, a visit that deferred a cell
   // and then stopped early -- blocked, no_material, deps_open, a fence, the deadline -- never counted). Counts are per holder
   // file (buildproj stuckRead/stuckWrite: no lost update between two builders), summed for the threshold. An early exit keeps its
@@ -1689,7 +1718,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     // another builder holds is neither deferred nor complete, so it is never stalled.
     // tempstand-01: a visit that laid a cell from a temporary stand moved the project: it is not stalled (no 6-hour stamp), and its
     // own stop is cell_deferred -- the cells still without a stand stay counted and get the next visit's stand
-    const stalled = atEnd && !standWorked && segmentsOf(record).every(s => deferredSegs.has(s.seg) || segComplete(rd, record, palette, s.seg, alsoDone))
+    const stalled = atEnd && !standWorked && segmentsOf(record).every(s => deferredSegs.has(s.seg) || segComplete(rd, record, palette, s.seg, alsoDoneV))
     // THE PROJECT BACK-OFF IS STAMPED ONLY AT THE LOOP'S END (Claude r22 P2-1: an early no_material after the threshold stamped
     // it, and the town waited 6 h for a workshop its mats job could finish in minutes) AND ONLY WHEN NOTHING ELSE IS OPEN (Claude
     // r23 P3: another builder still working an independent segment must not be held off); this bot's own stop still backs IT off
@@ -1737,13 +1766,13 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   try {
   for (const { seg, deps } of segmentsOf(record)) {
     if (winded()) { const b = await breathe(); if (b) { out.stop = b; return out } }
-    if (segComplete(rd, record, palette, seg, alsoDone)) continue
+    if (segComplete(rd, record, palette, seg, alsoDoneV)) continue
     if (deps.some(d => deferredSegs.has(d))) { deferredSegs.add(seg); continue }   // waits on a deferred cell's segment
-    if (!deps.every(d => segComplete(rd, record, palette, d, alsoDone))) {
+    if (!deps.every(d => segComplete(rd, record, palette, d, alsoDoneV))) {
       // gkhelpers-01 (`p.skipOpenDeps`, the groundskeeper's crew): a segment whose layer below is open (another bot's, or not
       // reached yet) is passed, and the visit goes on to the next independent one -- not ended `deps_open`
       if (p.skipOpenDeps) { out.depsWaited = (out.depsWaited ?? 0) + 1; continue }
-      out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d, alsoDone)).join(',')}`; return out
+      out.stop = 'deps_open'; out.why = `${seg} waits for ${deps.filter(d => !segComplete(rd, record, palette, d, alsoDoneV)).join(',')}`; return out
     }
     // gkhelpers-01 (`p.segOk(seg)`): a segment another bot's live one comes too near is never taken (groundskeeper.mjs crewSegOk)
     if (p.segOk && !p.segOk(seg)) { out.segsNear = (out.segsNear ?? 0) + 1; continue }
@@ -1817,6 +1846,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (foreign.length) {
           const f = foreign[0], name = nm(rd(...f.at)), kind = kindAt(f)
           const sg = segGen
+          // tidydead-01 r2 (Codex r1 BLOCK): a cell is unreached only by its LATEST clear -- an earlier `unreached` and then a dig
+          // that reached it and was refused is a transient, kept `blocked`; every outcome of this attempt but the two below forgets it
+          unreachedClears.delete(kOf(f.at))
           const held = () => PJ.holdsLease(dir, key, `seg-${seg}`, me, sg, now())
           // THE TRUNK ABOVE FIRST, lowest first (fell-01 r3, LIVE 10-28 showcase 25,72,28: the pad was built round the log, so its
           // four sides were stone bricks and its top was the trunk -- no face, no sight line, digStand null, `no_stand` silently,
@@ -1848,7 +1880,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             // the log ON the cell still stands (the felling stopped there): the cell has no top face, its dig cannot land -- named
             // against what blocks it, one attempt spent (Claude r3 P2)
             const above = [f.at[0], f.at[1] + 1, f.at[2]]
-            if (left && /_log$/.test(nm(rd(...above)))) { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'tree', result: 'trunk_blocked', why: left }); continue }
+            if (left && /_log$/.test(nm(rd(...above)))) { fail(f.at, 'trunk_blocked'); bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'tree', result: 'trunk_blocked', why: left }); continue }
           }
           // boardwalk-03 fold r3 (`p.foreignOk(f)`): the caller's ownership check re-read after the walk, right before the dig
           const v = await digNamed(f.at, name, held, null, p.foreignOk ? () => p.foreignOk(f) : null)
@@ -1882,7 +1914,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             }
             if (dug) continue
             sealed.add(kOf(f.at)); deferWhy.set(kOf(f.at), `sealed ${sa.why ?? sv ?? 'no_stand'}`)
-            bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: String(sa.why ?? sv ?? 'no_stand').slice(0, 80) }); continue
+            fail(f.at, 'sealed'); bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: 'foreign', result: 'sealed', why: String(sa.why ?? sv ?? 'no_stand').slice(0, 80) }); continue
           }
           // citywall-01: A SWAPPED CELL NO STAND SEES (its old block still standing: the wall whole) is DEFERRED like a sealed cell -- no
           // chain of digs -- so the F4 count and the wall's waiver close it (it stays the old block) instead of a `blocked` run for good
@@ -1893,7 +1925,10 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           }
           // A FOREIGN DIG THAT DID NOT LAND IS NAMED (r3: live, `no_stand` spent the cell's attempts with no row at all)
           const kindRow = kind === 'tree' ? 'tree' : kind === 'reorient' ? 'reorient' : 'foreign'
-          if (v !== 'confirmed') { bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kindRow, result: v }); continue }
+          if (v !== 'confirmed') {
+            if (v === 'no_stand' || v === 'unreached') unreachedClears.add(kOf(f.at))
+            fail(f.at, `dig ${v}`); bump(f.at); e.log('_build', { op: 'clear_failed', seg, cell: f.at, block: name, kind: kindRow, result: v }); continue
+          }
           out.cleared++; e.log('_build', { op: 'clear', seg, cell: f.at, block: name, kind: kindRow })
           continue
         }
@@ -2102,6 +2137,36 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             if (a.stop) { out.stop = a.stop; return out }
             if (a.worked) continue
           }
+          // stuckcells-01, THE WAIVER (`p.waive` = { mayWaive(c), max, have, after? }): a placeable cell no stand reaches, deferred
+          // WAIVE_AFTER visits (summed, this one counted), or sitting on a cell just waived in its column, is waived -- named, counted
+          // done -- and the segment is read again; bounded by the record's `max`
+          // monustuck-01: a SEALED cell beside them (a foreign block whose column could not be opened: deferred below, never waived
+          // -- its block stays in the cell) no longer holds the clear ones back (LIVE hive-a: two core cells, air and no stand,
+          // waited 35 h behind one bamboo cell in F-E; the waiver ran only with every open cell clear)
+          // stuckfleet-01 (stuckfleet.mjs heldWaiveCand; LIVE isolated-d monument F-S, 6 HELD core cells, 0 of 12 waivers used): the
+          // segment's held cells that read clear are the waiver's candidates too (a held cell starts with its attempts spent: never in `cand`)
+          // ONE TRUNK: `p.waive` is null here wherever VISIT_WAIVER is off (runVisit), and the three lines above the test then cost
+          // two comparisons; it runs AFTER the showcase's own remedies for the same cell (its cover dug, a temporary stand)
+          const wcand = stuckFleetOn() && rt ? heldWaiveCand(open, cand, { held: k => rt.held.has(k), clear: at => isClear(at), below }) : cand
+          // stuckfleet-03 (stuckfleet.mjs sealedSolidCand; LIVE isolated-d monument plinth 315,60,123 holding dirt under built cells,
+          // sealed 11-06..11-10, 7,248 cells waiting): a SEALED cell already holding natural solid ground is the waiver's candidate too
+          const sf3 = p.waive && stuckFleet3On() && p.sealed && sealed.size ? sealedSolidCand(open, wcand, { sealed: k => sealed.has(k), read: rd }) : null
+          const wcand3 = sf3 ? sf3.cells : wcand
+          if (p.waive && wcand3.length && (monuStuckOn() ? open.every(c => isClear(c.at) || sealed.has(kOf(c.at))) : !open.some(c => !isClear(c.at)))) {
+            const counts = PJ.stuckRead(dir, key, { since: now() - STUCK_FORGET_MS + 1 })
+            const have = p.waive.have ?? {}
+            const cellMap = (p.waive._cells ??= new Map(record.cells.map(q => [kOf(q.at), q])))
+            const due = waivePick(wcand3, { counts, after: p.waive.after, mayWaive: p.waive.mayWaive ?? (() => false), cellAt: k => cellMap.get(k) ?? null,
+              waived: k => waivedNow.has(k) || Object.prototype.hasOwnProperty.call(have, k), room: Math.max(0, (p.waive.max ?? 0) - Object.keys(have).length - waivedNow.size) })
+            if (due.length) {
+              for (const d of due) {
+                const why = sf3?.solid.has(kOf(d.c.at)) ? `sealed_solid ${nm(rd(...d.c.at))} ${d.why}` : d.why
+                waivedNow.set(kOf(d.c.at), why); e.log('_build', { op: 'waived', seg, cell: d.c.at, why })
+              }
+              out.waived = [...waivedNow].map(([k, why]) => ({ k, why }))
+              continue
+            }
+          }
           if (cand.length && !open.some(c => !isClear(c.at))) {
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
             for (const c of cand) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
@@ -2117,6 +2182,37 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             deferredSegs.add(seg)
             e.log('_build', { op: 'deferred', seg, cell: defer[0].split(',').map(Number), n: defer.length, why: 'sealed' })
             break
+          }
+          // stuckcells-01 (`p.blockedDefers`): a cell holding a block this visit may not dig is DEFERRED with the cells no stand
+          // reaches (F4: counted, the project's stuck stamp, the town's other projects go on) instead of a `blocked` stop that keeps
+          // the project every bot's first order for good
+          // ONLY A PERMANENT OBSTRUCTION (Codex r1 BLOCK): every cell still holding a block is READ, known, and holds a block the
+          // visit never digs (no foreignKind: a container, a station, a kept part); an unread cell, an unknown one, or a diggable
+          // foreign block whose dig failed this visit keeps the old `blocked` stop (the next visit retries it at once)
+          const notClear = open.filter(c => !isClear(c.at))
+          const permanent = c => { const b = rd(...c.at); return !!b && !unknown.has(kOf(c.at)) && !sealed.has(kOf(c.at)) && !foreignKind(nm(b), scaffoldRe) }
+          if (p.blockedDefers && !needSapling && notClear.length && notClear.every(permanent)) {
+            const hard = notClear
+            for (const c of hard) { deferredCells.push(kOf(c.at)); deferWhy.set(kOf(c.at), `blocked ${nm(rd(...c.at)) || 'unread'}`) }
+            for (const c of cand) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
+            deferredSegs.add(seg)
+            e.log('_build', { op: 'deferred', seg, cell: hard[0].at, n: hard.length + cand.length, why: 'blocked' })
+            out.blockedCells = (out.blockedCells ?? 0) + hard.length
+            break
+          }
+          // tidydead-01 (`p.hardDefers`, the tidy): every open cell is HARD this visit -- a block whose clear could not reach it, or a
+          // clear cell whose attempts are spent -- or waits on one below it: those cells are DEFERRED (F4: counted in the stuck map,
+          // waived by the caller after WALL_WAIVE_AFTER visits) and the visit goes on with the segments that do not wait on this one.
+          // A cell with any chance left (a dig refused or unconfirmed, attempts unspent) keeps the old stop and is retried at once
+          if (p.hardDefers && !needSapling) {
+            const hard = hardDeferrals(open, { clear: isClear, tries: k => tries.get(k) ?? 0, max: BUILD_ATTEMPTS, waits: below, unreached: unreachedClears, lastTry, name: at => nm(rd(...at)) })
+            if (hard) {
+              for (const d of hard) { deferredCells.push(d.k); deferWhy.set(d.k, d.why) }
+              deferredSegs.add(seg)
+              e.log('_build', { op: 'deferred', seg, cell: hard[0].k.split(',').map(Number), n: hard.length, why: 'hard' })
+              out.hardCells = (out.hardCells ?? 0) + hard.length
+              break
+            }
           }
           // groundskeeper-01 (`p.deferSpent`, the town tidy: 89 of 215 tidy visits on 11-02 ended here, `1 open, 0 placeable now`,
           // the rest of the record untouched): a segment whose open cells are all clear but spent this visit's attempts is DEFERRED
@@ -2166,6 +2262,31 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
               break
             }
           }
+          // buildretry-01, THE DEFAULT FOR EVERY PROJECT (after its own remedies above): every open cell is HARD this visit -- held
+          // (RETRY_VISITS failing visits), a block this visit could not reach, a block the visit never digs (counted as a failure:
+          // board-d's tidy, 215 `blocked` visits a day with no row at all), a clear cell no stand reaches or whose attempts are spent --
+          // or waits on one below it: those cells are DEFERRED (F4: counted, stuck_on_cell, the project's waiver and back-off) and the
+          // visit goes on with the segments that do not wait on this one. A cell with a chance left (a reachable dig refused once)
+          // keeps the old stop: retried at once next visit (1b05c924), held only after RETRY_VISITS such visits
+          // ONE TRUNK: only with a ledger (`rt`: BUILDRETRY on -- off by default in the showcase pool, where the stop below stands)
+          if (rt && !needSapling) {
+            for (const c of notClear) if (permanent(c)) fail(c.at, `kept ${nm(rd(...c.at))}`)
+            const candK = new Set(cand.map(c => kOf(c.at)))
+            const hard = RT.retryDeferrals(open, { waits: below, why: c => {
+              const k = kOf(c.at)
+              if (rt.held.has(k)) return `retry ${rt.ledger[k]?.why ?? ''}`.trim()
+              if (!isClear(c.at)) return unreachedClears.has(k) ? 'unreached' : permanent(c) ? `kept ${nm(rd(...c.at))}` : null
+              if (candK.has(k)) return 'no_stand'
+              return (tries.get(k) ?? 0) >= BUILD_ATTEMPTS ? `attempts ${lastTry.get(k) ?? 'spent'}` : null
+            } })
+            if (hard) {
+              for (const d of hard) { deferredCells.push(d.k); deferWhy.set(d.k, d.why) }
+              deferredSegs.add(seg)
+              e.log('_build', { op: 'deferred', seg, cell: hard[0].k.split(',').map(Number), n: hard.length, why: 'retry' })
+              out.retryCells = (out.retryCells ?? 0) + hard.length
+              break
+            }
+          }
           out.stop = open.some(c => !isClear(c.at)) ? (needSapling ? 'no_sapling' : 'blocked') : 'attempts_spent'
           out.why = `${seg}: ${open.length} open, ${cand.length} placeable now`
           return out
@@ -2179,6 +2300,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         if (v.startsWith('fence:') || v === 'aborted' || v === 'no_material') { out.stop = v; return out }
         if (v === 'busy') { await e.sleep(100); continue }            // a free skip: the mutex or the barrier is another's
         bump(picked.at)                                               // body, stand, barrier_wait, refused, silent: an attempt
+        lastTry.set(kOf(picked.at), v)
         if (v === 'refused') out.refused++
         if (v === 'silent') out.silent++
       }

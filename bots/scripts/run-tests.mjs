@@ -105,6 +105,13 @@ function run (file) {
              // pipeline-01: the suite's loop tests count model calls and gaps against the pre-pipeline loop; pipeline.test
              // sets its own modes (pipelineConfig) and asserts the shipped default
              PIPELINE: process.env.PIPELINE ?? 'off',
+             // one trunk (11-16): buildretry-01's ledger and default deferral (BUILDRETRY) and the in-visit waiver (VISIT_WAIVER) default
+             // by POOL -- off in the showcase's, on in every other -- and the suite runs with no pool. The showcase line's tests pin the
+             // visit's stops WITHOUT the two pieces, so the suite's default is off; the fleet tests of the two pieces set their switch
+             // at their own top, and visitswitch.test.mjs asserts the shipped defaults on the pure functions. (An EMPTY value here,
+             // `BUILDRETRY= VISIT_WAIVER=`, is left as it is: unset to the functions, so MEMORY_POOL decides)
+             BUILDRETRY: process.env.BUILDRETRY ?? 'off',
+             VISIT_WAIVER: process.env.VISIT_WAIVER ?? 'off',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.

@@ -3,6 +3,8 @@
 // r2: each fake bot runs the REAL connection tracker (buildack.mjs installAckTracker) over a fake client, so a late
 // acknowledgement settles through the same settler the bots use; a server that places wall_torch / exposed_cut_copper; a
 // replacement placed during the dig walk; a dig the server never answers (ghost air) stays unknown; foreign blocks.
+// one trunk (11-16): this file tests buildretry-01, which defaults by pool (off in the showcase's) and off in the suite's runner: ON here
+process.env.BUILDRETRY = 'on'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
