@@ -9119,7 +9119,7 @@ async function townDeposit (ctx, _args, signal) {
       // ONLY the names a merge was clicked for (every other move keeps its rule: the re-open's exact slot, or nothing)
       const mergedOpen = () => Object.fromEntries(Object.entries(bagOpen).filter(([n]) => mergeNames.has(n)))
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room, mergeNames })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, mergeNames, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
         returned = true
