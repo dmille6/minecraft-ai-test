@@ -504,7 +504,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
       // logbank-01: a right click (btn 1) is allowed ONLY as the log half-split's pickup: an empty cursor on a bag stack
       assert.equal(mode, 0, 'mode 0 clicks only'); assert.ok(btn === 0 || btn === 1)
       if (btn === 1) {
-        assert.ok(!win.selectedItem && slot >= win.inventoryStart && /_log$|^coal$/.test(win.slots[slot]?.name ?? ''), 'a right click only lifts half a bag log (or, coalfirst-01, coal) stack')
+        assert.ok(!win.selectedItem && slot >= win.inventoryStart && /_log$|^coal$|^chest$/.test(win.slots[slot]?.name ?? ''), 'a right click only lifts half a bag log (or, coalfirst-01, coal; bagfix-01 D, carried chests) stack')
         st.rightClicks = (st.rightClicks ?? 0) + 1; st.clicks++
         for (const w of [win, win.server]) { const at = w.slots[slot]; const take = Math.ceil(at.count / 2); w.selectedItem = { ...at, count: take }; at.count -= take; if (!at.count) w.slots[slot] = null }
         return
@@ -1574,7 +1574,7 @@ const tailBot = ({ chest = chestAt(2) } = {}) => {
     findBlock: () => null, clearControlStates: () => {}, players: {}, entities: {}, experience: { level: 0 }, username: 'TownBot' })
   return bot
 }
-test('junkout-01 TAIL CHAIN (real loop): a not-full bag at town -> town_deposit {tail} ahead of the ready rung, ONCE -> torch + bone meal banked, junk never, the stations stay', async () => {
+test('junkout-01 TAIL CHAIN (real loop): a not-full bag at town -> town_deposit {tail} ahead of the ready rung, ONCE -> torch + bone meal banked, junk never, the stations stay (bagfix-01 D: all but ONE of the carried chests go, in halves)', async () => {
   const chest = chestAt(2)
   const bot = tailBot({ chest })
   const slots0 = bot.inventory.items().length
@@ -1585,15 +1585,16 @@ test('junkout-01 TAIL CHAIN (real loop): a not-full bag at town -> town_deposit 
   // the bank row the read's J1/J2 parse: complete, mode=tail, the start count : the server-verified banked, the order's dh/dy
   const bank = jrows.filter(d => /^phase=bank /.test(d))
   assert.equal(bank.length, 1, jrows.join(' | '))
-  assert.match(bank[0], /^phase=bank v=TownBot\.\w+ mode=tail armed=first dh=3 dy=0 peaceful=\d stacks=2 banked=41 slots=17->15 keep_picks=0 rows=bone_meal:1,torch:1 part=1\/1 allow=bone_meal=30:30 allow=torch=11:11$/)
+  assert.match(bank[0], /^phase=bank v=TownBot\.\w+ mode=tail armed=first dh=3 dy=0 peaceful=\d stacks=5 banked=48 slots=17->15 keep_picks=0 rows=bone_meal:1,station:3,torch:1 part=1\/1 allow=bone_meal=30:30 allow=chest=8:7 allow=torch=11:11$/)
   const td = ran.filter(x => x.skill === 'town_deposit')
   assert.equal(td.length, 1, `one tail run in the stay: ${JSON.stringify(ran.map(x => x.skill))}`)
   assert.equal(ran[0].skill, 'town_deposit', 'ahead of the craft-ready rung (bounded: once per stay)')
   assert.ok(td[0].slots < 34 && td[0].slots === slots0, `a not-full bag: ${td[0].slots}`)
   assert.equal(td[0].status, 'success', td[0].detail)
   assert.equal(sumOf(chest.items, 'torch'), 11); assert.equal(sumOf(chest.items, 'bone_meal'), 30)
-  for (const n of ['egg', 'flint', 'oak_sapling', 'cobblestone', 'chest', 'crafting_table', 'wooden_pickaxe', 'stick', 'dirt', 'oak_log', 'raw_copper', 'furnace']) assert.equal(sumOf(chest.items, n), 0, `${n} never banked by the tail`)
-  assert.equal(sumOf(bot.inventory.items(), 'chest'), 8, 'one stack of chests is one station slot: it stays')
+  assert.equal(sumOf(chest.items, 'chest'), 7, 'bagfix-01 D: 4 + 2 + 1 carried chests banked')
+  for (const n of ['egg', 'flint', 'oak_sapling', 'cobblestone', 'crafting_table', 'wooden_pickaxe', 'stick', 'dirt', 'oak_log', 'raw_copper', 'furnace']) assert.equal(sumOf(chest.items, n), 0, `${n} never banked by the tail`)
+  assert.equal(sumOf(bot.inventory.items(), 'chest'), 1, 'one chest stays (the station row\'s keep)')
   assert.ok(ran.slice(1).some(x => x.skill === 'craft'), `the rung gets its turns after: ${JSON.stringify(ran.map(x => x.skill))}`)
   assert.equal(loop.tailState.latched, true); assert.equal(loop.townDepositState?.lastIssuedAt, undefined, 'the full-bag deposit was never issued')
 })

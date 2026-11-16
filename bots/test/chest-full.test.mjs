@@ -4,6 +4,9 @@
 //
 // Measured (24 h, 1,970 deposits): 90 full-chest blocks, 75 of them by a bot CARRYING a chest; the recovery crafted
 // unconditionally and placed only after a successful craft.
+// bagfix-01show D: this file is the BASE's recovery (one unreadable container defers a new chest; a failed cell may be picked again) --
+// it runs with BAGFIX_CHEST=off, which is that behaviour exactly; the new rules are bagfix.test.mjs's (deferUnknown, failedSites).
+process.env.BAGFIX_CHEST = 'off'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
