@@ -2141,6 +2141,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let escapeGiveUps = 0
   let climbRefusals = 0        // pillar declined to START -- see the refusal branch
   let floodRefusals = 0        // climbflood-01: flood refusals the ramp could not get past (drives the back-off)
+  let zoneWalkNextAt = 0        // escdead-01show: the marooned hook's next walk-out (a firing that moved nothing waits)
   let guardRefusals = 0        // escapeguard-01: guarded-ceiling refusals the ramp could not get past (drives the back-off)
   let refusalPlaceStreak = 0   // ...how many of those in a row were from HERE
   let lastRefusalPos = null    // ...and WHERE, so the streak means one hole
@@ -3291,6 +3292,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           finally { marooned = false; giveBody(runner, sg, 'stair egress ended') }
           if (h === 'out' || h === 'yield' || h === 'retry') mstate = 'none'
         }
+        // ESCDEAD-01SHOW (zonewalk.mjs): A MAROONED BOT INSIDE A PROTECTED ZONE WHOSE COLUMN RISES INTO THE ZONE'S STRUCTURE
+        // walks out under the zone's side FIRST -- before the scaffold self-source, the ramp or a tool ask (Claude r1 note 5) --
+        // before anything else asks for a tool or a climb (showcase-Gale 11-05/06: 22 h at
+        // 64.5,58,38.5 in 6_1's box, a shaft capped by stone under the village's trees, asking for a pickaxe no table could make).
+        // It holds the body like the pool escape's hook; a firing that moved nothing waits ZONE_WALK_RETRY_MS.
+        if (mstate !== 'none' && mstate !== 'climb' && !marooned && !pocketing && !pocketPending && !inDanger &&
+            Date.now() >= zoneWalkNextAt && zoneClimbGate(bot, `marooned_${mstate}`)) {
+          marooned = true
+          const zg = await takeBody(bot, runner, 'marooned', PRIORITY.escape)
+          try {
+            const res = zg ? await zoneWalkTry(bot, { handler: `marooned_${mstate}`, yieldTo: () => drowningOwnsBody() || arbiterYield(() => zg) }) : null
+            zoneWalkNextAt = Date.now() + (res && (res.outcome === 'out' || res.outcome === 'progress') ? 0 : ZONE_WALK_RETRY_MS)
+            if (res?.outcome === 'out') bot.pendingPrereq = null
+          } catch (e) { log('warn', 'zone walk failed', { err: e.message }) }
+          finally { marooned = false; giveBody(runner, zg, 'zone walk ended') }
+        }
         if (!pocketing && !pocketPending && mstate === 'need_scaffold' && !inDanger &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
@@ -3959,18 +3976,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                 if (bo?.outcome === 'out') { floodRefusals = 0; climbRefusals = 0; refusalPlaceStreak = 0; lastEscapeAt = Date.now() }
               }
             }
-          }
-          else if (climbOutcomeRoute(climbed) === 'guarded') {
-            // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE (Frost 10-31: trial-chambers planks). Not a
-            // failed escape (nothing was dug) and not a shortage (no pickaxe or dirt opens it): the ramp, which passes over every
-            // guarded cell and tries another bearing; nothing moved -> the bot holds a dry cell and backs off (never past the
-            // guard's quiet window, so its wait reaches the last resort), and the walk out stays open to the goal layer.
-            const gb = await guardBranch(bot, { handler: 'entombed', refusals: guardRefusals,
-                                                yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant), steering: steerRamp })
-            guardRefusals = gb.refusals
-            if (gb.preempted) { /* the drowning rescue took the body */ }
-            else if (gb.progressed) { climbRefusals = 0; refusalPlaceStreak = 0; escapeFailures = 0; guardRefusals = 0 }
-            else { escapeFailures = 0; lastEscapeAt = Date.now() + gb.backoffMs }
           }
           else if (climbOutcomeRoute(climbed) === 'guarded') {
             // escapeguard-01: THE CEILING IS A BUILD RECORD OR A PROTECTED STRUCTURE (Frost 10-31: trial-chambers planks). Not a
@@ -6804,8 +6809,16 @@ export async function zoneWalkTry (bot, { handler = '?', yieldTo = () => null, o
  * window: the next firing still feeds its wait, so the last resort is reached), no prerequisite (nothing the goal layer could
  * fetch opens a guarded cell). The bot stays where it is -- a dry cell; walking out stays open to it.
  */
-export async function guardBranch (bot, { handler = '?', refusals = 0, yieldTo = () => null, ramp = escapeStairUp, steering = () => {} } = {}) {
+export async function guardBranch (bot, { handler = '?', refusals = 0, yieldTo = () => null, ramp = escapeStairUp, steering = () => {}, walkOut = zoneWalkTry } = {}) {
   const y0 = Math.round(bot.entity?.position?.y ?? 0)
+  // escdead-01show (zonewalk.mjs rule 3): INSIDE A PROTECTED ZONE'S BOX THE FIRST MOVE IS THE WALK-OUT -- a tunnel through
+  // ordinary rock under the zone's nearest side -- not a ramp that climbs toward the village. Moved -> progress (the arm resets);
+  // no exit -> the ramp as before (it passes over every structure block), then the hold and the wait.
+  const walked = await walkOut(bot, { handler, yieldTo }).catch(e => ({ outcome: 'failed', stops: [`threw: ${e.message}`] }))
+  if (walked && walked.outcome === 'yielded') return { progressed: false, preempted: true, refusals, backoffMs: 0, stair: { steps: 0, climbed: 0, stopped: 'zone walk yielded' } }
+  if (walked && (walked.outcome === 'out' || walked.outcome === 'progress')) {
+    return { progressed: true, preempted: false, refusals: 0, backoffMs: 0, stair: { steps: walked.steps ?? 0, climbed: 0, stopped: `zone walk ${walked.outcome}` } }
+  }
   const cut = await ramp(bot, { yieldTo, steering })
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
   const stair = cut ?? { steps: 0, climbed: 0, stopped: 'no answer' }
@@ -6912,6 +6925,9 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     // escapeguard-01: A GUARDED CEILING IS NOT A SHORTAGE EITHER. Asked before the block count, for the flood check's reason:
     // the climb's first dig would be refused, so the bot goes to the ramp (another bearing), not for 26 dirt
     if (head0 && head0.boundingBox === 'block' && !guardMay(bot, head0)) return ESCAPE_GUARDED
+    // escdead-01show (zonewalk.mjs rule 2): THE CLIMB GATE -- inside a protected zone's box, a column with a structure block
+    // overhead is a guarded ceiling, whatever lies between (Nova 11-06: a shaft through ordinary rock up to a house floor)
+    if (zoneClimbGate(bot, 'pillar_out')) return ESCAPE_GUARDED
   }
   // ALL OR NOTHING. See canFinishClimb: a climb that runs out partway is how
   // this fleet manufactures permanent traps.
@@ -7402,6 +7418,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
   // cannot make this dig safe, so asking for one is the wrong remedy.
   if (blocking && blocking.name !== 'air' && upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK
   if (blocking && blocking.boundingBox === 'block' && !guardMay(bot, blocking)) return ESCAPE_GUARDED   // escapeguard-01
+  if (zoneClimbGate(bot, 'dig_straight_up')) return ESCAPE_GUARDED   // escdead-01show: the climb gate (Codex r5: pillarOut's fallback too)
   if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking, { pinned: pinnedNow(bot) })) {
     logEvent({ kind: 'maroon_dig_refused', status: 'failed',
                detail: `will not dig out on the last pickaxe: ${blocking?.name ?? 'the ceiling'} ` +
