@@ -7384,7 +7384,9 @@ function placeSites(bot, item = null) {
       if (wellRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue
       const pc = planCls(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))
       // WHAT IS CLICKED (placeRefFor): the block under the cell unless a click opens it; then a side neighbour, or no candidate
-      const click = placeRefFor(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz), clickOk)
+      // SOMETHING THAT NEEDS SOIL keeps the block under it as its reference: the soil filter in place() reads `ref`, and a
+      // sapling beside dirt but over a table has no soil (it is filtered there, as before)
+      const click = needsSoil(item) ? { ref: under, face: UP } : placeRefFor(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz), clickOk)
       if (!click) { opensSkip.n++; continue }
       if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push(click); continue }   // only craft's own temporary table (Claude code r1 P3)
       ;(at.name === 'water' ? wet : candidates).push(click)

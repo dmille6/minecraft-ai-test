@@ -1450,6 +1450,14 @@ await t('place: the only free cell stands on a crafting table -> the table goes 
   assert.deepEqual(clicksOnTable, [], 'a click on the table opens it and places nothing (the fake server refuses it, as Paper does)')
 })
 
+await t('place, SOIL: a sapling is never put over a table by clicking the dirt beside it (the soil is the block UNDER it)', async () => {
+  const { bot, world, have, setBlock } = makeBot(bagOf(36, [item('spruce_sapling', 4)]), { walls: FROST_WALLS, tables: [TABLE_BELOW] })
+  setBlock(new Vec3(1, 64, -1), 'dirt')   // the side block place() would click for a table: soil, but not UNDER the cell
+  const r = await SKILLS.place.run({ bot }, { item: 'spruce_sapling' }, new AbortController().signal)
+  assert.notEqual(r.status, 'success', r.detail)
+  assert.equal([...world.values()].includes('spruce_sapling'), false, 'no sapling anywhere'); assert.equal(have('spruce_sapling'), 4)
+})
+
 await t('THE FAKE SERVER IS A REAL CONTROL: a placement that clicks a crafting table lands nothing', async () => {
   const { bot, world } = makeBot(bagOf(36, [item('crafting_table', 1)]), { walls: FROST_WALLS, tables: [TABLE_BELOW] })
   await assert.rejects(() => bot.placeBlock(bot.blockAt(TABLE_BELOW), new Vec3(0, 1, 0)), /did not fire/)

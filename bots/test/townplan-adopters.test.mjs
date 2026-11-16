@@ -280,7 +280,8 @@ async function tableScene (M, { race = false } = {}) {
   await M.SKILLS.place.run({ bot: w.bot }, { item: 'crafting_table' }, new AbortController().signal)
   return { onStation: w.nameAt(...s0.at) === 'crafting_table', placed: w.spy.placed.length }
 }
-const SCAN_SKIP = "      if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push({ ref: under, face: UP }); continue }   // only craft's own temporary table (Claude code r1 P3)\n"
+// spentpick-01show: the scan's click comes from placeRefFor (`click`), so the line reads planLater.push(click)
+const SCAN_SKIP = "      if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push(click); continue }   // only craft's own temporary table (Claude code r1 P3)\n"
 const LATE_SKIP = "        if (pc === 'never' || (pc === 'plan' && item !== 'crafting_table')) { failures.push(`${tgt} became a town plan cell: place again`); continue }\n"
 await t('TEMPORARY TABLE: a reserved station cell is skipped at the scan and, when reserved during the look, at the last re-read; the table goes elsewhere', async () => {
   const a = await tableScene(S), b = await tableScene(S, { race: true })

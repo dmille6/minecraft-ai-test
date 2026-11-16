@@ -305,8 +305,11 @@ await t('stationRefusalAt (the bot\'s cells): plinth-02\'s board-c table cell is
 
 /** A flat dug well's town: grass at 63 (stone below), the cap trapdoor at 100,63,100 over an open shaft, the bot on its south
  *  stand. Cobblestone at 64 fills every cell around the bot except the well's own (stands, column) and one diagonal: the
- *  base's candidate order then reaches a well cell before the free one. */
-function flatTown ({ at = new V(100.5, 64, 101.5), freeCell = { x: 101, y: 64, z: 102 } } = {}) {
+ *  base's candidate order then reaches a well cell before the free one.
+ *  spentpick-01show: the cap COLUMN is no longer the base's first candidate -- the block under it is the cap trapdoor, and
+ *  a click on a trapdoor toggles it (placeref.mjs). So the free diagonal is the south-WEST one (99,64,102): the east stand
+ *  (101,64,100, on grass) is still scanned before it, and "a well cell before the free one" holds as it did. */
+function flatTown ({ at = new V(100.5, 64, 101.5), freeCell = { x: 99, y: 64, z: 102 } } = {}) {
   const placed = new Map(), dug = []
   // the well's own cells stay open at feet AND head height (64, 65); everything else around is two blocks of cobble
   const keep = new Set([key(freeCell.x, freeCell.y, freeCell.z)])
@@ -340,12 +343,12 @@ await t('THE CHAIN (real place, a town craft on the stand): the table goes on th
   const n0 = (await rows('_station_well')).length
   const r = await place({ SKILLS }, bot)
   assert.equal(r.status, 'success', `${r.status}: ${r.detail}`)
-  assert.deepEqual([...bot._placed.keys()], ['101,64,102'], 'the free cell off the well')
+  assert.deepEqual([...bot._placed.keys()], ['99,64,102'], 'the free cell off the well')
   assert.deepEqual(wellSpots(bot), [])
   const g = (await rows('_station_well')).slice(n0).map(x => x.skill.detail)
   assert.equal(g.length, 1); assert.match(g[0], /^action=skip item=crafting_table kind=(shaft|stand) n=\d+ by=-$/)
   const near = (await rows('_station_placed')).pop()
-  assert.match(near.skill.detail, /^item=crafting_table at=101,64,102 cap=100,63,100 keep=none own=0 by=-$/)
+  assert.match(near.skill.detail, /^item=crafting_table at=99,64,102 cap=100,63,100 keep=none own=0 by=-$/)
 })
 await t('POSITIVE CONTROL / MUTANT (skills): no well test in the scan nor at the placement -> the base puts the table on the well (its cap column or a stand)', async () => {
   await withMutants(SKP, [["  const wellRefused = p => { const k = stationRefusalAt(bot, p); if (k) { wellSkip.n++; wellSkip.kind ??= k } return !!k }", "  const wellRefused = p => false"],
