@@ -195,6 +195,7 @@ import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YAR
 import { USELEDGER, STOCK_EVERY_MS, ledgerLine, ledgerFileName, foldLedger, usedRegularly } from './useledger.mjs'   // useledger-01
 import { REFILL, BOOTSTRAP, refillNeed, refillFileName, openJobs, refillRaise, refillTake, refillCredit, refillDetail, refillModeDetail } from './refill.mjs'   // refill-01
 import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, compactAllow, compactDetail, compactModeDetail } from './compact.mjs'   // compact-01
+import { CLEAR_CHEST_KEEP } from './yard.mjs'   // bagclear
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
@@ -289,7 +290,7 @@ import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's as
 import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
-import { partialKeep } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard
+import { partialKeep, clearActive } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard; bagclear: the one-time clear
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
@@ -21561,6 +21562,7 @@ function yardKeepsNow (bot) {
       const copies = items.filter(i => i?.name === name)
       if (!copies.length) continue
       if (shares.has(name)) { out[name] = Infinity; continue }
+      if (clearActive(BAGFIX)) { out[name] = 0; continue }   // bagclear: regardless of keeps (a build's drawn share aside)
       out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: keep[name] ?? 0, stack: copies[0].stackSize ?? 64, hard: why[name] === 'wanted' || why[name] === 'scaffold_reserve' })
     }
     return out
@@ -21569,7 +21571,7 @@ function yardKeepsNow (bot) {
 /** yard.mjs yardWork's lane options for the yard at `plot` -> { keeps, others, first } ({} with the lanes off: the old yard). */
 function yardLaneOpts (bot, plot, now = Date.now()) {
   if (!LANES.on) return {}
-  return { keeps: yardKeepsNow(bot), others: lanesElsewhere(yardsNow(bot, now).filter(y => y.plot !== plot).map(y => y.states)), first: plot === YARD_PLOT, noRefill: REFILL.on }   // refill-01: no `chests_short` refill
+  return { keeps: yardKeepsNow(bot), others: lanesElsewhere(yardsNow(bot, now).filter(y => y.plot !== plot).map(y => y.states)), first: plot === YARD_PLOT, noRefill: REFILL.on, clear: clearActive(BAGFIX) }   // refill-01: no `chests_short` refill
 }
 /** WHAT EVERY YARD HOLDS OF A KIND -> { lanes, room, empty, cap, over }: its lanes and their free slots, the empty lanes anywhere, the
  *  room it has in all (its lanes' + the lanes it may still open), and whether it is FULL at its cap (yard.mjs kindOverCap). */
@@ -21670,7 +21672,8 @@ function yardRowKeepsNow (bot) {
     const out = {}
     for (const name of Object.keys(counts)) {
       if (!rowKindOf(name)) continue
-      if (wanted.has(name) || shares.has(name)) { out[name] = Infinity; continue }
+      if (shares.has(name) || (wanted.has(name) && !clearActive(BAGFIX))) { out[name] = Infinity; continue }
+      if (clearActive(BAGFIX)) { out[name] = 0; continue }   // bagclear: regardless of keeps
       const copies = items.filter(i => i?.name === name)
       out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: rowKeepOf(name), stack: copies[0]?.stackSize ?? 64 })
     }
@@ -21685,7 +21688,7 @@ function yardRowPlanNow (bot, rec, bp, now = Date.now()) {
     const cells = rowCells(rec, bp).map(at => { const b = read(...at); return { at, name: b ? String(b.name ?? '').replace(/\[.*\]$/, '') : null } })
     const items = bot.inventory?.items?.() ?? []
     const full = new Set([...(bot.yardRowFull ?? new Map()).entries()].filter(([, until]) => until > now).map(([k]) => k))
-    return rowPlan({ held: heldMap(bot), keeps: yardRowKeepsNow(bot), rows: yardRowsNow(bot, now), cells, full, carried: countItem(bot, 'chest'), pressed: items.length >= 30 })
+    return rowPlan({ held: heldMap(bot), keeps: yardRowKeepsNow(bot), rows: yardRowsNow(bot, now), cells, full, carried: countItem(bot, 'chest'), pressed: items.length >= 30 || clearActive(BAGFIX) })
   } catch { return { bank: [], place: null, why: 'error' } }
 }
 /**
@@ -22119,7 +22122,8 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     let place = w.place
     // 2. THE CLERK: the chests' surplus into the bag first (the build reserve is the withdraw's own floor: mats.mjs takeAllowed)
     if (w.kind === 'clerk') {
-      const wd = await matsWithdraw(ctx, w.draw, signal, 30_000, matsReserve().table, undefined, null, null, { why: 'move' })
+      // bagclear: the clear's clerk takes every lane kind the plan named (yard.mjs CLEAR_CHEST_KEEP is its floor), not only reserve keys
+      const wd = await matsWithdraw(ctx, w.draw, signal, 30_000, matsReserve().table, w.clear ? (n, want, o) => compactAllow(n, want, o, CLEAR_CHEST_KEEP[n] ?? 0) : undefined, null, null, { why: 'move' })
       f.drew = { ...(wd.took ?? {}) }
       place = Object.fromEntries(Object.entries(f.drew).filter(([, v]) => v > 0))
       if (!Object.keys(place).length) { stop = 'nothing_drawn'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'nothing_drawn', `the clerk drew nothing from the town chests (${w.why})`) }

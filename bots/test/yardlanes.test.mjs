@@ -313,5 +313,49 @@ await t('WIRED (b): a row chest is a town container but never a general deposit\
   one(sk, 'const k = rk \\? \\{ room: yardRowRoomNow\\(bot, rk, now\\) \\} : yardKindNow\\(bot, name, now\\)', 'WELL_HOLD covers a row kind with room')
 })
 
+// ---- BAGCLEAR_UNTIL (f): the bots-only one-time clear ---------------------------------------------------------------------------------
+console.log('(f) THE ONE-TIME CLEAR')
+const BFx = await import('../src/bagfix.mjs')
+const BRx = await import('../src/bagroom.mjs')
+await t('BAGCLEAR_UNTIL: unset is off; while it lasts a visit banks ANY surplus, up to 640, and the clerk moves every lane kind out of the chests down to the build reserve', () => {
+  const until = Date.parse('2026-11-18T00:00:00Z')
+  assert.equal(BFx.clearActive(BFx.bagfixSwitches({}), until - 1), false, 'unset: off')
+  assert.equal(BFx.clearActive(BFx.bagfixSwitches({ BAGCLEAR_UNTIL: '2026-11-18T00:00:00Z' }), until - 1), true)
+  assert.equal(BFx.clearActive(BFx.bagfixSwitches({ BAGCLEAR_UNTIL: '2026-11-18T00:00:00Z' }), until), false, 'it ends at its date')
+  const read = world()
+  const st = states(read)
+  // the bag: 3 gravel is a stock under the clear (positive control: without it, no trip)
+  assert.equal(Y.yardWork({ held: { gravel: 3 }, slots: 10, states: st, lanes: ON, keeps: {} }).kind, null)
+  assert.equal(Y.yardWork({ held: { gravel: 3 }, slots: 10, states: st, lanes: ON, keeps: {}, clear: true }).kind, 'stock')
+  // the per-visit limit is lifted: 208 cobblestone of room, all of it (128 without)
+  assert.equal(Y.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st, lanes: ON, keeps: {} }).place.cobblestone, 128)
+  assert.equal(Y.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st, lanes: ON, keeps: {}, clear: true }).place.cobblestone, 208)
+  assert.equal(Y.CLEAR_VISIT_MAX, 640)
+  // the chests: LIVE 11-16 cobbled_deepslate 945, spruce_log 414, stone 319, cobblestone 52 -> the clear's clerk draws the stone kinds;
+  // the logs stay under the build reserve's 512, cobblestone under its 256
+  const town = { cobbled_deepslate: 945, spruce_log: 414, stone: 319, cobblestone: 52, coal: 325 }
+  const w = Y.yardWork({ held: {}, slots: 5, freeSlots: 31, town, states: st, lanes: ON, keeps: {}, clear: true })
+  assert.equal(w.kind, 'clerk'); assert.equal(w.clear, true)
+  assert.deepEqual(Object.keys(w.draw).sort(), ['cobbled_deepslate', 'stone'], 'never coal (no lane), never the reserve\'s logs or cobblestone')
+  assert.equal(Y.yardWork({ held: {}, slots: 5, freeSlots: 31, town, states: st, lanes: ON, keeps: {} }).kind, null, 'positive control: without the clear the clerk moves only cobblestone above 320')
+  assert.equal(Y.yardWork({ held: {}, slots: 5, freeSlots: 31, town: { ...town, spruce_log: 700 }, states: st, lanes: ON, keeps: {}, clear: true }).draw.spruce_log > 0, true, 'logs above the reserve go')
+})
+await t('the room bank under the clear keeps nothing of a name it may move -- a hard keep aside; MUTANTS: the limit not lifted, the clerk past the reserve, the hard keep cleared', async () => {
+  const bagX = [{ name: 'sugar_cane', count: 12, slot: 9 }, { name: 'ladder', count: 30, slot: 10 }]
+  const elig = () => true
+  assert.deepEqual(BRx.roomBankSteps(bagX, { eligible: elig, keep: {}, clear: false }).map(s => s.name), [], 'positive control: under their keeps nothing moves')
+  assert.deepEqual(BRx.roomBankSteps(bagX, { eligible: elig, keep: {}, clear: true }).map(s => s.name), ['ladder', 'sugar_cane'])
+  assert.deepEqual(BRx.roomBankSteps(bagX, { eligible: elig, keep: { ladder: 64 }, hard: n => n === 'ladder', clear: true }).map(s => s.name), ['sugar_cane'], 'the goal\'s want stands')
+  const YP = P('yard')
+  const st = () => states(world())
+  await killedBy(YP, Y, '  let left = lanes?.on ? (clear ? CLEAR_VISIT_MAX : lanes.visitMax) : YARD_VISIT_MAX', '  let left = lanes?.on ? lanes.visitMax : YARD_VISIT_MAX', M => assert.equal(M.yardWork({ held: { cobblestone: 500 }, slots: 10, states: st(), lanes: ON, keeps: {}, clear: true }).place.cobblestone, 208))
+  await killedBy(YP, Y, "(clear && lanes?.on ? (CLEAR_CHEST_KEEP[name] ?? 0) : YARD_CHEST_KEEP[name]))", "(clear && lanes?.on ? 0 : YARD_CHEST_KEEP[name]))", M => assert.equal(M.yardWork({ held: {}, slots: 5, freeSlots: 31, town: { spruce_log: 414, stone: 319 }, states: st(), lanes: ON, keeps: {}, clear: true }).draw.spruce_log, undefined))
+  await killedBy(P('bagroom'), BRx, '    let room = total - (clear && !hard(name) ? 0 : k)\n', '    let room = total - (clear ? 0 : k)\n', M => assert.deepEqual(M.roomBankSteps(bagX, { eligible: elig, keep: { ladder: 64 }, hard: n => n === 'ladder', clear: true }).map(s => s.name), ['sugar_cane']))
+  const sk = strip(readFileSync(P('skills'), 'utf8'))
+  one(sk, 'if \\(clearActive\\(BAGFIX\\)\\) \\{ out\\[name\\] = 0; continue \\}\\s*out\\[name\\] = partialKeep\\(\\{ slots: items\\.length, copies: copies\\.length, total: counts\\[name\\] \\?\\? 0, keep: keep\\[name\\]', 'the lanes\' keeps')
+  one(sk, 'noRefill: REFILL\\.on, clear: clearActive\\(BAGFIX\\) \\}', 'the visit\'s plan')
+  one(sk, 'w\\.clear \\? \\(n, want, o\\) => compactAllow\\(n, want, o, CLEAR_CHEST_KEEP\\[n\\] \\?\\? 0\\) : undefined', 'the clear\'s clerk takes every lane kind, down to its floor')
+})
+
 if (failed) { console.log(`\n${failed} FAILED`); process.exit(1) }
 console.log('\nall yardlanes tests passed')

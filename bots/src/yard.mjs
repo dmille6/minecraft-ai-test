@@ -283,6 +283,11 @@ export function rowAssign (rows = [], at, kind, { plot = null, by = null, now = 
 }
 /** The record less the cells that no longer hold a chest (`gone`: Set("x,y,z"), read from the world) -> rows. Pure. */
 export const rowPrune = (rows = [], gone = new Set()) => rows.filter(r => !gone.has(r.at.join(',')))
+/** BAGCLEAR (bagfix.mjs BAGCLEAR_UNTIL; owner 11-16: "bank everything bankable to its yard lane or barrel regardless of keeps, and
+ *  only today's junk list to the well"): a visit banks up to this much, and the chests keep only this of a lane kind (the build
+ *  reserve's cobblestone and logs: stocktarget.mjs BUILD_RESERVE -- a build must not stop on the clear). */
+export const CLEAR_VISIT_MAX = 640
+export const CLEAR_CHEST_KEEP = Object.freeze({ cobblestone: 256, oak_log: 512, birch_log: 512, spruce_log: 512, jungle_log: 512, acacia_log: 512, dark_oak_log: 512, mangrove_log: 512, cherry_log: 512, sand: 16 })
 /** `_yard_lanes` licence row detail (once per spawn). Pure. */
 export const lanesModeDetail = (l = LANES) => `on=${l.on ? 1 : 0} start=${l.start} step=${l.step} h=${YARD_H} caps=${Object.entries(l.caps).map(([k, v]) => `${k}:${v}`).join(',')} yards=${yardPlots(l).join('+')} min=${l.min} builders=${l.builders} visitors=${l.visitors} visit_max=${l.visitMax} kinds=${yardKinds(l.on).length} row=${l.on && l.row ? 1 : 0}:${l.rowCap}`.slice(0, 300)
 
@@ -509,10 +514,11 @@ export const bambooBlocks = (held = {}) => Math.floor(Math.max(0, (Number(held?.
  *   town      the town index's stock { name: n } (null: unknown -- no clerk and no refill on a guess)
  *   states    bayStates;  clutter  the aisle cells to clear (yardClutter);  pick  the bag holds a usable pickaxe (a refill's tool)
  */
-export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true, bayClutter = [], deferred = false, lanes = LANES, keeps = null, others = {}, first = true, noRefill = false } = {}) {
+export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true, bayClutter = [], deferred = false, lanes = LANES, keeps = null, others = {}, first = true, noRefill = false, clear = false } = {}) {
   const sur = bagSurplus(held, { lanes, keeps })
   const place = {}
-  let left = lanes?.on ? lanes.visitMax : YARD_VISIT_MAX
+  // bagclear (BAGCLEAR_UNTIL, the one-time clear; `clear`): the per-visit limit is lifted (CLEAR_VISIT_MAX) and any surplus banks
+  let left = lanes?.on ? (clear ? CLEAR_VISIT_MAX : lanes.visitMax) : YARD_VISIT_MAX
   for (const name of yardKinds(!!lanes?.on)) {
     const want = Math.min(sur[name] ?? 0, yardRoomFor(states, name, { lanes, others }), left)
     if (want > 0) { place[name] = want; left -= want }
@@ -524,7 +530,7 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
   // is cleared FIRST when the room the bag's surplus finds is short of a stack -- the visit then stocks what the clearing opened
   const surplus = Object.values(sur).reduce((t, v) => t + v, 0)
   // yardlanes-01: a bag banks on ANY town visit once it holds LANES.min above its keeps (was a whole stack, or a pressed bag)
-  const stockMin = lanes?.on ? Math.min(YARD_STOCK_MIN, lanes.min) : YARD_STOCK_MIN
+  const stockMin = lanes?.on ? (clear ? 1 : Math.min(YARD_STOCK_MIN, lanes.min)) : YARD_STOCK_MIN
   if (bayClutter.length && placed < stockMin) return { kind: 'upkeep', urgent: pressed && surplus > 0, first: true, place: {}, draw: {}, dig: {}, why: `bay_clutter:${bayClutter.length}` }
   // yardlanes-01 (a): with the lanes a stock is the bot's FIRST work at town whatever its project (`urgent`: activeProject's repair loop,
   // bounded by its back-off) -- banking never waits for the yard to be the bot's project; the visit itself is bounded (LANES.passMs)
@@ -535,13 +541,15 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
     let room = Math.min(left, Math.max(0, Number(freeSlots) || 0) * 64)
     // cobblestone only (Claude r1 BLOCK 2): the build reserve has no cobbled_deepslate key, so the withdraw takes none of it
     // (mats.mjs takeAllowed); a deepslate clerk would draw nothing every visit
-    for (const name of ['cobblestone']) {
-      const over = Math.max(0, (Number(town[name]) || 0) - YARD_CHEST_KEEP[name])
+    // bagclear: during the one-time clear the clerk moves EVERY lane kind out of the chests (owner 11-12: no stone or logs in chests),
+    // down to nothing but the build reserve's own floor (the withdraw's: skills.mjs); otherwise cobblestone above its chest keep, as before
+    for (const name of (clear && lanes?.on ? yardKinds(true) : ['cobblestone'])) {
+      const over = Math.max(0, (Number(town[name]) || 0) - (clear && lanes?.on ? (CLEAR_CHEST_KEEP[name] ?? 0) : YARD_CHEST_KEEP[name]))
       const want = Math.min(over, yardRoomFor(states, name, { lanes, others }), room)
       if (want > 0) { draw[name] = want; room -= want }
     }
     const drawn = Object.values(draw).reduce((t, v) => t + v, 0)
-    if (drawn >= YARD_STOCK_MIN) return { kind: 'clerk', urgent: false, place: { ...draw }, draw, dig: {}, why: `chests_over:${drawn}` }
+    if (drawn >= YARD_STOCK_MIN) return { kind: 'clerk', urgent: false, place: { ...draw }, draw, dig: {}, why: `chests_over:${drawn}`, ...(clear && lanes?.on ? { clear: true } : {}) }
     const inYard = yardHeld(states).cobblestone ?? 0
     const short = YARD_REFILL_BELOW - (Number(town.cobblestone) || 0)
     // a refill digs stone: without a pickaxe a dug cobblestone drops NOTHING (Codex r1 BLOCK: the stock would be destroyed)

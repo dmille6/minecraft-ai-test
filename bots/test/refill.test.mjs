@@ -130,7 +130,7 @@ await t('WIRED: the low mark is judged with the stock line; a refused draw raise
   one(sk, "const job = refillRaiseNow\\(bot, 'cobblestone', Number\\(draw\\) \\|\\| 64, 'yard_draw'\\)", 'an empty yard raises the job for the bill')
   one(sk, "refill job \\$\\{job\\.id\\}: \\$\\{job\\.n\\} cobblestone, raised for this bill", 'and the consumer\'s answer names it')
   one(sk, 'if \\(nPlaced > 0\\) refillCreditNow\\(bot, f\\.placed\\)', 'the credit')
-  one(sk, 'first: plot === YARD_PLOT, noRefill: REFILL\\.on \\}', 'the chests_short refill is off with the rule')
+  one(sk, 'first: plot === YARD_PLOT, noRefill: REFILL\\.on, clear:', 'the chests_short refill is off with the rule')
   one(sk, 'const REFILL_ON = LANES\\.on && REFILL\\.on', 'only where the lanes are')
   one(ms, "let refillJobOf = b => refillJobFor\\(b\\)", 'the rung reads skills.mjs\'s record')
   one(ms, '\\.\\.\\.\\(NOSTOCK\\.on \\? \\[REFILL_RUNG\\] : \\[\\]\\),', 'the rung is on the ladder only where the lanes are')
