@@ -284,7 +284,7 @@ import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's as
 import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
-import { BAGFIX, deferUnknown, failedSites, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
+import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -8812,7 +8812,11 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
   const plan = accept ? { ...plan0, steps: plan0.steps.filter(st => accept(st.name)) } : plan0
   // bagfix-01 M: a stack goes onto the chest's partial stacks of the same item first (bagfix.mjs mergeFit); off, empty slots only
-  const steps = BAGFIX.merge
+  // Codex r1 BLOCKER 1: only with the SERVER's confirmation to hand (craftsync's cursor probe); without it, empty slots only, as before
+  const canConfirm = BAGFIX.merge && typeof bot?.craftSync?.confirmCursor === 'function'
+  const bagBefore = {}
+  for (const b of bag) bagBefore[b.name] = (bagBefore[b.name] ?? 0) + (b.count ?? 0)
+  const steps = canConfirm
     ? mergeFit(plan.steps, win.slots.slice(0, win.inventoryStart), { stackOf: n => bag.find(b => b.name === n)?.stackSize ?? 64, same: (d, st) => sameStack(d, bag.find(b => b.slot === st.slot)) })
     : fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
@@ -8826,9 +8830,30 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   // `reserved` is the CALLER's array, so an abort cannot lose a claim (the caller releases them after the settle).
   const capRefused = { at_cap: 0, unknown: 0, outside: 0 }
   const stock = { claims: 0, refused: 0, valve: 0 }
+  // the stack's admission (the cobble cap, the stock targets) -> may it move? One rule for both passes below
+  const admit = async step => {
+    if (explicit) {
+      // sortstore-01: the tidy's put moves a stack the town already held from one town container to another (its take was the
+      // withdraw's draw): the town's totals are unchanged, so no cap or target claim is asked for (one would refuse cobble AT the cap)
+    } else if (isCobble(step.name)) {
+      // every live reservation counts, this run's earlier stacks included (both reviews r1: the second stack of a
+      // batch was judged against the count before the first)
+      const adm = await cobbleReserve(bot, step.count, win.townPos ?? null)
+      if (adm.decision !== 'bank') { capRefused[adm.decision in capRefused ? adm.decision : 'unknown']++; return false }
+      reserved.push(adm.id)
+    } else if (groupOf(step.name) && stockReaderInstalled()) {
+      // STOCK TARGETS (design 3.0/3.2): every other targeted stack under a confirmed claim -- per copy for a tool, a
+      // `valve` claim for the valve's one copy (the order carried the proof nothing_else=1), `nowell` with no usable well
+      const tool = isToolGroup(groupOf(step.name))
+      const adm = stockReserve(bot, groupOf(step.name), tool ? 1 : step.count, win.townPos ?? null, step.valve ? 'valve' : bankKind(groupOf(step.name)), { proof: step.valve ? 'nothing_else' : null })
+      if (!adm.id) { stock.refused++; return false }
+      reserved.push(adm.id); stock.claims++; if (step.valve) stock.valve++
+    }
+    return true
+  }
+  let mutating = false
   try {
     await lockstepClicks(bot, async raw => {
-      let mutating = false
       const click = async (slot, button = 0) => {
         check(signal)
         if (bot.currentWindow !== win) throw stop('the window changed')
@@ -8845,56 +8870,63 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         const now = it ? win.slots[it.wslot] : null
         // logbank-01: a log HALF reads the slot's count before its right click (`from`), not the count it moves
         if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
-        if (explicit) {
-          // sortstore-01: the tidy's put moves a stack the town already held from one town container to another (its take was the
-          // withdraw's draw): the town's totals are unchanged, so no cap or target claim is asked for (one would refuse cobble AT the cap)
-        } else if (isCobble(step.name)) {
-          // every live reservation counts, this run's earlier stacks included (both reviews r1: the second stack of a
-          // batch was judged against the count before the first)
-          const adm = await cobbleReserve(bot, step.count, win.townPos ?? null)
-          if (adm.decision !== 'bank') { capRefused[adm.decision in capRefused ? adm.decision : 'unknown']++; continue }
-          reserved.push(adm.id)
-        } else if (groupOf(step.name) && stockReaderInstalled()) {
-          // STOCK TARGETS (design 3.0/3.2): every other targeted stack under a confirmed claim -- per copy for a tool, a
-          // `valve` claim for the valve's one copy (the order carried the proof nothing_else=1), `nowell` with no usable well
-          const tool = isToolGroup(groupOf(step.name))
-          const adm = stockReserve(bot, groupOf(step.name), tool ? 1 : step.count, win.townPos ?? null, step.valve ? 'valve' : bankKind(groupOf(step.name)), { proof: step.valve ? 'nothing_else' : null })
-          if (!adm.id) { stock.refused++; continue }
-          reserved.push(adm.id); stock.claims++; if (step.valve) stock.valve++
-        }
+        if (step.merges?.length) continue   // Codex r1 BLOCKER 1: a merging stack is the confirmed pass's, below
+        if (!(await admit(step))) continue
         await click(it.wslot, step.half ? 1 : 0)
         if (!win.selectedItem || win.selectedItem.name !== step.name || win.selectedItem.count !== step.count) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${step.name}`)
-        // bagfix-01 M: THE MERGES, each re-read at its click (the slot must still hold the same item with room) and read back from
-        // the cursor (exactly the rest, or nothing); a surprise stops the loop and the caller's settle puts the cursor back
-        let left = step.count
-        for (const m of (step.merges ?? [])) {
-          const d = win.slots[m.dest]
-          const max = d?.stackSize ?? 64
-          if (!d || !sameStack(d, win.selectedItem) || d.count >= max) continue
-          const n = Math.min(left, max - d.count), base = d.count
-          await click(m.dest)
-          const cur = win.selectedItem
-          if (left - n > 0 ? !(cur && cur.name === step.name && cur.count === left - n) : !!cur) throw stop(`the ${step.name} did not merge into slot ${m.dest}`)
-          for (const e of done) if (e.dest === m.dest) e.grew = true
-          done.push({ step: { ...step, count: n }, it, dest: m.dest, base, after: base + n })
-          left -= n
-          if (!left) break
-        }
-        if (!left) continue
         const dest = step.dest != null && !win.slots[step.dest] ? step.dest : emptyDest()
         if (dest == null) { full = true; throw stop('no empty container slot left') }
         await click(dest)
         if (win.selectedItem) throw stop(`the ${step.name} did not go into slot ${dest}`)
-        done.push({ step: left === step.count ? step : { ...step, count: left }, it, dest })
+        done.push({ step, it, dest })
       }
     }, { deadline, signal })
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
     err = String(e?.message ?? e).slice(0, 80)
   }
+  // bagfix-01 M, THE CONFIRMED PASS (Codex r1 BLOCKER 1; bagfix.mjs runMerge): each merging stack by itself, every click in its own
+  // lockstep and answered by the server's cursor before the next; a surprise ends the pass with NO further click (the caller's settle)
+  if (!err && canConfirm) {
+    const oneClick = (slot, button) => lockstepClicks(bot, async raw => {
+      check(signal)
+      if (bot.currentWindow !== win) throw stop('the window changed')
+      if (!mutating) { mutating = true; try { onMutate?.() } catch { /* advisory */ } }
+      const p = trackedClick(bot, raw, slot, button, 0)
+      p.catch(() => {})
+      if ((await within(p, Math.max(250, deadline - Date.now()))) === TIMED_OUT) throw stop('a click went unanswered')
+    }, { deadline, signal })
+    const confirm = async () => {
+      if (!(await waitClicks(bot, 2_000, () => !!signal?.aborted))) return null
+      const ev = await confirmCursor(bot, win, { deadline: Math.min(deadline, Date.now() + 1_500), cancelled: () => !!signal?.aborted })
+      if (!ev?.answered || ev.decodeFailed) return null
+      return ev.cursorEmpty ? { name: null, count: 0 } : { name: win.selectedItem?.name ?? null, count: win.selectedItem?.count ?? 0 }
+    }
+    try {
+      for (const step of steps) {
+        if (!step.merges?.length) continue
+        check(signal)
+        if (Date.now() > deadline - TD_SETTLE_MS) break
+        const it = bag.find(b => b.slot === step.slot)
+        const now = it ? win.slots[it.wslot] : null
+        if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
+        if (!(await admit(step))) continue
+        const m = await runMerge({ click: oneClick, confirm, slot: i => win.slots[i] ?? null, emptyDest, same: d => sameStack(d, win.selectedItem) }, step, it.wslot)
+        for (const mv of m.moves) {
+          if (mv.merged) for (const e of done) if (e.dest === mv.dest) e.grew = true
+          done.push({ step: mv.n === step.count ? step : { ...step, count: mv.n }, it, dest: mv.dest, ...(mv.merged ? { base: mv.base, after: mv.after } : {}) })
+        }
+        if (m.full) full = true
+        if (m.stop) { err = `merge stopped: ${m.stop}`.slice(0, 80); break }
+      }
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      err = String(e?.message ?? e).slice(0, 80)
+    }
+  }
   // the claims are released by the CALLER, after the cursor is settled (Codex code r1 P1: a pending click or the cursor's
   // rescue may still move items) -- with the window's count, or a dirty mark when the window is held
-  return { done, full, noRoom, err, capRefused, stock, reserved }
+  return { done, full, noRoom, err, capRefused, stock, reserved, bagBefore }
 }
 
 /**
@@ -8904,7 +8936,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
  * only when its destination slot holds that stack in the server's copy. -> { verified: [{ step, it }], ok } where ok is
  * false when the re-open did not come back (then nothing is credited and the run says unverified).
  */
-async function verifyTown (bot, block, done, ms) {
+async function verifyTown (bot, block, done, ms, before = null) {
   if (!done.length) return { verified: [], ok: true, bag: null, ix: null }
   const win = await openTown(bot, block, ms)
   if (!win) return { verified: [], ok: false, bag: null, ix: null }
@@ -8913,7 +8945,8 @@ async function verifyTown (bot, block, done, ms) {
     const ix = townIndexObserve(bot, block.position, win, 'verify')
     const bag = {}
     for (const it of windowBag(bot, win)) bag[it.name] = (bag[it.name] ?? 0) + (it.count ?? 0)
-    return { ok: true, bag, ix, verified: done.filter(x => destHolds(win.slots[x.dest], x)) }   // bagfix-01 M: a merge holds at least what it left (bagfix.mjs destHolds)
+    // bagfix-01 M: a merge holds at least what it left (destHolds) AND is credited only up to what the BAG lost of the item (creditMoves)
+    return { ok: true, bag, ix, verified: creditMoves(done.filter(x => destHolds(win.slots[x.dest], x)), before, bag) }
   } finally { try { win.close() } catch { /* already closed */ } }
 }
 
@@ -9092,7 +9125,7 @@ async function townDeposit (ctx, _args, signal) {
       }
       clicked += r.done.length
       for (const { step } of r.done) attempted[step.name] = (attempted[step.name] ?? 0) + step.count
-      const v = await verifyTown(bot, block, r.done, openMs())
+      const v = await verifyTown(bot, block, r.done, openMs(), r.bagBefore ?? null)
       if (!v.ok) unverified += r.done.length
       if (v.bag) serverBag = v.bag
       // THE TOWN INDEX's transfer records: each VERIFIED stack, with its pre-state (this visit's open) and the re-open's id
@@ -21346,7 +21379,7 @@ async function sortPut (bot, block, stacks, deadline, signal, floor = {}) {
     else { if (bot.currentWindow === win) own.close(); invalidateClicks(bot, 'sort tidy end'); own.restore() }
   }
   if (settled.state === 'unresolved') return { put: {}, ok: false, why: 'cursor' }
-  const v = await verifyTown(bot, block, r.done, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())))
+  const v = await verifyTown(bot, block, r.done, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())), r.bagBefore ?? null)
   townIndexTransfers(bot, pos, v.verified.map(({ step, dest }) => ({ slot: dest, name: step.name, n: step.count })), { op: ixOp, pre: ixPre, ver: v.ix, by: 'sort_tidy', ok: 1 })
   if (v.verified.length) { rememberTown(bot, pos, 'took'); const q = chestPartner(bot, pos); if (q) rememberTown(bot, q, 'took') }
   const put = {}

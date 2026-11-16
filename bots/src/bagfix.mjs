@@ -131,6 +131,82 @@ export function destHolds (d, x) {
   if (x.after == null && !x.grew) return d.count === x.step.count
   return d.count >= (x.after ?? x.step.count)
 }
+// CODEX r1 BLOCKER 1 (bagfix-01show, 11-16): A MERGE CLICK IS A CLIENT PREDICTION. Reproduced: 40 coal onto a stack of 5 that another
+// bot raised to 50 under the click -- the server takes 14, 26 stay on the SERVER's cursor while the client's reads empty, and the next
+// step's click swaps them into a tool's bag slot; the re-open then "verified" all 40 (the slot held enough). So:
+//   - EVERY click of a merging stack is answered by the SERVER before the next (craftsync.mjs confirmCursor: the clone probe's full
+//     window refresh -- the cursor and the slots as the server holds them), and what moved is the SERVER cursor's own loss;
+//   - a cursor the server shows unexpectedly (another item, more than was held), an unanswered probe after a click, a closed window:
+//     the sequence STOPS -- no further click -- and the caller's server-confirmed settle (skills.mjs settleCursor) puts the cursor back
+//     in the bag, or holds the window; the deposit ends there;
+//   - no confirmation at all (no craftsync: `canConfirm` false, or the PICKUP's probe unanswered): that stack moves the old way, into
+//     an empty slot only;
+//   - at the re-open a merge is credited only up to what the BAG lost of that item between the open and the re-open (creditMoves).
+/**
+ * ONE STACK'S MERGE SEQUENCE, CONFIRMED CLICK BY CLICK -> { moves: [{ dest, n, base, after, merged }], stop, full, picked }. `io`:
+ *   click(slot, button)  one click, awaited until it settled (throws when the window is no longer the open one)
+ *   confirm()            the SERVER's cursor -> { name, count } (count 0: empty) | null (unanswered); it also refreshes slot()
+ *   slot(i)              the window's slot i as last refreshed -> Item | null
+ *   emptyDest()          an empty container slot not used this run -> i | null
+ *   same(slotItem)       would the server merge the cursor's stack onto it (sameStack against the confirmed cursor)
+ * `step` { name, count, half, merges: [{ dest }], dest }; `from` the bag stack's window slot. `stop` (a word) means: click nothing
+ * more -- settle the cursor and end the deposit. Never throws for a refused or surprising answer (a click's own throw is a stop).
+ */
+export async function runMerge (io, step, from) {
+  const moves = []
+  let full = false, picked = false
+  const out = stop => ({ moves, stop, full, picked })
+  const click = async (slot, button = 0) => { try { await io.click(slot, button); return true } catch { return false } }
+  if (!(await click(from, step.half ? 1 : 0))) return out('click_failed')
+  picked = true
+  let cur = await io.confirm()
+  // the pickup itself unanswered: nothing is known of the cursor -- no further click (the caller settles; the stack is not lost)
+  if (!cur) return out('pickup_unconfirmed')
+  if (cur.name !== step.name || cur.count !== step.count) return out(cur.count ? 'pickup_differs' : 'pickup_empty')
+  let left = step.count
+  for (const m of (step.merges ?? [])) {
+    const d = io.slot(m.dest)
+    const max = d?.stackSize ?? 64
+    if (!d || d.count >= max || d.name !== step.name || (typeof io.same === 'function' && !io.same(d))) continue   // changed under the plan: not this one
+    const base = d.count
+    if (!(await click(m.dest, 0))) return out('click_failed')
+    cur = await io.confirm()
+    if (!cur) return out('merge_unconfirmed')
+    if (cur.count > 0 && cur.name !== step.name) return out('cursor_swapped')
+    if (cur.count > left) return out('cursor_grew')
+    const n = left - cur.count
+    if (n > 0) moves.push({ dest: m.dest, n, base, after: io.slot(m.dest)?.count ?? base + n, merged: true })
+    left = cur.count
+    if (!left) return out(null)
+  }
+  const dest = step.dest != null && !io.slot(step.dest) ? step.dest : io.emptyDest()
+  if (dest == null) { full = true; return out('no_empty_slot') }
+  if (!(await click(dest, 0))) return out('click_failed')
+  cur = await io.confirm()
+  if (!cur) return out('place_unconfirmed')
+  if (cur.count > 0) return out('place_refused')
+  moves.push({ dest, n: left, base: 0, after: left, merged: false })
+  return out(null)
+}
+/**
+ * WHAT THE RE-OPEN CREDITS -> the moves that count. Pure. `holding` the moves whose destination holds them (destHolds), `before` /
+ * `after` the BAG's counts { name: n } at the open and at the re-open (the server's copies). A name with a MERGE among its moves is
+ * credited at most what the bag lost of it: over that, its merges are dropped, the last first. No bag counts: nothing merged counts.
+ */
+export function creditMoves (holding = [], before = null, after = null) {
+  const out = [...(Array.isArray(holding) ? holding : [])]
+  const names = [...new Set(out.filter(x => x?.after != null || x?.grew).map(x => x.step.name))]
+  for (const name of names) {
+    const lost = before && after ? Math.max(0, (Number(before[name]) || 0) - (Number(after[name]) || 0)) : 0
+    let claimed = out.filter(x => x.step.name === name).reduce((t, x) => t + (Number(x.step.count) || 0), 0)
+    for (let i = out.length - 1; i >= 0 && claimed > lost; i--) {
+      if (out[i].step.name !== name || out[i].after == null) continue
+      claimed -= Number(out[i].step.count) || 0; out.splice(i, 1)
+    }
+    if (claimed > lost) for (let i = out.length - 1; i >= 0 && claimed > lost; i--) { if (out[i].step.name === name) { claimed -= Number(out[i].step.count) || 0; out.splice(i, 1) } }
+  }
+  return out
+}
 /** THE ROOM A CONTAINER'S PARTIAL STACKS HAVE for these names -> items. Pure. `names` the town index's observation ({ name: [count,
  *  slots] }); `want` the names a plan would bank. */
 export function mergeRoom (names = {}, want = [], stackOf = () => 64) {
