@@ -289,7 +289,10 @@ def coop_line(now, out_dir=None):
     RETIRED 2026-11-16 (owner; consolidation decision 2026-11-14 ends the 16-town fleet it measures): with the marker
     ~/coopread/RETIRED beside the out dir this is retired_line()'s one quiet line."""
     d = os.path.expanduser(out_dir or COOP_DIR)
-    gone = retired_line('cooperation census (B1)', os.path.dirname(d.rstrip('/')), _newest(os.path.join(d, 'daily'), '.json'))
+    # the job's heartbeat counts as a write too (Codex r1): coopread.py appends out/heartbeat.jsonl even when its selftests
+    # fail or the census raises, without a new daily file -- a job left running and failing must not sit behind RETIRED
+    wrote = [x for x in (_newest(os.path.join(d, 'daily'), '.json'), os.path.join(d, 'heartbeat.jsonl')) if x and os.path.exists(x)]
+    gone = retired_line('cooperation census (B1)', os.path.dirname(d.rstrip('/')), max(wrote, key=os.path.getmtime) if wrote else None)
     if gone:
         return gone
     try:

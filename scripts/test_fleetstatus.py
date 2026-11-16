@@ -812,6 +812,16 @@ def t_coop_retired_but_still_running_is_an_alarm():
     """A marker whose job still writes would hide that job's failures behind the word RETIRED."""
     line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture(retired=COOP_WHY, marker_age_h=30, daily_age_h=2))
     assert line.startswith('!! cooperation census (B1): marked RETIRED') and 'STILL WRITES' in line and '28.0 h after' in line, line
+    # a job that FAILS writes only its heartbeat, no daily file (Codex r1): that is still a job that runs
+    import time
+    out = _coop_fixture(retired=COOP_WHY, marker_age_h=30, daily_age_h=40)
+    assert FS.coop_line(COOP_NOW, out_dir=out) == 'cooperation census (B1) RETIRED: ' + COOP_WHY
+    hb = os.path.join(out, 'heartbeat.jsonl')
+    with open(hb, 'w') as fh:
+        fh.write('{"ok": false}\n')
+    os.utime(hb, (time.time() - 3 * 3600,) * 2)
+    line = FS.coop_line(COOP_NOW, out_dir=out)
+    assert line.startswith('!! cooperation census (B1): marked RETIRED') and 'heartbeat.jsonl' in line and '27.0 h after' in line, line
     # the last run before the cron line was commented out may land just after the marker: not an alarm
     line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture(retired=COOP_WHY, marker_age_h=2.5, daily_age_h=2))
     assert line == 'cooperation census (B1) RETIRED: ' + COOP_WHY, line
