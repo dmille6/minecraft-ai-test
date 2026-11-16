@@ -222,9 +222,10 @@ await t('a visit that did nothing RESTS the work (yardRestUntil): the same bag r
 
 console.log('THE WIRING (skills.mjs, structural)')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-const W1 = /if \(plot === YARD_PLOT && rec\.structure_complete && !recordDamaged\(bot, rec, \{ tidy: false \}\)\) return yardVisit\(ctx, rec, rh\.head\.gen, signal, out, t0\)/
-const W2 = /const yw = complete && b && p\.plot === YARD_PLOT \? yardWorkNow\(b, rec\) : null\n\s*const damaged = complete && b \? \(recordDamaged\(b, rec, \{ tidy: tidyFirst \}\) \|\| !!yw\?\.urgent\) : false/
-const W3 = /plot, \.\.\.\(plot === YARD_PLOT \? \{ earth: YARD_EARTH \} : \{\}\) \}/
+// yardlanes-01: every yard (yard, yard2 ...) is the yard's -- the wiring names isYardPlot and passes the plot
+const W1 = /if \(isYardPlot\(plot\) && rec\.structure_complete && !recordDamaged\(bot, rec, \{ tidy: false \}\)\) return yardVisit\(ctx, rec, rh\.head\.gen, signal, out, t0, \{ plot \}\)/
+const W2 = /const yw = complete && b && isYardPlot\(p\.plot\) \? yardWorkNow\(b, rec, now, p\.plot\) : null\n\s*const damaged = complete && b \? \(recordDamaged\(b, rec, \{ tidy: tidyFirst \}\) \|\| !!yw\?\.urgent\) : false/
+const W3 = /plot, \.\.\.\(isYardPlot\(plot\) \? \{ earth: YARD_EARTH \} : \{\}\) \}/
 const W4 = /fx = \{ \.\.\.effects, dig: async \(c, expect\) => \{\n\s*const pk = refillPick\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], remaining\)\n\s*if \(!pk\) return 'refused'/
 await t('a complete yard gets its own visit; its urgent stock goes first; its siting names its earthwork; a refill digs with a pickaxe', () => {
   for (const re of [W1, W2, W3, W4]) { assert.ok(re.test(SK), String(re).slice(0, 60)); assert.strictEqual(SK.split(SK.match(re)[0]).length, 2, 'unique') }
