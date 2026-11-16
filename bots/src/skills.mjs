@@ -2466,7 +2466,7 @@ function keepoutCooldown (bot, skill, block, site) {
  */
 async function gather(ctx, args, signal) {
   return withKeepout(ctx, 'gather', async ko => {
-    const r = await gatherRun(ctx, args ?? {}, signal, ko)
+    const r = await gatherRun(ctx, args ?? {}, signal, ko).finally(() => tdFromBelowSay(ctx?.bot))   // topdown-01: the run's one op=from_below row
     // GATHERMEM-01: a run that found nothing takeable HERE is refused here for a few minutes (admission reads it); an abort
     // throws past this line, so an interruption never writes one
     try {
@@ -3230,7 +3230,17 @@ async function gatherRun(ctx, { block: blockName, count = 16, maxDistance = 32 }
       }
       if (ranked.remembered && ranked.fresh) reachable = ranked.list
     }
-    const nextUp = reachable.find(q => !excluded.has(key(q)))
+    let nextUp = reachable.find(q => !excluded.has(key(q)))
+    // topdown-01 (review r5): a search this rule gave up kept only cells that proved unusable (a block floating over the lawn):
+    // ask the fallback (the block on top), as when the search found nothing
+    if (!nextUp && roofGaveUp && !viaSource) {
+      for (const alt of sourcesOf(bot.registry, blockName)) {
+        const altType = alt === blockName ? null : bot.registry?.blocksByName?.[alt]
+        if (!altType) continue
+        const ok = findGround(altType.id, { count: false }).filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius).filter(exposed).filter(safeTarget).filter(q => !excluded.has(key(q)))
+        if (ok.length) { reachable = ok; viaSource = alt; nextUp = ok[0]; logEvent({ kind: 'gather_via_source', status: 'success', snapshot: snapshot(bot), detail: `the ${blockName} a given-up search kept could not be taken; ${alt} yields it — ${ok.length} candidate(s)` }); break }
+      }
+    }
     if (!nextUp) {
       // Every candidate has already refused us this run. Re-scanning cannot
       // produce a different answer, so stop rather than spend the budget.
