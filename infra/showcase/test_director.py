@@ -160,9 +160,11 @@ def _video_root(frames):
 
 def _run_video(TV, root, conf, argv):
     calls = []
+    _run_video.kws = []
 
     def fake_build(v, st, out, name, **kw):
         calls.append((v, list(st), kw.get('extra')))
+        _run_video.kws.append(dict(kw, out=out))
         return {'view': v, 'included': len(st)}
     old_argv = sys.argv
     sys.argv = ['tl_video.py'] + argv
@@ -1263,6 +1265,412 @@ class DirectorOff(unittest.TestCase):
         check_director_off_plans_exactly_as_before(self, REAL)
 
 
+# ================================================================== PART 3: videos that follow the scenes
+DAY = '20261116'
+SA, SB, SC, SZ = 's20261116T0900a', 'd20261116T0900a', 's20261116T1000a', 's20261116T1100a'
+
+
+def scene_log():
+    """Three slots of the director's day log: a surface scene (held in the third slot), a deep one, a small one."""
+    sc = lambda i, layer, score, caption, bots: {'id': i, 'layer': layer, 'score': score, 'caption': caption, 'bots': bots}
+    return [{'stamp': '20261116T0900Z', 'scenes': [sc(SB, 'deep', 200, '4 bots mining under the town, y 12-30', ['Onyx', 'Kite', 'Gale', 'Iris']),
+                                                   sc(SA, 'surface', 50, '2 bots building the yard', ['Delta', 'Juno'])]},
+            {'stamp': '20261116T0915Z', 'scenes': [sc(SB, 'deep', 180, '3 bots mining under the town, y 12-28', ['Onyx', 'Kite', 'Gale']),
+                                                   sc(SA, 'surface', 70, "3 bots building the yard", ['Delta', 'Juno', 'Lumen']),
+                                                   sc(SC, 'surface', 10, '1 bot gathering in the town', ['Maple'])]},
+            {'stamp': '20261116T0930Z', 'scenes': [sc(SA, 'surface', 0, '3 bots building the yard', ['Delta', 'Juno', 'Lumen'])]}]
+
+
+def check_scene_directories_are_not_cameras(t, M):
+    TV = M['TV']
+    d = tempfile.mkdtemp(prefix='camdir-views-')
+    try:
+        for v in ('angled', 'topdown', 'town', 'scene-' + SA, 'under-' + SB, '.staging'):
+            os.makedirs(os.path.join(d, 'frames', v))
+        vv = TV.video_views(d)
+        t.assertIn('town', vv, 'positive control: a camera directory is a view')
+        t.assertFalse([v for v in vv if v.startswith(('scene-', 'under-'))],
+                      'a scene directory gets no daily / weekly / history video of its own')
+        t.assertEqual(TV.scene_views(d), ['scene-' + SA, 'under-' + SB])
+        t.assertEqual((TV.scene_id('scene-' + SA), TV.scene_id('under-' + SB), TV.scene_id('town')), (SA, SB, None))
+        t.assertTrue(TV.is_scene_view('under-x') and not TV.is_scene_view('grounds'))
+    finally:
+        shutil.rmtree(d)
+
+
+def check_the_days_scenes_are_ranked_by_score(t, M):
+    TV = M['TV']
+    stamps = {'scene-' + SA: ['20261116T0930Z', '20261116T0900Z', '20261116T0915Z'], 'under-' + SB: ['20261116T0900Z', '20261116T0915Z'],
+              'scene-' + SC: ['20261116T0915Z'], 'scene-' + SZ: ['20261116T1100Z', '20261116T1115Z'], 'scene-empty': []}
+    sides = {('scene-' + SZ, '20261116T1100Z'): {'score': 5, 'caption': 'early', 'bots': ['Echo'], 'layer': 'surface'},
+             ('scene-' + SZ, '20261116T1115Z'): {'score': 6.5, 'caption': 'late', 'bots': ['Echo', 'Frost'], 'layer': 'surface'}}
+    got = TV.day_scenes(stamps, scene_log(), lambda v, s: sides.get((v, s)))
+    t.assertEqual([(s['id'], s['view'], s['score'], s['slots'], s['layer']) for s in got],
+                  [(SB, 'under-' + SB, 380.0, 2, 'deep'), (SA, 'scene-' + SA, 120.0, 3, 'surface'),
+                   (SZ, 'scene-' + SZ, 11.5, 2, 'surface'), (SC, 'scene-' + SC, 10.0, 1, 'surface')],
+                  'the day\'s score is the sum over its slots; a scene the log does not know is scored from its frames\' sidecars')
+    t.assertEqual((got[0]['caption'], got[0]['bots']), ('4 bots mining under the town, y 12-30', ['Onyx', 'Kite', 'Gale', 'Iris']),
+                  'caption and bots of its BUSIEST slot (200), not of its last (180)')
+    a = got[1]
+    t.assertEqual((a['caption'], a['bots'], a['stamps']), ('3 bots building the yard', ['Delta', 'Juno', 'Lumen'],
+                                                         ['20261116T0900Z', '20261116T0915Z', '20261116T0930Z']),
+                  'caption and bots of its busiest slot; its frames in order')
+    t.assertEqual(a['by_stamp']['20261116T0900Z'], {'caption': '2 bots building the yard', 'bots': ['Delta', 'Juno']})
+    t.assertEqual((got[2]['caption'], got[2]['bots']), ('late', ['Echo', 'Frost']))
+    t.assertEqual(TV.day_scenes({'scene-' + SA: []}, scene_log()), [], 'a scene with no frame that day has no clip to rank')
+    d = tempfile.mkdtemp(prefix='camdir-log-')
+    try:
+        os.makedirs(os.path.join(d, 'logs'))
+        with open(os.path.join(d, 'logs', f'scenes-{DAY}.jsonl'), 'w') as f:
+            f.write(json.dumps(scene_log()[0]) + '\n{broken\n[1]\n' + json.dumps(scene_log()[1]) + '\n')
+        rows = TV.load_scene_log(DAY, d)
+        t.assertEqual(len(rows), 2, 'a broken line and a line that is no slot object are skipped')
+        t.assertEqual([r['stamp'] for r in rows], ['20261116T0900Z', '20261116T0915Z'])
+        t.assertEqual(TV.load_scene_log('20261117', d), [], 'no log that day: nothing, no error')
+    finally:
+        shutil.rmtree(d)
+
+
+def check_each_frame_carries_its_own_caption_and_bots(t, M):
+    TV = M['TV']
+    scene = TV.day_scenes({'scene-' + SA: ['20261116T0900Z', '20261116T0915Z', '20261116T0930Z']}, scene_log())[0]
+    sides = {'20261116T0915Z': {'caption': 'from the sidecar', 'bots': ['Delta', 'Juno', 'Lumen', 'Maple', 'Nova', 'Onyx', 'Kite', 'Gale']}}
+    caps = TV.scene_captions(scene, ['20261116T0900Z', '20261116T0915Z', '20261116T0930Z', '20261116T0945Z'],
+                             lambda v, s: sides.get(s))
+    t.assertEqual(caps, [['2 bots building the yard', 'Delta, Juno'],                       # the slot's row in the day log
+                         ['from the sidecar', 'Delta, Juno, Lumen, Maple, Nova, Onyx +2'],  # the frame's own sidecar first
+                         ['3 bots building the yard', 'Delta, Juno, Lumen'],
+                         ['3 bots building the yard', 'Delta, Juno, Lumen']],               # neither: the busiest slot
+                 'the caption and the bots as they were at that frame')
+    t.assertEqual(TV.bots_line(['A', 'B']), 'A, B')
+    t.assertEqual(TV.bots_line([]), '')
+    t.assertEqual(TV.scene_captions({'view': 'scene-x', 'caption': '', 'bots': []}, ['20261116T0900Z']), [[]], 'nothing known: no line')
+    long = TV.caption_line('café ' + 'x' * 200)
+    t.assertEqual((len(long), long[-3:], 'é' in long), (96, '...', False), 'ASCII and capped, like the chat captions')
+
+
+def _png(w, h):
+    import struct, zlib
+    raw = b''.join(b'\x00' + b'\x00' * (w * 3) for _ in range(h))
+    chunk = lambda k, b: struct.pack('>I', len(b)) + k + b + struct.pack('>I', zlib.crc32(k + b) & 0xffffffff)
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+            + chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+
+class fake_ffmpeg:
+    """subprocess.run for tl_video: writes each command's output file and, at every encode, records the numbered
+    input frames (the symlinks' targets, in order) and the text files of the overlay."""
+    def __init__(self):
+        self.cmds, self.encodes = [], []
+
+    def __call__(self, cmd, *a, **k):
+        import subprocess
+        line = ' '.join(map(str, cmd))
+        self.cmds.append(line)
+        out = cmd[-1]
+        if 'libx264' in line and '-filter_complex' in cmd and '%06d' in line:
+            tmp = os.path.dirname(cmd[cmd.index('-i') + 1])
+            names = sorted(os.listdir(tmp))
+            self.encodes.append({'out': out, 'cmd': cmd,
+                                 'frames': [os.path.basename(os.readlink(os.path.join(tmp, n))) for n in names if n.startswith('s')],
+                                 'text': {n: open(os.path.join(tmp, n)).read() for n in names if n.endswith('.txt')}})
+        if isinstance(out, str) and out.endswith(('.mp4', '.png')):
+            open(out, 'wb').close()
+        return subprocess.CompletedProcess(cmd, 0, b'', b'')
+
+
+def scene_root():
+    """A temp timelapse root with the frames of three scenes and two cameras on 11-16, and the director's day log."""
+    root = tempfile.mkdtemp(prefix='camdir-video-')
+    frames = {'scene-' + SA: ['20261116T0900Z', '20261116T0915Z', '20261116T0930Z'], 'under-' + SB: ['20261116T0900Z', '20261116T0915Z'],
+              'scene-' + SC: ['20261116T0915Z'], 'hero4k': [f'20261116T{h:02d}00Z' for h in range(6, 12)],
+              'workshop': [f'20261116T{h:02d}00Z' for h in range(6, 12)]}
+    for v, stamps in frames.items():
+        for s in stamps:
+            os.makedirs(os.path.join(root, 'frames', v, s[:8]), exist_ok=True)
+            with open(os.path.join(root, 'frames', v, s[:8], s + '.png'), 'wb') as f:
+                f.write(_png(8, 8))
+    with open(os.path.join(root, 'frames', 'scene-' + SA, DAY, '20261116T0915Z.json'), 'w') as f:
+        json.dump({'label': 'yard', 'scene': SA, 'caption': '3 bots building the yard', 'bots': ['Delta', 'Juno', 'Lumen'],
+                   'layer': 'surface', 'score': 70}, f)
+    for d in ('video/daily', 'logs'):
+        os.makedirs(os.path.join(root, d))
+    with open(os.path.join(root, 'logs', f'scenes-{DAY}.jsonl'), 'w') as f:
+        f.write(''.join(json.dumps(r) + '\n' for r in scene_log()))
+    conf = os.path.join(root, 'tl.conf')
+    with open(conf, 'w') as f:
+        json.dump({'cameras': {'workshop': {'off': True}, 'hero4k': {}}}, f)
+    return root, conf
+
+
+def check_a_scene_clip_per_live_scene(t, M):
+    """The real build() with ffmpeg faked: the clip's name, its frames in order, the caption and bots burned in."""
+    TV = M['TV']
+    root, conf = scene_root()
+    ff = fake_ffmpeg()
+    chat = [(dt.datetime(2026, 11, 16, 9, 10, tzinfo=U), 'showcase-Echo', 1, 'project_done', 'The yard is finished!')]
+    counter = [0]
+
+    def gray(path):                         # every frame differs from the one before: none is dropped as unchanged
+        counter[0] += 1
+        return bytes([counter[0] * 37 % 251]) * 64
+    try:
+        lo = dt.datetime(2026, 11, 16, tzinfo=U)
+        with swap(TV, ROOT=root, TL_CONF=conf, small_gray=gray, load_lines=lambda *a: chat), swap(TV.subprocess, run=ff), quiet():
+            sides = TV.build_scene_clips('daily/2026-11-16', lo, lo + dt.timedelta(days=1))
+        vid = os.path.join(root, 'video', 'daily')
+        t.assertEqual(sorted(f for f in os.listdir(vid) if f.endswith('.mp4')),
+                      [f'2026-11-16-scene-{SB}.mp4', f'2026-11-16-scene-{SA}.mp4'],
+                      'daily/<day>-scene-<id>.mp4 for the surface AND the underground scene; the one-frame scene gets none')
+        t.assertEqual([(s['scene'], s['score'], s['layer'], s['title']) for s in sides],
+                      [(SB, 380.0, 'deep', '4 bots mining under the town, y 12-30'), (SA, 120.0, 'surface', '3 bots building the yard')])
+        enc = {os.path.basename(e['out']).replace('.part.mp4', ''): e for e in ff.encodes}
+        a = enc[f'2026-11-16-scene-{SA}.mp4']
+        t.assertEqual(a['frames'], ['20261116T0900Z.png', '20261116T0915Z.png', '20261116T0930Z.png', '20261116T0930Z.png'],
+                      'its frames in order, the last one held')
+        t.assertEqual((a['text'].get('cap000001_1.txt'), a['text'].get('cap000001_0.txt')), ('2 bots building the yard', 'Delta, Juno'),
+                      'frame 1: the caption above the bots\' names (the lowest line), from the day log')
+        t.assertEqual((a['text']['cap000002_1.txt'], a['text']['cap000002_0.txt']), ('3 bots building the yard', 'Delta, Juno, Lumen'))
+        t.assertFalse([n for n in a['text'] if n.startswith('tally')], 'a scene clip carries no chat tally')
+        t.assertFalse([x for x in a['text'].values() if 'finished!' in x], 'and no chat line')
+        cmd = a['cmd']
+        t.assertEqual(cmd[cmd.index('-framerate') + 1], '1.0', 'three frames play at 1 per second, not 2')
+        t.assertIn('[b][t]overlay', cmd[cmd.index('-filter_complex') + 1], 'the same text layer the chat captions use')
+        b = enc[f'2026-11-16-scene-{SB}.mp4']
+        t.assertEqual(sorted(set(b['frames'])), ['20261116T0900Z.png', '20261116T0915Z.png'])
+        t.assertEqual(b['text']['cap000001_1.txt'], '4 bots mining under the town, y 12-30')
+        side = jload(os.path.join(vid, f'2026-11-16-scene-{SA}.mp4.json'))
+        t.assertEqual((side['view'], side['scene'], side['included'], side['bots']), ('scene-' + SA, SA, 3, ['Delta', 'Juno', 'Lumen']))
+        # the chat captions of an ordinary camera are untouched
+        ff.encodes.clear()
+        with swap(TV, ROOT=root, small_gray=gray, load_lines=lambda *a: chat), swap(TV.subprocess, run=ff), quiet():
+            TV.build('hero4k', [f'20261116T{h:02d}00Z' for h in range(8, 11)], os.path.join(vid, 'x-hero4k.mp4'), 'daily/x')
+        t.assertIn('Echo: The yard is finished!', ff.encodes[0]['text'].values(), 'positive control: a camera clip has the chat line')
+        t.assertTrue([n for n in ff.encodes[0]['text'] if n.startswith('tally')])
+    finally:
+        shutil.rmtree(root)
+
+
+def check_the_reel_is_the_top_scenes_then_the_overview(t, M):
+    TV = M['TV']
+    d = tempfile.mkdtemp(prefix='camdir-reel-')
+    try:
+        def mk(v, inc, act=0.0, **kw):
+            open(os.path.join(d, v), 'w').close()
+            return dict({'view': v, 'included': inc, 'activity': act, 'out': os.path.join(d, v), 'duration_s': 12.0}, **kw)
+        cams = [mk('hero4k', 40, 0.5), mk('angled', 40, 0.6), mk('topdown', 40, 0.9), mk('workshop', 30, 5.0), mk('town', 20, 0.4),
+                mk('iso', 20, 0.35)]
+        sc = lambda i, score, title, inc=4: mk('scene-' + i if i[0] == 's' else 'under-' + i, inc, scene=i, score=score, title=title)
+        scenes = [sc('sa', 120, '3 bots building the yard'), sc('db', 380, '4 bots mining under the town, y 12-30'), sc('sc', 60, 'c'),
+                  sc('sd', 50, 'd'), sc('se', 40, 'e'), sc('sf', 999, 'one frame', inc=1)]
+        scenes.append({'view': 'scene-gone', 'included': 9, 'score': 9999, 'out': os.path.join(d, 'nope'), 'scene': 'gone'})
+        plan = TV.plan_reel(cams, scenes=scenes, off={'workshop'})
+        t.assertEqual(plan, ['under-db', 'scene-sa', 'scene-sc', 'scene-sd', 'hero4k'],
+                      'the four top scenes by score, underground included, THEN the town overview; a one-frame scene and '
+                      'a clip that is not on disk are left out')
+        t.assertEqual(TV.plan_reel(cams, scenes=scenes[:1], off={'workshop'}), ['scene-sa', 'hero4k'])
+        t.assertEqual(TV.plan_reel(cams, off={'workshop'}), ['hero4k', 'angled', 'town', 'iso'],
+                      'no scene clip that day: the reel as it was, without the finished project\'s camera')
+        t.assertEqual(TV.plan_reel(cams)[:2], ['hero4k', 'workshop'], 'positive control: not off, the most active camera is in')
+        t.assertNotIn('workshop', TV.plan_reel(cams, scenes=scenes, off={'workshop'}))
+        t.assertEqual(TV.plan_reel([c for c in cams if c['view'] not in ('hero4k', 'angled')], scenes=scenes[:2]), ['under-db', 'scene-sa'],
+                      'no overview clip: the scenes alone')
+        mixed = cams + [mk('scene-stray', 30, 9.0)]
+        t.assertNotIn('scene-stray', TV.plan_reel(mixed), 'a scene directory is never taken for a camera')
+        by = {s['view']: s for s in cams + scenes}
+        cmd = TV.reel_cmd('daily/2026-11-16', plan[:2] + ['hero4k'], by, '/o/reel.part.mp4')
+        t.assertEqual([cmd[i + 1] for i, x in enumerate(cmd) if x == '-i'], [by['under-db']['out'], by['scene-sa']['out'], by['hero4k']['out']])
+        fc = cmd[cmd.index('-filter_complex') + 1]
+        t.assertIn("text='4 bots mining under the town, y 12-30  2026-11-16'", fc, 'a scene segment is titled with its caption')
+        t.assertIn("text='hero4k  2026-11-16'", fc, 'a camera segment with its name, as before')
+        t.assertIn('concat=n=3:v=1:a=0[out]', fc)
+        t.assertIn('setpts=PTS/1.3333', fc, '12 s sped up to the 9-s segment')
+        t.assertEqual(cmd[-1], '/o/reel.part.mp4')
+        t.assertEqual(TV.reel_title('scene-x', {'title': "it's 100%: a 'test'\\"}, 'daily/2026-11-16'), 'its 100 a test  2026-11-16',
+                      'nothing that could break the quoted filter text survives')
+        # the whole reel job, ffmpeg faked
+        ff = fake_ffmpeg()
+        with swap(TV.subprocess, run=ff):
+            side = TV.build_reel('daily/2026-11-16', cams, os.path.join(d, 'reel.mp4'), scenes=scenes, off={'workshop'})
+        t.assertEqual((side['views'], side['scenes']), (plan, ['db', 'sa', 'sc', 'sd']))
+        t.assertEqual(len([c for c in ff.cmds if 'concat=n=5' in c]), 1)
+    finally:
+        shutil.rmtree(d)
+
+
+def check_daily_builds_the_scene_clips_and_the_reel(t, M):
+    """main('daily') end to end, ffmpeg faked: camera clips, scene clips, the reel from the scenes."""
+    TV = M['TV']
+    root, conf = scene_root()
+    ff = fake_ffmpeg()
+    n = [0]
+
+    def gray(path):
+        n[0] += 1
+        return bytes([n[0] * 37 % 251]) * 64
+    old_argv = sys.argv
+    sys.argv = ['tl_video.py', 'daily', '--day', '2026-11-16']
+    try:
+        with swap(TV, ROOT=root, TL_CONF=conf, small_gray=gray, load_lines=lambda *a: []), swap(TV.subprocess, run=ff), quiet():
+            TV.main()
+        vid = os.path.join(root, 'video', 'daily')
+        t.assertEqual(sorted(f for f in os.listdir(vid) if f.endswith('.mp4')),
+                      [f'2026-11-16-{x}.mp4' for x in sorted(['hero4k', 'workshop', 'reel', 'scene-' + SA, 'scene-' + SB])],
+                      'no clip named after a scene DIRECTORY (under-<id>), one per scene id')
+        reel = jload(os.path.join(vid, '2026-11-16-reel.mp4.json'))
+        t.assertEqual(reel['views'], ['under-' + SB, 'scene-' + SA, 'hero4k'], 'top scenes, then the overview; workshop is off')
+        t.assertEqual(reel['scenes'], [SB, SA])
+        # `reel` alone, from the clips already built: the same reel
+        os.remove(os.path.join(vid, '2026-11-16-reel.mp4.json'))
+        sys.argv = ['tl_video.py', 'reel', '--day', '2026-11-16']
+        with swap(TV, ROOT=root, TL_CONF=conf), swap(TV.subprocess, run=ff), quiet():
+            TV.main()
+        t.assertEqual(jload(os.path.join(vid, '2026-11-16-reel.mp4.json'))['views'], ['under-' + SB, 'scene-' + SA, 'hero4k'])
+        sys.argv = ['tl_video.py', 'daily', '--day', '2026-11-16']
+        # a day with no scene at all: the reel as it was -- and still without the finished project's camera
+        for v in os.listdir(os.path.join(root, 'frames')):
+            if v.startswith(('scene-', 'under-')):
+                shutil.rmtree(os.path.join(root, 'frames', v))
+        with swap(TV, ROOT=root, TL_CONF=conf, small_gray=gray, load_lines=lambda *a: []), swap(TV.subprocess, run=ff), quiet():
+            TV.main()
+        t.assertEqual(jload(os.path.join(vid, '2026-11-16-reel.mp4.json'))['views'], ['hero4k'],
+                      'workshop has the same six changing frames as hero4k; it is off in tl.conf')
+        os.remove(os.path.join(vid, '2026-11-16-reel.mp4.json'))
+        sys.argv = ['tl_video.py', 'reel', '--day', '2026-11-16']
+        with swap(TV, ROOT=root, TL_CONF=conf), swap(TV.subprocess, run=ff), quiet():
+            TV.main()
+        t.assertEqual(jload(os.path.join(vid, '2026-11-16-reel.mp4.json'))['views'], ['hero4k'], 'and the same from `reel` alone')
+    finally:
+        sys.argv = old_argv
+        shutil.rmtree(root)
+
+
+def check_the_progress_clip(t, M):
+    TV = M['TV']
+    import argparse
+    now = dt.datetime(2026, 11, 16, 1, 40, tzinfo=U)
+    lo, hi, bucket, name = TV.window('progress', argparse.Namespace(day=None, week_ending=None, month=None), now)
+    t.assertEqual((bucket, name, hi), (360, 'progress', now), 'one clip, one frame per 6 h, up to now')
+    hourly = [f'202611{d:02d}T{h:02d}00Z' for d in (14, 15) for h in range(24)] + ['20261115T0615Z-event-hall']
+    t.assertEqual(TV.sample(hourly, lo, hi, bucket), [f'202611{d:02d}T{h:02d}00Z' for d in (14, 15) for h in (0, 6, 12, 18)],
+                  'the 00, 06, 12 and 18 UTC frames; never an event frame')
+    has = lambda *v: (lambda x: x in v)
+    t.assertEqual(TV.progress_view({}, has('expeditions', 'grounds', 'topdown')), 'expeditions', 'the whole-area top-down camera first')
+    t.assertEqual(TV.progress_view({}, has('grounds', 'topdown')), 'grounds')
+    t.assertEqual(TV.progress_view({}, has('topdown')), 'topdown')
+    t.assertEqual(TV.progress_view({'progress': {'view': 'grounds'}}, has('expeditions', 'grounds')), 'grounds', 'tl.conf progress.view')
+    t.assertEqual(TV.progress_view({'progress': {'view': 'gone'}}, has('expeditions')), 'expeditions', 'a named view with no frames')
+    t.assertIsNone(TV.progress_view({}, has('town')))
+    d = tempfile.mkdtemp(prefix='camdir-data-')
+    try:
+        for day, build, chat in (('20261110', [('2026-11-10T08:00:00', 'place'), ('2026-11-10T09:00:00', 'clear'),
+                                               ('2026-11-10T10:00:00', 'place')],
+                                  [('2026-11-10T11:00:00.000Z', 'project_done'), ('2026-11-10T11:05:00.000Z', 'section')]),
+                                 ('20261112', [('2026-11-12T08:00:00', 'place')] * 1500, [('2026-11-12T09:00:00.000Z', 'project_done')])):
+            os.makedirs(os.path.join(d, 'data', day))
+            with open(os.path.join(d, 'data', day, 'build.tsv'), 'w') as f:
+                f.write(''.join(f'{ts}\tJuno\tyard\t{op}\t1\t64\t2\tcobblestone\n' for ts, op in build) + 'short\tline\n')
+            with open(os.path.join(d, 'data', day, 'chat.jsonl'), 'w') as f:
+                f.write(''.join(json.dumps({'t': ts, 'bot': 'showcase-Juno', 'tier': 1, 'cat': cat, 'text': 'x'}) + '\n' for ts, cat in chat)
+                        + '{broken\n')
+        os.makedirs(os.path.join(d, 'data', 'notaday'))
+        os.makedirs(os.path.join(d, 'data', '20261109'))          # a day directory with no extract in it yet
+        counts = TV.load_progress_counts(d)
+        t.assertEqual((len(counts['placed']), len(counts['done']), counts['from']), (1502, 2, dt.date(2026, 11, 10)),
+                      'build.tsv rows whose op is place (not clear); chat.jsonl lines whose cat is project_done')
+        day0 = dt.date(2026, 10, 20)
+        at = lambda s: dt.datetime.strptime(s, '%Y-%m-%d %H:%M').replace(tzinfo=U)
+        t.assertEqual(TV.progress_text(at('2026-10-20 06:00'), day0, counts), 'Day 1', 'before the extracts begin: the day counter only')
+        t.assertEqual(TV.progress_text(at('2026-11-09 18:00'), day0, counts), 'Day 21')
+        t.assertEqual(TV.progress_text(at('2026-11-10 09:30'), day0, counts), 'Day 22   1 block placed, 0 projects finished since Nov 10')
+        t.assertEqual(TV.progress_text(at('2026-11-10 12:00'), day0, counts), 'Day 22   2 blocks placed, 1 project finished since Nov 10')
+        t.assertEqual(TV.progress_text(at('2026-11-16 00:00'), day0, counts), 'Day 28   1,502 blocks placed, 2 projects finished since Nov 10')
+        t.assertEqual(TV.progress_text(at('2026-11-16 00:00'), dt.date(2026, 11, 10), counts), 'Day 7   1,502 blocks placed, 2 projects finished',
+                      'the extracts cover the clip from its first day: no "since"')
+        none = TV.load_progress_counts(os.path.join(d, 'nowhere'))
+        t.assertEqual(none, {'placed': [], 'done': [], 'from': None})
+        t.assertEqual(TV.progress_text(at('2026-11-16 00:00'), day0, none), 'Day 28', 'no data on the VM: it degrades to the counter')
+        t.assertEqual(TV.progress_captions(['20261110T1200Z', '20261020T0000Z'], day0, counts),
+                      [['Day 22   2 blocks placed, 1 project finished since Nov 10'], ['Day 1']])
+        with open(os.path.join(d, 'FRAME0.json'), 'w') as f:
+            json.dump({'stamp': '20261020T1315Z'}, f)
+        t.assertEqual((TV.frame0_day(d), TV.frame0_day(os.path.join(d, 'nowhere'))), (dt.date(2026, 10, 20), None))
+    finally:
+        shutil.rmtree(d)
+
+
+def check_the_progress_job(t, M):
+    """main('progress'): one build, of the whole-area camera, every 6 h; not again while that camera has no new frame."""
+    TV = M['TV']
+    hourly = [f'202611{d:02d}T{h:02d}00Z' for d in (14, 15) for h in range(24)]
+    root, conf = _video_root({'expeditions': hourly, 'topdown': hourly, 'town': hourly})
+    try:
+        with open(os.path.join(root, 'FRAME0.json'), 'w') as f:
+            json.dump({'stamp': '20261020T1315Z'}, f)
+        os.makedirs(os.path.join(root, 'data', '20261114'))
+        with open(os.path.join(root, 'data', '20261114', 'build.tsv'), 'w') as f:
+            f.write('2026-11-14T05:00:00\tJuno\tyard\tplace\t1\t64\t2\tcobblestone\n' * 7)
+        calls = _run_video(TV, root, conf, ['progress'])
+        t.assertEqual(len(calls), 1, 'ONE clip')
+        view, stamps, extra = calls[0]
+        t.assertEqual((view, stamps), ('expeditions', [f'202611{d:02d}T{h:02d}00Z' for d in (14, 15) for h in (0, 6, 12, 18)]))
+        t.assertEqual((extra['newest_frame'], extra['day0'], extra['counts_from'], extra['blocks_placed'], extra['bucket_min']),
+                      ('20261115T2300Z', '2026-10-20', '2026-11-14', 7, 360))
+        kw = _run_video.kws[0]
+        t.assertTrue(kw['out'].endswith('/video/progress.mp4'))
+        t.assertTrue(kw.get('captions_for'), 'the clip draws its own lines')
+        t.assertEqual(kw['captions_for'](['20261114T0000Z', '20261114T0600Z']),
+                      [['Day 26   0 blocks placed, 0 projects finished since Nov 14'],
+                       ['Day 26   7 blocks placed, 0 projects finished since Nov 14']], 'the day counter and the running count on every frame')
+        out = os.path.join(root, 'video', 'progress.mp4')
+        open(out, 'wb').close()
+        with open(out + '.json', 'w') as f:
+            json.dump({'newest_frame': '20261115T2300Z'}, f)
+        t.assertEqual(_run_video(TV, root, conf, ['progress']), [], 'no new frame since: not encoded again')
+        os.makedirs(os.path.join(root, 'frames', 'expeditions', '20261116'))
+        open(os.path.join(root, 'frames', 'expeditions', '20261116', '20261116T0000Z.png'), 'wb').close()
+        t.assertEqual(len(_run_video(TV, root, conf, ['progress'])), 1, 'a new frame: rebuilt')
+    finally:
+        shutil.rmtree(root)
+    root, conf = _video_root({'topdown': hourly, 'town': hourly})
+    try:
+        calls = _run_video(TV, root, conf, ['progress'])
+        t.assertEqual([(c[0], c[2]['day0'], c[2]['counts_from']) for c in calls], [('topdown', '2026-11-14', None)],
+                      'no whole-area camera and no data: the town top-down, days counted from its first frame')
+        t.assertEqual(_run_video.kws[0]['captions_for'](['20261115T0600Z']), [['Day 2']])
+    finally:
+        shutil.rmtree(root)
+    with open(os.path.join(HERE, 'files', 'timers.txt')) as f:
+        t.assertIn('progress', [line.split()[0] for line in f if line.strip() and not line.startswith('#')],
+                   'the job has a timer line (provision-vm.sh writes showcase-video-progress.timer from it)')
+
+
+class SceneVideos(unittest.TestCase):
+    def test_scene_directories_are_not_cameras(self):
+        check_scene_directories_are_not_cameras(self, REAL)
+
+    def test_the_days_scenes_are_ranked_by_score(self):
+        check_the_days_scenes_are_ranked_by_score(self, REAL)
+
+    def test_each_frame_carries_its_own_caption_and_bots(self):
+        check_each_frame_carries_its_own_caption_and_bots(self, REAL)
+
+    def test_a_scene_clip_per_live_scene(self):
+        check_a_scene_clip_per_live_scene(self, REAL)
+
+    def test_the_reel_is_the_top_scenes_then_the_overview(self):
+        check_the_reel_is_the_top_scenes_then_the_overview(self, REAL)
+
+    def test_daily_builds_the_scene_clips_and_the_reel(self):
+        check_daily_builds_the_scene_clips_and_the_reel(self, REAL)
+
+    def test_the_progress_clip(self):
+        check_the_progress_clip(self, REAL)
+
+    def test_the_progress_job(self):
+        check_the_progress_job(self, REAL)
+
+
 # =================================================================================================== mutants
 MUTANTS = [
     # ---- part 1
@@ -1504,6 +1912,98 @@ MUTANTS = [
      'check_a_whole_slot_with_the_director_on'),
     ('tl_showcase.py', "        res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)",
      "        res = D.run(cfg, now, sites, stamp=None, frame=follow_camera, write=write)", 'check_a_whole_slot_with_the_director_on'),
+    # ---- part 3: the scene videos and the progress clip (tl_video.py)
+    ('tl_video.py', "             if not x.startswith('.') and not is_scene_view(x) and os.path.isdir(os.path.join(d, x))]",
+     "             if not x.startswith('.') and os.path.isdir(os.path.join(d, x))]", 'check_scene_directories_are_not_cameras'),
+    ('tl_video.py', "    return str(name).startswith(SCENE_PREFIXES)", "    return str(name).startswith('scene-')",
+     'check_scene_directories_are_not_cameras'),
+    ('tl_video.py', "            a['score'] += float(sc.get('score') or 0)", "            a['score'] = float(sc.get('score') or 0)",
+     'check_the_days_scenes_are_ranked_by_score'),
+    ('tl_video.py', "            if a['best'] is None or float(sc.get('score') or 0) > float(a['best'].get('score') or 0):",
+     "            if True:", 'check_the_days_scenes_are_ranked_by_score'),
+    ('tl_video.py', "    return sorted(out, key=lambda s: (-s['score'], s['id']))", "    return sorted(out, key=lambda s: s['id'])",
+     'check_the_days_scenes_are_ranked_by_score'),
+    ('tl_video.py', "            score, slots, by_stamp = sum(float(x.get('score') or 0) for x in sides), len(sides), {}",
+     "            score, slots, by_stamp = 0.0, len(sides), {}", 'check_the_days_scenes_are_ranked_by_score'),
+    ('tl_video.py', "        if not stamps or not sid:\n            continue", "        if not sid:\n            continue",
+     'check_the_days_scenes_are_ranked_by_score'),
+    ('tl_video.py', "            if isinstance(r, dict) and isinstance(r.get('scenes'), list):", "            if True:",
+     'check_the_days_scenes_are_ranked_by_score'),
+    ('tl_video.py', "        cap = side.get('caption') or slot.get('caption') or scene.get('caption')",
+     "        cap = slot.get('caption') or scene.get('caption')", 'check_each_frame_carries_its_own_caption_and_bots'),
+    ('tl_video.py', "        cap = side.get('caption') or slot.get('caption') or scene.get('caption')",
+     "        cap = side.get('caption') or scene.get('caption')", 'check_each_frame_carries_its_own_caption_and_bots'),
+    ('tl_video.py', "        bots = side.get('bots') or slot.get('bots') or scene.get('bots')", "        bots = scene.get('bots')",
+     'check_each_frame_carries_its_own_caption_and_bots'),
+    ('tl_video.py', "(f' +{len(bots) - shown}' if len(bots) > shown else '')", "''", 'check_each_frame_carries_its_own_caption_and_bots'),
+    ('tl_video.py', "        out.append([x for x in (caption_line(cap), caption_line(bots_line(bots))) if x])",
+     "        out.append([caption_line(cap), caption_line(bots_line(bots))])", 'check_each_frame_carries_its_own_caption_and_bots'),
+    ('tl_video.py', "        if len(sc['stamps']) < SCENE_MIN_FRAMES:\n            continue", "        if False:\n            continue",
+     'check_a_scene_clip_per_live_scene'),
+    ('tl_video.py', '''        mp4 = os.path.join(ROOT, 'video', f"{name}-scene-{sc['id']}.mp4")''',
+     '''        mp4 = os.path.join(ROOT, 'video', f"{name}-{sc['view']}.mp4")''', 'check_a_scene_clip_per_live_scene'),
+    ('tl_video.py', "extra=extra, captions_for=lambda kept, sc=sc: scene_captions(sc, kept, frame_side))", "extra=extra)",
+     'check_a_scene_clip_per_live_scene'),
+    ('tl_video.py', "    lines = load_lines() if captions_for is None else []", "    lines = load_lines()", 'check_a_scene_clip_per_live_scene'),
+    ('tl_video.py', "    caps = captions(kept, lines) if captions_for is None else captions_for(kept)", "    caps = captions(kept, lines)",
+     'check_a_scene_clip_per_live_scene'),
+    ('tl_video.py', "    src = src_fps_for(len(kept), lo=min(min_src_fps, max_src_fps), hi=max_src_fps)",
+     "    src = src_fps_for(len(kept), hi=max_src_fps)", 'check_a_scene_clip_per_live_scene'),
+    ('tl_video.py', "    for sc in day_scenes(stamps, rows, frame_side)[:SCENE_CLIPS_MAX]:", "    for sc in day_scenes(stamps, rows, frame_side)[1:SCENE_CLIPS_MAX]:",
+     'check_a_scene_clip_per_live_scene'),
+    ('tl_video.py', "          and s['view'] not in off and not is_scene_view(s['view'])}", "          and not is_scene_view(s['view'])}",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "          and s['view'] not in off and not is_scene_view(s['view'])}", "          and s['view'] not in off}",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "    if top:\n        return [s['view'] for s in top] + ([overview] if overview in ok else [])",
+     "    if False:\n        return [s['view'] for s in top] + ([overview] if overview in ok else [])",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "    if top:\n        return [s['view'] for s in top] + ([overview] if overview in ok else [])",
+     "    if top:\n        return ([overview] if overview in ok else []) + [s['view'] for s in top]",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "                 key=lambda s: (-(s.get('score') or 0), s['view']))[:n]", "                 key=lambda s: s['view'])[:n]",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "                 key=lambda s: (-(s.get('score') or 0), s['view']))[:n]", "                 key=lambda s: (-(s.get('score') or 0), s['view']))",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "    top = sorted((s for s in scenes if s.get('included', 0) >= SCENE_MIN_FRAMES and os.path.exists(s.get('out') or '')),",
+     "    top = sorted((s for s in scenes if os.path.exists(s.get('out') or '')),", 'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "    top = sorted((s for s in scenes if s.get('included', 0) >= SCENE_MIN_FRAMES and os.path.exists(s.get('out') or '')),",
+     "    top = sorted((s for s in scenes if s.get('included', 0) >= SCENE_MIN_FRAMES),", 'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "if ch.isalnum() or ch in ' -_,.')[:70] or view", "if True)[:70] or view", 'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "    what = ''.join(ch for ch in str((side or {}).get('title') or view)", "    what = ''.join(ch for ch in str(view)",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "    plan = plan_reel(sides, scenes=scenes, off=off)", "    plan = plan_reel(sides, off=off)",
+     'check_the_reel_is_the_top_scenes_then_the_overview'),
+    ('tl_video.py', "        scenes = build_scene_clips(name, lo, hi, sj)       # one clip per scene live that day (camdirector-01)",
+     "        scenes = []", 'check_daily_builds_the_scene_clips_and_the_reel'),
+    ('tl_video.py', "                scenes.append(dict(read_side(out), out=out))", "                pass",
+     'check_daily_builds_the_scene_clips_and_the_reel'),
+    ('tl_video.py', "scenes=scenes,\n                                    off=off_views(load_tl_conf()))))", "scenes=scenes)))",
+     'check_daily_builds_the_scene_clips_and_the_reel'),
+    ('tl_video.py', "print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'), scenes=scenes,\n                                        off=off)))",
+     "print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'), scenes=scenes)))",
+     'check_daily_builds_the_scene_clips_and_the_reel'),
+    ('tl_video.py', "PROGRESS_BUCKET_MIN = 360 ", "PROGRESS_BUCKET_MIN = 60 ", 'check_the_progress_clip'),
+    ('tl_video.py', "    for v in ([want] if want else []) + list(PROGRESS_VIEWS):", "    for v in list(PROGRESS_VIEWS):", 'check_the_progress_clip'),
+    ('tl_video.py', "PROGRESS_VIEWS = ('expeditions', 'grounds', 'topdown') ", "PROGRESS_VIEWS = ('topdown', 'grounds', 'expeditions') ",
+     'check_the_progress_clip'),
+    ('tl_video.py', "                    if len(c) >= 4 and c[3] == 'place':", "                    if len(c) >= 4:", 'check_the_progress_clip'),
+    ('tl_video.py', "if isinstance(r, dict) and r.get('cat') == 'project_done' and r.get('t'):", "if isinstance(r, dict) and r.get('t'):",
+     'check_the_progress_clip'),
+    ('tl_video.py', "    if first is None or t.date() < first:\n        return text", "    if first is None:\n        return text",
+     'check_the_progress_clip'),
+    ('tl_video.py', "    text = f'Day {(t.date() - day0).days + 1}'", "    text = f'Day {(t.date() - day0).days}'", 'check_the_progress_clip'),
+    ('tl_video.py', "    n, k = bisect.bisect_right(counts['placed'], upto), bisect.bisect_right(counts['done'], upto)",
+     "    n, k = len(counts['placed']), len(counts['done'])", 'check_the_progress_clip'),
+    ('tl_video.py', '''    since = '' if first <= day0 else f" since {first.strftime('%b %d')}"''', "    since = ''", 'check_the_progress_clip'),
+    ('tl_video.py', "        if seen and first is None:", "        if first is None:", 'check_the_progress_clip'),
+    ('tl_video.py', "REBUILD_KINDS = ('history', 'weekly', 'monthly', 'progress') ", "REBUILD_KINDS = ('history', 'weekly', 'monthly') ",
+     'check_the_progress_job'),
+    ('tl_video.py', "    st = sample(stamps, lo, hi, bucket)\n    out = os.path.join(ROOT, 'video', f'{name}.mp4')",
+     "    st = sample(stamps, lo, hi, 60)\n    out = os.path.join(ROOT, 'video', f'{name}.mp4')", 'check_the_progress_job'),
+    ('tl_video.py', "    day0 = frame0_day() or parse_stamp(stamps[0]).date()", "    day0 = parse_stamp(stamps[0]).date()", 'check_the_progress_job'),
+    ('tl_video.py', "                     captions_for=lambda kept: progress_captions(kept, day0, counts))", "                     )",
+     'check_the_progress_job'),
 ]
 KEY = {fn: k for k, fn in FILES.items()}
 

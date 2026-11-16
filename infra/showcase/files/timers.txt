@@ -3,3 +3,5 @@ daily   *-*-* 00:20:00
 weekly  Mon *-*-* 00:40:00
 history *-*-* 01:00:00
 monthly *-*-01 01:20:00
+# camdirector-01: ONE from-day-one top-down clip of the whole area (video/progress.mp4); skipped while its camera has no new frame
+progress *-*-* 01:40:00

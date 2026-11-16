@@ -1,5 +1,5 @@
 [Unit]
-Description=SHOWCASE timelapse video (%i: daily | weekly | history | monthly)
+Description=SHOWCASE timelapse video (%i: daily | weekly | history | monthly | progress)
 
 [Service]
 Type=oneshot

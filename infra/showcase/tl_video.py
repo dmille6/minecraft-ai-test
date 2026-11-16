@@ -5,6 +5,8 @@
     tl_video.py weekly  [--week-ending YYYY-MM-DD]  one frame per hour, the 7 days ending that day
     tl_video.py history                          one frame per hour, frame 0 to now
     tl_video.py monthly [--month YYYY-MM]        one frame per 4 h (default: last month; skipped while it has no frames)
+    tl_video.py progress                         ONE clip, video/progress.mp4: the whole area from above, one frame per 6 h
+                                                 from its first frame to now, with a day counter and running counts
 
 SAMPLING is per BUCKET: the first frame whose stamp falls inside [bucket start, bucket end); an empty bucket
 contributes nothing (it is not borrowed from a neighbour). Event frames (stamp-event-*) are never sampled.
@@ -40,8 +42,22 @@ NO WASTED REBUILDS (camdirector-01, owner 11-16 "videos of projects that are fin
 read tl.conf's cameras. A camera marked `off` gets no rebuild (its existing videos are left alone), and neither does a
 camera with no new frame since its last build of that video: the video's .json sidecar records `newest_frame`, the
 newest stored frame of the video's window when it was built (rebuild_skip). `daily` is unchanged.
+SCENES (camdirector-01): the activity director (tl_director.py) films what the bots are doing. Its frames live in
+frames/scene-<id>/ (surface, shot by tl_showcase) and frames/under-<id>/ (underground, drawn by tl_under.py); those
+directories are NOT cameras: they get no daily/weekly/history video of their own. `daily` builds one clip per scene
+that was live that day, daily/<day>-scene-<id>.mp4 (its frames in order, the scene's caption and its bots' names
+burned in by the same text layer the chat captions use), ranks the day's scenes by score (logs/scenes-<day>.jsonl,
+else the frames' sidecars) and builds the REEL from the top scenes, then the town overview. With no scene clip that
+day the reel is the reel it was. A camera tl.conf marks `off` (a finished project) never appears in a reel.
+PROGRESS: `progress` samples the whole-area top-down camera (tl.conf progress.view, else the first of expeditions /
+grounds / topdown that has frames) once per 6 h bucket from its first frame, and draws "Day N" (N from FRAME0.json,
+else the first frame) plus running counts read from what tl_extract.py already writes on this VM:
+    blocks placed       data/<YYYYMMDD>/build.tsv   rows whose column 4 (op) is `place`, time = column 1
+    projects finished   data/<YYYYMMDD>/chat.jsonl  lines whose `cat` is "project_done", time = field `t`
+Those extracts start on the day tl_extract was installed (11-10), so the counts say "since <that day>"; a frame
+older than the first extract, or a VM with no data/ at all, gets the day counter only.
 """
-import argparse, datetime as dt, fcntl, json, os, subprocess, sys, tempfile, time
+import argparse, bisect, datetime as dt, fcntl, json, os, subprocess, sys, tempfile, time
 
 ROOT = os.environ.get('TL_ROOT', '/srv/showcase/timelapse')
 VIEWS = ('angled', 'topdown')
@@ -54,6 +70,13 @@ HOLD_FIRST_S, HOLD_LAST_S = 0.5, 2.5
 BLEND = (64, 192)            # framerate interp_start/interp_end: the middle half of each step dissolves, the rest holds
 REEL_SEG_S = 9.0
 REEL_VIEWS = 4               # the overview + this many of the day's most active other views
+SCENE_PREFIXES = ('scene-', 'under-')   # frames/<prefix><id>/: a director scene's frames (surface / underground)
+SCENE_MIN_FRAMES = 2         # a scene with fewer frames in the day gets no clip
+SCENE_CLIPS_MAX = 12         # at most this many scene clips a day (the top scenes by score)
+SCENE_MIN_SRC_FPS = 1.0      # a scene has few frames (one per slot): play them slower than a camera's day
+SCENE_BOTS_SHOWN = 6
+PROGRESS_VIEWS = ('expeditions', 'grounds', 'topdown')    # whole-area top-down first, the town top-down last
+PROGRESS_BUCKET_MIN = 360    # one frame per 6 h
 RETAIN_FULL_DAYS = 14
 THIN_BELOW_FREE_GB = 80
 LEVEL = 12
@@ -79,7 +102,7 @@ def load_tl_conf(path=None):
         return {}
 
 
-REBUILD_KINDS = ('history', 'weekly', 'monthly')     # the videos rebuilt from stored frames under one name
+REBUILD_KINDS = ('history', 'weekly', 'monthly', 'progress')     # the videos rebuilt from stored frames under one name
 
 
 def off_views(cfg):
@@ -403,7 +426,11 @@ def small_gray(path):
     return p.stdout if p.returncode == 0 else b''
 
 
-def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS, smooth_job=None, extra=None):
+def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS, smooth_job=None, extra=None, captions_for=None,
+          min_src_fps=MIN_SRC_FPS):
+    """One clip of one frames directory. captions_for (kept stamps -> [[line, ...] per stamp]) replaces the chat
+    captions and the tally with its own lines (a scene's caption and bots, the progress counts), drawn by the same
+    text layer; min_src_fps lets a clip of few frames play slower."""
     os.makedirs(os.path.dirname(out_mp4), exist_ok=True)
     side = {'view': view, 'label': label, 'candidates': len(stamps), 'fps': OUT_FPS, 'level': LEVEL,
             'min_changed_frac': MIN_CHANGED_FRAC}
@@ -413,9 +440,9 @@ def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS, smooth_job=None
         json.dump(side, open(out_mp4 + '.json', 'w'), indent=1)
         return side
     kept, skipped, activity = dedup_scored(stamps, lambda s: small_gray(frame_path(ROOT, view, s)))
-    src = src_fps_for(len(kept), hi=max_src_fps)
-    lines = load_lines()
-    caps = captions(kept, lines)
+    src = src_fps_for(len(kept), lo=min(min_src_fps, max_src_fps), hi=max_src_fps)
+    lines = load_lines() if captions_for is None else []        # own captions: no chat lines, no tally
+    caps = captions(kept, lines) if captions_for is None else captions_for(kept)
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, 'video')) as tmp:
         # the TEXT is drawn on a transparent layer of its own and laid over AFTER the dissolve, so the stamp, captions
         # and tally switch crisply instead of ghosting through each other (11-03 proof clip)
@@ -474,47 +501,269 @@ def hold_sequence(n, src_fps, first_s=HOLD_FIRST_S, last_s=HOLD_LAST_S):
     return [1] * a + list(range(2, n)) + [n] * b if n > 1 else [1] * (a + b)
 
 
-def plan_reel(sides, overview=('hero4k', 'angled'), n=REEL_VIEWS, min_included=4):
-    """The daily reel's views, in order: the overview first (the first of `overview` that has frames: the 4K town hero
-    since tlpolish-1106, else angled), then the n other views with the most ACTIVITY (summed changed fraction) among
-    those with >= min_included kept frames; topdown never (it is the overview again from above). Pure (tested)."""
-    ok = {s['view']: s for s in sides if s.get('included', 0) >= min_included and os.path.exists(s.get('out') or '')}
+def plan_reel(sides, overview=('hero4k', 'angled'), n=REEL_VIEWS, min_included=4, scenes=(), off=()):
+    """The daily reel's views, in order.
+    WITH SCENE CLIPS (camdirector-01; scenes: build_scene_clips' sides, each with 'view', 'score', 'out'): the n top
+    scenes by score -- surface and underground alike -- then the town overview (the first of `overview` that has a
+    clip). Nothing else: the reel shows what the bots did.
+    WITHOUT: as before -- the overview first (the 4K town hero since tlpolish-1106, else angled), then the n other
+    views with the most ACTIVITY (summed changed fraction) among those with >= min_included kept frames; topdown never
+    (it is the overview again from above).
+    Either way a camera in `off` (tl.conf: a finished project) never appears, and a clip that is not on disk is left
+    out. Pure (tested)."""
+    ok = {s['view']: s for s in sides if s.get('included', 0) >= min_included and os.path.exists(s.get('out') or '')
+          and s['view'] not in off and not is_scene_view(s['view'])}
     prefs = (overview,) if isinstance(overview, str) else tuple(overview)
     overview = next((v for v in prefs if v in ok), prefs[-1])
+    top = sorted((s for s in scenes if s.get('included', 0) >= SCENE_MIN_FRAMES and os.path.exists(s.get('out') or '')),
+                 key=lambda s: (-(s.get('score') or 0), s['view']))[:n]
+    if top:
+        return [s['view'] for s in top] + ([overview] if overview in ok else [])
     rest = sorted((v for v in ok if v not in (overview, 'topdown')), key=lambda v: (-ok[v].get('activity', 0), v))
     return ([overview] if overview in ok else []) + [v for v in rest if ok[v].get('activity', 0) > 0][:n]
 
 
-def build_reel(name, sides, out_mp4, seg_s=REEL_SEG_S):
-    """One 1920x1080 reel: each planned view's daily clip sped up to fit seg_s, square views padded, a title on each,
-    0.4 s fades at the joins. -> sidecar dict."""
-    by = {s['view']: s for s in sides}
-    plan = plan_reel(sides)
-    side = {'label': name, 'views': plan}
-    if not plan:
-        side['note'] = 'no view had enough kept frames'
-        json.dump(side, open(out_mp4 + '.json', 'w'), indent=1)
-        return side
+def reel_title(view, side, name):
+    """A reel segment's title: a scene's caption, else the camera name; then the day. Only letters, digits, spaces
+    and - _ , . survive (it is quoted inside the filter string). Pure (tested)."""
+    what = ''.join(ch for ch in str((side or {}).get('title') or view) if ch.isalnum() or ch in ' -_,.')[:70] or view
+    return f'{what}  {name.split("/")[-1]}'
+
+
+def reel_cmd(name, plan, by, out, seg_s=REEL_SEG_S):
+    """The ffmpeg command of one 1920x1080 reel: each planned view's clip (by[view]: 'out', 'duration_s', 'title')
+    sped up to fit seg_s, square views padded, a title on each, 0.4 s fades at the joins. Pure (tested)."""
     cmd, parts = NICE + ['ffmpeg', '-loglevel', 'error', '-y'], []
     for k, v in enumerate(plan):
         d = float(by[v].get('duration_s') or seg_s)
         cmd += ['-i', by[v]['out']]
         speed = max(1.0, d / seg_s)
         seg = min(d, seg_s)
-        title = f'{v}  {name.split("/")[-1]}'
+        title = reel_title(v, by[v], name)
         parts.append(f"[{k}:v]setpts=PTS/{speed:.4f},trim=duration={seg:.2f},setpts=PTS-STARTPTS,fps={OUT_FPS},"
                      f"scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,"
                      f"drawtext=fontfile={CAPTION_FONT}:text='{title}':x=w-tw-28:y=28:fontsize=40:fontcolor=white:"
                      f"box=1:boxcolor=black@0.55:boxborderw=12,"
                      f"fade=t=in:st=0:d=0.4,fade=t=out:st={max(0.0, seg - 0.4):.2f}:d=0.4,setsar=1[v{k}]")
     fc = ';'.join(parts) + ';' + ''.join(f'[v{k}]' for k in range(len(plan))) + f'concat=n={len(plan)}:v=1:a=0[out]'
+    return cmd + ['-filter_complex', fc, '-map', '[out]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '21',
+                  '-threads', '2', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out]
+
+
+def build_reel(name, sides, out_mp4, seg_s=REEL_SEG_S, scenes=(), off=()):
+    """One 1920x1080 reel of the day (plan_reel, reel_cmd). -> sidecar dict."""
+    by = {s['view']: s for s in list(sides) + list(scenes)}
+    plan = plan_reel(sides, scenes=scenes, off=off)
+    side = {'label': name, 'views': plan, 'scenes': [by[v].get('scene') for v in plan if by[v].get('scene')]}
+    if not plan:
+        side['note'] = 'no view had enough kept frames'
+        json.dump(side, open(out_mp4 + '.json', 'w'), indent=1)
+        return side
     part = out_mp4 + '.part.mp4'
-    subprocess.run(cmd + ['-filter_complex', fc, '-map', '[out]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '21',
-                          '-threads', '2', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', part], check=True)
+    subprocess.run(reel_cmd(name, plan, by, part, seg_s), check=True)
     os.replace(part, out_mp4)
     side.update(bytes=os.path.getsize(out_mp4))
     json.dump(side, open(out_mp4 + '.json', 'w'), indent=1)
     return side
+
+
+# ---------------------------------------------------------------------------- scenes (camdirector-01, tl_director.py)
+def is_scene_view(name):
+    """frames/scene-<id> and frames/under-<id> hold a director scene's frames; they are not cameras. Pure (tested)."""
+    return str(name).startswith(SCENE_PREFIXES)
+
+
+def scene_id(view):
+    """'scene-s20261116T1245a' / 'under-d20261116T1245a' -> the scene id. Pure."""
+    return str(view).split('-', 1)[1] if is_scene_view(view) else None
+
+
+def scene_views(root=None):
+    """The scene frame directories on disk, sorted."""
+    d = os.path.join(root or ROOT, 'frames')
+    return sorted(x for x in (os.listdir(d) if os.path.isdir(d) else []) if is_scene_view(x) and os.path.isdir(os.path.join(d, x)))
+
+
+def load_scene_log(day, root=None):
+    """The director's slot rows of one UTC day (logs/scenes-<YYYYMMDD>.jsonl: the hand-off object, one line per slot).
+    A missing file or a bad line is simply absent."""
+    out = []
+    try:
+        f = open(os.path.join(root or ROOT, 'logs', f'scenes-{day}.jsonl'), errors='replace')
+    except OSError:
+        return out
+    with f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(r, dict) and isinstance(r.get('scenes'), list):
+                out.append(r)
+    return out
+
+
+def day_scenes(stamps_by_view, log_rows, side_of=lambda view, stamp: None):
+    """The scenes that have frames on a day, best first. stamps_by_view: {frames dir: [the day's stamps]} for the
+    scene directories; log_rows: load_scene_log's; side_of(view, stamp): a frame's sidecar or None.
+    A scene's SCORE is the sum of its score over the day's slots (the director's log: weighted bot-minutes, added up
+    slot by slot); with no log row for it, the sum of its frames' sidecar `score`. Its caption and bots are those of
+    its busiest slot. -> [{'id', 'view', 'layer', 'score', 'slots', 'caption', 'bots', 'stamps', 'by_stamp'}], where
+    by_stamp maps a slot's frame stamp to that slot's {caption, bots} (scene_captions falls back on it). Pure (tested)."""
+    logged = {}
+    for row in log_rows:
+        for sc in row.get('scenes') or ():
+            if not isinstance(sc, dict) or not sc.get('id'):
+                continue
+            a = logged.setdefault(sc['id'], {'score': 0.0, 'slots': 0, 'best': None, 'by_stamp': {}})
+            a['score'] += float(sc.get('score') or 0)
+            a['slots'] += 1
+            if a['best'] is None or float(sc.get('score') or 0) > float(a['best'].get('score') or 0):
+                a['best'] = sc
+            if row.get('stamp'):
+                a['by_stamp'][row['stamp']] = {'caption': sc.get('caption'), 'bots': list(sc.get('bots') or ())}
+    out = []
+    for view in sorted(stamps_by_view):
+        stamps = sorted(stamps_by_view[view])
+        sid = scene_id(view)
+        if not stamps or not sid:
+            continue
+        a = logged.get(sid)
+        if a:
+            best, score, slots, by_stamp = a['best'], a['score'], a['slots'], a['by_stamp']
+        else:                               # no log: the frames' own sidecars
+            sides = [x for x in (side_of(view, s) for s in stamps) if isinstance(x, dict)]
+            best = max(sides, key=lambda x: float(x.get('score') or 0), default={})
+            score, slots, by_stamp = sum(float(x.get('score') or 0) for x in sides), len(sides), {}
+        out.append({'id': sid, 'view': view, 'layer': best.get('layer') or ('surface' if view.startswith('scene-') else 'underground'),
+                    'score': round(score, 1), 'slots': slots, 'caption': best.get('caption') or '',
+                    'bots': list(best.get('bots') or ()), 'stamps': stamps, 'by_stamp': by_stamp})
+    return sorted(out, key=lambda s: (-s['score'], s['id']))
+
+
+def bots_line(bots, shown=SCENE_BOTS_SHOWN):
+    """['Alpha', 'Kite', ...] -> 'Alpha, Kite' (at most `shown` names, then '+N'). Pure (tested)."""
+    bots = [str(b) for b in bots or ()]
+    return ', '.join(bots[:shown]) + (f' +{len(bots) - shown}' if len(bots) > shown else '')
+
+
+def caption_line(text):
+    """One burned-in line: ASCII, capped (as caption_text does for the bots' chat lines). Pure."""
+    s = ''.join(c for c in str(text or '') if 32 <= ord(c) < 127)
+    return s if len(s) <= CAPTION_MAX_CHARS else s[:CAPTION_MAX_CHARS - 3] + '...'
+
+
+def scene_captions(scene, stamps, side_of=lambda view, stamp: None):
+    """The lines burned into each frame of a scene clip: [the caption, the bots' names] as they were AT THAT FRAME --
+    its sidecar (tl_showcase / tl_under write caption + bots), else that slot's row in the director's log, else the
+    scene's busiest slot. An empty line is left out. Pure (tested)."""
+    out = []
+    for s in stamps:
+        side = side_of(scene['view'], s) or {}
+        slot = (scene.get('by_stamp') or {}).get(s) or {}
+        cap = side.get('caption') or slot.get('caption') or scene.get('caption')
+        bots = side.get('bots') or slot.get('bots') or scene.get('bots')
+        out.append([x for x in (caption_line(cap), caption_line(bots_line(bots))) if x])
+    return out
+
+
+def build_scene_clips(name, lo, hi, smooth_job=None):
+    """`daily`: one clip per scene that has frames in [lo, hi) -- video/<name>-scene-<id>.mp4, the SCENE_CLIPS_MAX
+    best -- its caption and bots burned in. -> the clips' sides (each with out, title, score, scene, layer)."""
+    rows = load_scene_log(lo.strftime('%Y%m%d'))
+    stamps = {v: sample(all_stamps(v), lo, hi, None) for v in scene_views()}
+    out = []
+    for sc in day_scenes(stamps, rows, frame_side)[:SCENE_CLIPS_MAX]:
+        if len(sc['stamps']) < SCENE_MIN_FRAMES:
+            continue
+        mp4 = os.path.join(ROOT, 'video', f"{name}-scene-{sc['id']}.mp4")
+        extra = {'scene': sc['id'], 'layer': sc['layer'], 'score': sc['score'], 'title': sc['caption'], 'bots': sc['bots'],
+                 'slots': sc['slots']}
+        try:
+            side = build(sc['view'], sc['stamps'], mp4, name, smooth_job=smooth_job, min_src_fps=SCENE_MIN_SRC_FPS,
+                         extra=extra, captions_for=lambda kept, sc=sc: scene_captions(sc, kept, frame_side))
+        except subprocess.CalledProcessError as e:
+            print(json.dumps({'view': sc['view'], 'label': name, 'error': str(e)[:300]}))
+            continue
+        print(json.dumps(side))
+        out.append(dict(side, out=mp4))
+    return out
+
+
+# ------------------------------------------------------------------------------------- progress (camdirector-01)
+def progress_view(cfg, has_frames):
+    """The camera the progress clip is made from: tl.conf progress.view when it has frames, else the first of
+    PROGRESS_VIEWS (whole-area top-down first) that has; None when none has. has_frames(view) -> bool. Pure (tested)."""
+    want = ((cfg or {}).get('progress') or {}).get('view')
+    for v in ([want] if want else []) + list(PROGRESS_VIEWS):
+        if has_frames(v):
+            return v
+    return None
+
+
+def frame0_day(root=None):
+    """The UTC date of frame 0 (FRAME0.json: the empty world), or None."""
+    try:
+        with open(os.path.join(root or ROOT, 'FRAME0.json')) as f:
+            return parse_stamp(json.load(f)['stamp']).date()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def load_progress_counts(root=None):
+    """What tl_extract.py already wrote on this VM, as two sorted lists of times (ISO, seconds) and the first day that
+    has an extract: {'placed': [...], 'done': [...], 'from': date or None}.
+      placed  data/<YYYYMMDD>/build.tsv   every row whose column 4 (op) is `place`; its time is column 1
+      done    data/<YYYYMMDD>/chat.jsonl  every line whose `cat` is "project_done"; its time is field `t`
+    A missing directory or file contributes nothing (the clip then shows the day counter only)."""
+    d = os.path.join(root or ROOT, 'data')
+    placed, done, first = [], [], None
+    for day in sorted(os.listdir(d) if os.path.isdir(d) else []):
+        if len(day) != 8 or not day.isdigit():
+            continue
+        seen = False
+        try:
+            with open(os.path.join(d, day, 'build.tsv'), errors='replace') as f:
+                seen = True
+                for line in f:
+                    c = line.rstrip('\n').split('\t')
+                    if len(c) >= 4 and c[3] == 'place':
+                        placed.append(c[0][:19])
+        except OSError:
+            pass
+        try:
+            with open(os.path.join(d, day, 'chat.jsonl'), errors='replace') as f:
+                seen = True
+                for line in f:
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(r, dict) and r.get('cat') == 'project_done' and r.get('t'):
+                        done.append(str(r['t'])[:19])
+        except OSError:
+            pass
+        if seen and first is None:
+            first = dt.date(int(day[:4]), int(day[4:6]), int(day[6:8]))
+    return {'placed': sorted(placed), 'done': sorted(done), 'from': first}
+
+
+def progress_text(t, day0, counts):
+    """The line burned into a progress frame taken at t: 'Day 27', and from the first day the extracts cover also
+    '12,480 blocks placed, 9 projects finished since Nov 10'. Pure (tested)."""
+    text = f'Day {(t.date() - day0).days + 1}'
+    first = (counts or {}).get('from')
+    if first is None or t.date() < first:
+        return text
+    upto = t.strftime('%Y-%m-%dT%H:%M:%S')
+    n, k = bisect.bisect_right(counts['placed'], upto), bisect.bisect_right(counts['done'], upto)
+    since = '' if first <= day0 else f" since {first.strftime('%b %d')}"
+    return (f"{text}   {n:,} block{'' if n == 1 else 's'} placed, {k} project{'' if k == 1 else 's'} finished{since}")
+
+
+def progress_captions(stamps, day0, counts):
+    """build()'s captions_for for the progress clip: one line per frame. Pure (tested)."""
+    return [[caption_line(progress_text(parse_stamp(s), day0, counts))] for s in stamps]
 
 
 def thin_plan(stamps, today, retain_days=RETAIN_FULL_DAYS, usable=lambda s: True):
@@ -562,7 +811,7 @@ def thin(apply=False, today=None, below_gb=THIN_BELOW_FREE_GB, retain_days=RETAI
     total, nbytes, removed = 0, 0, 0
     act = apply and free < below_gb
     unverified = 0
-    for v in video_views():
+    for v in list(video_views()) + scene_views():          # the scene directories are thinned like any camera
         d = os.path.join(ROOT, 'frames', v)
         st = []
         for day in (os.listdir(d) if os.path.isdir(d) else []):
@@ -599,9 +848,11 @@ def video_order(views, hero=HERO_VIEWS):
 
 def video_views(root=None):
     """The pair, then every extra camera: the EXTRA list plus any frames/<view>/ directory (a new camera in tl.conf needs
-    no edit here). Hidden dirs (.staging) are not views. Pure given the filesystem."""
+    no edit here). Hidden dirs (.staging) are not views, and neither are the director's scene directories (scene-<id>,
+    under-<id>: build_scene_clips makes their clips). Pure given the filesystem."""
     d = os.path.join(root or ROOT, 'frames')
-    found = [x for x in (os.listdir(d) if os.path.isdir(d) else []) if not x.startswith('.') and os.path.isdir(os.path.join(d, x))]
+    found = [x for x in (os.listdir(d) if os.path.isdir(d) else [])
+             if not x.startswith('.') and not is_scene_view(x) and os.path.isdir(os.path.join(d, x))]
     return VIEWS + tuple(sorted((set(EXTRA) | set(found)) - set(VIEWS)))
 
 
@@ -659,6 +910,8 @@ def window(kind, a, now):
         return lo, hi, 240, f'monthly/{y:04d}-{m:02d}'
     if kind == 'history':
         return dt.datetime(2000, 1, 1, tzinfo=utc), now, 60, 'history'
+    if kind == 'progress':          # from day one, one frame per 6 h (buckets start at 00, 06, 12, 18 UTC)
+        return dt.datetime(2000, 1, 1, tzinfo=utc), now, PROGRESS_BUCKET_MIN, 'progress'
     raise ValueError(kind)
 
 
@@ -675,13 +928,43 @@ def frame_one(view, stamp, out):
     return 0
 
 
+def build_progress(conf, off, lo, hi, bucket, name, smooth_job=None):
+    """`progress`: video/progress.mp4 from the whole-area top-down camera, one frame per 6 h, "Day N" and the running
+    counts on every frame. Not rebuilt while its camera has no new frame (rebuild_skip). -> exit code."""
+    view = progress_view(conf, lambda v: bool(all_stamps(v)))
+    if view is None:
+        print(json.dumps({'label': name, 'skipped': f'no frames in any of {list(PROGRESS_VIEWS)}'}))
+        return 0
+    stamps = all_stamps(view)
+    st = sample(stamps, lo, hi, bucket)
+    out = os.path.join(ROOT, 'video', f'{name}.mp4')
+    newest = newest_stamp(stamps, lo, hi)
+    skip, why, backfill = rebuild_skip('progress', view, off, newest, st, read_side(out), os.path.isfile(out))
+    if skip:
+        print(json.dumps({'view': view, 'label': name, 'skipped': why}))
+        return 0
+    counts = load_progress_counts()
+    day0 = frame0_day() or parse_stamp(stamps[0]).date()
+    extra = {'newest_frame': newest, 'bucket_min': bucket, 'day0': day0.isoformat(),
+             'counts_from': counts['from'].isoformat() if counts['from'] else None,
+             'blocks_placed': len(counts['placed']), 'projects_finished': len(counts['done'])}
+    try:
+        side = build(view, st, out, name, max_src_fps=FPS, smooth_job=smooth_job, extra=extra,
+                     captions_for=lambda kept: progress_captions(kept, day0, counts))
+    except subprocess.CalledProcessError as e:
+        print(json.dumps({'view': view, 'label': name, 'error': str(e)[:300]}))
+        return 1
+    print(json.dumps(side))
+    return 0
+
+
 def main():
     if len(sys.argv) == 5 and sys.argv[1] == 'frame':
         return frame_one(sys.argv[2], sys.argv[3], sys.argv[4])
     if len(sys.argv) >= 2 and sys.argv[1] == 'thin':
         return thin(apply='--apply' in sys.argv[2:])
     ap = argparse.ArgumentParser()
-    ap.add_argument('kind', choices=['daily', 'weekly', 'history', 'monthly', 'reel'])
+    ap.add_argument('kind', choices=['daily', 'weekly', 'history', 'monthly', 'reel', 'progress'])
     ap.add_argument('--day')
     ap.add_argument('--week-ending')
     ap.add_argument('--month')
@@ -693,12 +976,17 @@ def main():
         print(f'monthly {name}: SKIP -- no frames in that month yet')
         return 0
     if a.kind == 'reel':          # the reel alone, from the day's clips already built (their sidecars)
-        sides = []
+        sides, scenes = [], []
         for v in video_views():
             out = os.path.join(ROOT, 'video', f'{name}-{v}.mp4')
             if os.path.isfile(out + '.json'):
                 sides.append(dict(json.load(open(out + '.json')), out=out))
-        print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'))))
+        for v in scene_views():
+            out = os.path.join(ROOT, 'video', f'{name}-scene-{scene_id(v)}.mp4')
+            if os.path.isfile(out + '.json'):
+                scenes.append(dict(read_side(out), out=out))
+        print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'), scenes=scenes,
+                                    off=off_views(load_tl_conf()))))
         return 0
     # the deadline is fixed at the job's START, before waiting for the lock (Codex r1: a job that got the lock after
     # 23:45 would otherwise get tomorrow's deadline and run into its service timeout)
@@ -706,11 +994,13 @@ def main():
     off = off_views(conf)
     sj = SmoothJob(smooth_on(conf, a.kind), smooth_deadline(dt.datetime.now(dt.timezone.utc)))
     # ONE video job at a time (daily 00:20 and history 01:00 would otherwise share the night's CPU and deadline)
-    if a.kind in SMOOTH_KINDS:
+    if a.kind in SMOOTH_KINDS or a.kind == 'progress':
         os.makedirs(os.path.join(ROOT, 'logs'), exist_ok=True)
         lockf = open(os.path.join(ROOT, 'logs', 'video.lock'), 'a+')
         fcntl.flock(lockf, fcntl.LOCK_EX)
     rc, sides = 0, []
+    if a.kind == 'progress':
+        return build_progress(conf, off, lo, hi, bucket, name, sj)
     for v in video_order(video_views()):
         stamps = all_stamps(v)
         if not stamps:
@@ -738,8 +1028,10 @@ def main():
             print(json.dumps({'view': v, 'label': name, 'error': str(e)[:300]}))
             rc = 1
     if a.kind == 'daily':
+        scenes = build_scene_clips(name, lo, hi, sj)       # one clip per scene live that day (camdirector-01)
         try:
-            print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'))))
+            print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'), scenes=scenes,
+                                        off=off)))
         except subprocess.CalledProcessError as e:
             print(json.dumps({'view': 'reel', 'label': name, 'error': str(e)[:300]}))
             rc = 1
