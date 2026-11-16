@@ -213,7 +213,8 @@ await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' le
   one(sk, "dispose_well: \\{ run: \\(ctx, a, signal\\) => withOverCap\\(ctx, \\(\\) => disposeWell\\(ctx, a, signal\\)\\)", 'the over_cap row wraps the well')
   one(sk, "if \\(k\\.over\\) logEvent\\(\\{ kind: 'yard_over_cap'", 'only a kind FULL at its cap is logged over_cap')
   one(sk, "logEvent\\(\\{ kind: 'yard_lanes', status: 'success'", 'the licence row')
-  one(ft, 'try \\{ yardLanesInstall\\(bot\\) \\}', 'installed at spawn')
+  one(sk, 'try \\{ yardLanesInstall\\(bot\\) \\} catch', 'installed at spawn (inside bagRoomInstall)')
+  one(ft, 'try \\{ bagRoomInstall\\(bot\\) \\}', 'which features.mjs calls once per spawn')
 })
 
 if (failed) { console.log(`\n${failed} FAILED`); process.exit(1) }

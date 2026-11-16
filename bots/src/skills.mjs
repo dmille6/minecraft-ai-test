@@ -19298,6 +19298,7 @@ export function bagRoomInstall (bot) {
   if (BAGROOM.share || BAGROOM.bank) setRoomAsk(roomAsk)
   try { logEvent({ kind: 'bagroom_mode', status: 'success', snapshot: snapshot(bot), detail: bagRoomModeDetail(BAGROOM) }) } catch { /* telemetry */ }
   try { logEvent({ kind: 'bagfix', status: 'success', snapshot: snapshot(bot), detail: bagfixModeDetail(BAGFIX) }) } catch { /* telemetry */ }
+  try { yardLanesInstall(bot) } catch { /* the yard as before */ }   // yardlanes-01: with the bag's install (features.mjs calls this once per spawn)
 }
 /** THE SHARE-BANK VISIT (build_shop { shareBank }): each held share banked (materials chests first: matsBank's `prefer`), its drawn
  *  record reduced by what went, one `_share_bank` row. Never a build, never a draw. */
