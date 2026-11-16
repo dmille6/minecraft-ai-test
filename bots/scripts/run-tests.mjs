@@ -112,6 +112,17 @@ function run (file) {
              // `BUILDRETRY= VISIT_WAIVER=`, is left as it is: unset to the functions, so MEMORY_POOL decides)
              BUILDRETRY: process.env.BUILDRETRY ?? 'off',
              VISIT_WAIVER: process.env.VISIT_WAIVER ?? 'off',
+             // one trunk (DECISIONS row 3): the fleet's band dispose (IDLEWORK_WELL, well.mjs wellBandOn) defaults by pool the same way.
+             // The showcase line's tests pin the well order below 34 slots WITHOUT it (bagroom.test.mjs), so the suite's default is
+             // off; the fleet tests of the band pass `bandOn` themselves, and visitswitch.test.mjs asserts the shipped default
+             IDLEWORK_WELL: process.env.IDLEWORK_WELL ?? 'off',
+             // one trunk (DECISIONS row 4): escdead-01 (b)'s craft-room relaxation (CRAFTSPARE, craftroom.mjs craftSpareOn), the same
+             // way. The showcase line's craft-room tests pin its rebuild rule WITHOUT it; escdead.test.mjs sets it at its top
+             CRAFTSPARE: process.env.CRAFTSPARE ?? 'off',
+             // one trunk (DECISIONS row 2): idlework-01 B's project stamp at the build order (UNSITEDWAIT, shop.mjs unsitedWaitOn), the
+             // same way. The showcase line's tests pin sinkfix-03's own-plot rule WITHOUT it (sinkfix3.test.mjs); shop.test.mjs's one
+             // fleet test of the stamp turns it on for itself
+             UNSITEDWAIT: process.env.UNSITEDWAIT ?? 'off',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.

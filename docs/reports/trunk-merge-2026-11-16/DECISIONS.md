@@ -23,6 +23,15 @@ stuckfleet03 pass. Reason given for the showcase default: its line already defer
 waiver would hide the cells planvalid and tidyflow are meant to repair; the waiver may be tried there later as an
 experiment with its own read.
 
+**Rows 2, 3 and 4 are SETTLED the same way (pool differences as flags, the plan's C1 wording):** `UNSITEDWAIT`
+(`shop.mjs unsitedWaitOn`, row 2), `IDLEWORK_WELL` (`well.mjs wellBandOn`, row 3) and the new `CRAFTSPARE`
+(`craftroom.mjs craftSpareOn`, row 4): off in the showcase pool, on elsewhere, an env value overrides. shop 82/82,
+sinkfix3, junkout 29/29, bagroom, craft-room 112/112 and escdead 33/33 pass. Compared against the showcase sha's own
+functions in the showcase pool: 0 of 80,000 `craftRoomRemedy` calls and 0 of 60,000 `buildOrder` calls differ.
+Not whole on the fleet side: row 2 carries only the ORDER's part of the fleet rule (the stamp writer and the picker mark
+are not on the branch), so a fleet pool is better on `UNSITEDWAIT=off` until they are; `disposeWell`'s visit-side band
+is still missing (one subtest of `idlework2.test.mjs`).
+
 | 7 | snow on a build cell (`stuckcells.test.mjs`, two subtests) | A cell under snow is "blocked without properties" | gkunblock-01 digs snow (`snow` in `FOREIGN_CLEAR`), so the same cell ends `complete` | NOT chosen: the showcase digs; the two fleet subtests are RED | Found while building the switches | none |
 
 ## Fleet tests the showcase line has replaced with its own piece
@@ -46,6 +55,15 @@ commit that names the showcase piece, or shown not to be covered after all. None
 | gkforever | gkhelpers `a3fed85e0`, country `8db58556b`, roughground `44e3717ac` | KEPT, skipped with a reason, same condition |
 | shop S1 idlework-01 B (one assertion) | sinkfix-03 `305057d03` (row 2 above) | yes |
 | junkout (one assertion) | bagroom-01 (row 3 above) | yes |
+
+## THE LARGEST OPEN QUESTION: what the trunk newly turns ON for the showcase
+
+The merge keeps every fleet-only change that did not conflict. So the trunk, run in the showcase pool, is the showcase's
+code PLUS every fleet piece promoted since the two lines parted that the showcase never had, each at its own default.
+Example found by accident: escdead-01 (`ESCDEAD_ON` in `toolfor.mjs`: 8 lines on main, 0 at the showcase sha), whose
+pinned last swing is on in the showcase pool on this branch. Nobody has listed these yet. Until each is either defaulted
+off for the showcase pool or accepted by the control session, releasing the trunk to the showcase is not one change, it
+is all of them at once, which the showcase's one-change-at-a-time rule forbids. This list is owed before any release.
 
 Also noted, not contradictions:
 - `TOWNMINE_DEFAULT_POOLS` is the showcase's `'showcase'`; the fleet's `'*'` was set aside by the first pass. As it

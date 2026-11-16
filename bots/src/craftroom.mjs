@@ -268,8 +268,32 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
  * review round 2).
  */
 export const MIN_SURVIVOR_USES = 2
-/** What a pickaxe's head is made of, by the craft's name: 3 of ONE of these (a recipe is not asked to mix them). */
+/**
+ * ESCDEAD-01 (b), the one usable-pickaxe rule (toolfor.mjs usablePickaxes): a copy at one use is worth one PINNED last swing
+ * and nothing else (no work dig and no unpinned escape swings it). So with escdead on, a 1-use copy may be worn out while
+ * ANOTHER pickaxe copy with at least one use stays: the pinned escape keeps its last swing, and the hand breaks every block
+ * an escape breaks (handcap-01, digbudget). hive-c-Bravo, 11-06: two iron_pickaxes at 249/250, 36/36 slots, 72 refusals
+ * "no spent tool that can be spared (the last digging pickaxe is kept)" while making planks for a new pickaxe.
+ * ESCDEAD=0: the base survivor (>= MIN_SURVIVOR_USES uses).
+ */
 export const survivorUses = (on = ESCDEAD_ON) => (on ? 1 : MIN_SURVIVOR_USES)
+/**
+ * ONE TRUNK (control session 11-16, trunk-merge DECISIONS row 4): THAT RELAXATION IS BY POOL. For a bag whose every pickaxe is on
+ * its last use the two lines decide differently: the fleet's rule above lets ANY craft wear one copy while another stays
+ * (hive-c-Bravo), the showcase's rebuild rule below lets only a craft that ENDS in a pickaxe whose stock is in the bag (Frost),
+ * and refuses the rest with the one craft that runs from there (craftRoomRefusal). Both stay. The relaxation is OFF by default in
+ * the showcase pool -- craftRoomRemedy is then that line's function exactly: the 2-use survivor, 'replaced', then the rebuild --
+ * and ON in every other pool, as the fleet has it. CRAFTSPARE=on|1|true|yes forces it on anywhere, =off|0|false|no off anywhere
+ * (well.mjs wellBandOn's convention). It is the craft room's part of escdead-01 only: ESCDEAD=0 still turns the whole piece off,
+ * this part with it, and nothing else of escdead-01 reads this switch. Pure.
+ */
+export function craftSpareOn (env = process.env) {
+  const v = String(env?.CRAFTSPARE ?? '').trim().toLowerCase()
+  if (['0', 'off', 'false', 'no'].includes(v)) return false
+  if (['1', 'on', 'true', 'yes'].includes(v)) return true
+  return String(env?.MEMORY_POOL ?? '').trim() !== 'showcase'
+}
+/** What a pickaxe's head is made of, by the craft's name: 3 of ONE of these (a recipe is not asked to mix them). */
 const PICKAXE_HEAD = Object.freeze({
   stone_pickaxe: ['cobblestone', 'cobbled_deepslate', 'blackstone'],
   iron_pickaxe: ['iron_ingot'], golden_pickaxe: ['gold_ingot'], diamond_pickaxe: ['diamond'],
@@ -300,7 +324,7 @@ export function pickaxeStockHeld (items = [], pickaxe = '') {
  * may go -- lowest tier first -- while ANOTHER 1-use copy stays: the last swing is never the price (Codex's rule above,
  * kept). Never with a pickaxe of 2+ uses in the bag: that bag is the rules' above.
  */
-export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on, escdead = ESCDEAD_ON, goal = null } = {}) {
+export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on, escdead = ESCDEAD_ON && craftSpareOn(), goal = null } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const min = survivorUses(escdead)
   const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= min)
