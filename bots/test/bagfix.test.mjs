@@ -405,6 +405,39 @@ await t('the confirmed pass uses the registry\'s size too: a 16-stack destinatio
   one(sk, 'const n = Number\\(bot\\?\\.registry\\?\\.itemsByName\\?\\.\\[name\\]\\?\\.stackSize\\); return Number\\.isInteger\\(n\\) && n >= 1 \\? n : 1', 'an unknown size is 1')
 })
 
+// ---- M, Paper proof 11-16: an interrupt between a merge click and its probe -------------------------------------------------------------
+await t('INTERRUPTED AFTER A MERGE CLICK, BEFORE ITS PROBE: the row credits what left the bag -- 4 after the first merge, 8 after the second (Paper: `banked -`, `bagdelta 0`)', async () => {
+  // LIVE (Paper): chest 60 + 60 coal partials and one free... here: 20 coal onto two partials of 60, the skill aborted in the probe
+  for (const [abortAtConfirm, want] of [[2, 4], [3, 8]]) {
+    const sv = server({ chest: fullChest({ 3: { name: 'coal', count: 60 }, 5: { name: 'coal', count: 60 } }), bagSlots: { [FROM]: { name: 'coal', count: 20 }, [TOOL]: { name: 'iron_pickaxe', count: 1 } } })
+    const open = { coal: 20, iron_pickaxe: 1 }
+    const io = { ...sv.io, confirm: async () => { if (sv.confirms + 1 === abortAtConfirm) { sv.confirms++; throw Object.assign(new Error('interrupted'), { aborted: true }) } return sv.io.confirm() } }
+    const step = { slot: 12, name: 'coal', count: 20, merges: [{ dest: 3, n: 4 }, { dest: 5, n: 4 }], dest: null }
+    let moves = null
+    await assert.rejects(async () => { moves = (await BF.runMerge(io, step, FROM)).moves }, /interrupted/, 'the interrupt passes through: no move is returned for the click it cut off')
+    sv.settle(FROM)   // the caller's settle (every exit), then the bag as the server holds it
+    const end = { coal: sv.slots.reduce((t, x, k) => t + (k >= CH && x?.name === 'coal' ? x.count : 0), 0), iron_pickaxe: 1 }
+    assert.equal(sv.cursor, null); assert.equal(sv.total('coal'), 140, 'conserved')
+    assert.deepEqual(BF.lossCredit({ banked: {}, before: {}, open, end }), { coal: want }, `the row credits ${want}`)
+  }
+})
+await t('lossCredit: never less than what left the bag, never a second time; no server bag, no change; MUTANT: the loss dropped', async () => {
+  const sc = M => {
+    assert.deepEqual(M.lossCredit({ banked: { coal: 4 }, before: {}, open: { coal: 20 }, end: { coal: 12 } }), { coal: 8 }, 'credited 4, lost 8: 8')
+    assert.deepEqual(M.lossCredit({ banked: { coal: 8 }, before: {}, open: { coal: 20 }, end: { coal: 12 } }), { coal: 8 }, 'already whole: unchanged')
+    assert.deepEqual(M.lossCredit({ banked: { coal: 30 }, before: { coal: 30 }, open: { coal: 20 }, end: { coal: 16 } }), { coal: 34 }, 'an earlier container\'s 30 stand; this one adds its 4')
+    assert.deepEqual(M.lossCredit({ banked: { torch: 11 }, before: {}, open: { coal: 20, torch: 11 }, end: { coal: 20 } }), { torch: 11 }, 'nothing lost of coal: nothing credited')
+    assert.deepEqual(M.lossCredit({ banked: { coal: 4 }, before: {}, open: { coal: 20 }, end: null }), { coal: 4 }, 'no answered probe: the tally as it is')
+    assert.deepEqual(M.lossCredit({ banked: {}, before: {}, open: { coal: 20 }, end: { coal: 26 } }), {}, 'a bag that GAINED credits nothing')
+  }
+  await killedBy(BAGFIX_PATH, BF, "    if (lost > 0) out[name] = Math.max(Number(out[name]) || 0, (Number(before?.[name]) || 0) + lost)\n", '', sc)
+  const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  one(sk, 'if \\(ev\\?\\.answered && !ev\\.decodeFailed && ev\\.cursorEmpty\\) \\{ bagEnd = held\\(windowBag\\(bot, win\\)\\); serverBag = bagEnd \\}', 'the end bag is read after the settle, on the server\'s word, and is bagdelta\'s')
+  one(sk, 'if \\(!returned && bagEnd\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: bagOpen, end: bagEnd \\}\\)\\)', 'an abort or a throw is credited in the finally')
+  one(sk, 'if \\(bagEnd\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: bagOpen, end: bagEnd \\}\\)\\)', 'a stop is credited after the re-open')
+  assert.ok(sk.indexOf('settled = await settleCursor(bot, win)\n') < sk.indexOf('bagEnd = held(windowBag(bot, win))'), 'after the settle')
+})
+
 // ---- D: carried chests ---------------------------------------------------------------------------------------------------------
 console.log('D: CARRIED CHESTS')
 const CF = await import('../src/chestfull.mjs')

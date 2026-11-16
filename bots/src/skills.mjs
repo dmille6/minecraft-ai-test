@@ -284,7 +284,7 @@ import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's as
 import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
-import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
+import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -9110,12 +9110,26 @@ async function townDeposit (ctx, _args, signal) {
       const own = ownInventory(bot, win)
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
+      // bagfix-01 M (Paper 11-16): the bag at this open, the tally before it, and -- read after the settle -- the bag at the end (below)
+      const bagOpen = held(windowBag(bot, win)), bankedAt = { ...banked }
+      let bagEnd = null, returned = false
       try {
         r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
+        returned = true
       } finally {
         settled = await settleCursor(bot, win)
+        // bagfix-01 M (Paper 11-16): THE BAG AS THE SERVER HOLDS IT AFTER THE SETTLE -- a cursor probe answered EMPTY refreshes the window,
+        // so what the bag lost since the open is in the chest. Read on every exit; on an abort or a throw (`returned` false) it is the
+        // credit itself (bagfix.mjs lossCredit: never less than what left the bag), and `bagdelta` reads this bag
+        try {
+          if (BAGFIX.merge && settled.state !== 'unresolved' && bot.currentWindow === win && typeof bot?.craftSync?.confirmCursor === 'function') {
+            const ev = await confirmCursor(bot, win, { deadline: Date.now() + 1_500 })
+            if (ev?.answered && !ev.decodeFailed && ev.cursorEmpty) { bagEnd = held(windowBag(bot, win)); serverBag = bagEnd }
+          }
+        } catch { /* no evidence: the tally as it is */ }
+        if (!returned && bagEnd) Object.assign(banked, lossCredit({ banked, before: bankedAt, open: bagOpen, end: bagEnd }))
         // THE RUN'S CLAIMS, released after the settle: the window's count, or (held) a dirty mark for the container
         try { if (reservedHere.length || r.done?.length) await cobbleObserve(bot, c.position, win, { releaseAll: reservedHere, dirtyIfLost: true, lost: settled.state === 'unresolved' }) } catch { /* the claims stay live: conservative */ }
         if (ixDirty) { if (settled.state === 'unresolved') indexHold(bot, win, c.position, 'town_deposit', ixOp); else townIndexDirty(bot, c.position, 'town_deposit', 'post', ixOp) }
@@ -9144,6 +9158,8 @@ async function townDeposit (ctx, _args, signal) {
         banked[step.name] = (banked[step.name] ?? 0) + step.count; stacks++
         if (it.maxDurability) tools.push(`${step.name}@${it.maxDurability - (it.durabilityUsed ?? 0)}`)
       }
+      // bagfix-01 M: a merge that landed and was not credited (its probe unanswered, a stop) is credited by the bag's own loss
+      if (bagEnd) Object.assign(banked, lossCredit({ banked, before: bankedAt, open: bagOpen, end: bagEnd }))
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       // towndeposit-02: NO EMPTY SLOT AT ALL is remembered `full` for the town (both halves), as the deposit's recovery does --
       // the next visit's townContainers and the recovery's sweep skip it until FULL_TTL_MS or a `took`
