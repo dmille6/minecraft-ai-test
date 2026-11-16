@@ -820,7 +820,9 @@ await t('THE ROLLBACK (Codex 3): cottage4 never sited + off -> not offered, the 
 
 console.log('8d. REVIEW r2 (Codex): A TOWN WITH NO LAYOUT IS THE BASE IN THE STATUS PASS, ANSWERS AND READS ALIKE')
 // the base release b2b10bb8, this same child scenario run on its source 11-13 (the showcase pool, home 0 and home 400 alike):
-const BASE = Object.freeze({ projects: 40, A: 213, S: 171, heads: 41, pickFree: 'cottage2', pickHeld: 'cottage3' })
+// yardlanes-01 (bagfix-02show, 11-16): the showcase pool has three more projects (yard2, yard3, yard4: unsited here), so three more
+// records in each read of the town's records -- 40 -> 43 projects, 213 -> 228 and 171 -> 183 recordHead calls, 41 -> 44 heads; the picks unchanged
+const BASE = Object.freeze({ projects: 43, A: 228, S: 183, heads: 44, pickFree: 'cottage2', pickHeld: 'cottage3' })
 const NOLAYOUT = { MEMORY_POOL: 'showcase', HOME_X: '400' }   // the showcase's switches, re-homed: no layout entry
 await t('(a) NO LAYOUT, the reviewer\'s sequence through the real status pass and the real activeProject: the BASE\'s pick (cottage3) and the BASE\'s recordHead counts', () => {
   for (const env of [NOLAYOUT, { ...NOLAYOUT, HOMEPLOTS: 'off' }, { ...NOLAYOUT, HOMEPLOTS: 'on' }]) {
