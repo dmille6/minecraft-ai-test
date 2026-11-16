@@ -1074,7 +1074,7 @@ export function wellOrder (args = {}) {
   return { order: null, state: { ...(args.state ?? {}), lastScanAt: r.state.lastScanAt }, held: { skill: r.order.skill, ...deep } }
 }
 function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
-                             buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null, bagRoom = BAGROOM.well } = {}) {
+                             buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null, bagRoom = BAGROOM.well, bandOn = WELL_BAND.on } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -1083,7 +1083,11 @@ function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, b
   if (lazy(inside)) return none()
   const closeReady = now - (s.lastCloseAt ?? -Infinity) >= CLOSE_COOLDOWN_MS && now >= (s.closeBackoffUntil ?? 0)
   const disposeReady = now - (s.lastDisposeAt ?? -Infinity) >= DISPOSE_COOLDOWN_MS && now >= (s.disposeBackoffUntil ?? 0) &&
-                       (slots >= TRIGGER_SLOTS || wellRoomDue({ on: bagRoom, freeSlots, junkStacks })) && junkStacks > 0
+                       // one trunk (DECISIONS row 3): the same early dispose under each line's own switch -- the showcase's (BAGROOM_WELL,
+                       // bagroom.mjs: off unless set) and the fleet's band (IDLEWORK_WELL, wellBandOn above: off in the showcase pool, on in
+                       // every other). Each rule is whole, so each line's mutant removes its own
+                       ((slots >= TRIGGER_SLOTS || wellRoomDue({ on: bagRoom, freeSlots, junkStacks })) ||
+                        (slots >= TRIGGER_SLOTS || wellBandDue({ on: bandOn, slots, junkStacks }))) && junkStacks > 0
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= WELL_BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
   if (!closeReady && !disposeReady && !buildReady) return none()
   if (now - (s.lastScanAt ?? -Infinity) < WELL_SCAN_MS) return none()
@@ -1106,7 +1110,7 @@ function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, b
     }
     if (disposeReady) {
       s.lastDisposeAt = now
-      return { order: { skill: 'dispose_well', args: {}, why: `at town with ${slots} of 36 slots used; ${junkStacks} stack(s) of junk with no use${slots < TRIGGER_SLOTS ? ' (bagroom: the build needs the room)' : ''}` }, state: s }
+      return { order: { skill: 'dispose_well', args: {}, why: `at town with ${slots} of 36 slots used; ${junkStacks} stack(s) of junk with no use${slots < TRIGGER_SLOTS && wellRoomDue({ on: bagRoom, freeSlots, junkStacks }) ? ' (bagroom: the build needs the room)' : ''}` }, state: s }
     }
     return none()
   }

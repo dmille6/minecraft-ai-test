@@ -109,6 +109,35 @@ await t('runVisit drops `p.waive` where the waiver is off and reads the ledger t
   once(runner, "BUILDRETRY: process.env.BUILDRETRY ?? 'off',", 'the suite\'s default'); once(runner, "VISIT_WAIVER: process.env.VISIT_WAIVER ?? 'off',", 'the suite\'s default')
 })
 
+
+// ---- THREE MORE DECISIONS THAT DEFAULT BY POOL (DECISIONS.md rows 2, 3 and 4), the same convention: off in the showcase pool, on
+// in every other, the env name either way, the suite's default off, and the default killed by the mutant that flips it ----------
+console.log('ROW 3: the fleet\'s band dispose (IDLEWORK_WELL, well.mjs wellBandOn) beside bagroom-01\'s well (BAGROOM_WELL)')
+const WL = await import('../src/well.mjs')
+const WL_PATH = new URL('../src/well.mjs', import.meta.url)
+await t('wellBandOn (IDLEWORK_WELL): off by default in the showcase pool, on in every other; on|off overrides either way -- MUTANT (the default flipped) killed',
+  () => killedBy(WL_PATH, WL, DEFAULT_LINE, FLIPPED_LINE, M => table(M.wellBandOn, 'IDLEWORK_WELL')))
+await t('what it reaches (well.mjs wellOrder at 30 of 36 slots, bagroom\'s own rule off): no order in the showcase pool -- the showcase line exactly -- the dispose in a fleet pool; 34 slots and 28 slots are the same in both', () => {
+  const at = (env, x = {}) => WL.wellOrder({ now: 10_000_000, distHome: 5, well: { open: false, attended: false }, slots: 30, freeSlots: 6, junkStacks: 3, bagRoom: false, bandOn: WL.wellBandOn(env), ...x }).order
+  assert.strictEqual(at({ MEMORY_POOL: 'showcase' }), null, 'showcase: below 34 nothing')
+  assert.strictEqual(at({ MEMORY_POOL: 'hive-a' })?.skill, 'dispose_well', 'fleet: the band')
+  assert.strictEqual(at({})?.skill, 'dispose_well', 'no pool named: the band')
+  assert.strictEqual(at({ MEMORY_POOL: 'showcase', IDLEWORK_WELL: 'on' })?.skill, 'dispose_well', 'showcase forced on')
+  assert.strictEqual(at({ MEMORY_POOL: 'hive-a', IDLEWORK_WELL: 'off' }), null, 'fleet forced off')
+  // the two switches are two: bagroom's rule alone gives the order in the showcase pool, and only then is the order's sentence bagroom's
+  assert.match(at({ MEMORY_POOL: 'showcase' }, { bagRoom: true }).why, /bagroom: the build needs the room/)
+  assert.ok(!/bagroom/.test(at({ MEMORY_POOL: 'hive-a' }).why), 'the band\'s order does not say bagroom')
+  // POSITIVE CONTROLS on the same call: the 34-slot order in both pools, and nothing at 28 in both
+  for (const env of [{ MEMORY_POOL: 'showcase' }, { MEMORY_POOL: 'hive-a' }]) {
+    assert.strictEqual(at(env, { slots: 34, freeSlots: 2 })?.skill, 'dispose_well'); assert.strictEqual(at(env, { slots: 28, freeSlots: 8 }), null)
+  }
+})
+await t('wiring: the order reads the band through its own option beside bagroom\'s; the suite\'s default is off', () => {
+  const well = strip(readFileSync(WL_PATH, 'utf8'))
+  once(well, 'bagRoom = BAGROOM.well, bandOn = WELL_BAND.on } = {}) {', 'the two options')
+  once(well, '(slots >= TRIGGER_SLOTS || wellBandDue({ on: bandOn, slots, junkStacks }))', 'the band\'s rule'); once(well, '(slots >= TRIGGER_SLOTS || wellRoomDue({ on: bagRoom, freeSlots, junkStacks }))', 'bagroom\'s rule')
+  once(readFileSync(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8'), "IDLEWORK_WELL: process.env.IDLEWORK_WELL ?? 'off',", 'the suite\'s default')
+})
 try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* the runner's TMPDIR goes with it */ }
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

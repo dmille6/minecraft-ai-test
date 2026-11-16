@@ -112,6 +112,10 @@ function run (file) {
              // `BUILDRETRY= VISIT_WAIVER=`, is left as it is: unset to the functions, so MEMORY_POOL decides)
              BUILDRETRY: process.env.BUILDRETRY ?? 'off',
              VISIT_WAIVER: process.env.VISIT_WAIVER ?? 'off',
+             // one trunk (DECISIONS row 3): the fleet's band dispose (IDLEWORK_WELL, well.mjs wellBandOn) defaults by pool the same way.
+             // The showcase line's tests pin the well order below 34 slots WITHOUT it (bagroom.test.mjs), so the suite's default is
+             // off; the fleet tests of the band pass `bandOn` themselves, and visitswitch.test.mjs asserts the shipped default
+             IDLEWORK_WELL: process.env.IDLEWORK_WELL ?? 'off',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.
