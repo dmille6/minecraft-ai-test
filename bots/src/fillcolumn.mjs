@@ -48,7 +48,13 @@
 //      zones, the wells' and the tree farm's files, the town site, the markers, the bridges, the hall's pad): any one unread closes.
 //   2. The ledger is RECONCILED with the cells on every read (repairLedger): a cell the repair added carries `ext`, and a record
 //      holding such cells with no ledger, or a smaller one, has spent that budget all the same -- the cells win.
+// r4 (Codex round 3): a strict reader that DROPS a line or an entry it cannot parse is no strict reader. exclFilesUnread reads the
+//   exclusions' files itself (the one function here that touches a file: the directory and `fsx` are its arguments): a file that is
+//   ABSENT is empty and closes nothing (a healthy town lacks several of them); one that is present and malformed, or holds one
+//   malformed line or entry, closes the repair.
 
+import fs from 'node:fs'
+import path from 'node:path'
 import { refUsable } from './buildsite.mjs'
 import { isLiquid, replaceableCell } from './townplan.mjs'
 import { refreshedAt, tidyRefreshOn, TIDYREFRESH } from './tidyrefresh.mjs'
@@ -202,6 +208,70 @@ export function exclUnread (plots = [], headOf = () => null) {
     if (!h?.ok || (h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))
   }
   return out
+}
+/** THE PROTECTED ZONES' VIEW (skills.mjs townPlanZones: { known, zones, why }) READ STRICTLY -> bool. Pure. Read: known, and not the
+ *  LAST GOOD list kept over a file that is now unreadable or partly malformed (`why` stale:...: a zone added in that edit may be
+ *  missing from it). A town with no zones file is known, and empty (`why` absent): read. */
+export const zonesRead = view => view?.known === true && Array.isArray(view.zones) && !/^stale/.test(String(view.why ?? ''))
+/**
+ * THE EXCLUSIONS' FILES, READ STRICTLY -> [name] unread, of 'wells' | 'treefarm' | 'townsite' | 'markers' | 'bridges'. Over the town's
+ * directory `dir` (`hk` the home key "x_y_z"; `markersFile` / `bridgesFile` the expedition's two JSONL files; `fsx` node:fs). The same
+ * files the lenient readers read (skills.mjs shopCtx, treeFarmCells, pathsInputs, exMarkers, exBridgeSites; composter.mjs
+ * readTownSite), with ABSENT told from UNREADABLE and nothing dropped:
+ *   ABSENT (no such file, no generation of it, no such directory)  -> read, and empty: it closes nothing
+ *   PRESENT and it cannot be read, does not parse, or holds ONE line or entry the lenient reader would skip  -> unread
+ * wells     `junkwell-plinth-<hk>.json` (plinthCells' shape: plan.steps[].c, plan.cap, plan.stair[], prev[] with x, y, z) and the newest
+ *           `junkwell-site-<hk>.g<N>.json` (x, y, z)
+ * treefarm  the newest `treefarm-<hk>.g<N>.json` (record.cells or cells, each x and z); never an older generation
+ * townsite  the newest `composter-site-<hk>.g<N>.json` (integer x, y, z: composter.mjs validSite)
+ * markers   every non-blank line of the last 2,000 an object with `at` [x, y, z]
+ * bridges   every non-blank line of the last 4,000 an object; a `sight` line with its span's near and axis
+ * A directory that exists and cannot be listed: wells, treefarm and townsite are unread. Never throws.
+ */
+export function exclFilesUnread ({ dir, hk, markersFile = null, bridgesFile = null } = {}, fsx = fs) {
+  const fin3 = c => Array.isArray(c) && c.length === 3 && c.every(Number.isFinite)
+  const obj = v => !!v && typeof v === 'object' && !Array.isArray(v)
+  const esc = t => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  let names = [], listed = true
+  try { names = fsx.readdirSync(dir) } catch (e) { if (e?.code !== 'ENOENT') listed = false }
+  const newest = stem => { const re = new RegExp(`^${esc(stem)}\\.g(\\d+)\\.json$`); return names.map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)[0] ?? null }
+  // one JSON file -> { absent: true } | { v } | { bad: true }
+  const json = f => { let txt; try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return e?.code === 'ENOENT' ? { absent: true } : { bad: true } } try { return { v: JSON.parse(txt) } } catch { return { bad: true } } }
+  // one JSONL file -> true when it is absent, or every non-blank line of its last `max` parses to an object `lineOk` takes
+  const jsonl = (f, max, lineOk) => {
+    if (!f) return true
+    let txt
+    try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return e?.code === 'ENOENT' }
+    for (const l of txt.split('\n').filter(q => q.trim()).slice(-max)) { let v; try { v = JSON.parse(l) } catch { return false } if (!obj(v) || !lineOk(v)) return false }
+    return true
+  }
+  const plinthOk = r => {
+    if (!obj(r)) return false
+    const pl = r.plan
+    if (pl != null) {
+      if (!obj(pl)) return false
+      if (pl.steps != null && (!Array.isArray(pl.steps) || pl.steps.some(st => !obj(st) || (st.c != null && !fin3(st.c))))) return false
+      if (pl.cap != null && !(obj(pl.cap) && [pl.cap.x, pl.cap.y, pl.cap.z].every(Number.isFinite))) return false
+      if (pl.stair != null && !(Array.isArray(pl.stair) && pl.stair.every(fin3))) return false
+    }
+    if (r.prev != null && !(Array.isArray(r.prev) && r.prev.every(c => obj(c) && [c.x, c.y, c.z].every(Number.isFinite) && (c.stair == null || (Array.isArray(c.stair) && c.stair.every(fin3)))))) return false
+    return true
+  }
+  const gen = (stem, ok) => { const g = newest(stem); if (g == null) return true; const j = json(path.join(dir, `${stem}.g${g}.json`)); return !j.bad && !j.absent && ok(j.v) }
+  const wells = () => {
+    const pj = json(path.join(dir, `junkwell-plinth-${hk}.json`))
+    if (pj.bad || (!pj.absent && !plinthOk(pj.v))) return false
+    return gen(`junkwell-site-${hk}`, v => obj(v) && [v.x, v.y, v.z].every(Number.isFinite))
+  }
+  const farm = () => gen(`treefarm-${hk}`, v => { const cs = obj(v) ? (v.record?.cells ?? v.cells) : null; return Array.isArray(cs) && cs.every(c => obj(c) && Number.isFinite(c.x) && Number.isFinite(c.z)) })
+  const site = () => gen(`composter-site-${hk}`, v => obj(v) && [v.x, v.y, v.z].every(Number.isInteger))
+  return exclInputsUnread({
+    wells: () => listed && wells(),
+    treefarm: () => listed && farm(),
+    townsite: () => listed && site(),
+    markers: () => jsonl(markersFile, 2000, v => fin3(v.at)),
+    bridges: () => jsonl(bridgesFile, 4000, v => v.op !== 'sight' || (obj(v.span) && Array.isArray(v.span.near) && Array.isArray(v.span.axis))),
+  })
 }
 /** IS THE REPAIR CLOSED THIS REFRESH? -> why | null. Pure. Closed without the survey's own exclusions (`keepOff`), or with anything
  *  they are built from unread (`unread`: record plots, 'zones'): fail closed -- nothing is added on exclusions nobody could read. */

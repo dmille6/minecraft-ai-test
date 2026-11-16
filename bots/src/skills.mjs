@@ -198,7 +198,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
-import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, exclUnread as fillExclUnread, exclPlots as fillExclPlots, exclInputsUnread as fillExclInputsUnread, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
+import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, exclUnread as fillExclUnread, exclPlots as fillExclPlots, exclInputsUnread as fillExclInputsUnread, exclFilesUnread as fillExclFilesUnread, zonesRead as fillZonesRead, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { litterOn, litterTally, litterIntake, handedBare, builtOnHeld, unreadDetail as litterUnreadDetail, builtOnDetail as litterBuiltOnDetail, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
 import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life
@@ -18980,13 +18980,6 @@ function exBridgeSitesStrict () {
   try { txt = fs.readFileSync(exBridgesFile(), 'utf8') } catch (e) { return e?.code === 'ENOENT' ? [] : null }
   try { return bridgeSites(txt.split('\n').filter(Boolean).slice(-4000).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)) } catch { return null }
 }
-/** fillcolumn-01 r3 (exLines swallows a read error as "no markers"): can the markers file be trusted -> true when the town has none
- *  or every line of it parses; false when it exists and cannot be read, or holds a line that does not parse. Never throws. */
-function exMarkersReadable () {
-  let txt
-  try { txt = fs.readFileSync(exMarkersFile(), 'utf8') } catch (e) { return e?.code === 'ENOENT' }
-  return txt.split('\n').filter(Boolean).slice(-2000).every(l => { try { return !!JSON.parse(l) } catch { return false } })
-}
 const exHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
 const exAtHome = (p, r = 40) => !!p && Math.hypot(p.x - config.world.homeX, p.z - config.world.homeZ) <= r
 const EX_TOWN_R = 48   // the order's own `atTown` (cognitive TOWN_RADIUS): an open trip whose bot is this close is closed
@@ -28684,16 +28677,13 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     // and every FILE the exclusions read leniently -- each read strictly here, absent told from unreadable: the town plan's head,
     // the zones, the wells' and the tree farm's files (reservationFilesStrict), the town site (the composter), the markers, the
     // bridge sites, the hall's pad
+    // r4 (Codex round 3): the files by fillcolumn.mjs exclFilesUnread -- an ABSENT file is empty and closes nothing; one that is
+    // present and malformed, or holds ONE line or entry a lenient reader would drop (exBridgeSitesStrict drops such a line), closes
     fcUnread = fillExclUnread(fillExclPlots(projectsGuarded().map(p => p.plot)), pl => recordHead(dir, projKeyOf(pl)))
-    const fcFiles = reservationFilesStrict(dir, { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+    fcUnread.push(...fillExclUnread(['plan'], () => h))
+    fcUnread.push(...fillExclFilesUnread({ dir, hk: exHk(), markersFile: exMarkersFile(), bridgesFile: exBridgesFile() }))
     fcUnread.push(...fillExclInputsUnread({
-      plan: () => h?.ok === true && !!h.head?.plan && !recordUnread(h),
-      zones: () => c?.zonesKnown === true,
-      wells: () => fcFiles.wells.ok === true,
-      treefarm: () => fcFiles.farm.ok === true,
-      townsite: () => readTownSite(dir, townSiteKey()).malformed !== true,
-      markers: () => exMarkersReadable(),
-      bridges: () => exBridgeSitesStrict() !== null,
+      zones: () => c?.zonesKnown === true && fillZonesRead(townPlanZones(bot)),
       hallpad: () => !projectsOn().some(p => p.plot === HALL_PLOT) || !!blueprintOf(HALL_BLUEPRINT),
     }))
     const si = stageSurveyInputs(bot, I, dir, signal)
