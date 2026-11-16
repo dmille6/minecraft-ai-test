@@ -2043,5 +2043,33 @@ class Budget(unittest.TestCase):
         self.assertLess(time.time() - t0, 30.0)
 
 
+
+class UnderUnit(unittest.TestCase):
+    """STRUCTURAL (no behaviour reaches a unit file): the underground camera runs after every capture, in its own
+    unit, and thins in the same run -- every slot adds a box snapshot (Codex r4: nothing scheduled `thin`)."""
+    FILES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files')
+
+    def lines(self, name):
+        with open(os.path.join(self.FILES, name)) as f:
+            return [l.strip() for l in f if l.strip() and not l.lstrip().startswith('#')]
+
+    def test_the_capture_starts_the_underground_unit(self):
+        self.assertEqual(self.lines('showcase-tl.service').count('OnSuccess=showcase-tl-under.service'), 1)
+
+    def test_the_unit_draws_then_thins_under_its_own_ceiling(self):
+        u = self.lines('showcase-tl-under.service')
+        root = '--root /srv/showcase/timelapse'
+        self.assertEqual(u.count('ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_under.py slot ' + root), 1)
+        self.assertEqual(u.count('ExecStartPost=-/usr/bin/python3 /srv/showcase/bin/tl_under.py thin ' + root), 1)
+        self.assertLess(u.index('ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_under.py slot ' + root),
+                        u.index('ExecStartPost=-/usr/bin/python3 /srv/showcase/bin/tl_under.py thin ' + root))
+        for want in ('User=mike', 'Type=oneshot', 'Nice=19', 'CPUQuota=100%', 'MemoryMax=2G', 'TimeoutStartSec=3min'):
+            self.assertIn(want, u)
+
+    def test_provisioning_installs_the_unit(self):
+        with open(os.path.join(self.FILES, '..', 'provision-vm.sh')) as f:
+            code = [l for l in f if not l.lstrip().startswith('#')]
+        self.assertEqual(sum(l.split().count('showcase-tl-under.service') for l in code), 1)
+
 if __name__ == '__main__':
     unittest.main()

@@ -105,6 +105,7 @@ const REQUIRED = [
   'infra/showcase/files/nas-sync.sh',
   'infra/showcase/files/showcase-tl-event.service',
   'infra/showcase/files/showcase-tl-event.timer',
+  'infra/showcase/files/showcase-tl-under.service',
   'infra/showcase/files/showcase-tl-extract.service',
   'infra/showcase/files/showcase-tl-extract.timer',
   'infra/showcase/visuals/chunky-beauty-nightly.sh',

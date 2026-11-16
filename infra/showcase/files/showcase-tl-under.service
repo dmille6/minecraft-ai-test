@@ -1,0 +1,18 @@
+[Unit]
+Description=SHOWCASE timelapse: the underground camera (tl_under.py slot after each capture, then thin)
+# camunder-01: started by showcase-tl.service's OnSuccess, in its OWN unit: a slow or failed underground frame never
+# costs the surface capture its 13-minute window, and it has its own, smaller, ceiling.
+[Service]
+Type=oneshot
+User=mike
+# reads logs/scenes-slot.json (tl_director's hand-off) and the mirror's region files; writes frames/under-<id>/,
+# under-box/ and under-framing/ under the root. It ends itself after --budget-s (20 s) and always exits 0.
+ExecStart=/usr/bin/python3 /srv/showcase/bin/tl_under.py slot --root /srv/showcase/timelapse
+# every slot adds a box snapshot: thin in the same run, so under-box never grows without a bound (Codex r4)
+ExecStartPost=-/usr/bin/python3 /srv/showcase/bin/tl_under.py thin --root /srv/showcase/timelapse
+TimeoutStartSec=3min
+CPUWeight=5
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=100%
+MemoryMax=2G

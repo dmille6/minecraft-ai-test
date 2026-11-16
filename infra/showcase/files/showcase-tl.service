@@ -1,5 +1,7 @@
 [Unit]
 Description=SHOWCASE timelapse capture (incremental BlueMap render + two fixed-camera frames + one heartbeat row)
+# camunder-01: the underground camera draws from this capture's mirror and the director's hand-off, in its own unit
+OnSuccess=showcase-tl-under.service
 
 [Service]
 Type=oneshot

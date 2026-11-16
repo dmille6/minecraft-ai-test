@@ -67,7 +67,7 @@ ok "$(cat /srv/showcase/server/PAPER-BUILD.txt)"
 
 say "units (bots installed, NOT enabled)"
 for u in showcase-paper.service mcshow@.service showcase-studio-tunnel.service showcase-bluemap-web.service \
-         showcase-tl.service showcase-tl.timer showcase-video@.service; do
+         showcase-tl.service showcase-tl.timer showcase-tl-under.service showcase-video@.service; do
   install -m 644 "$F/$u" "/etc/systemd/system/$u"
 done
 grep -v '^#' "$F/timers.txt" | while read -r name cal rest; do
