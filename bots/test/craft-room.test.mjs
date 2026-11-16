@@ -11,7 +11,7 @@
 // mineflayer's craft.js against the fake Paper.
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Vec3 } from 'vec3'
@@ -26,10 +26,11 @@ const { Recipe } = require_('prismarine-recipe')('1.21.8')
 
 const { SKILLS } = await import('../src/skills.mjs')
 const { Runner } = await import('../src/runner.mjs')
-const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS,
+const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, pickaxeStockHeld, craftRoomRefusal, NO_SPARE_TOOL, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS,
         executionVerdict, admitRoom, pickupPending, pickupNearest, heldLine, collectDecision, PICKUP_TABLE_BAND, roomAdvice, placeStackOf, depositFreesSlot, depositTarget, PICKUP_MARGIN } =
   await import('../src/craftroom.mjs')
 const { depositPlan } = await import('../src/bankable.mjs')
+const { placeRefFor, opensOnClick } = await import('../src/placeref.mjs')
 const { CraftSyncError, admissionRefusal } = await import('../src/craftsync.mjs')
 
 let pass = 0, fail = 0
@@ -124,6 +125,63 @@ await t('craftRoomRemedy PROTECTS THE LAST DIGGING TOOL: no pickaxe is worn out 
     'the survivor rule is for PICKAXES: a spent axe goes even with no pickaxe in the bag')
   assert.equal(craftRoomRemedy(bagOf(36, [spent('stone_axe'), item('stone_pickaxe', 1, { left: 2 })]), 'stone_pickaxe').tool.name,
     'stone_axe', 'a pickaxe with two uses survives the axe')
+})
+
+// --- THE REBUILD (showcase Frost, 11-15/16) -----------------------------------
+/** Frost's bag as the logs give it: 36/36, three pickaxes at 1 use, 379 cobblestone, 4 planks, 16 logs, a carried table. */
+const frostBag = (extra = []) => bagOf(36, [spent('stone_pickaxe'), spent('iron_pickaxe'), spent('iron_pickaxe'), item('cobblestone', 59),
+  item('spruce_planks', 4), item('spruce_log', 16), item('dirt', 43), item('diorite', 32), ...extra])
+await t('pickaxeStockHeld: the head (3 of ONE material) and the handle (2 sticks, or the planks or a log for them)', () => {
+  assert.equal(pickaxeStockHeld([item('cobblestone', 3), item('stick', 2)], 'stone_pickaxe'), true)
+  assert.equal(pickaxeStockHeld([item('cobblestone', 3), item('oak_planks', 2)], 'stone_pickaxe'), true)
+  assert.equal(pickaxeStockHeld([item('cobbled_deepslate', 3), item('spruce_log', 1)], 'stone_pickaxe'), true)
+  assert.equal(pickaxeStockHeld([item('cobblestone', 2), item('stick', 2)], 'stone_pickaxe'), false, 'two cobblestone is no head')
+  assert.equal(pickaxeStockHeld([item('cobblestone', 2), item('blackstone', 2), item('stick', 2)], 'stone_pickaxe'), false, 'never a mixed head')
+  assert.equal(pickaxeStockHeld([item('cobblestone', 64), item('stick', 1)], 'stone_pickaxe'), false, 'one stick is no handle')
+  assert.equal(pickaxeStockHeld([item('cobblestone', 64), item('oak_planks', 1)], 'stone_pickaxe'), false)
+  assert.equal(pickaxeStockHeld([item('oak_planks', 3), item('stick', 2)], 'wooden_pickaxe'), true)
+  assert.equal(pickaxeStockHeld([item('oak_planks', 4)], 'wooden_pickaxe'), false, '3 for the head leaves 1: no sticks')
+  assert.equal(pickaxeStockHeld([item('oak_log', 2)], 'wooden_pickaxe'), true)
+  assert.equal(pickaxeStockHeld([item('iron_ingot', 3), item('stick', 2)], 'iron_pickaxe'), true)
+  assert.equal(pickaxeStockHeld([item('cobblestone', 64), item('stick', 2)], 'iron_pickaxe'), false, 'cobblestone is not an iron head')
+  assert.equal(pickaxeStockHeld([item('cobblestone', 64), item('stick', 2)], 'furnace'), false)
+})
+
+await t('craftRoomRemedy THE REBUILD: no pickaxe digs, the new one is in the bag -> ONE last swing may go, and one always stays', () => {
+  const r = craftRoomRemedy(frostBag(), 'stick', { goal: 'stone_pickaxe' })
+  assert.equal(r?.why, 'rebuild'); assert.equal(r.tool.name, 'stone_pickaxe', 'lowest tier first')
+  assert.equal(craftRoomRemedy(frostBag(), 'stone_pickaxe')?.why, 'rebuild', 'the pickaxe step itself')
+  // POSITIVE CONTROL for every null below: this bag does get a tool when the craft ends in a pickaxe (the two lines above)
+  assert.equal(craftRoomRemedy(frostBag(), 'stick'), null, 'sticks for nothing in particular buy no pickaxe')
+  assert.equal(craftRoomRemedy(frostBag(), 'stick', { goal: 'furnace' }), null, 'a furnace is not a way out')
+  assert.equal(craftRoomRemedy(frostBag(), 'stick', { goal: 'iron_pickaxe' }), null, 'no iron in the bag: that craft cannot end in a pickaxe')
+  // ONE LAST SWING ALWAYS STAYS: wear, remove, ask again -- three copies give two slots and never the third
+  let bag = frostBag(); const gone = []
+  for (let i = 0; i < 4; i++) { const k = craftRoomRemedy(bag, 'stone_pickaxe'); if (!k) break; gone.push(k.tool.name); bag = bag.filter(x => x !== k.tool) }
+  assert.deepEqual(gone, ['stone_pickaxe', 'iron_pickaxe']); assert.equal(bag.filter(x => /_pickaxe$/.test(x.name)).length, 1)
+  const two = bagOf(36, [spent('stone_pickaxe'), spent('stone_pickaxe'), item('cobblestone', 10), item('stick', 2)])
+  assert.equal(craftRoomRemedy(two, 'stone_pickaxe')?.why, 'rebuild')
+  assert.equal(craftRoomRemedy(two.filter(x => x !== two[0]), 'stone_pickaxe'), null, 'exactly one copy left: it is the last swing')
+  // NOT THE REBUILD'S BAG
+  const noWood = bagOf(36, [spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe'), item('cobblestone', 10)])
+  assert.equal(craftRoomRemedy(noWood, 'stone_pickaxe'), null, 'no handle in the bag: wearing a copy out buys nothing')
+  const noStone = [spent('stone_pickaxe'), spent('stone_pickaxe'), item('stick', 2), ...Array.from({ length: 33 }, () => item('dirt', 64))]
+  assert.equal(craftRoomRemedy(noStone, 'stone_pickaxe'), null, 'no head in the bag: the last swings are what mine it')
+  const phantom = bagOf(36, [spent('stone_pickaxe'), item('stone_pickaxe', 1, { left: 0 }), item('cobblestone', 10), item('stick', 2)])
+  assert.equal(craftRoomRemedy(phantom, 'stone_pickaxe'), null, 'a 0-use copy is not a second last swing')
+  const working = frostBag([item('stone_pickaxe', 1, { left: 2 })])
+  assert.notEqual(craftRoomRemedy(working, 'stone_pickaxe', OFF)?.why, 'rebuild', 'a pickaxe with uses in the bag: the rules above decide')
+})
+
+await t('craftRoomRefusal: in the rebuild\'s bag a craft that is NOT a pickaxe is told the one craft that runs from here', () => {
+  assert.equal(craftRoomRefusal(frostBag(), 'stick', 'stone_pickaxe'), NO_SPARE_TOOL, 'a pickaxe craft gets the plain sentence (it was refused for another reason)')
+  const said = craftRoomRefusal(frostBag(), 'furnace', null)
+  assert.ok(said.startsWith(NO_SPARE_TOOL), 'the deployed sentence stays the prefix (composter.test and the reads match it)')
+  assert.match(said, /craft stone_pickaxe/)
+  // THE ADVICE IS EXECUTABLE FROM HERE: the craft it names gets a tool from the same bag
+  assert.equal(craftRoomRemedy(frostBag(), 'stone_pickaxe')?.why, 'rebuild')
+  assert.equal(craftRoomRefusal(bagOf(36, [spent('stone_pickaxe'), spent('stone_pickaxe')]), 'furnace', null), NO_SPARE_TOOL, 'no handle in the bag: nothing to advise')
+  assert.equal(craftRoomRefusal(frostBag([item('iron_pickaxe', 1, { left: 100 })]), 'furnace', null), NO_SPARE_TOOL, 'a working pickaxe: not this bag')
 })
 
 await t('bagFill ADVICE never names an ingredient, a non-block, wood or a station', () => {
@@ -279,8 +337,10 @@ function makeBot (stacks, { tables = [], craftLands = true, synced = true, serve
   }
   const tossed = []; const digs = []; const ground = []; const crafts = []; const admissions = []
   const nameAt = p => world.get(key(p)) ?? (p.y < 64 ? 'stone' : 'air')
-  const blockAt = p => {
-    if (!p) return null
+  const blockAt = q => {
+    if (!q) return null
+    // mineflayer's blockAt reads the CELL a point is in (it floors): place()'s scan asks with the feet's own decimals
+    const p = new Vec3(Math.floor(q.x), Math.floor(q.y), Math.floor(q.z))
     const name = nameAt(p); const d = mc.blocksByName[name]
     return { name, type: d.id, stateId: d.defaultState, position: new Vec3(p.x, p.y, p.z), boundingBox: d.boundingBox,
              hardness: d.hardness, diggable: true, drops: d.drops }
@@ -317,6 +377,7 @@ function makeBot (stacks, { tables = [], craftLands = true, synced = true, serve
   }
   const have = name => slots.reduce((n, s) => n + (s?.name === name ? s.count : 0), 0)
   let craftNo = 0
+  const clicksOnTable = []
   const bot = Object.assign(new EventEmitter(), {
     registry,
     entity: { position: new Vec3(0.5, 64, 0.5), onGround: true },
@@ -389,6 +450,9 @@ function makeBot (stacks, { tables = [], craftLands = true, synced = true, serve
     async lookAt (p) { await onLook?.({ p, setBlock, bot }) },
     async waitForTicks () {},
     async placeBlock (ref, face) {
+      // THE SERVER: a click on a block that opens (a crafting table) opens it and places NOTHING; mineflayer then waits for
+      // a block update that never comes and throws (place_block.js)
+      if (ref.name === 'crafting_table') { clicksOnTable.push(key(ref.position)); throw new Error('Event blockUpdate did not fire within timeout of 5000ms') }
       const at = ref.position.offset(face.x, face.y, face.z)
       const name = bot.heldItem?.name ?? 'crafting_table'   // place() equips what it places
       setBlock(at, name); take(name, 1)
@@ -429,7 +493,7 @@ function makeBot (stacks, { tables = [], craftLands = true, synced = true, serve
     }, setGoal () {}, stop () {} },
   })
   if (synced) bot.craftSync = { fake: 'craftsync contract' }
-  return { bot, slots, world, tossed, digs, ground, have, crafts, setBlock, admissions }
+  return { bot, slots, world, tossed, digs, ground, have, crafts, setBlock, admissions, clicksOnTable }
 }
 const run = (bot, args, signal = new AbortController().signal) => SKILLS.craft.run({ bot }, args, signal)
 const NEAR = new Vec3(1, 64, 0)    // a table in reach that this call did not place
@@ -1304,6 +1368,119 @@ await t('B3: the pickup and walk-back refusals lead with their remedy too, and i
   DROP(b.bot, 2.5)
   const r2 = await run(b.bot, { item: 'stone_pickaxe', count: 1 })
   assert.match(formatOutcome('craft', r2, null), /^craft -> unknown: walk back to the crafting_table at 1,64,0:/)
+})
+
+// --- spentpick-01show: THE DEAD END, COMPOSED (showcase Frost 11-15/16) ------------------------------------------
+// mutants: the anchor is asserted present and unique, so one that never applied cannot read as killed
+async function withMutant (rel, old, neu, fn) {
+  const path = new URL(rel, import.meta.url)
+  const src = readFileSync(path, 'utf8')
+  assert.equal(src.split(old).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${JSON.stringify(old.slice(0, 70))} in ${rel}`)
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+/** A world of name-by-cell over the fake's rule (stone below 64, air from 64): only what a test names differs. */
+const cellWorld = cells => ({ blockAt: p => {
+  const name = cells[`${p.x},${p.y},${p.z}`] ?? (p.y < 64 ? 'stone' : 'air'); const d = mc.blocksByName[name]
+  return { name, position: new Vec3(p.x, p.y, p.z), boundingBox: d.boundingBox }
+} })
+const refOf = r => r && `${r.ref.name}@${key(r.ref.position)}>${key(r.ref.position.plus(r.face))}`
+
+await t('placeRefFor: the block under the cell -- unless a click opens it; then a side neighbour toward the cell; else nothing', async () => {
+  const T = new Vec3(0, 64, -1)
+  assert.equal(refOf(placeRefFor(cellWorld({}), T)), 'stone@0,63,-1>0,64,-1', 'plain ground: the top face, as before')
+  const onTable = cellWorld({ '0,63,-1': 'crafting_table', '1,64,-1': 'stone' })
+  assert.equal(refOf(placeRefFor(onTable, T)), 'stone@1,64,-1>0,64,-1', 'the side block, clicked on the face toward the cell')
+  assert.equal(placeRefFor(cellWorld({ '0,63,-1': 'crafting_table' }), T), null, 'a table below and air all round: no candidate')
+  assert.equal(placeRefFor(cellWorld({ '0,63,-1': 'chest', '1,64,-1': 'furnace', '-1,64,-1': 'oak_door' }), T), null, 'every neighbour opens')
+  assert.equal(placeRefFor(onTable, T, () => false), null, 'the caller may refuse the side block (a protected zone)')
+  assert.equal(opensOnClick({ name: 'crafting_table' }), true); assert.equal(opensOnClick({ name: 'stone' }), false)
+  // MUTANTS: each must change one of the answers above
+  await withMutant('../src/placeref.mjs', "b.boundingBox === 'block' && !opensOnClick(b)", "b.boundingBox === 'block'", m =>
+    assert.equal(refOf(m.placeRefFor(onTable, T)), 'crafting_table@0,63,-1>0,64,-1', 'MUTANT: the table is clicked again'))
+  await withMutant('../src/placeref.mjs', 'face: new Vec3(-d[0], 0, -d[2])', 'face: new Vec3(d[0], 0, d[2])', m =>
+    assert.notEqual(refOf(m.placeRefFor(onTable, T)), 'stone@1,64,-1>0,64,-1', 'MUTANT: the face points away from the cell'))
+  await withMutant('../src/placeref.mjs', 'clicks(b) && b.position && okRef(b.position)', 'clicks(b) && b.position', m =>
+    assert.notEqual(m.placeRefFor(onTable, T, () => false), null, 'MUTANT: the caller\'s refusal is ignored'))
+})
+
+/** Frost's cell: walled at foot and head height all round, except ONE free cell to the north that stands on a crafting table. */
+const FROST_WALLS = (() => {
+  const w = []
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) for (const y of [64, 65]) if (!(dx === 0 && dz === -1 && y === 64)) w.push(new Vec3(dx, y, dz))
+  return w
+})()
+const TABLE_BELOW = new Vec3(0, 63, -1)
+
+await t('MUTANTS of the rebuild rule (craftroom.mjs): each loses exactly the guard it removes', async () => {
+  const one = bagOf(36, [spent('stone_pickaxe'), item('cobblestone', 10), item('stick', 2)])
+  const noWood = bagOf(36, [spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe'), item('cobblestone', 10)])
+  const working = bagOf(36, [spent('stone_pickaxe'), spent('stone_pickaxe'), item('stone_pickaxe', 1, { left: 2 }), item('cobblestone', 10), item('stick', 2)])
+  // the real rule, on the same bags (the control for each mutant)
+  assert.equal(craftRoomRemedy(one, 'stone_pickaxe'), null); assert.equal(craftRoomRemedy(noWood, 'stone_pickaxe'), null)
+  assert.equal(craftRoomRemedy(working, 'stone_pickaxe', OFF)?.why, 'replaced'); assert.equal(craftRoomRemedy(frostBag(), 'stick', { goal: 'furnace' }), null)
+  await withMutant('../src/craftroom.mjs', "if (last.length >= 2) return { tool: last[0], why: 'rebuild' }", "if (last.length >= 1) return { tool: last[0], why: 'rebuild' }", m =>
+    assert.equal(m.craftRoomRemedy(one, 'stone_pickaxe')?.why, 'rebuild', 'MUTANT: the last swing is the price'))
+  await withMutant('../src/craftroom.mjs', '!picks.some(it => remaining(it) >= MIN_SURVIVOR_USES) && pickaxeStockHeld(list, making)', '!picks.some(it => remaining(it) >= MIN_SURVIVOR_USES)', m =>
+    assert.equal(m.craftRoomRemedy(noWood, 'stone_pickaxe')?.why, 'rebuild', 'MUTANT: a copy goes with no new pickaxe in the bag'))
+  await withMutant('../src/craftroom.mjs', 'if (making && !picks.some(it => remaining(it) >= MIN_SURVIVOR_USES) && pickaxeStockHeld', 'if (making && pickaxeStockHeld', m =>
+    assert.equal(m.craftRoomRemedy(bagOf(36, [spent('wooden_pickaxe'), spent('wooden_pickaxe'), item('stone_pickaxe', 1, { left: 2 }), item('cobblestone', 10), item('stick', 2), item('oak_planks', 3)]), 'stick', { goal: 'wooden_pickaxe', allowance: false })?.why,
+      'rebuild', 'MUTANT: the rebuild fires beside a pickaxe that still digs'))
+  await withMutant('../src/craftroom.mjs', "const making = [goal, item].map(x => String(x ?? '')).find(x => /_pickaxe$/.test(x))", "const making = 'stone_pickaxe'", m =>
+    assert.equal(m.craftRoomRemedy(frostBag(), 'stick', { goal: 'furnace' })?.why, 'rebuild', 'MUTANT: a furnace craft uses a pickaxe up'))
+})
+
+await t('place: the only free cell stands on a crafting table -> the table goes down beside it, and the table below is never clicked', async () => {
+  const { bot, world, have, clicksOnTable } = makeBot(bagOf(36, [item('crafting_table', 1)]), { walls: FROST_WALLS, tables: [TABLE_BELOW] })
+  const r = await SKILLS.place.run({ bot }, { item: 'crafting_table' }, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(world.get('0,64,-1'), 'crafting_table', `${r.detail} | tables at ${[...world.entries()].filter(([, v]) => v === 'crafting_table').map(([k]) => k).join(' ')}`); assert.equal(have('crafting_table'), 0, 'its slot is free')
+  assert.deepEqual(clicksOnTable, [], 'a click on the table opens it and places nothing (the fake server refuses it, as Paper does)')
+})
+
+await t('THE FAKE SERVER IS A REAL CONTROL: a placement that clicks a crafting table lands nothing', async () => {
+  const { bot, world } = makeBot(bagOf(36, [item('crafting_table', 1)]), { walls: FROST_WALLS, tables: [TABLE_BELOW] })
+  await assert.rejects(() => bot.placeBlock(bot.blockAt(TABLE_BELOW), new Vec3(0, 1, 0)), /did not fire/)
+  assert.equal(world.get('0,64,-1'), undefined)
+})
+
+await t('FROST, COMPOSED: sealed, 36/36, three pickaxes at 1 use, the stock in the bag -> craft stone_pickaxe ENDS in a pickaxe that digs', async () => {
+  const n = await mark()
+  const stacks = bagOf(36, [spent('stone_pickaxe'), spent('iron_pickaxe'), spent('iron_pickaxe'), item('cobblestone', 59),
+    item('spruce_planks', 4), item('crafting_table', 1), item('dirt', 43)])
+  // the side blocks wear-out may dig: Frost's east wall (stone at foot level, solid below)
+  const { bot, tossed, have, digs, slots, clicksOnTable } = makeBot(stacks, { walls: FROST_WALLS, tables: [TABLE_BELOW] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail)
+  const picks = slots.filter(s => /_pickaxe$/.test(s?.name ?? ''))
+  assert.equal(picks.filter(s => s.name === 'stone_pickaxe' && s.durabilityUsed === 0).length, 1, 'a new stone pickaxe, full')
+  assert.ok(picks.filter(s => s.durabilityUsed === s.maxDurability - 1).length >= 1, 'a last swing is still in the bag')
+  assert.ok(digs.length >= 1 && digs.length <= 3, `wear-outs and at most the table's retake: ${JSON.stringify(digs)}`)
+  assert.ok(digs.filter(d => /_pickaxe$/.test(d.with)).every(d => d.name === 'stone'), 'a spent pickaxe is only ever worn out on stone')
+  assert.deepEqual(tossed, [], 'nothing thrown on the ground'); assert.deepEqual(clicksOnTable, [])
+  const rows = await rowsSince(n)
+  assert.ok(rows.some(x => x.kind === '_craft_room' && x.status === 'made_room' && /no pickaxe here digs/.test(x.detail)), 'the rebuild is named in its row')
+  assert.equal(have('cobblestone') >= 59 + 29 * 64 - 3, true)
+})
+
+await t('FROST, THE REFUSAL CHAIN: a furnace is refused WITH the craft that runs from here, and that craft then succeeds', async () => {
+  const stacks = bagOf(36, [spent('stone_pickaxe'), spent('iron_pickaxe'), spent('iron_pickaxe'), item('cobblestone', 59),
+    item('spruce_planks', 4), item('dirt', 43)])
+  const { bot, have, digs } = makeBot(stacks, { walls: FROST_WALLS, tables: [NEAR] })
+  const no = await run(bot, { item: 'furnace', count: 1 })
+  assert.equal(no.failClass, 'inventory_full', no.detail); assert.equal(digs.length, 0, 'a furnace buys no pickaxe: nothing is worn out for it')
+  assert.match(no.detail, /craft stone_pickaxe/, 'the refusal names the one move that runs from here')
+  const yes = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(yes.status, 'success', yes.detail); assert.equal(have('stone_pickaxe') >= 1, true)
+})
+
+await t('NOT FROST: the same sealed cell with ONE spent pickaxe -> nothing is worn out (the last swing is kept, as before)', async () => {
+  const stacks = bagOf(36, [spent('stone_pickaxe'), item('cobblestone', 59), item('spruce_planks', 4), item('dirt', 43)])
+  const { bot, digs, slots } = makeBot(stacks, { walls: FROST_WALLS, tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.equal(digs.length, 0)
+  assert.equal(slots.filter(s => s?.name === 'stone_pickaxe').length, 1)
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

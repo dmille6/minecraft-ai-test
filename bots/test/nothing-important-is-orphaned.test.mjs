@@ -485,6 +485,8 @@ const REQUIRED = [
   'docs/reports/keeperstall-2026-11-10.md',
   // reccache-01show (11-10): recordHead keeps per-file facts of the generations it has read; the walk is made again every call
   'bots/test/reccache.test.mjs',
+  // spentpick-01show (11-16): a placement never clicks a block that opens (Frost's table); the rebuild rule is in craftroom.mjs
+  'bots/src/placeref.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

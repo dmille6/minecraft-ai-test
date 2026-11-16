@@ -268,7 +268,38 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
  * review round 2).
  */
 export const MIN_SURVIVOR_USES = 2
-export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on } = {}) {
+/** What a pickaxe's head is made of, by the craft's name: 3 of ONE of these (a recipe is not asked to mix them). */
+const PICKAXE_HEAD = Object.freeze({
+  stone_pickaxe: ['cobblestone', 'cobbled_deepslate', 'blackstone'],
+  iron_pickaxe: ['iron_ingot'], golden_pickaxe: ['gold_ingot'], diamond_pickaxe: ['diamond'],
+})
+const WOOD_LOG = /(_log|_wood|_stem|_hyphae)$/
+/**
+ * IS THE WHOLE OF A NEW `pickaxe` ALREADY IN THE BAG? -> true | false. Pure, and deliberately stricter than a recipe
+ * search: the head (3 of one material) AND the handle (2 sticks, or the planks or the log that make them). A wooden
+ * pickaxe's head is planks too: 3 planks and 2 sticks, or 5 planks, with a log counted as 4 planks.
+ */
+export function pickaxeStockHeld (items = [], pickaxe = '') {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
+  const n = test => list.filter(it => test(it.name)).reduce((s, it) => s + (it.count ?? 1), 0)
+  const sticks = n(x => x === 'stick'), logs = n(x => WOOD_LOG.test(x))
+  const planks = n(x => /_planks$/.test(x)) + 4 * logs
+  if (pickaxe === 'wooden_pickaxe') return (sticks >= 2 && planks >= 3) || planks >= 5
+  const head = PICKAXE_HEAD[pickaxe]
+  if (!head) return false
+  return head.some(h => n(x => x === h) >= 3) && (sticks >= 2 || planks >= 2)
+}
+/**
+ * THE REBUILD (showcase Frost, 11-15/16: sealed under a lakebed for 4 h+ with 379 cobblestone, 16 logs and three pickaxes
+ * at 1 use each; 87 refusals here). The survivor rule above assumes a pickaxe with uses is somewhere in the bag. When
+ * NONE is, every copy is a last swing: toolfor's HARD_STOP never swings one on a travel or an escape dig, so they are
+ * no way out, and the cobblestone they are kept to mine (hygiene.mjs SPENT_PICKAXES_KEPT) is already held. Then the
+ * slots they fill are what stands between the bot and a pickaxe that digs. So, for a craft that ENDS in a pickaxe
+ * (`goal`: the stick step of a stone_pickaxe counts) whose whole stock is in the bag (pickaxeStockHeld), ONE 1-use copy
+ * may go -- lowest tier first -- while ANOTHER 1-use copy stays: the last swing is never the price (Codex's rule above,
+ * kept). Never with a pickaxe of 2+ uses in the bag: that bag is the rules' above.
+ */
+export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWANCE.on, goal = null } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= MIN_SURVIVOR_USES)
   const planned = wearOutPlan(list, { allowance }).tools.find(t => !/_pickaxe$/.test(t.name) || survives(t))
@@ -278,7 +309,28 @@ export function craftRoomRemedy (items = [], item = '', { allowance = BAG_ALLOWA
       .sort((a, b) => tier(a.name) - tier(b.name))
     if (spent.length) return { tool: spent[0], why: 'replaced' }
   }
+  const making = [goal, item].map(x => String(x ?? '')).find(x => /_pickaxe$/.test(x))
+  const picks = list.filter(it => /_pickaxe$/.test(it.name))
+  if (making && !picks.some(it => remaining(it) >= MIN_SURVIVOR_USES) && pickaxeStockHeld(list, making)) {
+    const last = picks.filter(it => remaining(it) === 1).sort((a, b) => tier(a.name) - tier(b.name))
+    if (last.length >= 2) return { tool: last[0], why: 'rebuild' }
+  }
   return null
+}
+
+/**
+ * WHY NO TOOL WAS SPARED, as the craft's refusal says it -> text. Pure. The deployed sentence, and -- when the bag is the
+ * rebuild's (no pickaxe with 2+ uses, two or more at 1) but THIS craft does not end in a pickaxe -- the one move that
+ * runs from where the bot stands: the pickaxe craft its bag already holds the stock for, which may use a copy up.
+ */
+export const NO_SPARE_TOOL = 'no spent tool that can be spared (the last digging pickaxe is kept)'
+export function craftRoomRefusal (items = [], item = '', goal = null) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
+  const picks = list.filter(it => /_pickaxe$/.test(it.name))
+  if ([goal, item].some(x => /_pickaxe$/.test(String(x ?? ''))) || picks.some(it => remaining(it) >= MIN_SURVIVOR_USES) ||
+      picks.filter(it => remaining(it) === 1).length < 2) return NO_SPARE_TOOL
+  const make = ['stone_pickaxe', 'wooden_pickaxe'].find(p => pickaxeStockHeld(list, p))
+  return make ? `${NO_SPARE_TOOL}; every pickaxe here is on its last use and the bag holds a new one: craft ${make} (that craft may use one up for its slot)` : NO_SPARE_TOOL
 }
 
 /** THE STACK place() PUTS DOWN: the first stack of that name in the bag's slot order. Shared by place() and the advice. */

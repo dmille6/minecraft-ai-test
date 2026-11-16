@@ -39,7 +39,7 @@ import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyO
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
 import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword, unwantedSword } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
-import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict, chainPeak } from './craftroom.mjs'
+import { craftRoomRefusal, BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict, chainPeak } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, isCompostInput, sameWorld, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
@@ -146,6 +146,7 @@ import { HOMEPLOTS, resolveHomePlots, homePlotZones, houseOffer, siteOverPlots, 
 import { laterHomeHeld, chainWaits, homePlotAt, pathInputsWithHomes } from './homeplots.mjs'   // homes-01show review r1: the switch's hold, the chain's wait, the plots kept off
 import { HOMESEARCH, HOMEPLOT, homeZones, plotSig, refusalKind, searchNoted, searchPlotLooks } from './homeplots.mjs'   // homes-02show: the search resumes; unfinished roads yield
 import { makeWalkCache, siteAgainSteady } from './buildsite.mjs'   // homes-02show: one kept walk of the town a plot's search; what it accepts is proven again fresh
+import { placeRefFor, opensOnClick } from './placeref.mjs'   // spentpick-01show: a placement never clicks a block that opens
 import { installServerBlockWitness } from './buildbot.mjs'   // homes-02show r1: the connection's witness drops a kept walk the world moved under
 import { cottage2StylesAll } from './cottage.mjs'   // homes-02show: every look of the family
 import { isCottage2Blueprint } from './cottage2.mjs'   // cottage2-01
@@ -6084,7 +6085,7 @@ const craftDeadline = ctx => (ctx.runner?.current?.startedAt ?? Date.now()) + co
  * gets the same two make-room tries and the same table reserve as one direct craft. `onVerified(n)` is called with the
  * items each verified execution produced -- the ONLY place a produced count is taken, so nothing is counted twice.
  */
-async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null, protect = [], signal, deadline, rs, onVerified = () => {} }) {
+async function craftExecutions(ctx, { item, goal = null, recipe, crafts, table, anchor = null, protect = [], signal, deadline, rs, onVerified = () => {} }) {
   const { bot } = ctx
   const plan = roomRecipe(bot.registry, recipe, item)
   const synced = !!bot.craftSync
@@ -6149,7 +6150,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
     // Up to two slots made per level: one for the output, one for a table this call (or a caller) will take back.
     while (!room.ok && room.reason === 'no_room' && rs.tries < 2) {
       rs.tries++
-      const freed = await makeCraftRoom(ctx, item, plan, signal)
+      const freed = await makeCraftRoom(ctx, item, plan, signal, goal)
       check(signal)
       if (!freed.ok) {
         const bare = craftRoomNow(bot, plan, 0)
@@ -6396,7 +6397,9 @@ async function runCraftPlan (ctx, plan, { item, count, signal, table, rs, placed
       try { await bot.lookAt(station.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
     }
     const root = step.item === item
-    const r = await craftExecutions(ctx, { item: step.item, recipe: step.recipe.ref, crafts: step.crafts,
+    // `goal`: what the whole tree ends in. The room remedy reads it (craftroom.mjs THE REBUILD): the stick step of a
+    // stone_pickaxe is a pickaxe craft, as the admission check (craftRoomCheck, the root item) already counted it.
+    const r = await craftExecutions(ctx, { item: step.item, goal: item, recipe: step.recipe.ref, crafts: step.crafts,
       table: step.recipe.table ? station : undefined, anchor: station ?? undefined, protect, signal, deadline, rs,
       onVerified: n => { if (root) { executions++; produced += n; Object.assign(progress, tally()) } } })
     if (!r.ok) return { ...r.out, ...tally(), detail: `${r.out.detail}${root ? '' : ` [making ${step.item} for ${item}]`}${after()}` }
@@ -6496,14 +6499,14 @@ const STOP_CLASSES = new Set(['inventory_full', 'unverified', 'craft_unconfirmed
  * placing a block to free a slot can seal a 1x2 tunnel or an escape stair, so a filler is only ever named in advice.
  * An abort during it propagates.
  */
-async function makeCraftRoom(ctx, item, plan, signal) {
+async function makeCraftRoom(ctx, item, plan, signal, goal = null) {
   const { bot } = ctx
   const items = bot.inventory.items()
   const row = (status, said) => logEvent({ kind: 'craft_room', status, snapshot: snapshot(bot),
     detail: `${item}: ${said} (${items.length} -> ${bot.inventory.items().length}/${BAG_SLOTS} slots)` })
-  const pick = craftRoomRemedy(items, item)
+  const pick = craftRoomRemedy(items, item, { goal })
   if (!pick) {
-    const said = 'no spent tool that can be spared (the last digging pickaxe is kept)'
+    const said = craftRoomRefusal(items, item, goal)
     row('refused', said)
     return { ok: false, said }
   }
@@ -6513,7 +6516,7 @@ async function makeCraftRoom(ctx, item, plan, signal) {
   await bot.waitForTicks?.(12)   // a drop is collectable after 10 ticks: re-check the slots after it could land
   check(signal)
   const said = worn.ok
-    ? `made room by wearing out a spent ${pick.tool.name} on ${worn.on}${pick.why === 'replaced' ? ' (the copy this craft replaces)' : ''}`
+    ? `made room by wearing out a spent ${pick.tool.name} on ${worn.on}${pick.why === 'replaced' ? ' (the copy this craft replaces)' : pick.why === 'rebuild' ? ' (no pickaxe here digs: this slot buys the one that will; a last swing is kept)' : ''}`
     : `wearing out a spent ${pick.tool.name} failed: ${worn.said}`
   row(worn.ok ? 'made_room' : 'refused', said)
   return { ok: worn.ok, said }
@@ -7361,6 +7364,9 @@ function placeSites(bot, item = null) {
     if (z) { zoneSkip.n++; zoneSkip.zone ??= z }
     return !!z
   }
+  // A side reference is a CLICK on that block: never a protected zone's (the rule the underfoot branch below already keeps)
+  const opensSkip = { n: 0 }
+  const clickOk = p => { try { return !blocked(bot.protectZones?.() ?? [], p.x, p.y, p.z, bot.entity?.position ?? null) } catch { return false } }
   // Diagonals and one step up or down as well, nearest first. A bot on uneven
   // ground has a valid spot behind it far more often than beside it.
   const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
@@ -7377,8 +7383,11 @@ function placeSites(bot, item = null) {
       if (zoneRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // protectzone-01
       if (wellRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue
       const pc = planCls(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))
-      if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push({ ref: under, face: UP }); continue }   // only craft's own temporary table (Claude code r1 P3)
-      ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
+      // WHAT IS CLICKED (placeRefFor): the block under the cell unless a click opens it; then a side neighbour, or no candidate
+      const click = placeRefFor(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz), clickOk)
+      if (!click) { opensSkip.n++; continue }
+      if (pc) { planSkip.n++; if (pc === 'plan' && item === 'crafting_table') planLater.push(click); continue }   // only craft's own temporary table (Claude code r1 P3)
+      ;(at.name === 'water' ? wet : candidates).push(click)
     }
   }
   candidates.push(...wet)
@@ -7403,7 +7412,7 @@ function placeSites(bot, item = null) {
   // and the old top-face-only candidate list could not.
   if (!candidates.length) {
     const underfoot = bot.blockAt(bot.entity.position.offset(0, -1, 0))
-    if (solid(underfoot)) {
+    if (solid(underfoot) && !opensOnClick(underfoot)) {   // a click on its side would open it (placeRefFor)
       for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
                           new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
         const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
@@ -7416,6 +7425,7 @@ function placeSites(bot, item = null) {
   candidates.wellSkip = wellSkip
   candidates.zoneSkip = zoneSkip
   candidates.planSkip = planSkip
+  candidates.opensSkip = opensSkip
   return candidates
 }
 
@@ -7563,7 +7573,8 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
         dug = true
       } catch (e) { if (e.aborted || signal?.aborted) throw e }
       const now = bot.blockAt(cellPos); const under2 = bot.blockAt(cellPos.offset(0, -1, 0))
-      if (dug && now && replaceable(now) && solid(under2)) { candidates.push({ ref: under2, face: UP }); madeRoom = cell.name }
+      const click2 = dug && now && replaceable(now) && solid(under2) ? placeRefFor(bot, cellPos) : null   // never a click that opens (placeRefFor)
+      if (click2) { candidates.push(click2); madeRoom = cell.name }
       break
     }
   }
