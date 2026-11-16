@@ -12050,9 +12050,14 @@ function useStockNote (bot, now = Date.now()) {
 }
 /** EVERY VERIFIED TAKE FROM A TOWN CONTAINER passes here: the visit, then its ledger line -- `why` the consumer (a build's bill, a
  *  craft, a tool, a toolkit, a smelt; `move`: a clerk's take, storage to storage; `prune`: to the well). */
-async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline, why = 'other') {
+async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline) {
   const v = await withdrawVisit0(ctx, chestBlock, decide, signal, msLeft, deadline)
-  try { if (v?.verified && v.moved?.took) useNote(ctx.bot, why === 'move' ? 'move' : why === 'prune' ? 'waste' : 'out', v.moved.took, why) } catch { /* advisory */ }
+  // the consumer: the decision's own name for the two that have one (a tool, a craft's ingredient), else the word the running
+  // skill left on the bot (useWhy: every other caller sets it as it starts)
+  try {
+    const why = decide?.name === 'pickDecision' ? 'tool' : decide?.name === 'ingredientDecision' ? 'craft' : String(ctx?.bot?.useWhy ?? 'other')
+    if (v?.verified && v.moved?.took) useNote(ctx.bot, why === 'move' ? 'move' : why === 'prune' ? 'waste' : 'out', v.moved.took, why)
+  } catch { /* advisory */ }
   return v
 }
 async function withdrawVisit0 (ctx, chestBlock, decide, signal, msLeft, deadline) {
@@ -12311,6 +12316,7 @@ async function withdraw (ctx, args, signal) {
   }
 }
 async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
+  if (ctx?.bot) ctx.bot.useWhy = 'withdraw'   // useledger-01
   if (item == null || ['', 'none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(String(item).trim().toLowerCase())) {
     return { status: 'failed', failClass: 'bad_args', detail: 'withdraw needs the item you need, e.g. withdraw stone_pickaxe or withdraw stick 2' }
   }
@@ -12349,7 +12355,7 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   let lastFailure = null, noRoom = 0
   for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
     check(signal)
-    const v = await withdrawVisit(ctx, chestBlock, decide, signal, msLeft, deadline - 2_000, 'withdraw')
+    const v = await withdrawVisit(ctx, chestBlock, decide, signal, msLeft, deadline - 2_000)
     sweep.mark(chestBlock.position, v.double)
     tried.push(`${posKey(chestBlock.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? (v.moved ? 'acted' : 'none')}`)
     diag = v.diag ?? diag
@@ -12489,6 +12495,7 @@ function pruneWellRule (bot) {
  * thrown: it stays in the bag as ordinary surplus.
  */
 async function pruneTown (ctx, _args, signal) {
+  if (ctx?.bot) ctx.bot.useWhy = 'prune'   // useledger-01: to the well
   const { bot } = ctx
   const row = (status, detail) => { try { logEvent({ kind: 'stock_prune_visit', status, snapshot: snapshot(bot), detail: detail.slice(0, 300) }) } catch { /* never break the order */ } return { status, detail } }
   if (!wellUsable(bot)) return row('no_effect', 'no usable junk well in town: nothing is pruned (it would only fill the bag)')
@@ -12513,7 +12520,7 @@ async function pruneTown (ctx, _args, signal) {
     const takes = ok.slice(0, Math.max(0, Math.min(PRUNE_MAX_STACKS, free() - PRUNE_FREE_AFTER, visitRoom)))
     return takes.length ? { prune: true, takes: takes.map(t => ({ name: t.name, count: t.count })) } : null
   }
-  const v = await withdrawVisit(ctx, block, decide, signal, msLeft, deadline - 2_000, 'prune')
+  const v = await withdrawVisit(ctx, block, decide, signal, msLeft, deadline - 2_000)
   const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
   const total = Object.values(took).reduce((t, n) => t + n, 0)
   if (!total) return row(v.result?.status === 'failed' ? 'failed' : 'no_effect', `took nothing at ${pick.k} well_keeps=${wellRefused}: ${v.result?.detail ?? 'no full stack to take'}${v.diag?.pruneRefused ? ` (refused ${v.diag.pruneRefused})` : ''}`)
@@ -12732,7 +12739,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   for (let n = 0; n < WITHDRAW_PICK_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
     check(signal)
     const cb = next.block
-    const v = await withdrawVisit(ctx, cb, pickDecision, signal, pc.msLeft, pc.deadline - 2_000, 'tool')
+    const v = await withdrawVisit(ctx, cb, pickDecision, signal, pc.msLeft, pc.deadline - 2_000)
     const keys = halvesOf(bot, cb.position, v.double)
     for (const k of keys) pickTried.add(k)
     record(v, cb)
@@ -12784,7 +12791,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     if (n === 0) { st.search.ing = nx.order.length; st.search.ix.ing = nx.order.ixNeg ?? 0; st.search.ix.ingTried = ingTried }
     const cb = nx.block
     if (!cb) break
-    const v = await withdrawVisit(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000, 'craft')
+    const v = await withdrawVisit(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000)
     const keys = halvesOf(bot, cb.position, v.double)
     for (const k of keys) ingTried.add(k)
     record(v, cb)
@@ -12834,6 +12841,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
  * Never a trip; never the model's choice; never displaces a ready milestone step (the order is placed after them all).
  */
 async function toolkit (ctx, args, signal) {
+  if (ctx?.bot) ctx.bot.useWhy = 'toolkit'   // useledger-01
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
   const ingots = () => items().reduce((n, it) => n + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
@@ -12942,7 +12950,7 @@ async function toolkit (ctx, args, signal) {
       for (let n = 0; n < KIT_SEARCH_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
         check(signal)
         const cb = next.block
-        const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000, 'toolkit')
+        const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
         // ONE ENTRY PER CONTAINER, opened or not: a double chest's other half is the same container (the view keys it once,
         // and its partner comes from the block state -- the old sweep marked it only after a window opened, so a walled-in
         // or lidded double chest spent two of the three tries)
@@ -13974,7 +13982,7 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0, 
     for (let n = 0; n < visits && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
       check(signal)
       const cb = next.block
-      const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000, 'smelt')
+      const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
       for (const k of halvesOf(bot, cb.position, true)) passTried.add(k)
       out.looked++
       out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
@@ -14625,6 +14633,7 @@ export function uncertainTakes ({ err = null, visit = null } = {}) {
 }
 async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null, { first = [], why = 'build' } = {}) {
   const { bot } = ctx
+  bot.useWhy = why   // useledger-01: a build's bill, unless the caller says a clerk's move
   const { deadline } = withdrawClock(ctx)
   const left = { ...take }
   const out = { took: {}, unsettled: false, looked: 0, tried: [], short: false, capped: 0 }
@@ -14660,7 +14669,7 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     curFirst = next.first === true
     cur = containerKey(bot, cb.position)
     let v
-    try { v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000, why) } catch (e) {
+    try { v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000) } catch (e) {
       for (const [k, c] of Object.entries(uncertainTakes({ err: e }))) { try { onUncertain?.(k, c, 'aborted') } catch { /* telemetry */ } }
       throw e
     }
@@ -21488,7 +21497,7 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
   }
   const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
   const floor = heldMap(bot)   // the bag's own counts before the take (sortPut never puts below them)
-  const v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000, 'move')
+  const v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000)
   const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
   if (!Object.keys(took).length) { backoff(plan.moves.map(m => m.name)); row(false, `why=take:${v.result?.failClass ?? v.skip ?? 'none'}`); return { moved: 0, why: 'take' } }
   const done = {}, puts = []
@@ -22470,7 +22479,7 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
     }
     bot.hubCargoSrc = plan.from
     let v
-    try { v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000, 'move') } catch (e) { hubCargoWrite(bot, hubOwed(bot)); throw e }
+    try { v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000) } catch (e) { hubCargoWrite(bot, hubOwed(bot)); throw e }
     // VERIFIED: the file is what the server confirms was taken. UNVERIFIED (a recount that did not answer, a later transfer that
     // failed, a cursor to recover: Codex code r1 BLOCKER 1): the intent stays, clamped to the bag -- the bag held none of these kinds
     // before the take (no merge), so what it holds of them now IS the cargo, protected and delivered like any
