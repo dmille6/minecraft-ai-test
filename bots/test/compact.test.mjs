@@ -77,12 +77,13 @@ await t('the take: never below the loose keep, judged on the town elsewhere + th
   assert.equal(C.compactAllow('moss_block', 410, { others: { moss_block: 400 }, here: { moss_block: 10 } }, 0), 10)
   assert.match(C.compactDetail({ op: 'compact', from: 'coal', to: 'coal_block', took: 189, made: 21, banked: { coal_block: 21 }, slots: '20->20', why: 'done' }), /^op=compact from=coal to=coal_block took=189 made=21 banked=coal_block:21 slots=20->20 why=done$/)
 })
-await t('MUTANTS KILLED: the loose keep ignored; a part craft taken; no slot kept for the product; a tool merged; the take past the keep', async () => {
+await t('MUTANTS KILLED: the loose keep ignored; a part craft taken; no slot kept for the product; a small waste merged; a skipped kind merged; the take past the keep', async () => {
   const CP = P('compact')
   await killedBy(CP, C, "    const over = (Number(stock[from]) || 0) - compactKeepOf(from, settings.keep)", "    const over = (Number(stock[from]) || 0)", M => assert.equal(M.chestCompact({ coal: 190 }, { free: 20, settings: S, stackOf: size }), null))
   await killedBy(CP, C, "    const take = Math.floor(Math.min(over, slots * (Number(stackOf(from)) || 64)) / r.n) * r.n", "    const take = Math.min(over, slots * (Number(stackOf(from)) || 64))", M => assert.equal(M.chestCompact({ coal: 325 }, { free: 20, settings: S, stackOf: size }).take % 9, 0))
   await killedBy(CP, C, "  const slots = Math.min(settings.maxStacks, Math.max(0, (Number(free) || 0) - 2))", "  const slots = Math.min(settings.maxStacks, Math.max(0, (Number(free) || 0)))", M => assert.equal(M.chestCompact({ coal: 2000 }, { free: 2, settings: S, stackOf: size }), null))
-  await killedBy(CP, C, "    if (!(max > 1) || skip(name)) continue", "    if (skip(name)) continue", M => assert.equal(M.mergePick({ iron_pickaxe: [57, 57] }, { free: 12, settings: S, stackOf: () => 1 }), null))
+  await killedBy(CP, C, "    if (!(waste >= settings.mergeMin)) continue\n", '', M => assert.equal(M.mergePick({ stick: [74, 3] }, { free: 12, settings: S, stackOf: size }), null))
+  await killedBy(CP, C, "    if (!(max > 1) || skip(name)) continue", "    if (!(max > 1)) continue", M => assert.equal(M.mergePick(LIVE, { free: 12, settings: S, stackOf: size, skip: n => n === 'moss_block' }).name, 'coal'))
   await killedBy(CP, C, "have - Math.max(0, Number(keep) || 0)))", "have))", M => assert.equal(M.compactAllow('coal', 100, { others: { coal: 20 }, here: { coal: 60 } }, 128), 0))
   await killedBy(CP, C, "    if (!((Number(held?.[r.to]) || 0) > 0)) { if (!(room > 0)) continue; room-- }", "", M => assert.deepEqual(M.bagCompact({ iron_nugget: 30 }, { free: 0 }), []))
 })
