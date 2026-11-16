@@ -31,6 +31,10 @@ const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8'
 // list is how you stop the next thing being orphaned; it is deliberately explicit rather than a
 // pattern, so a rename is a decision and not an accident.
 const REQUIRED = [
+  // projturn-01 (11-15): the open projects take turns, a no-progress visit backs its project off for the pool, a stuck bot is held
+  // off that project only (PROJTURN=off|on)
+  'bots/src/projturn.mjs',
+  'bots/test/projturn.test.mjs',
   // topdown-01 / landprev-01show (owner 11-15): gather takes ground only from the top; cobblestone before dirt in the escape
   'bots/src/topdown.mjs',
   'bots/test/topdown.test.mjs',

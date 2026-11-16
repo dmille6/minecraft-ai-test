@@ -35,6 +35,7 @@ import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } 
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf, SINK_TURN } from './sinks.mjs'   // picker-01; sinkturn-01: SINK_TURN
 import { decorOn } from './decorator.mjs'   // decorator-01: the decorator's switch
+import { projTurnOn, turnPick } from './projturn.mjs'   // projturn-01: the projects take turns
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
 export const SHOP = Object.freeze({ on: process.env.SHOP !== 'off' })
@@ -197,6 +198,19 @@ export const UPKEEPP = Object.freeze({ on: upkeepOn(process.env, process.env.MEM
 /** PRODSERVE-01 (prodserve.mjs): a finished production plot (the farms, the hall's clerk) is served on its own schedule, ahead of the
  *  other tiers (activeProject `service`). PRODSERVE=off is the rollback; on in the showcase pool only. */
 export const PRODSERVE = Object.freeze({ on: prodserveOn(process.env, process.env.MEMORY_POOL ?? '') })
+/** PROJTURN-01 (projturn.mjs): the open projects take turns (the longest unvisited first), a visit that made no progress backs its
+ *  project off for the pool, and a bot's own stuck stop holds it off that project only. PROJTURN=off is the rollback: the first free
+ *  project in order and the bot-wide stuck hold, exactly as before. */
+export const PROJTURN = Object.freeze({ on: projTurnOn(process.env) })
+/** projturn-01: the grounds' two lanes keep their place in the order (the keeper's order puts them first; for every other bot the
+ *  tidy is the last resort): never aged against the building projects (they carry no `turn` mark: turnExempt). */
+export const TURN_FIXED = Object.freeze(new Set([TIDY_PLOT, FOREST_PLOT]))
+/** projturn-01: the plots that take no turn and no back-off -- the grounds' lanes, the upkeep plot and the sinks (their own cadence:
+ *  the keeper's order and the quota, upkeep.mjs, the picker and the idle marks). Pure. */
+export const turnExempt = plot => TURN_FIXED.has(plot) || plot === UPKEEP_PLOT || isSinkPlot(plot)
+/** projturn-01: a COMPLETE record whose work is the asking bot's own need -- the yard's piles take a full bag's surplus (the room
+ *  rule's own exception below): another bot's visit that found nothing to do there must never close it to a bot whose bag is full. Pure. */
+export const turnOwnNeed = plot => plot === YARD_PLOT
 export const PROJECTS = Object.freeze([
   Object.freeze({ plot: SHOP_PLOT, blueprint: SHOP_BLUEPRINT }),
   Object.freeze({ plot: SHAFT_PLOT, blueprint: SHAFT_BLUEPRINT, builders: SHAFT_BUILDERS }),   // no `after`: the stair needs no workshop (exposure: 7 of 12 shared towns have one, 10-30)
@@ -333,6 +347,16 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   // its three repair tries an hour, to the sited copper hall waiting on copper (11 visits, 0 placed) or the tidy): a finite project
   // this bot visited without effect in the last IDLE_MS yields to a wanted sink; with no sink, exactly as before
   const freeOpen = open.find(p => st(p).free !== false && !yields(st(p)))
+  // PROJTURN-01 (projturn.mjs; LIVE showcase to 11-15: the step well, open and late in the order, 0 visits in 42 h -- every turn went
+  // to an earlier project that was stuck or found no site): among the open projects this bot may work that TAKE TURNS (`turn`: the
+  // states' own mark, skills.mjs shopActive through projturn.mjs turnBackoff) the one LONGEST UNVISITED goes first (`visitAt`; never
+  // visited is oldest, the order breaks a tie) -- or the one this bot was already given (`pin`), while it is still among them. A
+  // project that takes no turn at the head (the grounds' lanes: the keeper's order) is taken as before, and is never a candidate:
+  // it stays every other bot's last resort. No marks (PROJTURN=off): the first in order, exactly as before.
+  if (freeOpen && st(freeOpen).turn === true) {
+    const cands = open.filter(p => st(p).turn === true && st(p).free !== false && !yields(st(p)))
+    return turnPick(cands, p => st(p).visitAt, cands.find(p => st(p).pin === true)?.plot ?? null) ?? freeOpen
+  }
   if (freeOpen) return freeOpen
   if (open.length && !sink && upk) return dueBefore() ?? upk
   if (open.length && !sink) return open[0]
@@ -357,6 +381,21 @@ export function activeProject (states = [], list = projectsOn(), { upkeepTurn = 
   if (list.some(p => p.upkeep)) list = list.filter(p => !p.upkeep)
   for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!list[i].sink && !(!s.exists && s.waiting === true)) return list[i] }
   return list.filter(p => !p.sink).at(-1) ?? list[list.length - 1]
+}
+/**
+ * PROJTURN-01: WHAT THE AGED CHOICE SAW, for the visit's `_shop_turn` row -> { why, eligible, visitAt }. Pure (activeProject asked
+ * again over the same states). why: `tier` (the pick is not from the open projects that take turns: a service plot, a repair, a sink,
+ * an upkeep, a grounds lane, a fallback), `only` (one candidate), `order` (the aging chose what the order would have) or `aged`.
+ * eligible: how many open projects this bot could have been given (each candidate closed in turn until the pick is none of them).
+ */
+export function turnPickInfo (states = [], list = projectsOn(), pick = null, opts = {}) {
+  const of = (sts, p) => sts.find(s => s?.plot === p?.plot) ?? null
+  const cand = (sts, p) => { const s = of(sts, p); return !!s && s.turn === true && s.free !== false && !(s.exists && s.complete) }
+  if (!pick || !cand(states, pick)) return { why: 'tier', eligible: 0, visitAt: null }
+  let cur = states, n = 0
+  for (let p = pick; n < list.length && cand(cur, p); p = activeProject(cur, list, opts)) { n++; const plot = p.plot; cur = cur.map(s => (s?.plot === plot ? { ...s, free: false } : s)) }
+  const flat = states.map(s => (s?.turn === true ? { ...s, visitAt: null, pin: false } : s))
+  return { why: n === 1 ? 'only' : activeProject(flat, list, opts).plot === pick.plot ? 'order' : 'aged', eligible: n, visitAt: of(states, pick)?.visitAt ?? null }
 }
 /**
  * A REPAIR THAT DOES NOT TAKE WAITS (wall-01, LIVE showcase 10-30 07:21Z on: a path cell under a block someone set on it read as
@@ -548,6 +587,16 @@ export function waitBackoff (states = [], mem = null, now = Date.now()) {
 }
 let waitOf = () => null
 export function setWaitNow (fn) { if (typeof fn === 'function') waitOf = fn }
+/**
+ * PROJTURN-01: the order's two readings of the turns (skills.mjs installs them; unset, or PROJTURN=off: the order exactly as before).
+ *   stuckPlot() -> the plot this bot's last own visit ended `stuck_on_cell` on | null (unknown)
+ *   backedOff(plot, now) -> bool: is the plot inside its no-progress back-off for this bot at the order's `now`?
+ */
+let turnOf = null
+export function setTurnNow (h) { turnOf = h && typeof h.stuckPlot === 'function' && typeof h.backedOff === 'function' ? h : null }
+/** Does the bot's own last `stuck_on_cell` hold the order for this plot? Pure. sinkfix-03's rule for the site retry (siteRetryHolds):
+ *  only the plot that stuck; an unknown plot (no hook, a restart) holds as before. */
+export const stuckRetryHolds = (plot, stuck) => stuck == null || plot == null || stuck === plot
 export const SHOP_HEALTH_MIN = 10
 export const SHOP_BAG_SLOTS_MIN = 8                      // the bill rides in the bag: at least this many free slots
 export const MONUMENT_BAG_SLOTS_MIN = 2                  // monument-01: the ziggurat is built mostly from the cobble a bag already holds
@@ -964,7 +1013,7 @@ export function buildOrder (q = {}) {
   return g?.order ? { order: g.order, skip: null } : r
 }
 function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = false, now = 0, state = {}, record = null,
-  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null } = {}) {
+  complete = false, slotsFree = true, health = 20, freeSlots = 36, planned = true, stuckAt = null, feet = null, groundY = null, turn = PROJTURN.on } = {}) {
   if (!on || !shared || !atTown || holds) return { order: null, skip: null }
   // no town plan yet: nothing to site a workshop in, and no order (it would only displace the model's turn)
   if (!planned) return { order: null, skip: null }
@@ -1020,10 +1069,18 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
   // sinkfix-02: a sink visit starts at the surface (LIVE 11-04: three road visits ordered at y 23-26 in a mine, aborted entombed)
   // mineorder-01: ... and so does every other project's, but the stair's and the step well's (startsBelow)
   if (startsBelow(plot0, feet, groundY, { over: overOf(feet, groundY) })) return { order: null, skip: 'underground' }
-  if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }
+  // PROJTURN-01 (LIVE showcase to 11-15: one bot's stuck visit held it off EVERY project for 6 h while others stood open): the bot's
+  // own stuck stop holds only the project it stuck on (stuckRetryHolds; the picker has already put every other project first:
+  // projturn.mjs turnBackoff). `turn` off, or the plot unknown: every project, as before
+  let stuckPlot = null
+  if (turn && turnOf) { try { stuckPlot = turnOf.stuckPlot() ?? null } catch { stuckPlot = null } }
+  if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS && stuckRetryHolds(plot0, stuckPlot)) return { order: null, skip: 'stuck_on_cell' }
   // leaffell-01show r1: the pick is still the project this bot's last visit ended WAITING on (noteWait; waitBackoff put every other
   // project first): no order for it until its hold is over -- the skip carries the stop's name, and the grounds are asked instead
   { let w = null; try { w = waitOf(plot0) } catch { w = null } if (w && Object.hasOwn(WAIT_STOPS, w)) return { order: null, skip: w } }
+  // projturn-01: the pick is still a project inside its no-progress back-off (nothing else is open for this bot: the picker put
+  // every other one first): no order for it until the back-off is over -- the grounds are asked instead (grounds2.mjs NO_ORDER_SKIPS)
+  if (turn && turnOf) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) } catch { bo = false } if (bo) return { order: null, skip: 'no_progress' } }
   if (!slotsFree) return { order: null, skip: 'slots_full' }
   if (health <= SHOP_HEALTH_MIN) return { order: null, skip: 'health' }
   let plot = record?.plot ?? null

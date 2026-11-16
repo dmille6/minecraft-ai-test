@@ -254,7 +254,8 @@ export function groundsFall ({ on = true, status = null, stop = null, placed = 0
  */
 // leaffell-01show r1: ...and the two waiting holds (shop.mjs noteWait / buildOrder `waitOf`: this bot's last visit to the pick ended
 // leaf_decay or zone_closed and its hold is not over)
-export const NO_ORDER_SKIPS = Object.freeze(['complete', 'no_site', 'stuck_on_cell', 'slots_full', 'leaf_decay', 'zone_closed'])
+// projturn-01: ...and the pick inside its no-progress back-off (shop.mjs buildOrder `no_progress`: nothing else is open for this bot)
+export const NO_ORDER_SKIPS = Object.freeze(['complete', 'no_site', 'stuck_on_cell', 'slots_full', 'leaf_decay', 'zone_closed', 'no_progress'])
 export function groundsNoOrder ({ on = true, skip = null, sinceMs = Infinity, cooldownMs = 0, health = 20, healthMin = 10, freeSlots = 36, roomMin = 2, ...links } = {}) {
   const no = why => ({ ask: false, why })
   if (!on) return no('off')

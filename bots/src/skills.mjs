@@ -300,6 +300,9 @@ import { DECOR, DECOR_LEASE, NURSERY, decorPressure, decorWanted, decorOrderPure
 import { setCompostDrive, setDecorFeed } from './composter.mjs'   // decorator-02: the compost drive's hook (townOrder); flowers-01: the feed ferns
 import { SMALL_FLOWERS as DECOR_FLOWERS, gatherTargets as decorGatherTargets } from './park.mjs'   // decorator-02: the bag's flowers apart from its ferns
 import { DECORATE } from './shop.mjs'   // decorator-01: its switch
+import { PROJTURN, turnExempt, turnOwnNeed, turnPickInfo, setTurnNow, stuckWindowOf, SHOP_SITE_RETRY_MS } from './shop.mjs'   // projturn-01: the switch, the lanes, the order's hooks
+import { TURN, turnOutcome, turnView, turnStart, turnAfter, turnHold, turnBackoff, turnUntil, turnCap, turnPickDetail, turnBackoffDetail } from './projturn.mjs'   // projturn-01
+import { turnRead as projTurnRead, turnWrite as projTurnWrite } from './buildproj.mjs'   // projturn-01: the pool's turn files
 import { PRODSERVE, IDLE_NOT_A_VISIT } from './shop.mjs'   // prodserve-01: the service tier's switch; a stop that was no visit
 import { servicePick, isServicePlot, stampNext, stampReleaseDue, stampOfHead, serviceOffer, serviceRowDetail, SERVICE_PLOTS } from './prodserve.mjs'   // prodserve-01
 import { SINK_BLUEPRINTS } from './sinks.mjs'   // decorator-01: the nursery-only record's blueprint
@@ -18291,6 +18294,12 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     const marked = idleMarks(waitBackoff(waited, b?.shopWait ?? null, now), b?.shopIdle ?? null, now)
     // PRODSERVE-01: a finished production plot due by the town's schedule and this bot's fair share goes first (prodserve.mjs)
     const svc = PRODSERVE.on && b ? servicePickNow(b, marked, now, visit) : null
+    // PROJTURN-01 (projturn.mjs): the turns' marks, set on the states in place (the stamps, the waiting holds and the idle marks are on
+    // them already and pass through; the service pick above reads the states before them) -- a project inside its no-progress
+    // back-off steps aside, so does the one this bot's own last stop holds, and among the open ones it may work the longest
+    // unvisited goes first (activeProject reads the marks). The pick stands for this bot while it is still a candidate (`shopTurnPick`:
+    // TURN.stickMs, and the whole of its own visit), so the order and the visit it issues name one project. PROJTURN=off: none of it.
+    if (PROJTURN.on) marked.splice(0, marked.length, ...turnMarksNow(b, marked, now))
     // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
     const order00 = b ? keeperOrder(b, marked, list, now) : list
     // DECORATOR-01: the town's decorator works the decor FIRST (behind repairs); every other bot never sees it (the lease)
@@ -18302,6 +18311,8 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // its decor (decorator.mjs decorOrderPure), already a sink
     const sinkTurn = !!b && sinkTurnDue(b.finiteStreak) && !keeperNow(b, now)
     const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
+    if (PROJTURN.on && b && b.shopTurnPick?.plot !== pick.plot) b.shopTurnPick = { plot: pick.plot, at: now }
+    if (PROJTURN.on && b && visit) b.shopTurnInfo = { ...turnPickInfo(marked, order, pick), backedOff: marked.filter(s => s?.backoff === true).length }
     // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, the visit's pick and every read of the active project (the
     // reserve, the draw, the bag) name the tidy the order sent it to, never the forest the order skipped (shop.mjs roomFallbackPick)
     const fbPick = roomFallbackPick(b?.roomFallback ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
@@ -23060,7 +23071,8 @@ async function buildShop (ctx, args, signal, t00 = null) {
   // visits are marked like any other (LIVE 11-04: 39 keeper visits `complete`, 0 placed, `cuts_left 1/12, fills_left 98/846`) -- they
   // yield only to a wanted sink, for IDLE_MS
   // leaffell-01show r1: ...and a visit that ended WAITING (leaf_decay, zone_closed) holds its plot for this bot (shop.mjs noteWait)
-  const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } try { noteWait((ctx.bot.shopWait ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } }
+  // projturn-01: ...and every visit's result is the turns' evidence (turnNote: the project's no-progress back-off, this bot's last stop)
+  const note = res => { try { noteIdle((ctx.bot.shopIdle ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } try { noteWait((ctx.bot.shopWait ??= new Map()), ctx.bot.shopVisitPlot ?? null, res, Date.now()) } catch { /* bookkeeping */ } if (PROJTURN.on) turnNote(ctx.bot, res, args) }
   let r
   // gklease-01 (release fold, Codex BLOCKER): a visit IN PROGRESS is marked, so the footprint timer's keeperOrder never releases the
   // grounds lease under a running tidy/forest visit (a replacement keeper would work beside the old one)
@@ -23150,6 +23162,7 @@ async function buildShopVisit (ctx, args, signal) {
   if (g3Only(args)) { bot.shopVisitPlot = null; return groundsResult({ status: 'no_effect', detail: 'the grounds have no work for this bot now, and its order has nothing else', stop: 'grounds_none' }) }
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
   const proj = shopActive(bot, Date.now(), { visit: true })
+  if (PROJTURN.on) turnBegin(bot, proj.plot)   // projturn-01: the visit's start is stamped (the aging) and its pick logged
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
   bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
   bot.finiteStreak = finiteStreakAfter(bot.finiteStreak, proj.plot)   // sinkturn-01: the finite visits in a row (the sink turn's count)
@@ -27373,6 +27386,102 @@ export function keeperNow (bot, now = Date.now()) {
 setKeeperNow(() => keeperNow(activeMem?.bot ?? null))
 setNoSitePlot(() => activeMem?.bot?.shopNoSitePlot ?? null)   // sinkfix-03
 setWaitNow(plot => waitHeld(activeMem?.bot?.shopWait ?? null, plot, Date.now()))   // leaffell-01show r1: the order's skip while a waiting hold is on
+// ================================================================================================================================
+// PROJTURN-01 (projturn.mjs decides; buildproj.mjs turnRead / turnWrite keep the files): the projects take turns. This holder's own
+// file is read once and kept (it alone writes it); the pool's view is read at most every TURN.readMs, with the own entries as they
+// are now. PROJTURN=off: nothing here is called, no file is read or written.
+// ================================================================================================================================
+let turnOwn = null
+let turnMem = { at: -Infinity, dir: null, me: null, view: null }
+const turnMe = b => b?.username ?? config.bot?.name ?? 'bot'
+/** Test hook: forget the turns' memory (the own file is read again). */
+export function shopTurnForget () { turnOwn = null; turnMem = { at: -Infinity, dir: null, me: null, view: null } }
+function turnOwnNow (dir, me) {
+  if (turnOwn?.dir === dir && turnOwn.me === me) return turnOwn
+  turnOwn = { dir, me, plots: { ...(projTurnRead(dir, planHomeP(), { holder: me })[0]?.plots ?? {}) } }
+  return turnOwn
+}
+/** The pool's view now (projturn.mjs turnView over every holder's file; a back-off counts only on the record generation that
+ *  stands). Throws on an unreadable town (the callers answer "no marks"). */
+function turnViewNow (b, now = Date.now()) {
+  const dir = townDir(), me = turnMe(b)
+  if (turnMem.view && turnMem.dir === dir && turnMem.me === me && now >= turnMem.at && now - turnMem.at < TURN.readMs) return turnMem.view
+  const own = turnOwnNow(dir, me)
+  const files = [...projTurnRead(dir, planHomeP()).filter(f => f.holder !== me), { holder: me, plots: own.plots }]
+  const view = turnView(files, { now, genOf: plot => recordGenNow(dir, projKeyOf(plot)) })
+  turnMem = { at: now, dir, me, view }
+  return view
+}
+/** This bot's own hold (its last stop on a project of its own: the order's two back-offs) -> { plot, stop } | null. */
+const turnHoldNow = (b, now = Date.now()) => turnHold(b?.shopTurnLast ?? null, now, { stuckMs: SHOP_STUCK_RETRY_MS, siteMs: SHOP_SITE_RETRY_MS })
+/** shopActive's states with the turns' marks (projturn.mjs turnBackoff). The project of this bot's OWN running visit keeps its state
+ *  for the whole of the visit (a co-builder's result must not move the visit's reads to another project half way: the reserve, the
+ *  draw and the bag all read the active project). Never throws (the states as they came). */
+function turnMarksNow (b, states, now = Date.now()) {
+  try {
+    const onPlot = b?.shopVisitBusy ? b.shopTurnVisit?.plot ?? null : null
+    const pin = onPlot ?? (b?.shopTurnPick && (b.shopVisitBusy || (now >= b.shopTurnPick.at && now - b.shopTurnPick.at < TURN.stickMs)) ? b.shopTurnPick.plot : null)
+    const marks = turnBackoff(states, turnViewNow(b, now), { me: turnMe(b), now, exempt: turnExempt, hold: turnHoldNow(b, now), pin, capOf: stuckWindowOf, ownNeed: turnOwnNeed })
+    // the running visit's project: its marks are the age and the pin alone, its state as it came
+    return onPlot == null ? marks : marks.map((s, i) => (s?.plot === onPlot ? { ...states[i], turn: true, pin: true, ...(Number.isFinite(s.visitAt) ? { visitAt: s.visitAt } : {}) } : s))
+  } catch { return states }
+}
+/** Is `plot` inside its no-progress back-off for this bot now (the order's `no_progress` skip)? Never throws (no). */
+function turnBackedOff (b, plot, now = Date.now()) {
+  try {
+    if (plot == null || turnExempt(plot)) return false
+    const st = activeMem?.states?.find(s => s?.plot === plot) ?? { plot, exists: false, complete: false, damaged: false }
+    return turnBackoff([st], turnViewNow(b, now), { me: turnMe(b), now, exempt: turnExempt, capOf: stuckWindowOf, ownNeed: turnOwnNeed })[0]?.backoff === true
+  } catch { return false }
+}
+/** Write this holder's entry for `plot` (memory first: a failed write still holds for this bot). Never throws. */
+function turnPut (dir, me, plot, entry, now = Date.now()) {
+  const own = turnOwnNow(dir, me)
+  own.plots[plot] = entry
+  turnMem.at = -Infinity
+  try { projTurnWrite(dir, planHomeP(), me, own.plots, { now }) } catch { /* kept in memory */ }
+}
+/** THE VISIT'S START (buildShopVisit, after its pick): one `_shop_turn op=pick` row, and the start stamped for a project that takes
+ *  turns -- never a service visit's (prodserve.mjs: its own schedule). Never throws. */
+function turnBegin (bot, plot, now = Date.now()) {
+  try {
+    const info = bot.shopTurnInfo ?? null
+    bot.shopTurnInfo = null; bot.shopTurnVisit = null
+    if (plot == null) return
+    try { logEvent({ kind: 'shop_turn', status: 'success', snapshot: snapshot(bot), detail: turnPickDetail({ project: plot, why: turnExempt(plot) ? 'tier' : info?.why ?? 'tier', ageMin: Number.isFinite(info?.visitAt) ? Math.max(0, Math.round((now - info.visitAt) / 60_000)) : null, backedOff: info?.backedOff ?? 0, eligible: info?.eligible ?? 0 }) }) } catch { /* telemetry */ }
+    if (turnExempt(plot) || bot.serviceVisit?.plot === plot) return
+    const dir = townDir(), me = turnMe(bot)
+    turnPut(dir, me, plot, turnStart(turnOwnNow(dir, me).plots[plot] ?? null, now), now)
+    bot.shopTurnVisit = { plot, at: now, gen: recordGenNow(dir, projKeyOf(plot)) }
+  } catch { /* bookkeeping */ }
+}
+/** THE VISIT'S END (buildShop `note`: every build visit's result passes here, an abort too): this bot's last stop on a project of its
+ *  own (never a visit ordered for the grounds: grounds2.mjs groundsHold's rule), and -- for a visit turnBegin stamped -- the project's
+ *  count: a no-progress visit lengthens the pool's back-off, a visit that made progress ends it (projturn.mjs turnOutcome /
+ *  turnAfter). One `_shop_turn op=backoff` row when a back-off is set or ended. Never throws. */
+function turnNote (bot, res, args, now = Date.now()) {
+  try {
+    const plot = bot.shopVisitPlot ?? null
+    if (!g3Only(args) && plot != null) bot.shopTurnLast = { plot, stop: String(res?.stop ?? res?.failClass ?? res?.status ?? ''), at: now }
+    const v = bot.shopTurnVisit ?? null
+    bot.shopTurnVisit = null
+    if (!v || v.plot !== plot) return
+    const dir = townDir(), me = turnMe(bot), gen = recordGenNow(dir, projKeyOf(plot))
+    const oc = turnOutcome({ status: res?.status, stop: res?.stop, placed: res?.placed, cleared: bot.shopLast?.cleared, planted: bot.shopLast?.planted }, { moved: (gen ?? null) !== (v.gen ?? null) })
+    if (oc === 'none') return
+    turnMem.at = -Infinity
+    const before = turnViewNow(bot, now).get(plot) ?? null
+    turnPut(dir, me, plot, turnAfter(turnOwnNow(dir, me).plots[plot] ?? null, before, oc, { now, stop: res?.stop ?? null, gen }), now)
+    if (oc === 'progress' && !((before?.n ?? 0) > 0)) return
+    const e = turnViewNow(bot, now).get(plot) ?? null
+    const st = activeMem?.states?.find(s => s?.plot === plot) ?? null
+    const until = turnUntil(e, { me, plot, cap: turnCap({ complete: !!(st?.exists && st?.complete), stuckMs: stuckWindowOf(plot) }) })
+    logEvent({ kind: 'shop_turn', status: oc === 'progress' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: turnBackoffDetail({ project: plot, n: e?.n ?? 0, untilMin: until > now ? Math.round((until - now) / 60_000) : 0, stop: res?.stop ?? res?.status ?? '-' }) })
+  } catch { /* bookkeeping */ }
+}
+/** The turns' glue, for the tests: never called by the bot itself. */
+export const _projturn = Object.freeze({ turnBegin, turnNote, turnMarksNow, turnBackedOff, turnViewNow, turnHoldNow })
+if (PROJTURN.on) setTurnNow({ stuckPlot: () => { const l = activeMem?.bot?.shopTurnLast ?? null; return l?.stop === 'stuck_on_cell' ? l.plot ?? null : null }, backedOff: (plot, now) => turnBackedOff(activeMem?.bot ?? null, plot, Number.isFinite(now) ? now : Date.now()) })
 // mineorder-01 r2: how much stands over the bot? (the order refuses a build visit only below the line AND with the town's ground over it)
 setOverHead(feet => { const b = activeMem?.bot; return b?.blockAt ? overHead((x, y, z) => b.blockAt(new Vec3(x, y, z)), feet, config.world.homeY + 24) : null })
 // sinkfix-04: the tidy's quiet order; the siteprep-02 fold (Codex fold BLOCKER): never for the keeper with site-request work (shop.mjs tidyQuiet)

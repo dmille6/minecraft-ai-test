@@ -20,6 +20,12 @@ process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'hive-a'   // a named pool: the tidy and the groundskeeper on by default
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-grounds2-pool-'))
 for (const k of ['GROUNDS2', 'GROUNDSFALL', 'GROUNDSKEEPER', 'TIDY', 'GKLEASE', 'GKCREW4', 'GKCREWCUT', 'GKFILLSHARE', 'COUNTRY', 'LANDPLAN']) delete process.env[k]
+// PROJTURN-01 (deliberate): this file's end-to-end cases are the grounds' own -- a bot whose project ended no_site or stuck_on_cell
+// keeps that project as its pick, the order skips it, and the grounds are asked (the remembered stop: groundsHold). Under PROJTURN the
+// project steps aside for the pool (its no-progress back-off) and a due upkeep is ordered in its place, so those cases would assert
+// the turns, not the grounds. They run on the selection they were written for; the grounds as the stand-in for the turns' own skip
+// (`no_progress`, in NO_ORDER_SKIPS below) is projturn.test.mjs's chain.
+process.env.PROJTURN = 'off'
 const { withMutant } = await import('./helpers/mutant.mjs')
 const { EventEmitter } = await import('node:events')
 const { Vec3 } = await import('vec3')
@@ -968,7 +974,7 @@ await t('groundsFall: no work + a fall stop + the time -> the grounds; THE TIME:
 })
 await t('groundsNoOrder: asked for complete / no_site / stuck_on_cell / slots_full, after the cooldown, with health and 2 free slots; never for idle, underground, health, room', () => {
   assert.deepStrictEqual(G2.groundsNoOrder(N0), { ask: true, why: 'no_order:stuck_on_cell' })
-  assert.deepStrictEqual([...G2.NO_ORDER_SKIPS], ['complete', 'no_site', 'stuck_on_cell', 'slots_full', 'leaf_decay', 'zone_closed'])   // leaffell-01show r1: the two waiting holds
+  assert.deepStrictEqual([...G2.NO_ORDER_SKIPS], ['complete', 'no_site', 'stuck_on_cell', 'slots_full', 'leaf_decay', 'zone_closed', 'no_progress'])   // leaffell-01show r1: the two waiting holds; projturn-01: the pick inside its no-progress back-off
   for (const skip of G2.NO_ORDER_SKIPS) assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, skip }), { ask: true, why: `no_order:${skip}` })
   for (const skip of ['idle', 'underground', 'health', 'room', null, undefined, '']) assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, skip }), { ask: false, why: 'skip' }, String(skip))
   assert.deepStrictEqual(G2.groundsNoOrder({ ...N0, sinceMs: 10 * MIN - 1 }), { ask: false, why: 'cooldown' })
@@ -1066,7 +1072,7 @@ await t('the bot\'s project ended stuck_on_cell: for 6 h the order has nothing f
     await withMutant(G2_PATH, 'export const groundsHold = (state, hold) => (hold && HOLD_STOPS.includes(hold.stop) && Number.isFinite(hold.at) ? { ...(state ?? {}), lastStop: hold.stop, lastAt: hold.at } : state)', 'export const groundsHold = (state, hold) => state', async M => { try { await scenario(M, S) } catch (err) { why = err } })
     assert.ok(why instanceof assert.AssertionError, `MUTANT (no hold: the first grounds visit erases the 6-hour back-off) survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
     why = null
-    await withMutant(SHOP_PATH, "  if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }", "  if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS) return { order: null, skip: 'stuck_on_cell' }", async Sm => { try { await scenario(G2, Sm) } catch (err) { why = err } })
+    await withMutant(SHOP_PATH, "  if (own.lastStop === 'stuck_on_cell' && now - (own.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS && stuckRetryHolds(plot0, stuckPlot)) return { order: null, skip: 'stuck_on_cell' }", "  if (state.lastStop === 'stuck_on_cell' && now - (state.lastAt ?? -Infinity) < SHOP_STUCK_RETRY_MS && stuckRetryHolds(plot0, stuckPlot)) return { order: null, skip: 'stuck_on_cell' }", async Sm => { try { await scenario(G2, Sm) } catch (err) { why = err } })
     assert.ok(why instanceof assert.AssertionError, `MUTANT (the order's back-off reads the raw state) survived or died for another reason: ${why?.stack?.split('\n')[0] ?? 'survived'}`)
   } finally { S.setGroundsFall({ ask: X.groundsAsk, hold: X.groundsHeld }) }
 })

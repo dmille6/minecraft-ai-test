@@ -634,6 +634,44 @@ export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt
   } catch { return false }
 }
 
+// ---- projturn-01: the projects' turns (projturn.mjs; skills.mjs shopActive / buildShop) ---------------------------------------------
+// ONE FILE PER HOLDER for the whole town (the stuck map's rule, Codex r21 P2: a holder writes only its own file, so no update is
+// lost; a reader merges -- projturn.mjs turnView): `projturn-<home>.<holder>.json` = { v, holder, at, plots: { <plot>: { at, n, noAt,
+// okAt, gen, stop } } } -- at: this holder's last visit START to the plot; n / noAt / stop: its no-progress visits in a row and the
+// last one; okAt: its last visit that made progress; gen: the record generation the count was taken on. Never pruned (one small file
+// a bot), never read by the record walk (its name starts with no project key).
+const turnHome = home => `${home.x}_${home.y}_${home.z}`
+const turnFile = (dir, home, holder) => path.join(dir, `projturn-${turnHome(home)}.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const TURN_RE = home => new RegExp(`^projturn-${esc(turnHome(home))}\\.[A-Za-z0-9_-]+\\.json$`)
+const turnNum = v => (Number.isFinite(v) && v > 0 ? v : null)
+const turnOf = j => {
+  if (!j || typeof j.holder !== 'string' || !j.plots || typeof j.plots !== 'object') return null
+  const plots = {}
+  for (const [plot, e] of Object.entries(j.plots)) {
+    if (!e || typeof e !== 'object') continue
+    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null }
+  }
+  return { holder: j.holder, at: Number(j.at) || 0, plots }
+}
+/** The town's turn files -> [{ holder, at, plots }] ([] when none or unreadable; a torn or foreign file is skipped). `holder`: that
+ *  holder's own only. Never throws. */
+export function turnRead (dir, home, { holder = null } = {}) {
+  if (holder != null) { const r = turnOf(readJ(turnFile(dir, home, holder))); return r ? [r] : [] }
+  let names = []
+  try { names = listMatch(dir, TURN_RE(home)) } catch { return [] }
+  return names.map(n => turnOf(readJ(path.join(dir, n)))).filter(Boolean)
+}
+/** Replace THIS HOLDER's turn file (temp + rename, fsynced) -> true | false (never throws: the caller keeps its own copy in memory). */
+export function turnWrite (dir, home, holder, plots, { now = Date.now() } = {}) {
+  try {
+    wfs.mkdirSync(dir, { recursive: true })
+    const f = turnFile(dir, home, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, plots: plots ?? {} }))
+    wfs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+
 // ---- tempstand-01: the temporary stand's receipt (tempstand.mjs; buildrun.mjs runVisit `p.tempStand`) ------------------------------
 // ONE FILE PER HOLDER AND PROJECT, written (temp + rename, fsynced) BEFORE the first block of a stand is placed and removed only when
 // the world reads every one of its cells gone: a visit that is interrupted leaves it, and the next visit to the project takes the
