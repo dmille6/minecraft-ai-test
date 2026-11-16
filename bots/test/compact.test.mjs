@@ -92,9 +92,43 @@ await t('WIRED: the bag compacts before it banks; the clerk\'s pass runs under i
   one(sk, 'if \\(LANES\\.on && COMPACT\\.on && !drawing\\) f\\.crafted \\+= await bagCompactNow\\(ctx, signal\\)', 'the bag')
   one(sk, "const cl = cp \\? projTakeLease\\(dir, key, 'clerkpass', me\\) : null", 'one clerk at a time')
   one(sk, "const wd = await matsWithdraw\\(ctx, \\{ \\[name\\]: pass\\.take \\}, signal, 30_000, matsReserve\\(\\)\\.table, \\(n, want, o\\) => compactAllow\\(n, want, o, keep\\), null, null, \\{ why: 'move' \\}\\)", 'the take never passes the loose keep (a MOVE in the use ledger)')
-  one(sk, "const p = await sortPut\\(bot, block, o, deadline, signal, bag0, null, 'compact'\\)", 'put back by the deposit\'s body, the bag\'s own stock kept')
+  one(sk, "const p = await sortPut\\(bot, block, o, deadline, signal, \\{\\}, null, 'compact'\\)", 'put back by the deposit\'s body, the bag\'s own stock kept')
   one(sk, "if \\(plot === YARD_PLOT\\) \\{ const cp = clerkPassNow\\(bot, now\\); if \\(cp\\) return \\{ kind: 'clerkpass', urgent: false,", 'the order reads the pass as upkeep, never urgent')
   one(sk, "logEvent\\(\\{ kind: 'compact_mode'", 'the licence row')
+})
+
+// ---- Codex r1 BLOCKER 2: the clerk's cargo is never the bot's own, and a debt is paid before anything else -------------------------------
+await t('THE EXACT CASE (Codex r1): a clerk holding 1 moss never draws moss -- so its cargo is whole stacks, exact counts; MUTANT: the bag\'s own kind taken', async () => {
+  const held = { moss_block: 1, iron_pickaxe: 1 }
+  const mine = n => (held[n] ?? 0) > 0
+  const sc = M => {
+    assert.equal(M.mergePick(LIVE, { free: 12, settings: S, stackOf: size, skip: mine }).name, 'coal', 'the clerk holding moss merges the next-worst name instead')
+    assert.equal(M.mergePick(LIVE, { free: 12, settings: S, stackOf: size }).name, 'moss_block', 'positive control: a clerk holding none takes the moss')
+    assert.equal(M.clerkMayCarry(held, ['moss_block']), false); assert.equal(M.clerkMayCarry(held, ['coal', 'coal_block']), true)
+    // compaction: neither the source nor the product may be in the bag
+    assert.equal(M.chestCompact({ coal: 325 }, { free: 20, settings: S, stackOf: size, skip: n => n === 'coal_block' }), null, 'the bag holds coal blocks: no coal pass (its product would merge with them)')
+    assert.equal(M.chestCompact({ coal: 325, lapis_lazuli: 330 }, { free: 20, settings: S, stackOf: size, skip: n => n === 'coal' }).from, 'lapis_lazuli')
+  }
+  await killedBy(P('compact'), C, "    if (skip(from) || skip(r.to)) continue   // a kind the clerk's own bag holds: its cargo would merge with the bot's (clerkMayCarry)\n", '', sc)
+})
+await t('THE DEBT: the names are recorded before the take; while the bag holds any of them the next pass is the RETURN (never a new take); paid, the record is forgotten; MUTANTS', async () => {
+  const cargo = { names: ['moss_block'] }
+  assert.equal(C.clerkNext(null, { moss_block: 100 }), 'free', 'no record: a pass may be planned')
+  assert.equal(C.clerkNext(cargo, { moss_block: 37 }), 'return', 'an interrupt, a full chest, a short clock: 37 still owed -- the return, nothing else')
+  assert.deepEqual(C.cargoOwed({ moss_block: 37, coal: 5 }, cargo.names), { moss_block: 37 }, 'exactly what the bag holds of the recorded names')
+  assert.equal(C.clerkNext(cargo, { coal: 5 }), 'clear', 'paid: forget it')
+  assert.equal(C.clerkNext({ names: ['coal', 'coal_block'] }, { coal_block: 21 }), 'return', 'a compaction owes its product too')
+  assert.deepEqual(C.cargoOwed({ coal: 9, coal_block: 21 }, ['coal', 'coal_block', 'coal']), { coal: 9, coal_block: 21 })
+  await killedBy(P('compact'), C, "  return Object.keys(cargoOwed(held, names)).length ? 'return' : 'clear'", "  return 'clear'", M => assert.equal(M.clerkNext(cargo, { moss_block: 37 }), 'return'))
+  await killedBy(P('compact'), C, "export const clerkMayCarry = (held = {}, names = []) => names.every(n => !((Number(held?.[n]) || 0) > 0))", 'export const clerkMayCarry = () => true', M => assert.equal(M.clerkMayCarry({ moss_block: 1 }, ['moss_block']), false))
+  const sk = strip(readFileSync(P('skills'), 'utf8'))
+  const pass = sk.slice(sk.indexOf('async function yardClerkPass ('), sk.indexOf('async function bagCompactNow ('))
+  assert.ok(pass.indexOf('!clerkCargoWrite(bot, names)') > 0 && pass.indexOf('!clerkCargoWrite(bot, names)') < pass.indexOf('await matsWithdraw('), 'the record is written BEFORE the take; no record, no take')
+  one(sk, "if \\(!clerkMayCarry\\(heldMap\\(bot\\), names\\) \\|\\| !clerkCargoWrite\\(bot, names\\)\\) return \\{ took: 0, made: 0, put, left: \\{\\} \\}", 'no record, no take')
+  one(sk, "if \\(!Object\\.keys\\(left\\)\\.length\\) clerkCargoWrite\\(bot, null\\)", 'forgotten only when the bag holds none of it')
+  one(sk, "if \\(nx === 'return'\\) return \\{ op: 'return', names: Object\\.keys\\(clerkCargoOwed\\(held, cargo\\.names\\)\\) \\}", 'a debt is the next pass, before the rest and before any new take')
+  const now = sk.slice(sk.indexOf('function clerkPassNow ('), sk.indexOf('async function yardClerkPass ('))
+  assert.ok(now.indexOf("if (nx === 'return')") < now.indexOf('bot?.clerkPassRest'), 'the return is never rested away')
 })
 
 if (failed) { console.log(`\n${failed} FAILED`); process.exit(1) }

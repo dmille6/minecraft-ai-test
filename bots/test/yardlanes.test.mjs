@@ -141,15 +141,15 @@ await t('THE BAG BANKS ON ANY TOWN VISIT: every lane kind above its keep; 16 is 
   assert.equal(Y.yardWork({ held: {}, slots: 5, freeSlots: 31, town, states: states(read), lanes: ON, keeps: {}, first: false }).kind, null)
 })
 
-await t('THE CHAIN bag -> lane -> cap -> well: a kind with room is HELD off the well; full at its cap the well takes it again; a hold lapses unanswered', () => {
-  const NOW = 1e12, MS = Y.YARD_DEFER_MS
-  assert.deepEqual(Y.wellHold({ room: 40, holdAt: null, now: NOW }), { hold: true, stamp: NOW })
-  assert.deepEqual(Y.wellHold({ room: 40, holdAt: NOW - MS + 1, now: NOW }), { hold: true, stamp: NOW - MS + 1 })
-  assert.equal(Y.wellHold({ room: 40, holdAt: NOW - MS, now: NOW }).hold, false, 'unanswered for 30 min: the well\'s turn (a bag is never held full on the yard\'s promise)')
-  assert.equal(Y.wellHold({ room: 40, holdAt: NOW - 2 * MS, now: NOW }).hold, true, 'and after as long again a new hold may start')
-  assert.deepEqual(Y.wellHold({ room: 40, holdAt: NOW - MS, stockAt: NOW - 5, now: NOW }), { hold: true, stamp: NOW }, 'a stock visit answered it')
-  assert.equal(Y.wellHold({ room: 0, holdAt: null, now: NOW }).hold, false, 'no room (over_cap, or no home yet): the well as before')
-  assert.equal(Y.wellHold({ on: false, room: 40, now: NOW }).hold, false)
+await t('THE CHAIN bag -> lane -> cap -> well: a kind with room is HELD off the well for as long as it has room; full at its cap the well takes it again; a jammed bag banks again soon', () => {
+  // Codex r1 BLOCKER 1: the hold is the ROOM and nothing else -- no back-off, no lapse (both sent a kind with room down the well)
+  assert.deepEqual(Y.wellHold({ room: 40 }), { hold: true })
+  assert.deepEqual(Y.wellHold({ room: 40, holdAt: 0, stockAt: null, now: 9e15 }), { hold: true }, 'however long ago the bag was first held: room is room')
+  assert.equal(Y.wellHold({ room: 0 }).hold, false, 'FULL at its cap, or no yard standing: only then the well')
+  assert.equal(Y.wellHold({ on: false, room: 40 }).hold, false)
+  // a bag that jams with room in the yard is the BANK step's: it comes back in 2 minutes (20 for a bag under no pressure, and the old yard)
+  assert.equal(Y.yardRestMs({ lanes: ON, slots: 34 }), 2 * 60_000); assert.equal(Y.yardRestMs({ lanes: ON, slots: 30 }), 2 * 60_000)
+  assert.equal(Y.yardRestMs({ lanes: ON, slots: 12 }), Y.YARD_REST_MS); assert.equal(Y.yardRestMs({ lanes: OFF, slots: 36 }), Y.YARD_REST_MS)
   assert.equal(Y.wellHoldOn({}), true); assert.equal(Y.wellHoldOn({ WELL_HOLD: 'off' }), false)
   // through the well's real plan: andesite + diorite on the junk list, 200 cobblestone at the proven chest cap
   const bag = [{ name: 'andesite', count: 40, slot: 9 }, { name: 'diorite', count: 30, slot: 10 }, { name: 'egg', count: 12, slot: 11 }, { name: 'cobblestone', count: 64, slot: 12 }, { name: 'cobblestone', count: 64, slot: 13 }, { name: 'cobblestone', count: 64, slot: 14 }]
@@ -185,7 +185,7 @@ await t('MORE YARDS ARE ORDINARY PROJECTS: yard2..yard4 on the list, each after 
   assert.equal(Y.nearYardRank(null, pad(0, 0)), 0, 'no first yard: the yard\'s own ranking decides')
 })
 
-await t('MUTANTS KILLED: a lane that never grows; a lane past its bay; the cap ignored; another yard\'s room ignored; a held lane taken; the hold that never lapses; the hold ignored', async () => {
+await t('MUTANTS KILLED: a lane that never grows; a lane past its bay; the cap ignored; another yard\'s room ignored; a held lane taken; a hold with no room; the jam resting long; the hold ignored', async () => {
   const YP = P('yard'), WP = P('well')
   await killedBy(YP, Y, 'if (laneCapacity(len, { w, h }) > held) return len', 'if (true) return len', M => assert.equal(M.laneLen(52, 22), 16))
   await killedBy(YP, Y, '  return f\n}\n/** THE RANK OF A SITE', '  return f + 8\n}\n/** THE RANK OF A SITE', M => assert.equal(M.laneLen(500, 22), 22))
@@ -193,8 +193,8 @@ await t('MUTANTS KILLED: a lane that never grows; a lane past its bay; the cap i
   await killedBy(YP, Y, '  return states.filter(s => s.name === name).length + o.lanes < laneCapOf(name, lanes.caps)', '  return true', M => assert.equal(M.laneMayOpen(st(), 'gravel', { lanes: ON, others: { gravel: { lanes: 2, room: 0 } } }), false))
   await killedBy(YP, Y, '  if (o.room > 0) return false\n', '', M => assert.equal(M.laneMayOpen(st(), 'gravel', { lanes: ON, others: { gravel: { lanes: 1, room: 40 } } }), false))
   await killedBy(YP, Y, '      const mine = s => !(skip?.has?.(s.id))', '      const mine = () => true', M => assert.deepEqual(M.pileCells(st(), { cobblestone: 10 }, { lanes: ON, skip: new Set([0]) }).lanes, { cobblestone: [1] }))
-  await killedBy(YP, Y, '  return { hold: now - holdAt < ms, stamp: holdAt }', '  return { hold: true, stamp: holdAt }', M => assert.equal(M.wellHold({ room: 40, holdAt: 1e12 - M.YARD_DEFER_MS, now: 1e12 }).hold, false))
-  await killedBy(YP, Y, "  if (!on || !(Number(room) > 0)) return { hold: false, stamp: holdAt }", "  if (!on) return { hold: false, stamp: holdAt }", M => assert.equal(M.wellHold({ room: 0, now: 1e12 }).hold, false))
+  await killedBy(YP, Y, '  return { hold: !!on && Number(room) > 0 }', '  return { hold: !!on }', M => assert.equal(M.wellHold({ room: 0 }).hold, false))
+  await killedBy(YP, Y, 'export const yardRestMs = ({ lanes = LANES, slots = 0 } = {}) => (lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)', 'export const yardRestMs = () => YARD_REST_MS', M => assert.equal(M.yardRestMs({ lanes: ON, slots: 34 }), 2 * 60_000))
   await killedBy(YP, Y, "return { kind: 'stock', urgent: pressed || !!lanes?.on, place,", "return { kind: 'stock', urgent: pressed, place,", M => assert.equal(M.yardWork({ held: { gravel: 16 }, slots: 20, states: st(), lanes: ON, keeps: {} }).urgent, true))
   await killedBy(YP, Y, '  const stockMin = lanes?.on ? (clear ? 1 : Math.min(YARD_STOCK_MIN, lanes.min)) : YARD_STOCK_MIN', '  const stockMin = YARD_STOCK_MIN', M => assert.equal(M.yardWork({ held: { gravel: 16 }, slots: 20, states: st(), lanes: ON, keeps: {} }).kind, 'stock'))
   const bag = [{ name: 'andesite', count: 40, slot: 9 }, { name: 'egg', count: 12, slot: 11 }, { name: 'cobblestone', count: 64, slot: 12 }, { name: 'cobblestone', count: 64, slot: 13 }]
@@ -211,7 +211,15 @@ await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' le
   one(sk, 'rankKey: firstRec \\? site => nearYardRank\\(firstRec, site\\.pad\\) \\* 100 \\+ step\\.rankKey\\(site\\) : step\\.rankKey', 'nearest the first yard')
   one(sk, 'return yardVisit\\(ctx, rec, rh\\.head\\.gen, signal, out, t0, \\{ plot, \\.\\.\\.\\(LANES\\.on \\? \\{ until: t0 \\+ LANES\\.passMs \\} : \\{\\}\\) \\}\\)', 'a complete yard gets the yard\'s visit, bounded')
   one(sk, 'const slot = takeSlot\\(dir, key, me, LANES\\.on && !\\(Number\\(draw\\) > 0\\) \\? LANES\\.visitors : YARD_BUILDERS\\)', 'several visitors')
-  one(sk, 'const lease = id => \\{ const l = projTakeLease\\(dir, key, `lane\\$\\{id\\}`, me\\)', 'one lease a lane')
+  one(sk, 'const laneLease = id => \\{ const l = projTakeLease\\(dir, key, `lane\\$\\{id\\}`, me\\)', 'one lease a lane')
+  // Codex r1 BLOCKER 6: EVERY path that places on the piles takes its lanes' leases (the upkeep's clear-then-stock had none)
+  assert.equal((sk.match(/const \{ pc \} = leasedPileCells\(states, (place|w2\.place), laneOpts, laneLease\)/g) ?? []).length, 2, 'the stock and the upkeep-then-stock paths')
+  assert.equal((sk.match(/[^a-zA-Z]pileCells\(/g) ?? []).length, 0, 'no bare pileCells call is left in skills.mjs')
+  // Codex r1 BLOCKER 1: the hold reads no back-off and no clock
+  const hold = sk.slice(sk.indexOf('function yardHoldNow ('), sk.indexOf('export function yardLanesInstall'))
+  assert.ok(hold.length > 100 && !/yardRestUntil|yardHoldAt|stockAt/.test(hold), 'yardHoldNow reads the room alone')
+  one(sk, 'return wellHold\\(\\{ room: k\\.room \\}\\)\\.hold', 'the hold is the room')
+  assert.equal((sk.match(/yardRestUntil = Date\.now\(\) \+ yardRestMs\(\{ slots: slotsNow\(\) \}\)/g) ?? []).length, 3, 'a visit that banked nothing rests by the bag\'s pressure')
   one(sk, 'for \\(const l of laneLeases\\) \\{ try \\{ releaseLease\\(dir, key, l\\.name, me, l\\.gen\\) \\}', 'released when the visit ends')
   one(sk, 'if \\(LANES\\.on && wellHoldOn\\(\\)\\) \\{ setYardHold\\(yardHoldNow\\); setYardFull\\(', 'WELL_HOLD installed')
   one(sk, "dispose_well: \\{ run: \\(ctx, a, signal\\) => withOverCap\\(ctx, \\(\\) => disposeWell\\(ctx, a, signal\\)\\)", 'the over_cap row wraps the well')
@@ -305,7 +313,15 @@ await t('WIRED (b): a row chest is a town container but never a general deposit\
   const sk = strip(readFileSync(P('skills'), 'utf8'))
   one(sk, 'if \\(rowKeys\\.has\\(posKey\\(p\\)\\)\\) continue', 'townContainers skips the row')
   one(sk, 'if \\(LANES\\.on && LANES\\.row\\) setTownExtra\\(homeVec\\(\\), \\[\\.\\.\\.townExtraKeys\\(homeVec\\(\\)\\), \\.\\.\\.yardRowKeys\\(activeMem\\?\\.bot \\?\\? null\\)\\]\\)', 'registered with the town\'s containers')
-  one(sk, "const lease = projTakeLease\\(dir, key, 'row', me\\)\\n    if \\(lease\\.ok\\) \\{\\n      try \\{", 'one placer at a time')
+  // Codex r1 BLOCKER 4: ONE pool-wide row lock (the first yard's key, whichever yard the bot is at) over the plan, the placement, the
+  // assignment and the prune -- and the plan is made again inside it
+  one(sk, "const rowLock = poolLock\\('row'\\)", 'the row\'s lock is the pool\'s')
+  one(sk, "lock: \\(\\) => \\{ const l = projTakeLease\\(townDir\\(\\), projKeyOf\\(YARD_PLOT\\), name,", 'one key for every yard')
+  const rs = sk.slice(sk.indexOf('async function yardRowStep ('), sk.indexOf('const recorded = new Set(yardRowsNow(bot)'))
+  assert.ok(rs.indexOf('const tok = rowLock.lock()') > 0 && rs.indexOf('const tok = rowLock.lock()') < rs.indexOf('plan = yardRowPlanNow(bot, rec, bp)   ') && rs.indexOf('yardRowsNow(bot, Date.now(), { fresh: true })') < rs.lastIndexOf('plan = yardRowPlanNow(bot, rec, bp)'), 'planned again under the lock, on the fresh record')
+  assert.ok(rs.lastIndexOf('plan = yardRowPlanNow(bot, rec, bp)') < rs.indexOf('await place(ctx, { item: \'chest\'') && rs.indexOf('yardRowsWrite(bot, rowAssign(') < rs.indexOf('rowLock.unlock(tok)'), 'placed and assigned before the lock is given back')
+  one(sk, "if \\(!tok\\) plan = \\{ \\.\\.\\.plan, place: null \\}", 'no lock: nothing is placed')
+  one(sk, "const tok = rowLock\\.lock\\(\\)\\n      if \\(tok\\) \\{ try \\{ yardRowsWrite\\(bot, rowPrune\\(", 'the prune too')
   one(sk, "if \\(stands\\) \\{ yardRowsWrite\\(bot, rowAssign\\(rows, at, plan\\.place\\.kind, \\{ plot, by: me \\}\\)\\); out\\.placed\\+\\+", 'the record follows the world')
   one(sk, "const p = await sortPut\\(bot, block, b\\.names, deadline, signal, keeps, bag => rowSteps\\(bag, b\\.names, keeps, logHalfSteps\\), 'yard_row'\\)", 'the bank')
   one(sk, "if \\(typeof stepsOf === 'function'\\) return stepsOf\\(bag\\)", 'sortPut takes the row\'s steps')
@@ -355,6 +371,28 @@ await t('the room bank under the clear keeps nothing of a name it may move -- a 
   one(sk, 'if \\(clearActive\\(BAGFIX\\)\\) \\{ out\\[name\\] = 0; continue \\}\\s*out\\[name\\] = partialKeep\\(\\{ slots: items\\.length, copies: copies\\.length, total: counts\\[name\\] \\?\\? 0, keep: keep\\[name\\]', 'the lanes\' keeps')
   one(sk, 'noRefill: REFILL\\.on, clear: clearActive\\(BAGFIX\\) \\}', 'the visit\'s plan')
   one(sk, 'w\\.clear \\? \\(n, want, o\\) => compactAllow\\(n, want, o, CLEAR_CHEST_KEEP\\[n\\] \\?\\? 0\\) : undefined', 'the clear\'s clerk takes every lane kind, down to its floor')
+})
+
+// ---- Codex r1 BLOCKER 6: every placement on the piles takes its lanes' leases ---------------------------------------------------------
+await t('LEASED PILE CELLS: each lane used is leased; a held lane is skipped and the plan made again; a second collision stocks nothing; MUTANT: a lane placed on without its lease', async () => {
+  const st = () => states(world())
+  const asked = []
+  const all = Y.leasedPileCells(st(), { cobblestone: 10, gravel: 5 }, { lanes: ON }, id => { asked.push(id); return true })
+  assert.deepEqual([all.leased, asked, all.pc.cells.length], [[0, 1], [0, 1], 15])
+  // lane 0 is another bot's: cobblestone takes lane 1 (leased), gravel lane 2 (leased)
+  const held0 = Y.leasedPileCells(st(), { cobblestone: 10, gravel: 5 }, { lanes: ON }, id => id !== 0)
+  assert.deepEqual(held0.pc.lanes, { cobblestone: [1], gravel: [2] }); assert.deepEqual([...held0.leased].sort(), [1, 2])
+  // every lane held: nothing is placed (positive control above: the same call places 15)
+  assert.equal(Y.leasedPileCells(st(), { cobblestone: 10 }, { lanes: ON }, () => false).pc.cells.length, 0)
+  // the SECOND plan opens a lane that is held too: nothing (never a third plan)
+  assert.equal(Y.leasedPileCells(st(), { cobblestone: 10 }, { lanes: ON }, id => id > 1).pc.cells.length, 0)
+  // a lease that throws is no lease
+  assert.equal(Y.leasedPileCells(st(), { cobblestone: 10 }, { lanes: ON }, () => { throw new Error('boom') }).pc.cells.length, 0)
+  // the old yard: its one visitor, no lease asked
+  let n = 0
+  assert.equal(Y.leasedPileCells(states(world(), OFF), { cobblestone: 10 }, { lanes: OFF }, () => { n++; return false }).pc.cells.length, 10); assert.equal(n, 0)
+  await killedBy(P('yard'), Y, '  const busy = new Set(idsOf(pc).filter(id => !lease(id)))', '  const busy = new Set()', M => assert.equal(M.leasedPileCells(st(), { cobblestone: 10 }, { lanes: ON }, () => false).pc.cells.length, 0))
+  await killedBy(P('yard'), Y, '    if (idsOf(pc).some(id => !lease(id))) pc = { ...pc, cells: [] }', '', M => assert.equal(M.leasedPileCells(st(), { cobblestone: 10 }, { lanes: ON }, id => id > 1).pc.cells.length, 0))
 })
 
 if (failed) { console.log(`\n${failed} FAILED`); process.exit(1) }

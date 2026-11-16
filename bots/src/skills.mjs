@@ -193,10 +193,13 @@ import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, 
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
 import { USELEDGER, STOCK_EVERY_MS, ledgerLine, ledgerFileName, foldLedger, usedRegularly } from './useledger.mjs'   // useledger-01
-import { REFILL, BOOTSTRAP, refillNeed, refillFileName, openJobs, refillRaise, refillTake, refillCredit, refillDetail, refillModeDetail } from './refill.mjs'   // refill-01
+import { lockedUpdate, billShortfall } from './refill.mjs'   // Codex r1 BLOCKERS 3, 4, 5
+import { REFILL, refillNeed, refillFileName, openJobs, refillRaise, refillTake, refillCredit, refillDetail, refillModeDetail } from './refill.mjs'   // refill-01
+import { clerkMayCarry, cargoOwed as clerkCargoOwed, clerkNext } from './compact.mjs'   // Codex r1 BLOCKER 2
 import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, compactAllow, compactDetail, compactModeDetail } from './compact.mjs'   // compact-01
 import { CLEAR_CHEST_KEEP } from './yard.mjs'   // bagclear
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
+import { leasedPileCells, yardRestMs } from './yard.mjs'   // Codex r1 BLOCKERS 1, 6
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
 import { fillWant, earthDirt, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
@@ -14688,6 +14691,9 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     next = nextOf()
   }
   out.short = want()
+  // refill-01 (Codex r1 BLOCKER 5): a bill still short after an EXHAUSTED search raises its job, sized by the shortfall (`refill`:
+  // kind -> job id, for the consumer's own answer); a clerk's move never does
+  if (why === 'build' && out.short) out.refill = refillOnShortfall(bot, left, { exhausted: !next.block, unsettled: out.unsettled, by: 'bill' })
   return out
 }
 
@@ -21610,14 +21616,13 @@ function yardRowRoomNow (bot, kind, now = Date.now()) {
 function yardHoldNow (name, now = Date.now()) {
   try {
     const bot = activeMem?.bot ?? null
-    if (!bot || !LANES.on || Number(bot.yardRestUntil) > now) return false
+    // Codex r1 BLOCKER 1: the hold is the ROOM alone -- never the banking visit's back-off, never elapsed time
+    if (!bot || !LANES.on) return false
     // yardrow-01: a ROW kind (clay balls are on the well's list) is held while its chest has room or one may still be placed
     const rk = LANES.row ? rowKindOf(name) : null
     if (!rk && !LANE_KINDS.includes(name)) return false
     const k = rk ? { room: yardRowRoomNow(bot, rk, now) } : yardKindNow(bot, name, now)
-    const h = wellHold({ room: k.room, holdAt: bot.yardHoldAt ?? null, stockAt: bot.yardStockAt ?? null, now })
-    bot.yardHoldAt = h.stamp
-    return h.hold
+    return wellHold({ room: k.room }).hold
   } catch { return false }
 }
 /** YARDLANES-01, once per spawn: the well's hold wired (WELL_HOLD), the licence row written. Never throws. */
@@ -21711,24 +21716,28 @@ function yardRowPlanNow (bot, rec, bp, now = Date.now()) {
 async function yardRowStep (ctx, rec, bp, plot, signal, deadline) {
   const { bot } = ctx
   const out = { banked: {}, placed: 0 }
-  const plan = yardRowPlanNow(bot, rec, bp)
+  let plan = yardRowPlanNow(bot, rec, bp)   // an unlocked look: is there anything to do
   if (!plan.bank.length) return out
-  const dir = townDir(), key = projKeyOf(plot), me = bot.username ?? 'bot'
+  const me = bot.username ?? 'bot'
   const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
   const near = async at => {
     if (bot.entity.position.distanceTo(new Vec3(at[0] + 0.5, at[1] + 0.5, at[2] + 0.5)) <= STATION_REACH) return true
     try { await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(at[0], at[1], at[2], 2)), Math.max(1000, Math.min(20_000, deadline - Date.now())), bot)) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     return bot.entity.position.distanceTo(new Vec3(at[0] + 0.5, at[1] + 0.5, at[2] + 0.5)) <= STATION_REACH + 1
   }
+  // ONE POOL-WIDE ROW LOCK (Codex r1 BLOCKER 4: bots at yard and yard2 held different project leases and each rewrote the one row
+  // file): the plan is made AGAIN inside it on the record as it stands, and the placement, the assignment and every prune are under
+  // it. No lock: nothing is placed this visit (the chests already recorded are still banked into).
+  const rowLock = poolLock('row')
   if (plan.place) {
-    const at = plan.place.at
-    const lease = projTakeLease(dir, key, 'row', me)
-    if (lease.ok) {
+    const tok = rowLock.lock()
+    if (!tok) plan = { ...plan, place: null }
+    else {
       try {
-        // the record is read again under the lease (another bot may have given the cell, or the kind its chest, meanwhile)
         const rows = yardRowsNow(bot, Date.now(), { fresh: true })
-        const clash = rows.some(r => r.at.join(',') === at.join(',')) || rows.filter(r => r.kind === plan.place.kind).length >= LANES.rowCap
-        if (!clash && await near(at) && Date.now() < deadline - 20_000) {
+        plan = yardRowPlanNow(bot, rec, bp)   // planned again, under the lock, on the fresh record
+        const at = plan.place?.at ?? null
+        if (at && await near(at) && Date.now() < deadline - 20_000) {
           check(signal)
           let put = null
           try { put = await place(ctx, { item: 'chest', x: at[0], y: at[1], z: at[2] }, signal, { by: 'yard_row' }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { status: 'failed', detail: String(e?.message ?? e).slice(0, 60) } }
@@ -21736,7 +21745,7 @@ async function yardRowStep (ctx, rec, bp, plot, signal, deadline) {
           if (stands) { yardRowsWrite(bot, rowAssign(rows, at, plan.place.kind, { plot, by: me })); out.placed++; try { hubRegistryRefresh(Date.now(), { force: true }) } catch { /* the next refresh */ } }
           try { logEvent({ kind: 'yard_row', status: stands ? 'success' : 'failed', snapshot: snapshot(bot), detail: `op=place kind=${plan.place.kind} at=${at.join(',')} plot=${plot} placed=${stands ? 1 : 0} why=${String(put?.detail ?? put?.status ?? '-').replace(/\s+/g, '_').slice(0, 60)}`.slice(0, 300) }) } catch { /* telemetry */ }
         }
-      } finally { try { releaseLease(dir, key, 'row', me, lease.gen) } catch { /* its TTL frees it */ } }
+      } finally { try { rowLock.unlock(tok) } catch { /* its TTL frees it */ } }
     }
   }
   const recorded = new Set(yardRowsNow(bot).map(r => r.at.join(',')))
@@ -21749,8 +21758,8 @@ async function yardRowStep (ctx, rec, bp, plot, signal, deadline) {
     const block = bot.blockAt(new Vec3(b.at[0], b.at[1], b.at[2]))
     if (!block || !isTownContainer(bot, block)) {
       // the record's chest is gone (dug, burnt): the cell is free again -- read from the world, written under the lease
-      const lease = projTakeLease(dir, key, 'row', me)
-      if (lease.ok) { try { yardRowsWrite(bot, rowPrune(yardRowsNow(bot, Date.now(), { fresh: true }), new Set([b.at.join(',')]))) } finally { try { releaseLease(dir, key, 'row', me, lease.gen) } catch { /* TTL */ } } }
+      const tok = rowLock.lock()
+      if (tok) { try { yardRowsWrite(bot, rowPrune(yardRowsNow(bot, Date.now(), { fresh: true }), new Set([b.at.join(',')]))) } finally { try { rowLock.unlock(tok) } catch { /* TTL */ } } }
       continue
     }
     const p = await sortPut(bot, block, b.names, deadline, signal, keeps, bag => rowSteps(bag, b.names, keeps, logHalfSteps), 'yard_row')
@@ -21778,45 +21787,71 @@ function townHeldSlots (bot) {
     return out
   } catch { return null }
 }
-/** THE CLERK'S PASS FOR THIS BOT NOW -> { op: 'compact', from, to, take, crafts } | { op: 'merge', name, take, slots, after } | null.
- *  Compaction first (it frees the most), then the worst-fragmented name. Rested per bot after a pass that moved nothing. Never throws. */
+// THE CLERK'S CARGO RECORD (compact.mjs clerkNext; Codex r1 BLOCKER 2): the names a pass carries, written per bot BEFORE its take
+const clerkCargoFile = bot => path.join(townDir(), `yard-clerk-cargo-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.${String(bot?.username ?? config.bot?.name ?? 'bot').replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function clerkCargoNow (bot) { try { const j = JSON.parse(fs.readFileSync(clerkCargoFile(bot), 'utf8')); return Array.isArray(j?.names) ? j : null } catch { return null } }
+function clerkCargoWrite (bot, names) {
+  try {
+    const f = clerkCargoFile(bot)
+    if (!names) { try { fs.unlinkSync(f) } catch { /* none */ } return true }
+    const tmp = `${f}.${process.pid}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, names: [...new Set(names)], t: Date.now() })); fs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** THE CLERK'S PASS FOR THIS BOT NOW -> { op: 'return', names } (a recorded cargo still in the bag: paid before anything else) |
+ *  { op: 'compact', from, to, take, crafts } | { op: 'merge', name, take, slots, after } | null. A new pass never names a kind the bag
+ *  already holds. Rested per bot after a pass that moved nothing (never the return). Never throws. */
 function clerkPassNow (bot, now = Date.now()) {
   try {
-    if (!COMPACT.on || !LANES.on || Number(bot?.clerkPassRest) > now) return null
+    if (!COMPACT.on || !LANES.on) return null
+    const held = heldMap(bot)
+    const cargo = clerkCargoNow(bot)
+    const nx = clerkNext(cargo, held)
+    if (nx === 'return') return { op: 'return', names: Object.keys(clerkCargoOwed(held, cargo.names)) }
+    if (nx === 'clear') clerkCargoWrite(bot, null)
+    if (Number(bot?.clerkPassRest) > now) return null
     const free = BAG_SLOTS - (bot.inventory?.items?.() ?? []).length
     if (free < 4) return null
     const size = n => mergeStackOf(bot, n)
-    const c = chestCompact(matsTownStock(bot)?.stock ?? null, { free, stackOf: size })
+    const mine = n => (held[n] ?? 0) > 0
+    const c = chestCompact(matsTownStock(bot)?.stock ?? null, { free, stackOf: size, skip: mine })
     if (c) return { op: 'compact', ...c }
-    const m = mergePick(townHeldSlots(bot) ?? {}, { free, stackOf: size, skip: n => isCobble(n) || !!rowKindOf(n) })
+    const m = mergePick(townHeldSlots(bot) ?? {}, { free, stackOf: size, skip: n => mine(n) || isCobble(n) || !!rowKindOf(n) })
     return m ? { op: 'merge', ...m } : null
   } catch { return null }
 }
 /**
- * ONE CLERK PASS: draw the kind from the town's chests (matsWithdraw under compact.mjs compactAllow: never below the loose keep),
- * craft the blocks (a compaction), and put everything this pass took or made back into the chests it came from, nearest first
- * (sortPut: the deposit's own body, merging) -- never by the bank's rules, so a name the bank does not want (moss) is not stranded
- * in the clerk's bag. -> { took, made, put: { name: n }, left }. One `_compact` row. An interrupt passes through.
+ * ONE CLERK PASS. A RETURN puts the recorded cargo back and takes nothing. A compaction or a merge writes its names to the cargo
+ * record FIRST (a kind the bag holds is refused: clerkMayCarry), draws the kind from the town's chests (matsWithdraw under compact.mjs
+ * compactAllow: never below the loose keep), crafts the blocks, and puts EVERYTHING the bag holds of those names back -- into the
+ * chests it came from, then any town container in reach (sortPut: the deposit's own body, merging; never the bank's rules). The
+ * record is forgotten only when the bag holds none of it. -> { took, made, put: { name: n }, left }. One `_compact` row.
  */
 async function yardClerkPass (ctx, pass, signal, deadline) {
   const { bot } = ctx
-  const name = pass.op === 'compact' ? pass.from : pass.name
-  const bag0 = heldMap(bot)
-  const slots0 = (bot.inventory?.items?.() ?? []).length
-  const keep = pass.op === 'compact' ? compactKeepOf(name) : 0
-  let took = 0, made = 0, why = 'done'
-  const put = {}
-  const wd = await matsWithdraw(ctx, { [name]: pass.take }, signal, 30_000, matsReserve().table, (n, want, o) => compactAllow(n, want, o, keep), null, null, { why: 'move' })
-  took = Number(wd.took?.[name]) || 0
+  const ret = pass.op === 'return'
+  const name = ret ? null : pass.op === 'compact' ? pass.from : pass.name
   const to = pass.op === 'compact' ? pass.to : null
-  if (took > 0 && to) {
-    const crafts = Math.floor(took / RECIPES[name].n), before = countItem(bot, to)
-    if (crafts > 0) { try { await craft(ctx, { item: to, count: crafts }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; why = 'craft_failed' } }
-    made = Math.max(0, countItem(bot, to) - before)
+  const names = ret ? [...pass.names] : [name, to].filter(Boolean)
+  const slots0 = (bot.inventory?.items?.() ?? []).length
+  let took = 0, made = 0, why = 'done', tried = []
+  const put = {}
+  const owed = () => clerkCargoOwed(heldMap(bot), names)
+  if (!ret) {
+    if (!clerkMayCarry(heldMap(bot), names) || !clerkCargoWrite(bot, names)) return { took: 0, made: 0, put, left: {} }   // no record, no take
+    const keep = pass.op === 'compact' ? compactKeepOf(name) : 0
+    const wd = await matsWithdraw(ctx, { [name]: pass.take }, signal, 30_000, matsReserve().table, (n, want, o) => compactAllow(n, want, o, keep), null, null, { why: 'move' })
+    took = Number(wd.took?.[name]) || 0
+    tried = wd.tried ?? []
+    if (took > 0 && to) {
+      const crafts = Math.floor(took / RECIPES[name].n), before = countItem(bot, to)
+      if (crafts > 0) { try { await craft(ctx, { item: to, count: crafts }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; why = 'craft_failed' } }
+      made = Math.max(0, countItem(bot, to) - before)
+    }
   }
   // back into the chests it came from (their slots are free now), then any other town container in reach
-  const keys = [...new Set((wd.tried ?? []).map(t => String(t).split(':')[0]))]
-  const owed = () => { const h = heldMap(bot); const o = {}; for (const n of [name, to].filter(Boolean)) { const d = (h[n] ?? 0) - (bag0[n] ?? 0); if (d > 0) o[n] = d } return o }
+  const keys = [...new Set(tried.map(t => String(t).split(':')[0]))]
   const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
   const blocks = [...keys.map(k => { const [x, y, z] = k.split(',').map(Number); return bot.blockAt(new Vec3(x, y, z)) }), ...townContainers(bot, 8)].filter(b => b && isTownContainer(bot, b))
   const seen = new Set()
@@ -21830,15 +21865,17 @@ async function yardClerkPass (ctx, pass, signal, deadline) {
     if (bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) {
       try { await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2)), Math.max(1000, Math.min(15_000, deadline - Date.now())), bot)) } catch (e) { if (e?.aborted || signal?.aborted) throw e; continue }
     }
-    const p = await sortPut(bot, block, o, deadline, signal, bag0, null, 'compact')
+    const p = await sortPut(bot, block, o, deadline, signal, {}, null, 'compact')   // no floor: the bag held none of these names (the whole count is cargo)
     for (const [n, c] of Object.entries(p.put ?? {})) put[n] = (put[n] ?? 0) + c
   }
   const left = owed()
-  if (Object.keys(left).length) why = why === 'done' ? 'left_in_bag' : why
-  const moved = took > 0 && !Object.keys(left).length
-  if (!moved) bot.clerkPassRest = Date.now() + 30 * 60_000
-  try { logEvent({ kind: 'compact', status: moved ? 'success' : took > 0 ? 'failed' : 'no_effect', snapshot: snapshot(bot), detail: compactDetail({ op: pass.op, from: name, to: to ?? name, took, made, banked: put, slots: `${slots0}->${(bot.inventory?.items?.() ?? []).length}`, why: Object.keys(left).length ? `${why}:${Object.entries(left).map(([n, c]) => `${n}x${c}`).join('+')}` : why }) }) } catch { /* telemetry */ }
-  return { took, made, put, left }
+  if (!Object.keys(left).length) clerkCargoWrite(bot, null)   // paid: the record is forgotten
+  else why = why === 'done' ? 'left_in_bag' : why
+  const nPut = Object.values(put).reduce((t, v) => t + v, 0)
+  const moved = (ret ? nPut > 0 : took > 0) && !Object.keys(left).length
+  if (!moved && !ret) bot.clerkPassRest = Date.now() + 30 * 60_000
+  try { logEvent({ kind: 'compact', status: moved ? 'success' : (took > 0 || nPut > 0) ? 'failed' : 'no_effect', snapshot: snapshot(bot), detail: compactDetail({ op: pass.op, from: name ?? names.join('+'), to: to ?? name ?? '-', took, made, banked: put, slots: `${slots0}->${(bot.inventory?.items?.() ?? []).length}`, why: Object.keys(left).length ? `${why}:${Object.entries(left).map(([n, c]) => `${n}x${c}`).join('+')}` : why }) }) } catch { /* telemetry */ }
+  return { took: ret ? nPut : took, made, put, left }
 }
 /** THE BAG'S OWN COMPACTION before it banks (compact.mjs bagCompact: nuggets into ingots, clay balls into clay, snowballs into snow
  *  blocks) -> crafts made. One `_compact op=bag` row a kind. An interrupt passes through. */
@@ -21877,60 +21914,86 @@ function refillJobsWrite (jobs) {
   } catch { return false }
 }
 const refillRow = (bot, status, f) => { try { logEvent({ kind: 'refill', status, snapshot: snapshot(bot), detail: refillDetail(f) }) } catch { /* telemetry */ } }
+/** THE POOL'S LOCK for one record (the first yard's project key, whichever yard the bot stands at): buildproj.mjs's lease, so two
+ *  processes never interleave a read-modify-write of the refill jobs or of the row's labels. -> lockedUpdate's `io` halves. */
+const poolLock = name => ({
+  lock: () => { const l = projTakeLease(townDir(), projKeyOf(YARD_PLOT), name, `${config.bot?.name ?? process.env.BOT_NAME ?? 'bot'}.${process.pid}`); return l.ok ? { gen: l.gen } : null },
+  unlock: t => releaseLease(townDir(), projKeyOf(YARD_PLOT), name, `${config.bot?.name ?? process.env.BOT_NAME ?? 'bot'}.${process.pid}`, t.gen),
+})
+/** One locked read-modify-write of the refill jobs (refill.mjs lockedUpdate): reread inside the lock; acknowledged only when written. */
+const refillUpdate = apply => lockedUpdate({ ...poolLock('refill'), read: () => refillJobsNow(Date.now(), { fresh: true }), write: refillJobsWrite }, apply)
 /** RAISE a job for a kind (one a kind) -> the job | null. `by` the low mark's reason or the refused consumer. Never throws. */
 function refillRaiseNow (bot, kind, n, by, extra = {}) {
   try {
     if (!REFILL_ON) return null
     const now = Date.now()
-    const jobs = refillJobsNow(now, { fresh: true })
-    const next = refillRaise(jobs, { kind, n, by, now })
-    if (next === jobs) return openJobs(jobs, now).find(j => j.kind === kind) ?? null
-    refillJobsWrite(next)
-    const job = next.find(j => j.kind === kind) ?? null
-    refillRow(bot, 'success', { op: 'raise', kind, n: job?.n ?? n, by, ...extra })
-    return job
+    let raised = false
+    const r = refillUpdate(jobs => {
+      const next = refillRaise(jobs, { kind, n, by, now })
+      raised = next !== jobs
+      return { next, value: openJobs(next, now).find(j => j.kind === kind) ?? null }
+    })
+    if (r.ok && raised) refillRow(bot, 'success', { op: 'raise', kind, n: r.value?.n ?? n, by, ...extra })
+    return r.ok ? r.value : null
   } catch { return null }
 }
 /** THE LOW MARK'S CHECK, with the stock line (every 30 min a bot): each lane kind the ledger shows USED and LOW gets its job
- *  (refill.mjs refillNeed over useledger.mjs usedRegularly); a young ledger bootstraps from the clean-up's fill. Never throws. */
+ *  (refill.mjs refillNeed over useledger.mjs usedRegularly). A ledger with no history raises nothing (no bootstrap). Never throws. */
 function refillCheck (bot, stock, now = Date.now()) {
   try {
     if (!REFILL_ON) return
     let lines = []
     try { lines = fs.readFileSync(path.join(townDir(), ledgerFileName(homeVec())), 'utf8').split('\n') } catch { lines = [] }
     const fold = foldLedger(lines, { since: now - REFILL.days * 86_400_000, until: now + 1, world: bot.worldId ?? null })
-    let first = now
-    for (const l of lines) { if (!l) continue; try { const t = JSON.parse(l).t; if (Number.isFinite(t)) { first = Math.min(first, t); break } } catch { /* skipped */ } }
-    for (const kind of new Set([...LANE_KINDS, ...BOOTSTRAP])) {
-      const r = refillNeed(kind, { use: usedRegularly(fold, kind, { days: REFILL.days, minDraws: REFILL.minDraws, minItems: REFILL.minItems }), stock: stock?.[kind] ?? 0, spanMs: now - first })
+    for (const kind of LANE_KINDS) {
+      const r = refillNeed(kind, { use: usedRegularly(fold, kind, { days: REFILL.days, minDraws: REFILL.minDraws, minItems: REFILL.minItems }), stock: stock?.[kind] ?? 0 })
       if (r.need) refillRaiseNow(bot, kind, r.n, 'low', { why: r.why, stock: stock?.[kind] ?? 0, perDay: Math.round(r.perDay) })
     }
   } catch { /* the jobs are advisory */ }
 }
-/** The job this bot carries (milestones.mjs setRefillJob: taken when a taker's place is free) -> job | null. Never throws. */
+/** A CONSUMER REFUSED FOR LACK OF A KIND raises its job at once (refill.mjs billShortfall: a build's bill or the clean-up's fill still
+ *  short after an EXHAUSTED search of the town's chests) -> { kind: jobId }. Never throws. */
+function refillOnShortfall (bot, left, { exhausted = false, unsettled = false, by = 'bill' } = {}) {
+  const out = {}
+  try {
+    if (!REFILL_ON) return out
+    for (const [kind, n] of Object.entries(billShortfall(left, { kinds: LANE_KINDS, exhausted, unsettled }))) { const j = refillRaiseNow(bot, kind, n, by); if (j) out[kind] = j.id }
+  } catch { /* advisory */ }
+  return out
+}
+/** The job this bot carries (the rung's: milestones.mjs REFILL_RUNG) -> job | null. A job it already took is read from the record; a NEW
+ *  take is one locked read-modify-write and is acknowledged only when written (Codex r1 BLOCKER 3: three bots each wrote themselves
+ *  the only taker). Never throws. */
 export function refillJobFor (bot) {
   try {
     if (!REFILL_ON || !bot?.username) return null
     const now = Date.now()
-    const jobs = refillJobsNow(now)
-    const t = refillTake(jobs, bot.username, { now })
-    if (t.job && t.jobs !== jobs) { refillJobsWrite(t.jobs); refillRow(bot, 'success', { op: 'take', kind: t.job.kind, n: t.job.n, by: t.job.by, got: t.job.got }) }
-    return t.job
+    const jobs0 = refillJobsNow(now)
+    const seen = refillTake(jobs0, bot.username, { now })
+    if (!seen.job) return null
+    if (seen.jobs === jobs0) return seen.job   // already this bot's in the record: nothing to write
+    let took = false
+    const r = refillUpdate(jobs => { const t = refillTake(jobs, bot.username, { now }); took = !!t.job && t.jobs !== jobs; return { next: t.jobs, value: t.job } })
+    if (r.ok && took && r.value) refillRow(bot, 'success', { op: 'take', kind: r.value.kind, n: r.value.n, by: r.value.by, got: r.value.got })
+    return r.ok ? r.value : null
   } catch { return null }
 }
-/** CREDIT what a yard visit placed to the open jobs. Never throws. */
+/** CREDIT what a yard visit placed to the open jobs (one locked read-modify-write). Never throws. */
 function refillCreditNow (bot, placed = {}) {
   try {
     if (!REFILL_ON) return
     const now = Date.now()
-    let jobs = refillJobsNow(now, { fresh: true }), changed = false
-    for (const [kind, n] of Object.entries(placed ?? {})) {
-      if (!(n > 0) || !openJobs(jobs, now).some(j => j.kind === kind)) continue
-      jobs = refillCredit(jobs, kind, n, now); changed = true
-      const j = jobs.find(x => x.kind === kind)
-      refillRow(bot, 'success', { op: (Number(j?.got) || 0) >= (Number(j?.n) || 0) ? 'done' : 'credit', kind, n: j?.n ?? 0, by: j?.by ?? '-', got: j?.got ?? n })
-    }
-    if (changed) refillJobsWrite(jobs)
+    const done = []
+    const r = refillUpdate(jobs0 => {
+      let jobs = jobs0
+      for (const [kind, n] of Object.entries(placed ?? {})) {
+        if (!(n > 0) || !openJobs(jobs, now).some(j => j.kind === kind)) continue
+        jobs = refillCredit(jobs, kind, n, now)
+        done.push(jobs.find(x => x.kind === kind))
+      }
+      return { next: jobs, value: done }
+    })
+    if (r.ok) for (const j of done) refillRow(bot, 'success', { op: (Number(j?.got) || 0) >= (Number(j?.n) || 0) ? 'done' : 'credit', kind: j?.kind ?? '-', n: j?.n ?? 0, by: j?.by ?? '-', got: j?.got ?? 0 })
   } catch { /* advisory */ }
 }
 /** The yard's work for this bot now -> yard.mjs yardWork's result | null (never throws: no work on an unreadable world). */
@@ -21957,7 +22020,7 @@ function yardWorkNow (bot, rec, now = Date.now(), plot = YARD_PLOT) {
       const rp = yardRowPlanNow(bot, rec, bp, now)
       if (rp.bank.length) return { kind: 'row', urgent: true, place: {}, draw: {}, dig: {}, why: `row:${rp.bank.map(b => b.kind).join('+')}${rp.place ? ':place' : ''}`.slice(0, 80) }
       // compact-01: the clerk's pass over the town's chests (the FIRST yard's upkeep: `due`, never urgent)
-      if (plot === YARD_PLOT) { const cp = clerkPassNow(bot, now); if (cp) return { kind: 'clerkpass', urgent: false, place: {}, draw: {}, dig: {}, why: `${cp.op}:${cp.from ?? cp.name}` } }
+      if (plot === YARD_PLOT) { const cp = clerkPassNow(bot, now); if (cp) return { kind: 'clerkpass', urgent: false, place: {}, draw: {}, dig: {}, why: `${cp.op}:${cp.from ?? cp.name ?? (cp.names ?? []).join('+')}` } }
     }
     return w
   } catch { return null }
@@ -22073,7 +22136,10 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
   // yardlanes-01: LANES.visitors bots stock one yard at once, each under its own lanes' leases (below); a draw and the old yard: one
   const slot = takeSlot(dir, key, me, LANES.on && !(Number(draw) > 0) ? LANES.visitors : YARD_BUILDERS)
   if (!slot.ok) return out('no_effect', 'slots_full', `the yard is another bot's now (${slot.why})`)
-  const laneLeases = []   // [{ name, gen }]
+  const laneLeases = []   // [{ id, name, gen }]
+  const slotsNow = () => (bot.inventory?.items?.() ?? []).length
+  // ONE LEASE A LANE, for every path that places on the piles (yard.mjs leasedPileCells; Codex r1 BLOCKER 6)
+  const laneLease = id => { const l = projTakeLease(dir, key, `lane${id}`, me); if (l.ok) laneLeases.push({ id, name: `lane${id}`, gen: l.gen }); return !!l.ok }
   const laneOpts = LANES.on ? yardLaneOpts(bot, plot) : {}
   const slotRef = { gen: slot.gen }
   const f = { kind: '-', why: '-', placed: {}, dug: {}, drew: {}, banked: {}, crafted: 0, cleared: 0 }
@@ -22111,7 +22177,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
       f.banked = rr.banked
       const nb2 = Object.values(rr.banked).reduce((t, v) => t + v, 0)
       stop = nb2 + rr.placed > 0 ? 'row' : 'row_none'
-      if (!(nb2 + rr.placed > 0)) bot.yardRestUntil = Date.now() + 2 * 60_000
+      if (!(nb2 + rr.placed > 0)) bot.yardRestUntil = Date.now() + yardRestMs({ slots: slotsNow() })
       bot.yardsMemo = null
       return out(nb2 + rr.placed > 0 ? 'success' : 'no_effect', 'yard_row', `the yard's chest row: ${nb2} item(s) banked, ${rr.placed} chest(s) placed`, { stop })
     }
@@ -22123,7 +22189,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
         try {
           f.kind = `clerk_${cp.op}`
           const rr = await yardClerkPass(ctx, cp, signal, deadline)
-          f.drew = rr.took ? { [cp.from ?? cp.name]: rr.took } : {}; f.banked = rr.put; f.crafted += rr.made
+          f.drew = rr.took && cp.op !== 'return' ? { [cp.from ?? cp.name]: rr.took } : {}; f.banked = rr.put; f.crafted += rr.made
           stop = rr.took > 0 ? 'clerkpass' : 'nothing_drawn'
           return out(rr.took > 0 && !Object.keys(rr.left).length ? 'success' : 'no_effect', `yard_${f.kind}`, `the clerk's ${cp.op}: took ${rr.took}, made ${rr.made}`, { stop })
         } finally { try { releaseLease(dir, key, 'clerkpass', me, cl.gen) } catch { /* its TTL frees it */ } }
@@ -22156,18 +22222,8 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     if (w.kind === 'stock' || w.kind === 'clerk') {
       // 3. THE PILES: the next slots of each name's bay, placed as one segment (bottom layer first; buildrun's per-column order)
       states = bayStates(bays, planReader(bot))
-      let pc = pileCells(states, place, laneOpts)
-      // yardlanes-01: ONE LEASE A LANE -- a lane another bot holds is not this visit's (its kind waits or takes another lane)
-      if (LANES.on && pc.cells.length) {
-        const lease = id => { const l = projTakeLease(dir, key, `lane${id}`, me); if (l.ok) laneLeases.push({ id, name: `lane${id}`, gen: l.gen }); return !!l.ok }
-        const busy = new Set([...new Set(Object.values(pc.lanes ?? {}).flat())].filter(id => !lease(id)))
-        if (busy.size) {
-          pc = pileCells(states, place, { ...laneOpts, skip: busy })
-          // a lane the second plan opened that is another bot's too: this visit stocks nothing (never a third plan)
-          if ([...new Set(Object.values(pc.lanes ?? {}).flat())].some(id => !laneLeases.some(l => l.id === id) && !lease(id))) pc = { ...pc, cells: [] }
-        }
-      }
-      if (!pc.cells.length) { stop = 'yard_full'; bot.yardRestUntil = Date.now() + (LANES.on ? 2 * 60_000 : YARD_REST_MS); return out('no_effect', 'yard_full', 'the yard has no room for what was to go on it') }
+      const { pc } = leasedPileCells(states, place, laneOpts, laneLease)
+      if (!pc.cells.length) { stop = 'yard_full'; bot.yardRestUntil = Date.now() + yardRestMs({ slots: slotsNow() }); return out('no_effect', 'yard_full', 'the yard has no room for what was to go on it') }
       r = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: [{ seg: 'pile', layer: 0, deps: [] }] }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
       f.placed = { ...placedBy }
     } else {
@@ -22207,7 +22263,8 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
         states = bayStates(bays, planReader(bot))
         const w2 = planNow(planReader(bot), { bays: false })
         if (w2.kind === 'stock') {
-          const pc = pileCells(states, w2.place, laneOpts)
+          // Codex r1 BLOCKER 6: the same lease acquisition and replanning as an ordinary stock (it placed with no lane lease)
+          const { pc } = leasedPileCells(states, w2.place, laneOpts, laneLease)
           if (pc.cells.length) {
             f.kind = 'upkeep+stock'
             const r2 = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: [{ seg: 'pile', layer: 0, deps: [] }] }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
@@ -22236,7 +22293,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     // DRAW only (the stock and the well's deferral are not this bot's draw's to hold)
     if (nPlaced > 0) bot.yardStockAt = Date.now()
     // a draw that collected under half of what it dug (drops left on the pile) rests the draw too: the next bill uses the chests
-    if (drawing) { const g = Number(result?.got) || 0; if (!(g > 0) || g * 2 < f.cleared) bot.yardDrawRestUntil = Date.now() + YARD_REST_MS } else if (n === 0) bot.yardRestUntil = Date.now() + YARD_REST_MS
+    if (drawing) { const g = Number(result?.got) || 0; if (!(g > 0) || g * 2 < f.cleared) bot.yardDrawRestUntil = Date.now() + YARD_REST_MS } else if (n === 0) bot.yardRestUntil = Date.now() + yardRestMs({ slots: slotsNow() })   // Codex r1 BLOCKER 1: a jammed bag banks again in 2 min
     bot.yardRoomMemo = null; bot.yardsMemo = null
     return out(n > 0 ? 'success' : 'no_effect', `yard_${f.kind}`, `the yard's ${f.kind}: ${n} block(s) (${r?.why ?? stop})`.slice(0, 160), { stop: r?.stop, placed: r?.placed, cleared: r?.cleared, slot: slot.slot })
   } catch (e) {

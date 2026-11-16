@@ -7,8 +7,8 @@
 //
 // THE RULE (refillNeed): a kind is refilled only when
 //   USED   the use ledger shows a named consumer drew it on REFILL.minDraws (3) occasions or REFILL.minItems (64) items in the last
-//          REFILL.days (2) days (useledger.mjs usedRegularly: a clerk's move is not a use) -- or, while the ledger is younger than
-//          that window, the kind is one KNOWN to be used: BOOTSTRAP (the clean-up's fill -- dirt, cobblestone) or an open build bill's;
+//          REFILL.days (2) days (useledger.mjs usedRegularly: a clerk's move is not a use). NO BOOTSTRAP (Codex r1 BLOCKER 5): a
+//          ledger with no history raises nothing by itself -- only a consumer actually refused does (billShortfall, the empty draw);
 //   LOW    its standing stock is under a day of that use (never an arbitrary target), at least REFILL.lowMin (16).
 // A kind nobody draws is never refilled. THE JOB has a size (two days of use less the stock, at most REFILL.maxJob 256) and an end
 // (the size banked, or REFILL.ttlMs), and at most REFILL.takers (2) bots carry it -- never the default work of an idle bot.
@@ -27,8 +27,18 @@ export function refillSettings (env = {}) {
     lowMin: num(env?.REFILL_LOW_MIN, 16, 1, 1000), maxJob: num(env?.REFILL_MAX_JOB, 256, 16, 4096), takers: num(env?.REFILL_TAKERS, 2, 1, 8), ttlMs: num(env?.REFILL_TTL_MIN, 120, 10, 1440) * 60_000 })
 }
 export const REFILL = refillSettings(typeof process !== 'undefined' ? process.env : {})
-/** KNOWN to be used before the ledger can say so: the clean-up's fill material. */
-export const BOOTSTRAP = Object.freeze(['dirt', 'cobblestone'])
+/**
+ * A CONSUMER'S STATED SHORTFALL -> { kind: n } to raise jobs for. Pure. `left` what a build's bill (or the clean-up's fill) still
+ * wanted after its search of the town's chests; only when the search was EXHAUSTED (every container that holds the name was looked
+ * in -- a search cut short by its clock or an unsettled transfer proves no shortage) and only kinds a bot can bring to the yard
+ * (`kinds`: the lanes'). The job's size is the shortfall itself.
+ */
+export function billShortfall (left = {}, { kinds = [], exhausted = false, unsettled = false, settings = REFILL } = {}) {
+  const out = {}
+  if (!settings?.on || !exhausted || unsettled) return out
+  for (const [name, n] of Object.entries(left ?? {})) { const c = Math.ceil(Number(n) || 0); if (c > 0 && kinds.includes(name)) out[name] = c }
+  return out
+}
 /** What a bot gathers to bring a kind (the block whose drop it is); a kind with no entry is gathered by its own name. */
 export const REFILL_BLOCK = Object.freeze({ cobblestone: 'stone', cobbled_deepslate: 'deepslate', dirt: 'dirt', gravel: 'gravel', sand: 'sand' })
 export const refillBlockOf = kind => REFILL_BLOCK[kind] ?? kind
@@ -37,19 +47,17 @@ export const refillBlockOf = kind => REFILL_BLOCK[kind] ?? kind
  * DOES A KIND NEED A REFILL JOB? -> { need, n, why, perDay, low }. Pure.
  *   use     useledger.mjs usedRegularly's answer over the last REFILL.days ({ used, draws, items, perDay }) | null (no ledger)
  *   stock   the standing stock (the newest stock line; null: unknown -- never a job on a guess)
- *   spanMs  how far back the ledger's lines reach;  bills  { kind: n } the open build bills' remaining need
- * Young ledger (spanMs under the window): a BOOTSTRAP kind or a billed one counts as used at max(its bill, 64) a day.
  */
-export function refillNeed (kind, { use = null, stock = null, spanMs = 0, bills = {}, settings = REFILL } = {}) {
+export function refillNeed (kind, { use = null, stock = null, settings = REFILL } = {}) {
   const no = why => ({ need: false, n: 0, why, perDay: 0, low: 0 })
   if (!settings?.on) return no('off')
   if (!Number.isFinite(stock)) return no('stock_unknown')
-  const young = !(spanMs >= settings.days * 86_400_000)
-  const billed = Math.max(0, Number(bills?.[kind]) || 0)
-  let perDay = use?.used ? Number(use.perDay) || 0 : 0
-  let why = use?.used ? 'used' : null
-  if (!why && young && (BOOTSTRAP.includes(kind) || billed > 0)) { perDay = Math.max(billed, 64); why = billed > 0 ? 'bootstrap_bill' : 'bootstrap' }
-  if (!why) return no('not_used')
+  // Codex r1 BLOCKER 5: NO BOOTSTRAP -- a new ledger with no dirt in stock raised a 128-dirt job with nobody asking for dirt, which
+  // is gathering to stock. Before the ledger has history a job is raised ONLY by a consumer actually refused (billShortfall, the
+  // yard's empty draw), sized by what it was short of.
+  const perDay = use?.used ? Number(use.perDay) || 0 : 0
+  if (!use?.used) return no('not_used')
+  const why = 'used'
   const low = Math.max(settings.lowMin, Math.ceil(perDay))
   if (!(stock < low)) return { need: false, n: 0, why: 'stocked', perDay, low }
   return { need: true, n: Math.max(settings.lowMin, Math.min(settings.maxJob, Math.ceil(2 * perDay - stock))), why, perDay, low }
@@ -86,8 +94,27 @@ export function refillCredit (jobs = [], kind, n, now = Date.now()) {
 /** The job as a goal's words -> { describe, progress, hint }. Pure. */
 export const refillWords = job => ({ describe: `Refill job: bring ${job.n} ${job.kind} to the storage yard (raised by ${job.by}; ${job.got} banked so far), then stop.`,
   progress: `${job.got}/${job.n} ${job.kind} banked at the yard`, hint: `gather with block=${refillBlockOf(job.kind)}, then go home: the yard takes it on the town visit.` })
+/**
+ * ONE POOL-WIDE READ-MODIFY-WRITE (Codex r1 BLOCKERS 3, 4: three processes read one untaken job and each wrote itself its taker; two
+ * yards' bots each rewrote the one row file) -> { ok, value, why }. `io`: lock() -> truthy token | null, read() -> the record FRESH
+ * (inside the lock), write(next) -> bool, unlock(token). `apply(cur) -> { next, value }`; `next === cur` means nothing to write.
+ * NOTHING IS ACKNOWLEDGED WITHOUT ITS WRITE: no lock, or a write that failed, returns ok false and `value` null -- the caller acts
+ * on nothing. The lock is released on every path.
+ */
+export function lockedUpdate (io, apply) {
+  let token = null
+  try { token = io.lock() } catch { token = null }
+  if (!token) return { ok: false, value: null, why: 'locked' }
+  try {
+    const cur = io.read()
+    const r = apply(cur) ?? {}
+    if (r.next === undefined || r.next === cur) return { ok: true, value: r.value ?? null, why: 'unchanged' }
+    if (!io.write(r.next)) return { ok: false, value: null, why: 'write_failed' }
+    return { ok: true, value: r.value ?? null, why: 'written' }
+  } catch { return { ok: false, value: null, why: 'error' } } finally { try { io.unlock(token) } catch { /* its TTL frees it */ } }
+}
 /** `_refill` row detail. Pure. */
 export const refillDetail = ({ op = '-', kind = '-', n = 0, by = '-', why = '-', stock = '-', perDay = '-', got = '-' } = {}) =>
   `op=${op} kind=${kind} n=${n} by=${String(by).replace(/\s+/g, '_')} why=${why} stock=${stock} per_day=${perDay} got=${got}`.slice(0, 300)
 /** `_refill_mode` licence row detail. Pure. */
-export const refillModeDetail = (on, s = REFILL) => `on=${on ? 1 : 0} days=${s.days} min_draws=${s.minDraws} min_items=${s.minItems} low_min=${s.lowMin} max_job=${s.maxJob} takers=${s.takers} ttl_min=${s.ttlMs / 60_000} bootstrap=${BOOTSTRAP.join('+')}`
+export const refillModeDetail = (on, s = REFILL) => `on=${on ? 1 : 0} days=${s.days} min_draws=${s.minDraws} min_items=${s.minItems} low_min=${s.lowMin} max_job=${s.maxJob} takers=${s.takers} ttl_min=${s.ttlMs / 60_000} bootstrap=none`

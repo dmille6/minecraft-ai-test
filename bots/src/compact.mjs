@@ -65,11 +65,12 @@ export function bagCompact (held = {}, { keeps = {}, free = 0, on = COMPACT.on }
  * free bag slots. The kind with the most to compact above its loose keep; at most COMPACT.maxStacks stacks a visit and never more
  * than the bag takes with two slots to spare (the product and the remainder); under COMPACT.minCrafts crafts it is not worth a visit.
  */
-export function chestCompact (stock = {}, { free = 0, settings = COMPACT, stackOf = () => 64 } = {}) {
+export function chestCompact (stock = {}, { free = 0, settings = COMPACT, stackOf = () => 64, skip = () => false } = {}) {
   if (!settings?.on || !stock) return null
   const slots = Math.min(settings.maxStacks, Math.max(0, (Number(free) || 0) - 2))
   let best = null
   for (const [from, r] of Object.entries(RECIPES)) {
+    if (skip(from) || skip(r.to)) continue   // a kind the clerk's own bag holds: its cargo would merge with the bot's (clerkMayCarry)
     const over = (Number(stock[from]) || 0) - compactKeepOf(from, settings.keep)
     const take = Math.floor(Math.min(over, slots * (Number(stackOf(from)) || 64)) / r.n) * r.n
     const crafts = take / r.n
@@ -98,6 +99,28 @@ export function mergePick (held = {}, { free = 0, settings = COMPACT, stackOf = 
     if (!best || waste > best.waste) best = { name, take, slots: used, after: Math.ceil(count / max), waste }
   }
   return best
+}
+// THE CLERK'S CARGO IS NEVER THE BOT'S OWN (Codex r1 BLOCKER 2: a clerk holding 1 moss drew 100; the take merged into 64 + 37; the
+// put-back owed 36 and could not move the 37, and nothing recorded the debt). Two rules, as the hall's clerk has them (storehub.mjs):
+//   - a kind the clerk's bag ALREADY HOLDS is never taken (clerkMayCarry), so everything in the bag of a carried name is cargo --
+//     whole stacks, exact counts, no stack to split;
+//   - the carried names are WRITTEN to the pool (per bot) BEFORE the take, and while the record stands and the bag holds any of them
+//     the clerk's next pass is the RETURN and nothing else (clerkNext): an interrupt, a full chest or a short clock leaves a debt
+//     that is paid first, never a new take on top of it.
+/** May the clerk carry these names (its bag holds none of them)? Pure. */
+export const clerkMayCarry = (held = {}, names = []) => names.every(n => !((Number(held?.[n]) || 0) > 0))
+/** What the clerk owes the chests of its recorded cargo -> { name: n } (all the bag holds of each recorded name). Pure. */
+export function cargoOwed (held = {}, names = []) {
+  const out = {}
+  for (const n of new Set(Array.isArray(names) ? names : [])) { const c = Number(held?.[n]) || 0; if (typeof n === 'string' && c > 0) out[n] = c }
+  return out
+}
+/** THE CLERK'S NEXT MOVE given its cargo record -> 'return' (a debt: put it back, take nothing) | 'clear' (the record stands but the
+ *  bag holds none of it: paid -- forget it) | 'free' (no record: a new pass may be planned). Pure. */
+export function clerkNext (cargo, held = {}) {
+  const names = Array.isArray(cargo?.names) ? cargo.names : null
+  if (!names) return 'free'
+  return Object.keys(cargoOwed(held, names)).length ? 'return' : 'clear'
 }
 /** May the clerk take `want` of `name` from a chest now (matsWithdraw's `allow`)? -> n. Pure. Never below the loose keep, judged on the
  *  town's stock elsewhere + what this chest shows (mats.mjs takeAllowed's shape). `keep` 0 for a merge (what is taken comes back). */

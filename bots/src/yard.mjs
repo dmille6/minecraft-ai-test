@@ -174,16 +174,20 @@ export function kindOverCap (name, { lanes = LANES, held = { lanes: 0, room: 0 }
   return (held?.lanes ?? 0) >= laneCapOf(name, lanes.caps) || (!(empty > 0) && (held?.lanes ?? 0) > 0)
 }
 /**
- * MAY THE WELL BE HELD OFF A KIND FOR THE YARD NOW? -> { hold, stamp }. Pure. `room` the yard's room for the kind; `holdAt` when this
- * bot's bag was first held for the yard (null: never), `stockAt` its last stock visit that placed. A hold lasts YARD_DEFER_MS; a
- * hold the yard did not answer in that time LAPSES for as long again (the well's turn: a bag is never held full on the yard's
- * promise), then may start anew. `stamp` is the holdAt to keep.
+ * IS THE WELL HELD OFF A KIND FOR THE YARD? -> { hold }. Pure. `room` the storage room the kind has (its lanes' free slots and the
+ * lanes it may still open; a row kind: its chest's). THE OWNER'S RULE (11-16): store everything that has a home -- so the hold is
+ * the ROOM and nothing else: never a banking visit's back-off, never elapsed time (Codex r1 BLOCKER 1: a failed visit's rest, and a
+ * 30-minute lapse, each sent a kind with room down the well). A kind is thrown only when it is FULL at its cap or no yard stands
+ * (room 0). A bag that jams with room in the yard is the bank step's to answer (yardRestMs: it comes back in 2 minutes).
  */
-export function wellHold ({ on = true, room = 0, holdAt = null, stockAt = null, now = Date.now(), ms = YARD_DEFER_MS } = {}) {
-  if (!on || !(Number(room) > 0)) return { hold: false, stamp: holdAt }
-  if (!Number.isFinite(holdAt) || Number(stockAt) > holdAt || now - holdAt >= 2 * ms) return { hold: true, stamp: now }
-  return { hold: now - holdAt < ms, stamp: holdAt }
+export function wellHold ({ on = true, room = 0 } = {}) {
+  return { hold: !!on && Number(room) > 0 }
 }
+/** A stock visit that placed nothing rests the yard's work for this bot this long -> ms. Pure. With the lanes a bag at 30+ slots
+ *  comes back after YARD_JAM_REST_MS (the well is held off its kinds while they have room: the remedy for a full bag is the BANK
+ *  step again, soon -- never the well); any other bag, and the old yard: YARD_REST_MS. */
+export const YARD_JAM_REST_MS = 2 * 60_000
+export const yardRestMs = ({ lanes = LANES, slots = 0 } = {}) => (lanes?.on && Number(slots) >= YARD_URGENT_SLOTS ? YARD_JAM_REST_MS : YARD_REST_MS)
 /** WELL_HOLD=off|0|false|no switches the hold off alone (the well as before). Pure. */
 export const wellHoldOn = (env = process.env) => !isOffV(env?.WELL_HOLD)
 /** `_yard_over_cap` row detail. Pure. */
@@ -590,6 +594,27 @@ export function pileCells (states = [], place = {}, { lanes = LANES, others = {}
   return { cells, palette, bays, lanes: lanesUsed }
 }
 
+/**
+ * THE PILE CELLS A VISIT MAY PLACE, UNDER ITS LANES' LEASES -> { pc, leased: [id] }. Pure but for `tryLease(id) -> bool` (the caller's:
+ * one lease a lane on the yard's record). Every lane the plan uses is leased first; a lane another bot holds is skipped and the plan
+ * made again without it; a lane the SECOND plan opens that is held too ends the visit's stocking (never a third plan). EVERY path that
+ * places on the piles goes through here (Codex r1 BLOCKER 6: the upkeep's clear-then-stock placed with no lease). Lanes off: the plan
+ * as it is, no lease (the old yard's one visitor).
+ */
+export function leasedPileCells (states = [], place = {}, opts = {}, tryLease = () => true) {
+  const lanes = opts?.lanes ?? LANES
+  let pc = pileCells(states, place, opts)
+  if (!lanes?.on || !pc.cells.length) return { pc, leased: [] }
+  const leased = []
+  const lease = id => { if (leased.includes(id)) return true; let ok = false; try { ok = !!tryLease(id) } catch { ok = false } if (ok) leased.push(id); return ok }
+  const idsOf = p => [...new Set(Object.values(p.lanes ?? {}).flat())]
+  const busy = new Set(idsOf(pc).filter(id => !lease(id)))
+  if (busy.size) {
+    pc = pileCells(states, place, { ...opts, skip: busy })
+    if (idsOf(pc).some(id => !lease(id))) pc = { ...pc, cells: [] }
+  }
+  return { pc, leased }
+}
 /** THE REFILL'S PICKAXE from the bag's items ({ name, uses left }) -> the item | null: a pickaxe with at least 2 uses left, the
  *  cheapest tier first (wooden, stone, then the rest), so the iron pickaxe a miner needs is the last spent. Pure: `left(item)` the
  *  uses left (toolfor.mjs remaining). */
