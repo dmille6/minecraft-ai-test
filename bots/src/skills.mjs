@@ -2148,7 +2148,7 @@ export function valveProof (bot, items = bot?.inventory?.items?.() ?? []) {
     if (items.length < TD_TRIGGER_SLOTS) return false
     const peaceful = foodSkipNow(bot).active
     if (startableJunk(items, { apples: peaceful, plants: peaceful, level: 0 }) > 0) return false
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) })
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot, items)), stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) })
     return plan.junkStacks === 0
   } catch { return false }
 }
@@ -7513,8 +7513,9 @@ function lidJudge (bot, c) {
   // the WELLS UNREADABLE is the bot's own failure, not evidence about the lid: refused, but with no memory (`unknown`)
   if (well === null) return { blocked: true, refusal: 'the town\'s well cells could not be read', unknown: true, s }
   const lid = lidCell(bot, s.lid)
-  // lidplank-01: a wood lid is judged against the BUILD RECORDS (read only for a wood lid: the rest never needs them)
-  const record = lid && LID_WOOD.test(lid.name ?? '') && !LID_BREAKABLE.test(lid.name) ? lidRecordAt(bot, c.offset(0, 1, 0)) : undefined
+  // lidplank-01: a wood lid is judged against the BUILD RECORDS (read only for a record-gated lid: the rest never needs them);
+  // lidground-01: natural ground on a lid is gated the same way (lidrule.mjs LID_GROUND, switch LIDGROUND=off)
+  const record = lid && (LID_WOOD.test(lid.name ?? '') || (lidGroundOn() && LID_GROUND.test(lid.name ?? ''))) && !LID_BREAKABLE.test(lid.name) ? lidRecordAt(bot, c.offset(0, 1, 0)) : undefined
   const refusal = lidClearRefusal({ lid, above: lidCell(bot, s.above), sides: s.sides.map(b => lidCell(bot, b)), well, record }) ??
     (serverLidBlocks(lid) ? null : `${lid.name} does not block a lid on the server`)
   return { blocked: true, refusal, s }
@@ -9369,11 +9370,26 @@ async function mergeInto (bot, win, need, deadline, signal, onMutate = null, hol
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, room = null } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, room = null, mergeHold = {} } = {}) {
   const bag = windowBag(bot, win)
   const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail, ...(room ?? {}) })
   // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
   const plan = accept ? { ...plan0, steps: plan0.steps.filter(st => accept(st.name)) } : plan0
+  // CHESTMERGE-01: the plan needs more empty slots than the container has -> partial stacks of one kind are merged INSIDE
+  // it first, one freed slot per merge, only as many as the plan lacks. A merge that did not go as planned ends this
+  // container's visit before any deposit click (independent review r1: the deposit must never click on a cursor the
+  // server may still hold); the caller settles the cursor with the server's word, as always.
+  let merge = null
+  const free0 = win.slots.slice(0, win.inventoryStart).filter(x => !x).length
+  if (CHESTMERGE.on && plan.steps.length > free0) {
+    const t0 = Date.now()
+    merge = { need: plan.steps.length - free0, free: free0, ...(await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate, mergeHold)) }
+    merge.ms = Date.now() - t0
+    // ... and the container is classed as the base classes it (Codex r2): the plan did not fit (`full`), and with no empty
+    // slot left in the window as the server last showed it, `noRoom` -- so it is remembered full, the run looks past it, and
+    // a run that finds every chest so goes on into the deposit verb (fullplace-01). A merge that keeps failing is not a loop.
+    if (merge.err || win.selectedItem) return { done: [], full: true, noRoom: !win.slots.slice(0, win.inventoryStart).some(x => !x), err: merge.err ?? 'the cursor is loaded after a merge', capRefused: { at_cap: 0, unknown: 0, outside: 0 }, stock: { claims: 0, refused: 0, valve: 0 }, reserved, merge }
+  }
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   // towndeposit-02: NO EMPTY CONTAINER SLOT at the open (the only room a whole-stack move uses) -- the caller remembers it full
@@ -9437,7 +9453,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   }
   // the claims are released by the CALLER, after the cursor is settled (Codex code r1 P1: a pending click or the cursor's
   // rescue may still move items) -- with the window's count, or a dirty mark when the window is held
-  return { done, full, noRoom, err, capRefused, stock, reserved }
+  return { done, full, noRoom, err, capRefused, stock, reserved, merge }
 }
 
 /**
@@ -9596,7 +9612,7 @@ async function townDeposit (ctx, _args, signal) {
       const reservedHere = []
       const mergeHold = { from: null }
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, mergeHold, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
@@ -10687,7 +10703,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       // storehub-01: a clerk's throw keeps every name of THIS bag but its cargo's junk (`keepOf`: read here, after the walk)
       const cobbleReserve = wellCobbleReserveNow(bot)
       const bagNow = bot.inventory?.items?.() ?? []
-      const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
+      const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: wellTakesCobble(out.cap), stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
       if (out.cap === 'at_cap' && !yardDeferredNow(bot) && wellKeptForYard(bagNow, cobbleReserve)) { bot.yardDeferAt = Date.now(); out.yardKept = cobbleReserve }
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
@@ -10834,7 +10850,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
+  const entryPlan = visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot)), stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -12927,7 +12943,7 @@ export function pruneTarget (bot, items = bot?.inventory?.items?.() ?? []) {
 }
 /** The well's own rule as a function of a bag (well.mjs disposePlan, every stack): what pruneAccepted asks. */
 function pruneWellRule (bot) {
-  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) }).stacks
+  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot, items)), stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) }).stacks
 }
 
 /**
@@ -19638,7 +19654,7 @@ function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
     if (r?.blueprint === TIDY_BLUEPRINT && gkStageDue(r)) return tidy
-    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)
+    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && (tidyDue(r) || strayDue(bot))   // stations-01: or a stray station
     // UPKEEP-01 (Codex fleet r1 BLOCKER, the showcase's too): the upkeep is never DAMAGED; with `tidy` (the order's completion check) it
     // wants a visit while it is due (a job open, its list stale, drops the sweep would take) -- else a stale list is never surveyed again
     if (r?.blueprint === UPKEEP_BLUEPRINT) return tidy && upkeepStateNow(bot, r).due
@@ -26183,7 +26199,8 @@ async function buildMonument (ctx, args, signal) {
     // VOIDFILL-01 (Codex r1 BLOCK): cells the stuck map holds may take an access -- the cap it opens and re-places, and the spare
     // its climb-out keeps, beyond the open cells' own bill: drawn here, or the access refuses no_material every visit
     try { if (zigAccessOf(bot, c) && Object.keys(vfStuckRead(dir, key)).length) want.cobblestone = (want.cobblestone ?? 0) + VF_ACCESS_DIG_MAX + VF_ACCESS_SPARE } catch { /* no extra draw */ }
-    const need = needFromTown(want, spare0)
+    // BAGDIET-01: a visit holds at most PROJECT_VISIT_HOLD of a name (the bag's spare counts): a bag holding a visit's worth draws nothing
+    const need = needFromTown(want, spare0, SHOP_BILL_CAP, PROJECT_VISIT_HOLD)
     let took = {}
     bag0 = held0
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: held0 })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
@@ -26254,7 +26271,7 @@ async function buildMonument (ctx, args, signal) {
     }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     // sealedcore-01: a visit that waived ends cell_waived (tidy.mjs gkStopAfterWaive), never this bot's own 6-h stuck_on_cell back-off
     const stopZ = gkStopAfterWaive(r.stop, waivedN)
@@ -26824,7 +26841,7 @@ async function buildWall (ctx, args, signal, K = WALL_KIND) {
     }
     let back = {}
     const left = leftoverNames(took, held0, heldMap(bot))
-    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const done = (() => { try { const h2 = recordHead(dir, key); const rw = h2.ok && h2.head ? h2.head.rec : rec; const p = wallProgress(rec, q => wallWaived(rw, q) || buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
     return out(status, r.stop, `${r.why ?? r.stop}; built ${done}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
@@ -30386,7 +30403,14 @@ async function buildTidyVisit (ctx, args, signal) {
     const r3 = await prepTick(bot, dir, key, rec, me, signal)
     if (r3?.ok && r3.head) { rh = r3; rec = rh.head.rec }
   }
-  if (rec.structure_complete) return out('no_effect', 'complete', lane === 'country' ? 'the countryside band is done; the next is due later' : 'the town ground is tidy')
+  if (rec.structure_complete) {
+    // STATIONS-01 SWEEP: a complete stage's visit (strayDue made it a repair) takes up the town's stray stations, nothing else
+    if (stnOn('sweep')) {
+      const sw = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+      if (sw.tried) return out(sw.back > 0 ? 'success' : 'no_effect', 'swept', `the town ground is tidy; took up ${sw.back} of ${sw.tried} stray station(s) tried (${sw.s?.sweep?.length ?? 0} strays seen)`, { stop: 'swept', cleared: sw.back })
+    }
+    return out('no_effect', 'complete', lane === 'country' ? 'the countryside band is done; the next is due later' : 'the town ground is tidy')
+  }
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())
   // a cell ANOTHER project's record names now (a project sited since the survey) is never the tidy's: never dug, never filled (read
@@ -30651,6 +30675,9 @@ async function buildTidyVisit (ctx, args, signal) {
     // placed or cleared resets it
     // (the open work read AFTER the visit, fresh: helpers filling during it are progress -- Codex r6 BLOCKER)
     if (prepNow) { const sk = `${prepNow}:${rec.prep?.[prepNow]?.att ?? 0}`; const fr = tidyRead(bot); bot.prepStalls = { ...(bot.prepStalls ?? {}), [sk]: prepStallNext(bot.prepStalls?.[sk] ?? null, prepOpen(rec, prepNow, fr, prepDoneIn(fr)).n, (r.placed ?? 0) + (r.cleared ?? 0)) } }
+    let swept = null
+    // STATIONS-01 SWEEP: the town's stray stations, with what is left of the visit (SWEEP.minMs at least)
+    if (stnOn('sweep') && t0 + budget - ZIG_VISIT_TAIL_MS - Date.now() >= SWEEP.minMs && r.stop !== 'aborted') { try { swept = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
@@ -30843,7 +30870,7 @@ async function buildTidyVisit (ctx, args, signal) {
     const status = r.placed > 0 || r.cleared > 0 || gathered?.n > 0 || completed ? 'success' : 'no_effect'
     // an idle helper's stop is `keeper_held` (shop.mjs IDLE_STOPS: the grounds have no use for this bot now), its outcome named
     if (idleHelper) return out(status, 'helper_idle', `nothing of the grounds is this helper's now (${r.why ?? r.stop}); the helper lease is let go`, { stop: 'keeper_held', placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
-    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${swept?.tried ? `; took up ${swept.back} of ${swept.tried} stray station(s)` : ''}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
@@ -31029,7 +31056,7 @@ async function buildTreeFarm (ctx, args, signal) {
     const done = (b, pal, role) => buildCellDone(b, pal, role) || (role === 'plot' && /_log$/.test(String(b?.name ?? '')))
     const town = matsTownStock(bot)?.stock ?? {}
     const bill = billOf(vrec, palette, read, { done, inTown: billInTown(town) })
-    const need = needFromTown(bill, spare0, SHOP_BILL_CAP)
+    const need = needFromTown(bill, spare0, SHOP_BILL_CAP, PROJECT_VISIT_HOLD)
     let took = {}
     if (Object.keys(need).length && !drawnWrite(dir, key, me, drawn0, { bag: heldB })) return (drawnFails++, out('no_effect', 'state_unwritable', 'the drawn record could not be written; nothing is drawn', { stop: 'state_unwritable' }))
     const R0 = matsReserve().table
@@ -31065,7 +31092,7 @@ async function buildTreeFarm (ctx, args, signal) {
     const caps = { ...took }
     for (const [n, k] of Object.entries(heldNow)) if (/_log$/.test(n) && k > (held0[n] ?? 0)) caps[n] = (caps[n] ?? 0) + (k - (held0[n] ?? 0))
     const left = [...new Set([...leftoverNames(took, held0, heldNow), ...Object.keys(caps).filter(n => /_log$/.test(n))])]
-    if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, caps, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+    if (left.length && bankBackDue(budget, Date.now() - t0, LIGHT_BANK_MIN_MS)) { try { back = await matsBank(ctx, left, held0, signal, caps, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const prog = (() => { try { const p = farmProgress(rec, q => farmAlsoDone(q, read) || buildCellDone(read(...q.at), palette, q.role)); return `${p.done}/${p.done + p.open}` } catch { return '-' } })()
     const census = Object.entries(farmCensus(read, rec)).map(([k, v]) => `${k}:${v}`).join(',')
     const status = r.placed > 0 || r.cleared > 0 || hv.felled > 0 ? 'success' : 'no_effect'
