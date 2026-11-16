@@ -93,6 +93,13 @@ export function sameStack (a, b) {
   if ((a.type ?? null) !== (b.type ?? null) || (a.metadata ?? 0) !== (b.metadata ?? 0)) return false
   return J(a.nbt) === J(b.nbt) && J(a.components ?? []) === J(b.components ?? []) && J(a.removedComponents ?? []) === J(b.removedComponents ?? [])
 }
+/** A STACK'S IDENTITY AS A KEY -> the name for a plain stack, `name#<its nbt, components, removed components, metadata>` for any other
+ *  (named, enchanted, damaged): two stacks the server would merge have one key. Pure. */
+export function stackKey (it) {
+  if (!it || typeof it.name !== 'string') return ''
+  const extra = [J(it.nbt), J(it.components ?? []), J(it.removedComponents ?? []), String(it.metadata ?? 0)].join('|')
+  return extra === 'null|[]|[]|0' ? it.name : `${it.name}#${extra}`
+}
 /**
  * WHERE EACH STACK GOES -> the steps that WHOLLY fit, in order, each with `merges` [{ dest, n }] (partial stacks of the same item, in
  * slot order, at most MERGE_MAX) and `dest` (an empty slot for what is left, or null when the merges take it all). Pure.
@@ -147,7 +154,8 @@ export function destHolds (d, x) {
 /**
  * ONE STACK'S MERGE SEQUENCE, CONFIRMED CLICK BY CLICK -> { moves: [{ dest, n, base, after, merged }], stop, full, picked }. `io`:
  *   click(slot, button)  one click, awaited until it settled (throws when the window is no longer the open one)
- *   confirm()            the SERVER's cursor -> { name, count } (count 0: empty) | null (unanswered); it also refreshes slot()
+ *   confirm()            the SERVER's cursor -> { name, count, item } (count 0: empty; `item` the cursor's whole Item) | null
+ *                        (unanswered); it also refreshes slot()
  *   slot(i)              the window's slot i as last refreshed -> Item | null
  *   emptyDest()          an empty container slot not used this run -> i | null
  *   same(slotItem)       would the server merge the cursor's stack onto it (sameStack against the confirmed cursor)
@@ -166,6 +174,12 @@ export async function runMerge (io, step, from) {
   // the pickup itself unanswered: nothing is known of the cursor -- no further click (the caller settles; the stack is not lost)
   if (!cur) return out('pickup_unconfirmed')
   if (cur.name !== step.name || cur.count !== step.count) return out(cur.count ? 'pickup_differs' : 'pickup_empty')
+  // Codex r2 BLOCKER (11-16): THE PICKUP'S WHOLE IDENTITY is kept, and every later non-empty cursor is compared with it (sameStack: nbt,
+  // components, removed components, metadata). Reproduced: 40 plain coal onto a destination another bot replaced with 5 NAMED coal --
+  // the server swapped, the name still read `coal`, and the pass counted 35 "merged" and placed the named coal in a chest slot. A
+  // foreign cursor is never clicked anywhere by this pass: it stops, and the caller's settle returns it to the bag or holds.
+  const picked0 = cur.item ?? null
+  const foreign = c => c.count > 0 && (c.name !== step.name || (!!picked0 && !!c.item && !sameStack(picked0, c.item)) || (!!picked0 !== !!c.item))
   let left = step.count
   for (const m of (step.merges ?? [])) {
     const d = io.slot(m.dest)
@@ -176,7 +190,7 @@ export async function runMerge (io, step, from) {
     if (!(await click(m.dest, 0))) return out('click_failed')
     cur = await io.confirm()
     if (!cur) return out('merge_unconfirmed')
-    if (cur.count > 0 && cur.name !== step.name) return out('cursor_swapped')
+    if (foreign(cur)) return out('cursor_swapped')
     if (cur.count > left) return out('cursor_grew')
     const n = left - cur.count
     if (n > 0) moves.push({ dest: m.dest, n, base, after: io.slot(m.dest)?.count ?? base + n, merged: true })
@@ -188,6 +202,7 @@ export async function runMerge (io, step, from) {
   if (!(await click(dest, 0))) return out('click_failed')
   cur = await io.confirm()
   if (!cur) return out('place_unconfirmed')
+  if (foreign(cur)) return out('cursor_swapped')
   if (cur.count > 0) return out('place_refused')
   moves.push({ dest, n: left, base: 0, after: left, merged: false })
   return out(null)
@@ -221,10 +236,14 @@ export function creditMoves (holding = [], before = null, after = null) {
 export function lossCredit ({ banked = {}, before = {}, open = null, end = null } = {}) {
   const out = { ...(banked ?? {}) }
   if (!open || !end) return out
-  for (const name of Object.keys(open)) {
-    const lost = (Number(open[name]) || 0) - (Number(end[name]) || 0)
-    if (lost > 0) out[name] = Math.max(Number(out[name]) || 0, (Number(before?.[name]) || 0) + lost)
+  // `open` / `end` may be keyed by IDENTITY (stackKey: `name#...` for a named or damaged stack) -- Codex r2: the credit is what the
+  // bag lost of the ORIGINAL identity, so a foreign stack of the same name that came INTO the bag (a swap) never hides the loss
+  const lostBy = {}
+  for (const key of Object.keys(open)) {
+    const lost = (Number(open[key]) || 0) - (Number(end[key]) || 0)
+    if (lost > 0) { const name = key.split('#')[0]; lostBy[name] = (lostBy[name] ?? 0) + lost }
   }
+  for (const [name, lost] of Object.entries(lostBy)) out[name] = Math.max(Number(out[name]) || 0, (Number(before?.[name]) || 0) + lost)
   return out
 }
 /** THE ROOM A CONTAINER'S PARTIAL STACKS HAVE for these names -> items. Pure. `names` the town index's observation ({ name: [count,
