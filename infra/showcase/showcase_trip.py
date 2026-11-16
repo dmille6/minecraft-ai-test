@@ -1552,7 +1552,8 @@ def selftest():
         seen[:] = []
         why, note = brain_paused('x', up, bad)
         assert why is None and 'setting unreadable' in note and not seen, 'an unreadable setting never excuses a dead town'
-    if os.path.exists(os.path.join(HERE, 'make_env.py')):       # the real reader, on real files (Codex r1: null, no owner)
+    if any(os.path.exists(os.path.join(d, 'make_env.py')) for d in (HERE, BRAIN_BIN)):   # the real reader, on real files
+        # (Codex r1: null, no owner), found the way the host finds it: beside this file in the repo, in BRAIN_BIN on the VM
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             bf = os.path.join(td, 'BRAIN.json')
@@ -1568,7 +1569,7 @@ def selftest():
                 assert why is None and 'setting unreadable' in note, 'make_env refuses %s: no reason, said as a note' % text[:30]
         print('selftest: the brain setting read through make_env.load_brain')
     else:
-        print('selftest: make_env.py not beside this file -- the real-setting checks skipped')
+        print('selftest: make_env.py neither beside this file nor in %s -- the real-setting checks skipped' % BRAIN_BIN)
     assert verdict(dict(base, live_bots=0, brain_paused=None))[0] == 'TRIP', 'no live bot and a brain that answers is HARM'
     # THE WIRING (review r1: the harness below runs --not-running, so no behaviour reaches these two lines): the read
     # unpacks (reason, note) and only the REASON goes into the facts -- the whole tuple there is always truthy, the
