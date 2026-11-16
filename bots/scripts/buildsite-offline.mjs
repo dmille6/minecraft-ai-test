@@ -19,8 +19,9 @@ export { plinthCells }
 const require = createRequire(import.meta.url)
 const mcData = require('minecraft-data')('1.21.8')
 
-/** A reader over the dump -> read(x, y, z) -> { name, boundingBox } | null (townplan-offline.mjs's, which runs on import). */
-export function dumpReader (dump) {
+/** A reader over the dump -> read(x, y, z) -> { name, boundingBox } | null (townplan-offline.mjs's, which runs on import).
+ *  `data`: another version's minecraft-data (standreplay-offline.mjs --mc); unset, 1.21.8 as before. */
+export function dumpReader (dump, data = mcData) {
   const [x0, z0, x1, z1] = dump.box, [y0, y1] = dump.y
   const nx = x1 - x0 + 1, nz = z1 - z0 + 1
   const buf = Buffer.from(dump.cells, 'base64')
@@ -30,7 +31,7 @@ export function dumpReader (dump) {
     const snow = /^snow\[layers=(\d+|\?)\]/.exec(n)
     const name = snow ? n.replace(/^snow\[layers=(\d+|\?)\]/, 'snow') : n
     const base = name.replace(/\[waterlogged\]$/, '')
-    const b = mcData.blocksByName[base]
+    const b = data.blocksByName[base]
     return { name, boundingBox: b?.boundingBox ?? 'block', ...(snow ? { props: { layers: snow[1] === '?' ? null : Number(snow[1]) } } : {}) }
   })
   return (x, y, z) => {

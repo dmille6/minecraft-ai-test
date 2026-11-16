@@ -64,6 +64,9 @@ const REQUIRED = [
   'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
   'bots/test/civicvisit.test.mjs',   // civicvisit-01show (11-15): a landmark's visit stands where its siting stood
   'bots/test/steprefusal.test.mjs',   // stepclass-01 (11-15): why a cell has no step, on the deferral row
+  'bots/scripts/standreplay-offline.mjs',   // stepclass-01: the stand replay over a block dump (the acceptance check for stuck cells)
+  'bots/test/standreplay.test.mjs',   // stepclass-01
+  'scripts/host/standprep.py',   // stepclass-01: the replay's input from a pool's stuck files
   'bots/test/gkclear.test.mjs',   // gkclear-01 (11-07): the town's strikes say a tidy stage is closing
   'bots/test/gkroom.test.mjs',   // gkroom-01 (11-07): the keeper refused the forest for room works the tidy
   'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
