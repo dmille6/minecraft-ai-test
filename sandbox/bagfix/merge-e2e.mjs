@@ -47,6 +47,7 @@ const CASES = {
   abort4:      { what: '7d interrupted after the 4th click sent', abortAfter: 4, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
   abort5:      { what: '7e interrupted after the 5th click sent', abortAfter: 5, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
   abort6:      { what: '7f interrupted after the 6th click sent', abortAfter: 6, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
+  newchest:    { what: 'every chest full: the DEPOSIT verb places a carried chest and banks into it', skill: 'deposit', readAt: [X - 2, Y + 1, Z - 4], c1: { set: [] }, bag: [['coal', 30], ['chest', 2]] },
   chests13:    { what: 'carried chests: 13 held, banked in halves, one stays', c1: { set: [], empty: [20, 21, 22, 23, 24, 25, 26] }, bag: [['chest', 13]] },
 }
 const argv = process.argv.slice(2)
@@ -57,7 +58,7 @@ const DIR = path.resolve('sandbox/log/bagfix', CASE)
 if (!FOLLOWER) { fs.rmSync(DIR, { recursive: true, force: true }) }
 fs.mkdirSync(path.join(DIR, 'pool'), { recursive: true }); fs.mkdirSync(path.join(DIR, 'log-' + NAME), { recursive: true })
 Object.assign(process.env, {
-  OLLAMA_MODEL: 'none', OLLAMA_BASE_URL: 'http://127.0.0.1:1', MEMORY_SCOPE: 'board', MEMORY_POOL: 'sbxbag', BAGROOM: 'on',
+  OLLAMA_MODEL: 'none', OLLAMA_BASE_URL: 'http://127.0.0.1:1', MEMORY_SCOPE: 'board', MEMORY_POOL: 'sbxbag', BAGROOM: 'on', WORLD_BORDER_RADIUS: '8000',
   LOG_DIR: path.join(DIR, 'log-' + NAME), STATE_DIR: path.join(DIR, 'state-' + NAME), POOL_STATE_DIR: path.join(DIR, 'pool'),
   HOME_X: String(X), HOME_Y: String(Y + 1), HOME_Z: String(Z), BOT_NAME: NAME, LOG_LEVEL: 'error', BOT_ROLE: 'gatherer', ...(DEF.env ?? {}),
 })
@@ -137,7 +138,7 @@ const rowsOf = name => {
   const out = []
   for (const f of fs.readdirSync(path.join(DIR, 'log-' + name)).filter(f => f.startsWith('skill-'))) {
     for (const l of fs.readFileSync(path.join(DIR, 'log-' + name, f), 'utf8').split('\n')) {
-      try { const r = JSON.parse(l); if (['_town_deposit', '_junkout', '_stock_refused', '_town_memory', '_cursor_settle', '_withdraw_hold'].includes(r.skill?.name) || /cursor|unsettled/.test(r.skill?.name ?? '')) out.push(`${r['@timestamp'].slice(11, 23)} ${r.skill.name} ${r.skill.status} | ${r.skill.detail}`) } catch { /* not a row */ }
+      try { const r = JSON.parse(l); if (['_town_deposit', '_junkout', '_stock_refused', '_town_memory', '_cursor_settle', '_withdraw_hold', '_deposit', 'deposit', '_place_town', '_chest_full', '_chest_claim', '_full_chest'].includes(r.skill?.name) || /chest/.test(r.skill?.name ?? '') || /cursor|unsettled/.test(r.skill?.name ?? '')) out.push(`${r['@timestamp'].slice(11, 23)} ${r.skill.name} ${r.skill.status} | ${r.skill.detail}`) } catch { /* not a row */ }
     }
   }
   return out
@@ -149,7 +150,7 @@ async function deposit (bot, label) {
   const plan = TD.townDepositPlan(bot.inventory.items(), { wanted: [], noSwords: true, ...(DEF.args?.room ? { room: true } : {}) }).steps.map(s => `${s.name}x${s.count}${s.half ? '(half)' : ''}@${s.slot}`)
   const c0 = bot.clicks.length, t = Date.now()
   let res
-  try { const r = await SK.SKILLS.town_deposit.run({ bot }, { ...(DEF.args ?? {}) }, ac.signal); res = { status: r.status, detail: r.detail } } catch (e) { res = { threw: String(e?.message ?? e).slice(0, 200), aborted: !!(e?.aborted || ac.signal.aborted) } }
+  try { const r = await SK.SKILLS[DEF.skill ?? 'town_deposit'].run({ bot }, { ...(DEF.args ?? {}) }, ac.signal); res = { status: r.status, detail: r.detail } } catch (e) { res = { threw: String(e?.message ?? e).slice(0, 200), aborted: !!(e?.aborted || ac.signal.aborted) } }
   const ms = Date.now() - t
   const clicks = bot.clicks.slice(c0)
   const tc = clicks.filter(c => c.slot != null)
@@ -183,7 +184,7 @@ async function main () {
   const bad = prep.filter(r => /Unknown|Incorrect|Expected|No player|Invalid/.test(r.reply)); if (bad.length) P('PREP REPLIES TO READ', bad)
   await sleep(3000)
   const R = { case: CASE, what: DEF.what, env: DEF.env ?? {}, switches: BF.bagfixModeDetail(), runs: [] }
-  const read = () => ({ c1: chestOf(C1), c2: DEF.c2 ? chestOf(C2) : [], bagA: bagOf(NAME), bagB: DEF.two ? bagOf(OTHER) : [], ground: groundOf() })
+  const read = () => ({ c1: chestOf(C1), c2: DEF.c2 ? chestOf(C2) : DEF.readAt ? chestOf(DEF.readAt) : [], bagA: bagOf(NAME), bagB: DEF.two ? bagOf(OTHER) : [], ground: groundOf() })
   const stages = [null, ...(DEF.then ? [DEF.then] : []), ...(DEF.again ? ['again'] : [])]
   for (const more of stages) {
     if (more === 'again') await sleep(6000); else if (more) { rcon(...give(NAME, more)); await sleep(2500) }
@@ -204,6 +205,8 @@ async function main () {
                   totalsBefore: tb, totalsAfter: ta, conserved, fillerMoved: fillMoved, A: rA, ...(rB ? { B: rB } : {}), rowsA: rowsOf(NAME), ...(DEF.two ? { rowsB: rowsOf(OTHER) } : {}) }
     R.runs.push(run)
     run.rawAfter = [...after.c1, ...after.c2, ...after.bagA, ...after.bagB].filter(e => e.id !== FILL).map(e => e.raw); P('RAW AFTER', run.rawAfter)
+    if (DEF.skill) { run.chestsNear = rcon(...[[-2,0],[-1,0],[1,0],[2,0],[-1,-2],[1,-2],[2,-2],[-2,-2],[0,2],[1,2],[-1,2],[0,-1],[1,-1],[-1,-1],[1,1],[-1,1],[0,1],[2,1],[-2,1],[2,-1],[-2,-1]].map(([dx, dz]) => `execute if block ${X + dx} ${Y + 1} ${Z + dz} minecraft:chest`)).filter(r => /passed/.test(r.reply)).map(r => r.cmd.replace('execute if block ', '').replace(' minecraft:chest', '')); P('CHESTS NEAR', run.chestsNear) }
+    if (DEF.readAt) { run.newChest = { at: DEF.readAt.join(','), block: rcon(`execute if block ${DEF.readAt.join(' ')} minecraft:chest`)[0].reply, holds: show(after.c2) }; P('NEW CHEST (server)', run.newChest) }
     P('BEFORE', run.before); P('AFTER ', run.after); P('CONSERVED', conserved, 'filler moved', fillMoved, 'totals', tb, '->', ta)
     P('A', { plan: rA.plan, status: rA.status, detail: rA.detail, threw: rA.threw, ms: rA.ms, clickMs: rA.clickMs, cursorAfter: rA.cursorAfter }); for (const c of rA.clicks) P('   A click', c)
     if (rB) { P('B', { plan: rB.plan, status: rB.status, detail: rB.detail, threw: rB.threw, ms: rB.ms, clickMs: rB.clickMs, cursorAfter: rB.cursorAfter }); for (const c of rB.clicks) P('   B click', c) }
