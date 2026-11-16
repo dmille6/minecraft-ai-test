@@ -284,7 +284,7 @@ import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's as
 import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
-import { BAGFIX, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
+import { BAGFIX, deferUnknown, failedSites, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -5235,14 +5235,16 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   reconcileClaims({ dir, key, claims, read: readName, world })
   const carried = carriedChest(bot.inventory.items())
   budget = chestBudget({ claims, world, carried: !!carried })   // chestcarry-01: a chest already in the bag has the larger limits
-  const next0 = fullChestNext({ nearHome, unknown, budget, carried: !!carried })
+  // bagfix-01 D: one container the sweep could not READ defers nothing while another is known full (bagfix.mjs deferUnknown)
+  const unk = deferUnknown({ unknown, unknownTime, known: [...tried.values()].filter(v => /^full/.test(String(v?.room ?? ''))).length })
+  const next0 = fullChestNext({ nearHome, unknown: unk, budget, carried: !!carried })
   // THE GREENFIELD STORE FIRST (found-01, build spec 2.2): with a town plan whose storehouse has a free READY cell, the new chest
   // goes there -- the section cap, not the recovery's budget (design 5 F3). TOWNPLAN=off, FOUND=off or no such cell: the base.
   let planCell = next0 === 'defer' ? null : recoveryPlanCell(bot)
   const next = planCell && next0 === 'refuse_cap' ? (carried ? 'place_carried' : 'craft') : next0
   // TIME ALONE IS NOT A REASON TO PAUSE BANKING (Codex round 4): when every unknown is a container the watchdog left
   // unvisited, the answer is the clamped timeout's own -- deposit again -- with no closure.
-  if (next === 'defer' && unknown === unknownTime) {
+  if (next === 'defer' && unk === unknownTime) {
     row('out_of_time', 'no_effect')
     return { status: 'unknown', failClass: 'path_budget',
              detail: `deposit again: this attempt ran out of time before reaching ${unknownTime} more container(s) in town [bag ${bagBefore}->${bag()} items]` }
@@ -5265,7 +5267,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const fullNear = [...tried.values()].filter(v => /^(full|unavailable|unusable)/.test(String(v.room)) && inTown(home, v.at)).map(v => v.at)
   const anchor = fullNear.sort((a, b) => here().distanceTo(a) - here().distanceTo(b))[0] ?? first.position
   const composterSites = [readTownSite(dir, townSiteKey()).site, findTownComposter(bot)?.position].filter(Boolean)
-  const skip = []
+  const skip = [...failedSites(claims)]   // bagfix-01 D: a cell a placement failed at is not the first choice again
   // THE JUNK WELL'S CELLS AND CLEARANCE (chestfull.mjs wellKeepout), read afresh at every pick and on arrival: a well
   // recorded while this bot walked must move the chest, not be found later as a breach.
   // WHEN THE WELL'S KEEP-OUT COVERS THE RINGS AROUND THE FULL CHEST (Codex, chestfull-02 on 911d792 round 1): a bounded

@@ -147,6 +147,79 @@ export function mergeRoom (names = {}, want = [], stackOf = () => 64) {
  *  backoff, and only with room on its partial stacks for a whole stack's worth of something the plan banks. */
 export const fullStillTakes = ({ merge = BAGFIX.merge, status = null, room = 0, least = 1 } = {}) => !!merge && status === 'full' && Number(room) >= Math.max(1, Number(least) || 1)
 
+// ---- D: CARRIED CHESTS ------------------------------------------------------------------------------------------------------------
+// LIVE 11-16: 188 chests in 14 bags while deposits were refused "the town is at its chest limit". Four causes, each read in the code:
+//   1  the showcase line had 4 new chests a day / 12 standing; the owner's 16 / 24 for a CARRIED chest (11-09) was a fleet branch
+//      (chestcarry-01, cherry-picked here: chestfull.mjs chestBudget `carried`).
+//   2  ONE container the sweep could not read (a backoff, a failed walk) deferred every new chest (chestfull.mjs fullChestNext).
+//   3  a placement that failed left its cell the picker's first choice again: claims c6, c7, c8 are all (-6,71,9), 06:03Z, 07:39Z,
+//      08:36Z -- three of the day's claims spent on one cell that takes no chest.
+//   4  the station row moves a whole stack or nothing with one kept (bagallowance.mjs allowanceSteps), so a stack of 13 never moved.
+/** A cell whose placement failed is not picked again for this long. */
+export const FAILED_SITE_MS = 24 * 60 * 60 * 1000
+/**
+ * HOW MANY UNREAD CONTAINERS DEFER A NEW CHEST -> n (chestfull.mjs fullChestNext's `unknown`). Pure. On, with at least one town
+ * container KNOWN full (`known`), only the ones the sweep ran out of TIME for (`unknownTime`: "deposit again", no closure) -- an
+ * unreadable one is skipped. Off, or nothing known full: every unknown, as before.
+ */
+export const deferUnknown = ({ chest = BAGFIX.chest, unknown = 0, unknownTime = 0, known = 0 } = {}) =>
+  (chest && Number(known) > 0 ? Math.min(Number(unknown) || 0, Number(unknownTime) || 0) : Number(unknown) || 0)
+/** THE CELLS A PLACEMENT FAILED AT -> [{ x, y, z }] (the site picker's `skip`). Pure over the claims ledger (chestfull.mjs readClaims:
+ *  { x, y, z, at, state }): `not_placed` inside FAILED_SITE_MS. Off: none. */
+export function failedSites (claims = [], { chest = BAGFIX.chest, now = Date.now(), ttl = FAILED_SITE_MS } = {}) {
+  if (!chest) return []
+  const seen = new Set(), out = []
+  for (const c of (Array.isArray(claims) ? claims : [])) {
+    if (c?.state !== 'not_placed' || ![c.x, c.y, c.z].every(Number.isFinite) || !(now - c.at < ttl)) continue
+    const k = `${c.x},${c.y},${c.z}`
+    if (!seen.has(k)) { seen.add(k); out.push({ x: c.x, y: c.y, z: c.z }) }
+  }
+  return out
+}
+/**
+ * THE CARRIED CHESTS' HALVES -> [{ slot, count, from, half: true }]. Pure. A stack of carried chests the whole-stack row could not
+ * move (keep 1) is HALVED (a right click lifts ceil(n/2): the log halves' move, towndeposit.mjs logHalfSteps) while the half fits
+ * above the keep: 13 -> 7, 3, 2 banked, 1 kept. `halves(stacks, room)` is logHalfSteps. Off, or nothing above the keep: none.
+ */
+export function chestHalves (items = [], { chest = BAGFIX.chest, keep = 1, halves = () => [], names = ['chest', 'trapped_chest'] } = {}) {
+  if (!chest) return []
+  const out = []
+  for (const name of names) {
+    const copies = (Array.isArray(items) ? items : []).filter(it => it?.name === name && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
+    const total = copies.reduce((t, it) => t + it.count, 0)
+    if (!(total > keep)) continue
+    for (const st of halves(copies, total - keep)) out.push({ ...st, name })
+  }
+  return out
+}
+
+// ---- C (release 1: nothing is destroyed): THE KIT'S KEEPS, THE PARTIAL-SLOT RULE, THE NUGGETS' EXIT -------------------------------
+// Almost every exit moved a whole slot only while what stayed was at or above a keep, so a kind held as ONE partial slot under its
+// keep could never leave: ~20 such slots a bag, 34+ kinds, and the build's 8 free slots out of reach. OWNER 11-16: seeds and sugar
+// cane keep 16 (were 64); iron nuggets get an exit to a chest (they had none: towndeposit.mjs IRON_LADDER); and ONE RULE FOR PARTIAL
+// SLOTS -- a kind held as a single partial slot under its keep may leave when the bag is at or over 30 kinds. Tools, food, armour,
+// stations, torches and a build's drawn materials never (the room bank's own exclusions, unchanged). Where it leaves TO in this
+// release is a town chest (the room bank, merging onto the stack already there); the yard's lanes are the next release.
+/** The bag is "at or over 30 kinds" from this many used slots. */
+export const TRIM_SLOTS = 30
+/** The kit's keep of a name the room bank could move (bagroom.mjs ROOM_KIT_KEEP's 64s) under the trim. */
+export const TRIM_KIT_KEEP = Object.freeze({ wheat_seeds: 16, beetroot_seeds: 16, sugar_cane: 16 })
+/** The room kit's keep of `name` -> n. Pure. `base` is bagroom.mjs's own number; off: it. */
+export const kitKeepOf = (name, base = 0, { trim = BAGFIX.trim } = {}) => (trim && Object.hasOwn(TRIM_KIT_KEEP, name) ? Math.min(Number(base) || 0, TRIM_KIT_KEEP[name]) : Number(base) || 0)
+/**
+ * THE PARTIAL-SLOT RULE -> the keep the room bank holds a name to. Pure. A name held as ONE slot, not a full stack, at or under its
+ * keep, in a bag at TRIM_SLOTS or more: 0 (it may leave). `hard` (the active goal's want, the scaffold reserve): the keep stands.
+ * Anything else, or off: the keep as given.
+ */
+export function partialKeep ({ trim = BAGFIX.trim, slots = 0, copies = 0, total = 0, keep = 0, stack = 64, hard = false } = {}) {
+  const k = Number(keep) || 0
+  if (!trim || hard || !(Number(slots) >= TRIM_SLOTS) || copies !== 1 || !(total < stack) || !(total <= k)) return k
+  return 0
+}
+/** The iron ladder's names the room bank may bank under the trim (no rung reads them: milestones count ingots and raw iron). */
+export const TRIM_BANKABLE = Object.freeze(['iron_nugget'])
+export const trimBankable = (name, { trim = BAGFIX.trim } = {}) => !!trim && TRIM_BANKABLE.includes(name)
+
 /** `_bagfix` licence row detail (once per spawn). Pure. */
 export function bagfixModeDetail (sw = BAGFIX, now = Date.now()) {
   const b = v => (v ? 1 : 0)
