@@ -223,7 +223,7 @@ await t('a visit that did nothing RESTS the work (yardRestUntil): the same bag r
 console.log('THE WIRING (skills.mjs, structural)')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 // yardlanes-01: every yard (yard, yard2 ...) is the yard's -- the wiring names isYardPlot and passes the plot
-const W1 = /if \(isYardPlot\(plot\) && rec\.structure_complete && !recordDamaged\(bot, rec, \{ tidy: false \}\)\) return yardVisit\(ctx, rec, rh\.head\.gen, signal, out, t0, \{ plot \}\)/
+const W1 = /if \(isYardPlot\(plot\) && rec\.structure_complete && !recordDamaged\(bot, rec, \{ tidy: false \}\)\) return yardVisit\(ctx, rec, rh\.head\.gen, signal, out, t0, \{ plot, /
 const W2 = /const yw = complete && b && isYardPlot\(p\.plot\) \? yardWorkNow\(b, rec, now, p\.plot\) : null\n\s*const damaged = complete && b \? \(recordDamaged\(b, rec, \{ tidy: tidyFirst \}\) \|\| !!yw\?\.urgent\) : false/
 const W3 = /plot, \.\.\.\(isYardPlot\(plot\) \? \{ earth: YARD_EARTH \} : \{\}\) \}/
 const W4 = /fx = \{ \.\.\.effects, dig: async \(c, expect\) => \{\n\s*const pk = refillPick\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], remaining\)\n\s*if \(!pk\) return 'refused'/

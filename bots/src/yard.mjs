@@ -89,7 +89,7 @@ export const YARD_CLEAR_MAX = 16
 //        their bags; LANES.modules (4) yards in all = 16 lanes.
 //   LEASES one lease a LANE (`lane<id>` on the yard's record), so LANES.visitors bots stock one yard at once, each in its own lanes.
 // Settings: YARD_LANE_START, YARD_LANE_STEP, YARD_LANE_CAPS ("cobblestone:4,cobbled_deepslate:4,*:2"), YARD_MODULES, YARD_LANE_MIN,
-// YARD_LANE_BUILDERS, YARD_LANE_VISITORS, YARD_LANE_VISIT_MAX.
+// YARD_LANE_BUILDERS, YARD_LANE_VISITORS, YARD_LANE_VISIT_MAX, YARD_LANE_PASS_MS (a passing bot's stock visit is bounded: 150 s).
 const isOffV = v => ['off', '0', 'false', 'no'].includes(String(v ?? '').trim().toLowerCase())
 const numV = (v, d, lo = 1, hi = 1e6) => { const n = Number(String(v ?? '').trim()); return String(v ?? '').trim() !== '' && Number.isFinite(n) && n >= lo && n <= hi ? Math.floor(n) : d }
 /** "a:4,b:4,*:2" -> { a: 4, b: 4, '*': 2 }. Pure; an unreadable part is dropped. */
@@ -108,7 +108,7 @@ export function laneSettings (env = {}, pool = env?.MEMORY_POOL ?? '') {
   // the lanes are the yard's: on only where the yard is (YARD / YARD_POOLS), and YARDLANES=off switches them off alone
   return Object.freeze({ on: !isOffV(env?.YARDLANES) && yardOn(env, pool), start: numV(env?.YARD_LANE_START, 8, 1, 64), step: numV(env?.YARD_LANE_STEP, 8, 1, 64), caps: laneCaps(env?.YARD_LANE_CAPS),
     modules: numV(env?.YARD_MODULES, 4, 1, 6), min: numV(env?.YARD_LANE_MIN, 16, 1, 64), builders: numV(env?.YARD_LANE_BUILDERS, 3, 1, 8), visitors: numV(env?.YARD_LANE_VISITORS, 4, 1, 8),
-    visitMax: numV(env?.YARD_LANE_VISIT_MAX, 128, 1, 640) })
+    visitMax: numV(env?.YARD_LANE_VISIT_MAX, 128, 1, 640), passMs: numV(env?.YARD_LANE_PASS_MS, 150_000, 10_000, 540_000) })
 }
 export const LANES = laneSettings(typeof process !== 'undefined' ? process.env : {})
 const LOG_KINDS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log']
@@ -429,7 +429,9 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
   // yardlanes-01: a bag banks on ANY town visit once it holds LANES.min above its keeps (was a whole stack, or a pressed bag)
   const stockMin = lanes?.on ? Math.min(YARD_STOCK_MIN, lanes.min) : YARD_STOCK_MIN
   if (bayClutter.length && placed < stockMin) return { kind: 'upkeep', urgent: pressed && surplus > 0, first: true, place: {}, draw: {}, dig: {}, why: `bay_clutter:${bayClutter.length}` }
-  if (placed >= stockMin || (placed > 0 && pressed)) return { kind: 'stock', urgent: pressed, place, draw: {}, dig: {}, why: `bag_surplus:${placed}` }
+  // yardlanes-01 (a): with the lanes a stock is the bot's FIRST work at town whatever its project (`urgent`: activeProject's repair loop,
+  // bounded by its back-off) -- banking never waits for the yard to be the bot's project; the visit itself is bounded (LANES.passMs)
+  if (placed >= stockMin || (placed > 0 && pressed)) return { kind: 'stock', urgent: pressed || !!lanes?.on, place, draw: {}, dig: {}, why: `bag_surplus:${placed}` }
   // the clerk and the refill are the FIRST yard's (the town's chests against the cobblestone pile)
   if (first && town && typeof town === 'object') {
     const draw = {}

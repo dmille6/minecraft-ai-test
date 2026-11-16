@@ -23642,7 +23642,7 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
   // townstyle-01: a styled record (the cottage) is built, billed and judged by ITS OWN palette (cottage.mjs recordPalette)
   const pal = recordPalette(rec, bp)
   // stockyard-01: a COMPLETE yard (its floor and lights stand) gets the yard's own visit: the piles, the clerk, a refill, the aisles
-  if (isYardPlot(plot) && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false })) return yardVisit(ctx, rec, rh.head.gen, signal, out, t0, { plot })
+  if (isYardPlot(plot) && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false })) return yardVisit(ctx, rec, rh.head.gen, signal, out, t0, { plot, ...(LANES.on ? { until: t0 + LANES.passMs } : {}) })   // yardlanes-01 (a): a bounded pass
   // sortstore-01: a COMPLETE storehouse whose only want is its upkeep (labels, the tidy) gets the upkeep visit, not a build visit
   if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
   // storehub-01: a COMPLETE hall whose want is its upkeep (labels, the clerk) gets the upkeep visit, not a build visit
