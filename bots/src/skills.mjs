@@ -19704,7 +19704,7 @@ function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
     // tidyDue), after every open project
     // groundskeeper-01: a complete stage with a next band (landplan.mjs ring order) is due at once
     if (r?.blueprint === TIDY_BLUEPRINT && gkStageDue(r)) return tidy
-    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && tidyDue(r)
+    if (r?.blueprint === TIDY_BLUEPRINT) return tidy && (tidyDue(r) || strayDue(bot))   // stations-01: or a stray station
     // UPKEEP-01 (Codex fleet r1 BLOCKER, the showcase's too): the upkeep is never DAMAGED; with `tidy` (the order's completion check) it
     // wants a visit while it is due (a job open, its list stale, drops the sweep would take) -- else a stale list is never surveyed again
     if (r?.blueprint === UPKEEP_BLUEPRINT) return tidy && upkeepStateNow(bot, r).due
@@ -30444,7 +30444,14 @@ async function buildTidyVisit (ctx, args, signal) {
     const r3 = await prepTick(bot, dir, key, rec, me, signal)
     if (r3?.ok && r3.head) { rh = r3; rec = rh.head.rec }
   }
-  if (rec.structure_complete) return out('no_effect', 'complete', lane === 'country' ? 'the countryside band is done; the next is due later' : 'the town ground is tidy')
+  if (rec.structure_complete) {
+    // STATIONS-01 SWEEP: a complete stage's visit (strayDue made it a repair) takes up the town's stray stations, nothing else
+    if (stnOn('sweep')) {
+      const sw = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS })
+      if (sw.tried) return out(sw.back > 0 ? 'success' : 'no_effect', 'swept', `the town ground is tidy; took up ${sw.back} of ${sw.tried} stray station(s) tried (${sw.s?.sweep?.length ?? 0} strays seen)`, { stop: 'swept', cleared: sw.back })
+    }
+    return out('no_effect', 'complete', lane === 'country' ? 'the countryside band is done; the next is due later' : 'the town ground is tidy')
+  }
   const palette = TIDY_PALETTE
   const mem = (bot.tidyGiven ??= new Map())
   // a cell ANOTHER project's record names now (a project sited since the survey) is never the tidy's: never dug, never filled (read
@@ -30709,6 +30716,9 @@ async function buildTidyVisit (ctx, args, signal) {
     // placed or cleared resets it
     // (the open work read AFTER the visit, fresh: helpers filling during it are progress -- Codex r6 BLOCKER)
     if (prepNow) { const sk = `${prepNow}:${rec.prep?.[prepNow]?.att ?? 0}`; const fr = tidyRead(bot); bot.prepStalls = { ...(bot.prepStalls ?? {}), [sk]: prepStallNext(bot.prepStalls?.[sk] ?? null, prepOpen(rec, prepNow, fr, prepDoneIn(fr)).n, (r.placed ?? 0) + (r.cleared ?? 0)) } }
+    let swept = null
+    // STATIONS-01 SWEEP: the town's stray stations, with what is left of the visit (SWEEP.minMs at least)
+    if (stnOn('sweep') && t0 + budget - ZIG_VISIT_TAIL_MS - Date.now() >= SWEEP.minMs && r.stop !== 'aborted') { try { swept = await sweepStrays(ctx, signal, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     // a cut this visit evaluated that still stands counts toward this bot giving it up (tidy.mjs tidyNoteCuts)
     const read2 = tidyRead(bot)
     const cutAt = new Map((rec.cut ?? []).map(q => [q.at.join(','), q]))
@@ -30901,7 +30911,7 @@ async function buildTidyVisit (ctx, args, signal) {
     const status = r.placed > 0 || r.cleared > 0 || gathered?.n > 0 || completed ? 'success' : 'no_effect'
     // an idle helper's stop is `keeper_held` (shop.mjs IDLE_STOPS: the grounds have no use for this bot now), its outcome named
     if (idleHelper) return out(status, 'helper_idle', `nothing of the grounds is this helper's now (${r.why ?? r.stop}); the helper lease is let go`, { stop: 'keeper_held', placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
-    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    return out(status, completed ? 'complete' : stop1, `${stop1 === r.stop ? (r.why ?? r.stop) : `${waivedN} cell(s) waived (${r.stop})`}; cuts left ${prog.cutLeft}/${(rw.cut ?? []).length}, fills left ${prog.fillLeft}/${rw.cells.length}${swept?.tried ? `; took up ${swept.back} of ${swept.tried} stray station(s)` : ''}`, { stop: completed ? 'complete' : stop1, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
