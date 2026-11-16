@@ -19,6 +19,11 @@ Three styles, one framing per scene so the frames of a scene play as a video:
           Cells a bot has stood in that the block scan still shows as rock are painted as DUG SINCE THE SCAN: the
           blocks are one snapshot, and the positions are the only record of digging newer than it.
 
+    tl_under.py slot    --root /srv/showcase/timelapse [--region-dir <mirror>/world/region] [--budget-s 20]
+                        [--slot-file <root>/logs/scenes-slot.json] [--style trails] [--size 1920x1080] [--stamp S]
+                        PRODUCTION, once per capture slot, after the surface cameras (see THE SLOT below)
+    tl_under.py thin    --root R [--days 14] [--hourly-after-days 2] [--dry-run]     old box snapshots; never frames
+    tl_under.py redraw  --root R --id ID --stamp S [--style side|plan] --out DIR     a kept slot again, from its box
     tl_under.py scenes  --pos posdump.json [--dump dump.json] [--n 3]          the built-in scene finder, as JSON
     tl_under.py frame   --dump dump.json --pos posdump.json (--scenes scenes-slot.json | --auto 3)
                         [--style side|plan|trails|plantrails|all] [--size 1920x1080] [--at latest|busiest|ISO]
@@ -29,17 +34,51 @@ Three styles, one framing per scene so the frames of a scene play as a video:
     tl_under.py bench   [--size 1920x1080]    seconds per frame per style on a synthetic 96x96x70 box
     tl_under.py video   'frames/*.png' out.mp4 [--fps 4]                             (tl2.encode; needs ffmpeg)
 
-Inputs: a block dump in the format of scripts/host/townplan_blockdump.py, and positions {"pos": {bot: {iso: [x, y, z,
-skill]}}} at 10-s resolution. A scene is {id, layer, box [x0, z0, x1, z1], y [y0, y1], caption, bots}: from the
-director's scenes-slot.json, or from find_scenes() here.
+THE SLOT. tl_director.py writes <root>/logs/scenes-slot.json each slot: {v, t, stamp, scenes: [{id, layer, kind, box,
+y, bots, caption, camera, frames, trail, ...}]}. `slot` draws the scenes that are underground (layer shallow or deep
+and no camera of their own); a surface scene is tl_showcase's, an unknown layer or a scene that fails check_scene is
+skipped and counted. Per scene:
+  blocks    read straight from the mirror's region files (tl_region.read_box, beside this file): on the scene's first
+            slot the scene padded to 48 blocks plus the margin that fills the picture; afterwards exactly what its kept
+            framing shows. From the picture's bottom up to y 159, empty sky dropped. At most 8 million cells: past
+            that the margins are cut back (the scene's own box last) and the sidecar says `box_clipped`.
+  framing   made on the scene's FIRST slot (at least 48 blocks wide, from 8 below its lowest level to the surface
+            and 10 of sky) and kept in under-framing/under-<id>.json for the life of the id, however its box drifts.
+            It is made anew, for the old box and the new together, only when the scene outgrows it (framing_holds:
+            more than 4 blocks outside the picture, or the cut more than 16 blocks beside it); the sidecar's
+            `framing_change` says why and what it was.
+  frame     frames/under-<id>/<YYYYMMDD>/<stamp>.png and .json: tl_showcase's fields (label, project, changed) and a
+            scene camera's (scene = the id, caption, bots, layer, score, kind), then framing, bot_pos, others, dug,
+            block_box, render_s. `changed` is tl_showcase.changed_fraction against the camera's previous frame
+            (a 320x180 thumbnail kept in under-framing/under-<id>.gray; no ffmpeg).
+  box       under-box/<id>/<YYYYMMDD>/<stamp>.box.z: the scene's blocks that slot (read_box_file documents the
+            format, version 1). The day's first box of a shape is whole (~0.1-0.4 MB); the later ones are the cells
+            that differ from it (~1-5 KB). `thin` deletes them after 14 days and keeps one an hour after 2.
+  dug       the cells that were rock, ore or built in the scene's FIRST box of the day and are empty now, in the
+            highlight colour, counted in the sidecar (dug.cells; dug.drawn of them lie in the cut).
+The whole call has a wall-clock budget (--budget-s, looked at before each scene; what does not fit is skipped and
+counted), one scene's failure is a line on stderr and a count, and the exit status is ALWAYS 0 with one JSON line
+{scenes, drawn, skipped, errors, seconds, bytes_written, why, stamp, rows} on stdout. A hand-off file more than 30
+minutes old is not drawn (--max-age-min).
+INSTALL (flat, /srv/showcase/bin): tl_under.py and tl_region.py, beside tl_showcase.py and showcasestatus.py which are
+there already. tl2trails is not needed there (FB_COLORS below).
 
-With --root, frames land where tl_showcase puts them, frames/<camera>/<YYYYMMDD>/<stamp>.png, each with a <stamp>.json
-sidecar that carries the FRAMING (axis, slab, ranges, pixels per block, origin): the next slot reads it back from
-<root>/under-framing/<camera>.json, so a scene keeps its scale, cut and colours for as long as its box does.
+Inputs of the other commands: a block dump in the format of scripts/host/townplan_blockdump.py, and positions {"pos":
+{bot: {iso: [x, y, z, skill]}}} at 10-s resolution. A scene is {id, layer, box [x0, z0, x1, z1], y [y0, y1], caption,
+bots}: from the director's scenes-slot.json, or from find_scenes() here.
+
+With --root, `frame` and `seq` write frames/<camera>/<YYYYMMDD>/<stamp>.png where tl_showcase puts frames, each with a
+<stamp>.json sidecar that carries the FRAMING (axis, slab, ranges, pixels per block, origin): the next call reads it
+back from <root>/under-framing/<camera>.json, so a scene keeps its scale, cut and colours for as long as its box does.
+
+Every file name is built from checked parts (--tag, --style, a scene id) and every write is refused unless its path
+resolves inside --out / --root (`inside`). The rendered rock is cached: 8 backgrounds in memory and, with --cache DIR,
+24 files / 48 MB / one day on disk (prune_cache). `slot` uses no disk cache unless told to: the blocks of a scene
+being mined differ every slot.
 
 There is no PNG writer or bitmap font elsewhere in this repo (tl2 draws text with ffmpeg drawtext over BlueMap
 screenshots), so both are here. Reused: tl2trails' bot colours, trail-break limits and compass; tl_showcase's frame
-path and stamp; tl2.encode for the video. NOT wired into the live capture.
+path, stamp and change score; the region reading of townplan_blockdump (tl_region.py); tl2.encode for the video.
 """
 import argparse, base64, bisect, collections, datetime as dt, hashlib, json, math, os, re, struct, sys, time, zlib
 
@@ -47,8 +86,29 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 for _p in (HERE, os.path.join(HERE, 'tl2'), os.path.join(HERE, '..', '..', 'scripts', 'lib')):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-from tl2trails import COLORS, GAP_S, MAX_V, MAX_JUMP, ONLINE, compass   # noqa: E402  (one bot palette for every map)
-from tl_showcase import stamp_of, parse_stamp, frame_path              # noqa: E402  (one frame layout)
+# One bot palette, one set of trail-break limits and one compass for every map: tl2trails'. The showcase VM's tools are
+# installed FLAT in /srv/showcase/bin, where tl2 is not: FB_* are the same values (test_tl_under compares them with
+# tl2trails while both are in the checkout), used only when the import fails.
+FB_COLORS = {'Alpha': (255, 59, 48), 'Bravo': (255, 214, 0), 'Comet': (0, 229, 255), 'Delta': (255, 64, 200),
+             'Echo': (255, 255, 255), 'Frost': (255, 140, 0), 'Gale': (190, 255, 60), 'Haven': (160, 110, 255),
+             'Iris': (40, 120, 255), 'Juno': (255, 150, 160), 'Kite': (0, 255, 170), 'Lumen': (255, 240, 150),
+             'Maple': (200, 0, 90), 'Nova': (120, 200, 255), 'Onyx': (20, 20, 20)}
+FB_LIMITS = (60.0, 6.5, 32.0, 600.0)        # GAP_S, MAX_V, MAX_JUMP, ONLINE seconds
+
+
+def fb_compass(x, z):
+    a = math.degrees(math.atan2(x, -z)) % 360       # 0 = north (-z), 90 = east (+x)
+    return ('N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW')[int((a + 22.5) // 45) % 8]
+
+
+try:
+    from tl2trails import COLORS, GAP_S, MAX_V, MAX_JUMP, ONLINE, compass   # noqa: E402
+except ImportError:
+    COLORS, compass = FB_COLORS, fb_compass
+    GAP_S, MAX_V, MAX_JUMP = FB_LIMITS[:3]
+    ONLINE = dt.timedelta(seconds=FB_LIMITS[3])
+from tl_showcase import stamp_of, parse_stamp, frame_path, changed_fraction   # noqa: E402  (one frame layout, one change score)
+import tl_region                                                             # noqa: E402  (beside this file)
 
 VERSION = 1                     # part of the background cache key: bump it when the look changes
 UTC = dt.timezone.utc
@@ -198,6 +258,8 @@ def classify(name):
     n = name.split('[', 1)[0].replace('minecraft:', '')
     if n == '?':
         return 'unknown'
+    if n.startswith('#'):                                    # a name folded to its class (fold_name): draws the same
+        return n[1:] if n[1:] in CID else 'other'
     if n in ('air', 'cave_air', 'void_air'):
         return 'air'
     if n in _EXACT and not (wl and KIND[CID[_EXACT[n]]] in 'ao'):
@@ -240,6 +302,11 @@ def classify(name):
     return 'other'
 
 
+def fold_name(name):
+    """What a block name becomes once a box's palette is full (tl_region.read_box): '#<class>'."""
+    return '#' + classify(name)
+
+
 def read_json(path):
     with open(path) as f:
         return json.load(f)
@@ -250,6 +317,7 @@ def _mask(pred):
 
 
 M_AIR = _mask(lambda i: i < len(_C) and KIND[i] == 'a')                    # 1 where a cell is empty
+M_SOLID = _mask(lambda i: i < len(_C) and KIND[i] in 'repx')               # 1 where a cell is rock, ore or built
 M_GROUND = _mask(lambda i: i < len(_C) and _C[i][3] == 1)                  # 1 where a cell counts for the skyline
 M_HOLLOW = _mask(lambda i: i < len(_C) and KIND[i] in 'ao')              # 1 where a cell is empty or holds a torch or ladder
 T_SKY = bytes(SKY if (i < len(_C) and KIND[i] == 'a') else i for i in range(256))   # air above the skyline is sky
@@ -1325,7 +1393,7 @@ def _nice_step(span_px_per_unit, min_px):
     return 200
 
 
-def _legend_items(fr, counts, overlay):
+def _legend_items(fr, counts, overlay, dug_label=None):
     side = fr['style'] == 'side'
     has = lambda *names: any(counts.get(CID[n]) for n in names)
     ores = [n for n in ('coal', 'iron', 'copper', 'gold', 'redstone', 'lapis', 'diamond', 'emerald')
@@ -1340,7 +1408,8 @@ def _legend_items(fr, counts, overlay):
     if overlay:
         it.append(([('bot', True)], 'bot in this cut' if side else 'bot on these levels'))
         it.append(([('bot', False)], 'bot in front or behind' if side else 'bot above or below'))
-        it.append(([('fresh', 0)], 'dug since the block scan'))
+    if overlay or dug_label:
+        it.append(([('fresh', 0)], dug_label or 'dug since the block scan'))
     if ores:
         it.append(([('solid', ('dore_' if not has('ore_' + n) else 'ore_') + n) for n in ores[:6]],
                    'ores' if len(ores) > 3 else ', '.join(ores)))
@@ -1362,26 +1431,42 @@ def _legend_items(fr, counts, overlay):
     return it
 
 
-def _draw_legend(cv, rect, fr, counts, overlay, u):
+def legend_rows(items, rect, u):
+    """Where each legend row goes: [(x, y, swatch size, [swatches], label, text scale)]. The swatch size is the
+    largest of a few with which EVERY item gets a row inside the rect (the 1440x1440 panel is a third as tall as the
+    wide one); a row too wide for the rect gives up swatches from its end before its text. Pure (tested)."""
     x0, y0, x1, y1 = rect
-    ks = 7 * u + 2 * u
-    tl = Tiles(ks)
-    items = _legend_items(fr, counts, overlay)
-    rh = ks + 2 * u
-    col_w = max(1, x1 - x0)
-    ncol = max(1, min(2, col_w // (ks * 3 + 6 * u * 20)))
-    per = max(1, (y1 - y0) // rh)
-    for i, (sw, lab) in enumerate(items[:per * ncol]):
-        x, y = x0 + (i // per) * (col_w // ncol), y0 + (i % per) * rh
+    small = max(2, u - 1)
+    ks, gap = 9 * u, 2 * u
+    for ks, gap in ((9 * u, 2 * u), (9 * u, u), (8 * u, u), (7 * u, max(2, u // 2)), (7 * small, 2)):
+        if len(items) * (ks + gap) - gap <= y1 - y0:
+            break
+    rows = []
+    for i, (sw, lab) in enumerate(items):
+        y = y0 + i * (ks + gap)
+        if y + ks > y1:
+            break
+        sw = list(sw)
+        while len(sw) > 1 and x0 + len(sw) * (ks + u) + u + text_w(lab, small) > x1:
+            sw.pop()
+        rows.append((x0, y, ks, sw, lab, small))
+    return rows
+
+
+def _draw_legend(cv, rect, fr, counts, overlay, u, dug_label=None):
+    items = _legend_items(fr, counts, overlay, dug_label)
+    rows = legend_rows(items, rect, u)
+    tl = Tiles(rows[0][2]) if rows else None
+    for (x, y, ks, sw, lab, small) in rows:
         for kind, v in sw:
             if kind == 'open':
-                rows = tl.open(v, 0)
+                cells = tl.open(v, 0)
             elif kind == 'solid':
-                rows = tl.solid(CID[v])
+                cells = tl.solid(CID[v])
             elif kind == 'hatch':
-                rows = tl.hatch(CID[v])
+                cells = tl.hatch(CID[v])
             elif kind == 'shade':
-                rows = tl.solid(CID['stone'], 1, 0, 0, False, v, True)
+                cells = tl.solid(CID['stone'], 1, 0, 0, False, v, True)
             elif kind == 'fresh':
                 cv.rect(x, y, x + ks, y + ks, FRESH_RGB)
                 x += ks + u
@@ -1391,15 +1476,15 @@ def _draw_legend(cv, rect, fr, counts, overlay, u):
                 x += ks + u
                 continue
             else:
-                rows = None
-            if rows is None:
+                cells = None
+            if cells is None:
                 cv.disk(x + ks // 2, y + ks // 2, ks // 2 - 1, (15, 15, 15))
                 cv.disk(x + ks // 2, y + ks // 2, ks // 2 - 3, COLORS['Comet'], hollow=0 if v else max(2, u))
             else:
                 cv.rect(x - 1, y - 1, x + ks + 1, y + ks + 1, (90, 90, 96))
-                cv.blit(x, y, rows)
+                cv.blit(x, y, cells)
             x += ks + u
-        cv.text(x + u, y + u, lab, INK, max(2, u - 1))
+        cv.text(x + u, y + (ks - 7 * small) // 2, lab, INK, small)
 
 
 def background(world, fr, cache=None):
@@ -1558,9 +1643,12 @@ def connected(a, b):
     return d <= GAP_S and hd <= MAX_JUMP and abs(b[2] - a[2]) <= 2 * MAX_JUMP and hd / max(d, 0.05) <= MAX_V
 
 
-def bots_now(pos, fr, t, margin=2.0):
+DEPTH_REACH = 16                # a side cut lists and draws a bot this far in front of or behind the scene's own depth
+
+
+def bots_now(pos, fr, t, margin=2.0, reach=DEPTH_REACH):
     """The bots inside the picture at time t: {name: (x, y, z, skill, in_cut)}. A bot whose last sample is older than
-    tl2trails.ONLINE is left out."""
+    tl2trails.ONLINE is left out; so is one more than `reach` blocks in front of or behind a side cut's scene."""
     out = {}
     if fr['style'] == 'side':
         ua, ub = fr['u']
@@ -1573,7 +1661,7 @@ def bots_now(pos, fr, t, margin=2.0):
         _, x, y, z, sk = rows[j]
         if fr['style'] == 'side':
             uu, d = (x, z) if fr['axis'] == 'x' else (z, x)
-            if not (ua - margin <= uu <= ub + 1 + margin and da - margin <= d <= db + 1 + margin and ylo <= y <= yhi + 1):
+            if not (ua - margin <= uu <= ub + 1 + margin and da - reach <= d <= db + 1 + reach and ylo <= y <= yhi + 1):
                 continue
         elif not (fr['x'][0] <= x <= fr['x'][1] + 1 and fr['z'][0] <= z <= fr['z'][1] + 1 and y <= fr['y'][1] + 8):
             continue
@@ -1633,7 +1721,7 @@ def draw_trails(cv, pos, fr, t, trail_min):
                 continue
             if fr['style'] == 'side':
                 d0, d1 = (p[3], q[3]) if fr['axis'] == 'x' else (p[1], q[1])
-                if not (da - 2 <= d0 <= db + 3 and da - 2 <= d1 <= db + 3):
+                if not (da - DEPTH_REACH <= d0 <= db + 1 + DEPTH_REACH and da - DEPTH_REACH <= d1 <= db + 1 + DEPTH_REACH):
                     continue
             elif min(p[2], q[2]) > fr['y'][1] + 8:
                 continue
@@ -1719,43 +1807,74 @@ def draw_bots(cv, fr, now):
         cv.text(lx + 3 * u, ly + 2 * u + 7 * u + u, verb, INK, small)
 
 
-def draw_roster(cv, rect, now, fr, u):
+def counted_bots(scene, now, under_y=UNDER_Y):
+    """The bots a frame's caption counts, in the roster's order. A director scene: its own `bots` (the caption is the
+    director's and counts those). A scene of the built-in finder, or one with no caption: the bots that are in the
+    picture and underground now. The caption and the roster are both made from THIS list. Pure (tested)."""
+    if scene.get('caption') and not scene.get('auto'):
+        if scene.get('bots') is not None:
+            return [str(b) for b in scene['bots']]
+        return sorted(now)
+    return sorted(b for b, v in now.items() if v[1] < under_y)
+
+
+def roster_rows(now, counted):
+    """One row per counted bot: [(name, text, state)], state 'in' (in the cut), 'near' (in the picture, in front of or
+    behind it) or 'away' (no position in the picture now). Pure (tested)."""
+    rows = []
+    for b in counted:
+        v = now.get(b)
+        if v is None:
+            rows.append((b, 'not in the picture', 'away'))
+        else:
+            rows.append((b, f"{VERB.get(v[3], v[3].replace('_', ' '))}  y {int(math.floor(v[1]))}", 'in' if v[4] else 'near'))
+    return rows
+
+
+def draw_roster(cv, rect, now, counted, u):
     x0, y0, x1, y1 = rect
     small = max(2, u - 1)
     cv.text(x0, y0, 'WHO IS HERE', DIM, small)
+    rows = roster_rows(now, counted)
+    others = sorted(b for b in now if b not in counted)
     rh = 7 * u + 3 * u
     y = y0 + 7 * small + 3 * u
-    per = max(1, (y1 - y) // rh)
+    foot = 7 * small + 2 * u if others else 0
+    per = max(1, (y1 - foot - y) // rh)
     need = 8 * u + 6 * u * 6 + 2 * u + 6 * small * 19        # chip, a 6-letter name, 'heading home  y -12'
-    ncol = max(1, min((x1 - x0) // need, -(-len(now) // per)))
+    ncol = max(1, min((x1 - x0) // need, -(-len(rows) // per)))
     cw = (x1 - x0) // ncol
-    names = sorted(now)
-    if len(names) > per * ncol:                              # more bots than rows: say so instead of overlapping
-        names = names[:per * ncol - 1]
-        cv.text(x0 + (ncol - 1) * cw + 8 * u, y + (per - 1) * rh, f'+ {len(now) - len(names)} more', DIM, u)
-    for i, b in enumerate(names):
+    shown = rows
+    if len(rows) > per * ncol:                               # more bots than rows: say so instead of overlapping
+        shown = rows[:per * ncol - 1]
+        cv.text(x0 + (ncol - 1) * cw + 8 * u, y + (per - 1) * rh, f'+ {len(rows) - len(shown)} more', DIM, u)
+    for i, (b, text, state) in enumerate(shown):
         bx, by = x0 + (i // per) * cw, y + (i % per) * rh
-        _, yy, _, sk, inside = now[b]
-        col = COLORS.get(b, (255, 255, 255))
+        col = COLORS.get(b, (255, 255, 255)) if state != 'away' else (96, 96, 104)
         cv.disk(bx + 3 * u, by + 3 * u + u // 2, 3 * u, (235, 235, 235) if _dark(col) else (12, 12, 14))
-        cv.disk(bx + 3 * u, by + 3 * u + u // 2, 3 * u - 2, col, hollow=0 if inside else max(2, u))
-        nx = cv.text(bx + 8 * u, by, b, INK, u)
-        s = f"{VERB.get(sk, sk.replace('_', ' '))}  y {int(math.floor(yy))}"
-        cv.text(max(nx + 2 * u, bx + 8 * u + 6 * u * 6), by + (7 * u - 7 * small), s, DIM, small)
-    if not now:
-        cv.text(x0, y, 'no bot in this picture', DIM, small)
-        cv.text(x0, y + 7 * small + 2 * u, 'at this moment', DIM, small)
+        cv.disk(bx + 3 * u, by + 3 * u + u // 2, 3 * u - 2, col, hollow=0 if state == 'in' else max(2, u))
+        nx = cv.text(bx + 8 * u, by, b, INK if state != 'away' else DIM, u)
+        cv.text(max(nx + 2 * u, bx + 8 * u + 6 * u * 6), by + (7 * u - 7 * small), text, DIM, small)
+    if not rows:
+        cv.text(x0, y, 'no bot down here now', DIM, small)
+    if others:                                               # in the picture but not in the caption's count
+        line = 'also in view: ' + ', '.join(others)
+        room = max(8, (x1 - x0) // (6 * small))
+        if len(line) > room:
+            k = len(others)
+            while k > 0 and len('also in view: ' + ', '.join(others[:k]) + f' +{len(others) - k}') > room:
+                k -= 1
+            line = 'also in view: ' + ', '.join(others[:k]) + f' +{len(others) - k}'
+        cv.text(x0, y1 - 7 * small, line, DIM, small)
 
 
-def frame_caption(pos, scene, now, t, trail_min, under_y=UNDER_Y):
-    """A caption for one frame from the positions themselves (the built-in finder's scenes): the bots that are
-    underground in the picture NOW (so the count matches the roster), and what their last trail_min minutes in
-    the scene went on."""
-    who = {b for b, v in now.items() if v[1] < under_y}
+def frame_caption(pos, scene, who, t, trail_min, under_y=UNDER_Y):
+    """A caption for one frame from the positions themselves (the built-in finder's scenes). who: counted_bots(),
+    the same list the roster shows; the verb is what their last trail_min minutes in the scene went on."""
     skills = collections.Counter()
     x0, z0, x1, z1 = scene['box']
     for b in who:
-        for (_, x, y, z, sk) in window(pos[b], t - trail_min * 60, t):
+        for (_, x, y, z, sk) in window(pos.get(b) or [], t - trail_min * 60, t):
             if y < under_y and x0 - 8 <= x <= x1 + 9 and z0 - 8 <= z <= z1 + 9:
                 skills[sk] += skill_weight(sk)
     return caption_for(len(who), skills, scene['box'], scene['y'])
@@ -1781,9 +1900,12 @@ def make_framing(world, pos, scene, style, size, t=None, thick=SLAB, mode='open'
 
 
 def render(world, pos, scene, style, t, size=(1920, 1080), framing=None, trail_min=45, cache=None, thick=SLAB, mode='open',
-           ghost=False):
+           ghost=False, dug=None, clock=None):
     """One frame. style: side | plan | trails | plantrails. -> (Canvas, sidecar dict). Pass the framing of the
-    scene's earlier frame to keep the picture still between slots."""
+    scene's earlier frame to keep the picture still between slots. dug: {'cells': [(x, y, z), ...], 'since': stamp}
+    from two block boxes (dug_cells): drawn in the highlight colour in every style, INSTEAD of the guess from the
+    positions that a single block scan allows. clock: the time the title shows (a slot's own stamp), default t. The sidecar carries tl_showcase's fields (label, project, changed) and
+    a director scene camera's (scene = the id, caption, bots = the names the caption counts, layer, score, kind)."""
     t0 = time.time()
     overlay = style in ('trails', 'plantrails')
     fr = framing or make_framing(world, pos, scene, style, size, t, thick, mode, ghost=ghost)
@@ -1794,9 +1916,10 @@ def render(world, pos, scene, style, t, size=(1920, 1080), framing=None, trail_m
     t_bg = time.time() - t0
     side = fr['style'] == 'side'
     now = bots_now(pos, fr, t)
+    counted = counted_bots(scene, now)
     cap = scene.get('caption') if not scene.get('auto') else None
-    cap = cap or frame_caption(pos, scene, now, t, trail_min)
-    when = dt.datetime.fromtimestamp(t, UTC)
+    cap = cap or frame_caption(pos, scene, counted, t, trail_min)
+    when = dt.datetime.fromtimestamp(t if clock is None else clock, UTC)
     stamp = f'{when:%d %b %Y  %H:%M} UTC' if L['wide'] else f'{when:%d %b %H:%M} UTC'
     ss = u + 1 if L['wide'] else u
     big = u + 2
@@ -1820,21 +1943,32 @@ def render(world, pos, scene, style, t, size=(1920, 1080), framing=None, trail_m
     if text_w(sub, u) <= W - 10 * u and u <= big:
         small = u
     cv.text(5 * u, 4 * u + 7 * (u + 2) + 4 * u, sub, DIM, small)
-    nfresh = 0
-    if overlay:
+    nfresh, dug_side, dug_label = 0, None, None
+    if dug is not None:
+        mine = [c for c in dug['cells'] if in_cut(fr, c[0] + 0.5, c[1], c[2] + 0.5, 0.0)]
+        since = parse_stamp(str(dug.get('since') or ''))
+        dug_label = f'dug since {since:%H:%M}' if since else 'dug today'
+        dug_side = {'since': dug.get('since'), 'cells': len(dug['cells']), 'drawn': draw_fresh(cv, fr, mine)}
+    elif overlay:
         nfresh = draw_fresh(cv, fr, fresh_cells(world, pos, fr, t))
+    counts = {CID[k]: v for k, v in info['counts'].items()}
+    if overlay:
         ntr = draw_trails(cv, pos, fr, t, trail_min)
         draw_bots(cv, fr, now)
-        draw_roster(cv, info['roster'], now, fr, u)
-        _draw_legend(cv, info['legend'], fr, {CID[k]: v for k, v in info['counts'].items()}, True, u)
+        draw_roster(cv, info['roster'], now, counted, u)
+        _draw_legend(cv, info['legend'], fr, counts, True, u, dug_label)
     else:
-        ntr, now = 0, {}
-        ax0, ay0, ax1, ay1 = L['panel']
-        _draw_legend(cv, [ax0, ay0, ax1, ay1], fr, {CID[k]: v for k, v in info['counts'].items()}, False, u)
-    side_car = {'label': cap, 'project': None, 'style': style, 'scene': {k: scene[k] for k in ('id', 'box', 'y') if k in scene},
-                'stamp': stamp_of(when), 'time': when.isoformat(), 'framing': fr, 'trail_min': trail_min if overlay else None,
-                'bots': {b: {'x': v[0], 'y': v[1], 'z': v[2], 'skill': v[3], 'in_cut': v[4]} for b, v in sorted(now.items())},
-                'trail_segments': ntr, 'fresh_cells': nfresh, 'world': world.token, 'background': info.get('cache'),
+        ntr = 0
+        _draw_legend(cv, L['panel'], fr, counts, False, u, dug_label)
+    side_car = {'label': cap, 'project': scene.get('project'), 'changed': None,
+                'scene': scene.get('id'), 'caption': cap, 'bots': counted, 'layer': scene.get('layer'),
+                'score': scene.get('score'), 'kind': scene.get('kind'),
+                'style': style, 'stamp': stamp_of(when), 'time': when.isoformat(), 'box': list(scene['box']),
+                'y': list(scene['y']), 'framing': fr, 'trail_min': trail_min if overlay else None,
+                'bot_pos': {b: {'x': v[0], 'y': v[1], 'z': v[2], 'skill': v[3], 'in_cut': v[4]} for b, v in sorted(now.items())},
+                'others': sorted(b for b in now if b not in counted),
+                'trail_segments': ntr, 'fresh_cells': nfresh, 'dug': dug_side, 'world': world.token,
+                'background': info.get('cache'),
                 'render_s': {'background': round(t_bg, 3), 'total': round(time.time() - t0, 3)}, 'version': VERSION}
     return cv, side_car
 
@@ -1854,8 +1988,10 @@ def write_frame(cv, side_car, png_path, base, level=6):
     os.replace(tmp, png_path)
     side_car['render_s']['png'] = round(time.time() - t0, 3)
     side_car['bytes'] = len(data)
-    with open(png_path[:-4] + '.json', 'w') as f:
+    jp = png_path[:-4] + '.json'
+    with open(jp + f'.tmp{os.getpid()}', 'w') as f:
         json.dump(side_car, f, indent=1)
+    os.replace(jp + f'.tmp{os.getpid()}', jp)
     return len(data)
 
 
@@ -2063,6 +2199,728 @@ def cmd_palette(a):
     print(f'total cells {total}, names {len(d["palette"])}; read the `other` and `built` lines: those are guesses')
 
 
+# ================================================================ production: one call per slot, from the region files
+UNDER_LAYERS = ('shallow', 'deep', 'under', 'underground')     # tl_director's two, and this file's own finder's
+MIN_WIDE = 48                   # a scene is framed as if it were at least this wide (two bots in three blocks are a scene)
+OUTGROW = 4                     # a scene may reach this far outside its framing before the framing is widened
+CUT_REACH = 16                  # ... and its side cut may lie this far beside the scene before it is cut anew
+Y_TOP, Y_BOTTOM = 159, -64      # the highest level a box is read to; the world's floor
+SKY_ROWS = 12                   # levels kept above the highest block of a box
+MAX_BOX_CELLS = 8_000_000       # a box read for one scene (up to Y_TOP, before the sky is dropped): 8 MB in memory
+DEPTH_MAX = 64                  # a side cut's box reaches at most this far in front of and behind the cut
+BOX_VERSION = 1
+BOX_MAGIC = b'UBOX'
+_SCENE_ID = re.compile(r'^[A-Za-z0-9_]{1,60}$')
+_STAMP = re.compile(r'^\d{8}T\d{4}Z$')
+_ISO = re.compile(r'^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?$')
+
+
+def parse_iso(s):
+    """'2026-11-16T12:44:50Z' (also with a fraction or an offset; none means UTC) -> epoch seconds, or None."""
+    m = _ISO.match(s) if isinstance(s, str) else None
+    if not m:
+        return None
+    try:
+        t = dt.datetime(*(int(g) for g in m.groups()[:6]), tzinfo=UTC).timestamp()
+    except ValueError:
+        return None
+    off = m.group(7)
+    if off and off != 'Z':
+        t -= (1 if off[0] == '+' else -1) * (int(off[1:3]) * 3600 + int(off[-2:]) * 60)
+    return t
+
+
+def trail_positions(trail):
+    """A scene's `trail` {bot: [[t_iso, x, y, z, skill], ...]} -> ({bot: [(epoch, x, y, z, skill), ...]} sorted, the
+    number of rows that could not be read). A missing trail, or a bot with [], is simply nobody to draw."""
+    out, bad = {}, 0
+    if not isinstance(trail, dict):
+        return out, (0 if trail is None else 1)
+    for b, rows in trail.items():
+        got = []
+        for r in rows if isinstance(rows, list) else []:
+            try:
+                t = parse_iso(r[0])
+                x, y, z = float(r[1]), float(r[2]), float(r[3])
+                if t is None or not all(math.isfinite(v) for v in (x, y, z)):
+                    raise ValueError
+                got.append((t, x, y, z, str(r[4]) if len(r) > 4 and r[4] is not None else '?'))
+            except (TypeError, ValueError, IndexError):
+                bad += 1
+        got.sort()
+        if got:
+            out[str(b)] = got
+    return out, bad
+
+
+def check_scene(s):
+    """Why a hand-off scene cannot be drawn, or None. Nothing of it reaches a path or an array size unchecked."""
+    if not isinstance(s, dict):
+        return 'not an object'
+    if not isinstance(s.get('id'), str) or not _SCENE_ID.match(s['id']):
+        return 'id: letters, digits and _ only, at most 60'
+    box, y = s.get('box'), s.get('y')
+    if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) and math.isfinite(v) for v in box)):
+        return 'box: four numbers'
+    if not (isinstance(y, list) and len(y) == 2 and all(isinstance(v, (int, float)) and math.isfinite(v) for v in y)):
+        return 'y: two numbers'
+    if box[0] > box[2] or box[1] > box[3] or box[2] - box[0] > 512 or box[3] - box[1] > 512 or max(abs(v) for v in box) > 3e7:
+        return 'box: x0 <= x1, z0 <= z1, at most 512 wide'
+    if y[0] > y[1] or y[0] < Y_BOTTOM - 1 or y[1] > 320:
+        return f'y: lowest <= highest, {Y_BOTTOM} to 320'
+    if s.get('frames') is not None and s['frames'] != 'frames/under-' + s['id']:
+        return 'frames: not frames/under-<id>'
+    return None
+
+
+def slot_scenes(obj):
+    """The hand-off object -> (the underground scenes to draw, in its order; why the others are not drawn:
+    {'surface': n, 'unknown_layer': n, 'has_camera': n, 'invalid': n}). Underground = layer shallow or deep AND no
+    camera of its own (tl_showcase shoots a scene that has one). Pure (tested)."""
+    why = collections.Counter()
+    out = []
+    scenes = obj.get('scenes') if isinstance(obj, dict) else obj
+    for s in scenes if isinstance(scenes, list) else []:
+        layer = s.get('layer') if isinstance(s, dict) else None
+        if layer == 'surface':
+            why['surface'] += 1
+        elif layer not in UNDER_LAYERS:
+            why['unknown_layer'] += 1
+        elif s.get('camera'):
+            why['has_camera'] += 1
+        elif check_scene(s):
+            why['invalid'] += 1
+        else:
+            out.append(dict(s, box=[int(math.floor(v)) for v in s['box'][:2]] + [int(math.ceil(v)) for v in s['box'][2:]],
+                            y=[int(math.floor(s['y'][0])), int(math.ceil(s['y'][1]))]))
+    return out, dict(why)
+
+
+def pad_scene(scene, min_w=MIN_WIDE):
+    """The scene a framing is made FOR: its box grown evenly to at least min_w blocks each way. Pure (tested)."""
+    x0, z0, x1, z1 = scene['box']
+    gx, gz = max(0, min_w - (x1 - x0 + 1)), max(0, min_w - (z1 - z0 + 1))
+    return dict(scene, box=[x0 - gx // 2, z0 - gz // 2, x1 + gx - gx // 2, z1 + gz - gz // 2])
+
+
+def framing_holds(fr, scene, slack=OUTGROW, reach=CUT_REACH):
+    """Does a kept framing still show this scene? -> None, or why not. A side cut holds while the scene's box is inside
+    the picture's width (give or take `slack`), its lowest level inside the picture's height, and the cut itself
+    within `reach` blocks of the scene; a plan while the box is inside the map and the scene's levels inside the
+    band it looks through. Pure (tested)."""
+    x0, z0, x1, z1 = scene['box']
+    y0, y1 = scene['y']
+    if fr['style'] == 'side':
+        (ua, ub), (da, db) = ((x0, x1), (z0, z1)) if fr['axis'] == 'x' else ((z0, z1), (x0, x1))
+        if ua < fr['u'][0] - slack or ub > fr['u'][1] + slack:
+            return f"the scene ({ua} to {ub}) is wider than the picture ({fr['u'][0]} to {fr['u'][1]})"
+        if y0 < fr['y'][0] - slack or y1 > fr['y'][1] + slack:
+            return f"the scene's levels ({y0} to {y1}) are outside the picture ({fr['y'][0]} to {fr['y'][1]})"
+        if fr['slab'][1] < da - reach or fr['slab'][0] > db + reach:
+            return f"the cut ({fr['slab'][0]} to {fr['slab'][1]}) is more than {reach} blocks beside the scene ({da} to {db})"
+        return None
+    if x0 < fr['x'][0] - slack or x1 > fr['x'][1] + slack or z0 < fr['z'][0] - slack or z1 > fr['z'][1] + slack:
+        return 'the scene is wider than the map'
+    if y1 > fr['band'][1] + slack or y0 < fr['band'][0] - 6 - slack:
+        return f"the scene's levels ({y0} to {y1}) are outside the band ({fr['band'][0]} to {fr['band'][1]})"
+    return None
+
+
+def held_framing(fr, scene):
+    """A kept framing for this slot: the same picture, with the depth it lists bots over and the levels its axis
+    marks following the scene (neither moves a block on the picture). The depth only ever grows, and never past
+    DEPTH_MAX blocks from the cut: it is also the box that is read and kept every slot. Pure (tested)."""
+    out = dict(fr, scene_y=list(scene['y']))
+    if fr['style'] == 'side':
+        x0, z0, x1, z1 = scene['box']
+        da, db = (z0, z1) if fr['axis'] == 'x' else (x0, x1)
+        lo, hi = fr['slab'][0] - DEPTH_MAX, fr['slab'][1] + DEPTH_MAX
+        out['depth'] = [max(lo, min(fr['depth'][0], da)), min(hi, max(fr['depth'][1], db))]
+    return out
+
+
+def load_framing(root, camera, size, style):
+    """The framing kept for a camera, if it is this version's, this size's and this kind of picture's."""
+    try:
+        fr = read_json(_state_file(root, camera, '.json'))
+    except (OSError, ValueError):
+        return None
+    base = 'plan' if style in ('plan', 'plantrails') else 'side'
+    if not isinstance(fr, dict) or fr.get('version') != VERSION or fr.get('size') != list(size) or fr.get('style') != base:
+        return None
+    return {k: v for k, v in fr.items() if k != 'version'}
+
+
+def cap_rect(rect, ny, max_cells=MAX_BOX_CELLS, keep=None):
+    """A read rectangle of at most max_cells over ny levels. What is cut first is the margin around `keep` (the
+    scene's own box), a block at a time from whichever side has the most left; only when no margin is left is the
+    scene itself cut, evenly from the two ends of its longer side (never under 16 blocks). With no `keep` (a kept
+    framing's box: the same cut every slot) it is cut around its own middle. -> (rect, cut?). Pure (tested)."""
+    x0, z0, x1, z1 = rect
+    kx0, kz0, kx1, kz1 = keep if keep is not None else ((x0 + x1) // 2, (z0 + z1) // 2, (x0 + x1) // 2, (z0 + z1) // 2)
+    cut = False
+    while (x1 - x0 + 1) * (z1 - z0 + 1) * ny > max_cells:
+        room = [(kx0 - x0, 0), (x1 - kx1, 1), (kz0 - z0, 2), (z1 - kz1, 3)]
+        most, side = max(room)
+        if most > 0:
+            x0, x1, z0, z1 = x0 + (side == 0), x1 - (side == 1), z0 + (side == 2), z1 - (side == 3)
+        elif x1 - x0 >= z1 - z0 and x1 - x0 > 15:
+            x0, x1 = x0 + 1, x1 - 1
+        elif z1 - z0 > 15:
+            z0, z1 = z0 + 1, z1 - 1
+        else:
+            break
+        cut = True
+    return [x0, z0, x1, z1], cut
+
+
+def slot_region(scene, fr, size, pos, style, thick=SLAB):
+    """The block box to read for a scene this slot: {rect [x0, z0, x1, z1], y0, top_min, clipped}. With a framing
+    (held_framing's): EXACTLY what that picture shows and lists bots over, from its own bottom level, so that every
+    slot of one framing reads the same box and the boxes compare cell for cell (a scene that pokes a few blocks out
+    of its picture is not read there: it is not drawn there either). Without one (the scene's first slot): the
+    padded scene plus, along the axis the cut will run, the margin that fills the picture at the scale its height
+    allows, and 8 blocks to the sides, from 12 below the scene's lowest level. Always up to Y_TOP; read_scene_box
+    then drops the empty sky. Past MAX_BOX_CELLS the margins are cut back (cap_rect) and the frame says
+    `box_clipped`. Pure (tested)."""
+    P = pad_scene(scene)
+    x0, z0, x1, z1 = P['box']
+    y0 = max(Y_BOTTOM, _snap(scene['y'][0] - 12, 4, False))
+    top_min = None
+    if fr is not None:
+        if fr['style'] == 'side':
+            (ua, ub), (da, db) = fr['u'], fr['depth']
+            vx0, vz0, vx1, vz1 = (ua, da, ub, db) if fr['axis'] == 'x' else (da, ua, db, ub)
+        else:
+            (vx0, vx1), (vz0, vz1) = fr['x'], fr['z']
+        rect = [vx0, vz0, vx1, vz1]
+        y0 = max(Y_BOTTOM, fr['y'][0])
+        top_min = fr['y'][1] if fr['style'] == 'side' else None
+    else:
+        L = layout(*size)
+        aw, ah = L['area'][2] - L['area'][0], L['area'][3] - L['area'][1]
+        if style in ('plan', 'plantrails'):
+            k = max(2, min(aw // (x1 - x0 + 1), ah // (z1 - z0 + 1)))
+            mx, mz = min(64, max(8, (aw // k - (x1 - x0 + 1) + 1) // 2)), min(64, max(8, (ah // k - (z1 - z0 + 1) + 1) // 2))
+        else:
+            S = scene_samples(pos, P, -1e99, 1e99)
+            axis = choose_plane(S, P['box'], thick)['axis']
+            wide = (x1 - x0 + 1) if axis == 'x' else (z1 - z0 + 1)
+            k = max(2, min(aw // wide, ah // max(1, 100 - (scene['y'][0] - 8))))      # the surface is near y 90 at most
+            m = min(64, max(8, (aw // k - wide + 1) // 2))
+            mx, mz = (m, 8) if axis == 'x' else (8, m)
+        rect = [x0 - mx, z0 - mz, x1 + mx, z1 + mz]
+    rect, clipped = cap_rect(rect, Y_TOP - y0 + 1, keep=None if fr is not None else scene['box'])
+    return {'rect': rect, 'y0': y0, 'top_min': top_min, 'clipped': clipped}
+
+
+def box_world(raw):
+    """A box as tl_region.read_box (or a snapshot) gives it -> a World. Its token is the hash of what is DRAWN (the
+    class of every cell, not the order its names happened to be met in): two slots with the same blocks share one
+    rendered background."""
+    w = World(raw['box'], raw['y'], raw['palette'], raw['cells'], 8, 'box')
+    h = hashlib.sha1(json.dumps([raw['box'], raw['y']]).encode())
+    h.update(raw['cells'].translate(w.lut))
+    w.token = 'box-' + h.hexdigest()[:16]
+    return w
+
+
+def trim_top(raw, top_min=None):
+    """Drop a box's empty sky: its top becomes SKY_ROWS above the highest level that holds anything but air, and never
+    below top_min (the kept framing's own top: a picture's sky must be read, not unknown)."""
+    x0, z0, x1, z1 = raw['box']
+    y0, y1 = raw['y']
+    layer = (x1 - x0 + 1) * (z1 - z0 + 1)
+    solid = bytes(0 if (i < len(raw['palette']) and KIND[CID[classify(raw['palette'][i])]] == 'a') else 1 for i in range(256))
+    cells = raw['cells']
+    ny = y1 - y0 + 1
+    top = 0
+    for yi in range(ny - 1, -1, -1):
+        if b'\x01' in cells[yi * layer:(yi + 1) * layer].translate(solid):
+            top = yi
+            break
+    keep = min(ny, top + 1 + SKY_ROWS)
+    if top_min is not None:
+        keep = min(ny, max(keep, top_min - y0 + 1))
+    return dict(raw, y=[y0, y0 + keep - 1], cells=cells[:keep * layer])
+
+
+def read_scene_box(region_dir, region):
+    """Read a scene's box from the mirror's region files, up to Y_TOP, and drop the empty sky (trim_top)."""
+    x0, z0, x1, z1 = region['rect']
+    raw = tl_region.read_box(region_dir, x0, z0, x1, z1, region['y0'], Y_TOP, fold=fold_name, absent='air')
+    return trim_top(raw, region.get('top_min'))
+
+
+def crop_box(raw, rect, y0=None):
+    """The same box cut down to rect, and to the levels from y0 up (both must lie inside it): the first slot reads
+    wide to choose its framing, then keeps exactly what every later slot of that framing will read, so their boxes
+    compare cell for cell."""
+    bx0, bz0, bx1, bz1 = raw['box']
+    x0, z0, x1, z1 = rect
+    y0 = raw['y'][0] if y0 is None else y0
+    if not (bx0 <= x0 <= x1 <= bx1 and bz0 <= z0 <= z1 <= bz1 and raw['y'][0] <= y0 <= raw['y'][1]):
+        return raw
+    if list(rect) == list(raw['box']) and y0 == raw['y'][0]:
+        return raw
+    nx, nz = bx1 - bx0 + 1, bz1 - bz0 + 1
+    cells, w = raw['cells'], x1 - x0 + 1
+    rows = [cells[((yi * nz) + z - bz0) * nx + x0 - bx0:((yi * nz) + z - bz0) * nx + x0 - bx0 + w]
+            for yi in range(y0 - raw['y'][0], raw['y'][1] - raw['y'][0] + 1) for z in range(z0, z1 + 1)]
+    return dict(raw, box=[x0, z0, x1, z1], y=[y0, raw['y'][1]], cells=b''.join(rows))
+
+
+# ---------------------------------------------------------------- the box snapshot: under-box/<id>/<day>/<stamp>.box.z
+def _box_path(root, sid, stamp):
+    if not _SCENE_ID.match(sid) or not _STAMP.match(stamp):
+        raise ValueError(f'box snapshot name {sid!r} {stamp!r}')
+    return inside(root, os.path.join(root, 'under-box', sid, stamp[:8], stamp + '.box.z'))
+
+
+def box_header(path):
+    """A snapshot's JSON header alone (a few hundred bytes read). Raises ValueError on anything else."""
+    with open(path, 'rb') as f:
+        head = f.read(9)
+        if len(head) != 9 or head[:4] != BOX_MAGIC:
+            raise ValueError(f'{path}: not a box snapshot')
+        if head[4] != BOX_VERSION:
+            raise ValueError(f'{path}: box snapshot version {head[4]}, this reader knows {BOX_VERSION}')
+        n = struct.unpack('>I', head[5:9])[0]
+        if n > 1 << 20:
+            raise ValueError(f'{path}: header of {n} bytes')
+        try:
+            hdr = json.loads(f.read(n))
+        except ValueError:
+            raise ValueError(f'{path}: header is not JSON')
+    if not isinstance(hdr, dict) or hdr.get('kind') not in ('full', 'delta'):
+        raise ValueError(f'{path}: header without a kind')
+    hdr['_at'] = 9 + n
+    return hdr
+
+
+def read_box_file(path):
+    """A snapshot -> {box, y, palette, cells, bits: 8, header}. FORMAT (version 1): b'UBOX', one version byte, a
+    4-byte big-endian header length, the header (JSON: v, kind, id, stamp, box, y, palette (count), cells (count),
+    sha1 of the cells, missing, folded, clipped, base, changed), then ONE zlib stream:
+      kind full   the palette as a JSON list, a newline, one palette index per cell (x fastest, then z, then y);
+      kind delta  the palette (the base's, with new names appended), a newline, n little-endian uint32 cell
+                  indices, n bytes: the cells that differ from the snapshot `base` (a full one in the same folder).
+    Every read ends with the sha1 check, so a damaged file or a base that is not the one written against is an
+    error (ValueError), never a wrong picture."""
+    hdr = box_header(path)
+    with open(path, 'rb') as f:
+        f.seek(hdr.pop('_at'))
+        try:
+            body = zlib.decompress(f.read())
+        except zlib.error as e:
+            raise ValueError(f'{path}: {e}')
+    cut = body.find(b'\n')
+    try:
+        palette = json.loads(body[:cut]) if cut >= 0 else None
+    except ValueError:
+        palette = None
+    if not isinstance(palette, list) or len(palette) != hdr.get('palette') or len(palette) > 256:
+        raise ValueError(f'{path}: palette')
+    rest = body[cut + 1:]
+    if hdr['kind'] == 'full':
+        cells = rest
+    else:
+        try:
+            base = read_box_file(os.path.join(os.path.dirname(path), str(hdr.get('base')) + '.box.z'))
+        except OSError as e:
+            raise ValueError(f'{path}: its base {hdr.get("base")} cannot be read: {e}')
+        if base['header']['kind'] != 'full' or base['box'] != hdr['box'] or base['y'] != hdr['y'] \
+                or palette[:len(base['palette'])] != base['palette']:
+            raise ValueError(f'{path}: its base {hdr.get("base")} is not the box it was written against')
+        n = hdr.get('changed')
+        if not isinstance(n, int) or len(rest) != 5 * n:
+            raise ValueError(f'{path}: delta of {len(rest)} bytes for {n} cells')
+        buf = bytearray(base['cells'])
+        idx = struct.unpack('<%dI' % n, rest[:4 * n])
+        vals = rest[4 * n:]
+        if n and max(idx) >= len(buf):
+            raise ValueError(f'{path}: a changed cell outside the box')
+        for i, v in zip(idx, vals):
+            buf[i] = v
+        cells = bytes(buf)
+    if len(cells) != hdr.get('cells') or hashlib.sha1(cells).hexdigest() != hdr.get('sha1'):
+        raise ValueError(f'{path}: the cells do not match the header (damaged, or a different base)')
+    return {'box': hdr['box'], 'y': hdr['y'], 'palette': palette, 'cells': cells, 'bits': 8, 'header': hdr}
+
+
+def _day_base(folder, stamp, box, y):
+    """The full snapshot a new one of this box may be written against: the newest full one in the day's folder,
+    older than `stamp`, of the same box. -> its stamp or None. Two header reads at most in the usual day."""
+    try:
+        names = sorted((n[:-6] for n in os.listdir(folder) if n.endswith('.box.z') and _STAMP.match(n[:-6]) and n[:-6] < stamp),
+                       reverse=True)
+    except OSError:
+        return None
+    seen = set()
+    for n in names[:6]:
+        try:
+            h = box_header(os.path.join(folder, n + '.box.z'))
+            b = n if h['kind'] == 'full' else h.get('base')
+            if b in seen or not isinstance(b, str) or not _STAMP.match(b):
+                continue
+            seen.add(b)
+            if b != n:
+                h = box_header(os.path.join(folder, b + '.box.z'))
+            if h['kind'] == 'full' and h.get('box') == list(box) and h.get('y') == list(y):
+                return b
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def write_box_file(root, sid, stamp, raw, extra=None, level=6):
+    """Write a scene's box for a slot. The day's first box of a given shape is written whole; the later ones as the
+    cells that differ from it (a slot of mining changes a few hundred of two million), whole again when the shape
+    changes, a quarter of the cells differ or the palette would pass 256 names. -> (path, bytes, header)."""
+    path = _box_path(root, sid, stamp)
+    folder = os.path.dirname(path)
+    palette, cells = list(raw['palette']), raw['cells']
+    hdr = dict(extra or {}, v=BOX_VERSION, id=sid, stamp=stamp, box=list(raw['box']), y=list(raw['y']), bits=8,
+               missing=raw.get('missing') or [], folded=raw.get('folded') or 0)
+    body = None
+    base = _day_base(folder, stamp, raw['box'], raw['y'])
+    if base:
+        try:
+            B = read_box_file(os.path.join(folder, base + '.box.z'))
+            ext = list(B['palette'])
+            where = {n: i for i, n in enumerate(ext)}
+            lut = bytearray(256)
+            for i, n in enumerate(palette):
+                if n not in where:
+                    where[n] = len(ext)
+                    ext.append(n)
+                lut[i] = where[n] if where[n] < 256 else 0
+            if len(ext) <= 256 and len(B['cells']) == len(cells):
+                mine = cells.translate(bytes(lut))
+                n = len(mine)
+                diff = (int.from_bytes(mine, 'little') ^ int.from_bytes(B['cells'], 'little')).to_bytes(n, 'little')
+                idx = [i for m in re.finditer(rb'[^\x00]+', diff) for i in range(m.start(), m.end())]
+                if len(idx) * 4 <= n:
+                    palette, cells = ext, mine
+                    hdr.update(kind='delta', base=base, changed=len(idx))
+                    body = json.dumps(ext).encode() + b'\n' + struct.pack('<%dI' % len(idx), *idx) + bytes(mine[i] for i in idx)
+        except (OSError, ValueError):
+            body = None
+    if body is None:
+        hdr.update(kind='full', base=None, changed=None)
+        body = json.dumps(palette).encode() + b'\n' + cells
+    hdr.update(palette=len(palette), cells=len(cells), sha1=hashlib.sha1(cells).hexdigest())
+    head = json.dumps(hdr, sort_keys=True).encode()
+    data = BOX_MAGIC + bytes([BOX_VERSION]) + struct.pack('>I', len(head)) + head + zlib.compress(body, level)
+    os.makedirs(folder, exist_ok=True)
+    tmp = path + f'.tmp{os.getpid()}'
+    with open(tmp, 'wb') as f:
+        f.write(data)
+    os.replace(tmp, path)
+    return path, len(data), hdr
+
+
+def first_box_of_day(root, sid, stamp):
+    """The path of the scene's first snapshot of the stamp's day, or None."""
+    folder = os.path.dirname(_box_path(root, sid, stamp))
+    try:
+        names = sorted(n for n in os.listdir(folder) if n.endswith('.box.z') and _STAMP.match(n[:-6]))
+    except OSError:
+        return None
+    return os.path.join(folder, names[0]) if names else None
+
+
+def dug_cells(first, now):
+    """The cells that were rock, ore or built in `first` and are EMPTY in `now` (two Worlds), over what the two boxes
+    share: what was dug out between them. A cell that now holds a torch or a ladder is not listed: it is drawn as
+    the torch or ladder it is. -> [(x, y, z), ...]. Pure (tested)."""
+    x0, z0 = max(first.box[0], now.box[0]), max(first.box[1], now.box[1])
+    x1, z1 = min(first.box[2], now.box[2]), min(first.box[3], now.box[3])
+    y0, y1 = max(first.yr[0], now.yr[0]), min(first.yr[1], now.yr[1])
+    if x0 > x1 or z0 > z1 or y0 > y1:
+        return []
+    a = first.block(x0, z0, x1, z1, y0, y1).translate(M_SOLID)
+    b = now.block(x0, z0, x1, z1, y0, y1).translate(M_AIR)
+    n = len(a)
+    both = (int.from_bytes(a, 'little') & int.from_bytes(b, 'little')).to_bytes(n, 'little')
+    nx, nz = x1 - x0 + 1, z1 - z0 + 1
+    out = []
+    for m in re.finditer(rb'\x01+', both):
+        for i in range(m.start(), m.end()):
+            yz, x = divmod(i, nx)
+            y, z = divmod(yz, nz)
+            out.append((x0 + x, y0 + y, z0 + z))
+    return out
+
+
+def thumb_gray(cv, w=320, h=180):
+    """The frame as w x h bytes (its green channel, point-sampled): what tl_showcase.changed_fraction compares, without
+    ffmpeg."""
+    sx, sy = max(1, cv.W // w), max(1, cv.H // h)
+    rows = []
+    for j in range(h):
+        o = min(cv.H - 1, j * sy) * cv.W * 3 + 1
+        rows.append(bytes(cv.b[o:o + cv.W * 3:3 * sx][:w]).ljust(w, b'\x00'))
+    return b''.join(rows)
+
+
+def slot_scene(a, scene, stamp, t, size, style):
+    """One underground scene of one slot: read its box, write the snapshot, find what was dug since the day's first
+    box, draw the frame in the scene's kept framing. -> a row for the summary. Raises on anything it cannot do: the
+    caller counts it."""
+    t0 = time.time()
+    sid = scene['id']
+    camera = 'under-' + sid
+    root = a.root
+    png = inside(root, frame_path(root, camera, stamp))
+    pos, bad = trail_positions(scene.get('trail'))
+    kept = load_framing(root, camera, size, style)
+    why = framing_holds(kept, scene) if kept else None
+    change = None
+    frame_for = pad_scene(scene)
+    if kept and why:                                   # outgrown: frame anew for the old view AND the new scene
+        o, n = kept['box'], frame_for['box']
+        frame_for = dict(frame_for, box=[min(o[0], n[0]), min(o[1], n[1]), max(o[2], n[2]), max(o[3], n[3])])
+        change = {'why': why, 'was': {k: kept[k] for k in ('axis', 'slab', 'u', 'x', 'z', 'y', 'ppb') if k in kept}}
+        kept = None
+    fr = held_framing(kept, scene) if kept else None
+    region = slot_region(frame_for, fr, size, pos, style, a.slab)
+    raw = read_scene_box(a.region_dir, region)
+    t_read = time.time() - t0
+    world = box_world(raw)
+    if not kept:                                       # a first slot: choose the framing on the wide read, keep its box
+        fr = held_framing(make_framing(world, pos, frame_for, style, size, t, a.slab), scene)
+        again = slot_region(scene, fr, size, pos, style, a.slab)
+        raw = trim_top(crop_box(raw, again['rect'], again['y0']), again['top_min'])
+        world = box_world(raw)
+    bpath, bbytes, bhdr = write_box_file(root, sid, stamp, raw, {'clipped': region['clipped'], 'layer': scene.get('layer')})
+    first = first_box_of_day(root, sid, stamp)
+    dug = {'cells': [], 'since': stamp}
+    if first and os.path.basename(first) != stamp + '.box.z':
+        F = read_box_file(first)
+        dug = {'cells': dug_cells(box_world(F), world), 'since': F['header']['stamp']}
+    t_box = time.time() - t0 - t_read
+    if fr != (kept or None):
+        keep_framing(root, camera, fr)
+    cv, sd = render(world, pos, scene, style, t, size, fr, a.trail_min, a.cache, a.slab, dug=dug,
+                    clock=parse_stamp(stamp).timestamp())
+    gray = thumb_gray(cv)
+    gpath = _state_file(root, camera, '.gray')
+    try:
+        with open(gpath, 'rb') as f:
+            prev = f.read()
+    except OSError:
+        prev = b''
+    sd.update(stamp=stamp, camera=camera, changed=round(changed_fraction(prev, gray), 5) if len(prev) == len(gray) else None,
+              framing_kept=kept is not None, framing_change=change, box_clipped=region['clipped'],
+              block_box={'rect': raw['box'], 'y': raw['y'], 'cells': len(raw['cells']), 'missing_chunks': len(raw['missing']),
+                         'chunks': raw['chunks'], 'snapshot': os.path.relpath(bpath, root), 'snapshot_bytes': bbytes,
+                         'snapshot_kind': bhdr['kind'], 'folded_names': raw['folded']},
+              trail_rows_unread=bad)
+    sd['render_s'].update(read=round(t_read, 3), box=round(t_box, 3))
+    n = write_frame(cv, sd, png, root)
+    with open(gpath + '.part', 'wb') as f:
+        f.write(gray)
+    os.replace(gpath + '.part', gpath)
+    side_bytes = os.path.getsize(png[:-4] + '.json')
+    return {'id': sid, 'seconds': round(time.time() - t0, 3), 'bytes': n + side_bytes + bbytes, 'read_s': round(t_read, 3),
+            'dug': len(dug['cells']), 'snapshot': bhdr['kind'], 'missing_chunks': len(raw['missing'])}
+
+
+def run_slot(a, now=None):
+    """Every underground scene of the hand-off file, inside the budget. -> the summary. One scene's failure is a
+    line on stderr and a count; the budget is looked at before each scene (a scene is not started when the time left
+    is less than the slowest one so far took)."""
+    t0 = time.time()
+    now = time.time() if now is None else now
+    out = {'scenes': 0, 'drawn': 0, 'skipped': 0, 'errors': 0, 'seconds': 0.0, 'bytes_written': 0, 'why': {}, 'stamp': None}
+
+    def done():
+        out['seconds'] = round(time.time() - t0, 3)
+        return out
+    obj = read_json(a.slot_file)
+    scenes, why = slot_scenes(obj)
+    out['scenes'] = len(scenes)
+    out['why'] = why
+    out['skipped'] = sum(v for k, v in why.items() if k != 'surface')
+    stamp = a.stamp or (obj.get('stamp') if isinstance(obj, dict) else None)
+    if not isinstance(stamp, str) or not _STAMP.match(stamp) or parse_stamp(stamp) is None:
+        raise ValueError(f'no usable stamp ({stamp!r}): the hand-off file carries "stamp": "20261116T1245Z"')
+    out['stamp'] = stamp
+    slot_t = parse_stamp(stamp).timestamp()
+    if not a.stamp and now - slot_t > a.max_age_min * 60:         # the director did not run this slot: draw nothing old
+        out['why']['stale'] = len(scenes)
+        out['skipped'] += len(scenes)
+        return done()
+    t = parse_iso(obj.get('t')) if isinstance(obj, dict) else None
+    size = parse_size(a.size)
+    style = parse_styles(a.style, ('trails',))[0]
+    slowest = 0.0
+    for i, sc in enumerate(scenes):
+        spent = time.time() - t0
+        if spent >= a.budget_s or (i and spent + slowest > a.budget_s):
+            out['why']['budget'] = len(scenes) - i
+            out['skipped'] += len(scenes) - i
+            break
+        s0 = time.time()
+        try:
+            last = max((rows[-1][0] for rows in trail_positions(sc.get('trail'))[0].values()), default=None)
+            row = slot_scene(a, sc, stamp, t if t is not None else (last if last is not None else slot_t), size, style)
+            out['drawn'] += 1
+            out['bytes_written'] += row['bytes']
+            out.setdefault('rows', []).append(row)
+        except Exception as e:                        # one scene never costs the others, or the capture service
+            out['errors'] += 1
+            print(f"tl_under slot: scene {sc.get('id')!r}: {type(e).__name__}: {e}", file=sys.stderr)
+        slowest = max(slowest, time.time() - s0)
+    return done()
+
+
+def slot_args(argv):
+    ap = argparse.ArgumentParser(prog='tl_under.py slot')
+    ap.add_argument('--root', default='/srv/showcase/timelapse')
+    ap.add_argument('--slot-file', help='default: <root>/logs/scenes-slot.json')
+    ap.add_argument('--region-dir', default='/srv/showcase/timelapse/mirror/world/region')
+    ap.add_argument('--stamp', help='draw as this slot (no staleness check); default: the stamp in the file')
+    ap.add_argument('--style', default='trails')
+    ap.add_argument('--size', default='1920x1080')
+    ap.add_argument('--budget-s', type=float, default=20.0)
+    ap.add_argument('--trail-min', type=int, default=45)
+    ap.add_argument('--max-age-min', type=float, default=30.0, help='a hand-off file older than this is not drawn')
+    ap.add_argument('--cache', help='a folder for rendered backgrounds (default: none: a slot of mining never reuses one)')
+    ap.add_argument('--slab', type=int, default=SLAB)
+    a = ap.parse_args(argv)
+    a.slot_file = a.slot_file or os.path.join(a.root, 'logs', 'scenes-slot.json')
+    return a
+
+
+def slot_main(argv):
+    """`tl_under.py slot ...`: ALWAYS exit status 0 and one JSON line on stdout, whatever happens (the capture
+    service runs it after the surface cameras; nothing here may fail that unit)."""
+    t0 = time.time()
+    out = {'scenes': 0, 'drawn': 0, 'skipped': 0, 'errors': 0, 'seconds': 0.0, 'bytes_written': 0}
+    try:
+        out = run_slot(slot_args(argv))
+    except BaseException as e:                        # argparse's SystemExit too: status 0, and the reason in the line
+        if isinstance(e, KeyboardInterrupt):
+            raise
+        out['errors'] += 1
+        out['error'] = f'{type(e).__name__}: {e}'[:300]
+        out['seconds'] = round(time.time() - t0, 3)
+        print(f'tl_under slot: {out["error"]}', file=sys.stderr)
+    try:
+        print(json.dumps(out))
+    except Exception:
+        pass
+    return 0
+
+
+# ---------------------------------------------------------------- thinning the box snapshots (never the frames)
+def thin_plan(entries, today, days=14, hourly_after=2):
+    """Which box snapshots to delete. entries: [(scene id, 'YYYYMMDD', stamp, base stamp or None)]; today: a date.
+    Older than `days` days: all of them. Older than `hourly_after` days: all but the first of each hour, and any
+    snapshot a kept one is written against (a delta's base). -> a sorted list of (id, day, stamp). Pure (tested)."""
+    gone = []
+    groups = collections.defaultdict(list)
+    for e in entries:
+        groups[(e[0], e[1])].append(e)
+    for (sid, day), es in groups.items():
+        try:
+            age = (today - dt.datetime.strptime(day, '%Y%m%d').date()).days
+        except ValueError:
+            continue
+        if age > days:
+            gone += [(sid, day, e[2]) for e in es]
+        elif age > hourly_after:
+            keep, hours = set(), set()
+            for e in sorted(es, key=lambda e: e[2]):
+                if e[2][9:11] not in hours:
+                    hours.add(e[2][9:11])
+                    keep.add(e[2])
+            keep |= {e[3] for e in es if e[2] in keep and e[3]}
+            gone += [(sid, day, e[2]) for e in es if e[2] not in keep]
+    return sorted(gone)
+
+
+def cmd_thin(a):
+    """Delete old box snapshots under <root>/under-box (thin_plan), then the framing and change-score files of
+    scenes not drawn for `days` days. Frames are never touched: the nightly video job thins those."""
+    base = os.path.join(a.root, 'under-box')
+    entries, sizes = [], {}
+    for sid in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        if not _SCENE_ID.match(sid):
+            continue
+        for day in sorted(os.listdir(os.path.join(base, sid))):
+            folder = os.path.join(base, sid, day)
+            if not re.match(r'^\d{8}$', day) or not os.path.isdir(folder) or os.path.islink(folder):
+                continue
+            for n in sorted(os.listdir(folder)):
+                if not (n.endswith('.box.z') and _STAMP.match(n[:-6]) and n[:8] == day):
+                    continue
+                try:
+                    b = box_header(os.path.join(folder, n)).get('base')
+                except (OSError, ValueError):
+                    b = None
+                entries.append((sid, day, n[:-6], b))
+                sizes[(sid, day, n[:-6])] = os.path.getsize(os.path.join(folder, n))
+    today = dt.datetime.strptime(a.today, '%Y%m%d').date() if a.today else dt.datetime.now(UTC).date()
+    gone = thin_plan(entries, today, a.days, a.hourly_after_days)
+    freed = 0
+    for (sid, day, stamp) in gone:
+        p = _box_path(a.root, sid, stamp)
+        freed += sizes[(sid, day, stamp)]
+        if not a.dry_run:
+            os.remove(p)
+    state = 0
+    if not a.dry_run:
+        for (sid, day) in sorted({(g[0], g[1]) for g in gone}):
+            for d in (os.path.join(base, sid, day), os.path.join(base, sid)):
+                try:
+                    os.rmdir(d)
+                except OSError:
+                    pass
+        sdir = os.path.join(a.root, 'under-framing')
+        cut = time.time() - a.days * 86400
+        for n in os.listdir(sdir) if os.path.isdir(sdir) else []:
+            p = os.path.join(sdir, n)
+            if re.match(r'^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}\.(json|gray)$', n) and os.path.isfile(p) and os.path.getmtime(p) < cut:
+                os.remove(p)
+                state += 1
+    out = {'snapshots': len(entries), 'deleted': len(gone), 'bytes_freed': freed, 'kept_bytes': sum(sizes.values()) - freed,
+           'state_files_deleted': state, 'dry_run': bool(a.dry_run)}
+    print(json.dumps(out))
+    return out
+
+
+def cmd_redraw(a):
+    """A kept slot again, from its box snapshot, in any style: the rock, and what was dug since the day's first box
+    (the bots' positions are not in a box, so no trails)."""
+    check_names(a)
+    size = parse_size(a.size)
+    style = parse_styles(a.style, ('side',))[0]
+    if not _SCENE_ID.match(a.id) or not _STAMP.match(a.stamp):
+        _fail('--id / --stamp: a scene id and a stamp like 20261116T1245Z')
+    B = read_box_file(_box_path(a.root, a.id, a.stamp))
+    world = box_world(B)
+    try:
+        side = read_json(inside(a.root, frame_path(a.root, 'under-' + a.id, a.stamp))[:-4] + '.json')
+    except (OSError, ValueError):
+        side = {}
+    scene = {'id': a.id, 'box': side.get('box') or B['box'], 'y': side.get('y') or [B['y'][0] + 12, B['y'][0] + 24],
+             'caption': side.get('caption'), 'bots': [], 'layer': side.get('layer')}
+    fr = side.get('framing') if (side.get('framing') or {}).get('style') == ('plan' if style.startswith('plan') else 'side') \
+        and (side.get('framing') or {}).get('size') == list(size) else None
+    first = first_box_of_day(a.root, a.id, a.stamp)
+    dug = {'cells': [], 'since': a.stamp}
+    if first and os.path.basename(first) != a.stamp + '.box.z':
+        F = read_box_file(first)
+        dug = {'cells': dug_cells(box_world(F), world), 'since': F['header']['stamp']}
+    cv, sd = render(world, {}, pad_scene(scene), style, parse_stamp(a.stamp).timestamp(), size, fr, dug=dug)
+    p = inside(a.out, os.path.join(a.out, f'redraw-{a.id}-{a.stamp}-{style}{a.tag}.png'))
+    write_frame(cv, sd, p, a.out)
+    print(json.dumps({'png': p, 'style': style, 'dug': sd['dug'], 'bytes': sd['bytes']}))
+
+
 def bench(size=(1920, 1080), repeat=3, nx=96, nz=96, ny=70):
     """Seconds per frame per style on the synthetic box: cold (nothing cached), warm (same process, background kept),
     and the PNG encode. -> {style: {cold, warm, png}}."""
@@ -2091,6 +2949,9 @@ def bench(size=(1920, 1080), repeat=3, nx=96, nz=96, ny=70):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ['slot']:
+        return slot_main(argv[1:])
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
 
@@ -2120,8 +2981,15 @@ def main(argv=None):
     p = sub.add_parser('palette'); p.add_argument('--dump', required=True)
     p = sub.add_parser('bench'); p.add_argument('--size', default='1920x1080')
     p = sub.add_parser('video'); p.add_argument('glob'); p.add_argument('out'); p.add_argument('--fps', type=float, default=4)
+    sub.add_parser('slot', help='one call per capture slot: see `tl_under.py slot -h`')
+    p = sub.add_parser('thin'); p.add_argument('--root', default='/srv/showcase/timelapse')
+    p.add_argument('--days', type=int, default=14); p.add_argument('--hourly-after-days', type=int, default=2)
+    p.add_argument('--dry-run', action='store_true'); p.add_argument('--today', help='YYYYMMDD (default: today, UTC)')
+    p = sub.add_parser('redraw'); p.add_argument('--root', default='/srv/showcase/timelapse')
+    p.add_argument('--id', required=True); p.add_argument('--stamp', required=True); p.add_argument('--style', default='side')
+    p.add_argument('--size', default='1920x1080'); p.add_argument('--out', default='.'); p.add_argument('--tag', default='')
     a = ap.parse_args(argv)
-    if getattr(a, 'root', None) and a.out != '.':
+    if a.cmd in ('frame', 'seq') and a.root and a.out != '.':
         ap.error('--root and --out are two different places: give one')
     if a.cmd == 'frame':
         cmd_frame(a)
@@ -2133,10 +3001,15 @@ def main(argv=None):
         cmd_palette(a)
     elif a.cmd == 'bench':
         print(json.dumps(bench(parse_size(a.size)), indent=1))
+    elif a.cmd == 'thin':
+        cmd_thin(a)
+    elif a.cmd == 'redraw':
+        cmd_redraw(a)
     elif a.cmd == 'video':
         import tl2
         tl2.encode(a.glob, a.fps, a.out, dissolve=False)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
