@@ -34,7 +34,10 @@ director.idle_only keep their idle interval, and a slot that shoots a scene came
 director.slot_s in all (a fixed camera that no longer fits waits a slot; one that has waited overdue_n of its own
 intervals has its seconds set aside before the scene cameras get theirs -- plan_views). Underground scenes go to
 logs/scenes-slot.json for tl_under.py. With "on": false (or no `director` key) none of this runs and the plan is
-exactly the one above (director_slot).
+exactly the one above. THE DIRECTOR CAN ADD FRAMES TO A SLOT, NEVER TAKE THE ORDINARY ONES AWAY: its whole
+contribution is fenced (slot_plan, director_done) -- any exception, any value the slot cannot use, a repaired
+scenes.json, and the slot is planned and shot as with the director off; the heartbeat row says why once, in
+`director_error`.
 
 A FAILED STEP IS A ROW, NOT A CRASH: the heartbeat records ok:false and the failed step; no frame is written for
 that slot; the next timer run tries again. Two captures never overlap (flock -n; an overrun is a `skip` row).
@@ -338,7 +341,9 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, fir
     left = budget_s - spent_s - sum(est(v) for v in pair)
     due, why = [], {v: 'pair' for v in pair}
     first = [v for v in first if v in cams and v not in VIEWS and not (cams[v] or {}).get('off')]
-    owed_n = float((cfg.get('director') or {}).get('overdue_n') or DEFAULT_OVERDUE_N)
+    # the director's own settings are read ONLY while its cameras are in the slot: a slot without them never depends
+    # on anything the director wrote or was configured with
+    owed_n = float((cfg.get('director') or {}).get('overdue_n') or DEFAULT_OVERDUE_N) if first else None
     owed = []
     for v in sorted(cams):
         if v in VIEWS or v in first or (cams[v] or {}).get('off') or (cams[v] or {}).get('event_only'):
@@ -351,7 +356,7 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, fir
         if age + 2 >= iv:
             due.append((0 if act else 1, -age / iv, v, f'{"active" if act else "idle"} every {iv:g} min; '
                                                        f'{"never shot" if not last else f"last {age:.0f} min ago"}; {aw}'))
-            if age + 2 >= owed_n * iv:
+            if first and age + 2 >= owed_n * iv:
                 owed.append((-age / iv, v))
     lead, late, held = [], [], []
     if first:                       # the director's scene cameras: before every fixed camera, inside the slot's ceilings
@@ -400,15 +405,6 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, fir
     return out + heavy, why, deferred
 
 
-def scene_wait_of(res):
-    """The slots in a row, before this one, in which scene cameras were live and none got its frame: the director's
-    own count (scenes.json scene_wait; 0 while the director is off or failed). Pure (tested)."""
-    try:
-        return int(((res or {}).get('state') or {}).get('scene_wait') or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
 def plan_budget(budget_s, slot_s):
     """The seconds a slot that shoots a scene camera may plan: budget_s, or the director's slot_s when that is lower.
     Pure (tested)."""
@@ -420,52 +416,137 @@ def director_on(cfg):
     return bool(((cfg or {}).get('director') or {}).get('on'))
 
 
-def director_slot(cfg, cams, now, sites, stamp=None, write=True):
-    """The director's part of one slot (tl_director.py; imported only while it is on). -> (cameras, first,
-    first_budget_s, slot_s, result): the slot's cameras with the scene cameras added and the replaced / idle-only
-    cameras marked, the scene cameras in shooting order for plan_views(first=...), their per-slot ceiling, the whole
-    slot's ceiling (plan_views applies it only to a slot that shoots a scene camera), and the director's result (None
-    while off).
-    OFF, the cameras come back untouched with first=() and None: the plan is exactly the plan without a director.
-    A director that FAILS costs the slot nothing either: the same untouched cameras, and the error for the heartbeat
-    row. write False (the `plan` command): the director writes nothing."""
+class DirectorRefused(Exception):
+    """Something the director handed the slot cannot be used as it is (or its state had to be repaired)."""
+
+
+def _finite(v, lo, hi):
+    return not isinstance(v, bool) and isinstance(v, (int, float)) and v == v and lo <= v <= hi
+
+
+SCENE_VIEW_RX = re.compile(r'scene-[A-Za-z0-9]{1,40}')
+DIRECTOR_MARKS = ('idle_only', 'off', 'off_why')      # the only keys the director may set on a fixed camera
+
+
+def check_scene_camera(cfg, v, cam):
+    """A camera the director supplies is used ONLY IF the slot can use every value of it: its name is a safe frames
+    directory, every number capture.mjs and the plan read is a finite number in range, its `scene` block is what the
+    sidecar needs, and the capture job builds (job_spec). Anything else raises DirectorRefused. Pure (tested)."""
+    if not (isinstance(v, str) and SCENE_VIEW_RX.fullmatch(v)) or not isinstance(cam, dict):
+        raise DirectorRefused(f'scene camera {str(v)[:60]!r}: not a usable name or not an object')
+    for k, lo, hi in (('x', -3e7, 3e7), ('z', -3e7, 3e7), ('y', -2048, 4096), ('distance', 1, 5000), ('rotation', -10, 10),
+                      ('angle', -10, 10), ('est_s', 0.001, 600), ('fov', 1, 179), ('width', 16, 8192), ('height', 16, 8192),
+                      ('settle_ms', 0, 120000)):
+        if k in ('est_s', 'fov', 'width', 'height', 'settle_ms') and cam.get(k) is None:
+            continue
+        if not _finite(cam.get(k), lo, hi):
+            raise DirectorRefused(f'scene camera {v}: {k} = {str(cam.get(k))[:40]!r} is not a number in {lo}..{hi}')
+    sc = cam.get('scene')
+    if (cam.get('ortho') not in (0, 1) or cam.get('mode') not in ('perspective', 'flat') or cam.get('heavy')
+            or not isinstance(cam.get('label'), str) or not isinstance(sc, dict) or 'scene-' + str(sc.get('id')) != v
+            or not isinstance(sc.get('caption'), str) or not isinstance(sc.get('bots'), list)
+            or not all(isinstance(b, str) for b in sc['bots']) or not isinstance(sc.get('layer'), str)):
+        raise DirectorRefused(f'scene camera {v}: ortho, mode, label or its scene block is not usable')
+    json.dumps(job_spec(cfg, v, cam, 'x.png'), allow_nan=False)
+    json.dumps(frame_sidecar(cam, None), allow_nan=False)
+
+
+def director_plan(cfg, cams, targets, state, now, progress, sites, budget_s, spent, pair, stamp=None, write=True):
+    """THE DIRECTOR'S WHOLE CONTRIBUTION TO THE PLAN, in one place so slot_plan can fence it: the pass
+    (tl_director.run), its cameras (apply_cameras), every planning input it supplies (the scene cameras in order,
+    scene_budget_s, slot_s, scene_wait), the plan made with them, and the heartbeat summary. Every value is checked
+    before the plan may use it; anything unusable raises (DirectorRefused, or whatever tl_director raised) and
+    slot_plan plans the slot without the director. A scenes.json that had to be repaired raises too -- the pass has
+    by then rewritten it clean, so the next slot is normal. -> the plan dict of slot_plan."""
+    import tl_director as D
+    res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)
+    if not isinstance(res, dict) or not isinstance(res.get('dc'), dict):
+        raise DirectorRefused('tl_director.run returned no result')
+    if res.get('repaired'):
+        raise DirectorRefused('scenes.json had to be repaired (the slot\'s pass leaves it clean): ' + '; '.join(map(str, res['repaired']))[:300])
+    scene_cams, first = res.get('cameras'), res.get('first')
+    if not isinstance(scene_cams, dict) or not isinstance(first, (list, tuple)) or sorted(first) != sorted(scene_cams):
+        raise DirectorRefused('the scene cameras and their shooting order do not match')
+    dcams = D.apply_cameras(cams, res['dc'], scene_cams)
+    if not isinstance(dcams, dict) or set(dcams) != set(cams) | set(first):
+        raise DirectorRefused('apply_cameras added or lost a camera')
+    for v in cams:                          # a fixed camera comes back as it went in, but for the director's marks
+        if {k: x for k, x in (dcams[v] or {}).items() if k not in DIRECTOR_MARKS} != \
+                {k: x for k, x in (cams[v] or {}).items() if k not in DIRECTOR_MARKS}:
+            raise DirectorRefused(f'apply_cameras changed the fixed camera {v}')
+    for v in first:
+        check_scene_camera(cfg, v, dcams[v])
+    limits = {}
+    for k in ('scene_budget_s', 'slot_s'):
+        limits[k] = res['dc'].get(k)
+        if limits[k] is not None and not _finite(limits[k], 0, 86400):
+            raise DirectorRefused(f'director.{k} = {str(limits[k])[:40]!r} is not a number of seconds')
+    wait = (res.get('state') or {}).get('scene_wait') or 0
+    if not _finite(wait, 0, 10 ** 6):
+        raise DirectorRefused(f'scene_wait = {str(wait)[:40]!r} is not a count')
+    views, why, deferred = plan_views(dict(cfg, cameras=dcams), state, now, progress, budget_s, spent(), pair=pair,
+                                      first=tuple(first), first_budget_s=limits['scene_budget_s'], slot_s=limits['slot_s'],
+                                      first_wait=int(wait))
+    if list(views[:len(pair)]) != list(pair) or len(set(views)) != len(views) or not set(views) <= set(dcams):
+        raise DirectorRefused('the plan made with the scene cameras is not a plan')
+    summary = D.summary(res)
+    json.dumps(summary, allow_nan=False)
+    return {'cams': dcams, 'targets': targets, 'views': views, 'why': why, 'deferred': deferred, 'director': res,
+            'summary': summary, 'director_error': None}
+
+
+def slot_plan(cfg, state, now, progress, sites, budget_s, spent, pair, stamp=None, write=True):
+    """EVERYTHING a slot decides before the browser runs -> {'cams': the slot's cameras, 'targets': {follow camera:
+    project}, 'views', 'why', 'deferred', 'director': the director's result or None, 'summary': its heartbeat object,
+    'director_error': None or "<ExceptionType>: <message>"}. spent(): the seconds the slot has used so far.
+
+    THE FENCE (Codex r3, 11-16). With the director off (director_on) this is resolve_cameras + plan_views, nothing
+    else, and tl_director.py is not imported. With it on, the director's whole contribution is director_plan, inside
+    ONE try: whatever it raises -- tl_director missing or failing anywhere, a value the slot cannot use, a repaired
+    scenes.json -- the slot is planned by that same director-off path, from cameras the director never touched, and
+    the reason goes ONCE into the heartbeat row as `director_error`. The capture then shoots that plan: the director
+    can add frames to a slot, it cannot take the ordinary ones away. write False (the `plan` command): the director
+    writes nothing."""
+    cams, targets = resolve_cameras(cfg, state, now, progress, sites)
+
+    def without_director(error=None):
+        views, why, deferred = plan_views(dict(cfg, cameras=cams), state, now, progress, budget_s, spent(), pair=pair)
+        return {'cams': cams, 'targets': targets, 'views': views, 'why': why, 'deferred': deferred, 'director': None,
+                'summary': None, 'director_error': error}
     if not director_on(cfg):
-        return cams, (), None, None, None
+        return without_director()
     try:
-        import tl_director as D
-        res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)
-        first = tuple(res['first'])
-        return (D.apply_cameras(cams, res['dc'], res['cameras']), first, res['dc'].get('scene_budget_s'),
-                res['dc'].get('slot_s'), res)
+        return director_plan(cfg, cams, targets, state, now, progress, sites, budget_s, spent, pair, stamp, write)
     except Exception as e:
-        return cams, (), None, None, {'error': f'{type(e).__name__}: {str(e)[:200]}'}
+        return without_director(f'{type(e).__name__}: {str(e)[:300]}')
 
 
-def director_done(cfg, res, cams, published, timings, now, state):
+def director_done(cfg, plan, published, timings, now, state):
     """After the slot's frames are published: tell the director which scene cameras got theirs (and how long a scene
     frame took), and drop the schedule memory (views.json entry, gray file) of scene cameras that are no longer live,
-    so neither grows without bound. -> the director's heartbeat object, or None while it is off."""
-    if not res:
-        return None
-    if res.get('error'):
-        return {'error': res['error']}
-    import tl_director as D
+    so neither grows without bound. -> (the director's heartbeat object or None, None or the error). Fenced like
+    slot_plan: the frames are on disk by now, so whatever fails here the slot still saves its own state and writes
+    its heartbeat row, with the error in `director_error`."""
+    if not plan.get('director'):
+        return None, None
     shots = {}
-    for v in published:
-        sc = (cams.get(v) or {}).get('scene')
-        if sc:
-            shots[sc['id']] = timings.get(v) if isinstance(timings.get(v), (int, float)) else None
-    for v in [k for k in state if k.startswith('scene-') and k not in cams]:
-        del state[v]
-        try:
-            os.remove(os.path.join(cfg['root'], 'logs', 'gray', v + '.gray'))
-        except OSError:
-            pass
     try:
-        D.finish(cfg, res, shots, now)
-    except Exception as e:              # the frames are published: the slot's own state and heartbeat still follow
-        return dict(D.summary(res), shot=sorted(shots), error=f'{type(e).__name__}: {str(e)[:200]}')
-    return dict(D.summary(res), shot=sorted(shots))
+        import tl_director as D
+        cams = plan['cams']
+        for v in published:
+            sc = (cams.get(v) or {}).get('scene')
+            if sc:
+                shots[sc['id']] = timings.get(v) if isinstance(timings.get(v), (int, float)) else None
+        for v in [k for k in state if k.startswith('scene-') and k not in cams]:
+            del state[v]
+            try:
+                os.remove(os.path.join(cfg['root'], 'logs', 'gray', v + '.gray'))
+            except OSError:
+                pass
+        D.finish(cfg, plan['director'], shots, now)
+    except Exception as e:
+        return dict(plan.get('summary') or {}, shot=sorted(shots)), f'{type(e).__name__}: {str(e)[:300]}'
+    return dict(plan.get('summary') or {}, shot=sorted(shots)), None
 
 
 def project_progress(cfg):
@@ -748,6 +829,18 @@ def publish_pair(staged, finals, min_bytes=MIN_PNG_BYTES, size=os.path.getsize, 
     return True, None
 
 
+def job_spec(cfg, v, cam, out, deadline=None, est_s=None):
+    """The capture.mjs job of one camera (check_scene_camera builds it too: a director camera whose job cannot be
+    built never reaches the browser run). Pure (tested)."""
+    return {'url': f"{cfg['web']}/{camera_hash(cfg['map_id'], cam)}", 'out': out,
+            'width': cam.get('width', cfg['width']), 'height': cam.get('height', cfg['height']), 'fov': cam.get('fov'),
+            'settle_ms': cam.get('settle_ms', cfg.get('settle_ms', 6000)), 'markers': camera_markers(cam),
+            'reuse': bool(cfg.get('reuse_page', True)), 'pin': bool(cfg.get('pin_height', True)),
+            **cam_quality(cfg, cam),
+            'deadline_ms': int(deadline * 1000) if deadline else None,
+            'est_ms': int(1000 * float(est_s or DEFAULT_FRAME_S))}
+
+
 def capture(cfg, stamp, views=None, deadline=None, est=None, pair=VIEWS):
     """Shoot `views` (default: the pair + every extra camera due by the legacy cadence) in one browser run. deadline: an
     epoch second capture.mjs must not run a job past (each job carries its estimated cost est[view] s)."""
@@ -763,13 +856,7 @@ def capture(cfg, stamp, views=None, deadline=None, est=None, pair=VIEWS):
         out = os.path.join(stage, f'{v}-{stamp}.png')
         if os.path.exists(out):
             os.remove(out)
-        spec.append({'url': f"{cfg['web']}/{camera_hash(cfg['map_id'], cam)}", 'out': out,
-                     'width': cam.get('width', cfg['width']), 'height': cam.get('height', cfg['height']), 'fov': cam.get('fov'),
-                     'settle_ms': cam.get('settle_ms', cfg.get('settle_ms', 6000)), 'markers': camera_markers(cam),
-                     'reuse': bool(cfg.get('reuse_page', True)), 'pin': bool(cfg.get('pin_height', True)),
-                     **cam_quality(cfg, cam),
-                     'deadline_ms': int(deadline * 1000) if deadline else None,
-                     'est_ms': int(1000 * float((est or {}).get(v) or DEFAULT_FRAME_S))})
+        spec.append(job_spec(cfg, v, cam, out, deadline, (est or {}).get(v)))
     env = dict(os.environ, PUPPETEER_CACHE_DIR=os.path.join(cfg['capture_dir'], '.cache'))
     c0, t0 = child_cpu_s(), time.time()
     tmo = cfg.get('capture_timeout_s', 400)
@@ -923,13 +1010,11 @@ def _capture_locked(cfg, a, t, stamp):
     state = load_state(cfg)
     progress = project_progress(cfg)
     sites = project_sites(cfg)
-    cams, targets = resolve_cameras(cfg, state, t, progress, sites)
-    cams, first, first_budget, slot_s, dres = director_slot(cfg, cams, t, sites, stamp)    # off: cams unchanged, first ()
-    rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot (+ the scene cameras)
     pair = slot_pair(cfg, t)
-    views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start, pair=pair,
-                                      first=first, first_budget_s=first_budget, slot_s=slot_s,
-                                      first_wait=scene_wait_of(dres))
+    # the whole plan, the director's part fenced (slot_plan): on ANY director failure this is the director-off plan
+    plan = slot_plan(cfg, state, t, progress, sites, budget, lambda: time.time() - start, pair, stamp)
+    cams, targets, views, why, deferred = plan['cams'], plan['targets'], plan['views'], plan['why'], plan['deferred']
+    rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot (+ the scene cameras)
     est = {v: (state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') for v in views}
     crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(rcfg, stamp, views, deadline=start + budget, est=est,
                                                                pair=pair)
@@ -959,8 +1044,9 @@ def _capture_locked(cfg, a, t, stamp):
             with open(gpath + '.part', 'wb') as f:
                 f.write(gray)
             os.replace(gpath + '.part', gpath)
-    drow = director_done(cfg, dres, cams, [os.path.basename(os.path.dirname(os.path.dirname(p))) for p in got + extra],
-                         timings, t, state)
+    drow, derr = director_done(cfg, plan, [os.path.basename(os.path.dirname(os.path.dirname(p))) for p in got + extra],
+                               timings, t, state)
+    derr = plan['director_error'] or derr        # one line: the first thing that went wrong with the director
     save_state(cfg, state)
     skipped = sorted(v for v, x in timings.items() if x == 'deadline')
     row.update(capture_s=cs, capture_cpu_s=ccpu, capture_rc=crc, frames=len(got),
@@ -971,6 +1057,8 @@ def _capture_locked(cfg, a, t, stamp):
                active=sorted(v for v in why if why[v].startswith('active')))
     if drow is not None:
         row['director'] = drow
+    if derr:
+        row['director_error'] = derr
     if extra_err or raw_rc != 0:     # the diagnostics of an extra camera survive a published pair (review P3)
         row.update(extra_errors=extra_err, capture_raw_rc=raw_rc, capture_msg=msg[-300:])
     if a.frame0:
@@ -1047,19 +1135,13 @@ def cmd_shoot(cfg, a):
 def cmd_plan(cfg, a):
     t = now_utc()
     state, progress, sites = load_state(cfg), project_progress(cfg), project_sites(cfg)
-    cams, targets = resolve_cameras(cfg, state, t, progress, sites)
-    cams, first, first_budget, slot_s, dres = director_slot(cfg, cams, t, sites, stamp_of(t), write=False)   # read-only
-    views, why, deferred = plan_views(dict(cfg, cameras=cams), state, t, progress,
-                                      float(cfg.get('budget_s') or DEFAULT_BUDGET_S), 75.0,
-                                      first=first, first_budget_s=first_budget, slot_s=slot_s,
-                                      first_wait=scene_wait_of(dres))
-    out = {'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred, 'follow': targets}
-    if dres is not None:
-        if dres.get('error'):
-            out['director'] = {'error': dres['error']}
-        else:
-            import tl_director as D
-            out['director'] = D.summary(dres)
+    plan = slot_plan(cfg, state, t, progress, sites, float(cfg.get('budget_s') or DEFAULT_BUDGET_S), lambda: 75.0,
+                     slot_pair(cfg, t), stamp_of(t), write=False)                  # read-only: the director writes nothing
+    out = {'t': _iso(t), 'views': plan['views'], 'why': plan['why'], 'deferred': plan['deferred'], 'follow': plan['targets']}
+    if plan['summary'] is not None:
+        out['director'] = plan['summary']
+    if plan['director_error']:
+        out['director_error'] = plan['director_error']
     print(json.dumps(out, indent=1))
     return 0
 

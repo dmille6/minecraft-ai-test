@@ -944,12 +944,14 @@ def slot_root(extra_conf=None, deaths=True):
     return root, cfg
 
 
-def run_slot(M, cfg, now=NOW, stamp=STAMP):
+def run_slot(M, cfg, now=NOW, stamp=STAMP, module='under test'):
     """tl_showcase._capture_locked with the world, BlueMap and the browser faked: every planned view gets its frame.
-    The wiring imports `tl_director` by name: it gets the module under test."""
+    The wiring imports `tl_director` by name: it gets the module under test (module=None: the import fails, as on a
+    VM where the file was never installed)."""
     import argparse
     TL = M['TL']
     shot = []
+    module = M['D'] if module == 'under test' else module
 
     def fake_capture(rcfg, stamp, views, deadline=None, est=None, pair=TL.VIEWS):
         paths = []
@@ -974,7 +976,7 @@ def run_slot(M, cfg, now=NOW, stamp=STAMP):
               free_gb=lambda p: 500.0, project_sites=lambda cfg: {'yard': {'box': [8, 8, 16, 16], 'g': 65}},
               project_progress=lambda cfg: {'tidy': now}), quiet():
         had = sys.modules.get('tl_director')
-        sys.modules['tl_director'] = M['D']
+        sys.modules['tl_director'] = module
         try:
             TL._capture_locked(cfg, argparse.Namespace(event=None, frame0=False), now, stamp)
         finally:
@@ -1275,7 +1277,6 @@ def check_owed_cameras_do_not_starve_the_scenes(t, M):
     t.assertEqual(D.note_shots(base, {'sa': 30.0}, TNOW, wanted=2)['scene_wait'], 0, 'a scene frame was shot')
     t.assertEqual(D.note_shots(base, {}, TNOW, wanted=0)['scene_wait'], 0, 'no scene camera was live: nothing is waiting')
     t.assertEqual(D.note_shots({'scenes': []}, {}, TNOW, wanted=1)['scene_wait'], 1)
-    t.assertEqual((TL.scene_wait_of({'state': {'scene_wait': 2}}), TL.scene_wait_of(None), TL.scene_wait_of({'error': 'x'})), (2, 0, 0))
     # ---- the live template (Codex r1's day: two scenes live, 120 s spent): the reservation does not move hero4k
     dcT = D.dconf(CONF)
 
@@ -1394,7 +1395,8 @@ def check_a_failing_director_costs_the_slot_nothing(t, M):
             t.fail(f'a director error crashed the slot: {type(e).__name__}: {e}')
         t.assertEqual(shot, ['topdown', 'angled', 'grounds', 'town'], 'exactly the plan without a director')
         t.assertTrue(hb['ok'])
-        t.assertIn('error', hb.get('director') or {}, 'and the heartbeat row says why')
+        t.assertIn('TypeError', hb.get('director_error') or '', 'and the heartbeat row says why')
+        t.assertNotIn('director', hb)
         t.assertFalse(os.path.exists(os.path.join(root, 'logs', 'scenes.json')))
     finally:
         shutil.rmtree(root)
@@ -1409,11 +1411,400 @@ def check_a_failing_director_costs_the_slot_nothing(t, M):
                 shot, hb = run_slot(M, cfg)
         except Exception as e:
             t.fail(f'a director error after the capture crashed the slot: {type(e).__name__}: {e}')
-        t.assertEqual((hb['ok'], 'disk full' in (hb.get('director') or {}).get('error', '')), (True, True))
+        t.assertEqual((hb['ok'], hb.get('director_error')), (True, 'OSError: disk full'))
+        t.assertEqual(len((hb.get('director') or {}).get('shot') or ()), 2, 'the summary of what was shot is still there')
         t.assertIn('town', jload(os.path.join(root, 'logs', 'views.json')), 'the schedule state is saved all the same')
         t.assertEqual(len([v for v in shot if v.startswith('scene-')]), 2)
     finally:
         shutil.rmtree(root)
+
+
+def off_shot(M):
+    """What the slot of slot_root() shoots with the director off: the plan every fenced failure must fall back to."""
+    root, cfg = slot_root({'on': False})
+    try:
+        return run_slot(M, cfg)[0]
+    finally:
+        shutil.rmtree(root)
+
+
+def fenced(t, M, what, shot, hb, off, root, expect=None):
+    """The three things every director failure must leave true, and no scene frame on disk."""
+    t.assertEqual(shot, off, f'{what}: the plan is the director-off plan')
+    t.assertTrue({'topdown', 'angled'} <= set(shot), f'{what}: the pair is shot')
+    t.assertTrue(hb['ok'], f'{what}: the slot is a good slot')
+    err = hb.get('director_error')
+    t.assertTrue(isinstance(err, str) and ': ' in err, f'{what}: the heartbeat row carries director_error (got {err!r})')
+    if expect:
+        t.assertIn(expect, err, what)
+    t.assertNotIn('director', hb, f'{what}: no director summary of a plan that was not used')
+    t.assertFalse([d for d in os.listdir(os.path.join(root, 'frames')) if d.startswith('scene-')], f'{what}: no scene frame')
+    for v in ('topdown', 'angled', 'town', 'grounds'):
+        t.assertTrue(os.path.isfile(os.path.join(root, 'frames', v, '20261116', STAMP + '.png')), f'{what}: {v} has its frame')
+
+
+def check_every_director_entry_point_is_fenced(t, M):
+    """FAULT INJECTION: each call tl_showcase makes into tl_director raises in turn, and each value the director hands
+    the slot is made unusable in turn. The slot is planned and shot as with the director off, every time."""
+    D = M['D']
+    off = off_shot(M)
+    t.assertEqual(off, ['topdown', 'angled', 'grounds', 'town'], 'the director-off plan of this slot')
+    real = {k: getattr(D, k) for k in ('run', 'apply_cameras', 'summary', 'finish')}
+
+    def boom(*a, **k):
+        raise RuntimeError('injected')
+
+    def tweak(fn):
+        """D.run, its result changed by fn before tl_showcase sees it."""
+        def run(*a, **k):
+            res = real['run'](*a, **k)
+            fn(res)
+            return res
+        return run
+
+    def cam0(res):
+        return res['cameras'][res['first'][0]]
+    faults = [
+        # ---- every entry point raising
+        ('tl_director.run raises', {'run': boom}, 'RuntimeError: injected'),
+        ('tl_director.apply_cameras raises', {'apply_cameras': boom}, 'RuntimeError: injected'),
+        ('tl_director.summary raises', {'summary': boom}, 'RuntimeError: injected'),
+        ('tl_director.run raises a KeyError', {'run': lambda *a, **k: {}['missing']}, 'KeyError'),
+        # ---- run() returning something unusable
+        ('run returns None', {'run': lambda *a, **k: None}, 'DirectorRefused'),
+        ('run returns a list', {'run': lambda *a, **k: [1, 2]}, 'DirectorRefused'),
+        ('run returns an empty object', {'run': lambda *a, **k: {}}, 'DirectorRefused'),
+        ('run reports a repaired state', {'run': tweak(lambda r: r.update(repaired=['cam_s is not usable; reset']))}, 'repaired'),
+        # ---- a scene camera the slot cannot use (the r3 blocker: its cost was the string "broken")
+        ('a scene camera costs "broken"', {'run': tweak(lambda r: cam0(r).update(est_s='broken'))}, 'est_s'),
+        ('a scene camera costs NaN', {'run': tweak(lambda r: cam0(r).update(est_s=float('nan')))}, 'est_s'),
+        ('a scene camera costs 1e12 s', {'run': tweak(lambda r: cam0(r).update(est_s=1e12))}, 'est_s'),
+        ('a scene camera at x = NaN', {'run': tweak(lambda r: cam0(r).update(x=float('nan')))}, 'x ='),
+        ('a scene camera at x = "12"', {'run': tweak(lambda r: cam0(r).update(x='12'))}, 'x ='),
+        ('a scene camera 1e9 blocks away', {'run': tweak(lambda r: cam0(r).update(distance=1e9))}, 'distance'),
+        ('a scene camera with no y', {'run': tweak(lambda r: cam0(r).pop('y'))}, 'y ='),
+        ('a scene camera 20000 px wide', {'run': tweak(lambda r: cam0(r).update(width=20000))}, 'width'),
+        ('a scene camera marked heavy', {'run': tweak(lambda r: cam0(r).update(heavy=True))}, 'not usable'),
+        ('a scene camera with no scene block', {'run': tweak(lambda r: cam0(r).pop('scene'))}, 'not usable'),
+        ('a scene camera whose bots are a number', {'run': tweak(lambda r: cam0(r)['scene'].update(bots=5))}, 'not usable'),
+        ('a scene camera that is a string', {'run': tweak(lambda r: r['cameras'].update({r['first'][0]: 'cam'}))}, 'DirectorRefused'),
+        ('a camera named like a path', {'run': tweak(lambda r: (r['cameras'].update({'scene-../../x': cam0(r)}),
+                                                              r['first'].append('scene-../../x')))}, 'DirectorRefused'),
+        ('a "scene" camera named angled', {'run': tweak(lambda r: (r['cameras'].update(angled=cam0(r)), r['first'].append('angled')))},
+         'DirectorRefused'),
+        # ---- planning inputs
+        ('first names a camera that is not there', {'run': tweak(lambda r: r['first'].append('scene-ghost'))}, 'do not match'),
+        ('first is a number', {'run': tweak(lambda r: r.update(first=7))}, 'do not match'),
+        ('cameras is a list', {'run': tweak(lambda r: r.update(cameras=[]))}, 'do not match'),
+        ('scene_budget_s is "ninety"', {'run': tweak(lambda r: r['dc'].update(scene_budget_s='ninety'))}, 'scene_budget_s'),
+        ('slot_s is NaN', {'run': tweak(lambda r: r['dc'].update(slot_s=float('nan')))}, 'slot_s'),
+        ('slot_s is negative', {'run': tweak(lambda r: r['dc'].update(slot_s=-5))}, 'slot_s'),
+        ('scene_wait is "two"', {'run': tweak(lambda r: r['state'].update(scene_wait='two'))}, 'scene_wait'),
+        ('scene_wait is NaN', {'run': tweak(lambda r: r['state'].update(scene_wait=float('nan')))}, 'scene_wait'),
+        ('dc is gone', {'run': tweak(lambda r: r.pop('dc'))}, 'DirectorRefused'),
+        # ---- apply_cameras handing back something else than it was given
+        ('apply_cameras moves a fixed camera', {'apply_cameras': lambda cams, dc, sc: dict(real['apply_cameras'](cams, dc, sc),
+                                                                                         town=dict(cams['town'], x=999))}, 'town'),
+        ('apply_cameras loses a fixed camera', {'apply_cameras': lambda cams, dc, sc: {k: v for k, v in real['apply_cameras'](
+            cams, dc, sc).items() if k != 'grounds'}}, 'added or lost'),
+        ('apply_cameras returns None', {'apply_cameras': lambda cams, dc, sc: None}, 'added or lost'),
+        ('summary cannot be written as JSON', {'summary': lambda res: {'ms': float('nan')}}, 'ValueError'),
+    ]
+    for what, patch, expect in faults:
+        root, cfg = slot_root()
+        try:
+            try:
+                with swap(D, **patch):
+                    shot, hb = run_slot(M, cfg)
+            except Exception as e:
+                t.fail(f'{what}: the director took the slot down: {type(e).__name__}: {e}')
+            fenced(t, M, what, shot, hb, off, root, expect)
+        finally:
+            shutil.rmtree(root)
+    t.assertEqual(len(faults), 35, 'denominator: 35 injected faults')
+    # ---- tl_director.py is not there to import; a tl.conf setting the plan cannot use
+    for what, extra, module, expect in (('tl_director cannot be imported', None, None, 'Error'),
+                                        ('director.overdue_n is "often"', {'overdue_n': 'often'}, 'under test', 'ValueError'),
+                                        ('director.scene_wait_slots is a list', {'scene_wait_slots': [2]}, 'under test', 'TypeError'),
+                                        ('director.weights is a word', {'weights': 'heavy'}, 'under test', 'Error'),
+                                        ('director.scene_camera is a number', {'scene_camera': 5}, 'under test', 'Error'),
+                                        ('director.tail_bytes is a word', {'tail_bytes': 'all'}, 'under test', 'Error')):
+        root, cfg = slot_root(extra)
+        try:
+            try:
+                shot, hb = run_slot(M, cfg, module=module)
+            except Exception as e:
+                t.fail(f'{what}: the director took the slot down: {type(e).__name__}: {e}')
+            fenced(t, M, what, shot, hb, off, root, expect)
+        finally:
+            shutil.rmtree(root)
+    # ---- AFTER the capture (the frames are on disk; the plan cannot be taken back): the slot still closes
+    for what, patch in (('tl_director.finish raises', {'finish': boom}),
+                        ('finish returns, the state cannot be saved', {'save_state': boom})):
+        root, cfg = slot_root()
+        try:
+            try:
+                with swap(D, **(patch if 'finish' in patch else {'finish': lambda *a, **k: (_ for _ in ()).throw(OSError('no space'))})):
+                    shot, hb = run_slot(M, cfg)
+            except Exception as e:
+                t.fail(f'{what}: the director took the slot down: {type(e).__name__}: {e}')
+            t.assertTrue({'topdown', 'angled', 'town'} <= set(shot), f'{what}: the pair and the fixed camera are shot')
+            t.assertTrue(hb['ok'] and isinstance(hb.get('director_error'), str), what)
+            t.assertTrue(jload(os.path.join(root, 'logs', 'views.json')).get('town', {}).get('last'), 'the slot\'s own state is saved')
+        finally:
+            shutil.rmtree(root)
+    # positive control: nothing injected -> the director's plan, no director_error
+    root, cfg = slot_root()
+    try:
+        shot, hb = run_slot(M, cfg)
+        t.assertEqual(([v.split('-')[0] for v in shot], 'director_error' in hb), (['topdown', 'angled', 'scene', 'scene', 'town'], False))
+    finally:
+        shutil.rmtree(root)
+
+
+CORRUPT_STATES = [                     # (what, the bytes of logs/scenes.json or None for a directory in its place)
+    ('cam_s is the string "broken" (Codex r3)', b'{"cam_s": "broken"}'),
+    ('cam_s is NaN', b'{"cam_s": NaN}'),
+    ('cam_s is 1e999', b'{"cam_s": 1e999}'),
+    ('cam_s is negative', b'{"cam_s": -3}'),
+    ('cam_s is true', b'{"cam_s": true}'),
+    ('cam_s is a week', b'{"cam_s": 604800}'),
+    ('scene_wait is a string', b'{"scene_wait": "2"}'),
+    ('scene_wait is 2.5', b'{"scene_wait": 2.5}'),
+    ('scene_wait is a 400-digit number', b'{"scene_wait": ' + b'9' * 400 + b'}'),
+    ('t is a number', b'{"t": 5}'),
+    ('scenes is an object', b'{"scenes": {"a": 1}}'),
+    ('a scene is a number', b'{"scenes": [5]}'),
+    ('a scene id is a number', b'{"scenes": [{"id": 5}]}'),
+    ('a scene id is a path', b'{"scenes": [{"id": "../../etc", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 70]}]}'),
+    ('a scene box is text', b'{"scenes": [{"id": "sx", "layer": "surface", "box": "0,0,9,9", "y": [64, 70]}]}'),
+    ('a scene box holds NaN', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, NaN, 9], "y": [64, 70]}]}'),
+    ('a scene box is beyond the world', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 1e15, 9], "y": [64, 70]}]}'),
+    ('a scene box is inside out', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [9, 0, 0, 9], "y": [64, 70]}]}'),
+    ('a scene y is 1e30', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 1e30]}]}'),
+    ('a scene layer is unknown', b'{"scenes": [{"id": "sx", "layer": "sky", "box": [0, 0, 9, 9], "y": [64, 70]}]}'),
+    ('a scene score is Infinity', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 70], "score": Infinity}]}'),
+    ('a scene score is text', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 70], "score": "9"}]}'),
+    ('a scene bots is a number', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 70], "bots": 3}]}'),
+    ('a scene caption is a list', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 70], "caption": [1]}]}'),
+    ('a scene time is nonsense', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 70], "last_active": "soon"}]}'),
+    ('a scene cells is text', b'{"scenes": [{"id": "sx", "layer": "surface", "box": [0, 0, 9, 9], "y": [64, 70], "cells": "0,0"}]}'),
+    ('the tracker is a list', b'{"bots": [1, 2]}'),
+    ('a tracker position is text', b'{"bots": {"Alpha": {"pos": "here", "since": 1, "last": 2}}}'),
+    ('seen is a number', b'{"seen": 9}'),
+    ('the file is a list', b'[]'),
+    ('the file is a string', b'"scenes"'),
+    ('the file is null', b'null'),
+    ('truncated JSON', b'{"scenes": [{"id": "s2026'),
+    ('an empty file', b''),
+    ('binary junk', bytes(range(256))),
+    ('a directory in its place', None),
+]
+
+
+def check_a_corrupt_state_file_never_reaches_the_slot(t, M):
+    """logs/scenes.json holding anything at all: the slot is the director-off slot, the heartbeat says so once, the
+    file is rewritten clean by the same pass, and the NEXT slot is an ordinary director slot."""
+    D = M['D']
+    off = off_shot(M)
+    for what, content in CORRUPT_STATES:
+        root, cfg = slot_root()
+        path = os.path.join(root, 'logs', 'scenes.json')
+        try:
+            if content is None:
+                os.makedirs(path)
+            else:
+                with open(path, 'wb') as f:
+                    f.write(content)
+            try:
+                shot, hb = run_slot(M, cfg)
+            except Exception as e:
+                t.fail(f'{what}: a corrupt scenes.json took the slot down: {type(e).__name__}: {e}')
+            fenced(t, M, what, shot, hb, off, root, None if content is None else 'scenes.json')
+            if content is None:
+                continue                     # a directory cannot be rewritten: the error stays until someone removes it
+            state, problems = D.read_state(cfg)
+            t.assertEqual(problems, [], f'{what}: the pass rewrote the file clean')
+            t.assertTrue(state['scenes'], f'{what}: and the clean state holds this slot\'s scenes')
+            shot2, hb2 = run_slot(M, cfg, NOW + dt.timedelta(minutes=15), '20261116T1300Z')
+            t.assertTrue(any(v.startswith('scene-') for v in shot2) and 'director_error' not in hb2,
+                         f'{what}: the next slot is an ordinary director slot ({shot2}, {hb2.get("director_error")})')
+        finally:
+            shutil.rmtree(root)
+    t.assertEqual(len(CORRUPT_STATES), 36, 'denominator: 36 corrupt states')
+    # ---- the hand-off file and the day log are WRITTEN, never read back: junk in them is simply replaced ...
+    for what, content in (('wrong types', b'{"scenes": 5, "t": []}'), ('NaN', b'{"scenes": [{"score": NaN}]}'),
+                          ('truncated JSON', b'{"scenes": [{"id"'), ('an empty file', b'')):
+        root, cfg = slot_root()
+        try:
+            with open(os.path.join(root, 'logs', 'scenes-slot.json'), 'wb') as f:
+                f.write(content)
+            with open(os.path.join(root, 'logs', f'scenes-{DAY}.jsonl'), 'wb') as f:
+                f.write(content + b'\n')
+            shot, hb = run_slot(M, cfg)
+            t.assertTrue(any(v.startswith('scene-') for v in shot) and 'director_error' not in hb, f'scenes-slot.json {what}')
+            slot, problems = D.clean_slot(jload(os.path.join(root, 'logs', 'scenes-slot.json')))
+            t.assertEqual((problems, len(slot['scenes'])), ([], 3), f'scenes-slot.json {what}: rewritten whole')
+        finally:
+            shutil.rmtree(root)
+    # ... and a directory in the place of either cannot be written: the slot is the director-off slot
+    for name in ('scenes-slot.json', f'scenes-{DAY}.jsonl'):
+        root, cfg = slot_root()
+        try:
+            os.makedirs(os.path.join(root, 'logs', name))
+            try:
+                shot, hb = run_slot(M, cfg)
+            except Exception as e:
+                t.fail(f'a directory in the place of {name} took the slot down: {type(e).__name__}: {e}')
+            fenced(t, M, f'a directory in the place of {name}', shot, hb, off, root, 'Error')
+        finally:
+            shutil.rmtree(root)
+
+
+def check_what_is_read_back_is_checked(t, M):
+    """clean_state / clean_scene / clean_slot: every persisted value is a finite number in its range, the right type,
+    a time that parses -- or it is reset / dropped, and the problem is named."""
+    D, TL = M['D'], M['TL']
+    num = D._num
+    t.assertEqual([num(v, 0, 10) for v in (5, 5.5, 0, 10)], [5, 5.5, 0, 10])
+    t.assertEqual([num(v, 0, 10) for v in (True, '5', None, [5], float('nan'), float('inf'), -1, 11, 10 ** 400)], [None] * 9,
+                  'a bool, text, null, a list, NaN, Infinity, out of range, a number too big for a float')
+    good = {'id': 'sx', 'layer': 'surface', 'kind': 'activity', 'box': [0, 0, 9, 9], 'y': [64, 70], 'g': 66, 'score': 12.5,
+            'fresh': 3, 'peak': 20, 'shots': 2, 'bots': ['Alpha'], 'cells': [[0, 0]], 'caption': '1 bot building', 'project': None,
+            'skill': 'build', 'opened': '2026-11-16T12:00:00Z', 'last_active': '2026-11-16T12:30:00Z', 'until': None,
+            'last_shot': None, 'active': True}
+    bad = []
+    t.assertEqual((D.clean_scene(dict(good, extra='x'), bad), bad), (good, []), 'a sound scene comes back as it was; unknown keys go')
+    for what, change, kept in (('score', {'score': float('nan')}, {'score': 0}), ('score', {'score': -1}, {'score': 0}),
+                               ('peak', {'peak': 1e300}, {'peak': 0}), ('shots', {'shots': 1.5}, {'shots': 0}),
+                               ('g', {'g': 'high'}, {'g': 67}), ('bots', {'bots': ['Alpha', 7]}, {'bots': []}),
+                               ('bots', {'bots': 'Alpha'}, {'bots': []}), ('cells', {'cells': [[0]]}, {'cells': []}),
+                               ('cells', {'cells': [[0, 0.5]]}, {'cells': []}), ('caption', {'caption': 5}, {'caption': ''}),
+                               ('caption', {'caption': 'x' * 500}, {'caption': ''}), ('skill', {'skill': 5}, {'skill': None}),
+                               ('until', {'until': 'later'}, {'until': None}), ('opened', {'opened': 20261116}, {'opened': None}),
+                               ('active', {'active': 'yes'}, {'active': False})):
+        bad = []
+        got = D.clean_scene(dict(good, **change), bad)
+        t.assertEqual((got, len(bad), what in bad[0] if bad else None), (dict(good, **kept), 1, True), f'{change}: reset and named')
+    for change in ({'id': 'a/b'}, {'id': ''}, {'id': 5}, {'layer': 'sky'}, {'kind': 'party'}, {'box': [0, 0, 4e7, 9]}, {'box': [0, 0, 9]},
+                   {'box': [9, 0, 0, 9]}, {'box': [0, 0, '9', 9]}, {'y': [70, 64]}, {'y': [64, float('inf')]}, {'y': None}):
+        bad = []
+        t.assertEqual((D.clean_scene(dict(good, **change), bad), len(bad)), (None, 1), f'{change}: a scene that cannot be placed is dropped')
+    t.assertEqual(D.clean_scene({k: good[k] for k in ('id', 'layer', 'box', 'y')}, bad := []),
+                  dict(good, kind='activity', g=67, score=0, fresh=0, peak=0, shots=0, bots=[], cells=[], caption='', skill=None,
+                       opened=None, last_active=None, active=False), 'missing optional values take their defaults ...')
+    t.assertEqual(bad, [], '... silently: a state written by an older version is not corrupt')
+    # the whole state
+    sound = {'t': '2026-11-16T12:45:00Z', 'cam_s': 31.0, 'scene_wait': 1, 'seen': ['death:Juno:5'], 'scenes': [good],
+             'bots': {'Kite': {'pos': [1, 64, 2.5], 'since': 1794830000.0, 'last': 1794832000.0}}}
+    t.assertEqual(D.clean_state(dict(sound, v=1, unknown=5)), (sound, []), 'a sound state: unchanged, no problem')
+    t.assertEqual(D.clean_state({}), ({'t': None, 'cam_s': None, 'scene_wait': 0, 'seen': [], 'scenes': [], 'bots': {}}, []))
+    for change, key, value in (({'cam_s': 'broken'}, 'cam_s', None), ({'cam_s': float('nan')}, 'cam_s', None), ({'cam_s': 0}, 'cam_s', None),
+                               ({'cam_s': 601}, 'cam_s', None), ({'cam_s': True}, 'cam_s', None),
+                               ({'scene_wait': -1}, 'scene_wait', 0), ({'scene_wait': '3'}, 'scene_wait', 0),
+                               ({'scene_wait': 1.5}, 'scene_wait', 0), ({'t': 'now'}, 't', None), ({'seen': [1]}, 'seen', []),
+                               ({'seen': 'x'}, 'seen', []), ({'scenes': 'x'}, 'scenes', []), ({'scenes': [good, good]}, 'scenes', [good]),
+                               ({'scenes': [good, 5]}, 'scenes', [good]), ({'bots': 5}, 'bots', {}),
+                               ({'bots': {'Kite': {'pos': [1, 2], 'since': 1, 'last': 2}}}, 'bots', {}),
+                               ({'bots': {'Kite': {'pos': [1, 2, 3], 'since': 'x', 'last': 2}}}, 'bots', {}),
+                               ({'bots': {'Kite': 7}}, 'bots', {})):
+        state, problems = D.clean_state(dict(sound, **change))
+        t.assertEqual((state[key], len(problems)), (value, 1), f'{change}: reset to its default and named ({problems})')
+        t.assertEqual({k: v for k, v in state.items() if k != key}, {k: v for k, v in sound.items() if k != key}, 'the rest is kept')
+    for raw in ([], 'x', 5, None):
+        t.assertEqual(D.clean_state(raw), ({}, ['scenes.json is not an object']))
+    # what a real pass writes reads back with no problem, and as it was written (no rule rejects the director's own output)
+    root, cfg = slot_root()
+    try:
+        run_slot(M, cfg)
+        raw = jload(os.path.join(root, 'logs', 'scenes.json'))
+        state, problems = D.clean_state(raw)
+        t.assertEqual(problems, [])
+        t.assertEqual({k: v for k, v in state.items() if k != 'scenes'}, {k: v for k, v in raw.items() if k not in ('v', 'scenes')})
+        for r, c in zip(raw['scenes'], state['scenes']):
+            t.assertEqual(c, dict(r, until=r.get('until')), 'every scene as it was written (+ an explicit until)')
+        t.assertEqual(D.clean_state(state), (state, []), 'and checking it again changes nothing')
+        t.assertEqual((len(state['scenes']), state['cam_s'], len(state['bots'])), (3, 31.0, 5), 'positive control: a full state')
+        slot_raw = jload(os.path.join(root, 'logs', 'scenes-slot.json'))
+        t.assertEqual(D.clean_slot(slot_raw), (slot_raw, []), 'and so does the hand-off file, trails included')
+        os.remove(os.path.join(root, 'logs', 'scenes.json'))
+        t.assertEqual(D.read_state(cfg), ({}, []), 'no file yet (the first slot ever) is not a problem')
+    finally:
+        shutil.rmtree(root)
+    with tempfile.TemporaryDirectory(prefix='camdir-w-') as d:
+        with t.assertRaises(ValueError, msg='a NaN is never written to disk'):
+            D._write(os.path.join(d, 'x.json'), {'cam_s': float('nan')})
+        t.assertFalse(os.path.exists(os.path.join(d, 'x.json')))
+    # only a sane measured cost is remembered
+    base = {'scenes': [{'id': 'sa', 'shots': 0}]}
+    t.assertEqual([D.note_shots(base, {'sa': v}, TNOW).get('cam_s') for v in (30.0, float('nan'), -1, 1e9, 'x', None)],
+                  [30.0, None, None, None, None, None])
+    # the reader's check of the hand-off
+    trail = {'Delta': [['2026-11-16T12:44:50Z', 1, 2, 3, 'mine'], ['x', 1, 2, 3, 'mine'], ['2026-11-16T12:44:50Z', float('nan'), 2, 3, 'mine'],
+                       [1, 2], 'row'], 'Other': [['2026-11-16T12:44:50Z', 1, 2, 3, 'mine']]}
+    deep = dict(good, id='dx', layer='deep', bots=['Delta'], trail=trail)
+    slot, problems = D.clean_slot({'v': 1, 't': '2026-11-16T12:45:00Z', 'stamp': STAMP, 'window_min': 45, 'scenes': [deep, 5, good]})
+    t.assertEqual([x['id'] for x in slot['scenes']], ['dx', 'sx'])
+    t.assertEqual((slot['scenes'][0]['trail'], slot['scenes'][0]['camera'], slot['scenes'][1]['camera'], 'trail' in slot['scenes'][1]),
+                  ({'Delta': [['2026-11-16T12:44:50Z', 1, 2, 3, 'mine']]}, None, 'scene-sx', False),
+                  'only well-formed samples of the scene\'s own bots')
+    t.assertEqual(len(problems), 2, problems)
+    for raw in ([], None, 'x'):
+        t.assertEqual(D.clean_slot(raw)[0]['scenes'], [])
+    t.assertEqual(D.clean_slot({'stamp': '../x', 't': 5, 'window_min': 'x', 'scenes': 'x'})[0],
+                  {'v': 1, 't': None, 'stamp': None, 'window_min': None, 'scenes': []})
+    # a scene camera is used only if the slot can use every value of it
+    dc, (sc, order) = scene_cams(D, TL, 1)
+    cfg_ = {'web': 'http://x', 'map_id': 'm', 'width': 1920, 'height': 1080}
+    TL.check_scene_camera(cfg_, order[0], sc[order[0]])                      # a real one passes
+    for change in ({'est_s': 'broken'}, {'est_s': 0}, {'x': None}, {'z': float('inf')}, {'y': 1e6}, {'distance': 0}, {'rotation': 'east'},
+                   {'angle': float('nan')}, {'fov': 0}, {'height': 5}, {'settle_ms': -1}, {'ortho': 2}, {'mode': 'vr'}, {'label': 5},
+                   {'heavy': True}, {'scene': None}, {'scene': dict(sc[order[0]]['scene'], id='other')},
+                   {'scene': dict(sc[order[0]]['scene'], caption=None)}, {'scene': dict(sc[order[0]]['scene'], bots=['A', 5])}):
+        with t.assertRaises(TL.DirectorRefused, msg=str(change)):
+            TL.check_scene_camera(cfg_, order[0], dict(sc[order[0]], **change))
+    for name in ('angled', 'scene-', 'scene-a/b', 'scene-' + 'x' * 50, 5):
+        with t.assertRaises(TL.DirectorRefused, msg=str(name)):
+            TL.check_scene_camera(cfg_, name, sc[order[0]])
+
+
+def check_the_videos_do_not_trust_the_day_log(t, M):
+    TV = M['TV']
+    rows = [{'stamp': '20261116T0900Z', 'scenes': [{'id': SA, 'score': 'broken', 'caption': 5, 'bots': 7},
+                                                   {'id': SB, 'score': float('nan'), 'bots': ['Onyx', 3]},
+                                                   {'id': 12, 'score': 5}, {'id': [1], 'score': 5}, 'row', {'score': 5}]},
+            {'stamp': 5, 'scenes': [{'id': SA, 'score': 40, 'caption': 'two bots', 'bots': ['Delta']}, {'id': SB, 'score': float('inf')}]}]
+    try:
+        got = TV.day_scenes({'scene-' + SA: ['20261116T0900Z'], 'under-' + SB: ['20261116T0900Z']}, rows,
+                            lambda v, s: {'score': 'x', 'bots': 'Echo', 'caption': 9})
+    except Exception as e:
+        t.fail(f'a corrupt day log stopped the scene videos: {type(e).__name__}: {e}')
+    t.assertEqual([(s['id'], s['score'], s['caption'], s['bots']) for s in got], [(SA, 40.0, 'two bots', ['Delta']), (SB, 0.0, '', ['Onyx'])],
+                  'a score that is no finite number counts 0; bots that are no list of names are no names; an id that is no text is skipped')
+    t.assertEqual(got[0]['by_stamp'], {'20261116T0900Z': {'caption': '', 'bots': []}})
+    t.assertEqual((TV.bots_line(5), TV.bots_line('Echo'), TV.bots_line(['A', 3, 'B'])), ('', '', 'A, B'))
+    try:
+        caps = TV.scene_captions(got[0], ['20261116T0900Z', '20261116T0915Z'], lambda v, s: ['not', 'an', 'object'])
+    except Exception as e:
+        t.fail(f'a sidecar that is no object stopped the scene captions: {type(e).__name__}: {e}')
+    t.assertEqual(caps,
+                  [['two bots', 'Delta'], ['two bots', 'Delta']], 'a sidecar that is no object is no sidecar: the scene\'s own lines')
+    nolog = TV.day_scenes({'scene-' + SA: ['20261116T0900Z']}, [], lambda v, s: {'score': 'x', 'bots': 'Echo', 'caption': 9, 'layer': 4})
+    t.assertEqual([(s['score'], s['caption'], s['bots'], s['layer']) for s in nolog], [(0.0, '', [], 'surface')])
+    t.assertEqual([TV._score(v) for v in (5, 2.5, True, '5', None, float('nan'), float('inf'), -1)], [5.0, 2.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    d = tempfile.mkdtemp(prefix='camdir-side-')
+    try:
+        os.makedirs(os.path.join(d, 'frames', 'scene-x', '20261116'))
+        base = os.path.join(d, 'frames', 'scene-x', '20261116', '20261116T0900Z')
+        with swap(TV, ROOT=d):
+            for content, want in (('{"caption": "ok"}', {'caption': 'ok'}), ('[1, 2]', None), ('"text"', None), ('{"cap', None), ('', None)):
+                with open(base + '.json', 'w') as f:
+                    f.write(content)
+                t.assertEqual(TV.frame_side('scene-x', '20261116T0900Z'), want, f'sidecar {content!r}')
+            t.assertEqual(TV.stamp_text('scene-x', '20261116T0900Z', TV.frame_side('scene-x', '20261116T0900Z')),
+                          'showcase scene-x  2026-11-16 09\\:00 UTC')
+    finally:
+        shutil.rmtree(d)
 
 
 def check_director_off_plans_exactly_as_before(t, M):
@@ -1423,10 +1814,17 @@ def check_director_off_plans_exactly_as_before(t, M):
     t.assertFalse(TL.director_on({'director': {'on': False, 'idle_only': ['town']}}))
     t.assertFalse(TL.director_on({'director': {}}), 'only an explicit on: true')
     t.assertTrue(TL.director_on({'director': {'on': True}}))
-    cams = {'town': {'x': 1}}
+    pcfg, pstate, pprog = plan_cfg()
     had = sys.modules.pop('tl_director', None)
-    got = TL.director_slot({'director': {'on': False}}, cams, NOW, {})
-    t.assertTrue(got[0] is cams and got[1:] == ((), None, None, None), 'the cameras untouched, nothing first, no ceiling')
+    for dconf_ in (None, {'on': False}, {'on': False, 'overdue_n': 'not a number', 'scene_wait_slots': [], 'weights': 7}):
+        cfg_ = dict(pcfg, **({'director': dconf_} if dconf_ is not None else {}))
+        try:
+            got = TL.slot_plan(cfg_, pstate, NOW, pprog, {}, 690, lambda: 0.0, TL.VIEWS)
+        except Exception as e:
+            t.fail(f'a director setting broke a slot with the director off: {type(e).__name__}: {e}')
+        t.assertEqual((got['views'], got['why'], got['deferred']), TL.plan_views(pcfg, pstate, NOW, pprog, 690, 0.0),
+                      f'{dconf_}: resolve_cameras + plan_views, nothing else')
+        t.assertEqual((got['cams'], got['director'], got['summary'], got['director_error']), (pcfg['cameras'], None, None, None))
     t.assertNotIn('tl_director', sys.modules, 'tl_director.py is not even imported')
     if had is not None:
         sys.modules['tl_director'] = had
@@ -1601,6 +1999,18 @@ class DirectorInTheSlot(unittest.TestCase):
 
     def test_underground_scenes_carry_their_bots_trail(self):
         check_underground_scenes_carry_their_bots_trail(self, REAL)
+
+    def test_every_director_entry_point_is_fenced(self):
+        check_every_director_entry_point_is_fenced(self, REAL)
+
+    def test_a_corrupt_state_file_never_reaches_the_slot(self):
+        check_a_corrupt_state_file_never_reaches_the_slot(self, REAL)
+
+    def test_what_is_read_back_is_checked(self):
+        check_what_is_read_back_is_checked(self, REAL)
+
+    def test_the_videos_do_not_trust_the_day_log(self):
+        check_the_videos_do_not_trust_the_day_log(self, REAL)
 
     def test_a_failing_director_costs_the_slot_nothing(self):
         check_a_failing_director_costs_the_slot_nothing(self, REAL)
@@ -2253,54 +2663,45 @@ MUTANTS = [
      'check_director_off_plans_exactly_as_before'),
     ('tl_showcase.py', "    return bool(((cfg or {}).get('director') or {}).get('on'))", "    return bool((cfg or {}).get('director'))",
      'check_director_off_plans_exactly_as_before'),
-    ('tl_showcase.py', "    if not director_on(cfg):\n        return cams, (), None, None, None", "    if False:\n        return cams, (), None, None, None",
+    ('tl_showcase.py', "    if not director_on(cfg):\n        return without_director()", "    if False:\n        return without_director()",
      'check_director_off_plans_exactly_as_before'),
-    ('tl_showcase.py', "    except Exception as e:\n        return cams, (), None, None, {'error'", "    except ZeroDivisionError as e:\n        return cams, (), None, None, {'error'",
-     'check_a_failing_director_costs_the_slot_nothing'),
-    ('tl_showcase.py', "    if res.get('error'):\n        return {'error': res['error']}", "    if res.get('error'):\n        return None",
-     'check_a_failing_director_costs_the_slot_nothing'),
-    ('tl_showcase.py', "                res['dc'].get('slot_s'), res)", "                None, res)", 'check_the_slot_ceiling_reaches_the_plan'),
-    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
-     "                                      first=first, first_budget_s=first_budget,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
-     'check_the_slot_ceiling_reaches_the_plan'),
+    ('tl_showcase.py', "slot_s=limits['slot_s'],", "slot_s=None,", 'check_the_slot_ceiling_reaches_the_plan'),
     ('tl_showcase.py', "    if first:                       # the director's scene cameras", "    if True:                       # the director's scene cameras",
      'check_the_slot_ceiling_reaches_the_plan'),
     ('tl_showcase.py', "    return min(float(budget_s), float(slot_s)) if slot_s else budget_s", "    return budget_s",
      'check_the_template_day_costs_no_more'),
-    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
-     "                                      first=(), first_budget_s=first_budget, slot_s=slot_s,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
+    ('tl_showcase.py', "first=tuple(first), first_budget_s=limits['scene_budget_s']", "first=(), first_budget_s=limits['scene_budget_s']",
      'check_a_whole_slot_with_the_director_on'),
     ('tl_showcase.py', "    for v in [k for k in state if k.startswith('scene-') and k not in cams]:", "    for v in []:",
      'check_a_whole_slot_with_the_director_on'),
-    ('tl_showcase.py', "        D.finish(cfg, res, shots, now)", "        D.finish(cfg, res, {}, now)", 'check_a_whole_slot_with_the_director_on'),
-    ('tl_showcase.py', "    except Exception as e:              # the frames are published", "    except ZeroDivisionError as e:              # the frames are published",
-     'check_a_failing_director_costs_the_slot_nothing'),
+    ('tl_showcase.py', "        D.finish(cfg, plan['director'], shots, now)", "        D.finish(cfg, plan['director'], {}, now)",
+     'check_a_whole_slot_with_the_director_on'),
     ('tl_showcase.py', "    if drow is not None:\n        row['director'] = drow", "    if False:\n        row['director'] = drow",
      'check_a_whole_slot_with_the_director_on'),
-    ('tl_showcase.py', "        res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)",
-     "        res = D.run(cfg, now, sites, stamp=None, frame=follow_camera, write=write)", 'check_a_whole_slot_with_the_director_on'),
+    ('tl_showcase.py', "    res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)",
+     "    res = D.run(cfg, now, sites, stamp=None, frame=follow_camera, write=write)", 'check_a_whole_slot_with_the_director_on'),
     # ---- part 3: the scene videos and the progress clip (tl_video.py)
     ('tl_video.py', "             if not x.startswith('.') and not is_scene_view(x) and os.path.isdir(os.path.join(d, x))]",
      "             if not x.startswith('.') and os.path.isdir(os.path.join(d, x))]", 'check_scene_directories_are_not_cameras'),
     ('tl_video.py', "    return str(name).startswith(SCENE_PREFIXES)", "    return str(name).startswith('scene-')",
      'check_scene_directories_are_not_cameras'),
-    ('tl_video.py', "            a['score'] += float(sc.get('score') or 0)", "            a['score'] = float(sc.get('score') or 0)",
+    ('tl_video.py', "            a['score'] += _score(sc.get('score'))", "            a['score'] = _score(sc.get('score'))",
      'check_the_days_scenes_are_ranked_by_score'),
-    ('tl_video.py', "            if a['best'] is None or float(sc.get('score') or 0) > float(a['best'].get('score') or 0):",
+    ('tl_video.py', "            if a['best'] is None or _score(sc.get('score')) > _score(a['best'].get('score')):",
      "            if True:", 'check_the_days_scenes_are_ranked_by_score'),
     ('tl_video.py', "    return sorted(out, key=lambda s: (-s['score'], s['id']))", "    return sorted(out, key=lambda s: s['id'])",
      'check_the_days_scenes_are_ranked_by_score'),
-    ('tl_video.py', "            score, slots, by_stamp = sum(float(x.get('score') or 0) for x in sides), len(sides), {}",
+    ('tl_video.py', "            score, slots, by_stamp = sum(_score(x.get('score')) for x in sides), len(sides), {}",
      "            score, slots, by_stamp = 0.0, len(sides), {}", 'check_the_days_scenes_are_ranked_by_score'),
     ('tl_video.py', "        if not stamps or not sid:\n            continue", "        if not sid:\n            continue",
      'check_the_days_scenes_are_ranked_by_score'),
     ('tl_video.py', "            if isinstance(r, dict) and isinstance(r.get('scenes'), list):", "            if True:",
      'check_the_days_scenes_are_ranked_by_score'),
-    ('tl_video.py', "        cap = side.get('caption') or slot.get('caption') or scene.get('caption')",
+    ('tl_video.py', "        cap = _words(side.get('caption')) or slot.get('caption') or scene.get('caption')",
      "        cap = slot.get('caption') or scene.get('caption')", 'check_each_frame_carries_its_own_caption_and_bots'),
-    ('tl_video.py', "        cap = side.get('caption') or slot.get('caption') or scene.get('caption')",
-     "        cap = side.get('caption') or scene.get('caption')", 'check_each_frame_carries_its_own_caption_and_bots'),
-    ('tl_video.py', "        bots = side.get('bots') or slot.get('bots') or scene.get('bots')", "        bots = scene.get('bots')",
+    ('tl_video.py', "        cap = _words(side.get('caption')) or slot.get('caption') or scene.get('caption')",
+     "        cap = _words(side.get('caption')) or scene.get('caption')", 'check_each_frame_carries_its_own_caption_and_bots'),
+    ('tl_video.py', "        bots = _names(side.get('bots')) or slot.get('bots') or scene.get('bots')", "        bots = scene.get('bots')",
      'check_each_frame_carries_its_own_caption_and_bots'),
     ('tl_video.py', "(f' +{len(bots) - shown}' if len(bots) > shown else '')", "''", 'check_each_frame_carries_its_own_caption_and_bots'),
     ('tl_video.py', "        out.append([x for x in (caption_line(cap), caption_line(bots_line(bots))) if x])",
@@ -2375,11 +2776,11 @@ MUTANTS = [
     ('tl_video.py', "                     captions_for=lambda kept: progress_captions(kept, day0, counts))", "                     )",
      'check_the_progress_job'),
     # ---- Codex r1: no fixed camera starves behind the scene cameras (tl_showcase.plan_views)
-    ('tl_showcase.py', "            if age + 2 >= owed_n * iv:\n", "            if False:\n",
+    ('tl_showcase.py', "            if first and age + 2 >= owed_n * iv:\n", "            if False:\n",
      'check_no_fixed_camera_starves_behind_the_scene_cameras'),
-    ('tl_showcase.py', "            if age + 2 >= owed_n * iv:\n", "            if age >= owed_n * iv:\n",
+    ('tl_showcase.py', "            if first and age + 2 >= owed_n * iv:\n", "            if first and age >= owed_n * iv:\n",
      'check_no_fixed_camera_starves_behind_the_scene_cameras'),
-    ('tl_showcase.py', "            if age + 2 >= owed_n * iv:\n", "            if True:\n",
+    ('tl_showcase.py', "            if first and age + 2 >= owed_n * iv:\n", "            if first:\n",
      'check_no_fixed_camera_starves_behind_the_scene_cameras'),
     ('tl_showcase.py', "DEFAULT_OVERDUE_N = 2.0 ", "DEFAULT_OVERDUE_N = 3.0 ", 'check_no_fixed_camera_starves_behind_the_scene_cameras'),
     ('tl_showcase.py', "    owed_n = float((cfg.get('director') or {}).get('overdue_n') or DEFAULT_OVERDUE_N)", "    owed_n = DEFAULT_OVERDUE_N",
@@ -2452,14 +2853,109 @@ MUTANTS = [
      "        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if wanted else 0", 'check_owed_cameras_do_not_starve_the_scenes'),
     ('tl_director.py', "        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if wanted and not shots else 0",
      "        out['scene_wait'] = 1 if wanted and not shots else 0", 'check_owed_cameras_do_not_starve_the_scenes'),
-    ('tl_showcase.py', "        return int(((res or {}).get('state') or {}).get('scene_wait') or 0)", "        return 0",
-     'check_owed_cameras_do_not_starve_the_scenes'),
-    ('tl_showcase.py', "                                      first_wait=scene_wait_of(dres))\n    est = {v:", "                                      )\n    est = {v:",
+    ('tl_showcase.py', "                                      first_wait=int(wait))", "                                      first_wait=0)",
      'check_the_scene_wait_count_through_the_wiring'),
     ('tl_director.py', "    state = note_shots(res['state'], shots, now, wanted=len(res['first']))", "    state = note_shots(res['state'], shots, now)",
      'check_the_scene_wait_count_through_the_wiring'),
-    ('tl_director.py', "cam_s=prev.get('cam_s'), scene_wait=int(prev.get('scene_wait') or 0))", "cam_s=prev.get('cam_s'))",
+    ('tl_director.py', "cam_s=prev.get('cam_s'), scene_wait=prev.get('scene_wait') or 0)", "cam_s=prev.get('cam_s'))",
      'check_the_scene_wait_count_through_the_wiring'),
+    # ---- Codex r3: the fence (tl_showcase.slot_plan / director_plan / director_done)
+    ('tl_showcase.py', "    except Exception as e:\n        return without_director(f'", "    except ZeroDivisionError as e:\n        return without_director(f'",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    except Exception as e:\n        return without_director(f'", "    except Exception as e:\n        return without_director(None and f'",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    except Exception as e:\n        return dict(plan.get('summary') or {}, shot=sorted(shots)), f'",
+     "    except ZeroDivisionError as e:\n        return dict(plan.get('summary') or {}, shot=sorted(shots)), f'",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    derr = plan['director_error'] or derr ", "    derr = derr ", 'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    if derr:\n        row['director_error'] = derr", "    if False:\n        row['director_error'] = derr",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    if not isinstance(res, dict) or not isinstance(res.get('dc'), dict):", "    if False:",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    if not isinstance(scene_cams, dict) or not isinstance(first, (list, tuple)) or sorted(first) != sorted(scene_cams):",
+     "    if False:", 'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    if not isinstance(dcams, dict) or set(dcams) != set(cams) | set(first):", "    if False:",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    for v in cams:                          # a fixed camera comes back", "    for v in []:                          # a fixed camera comes back",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    for v in first:\n        check_scene_camera(cfg, v, dcams[v])", "    for v in []:\n        check_scene_camera(cfg, v, dcams[v])",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "        if limits[k] is not None and not _finite(limits[k], 0, 86400):", "        if False:",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    if not _finite(wait, 0, 10 ** 6):", "    if False:", 'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "        if not _finite(cam.get(k), lo, hi):", "        if False:", 'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', " or cam.get('heavy')\n", "\n", 'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    json.dumps(summary, allow_nan=False)\n", "", 'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "        if not _finite(cam.get(k), lo, hi):", "        if cam.get(k) is None:", 'check_what_is_read_back_is_checked'),
+    ('tl_showcase.py', "or not isinstance(sc.get('caption'), str) or not isinstance(sc.get('bots'), list)", "or not isinstance(sc.get('bots'), list)",
+     'check_what_is_read_back_is_checked'),
+    ('tl_showcase.py', "    owed_n = float((cfg.get('director') or {}).get('overdue_n') or DEFAULT_OVERDUE_N) if first else None",
+     "    owed_n = float((cfg.get('director') or {}).get('overdue_n') or DEFAULT_OVERDUE_N)", 'check_director_off_plans_exactly_as_before'),
+    ('tl_showcase.py', "    if res.get('repaired'):\n", "    if False:\n", 'check_a_corrupt_state_file_never_reaches_the_slot'),
+    # ---- Codex r3: what is read back is checked (tl_director.clean_state / clean_scene / read_state)
+    ('tl_director.py', "    prev, repaired = read_state(cfg)", "    prev, repaired = read_state(cfg)[0], []",
+     'check_a_corrupt_state_file_never_reaches_the_slot'),
+    ('tl_director.py', "    if not isinstance(raw, dict):\n        return {}, ['scenes.json is not an object']", "    if False:\n        return {}, []",
+     'check_a_corrupt_state_file_never_reaches_the_slot'),
+    ('tl_director.py', "    except (OSError, ValueError) as e:\n        return {}, [f'scenes.json cannot be read", "    except ZeroDivisionError as e:\n        return {}, [f'scenes.json cannot be read",
+     'check_a_corrupt_state_file_never_reaches_the_slot'),
+    ('tl_director.py', "        return {}, [f'scenes.json cannot be read ({type(e).__name__}); started from an empty state']", "        return {}, []",
+     'check_a_corrupt_state_file_never_reaches_the_slot'),
+    ('tl_director.py', "        if ok:\n            out['bots'][name] = {'pos': list(pos), 'since': tr['since'], 'last': tr['last']}",
+     "        if isinstance(tr, dict) and isinstance(pos, (list, str)):\n            out['bots'][name] = {'pos': list(pos), 'since': tr.get('since'), 'last': tr.get('last')}",
+     'check_a_corrupt_state_file_never_reaches_the_slot'),
+    ('tl_director.py', "    take('cam_s', _num(raw.get('cam_s'), 0.001, CAM_S_MAX), None)", "    out['cam_s'] = raw.get('cam_s')",
+     'check_a_corrupt_state_file_never_reaches_the_slot'),
+    ('tl_director.py', "    take('cam_s', _num(raw.get('cam_s'), 0.001, CAM_S_MAX), None)", "    take('cam_s', _num(raw.get('cam_s'), 0.001, 1e12), None)",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    take('scene_wait', _int(raw.get('scene_wait'), 0, 10 ** 5), 0)", "    out['scene_wait'] = raw.get('scene_wait') or 0",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    return int(n) if n is not None and n == int(n) else None", "    return n", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    if isinstance(v, bool) or not isinstance(v, (int, float)):\n        return None", "    if not isinstance(v, (int, float)):\n        return None",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    except (OverflowError, ValueError):\n        return None", "    except ZeroDivisionError:\n        return None",
+     'check_a_corrupt_state_file_never_reaches_the_slot'),
+    ('tl_director.py', "    return v if isinstance(v, str) and len(v) <= 40 and epoch(v) is not None else None", "    return v if isinstance(v, str) else None",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    return v if isinstance(v, str) and len(v) <= cap else None", "    return v if isinstance(v, str) else None",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    if not (isinstance(sid, str) and RX_ID.fullmatch(sid)):", "    if not isinstance(sid, str):", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "              and box[0] <= box[2] and box[1] <= box[3])", "              )", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "all(_num(v, -COORD_MAX, COORD_MAX) is not None for v in box)", "True", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "and all(_num(v, *Y_RANGE) is not None for v in y) and y[0] <= y[1]", "and all(_num(v, *Y_RANGE) is not None for v in y)",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    if s.get('layer') not in LAYERS or s.get('kind', 'activity') not in KINDS or not ok_box or not ok_y:",
+     "    if not ok_box or not ok_y:", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    if s.get('layer') not in LAYERS or s.get('kind', 'activity') not in KINDS or not ok_box or not ok_y:",
+     "    if s.get('layer') not in LAYERS or s.get('kind', 'activity') not in KINDS or not ok_box:", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "        if value is None and present and s.get(key) is not None:\n            bad.append(", "        if False:\n            bad.append(",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "        take(k, _num(s.get(k), 0, SCORE_MAX), 0)", "        out[k] = s.get(k) or 0", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "if isinstance(bots, list) and all(_text(b, 40) for b in bots) else None, [])", "if isinstance(bots, list) else None, [])",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "        if c and c['id'] in ids:", "        if False:", 'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "        if value is None and raw.get(key) is not None:\n            bad.append(f'{key} is not usable; reset')", "        if False:\n            pass",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "    except FileNotFoundError:\n        return {}, []", "    except FileNotFoundError:\n        return {}, ['no scenes.json']",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "        if _num(sec, 0.001, CAM_S_MAX) is not None:       # what is written", "        if isinstance(sec, (int, float)) and sec > 0:       # what is written",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "sort_keys=True, allow_nan=False)      # never a NaN on disk", "sort_keys=True)      # never a NaN on disk",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "                good = [p for p in pts if isinstance(p, list) and len(p) == 5 and _time(p[0])", "                good = [p for p in pts if isinstance(p, list) and len(p) == 5",
+     'check_what_is_read_back_is_checked'),
+    ('tl_director.py', "            for b in c['bots']:\n                pts = trail.get(b)", "            for b in trail:\n                pts = trail.get(b)",
+     'check_what_is_read_back_is_checked'),
+    # ---- Codex r3: the videos do not trust the day log either (tl_video)
+    ('tl_video.py', "    ok = not isinstance(v, bool) and isinstance(v, (int, float)) and v == v and 0 <= v <= 1e9", "    ok = isinstance(v, (int, float)) and v == v",
+     'check_the_videos_do_not_trust_the_day_log'),
+    ('tl_video.py', "    return [b for b in v if isinstance(b, str)] if isinstance(v, list) else []", "    return list(v or ())",
+     'check_the_videos_do_not_trust_the_day_log'),
+    ('tl_video.py', "            if not isinstance(sc, dict) or not isinstance(sc.get('id'), str) or not sc['id']:", "            if not isinstance(sc, dict) or not sc.get('id'):",
+     'check_the_videos_do_not_trust_the_day_log'),
+    ('tl_video.py', "        side = side if isinstance(side, dict) else {}\n", "", 'check_the_videos_do_not_trust_the_day_log'),
+    ('tl_video.py', "            if isinstance(row.get('stamp'), str):", "            if row.get('stamp'):", 'check_the_videos_do_not_trust_the_day_log'),
+    ('tl_video.py', "    return side if isinstance(side, dict) else None", "    return side", 'check_the_videos_do_not_trust_the_day_log'),
 ]
 KEY = {fn: k for k, fn in FILES.items()}
 

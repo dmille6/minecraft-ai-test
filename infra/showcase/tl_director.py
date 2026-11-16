@@ -34,6 +34,10 @@ OPERATOR NOTE
               more than 60 min without a frame whatever the scenes do. Nor do the owed cameras starve the scenes:
               after director.scene_wait_slots (2) slots in a row with a scene live and no scene frame (scenes.json
               scene_wait counts them), one scene frame is set aside first -- at most 45 min between scene frames.
+  If it fails any exception from this file, any value of its that the slot cannot use, and a scenes.json that had to
+              be repaired (read_state: wrong types, NaN, a truncated file ...) are caught by tl_showcase.slot_plan:
+              the slot is planned and shot exactly as with the director off, and its heartbeat row says why once, in
+              `director_error`. A repaired scenes.json is rewritten clean by that same pass: the next slot is normal.
   Off switch  tl.conf "director": {"on": false} (or no `director` key at all): tl_showcase never imports this file
               and plans exactly the cameras it planned before (tested: test_director.py DirectorOff). Its three files
               then simply stop changing; delete them or leave them.
@@ -97,7 +101,8 @@ THE HAND-OFF FILE  logs/scenes-slot.json  (rewritten every slot; one JSON object
 
 Pure functions (tested in test_director.py, each rule with a mutant): layer_of, skill_class, parse_row, when,
 samples_of, changes_of, scene_project, caption_of, cluster, find_events, continuity, scene_rank, scene_cameras,
-apply_cameras, trail_of, slot_file, note_shots. I/O: read_tail, load_rows, run, finish.
+apply_cameras, trail_of, slot_file, note_shots, clean_scene, clean_state, clean_slot. I/O: read_tail, load_rows,
+read_state, run, finish.
 """
 import bisect
 import calendar
@@ -760,7 +765,7 @@ def note_shots(state, shots, now, w=0.4, wanted=None):
             s['shots'] = int(s.get('shots') or 0) + 1
             s['last_shot'] = iso(now)
     for sec in shots.values():
-        if isinstance(sec, (int, float)) and sec > 0:
+        if _num(sec, 0.001, CAM_S_MAX) is not None:       # what is written is what read_state accepts back
             old = out.get('cam_s')
             out['cam_s'] = round(sec if not old else (1 - w) * old + w * sec, 1)
     return out
@@ -771,18 +776,194 @@ def _path(cfg, name):
     return os.path.join(cfg['root'], 'logs', name)
 
 
-def load_state(cfg):
+# WHAT COMES BACK FROM DISK IS NOT TRUSTED (Codex r3, 11-16: a scenes.json holding {"cam_s": "broken"} reached the slot
+# plan as a camera's cost and crashed the capture). Every value the director reads back from its own files is checked
+# here before anything uses it: a number must be a real, finite number inside its sane range, a list / dict must be
+# one, a time must parse -- or the value goes back to its default (a scene that cannot be trusted is dropped whole)
+# and the PROBLEM IS NAMED. A file that cannot be read, is not JSON or is not an object is an empty state. Whatever
+# was repaired, the pass then runs on the clean state and rewrites the file clean; tl_showcase reports the problems
+# once (heartbeat `director_error`) and plans that one slot without the director.
+RX_ID = re.compile(r'[A-Za-z0-9]{1,40}')
+KINDS = ('activity', 'death', 'complete', 'moved')
+COORD_MAX = 30_000_000              # the world border
+Y_RANGE = (-2048, 4096)
+SCORE_MAX = 1e7
+CAM_S_MAX = 600.0                   # a frame that took longer than the slot's whole budget is not a cost estimate
+
+
+def _num(v, lo, hi):
+    """v when it is a real (not bool), finite number in [lo, hi], else None. Pure (tested)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    try:
+        return v if math.isfinite(v) and lo <= v <= hi else None
+    except (OverflowError, ValueError):
+        return None
+
+
+def _int(v, lo, hi):
+    n = _num(v, lo, hi)
+    return int(n) if n is not None and n == int(n) else None
+
+
+def _time(v):
+    return v if isinstance(v, str) and len(v) <= 40 and epoch(v) is not None else None
+
+
+def _text(v, cap=200):
+    return v if isinstance(v, str) and len(v) <= cap else None
+
+
+def clean_scene(s, bad):
+    """One scene read back from a file -> a scene holding only checked values, or None when its identity or its place
+    cannot be trusted (id, layer, kind, box, y). bad: the list every problem is named in. Pure (tested)."""
+    if not isinstance(s, dict):
+        bad.append('a scene is not an object')
+        return None
+    sid = s.get('id')
+    if not (isinstance(sid, str) and RX_ID.fullmatch(sid)):
+        bad.append('a scene has no usable id')
+        return None
+    box, y = s.get('box'), s.get('y')
+    ok_box = (isinstance(box, list) and len(box) == 4 and all(_num(v, -COORD_MAX, COORD_MAX) is not None for v in box)
+              and box[0] <= box[2] and box[1] <= box[3])
+    ok_y = isinstance(y, list) and len(y) == 2 and all(_num(v, *Y_RANGE) is not None for v in y) and y[0] <= y[1]
+    if s.get('layer') not in LAYERS or s.get('kind', 'activity') not in KINDS or not ok_box or not ok_y:
+        bad.append(f'scene {sid}: layer, kind, box or y is not usable; dropped')
+        return None
+    out = {'id': sid, 'layer': s['layer'], 'kind': s.get('kind', 'activity'), 'box': list(box), 'y': list(y)}
+
+    def take(key, value, default, present=True):
+        if value is None and present and s.get(key) is not None:
+            bad.append(f'scene {sid}: {key} is not usable; reset')
+        out[key] = default if value is None else value
+    take('g', _num(s.get('g'), *Y_RANGE), int(round((y[0] + y[1]) / 2.0)))
+    for k in ('score', 'fresh', 'peak'):
+        take(k, _num(s.get(k), 0, SCORE_MAX), 0)
+    take('shots', _int(s.get('shots'), 0, 10 ** 6), 0)
+    bots = s.get('bots')
+    take('bots', [b for b in bots if _text(b, 40)] if isinstance(bots, list) and all(_text(b, 40) for b in bots) else None, [])
+    cells = s.get('cells')
+    ok_cells = isinstance(cells, list) and all(isinstance(c, list) and len(c) == 2 and all(_int(v, -2 * 10 ** 6, 2 * 10 ** 6)
+                                                                                      is not None for v in c) for c in cells)
+    take('cells', [list(c) for c in cells] if ok_cells else None, [])
+    take('caption', _text(s.get('caption')), '')
+    for k in ('project', 'skill'):
+        take(k, _text(s.get(k), 60), None)
+    for k in ('opened', 'last_active', 'until', 'last_shot'):
+        take(k, _time(s.get(k)), None)
+    take('active', s.get('active') if isinstance(s.get('active'), bool) else None, False)
+    return out
+
+
+def clean_state(raw):
+    """scenes.json as read -> (state holding only checked values, [the problems found]). No problem: the state is as
+    it was written. Pure (tested)."""
+    bad = []
+    if not isinstance(raw, dict):
+        return {}, ['scenes.json is not an object']
+    out = {}
+
+    def take(key, value, default):
+        if value is None and raw.get(key) is not None:
+            bad.append(f'{key} is not usable; reset')
+        out[key] = default if value is None else value
+    take('t', _time(raw.get('t')), None)
+    take('cam_s', _num(raw.get('cam_s'), 0.001, CAM_S_MAX), None)
+    take('scene_wait', _int(raw.get('scene_wait'), 0, 10 ** 5), 0)
+    seen = raw.get('seen')
+    take('seen', list(seen[-200:]) if isinstance(seen, list) and all(_text(k, 120) for k in seen) else None, [])
+    scenes, ids = raw.get('scenes'), set()
+    if scenes is not None and not isinstance(scenes, list):
+        bad.append('scenes is not a list; reset')
+    out['scenes'] = []
+    for s in scenes if isinstance(scenes, list) else []:
+        c = clean_scene(s, bad)
+        if c and c['id'] in ids:
+            bad.append(f"scene {c['id']} is there twice; the second dropped")
+        elif c:
+            ids.add(c['id'])
+            out['scenes'].append(c)
+    bots = raw.get('bots')
+    if bots is not None and not isinstance(bots, dict):
+        bad.append('bots is not an object; reset')
+    out['bots'] = {}
+    for name, tr in (bots.items() if isinstance(bots, dict) else ()):
+        pos = tr.get('pos') if isinstance(tr, dict) else None
+        ok = (_text(name, 40) and isinstance(pos, list) and len(pos) == 3
+              and all(_num(v, -COORD_MAX, COORD_MAX) is not None for v in pos)
+              and _num(tr.get('since'), 0, 1e11) is not None and _num(tr.get('last'), 0, 1e11) is not None)
+        if ok:
+            out['bots'][name] = {'pos': list(pos), 'since': tr['since'], 'last': tr['last']}
+        else:
+            bad.append(f'the still-bot tracker of {str(name)[:40]!r} is not usable; dropped')
+    return out, bad
+
+
+def read_state(cfg):
+    """logs/scenes.json -> (checked state, [problems]). No file yet: an empty state and no problem. A file that
+    cannot be read, is not JSON or is not an object: an empty state, and that is the problem."""
     try:
         with open(_path(cfg, 'scenes.json')) as f:
-            st = json.load(f)
-        return st if isinstance(st, dict) else {}
-    except (OSError, ValueError):
-        return {}
+            raw = json.load(f)
+    except FileNotFoundError:
+        return {}, []
+    except (OSError, ValueError) as e:
+        return {}, [f'scenes.json cannot be read ({type(e).__name__}); started from an empty state']
+    return clean_state(raw)
+
+
+def load_state(cfg):
+    return read_state(cfg)[0]
+
+
+def clean_slot(raw):
+    """THE READER'S CHECK of the hand-off file (logs/scenes-slot.json) or of one day-log line: (the object holding
+    only checked values, [problems]). The director itself never reads either back -- it rewrites the first and appends
+    to the second -- so this is for whoever does (tl_under.py; tl_video checks the day log's lines its own way). A
+    scene that cannot be trusted is dropped; a trail keeps only well-formed samples of the scene's own bots.
+    Pure (tested)."""
+    bad = []
+    if not isinstance(raw, dict):
+        return {'v': 1, 't': None, 'stamp': None, 'window_min': None, 'scenes': []}, ['the hand-off is not an object']
+    out = {'v': 1, 't': _time(raw.get('t')), 'window_min': _num(raw.get('window_min'), 1, 1440), 'scenes': [],
+           'stamp': raw.get('stamp') if isinstance(raw.get('stamp'), str) and re.fullmatch(r'\d{8}T\d{4}Z[-\w]{0,60}', raw['stamp'])
+           else None}
+    for k in ('t', 'stamp', 'window_min'):
+        if out[k] is None and raw.get(k) is not None:
+            bad.append(f'{k} is not usable')
+    scenes = raw.get('scenes')
+    if not isinstance(scenes, list):
+        bad.append('scenes is not a list')
+        scenes = []
+    for s in scenes:
+        c = clean_scene(s, bad)
+        if not c:
+            continue
+        row = {k: c[k] for k in ('id', 'layer', 'kind', 'box', 'y', 'g', 'score', 'active', 'bots', 'caption', 'project',
+                                 'skill', 'opened')}
+        surface = c['layer'] == 'surface'
+        row['camera'] = 'scene-' + c['id'] if surface else None
+        row['frames'] = ('frames/scene-' if surface else 'frames/under-') + c['id']
+        trail = s.get('trail')
+        if not surface and isinstance(trail, dict):
+            row['trail'] = {}
+            for b in c['bots']:
+                pts = trail.get(b) if isinstance(trail.get(b), list) else []
+                good = [p for p in pts if isinstance(p, list) and len(p) == 5 and _time(p[0])
+                        and all(_num(v, -COORD_MAX, COORD_MAX) is not None for v in p[1:4]) and _text(p[4], 60) is not None]
+                if len(good) != len(pts):
+                    bad.append(f"scene {c['id']}: {len(pts) - len(good)} trail samples of {b} are not usable; dropped")
+                row['trail'][b] = good
+        elif not surface and trail is not None:
+            bad.append(f"scene {c['id']}: trail is not an object; dropped")
+        out['scenes'].append(row)
+    return out, bad
 
 
 def _write(path, obj, indent=1):
     with open(path + '.part', 'w') as f:
-        json.dump(obj, f, indent=indent, sort_keys=True)
+        json.dump(obj, f, indent=indent, sort_keys=True, allow_nan=False)      # never a NaN on disk
     os.replace(path + '.part', path)
 
 
@@ -794,11 +975,13 @@ def save_state(cfg, state):
 def run(cfg, now, sites, stamp=None, frame=None, write=True, rows=None):
     """One director pass. now: aware datetime or epoch s; sites: tl_showcase.project_sites(cfg); frame:
     tl_showcase.follow_camera; rows: ({bot: [row]}, stats) instead of reading the logs (tests). write False (the
-    `plan` and `scenes` commands): nothing is written. -> {'dc', 'state', 'cameras', 'first', 'slot', 'stats'}."""
+    `plan` and `scenes` commands): nothing is written. -> {'dc', 'state', 'cameras', 'first', 'slot', 'stats',
+    'repaired'}: `repaired` names what read_state had to drop or reset in scenes.json (empty: the file was sound). The
+    pass runs on the checked state either way and, writing, leaves the file clean."""
     t0 = time.time()
     now = now.timestamp() if hasattr(now, 'timestamp') else float(now)
     dc = dconf(cfg)
-    prev = load_state(cfg)
+    prev, repaired = read_state(cfg)
     by_bot, stats = rows if rows is not None else load_rows(dc, now)
     lo = now - dc['window_min'] * 60
     home = cfg.get('home') or (0, 0, 0)
@@ -808,7 +991,7 @@ def run(cfg, now, sites, stamp=None, frame=None, write=True, rows=None):
     since = _ts(prev.get('t')) or now - dc['fresh_min'] * 60
     events, tracker, seen = find_events(by_bot, prev.get('bots'), prev.get('seen'), since, now, dc, sites)
     state = continuity(prev, clusters, events, now, dc)
-    state.update(bots=tracker, seen=seen, cam_s=prev.get('cam_s'), scene_wait=int(prev.get('scene_wait') or 0))
+    state.update(bots=tracker, seen=seen, cam_s=prev.get('cam_s'), scene_wait=prev.get('scene_wait') or 0)
     cams, first = scene_cameras(state['scenes'], dc, frame, est_s=prev.get('cam_s')) if frame else ({}, [])
     slot = slot_file(state, stamp, dc, samples, now)        # + each underground scene's trail, from these samples
     stats = dict(stats, clusters=len(clusters), events=len(events), live=len(state['scenes']),
@@ -819,7 +1002,7 @@ def run(cfg, now, sites, stamp=None, frame=None, write=True, rows=None):
         day = dt.datetime.fromtimestamp(now, dt.timezone.utc).strftime('%Y%m%d')
         with open(_path(cfg, f'scenes-{day}.jsonl'), 'a') as f:
             f.write(json.dumps(without_trails(slot), sort_keys=True) + '\n')
-    return {'dc': dc, 'state': state, 'cameras': cams, 'first': first, 'slot': slot, 'stats': stats}
+    return {'dc': dc, 'state': state, 'cameras': cams, 'first': first, 'slot': slot, 'stats': stats, 'repaired': repaired}
 
 
 def finish(cfg, res, shots, now):
@@ -845,7 +1028,8 @@ def main():
     import tl_showcase as T
     cfg = T.load_conf()
     res = run(cfg, T.now_utc(), T.project_sites(cfg), stamp=T.stamp_of(T.now_utc()), frame=T.follow_camera, write=False)
-    print(json.dumps({'on': director_on(cfg), 'slot': res['slot'], 'cameras': res['cameras'], 'first': res['first'],
+    print(json.dumps({'on': director_on(cfg), 'repaired': res['repaired'], 'slot': res['slot'], 'cameras': res['cameras'],
+                      'first': res['first'],
                       'closed': [{'id': s['id'], 'why': s['why']} for s in res['state']['closed']],
                       'stats': res['stats']}, indent=1))
     return 0

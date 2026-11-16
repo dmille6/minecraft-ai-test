@@ -259,11 +259,14 @@ def stamp_text(view, stamp, side=None):
 
 
 def frame_side(view, stamp):
-    """The frame's <stamp>.json sidecar (tl_showcase frame_sidecar) or None."""
+    """The frame's <stamp>.json sidecar (tl_showcase frame_sidecar) or None -- also None when the file holds anything
+    but a JSON object (what is read back is not trusted)."""
     try:
-        return json.load(open(frame_path(ROOT, view, stamp)[:-4] + '.json'))
+        with open(frame_path(ROOT, view, stamp)[:-4] + '.json') as f:
+            side = json.load(f)
     except (OSError, ValueError):
         return None
+    return side if isinstance(side, dict) else None
 
 
 def parse_stamp(s):
@@ -603,25 +606,42 @@ def load_scene_log(day, root=None):
     return out
 
 
+def _score(v):
+    """A score read back from the director's day log or a frame sidecar: a real, finite, non-negative number, else 0
+    (a corrupt line must not stop the night's videos). Pure (tested)."""
+    ok = not isinstance(v, bool) and isinstance(v, (int, float)) and v == v and 0 <= v <= 1e9
+    return float(v) if ok else 0.0
+
+
+def _names(v):
+    """A `bots` list read back: the strings in it; anything else is no names. Pure (tested)."""
+    return [b for b in v if isinstance(b, str)] if isinstance(v, list) else []
+
+
+def _words(v):
+    return v if isinstance(v, str) else ''
+
+
 def day_scenes(stamps_by_view, log_rows, side_of=lambda view, stamp: None):
     """The scenes that have frames on a day, best first. stamps_by_view: {frames dir: [the day's stamps]} for the
     scene directories; log_rows: load_scene_log's; side_of(view, stamp): a frame's sidecar or None.
     A scene's SCORE is the sum of its score over the day's slots (the director's log: weighted bot-minutes, added up
     slot by slot); with no log row for it, the sum of its frames' sidecar `score`. Its caption and bots are those of
-    its busiest slot. -> [{'id', 'view', 'layer', 'score', 'slots', 'caption', 'bots', 'stamps', 'by_stamp'}], where
+    its busiest slot. What is read back is not trusted: a score that is not a finite number counts 0, bots that are
+    not a list of names are no names, a caption that is not text is none, a scene entry without a text id is skipped. -> [{'id', 'view', 'layer', 'score', 'slots', 'caption', 'bots', 'stamps', 'by_stamp'}], where
     by_stamp maps a slot's frame stamp to that slot's {caption, bots} (scene_captions falls back on it). Pure (tested)."""
     logged = {}
     for row in log_rows:
         for sc in row.get('scenes') or ():
-            if not isinstance(sc, dict) or not sc.get('id'):
+            if not isinstance(sc, dict) or not isinstance(sc.get('id'), str) or not sc['id']:
                 continue
             a = logged.setdefault(sc['id'], {'score': 0.0, 'slots': 0, 'best': None, 'by_stamp': {}})
-            a['score'] += float(sc.get('score') or 0)
+            a['score'] += _score(sc.get('score'))
             a['slots'] += 1
-            if a['best'] is None or float(sc.get('score') or 0) > float(a['best'].get('score') or 0):
+            if a['best'] is None or _score(sc.get('score')) > _score(a['best'].get('score')):
                 a['best'] = sc
-            if row.get('stamp'):
-                a['by_stamp'][row['stamp']] = {'caption': sc.get('caption'), 'bots': list(sc.get('bots') or ())}
+            if isinstance(row.get('stamp'), str):
+                a['by_stamp'][row['stamp']] = {'caption': _words(sc.get('caption')), 'bots': _names(sc.get('bots'))}
     out = []
     for view in sorted(stamps_by_view):
         stamps = sorted(stamps_by_view[view])
@@ -633,17 +653,18 @@ def day_scenes(stamps_by_view, log_rows, side_of=lambda view, stamp: None):
             best, score, slots, by_stamp = a['best'], a['score'], a['slots'], a['by_stamp']
         else:                               # no log: the frames' own sidecars
             sides = [x for x in (side_of(view, s) for s in stamps) if isinstance(x, dict)]
-            best = max(sides, key=lambda x: float(x.get('score') or 0), default={})
-            score, slots, by_stamp = sum(float(x.get('score') or 0) for x in sides), len(sides), {}
-        out.append({'id': sid, 'view': view, 'layer': best.get('layer') or ('surface' if view.startswith('scene-') else 'underground'),
-                    'score': round(score, 1), 'slots': slots, 'caption': best.get('caption') or '',
-                    'bots': list(best.get('bots') or ()), 'stamps': stamps, 'by_stamp': by_stamp})
+            best = max(sides, key=lambda x: _score(x.get('score')), default={})
+            score, slots, by_stamp = sum(_score(x.get('score')) for x in sides), len(sides), {}
+        out.append({'id': sid, 'view': view,
+                    'layer': _words(best.get('layer')) or ('surface' if view.startswith('scene-') else 'underground'),
+                    'score': round(score, 1), 'slots': slots, 'caption': _words(best.get('caption')),
+                    'bots': _names(best.get('bots')), 'stamps': stamps, 'by_stamp': by_stamp})
     return sorted(out, key=lambda s: (-s['score'], s['id']))
 
 
 def bots_line(bots, shown=SCENE_BOTS_SHOWN):
     """['Alpha', 'Kite', ...] -> 'Alpha, Kite' (at most `shown` names, then '+N'). Pure (tested)."""
-    bots = [str(b) for b in bots or ()]
+    bots = _names(bots)
     return ', '.join(bots[:shown]) + (f' +{len(bots) - shown}' if len(bots) > shown else '')
 
 
@@ -661,8 +682,9 @@ def scene_captions(scene, stamps, side_of=lambda view, stamp: None):
     for s in stamps:
         side = side_of(scene['view'], s) or {}
         slot = (scene.get('by_stamp') or {}).get(s) or {}
-        cap = side.get('caption') or slot.get('caption') or scene.get('caption')
-        bots = side.get('bots') or slot.get('bots') or scene.get('bots')
+        side = side if isinstance(side, dict) else {}
+        cap = _words(side.get('caption')) or slot.get('caption') or scene.get('caption')
+        bots = _names(side.get('bots')) or slot.get('bots') or scene.get('bots')
         out.append([x for x in (caption_line(cap), caption_line(bots_line(bots))) if x])
     return out
 
