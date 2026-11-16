@@ -3,6 +3,12 @@
 // town's next eligible project in the same call (shopActive: the held project is not `free`), and holds only when nothing else is
 // workable. Pure (shop.mjs nextNote / nextHeld / nextBackoff / buildOrder / activeProject) and the chain through skills.mjs
 // shopActive + buildNextAfter on real record files, with the controls (BUILDNEXT=0) and anchored mutants.
+// KEPT, NOT RUN (trunk merge 2026-11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Its subject is not in the trunk: nothing calls nextBackoff or buildNextAfter, and the
+// order reads projturn's hook, not setNextHoldOf (its 4 passing checks are of functions nothing calls).
+// Take the two lines below out to run it again.
+console.log("SKIP (replaced on the showcase line by projturn-01show (24cc654f6); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md))")
+process.exit(77)
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import fs from 'node:fs'

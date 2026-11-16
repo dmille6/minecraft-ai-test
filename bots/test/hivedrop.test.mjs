@@ -6,6 +6,12 @@
 //       hive-a-Bravo's drops 11-08 came during build_shop with a >= 25 s silent journal gap; hive-b ran build_shop 67 times, 0 drops.
 //   (b) THE MEMORY: the chunk evictor's 60 s sweep was never stopped on `end` (chunk-evictor.test.mjs).
 // The runVisit scenarios run on the fake server (test/helpers/buildfake.mjs); each fix is killed by an anchored mutant.
+// KEPT, NOT RUN (trunk merge 2026-11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Its subject is not in the trunk: nothing reads LOOPYIELD; the visit's breath is
+// keeperstall's BREATHE, and its scene is the canopy's, which is not in the trunk either.
+// Take the two lines below out to run it again.
+console.log("SKIP (replaced on the showcase line by keeperstall-01show (fb4a50335); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md))")
+process.exit(77)
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { performance } from 'node:perf_hooks'

@@ -5,6 +5,12 @@
 //              activeProject). board-d wall (1 visit vs 475 monument), isolated-b wall (0 in 18 h vs 425).
 // The runVisit scenarios run on the fake server (test/helpers/buildfake.mjs); each control is the live behaviour; each remedy is
 // killed by a mutant whose anchor is asserted present and unique (withMutant).
+// KEPT, NOT RUN (trunk merge 2026-11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Its subject is not in the trunk: nothing calls starveMark, canopyOf or
+// canopyCuts, and runVisit reads no `p.canopy` (its 9 passing checks are of those functions and of controls).
+// Take the two lines below out to run it again.
+console.log("SKIP (replaced on the showcase line by projturn-01show (24cc654f6: starve) and leaffell-01show (e81ff36a5: canopy, a judgement call); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md))")
+process.exit(77)
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { readFileSync } from 'node:fs'

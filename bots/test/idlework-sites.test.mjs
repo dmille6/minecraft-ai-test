@@ -2,6 +2,12 @@
 // one unsitable monument / house / workshop no longer leaves a town with no project at all. The measured town shapes (fleet
 // 11-05 01Z..11-06 01Z): board-a/placebo-d (monument unsited, paths/wall/tidy never reached), hive-c (house1 unsited: monument and
 // tidy never reached), board-c (the workshop unsited: the stair and the tidy, which need no workshop, never reached).
+// KEPT, NOT RUN (trunk merge 2026-11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Its subject is not in the trunk: nothing calls unsitedBackoff or
+// unsitedWrite -- no stamp is ever written, and the order does not read one (its 6 passing checks are of those functions).
+// Take the two lines below out to run it again.
+console.log("SKIP (replaced on the showcase line by sinkfix-03 (305057d03) and projturn-01show (24cc654f6); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md))")
+process.exit(77)
 import assert from 'node:assert/strict'
 import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

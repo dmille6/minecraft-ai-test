@@ -2,6 +2,12 @@
 // 10:14Z): core 372,66,152 sits over two WAIVED cells of its pit column; the region read has every neighbour open, so no stand can
 // place it, and the stage's 12 of 36 waived cells are past gkwork's stall share (9). The fixture is the live record (g69) and the
 // region read round its cells. Behaviour, the refusal chain, the controls, anchored mutants.
+// KEPT, NOT RUN (trunk merge 2026-11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Its subject is not in the trunk: nothing calls orphanWaiveDue; the tidy visit
+// waives a cell resting on a waived one through fillcolumn's waiveRests (its 11 passing checks are of orphanWaiveDue itself).
+// Take the two lines below out to run it again.
+console.log("SKIP (replaced on the showcase line by fillcolumn-01 (0c142ae69); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md))")
+process.exit(77)
 import assert from 'node:assert'
 import fs, { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 const S = await import('../src/stuckfleet.mjs')

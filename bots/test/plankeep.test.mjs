@@ -6,6 +6,12 @@
 // stand-less entry floods again and the builder stands still through the whole list.
 // Each scenario runs on the fake server (test/helpers/buildfake.mjs) with a SLOW WORLD: a fake clock that a block read advances,
 // so a flood takes longer than BREATHE_MS, as on hive-a. Each fix is killed by an anchored mutant (withMutant asserts the anchor).
+// KEPT, NOT RUN (trunk merge 2026-11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Its subject is not in the trunk: nothing calls planStale; the visit's kept walk is
+// standcache's (its 1 passing check is of planStale itself).
+// Take the two lines below out to run it again.
+console.log("SKIP (replaced on the showcase line by standcache-01show (1394d8acd); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md))")
+process.exit(77)
 import assert from 'node:assert'
 import fs from 'node:fs'
 const { R, PJ, G, HOME, server, bot, withMutant } = await import('./helpers/buildfake.mjs')
