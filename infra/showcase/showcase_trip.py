@@ -91,7 +91,8 @@ TREE_DEBRIS = re.compile(r'^(minecraft:)?([a-z_]+_(log|wood|leaves|sapling|hypha
                          r'spore_blossom)$')
 H2 = 'H2 clear_outside'
 MIRROR_MAX_AGE_MIN = 60
-HEALTHZ = 'http://127.0.0.1:11612/healthz'
+HEALTHZ = 'http://127.0.0.1:11612/healthz'      # the designed Studio proxy: probed only while there is NO brain setting
+BRAIN_FILE = '/srv/showcase/BRAIN.json'         # make_env.BRAIN_FILE: the one brain setting (owner 11-16: qwen, permanent)
 UTC = dt.timezone.utc
 
 # HARM vs REPORT (phase 1 item 4). The defect gates that are HARM -- a mutation inside a protected zone -- stop the world; every
@@ -847,19 +848,65 @@ def read_epoch(path):
         return None
 
 
-def brain_paused():
-    """-> None when the brain proxy answers ok, else the reason (a pause file, an error). Never raises."""
-    import urllib.request, urllib.error
+def brain_probe(setting):
+    """The one request that says whether the brain THE BOTS ARE SET TO is up -> (url, model or None). Pure. setting: None
+    (no BRAIN.json: the designed Studio proxy) or the parsed file. A setting this cannot read RAISES ValueError: a brain
+    nobody can name is not a paused brain (tripbrain-01, 11-16: the read probed the Studio's address for two days after
+    the owner moved the bots to the 5080; every read said `brain <Connection refused>`, and S0 would have called a town
+    with no live bot a WATCH)."""
+    if setting is None:
+        return HEALTHZ, None
+    if not isinstance(setting, dict):
+        raise ValueError('the brain setting is not a JSON object')
+    url, model, kind = setting.get('url'), setting.get('model'), setting.get('kind')
+    if not isinstance(url, str) or not re.fullmatch(r'http://\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}', url):
+        raise ValueError('the brain setting has no http://<ipv4>:<port> url')
+    if kind == 'proxy':
+        return url + '/healthz', None
+    if kind == 'ollama' and isinstance(model, str) and model:
+        return url + '/api/tags', model
+    raise ValueError('the brain setting names no known kind (proxy, ollama) with a model')
+
+
+def brain_answer(d, model):
+    """The probe's parsed answer -> None when the brain is up, else the reason. Pure. proxy (model None): its own
+    /healthz object (ok, or its pause file's name). ollama: the endpoint lists the model the bots are set to."""
+    if not isinstance(d, dict):
+        return 'the brain answered %s, not an object' % type(d).__name__
+    if model is None:
+        return None if d.get('ok') is True else str(d.get('paused') or d.get('error') or d)[:120]
+    if isinstance(d.get('models'), list):
+        names = [m.get('name') for m in d['models'] if isinstance(m, dict)]
+        return None if model in names else '%s is not on the endpoint (%d models listed)' % (model, len(names))
+    return str(d.get('error') or 'no model list')[:120]
+
+
+def brain_paused(path=None, get=None):
+    """-> (reason, note). reason: None when the brain the bots are set to answers, else why not (a pause file, an error);
+    it is what makes S0 a WATCH. note: a setting that cannot be read, said on the S0 line and NEVER a reason: an unreadable
+    setting does not excuse a town with no live bot. Never raises."""
+    path = path or BRAIN_FILE
     try:
-        d = json.loads(urllib.request.urlopen(HEALTHZ, timeout=8).read())
-    except urllib.error.HTTPError as e:
-        try:
-            d = json.loads(e.read())
-        except ValueError:
-            d = {'ok': False, 'error': 'http %d' % e.code}
+        setting = json.load(open(path)) if os.path.exists(path) else None
+        url, model = brain_probe(setting)
+    except (OSError, ValueError) as e:
+        return None, 'setting unreadable (%s): the brain is not checked' % str(e)[:80]
+    try:
+        d = (get or http_object)(url)
     except Exception as e:
         d = {'ok': False, 'error': str(e)[:80]}
-    return None if d.get('ok') is True else str(d.get('paused') or d.get('error') or d)[:120]
+    return brain_answer(d, model), None
+
+
+def http_object(url):
+    import urllib.request, urllib.error
+    try:
+        return json.loads(urllib.request.urlopen(url, timeout=8).read())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())
+        except ValueError:
+            return {'ok': False, 'error': 'http %d' % e.code}
 
 
 def dedupe_deaths(rows, gap_s=10):
@@ -1064,7 +1111,7 @@ def cmd_read(a):
                     report['ack_error'] = 'prune failed: %s' % str(e)[:80]
     except Exception as e:
         plan_err = '%s: %s' % (type(e).__name__, str(e)[:200])
-    paused = brain_paused() if not a.not_running else None
+    paused, brain_note = brain_paused() if not a.not_running else (None, None)
     first = min([v[0][0] for v in by_bot.values() if v], default=now)
     live = sum(1 for b in NAMES if b in newest and (now - newest[b]).total_seconds() <= LIVE_MIN * 60)
     # S0's denominator: the ENABLED roster (a quarantined or stopped unit is not expected to write); unreadable -> all, said so
@@ -1098,7 +1145,7 @@ def cmd_read(a):
     print('DENOMINATORS rows walked %d | bots with rows %d of %d | builds %s | positions %d' % (
         len(rows), len(by_bot), len(NAMES), dict(builds), sum(1 for v in by_bot.values() for _, p in v if p)))
     print('EPOCHS       run since %s, town since %s (plan gates read from the town epoch)' % (run_since, town_since))
-    print('S0 LIVENESS  %d of %d bots wrote a row in the last %d min | brain %s' % (live, len(NAMES), LIVE_MIN, paused or 'ok'))
+    print('S0 LIVENESS  %d of %d bots wrote a row in the last %d min | brain %s' % (live, len(NAMES), LIVE_MIN, paused or brain_note or 'ok'))
     print('S1 DEATHS    %d in the window, at most %d inside 180 min, over %.1f bot-h observed (fleet 0.0195/bot-h -> %.2f expected) %s' % (
         len(deaths), facts['deaths'], bot_h, 0.0195 * bot_h, deaths[:6]))
     print('S2 STUCK     %s (still >= %d min, < %.0f blocks, to the window end)' % (facts['stuck'] or 'none', STUCK_MIN, STUCK_MOVE))
@@ -1303,7 +1350,7 @@ def shop_failure_selftest():
         open(os.path.join(td, 'RUN'), 'w').write('2026-10-25T12:00:00Z')
         code = ('import sys; sys.argv=["x","read","--minutes","180","--not-running","--run-since",%r,"--town-since",%r,"--ack",%r,'
                 '"--zones-file","/nonexistent","--zones-baseline","/nonexistent","--no-crash"]; import showcase_trip as M; M.LOGS=%r; '
-                'M.brain_paused=lambda: None; sys.exit(M.main())') % (os.path.join(td, 'RUN'), os.path.join(td, 'TOWN'), ack,
+                'M.brain_paused=lambda: (None, None); sys.exit(M.main())') % (os.path.join(td, 'RUN'), os.path.join(td, 'TOWN'), ack,
                                                                       os.path.join(td, 'none-*.jsonl'))
         p = subprocess.run([sys.executable, '-c', code], cwd=td, capture_output=True, text=True, timeout=120)
         out = p.stdout + p.stderr
@@ -1459,6 +1506,38 @@ def selftest():
     assert verdict(dict(base, mirror_age_min=90))[0] == 'WATCH' and verdict(dict(base, mirror_age_min=None))[0] == 'WATCH'
     assert verdict(dict(base, zones_error='no zone'))[0] == 'WATCH' and verdict(dict(base, deep={'a': 9}))[0] == 'OK', 'DEEP is reported, never a WATCH'
     assert verdict(dict(base, live_bots=0, brain_paused='GPU_RESERVED'))[0] == 'WATCH', 'a paused brain is not a dead showcase'
+    # tripbrain-01: the probe follows the brain setting, and only a brain that SAYS it is down makes S0 a WATCH
+    assert brain_probe(None) == (HEALTHZ, None), 'no setting: the designed Studio proxy'
+    qw = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama', 'owner': 'the owner 11-16'}
+    assert brain_probe(qw) == ('http://10.0.0.72:11434/api/tags', 'qwen2.5:7b-instruct')
+    assert brain_probe(dict(qw, kind='proxy')) == ('http://10.0.0.72:11434/healthz', None)
+    for bad in ([], 'x', {}, dict(qw, url='http://studio:1'), dict(qw, kind='vllm'), dict(qw, model='')):
+        try:
+            brain_probe(bad)
+        except ValueError:
+            continue
+        raise AssertionError('a setting nobody can read must raise: %r' % (bad,))
+    tags = {'models': [{'name': 'qwen2.5:7b-instruct'}, {'name': 'other:1'}, 'junk']}
+    assert brain_answer(tags, 'qwen2.5:7b-instruct') is None and 'not on the endpoint' in brain_answer(tags, 'gemma4:26b')
+    assert brain_answer({'ok': False, 'error': 'refused'}, 'qwen2.5:7b-instruct') == 'refused'
+    assert brain_answer({'ok': True}, None) is None and brain_answer({'ok': False, 'paused': 'GPU_RESERVED'}, None) == 'GPU_RESERVED'
+    assert brain_answer([], None) and brain_answer({'ok': True}, 'm') == 'no model list', 'a proxy answer is not an Ollama list'
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        bf, seen = os.path.join(td, 'BRAIN.json'), []
+        up = lambda u: seen.append(u) or tags
+        assert brain_paused(bf, lambda u: seen.append(u) or {'ok': True}) == (None, None) and seen == [HEALTHZ], 'no file: the proxy'
+        json.dump(qw, open(bf, 'w'))
+        assert brain_paused(bf, up) == (None, None) and seen[-1] == 'http://10.0.0.72:11434/api/tags', 'the setting is probed'
+        assert brain_paused(bf, lambda u: {'ok': False, 'error': 'refused'}) == ('refused', None)
+
+        def boom(u):
+            raise OSError('no route')
+        assert brain_paused(bf, boom) == ('no route', None), 'a probe that raises is a reason, never a crash'
+        open(bf, 'w').write('{not json')
+        why, note = brain_paused(bf, up)
+        assert why is None and 'setting unreadable' in note, 'an unreadable setting never excuses a dead town'
+    assert verdict(dict(base, live_bots=0, brain_paused=None))[0] == 'TRIP', 'no live bot and a brain that answers is HARM'
     assert verdict(dict(base, gen_unknown={'found_gen_unknown': 1}))[0] == 'WATCH'
     cl, dp = closed_and_deep([('v', [0, -64, 0, 9, 90, 9]), ('t', [-20, -47, 65, 88, 31, 164])], {'v': 54, 't': None})
     assert cl == [[0, 54, 0, 9, 90, 9], [-20, -47, 65, 88, 31, 164]] and dp == [[0, -64, 0, 9, 53, 9]]
