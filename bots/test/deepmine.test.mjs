@@ -230,7 +230,7 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.rep
 const SK = new URL('../src/skills.mjs', import.meta.url)
 const CG = new URL('../src/cognitive.mjs', import.meta.url)
 const MINE_CREDIT = "...(Number.isFinite(ctx?.deepCredit) && bot.deepTrip ? { seaLevel: ctx.deepCredit } : {}),"
-const DEEPEN_CALL = "r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, sub.signal)"
+const DEEPEN_CALL = "r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: goalY }, sub.signal)"   // obsidian-01: the goal is the cast level on a cast trip
 const GATHER_DIAMOND = "const tk = tunnelKindsFor(viaSource ?? blockName, { diamond: bot.deepTunnelKinds === true })"
 const COG_CONT = "{ const o = deepTripOrder(this.bot?.deepTrip); if (o) order = o }"
 const COG_START = "const r = deepMineOrder({ now: Date.now(), holds: milestoneHolds({ order, ready }), atStairTop, stair: st,"
@@ -244,7 +244,7 @@ test('wired: mine prices a leaseholder\'s climb from the stair, the deepen call 
 })
 test('MUTANTS: each wiring anchor is present exactly once, and removing it is seen', () => {
   const src = { sk: readFileSync(SK, 'utf8'), cg: readFileSync(CG, 'utf8') }
-  const cases = [['sk', MINE_CREDIT, '', 'credit'], ['sk', DEEPEN_CALL, 'r = await mineGuarded(ctx, { y: DEEP_DEEP_FEET }, sub.signal)', 'deepen'],
+  const cases = [['sk', MINE_CREDIT, '', 'credit'], ['sk', DEEPEN_CALL, 'r = await mineGuarded(ctx, { y: goalY }, sub.signal)', 'deepen'],
     ['sk', GATHER_DIAMOND, 'const tk = tunnelKindsFor(viaSource ?? blockName)', 'diamond'], ['cg', COG_CONT, '', 'cont'], ['cg', COG_START, 'const r = ({', 'start']]
   for (const [f, old, neu, key] of cases) {
     assert.equal(src[f].split(old).length, 2, `ANCHOR MISSING OR NOT UNIQUE: ${key}`)

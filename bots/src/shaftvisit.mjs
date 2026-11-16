@@ -59,6 +59,16 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
     if (!stand) return end('no_stand', 'no collar exit', w.k)
     if (!same(e.feet(), stand)) {
       await e.walkTo(stand)
+      // stairuse-01: THE LONG WALK FAILED (LIVE 7 d: 1,001 of 2,921 visits `walk_failed`) -> down the stair a few stands at a time
+      // to the stand's own step (e.descend: runStairDescent, which digs a foreign block out of the air cells on the way), then
+      // the stand once more. The stand is a step's stand on the stair the scan verified above the work; any other stand (the
+      // collar's ground beside step 0) keeps the one walk
+      if (!same(e.feet(), stand) && typeof e.descend === 'function') {
+        const sk = plan.steps.findIndex((q, k) => same(standOf(plan, k), stand))
+        if (sk >= 0) { await e.descend(sk); if (!same(e.feet(), stand)) await e.walkTo(stand) }
+        // the way down took time: the unit starts only with the way out still in the budget (Claude r1 note 1: the egress reserve)
+        if (same(e.feet(), stand) && typeof reserve === 'function' && e.now() >= deadline - (Number(reserve(w.k)) || 0)) return end('time', 'the way out is kept', w.k)
+      }
       if (!same(e.feet(), stand)) return end('walk_failed', `did not reach ${kOf(stand)} (at ${kOf(e.feet())})`, w.k)
     }
     const cells = unitCells(plan, w)
@@ -93,8 +103,28 @@ export async function runStairVisit (p, e, { deadline = Infinity, unitsMax = UNI
         // cell itself on the next pass -- once per cell; a support that does not take leaves the refusal as it was
         if (r === 'no_support' && !supported.has(key)) {
           supported.add(key)
-          const sup = supportFor(e.read, plan, op.at, e.feet())
-          if (sup && (await e.place(sup)) === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: sup, why: 'support' }); continue }
+          if (stuckCellsOn()) {
+            // stuckcells-01: a CHAIN of up to CHAIN_MAX supports (supportChain: the first against a block that stands, each next
+            // against the one before), every placement NAMED -- LIVE hive-a 31 h `no_support` with the support's outcome never logged
+            // a support the server does not take is excluded and the next chain tried (at most SUPPORT_TRIES chains a cell)
+            const exclude = new Set()
+            let ok = false
+            for (let tr = 0; tr < SUPPORT_TRIES && !ok; tr++) {
+              const chain = supportChain(e.read, plan, op.at, e.feet(), { exclude, isRef: b => isFull(b) && !INTERACTABLE.test(b?.name ?? '') })
+              if (!chain) { e.log('refused', { k: w.k, at: op.at, why: tr ? 'support:no_other_chain' : 'support:no_chain' }); break }
+              let laid = 0
+              for (const sc of chain) {
+                const sr = await e.place(sc)
+                if (sr !== 'confirmed') { exclude.add(kOf(sc)); e.log('refused', { k: w.k, at: sc, why: `support:${sr}` }); break }
+                laid++; out.placed++; e.log('place', { k: w.k, at: sc, why: laid > 1 ? `support${laid}` : 'support' })
+              }
+              ok = laid === chain.length
+            }
+            if (ok) continue
+          } else {
+            const sup = supportFor(e.read, plan, op.at, e.feet())
+            if (sup && (await e.place(sup)) === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: sup, why: 'support' }); continue }
+          }
         }
         if (r === 'confirmed') { out.placed++; e.log('place', { k: w.k, at: op.at, why: op.why }) }
         else if (r === 'no_material') return end('no_material', 'no lining blocks in the bag (cobblestone)', w.k)
@@ -374,7 +404,22 @@ export function stairBotEffects (bot, B, { signal = null, fence = () => true, lo
     get read () { return fresh() },
     feet: () => B.feet(),
     walkTo: async c => { await B.walkTo(c); return true },
-    dig: async c => { await equipFor(c); return withDigScope(bot, { purpose: 'target', by: 'build_stair' }, () => B.dig(c)) },
+    // shafttrap-02 (Codex r1 blocker 2): never an equip or a dig once the signal is aborted (a reflex lost the body to a rescue)
+    dig: async c => {
+      if (signal?.aborted) return 'aborted'
+      await equipFor(c)
+      if (signal?.aborted) return 'aborted'
+      let v = await withDigScope(bot, { purpose: 'target', by: 'build_stair' }, () => B.dig(c))
+      // shafttrap-02 (Paper 11-03): A DIG THE SERVER DID NOT CONFIRM may have left client air over the server's block (memory "ghost
+      // blocks are rejected digs"): the egress then hopped into it forever. Ask the server (buildrun.mjs's probe, twice): air confirms,
+      // any other name means it stands (and the probe's block update has put it back in the client's world)
+      for (let i = 0; v === 'unconfirmed' && typeof B.probe === 'function' && i < 2; i++) {
+        if (signal?.aborted) return 'aborted'
+        const n = await B.probe(c)
+        if (n != null) v = /^(air|cave_air)$/.test(n) ? 'confirmed' : 'standing'
+      }
+      return v
+    },
     place: async c => {
       const item = LINING_ITEMS.find(n => B.has(n))
       if (!item) return 'no_material'

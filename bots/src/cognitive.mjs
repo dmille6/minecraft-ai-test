@@ -1792,67 +1792,6 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
-    // THE COAL RUN (coalfirst-01; coalrun.mjs coalRunOrder decides, this supplies readings and keeps the state). After every
-    // town job, only with NOTHING chosen above (a ready milestone step, the deposit, every town order and the building jobs
-    // win): while the town index shows the town short of coal, gather the coal ore in reach -- gather's own guards decide every
-    // block. Anywhere, not only at town (the ore is rarely in town). Off where the town smelt job is off (isolated pools,
-    // SMELT_JOB=0) and by COALFIRST=off. At most one run per 10 min per bot; a run that brings no coal backs off 30 min.
-    if (!order) {
-      try {
-        const bot = this.bot
-        const items = bot.inventory?.items?.() ?? []
-        const heldCoal = items.filter(it => it?.name === 'coal').reduce((n, it) => n + (it.count ?? 0), 0)
-        const free = 36 - items.length
-        const sw = smeltJobEnabled(process.env, config.memory.scope)
-        let town = null
-        const r = coalRunOrder({ now: Date.now(), shared: sw.on, holds: milestoneHolds({ order, ready }), heldCoal, freeSlots: free,
-          tripPick: hasTripPickaxe(items),
-          townCoal: () => (town = townCoalStock(bot)),
-          ore: () => {
-            const ids = COAL_KINDS.map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
-            const p = bot.entity?.position
-            if (!ids.length || !p) return null
-            const home = { x: config.world.homeX, z: config.world.homeZ }
-            const found = (bot.findBlocks?.({ matching: ids, maxDistance: COAL_ORE_RADIUS, count: 16 }) ?? []).filter(q => !nearHome(q, home))
-            if (!found.length) return null
-            const q = found.reduce((a, b) => (p.distanceTo(a) <= p.distanceTo(b) ? a : b))
-            return { block: bot.blockAt?.(q)?.name ?? null, dist: p.distanceTo(q) }
-          },
-          state: this.coalRunState ?? {} })
-        this.coalRunState = r.state
-        if (r.order) { order = r.order; this.coalRunState = { ...this.coalRunState, pending: true } }
-        // one row per issue, and per skip reason at most once per 30 min for the reasons that say something about the town
-        const why = r.order ? 'issued' : (['stocked', 'no_ore', 'index', 'index_empty', 'pickaxe', 'carrying'].includes(r.skip) ? r.skip : null)
-        this.coalRunSkipAt ??= {}
-        if (why && (why === 'issued' || Date.now() - (this.coalRunSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000)) {
-          this.coalRunSkipAt[why] = Date.now()
-          logEvent({ kind: 'coal_run', status: r.order ? 'success' : 'no_effect', snapshot: snap,
-                     detail: coalRunDetail({ skip: r.skip, issued: r.order?.args?.block ?? null, town, held: heldCoal, free }) })
-        }
-      } catch { /* a world read must never break the decision loop */ }
-    }
-    // THE DEEP MINER STARTS A TRIP (deepminer-01; deepmine.mjs deepMineOrder decides, this supplies readings). After every
-    // town job and the coal run, only with NOTHING chosen above: on the town's surface by its finished stair, one miner per town
-    // (the lease), its own cooldown and the town's soft preference for its last miner.
-    if (!order) {
-      try {
-        const bot = this.bot
-        const p = bot.entity?.position
-        const st = deepStairNow()
-        const rec = st.rec
-        const atStairTop = !!p && st.usable && deepNearStair(rec, p.x, p.z, 40) && p.y >= rec.site.g - DEEP_SURFACE_SLACK && p.y <= rec.site.g + 12
-        const r = deepMineOrder({ now: Date.now(), holds: milestoneHolds({ order, ready }), atStairTop, stair: st,
-          kit: deepTripKit(bot.inventory?.items?.() ?? []), health: bot.health ?? 20, me: bot.username ?? '',
-          state: { cooldownUntil: bot.deepMineCooldownUntil ?? 0 }, lease: () => deepLeaseNow() })
-        if (r.order) order = r.order
-        this.deepSkipAt ??= {}
-        const why = ['pickaxe', 'seal_blocks', 'room', 'lease_busy', 'preferred_other', 'stair_unfinished', 'no_bottom_landing'].includes(r.skip) ? r.skip : null
-        if (why && atStairTop !== false && Date.now() - (this.deepSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
-          this.deepSkipAt[why] = Date.now()
-          logEvent({ kind: 'deepmine_skip', status: 'no_effect', detail: `why=${why}`, snapshot: snap })
-        }
-      } catch { /* a world read must never break the decision loop */ }
-    }
     if (!order) {
       const sap = {}
       try {

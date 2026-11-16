@@ -219,10 +219,11 @@ await t('CHAIN (leaves on the lid): count_town opens WITHOUT a dig (the server o
 })
 await t('CHAIN, POSITIVE CONTROL OF THE INSTRUMENT: planks on the lid are still refused -- never walked, never counted, the cobble still UNKNOWN', async () => {
   try {
-    // lidplank-01: unrecorded planks may be dug now (lidclear.test.mjs LIDPLANK-01); stone (not cobblestone) is a never-breakable lid
-    const c = await chain(SK, 'stone')
+    // lidplank-01: unrecorded planks may be dug now (lidclear.test.mjs LIDPLANK-01); lidground-01: unrecorded natural stone too
+    // (LIDGROUND-01 there) -- a crafting table (a full cube, a thing a bot sets down to use) is a never-breakable lid
+    const c = await chain(SK, 'crafting_table')
     assert.deepEqual(c.w.digs, [])
-    assert.match(c.lid, /^outcome=refused .*lid=stone /)
+    assert.match(c.lid, /^outcome=refused .*lid=crafting_table /)
     assert.match(c.recount, /unknown_after=1 .*fails=lid_blocked:1 /)
     assert.equal(c.after, 'town_cobble_unknown')
   } finally { B.setStockReaders({ town: null, well: null }) }

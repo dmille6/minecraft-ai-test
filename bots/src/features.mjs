@@ -30,7 +30,8 @@ import {
   townPlanZones, townPlanSeed, shopActivePrime, SHOP_PRIME_MS, installCobbleCap, glassReading, shopStoodTick, shopFootprintRefresh, readMatsNote,
   matsHoldNote, expeditionInstall, copperRunInstall, bagRoomInstall, enchantInstall, marketInstall, villageUnlockInstall, unlockSee,
 } from './skills.mjs'
-import { cobbleCapModeDetail, cobbleKeepModeDetail } from './cobblecap.mjs'
+import { cobbleCapModeDetail } from './cobblecap.mjs'
+import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ironsmeltModeDetail, furnaceSeenModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
@@ -46,9 +47,9 @@ import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
 import { reroofModeDetail, REROOF_FIX } from './reroof.mjs'
 import { stepwellModeDetail } from './stepwell.mjs'   // stepwell-01
 import { handCapModeDetail } from './handcap.mjs'   // handcap-01's licence row
-import {
-  plinthModeDetail, plinth021ModeDetail, townRecordsShared, plinthFirstModeDetail, plinthFirstPolicy,
-} from './plinth.mjs'   // plinth-02's licence row (its own statement)
+import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
+import { plinth021ModeDetail, townRecordsShared } from './plinth.mjs'   // plinth-02.1's licence row (its own statement)
+import { plinthFirstModeDetail, plinthFirstPolicy } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
 import { wellcareModeDetail } from './wellcare.mjs'   // wellcare-01's licence row (its own statement)
 import { lidPlaceModeDetail } from './lidplace.mjs'   // lidplace-01's licence row
 import { ledgerModeDetail } from './ledger.mjs'   // ledger-01's licence row
@@ -262,6 +263,12 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'stepwell_mode', status: 'success', snapshot: snapshot(bot), detail: stepwellModeDetail(STEPWELL.on) }) } catch { /* telemetry */ }
   // handcap-01: the licence row (handcap.mjs; MAROON_HANDCAP=off is the rollback)
   try { logEvent({ kind: 'handcap_mode', status: 'success', snapshot: snapshot(bot), detail: handCapModeDetail() }) } catch { /* telemetry */ }
+  // escdead-01: the licence row (escdead.mjs; ESCDEAD=0 is the rollback)
+  try { logEvent({ kind: 'escdead_mode', status: 'success', snapshot: snapshot(bot), detail: escDeadModeDetail() }) } catch { /* telemetry */ }
+  // escpocket-01: the licence row (escdead.mjs; ESCPOCKET=0 is the rollback)
+  try { logEvent({ kind: 'escpocket_mode', status: 'success', snapshot: snapshot(bot), detail: escPocketModeDetail() }) } catch { /* telemetry */ }
+  // seapocket-01: the licence row (escdead.mjs; ESCPOCKET=0 is the rollback)
+  try { logEvent({ kind: 'seapocket_mode', status: 'success', snapshot: snapshot(bot), detail: seaPocketModeDetail() }) } catch { /* telemetry */ }
   // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)
   try { logEvent({ kind: 'plinth021_mode', status: 'success', snapshot: snapshot(bot), detail: plinth021ModeDetail({ shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
   // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail); CONFIGURATION only

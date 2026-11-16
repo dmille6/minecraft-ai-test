@@ -40,10 +40,12 @@ export function deepMineOn (env = process.env, pool = '') {
   const pools = String(env?.DEEPMINE_POOLS ?? '*').split(',').map(q => q.trim()).filter(Boolean)
   return pools.includes('*') || pools.includes(String(pool))
 }
-const slotsOf = env => { const n = Number(env?.DEEPMINE_SLOTS); return Number.isInteger(n) && n >= 1 && n <= 2 ? n : 1 }
+// townmine-01 (coordinator 11-09, owner M8): TWO deep miners a town where the town mine is on -- one builds (the mine's build lease,
+// MINE_BUILD_PLOT, holds a single builder) while the other mines; DEEPMINE_SLOTS still decides when set
+export const slotsOf = (env, mine = false) => { const n = Number(env?.DEEPMINE_SLOTS); return Number.isInteger(n) && n >= 1 && n <= 2 ? n : (mine ? 2 : 1) }
 export const DEEPMINE = Object.freeze({
   on: deepMineOn(typeof process !== 'undefined' ? process.env : {}, typeof process !== 'undefined' ? (process.env.MEMORY_POOL ?? '') : ''),
-  slots: slotsOf(typeof process !== 'undefined' ? process.env : {}),   // owner M8 allows 2; O13: 1 for the first diamond canary
+  slots: slotsOf(typeof process !== 'undefined' ? process.env : {}, TOWNMINE.on),   // owner M8 allows 2 (townmine-01: 2 with the mine on); O13: 1 before it
 })
 export const DEEPMINE_PLOT = 'deepmine'      // the lease key's plot: project-<home>.deepmine.slot<k>
 export const MINE_BUILD_PLOT = 'deepminebuild'   // townmine-01: the one build trip a town at a time: project-<home>.deepminebuild.slot1
@@ -184,6 +186,8 @@ export function returnWhy (trip, { now = Date.now(), kit = null, health = 20 } =
   }
   // townmine-01: a build trip goes home when the mine is finished (or stopped), never on the ore clocks below
   if (trip.target === 'build') return trip.built ? 'built' : (trip.arrivedAt != null && now - trip.arrivedAt > WORK_MS ? 'work_time' : null)
+  // OBSIDIAN-01: a finished cast goes home to bank what it made (the town's table waits on it)
+  if (trip.obs?.done && (trip.obs.got ?? 0) > 0) return 'obsidian'
   if (trip.arrivedAt != null && now - trip.arrivedAt > WORK_MS) return 'work_time'
   if ((trip.misses ?? 0) >= MISSES_MAX) return 'no_ore'
   if ((trip.branches ?? 0) >= BRANCHES_MAX && (trip.misses ?? 0) > 0) return 'branches'

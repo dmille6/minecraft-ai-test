@@ -51,7 +51,8 @@ export const TREEFARM_BAND = [-4, 24]               // a tree-farm column is gua
 /** A row per (cell, why) at most this often per bot (the refusal rows; the counts ride in `_escape_guard` each minute). */
 export const ROW_EVERY_MS = 60_000
 
-/** The kill switch. ESCAPEGUARD=off (or 0/false) -> off. Default on. */
+/** ESCDEAD-01SHOW (zonewalk.mjs): ZONEWALK=off (0/false/no) restores the base guard -- the deep exemption for structure blocks
+ *  and the last resort's zone digs. Default on. Defined here (zonewalk.mjs imports this file). */
 export const zoneWalkOn = (env = typeof process !== 'undefined' ? process.env : {}) =>
   !/^(off|0|false|no)$/i.test(String(env?.ZONEWALK ?? 'on').trim())
 
@@ -64,7 +65,7 @@ export const escapeGuardOn = (env = process.env) => !/^(off|0|false|no)$/i.test(
  * Conservative: what is not listed (cobblestone, mossy cobblestone, planks, logs, bricks, terracotta, glass ...) is treated as
  * a structure's.
  */
-export const ORDINARY = /^(stone|deepslate|granite|diorite|andesite|tuff|calcite|dripstone_block|smooth_basalt|basalt|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|gravel|sand|red_sand|sandstone|red_sandstone|snow_block|snow|ice|packed_ice|moss_block|netherrack|soul_sand|soul_soil|end_stone|(deepslate_)?(coal|iron|copper|gold|redstone|lapis|diamond|emerald)_ore|nether_(gold|quartz)_ore)$/
+export const ORDINARY = ORDINARY_TERRAIN   // zoneguard-01show: defined in protectzone.mjs (its name rule reads it too)
 export const isOrdinary = name => typeof name === 'string' && ORDINARY.test(name.replace(/^minecraft:/, ''))
 
 const finite3 = p => !!p && Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)
@@ -77,9 +78,18 @@ const cellOf = p => (finite3(p) ? { x: Math.floor(p.x), y: Math.floor(p.y), z: M
  *   zones          protectzone.mjs's live list; feet the bot's position (the zone's deep exemption)
  *   home           { x, y, z } | null: where an unknown record matters
  */
-export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt = null, home = null } = {}) {
+export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt = null, home = null, zoneWalk = zoneWalkOn() } = {}) {
   const c = cellOf(cell)
   if (!c) return null
+  // ZONEGUARD-01SHOW: A CELL THE TRIPWIRE'S BASELINE GUARDS (protectzone structAt: the cell itself, or the support of a block that
+  // hangs on it) is the zone's at every depth, whatever its name -- first, so the planners pass over it and no rule below opens it
+  let sz = null
+  try { sz = zones?.length ? structAt(zones, c.x, c.y, c.z, DIG_MASK) : null } catch { sz = null }
+  if (sz) return { kind: 'zone', zone: sz.id ?? '?', ordinary: false, struct: true }
+  // ESCDEAD-01SHOW: A ZONE'S STRUCTURE BLOCK IS THE ZONE'S FIRST (Codex r1 blocker 2): a plank inside a village box that a build
+  // record also covers is answered as the zone's, so the last-resort prohibition (escapeDigDecision) reaches it
+  const zs = zoneWalk ? zoneStructureAt(zones, c, name) : null
+  if (zs) return zs
   let rec = false
   if (typeof recordAt === 'function') { try { rec = recordAt(c) } catch { rec = null } }
   if (typeof rec === 'string' && rec) return { kind: 'record', what: rec }
@@ -96,10 +106,14 @@ export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt 
 }
 
 /**
- * THE GUARD'S ONE DECISION -> { allow, why }. Pure.
- *   why on allow:  off | not_survival | unguarded | ordinary | air | last_resort
- *   why on refuse: record | unknown | zone
+ * ESCDEAD-01SHOW rule 1: A STRUCTURE BLOCK IS THE ZONE'S AT EVERY DEPTH -> { kind: 'zone', zone, ordinary: false, deep } | null.
+ * Pure. The deep exemption (blocked's) opens the deep part to a deep bot; for ordinary rock that stays, but a mineshaft's planks
+ * and rails under a village (showcase-Alpha 11-07 05:39Z, 3 oak_planks at 55,18..20,29) are guarded like the village's own.
  */
+/** BELOW a zone's floor, every non-ordinary block is the zone's EXCEPT these (Claude r1 note 1, Codex r2: an allow-list, not a
+ *  palette -- a palette missed copper and iron bars): natural cave blocks (sculk, dripstone, amethyst, obsidian, magma, lichen,
+ *  roots, cave plants) and the bots' own pillar blocks (cobblestone, cobbled deepslate). They stay open in the deep part, as
+ *  before; everything else built (wood, rails, copper, bars, bricks, glass ...) is guarded at every depth. */
 export const DEEP_NATURAL = DEEP_NATURAL_BLOCKS   // zoneguard-01show: defined in protectzone.mjs
 export function zoneStructureAt (zones, c, name) {
   if (typeof name !== 'string' || !name || /(^|_)air$/.test(name) || isOrdinary(name)) return null
@@ -117,12 +131,19 @@ export function zoneStructureAt (zones, c, name) {
  *   why on allow:  off | not_survival | unguarded | ordinary | air | last_resort
  *   why on refuse: record | unknown | zone
  */
-export function escapeDigDecision ({ on = true, purpose = 'survival', guard = null, air = false, lastResort = false } = {}) {
+export function escapeDigDecision ({ on = true, purpose = 'survival', guard = null, air = false, lastResort = false, zoneWalk = zoneWalkOn() } = {}) {
   if (!on) return { allow: true, why: 'off' }
   if (purpose !== 'survival') return { allow: true, why: 'not_survival' }
   if (!guard) return { allow: true, why: 'unguarded' }
+  // ZONEGUARD-01SHOW: a baseline cell is never dug -- not for air, not as a last resort (protectzone's chokepoint refuses it too;
+  // the planners asking here pass over it to another bearing, the walk-out's ordinary rock)
+  if (guard.struct) return { allow: false, why: 'zone' }
   if (guard.kind === 'zone' && guard.ordinary) return { allow: true, why: 'ordinary' }
   if (air) return { allow: true, why: 'air' }
+  // ESCDEAD-01SHOW: THE LAST RESORT NEVER DIGS A ZONE'S STRUCTURE (showcase-Nova 11-06: 79,72,-10 plank, 80,77,-8 log). The wait
+  // runs on, the arm retries the walk-out each firing (zonewalk.mjs), `needs_rescue` calls for help; a build record keeps its
+  // last resort. Air first is above this line and unchanged.
+  if (lastResort && zoneWalk && guard.kind === 'zone') return { allow: false, why: 'zone' }
   if (lastResort) return { allow: true, why: 'last_resort' }
   return { allow: false, why: guard.kind }
 }

@@ -28,7 +28,8 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
-import { attachDigTown, digPurpose, currentDigScope } from './digtown.mjs'
+import { attachDigTown } from './digtown.mjs'
+import { digPurpose, currentDigScope } from './digtown.mjs'   // keepout-01's dig guard reads the instrument's purpose
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs)
 import {
   keepoutOn, keepoutModeDetail, fireSites, columnAt, routeForbids, coversTown, disputeScan, siteKey, keepoutCounters, noteKeepout, KEEPOUT_DISPUTE_MS,
@@ -748,6 +749,27 @@ function connect() {
       bot.once('end', () => { clearInterval(scafAreaTimer); clearInterval(scafHitsTimer) })
     }
     try { logEvent({ kind: 'scaftown_mode', status: 'success', detail: scafTownModeDetail(process.env, scafArea) }) } catch { /* telemetry */ }
+    // CLEANZONE-01 (cleanzone.mjs; owner 11-13 "is there a better way for bots to move, escape, and travel that doesnt not leave
+    // trash?" -> "build it"): a neighbour whose placement would land in the town or its margin (the `_place_town` instrument's
+    // zone) is removed from every search of the walk profile and of every profile cloned from it below (gather included: 42% of
+    // the placements). The escapes say `cleanZone = false`. The valve in cleanzone.mjs lifts the ban where a bot has no other
+    // way, and writes where. CLEANZONE=off -> nothing installed.
+    const CZ_ON = cleanZoneOn(process.env)
+    let czZone = null
+    try { czZone = CZ_ON ? cleanZoneOf(configuredHome(config.world)) : null } catch { czZone = null }
+    const cleanZone = makeCleanZone({ zone: () => czZone, on: CZ_ON, now: () => performance.now(), emit: (detail) => { try { logEvent({ kind: 'cleanzone', status: 'success', detail }) } catch { /* a row never breaks a search */ } } })
+    bot.cleanZoneBan = cleanZone
+    if (CZ_ON) {
+      installCleanZoneFilter(moves, cleanZone)
+      installCleanZoneSearch(bot.pathfinder, cleanZone)
+      let czPrev = cleanZoneSnap(cleanZone)
+      const czHitsTimer = setInterval(() => {
+        try { logEvent({ kind: 'cleanzone_hits', status: 'success', detail: cleanZoneHitsDetail(cleanZone, czPrev) }); czPrev = cleanZoneSnap(cleanZone) } catch { /* a row never breaks the bot */ }
+      }, CLEAN_ZONE.hitsMs)
+      czHitsTimer.unref?.()
+      bot.once('end', () => { clearInterval(czHitsTimer) })
+    }
+    try { logEvent({ kind: 'cleanzone_mode', status: 'success', detail: cleanZoneModeDetail(process.env, czZone) }) } catch { /* telemetry */ }
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
@@ -890,6 +912,7 @@ function connect() {
     ascendMoves.cornerRule = false    // cornerwalk-01: an escape keeps every diagonal
     ascendMoves.allow1by1towers = true
     ascendMoves.scafTown = false      // scaftown-01: an escape keeps every placement at the base's price
+    ascendMoves.cleanZone = false     // cleanzone-01: an escape keeps every placement
     ascendMoves.dontCreateFlow = true
     ascendMoves.allowParkour = false
     ascendMoves.maxDropDown = 6
@@ -939,6 +962,7 @@ function connect() {
     descendMoves.cornerRule = false   // cornerwalk-01: an escape keeps every diagonal
     descendMoves.allow1by1towers = false
     descendMoves.scafTown = false     // scaftown-01: an escape keeps the base's prices
+    descendMoves.cleanZone = false    // cleanzone-01: an escape keeps every placement
     descendMoves.allowParkour = false
     descendMoves.maxDropDown = 8
     bot.descentMovements = descendMoves
@@ -952,6 +976,7 @@ function connect() {
     deckMoves.canDig = false
     deckMoves.allow1by1towers = false
     deckMoves.scafTown = false        // scaftown-01: an escape keeps the base's prices
+    deckMoves.cleanZone = false       // cleanzone-01: an escape keeps every placement (it places none anyway)
     deckMoves.allowParkour = false
     deckMoves.allowSprinting = false
     deckMoves.maxDropDown = SKY_SAFE_DROP
@@ -1009,6 +1034,7 @@ function connect() {
     waterMoves.canDig = false
     waterMoves.allow1by1towers = false
     waterMoves.scafTown = false       // scaftown-01: an escape keeps the base's prices
+    waterMoves.cleanZone = false      // cleanzone-01: an escape keeps every placement
     waterMoves.allowParkour = false
     waterMoves.dontCreateFlow = true
     bot.waterMovements = waterMoves
