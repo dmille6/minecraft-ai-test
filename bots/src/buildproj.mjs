@@ -637,9 +637,10 @@ export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt
 // ---- projturn-01: the projects' turns (projturn.mjs; skills.mjs shopActive / buildShop) ---------------------------------------------
 // ONE FILE PER HOLDER for the whole town (the stuck map's rule, Codex r21 P2: a holder writes only its own file, so no update is
 // lost; a reader merges -- projturn.mjs turnView): `projturn-<home>.<holder>.json` = { v, holder, at, plots: { <plot>: { at, n, noAt,
-// okAt, gen, stop } } } -- at: this holder's last visit START to the plot; n / noAt / stop: its no-progress visits in a row and the
-// last one; okAt: its last visit that made progress; gen: the record generation the count was taken on. Never pruned (one small file
-// a bot), never read by the record walk (its name starts with no project key).
+// rn, rnoAt, okAt, gen, stop } } } -- at: this holder's last visit START to the plot; n / noAt / stop: its no-progress visits in a
+// row and the last one; rn / rnoAt: the same for its visits that began as REPAIRS; okAt: its last visit that made progress; gen:
+// the record generation the counts were taken on. Never pruned (one small file a bot), never read by the record walk (its name
+// starts with no project key).
 const turnHome = home => `${home.x}_${home.y}_${home.z}`
 const turnFile = (dir, home, holder) => path.join(dir, `projturn-${turnHome(home)}.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 const TURN_RE = home => new RegExp(`^projturn-${esc(turnHome(home))}\\.[A-Za-z0-9_-]+\\.json$`)
@@ -649,7 +650,7 @@ const turnOf = j => {
   const plots = {}
   for (const [plot, e] of Object.entries(j.plots)) {
     if (!e || typeof e !== 'object') continue
-    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null }
+    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), rn: Math.max(0, Math.floor(Number(e.rn) || 0)), rnoAt: turnNum(e.rnoAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null }
   }
   return { holder: j.holder, at: Number(j.at) || 0, plots }
 }

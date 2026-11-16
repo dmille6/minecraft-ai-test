@@ -20,16 +20,27 @@
 //      stair's and the storehouse's 30 min; an hour for a COMPLETE record, the repairs' rhythm: a real repair never waits longer
 //      behind an upkeep that found nothing) -- plus a per-bot jitter of up to a quarter, so fourteen bots do not come back in the
 //      same minute. One `progress` ends it. A record generation published since (a siting, an extension, a waiver, a planner's
-//      next phase) ends it too: what the visits found wanting has changed. ONE PROBE AT A TIME: while a project has such a count
-//      and another bot's visit to it is under way (its start stamped, no result yet), it stays backed off for everyone else --
-//      else every free slot of a hopeless project fills in the minutes the first bot back is still finding out.
+//      next phase) ends it too: what the visits found wanting has changed.
+//      ONE PROBE AT A TIME, AND THE CLAIM IS THE SLOT LEASE (review r1, Codex BLOCKER 3: a stamped start is no atomic claim, and
+//      a wall-clock hold ends before an 8-minute visit does). A project with a count is "under probe" for everyone else exactly
+//      while another bot holds one of its admission slots (buildproj.mjs leases: taken, renewed and released by the visit, lapsing
+//      by themselves after a kill) -- `leased`. The bot that goes back to it takes slot 1 at the visit's START (skills.mjs
+//      turnBegin; turnClaimNeeded): one taker per lease generation, so two bots that decided from the same reading cannot both
+//      start; the loser steps aside with nothing counted and is given its next pick in the same visit.
+//      A REPAIR IS NOT HELD BY ANOTHER KIND OF VISIT'S BACK-OFF (review r1, Codex BLOCKER 1): world damage moves no record
+//      generation, so a complete building broken AFTER a no-op visit would wait the back-off out. A complete record whose state
+//      reads `broken` (skills.mjs: a CELL read not done -- never the paths' extension, which is no cell) is gated by its own
+//      count alone: the no-progress visits that began as repairs (`rn` / `rnoAt`). A repair that keeps failing backs off on
+//      that; a fresh one is ordered at the next decision. The paths' unroutable extension is not `broken`: it backs off.
 //   3. AMONG THE PROJECTS A BOT MAY WORK, THE ONE LONGEST UNVISITED GOES FIRST (turnPick over the states' marks -- `turn`,
 //      `visitAt`, `pin`: never visited is oldest; the list's order breaks a tie; the bot's own pick stands while it is a candidate).
 //      A visit's START is stamped, an aborted one too: a project whose visits never finish still takes its turn.
 //   4. NOTHING AHEAD OF THE OPEN ORDER MOVES: the held projects, the service pick, an unbacked-off repair, the sink turn, the
 //      `after` chain, a waiting planner, the slots and the leases are activeProject's as before; the grounds (the tidy, the forest),
 //      the upkeep plot and the sinks take no turn and no back-off (their own lanes: the keeper's order, the quota, the idle marks);
-//      a complete yard is never backed off (it is a full bag's own remedy); a service visit is never counted (its own schedule).
+//      a complete yard is never backed off (it is a full bag's own remedy); a service visit is never counted (its own schedule)
+//      and the plot of this bot's current service offer is never backed off for it -- in the picker AND in the order's gate, which
+//      are one function (review r1, Codex BLOCKER 2: the pick passed it and the order then refused it, again and again).
 //   5. A STUCK STAMP IS UNTOUCHED: stuckBackoff's shape passes through turnBackoff as it came, and the order names the stamp first.
 //   6. THE REFUSAL HAS A REMEDY: where a backed-off (or held) project is STILL the pick -- nothing else is open for the bot -- the
 //      order's skip (`no_progress`, or the stop's own name) is one the grounds stand in for (grounds2.mjs NO_ORDER_SKIPS); and a
@@ -41,11 +52,10 @@
 /** THE SWITCH -> bool. On unless PROJTURN says off. Pure. */
 export const projTurnOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.PROJTURN ?? '').trim())
 /** baseMs: the first back-off; capMs: its cap; capDoneMs: the cap for a complete record; jitter: the per-bot share added on top;
- *  readMs: how long a reading of the pool's files stands; probeMs: how long another bot's started visit to a backed-off project
- *  holds the others off while its result is out (a visit that never reports lapses); stickMs: how long a bot's pick stands while it
- *  is still a candidate (the order and the visit it issues name one project); skewMs: a stamp further in the future than this is a
- *  bad clock's. */
-export const TURN = Object.freeze({ baseMs: 20 * 60_000, capMs: 6 * 60 * 60_000, capDoneMs: 60 * 60_000, jitter: 0.25, readMs: 15_000, probeMs: 5 * 60_000, stickMs: 60_000, skewMs: 60_000 })
+ *  readMs: how long a reading of the pool's files stands; stickMs: how long a bot's pick stands while it is still a candidate (the
+ *  order and the visit it issues name one project); asideMax: how many lost probe claims a visit steps aside from before it ends;
+ *  skewMs: a stamp further in the future than this is a bad clock's. */
+export const TURN = Object.freeze({ baseMs: 20 * 60_000, capMs: 6 * 60 * 60_000, capDoneMs: 60 * 60_000, jitter: 0.25, readMs: 15_000, stickMs: 60_000, asideMax: 3, skewMs: 60_000 })
 
 /**
  * THE STOPS THAT ARE NO EVIDENCE ABOUT THE PROJECT (grounds2.mjs FALL_STOPS' own reasons): the visit did not happen (shop.mjs
@@ -91,45 +101,56 @@ export function turnUntil (e, { me = null, plot = null, cap = TURN.capMs, T = TU
 }
 const sameGen = (a, b) => (a ?? null) === (b ?? null)
 /**
- * THE POOL'S VIEW -> Map plot -> { at, by, okAt, n, noAt, stop }. Pure. `files`: [{ holder, plots: { plot: { at, n, noAt, okAt, gen,
- * stop } } }] (one per holder). at / by: the newest visit START by anyone, and whose; okAt: the newest progress; n: every holder's
- * no-progress count SINCE that progress, on the record generation that stands now (`genOf(plot)`; no reader: every generation
- * counts); noAt / stop: the newest of them. A stamp more than T.skewMs in the future is dropped before anything is taken.
+ * THE POOL'S VIEW -> Map plot -> { at, okAt, n, noAt, rn, rnoAt, stop }. Pure. `files`: [{ holder, plots: { plot: { at, n, noAt, rn,
+ * rnoAt, okAt, gen, stop } } }] (one per holder). at: the newest visit START by anyone; okAt: the newest progress; n: every
+ * holder's no-progress count SINCE that progress, on the record generation that stands now (`genOf(plot)`; no reader: every
+ * generation counts); noAt / stop: the newest of them; rn / rnoAt: the same for the visits that began as REPAIRS (their own count).
+ * A stamp more than T.skewMs in the future is dropped before anything is taken.
  */
 export function turnView (files = [], { now = Date.now(), genOf = null, T = TURN } = {}) {
   const ok = t => Number.isFinite(t) && t > 0 && t <= now + T.skewMs
   const by = new Map()
-  for (const f of files ?? []) for (const [plot, e] of Object.entries(f?.plots ?? {})) { if (e && typeof e === 'object') { if (!by.has(plot)) by.set(plot, []); by.get(plot).push({ ...e, holder: f.holder ?? null }) } }
+  for (const f of files ?? []) for (const [plot, e] of Object.entries(f?.plots ?? {})) { if (e && typeof e === 'object') { if (!by.has(plot)) by.set(plot, []); by.get(plot).push(e) } }
   const out = new Map()
   for (const [plot, es] of by) {
     const at = Math.max(-Infinity, ...es.map(e => e.at).filter(ok)), okAt = Math.max(-Infinity, ...es.map(e => e.okAt).filter(ok))
     let gen
-    const v = { at: Number.isFinite(at) ? at : null, by: Number.isFinite(at) ? es.find(e => e.at === at)?.holder ?? null : null, okAt: Number.isFinite(okAt) ? okAt : null, n: 0, noAt: null, stop: null }
+    const v = { at: Number.isFinite(at) ? at : null, okAt: Number.isFinite(okAt) ? okAt : null, n: 0, noAt: null, rn: 0, rnoAt: null, stop: null }
     for (const e of es) {
-      const k = Math.floor(Number(e.n) || 0)
-      if (k <= 0 || !ok(e.noAt) || e.noAt <= okAt) continue
-      if (typeof genOf === 'function') { if (gen === undefined) { try { gen = genOf(plot) ?? null } catch { gen = null } } if (!sameGen(e.gen, gen)) continue }
-      v.n += k
-      if (v.noAt == null || e.noAt > v.noAt) { v.noAt = e.noAt; v.stop = e.stop ?? null }
+      for (const [nk, tk] of [['n', 'noAt'], ['rn', 'rnoAt']]) {
+        const k = Math.floor(Number(e[nk]) || 0)
+        if (k <= 0 || !ok(e[tk]) || e[tk] <= okAt) continue
+        if (typeof genOf === 'function') { if (gen === undefined) { try { gen = genOf(plot) ?? null } catch { gen = null } } if (!sameGen(e.gen, gen)) continue }
+        v[nk] += k
+        if (v[tk] == null || e[tk] > v[tk]) { v[tk] = e[tk]; if (nk === 'n') v.stop = e.stop ?? null }
+      }
     }
     out.set(plot, v)
   }
   return out
 }
-/** A VISIT STARTS -> this holder's entry with the start stamped (the count as it was). Pure. */
-export const turnStart = (own, now = Date.now()) => ({ n: 0, noAt: null, okAt: null, gen: null, stop: null, ...(own ?? {}), at: now })
+/** A VISIT STARTS -> this holder's entry with the start stamped (the counts as they were). Pure. */
+export const turnStart = (own, now = Date.now()) => ({ n: 0, noAt: null, rn: 0, rnoAt: null, okAt: null, gen: null, stop: null, ...(own ?? {}), at: now })
 /**
  * A VISIT ENDED -> this holder's entry after it. Pure. `own`: its entry before (or null); `pool`: the pool's view of the project
- * (turnView: the newest progress by anyone); `gen`: the record's generation now. `progress`: the count ends. `no_progress`: one more
- * -- on top of its own count only while that count is still live (no progress by anyone since, the same generation). `none`: as it was.
+ * (turnView: the newest progress by anyone); `gen`: the record's generation now. `progress`: both counts end. `no_progress`: one
+ * more -- on the REPAIRS' count when the visit began as one (`repair`), else on the project's -- on top of its own count only while
+ * that count is still live (no progress by anyone since, the same generation). `none`: as it was.
  */
-export function turnAfter (own, pool, outcome, { now = Date.now(), stop = null, gen = null } = {}) {
-  const base = { at: null, n: 0, noAt: null, okAt: null, gen: null, stop: null, ...(own ?? {}) }
-  if (outcome === 'progress') return { ...base, n: 0, noAt: null, okAt: now, gen: gen ?? null, stop: null }
+export function turnAfter (own, pool, outcome, { now = Date.now(), stop = null, gen = null, repair = false } = {}) {
+  const base = { at: null, n: 0, noAt: null, rn: 0, rnoAt: null, okAt: null, gen: null, stop: null, ...(own ?? {}) }
+  if (outcome === 'progress') return { ...base, n: 0, noAt: null, rn: 0, rnoAt: null, okAt: now, gen: gen ?? null, stop: null }
   if (outcome !== 'no_progress') return own ?? null
-  const live = base.n > 0 && Number.isFinite(base.noAt) && base.noAt > (pool?.okAt ?? -Infinity) && sameGen(base.gen, gen)
-  return { ...base, n: (live ? Math.floor(base.n) : 0) + 1, noAt: now, gen: gen ?? null, stop: stop == null ? null : String(stop) }
+  const live = (n, t) => (n > 0 && Number.isFinite(t) && t > (pool?.okAt ?? -Infinity) && sameGen(base.gen, gen) ? Math.floor(n) : 0)
+  // the count the visit does not add to is kept only while it is live too (the entry carries ONE generation)
+  const n = live(base.n, base.noAt), rn = live(base.rn, base.rnoAt)
+  return repair
+    ? { ...base, n, noAt: n ? base.noAt : null, rn: rn + 1, rnoAt: now, gen: gen ?? null, stop: stop == null ? null : String(stop) }
+    : { ...base, n: n + 1, noAt: now, rn, rnoAt: rn ? base.rnoAt : null, gen: gen ?? null, stop: stop == null ? null : String(stop) }
 }
+/** MUST THIS VISIT CLAIM THE PROBE FIRST? -> bool. Pure. A project with a live count (its own or its repairs'): the bot going back
+ *  to it takes the slot lease at the visit's start, or steps aside. No count: an ordinary visit, the slots as before. */
+export const turnClaimNeeded = e => (Math.floor(Number(e?.n) || 0) > 0 && Number.isFinite(e?.noAt)) || (Math.floor(Number(e?.rn) || 0) > 0 && Number.isFinite(e?.rnoAt))
 /**
  * THIS BOT'S OWN HOLD -> { plot, stop } | null. Pure. `last`: { plot, stop, at } of its last visit to a project of its own
  * (skills.mjs buildShop). `stuck_on_cell` holds that project `stuckMs`, `no_site` holds it `siteMs` (shop.mjs: the order's two
@@ -141,19 +162,25 @@ export function turnHold (last, now = Date.now(), { stuckMs = 6 * 60 * 60_000, s
   return now - last.at < ms ? { plot: last.plot, stop: last.stop } : null
 }
 /**
- * THE STATES WITH THE TURNS' MARKS -> states (shop.mjs activeProject's). Pure. For every project that takes turns (`exempt(plot)`
- * false): `turn` (it does: activeProject ages only among these), `visitAt` (the newest visit start), `pin` (on `pin`'s plot: the
- * pick this bot already has -- the order and the visit it issues name one project); `backoff` while this bot's back-off holds -- an open project is not
- * `free` (the next one first), a complete one is quiet (no repair, no upkeep: nothing is offered there) -- and while ANOTHER bot's
- * visit to a project with a count is under way (T.probeMs from its start: one probe at a time). The project this bot's own last
- * stop holds steps aside in stuckBackoff's shape (open: not `free`; complete: only `due`; `stuck`) -- a `no_site` only while it
- * is still unsited. Never taken OUT of the list: with nothing else open it is still the pick, and the order skips it by name.
- * A state a stuck stamp or a waiting hold already marked (`stuck`) keeps that shape exactly: the stamp is never shortened or reshaped.
+ * THE STATES WITH THE TURNS' MARKS -> states (shop.mjs activeProject's). Pure. THE ONE ELIGIBILITY RULE: skills.mjs calls it for the
+ * picker's states and, with the pick's own state, for the order's gate. For every project that takes turns (`exempt(plot)` false):
+ * `turn` (it does: activeProject ages only among these), `visitAt` (the newest visit start), `pin` (on `pin`'s plot: the pick this
+ * bot already has -- the order and the visit it issues name one project); `backoff` while this bot's back-off holds, or while the
+ * project has a count and ANOTHER bot holds one of its slots (`leased`: one probe at a time, for as long as that visit lasts) -- an
+ * open project is then not `free` (the next one first), a complete one is quiet (no repair, no upkeep: nothing is offered there).
+ * The project this bot's own last stop holds steps aside in stuckBackoff's shape (open: not `free`; complete: only `due`; `stuck`)
+ * -- a `no_site` only while it is still unsited. Never taken OUT of the list: with nothing else open it is still the pick, and the
+ * order skips it by name. A state a stuck stamp or a waiting hold already marked (`stuck`) keeps that shape exactly: the stamp is
+ * never shortened or reshaped.
  *   capOf    plot -> the project's stuck window, ms (turnCap's `stuckMs`)
  *   ownNeed  plot -> a COMPLETE record whose work is the asking bot's own need (shop.mjs turnOwnNeed: the yard takes a full bag):
  *            one bot finding nothing there says nothing about the next -- never backed off while complete
+ *   service  the plot of this bot's current service offer (prodserve.mjs): never backed off for it -- its schedule is its own
+ *   leased   plot -> does another bot hold a live admission slot of the project now? (asked only where a count stands and the
+ *            back-off is over; a throw reads as no)
+ * A complete record whose state reads `damaged` AND `broken` (a cell read not done) is a REPAIR: gated by the repairs' own count.
  */
-export function turnBackoff (states = [], view = null, { me = null, now = Date.now(), exempt = () => false, hold = null, pin = null, capOf = () => Infinity, ownNeed = () => false, T = TURN } = {}) {
+export function turnBackoff (states = [], view = null, { me = null, now = Date.now(), exempt = () => false, hold = null, pin = null, capOf = () => Infinity, ownNeed = () => false, service = null, leased = () => false, T = TURN } = {}) {
   return states.map(st => {
     if (!st || exempt(st.plot)) return st
     const e = view?.get?.(st.plot) ?? null
@@ -162,10 +189,14 @@ export function turnBackoff (states = [], view = null, { me = null, now = Date.n
     const done = !!(st.exists && st.complete)
     if (hold && hold.plot === st.plot && (hold.stop !== 'no_site' || !st.exists)) return done ? { ...seen, damaged: false, due: true, stuck: true } : { ...seen, free: false, stuck: true }
     if (done && ownNeed(st.plot)) return seen
+    if (service != null && service === st.plot) return seen
+    const repair = done && st.damaged === true && st.broken === true
+    const c = repair ? { n: e?.rn, noAt: e?.rnoAt } : e
     let cap = Infinity
     try { cap = capOf(st.plot) } catch { cap = Infinity }
-    const probing = (e?.n ?? 0) > 0 && Number.isFinite(e.at) && e.at > (e.noAt ?? -Infinity) && e.by !== me && now >= e.at && now - e.at < T.probeMs
-    if (!probing && !(turnUntil(e, { me, plot: st.plot, cap: turnCap({ complete: done, stuckMs: cap, T }), T }) > now)) return seen
+    let blocked = turnUntil(c, { me, plot: repair ? `${st.plot}#repair` : st.plot, cap: turnCap({ complete: done, stuckMs: cap, T }), T }) > now
+    if (!blocked && Math.floor(Number(c?.n) || 0) > 0 && Number.isFinite(c?.noAt)) { try { blocked = leased(st.plot) === true } catch { blocked = false } }
+    if (!blocked) return seen
     return done ? { ...seen, damaged: false, due: false, dueFirst: false, backoff: true } : { ...seen, free: false, backoff: true }
   })
 }
@@ -185,4 +216,4 @@ export function turnPick (cands = [], ageOf = () => null, prefer = null) {
 }
 /** `_shop_turn` rows (detail strings only). Pure. */
 export const turnPickDetail = ({ project = '-', why = '-', ageMin = null, backedOff = 0, eligible = 0 } = {}) => `op=pick project=${project} why=${why} age_min=${ageMin == null ? 'never' : ageMin} backed_off=${backedOff} eligible=${eligible}`
-export const turnBackoffDetail = ({ project = '-', n = 0, untilMin = 0, stop = '-' } = {}) => `op=backoff project=${project} n=${n} until_min=${untilMin} stop=${String(stop ?? '-').replace(/\s+/g, '_').slice(0, 48)}`
+export const turnBackoffDetail = ({ project = '-', n = 0, untilMin = 0, stop = '-', repair = false } = {}) => `op=backoff project=${project} n=${n} until_min=${untilMin} stop=${String(stop ?? '-').replace(/\s+/g, '_').slice(0, 48)}${repair ? ' repair=1' : ''}`

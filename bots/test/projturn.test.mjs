@@ -70,6 +70,12 @@ async function killed (ptPairs, shopPairs, scenario) {
 
 const MIN = 60_000, H = 60 * MIN
 const NOW = 1_800_000_000_000
+// the mutants' anchors in projturn.mjs (each present and unique: mutantSource)
+const RESET = "  if (outcome === 'progress') return { ...base, n: 0, noAt: null, rn: 0, rnoAt: null, okAt: now, gen: gen ?? null, stop: null }\n"
+const REPAIR = '    const repair = done && st.damaged === true && st.broken === true\n'
+const SERVICE = '    if (service != null && service === st.plot) return seen\n'
+const LEASED = '    if (!blocked && Math.floor(Number(c?.n) || 0) > 0 && Number.isFinite(c?.noAt)) { try { blocked = leased(st.plot) === true } catch { blocked = false } }\n'
+const CLAIM = 'export const turnClaimNeeded = e => '
 
 // ================================================================================================================================
 // 1. THE PURE RULES
@@ -147,7 +153,7 @@ await t('the count: each holder\'s no-progress visit adds one for the pool; ONE 
   const view = (now, genOf = null) => PT.turnView([...files].map(([holder, plots]) => ({ holder, plots })), { now, genOf })
   const visit = (holder, oc, now, gen = 4) => { const own = files.get(holder)?.wall ?? null; const e = PT.turnAfter(PT.turnStart(own, now - 1000), view(now).get('wall') ?? null, oc, { now, stop: 'stuck_on_cell', gen }); files.set(holder, { wall: e }) }
   visit('A', 'no_progress', NOW)
-  assert.deepEqual(view(NOW).get('wall'), { at: NOW - 1000, by: 'A', okAt: null, n: 1, noAt: NOW, stop: 'stuck_on_cell' })
+  assert.deepEqual(view(NOW).get('wall'), { at: NOW - 1000, okAt: null, n: 1, noAt: NOW, rn: 0, rnoAt: null, stop: 'stuck_on_cell' })
   visit('B', 'no_progress', NOW + 30 * MIN)
   visit('A', 'no_progress', NOW + 80 * MIN)
   assert.equal(view(NOW + 80 * MIN).get('wall').n, 3, 'A twice, B once')
@@ -178,7 +184,7 @@ await t('the count: each holder\'s no-progress visit adds one for the pool; ONE 
 })
 
 await t('MUTANT (the reset): a progress visit that does not end the count leaves the project backed off', async () => {
-  await killed([['  if (outcome === \'progress\') return { ...base, n: 0, noAt: null, okAt: now, gen: gen ?? null, stop: null }\n', '  if (outcome === \'progress\') return own ?? null\n']], [], (Sm, PTm) => {
+  await killed([[RESET, '  if (outcome === \'progress\') return own ?? null\n']], [], (Sm, PTm) => {
     const a = PTm.turnAfter(null, null, 'no_progress', { now: NOW, stop: 'stuck_on_cell', gen: 1 })
     const b = PTm.turnAfter(null, null, 'progress', { now: NOW + MIN, gen: 1 })
     assert.equal(PTm.turnView([{ holder: 'A', plots: { wall: a } }, { holder: 'B', plots: { wall: b } }], { now: NOW + 2 * MIN }).get('wall').n, 0)
@@ -415,22 +421,144 @@ await t('THE REFUSAL CHAIN (the order): the pick inside its back-off is skipped 
   await killed([], [['  if (turn && turnOf) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) }', '  if (turnOf) { let bo = false; try { bo = !!turnOf.backedOff(plot0, now) }']], scenario)
 })
 
+await t('REVIEW r1, BLOCKER 1 -- a REPAIR is not held by another kind of visit\'s back-off: fresh cell damage on a backed-off building is the pick and passes the order\'s gate; the paths\' extension (damage that is no cell\'s) still backs off; a repair that keeps failing backs off on the repairs\' own count; MUTANT killed', async () => {
+  const scenario = (Sm, PTm) => {
+    const o = { me: 'A', now: NOW, exempt: Sm.turnExempt, capOf: Sm.stuckWindowOf, ownNeed: Sm.turnOwnNeed }
+    const list = [{ plot: 'shop', blueprint: 's' }, { plot: 'house1', blueprint: 'h', after: 'shop' }, { plot: 'paths', blueprint: 'p', after: 'shop' }, { plot: 'wall', blueprint: 'w', after: 'shop' }]
+    // a minute ago a visit to the house and one to the paths did nothing, for the third time: both are backed off for an hour
+    const cnt = { at: NOW - MIN, okAt: null, n: 3, noAt: NOW - MIN, rn: 0, rnoAt: null, stop: 'complete' }
+    const view = new Map([['house1', cnt], ['paths', cnt]])
+    const base = [st('shop', { complete: true }), st('house1', { complete: true, due: true }), st('paths', { complete: true, damaged: true }), st('wall')]
+    const whole = PTm.turnBackoff(base, view, o)
+    assert.deepEqual([whole[1].backoff, whole[1].due, whole[2].backoff, whole[2].damaged], [true, false, true, false], 'the house\'s upkeep and the paths\' extension are quiet')
+    assert.equal(Sm.activeProject(whole, list, { noWait: false }).plot, 'wall')
+    // A CELL OF THE HOUSE BREAKS (its state now reads damaged AND broken): the record's generation has not moved, the count stands
+    const hit = base.map(s => (s.plot === 'house1' ? { ...s, damaged: true, due: false, broken: true } : s))
+    const m = PTm.turnBackoff(hit, view, o)
+    assert.deepEqual(m[1], { ...hit[1], turn: true, visitAt: NOW - MIN }, 'the damage stands: no back-off of another kind of visit holds a repair')
+    assert.equal(Sm.activeProject(m, list, { noWait: false }).plot, 'house1', 'the repair is the pick at the next decision')
+    // the order's gate is the same marks, for the pick alone: it passes
+    assert.equal(PTm.turnBackoff([hit[1]], view, o)[0].backoff, undefined)
+    Sm.setTurnNow({ stuckPlot: () => null, backedOff: plot => PTm.turnBackoff([hit.find(s => s.plot === plot)], view, o)[0].backoff === true })
+    const q = { on: true, shared: true, atTown: true, now: NOW, planned: true, state: {}, complete: false }
+    assert.deepEqual(Sm.buildOrder({ ...q, record: { plot: 'house1', structure_complete: true } }), ORDER, 'and the order is issued')
+    // THE PATHS STILL BACK OFF: `damaged` without `broken` (recordDamaged's extension-due) is the project's own count
+    assert.deepEqual([m[2].backoff, m[2].damaged], [true, false])
+    assert.deepEqual(Sm.buildOrder({ ...q, record: { plot: 'paths', structure_complete: true } }), { order: null, skip: 'no_progress' })
+    // ...unless a path cell is really broken too: then it is a repair like any other
+    assert.equal(PTm.turnBackoff([{ ...base[2], broken: true }], view, o)[0].backoff, undefined)
+    // `broken` without `damaged` (the per-bot repair back-off took the repair away: shop.mjs repairBackoff) is no repair
+    assert.equal(PTm.turnBackoff([{ ...base[1], damaged: false, due: true, broken: true }], view, o)[0].backoff, true)
+    // THE REPAIR ITSELF FAILS: counted on the repairs' own count, never on the project's
+    const gale = { holder: 'G', plots: { house1: { at: NOW - MIN, n: 3, noAt: NOW - MIN, rn: 0, rnoAt: null, okAt: null, gen: 1, stop: 'complete' } } }
+    const viewOf = (own, now) => PTm.turnView([gale, { holder: 'A', plots: { house1: own } }], { now, genOf: () => 1 }).get('house1')
+    let own = PTm.turnStart(null, NOW), t = NOW
+    const fail = () => { t += 3 * MIN; own = PTm.turnAfter(own, viewOf(own, t), 'no_progress', { now: t, stop: 'clears_wait', gen: 1, repair: true }) }
+    fail()
+    assert.deepEqual([own.rn, own.rnoAt, own.n, own.noAt], [1, t, 0, null])
+    assert.deepEqual([viewOf(own, t).n, viewOf(own, t).rn, viewOf(own, t).rnoAt], [3, 1, t])
+    const gate = now => PTm.turnBackoff([hit[1]], new Map([['house1', viewOf(own, now)]]), { ...o, now })[0].backoff === true
+    assert.equal(gate(t + MIN), true, 'a repair that failed is backed off')
+    assert.equal(gate(t + 26 * MIN), false, 'for 20-25 min -- its own first step, not the hour the project\'s count of three says')
+    // N failures: 20, 40, then an hour (a complete record's cap), each from the last one
+    fail(); assert.equal(gate(t + 39 * MIN), true); assert.equal(gate(t + 51 * MIN), false)
+    fail(); fail(); fail()
+    assert.equal(own.rn, 5)
+    assert.equal(gate(t + 59 * MIN), true); assert.equal(gate(t + 76 * MIN), false, 'never more than an hour and a quarter')
+    // a visit that was no repair adds to the project's count and leaves the repairs' alone
+    const up = PTm.turnAfter(own, viewOf(own, t), 'no_progress', { now: t + MIN, stop: 'complete', gen: 1 })
+    assert.deepEqual([up.n, up.rn, up.rnoAt], [1, 5, t])
+    // ONE repair that works ends both counts, for everyone
+    const ok = PTm.turnAfter(own, viewOf(own, t), 'progress', { now: t + 2 * H, gen: 1 })
+    assert.deepEqual([ok.n, ok.rn, ok.rnoAt, ok.okAt], [0, 0, null, t + 2 * H])
+    assert.deepEqual([viewOf(ok, t + 2 * H).n, viewOf(ok, t + 2 * H).rn], [0, 0])
+  }
+  await killed([[REPAIR, '    const repair = false\n']], [], scenario)
+})
+await t('REVIEW r1, BLOCKER 2 -- ONE RULE for the pick and the order\'s gate: the plot of the bot\'s current service offer is not backed off in either; without the offer it is, in both; MUTANT killed', async () => {
+  const scenario = (Sm, PTm) => {
+    const o = { me: 'A', now: NOW, exempt: Sm.turnExempt, capOf: Sm.stuckWindowOf, ownNeed: Sm.turnOwnNeed }
+    const list = [{ plot: 'shop', blueprint: 's' }, { plot: 'cropfarm', blueprint: 'c', after: 'shop' }, { plot: 'wall', blueprint: 'w', after: 'shop' }]
+    const view = new Map([['cropfarm', { at: NOW - MIN, okAt: null, n: 3, noAt: NOW - MIN, rn: 0, rnoAt: null, stop: 'complete' }]])
+    const states = [st('shop', { complete: true }), st('cropfarm', { complete: true, due: true }), st('wall')]
+    const q = { on: true, shared: true, atTown: true, now: NOW, planned: true, state: {}, complete: false, record: { plot: 'cropfarm', structure_complete: true } }
+    const gateOn = marks => Sm.setTurnNow({ stuckPlot: () => null, backedOff: plot => marks.find(s => s.plot === plot)?.backoff === true })
+    // THE DEAD END AS IT WAS (the control): marks that do not know the offer back the farm off, the picker's service tier takes it
+    // all the same, and the order -- reading those marks -- refuses it; the wall, open and free, is never reached
+    const blind = PTm.turnBackoff(states, view, o)
+    assert.equal(Sm.activeProject(blind, list, { noWait: false, service: 'cropfarm' }).plot, 'cropfarm')
+    gateOn(blind)
+    assert.deepEqual(Sm.buildOrder(q), { order: null, skip: 'no_progress' })
+    // THE RULE: the marks are told the offer -- the same marks the gate reads
+    const m = PTm.turnBackoff(states, view, { ...o, service: 'cropfarm' })
+    assert.deepEqual(m[1], { ...states[1], turn: true, visitAt: NOW - MIN }, 'its state as it came: the service\'s schedule is its own')
+    assert.equal(Sm.activeProject(m, list, { noWait: false, service: 'cropfarm' }).plot, 'cropfarm')
+    gateOn(m)
+    assert.deepEqual(Sm.buildOrder(q), ORDER, 'the pick passes the order: the service is ordered')
+    // only the offer's own plot, and only while it is offered: the farm with no offer is backed off in the pick AND the gate, and the wall is worked
+    assert.equal(PTm.turnBackoff(states, view, { ...o, service: 'paths' })[1].backoff, true)
+    assert.equal(Sm.activeProject(blind, list, { noWait: false }).plot, 'wall')
+    gateOn(blind)
+    assert.deepEqual(Sm.buildOrder({ ...q, record: { plot: 'wall' } }), ORDER)
+  }
+  await killed([[SERVICE, '']], [], scenario)
+})
+await t('REVIEW r1, BLOCKER 3 -- THE PROBE IS THE SLOT LEASE: a project with a count is not free while another bot holds one of its slots, however long that lasts; no count, no hold; the lease is read only where it decides; MUTANT killed', async () => {
+  const scenario = (Sm, PTm) => {
+    const o = { me: 'A', now: NOW, exempt: Sm.turnExempt, capOf: Sm.stuckWindowOf, ownNeed: Sm.turnOwnNeed }
+    // the wall extension: two visits did nothing, three hours ago (its 40-50 min are long over); the wall: working
+    const view = new Map([['wallext', { at: NOW - 3 * H, okAt: null, n: 2, noAt: NOW - 3 * H, rn: 0, rnoAt: null, stop: 'cell_deferred' }], ['wall', { at: NOW - H, okAt: NOW - H, n: 0, noAt: null, rn: 0, rnoAt: null, stop: null }]])
+    const states = [st('wallext'), st('wall')]
+    assert.equal(PTm.turnBackoff(states, view, { ...o, leased: () => false })[0].backoff, undefined, 'the back-off over and nobody on it: a candidate')
+    assert.deepEqual(PTm.turnBackoff(states, view, { ...o, leased: plot => plot === 'wallext' })[0], { ...states[0], turn: true, visitAt: NOW - 3 * H, free: false, backoff: true }, 'another bot is on it: under probe')
+    // no wall clock in it: the same answer at any hour while the lease is held, and none once it is not
+    for (const dt of [MIN, 8 * MIN, 5 * H]) assert.equal(PTm.turnBackoff(states, view, { ...o, now: NOW + dt, leased: () => true })[0].backoff, true, `${dt / MIN} min on`)
+    assert.equal(PTm.TURN.probeMs, undefined)
+    // a project with no count is ordinary work: two builders side by side, as before
+    assert.equal(PTm.turnBackoff(states, view, { ...o, leased: () => true })[1].backoff, undefined)
+    // a complete record's repair count is a count too
+    const hall = st('townhall', { complete: true, damaged: true, broken: true })
+    const hv = new Map([['townhall', { at: NOW - 3 * H, okAt: null, n: 0, noAt: null, rn: 2, rnoAt: NOW - 3 * H }]])
+    assert.deepEqual([PTm.turnBackoff([hall], hv, { ...o, leased: () => true })[0].backoff, PTm.turnBackoff([hall], hv, { ...o, leased: () => false })[0].backoff], [true, undefined])
+    // the lease is read only where it decides (a file read each): not inside a back-off, not without a count
+    const asked = []
+    PTm.turnBackoff([...states, st('monument')], new Map([...view, ['monument', { at: NOW - MIN, okAt: null, n: 1, noAt: NOW - MIN, rn: 0, rnoAt: null }]]), { ...o, leased: plot => { asked.push(plot); return false } })
+    assert.deepEqual(asked, ['wallext'])
+    assert.equal(PTm.turnBackoff(states, view, { ...o, leased: () => { throw new Error('x') } })[0].backoff, undefined, 'a lease that cannot be asked is "no"')
+    // who must claim before it starts
+    assert.deepEqual([null, { n: 0 }, { n: 2, noAt: NOW }, { n: 0, rn: 1, rnoAt: NOW }, { n: 2, noAt: null }].map(e => PTm.turnClaimNeeded(e)), [false, false, true, true, false])
+  }
+  await killed([[LEASED, '']], [], scenario)
+})
+
 // ================================================================================================================================
 // 2. THE SIMULATION: fourteen bots, a town shaped like the live one, 48 hours on a fake clock.
 // ================================================================================================================================
-// THE TOWN (the live one's shape, 11-15): the workshop, the house and the paths stand; the house takes DAMAGE at hour 6 (two repair
-// visits mend it); the paths read as damage to each bot once per 30 min (the extension its visit cannot route: `complete`, nothing
-// laid); the crop farm is a service plot, due every 30 min; the ziggurat ends stuck_on_cell STALLED (the project's 6-h stamp); the
-// wall extension ends cell_deferred with nothing placed; cottage2 and the pens find no site; cottage3 waits on cottage2; civicM ends
-// stuck_on_cell without a stall; civicH does too until hour 20, then its visits place blocks (one in ten does not); THE STEP WELL, late in the order, can
-// always work (one builder; every fifth visit is interrupted); the tidy is the crew's (bots 0-2). Bot 13 has a full bag (5 free
-// slots): the room refusal's remedy (a bank order) is installed, as skills.mjs installs bagfull-01's.
+// THE TOWN (the live one's shape, 11-15): the workshop, the house, the paths, the crop farm and the town hall stand.
+//   the house      reads an upkeep no visit serves from 4.5 h (damage that is no cell's: each bot once per 30 min, nothing done), then
+//                  takes REAL DAMAGE at hour 6 (two repair visits mend it) -- review r1 blocker 1: the repair must not wait out the
+//                  back-off those no-op visits earned
+//   the paths      read as damage to each bot once per 30 min (the extension its visit cannot route: `complete`, nothing laid)
+//   the crop farm  is a service plot, due every 30 min, whose service visits do NOTHING; it also reads the same kind of no-cell
+//                  damage once per 45 min per bot -- review r1 blocker 2: the back-off those visits earn must not close the service
+//   the town hall  is broken for good from hour 30 (a cell no repair visit can mend: `clears_wait`) -- a repair that keeps failing
+//   the ziggurat   ends stuck_on_cell STALLED (the project's 6-h stamp); the wall extension ends cell_deferred with nothing placed
+//                  after EIGHT minutes (review r1 blocker 3: longer than any wall-clock probe hold); cottage2 and the pens find no
+//                  site; cottage3 waits on cottage2; civicM ends stuck_on_cell without a stall; civicH does too until hour 20, then
+//                  its visits place blocks (one in ten does not)
+//   THE STEP WELL, late in the order, can always work (one builder; every fifth visit is interrupted); the tidy is the crew's (bots
+//                  0-2). Bot 13 has a full bag (5 free slots): the room refusal's remedy (a bank order) is installed.
+// THE SLOT LEASES are the projects' `slots` sets. Every bot of one tick decides from the leases as the tick BEGAN (the same reading:
+// a lease is taken inside the visit, after the order), and a visit's start reads them live -- so two bots can pick one backed-off
+// project in the same tick, as live. One bot is KILLED two minutes into a wall-extension probe after hour 14: no result, no release,
+// its lease lapsing by itself (buildproj.mjs LEASE_TTL_MS + RECLAIM_MS).
 const SIM_LIST = [
   { plot: 'shop', blueprint: 'workshop@1' },
   { plot: 'house1', blueprint: 'house@1', after: 'shop' },
   { plot: 'monument', blueprint: 'ziggurat@1', after: 'shop', builders: 2 },
   { plot: 'paths', blueprint: 'paths@1', after: 'house1', builders: 2 },
   { plot: 'cropfarm', blueprint: 'cropfarm@1', after: 'paths', builders: 1 },
+  { plot: 'townhall', blueprint: 'townhall@1', after: 'shop', builders: 2 },
   { plot: 'wallext', blueprint: 'wallext@1', after: 'paths', builders: 2 },
   { plot: 'cottage2', blueprint: 'cottage@2', after: 'paths', builders: 2 },
   { plot: 'cottage3', blueprint: 'cottage@2', after: 'cottage2', builders: 2 },
@@ -441,31 +569,34 @@ const SIM_LIST = [
   { plot: 'tidy', blueprint: 'tidy@1', builders: 3 },
 ]
 const SIM_OPEN = ['monument', 'wallext', 'cottage2', 'pens', 'civicM', 'civicH', 'stepwell']   // the open projects a bot may be offered
-function simulate (Sm, PTm, { turn, hours = 48, nBots = 14, damageAt = 6 * H, unblockAt = 20 * H } = {}) {
-  const T0 = NOW, TICK = 30_000, END = T0 + hours * H, COOL = Sm.SHOP_COOLDOWN_MS
-  const proj = Object.fromEntries(SIM_LIST.map(p => [p.plot, { exists: !['cottage2', 'cottage3', 'pens'].includes(p.plot), complete: ['shop', 'house1', 'paths', 'cropfarm'].includes(p.plot), slots: new Set(), stampAt: null, broken: 0, n: 0 }]))
+const SIM_DONE = ['shop', 'house1', 'paths', 'cropfarm', 'townhall']
+function simulate (Sm, PTm, { turn, hours = 48, nBots = 14, upkeepAt = 4.5 * H, damageAt = 6 * H, unblockAt = 20 * H, hallAt = 30 * H, killAfter = 14 * H } = {}) {
+  const T0 = NOW, TICK = 30_000, END = T0 + hours * H, COOL = Sm.SHOP_COOLDOWN_MS, LEASE = PJ.LEASE_TTL_MS + PJ.RECLAIM_MS
+  const proj = Object.fromEntries(SIM_LIST.map(p => [p.plot, { exists: !['cottage2', 'cottage3', 'pens'].includes(p.plot), complete: SIM_DONE.includes(p.plot), slots: new Set(), linger: [], stampAt: null, broken: 0, n: 0 }]))
   const files = new Map()
   const viewNow = now => PTm.turnView([...files].map(([holder, plots]) => ({ holder, plots })), { now, genOf: () => null })
   const put = (b, plot, e) => { if (!files.has(b.name)) files.set(b.name, {}); files.get(b.name)[plot] = e }
-  const bots = Array.from({ length: nBots }, (_, i) => ({ i, name: `showcase-Bot${String(i).padStart(2, '0')}`, startAt: T0 + i * 37_000, shopState: {}, visit: null, idle: new Map(), wait: new Map(), repairs: new Map(), noSitePlot: null, turnLast: null, pin: null, freeSlots: i === 13 ? 5 : 30, pathsAskAt: -Infinity, starve: 0, starveMax: 0, orders: [], benchedOrders: 0 }))
-  const stats = { visits: {}, starts: {}, out: {}, placed: 0, skips: {}, picks: {}, bank: 0, repairStart: [], serviceStart: [], afterStuck: [], afterNoSite: [] }
-  for (const p of SIM_LIST) { stats.visits[p.plot] = 0; stats.starts[p.plot] = []; stats.out[p.plot] = {} }
+  const bots = Array.from({ length: nBots }, (_, i) => ({ i, name: `showcase-Bot${String(i).padStart(2, '0')}`, startAt: T0 + i * 37_000, shopState: {}, visit: null, deadUntil: 0, idle: new Map(), wait: new Map(), repairs: new Map(), noSitePlot: null, turnLast: null, pin: null, freeSlots: i === 13 ? 5 : 30, pathsAskAt: -Infinity, houseAskAt: -Infinity, cropAskAt: -Infinity, starveMax: 0, orders: [], benchedOrders: 0 }))
+  const stats = { visits: {}, starts: {}, spans: {}, out: {}, placed: 0, skips: {}, picks: {}, bank: 0, asides: 0, asideEnds: 0, repairStart: [], serviceStart: [], afterStuck: [], afterNoSite: [], kill: null, houseBackedOffAtDamage: null }
+  for (const p of SIM_LIST) { stats.visits[p.plot] = 0; stats.starts[p.plot] = []; stats.spans[p.plot] = []; stats.out[p.plot] = {} }
   const svc = { at: T0 - 30 * MIN, busy: false }
   const slotFree = (plot, b) => { const p = SIM_LIST.find(q => q.plot === plot), P = proj[plot]; if (plot === 'tidy' && b.i > 2) return false; return P.slots.has(b) || P.slots.size < Sm.buildersOf(p) }
-  let cur = null
+  let cur = null, snap = new Map()
   Sm.setActivePlot(() => cur?.pick?.plot ?? null)
   Sm.setNoSitePlot(() => cur?.b?.noSitePlot ?? null)
   Sm.setWaitNow(plot => Sm.waitHeld(cur?.b?.wait ?? null, plot, cur?.now ?? 0))
   Sm.setRoomAsk(() => ({ order: { skill: 'build_shop', args: { roomBank: true } } }))
   Sm.setGroundsFall(null)
+  // the order's gate reads the picker's own marks for the pick (skills.mjs turnBackedOff -> turnMarksNow: one function)
   Sm.setTurnNow({ stuckPlot: () => (cur?.b?.turnLast?.stop === 'stuck_on_cell' ? cur.b.turnLast.plot : null), backedOff: plot => cur?.turned?.find(s => s.plot === plot)?.backoff === true })
   const behave = (plot, b, now, service) => {
     const P = proj[plot]
     P.n++
     if (plot === 'monument') return { status: 'no_effect', stop: 'stuck_on_cell', stalled: true, ms: 3 * MIN }
     if (plot === 'paths') return { status: 'no_effect', stop: 'complete', ms: MIN }
-    if (plot === 'cropfarm') return service ? { status: 'success', stop: 'complete', placed: 4, ms: 2 * MIN } : { status: 'no_effect', stop: 'complete', ms: MIN }
-    if (plot === 'wallext') return { status: 'no_effect', stop: 'cell_deferred', ms: 3 * MIN }
+    if (plot === 'cropfarm') return { status: 'no_effect', stop: 'complete', ms: service ? 2 * MIN : MIN }
+    if (plot === 'townhall') return { status: 'no_effect', stop: 'clears_wait', ms: 3 * MIN }
+    if (plot === 'wallext') return { status: 'no_effect', stop: 'cell_deferred', ms: 8 * MIN }
     if (plot === 'cottage2') return { status: 'no_effect', stop: 'no_site', ms: 107_000 }
     if (plot === 'pens') return { status: 'no_effect', stop: 'no_site', ms: MIN }
     if (plot === 'civicM') return { status: 'no_effect', stop: 'stuck_on_cell', ms: 3 * MIN }
@@ -481,7 +612,8 @@ function simulate (Sm, PTm, { turn, hours = 48, nBots = 14, damageAt = 6 * H, un
     b.visit = null
     if (v.bank) { b.freeSlots = 30; b.shopState = { lastAt: now, lastStop: 'room_bank' }; return }
     const P = proj[v.plot], beh = v.beh
-    P.slots.delete(b)
+    P.slots.delete(b)                                                                // the visit releases its slot lease
+    v.span.e = now
     const res = { status: beh.status, stop: beh.stop, ...(beh.placed ? { placed: beh.placed } : {}) }
     b.shopState = { lastAt: now, lastStop: res.stop ?? res.status }                  // cognitive.mjs: the visit's end writes both
     Sm.noteIdle(b.idle, v.plot, res, now); Sm.noteWait(b.wait, v.plot, res, now)       // skills.mjs buildShop `note`
@@ -494,28 +626,44 @@ function simulate (Sm, PTm, { turn, hours = 48, nBots = 14, damageAt = 6 * H, un
     if (res.stop === 'stuck_on_cell') b.stuckAt = now
     if (turn) {
       b.turnLast = { plot: v.plot, stop: String(res.stop ?? res.status), at: now }  // skills.mjs turnNote
-      if (v.turn) { const oc = PTm.turnOutcome(res); if (oc !== 'none') put(b, v.plot, PTm.turnAfter(files.get(b.name)?.[v.plot] ?? null, viewNow(now).get(v.plot) ?? null, oc, { now, stop: res.stop, gen: null })) }
+      if (v.turn) { const oc = PTm.turnOutcome(res); if (oc !== 'none') put(b, v.plot, PTm.turnAfter(files.get(b.name)?.[v.plot] ?? null, viewNow(now).get(v.plot) ?? null, oc, { now, stop: res.stop, gen: null, repair: v.repair })) }
     }
     b.lastEnd = { plot: v.plot, stop: res.stop, at: now }
   }
-  const decide = (b, now) => {
-    const svcDue = !svc.busy && now - svc.at >= 30 * MIN
-    const base = SIM_LIST.map(p => { const P = proj[p.plot]; return { plot: p.plot, exists: P.exists, complete: P.complete, damaged: P.complete && ((p.plot === 'house1' && P.broken > 0) || (p.plot === 'paths' && now - b.pathsAskAt >= 30 * MIN)), due: false, dueFirst: false } })
-    // skills.mjs shopActive, in its order: the repair back-off, the slots, the stamps, the waiting holds, the idle marks, the turns last
+  // the states as skills.mjs shopActive reads them: `damaged` (recordDamaged) and `broken` (the damage is a cell's)
+  const baseOf = (b, now) => SIM_LIST.map(p => {
+    const P = proj[p.plot], t = now - T0
+    const upkeep = (p.plot === 'house1' && t >= upkeepAt && t < damageAt && now - b.houseAskAt >= 30 * MIN) || (p.plot === 'paths' && now - b.pathsAskAt >= 30 * MIN) || (p.plot === 'cropfarm' && now - b.cropAskAt >= 45 * MIN)
+    const broken = (p.plot === 'house1' && P.broken > 0) || (p.plot === 'townhall' && t >= hallAt)
+    return { plot: p.plot, exists: P.exists, complete: P.complete, damaged: P.complete && (broken || upkeep), due: false, dueFirst: false, ...(P.complete && broken ? { broken: true } : {}) }
+  })
+  // skills.mjs shopActive, in its order: the repair back-off, the slots, the stamps, the waiting holds, the idle marks, the turns last.
+  // `live`: the leases read now (a visit's start); else as the tick began (the reading every bot of this tick decided from)
+  const marksOf = (b, now, base, svcDue, live) => {
     const states = Sm.repairBackoff(base, b.repairs, now).map(s => (s.exists && s.complete ? s : { ...s, free: slotFree(s.plot, b) }))
     const marked = Sm.idleMarks(Sm.waitBackoff(Sm.stuckBackoff(states, plot => proj[plot].stampAt, now), b.wait, now), b.idle, now)
-    const turned = turn ? PTm.turnBackoff(marked, viewNow(now), { me: b.name, now, exempt: Sm.turnExempt, hold: PTm.turnHold(b.turnLast, now, { stuckMs: Sm.SHOP_STUCK_RETRY_MS, siteMs: Sm.SHOP_SITE_RETRY_MS }), pin: b.pin && now - b.pin.at < PTm.TURN.stickMs ? b.pin.plot : null, capOf: Sm.stuckWindowOf, ownNeed: Sm.turnOwnNeed }) : marked
+    const leased = plot => [...(live ? proj[plot].slots : snap.get(plot) ?? [])].some(x => x !== b)
+    const turned = turn ? PTm.turnBackoff(marked, viewNow(now), { me: b.name, now, exempt: Sm.turnExempt, hold: PTm.turnHold(b.turnLast, now, { stuckMs: Sm.SHOP_STUCK_RETRY_MS, siteMs: Sm.SHOP_SITE_RETRY_MS }), pin: b.pin && now - b.pin.at < PTm.TURN.stickMs ? b.pin.plot : null, capOf: Sm.stuckWindowOf, ownNeed: Sm.turnOwnNeed, service: svcDue ? 'cropfarm' : null, leased }) : marked
+    return { states, turned }
+  }
+  const pickOf = (b, now, turned, svcDue) => {
     const pick = Sm.activeProject(turned, SIM_LIST, { upkeepTurn: false, noWait: false, service: svcDue ? 'cropfarm' : null, sinkTurn: false })
     if (turn && b.pin?.plot !== pick.plot) b.pin = { plot: pick.plot, at: now }
-    const P = proj[pick.plot]
-    const service = svcDue && pick.plot === 'cropfarm'
-    const wants = base.find(s => s.plot === pick.plot).damaged || service              // cognitive.mjs: complete && !shopDamaged
+    return pick
+  }
+  const decide = (b, now) => {
+    const svcDue = !svc.busy && now - svc.at >= 30 * MIN
+    const base = baseOf(b, now)
+    let { states, turned } = marksOf(b, now, base, svcDue, false)
+    let pick = pickOf(b, now, turned, svcDue)
+    const P0 = proj[pick.plot]
+    const wants = base.find(s => s.plot === pick.plot).damaged || (svcDue && pick.plot === 'cropfarm')   // cognitive.mjs: complete && !shopDamaged
     cur = { b, pick, now, turned }
-    const r = Sm.buildOrder({ on: true, shared: true, atTown: true, holds: false, now, state: b.shopState, record: P.exists ? { plot: pick.plot, structure_complete: P.complete } : null,
-      complete: P.complete && !wants, slotsFree: slotFree(pick.plot, b), health: 20, freeSlots: b.freeSlots, planned: true, stuckAt: P.stampAt, turn })
+    const r = Sm.buildOrder({ on: true, shared: true, atTown: true, holds: false, now, state: b.shopState, record: P0.exists ? { plot: pick.plot, structure_complete: P0.complete } : null,
+      complete: P0.complete && !wants, slotsFree: slotFree(pick.plot, b), health: 20, freeSlots: b.freeSlots, planned: true, stuckAt: P0.stampAt, turn })
     const cooled = now - (b.shopState.lastAt ?? -Infinity) >= COOL
     // is there an open project this bot could be working right now (a slot, no stamp, no back-off, not its held one)?
-    const could = turned.some(s => SIM_OPEN.includes(s.plot) && s.exists !== undefined && !(s.exists && s.complete) && s.free !== false)
+    const could = turned.some(s => SIM_OPEN.includes(s.plot) && !(s.exists && s.complete) && s.free !== false)
     if (!r.order) {
       if (r.skip) stats.skips[r.skip] = (stats.skips[r.skip] ?? 0) + 1
       if (cooled && could && r.skip !== 'room') b.starveMax += TICK
@@ -523,12 +671,31 @@ function simulate (Sm, PTm, { turn, hours = 48, nBots = 14, damageAt = 6 * H, un
     }
     b.shopState = { ...b.shopState, lastAt: now }                                     // cognitive.mjs: the cooldown is charged at issue
     if (r.order.args?.roomBank) { stats.bank++; b.visit = { bank: true, endAt: now + 2 * MIN }; return }
+    // THE VISIT'S START (skills.mjs buildShopVisit / turnBegin): the pick's own marks read again on the leases as they are NOW, and the
+    // probe's claim -- a pick another bot got to first is stepped aside from, and the next pick is worked in this same visit
+    for (let i = 0; turn && !Sm.turnExempt(pick.plot) && !(svcDue && pick.plot === 'cropfarm'); i++) {
+      const live = marksOf(b, now, base, svcDue, true)
+      const others = [...proj[pick.plot].slots].some(x => x !== b)
+      if (!(live.turned.find(s => s.plot === pick.plot)?.backoff === true || (PTm.turnClaimNeeded(viewNow(now).get(pick.plot) ?? null) && others))) break
+      stats.asides++
+      if (i >= PTm.TURN.asideMax) { stats.asideEnds++; b.shopState = { lastAt: now, lastStop: 'slots_full' }; return }
+      states = live.states; turned = live.turned
+      pick = pickOf(b, now, turned, svcDue)
+      // the next pick never passed the order: one it would have skipped is not begun (skills.mjs turnWorkable)
+      const ps = turned.find(s => s.plot === pick.plot)
+      if (!Sm.turnExempt(pick.plot) && (ps.free === false || ps.stuck === true || (ps.exists && ps.complete && !ps.damaged && !ps.due))) { stats.asideEnds++; b.shopState = { lastAt: now, lastStop: 'slots_full' }; return }
+    }
+    const P = proj[pick.plot]
+    if (!slotFree(pick.plot, b)) { b.shopState = { lastAt: now, lastStop: 'slots_full' }; return }   // the visit's own takeSlot
+    const service = svcDue && pick.plot === 'cropfarm'
+    const bs = base.find(s => s.plot === pick.plot)
     // the visit (skills.mjs buildShopVisit): the pick, the repair count, the slot, the start's stamp
     Sm.noteRepair(b.repairs, pick, states, now)
     P.slots.add(b)
     if (service) { svc.busy = true; svc.at = now; stats.serviceStart.push(now) }
     if (pick.plot === 'paths') b.pathsAskAt = now
-    if (pick.plot === 'house1' && P.broken > 0) stats.repairStart.push(now)
+    if (pick.plot === 'house1') { b.houseAskAt = now; if (P.broken > 0) stats.repairStart.push(now) }
+    if (pick.plot === 'cropfarm' && !service) b.cropAskAt = now
     const noted = turn && !Sm.turnExempt(pick.plot) && !service
     if (noted) put(b, pick.plot, PTm.turnStart(files.get(b.name)?.[pick.plot] ?? null, now))
     stats.visits[pick.plot]++; stats.starts[pick.plot].push(now)
@@ -539,20 +706,40 @@ function simulate (Sm, PTm, { turn, hours = 48, nBots = 14, damageAt = 6 * H, un
     b.lastEnd = null
     b.orders.push(now)
     const beh = behave(pick.plot, b, now, service)
-    b.visit = { plot: pick.plot, endAt: now + beh.ms, beh, service, turn: noted }
+    const span = { s: now, e: null, b: b.i }
+    stats.spans[pick.plot].push(span)
+    b.visit = { plot: pick.plot, endAt: now + beh.ms, beh, service, turn: noted, repair: !!(bs.complete && bs.damaged && bs.broken), span }
+    if (pick.plot === 'wallext' && !stats.kill && now - T0 >= killAfter) { b.visit.killAt = now + 2 * MIN; stats.kill = { at: b.visit.killAt, bot: b.i } }
   }
   let damaged = false
   for (let now = T0; now < END; now += TICK) {
-    if (!damaged && now >= T0 + damageAt) { proj.house1.broken = 2; damaged = true }
+    if (!damaged && now >= T0 + damageAt) {
+      // the precondition of blocker 1: the house's no-op upkeep visits have it backed off for the pool as the damage lands
+      if (turn) stats.houseBackedOffAtDamage = PTm.turnBackoff([{ plot: 'house1', exists: true, complete: true, damaged: true }], viewNow(now), { me: bots[0].name, now, capOf: Sm.stuckWindowOf })[0].backoff === true
+      proj.house1.broken = 2; damaged = true
+    }
+    for (const P of Object.values(proj)) P.linger = P.linger.filter(l => now < l.until || (P.slots.delete(l.b), false))   // a dead holder's lease lapses
+    snap = new Map(SIM_LIST.map(p => [p.plot, new Set(proj[p.plot].slots)]))
     for (const b of bots) {
-      if (now < b.startAt) continue
+      if (now < b.startAt || now < b.deadUntil) continue
+      if (b.visit?.killAt && now >= b.visit.killAt) {
+        // KILLED mid-visit: no result, no release -- the slot lease stands until it lapses; the bot is back half an hour later
+        const v = b.visit
+        b.visit = null; v.span.e = now; v.span.killed = true
+        if (v.service) svc.busy = false
+        proj[v.plot].linger.push({ b, until: v.killAt + LEASE })
+        b.deadUntil = now + 30 * MIN
+        continue
+      }
       if (b.visit) { if (now < b.visit.endAt) continue; endVisit(b, now) }
       decide(b, now)
     }
   }
   const gap = (plot, from = T0, to = END) => { const ts = [from, ...stats.starts[plot].filter(x => x >= from && x < to), to]; let g = 0; for (let i = 1; i < ts.length; i++) g = Math.max(g, ts[i] - ts[i - 1]); return g }
   const count = (plot, h0, h1) => stats.starts[plot].filter(x => x >= T0 + h0 * H && x < T0 + h1 * H).length
-  return { T0, END, hours, stats, bots, proj, files, gap, count, starveMax: Math.max(...bots.map(b => b.starveMax)), perDay: plot => Math.round(stats.visits[plot] / (hours / 24) * 10) / 10 }
+  // the visits to `plot` that ran beside another one, once the project had a count (its first visit over)
+  const overlaps = plot => { const sp = stats.spans[plot]; const t1 = sp[0]?.e ?? Infinity; let n = 0; for (let i = 0; i < sp.length; i++) for (let k = i + 1; k < sp.length; k++) if (sp[k].s >= t1 && sp[k].s < (sp[i].e ?? END)) n++; return n }
+  return { T0, END, TICK, LEASE, hours, stats, bots, proj, files, gap, count, overlaps, starveMax: Math.max(...bots.map(b => b.starveMax)), perDay: plot => Math.round(stats.visits[plot] / (hours / 24) * 10) / 10 }
 }
 const table = (on, off) => {
   const row = (a, b, c, d, e) => `        ${String(a).padEnd(10)}${String(b).padStart(12)}${String(c).padStart(12)}${String(d).padStart(16)}${String(e).padStart(16)}`
@@ -562,7 +749,7 @@ const table = (on, off) => {
   lines.push(row('starved h', (off.starveMax / H).toFixed(2), (on.starveMax / H).toFixed(2), '(the most time one cooled-down bot', 'spent unordered with work open)'))
   lines.push(`        skips off ${JSON.stringify(off.stats.skips)}`)
   lines.push(`        skips on  ${JSON.stringify(on.stats.skips)}`)
-  lines.push(`        picks on  ${JSON.stringify(on.stats.picks)}  bank on/off ${on.stats.bank}/${off.stats.bank}`)
+  lines.push(`        picks on  ${JSON.stringify(on.stats.picks)}  bank on/off ${on.stats.bank}/${off.stats.bank}  stepped aside ${on.stats.asides} (visits ended by it ${on.stats.asideEnds})  ran beside another ${SIM_OPEN.map(p => `${p}:${on.overlaps(p)}`).join(' ')}`)
   return lines.join('\n')
 }
 let SIM = null
@@ -575,8 +762,8 @@ await t('(f) THE POSITIVE CONTROL -- PROJTURN off reproduces today: the step wel
   const { off } = SIM
   assert.equal(off.count('stepwell', 0, 42), 0, 'ZERO step well visits in 42 hours, as live')
   assert.ok(off.gap('stepwell') >= 42 * H)
-  assert.ok(off.count('paths', 24, 48) >= 100, `the finished paths visited for nothing: ${off.count('paths', 24, 48)} times in a day`)
-  assert.ok(off.count('wallext', 24, 48) >= 100, `the stuck wall extension: ${off.count('wallext', 24, 48)} visits in a day`)
+  assert.ok(off.count('paths', 6, 30) >= 100, `the finished paths visited for nothing: ${off.count('paths', 6, 30)} times in a day`)
+  assert.ok(off.count('wallext', 6, 30) >= 100, `the stuck wall extension: ${off.count('wallext', 6, 30)} visits in a day`)
   // the bot-wide hold: a bot whose visit ended stuck_on_cell is given NO build visit for the next 6 h
   assert.ok(off.bots.some(b => Number.isFinite(b.stuckAt)), 'bots did get stuck')
   assert.equal(off.bots.reduce((n, b) => n + b.benchedOrders, 0), 0, 'none of them was ordered anywhere inside its 6 h')
@@ -610,20 +797,51 @@ await t('(b) ONE STUCK PROJECT NEVER SUPPRESSES THE OTHERS: a bot is never left 
   const full = on.bots[13]
   assert.ok(on.stats.bank >= 1 && full.freeSlots === 30 && full.orders.length >= 20, `the full-bag bot: ${on.stats.bank} bank order(s), then ${full.orders.length} build visits`)
 })
-await t('(c) REPAIRS AND SERVICE KEEP THEIR PRIORITY: the house is mended within minutes of its damage; the crop farm is served on its schedule', () => {
+await t('(c) REPAIRS AND SERVICE KEEP THEIR PRIORITY (review r1, blockers 1 and 2): the house, backed off by no-op visits, is mended within minutes of FRESH damage; a repair that keeps failing backs off on its own count; the crop farm, backed off the same way, is still served on its schedule', () => {
   const { on, off } = SIM
   const dmg = on.T0 + 6 * H
+  // blocker 1. The precondition: the upkeep visits that did nothing had the house backed off for the pool as the damage landed
+  assert.ok(on.count('house1', 4.5, 6) >= 2, `no-op visits to the house before the damage: ${on.count('house1', 4.5, 6)}`)
+  assert.equal(on.stats.houseBackedOffAtDamage, true, 'the house was inside its no-progress back-off when the cell broke')
   assert.ok(on.stats.repairStart.length >= 2 && on.stats.repairStart.length <= 3, `two repair visits mend it (a third may start beside the second): ${on.stats.repairStart.length}`)
   assert.ok(on.stats.repairStart[0] - dmg <= 12 * MIN, `the first repair ${((on.stats.repairStart[0] - dmg) / MIN).toFixed(1)} min after the damage`)
   assert.ok(on.stats.repairStart[1] - dmg <= 15 * MIN)
   assert.equal(on.proj.house1.broken, 0)
   assert.ok(off.stats.repairStart.length >= 2 && off.stats.repairStart[0] - dmg <= 15 * MIN, 'control: off, the same')
-  // the service plot: due every 30 min for 48 h
+  // ...and a repair that itself keeps failing backs off, on the repairs' own count (20, 40, 60, 60 ... min: an hour is a complete record's cap)
+  assert.ok(on.count('townhall', 0, 30) === 0 && on.count('townhall', 30, 31) >= 2, `the town hall's repair is tried as soon as it breaks: ${on.count('townhall', 30, 31)} visits in its first hour`)
+  assert.ok(on.count('townhall', 36, 48) <= 14 && on.count('townhall', 36, 48) >= 8, `then about one an hour: ${on.count('townhall', 36, 48)} in 12 h`)
+  assert.ok(off.count('townhall', 36, 48) > 5 * on.count('townhall', 36, 48), `control: off, ${off.count('townhall', 36, 48)}`)
+  const hall = [...on.files.values()].map(f => f.townhall).filter(Boolean)
+  assert.ok(hall.some(e => e.rn > 0) && hall.every(e => !(e.n > 0)), 'counted as repairs, never against the project\'s own count')
+  // blocker 2. The crop farm's service visits do nothing, and its no-op repair visits have it backed off -- the service is still ordered
+  assert.ok([...on.files.values()].some(f => f.cropfarm?.n > 0), 'precondition: the farm has a no-progress count (its visits that were no service)')
+  assert.ok((on.stats.out.cropfarm.complete ?? 0) >= 80 && on.stats.placed > 0, 'precondition: its visits, the service\'s too, place nothing')
   assert.ok(on.stats.serviceStart.length >= 80, `service visits: ${on.stats.serviceStart.length} of 96`)
   assert.ok(on.stats.serviceStart.length >= off.stats.serviceStart.length - 3, `not fewer than today (${off.stats.serviceStart.length})`)
-  assert.ok(on.gap('cropfarm') <= 50 * MIN, `the farm's longest wait: ${(on.gap('cropfarm') / MIN).toFixed(0)} min`)
+  let sg = 0; for (let k = 1; k < on.stats.serviceStart.length; k++) sg = Math.max(sg, on.stats.serviceStart[k] - on.stats.serviceStart[k - 1])
+  assert.ok(sg <= 45 * MIN, `the longest wait between two services: ${(sg / MIN).toFixed(0)} min`)
+  // ...and no bot is left without an order while work it could do stands open (30 min in all, of 48 h, for the worst bot)
+  assert.ok(on.starveMax <= 30 * MIN, `${(on.starveMax / MIN).toFixed(1)} min`)
+  assert.ok(on.gap('stepwell') <= H, 'the other work is still ordered')
   // the town clean-up is not starved by the rotation
   assert.ok(on.stats.visits.tidy >= off.stats.visits.tidy, `tidy visits: ${on.stats.visits.tidy} against ${off.stats.visits.tidy}`)
+})
+await t('(g) ONE PROBE AT A TIME, FOR AS LONG AS THE VISIT LASTS (review r1, blocker 3): no second bot starts on a backed-off project while one is on it -- eight-minute visits included; two bots that picked it in the same tick: one visits; a bot killed mid-probe: its lease lapses and the project is probed again', () => {
+  const { on } = SIM
+  for (const p of SIM_OPEN.filter(q => q !== 'stepwell' && q !== 'civicH')) assert.equal(on.overlaps(p), 0, `${p}: visits that ran beside another one once it had a count`)
+  const long = on.stats.spans.wallext.filter(x => !x.killed && x.e != null)
+  assert.ok(long.length >= 8 && long.every(x => x.e - x.s >= 8 * MIN), `the wall extension's visits last 8 min (${long.length} of them)`)
+  // the same tick, the same reading of the leases: it happened, and each time one bot stepped aside and worked its next pick
+  assert.ok(on.stats.asides >= 1, `picks stepped aside from at the visit's start: ${on.stats.asides}`)
+  assert.ok(on.stats.asideEnds < on.stats.asides, `the next pick was worked in the same visit ${on.stats.asides - on.stats.asideEnds} time(s); ${on.stats.asideEnds} visit(s) ended with nothing else open`)
+  // the killed prober: nothing reported, nothing released
+  const k = on.stats.kill
+  assert.ok(k && on.stats.spans.wallext.some(x => x.killed), 'a bot was killed two minutes into a wall-extension probe')
+  const next = on.stats.starts.wallext.find(x => x > k.at)
+  assert.ok(next >= k.at + on.LEASE - on.TICK, `nobody starts beside the dead bot's lease: the next visit ${((next - k.at) / MIN).toFixed(1)} min after the kill (the lease lapses after ${on.LEASE / MIN})`)
+  assert.ok(next <= k.at + 2 * H, 'and the project is probed again -- never "under way" for good')
+  assert.ok(on.gap('wallext') <= 8 * H)
 })
 await t('(d) NO PROGRESS IS CHEAP: visits to a hopeless project fall to the cap -- about one per 6 h (one an hour for the finished paths) -- from hundreds a day', () => {
   const { on, off } = SIM
@@ -635,7 +853,7 @@ await t('(d) NO PROGRESS IS CHEAP: visits to a hopeless project fall to the cap 
   assert.ok(on.count('monument', 24, 48) <= 5 && on.count('monument', 24, 48) >= 3, `the stamped ziggurat: ${on.count('monument', 24, 48)} in the second day`)
   assert.ok(on.count('paths', 24, 48) <= 26, `the finished paths: ${on.count('paths', 24, 48)} visits in the second day`)
   assert.ok(on.count('paths', 24, 48) >= 12, 'and still about one an hour: a real repair there is never left for long')
-  assert.ok(off.count('wallext', 24, 48) > 20 * on.count('wallext', 24, 48) && off.count('paths', 24, 48) > 4 * on.count('paths', 24, 48), 'control: off, the same projects many times over')
+  assert.ok(off.count('wallext', 24, 48) > 10 * on.count('wallext', 24, 48) && off.count('paths', 24, 48) > 4 * on.count('paths', 24, 48), `control: off, the same projects many times over (${off.count('wallext', 24, 48)}, ${off.count('paths', 24, 48)})`)
   // an interruption is not evidence: the step well's aborted visits never backed it off
   assert.ok((on.stats.out.stepwell.aborted ?? 0) >= 20, 'the well\'s visits were interrupted')
   assert.ok([...on.files.values()].every(f => !(f.stepwell?.n > 0)), 'and no holder counts one against it')
@@ -652,14 +870,14 @@ await t('(e) A PROJECT THAT STARTS MAKING PROGRESS RETURNS TO NORMAL CADENCE: ci
   // ...beside the step well, not instead of it
   assert.ok(on.gap('stepwell', first, on.END) <= H)
 })
-await t('THE SIMULATION KILLS THE MUTANTS: the hold\'s scope, the reset, the cap, the classifier, one probe at a time -- each breaks the property it carries (the aging comparison is killed on the pure choice above)', async () => {
+await t('THE SIMULATION KILLS THE MUTANTS: the hold\'s scope, the reset, the cap, the classifier, the repair\'s own count, the service\'s exemption, the probe\'s lease and its claim -- each breaks the property it carries (the aging comparison is killed on the pure choice above)', async () => {
   const run = async (ptPairs, shopPairs) => { let r = null; await withTurn(ptPairs, shopPairs, (Sm, PTm) => { r = simulate(Sm, PTm, { turn: true }) }); return r }
   // the scope: the bot-wide hold again -> bots are benched with work open
   const scope = await run([], [["&& stuckRetryHolds(plot0, stuckPlot)) return { order: null, skip: 'stuck_on_cell' }", "&& true) return { order: null, skip: 'stuck_on_cell' }"]])
   assert.equal(scope.bots.reduce((n, b) => n + b.benchedOrders, 0), 0, 'scope mutant: no bot is ordered anywhere inside its own 6 h')
   assert.ok(scope.stats.visits.stepwell < SIM.on.stats.visits.stepwell, `scope mutant: the well ${scope.stats.visits.stepwell} visits against ${SIM.on.stats.visits.stepwell}`)
   // the reset: one ordinary visit that places nothing costs the working civicH 6 h again, not 20 min
-  const reset = await run([['  if (outcome === \'progress\') return { ...base, n: 0, noAt: null, okAt: now, gen: gen ?? null, stop: null }\n', '  if (outcome === \'progress\') return own ?? null\n']], [])
+  const reset = await run([[RESET, '  if (outcome === \'progress\') return own ?? null\n']], [])
   assert.ok(reset.count('civicH', 30, 48) < SIM.on.count('civicH', 30, 48) / 2 && SIM.on.count('civicH', 30, 48) >= 80, `reset mutant: civicH ${reset.count('civicH', 30, 48)} visits in hours 30-48 against ${SIM.on.count('civicH', 30, 48)}`)
   // the cap: the hopeless projects' waits grow without bound
   const cap = await run([['  return Math.min(Math.max(0, Number(cap) || 0), T.baseMs * 2 ** Math.min(k - 1, 30))\n', '  return T.baseMs * 2 ** Math.min(k - 1, 30)\n']], [])
@@ -667,10 +885,19 @@ await t('THE SIMULATION KILLS THE MUTANTS: the hold\'s scope, the reset, the cap
   // the no-progress classifier: an abort counted as evidence backs the working step well off
   const abort = await run([["  if (r.status === 'aborted' || stop === 'aborted') return 'none'\n", "  if (r.status === 'aborted' || stop === 'aborted') return 'no_progress'\n"]], [])
   assert.ok(abort.stats.visits.stepwell < SIM.on.stats.visits.stepwell * 0.8, `abort mutant: the well ${abort.stats.visits.stepwell} visits against ${SIM.on.stats.visits.stepwell}`)
-  // one probe at a time: without it both slots of a hopeless two-builder project fill at every return
-  const probe = await run([['    const probing = (e?.n ?? 0) > 0 && Number.isFinite(e.at) && e.at > (e.noAt ?? -Infinity) && e.by !== me && now >= e.at && now - e.at < T.probeMs\n', '    const probing = false\n']], [])
-  const two = ['wallext', 'cottage2', 'civicM']
-  assert.ok(two.reduce((n, p) => n + probe.count(p, 0, 48), 0) > two.reduce((n, p) => n + SIM.on.count(p, 0, 48), 0), `probe mutant: ${two.map(p => probe.count(p, 0, 48))} visits against ${two.map(p => SIM.on.count(p, 0, 48))}`)
+  // blocker 1 -- the repair gated by the project's own count: the house waits out the back-off its no-op visits earned
+  const dmg = SIM.on.T0 + 6 * H
+  const repair = await run([[REPAIR, '    const repair = false\n']], [])
+  assert.ok(repair.stats.repairStart[0] - dmg > 20 * MIN && SIM.on.stats.repairStart[0] - dmg <= 12 * MIN, `repair mutant: the first repair ${((repair.stats.repairStart[0] - dmg) / MIN).toFixed(0)} min after the damage against ${((SIM.on.stats.repairStart[0] - dmg) / MIN).toFixed(0)}`)
+  // blocker 2 -- the service offer not exempt: the pick passes the farm, the order refuses it, and nothing is ordered meanwhile
+  const service = await run([[SERVICE, '']], [])
+  assert.ok(service.starveMax > 2 * H && service.stats.serviceStart.length < SIM.on.stats.serviceStart.length * 0.8, `service mutant: ${service.stats.serviceStart.length} services against ${SIM.on.stats.serviceStart.length}; a bot unordered with work open ${(service.starveMax / H).toFixed(1)} h`)
+  // blocker 3 -- the lease not read: bots keep being ordered to a project another is on, and only the claim turns them away
+  const lease = await run([[LEASED, '']], [])
+  assert.ok(lease.stats.asides > SIM.on.stats.asides + 10, `lease mutant: ${lease.stats.asides} picks stepped aside from against ${SIM.on.stats.asides}`)
+  // ...and with neither the lease read nor the claim, two bots are on a backed-off project at once
+  const claim = await run([[LEASED, ''], [CLAIM, 'export const turnClaimNeeded = e => false && ']], [])
+  assert.ok(['wallext', 'cottage2', 'civicM'].reduce((n, p) => n + claim.overlaps(p), 0) >= 3, `claim mutant: ${['wallext', 'cottage2', 'civicM'].map(p => claim.overlaps(p))} visits ran beside another`)
 })
 
 // ================================================================================================================================
@@ -688,8 +915,8 @@ await t('the turn files: one per holder, merged by the reader; a holder rewrites
   fs.writeFileSync(path.join(d, 'projturn-0_70_0.NoPlots.json'), '{"v":1,"holder":"NoPlots"}')
   const all = PJ.turnRead(d, HOME)
   assert.deepEqual(all.map(f => f.holder).sort(), ['showcase-Gale', 'showcase/Bravo'])
-  assert.deepEqual(all.find(f => f.holder === 'showcase-Gale').plots.monument, { at: NOW, n: 2, noAt: NOW, okAt: null, gen: 7, stop: 'stuck_on_cell' })
-  assert.deepEqual(all.find(f => f.holder === 'showcase/Bravo').plots.wall, { at: NOW, n: 0, noAt: null, okAt: null, gen: null, stop: null }, 'a missing field reads as nothing')
+  assert.deepEqual(all.find(f => f.holder === 'showcase-Gale').plots.monument, { at: NOW, n: 2, noAt: NOW, rn: 0, rnoAt: null, okAt: null, gen: 7, stop: 'stuck_on_cell' })
+  assert.deepEqual(all.find(f => f.holder === 'showcase/Bravo').plots.wall, { at: NOW, n: 0, noAt: null, rn: 0, rnoAt: null, okAt: null, gen: null, stop: null }, 'a missing field reads as nothing')
   assert.deepEqual(PJ.turnRead(d, HOME, { holder: 'showcase-Gale' }).map(f => f.holder), ['showcase-Gale'])
   assert.deepEqual(PJ.turnRead(d, HOME, { holder: 'Nobody' }), [])
   // merged: Bravo's progress ends Gale's count
@@ -754,31 +981,32 @@ await t('THE VISIT (real files, the glue, the order\'s real hooks): its start is
   assert.deepEqual(S.buildOrder({ shared: true, atTown: true, now: Date.now(), planned: true, record: { plot: 'wall' } }), ORDER, 'control: the wall is ordered')
   // another bot's no-progress visit adds to the pool's count; this bot's second lengthens it again
   assert.ok(PJ.turnWrite(dir(), HOME, 'showcase-Gale', { monument: { at: now + 30 * MIN, n: 1, noAt: now + 33 * MIN, okAt: null, gen: 1, stop: 'cell_deferred' } }, { now: now + 33 * MIN }))
-  now += 80 * MIN
+  now += 90 * MIN      // past the pool's second back-off (40-50 min from Gale's visit)
   SK.shopTurnForget()
-  bot.shopVisitPlot = 'monument'; X.turnBegin(bot, 'monument', now); X.turnNote(bot, { status: 'no_effect', stop: 'cell_deferred' }, {}, now + MIN)
+  bot.shopVisitPlot = 'monument'
+  assert.equal(X.turnBegin(bot, 'monument', now), true, 'the back-off over: the bot goes back (and claims the probe: its slot lease)')
+  assert.ok(Number.isInteger(bot.shopTurnVisit.claim?.gen), 'the claim is the project\'s slot 1')
+  assert.equal(PJ.leaseState(dir(), key('monument'), 'slot1').rec.holder, ME)
+  X.turnNote(bot, { status: 'no_effect', stop: 'cell_deferred' }, {}, now + MIN)
+  assert.equal(PJ.leaseState(dir(), key('monument'), 'slot1').released, true, 'a visit that never took the slot itself: the claim is given back at its end')
   assert.match(turnRows('backoff').at(-1), /^op=backoff project=monument n=3 until_min=(8\d|9\d|100) stop=cell_deferred$/, 'three in a row for the pool: 80-100 min')
-  // one probe at a time: while Gale's visit to the backed-off ziggurat is under way, it stays passed for this bot (5 min at most)
-  assert.ok(PJ.turnWrite(dir(), HOME, 'showcase-Gale', { monument: { at: now + 4 * H, n: 1, noAt: now - 47 * MIN, okAt: null, gen: 1, stop: 'cell_deferred' } }, { now: now + 4 * H }))
-  SK.shopTurnForget()
-  assert.equal(X.turnBackedOff(null, 'monument', now + 4 * H - MIN), false, 'control: a minute before Gale starts the back-off (80-100 min) is long over')
-  assert.equal(X.turnBackedOff(null, 'monument', now + 4 * H + 2 * MIN), true)
-  assert.equal(X.turnBackedOff(null, 'monument', now + 4 * H + 6 * MIN), false, 'a visit that never reports lapses')
-  // an aborted visit: the start stamped, the count and the rows as they were, the bot's last stop `aborted`
+  // an aborted visit: the start stamped, no count, no row, the bot's last stop `aborted`
   const nRows = turnRows('backoff').length
-  bot.shopVisitPlot = 'monument'; X.turnBegin(bot, 'monument', now + 2 * MIN); X.turnNote(bot, { status: 'aborted', stop: 'aborted' }, {}, now + 3 * MIN)
-  assert.equal(PJ.turnRead(dir(), HOME, { holder: ME })[0].plots.monument.n, 2)
-  assert.equal(PJ.turnRead(dir(), HOME, { holder: ME })[0].plots.monument.at, now + 2 * MIN)
+  bot.shopVisitPlot = 'wall'; assert.equal(X.turnBegin(bot, 'wall', now + 2 * MIN), true); X.turnNote(bot, { status: 'aborted', stop: 'aborted' }, {}, now + 3 * MIN)
+  assert.deepEqual([PJ.turnRead(dir(), HOME, { holder: ME })[0].plots.wall.at, PJ.turnRead(dir(), HOME, { holder: ME })[0].plots.wall.n], [now + 2 * MIN, 0])
   assert.equal(turnRows('backoff').length, nRows)
   assert.equal(bot.shopTurnLast.stop, 'aborted')
-  assert.equal(X.turnBackedOff(null, 'monument', now + 4 * MIN), true)
-  // progress: the count ends for the pool, one row says so
-  bot.shopVisitPlot = 'monument'; X.turnBegin(bot, 'monument', now + 6 * MIN); X.turnNote(bot, { status: 'success', stop: 'deadline', placed: 3 }, {}, now + 9 * MIN)
+  assert.equal(X.turnBackedOff(null, 'wall', now + 4 * MIN), false, 'an interruption backs nothing off')
+  assert.equal(X.turnBackedOff(null, 'monument', now + 4 * MIN), true, 'control: the ziggurat\'s count stands')
+  // progress, once the back-off is over: the count ends for the pool, one row says so
+  now += 2 * H
+  bot.shopVisitPlot = 'monument'; assert.equal(X.turnBegin(bot, 'monument', now), true); X.turnNote(bot, { status: 'success', stop: 'deadline', placed: 3 }, {}, now + 3 * MIN)
   assert.equal(turnRows('backoff').at(-1), 'op=backoff project=monument n=0 until_min=0 stop=deadline')
-  assert.equal(X.turnBackedOff(null, 'monument', now + 10 * MIN), false)
-  // ...and a second progress visit writes no row (nothing to end)
+  assert.equal(X.turnBackedOff(null, 'monument', now + 4 * MIN), false)
+  // ...and a second progress visit writes no row (nothing to end) and needs no claim (no count)
   const n2 = turnRows('backoff').length
-  bot.shopVisitPlot = 'monument'; X.turnBegin(bot, 'monument', now + 20 * MIN); X.turnNote(bot, { status: 'success', stop: 'deadline', placed: 3 }, {}, now + 23 * MIN)
+  bot.shopVisitPlot = 'monument'; assert.equal(X.turnBegin(bot, 'monument', now + 20 * MIN), true); assert.equal(bot.shopTurnVisit.claim, null)
+  X.turnNote(bot, { status: 'success', stop: 'deadline', placed: 3 }, {}, now + 23 * MIN)
   assert.equal(turnRows('backoff').length, n2)
   // a published generation ends a back-off: what the visits found wanting has changed
   bot.shopVisitPlot = 'wall'; X.turnBegin(bot, 'wall', now + 30 * MIN); X.turnNote(bot, { status: 'no_effect', stop: 'no_material' }, {}, now + 31 * MIN)
@@ -843,7 +1071,7 @@ await t('THE AGING (real files): another bot\'s visit to the ziggurat sends this
   })
   // the switch is wired at every call site (structure: behaviour above covers the pick; these are the reads and the writes)
   const src = strip(fs.readFileSync(SRC('skills.mjs'), 'utf8'))
-  for (const line of ['if (PROJTURN.on) marked.splice(0, marked.length, ...turnMarksNow(b, marked, now))', 'if (PROJTURN.on && b && visit) b.shopTurnInfo = {', 'if (PROJTURN.on) turnBegin(bot, proj.plot)', 'if (PROJTURN.on) turnNote(ctx.bot, res, args)', 'if (PROJTURN.on) setTurnNow({'])
+  for (const line of ['if (PROJTURN.on) marked.splice(0, marked.length, ...turnMarksNow(b, marked, now))', 'if (PROJTURN.on && b) b.shopTurnSvc = svc?.plot ?? null', 'if (PROJTURN.on && b && visit) b.shopTurnInfo = {', 'if (PROJTURN.on) for (let i = 0; !turnBegin(bot, proj.plot, Date.now(), i > 0); i++) {', 'if (PROJTURN.on) turnNote(ctx.bot, res, args)', 'if (PROJTURN.on) setTurnNow({'])
     assert.equal(src.split(line).length, 2, `WIRING MISSING OR NOT UNIQUE: ${line}`)
   assert.equal(src.split('turnBegin(').length, 2, 'turnBegin: the visit\'s one call')
   assert.equal(src.split('turnNote(').length, 2, 'turnNote: the one call every visit\'s result passes')
@@ -885,6 +1113,138 @@ await t('THE BOT\'S OWN HOLD (a fresh skills.mjs, a bot the order has seen): stu
     bot.shopVisitBusy = false
     assert.equal(M._projturn.turnMarksNow(bot, [st('wall')], now + 40_000)[0].backoff, true, 'control: the visit over, for this bot too')
   })
+})
+
+const world = new Map()
+const mkAt = name => ({ username: name, blockAt: v => world.get(`${v.x},${v.y},${v.z}`) ?? null, entities: {}, inventory: { items: () => [], emptySlotCount: () => 30 }, entity: { position: { x: 3, y: 71, z: 4 } } })
+const block = name => ({ name, boundingBox: name === 'air' ? 'empty' : 'block', getProperties: () => ({}) })
+const freeSlots = plot => { for (const n of ['slot1', 'slot2']) { const l = PJ.leaseState(dir(), key(plot), n); if (l?.rec && !l.released) PJ.releaseLease(dir(), key(plot), n, l.rec.holder, l.gen) } }
+await t('REVIEW r1, BLOCKER 1 (real files, a fresh skills.mjs): the standing house, backed off by visits that did nothing, takes a broken cell -> it is the pick and the order is issued at the next decision; the repair fails -> backed off on its own count, 20-25 min; MUTANT (the state without `broken`) killed', async () => {
+  assert.equal(PJ.publishRecord(dir(), key('house1'), cur => ({ ...cur, cells: [{ at: [5, 70, 5], role: 'base', seg: 'a' }] })).result, 'accepted')
+  const G = PJ.recordGenNow(dir(), key('house1'))
+  const setup = M => {
+    cleanTurns(); freeSlots('house1'); world.clear(); world.set('5,70,5', block('stone_bricks'))
+    const bot = mkAt(ME), now = Date.now()
+    assert.ok(PJ.turnWrite(dir(), HOME, 'showcase-Gale', { house1: { at: now - 2 * MIN, n: 3, noAt: now - MIN, okAt: null, gen: G, stop: 'complete' } }, { now }))
+    M.shopActiveForget()
+    assert.equal(M.shopActive(bot, now).plot, 'monument', 'the house stands whole: nothing there')
+    assert.equal(M._projturn.turnBackedOff(bot, 'house1', now), true, 'and it is inside the back-off its no-op visits earned (an hour)')
+    // THE CELL BREAKS (the world, not the record: no generation moves)
+    world.set('5,70,5', block('air')); M.shopActiveForget()
+    return { bot, now }
+  }
+  await withCopy('skills.mjs', [], M => {
+    const { bot, now } = setup(M)
+    assert.equal(M.shopActive(bot, now).plot, 'house1', 'the repair is the pick at the next decision')
+    const hs = M.shopActiveStates().find(x => x.plot === 'house1')
+    assert.deepEqual([hs.damaged, hs.broken], [true, true])
+    assert.equal(M._projturn.turnBackedOff(bot, 'house1', now), false)
+    assert.deepEqual(S.buildOrder({ shared: true, atTown: true, now, planned: true, record: { plot: 'house1', structure_complete: true }, complete: false }), ORDER, 'and the order is issued for it')
+    // the repair visit places nothing (a cell it cannot mend)
+    rows.length = 0
+    bot.shopVisitPlot = 'house1'
+    assert.equal(M._projturn.turnBegin(bot, 'house1', now), true)
+    assert.equal(bot.shopTurnVisit.repair, true)
+    M._projturn.turnNote(bot, { status: 'no_effect', stop: 'clears_wait' }, {}, now + 3 * MIN)
+    const e = PJ.turnRead(dir(), HOME, { holder: ME })[0].plots.house1
+    assert.deepEqual([e.rn, e.rnoAt, e.n], [1, now + 3 * MIN, 0], 'counted as a repair')
+    assert.match(turnRows('backoff').at(-1), /^op=backoff project=house1 n=1 until_min=2[0-5] stop=clears_wait repair=1$/)
+    assert.equal(M.shopActive(bot, now + 5 * MIN).plot, 'monument', 'the failed repair is backed off')
+    assert.equal(M.shopActive(bot, now + 3 * MIN + 26 * MIN).plot, 'house1', 'and tried again after 20-25 min')
+  })
+  await withCopy('skills.mjs', [['          ...(PROJTURN.on && damaged && recordDamaged(b, rec, { tidy: false, cells: true }) ? { broken: true } : {}) }\n', '          ...({}) }\n']], M => {
+    const { bot, now } = setup(M)
+    assert.equal(M.shopActive(bot, now).plot, 'monument', 'the mutant: the broken house waits out the hour')
+    assert.equal(M._projturn.turnBackedOff(bot, 'house1', now), true)
+  })
+  // the one reason recordDamaged gives that is no cell's is passed over when the cells alone are asked (structure: the paths' extension
+  // needs a routed town to be due; its back-off is the pure test's and the simulation's)
+  const src = strip(fs.readFileSync(SRC('skills.mjs'), 'utf8'))
+  assert.equal(src.split('if (!cells && r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true').length, 2)
+  assert.equal(src.split('recordDamaged(b, rec, { tidy: false, cells: true })').length, 2)
+  world.clear()
+})
+await t('REVIEW r1, BLOCKER 2 (real files, a fresh skills.mjs): the bot\'s service offer passes the order\'s gate as it passes the pick; with no offer the same plot is skipped; STRUCTURE: the gate and the pick call one function', async () => {
+  await withCopy('skills.mjs', [], M => {
+    cleanTurns()
+    const bot = mkBot(), now = Date.now()
+    assert.ok(PJ.turnWrite(dir(), HOME, 'showcase-Gale', { paths: { at: now - 2 * MIN, n: 3, noAt: now - MIN, okAt: null, gen: PJ.recordGenNow(dir(), key('paths')), stop: 'complete' } }, { now }))
+    M.shopActive(bot, now)
+    const q = { shared: true, atTown: true, now, planned: true, record: { plot: 'paths', structure_complete: true }, complete: false }
+    assert.equal(M._projturn.turnBackedOff(bot, 'paths', now), true)
+    assert.deepEqual(S.buildOrder(q), { order: null, skip: 'no_progress' }, 'control: no offer -- the backed-off plot is skipped')
+    bot.shopTurnSvc = 'paths'       // as shopActive leaves it when prodserve's pick for this bot is this plot
+    assert.equal(M._projturn.turnMarksNow(bot, [st('paths', { complete: true, due: true })], now)[0].backoff, undefined)
+    assert.equal(M._projturn.turnBackedOff(bot, 'paths', now), false)
+    assert.deepEqual(S.buildOrder(q), ORDER, 'the offer: the gate passes what the pick passed')
+    bot.shopTurnSvc = 'wall'
+    assert.deepEqual(S.buildOrder(q), { order: null, skip: 'no_progress' }, 'another plot\'s offer exempts nothing here')
+  })
+  const src = strip(fs.readFileSync(SRC('skills.mjs'), 'utf8'))
+  assert.equal(src.split('turnBackoff(').length, 2, 'projturn.mjs turnBackoff is called in ONE place')
+  assert.ok(/function turnMarksNow \(b, states, now = Date\.now\(\)\) \{[\s\S]{0,900}?const marks = turnBackoff\(states, /.test(src), '...inside turnMarksNow')
+  assert.ok(/function turnBackedOff \(b, plot, now = Date\.now\(\)\) \{[\s\S]{0,300}?return turnMarksNow\(b, \[st\], now\)\[0\]\?\.backoff === true\n\}/.test(src), 'the order\'s gate asks turnMarksNow for the pick\'s state')
+  assert.equal(src.split('marked.splice(0, marked.length, ...turnMarksNow(b, marked, now))').length, 2, 'and so does the pick')
+  assert.equal(src.split('backedOff: (plot, now) => turnBackedOff(').length, 2, 'the hook the order calls')
+})
+await t('REVIEW r1, BLOCKER 3 (real files, real leases, a fresh skills.mjs): two bots pick the backed-off ziggurat from one reading -> ONE begins, the other steps aside to the wall with nothing counted; no second probe during an 8-minute visit; a prober killed mid-visit -> its lease lapses and the project is probed again; MUTANTS (no claim; the lease unread) killed', async () => {
+  const Gm = PJ.recordGenNow(dir(), key('monument')), Gw = PJ.recordGenNow(dir(), key('wall'))
+  const TTL = PJ.LEASE_TTL_MS + PJ.RECLAIM_MS
+  const scenario = async (M, tag) => {
+    cleanTurns(); freeSlots('monument'); freeSlots('wall')
+    const A = mkAt(`showcase-A${tag}`), B = mkAt(`showcase-B${tag}`), C = mkAt(`showcase-C${tag}`), D = mkAt(`showcase-D${tag}`), now = Date.now()
+    const marksOf = (bot, plot, at) => M._projturn.turnMarksNow(bot, [st(plot)], at)[0]
+    // the ziggurat has a count whose back-off is long over (another bot's visit, three hours ago) and is the longest unvisited
+    assert.ok(PJ.turnWrite(dir(), HOME, 'showcase-Gale', { monument: { at: now - 3 * H, n: 1, noAt: now - 3 * H, okAt: null, gen: Gm, stop: 'stuck_on_cell' }, wall: { at: now - H, n: 0, noAt: null, okAt: now - H, gen: Gw, stop: null } }, { now }))
+    M.shopActiveForget()
+    // BOTH decide from the same reading: the ziggurat
+    assert.equal(M.shopActive(A, now).plot, 'monument'); assert.equal(M.shopActive(B, now).plot, 'monument')
+    // ...and both visits start
+    A.shopVisitBusy = true; A.shopVisitPlot = 'monument'
+    assert.equal(M._projturn.turnBegin(A, 'monument', now), true)
+    assert.equal(PJ.leaseState(dir(), key('monument'), 'slot1').rec.holder, A.username, 'A holds the probe: the ziggurat\'s slot 1')
+    B.shopVisitBusy = true
+    rows.length = 0
+    assert.equal(M._projturn.turnBegin(B, 'monument', now + 1000), false, 'EXACTLY ONE: B steps aside')
+    assert.deepEqual([PJ.turnRead(dir(), HOME, { holder: B.username })[0]?.plots?.monument, turnRows('pick').length, turnRows('backoff').length], [undefined, 0, 0], 'nothing stamped, counted or logged for it')
+    // B's next pick, in the same visit: the wall
+    assert.equal(M.shopActive(B, now + 1000, { visit: true }).plot, 'wall')
+    B.shopVisitPlot = 'wall'
+    assert.equal(M._projturn.turnBegin(B, 'wall', now + 1000, true), true)
+    assert.equal(turnRows('pick').length, 1, 'one pick row: the visit\'s')
+    // A's visit lasts EIGHT minutes, renewing its slot as a visit does: nobody else starts on the ziggurat in all that time
+    let gen = null
+    for (const m of [0.5, 1, 3, 5, 7, 7.9]) {
+      if (m > 1) { const r = PJ.takeSlot(dir(), key('monument'), A.username, 2, { now: now + (m - 1) * MIN }); assert.ok(r.ok); gen = r.gen }
+      assert.equal(marksOf(C, 'monument', now + m * MIN).backoff, true, `${m} min into A's visit`)
+      assert.equal(M._projturn.turnBegin(C, 'monument', now + m * MIN), false)
+    }
+    // A's visit ends with nothing placed and gives its slot back
+    M._projturn.turnNote(A, { status: 'no_effect', stop: 'stuck_on_cell' }, {}, now + 8 * MIN)
+    PJ.releaseLease(dir(), key('monument'), 'slot1', A.username, gen)
+    A.shopVisitBusy = false
+    assert.equal(marksOf(C, 'monument', now + 9 * MIN).backoff, true, 'two in a row now: backed off 40-50 min')
+    const t2 = now + 8 * MIN + 51 * MIN
+    assert.equal(marksOf(C, 'monument', t2).backoff, undefined, 'control: the back-off over and no lease -- a candidate again')
+    // C GOES BACK, AND ITS PROCESS IS KILLED MID-VISIT: no result, no release
+    assert.equal(M._projturn.turnBegin(C, 'monument', t2), true)
+    assert.equal(marksOf(D, 'monument', t2 + MIN).backoff, true)
+    assert.equal(M._projturn.turnBegin(D, 'monument', t2 + MIN), false)
+    assert.equal(marksOf(D, 'monument', t2 + TTL - 1000).backoff, true, 'held for the lease\'s own life (4 min and its reclaim minute)')
+    assert.equal(marksOf(D, 'monument', t2 + TTL + 1000).backoff, undefined, 'then it lapses by itself: never "under way" for good')
+    assert.equal(M._projturn.turnBegin(D, 'monument', t2 + TTL + 1000), true, 'and the project is probed again')
+    assert.equal(PJ.leaseState(dir(), key('monument'), 'slot1').rec.holder, D.username)
+  }
+  await withCopy('skills.mjs', [], M => scenario(M, '1'))
+  for (const [name, pair] of [
+    ['no claim at the visit\'s start', ['      if (turnClaimNeeded(turnViewNow(bot, now).get(plot) ?? null)) {\n', '      if (false) {\n']],
+    ['the lease unread by the marks', [', leased: plot => turnLeased(plot, me, now) })', ' })']],
+  ]) {
+    let why = null
+    await withCopy('skills.mjs', [pair], async M => { try { await scenario(M, name.length) } catch (e) { why = e } })
+    assert.ok(why instanceof assert.AssertionError, `MUTANT (${name}) survived or died for another reason: ${String(why?.stack ?? 'survived').split('\n')[0]}`)
+  }
+  freeSlots('monument'); freeSlots('wall')
 })
 
 if (SIM) console.log(`\n        THE SIMULATION, 48 h, 14 bots (visits per simulated day; longest wait in hours)\n${table(SIM.on, SIM.off)}`)
