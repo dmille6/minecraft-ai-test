@@ -245,6 +245,28 @@ await t('the showcase line has the owner\'s 16 a day / 24 standing for a CARRIED
   assert.equal(CF.chestBudget({ claims, now: NOW, carried: false, on: true }).ok, false, 'a crafted one keeps the 4 a day')
   assert.equal(CF.chestBudget({ claims, now: NOW, carried: true, on: false }).ok, false, 'CHESTCARRY=off: the base')
 })
+await t('BOTH OFF-SWITCHES RESTORE 4 A DAY / 12 STANDING for a carried chest (Codex r1): BAGFIX=off, BAGFIX_CHEST=off, CHESTCARRY=off; MUTANT: bagfix ignored', async () => {
+  const day = n => Array.from({ length: n }, (_, i) => ({ n: i + 1, x: i, y: 70, z: 0, at: NOW - (i + 1) * 3_600_000, world: null, state: 'placed' }))
+  const old = n => Array.from({ length: n }, (_, i) => ({ n: i + 1, x: i, y: 70, z: 0, at: NOW - (30 + i) * 3_600_000, world: null, state: 'placed' }))
+  const scenario = M => {
+    assert.equal(M.carriedLimitsOn({}), true, 'the default: on')
+    for (const env of [{ BAGFIX: 'off' }, { BAGFIX_CHEST: 'off' }, { CHESTCARRY: 'off' }, { BAGFIX: '0', CHESTCARRY: 'on' }]) {
+      const on = M.carriedLimitsOn(env)
+      assert.equal(on, false, JSON.stringify(env))
+      assert.equal(M.chestBudget({ claims: day(4), now: NOW, carried: true, on }).ok, false, `${JSON.stringify(env)}: a fifth carried chest in a day is refused`)
+      assert.match(M.chestBudget({ claims: day(4), now: NOW, carried: true, on }).why, /\(4 in 24 h\)/)
+      assert.equal(M.chestBudget({ claims: old(12), now: NOW, carried: true, on }).ok, false, `${JSON.stringify(env)}: 12 standing is the limit`)
+    }
+    // positive control: the same ledgers pass with everything on
+    assert.equal(M.chestBudget({ claims: day(4), now: NOW, carried: true, on: M.carriedLimitsOn({}) }).ok, true)
+    assert.equal(M.chestBudget({ claims: old(12), now: NOW, carried: true, on: M.carriedLimitsOn({}) }).ok, true)
+  }
+  await killedBy(P('chestfull'), CF, 'chestCarryOn(env) && bagfixSwitches(env).chest', 'chestCarryOn(env)', scenario)
+  // the authoritative claim reads the same default (structural: claimNewChest passes no `on`)
+  const cf = strip(readFileSync(P('chestfull'), 'utf8'))
+  one(cf, 'carried = false, on = carriedLimitsOn\\(\\) \\} = \\{\\}\\) \\{', 'chestBudget\'s default is the composed switch')
+  one(cf, 'const b = chestBudget\\(\\{ claims, now, world, carried \\}\\)', 'claimNewChest uses that default')
+})
 await t('one unreadable container defers nothing while another is known full; the ones out of TIME still say "deposit again"', () => {
   assert.equal(BF.deferUnknown({ chest: true, unknown: 1, unknownTime: 0, known: 14 }), 0)
   assert.equal(CF.fullChestNext({ nearHome: true, unknown: BF.deferUnknown({ chest: true, unknown: 1, unknownTime: 0, known: 14 }), budget: { ok: true }, carried: true }), 'place_carried', 'THE CHAIN: the carried chest goes down')

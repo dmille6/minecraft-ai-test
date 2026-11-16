@@ -4,9 +4,6 @@
 //
 // Measured (24 h, 1,970 deposits): 90 full-chest blocks, 75 of them by a bot CARRYING a chest; the recovery crafted
 // unconditionally and placed only after a successful craft.
-// bagfix-01show D: this file is the BASE's recovery (one unreadable container defers a new chest; a failed cell may be picked again) --
-// it runs with BAGFIX_CHEST=off, which is that behaviour exactly; the new rules are bagfix.test.mjs's (deferUnknown, failedSites).
-process.env.BAGFIX_CHEST = 'off'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -508,31 +505,23 @@ await t('another container in town WITH ROOM is used before anything is placed; 
   assert.ok(!w.spy.opened.includes('-5,64,5'), 'the chest the town found full a minute ago was not opened')
 })
 
-await t('UNKNOWN: an open failure defers ONCE (nothing built, the BANK STAYS OPEN, the barrel is backed off); the same failure 10+ min later makes it unusable and the town expands', async () => {
+// bagfix-01 D (owner 11-16: "one unreadable container must not defer everything"): WAS -- an open failure deferred ONCE (nothing built
+// until the same failure 10+ min later made the barrel unusable). NOW the unreadable barrel is backed off as before and, the first
+// chest being KNOWN full, the carried chest goes down at once. The pure rule and its off switch: bagfix.test.mjs (deferUnknown).
+await t('UNKNOWN: an open failure no longer defers the town: the barrel is backed off (its strike), the BANK STAYS OPEN, and the carried chest is placed in the SAME deposit', async () => {
   const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const open = w.bot.openContainer
   let barrelTries = 0   // counted BEFORE the throw (the fake records spy.opened only on a successful open; Codex round 1)
   w.bot.openContainer = async b => { if (b.position.x === -5) { barrelTries++; throw new Error('windowOpen did not fire') } return open(b) }
   const r = await run(w.bot)
-  assert.equal(barrelTries, 1, 'control: the first deposit tried the barrel')
-  assert.equal(r.failClass, 'storage_full'); assert.match(r.detail, /^deposit again later -- 1 container/)
-  assert.equal(w.spy.placed.length, 0)
-  // chestfull-02: a defer closes nothing -- the failed target is backed off in the town's memory instead.
-  assert.equal(bankClosed(w.bot), '', 'a defer does not close the bank')
-  assert.equal(new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot).reason !== 'bank_closed', true)
+  assert.equal(barrelTries, 1, 'control: the deposit tried the barrel')
   assert.equal(memEntry('-5,64,0')?.o, 'unknown', 'the barrel carries the strike: its backoff')
-  assert.match(lastRow(), /^decision=defer .*unknown=1/)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1, 'the carried chest went down: one unreadable container deferred nothing')
+  assert.equal(bankClosed(w.bot), '', 'nothing is closed')
   await run(w.bot)
   assert.equal(barrelTries, 1, 'inside its backoff the barrel is not tried again')
-  assert.equal(bankClosed(w.bot), '')
-  // Ten minutes later (its strike moved back in the town's memory), the barrel fails again.
-  updateTownMemory(process.env.POOL_STATE_DIR, KEY, null, e => { e['-5,64,0'] = recordOutcome(undefined, 'unknown', Date.now() - UNKNOWN_BACKOFF_MS - 1000) })
-  w.bot.bankClosed = null
-  const r2 = await run(w.bot)
-  assert.equal(r2.status, 'success', r2.detail)
-  assert.equal(w.spy.placed.length, 1, 'two unknowns >= 10 min apart: unusable, no longer waited for')
-  assert.match(lastRow(), /-5,64,0:unusable/)
 })
 
 await t('a VERIFIED BLOCKED LID is unavailable, not unknown: the sweep goes on and the town may expand -- also when it is the FIRST chest', async () => {
