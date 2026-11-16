@@ -71,8 +71,7 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
-import { logHalfSteps } from './towndeposit.mjs'   // yardrow-01: the halves' move
-import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
+import { logHalfSteps, IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
@@ -22208,7 +22207,9 @@ export function hubRegistryRefresh (now = Date.now(), { force = false } = {}) {
   hubRegAt = now
   // cottage2-01: the later cottages' chests are town containers too (the stock view, the withdraw and kit searches, the index)
   const cottageKeys = () => { if (!COTTAGE2_SW.on) return []; try { return projectHeads().filter(x => isCottagePlot(x.plot)).flatMap(x => cottageChestKeys(x.head?.rec)) } catch { return [] } }
-  try { hubRecMemo = hubRecNow(); setTownExtra(homeVec(), [...hubChestKeys(hubRecMemo, { on: HUB.on }), ...cottageKeys(), ...yardRowKeys(activeMem?.bot ?? null)]) } catch { /* unchanged */ }   // yardrow-01: the row's chests too
+  try { hubRecMemo = hubRecNow(); setTownExtra(homeVec(), [...hubChestKeys(hubRecMemo, { on: HUB.on }), ...cottageKeys()]) } catch { /* unchanged */ }
+  // yardrow-01: the yard's chest row is the town's too (the index, the stock view, the withdraw searches)
+  try { if (LANES.on && LANES.row) setTownExtra(homeVec(), [...townExtraKeys(homeVec()), ...yardRowKeys(activeMem?.bot ?? null)]) } catch { /* unchanged */ }
 }
 /** STOREHUB-01: THE HALL'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. storehub.mjs hubSitingPlan's
  *  order (beside the storehouse, then the town ring), each a buildsite.mjs siteBlueprint clear of every reservation (the zones, every

@@ -304,7 +304,7 @@ await t('MUTANTS KILLED (b): chests side by side; the last carried chest placed;
 await t('WIRED (b): a row chest is a town container but never a general deposit\'s; placed under the lease and recorded only once it STANDS; banked by the deposit\'s own body', () => {
   const sk = strip(readFileSync(P('skills'), 'utf8'))
   one(sk, 'if \\(rowKeys\\.has\\(posKey\\(p\\)\\)\\) continue', 'townContainers skips the row')
-  one(sk, '\\.\\.\\.cottageKeys\\(\\), \\.\\.\\.yardRowKeys\\(activeMem\\?\\.bot \\?\\? null\\)\\]\\)', 'registered with the town\'s containers')
+  one(sk, 'if \\(LANES\\.on && LANES\\.row\\) setTownExtra\\(homeVec\\(\\), \\[\\.\\.\\.townExtraKeys\\(homeVec\\(\\)\\), \\.\\.\\.yardRowKeys\\(activeMem\\?\\.bot \\?\\? null\\)\\]\\)', 'registered with the town\'s containers')
   one(sk, "const lease = projTakeLease\\(dir, key, 'row', me\\)\\n    if \\(lease\\.ok\\) \\{\\n      try \\{", 'one placer at a time')
   one(sk, "if \\(stands\\) \\{ yardRowsWrite\\(bot, rowAssign\\(rows, at, plan\\.place\\.kind, \\{ plot, by: me \\}\\)\\); out\\.placed\\+\\+", 'the record follows the world')
   one(sk, "const p = await sortPut\\(bot, block, b\\.names, deadline, signal, keeps, bag => rowSteps\\(bag, b\\.names, keeps, logHalfSteps\\), 'yard_row'\\)", 'the bank')
