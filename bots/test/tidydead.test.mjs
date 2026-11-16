@@ -7,6 +7,10 @@
 // buildretry-01: this file proves ITS project remedy alone, its CONTROLS the live stop before it: the default deferral (BUILDRETRY,
 // buildrun.mjs) would mask both, so it is off here; the composition of the two is tested in buildretry.test.mjs
 process.env.BUILDRETRY = '0'
+// KEPT, NOT RUN (control session 11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Take these two lines out to run it again.
+console.log('SKIP (superseded on the showcase line by gkunblock-01 (341510d5a); kept until tidyflow-01show has landed and been read (control session 11-16))')
+process.exit(77)
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { readFileSync } from 'node:fs'

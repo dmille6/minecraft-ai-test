@@ -3,6 +3,10 @@
 // held (summed visits 3-11, unreached). The held cut is never evaluated, so the per-bot TIDY_CUT_TRIES never gives it up, the stage
 // never completes and no visit is ever empty. This walks the composed chain (ledger -> given -> progress -> empty visit) on the fake
 // server, with the buildrun.mjs remedy killed by a mutant whose anchor is asserted present and unique (withMutant).
+// KEPT, NOT RUN (control session 11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Take these two lines out to run it again.
+console.log('SKIP (superseded on the showcase line by tidyrefresh-01show (7a4930d10); kept until tidyflow-01show has landed and been read (control session 11-16))')
+process.exit(77)
 import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'

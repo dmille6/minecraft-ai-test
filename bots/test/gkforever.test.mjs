@@ -1,6 +1,10 @@
 // GKFOREVER-01: THE GROUNDS NEVER RUN OUT (gkforever.mjs; tidy.mjs LEVEL + DEAD; groundskeeper.mjs CREW; idlework.mjs + milestones.mjs
 // the grounds lap; skills.mjs buildTidy / shopActive / groundsMeansFor). Behaviour on buildfake's flat world (stone below G, grass at
 // G) and on the pure deciders; structural assertions only for wiring; every mutant asserts its anchor is present and unique.
+// KEPT, NOT RUN (control session 11-16; docs/reports/trunk-merge-2026-11-16/DECISIONS.md): the suite reports this file SKIPPED --
+// never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Take these two lines out to run it again.
+console.log('SKIP (superseded on the showcase line by gkhelpers-01show (a3fed85e0), country-01show (8db58556b) and roughground-01show (44e3717ac); kept until tidyflow-01show has landed and been read (control session 11-16))')
+process.exit(77)
 import assert from 'node:assert'
 // roughground-01: these tests pin tidy-01's and gkforever's own rules; the rough survey (on by default) is roughground.test.mjs's
 process.env.ROUGH = 'off'
