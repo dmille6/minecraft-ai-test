@@ -24815,6 +24815,9 @@ async function buildStair (ctx, args, signal) {
     })
     const fence = () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } }
     const e = stairBotEffects(bot, effects, { signal, fence, log: (op, d) => stairRow(bot, op, { k: d.k, at: d.at, why: d.why, feet: d.feet ?? '-' }) })
+    // stairuse-01: the visit's walk to a deep stand falls back to the stair's own way down (shaftvisit.mjs runStairVisit `e.descend`)
+    // (its deadline keeps the egress's reserve from step k: the visit's way out after it -- Claude r1 note 1)
+    if (stairUseOn()) e.descend = k => visitDescend(bot, rec, signal, t0 + budget - STAIR_VISIT_TAIL_MS - egressReserveMs(k), k, e)
     const now = () => Date.now()
     // shaft-03: the whole visit holds the 'stair' body claim (withStairClaim: the entombment reflex stands down inside the stair)
     // shafttrap-01: ...and so does the egress after it (the visit ends at the collar, never deep in the stair)
@@ -24880,7 +24883,7 @@ export function bodyOnCell (bot, c) {
   } catch { return false }
 }
 /** -> runStairEgress's result, or null (not under the collar: no row). Throws only an abort. */
-async function visitEgress (bot, rec, signal, deadline, e0 = null) {
+async function visitEgress (bot, rec, signal, deadline, e0 = null, walk = null) {
   const plan = stairPlanOf(rec)
   const p = bot.entity?.position
   if (!p || Math.floor(p.y + 1e-6) >= plan.g + 1) return null
@@ -24897,7 +24900,7 @@ async function visitEgress (bot, rec, signal, deadline, e0 = null) {
     const r = await runStairEgress(plan, {
       get read () { return stairRead(bot) },
       feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
-      walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal),
+      walkTo: c => (walk ? walk(c) : stairWalk(bot, c, EGRESS_HOP_MS, signal)),
       dig: c => e.dig(c),
       occupied: c => bodyOnCell(bot, c),
       now: () => Date.now(),

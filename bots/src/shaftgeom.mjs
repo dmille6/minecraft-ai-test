@@ -991,6 +991,8 @@ export function shaftRowDetail ({ op = '-', k = '-', at = null, why = '-', feet 
   return `op=${op} k=${k} at=${Array.isArray(at) ? at.join(',') : '-'} why=${why} feet=${feet} gen=${gen} n=${n} ms=${ms} built=${built}`.slice(0, 300)
 }
 /** The `_shaft_use` row's detail. Pure. */
-export function shaftUseDetail ({ dir = '-', ok = false, why = '-', landing = '-', from = '-', to = '-', ms = '-', goal = '-' } = {}) {
-  return `dir=${dir} ok=${ok ? 1 : 0} why=${why} landing=${landing} from=${from} to=${to} goal=${goal} ms=${ms}`.slice(0, 300)
+export function shaftUseDetail ({ dir = '-', ok = false, why = '-', landing = '-', from = '-', to = '-', ms = '-', goal = '-', entry = null, cleared = null } = {}) {
+  // stairuse-01: `entry` (stair | surface) and `cleared` (foreign blocks dug on the way) when the descent names them
+  const more = `${entry != null ? ` entry=${entry}` : ''}${cleared != null ? ` cleared=${cleared}` : ''}`
+  return `dir=${dir} ok=${ok ? 1 : 0} why=${why} landing=${landing} from=${from} to=${to} goal=${goal} ms=${ms}${more}`.slice(0, 300)
 }

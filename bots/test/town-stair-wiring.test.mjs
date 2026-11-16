@@ -100,17 +100,20 @@ await t('the stair\'s own damage test: a finished stair stands; a tread gone rea
 
 console.log('THE USE (fake bot over a finished stair)')
 const stub = feet => G.stubEnd(plan.landings.find(l => l.feet === feet))
-await t('mine 16 from the surface near the stair: walks down to the 16 landing\'s stub end, done', async () => {
+// stairuse-01: the descents below are the base's (STAIRUSE=off: one walk, verified from the top); stair-descent.test.mjs and the
+// block after these have the step-by-step descent
+const legacy = fn => async () => { process.env.STAIRUSE = 'off'; try { await fn() } finally { delete process.env.STAIRUSE } }
+await t('mine 16 from the surface near the stair: walks down to the 16 landing\'s stub end, done', legacy(async () => {
   const bot = fakeBot(worldOf())
   const r = await K.stairDescend(ctx(bot), 16, null)
   assert.deepStrictEqual(r, { arrived: true, landing: 16, done: true })
   assert.deepStrictEqual(bot.walks, [stub(16)])
-})
-await t('mine 0: down to 16, not done (mine digs on from the stub end); mine 40: the 48 landing', async () => {
+}))
+await t('mine 0: down to 16, not done (mine digs on from the stub end); mine 40: the 48 landing', legacy(async () => {
   const b1 = fakeBot(worldOf()); assert.deepStrictEqual(await K.stairDescend(ctx(b1), 0, null), { arrived: true, landing: 16, done: false })
   const b2 = fakeBot(worldOf()); assert.deepStrictEqual(await K.stairDescend(ctx(b2), 40, null), { arrived: true, landing: 48, done: false })
-})
-await t('declined (null, today\'s mine): a step-sized call, no pickaxe, far from the stair, a broken route', async () => {
+}))
+await t('declined (null, today\'s mine): a step-sized call, no pickaxe, far from the stair, a broken route', legacy(async () => {
   assert.strictEqual(await K.stairDescend(ctx(fakeBot(worldOf())), 66, null), null)
   assert.strictEqual(await K.stairDescend(ctx(fakeBot(worldOf(), { pick: false })), 16, null), null)
   assert.strictEqual(await K.stairDescend(ctx(fakeBot(worldOf(), { pos: { x: 200.5, y: 71, z: 0.5 } })), 16, null), null)
@@ -119,32 +122,203 @@ await t('declined (null, today\'s mine): a step-sized call, no pickaxe, far from
   const b = fakeBot(broken)
   assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
   assert.deepStrictEqual(b.walks, [], 'never walked')
-})
-await t('a walk that does not arrive: null, and that landing is not tried again by this bot for 10 min', async () => {
+}))
+await t('a walk that does not arrive: null, and that landing is not tried again by this bot for 10 min', legacy(async () => {
   const b = fakeBot(worldOf(), { moves: false })
   assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
   assert.strictEqual(b.walks.length, 1)
   const again = await K.stairDescend(ctx(b), 16, null)
   assert.ok(again === null || again.landing !== 16)
   assert.ok(b.walks.length <= 2 && b.walks.every(w => w.join() !== stub(16).join() || b.walks.indexOf(w) === 0), 'the 16 is backed off')
+}))
+
+console.log('STAIRUSE-01: THE DESCENT STEP BY STEP (fake bot, the same finished stair)')
+const { tapRecords } = await import('../src/logger.mjs')
+const TAPPED = []
+tapRecords(rec => TAPPED.push(rec))
+const rowsOf = kind => TAPPED.filter(r => r.skill?.name === `_${kind}`)
+const recNow = () => K.stairRecordNow()
+await t('from the surface: the collar exit first, then hops down the stair to the 16 stub end, done; one _shaft_use row with entry=surface', async () => {
+  const n0 = rowsOf('shaft_use').length
+  const bot = fakeBot(worldOf())
+  const r = await K.stairDescend(ctx(bot), 16, null)
+  assert.deepStrictEqual(r, { arrived: true, landing: 16, done: true })
+  assert.deepStrictEqual(bot.walks[0], recNow().exit, 'the collar exit first')
+  assert.deepStrictEqual(bot.walks.at(-1), stub(16), 'the stub end last')
+  assert.ok(bot.walks.length > 10, `hops (${bot.walks.length} walks), not one long goto`)
+  const rows = rowsOf('shaft_use').slice(n0)
+  assert.strictEqual(rows.length, 1)
+  assert.match(rows[0].skill.detail, /dir=down ok=1 why=arrived landing=16 .* entry=surface cleared=0/)
 })
-await t('surface from the 32 stub end (under rock): plans, walks up to the collar exit', async () => {
+await t('from the 48 landing\'s stub end (on the stair): down to 16 from its own step (no collar walk), entry=stair', async () => {
+  const s = stub(48)
+  const bot = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+  const r = await K.stairDescend(ctx(bot), 16, null)
+  assert.deepStrictEqual(r, { arrived: true, landing: 16, done: true })
+  assert.ok(!bot.walks.some(w => w.join() === recNow().exit.join()), 'never back up to the exit')
+  assert.match(rowsOf('shaft_use').at(-1).skill.detail, /entry=stair/)
+})
+await t('from a MINE near the stair (y 40, off it): no attempt -- null, no _shaft_use row, a _shaft_skip row, no landing backed off; then from the surface it descends (COMPOSED)', async () => {
+  const n0 = rowsOf('shaft_use').length, s0 = rowsOf('shaft_skip').length
+  const world = (x, y, z) => (y >= 40 && y <= 41 && Math.abs(z) <= 1 && x >= 4 && x <= 12 ? 'air' : worldOf()(x, y, z))   // a tunnel west of the stair's box
+  const bot = fakeBot(world, { pos: { x: 8.5, y: 40, z: 0.5 } })
+  assert.strictEqual(await K.stairDescend(ctx(bot), 16, null), null)
+  assert.deepStrictEqual(bot.walks, [], 'never walked')
+  assert.strictEqual(rowsOf('shaft_use').length, n0, 'no attempt row')
+  assert.match(rowsOf('shaft_skip').slice(s0)[0]?.skill.detail ?? '', /dir=down why=away landing=16 from=40/)
+  assert.ok(!(bot.stairFails?.get(16) > 0), 'the 16 is not backed off')
+  Object.assign(bot.entity.position, { x: 10.5, y: 71, z: 0.5 })
+  assert.deepStrictEqual(await K.stairDescend(ctx(bot), 16, null), { arrived: true, landing: 16, done: true }, 'the same bot at the surface uses the stair')
+})
+await t('a missing tread on the route: refused before any walk (landingRoute), the step named; a liquid the same', async () => {
+  const tread = plan.steps[10].tread
+  const broken = (x, y, z) => (x === tread[0] && y === tread[1] && z === tread[2] ? 'air' : worldOf()(x, y, z))
+  const b = fakeBot(broken)
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  assert.deepStrictEqual(b.walks, [])
+  assert.match(rowsOf('shaft_use').at(-1).skill.detail, /why=step10:tread/)
+})
+await t('the collar walk that does not arrive: null, why=approach, and the landing is NOT backed off (an approach is no stair fault)', async () => {
+  const b = fakeBot(worldOf(), { moves: false })
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  assert.match(rowsOf('shaft_use').at(-1).skill.detail, /why=approach/)
+  assert.ok(!(b.stairFails?.get(16) > 0))
+})
+await t('after a failed approach this bot waits 2 min before the next collar walk (no 90 s walk every mine call); the landing stays open', async () => {
+  const b = fakeBot(worldOf(), { moves: false })
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  const n = b.walks.length
+  assert.strictEqual(await K.stairDescend(ctx(b), 16, null), null)
+  assert.strictEqual(b.walks.length, n, 'no second walk inside the wait')
+  b.stairApproachFail = Date.now() - 2 * 60_000 - 1
+  await K.stairDescend(ctx(b), 16, null)
+  assert.ok(b.walks.length > n, 'asked again after it')
+})
+await t('MUTANT KILLED: an approach failure backs the landing off again (as the base did for every walk)', async () => {
+  await withSkillsMutant("    if (r?.why !== 'approach') bot.stairFails.set(feet, Date.now()); else bot.stairApproachFail = Date.now()", '    bot.stairFails.set(feet, Date.now())', async M => {
+    const b = fakeBot(worldOf(), { moves: false })
+    assert.strictEqual(await M.stairDescend(ctx(b), 16, null), null)
+    assert.ok(b.stairFails.get(16) > 0, 'the mutant backs it off')
+  })
+})
+await t('MUTANT KILLED: without the entry class a bot in a mine walks for the stair again (an attempt that cannot succeed)', async () => {
+  await withSkillsMutant("  if (entry !== 'stair' && entry !== 'surface') {", '  if (false) {', async M => {
+    const world = (x, y, z) => (y >= 40 && y <= 41 && Math.abs(z) <= 1 && x >= 4 && x <= 12 ? 'air' : worldOf()(x, y, z))   // a tunnel west of the stair's box
+    const b = fakeBot(world, { pos: { x: 8.5, y: 40, z: 0.5 } })
+    await M.stairDescend(ctx(b), 16, null)
+    assert.ok(b.walks.length > 0, 'the mutant walks')
+  })
+})
+await t('surface from the 32 stub end (under rock), SHAFTTRAP=off (the base): plans, walks up to the collar exit', async () => {
+  process.env.SHAFTTRAP = 'off'
+  try {
+    const s = stub(32)
+    const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+    const r = await K.stairAscend(ctx(b), null)
+    assert.ok(r?.ok, JSON.stringify(r))
+    const rec = K.stairRecordNow()
+    assert.deepStrictEqual(b.walks, [rec.exit])
+  } finally { delete process.env.SHAFTTRAP }
+})
+await t('shafttrap-02: surface from ON the stair walks it up with the egress (stub back to its step, stands, the exit), no plan asked', async () => {
   const s = stub(32)
-  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 }, plan: 'noPath' })
+  let planned = 0
+  const gp = b.pathfinder.getPathFromTo; b.pathfinder.getPathFromTo = function (...a) { planned++; return gp.apply(this, a) }
   const r = await K.stairAscend(ctx(b), null)
   assert.ok(r?.ok, JSON.stringify(r))
   const rec = K.stairRecordNow()
-  assert.deepStrictEqual(b.walks, [rec.exit])
+  assert.deepStrictEqual(b.walks.at(-1), rec.exit, 'ends at the collar exit')
+  assert.ok(b.walks.length > 2, 'hops, not one plan')
+  assert.strictEqual(planned, 0, 'the plan that answers no_plan on one dirt block is not asked')
 })
-await t('surface declined: in the open (not roofed), or the plan finds no path', async () => {
+await t('surface declined: in the open (not roofed), or (SHAFTTRAP=off) the plan finds no path', async () => {
   assert.strictEqual(await K.stairAscend(ctx(fakeBot(worldOf(), { pos: { x: 200.5, y: 50, z: 0.5 } })), null), null, 'far')
   const s = stub(32)
-  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 }, plan: 'noPath' })
-  assert.strictEqual(await K.stairAscend(ctx(b), null), null)
-  assert.deepStrictEqual(b.walks, [])
+  process.env.SHAFTTRAP = 'off'
+  try {
+    const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 }, plan: 'noPath' })
+    assert.strictEqual(await K.stairAscend(ctx(b), null), null)
+    assert.deepStrictEqual(b.walks, [])
+  } finally { delete process.env.SHAFTTRAP }
   const open = (x, y, z) => 'air'
   const b2 = fakeBot(open, { pos: { x: 20.5, y: 50, z: 0.5 } })
   assert.strictEqual(await K.stairAscend(ctx(b2), null), null, 'nothing over its head')
+})
+
+/** A pathfinder that behaves like 2.4.5's where it matters here: goal/movements getters; setGoal and setMovements reset the path
+ *  and CLEAR THE CONTROLS; goto stays pending until the goal changes. */
+function livePathfinder (b) {
+  const st = { goal: null, movements: 'walk', controls: {}, cleared: 0, reject: null }
+  b.clearControlStates = () => { st.cleared++; st.controls = {} }
+  b.setControlState = (k, v) => { st.controls[k] = v }
+  const changed = () => { if (st.reject) { const r = st.reject; st.reject = null; r(new Error('goal changed')) } }
+  b.pathfinder = {
+    get goal () { return st.goal }, get movements () { return st.movements },
+    setGoal (g) { st.goal = g; changed(); b.clearControlStates() },
+    setMovements (m) { st.movements = m; b.clearControlStates() },
+    goto (g) { changed(); st.goal = g; return new Promise((resolve, reject) => { st.reject = reject }) },
+    stop () {},
+  }
+  // index.mjs's wrapper, line for line (its quiet branch is asserted against index.mjs below): the finally installs the DEFAULT
+  // profile; with `quiet`, only over its own profile, and without clearing the controls once quiet() is true
+  b.withTownDepositWalk = async (fn, { quiet = null } = {}) => {
+    b.pathfinder.setMovements('town')
+    try { return await fn() } finally {
+      if (!quiet) b.pathfinder.setMovements('walk')
+      else if (b.pathfinder.movements === 'town') {
+        const keep = !!quiet(), clear = b.clearControlStates
+        if (keep) b.clearControlStates = () => {}
+        try { b.pathfinder.setMovements('walk') } finally { b.clearControlStates = clear }
+      }
+    }
+  }
+  return st
+}
+async function rescueMidHop (mod, { startProfile = 'walk' } = {}) {
+  const s = G.standOf(plan, 44)
+  const b = fakeBot(worldOf(), { pos: { x: s[0] + 0.5, y: s[1], z: s[2] + 0.5 } })
+  const st = livePathfinder(b)
+  st.movements = startProfile   // 'gather': an interrupted gather walk whose own finally has not run yet
+  let owned = true
+  const rescueGoal = { rescue: true }
+  setTimeout(() => { owned = false; b.pathfinder.setGoal(rescueGoal); b.setControlState('jump', true) }, 300)   // the rescue seizes and strokes
+  const r = await mod.stairEgressReflex(b, { alive: () => owned, ms: 20_000 })
+  await new Promise(res => setTimeout(res, 300))
+  return { r, st, rescueGoal }
+}
+await t('shafttrap-02 (Codex r1 blocker 1): a rescue that takes the body mid-hop keeps its goal and its stroke; the walk profile is back', async () => {
+  const { r, st, rescueGoal } = await rescueMidHop(K)
+  assert.strictEqual(r.aborted, true, JSON.stringify(r))
+  assert.strictEqual(st.goal, rescueGoal, 'the rescue\'s goal stands')
+  assert.strictEqual(st.controls.jump, true, 'the rescue\'s jump stands')
+  assert.strictEqual(st.movements, 'walk', 'the walk profile is restored')
+})
+await t('Claude r2 blocker: an egress that starts while an interrupted gather walk still holds its digging profile never re-installs it', async () => {
+  const { st } = await rescueMidHop(K, { startProfile: 'gather' })
+  assert.strictEqual(st.movements, 'walk', 'the default profile, not gather\'s')
+})
+async function withSkillsMutant (old, neu, fn) {
+  const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.strictEqual(src.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`../src/_mutant-skills-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, neu))
+  try { return await fn(await import(out.href)) } finally { try { fs.unlinkSync(out) } catch { /* gone */ } }
+}
+await t('MUTANT KILLED: a signal that only the 200 ms poll aborts lets the next hop take the rescue\'s goal back', async () => {
+  await withSkillsMutant('const sig = { get aborted () { return lost() },', 'const sig = { get aborted () { return ac.signal.aborted },', async M => {
+    const { st, rescueGoal } = await rescueMidHop(M)
+    assert.notStrictEqual(st.goal, rescueGoal, 'the mutant walked over the rescue\'s goal')
+  })
+})
+await t('index.mjs: the town walk\'s quiet restore is wired (only over its own profile; no control clear once the body is lost)', () => {
+  const ix = fs.readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
+  for (const a of ['bot.withTownDepositWalk = async (fn, { quiet = null } = {}) => {',
+    'if (!quiet) { bot.pathfinder.setMovements(moves); bot.movementProfile = \'walk\' }',
+    'else if (bot.pathfinder.movements === townDepositMoves) {',
+    'if (keep) bot.clearControlStates = () => {}']) assert.strictEqual(ix.split(a).length, 2, `missing or not unique: ${a}`)
+  const sk = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.ok(sk.includes("const walk = bot.withTownDepositWalk(() => bot.pathfinder.goto(goal), { quiet: () => !!signal?.aborted })"), 'the reflex hop asks for it')
 })
 
 console.log('THE WIRING (structural: the hooks exist, in order)')
