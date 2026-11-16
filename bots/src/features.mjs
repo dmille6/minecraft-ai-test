@@ -263,6 +263,12 @@ export function installFeatures (bot) {
   try { logEvent({ kind: 'stepwell_mode', status: 'success', snapshot: snapshot(bot), detail: stepwellModeDetail(STEPWELL.on) }) } catch { /* telemetry */ }
   // handcap-01: the licence row (handcap.mjs; MAROON_HANDCAP=off is the rollback)
   try { logEvent({ kind: 'handcap_mode', status: 'success', snapshot: snapshot(bot), detail: handCapModeDetail() }) } catch { /* telemetry */ }
+  // escdead-01: the licence row (escdead.mjs; ESCDEAD=0 is the rollback)
+  try { logEvent({ kind: 'escdead_mode', status: 'success', snapshot: snapshot(bot), detail: escDeadModeDetail() }) } catch { /* telemetry */ }
+  // escpocket-01: the licence row (escdead.mjs; ESCPOCKET=0 is the rollback)
+  try { logEvent({ kind: 'escpocket_mode', status: 'success', snapshot: snapshot(bot), detail: escPocketModeDetail() }) } catch { /* telemetry */ }
+  // seapocket-01: the licence row (escdead.mjs; ESCPOCKET=0 is the rollback)
+  try { logEvent({ kind: 'seapocket_mode', status: 'success', snapshot: snapshot(bot), detail: seaPocketModeDetail() }) } catch { /* telemetry */ }
   // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)
   try { logEvent({ kind: 'plinth021_mode', status: 'success', snapshot: snapshot(bot), detail: plinth021ModeDetail({ shared: townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }), worldId: bot.worldId }) }) } catch {}
   // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail); CONFIGURATION only

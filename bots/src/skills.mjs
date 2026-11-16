@@ -7587,20 +7587,29 @@ export function escapeRecordSnapshot (bot, now = Date.now(), { fresh = false } =
   let v = null
   try {
     const cells = new Map()
+    // roofclimb-01 (review r3, Codex blockers 1 + 2): `hard` = the cells some record owns that is NOT paving or earth fill
+    // (ROOF_RECORD_PASS, by plot AND role). The names in `cells` are as before (the last record read names the cell), except
+    // that a paving/fill record never takes the name of a cell a hard record owns.
+    const hard = new Set()
     const ph = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
     if (!ph.ok || recordUnread(ph)) throw new Error('plan unread')
-    for (const k of planFurnitureCells(ph.head?.plan)) cells.set(k, 'townplan')
-    for (const k of bot?.townPlan?.cells ?? []) if (typeof k === 'string') cells.set(k, 'townplan')
+    for (const k of planFurnitureCells(ph.head?.plan)) { cells.set(k, 'townplan'); hard.add(k) }
+    for (const k of bot?.townPlan?.cells ?? []) if (typeof k === 'string') { cells.set(k, 'townplan'); hard.add(k) }
     const dir = townDir()
     for (const pj of PROJECTS) {
       const h = recordHead(dir, projKeyOf(pj.plot))
       if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) throw new Error(`${pj.plot} unread`)
       const name = pj.plot === SHOP_PLOT ? 'workshop' : pj.plot
-      for (const c of h.head?.rec?.cells ?? []) if (Array.isArray(c?.at) && c.role !== 'air') cells.set(`${c.at[0]},${c.at[1]},${c.at[2]}`, name)
+      const pass = ROOF_RECORD_PASS[pj.plot] ?? null
+      for (const c of h.head?.rec?.cells ?? []) {
+        if (!Array.isArray(c?.at) || c.role === 'air') continue
+        const k = `${c.at[0]},${c.at[1]},${c.at[2]}`
+        if (pass?.has(String(c.role))) { if (!hard.has(k)) cells.set(k, name) } else { cells.set(k, name); hard.add(k) }
+      }
     }
     const cols = treeFarmRecordCells()
     if (!cols) throw new Error('treefarm unread')
-    v = { cells, cols }
+    v = { cells, cols, hard }
   } catch { v = null }
   escapeRecordCache = { at: now, world: bot?.worldId ?? null, v }
   return v
@@ -24525,6 +24534,9 @@ async function buildStair (ctx, args, signal) {
     })
     const fence = () => { try { return projHoldsLease(dir, key, `slot${slot.slot}`, me, slot.gen) } catch { return false } }
     const e = stairBotEffects(bot, effects, { signal, fence, log: (op, d) => stairRow(bot, op, { k: d.k, at: d.at, why: d.why, feet: d.feet ?? '-' }) })
+    // stairuse-01: the visit's walk to a deep stand falls back to the stair's own way down (shaftvisit.mjs runStairVisit `e.descend`)
+    // (its deadline keeps the egress's reserve from step k: the visit's way out after it -- Claude r1 note 1)
+    if (stairUseOn()) e.descend = k => visitDescend(bot, rec, signal, t0 + budget - STAIR_VISIT_TAIL_MS - egressReserveMs(k), k, e)
     const now = () => Date.now()
     // shaft-03: the whole visit holds the 'stair' body claim (withStairClaim: the entombment reflex stands down inside the stair)
     // shafttrap-01: ...and so does the egress after it (the visit ends at the collar, never deep in the stair)
@@ -24590,7 +24602,7 @@ export function bodyOnCell (bot, c) {
   } catch { return false }
 }
 /** -> runStairEgress's result, or null (not under the collar: no row). Throws only an abort. */
-async function visitEgress (bot, rec, signal, deadline, e0 = null) {
+async function visitEgress (bot, rec, signal, deadline, e0 = null, walk = null) {
   const plan = stairPlanOf(rec)
   const p = bot.entity?.position
   if (!p || Math.floor(p.y + 1e-6) >= plan.g + 1) return null
@@ -24607,7 +24619,7 @@ async function visitEgress (bot, rec, signal, deadline, e0 = null) {
     const r = await runStairEgress(plan, {
       get read () { return stairRead(bot) },
       feet: () => { const q = bot.entity.position; return [Math.floor(q.x), Math.floor(q.y + 1e-6), Math.floor(q.z)] },
-      walkTo: c => stairWalk(bot, c, EGRESS_HOP_MS, signal),
+      walkTo: c => (walk ? walk(c) : stairWalk(bot, c, EGRESS_HOP_MS, signal)),
       dig: c => e.dig(c),
       occupied: c => bodyOnCell(bot, c),
       now: () => Date.now(),
@@ -25082,6 +25094,7 @@ function deepClose (bot, end, why) {
   const t = bot.deepTrip
   if (!t) return
   try { releaseLease(townDir(), projKeyOf(DEEPMINE_PLOT), `slot${t.slot}`, bot.username ?? 'bot', t.gen) } catch { /* lapses at its TTL */ }
+  if (t.buildGen != null) { try { releaseLease(townDir(), projKeyOf(DEEP_MINE_BUILD_PLOT), `slot${t.buildSlot}`, bot.username ?? 'bot', t.buildGen) } catch { /* lapses at its TTL */ } }
   const kit = deepTripKit(bot.inventory?.items?.() ?? [])
   const got = (kit.diamonds - (t.diamonds0 ?? 0)) + (kit.rawIron - (t.rawIron0 ?? 0))
   // townmine-01: a build trip that cut cells comes back for the next part soon (its work is the mine, not ore)
@@ -25692,11 +25705,18 @@ async function deepMine (ctx, args, signal) {
     // TOWNMINE-01: the finished stair gets its mine sited at the first trip (once; a refused site is written and not asked again)
     if (TOWNMINE.on && !mineSiteRefusal(st.rec)) { deepMineSite(bot, st.rec); st = deepStairNow() }
     const kit = deepTripKit(bot.inventory?.items?.() ?? [])
-    const target = deepTripTarget(kit, st.mine ?? null)
+    let target = deepTripTarget(kit, st.mine ?? null)
     if (!target) return out('no_effect', 'the bag cannot pay for a trip (pickaxe uses)')
     const slot = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS })
     if (!slot.ok) return out('no_effect', `the town's deep miner slot is taken (${slot.why})`)
-    bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron, ...(TOWNMINE.on ? { coal: true, mine: true } : {}) }
+    // townmine-01: ONE BUILDER A TOWN (the build lease); the second miner, finding it taken, makes an ore trip instead
+    let build = null
+    if (target === 'build') {
+      build = takeSlot(dir, projKeyOf(DEEP_MINE_BUILD_PLOT), me, 1, { ttl: DEEPMINE_LEASE_TTL_MS })
+      if (!build.ok) { build = null; target = deepTripTarget(kit, null) }
+      if (!target) { releaseLease(dir, key, `slot${slot.slot}`, me, slot.gen); return out('no_effect', 'the mine has its builder and the bag cannot pay for an ore trip') }
+    }
+    bot.deepTrip = { ...deepNewTrip({ id: `${me}-${t0.toString(36)}`, target, now: t0, slot: slot.slot, gen: slot.gen, from: deepFeet(bot) }), diamonds0: kit.diamonds, rawIron0: kit.rawIron, ...(TOWNMINE.on ? { coal: true, mine: true } : {}), ...(build ? { buildSlot: build.slot, buildGen: build.gen } : {}) }
     // TOWNMINE-01: A BUILD TRIP carries the hall's fixtures (from town, else made from the bag's planks and cobble); never required
     if (target === 'build' || (TOWNMINE.on && st.mine?.complete && !st.rec?.ext?.furnished)) {
       const has = n => (bot.inventory?.items?.() ?? []).some(i => i.name === n)
@@ -25714,6 +25734,17 @@ async function deepMine (ctx, args, signal) {
       }
     }
     deepRow(bot, 'start', { why: `uses${kit.uses}/iron${kit.ironUses}/seal${kit.seal}/free${kit.free}/torch${deepTripKit(bot.inventory?.items?.() ?? []).torches}` })
+    // OBSIDIAN-01: THE SUB-GOAL (deepmine.mjs obsidianWant: a diamond trip, a diamond pickaxe, a bucket, the town short of OBS_GOAL);
+    // the water first, from an infinite source near the stair top. A refusal is one row and an ordinary diamond trip.
+    try {
+      const ok = deepObsKit(bot.inventory?.items?.() ?? [])
+      const w = deepObsWant({ target, kit: ok, town: OBSIDIAN.on ? deepObsTown(bot) : null })
+      if (w.want > 0) {
+        bot.deepTrip.obs = { want: w.want, got0: ok.obsidian, got: 0, fails: 0, cycles: 0, skip: [] }
+        let water = ok.water > 0 || ok.lava > 0 ? 'held' : await deepObsFill(ctx, bot.deepTrip, signal)
+        deepObsRow(bot, 'start', `water_${water}`, bot.deepTrip.obs, `town${w.want}`)
+      } else if (w.skip !== 'off') deepObsRow(bot, 'skip', w.skip, null)
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e; deepRow(bot, 'obs', { why: `start_error:${String(e?.message ?? e).slice(0, 60).replace(/\s+/g, '_')}`, status: 'failed' }) }
   }
   const trip = bot.deepTrip
   trip.calls = (trip.calls ?? 0) + 1
@@ -25722,6 +25753,11 @@ async function deepMine (ctx, args, signal) {
     const g = projRenewLease(dir, key, `slot${trip.slot}`, me, trip.gen, { ttl: DEEPMINE_LEASE_TTL_MS })
     if (g != null) trip.gen = g
     else { const s = takeSlot(dir, key, me, DEEPMINE.slots, { ttl: DEEPMINE_LEASE_TTL_MS }); if (s.ok) { trip.slot = s.slot; trip.gen = s.gen } else if (['descend', 'deepen', 'work', 'build'].includes(trip.phase)) { trip.phase = 'return'; trip.returnWhy = 'lease_lost' } }
+  }
+  // townmine-01: the build lease is renewed the same way; a build trip that lost it stops building (built: home)
+  if (trip.buildGen != null) {
+    const bg = projRenewLease(dir, projKeyOf(DEEP_MINE_BUILD_PLOT), `slot${trip.buildSlot}`, me, trip.buildGen, { ttl: DEEPMINE_LEASE_TTL_MS })
+    if (bg != null) trip.buildGen = bg; else trip.built = true
   }
   const st = deepStairNow()
   const rec = st.rec
@@ -25846,17 +25882,23 @@ async function deepMine (ctx, args, signal) {
       const onUp = () => sub.abort()
       signal?.addEventListener?.('abort', onUp, { once: true })
       const cut = setTimeout(() => sub.abort(), Math.max(5_000, deadline - Date.now()))
-      try { r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: DEEP_DEEP_FEET }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed', detail: e?.aborted ? 'this call\'s time' : String(e?.message ?? e).slice(0, 80) } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
+      // OBSIDIAN-01 (Paper 11-07: the deepen stopped at -50 -- DEEP_OK -- and the cast's own deepen then failed in place): a trip with
+      // the cast deepens on its own staircase to the cast level (mine stops at goal + 1: asked -54, feet -53)
+      const goalY = trip.obs && !trip.obs.off && !trip.obs.done ? OBS_FEET - 1 : DEEP_DEEP_FEET
+      try { r = await mineGuarded({ ...ctx, deepCredit: DEEP_IRON_FEET }, { y: goalY }, sub.signal) } catch (e) { if (signal?.aborted) throw e; r = { status: e?.aborted ? 'cut' : 'failed', detail: e?.aborted ? 'this call\'s time' : String(e?.message ?? e).slice(0, 80) } } finally { clearTimeout(cut); signal?.removeEventListener?.('abort', onUp) }
       const y1 = Math.floor(bot.entity.position.y)
       trip.deepenTries = (trip.deepenTries ?? 0) + 1
       const stalled = y1 >= y0 - 1
       trip.deepenStalls = stalled ? (trip.deepenStalls ?? 0) + 1 : 0
-      if (y1 <= DEEP_OK_Y || trip.deepenStalls >= 3 || trip.deepenTries >= 6) { trip.phase = 'work'; trip.arrivedAt = Date.now() }
+      const okY = goalY === DEEP_DEEP_FEET ? DEEP_OK_Y : OBS_FEET
+      if (y1 <= okY || trip.deepenStalls >= 3 || trip.deepenTries >= 6) { trip.phase = 'work'; trip.arrivedAt = Date.now() }
       deepRow(bot, 'deepen', { why: `${r?.status ?? '-'}:${String(r?.detail ?? '').slice(0, 60).replace(/\s+/g, '_')}`, n: `${y0}->${y1}` })
       return out(y1 < y0 ? 'success' : 'no_effect', `deepened from y=${y0} to y=${y1}`)
     }
     // ---- work: the ore in reach (gather's tunnel), else a branch ------------------------------------------------------------------
     if (trip.phase === 'work') {
+      // OBSIDIAN-01: the cast first while it runs (null: not running, or it just stopped -- the ore and the branches as before)
+      if (trip.obs && !trip.obs.done && !trip.obs.off) { const r = await deepObsStep(ctx, trip, signal, deadline); if (r) return r }
       const y = Math.floor(bot.entity.position.y)
       const kinds = deepWorkKinds(trip, y)
       const before = deepOre(bot)
@@ -34199,14 +34241,6 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
     }
     const said = /\(([^)]*)\)$/.exec(roof?.why ?? '')?.[1] ?? null   // protected | the monument's | the build records are unread
     roofWhy = top.why; roofBuilt = roof?.built != null ? `${roof.built}${said && said !== 'built' ? `, ${said}` : ''}` : null
-  }
-
-  // SHAFT-02: UP THE TOWN STAIR FIRST, before the already-surfaced return (design r2, both engines): a ROOFED bot below the stair's
-  // ground near it walks up it when the walk plan reaches the collar; anything else is today's climb. Not for an internal caller
-  // naming its own top (mine's town walk-out).
-  if (!Number.isFinite(args?._toY)) {
-    const up = await stairAscend(ctx, signal)
-    if (up?.ok) return { status: 'success', detail: up.detail, via: 'town_stair' }
   }
 
   // Already up here. Report it as a refusal, not a success: a call that cannot

@@ -358,12 +358,12 @@ export const zoneAtPos = (zones, p) => (p ? zoneAt(zones, p.x, p.y, p.z) : null)
  * cave pocket under a village digs its way out sideways; a bot outside can never tunnel in, and the village (at or above
  * floor_y) is closed to everyone. `feet` null: no exemption.
  */
-export function blocked (zones, x, y, z, feet = null, deep = null) {
+export function blocked (zones, x, y, z, feet = null, deep = null, base = false) {
   if (!zones || !zones.length) return null
   const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
   if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(cz)) return null
   // EVERY ZONE HOLDING THE CELL (Codex r3 P2): one zone's deep exemption never opens a cell another zone closes
-  for (let i = 0; i < zones.length; i++) if (blockedIn(zones[i], cx, cy, cz, feet, deep)) return zones[i]
+  for (let i = 0; i < zones.length; i++) if (blockedIn(zones[i], cx, cy, cz, feet, deep, base)) return zones[i]
   return null
 }
 
@@ -374,8 +374,12 @@ export function blocked (zones, x, y, z, feet = null, deep = null) {
  * OR deep; the bot is when its feet are below floor_y OR deep. showcase-Gale, 11-05/06: 22 h at y 58 inside the taiga
  * village's column, 4 above floor_y 54 but at the bottom of a shaft capped by stone -- under the hill, nowhere near a village
  * block -- and every transit place and the pickaxe's table refused. Without `deep`, exactly the floor_y rule.
+ * ZONEGUARD-01SHOW: a cell the tripwire's baseline guards (any flag: a planner that asks blocked() does not say whether it
+ * digs or places) is closed BEFORE the deep exemption, to every bot. `base` true: the rule above only (the chokepoint's
+ * decision and placeBlocked ask structAt themselves, with the op's mask).
  */
-export function blockedIn (q, cx, cy, cz, feet = null, deep = null) {
+export function blockedIn (q, cx, cy, cz, feet = null, deep = null, base = false) {
+  if (!base && q.guard && structFlagsIn(q.guard, cx, cy, cz)) return true
   if (!(cx >= q.x0 && cx <= q.x1 && cy >= q.y0 && cy <= q.y1 && cz >= q.z0 && cz <= q.z1)) return false
   if (q.floorY == null || !feet) return true
   if (cy >= q.floorY && !(deep && deep(cx, cy, cz))) return true
@@ -423,10 +427,10 @@ export function placeBlocked (zones, x, y, z, feet = null) {
   // ZONEGUARD-01SHOW: the destination may not be a baseline cell or the cover of a path, the cell above it not a baseline cell
   // (the guard's own three cells); the references keep the old rule (placing AGAINST a structure block changes nothing)
   return structAt(zones, x, y, z, PLACE_MASK) || structAt(zones, x, y + 1, z, S_CELL) ||
-         blocked(zones, x, y, z, feet, true) || blocked(zones, x, y + 1, z, feet, true) || blocked(zones, x, y - 1, z, feet, true) ||
-         blocked(zones, x + 1, y, z, feet, true) || blocked(zones, x - 1, y, z, feet, true) || blocked(zones, x, y, z + 1, feet, true) || blocked(zones, x, y, z - 1, feet, true) ||
+         blocked(zones, x, y, z, feet, null, true) || blocked(zones, x, y + 1, z, feet, null, true) || blocked(zones, x, y - 1, z, feet, null, true) ||
+         blocked(zones, x + 1, y, z, feet, null, true) || blocked(zones, x - 1, y, z, feet, null, true) || blocked(zones, x, y, z + 1, feet, null, true) || blocked(zones, x, y, z - 1, feet, null, true) ||
          // the forward bridge places against the bot's floor, DIAGONAL-below the priced cell (Claude r4 P3)
-         blocked(zones, x + 1, y - 1, z, feet, true) || blocked(zones, x - 1, y - 1, z, feet, true) || blocked(zones, x, y - 1, z + 1, feet, true) || blocked(zones, x, y - 1, z - 1, feet, true)
+         blocked(zones, x + 1, y - 1, z, feet, null, true) || blocked(zones, x - 1, y - 1, z, feet, null, true) || blocked(zones, x, y - 1, z + 1, feet, null, true) || blocked(zones, x, y - 1, z - 1, feet, null, true)
 }
 
 /** Is the bot's column (any y) inside this zone's footprint, grown by `margin`? Pure. */
@@ -535,8 +539,18 @@ export const SURVIVAL_OPS = new Set(['dig', 'place', 'use'])
  * THE GUARD'S ONE DECISION -> null (allowed) | { zone }. Pure. `op` in dig | place | use | open | sleep | craft; `cell` the
  * block's cell; `purpose` digPurpose's answer for this call.
  */
-export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, deep = null }) {
-  const z = cell ? blocked(zones, cell.x, cell.y, cell.z, feet, deep) : null
+export function zoneDecision ({ zones, op, cell, purpose = null, feet = null, deep = null, role = null, name = null, nameRule = true }) {
+  if (!cell) return null
+  // ZONEGUARD-01SHOW 1: THE TRIPWIRE'S CELLS, before the deep exemption and before the survival pass -- never changed by a bot
+  const mask = structMask(op, role)
+  const s = mask ? structAt(zones, cell.x, cell.y, cell.z, mask) : null
+  if (s) return { zone: s, struct: true }
+  // 2: no baseline for the zone: a deep structure block by name, for a non-survival dig (survival has escapeguard's own rule)
+  if (op === 'dig' && purpose !== 'survival') {
+    const d = deepNameBlocked(zones, cell.x, cell.y, cell.z, name, feet, { on: nameRule })
+    if (d) return { zone: d, struct: true }
+  }
+  const z = blocked(zones, cell.x, cell.y, cell.z, feet, deep, true)
   if (!z) return null
   if (purpose === 'survival' && SURVIVAL_OPS.has(op)) return null
   return { zone: z }
@@ -565,7 +579,7 @@ export function zoneCost (zones, { feet = () => null, grow = 0, nameRule = zoneG
     // where the zone has no baseline, else the old rule
     const f = feet()
     return (structAt(list, p.x, p.y, p.z, DIG_MASK) || deepNameBlocked(list, p.x, p.y, p.z, block?.name, f, { on: nameRule }) ||
-            blocked(list, p.x, p.y, p.z, f, true)) ? ZONE_COST : 0
+            blocked(list, p.x, p.y, p.z, f, null, true)) ? ZONE_COST : 0
   }
 }
 
@@ -757,15 +771,22 @@ export function attachProtectZone (bot, { zones, context = () => ({}), onRefuse 
     memo.set(k, { v, t: now })
     return v
   } : null
-  /** -> a rejected promise, or null to proceed. */
+  /** -> a rejected promise, or null to proceed. `cell.role` (a placement's ref | dest | above) and `cell.name` (a dig's block). */
   const gate = (op, cell) => {
     const list = zones()
     if (!list || !list.length || !cell) return null
+    // THE CHEAP PRE-CHECK: the fleet's rule with the live terrain depth; on a zone with a baseline (zoneguard-01show) blocked()
+    // also answers for ANY guarded cell, so this is never narrower than the decision below -- which alone decides, per op
     const z = blocked(list, cell.x, cell.y, cell.z, bot.entity?.position ?? null, deepAt)
-    if (!z) return null
+    const feet = bot.entity?.position ?? null
+    // ZONEGUARD-01SHOW: ... or a deep structure block by name, where the zone has no baseline
+    if (!z && !(op === 'dig' && deepNameBlocked(list, cell.x, cell.y, cell.z, cell.name, feet, { on: guardOn }))) return null
     const purpose = SURVIVAL_OPS.has(op) ? purposeOf().purpose : null
-    if (!zoneDecision({ zones: list, op, cell, purpose, feet: bot.entity?.position ?? null, deep: deepAt })) { noteProtectZone(bot, 'survival_allowed'); return null }
-    return refuse(op, z, cell)
+    const d = zoneDecision({ zones: list, op, cell, purpose, feet, deep: deepAt, role: cell.role ?? null, name: cell.name ?? null, nameRule: guardOn })
+    // not a survival pass when the pre-check alone was wider than the decision (a guarded cell this op may touch)
+    if (!d) { if (purpose === 'survival') noteProtectZone(bot, 'survival_allowed'); return null }
+    if (d.struct) noteProtectZone(bot, 'struct_refused')
+    return refuse(op, d.zone, cell, !!d.struct)
   }
   // THE INNER USE OF AN APPROVED CALL (Codex r1 P2): openBlock, craft and sleep reach bot.activateBlock themselves, UNAWAITED.
   // The outer call was judged; its own activation of the SAME cell passes while it runs, so a zone file re-read between the
