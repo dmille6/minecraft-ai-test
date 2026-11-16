@@ -406,7 +406,7 @@ const W = [
   /if \(isSinkPlot\(proj\.plot\)\) return buildSink\(ctx, args, signal, proj\)/,
   /if \(h\.ok && h\.head\?\.rec\?\.structure_complete && isSinkPlot\(h\.head\.rec\.plot\) && sinkNextNow\(h\.head\.rec\.plot\)\) return \{ \.\.\.h, head: null \}/,
   /: isSinkBlueprint\(r\.blueprint\) \? \{ palette: r\.palette \?\? \{\} \} : blueprintOf\(r\.blueprint \?\? SHOP_BLUEPRINT\)/,
-  /const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK, service: svc\?\.plot \?\? null, sinkTurn \}\)/,   // sinkturn-01: + the sink turn
+  /let pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK, service: svc\?\.plot \?\? null, sinkTurn \}\)/,   // sinkturn-01: + the sink turn
   /\.\.\.sinkVisitOpts\(rec, home\), \.\.\.leave \}, effects/,
   /const others = guardRecords\(projectHeads\(\)\.map\(x => x\.head\.rec\)\.filter\(Boolean\), kind\)/,
   // siteprep-01: a pinned claim's own request id is the one zone its guard ignores (`prepExcept`)

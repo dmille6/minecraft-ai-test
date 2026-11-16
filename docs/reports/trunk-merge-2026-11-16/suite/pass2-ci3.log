@@ -1,0 +1,1630 @@
+running 600 files 10 at a time, then 1 serial
+ok   air-model.test.mjs                               65ms  [1/601]
+ok   air-trace.test.mjs                               68ms  [2/601]
+ok   abhash.test.mjs                                 117ms  [3/601]
+ok   assign.test.mjs                                 201ms  [4/601]
+ok   air-release.test.mjs                            539ms  [5/601]
+ok   any-log-milestone.test.mjs                      560ms  [6/601]
+ok   action-key.test.mjs                             601ms  [7/601]
+ok   bagdiet.test.mjs                                360ms  [8/601]
+ok   args-sayable.test.mjs                           571ms  [9/601]
+ok   affordance-contract.test.mjs                    653ms  [10/601]
+ok   board.test.mjs                                   44ms  [11/601]
+ok   board-visit.test.mjs                            121ms  [12/601]
+ok   atlas.test.mjs                                  689ms  [13/601]
+ok   bagroom.test.mjs                                248ms  [14/601]
+ok   bagfull.test.mjs                                313ms  [15/601]
+ok   breach-head-wall.test.mjs                        96ms  [16/601]
+ok   block-name-resolver.test.mjs                    357ms  [17/601]
+ok   bamboowalk.test.mjs                             433ms  [18/601]
+ok   bridgepost.test.mjs                             309ms  [19/601]
+ok   arbiter.test.mjs                               1312ms  [20/601]
+ok   bucket-admission.test.mjs                        68ms  [21/601]
+ok   bucket-pour.test.mjs                             49ms  [22/601]
+ok   bucket-aim.test.mjs                             111ms  [23/601]
+ok   bootstrap-table.test.mjs                        653ms  [24/601]
+ok   body-claim.test.mjs                             731ms  [25/601]
+ok   bucket.test.mjs                                  78ms  [26/601]
+ok   break-veto.test.mjs                             656ms  [27/601]
+ok   buildcorner.test.mjs                            362ms  [28/601]
+ok   brainwatch.test.mjs                            1040ms  [29/601]
+FAIL buildnext.test.mjs                              659ms  [30/601]
+ok   buildproj.test.mjs                              693ms  [31/601]
+ok   access.test.mjs                                4402ms  [32/601]
+ok   boardwalk3.test.mjs                           10184ms  [33/601]
+FAIL buildretry.test.mjs                           15067ms  [34/601]
+ok   bridges-design.test.mjs                       40962ms  [35/601]
+ok   airpocket.test.mjs                            63130ms  [36/601]
+ok   buildrun-closer.test.mjs                      61842ms  [37/601]
+ok   buildwait.test.mjs                             9672ms  [38/601]
+ok   canefarm.test.mjs                              5285ms  [39/601]
+ok   canopy-drop.test.mjs                            566ms  [40/601]
+ok   cavefall.test.mjs                              4930ms  [41/601]
+ok   ceilescape.test.mjs                            1603ms  [42/601]
+ok   chatgate.test.mjs                               461ms  [43/601]
+ok   chatonly.test.mjs                               498ms  [44/601]
+ok   buildrun-replant-mutants.test.mjs             97650ms  [45/601]
+ok   chest-lid.test.mjs                              579ms  [46/601]
+ok   chestcarry.test.mjs                             859ms  [47/601]
+ok   chestreach.test.mjs                             707ms  [48/601]
+ok   chunk-evictor.test.mjs                          231ms  [49/601]
+ok   chest-full.test.mjs                           19273ms  [50/601]
+ok   buildrun-stuck.test.mjs                      109773ms  [51/601]
+ok   buildrun-replant.test.mjs                    139417ms  [52/601]
+ok   buildsite.test.mjs                            83481ms  [53/601]
+ok   clean-args.test.mjs                             172ms  [54/601]
+ok   cleanzone.test.mjs                              832ms  [55/601]
+ok   civic.test.mjs                                42775ms  [56/601]
+ok   civicvisit.test.mjs                           40139ms  [57/601]
+ok   climb-escape.test.mjs                          8439ms  [58/601]
+ok   claim.test.mjs                                24389ms  [59/601]
+ok   climb-need.test.mjs                             483ms  [60/601]
+ok   coalrun-mine.test.mjs                           578ms  [61/601]
+ok   coalrun.test.mjs                                249ms  [62/601]
+ok   coalsite.test.mjs                               524ms  [63/601]
+ok   buildrun-stuck3.test.mjs                     160893ms  [64/601]
+ok   cobblekeep.test.mjs                            1727ms  [65/601]
+ok   cobble-rule.test.mjs                          12023ms  [66/601]
+ok   cobbleroom.test.mjs                             834ms  [67/601]
+ok   collect-verified.test.mjs                       208ms  [68/601]
+ok   comet-flooded-slot.test.mjs                     132ms  [69/601]
+ok   climb-flood-mutants.test.mjs                  30944ms  [70/601]
+ok   cooldown-cap.test.mjs                           643ms  [71/601]
+ok   climb-flood-chain.test.mjs                    38577ms  [72/601]
+ok   copperrun.test.mjs                              212ms  [73/601]
+ok   copperrun02-fleet.test.mjs                      285ms  [74/601]
+ok   cornerwalk.test.mjs                             364ms  [75/601]
+FAIL buildrun-r2b.test.mjs                        188744ms  [76/601]
+ok   buildrun-r2.test.mjs                         190488ms  [77/601]
+ok   country-order.test.mjs                          672ms  [78/601]
+ok   cottagepost.test.mjs                           2932ms  [79/601]
+ok   country.test.mjs                               1835ms  [80/601]
+ok   craft-advice-reach.test.mjs                     840ms  [81/601]
+ok   buildrun-stuck2.test.mjs                     186521ms  [82/601]
+ok   coverdig.test.mjs                              3919ms  [83/601]
+ok   craft-own-table.test.mjs                        123ms  [84/601]
+ok   craft-tree.test.mjs                             463ms  [85/601]
+ok   craftable-alternative.test.mjs                  499ms  [86/601]
+ok   craftable-now.test.mjs                          519ms  [87/601]
+ok   composter.test.mjs                            19082ms  [88/601]
+ok   copperhall.test.mjs                           15752ms  [89/601]
+ok   climb-flood.test.mjs                          52514ms  [90/601]
+ok   craftsync-recount.test.mjs                      859ms  [91/601]
+FAIL craft-room.test.mjs                           16230ms  [92/601]
+ok   craftroom-craftsync.test.mjs                  22584ms  [93/601]
+ok   craftsync-mutants.test.mjs                    19971ms  [94/601]
+ok   cutterfold.test.mjs                              88ms  [95/601]
+ok   cwstall.test.mjs                               4089ms  [96/601]
+ok   craftsync-window-bind.test.mjs                16450ms  [97/601]
+ok   deathsites-wired.test.mjs                        48ms  [98/601]
+ok   deathsites.test.mjs                              45ms  [99/601]
+ok   danger-owns-the-body.test.mjs                   508ms  [100/601]
+ok   decorholdfold.test.mjs                          135ms  [101/601]
+ok   deepmine.test.mjs                              1121ms  [102/601]
+ok   dep-contract.test.mjs                           326ms  [103/601]
+ok   deposit-demand.test.mjs                         524ms  [104/601]
+ok   deposit-item-arg.test.mjs                       423ms  [105/601]
+ok   deposit-noop.test.mjs                           102ms  [106/601]
+ok   deposit-palette-block.test.mjs                  484ms  [107/601]
+ok   deposit-plan.test.mjs                            93ms  [108/601]
+ok   composter-craftsync.test.mjs                  49513ms  [109/601]
+ok   deposit-town.test.mjs                           444ms  [110/601]
+ok   deposit-truth.test.mjs                          465ms  [111/601]
+ok   descent-blockers.test.mjs                       448ms  [112/601]
+ok   descent-escape.test.mjs                         466ms  [113/601]
+ok   decorator.test.mjs                             8506ms  [114/601]
+ok   dig-approach.test.mjs                          2676ms  [115/601]
+ok   depositoffer.test.mjs                          9850ms  [116/601]
+ok   dig-collision.test.mjs                           76ms  [117/601]
+ok   dig-approach-watchdog.test.mjs                 8956ms  [118/601]
+ok   dig-hand.test.mjs                                83ms  [119/601]
+ok   dig-split.test.mjs                               79ms  [120/601]
+ok   digtown.test.mjs                                153ms  [121/601]
+ok   dig-env.test.mjs                                340ms  [122/601]
+ok   dirtrung.test.mjs                               524ms  [123/601]
+ok   drainpick.test.mjs                              563ms  [124/601]
+ok   drops.test.mjs                                  200ms  [125/601]
+ok   dig-budget.test.mjs                           11727ms  [126/601]
+ok   craftsync-grid.test.mjs                       49959ms  [127/601]
+ok   drown-suppress.test.mjs                         542ms  [128/601]
+ok   drowning-cave.test.mjs                          471ms  [129/601]
+ok   drowning-floor.test.mjs                         482ms  [130/601]
+ok   drowning-yield.test.mjs                         521ms  [131/601]
+ok   drowning.test.mjs                               496ms  [132/601]
+ok   drown-route-truth.test.mjs                    11813ms  [133/601]
+ok   craft-from-logs.test.mjs                      58422ms  [134/601]
+ok   endpoint-pool.test.mjs                           99ms  [135/601]
+ok   craftsync.test.mjs                            55300ms  [136/601]
+ok   enchant.test.mjs                              21556ms  [137/601]
+ok   entrypoint-calls-exist.test.mjs                  51ms  [138/601]
+ok   escape-reserve.test.mjs                         468ms  [139/601]
+ok   entombed-escape.test.mjs                      35835ms  [140/601]
+ok   escape-total.test.mjs                          1034ms  [141/601]
+ok   escape-water-maroon.test.mjs                    521ms  [142/601]
+ok   escape-stair.test.mjs                         22693ms  [143/601]
+ok   escdead.test.mjs                                827ms  [144/601]
+ok   escpocket.test.mjs                            13532ms  [145/601]
+ok   evidence-gate.test.mjs                          759ms  [146/601]
+ok   exit-contract.test.mjs                           45ms  [147/601]
+ok   entombed-gravel.test.mjs                      42298ms  [148/601]
+ok   dropdig.test.mjs                              70863ms  [149/601]
+ok   expedition.test.mjs                             354ms  [150/601]
+ok   expwater.test.mjs                               179ms  [151/601]
+ok   failclass.test.mjs                               43ms  [152/601]
+ok   failclass2.test.mjs                              44ms  [153/601]
+ok   explore-known.test.mjs                          546ms  [154/601]
+ok   fall-settle.test.mjs                            102ms  [155/601]
+ok   fallpath-wired.test.mjs                          45ms  [156/601]
+ok   fallpath.test.mjs                                48ms  [157/601]
+ok   features-wired.test.mjs                         502ms  [158/601]
+ok   exit-remedy.test.mjs                           3928ms  [159/601]
+ok   failmine.test.mjs                              8107ms  [160/601]
+ok   buildrun.test.mjs                            290208ms  [161/601]
+ok   fellcanopy.test.mjs                           15218ms  [162/601]
+ok   cropfarm.test.mjs                            117901ms  [163/601]
+ok   felldone.test.mjs                              7620ms  [164/601]
+ok   fell-live.test.mjs                            33994ms  [165/601]
+ok   fewerdec.test.mjs                             11833ms  [166/601]
+ok   enchantshop.test.mjs                         100131ms  [167/601]
+ok   fillcolumn-inputs.test.mjs                    16784ms  [168/601]
+ok   float-up.test.mjs                               108ms  [169/601]
+ok   floodpocket.test.mjs                             76ms  [170/601]
+ok   fleetpaths.test.mjs                            4786ms  [171/601]
+ok   flowledger.test.mjs                             493ms  [172/601]
+ok   effectwatch.test.mjs                         109147ms  [173/601]
+ok   foodskip-order.test.mjs                        1129ms  [174/601]
+ok   flowers.test.mjs                               3710ms  [175/601]
+ok   fillshare.test.mjs                             9736ms  [176/601]
+ok   found-compose.test.mjs                         2017ms  [177/601]
+ok   fuel-affordable.test.mjs                         82ms  [178/601]
+ok   furnaceseen.test.mjs                           1204ms  [179/601]
+ok   gate-deadlock.test.mjs                          474ms  [180/601]
+ok   gate.test.mjs                                   512ms  [181/601]
+ok   gather-bounded.test.mjs                          65ms  [182/601]
+ok   foodskip.test.mjs                              9101ms  [183/601]
+ok   found.test.mjs                                 7670ms  [184/601]
+ok   fillcolumn.test.mjs                           24097ms  [185/601]
+ok   generation-cap.test.mjs                          97ms  [186/601]
+ok   gkaccessfold.test.mjs                           141ms  [187/601]
+ok   gkclear.test.mjs                                218ms  [188/601]
+ok   gkcrew4.test.mjs                                156ms  [189/601]
+ok   gkcrewcut.test.mjs                              149ms  [190/601]
+ok   gathermem.test.mjs                             3804ms  [191/601]
+FAIL gkforever.test.mjs                             3024ms  [192/601]
+ok   gather-reach.test.mjs                         10029ms  [193/601]
+ok   gklease.test.mjs                                286ms  [194/601]
+ok   gklease2.test.mjs                               205ms  [195/601]
+ok   gkleft.test.mjs                                 174ms  [196/601]
+ok   gkroom.test.mjs                                 217ms  [197/601]
+ok   gkstagefold.test.mjs                            157ms  [198/601]
+ok   gkstay.test.mjs                                 175ms  [199/601]
+ok   gksweep.test.mjs                                993ms  [200/601]
+ok   gkmarker.test.mjs                              2441ms  [201/601]
+ok   gkwork.test.mjs                                 247ms  [202/601]
+ok   glass-show.test.mjs                             180ms  [203/601]
+ok   glass.test.mjs                                  340ms  [204/601]
+ok   goto-dig-retry.test.mjs                         466ms  [205/601]
+ok   groundledger.test.mjs                           241ms  [206/601]
+ok   gatherzone.test.mjs                           10524ms  [207/601]
+ok   groundplan.test.mjs                             279ms  [208/601]
+ok   gkunblock.test.mjs                             6938ms  [209/601]
+ok   gkhelpers.test.mjs                            12649ms  [210/601]
+ok   hard-stop.test.mjs                             1078ms  [211/601]
+ok   harvest-underfoot.test.mjs                       74ms  [212/601]
+ok   handcap.test.mjs                               4710ms  [213/601]
+ok   hive-place-scope.test.mjs                      2977ms  [214/601]
+ok   hive-progress.test.mjs                          788ms  [215/601]
+ok   escapeguard.test.mjs                         102089ms  [216/601]
+ok   hole-walks-budget.test.mjs                      192ms  [217/601]
+ok   hole-walks.test.mjs                             238ms  [218/601]
+ok   home-rescue.test.mjs                            550ms  [219/601]
+FAIL hivedrop.test.mjs                              6748ms  [220/601]
+ok   homefix-declined.test.mjs                      6629ms  [221/601]
+ok   citywall.test.mjs                            312139ms  [222/601]
+ok   homefix-r2.test.mjs                           16551ms  [223/601]
+ok   hive-forgets.test.mjs                         32124ms  [224/601]
+ok   homefix2-relocate.test.mjs                      181ms  [225/601]
+ok   homefix2-c3.test.mjs                           4382ms  [226/601]
+ok   homefix2-chain.test.mjs                        8164ms  [227/601]
+ok   house-runtime.test.mjs                          483ms  [228/601]
+ok   forest.test.mjs                               70946ms  [229/601]
+ok   house.test.mjs                                 6691ms  [230/601]
+ok   idle-gap.test.mjs                               513ms  [231/601]
+FAIL idlework-sites.test.mjs                         235ms  [232/601]
+ok   idlework.test.mjs                               573ms  [233/601]
+FAIL idlework2.test.mjs                              527ms  [234/601]
+ok   cottage2.test.mjs                            245548ms  [235/601]
+ok   inflight.test.mjs                               188ms  [236/601]
+ok   indexsearch2.test.mjs                          1079ms  [237/601]
+ok   iron-rung.test.mjs                              462ms  [238/601]
+ok   inventory-summary.test.mjs                      496ms  [239/601]
+ok   iron-three.test.mjs                             481ms  [240/601]
+ok   ironchain.test.mjs                             1139ms  [241/601]
+ok   ironpick-homefix-compose.test.mjs              1507ms  [242/601]
+ok   ironsmelt-chain.test.mjs                       1353ms  [243/601]
+ok   ironpick.test.mjs                              2529ms  [244/601]
+ok   homefix.test.mjs                              36770ms  [245/601]
+ok   ironsmelt-off.test.mjs                          513ms  [246/601]
+FAIL groundskeeper.test.mjs                        59270ms  [247/601]
+ok   hygiene.test.mjs                               8833ms  [248/601]
+FAIL junkout.test.mjs                                384ms  [249/601]
+ok   ironsmelt.test.mjs                             1688ms  [250/601]
+ok   keepout-chatgate-compose.test.mjs               138ms  [251/601]
+ok   junkout-found-compose.test.mjs                 1777ms  [252/601]
+ok   keepout-ironpick-compose.test.mjs                96ms  [253/601]
+ok   keepout-homefix.test.mjs                        683ms  [254/601]
+ok   ironsmelt-furnace.test.mjs                     3122ms  [255/601]
+ok   jobshadow.test.mjs                             2588ms  [256/601]
+ok   keepout-townindex-compose.test.mjs              610ms  [257/601]
+ok   keepout-loop.test.mjs                          1390ms  [258/601]
+ok   kitmulti.test.mjs                               865ms  [259/601]
+ok   ladder-climb.test.mjs                            73ms  [260/601]
+ok   ladder.test.mjs                                  74ms  [261/601]
+ok   kitsearch.test.mjs                             2920ms  [262/601]
+ok   landmark.test.mjs                              2541ms  [263/601]
+ok   last-resort.test.mjs                            103ms  [264/601]
+ok   lava-guards-wired.test.mjs                      118ms  [265/601]
+ok   lavaguard.test.mjs                              107ms  [266/601]
+ok   lavatarget.test.mjs                             664ms  [267/601]
+ok   last-swing.test.mjs                             934ms  [268/601]
+ok   leaf-fallback.test.mjs                         1297ms  [269/601]
+ok   leaffell-res.test.mjs                          2792ms  [270/601]
+ok   learned-avoid-scope.test.mjs                   5228ms  [271/601]
+ok   grounds2.test.mjs                             76100ms  [272/601]
+ok   keepout-protectzone-compose.test.mjs          17148ms  [273/601]
+ok   keeperstall.test.mjs                          18441ms  [274/601]
+ok   levelfall.test.mjs                             5862ms  [275/601]
+ok   fellfirst.test.mjs                           129538ms  [276/601]
+ok   lidplace.test.mjs                              4749ms  [277/601]
+ok   ledger.test.mjs                               14744ms  [278/601]
+ok   livelock-fixation.test.mjs                      502ms  [279/601]
+ok   livelock-ladder.test.mjs                        532ms  [280/601]
+ok   livelock.test.mjs                               556ms  [281/601]
+ok   llm-admission-attribution.test.mjs              784ms  [282/601]
+ok   llm-endpoint-attribution.test.mjs               130ms  [283/601]
+ok   lidclear.test.mjs                             14760ms  [284/601]
+ok   keepout.test.mjs                              31828ms  [285/601]
+ok   logcap.test.mjs                                 390ms  [286/601]
+ok   llm-oai.test.mjs                                656ms  [287/601]
+ok   logcap2.test.mjs                                516ms  [288/601]
+ok   mapping-drift.test.mjs                           47ms  [289/601]
+ok   loggate.test.mjs                                751ms  [290/601]
+ok   market.test.mjs                                 799ms  [291/601]
+ok   leasegen.test.mjs                             20754ms  [292/601]
+ok   maroon-terminates.test.mjs                      492ms  [293/601]
+ok   lint-gate.test.mjs                            10592ms  [294/601]
+ok   mats-return.test.mjs                           1330ms  [295/601]
+ok   mats-chain.test.mjs                            1880ms  [296/601]
+ok   matset.test.mjs                                 251ms  [297/601]
+ok   mats.test.mjs                                   818ms  [298/601]
+ok   merchantscout.test.mjs                          109ms  [299/601]
+ok   fell.test.mjs                                162765ms  [300/601]
+ok   maroon-self-source.test.mjs                    3337ms  [301/601]
+ok   logsurface.test.mjs                            4093ms  [302/601]
+ok   milestones.test.mjs                             503ms  [303/601]
+ok   mine-preconditions.test.mjs                      48ms  [304/601]
+ok   mine-ascent.test.mjs                            702ms  [305/601]
+ok   mine-descent-range.test.mjs                     435ms  [306/601]
+ok   mine-step-retry.test.mjs                        126ms  [307/601]
+ok   mine-target.test.mjs                             76ms  [308/601]
+ok   mineorder.test.mjs                              222ms  [309/601]
+ok   memoryscope.test.mjs                           4026ms  [310/601]
+ok   model-identity.test.mjs                         113ms  [311/601]
+ok   minewell-home.test.mjs                         4156ms  [312/601]
+FAIL monustuck.test.mjs                             5831ms  [313/601]
+ok   nobridge.test.mjs                               361ms  [314/601]
+ok   nothing-important-is-orphaned.test.mjs          184ms  [315/601]
+ok   obsidian.test.mjs                               207ms  [316/601]
+ok   ordernowait.test.mjs                            174ms  [317/601]
+ok   litter.test.mjs                               20307ms  [318/601]
+ok   orderroom.test.mjs                             1389ms  [319/601]
+ok   no-tdz.test.mjs                               11149ms  [320/601]
+ok   outcome-not-intention.test.mjs                   90ms  [321/601]
+ok   oxygen-guard.test.mjs                           551ms  [322/601]
+ok   packet-witness.test.mjs                          84ms  [323/601]
+ok   path-failure-shape.test.mjs                     140ms  [324/601]
+ok   path-watchdog.test.mjs                           67ms  [325/601]
+ok   pathbackoff.test.mjs                            161ms  [326/601]
+ok   outbands.test.mjs                              5913ms  [327/601]
+ok   pathclass.test.mjs                              651ms  [328/601]
+ok   mine-bearing.test.mjs                         17852ms  [329/601]
+ok   paths-wiring.test.mjs                           726ms  [330/601]
+ok   pathhalt.test.mjs                              1785ms  [331/601]
+ok   oretunnel.test.mjs                             8308ms  [332/601]
+ok   pathsmem.test.mjs                               199ms  [333/601]
+ok   pause-recovery.test.mjs                        1065ms  [334/601]
+ok   peacefulkit-order.test.mjs                      902ms  [335/601]
+ok   paths.test.mjs                                 6976ms  [336/601]
+ok   peacefulkit.test.mjs                           3117ms  [337/601]
+ok   pens.test.mjs                                  2023ms  [338/601]
+ok   minewell.test.mjs                             31631ms  [339/601]
+ok   pickswings.test.mjs                             547ms  [340/601]
+ok   mine-staircase.test.mjs                       36765ms  [341/601]
+ok   pickup-sweep.test.mjs                          5143ms  [342/601]
+ok   pickuplog-review.test.mjs                      1778ms  [343/601]
+ok   pickuplog.test.mjs                              905ms  [344/601]
+ok   place-airborne.test.mjs                         510ms  [345/601]
+ok   place-perch.test.mjs                            484ms  [346/601]
+ok   place-readback.test.mjs                         577ms  [347/601]
+ok   placeable-into.test.mjs                         484ms  [348/601]
+ok   placeaudit.test.mjs                              68ms  [349/601]
+ok   paths-build.test.mjs                          25931ms  [350/601]
+ok   plank-affinity.test.mjs                         451ms  [351/601]
+FAIL plankeep.test.mjs                              2494ms  [352/601]
+ok   planstore.test.mjs                              364ms  [353/601]
+ok   plant-arm.test.mjs                              664ms  [354/601]
+ok   planting.test.mjs                               472ms  [355/601]
+ok   planahead.test.mjs                            11441ms  [356/601]
+ok   mats-session.test.mjs                         54943ms  [357/601]
+ok   pickcraft.test.mjs                            22433ms  [358/601]
+ok   plinth021.test.mjs                               96ms  [359/601]
+ok   plinth02.test.mjs                               739ms  [360/601]
+ok   plotledgerfold.test.mjs                          41ms  [361/601]
+ok   pathsclose.test.mjs                           36083ms  [362/601]
+ok   plinthfirst.test.mjs                           4356ms  [363/601]
+ok   pipeline.test.mjs                             19212ms  [364/601]
+ok   pocket-plan-for.test.mjs                        477ms  [365/601]
+ok   pocket-rung-slot.test.mjs                        54ms  [366/601]
+ok   pocket-side-exit-wired.test.mjs                  58ms  [367/601]
+ok   pool-model-pinning.test.mjs                      97ms  [368/601]
+ok   plugcut.test.mjs                               1693ms  [369/601]
+ok   prereq-preempts-milestone.test.mjs              483ms  [370/601]
+ok   prereq-usable.test.mjs                          533ms  [371/601]
+ok   plotprep.test.mjs                              8684ms  [372/601]
+ok   project-reserve.test.mjs                        499ms  [373/601]
+FAIL prodserve.test.mjs                             3198ms  [374/601]
+ok   plinth.test.mjs                               12811ms  [375/601]
+ok   projfix.test.mjs                               2631ms  [376/601]
+ok   prompt-usage-coverage.test.mjs                  497ms  [377/601]
+ok   promptcache.test.mjs                            575ms  [378/601]
+ok   promptfix.test.mjs                              120ms  [379/601]
+ok   promomerge.test.mjs                            1483ms  [380/601]
+ok   protectzone-homefix-compose.test.mjs             75ms  [381/601]
+ok   protectzone-townindex-compose.test.mjs         1024ms  [382/601]
+ok   protectzone-townsearch-compose.test.mjs        1210ms  [383/601]
+ok   poolescape.test.mjs                           18973ms  [384/601]
+ok   reach-probe-wiring.test.mjs                      78ms  [385/601]
+ok   reach-probe.test.mjs                             82ms  [386/601]
+ok   peacefulkit-smelt.test.mjs                    64560ms  [387/601]
+FAIL reccache.test.mjs                              8729ms  [388/601]
+ok   reflex-reaches-model.test.mjs                   609ms  [389/601]
+ok   rehearsalcard.test.mjs                         1275ms  [390/601]
+ok   regrade.test.mjs                               4660ms  [391/601]
+ok   requests.test.mjs                               888ms  [392/601]
+ok   protectzone.test.mjs                          25025ms  [393/601]
+ok   reroof3.test.mjs                               4142ms  [394/601]
+ok   repeatwork.test.mjs                           11910ms  [395/601]
+ok   rescue-learnability.test.mjs                    481ms  [396/601]
+ok   respawnfall-found-compose.test.mjs             1862ms  [397/601]
+ok   respawnfall-junkout-compose.test.mjs           1949ms  [398/601]
+ok   homeplots.test.mjs                           163949ms  [399/601]
+ok   plotprep03.test.mjs                           50359ms  [400/601]
+ok   ride-floor-gate.test.mjs                        126ms  [401/601]
+ok   leaffell.test.mjs                            139379ms  [402/601]
+ok   homesearch.test.mjs                          170407ms  [403/601]
+ok   roles.test.mjs                                 3000ms  [404/601]
+ok   roughfill.test.mjs                              203ms  [405/601]
+ok   reroof02.test.mjs                             21396ms  [406/601]
+ok   roughground.test.mjs                           5821ms  [407/601]
+ok   ride-floor-down.test.mjs                      14097ms  [408/601]
+ok   sandrung.test.mjs                               560ms  [409/601]
+ok   scaffold-species.test.mjs                        84ms  [410/601]
+ok   projturn.test.mjs                             56582ms  [411/601]
+ok   scaffold-wood.test.mjs                          163ms  [412/601]
+ok   routewatch.test.mjs                            8235ms  [413/601]
+ok   scan-order.test.mjs                             509ms  [414/601]
+ok   protected-paths.test.mjs                      56962ms  [415/601]
+ok   seapocket.test.mjs                              947ms  [416/601]
+ok   shaft-dig-budget.test.mjs                       559ms  [417/601]
+ok   shared-store.test.mjs                           454ms  [418/601]
+ok   scaffold-vocabulary.test.mjs                   7631ms  [419/601]
+FAIL shop.test.mjs                                  2296ms  [420/601]
+ok   shore-egress.test.mjs                           388ms  [421/601]
+ok   shore.test.mjs                                   66ms  [422/601]
+ok   shopchest.test.mjs                             3163ms  [423/601]
+ok   shoreline-log.test.mjs                         2173ms  [424/601]
+ok   showcase-on-fleet.test.mjs                      194ms  [425/601]
+ok   showchat.test.mjs                               540ms  [426/601]
+ok   roads.test.mjs                                25544ms  [427/601]
+ok   sinkfix.test.mjs                                170ms  [428/601]
+ok   sandbox-registry.test.mjs                     15131ms  [429/601]
+ok   sinkfix3.test.mjs                               202ms  [430/601]
+ok   sinkfix4.test.mjs                               190ms  [431/601]
+FAIL showdrop.test.mjs                              3367ms  [432/601]
+ok   sinkturn.test.mjs                               299ms  [433/601]
+ok   sinkfix2.test.mjs                              3562ms  [434/601]
+ok   sinkwaive.test.mjs                             3333ms  [435/601]
+ok   siteprep-overlap.test.mjs                       704ms  [436/601]
+ok   siteprep-sp1.test.mjs                           887ms  [437/601]
+ok   sitecanopy.test.mjs                            7896ms  [438/601]
+ok   siteprepcursor.test.mjs                         174ms  [439/601]
+ok   siteprepfold.test.mjs                           248ms  [440/601]
+ok   showcase-ops.test.mjs                         12991ms  [441/601]
+ok   smelt-own-furnace.test.mjs                      141ms  [442/601]
+ok   smelt-plan.test.mjs                              60ms  [443/601]
+ok   smelt-wiring.test.mjs                           583ms  [444/601]
+ok   smeltgate.test.mjs                               85ms  [445/601]
+ok   smeltjob-return.test.mjs                        497ms  [446/601]
+ok   sealedcore.test.mjs                           25010ms  [447/601]
+ok   smeltsearch.test.mjs                           1644ms  [448/601]
+ok   sortstore.test.mjs                              631ms  [449/601]
+ok   stair-claim.test.mjs                             92ms  [450/601]
+FAIL plinth-skill.test.mjs                        102938ms  [451/601]
+ok   stair-descent.test.mjs                         5991ms  [452/601]
+ok   stair-entry.test.mjs                            678ms  [453/601]
+ok   smelt-skill.test.mjs                          14815ms  [454/601]
+ok   smeltjob.test.mjs                             14230ms  [455/601]
+ok   stallcheck.test.mjs                             669ms  [456/601]
+ok   stair-egress.test.mjs                         11155ms  [457/601]
+ok   stair-handoff.test.mjs                         5920ms  [458/601]
+ok   standreplay.test.mjs                           4606ms  [459/601]
+ok   stations.test.mjs                              2186ms  [460/601]
+ok   step-down.test.mjs                              105ms  [461/601]
+ok   step-off-edges.test.mjs                         595ms  [462/601]
+ok   stationsback.test.mjs                          6916ms  [463/601]
+ok   station-room.test.mjs                          8619ms  [464/601]
+ok   stepwell03.test.mjs                             588ms  [465/601]
+ok   scaftown.test.mjs                             59374ms  [466/601]
+ok   stockpile-category.test.mjs                     580ms  [467/601]
+ok   stockpile-reachable.test.mjs                    529ms  [468/601]
+ok   stocktarget-journal.test.mjs                    362ms  [469/601]
+ok   stocktarget.test.mjs                            841ms  [470/601]
+ok   steprefusal.test.mjs                          18663ms  [471/601]
+ok   siteprep.test.mjs                             46235ms  [472/601]
+ok   stopwatch.test.mjs                             5129ms  [473/601]
+ok   storage-full.test.mjs                          3108ms  [474/601]
+ok   stoneworks.test.mjs                           11015ms  [475/601]
+ok   roofclimb.test.mjs                            84614ms  [476/601]
+ok   stranding.test.mjs                              289ms  [477/601]
+FAIL stuckcells.test.mjs                            7483ms  [478/601]
+FAIL stuckclose.test.mjs                            3204ms  [479/601]
+ok   respawnfall.test.mjs                         104427ms  [480/601]
+FAIL stuckfleet02.test.mjs                           132ms  [481/601]
+FAIL stuckfleet.test.mjs                            4541ms  [482/601]
+FAIL stuckfleet03.test.mjs                          4856ms  [483/601]
+ok   stuckwait.test.mjs                              792ms  [484/601]
+ok   submerged-break.test.mjs                         76ms  [485/601]
+ok   support-outvoted.test.mjs                        79ms  [486/601]
+ok   surface.test.mjs                                531ms  [487/601]
+FAIL stuckproj.test.mjs                             3537ms  [488/601]
+ok   stoneworks-session.test.mjs                   33733ms  [489/601]
+ok   survey.test.mjs                                 567ms  [490/601]
+ok   sustaining.test.mjs                             527ms  [491/601]
+ok   swimcentre.test.mjs                             552ms  [492/601]
+ok   table-access.test.mjs                           627ms  [493/601]
+ok   tech-ladder.test.mjs                            496ms  [494/601]
+ok   takeback.test.mjs                              3236ms  [495/601]
+ok   swimunder.test.mjs                             4222ms  [496/601]
+ok   test-result.test.mjs                            254ms  [497/601]
+ok   terrace.test.mjs                              15763ms  [498/601]
+ok   storehouse.test.mjs                           43400ms  [499/601]
+FAIL sinks.test.mjs                               106397ms  [500/601]
+ok   tidygrow.test.mjs                               254ms  [501/601]
+ok   stepwell05.test.mjs                           69324ms  [502/601]
+ok   tier1-repairs.test.mjs                          756ms  [503/601]
+ok   tombexit.test.mjs                               133ms  [504/601]
+ok   tool-equivalence.test.mjs                       537ms  [505/601]
+ok   tool-safe-window.test.mjs                       289ms  [506/601]
+ok   tool-safe.test.mjs                               68ms  [507/601]
+ok   tool-wear.test.mjs                               48ms  [508/601]
+ok   thprep.test.mjs                               23591ms  [509/601]
+ok   toolfor-wired.test.mjs                          140ms  [510/601]
+ok   toolfor.test.mjs                                 76ms  [511/601]
+ok   tidyrefresh.test.mjs                           4397ms  [512/601]
+ok   toolhygiene-mutants.test.mjs                    837ms  [513/601]
+FAIL tidydead.test.mjs                              7388ms  [514/601]
+ok   toolrank.test.mjs                               829ms  [515/601]
+ok   toolwatch.test.mjs                               69ms  [516/601]
+ok   toolhygiene.test.mjs                           3140ms  [517/601]
+ok   toolkit.test.mjs                               3144ms  [518/601]
+ok   toolfor-spent.test.mjs                         6310ms  [519/601]
+ok   town-stair-stuck.test.mjs                      1059ms  [520/601]
+ok   town-travel-routing.test.mjs                     69ms  [521/601]
+ok   town-stair.test.mjs                            1423ms  [522/601]
+ok   town-stair-wiring.test.mjs                     3461ms  [523/601]
+ok   towndress.test.mjs                             4443ms  [524/601]
+ok   stepwell.test.mjs                             89707ms  [525/601]
+ok   townindex.test.mjs                             9784ms  [526/601]
+ok   townplan-adopters.test.mjs                     4133ms  [527/601]
+ok   townplan-compose.test.mjs                      1312ms  [528/601]
+ok   townplan-storehouse-geometry.test.mjs           328ms  [529/601]
+ok   townplan.test.mjs                              7042ms  [530/601]
+ok   towndeposit.test.mjs                          30904ms  [531/601]
+ok   townsearch.test.mjs                            3395ms  [532/601]
+ok   tidy.test.mjs                                 46185ms  [533/601]
+ok   reroof4.test.mjs                             186431ms  [534/601]
+ok   townmine.test.mjs                             42988ms  [535/601]
+ok   townwork.test.mjs                               837ms  [536/601]
+ok   townstyle-reroof.test.mjs                     38123ms  [537/601]
+ok   townzone-minewell.test.mjs                    16484ms  [538/601]
+ok   tree-corpus.test.mjs                            559ms  [539/601]
+ok   townground.test.mjs                           70129ms  [540/601]
+ok   tunnel-escalation.test.mjs                       86ms  [541/601]
+ok   underground-hint.test.mjs                        63ms  [542/601]
+ok   unstick.test.mjs                                466ms  [543/601]
+ok   tempstand.test.mjs                           106212ms  [544/601]
+ok   value.test.mjs                                  450ms  [545/601]
+ok   veto-faces.test.mjs                             900ms  [546/601]
+ok   upkeep.test.mjs                                8152ms  [547/601]
+ok   viewer-port.test.mjs                             61ms  [548/601]
+ok   villagefeed.test.mjs                            664ms  [549/601]
+ok   villageunlock.test.mjs                          523ms  [550/601]
+ok   townstyle.test.mjs                            51701ms  [551/601]
+ok   wall-wiring.test.mjs                           1421ms  [552/601]
+ok   voidfill.test.mjs                              6713ms  [553/601]
+ok   wallaccessfold.test.mjs                         153ms  [554/601]
+ok   travel-budget.test.mjs                        21636ms  [555/601]
+ok   vetoremedy.test.mjs                           17322ms  [556/601]
+ok   watchdog-busy.test.mjs                          333ms  [557/601]
+ok   water-entry-cost.test.mjs                       169ms  [558/601]
+ok   water-gating.test.mjs                           532ms  [559/601]
+ok   water-is-terrain.test.mjs                       622ms  [560/601]
+ok   water-safety.test.mjs                           520ms  [561/601]
+ok   well-gridfix-compose.test.mjs                  2320ms  [562/601]
+ok   wallstuck.test.mjs                             7180ms  [563/601]
+ok   treefarm.test.mjs                             27305ms  [564/601]
+ok   wellsite.test.mjs                               678ms  [565/601]
+ok   wellstep.test.mjs                              4989ms  [566/601]
+ok   topdown.test.mjs                             109925ms  [567/601]
+ok   wellcare.test.mjs                             17442ms  [568/601]
+ok   wholemap.test.mjs                             15361ms  [569/601]
+ok   wood-funnel.test.mjs                           1223ms  [570/601]
+ok   withdraw-pick.test.mjs                         7182ms  [571/601]
+ok   workbench.test.mjs                              490ms  [572/601]
+ok   workorder.test.mjs                              491ms  [573/601]
+ok   worldfacts-death.test.mjs                       112ms  [574/601]
+ok   wrong-wood.test.mjs                             449ms  [575/601]
+ok   woodworks.test.mjs                             3414ms  [576/601]
+ok   townstyle-build.test.mjs                     114279ms  [577/601]
+ok   townstyle-slab.test.mjs                      123276ms  [578/601]
+ok   zigbamboo.test.mjs                             2898ms  [579/601]
+ok   wall.test.mjs                                 82226ms  [580/601]
+ok   withdraw-hold.test.mjs                        67750ms  [581/601]
+ok   ziggurat-project.test.mjs                      1620ms  [582/601]
+ok   standcache.test.mjs                          283575ms  [583/601]
+ok   yarduse.test.mjs                              59404ms  [584/601]
+FAIL well.test.mjs                                111768ms  [585/601]
+ok   ziggurat.test.mjs                              2924ms  [586/601]
+ok   yard.test.mjs                                 88175ms  [587/601]
+ok   zigsealed.test.mjs                             5002ms  [588/601]
+ok   zoneguard.test.mjs                              711ms  [589/601]
+ok   yardsite.test.mjs                             98576ms  [590/601]
+ok   zonewalk.test.mjs                               785ms  [591/601]
+ok   storehub.test.mjs                            319343ms  [592/601]
+ok   ziggurat-build.test.mjs                      121481ms  [593/601]
+ok   ziggurat-v2.test.mjs                         103689ms  [594/601]
+ok   ziggurat-build2.test.mjs                     148243ms  [595/601]
+ok   wallext.test.mjs                             235813ms  [596/601]
+ok   zigtidy2.test.mjs                            222025ms  [597/601]
+ok   ziggurat-v2-build.test.mjs                   298440ms  [598/601]
+ok   ziggurat-tidy.test.mjs                       316434ms  [599/601]
+ok   zonesite.test.mjs                            307831ms  [600/601]
+FAIL lavastep.test.mjs                             63225ms  [601/601]
+
+============================================================
+FAILING DETAIL
+============================================================
+
+--- buildnext.test.mjs (exit 1) ---
+  duration_ms: 1.306125
+  type: 'test'
+  ...
+# Subtest: MUTANTS KILLED (shop.mjs): the order's scoped hold dropped; the due-upkeep fallback dropped
+not ok 9 - MUTANTS KILLED (shop.mjs): the order's scoped hold dropped; the due-upkeep fallback dropped
+  ---
+  duration_ms: 1.515036
+  type: 'test'
+  location: '/home/mike/ci/trunk01-pass2/bots/test/buildnext.test.mjs:151:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    ANCHOR MISSING OR NOT UNIQUE:     if (hold) return { order: null, skip: hold }
+    
+    
+    1 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    withShopMutant (file:///home/mike/ci/trunk01-pass2/bots/test/buildnext.test.mjs:146:10)
+    TestContext.<anonymous> (file:///home/mike/ci/trunk01-pass2/bots/test/buildnext.test.mjs:152:9)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 4
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 111.767432
+
+--- buildretry.test.mjs (exit 1) ---
+  FAIL  three builders' failing visits sum: A twice and B once hold the cell for C, who never digs it
+        AssertionError [ERR_ASSERTION]: C never dug it
+        
+        8 !== 6
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:230:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:14:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:223:1
+  FAIL  r1 (Codex r1 BLOCK): A fails 3, B succeeds, A fails once more -> ONE visit counted, no hold (B's reset voids A's old failures)
+        AssertionError [ERR_ASSERTION]: one visit, not four
+        
+        undefined !== 1
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:241:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:14:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:232:1
+  FAIL  a visit that ABORTS after a failure still counts it (the ledger settles on every exit)
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        undefined !== 1
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:251:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:14:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:246:1
+  PASS  a held record cell stays OPEN: never counted done, the project never completes past it
+  FAIL  COMPOSED with tidydead-01 (the tidy's hardDefers) and its waiver: the hard cell deferred every visit, the waiver names it at WALL_WAIVE_AFTER
+        AssertionError [ERR_ASSERTION]: blocked,blocked,blocked,blocked,blocked
+            at file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:264:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:14:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:259:1
+  FAIL  the wiring: runVisit reads the ledger before the visit and settles it in a finally (structural)
+        AssertionError [ERR_ASSERTION]: ANCHOR MISSING OR NOT UNIQUE
+        
+        1 !== 2
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:270:10
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:14:45)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/buildretry.test.mjs:267:7
+
+9 passed, 11 failed
+
+--- buildrun-r2b.test.mjs (exit 1) ---
+FOREIGN BLOCKS IN THE VOLUME (Claude r1 P3-9)
+  PASS  AN UNKNOWN FOREIGN CELL (a dig never answered) is asked again by the next visit and built (Codex r2 P2)
+  PASS  MUTANT the unknown record cell never asked again
+  FAIL  a scaffold-class block (dirt) in a pad cell is dug under the segment's lease and the cell built; a CHEST there stalls the segment
+        AssertionError [ERR_ASSERTION]: "pad: 1 open, 0 placeable now"
+        + actual - expected
+        
+        + 'blocked'
+        - 'cell_deferred'
+THE BUILDER'S OWN BODY (Paper r2: a click refused mid-jump)
+  PASS  a click never goes into the builder's OWN body (it waits for the landing, then gives the cell up as a body)
+  PASS  MUTANT the own-body check dropped
+THE MUTEX AND A GONE HOLDER, THROUGH A VISIT (Codex r3 P1, Claude r3 P3-3)
+  PASS  a holder GONE after taking the mutex (its beat stopped, absent from the tab list 10 s since): B's visit takes it and builds
+  PASS  THE CODEX r4 SCENARIO: A's lock connection still BEATS -- B's tab list says absent for a minute, nothing is displaced
+  PASS  THE CODEX r3 SCENARIO: B noticed A offline BEFORE A reconnected and took the mutex -- the stale notice frees nothing
+THE SENDER FENCES ITSELF ON ITS OWN BEAT (Codex r5 P1)
+  PASS  a builder whose own beat is not published (20 s old) sends nothing (fence:beat); a fresh beat builds (control)
+  PASS  MUTANT the visit never asks for its beat
+THE READ'S EVIDENCE (read r1)
+  PASS  placedBy books every acknowledged placement by the HELD name (a torch that lands as a wall_torch is a torch); a caller's object is filled in place
+  PASS  a felled tree's clear row carries the replant cells reading a sapling at the felling (saplings=1/1)
+  PASS  a SILENT replant click is counted silent (the bag row then reads as not a clean exit; Claude read r3 P3-1)
+THE SLOT REFERENCE (Codex r1 P3)
+  PASS  slotRef follows every renewal of the admission slot (the caller releases the LATEST generation on any exit)
+
+13 passed, 1 failed
+
+--- craft-room.test.mjs (exit 1) ---
+[2026-11-16T21:54:28.056Z] WARN  skill craft -> failed detail=deposit coal -- it walks home to the town chest and frees slots; nothing else frees one from where you stand. No room for stone_pickaxe: the bag is 36/36 and the craft needs 1 more slot(s) — cobblestone 31 slots, apple 1, coal 1, oak_sapling 1, stick 1; no spent tool that can be spared (the last digging pickaxe is kept)
+        [B3] remedy "deposit coal -- it walks home to the tow..." at 0 now; at 213 in the old order
+  PASS  B3 (Codex): the remedy reaches the PROMPT -- every craft refusal leads with it, inside formatOutcome's 220 characters
+  PASS  B3: the pickup and walk-back refusals lead with their remedy too, and it survives formatOutcome
+  PASS  placeRefFor: the block under the cell -- unless a click opens it; then a side neighbour toward the cell; else nothing
+  FAIL  MUTANTS of the rebuild rule (craftroom.mjs): each loses exactly the guard it removes
+        Expected values to be strictly equal:
++ actual - expected
+
++ {
++   tool: {
++     count: 1,
++     durabilityUsed: 130,
++     maxDurability: 131,
++     name: 'stone_pickaxe',
++     stackSize: 1,
++     type: 882
++   },
++   why: 'replaced'
++ }
+- null
+
+  PASS  place: the only free cell stands on a crafting table -> the table goes down beside it, and the table below is never clicked
+  PASS  place, SOIL: a sapling is never put over a table by clicking the dirt beside it (the soil is the block UNDER it)
+  PASS  THE FAKE SERVER IS A REAL CONTROL: a placement that clicks a crafting table lands nothing
+  FAIL  FROST, COMPOSED: sealed, 36/36, three pickaxes at 1 use, the stock in the bag -> craft stone_pickaxe ENDS in a pickaxe that digs
+        the rebuild is named in its row
+  FAIL  FROST, THE REFUSAL CHAIN: a furnace is refused WITH the craft that runs from here, and that craft then succeeds
+        crafted 1x furnace (made room by wearing out a spent stone_pickaxe on stone)
++ actual - expected
+
++ undefined
+- 'inventory_full'
+
+  PASS  NOT FROST: the same sealed cell with ONE spent pickaxe -> nothing is worn out (the last swing is kept, as before)
+  PASS  REPLAY, the fixture is Frost's cell: feet and head are air, stone then gravel then water overhead, the old table one down and north
+  PASS  REPLAY, place: in Frost's real cell the carried table goes down, and the table below is never clicked
+        replay: crafted 1x stone_pickaxe (made room by wearing out a spent stone_pickaxe on stone; made room by wearing out a spent iron_pickaxe on stone (the copy this craft replaces)) (first made 4x stick) | digs [{"name":"stone","at":"1,64,0","with":"stone_pickaxe"},{"name":"stone","at":"0,64,1","with":"iron_pickaxe"}]
+  PASS  REPLAY, craft: from Frost's real cell and bag, `craft stone_pickaxe` ends in a pickaxe that digs, and no dig is beside water
+  107 passed, 5 failed
+
+--- gkforever.test.mjs (exit 1) ---
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:194:7
+  FAIL  a bot on a GROUNDS lap works the tidy first, a due stage reading open, as the keeper does
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        'shop' !== 'tidy'
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:202:10
+  FAIL  an UNSITED workshop never holds the grounds back with the crew (board-c); a missing one still does
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        false !== true
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:208:10
+  FAIL  MUTANT KILLED: the crew without its "as it is" branch reads full again
+        AssertionError [ERR_ASSERTION]: MUTATION DID NOT APPLY: "  if (crew) return { order: list, states: out }\n" is not in /home/mike/ci/trunk01-pass2/bots/src/groundskeeper.mjs
+            at withMutant (file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:28:10)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:214:9
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:17:15)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:213:7
+  PASS  the tidy's builders: the crew (GKF.crew) with it, the keeper alone without
+THE GROUNDS LAP (idlework.mjs) -- the refusal chain composed
+  PASS  the GK rotation alternates grounds with the gathers; no grounds means -> the next gather; the scout stays 1 in 8
+  PASS  a grounds batch is met by GKF.batchVisits visits that changed the ground, by GKF.batchMs, or by a no-work visit
+  PASS  COMPOSED: a grounds lap that finds no work ends, the next lap gathers (means false for GKF.barMs), then grounds again
+  PASS  MUTANT KILLED: a grounds lap that never ends on a no-work visit (it would hold the bot GKF.batchMs for nothing)
+  PASS  the visit counters: placed/cleared/cut is work; complete/slots_full/keeper_held is no work
+  FAIL  a bot on a grounds lap gets the tidy order back at the keeper's cooldown (shop.mjs orderCooldown)
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        600000 !== 120000
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:274:10
+WIRING (structural)
+  FAIL  buildTidy: the clock decides fresh, the stages reach GKF.radius with level + dead; the census; the counters; the means hook
+        AssertionError [ERR_ASSERTION]: fresh
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:282:10
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:17:15)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/gkforever.test.mjs:280:7
+
+16 passed, 14 failed
+
+--- groundskeeper.test.mjs (exit 1) ---
+  PASS  Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft); felled, none
+  PASS  NEVER WORSE: a stage whose road work would wall the town in is dropped (named); control: a road over a dip is kept
+  PASS  replant cells: in the tree-farm zone, on soil with room above, never in a corridor, one per felled trunk
+  PASS  a later stage tidies only its band: a pillar inside the town square is stage 0's, one in the band is the band's
+THE VISIT: buried fills take the cobble; cuts in walking order; a spent cell does not end the visit
+  PASS  coreFills: every fill under its column's top is `core` (cobblestone first); the top stays `earth` (dirt first)
+  PASS  chainCuts: column by column from the bot, top first in a column (control: tidy-01's order is highest first across town)
+  PASS  deferSpent: a cell whose attempts are spent is deferred and the visit goes on to the next pit (control: without it the visit ends)
+  PASS  MUTANT KILLED: with the deferSpent branches removed (gkunblock-01's wider one too), the same visit ends attempts_spent again
+  PASS  tidyKeepOrder: runVisit digs the tidy cuts in the caller's order (control: without it, highest first)
+THE KEEPER LEASE
+  PASS  keeperDecision: free + work -> take; mine -> mine; mine with no work -> release; my term over -> release; another's -> other
+  PASS  keeperOrderPure: the keeper works the grounds first, once the workshop stands; another bot sees them full (control: no workshop, no change)
+  PASS  termStart: a renewal carries the term on; a new holder starts one now
+  PASS  the switch: GROUNDSKEEPER=off is off; unset follows the tidy (the showcase on since its groundskeeper release)
+  PASS  the keeper's order comes back in GK.cooldownMs; anyone else's tidy order in SHOP_COOLDOWN_MS
+WIRING (structural)
+  FAIL  buildTidy passes the keeper knobs to runVisit and sites stages; shopActive orders by the keeper; projectHeads reserves the corridors
+        AssertionError [ERR_ASSERTION]: the keeper order (picker-01: the sinks sorted after it)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/groundskeeper.test.mjs:344:10
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/groundskeeper.test.mjs:16:15)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/groundskeeper.test.mjs:339:7
+  PASS  the wall opens a gateway where a land road crosses (wall.mjs); landReservation's zones say land:road
+  PASS  the land plan is no-op for the paths default: routeLeg with no `from` and no `h` keeps its answer (paths' own siting)
+THE SHOWCASE: an unsited copper hall's pad is reserved (11-03 offline: the ring road crossed it)
+  PASS  hallPadZone: the pad (hallAnchor + hallBox) + HALL_DOMAIN; no hall plot in SW -> null
+  PASS  the land plan routes round the reserved pad (control: unreserved, the ring road crosses it)
+  PASS  wiring: the land plan and the tidy reserve the pad while the hall is on and unsited; a sited hall's record guards it
+THE SHOWCASE: the expedition markers are reserved (Codex + Claude r1 BLOCKER: a marker is a pillar to the band survey)
+  PASS  a marker (2 cobblestone + a torch) in a band is never cut when its zone is in the avoid (control: unguarded, the survey cuts it)
+  PASS  wiring: the tidy, the land plan and the tidy visit's dig guard read the town's markers
+  PASS  gkstall-01: a fill no stand reaches is waived on its 2nd deferring visit (summed over builders), before the stuck back-off
+  PASS  gkstall-01: the waiver room scales with the stage (a tenth of its cells, never below the wall cap); the stop after a waiver
+  PASS  wiring (gkstall-01): the tidy visit waives with gkWaiveOpts, reports the mapped stop, and a stuck keeper lets the lease go
+  PASS  yardzone-01: a yard sited first pins its sector to `yard` (control: unsited, the seeded plan makes that sector the tree farm zone)
+  PASS  yardzone-01: a tree farm and a yard sited in ONE sector -- the tree farm keeps it, the yard is `fixed` there, neither seeded again
+  PASS  yardzone-01: sitedSectors reads a record's sector, else its box centre (zoneAt's compass), the tree farm first
+  PASS  wiring (yardzone-01): landInputs hands the sited sectors to planLand
+
+39 passed, 1 failed
+
+--- hivedrop.test.mjs (exit 1) ---
+HIVEDROP-01 (a): ONE WALK PLAN FOR A RUN OF STAND-LESS LEAVES, AND A YIELD AT EVERY LOOP HEAD
+  PASS  the switch: LOOPYIELD=off|0|false|no is the rollback; unset is on; BREATHE_MS is well under the 30 s keepalive
+        (crown visit: 33863 reads, 0 digs, longest gap 51 ms, stop cell_deferred, LOOPYIELD=off)
+        (crown visit: 33863 reads, 0 digs, longest gap 33 ms, stop cell_deferred, LOOPYIELD=on)
+  FAIL  the crown visit does THE SAME THING with the plan cached (same stop, same digs in the same order, same rows) for far fewer reads
+        AssertionError [ERR_ASSERTION]: the canopy pass never ran: _build:deferred::10,70,10,_build_seg:undefined::
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:84:12)
+            at async killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:19:3)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:91:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:16:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:79:1
+  FAIL  digs that LAND (the plan re-made after each): the same visit as the rollback, row for row
+        AssertionError [ERR_ASSERTION]: POSITIVE CONTROL: no dig landed, the scene shows nothing
+            at file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:99:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:16:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:93:1
+        (crown visit: 33863 reads, 0 digs, longest gap 35 ms, stop cell_deferred, LOOPYIELD=off)
+        (crown visit: 33863 reads, 0 digs, longest gap 33 ms, stop cell_deferred, LOOPYIELD=on)
+  FAIL  THE KEEPALIVE: the crown visit never holds the event loop past a few BREATHE_MS; the rollback holds it for the visit
+        AssertionError [ERR_ASSERTION]: the rollback's longest gap is only 35 ms: the scene is too light to show a stall
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:108:12)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:114:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:16:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:103:1
+        (segments visit: 590343 reads, longest gap 166 ms, stop cell_deferred, LOOPYIELD=off)
+        (segments visit: 590343 reads, longest gap 164 ms, stop cell_deferred, LOOPYIELD=on)
+  FAIL  a many-segment visit with no stand anywhere yields between segments too (the profile's second chain: visitInner -> nodesFor)
+        AssertionError [ERR_ASSERTION]: the rollback's longest gap is only 166 ms
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:142:12)
+            at async killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:19:3)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:146:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:16:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/hivedrop.test.mjs:116:1
+
+  1 passed, 4 failed
+
+--- idlework-sites.test.mjs (exit 1) ---
+PASS  unsitedBackoff: a fresh stamp on a project with NO record -> not free (unsited); a record, an old or a future stamp -> unchanged
+  PASS  board-a / placebo-d: the monument unsited -> the paths are worked (then the wall and the tidy behind them)
+  PASS  hive-c: house1 unsited (shop done, stair no_site/complete) -> the monument
+  PASS  board-c: the workshop unsited -> the stair (it needs no workshop)
+  FAIL  COMPOSED: everything open unsited -> activeProject still returns the first, and the ORDER holds on its stamp (no visit storm)
+        Expected values to be strictly deep-equal:
++ actual - expected
+
+  {
++   order: {
++     args: {},
++     skill: 'build_shop'
++   },
++   skip: null
+-   order: null,
+-   skip: 'no_site'
+  }
+
+  PASS  UNSITEDWAIT=0 is the rollback switch
+  PASS  the stamp file: write, read back, torn or absent reads null
+  FAIL  starve-01 x unsited: an unsited project is never offered first as starved; a starved one is never held as unsited; each rollback alone
+        both on: the starved wall first
+
+'monument' !== 'wall'
+
+  FAIL  WIRED: shopActive applies unsitedBackoff after the stuck back-off; build_shop stamps a no_site visit with no record
+        the backoff in shopActive: 0 matches
+
+0 !== 1
+
+  FAIL  MUTANT KILLED: the wiring check fails when the backoff is not applied
+        ANCHOR MISSING
+
+6 passed, 4 failed
+
+--- idlework2.test.mjs (exit 1) ---
+PASS  idleBagMeans: at <= 28 slots the means are unchanged; above, the bag kinds have none (grounds untouched); off: unchanged
+  PASS  a full bag never opens a bag batch: every rotation slot picks grounds (with work) or scout
+  PASS  idleBagFull: only a bag kind, only a fill THIS batch made, only at the stop
+  PASS  idleMet: the bag stop meets an unfinished batch; below the stop the batch still needs its n
+  PASS  at or below y=18 the iron and coal hints never ask for y=16, and every mine target they name passes mining.mjs mineTargetOk
+  PASS  above iron depth the hint is the batch's own (mine down to y=16 is a target the gate accepts there)
+  PASS  near bedrock the iron hint names surface, not an impossible mine
+  PASS  wellBandDue: 29-33 slots with a well-able stack; never below 29, never without a stack, 34+ stays the old rule, off: never
+  PASS  wellBandOn: default on; off in the showcase pool (stoneworks); IDLEWORK_WELL=0 off, =1 on anywhere
+  FAIL  wellOrder at town: a 30-slot bag with well-able stacks gets dispose_well (the whole plan: no visit args); 28 or off gets none; 34 as before
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        + actual - expected
+        
+  PASS  the band throws what the 34-slot order throws: cobble only at the proven cap, the bot keeps 64; the stone reserve stands
+failed to write event log: EACCES: permission denied, mkdir '/srv/minecraft/bots/logs'
+failed to write event log: EACCES: permission denied, mkdir '/srv/minecraft/bots/logs'
+failed to write event log: EACCES: permission denied, mkdir '/srv/minecraft/bots/logs'
+  PASS  THE BAG STOP, composed: a batch opened at 10 slots that fills the bag to 30 in the field is met -> return (the visit sheds it)
+failed to write event log: EACCES: permission denied, mkdir '/srv/minecraft/bots/logs'
+  PASS  ...and IDLEWORK_BAGSTOP=0 keeps the batch open on the full bag (idlework-01 exactly)
+failed to write event log: EACCES: permission denied, mkdir '/srv/minecraft/bots/logs'
+  PASS  NO SPIN: a lap that opens on a 30-slot bag asks a scout lap (no bag gain), which is not met at home -- the rung holds, it does not re-open each refresh
+failed to write event log: EACCES: permission denied, mkdir '/srv/minecraft/bots/logs'
+  PASS  THE HINT, composed: an iron batch at the stair landing (y=16) prompts a mine target the gate takes, not y=16
+  PASS  the iron ladder rung reads depth too (gather_iron_ore_3: hintFor below y=18, the static hint above)
+  FAIL  STRUCTURE: disposeWell computes band from the bag and both its entry plan and throwPhase take the whole plan in the band
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        1 !== 2
+  PASS  MUTANT KILLED: no bag stop in idleMet -> a batch on a 36-slot bag is never met
+  PASS  MUTANT KILLED: a bag batch opens on a full bag -> met at its first full read after a pickup (the spin the open rule prevents)
+  FAIL  MUTANT KILLED: the band left out of the dispose order -> a 30-slot bag at a full town leaves with its surplus
+        AssertionError [ERR_ASSERTION]: MUTATION DID NOT APPLY: "(slots >= TRIGGER_SLOTS || wellBandDue({ on: bandOn, slots, " -- ANCHOR MISSING
+            at withMutant (file:///home/mike/ci/trunk01-pass2/bots/test/idlework2.test.mjs:226:10)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/idlework2.test.mjs:248:9
+failed to write event log: EACCES: permission denied, mkdir '/srv/minecraft/bots/logs'
+  PASS  MUTANT KILLED: status() reads the static hint -> the model is told y=16 at y=16 again
+
+18 passed, 3 failed
+
+--- junkout.test.mjs (exit 1) ---
+PASS  switches: BAG_ALLOWANCE and JUNK_VISIT default on; off is off; anything else reads on and says so
+  PASS  latch: issue latches; 60 s OUTSIDE re-arms (armed=out:<first>-<last>); a shorter trip does not; the stay window re-arms (armed=stay)
+  PASS  latch: a DECLINED order un-latches and restores the reason that armed it (the read pairs runs, not declines)
+  PASS  MUTANT (bagallowance): the outside re-arm without its 60 s -> a step outside re-arms the visit (killed)
+  PASS  well visit: in the zone, below 34, >= 1 listed stack, a usable well within 20 -> dispose_well {visit, armed, dh, dy, dw, vid}; latched
+  PASS  well visit: every gate refuses alone (and charges nothing it should not)
+  PASS  well visit: the goal's wanted names travel as `keep` (only names on the list), and disposePlan never plans them
+  PASS  well visit: the visit counts LISTED stacks only (disposePlan, no options): no sword, no cobble at the cap, no at-target stock
+  PASS  MUTANT (well): the visit order without its 34-slot bound -> a full bag gets a visit order too (killed)
+  PASS  MUTANT (well): the visit latch ignored -> a second order in the same visit (killed)
+  PASS  MUTANT (well): the well reach dropped -> a bot 40 from the well is sent across town (killed)
+  PASS  compost visit stacks: whole stacks the fill empties; NEVER a sapling; the peaceful plants only under the switch; apples above 4, whole
+  PASS  compost visit: in the zone, below 34, a whole stack, storage near, the composter within 20 -> compost {visit, armed, dh, dy, dc, vid}; every gate alone
+  PASS  MUTANT (composter): the visit counts saplings -> a bag of only surplus saplings starts a visit fill (killed)
+  PASS  rows: stations 1 each, torch 0, bone meal 0; every other name has no row (kept whole)
+  PASS  allowanceSteps: WHOLE stacks, smallest first, while what remains >= max(row, floor); room caps a name
+  PASS  row P: the best working pickaxe (any tier) + the 2 stone copies with most uses stay; only USABLE copies beyond go; room and holds
+  PASS  the tail plan (`tail: only`): the rows ONLY -- torch, bone meal, the 2nd filled bucket, the usable spare beyond best + 2; no base step, no junk, no sapling
+  PASS  the full-bag plan (append): base steps FIRST, then the rows; a name the base moves is never a row's; the goal's wants win
+  PASS  PROPERTY: over 500 random bags, no row step is ever a junk name, a sapling, bamboo, a compost input or a name another layer owns; no station below 1
+  PASS  notForChest / bankOwned: junk, compost inputs, saplings, bamboo, the peaceful plants (switch on) are never a chest's; tools, targets, iron are owned
+  PASS  MUTANT (towndeposit): the rows without notForChest -> a row name the owner later puts on the junk list would bank (killed)
+  PASS  tail order: in the zone, below 34, freed >= 1, a container -> town_deposit {tail, armed, dh, dy, vid}; once per stay; every gate alone
+  PASS  the full-bag order: a ROWS-ONLY plan still takes the count step (recount, count=allowance_only) when the town must be counted
+  PASS  MUTANT (towndeposit): the tail order without its 34-slot bound -> a full bag gets a second deposit order (killed)
+  FAIL  CHAIN (composed, design 4 chain 4): a 34-slot bag with junk + torch -> the full-bag deposit banks base + rows -> 33 slots -> the full-bag well order is off, the VISIT order takes the junk in the same visit
+        AssertionError [ERR_ASSERTION]: idlework-02: the band order at 33
+        + actual - expected
+        
+        + undefined
+  PASS  D: with a working pickaxe, last-swing keeps only what the two spares leave; WITHOUT one, the three stay (the recovery's material)
+  PASS  MUTANT (hygiene): the working-pickaxe condition dropped -> a bag of only spent copies loses its third last swing (killed)
+  PASS  rows: the visit row leads with vid, armed, dh, dy, dw and the throw classes; the bank row is complete in parts, each <= 300
+
+28 passed, 1 failed
+  CHAIN (composed, design 4 chain 4): a 34-slot bag with junk + torch -> the full-bag deposit banks base + rows -> 33 slots -> the full-bag well order is off, the VISIT order takes the junk in the same visit
+
+--- lavastep.test.mjs (exit 1, serial) ---
+  PASS  D23 a deadline that coincides with the air rescue's seize is the rescue's: ended `air`, and the move clears nothing (Codex code r2 P1, r3 P2)
+  PASS  D23b MUTANT KILLED: the r2 order (deadline first, cleanup keyed on the recorded reason) clears the rescue's stroke (D23 catches it)
+  PASS  D24 a witnessed seal re-classified as `in` whose plan step misses goes straight to the aimed escape (Codex code r2 P2)
+  PASS  D25 a missed `in` step that has already carried the bot onto safe ground does not sprint off it (Claude code r4 P2-1)
+  FAIL  D25b the same after a witnessed seal: a re-classification `in` step that overshoots onto stone ends sealed_plan_missed_safe, no aim (Claude code r5 P3-2)
+        AssertionError [ERR_ASSERTION]: null == 'in'
+            at file:///home/mike/ci/trunk01-pass2/bots/test/lavastep.test.mjs:690:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/lavastep.test.mjs:40:9)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/lavastep.test.mjs:681:1
+  PASS  D26 a move ended INSIDE runner.reserve() (the air rescue took the body during the abort unwind): no dig stop, no path halt, no timer, no control write, the reservation released
+  PASS  E1 a live lavastep reservation is never replaced: the watchdog's reserve() is refused and its run declines runner_reserved; a model skill declines too
+  PASS  E2 the watchdog's reservation is SUPERSEDED by a danger move: its pending owner run declines "a newer reservation replaced this one"
+  PASS  F1 CHAIN S1 pool edge (no cobble): aim -> safe
+  PASS  F2 CHAIN S1 pool edge (cobble): seal -> safe
+  PASS  F3 CHAIN S2 1-deep lava: plan -> safe
+  PASS  F4 CHAIN S4 magma: plan -> safe
+  PASS  F5 CHAIN S6 campfire underfoot (in): a move every firing until off it
+  PASS  F6 CHAIN the enclosed magma floor: three firings that do not move -> sneak + relaxation -> the ordinary escape arms may run
+  PASS  F7 CHAIN the enclosed LAVA floor is never relaxed: every firing acts (aims) and the arms keep standing down
+  PASS  F8 the relaxation ends on a block update at the cell, and on moving off it (sneak dropped)
+[2026-11-16T22:12:28.800Z] ERROR reflex: pillar out FAILED, no height gained y=64
+  PASS  F9 CHAIN the relaxed magma floor hands over to a REAL ordinary escape (pillarOut): it runs, its seize does not cost the sneak for more than a tick, and the bot takes no magma damage
+[2026-11-16T22:12:37.172Z] ERROR reflex: pillar out FAILED, no height gained y=64
+  PASS  F10 CHAIN (real jump arcs, open-topped magma pit): the aim settles before the move ends, the relaxation starts within 4 firings, and the handed-over pillar runs with the ARM ticking -- its own jump never ends the relaxation (Claude code r2 P1, P2-2)
+  PASS  F11 a bot that alternates between two cells of one episode counts as stationary from its second firing (Claude code r2 P2-3)
+  PASS  G1 WIRED (reflex.mjs, comments stripped): the arm, the rollback, the stand-downs, ownership and air preemption -- each once
+  PASS  G3 WIRED (index.mjs): the licence row once per spawn, and the in-flight guard attached OUTERMOST (after protectzone)
+  PASS  G4 the watchdog declines on a refused reserve: its rescue run is made with owner=watchdog after reserve() (structural, comments stripped)
+  PASS  P1 PARITY: the real executor's rows (every scene x bag, 8 single-bearing corridors, 60 seeded random worlds), judged by the real read: zero G1-G5, every ground decision replays
+  PASS  P2 MUTANT KILLED: the read without the angular wrap grades every due-south aim a G5 defect (P1 catches it)
+  PASS  H1 MUTANT KILLED (G1): allowing DANGER in the sweep plans past a fire cell beside the origin (B6's independent check catches it)
+  PASS  H2 MUTANT KILLED (G2): a decision that skips its plan aims instead -- and the recorded cells still replay to the plan it skipped
+  PASS  H3 MUTANT KILLED (G3): sprinting on an edge plan step (D1 catches it)
+  PASS  H4 MUTANT KILLED (G4): accepting an unwitnessed seal re-classifies (D4 catches it)
+  PASS  H5 MUTANT KILLED (G5): aiming at the facing bearing sprints into the pool (D2 catches it)
+  PASS  H6 MUTANT KILLED: without the runner refusal the watchdog replaces the danger move's reservation (E1 catches it)
+  PASS  H7 MUTANT KILLED: a guard that ignores the move lets a dig through mid-move (D14 catches it)
+  PASS  H8 MUTANT KILLED: without the air check in ownership the move keeps steering over the rescue (D11 catches it)
+
+69 passed, 1 failed
+
+--- monustuck.test.mjs (exit 1) ---
+THE LIVE COLUMN (hive-a 331,68,117, pure on the region copy)
+  PASS  the cell is the foot of an 11-block bamboo stalk, sealed on its sides; no stand sees it; the stalk block above it has one
+  PASS  CONTROL (the live code, no stalk rule): the column refuses `deep 3+ above` -- the row every visit logged
+  PASS  with the stalk rule: two digs (the stalk at the cell's top, then the cell); felled, a stand sees the cell; dug, it is placeable
+  PASS  stalkFell refuses (and the column falls back): a vetoed block in the run, another record's cell in it, an unread block, the clears' own
+THE STALK CHAIN (runVisit on the fake server)
+  PASS  CONTROL (MONUSTUCK=off): the cell is sealed `deep 3+ above`, deferred every visit, stuck_on_cell; the layer never starts
+  PASS  on: the stalk is felled at the cell's top, the cell dug and placed, and the layer that waited on it built, in one visit -- killed with the wiring cut
+  PASS  a stalk that may not be felled (a veto in the run) keeps the old refusal: sealed, deferred, never `blocked`, nothing dug
+THE WAIVER BESIDE A SEALED CELL (runVisit)
+  FAIL  a clear no-stand core cell is waived after WAIVE_AFTER visits though a sealed cell sits beside it; the sealed cell is NEVER waived -- killed with the old condition
+        AssertionError [ERR_ASSERTION]: waived 
+        + actual - expected
+        
+        + []
+        - [
+        -   '14,67,10'
+THE DIG WALK (runVisit on the fake server)
+  PASS  CONTROL (MONUSTUCK=off): every visit walks to the SAME stand and is cut there
+  PASS  on: the cut walk's stand is banned (a stand_banned row), the next visit walks another; after DIG_BANS_MAX the log has NO STAND: the visits stop being cut -- killed with the pending cut
+  PASS  a walk that ended out of reach bans its stand at once (no abort needed)
+  PASS  settlePendingStand returns the walk it banned (null when none); MONUSTUCK=off is the rollback switch
+
+11 passed, 1 failed
+
+--- plankeep.test.mjs (exit 1) ---
+HIVEDROP-02: THE WALK PLAN SURVIVES A YIELD (PLANKEEP)
+  PASS  planStale: the rules (pure)
+        (canopy: reads 33863 kept vs 33863 re-planned at every yield; digs 0; stop cell_deferred)
+  FAIL  THE CANOPY in a slow world: the same visit (stop, digs in order, rows) for far fewer reads than a re-plan at every yield
+        AssertionError [ERR_ASSERTION]: the canopy pass never ran: _build:deferred::10,70,10,_build_seg:undefined::
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:93:12)
+            at async killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:18:3)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:100:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:15:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:87:1
+        (clears: reads 122721 kept vs 122721 re-planned at every yield; digs 2; stop complete)
+  FAIL  THE CLEARS in a slow world: the same visit for far fewer reads (the stand-less entries share one plan)
+        AssertionError [ERR_ASSERTION]: reads 122721 kept vs 122721
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:125:12)
+            at async killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:18:3)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:130:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:15:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/plankeep.test.mjs:115:1
+
+  1 passed, 2 failed
+
+--- plinth-skill.test.mjs (exit 1) ---
+        + actual - expected
+        
+        + undefined
+        - 'plinth_none'
+  PASS  A LATE LANDING OF OUR OWN CLICK (Claude r5 P3): the retry finds the block there -- it is this run's step (row and count), not another hand's
+  PASS  N5 (Codex r4): the cover removal is guarded -- a chest in the cap cell voids the plan and is never dug; a cover swapped for a chest in the walk is not dug; a body arriving before the dig stops it; a dirt cover is dug (positive control)
+  PASS  N1 (Codex r3, Claude r4 mutant C): leaves grown into the FLOOR -- the clear that walls the column in is owned first (row from=plinth_clear) and the pit it opens is covered before the visit ends
+  PASS  N3/N4 (Codex r3): a planned leaf replaced by a chest during the walk is NOT dug; a support replaced by a crafting table in the wait is NOT clicked
+  PASS  N2 WRITER (Claude r4): a void, then a search that finds nothing -> the none record carries trigger void; aged, with the no-site hold gone, the town plans again
+  PASS  N2 (Codex r3): void -> a failed search -> aged none still plans again with the no-site hold gone (the void is carried as the trigger)
+  PASS  ONE BUILDER: a live lease held by another bot -> no_effect plinth_lease, nothing placed; an expired one is taken
+  PASS  NO FUNDS: a bag at the reserve with no town chest -> failed plinth_unfunded naming the remedy; nothing placed; the reserve untouched
+  PASS  A FOREIGN BLOCK IN A PLAN CELL (a chest put there) voids the plan: failed plinth_blocked; the town plans again
+  PASS  A VOIDED PLAN WITH A WALLED-IN PIT: the voiding visit covers it; the next plan keeps the old cap excluded and watched (prev)
+  PASS  THE PLAN IS NOT THE WORLD: a block a bot dug out of the finished part is placed again on the next visit
+  PASS  a usable well in town: nothing to build (the order and the skill agree)
+  PASS  MUTANT (skills): no ownership at the walling-in click -> the click guard refuses it ("changed"): the column is never walled in unowned, the build stops there
+  PASS  MUTANT (skills): the handoff keeps the no-site hold -> build_well would wait 2 h for a site that exists
+  PASS  MUTANT (skills): the lease not honoured -> a second builder builds while another holds the town
+  PASS  MUTANT (skills): the finally does not cover -> an unfinished, walled-in pit is left open by a run that could cover it
+  PASS  MUTANT (skills): the walling-in ownership only for placements -> the leaf clear that would wall the column in is refused by the click guard; the build stops there
+  PASS  MUTANT (skills): no settle wait -> a second bot builds the instant the plan is recorded (the SETTLE test asserts it does not)
+  PASS  MUTANT (skills): the opportunistic clear without ownIfWalls -> the guard refuses the dig ("changed"); nothing owned, nothing dug (Claude r4 mutant C)
+  PASS  MUTANT (skills): the none record without its void trigger -> the N2 writer test sees trigger null (Claude r4 mutant D)
+  PASS  MUTANT (skills): the cover dig without its guard -> a body that walked into the column meanwhile has the cover dug over it (Codex r4 N5)
+  PASS  MUTANT (skills): every retry-time "done" counted as another hand's -> the late-landed step loses its row (Claude r5 P3)
+  PASS  THE STAIR IS NEVER A PATH'S DIG, through the well columns index.mjs already prices (no new array entry: townzone-01 forbids pushes on the shared arrays): knownWellCells carries the plan's stair and wellBreakCost refuses it
+  PASS  THE STAIR SURVIVES THE HAND-OFF (Claude r7): once the well-site record names the plinth cap, that column still carries the stair
+  PASS  MUTANT (skills): the stair not merged into an existing column -> the handed-off well loses its stair veto
+  PASS  cognitive.mjs: the plinth order goes before the town deposit, and its outcome is fed back
+  PASS  MUTANT (cognitive): the deposit first, or the outcome line removed, is detected
+  PASS  DIGTOWN (composition, 8cd0bc62): the plinth's own digs (no dig scope; the runner's context supplied as build_plinth) through the real wrapper -- a leaf clear is vegetation (class free: counted in the summary, never a _dig_town row), the dirt cover is town ground (one row), purpose other. (No pathfinder dig is possible: the plinth walks on townWalkMovements, canDig=false -- not exercised here.)
+  PASS  TOWNZONE (composition, 75cfb447): the zone is ON here and refuses the plinth's dirt cover as a discretionary dig (positive control), yet the real build_plinth digs that cover and completes; every placed cell and the stair end up town ground the zone keeps
+  PASS  MUTANT (townzone x plinth): the zone applied to the plinth's cover dig -> the cover is never dug and the plinth never completes (the composition test above sees it)
+
+53 passed, 3 failed
+FAILED:
+  THE LIVE ORACLE BEFORE THE HAND-OFF (Codex r1 P2-8): a natural cell the plan kept, dug out meanwhile, voids the plan instead of handing it off
+  LEAVES GROWN INTO A CELL TO PLACE (Claude r2 P2-A): the builder clears them (the approved leaf clear) and places -- no stall, no void
+  NO EVICTION (Codex r2 P2-4): a town already carrying PLINTH_PREV_MAX unresolved columns starts no new plan; every one stays carried
+
+--- prodserve.test.mjs (exit 1) ---
+THE SERVICE PICK (prodserve.mjs servicePick)
+  PASS  never served: the first service plot naming a SERVICE reason goes (the farm's seed gather is no service reason; the cane bed is)
+  PASS  the town schedule: a plot served inside its gap waits; the most overdue goes first
+  PASS  the fair share: a bot that served inside SERVICE.botGapMs gets no service pick; after it, it does
+  PASS  only a COMPLETE, sited service plot with a reason; a crop farm with seeds to plant is served (replant)
+  PASS  a stamp in the future (a bad clock) is no stamp; serviceReason keeps a plot's own reasons
+  PASS  the switch: on in the showcase only by default; PRODSERVE=off wins
+  PASS  MUTANTS: the town gap cut, the fair share cut, the reason filter cut -- each killed
+  PASS  gklease-01: a never-served plot prints last_min=never (Number(null) was the epoch: LIVE batch15 printed minutes since 1970)
+THE STUCK BACK-OFF AND THE OFFER GATE (Codex r1 BLOCKER 1)
+  PASS  a service plot in its stuck back-off is never picked (the order would refuse it for 6 h and hold the bot)
+  PASS  the offer gate: a pick no visit consumed in SERVICE.offerMs is dropped and charged to the share; a new plot starts a new offer
+  PASS  MUTANTS: the stuck skip cut, the offer window cut -- each killed
+THE CLAIM AND THE STAMP GIVEN BACK (Codex r1 BLOCKER 2: generations created exclusively; stampOfHead, stampReleaseDue)
+  PASS  15 bots claim the same generation: exactly one wins; the newest generation is the stamp; an unread generation never claims
+  PASS  a visit that did not happen (slots_full) releases its own generation: it reads as the previous start; a real visit or another bot's claim does not
+  PASS  MUTANT KILLED: the exclusive create (wx) replaced by an overwrite -- two bots both win
+  PASS  a torn (empty) newest generation: in flight for a minute (not due), then ABSENT -- the plot is due and the next claim takes gen+1
+  PASS  MUTANT KILLED: a torn generation read as in flight for ever (the live dead end)
+THE PICKER (shop.mjs activeProject `service`)
+  PASS  LIVE: an open stepwell, a damaged paths record, a ripe cane bed -- without a service pick the cane bed never comes; with one it comes FIRST
+  PASS  MUTANT KILLED: the service tier cut from activeProject
+DRESSHOST (towndress.mjs dressOrphans, sinks.mjs sinkWaived)
+  PASS  LIVE: the wall-top torch over the demolished wall is an orphan; the lamp whose own post is gone is NOT (its post is a repair)
+  PASS  not an orphan: the host stands, another record's live cell is the host (its repair restores it), the light is lit, the read is unknown
+  PASS  a waived dress light reads waived (damage, the visit, completeness skip it); a decor record never does; SINKWAIVE=off never
+  PASS  MUTANTS: the post rule cut, the held rule cut, the host-stands rule cut, dress kept out of sinkWaived -- each killed
+THE CHAIN (fake server: the floating light, the visit as buildSink runs it for dress)
+  PASS  without the waiver the visit never completes (the live failure); dressOrphans + the waived alsoDone: COMPLETE, nothing placed in the air
+WIRING (source, comments stripped)
+  FAIL  shopActive picks, stamps and gives back; the hall's service runs past a damaged cell; buildSink waives the dress orphans; a cut line fails
+        AssertionError [ERR_ASSERTION]: const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK, service: svc\?\.plot \?\? null, sinkTurn \}\): 0
+        
+        undefined !== 1
+        
+            at one (file:///home/mike/ci/trunk01-pass2/bots/test/prodserve.test.mjs:284:72)
+            at wiring (file:///home/mike/ci/trunk01-pass2/bots/test/prodserve.test.mjs:287:3)
+
+23 passed, 1 failed
+
+--- reccache.test.mjs (exit 1) ---
+            at killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/reccache.test.mjs:66:10)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/reccache.test.mjs:977:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/reccache.test.mjs:42:9)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/reccache.test.mjs:975:1
+  PASS  MUTANT (r2) the stamp taken from the wall clock -> "the verify deadline is on the monotonic clock..."
+  PASS  MUTANT (r2) the stamp and the age both on the wall clock -> "the verify deadline is on the monotonic clock..."
+  PASS  MUTANT (r2) the stamp not refreshed by a re-read (read again on every call for ever) -> "an unchanged aged history: 0 reads until the first deadline..."
+  PASS  MUTANT (r2) the jitter removed (every generation read again in one call) -> "an unchanged aged history: 0 reads until the first deadline..."
+  PASS  MUTANT (r3) the hit decided on the walk's entry clock, not its own -> "(i) a fact whose deadline passes after the call began but before its own hit decision..."
+  PASS  MUTANT (r3) the check before the answer is returned removed -> "(ii) a fact served early in the walk whose deadline passes before the answer is returned..."
+  PASS  MUTANT (r3) the earliest deadline taken over the generations the walk ACCEPTED only -> "(ii) the same for a generation the walk REJECTED..."
+  PASS  MUTANT (r3) a negative age read as fresh -> "(iv) an age that is negative, NaN or infinite..." and "(iv) on real files..."
+  PASS  MUTANT (r3) a window that is not a finite number accepted -> "(iv) an age that is negative, NaN or infinite..."
+  PASS  MUTANT (r3) a clock fall seen in the middle of a walk does not void it -> "the clock check emptying the cache in the middle of a walk..."
+  PASS  MUTANT the head's re-read bytes not checked against the fact's sha -> "the head moved back and its file is no longer the bytes..."
+  PASS  MUTANT a served head Buffer not refreshed (first in, first out) -> "the head Buffers go least recently USED first..."
+MICRO-BENCHMARK (printed, never asserted): 100 generations of ~100 KB, rounds of 20 calls
+        (benchmark: 100 generations, 9.6 MB (96 KB each), rounds of 20 calls, ms a call, lowest round first)
+        (benchmark: uncached (RECCACHE=off) 95.88 / 97.37 / 98.29)
+        (benchmark: cached, the first call (opens, fstats and reads all 100) 93.6 ms)
+        (benchmark: cached 1.032 / 1.067 / 1.075 / 1.084 / 1.098 / 1.111 / 1.210 (0 generation files read; 93x on the best rounds))
+        (benchmark: of which 100 stats 0.267 ms and one parse of the head 0.639 ms, measured alone)
+        (benchmark: the clock samples, measured alone: 100 x (performance.now() + Date.now()) = 0.0156 ms a call (156 ns a generation))
+        (benchmark: verify re-reads, amortised: 100 generations, each read again every 75 s on average = 80 reads a minute x 0.958 ms a read = 76.6 ms a minute (0.128% of one core))
+  PASS  the cached walk against the uncached walk on a tidy-sized record
+
+NOTES (what depended on this host):
+  history, chmod 000 step: run
+  two inodes, one stat (real files): REACHED -- the inode in the key is held deterministically by "a kept fact answers only for the SAME device, inode..." and "a directory swapped away and back around one read..."
+  the head's stale fact, a rewrite inside one ctime tick (real files): REACHED -- the drop-and-walk-again path is held deterministically by "the head moved back and its file is no longer the bytes..."
+  the inode mutant killed on real files by the two-inode directory swap: yes
+  benchmark: 100 generations, 9.6 MB (96 KB each), rounds of 20 calls, ms a call, lowest round first
+  benchmark: uncached (RECCACHE=off) 95.88 / 97.37 / 98.29
+  benchmark: cached, the first call (opens, fstats and reads all 100) 93.6 ms
+  benchmark: cached 1.032 / 1.067 / 1.075 / 1.084 / 1.098 / 1.111 / 1.210 (0 generation files read; 93x on the best rounds)
+  benchmark: of which 100 stats 0.267 ms and one parse of the head 0.639 ms, measured alone
+  benchmark: the clock samples, measured alone: 100 x (performance.now() + Date.now()) = 0.0156 ms a call (156 ns a generation)
+  benchmark: verify re-reads, amortised: 100 generations, each read again every 75 s on average = 80 reads a minute x 0.958 ms a read = 76.6 ms a minute (0.128% of one core)
+
+67 passed, 1 failed
+
+--- shop.test.mjs (exit 1) ---
+  PASS  skills: the slot released at its LATEST generation (and a mutant of it fails)
+  PASS  skills: the leftovers banked after the visit (A3 fallback: town chests), inside the skill's clock, each deposit booked as it lands (and a mutant of it fails)
+  PASS  skills: each verified take booked as it lands (and a mutant of it fails)
+  PASS  skills: matsWithdraw reports each verified take (and a mutant of it fails)
+  PASS  skills: the completion published BEFORE the bank (and a mutant of it fails)
+  PASS  skills: one _build_bag row per visit, in the finally (and a mutant of it fails)
+  PASS  skills: the bag row names the exit (a death inside the visit: died) and the silent clicks (and a mutant of it fails)
+  PASS  cognitive: a complete workshop is judged against the world (and a mutant of it fails)
+  PASS  features: the licence row (and a mutant of it fails)
+  PASS  features: the stood-cell timer (and a mutant of it fails)
+  PASS  skills: the visit's keeps are computed from the bot's OWN stock (the drawn share excluded) (and a mutant of it fails)
+  PASS  skills: the drawn share read and clamped (with its baseline) at the visit's start (and a mutant of it fails)
+  PASS  skills: nothing drawn unless the record can be written (the failure counted) (and a mutant of it fails)
+  PASS  skills: a share older than the completion is cleared on the repair path (and a mutant of it fails)
+  PASS  skills: the share persisted after EVERY verified take (and a mutant of it fails)
+  PASS  skills: the share persisted after every placement (and a mutant of it fails)
+  PASS  skills: the share persisted after every bank-back (and a mutant of it fails)
+  PASS  skills: the share persisted (or cleared on completion) in the finally, a failure counted (and a mutant of it fails)
+  PASS  skills: the share cleared AT the completion, before the bank-back (and a mutant of it fails)
+  PASS  skills: a complete workshop's visit clears a stale share (and a mutant of it fails)
+  PASS  skills: the composter plans nothing while the bot holds a workshop share (and a mutant of it fails)
+  PASS  skills: the junk well plans nothing while the bot holds a workshop share (and a mutant of it fails)
+  PASS  skills: found-01 founds nothing while the bot holds a workshop share (and a mutant of it fails)
+  PASS  cognitive: no found order while the bot holds a workshop share (and a mutant of it fails)
+  PASS  skills: shopShareHeld judges the share by its lifecycle and writes the retire/clear back (and a mutant of it fails)
+  PASS  skills: the bag row reports the share's writes (and a mutant of it fails)
+  PASS  skills: persist writes the bag balance with its baseline and counts a failure (and a mutant of it fails)
+  PASS  the comment stripper is not fooled: a pattern only in a comment does not match (control)
+PLANKS FROM THE TOWN'S LOGS (shopwalls-1028)
+  PASS  the live chain: the bill asks for planks the town lacks; the shortfall is drawn as the town's logs and crafted
+  PASS  planksFromLogs: spare planks of any species count; none short, no logs or no planks wanted -> null
+  PASS  WIRED: build_shop draws the logs under the project reserve and crafts the planks before the stations
+THE LOG DRAW WAITS FOR A WORKABLE SEGMENT (shopwalls-02)
+  PASS  workableSeg: the visit's order -- deps open -> null; a held segment is skipped for the next; all held -> null
+  PASS  WIRED: the logs are drawn only when workableSeg names a segment (its lease read from the project files)
+NO STATION IN A RECORD CELL (shopwalls-05)
+  PASS  recordCellHit: a candidate whose target cell (ref + face) is a record cell; foreignKind digs a crafting table, never a furnace or chest
+  PASS  WIRED: place filters record cells (and bars the make-room dig), refuses explicit coordinates in one, names the remedy; the record keys refresh with the footprint
+
+81 passed, 1 failed
+
+--- showdrop.test.mjs (exit 1) ---
+(scene: 6800 files in the pool dir)
+SHOWDROP-01 (1): ONE LISTING A SYNCHRONOUS STRETCH
+  PASS  the switch: LISTCACHE=off|0|false|no is the rollback; unset is on
+        (decision tick: 80 listings 431 ms with LISTCACHE=off -> 1 listing(s) 29 ms)
+  PASS  BEFORE / AFTER: one decision tick of directory reads lists the directory once, not once per read; the same answers
+  PASS  an OWN write is seen by the next read at once (two lease takes in one stretch: gens 1 then 2), and the listing is dropped at the next turn
+  PASS  the listing is dropped at the next turn: the same directory, unchanged, is listed again after a turn (never held across an await)
+  PASS  RACILY CLEAN: a file written by another writer in the same mtime tick as the listing is seen by the very next read
+SHOWDROP-01 (2): THE ORDER'S PROJECT STATES, ONE PROJECT A TURN (shopActivePrime)
+  PASS  the switch: SHOPPRIME=off is the rollback
+        (shopActive pass: 131 ms in one turn [LISTCACHE=off], 9 ms [on]; primer's longest turn 43 / 12 ms; the decision after the primer 3 ms)
+  FAIL  BEFORE / AFTER: the decision's shopActive pass vs the primer's longest turn; the same pick; the decision then skips the pass
+        AssertionError [ERR_ASSERTION]: the primer's longest turn 11.7 ms is no longer than the whole pass 9.1 ms
+            at file:///home/mike/ci/trunk01-pass2/bots/test/showdrop.test.mjs:169:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/showdrop.test.mjs:26:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/showdrop.test.mjs:151:1
+  PASS  a record generation that moves during the pauses: the memo is NOT written (the decision reads it fresh)
+  PASS  SHOPPRIME=off: the primer does nothing
+SHOWDROP-01 (3): THE PRUNE (prunePool)
+  PASS  the switch: POOLPRUNE=off|dry; unset is on
+  PASS  pruneCandidates: never a newest generation, never a record, never young, never an unreleased barrier, a lease only when long expired
+  PASS  pruneCandidates: a released old barrier below the newest is pruned; the newest of every family never is
+        (prune scene: 3000 files, dry count 1420, deleted 2840, left 160)
+  PASS  THE SCENE: the first pass is dry (counts, deletes nothing); the next deletes up to PRUNE_MAX; every family keeps its newest; POOLPRUNE=off does nothing
+  PASS  installPoolPrune: the first pass of a connection is DRY and logged; the second deletes
+  PASS  THE WIRING: features.mjs runs the primer on a timer and the prune on shared pools; both stop on end
+
+  14 passed, 1 failed
+
+--- sinks.test.mjs (exit 1) ---
+  PASS  a finite project with a slot comes first; a damaged project (a finished sink too) is a repair, first
+  PASS  the bounded upkeep that goes first (dueFirst) before a sink; an ordinary upkeep only on the upkeep turn; no sink when stuck or full
+  PASS  never a sink as the fallback (everything stands, nothing wanted)
+  PASS  MUTANT KILLED: the old `open.find(free) ?? open[0]` sends the bot to the keeper's grounds
+  PASS  MUTANT KILLED: without the upkeep turn an ordinary upkeep never runs while a sink is wanted
+  PASS  buildOrder: with a sink active the copper run is asked first and the expedition is told the projects are done; a sink is a light plot
+THE SEEDED DESIGNS (owner 10-29/11-02: shape, palette and details fixed at siting, never one template)
+  PASS  deterministic: the same seed and stock give the same design (a restart never re-rolls a sited design)
+  PASS  varied: 40 towers give >= 12 distinct designs over >= 3 bases, 2 tier heights, both spirals, 4 crowns, 4 patterns, >= 4 stones
+  PASS  bounded and safe: every design valid (stepShapeWhy), its body under the bill cap, no tower tier over 3 (no fall damage)
+  PASS  only stones the town can pay for; cobblestone alone with an empty stock; every role ends in cobblestone (no cell waits on a stone)
+THE BODY: EVERY CLIMB +1
+  PASS  every tower and shrine summit is walked to from the ground by +-1 steps (the stairs: perp and along, both spirals, 4 faces)
+  PASS  MUTANT KILLED: four stair faces on 1-wide terraces stack one stair on the next (a +2): refused by the shape rule
+  PASS  MUTANT KILLED: without the `along` stair run a 3-high tier cannot be climbed
+THE SITE AND THE PROOF (sinks.mjs siteSink on the fake flat world)
+  PASS  a tower sites on open flat ground, proven (reach from home, every cell a step), clear of a reservation
+  PASS  screenStepped: fill <= 3 a column, never a cut under sand, liquid within one column refuses
+  PASS  MUTANT KILLED: a liquid check that stops at L+2 sites a cut to L+3 beside water (Codex r1 BLOCKER 1)
+THE REAL VISIT RUNNER BUILDS IT (buildrun.mjs runVisit on the fake server)
+  PASS  one builder builds a sited tower end to end: every cell done, `complete`
+  PASS  three builders together build it too (3 slots, quadrant segments: no lease conflict stops them)
+  PASS  a shrine beside a ziggurat sites in its slots, clear of the ziggurat box, and builds end to end
+  PASS  MUTANT KILLED: a tower without its ground stair is never finished from the ground (the proof refuses it; the visit cannot complete it)
+ROADS
+  PASS  a road segment: 16 cross-sections 3 wide, raised 1 over the ground, lamps on alternating edges, its own segments
+  PASS  the surface steps +-1 at most (a 3-high bump is ramped), stops before water, refuses a start 2 off the last segment
+  PASS  a road grows: segment k+1 starts where k ended, clear of every record but the road's own (Codex r1 BLOCKER 2)
+  PASS  MUTANT KILLED: without the envelope the road climbs a 3-high bump in one step
+THE GROWING RECORD
+  PASS  appendInstance: cells, segments, roles and one zone per instance accumulate; nothing is removed; complete marks only the newest
+THE WIRING (skills.mjs, structural)
+  FAIL  build_shop dispatches a sink plot to buildSink; a sink wanting its next instance reads unsited; its palette judges damage; the picker's order and upkeep turn reach activeProject; the visit takes the sink options
+        AssertionError [ERR_ASSERTION]: /const pick = activeProject\(marked, order, \{ upkeepTurn: \(b\?\.sinkStreak \?\? 0\) >= SINK_STREAK, service: svc\?\.plot \?\? null, sinkTurn \}\)/
+            at file:///home/mike/ci/trunk01-pass2/bots/test/sinks.test.mjs:417:30
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/sinks.test.mjs:18:15)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/sinks.test.mjs:416:7
+  PASS  mutants: each wiring line, once broken, fails its assertion
+
+34 passed, 1 failed
+
+--- stuckcells.test.mjs (exit 1) ---
+  PASS  CONTROL (no waiver, the live stall): deferred, stuck_on_cell, the layer never starts
+  FAIL  the chain is killed by its own mutant: without it each cell up the hole waits WAIVE_AFTER more visits
+        AssertionError [ERR_ASSERTION]: the chain finishes the hole in the visit the bottom is waived (cell_deferred,cell_deferred,stuck_on_cell)
+        + actual - expected
+        
+        + 'stuck_on_cell'
+        - 'complete'
+        
+  PASS  withWaived: merged, only record cells, never past the record's bound, never on a complete record or a changed cell count; the completion merges them
+  PASS  stampLiftable: a stamp on cells all done or due their waiver is lifted; one cell neither, no room, or a cell not CLEAR (Claude r1 BLOCK) holds
+A BLOCKED CELL IS DEFERRED
+  FAIL  a cell holding a block the visit may not dig is DEFERRED (counted to stuck_on_cell, the town's other projects go on), never `blocked` for good
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+        + actual - expected
+        
+          [
+        +   'blocked',
+        +   'blocked',
+  PASS  a TRANSIENT obstruction keeps `blocked` (Codex r1 BLOCK): a diggable foreign block whose dig is refused, with blockedDefers on
+  PASS  CONTROL (the live behaviour, BUILDRETRY=0): `blocked` every visit, no stamp
+  FAIL  buildretry-01 (default, NO blockedDefers): the same chest is deferred for every project -- stuck_on_cell, the project stamped
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+        + actual - expected
+        
+          [
+        +   'blocked',
+        +   'blocked',
+THE STAIR'S SUPPORT CHAIN
+  PASS  supportChain: the shortest chain to a block that stands, every click in reach, never the stair's air nor the body; exclude; null past the bound
+  PASS  a stair lining two deep in a cave: the chain is placed (named rows), the stair goes on; STUCKCELLS=off ends `no_support` (the live 31 h)
+  PASS  a support the server refuses is NAMED (`support:<result>`) and the next chain is tried
+WIRING
+  FAIL  buildShop and buildMonument pass the options and publish the waivers; the order's stale rule; the done rules read the waiver
+        AssertionError [ERR_ASSERTION]: the shop visit is wired once
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckcells.test.mjs:333:10
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/stuckcells.test.mjs:14:45)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckcells.test.mjs:330:7
+  PASS  the offline harnesses are tracked on main (nothing-important-is-orphaned lists them)
+
+13 passed, 7 failed
+
+--- stuckclose.test.mjs (exit 1) ---
+THE PURE RULES (stuckclose.mjs)
+  PASS  the switch: default on; STUCKCLOSE=0|off|false|no off
+  PASS  townFailed: RETRY_VISITS summed visits or more, whatever the hold window
+  PASS  townGivenCuts: only standing record cuts the town has failed; a fill cell, a fallen cut, a weak entry are never given
+  PASS  givenWaivers: names each given cut once (why cut_given:<why>), keeps an existing waiver, never mutates the record
+THE COMPOSED CHAIN (fake server): ledger -> given -> progress -> an empty visit
+  PASS  CONTROL (the live dead end, no tidyTownCount): every visit `complete`, the cut never counted town-wide, cutLeft 1, never empty
+  FAIL  tidyTownCount: the stand-less cut is counted once a visit in the town ledger; at RETRY_VISITS the town gives it up, the visit is empty (mutant: not counted)
+        AssertionError [ERR_ASSERTION]: given up by the town
+        + actual - expected
+        
+        + []
+        - [
+        -   [
+        -     '10,77,10',
+        -     'no_stand'
+  PASS  a cut the town gave up that is later dug (another bot, a pad) is done, not given; its ledger resets on the next visit
+  FAIL  a HELD unreached cut (the live hive-b case: never evaluated) is given by the town
+        AssertionError [ERR_ASSERTION]: held: the visit never evaluates it (no per-bot count can ever reach TIDY_CUT_TRIES)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckclose.test.mjs:114:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/stuckclose.test.mjs:16:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/stuckclose.test.mjs:108:1
+THE WIRING (skills.mjs buildTidy; structural, comments stripped)
+  FAIL  buildTidy passes tidyTownCount, skips town-given cuts, counts them given in the progress, and names them on completion
+        AssertionError [ERR_ASSERTION]: The input did not match the regular expression /\.\.\.\(SCL_ON \? \{ tidyTownCount: true \} : \{\}\)/. Input:
+        
+        'async function buildTidy (ctx, args, signal) {\n' +
+          '  const t0 = Date.now()\n' +
+          '\n' +
+          '\n' +
+          '  const used0 = Number(ctx.bot.groundsPick?.used) || 0\n' +
+          '  ctx.bot.gkSweepRole = null\n' +
+
+6 passed, 3 failed
+
+--- stuckfleet.test.mjs (exit 1) ---
+  FAIL  the held foundation cell is WAIVED (named, counted done) and the segment completes -- killed with the held candidates cut
+        AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+        
+          assert.ok((r.waived ?? []).some(d => d.k === HK), JSON.stringify(r.waived))
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:116:12
+            at async killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:23:3)
+  FAIL  the waiver's mayWaive still decides: a held SKIN cell is not waived (deferred as before)
+        AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+        
+          assert.ok((r.deferred ?? []).some(d => d.k === HK))
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:125:10
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:19:9)
+3. THE CAPPED CELL
+  PASS  capDigs on the live column: the dirt in the dependent open cell; the column above it is open
+  PASS  capDigs refuses: a non-record block over the cell, an unread cell, a vetoed one, a non-scaffold block, a column past CAP_MAX
+  FAIL  CONTROL (STUCKFLEET=off, the live code): the middle is deferred (no stand), the record never completes
+        AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+        
+          assert.ok(!built(srv, rec))
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:170:12
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:19:9)
+  FAIL  the cap is dug (`kind=cap`), the middle placed, then B placed: the record completes -- killed with the cap branch cut
+        AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+        
+          assert.ok(e.logs.some(([kk, d]) => kk === '_build' && d.op === 'clear' && d.kind === 'cap' && k(d.cell) === k([11, G + 2, 10])))
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:179:12
+            at async killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:23:3)
+  FAIL  only a segment that WAITS on this one: an independent upper segment's cell is never dug -- killed with the dependency test cut
+        AssertionError [ERR_ASSERTION]: MUTATION DID NOT APPLY: "return !!x && x.seg !== seg && dependsOn(record, x.seg, seg) && !isDon"
+            at withMutant (file:///home/mike/ci/trunk01-pass2/bots/test/helpers/buildfake.mjs:24:10)
+            at killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:25:9)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:183:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:19:9)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet.test.mjs:182:1
+
+7 passed, 7 failed
+
+--- stuckfleet02.test.mjs (exit 1) ---
+THE LIVE CASE (board-c g69 + its region read)
+  PASS  CONTROLS: the stall waiver refuses (share spent 12/36 > 9) and the light waiver has no light -- the live dead end
+  PASS  orphanWaiveDue: the cell is waived `orphan`; the earth over it keeps its side face (371,67,152 grass) and stays work
+  PASS  THE CHAIN: after the waiver the stage holds only cells with a face (the next segment is placeable), within half the stage
+THE REFUSALS
+  PASS  POSITIVE CONTROL: the same cell over a support NOT waived is never an orphan (an ordinary fill: built from below)
+  PASS  Codex r1 BLOCKER: a WAIVED support that holds a block is a face -- never an orphan (a waiver removes nothing)
+  PASS  a solid side face: no orphan (a stand may still place it)
+  PASS  an UNREAD neighbour counts as solid: never waived on no evidence
+  PASS  the cell itself not open (built meanwhile), too few visits, a light, or not a record cell: never
+  PASS  the ceiling: a stage already half waived waives nothing more; the per-visit bound holds
+  PASS  MUTANT: the support test dropped -- the positive control is waived (killed for that reason)
+  PASS  MUTANT: an unread neighbour read as open -- a cell on no evidence is waived (killed for that reason)
+  FAIL  wired (structural: comments stripped): the tidy visit adds orphanWaiveDue behind STUCKFLEET2, over read2
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        1 !== 2
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckfleet02.test.mjs:97:10
+
+11 passed, 1 failed
+
+--- stuckfleet03.test.mjs (exit 1) ---
+THE LIVE DEAD END AND ITS REMEDY (runVisit on the fake server)
+  PASS  CONTROL (STUCKFLEET3=off): the dirt plinth is sealed `record_cell`, deferred every visit, never waived; B never worked
+  FAIL  on: after WAIVE_AFTER visits the plinth is waived `sealed_solid dirt`, its dirt stays, and B is worked -- killed with the wiring cut
+        AssertionError [ERR_ASSERTION]: the one sealed cell is waived
+        + actual - expected
+        
+        + []
+        - [
+        -   '11,70,10'
+  PASS  the waiver still counts visits: one visit does not waive it (WAIVE_AFTER > 1)
+THE REFUSALS (the waiver's own rules still decide)
+  PASS  a sealed SKIN cell holding dirt (not foundation, not core) is never waived: B never worked
+  PASS  sealedSolidCand: only a SEALED cell holding a full natural solid block joins; never an unread, plant, leaves, log, gravel or air cell
+  PASS  STUCKFLEET3 parses as its siblings (off|0|false|no -> off; unset -> on)
+
+5 passed, 1 failed
+
+--- stuckproj.test.mjs (exit 1) ---
+        AssertionError [ERR_ASSERTION]: wired once: const r = await runVisit({ ...canopyOf(bot, c, plot), dir, key,
+        
+        0 !== 1
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:188:12
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:16:45)
+STARVE: THE PICK (shop.mjs starveMark + activeProject, pure)
+  PASS  CONTROL (the live pick): the first open project with a free slot -- the monument, whatever the wall waits
+  FAIL  a wall nobody took in STARVE_MS is offered first; one taking it refreshes the stamp and the order goes back to the monument
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        'monument' !== 'wall'
+        
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:217:12)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:222:3
+  FAIL  the longest-starved first; never the tidy, never an unsited, complete, stuck (not free) or full project
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        'house1' !== 'wall'
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:230:10
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:16:45)
+  FAIL  `tried`: a bot sent to a starved project is not sent again for STARVE_MS (a visit that fails before it takes a slot)
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        'monument' !== 'wall'
+        
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:248:12)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:250:3
+  PASS  repairs still come first; a starved project never displaces a damaged complete one
+  PASS  the switch: STARVE=off|0|false|no is the rollback; unset is on; STARVE_MS defaults to 30 min
+  FAIL  THE WIRING: shopActive marks with the shared lease stamp and the bot's `tried`; a starved pick is held for its visit and cleared after
+        AssertionError [ERR_ASSERTION]: wired once: const marked = starve ? starveMark(waitedN, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedN
+        
+        0 !== 1
+        
+            at one (file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:264:27)
+            at file:///home/mike/ci/trunk01-pass2/bots/test/stuckproj.test.mjs:267:3
+
+9 passed, 10 failed
+
+--- tidydead.test.mjs (exit 1) ---
+        AssertionError [ERR_ASSERTION]: stops blocked,blocked,blocked,blocked,blocked
+            at scenario (file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:89:12)
+            at async killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:24:3)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:95:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:19:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:85:1
+  FAIL  THE CHAIN: once waived (the record's list, read as done), the next visit closes the segment -- the project is not stuck
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        + actual - expected
+        
+        + 'blocked'
+        - 'complete'
+        
+  PASS  a TRANSIENT obstruction still keeps `blocked` with hardDefers on (Codex stuckcells r1): a reachable leaf whose dig is refused
+  FAIL  r2 (Codex r1 BLOCK): an `unreached` clear followed IN THE SAME VISIT by a dig that reaches and is refused keeps `blocked`
+        AssertionError [ERR_ASSERTION]: MUTATION DID NOT APPLY: "          unreachedClears.delete(kOf(f.at))\n"
+            at withMutant (file:///home/mike/ci/trunk01-pass2/bots/test/helpers/buildfake.mjs:24:10)
+            at killedBy (file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:26:9)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:128:3
+            at async t (file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:19:39)
+            at async file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:115:1
+HIVE-D: THE FILL NO CLICK LANDS ON
+  PASS  CONTROL (the live stop): `attempts_spent` on T-11-0, and the independent segment is never reached
+  FAIL  hardDefers: T-11-0's cell is deferred and the SAME visit fills the independent segment; the waiver names the cell
+        AssertionError [ERR_ASSERTION]: the independent segment filled in the first visit
+        + actual - expected
+        
+        + 'air'
+        - 'cobblestone'
+        
+THE WIRING
+  FAIL  the tidy's visit (buildTidy) asks for hardDefers behind TIDYDEAD, and NO other visit does (monument, wall, shop unchanged)
+        AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+        
+        false !== true
+        
+            at file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:168:10
+            at t (file:///home/mike/ci/trunk01-pass2/bots/test/tidydead.test.mjs:19:45)
+
+7 passed, 5 failed
+
+--- well.test.mjs (exit 1) ---
+[2026-11-16T22:06:31.667Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:31.668Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-16T22:06:31.722Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:31.723Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-16T22:06:31.777Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:31.777Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 CHAIN (real loop): a NOT-full bag with listed junk at town -> dispose_well {visit} -> the listed junk goes, the cobble stays -> no second visit order in the visit
+[2026-11-16T22:06:31.957Z] INFO  lessons loaded run=1 avoid=0 worked=0 hazard_sites=0 progress_skipped=0 progress_cycle=0 progress_blocked=0
+[2026-11-16T22:06:31.959Z] INFO  cognitive loop starting model=qwen2.5:7b-instruct endpoints=["http://127.0.0.1:11434"] num_ctx=4096
+[2026-11-16T22:06:31.965Z] INFO  LLM -> smelt_town args={} reason=the town has raw iron left to look for, and nothing turns it into anything: smelt up to 8  ms=0
+[2026-11-16T22:06:31.965Z] INFO  skill met its contract, off the current milestone skill=smelt_town expected=smelt_effect|inventory_loss measured=smelt_town: probe 1
+[2026-11-16T22:06:32.021Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:32.021Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 CHAIN (real loop): the latch is TICKED on every decision -- a bot outside the zone starts the outside clock though no visit order runs
+[2026-11-16T22:06:32.026Z] INFO  lessons loaded run=1 avoid=0 worked=0 hazard_sites=0 progress_skipped=0 progress_cycle=0 progress_blocked=0
+[2026-11-16T22:06:32.028Z] INFO  cognitive loop starting model=qwen2.5:7b-instruct endpoints=["http://127.0.0.1:11434"] num_ctx=4096
+[2026-11-16T22:06:32.032Z] INFO  LLM -> smelt_town args={} reason=the town has raw iron left to look for, and nothing turns it into anything: smelt up to 8  ms=0
+[2026-11-16T22:06:32.032Z] INFO  skill met its contract, off the current milestone skill=smelt_town expected=smelt_effect|inventory_loss measured=smelt_town: probe 1
+[2026-11-16T22:06:32.087Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:32.087Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-16T22:06:32.142Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:32.143Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-16T22:06:32.198Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:32.198Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 CHAIN (real loop): a BREACHED well gets no visit order -- no loop, the bot keeps its turns
+[2026-11-16T22:06:32.226Z] INFO  lessons loaded run=1 avoid=0 worked=0 hazard_sites=0 progress_skipped=0 progress_cycle=0 progress_blocked=0
+[2026-11-16T22:06:32.230Z] INFO  cognitive loop starting model=qwen2.5:7b-instruct endpoints=["http://127.0.0.1:11434"] num_ctx=4096
+[2026-11-16T22:06:32.243Z] INFO  LLM -> smelt_town args={} reason=the town has raw iron left to look for, and nothing turns it into anything: smelt up to 8  ms=0
+[2026-11-16T22:06:32.243Z] INFO  skill met its contract, off the current milestone skill=smelt_town expected=smelt_effect|inventory_loss measured=smelt_town: probe 1
+[2026-11-16T22:06:32.300Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:32.300Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-16T22:06:32.357Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:32.357Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+[2026-11-16T22:06:32.414Z] INFO  LLM -> status args={} reason=probe ms=1
+[2026-11-16T22:06:32.414Z] INFO  skill met its contract, off the current milestone skill=status expected=nothing measured=status: probe 1
+  PASS  junkout-01 MUTANT (cognitive): the loop's visit call removed -> the not-full bag of junk gets no well order (the defect the change fixes)
+
+236 passed, 2 failed
+  ORDER: dispose at >= 34 slots with listed junk, at town; never below 34, never without junk, never away
+  CODEX R5 THE EXEMPTION STOPS AT THE CAP: from inside, a goal ON the open cap is unreachable (no shaft -> beside -> cap path); the escape still gets out
+
+slowest files:
+   319343ms  storehub.test.mjs
+   316434ms  ziggurat-tidy.test.mjs
+   312139ms  citywall.test.mjs
+   307831ms  zonesite.test.mjs
+   298440ms  ziggurat-v2-build.test.mjs
+   290208ms  buildrun.test.mjs
+   283575ms  standcache.test.mjs
+   245548ms  cottage2.test.mjs
+   235813ms  wallext.test.mjs
+   222025ms  zigtidy2.test.mjs
+
+wall 1315.2s, summed file time 10994.1s, jobs 10
+FAILED (27): buildnext.test.mjs buildretry.test.mjs buildrun-r2b.test.mjs craft-room.test.mjs gkforever.test.mjs groundskeeper.test.mjs hivedrop.test.mjs idlework-sites.test.mjs idlework2.test.mjs junkout.test.mjs lavastep.test.mjs monustuck.test.mjs plankeep.test.mjs plinth-skill.test.mjs prodserve.test.mjs reccache.test.mjs shop.test.mjs showdrop.test.mjs sinks.test.mjs stuckcells.test.mjs stuckclose.test.mjs stuckfleet.test.mjs stuckfleet02.test.mjs stuckfleet03.test.mjs stuckproj.test.mjs tidydead.test.mjs well.test.mjs
+574/601 files passed
+DONE rc=1
