@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-16T22:20:01Z._
+_Generated 2026-11-16T23:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-16T22:20:01Z._
 | **Canary in slot** | EMPTY (last close bamboowalk-01 KEEP 11-16 08:32Z) |
 | **Queue (front)** | (nothing runnable). Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...). Parked: irongap-01, obsidian-01, kittrim-01, pathsfix-01, coalsale-01, coalsale-02, jobsite-01, market-01, market-02, market-03 |
 | **Scheduler** | block H1 coalsale-01: held: PARKED 2026-11-16 on the owner word ("lets park it, but not lose the things in the queue"): fleet takes fixes only until the one trunk (consolidation 11-14); kept in docs/reports/parked-work-2026-11-16.md; releas |
-| **Showcase release** | `6ed264b9` (45,559 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 6ed264b9's protected tree: restack by hand; row 11-16 21:25Z) |
+| **Showcase release** | `6ed264b9` (42,159 rows), `0e33aa99` (5,550 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 6ed264b9's protected tree: restack by hand; row 11-16 22:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
 | **Projects (daily audit)** | project audit fleet (11-16T12:05Z, 7 d, 188 projects, 15,873,368 lines / 80 bots): 3 broken, 1 dormant, 3 underused, 91 effective, 51 unmeasured, 39 - -- placebo-a/house1 BROKEN; placebo-d/shop BROKEN; placebo-d/wall BROKEN; isolated-d/well DORMANT; showcase: project audit showcase (11-16T12:05Z, 7 d, 43 projects, 2,336,825 lines / 15 bots): 3 dormant, 13 effective, 16 unmeasured, 11 - -- showcase/canefarm DORMANT; showcase/enchantshop DORMANT; showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-16T21:35:02Z STALLED: 47. OPSAUDIT 2026-11-15 FLAGS: 9 (0 high). 66 active alarm(s): stuck goals 9 (board-a/tidy@355_73_147, board-a/waterwalk@355_73_147, board-b/waterwalk@-249_65_144, board-c/waterwalk@355_73_147, hive-d/monument@68_65_68, isolated-a/monument@355_73_147 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:fullplace-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gathermem-01:h72 |
+| **Open alarms** | STALLCHECK 2026-11-16T22:35:01Z STALLED: 47. OPSAUDIT 2026-11-16 FLAGS: 11 (0 high). 65 active alarm(s): stuck goals 10 (board-a/tidy@355_73_147, board-a/waterwalk@355_73_147, board-b/waterwalk@-249_65_144, board-c/tidy@355_73_147, board-c/waterwalk@355_73_147, hive-d/monument@68_65_68 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:fullplace-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gathermem-01:h72 |
 <!-- GENERATED:END -->
 
 ## Notes
