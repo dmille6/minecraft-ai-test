@@ -2139,7 +2139,7 @@ export function valveProof (bot, items = bot?.inventory?.items?.() ?? []) {
     if (items.length < TD_TRIGGER_SLOTS) return false
     const peaceful = foodSkipNow(bot).active
     if (startableJunk(items, { apples: peaceful, plants: peaceful, level: 0 }) > 0) return false
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) })
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot, items)), stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) })
     return plan.junkStacks === 0
   } catch { return false }
 }
@@ -10668,7 +10668,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       // storehub-01: a clerk's throw keeps every name of THIS bag but its cargo's junk (`keepOf`: read here, after the walk)
       const cobbleReserve = wellCobbleReserveNow(bot)
       const bagNow = bot.inventory?.items?.() ?? []
-      const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
+      const plan = disposePlan(bagNow, { maxStacks, swords: out.swordsAllowed, cobbleAtCap: wellTakesCobble(out.cap), stock: out.stock, keep: keepOf ? keepOf(bagNow) : keep, cobbleReserve })   // the bag AS THE SERVER HOLDS IT
       if (out.cap === 'at_cap' && !yardDeferredNow(bot) && wellKeptForYard(bagNow, cobbleReserve)) { bot.yardDeferAt = Date.now(); out.yardKept = cobbleReserve }
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
@@ -10815,7 +10815,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const entryPlan = visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
+  const entryPlan = visit ? disposePlan(items(), { keep: keepOf(items()) }) : disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot)), stock: pruneStockOpts(bot, pruned), cobbleReserve: wellCobbleReserveNow(bot), keep })
   if (!entryPlan.stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -12908,7 +12908,7 @@ export function pruneTarget (bot, items = bot?.inventory?.items?.() ?? []) {
 }
 /** The well's own rule as a function of a bag (well.mjs disposePlan, every stack): what pruneAccepted asks. */
 function pruneWellRule (bot) {
-  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) }).stacks
+  return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: wellTakesCobble(cobbleWellCap(bot, items)), stock: stockWellOpts(bot, items), cobbleReserve: wellCobbleReserveNow(bot) }).stacks
 }
 
 /**
