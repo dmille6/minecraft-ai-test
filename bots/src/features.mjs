@@ -30,7 +30,8 @@ import {
   townPlanZones, townPlanSeed, shopActivePrime, SHOP_PRIME_MS, installCobbleCap, glassReading, shopStoodTick, shopFootprintRefresh, readMatsNote,
   matsHoldNote, expeditionInstall, copperRunInstall, bagRoomInstall, enchantInstall, marketInstall, villageUnlockInstall, unlockSee,
 } from './skills.mjs'
-import { cobbleCapModeDetail, cobbleKeepModeDetail } from './cobblecap.mjs'
+import { cobbleCapModeDetail } from './cobblecap.mjs'
+import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { townIndexModeDetail } from './townindex.mjs'   // townindex-01's licence row (its own statement)
 import { ironsmeltModeDetail, furnaceSeenModeDetail } from './smeltjob.mjs'   // ironsmelt-01's licence row
 import { foundModeDetail, FOUND } from './found.mjs'   // found-01's licence row
