@@ -8819,7 +8819,10 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   const bagBefore = {}
   for (const b of bag) bagBefore[b.name] = (bagBefore[b.name] ?? 0) + (b.count ?? 0)
   const steps = canConfirm
-    ? mergeFit(plan.steps, win.slots.slice(0, win.inventoryStart), { stackOf: n => bag.find(b => b.name === n)?.stackSize ?? 64, same: (d, st) => sameStack(d, bag.find(b => b.slot === st.slot)) })
+    // Paper proof 11-16 (cases 3b, 4c): the plan reads the REAL items -- windowBag's copies carry no stack size and no components, so
+    // a 16-stack was planned as a 64 and a named stack as plain. The stack size is the registry's (unknown: 1, so it never merges and
+    // takes an empty slot as before); "the same item" is judged on the window's own Item for the bag slot (nbt, components, damage)
+    ? mergeFit(plan.steps, win.slots.slice(0, win.inventoryStart), { stackOf: n => mergeStackOf(bot, n), same: (d, st) => { const real = win.slots[bag.find(b => b.slot === st.slot)?.wslot ?? -1] ?? null; return !!real && real.name === st.name && sameStack(d, real) } })
     : fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   // towndeposit-02: NO EMPTY CONTAINER SLOT at the open (the only room a whole-stack move uses) -- the caller remembers it full
@@ -8913,7 +8916,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         const now = it ? win.slots[it.wslot] : null
         if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
         if (!(await admit(step))) continue
-        const m = await runMerge({ click: oneClick, confirm, slot: i => win.slots[i] ?? null, emptyDest, same: d => sameStack(d, win.selectedItem) }, step, it.wslot)
+        const m = await runMerge({ click: oneClick, confirm, slot: i => win.slots[i] ?? null, emptyDest, same: d => sameStack(d, win.selectedItem), stackOf: n => mergeStackOf(bot, n) }, step, it.wslot)
         for (const mv of m.moves) {
           if (mv.merged) for (const e of done) if (e.dest === mv.dest) e.grew = true
           done.push({ step: mv.n === step.count ? step : { ...step, count: mv.n }, it, dest: mv.dest, ...(mv.merged ? { base: mv.base, after: mv.after } : {}) })
@@ -8952,12 +8955,15 @@ async function verifyTown (bot, block, done, ms, before = null) {
   } finally { try { win.close() } catch { /* already closed */ } }
 }
 
+/** The stack size a merge is planned with -> the registry's, or 1 when it does not know the name (a stack the plan cannot describe
+ *  with certainty never merges: it takes an empty slot, as before). Never throws. */
+const mergeStackOf = (bot, name) => { try { const n = Number(bot?.registry?.itemsByName?.[name]?.stackSize); return Number.isInteger(n) && n >= 1 ? n : 1 } catch { return 1 } }
 /** BAGFIX-01 M: WHICH `full` CONTAINERS STILL TAKE THIS PLAN -> (posKey) => bool, or null (merging off, no index, no stackable step).
  *  The town index's last observation of each container (either half's key): room on its partial stacks for a whole planned stack. */
 function mergeFullOk (bot, steps = []) {
   try {
     if (!BAGFIX.merge) return null
-    const size = stackSizeOf(bot)
+    const size = n => mergeStackOf(bot, n)
     const want = [...new Set((Array.isArray(steps) ? steps : []).filter(st => st?.name && size(st.name) > 1).map(st => st.name))]
     if (!want.length) return null
     const least = Math.min(...steps.filter(st => want.includes(st.name)).map(st => Number(st.count) || 1))

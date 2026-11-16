@@ -356,6 +356,55 @@ await t('MUTANTS KILLED (Codex r1): the client\'s prediction credited; a late an
     M => assert.deepEqual(M.creditMoves([{ step: { name: 'coal', count: 40 }, dest: 3, base: 5, after: 45 }], { coal: 40 }, { coal: 26 }), []))
 })
 
+// ---- M, Paper proof 11-16 (cases 3b, 4c): the plan reads the REAL items ---------------------------------------------------------------
+console.log('M (Paper 3b, 4c): THE PLAN READS THE REAL ITEMS -- stack size and components')
+const REG = { snowball: 16, coal: 64, iron_pickaxe: 1, ender_pearl: 16 }
+const regSize = n => REG[n] ?? 1
+await t('CASE 3b: a 16-stack that does not WHOLLY fit is never planned (no click at all); one that fits merges; an unknown size never merges', () => {
+  const chest = () => { const c = Array.from({ length: 27 }, () => it('lantern', 4)); c[4] = it('snowball', 10, { stackSize: 16 }); return c }
+  assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'snowball', count: 16 }], chest(), { merge: true, stackOf: regSize }), [], 'LIVE on Paper: 10 + 16 in a full chest moved 6 and reported success -- now nothing is planned, the deposit says full')
+  assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'snowball', count: 6 }], chest(), { merge: true, stackOf: regSize }), [{ slot: 9, name: 'snowball', count: 6, dest: null, merges: [{ dest: 4, n: 6 }] }], 'a 16-stack that fits is merged')
+  assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'snowball', count: 7 }], chest(), { merge: true, stackOf: regSize }), [], '7 onto 10 of 16: one too many')
+  const open = chest(); open[26] = null
+  assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'snowball', count: 16 }], open, { merge: true, stackOf: regSize }), [{ slot: 9, name: 'snowball', count: 16, dest: 26, merges: [{ dest: 4, n: 6 }] }], 'with an empty slot: 6 merge, 10 into it')
+  assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'mystery_item', count: 5 }], [it('mystery_item', 5), null], { merge: true, stackOf: regSize }), [{ slot: 9, name: 'mystery_item', count: 5, dest: 1, merges: [] }], 'a name the registry does not know takes an empty slot, as before')
+  assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'mystery_item', count: 5 }], [it('mystery_item', 5)], { merge: true, stackOf: () => undefined }), [])
+})
+await t('CASE 4c: a named, enchanted or damaged stack against a plain one -- either way round -- is never planned as a merge (no pickup)', () => {
+  const variants = [{ nbt: { display: { Name: 'x' } } }, { components: [{ type: 'custom_name', data: 'Lucky' }] }, { components: [{ type: 'enchantments', data: { levels: { unbreaking: 1 } } }] }, { components: [{ type: 'damage', data: 3 }] }, { removedComponents: ['lore'] }]
+  for (const v of variants) {
+    // the bag's REAL item is the variant, the chest's is plain -- and the reverse
+    for (const [bagItem, chestItem] of [[it('coal', 20, v), it('coal', 5)], [it('coal', 20), it('coal', 5, v)]]) {
+      const slots = Array.from({ length: 27 }, () => it('lantern', 4)); slots[3] = chestItem
+      const same = (d, st) => st.name === bagItem.name && BF.sameStack(d, bagItem)
+      assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'coal', count: 20 }], slots, { merge: true, stackOf: regSize, same }), [], JSON.stringify(v))
+      slots[26] = null
+      assert.deepEqual(BF.mergeFit([{ slot: 9, name: 'coal', count: 20 }], slots, { merge: true, stackOf: regSize, same }), [{ slot: 9, name: 'coal', count: 20, dest: 26, merges: [] }], 'it goes whole into an empty slot, as before')
+    }
+  }
+  // positive control: plain onto plain merges with the same callbacks
+  const slots = Array.from({ length: 27 }, () => it('lantern', 4)); slots[3] = it('coal', 5)
+  assert.equal(BF.mergeFit([{ slot: 9, name: 'coal', count: 20 }], slots, { merge: true, stackOf: regSize, same: d => BF.sameStack(d, it('coal', 20)) })[0].merges.length, 1)
+})
+await t('the confirmed pass uses the registry\'s size too: a 16-stack destination at 10 takes 6, never "54"; MUTANTS: a guessed 64 in the plan and at the click', async () => {
+  const run = async M => {
+    const sv = server({ chest: { 4: { name: 'snowball', count: 10 } }, bagSlots: { [FROM]: { name: 'snowball', count: 6 } } })
+    const step = { slot: 12, name: 'snowball', count: 6, merges: [{ dest: 4, n: 6 }], dest: null }
+    const r = await M.runMerge({ ...sv.io, slot: i => { const x = sv.view[i]; return x ? { ...x } : null }, stackOf: regSize }, step, FROM)
+    assert.equal(r.stop, null); assert.deepEqual(r.moves.map(m => [m.dest, m.n]), [[4, 6]])
+    // a destination already at its 16 is not clicked (the slot item carries no size here: the registry decides)
+    const sv2 = server({ chest: fullChest({ 4: { name: 'snowball', count: 16 } }), bagSlots: { [FROM]: { name: 'snowball', count: 6 } } })
+    const r2 = await M.runMerge({ ...sv2.io, slot: i => { const x = sv2.view[i]; return x ? { ...x } : null }, stackOf: regSize }, step, FROM)
+    assert.equal(r2.stop, 'no_empty_slot'); assert.equal(sv2.clicks, 1, 'the pickup only: a full 16-stack is never clicked')
+  }
+  await killedBy(BAGFIX_PATH, BF, "    const max = Number(typeof io.stackOf === 'function' ? io.stackOf(step.name) : d?.stackSize) || 1\n", '    const max = 64\n', run)
+  await killedBy(BAGFIX_PATH, BF, '    const max = Number(stackOf(step?.name)) || 1   // an unknown size never merges\n', '    const max = Number(stackOf(step?.name)) || 64\n',
+    M => assert.deepEqual(M.mergeFit([{ slot: 9, name: 'mystery_item', count: 5 }], [it('mystery_item', 5)], { merge: true, stackOf: () => undefined }), []))
+  const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  one(sk, 'stackOf: n => mergeStackOf\\(bot, n\\), same: \\(d, st\\) => \\{ const real = win\\.slots\\[bag\\.find\\(b => b\\.slot === st\\.slot\\)\\?\\.wslot \\?\\? -1\\] \\?\\? null; return !!real && real\\.name === st\\.name && sameStack\\(d, real\\) \\}', 'the plan judges the window\'s REAL item and the registry\'s size')
+  one(sk, 'const n = Number\\(bot\\?\\.registry\\?\\.itemsByName\\?\\.\\[name\\]\\?\\.stackSize\\); return Number\\.isInteger\\(n\\) && n >= 1 \\? n : 1', 'an unknown size is 1')
+})
+
 // ---- D: carried chests ---------------------------------------------------------------------------------------------------------
 console.log('D: CARRIED CHESTS')
 const CF = await import('../src/chestfull.mjs')
@@ -476,7 +525,7 @@ await t('WIRED (M, D): the plan asks mergeFit, the clicks read the cursor back, 
   one(sk, "const canConfirm = BAGFIX\\.merge && typeof bot\\?\\.craftSync\\?\\.confirmCursor === 'function'", 'no server confirmation to hand: empty slots only')
   one(sk, 'const steps = canConfirm', 'the plan merges only with it')
   one(sk, 'if \\(step\\.merges\\?\\.length\\) continue', 'a merging stack never moves in the unconfirmed pass')
-  one(sk, 'const m = await runMerge\\(\\{ click: oneClick, confirm, slot: i => win\\.slots\\[i\\] \\?\\? null, emptyDest, same: d => sameStack\\(d, win\\.selectedItem\\) \\}, step, it\\.wslot\\)', 'the confirmed pass')
+  one(sk, 'const m = await runMerge\\(\\{ click: oneClick, confirm, slot: i => win\\.slots\\[i\\] \\?\\? null, emptyDest, same: d => sameStack\\(d, win\\.selectedItem\\), stackOf: n => mergeStackOf\\(bot, n\\) \\}, step, it\\.wslot\\)', 'the confirmed pass')
   one(sk, 'const ev = await confirmCursor\\(bot, win, \\{ deadline: Math\\.min\\(deadline, Date\\.now\\(\\) \\+ 1_500\\), cancelled: \\(\\) => !!signal\\?\\.aborted \\}\\)', 'the confirmation is craftsync\'s cursor probe')
   one(sk, "if \\(m\\.stop\\) \\{ err = `merge stopped: \\$\\{m\\.stop\\}`\\.slice\\(0, 80\\); break \\}", 'a stop ends the pass: no further click')
   one(sk, 'verified: creditMoves\\(done\\.filter\\(x => destHolds\\(win\\.slots\\[x\\.dest\\], x\\)\\), before, bag\\)', 'the re-open credits against the bag')
