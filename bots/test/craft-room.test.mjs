@@ -1397,11 +1397,22 @@ await t('placeRefFor: the block under the cell -- unless a click opens it; then 
   assert.equal(placeRefFor(onTable, T, () => false), null, 'the caller may refuse the side block (a protected zone)')
   assert.equal(opensOnClick({ name: 'crafting_table' }), true); assert.equal(opensOnClick({ name: 'stone' }), false)
   // MUTANTS: each must change one of the answers above
-  await withMutant('../src/placeref.mjs', "b.boundingBox === 'block' && !opensOnClick(b)", "b.boundingBox === 'block'", m =>
-    assert.equal(refOf(m.placeRefFor(onTable, T)), 'crafting_table@0,63,-1>0,64,-1', 'MUTANT: the table is clicked again'))
+  // A BLOCK THAT ONLY MAY ACT (review r1: a lodestone wants a compass) is never a reason to DROP a cell that was valid before:
+  // a plain side block is preferred, and with none the block under the cell is clicked as it always was
+  assert.equal(opensOnClick({ name: 'lodestone' }), false); assert.equal(opensOnClick({ name: 'composter' }), false); assert.equal(opensOnClick({ name: 'iron_door' }), false)
+  assert.equal(opensOnClick({ name: 'oak_door' }), true); assert.equal(opensOnClick({ name: 'chest' }), true); assert.equal(opensOnClick({ name: 'red_bed' }), true)
+  assert.equal(refOf(placeRefFor(cellWorld({ '0,63,-1': 'lodestone' }), T)), 'lodestone@0,63,-1>0,64,-1', 'a lodestone below, air all round: still a candidate')
+  assert.equal(refOf(placeRefFor(cellWorld({ '0,63,-1': 'lodestone', '-1,64,-1': 'stone' }), T)), 'stone@-1,64,-1>0,64,-1', 'a plain side block is the better click')
+  // MUTANTS: each must change one of the answers above
+  await withMutant('../src/placeref.mjs', 'return solid(under) && !opensOnClick(under) ? top() : null', 'return solid(under) ? top() : null', m =>
+    assert.equal(refOf(m.placeRefFor(cellWorld({ '0,63,-1': 'crafting_table' }), T)), 'crafting_table@0,63,-1>0,64,-1', 'MUTANT: the table is clicked again'))
+  await withMutant('../src/placeref.mjs', 'if (solid(under) && !mayActOnClick(under)) return top()', 'if (solid(under)) return top()', m =>
+    assert.equal(refOf(m.placeRefFor(onTable, T)), 'crafting_table@0,63,-1>0,64,-1', 'MUTANT: the table is clicked though a side block is there'))
+  await withMutant('../src/placeref.mjs', 'return solid(under) && !opensOnClick(under) ? top() : null', 'return null', m =>
+    assert.equal(m.placeRefFor(cellWorld({ '0,63,-1': 'lodestone' }), T), null, 'MUTANT: a cell over a lodestone is dropped (review r1)'))
   await withMutant('../src/placeref.mjs', 'face: new Vec3(-d[0], 0, -d[2])', 'face: new Vec3(d[0], 0, d[2])', m =>
     assert.notEqual(refOf(m.placeRefFor(onTable, T)), 'stone@1,64,-1>0,64,-1', 'MUTANT: the face points away from the cell'))
-  await withMutant('../src/placeref.mjs', 'clicks(b) && b.position && okRef(b.position)', 'clicks(b) && b.position', m =>
+  await withMutant('../src/placeref.mjs', 'solid(b) && !mayActOnClick(b) && b.position && okRef(b.position)', 'solid(b) && !mayActOnClick(b) && b.position', m =>
     assert.notEqual(m.placeRefFor(onTable, T, () => false), null, 'MUTANT: the caller\'s refusal is ignored'))
 })
 
@@ -1481,6 +1492,58 @@ await t('NOT FROST: the same sealed cell with ONE spent pickaxe -> nothing is wo
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'inventory_full', r.detail); assert.equal(digs.length, 0)
   assert.equal(slots.filter(s => s?.name === 'stone_pickaxe').length, 1)
+})
+
+// --- THE REPLAY: Frost's REAL cell (the saved region, fixtures/frost-cell-20261116.json) and Frost's REAL bag (the logs) ---
+const FROST = JSON.parse(readFileSync(new URL('./fixtures/frost-cell-20261116.json', import.meta.url), 'utf8'))
+/** The fixture's cells into a fake world, moved so Frost's feet (-74,50,91) are the fake's (0,64,0). */
+const frostCells = world => {
+  const [fx, fy, fz] = FROST.feet
+  for (const [k, name] of Object.entries(FROST.cells)) { const [x, y, z] = k.split(',').map(Number); world.set(`${x - fx},${y - fy + 64},${z - fz}`, name) }
+}
+const realName = k => { const [x, y, z] = k.split(',').map(Number); const [fx, fy, fz] = FROST.feet; return FROST.cells[`${x + fx},${y - 64 + fy},${z + fz}`] }
+const frostRealBag = () => [...Array.from({ length: 5 }, () => item('cobblestone', 64)), item('cobblestone', 59), spent('stone_pickaxe'),
+  item('wheat', 2), item('spruce_sapling', 9), item('iron_axe', 1), item('wheat_seeds', 64), item('wheat_seeds', 1), item('spruce_log', 16),
+  item('sand', 19), item('raw_copper', 3), item('moss_block', 7), item('azalea', 1), spent('iron_pickaxe'), spent('iron_pickaxe'),
+  item('bucket', 1), item('chest', 18), item('composter', 1), item('granite', 17), item('spruce_planks', 4), item('snowball', 4),
+  item('shears', 1), item('sugar_cane', 64), item('coal', 2), item('stone_hoe', 1, { left: 100 }), item('calcite', 8), item('dirt', 21),
+  item('dirt', 22), item('stone_axe', 1, { left: 100 }), item('furnace', 1), item('crafting_table', 1), item('diorite', 32)]
+/** A dig is flood-safe in the REAL cell: no water on any of its six sides and no gravel or sand on top of it. */
+const floodSafe = k => {
+  const [x, y, z] = k.split(',').map(Number)
+  const around = [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]].map(([a, b, c]) => realName(`${x + a},${y + b},${z + c}`))
+  return !around.includes('water') && !['gravel', 'sand'].includes(around[0])
+}
+
+await t('REPLAY, the fixture is Frost\'s cell: feet and head are air, stone then gravel then water overhead, the old table one down and north', () => {
+  assert.equal(frostRealBag().length, 36, 'the bag is 36 of 36, as logged')
+  assert.equal(realName('0,64,0'), 'air'); assert.equal(realName('0,65,0'), 'air'); assert.equal(realName('0,66,0'), 'stone')
+  assert.equal(realName('0,67,0'), 'gravel'); assert.equal(realName('0,68,0'), 'water'); assert.equal(realName('0,63,-1'), 'crafting_table')
+  assert.equal(realName('0,64,-1'), 'air', 'the one free cell in reach, standing on that table')
+  assert.equal(floodSafe('0,66,0'), false, 'control: the block overhead is NOT flood-safe (gravel on it), so floodSafe can say no')
+})
+
+await t('REPLAY, place: in Frost\'s real cell the carried table goes down, and the table below is never clicked', async () => {
+  const { bot, world, have, clicksOnTable } = makeBot(frostRealBag(), { walls: [] })
+  frostCells(world)
+  const r = await SKILLS.place.run({ bot }, { item: 'crafting_table' }, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(world.get('0,64,-1'), 'crafting_table', r.detail); assert.equal(have('crafting_table'), 0); assert.deepEqual(clicksOnTable, [])
+})
+
+await t('REPLAY, craft: from Frost\'s real cell and bag, `craft stone_pickaxe` ends in a pickaxe that digs, and no dig is beside water', async () => {
+  const { bot, world, slots, digs, tossed, clicksOnTable } = makeBot(frostRealBag(), { walls: [] })
+  frostCells(world)
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail)
+  const picks = slots.filter(s => /_pickaxe$/.test(s?.name ?? ''))
+  assert.equal(picks.filter(s => s.name === 'stone_pickaxe' && s.durabilityUsed === 0).length, 1, `a new, full stone pickaxe: ${r.detail}`)
+  assert.ok(picks.some(s => s.durabilityUsed === s.maxDurability - 1), 'a last swing is still held')
+  const wear = digs.filter(d => /_pickaxe$/.test(d.with))
+  assert.ok(wear.length >= 1 && wear.length <= 2, JSON.stringify(digs))
+  for (const d of digs.filter(x => x.name !== 'crafting_table')) assert.ok(floodSafe(d.at), `the dig at ${d.at} (${d.name}) is beside water or under gravel in the real cell`)
+  assert.deepEqual(tossed, []); assert.deepEqual(clicksOnTable, [])
+  console.log(`        replay: ${r.detail.slice(0, 300)} | digs ${JSON.stringify(digs)}`)
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
