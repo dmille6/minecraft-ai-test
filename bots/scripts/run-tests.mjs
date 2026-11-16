@@ -119,6 +119,10 @@ function run (file) {
              // one trunk (DECISIONS row 4): escdead-01 (b)'s craft-room relaxation (CRAFTSPARE, craftroom.mjs craftSpareOn), the same
              // way. The showcase line's craft-room tests pin its rebuild rule WITHOUT it; escdead.test.mjs sets it at its top
              CRAFTSPARE: process.env.CRAFTSPARE ?? 'off',
+             // one trunk (DECISIONS row 2): idlework-01 B's project stamp at the build order (UNSITEDWAIT, shop.mjs unsitedWaitOn), the
+             // same way. The showcase line's tests pin sinkfix-03's own-plot rule WITHOUT it (sinkfix3.test.mjs); shop.test.mjs's one
+             // fleet test of the stamp turns it on for itself
+             UNSITEDWAIT: process.env.UNSITEDWAIT ?? 'off',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.

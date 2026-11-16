@@ -667,7 +667,30 @@ export function setExpeditionAsk (fn) { expeditionAskOf = typeof fn === 'functio
 let copperAskOf = null
 export function setCopperAsk (fn) { copperAskOf = typeof fn === 'function' ? fn : null }
 /** BAGROOM-01: the build order's room refusal asks this (skills.mjs shareBankAsk) for a remedy order; null when unset. */
-export const unsitedWaitOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.UNSITEDWAIT ?? '').trim().toLowerCase())
+/**
+ * IDLEWORK-01 PIECE B: AN UNSITED PROJECT YIELDS ITS TURN (fleet 11-05 01Z..11-06 01Z, lib.telemetry full walk, 3,934 build_shop
+ * rows): four towns had NO open project because the first open one could not be sited and activeProject returned it anyway --
+ * board-a and placebo-d the monument ("no ziggurat site": 41 + 57 visits, 217 + 180 no_site skips), hive-c house1 ("no proven
+ * site": 23 visits, 189 skips), board-c the workshop itself (31 visits, 146 skips: the stair and the tidy, which need no workshop,
+ * never got a turn). Every bot then held its build_shop order 24 h on ITS OWN last stop (`lastStop === 'no_site'`, the order's
+ * per-bot back-off), whichever project came next. Now a visit that ends `no_site` with no record stamps the PROJECT
+ * (`<key>.unsited.json`, the town's file, every bot reads it); inside UNSITED_WAIT_MS that project is not `free` (the next open
+ * project first, as stuckBackoff does for a stuck one) and the order's no_site back-off is that project's, not the bot's. With
+ * nothing else open activeProject still returns it and the stamp holds the order, as the per-bot back-off did. UNSITEDWAIT=0 is
+ * the rollback.
+ *
+ * ONE TRUNK (control session 11-16, trunk-merge DECISIONS row 2): THE DEFAULT IS BY POOL. The showcase line answers the same
+ * question its own way (sinkfix-03: the bot's own no_site holds the order only while the active plot IS the plot that failed;
+ * siteRetryHolds below), and for the same inputs the two orders disagree. Both stay: OFF by default in the showcase pool -- the
+ * order is then that line's exactly -- and ON in every other, as the fleet has it. UNSITEDWAIT=on|1|true|yes forces it on anywhere,
+ * =off|0|false|no off anywhere (well.mjs wellBandOn's convention). Pure.
+ */
+export function unsitedWaitOn (env = process.env) {
+  const v = String(env?.UNSITEDWAIT ?? '').trim().toLowerCase()
+  if (['0', 'off', 'false', 'no'].includes(v)) return false
+  if (['1', 'on', 'true', 'yes'].includes(v)) return true
+  return String(env?.MEMORY_POOL ?? '').trim() !== 'showcase'
+}
 export const UNSITED_WAIT_MS = SHOP_SITE_RETRY_MS
 const unsitedFile = (dir, key) => path.join(dir, `${key}.unsited.json`)
 /** Stamp a project unsited (never throws: an unwritten stamp is the old per-bot back-off). */
@@ -1209,7 +1232,13 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
   // GROUNDS-03: the two back-offs that read the bot's last stop read it through the grounds' hold (`own`: see setGroundsFall)
   let own = state
   try { own = (groundsFallOf ? groundsFallOf.hold(state) : null) ?? state } catch { own = state }
-  if (!record && own.lastStop === 'no_site' && now - (own.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS && !prepClaimed(plot0) && siteRetryHolds(plot0, failedSite)) return { order: null, skip: 'no_site' }
+  if (!record && unsitedWaitOn()) {
+    // idlework-01 B (one trunk: where UNSITEDWAIT is on -- every pool but the showcase's by default): the no_site back-off is the
+    // ACTIVE PROJECT's stamp (any bot's visit), not this bot's last stop
+    let at = null
+    try { at = unsitedOfPlot(plot0) } catch { at = null }
+    if (unsitedFresh(at, now)) return { order: null, skip: 'no_site' }
+  } else if (!record && own.lastStop === 'no_site' && now - (own.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS && !prepClaimed(plot0) && siteRetryHolds(plot0, failedSite)) return { order: null, skip: 'no_site' }
   // F4 back-off: the PROJECT's (`stuckAt`, the stuck files: across restarts and bots -- Claude r21 P3-3), or this bot's own stop.
   // `stuckAt` may be a function, read only here, past the cheap skips (Claude r22 P3); a stamp more than a minute in the FUTURE
   // (a skewed or bad clock) is ignored rather than holding the project skew + 6 h

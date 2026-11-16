@@ -2,6 +2,9 @@
 // one unsitable monument / house / workshop no longer leaves a town with no project at all. The measured town shapes (fleet
 // 11-05 01Z..11-06 01Z): board-a/placebo-d (monument unsited, paths/wall/tidy never reached), hive-c (house1 unsited: monument and
 // tidy never reached), board-c (the workshop unsited: the stair and the tidy, which need no workshop, never reached).
+// one trunk (DECISIONS row 2): piece B defaults by POOL (off in the showcase's) and the suite's default is off; this is the fleet
+// line's test of it, so it is on here (shop.mjs reads the switch at each call)
+process.env.UNSITEDWAIT = 'on'
 import assert from 'node:assert/strict'
 import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

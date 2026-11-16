@@ -31,19 +31,24 @@ await t('the cooldown: inside it nothing; after it, the order (control)', () => 
   assert.ok(S.buildOrder({ ...base, state: { lastAt: base.now - S.SHOP_COOLDOWN_MS - 1 } }).order)
 })
 await t('S1 (UNSITEDWAIT=0, the rollback): no site waits a DAY on the bot\'s own last stop; with a record it is ordinary again', () => {
+  const was = process.env.UNSITEDWAIT
   process.env.UNSITEDWAIT = '0'
   try {
     const st = { lastAt: base.now - S.SHOP_COOLDOWN_MS - 1, lastStop: 'no_site' }
     assert.strictEqual(S.buildOrder({ ...base, state: st }).skip, 'no_site')
     assert.ok(S.buildOrder({ ...base, state: { ...st, lastAt: base.now - S.SHOP_SITE_RETRY_MS - 1 } }).order)
     assert.ok(S.buildOrder({ ...base, state: st, record: { cells: [] } }).order)
-  } finally { delete process.env.UNSITEDWAIT }
+  } finally { if (was === undefined) delete process.env.UNSITEDWAIT; else process.env.UNSITEDWAIT = was }   // one trunk: the suite's default is put back
 })
 await t('S1 (idlework-01 B): the no-site day is the ACTIVE PROJECT\'s stamp, not the bot\'s last stop', () => {
   const st = { lastAt: base.now - S.SHOP_COOLDOWN_MS - 1, lastStop: 'no_site' }
   const stamps = new Map()
   S.setUnsitedOf(plot => stamps.get(plot) ?? null)
   S.setActivePlot(() => 'monument')
+  // one trunk (DECISIONS row 2): the stamp rule defaults by pool and the suite's default is the showcase's (off); this is the fleet
+  // line's test of it, so it is on for this test and put back after
+  const was = process.env.UNSITEDWAIT
+  process.env.UNSITEDWAIT = 'on'
   try {
     // the bot's last visit ended no_site, but the project now active (another) has no stamp: the order goes out
     assert.ok(S.buildOrder({ ...base, state: st }).order, 'a different project is not held by this bot\'s no_site')
@@ -53,7 +58,7 @@ await t('S1 (idlework-01 B): the no-site day is the ACTIVE PROJECT\'s stamp, not
     assert.ok(S.buildOrder({ ...base, state: st }).order, 'the day is over: re-fit')
     stamps.set('monument', base.now - 1000)
     assert.ok(S.buildOrder({ ...base, state: st, record: { cells: [] } }).order, 'a record: ordinary again')
-  } finally { S.setUnsitedOf(() => null); S.setActivePlot(() => null) }
+  } finally { S.setUnsitedOf(() => null); S.setActivePlot(() => null); if (was === undefined) delete process.env.UNSITEDWAIT; else process.env.UNSITEDWAIT = was }
 })
 
 console.log('THE PROJECT\'S SHARE OF THE BAG (Paper 10-25 SHOP-KILL / CHAIN-1)')

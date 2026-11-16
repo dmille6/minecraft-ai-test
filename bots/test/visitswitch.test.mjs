@@ -185,6 +185,47 @@ await t('wiring: the remedy\'s default is escdead AND the pool switch, read at t
   once(readFileSync(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8'), "CRAFTSPARE: process.env.CRAFTSPARE ?? 'off',", 'the suite\'s default')
   once(readFileSync(new URL('./escdead.test.mjs', import.meta.url), 'utf8'), "\nprocess.env.CRAFTSPARE = 'on'\n", 'the fleet line\'s test')
 })
+
+console.log('ROW 2: idlework-01 B\'s project stamp at the build order (UNSITEDWAIT, shop.mjs unsitedWaitOn) beside sinkfix-03\'s own-plot rule')
+const SH = await import('../src/shop.mjs')
+const SH_PATH = new URL('../src/shop.mjs', import.meta.url)
+await t('unsitedWaitOn (UNSITEDWAIT): off by default in the showcase pool, on in every other; on|off overrides either way -- MUTANT (the default flipped) killed',
+  () => killedBy(SH_PATH, SH, DEFAULT_LINE, FLIPPED_LINE, M => table(M.unsitedWaitOn, 'UNSITEDWAIT')))
+await t('what it reaches (shop.mjs buildOrder, no record): the showcase pool holds on the bot\'s own no_site for the plot that failed (or an unknown one) and reads no stamp; a fleet pool holds on the project\'s stamp and reads no last stop; UNSITEDWAIT either way', async () => {
+  const names = ['MEMORY_POOL', 'UNSITEDWAIT']
+  const now = 1_800_000_000_000
+  const base = { on: true, shared: true, atTown: true, planned: true, record: null, complete: false, freeSlots: 10, groundY: 70, feet: [2, 71, 0], now }
+  const own = { lastStop: 'no_site', lastAt: now - 11 * 60_000 }, fresh = { lastAt: now - 11 * 60_000 }
+  /** The order's skip (null: an order went out) with this active plot, this failed plot, this stamp on the active plot, this state. */
+  const skip = (active, failed, stamp, state) => {
+    SH.setActivePlot(() => active); SH.setNoSitePlot(() => failed); SH.setUnsitedOf(plot => (plot === active ? stamp : null))
+    try { const r = SH.buildOrder({ ...base, state }); assert.ok(r.order || r.skip, 'an order or a named skip'); return r.order ? null : r.skip } finally { SH.setActivePlot(() => null); SH.setNoSitePlot(() => null); SH.setUnsitedOf(() => null) }
+  }
+  const showcase = () => {
+    assert.strictEqual(skip('tower', null, null, own), 'no_site', 'an unknown failed plot holds (sinkfix3.test.mjs\'s control)')
+    assert.strictEqual(skip('road', 'road', null, own), 'no_site', 'the plot that failed waits its day')
+    assert.strictEqual(skip('tower', 'road', null, own), null, 'another plot is ordered')
+    assert.strictEqual(skip('tower', 'road', now - 1000, fresh), null, 'a stamp is not read: nothing holds a bot with no no_site of its own')
+  }
+  const fleet = () => {
+    assert.strictEqual(skip('tower', null, null, own), null, 'no stamp: the bot\'s own last stop holds nothing (shop.test.mjs S1 idlework-01 B)')
+    assert.strictEqual(skip('tower', 'road', now - 1000, fresh), 'no_site', 'any bot\'s stamp holds the project')
+    assert.strictEqual(skip('tower', 'road', now - SH.UNSITED_WAIT_MS - 1, own), null, 'the day is over')
+  }
+  await withVars(names, { MEMORY_POOL: 'showcase' }, showcase)
+  await withVars(names, { MEMORY_POOL: 'board-a' }, fleet)
+  await withVars(names, {}, fleet)
+  await withVars(names, { MEMORY_POOL: 'showcase', UNSITEDWAIT: 'on' }, fleet)
+  await withVars(names, { MEMORY_POOL: 'board-a', UNSITEDWAIT: 'off' }, showcase)
+})
+await t('wiring: the order\'s two rules are one if / else on the switch; the suite\'s default is off; the fleet line\'s tests turn it on', () => {
+  const shop = strip(readFileSync(SH_PATH, 'utf8'))
+  once(shop, '  if (!record && unsitedWaitOn()) {', 'the stamp rule')
+  once(shop, "  } else if (!record && own.lastStop === 'no_site' && now - (own.lastAt ?? -Infinity) < SHOP_SITE_RETRY_MS && !prepClaimed(plot0) && siteRetryHolds(plot0, failedSite)) return { order: null, skip: 'no_site' }", 'the showcase\'s rule, whole')
+  once(readFileSync(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8'), "UNSITEDWAIT: process.env.UNSITEDWAIT ?? 'off',", 'the suite\'s default')
+  once(readFileSync(new URL('./idlework-sites.test.mjs', import.meta.url), 'utf8'), "\nprocess.env.UNSITEDWAIT = 'on'\n", 'the fleet line\'s test')
+  once(readFileSync(new URL('./shop.test.mjs', import.meta.url), 'utf8'), "\n  process.env.UNSITEDWAIT = 'on'\n", 'the one fleet test in the showcase line\'s file')
+})
 try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* the runner's TMPDIR goes with it */ }
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
