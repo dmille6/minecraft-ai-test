@@ -7567,20 +7567,29 @@ export function escapeRecordSnapshot (bot, now = Date.now(), { fresh = false } =
   let v = null
   try {
     const cells = new Map()
+    // roofclimb-01 (review r3, Codex blockers 1 + 2): `hard` = the cells some record owns that is NOT paving or earth fill
+    // (ROOF_RECORD_PASS, by plot AND role). The names in `cells` are as before (the last record read names the cell), except
+    // that a paving/fill record never takes the name of a cell a hard record owns.
+    const hard = new Set()
     const ph = planHead(townDir(), planKeyNow(), bot?.worldId ?? null)
     if (!ph.ok || recordUnread(ph)) throw new Error('plan unread')
-    for (const k of planFurnitureCells(ph.head?.plan)) cells.set(k, 'townplan')
-    for (const k of bot?.townPlan?.cells ?? []) if (typeof k === 'string') cells.set(k, 'townplan')
+    for (const k of planFurnitureCells(ph.head?.plan)) { cells.set(k, 'townplan'); hard.add(k) }
+    for (const k of bot?.townPlan?.cells ?? []) if (typeof k === 'string') { cells.set(k, 'townplan'); hard.add(k) }
     const dir = townDir()
     for (const pj of PROJECTS) {
       const h = recordHead(dir, projKeyOf(pj.plot))
       if (!h.ok || recordUnread(h) || ((h.gens?.length ?? 0) > 0 && !h.head)) throw new Error(`${pj.plot} unread`)
       const name = pj.plot === SHOP_PLOT ? 'workshop' : pj.plot
-      for (const c of h.head?.rec?.cells ?? []) if (Array.isArray(c?.at) && c.role !== 'air') cells.set(`${c.at[0]},${c.at[1]},${c.at[2]}`, name)
+      const pass = ROOF_RECORD_PASS[pj.plot] ?? null
+      for (const c of h.head?.rec?.cells ?? []) {
+        if (!Array.isArray(c?.at) || c.role === 'air') continue
+        const k = `${c.at[0]},${c.at[1]},${c.at[2]}`
+        if (pass?.has(String(c.role))) { if (!hard.has(k)) cells.set(k, name) } else { cells.set(k, name); hard.add(k) }
+      }
     }
     const cols = treeFarmRecordCells()
     if (!cols) throw new Error('treefarm unread')
-    v = { cells, cols }
+    v = { cells, cols, hard }
   } catch { v = null }
   escapeRecordCache = { at: now, world: bot?.worldId ?? null, v }
   return v
@@ -34484,14 +34493,6 @@ async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
     }
     const said = /\(([^)]*)\)$/.exec(roof?.why ?? '')?.[1] ?? null   // protected | the monument's | the build records are unread
     roofWhy = top.why; roofBuilt = roof?.built != null ? `${roof.built}${said && said !== 'built' ? `, ${said}` : ''}` : null
-  }
-
-  // SHAFT-02: UP THE TOWN STAIR FIRST, before the already-surfaced return (design r2, both engines): a ROOFED bot below the stair's
-  // ground near it walks up it when the walk plan reaches the collar; anything else is today's climb. Not for an internal caller
-  // naming its own top (mine's town walk-out).
-  if (!Number.isFinite(args?._toY)) {
-    const up = await stairAscend(ctx, signal)
-    if (up?.ok) return { status: 'success', detail: up.detail, via: 'town_stair' }
   }
 
   // Already up here. Report it as a refusal, not a success: a call that cannot
