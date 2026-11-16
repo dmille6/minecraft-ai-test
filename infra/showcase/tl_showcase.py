@@ -25,6 +25,15 @@ last frame -- `interval_min` while ACTIVE (its `project` record placed a block, 
 killed wholesale and the rest waits for the next slot. logs/views.json keeps each camera's last frame, last change and
 per-frame cost.
 
+THE DIRECTOR (camdirector-01, owner 11-16 "show what the bots are working on"): while tl.conf says
+"director": {"on": true}, tl_director.py reads the tail of the bots' logs each slot, finds the live SCENES (where the
+bots are, in three layers), and hands this slot one camera per live surface scene (`scene-<id>`, framed like a follow
+camera). They are shot right after the pair, AHEAD of every fixed camera, inside the same budget_s and inside
+director.scene_budget_s; the cameras in director.replaces give up their slot to them, the cameras in
+director.idle_only keep their idle interval, and a slot that shoots a scene camera plans no more than
+director.slot_s in all (a fixed camera that no longer fits waits a slot). Underground scenes go to logs/scenes-slot.json for tl_under.py. With
+"on": false (or no `director` key) none of this runs and the plan is exactly the one above (director_slot).
+
 A FAILED STEP IS A ROW, NOT A CRASH: the heartbeat records ok:false and the failed step; no frame is written for
 that slot; the next timer run tries again. Two captures never overlap (flock -n; an overrun is a `skip` row).
 The two views are published together or not at all, and each must be a rendered frame (size + terrain check).
@@ -32,7 +41,7 @@ The two views are published together or not at all, and each must be a rendered 
 Config: /srv/showcase/timelapse/tl.conf (JSON; CAPTURE_MIN lives in the systemd timer AND here, and the status
 line warns if they differ).
 """
-import argparse, datetime as dt, fcntl, json, os, resource, subprocess, sys, time
+import argparse, datetime as dt, fcntl, json, os, re, resource, subprocess, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts', 'lib'))
@@ -243,9 +252,10 @@ def resolve_cameras(cfg, state, now, progress, sites):
 
 def cam_interval(cfg, cam, active):
     """Minutes between frames for one camera: interval_min while active, idle_min otherwise. A legacy `every` N
-    (slots of 15 min) is the idle interval when idle_min is absent. Pure (tested)."""
+    (slots of 15 min) is the idle interval when idle_min is absent. A camera marked `idle_only` (the director sets it
+    on director.idle_only cameras while it is on) never gets the active interval. Pure (tested)."""
     cam = cam or {}
-    if active:
+    if active and not cam.get('idle_only'):
         return float(cam.get('interval_min') or cfg.get('interval_min') or DEFAULT_INTERVAL_MIN)
     if cam.get('idle_min'):
         return float(cam['idle_min'])
@@ -281,18 +291,32 @@ def cam_active(cfg, cam, vstate, now, progress):
     return False, 'quiet'
 
 
-def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS):
+def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, first=(), first_budget_s=None):
     """The cameras this slot shoots, in order: the pair always first, then every DUE camera (its interval has passed
     since its last frame, 2 min of slack for timer jitter), active before idle, most overdue first, until the estimated
-    cost reaches the budget. -> (views, why {view: reason}, deferred [views]). Pure (tested)."""
+    cost reaches the budget. `first` (camdirector-01: the director's scene cameras, in its order) are shot right after
+    the pair, AHEAD of every due camera: each one that fits what is left of the budget AND of first_budget_s (their
+    own ceiling per slot; None: only the budget); they are never in the due list. With first=() the plan is the plan
+    it always was. -> (views, why {view: reason}, deferred [views]). Pure (tested)."""
     cams = cfg.get('cameras') or {}
     est = lambda v: float((state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') or cfg.get('frame_s')
                           or DEFAULT_FRAME_S)
     heavy_left = int(cfg.get('heavy_per_slot', DEFAULT_HEAVY_PER_SLOT))
     left = budget_s - spent_s - sum(est(v) for v in pair)
     due, why = [], {v: 'pair' for v in pair}
+    lead, late, room = [], [], float('inf') if first_budget_s is None else float(first_budget_s)
+    for v in first:                 # the director's scene cameras: before every fixed camera, inside both budgets
+        if v not in cams or v in VIEWS or (cams[v] or {}).get('off'):
+            continue
+        if est(v) <= left and est(v) <= room:
+            lead.append(v)
+            why[v] = 'scene: ' + str(((cams[v] or {}).get('scene') or {}).get('caption') or 'ahead of the fixed cameras')
+            left -= est(v)
+            room -= est(v)
+        else:
+            late.append(v)
     for v in sorted(cams):
-        if v in VIEWS or (cams[v] or {}).get('off') or (cams[v] or {}).get('event_only'):
+        if v in VIEWS or v in first or (cams[v] or {}).get('off') or (cams[v] or {}).get('event_only'):
             continue
         vs = state.get(v) or {}
         act, aw = cam_active(cfg, cams[v], vs, now, progress)
@@ -303,6 +327,8 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS):
             due.append((0 if act else 1, -age / iv, v, f'{"active" if act else "idle"} every {iv:g} min; '
                                                        f'{"never shot" if not last else f"last {age:.0f} min ago"}; {aw}'))
     out, deferred, heavy = list(pair), [], []
+    out += lead
+    deferred += late
     for _, _, v, w in sorted(due):
         is_heavy = bool((cams[v] or {}).get('heavy'))
         if est(v) <= left and (not is_heavy or heavy_left > 0):
@@ -313,6 +339,60 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS):
         else:
             deferred.append(v)
     return out + heavy, why, deferred
+
+
+def director_on(cfg):
+    """The activity director runs only under an explicit tl.conf "director": {"on": true}. Pure (tested)."""
+    return bool(((cfg or {}).get('director') or {}).get('on'))
+
+
+def director_slot(cfg, cams, now, sites, stamp=None, write=True):
+    """The director's part of one slot (tl_director.py; imported only while it is on). -> (cameras, first,
+    first_budget_s, slot_s, result): the slot's cameras with the scene cameras added and the replaced / idle-only
+    cameras marked, the scene cameras in shooting order for plan_views(first=...), their per-slot ceiling, the whole
+    slot's ceiling while a scene camera is shot (None: budget_s alone), and the director's result (None while off).
+    OFF, the cameras come back untouched with first=() and None: the plan is exactly the plan without a director. A director that FAILS costs the slot nothing either: the same untouched cameras, and the
+    error for the heartbeat row. write False (the `plan` command): the director writes nothing."""
+    if not director_on(cfg):
+        return cams, (), None, None, None
+    try:
+        import tl_director as D
+        res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)
+        first = tuple(res['first'])
+        return (D.apply_cameras(cams, res['dc'], res['cameras']), first, res['dc'].get('scene_budget_s'),
+                res['dc'].get('slot_s') if first else None, res)
+    except Exception as e:
+        return cams, (), None, None, {'error': f'{type(e).__name__}: {str(e)[:200]}'}
+
+
+def plan_budget(budget_s, slot_s):
+    """The seconds a slot may plan: budget_s, or the director's slot_s when that is lower (only handed in for a slot
+    that shoots a scene camera). Pure (tested)."""
+    return min(float(budget_s), float(slot_s)) if slot_s else budget_s
+
+
+def director_done(cfg, res, cams, published, timings, now, state):
+    """After the slot's frames are published: tell the director which scene cameras got theirs (and how long a scene
+    frame took), and drop the schedule memory (views.json entry, gray file) of scene cameras that are no longer live,
+    so neither grows without bound. -> the director's heartbeat object, or None while it is off."""
+    if not res:
+        return None
+    if res.get('error'):
+        return {'error': res['error']}
+    import tl_director as D
+    shots = {}
+    for v in published:
+        sc = (cams.get(v) or {}).get('scene')
+        if sc:
+            shots[sc['id']] = timings.get(v) if isinstance(timings.get(v), (int, float)) else None
+    D.finish(cfg, res, shots, now)
+    for v in [k for k in state if k.startswith('scene-') and k not in cams]:
+        del state[v]
+        try:
+            os.remove(os.path.join(cfg['root'], 'logs', 'gray', v + '.gray'))
+        except OSError:
+            pass
+    return dict(D.summary(res), shot=sorted(shots))
 
 
 def project_progress(cfg):
@@ -662,25 +742,37 @@ def capture(cfg, stamp, views=None, deadline=None, est=None, pair=VIEWS):
 def frame_sidecar(cam, target, site=None):
     """The <stamp>.json written beside a published frame: the camera's caption label and the followed project, or None
     for a camera with neither (no file: the video draws its old caption). `final`: True on the one frame a follow
-    camera takes of a COMPLETED project (site: its project_sites entry). Pure (tested)."""
+    camera takes of a COMPLETED project (site: its project_sites entry). A director scene camera's frame also carries
+    `scene` (its id), `caption`, `bots` (names), `layer`, `score` and `kind`. Pure (tested)."""
     label = (cam or {}).get('label')
     if not label and not target:
         return None
     side = {'label': label or target, 'project': target}
     if target and (site or {}).get('complete'):
         side['final'] = True
+    sc = (cam or {}).get('scene')
+    if sc:                              # a director scene camera: what the frame shows, for the scene videos
+        side.update(scene=sc.get('id'), caption=sc.get('caption'), bots=list(sc.get('bots') or ()),
+                    layer=sc.get('layer'), score=sc.get('score'), kind=sc.get('kind'),
+                    project=target or sc.get('project'))
     return side
+
+
+STAGED_RX = re.compile(r'(.+)-\d{8}T\d{4}Z')      # <view>-<stamp>[-event-<label>].png
 
 
 def job_timings(stdout):
     """capture.mjs `ok <out> ms=<n>` / `skip <out> deadline` lines -> {view: seconds or 'deadline'}. Staged files are
-    <stage>/<view>-<stamp>.png. Pure (tested)."""
+    <stage>/<view>-<stamp>.png; the view is what precedes the stamp (a director camera is `scene-<id>`: a name may
+    carry a '-'). Pure (tested)."""
     out = {}
     for line in (stdout or '').splitlines():
         parts = line.split()
         if len(parts) < 2 or parts[0] not in ('ok', 'skip'):
             continue
-        v = os.path.basename(parts[1]).split('-', 1)[0]      # camera names carry no '-'
+        base = os.path.basename(parts[1])
+        m = STAGED_RX.match(base)
+        v = m.group(1) if m else base.split('-', 1)[0]
         if parts[0] == 'skip':
             out[v] = 'deadline'
             continue
@@ -759,9 +851,11 @@ def _capture_locked(cfg, a, t, stamp):
     progress = project_progress(cfg)
     sites = project_sites(cfg)
     cams, targets = resolve_cameras(cfg, state, t, progress, sites)
-    rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot
+    cams, first, first_budget, slot_s, dres = director_slot(cfg, cams, t, sites, stamp)    # off: cams unchanged, first ()
+    rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot (+ the scene cameras)
     pair = slot_pair(cfg, t)
-    views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start, pair=pair)
+    views, why, deferred = plan_views(rcfg, state, t, progress, plan_budget(budget, slot_s), time.time() - start,
+                                      pair=pair, first=first, first_budget_s=first_budget)
     est = {v: (state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') for v in views}
     crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(rcfg, stamp, views, deadline=start + budget, est=est,
                                                                pair=pair)
@@ -791,6 +885,8 @@ def _capture_locked(cfg, a, t, stamp):
             with open(gpath + '.part', 'wb') as f:
                 f.write(gray)
             os.replace(gpath + '.part', gpath)
+    drow = director_done(cfg, dres, cams, [os.path.basename(os.path.dirname(os.path.dirname(p))) for p in got + extra],
+                         timings, t, state)
     save_state(cfg, state)
     skipped = sorted(v for v, x in timings.items() if x == 'deadline')
     row.update(capture_s=cs, capture_cpu_s=ccpu, capture_rc=crc, frames=len(got),
@@ -799,6 +895,8 @@ def _capture_locked(cfg, a, t, stamp):
                extra_expected=[v for v in views if v not in pair], deferred=deferred, deadline_skipped=skipped, pair=list(pair),
                frame_s={v: x for v, x in timings.items() if x != 'deadline'}, budget_s=budget,
                active=sorted(v for v in why if why[v].startswith('active')))
+    if drow is not None:
+        row['director'] = drow
     if extra_err or raw_rc != 0:     # the diagnostics of an extra camera survive a published pair (review P3)
         row.update(extra_errors=extra_err, capture_raw_rc=raw_rc, capture_msg=msg[-300:])
     if a.frame0:
@@ -874,11 +972,20 @@ def cmd_shoot(cfg, a):
 
 def cmd_plan(cfg, a):
     t = now_utc()
-    state, progress = load_state(cfg), project_progress(cfg)
-    cams, targets = resolve_cameras(cfg, state, t, progress, project_sites(cfg))
+    state, progress, sites = load_state(cfg), project_progress(cfg), project_sites(cfg)
+    cams, targets = resolve_cameras(cfg, state, t, progress, sites)
+    cams, first, first_budget, slot_s, dres = director_slot(cfg, cams, t, sites, stamp_of(t), write=False)   # read-only
     views, why, deferred = plan_views(dict(cfg, cameras=cams), state, t, progress,
-                                      float(cfg.get('budget_s') or DEFAULT_BUDGET_S), 75.0)
-    print(json.dumps({'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred, 'follow': targets}, indent=1))
+                                      plan_budget(float(cfg.get('budget_s') or DEFAULT_BUDGET_S), slot_s), 75.0,
+                                      first=first, first_budget_s=first_budget)
+    out = {'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred, 'follow': targets}
+    if dres is not None:
+        if dres.get('error'):
+            out['director'] = {'error': dres['error']}
+        else:
+            import tl_director as D
+            out['director'] = D.summary(dres)
+    print(json.dumps(out, indent=1))
     return 0
 
 

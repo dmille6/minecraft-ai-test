@@ -91,6 +91,8 @@ const REQUIRED = [
   'infra/showcase/test_tl2.py',
   // camdirector-01 (11-16): the waste that stops, the activity director, the scene videos
   'infra/showcase/test_director.py',
+  'infra/showcase/tl_director.py',
+  'infra/showcase/fixtures/director-pos-20261116.json',
   'infra/showcase/tl2/tl2.py',
   'infra/showcase/tl2/tl2trails.py',
   'infra/showcase/tl2/tl2run.py',
