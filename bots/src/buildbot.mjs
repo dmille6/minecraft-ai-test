@@ -525,9 +525,14 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       mark('dig', c)
       try { await bot.dig(b, true) } catch (e) { if (e?.aborted || aborted()) throw e; return 'refused' }
       // boardwalk-03: a block dug out of water reads WATER once the lake flows back in: gone either way
-      const n = await within('confirm', DIG_CONFIRM_MS + 250, () => blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS))
-      if (n) progress()
-      return n ? 'confirmed' : 'unconfirmed'
+      // buildwait-01: the server's confirmation is a declared window, and a confirmed dig is progress. (The wait's own line keeps the
+      // showcase's text inside the window: boardwalk3.test reads it there)
+      const landed = await within('confirm', DIG_CONFIRM_MS + 250, async () => {
+        const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS)
+        return n
+      })
+      if (landed) progress()
+      return landed ? 'confirmed' : 'unconfirmed'
     },
     // leaffell-01show: WOULD THE PROTECTED-ZONE GUARD REFUSE A BUILD'S DIG OF THIS CELL? -> the zone's id | null. The guard's own
     // decision (protectzone.mjs zoneDecision: a dig that is no survival dig, the feet the stand's -- the deep exemption reads them),
