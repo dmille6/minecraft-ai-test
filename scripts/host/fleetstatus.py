@@ -667,6 +667,18 @@ def showcase_report(until, client=None, window_h=3):
     except Exception as e:
         lines.append(f'SHOWCASE bots: stream unreadable ({type(e).__name__}: {str(e)[:120]}) -- before the first '
                      f'showcase bot row this is expected; afterwards check filebeat on 10.0.0.40')
+    # The heartbeat rows are read first: they carry the brain the showcase is SET to (tl_showcase.brain_health reads
+    # /srv/showcase/BRAIN.json through make_env.load_brain, the tripwire's reading), and the decision rows are judged against
+    # that. This host cannot read the file. Until 11-16 the line compared against the Studio proxy and gemma4, hardcoded here.
+    rows, hb_err = None, None
+    try:
+        r = client('POST', f'{SHOWCASE_OPS}/_search',
+                   {'size': 400, 'sort': [{'@timestamp': {'order': 'desc'}}],
+                    'query': {'bool': {'filter': [{'term': {'kind': 'showcase_timelapse'}},
+                                                  {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=26))}}}]}}})
+        rows = [h['_source'] for h in r['hits']['hits']]
+    except Exception as e:
+        hb_err = e
     try:
         ll = EsEvents.load('showcase-llm', since=since, until=until, gaps='allow', client=client)
         n = ll.total()
@@ -674,17 +686,18 @@ def showcase_report(until, client=None, window_h=3):
         unserved = n - sum(v for k, v in models.items() if k != _est.MISSING)
         models = {k: v for k, v in models.items() if k != _est.MISSING}
         eps = ll.terms('llm.endpoint', allow_zero=True) if n else {}
-        foreign = sum(v for k, v in eps.items() if k not in (_est.MISSING, 'http://127.0.0.1:11612'))
-        out.update(llm_docs=n, models=models, unserved=unserved, foreign_endpoint_rows=foreign)
-        lines.append(SS.brain_line(models, unserved, n, foreign))
+        eps = {k: v for k, v in eps.items() if k != _est.MISSING}
+        expect, unread = (None, f'the heartbeat is unreadable ({type(hb_err).__name__}: {str(hb_err)[:80]})') if rows is None \
+            else SS.brain_expected(rows, until)
+        other_model, foreign = SS.brain_off(models, eps, expect)
+        out.update(llm_docs=n, models=models, unserved=unserved, endpoints=eps, brain_expected=expect, brain_unread=unread,
+                   other_model_rows=other_model, foreign_endpoint_rows=foreign)
+        lines.append(SS.brain_line(models, unserved, n, eps, expect, unread))
     except Exception as e:
         lines.append(f'SHOWCASE BRAIN: stream unreadable ({type(e).__name__}: {str(e)[:120]})')
     try:
-        r = client('POST', f'{SHOWCASE_OPS}/_search',
-                   {'size': 400, 'sort': [{'@timestamp': {'order': 'desc'}}],
-                    'query': {'bool': {'filter': [{'term': {'kind': 'showcase_timelapse'}},
-                                                  {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=26))}}}]}}})
-        rows = [h['_source'] for h in r['hits']['hits']]
+        if rows is None:
+            raise hb_err
         f0 = next((dt.datetime.fromisoformat(x['frame0_t'].replace('Z', '+00:00')) for x in rows if x.get('frame0_t')),
                   None)
         lines.append(SS.timelapse_line(rows, until, frame0=f0))

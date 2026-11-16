@@ -227,6 +227,14 @@ MUTANTS = [
     ('tl_video.py', "    if est_s * margin > left:", "    if est_s > left:", 'test_smoothing_choice_deadline_and_fallback'),
     ('tl_video.py', "    who = ''.join(ch for ch in str(who) if ch.isalnum() or ch in ' -_')[:40] or view", "    who = str(who)",
      'test_smooth_encode_and_text_scale'),
+    # monfix-01 (11-16): the heartbeat names the brain setting it read, for the reader on the other host
+    ('tl_showcase.py', "        return dict(brain_report((get or fetch)(url), model), **setting)", "        return brain_report((get or fetch)(url), model)",
+     'test_heartbeat_carries_the_brain_setting_for_the_far_reader'),
+    ('tl_showcase.py', "        return dict(brain_report({'error': f'{type(e).__name__}: {str(e)[:120]}'}, None), **setting)",
+     "        return brain_report({'error': f'{type(e).__name__}: {str(e)[:120]}'}, None)",
+     'test_heartbeat_carries_the_brain_setting_for_the_far_reader'),
+    ('tl_showcase.py', "        setting = {k: brain[k] for k in ('url', 'model', 'kind')}", "        setting = {k: brain[k] for k in ('url', 'model', 'kind', 'owner')}",
+     'test_heartbeat_carries_the_brain_setting_for_the_far_reader'),
 ]
 
 

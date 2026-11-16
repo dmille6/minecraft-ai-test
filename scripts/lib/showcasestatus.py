@@ -87,14 +87,82 @@ def pause_line(rows, now):
     return None
 
 
-def brain_line(llm_rows_by_model, failed, total, fallback_endpoint_rows=0):
-    """llm_rows_by_model: {served model: count}; failed: decisions nothing served. -> one line."""
-    served = sum(llm_rows_by_model.values())
+BRAIN_SETTING_STALE = dt.timedelta(hours=2)     # a heartbeat row every capture_min (15): eight missed in a row is no setting
+
+
+def brain_expected(rows, now, stale=BRAIN_SETTING_STALE):
+    """The brain the showcase is SET to, as the newest heartbeat's `brain` object carries it (tl_showcase.brain_health puts
+    make_env.load_brain's reading of /srv/showcase/BRAIN.json there: the tripwire's reading, tripbrain-01)
+    -> ({'url', 'model', 'kind'}, None) or (None, why).
+    NEVER A DEFAULT. No heartbeat with a brain object, one older than `stale`, or one that names no url and model (a
+    BRAIN.json nobody could read, or a tl_showcase.py from before monfix-01) is (None, why): brain_line then judges nothing
+    and says so. The reader before this one had the Studio proxy and gemma4 written into it and called every decision of
+    the owner's permanent qwen2.5 on the 5080 a row "from a NON-showcase endpoint"."""
+    rows = sorted((r for r in rows or [] if r.get('t') and isinstance(r.get('brain'), dict)), key=lambda r: r['t'])
+    if not rows:
+        return None, 'no heartbeat row carries a brain object'
+    r = rows[-1]
+    try:
+        age = now - _t(r['t'])
+    except (TypeError, ValueError):
+        return None, f'the newest heartbeat has no readable time ({str(r["t"])[:30]!r})'
+    if age > stale:
+        return None, f'the newest heartbeat is {age.total_seconds() / 3600:.1f} h old ({r["t"]})'
+    b = r['brain']
+    url, model = b.get('url'), b.get('model')
+    if not (isinstance(url, str) and url and isinstance(model, str) and model):
+        return None, (f'the heartbeat of {r["t"]} names no brain setting'
+                      + (f': {str(b["error"])[:120]}' if b.get('error') else
+                         ' (tl_showcase.py on 10.0.0.40 is older than monfix-01, which put it there)'))
+    return {'url': url, 'model': model, 'kind': b.get('kind')}, None
+
+
+def _set_model(m, expect):
+    """Is served model `m` the set one? The name itself; behind the designed proxy the family ('gemma4:26b' ~ gemma4), as
+    the 10-20 check counted it (the proxy serves the tag it holds)."""
+    m, want = str(m), str(expect['model'])
+    return m == want or (expect.get('kind') == 'proxy' and m.split(':', 1)[0] == want.split(':', 1)[0])
+
+
+def brain_off(models, endpoints, expect):
+    """-> (rows served by a model other than the set one, rows at an endpoint other than the set one); (None, None) when
+    the setting is unread -- unknown is not zero."""
+    if not expect:
+        return None, None
+    return (sum(n for m, n in models.items() if not _set_model(m, expect)),
+            sum(n for u, n in endpoints.items() if u != expect['url']))
+
+
+def brain_line(models, unserved, total, endpoints, expect, unread=None):
+    """models: {served model: rows}; unserved: rows that name no model; endpoints: {llm.endpoint: rows}, rows with NO
+    endpoint left out (a work order: the scheduler chose, no model was asked -- latency 0, the model's name, no endpoint;
+    11-16: 371 of 3,296 rows in 3 h, all with latency 0); expect / unread: brain_expected()'s pair. -> one line.
+    '!! ' when the setting is unread (nothing is judged: an unread setting never passes) and when any row names a model
+    or an endpoint other than the set one (must be 0)."""
+    if not expect:
+        why = f'the brain setting is UNREAD ({unread or "no reason given"})'
+        if not total:
+            return f'!! SHOWCASE BRAIN: no llm rows in the window (bots not started, or not shipping); {why}'
+        return (f'!! SHOWCASE BRAIN: {why} -- {total} llm rows NOT JUDGED against it: models '
+                f'{dict(sorted(models.items()))}, unserved {unserved}; endpoints '
+                + (', '.join(f'{u} {n}' for u, n in sorted(endpoints.items())) or 'none')
+                + f'; no endpoint {total - sum(endpoints.values())}')
+    tag = f"[set: {expect.get('kind') or '?'} {expect['model']} at {expect['url']}]"
     if not total:
-        return 'SHOWCASE BRAIN: no llm rows in the window (bots not started, or not shipping)'
-    gem = sum(n for m, n in llm_rows_by_model.items() if str(m).startswith('gemma4'))
-    other = served - gem
-    return (f"SHOWCASE BRAIN: {total} decisions; gemma4 {gem} ({100 * gem / total:.1f}%), "
-            f"fallback/other {other} ({100 * other / total:.1f}%) {dict(sorted(llm_rows_by_model.items()))}, "
-            f"unserved {failed} ({100 * failed / total:.1f}%)"
-            + (f'; {fallback_endpoint_rows} rows from a NON-showcase endpoint (must be 0)' if fallback_endpoint_rows else ''))
+        return f'SHOWCASE BRAIN: no llm rows in the window (bots not started, or not shipping) {tag}'
+    served = sum(models.values())
+    other, foreign = brain_off(models, endpoints, expect)
+    on, at = served - other, endpoints.get(expect['url'], 0)
+    bad = []
+    if other:
+        bad.append(f'{other} rows by a model that is not the set one ('
+                   + ', '.join(f'{m} x{n}' for m, n in sorted(models.items()) if not _set_model(m, expect)) + ')')
+    if foreign:
+        bad.append(f'{foreign} rows at an endpoint that is not the set one ('
+                   + ', '.join(f'{u} x{n}' for u, n in sorted(endpoints.items()) if u != expect['url']) + ')')
+    return (('!! ' if bad else '')
+            + f"SHOWCASE BRAIN: {total} decisions; {expect['model']} {on} ({100 * on / total:.1f}%), "
+              f"other models {other} ({100 * other / total:.1f}%) {dict(sorted(models.items()))}, "
+              f"unserved {unserved} ({100 * unserved / total:.1f}%); at the set endpoint {at}, no endpoint "
+              f"{total - sum(endpoints.values())} (work orders: no model asked), elsewhere {foreign} {tag}"
+            + (' -- NOT THE SET BRAIN (must be 0): ' + '; '.join(bad) if bad else ''))
