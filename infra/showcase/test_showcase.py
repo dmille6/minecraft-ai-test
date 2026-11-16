@@ -1029,6 +1029,15 @@ def mrow(sha, run='main-rel', reviews=None, tests=_UNSET):
 
 
 class SoakGate(unittest.TestCase):
+    def setUp(self):        # no test here reads the host's own switch file (review r1: a host carrying the owner's 1 h went red)
+        self._soak_td = tempfile.TemporaryDirectory()
+        self._soak_old = SO.SOAK_ENFORCE
+        SO.SOAK_ENFORCE = os.path.join(self._soak_td.name, 'SOAK_GATE')
+
+    def tearDown(self):
+        SO.SOAK_ENFORCE = self._soak_old
+        self._soak_td.cleanup()
+
     """ONE CHANGE AT A TIME (owner 11-14): a stage waits for the live release's 3-h read, or names the fix it is."""
     T0 = dt.datetime(2026, 11, 13, 16, 29, 1, tzinfo=dt.timezone.utc)
     LIVE = '52d8285f-6dd0ded8-fdd64ead'
@@ -1213,7 +1222,17 @@ class SoakGate(unittest.TestCase):
             open(f, 'w').write(json.dumps({'soak_min': 60, 'owner': word}))
             self.assertEqual(SO.soak_now(f), (dt.timedelta(minutes=60), None))
             self.assertEqual(SO.soak_now(td)[0], H3, 'a directory at the path: unreadable, so 3 h')
-            self.assertIn('cannot be read', SO.soak_now(td)[1])
+            good = json.dumps({'soak_min': 60, 'owner': word})
+            open(f, 'w').write(good + ' ' * (SO.SOAK_FILE_MAX - len(good)))
+            self.assertEqual(SO.soak_now(f), (dt.timedelta(minutes=60), None), 'exactly the limit, all of it valid')
+            open(f, 'w').write(good + ' ' * (SO.SOAK_FILE_MAX - len(good)) + 'NOT JSON')
+            self.assertEqual(SO.soak_now(f)[0], H3, 'Codex r1: a valid prefix of a longer file is not the file')
+            self.assertIn('longer than', SO.soak_now(f)[1])
+            open(f, 'w').write(json.dumps({'soak_min': 60, 'owner': 'x' * 5000}))
+            self.assertEqual(SO.soak_now(f)[0], H3, 'too long to judge whole: 3 h')
+            open(f, 'wb').write(b'\xff\xfe{"soak_min": 60}')
+            self.assertEqual(SO.soak_now(f)[0], H3, 'bytes that are not UTF-8')
+            self.assertIn('not a regular file', SO.soak_now(td)[1])
         # the rule itself under one hour: the +66 read of 11-13 opens the gate, a +55 read does not, no read never does
         H1 = dt.timedelta(minutes=60)
         r66 = self.rows((66, {'event': 'read', 'release': self.LIVE, 'decision': 'KEEP (the rule acts)'}))
@@ -1227,19 +1246,45 @@ class SoakGate(unittest.TestCase):
         act = lambda rows, m, **kw: SO.activation_soak_refusal(rows, 'c' * 8 + '-new', self.T0 + dt.timedelta(minutes=m), **kw) or ''
         self.assertIn('one change at a time', act(r66, 70))
         self.assertEqual(act(r66, 70, soak=H1), '', 'the switch asks with the same length')
-        # THE WIRING (structural: these three callers read the real file, which no test here may write): the stage gate,
-        # the switch and the read's own sentence all take the length from soak_now()
-        src = open(os.path.join(HERE, 'showcase_ops.py')).read()
-        code = re.sub(r'(^|[^:\'"])#.*$', r'\1', src, flags=re.M)
-        fn = lambda name: code[code.index(f'def {name}('):][:code[code.index(f'def {name}('):].index('\ndef ', 10)]
-        adm = fn('soak_admit')
-        self.assertEqual(adm.count('soak, note = soak_now()'), 1)
-        self.assertEqual(adm.count('why = soak_refusal(FR.load_jsonl(DEPLOY), now or now_utc(), fix_of, fix_why, soak=soak)'), 1)
-        rd = fn('cmd_read')
-        self.assertEqual(rd.count('soak, note = soak_now()'), 1)
-        self.assertEqual(rd.count('opens = t0 is not None and now >= t0 + soak'), 1)
-        self.assertNotIn('SOAK', rd, 'the read speaks of the length in force, not the constant')
-        self.assertEqual(fn('activation_soak_refusal').count('why = soak_refusal(rows, now, fix_of or None, fix_why or None, soak=soak)'), 1)
+        # THE CALLERS, by what they do under the owner's file (the switch at activate has its own wiring test above)
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            old = SO.DEPLOY, SO.lock, SO.now_utc
+            SO.DEPLOY, SO.lock = os.path.join(d, 'deploy.jsonl'), (lambda: None)
+            try:
+                with open(SO.DEPLOY, 'w') as f:
+                    for r in r66:
+                        f.write(json.dumps(r) + '\n')
+                ns = type('A', (), {'fix_of': None, 'fix_why': None})()
+                at70 = self.T0 + dt.timedelta(minutes=70)
+                ok, rec = SO.soak_admit(ns, at70)
+                self.assertEqual((ok, rec['soak_min']), (False, 180), 'no switch file: the stage gate waits 3 h')
+                open(SO.SOAK_ENFORCE, 'w').close()
+                self.assertEqual(SO.soak_admit(ns, at70)[1]['soak_min'], 180, 'the empty file of 11-14')
+                open(SO.SOAK_ENFORCE, 'w').write(json.dumps({'soak_min': 60, 'owner': word}))
+                ok, rec = SO.soak_admit(ns, at70)
+                self.assertEqual((ok, rec['soak_min'], rec['enforced'], 'soak_note' in rec), (True, 60, True, False), 'the stage gate takes the owner\'s hour')
+                open(SO.SOAK_ENFORCE, 'w').write('{"soak_min": 30, "owner": "%s"}' % word)
+                ok, rec = SO.soak_admit(ns, at70)
+                self.assertEqual((ok, rec['soak_min']), (False, 180))
+                self.assertIn('3 h stand', rec['soak_note'])
+                rd = type('A', (), {'run': 'x-01show', 'decision': 'KEEP (the rule acts)', 'by': None,
+                                    'why': 'wellread.py 01:38-04:40Z, 14 bots: dispose_well 31 ok of 33; climbs reached 2 of 2'})()
+
+                def says(minutes):
+                    SO.now_utc = lambda: self.T0 + dt.timedelta(minutes=minutes)
+                    out = io.StringIO()
+                    with contextlib.redirect_stdout(out):
+                        self.assertEqual(SO.cmd_read(rd), 0)
+                    return out.getvalue()
+                self.assertIn('does NOT open the gate; write the 3 h read then', says(67), 'a file that cannot be used: the read says 3 h')
+                self.assertIn('NOTE: SOAK_GATE soak_min', says(67))
+                open(SO.SOAK_ENFORCE, 'w').write(json.dumps({'soak_min': 60, 'owner': word}))
+                self.assertIn('does NOT open the gate; write the 1 h read then', says(55))
+                self.assertIn('this read OPENS the gate', says(61), 'the read command says what the stage gate will say')
+            finally:
+                SO.DEPLOY, SO.lock, SO.now_utc = old
 
     def test_nothing_live_and_unreadable_rows(self):
         self.assertEqual(SO.soak_refusal([], self.T0), None, 'the first release has nothing to wait for')

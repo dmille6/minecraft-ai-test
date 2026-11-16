@@ -24,6 +24,7 @@ Design: docs/reports/showcase-2026-10-20.md sections 3 and 9. Pure decisions liv
 Everything that changes state runs under /srv/showcase/ops.lock.
 """
 import argparse, datetime as dt, fcntl, glob, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
+import stat
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -867,6 +868,7 @@ SOAK_ENFORCE = f'{ROOT}/SOAK_GATE'
 # nobody can read never shortens the wait. Bounds 60..180 min: under an hour the +60 read has not been made, and the
 # hourly stopwatch (what else stopped working) has not run once.
 SOAK_MIN_FLOOR, SOAK_MIN_CEIL, SOAK_OWNER_MIN = 60, 180, 12
+SOAK_FILE_MAX = 4096        # the whole switch file is read and judged, or it is not used
 
 
 def soak_of(text):
@@ -893,8 +895,13 @@ def soak_of(text):
 def soak_now(path=None):
     """The soak in force -> (timedelta, note or None). Never raises: a file that cannot be read is the 3 h."""
     try:
-        with open(path or SOAK_ENFORCE) as f:
-            text = f.read(4096)
+        if not stat.S_ISREG(os.stat(path or SOAK_ENFORCE).st_mode):      # a pipe would block the read under the release lock
+            return SOAK, f'SOAK_GATE is not a regular file: the {int(SOAK.total_seconds() // 3600)} h stand'
+        with open(path or SOAK_ENFORCE, 'rb') as f:
+            raw = f.read(SOAK_FILE_MAX + 1)
+        if len(raw) > SOAK_FILE_MAX:        # Codex r1: a prefix is not the file; judge the whole of it or none of it
+            return SOAK, f'SOAK_GATE is longer than {SOAK_FILE_MAX} bytes: the {int(SOAK.total_seconds() // 3600)} h stand'
+        text = raw.decode('utf-8')
     except FileNotFoundError:
         return SOAK, None
     except (OSError, ValueError) as e:
