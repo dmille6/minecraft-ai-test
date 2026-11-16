@@ -467,6 +467,84 @@ const scenClosed = (F = FC) => {
 }
 await t('an unreadable project record (or its newest generation rejected, or a read that throws): the repair is closed -- nothing added, nothing left out, counted, on the row (control: all read)', () => scenClosed())
 
+const scenSiteprep = (F = FC) => {
+  // r3 BLOCKER 1: the strict read names the SITE-PREP record (and the land plan's) beside the guarded projects'
+  assert.deepStrictEqual(F.exclPlots(['wall', 'shaft']), ['wall', 'shaft', 'land', 'siteprep'])
+  assert.deepStrictEqual(F.exclPlots(['siteprep', 'wall', 'land', 'wall']), ['siteprep', 'wall', 'land'], 'each once')
+  // THE CASE: the site-prep record cannot be read. The lenient reader (skills.mjs siteprepHead) drops it, so the survey's own
+  // exclusions do NOT hold the plot it reserves -- here the plot over the deepened column (4,4)
+  const { srv, r0 } = holeScene()
+  dugRound(srv)
+  const blindSurvey = surveyOf(srv, {})                                   // what the survey sees without the record
+  const seeing = surveyOf(srv, { reserved: (x, z) => x >= 3 && x <= 6 && z >= 3 && z <= 6 })   // ...and with it
+  assert.strictEqual(blindSurvey.keepOff(4, 4), null); assert.ok(seeing.keepOff(4, 4))
+  const ok = { ok: true, head: { gen: 1 }, gens: [1], rejected: [] }
+  const unread = F.exclUnread(F.exclPlots(['wall']), p => (p === 'siteprep' ? { ok: false } : ok))
+  assert.deepStrictEqual(unread, ['siteprep'])
+  const closed = F.repairClosed({ keepOff: blindSurvey.keepOff, unread })
+  assert.strictEqual(closed, 'excl_unread:siteprep')
+  const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: blindSurvey.keepOff, closed })
+  assert.deepStrictEqual(fx.n, N({ left: 1, closed: 1 }), 'closed: no cell is added inside the plot nobody could read')
+  assert.strictEqual(F.repairNote(fx.n, closed), 'closed:excl_unread:siteprep')
+  // the controls: without the strict read the repair DOES add into the reserved plot (the blocker); with the record read the survey
+  // itself keeps off it
+  assert.strictEqual(F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: blindSurvey.keepOff, closed: null }).n.add, 2)
+  assert.strictEqual(F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: seeing.keepOff, closed: null }).n.add, 0)
+  assert.deepStrictEqual(F.exclUnread(F.exclPlots(['wall']), () => ok), [], 'everything read: open')
+  // the files beside the records: a check that is not exactly true, or throws, names its input unread
+  assert.deepStrictEqual(F.exclInputsUnread({ plan: () => true, zones: () => false, wells: () => { throw new Error('EIO') }, markers: () => 1, bridges: () => undefined, treefarm: () => true }), ['zones', 'wells', 'markers', 'bridges'])
+  assert.deepStrictEqual(F.exclInputsUnread({ plan: () => true, zones: () => true }), [])
+  assert.strictEqual(F.repairClosed({ keepOff: blindSurvey.keepOff, unread: [...unread, ...F.exclInputsUnread({ markers: () => false })] }), 'excl_unread:siteprep+markers')
+}
+await t('r3/1 an unreadable SITE-PREP record closes the repair, named on the row (controls: without the strict read 2 cells go into the reserved plot; with the record read the survey keeps off)', () => scenSiteprep())
+const scenLedgerCells = (F = FC) => {
+  // r3 BLOCKER 2: a column the repair gave its 4 cells (two refreshes of dig and fill, as above) ...
+  const { srv, r0 } = holeScene()
+  const fix = (r, T = F.FILLCOLUMN) => F.columnRepair(r, srv.read, { done: done(srv), now: NOW, T })
+  const lay = (...ys) => { for (const y of ys) srv.set([4, y, 4], 'cobblestone') }
+  dugRound(srv, { ring: 1, under: 2 })
+  let r = fix(r0).rec
+  lay(G - 2, G - 1)
+  for (const [dx, dz] of N8) dig(srv, 4 + dx, 4 + dz, 3)
+  for (let y = G - 1; y >= G - 4; y--) air(srv, 4, y, 4)
+  r = fix(r).rec
+  assert.deepStrictEqual(r.fillcol, { add: 4, left: 0, cols: { '4,4': [4, G - 4] } })
+  assert.strictEqual(r.cells.filter(c => c.ext).length, 4)
+  // ... republished WITHOUT its ledger (an older build during a rolling restart): the cells themselves say what was spent
+  const bare = { ...r }
+  delete bare.fillcol
+  assert.deepStrictEqual(F.repairLedger(bare), { add: 4, left: 0, cols: { '4,4': [4, G - 4] } })
+  // a ledger that says LESS than the cells: the cells win; one that says more: it wins (the greater count, the lower y, each way)
+  assert.deepStrictEqual(F.repairLedger({ ...r, fillcol: { add: 1, left: 0, cols: { '4,4': [1, G - 1] } } }), { add: 4, left: 0, cols: { '4,4': [4, G - 4] } })
+  assert.deepStrictEqual(F.repairLedger({ ...r, fillcol: { add: 9, left: 2, cols: { '4,4': [6, G - 9], '7,7': [2, 50] } } }), { add: 9, left: 2, cols: { '4,4': [6, G - 9], '7,7': [2, 50] } })
+  assert.deepStrictEqual(F.repairLedger(r0), { add: 0, left: 0, cols: {} }, 'the control: no added cell, no ledger: zero')
+  // the budget is already spent on the bare record: dug again, the column gets nothing (and the ledger is written back)
+  lay(G - 4, G - 3)
+  for (const [dx, dz] of N8) dig(srv, 4 + dx, 4 + dz, 5)
+  for (let y = G - 3; y >= G - 6; y--) air(srv, 4, y, 4)
+  const wide = { ...F.FILLCOLUMN, depthMax: 99, floorDy: 99 }
+  const fx = fix(bare, wide)
+  assert.strictEqual(fx.n.add, 0, 'no fresh budget for a column whose cells are on the record')
+  assert.strictEqual(fx.n.why.budget, 1)
+  assert.strictEqual(fx.n.total, 4)
+  assert.deepStrictEqual(fx.rec.fillcol, { add: 4, left: 0, cols: { '4,4': [4, G - 4] } }, 'the ledger is back on the record')
+  // ...and the record's lifetime total counts them: with a cap of 4 another dug-out column gets nothing (control: a cap of 6)
+  air(srv, -12, G, 0); dugRound(srv, { cx: -12, cz: 0 })
+  const more = { ...bare, cells: [...bare.cells, cell(-12, G, 0)] }
+  const cap = n => ({ ...F.FILLCOLUMN, recMin: n, recShare: 0 })
+  const at4 = F.columnRepair(more, srv.read, { done: done(srv), now: NOW, T: cap(4) })
+  assert.ok(!at4.added.some(c => c.at[0] === -12), 'the record\'s cap is spent by the cells already on it')
+  assert.strictEqual(at4.n.wait.rec_cap, 1)
+  assert.deepStrictEqual(keys(F.columnRepair(more, srv.read, { done: done(srv), now: NOW, T: cap(6) }).added.filter(c => c.at[0] === -12)), [xyz(-12, G - 2, 0), xyz(-12, G - 1, 0)])
+  // a record with nothing to repair but a missing ledger gets it written (control: with the ledger on it, nothing is written)
+  const calm = server()
+  const quiet = rec([cell(4, G + 1, 4), cell(4, G + 2, 4, { ext: true, added: 1 })])
+  const w = F.columnRepair(quiet, calm.read, { done: done(calm), now: NOW })
+  assert.deepStrictEqual(w.rec.fillcol, { add: 1, left: 0, cols: { '4,4': [1, G + 2] } })
+  assert.strictEqual(F.columnRepair(w.rec, calm.read, { done: done(calm), now: NOW }).rec, null)
+}
+await t('r3/2 the ledger is reconciled with the cells: added cells and no ledger -> the budget is spent; a ledger that says less -> the cells win; the record\'s total too', () => scenLedgerCells())
+
 say('r2 BLOCKER 2: THE LEDGER -- a column dug, filled and dug again stops at its budget; a record at its lifetime cap')
 const scenBudget = (F = FC) => {
   const { srv, r0 } = holeScene()
@@ -784,8 +862,18 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
     'fcheck = planSelfCheck(body, rdc, { done: q => buildCellDone(rdc(...q.at), TIDY_PALETTE, q.role) })',
     "...(fcheck ? { result: `float${fcheck.left}/${fcheck.open}${fcheck.err ? '/err' : ''}` } : {})",
     // r2: the exclusions are THIS refresh's survey's own, the records behind them read strictly, the repair closed when one is unread
-    'fcUnread = fillExclUnread([...projectsGuarded().map(p => p.plot), LAND_PLOT], pl => recordHead(dir, projKeyOf(pl)))',
-    "if (c?.zonesKnown === false) fcUnread.push('zones')",
+    'fcUnread = fillExclUnread(fillExclPlots(projectsGuarded().map(p => p.plot)), pl => recordHead(dir, projKeyOf(pl)))',
+    // r3: every other input of the exclusions read strictly too
+    'const fcFiles = reservationFilesStrict(dir, { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })',
+    'fcUnread.push(...fillExclInputsUnread({',
+    'plan: () => h?.ok === true && !!h.head?.plan && !recordUnread(h),',
+    'zones: () => c?.zonesKnown === true,',
+    'wells: () => fcFiles.wells.ok === true,',
+    'treefarm: () => fcFiles.farm.ok === true,',
+    'townsite: () => readTownSite(dir, townSiteKey()).malformed !== true,',
+    'markers: () => exMarkersReadable(),',
+    'bridges: () => exBridgeSitesStrict() !== null,',
+    'hallpad: () => !projectsOn().some(p => p.plot === HALL_PLOT) || !!blueprintOf(HALL_BLUEPRINT),',
     "fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null",
     'const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fcUnread })',
   ]
@@ -798,6 +886,8 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
   assert.ok(!wired(s.replace(LINES[1], '')), 'MUTANT: the repair cut out of the publish still reads wired')
   assert.ok(!wired(s.replace(LINES[1], '').replace(LINES[2], `${LINES[2]}\n${LINES[1]}`)), 'MUTANT: the repair after the stamp still reads wired')
   assert.ok(!wired(s.replace("fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null", 'fcKeepOff = I.avoid')), 'MUTANT: an exclusion rebuilt beside the survey\'s still reads wired')
+  assert.ok(!wired(s.replace('fillExclPlots(projectsGuarded().map(p => p.plot))', '[...projectsGuarded().map(p => p.plot), LAND_PLOT]')), 'MUTANT (r3): the strict read without the site-prep record still reads wired')
+  assert.ok(!wired(s.replace('      markers: () => exMarkersReadable(),\n', '')), 'MUTANT (r3): the markers left lenient still reads wired')
   // the four counters of the waiver's room read the stuck waivers only (waiveroom.mjs): nowhere the map's bare size
   for (const [f, n] of [['wall.mjs', 1], ['gkwork.mjs', 2], ['planahead.mjs', 1]]) {
     const src = strip(readFileSync(URL_OF(f), 'utf8'))
@@ -954,6 +1044,15 @@ await kills('r2/3 the dependents past the repair\'s cap', '    if (room <= 0) { 
 await kills('r2/3 the repair\'s cap counted with the stuck waivers', 'let room = repairOutMax(rec, T) - repairWaivedN(rec.waived)', 'let room = repairOutMax(rec, T) - Object.keys(rec.waived ?? {}).length', scenDependentsRoom)
 await kills('r2/3 the omissions\' cap removed (the repair leaves out without bound)', '        if (outRoom > 0) { outRoom--; continue }\n', '        if (outRoom > -Infinity) { outRoom--; continue }\n', scenOutCap)
 await kills('r2/3 at the cap the column still gets its cells (a bare top is then laid)', "        plan.delete(k); waits(k, 'out_cap'); over = true\n", "        waits(k, 'out_cap')\n", scenOutCap)
+
+await kills('r3/1 the strict read without the site-prep record', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT, SITEPREP_PLOT])]', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT])]', scenSiteprep)
+await kills('r3/1 the strict read without the land plan', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT, SITEPREP_PLOT])]', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), SITEPREP_PLOT])]', scenSiteprep)
+await kills('r3/1 an input whose check throws read as read', 'let v = false; try { v = ok() === true } catch { v = false } if (!v) out.push(name)', 'let v = false; try { v = ok() === true } catch { v = true } if (!v) out.push(name)', scenSiteprep)
+await kills('r3/1 an input whose check is merely truthy read as read', 'let v = false; try { v = ok() === true } catch { v = false } if (!v) out.push(name)', 'let v = false; try { v = !!ok() } catch { v = false } if (!v) out.push(name)', scenSiteprep)
+await kills('r3/2 the column\'s count is the ledger\'s alone (the max() gone)', 'cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), Math.min(cols[k]?.[1] ?? Infinity, low)]', 'cols[k] = [cols[k]?.[0] ?? cnt, Math.min(cols[k]?.[1] ?? Infinity, low)]', scenLedgerCells)
+await kills('r3/2 the column\'s lowest y is the ledger\'s alone', 'cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), Math.min(cols[k]?.[1] ?? Infinity, low)]', 'cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), cols[k]?.[1] ?? low]', scenLedgerCells)
+await kills('r3/2 the cells are not read at all (the ledger trusted alone)', '    if (!c?.ext || !Array.isArray(c.at)) continue\n    ext++\n', '    if (c) continue\n    ext++\n', scenLedgerCells)
+await kills('r3/2 the record\'s total is the ledger\'s alone', 'return { add: Math.max(Math.max(0, Number(f?.add) || 0), ext), left:', 'return { add: Math.max(0, Number(f?.add) || 0), left:', scenLedgerCells)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

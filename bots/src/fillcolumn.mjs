@@ -42,6 +42,12 @@
 //   3. THE REPAIR'S WAIVERS ARE NOT THE STUCK WAIVER'S (waiveroom.mjs): every reason here starts `fillcolumn:`, no stuck-waiver
 //      counter counts them, and they have their own cap (repairOutMax). At that cap a column is not repaired and nothing is waived;
 //      the hold is then off, so its cells are deferred and counted like any stuck cell.
+// r3 (Codex round 2, two blockers):
+//   1. The strict read left out the SITE-PREP record (skills.mjs siteprepHead drops one it cannot read, and with it the plots it
+//      reserves). exclPlots names every record the exclusions are built from; exclInputsUnread the files beside them (the plan, the
+//      zones, the wells' and the tree farm's files, the town site, the markers, the bridges, the hall's pad): any one unread closes.
+//   2. The ledger is RECONCILED with the cells on every read (repairLedger): a cell the repair added carries `ext`, and a record
+//      holding such cells with no ledger, or a smaller one, has spent that budget all the same -- the cells win.
 
 import { refUsable } from './buildsite.mjs'
 import { isLiquid, replaceableCell } from './townplan.mjs'
@@ -49,6 +55,8 @@ import { refreshedAt, tidyRefreshOn, TIDYREFRESH } from './tidyrefresh.mjs'
 import { TIDY, INWALL, GK_WAIVE_SHARE } from './tidy.mjs'
 import { ROUGH } from './roughground.mjs'
 import { repairWaivedN } from './waiveroom.mjs'
+import { LAND_PLOT } from './landplan.mjs'
+import { SITEPREP_PLOT } from './siteprep.mjs'
 
 /**
  * THE BOUNDS, each the survey's own constant:
@@ -155,8 +163,33 @@ export const repairOutMax = (rec, T = FILLCOLUMN) => Math.max(T.outMin, Math.cei
  *  [cells ever added, the lowest y ever added]. A record without one (every record before r2) reads zero. Pure. */
 export function repairLedger (rec) {
   const f = rec?.fillcol
-  const cols = f?.cols && typeof f.cols === 'object' && !Array.isArray(f.cols) ? f.cols : {}
-  return { add: Math.max(0, Number(f?.add) || 0), left: Math.max(0, Number(f?.left) || 0), cols }
+  const lo = v => (v == null || !Number.isFinite(Number(v)) ? null : Number(v))
+  const cols = {}
+  if (f?.cols && typeof f.cols === 'object' && !Array.isArray(f.cols)) for (const [k, v] of Object.entries(f.cols)) cols[k] = [Math.max(0, Number(v?.[0]) || 0), lo(v?.[1])]
+  // RECONCILED WITH THE CELLS (r3, Codex round 2): every cell the repair added carries `ext` and stays on the record laid, open or
+  // waived. Per column the count is the greater of the ledger's and the `ext` cells present, the lowest y the lower of the two, and
+  // the record's total likewise -- a record republished without its ledger (or with an older one) has spent its budget all the same
+  const seen = new Map()
+  let ext = 0
+  for (const c of rec?.cells ?? []) {
+    if (!c?.ext || !Array.isArray(c.at)) continue
+    ext++
+    const k = colOf(c.at), e = seen.get(k)
+    seen.set(k, [(e?.[0] ?? 0) + 1, Math.min(e?.[1] ?? Infinity, c.at[1])])
+  }
+  for (const [k, [cnt, low]] of seen) cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), Math.min(cols[k]?.[1] ?? Infinity, low)]
+  return { add: Math.max(Math.max(0, Number(f?.add) || 0), ext), left: Math.max(0, Number(f?.left) || 0), cols }
+}
+/** EVERY RECORD THE EXCLUSIONS ARE BUILT FROM -> [plot]: the guarded projects' (`guarded`: shop.mjs projectsGuarded), the land plan's
+ *  (its landmark's reservation) and the SITE PREP's (the plots it reserves) -- the two the lenient readers add beside the guarded
+ *  ones (skills.mjs projectHeads: landHead, siteprepHead). Pure. */
+export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT, SITEPREP_PLOT])]
+/** THE OTHER INPUTS OF THE EXCLUSIONS THAT COULD NOT BE READ -> [name]. Pure over `checks` ({ name: () => true when read }): a
+ *  check that answers anything but true, or throws, names its input unread. */
+export function exclInputsUnread (checks = {}) {
+  const out = []
+  for (const [name, ok] of Object.entries(checks ?? {})) { let v = false; try { v = ok() === true } catch { v = false } if (!v) out.push(name) }
+  return out
 }
 /** THE RECORDS THE EXCLUSIONS ARE BUILT FROM THAT COULD NOT BE READ -> [plot]. Pure over `headOf(plot)` (buildproj.mjs recordHead's
  *  answer: { ok, head, gens, rejected }). tempstand.mjs otherCellsStrict's rule: a head that is not `ok`, a newest generation that
@@ -210,12 +243,13 @@ export function columnRepair (rec, read, { done = () => false, guard = new Set()
   const doneOnce = c => { const k = kOf(c.at); let v = dm.get(k); if (v === undefined) { v = !!done(c); dm.set(k, v) } return v }
   const colsL = { ...led.cols }
   // the record with its ledger as it stands now -> rec | null (nothing changed): written when a cell was added, when the unresolved
-  // count moved (the visit's hold reads it), or when the record itself changed
+  // count moved (the visit's hold reads it), when the record itself changed, or when the ledger on it is not the reconciled one
   const out = cur => {
     n.left = floatCells(cur, read, { done: doneOnce, guard, support }).left.length
     n.total = led.add + added.length
-    if (cur === rec && !added.length && n.left === led.left) return null
-    return { ...cur, fillcol: { add: n.total, left: n.left, cols: colsL } }
+    const next = { add: n.total, left: n.left, cols: colsL }
+    const same = rec.fillcol ? JSON.stringify(rec.fillcol) === JSON.stringify(next) : (!next.add && !next.left && !Object.keys(colsL).length)
+    return cur === rec && same ? null : { ...cur, fillcol: next }
   }
   // CLOSED (the exclusions could not be read): nothing is added, nothing left out, nothing comes back
   if (closed) return { rec: out(rec), n, added, dropped }
@@ -327,7 +361,7 @@ export function columnRepair (rec, read, { done = () => false, guard = new Set()
     }
     if (!add.length && !Object.keys(waive).length) break
     added.push(...add)
-    for (const c of add) { known.add(kOf(c.at)); const k = colOf(c.at), e = colsL[k]; colsL[k] = [(Number(e?.[0]) || 0) + 1, Math.min(Number.isFinite(Number(e?.[1])) ? Number(e[1]) : Infinity, c.at[1])] }
+    for (const c of add) { known.add(kOf(c.at)); const k = colOf(c.at), e = colsL[k]; colsL[k] = [(Number(e?.[0]) || 0) + 1, Math.min(e?.[1] ?? Infinity, c.at[1])] }
     cur = { ...cur, cells: add.length ? [...(cur.cells ?? []), ...add] : cur.cells, waived: Object.keys(waive).length ? { ...(cur.waived ?? {}), ...waive } : cur.waived,
       ...(add.length ? { bom: { ...(cur.bom ?? {}), earth: (Number(cur.bom?.earth) || 0) + add.length } } : {}) }
   }
