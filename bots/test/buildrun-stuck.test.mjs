@@ -72,12 +72,16 @@ await t('the stuck row is NAMED, and the order backs off after it (no loop)', as
     assert.strictEqual(S.buildOrder({ ...base, now, state: { lastAt: now - S.SHOP_COOLDOWN_MS - 1, lastStop: 'stuck_on_cell' } }).skip, 'stuck_on_cell')
     assert.ok(S.buildOrder({ ...base, now, state: { lastAt: now - S.SHOP_STUCK_RETRY_MS - 1, lastStop: 'stuck_on_cell' } }).order, 'after the back-off it asks again')
   } finally { delete process.env.BUILDNEXT }
-  // buildnext-01 (default): the bot's stuck stop holds ITS project (the scoped hold, through shop.mjs's hook), and asks again after
-  S.setNextHoldOf(plot => S.nextHeld(plot, { stuck: { plot: 'shop', at: now - S.SHOP_COOLDOWN_MS - 1 }, now }))
+  // the bot's stuck stop holds ITS project (the scoped hold, through shop.mjs's hook), and asks again after.
+  // one trunk (11-16): the hook is projturn-01's (setTurnNow -> stuckRetryHolds), which the trunk's buildOrder reads in place of
+  // buildnext-01's (setNextHoldOf); the same behaviour is asserted through it, with its release after the back-off
+  S.setTurnNow({ stuckPlot: () => 'shop', backedOff: () => false })
   try {
-    assert.strictEqual(S.buildOrder({ ...base, record: { plot: 'shop' }, now, state: { lastAt: now - S.SHOP_COOLDOWN_MS - 1 } }).skip, 'stuck_on_cell')
-    assert.ok(S.buildOrder({ ...base, record: { plot: 'wall' }, now, state: { lastAt: now - S.SHOP_COOLDOWN_MS - 1 } }).order, 'another project is not held')
-  } finally { S.setNextHoldOf(() => null) }
+    const own = { lastAt: now - S.SHOP_COOLDOWN_MS - 1, lastStop: 'stuck_on_cell' }
+    assert.strictEqual(S.buildOrder({ ...base, record: { plot: 'shop' }, now, state: own }).skip, 'stuck_on_cell')
+    assert.ok(S.buildOrder({ ...base, record: { plot: 'wall' }, now, state: own }).order, 'another project is not held')
+    assert.ok(S.buildOrder({ ...base, record: { plot: 'shop' }, now, state: { lastAt: now - S.SHOP_STUCK_RETRY_MS - 1, lastStop: 'stuck_on_cell' } }).order, 'after the back-off it asks again')
+  } finally { S.setTurnNow(null) }
   // PROJECT-WIDE (Claude r21 P3-3): a restarted bot, or another town bot, with NO in-memory state still backs off -- the stuck files
   const at = PJ.stuckAt(pr.dir, pr.key)
   assert.ok(Number.isFinite(at), 'the stuck visit stamped stuckAt')
