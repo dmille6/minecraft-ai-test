@@ -284,7 +284,7 @@ import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's as
 import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
-import { BAGFIX, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
+import { BAGFIX, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -8730,8 +8730,10 @@ const blockProps = b => { try { return b?.getProperties?.() ?? {} } catch { retu
  * never the other half of a double chest already listed (the halves name each other in their block state; both open
  * the same 54 slots).
  */
-export function townContainers (bot, max = TD_MAX_CONTAINERS) {
+export function townContainers (bot, max = TD_MAX_CONTAINERS, { fullOk = undefined } = {}) {
   try {
+    // bagfix-01 M: no caller's word (the orders' `container` reads) -- the bag's own widest plan decides which full chests still take it
+    if (fullOk === undefined) fullOk = BAGFIX.merge ? mergeFullOk(bot, roomBankPlanSteps(bot)) : null
     const me = bot.entity?.position
     if (!me) return []
     const home = homeVec()
@@ -8745,7 +8747,9 @@ export function townContainers (bot, max = TD_MAX_CONTAINERS) {
     const out = []
     for (const p of found) {
       if (out.length >= max) break
-      if (['full', 'unavailable', 'unusable', 'backoff'].includes(containerStatus(mem[posKey(p)]))) continue
+      // bagfix-01 M: a container remembered `full` (no empty slot) is still tried when its partial stacks take the plan's names (`fullOk`)
+      const st = containerStatus(mem[posKey(p)])
+      if (['full', 'unavailable', 'unusable', 'backoff'].includes(st) && !(st === 'full' && fullOk?.(posKey(p)))) continue
       const b = bot.blockAt(p)
       if (!b || !isTownContainer(bot, b)) continue
       const chestLike = blockNameOf(bot, b) !== 'barrel'
@@ -8805,7 +8809,10 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail, ...(room ?? {}) })
   // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
   const plan = accept ? { ...plan0, steps: plan0.steps.filter(st => accept(st.name)) } : plan0
-  const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
+  // bagfix-01 M: a stack goes onto the chest's partial stacks of the same item first (bagfix.mjs mergeFit); off, empty slots only
+  const steps = BAGFIX.merge
+    ? mergeFit(plan.steps, win.slots.slice(0, win.inventoryStart), { stackOf: n => bag.find(b => b.name === n)?.stackSize ?? 64, same: (d, st) => sameStack(d, bag.find(b => b.slot === st.slot)) })
+    : fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   // towndeposit-02: NO EMPTY CONTAINER SLOT at the open (the only room a whole-stack move uses) -- the caller remembers it full
   const noRoom = plan.steps.length > 0 && !win.slots.slice(0, win.inventoryStart).some(x => !x)
@@ -8855,11 +8862,28 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         }
         await click(it.wslot, step.half ? 1 : 0)
         if (!win.selectedItem || win.selectedItem.name !== step.name || win.selectedItem.count !== step.count) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${step.name}`)
-        const dest = !win.slots[step.dest] ? step.dest : emptyDest()
+        // bagfix-01 M: THE MERGES, each re-read at its click (the slot must still hold the same item with room) and read back from
+        // the cursor (exactly the rest, or nothing); a surprise stops the loop and the caller's settle puts the cursor back
+        let left = step.count
+        for (const m of (step.merges ?? [])) {
+          const d = win.slots[m.dest]
+          const max = d?.stackSize ?? 64
+          if (!d || !sameStack(d, win.selectedItem) || d.count >= max) continue
+          const n = Math.min(left, max - d.count), base = d.count
+          await click(m.dest)
+          const cur = win.selectedItem
+          if (left - n > 0 ? !(cur && cur.name === step.name && cur.count === left - n) : !!cur) throw stop(`the ${step.name} did not merge into slot ${m.dest}`)
+          for (const e of done) if (e.dest === m.dest) e.grew = true
+          done.push({ step: { ...step, count: n }, it, dest: m.dest, base, after: base + n })
+          left -= n
+          if (!left) break
+        }
+        if (!left) continue
+        const dest = step.dest != null && !win.slots[step.dest] ? step.dest : emptyDest()
         if (dest == null) { full = true; throw stop('no empty container slot left') }
         await click(dest)
         if (win.selectedItem) throw stop(`the ${step.name} did not go into slot ${dest}`)
-        done.push({ step, it, dest })
+        done.push({ step: left === step.count ? step : { ...step, count: left }, it, dest })
       }
     }, { deadline, signal })
   } catch (e) {
@@ -8887,10 +8911,30 @@ async function verifyTown (bot, block, done, ms) {
     const ix = townIndexObserve(bot, block.position, win, 'verify')
     const bag = {}
     for (const it of windowBag(bot, win)) bag[it.name] = (bag[it.name] ?? 0) + (it.count ?? 0)
-    return { ok: true, bag, ix, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
+    return { ok: true, bag, ix, verified: done.filter(x => destHolds(win.slots[x.dest], x)) }   // bagfix-01 M: a merge holds at least what it left (bagfix.mjs destHolds)
   } finally { try { win.close() } catch { /* already closed */ } }
 }
 
+/** BAGFIX-01 M: WHICH `full` CONTAINERS STILL TAKE THIS PLAN -> (posKey) => bool, or null (merging off, no index, no stackable step).
+ *  The town index's last observation of each container (either half's key): room on its partial stacks for a whole planned stack. */
+function mergeFullOk (bot, steps = []) {
+  try {
+    if (!BAGFIX.merge) return null
+    const size = stackSizeOf(bot)
+    const want = [...new Set((Array.isArray(steps) ? steps : []).filter(st => st?.name && size(st.name) > 1).map(st => st.name))]
+    if (!want.length) return null
+    const least = Math.min(...steps.filter(st => want.includes(st.name)).map(st => Number(st.count) || 1))
+    const entries = townIndexEntries(bot)
+    if (!entries) return null
+    const ok = new Set()
+    for (const [k, e] of Object.entries(entries)) {
+      if (!fullStillTakes({ status: 'full', room: mergeRoom(e?.obs?.names, want, size), least })) continue
+      for (const h of (Array.isArray(e?.obs?.h) ? e.obs.h : [k])) ok.add(String(h))
+      ok.add(k)
+    }
+    return ok.size ? k => ok.has(k) : null
+  } catch { return null }
+}
 async function townDeposit (ctx, _args, signal) {
   const { bot } = ctx
   // THE COUNT STEP (stocktarget design 3.7): the order asked to count the town first -- up to three containers whose count
@@ -8974,10 +9018,12 @@ async function townDeposit (ctx, _args, signal) {
   const sortMax = sortH ? sortTries(sortH, bankGroups) : TD_MAX_CONTAINERS
   // ...and then THE OWN HOMES AGAIN, taking anything (Codex r1 BLOCK: with the overflow and the other fallbacks full, a roomy own home
   // must still take what the unsorted deposit would have banked -- a sorted deposit never refuses for want of a category)
-  const sorted = sortH ? depositOrder(sortH, townContainers(bot, 16).map(b => ({ b, ...sortKeys(bot, b) })), bankGroups) : null
+  // bagfix-01 M: a container remembered `full` is still tried while the town index shows room on its partial stacks for the plan's names
+  const fullOk = mergeFullOk(bot, startPlan.steps)
+  const sorted = sortH ? depositOrder(sortH, townContainers(bot, 16, { fullOk }).map(b => ({ b, ...sortKeys(bot, b) })), bankGroups) : null
   const containers = sortH
     ? [...sorted.map(x => ({ b: x.b, any: false })), ...sorted.filter(x => depositTier(sortH, x.k, bankGroups, x.alt) === 0).map(x => ({ b: x.b, any: true }))]
-    : townContainers(bot, TD_MAX_CONTAINERS + TD_FULL_EXTRA)
+    : townContainers(bot, TD_MAX_CONTAINERS + TD_FULL_EXTRA, { fullOk })
   const sortLog = []
   if (!containers.length) { stop = 'no town container'; row('no_effect'); bankRows(0, slotsBefore); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
   const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
@@ -19239,6 +19285,12 @@ function roomBankSlots (bot) {
     return plan.steps.filter(st => st.room).length
   } catch { return 0 }
 }
+/** The room bank's whole plan now (every part's steps) -> [step]. Never throws. */
+function roomBankPlanSteps (bot) {
+  try {
+    return townDepositPlan(bot.inventory?.items?.() ?? [], { wanted: Array.isArray(bot.townDepositWanted) ? bot.townDepositWanted : [], noSwords: foodSkipNow(bot).active, room: true, roomExclude: roomShareNames(bot) }).steps
+  } catch { return [] }
+}
 /** shop.mjs buildOrder's room ask (bagroom-01 + bagfull-01) -> { order } | null. Never throws. */
 function roomAsk ({ now = Date.now(), freeSlots = 36, plot = null, need = BUILD_ROOM_SLOTS } = {}) {
   if (BAGROOM.share) { const sb = shareBankAsk({ now, freeSlots }); if (sb) return sb }
@@ -19272,10 +19324,12 @@ function roomTargetNow (bot, now = Date.now(), { fresh = false } = {}) {
     if (BAGFIX.reach) for (const k of townExtraKeys(home)) { if (!byKey.has(k)) { const [x, y, z] = k.split(',').map(Number); if ([x, y, z].every(Number.isInteger)) byKey.set(k, new Vec3(x, y, z)) } }
     let mem = {}
     try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    const fullOk = BAGFIX.reach ? mergeFullOk(bot, roomBankPlanSteps(bot)) : null   // bagfix-01 M: a full chest whose partial stacks take the plan is a target
     const cands = [...byKey.entries()].map(([k, p]) => {
       const b = bot.blockAt?.(p) ?? null
       const chestLike = b ? blockNameOf(bot, b) !== 'barrel' : true
-      return { at: p, d: me.distanceTo(p), inBox: inTownZone(p, home), extra: inTownExtra(home, p), status: containerStatus(mem[k]),
+      const st0 = containerStatus(mem[k])
+      return { at: p, d: me.distanceTo(p), inBox: inTownZone(p, home), extra: inTownExtra(home, p), status: st0 === 'full' && fullOk?.(k) ? 'visit' : st0,
                lid: !!b && (!isTownContainer(bot, b) || (chestLike && chestLidBlocked(bot.blockAt(p.offset(0, 1, 0))))) }
     }).sort((a, b) => a.d - b.d || a.at.x - b.at.x || a.at.y - b.at.y || a.at.z - b.at.z)
     const target = roomTarget(cands)
