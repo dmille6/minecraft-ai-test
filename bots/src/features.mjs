@@ -68,7 +68,7 @@ import { SHAFT_BLUEPRINT, LANDING_FEET } from './shaftgeom.mjs'
 import { deepModeDetail } from './deepmine.mjs'   // deepminer-01's licence row
 import { expeditionInstall } from './skills.mjs'   // expedition-01: the order's ask and the licence row
 import { copperRunInstall } from './skills.mjs'   // copperrun-01: the hall's copper ask and its licence row
-import { bagRoomInstall } from './skills.mjs'   // bagroom-01
+import { bagRoomInstall, yardLanesInstall } from './skills.mjs'   // bagroom-01; yardlanes-01
 import { copperhallModeDetail } from './copperhall.mjs'   // copperhall-01's licence row
 import { COPPERHALL } from './shop.mjs'
 import { YARD } from './shop.mjs'   // stockyard-01's licence row
@@ -217,6 +217,7 @@ export function installFeatures (bot) {
   try { copperRunInstall(bot) } catch (e) { log('warn', 'copper run not installed', { error: e.message }) }
   // bagroom-01: the build order's room refusal asks for a share-bank visit; `_bagroom_mode` (on=0 outside BAGROOM_POOLS or under BAGROOM=off)
   try { bagRoomInstall(bot) } catch (e) { log('warn', 'bagroom not installed', { error: e.message }) }
+  try { yardLanesInstall(bot) } catch (e) { log('warn', 'yard lanes not installed', { error: e.message }) }   // yardlanes-01
   // copperhall-01: the copper hall's licence row (copperhall.mjs; the project itself is shop.mjs PROJECTS, its gate skills.mjs hallOpenNow)
   try { logEvent({ kind: 'copperhall_mode', status: 'success', snapshot: snapshot(bot), detail: copperhallModeDetail(COPPERHALL.on) }) } catch { /* telemetry */ }
   // grounds-01: the grounds quota's licence row (grounds2.mjs; the decision is skills.mjs buildShop's, one `_grounds_quota` row a build

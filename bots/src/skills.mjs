@@ -94,7 +94,7 @@ import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, 
 import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH_LOST_PATIENCE_MS, PLINTH_STRUCT_CONFIRM_MS } from './plinth.mjs'
 // plinthfirst-01: every new junk well is a raised one (its own statement)
 import { plinthFirstOn, plinthFirstPolicy, plinthFirstSearch, plinthFirstRefusal, plinthFirstMinK, naturalPitPending, areaLoaded, PLINTH_FIRST_WHY } from './plinth.mjs'
-import { setWellKeep } from './well.mjs'   // the batch19b fold: the market's keeps
+import { setWellKeep, setYardHold, setYardFull } from './well.mjs'   // the batch19b fold: the market's keeps
 import { setDepositExtra } from './bankable.mjs'   // the batch19b fold: the market's buys banked
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
@@ -192,6 +192,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
+import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
 import { fillWant, earthDirt, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
 import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidyAvoid, tidyNothing, tidyDue, tidyCuts, tidyNoteCuts, tidyGivenUp, tidyProgress, tidyWalkR, pathsRetryNow, cutStanding } from './tidy.mjs'   // tidy-01
@@ -284,6 +285,7 @@ import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's as
 import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
+import { partialKeep } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard
 import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
@@ -18347,7 +18349,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
         // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
         // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
-        const yw = complete && b && p.plot === YARD_PLOT ? yardWorkNow(b, rec) : null
+        const yw = complete && b && isYardPlot(p.plot) ? yardWorkNow(b, rec, now, p.plot) : null
         const damaged = complete && b ? (recordDamaged(b, rec, { tidy: tidyFirst }) || !!yw?.urgent) : false
         const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind) : false
         // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
@@ -18355,7 +18357,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
         const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
         // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
         // yarduse-01: a yard bay blocked by clutter (yard.mjs yardWork `first`) is cleared ahead of the sinks (bounded: YARD_CLEAR_MAX a visit)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (p.plot === YARD_PLOT && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}),
+        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && ((p.plot === STORE_PLOT && storeUpkeepDue(b, rec)) || (p.plot === HUB_PLOT && hubDue) || (p.plot === ENCHANT_PLOT && enchDue) || (isYardPlot(p.plot) && !!yw?.first)), ...(waiting ? { waiting } : {}), ...(p.sink ? { sink: true, rec } : {}), ...(serve ? { serve } : {}),
           // projturn-01 (review r1): `broken` -- the damage is a cell's (a repair is never held by another kind of visit's back-off)
           ...(PROJTURN.on && damaged && recordDamaged(b, rec, { tidy: false, cells: true }) ? { broken: true } : {}) }
       })
@@ -18446,24 +18448,27 @@ function hallOpenNow (bot) {
  * protected zones, every record + PROJECT_GAP (the land plan's road corridors among them: projectHeads), an unsited copper hall's
  * pad and the expedition markers. `tried`: blueprint/band:screened for the visit's row.
  */
-async function yardSiteFor (bot, plan, c, stood, signal = null) {
+async function yardSiteFor (bot, plan, c, stood, signal = null, plot = YARD_PLOT) {
   const tried = []
   try {
-    const others = projectHeads().filter(x => x.plot !== YARD_PLOT).map(x => x.head.rec)
+    const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
+    // yardlanes-01: a LATER yard is ranked nearest the first yard's pad first (yard.mjs nearYardRank), then by the yard's own bands
+    const firstRec = plot !== YARD_PLOT ? (projectHeads().find(x => x.plot === YARD_PLOT)?.head?.rec ?? null) : null
     const zones = [...c.zones, ...recordZones(others), ...hallPadZones(plan), ...townMarkerZones()]
     const sectors = yardSectors(landHead(), projectSectors(plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null))
     const read = planReader(bot)
     const box = siteBox()   // sitebox-01: ONE box for the whole siting (every size's search draws on it)
     for (const step of yardSitingPlan(plan.home, { size: yardSize(), bpOf: id => blueprintOf(id) })) {
       // cooperative (buildsite.mjs siteBlueprintAsync): a search out to 80 runs 10-60 s and must never stall the bot's keep-alives
-      const s = await siteBlueprintAsync(read, plan, blueprintOf(step.blueprint), { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors, plot: YARD_PLOT,
-        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, sectorBy: step.sectorBy, rankKey: step.rankKey }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
+      const s = await siteBlueprintAsync(read, plan, blueprintOf(step.blueprint), { zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, sectors, plot,
+        earth: step.earth, domain: step.domain, standDomain: step.standDomain, walkR: step.walkR, line: step.line, sectorBy: step.sectorBy,
+        rankKey: firstRec ? site => nearYardRank(firstRec, site.pad) * 100 + step.rankKey(site) : step.rankKey }, { aborted: () => !!signal?.aborted, maxMs: box.left() })
       { const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }   // sitebox-01: aborted, or the search's box -- ONE box a siting
       tried.push(`${step.blueprint}/${step.band}:${(s.sectors ?? []).reduce((n, r) => n + (r.screened ?? 0), 0)}`)
       if (s.ok) {
         // the search yields for 10-60 s (Claude r1 note): a record, marker or reservation published meanwhile is read again
         // before the yard claims its ground; a site that now meets one is dropped (the next visit searches again)
-        const fresh = [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== YARD_PLOT).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
+        const fresh = [...c.zones, ...recordZones(projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)), ...hallPadZones(plan), ...townMarkerZones()]
         const hit = s.record.cells.find(q => fresh.some(z => q.at[0] >= z.box[0] && q.at[0] <= z.box[3] && q.at[1] >= z.box[1] && q.at[1] <= z.box[4] && q.at[2] >= z.box[2] && q.at[2] <= z.box[5]))
         if (hit) return { ok: false, why: 'site_taken', detail: `${hit.at.join(',')} reserved during the search`, tried }
         return { ok: true, why: 'ok', record: { ...s.record, band: step.band }, tried }
@@ -21447,8 +21452,104 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
 // Placement is buildrun.mjs runVisit over the PILE CELLS (never record cells: a pile that shrinks is no damage); digs are its
 // `tidy` entries. One `_yard` row a visit (yard.mjs yardRowDetail).
 // ================================================================================================================================
+// ---- YARDLANES-01 (yard.mjs): every standing yard's lanes, the bag's keeps, the well's hold -----------------------------------------
+/** EVERY STANDING YARD NOW -> [{ plot, rec, gen, bp, bays, states }], read at most every 15 s a bot (the orders ask on every decision).
+ *  Never throws ([]). */
+function yardsNow (bot, now = Date.now()) {
+  try {
+    const m = bot?.yardsMemo
+    if (m && now - m.at < 15_000 && now >= m.at) return m.list
+    const read = planReader(bot)
+    const on = new Set(projectsOn().map(p => p.plot))
+    const list = []
+    for (const plot of yardPlots()) {
+      if (!on.has(plot)) continue
+      const h = recordHead(townDir(), projKeyOf(plot))
+      const rec = h.ok ? h.head?.rec ?? null : null
+      if (!rec?.structure_complete) continue
+      const bp = blueprintOf(isYardBlueprint(rec.blueprint) ? rec.blueprint : YARD_BLUEPRINT)
+      const bays = laneBays(rec, bp, read)
+      list.push({ plot, rec, gen: h.head.gen, bp, bays, states: bayStates(bays, read) })
+    }
+    if (bot) bot.yardsMemo = { at: now, list }
+    return list
+  } catch { return [] }
+}
+/** THE BAG'S KEEPS FOR THE YARD -> { name: n } over the lane kinds it holds: the town deposit's floors (towndeposit.mjs townKeeps: the
+ *  stone family 64 with cobblestone first, wood 16, dirt 16, sand 8, the goal's wants, the scaffold reserve), lowered by the
+ *  partial-slot rule (bagfix.mjs partialKeep: one partial slot under its keep may leave a bag at 30+ kinds -- to the yard); a build's
+ *  drawn share is never the yard's. Never throws ({ cobblestone: 64 }). */
+function yardKeepsNow (bot) {
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    const counts = heldMap(bot)
+    const { keep, why } = townKeeps(counts, { wanted: Array.isArray(bot.townDepositWanted) ? bot.townDepositWanted : [] })
+    const shares = roomShareNames(bot)
+    const out = {}
+    for (const name of LANE_KINDS) {
+      const copies = items.filter(i => i?.name === name)
+      if (!copies.length) continue
+      if (shares.has(name)) { out[name] = Infinity; continue }
+      out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: keep[name] ?? 0, stack: copies[0].stackSize ?? 64, hard: why[name] === 'wanted' || why[name] === 'scaffold_reserve' })
+    }
+    return out
+  } catch { return { cobblestone: 64 } }
+}
+/** yard.mjs yardWork's lane options for the yard at `plot` -> { keeps, others, first } ({} with the lanes off: the old yard). */
+function yardLaneOpts (bot, plot, now = Date.now()) {
+  if (!LANES.on) return {}
+  return { keeps: yardKeepsNow(bot), others: lanesElsewhere(yardsNow(bot, now).filter(y => y.plot !== plot).map(y => y.states)), first: plot === YARD_PLOT }
+}
+/** WHAT EVERY YARD HOLDS OF A KIND -> { lanes, room, empty, cap, over }: its lanes and their free slots, the empty lanes anywhere, the
+ *  room it has in all (its lanes' + the lanes it may still open), and whether it is FULL at its cap (yard.mjs kindOverCap). */
+function yardKindNow (bot, name, now = Date.now()) {
+  const ys = yardsNow(bot, now)
+  const held = lanesElsewhere(ys.map(y => y.states))[name] ?? { lanes: 0, room: 0 }
+  const emptyLanes = ys.flatMap(y => y.states).filter(s => s.name == null && s.foreign === 0 && s.free > 0)
+  const cap = laneCapOf(name)
+  const open = Math.max(0, Math.min(emptyLanes.length, cap - held.lanes))
+  const room = held.room + emptyLanes.slice(0, open).reduce((t, s) => t + s.free, 0)
+  return { lanes: held.lanes, room, empty: emptyLanes.length, cap, over: ys.length > 0 && kindOverCap(name, { held, empty: emptyLanes.length }) }
+}
+/** WELL_HOLD (well.mjs setYardHold): is `name` held off the well for the yard now? A lane kind with room in the yards, while this
+ *  bot's hold is live (yard.mjs wellHold: answered by a stock visit, lapsing after YARD_DEFER_MS unanswered). Never throws (false). */
+function yardHoldNow (name, now = Date.now()) {
+  try {
+    const bot = activeMem?.bot ?? null
+    if (!bot || !LANES.on || !LANE_KINDS.includes(name) || Number(bot.yardRestUntil) > now) return false
+    const k = yardKindNow(bot, name, now)
+    const h = wellHold({ room: k.room, holdAt: bot.yardHoldAt ?? null, stockAt: bot.yardStockAt ?? null, now })
+    bot.yardHoldAt = h.stamp
+    return h.hold
+  } catch { return false }
+}
+/** YARDLANES-01, once per spawn: the well's hold wired (WELL_HOLD), the licence row written. Never throws. */
+export function yardLanesInstall (bot) {
+  try { if (LANES.on && wellHoldOn()) { setYardHold(yardHoldNow); setYardFull(name => { const b = activeMem?.bot ?? null; return !!b && yardKindNow(b, name).over }) } } catch { /* the well as before */ }
+  try { logEvent({ kind: 'yard_lanes', status: 'success', snapshot: snapshot(bot), detail: `${lanesModeDetail(LANES)} well_hold=${LANES.on && wellHoldOn() ? 1 : 0}`.slice(0, 300) }) } catch { /* telemetry */ }
+}
+/** `over_cap` (owner 11-16: a kind FULL at its cap is banked no more, and what work still produces of it goes to the well -- "the one
+ *  case where a stored kind reaches the well before the owner's review"): one `_yard_over_cap` row a kind a well run threw. */
+async function withOverCap (ctx, run) {
+  const bot = ctx?.bot
+  if (!LANES.on || !bot) return run()
+  let before = null
+  try { before = heldMap(bot) } catch { before = null }
+  try { return await run() } finally {
+    try {
+      const after = heldMap(bot)
+      for (const name of LANE_KINDS) {
+        const n = (before?.[name] ?? 0) - (after[name] ?? 0)
+        if (!(n > 0)) continue
+        const k = yardKindNow(bot, name)
+        if (k.over) logEvent({ kind: 'yard_over_cap', status: 'success', snapshot: snapshot(bot), detail: overCapDetail({ name, n, lanes: k.lanes, cap: k.cap }) })
+      }
+    } catch { /* telemetry */ }
+  }
+}
 /** The yard's work for this bot now -> yard.mjs yardWork's result | null (never throws: no work on an unreadable world). */
-function yardWorkNow (bot, rec, now = Date.now()) {
+
+function yardWorkNow (bot, rec, now = Date.now(), plot = YARD_PLOT) {
   // a visit that did nothing rests the yard's work for this bot (YARD_REST_MS): a visit that cannot act is never re-sent at once
   if (Number(bot?.yardRestUntil) > now) return null
   try {
@@ -21456,9 +21557,9 @@ function yardWorkNow (bot, rec, now = Date.now()) {
     const held = heldMap(bot)
     const nb = bambooBlocks(held)
     const items = bot.inventory?.items?.() ?? []
-    const bays = pileSlots(rec, bp)
+    const bays = laneBays(rec, bp, read)
     const states = bayStates(bays, read)
-    return yardWork({ held: nb > 0 ? { ...held, bamboo_block: (held.bamboo_block ?? 0) + nb } : held, slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length),
+    return yardWork({ ...yardLaneOpts(bot, plot, now), held: nb > 0 ? { ...held, bamboo_block: (held.bamboo_block ?? 0) + nb } : held, slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length),
       town: (() => { try { return matsTownStock(bot)?.stock ?? null } catch { return null } })(), states, clutter: yardClutter(rec, read), pick: !!refillPick(items, remaining),
       bayClutter: yardClearHeld(bot, now) ? [] : bayClutter(bays, read), deferred: yardDeferredNow(bot, now) })
   } catch { return null }
@@ -21492,7 +21593,8 @@ function wellCobbleReserveNow (bot, now = Date.now()) {
     if (room == null) {
       const y = yardRecNow()
       room = 0
-      if (y) {
+      if (LANES.on) room = yardKindNow(bot, 'cobblestone', now).room   // yardlanes-01: every yard's cobblestone lanes
+      else if (y) {
         const bp = blueprintOf(isYardBlueprint(y.rec.blueprint) ? y.rec.blueprint : YARD_BLUEPRINT)
         room = yardRoomFor(bayStates(pileSlots(y.rec, bp), planReader(bot)), 'cobblestone')
       }
@@ -21562,21 +21664,24 @@ async function yardDrawFor (ctx, need, signal, visitDeadline) {
     return 0
   }
 }
-async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { draw = 0, until = null, result = null } = {}) {
+async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { draw = 0, until = null, result = null, plot = YARD_PLOT } = {}) {
   const { bot } = ctx
-  const dir = townDir(), key = projKeyOf(YARD_PLOT), me = bot.username ?? 'bot', home = planHomeP(), bp = blueprintOf(isYardBlueprint(rec?.blueprint) ? rec.blueprint : YARD_BLUEPRINT)
+  const dir = townDir(), key = projKeyOf(plot), me = bot.username ?? 'bot', home = planHomeP(), bp = blueprintOf(isYardBlueprint(rec?.blueprint) ? rec.blueprint : YARD_BLUEPRINT)
   // the runner's clock, as the monument's (its watchdog aborts every skill at SKILL_TIMEOUT_MS): the visit ends ZIG_VISIT_TAIL_MS before it
   const budget = Math.min(SHOP_SKILL_MS, Number(config.skills?.defaultTimeoutMs) > 0 ? Number(config.skills.defaultTimeoutMs) : SHOP_SKILL_MS)
   // yarduse-01: a consumer's draw (yardDrawFor) runs inside the consumer's own visit, to its `until`
   const deadline = Number.isFinite(until) ? until : t0 + budget - ZIG_VISIT_TAIL_MS
   const drawing = Number(draw) > 0
-  const slot = takeSlot(dir, key, me, YARD_BUILDERS)
+  // yardlanes-01: LANES.visitors bots stock one yard at once, each under its own lanes' leases (below); a draw and the old yard: one
+  const slot = takeSlot(dir, key, me, LANES.on && !(Number(draw) > 0) ? LANES.visitors : YARD_BUILDERS)
   if (!slot.ok) return out('no_effect', 'slots_full', `the yard is another bot's now (${slot.why})`)
+  const laneLeases = []   // [{ name, gen }]
+  const laneOpts = LANES.on ? yardLaneOpts(bot, plot) : {}
   const slotRef = { gen: slot.gen }
   const f = { kind: '-', why: '-', placed: {}, dug: {}, drew: {}, banked: {}, crafted: 0, cleared: 0 }
   const placedBy = {}
   let effects = null, stop = '-', states = []
-  const bays = pileSlots(rec, bp)
+  const bays = LANES.on ? laneBays(rec, bp, planReader(bot)) : pileSlots(rec, bp)
   try {
     // 1. BAMBOO INTO BLOCKS (9 : 1; the bag keeps YARD_BAMBOO_KEEP): a bamboo_block pile keeps the planks one craft away
     const nb = drawing ? 0 : bambooBlocks(heldMap(bot))
@@ -21588,7 +21693,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     check(signal)
     const read = planReader(bot)
     states = bayStates(bays, read)
-    const planNow = (rd, { bays: withBays = true } = {}) => { const it = bot.inventory?.items?.() ?? []; return yardWork({ held: heldMap(bot), slots: it.length, freeSlots: Math.max(0, BAG_SLOTS - it.length), town: matsTownStock(bot)?.stock ?? null, states, clutter: yardClutter(rec, rd), pick: !!refillPick(it, remaining), bayClutter: withBays && !yardClearHeld(bot) ? bayClutter(bays, rd) : [], deferred: yardDeferredNow(bot) }) }
+    const planNow = (rd, { bays: withBays = true } = {}) => { const it = bot.inventory?.items?.() ?? []; return yardWork({ ...laneOpts, held: heldMap(bot), slots: it.length, freeSlots: Math.max(0, BAG_SLOTS - it.length), town: matsTownStock(bot)?.stock ?? null, states, clutter: yardClutter(rec, rd), pick: !!refillPick(it, remaining), bayClutter: withBays && !yardClearHeld(bot) ? bayClutter(bays, rd) : [], deferred: yardDeferredNow(bot) }) }
     // yarduse-01: a consumer's draw is its own kind -- the pile tops dug back into the bag for the consumer's bill (never banked)
     const w = drawing ? { kind: 'draw', urgent: false, place: {}, draw: {}, dig: { cobblestone: Math.min(Number(draw), yardHeld(states).cobblestone ?? 0) }, why: `bill:${draw}` } : planNow(read)
     f.kind = w.kind ?? 'idle'; f.why = w.why
@@ -21609,7 +21714,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
       acks, keep: {},
       withWalk: fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn()),
       aborted: () => !!signal?.aborted,
-      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: YARD_PLOT, ...d }) }) } catch { /* telemetry */ } },
+      log: (kind, d) => { try { logEvent({ kind: String(kind).replace(/^_/, ''), status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, ...d }) }) } catch { /* telemetry */ } },
       spawnedAt: () => bot.shopSpawnAt ?? 0,
     })
     bot.shopUnknown ??= new Set()
@@ -21619,8 +21724,18 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     if (w.kind === 'stock' || w.kind === 'clerk') {
       // 3. THE PILES: the next slots of each name's bay, placed as one segment (bottom layer first; buildrun's per-column order)
       states = bayStates(bays, planReader(bot))
-      const pc = pileCells(states, place)
-      if (!pc.cells.length) { stop = 'yard_full'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'yard_full', 'the yard has no room for what was to go on it') }
+      let pc = pileCells(states, place, laneOpts)
+      // yardlanes-01: ONE LEASE A LANE -- a lane another bot holds is not this visit's (its kind waits or takes another lane)
+      if (LANES.on && pc.cells.length) {
+        const lease = id => { const l = projTakeLease(dir, key, `lane${id}`, me); if (l.ok) laneLeases.push({ id, name: `lane${id}`, gen: l.gen }); return !!l.ok }
+        const busy = new Set([...new Set(Object.values(pc.lanes ?? {}).flat())].filter(id => !lease(id)))
+        if (busy.size) {
+          pc = pileCells(states, place, { ...laneOpts, skip: busy })
+          // a lane the second plan opened that is another bot's too: this visit stocks nothing (never a third plan)
+          if ([...new Set(Object.values(pc.lanes ?? {}).flat())].some(id => !laneLeases.some(l => l.id === id) && !lease(id))) pc = { ...pc, cells: [] }
+        }
+      }
+      if (!pc.cells.length) { stop = 'yard_full'; bot.yardRestUntil = Date.now() + (LANES.on ? 2 * 60_000 : YARD_REST_MS); return out('no_effect', 'yard_full', 'the yard has no room for what was to go on it') }
       r = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: [{ seg: 'pile', layer: 0, deps: [] }] }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
       f.placed = { ...placedBy }
     } else {
@@ -21659,7 +21774,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
         states = bayStates(bays, planReader(bot))
         const w2 = planNow(planReader(bot), { bays: false })
         if (w2.kind === 'stock') {
-          const pc = pileCells(states, w2.place)
+          const pc = pileCells(states, w2.place, laneOpts)
           if (pc.cells.length) {
             f.kind = 'upkeep+stock'
             const r2 = await runVisit({ ...base, record: { ...bare, cells: pc.cells, segments: [{ seg: 'pile', layer: 0, deps: [] }] }, palette: { ...bp.palette, ...pc.palette } }, effects, { deadline, maxSteps: 400 })
@@ -21683,13 +21798,14 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     if (nPlaced > 0) bot.yardStockAt = Date.now()
     // a draw that collected under half of what it dug (drops left on the pile) rests the draw too: the next bill uses the chests
     if (drawing) { const g = Number(result?.got) || 0; if (!(g > 0) || g * 2 < f.cleared) bot.yardDrawRestUntil = Date.now() + YARD_REST_MS } else if (n === 0) bot.yardRestUntil = Date.now() + YARD_REST_MS
-    bot.yardRoomMemo = null
+    bot.yardRoomMemo = null; bot.yardsMemo = null
     return out(n > 0 ? 'success' : 'no_effect', `yard_${f.kind}`, `the yard's ${f.kind}: ${n} block(s) (${r?.why ?? stop})`.slice(0, 160), { stop: r?.stop, placed: r?.placed, cleared: r?.cleared, slot: slot.slot })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { stop = 'aborted'; out('aborted', 'aborted', 'interrupted'); throw e }
     stop = 'error'
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
   } finally {
+    for (const l of laneLeases) { try { releaseLease(dir, key, l.name, me, l.gen) } catch { /* its TTL frees it */ } }
     releaseLease(dir, key, `slot${slot.slot}`, me, slotRef.gen)
     try { effects?.close() } catch { /* gone */ }
     bot.shopDamage = null   // the order's 60 s damage cache: the yard's work is read again
@@ -23409,9 +23525,9 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, state: 'open' }), { by: me })
       if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `hall/${ss.record.cells.length}cells/${ss.record.fill.length}fill/${ss.record.earthwork.cut}cut/${ss.record.earthwork.voids ?? 0}voids`, gen: pub.gen }) }) } catch { /* telemetry */ } }
-    } else if (plot === YARD_PLOT) {
+    } else if (isYardPlot(plot)) {
       // yardsite-01: the yard sites in the land plan's yard zone, out beyond the town ring where it is full (yardSiteFor)
-      const ss = await yardSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal)
+      const ss = await yardSiteFor(bot, { ...h.head.plan, gen: h.head.gen }, c, stood, signal, plot)
       check(signal)
       if (!ss.ok) return out('no_effect', 'no_site', `no yard site (${ss.why}${ss.detail ? ` ${ss.detail}` : ''}) ${(ss.tried ?? []).join(' ')}`.slice(0, 160), { stop: 'no_site' })
       const pub = publishRecord(dir, key, cur => (cur ? null : { ...ss.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -23483,9 +23599,9 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
       if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'sited', cell: ss.record.anchor, kind: `${ss.record.blueprint}/${ss.record.orient}/${ss.record.plotId}/${ss.record.style.wood}/${ss.record.style.roof}/${ss.record.style.stone}/${ss.record.cells.length}cells`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     } else if (plot !== SHOP_PLOT) {
       const others = projectHeads().filter(x => x.plot !== plot).map(x => x.head.rec)
-      more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(plot === YARD_PLOT ? { earth: YARD_EARTH } : {}) }
+      more = { zones: [...c.zones, ...recordZones(others)], sectors: projectSectors(h.head.plan, others.find(r => r?.plot === SHOP_PLOT)?.sector ?? null), plot, ...(isYardPlot(plot) ? { earth: YARD_EARTH } : {}) }
     }
-    if (!SITED_APART.has(plot) && plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && plot !== YARD_PLOT && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
+    if (!SITED_APART.has(plot) && plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT && !isYardPlot(plot) && plot !== HUB_PLOT && plot !== ENCHANT_PLOT) {
     const s = siteBlueprint(planReader(bot), h.head.plan, bp, { zones: c.zones, wells: c.wells, farm: c.farm, z0: c.z0, stood, ...more })
     if (!s.ok) return out('no_effect', 'no_site', `no proven site (${s.why}): ${JSON.stringify(s.sectors.map(r => [r.sector, r.screened, r.tried]))}`.slice(0, 160), { stop: 'no_site' })
     const pub = publishRecord(dir, key, cur => (cur ? null : { ...s.record, plan: { gen: h.head.gen }, state: 'open' }), { by: me })
@@ -23500,7 +23616,7 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
   // townstyle-01: a styled record (the cottage) is built, billed and judged by ITS OWN palette (cottage.mjs recordPalette)
   const pal = recordPalette(rec, bp)
   // stockyard-01: a COMPLETE yard (its floor and lights stand) gets the yard's own visit: the piles, the clerk, a refill, the aisles
-  if (plot === YARD_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false })) return yardVisit(ctx, rec, rh.head.gen, signal, out, t0)
+  if (isYardPlot(plot) && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false })) return yardVisit(ctx, rec, rh.head.gen, signal, out, t0, { plot })
   // sortstore-01: a COMPLETE storehouse whose only want is its upkeep (labels, the tidy) gets the upkeep visit, not a build visit
   if (plot === STORE_PLOT && rec.structure_complete && !recordDamaged(bot, rec, { tidy: false }) && !storeTidy(rec, planReader(bot), bot.storeTidyTries ?? null).length && storeUpkeepDue(bot, rec)) return storeUpkeepVisit(ctx, rec, signal, out)
   // storehub-01: a COMPLETE hall whose want is its upkeep (labels, the clerk) gets the upkeep visit, not a build visit
@@ -33476,7 +33592,7 @@ export const SKILLS = {
   keepout_exit: { run: keepoutExit, usage: 'keepout_exit', args: [], chatOnly: true, rescue: true },
   sky_descend: { run: skyDescend, usage: 'sky_descend', args: [], chatOnly: true, rescue: true },   // respawnfall-01
   // THE JUNK WELL'S THREE TOWN ORDERS (well.mjs wellOrder), never the model's choice.
-  dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
+  dispose_well: { run: (ctx, a, signal) => withOverCap(ctx, () => disposeWell(ctx, a, signal)), usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },
   close_well:   { run: closeWell,   usage: 'close_well',   args: [], chatOnly: true },
   build_plinth: { run: buildPlinth, usage: 'build_plinth', args: [], chatOnly: true },

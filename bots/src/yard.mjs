@@ -70,6 +70,125 @@ export const YARD_REFILL_MAX = 32
 /** Aisle clutter cleared at most this many cells a visit. */
 export const YARD_CLEAR_MAX = 16
 
+// ================================================================================================================================
+// YARDLANES-01 (bagfix-02show; OWNER 11-16): ONE LANE PER KIND, GROWING TO A CAP, AND MORE YARDS BESIDE THE FIRST.
+// "lets build a new lane for each type of item, we'll start with a set length of lane, it can expand to a certain point in length and
+// height, but there should be some kind of cap and limit" / "can our storage yard have storage for seeds, gravel, tuff, diorite,
+// granite, clay, deepslate and any other kind of item worth keeping?" / "store everything now, and evaluate what we use".
+// WAS: 3 kinds, one yard of 4 bays (304 or 656 slots), 64 a visit, one bot at a time; it filled in 2 h 11 min (the header above).
+// NOW (YARDLANES=off restores every line of the old yard):
+//   A LANE is a bay (2 wide: every cell beside an aisle, the header's sight-line finding). The first time a kind is banked it takes
+//        the first empty lane. It starts LANES.start (8) rows long at the bay's far end and GROWS by LANES.step (8) rows when the
+//        rows it has are full, to the bay's own length (22 in yard@2, 11 in yard@1), each stepped to YARD_H (4): 52 -> 116 -> 164
+//        blocks in yard@2. The ramp is the old one, so a builder still walks up one-block steps and every dig is a top block --
+//        gravel and sand stand on the paved floor or on their own kind and are only ever taken from the top.
+//   CAPS a kind holds at most laneCapOf(kind) lanes over every yard (2; cobblestone and cobbled_deepslate 4). All of it placed and no
+//        lane left to open: the kind is FULL -- nothing more of it is banked (laneRoom 0), and the well may take it again (`over_cap`).
+//   MORE YARDS  YARD_PLOTS: `yard2` .. are ordinary project records on the yard blueprints, each after the one before, sited by the
+//        yard's own siting ranked nearest the FIRST yard (nearYardRank), built by LANES.builders bots at once with the cobblestone in
+//        their bags; LANES.modules (4) yards in all = 16 lanes.
+//   LEASES one lease a LANE (`lane<id>` on the yard's record), so LANES.visitors bots stock one yard at once, each in its own lanes.
+// Settings: YARD_LANE_START, YARD_LANE_STEP, YARD_LANE_CAPS ("cobblestone:4,cobbled_deepslate:4,*:2"), YARD_MODULES, YARD_LANE_MIN,
+// YARD_LANE_BUILDERS, YARD_LANE_VISITORS, YARD_LANE_VISIT_MAX.
+const isOffV = v => ['off', '0', 'false', 'no'].includes(String(v ?? '').trim().toLowerCase())
+const numV = (v, d, lo = 1, hi = 1e6) => { const n = Number(String(v ?? '').trim()); return String(v ?? '').trim() !== '' && Number.isFinite(n) && n >= lo && n <= hi ? Math.floor(n) : d }
+/** "a:4,b:4,*:2" -> { a: 4, b: 4, '*': 2 }. Pure; an unreadable part is dropped. */
+export function laneCaps (raw, dflt = 'cobblestone:4,cobbled_deepslate:4,*:2') {
+  const out = {}
+  for (const part of String(raw == null || String(raw).trim() === '' ? dflt : raw).split(',')) {
+    const [k, v] = part.split(':').map(x => x.trim())
+    const n = Number(v)
+    if (k && Number.isInteger(n) && n >= 0 && n <= 64) out[k] = n
+  }
+  if (!Number.isInteger(out['*'])) out['*'] = 2
+  return Object.freeze(out)
+}
+/** THE LANES' SETTINGS -> { on, start, step, caps, modules, min, builders, visitors, visitMax, keepCobble }. Pure. */
+export function laneSettings (env = {}, pool = env?.MEMORY_POOL ?? '') {
+  // the lanes are the yard's: on only where the yard is (YARD / YARD_POOLS), and YARDLANES=off switches them off alone
+  return Object.freeze({ on: !isOffV(env?.YARDLANES) && yardOn(env, pool), start: numV(env?.YARD_LANE_START, 8, 1, 64), step: numV(env?.YARD_LANE_STEP, 8, 1, 64), caps: laneCaps(env?.YARD_LANE_CAPS),
+    modules: numV(env?.YARD_MODULES, 4, 1, 6), min: numV(env?.YARD_LANE_MIN, 16, 1, 64), builders: numV(env?.YARD_LANE_BUILDERS, 3, 1, 8), visitors: numV(env?.YARD_LANE_VISITORS, 4, 1, 8),
+    visitMax: numV(env?.YARD_LANE_VISIT_MAX, 128, 1, 640) })
+}
+export const LANES = laneSettings(typeof process !== 'undefined' ? process.env : {})
+const LOG_KINDS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log']
+/** What a lane may hold: the old three, the stone and earth a town digs up, and logs (one lane a species). */
+export const LANE_KINDS = Object.freeze([...YARD_BULK, 'deepslate', 'stone', 'dirt', 'gravel', 'sand', 'tuff', 'andesite', 'diorite', 'granite', ...LOG_KINDS])
+/** The kinds the piles hold -> [name]. Pure. */
+export const yardKinds = (on = LANES.on) => (on ? LANE_KINDS : YARD_BULK)
+/** A kind's lane cap over every yard -> n. Pure. */
+export const laneCapOf = (name, caps = LANES.caps) => (Number.isInteger(caps?.[name]) ? caps[name] : (caps?.['*'] ?? 2))
+/** THE YARDS' PLOTS, the first one the old yard's. */
+export const YARD_PLOTS_ALL = Object.freeze([YARD_PLOT, 'yard2', 'yard3', 'yard4', 'yard5', 'yard6'])
+/** The yards on -> [plot]. Pure. Lanes off: the one yard. */
+export const yardPlots = (lanes = LANES) => (lanes?.on ? YARD_PLOTS_ALL.slice(0, Math.max(1, Math.min(YARD_PLOTS_ALL.length, lanes.modules))) : [YARD_PLOT])
+export const isYardPlot = plot => YARD_PLOTS_ALL.includes(plot)
+/** The yard a yard is built after (null: the first). Pure. */
+export const yardAfterOf = plot => { const i = YARD_PLOTS_ALL.indexOf(plot); return i > 0 ? YARD_PLOTS_ALL[i - 1] : null }
+/** What `len` rows of a lane hold, `w` wide, stepped to `h` -> blocks. Pure. */
+export const laneCapacity = (len, { w = 2, h = YARD_H } = {}) => { let n = 0; for (let k = 1; k <= h; k++) n += Math.max(0, len - k + 1); return n * w }
+/** A LANE'S LENGTH NOW -> rows. Pure. The shortest of start, start + step, ... (never past `full`, the bay's own length) whose
+ *  capacity is above what it holds (`held`: every block standing in the bay): it grows only when the rows it has are full. */
+export function laneLen (held = 0, full = 0, { start = LANES.start, step = LANES.step, w = 2, h = YARD_H } = {}) {
+  const f = Math.max(0, Math.floor(Number(full) || 0))
+  for (let len = Math.min(f, Math.max(1, start)); len < f; len += Math.max(1, step)) if (laneCapacity(len, { w, h }) > held) return len
+  return f
+}
+/** THE RANK OF A SITE FOR A LATER YARD -> smaller is nearer the first yard's pad (in bands of 8 blocks). Pure. `first` the first yard's
+ *  record (its cells), `pad` the candidate's pad cells [[x, z]]. No first yard: 0 (the yard's own ranking decides). */
+export function nearYardRank (first, pad = []) {
+  const cs = Array.isArray(first?.cells) ? first.cells.filter(c => Array.isArray(c?.at)) : []
+  if (!cs.length || !pad.length) return 0
+  const cx = cs.reduce((t, c) => t + c.at[0], 0) / cs.length, cz = cs.reduce((t, c) => t + c.at[2], 0) / cs.length
+  const px = pad.reduce((t, q) => t + q[0], 0) / pad.length, pz = pad.reduce((t, q) => t + q[1], 0) / pad.length
+  return Math.floor(Math.hypot(px - cx, pz - cz) / 8)
+}
+/**
+ * WHAT THE OTHER YARDS HOLD of each kind -> { name: { lanes, room } }. Pure over their bay states (bayStates): the lanes a kind has
+ * there and the free slots in them (never an empty lane's: opening one is the picker's own decision).
+ */
+export function lanesElsewhere (stateLists = []) {
+  const out = {}
+  for (const states of stateLists) for (const s of (states ?? [])) {
+    if (!s?.name) continue
+    const e = (out[s.name] ??= { lanes: 0, room: 0 })
+    e.lanes += 1; e.room += s.free
+  }
+  return out
+}
+/** MAY `name` OPEN A NEW LANE HERE? -> bool. Pure. Under its cap over every yard, and no lane of it elsewhere still has room. Lanes
+ *  off: always (the old yard: the first empty bay). */
+export function laneMayOpen (states = [], name, { lanes = LANES, others = {} } = {}) {
+  if (!lanes?.on) return true
+  const o = others?.[name] ?? { lanes: 0, room: 0 }
+  if (o.room > 0) return false
+  return states.filter(s => s.name === name).length + o.lanes < laneCapOf(name, lanes.caps)
+}
+/** IS A KIND FULL (every lane it may have, here and elsewhere, is full or cannot be opened)? -> bool. Pure. `empty` the empty lanes
+ *  over every yard. The owner's cap: a full kind is banked no more, and only then may the well take it (`over_cap`). */
+export function kindOverCap (name, { lanes = LANES, held = { lanes: 0, room: 0 }, empty = 0 } = {}) {
+  if (!lanes?.on || !LANE_KINDS.includes(name)) return false
+  if ((held?.room ?? 0) > 0) return false
+  return (held?.lanes ?? 0) >= laneCapOf(name, lanes.caps) || (!(empty > 0) && (held?.lanes ?? 0) > 0)
+}
+/**
+ * MAY THE WELL BE HELD OFF A KIND FOR THE YARD NOW? -> { hold, stamp }. Pure. `room` the yard's room for the kind; `holdAt` when this
+ * bot's bag was first held for the yard (null: never), `stockAt` its last stock visit that placed. A hold lasts YARD_DEFER_MS; a
+ * hold the yard did not answer in that time LAPSES for as long again (the well's turn: a bag is never held full on the yard's
+ * promise), then may start anew. `stamp` is the holdAt to keep.
+ */
+export function wellHold ({ on = true, room = 0, holdAt = null, stockAt = null, now = Date.now(), ms = YARD_DEFER_MS } = {}) {
+  if (!on || !(Number(room) > 0)) return { hold: false, stamp: holdAt }
+  if (!Number.isFinite(holdAt) || Number(stockAt) > holdAt || now - holdAt >= 2 * ms) return { hold: true, stamp: now }
+  return { hold: now - holdAt < ms, stamp: holdAt }
+}
+/** WELL_HOLD=off|0|false|no switches the hold off alone (the well as before). Pure. */
+export const wellHoldOn = (env = process.env) => !isOffV(env?.WELL_HOLD)
+/** `_yard_over_cap` row detail. Pure. */
+export const overCapDetail = ({ name = '-', n = 0, lanes = 0, cap = 0, to = 'well' } = {}) => `kind=${name} n=${n} lanes=${lanes}/${cap} to=${to} why=over_cap`
+/** `_yard_lanes` licence row detail (once per spawn). Pure. */
+export const lanesModeDetail = (l = LANES) => `on=${l.on ? 1 : 0} start=${l.start} step=${l.step} h=${YARD_H} caps=${Object.entries(l.caps).map(([k, v]) => `${k}:${v}`).join(',')} yards=${yardPlots(l).join('+')} min=${l.min} builders=${l.builders} visitors=${l.visitors} visit_max=${l.visitMax} kinds=${yardKinds(l.on).length}`.slice(0, 300)
+
 /** THE SWITCH -> bool. YARD=on|off; unset = on only in the pools YARD_POOLS names (default 'showcase'). Pure. */
 export function yardOn (env = process.env, pool = '') {
   const v = String(env?.YARD ?? '').trim().toLowerCase()
@@ -163,12 +282,16 @@ const isAir = b => !!b && /^(air|cave_air|void_air)$/.test(nm(b))
  * ranges), `rec` the record (anchor [x, z], orient, s). Layer k covers v from v0 + k - 1 to v1; within a layer the far end (v1)
  * first, then u ascending. The dig order is the reverse.
  */
-export function pileSlots (rec, bp, { h = YARD_H } = {}) {
+export function pileSlots (rec, bp, { h = YARD_H, lenOf = null } = {}) {
   if (!rec || !Array.isArray(rec.anchor) || !Number.isFinite(rec.s) || !rec.orient || !Array.isArray(bp?.bays)) return []
   const [ax, az] = rec.anchor
   return bp.bays.map(b => {
     const slots = []
-    const [u0, u1] = b.u, [v0, v1] = b.v
+    const [u0, u1] = b.u, v1 = b.v[1]
+    // yardlanes-01: a lane shorter than its bay keeps the FAR end (lenOf(id) rows); none given: the whole bay, as before
+    const full = b.v[1] - b.v[0] + 1
+    const len = typeof lenOf === 'function' ? Math.max(1, Math.min(full, Math.floor(Number(lenOf(b.id)) || full))) : full
+    const v0 = v1 - len + 1
     for (let k = 1; k <= h; k++) {
       for (let v = v1; v >= v0 + (k - 1); v--) {
         for (let u = u0; u <= u1; u++) { const { dx, dz } = rot(rec.orient, u, v); slots.push([ax + dx, rec.s + k, az + dz]) }
@@ -186,11 +309,11 @@ export function pileSlots (rec, bp, { h = YARD_H } = {}) {
  *   top      the filled slots a dig may take, highest first: the slot holds the bay's name and the slot above it is air
  *   foreign  slots holding something that is neither air nor the bay's name (never dug by the stock visit: the upkeep's)
  */
-export function bayStates (bays = [], read = () => null) {
+export function bayStates (bays = [], read = () => null, { kinds = yardKinds() } = {}) {
   return bays.map(({ id, slots }) => {
     let name = null, filled = 0, foreign = 0
     const blocks = slots.map(s => read(...s))
-    for (const b of blocks) { if (b && !isAir(b) && YARD_BULK.includes(nm(b))) { name = nm(b); break } }
+    for (const b of blocks) { if (b && !isAir(b) && kinds.includes(nm(b))) { name = nm(b); break } }
     const solidAt = new Set()
     for (let i = 0; i < slots.length; i++) {
       const b = blocks[i]
@@ -219,6 +342,24 @@ export function bayStates (bays = [], read = () => null) {
   })
 }
 
+/**
+ * YARDLANES-01: A YARD'S LANES AS THEY STAND NOW -> [{ id, slots }] (pileSlots' shape). Pure over a world read. Each bay is read whole,
+ * and its lane is as long as what stands in it needs (laneLen): 8 rows, then 16, then the bay. An unread bay keeps its whole length
+ * (never a guess that hides blocks). Lanes off: the whole bays, as before.
+ */
+export function laneBays (rec, bp, read = () => null, { lanes = LANES, h = YARD_H } = {}) {
+  const whole = pileSlots(rec, bp, { h })
+  if (!lanes?.on) return whole
+  const len = new Map()
+  for (const b of (bp?.bays ?? [])) {
+    const bay = whole.find(x => x.id === b.id)
+    const full = b.v[1] - b.v[0] + 1, w = b.u[1] - b.u[0] + 1
+    let held = 0, unread = false
+    for (const sl of (bay?.slots ?? [])) { const x = read(...sl); if (x == null) { unread = true; break } if (!isAir(x)) held++ }
+    len.set(b.id, unread ? full : laneLen(held, full, { start: lanes.start, step: lanes.step, w, h }))
+  }
+  return pileSlots(rec, bp, { h, lenOf: id => len.get(id) })
+}
 /** THE BAY a name goes to -> a state | null: the bay already holding it with room, else the first empty bay (YARD_BULK's own order
  *  never reserves one). Pure. */
 export function bayFor (states = [], name) {
@@ -227,15 +368,30 @@ export function bayFor (states = [], name) {
 /** What the yard holds of each bulk name -> { name: n }. Pure. */
 export const yardHeld = (states = []) => states.reduce((m, s) => (s.name ? { ...m, [s.name]: (m[s.name] ?? 0) + s.filled } : m), {})
 /** The room the yard has for a name -> n (its bay's free slots + every empty bay's). Pure. */
-export const yardRoomFor = (states = [], name) => states.reduce((t, s) => t + ((s.name === name || (s.name == null && s.foreign === 0)) ? s.free : 0), 0)
+export function yardRoomFor (states = [], name, { lanes = LANES, others = {} } = {}) {
+  if (!lanes?.on) return states.reduce((t, s) => t + ((s.name === name || (s.name == null && s.foreign === 0)) ? s.free : 0), 0)
+  // yardlanes-01: its own lanes' room, and the empty lanes it may still open under its cap (laneMayOpen)
+  let room = states.reduce((t, s) => t + (s.name === name ? s.free : 0), 0)
+  let mine = states.filter(s => s.name === name).length
+  const o = others?.[name] ?? { lanes: 0, room: 0 }
+  if (o.room > 0) return room
+  for (const s of states) { if (s.name != null || s.foreign !== 0 || !(s.free > 0)) continue; if (mine + o.lanes >= laneCapOf(name, lanes.caps)) break; room += s.free; mine++ }
+  return room
+}
 
 /**
  * THE BAG'S SURPLUS FOR THE PILES -> { name: n }. Pure over the bag's counts { name: n }. The cobble family above
  * YARD_BAG_KEEP_COBBLE (cobblestone kept first, so the deepslate goes before it), every bamboo_block, and nothing else.
  */
-export function bagSurplus (held = {}) {
+export function bagSurplus (held = {}, { lanes = LANES, keeps = null } = {}) {
   const n = k => Math.max(0, Number(held?.[k]) || 0)
   const out = {}
+  // yardlanes-01: every lane kind above the bag's keep of it (`keeps`: the caller's floors -- towndeposit.mjs townKeeps with the
+  // partial-slot rule; none given: cobblestone 64 and nothing else kept)
+  if (lanes?.on) {
+    for (const k of LANE_KINDS) { const sur = n(k) - Math.max(0, Number((keeps ?? { cobblestone: 64 })[k]) || 0); if (sur > 0) out[k] = sur }
+    return out
+  }
   let keep = YARD_BAG_KEEP_COBBLE
   const keepC = Math.min(n('cobblestone'), keep); keep -= keepC
   const keepD = Math.min(n('cobbled_deepslate'), keep)
@@ -256,12 +412,12 @@ export const bambooBlocks = (held = {}) => Math.floor(Math.max(0, (Number(held?.
  *   town      the town index's stock { name: n } (null: unknown -- no clerk and no refill on a guess)
  *   states    bayStates;  clutter  the aisle cells to clear (yardClutter);  pick  the bag holds a usable pickaxe (a refill's tool)
  */
-export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true, bayClutter = [], deferred = false } = {}) {
-  const sur = bagSurplus(held)
+export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true, bayClutter = [], deferred = false, lanes = LANES, keeps = null, others = {}, first = true } = {}) {
+  const sur = bagSurplus(held, { lanes, keeps })
   const place = {}
-  let left = YARD_VISIT_MAX
-  for (const name of YARD_BULK) {
-    const want = Math.min(sur[name] ?? 0, yardRoomFor(states, name), left)
+  let left = lanes?.on ? lanes.visitMax : YARD_VISIT_MAX
+  for (const name of yardKinds(!!lanes?.on)) {
+    const want = Math.min(sur[name] ?? 0, yardRoomFor(states, name, { lanes, others }), left)
     if (want > 0) { place[name] = want; left -= want }
   }
   const placed = Object.values(place).reduce((t, v) => t + v, 0)
@@ -270,16 +426,19 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
   // yarduse-01: a BAY BLOCKED by clutter (LIVE showcase 11-04: 5 spruce leaves on bay 3's top layer locked its 76 slots for 26 h)
   // is cleared FIRST when the room the bag's surplus finds is short of a stack -- the visit then stocks what the clearing opened
   const surplus = Object.values(sur).reduce((t, v) => t + v, 0)
-  if (bayClutter.length && placed < YARD_STOCK_MIN) return { kind: 'upkeep', urgent: pressed && surplus > 0, first: true, place: {}, draw: {}, dig: {}, why: `bay_clutter:${bayClutter.length}` }
-  if (placed >= YARD_STOCK_MIN || (placed > 0 && pressed)) return { kind: 'stock', urgent: pressed, place, draw: {}, dig: {}, why: `bag_surplus:${placed}` }
-  if (town && typeof town === 'object') {
+  // yardlanes-01: a bag banks on ANY town visit once it holds LANES.min above its keeps (was a whole stack, or a pressed bag)
+  const stockMin = lanes?.on ? Math.min(YARD_STOCK_MIN, lanes.min) : YARD_STOCK_MIN
+  if (bayClutter.length && placed < stockMin) return { kind: 'upkeep', urgent: pressed && surplus > 0, first: true, place: {}, draw: {}, dig: {}, why: `bay_clutter:${bayClutter.length}` }
+  if (placed >= stockMin || (placed > 0 && pressed)) return { kind: 'stock', urgent: pressed, place, draw: {}, dig: {}, why: `bag_surplus:${placed}` }
+  // the clerk and the refill are the FIRST yard's (the town's chests against the cobblestone pile)
+  if (first && town && typeof town === 'object') {
     const draw = {}
     let room = Math.min(left, Math.max(0, Number(freeSlots) || 0) * 64)
     // cobblestone only (Claude r1 BLOCK 2): the build reserve has no cobbled_deepslate key, so the withdraw takes none of it
     // (mats.mjs takeAllowed); a deepslate clerk would draw nothing every visit
     for (const name of ['cobblestone']) {
       const over = Math.max(0, (Number(town[name]) || 0) - YARD_CHEST_KEEP[name])
-      const want = Math.min(over, yardRoomFor(states, name), room)
+      const want = Math.min(over, yardRoomFor(states, name, { lanes, others }), room)
       if (want > 0) { draw[name] = want; room -= want }
     }
     const drawn = Object.values(draw).reduce((t, v) => t + v, 0)
@@ -300,24 +459,27 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
  * THE PILE CELLS a placement plan becomes -> { cells: [{ at, role, seg }], palette: { role: [name] }, bays: { name: id } }. Pure.
  * Each name's next slots in its bay (bayFor, then the next empty bay when that one fills), role `pile_<name>`, one segment `pile`.
  */
-export function pileCells (states = [], place = {}) {
-  const cells = [], palette = {}, bays = {}
+export function pileCells (states = [], place = {}, { lanes = LANES, others = {}, skip = null } = {}) {
+  const cells = [], palette = {}, bays = {}, lanesUsed = {}
   const used = new Set()
   const st = states.map(s => ({ ...s, next: s.next.slice() }))
-  for (const name of YARD_BULK) {
+  for (const name of yardKinds(!!lanes?.on)) {
     let n = Math.max(0, Number(place?.[name]) || 0)
     while (n > 0) {
-      const b = st.find(s => s.name === name && s.next.length) ?? st.find(s => s.name == null && s.foreign === 0 && s.next.length && !used.has(s.id))
+      // yardlanes-01: `skip` (a lane another bot holds) is never this visit's; an empty lane only under the kind's cap (laneMayOpen)
+      const mine = s => !(skip?.has?.(s.id))
+      const b = st.find(s => s.name === name && s.next.length && mine(s)) ?? (laneMayOpen(st, name, { lanes, others }) ? st.find(s => s.name == null && s.foreign === 0 && s.next.length && !used.has(s.id) && mine(s)) : null)
       if (!b) break
       if (b.name == null) { b.name = name; used.add(b.id) }
       const take = b.next.splice(0, n)
       for (const at of take) cells.push({ at, role: `pile_${name}`, seg: 'pile' })
       palette[`pile_${name}`] = [name]
       bays[name] = b.id
+      ;(lanesUsed[name] ??= []).includes(b.id) || lanesUsed[name].push(b.id)
       n -= take.length
     }
   }
-  return { cells, palette, bays }
+  return { cells, palette, bays, lanes: lanesUsed }
 }
 
 /** THE REFILL'S PICKAXE from the bag's items ({ name, uses left }) -> the item | null: a pickaxe with at least 2 uses left, the
@@ -347,14 +509,14 @@ export function refillDigs (states = [], dig = {}) {
  * name (bayFor / yardRoomFor need foreign === 0), so this is what makes it usable again. Highest first (a leaf on the top layer
  * before what is under it); an unread slot is skipped; at most `max`.
  */
-export function bayClutter (bays = [], read = () => null, { max = YARD_CLEAR_MAX } = {}) {
+export function bayClutter (bays = [], read = () => null, { max = YARD_CLEAR_MAX, kinds = yardKinds() } = {}) {
   const out = []
   for (const { slots } of bays ?? []) {
     for (const s of slots ?? []) {
       const b = read(...s)
       if (!b) continue
       const n = nm(b)
-      if (YARD_BULK.includes(n) || KEEP_IN_AISLE.test(n)) continue
+      if (kinds.includes(n) || KEEP_IN_AISLE.test(n)) continue
       out.push({ at: s, kind: 'tidy', name: n })
     }
   }
