@@ -286,7 +286,7 @@ import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } fr
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
 import { partialKeep } from './bagfix.mjs'   // yardlanes-01: the partial-slot rule banks to the yard
-import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
+import { BAGFIX, deferUnknown, failedSites, runMerge, creditMoves, lossCredit, stackKey, mergeFit, sameStack, destHolds, mergeRoom, fullStillTakes, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -8905,7 +8905,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
       if (!(await waitClicks(bot, 2_000, () => !!signal?.aborted))) return null
       const ev = await confirmCursor(bot, win, { deadline: Math.min(deadline, Date.now() + 1_500), cancelled: () => !!signal?.aborted })
       if (!ev?.answered || ev.decodeFailed) return null
-      return ev.cursorEmpty ? { name: null, count: 0 } : { name: win.selectedItem?.name ?? null, count: win.selectedItem?.count ?? 0 }
+      return ev.cursorEmpty ? { name: null, count: 0, item: null } : { name: win.selectedItem?.name ?? null, count: win.selectedItem?.count ?? 0, item: win.selectedItem ?? null }   // the WHOLE cursor item (Codex r2)
     }
     try {
       for (const step of steps) {
@@ -8916,7 +8916,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         const now = it ? win.slots[it.wslot] : null
         if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
         if (!(await admit(step))) continue
-        mergeNames?.add?.(step.name)   // the caller's: a merge click may land though this call throws (an interrupt in its probe)
+        mergeNames?.add?.(stackKey(win.slots[it.wslot]))   // the caller's (by IDENTITY): a merge click may land though this call throws (an interrupt in its probe)
         const m = await runMerge({ click: oneClick, confirm, slot: i => win.slots[i] ?? null, emptyDest, same: d => sameStack(d, win.selectedItem), stackOf: n => mergeStackOf(bot, n) }, step, it.wslot)
         for (const mv of m.moves) {
           if (mv.merged) for (const e of done) if (e.dest === mv.dest) e.grew = true
@@ -9114,14 +9114,18 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
       // bagfix-01 M (Paper 11-16): the bag at this open, the tally before it, and -- read after the settle -- the bag at the end (below)
-      const bagOpen = held(windowBag(bot, win)), bankedAt = { ...banked }, mergeNames = new Set()
-      let bagEnd = null, returned = false
+      // by IDENTITY (bagfix.mjs stackKey over the window's own Items): what the bag lost of the ORIGINAL stack, whatever came into it
+      const idBag = () => { const c = {}; for (let sl = win.inventoryStart; sl < win.inventoryEnd; sl++) { const x = win.slots[sl]; if (x) { const k = stackKey(x); c[k] = (c[k] ?? 0) + (x.count ?? 0) } } return c }
+      const bagOpen = idBag(), bankedAt = { ...banked }, mergeNames = new Set()
+      let bagEnd = null, returned = false, mergeStop = null
       // ONLY the names a merge was clicked for (every other move keeps its rule: the re-open's exact slot, or nothing)
       const mergedOpen = () => Object.fromEntries(Object.entries(bagOpen).filter(([n]) => mergeNames.has(n)))
       try {
         r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, mergeNames, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
+        // the row's stop names a SURPRISE (never a chest that is merely full: the run goes on to the next container, as before)
+        if (/^merge stopped: /.test(String(r.err ?? '')) && !/^merge stopped: (no_empty_slot|place_refused)$/.test(String(r.err))) mergeStop = String(r.err).slice(15)
         returned = true
       } finally {
         settled = await settleCursor(bot, win)
@@ -9131,7 +9135,7 @@ async function townDeposit (ctx, _args, signal) {
         try {
           if (BAGFIX.merge && settled.state !== 'unresolved' && bot.currentWindow === win && typeof bot?.craftSync?.confirmCursor === 'function') {
             const ev = await confirmCursor(bot, win, { deadline: Date.now() + 1_500 })
-            if (ev?.answered && !ev.decodeFailed && ev.cursorEmpty) { bagEnd = held(windowBag(bot, win)); serverBag = bagEnd }
+            if (ev?.answered && !ev.decodeFailed && ev.cursorEmpty) { bagEnd = idBag(); serverBag = held(windowBag(bot, win)) }
           }
         } catch { /* no evidence: the tally as it is */ }
         if (!returned && bagEnd && mergeNames.size) Object.assign(banked, lossCredit({ banked, before: bankedAt, open: mergedOpen(), end: bagEnd }))
@@ -9170,6 +9174,7 @@ async function townDeposit (ctx, _args, signal) {
       // the next visit's townContainers and the recovery's sweep skip it until FULL_TTL_MS or a `took`
       if (v.ok && !r.done.length && r.noRoom) { rememberTown(bot, c.position, 'full'); const q = chestPartner(bot, c.position); if (q) rememberTown(bot, q, 'full') }
       if (!v.ok) { stop = 'unverified'; break }
+      if (mergeStop) { stop = `merge:${mergeStop}`; break }   // a merge the server answered unexpectedly ends the deposit (Codex r1/r2)
       if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active, tail, ...(room ?? {}) }).steps.length) break
     }
   } finally {

@@ -241,12 +241,14 @@ console.log('M (Codex r1): THE MERGE SEQUENCE TRUSTS THE SERVER, CLICK BY CLICK'
 // stays on the cursor), PLACES into an empty slot, SWAPS with anything else; with an empty cursor it picks the stack up (right: half).
 // The bot sees NOTHING of it but what confirm() returns: the server's cursor, and a refresh of the slots.
 const CH = 27   // container slots 0..26, bag slots 27..62
+// the server's stack as the Item the probe decodes: a `tag` is a custom name (a component), `dmg` a damage component
+const asItem = x => ({ name: x.name, count: x.count, type: 1, metadata: 0, nbt: null, components: [...(x.tag ? [{ type: 'custom_name', data: x.tag }] : []), ...(x.dmg ? [{ type: 'damage', data: x.dmg }] : [])] })
 function server ({ chest = {}, bagSlots = {}, onClick = null, mute = () => false, closeAt = null } = {}) {
   const slots = Array.from({ length: 63 }, () => null)
   for (const [i, v] of Object.entries(chest)) slots[i] = { ...v }
   for (const [i, v] of Object.entries(bagSlots)) slots[i] = { ...v }
   const sv = { slots, cursor: null, clicks: 0, confirms: 0, closed: false, view: slots.map(x => (x ? { ...x } : null)) }
-  const sameS = (a, b) => a && b && a.name === b.name && (a.tag ?? null) === (b.tag ?? null)
+  const sameS = (a, b) => a && b && a.name === b.name && (a.tag ?? null) === (b.tag ?? null) && (a.dmg ?? 0) === (b.dmg ?? 0)
   sv.io = {
     click: async (slot, button = 0) => {
       sv.clicks++
@@ -259,7 +261,7 @@ function server ({ chest = {}, bagSlots = {}, onClick = null, mute = () => false
       if (sameS(at, sv.cursor)) { const n = Math.min(sv.cursor.count, 64 - at.count); at.count += n; sv.cursor.count -= n; if (!sv.cursor.count) sv.cursor = null; return }
       sv.slots[slot] = sv.cursor; sv.cursor = at   // a swap
     },
-    confirm: async () => { sv.confirms++; if (sv.closed || mute(sv.confirms)) return null; sv.view = sv.slots.map(x => (x ? { ...x } : null)); return sv.cursor ? { name: sv.cursor.name, count: sv.cursor.count } : { name: null, count: 0 } },
+    confirm: async () => { sv.confirms++; if (sv.closed || mute(sv.confirms)) return null; sv.view = sv.slots.map(x => (x ? { ...x } : null)); return sv.cursor ? { name: sv.cursor.name, count: sv.cursor.count, item: asItem(sv.cursor) } : { name: null, count: 0, item: null } },
     slot: i => { const x = sv.view[i]; return x ? { ...x, stackSize: 64 } : null },
     emptyDest: () => { for (let i = 0; i < CH; i++) if (!sv.view[i]) return i; return null },
     same: d => sameS(d, sv.cursor),
@@ -350,7 +352,7 @@ await t('THE RE-OPEN CREDITS AGAINST THE BAG: a merge is credited at most what t
 await t('MUTANTS KILLED (Codex r1): the client\'s prediction credited; a late answer read as empty; a swap read as a merge; a wrong pickup clicked on; the bag ignored', async () => {
   await killedBy(BAGFIX_PATH, BF, '    const n = left - cur.count\n', '    const n = Math.min(left, max - base)\n', raceFull)
   await killedBy(BAGFIX_PATH, BF, "    if (!cur) return out('merge_unconfirmed')\n", '    if (!cur) cur = { name: null, count: 0 }\n', lateMerge)
-  await killedBy(BAGFIX_PATH, BF, "    if (cur.count > 0 && cur.name !== step.name) return out('cursor_swapped')\n", '', swapped)
+  await killedBy(BAGFIX_PATH, BF, "    if (foreign(cur)) return out('cursor_swapped')\n", '', swapped)
   await killedBy(BAGFIX_PATH, BF, "  if (cur.name !== step.name || cur.count !== step.count) return out(cur.count ? 'pickup_differs' : 'pickup_empty')\n", '', pickupDiffers)
   await killedBy(BAGFIX_PATH, BF, '    const lost = before && after ? Math.max(0, (Number(before[name]) || 0) - (Number(after[name]) || 0)) : 0\n', '    const lost = Infinity\n',
     M => assert.deepEqual(M.creditMoves([{ step: { name: 'coal', count: 40 }, dest: 3, base: 5, after: 45 }], { coal: 40 }, { coal: 26 }), []))
@@ -430,13 +432,65 @@ await t('lossCredit: never less than what left the bag, never a second time; no 
     assert.deepEqual(M.lossCredit({ banked: { coal: 4 }, before: {}, open: { coal: 20 }, end: null }), { coal: 4 }, 'no answered probe: the tally as it is')
     assert.deepEqual(M.lossCredit({ banked: {}, before: {}, open: { coal: 20 }, end: { coal: 26 } }), {}, 'a bag that GAINED credits nothing')
   }
-  await killedBy(BAGFIX_PATH, BF, "    if (lost > 0) out[name] = Math.max(Number(out[name]) || 0, (Number(before?.[name]) || 0) + lost)\n", '', sc)
+  await killedBy(BAGFIX_PATH, BF, "  for (const [name, lost] of Object.entries(lostBy)) out[name] = Math.max(Number(out[name]) || 0, (Number(before?.[name]) || 0) + lost)\n", '', sc)
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  one(sk, 'if \\(ev\\?\\.answered && !ev\\.decodeFailed && ev\\.cursorEmpty\\) \\{ bagEnd = held\\(windowBag\\(bot, win\\)\\); serverBag = bagEnd \\}', 'the end bag is read after the settle, on the server\'s word, and is bagdelta\'s')
+  one(sk, 'if \\(ev\\?\\.answered && !ev\\.decodeFailed && ev\\.cursorEmpty\\) \\{ bagEnd = idBag\\(\\); serverBag = held\\(windowBag\\(bot, win\\)\\) \\}', 'the end bag is read after the settle, on the server\'s word, and is bagdelta\'s')
   one(sk, 'if \\(!returned && bagEnd && mergeNames\\.size\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: mergedOpen\\(\\), end: bagEnd \\}\\)\\)', 'an abort or a throw is credited in the finally')
   one(sk, 'if \\(bagEnd && v\\.ok && mergeNames\\.size\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: mergedOpen\\(\\), end: bagEnd \\}\\)\\)', 'a stop is credited after the re-open')
-  one(sk, 'mergeNames\\?\\.add\\?\\.\\(step\\.name\\)', 'only the names a merge was clicked for (every other move keeps the re-open\'s exact rule)')
-  assert.ok(sk.indexOf('settled = await settleCursor(bot, win)\n') < sk.indexOf('bagEnd = held(windowBag(bot, win))'), 'after the settle')
+
+  assert.ok(sk.indexOf('settled = await settleCursor(bot, win)\n') < sk.indexOf('bagEnd = idBag()'), 'after the settle')
+})
+
+// ---- M, Codex r2 BLOCKER: a swap is judged on the WHOLE item, not its name ---------------------------------------------------------------
+console.log('M (Codex r2): THE CURSOR\'S WHOLE IDENTITY -- a named or damaged stack swapped onto it is never read as a merge')
+const namedSwap = async M => {
+  // CODEX'S CASE: 40 plain coal; another bot replaces the destination with 5 NAMED coal under the click; the server SWAPS
+  const sv = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: bagCoal, onClick: (s, n) => { if (n === 2) s.slots[3] = { name: 'coal', count: 5, tag: 'Lucky' } } })
+  const r = await M.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, 'cursor_swapped', 'the stop names the surprise')
+  assert.deepEqual(r.moves, [], 'no "35 merged": nothing is credited by the pass for a click the server answered with a swap')
+  assert.equal(sv.clicks, 2, 'the named coal is never clicked into a chest slot by this pass')
+  assert.deepEqual(sv.cursor, { name: 'coal', count: 5, tag: 'Lucky' })
+  assert.deepEqual(sv.slots[3], { name: 'coal', count: 40 }, 'what really happened: our 40 are in the chest')
+  // the caller's settle returns the foreign stack to the bag; the credit is the ORIGINAL identity's loss -- the named 5 that came in hide nothing
+  const idBag = () => { const c = {}; for (let k = CH; k < sv.slots.length; k++) { const x = sv.slots[k]; if (x) { const key = M.stackKey(asItem(x)); c[key] = (c[key] ?? 0) + x.count } } return c }
+  const open = { coal: 40, iron_pickaxe: 1 }
+  sv.settle(FROM)
+  const end = idBag()
+  assert.equal(sv.cursor, null); assert.equal(sv.total('coal'), 45, 'conserved: 40 plain in the chest, 5 named in the bag')
+  assert.deepEqual(sv.slots[TOOL], { name: 'iron_pickaxe', count: 1 })
+  assert.equal(end.coal ?? 0, 0); assert.equal(Object.keys(end).filter(k => k.startsWith('coal#')).length, 1, 'the named coal is its own identity')
+  assert.deepEqual(M.lossCredit({ banked: {}, before: {}, open: { coal: open.coal }, end }), { coal: 40 }, 'the row says what really moved: 40 (by name alone it would read 35)')
+}
+const damagedSwap = async M => {
+  // the same with a DAMAGED TOOL put where the coal stack was
+  const sv = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: bagCoal, onClick: (s, n) => { if (n === 2) s.slots[3] = { name: 'iron_pickaxe', count: 1, dmg: 17 } } })
+  const r = await M.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, 'cursor_swapped'); assert.deepEqual(r.moves, []); assert.equal(sv.clicks, 2)
+  sv.settle(FROM)
+  assert.equal(sv.cursor, null); assert.equal(sv.total('coal'), 40); assert.equal(sv.total('iron_pickaxe'), 2, 'both tools exist; ours never left its slot')
+  assert.deepEqual(sv.slots[TOOL], { name: 'iron_pickaxe', count: 1 })
+}
+await t('THE EXACT CASE (Codex r2): the destination replaced by a NAMED stack mid-deposit -> stop cursor_swapped, nothing of it moved by us, 40 credited, conserved; the same with a damaged tool', async () => { await namedSwap(BF); await damagedSwap(BF) })
+await t('a stack of the SAME identity as the pickup is still a merge (a named stack onto its own kind); stackKey: plain is the name, anything else its own key', async () => {
+  const lucky = { name: 'coal', count: 20, tag: 'Lucky' }
+  const sv = server({ chest: fullChest({ 3: { name: 'coal', count: 5, tag: 'Lucky' } }), bagSlots: { [FROM]: { ...lucky } } })
+  const r = await BF.runMerge(sv.io, { slot: 12, name: 'coal', count: 20, merges: [{ dest: 3, n: 20 }], dest: null }, FROM)
+  assert.equal(r.stop, null); assert.deepEqual(r.moves.map(m => m.n), [20])
+  assert.equal(BF.stackKey(it('coal', 5)), 'coal')
+  assert.notEqual(BF.stackKey(asItem(lucky)), 'coal'); assert.ok(BF.stackKey(asItem(lucky)).startsWith('coal#'))
+  assert.equal(BF.stackKey(asItem(lucky)), BF.stackKey(asItem({ ...lucky, count: 3 })), 'the count is not identity')
+  assert.notEqual(BF.stackKey(asItem({ name: 'iron_pickaxe', count: 1, dmg: 17 })), BF.stackKey(asItem({ name: 'iron_pickaxe', count: 1 })))
+  assert.equal(BF.stackKey(null), '')
+})
+await t('MUTANTS KILLED (Codex r2): the swap judged by name alone; the credit by name alone; a surprise that does not end the deposit', async () => {
+  await killedBy(BAGFIX_PATH, BF, " || (!!picked0 && !!c.item && !sameStack(picked0, c.item)) || (!!picked0 !== !!c.item))", ')', namedSwap)
+  await killedBy(BAGFIX_PATH, BF, "  return extra === 'null|[]|[]|0' ? it.name : `${it.name}#${extra}`", '  return it.name', namedSwap)
+  const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  one(sk, 'item: win\\.selectedItem \\?\\? null \\}', 'the probe hands the WHOLE cursor item to the pass')
+  one(sk, 'mergeNames\\?\\.add\\?\\.\\(stackKey\\(win\\.slots\\[it\\.wslot\\]\\)\\)', 'the credit is keyed by the original identity')
+  one(sk, "if \\(mergeStop\\) \\{ stop = `merge:\\$\\{mergeStop\\}`; break \\}", 'a surprise ends the deposit and the row names it')
+  one(sk, '!\\/\\^merge stopped: \\(no_empty_slot\\|place_refused\\)\\$\\/\\.test\\(String\\(r\\.err\\)\\)', 'a chest that is merely full is not a surprise')
 })
 
 // ---- D: carried chests ---------------------------------------------------------------------------------------------------------
