@@ -31,7 +31,8 @@ bots are, in three layers), and hands this slot one camera per live surface scen
 camera). They are shot right after the pair, AHEAD of every fixed camera, inside the same budget_s and inside
 director.scene_budget_s; the cameras in director.replaces give up their slot to them, the cameras in
 director.idle_only keep their idle interval, and a slot that shoots a scene camera plans no more than
-director.slot_s in all (a fixed camera that no longer fits waits a slot). Underground scenes go to
+director.slot_s in all (a fixed camera that no longer fits waits a slot; one that has waited overdue_n of its own
+intervals has its seconds set aside before the scene cameras get theirs -- plan_views). Underground scenes go to
 logs/scenes-slot.json for tl_under.py. With "on": false (or no `director` key) none of this runs and the plan is
 exactly the one above (director_slot).
 
@@ -122,6 +123,7 @@ def camera_markers(cam):
 #   Each published frame of a follow/labelled camera gets a <stamp>.json sidecar {label, project} for the video captions.
 DEFAULT_HEAVY_PER_SLOT = 1
 DEFAULT_FOLLOW_MAX_AGE_H = 6.0       # a follow camera's target must have placed within this (0 / null: no limit)
+DEFAULT_OVERDUE_N = 2.0              # a fixed camera not shot for this many of its intervals goes before the scene cameras
 QUALITY_KEYS = ('dpr', 'hires', 'lowres', 'sun', 'ambient')
 
 
@@ -292,30 +294,34 @@ def cam_active(cfg, cam, vstate, now, progress):
     return False, 'quiet'
 
 
-def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, first=(), first_budget_s=None):
+def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, first=(), first_budget_s=None, slot_s=None):
     """The cameras this slot shoots, in order: the pair always first, then every DUE camera (its interval has passed
     since its last frame, 2 min of slack for timer jitter), active before idle, most overdue first, until the estimated
-    cost reaches the budget. `first` (camdirector-01: the director's scene cameras, in its order) are shot right after
-    the pair, AHEAD of every due camera: each one that fits what is left of the budget AND of first_budget_s (their
-    own ceiling per slot; None: only the budget); they are never in the due list. With first=() the plan is the plan
-    it always was. -> (views, why {view: reason}, deferred [views]). Pure (tested)."""
+    cost reaches the budget. -> (views, why {view: reason}, deferred [views]). Pure (tested).
+
+    `first` (camdirector-01: the director's scene cameras, in its order) are shot right after the pair, AHEAD of every
+    due camera: each one that fits what is left of the slot AND of first_budget_s (their own ceiling per slot; None:
+    no ceiling of their own); they are never in the due list. A slot that shoots one plans no more than slot_s in all
+    (plan_budget). With first=() the plan is the plan it always was: nothing below applies.
+
+    NO FIXED CAMERA STARVES BEHIND THEM (Codex r1, 11-16: with 120 s of snapshot + render, the pair and two 40-s scene
+    frames, the 150-s hero4k never fitted again). A due camera not shot for overdue_n (tl.conf director.overdue_n,
+    default 2) of its own intervals is OWED: its seconds are set aside BEFORE the scene cameras get theirs, most
+    overdue first, one 4K camera per slot as ever, and it is shot this slot; the scene cameras take what is left (one
+    fewer, or none). So with scenes live in every slot a fixed camera's longest gap is overdue_n x its interval
+    (hero4k, every 30 min: 60 min), plus one slot for each camera owed ahead of it that the slot could not also hold.
+    When an owed camera does not fit under slot_s even with no scene frame at all (a slow render), the slot shoots NO
+    scene camera and is planned under budget_s alone, as a slot without a director is: slot_s is the ceiling of slots
+    that carry scene frames, never a reason to drop a fixed camera for good."""
     cams = cfg.get('cameras') or {}
     est = lambda v: float((state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') or cfg.get('frame_s')
                           or DEFAULT_FRAME_S)
     heavy_left = int(cfg.get('heavy_per_slot', DEFAULT_HEAVY_PER_SLOT))
     left = budget_s - spent_s - sum(est(v) for v in pair)
     due, why = [], {v: 'pair' for v in pair}
-    lead, late, room = [], [], float('inf') if first_budget_s is None else float(first_budget_s)
-    for v in first:                 # the director's scene cameras: before every fixed camera, inside both budgets
-        if v not in cams or v in VIEWS or (cams[v] or {}).get('off'):
-            continue
-        if est(v) <= left and est(v) <= room:
-            lead.append(v)
-            why[v] = 'scene: ' + str(((cams[v] or {}).get('scene') or {}).get('caption') or 'ahead of the fixed cameras')
-            left -= est(v)
-            room -= est(v)
-        else:
-            late.append(v)
+    first = [v for v in first if v in cams and v not in VIEWS and not (cams[v] or {}).get('off')]
+    owed_n = float((cfg.get('director') or {}).get('overdue_n') or DEFAULT_OVERDUE_N)
+    owed = []
     for v in sorted(cams):
         if v in VIEWS or v in first or (cams[v] or {}).get('off') or (cams[v] or {}).get('event_only'):
             continue
@@ -327,19 +333,52 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, fir
         if age + 2 >= iv:
             due.append((0 if act else 1, -age / iv, v, f'{"active" if act else "idle"} every {iv:g} min; '
                                                        f'{"never shot" if not last else f"last {age:.0f} min ago"}; {aw}'))
+            if age + 2 >= owed_n * iv:
+                owed.append((-age / iv, v))
+    lead, late, held = [], [], []
+    if first:                       # the director's scene cameras: before every fixed camera, inside the slot's ceilings
+        capped = plan_budget(budget_s, slot_s) - spent_s - sum(est(v) for v in pair)
+        if any(capped < est(v) <= left for _, v in owed):
+            late = list(first)      # an owed camera cannot fit under slot_s at all: no scene frame, budget_s alone
+        else:
+            left = capped
+            keep, heavy_keep = left, heavy_left
+            for _, v in sorted(owed):               # set aside the owed cameras' seconds, most overdue first
+                is_heavy = bool((cams[v] or {}).get('heavy'))
+                if est(v) <= keep and (not is_heavy or heavy_keep > 0):
+                    held.append(v)
+                    keep -= est(v)
+                    heavy_keep -= is_heavy
+            room = float('inf') if first_budget_s is None else float(first_budget_s)
+            for v in first:
+                if est(v) <= keep and est(v) <= room:
+                    lead.append(v)
+                    why[v] = 'scene: ' + str(((cams[v] or {}).get('scene') or {}).get('caption') or 'ahead of the fixed cameras')
+                    keep -= est(v)
+                    left -= est(v)
+                    room -= est(v)
+                else:
+                    late.append(v)
     out, deferred, heavy = list(pair), [], []
     out += lead
     deferred += late
-    for _, _, v, w in sorted(due):
+    ordered = sorted(due)
+    for _, _, v, w in [d for d in ordered if d[2] in held] + [d for d in ordered if d[2] not in held]:
         is_heavy = bool((cams[v] or {}).get('heavy'))
         if est(v) <= left and (not is_heavy or heavy_left > 0):
             (heavy if is_heavy else out).append(v)
-            why[v] = w
+            why[v] = w + ('; owed: its seconds were set aside before the scene cameras' if v in held else '')
             left -= est(v)
             heavy_left -= is_heavy
         else:
             deferred.append(v)
     return out + heavy, why, deferred
+
+
+def plan_budget(budget_s, slot_s):
+    """The seconds a slot that shoots a scene camera may plan: budget_s, or the director's slot_s when that is lower.
+    Pure (tested)."""
+    return min(float(budget_s), float(slot_s)) if slot_s else budget_s
 
 
 def director_on(cfg):
@@ -351,7 +390,8 @@ def director_slot(cfg, cams, now, sites, stamp=None, write=True):
     """The director's part of one slot (tl_director.py; imported only while it is on). -> (cameras, first,
     first_budget_s, slot_s, result): the slot's cameras with the scene cameras added and the replaced / idle-only
     cameras marked, the scene cameras in shooting order for plan_views(first=...), their per-slot ceiling, the whole
-    slot's ceiling while a scene camera is shot (None: budget_s alone), and the director's result (None while off).
+    slot's ceiling (plan_views applies it only to a slot that shoots a scene camera), and the director's result (None
+    while off).
     OFF, the cameras come back untouched with first=() and None: the plan is exactly the plan without a director.
     A director that FAILS costs the slot nothing either: the same untouched cameras, and the error for the heartbeat
     row. write False (the `plan` command): the director writes nothing."""
@@ -362,15 +402,9 @@ def director_slot(cfg, cams, now, sites, stamp=None, write=True):
         res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)
         first = tuple(res['first'])
         return (D.apply_cameras(cams, res['dc'], res['cameras']), first, res['dc'].get('scene_budget_s'),
-                res['dc'].get('slot_s') if first else None, res)
+                res['dc'].get('slot_s'), res)
     except Exception as e:
         return cams, (), None, None, {'error': f'{type(e).__name__}: {str(e)[:200]}'}
-
-
-def plan_budget(budget_s, slot_s):
-    """The seconds a slot may plan: budget_s, or the director's slot_s when that is lower (only handed in for a slot
-    that shoots a scene camera). Pure (tested)."""
-    return min(float(budget_s), float(slot_s)) if slot_s else budget_s
 
 
 def director_done(cfg, res, cams, published, timings, now, state):
@@ -859,8 +893,8 @@ def _capture_locked(cfg, a, t, stamp):
     cams, first, first_budget, slot_s, dres = director_slot(cfg, cams, t, sites, stamp)    # off: cams unchanged, first ()
     rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot (+ the scene cameras)
     pair = slot_pair(cfg, t)
-    views, why, deferred = plan_views(rcfg, state, t, progress, plan_budget(budget, slot_s), time.time() - start,
-                                      pair=pair, first=first, first_budget_s=first_budget)
+    views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start, pair=pair,
+                                      first=first, first_budget_s=first_budget, slot_s=slot_s)
     est = {v: (state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') for v in views}
     crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(rcfg, stamp, views, deadline=start + budget, est=est,
                                                                pair=pair)
@@ -981,8 +1015,8 @@ def cmd_plan(cfg, a):
     cams, targets = resolve_cameras(cfg, state, t, progress, sites)
     cams, first, first_budget, slot_s, dres = director_slot(cfg, cams, t, sites, stamp_of(t), write=False)   # read-only
     views, why, deferred = plan_views(dict(cfg, cameras=cams), state, t, progress,
-                                      plan_budget(float(cfg.get('budget_s') or DEFAULT_BUDGET_S), slot_s), 75.0,
-                                      first=first, first_budget_s=first_budget)
+                                      float(cfg.get('budget_s') or DEFAULT_BUDGET_S), 75.0,
+                                      first=first, first_budget_s=first_budget, slot_s=slot_s)
     out = {'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred, 'follow': targets}
     if dres is not None:
         if dres.get('error'):

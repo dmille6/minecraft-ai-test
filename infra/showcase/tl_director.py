@@ -14,7 +14,8 @@ OPERATOR NOTE
               state, logs/scenes.json.
   Writes      logs/scenes.json            the live scenes (ids, boxes, captions, hold clocks), the still-bot tracker
               logs/scenes-slot.json       THE HAND-OFF: this slot's scene list (format below), for tl_under.py
-              logs/scenes-<YYYYMMDD>.jsonl  the same object, one line per slot (tl_video ranks the day's scenes from it)
+              logs/scenes-<YYYYMMDD>.jsonl  the same object without the trails, one line per slot (tl_video ranks
+                                          the day's scenes from it)
               all under tl.conf `root`, each written to a .part file and renamed. Nothing else; the world, the bots and
               their logs are only read.
   Cost bound  per pass: at most director.tail_bytes (2 MB) read from the END of each log file, whatever its size (a
@@ -26,7 +27,10 @@ OPERATOR NOTE
               (project4k) give up their slot whenever a scene camera is planned, and the cameras in
               director.idle_only (grounds, patina, iso) drop to their idle interval while the director is on. A slot
               that shoots a scene camera plans no more than director.slot_s (360 s from its start: what a slot took
-              on 11-16, 6 of every 15 minutes) -- a fixed camera that no longer fits waits for the next slot.
+              on 11-16, 6 of every 15 minutes) -- a fixed camera that no longer fits waits for the next slot. It
+              never waits for good: one not shot for director.overdue_n (2) of its own intervals has its seconds set
+              aside BEFORE the scene cameras get theirs (tl_showcase.plan_views), so hero4k (every 30 min) is never
+              more than 60 min without a frame whatever the scenes do.
   Off switch  tl.conf "director": {"on": false} (or no `director` key at all): tl_showcase never imports this file
               and plans exactly the cameras it planned before (tested: test_director.py DirectorOff). Its three files
               then simply stop changing; delete them or leave them.
@@ -77,10 +81,20 @@ THE HAND-OFF FILE  logs/scenes-slot.json  (rewritten every slot; one JSON object
                writes frames/under-<id>/<YYYYMMDD>/<stamp>.png and, beside each, <stamp>.json carrying at least
                {"scene": id, "caption": ..., "bots": [...], "layer": ..., "score": ...} -- the same fields
                tl_showcase puts in a scene camera's sidecar; tl_video reads both the same way)
+    trail      UNDERGROUND scenes only (shallow / deep, activity or event; a surface scene has no such key):
+               where the scene's bots have been, so the renderer needs no log access of its own.
+               {"<bot>": [[t, x, y, z, skill], ...], ...} -- one key per name in `bots` (a bot with no sample in the
+               span has an empty list), and for each its position samples of the last trail_min minutes (45; never
+               more than window_min, the samples this pass already holds -- no extra read), OLDEST FIRST, at most
+               trail_max (300) per bot (the newest are kept). t: UTC to the second, "2026-11-16T12:44:50Z"; x, y, z:
+               blocks, one decimal; skill: the skill in hand then (a skill name, "?" when none was logged yet).
+               One sample per bin_s (10 s) the bot logged a row in. ALL of the bot's samples of the span, wherever
+               it was -- also outside the scene's box and layer (it may have walked down from the surface).
+               The day log logs/scenes-<YYYYMMDD>.jsonl carries the same objects WITHOUT `trail`.
 
 Pure functions (tested in test_director.py, each rule with a mutant): layer_of, skill_class, parse_row, when,
 samples_of, changes_of, scene_project, caption_of, cluster, find_events, continuity, scene_rank, scene_cameras,
-apply_cameras, slot_file, note_shots. I/O: read_tail, load_rows, run, finish.
+apply_cameras, trail_of, slot_file, note_shots. I/O: read_tail, load_rows, run, finish.
 """
 import bisect
 import calendar
@@ -109,6 +123,8 @@ DEFAULTS = {
     'event_min': 15, 'still_min': 30, 'still_r': 3, 'moved_r': 8, 'event_r': 10, 'max_events': 2,
     'scene_budget_s': 90,             # the scene cameras' own ceiling per slot (estimated capture seconds)
     'slot_s': 360,                    # a slot with a scene camera plans no more than this in all (measured 11-16)
+    'overdue_n': 2,                   # a fixed camera unshot for this many of its intervals goes before the scenes
+    'trail_min': 45, 'trail_max': 300,    # an underground scene's `trail` in the hand-off: minutes, samples per bot
     'scene_camera': {'ortho': 0, 'mode': 'perspective', 'width': 1440, 'height': 1440, 'markers': [], 'est_s': 40,
                      'y': 69, 'rotation': 0.7854, 'angle': 0.6, 'fov': 32, 'min_distance': 40, 'fit': 2.2},
     'idle_only': ['grounds', 'patina', 'iso'],
@@ -691,18 +707,38 @@ def apply_cameras(cams, dc, scene_cams):
     return out
 
 
-def slot_file(state, stamp, dc):
-    """The hand-off object (the format at the top of this file) from the pass's state. Pure (tested)."""
+def trail_of(samples, bots, lo, max_n):
+    """An underground scene's `trail`: {bot: [[t iso, x, y, z, skill], ...]} for exactly the scene's bots, each bot's
+    samples at or after `lo` (epoch s), oldest first, the newest max_n of them. samples: {bot: [(t, x, y, z, skill)]},
+    the pass's own (samples_of). Pure (tested)."""
+    out = {}
+    for b in bots:
+        pts = sorted(p for p in samples.get(b) or () if p[0] >= lo)[-int(max_n):]
+        out[b] = [[iso(t), round(x, 1), round(y, 1), round(z, 1), skill] for t, x, y, z, skill in pts]
+    return out
+
+
+def slot_file(state, stamp, dc, samples=None, now=None):
+    """The hand-off object (the format at the top of this file) from the pass's state. samples + now (the pass's
+    position samples and its time): every UNDERGROUND scene also gets its `trail`. Pure (tested)."""
     scenes = []
     for s in state['scenes']:
         surface = s['layer'] == 'surface'
-        scenes.append({'id': s['id'], 'layer': s['layer'], 'kind': s.get('kind', 'activity'), 'box': s['box'],
-                       'y': s['y'], 'g': s.get('g'), 'score': s.get('score') or 0, 'active': bool(s.get('active')),
-                       'bots': list(s['bots']), 'caption': s['caption'], 'project': s.get('project'),
-                       'skill': s.get('skill'), 'opened': s.get('opened'),
-                       'camera': 'scene-' + s['id'] if surface else None,
-                       'frames': ('frames/scene-' if surface else 'frames/under-') + s['id']})
+        row = {'id': s['id'], 'layer': s['layer'], 'kind': s.get('kind', 'activity'), 'box': s['box'],
+               'y': s['y'], 'g': s.get('g'), 'score': s.get('score') or 0, 'active': bool(s.get('active')),
+               'bots': list(s['bots']), 'caption': s['caption'], 'project': s.get('project'),
+               'skill': s.get('skill'), 'opened': s.get('opened'),
+               'camera': 'scene-' + s['id'] if surface else None,
+               'frames': ('frames/scene-' if surface else 'frames/under-') + s['id']}
+        if not surface and samples is not None and now is not None:
+            row['trail'] = trail_of(samples, row['bots'], now - float(dc['trail_min']) * 60, dc['trail_max'])
+        scenes.append(row)
     return {'v': 1, 't': state['t'], 'stamp': stamp, 'window_min': dc['window_min'], 'scenes': scenes}
+
+
+def without_trails(slot):
+    """The hand-off object as the day log keeps it: every scene without its `trail`. Pure (tested)."""
+    return dict(slot, scenes=[{k: v for k, v in s.items() if k != 'trail'} for s in slot['scenes']])
 
 
 def note_shots(state, shots, now, w=0.4):
@@ -735,9 +771,9 @@ def load_state(cfg):
         return {}
 
 
-def _write(path, obj):
+def _write(path, obj, indent=1):
     with open(path + '.part', 'w') as f:
-        json.dump(obj, f, indent=1, sort_keys=True)
+        json.dump(obj, f, indent=indent, sort_keys=True)
     os.replace(path + '.part', path)
 
 
@@ -765,15 +801,15 @@ def run(cfg, now, sites, stamp=None, frame=None, write=True, rows=None):
     state = continuity(prev, clusters, events, now, dc)
     state.update(bots=tracker, seen=seen, cam_s=prev.get('cam_s'))
     cams, first = scene_cameras(state['scenes'], dc, frame, est_s=prev.get('cam_s')) if frame else ({}, [])
-    slot = slot_file(state, stamp, dc)
+    slot = slot_file(state, stamp, dc, samples, now)        # + each underground scene's trail, from these samples
     stats = dict(stats, clusters=len(clusters), events=len(events), live=len(state['scenes']),
                  closed=len(state['closed']), ms=int((time.time() - t0) * 1000))
     if write:
         save_state(cfg, state)
-        _write(_path(cfg, 'scenes-slot.json'), slot)
+        _write(_path(cfg, 'scenes-slot.json'), slot, indent=None)
         day = dt.datetime.fromtimestamp(now, dt.timezone.utc).strftime('%Y%m%d')
         with open(_path(cfg, f'scenes-{day}.jsonl'), 'a') as f:
-            f.write(json.dumps(slot, sort_keys=True) + '\n')
+            f.write(json.dumps(without_trails(slot), sort_keys=True) + '\n')
     return {'dc': dc, 'state': state, 'cameras': cams, 'first': first, 'slot': slot, 'stats': stats}
 
 

@@ -1008,8 +1008,10 @@ def check_a_whole_slot_with_the_director_on(t, M):
         t.assertEqual((deep['caption'], deep['camera'], deep['frames'], deep['y']),
                       ('2 bots mining under the town, y 12-14', None, 'frames/under-' + deep['id'], [12, 14]),
                       'the underground scene: no BlueMap camera, handed to tl_under with its box and layer')
-        t.assertEqual(sorted(deep), ['active', 'bots', 'box', 'camera', 'caption', 'frames', 'g', 'id', 'kind', 'layer',
-                                     'opened', 'project', 'score', 'skill', 'y'], 'the documented hand-off fields')
+        fields = ['active', 'bots', 'box', 'camera', 'caption', 'frames', 'g', 'id', 'kind', 'layer', 'opened', 'project',
+                  'score', 'skill', 'y']
+        t.assertEqual(sorted(deep), sorted(fields + ['trail']), 'the documented hand-off fields; underground: + trail')
+        t.assertEqual((sorted(surf), sorted(death)), (fields, fields), 'a surface scene has no trail')
         t.assertEqual((surf['camera'], surf['frames']), ('scene-' + surf['id'], 'frames/scene-' + surf['id']))
         t.assertEqual(shot, ['topdown', 'angled', 'scene-' + death['id'], 'scene-' + surf['id'], 'town'],
                       'pair, the death, the yard, then the fixed camera; grounds (shot 20 min ago) is idle-only now')
@@ -1026,7 +1028,9 @@ def check_a_whole_slot_with_the_director_on(t, M):
         t.assertEqual(st['cam_s'], 31.0, 'the measured cost of a scene frame is remembered')
         with open(os.path.join(logs, 'scenes-20261116.jsonl')) as f:
             day = [json.loads(x) for x in f.read().splitlines()]
-        t.assertEqual(day, [slot], 'the day log holds the same object, one line per slot')
+        t.assertEqual(day, [dict(slot, scenes=[{k: v for k, v in x.items() if k != 'trail'} for x in slot['scenes']])],
+                      'the day log holds the same object, one line per slot, without the trails')
+        t.assertNotIn('trail', json.dumps(day))
         d = hb.get('director')
         t.assertTrue(d, 'the heartbeat row carries the director\'s part')
         t.assertEqual((d['cameras'], d['shot'], d['files'], len(d['scenes'])),
@@ -1070,6 +1074,180 @@ def check_the_slot_ceiling_reaches_the_plan(t, M):
         t.assertEqual((hb['director']['scenes'], hb['director']['files']), ([], 0))
     finally:
         shutil.rmtree(root)
+
+
+def starve_cfg():
+    """Codex r1's slot: the angled frame (30 s), the 150-s hero4k every 30 min, a 30-s town camera, two 40-s scenes."""
+    cam = lambda **kw: dict({'x': 0.5, 'y': 70, 'z': 0.5, 'distance': 95, 'rotation': 0.0, 'angle': 0.0, 'ortho': 1,
+                             'mode': 'flat', 'fov': None}, **kw)
+    cams = {'topdown': cam(), 'angled': cam(), 'town': cam(interval_min=15, idle_min=60),
+            'hero4k': cam(heavy=True, est_s=150, interval_min=30, idle_min=30)}
+    ago_ = lambda m: (NOW - dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    state = lambda hero, town=15: {'angled': {'frame_s': 30}, 'topdown': {'frame_s': 30},
+                                   'town': {'frame_s': 30, 'last': ago_(town), 'last_change': ago_(town)},
+                                   'hero4k': {'frame_s': 150, 'last': ago_(hero)}}
+    return {'cameras': cams, 'interval_min': 15}, state
+
+
+def check_no_fixed_camera_starves_behind_the_scene_cameras(t, M):
+    D, TL = M['D'], M['TL']
+    cfg, state = starve_cfg()
+    dc, (sc, order) = scene_cams(D, TL, 2)
+    cams = D.apply_cameras(cfg['cameras'], dc, sc)
+    rcfg = dict(cfg, cameras=cams)
+    plan = lambda st, spent=120, **kw: TL.plan_views(rcfg, st, NOW, {}, 690, spent, pair=('angled',), first=order,
+                                                     first_budget_s=90, slot_s=360, **kw)
+    cost = lambda views: sum(150 if v == 'hero4k' else 40 if v.startswith('scene-') else 30 for v in views)
+    # 360 - 120 (snapshot + render) - 30 (angled) = 210 s. Merely DUE (30 min), the 4K camera waits behind two scenes:
+    views, why, deferred = plan(state(30))
+    t.assertEqual((views, deferred), (['angled'] + order + ['town'], ['hero4k']), 'two scenes (80 s) leave 130 s: no room for 150')
+    t.assertEqual(plan(state(45))[0], ['angled'] + order + ['town'], '45 min: still waiting (one missed interval is ordinary)')
+    # not shot for TWO of its intervals (60 min): it is owed -- its 150 s are set aside before the scenes take theirs
+    views, why, deferred = plan(state(60))
+    t.assertEqual((views, deferred), (['angled', order[0], 'hero4k'], [order[1], 'town']),
+                  'the 4K camera is shot; ONE scene frame fits beside it (60 s were left); the other waits')
+    t.assertIn('owed', why['hero4k'])
+    t.assertLessEqual(cost(views) + 120, 360, 'inside slot_s')
+    t.assertEqual(plan(state(58))[0][-1], 'hero4k', 'the 2 minutes of timer slack apply to "owed" as to "due"')
+    # on the hour the pair is two frames (60 s): 180 s left, 150 set aside, no scene frame fits, a 30-s camera does
+    hour = TL.plan_views(rcfg, state(60), NOW, {}, 690, 120, pair=('topdown', 'angled'), first=order, first_budget_s=90, slot_s=360)
+    t.assertEqual((hour[0], sorted(hour[2])), (['topdown', 'angled', 'town', 'hero4k'], sorted(order)))
+    t.assertLessEqual(cost(hour[0]) + 120, 360)
+    # an owed camera keeps its seconds although an ACTIVE camera sorts before it in the due list
+    both = plan(state(60, town=30))
+    t.assertEqual(both[0], ['angled', 'town', 'hero4k'], 'town (30 min = 2 of its 15-min intervals) and hero4k are both owed: '
+                  '180 of the 210 s; no 40-s scene frame fits the 30 s left')
+    busy = dict(state(60), town={'frame_s': 30, 'last': state(16)['town']['last'], 'last_change': state(16)['town']['last']})
+    t.assertEqual(plan(busy)[0], ['angled', order[0], 'hero4k'], 'town is due and active (first in the due order) but not owed: '
+                  'it does not take the seconds set aside for the 4K camera')
+    # one 4K camera per slot, as ever: of two owed ones the more overdue is set aside, the other is next
+    two = dict(rcfg, cameras=dict(cams, other4k=dict(cams['hero4k'])))
+    st2 = dict(state(60), other4k={'frame_s': 150, 'last': state(90)['hero4k']['last']})
+    v2 = TL.plan_views(two, st2, NOW, {}, 690, 0, pair=('angled',), first=order, first_budget_s=90, slot_s=360)[0]
+    t.assertEqual(v2, ['angled'] + order + ['town', 'other4k'], '330 s: one 4K camera set aside (the 90-min one), two scenes, town')
+    # an owed camera that does not fit what is left is NOT set aside: the scene cameras keep those seconds
+    wide = dict(rcfg, cameras=dict(cams, big=dict(cams['town'], est_s=60)))
+    st3 = dict(state(15, town=45), big={'frame_s': 60, 'last': state(30)['hero4k']['last'], 'last_change': state(30)['hero4k']['last']})
+    v3 = TL.plan_views(wide, st3, NOW, {}, 690, 250, pair=('angled',), first=order, first_budget_s=90, slot_s=360)
+    t.assertEqual((v3[0], sorted(v3[2])), (['angled', order[0], 'town'], sorted(['big', order[1]])),
+                  '80 s: town (owed, 30) is set aside; big (owed, 60) no longer fits and waits; a 40-s scene frame takes the rest')
+    # the knob
+    t.assertEqual(TL.plan_views(dict(rcfg, director={'overdue_n': 1}), state(30), NOW, {}, 690, 120, pair=('angled',), first=order,
+                                first_budget_s=90, slot_s=360)[0], ['angled', 'town', 'hero4k'],
+                  'overdue_n 1: owed as soon as due -- hero4k (30 min) and town (15 min) both, and no scene frame fits')
+    # a slow render (200 s): 130 s under slot_s cannot hold the 150-s camera with or without scenes -> no scene frame,
+    # and the slot is planned under budget_s alone, as a slot without a director is
+    slow = plan(state(60), spent=200)
+    t.assertEqual((slow[0], sorted(slow[2])), (['angled', 'town', 'hero4k'], sorted(order)))
+    t.assertEqual(plan(state(30), spent=200)[0], ['angled'] + order + ['town'], 'not owed yet: the scenes, inside slot_s')
+    # without scene cameras nothing here applies: the plan a tl.conf without a director gets
+    t.assertEqual(TL.plan_views(cfg, state(60), NOW, {}, 690, 120, pair=('angled',), slot_s=360),
+                  TL.plan_views(cfg, state(60), NOW, {}, 690, 120, pair=('angled',)))
+
+    # ---- A SIMULATED DAY of the template's cameras, every camera active, TWO scenes live in every slot, 120 s of
+    # snapshot + render in every slot (Codex r1's numbers)
+    dcT = D.dconf(CONF)
+
+    def scenes(cams_, now):
+        st = D.continuity(None, [cl('surface', [(10 * k, 0)], 100 - k) for k in range(2)], [], now.timestamp(), dcT)
+        for x in st['scenes']:
+            x['id'] = 'sfixed' + x['id'][-1]
+        c, o = D.scene_cameras(st['scenes'], dcT, TL.follow_camera)
+        return D.apply_cameras(cams_, dcT, c), o, dcT['scene_budget_s'], dcT['slot_s']
+
+    def longest_gap_min(day, v):
+        at = [k for k, views in enumerate(day) if v in views]
+        if not at:
+            return float('inf')
+        return 15 * max([at[0]] + [b - a for a, b in zip(at, at[1:])] + [len(day) - 1 - at[-1]])
+    day = simulate_day(TL, CONF, scenes, spent=120, measured=True)
+    costs = [cost(v) for v in day]
+    t.assertTrue(all('angled' in v for v in day), 'the pair is in every slot')
+    t.assertEqual(sum(1 for v in day if 'topdown' in v), 24, 'and its hourly half on every hour')
+    t.assertTrue(all(c + 120 <= dcT['slot_s'] for c in costs), f'no slot plans more than slot_s (max {max(costs) + 120} s)')
+    t.assertLessEqual(longest_gap_min(day, 'hero4k'), 60, 'hero4k (every 30 min): never more than 60 min between frames')
+    # every other fixed camera, idle-only or not: never more than overdue_n (2) of its intervals between frames
+    interval = {'town': 15, 'expeditions': 30, 'hero4k': 30, 'iso': 60, 'grounds': 120, 'patina': 360}
+    live = sorted(v for v, c in CONF['cameras'].items() if v not in TL.VIEWS and not c.get('off') and not c.get('event_only')
+                  and v != 'project4k')
+    t.assertEqual(live, sorted(interval), 'denominator: every fixed camera of the template that the slot can schedule')
+    gaps = {v: longest_gap_min(day, v) for v in live}
+    for v in live:
+        t.assertLessEqual(gaps[v], 2 * interval[v], f'{v}: longest gap {gaps[v]} min > 2 x {interval[v]} ({gaps})')
+    t.assertEqual(gaps['hero4k'], 60)
+    t.assertEqual(longest_gap_min(day, 'project4k'), float('inf'), 'project4k is replaced while a scene camera is planned (by design)')
+    n_scene = sum(1 for views in day for v in views if v.startswith('scene-'))
+    t.assertGreaterEqual(n_scene, 96, f'positive control: the scenes are still filmed ({n_scene} scene frames in 96 slots)')
+    # the same day with a slow render (200 s in every slot): still bounded; a slot with a scene frame is inside slot_s
+    slow_day = simulate_day(TL, CONF, scenes, spent=200, measured=True)
+    t.assertLessEqual(longest_gap_min(slow_day, 'hero4k'), 60)
+    t.assertTrue(all('angled' in v for v in slow_day))
+    for views in slow_day:
+        if any(v.startswith('scene-') for v in views):
+            t.assertLessEqual(cost(views) + 200, dcT['slot_s'], views)
+        else:
+            t.assertLessEqual(cost(views) + 200, CONF['budget_s'], views)
+    t.assertGreater(sum(1 for views in slow_day for v in views if v.startswith('scene-')), 60, 'and scenes are still filmed')
+
+
+def check_underground_scenes_carry_their_bots_trail(t, M):
+    """logs/scenes-slot.json: every underground scene has `trail`, its bots' samples, from the rows already read."""
+    D, TL = M['D'], M['TL']
+    dc = D.dconf({})
+    S = {'Delta': stand(20, 12, -30, 'mine', 20) + stand(5, 66, 5, 'goto', 5, until=TNOW - 1200),
+         'Echo': [(TNOW - 3000, 22, 14, -32, 'mine')] + stand(22, 14.26, -32.5, 'mine', 10), 'Alpha': stand(10, 65, 10, 'build_shop', 20)}
+    tr = D.trail_of(S, ['Delta', 'Echo', 'Gale'], TNOW - 45 * 60, 300)
+    t.assertEqual(sorted(tr), ['Delta', 'Echo', 'Gale'], 'exactly the scene\'s bots: not Alpha, and a bot with no sample is an empty list')
+    t.assertEqual((len(tr['Delta']), len(tr['Echo']), tr['Gale']), (150, 60, []), 'the 45 minutes only: Echo\'s 50-min-old sample is out')
+    t.assertEqual(tr['Echo'][-1], ['2026-11-16T12:44:50Z', 22, 14.3, -32.5, 'mine'], '[t, x, y, z, skill]: UTC seconds, one decimal')
+    t.assertEqual(tr['Delta'][0], ['2026-11-16T12:20:00Z', 5, 66, 5, 'goto'], 'all of the bot\'s samples, also those on the surface')
+    for b in tr:
+        t.assertEqual([p[0] for p in tr[b]], sorted(p[0] for p in tr[b]), 'oldest first')
+    few = D.trail_of(S, ['Delta'], TNOW - 45 * 60, 5)['Delta']
+    t.assertEqual([p[0][11:19] for p in few], ['12:44:10', '12:44:20', '12:44:30', '12:44:40', '12:44:50'], 'bounded: the NEWEST max_n')
+    t.assertEqual(D.trail_of(S, ['Delta'], TNOW - 60, 300)['Delta'][0][0], '2026-11-16T12:44:00Z', 'trail_min')
+    # through a whole pass: real log files, read ONCE; only the underground scene carries a trail
+    root, cfg = slot_root()
+    try:
+        reads, real = [], D.read_tail
+        with swap(D, read_tail=lambda *a, **k: reads.append(a[0]) or real(*a, **k)):
+            res = D.run(cfg, NOW, {'yard': {'box': [8, 8, 16, 16], 'g': 65}}, stamp=STAMP, frame=TL.follow_camera)
+        t.assertEqual(len(reads), 5, 'five log files, each read once: the trail costs no extra read')
+        slot = jload(os.path.join(root, 'logs', 'scenes-slot.json'))
+        t.assertEqual(slot, json.loads(json.dumps(res['slot'])))
+        deep = [x for x in slot['scenes'] if x['layer'] != 'surface']
+        t.assertEqual(([x['bots'] for x in deep], [sorted(x.get('trail') or {}) for x in deep]), ([['Delta', 'Echo']], [['Delta', 'Echo']]))
+        t.assertFalse([x for x in slot['scenes'] if x['layer'] == 'surface' and 'trail' in x], 'no trail on a surface scene')
+        t.assertEqual(len([x for x in slot['scenes'] if x['layer'] == 'surface']), 2, 'positive control: there are surface scenes')
+        trail = deep[0]['trail']['Delta']
+        t.assertEqual((len(trail), trail[0], trail[-1]), (60, ['2026-11-16T12:15:29Z', 20, 12, -30, 'mine'],
+                                                         ['2026-11-16T12:44:59Z', 20, 12, -30, 'mine']),
+                      'one sample per 30-s skill row of the 30 minutes, each where and when the skill ended')
+        with open(os.path.join(root, 'logs', f'scenes-{DAY}.jsonl')) as f:
+            line = f.read()
+        t.assertNotIn('trail', line, 'the day log does not carry the trails')
+        t.assertEqual(json.loads(line), D.without_trails(slot))
+        size = os.path.getsize(os.path.join(root, 'logs', 'scenes-slot.json'))
+        t.assertLess(size, 20_000, f'{size} bytes for 2 bots x 60 samples')
+        capped = D.run(dict(cfg, director=dict(cfg['director'], trail_max=7, trail_min=10)), NOW, {}, stamp=STAMP,
+                       frame=TL.follow_camera, write=False)['slot']
+        got = [x for x in capped['scenes'] if x['layer'] != 'surface'][0]['trail']
+        t.assertEqual({b: len(v) for b, v in got.items()}, {'Delta': 7, 'Echo': 7}, 'trail_max from tl.conf')
+        ten = D.run(dict(cfg, director=dict(cfg['director'], trail_min=10)), NOW, {}, stamp=STAMP, frame=TL.follow_camera,
+                    write=False)['slot']
+        t.assertEqual(len([x for x in ten['scenes'] if x['layer'] != 'surface'][0]['trail']['Delta']), 20, 'trail_min from tl.conf')
+        long = D.run(dict(cfg, director=dict(cfg['director'], trail_min=600)), NOW, {}, stamp=STAMP, frame=TL.follow_camera,
+                     write=False)['slot']
+        t.assertEqual(len([x for x in long['scenes'] if x['layer'] != 'surface'][0]['trail']['Delta']), 60,
+                      'a trail_min beyond the window gives what the pass holds, no more')
+    finally:
+        shutil.rmtree(root)
+    # an underground EVENT scene carries its bot's trail too
+    rows = {'Onyx': [row(D, TNOW - 600 + 20 * k, (3, 11, 3), '_tick') for k in range(20)] + [row(D, TNOW - 60, (3, 11, 3), '_death', 'lava')]}
+    res = D.run({'root': tempfile.gettempdir(), 'director': {'on': True}}, NOW, {}, stamp=STAMP, write=False, rows=(rows, {}))
+    ev = res['slot']['scenes'][0]
+    t.assertEqual((ev['kind'], ev['layer'], sorted(ev.get('trail') or {}), len((ev.get('trail') or {}).get('Onyx') or ())),
+                  ('death', 'deep', ['Onyx'], 21))
 
 
 def check_a_failing_director_costs_the_slot_nothing(t, M):
@@ -1152,10 +1330,15 @@ def check_director_off_plans_exactly_as_before(t, M):
 SPENT_S = 75.0          # snapshot + render before the plan (what `tl_showcase.py plan` assumes)
 
 
-def simulate_day(TL, cfg, scene_plan=None, slots=96):
+def simulate_day(TL, cfg, scene_plan=None, slots=96, spent=None, measured=False):
     """Plan every 15-min slot of a day with every project active, marking each planned view shot. scene_plan(cams, t)
-    -> (cameras, first, first_budget_s, slot_s) stands in for the director. -> [views per slot]."""
+    -> (cameras, first, first_budget_s, slot_s) stands in for the director. spent: the seconds of snapshot + render
+    before the plan (default SPENT_S). measured: every camera already has its measured frame cost (30 s, a 4K one
+    150 s), so the plan's estimates are the costs the tests add up. -> [views per slot]."""
+    spent = SPENT_S if spent is None else spent
     state, out = {}, []
+    if measured:
+        state = {v: {'frame_s': 150 if (c or {}).get('heavy') else 30} for v, c in cfg['cameras'].items()}
     sites = {'cottage1': {'box': [30, 30, 40, 40], 'g': 66}}
     t0 = dt.datetime(2026, 11, 16, tzinfo=U)
     for k in range(slots):
@@ -1165,9 +1348,8 @@ def simulate_day(TL, cfg, scene_plan=None, slots=96):
         first, fb, slot_s = (), None, None
         if scene_plan:
             cams, first, fb, slot_s = scene_plan(cams, now)
-        budget = TL.plan_budget(float(cfg.get('budget_s') or 690), slot_s)
-        views, _, _ = TL.plan_views(dict(cfg, cameras=cams), state, now, prog, budget, SPENT_S,
-                                    pair=TL.slot_pair(cfg, now), first=first, first_budget_s=fb)
+        views, _, _ = TL.plan_views(dict(cfg, cameras=cams), state, now, prog, float(cfg.get('budget_s') or 690), spent,
+                                    pair=TL.slot_pair(cfg, now), first=first, first_budget_s=fb, slot_s=slot_s)
         for v in views:
             heavy = (cams.get(v) or {}).get('heavy')
             state[v] = dict(state.get(v) or {}, last=TL._iso(now), last_change=TL._iso(now),
@@ -1203,13 +1385,16 @@ def check_the_template_day_costs_no_more(t, M):
     t.assertLessEqual(max(on), max(off), 'and no slot costs more than today\'s most expensive slot')
     t.assertTrue(all(c + SPENT_S <= dc['slot_s'] <= CONF['budget_s'] for c in on),
                  'every slot with a scene camera inside slot_s (360 s from its start), itself inside budget_s')
-    t.assertEqual(TL.plan_budget(690, None), 690, 'no scene camera in the slot: budget_s alone, as before')
+    t.assertEqual(TL.plan_budget(690, None), 690, 'no slot_s: budget_s alone')
     t.assertEqual((TL.plan_budget(690, 360), TL.plan_budget(300, 360)), (360, 300))
     n_scene = sum(1 for views in on_day for v in views if v.startswith('scene-'))
-    t.assertEqual(n_scene, 96 * 2, 'two 40-s scene frames in every slot (the 90-s ceiling)')
+    t.assertEqual(n_scene, 96 * 2 - 4, 'two 40-s scene frames in every slot (the 90-s ceiling), but for the first two '
+                  'slots of the day, where the never-shot fixed cameras are owed their first frame')
     t.assertEqual(sum(1 for views in on_day if 'project4k' in views), 0, 'project4k yields in every slot that has a scene')
     t.assertEqual(sum(1 for views in on_day if 'grounds' in views), 12, 'grounds: every 2 h, not every slot')
-    t.assertGreater(sum(1 for views in on_day if 'hero4k' in views), 40, 'positive control: the town overview is untouched')
+    hero = [k for k, views in enumerate(on_day) if 'hero4k' in views]
+    t.assertGreaterEqual(len(hero), 32, 'positive control: the town overview is still filmed (48 a day without scenes)')
+    t.assertLessEqual(max(b - a for a, b in zip(hero, hero[1:])) * 15, 60, 'and never more than 60 min apart')
 
 
 class Director(unittest.TestCase):
@@ -1268,6 +1453,12 @@ class DirectorInTheSlot(unittest.TestCase):
 
     def test_the_slot_ceiling_reaches_the_plan(self):
         check_the_slot_ceiling_reaches_the_plan(self, REAL)
+
+    def test_no_fixed_camera_starves_behind_the_scene_cameras(self):
+        check_no_fixed_camera_starves_behind_the_scene_cameras(self, REAL)
+
+    def test_underground_scenes_carry_their_bots_trail(self):
+        check_underground_scenes_carry_their_bots_trail(self, REAL)
 
     def test_a_failing_director_costs_the_slot_nothing(self):
         check_a_failing_director_costs_the_slot_nothing(self, REAL)
@@ -1892,7 +2083,7 @@ MUTANTS = [
      "                pass", 'check_scene_cameras_go_first_and_displace_fixed_ones'),
     ('tl_director.py', "            out[v] = dict(out[v], idle_only=True)", "            out[v] = dict(out[v])",
      'check_scene_cameras_go_first_and_displace_fixed_ones'),
-    ('tl_director.py', "                       'camera': 'scene-' + s['id'] if surface else None,", "                       'camera': 'scene-' + s['id'],",
+    ('tl_director.py', "               'camera': 'scene-' + s['id'] if surface else None,", "               'camera': 'scene-' + s['id'],",
      'check_a_whole_slot_with_the_director_on'),
     ('tl_director.py', "    if write:\n        save_state(cfg, state)", "    if False:\n        save_state(cfg, state)",
      'check_a_whole_slot_with_the_director_on'),
@@ -1904,12 +2095,16 @@ MUTANTS = [
     ('tl_showcase.py', "        if v in VIEWS or v in first or (cams[v] or {}).get('off') or (cams[v] or {}).get('event_only'):",
      "        if v in VIEWS or (cams[v] or {}).get('off') or (cams[v] or {}).get('event_only'):",
      'check_scene_cameras_go_first_and_displace_fixed_ones'),
-    ('tl_showcase.py', "        if est(v) <= left and est(v) <= room:", "        if est(v) <= left:",
+    ('tl_showcase.py', "                if est(v) <= keep and est(v) <= room:", "                if est(v) <= keep:",
      'check_scene_cameras_go_first_and_displace_fixed_ones'),
     ('tl_showcase.py', "    deferred += late\n", "", 'check_scene_cameras_go_first_and_displace_fixed_ones'),
-    ('tl_showcase.py', "        if est(v) <= left and est(v) <= room:", "        if est(v) <= room:", 'check_the_budget_is_never_exceeded'),
-    ('tl_showcase.py', "            left -= est(v)\n            room -= est(v)", "            room -= est(v)", 'check_the_budget_is_never_exceeded'),
-    ('tl_showcase.py', "            left -= est(v)\n            room -= est(v)", "            left -= est(v)", 'check_the_budget_is_never_exceeded'),
+    ('tl_showcase.py', "                if est(v) <= keep and est(v) <= room:", "                if est(v) <= room:", 'check_the_budget_is_never_exceeded'),
+    ('tl_showcase.py', "                    keep -= est(v)\n                    left -= est(v)\n                    room -= est(v)",
+     "                    left -= est(v)\n                    room -= est(v)", 'check_the_budget_is_never_exceeded'),
+    ('tl_showcase.py', "                    keep -= est(v)\n                    left -= est(v)\n                    room -= est(v)",
+     "                    keep -= est(v)\n                    room -= est(v)", 'check_the_budget_is_never_exceeded'),
+    ('tl_showcase.py', "                    keep -= est(v)\n                    left -= est(v)\n                    room -= est(v)",
+     "                    keep -= est(v)\n                    left -= est(v)", 'check_the_budget_is_never_exceeded'),
     ('tl_showcase.py', "    if sc:     ", "    if False:  ", 'check_frames_carry_the_scene'),
     ('tl_showcase.py', "        v = m.group(1) if m else base.split('-', 1)[0]", "        v = base.split('-', 1)[0]", 'check_frames_carry_the_scene'),
     ('tl_showcase.py', "    return bool(((cfg or {}).get('director') or {}).get('on'))", "    return True",
@@ -1922,17 +2117,16 @@ MUTANTS = [
      'check_a_failing_director_costs_the_slot_nothing'),
     ('tl_showcase.py', "    if res.get('error'):\n        return {'error': res['error']}", "    if res.get('error'):\n        return None",
      'check_a_failing_director_costs_the_slot_nothing'),
-    ('tl_showcase.py', "                res['dc'].get('slot_s') if first else None, res)", "                None, res)",
+    ('tl_showcase.py', "                res['dc'].get('slot_s'), res)", "                None, res)", 'check_the_slot_ceiling_reaches_the_plan'),
+    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s)\n    est = {v:",
+     "                                      first=first, first_budget_s=first_budget)\n    est = {v:",
      'check_the_slot_ceiling_reaches_the_plan'),
-    ('tl_showcase.py', "                res['dc'].get('slot_s') if first else None, res)", "                res['dc'].get('slot_s'), res)",
-     'check_the_slot_ceiling_reaches_the_plan'),
-    ('tl_showcase.py', "    views, why, deferred = plan_views(rcfg, state, t, progress, plan_budget(budget, slot_s), time.time() - start,",
-     "    views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start,",
+    ('tl_showcase.py', "    if first:                       # the director's scene cameras", "    if True:                       # the director's scene cameras",
      'check_the_slot_ceiling_reaches_the_plan'),
     ('tl_showcase.py', "    return min(float(budget_s), float(slot_s)) if slot_s else budget_s", "    return budget_s",
      'check_the_template_day_costs_no_more'),
-    ('tl_showcase.py', "                                      pair=pair, first=first, first_budget_s=first_budget)\n    est = {v:",
-     "                                      pair=pair, first=(), first_budget_s=first_budget)\n    est = {v:",
+    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s)\n    est = {v:",
+     "                                      first=(), first_budget_s=first_budget, slot_s=slot_s)\n    est = {v:",
      'check_a_whole_slot_with_the_director_on'),
     ('tl_showcase.py', "    for v in [k for k in state if k.startswith('scene-') and k not in cams]:", "    for v in []:",
      'check_a_whole_slot_with_the_director_on'),
@@ -2038,6 +2232,58 @@ MUTANTS = [
     ('tl_video.py', "    day0 = frame0_day() or parse_stamp(stamps[0]).date()", "    day0 = parse_stamp(stamps[0]).date()", 'check_the_progress_job'),
     ('tl_video.py', "                     captions_for=lambda kept: progress_captions(kept, day0, counts))", "                     )",
      'check_the_progress_job'),
+    # ---- Codex r1: no fixed camera starves behind the scene cameras (tl_showcase.plan_views)
+    ('tl_showcase.py', "            if age + 2 >= owed_n * iv:\n", "            if False:\n",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "            if age + 2 >= owed_n * iv:\n", "            if age >= owed_n * iv:\n",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "            if age + 2 >= owed_n * iv:\n", "            if True:\n",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "DEFAULT_OVERDUE_N = 2.0 ", "DEFAULT_OVERDUE_N = 3.0 ", 'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "    owed_n = float((cfg.get('director') or {}).get('overdue_n') or DEFAULT_OVERDUE_N)", "    owed_n = DEFAULT_OVERDUE_N",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "                    held.append(v)\n                    keep -= est(v)", "                    held.append(v)",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "                if est(v) <= keep and (not is_heavy or heavy_keep > 0):", "                if est(v) <= keep:",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "                if est(v) <= keep and (not is_heavy or heavy_keep > 0):", "                if not is_heavy or heavy_keep > 0:",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "            for _, v in sorted(owed):               # set aside", "            for _, v in sorted(owed, reverse=True):               # set aside",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "    for _, _, v, w in [d for d in ordered if d[2] in held] + [d for d in ordered if d[2] not in held]:",
+     "    for _, _, v, w in ordered:", 'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "        if any(capped < est(v) <= left for _, v in owed):", "        if False:",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "        if any(capped < est(v) <= left for _, v in owed):", "        if owed:",
+     'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "            left = capped\n", "            pass\n", 'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    ('tl_showcase.py', "            why[v] = w + ('; owed: its seconds were set aside before the scene cameras' if v in held else '')",
+     "            why[v] = w", 'check_no_fixed_camera_starves_behind_the_scene_cameras'),
+    # ---- the underground trail in the hand-off (tl_director.trail_of, slot_file, run)
+    ('tl_director.py', "    for b in bots:\n        pts = sorted(", "    for b in samples:\n        pts = sorted(",
+     'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "        pts = sorted(p for p in samples.get(b) or () if p[0] >= lo)[-int(max_n):]",
+     "        pts = sorted(p for p in samples.get(b) or ())[-int(max_n):]", 'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "        pts = sorted(p for p in samples.get(b) or () if p[0] >= lo)[-int(max_n):]",
+     "        pts = sorted(p for p in samples.get(b) or () if p[0] >= lo)[:int(max_n)]", 'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "        pts = sorted(p for p in samples.get(b) or () if p[0] >= lo)[-int(max_n):]",
+     "        pts = sorted(p for p in samples.get(b) or () if p[0] >= lo)", 'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "        pts = sorted(p for p in samples.get(b) or () if p[0] >= lo)[-int(max_n):]",
+     "        pts = [p for p in samples.get(b) or () if p[0] >= lo][-int(max_n):]", 'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "[[iso(t), round(x, 1), round(y, 1), round(z, 1), skill] for t, x, y, z, skill in pts]",
+     "[[iso(t), x, y, z, skill] for t, x, y, z, skill in pts]", 'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "        if not surface and samples is not None and now is not None:", "        if samples is not None and now is not None:",
+     'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "        if not surface and samples is not None and now is not None:", "        if False:",
+     'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "now - float(dc['trail_min']) * 60, dc['trail_max'])", "now - float(dc['trail_min']) * 60, 300)",
+     'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "now - float(dc['trail_min']) * 60, dc['trail_max'])", "now - 45 * 60, dc['trail_max'])",
+     'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "            f.write(json.dumps(without_trails(slot), sort_keys=True) + '\\n')", "            f.write(json.dumps(slot, sort_keys=True) + '\\n')",
+     'check_underground_scenes_carry_their_bots_trail'),
+    ('tl_director.py', "    slot = slot_file(state, stamp, dc, samples, now)", "    slot = slot_file(state, stamp, dc)",
+     'check_underground_scenes_carry_their_bots_trail'),
 ]
 KEY = {fn: k for k, fn in FILES.items()}
 
