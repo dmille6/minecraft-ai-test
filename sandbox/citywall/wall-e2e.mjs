@@ -30,7 +30,7 @@ const lockLib = createRequire(import.meta.url)('../lib/sbxlock.cjs')
 const SERVER = process.env.SBX || 'sandbox4'
 const REG = JSON.parse(fs.readFileSync(new URL('../sandboxes.json', import.meta.url), 'utf8'))
 const PORT = REG.servers[SERVER].port
-lockLib.requireSandboxLock?.(SERVER, 'civic')
+lockLib.requireSandboxLock(SERVER, 'civic')
 const NAME = process.env.NAME || 'sbx-Mason2'
 const SSH = ['-o', 'BatchMode=yes', 'mike@10.0.0.30']
 const rcon = (...cmds) => {
