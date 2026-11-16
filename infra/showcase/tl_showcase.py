@@ -769,23 +769,54 @@ class _Owned:
         return False
 
 
-def brain_health(cfg):
-    """The showcase proxy's /healthz through the tunnel: {'ok', 'paused_by', 'error'} -- carried in every heartbeat
-    so a stale pause holder is visible in fleetstatus."""
-    import urllib.request, urllib.error
-    url = cfg.get('brain_healthz', 'http://127.0.0.1:11612/healthz')
-    try:
-        r = urllib.request.urlopen(url, timeout=8)
-        d = json.loads(r.read() or b'{}')
-    except urllib.error.HTTPError as e:
-        try:
-            d = json.loads(e.read() or b'{}')
-        except ValueError:
-            d = {'error': f'http {e.code}'}
-    except Exception as e:
-        d = {'error': f'{type(e).__name__}: {str(e)[:120]}'}
+def brain_target(cfg, brain):
+    """Where the heartbeat asks whether the bots' brain is up -> (url, model or None). Pure. brain: make_env.load_brain's
+    reading of the one brain setting. An Ollama is asked for its model list; the designed proxy (no owner setting) keeps
+    tl.conf's brain_healthz (tripbrain-01, 11-16: the heartbeat asked the Studio tunnel for two days after the owner moved
+    the bots to the 5080, and fleetstatus said SHOWCASE BRAIN DOWN the whole time)."""
+    if brain['kind'] == 'ollama':
+        return brain['url'] + '/api/tags', brain['model']
+    if brain.get('owner'):
+        return brain['url'] + '/healthz', None
+    return cfg.get('brain_healthz', brain['url'] + '/healthz'), None
+
+
+def brain_report(d, model):
+    """The answer of brain_target's url -> the heartbeat's `brain` object. Pure. Ollama (model set): ok when the model is
+    listed, else an error that names it. The proxy: its own fields, as before."""
+    d = d if isinstance(d, dict) else {'error': f'the brain answered {type(d).__name__}, not an object'}
+    if model is not None and not d.get('error'):
+        names = [m.get('name') for m in d['models'] if isinstance(m, dict)] if isinstance(d.get('models'), list) else None
+        d = {'ok': True} if names is not None and model in names else \
+            {'error': 'no model list' if names is None else f'{model} is not on the endpoint ({len(names)} models listed)'}
     return {'ok': bool(d.get('ok')), 'paused_by': d.get('paused_by'), 'paused_since': d.get('paused_since'), 'fault': d.get('fault'),
             'error': d.get('error')}
+
+
+def brain_health(cfg, load=None, get=None):
+    """The health of the brain the bots are set to: {'ok', 'paused_by', 'error', ...} -- carried in every heartbeat so a
+    stale pause holder (the proxy) or a dark endpoint is visible in fleetstatus. Never raises."""
+    import urllib.request, urllib.error
+
+    def fetch(url):
+        try:
+            return json.loads(urllib.request.urlopen(url, timeout=8).read() or b'{}')
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read() or b'{}')
+            except ValueError:
+                return {'error': f'http {e.code}'}
+    try:
+        if load is None:
+            import make_env                 # beside this file, in the repo and in /srv/showcase/bin
+            load = make_env.load_brain
+        url, model = brain_target(cfg, load())
+    except Exception as e:
+        return brain_report({'error': f'the brain setting is unreadable ({type(e).__name__}: {str(e)[:100]})'}, None)
+    try:
+        return brain_report((get or fetch)(url), model)
+    except Exception as e:
+        return brain_report({'error': f'{type(e).__name__}: {str(e)[:120]}'}, None)
 
 
 def render(cfg, full=False):

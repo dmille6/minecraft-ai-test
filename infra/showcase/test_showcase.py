@@ -2210,6 +2210,36 @@ class Timelapse(unittest.TestCase):
         self.assertEqual((miss, exp), (1, 8))
         self.assertEqual(SS.missing_slots([], now, 15, T0), (8, 8), 'a job that never ran = all missing')
 
+    def test_heartbeat_brain_follows_the_brain_setting(self):
+        # tripbrain-01: the heartbeat asked the Studio tunnel after the owner moved the bots to the 5080
+        qw = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama', 'owner': 'the owner 11-16'}
+        px = {'url': 'http://127.0.0.1:11612', 'model': 'gemma4:26b', 'kind': 'proxy', 'owner': None}
+        self.assertEqual(TL.brain_target({}, qw), ('http://10.0.0.72:11434/api/tags', 'qwen2.5:7b-instruct'))
+        self.assertEqual(TL.brain_target({'brain_healthz': 'http://127.0.0.1:9/healthz'}, px), ('http://127.0.0.1:9/healthz', None))
+        self.assertEqual(TL.brain_target({}, px), ('http://127.0.0.1:11612/healthz', None))
+        self.assertEqual(TL.brain_target({'brain_healthz': 'x'}, dict(px, owner='the owner said so')),
+                         ('http://127.0.0.1:11612/healthz', None), 'an owner setting beats tl.conf')
+        tags = {'models': [{'name': 'qwen2.5:7b-instruct'}, 'junk']}
+        seen = []
+        h = TL.brain_health({}, lambda: qw, lambda u: seen.append(u) or tags)
+        self.assertEqual((h['ok'], h['error'], seen), (True, None, ['http://10.0.0.72:11434/api/tags']))
+        h = TL.brain_health({}, lambda: dict(qw, model='gemma4:26b'), lambda u: tags)
+        self.assertFalse(h['ok'])
+        self.assertIn('gemma4:26b is not on the endpoint', h['error'])
+        self.assertEqual(TL.brain_health({}, lambda: qw, lambda u: {'ok': True})['error'], 'no model list',
+                         'a proxy answer is not an Ollama list')
+        h = TL.brain_health({}, lambda: px, lambda u: {'ok': False, 'paused_by': 'bench', 'paused_since': 't'})
+        self.assertEqual((h['ok'], h['paused_by'], h['paused_since']), (False, 'bench', 't'), 'the proxy keeps its fields')
+        self.assertTrue(TL.brain_health({}, lambda: px, lambda u: {'ok': True})['ok'])
+
+        def boom(*a):
+            raise OSError('no route')
+        self.assertIn('no route', TL.brain_health({}, lambda: qw, boom)['error'])
+        h = TL.brain_health({}, boom, lambda u: tags)
+        self.assertFalse(h['ok'])
+        self.assertIn('the brain setting is unreadable', h['error'])
+        self.assertFalse(TL.brain_health({}, lambda: qw, lambda u: [1])['ok'], 'an answer that is no object is not ok')
+
     def test_pair_publish_all_or_nothing(self):
         moved = []
         ok, why = TL.publish_pair(['a', 'b'], ['A', 'B'], size=lambda p: 99999, exists=lambda p: True,

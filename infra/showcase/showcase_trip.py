@@ -848,24 +848,36 @@ def read_epoch(path):
         return None
 
 
-def brain_probe(setting):
-    """The one request that says whether the brain THE BOTS ARE SET TO is up -> (url, model or None). Pure. setting: None
-    (no BRAIN.json: the designed Studio proxy) or the parsed file. A setting this cannot read RAISES ValueError: a brain
-    nobody can name is not a paused brain (tripbrain-01, 11-16: the read probed the Studio's address for two days after
-    the owner moved the bots to the 5080; every read said `brain <Connection refused>`, and S0 would have called a town
-    with no live bot a WATCH)."""
-    if setting is None:
-        return HEALTHZ, None
-    if not isinstance(setting, dict):
-        raise ValueError('the brain setting is not a JSON object')
-    url, model, kind = setting.get('url'), setting.get('model'), setting.get('kind')
-    if not isinstance(url, str) or not re.fullmatch(r'http://\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}', url):
-        raise ValueError('the brain setting has no http://<ipv4>:<port> url')
-    if kind == 'proxy':
-        return url + '/healthz', None
-    if kind == 'ollama' and isinstance(model, str) and model:
-        return url + '/api/tags', model
-    raise ValueError('the brain setting names no known kind (proxy, ollama) with a model')
+BRAIN_BIN = '/srv/showcase/bin'                 # where make_env.py is installed (this file runs from /srv/showcase/trip)
+
+
+def brain_setting(path=None, load=None):
+    """The brain THE BOTS ARE SET TO -> {'url', 'model', 'kind', 'owner'}: make_env.load_brain, the one reading of the one
+    setting (no file = the designed Studio proxy; the env files, the start gate and the replay use the same call). RAISES
+    ValueError/OSError/ImportError when the setting, or make_env itself, cannot be read -- a brain nobody can name is not
+    a paused brain. (tripbrain-01, 11-16: the read probed the Studio's address for two days after the owner moved the bots
+    to the 5080; every read said `brain <Connection refused>`, and S0 would have called a town with no live bot a WATCH.
+    Codex r1: a second parser here accepted `null` and a setting with no owner, which make_env refuses.)"""
+    if load is None:
+        for d in (HERE, BRAIN_BIN):
+            if d not in sys.path and os.path.exists(os.path.join(d, 'make_env.py')):
+                sys.path.append(d)
+        import make_env
+        load = make_env.load_brain
+    brain = load(path or BRAIN_FILE)
+    if not isinstance(brain, dict) or not all(isinstance(brain.get(k), str) and brain[k] for k in ('url', 'model', 'kind')):
+        raise ValueError('the brain setting came back without a url, a model and a kind')
+    return brain
+
+
+def brain_probe(brain):
+    """The one request that says whether that brain is up -> (url, model or None). Pure. proxy: showcaseproxy.py's own
+    /healthz. ollama: the endpoint's model list, which must name the model. Any other kind RAISES ValueError."""
+    if brain['kind'] == 'proxy':
+        return brain['url'] + '/healthz', None
+    if brain['kind'] == 'ollama':
+        return brain['url'] + '/api/tags', brain['model']
+    raise ValueError('the brain setting names a kind this read cannot probe: %r' % (brain['kind'],))
 
 
 def brain_answer(d, model):
@@ -881,21 +893,22 @@ def brain_answer(d, model):
     return str(d.get('error') or 'no model list')[:120]
 
 
-def brain_paused(path=None, get=None):
+def brain_paused(path=None, get=None, load=None):
     """-> (reason, note). reason: None when the brain the bots are set to answers, else why not (a pause file, an error);
     it is what makes S0 a WATCH. note: a setting that cannot be read, said on the S0 line and NEVER a reason: an unreadable
     setting does not excuse a town with no live bot. Never raises."""
-    path = path or BRAIN_FILE
     try:
-        setting = json.load(open(path)) if os.path.exists(path) else None
-        url, model = brain_probe(setting)
-    except (OSError, ValueError) as e:
-        return None, 'setting unreadable (%s): the brain is not checked' % str(e)[:80]
+        url, model = brain_probe(brain_setting(path, load))
+    except Exception as e:
+        return None, 'setting unreadable (%s: %s): the brain is not checked' % (type(e).__name__, str(e)[:80])
     try:
         d = (get or http_object)(url)
     except Exception as e:
         d = {'ok': False, 'error': str(e)[:80]}
-    return brain_answer(d, model), None
+    try:
+        return brain_answer(d, model), None
+    except Exception as e:                      # an answer shaped like nothing above is a reason, never a crash
+        return 'the brain answer could not be read (%s)' % type(e).__name__, None
 
 
 def http_object(url):
@@ -1506,37 +1519,56 @@ def selftest():
     assert verdict(dict(base, mirror_age_min=90))[0] == 'WATCH' and verdict(dict(base, mirror_age_min=None))[0] == 'WATCH'
     assert verdict(dict(base, zones_error='no zone'))[0] == 'WATCH' and verdict(dict(base, deep={'a': 9}))[0] == 'OK', 'DEEP is reported, never a WATCH'
     assert verdict(dict(base, live_bots=0, brain_paused='GPU_RESERVED'))[0] == 'WATCH', 'a paused brain is not a dead showcase'
-    # tripbrain-01: the probe follows the brain setting, and only a brain that SAYS it is down makes S0 a WATCH
-    assert brain_probe(None) == (HEALTHZ, None), 'no setting: the designed Studio proxy'
-    qw = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama', 'owner': 'the owner 11-16'}
+    # tripbrain-01: the probe follows the brain setting (make_env's own reading), and only a brain that SAYS it is down
+    # makes S0 a WATCH
+    qw = {'url': 'http://10.0.0.72:11434', 'model': 'qwen2.5:7b-instruct', 'kind': 'ollama', 'owner': 'the owner 2026-11-16'}
+    px = {'url': 'http://127.0.0.1:11612', 'model': 'gemma4:26b', 'kind': 'proxy', 'owner': None}
+    assert brain_probe(px) == (HEALTHZ, None), 'the designed Studio proxy'
     assert brain_probe(qw) == ('http://10.0.0.72:11434/api/tags', 'qwen2.5:7b-instruct')
-    assert brain_probe(dict(qw, kind='proxy')) == ('http://10.0.0.72:11434/healthz', None)
-    for bad in ([], 'x', {}, dict(qw, url='http://studio:1'), dict(qw, kind='vllm'), dict(qw, model='')):
-        try:
-            brain_probe(bad)
-        except ValueError:
-            continue
-        raise AssertionError('a setting nobody can read must raise: %r' % (bad,))
+    try:
+        brain_probe(dict(qw, kind='vllm'))
+        raise AssertionError('a kind nobody can probe must raise')
+    except ValueError:
+        pass
     tags = {'models': [{'name': 'qwen2.5:7b-instruct'}, {'name': 'other:1'}, 'junk']}
     assert brain_answer(tags, 'qwen2.5:7b-instruct') is None and 'not on the endpoint' in brain_answer(tags, 'gemma4:26b')
     assert brain_answer({'ok': False, 'error': 'refused'}, 'qwen2.5:7b-instruct') == 'refused'
     assert brain_answer({'ok': True}, None) is None and brain_answer({'ok': False, 'paused': 'GPU_RESERVED'}, None) == 'GPU_RESERVED'
     assert brain_answer([], None) and brain_answer({'ok': True}, 'm') == 'no model list', 'a proxy answer is not an Ollama list'
-    import tempfile
-    with tempfile.TemporaryDirectory() as td:
-        bf, seen = os.path.join(td, 'BRAIN.json'), []
-        up = lambda u: seen.append(u) or tags
-        assert brain_paused(bf, lambda u: seen.append(u) or {'ok': True}) == (None, None) and seen == [HEALTHZ], 'no file: the proxy'
-        json.dump(qw, open(bf, 'w'))
-        assert brain_paused(bf, up) == (None, None) and seen[-1] == 'http://10.0.0.72:11434/api/tags', 'the setting is probed'
-        assert brain_paused(bf, lambda u: {'ok': False, 'error': 'refused'}) == ('refused', None)
+    seen = []
+    up = lambda u: seen.append(u) or tags
+    assert brain_paused('x', lambda u: seen.append(u) or {'ok': True}, lambda p: px) == (None, None) and seen == [HEALTHZ]
+    assert brain_paused('x', up, lambda p: qw) == (None, None) and seen[-1] == 'http://10.0.0.72:11434/api/tags', 'the setting is probed'
+    assert brain_paused('x', lambda u: {'ok': False, 'error': 'refused'}, lambda p: qw) == ('refused', None)
 
-        def boom(u):
-            raise OSError('no route')
-        assert brain_paused(bf, boom) == ('no route', None), 'a probe that raises is a reason, never a crash'
-        open(bf, 'w').write('{not json')
-        why, note = brain_paused(bf, up)
-        assert why is None and 'setting unreadable' in note, 'an unreadable setting never excuses a dead town'
+    def boom(u):
+        raise OSError('no route')
+    assert brain_paused('x', boom, lambda p: qw) == ('no route', None), 'a probe that raises is a reason, never a crash'
+    assert brain_paused('x', lambda u: {'models': [None, 3]}, lambda p: qw)[0], 'a list that does not name the model is a reason'
+
+    def refuse(p):
+        raise ValueError('owner must say whose word this is')
+    for bad in (refuse, lambda p: None, lambda p: dict(qw, model=''), lambda p: dict(qw, kind='vllm'), lambda p: [qw]):
+        seen[:] = []
+        why, note = brain_paused('x', up, bad)
+        assert why is None and 'setting unreadable' in note and not seen, 'an unreadable setting never excuses a dead town'
+    if os.path.exists(os.path.join(HERE, 'make_env.py')):       # the real reader, on real files (Codex r1: null, no owner)
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            bf = os.path.join(td, 'BRAIN.json')
+            down = lambda u: {'ok': False, 'error': 'refused'}
+            assert brain_paused(bf, down) == ('refused', None), 'no file: the designed proxy, and its answer is the reason'
+            json.dump(qw, open(bf, 'w'))
+            seen[:] = []
+            assert brain_paused(bf, up) == (None, None) and seen == ['http://10.0.0.72:11434/api/tags']
+            for text in ('null', '{not json', '[]', json.dumps({k: v for k, v in qw.items() if k != 'owner'}),
+                         json.dumps(dict(qw, url='http://10.9.9.9:11434')), json.dumps(dict(qw, kind='vllm'))):
+                open(bf, 'w').write(text)
+                why, note = brain_paused(bf, down)
+                assert why is None and 'setting unreadable' in note, 'make_env refuses %s: no reason, said as a note' % text[:30]
+        print('selftest: the brain setting read through make_env.load_brain')
+    else:
+        print('selftest: make_env.py not beside this file -- the real-setting checks skipped')
     assert verdict(dict(base, live_bots=0, brain_paused=None))[0] == 'TRIP', 'no live bot and a brain that answers is HARM'
     assert verdict(dict(base, gen_unknown={'found_gen_unknown': 1}))[0] == 'WATCH'
     cl, dp = closed_and_deep([('v', [0, -64, 0, 9, 90, 9]), ('t', [-20, -47, 65, 88, 31, 164])], {'v': 54, 't': None})
