@@ -21,6 +21,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { bagfixSwitches } from './bagfix.mjs'   // bagfix-01show D (a leaf)
 import { siteRefusal, standableBeside, narrowTop, bodyInCell, tableCellFor, sameWorld,
          CLEARANCE_CONTAINER, MIN_CONTAINER_DISTANCE, STORAGE_NEAR } from './composter.mjs'
 import { wellReservedCells, FACING, WELL_HOME_CLEARANCE } from './well.mjs'
@@ -223,7 +224,10 @@ export function writeClaimState (dir, key, n, state, now = Date.now()) {
  * the pool) are not counted. Interval and day count EVERY claim (a submission that never landed was still spent --
  * an abort after submission is never refunded); the standing limit counts placed and unresolved claims.
  */
-export function chestBudget ({ claims = [], now = Date.now(), world = null, carried = false, on = chestCarryOn() } = {}) {
+// bagfix-01 D (Codex r1 BLOCKER 2): the larger limits came to the showcase line WITH bagfix-01, so they need its switch too --
+// BAGFIX=off or BAGFIX_CHEST=off restores 4 a day / 12 standing whatever CHESTCARRY says (the claim check below reads the same default)
+export const carriedLimitsOn = (env = (typeof process !== 'undefined' ? process.env : {})) => chestCarryOn(env) && bagfixSwitches(env).chest
+export function chestBudget ({ claims = [], now = Date.now(), world = null, carried = false, on = carriedLimitsOn() } = {}) {
   // CHESTCARRY-01: a chest the bot already carries has the larger day and standing limits; a crafted one the base's
   const perDay = carried && on ? NEW_CHESTS_PER_DAY_CARRIED : NEW_CHESTS_PER_DAY
   const maxStanding = carried && on ? MAX_RECOVERY_CHESTS_CARRIED : MAX_RECOVERY_CHESTS
