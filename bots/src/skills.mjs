@@ -193,6 +193,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
+import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, compactAllow, compactDetail, compactModeDetail } from './compact.mjs'   // compact-01
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
@@ -21574,6 +21575,7 @@ function yardHoldNow (name, now = Date.now()) {
 }
 /** YARDLANES-01, once per spawn: the well's hold wired (WELL_HOLD), the licence row written. Never throws. */
 export function yardLanesInstall (bot) {
+  try { logEvent({ kind: 'compact_mode', status: 'success', snapshot: snapshot(bot), detail: compactModeDetail(COMPACT) }) } catch { /* telemetry */ }
   try { if (LANES.on && wellHoldOn()) { setYardHold(yardHoldNow); setYardFull(name => { const b = activeMem?.bot ?? null; return !!b && yardKindNow(b, name).over }) } } catch { /* the well as before */ }
   try { logEvent({ kind: 'yard_lanes', status: 'success', snapshot: snapshot(bot), detail: `${lanesModeDetail(LANES)} well_hold=${LANES.on && wellHoldOn() ? 1 : 0}`.slice(0, 300) }) } catch { /* telemetry */ }
 }
@@ -21710,7 +21712,102 @@ async function yardRowStep (ctx, rec, bp, plot, signal, deadline) {
   }
   return out
 }
+// ---- COMPACT-01 (compact.mjs): the bag's compaction, the clerk's compaction and merge passes ------------------------------------------
+/** What the town's chests hold of each name -> { name: [count, slots] } over the index's known containers (never a row chest: its
+ *  kind is already together) | null (no index). Never throws. */
+function townHeldSlots (bot) {
+  try {
+    const entries = townIndexEntries(bot)
+    if (!entries) return null
+    const row = yardRowKeys(bot)
+    const out = {}
+    for (const [k, e] of Object.entries(entries)) {
+      if (indexStateOf(e) !== 'known' || row.has(k)) continue
+      for (const [name, v] of Object.entries(e.obs?.names ?? {})) { const o = (out[name] ??= [0, 0]); o[0] += Number(v?.[0]) || 0; o[1] += Number(v?.[1]) || 0 }
+    }
+    return out
+  } catch { return null }
+}
+/** THE CLERK'S PASS FOR THIS BOT NOW -> { op: 'compact', from, to, take, crafts } | { op: 'merge', name, take, slots, after } | null.
+ *  Compaction first (it frees the most), then the worst-fragmented name. Rested per bot after a pass that moved nothing. Never throws. */
+function clerkPassNow (bot, now = Date.now()) {
+  try {
+    if (!COMPACT.on || !LANES.on || Number(bot?.clerkPassRest) > now) return null
+    const free = BAG_SLOTS - (bot.inventory?.items?.() ?? []).length
+    if (free < 4) return null
+    const size = n => mergeStackOf(bot, n)
+    const c = chestCompact(matsTownStock(bot)?.stock ?? null, { free, stackOf: size })
+    if (c) return { op: 'compact', ...c }
+    const m = mergePick(townHeldSlots(bot) ?? {}, { free, stackOf: size, skip: n => isCobble(n) || !!rowKindOf(n) })
+    return m ? { op: 'merge', ...m } : null
+  } catch { return null }
+}
+/**
+ * ONE CLERK PASS: draw the kind from the town's chests (matsWithdraw under compact.mjs compactAllow: never below the loose keep),
+ * craft the blocks (a compaction), and put everything this pass took or made back into the chests it came from, nearest first
+ * (sortPut: the deposit's own body, merging) -- never by the bank's rules, so a name the bank does not want (moss) is not stranded
+ * in the clerk's bag. -> { took, made, put: { name: n }, left }. One `_compact` row. An interrupt passes through.
+ */
+async function yardClerkPass (ctx, pass, signal, deadline) {
+  const { bot } = ctx
+  const name = pass.op === 'compact' ? pass.from : pass.name
+  const bag0 = heldMap(bot)
+  const slots0 = (bot.inventory?.items?.() ?? []).length
+  const keep = pass.op === 'compact' ? compactKeepOf(name) : 0
+  let took = 0, made = 0, why = 'done'
+  const put = {}
+  const wd = await matsWithdraw(ctx, { [name]: pass.take }, signal, 30_000, matsReserve().table, (n, want, o) => compactAllow(n, want, o, keep))
+  took = Number(wd.took?.[name]) || 0
+  const to = pass.op === 'compact' ? pass.to : null
+  if (took > 0 && to) {
+    const crafts = Math.floor(took / RECIPES[name].n), before = countItem(bot, to)
+    if (crafts > 0) { try { await craft(ctx, { item: to, count: crafts }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; why = 'craft_failed' } }
+    made = Math.max(0, countItem(bot, to) - before)
+  }
+  // back into the chests it came from (their slots are free now), then any other town container in reach
+  const keys = [...new Set((wd.tried ?? []).map(t => String(t).split(':')[0]))]
+  const owed = () => { const h = heldMap(bot); const o = {}; for (const n of [name, to].filter(Boolean)) { const d = (h[n] ?? 0) - (bag0[n] ?? 0); if (d > 0) o[n] = d } return o }
+  const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
+  const blocks = [...keys.map(k => { const [x, y, z] = k.split(',').map(Number); return bot.blockAt(new Vec3(x, y, z)) }), ...townContainers(bot, 8)].filter(b => b && isTownContainer(bot, b))
+  const seen = new Set()
+  for (const block of blocks) {
+    check(signal)
+    const o = owed()
+    if (!Object.keys(o).length || Date.now() > deadline - 10_000) break
+    const k = posKey(block.position)
+    if (seen.has(k)) continue
+    seen.add(k)
+    if (bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) {
+      try { await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2)), Math.max(1000, Math.min(15_000, deadline - Date.now())), bot)) } catch (e) { if (e?.aborted || signal?.aborted) throw e; continue }
+    }
+    const p = await sortPut(bot, block, o, deadline, signal, bag0)
+    for (const [n, c] of Object.entries(p.put ?? {})) put[n] = (put[n] ?? 0) + c
+  }
+  const left = owed()
+  if (Object.keys(left).length) why = why === 'done' ? 'left_in_bag' : why
+  const moved = took > 0 && !Object.keys(left).length
+  if (!moved) bot.clerkPassRest = Date.now() + 30 * 60_000
+  try { logEvent({ kind: 'compact', status: moved ? 'success' : took > 0 ? 'failed' : 'no_effect', snapshot: snapshot(bot), detail: compactDetail({ op: pass.op, from: name, to: to ?? name, took, made, banked: put, slots: `${slots0}->${(bot.inventory?.items?.() ?? []).length}`, why: Object.keys(left).length ? `${why}:${Object.entries(left).map(([n, c]) => `${n}x${c}`).join('+')}` : why }) }) } catch { /* telemetry */ }
+  return { took, made, put, left }
+}
+/** THE BAG'S OWN COMPACTION before it banks (compact.mjs bagCompact: nuggets into ingots, clay balls into clay, snowballs into snow
+ *  blocks) -> crafts made. One `_compact op=bag` row a kind. An interrupt passes through. */
+async function bagCompactNow (ctx, signal) {
+  const { bot } = ctx
+  let n = 0
+  const free = BAG_SLOTS - (bot.inventory?.items?.() ?? []).length
+  for (const c of bagCompact(heldMap(bot), { keeps: yardRowKeepsNow(bot), free })) {
+    check(signal)
+    const before = countItem(bot, c.to)
+    try { await craft(ctx, { item: c.to, count: c.crafts }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const made = Math.max(0, countItem(bot, c.to) - before)
+    n += made
+    try { logEvent({ kind: 'compact', status: made > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: compactDetail({ op: 'bag', from: c.from, to: c.to, took: made * RECIPES[c.from].n, made, why: made > 0 ? 'done' : 'craft_failed' }) }) } catch { /* telemetry */ }
+  }
+  return n
+}
 /** The yard's work for this bot now -> yard.mjs yardWork's result | null (never throws: no work on an unreadable world). */
+
 
 
 function yardWorkNow (bot, rec, now = Date.now(), plot = YARD_PLOT) {
@@ -21730,6 +21827,8 @@ function yardWorkNow (bot, rec, now = Date.now(), plot = YARD_PLOT) {
     if (LANES.on && LANES.row && (!w.kind || (w.kind === 'upkeep' && !w.first))) {
       const rp = yardRowPlanNow(bot, rec, bp, now)
       if (rp.bank.length) return { kind: 'row', urgent: true, place: {}, draw: {}, dig: {}, why: `row:${rp.bank.map(b => b.kind).join('+')}${rp.place ? ':place' : ''}`.slice(0, 80) }
+      // compact-01: the clerk's pass over the town's chests (the FIRST yard's upkeep: `due`, never urgent)
+      if (plot === YARD_PLOT) { const cp = clerkPassNow(bot, now); if (cp) return { kind: 'clerkpass', urgent: false, place: {}, draw: {}, dig: {}, why: `${cp.op}:${cp.from ?? cp.name}` } }
     }
     return w
   } catch { return null }
@@ -21860,6 +21959,8 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
       try { await craft(ctx, { item: 'bamboo_block', count: nb }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       f.crafted = Math.max(0, countItem(bot, 'bamboo_block') - before)
     }
+    // compact-01: the bag's own compaction before it banks (nuggets, clay balls, snowballs: compact.mjs bagCompact)
+    if (LANES.on && COMPACT.on && !drawing) f.crafted += await bagCompactNow(ctx, signal)
     check(signal)
     const read = planReader(bot)
     states = bayStates(bays, read)
@@ -21879,6 +21980,20 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
       if (!(nb2 + rr.placed > 0)) bot.yardRestUntil = Date.now() + 2 * 60_000
       bot.yardsMemo = null
       return out(nb2 + rr.placed > 0 ? 'success' : 'no_effect', 'yard_row', `the yard's chest row: ${nb2} item(s) banked, ${rr.placed} chest(s) placed`, { stop })
+    }
+    // compact-01: THE CLERK'S PASS (the first yard, nothing else to do): one bot at a time under the yard's `clerkpass` lease
+    if (plot === YARD_PLOT && !drawing && (!w.kind || (w.kind === 'upkeep' && !w.first))) {
+      const cp = clerkPassNow(bot)
+      const cl = cp ? projTakeLease(dir, key, 'clerkpass', me) : null
+      if (cp && cl?.ok) {
+        try {
+          f.kind = `clerk_${cp.op}`
+          const rr = await yardClerkPass(ctx, cp, signal, deadline)
+          f.drew = rr.took ? { [cp.from ?? cp.name]: rr.took } : {}; f.banked = rr.put; f.crafted += rr.made
+          stop = rr.took > 0 ? 'clerkpass' : 'nothing_drawn'
+          return out(rr.took > 0 && !Object.keys(rr.left).length ? 'success' : 'no_effect', `yard_${f.kind}`, `the clerk's ${cp.op}: took ${rr.took}, made ${rr.made}`, { stop })
+        } finally { try { releaseLease(dir, key, 'clerkpass', me, cl.gen) } catch { /* its TTL frees it */ } }
+      }
     }
     if (!w.kind) { stop = 'idle'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'complete', 'the yard stands; nothing to stock, move, refill or clear') }
     let place = w.place

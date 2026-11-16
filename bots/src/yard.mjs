@@ -114,7 +114,8 @@ export function laneSettings (env = {}, pool = env?.MEMORY_POOL ?? '') {
 export const LANES = laneSettings(typeof process !== 'undefined' ? process.env : {})
 const LOG_KINDS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log']
 /** What a lane may hold: the old three, the stone and earth a town digs up, and logs (one lane a species). */
-export const LANE_KINDS = Object.freeze([...YARD_BULK, 'deepslate', 'stone', 'dirt', 'gravel', 'sand', 'tuff', 'andesite', 'diorite', 'granite', ...LOG_KINDS])
+// compact-01: clay and snow blocks (what the bag's clay balls and snowballs are crafted into) are piled too
+export const LANE_KINDS = Object.freeze([...YARD_BULK, 'deepslate', 'stone', 'dirt', 'gravel', 'sand', 'tuff', 'andesite', 'diorite', 'granite', 'clay', 'snow_block', ...LOG_KINDS])
 /** The kinds the piles hold -> [name]. Pure. */
 export const yardKinds = (on = LANES.on) => (on ? LANE_KINDS : YARD_BULK)
 /** A kind's lane cap over every yard -> n. Pure. */
