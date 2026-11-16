@@ -283,14 +283,26 @@ ALARM_RE = re.compile(r'^(\S+)\s+(NEW|STILL|CLEARED|EVENT)\s+(\S+)\s+(.*?)\s+::\
 ALARM_LIVE_S = 7 * 3600   # alarm.py re-pushes STILL every 6 h: a NEW/STILL older than that has no living source
 
 
+def ack_until(a):
+    """PURE. An ack's end as alarm.py reads it (_ts_or_none): an ISO time WITH a zone, else None (Codex r1: a zoneless
+    `until` was honoured here and refused there)."""
+    try:
+        t = datetime.fromisoformat(str(a.get('until')).replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
+    return t.timestamp() if t.tzinfo else None
+
+
 def live_acks(path, now):
     """alarm-acks.json (written by `pager.py ack`) -> its unexpired acks. A missing or unreadable file is NO acks: the
     alarm stays critical (fail loud)."""
     try:
-        rows = json.load(open(path)).get('acks') or []
+        rows = json.load(open(path)).get('acks')
     except (OSError, ValueError, AttributeError):
         return []
-    return [a for a in rows if isinstance(a, dict) and (parse_ts(str(a.get('until') or '')) or 0) > now]
+    if not isinstance(rows, list):      # Codex r1: {"acks": 1} raised and took the whole alarm list with it
+        return []
+    return [a for a in rows if isinstance(a, dict) and (ack_until(a) or 0) > now]
 
 
 def ack_for(acks, src, key):

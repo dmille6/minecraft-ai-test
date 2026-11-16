@@ -41,6 +41,14 @@ def check(name, cond, got=None):
         FAILS.append(name)
 
 
+def raises(fn):
+    try:
+        fn()
+    except Exception:       # noqa: BLE001
+        return True
+    return False
+
+
 LOG = """2026-11-16T02:45:01Z STILL   slotwatch slot:nodeploy:block:H2-refused :: canary slot: NO canary deployed for 1115 min
 2026-11-16T03:00:00Z NEW     slotwatch slot:scheduler :: canary scheduler: last tick 40 min ago -- cron stopped?
 2026-11-16T04:00:00Z NEW     haltwatch-fleet halt:fleet :: fleet HALTED
@@ -103,6 +111,8 @@ def main():
     check('an ack with no key covers nothing', crit_count(A, [dict(ACK, key='')]) == 3)
     check('an unreadable ack file is no acks', crit_count(A, '{not json') == 3)
     check('an ack file of the wrong shape is no acks', crit_count(A, '[1, 2]') == 3)
+    check('acks that is not a list is no acks (no crash)', crit_count(A, '{"acks": 1}') == 3 and crit_count(A, '{"acks": true}') == 3)
+    check('a zoneless until does nothing (alarm.py refuses it too)', crit_count(A, [dict(ACK, until='2099-01-01T00:00:00')]) == 3)
     check('ack_for: source glob defaults to *', A.ack_for([{'key': 'slot:*'}], 'slotwatch', 'slot:scheduler') is not None)
 
     # MUTANTS: each must be caught by a check above.
@@ -115,10 +125,14 @@ def main():
 
     mutant('acks ignored', "severity='acked' if ack else severity(src, r['text'])", "severity=severity(src, r['text'])",
            lambda M: crit_count(M, [ACK]) == 3)
-    mutant('expired acks honoured', "(parse_ts(str(a.get('until') or '')) or 0) > now]", "True]",
+    mutant('expired acks honoured', "(ack_until(a) or 0) > now]", "True]",
            lambda M: sev(M, [dict(ACK, until='2026-11-16T05:00:00Z')])[0]['slot:nodeploy:block:H2-refused'] == 'acked')
     mutant('key glob ignored', "and fnmatch.fnmatchcase(str(key), str(a.get('key') or '')):", ":",
            lambda M: sev(M, [ACK])[0]['slot:scheduler'] == 'acked')
+    mutant('zoneless until honoured', "return t.timestamp() if t.tzinfo else None", "return t.replace(tzinfo=timezone.utc).timestamp()",
+           lambda M: crit_count(M, [dict(ACK, until='2099-01-01T00:00:00')]) == 2)
+    mutant('non-list acks crash', "    if not isinstance(rows, list):      # Codex r1: {\"acks\": 1} raised and took the whole alarm list with it\n        return []\n", "",
+           lambda M: raises(lambda: crit_count(M, '{"acks": 1}')))
     print(f'\n{len(FAILS)} failed' if FAILS else '\nall passed')
     return 1 if FAILS else 0
 
