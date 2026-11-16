@@ -421,6 +421,14 @@ export function pathAvoid ({ plan = null, zones = [], caps = [], plinth = [], co
     for (const c of farm) if (!(Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]))) report.push({ input: 'treefarm', why: 'a farm column without a place' })
     if (composter != null && !(Array.isArray(composter) && Number.isFinite(composter[0]) && Number.isFinite(composter[2]))) report.push({ input: 'townsite', why: 'the composter has no place' })
     for (const r of records) { const cs = r?.cells ?? []; if (!Array.isArray(cs) || cs.some(c => !(Array.isArray(c?.at) && Number.isFinite(c.at[0]) && Number.isFinite(c.at[2])))) report.push({ input: `record:${r?.plot ?? '?'}`, why: 'a cell without a place' }) }
+    // r6 (Codex round 5): THE PLAN'S PLOTS. planstore.mjs planRefusal checks a plot's id and its cells, never its box or its keep-out:
+    // a keep-out that is no yes or no, a keep-out plot's box that is no box (it then matches nothing below and in townplan.mjs
+    // keepouts), a cell whose first sighting is no time (the plot then reads uncommitted: its box loses its ring of 1)
+    for (const p of plan?.plots ?? []) {
+      if (p && 'keepout' in p && typeof p.keepout !== 'boolean') report.push({ input: 'plan', why: 'a plot whose keep-out is no yes or no' })
+      if (p?.keepout && p.box != null && !(Array.isArray(p.box) && p.box.length === 4 && p.box.every(Number.isFinite))) report.push({ input: 'plan', why: 'a keep-out plot whose box is no box' })
+      for (const c of [...(p?.cells ?? []), ...(p?.stations ?? [])]) if (c && 'seenSince' in c && !Number.isFinite(c.seenSince)) report.push({ input: 'plan', why: 'a cell whose first sighting is no time' })
+    }
   }
   const ko = plan ? keepouts(plan) : null
   const plots = (plan?.plots ?? []).filter(p => p.keepout && Array.isArray(p.box)).map(p => p.box)

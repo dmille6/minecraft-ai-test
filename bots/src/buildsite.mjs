@@ -1025,7 +1025,7 @@ export function plinthCells (rec, report = null) {
   if (pl && typeof pl === 'object') {
     if (report && pl.steps != null && !Array.isArray(pl.steps)) bad('its steps are no list')
     for (const st of pl.steps ?? []) { if (Array.isArray(st?.c)) { if (report && !fin3(st.c)) bad('a step cell without a full place'); out.push(st.c) } else bad('a step without a cell') }
-    if (pl.cap) { if (report && ![pl.cap.x, pl.cap.y, pl.cap.z].every(Number.isFinite)) bad('a cap without a full place'); out.push([pl.cap.x, pl.cap.y, pl.cap.z]) }
+    if (pl.cap) { if (report && ![pl.cap.x, pl.cap.y, pl.cap.z].every(Number.isFinite)) bad('a cap without a full place'); out.push([pl.cap.x, pl.cap.y, pl.cap.z]) } else if (report && pl.cap != null) bad('a cap that is no place')
     if (report && pl.stair != null && !Array.isArray(pl.stair)) bad('its stair is no list')
     for (const c of pl.stair ?? []) { if (Array.isArray(c) && c.length === 3) { if (report && !fin3(c)) bad('a stair cell without a full place'); out.push(c) } else bad('a stair cell that is no cell') }
   }

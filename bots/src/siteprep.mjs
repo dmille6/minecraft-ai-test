@@ -65,6 +65,8 @@ export const prepWorthy = (rejects = {}) => Object.entries(rejects ?? {}).some((
 
 // ---- the request and its state table ---------------------------------------------------------------------------------------------
 export const requestsOf = rec => (Array.isArray(rec?.requests) ? rec.requests : [])
+/** Every state prepStep can leave a request in (the two that reserve -- prepping, prepared -- and the five that do not). */
+export const PREP_STATES = Object.freeze(['filed', 'prepping', 'prepared', 'handed', 'refused', 'expired', 'abandoned'])
 /** The request a town works now: the one prepping or prepared, else the oldest filed. Pure. */
 /** Has the KEEPER work on a site request (one filed to search, or one prepping to grade and verify)? -> bool. Pure. A prepared request
  *  waits on its requester, not the keeper. */
@@ -178,6 +180,7 @@ export const prepZones = (rec, except = null, report = null) => {
     if (rec?.requests != null && !Array.isArray(rec.requests)) report.push({ input: 'siteprep', why: 'its requests are no list' })
     for (const r of requestsOf(rec)) {
       if (!r || typeof r !== 'object') report.push({ input: 'siteprep', why: 'a request that is no entry' })
+      else if (!PREP_STATES.includes(r.state)) report.push({ input: 'siteprep', why: 'a request whose state is none of the known' })   // r6: it is filtered out below, zone and all
       else if ((r.state === 'prepping' || r.state === 'prepared') && !r.zone?.box) report.push({ input: 'siteprep', why: 'a reserved plot without its zone' })
     }
   }

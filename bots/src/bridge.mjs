@@ -337,11 +337,22 @@ export async function buildBridge (io, plan, { until = Infinity } = {}) {
  * adds its trip to the site whose axis matches and whose near end lies within SITE_MERGE_R (else a new site); a `state` line
  * (complete true/false, failed) updates the site by id.
  */
-// fillcolumn-01 r5 (`report`, optional: an array): a sighting dropped here for want of its span is named there. The sites are unchanged.
+// fillcolumn-01 r5 (`report`, optional: an array): a sighting dropped here for want of its span, and every other line the fold
+// passes over that could have fed a zone, is named there. The sites are unchanged.
 export function bridgeSites (lines = [], report = null) {
   const sites = []
   for (const l of lines) {
     if (report && l?.op === 'sight' && !(l.span?.near && l.span?.axis)) report.push({ input: 'bridges', why: 'a sighting without its span' })
+    // r6 (Codex round 5): what the fold below passes over without a word. A line whose op is neither `sight` nor `state` (a
+    // sighting whose op is gone is a reservation gone); a `state` line that NAMES A DESIGN for a site this fold does not hold, or
+    // whose design names no style (the site's zone is then its span's, not its design's); a material that is neither wood nor
+    // cobble (it then never holds a later design off). A state line's complete / failed / nodesign feed no zone, and say nothing
+    if (report && l?.op !== 'sight' && l?.op !== 'state') report.push({ input: 'bridges', why: 'a line with no known op' })
+    if (report && l?.op === 'state') {
+      if (l.design != null && !(l.id && sites.some(q => q.id === l.id))) report.push({ input: 'bridges', why: 'a design named for no known site' })
+      if (l.design != null && !l.design?.style) report.push({ input: 'bridges', why: 'a design that names no style' })
+      if (l.mat != null && l.mat !== 'wood' && l.mat !== 'cobble') report.push({ input: 'bridges', why: 'a material that is neither wood nor cobble' })
+    }
     if (l?.op === 'sight' && l.span?.near && l.span?.axis) {
       const s = sites.find(q => q.span.axis.join(',') === l.span.axis.join(',') && Math.hypot(q.span.near[0] - l.span.near[0], q.span.near[2] - l.span.near[2]) <= SITE_MERGE_R)
       if (s) { if (l.trip) s.seen.add(l.trip); s.t = Math.max(s.t, Number(l.t) || 0); continue }

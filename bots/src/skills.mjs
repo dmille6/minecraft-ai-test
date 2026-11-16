@@ -199,6 +199,8 @@ import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
 import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
+import { SECTORS as PLAN_SECTORS } from './townplan.mjs'   // fillcolumn-01 r6: the hall plot's sector, checked
+import { NO_LITTER_PLOTS } from './tidy.mjs'   // fillcolumn-01 r6: the records the survey finds by their body's plot
 import { litterOn, litterTally, litterIntake, handedBare, builtOnHeld, unreadDetail as litterUnreadDetail, builtOnDetail as litterBuiltOnDetail, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
 import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life
@@ -18457,7 +18459,7 @@ function projectHeads (report = null) {
     for (const p of projectsGuarded()) { const key = projKeyOf(p.plot); const h = recordHead(dir, key); headReport(report, `record:${p.plot}`, h); if (h.ok && h.head) out.push({ plot: p.plot, key, head: h.head }) }
     // wallext-02: the demolition's hold on the old line is live only while the demolition is open (wall.mjs wallAsHeld): every
     // reader of the heads sees the wall without it once the demolition is complete, released or not
-    { const w = out.find(x => x.plot === WALL_PLOT), dm = out.find(x => x.plot === WALLDEMO_PLOT); if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) } }
+    { const w = out.find(x => x.plot === WALL_PLOT), dm = out.find(x => x.plot === WALLDEMO_PLOT); if (report && dm?.head?.rec && dm.head.rec.structure_complete != null && typeof dm.head.rec.structure_complete !== 'boolean') report.push({ input: `record:${WALLDEMO_PLOT}`, why: 'its completion is no yes or no' }); if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) } }
     // groundskeeper-01: the town's land plan (landplan.mjs) as a RESERVATION -- its road corridors are every later siting's zones
     // (recordZones: houses, the stair, the wall's gateways, the tree farm), no cells
     const land = landHead(dir, report)
@@ -18730,7 +18732,7 @@ export function shopSlotsFree (bot) {
 // reader (treeFarmCells). A file that is simply absent is none, and says nothing. The context is unchanged.
 function shopCtx (bot, report = null) {
   const zones = townPlanZones(bot)
-  if (report && (zones.known !== true || /^stale/.test(String(zones.why ?? '')))) report.push({ input: 'zones', why: `the protected zones are ${zones.known === true ? 'the last good list' : 'unknown'} (${String(zones.why ?? '-').slice(0, 40)})` })
+  if (report && (zones.known !== true || /^stale/.test(String(zones.why ?? '')) || zones.why === 'another world')) report.push({ input: 'zones', why: `the protected zones are ${zones.known !== true ? 'unknown' : zones.why === 'another world' ? 'none: the file names another world' : 'the last good list'} (${String(zones.why ?? '-').slice(0, 40)})` })
   const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
   const wells = []
   try { wells.push(...plinthCells(JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-plinth-${hk}.json`), 'utf8')), report)) } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input: 'wells', why: 'the plinth file cannot be read' }) /* none */ }
@@ -19026,6 +19028,7 @@ function exMarkers (report = null) {
   for (const m of exLines(exMarkersFile(), 2000, report, 'markers')) {
     if (!Array.isArray(m?.at)) { report?.push({ input: 'markers', why: 'a line without a place' }); continue }   // fillcolumn-01 r5
     const k = m.at.join(',')
+    if (report && m.gone != null && typeof m.gone !== 'boolean') report.push({ input: 'markers', why: 'a line whose gone is no yes or no' })   // fillcolumn-01 r6
     if (m.gone) out.delete(k); else out.set(k, m)
   }
   return [...out.values()]
@@ -25361,6 +25364,8 @@ function pathsInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDi
   for (const w of c.wells) if (!caps.length && Array.isArray(w)) caps.push(w)     // an unraised well's site (shopCtx's last entry)
   let composter = null
   try { const st = readTownSite(dir, townSiteKey(), report).site; if (st) composter = [st.x, st.y, st.z] } catch { report?.push({ input: 'townsite', why: 'the site\'s reader threw' }) /* none */ }
+  // fillcolumn-01 r6: the plan's own composter is its FARM plot's -- one on a plot of another kind is passed over here
+  if (report && composter == null) for (const q of h.head.plan.plots ?? []) if (q?.composter != null && q.kind !== 'farm') report.push({ input: 'plan', why: 'a composter on a plot that is no farm' })
   composter ??= (h.head.plan.plots ?? []).find(q => q.kind === 'farm')?.composter ?? null
   // homes-01show: the reserved home plots as they lie now (HOMEPLOTS on only; the ROUTER's refusal and the keeper's permanent sitings)
   return { plan: { ...h.head.plan, gen: h.head.gen }, zones: c.zones, caps, plinth: c.wells, composter, farm: c.farm, projects, place: placeBlueprint, ...(heads.homePlots ? { homePlots: heads.homePlots } : {}), hubDests: fleetPathsOn() }
@@ -27342,7 +27347,11 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const pathsRec = ph.head?.rec ?? null
   const pin = (!pathsRec || pathsNoSiteRec(pathsRec)) && projectsOn().some(p => p.plot === PATHS_PLOT) ? P : null
   // townterrace-01: the terrace stage's floors (every other project's record, the wall's gates, the wells' caps)
-  const others = projectHeads(report).filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT).map(x => (x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null)).filter(Boolean)
+  const oheads = projectHeads(report).filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT)
+  // fillcolumn-01 r6: the yard, the tree farm and the wall extension are found below by the plot their BODY names (inwallNoLitter,
+  // `wallext`): one whose body names another plot is not found, and a record that names one of them from another file stands in
+  if (report) for (const x of oheads) { const bp = x.head.rec?.plot; if (bp != null && bp !== x.plot && [x.plot, bp].some(q => NO_LITTER_PLOTS.has(q) || q === WALLEXT_PLOT)) report.push({ input: `record:${x.plot}`, why: 'its body names another plot' }) }
+  const others = oheads.map(x => (x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null)).filter(Boolean)
   // the showcase gkstage fold (Codex fold BLOCKER): the site-prep reservations on their own (inwall's litter rule must never read them
   // as a build's `project`); the request being graded (`prepExcept`) is its own grading's
   // outbands-01 (batch-14a replay, 11-06): the town's expedition MARKERS are `reserved` too -- read first by every survey rule, as the
@@ -27955,6 +27964,9 @@ function hallPadZones (plan, report = null) {
     if (!projectsOn().some(p => p.plot === HALL_PLOT)) return []
     if (projectHeads().some(x => x.plot === HALL_PLOT)) return []
     const z = hallPadZone(plan, blueprintOf(HALL_BLUEPRINT))
+    // fillcolumn-01 r6: the pad is the hall plot's while its sector is the pad's; null is an unsited plot, another sector a hall
+    // elsewhere -- a sector that is none of the eight is neither, and the pad is not reserved
+    if (report && !z) { const hp = (plan?.plots ?? []).find(q => q?.id === HALL_PLOT); if (hp && hp.sector != null && !PLAN_SECTORS.includes(hp.sector)) report.push({ input: 'hallpad', why: 'the hall plot\'s sector is no sector' }) }
     return z ? [z] : []
   } catch { report?.push({ input: 'hallpad', why: 'the pad\'s zone builder threw: the pad is not reserved' }); return [] }   // fillcolumn-01 r5: `report`
 }
