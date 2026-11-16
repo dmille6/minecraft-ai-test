@@ -388,7 +388,7 @@ await t('fold BLOCKER: a lawn on the decor record is reserved -- the rough surve
   const held = RG.surveyRough(srv.read, { ...base, reserved: (x, z) => (inZ(x, z) ? 'decor_lawn' : null) })
   assert.ok(![...held.fill, ...held.cut].some(c => inZ(c.at[0], c.at[2])), 'no fill or cut inside the lawn box')
   const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-  assert.ok(/rz\.push\(\.\.\.lawnZonesOf\(recs\)\)\s*\n\s*const reserved = \(x, z\) => held\(x, z\) \|\| rz\.some\(/.test(sk), 'wired into tidyInputs reserved (before reserved reads rz)')
+  assert.ok(/rz\.push\(\.\.\.lawnZonesOf\(recs, report\)\)\s*\n\s*const reserved = \(x, z\) => held\(x, z\) \|\| rz\.some\(/.test(sk), 'wired into tidyInputs reserved (before reserved reads rz)')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

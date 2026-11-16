@@ -33,36 +33,26 @@
 // r2 (Codex review of b24d782dd, three blockers):
 //   1. THE SURVEY'S OWN EXCLUSIONS. The repair adds no cell in a column the refresh's survey itself keeps off (`keepOff`: tidy.mjs
 //      siteStage returns the predicate it used -- zones, the plan, wells, every project's columns and box, reservations, the yard),
-//      and it is CLOSED (nothing added, nothing left out, said on the row) when a record those exclusions are built from could not
-//      be read (exclUnread / repairClosed).
+//      and it is CLOSED (nothing added, nothing left out, said on the row) when that keep-out may be incomplete (repairClosed).
 //   2. A LEDGER ON THE RECORD (`fillcol`: { add, left, cols: { "x,z": [n, lo] } }): the cells the repair ever added to a column
 //      (at most `addMax`), never deeper than `depthMax` cells from the column's surveyed top nor under the survey's own scan
 //      floor (home.y - `floorDy`), and at most repairAddMax(rec) cells a record, ever. The old caps counted open cells only, so a
-//      column dug, filled and dug again was extended without bound.
+//      column dug, filled and dug again was extended without bound. (r3: reconciled with the `ext` cells on every read.)
 //   3. THE REPAIR'S WAIVERS ARE NOT THE STUCK WAIVER'S (waiveroom.mjs): every reason here starts `fillcolumn:`, no stuck-waiver
 //      counter counts them, and they have their own cap (repairOutMax). At that cap a column is not repaired and nothing is waived;
 //      the hold is then off, so its cells are deferred and counted like any stuck cell.
-// r3 (Codex round 2, two blockers):
-//   1. The strict read left out the SITE-PREP record (skills.mjs siteprepHead drops one it cannot read, and with it the plots it
-//      reserves). exclPlots names every record the exclusions are built from; exclInputsUnread the files beside them (the plan, the
-//      zones, the wells' and the tree farm's files, the town site, the markers, the bridges, the hall's pad): any one unread closes.
-//   2. The ledger is RECONCILED with the cells on every read (repairLedger): a cell the repair added carries `ext`, and a record
-//      holding such cells with no ledger, or a smaller one, has spent that budget all the same -- the cells win.
-// r4 (Codex round 3): a strict reader that DROPS a line or an entry it cannot parse is no strict reader. exclFilesUnread reads the
-//   exclusions' files itself (the one function here that touches a file: the directory and `fsx` are its arguments): a file that is
-//   ABSENT is empty and closes nothing (a healthy town lacks several of them); one that is present and malformed, or holds one
-//   malformed line or entry, closes the repair.
+// r5 (Codex round 4): THERE IS NO SECOND PARSER. r2-r4 judged the exclusions' completeness with strict readers of their own, which
+//   disagreed with the survey's lenient ones at the edges (a bridge sighting without its rows made the zone builder throw; a line
+//   window counted differently). Now every reader and zone builder the survey's keep-out is built from takes an optional report
+//   array and names there what it dropped, caught, cut off or fell back on, as it does so (skills.mjs fcKeepInputs, tidy.mjs
+//   siteStage `report`); the repair is open only when that report is empty (reportNames / repairClosed). This module reads no file.
 
-import fs from 'node:fs'
-import path from 'node:path'
 import { refUsable } from './buildsite.mjs'
 import { isLiquid, replaceableCell } from './townplan.mjs'
 import { refreshedAt, tidyRefreshOn, TIDYREFRESH } from './tidyrefresh.mjs'
 import { TIDY, INWALL, GK_WAIVE_SHARE } from './tidy.mjs'
 import { ROUGH } from './roughground.mjs'
 import { repairWaivedN } from './waiveroom.mjs'
-import { LAND_PLOT } from './landplan.mjs'
-import { SITEPREP_PLOT } from './siteprep.mjs'
 
 /**
  * THE BOUNDS, each the survey's own constant:
@@ -186,95 +176,13 @@ export function repairLedger (rec) {
   for (const [k, [cnt, low]] of seen) cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), Math.min(cols[k]?.[1] ?? Infinity, low)]
   return { add: Math.max(Math.max(0, Number(f?.add) || 0), ext), left: Math.max(0, Number(f?.left) || 0), cols }
 }
-/** EVERY RECORD THE EXCLUSIONS ARE BUILT FROM -> [plot]: the guarded projects' (`guarded`: shop.mjs projectsGuarded), the land plan's
- *  (its landmark's reservation) and the SITE PREP's (the plots it reserves) -- the two the lenient readers add beside the guarded
- *  ones (skills.mjs projectHeads: landHead, siteprepHead). Pure. */
-export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT, SITEPREP_PLOT])]
-/** THE OTHER INPUTS OF THE EXCLUSIONS THAT COULD NOT BE READ -> [name]. Pure over `checks` ({ name: () => true when read }): a
- *  check that answers anything but true, or throws, names its input unread. */
-export function exclInputsUnread (checks = {}) {
-  const out = []
-  for (const [name, ok] of Object.entries(checks ?? {})) { let v = false; try { v = ok() === true } catch { v = false } if (!v) out.push(name) }
-  return out
-}
-/** THE RECORDS THE EXCLUSIONS ARE BUILT FROM THAT COULD NOT BE READ -> [plot]. Pure over `headOf(plot)` (buildproj.mjs recordHead's
- *  answer: { ok, head, gens, rejected }). tempstand.mjs otherCellsStrict's rule: a head that is not `ok`, a newest generation that
- *  was rejected (the head is then an older one), or a read that throws. A project with no record at all is read, and empty. */
-export function exclUnread (plots = [], headOf = () => null) {
-  const out = []
-  for (const p of plots ?? []) {
-    let h = null
-    try { h = headOf(p) } catch { h = null }
-    if (!h?.ok || (h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))
-  }
-  return out
-}
-/** THE PROTECTED ZONES' VIEW (skills.mjs townPlanZones: { known, zones, why }) READ STRICTLY -> bool. Pure. Read: known, and not the
- *  LAST GOOD list kept over a file that is now unreadable or partly malformed (`why` stale:...: a zone added in that edit may be
- *  missing from it). A town with no zones file is known, and empty (`why` absent): read. */
-export const zonesRead = view => view?.known === true && Array.isArray(view.zones) && !/^stale/.test(String(view.why ?? ''))
-/**
- * THE EXCLUSIONS' FILES, READ STRICTLY -> [name] unread, of 'wells' | 'treefarm' | 'townsite' | 'markers' | 'bridges'. Over the town's
- * directory `dir` (`hk` the home key "x_y_z"; `markersFile` / `bridgesFile` the expedition's two JSONL files; `fsx` node:fs). The same
- * files the lenient readers read (skills.mjs shopCtx, treeFarmCells, pathsInputs, exMarkers, exBridgeSites; composter.mjs
- * readTownSite), with ABSENT told from UNREADABLE and nothing dropped:
- *   ABSENT (no such file, no generation of it, no such directory)  -> read, and empty: it closes nothing
- *   PRESENT and it cannot be read, does not parse, or holds ONE line or entry the lenient reader would skip  -> unread
- * wells     `junkwell-plinth-<hk>.json` (plinthCells' shape: plan.steps[].c, plan.cap, plan.stair[], prev[] with x, y, z) and the newest
- *           `junkwell-site-<hk>.g<N>.json` (x, y, z)
- * treefarm  the newest `treefarm-<hk>.g<N>.json` (record.cells or cells, each x and z); never an older generation
- * townsite  the newest `composter-site-<hk>.g<N>.json` (integer x, y, z: composter.mjs validSite)
- * markers   every non-blank line of the last 2,000 an object with `at` [x, y, z]
- * bridges   every non-blank line of the last 4,000 an object; a `sight` line with its span's near and axis
- * A directory that exists and cannot be listed: wells, treefarm and townsite are unread. Never throws.
- */
-export function exclFilesUnread ({ dir, hk, markersFile = null, bridgesFile = null } = {}, fsx = fs) {
-  const fin3 = c => Array.isArray(c) && c.length === 3 && c.every(Number.isFinite)
-  const obj = v => !!v && typeof v === 'object' && !Array.isArray(v)
-  const esc = t => String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  let names = [], listed = true
-  try { names = fsx.readdirSync(dir) } catch (e) { if (e?.code !== 'ENOENT') listed = false }
-  const newest = stem => { const re = new RegExp(`^${esc(stem)}\\.g(\\d+)\\.json$`); return names.map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)[0] ?? null }
-  // one JSON file -> { absent: true } | { v } | { bad: true }
-  const json = f => { let txt; try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return e?.code === 'ENOENT' ? { absent: true } : { bad: true } } try { return { v: JSON.parse(txt) } } catch { return { bad: true } } }
-  // one JSONL file -> true when it is absent, or every non-blank line of its last `max` parses to an object `lineOk` takes
-  const jsonl = (f, max, lineOk) => {
-    if (!f) return true
-    let txt
-    try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return e?.code === 'ENOENT' }
-    for (const l of txt.split('\n').filter(q => q.trim()).slice(-max)) { let v; try { v = JSON.parse(l) } catch { return false } if (!obj(v) || !lineOk(v)) return false }
-    return true
-  }
-  const plinthOk = r => {
-    if (!obj(r)) return false
-    const pl = r.plan
-    if (pl != null) {
-      if (!obj(pl)) return false
-      if (pl.steps != null && (!Array.isArray(pl.steps) || pl.steps.some(st => !obj(st) || (st.c != null && !fin3(st.c))))) return false
-      if (pl.cap != null && !(obj(pl.cap) && [pl.cap.x, pl.cap.y, pl.cap.z].every(Number.isFinite))) return false
-      if (pl.stair != null && !(Array.isArray(pl.stair) && pl.stair.every(fin3))) return false
-    }
-    if (r.prev != null && !(Array.isArray(r.prev) && r.prev.every(c => obj(c) && [c.x, c.y, c.z].every(Number.isFinite) && (c.stair == null || (Array.isArray(c.stair) && c.stair.every(fin3)))))) return false
-    return true
-  }
-  const gen = (stem, ok) => { const g = newest(stem); if (g == null) return true; const j = json(path.join(dir, `${stem}.g${g}.json`)); return !j.bad && !j.absent && ok(j.v) }
-  const wells = () => {
-    const pj = json(path.join(dir, `junkwell-plinth-${hk}.json`))
-    if (pj.bad || (!pj.absent && !plinthOk(pj.v))) return false
-    return gen(`junkwell-site-${hk}`, v => obj(v) && [v.x, v.y, v.z].every(Number.isFinite))
-  }
-  const farm = () => gen(`treefarm-${hk}`, v => { const cs = obj(v) ? (v.record?.cells ?? v.cells) : null; return Array.isArray(cs) && cs.every(c => obj(c) && Number.isFinite(c.x) && Number.isFinite(c.z)) })
-  const site = () => gen(`composter-site-${hk}`, v => obj(v) && [v.x, v.y, v.z].every(Number.isInteger))
-  return exclInputsUnread({
-    wells: () => listed && wells(),
-    treefarm: () => listed && farm(),
-    townsite: () => listed && site(),
-    markers: () => jsonl(markersFile, 2000, v => fin3(v.at)),
-    bridges: () => jsonl(bridgesFile, 4000, v => v.op !== 'sight' || (obj(v.span) && Array.isArray(v.span.near) && Array.isArray(v.span.axis))),
-  })
-}
+/** THE REPORT'S INPUTS -> [name], each once, in the order first named. Pure. The report is the one the survey's own readers and zone
+ *  builders wrote as they built its keep-out (tidy.mjs siteStage `report`; skills.mjs fcKeepInputs): { input, why } for whatever one
+ *  of them dropped, caught, cut off or fell back on. This module parses none of those files itself. */
+export const reportNames = report => [...new Set((report ?? []).map(r => String(r?.input ?? '?')))]
 /** IS THE REPAIR CLOSED THIS REFRESH? -> why | null. Pure. Closed without the survey's own exclusions (`keepOff`), or with anything
- *  they are built from unread (`unread`: record plots, 'zones'): fail closed -- nothing is added on exclusions nobody could read. */
+ *  their own readers reported (`unread`: reportNames of the survey's report): fail closed -- nothing is added on a keep-out that
+ *  may be smaller than the town's. */
 export function repairClosed ({ keepOff = null, unread = [] } = {}) {
   if ((unread ?? []).length) return `excl_unread:${unread.join('+')}`.slice(0, 40)
   return typeof keepOff === 'function' ? null : 'no_exclusions'

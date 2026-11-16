@@ -343,7 +343,7 @@ await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopAct
   // decorator-01: the decorator's order follows the keeper's
   assert.ok(/const order00 = b \? keeperOrder\(b, marked, list, now\) : list\n\s*const order0 = b \? decorOrder\(b, marked, order00, now\) : order00\n\s*const order = sinkListOrder\(order0, activeMem\.sinkOrder \?\? \[\]\)\n(?:\s*\/\/[^\n]*\n)*\s*const sinkTurn = [^\n]*\n\s*const pick = activeProject\(marked, order, /.test(s), 'the keeper order (picker-01: the sinks sorted after it)')
   assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land, ext\) \} \}\)/.test(s), 'the reservation')
-  assert.ok(/const recs = projectHeads\(\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')
+  assert.ok(/const recs = projectHeads\(report\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')   // (fillcolumn-01 r5: the report handed down)
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
   assert.ok(/builders: GROUNDS\.on \? 1 \+ Math\.max\(GK\.helpersMax, GK\.helpersBig \?\? 0\) : TIDY_BUILDERS/.test(sh), 'gkhelpers-01: the keeper and its helpers (gkcrew4-01: the big cap)')
   assert.ok(/< orderCooldown\(plot0\)\) return \{ order: null, skip: null \}/.test(sh), 'the order cooldown')
@@ -391,7 +391,7 @@ await t('wiring: the land plan and the tidy reserve the pad while the hall is on
   assert.ok(/const hz = \[\.\.\.hallPadZones\(P\.plan\), [^\n]*\]\n\s*const rz = \[\.\.\.recordZones\(recs\), \.\.\.hz\]/.test(s), 'landInputs reserved')
   assert.ok(/avoid: tidyAvoid\(avoid, hz\), reserved,/.test(s), 'landInputs avoid')
   // siteprep-01: the keeper's own request's zone is dropped from its grading's avoid (the one `prepExcept`)
-  assert.ok(/records: recs, home \}\), \[\.\.\.recordZones\(recs\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\), \.\.\.hallPadZones\(P\.plan\)[^\n]*\]\)\n/.test(s), 'tidyInputs avoid')
+  assert.ok(/records: recs, home, report \}\), \[\.\.\.recordZones\(recs, undefined, report\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\), \.\.\.hallPadZones\(P\.plan, report\)[^\n]*\], report\)\n/.test(s), 'tidyInputs avoid')   // (fillcolumn-01 r5: the report handed down)
   assert.ok(/if \(projectHeads\(\)\.some\(x => x\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'a sited hall: its record')
   assert.ok(/if \(!projectsOn\(\)\.some\(p => p\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'the hall off: nothing')
 })
@@ -413,11 +413,12 @@ await t('a marker (2 cobblestone + a torch) in a band is never cut when its zone
 })
 await t('wiring: the tidy, the land plan and the tidy visit\'s dig guard read the town\'s markers', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/\.\.\.hallPadZones\(P\.plan\), \.\.\.townMarkerZones\(\)\]\)/.test(s), 'tidyInputs avoid')
+  assert.ok(/\.\.\.hallPadZones\(P\.plan, report\), \.\.\.townMarkerZones\(report\)\], report\)/.test(s), 'tidyInputs avoid (fillcolumn-01 r5: with the report handed down)')
   assert.ok(/const hz = \[\.\.\.hallPadZones\(P\.plan\), \.\.\.townMarkerZones\(\)\]/.test(s), 'landInputs')
   assert.ok(/for \(const k of markerCellKeys\(exMarkers\(\)\)\) guard\.add\(k\)/.test(s), 'the dig-time guard')
   // bridgepost-01: the bridges' footprints join the markers, each read in its own try (never throws)
-  assert.ok(/function townMarkerZones \(\) \{\s*let z = \[\]\s*try \{ z = markerZones\(exMarkers\(\)\) \} catch \{ z = \[\] \}\s*try \{ z = \[\.\.\.z, \.\.\.bridgeZones\(exBridgeSites\(\)\)\] \} catch \{\s*\}\s*return z\s*\}/.test(s), 'never throws')
+  // (fillcolumn-01 r5: each try's catch now also says into the optional report that its zones were left out)
+  assert.ok(/function townMarkerZones \(report = null\) \{\s*let z = \[\]\s*try \{ z = markerZones\(exMarkers\(report\), 1, report\) \} catch \{ report\?\.push\(\{[^}]*\}\); z = \[\] \}\s*try \{ z = \[\.\.\.z, \.\.\.bridgeZones\(exBridgeSites\(report\), 1, report\)\] \} catch \{ report\?\.push\(\{[^}]*\}\) \}\s*return z\s*\}/.test(s), 'never throws')
 })
 
 // GKSTALL-01 (LIVE showcase 11-03: stage 0 held 1 h 40 min on one pit cell, waived on the 5th deferring visit, each visit ~30 min

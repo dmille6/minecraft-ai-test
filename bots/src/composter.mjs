@@ -488,18 +488,21 @@ const validSite = r => !!r && [r.x, r.y, r.z].every(Number.isInteger)
 export const sameWorld = (a, b) => !a || !b || String(a) === String(b)
 
 /** The current record -> { gen, site, world, malformed }. gen 0 = no record at all. */
-export function readTownSite (dir, key) {
+// fillcolumn-01 r5 (`report`, optional: an array): wherever this reader answers "no site" for a record it could not read -- a directory
+// that exists and cannot be listed, a newest generation that does not parse or names no place -- it says so there ({ input, why });
+// a missing directory or no generation at all is no site, and says nothing. The answer itself is unchanged.
+export function readTownSite (dir, key, report = null) {
   let gen = 0
   try {
     const re = GEN(key)
     for (const f of fs.readdirSync(dir)) { const m = re.exec(f); if (m) gen = Math.max(gen, Number(m[1])) }
-  } catch { return { gen: 0, site: null, world: null, malformed: false } }
+  } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input: 'townsite', why: 'the directory cannot be listed' }); return { gen: 0, site: null, world: null, malformed: false } }
   if (!gen) return { gen: 0, site: null, world: null, malformed: false }
   try {
     const r = JSON.parse(fs.readFileSync(genFile(dir, key, gen), 'utf8'))
-    if (!validSite(r)) return { gen, site: null, world: null, malformed: true }
+    if (!validSite(r)) { report?.push({ input: 'townsite', why: `generation ${gen} names no place` }); return { gen, site: null, world: null, malformed: true } }
     return { gen, site: { x: r.x, y: r.y, z: r.z }, world: r.world ?? null, malformed: false }
-  } catch { return { gen, site: null, world: null, malformed: true } }
+  } catch { report?.push({ input: 'townsite', why: `generation ${gen} cannot be read` }); return { gen, site: null, world: null, malformed: true } }
 }
 
 /** Create generation `gen` -> true if THIS call created it; false if it exists or nothing could be written. */

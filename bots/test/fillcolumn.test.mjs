@@ -4,7 +4,7 @@
 // Behaviour on buildfake's flat world (stone below G, grass at G) through the REAL survey (tidy.mjs siteStage) and merge, the pure
 // rules of fillcolumn.mjs, an independent walk of every plan (placing cells into an overlay), a property test, and anchored mutants.
 import assert from 'node:assert'
-import fsReal, { readFileSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -432,15 +432,15 @@ const scenVolumes = (F = FC, TM = T) => {
 }
 await t('a deepened column inside a well, the junk well, the shaft, the step well, a building, a reserved plot, the yard gets NO added cell (control: the same column just beside each one does)', () => scenVolumes())
 const scenClosed = (F = FC) => {
-  // every record the exclusions are built from is read strictly: unreadable, a rejected newest generation, a read that throws
-  const heads = { wall: { ok: true, head: { gen: 3 }, gens: [1, 2, 3], rejected: [] }, shaft: { ok: false }, townhall: { ok: true, head: { gen: 1 }, gens: [1, 2], rejected: [{ gen: 2 }] }, land: { ok: true, head: null, gens: [], rejected: [] } }
-  assert.deepStrictEqual(F.exclUnread(['wall', 'shaft', 'townhall', 'land', 'storehub'], p => { if (p === 'storehub') throw new Error('EIO'); return heads[p] }), ['shaft', 'townhall', 'storehub'])
-  assert.deepStrictEqual(F.exclUnread(['wall', 'land'], p => heads[p]), [], 'the control: read (a project with no record at all is read, and empty)')
+  // the report the survey's own readers wrote names its inputs, each once (the files themselves are read in fillcolumn-inputs.test.mjs)
+  assert.deepStrictEqual(F.reportNames([{ input: 'bridges', why: 'a line that does not parse' }, { input: 'record:shaft', why: 'the record cannot be read' }, { input: 'bridges', why: 'the zone builder threw' }]), ['bridges', 'record:shaft'])
+  assert.deepStrictEqual(F.reportNames([]), []); assert.deepStrictEqual(F.reportNames(null), [])
+  assert.deepStrictEqual(F.reportNames([{ why: 'no name' }]), ['?'], 'an entry with no name still closes')
   const { srv, r0 } = holeScene()
   dugRound(srv)
   const s = surveyOf(srv, {})
   assert.strictEqual(F.repairClosed({ keepOff: s.keepOff, unread: [] }), null)
-  assert.strictEqual(F.repairClosed({ keepOff: s.keepOff, unread: ['shaft'] }), 'excl_unread:shaft')
+  assert.strictEqual(F.repairClosed({ keepOff: s.keepOff, unread: F.reportNames([{ input: 'shaft', why: 'the record cannot be read' }]) }), 'excl_unread:shaft')
   assert.strictEqual(F.repairClosed({ keepOff: null, unread: [] }), 'no_exclusions', 'no survey, no exclusions: closed')
   // an unreadable project record: NOTHING is added, nothing left out, it is counted, and the row says so
   const closed = F.repairClosed({ keepOff: s.keepOff, unread: ['shaft'] })
@@ -467,36 +467,6 @@ const scenClosed = (F = FC) => {
 }
 await t('an unreadable project record (or its newest generation rejected, or a read that throws): the repair is closed -- nothing added, nothing left out, counted, on the row (control: all read)', () => scenClosed())
 
-const scenSiteprep = (F = FC) => {
-  // r3 BLOCKER 1: the strict read names the SITE-PREP record (and the land plan's) beside the guarded projects'
-  assert.deepStrictEqual(F.exclPlots(['wall', 'shaft']), ['wall', 'shaft', 'land', 'siteprep'])
-  assert.deepStrictEqual(F.exclPlots(['siteprep', 'wall', 'land', 'wall']), ['siteprep', 'wall', 'land'], 'each once')
-  // THE CASE: the site-prep record cannot be read. The lenient reader (skills.mjs siteprepHead) drops it, so the survey's own
-  // exclusions do NOT hold the plot it reserves -- here the plot over the deepened column (4,4)
-  const { srv, r0 } = holeScene()
-  dugRound(srv)
-  const blindSurvey = surveyOf(srv, {})                                   // what the survey sees without the record
-  const seeing = surveyOf(srv, { reserved: (x, z) => x >= 3 && x <= 6 && z >= 3 && z <= 6 })   // ...and with it
-  assert.strictEqual(blindSurvey.keepOff(4, 4), null); assert.ok(seeing.keepOff(4, 4))
-  const ok = { ok: true, head: { gen: 1 }, gens: [1], rejected: [] }
-  const unread = F.exclUnread(F.exclPlots(['wall']), p => (p === 'siteprep' ? { ok: false } : ok))
-  assert.deepStrictEqual(unread, ['siteprep'])
-  const closed = F.repairClosed({ keepOff: blindSurvey.keepOff, unread })
-  assert.strictEqual(closed, 'excl_unread:siteprep')
-  const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: blindSurvey.keepOff, closed })
-  assert.deepStrictEqual(fx.n, N({ left: 1, closed: 1 }), 'closed: no cell is added inside the plot nobody could read')
-  assert.strictEqual(F.repairNote(fx.n, closed), 'closed:excl_unread:siteprep')
-  // the controls: without the strict read the repair DOES add into the reserved plot (the blocker); with the record read the survey
-  // itself keeps off it
-  assert.strictEqual(F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: blindSurvey.keepOff, closed: null }).n.add, 2)
-  assert.strictEqual(F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: seeing.keepOff, closed: null }).n.add, 0)
-  assert.deepStrictEqual(F.exclUnread(F.exclPlots(['wall']), () => ok), [], 'everything read: open')
-  // the files beside the records: a check that is not exactly true, or throws, names its input unread
-  assert.deepStrictEqual(F.exclInputsUnread({ plan: () => true, zones: () => false, wells: () => { throw new Error('EIO') }, markers: () => 1, bridges: () => undefined, treefarm: () => true }), ['zones', 'wells', 'markers', 'bridges'])
-  assert.deepStrictEqual(F.exclInputsUnread({ plan: () => true, zones: () => true }), [])
-  assert.strictEqual(F.repairClosed({ keepOff: blindSurvey.keepOff, unread: [...unread, ...F.exclInputsUnread({ markers: () => false })] }), 'excl_unread:siteprep+markers')
-}
-await t('r3/1 an unreadable SITE-PREP record closes the repair, named on the row (controls: without the strict read 2 cells go into the reserved plot; with the record read the survey keeps off)', () => scenSiteprep())
 const scenLedgerCells = (F = FC) => {
   // r3 BLOCKER 2: a column the repair gave its 4 cells (two refreshes of dig and fill, as above) ...
   const { srv, r0 } = holeScene()
@@ -544,84 +514,6 @@ const scenLedgerCells = (F = FC) => {
   assert.strictEqual(F.columnRepair(w.rec, calm.read, { done: done(calm), now: NOW }).rec, null)
 }
 await t('r3/2 the ledger is reconciled with the cells: added cells and no ledger -> the budget is spent; a ledger that says less -> the cells win; the record\'s total too', () => scenLedgerCells())
-
-const scenFiles = (F = FC) => {
-  // r4: EVERY strict reader, both halves -- (i) ABSENT is empty and closes nothing; (ii) present and malformed, or holding ONE
-  // malformed line or entry, closes. A real directory each time
-  const HK = '0_70_0'
-  const town = (files = {}) => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'fc-excl-'))
-    for (const [n, v] of Object.entries(files)) writeFileSync(path.join(dir, n), typeof v === 'string' ? v : JSON.stringify(v))
-    return dir
-  }
-  const unread = (files, fsx = fsReal) => { const dir = town(files); return F.exclFilesUnread({ dir, hk: HK, markersFile: path.join(dir, 'expedition-0_70_0.markers.jsonl'), bridgesFile: path.join(dir, 'expedition-0_70_0.bridges.jsonl') }, fsx) }
-  const L = (...ls) => ls.map(l => (typeof l === 'string' ? l : JSON.stringify(l))).join('\n') + '\n'
-  // (i) a town with NONE of the files (the healthy case), a town with no directory at all: nothing is unread
-  assert.deepStrictEqual(unread({}), [])
-  assert.deepStrictEqual(F.exclFilesUnread({ dir: path.join(os.tmpdir(), `fc-none-${process.pid}-${Date.now()}`), hk: HK, markersFile: '/nonexistent/m.jsonl', bridgesFile: '/nonexistent/b.jsonl' }), [])
-  assert.deepStrictEqual(F.exclFilesUnread({ dir: town({}), hk: HK }), [], 'no markers or bridges file named at all')
-  // (i) ...and every file present and well formed (blank lines and a trailing newline are no line)
-  const plinth = { plan: { steps: [{ c: [5, 70, 5] }, { note: 'no cell' }], cap: { x: 5, y: 72, z: 5 }, stair: [[6, 70, 5]] }, prev: [{ x: 9, y: 70, z: 9, stair: [[9, 70, 10]] }] }
-  const sight = { op: 'sight', id: 'b1', span: { near: [20, 64, 0], far: [26, 64, 0], axis: [1, 0], rows: [] }, trip: 't1', t: 1 }
-  const good = {
-    'junkwell-plinth-0_70_0.json': plinth, 'junkwell-site-0_70_0.g1.json': 'torn{', 'junkwell-site-0_70_0.g2.json': { x: 5, y: 70, z: 5 },
-    'treefarm-0_70_0.g1.json': 'torn{', 'treefarm-0_70_0.g3.json': { record: { cells: [{ x: 1, z: 2 }, { x: 3, z: 4 }] } },
-    'composter-site-0_70_0.g1.json': { x: 1.5 }, 'composter-site-0_70_0.g4.json': { x: 1, y: 70, z: 2, world: 'w' },
-    'expedition-0_70_0.markers.jsonl': L({ at: [30, 64, 30], t: 1 }, '', '   ', { at: [30, 64, 30], gone: true }),
-    'expedition-0_70_0.bridges.jsonl': L(sight, { op: 'state', id: 'b1', state: 'built' }),
-  }
-  assert.deepStrictEqual(unread(good), [], 'every file present and sound (an OLDER generation that is torn does not matter: the newest is the record)')
-  assert.deepStrictEqual(unread({ 'junkwell-plinth-0_70_0.json': { plan: null } }), [], 'a plinth record with no plan (voided): sound')
-  assert.deepStrictEqual(unread({ 'treefarm-0_70_0.g1.json': { cells: [] } }), [], 'a tree farm with no cells yet: sound')
-  // (ii) each file, each way of being broken, closes -- and names only itself
-  const only = (name, patch) => assert.deepStrictEqual(unread({ ...good, ...patch }), [name], `${name}: ${JSON.stringify(patch).slice(0, 90)}`)
-  only('bridges', { 'expedition-0_70_0.bridges.jsonl': L(sight) + '{"op":"sight","span":{"near":[40,64,' + '\n' })                      // THE BLOCKER: one torn line
-  only('bridges', { 'expedition-0_70_0.bridges.jsonl': L('not json at all') })
-  only('bridges', { 'expedition-0_70_0.bridges.jsonl': L(sight, { op: 'sight', id: 'b2' }) })                                              // a sighting with no span
-  only('bridges', { 'expedition-0_70_0.bridges.jsonl': L(sight, [1, 2, 3]) })
-  only('markers', { 'expedition-0_70_0.markers.jsonl': L({ at: [30, 64, 30] }) + '{"at":[31,64' + '\n' })
-  only('markers', { 'expedition-0_70_0.markers.jsonl': L({ at: [30, 64, 30] }, { at: [31, 64] }) })                                         // a marker with no z
-  only('markers', { 'expedition-0_70_0.markers.jsonl': L({ at: [30, 64, 30] }, { gone: true }) })
-  only('wells', { 'junkwell-plinth-0_70_0.json': '{"plan":' })
-  only('wells', { 'junkwell-plinth-0_70_0.json': { plan: { cap: { x: 5, y: 72 } } } })                                                    // a cap with no z
-  only('wells', { 'junkwell-plinth-0_70_0.json': { plan: { steps: [{ c: [5, 70] }] } } })
-  only('wells', { 'junkwell-plinth-0_70_0.json': { ...plinth, prev: [{ x: 9, y: 70, z: 9 }, { x: 9 }] } })
-  only('wells', { 'junkwell-plinth-0_70_0.json': [] })
-  only('wells', { 'junkwell-site-0_70_0.g3.json': '{' })                                                                                 // the NEWEST generation torn
-  only('wells', { 'junkwell-site-0_70_0.g3.json': { x: 5, y: 70 } })
-  only('treefarm', { 'treefarm-0_70_0.g4.json': 'torn' })                                                                                // never the older generation instead
-  only('treefarm', { 'treefarm-0_70_0.g4.json': { record: { cells: [{ x: 1, z: 2 }, { x: 3 }] } } })
-  only('treefarm', { 'treefarm-0_70_0.g4.json': { record: {} } })
-  only('townsite', { 'composter-site-0_70_0.g5.json': '{"x":1,' })
-  only('townsite', { 'composter-site-0_70_0.g5.json': { x: 1, y: 70 } })
-  // (ii) a file that EXISTS and cannot be read (not ENOENT), a directory that cannot be listed
-  const eacces = n => Object.assign(new Error(`EACCES ${n}`), { code: 'EACCES' })
-  const noRead = name => ({ ...fsReal, readFileSync: (f, ...a) => { if (String(f).includes(name)) throw eacces(f); return fsReal.readFileSync(f, ...a) } })
-  assert.deepStrictEqual(unread(good, noRead('markers')), ['markers'])
-  assert.deepStrictEqual(unread(good, noRead('bridges')), ['bridges'])
-  assert.deepStrictEqual(unread(good, noRead('junkwell-plinth')), ['wells'])
-  assert.deepStrictEqual(unread(good, noRead('treefarm')), ['treefarm'])
-  assert.deepStrictEqual(unread(good, noRead('composter-site')), ['townsite'])
-  assert.deepStrictEqual(unread(good, { ...fsReal, readdirSync: d => { throw eacces(d) } }), ['wells', 'treefarm', 'townsite'], 'the directory cannot be listed')
-  // THE TOWN PLAN'S HEAD (planstore.mjs planHead's answer) and a project's record head: no plan / never sited is read, and empty
-  const head = (o = {}) => ({ ok: true, head: { gen: 2 }, gens: [1, 2], rejected: [], ...o })
-  assert.deepStrictEqual(F.exclUnread(['plan'], () => head({ head: null, gens: [] })), [], '(i) no plan at all')
-  assert.deepStrictEqual(F.exclUnread(['plan'], () => head({ rejected: [{ gen: 1, why: 'unparseable' }] })), [], '(i) an OLD generation rejected, the newest sound')
-  assert.deepStrictEqual(F.exclUnread(['plan'], () => head({ rejected: [{ gen: 2, why: 'schema: plots' }] })), ['plan'], '(ii) the newest generation malformed')
-  assert.deepStrictEqual(F.exclUnread(['plan'], () => ({ ok: false, head: null, gens: [], rejected: [], from: 'error' })), ['plan'], '(ii) unreadable')
-  // THE ZONES' VIEW: no zones file is known and empty; unreadable at the first read, or the last good list kept over a broken file, is not read
-  assert.strictEqual(F.zonesRead({ known: true, zones: [], why: 'absent' }), true, '(i)')
-  assert.strictEqual(F.zonesRead({ known: true, zones: [{ id: 'a', box: [0, 0, 0, 1, 1, 1] }], why: 'ok' }), true)
-  assert.strictEqual(F.zonesRead({ known: false, zones: [], why: 'unreadable' }), false, '(ii)')
-  assert.strictEqual(F.zonesRead({ known: true, zones: [{ id: 'a', box: [0, 0, 0, 1, 1, 1] }], why: 'stale:unreadable' }), false, '(ii) the last good list over a file now broken')
-  assert.strictEqual(F.zonesRead({ known: true, zones: [], why: 'stale:dropped 1 of 2' }), false, '(ii) a partly malformed edit')
-  assert.strictEqual(F.zonesRead(null), false)
-  // ...and the whole gate: the healthy, file-less town is OPEN; one torn bridge line closes it, named
-  const ks = (() => null)
-  assert.strictEqual(F.repairClosed({ keepOff: ks, unread: [...F.exclUnread(F.exclPlots(['wall']), () => head({ head: null, gens: [] })), ...F.exclUnread(['plan'], () => head()), ...unread({}), ...F.exclInputsUnread({ zones: () => F.zonesRead({ known: true, zones: [], why: 'absent' }) })] }), null)
-  assert.strictEqual(F.repairClosed({ keepOff: ks, unread: unread({ 'expedition-0_70_0.bridges.jsonl': L(sight) + '{"op":' + '\n' }) }), 'excl_unread:bridges')
-}
-await t('r4 every strict reader, both halves: an absent file (or a never-sited record, no plan, no zones file) closes nothing; a present one that is malformed or holds ONE malformed line or entry closes, named', () => scenFiles())
 
 say('r2 BLOCKER 2: THE LEDGER -- a column dug, filled and dug again stops at its budget; a record at its lifetime cap')
 const scenBudget = (F = FC) => {
@@ -929,7 +821,7 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
   const s = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const LINES = [
     'res = refreshMerge(cur, fresh, { busy, guard, now })',
-    "try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], c?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }",
+    "try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }",
     'return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)',
     '...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {})',
     "|| farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))",
@@ -939,17 +831,16 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
     'if (due.length) due.push(...waiveRests(rw, due, read2, { done: q => buildCellDone(read2(...q.at), palette, q.role), guard }))',
     'fcheck = planSelfCheck(body, rdc, { done: q => buildCellDone(rdc(...q.at), TIDY_PALETTE, q.role) })',
     "...(fcheck ? { result: `float${fcheck.left}/${fcheck.open}${fcheck.err ? '/err' : ''}` } : {})",
-    // r2: the exclusions are THIS refresh's survey's own, the records behind them read strictly, the repair closed when one is unread
-    'fcUnread = fillExclUnread(fillExclPlots(projectsGuarded().map(p => p.plot)), pl => recordHead(dir, projKeyOf(pl)))',
-    // r3: every other input of the exclusions read strictly too
-    "fcUnread.push(...fillExclUnread(['plan'], () => h))",
-    // r4: the files by the one strict reader that drops nothing (never exBridgeSitesStrict, which drops a line it cannot parse)
-    'fcUnread.push(...fillExclFilesUnread({ dir, hk: exHk(), markersFile: exMarkersFile(), bridgesFile: exBridgesFile() }))',
-    'fcUnread.push(...fillExclInputsUnread({',
-    'zones: () => c?.zonesKnown === true && fillZonesRead(townPlanZones(bot)),',
-    'hallpad: () => !projectsOn().some(p => p.plot === HALL_PLOT) || !!blueprintOf(HALL_BLUEPRINT),',
+    // r5: ONE path -- the refresh's inputs come with the report their own readers wrote; siteStage gets it and hands the keep-out back
+    'const K = fillColumnOn() ? fcKeepInputs(bot, h, dir) : null',
+    'if (K) { cR = K.c; fcReport = K.report }',
+    'const I = K ? K.I : tidyInputs(bot, c, h, dir)',
+    'terrace: si.terrace, reserved: I.reserved, report: fcReport, forest: forestRecNow(), planned: busy })',
     "fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null",
-    'const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fcUnread })',
+    'const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fillReportNames(fcReport) })',
+    'const c = shopCtx(bot, report)',
+    'const I = tidyInputs(bot, c, h, dir, { report })',
+    'export const _fillcol = Object.freeze({ keepInputs: fcKeepInputs, headReport,',
   ]
   const wired = src => LINES.every(l => src.split(l).length === 2) &&
     // the repair runs on the merge's result and before the stamp; the hold is filled before the visit's first done test
@@ -960,9 +851,13 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
   assert.ok(!wired(s.replace(LINES[1], '')), 'MUTANT: the repair cut out of the publish still reads wired')
   assert.ok(!wired(s.replace(LINES[1], '').replace(LINES[2], `${LINES[2]}\n${LINES[1]}`)), 'MUTANT: the repair after the stamp still reads wired')
   assert.ok(!wired(s.replace("fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null", 'fcKeepOff = I.avoid')), 'MUTANT: an exclusion rebuilt beside the survey\'s still reads wired')
-  assert.ok(!wired(s.replace('fillExclPlots(projectsGuarded().map(p => p.plot))', '[...projectsGuarded().map(p => p.plot), LAND_PLOT]')), 'MUTANT (r3): the strict read without the site-prep record still reads wired')
-  assert.ok(!wired(s.replace('bridgesFile: exBridgesFile() }))', 'bridgesFile: null }))')), 'MUTANT (r4): the bridge sites left out of the strict read still reads wired')
-  assert.ok(!/exBridgeSitesStrict\(\) !== null/.test(s.slice(s.indexOf(LINES[0]) - 6000, s.indexOf(LINES[0]))), 'the lenient-on-lines bridge reader is not what the repair trusts')
+  assert.ok(!wired(s.replace('reserved: I.reserved, report: fcReport, forest:', 'reserved: I.reserved, forest:')), 'MUTANT (r5): the survey not handed the report still reads wired')
+  assert.ok(!wired(s.replace('unread: fillReportNames(fcReport) })', 'unread: [] })')), 'MUTANT (r5): the report not read by the gate still reads wired')
+  // no second parser: the refresh calls none of the strict readers of r2-r4, and fillcolumn.mjs reads no file
+  const tr = s.slice(s.indexOf('async function tidyRefresh'), s.indexOf(LINES[0]))
+  for (const gone of ['reservationFilesStrict', 'exBridgeSitesStrict', 'fillExclUnread', 'fillExclFilesUnread', 'recordHead(dir, projKeyOf(pl))']) assert.ok(!tr.includes(gone), `the refresh still asks ${gone}`)
+  const fcSrc = strip(readFileSync(FC_URL, 'utf8'))
+  assert.ok(!/readFileSync|readdirSync|from 'node:fs'/.test(fcSrc), 'fillcolumn.mjs reads no file')
   // the four counters of the waiver's room read the stuck waivers only (waiveroom.mjs): nowhere the map's bare size
   for (const [f, n] of [['wall.mjs', 1], ['gkwork.mjs', 2], ['planahead.mjs', 1]]) {
     const src = strip(readFileSync(URL_OF(f), 'utf8'))
@@ -1095,9 +990,8 @@ await kills('the property: the repair leaves the cell above a left-out cell in m
 
 for (const n of NOTES) console.log(`  NOTE  ${n}`)
 await kills('r2/1 the repair runs although the exclusions could not be read', '  if (closed) return { rec: out(rec), n, added, dropped }\n', '', scenClosed)
-await kills('r2/1 an unreadable record read as read', "if (!h?.ok || (h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))", "if ((h?.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))", scenClosed)
-await kills('r2/1 a rejected newest generation read as read', "if (!h?.ok || (h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))", 'if (!h?.ok) out.push(String(p))', scenClosed)
-await kills('r2/1 unread records do not close the repair', "  if ((unread ?? []).length) return `excl_unread:${unread.join('+')}`.slice(0, 40)\n", '', scenClosed)
+await kills('r5 a report with entries does not close the repair', "  if ((unread ?? []).length) return `excl_unread:${unread.join('+')}`.slice(0, 40)\n", '', scenClosed)
+await kills('r5 the report\'s names not taken (an entry closes nothing)', "export const reportNames = report => [...new Set((report ?? []).map(r => String(r?.input ?? '?')))]", 'export const reportNames = () => []', scenClosed)
 await kills('r2/1 no exclusions at all does not close the repair', "return typeof keepOff === 'function' ? null : 'no_exclusions'", 'return null', scenClosed)
 await kills('(a) a repair that throws leaves the hold up (a cell hidden behind a repair that cannot run)', 'fillcol: { add: led.add, left: Math.max(1, led.left), cols: led.cols } } : null, added: [], dropped: [],', 'fillcol: { add: led.add, left: led.left, cols: led.cols } } : null, added: [], dropped: [],', scenClosed)
 await kills('r2/1 the exclusions not asked (a well is filled)', "let why = keepOff(x, z) ? 'excluded' : null", 'let why = null', scenVolumes)
@@ -1120,32 +1014,10 @@ await kills('r2/3 the repair\'s cap counted with the stuck waivers', 'let room =
 await kills('r2/3 the omissions\' cap removed (the repair leaves out without bound)', '        if (outRoom > 0) { outRoom--; continue }\n', '        if (outRoom > -Infinity) { outRoom--; continue }\n', scenOutCap)
 await kills('r2/3 at the cap the column still gets its cells (a bare top is then laid)', "        plan.delete(k); waits(k, 'out_cap'); over = true\n", "        waits(k, 'out_cap')\n", scenOutCap)
 
-await kills('r3/1 the strict read without the site-prep record', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT, SITEPREP_PLOT])]', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT])]', scenSiteprep)
-await kills('r3/1 the strict read without the land plan', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), LAND_PLOT, SITEPREP_PLOT])]', 'export const exclPlots = (guarded = []) => [...new Set([...(guarded ?? []).map(String), SITEPREP_PLOT])]', scenSiteprep)
-await kills('r3/1 an input whose check throws read as read', 'let v = false; try { v = ok() === true } catch { v = false } if (!v) out.push(name)', 'let v = false; try { v = ok() === true } catch { v = true } if (!v) out.push(name)', scenSiteprep)
-await kills('r3/1 an input whose check is merely truthy read as read', 'let v = false; try { v = ok() === true } catch { v = false } if (!v) out.push(name)', 'let v = false; try { v = !!ok() } catch { v = false } if (!v) out.push(name)', scenSiteprep)
 await kills('r3/2 the column\'s count is the ledger\'s alone (the max() gone)', 'cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), Math.min(cols[k]?.[1] ?? Infinity, low)]', 'cols[k] = [cols[k]?.[0] ?? cnt, Math.min(cols[k]?.[1] ?? Infinity, low)]', scenLedgerCells)
 await kills('r3/2 the column\'s lowest y is the ledger\'s alone', 'cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), Math.min(cols[k]?.[1] ?? Infinity, low)]', 'cols[k] = [Math.max(cols[k]?.[0] ?? 0, cnt), cols[k]?.[1] ?? low]', scenLedgerCells)
 await kills('r3/2 the cells are not read at all (the ledger trusted alone)', '    if (!c?.ext || !Array.isArray(c.at)) continue\n    ext++\n', '    if (c) continue\n    ext++\n', scenLedgerCells)
 await kills('r3/2 the record\'s total is the ledger\'s alone', 'return { add: Math.max(Math.max(0, Number(f?.add) || 0), ext), left:', 'return { add: Math.max(0, Number(f?.add) || 0), left:', scenLedgerCells)
-await kills('r4 a bridge line that does not parse is dropped (the blocker)', "    for (const l of txt.split('\\n').filter(q => q.trim()).slice(-max)) { let v; try { v = JSON.parse(l) } catch { return false } if (!obj(v) || !lineOk(v)) return false }", "    for (const l of txt.split('\\n').filter(q => q.trim()).slice(-max)) { let v; try { v = JSON.parse(l) } catch { continue } if (!obj(v) || !lineOk(v)) return false }", scenFiles)
-await kills('r4 a line that parses to no entry is dropped', "catch { return false } if (!obj(v) || !lineOk(v)) return false }", "catch { return false } if (!obj(v) || !lineOk(v)) continue }", scenFiles)
-await kills('r4 an ABSENT jsonl file closes the repair', "    try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return e?.code === 'ENOENT' }\n    for (const l of", "    try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return false }\n    for (const l of", scenFiles)
-await kills('r4 a jsonl file that cannot be read passes as none', "    try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return e?.code === 'ENOENT' }\n    for (const l of", "    try { txt = fsx.readFileSync(f, 'utf8') } catch (e) { return true }\n    for (const l of", scenFiles)
-await kills('r4 an ABSENT json file closes the repair', "return e?.code === 'ENOENT' ? { absent: true } : { bad: true } }", 'return { bad: true } }', scenFiles)
-await kills('r4 a json file that cannot be read passes as none', "return e?.code === 'ENOENT' ? { absent: true } : { bad: true } }", 'return { absent: true } }', scenFiles)
-await kills('r4 a sighting with no span passes', "v => v.op !== 'sight' || (obj(v.span) && Array.isArray(v.span.near) && Array.isArray(v.span.axis))", 'v => true', scenFiles)
-await kills('r4 a marker with no place passes', 'markers: () => jsonl(markersFile, 2000, v => fin3(v.at)),', 'markers: () => jsonl(markersFile, 2000, v => true),', scenFiles)
-await kills('r4 a malformed plinth passes', '    if (pj.bad || (!pj.absent && !plinthOk(pj.v))) return false\n', '    if (pj.bad) return false\n', scenFiles)
-await kills('r4 a malformed prev column of the plinth passes', "    if (r.prev != null && !(Array.isArray(r.prev) && r.prev.every(c => obj(c) && [c.x, c.y, c.z].every(Number.isFinite) && (c.stair == null || (Array.isArray(c.stair) && c.stair.every(fin3)))))) return false\n", '', scenFiles)
-await kills('r4 a well site with no place passes', "return gen(`junkwell-site-${hk}`, v => obj(v) && [v.x, v.y, v.z].every(Number.isFinite))", "return gen(`junkwell-site-${hk}`, v => obj(v))", scenFiles)
-await kills('r4 a torn newest generation passes (or an older one stands in)', 'return !j.bad && !j.absent && ok(j.v) }', 'return j.bad || j.absent || ok(j.v) }', scenFiles)
-await kills('r4 a tree-farm cell with no place passes', 'return Array.isArray(cs) && cs.every(c => obj(c) && Number.isFinite(c.x) && Number.isFinite(c.z)) })', 'return Array.isArray(cs) })', scenFiles)
-await kills('r4 a malformed town site passes', "const site = () => gen(`composter-site-${hk}`, v => obj(v) && [v.x, v.y, v.z].every(Number.isInteger))", "const site = () => gen(`composter-site-${hk}`, v => obj(v))", scenFiles)
-await kills('r4 a directory that cannot be listed reads as empty', "  try { names = fsx.readdirSync(dir) } catch (e) { if (e?.code !== 'ENOENT') listed = false }\n", '  try { names = fsx.readdirSync(dir) } catch (e) { /* none */ }\n', scenFiles)
-await kills('r4 a town with no directory closes the repair', "  try { names = fsx.readdirSync(dir) } catch (e) { if (e?.code !== 'ENOENT') listed = false }\n", '  try { names = fsx.readdirSync(dir) } catch (e) { listed = false }\n', scenFiles)
-await kills('r4 the last good zones kept over a broken file read as read', "export const zonesRead = view => view?.known === true && Array.isArray(view.zones) && !/^stale/.test(String(view.why ?? ''))", 'export const zonesRead = view => view?.known === true && Array.isArray(view.zones)', scenFiles)
-await kills('r4 unknown zones read as read', "export const zonesRead = view => view?.known === true && Array.isArray(view.zones) && !/^stale/.test(String(view.why ?? ''))", "export const zonesRead = view => Array.isArray(view?.zones) && !/^stale/.test(String(view.why ?? ''))", scenFiles)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

@@ -300,6 +300,7 @@ const REQUIRED = [
   // fillcolumn-01 (11-15): no tidy fill planned in mid-air -- the refresh extends a dug-out column or leaves it out (FILLCOLUMN=off|on)
   'bots/src/fillcolumn.mjs', 'bots/test/fillcolumn.test.mjs',
   'bots/src/waiveroom.mjs',   // fillcolumn-01 r2: the stuck waiver's room, counted apart from the column repair's omissions
+  'bots/test/fillcolumn-inputs.test.mjs',   // fillcolumn-01 r5: the keep-out's readers and zone builders name what they leave out (one path, one report)
   // cwstall-01show (11-10): the citywall design visit breathes; the escape proof's walks are sliced
   'bots/test/cwstall.test.mjs',
   'bots/scripts/citywall-stall-offline.mjs',

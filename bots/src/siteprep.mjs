@@ -171,9 +171,20 @@ export function prepZoneOf (plotBox, { id, kind, P = PREP } = {}) {
  * pinned claim of that prepared request, and the keeper's own grading and verifying of it -- never an ordinary search of the kind:
  * Claude review r1 BLOCKER 1). Pure.
  */
-export const prepZones = (rec, except = null) => requestsOf(rec).filter(r => (r.state === 'prepping' || r.state === 'prepared') && r.zone?.box && r.id !== except).map(r => r.zone)
+// fillcolumn-01 r5 (`report`, optional: an array): a prepping or prepared request dropped here for want of its zone, an entry that is
+// no request and a `requests` that is no list (read as none) are named there. The zones are unchanged.
+export const prepZones = (rec, except = null, report = null) => {
+  if (report) {
+    if (rec?.requests != null && !Array.isArray(rec.requests)) report.push({ input: 'siteprep', why: 'its requests are no list' })
+    for (const r of requestsOf(rec)) {
+      if (!r || typeof r !== 'object') report.push({ input: 'siteprep', why: 'a request that is no entry' })
+      else if ((r.state === 'prepping' || r.state === 'prepared') && !r.zone?.box) report.push({ input: 'siteprep', why: 'a reserved plot without its zone' })
+    }
+  }
+  return requestsOf(rec).filter(r => (r.state === 'prepping' || r.state === 'prepared') && r.zone?.box && r.id !== except).map(r => r.zone)
+}
 /** The record as a RESERVATION (projectHeads: the land plan's pattern -- zones, no cells) -> a record. Pure. */
-export const prepReservation = (rec, except = null) => ({ plot: SITEPREP_PLOT, blueprint: SITEPREP_BLUEPRINT, zones: prepZones(rec, except), cells: [], structure_complete: true })
+export const prepReservation = (rec, except = null, report = null) => ({ plot: SITEPREP_PLOT, blueprint: SITEPREP_BLUEPRINT, zones: prepZones(rec, except, report), cells: [], structure_complete: true })
 /**
  * THE PLOT'S FOOTPRINT -> { pin: [x0, z0, x1, z1], cols: ["x,z"] }: the pinned square and every column the grading works (its cuts,
  * fills, seals, dams and leaves). Pure. The grading's `avoid` already keeps every worked column off every record's zone, so this is

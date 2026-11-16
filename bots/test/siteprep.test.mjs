@@ -358,7 +358,7 @@ await t('the hand-over helpers: the claim of a kind, its pin (the plot\'s seed),
 console.log('THE WIRING (skills.mjs, structural)')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const W = [
-  /if \(sp\) out\.push\(\{ plot: SITEPREP_PLOT, key: projKeyOf\(SITEPREP_PLOT\), head: \{ rec: prepReservation\(sp\) \} \}\)/,
+  /if \(sp\) out\.push\(\{ plot: SITEPREP_PLOT, key: projKeyOf\(SITEPREP_PLOT\), head: \{ rec: prepReservation\(sp, null, report\) \} \}\)/,   // (fillcolumn-01 r5: the report handed down)
   /const land = projectHeads\(\)\.filter\(x => x\.plot === LAND_PLOT \|\| x\.plot === SITEPREP_PLOT\)/,
   /\.\.\.recordZones\(others\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\)/,
   /const claim = sp \? prepClaimFor\(sp, kind\) : null/,

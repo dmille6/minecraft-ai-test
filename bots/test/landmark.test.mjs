@@ -126,7 +126,7 @@ await t('the wiring: the keeper plans it once (land.landmark), every tidy rule a
   assert.ok(/if \(landmarkOn\(\) && land && !rec\.structure_complete && !\(rec\.segments \?\? \[\]\)\.some\(q => \/\^T-LM\/\.test\(q\.seg\)\)\) \{/.test(sk), 'on the open record without the mound\'s work')
   assert.ok(/if \(land\.landmark\?\.centre\) t = landmarkRepair\(read, land\.landmark, \{ col \}\)/.test(sk), 'sited: its missing cells again (repair)')
   assert.ok(/cur && !cur\.landmark \? \{ \.\.\.cur, landmark: \{ \.\.\.t\.landmark, at: Date\.now\(\) \} \} : null/.test(sk) && /if \(lp\.result !== 'accepted'\) t = null/.test(sk), 'the land record FIRST, or nothing (Codex r1)')
-  assert.ok(/try \{ lmz = landmarkZones\(landHead\(dir\)\) \} catch \{ lmz = \[\] \}/.test(sk) && /\.\.\.townMarkerZones\(\), \.\.\.lmz\]/.test(sk), 'every tidy rule: reserved')
+  assert.ok(/try \{ lmz = landmarkZones\(landHead\(dir, report\), report\) \} catch \{ report\?\.push\(\{[^}]*\}\); lmz = \[\] \}/.test(sk) && /\.\.\.townMarkerZones\(report\), \.\.\.lmz\]/.test(sk), 'every tidy rule: reserved')   // (fillcolumn-01 r5: the report handed down)
   const tr = strip(readFileSync(new URL('../src/terrace.mjs', import.meta.url), 'utf8'))
   assert.ok(/const guard = \(x, z\) => avoid\(x, z\) \?\? road\(x, z\) \?\? \(lmB && x >= lmB\[0\]/.test(tr), 'the terrace never grades it')
   const LP = await import('../src/landplan.mjs')

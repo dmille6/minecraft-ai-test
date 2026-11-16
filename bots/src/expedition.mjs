@@ -772,8 +772,9 @@ export function torchSafe (read, at, r = ICE_TORCH_R) {
  * and a torch, 48+ out -- exactly a bot pillar to the tidy's band survey (tidy.mjs surveyTidy), which would cut it. -> shop.mjs
  * recordZones-shaped zones, one a marker, its column + `m` (the tidy and the land plan's road work keep off them). Pure.
  */
-export function markerZones (markers = [], m = 1) {
-  return (markers ?? []).filter(q => Array.isArray(q?.at) && q.at.length === 3 && q.at.every(Number.isFinite))
+// fillcolumn-01 r5 (`report`, optional: an array): a marker dropped here for want of a place is named there. The zones are unchanged.
+export function markerZones (markers = [], m = 1, report = null) {
+  return (markers ?? []).filter(q => { const ok = Array.isArray(q?.at) && q.at.length === 3 && q.at.every(Number.isFinite); if (!ok) report?.push({ input: 'markers', why: 'a marker without a full place' }); return ok })
     .map(q => ({ box: [q.at[0] - m, -64, q.at[2] - m, q.at[0] + m, 320, q.at[2] + m], why: 'expedition:marker' }))
 }
 /** The markers' own blocks ("x,y,z": the two cobblestone and the torch) -- the tidy visit's dig-time guard. Pure. */

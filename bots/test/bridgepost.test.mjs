@@ -243,7 +243,7 @@ await t('wiring (structural): the switch, the siting at a dry water turn, the br
   one(/const swim = lt\.via === 'swim' \|\| lt\.via === 'bridge'/g, 'a bridge crossing keeps both ends and its gate')
   one(/exPlaceMarker\(ctx, signal, cell, dirV, \{ zones: markerOff, trip, me \}\)/g, 'no marker on a bridge footprint')
   one(/const markerOff = bSites\.length \? \[\.\.\.keepOff, \.\.\.bridgeZones\(bSites\)\] : keepOff/g, 'the bridge footprints join the marker keep-off')
-  one(/z = \[\.\.\.z, \.\.\.bridgeZones\(exBridgeSites\(\)\)\]/g, 'the tidy reservation')
+  one(/z = \[\.\.\.z, \.\.\.bridgeZones\(exBridgeSites\(report\), 1, report\)\]/g, 'the tidy reservation')   // (fillcolumn-01 r5: the report handed down)
   one(/for \(const k of bridgeCellKeys\(exBridgeSites\(\)\)\) guard\.add\(k\)/g, 'the tidy dig guard')
   const v = src.indexOf('async function expeditionVisit'), f = src.indexOf('} finally {', src.indexOf('const bw = await exBridgeWork'))
   assert.ok(v > 0 && f > v && src.indexOf('releaseLease(dir, exBridgeKey()', f) > f, 'the lease is released in the visit\'s finally')

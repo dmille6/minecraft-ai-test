@@ -532,12 +532,17 @@ export function stuckBackoff (states = [], stuckOf = null, now = Date.now()) {
 /** THE OTHER PROJECTS' RECORDS AS SITING ZONES -> [{ box: [x0,y0,z0,x1,y1,z1] }]: each record's x/z box widened by `margin`
  *  (a walk lane between buildings and the stand ring), every height. Pure. */
 export const PROJECT_GAP = 3
-export function recordZones (records = [], margin = PROJECT_GAP) {
+// fillcolumn-01 r5 (`report`, optional: an array): a zone, a box that is THERE and is no box, or `zones` that are no list (the record
+// is then read by its box) is dropped here -- and named there
+// ({ input: 'record:<plot>', why }); a record with no box at all has none and says nothing. The zones are unchanged.
+export function recordZones (records = [], margin = PROJECT_GAP, report = null) {
   const out = []
   for (const r of records) {
     // paths-01: a record that names its own zones (the paths: their columns + 1; a box would be the whole town)
-    if (Array.isArray(r?.zones)) { for (const z of r.zones) if (Array.isArray(z?.box) && z.box.length === 6 && z.box.every(Number.isFinite)) out.push(z); continue }
+    if (report && r?.zones != null && !Array.isArray(r.zones)) report.push({ input: `record:${r.plot ?? '?'}`, why: 'its zones are no list' })
+    if (Array.isArray(r?.zones)) { for (const z of r.zones) { if (Array.isArray(z?.box) && z.box.length === 6 && z.box.every(Number.isFinite)) out.push(z); else report?.push({ input: `record:${r.plot ?? '?'}`, why: 'a zone without a box' }) } continue }
     const b = r?.box
+    if (report && b != null && (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite))) report.push({ input: `record:${r?.plot ?? '?'}`, why: 'its box is no box' })
     if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) continue
     out.push({ box: [b[0] - margin, -64, b[1] - margin, b[2] + margin, 320, b[3] + margin], why: `project:${r.plot ?? '?'}` })
   }

@@ -198,7 +198,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
-import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, exclUnread as fillExclUnread, exclPlots as fillExclPlots, exclInputsUnread as fillExclInputsUnread, exclFilesUnread as fillExclFilesUnread, zonesRead as fillZonesRead, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
+import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, reportNames as fillReportNames, fillColumnOn, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { litterOn, litterTally, litterIntake, handedBare, builtOnHeld, unreadDetail as litterUnreadDetail, builtOnDetail as litterBuiltOnDetail, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
 import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life
@@ -17740,7 +17740,9 @@ export function reservationFilesStrict (dir, home, fsx = fs) {
   return { farm, wells }
 }
 /** The tree farm's record cells (`treefarm-<home>.g<N>.json`, the highest that parses) -> Set "x,z". Never throws. */
-function treeFarmCells () {
+// fillcolumn-01 r5 (`report`, optional: an array): a generation this reader passes over for an OLDER one, a record with no cell list,
+// a cell skipped for want of a place, a directory that is there and cannot be listed -- each named there. The cells are unchanged.
+function treeFarmCells (report = null) {
   const out = new Set()
   try {
     const hk = `treefarm-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
@@ -17749,11 +17751,12 @@ function treeFarmCells () {
     for (const g of gens) {
       try {
         const r = JSON.parse(fs.readFileSync(path.join(townDir(), `${hk}.g${g}.json`), 'utf8'))
-        for (const c of r?.record?.cells ?? r?.cells ?? []) if (Number.isFinite(c?.x) && Number.isFinite(c?.z)) out.add(`${c.x},${c.z}`)
+        if (report && !Array.isArray(r?.record?.cells ?? r?.cells)) report.push({ input: 'treefarm', why: `generation ${g} lists no cells` })
+        for (const c of r?.record?.cells ?? r?.cells ?? []) { if (Number.isFinite(c?.x) && Number.isFinite(c?.z)) out.add(`${c.x},${c.z}`); else report?.push({ input: 'treefarm', why: 'a cell without a place' }) }
         break
-      } catch { /* the next lower */ }
+      } catch { report?.push({ input: 'treefarm', why: `generation ${g} cannot be read: an older one is tried` }) /* the next lower */ }
     }
-  } catch { /* no directory */ }
+  } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input: 'treefarm', why: 'the directory cannot be listed' }) /* no directory */ }
   return out
 }
 let sectorData = null
@@ -18437,29 +18440,39 @@ function plotRecordsNow () {
 export function scafTownRecords () {
   try { return projectHeads().map(x => x?.head?.rec).filter(Boolean) } catch { return [] }
 }
-function projectHeads () {
+/** fillcolumn-01 r5: WHAT A RECORD'S (OR THE PLAN'S) HEAD LEFT OUT, said into `report` (optional: an array) where the head is taken:
+ *  a head that could not be read, a newest generation the walk rejected (the head is then an OLDER one: what the newest added is
+ *  missing), a head of another blueprint read as none (`blueprint` given). A record never sited (ok, no head) says nothing. */
+function headReport (report, input, h, blueprint = null) {
+  if (!report) return
+  if (!h?.ok) { report.push({ input, why: 'the record cannot be read' }); return }
+  if ((h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) report.push({ input, why: 'its newest generation is rejected: an older one is the head' })
+  if (blueprint && h.head && h.head.rec?.blueprint !== blueprint) report.push({ input, why: 'a record of another blueprint: read as none' })
+}
+// fillcolumn-01 r5 (`report`, optional): every head this reader skips, and its own catch, are named there (headReport)
+function projectHeads (report = null) {
   const out = []
   try {
     const dir = townDir()
-    for (const p of projectsGuarded()) { const key = projKeyOf(p.plot); const h = recordHead(dir, key); if (h.ok && h.head) out.push({ plot: p.plot, key, head: h.head }) }
+    for (const p of projectsGuarded()) { const key = projKeyOf(p.plot); const h = recordHead(dir, key); headReport(report, `record:${p.plot}`, h); if (h.ok && h.head) out.push({ plot: p.plot, key, head: h.head }) }
     // wallext-02: the demolition's hold on the old line is live only while the demolition is open (wall.mjs wallAsHeld): every
     // reader of the heads sees the wall without it once the demolition is complete, released or not
     { const w = out.find(x => x.plot === WALL_PLOT), dm = out.find(x => x.plot === WALLDEMO_PLOT); if (w && dm?.head?.rec?.structure_complete) w.head = { ...w.head, rec: wallAsHeld(w.head.rec, dm.head.rec) } }
     // groundskeeper-01: the town's land plan (landplan.mjs) as a RESERVATION -- its road corridors are every later siting's zones
     // (recordZones: houses, the stair, the wall's gateways, the tree farm), no cells
-    const land = landHead(dir)
+    const land = landHead(dir, report)
     // wallext-01: the wall extension's reserved plots are the land plan's too (landplan.mjs landPlotZones)
     let ext = null
     if (land) { try { ext = out.find(x => x.plot === WALLEXT_PLOT)?.head?.rec ?? null } catch { ext = null } }
     if (land) out.push({ plot: LAND_PLOT, key: projKeyOf(LAND_PLOT), head: { rec: landReservation(land, ext) } })
     // siteprep-01: every prepping or prepared plot as a RESERVATION (zones, no cells): every siting, the dress, the terrace and the
     // rims keep off it; only the one claim of that request, and the keeper's own work on it, ignore its zone (prepZones `except`)
-    const sp = siteprepHead(dir)
-    if (sp) out.push({ plot: SITEPREP_PLOT, key: projKeyOf(SITEPREP_PLOT), head: { rec: prepReservation(sp) } })
+    const sp = siteprepHead(dir, report)
+    if (sp) out.push({ plot: SITEPREP_PLOT, key: projKeyOf(SITEPREP_PLOT), head: { rec: prepReservation(sp, null, report) } })
     // homes-01show: the layout's home plots, each where it clears every reservation above, are the land plan's too (`land:plot`):
     // every OTHER siting keeps off them; the cottage that takes one drops its own (cottage.mjs cottageSitingPlan)
     if (HOMEPLOTS.on) out.homePlots = homePlotsReserve(out, `${land?.gen ?? '-'}|${sp?.gen ?? '-'}`, land)
-  } catch { /* none */ }
+  } catch { report?.push({ input: 'records', why: 'the heads\' reader threw: the heads read so far stand alone' }) }
   return out
 }
 /** homes-01show: THE LAYOUT'S PLOTS AS THEY LIE NOW among the town's reservations (homeplots.mjs resolveHomePlots over every head's
@@ -18486,9 +18499,9 @@ function homePlotsReserve (heads, extra = '', land = null) {
 /** SITEPREP-01: the switch (the showcase's: the keeper's grounds and the sinks on, SITEPREP / SITEPREP_POOLS). */
 const SITEPREP = Object.freeze({ on: GROUNDS.on && SINKS.on && siteprepOn(process.env, process.env.MEMORY_POOL ?? '') })
 /** The town's site-request record (`project-<home>.siteprep`) -> its body | null (none, off, unreadable). Never throws. */
-function siteprepHead (dir = townDir()) {
+function siteprepHead (dir = townDir(), report = null) {
   if (!SITEPREP.on) return null
-  try { const h = recordHead(dir, projKeyOf(SITEPREP_PLOT)); return h.ok && h.head?.rec?.blueprint === SITEPREP_BLUEPRINT ? h.head.rec : null } catch { return null }
+  try { const h = recordHead(dir, projKeyOf(SITEPREP_PLOT)); headReport(report, 'siteprep', h, SITEPREP_BLUEPRINT); return h.ok && h.head?.rec?.blueprint === SITEPREP_BLUEPRINT ? h.head.rec : null } catch { report?.push({ input: 'siteprep', why: 'the record\'s reader threw' }); return null }
 }
 /** One `_siteprep` row. Never throws. */
 function prepRow (bot, status, f) { try { logEvent({ kind: 'siteprep', status, snapshot: snapshot(bot), detail: prepRowDetail(f) }) } catch { /* telemetry */ } }
@@ -18513,9 +18526,9 @@ setLandInner(COUNTRY_ON && LANDP.on)   // country-01: the inside chain's ring or
 /** country-01: the inside chain's next stage number past `k`, or null at its end (with COUNTRY on the bands are the country chain's). */
 const gkNextInner = k => { const n = nextStage(k); return n && !(COUNTRY_ON && n.k > lastInnerK()) ? n : null }
 /** The town's land plan record (`project-<home>.land`) -> its body | null (none, off, or unreadable). Never throws. */
-function landHead (dir = townDir()) {
+function landHead (dir = townDir(), report = null) {
   if (!LANDP.on) return null
-  try { const h = recordHead(dir, projKeyOf(LAND_PLOT)); return h.ok && h.head?.rec?.blueprint === LAND_BLUEPRINT ? h.head.rec : null } catch { return null }
+  try { const h = recordHead(dir, projKeyOf(LAND_PLOT)); headReport(report, 'land', h, LAND_BLUEPRINT); return h.ok && h.head?.rec?.blueprint === LAND_BLUEPRINT ? h.head.rec : null } catch { report?.push({ input: 'land', why: 'the record\'s reader threw' }); return null }
 }
 /** The project's record head in this town -> recordHead's answer. Never throws. */
 /** When any builder's visit last reported stuck_on_cell (the order's project-wide back-off) -> ms | null. Never throws. */
@@ -18712,17 +18725,21 @@ export function shopSlotsFree (bot) {
   } catch { return false }
 }
 /** The reservations' inputs at runtime: zones, the plinth record's cells (plan and prev[]), the newest junk-well site, the farm. */
-function shopCtx (bot) {
+// fillcolumn-01 r5 (`report`, optional: an array): what each lenient read below answers "none" or "the last good" for is named there
+// as it does so -- the zones unknown or stale, a well file that is there and cannot be read or names no place, the tree farm's
+// reader (treeFarmCells). A file that is simply absent is none, and says nothing. The context is unchanged.
+function shopCtx (bot, report = null) {
   const zones = townPlanZones(bot)
+  if (report && (zones.known !== true || /^stale/.test(String(zones.why ?? '')))) report.push({ input: 'zones', why: `the protected zones are ${zones.known === true ? 'the last good list' : 'unknown'} (${String(zones.why ?? '-').slice(0, 40)})` })
   const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
   const wells = []
-  try { wells.push(...plinthCells(JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-plinth-${hk}.json`), 'utf8')))) } catch { /* none */ }
+  try { wells.push(...plinthCells(JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-plinth-${hk}.json`), 'utf8')), report)) } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input: 'wells', why: 'the plinth file cannot be read' }) /* none */ }
   try {
     const re = new RegExp(`^junkwell-site-${hk.replace(/[-]/g, '\\-')}\\.g(\\d+)\\.json$`)
     const g = fs.readdirSync(townDir()).map(f => re.exec(f)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => b - a)[0]
-    if (g != null) { const s = JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-site-${hk}.g${g}.json`), 'utf8')); if ([s?.x, s?.y, s?.z].every(Number.isFinite)) wells.push([s.x, s.y, s.z]) }
-  } catch { /* none */ }
-  const farm = [...treeFarmCells()].map(k => k.split(',').map(Number))
+    if (g != null) { const s = JSON.parse(fs.readFileSync(path.join(townDir(), `junkwell-site-${hk}.g${g}.json`), 'utf8')); if ([s?.x, s?.y, s?.z].every(Number.isFinite)) wells.push([s.x, s.y, s.z]); else report?.push({ input: 'wells', why: 'the well\'s site names no place' }) }
+  } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input: 'wells', why: 'the well\'s site cannot be read' }) /* none */ }
+  const farm = [...treeFarmCells(report)].map(k => k.split(',').map(Number))
   // monument-01: a sited ziggurat is a reservation for every other project's siting and replant cells (buildsite.mjs z0: its box
   // + 8, the town plan's TP 2-8 apron)
   let z0 = null
@@ -18972,7 +18989,7 @@ const CROSS_SAMPLE_MS = 2_000
 const TRAFFIC_R_LOG = 176
 const exBridgeKey = () => `${exKey()}.bridge`
 /** The town's bridge sites. Never throws (unreadable: none). */
-function exBridgeSites () { try { return bridgeSites(exLines(exBridgesFile(), 4000)) } catch { return [] } }
+function exBridgeSites (report = null) { try { return bridgeSites(exLines(exBridgesFile(), 4000, report, 'bridges'), report) } catch { report?.push({ input: 'bridges', why: 'the site reader threw: no site is read' }); return [] } }   // fillcolumn-01 r5: `report`
 /** glass-01 fold r3 (Codex BLOCKER: exLines swallows a read error as "no bridges"): the sites, [] only when the town has no bridges
  *  file, null when it exists but cannot be read. */
 function exBridgeSitesStrict () {
@@ -18992,15 +19009,22 @@ function exWrite (me, st) {
     return true
   } catch { return false }
 }
-function exLines (f, max = 400) {
-  try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).slice(-max).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean) } catch { return [] }
+// fillcolumn-01 r5 (`report`, optional: an array; `input` its name there): what this reader leaves out is named as it leaves it out --
+// the lines before its window of `max`, a line that does not parse or parses to nothing, a file that is there and cannot be read
+// (a missing file is no line, and says nothing). The lines returned are unchanged.
+function exLines (f, max = 400, report = null, input = 'lines') {
+  try {
+    const all = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean)
+    if (report && all.length > max) report.push({ input, why: `${all.length - max} line(s) before the window of ${max} are not read` })
+    return all.slice(-max).map(l => { try { const v = JSON.parse(l); if (report && !v) report.push({ input, why: 'a line that holds no entry' }); return v } catch { report?.push({ input, why: 'a line that does not parse' }); return null } }).filter(Boolean)
+  } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input, why: `the file cannot be read (${e?.code ?? 'error'})` }); return [] }
 }
 function exAppend (f, obj) { try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, JSON.stringify(obj) + '\n'); return true } catch { return false } }
 /** The town's standing markers: every placed entry less the ones a later `gone` line names. Never throws. */
-function exMarkers () {
+function exMarkers (report = null) {
   const out = new Map()
-  for (const m of exLines(exMarkersFile(), 2000)) {
-    if (!Array.isArray(m?.at)) continue
+  for (const m of exLines(exMarkersFile(), 2000, report, 'markers')) {
+    if (!Array.isArray(m?.at)) { report?.push({ input: 'markers', why: 'a line without a place' }); continue }   // fillcolumn-01 r5
     const k = m.at.join(',')
     if (m.gone) out.delete(k); else out.set(k, m)
   }
@@ -25319,8 +25343,10 @@ const PATHS_EXTEND_MS = 30 * 60_000
 /** The bag's best shovel (the most uses left, at least two) -> item | null. */
 const pathShovel = bot => (bot.inventory?.items?.() ?? []).filter(i => PATH_SHOVEL.test(i?.name ?? '') && remaining(i) >= 2).sort((a, b) => remaining(b) - remaining(a))[0] ?? null
 /** The siting's inputs for this town (paths.mjs sitePaths / extendPaths / pathDests). Throws on an unreadable file. */
-function pathsInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir()) {
-  const heads = projectHeads()
+// fillcolumn-01 r5 (`report`, optional: an array): the plan's head, the plinth's cap and the town site name there what they left out
+function pathsInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir(), report = null) {
+  headReport(report, 'plan', h)
+  const heads = projectHeads(report)
   const projects = heads.filter(x => x.plot !== PATHS_PLOT).map(x => {
     let bp = null
     try { if (x.head.rec?.blueprint && !isZigBlueprint(x.head.rec.blueprint)) bp = blueprintOf(x.head.rec.blueprint) } catch { bp = null }
@@ -25328,12 +25354,13 @@ function pathsInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDi
   })
   const hk = `${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
   let plinthRec = null
-  try { plinthRec = JSON.parse(fs.readFileSync(path.join(dir, `junkwell-plinth-${hk}.json`), 'utf8')) } catch { /* none */ }
+  try { plinthRec = JSON.parse(fs.readFileSync(path.join(dir, `junkwell-plinth-${hk}.json`), 'utf8')) } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input: 'wells', why: 'the plinth file cannot be read (the cap)' }) /* none */ }
   const caps = []
   if (plinthRec?.plan?.cap && [plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z].every(Number.isFinite)) caps.push([plinthRec.plan.cap.x, plinthRec.plan.cap.y, plinthRec.plan.cap.z])
+  else if (report && plinthRec?.plan?.cap) report.push({ input: 'wells', why: 'the plinth\'s cap names no place' })
   for (const w of c.wells) if (!caps.length && Array.isArray(w)) caps.push(w)     // an unraised well's site (shopCtx's last entry)
   let composter = null
-  try { const st = readTownSite(dir, townSiteKey()).site; if (st) composter = [st.x, st.y, st.z] } catch { /* none */ }
+  try { const st = readTownSite(dir, townSiteKey(), report).site; if (st) composter = [st.x, st.y, st.z] } catch { report?.push({ input: 'townsite', why: 'the site\'s reader threw' }) /* none */ }
   composter ??= (h.head.plan.plots ?? []).find(q => q.kind === 'farm')?.composter ?? null
   // homes-01show: the reserved home plots as they lie now (HOMEPLOTS on only; the ROUTER's refusal and the keeper's permanent sitings)
   return { plan: { ...h.head.plan, gen: h.head.gen }, zones: c.zones, caps, plinth: c.wells, composter, farm: c.farm, projects, place: placeBlueprint, ...(heads.homePlots ? { homePlots: heads.homePlots } : {}), hubDests: fleetPathsOn() }
@@ -27297,13 +27324,15 @@ export const _sinkSteps = Object.freeze({ sinkStatesNow, sinkGuardFor, sinkAvail
 /** The tidy's siting inputs: its guard (zones, the plan, wells, the farm, every other project's record and reservation), the
  *  record cells never touched, and the paths' siting inputs when the paths are unsited or stand as a no-site record (the grading).
  *  Throws on an unreadable file. */
-function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir(), { prepExcept = null } = {}) {
-  const P = pathsInputs(bot, c, h, dir)
+// fillcolumn-01 r5 (`report`, optional: an array): handed to EVERY reader and zone builder the refusals below are built from, so
+// each says there what it dropped, caught or fell back on as it does so (the refresh's column repair is open only on an empty one)
+function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir(), { prepExcept = null, report = null } = {}) {
+  const P = pathsInputs(bot, c, h, dir, report)
   // groundskeeper-01: the land plan's corridors are the tidy's work, never its refusal
-  const recs = projectHeads().filter(x => x.plot !== LAND_PLOT).map(x => x.head.rec).filter(Boolean)
+  const recs = projectHeads(report).filter(x => x.plot !== LAND_PLOT).map(x => x.head.rec).filter(Boolean)
   const home = P.plan.home
   // siteprep-01: a prepping plot is every stage's refusal -- but its own grading's (`prepExcept`: that request's zone ignored)
-  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home }), [...recordZones(recs).filter(z => !(prepExcept && z?.id === prepExcept)), ...hallPadZones(P.plan), ...townMarkerZones()])
+  const avoid = tidyAvoid(pathAvoid({ plan: P.plan, zones: P.zones, caps: P.caps, plinth: P.plinth, composter: P.composter, farm: P.farm, records: recs, home, report }), [...recordZones(recs, undefined, report).filter(z => !(prepExcept && z?.id === prepExcept)), ...hallPadZones(P.plan, report), ...townMarkerZones(report)], report)
   const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(x => x.at.join(','))))
   // tempstand-01: a temporary stand whose visit may still be on it (a FRESH receipt: buildproj.mjs standCells) is never surveyed as
   // litter to cut; a stale receipt's blocks are ordinary litter, so an abandoned stand is the grounds crew's
@@ -27313,7 +27342,7 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   const pathsRec = ph.head?.rec ?? null
   const pin = (!pathsRec || pathsNoSiteRec(pathsRec)) && projectsOn().some(p => p.plot === PATHS_PLOT) ? P : null
   // townterrace-01: the terrace stage's floors (every other project's record, the wall's gates, the wells' caps)
-  const others = projectHeads().filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT).map(x => (x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null)).filter(Boolean)
+  const others = projectHeads(report).filter(x => x.plot !== LAND_PLOT && x.plot !== TIDY_PLOT).map(x => (x.head.rec ? { ...x.head.rec, plot: x.head.rec.plot ?? x.plot } : null)).filter(Boolean)
   // the showcase gkstage fold (Codex fold BLOCKER): the site-prep reservations on their own (inwall's litter rule must never read them
   // as a build's `project`); the request being graded (`prepExcept`) is its own grading's
   // outbands-01 (batch-14a replay, 11-06): the town's expedition MARKERS are `reserved` too -- read first by every survey rule, as the
@@ -27321,12 +27350,12 @@ function tidyInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   // so the band survey planned the marker's two cobblestone at -47,67..68,34 as spoil beside a build (the visit's guard kept them)
   // roughground-3: the town's landmark mound is `reserved` too -- no inwall, band or rough rule cuts or fills it
   let lmz = []
-  try { lmz = landmarkZones(landHead(dir)) } catch { lmz = [] }
-  const rz = [...recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT)).filter(z => !(prepExcept && z?.id === prepExcept)), ...townMarkerZones(), ...lmz]
+  try { lmz = landmarkZones(landHead(dir, report), report) } catch { report?.push({ input: 'land', why: 'the landmark\'s zone builder threw' }); lmz = [] }
+  const rz = [...recordZones(recs.filter(r => r?.plot === SITEPREP_PLOT), undefined, report).filter(z => !(prepExcept && z?.id === prepExcept)), ...townMarkerZones(report), ...lmz]
   // wallext-02 (Claude hold r1 BLOCKER 1): the demolition's hold is `reserved` too -- read FIRST by every inwall rule and by the
   // access stairs' `free` (tidyAvoid's first reason could be a kept wall cell's `project:wall`, which reads as a build's box)
   const held = holdAt(recs.find(r => r?.plot === WALL_PLOT) ?? null)
-  rz.push(...lawnZonesOf(recs))   // the flowers fold (Codex BLOCKER): a decor lawn (flowers-02's scatter) is `reserved` too
+  rz.push(...lawnZonesOf(recs, report))   // the flowers fold (Codex BLOCKER): a decor lawn (flowers-02's scatter) is `reserved` too
   const reserved = (x, z) => held(x, z) || rz.some(zb => { const b = zb?.box; return Array.isArray(b) && x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5] })
   // homes-01show (review r1, Codex): the reserved home plots, for the keeper's PERMANENT sitings only (the landmark mound, a new park):
   // the land plan's reservation is left out of `avoid` above so that a plot is still graded, filled and cut
@@ -27911,22 +27940,23 @@ function landInputs (bot, c = shopCtx(bot), h = townPlanHead(bot), dir = townDir
   return { plan: P.plan, home: P.plan.home, avoid: tidyAvoid(avoid, hz), reserved, caps: P.caps, composter: P.composter, sited: sitedSectors(P.plan.home, recs) }
 }
 /** The town's standing expedition markers as reservations (expedition.mjs markerZones over exMarkers) -> [zone]. Never throws. */
-function townMarkerZones () {
+// fillcolumn-01 r5 (`report`, optional: an array): a zone builder that THROWS here leaves every zone of its kind out -- named there
+function townMarkerZones (report = null) {
   let z = []
-  try { z = markerZones(exMarkers()) } catch { z = [] }
+  try { z = markerZones(exMarkers(report), 1, report) } catch { report?.push({ input: 'markers', why: 'the zone builder threw: no marker is reserved' }); z = [] }
   // bridgepost-01: every bridge site's footprint (built or not) is reserved too: the tidy never works a deck or a rail
-  try { z = [...z, ...bridgeZones(exBridgeSites())] } catch { /* no bridges */ }
+  try { z = [...z, ...bridgeZones(exBridgeSites(report), 1, report)] } catch { report?.push({ input: 'bridges', why: 'the zone builder threw: no bridge is reserved' }) }
   return z
 }
 /** An UNSITED copper hall's fixed pad while the hall is on (copperhall.mjs hallPadZone) -> [zone] | []: the land plan routes round
  *  it and the tidy never works it, so the hall can still site when its copper comes. A sited hall's record guards it. Never throws. */
-function hallPadZones (plan) {
+function hallPadZones (plan, report = null) {
   try {
     if (!projectsOn().some(p => p.plot === HALL_PLOT)) return []
     if (projectHeads().some(x => x.plot === HALL_PLOT)) return []
     const z = hallPadZone(plan, blueprintOf(HALL_BLUEPRINT))
     return z ? [z] : []
-  } catch { return [] }
+  } catch { report?.push({ input: 'hallpad', why: 'the pad\'s zone builder threw: the pad is not reserved' }); return [] }   // fillcolumn-01 r5: `report`
 }
 /** The land plan's unread-column tolerance: a plan whose routing met more unread columns than this waits (asked again next
  *  visit), at most LAND_UNREAD_TRIES times a connection, then it is published as read. */
@@ -28665,33 +28695,34 @@ function stageSurveyInputs (bot, I, dir, signal) {
  * the publish: another bot's waiver or refresh in between is merged over, never lost), the clock stamped whether or not anything was
  * added (one survey an hour for the town, whoever keeps it). A survey that cannot run is asked again next visit (no stamp).
  */
+/** fillcolumn-01 r5: THE REFRESH'S SURVEY INPUTS AND WHAT THEIR READERS LEFT OUT -> { c, I, report }: the town's context (shopCtx) and
+ *  the tidy's inputs (tidyInputs) built with ONE report array handed down to every reader and zone builder under them. The refresh's
+ *  own call (tidyRefresh) and the tests' (`_fillcol.keepInputs`): one path. Throws as tidyInputs does. */
+function fcKeepInputs (bot, h, dir = townDir()) {
+  const report = []
+  const c = shopCtx(bot, report)
+  const I = tidyInputs(bot, c, h, dir, { report })
+  return { c, I, report }
+}
+export const _fillcol = Object.freeze({ keepInputs: fcKeepInputs, headReport, plainInputs: (bot, h, dir = townDir()) => { const c = shopCtx(bot); return { c, I: tidyInputs(bot, c, h, dir) } } })
 async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   const r0 = rh.head.rec
-  let s, read, cap = 0, guard, fcKeepOff = null, fcUnread = []
+  let s, read, cap = 0, guard, fcKeepOff = null, fcReport = null, cR = c
   try {
-    const I = tidyInputs(bot, c, h, dir)
-    // fillcolumn-01 r2 (Codex blocker 1): the survey's exclusions are built from the other projects' records, the land plan and
-    // the zones, and projectHeads() SKIPS a head it cannot read -- so each is read STRICTLY here (fillcolumn.mjs exclUnread); one
-    // unread and the column repair is closed for this refresh (repairClosed): it adds nothing on exclusions nobody could read
-    // r3 (Codex round 2): ...and the SITE-PREP record with them (siteprepHead drops one it cannot read: fillcolumn.mjs exclPlots),
-    // and every FILE the exclusions read leniently -- each read strictly here, absent told from unreadable: the town plan's head,
-    // the zones, the wells' and the tree farm's files (reservationFilesStrict), the town site (the composter), the markers, the
-    // bridge sites, the hall's pad
-    // r4 (Codex round 3): the files by fillcolumn.mjs exclFilesUnread -- an ABSENT file is empty and closes nothing; one that is
-    // present and malformed, or holds ONE line or entry a lenient reader would drop (exBridgeSitesStrict drops such a line), closes
-    fcUnread = fillExclUnread(fillExclPlots(projectsGuarded().map(p => p.plot)), pl => recordHead(dir, projKeyOf(pl)))
-    fcUnread.push(...fillExclUnread(['plan'], () => h))
-    fcUnread.push(...fillExclFilesUnread({ dir, hk: exHk(), markersFile: exMarkersFile(), bridgesFile: exBridgesFile() }))
-    fcUnread.push(...fillExclInputsUnread({
-      zones: () => c?.zonesKnown === true && fillZonesRead(townPlanZones(bot)),
-      hallpad: () => !projectsOn().some(p => p.plot === HALL_PLOT) || !!blueprintOf(HALL_BLUEPRINT),
-    }))
+    // fillcolumn-01 r5 (Codex round 4): THE SURVEY'S INPUTS WITH THEIR REPORT (fcKeepInputs). The refresh builds its own context and
+    // inputs through the SAME lenient readers and zone builders as ever, each handed one report array and naming there whatever it
+    // dropped, caught, cut off or fell back on as it did so; siteStage adds its own and hands the keep-out back with it. The column
+    // repair is open only when that report is EMPTY -- there is no second parser to disagree with the first. FILLCOLUMN=off: no
+    // report is built and the inputs are the visit's own, as before
+    const K = fillColumnOn() ? fcKeepInputs(bot, h, dir) : null
+    if (K) { cR = K.c; fcReport = K.report }
+    const I = K ? K.I : tidyInputs(bot, c, h, dir)
     const si = stageSurveyInputs(bot, I, dir, signal)
     read = si.read
     const inK = landStages().find(q => q.id === 'inwall')?.k
     if (!Number.isFinite(inK)) return null
     const busy = openColumns(r0, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
-    s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land: si.land, stage: inK, lim: gradeLim(read, 6), lights: si.lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: si.terrace, reserved: I.reserved, forest: forestRecNow(), planned: busy })
+    s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land: si.land, stage: inK, lim: gradeLim(read, 6), lights: si.lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: si.terrace, reserved: I.reserved, report: fcReport, forest: forestRecNow(), planned: busy })
     cap = s?.survey?.rough?.skipped?.cap ?? 0
     fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null   // fillcolumn-01 r2: THIS survey's own exclusions (tidy.mjs siteStage)
     guard = tidyGuardSet()   // the visit's own guard (one source)
@@ -28712,12 +28743,12 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   // left out with a named reason -- never a cell in a column this refresh's survey keeps off (`fcKeepOff`: zones, the plan, wells,
   // every project's columns and box, reservations), in a protected zone, on a cell another record names; closed when unread
   let fx = null
-  const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fcUnread })
+  const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fillReportNames(fcReport) })
   const pub = publishRecord(dir, key, cur => {
     if (!cur || cur.structure_complete || cur.sitedAt !== r0.sitedAt || !refreshDue(cur, { now })) return null
     const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     res = refreshMerge(cur, fresh, { busy, guard, now })
-    try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], c?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
+    try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], cR?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null

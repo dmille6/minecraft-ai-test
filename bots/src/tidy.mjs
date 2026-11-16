@@ -397,7 +397,10 @@ export const tidyWalkR = rec => Math.max(48, (Number(rec?.r) || TIDY.r) + 8)
  * boxes and plots, wells, the composter, the tree farm, every project's record columns); `pzones` every project's reservation
  * (shop.mjs recordZones: a record's box + PROJECT_GAP, or the zones it names: the paths' and the wall's columns + 1).
  */
-export function tidyAvoid (avoid = () => null, pzones = []) {
+// fillcolumn-01 r5 (`report`, optional: an array): a reservation whose box is no box never matches below -- named there once, as
+// the predicate is built. The predicate is unchanged.
+export function tidyAvoid (avoid = () => null, pzones = [], report = null) {
+  if (report) for (const zb of pzones) { const b = zb?.box ?? zb; if (!(Array.isArray(b) && b.length === 6 && b.every(Number.isFinite))) report.push({ input: 'reservations', why: `a reservation without a box (${String(zb?.why ?? 'project')})` }) }
   return (x, z) => {
     const a = avoid(x, z)
     if (a) return a
@@ -862,7 +865,7 @@ export function plotSited (plot, records = []) {
  * room above every step: a leaf there is cleared), else the tree is kept (named). Every other column is LEVELLED to the floor: its
  * ground above it cut (LEVEL_CUT only, <= cutMax), below it filled (<= fillMax); never water, a record cell's column, a refused one.
  */
-export function plotPrep (read, { plots = [], home, records = [], avoid = () => null, cells = new Set(), noStair = () => false, T = PLOTPREP } = {}) {
+export function plotPrep (read, { plots = [], home, records = [], avoid = () => null, cells = new Set(), noStair = () => false, T = PLOTPREP, report = null } = {}) {
   const out = { cut: [], fill: [], clear: [], trees: [], platforms: [], cols: new Set(), plots: [], skipped: {} }
   const skip = why => { out.skipped[why] = (out.skipped[why] ?? 0) + 1 }
   if (!home) return out
@@ -875,7 +878,7 @@ export function plotPrep (read, { plots = [], home, records = [], avoid = () => 
   const open = (x, y, z) => { const b = read(x, y, z); return !!b && (AIRN(nm(b)) || replaceableCell(b) || b.boundingBox === 'empty') && !isLiquid(b) }
   for (const plot of plots ?? []) {
     const b = plot?.box
-    if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) continue
+    if (!Array.isArray(b) || b.length !== 4 || !b.every(Number.isFinite)) { report?.push({ input: 'record:wallext', why: 'a plot without a box' }); continue }   // fillcolumn-01 r5
     if (plotSited(plot, records)) { out.plots.push({ id: plot.id, sited: true }); skip('plot_sited'); continue }
     const ys = []
     for (let x = b[0]; x <= b[2]; x++) for (let z = b[1]; z <= b[3]; z++) { const c = col(x, z); if (ground(c)) ys.push(c.y) }
@@ -1075,10 +1078,12 @@ export const inwallBox = (wall, home, r = TIDY.r) => {
 /** The columns no litter rule may touch -> (x, z) -> bool: every STOCK YARD and TREE FARM record's cells' x/z box, +2 (the piles sit
  *  on the yard's floor slots; a farm's soil and saplings). Pure. Codex r1 BLOCKER 1. */
 export const NO_LITTER_PLOTS = new Set(['yard', 'treefarm'])
-export function inwallNoLitter (records = []) {
+// fillcolumn-01 r5 (`report`, optional: an array): a yard or farm cell dropped here for want of a place is named there.
+export function inwallNoLitter (records = [], report = null) {
   const boxes = []
   for (const r of records ?? []) {
     if (!NO_LITTER_PLOTS.has(String(r?.plot ?? ''))) continue
+    if (report && (r.cells ?? []).some(c => !(Array.isArray(c?.at) && Number.isFinite(c.at[0]) && Number.isFinite(c.at[2])))) report.push({ input: `record:${r.plot}`, why: 'a cell without a place' })
     const cs = (r.cells ?? []).filter(c => Array.isArray(c?.at))
     if (!cs.length) continue
     const xs = cs.map(c => c.at[0]), zs = cs.map(c => c.at[2])
@@ -1504,7 +1509,7 @@ const litterOut = (terrace, seen) => ({ read: (terrace?.litter ?? []).length, se
  * do in this stage (the caller moves to the next). townterrace-01: the terrace stage returns a PROMISE (terrace.mjs siteTerrace);
  * callers await siteStage.
  */
-export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, classic = true, env = process.env, L = LAND } = {}) {
+export function siteStage (read, { home, land, stage, avoid = () => null, cells = new Set(), plan = null, pin = null, lim = null, lights = 0, now = Date.now(), walkFrom = null, terrace = null, reserved = () => false, forest = null, planned = null, classic = true, env = process.env, L = LAND, report = null } = {}) {
   const st = typeof stage === 'object' ? stage : stageOf(stage, L)
   // the owner's 11-01 water rule for every stage (tidyWater: TIDY_WATER=strict is the old refusal): the stage may touch the water of
   // a column it may touch at all, never within farmGuard of farmland (the farm's irrigation)
@@ -1534,13 +1539,16 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // access-01: the staircases' refusals (accessNoStair), in every box
     const noStair = accessNoStair(terrace?.records ?? [], { plan, land })
     // plotprep-01: the extension's reserved plots first (their trees, their stands, their level); the other inwall rules keep off them
-    const pp = plotPrep(read, { plots: terrace?.wallext?.plots ?? [], home, records: terrace?.records ?? [], avoid, cells, noStair })
+    const pp = plotPrep(read, { plots: terrace?.wallext?.plots ?? [], home, records: terrace?.records ?? [], avoid, cells, noStair, report })
     const reservedP = (x, z) => pp.cols.has(k2(x, z)) || reserved(x, z)
     // fillcolumn-01 r2 (Codex blocker 1): THIS SURVEY'S OWN EXCLUSIONS, handed on with its result (`keepOff(x, z)` -> reason | null) so
     // the refresh's column repair (fillcolumn.mjs) adds no cell where the survey itself fills no hole: the stock yard and the tree
     // farm, a reservation, and every column `avoid` names (a zone, the plan's cells, boxes and plots, a well, a project's columns
     // and its box + gap: the wells, the shaft, the step well, a building's interior)
-    const noLitterK = inwallNoLitter(terrace?.records ?? [])
+    // r5 (Codex round 4): `report` (optional: an array, the caller's) -- every reader and zone builder this keep-out is built from
+    // names there what it dropped, caught or fell back on, ALONG THE SAME PATH that built it (tidyInputs' readers before this call,
+    // the yard's box and the plots here): the keep-out is complete only when the report is empty. Handed back with it.
+    const noLitterK = inwallNoLitter(terrace?.records ?? [], report)
     const keepOff = (x, z) => (noLitterK(x, z) ? 'no_litter' : reservedP(x, z) ? 'reserved' : (avoid(x, z) ?? null))
     const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk, T: { ...INWALL, hollowRough: roughOn(env) } }))
     const bad = parts.find(q => !q.ok)
@@ -1621,7 +1629,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     if (record && (pp.plots.length || platsKept.length)) record.plotprep = { plots: pp.plots, platforms: platsKept, skipped: pp.skipped }
     // litter-01: what became of the walks' handed blocks in this stage's boxes (never on the record: the caller's rows)
     const litter = litterOut(terrace, sv0.rough?.litter)
-    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null, litter, keepOff }
+    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null, litter, keepOff, ...(report ? { report } : {}) }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
     // access-01: the staircase cells are role `access` (TIDY_PALETTE.access: stone, never dirt)
@@ -1629,7 +1637,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
     record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
       access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: { census: sv.rough.census, skipped: sv.rough.skipped } } : {}) }
-    return { ok: true, why: 'ok', record, survey: sv, road: null, litter, keepOff }
+    return { ok: true, why: 'ok', record, survey: sv, road: null, litter, keepOff, ...(report ? { report } : {}) }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
   // country-01: `classic: false` -- the band's own survey alone (surveyInwall over the band's columns, which keeps off the wall boxes),

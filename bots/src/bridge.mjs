@@ -337,9 +337,11 @@ export async function buildBridge (io, plan, { until = Infinity } = {}) {
  * adds its trip to the site whose axis matches and whose near end lies within SITE_MERGE_R (else a new site); a `state` line
  * (complete true/false, failed) updates the site by id.
  */
-export function bridgeSites (lines = []) {
+// fillcolumn-01 r5 (`report`, optional: an array): a sighting dropped here for want of its span is named there. The sites are unchanged.
+export function bridgeSites (lines = [], report = null) {
   const sites = []
   for (const l of lines) {
+    if (report && l?.op === 'sight' && !(l.span?.near && l.span?.axis)) report.push({ input: 'bridges', why: 'a sighting without its span' })
     if (l?.op === 'sight' && l.span?.near && l.span?.axis) {
       const s = sites.find(q => q.span.axis.join(',') === l.span.axis.join(',') && Math.hypot(q.span.near[0] - l.span.near[0], q.span.near[2] - l.span.near[2]) <= SITE_MERGE_R)
       if (s) { if (l.trip) s.seen.add(l.trip); s.t = Math.max(s.t, Number(l.t) || 0); continue }
@@ -375,13 +377,15 @@ export function bridgeToBuild (sites = [], now = 0) {
 export const bridgesDone = (sites = []) => sites.filter(s => s.complete).map(s => ({ id: s.id, near: s.span.near, far: s.span.far, land: s.span.land, axis: s.span.axis, w: s.span.w }))
 
 /** Every bridge site's footprint (built or not) as reservations the tidy and the land plan keep off -> zones. Pure. */
-export function bridgeZones (sites = [], m = 1) {
+// fillcolumn-01 r5 (`report`, optional: an array): a designed site whose design gives no zone falls back to its span's -- named there.
+export function bridgeZones (sites = [], m = 1, report = null) {
   const out = []
   for (const s of sites) {
     // bridges-01: a designed site's footprint is its plan's (ramps, eaves, lamp posts: up to 3 off the centre line), + 2
-    if (s.design) { const z = designZone(sitePlan(s), m + 1); if (z) { out.push(z); continue } }
+    if (s.design) { const z = designZone(sitePlan(s), m + 1); if (z) { out.push(z); continue } report?.push({ input: 'bridges', why: 'a designed site with no design zone: its span is used' }) }
     const pts = [s.span.near, s.span.far, ...s.span.rows.flatMap(r => r.sides.map(c => c.deck))]
     const xs = pts.map(p => p[0]), zs = pts.map(p => p[2])
+    if (report && ![...xs, ...zs].every(Number.isFinite)) report.push({ input: 'bridges', why: 'a site whose span has a point without a place: its zone matches nothing' })
     out.push({ box: [Math.min(...xs) - m, -64, Math.min(...zs) - m, Math.max(...xs) + m, 320, Math.max(...zs) + m], why: 'expedition:bridge' })
   }
   return out

@@ -105,8 +105,10 @@ export function landmarkCells (site, { top, open = () => true, read = null, L = 
   return { fill, cut, sapling: [cx, site.base + 4, cz] }
 }
 /** THE LANDMARK AS A RESERVATION ZONE (landplan.mjs landReservation) -> [{ box, why }]. Pure. */
-export function landmarkZones (land) {
+// fillcolumn-01 r5 (`report`, optional: an array): a landmark whose box is there and is no box has no zone -- and is named there.
+export function landmarkZones (land, report = null) {
   const b = land?.landmark?.box
+  if (report && land?.landmark != null && !(Array.isArray(b) && b.length === 4 && b.every(Number.isFinite))) report.push({ input: 'land', why: 'the landmark has no box' })
   return Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) ? [{ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'land:landmark' }] : []
 }
 

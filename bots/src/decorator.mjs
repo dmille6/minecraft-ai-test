@@ -1103,11 +1103,13 @@ export function siteLawn (read, home, { guard, reserved = () => null, inside = (
 }
 /** THE LAWNS AS THE TIDY'S RESERVATIONS (the showcase flowers fold, Codex BLOCKER: a later rough survey filled over a scattered lawn
  *  or cut its soil) -> [zone]: every record's `lawns[].box` as a zone box [x0, -64, z0, x1, 320, z1] (why decor_lawn). Pure. */
-export function lawnZonesOf (records = []) {
+// fillcolumn-01 r5 (`report`, optional: an array): a lawn dropped here for want of a box is named there. The zones are unchanged.
+export function lawnZonesOf (records = [], report = null) {
   const out = []
   for (const r of records ?? []) for (const l of r?.lawns ?? []) {
     const b = l?.box
     if (Array.isArray(b) && b.length === 4 && b.every(Number.isFinite)) out.push({ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'decor_lawn' })
+    else report?.push({ input: `record:${r?.plot ?? '?'}`, why: 'a lawn without a box' })
   }
   return out
 }

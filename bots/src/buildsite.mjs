@@ -1013,18 +1013,28 @@ export function projectSectors (plan, first = null) {
   return out
 }
 /** A plinth record's columns -> [[x, y, z]]: the plan's steps, cap and stair, and every prev[] column {x, y, z, stair} (plinth.mjs carryPrev). */
-export function plinthCells (rec) {
+// fillcolumn-01 r5 (`report`, optional: an array): every entry this reader skips, or hands on without a full place, is named there
+// ({ input: 'wells', why }); a record with no plan, no stair or no earlier column has none and says nothing. The cells are unchanged.
+export function plinthCells (rec, report = null) {
   const out = []
+  const fin3 = c => Array.isArray(c) && c.length === 3 && c.every(Number.isFinite)
+  const bad = why => { report?.push({ input: 'wells', why: `the plinth record: ${why}` }) }
+  if (report && (!rec || typeof rec !== 'object' || Array.isArray(rec))) bad('not a record')
   const pl = rec?.plan
+  if (report && pl != null && (typeof pl !== 'object' || Array.isArray(pl))) bad('its plan is no plan')
   if (pl && typeof pl === 'object') {
-    for (const st of pl.steps ?? []) if (Array.isArray(st?.c)) out.push(st.c)
-    if (pl.cap) out.push([pl.cap.x, pl.cap.y, pl.cap.z])
-    for (const c of pl.stair ?? []) if (Array.isArray(c) && c.length === 3) out.push(c)
+    if (report && pl.steps != null && !Array.isArray(pl.steps)) bad('its steps are no list')
+    for (const st of pl.steps ?? []) { if (Array.isArray(st?.c)) { if (report && !fin3(st.c)) bad('a step cell without a full place'); out.push(st.c) } else bad('a step without a cell') }
+    if (pl.cap) { if (report && ![pl.cap.x, pl.cap.y, pl.cap.z].every(Number.isFinite)) bad('a cap without a full place'); out.push([pl.cap.x, pl.cap.y, pl.cap.z]) }
+    if (report && pl.stair != null && !Array.isArray(pl.stair)) bad('its stair is no list')
+    for (const c of pl.stair ?? []) { if (Array.isArray(c) && c.length === 3) { if (report && !fin3(c)) bad('a stair cell without a full place'); out.push(c) } else bad('a stair cell that is no cell') }
   }
+  if (report && rec?.prev != null && !Array.isArray(rec.prev)) bad('its earlier columns are no list')
   for (const c of Array.isArray(rec?.prev) ? rec.prev : []) {
-    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) continue
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) { bad('an earlier column without a full place'); continue }
     out.push([c.x, c.y, c.z])
-    for (const s of Array.isArray(c.stair) ? c.stair : []) if (Array.isArray(s) && s.length === 3) out.push(s)
+    if (report && c.stair != null && !Array.isArray(c.stair)) bad('an earlier column\'s stair is no list')
+    for (const s of Array.isArray(c.stair) ? c.stair : []) { if (Array.isArray(s) && s.length === 3) { if (report && !fin3(s)) bad('an earlier stair cell without a full place'); out.push(s) } else bad('an earlier stair cell that is no cell') }
   }
   return out
 }
