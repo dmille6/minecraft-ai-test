@@ -226,6 +226,21 @@ await t('wiring: the order\'s two rules are one if / else on the switch; the sui
   once(readFileSync(new URL('./idlework-sites.test.mjs', import.meta.url), 'utf8'), "\nprocess.env.UNSITEDWAIT = 'on'\n", 'the fleet line\'s test')
   once(readFileSync(new URL('./shop.test.mjs', import.meta.url), 'utf8'), "\n  process.env.UNSITEDWAIT = 'on'\n", 'the one fleet test in the showcase line\'s file')
 })
+
+console.log('ROWS 2-4: the spawn says which way the three are (`_poolswitch_mode`, poolswitch.mjs)')
+const PS = await import('../src/poolswitch.mjs')
+await t('the row: each switch on or off and where the answer came from (env | pool); written once per spawn from features.mjs, not index.mjs', () => {
+  assert.strictEqual(PS.poolSwitchWhy('CRAFTSPARE', { MEMORY_POOL: 'showcase' }), 'pool'); assert.strictEqual(PS.poolSwitchWhy('CRAFTSPARE', { CRAFTSPARE: ' OFF ' }), 'env')
+  assert.strictEqual(PS.poolSwitchWhy('UNSITEDWAIT', { UNSITEDWAIT: 'maybe' }), 'pool', 'a value the switch does not read is no answer')
+  const row = env => PS.poolSwitchDetail({ unsited: SH.unsitedWaitOn(env), band: WL.wellBandOn(env), spare: CR.craftSpareOn(env), pool: env.MEMORY_POOL }, env)
+  assert.strictEqual(row({ MEMORY_POOL: 'showcase' }), 'unsitedwait=0 (pool) idlework_well=0 (pool) craftspare=0 (pool) pool=showcase')
+  assert.strictEqual(row({ MEMORY_POOL: 'hive-a' }), 'unsitedwait=1 (pool) idlework_well=1 (pool) craftspare=1 (pool) pool=hive-a')
+  assert.strictEqual(row({ MEMORY_POOL: 'showcase', IDLEWORK_WELL: 'on' }), 'unsitedwait=0 (pool) idlework_well=1 (env) craftspare=0 (pool) pool=showcase')
+  assert.strictEqual(row({ UNSITEDWAIT: '0', CRAFTSPARE: 'no' }), 'unsitedwait=0 (env) idlework_well=1 (pool) craftspare=0 (env) pool=-')
+  const feat = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))
+  once(feat, "logEvent({ kind: 'poolswitch_mode', status: 'success', snapshot: snapshot(bot), detail: poolSwitchDetail({ unsited: unsitedWaitOn(), band: wellBandOn(), spare: craftSpareOn(), pool: process.env.MEMORY_POOL ?? '' }) })", 'the spawn row')
+  assert.ok(!/poolswitch|craftSpareOn|unsitedWaitOn|wellBandOn/.test(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')), 'nothing of it in index.mjs (protected)')
+})
 try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* the runner's TMPDIR goes with it */ }
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

@@ -44,6 +44,11 @@ import { enchantModeDetail } from './enchantshop.mjs'   // enchantshop-01's lice
 import { homePlotsModeDetail } from './homeplots.mjs'   // homes-01show's licence row
 import { buildRetryOn, buildRetryWhy } from './buildretry.mjs'   // one trunk: `_visitswitch_mode` (BUILDRETRY, default by pool)
 import { visitWaiverOn, visitWaiverWhy, visitSwitchDetail } from './stuckcells.mjs'   // one trunk: `_visitswitch_mode` (VISIT_WAIVER, default by pool)
+// one trunk: `_poolswitch_mode` -- the three other decisions that default by pool (DECISIONS rows 2, 3, 4), each switch from its own module
+import { poolSwitchDetail } from './poolswitch.mjs'
+import { unsitedWaitOn } from './shop.mjs'
+import { wellBandOn } from './well.mjs'
+import { craftSpareOn } from './craftroom.mjs'
 import { noWaitModeDetail } from './ordernowait.mjs'
 import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
 import { reroofModeDetail, REROOF_FIX } from './reroof.mjs'
@@ -314,6 +319,9 @@ export function installFeatures (bot) {
   // one trunk (control session 11-16): the two visit behaviours that default by POOL -- `_visitswitch_mode`, once per spawn: buildretry-01's
   // ledger and default deferral (BUILDRETRY) and the in-visit waiver (VISIT_WAIVER), each on or off and whether the env or the pool said so
   try { logEvent({ kind: 'visitswitch_mode', status: 'success', snapshot: snapshot(bot), detail: visitSwitchDetail({ retry: buildRetryOn(), retryWhy: buildRetryWhy(), waiver: visitWaiverOn(), waiverWhy: visitWaiverWhy(), pool: process.env.MEMORY_POOL ?? '' }) }) } catch { /* telemetry */ }
+  // one trunk (DECISIONS rows 2, 3, 4): `_poolswitch_mode`, once per spawn -- the order's no-site rule (UNSITEDWAIT), the well's band
+  // (IDLEWORK_WELL) and the craft room's spare (CRAFTSPARE), each on or off and whether the env or the pool said so
+  try { logEvent({ kind: 'poolswitch_mode', status: 'success', snapshot: snapshot(bot), detail: poolSwitchDetail({ unsited: unsitedWaitOn(), band: wellBandOn(), spare: craftSpareOn(), pool: process.env.MEMORY_POOL ?? '' }) }) } catch { /* telemetry */ }
   // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
   // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
   if (SHOP.on) {
