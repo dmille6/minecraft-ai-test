@@ -1536,6 +1536,12 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     // plotprep-01: the extension's reserved plots first (their trees, their stands, their level); the other inwall rules keep off them
     const pp = plotPrep(read, { plots: terrace?.wallext?.plots ?? [], home, records: terrace?.records ?? [], avoid, cells, noStair })
     const reservedP = (x, z) => pp.cols.has(k2(x, z)) || reserved(x, z)
+    // fillcolumn-01 r2 (Codex blocker 1): THIS SURVEY'S OWN EXCLUSIONS, handed on with its result (`keepOff(x, z)` -> reason | null) so
+    // the refresh's column repair (fillcolumn.mjs) adds no cell where the survey itself fills no hole: the stock yard and the tree
+    // farm, a reservation, and every column `avoid` names (a zone, the plan's cells, boxes and plots, a well, a project's columns
+    // and its box + gap: the wells, the shaft, the step well, a building's interior)
+    const noLitterK = inwallNoLitter(terrace?.records ?? [])
+    const keepOff = (x, z) => (noLitterK(x, z) ? 'no_litter' : reservedP(x, z) ? 'reserved' : (avoid(x, z) ?? null))
     const parts = boxes.map(b => surveyInwall(read, { home, box: b, avoid, cells, noLitter: inwallNoLitter(terrace?.records ?? []), reserved: reservedP, noStair, water, waterOk, T: { ...INWALL, hollowRough: roughOn(env) } }))
     const bad = parts.find(q => !q.ok)
     if (bad) return { ok: false, why: bad.why, record: null, survey: bad, road: null }
@@ -1615,7 +1621,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     if (record && (pp.plots.length || platsKept.length)) record.plotprep = { plots: pp.plots, platforms: platsKept, skipped: pp.skipped }
     // litter-01: what became of the walks' handed blocks in this stage's boxes (never on the record: the caller's rows)
     const litter = litterOut(terrace, sv0.rough?.litter)
-    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null, litter }
+    if (!record) return { ok: true, why: 'nothing', record: null, survey: sv, road: null, litter, keepOff }
     record.stage = legacyStage(st); record.stageId = st.id; record.terraceV = 1
     record.land = land ? { seed: land.seed, sitedAt: land.sitedAt ?? null } : null
     // access-01: the staircase cells are role `access` (TIDY_PALETTE.access: stone, never dirt)
@@ -1623,7 +1629,7 @@ export function siteStage (read, { home, land, stage, avoid = () => null, cells 
     if (acc.size) record.cells = record.cells.map(c => (acc.has(c.at.join(',')) ? { ...c, role: 'access' } : c))
     record.inwall = { box, ...(boxes.length > 1 ? { boxes } : {}), pillars: sv.pillars.length, litter: sv.litter, holes: sv.pits.filter(q => !q.access).length, cut: sv.cut.length, fill: sv.fill.length, skipped: sv.skipped,
       access: (sv.access ?? []).map(a => ({ col: a.col, top: a.top, h: a.h, dir: a.dir, n: a.cells.length, ...(a.ledger ? { ledger: true } : {}) })), ...(sv.ledger ? { ledger: sv.ledger.slice(0, 40) } : {}), ...(sv.rough ? { rough: { census: sv.rough.census, skipped: sv.rough.skipped } } : {}) }
-    return { ok: true, why: 'ok', record, survey: sv, road: null, litter }
+    return { ok: true, why: 'ok', record, survey: sv, road: null, litter, keepOff }
   }
   if (!land) return { ok: false, why: 'no_land', record: null, survey: null, road: null }
   // country-01: `classic: false` -- the band's own survey alone (surveyInwall over the band's columns, which keeps off the wall boxes),

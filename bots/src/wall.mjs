@@ -36,6 +36,7 @@
 // the read), builders_max 4.
 
 import { pathColumn, pathAvoid } from './paths.mjs'
+import { stuckWaivedN } from './waiveroom.mjs'   // fillcolumn-01 r2: the waiver's room counts stuck waivers only
 
 export const WALL_PLOT = 'wall'
 export const WALL_BLUEPRINT = 'wall@1'
@@ -755,7 +756,7 @@ export const WALL_WAIVE_MAX = 12
 export function wallWaiveDue (rec, deferred = [], { after = WALL_WAIVE_AFTER, max = WALL_WAIVE_MAX } = {}) {
   const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light').map(c => c.at.join(',')))
   const have = rec?.waived ?? {}
-  let room = max - Object.keys(have).length
+  let room = max - stuckWaivedN(have)   // fillcolumn-01 r2: never the column repair's own entries (waiveroom.mjs)
   const out = []
   for (const d of deferred ?? []) {
     if (room <= 0) break

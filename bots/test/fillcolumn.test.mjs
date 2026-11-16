@@ -16,6 +16,12 @@ const TR = await import('../src/tidyrefresh.mjs')
 const FC = await import('../src/fillcolumn.mjs')
 const { cellDone } = await import('../src/buildrun.mjs')
 const SHOP = await import('../src/shop.mjs')
+const PATHS = await import('../src/paths.mjs')
+const WALLM = await import('../src/wall.mjs')
+const GKWM = await import('../src/gkwork.mjs')
+const PAM = await import('../src/planahead.mjs')
+const WR = await import('../src/waiveroom.mjs')
+const URL_OF = n => new URL(`../src/${n}`, import.meta.url)
 const FC_URL = new URL('../src/fillcolumn.mjs', import.meta.url)
 
 let pass = 0, fail = 0
@@ -25,8 +31,8 @@ const t = async (name, fn) => {
 const say = s => { if (process.env.TEST_VERBOSE) console.log(s) }
 const NOTES = []   // the measured numbers: printed last (the runner shows a failing file's last 40 lines)
 // a mutant is KILLED when the scenario that passes on the real module fails an ASSERTION on the mutant (never a crash)
-const kills = (name, old, neu, scen) => t(`MUTANT KILLED: ${name}`, async () => {
-  await withMutant(FC_URL, old, neu, async M => {
+const kills = (name, old, neu, scen, url = FC_URL) => t(`MUTANT KILLED: ${name}`, async () => {
+  await withMutant(url, old, neu, async M => {
     let died = null
     try { await scen(M) } catch (e) { died = e }
     assert.ok(died, 'the mutant survived its scenario')
@@ -53,6 +59,8 @@ const cell = (x, y, z, more = {}) => ({ at: [x, y, z], role: 'earth', seg: 'T-00
 const rec = (cells, more = {}) => ({ v: 1, blueprint: 'tidy@1', plot: 'tidy', stageId: 'inwall', home: { ...HOME }, sitedAt: NOW, cells, cut: [], clear: [],
   segments: [...new Set(cells.map(c => c.seg))].map(seg => ({ seg, deps: [] })), bom: { earth: cells.length }, structure_complete: false, ...more })
 const N8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+// the repair's counts (columnRepair `n`), zero but for what a test names
+const N = (o = {}) => ({ ext: 0, add: 0, deep: 0, drop: 0, back: 0, left: 0, total: 0, closed: 0, wait: {}, why: {}, ...o })
 
 // ---- THE INDEPENDENT WALK (never fillcolumn.mjs's own code): a cell is laid against a full block below it or beside it -- the
 // world's, or a cell laid before it -- and never while a cell below it in its column is open ----
@@ -125,7 +133,7 @@ const scenControl = (F = FC) => {
   assert.deepStrictEqual(w.order, [[4, G, 4]])
   const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW })
   assert.strictEqual(fx.rec, null, 'nothing to repair: the record is not touched')
-  assert.deepStrictEqual(fx.n, { ext: 0, add: 0, deep: 0, drop: 0, back: 0, left: 0, why: {} })
+  assert.deepStrictEqual(fx.n, N({ ext: 0, add: 0, deep: 0, drop: 0, back: 0, left: 0, total: 0, why: {} }))
   // the refresh with the switch on and off: the very same result (the merge's own object)
   const a = refresh(srv, r0, ON, F), b = refresh(srv, r0, OFF, F)
   assert.strictEqual(a.res, a.m); assert.strictEqual(b.res, b.m)
@@ -176,7 +184,7 @@ const scenDone = (F = FC) => {
   srv.set([4, G + 3, 4], 'dirt')
   const fx = F.columnRepair(r, srv.read, { done: done(srv), now: NOW })
   assert.strictEqual(fx.rec, null)
-  assert.deepStrictEqual(fx.n, { ext: 0, add: 0, deep: 0, drop: 0, back: 0, left: 0, why: {} })
+  assert.deepStrictEqual(fx.n, N({ ext: 0, add: 0, deep: 0, drop: 0, back: 0, left: 0, total: 0, why: {} }))
 }
 await t('a laid cell is never judged (control: the same cell open)', () => scenDone())
 
@@ -201,13 +209,14 @@ const scenBug = (F = FC) => {
   // would stand free above that ground, is left out
   const on = refresh(srv, r0, ON, F)
   assert.deepStrictEqual(on.m, off.m, 'the merge is the same')
-  assert.deepStrictEqual(on.fx.n, { ext: 1, add: 2, deep: 0, drop: 1, back: 0, left: 0, why: { bare: 1 } })
+  assert.deepStrictEqual(on.fx.n, N({ ext: 1, add: 2, deep: 0, drop: 1, back: 0, left: 0, total: 2, why: { bare: 1 } }))
   assert.deepStrictEqual(keys(on.fx.added), [xyz(4, G - 2, 4), xyz(4, G - 1, 4)])
   for (const c of on.fx.added) assert.deepStrictEqual({ role: c.role, seg: c.seg, ext: c.ext, added: c.added }, { role: 'core', seg, ext: true, added: NOW + HOUR })
   assert.strictEqual(on.rec.waived[xyz(4, G, 4)].why, 'fillcolumn:bare')
   assert.deepStrictEqual(on.fx.dropped, [{ k: xyz(4, G, 4), why: 'fillcolumn:bare' }])
   assert.strictEqual(on.rec.cells.length, r0.cells.length + 2)
   assert.strictEqual(on.rec.bom.earth, r0.bom.earth + 2)
+  assert.deepStrictEqual(on.rec.fillcol, { add: 2, left: 0, cols: { '4,4': [2, G - 2] } }, 'the ledger: two cells ever added to this column, the lowest at G-2')
   assert.ok(on.rec.segments.some(s => s.seg === seg), 'the added cells\' segment is the record\'s own')
   assert.strictEqual(r0.cells.length, 1); assert.strictEqual(r0.waived, undefined, 'the record given is never mutated')
   const w = walk(on.rec, srv, F)
@@ -241,7 +250,7 @@ const scenPillar = (F = FC) => {
   dugRound(srv, { ring: 9, under: 2 })
   assert.deepStrictEqual(walk(r0, srv, F).leftK, [xyz(4, G, 4)])
   const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW })
-  assert.deepStrictEqual(fx.n, { ext: 0, add: 0, deep: 0, drop: 1, back: 0, left: 0, why: { bare: 1 } })
+  assert.deepStrictEqual(fx.n, N({ ext: 0, add: 0, deep: 0, drop: 1, back: 0, left: 0, total: 0, why: { bare: 1 } }))
   assert.strictEqual(fx.rec.cells.length, 1, 'no cell added: nothing would stand IN the ground')
   assert.deepStrictEqual(walk(fx.rec, srv, F).leftK, [])
 }
@@ -256,7 +265,7 @@ const scenWide = (F = FC) => {
   const r0 = rec(cs)
   assert.strictEqual(walk(r0, srv, F).leftK.length, 9)
   const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW })
-  assert.deepStrictEqual(fx.n, { ext: 9, add: 18, deep: 0, drop: 9, back: 0, left: 0, why: { bare: 9 } })
+  assert.deepStrictEqual(fx.n, N({ ext: 9, add: 18, deep: 0, drop: 9, back: 0, left: 0, total: 18, why: { bare: 9 } }))
   assert.ok(keys(fx.added).includes(xyz(4, G - 2, 4)) && keys(fx.added).includes(xyz(4, G - 1, 4)), 'the centre column too')
   const w = walk(fx.rec, srv, F)
   assert.deepStrictEqual(w.leftK, [])
@@ -291,13 +300,13 @@ const leftOut = (fx, why, extra = {}) => {
 const scenDeep = (F = FC) => {
   // the control: the floor 5 below the cell (4 missing cells: the cap) is filled; one deeper is a cavity, left out and counted
   const ok = one(F, srv => dugRound(srv, { ring: 1, under: 4 }))
-  assert.deepStrictEqual(ok.fx.n, { ext: 1, add: 4, deep: 0, drop: 1, back: 0, left: 0, why: { bare: 1 } })
+  assert.deepStrictEqual(ok.fx.n, N({ ext: 1, add: 4, deep: 0, drop: 1, back: 0, left: 0, total: 4, why: { bare: 1 } }))
   assert.deepStrictEqual(walk(ok.fx.rec, ok.srv, F).leftK, [])
   const deep = one(F, srv => dugRound(srv, { ring: 1, under: 5 }))
-  leftOut(deep.fx, 'deep', { deep: 1 })
+  leftOut(deep.fx, 'budget', { deep: 1 })
   assert.deepStrictEqual(walk(deep.fx.rec, deep.srv, F).leftK, [], 'left out: nothing planned in mid-air')
 }
-await t('a hole deeper than the cap is left out and counted `deep` (control: a hole at the cap is filled, 4 cells)', () => scenDeep())
+await t('a hole deeper than the column\'s budget (4 cells) is left out and counted (control: a hole at the budget is filled, 4 cells)', () => scenDeep())
 const scenColumnMax = (F = FC) => {
   // a column of three open cells (a hole 3 deep, planned whole) whose floor is dug: 3 + 3 missing = 6 is the most a column holds
   const mk = under => {
@@ -336,30 +345,32 @@ const scenGuard = (F = FC) => {
 }
 await t('a hole whose lower cells are another record\'s, or in a protected zone: left out `guarded` (control: a solid bottom of another record is a floor)', () => scenGuard())
 const scenReserved = (F = FC) => {
-  const a = one(F, srv => dugRound(srv), { reserved: (x, z) => x === 4 && z === 4 })
-  leftOut(a.fx, 'reserved')
-  // a cell left out for a reservation never comes back on the ground's say-so (the test above: a `bare` cell does)
+  const a = one(F, srv => dugRound(srv), { keepOff: (x, z) => (x === 4 && z === 4 ? 'reserved' : null) })
+  leftOut(a.fx, 'excluded')
+  // a cell left out for whose ground it is never comes back on the ground's say-so (the test above: a `bare` cell does)
   a.srv.set([4, G - 1, 4], 'cobblestone'); a.srv.set([5, G, 4], 'dirt')
-  assert.strictEqual(F.columnRepair(a.fx.rec, a.srv.read, { done: done(a.srv), now: NOW + HOUR, reserved: (x, z) => x === 4 && z === 4 }).n.back, 0)
+  assert.strictEqual(F.columnRepair(a.fx.rec, a.srv.read, { done: done(a.srv), now: NOW + HOUR, keepOff: (x, z) => (x === 4 && z === 4 ? 'reserved' : null) }).n.back, 0)
   assert.strictEqual(F.columnRepair({ ...a.fx.rec, waived: { [xyz(4, G, 4)]: { why: 'fillcolumn:deep' } } }, a.srv.read, { done: done(a.srv), now: NOW + HOUR }).n.back, 1, 'the control: the same ground, a `deep` cell comes back')
-  assert.strictEqual(one(F, srv => dugRound(srv), { reserved: (x, z) => x === 9 && z === 9 }).fx.n.add, 2, 'the control: a reservation elsewhere')
+  assert.strictEqual(one(F, srv => dugRound(srv), { keepOff: (x, z) => (x === 9 && z === 9 ? 'reserved' : null) }).fx.n.add, 2, 'the control: an exclusion elsewhere')
 }
-await t('a column in a reservation sited since: left out `reserved` (control: a reservation elsewhere)', () => scenReserved())
+await t('a column the exclusions name: left out `excluded`, and it never comes back (control: an exclusion elsewhere)', () => scenReserved())
 const scenUnreadBelow = (F = FC) => {
   const { srv, r0 } = holeScene()
   dugRound(srv)
   const blind = (x, y, z) => (x === 4 && y === G - 2 && z === 4 ? null : srv.read(x, y, z))
   const fx = F.columnRepair(r0, blind, { done: q => cellDone(blind(...q.at), T.TIDY_PALETTE, q.role), now: NOW })
-  assert.strictEqual(fx.rec, null, 'an unread cell on the way down: no evidence, nothing changed')
-  assert.deepStrictEqual(fx.n, { ext: 0, add: 0, deep: 0, drop: 0, back: 0, left: 1, why: {} })
+  assert.deepStrictEqual(fx.n, N({ left: 1, wait: { unread: 1 } }))
+  assert.deepStrictEqual(fillK(fx.rec), fillK(r0), 'an unread cell on the way down: no evidence, no cell added')
+  assert.strictEqual(fx.rec.waived, undefined, 'and nothing left out')
+  assert.deepStrictEqual(fx.rec.fillcol, { add: 0, left: 1, cols: {} }, 'only the ledger says one cell is unresolved (the visit\'s hold reads it)')
 }
 await t('an unread cell on the way to the floor: the column waits for the next refresh (nothing added, nothing left out, counted `left`)', () => scenUnreadBelow())
 const scenPage = (F = FC) => {
   const { srv, r0 } = holeScene()
   dugRound(srv)
   const full = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, T: { ...F.FILLCOLUMN, refreshMax: 1 } })
-  assert.strictEqual(full.rec, null, 'the page is full: the column waits')
-  assert.strictEqual(full.n.left, 1)
+  assert.deepStrictEqual(full.n, N({ left: 1, wait: { cap: 1 } }), 'the page is full: the column waits')
+  assert.deepStrictEqual(fillK(full.rec), fillK(r0)); assert.strictEqual(full.rec.waived, undefined)
   assert.strictEqual(F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, T: { ...F.FILLCOLUMN, refreshMax: 2 } }).n.add, 2, 'the control: room for both')
 }
 await t('at most refreshMax cells a refresh: a column that does not fit waits whole (control: it fits)', () => scenPage())
@@ -383,6 +394,232 @@ const scenSpecial = (F = FC) => {
 }
 await t('a column with its own bookkeeping (a hollow under a cut, a plot, a prep, a floor repair, a dam) is never repaired or held (control: untagged)', () => scenSpecial())
 
+say('r2 BLOCKER 1: THE SURVEY\'S OWN EXCLUSIONS (a volume sited since the survey), and closed when they cannot be read')
+// the refresh's survey as skills.mjs tidyRefresh runs it, with the town's exclusions built by the REAL builders (paths.mjs pathAvoid,
+// shop.mjs recordZones, tidy.mjs tidyAvoid): its result carries the predicate it used (`keepOff`)
+const surveyOf = (srv, { busy = null, caps = [], plinth = [], records = [], reserved = () => false, yard = [] } = {}, TM = T) => {
+  const avoid = TM.tidyAvoid(PATHS.pathAvoid({ caps, plinth, records, home: HOME }), SHOP.recordZones(records))
+  return TM.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: INWALL, env: ENV, cells: new Set(), avoid, reserved, terrace: { wall: WALL, records: yard, climbs: [] }, planned: busy, now: NOW })
+}
+// each kind of volume, once over the deepened column (4,4) and once just beside it
+const VOLUMES = [
+  ['a well (its cap, Chebyshev 3)', { caps: [[7, G, 4]] }, { caps: [[8, G, 4]] }],
+  ['the junk well (its plinth\'s columns + 1)', { plinth: [[5, G, 4]] }, { plinth: [[6, G, 4]] }],
+  ['the shaft\'s entrance (its record\'s box + gap)', { records: [{ plot: 'shaft', box: [7, 2, 9, 6], cells: [] }] }, { records: [{ plot: 'shaft', box: [8, 2, 10, 6], cells: [] }] }],
+  ['the step well\'s pit (its record\'s box + gap)', { records: [{ plot: 'stepwell', box: [5, 5, 9, 9], cells: [] }] }, { records: [{ plot: 'stepwell', box: [8, 8, 12, 12], cells: [] }] }],
+  ['a building\'s interior (inside its record\'s box, on none of its cells)', { records: [{ plot: 'townhall', box: [2, 2, 8, 8], cells: [{ at: [2, G + 1, 2] }, { at: [8, G + 1, 8] }] }] }, { records: [{ plot: 'townhall', box: [8, 8, 14, 14], cells: [{ at: [8, G + 1, 8] }, { at: [14, G + 1, 14] }] }] }],
+  ['a reserved plot', { reserved: (x, z) => x >= 3 && x <= 6 && z >= 3 && z <= 6 }, { reserved: (x, z) => x >= 5 && x <= 8 && z >= 3 && z <= 6 }],
+  ['the stock yard (its record\'s cells + 2)', { yard: [{ plot: 'yard', cells: [{ at: [6, G + 1, 4] }] }] }, { yard: [{ plot: 'yard', cells: [{ at: [7, G + 1, 4] }] }] }],
+]
+const scenVolumes = (F = FC, TM = T) => {
+  for (const [name, inside, beside] of VOLUMES) {
+    const run = vol => {
+      const { srv, r0 } = holeScene()
+      dugRound(srv)
+      const s = surveyOf(srv, { busy: TR.openColumns(r0, srv.read, { done: done(srv) }), ...vol }, TM)
+      assert.strictEqual(typeof s.keepOff, 'function', 'the survey hands its exclusions on')
+      return { s, fx: F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: s.keepOff, closed: F.repairClosed({ keepOff: s.keepOff, unread: [] }) }) }
+    }
+    const a = run(inside)
+    assert.ok(a.s.keepOff(4, 4), `${name}: the survey keeps off the column`)
+    assert.strictEqual(a.fx.n.add, 0, `${name}: no cell is added into it`)
+    assert.strictEqual(a.fx.rec.cells.length, 1, name)
+    assert.deepStrictEqual(a.fx.dropped, [{ k: xyz(4, G, 4), why: 'fillcolumn:excluded' }], name)
+    const b = run(beside)
+    assert.strictEqual(b.s.keepOff(4, 4), null, `${name}, just beside: the column is free`)
+    assert.strictEqual(b.fx.n.add, 2, `${name}, just beside: the POSITIVE CONTROL -- the column is repaired`)
+  }
+}
+await t('a deepened column inside a well, the junk well, the shaft, the step well, a building, a reserved plot, the yard gets NO added cell (control: the same column just beside each one does)', () => scenVolumes())
+const scenClosed = (F = FC) => {
+  // every record the exclusions are built from is read strictly: unreadable, a rejected newest generation, a read that throws
+  const heads = { wall: { ok: true, head: { gen: 3 }, gens: [1, 2, 3], rejected: [] }, shaft: { ok: false }, townhall: { ok: true, head: { gen: 1 }, gens: [1, 2], rejected: [{ gen: 2 }] }, land: { ok: true, head: null, gens: [], rejected: [] } }
+  assert.deepStrictEqual(F.exclUnread(['wall', 'shaft', 'townhall', 'land', 'storehub'], p => { if (p === 'storehub') throw new Error('EIO'); return heads[p] }), ['shaft', 'townhall', 'storehub'])
+  assert.deepStrictEqual(F.exclUnread(['wall', 'land'], p => heads[p]), [], 'the control: read (a project with no record at all is read, and empty)')
+  const { srv, r0 } = holeScene()
+  dugRound(srv)
+  const s = surveyOf(srv, {})
+  assert.strictEqual(F.repairClosed({ keepOff: s.keepOff, unread: [] }), null)
+  assert.strictEqual(F.repairClosed({ keepOff: s.keepOff, unread: ['shaft'] }), 'excl_unread:shaft')
+  assert.strictEqual(F.repairClosed({ keepOff: null, unread: [] }), 'no_exclusions', 'no survey, no exclusions: closed')
+  // an unreadable project record: NOTHING is added, nothing left out, it is counted, and the row says so
+  const closed = F.repairClosed({ keepOff: s.keepOff, unread: ['shaft'] })
+  const m = TR.refreshMerge(r0, null, { now: NOW })
+  const { res, fx } = F.refreshRepair(m, r0, srv.read, { done: done(srv), now: NOW, keepOff: s.keepOff, closed }, ON)
+  assert.deepStrictEqual(fx.n, N({ left: 1, closed: 1 }))
+  assert.deepStrictEqual(fillK(res.rec), fillK(r0)); assert.strictEqual(res.rec.waived, undefined)
+  assert.strictEqual(F.repairNote(fx.n, closed), 'closed:excl_unread:shaft')
+  assert.strictEqual(F.floatHold({ ...res.rec, sitedAt: NOW }, srv.read, { done: done(srv), now: NOW + 1, env: ON }).size, 0, 'and the cell is not hidden: no hold while the repair is closed')
+  // the control: the same refresh with everything read
+  assert.strictEqual(F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, keepOff: s.keepOff, closed: F.repairClosed({ keepOff: s.keepOff, unread: [] }) }).n.add, 2)
+  // a repair that THROWS (a reader that fails) repaired nothing: the ledger says so, and the hold is off (no cell hidden behind it)
+  const boom = F.refreshRepair(m, { ...r0, sitedAt: NOW }, () => { throw new Error('reader down') }, { done: () => false, now: NOW, keepOff: s.keepOff }, ON)
+  assert.strictEqual(boom.fx.n.closed, 1); assert.strictEqual(boom.fx.err, 'reader down')
+  assert.deepStrictEqual(boom.res.rec.fillcol, { add: 0, left: 1, cols: {} })
+  assert.deepStrictEqual(fillK(boom.res.rec), fillK(r0))
+  assert.strictEqual(F.floatHold(boom.res.rec, srv.read, { done: done(srv), now: NOW + 1, env: ON }).size, 0)
+  assert.strictEqual(F.floatHold({ ...r0, sitedAt: NOW }, srv.read, { done: done(srv), now: NOW + 1, env: ON }).size, 1, 'the control: before the failed repair the cell was held')
+  // closed: a cell left out earlier does not come back either
+  const lo = rec([cell(4, G + 3, 4)], { waived: { [xyz(4, G + 3, 4)]: { why: 'fillcolumn:bare' } } })
+  srv.set([4, G + 2, 4], 'dirt'); srv.set([5, G + 3, 4], 'dirt')
+  assert.strictEqual(F.columnRepair(lo, srv.read, { done: done(srv), now: NOW, closed }).n.back, 0)
+  assert.strictEqual(F.columnRepair(lo, srv.read, { done: done(srv), now: NOW }).n.back, 1)
+}
+await t('an unreadable project record (or its newest generation rejected, or a read that throws): the repair is closed -- nothing added, nothing left out, counted, on the row (control: all read)', () => scenClosed())
+
+say('r2 BLOCKER 2: THE LEDGER -- a column dug, filled and dug again stops at its budget; a record at its lifetime cap')
+const scenBudget = (F = FC) => {
+  const { srv, r0 } = holeScene()
+  const fix = (r, T = F.FILLCOLUMN) => F.columnRepair(r, srv.read, { done: done(srv), now: NOW, T })
+  const lay = (...ys) => { for (const y of ys) srv.set([4, y, 4], 'cobblestone') }
+  // refresh 1: the floor two down
+  dugRound(srv, { ring: 1, under: 2 })
+  let fx = fix(r0)
+  assert.deepStrictEqual(keys(fx.added), [xyz(4, G - 2, 4), xyz(4, G - 1, 4)])
+  let r = fx.rec
+  // the visits lay them; the bots dig them out again, two deeper, and the ground round the column with them
+  lay(G - 2, G - 1)
+  for (const [dx, dz] of N8) dig(srv, 4 + dx, 4 + dz, 3)
+  for (let y = G - 1; y >= G - 4; y--) air(srv, 4, y, 4)
+  fx = fix(r)
+  assert.deepStrictEqual(keys(fx.added), [xyz(4, G - 4, 4), xyz(4, G - 3, 4)], 'refresh 2: two more, the column\'s budget of 4 is spent')
+  r = fx.rec
+  assert.deepStrictEqual(r.fillcol, { add: 4, left: 0, cols: { '4,4': [4, G - 4] } })
+  assert.strictEqual(fx.n.total, 4)
+  // ...and again: the budget is the column's for good, whatever is open now (the old caps counted open cells only)
+  lay(G - 4, G - 3)
+  for (const [dx, dz] of N8) dig(srv, 4 + dx, 4 + dz, 5)
+  for (let y = G - 3; y >= G - 6; y--) air(srv, 4, y, 4)
+  const wide = { ...F.FILLCOLUMN, depthMax: 99, floorDy: 99 }   // (the depth bounds set aside: the budget alone)
+  fx = fix(r, wide)
+  assert.strictEqual(fx.n.add, 0, 'refresh 3: the column stops at its budget')
+  assert.strictEqual(fx.n.deep, 1, 'left out, counted')
+  assert.strictEqual(fx.n.why.budget, 1)
+  assert.strictEqual(fx.rec.waived[xyz(4, G - 4, 4)].why, 'fillcolumn:budget')
+  assert.strictEqual(fix(r).n.add, 0, 'the same with every bound on')
+  r = fx.rec
+  assert.deepStrictEqual(r.fillcol.cols, { '4,4': [4, G - 4] }); assert.strictEqual(r.fillcol.add, 4)
+  // many more refreshes of digging: not one more cell, ever
+  for (let i = 0; i < 6; i++) {
+    for (let y = G - 7 - i; y >= G - 8 - i; y--) air(srv, 4, y, 4)
+    const f2 = fix(r, wide)
+    assert.strictEqual(f2.n.add, 0, `refresh ${4 + i}`)
+    r = f2.rec ?? r
+  }
+  assert.strictEqual(r.cells.filter(c => c.ext).length, 4, 'four cells added to the column in all')
+  assert.ok(Math.min(...r.cells.map(c => c.at[1])) >= G - 4)
+}
+await t('dig, fill, dig, fill over nine refreshes: the column gets 4 cells in all, then is left out `budget` (the ledger is on the record)', () => scenBudget())
+const scenFloor = (F = FC) => {
+  // never under the survey's own scan floor (home.y - TIDY.dy): here the floor raised to home.y - 2 = G - 1
+  const { srv, r0 } = holeScene()
+  dugRound(srv)
+  const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, T: { ...F.FILLCOLUMN, floorDy: 2 } })
+  leftOut(fx, 'deep', { deep: 1 })
+  assert.strictEqual(F.columnRepair(r0, srv.read, { done: done(srv), now: NOW }).n.add, 2, 'the control: the survey\'s own floor (home.y - 14) is far below')
+  assert.deepStrictEqual([F.FILLCOLUMN.addMax, F.FILLCOLUMN.depthMax, F.FILLCOLUMN.floorDy], [Math.max(T.INWALL.holeMax, (await0.ROUGH).fillMax), T.TIDY.pitDepthMax, T.TIDY.dy], 'the bounds ARE the survey\'s constants')
+}
+const await0 = { ROUGH: (await import('../src/roughground.mjs')).ROUGH }
+await t('no cell under the survey\'s scan floor (control: the real floor); the bounds are the survey\'s own constants', () => scenFloor())
+const scenLifetime = (F = FC) => {
+  // two dug-out columns; the record may take 3 added cells in its life: the nearer column gets its 2, the other waits
+  const mk = () => { const srv = server(); air(srv, 4, G, 4); air(srv, -12, G, 0); const r0 = site(srv); dugRound(srv); dugRound(srv, { cx: -12, cz: 0 }); return { srv, r0 } }
+  const { srv, r0 } = mk()
+  const small = { ...F.FILLCOLUMN, recMin: 3, recShare: 0 }
+  assert.strictEqual(F.repairAddMax(r0, small), 3)
+  const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, T: small })
+  assert.deepStrictEqual(fx.n, N({ ext: 1, add: 2, drop: 1, left: 1, total: 2, wait: { rec_cap: 1 }, why: { bare: 1 } }))
+  assert.deepStrictEqual(keys(fx.added), [xyz(4, G - 2, 4), xyz(4, G - 1, 4)])
+  assert.ok(!fx.rec.waived[xyz(-12, G, 0)], 'at the cap the other column is simply not repaired: nothing is waived')
+  assert.strictEqual(fx.rec.fillcol.add, 2)
+  assert.strictEqual(F.repairTotal(fx.n, fx.rec, small), 'fcadd2/3', 'the count and the cap, for the row')
+  assert.strictEqual(F.repairNote(fx.n), 'wait:rec_cap1')
+  assert.strictEqual(F.floatHold({ ...fx.rec, sitedAt: NOW }, srv.read, { done: done(srv), now: NOW + 1, env: ON }).size, 0, 'and its cell is not hidden: no hold while a column waits')
+  // the count is the record's for good: the next refresh adds nothing either
+  const again = F.columnRepair(fx.rec, srv.read, { done: done(srv), now: NOW + HOUR, T: small })
+  assert.strictEqual(again.n.add, 0); assert.strictEqual(again.n.total, 2); assert.deepStrictEqual(again.n.wait, { rec_cap: 1 })
+  // a record already at its cap: nothing; the control, the real cap: both columns
+  const b = mk()
+  assert.strictEqual(F.columnRepair({ ...b.r0, fillcol: { add: 3, left: 0, cols: {} } }, b.srv.read, { done: done(b.srv), now: NOW, T: small }).n.add, 0)
+  assert.strictEqual(F.columnRepair(b.r0, b.srv.read, { done: done(b.srv), now: NOW }).n.add, 4)
+  // a record from before the ledger reads zero, whatever stands in the field
+  for (const old of [{}, { fillcol: null }, { fillcol: 'x' }, { fillcol: { cols: [1, 2] } }, { fillcol: { add: -5, left: 'no' } }]) assert.deepStrictEqual(F.repairLedger(old), { add: 0, left: 0, cols: {} })
+  assert.deepStrictEqual(F.repairLedger({ fillcol: { add: '7', left: 2, cols: { '1,2': [3, 60] } } }), { add: 7, left: 2, cols: { '1,2': [3, 60] } })
+  assert.strictEqual(F.repairAddMax(rec([])), 48); assert.strictEqual(F.repairAddMax(rec(Array.from({ length: 6020 }, (_, i) => cell(i, 0, 0)))), 602)
+  assert.strictEqual(F.repairAddMax(rec([cell(0, 0, 0), cell(1, 0, 0, { ext: true }), cell(2, 0, 0, { prev: true })]), { ...F.FILLCOLUMN, recMin: 0, recShare: 1 }), 1, 'the share is of the SURVEYED fills: an added cell buys no room')
+}
+await t('the record\'s lifetime cap: at it a column is not repaired and nothing is waived; the count is on the record and the row; an old record reads zero', () => scenLifetime())
+
+say('r2 BLOCKER 3: THE REPAIR\'S WAIVERS ARE NOT THE STUCK WAIVER\'S -- its room is whole, the repair has its own cap')
+const scenRoom = ({ W = WALLM, GK = GKWM, PA = PAM } = {}) => {
+  // 40 fills, 13 of them left out by the column repair (32%: over the 25% rule), 1 deferred and stuck for good
+  const cs = Array.from({ length: 40 }, (_, i) => cell(40 + i, G, 40))
+  const k = i => xyz(40 + i, G, 40)
+  const waivedBy = why => Object.fromEntries(Array.from({ length: 13 }, (_, i) => [k(i), { why, at: 1, by: 'A' }]))
+  const mine = rec(cs, { waived: { ...waivedBy('fillcolumn:bare'), [k(13)]: { why: 'fillcolumn:rests_on 1,2,3' } }, reach: { state: 'proven', pu: [k(20)] } })
+  const stuck = { ...mine, waived: waivedBy('no_stand') }
+  const def = [{ k: k(20), why: 'no_stand', visits: 9 }]
+  // every counter of the waiver's room, the real one: with the repair's entries the room is WHOLE; the control: as many stuck waivers spend it
+  assert.strictEqual(WR.stuckWaivedN(mine.waived), 0); assert.strictEqual(WR.repairWaivedN(mine.waived), 14)
+  assert.strictEqual(WR.stuckWaivedN(stuck.waived), 13); assert.strictEqual(WR.repairWaivedN(stuck.waived), 0)
+  assert.deepStrictEqual(W.wallWaiveDue(mine, def, T.gkWaiveOpts(mine, W.WALL_WAIVE_MAX)).map(d => d.k), [k(20)], 'wallWaiveDue (the visit\'s waiver)')
+  assert.deepStrictEqual(W.wallWaiveDue(stuck, def, T.gkWaiveOpts(stuck, W.WALL_WAIVE_MAX)), [])
+  assert.deepStrictEqual(GK.stallWaive(mine, def, { stalled: true }).map(d => d.k), [k(20)], 'stallWaive (the 25% rule)')
+  assert.deepStrictEqual(GK.stallWaive(stuck, def, { stalled: true }), [])
+  assert.deepStrictEqual(GK.leftWaiveDue(mine, new Map([[k(20), 3]]), [k(20)]).map(d => d.k), [k(20)], 'leftWaiveDue (the 25% rule)')
+  assert.deepStrictEqual(GK.leftWaiveDue(stuck, new Map([[k(20), 3]]), [k(20)]), [])
+  assert.deepStrictEqual(PA.puWaiveDue(mine, [k(20)], { confirm: () => true }).map(d => d.k), [k(20)], 'puWaiveDue (the 25% rule)')
+  assert.deepStrictEqual(PA.puWaiveDue(stuck, [k(20)], { confirm: () => true }), [])
+}
+await t('a record whose fillcolumn omissions exceed 25%: wallWaiveDue, stallWaive, leftWaiveDue and puWaiveDue still have their full room (control: as many stuck waivers spend it)', () => scenRoom())
+const scenDependentsRoom = (F = FC) => {
+  // the stuck waiver names a lower cell; the cell resting on it goes with it -- under the repair's reason, so the stuck count does
+  // not move, and at the repair's own cap it does not go (it stays open: deferred and counted like any cell)
+  const srv = server()
+  dig(srv, 4, 4, 2)
+  for (const [dx, dz] of N8) dig(srv, 4 + dx, 4 + dz, 1)
+  const r0 = rec([cell(4, G - 1, 4, { role: 'core' }), cell(4, G, 4)])
+  const due = [{ k: xyz(4, G - 1, 4), why: 'no_stand' }]
+  const rests = F.waiveRests(r0, due, srv.read, { done: done(srv), env: ON })
+  assert.strictEqual(rests.length, 1)
+  const w = Object.fromEntries([...due, ...rests].map(d => [d.k, { why: d.why }]))
+  assert.strictEqual(WR.stuckWaivedN(w), 1, 'one stuck waiver, whatever rested on it')
+  assert.strictEqual(WR.repairWaivedN(w), 1)
+  // the repair's cap (here 12: the record is small) already spent: no dependent is waived
+  const full = { ...r0, waived: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [xyz(90 + i, G, 90), { why: 'fillcolumn:bare' }])) }
+  assert.strictEqual(F.repairOutMax(r0), 12)
+  assert.deepStrictEqual(F.waiveRests(full, due, srv.read, { done: done(srv), env: ON }), [])
+  const one0 = { ...full, waived: Object.fromEntries(Object.entries(full.waived).slice(0, 11)) }
+  assert.strictEqual(F.waiveRests(one0, due, srv.read, { done: done(srv), env: ON }).length, 1, 'the control: one place left')
+  // 12 STUCK waivers do not spend the repair's cap either (the two are counted apart both ways)
+  const other = { ...r0, waived: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [xyz(90 + i, G, 90), { why: 'no_stand' }])) }
+  assert.strictEqual(F.waiveRests(other, due, srv.read, { done: done(srv), env: ON }).length, 1)
+}
+await t('the dependents rule never moves the stuck count, and stops at the repair\'s own cap (control: one place left)', () => scenDependentsRoom())
+const scenOutCap = (F = FC) => {
+  // two columns the repair would leave out (the ground round each dug 9 down), room for ONE omission
+  const mk = () => { const srv = server(); air(srv, 4, G, 4); air(srv, -12, G, 0); const r0 = site(srv); dugRound(srv, { ring: 9 }); dugRound(srv, { ring: 9, cx: -12, cz: 0 }); return { srv, r0 } }
+  const { srv, r0 } = mk()
+  const one1 = { ...F.FILLCOLUMN, outMin: 1, outShare: 0 }
+  const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW, T: one1 })
+  assert.deepStrictEqual(fx.n, N({ drop: 1, left: 1, wait: { out_cap: 1 }, why: { bare: 1 } }))
+  assert.deepStrictEqual(Object.keys(fx.rec.waived), [xyz(4, G, 4)], 'the nearer one is left out; at the cap NOTHING more is waived')
+  // no cell is hidden: the other one is still open for the completion, named by the self-check, and NOT held by the visit
+  assert.strictEqual(F.planSelfCheck(fx.rec, srv.read, { done: done(srv), env: ON }).left, 1)
+  assert.strictEqual(F.floatHold({ ...fx.rec, sitedAt: NOW }, srv.read, { done: done(srv), now: NOW + 1, env: ON }).size, 0)
+  assert.strictEqual(F.openFills(fx.rec, { done: done(srv) }).length, 1)
+  // the control: the real cap -- both are left out
+  const b = mk()
+  assert.strictEqual(F.columnRepair(b.r0, b.srv.read, { done: done(b.srv), now: NOW }).n.drop, 2)
+  // a column that would get cells AND lose its top is not repaired at all at the cap: no cell added either
+  const c = holeScene()
+  dugRound(c.srv)
+  const f0 = F.columnRepair(c.r0, c.srv.read, { done: done(c.srv), now: NOW, T: { ...F.FILLCOLUMN, outMin: 0, outShare: 0 } })
+  assert.deepStrictEqual(f0.n, N({ left: 1, wait: { out_cap: 1 } }))
+  assert.deepStrictEqual(fillK(f0.rec), fillK(c.r0)); assert.strictEqual(f0.rec.waived, undefined)
+}
+await t('at the repair\'s own cap nothing more is left out, the column is not repaired, and its cell is not hidden (control: under the cap both are left out)', () => scenOutCap())
+
 say('THE WAIVER')
 const scenWaivedBelow = (F = FC) => {
   // the record's own lower cell was WAIVED (counted done, no block): the cell above it floats -- it is left out, never extended
@@ -392,7 +629,7 @@ const scenWaivedBelow = (F = FC) => {
   const r0 = rec([cell(4, G - 1, 4, { role: 'core' }), cell(4, G, 4)], { waived: { [xyz(4, G - 1, 4)]: { why: 'no_stand', at: 1, by: 'A' } } })
   assert.deepStrictEqual(walk(r0, srv, F).leftK, [xyz(4, G, 4)])
   const fx = F.columnRepair(r0, srv.read, { done: done(srv), now: NOW })
-  assert.deepStrictEqual(fx.n, { ext: 0, add: 0, deep: 0, drop: 1, back: 0, left: 0, why: { waived_below: 1 } })
+  assert.deepStrictEqual(fx.n, N({ ext: 0, add: 0, deep: 0, drop: 1, back: 0, left: 0, total: 0, why: { waived_below: 1 } }))
   assert.strictEqual(fx.rec.waived[xyz(4, G - 1, 4)].why, 'no_stand', 'the old waiver is kept as it was')
   assert.strictEqual(fx.rec.cells.length, 2, 'a waived cell is never added again')
 }
@@ -405,7 +642,7 @@ const scenWaiveRests = (F = FC) => {
   const r0 = rec([cell(4, G - 1, 4, { role: 'core' }), cell(4, G, 4)])
   assert.deepStrictEqual(walk(r0, srv, F).leftK, [], 'before the waiver the column is executable')
   const due = [{ k: xyz(4, G - 1, 4), why: 'no_stand' }]
-  assert.deepStrictEqual(F.waiveRests(r0, due, srv.read, { done: done(srv), env: ON }), [{ k: xyz(4, G, 4), why: `rests_on_waived ${xyz(4, G - 1, 4)}` }])
+  assert.deepStrictEqual(F.waiveRests(r0, due, srv.read, { done: done(srv), env: ON }), [{ k: xyz(4, G, 4), why: `fillcolumn:rests_on ${xyz(4, G - 1, 4)}` }])
   const w = { ...Object.fromEntries(due.map(d => [d.k, d])), ...Object.fromEntries(F.waiveRests(r0, due, srv.read, { done: done(srv), env: ON }).map(d => [d.k, d])) }
   assert.deepStrictEqual(walk({ ...r0, waived: w }, srv, F).leftK, [], 'after the decision nothing floats')
   assert.deepStrictEqual(walk({ ...r0, waived: Object.fromEntries(due.map(d => [d.k, d])) }, srv, F).leftK, [xyz(4, G, 4)], 'the control: the waiver alone leaves the cell above in mid-air')
@@ -450,6 +687,10 @@ const scenHold = (F = FC) => {
   assert.strictEqual(F.floatHold(r0, srv.read, { ...at, now: NOW + 2 * HOUR }).size, 0)
   assert.strictEqual(F.floatHold(r0, srv.read, { ...at, now: NOW + 2 * HOUR - 1 }).size, 1)
   assert.strictEqual(F.floatHold({ ...r0, sitedAt: NOW + 10 * HOUR }, srv.read, at).size, 0, 'a survey time in the future: not served')
+  // the last repair left a cell unresolved (a column that waits: unread, a cap, the exclusions unread): nothing is held -- every
+  // floating cell is deferred and counted again, none is hidden behind a repair that is not coming
+  assert.strictEqual(F.floatHold({ ...r0, fillcol: { add: 0, left: 1, cols: {} } }, srv.read, at).size, 0)
+  assert.strictEqual(F.floatHold({ ...r0, fillcol: { add: 5, left: 0, cols: {} } }, srv.read, at).size, 1, 'the control: nothing unresolved')
   // a record the refresh does not serve (another stage, a complete one, either switch off): nothing is held
   assert.strictEqual(F.floatHold({ ...r0, stageId: 'rim48' }, srv.read, at).size, 0)
   assert.strictEqual(F.floatHold({ ...r0, structure_complete: true }, srv.read, at).size, 0)
@@ -515,7 +756,10 @@ say('THE ROWS AND THE WIRING')
 await t('the refresh row\'s counts and the hold\'s reason survive the log formatter uncut', () => {
   const tag = FC.repairTag({ ext: 999, add: 999, deep: 999, drop: 9999, back: 999, left: 9999 })
   assert.strictEqual(tag, 'ext999/add999/deep999/drop9999/back999/left9999')
-  rowSurvives('_build', { project: 'tidy', op: 'refreshed', n: 12, kind: 'cut12/fill345/cols67/cap0', result: tag, why: 'busy:2,known:1', gen: 7 })
+  rowSurvives('_build', { project: 'tidy', op: 'refreshed', n: 12, kind: 'cut12/fill345/cols67/cap0', result: tag, to: FC.repairTotal({ total: 9999 }, rec(Array.from({ length: 99999 }, (_, i) => cell(i, 0, 0)))), st: FC.repairNote({ wait: { rec_cap: 999, out_cap: 999, unread: 999, cap: 999 } }), why: 'busy:2,known:1', gen: 7 })
+  rowSurvives('_build', { project: 'tidy', op: 'refreshed', result: tag, st: FC.repairNote({}, FC.repairClosed({ unread: ['wall', 'wallext', 'townhall', 'storehub', 'land', 'zones'] })) })
+  assert.strictEqual(FC.repairNote(N()), null); assert.strictEqual(FC.repairNote(N({ wait: { rec_cap: 2 } })), 'wait:rec_cap2')
+  assert.strictEqual(FC.repairNote(N(), 'excl_unread:shaft'), 'closed:excl_unread:shaft')
   rowSurvives('_build', { project: 'tidy', op: 'float_held', cell: [4, G, 4], n: 52, why: FC.HOLD_WHY })
   rowSurvives('_build', { project: 'tidy', op: 'waived', cell: [4, G, 4], gen: 7, why: 'fillcolumn:waived_below' })
   rowSurvives('_build', { project: 'tidy', op: 'sited', cell: [0, 70, 0], seg: 'stage3', n: 0, result: 'float0/2619', kind: 'pillars93/cut1106/pits201/fill2619/grade-:0+0', gen: 96 })
@@ -529,9 +773,9 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
   const s = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const LINES = [
     'res = refreshMerge(cur, fresh, { busy, guard, now })',
-    'try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], c?.zones ?? []), reserved: reservedNow, now, by: me })) } catch { fx = null }',
+    "try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], c?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }",
     'return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)',
-    '...(fx ? { result: repairTag(fx.n) } : {})',
+    '...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {})',
     "|| farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(',')))",
     'try { floatHeld = fillFloatHold(rec, read, { done: q => buildCellDone(read(...q.at), palette, q.role), guard }) } catch { floatHeld = new Set() }',
     'const floorDone = q => waivedK(q) || buildCellDone(read(...q.at), palette, q.role)',
@@ -539,6 +783,11 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
     'if (due.length) due.push(...waiveRests(rw, due, read2, { done: q => buildCellDone(read2(...q.at), palette, q.role), guard }))',
     'fcheck = planSelfCheck(body, rdc, { done: q => buildCellDone(rdc(...q.at), TIDY_PALETTE, q.role) })',
     "...(fcheck ? { result: `float${fcheck.left}/${fcheck.open}${fcheck.err ? '/err' : ''}` } : {})",
+    // r2: the exclusions are THIS refresh's survey's own, the records behind them read strictly, the repair closed when one is unread
+    'fcUnread = fillExclUnread([...projectsGuarded().map(p => p.plot), LAND_PLOT], pl => recordHead(dir, projKeyOf(pl)))',
+    "if (c?.zonesKnown === false) fcUnread.push('zones')",
+    "fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null",
+    'const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fcUnread })',
   ]
   const wired = src => LINES.every(l => src.split(l).length === 2) &&
     // the repair runs on the merge's result and before the stamp; the hold is filled before the visit's first done test
@@ -548,6 +797,14 @@ await t('skills.mjs (structural, comments stripped): the repair inside the refre
   assert.ok(!wired(s.replace(" || floatHeld.has(q.at.join(','))", '')), 'MUTANT: the hold not read by the visit still reads wired')
   assert.ok(!wired(s.replace(LINES[1], '')), 'MUTANT: the repair cut out of the publish still reads wired')
   assert.ok(!wired(s.replace(LINES[1], '').replace(LINES[2], `${LINES[2]}\n${LINES[1]}`)), 'MUTANT: the repair after the stamp still reads wired')
+  assert.ok(!wired(s.replace("fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null", 'fcKeepOff = I.avoid')), 'MUTANT: an exclusion rebuilt beside the survey\'s still reads wired')
+  // the four counters of the waiver's room read the stuck waivers only (waiveroom.mjs): nowhere the map's bare size
+  for (const [f, n] of [['wall.mjs', 1], ['gkwork.mjs', 2], ['planahead.mjs', 1]]) {
+    const src = strip(readFileSync(URL_OF(f), 'utf8'))
+    assert.strictEqual(src.split('stuckWaivedN(have)').length - 1, n, `${f}: the room counts stuck waivers`)
+    assert.ok(!/Object\.keys\(have\)\.length/.test(src), `${f}: no counter reads the waived map's bare size`)
+  }
+  assert.ok(/Object\.keys\(have\)\.length/.test(strip(readFileSync(URL_OF('sinks.mjs'), 'utf8'))), 'the control: the pattern is found where it stands (the sinks\' own records, never the tidy\'s)')
 })
 
 say('THE PROPERTY: random ground, random holes, random digging -- after every refresh the plan is executable')
@@ -642,8 +899,8 @@ await t('the repair, the hold and the self-check on a town-sized record: measure
 
 say('MUTANTS')
 await kills('the downward extension removed (no lower cell is ever added)', '        gap.push(q)\n', '', scenBug)
-await kills('the per-column depth cap removed (a 5-deep cavity is filled)', 'if (i > T.addMax || (openN.get(k) ?? 0) + i > T.depthMax)', 'if ((openN.get(k) ?? 0) + i > T.depthMax)', scenDeep)
-await kills('the column\'s total cap removed (a column of 7)', 'if (i > T.addMax || (openN.get(k) ?? 0) + i > T.depthMax)', 'if (i > T.addMax)', scenColumnMax)
+await kills('the column\'s budget removed (a 5-deep cavity is filled)', "        if (had + i > T.addMax) { why = 'budget'; break }\n", '', scenDeep)
+await kills('the depth under the surveyed top removed (a column of 7)', "        if (y - i < minY) { why = 'deep'; break }\n", '', scenColumnMax)
 await kills('the support test always true (nothing is ever floating)', 'const ready = ([x, y, z]) => S(x, y - 1, z) || SIDES.some(([dx, dz]) => S(x + dx, y, z + dz))', 'const ready = () => true', scenBug)
 await kills('the support test without the sides (a lid is called floating)', 'const ready = ([x, y, z]) => S(x, y - 1, z) || SIDES.some(([dx, dz]) => S(x + dx, y, z + dz))', 'const ready = ([x, y, z]) => S(x, y - 1, z)', scenOrder)
 await kills('the support test without the block below', 'const ready = ([x, y, z]) => S(x, y - 1, z) || SIDES.some(([dx, dz]) => S(x + dx, y, z + dz))', 'const ready = ([x, y, z]) => SIDES.some(([dx, dz]) => S(x + dx, y, z + dz))', scenOrder)
@@ -657,11 +914,12 @@ await kills('a cell kept with nothing beside it (a pillar is planned)', "if (!S(
 await kills('a cell kept this round holds nothing (not the cell over it, not the one beside it: a wide pit stays empty)', 'return kept.has(q) || reach.has(q) || support(x, y, z) }', 'return reach.has(q) || support(x, y, z) }', scenWide)
 await kills('water no longer stops the column', "        if (isLiquid(b) || String(b.name ?? '').includes('waterlogged')) { why = 'water'; break }\n", '', scenWater)
 await kills('another record\'s cell and the protected zone no longer stop the column', "        if (guard.has(qk) || !mayAdd(q)) { why = 'guarded'; break }\n", '', scenGuard)
-await kills('a reservation no longer stops the column', "let why = reserved(x, z) ? 'reserved' : null", 'let why = null', scenReserved)
-await kills('a cell left out for a reservation comes back', "if (!/^fillcolumn:(?!guarded$|reserved$)/.test(String(v?.why ?? ''))) return false", "if (!/^fillcolumn:/.test(String(v?.why ?? ''))) return false", scenReserved)
+await kills('the exclusions no longer stop the column', "let why = keepOff(x, z) ? 'excluded' : null", 'let why = null', scenReserved)
+await kills('a cell left out for whose ground it is comes back', "if (!/^fillcolumn:(?!guarded$|excluded$)/.test(String(v?.why ?? ''))) return false", "if (!/^fillcolumn:/.test(String(v?.why ?? ''))) return false", scenReserved)
+await kills('the hold while the last repair left cells unresolved (a cell hidden behind a repair that is not coming)', '  if (repairLedger(rec).left > 0) return false\n', '', scenHold)
 await kills('the repair asks the done test of the world once and then never again (a cell laid is read open)', 'if (v === undefined) { v = !!done(c); dm.set(k, v) } return v }', 'if (v === undefined) { v = false; dm.set(k, v) } return v }', scenDone)
 await kills('a waived cell under the column no longer stops it', "        if (hasOwn(w, qk)) { why = 'waived_below'; break }\n        if (known.has(qk)) { why = 'record_below'; break }\n", '', scenWaivedBelow)
-await kills('an unread cell on the way down read as a reason to leave the column out', "if (why === 'unread' || why === 'cap') { wait.add(k); continue }", "if (why === 'cap') { wait.add(k); continue }", scenUnreadBelow)
+await kills('an unread cell on the way down read as a reason to leave the column out', "if (why === 'unread' || why === 'cap' || why === 'rec_cap') { waits(k, why); continue }", "if (why === 'cap' || why === 'rec_cap') { waits(k, why); continue }", scenUnreadBelow)
 await kills('the page\'s bound removed', "      if (!why && gap.length > room) why = 'cap'\n", '', scenPage)
 await kills('a cell comes back with nothing beside it', 'return solidNow(x, y - 1, z) && SIDES.some(([dx, dz]) => solidNow(x + dx, y, z + dz))', 'return solidNow(x, y - 1, z)', scenBack)
 await kills('a column with its own bookkeeping is judged', 'left: po.left.filter(c => !sp.has(colOf(c.at))) }', 'left: po.left }', scenSpecial)
@@ -671,5 +929,31 @@ await kills('the hold with the refresh switched off', 'if (!fillColumnOn(env) ||
 await kills('the property: the repair leaves the cell above a left-out cell in mid-air', "      waive[lk] = { why: `fillcolumn:${why}`, at: now, by }\n", '', (M) => scenProperty(M, 3))
 
 for (const n of NOTES) console.log(`  NOTE  ${n}`)
+await kills('r2/1 the repair runs although the exclusions could not be read', '  if (closed) return { rec: out(rec), n, added, dropped }\n', '', scenClosed)
+await kills('r2/1 an unreadable record read as read', "if (!h?.ok || (h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))", "if ((h?.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))", scenClosed)
+await kills('r2/1 a rejected newest generation read as read', "if (!h?.ok || (h.rejected ?? []).some(r => r.gen === (h.gens ?? []).at(-1))) out.push(String(p))", 'if (!h?.ok) out.push(String(p))', scenClosed)
+await kills('r2/1 unread records do not close the repair', "  if ((unread ?? []).length) return `excl_unread:${unread.join('+')}`.slice(0, 40)\n", '', scenClosed)
+await kills('r2/1 no exclusions at all does not close the repair', "return typeof keepOff === 'function' ? null : 'no_exclusions'", 'return null', scenClosed)
+await kills('(a) a repair that throws leaves the hold up (a cell hidden behind a repair that cannot run)', 'fillcol: { add: led.add, left: Math.max(1, led.left), cols: led.cols } } : null, added: [], dropped: [],', 'fillcol: { add: led.add, left: led.left, cols: led.cols } } : null, added: [], dropped: [],', scenClosed)
+await kills('r2/1 the exclusions not asked (a well is filled)', "let why = keepOff(x, z) ? 'excluded' : null", 'let why = null', scenVolumes)
+await kills('r2/1 tidy.mjs: the survey hands on exclusions without `avoid` (wells, shafts, buildings)', "(noLitterK(x, z) ? 'no_litter' : reservedP(x, z) ? 'reserved' : (avoid(x, z) ?? null))", "(noLitterK(x, z) ? 'no_litter' : reservedP(x, z) ? 'reserved' : null)", TM => scenVolumes(FC, TM), URL_OF('tidy.mjs'))
+await kills('r2/1 tidy.mjs: ...without the reservations', "(noLitterK(x, z) ? 'no_litter' : reservedP(x, z) ? 'reserved' : (avoid(x, z) ?? null))", "(noLitterK(x, z) ? 'no_litter' : (avoid(x, z) ?? null))", TM => scenVolumes(FC, TM), URL_OF('tidy.mjs'))
+await kills('r2/1 tidy.mjs: ...without the yard', "(noLitterK(x, z) ? 'no_litter' : reservedP(x, z) ? 'reserved' : (avoid(x, z) ?? null))", "(reservedP(x, z) ? 'reserved' : (avoid(x, z) ?? null))", TM => scenVolumes(FC, TM), URL_OF('tidy.mjs'))
+await kills('r2/2 the column\'s lifetime budget removed (dig, fill, dig: extended for ever)', "        if (had + i > T.addMax) { why = 'budget'; break }\n", '', scenBudget)
+await kills('r2/2 the budget read from the open cells, not the ledger', 'const had = Math.max(0, Number(colsL[k]?.[0]) || 0)', 'const had = 0', scenBudget)
+await kills('r2/2 the ledger not written for the cells added', 'colsL[k] = [(Number(e?.[0]) || 0) + 1, ', 'colsL[k] = [0, ', scenBudget)
+await kills('r2/2 the scan floor removed', 'const minY = Math.max((colTop.get(k) ?? y) - (T.depthMax - 1), floorY)', 'const minY = (colTop.get(k) ?? y) - (T.depthMax - 1)', scenFloor)
+await kills('r2/2 the record\'s lifetime cap removed', "      if (!why && gap.length > recRoom) why = 'rec_cap'\n", '', scenLifetime)
+await kills('r2/2 the lifetime count forgotten between refreshes', 'let room = T.refreshMax - added.length, recRoom = recMax - led.add - added.length', 'let room = T.refreshMax - added.length, recRoom = recMax - added.length', scenLifetime)
+await kills('r2/3 wall.mjs: the room counts every waived entry', 'let room = max - stuckWaivedN(have)', 'let room = max - Object.keys(have).length', M => scenRoom({ W: M }), URL_OF('wall.mjs'))
+await kills('r2/3 gkwork.mjs stallWaive: the room counts every waived entry', 'Math.ceil(G.stallShare * cells.size) - stuckWaivedN(have))', 'Math.ceil(G.stallShare * cells.size) - Object.keys(have).length)', M => scenRoom({ GK: M }), URL_OF('gkwork.mjs'))
+await kills('r2/3 gkwork.mjs leftWaiveDue: the room counts every waived entry', 'Math.ceil(share * size) - stuckWaivedN(have))', 'Math.ceil(share * size) - Object.keys(have).length)', M => scenRoom({ GK: M }), URL_OF('gkwork.mjs'))
+await kills('r2/3 planahead.mjs puWaiveDue: the room counts every waived entry', 'Math.ceil(P.share * size) - stuckWaivedN(have) - taken.size', 'Math.ceil(P.share * size) - Object.keys(have).length - taken.size', M => scenRoom({ PA: M }), URL_OF('planahead.mjs'))
+await kills('r2/3 the dependents waived under the stuck waiver\'s reason', "why: `fillcolumn:rests_on ${kOf(low.get(col))}` }); room--", "why: `rests_on_waived ${kOf(low.get(col))}` }); room--", scenDependentsRoom)
+await kills('r2/3 the dependents past the repair\'s cap', '    if (room <= 0) { cut.add(col); continue }   // never a cell over one that stays open\n', '', scenDependentsRoom)
+await kills('r2/3 the repair\'s cap counted with the stuck waivers', 'let room = repairOutMax(rec, T) - repairWaivedN(rec.waived)', 'let room = repairOutMax(rec, T) - Object.keys(rec.waived ?? {}).length', scenDependentsRoom)
+await kills('r2/3 the omissions\' cap removed (the repair leaves out without bound)', '        if (outRoom > 0) { outRoom--; continue }\n', '        if (outRoom > -Infinity) { outRoom--; continue }\n', scenOutCap)
+await kills('r2/3 at the cap the column still gets its cells (a bare top is then laid)', "        plan.delete(k); waits(k, 'out_cap'); over = true\n", "        waits(k, 'out_cap')\n", scenOutCap)
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

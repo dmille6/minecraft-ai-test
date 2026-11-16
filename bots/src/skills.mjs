@@ -198,7 +198,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
-import { refreshRepair, repairTag, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
+import { refreshRepair, repairTag, repairTotal, repairNote, repairClosed, exclUnread as fillExclUnread, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { litterOn, litterTally, litterIntake, handedBare, builtOnHeld, unreadDetail as litterUnreadDetail, builtOnDetail as litterBuiltOnDetail, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
 import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life
@@ -28667,10 +28667,14 @@ function stageSurveyInputs (bot, I, dir, signal) {
  */
 async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   const r0 = rh.head.rec
-  let s, read, cap = 0, guard, reservedNow = () => false
+  let s, read, cap = 0, guard, fcKeepOff = null, fcUnread = []
   try {
     const I = tidyInputs(bot, c, h, dir)
-    reservedNow = I.reserved   // fillcolumn-01: a reservation sited since (the repair adds no cell in its columns)
+    // fillcolumn-01 r2 (Codex blocker 1): the survey's exclusions are built from the other projects' records, the land plan and
+    // the zones, and projectHeads() SKIPS a head it cannot read -- so each is read STRICTLY here (fillcolumn.mjs exclUnread); one
+    // unread and the column repair is closed for this refresh (repairClosed): it adds nothing on exclusions nobody could read
+    fcUnread = fillExclUnread([...projectsGuarded().map(p => p.plot), LAND_PLOT], pl => recordHead(dir, projKeyOf(pl)))
+    if (c?.zonesKnown === false) fcUnread.push('zones')
     const si = stageSurveyInputs(bot, I, dir, signal)
     read = si.read
     const inK = landStages().find(q => q.id === 'inwall')?.k
@@ -28678,6 +28682,7 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
     const busy = openColumns(r0, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     s = await siteStage(read, { home: I.home, avoid: I.avoid, cells: I.cells, pin: I.pin, plan: I.plan, land: si.land, stage: inK, lim: gradeLim(read, 6), lights: si.lights, now: Date.now(), walkFrom: townEdge(I.plan, I.home), terrace: si.terrace, reserved: I.reserved, forest: forestRecNow(), planned: busy })
     cap = s?.survey?.rough?.skipped?.cap ?? 0
+    fcKeepOff = typeof s?.keepOff === 'function' ? s.keepOff : null   // fillcolumn-01 r2: THIS survey's own exclusions (tidy.mjs siteStage)
     guard = tidyGuardSet()   // the visit's own guard (one source)
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
@@ -28693,17 +28698,19 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   try { const pr = claimOn() ? plotRecordsNow() : null; claims = pr ? buildingClaims(pr) : [] } catch { claims = [] }
   // FILLCOLUMN-01 (fillcolumn.mjs refreshRepair): in the refresh's own generation, every open fill no order of work can lay (the
   // ground under it dug since its survey: the merge above never touches a column the record has) gets its missing lower cells, or is
-  // left out with a named reason -- never a cell in a protected zone, on a cell another record names, in a reservation sited since
+  // left out with a named reason -- never a cell in a column this refresh's survey keeps off (`fcKeepOff`: zones, the plan, wells,
+  // every project's columns and box, reservations), in a protected zone, on a cell another record names; closed when unread
   let fx = null
+  const fcClosed = repairClosed({ keepOff: fcKeepOff, unread: fcUnread })
   const pub = publishRecord(dir, key, cur => {
     if (!cur || cur.structure_complete || cur.sitedAt !== r0.sitedAt || !refreshDue(cur, { now })) return null
     const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     res = refreshMerge(cur, fresh, { busy, guard, now })
-    try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], c?.zones ?? []), reserved: reservedNow, now, by: me })) } catch { fx = null }
+    try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], c?.zones ?? []), keepOff: fcKeepOff ?? (() => 'closed'), closed: fcClosed, now, by: me })) } catch { fx = null }
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
-  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, ...(fx ? { result: repairTag(fx.n) } : {}), why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, ...(fx ? { result: repairTag(fx.n), to: repairTotal(fx.n, res?.rec ?? r0), ...(repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) ? { st: repairNote(fx.n, fcClosed ?? (fx.err ? `error:${fx.err}` : null)) } : {}) } : {}), why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
   // (a cell the repair left out is a waiver like any other: one `waived` row each, its reason on it)
   for (const d of fx?.dropped ?? []) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
   const h2 = recordHead(dir, key)

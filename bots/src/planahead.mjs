@@ -29,6 +29,7 @@
 //      plan, Claude B2) for a building's proof (buildsite.mjs proveSite `planned`).
 import { walkFrom, stepFor, overlay } from './buildsite.mjs'
 import { digStand } from './buildrun.mjs'
+import { stuckWaivedN } from './waiveroom.mjs'   // fillcolumn-01 r2: the waiver's room counts stuck waivers only
 import { COTTAGE_NAMES } from './homeplots.mjs'   // homes-01show: every cottage project's name (three without a layout)
 
 export const PA = Object.freeze({
@@ -165,7 +166,7 @@ export function puWaiveDue (rec, missed = [], { already = [], confirm = () => fa
   const have = rec?.waived ?? {}
   const size = (rec?.cells ?? []).length + (rec?.clear ?? []).length
   const taken = new Set((already ?? []).map(d => String(d?.k ?? d)))
-  let room = Math.min(P.waiveMax, Math.ceil(P.share * size) - Object.keys(have).length - taken.size)
+  let room = Math.min(P.waiveMax, Math.ceil(P.share * size) - stuckWaivedN(have) - taken.size)   // fillcolumn-01 r2 (waiveroom.mjs)
   const sealed = new Set((rec?.cells ?? []).filter(c => c?.opener && okAt(c.at)).map(c => kOf(c.at)))
   // only what a waiver is READ for: a record cell or a clear (a waived CUT is read by no done rule -- it would spend the room for nothing)
   const waivable = new Set([...(rec?.cells ?? []), ...(rec?.clear ?? [])].filter(q => okAt(q?.at)).map(q => kOf(q.at)))

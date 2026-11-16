@@ -33,6 +33,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { stuckWaivedN } from './waiveroom.mjs'   // fillcolumn-01 r2: the waivers' room counts stuck waivers only
 
 export const GKW = Object.freeze({
   emptyVisits: 3,               // strikes (empty visits, any bot, after the last visit that worked) that close a stage
@@ -129,7 +130,7 @@ export function stallWaive (rec, deferred = [], { stalled = false, waivedNow = 0
   // roughground-1b (Codex r1): a fill that names the cut opening it (`opener`: a hollow under a crust, a cave seal) is never waived
   const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light' && !c.opener).map(c => c.at.join(',')))
   const have = rec?.waived ?? {}
-  let room = Math.min(G.stallMax, Math.ceil(G.stallShare * cells.size) - Object.keys(have).length)
+  let room = Math.min(G.stallMax, Math.ceil(G.stallShare * cells.size) - stuckWaivedN(have))   // fillcolumn-01 r2 (waiveroom.mjs)
   const out = []
   for (const d of deferred ?? []) {
     if (room <= 0) break
@@ -183,7 +184,7 @@ export function leftTown (files = [], { sig, now = Date.now(), G = GKL } = {}) {
 export function leftWaiveDue (rec, town, openNow = [], { G = GKL, share = GKW.stallShare } = {}) {
   const have = rec?.waived ?? {}
   const size = (rec?.cells ?? []).length + (rec?.clear ?? []).length
-  let room = Math.min(G.leftMax, Math.ceil(share * size) - Object.keys(have).length)
+  let room = Math.min(G.leftMax, Math.ceil(share * size) - stuckWaivedN(have))   // fillcolumn-01 r2 (waiveroom.mjs)
   const out = []
   // the release fold (Codex BLOCKER): a fill that names the cut opening it (roughground-1b `opener`: a hollow under a crust) is
   // never waived here either -- as gkWaivable and stallWaive keep it -- or the crust could come off with the hollow left open
