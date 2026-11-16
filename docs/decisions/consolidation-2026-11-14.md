@@ -381,6 +381,15 @@ What remains for C0: the showcase's qwen2.5 setting is still recorded as a stopg
 has to say it is the showcase's model now; then the Studio tunnel unit is removed and the 24-hour read written. The fleet
 settings file that names the Blackwell was not checked in this run.
 
+**11-16, the owner's word and what followed.** Asked whether qwen on the 5080 becomes the showcase's permanent model or the
+Studio comes back, the owner answered "2. perm choice" (2026-11-16 about 12:20Z). So the showcase's model is
+`qwen2.5:7b-instruct` on the 5080 for good: `/srv/showcase/BRAIN.json` now says so (url, model and kind unchanged; no bot
+restarted; journal `owner-direct-setting`), and `showcase-studio-tunnel.service` on the showcase VM is disabled and stopped
+(unit file kept; journal `tooling-change`; it had restarted 9,254 times since 11-14 08:31Z). Still owed for C0: the readers
+that probe the Studio port by name instead of the brain setting (`showcase_trip.py` S0 brain line, `tl_showcase.py`,
+`scripts/lib/showcasestatus.py`, brainwatch: fleetstatus prints "SHOWCASE BRAIN DOWN" while every decision is answered),
+the 24-hour read with the model answering, and the fleet settings file that names the Blackwell.
+
 ## Open owner decisions
 
 1. How long to keep the fleet's world saves and raw logs after C4 (suggested: 30 days on the NAS).
