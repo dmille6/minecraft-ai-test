@@ -181,12 +181,21 @@ def hazardmap_line(now, home=None):
 # what "published" means. Before 06:00Z, yesterday's OK publication is the normal state (today's waits for the backup).
 STRUCTCOUNT_IN = '~/structcount/in'
 STRUCTCOUNT_READER = '~/structcount/bin/scread.py'
+STRUCTCOUNT_HOME = '~/structcount'
+STRUCTCOUNT_RETIRED = 'RETIRED-COUNT'   # the building COUNT only: the hourly pull stays, it also carries the town chest census
 STRUCTCOUNT_DUE = dt.time(6, 0)
 
 
-def structcount_line(now, sdir=None, reader=None):
+def structcount_line(now, sdir=None, reader=None, home=None):
     """One header line for the structure count. NEVER raises: no mirror, no reader, a failed or stale publication is an
-    alarm line ('!! '). RUNNING (today's attempt is in progress) is not an alarm."""
+    alarm line ('!! '). RUNNING (today's attempt is in progress) is not an alarm.
+    The building COUNT is RETIRED 2026-11-16 (owner; the 16-town fleet it counts ends with the consolidation): with the
+    marker ~/structcount/RETIRED-COUNT this is retired_line()'s one quiet line. No newest_output is passed on purpose:
+    the hourly pull keeps running because it also carries the town chest census (goalboard, dashboard), so "the job
+    still writes" is expected here and is not a hidden failure of the count."""
+    gone = retired_line('structcount (B5 buildings, from the world)', home or STRUCTCOUNT_HOME, marker=STRUCTCOUNT_RETIRED)
+    if gone:
+        return gone
     try:
         import importlib.util
         rp = os.path.expanduser(reader or STRUCTCOUNT_READER)
@@ -241,14 +250,14 @@ RETIRED_DATE = re.compile(r'^\d{4}-\d{2}-\d{2}\b')
 RETIRED_SLACK = dt.timedelta(hours=1)
 
 
-def retired_line(label, home, newest_output=None):
+def retired_line(label, home, newest_output=None, marker='RETIRED'):
     """A job retired ON PURPOSE (the lavamap pattern, 10-31): a file RETIRED in the job's home whose first line starts with
     the date and says why -> the one quiet line '<label> RETIRED: <that line>'. None when there is no such file: the job is
     then judged as before. NEVER raises, and never excuses more than it says:
       * a marker that is empty, unreadable or undated is '!! ' (a retirement nobody can date or explain is not one);
       * newest_output (a path the job writes) newer than the marker by RETIRED_SLACK is '!! ': the job still runs, so its
         failures would be hidden behind the word RETIRED -- comment out its cron line, or remove the marker."""
-    p = os.path.join(os.path.expanduser(home), 'RETIRED')
+    p = os.path.join(os.path.expanduser(home), marker)
     try:
         if not os.path.exists(p):
             return None

@@ -817,6 +817,29 @@ def t_coop_retired_but_still_running_is_an_alarm():
     assert line == 'cooperation census (B1) RETIRED: ' + COOP_WHY, line
 
 
+def t_structcount_line_is_an_alarm_until_the_count_is_retired():
+    """monfix-01 (e), second half: with no marker the line is judged as before (here: no reader, an alarm -- the positive
+    control), and the marker RETIRED-COUNT makes it one quiet dated line. A marker named RETIRED (the whole-job name) does
+    NOT retire the count: the hourly pull is still wanted for the chest census."""
+    import tempfile
+    why = '2026-11-16: the building count of the 16-town fleet is retired (owner; consolidation 2026-11-14). The hourly pull stays: it carries the town chest census'
+    home = tempfile.mkdtemp()
+    kw = dict(sdir=os.path.join(home, 'in'), reader=os.path.join(home, 'bin', 'scread.py'), home=home)
+    line = FS.structcount_line(COOP_NOW, **kw)
+    assert line.startswith('!! structcount'), line
+    with open(os.path.join(home, 'RETIRED'), 'w') as fh:
+        fh.write(why)
+    assert FS.structcount_line(COOP_NOW, **kw).startswith('!! structcount'), 'the whole-job marker name must not retire the count'
+    with open(os.path.join(home, 'RETIRED-COUNT'), 'w') as fh:
+        fh.write('no date here')
+    line = FS.structcount_line(COOP_NOW, **kw)
+    assert line.startswith('!! structcount (B5 buildings, from the world): the RETIRED marker') and 'does not start with its date' in line, line
+    with open(os.path.join(home, 'RETIRED-COUNT'), 'w') as fh:
+        fh.write(why + '\nsecond line\n')
+    line = FS.structcount_line(COOP_NOW, **kw)
+    assert line == 'structcount (B5 buildings, from the world) RETIRED: ' + why, line
+
+
 def t_coop_retired_line_is_in_the_header():
     saved = FS.COOP_DIR
     FS.COOP_DIR = _coop_fixture(retired=COOP_WHY)
