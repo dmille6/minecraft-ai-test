@@ -14,11 +14,23 @@
 //
 // One file per holder (buildproj.mjs's stuck-map rule: no lost update between two builders), summed by the reader. BUILDRETRY=0 is
 // the rollback: every visit exactly as before (nothing read, nothing written, nothing held).
+//
+// ONE TRUNK (control session 11-16, trunk-merge DECISIONS row 5): THE DEFAULT IS BY POOL. The showcase line never had this piece,
+// and five of its tests pin the stops its default flips (`blocked`, `attempts_spent`), so in the showcase pool it is OFF by default
+// (`_build op=deferred`, then `stuck_on_cell`, exactly as that line has them) and in every other pool ON, as the fleet has it.
+// BUILDRETRY=on|1|true|yes forces it on anywhere, =off|0|false|no off anywhere (well.mjs wellBandOn's convention).
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
-export const buildRetryOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.BUILDRETRY ?? '').trim().toLowerCase())
+export function buildRetryOn (env = process.env) {
+  const v = String(env?.BUILDRETRY ?? '').trim().toLowerCase()
+  if (['0', 'off', 'false', 'no'].includes(v)) return false
+  if (['1', 'on', 'true', 'yes'].includes(v)) return true
+  return String(env?.MEMORY_POOL ?? '').trim() !== 'showcase'
+}
+/** The spawn's licence row (features.mjs `_visitswitch_mode`): where the switch's answer came from -> 'env' | 'pool'. Pure. */
+export const buildRetryWhy = (env = process.env) => (['0', 'off', 'false', 'no', '1', 'on', 'true', 'yes'].includes(String(env?.BUILDRETRY ?? '').trim().toLowerCase()) ? 'env' : 'pool')
 export const RETRY_VISITS = 3                     // failing visits (summed over builders) before a cell is held
 export const RETRY_HOLD_MS = 2 * 60 * 60_000      // a held cell is not tried until its last failure is this old
 export const RETRY_FORGET_MS = 24 * 60 * 60_000   // a failure older than this no longer counts (F4's STUCK_FORGET_MS)

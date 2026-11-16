@@ -736,6 +736,8 @@ const REQUIRED = [
   'bots/test/buildretry.test.mjs',
   'bots/test/buildnext.test.mjs',
   'bots/test/buildwait.test.mjs',
+  // one trunk (11-16): the two visit switches that default by pool (BUILDRETRY, VISIT_WAIVER)
+  'bots/test/visitswitch.test.mjs',
   'docs/reports/phase2-build-design-2026-11-06.md',
   'docs/reports/groundskeeper-2026-11-02.md',
   'bots/scripts/tidy-offline.mjs',

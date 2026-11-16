@@ -10,6 +10,8 @@
 //   3. board-d: 46 of 67 visits ended at one spot in the grove; a dig walk left no pending stand, so every visit walked the same way.
 //      Remedy: the dig walk's stand bans (DIG_BANS_MAX, DIG_BAN_MS): the pending stand is banned, then the next, then `no_stand`.
 // Every remedy is tested as a CHAIN (the refusal and what follows it), each killed by a mutant whose anchor is present and unique.
+// one trunk (11-16): this file tests the in-visit waiver, which defaults by pool (off in the showcase's) and off in the suite's runner: ON here
+process.env.VISIT_WAIVER = 'on'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'

@@ -513,6 +513,7 @@ import {
   noteProtectZone, EXIT_PAD, liquidFlowReaches,
 } from './protectzone.mjs'
 import { boardJob, jobBlocked, WB as WORKBOARD_T } from './townwork.mjs'   // workboard-01: the town work board (phase A)
+import { visitWaiverOn } from './stuckcells.mjs'   // one trunk: the in-visit waiver's switch (default by pool: off in the showcase)
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
 const isPillarItem = name => scaffoldCount([{ name, count: 1 }]) > 0 || /^(sandstone|red_sandstone|calcite|dripstone_block|blackstone)$/.test(name)
 import { RECOUNT_SKIP, RECOUNT_MISS_REASONS, recordRecountMiss, recountMissStatus } from './recount.mjs'   // chestfull-02: advice agrees with admission
@@ -18997,14 +18998,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // a bot on the grounds crew's (keeperNow: the keeper or a helper lease -- the grounds are its work), and the decorator's own pick is
     // its decor (decorator.mjs decorOrderPure), already a sink
     const sinkTurn = !!b && sinkTurnDue(b.finiteStreak) && !keeperNow(b, now)
-    let pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
-    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
-    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
-    const bp = b?.boardPick
-    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
-      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
-      if (sp && st && jobBlocked(st) == null) pick = sp
-    }
+    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
     activeMarked = marked   // shopActiveAll's view
     if (PROJTURN.on && b && b.shopTurnPick?.plot !== pick.plot) b.shopTurnPick = { plot: pick.plot, at: now }
     if (PROJTURN.on && b && visit) b.shopTurnInfo = { ...turnPickInfo(marked, order, pick), backedOff: marked.filter(s => s?.backoff === true).length, st: marked.find(s => s?.plot === pick.plot) ?? null }
@@ -19016,6 +19010,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // draw, the bag) names the tidy too -- the same mark and the same bound as the room fallback's (a crash-left mark outlives no visit)
     const g2Pick = roomFallbackPick(b?.groundsPick ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
     if (g2Pick) return g2Pick
+    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (boardPinned): the
+    // bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another. Returned here, beside the
+    // picker's other overrides, so the pick's own line above keeps the showcase's text (groundskeeper, sinks, prodserve tests read it)
+    const wbPick = boardPinned(b, list, marked, now)
+    if (wbPick) return wbPick
     // projturn-01 (review r2, Codex BLOCKER 2): under PROJTURN the repair attempt is counted where the visit's start is stamped (turnBegin:
     // only a pick the probe's claim ACCEPTED) -- a pick stepped aside from tried nothing and must not spend one. PROJTURN=off: here, as before
     if (PROJTURN.on && visit && b) b.shopTurnRepair = { pick, states, now }
@@ -19067,6 +19066,19 @@ export function boardRelease (bot, plot, claim) {
 }
 /** WORKBOARD-01: pin the job's project for this bot's next visit (shopActiveAll honours it WB.claimTtlMs). */
 export function boardPin (bot, plot, now = Date.now()) { if (bot) bot.boardPick = plot ? { plot, at: now } : null }
+/** WORKBOARD-01: the project a FRESH pin of bot `b` names while its job is still workable (townwork.mjs jobBlocked) -> the project |
+ *  null. The one picker's (shopActive; shopActiveAll is its view). Never throws. */
+function boardPinned (b, list, marked, now) {
+  let pick = null
+  try {
+    const bp = b?.boardPick
+    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
+      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+      if (sp && st && jobBlocked(st) == null) pick = sp
+    }
+  } catch { pick = null }
+  return pick
+}
 /** WORKBOARD-01: the job's bag rule: a light plot needs 2 free slots, every other 8 (shop.mjs LIGHT_PLOTS). */
 export const boardLight = plot => LIGHT_PLOTS.has(plot)
 /** buildnext-01: is `plot` held for bot `b` now (its breaker, its own last stuck_on_cell)? -> reason | null. Never throws. */
@@ -19347,6 +19359,19 @@ function projStuckLive (key, now = Date.now()) {
       if (rec?.blueprint === TREEFARM_BLUEPRINT) return stuckStale(keys, rec, c => farmAlsoDone(c, farmRead(b)) || recordCellDone(b, rec, c)) || farmStampHeld(keys, treeHeldCols(siteTreesLeft(farmRead(b), rec)))
       // tidy-01: an open tidy's stamp holds only its stuck segment too (the wall's rule): the other pits and corridors go on
       if (rec?.blueprint === TIDY_BLUEPRINT) return stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c))
+      // stuckcells-01: an OPEN workshop's, house's or ziggurat's stamp holds nothing once every cell it names reads done (a sealed
+      // pocket, a waived cell) or is due its waiver on the next visit (stuckcells.mjs stampLiftable: the visit that waives it must
+      // be let in; a 6-h stamp would hold it). One trunk: only where the in-visit waiver is on (visitWaiverOn: off in the showcase
+      // pool, whose rules below then decide exactly as before)
+      if (stuckCellsOn() && visitWaiverOn() && (shopLikeBp(rec?.blueprint) || isZigBlueprint(rec?.blueprint))) {
+        const zig = isZigBlueprint(rec.blueprint)
+        let counts = {}
+        try { counts = vfStuckRead(dir, key, { since: now - BUILD_STUCK_FORGET_MS + 1 }) } catch { counts = {} }
+        // the visit's own condition for a waiver (Claude r1 BLOCK): the cell reads clear, and so does every open cell of its segment
+        const clearAt = q => { try { const v = b.blockAt?.(new Vec3(q.at[0], q.at[1], q.at[2])); return !!v && (v.name === 'air' || v.name === 'cave_air' || tpReplaceable(readBlock(v))) } catch { return false } }
+        const segClear = c => clearAt(c) && (rec.cells ?? []).every(q => q.seg !== c.seg || !recordCellOpen(b, rec, q) || clearAt(q))
+        return stampLiftable(keys, rec, { done: c => recordCellDone(b, rec, c), counts, mayWaive: zig ? zigMayWaive : shopMayWaive, max: zig ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP, clear: segClear })
+      }
       // sinkwaive-01: an OPEN stone sink's stamp whose cells all read done (waived since: the visit that waived them stamped the
       // stall first) holds nothing, as a complete record's
       if (isSinkBlueprint(rec?.blueprint) && SINK_WAIVE.on && rec?.waived && stuckStale(keys, rec, c => recordCellDone(b, rec, c))) return true
@@ -19382,6 +19407,9 @@ function zigRepairedWrite (key, at, why, by) {
 function recordCellOpen (bot, r, c) {
   try {
     if (wallWaived(r, c) || pathWaived(r, c) || sinkWaived(r, c)) return false   // sinkwaive-01: a waived sink cell is no open cell
+    if (visitWaiverOn()) {   // one trunk: the in-visit waiver's cells, where it is on
+      if (stuckCellsOn() && recWaived(r, c)) return false                 // stuckcells-01: a waived cell is never open
+    }
     if (!bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))) return false
     return !recordCellDone(bot, r, c)
   } catch { return false }
@@ -19391,7 +19419,7 @@ const shopLikeBp = bp => bp === SHOP_BLUEPRINT || /^house@/.test(String(bp ?? ''
 /** stuckcells-01: the done rule's extras for a record (a waived cell; a sealed pocket of a workshop or a house) -> (c, read) ->
  *  bool | null (none: STUCKCELLS=off, or a record the remedies do not cover). Pure over the record. */
 function stuckCellsDone (r) {
-  if (!stuckCellsOn() || !r) return null
+  if (!stuckCellsOn() || !visitWaiverOn() || !r) return null   // one trunk: none where the in-visit waiver is off
   if (shopLikeBp(r.blueprint)) return (c, read) => recWaived(r, c) || sealedPocket(c, read)
   if (isZigBlueprint(r.blueprint)) return c => recWaived(r, c)
   return null
@@ -19414,6 +19442,9 @@ function recordCellDone (bot, r, c) {
     if (GKL2_ON && r.blueprint === TIDY_BLUEPRINT && tidyWaived(r, c)) return true
     const b = read(...c.at)
     if (!b) return false
+    // stuckcells-01: a cell the in-visit waiver waived, a workshop's or a house's sealed pocket (null where the waiver is off)
+    const extra = stuckCellsDone(r)
+    if (extra && extra(c, read)) return true
     return buildCellDone(b, bp.palette, c.role, c.ws) || (mon && zigHidden(c, read)) || cottageCellWaits(bot, r, c)   // cottage2-01
   } catch { return false }
 }
@@ -19679,6 +19710,7 @@ function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
     const bp0 = mon ? { palette: zigPaletteOf(r) } : isSinkBlueprint(r.blueprint) ? { palette: r.palette ?? {} } : blueprintOf(r.blueprint ?? SHOP_BLUEPRINT)
     const bp = { palette: recordPalette(r, bp0) }   // townstyle-01: a styled record is judged by its own palette
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
+    const stuckX = stuckCellsDone(r)
     for (const c of r.cells ?? []) {
       if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) continue   // pathsclose-01: a waived path cell is no damage
       if (dressSignRole(c.role)) continue   // towndress-01: a sign is the label writer's upkeep (below), never damage
@@ -19690,6 +19722,8 @@ function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
       if (b && r.plot === SINK_PLOTS.decor && upgradeWaits(c, b, heldMap(bot))) continue
       // cottage2-01: a cottage's furnishing the bag and the town cannot supply WAITS (cottage.mjs furnishWaits): no damage
       if (b && cottageCellWaits(bot, r, c)) continue
+      // stuckcells-01: nor a waived cell, nor a workshop's or a house's sealed pocket (its visit reads them done; null where the waiver is off)
+      if (b && stuckX && stuckX(c, read)) continue
       if (b && !buildCellDone({ name: b.name, boundingBox: b.boundingBox, props: c.ws ? b.getProperties?.() ?? null : null }, bp.palette, c.role, c.ws) && !(mon && zigHidden(c, read))) return true
     }
     // stockyard-01 (Claude r1 BLOCK 1): a standing yard with WORK for this bot (yard.mjs yardWork: a bag surplus, the clerk, a
@@ -24378,14 +24412,19 @@ async function buildShopVisitRun (ctx, args, signal, aside = 0) {
     Object.assign(storeOpts, tempStandOf(bot, c, plot))   // tempstand-01: a cell no stand reaches, deferred before, is clicked from a temporary pillar
     // cottage2-01: a furnishing that WAITS (no bed, no 3 wool of a colour; no flower; no lantern, no iron) is done for the visit
     if (isCottage2Blueprint(rec.blueprint)) storeOpts.alsoDone = c => cottageCellWaits(bot, rec, c)
+    // stuckcells-01 (one trunk: {} where the in-visit waiver is off): a workshop's or a house's sealed pocket and waived cells done,
+    // the waiver, a blocked cell deferred
+    Object.assign(storeOpts, { ...(shopLikeBp(rec.blueprint) ? stuckVisitOpts(rec, 'shop') : {}) })
     const r = await runVisit({ dir, key, me, home, stood, record: rec, recordGen: rh.head.gen, palette: pal, res, resFailed, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.shopStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...storeOpts }, effects, { deadline: t0 + SHOP_VISIT_MS - 15_000 })
+    stuckCellsPublish(bot, dir, key, rec, r, me, plot)
     // reroof-04: the new roof stands -- its temporary stair comes down (the next generation lists it as kind=temp clears; the next visit
     // digs them), whatever this visit stopped on: an old cell it cannot repair never keeps the stair up (Codex r1 BLOCKER)
     if (reroofTempState(bot, rec) === 'due') reroofTempDown(bot, dir, key, me, plot)
     // each tidy cell the visit offered counts once against this bot (storehouse.mjs STORE_TIDY_TRIES: an undiggable one stops asking)
     if (storeOpts.tidy) for (const k of r.tidied ?? []) bot.storeTidyTries.set(k, (bot.storeTidyTries.get(k) ?? 0) + 1)
     if (r.stop === 'complete') {
-      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      // stuckcells-01 (Claude r1): the visit's waivers ride on the completion too (their own publish may have been lost)
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...(stuckCellsOn() && r.waived?.length ? completeWithWaived(cur, r.waived, { cells: rec.cells.length, now: Date.now(), by: me, max: isZigBlueprint(rec.blueprint) ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP }) : cur), structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       bot.shopDamage = null
       completed = true
       // cleared AT the completion, before the bank-back (r10 Claude P3, r11 both): the leftovers are the bag's own from here
@@ -26272,10 +26311,16 @@ async function buildMonument (ctx, args, signal) {
       const isDone = c => { const b = read(...c.at); return !!b && (buildCellDone(b, palette, c.role) || zAlso(c, read)) }
       if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) tidy = zigTidyNow(bot, rec, read)
     } catch { tidy = [] }
+    // stuckcells-01: the monument visit's options -- the waiver, the footing, a waived cell done -- in their own object ({} where the
+    // in-visit waiver is off), so the visit's tail below keeps the text voidfill.test reads
+    const zigStuck = { ...stuckVisitOpts(rec, 'zig', zigHidden, stuckCellsOn(), zigPlaceOk(c)) }
     const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
       domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: zigBambooOn() ? ZIG_FOREIGN_GROWN : ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zAlso, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
       ...tempStandOf(bot, c, MONUMENT_PLOT),   // tempstand-01
+      ...zigStuck,   // stuckcells-01 (after `alsoDone: zAlso`: its own done rule is zigHidden or a waived cell)
       access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // stuckcells-01 (one trunk: the options are {} and `r.waived` absent where the in-visit waiver is off -- visitWaiverOn)
+    stuckCellsPublish(bot, dir, key, rec, r, me, MONUMENT_PLOT)
     // sealedcore-01: THE WAIVER (sealedcore.mjs sealedCoreDue; the wall's machinery: the record's `waived` map, an `op=waived` row) -- a
     // FILL cell this visit deferred, counted SEALED_CORE.after deferring visits, for which THIS visit's void access found no plan
     // (`r.access`: with VOIDFILL off, or the access never reached, there is none and nothing is waived), and that a fresh read proves
@@ -26306,7 +26351,8 @@ async function buildMonument (ctx, args, signal) {
       } catch { /* counted again next visit */ }
     }
     if (r.stop === 'complete') {
-      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
+      // stuckcells-01 (Claude r1): the visit's waivers ride on the completion too (their own publish may have been lost)
+      const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...(stuckCellsOn() && r.waived?.length ? completeWithWaived(cur, r.waived, { cells: rec.cells.length, now: Date.now(), by: me, max: isZigBlueprint(rec.blueprint) ? WAIVE_MAX_ZIG : WAIVE_MAX_SHOP }) : cur), structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
       bot.shopDamage = null
       // zigtidy-02: a visit that PLACED and ended complete (a repair, or the first completion) opens the tidy's repair window
