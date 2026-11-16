@@ -18998,14 +18998,7 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // a bot on the grounds crew's (keeperNow: the keeper or a helper lease -- the grounds are its work), and the decorator's own pick is
     // its decor (decorator.mjs decorOrderPure), already a sink
     const sinkTurn = !!b && sinkTurnDue(b.finiteStreak) && !keeperNow(b, now)
-    let pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
-    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
-    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
-    const bp = b?.boardPick
-    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
-      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
-      if (sp && st && jobBlocked(st) == null) pick = sp
-    }
+    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
     activeMarked = marked   // shopActiveAll's view
     if (PROJTURN.on && b && b.shopTurnPick?.plot !== pick.plot) b.shopTurnPick = { plot: pick.plot, at: now }
     if (PROJTURN.on && b && visit) b.shopTurnInfo = { ...turnPickInfo(marked, order, pick), backedOff: marked.filter(s => s?.backoff === true).length, st: marked.find(s => s?.plot === pick.plot) ?? null }
@@ -19017,6 +19010,11 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // draw, the bag) names the tidy too -- the same mark and the same bound as the room fallback's (a crash-left mark outlives no visit)
     const g2Pick = roomFallbackPick(b?.groundsPick ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
     if (g2Pick) return g2Pick
+    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (boardPinned): the
+    // bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another. Returned here, beside the
+    // picker's other overrides, so the pick's own line above keeps the showcase's text (groundskeeper, sinks, prodserve tests read it)
+    const wbPick = boardPinned(b, list, marked, now)
+    if (wbPick) return wbPick
     // projturn-01 (review r2, Codex BLOCKER 2): under PROJTURN the repair attempt is counted where the visit's start is stamped (turnBegin:
     // only a pick the probe's claim ACCEPTED) -- a pick stepped aside from tried nothing and must not spend one. PROJTURN=off: here, as before
     if (PROJTURN.on && visit && b) b.shopTurnRepair = { pick, states, now }
@@ -19068,6 +19066,19 @@ export function boardRelease (bot, plot, claim) {
 }
 /** WORKBOARD-01: pin the job's project for this bot's next visit (shopActiveAll honours it WB.claimTtlMs). */
 export function boardPin (bot, plot, now = Date.now()) { if (bot) bot.boardPick = plot ? { plot, at: now } : null }
+/** WORKBOARD-01: the project a FRESH pin of bot `b` names while its job is still workable (townwork.mjs jobBlocked) -> the project |
+ *  null. The one picker's (shopActive; shopActiveAll is its view). Never throws. */
+function boardPinned (b, list, marked, now) {
+  let pick = null
+  try {
+    const bp = b?.boardPick
+    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
+      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+      if (sp && st && jobBlocked(st) == null) pick = sp
+    }
+  } catch { pick = null }
+  return pick
+}
 /** WORKBOARD-01: the job's bag rule: a light plot needs 2 free slots, every other 8 (shop.mjs LIGHT_PLOTS). */
 export const boardLight = plot => LIGHT_PLOTS.has(plot)
 /** buildnext-01: is `plot` held for bot `b` now (its breaker, its own last stuck_on_cell)? -> reason | null. Never throws. */
