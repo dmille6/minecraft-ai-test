@@ -235,6 +235,127 @@ await t('MUTANTS KILLED (M): a part planned; an overfill; another item merged; t
   await killedBy(BAGFIX_PATH, BF, "!!merge && status === 'full' && Number(room)", '!!merge && Number(room)', M => assert.equal(M.fullStillTakes({ merge: true, status: 'unusable', room: 63 }), false))
 })
 
+// ---- M, Codex r1 BLOCKER 1: every merge click is answered by the SERVER before the next -----------------------------------------------
+console.log('M (Codex r1): THE MERGE SEQUENCE TRUSTS THE SERVER, CLICK BY CLICK')
+// A SERVER, as vanilla answers window clicks: a left click with a loaded cursor MERGES onto the same item up to the stack (the rest
+// stays on the cursor), PLACES into an empty slot, SWAPS with anything else; with an empty cursor it picks the stack up (right: half).
+// The bot sees NOTHING of it but what confirm() returns: the server's cursor, and a refresh of the slots.
+const CH = 27   // container slots 0..26, bag slots 27..62
+function server ({ chest = {}, bagSlots = {}, onClick = null, mute = () => false, closeAt = null } = {}) {
+  const slots = Array.from({ length: 63 }, () => null)
+  for (const [i, v] of Object.entries(chest)) slots[i] = { ...v }
+  for (const [i, v] of Object.entries(bagSlots)) slots[i] = { ...v }
+  const sv = { slots, cursor: null, clicks: 0, confirms: 0, closed: false, view: slots.map(x => (x ? { ...x } : null)) }
+  const sameS = (a, b) => a && b && a.name === b.name && (a.tag ?? null) === (b.tag ?? null)
+  sv.io = {
+    click: async (slot, button = 0) => {
+      sv.clicks++
+      if (closeAt != null && sv.clicks >= closeAt) { sv.closed = true; if (sv.cursor) { const f = sv.slots.findIndex((x, i) => i >= CH && !x); sv.slots[f] = sv.cursor; sv.cursor = null } }   // the server closes: its cursor returns to the bag
+      if (sv.closed) throw new Error('the window changed')
+      onClick?.(sv, sv.clicks, slot)
+      const at = sv.slots[slot]
+      if (!sv.cursor) { if (!at) return; const take = button === 1 ? Math.ceil(at.count / 2) : at.count; sv.cursor = { ...at, count: take }; at.count -= take; if (!at.count) sv.slots[slot] = null; return }
+      if (!at) { sv.slots[slot] = sv.cursor; sv.cursor = null; return }
+      if (sameS(at, sv.cursor)) { const n = Math.min(sv.cursor.count, 64 - at.count); at.count += n; sv.cursor.count -= n; if (!sv.cursor.count) sv.cursor = null; return }
+      sv.slots[slot] = sv.cursor; sv.cursor = at   // a swap
+    },
+    confirm: async () => { sv.confirms++; if (sv.closed || mute(sv.confirms)) return null; sv.view = sv.slots.map(x => (x ? { ...x } : null)); return sv.cursor ? { name: sv.cursor.name, count: sv.cursor.count } : { name: null, count: 0 } },
+    slot: i => { const x = sv.view[i]; return x ? { ...x, stackSize: 64 } : null },
+    emptyDest: () => { for (let i = 0; i < CH; i++) if (!sv.view[i]) return i; return null },
+    same: d => sameS(d, sv.cursor),
+  }
+  // the caller's settle (skills.mjs settleCursor: server-confirmed): the cursor back to the bag slot it came from, or a free one
+  sv.settle = from => { if (!sv.cursor || sv.closed) return; const home = sv.slots[from]; if (!home) sv.slots[from] = sv.cursor; else if (sameS(home, sv.cursor)) home.count += sv.cursor.count; else sv.slots[sv.slots.findIndex((x, i) => i >= CH && !x)] = sv.cursor; sv.cursor = null }
+  sv.total = name => sv.slots.reduce((t, x) => t + (x?.name === name ? x.count : 0), 0) + (sv.cursor?.name === name ? sv.cursor.count : 0)
+  return sv
+}
+const FROM = 30, TOOL = 31
+const fullChest = extra => ({ ...Object.fromEntries(Array.from({ length: CH }, (_, i) => [i, { name: 'lantern', count: 4 }])), ...extra })
+const coalStep = { slot: 12, name: 'coal', count: 40, merges: [{ dest: 3, n: 40 }], dest: null }
+const bagCoal = { [FROM]: { name: 'coal', count: 40 }, [TOOL]: { name: 'iron_pickaxe', count: 1 } }
+const raise = (sv, n) => { if (n === 2) sv.slots[3].count = 50 }   // ANOTHER BOT, between the pickup's answer and the merge click
+const settled = (sv, coal) => { assert.equal(sv.cursor, null, 'nothing is left on the cursor'); assert.equal(sv.total('coal'), coal, 'every coal is somewhere'); assert.deepEqual(sv.slots[TOOL], { name: 'iron_pickaxe', count: 1 }, 'the tool\'s slot was never swapped') }
+const raceFull = async M => {
+  // CODEX'S RACE: 40 coal onto a stack of 5 that another bot raises to 50 under the click; the chest has no empty slot
+  const sv = server({ chest: fullChest({ 3: { name: 'coal', count: 5 } }), bagSlots: bagCoal, onClick: raise })
+  const r = await M.runMerge(sv.io, coalStep, FROM)
+  assert.deepEqual(r.moves, [{ dest: 3, n: 14, base: 5, after: 64, merged: true }], 'what moved is what the SERVER\'s cursor lost: 14, not the 40 the client predicted')
+  assert.equal(r.stop, 'no_empty_slot'); assert.equal(r.full, true)
+  assert.deepEqual(sv.cursor, { name: 'coal', count: 26 }, 'the 26 are on the server\'s cursor -- and no click followed')
+  assert.equal(sv.clicks, 2)
+  sv.settle(FROM)
+  settled(sv, 40 + 50); assert.equal(sv.slots[FROM].count, 26, 'the rest is back in the bag slot it came from')
+}
+await t('THE RACE (Codex): the destination raised under the click -> 14 credited, 26 back in the bag, the tool untouched, totals conserved', () => raceFull(BF))
+await t('the same race with an empty slot in the chest: 14 merge, the confirmed 26 go into it -- all 40 banked, none on the cursor', async () => {
+  const sv = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: bagCoal, onClick: raise })
+  const r = await BF.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, null)
+  assert.deepEqual(r.moves.map(m => [m.dest, m.n, m.merged]), [[3, 14, true], [0, 26, false]])
+  settled(sv, 90); assert.equal(sv.slots[FROM], null)
+})
+const lateMerge = async M => {
+  // A LATE ANSWER: the merge click's confirmation does not come -> nothing is assumed, nothing more is clicked
+  const sv = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: bagCoal, mute: n => n === 2 })
+  const r = await M.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, 'merge_unconfirmed'); assert.deepEqual(r.moves, [], 'an unanswered merge is credited nothing')
+  assert.equal(sv.clicks, 2, 'no click on an unconfirmed cursor')
+  sv.settle(FROM); settled(sv, 45)
+}
+await t('A LATE SERVER ANSWER after a merge click: stop, credit nothing, click nothing more; the pickup unanswered: the same after ONE click', async () => {
+  await lateMerge(BF)
+  const sv = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: bagCoal, mute: n => n === 1 })
+  const r = await BF.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, 'pickup_unconfirmed'); assert.equal(sv.clicks, 1); assert.deepEqual(r.moves, [])
+  sv.settle(FROM); settled(sv, 45); assert.equal(sv.slots[FROM].count, 40)
+})
+await t('THE WINDOW CLOSED MID-SEQUENCE: the click fails, the sequence ends, the server returned its cursor to the bag -- conserved, no swap', async () => {
+  const sv = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: bagCoal, closeAt: 2 })
+  const r = await BF.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, 'click_failed'); assert.deepEqual(r.moves, [])
+  settled(sv, 45)
+  const sv2 = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: bagCoal, closeAt: 1 })
+  const r2 = await BF.runMerge(sv2.io, coalStep, FROM)
+  assert.equal(r2.stop, 'click_failed'); assert.equal(r2.picked, false); settled(sv2, 45)
+})
+const swapped = async M => {
+  // the destination became ANOTHER item under the click: the server swaps -- the cursor holds sticks, and nothing more is clicked
+  const sv = server({ chest: fullChest({ 3: { name: 'coal', count: 5 } }), bagSlots: bagCoal, onClick: (s, n) => { if (n === 2) s.slots[3] = { name: 'stick', count: 7 } } })
+  const r = await M.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, 'cursor_swapped'); assert.deepEqual(r.moves, []); assert.equal(sv.clicks, 2)
+  sv.settle(FROM); assert.equal(sv.cursor, null); assert.deepEqual(sv.slots[TOOL], { name: 'iron_pickaxe', count: 1 })
+  assert.equal(sv.total('coal'), 40); assert.equal(sv.total('stick'), 7)
+}
+const pickupDiffers = async M => {
+  const sv = server({ chest: { 3: { name: 'coal', count: 5 } }, bagSlots: { ...bagCoal, [FROM]: { name: 'coal', count: 10 } } })
+  const r = await M.runMerge(sv.io, coalStep, FROM)
+  assert.equal(r.stop, 'pickup_differs'); assert.equal(sv.clicks, 1); sv.settle(FROM); settled(sv, 15)
+}
+await t('a swap under the click, a bag stack that is not the planned one: stop at once, settle, conserved', async () => { await swapped(BF); await pickupDiffers(BF) })
+await t('the plain case still works: 40 onto 5 -> one merge of 40, the cursor confirmed empty, three probes', async () => {
+  const sv = server({ chest: fullChest({ 3: { name: 'coal', count: 5 } }), bagSlots: bagCoal })
+  const r = await BF.runMerge(sv.io, coalStep, FROM)
+  assert.deepEqual(r, { moves: [{ dest: 3, n: 40, base: 5, after: 45, merged: true }], stop: null, full: false, picked: true })
+  settled(sv, 45); assert.equal(sv.confirms, 2, 'the pickup and the merge, each answered')
+})
+await t('THE RE-OPEN CREDITS AGAINST THE BAG: a merge is credited at most what the bag lost of the item (Codex: 40 "verified", 14 gone)', () => {
+  const merge = (n, after) => ({ step: { name: 'coal', count: n }, dest: 3, base: 5, after })
+  assert.deepEqual(BF.creditMoves([merge(40, 45)], { coal: 40 }, { coal: 26 }), [], 'the bag lost 14: a claim of 40 is not credited')
+  assert.equal(BF.creditMoves([merge(14, 64)], { coal: 40 }, { coal: 26 }).length, 1, 'the true 14 is')
+  assert.equal(BF.creditMoves([merge(14, 64), { step: { name: 'coal', count: 26 }, dest: 0 }], { coal: 40 }, {}).length, 2)
+  assert.equal(BF.creditMoves([merge(14, 64)], null, null).length, 0, 'no bag counts: a merge is never credited on the slot alone')
+  const plain = { step: { name: 'torch', count: 11 }, dest: 4 }
+  assert.deepEqual(BF.creditMoves([plain], null, null), [plain], 'an empty-slot move with no merge is judged as before (its slot, exactly)')
+})
+await t('MUTANTS KILLED (Codex r1): the client\'s prediction credited; a late answer read as empty; a swap read as a merge; a wrong pickup clicked on; the bag ignored', async () => {
+  await killedBy(BAGFIX_PATH, BF, '    const n = left - cur.count\n', '    const n = Math.min(left, max - base)\n', raceFull)
+  await killedBy(BAGFIX_PATH, BF, "    if (!cur) return out('merge_unconfirmed')\n", '    if (!cur) cur = { name: null, count: 0 }\n', lateMerge)
+  await killedBy(BAGFIX_PATH, BF, "    if (cur.count > 0 && cur.name !== step.name) return out('cursor_swapped')\n", '', swapped)
+  await killedBy(BAGFIX_PATH, BF, "  if (cur.name !== step.name || cur.count !== step.count) return out(cur.count ? 'pickup_differs' : 'pickup_empty')\n", '', pickupDiffers)
+  await killedBy(BAGFIX_PATH, BF, '    const lost = before && after ? Math.max(0, (Number(before[name]) || 0) - (Number(after[name]) || 0)) : 0\n', '    const lost = Infinity\n',
+    M => assert.deepEqual(M.creditMoves([{ step: { name: 'coal', count: 40 }, dest: 3, base: 5, after: 45 }], { coal: 40 }, { coal: 26 }), []))
+})
+
 // ---- D: carried chests ---------------------------------------------------------------------------------------------------------
 console.log('D: CARRIED CHESTS')
 const CF = await import('../src/chestfull.mjs')
@@ -352,9 +473,13 @@ await t('WIRED (M, D): the plan asks mergeFit, the clicks read the cursor back, 
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
   one(sk, '\\? mergeFit\\(plan\\.steps, win\\.slots\\.slice\\(0, win\\.inventoryStart\\)', 'bankInto plans with mergeFit')
   one(sk, ': fitToContainer\\(plan\\.steps, win\\.slots\\.slice\\(0, win\\.inventoryStart\\)\\)', 'off: fitToContainer')
-  one(sk, 'if \\(!d \\|\\| !sameStack\\(d, win\\.selectedItem\\) \\|\\| d\\.count >= max\\) continue', 'each merge is re-read at its click')
-  one(sk, 'if \\(left - n > 0 \\? !\\(cur && cur\\.name === step\\.name && cur\\.count === left - n\\) : !!cur\\) throw stop', 'the cursor is read back after a merge')
-  one(sk, 'verified: done\\.filter\\(x => destHolds\\(win\\.slots\\[x\\.dest\\], x\\)\\)', 'the re-open')
+  one(sk, "const canConfirm = BAGFIX\\.merge && typeof bot\\?\\.craftSync\\?\\.confirmCursor === 'function'", 'no server confirmation to hand: empty slots only')
+  one(sk, 'const steps = canConfirm', 'the plan merges only with it')
+  one(sk, 'if \\(step\\.merges\\?\\.length\\) continue', 'a merging stack never moves in the unconfirmed pass')
+  one(sk, 'const m = await runMerge\\(\\{ click: oneClick, confirm, slot: i => win\\.slots\\[i\\] \\?\\? null, emptyDest, same: d => sameStack\\(d, win\\.selectedItem\\) \\}, step, it\\.wslot\\)', 'the confirmed pass')
+  one(sk, 'const ev = await confirmCursor\\(bot, win, \\{ deadline: Math\\.min\\(deadline, Date\\.now\\(\\) \\+ 1_500\\), cancelled: \\(\\) => !!signal\\?\\.aborted \\}\\)', 'the confirmation is craftsync\'s cursor probe')
+  one(sk, "if \\(m\\.stop\\) \\{ err = `merge stopped: \\$\\{m\\.stop\\}`\\.slice\\(0, 80\\); break \\}", 'a stop ends the pass: no further click')
+  one(sk, 'verified: creditMoves\\(done\\.filter\\(x => destHolds\\(win\\.slots\\[x\\.dest\\], x\\)\\), before, bag\\)', 'the re-open credits against the bag')
   one(sk, "!\\(st === 'full' && fullOk\\?\\.\\(posKey\\(p\\)\\)\\)\\) continue", 'townContainers')
   one(sk, 'const next0 = fullChestNext\\(\\{ nearHome, unknown: unk, budget, carried: !!carried \\}\\)', 'the recovery skips an unreadable container')
   one(sk, 'const skip = \\[\\.\\.\\.failedSites\\(claims\\)\\]', 'the site picker')
