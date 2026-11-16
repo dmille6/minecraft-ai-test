@@ -1900,10 +1900,16 @@ def plan_root(fx):
 
 def plan_output(TL, cfg, when):
     """What `tl_showcase.py plan` prints at a given UTC time -> (stdout, stderr)."""
-    import contextlib, io
+    import contextlib, gc, io, warnings
     out, err = io.StringIO(), io.StringIO()
-    with swap(TL, now_utc=lambda: when), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        rc = TL.cmd_plan(cfg, None)
+    # tl_showcase reads its state with `json.load(open(...))`; when the collector happens to run inside the redirect, Python
+    # prints a ResourceWarning for the unclosed file on stderr, which is not the tool's output (seen on 3.14 after a rebase)
+    gc.collect()
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', ResourceWarning)
+        with swap(TL, now_utc=lambda: when), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = TL.cmd_plan(cfg, None)
+        gc.collect()
     assert rc == 0
     return out.getvalue(), err.getvalue()
 
