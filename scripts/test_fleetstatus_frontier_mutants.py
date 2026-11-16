@@ -14,6 +14,16 @@ import tempfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, 'scripts/host/fleetstatus.py')
 MUT = [
+    # monfix-01 (e): the cooperation census is retired by a dated marker, and only by one
+    ('coop marker ignored', "    gone = retired_line('cooperation census (B1)', os.path.dirname(d.rstrip('/')), _newest(os.path.join(d, 'daily'), '.json'))",
+     "    gone = None", 'coop_line_failing_control_is_an_alarm_until_retired'),
+    ('retired without a marker', "        if not os.path.exists(p):\n            return None\n        why = (open(p, errors='replace')",
+     "        if not os.path.exists(p):\n            return f'{label} RETIRED: no marker'\n        why = (open(p, errors='replace')",
+     'coop_line_failing_control_is_an_alarm_until_retired'),
+    ('undated marker accepted', "        if not RETIRED_DATE.match(why):", "        if False:", 'coop_retired_marker_must_carry_date_and_reason'),
+    ('retired job still writing accepted', "            if late > RETIRED_SLACK:", "            if False:", 'coop_retired_but_still_running_is_an_alarm'),
+    ('retired slack dropped', "RETIRED_SLACK = dt.timedelta(hours=1)", "RETIRED_SLACK = dt.timedelta(hours=0)", 'coop_retired_but_still_running_is_an_alarm'),
+    ('coop line not in header', "    if rep.get('coop'):\n        print(rep['coop'])\n", "", 'coop_retired_line_is_in_the_header'),
     ('structcount UNKNOWN not an alarm', "            return f'!! structcount (B5 buildings, from the world): {r[\"status\"]}",
      "            return f'structcount (B5 buildings, from the world): {r[\"status\"]}", 'structcount_line_unknown_is_an_alarm'),
     ('structcount yesterday accepted all day', "        if r['status'] != 'OK' and now.time() < STRUCTCOUNT_DUE:",

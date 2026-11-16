@@ -758,6 +758,78 @@ def t_lavamap_retired_says_so():
     assert line.startswith('lavamap RETIRED: no consumer') and 'INCONCLUSIVE' in line, line
 
 
+COOP_NOW = dt.datetime(2026, 11, 16, 19, 0, tzinfo=dt.timezone.utc)
+COOP_WHY = ('2026-11-16: the 16-town fleet it measures ends (docs/decisions/consolidation-2026-11-14.md); owner 11-16. '
+            'Data kept: ~/coopread/out')
+
+
+def _coop_fixture(chain_ok=False, retired=None, marker_age_h=0.0, daily_age_h=17.0):
+    """~/coopread as the host has it: out/daily/<until>.json (written daily_age_h ago) and, when retired is given, the
+    marker RETIRED beside out (written marker_age_h ago). The 11-16 file's failing control is xfer_through_chain."""
+    import tempfile
+    import time
+    home = os.path.join(tempfile.mkdtemp(), 'coopread')
+    out = os.path.join(home, 'out')
+    os.makedirs(os.path.join(out, 'daily'))
+    p = os.path.join(out, 'daily', '2026-11-16T020000Z.json')
+    with open(p, 'w') as fh:
+        json.dump({'window': ['2026-11-15T02:00:00Z', '2026-11-16T02:00:00Z'],
+                   'fleet': {'prov_towns': 16, 'prov_withdrawn': 900, 'prov_other_lb': 10, 'prov_other_ub': 40,
+                             'prov_cover_h': 384.0, 'built_rows': 5, 'built_multi_builder_project_days': 3},
+                   'controls': {'positions_seen': {'ok': True}, 'xfer_through_chain': {'ok': chain_ok}},
+                   'towns': {'board-a': {'provenance': {'ok': True}}}}, fh)
+    t = time.time()
+    os.utime(p, (t - daily_age_h * 3600,) * 2)
+    if retired is not None:
+        m = os.path.join(home, 'RETIRED')
+        with open(m, 'w') as fh:
+            fh.write(retired)
+        os.utime(m, (t - marker_age_h * 3600,) * 2)
+    return out
+
+
+def t_coop_line_failing_control_is_an_alarm_until_retired():
+    """monfix-01 (e): the line the retirement quiets is real (positive control), and the marker makes it ONE quiet line with
+    the date and the reason -- the lavamap pattern."""
+    line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture())
+    assert line.startswith("!! cooperation census (B1): controls FAILED ['xfer_through_chain']"), line
+    line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture(retired=COOP_WHY + '\nsecond line: not shown\n'))
+    assert line == 'cooperation census (B1) RETIRED: ' + COOP_WHY, line
+
+
+def t_coop_line_healthy_without_marker():
+    line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture(chain_ok=True))
+    assert line.startswith('cooperation census (B1): 17 h old, chests other-bot 10-40 of 900 withdrawn'), line
+
+
+def t_coop_retired_marker_must_carry_date_and_reason():
+    for text in ('', '\n', 'retired, see the decision doc', 'RETIRED 11-16'):
+        line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture(retired=text))
+        assert line.startswith('!! cooperation census (B1): the RETIRED marker') and 'does not start with its date' in line, (text, line)
+
+
+def t_coop_retired_but_still_running_is_an_alarm():
+    """A marker whose job still writes would hide that job's failures behind the word RETIRED."""
+    line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture(retired=COOP_WHY, marker_age_h=30, daily_age_h=2))
+    assert line.startswith('!! cooperation census (B1): marked RETIRED') and 'STILL WRITES' in line and '28.0 h after' in line, line
+    # the last run before the cron line was commented out may land just after the marker: not an alarm
+    line = FS.coop_line(COOP_NOW, out_dir=_coop_fixture(retired=COOP_WHY, marker_age_h=2.5, daily_age_h=2))
+    assert line == 'cooperation census (B1) RETIRED: ' + COOP_WHY, line
+
+
+def t_coop_retired_line_is_in_the_header():
+    saved = FS.COOP_DIR
+    FS.COOP_DIR = _coop_fixture(retired=COOP_WHY)
+    try:
+        out = io.StringIO()
+        rep = run(fleet_docs(), stdout=out)
+    finally:
+        FS.COOP_DIR = saved
+    assert rep.get('coop') == 'cooperation census (B1) RETIRED: ' + COOP_WHY, rep.get('coop')
+    assert rep['coop'] in out.getvalue().splitlines(), out.getvalue()[:600]
+    assert not any(x.startswith('!! cooperation census') for x in out.getvalue().splitlines())
+
+
 def t_lavamap_with_a_reader_runs_the_check():
     home, tree = _lava_fixture(reader=True)
     line = FS.lavamap_line(None, home=home, tree=tree)

@@ -237,9 +237,52 @@ COOP_DIR = '~/coopread/out'
 COOP_STALE = dt.timedelta(hours=30)
 
 
+RETIRED_DATE = re.compile(r'^\d{4}-\d{2}-\d{2}\b')
+RETIRED_SLACK = dt.timedelta(hours=1)
+
+
+def retired_line(label, home, newest_output=None):
+    """A job retired ON PURPOSE (the lavamap pattern, 10-31): a file RETIRED in the job's home whose first line starts with
+    the date and says why -> the one quiet line '<label> RETIRED: <that line>'. None when there is no such file: the job is
+    then judged as before. NEVER raises, and never excuses more than it says:
+      * a marker that is empty, unreadable or undated is '!! ' (a retirement nobody can date or explain is not one);
+      * newest_output (a path the job writes) newer than the marker by RETIRED_SLACK is '!! ': the job still runs, so its
+        failures would be hidden behind the word RETIRED -- comment out its cron line, or remove the marker."""
+    p = os.path.join(os.path.expanduser(home), 'RETIRED')
+    try:
+        if not os.path.exists(p):
+            return None
+        why = (open(p, errors='replace').read().strip().splitlines() or [''])[0].strip()[:300]
+        if not RETIRED_DATE.match(why):
+            return (f'!! {label}: the RETIRED marker {p} does not start with its date (YYYY-MM-DD) and the reason '
+                    f'({why[:60]!r}) -- a retirement nobody can date is not one')
+        if newest_output and os.path.exists(newest_output):
+            late = dt.timedelta(seconds=os.path.getmtime(newest_output) - os.path.getmtime(p))
+            if late > RETIRED_SLACK:
+                return (f'!! {label}: marked RETIRED ({why[:80]}) but its job STILL WRITES ({newest_output}, '
+                        f'{late.total_seconds() / 3600:.1f} h after the marker) -- comment out its cron line, or remove {p}')
+        return f'{label} RETIRED: {why}'
+    except Exception as e:                      # noqa: BLE001 -- the fleet report must never fall over on this line
+        return f'!! {label}: the RETIRED marker {p} is unreadable ({type(e).__name__}: {str(e)[:80]})'
+
+
+def _newest(dirpath, suffix):
+    """The newest file in dirpath that ends with suffix, or None (a missing directory is None too)."""
+    try:
+        fs = [os.path.join(dirpath, f) for f in os.listdir(dirpath) if f.endswith(suffix)]
+        return max(fs, key=os.path.getmtime) if fs else None
+    except OSError:
+        return None
+
+
 def coop_line(now, out_dir=None):
-    """One header line for the daily cooperation census. NEVER raises."""
+    """One header line for the daily cooperation census. NEVER raises.
+    RETIRED 2026-11-16 (owner; consolidation decision 2026-11-14 ends the 16-town fleet it measures): with the marker
+    ~/coopread/RETIRED beside the out dir this is retired_line()'s one quiet line."""
     d = os.path.expanduser(out_dir or COOP_DIR)
+    gone = retired_line('cooperation census (B1)', os.path.dirname(d.rstrip('/')), _newest(os.path.join(d, 'daily'), '.json'))
+    if gone:
+        return gone
     try:
         fs = sorted(f for f in os.listdir(os.path.join(d, 'daily')) if f.endswith('.json'))
         if not fs:
