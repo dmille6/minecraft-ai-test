@@ -211,6 +211,22 @@ export function creditMoves (holding = [], before = null, after = null) {
   }
   return out
 }
+/**
+ * NEVER LESS THAN WHAT LEFT THE BAG (Paper proof 11-16: a skill interrupted after a merge click and before its probe left 4 coal in
+ * the chest and the row `banked -`, `bagdelta 0`) -> the banked tally { name: n }. Pure. `before` the tally when this container was
+ * opened, `open` / `end` the BAG's counts at the open and after the settle -- both the SERVER's (the open's window, and the window
+ * after a cursor probe answered empty: nothing is on the cursor, so what the bag lost is in the chest). A name is credited at least
+ * its loss here; a credit already above it stands. No `end` (no answered probe): the tally unchanged.
+ */
+export function lossCredit ({ banked = {}, before = {}, open = null, end = null } = {}) {
+  const out = { ...(banked ?? {}) }
+  if (!open || !end) return out
+  for (const name of Object.keys(open)) {
+    const lost = (Number(open[name]) || 0) - (Number(end[name]) || 0)
+    if (lost > 0) out[name] = Math.max(Number(out[name]) || 0, (Number(before?.[name]) || 0) + lost)
+  }
+  return out
+}
 /** THE ROOM A CONTAINER'S PARTIAL STACKS HAVE for these names -> items. Pure. `names` the town index's observation ({ name: [count,
  *  slots] }); `want` the names a plan would bank. */
 export function mergeRoom (names = {}, want = [], stackOf = () => 64) {
