@@ -1028,7 +1028,11 @@ def main():
             print(json.dumps({'view': v, 'label': name, 'error': str(e)[:300]}))
             rc = 1
     if a.kind == 'daily':
-        scenes = build_scene_clips(name, lo, hi, sj)       # one clip per scene live that day (camdirector-01)
+        try:
+            scenes = build_scene_clips(name, lo, hi, sj)       # one clip per scene live that day (camdirector-01)
+        except Exception as e:          # the scene clips are an addition: a failure there never costs the day's reel
+            print(json.dumps({'view': 'scenes', 'label': name, 'error': f'{type(e).__name__}: {str(e)[:300]}'}))
+            scenes, rc = [], 1
         try:
             print(json.dumps(build_reel(name, sides, os.path.join(ROOT, 'video', f'{name}-reel.mp4'), scenes=scenes,
                                         off=off)))

@@ -31,8 +31,9 @@ bots are, in three layers), and hands this slot one camera per live surface scen
 camera). They are shot right after the pair, AHEAD of every fixed camera, inside the same budget_s and inside
 director.scene_budget_s; the cameras in director.replaces give up their slot to them, the cameras in
 director.idle_only keep their idle interval, and a slot that shoots a scene camera plans no more than
-director.slot_s in all (a fixed camera that no longer fits waits a slot). Underground scenes go to logs/scenes-slot.json for tl_under.py. With
-"on": false (or no `director` key) none of this runs and the plan is exactly the one above (director_slot).
+director.slot_s in all (a fixed camera that no longer fits waits a slot). Underground scenes go to
+logs/scenes-slot.json for tl_under.py. With "on": false (or no `director` key) none of this runs and the plan is
+exactly the one above (director_slot).
 
 A FAILED STEP IS A ROW, NOT A CRASH: the heartbeat records ok:false and the failed step; no frame is written for
 that slot; the next timer run tries again. Two captures never overlap (flock -n; an overrun is a `skip` row).
@@ -351,8 +352,9 @@ def director_slot(cfg, cams, now, sites, stamp=None, write=True):
     first_budget_s, slot_s, result): the slot's cameras with the scene cameras added and the replaced / idle-only
     cameras marked, the scene cameras in shooting order for plan_views(first=...), their per-slot ceiling, the whole
     slot's ceiling while a scene camera is shot (None: budget_s alone), and the director's result (None while off).
-    OFF, the cameras come back untouched with first=() and None: the plan is exactly the plan without a director. A director that FAILS costs the slot nothing either: the same untouched cameras, and the
-    error for the heartbeat row. write False (the `plan` command): the director writes nothing."""
+    OFF, the cameras come back untouched with first=() and None: the plan is exactly the plan without a director.
+    A director that FAILS costs the slot nothing either: the same untouched cameras, and the error for the heartbeat
+    row. write False (the `plan` command): the director writes nothing."""
     if not director_on(cfg):
         return cams, (), None, None, None
     try:
@@ -385,13 +387,16 @@ def director_done(cfg, res, cams, published, timings, now, state):
         sc = (cams.get(v) or {}).get('scene')
         if sc:
             shots[sc['id']] = timings.get(v) if isinstance(timings.get(v), (int, float)) else None
-    D.finish(cfg, res, shots, now)
     for v in [k for k in state if k.startswith('scene-') and k not in cams]:
         del state[v]
         try:
             os.remove(os.path.join(cfg['root'], 'logs', 'gray', v + '.gray'))
         except OSError:
             pass
+    try:
+        D.finish(cfg, res, shots, now)
+    except Exception as e:              # the frames are published: the slot's own state and heartbeat still follow
+        return dict(D.summary(res), shot=sorted(shots), error=f'{type(e).__name__}: {str(e)[:200]}')
     return dict(D.summary(res), shot=sorted(shots))
 
 

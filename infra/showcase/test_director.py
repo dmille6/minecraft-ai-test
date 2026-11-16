@@ -1086,6 +1086,22 @@ def check_a_failing_director_costs_the_slot_nothing(t, M):
         t.assertFalse(os.path.exists(os.path.join(root, 'logs', 'scenes.json')))
     finally:
         shutil.rmtree(root)
+    # the director failing AFTER the frames are published (its state cannot be saved): the slot still closes
+    root, cfg = slot_root()
+
+    def boom(*a, **k):
+        raise OSError('disk full')
+    try:
+        try:
+            with swap(M['D'], finish=boom):
+                shot, hb = run_slot(M, cfg)
+        except Exception as e:
+            t.fail(f'a director error after the capture crashed the slot: {type(e).__name__}: {e}')
+        t.assertEqual((hb['ok'], 'disk full' in (hb.get('director') or {}).get('error', '')), (True, True))
+        t.assertIn('town', jload(os.path.join(root, 'logs', 'views.json')), 'the schedule state is saved all the same')
+        t.assertEqual(len([v for v in shot if v.startswith('scene-')]), 2)
+    finally:
+        shutil.rmtree(root)
 
 
 def check_director_off_plans_exactly_as_before(t, M):
@@ -1540,6 +1556,19 @@ def check_daily_builds_the_scene_clips_and_the_reel(t, M):
         with swap(TV, ROOT=root, TL_CONF=conf), swap(TV.subprocess, run=ff), quiet():
             TV.main()
         t.assertEqual(jload(os.path.join(vid, '2026-11-16-reel.mp4.json'))['views'], ['hero4k'], 'and the same from `reel` alone')
+        # a failure while building the scene clips never costs the day's reel
+        def boom(*a, **k):
+            raise RuntimeError('scene clips broke')
+        os.remove(os.path.join(vid, '2026-11-16-reel.mp4.json'))
+        sys.argv = ['tl_video.py', 'daily', '--day', '2026-11-16']
+        try:
+            with swap(TV, ROOT=root, TL_CONF=conf, small_gray=gray, load_lines=lambda *a: [], build_scene_clips=boom), \
+                    swap(TV.subprocess, run=ff), quiet():
+                rc = TV.main()
+        except RuntimeError as e:
+            t.fail(f'the daily job died with the scene clips: {e}')
+        t.assertEqual((rc, jload(os.path.join(vid, '2026-11-16-reel.mp4.json'))['views']), (1, ['hero4k']),
+                      'the reel is built all the same; the job reports the failure in its exit code')
     finally:
         sys.argv = old_argv
         shutil.rmtree(root)
@@ -1907,7 +1936,9 @@ MUTANTS = [
      'check_a_whole_slot_with_the_director_on'),
     ('tl_showcase.py', "    for v in [k for k in state if k.startswith('scene-') and k not in cams]:", "    for v in []:",
      'check_a_whole_slot_with_the_director_on'),
-    ('tl_showcase.py', "    D.finish(cfg, res, shots, now)", "    D.finish(cfg, res, {}, now)", 'check_a_whole_slot_with_the_director_on'),
+    ('tl_showcase.py', "        D.finish(cfg, res, shots, now)", "        D.finish(cfg, res, {}, now)", 'check_a_whole_slot_with_the_director_on'),
+    ('tl_showcase.py', "    except Exception as e:              # the frames are published", "    except ZeroDivisionError as e:              # the frames are published",
+     'check_a_failing_director_costs_the_slot_nothing'),
     ('tl_showcase.py', "    if drow is not None:\n        row['director'] = drow", "    if False:\n        row['director'] = drow",
      'check_a_whole_slot_with_the_director_on'),
     ('tl_showcase.py', "        res = D.run(cfg, now, sites, stamp=stamp, frame=follow_camera, write=write)",
@@ -1974,8 +2005,11 @@ MUTANTS = [
      'check_the_reel_is_the_top_scenes_then_the_overview'),
     ('tl_video.py', "    plan = plan_reel(sides, scenes=scenes, off=off)", "    plan = plan_reel(sides, off=off)",
      'check_the_reel_is_the_top_scenes_then_the_overview'),
-    ('tl_video.py', "        scenes = build_scene_clips(name, lo, hi, sj)       # one clip per scene live that day (camdirector-01)",
-     "        scenes = []", 'check_daily_builds_the_scene_clips_and_the_reel'),
+    ('tl_video.py', "            scenes = build_scene_clips(name, lo, hi, sj)       # one clip per scene live that day (camdirector-01)",
+     "            scenes = []", 'check_daily_builds_the_scene_clips_and_the_reel'),
+    ('tl_video.py', "        except Exception as e:          # the scene clips are an addition", "        except ZeroDivisionError as e:          # the scene clips are an addition",
+     'check_daily_builds_the_scene_clips_and_the_reel'),
+    ('tl_video.py', "            scenes, rc = [], 1\n", "            scenes = []\n", 'check_daily_builds_the_scene_clips_and_the_reel'),
     ('tl_video.py', "                scenes.append(dict(read_side(out), out=out))", "                pass",
      'check_daily_builds_the_scene_clips_and_the_reel'),
     ('tl_video.py', "scenes=scenes,\n                                    off=off_views(load_tl_conf()))))", "scenes=scenes)))",
