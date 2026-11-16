@@ -1,0 +1,89 @@
+{
+ "base": "c75a5e51d6eb66270205599ae512b818aca9fbe7",
+ "pool": {
+  "project-0_70_0.cottage1.g4.json": {
+   "box": [
+    30,
+    30,
+    40,
+    41
+   ],
+   "site": {
+    "g": 66
+   },
+   "state": "open",
+   "structure_complete": false
+  },
+  "project-0_70_0.cottage1.progress.json": {
+   "at": 1794829800000
+  },
+  "project-0_70_0.tidy.progress.json": {
+   "at": 1794830100000
+  },
+  "project-0_70_0.yard.g2.json": {
+   "box": [
+    -60,
+    0,
+    -50,
+    12
+   ],
+   "structure_complete": false
+  },
+  "project-0_70_0.yard.progress.json": {
+   "at": 1794828000000
+  }
+ },
+ "stdout": {
+  "2026-11-16T12:00:00Z": "{\n \"t\": \"2026-11-16T12:00:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"iso\",\n  \"grounds\",\n  \"town\",\n  \"project4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"iso\": \"active every 30 min; last 45 min ago; frame changed 2026-11-16T09:00:00Z\",\n  \"project4k\": \"active every 30 min; last 45 min ago; project cottage1 placed 2026-11-16T11:50:00Z\",\n  \"grounds\": \"active every 15 min; last 15 min ago; project tidy placed 2026-11-16T11:55:00Z\",\n  \"town\": \"active every 15 min; last 15 min ago; frame changed 2026-11-16T11:30:00Z\"\n },\n \"deferred\": [\n  \"hero4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n",
+  "2026-11-16T12:15:00Z": "{\n \"t\": \"2026-11-16T12:15:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"grounds\",\n  \"town\",\n  \"iso\",\n  \"project4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"grounds\": \"active every 15 min; last 30 min ago; project tidy placed 2026-11-16T11:55:00Z\",\n  \"project4k\": \"active every 30 min; last 60 min ago; project cottage1 placed 2026-11-16T11:50:00Z\",\n  \"town\": \"active every 15 min; last 30 min ago; frame changed 2026-11-16T11:30:00Z\",\n  \"iso\": \"idle every 60 min; last 60 min ago; quiet\"\n },\n \"deferred\": [\n  \"hero4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n",
+  "2026-11-16T12:30:00Z": "{\n \"t\": \"2026-11-16T12:30:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"grounds\",\n  \"town\",\n  \"iso\",\n  \"expeditions\",\n  \"project4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"grounds\": \"active every 15 min; last 45 min ago; project tidy placed 2026-11-16T11:55:00Z\",\n  \"town\": \"active every 15 min; last 45 min ago; frame changed 2026-11-16T11:30:00Z\",\n  \"project4k\": \"active every 30 min; last 75 min ago; project cottage1 placed 2026-11-16T11:50:00Z\",\n  \"iso\": \"idle every 60 min; last 75 min ago; quiet\",\n  \"expeditions\": \"idle every 120 min; last 120 min ago; quiet\"\n },\n \"deferred\": [\n  \"hero4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n",
+  "2026-11-16T12:45:00Z": "{\n \"t\": \"2026-11-16T12:45:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"grounds\",\n  \"town\",\n  \"iso\",\n  \"expeditions\",\n  \"project4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"grounds\": \"active every 15 min; last 60 min ago; project tidy placed 2026-11-16T11:55:00Z\",\n  \"town\": \"active every 15 min; last 60 min ago; frame changed 2026-11-16T11:30:00Z\",\n  \"project4k\": \"active every 30 min; last 90 min ago; project cottage1 placed 2026-11-16T11:50:00Z\",\n  \"iso\": \"idle every 60 min; last 90 min ago; quiet\",\n  \"expeditions\": \"idle every 120 min; last 135 min ago; quiet\"\n },\n \"deferred\": [\n  \"hero4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n",
+  "2026-11-16T13:00:00Z": "{\n \"t\": \"2026-11-16T13:00:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"grounds\",\n  \"town\",\n  \"iso\",\n  \"expeditions\",\n  \"project4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"grounds\": \"active every 15 min; last 75 min ago; project tidy placed 2026-11-16T11:55:00Z\",\n  \"town\": \"active every 15 min; last 75 min ago; frame changed 2026-11-16T11:30:00Z\",\n  \"project4k\": \"active every 30 min; last 105 min ago; project cottage1 placed 2026-11-16T11:50:00Z\",\n  \"iso\": \"idle every 60 min; last 105 min ago; quiet\",\n  \"expeditions\": \"idle every 120 min; last 150 min ago; quiet\"\n },\n \"deferred\": [\n  \"hero4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n",
+  "2026-11-16T14:15:00Z": "{\n \"t\": \"2026-11-16T14:15:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"grounds\",\n  \"town\",\n  \"iso\",\n  \"expeditions\",\n  \"patina\",\n  \"project4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"grounds\": \"active every 15 min; last 150 min ago; project tidy placed 2026-11-16T11:55:00Z\",\n  \"town\": \"active every 15 min; last 150 min ago; frame changed 2026-11-16T11:30:00Z\",\n  \"project4k\": \"active every 30 min; last 180 min ago; project cottage1 placed 2026-11-16T11:50:00Z\",\n  \"iso\": \"idle every 60 min; last 180 min ago; quiet\",\n  \"expeditions\": \"idle every 120 min; last 225 min ago; quiet\",\n  \"patina\": \"idle every 360 min; last 375 min ago; quiet\"\n },\n \"deferred\": [\n  \"hero4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n",
+  "2026-11-16T15:45:00Z": "{\n \"t\": \"2026-11-16T15:45:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"iso\",\n  \"town\",\n  \"expeditions\",\n  \"grounds\",\n  \"patina\",\n  \"hero4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"hero4k\": \"idle every 30 min; last 255 min ago; quiet\",\n  \"iso\": \"idle every 60 min; last 270 min ago; quiet\",\n  \"town\": \"idle every 60 min; last 240 min ago; quiet\",\n  \"expeditions\": \"idle every 120 min; last 315 min ago; quiet\",\n  \"grounds\": \"idle every 120 min; last 240 min ago; quiet\",\n  \"patina\": \"idle every 360 min; last 465 min ago; quiet\"\n },\n \"deferred\": [\n  \"project4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n",
+  "2026-11-16T16:00:00Z": "{\n \"t\": \"2026-11-16T16:00:00Z\",\n \"views\": [\n  \"topdown\",\n  \"angled\",\n  \"iso\",\n  \"town\",\n  \"expeditions\",\n  \"grounds\",\n  \"patina\",\n  \"hero4k\"\n ],\n \"why\": {\n  \"topdown\": \"pair\",\n  \"angled\": \"pair\",\n  \"hero4k\": \"idle every 30 min; last 270 min ago; quiet\",\n  \"iso\": \"idle every 60 min; last 285 min ago; quiet\",\n  \"town\": \"idle every 60 min; last 255 min ago; quiet\",\n  \"expeditions\": \"idle every 120 min; last 330 min ago; quiet\",\n  \"grounds\": \"idle every 120 min; last 255 min ago; quiet\",\n  \"patina\": \"idle every 360 min; last 480 min ago; quiet\"\n },\n \"deferred\": [\n  \"project4k\"\n ],\n \"follow\": {\n  \"project4k\": \"cottage1\",\n  \"projectev\": \"cottage1\"\n }\n}\n"
+ },
+ "views": {
+  "angled": {
+   "frame_s": 25.5,
+   "last": "2026-11-16T11:45:00Z"
+  },
+  "expeditions": {
+   "frame_s": 31.0,
+   "last": "2026-11-16T10:30:00Z"
+  },
+  "grounds": {
+   "frame_s": 29.0,
+   "last": "2026-11-16T11:45:00Z",
+   "last_change": "2026-11-16T11:45:00Z"
+  },
+  "hero4k": {
+   "frame_s": 141.0,
+   "last": "2026-11-16T11:30:00Z"
+  },
+  "iso": {
+   "frame_s": 27.0,
+   "last": "2026-11-16T11:15:00Z",
+   "last_change": "2026-11-16T09:00:00Z"
+  },
+  "patina": {
+   "frame_s": 20.0,
+   "last": "2026-11-16T08:00:00Z"
+  },
+  "project4k": {
+   "frame_s": 138.0,
+   "last": "2026-11-16T11:15:00Z",
+   "target": "cottage1"
+  },
+  "topdown": {
+   "frame_s": 22.0,
+   "last": "2026-11-16T11:00:00Z"
+  },
+  "town": {
+   "changed": 0.004,
+   "frame_s": 24.0,
+   "last": "2026-11-16T11:45:00Z",
+   "last_change": "2026-11-16T11:30:00Z"
+  }
+ }
+}

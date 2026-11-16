@@ -490,9 +490,15 @@ def director_plan(cfg, cams, targets, state, now, progress, sites, budget_s, spe
     if list(views[:len(pair)]) != list(pair) or len(set(views)) != len(views) or not set(views) <= set(dcams):
         raise DirectorRefused('the plan made with the scene cameras is not a plan')
     summary = D.summary(res)
+    if not isinstance(summary, dict):       # Codex r4: ['broken'] is valid JSON and no heartbeat object
+        raise DirectorRefused(f'tl_director.summary returned a {type(summary).__name__}, not an object')
     json.dumps(summary, allow_nan=False)
+    # the sidecar of every scene frame, made HERE: after this function returns, nothing the slot does calls into the
+    # director's objects again outside director_done's own try
+    sidecars = {v: frame_sidecar(dcams[v], None) for v in first}
+    json.dumps(sidecars, allow_nan=False)
     return {'cams': dcams, 'targets': targets, 'views': views, 'why': why, 'deferred': deferred, 'director': res,
-            'summary': summary, 'director_error': None}
+            'summary': summary, 'sidecars': sidecars, 'director_error': None}
 
 
 def slot_plan(cfg, state, now, progress, sites, budget_s, spent, pair, stamp=None, write=True):
@@ -512,7 +518,7 @@ def slot_plan(cfg, state, now, progress, sites, budget_s, spent, pair, stamp=Non
     def without_director(error=None):
         views, why, deferred = plan_views(dict(cfg, cameras=cams), state, now, progress, budget_s, spent(), pair=pair)
         return {'cams': cams, 'targets': targets, 'views': views, 'why': why, 'deferred': deferred, 'director': None,
-                'summary': None, 'director_error': error}
+                'summary': None, 'sidecars': {}, 'director_error': error}
     if not director_on(cfg):
         return without_director()
     try:
@@ -525,18 +531,22 @@ def director_done(cfg, plan, published, timings, now, state):
     """After the slot's frames are published: tell the director which scene cameras got theirs (and how long a scene
     frame took), and drop the schedule memory (views.json entry, gray file) of scene cameras that are no longer live,
     so neither grows without bound. -> (the director's heartbeat object or None, None or the error). Fenced like
-    slot_plan: the frames are on disk by now, so whatever fails here the slot still saves its own state and writes
-    its heartbeat row, with the error in `director_error`."""
+    slot_plan: the frames are on disk by now, so whatever fails here -- tl_director.finish, or any object the
+    director left in the plan turning out not to be what it should -- the slot still saves its own state and writes
+    its heartbeat row, with the error in `director_error`. Nothing in here is used outside the try, and what goes
+    into the row is a dict that is known to serialise."""
     if not plan.get('director'):
         return None, None
-    shots = {}
+    row, err = {}, None
     try:
         import tl_director as D
-        cams = plan['cams']
+        cams, shots = plan['cams'], {}
         for v in published:
             sc = (cams.get(v) or {}).get('scene')
             if sc:
                 shots[sc['id']] = timings.get(v) if isinstance(timings.get(v), (int, float)) else None
+        row = dict(plan['summary'], shot=sorted(shots))
+        json.dumps(row, allow_nan=False)
         for v in [k for k in state if k.startswith('scene-') and k not in cams]:
             del state[v]
             try:
@@ -545,8 +555,12 @@ def director_done(cfg, plan, published, timings, now, state):
                 pass
         D.finish(cfg, plan['director'], shots, now)
     except Exception as e:
-        return dict(plan.get('summary') or {}, shot=sorted(shots)), f'{type(e).__name__}: {str(e)[:300]}'
-    return dict(plan.get('summary') or {}, shot=sorted(shots)), None
+        err = f'{type(e).__name__}: {str(e)[:300]}'
+        try:                                # whatever is put in the heartbeat row can be written there
+            json.dumps(row, allow_nan=False)
+        except Exception:
+            row = {}
+    return (row if isinstance(row, dict) and row else None), err
 
 
 def project_progress(cfg):
@@ -1035,8 +1049,8 @@ def _capture_locked(cfg, a, t, stamp):
             # the framing, for the nightly Chunky beauty render of the same project (chunky_beauty.project_view)
             state[v]['camera'] = {k: cams[v].get(k) for k in ('x', 'y', 'z', 'distance', 'rotation', 'angle', 'fov', 'label')}
             state[v] = note_final(state[v], targets[v], sites.get(targets[v]))   # a finished project: this was its last
-        side = dict(frame_sidecar(cams.get(v), targets.get(v), sites.get(targets.get(v))) or {},
-                    changed=state[v].get('changed'))
+        side = plan['sidecars'].get(v) or frame_sidecar(cams.get(v), targets.get(v), sites.get(targets.get(v)))
+        side = dict(side or {}, changed=state[v].get('changed'))      # a scene frame's: made and checked in director_plan
         with open(p[:-4] + '.json', 'w') as f:
             json.dump(side, f)
         if gray:
@@ -1133,11 +1147,29 @@ def cmd_shoot(cfg, a):
 
 
 def cmd_plan(cfg, a):
+    """`plan`: what the next slot would shoot and why (read-only).
+    DIRECTOR OFF: exactly the object this command has always printed (Codex r4: it is an operator's diagnostic, its
+    output does not change under him) -- which plans the FULL pair (VIEWS) in every slot. That was never quite what a
+    slot shoots since timelapse2-1110: with tl.conf pair_hourly the slot's pair is slot_pair (topdown only in the slot
+    on the hour), so off the hour `views` lists a topdown the slot will not take and counts its seconds against the
+    budget. The object stays as it was; the slot's real pair is said in one extra line on STDERR when it differs.
+    DIRECTOR ON: the plan the slot will really make (slot_plan with the slot's own pair, the director's pass run
+    read-only), with `pair`, `director` and, when the director failed, `director_error`."""
     t = now_utc()
     state, progress, sites = load_state(cfg), project_progress(cfg), project_sites(cfg)
-    plan = slot_plan(cfg, state, t, progress, sites, float(cfg.get('budget_s') or DEFAULT_BUDGET_S), lambda: 75.0,
-                     slot_pair(cfg, t), stamp_of(t), write=False)                  # read-only: the director writes nothing
-    out = {'t': _iso(t), 'views': plan['views'], 'why': plan['why'], 'deferred': plan['deferred'], 'follow': plan['targets']}
+    budget = float(cfg.get('budget_s') or DEFAULT_BUDGET_S)
+    pair = slot_pair(cfg, t)
+    if not director_on(cfg):
+        plan = slot_plan(cfg, state, t, progress, sites, budget, lambda: 75.0, VIEWS)
+        print(json.dumps({'t': _iso(t), 'views': plan['views'], 'why': plan['why'], 'deferred': plan['deferred'],
+                          'follow': plan['targets']}, indent=1))
+        if tuple(pair) != tuple(VIEWS):
+            print(f"note: `views` above plans the full pair {list(VIEWS)}, as `plan` always has; the slot at {_iso(t)} "
+                  f"shoots the pair {list(pair)} (tl.conf pair_hourly)", file=sys.stderr)
+        return 0
+    plan = slot_plan(cfg, state, t, progress, sites, budget, lambda: 75.0, pair, stamp_of(t), write=False)   # read-only
+    out = {'t': _iso(t), 'pair': list(pair), 'views': plan['views'], 'why': plan['why'], 'deferred': plan['deferred'],
+           'follow': plan['targets']}
     if plan['summary'] is not None:
         out['director'] = plan['summary']
     if plan['director_error']:

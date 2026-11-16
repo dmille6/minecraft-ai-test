@@ -93,6 +93,7 @@ const REQUIRED = [
   'infra/showcase/test_director.py',
   'infra/showcase/tl_director.py',
   'infra/showcase/fixtures/director-pos-20261116.json',
+  'infra/showcase/fixtures/plan-director-off-c75a5e51d.json',
   'infra/showcase/tl2/tl2.py',
   'infra/showcase/tl2/tl2trails.py',
   'infra/showcase/tl2/tl2run.py',

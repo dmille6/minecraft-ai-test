@@ -1509,6 +1509,14 @@ def check_every_director_entry_point_is_fenced(t, M):
             cams, dc, sc).items() if k != 'grounds'}}, 'added or lost'),
         ('apply_cameras returns None', {'apply_cameras': lambda cams, dc, sc: None}, 'added or lost'),
         ('summary cannot be written as JSON', {'summary': lambda res: {'ms': float('nan')}}, 'ValueError'),
+        # ---- Codex r4: a summary that is valid JSON and no object, or an object that cannot be written
+        ('summary is a list', {'summary': lambda res: ['broken']}, 'not an object'),
+        ('summary is a string', {'summary': lambda res: 'broken'}, 'not an object'),
+        ('summary is None', {'summary': lambda res: None}, 'not an object'),
+        ('summary is a number', {'summary': lambda res: 5}, 'not an object'),
+        ('summary holds a set', {'summary': lambda res: {'cameras': {1, 2}}}, 'TypeError'),
+        ('summary holds an object()', {'summary': lambda res: {'x': object()}}, 'TypeError'),
+        ('summary has a key that is no text', {'summary': lambda res: {(1, 2): 'x'}}, 'TypeError'),
     ]
     for what, patch, expect in faults:
         root, cfg = slot_root()
@@ -1521,7 +1529,7 @@ def check_every_director_entry_point_is_fenced(t, M):
             fenced(t, M, what, shot, hb, off, root, expect)
         finally:
             shutil.rmtree(root)
-    t.assertEqual(len(faults), 35, 'denominator: 35 injected faults')
+    t.assertEqual(len(faults), 42, 'denominator: 42 injected faults')
     # ---- tl_director.py is not there to import; a tl.conf setting the plan cannot use
     for what, extra, module, expect in (('tl_director cannot be imported', None, None, 'Error'),
                                         ('director.overdue_n is "often"', {'overdue_n': 'often'}, 'under test', 'ValueError'),
@@ -1807,6 +1815,141 @@ def check_the_videos_do_not_trust_the_day_log(t, M):
         shutil.rmtree(d)
 
 
+def check_nothing_of_the_director_is_used_unfenced_after_the_plan(t, M):
+    """The post-plan path. director_done takes whatever the plan holds and never raises; what it returns for the
+    heartbeat row is None or a dict that serialises. The scene sidecars are made inside the fence."""
+    D, TL = M['D'], M['TL']
+    dc, (sc, order) = scene_cams(D, TL, 1)
+    v = order[0]
+    good = {'director': {'state': {'scenes': []}, 'first': [v]}, 'summary': {'cameras': [v]}, 'cams': {v: sc[v], 'town': {}}}
+    hostile = [('a summary that is a list', dict(good, summary=['broken'])), ('a summary that is a string', dict(good, summary='x')),
+               ('a summary that is None', dict(good, summary=None)), ('a summary holding a set', dict(good, summary={'x': {1}})),
+               ('a summary holding NaN', dict(good, summary={'x': float('nan')})), ('no summary key at all', {k: x for k, x in good.items() if k != 'summary'}),
+               ('cameras that are a list', dict(good, cams=[1, 2])), ('a scene block that is a string', dict(good, cams={v: {'scene': 'x'}})),
+               ('a scene id that is a list', dict(good, cams={v: {'scene': {'id': [1]}}})), ('no cameras at all', {'director': {'x': 1}}),
+               ('a director result that is a string', dict(good, director='res')), ('a director result with no state', dict(good, director={'first': 5}))]
+    root = tempfile.mkdtemp(prefix='camdir-done-')
+    had = sys.modules.get('tl_director')
+    sys.modules['tl_director'] = D
+    try:
+        os.makedirs(os.path.join(root, 'logs'))
+        for what, plan in hostile:
+            state = {'scene-old': {'last': 'x'}, 'town': {}}
+            try:
+                row, err = TL.director_done({'root': root}, plan, [v, 'town'], {v: 31.0}, NOW, state)
+            except Exception as e:
+                t.fail(f'{what}: director_done raised {type(e).__name__}: {e}')
+            t.assertTrue(isinstance(err, str) and ': ' in err, f'{what}: the error is reported ({err!r})')
+            t.assertTrue(row is None or isinstance(row, dict), f'{what}: the heartbeat object is a dict or nothing ({row!r})')
+            json.dumps(row, allow_nan=False)
+        row, err = TL.director_done({'root': root}, good, [v, 'town'], {v: 31.0}, NOW, {'scene-old': {}, 'town': {}})
+        t.assertEqual((row, err), ({'cameras': [v], 'shot': [sc[v]['scene']['id']]}, None), 'positive control: a sound plan')
+        t.assertEqual(jload(os.path.join(root, 'logs', 'scenes.json'))['scene_wait'], 0)
+        t.assertEqual(TL.director_done({'root': root}, {'director': None}, [v], {}, NOW, {}), (None, None), 'no director in the plan')
+    finally:
+        sys.modules.pop('tl_director')
+        if had is not None:
+            sys.modules['tl_director'] = had
+        shutil.rmtree(root)
+    # the sidecar of a scene frame is the one made (and checked) inside the fence, not rebuilt from the camera later
+    root, cfg = slot_root(deaths=False)
+    try:
+        seen = []
+        real = TL.frame_sidecar
+
+        def spy(cam, target, site=None):
+            seen.append(bool((cam or {}).get('scene')))
+            return real(cam, target, site)
+        calls = []
+        real_plan = TL.director_plan
+
+        def plan_spy(*a, **k):
+            out = real_plan(*a, **k)
+            calls.append((len(seen), dict(out['sidecars'])))
+            return out
+        with swap(TL, frame_sidecar=spy, director_plan=plan_spy):
+            shot, hb = run_slot(M, cfg)
+        n_in_plan, sidecars = calls[0]
+        scene = [x for x in shot if x.startswith('scene-')]
+        t.assertEqual((len(scene), sorted(sidecars)), (1, scene), 'the plan carries one ready sidecar per scene camera')
+        t.assertFalse(any(seen[n_in_plan:]), 'after director_plan returned, frame_sidecar is never called on a scene camera again')
+        t.assertTrue(any(seen[:n_in_plan]), 'positive control: it was called on one inside the fence')
+        side = jload(os.path.join(root, 'frames', scene[0], '20261116', STAMP + '.json'))
+        t.assertEqual({k: x for k, x in side.items() if k != 'changed'}, sidecars[scene[0]], 'and that is what is written beside the frame')
+    finally:
+        shutil.rmtree(root)
+
+
+PLAN_BASE = 'c75a5e51d6eb66270205599ae512b818aca9fbe7'      # origin/main when camdirector-01 was cut
+PLAN_GOLDEN = os.path.join(HERE, 'fixtures', 'plan-director-off-c75a5e51d.json')
+
+
+def plan_root(fx):
+    """A temp timelapse root from the golden fixture: its views.json, its project records, the template tl.conf."""
+    root = tempfile.mkdtemp(prefix='camdir-plan-')
+    os.makedirs(os.path.join(root, 'logs'))
+    os.makedirs(os.path.join(root, 'pool'))
+    with open(os.path.join(root, 'logs', 'views.json'), 'w') as f:
+        json.dump(fx['views'], f)
+    for name, body in fx['pool'].items():
+        with open(os.path.join(root, 'pool', name), 'w') as f:
+            json.dump(body, f)
+    cfg = dict({k: v for k, v in CONF.items() if k != 'director'}, root=root, project_dir=os.path.join(root, 'pool'))
+    return root, cfg
+
+
+def plan_output(TL, cfg, when):
+    """What `tl_showcase.py plan` prints at a given UTC time -> (stdout, stderr)."""
+    import contextlib, io
+    out, err = io.StringIO(), io.StringIO()
+    with swap(TL, now_utc=lambda: when), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = TL.cmd_plan(cfg, None)
+    assert rc == 0
+    return out.getvalue(), err.getvalue()
+
+
+def check_plan_with_the_director_off_prints_what_it_always_printed(t, M):
+    """`tl_showcase.py plan`, director off: stdout byte-identical to origin/main's (c75a5e51d) at :00, :15, :30, :45."""
+    TL = M['TL']
+    fx = jload(PLAN_GOLDEN)
+    t.assertEqual(fx['base'], PLAN_BASE)
+    times = sorted(fx['stdout'])
+    t.assertTrue({'00', '15', '30', '45'} <= {x[14:16] for x in times} and len(times) >= 7, f'the clock times cover every quarter ({times})')
+    root, cfg = plan_root(fx)
+    try:
+        for iso_ in times:
+            when = dt.datetime.strptime(iso_, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=U)
+            for label, c in (('no director key', cfg), ('on: false', dict(cfg, director=dict(CONF['director'], on=False))),
+                             ('on: false, junk settings', dict(cfg, director={'on': False, 'overdue_n': 'x', 'slot_s': []}))):
+                out, err = plan_output(TL, c, when)
+                t.assertEqual(out.encode(), fx['stdout'][iso_].encode(), f'{iso_}, {label}: stdout is origin/main\'s, byte for byte')
+                on_the_hour = iso_[14:16] == '00'
+                t.assertEqual(err == '', on_the_hour, f'{iso_}: off the hour, ONE extra line on stderr says the slot\'s real pair')
+                if not on_the_hour:
+                    t.assertEqual((err.count('\n'), "['angled']" in err, 'topdown' in json.loads(out)['views']), (1, True, True),
+                                  'the object still plans topdown (as it always did); the note says the slot shoots angled alone')
+        t.assertGreater(len({fx['stdout'][x].replace(x, '') for x in times}), 1, 'positive control: the plans differ between the times')
+        t.assertTrue(all(json.loads(fx['stdout'][x])['follow'].get('project4k') == 'cottage1' for x in times),
+                     'positive control: a follow camera has its target in every one')
+        # the golden really is origin/main's: where the repository is at hand, run c75a5e51d's own cmd_plan on the same root
+        import subprocess
+        r = subprocess.run(['git', '-C', HERE, 'show', f'{PLAN_BASE}:infra/showcase/tl_showcase.py'], capture_output=True, text=True)
+        if r.returncode == 0 and 'def cmd_plan' in r.stdout:
+            old = load('tl_showcase.py', r.stdout)
+            for iso_ in times:
+                when = dt.datetime.strptime(iso_, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=U)
+                t.assertEqual(plan_output(old, cfg, when), (fx['stdout'][iso_], ''), f'{iso_}: the golden is what c75a5e51d prints')
+        # director ON: the plan the slot will really make -- the slot's own pair, said in the object
+        on = dict(cfg, director=dict(CONF['director'], on=True, log_glob=os.path.join(root, 'none', '*.jsonl')))
+        out, err = plan_output(TL, on, dt.datetime(2026, 11, 16, 12, 15, tzinfo=U))
+        got = json.loads(out)
+        t.assertEqual((got['pair'], got['views'][0], 'topdown' in got['views'], err), (['angled'], 'angled', False, ''))
+        t.assertIn('director', got)
+        t.assertFalse(os.path.exists(os.path.join(root, 'logs', 'scenes.json')), '`plan` writes nothing')
+    finally:
+        shutil.rmtree(root)
+
+
 def check_director_off_plans_exactly_as_before(t, M):
     """`director: {on: false}` (or no key): the cameras, the plan and the files are those of a tl.conf without it."""
     TL = M['TL']
@@ -2012,6 +2155,9 @@ class DirectorInTheSlot(unittest.TestCase):
     def test_the_videos_do_not_trust_the_day_log(self):
         check_the_videos_do_not_trust_the_day_log(self, REAL)
 
+    def test_nothing_of_the_director_is_used_unfenced_after_the_plan(self):
+        check_nothing_of_the_director_is_used_unfenced_after_the_plan(self, REAL)
+
     def test_a_failing_director_costs_the_slot_nothing(self):
         check_a_failing_director_costs_the_slot_nothing(self, REAL)
 
@@ -2022,6 +2168,9 @@ class DirectorInTheSlot(unittest.TestCase):
 class DirectorOff(unittest.TestCase):
     def test_director_off_plans_exactly_as_before(self):
         check_director_off_plans_exactly_as_before(self, REAL)
+
+    def test_plan_with_the_director_off_prints_what_it_always_printed(self):
+        check_plan_with_the_director_off_prints_what_it_always_printed(self, REAL)
 
 
 # ================================================================== PART 3: videos that follow the scenes
@@ -2864,9 +3013,39 @@ MUTANTS = [
      'check_every_director_entry_point_is_fenced'),
     ('tl_showcase.py', "    except Exception as e:\n        return without_director(f'", "    except Exception as e:\n        return without_director(None and f'",
      'check_every_director_entry_point_is_fenced'),
-    ('tl_showcase.py', "    except Exception as e:\n        return dict(plan.get('summary') or {}, shot=sorted(shots)), f'",
-     "    except ZeroDivisionError as e:\n        return dict(plan.get('summary') or {}, shot=sorted(shots)), f'",
+    ('tl_showcase.py', "    except Exception as e:\n        err = f'{type(e).__name__}: {str(e)[:300]}'\n        try:",
+     "    except ZeroDivisionError as e:\n        err = f'{type(e).__name__}: {str(e)[:300]}'\n        try:",
      'check_every_director_entry_point_is_fenced'),
+    # ---- Codex r4: a summary that is no object; nothing of the director's unfenced after the plan; `plan` as it was
+    ('tl_showcase.py', "    if not isinstance(summary, dict):       # Codex r4", "    if False:       # Codex r4",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    json.dumps(summary, allow_nan=False)\n    # the sidecar of every scene frame", "    # the sidecar of every scene frame",
+     'check_every_director_entry_point_is_fenced'),
+    ('tl_showcase.py', "    except Exception as e:\n        err = f'{type(e).__name__}: {str(e)[:300]}'\n        try:",
+     "    except OSError as e:\n        err = f'{type(e).__name__}: {str(e)[:300]}'\n        try:",
+     'check_nothing_of_the_director_is_used_unfenced_after_the_plan'),
+    ('tl_showcase.py', "        row = dict(plan['summary'], shot=sorted(shots))\n        json.dumps(row, allow_nan=False)\n",
+     "        row = dict(plan['summary'], shot=sorted(shots))\n", 'check_nothing_of_the_director_is_used_unfenced_after_the_plan'),
+    ('tl_showcase.py', "        except Exception:\n            row = {}", "        except ZeroDivisionError:\n            row = {}",
+     'check_nothing_of_the_director_is_used_unfenced_after_the_plan'),
+    ('tl_showcase.py', "        side = plan['sidecars'].get(v) or frame_sidecar(", "        side = frame_sidecar(",
+     'check_nothing_of_the_director_is_used_unfenced_after_the_plan'),
+    ('tl_showcase.py', "    sidecars = {v: frame_sidecar(dcams[v], None) for v in first}", "    sidecars = {}",
+     'check_nothing_of_the_director_is_used_unfenced_after_the_plan'),
+    ('tl_showcase.py', "        plan = slot_plan(cfg, state, t, progress, sites, budget, lambda: 75.0, VIEWS)",
+     "        plan = slot_plan(cfg, state, t, progress, sites, budget, lambda: 75.0, pair)",
+     'check_plan_with_the_director_off_prints_what_it_always_printed'),
+    ('tl_showcase.py', "        if tuple(pair) != tuple(VIEWS):\n            print(f\"note:", "        if False:\n            print(f\"note:",
+     'check_plan_with_the_director_off_prints_what_it_always_printed'),
+    ('tl_showcase.py', "as `plan` always has; the slot at {_iso(t)} \"\n                  f\"shoots the pair {list(pair)} (tl.conf pair_hourly)\", file=sys.stderr)",
+     "as `plan` always has; the slot at {_iso(t)} \"\n                  f\"shoots the pair {list(pair)} (tl.conf pair_hourly)\")",
+     'check_plan_with_the_director_off_prints_what_it_always_printed'),
+    ('tl_showcase.py', "    out = {'t': _iso(t), 'pair': list(pair), 'views': plan['views'],", "    out = {'t': _iso(t), 'pair': list(VIEWS), 'views': plan['views'],",
+     'check_plan_with_the_director_off_prints_what_it_always_printed'),
+    ('tl_showcase.py', "lambda: 75.0, pair, stamp_of(t), write=False)   # read-only", "lambda: 75.0, VIEWS, stamp_of(t), write=False)   # read-only",
+     'check_plan_with_the_director_off_prints_what_it_always_printed'),
+    ('tl_showcase.py', "lambda: 75.0, pair, stamp_of(t), write=False)   # read-only", "lambda: 75.0, pair, stamp_of(t))   # read-only",
+     'check_plan_with_the_director_off_prints_what_it_always_printed'),
     ('tl_showcase.py', "    derr = plan['director_error'] or derr ", "    derr = derr ", 'check_every_director_entry_point_is_fenced'),
     ('tl_showcase.py', "    if derr:\n        row['director_error'] = derr", "    if False:\n        row['director_error'] = derr",
      'check_every_director_entry_point_is_fenced'),
