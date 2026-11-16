@@ -309,7 +309,7 @@ await t('ONE RULE FOR PARTIAL SLOTS: at 30+ used slots a single partial slot und
   for (const keepName of ['iron_pickaxe', 'bread', 'torch', 'crafting_table', 'cobblestone']) assert.deepEqual(roomSteps({ [keepName]: 1, ...filler(31) }).filter(s => s.name === keepName), [], `${keepName} never leaves by the room bank`)
 })
 await t('iron nuggets have an exit (a chest, by the room bank); the rest of the iron ladder still never moves', () => {
-  assert.deepEqual(roomSteps({ iron_nugget: 64 + 9 }).map(s => [s.name, s.count]), [['iron_nugget', 9], ['iron_nugget', 64]])
+  assert.deepEqual(roomSteps({ iron_nugget: 64 + 9 }).map(s => [s.name, s.count]), [['iron_nugget', 64], ['iron_nugget', 9]], 'both stacks: no keep (in bag-slot order)')
   assert.deepEqual(roomSteps({ iron_ingot: 64, raw_iron: 64, coal: 64 }).filter(s => ['iron_ingot', 'raw_iron', 'coal'].includes(s.name)), [])
   assert.equal(BF.trimBankable('iron_nugget', { trim: false }), false)
 })
