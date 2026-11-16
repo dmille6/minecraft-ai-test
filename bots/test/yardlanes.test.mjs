@@ -221,5 +221,97 @@ await t('WIRED: every yard is the yard\'s (order, siting, visit); the lanes\' le
   one(ft, 'try \\{ bagRoomInstall\\(bot\\) \\}', 'which features.mjs calls once per spawn')
 })
 
+// ---- YARDROW-01 (b): the chest row for what is not a block ---------------------------------------------------------------------------
+console.log('(b) THE CHEST ROW')
+const TDm = await import('../src/towndeposit.mjs')
+const key = at => at.join(',')
+const CELLS = Y.rowCells(REC, BP)
+const cellsNow = (over = {}) => CELLS.map(at => ({ at, name: over[key(at)] ?? 'air' }))
+await t('the row: seeds, cane, sticks, saplings (one chest for every species), nuggets, clay balls, snowballs; the kit\'s keeps; its settings', () => {
+  assert.deepEqual([...Y.ROW_KINDS], ['wheat_seeds', 'sugar_cane', 'stick', 'sapling', 'iron_nugget', 'clay_ball', 'snowball'])
+  assert.equal(Y.rowKindOf('spruce_sapling'), 'sapling'); assert.equal(Y.rowKindOf('mangrove_propagule'), 'sapling'); assert.equal(Y.rowKindOf('wheat_seeds'), 'wheat_seeds')
+  assert.equal(Y.rowKindOf('cobblestone'), null, 'a block is a lane\'s'); assert.equal(Y.rowKindOf(null), null)
+  assert.deepEqual(['wheat_seeds', 'sugar_cane', 'stick', 'oak_sapling', 'iron_nugget', 'clay_ball'].map(Y.rowKeepOf), [16, 16, 8, 4, 0, 0])
+  assert.deepEqual([ON.row, ON.rowCap, ON.rowMin], [true, 2, 8])
+  assert.equal(Y.laneSettings({ YARD: 'on', YARD_ROW: 'off' }).row, false)
+  assert.deepEqual([Y.laneSettings({ YARD: 'on', YARD_ROW_CAP: '3', YARD_ROW_MIN: '4' }).rowCap, Y.laneSettings({ YARD: 'on', YARD_ROW_CAP: '3', YARD_ROW_MIN: '4' }).rowMin], [3, 4])
+})
+await t('the cells: the rear floor row, one above the floor, every OTHER cell (two chests side by side would join), never a light\'s', () => {
+  assert.ok(CELLS.length >= 6, `${CELLS.length} cells`)
+  assert.ok(CELLS.every(c => c[1] === REC.s + 1))
+  for (let i = 1; i < CELLS.length; i++) assert.ok(Math.abs(CELLS[i][0] - CELLS[i - 1][0]) + Math.abs(CELLS[i][2] - CELLS[i - 1][2]) >= 2, 'no two cells touch')
+  const lightU = new Set(BP.cells.filter(c => c.v === BP.footprint.v - 1 && c.y >= 1).map(c => c.u))
+  assert.ok(lightU.size >= 1, 'positive control: the rear row has a light')
+  assert.equal(CELLS.length, [...Array(BP.footprint.u).keys()].filter(u => u >= 1 && u < BP.footprint.u - 1 && u % 2 === 1 && !lightU.has(u)).length)
+  // none is a pile slot or a floor cell of the blueprint
+  const piles = new Set(Y.pileSlots(REC, BP).flatMap(b => b.slots.map(key)))
+  assert.ok(CELLS.every(c => !piles.has(key(c))))
+  assert.deepEqual(Y.rowCells(null, BP), [])
+})
+const P0 = { held: { wheat_seeds: 60, clay_ball: 20 }, keeps: {}, rows: [], cells: cellsNow(), carried: 13, lanes: ON }
+await t('THE CHAIN: a kind\'s first chest is PLACED from the carried chests and banked into; then its chest is the target; full -> a second under the cap; at the cap, nothing', () => {
+  const p = Y.rowPlan(P0)
+  assert.deepEqual(p.place, { kind: 'wheat_seeds', at: CELLS[0] }, 'one placement a visit, the first free cell, the kinds\' own order')
+  assert.deepEqual(p.bank, [{ kind: 'wheat_seeds', at: CELLS[0], names: { wheat_seeds: 44 } }], 'clay waits for the next visit\'s placement')
+  // the chest stands and is recorded: clay gets the NEXT cell, seeds go to theirs
+  const rows1 = Y.rowAssign([], CELLS[0], 'wheat_seeds', { plot: 'yard', by: 'A', now: 1 })
+  const p2 = Y.rowPlan({ ...P0, rows: rows1, cells: cellsNow({ [key(CELLS[0])]: 'chest' }) })
+  assert.deepEqual(p2.place, { kind: 'clay_ball', at: CELLS[1] })
+  assert.deepEqual(p2.bank.map(b => [b.kind, key(b.at)]), [['wheat_seeds', key(CELLS[0])], ['clay_ball', key(CELLS[1])]])
+  // a bag with ONE chest keeps it (the full-town recovery's): nothing is placed -- and with none recorded nothing is banked
+  assert.deepEqual(Y.rowPlan({ ...P0, carried: 1 }), { bank: [], place: null, why: 'idle' })
+  // its chest full: a second, under the cap; both full at the cap: nothing more of the kind
+  const full1 = new Set([key(CELLS[0])])
+  const p3 = Y.rowPlan({ ...P0, held: { wheat_seeds: 60 }, rows: rows1, cells: cellsNow({ [key(CELLS[0])]: 'chest' }), full: full1 })
+  assert.deepEqual(p3.place, { kind: 'wheat_seeds', at: CELLS[1] })
+  const rows2 = Y.rowAssign(rows1, CELLS[1], 'wheat_seeds')
+  assert.deepEqual(Y.rowPlan({ ...P0, held: { wheat_seeds: 60 }, rows: rows2, cells: cellsNow({ [key(CELLS[0])]: 'chest', [key(CELLS[1])]: 'chest' }), full: new Set([key(CELLS[0]), key(CELLS[1])]) }), { bank: [], place: null, why: 'idle' })
+  // a recorded chest that is GONE from the world is no target: the kind is given a chest again
+  const p4 = Y.rowPlan({ ...P0, held: { wheat_seeds: 60 }, rows: rows1, cells: cellsNow() })
+  assert.equal(p4.place?.kind, 'wheat_seeds'); assert.notDeepEqual(p4.place.at, CELLS[0], 'never the recorded cell (the record is pruned at the visit)')
+  // under the minimum and not pressed: no trip; pressed (30+ slots): any surplus goes (the partial-slot rule's exit)
+  assert.equal(Y.rowPlan({ ...P0, held: { wheat_seeds: 20 } }).bank.length, 0, '4 above the keep')
+  assert.equal(Y.rowPlan({ ...P0, held: { wheat_seeds: 20 }, pressed: true }).bank.length, 1)
+  assert.equal(Y.rowPlan({ ...P0, held: { wheat_seeds: 12 }, keeps: { wheat_seeds: 0 }, pressed: true }).bank[0].names.wheat_seeds, 12, 'the caller\'s keep (the partial-slot rule lowered it)')
+  assert.equal(Y.rowPlan({ ...P0, lanes: Y.laneSettings({ YARD: 'on', YARD_ROW: 'off' }) }).why, 'off')
+  assert.equal(Y.rowPlan({ ...P0, lanes: OFF }).why, 'off')
+})
+await t('the steps: whole stacks while the keep stays, then HALVES (60 seeds with 16 kept: 30 go; 64 + 20: the 20, then 32); saplings keep 4 a species', () => {
+  const b = (...xs) => xs.map(([name, count], i) => ({ name, count, slot: 9 + i }))
+  assert.deepEqual(Y.rowSteps(b(['wheat_seeds', 60]), { wheat_seeds: 44 }, {}, TDm.logHalfSteps), [{ slot: 9, count: 30, from: 60, half: true, name: 'wheat_seeds' }])
+  assert.deepEqual(Y.rowSteps(b(['wheat_seeds', 64], ['wheat_seeds', 20]), { wheat_seeds: 68 }, {}, TDm.logHalfSteps).map(s => [s.slot, s.count, !!s.half]), [[10, 20, false], [9, 32, true], [9, 16, true]])
+  assert.deepEqual(Y.rowSteps(b(['spruce_sapling', 10], ['oak_sapling', 3]), { spruce_sapling: 6 }, {}, TDm.logHalfSteps).map(s => [s.name, s.count]), [['spruce_sapling', 5]], '10 -> 5 banked, 5 kept (never under 4)')
+  assert.deepEqual(Y.rowSteps(b(['clay_ball', 20]), { clay_ball: 20 }, {}, TDm.logHalfSteps), [{ slot: 9, name: 'clay_ball', count: 20 }], 'no keep: the whole stack')
+  assert.deepEqual(Y.rowSteps(b(['wheat_seeds', 12]), { wheat_seeds: 12 }, { wheat_seeds: 0 }, TDm.logHalfSteps).length, 1)
+  const rows = Y.rowAssign([], [1, 2, 3], 'stick')
+  assert.equal(Y.rowAssign(rows, [1, 2, 3], 'clay_ball'), rows, 'a cell is one kind\'s for good')
+  assert.deepEqual(Y.rowPrune(rows, new Set(['1,2,3'])), [])
+})
+await t('MUTANTS KILLED (b): chests side by side; the last carried chest placed; the cap ignored; a full chest banked into; a gone chest trusted; the keep halved away', async () => {
+  const YP = P('yard')
+  const apart = M => { const c = M.rowCells(REC, BP); for (let i = 1; i < c.length; i++) assert.ok(Math.abs(c[i][0] - c[i - 1][0]) + Math.abs(c[i][2] - c[i - 1][2]) >= 2) }
+  await killedBy(YP, Y, '  for (let u = 1; u < bp.footprint.u - 1; u += 2) {', '  for (let u = 1; u < bp.footprint.u - 1; u += 1) {', apart)
+  await killedBy(YP, Y, '    if (place || mine.length >= lanes.rowCap || !(carried >= 2)) continue', '    if (place || mine.length >= lanes.rowCap || !(carried >= 1)) continue', M => assert.equal(M.rowPlan({ ...P0, carried: 1 }).place, null))
+  const rows2 = Y.rowAssign(Y.rowAssign([], CELLS[0], 'wheat_seeds'), CELLS[1], 'wheat_seeds')
+  const bothFull = { ...P0, held: { wheat_seeds: 60 }, rows: rows2, cells: cellsNow({ [key(CELLS[0])]: 'chest', [key(CELLS[1])]: 'chest' }), full: new Set([key(CELLS[0]), key(CELLS[1])]) }
+  await killedBy(YP, Y, '    if (place || mine.length >= lanes.rowCap || !(carried >= 2)) continue', '    if (place || !(carried >= 2)) continue', M => assert.equal(M.rowPlan(bothFull).place, null))
+  await killedBy(YP, Y, '    const target = mine.find(r => !full.has(key(r.at)))', '    const target = mine[0]', M => assert.equal(M.rowPlan(bothFull).bank.length, 0))
+  await killedBy(YP, Y, "  const stands = r => { const c = here.get(key(r.at)); return !c || c.name == null || IS_BOX.test(c.name) }", '  const stands = () => true',
+    M => assert.notDeepEqual(M.rowPlan({ ...P0, held: { wheat_seeds: 60 }, rows: Y.rowAssign([], CELLS[0], 'wheat_seeds'), cells: cellsNow() }).bank[0].at, CELLS[0]))
+  await killedBy(YP, Y, "    let room = total - Math.max(0, Number(keeps?.[name] ?? rowKeepOf(name)) || 0)\n    const left = []", '    let room = total\n    const left = []',
+    M => assert.deepEqual(M.rowSteps([{ name: 'wheat_seeds', count: 60, slot: 9 }], { wheat_seeds: 44 }, {}, TDm.logHalfSteps).map(s => s.count), [30]))
+})
+await t('WIRED (b): a row chest is a town container but never a general deposit\'s; placed under the lease and recorded only once it STANDS; banked by the deposit\'s own body', () => {
+  const sk = strip(readFileSync(P('skills'), 'utf8'))
+  one(sk, 'if \\(rowKeys\\.has\\(posKey\\(p\\)\\)\\) continue', 'townContainers skips the row')
+  one(sk, '\\.\\.\\.cottageKeys\\(\\), \\.\\.\\.yardRowKeys\\(activeMem\\?\\.bot \\?\\? null\\)\\]\\)', 'registered with the town\'s containers')
+  one(sk, "const lease = projTakeLease\\(dir, key, 'row', me\\)\\n    if \\(lease\\.ok\\) \\{\\n      try \\{", 'one placer at a time')
+  one(sk, "if \\(stands\\) \\{ yardRowsWrite\\(bot, rowAssign\\(rows, at, plan\\.place\\.kind, \\{ plot, by: me \\}\\)\\); out\\.placed\\+\\+", 'the record follows the world')
+  one(sk, 'const p = await sortPut\\(bot, block, b\\.names, deadline, signal, keeps, bag => rowSteps\\(bag, b\\.names, keeps, logHalfSteps\\)\\)', 'the bank')
+  one(sk, "if \\(typeof stepsOf === 'function'\\) return stepsOf\\(bag\\)", 'sortPut takes the row\'s steps')
+  one(sk, "if \\(rp\\.bank\\.length\\) return \\{ kind: 'row', urgent: true,", 'the order reads the row\'s work')
+  one(sk, 'const k = rk \\? \\{ room: yardRowRoomNow\\(bot, rk, now\\) \\} : yardKindNow\\(bot, name, now\\)', 'WELL_HOLD covers a row kind with room')
+})
+
 if (failed) { console.log(`\n${failed} FAILED`); process.exit(1) }
 console.log('\nall yardlanes tests passed')

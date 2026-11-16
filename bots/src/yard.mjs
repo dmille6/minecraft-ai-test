@@ -108,6 +108,7 @@ export function laneSettings (env = {}, pool = env?.MEMORY_POOL ?? '') {
   // the lanes are the yard's: on only where the yard is (YARD / YARD_POOLS), and YARDLANES=off switches them off alone
   return Object.freeze({ on: !isOffV(env?.YARDLANES) && yardOn(env, pool), start: numV(env?.YARD_LANE_START, 8, 1, 64), step: numV(env?.YARD_LANE_STEP, 8, 1, 64), caps: laneCaps(env?.YARD_LANE_CAPS),
     modules: numV(env?.YARD_MODULES, 4, 1, 6), min: numV(env?.YARD_LANE_MIN, 16, 1, 64), builders: numV(env?.YARD_LANE_BUILDERS, 3, 1, 8), visitors: numV(env?.YARD_LANE_VISITORS, 4, 1, 8),
+    row: !isOffV(env?.YARD_ROW), rowCap: numV(env?.YARD_ROW_CAP, 2, 1, 8), rowMin: numV(env?.YARD_ROW_MIN, 8, 1, 64),
     visitMax: numV(env?.YARD_LANE_VISIT_MAX, 128, 1, 640), passMs: numV(env?.YARD_LANE_PASS_MS, 150_000, 10_000, 540_000) })
 }
 export const LANES = laneSettings(typeof process !== 'undefined' ? process.env : {})
@@ -186,8 +187,103 @@ export function wellHold ({ on = true, room = 0, holdAt = null, stockAt = null, 
 export const wellHoldOn = (env = process.env) => !isOffV(env?.WELL_HOLD)
 /** `_yard_over_cap` row detail. Pure. */
 export const overCapDetail = ({ name = '-', n = 0, lanes = 0, cap = 0, to = 'well' } = {}) => `kind=${name} n=${n} lanes=${lanes}/${cap} to=${to} why=over_cap`
+// ---- YARDROW-01 (bagfix-02show (b); OWNER 11-16): THE CHEST ROW FOR WHAT IS NOT A BLOCK ---------------------------------------------
+// "can our storage yard have storage for seeds ... clay ... and any other kind of item worth keeping?" Seeds, sugar cane, sticks,
+// saplings, iron nuggets, clay balls and snowballs cannot be piled. Each KIND gets ONE CHEST on the yard's rear row (a second when the
+// first is full: LANES.rowCap 2), placed by a bot from the chests it carries (188 were carried on 11-16) the first time the kind is
+// banked. The cells are the rear floor row's, every OTHER cell (two chests side by side would join and mix two kinds) and never a
+// light's. WHICH CHEST IS WHICH KIND is the bots' own record (the town's `yard-row-<home>.json`: cell -> kind): the record is the
+// label. A row chest takes its kind only (it is never a general deposit target: skills.mjs townContainers skips it), is a town
+// container to the index, the stock view and the withdraw searches, and is banked into by the yard visit's `row` step: whole stacks
+// above the bag's keep, then halves (the log halves' move), merging onto what the chest holds. YARD_ROW=off: no row.
+export const ROW_KINDS = Object.freeze(['wheat_seeds', 'sugar_cane', 'stick', 'sapling', 'iron_nugget', 'clay_ball', 'snowball'])
+/** The row kind a name belongs to -> kind | null. Every sapling and propagule shares one chest. Pure. */
+export const rowKindOf = name => (typeof name !== 'string' ? null : /(_sapling|_propagule)$/.test(name) ? 'sapling' : ROW_KINDS.includes(name) ? name : null)
+/** What a bag keeps of a row name (the kit: seeds and cane 16 -- bagfix.mjs TRIM_KIT_KEEP -- sticks 8, saplings 4 a species). Pure. */
+export const ROW_BAG_KEEP = Object.freeze({ wheat_seeds: 16, sugar_cane: 16, stick: 8, sapling: 4 })
+export const rowKeepOf = name => ROW_BAG_KEEP[rowKindOf(name)] ?? 0
+/** THE ROW'S CELLS of a yard record -> [[x, y, z]] in order: the rear floor row (v = the footprint's last), every other u from 1, one
+ *  above the floor, never a cell the blueprint builds on (a light). Pure. */
+export function rowCells (rec, bp) {
+  if (!rec || !Array.isArray(rec.anchor) || !Number.isFinite(rec.s) || !rec.orient || !bp?.footprint) return []
+  const v = bp.footprint.v - 1
+  const built = new Set((bp.cells ?? []).filter(c => c.v === v && c.y >= 1).map(c => c.u))
+  const out = []
+  for (let u = 1; u < bp.footprint.u - 1; u += 2) {
+    if (built.has(u)) continue
+    const { dx, dz } = rot(rec.orient, u, v)
+    out.push([rec.anchor[0] + dx, rec.s + 1, rec.anchor[1] + dz])
+  }
+  return out
+}
+const IS_BOX = /^(chest|trapped_chest|barrel)$/
+/**
+ * THE ROW STEP'S PLAN -> { bank: [{ kind, at, names: { name: n } }], place: { kind, at } | null, why }. Pure.
+ *   held, keeps   the bag { name: n } and its keeps { name: n } (the caller's: rowKeepOf, the goal's wants, the partial-slot rule)
+ *   rows          the record [{ at, kind }] over every yard;  cells [{ at, name }] THIS yard's row cells with the block now there
+ *                 (null: unread)
+ *   full          Set("x,y,z") chests this bot found full;  carried  the chests in the bag;  pressed  the bag is at 30+ slots
+ * A kind with LANES.rowMin above its keeps (any surplus when pressed) goes to its first recorded chest that still stands and is not
+ * full; with none, and under the cap, ONE chest is placed this visit at this yard's first free cell -- from a bag carrying two or more
+ * (one stays: the full-town recovery's) -- and banked into.
+ */
+export function rowPlan ({ held = {}, keeps = {}, rows = [], cells = [], full = new Set(), carried = 0, pressed = false, lanes = LANES } = {}) {
+  const none = why => ({ bank: [], place: null, why })
+  if (!lanes?.on || !lanes.row) return none('off')
+  const byKind = {}
+  for (const [name, n] of Object.entries(held ?? {})) {
+    const kind = rowKindOf(name)
+    const sur = (Number(n) || 0) - Math.max(0, Number(keeps?.[name] ?? rowKeepOf(name)) || 0)
+    if (kind && sur > 0) (byKind[kind] ??= {})[name] = sur
+  }
+  const key = at => at.join(',')
+  const here = new Map(cells.map(c => [key(c.at), c]))
+  const stands = r => { const c = here.get(key(r.at)); return !c || c.name == null || IS_BOX.test(c.name) }   // another yard's, or unread: the record's word
+  const bank = []
+  let place = null
+  for (const kind of ROW_KINDS) {
+    const names = byKind[kind]
+    if (!names) continue
+    const total = Object.values(names).reduce((t, v) => t + v, 0)
+    if (!(total >= lanes.rowMin || pressed)) continue
+    const mine = rows.filter(r => r.kind === kind && stands(r))
+    const target = mine.find(r => !full.has(key(r.at)))
+    if (target) { bank.push({ kind, at: target.at, names }); continue }
+    if (place || mine.length >= lanes.rowCap || !(carried >= 2)) continue
+    const taken = new Set(rows.map(r => key(r.at)))
+    const free = cells.find(c => !taken.has(key(c.at)) && /^(air|cave_air)$/.test(String(c.name ?? '')))
+    if (free) { place = { kind, at: free.at }; bank.push({ kind, at: free.at, names }) }
+  }
+  return { bank, place, why: bank.length ? 'row' : 'idle' }
+}
+/** THE STEPS that bank a row chest's names from a bag -> [{ slot, name, count, half?, from? }]. Pure. Whole stacks, smallest first,
+ *  while the keep stays; then the stack too big to go whole is HALVED while a half fits above the keep (`halves`: towndeposit.mjs
+ *  logHalfSteps) -- one stack of 60 seeds with 16 kept banks 30, then 8 would breach the keep: 30 go, 30 stay. */
+export function rowSteps (bag = [], names = {}, keeps = {}, halves = () => []) {
+  const out = []
+  for (const name of Object.keys(names ?? {}).sort()) {
+    const copies = (Array.isArray(bag) ? bag : []).filter(it => it?.name === name && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
+    const total = copies.reduce((t, it) => t + it.count, 0)
+    let room = total - Math.max(0, Number(keeps?.[name] ?? rowKeepOf(name)) || 0)
+    const left = []
+    for (const it of [...copies].sort((a, b) => a.count - b.count || a.slot - b.slot)) {
+      if (it.count > room) { left.push(it); continue }
+      out.push({ slot: it.slot, name, count: it.count }); room -= it.count
+    }
+    for (const st of halves(left, room)) out.push({ ...st, name })
+  }
+  return out
+}
+/** The record with a chest's kind written -> rows (a cell is one kind's for good; a second writer of the cell loses). Pure. */
+export function rowAssign (rows = [], at, kind, { plot = null, by = null, now = Date.now() } = {}) {
+  const k = at.join(',')
+  if (rows.some(r => r.at.join(',') === k)) return rows
+  return [...rows, { at: [...at], kind, plot, by, t: now }]
+}
+/** The record less the cells that no longer hold a chest (`gone`: Set("x,y,z"), read from the world) -> rows. Pure. */
+export const rowPrune = (rows = [], gone = new Set()) => rows.filter(r => !gone.has(r.at.join(',')))
 /** `_yard_lanes` licence row detail (once per spawn). Pure. */
-export const lanesModeDetail = (l = LANES) => `on=${l.on ? 1 : 0} start=${l.start} step=${l.step} h=${YARD_H} caps=${Object.entries(l.caps).map(([k, v]) => `${k}:${v}`).join(',')} yards=${yardPlots(l).join('+')} min=${l.min} builders=${l.builders} visitors=${l.visitors} visit_max=${l.visitMax} kinds=${yardKinds(l.on).length}`.slice(0, 300)
+export const lanesModeDetail = (l = LANES) => `on=${l.on ? 1 : 0} start=${l.start} step=${l.step} h=${YARD_H} caps=${Object.entries(l.caps).map(([k, v]) => `${k}:${v}`).join(',')} yards=${yardPlots(l).join('+')} min=${l.min} builders=${l.builders} visitors=${l.visitors} visit_max=${l.visitMax} kinds=${yardKinds(l.on).length} row=${l.on && l.row ? 1 : 0}:${l.rowCap}`.slice(0, 300)
 
 /** THE SWITCH -> bool. YARD=on|off; unset = on only in the pools YARD_POOLS names (default 'showcase'). Pure. */
 export function yardOn (env = process.env, pool = '') {

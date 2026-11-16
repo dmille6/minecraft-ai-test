@@ -71,6 +71,7 @@ import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { LOGBANK } from './woodkeep.mjs'
+import { logHalfSteps } from './towndeposit.mjs'   // yardrow-01: the halves' move
 import { IRON_LADDER, LOGS, townDepositPlan, fitToContainer, townDepositDetail, logsField, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS, countSkipWhy, TD_FULL_EXTRA, tdMoreContainers } from './towndeposit.mjs'
 // junkout-01 (its own statement): the visit and bank rows (bagallowance.mjs, a leaf)
 import { junkoutVisitDetail, junkoutBankDetails, visitId } from './bagallowance.mjs'
@@ -192,6 +193,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
+import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
 import { bayClutter, yardRoomFor, yardFlag, yardDeferred, yardDeferOk, yardWellKeep, yardDrawPlan, collectMore, YARD_DRAW_MS, YARD_DRAW_MIN } from './yard.mjs'   // yarduse-01 (YARD_DRAW_MIN: stoneworks-02)
 import { fillWant, earthDirt, TIDY_VISIT_FILLS, soilSkip, platformTeardown, platformUp, plotsSitedNow, plotEntryRetired, plotRetire, claimOn, buildingClaims, claimEntry, claimRetire } from './tidy.mjs'   // access-01: the stone bill; plotprep-01: the felling stands
@@ -8748,9 +8750,11 @@ export function townContainers (bot, max = TD_MAX_CONTAINERS, { fullOk = undefin
     // skipped, exactly as the deposit's recovery skips it.
     let mem = {}
     try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    const rowKeys = yardRowKeys(bot)   // yardrow-01: a row chest takes its kind only -- never a general deposit's
     const out = []
     for (const p of found) {
       if (out.length >= max) break
+      if (rowKeys.has(posKey(p))) continue
       // bagfix-01 M: a container remembered `full` (no empty slot) is still tried when its partial stacks take the plan's names (`fullOk`)
       const st = containerStatus(mem[posKey(p)])
       if (['full', 'unavailable', 'unusable', 'backoff'].includes(st) && !(st === 'full' && fullOk?.(posKey(p)))) continue
@@ -21385,7 +21389,7 @@ async function sortLabelOne (ctx, sp, signal, deadline, { kind = 'store_sign' } 
  *  bag stacks of each name, the biggest first, never taking the bag's total of a name below `floor` (its count BEFORE the take: the
  *  withdraw's shift-clicks MERGE a taken stack into the bag's own partial one -- Paper 11-01 -- so a stack is not the town's or the
  *  bot's; the floor keeps the bot's own stock whole, and at most one partial stack of the town's stays in the bag). */
-async function sortPut (bot, block, stacks, deadline, signal, floor = {}) {
+async function sortPut (bot, block, stacks, deadline, signal, floor = {}, stepsOf = null) {
   const pos = block.position
   const win = await openTown(bot, block, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())))
   if (!win) return { put: {}, ok: false, why: 'unopenable' }
@@ -21397,6 +21401,7 @@ async function sortPut (bot, block, stacks, deadline, signal, floor = {}) {
   const own = ownInventory(bot, win)
   let r = { done: [] }, settled = null
   const explicit = bag => {
+    if (typeof stepsOf === 'function') return stepsOf(bag)   // yardrow-01: the row's own steps (whole stacks, then halves)
     const total = {}
     for (const it of bag) total[it.name] = (total[it.name] ?? 0) + it.count
     const left = { ...stacks }, out = []
@@ -21542,13 +21547,26 @@ function yardKindNow (bot, name, now = Date.now()) {
   const room = held.room + emptyLanes.slice(0, open).reduce((t, s) => t + s.free, 0)
   return { lanes: held.lanes, room, empty: emptyLanes.length, cap, over: ys.length > 0 && kindOverCap(name, { held, empty: emptyLanes.length }) }
 }
+/** Has the chest row room for a kind now -> 1 | 0: a yard stands, and the kind has a chest this bot has not found full, or may still
+ *  be given one (under LANES.rowCap). Never throws (0). */
+function yardRowRoomNow (bot, kind, now = Date.now()) {
+  try {
+    if (!yardsNow(bot, now).length) return 0
+    const rows = yardRowsNow(bot, now).filter(r => r.kind === kind)
+    const full = bot.yardRowFull ?? new Map()
+    return rows.some(r => !((full.get(r.at.join(',')) ?? 0) > now)) || rows.length < LANES.rowCap ? 1 : 0
+  } catch { return 0 }
+}
 /** WELL_HOLD (well.mjs setYardHold): is `name` held off the well for the yard now? A lane kind with room in the yards, while this
  *  bot's hold is live (yard.mjs wellHold: answered by a stock visit, lapsing after YARD_DEFER_MS unanswered). Never throws (false). */
 function yardHoldNow (name, now = Date.now()) {
   try {
     const bot = activeMem?.bot ?? null
-    if (!bot || !LANES.on || !LANE_KINDS.includes(name) || Number(bot.yardRestUntil) > now) return false
-    const k = yardKindNow(bot, name, now)
+    if (!bot || !LANES.on || Number(bot.yardRestUntil) > now) return false
+    // yardrow-01: a ROW kind (clay balls are on the well's list) is held while its chest has room or one may still be placed
+    const rk = LANES.row ? rowKindOf(name) : null
+    if (!rk && !LANE_KINDS.includes(name)) return false
+    const k = rk ? { room: yardRowRoomNow(bot, rk, now) } : yardKindNow(bot, name, now)
     const h = wellHold({ room: k.room, holdAt: bot.yardHoldAt ?? null, stockAt: bot.yardStockAt ?? null, now })
     bot.yardHoldAt = h.stamp
     return h.hold
@@ -21578,7 +21596,122 @@ async function withOverCap (ctx, run) {
     } catch { /* telemetry */ }
   }
 }
+// ---- YARDROW-01 (yard.mjs): the chest row's record, its plan, its step ---------------------------------------------------------------
+const yardRowFile = () => path.join(townDir(), `yard-row-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.json`)
+let yardRowMemo = { at: -Infinity, rows: [] }
+/** THE ROW'S RECORD -> [{ at, kind, plot, by, t }] (this world's; unreadable or another world's: none), re-read at most every 10 s. */
+function yardRowsNow (bot = null, now = Date.now(), { fresh = false } = {}) {
+  if (!fresh && now - yardRowMemo.at < 10_000 && now >= yardRowMemo.at) return yardRowMemo.rows
+  let rows = []
+  try {
+    const j = JSON.parse(fs.readFileSync(yardRowFile(), 'utf8'))
+    if (Array.isArray(j?.rows) && (j.world == null || bot?.worldId == null || j.world === bot.worldId)) rows = j.rows.filter(r => Array.isArray(r?.at) && r.at.length === 3 && typeof r.kind === 'string')
+  } catch { rows = [] }
+  yardRowMemo = { at: now, rows }
+  return rows
+}
+/** Write the record (tmp + rename; the caller holds the yard's `row` lease) -> true when written. */
+function yardRowsWrite (bot, rows) {
+  try {
+    const f = yardRowFile(), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, world: bot?.worldId ?? null, rows })); fs.renameSync(tmp, f)
+    yardRowMemo = { at: Date.now(), rows }
+    return true
+  } catch { return false }
+}
+/** The row chests' keys -> Set("x,y,z") (the town's registered containers; never a general deposit target). Never throws. */
+function yardRowKeys (bot = null) { try { return LANES.on && LANES.row ? new Set(yardRowsNow(bot).map(r => r.at.join(','))) : new Set() } catch { return new Set() } }
+/** The bag's keeps for the row -> { name: n }: yard.mjs rowKeepOf, the active goal's wants whole, the partial-slot rule (one partial
+ *  slot under its keep may leave a bag at 30+ kinds). Never throws ({}). */
+function yardRowKeepsNow (bot) {
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    const counts = heldMap(bot)
+    const wanted = new Set(Array.isArray(bot.townDepositWanted) ? bot.townDepositWanted : [])
+    const shares = roomShareNames(bot)
+    const out = {}
+    for (const name of Object.keys(counts)) {
+      if (!rowKindOf(name)) continue
+      if (wanted.has(name) || shares.has(name)) { out[name] = Infinity; continue }
+      const copies = items.filter(i => i?.name === name)
+      out[name] = partialKeep({ slots: items.length, copies: copies.length, total: counts[name] ?? 0, keep: rowKeepOf(name), stack: copies[0]?.stackSize ?? 64 })
+    }
+    return out
+  } catch { return {} }
+}
+/** yard.mjs rowPlan for this bot at this yard now -> the plan ({ bank: [], place: null } when off or unreadable). Never throws. */
+function yardRowPlanNow (bot, rec, bp, now = Date.now()) {
+  try {
+    if (!LANES.on || !LANES.row) return { bank: [], place: null, why: 'off' }
+    const read = planReader(bot)
+    const cells = rowCells(rec, bp).map(at => { const b = read(...at); return { at, name: b ? String(b.name ?? '').replace(/\[.*\]$/, '') : null } })
+    const items = bot.inventory?.items?.() ?? []
+    const full = new Set([...(bot.yardRowFull ?? new Map()).entries()].filter(([, until]) => until > now).map(([k]) => k))
+    return rowPlan({ held: heldMap(bot), keeps: yardRowKeepsNow(bot), rows: yardRowsNow(bot, now), cells, full, carried: countItem(bot, 'chest'), pressed: items.length >= 30 })
+  } catch { return { bank: [], place: null, why: 'error' } }
+}
+/**
+ * THE ROW STEP of a yard visit: place the one new chest the plan asks for (under the yard's `row` lease, its kind written to the record
+ * once it stands), then bank each kind into its chest -- the town deposit's own container body (sortPut: open, owned window,
+ * bankInto's clicks with the merge, settle, verify by a re-open) over yard.mjs rowSteps. -> { banked: { name: n }, placed: n }.
+ * Bounded by `deadline`; an interrupt passes through.
+ */
+async function yardRowStep (ctx, rec, bp, plot, signal, deadline) {
+  const { bot } = ctx
+  const out = { banked: {}, placed: 0 }
+  const plan = yardRowPlanNow(bot, rec, bp)
+  if (!plan.bank.length) return out
+  const dir = townDir(), key = projKeyOf(plot), me = bot.username ?? 'bot'
+  const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
+  const near = async at => {
+    if (bot.entity.position.distanceTo(new Vec3(at[0] + 0.5, at[1] + 0.5, at[2] + 0.5)) <= STATION_REACH) return true
+    try { await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(at[0], at[1], at[2], 2)), Math.max(1000, Math.min(20_000, deadline - Date.now())), bot)) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    return bot.entity.position.distanceTo(new Vec3(at[0] + 0.5, at[1] + 0.5, at[2] + 0.5)) <= STATION_REACH + 1
+  }
+  if (plan.place) {
+    const at = plan.place.at
+    const lease = projTakeLease(dir, key, 'row', me)
+    if (lease.ok) {
+      try {
+        // the record is read again under the lease (another bot may have given the cell, or the kind its chest, meanwhile)
+        const rows = yardRowsNow(bot, Date.now(), { fresh: true })
+        const clash = rows.some(r => r.at.join(',') === at.join(',')) || rows.filter(r => r.kind === plan.place.kind).length >= LANES.rowCap
+        if (!clash && await near(at) && Date.now() < deadline - 20_000) {
+          check(signal)
+          let put = null
+          try { put = await place(ctx, { item: 'chest', x: at[0], y: at[1], z: at[2] }, signal, { by: 'yard_row' }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { status: 'failed', detail: String(e?.message ?? e).slice(0, 60) } }
+          const stands = /^(chest|trapped_chest)$/.test(bot.blockAt(new Vec3(at[0], at[1], at[2]))?.name ?? '')
+          if (stands) { yardRowsWrite(bot, rowAssign(rows, at, plan.place.kind, { plot, by: me })); out.placed++; try { hubRegistryRefresh(Date.now(), { force: true }) } catch { /* the next refresh */ } }
+          try { logEvent({ kind: 'yard_row', status: stands ? 'success' : 'failed', snapshot: snapshot(bot), detail: `op=place kind=${plan.place.kind} at=${at.join(',')} plot=${plot} placed=${stands ? 1 : 0} why=${String(put?.detail ?? put?.status ?? '-').replace(/\s+/g, '_').slice(0, 60)}`.slice(0, 300) }) } catch { /* telemetry */ }
+        }
+      } finally { try { releaseLease(dir, key, 'row', me, lease.gen) } catch { /* its TTL frees it */ } }
+    }
+  }
+  const recorded = new Set(yardRowsNow(bot).map(r => r.at.join(',')))
+  const keeps = yardRowKeepsNow(bot)
+  for (const b of plan.bank) {
+    check(signal)
+    if (Date.now() > deadline - 15_000) break
+    if (!recorded.has(b.at.join(','))) continue   // its chest did not go down this visit
+    if (!(await near(b.at))) continue
+    const block = bot.blockAt(new Vec3(b.at[0], b.at[1], b.at[2]))
+    if (!block || !isTownContainer(bot, block)) {
+      // the record's chest is gone (dug, burnt): the cell is free again -- read from the world, written under the lease
+      const lease = projTakeLease(dir, key, 'row', me)
+      if (lease.ok) { try { yardRowsWrite(bot, rowPrune(yardRowsNow(bot, Date.now(), { fresh: true }), new Set([b.at.join(',')]))) } finally { try { releaseLease(dir, key, 'row', me, lease.gen) } catch { /* TTL */ } } }
+      continue
+    }
+    const p = await sortPut(bot, block, b.names, deadline, signal, keeps, bag => rowSteps(bag, b.names, keeps, logHalfSteps))
+    const n = Object.values(p.put ?? {}).reduce((t, v) => t + v, 0)
+    for (const [name, c] of Object.entries(p.put ?? {})) out.banked[name] = (out.banked[name] ?? 0) + c
+    if (!n && p.ok) (bot.yardRowFull ??= new Map()).set(b.at.join(','), Date.now() + 30 * 60_000)   // it took nothing: full for this bot a while
+    if (n > 0) bot.yardStockAt = Date.now()   // answers the well's hold (yard.mjs wellHold)
+    try { logEvent({ kind: 'yard_row', status: n > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `op=bank kind=${b.kind} at=${b.at.join(',')} plot=${plot} put=${Object.entries(p.put ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-'} why=${p.why ?? '-'}`.slice(0, 300) }) } catch { /* telemetry */ }
+  }
+  return out
+}
 /** The yard's work for this bot now -> yard.mjs yardWork's result | null (never throws: no work on an unreadable world). */
+
 
 function yardWorkNow (bot, rec, now = Date.now(), plot = YARD_PLOT) {
   // a visit that did nothing rests the yard's work for this bot (YARD_REST_MS): a visit that cannot act is never re-sent at once
@@ -21590,9 +21723,15 @@ function yardWorkNow (bot, rec, now = Date.now(), plot = YARD_PLOT) {
     const items = bot.inventory?.items?.() ?? []
     const bays = laneBays(rec, bp, read)
     const states = bayStates(bays, read)
-    return yardWork({ ...yardLaneOpts(bot, plot, now), held: nb > 0 ? { ...held, bamboo_block: (held.bamboo_block ?? 0) + nb } : held, slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length),
+    const w = yardWork({ ...yardLaneOpts(bot, plot, now), held: nb > 0 ? { ...held, bamboo_block: (held.bamboo_block ?? 0) + nb } : held, slots: items.length, freeSlots: Math.max(0, BAG_SLOTS - items.length),
       town: (() => { try { return matsTownStock(bot)?.stock ?? null } catch { return null } })(), states, clutter: yardClutter(rec, read), pick: !!refillPick(items, remaining),
       bayClutter: yardClearHeld(bot, now) ? [] : bayClutter(bays, read), deferred: yardDeferredNow(bot, now) })
+    // yardrow-01: with nothing for the piles (or only the aisles' upkeep), the chest row's work is the visit's -- first, as a stock is
+    if (LANES.on && LANES.row && (!w.kind || (w.kind === 'upkeep' && !w.first))) {
+      const rp = yardRowPlanNow(bot, rec, bp, now)
+      if (rp.bank.length) return { kind: 'row', urgent: true, place: {}, draw: {}, dig: {}, why: `row:${rp.bank.map(b => b.kind).join('+')}${rp.place ? ':place' : ''}`.slice(0, 80) }
+    }
+    return w
   } catch { return null }
 }
 /** Two bay clearings in a row that cleared nothing hold the bays' clutter off this bot's yard work for 2 h (a block the visit
@@ -21729,6 +21868,18 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     const w = drawing ? { kind: 'draw', urgent: false, place: {}, draw: {}, dig: { cobblestone: Math.min(Number(draw), yardHeld(states).cobblestone ?? 0) }, why: `bill:${draw}` } : planNow(read)
     f.kind = w.kind ?? 'idle'; f.why = w.why
     if (drawing && !(w.dig.cobblestone > 0)) { stop = 'empty'; bot.yardDrawRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'yard_empty', 'the yard holds no cobblestone to draw') }
+    // yardrow-01: THE CHEST ROW -- with nothing for the piles it is the visit; after a stock it takes the time left (below)
+    const rowDue = LANES.on && LANES.row && !drawing && yardRowPlanNow(bot, rec, bp).bank.length > 0
+    if (rowDue && (!w.kind || (w.kind === 'upkeep' && !w.first))) {
+      f.kind = 'row'
+      const rr = await yardRowStep(ctx, rec, bp, plot, signal, deadline)
+      f.banked = rr.banked
+      const nb2 = Object.values(rr.banked).reduce((t, v) => t + v, 0)
+      stop = nb2 + rr.placed > 0 ? 'row' : 'row_none'
+      if (!(nb2 + rr.placed > 0)) bot.yardRestUntil = Date.now() + 2 * 60_000
+      bot.yardsMemo = null
+      return out(nb2 + rr.placed > 0 ? 'success' : 'no_effect', 'yard_row', `the yard's chest row: ${nb2} item(s) banked, ${rr.placed} chest(s) placed`, { stop })
+    }
     if (!w.kind) { stop = 'idle'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'complete', 'the yard stands; nothing to stock, move, refill or clear') }
     let place = w.place
     // 2. THE CLERK: the chests' surplus into the bag first (the build reserve is the withdraw's own floor: mats.mjs takeAllowed)
@@ -21821,6 +21972,10 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
         }
       }
     }
+    if (rowDue && w.kind === 'stock' && r?.stop !== 'aborted' && Date.now() < deadline - 40_000) {
+      const rr = await yardRowStep(ctx, rec, bp, plot, signal, deadline)
+      if (Object.keys(rr.banked).length || rr.placed) { f.banked = { ...f.banked, ...rr.banked }; f.kind = 'stock+row' }
+    }
     stop = r?.stop ?? '-'
     const nPlaced = Object.values(f.placed).reduce((t, v) => t + v, 0)
     const n = nPlaced + f.cleared
@@ -21896,12 +22051,12 @@ function hubRecNow () {
 }
 /** THE REGISTRY, refreshed at most every 30 s: the hall's chest keys become town containers (inTown). Never throws. */
 export function hubRegistryRefresh (now = Date.now(), { force = false } = {}) {
-  if (!HUB.on && !COTTAGE2_SW.on) return
+  if (!HUB.on && !COTTAGE2_SW.on && !(LANES.on && LANES.row)) return
   if (!force && now - hubRegAt < 30_000) return
   hubRegAt = now
   // cottage2-01: the later cottages' chests are town containers too (the stock view, the withdraw and kit searches, the index)
   const cottageKeys = () => { if (!COTTAGE2_SW.on) return []; try { return projectHeads().filter(x => isCottagePlot(x.plot)).flatMap(x => cottageChestKeys(x.head?.rec)) } catch { return [] } }
-  try { hubRecMemo = hubRecNow(); setTownExtra(homeVec(), [...hubChestKeys(hubRecMemo, { on: HUB.on }), ...cottageKeys()]) } catch { /* unchanged */ }
+  try { hubRecMemo = hubRecNow(); setTownExtra(homeVec(), [...hubChestKeys(hubRecMemo, { on: HUB.on }), ...cottageKeys(), ...yardRowKeys(activeMem?.bot ?? null)]) } catch { /* unchanged */ }   // yardrow-01: the row's chests too
 }
 /** STOREHUB-01: THE HALL'S SITE -> { ok, record, tried } | { ok: false, why, detail?, tried }. Never throws. storehub.mjs hubSitingPlan's
  *  order (beside the storehouse, then the town ring), each a buildsite.mjs siteBlueprint clear of every reservation (the zones, every
