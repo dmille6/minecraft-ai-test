@@ -198,6 +198,7 @@ import { TIDY_PLOT, TIDY_BLUEPRINT, TIDY_PALETTE, TIDY_CLEAR_MAX, siteTidy, tidy
 import { siteStage, coreFills, chainCuts, gradeLim, townEdge, tidyClearsLeft, GK_CLEAR_VISITS, gkWaiveOpts, gkStopAfterWaive, gkWaivable, tidyLeftKeys, dropWaivedClears } from './tidy.mjs'   // groundskeeper-01: the land plan's stages
 import { refreshDue, openColumns, refreshMerge, refreshStamp, cutGiveUps, cutWaived, tidyRefreshOn, refreshClaimed } from './tidyrefresh.mjs'   // tidyrefresh-01; tidygrow-01
 import { refreshedAt as tidySurveyedAt } from './tidyrefresh.mjs'   // litter-01: the record's last survey (the intake's `dropped` count)
+import { refreshRepair, repairTag, waiveRests, floatHold as fillFloatHold, planSelfCheck, HOLD_WHY as FILL_HOLD_WHY } from './fillcolumn.mjs'   // fillcolumn-01: no fill planned in mid-air
 import { litterOn, litterTally, litterIntake, handedBare, builtOnHeld, unreadDetail as litterUnreadDetail, builtOnDetail as litterBuiltOnDetail, intakeRows as litterIntakeRows, LITTER } from './litter.mjs'   // litter-01: the walks' handed blocks
 import { litterRead } from './buildproj.mjs'   // litter-01: every bot's hand-off file
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life
@@ -28666,9 +28667,10 @@ function stageSurveyInputs (bot, I, dir, signal) {
  */
 async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   const r0 = rh.head.rec
-  let s, read, cap = 0, guard
+  let s, read, cap = 0, guard, reservedNow = () => false
   try {
     const I = tidyInputs(bot, c, h, dir)
+    reservedNow = I.reserved   // fillcolumn-01: a reservation sited since (the repair adds no cell in its columns)
     const si = stageSurveyInputs(bot, I, dir, signal)
     read = si.read
     const inK = landStages().find(q => q.id === 'inwall')?.k
@@ -28689,14 +28691,21 @@ async function tidyRefresh (bot, c, h, dir, key, rh, me, signal) {
   // read, as gkPlanAdditions makes it: none read -> none retired here, the claim pass after it retires them as before)
   let claims = []
   try { const pr = claimOn() ? plotRecordsNow() : null; claims = pr ? buildingClaims(pr) : [] } catch { claims = [] }
+  // FILLCOLUMN-01 (fillcolumn.mjs refreshRepair): in the refresh's own generation, every open fill no order of work can lay (the
+  // ground under it dug since its survey: the merge above never touches a column the record has) gets its missing lower cells, or is
+  // left out with a named reason -- never a cell in a protected zone, on a cell another record names, in a reservation sited since
+  let fx = null
   const pub = publishRecord(dir, key, cur => {
     if (!cur || cur.structure_complete || cur.sitedAt !== r0.sitedAt || !refreshDue(cur, { now })) return null
     const busy = openColumns(cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role) })
     res = refreshMerge(cur, fresh, { busy, guard, now })
+    try { ({ res, fx } = refreshRepair(res, cur, read, { done: q => buildCellDone(read(...q.at), TIDY_PALETTE, q.role), guard, mayAdd: q => !cellInZones(q[0], q[1], q[2], c?.zones ?? []), reserved: reservedNow, now, by: me })) } catch { fx = null }
     return refreshClaimed(refreshStamp(res.rec ?? cur, { now, added: res.added, skipped: res.skipped, cap }), claims, claimRetire)
   }, { by: me })
   if (pub.result !== 'accepted') return null
-  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'build', status: res?.rec ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'refreshed', n: (res?.added?.cut ?? 0) + (res?.added?.fill ?? 0), kind: `cut${res?.added?.cut ?? 0}/fill${res?.added?.fill ?? 0}/cols${res?.added?.cols ?? 0}/cap${cap}`, ...(fx ? { result: repairTag(fx.n) } : {}), why: Object.entries(res?.skipped ?? {}).map(([a, b]) => `${a}:${b}`).join(',').slice(0, 160) || '-', gen: pub.gen }) }) } catch { /* telemetry */ }
+  // (a cell the repair left out is a waiver like any other: one `waived` row each, its reason on it)
+  for (const d of fx?.dropped ?? []) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: TIDY_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, why: d.why }) }) } catch { /* telemetry */ } }
   const h2 = recordHead(dir, key)
   // litter-01: what the refresh did with the walks' handed blocks (folded: a cut this refresh added at the handed cell, read back
   // from the head -- after the claims' retirement in the same publish)
@@ -29102,7 +29111,11 @@ async function buildTidyVisit (ctx, args, signal) {
     if (pub.result === 'error' || pub.result === 'lost') return out('no_effect', 'lost_record', `the record could not be published (${pub.result})`)
     // litter-01: what the siting did with the walks' handed blocks (a new record: every cut at a handed cell is folded)
     if (pub.result === 'accepted') litterIntakeLog(bot, s.litter, { added: s.record ? (body.cut ?? []) : [], since: tidySurveyedAt(rh.head?.rec) ?? 0, where: 'sited', gen: pub.gen })
-    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], ...(GROUNDS.on ? { seg: `stage${sk}`, n: s.record?.replant?.length ?? 0 } : {}), kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
+    // fillcolumn-01: the new plan's self-check (fillcolumn.mjs planSelfCheck: the open fills no order of work can lay, of how many) --
+    // logged on the siting's row, never thrown, nothing changed (an open inside-the-wall record's refresh repairs what it names)
+    let fcheck = null
+    if (pub.result === 'accepted' && s.record) { try { const rdc = planReader(bot); fcheck = planSelfCheck(body, rdc, { done: q => buildCellDone(rdc(...q.at), TIDY_PALETTE, q.role) }) } catch { fcheck = null } }
+    if (pub.result === 'accepted') { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: s.record ? 'sited' : 'nothing', cell: [home.x, home.y, home.z], ...(GROUNDS.on ? { seg: `stage${sk}`, n: s.record?.replant?.length ?? 0 } : {}), ...(fcheck ? { result: `float${fcheck.left}/${fcheck.open}${fcheck.err ? '/err' : ''}` } : {}), kind: `pillars${s.record?.pillars ?? 0}/cut${s.record?.cut.length ?? 0}/pits${s.record?.pits ?? 0}/fill${s.record?.cells.length ?? 0}/grade${s.record?.grade?.n ?? '-'}:${s.record?.grade?.cut ?? 0}+${s.record?.grade?.fill ?? 0}`, gen: pub.gen }) }) } catch { /* telemetry */ } }
     // townterrace-01: the park is a land-plan zone -- published once on the land record (a reservation every later siting keeps
     // off: landplan.mjs parkZones), so the next terrace siting keeps it in place and its trees are never felled
     if (pub.result === 'accepted' && s.record?.park?.box && landHead(dir)) {
@@ -29200,7 +29213,9 @@ async function buildTidyVisit (ctx, args, signal) {
   if (PLANAHEAD_ON) { try { const pr = plotRecordsNow(); paStands = pr ? standClaims(pr) : null } catch { paStands = null } }
   const standQ = q => !!paStands && Array.isArray(q?.at) && (q.role != null ? paStands.feet : paStands.floor).has(q.at.join(','))
   const claimedQ = q => (claimsNow.length > 0 && claimEntry(q, claimsNow)) || standQ(q)
-  const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
+  // fillcolumn-01 (`floatHeld`, filled once the visit's reader stands, below): a fill no order of work can lay now is passed too
+  let floatHeld = new Set()
+  const waivedK = q => claimedQ(q) || plotEntryRetired(q, plotsSited) || !!q.prev || keptLogK.has(q.at.join(',')) || farmWater(q) || guard.has(q.at.join(',')) || floatHeld.has(q.at.join(',')) || (!!rec.waived && Object.prototype.hasOwnProperty.call(rec.waived, q.at.join(','))) || (isTerrace && !q.floorFix && !q.prep && !!guardNow(q.at[0], q.at[2]))
   const slot = takeSlot(dir, key, me, lane === 'country' ? workerSlots(COUNTRY.builders, G2.on && worker) : buildersFor(projectsOn().find(p => p.plot === TIDY_PLOT), { worker }))   // grounds-01: buildersFor (GROUNDS2.maxBots, the last slot the keeper's)
   if (!slot.ok) return out('no_effect', 'slots_full', slot.why)
   const slotRef = { gen: slot.gen }
@@ -29226,6 +29241,13 @@ async function buildTidyVisit (ctx, args, signal) {
     if (GROUNDS.on) { try { pantryWrite(dir, key, me, parkItemsOf(spareOf(held0, keep))) } catch { /* the next visit writes it */ } }
     const spare = n => Math.max(0, (held0[n] ?? 0) - (keep[n] ?? 0))
     const read = planReader(bot)
+    // FILLCOLUMN-01 (fillcolumn.mjs floatHold): the open fills with no support under or beside them now -- the ground dug from under
+    // them since the survey -- and the cells waiting on them are PASSED this visit (read done by every test of the visit; the
+    // completion still counts them open): never tried, never deferred, never counted toward the stuck map's waiver. The remedy is
+    // the keeper's hourly refresh (tidyRefresh above: the column extended down to its floor, or left out); only on a record that
+    // refresh serves and while it is not overdue (repairServes), else nothing is held and the cells are deferred as before
+    try { floatHeld = fillFloatHold(rec, read, { done: q => buildCellDone(read(...q.at), palette, q.role), guard }) } catch { floatHeld = new Set() }
+    if (floatHeld.size) { try { logEvent({ kind: 'build', status: 'no_effect', snapshot: snapshot(bot), detail: buildRowDetail({ project: plot, op: 'float_held', cell: [...floatHeld][0].split(',').map(Number), n: floatHeld.size, why: FILL_HOLD_WHY }) }) } catch { /* telemetry */ } }
     // THE BILL: the open fills (any earth: the bag's spare dirt first, then cobblestone), less the bag's spare dirt and cobblestone,
     // drawn as cobblestone (the town's stone reserve: the project allowance), SHOP_BILL_CAP a visit
     // gkhelpers-01: THE VISIT'S RECORD -- the storehouse floor ALONE while a hole of it is open (the chests' standing cells first, for
@@ -29410,7 +29432,9 @@ async function buildTidyVisit (ctx, args, signal) {
       const waive1 = GKW_ON && GROUNDS.on && caps.waive && !waive0.length ? stallWaive(rec, gkWaivable(rec, r.deferred ?? []), { stalled: r.stop === 'stuck_on_cell' && !/cannot be written/.test(String(r.why ?? '')) }) : waive0
       // planahead-01: a cell the stage's plan tagged unreached that THIS visit deferred too is waived now (two independent negatives:
       // planahead.mjs puWaiveDue), in the same room as the waivers above
-      const waive = PLANAHEAD_ON && GROUNDS.on && caps.waive ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1, confirm: paConfirm(bot, rec, home, stood) })] : waive1
+      const waive0p = PLANAHEAD_ON && GROUNDS.on && caps.waive ? [...waive1, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive1, confirm: paConfirm(bot, rec, home, stood) })] : waive1
+      // fillcolumn-01 (fillcolumn.mjs waiveRests): the open fills resting on a cell waived now go with it, in the same decision
+      const waive = waive0p.length ? [...waive0p, ...waiveRests(rec, waive0p, read2, { done: q => buildCellDone(read2(...q.at), palette, q.role), guard })] : waive0p
       if (waive.length) {
         const pub = publishRecord(dir, key, cur => {
           if (!cur || cur.structure_complete || cur.cells.length !== rec.cells.length) return null
@@ -29499,6 +29523,7 @@ async function buildTidyVisit (ctx, args, signal) {
         const due = caps.waive ? leftWaiveDue(rw, town, left) : []
         // planahead-01: a tagged cell this visit left open when it ran out of work is its live negative (planahead.mjs puWaiveDue)
         if (PLANAHEAD_ON && caps.waive && r.stop === 'complete') due.push(...puWaiveDue(rw, left, { already: [...due], confirm: paConfirm(bot, rw, home, stood) }))
+        if (due.length) due.push(...waiveRests(rw, due, read2, { done: q => buildCellDone(read2(...q.at), palette, q.role), guard }))   // fillcolumn-01: with the cells resting on them
         if (due.length) {
           const pub = publishRecord(dir, key, cur => {
             if (!cur || cur.structure_complete || cur.cells.length !== rw.cells.length || gkwSig(cur) !== gkwSig(rw)) return null

@@ -297,6 +297,8 @@ const REQUIRED = [
   'docs/reports/sinkturn-2026-11-10.md',
   // tidygrow-01show (11-10): one tidy refresh is one record generation (the claim retirement rides in it)
   'bots/test/tidygrow.test.mjs',
+  // fillcolumn-01 (11-15): no tidy fill planned in mid-air -- the refresh extends a dug-out column or leaves it out (FILLCOLUMN=off|on)
+  'bots/src/fillcolumn.mjs', 'bots/test/fillcolumn.test.mjs',
   // cwstall-01show (11-10): the citywall design visit breathes; the escape proof's walks are sliced
   'bots/test/cwstall.test.mjs',
   'bots/scripts/citywall-stall-offline.mjs',

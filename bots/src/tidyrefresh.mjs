@@ -22,6 +22,9 @@
 //   (c) THE CAP PAGES: the refresh passes the record's open columns to the rough survey as `busy` (tidy.mjs siteStage `busy`), so
 //       work already planned no longer fills the 1,200-cell cap: each refresh takes the next page, nearest home first.
 // TIDYREFRESH=off is the rollback (no refresh, no town give-up: the record as before).
+// fillcolumn-01 (11-15): (a) never touches a column the record has, so a column whose ground was dug from under it after its survey
+// kept a cell in mid-air for good. The refresh's publish now also repairs the record's OWN open columns (fillcolumn.mjs
+// refreshRepair, after the merge): missing lower cells added, a cell that cannot stand left out (waived, named). FILLCOLUMN=off.
 
 import { handedOld } from './litter.mjs'   // litter-01 r2: a hand-off's cut past its life is done with (pure)
 
