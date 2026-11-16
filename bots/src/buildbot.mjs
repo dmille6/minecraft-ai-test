@@ -510,7 +510,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     placeClosed: c => {
       try { return cellZone(bot.protectZones?.() ?? [], c, bot.entity?.position ?? null) } catch { return 'zones_unread' }
     },
-    waitAck: (seq, ms) => A.tracker.wait(seq, ms),
+    waitAck: (seq, ms) => within('ack', ms + 250, () => A.tracker.wait(seq, ms)),
     track: (id, seq) => A.track(id, seq),
     untrack: id => A.untrack(id),
     conn: () => A.conn ?? null,
@@ -525,7 +525,8 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       mark('dig', c)
       try { await bot.dig(b, true) } catch (e) { if (e?.aborted || aborted()) throw e; return 'refused' }
       // boardwalk-03: a block dug out of water reads WATER once the lake flows back in: gone either way
-      const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS)
+      const n = await within('confirm', DIG_CONFIRM_MS + 250, () => blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS))
+      if (n) progress()
       return n ? 'confirmed' : 'unconfirmed'
     },
     // leaffell-01show: WOULD THE PROTECTED-ZONE GUARD REFUSE A BUILD'S DIG OF THIS CELL? -> the zone's id | null. The guard's own
@@ -562,7 +563,16 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     // jump released) and its landing (LAND: jump released, on the ground or LAND_MS); SETTLE after a dig underfoot (the drop);
     // TOOL: the pickaxe with the most uses left (at least 2) in hand for the access's digs, nothing changed without one
     count: n => Math.max(0, spare(n)),
-    rise: async feetY => {
+    rise: feetY => within('rise', RISE_MS + 200, () => riseInner(feetY)),
+    land: () => within('land', LAND_MS + 300, () => landInner()),
+    settle: () => within('settle', LAND_MS + 300, () => settleInner()),
+    // buildwait-01: buildrun.mjs declares its own bounded waits (barrier, body, spawn quiet) and its progress; the trace
+    still,
+    within,
+    progress,
+    mark,
+    current: () => ({ ...cur, ms: Date.now() - cur.at }),
+    __riseInner: async feetY => {
       bot.setControlState('jump', true)
       const t0 = Date.now()
       while (Date.now() - t0 < RISE_MS) {
@@ -573,14 +583,14 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       bot.setControlState('jump', false)
       return false
     },
-    land: async () => {
+    __landInner: async () => {
       bot.setControlState('jump', false)
       const t0 = Date.now()
       await sleep(100)
       while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
       await sleep(50)
     },
-    settle: async () => {
+    __settleInner: async () => {
       const t0 = Date.now()
       await sleep(150)
       while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
