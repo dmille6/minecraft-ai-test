@@ -1570,6 +1570,12 @@ def selftest():
     else:
         print('selftest: make_env.py not beside this file -- the real-setting checks skipped')
     assert verdict(dict(base, live_bots=0, brain_paused=None))[0] == 'TRIP', 'no live bot and a brain that answers is HARM'
+    # THE WIRING (review r1: the harness below runs --not-running, so no behaviour reaches these two lines): the read
+    # unpacks (reason, note) and only the REASON goes into the facts -- the whole tuple there is always truthy, the
+    # very bug this fixes. Comment lines are dropped first; each executable line must be there exactly once.
+    code = '\n'.join(l for l in open(os.path.abspath(__file__)).read().splitlines() if not l.lstrip().startswith(('#', 'assert ')))
+    assert code.count("    paused, brain_note = brain_paused() if not a.not_running else (None, None)\n") == 1, 'the read unpacks the pair'
+    assert code.count("             'brain_paused': paused,\n") == 1, 'the facts carry the reason alone'
     assert verdict(dict(base, gen_unknown={'found_gen_unknown': 1}))[0] == 'WATCH'
     cl, dp = closed_and_deep([('v', [0, -64, 0, 9, 90, 9]), ('t', [-20, -47, 65, 88, 31, 164])], {'v': 54, 't': None})
     assert cl == [[0, 54, 0, 9, 90, 9], [-20, -47, 65, 88, 31, 164]] and dp == [[0, -64, 0, 9, 53, 9]]
