@@ -15,7 +15,9 @@
 // that look like bad model judgement -- the worst kind of confounder.
 
 import { WOOD_KEEP } from './woodkeep.mjs'
-import { equivalentTools } from './skills.mjs'
+import { LANES } from './yard.mjs'   // refill-01: the lanes' pools
+import { refillOn, refillWords, refillBlockOf } from './refill.mjs'   // refill-01
+import { equivalentTools, refillJobFor } from './skills.mjs'   // refill-01: the job a bot carries (read at run time: the cycle is safe)
 import { RUNNER_DECLINED } from './declined.mjs'
 import { bankableInventory } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
@@ -61,6 +63,8 @@ const ROUTE = {
   patrol: s => MOVE(s),
   return: s => s === 'home' || s === 'goto',
   deposit_surplus: s => s === 'deposit',
+  // refill-01: gathering the job's block, mining for its stone, and the walk home that banks it
+  refill_job: (s, a) => ((s === 'gather' && !!refillSeen && String(a?.block ?? a?.item ?? '') === refillBlockOf(refillSeen.kind)) || (s === 'mine' && /^(cobblestone|cobbled_deepslate|stone|deepslate)$/.test(refillSeen?.kind ?? '')) || s === 'home'),
   stockpile_wood: (s, a) => (s === 'gather' && /_(log|wood|stem)$/.test(String(a?.block ?? ''))) || (s === 'craft' && /_planks$/.test(String(a?.item ?? ''))),
   stockpile_stone: (s, a) => s === 'mine' || (s === 'gather' && /^(stone|cobblestone|deepslate|cobbled_deepslate|blackstone)$/.test(String(a?.block ?? a?.item ?? ''))),
 }
@@ -728,14 +732,33 @@ export const STOCKPILE_MAX = 64
  * counter was read in three places and assigned in none, and every comparison
  * against NaN is false, so the goal could neither be completed nor failed.
  */
-export const stockpileTarget = (base, step, n, max = STOCKPILE_MAX) =>
-  Math.min(base + (Number.isFinite(n) ? n : 0) * step, max)
+// REFILL-01 (refill.mjs; OWNER 11-16 "we should not use idle bots to just collect random items"): where the yard's lanes are, the stock
+// rungs do NOT grow with the laps -- the kit's base stays (8 logs, 16 stone: a table, sticks and a pickaxe are named consumers), and
+// what a town needs beyond it is a refill JOB (the rung below). REFILL=off restores the growth.
+export const NOSTOCK = Object.freeze({ on: !!LANES.on && refillOn(typeof process !== 'undefined' ? process.env : {}) })
+export const stockpileTarget = (base, step, n, max = STOCKPILE_MAX, grow = !NOSTOCK.on) =>
+  Math.min(base + (grow && Number.isFinite(n) ? n : 0) * step, max)
+/** refill-01: the job a bot carries is skills.mjs refillJobFor's (the pool's record); a test may set its own. */
+let refillJobOf = b => refillJobFor(b)
+export function setRefillJob (fn) { refillJobOf = typeof fn === 'function' ? fn : b => refillJobFor(b) }
+let refillSeen = null   // the job the rung last read (its words and its route)
+const refillNow = b => { try { refillSeen = refillJobOf(b) ?? null } catch { refillSeen = null } return refillSeen }
+/** THE REFILL JOB AS A RUNG: a goal with a size and an end, carried by the bots that took it (never the default of an idle bot). */
+export const REFILL_RUNG = Object.freeze({
+  id: 'refill_job',
+  describe: () => (refillSeen ? refillWords(refillSeen).describe : 'No refill job.'),
+  done: b => !refillNow(b),
+  progress: b => { const j = refillNow(b); return j ? refillWords(j).progress : '-' },
+  get hint () { return refillSeen ? refillWords(refillSeen).hint : '' },
+  get wants () { return refillSeen?.kind ?? null },
+})
 
 // logbank-01 (OWNER 10-27): the wood rung's ceiling is the personal wood keep (woodkeep.mjs WOOD_KEEP, 16), the same number
 // the town deposit keeps -- so a deposit down to it never re-opens this rung. Stone keeps STOCKPILE_MAX.
 export const woodStockpileTarget = n => stockpileTarget(8, 4, n, WOOD_KEEP)
 
 export const SUSTAINING = [
+  ...(NOSTOCK.on ? [REFILL_RUNG] : []),   // refill-01: only where the lanes are (the showcase)
   {
     // WOOD IS WOOD. This counted `oak_log` alone while the fleet held 2,966 oak
     // and 4,105 logs of every other kind, so 58% of its wood was invisible to

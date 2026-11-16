@@ -192,7 +192,8 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
-import { USELEDGER, STOCK_EVERY_MS, ledgerLine, ledgerFileName } from './useledger.mjs'   // useledger-01
+import { USELEDGER, STOCK_EVERY_MS, ledgerLine, ledgerFileName, foldLedger, usedRegularly } from './useledger.mjs'   // useledger-01
+import { REFILL, BOOTSTRAP, refillNeed, refillFileName, openJobs, refillRaise, refillTake, refillCredit, refillDetail, refillModeDetail } from './refill.mjs'   // refill-01
 import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, compactAllow, compactDetail, compactModeDetail } from './compact.mjs'   // compact-01
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
@@ -12043,6 +12044,7 @@ function useStockNote (bot, now = Date.now()) {
     const n = { ...st.stock }
     for (const y of yardsNow(bot, now)) for (const [name, c] of Object.entries(yardHeld(y.states))) n[name] = (n[name] ?? 0) + c
     useNote(bot, 'stock', n, 'index+yard')
+    refillCheck(bot, n, now)   // refill-01: the low mark, judged on the stock just read
   } catch { /* the ledger is advisory */ }
 }
 /** EVERY VERIFIED TAKE FROM A TOWN CONTAINER passes here: the visit, then its ledger line -- `why` the consumer (a build's bill, a
@@ -21567,7 +21569,7 @@ function yardKeepsNow (bot) {
 /** yard.mjs yardWork's lane options for the yard at `plot` -> { keeps, others, first } ({} with the lanes off: the old yard). */
 function yardLaneOpts (bot, plot, now = Date.now()) {
   if (!LANES.on) return {}
-  return { keeps: yardKeepsNow(bot), others: lanesElsewhere(yardsNow(bot, now).filter(y => y.plot !== plot).map(y => y.states)), first: plot === YARD_PLOT }
+  return { keeps: yardKeepsNow(bot), others: lanesElsewhere(yardsNow(bot, now).filter(y => y.plot !== plot).map(y => y.states)), first: plot === YARD_PLOT, noRefill: REFILL.on }   // refill-01: no `chests_short` refill
 }
 /** WHAT EVERY YARD HOLDS OF A KIND -> { lanes, room, empty, cap, over }: its lanes and their free slots, the empty lanes anywhere, the
  *  room it has in all (its lanes' + the lanes it may still open), and whether it is FULL at its cap (yard.mjs kindOverCap). */
@@ -21607,6 +21609,7 @@ function yardHoldNow (name, now = Date.now()) {
 }
 /** YARDLANES-01, once per spawn: the well's hold wired (WELL_HOLD), the licence row written. Never throws. */
 export function yardLanesInstall (bot) {
+  try { logEvent({ kind: 'refill_mode', status: 'success', snapshot: snapshot(bot), detail: refillModeDetail(REFILL_ON, REFILL) }) } catch { /* telemetry */ }
   try { logEvent({ kind: 'compact_mode', status: 'success', snapshot: snapshot(bot), detail: compactModeDetail(COMPACT) }) } catch { /* telemetry */ }
   try { if (LANES.on && wellHoldOn()) { setYardHold(yardHoldNow); setYardFull(name => { const b = activeMem?.bot ?? null; return !!b && yardKindNow(b, name).over }) } } catch { /* the well as before */ }
   try { logEvent({ kind: 'yard_lanes', status: 'success', snapshot: snapshot(bot), detail: `${lanesModeDetail(LANES)} well_hold=${LANES.on && wellHoldOn() ? 1 : 0}`.slice(0, 300) }) } catch { /* telemetry */ }
@@ -21839,7 +21842,85 @@ async function bagCompactNow (ctx, signal) {
   }
   return n
 }
+// ---- REFILL-01 (refill.mjs): the refill jobs' record, the low mark's check, a consumer's raise, the credit -------------------------------
+const REFILL_ON = LANES.on && REFILL.on
+const refillFile = () => path.join(townDir(), refillFileName(homeVec()))
+let refillMemo = { at: -Infinity, jobs: [] }
+/** The town's refill jobs -> [job] (re-read at most every 20 s; unreadable: none). Never throws. */
+function refillJobsNow (now = Date.now(), { fresh = false } = {}) {
+  if (!fresh && now - refillMemo.at < 20_000 && now >= refillMemo.at) return refillMemo.jobs
+  let jobs = []
+  try { const j = JSON.parse(fs.readFileSync(refillFile(), 'utf8')); if (Array.isArray(j?.jobs)) jobs = j.jobs } catch { jobs = [] }
+  refillMemo = { at: now, jobs }
+  return jobs
+}
+function refillJobsWrite (jobs) {
+  try {
+    const f = refillFile(), tmp = `${f}.${process.pid}.${Date.now().toString(36)}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, jobs })); fs.renameSync(tmp, f)
+    refillMemo = { at: Date.now(), jobs }
+    return true
+  } catch { return false }
+}
+const refillRow = (bot, status, f) => { try { logEvent({ kind: 'refill', status, snapshot: snapshot(bot), detail: refillDetail(f) }) } catch { /* telemetry */ } }
+/** RAISE a job for a kind (one a kind) -> the job | null. `by` the low mark's reason or the refused consumer. Never throws. */
+function refillRaiseNow (bot, kind, n, by, extra = {}) {
+  try {
+    if (!REFILL_ON) return null
+    const now = Date.now()
+    const jobs = refillJobsNow(now, { fresh: true })
+    const next = refillRaise(jobs, { kind, n, by, now })
+    if (next === jobs) return openJobs(jobs, now).find(j => j.kind === kind) ?? null
+    refillJobsWrite(next)
+    const job = next.find(j => j.kind === kind) ?? null
+    refillRow(bot, 'success', { op: 'raise', kind, n: job?.n ?? n, by, ...extra })
+    return job
+  } catch { return null }
+}
+/** THE LOW MARK'S CHECK, with the stock line (every 30 min a bot): each lane kind the ledger shows USED and LOW gets its job
+ *  (refill.mjs refillNeed over useledger.mjs usedRegularly); a young ledger bootstraps from the clean-up's fill. Never throws. */
+function refillCheck (bot, stock, now = Date.now()) {
+  try {
+    if (!REFILL_ON) return
+    let lines = []
+    try { lines = fs.readFileSync(path.join(townDir(), ledgerFileName(homeVec())), 'utf8').split('\n') } catch { lines = [] }
+    const fold = foldLedger(lines, { since: now - REFILL.days * 86_400_000, until: now + 1, world: bot.worldId ?? null })
+    let first = now
+    for (const l of lines) { if (!l) continue; try { const t = JSON.parse(l).t; if (Number.isFinite(t)) { first = Math.min(first, t); break } } catch { /* skipped */ } }
+    for (const kind of new Set([...LANE_KINDS, ...BOOTSTRAP])) {
+      const r = refillNeed(kind, { use: usedRegularly(fold, kind, { days: REFILL.days, minDraws: REFILL.minDraws, minItems: REFILL.minItems }), stock: stock?.[kind] ?? 0, spanMs: now - first })
+      if (r.need) refillRaiseNow(bot, kind, r.n, 'low', { why: r.why, stock: stock?.[kind] ?? 0, perDay: Math.round(r.perDay) })
+    }
+  } catch { /* the jobs are advisory */ }
+}
+/** The job this bot carries (milestones.mjs setRefillJob: taken when a taker's place is free) -> job | null. Never throws. */
+export function refillJobFor (bot) {
+  try {
+    if (!REFILL_ON || !bot?.username) return null
+    const now = Date.now()
+    const jobs = refillJobsNow(now)
+    const t = refillTake(jobs, bot.username, { now })
+    if (t.job && t.jobs !== jobs) { refillJobsWrite(t.jobs); refillRow(bot, 'success', { op: 'take', kind: t.job.kind, n: t.job.n, by: t.job.by, got: t.job.got }) }
+    return t.job
+  } catch { return null }
+}
+/** CREDIT what a yard visit placed to the open jobs. Never throws. */
+function refillCreditNow (bot, placed = {}) {
+  try {
+    if (!REFILL_ON) return
+    const now = Date.now()
+    let jobs = refillJobsNow(now, { fresh: true }), changed = false
+    for (const [kind, n] of Object.entries(placed ?? {})) {
+      if (!(n > 0) || !openJobs(jobs, now).some(j => j.kind === kind)) continue
+      jobs = refillCredit(jobs, kind, n, now); changed = true
+      const j = jobs.find(x => x.kind === kind)
+      refillRow(bot, 'success', { op: (Number(j?.got) || 0) >= (Number(j?.n) || 0) ? 'done' : 'credit', kind, n: j?.n ?? 0, by: j?.by ?? '-', got: j?.got ?? n })
+    }
+    if (changed) refillJobsWrite(jobs)
+  } catch { /* advisory */ }
+}
 /** The yard's work for this bot now -> yard.mjs yardWork's result | null (never throws: no work on an unreadable world). */
+
 
 
 
@@ -22002,7 +22083,12 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     // yarduse-01: a consumer's draw is its own kind -- the pile tops dug back into the bag for the consumer's bill (never banked)
     const w = drawing ? { kind: 'draw', urgent: false, place: {}, draw: {}, dig: { cobblestone: Math.min(Number(draw), yardHeld(states).cobblestone ?? 0) }, why: `bill:${draw}` } : planNow(read)
     f.kind = w.kind ?? 'idle'; f.why = w.why
-    if (drawing && !(w.dig.cobblestone > 0)) { stop = 'empty'; bot.yardDrawRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'yard_empty', 'the yard holds no cobblestone to draw') }
+    if (drawing && !(w.dig.cobblestone > 0)) {
+      stop = 'empty'; bot.yardDrawRestUntil = Date.now() + YARD_REST_MS
+      // refill-01: WORK MUST NOT STOP ON AN EMPTY YARD -- the refused consumer raises the job at once, and its answer names it
+      const job = refillRaiseNow(bot, 'cobblestone', Number(draw) || 64, 'yard_draw')
+      return out('no_effect', 'yard_empty', `the yard holds no cobblestone to draw${job ? ` (refill job ${job.id}: ${job.n} cobblestone, raised for this bill)` : ''}`)
+    }
     // yardrow-01: THE CHEST ROW -- with nothing for the piles it is the visit; after a stock it takes the time left (below)
     const rowDue = LANES.on && LANES.row && !drawing && yardRowPlanNow(bot, rec, bp).bank.length > 0
     if (rowDue && (!w.kind || (w.kind === 'upkeep' && !w.first))) {
@@ -22129,6 +22215,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     stop = r?.stop ?? '-'
     const nPlaced = Object.values(f.placed).reduce((t, v) => t + v, 0)
     if (nPlaced > 0) useNote(bot, w.kind === 'clerk' ? 'move' : 'in', f.placed, 'yard')   // useledger-01: the piles' intake
+    if (nPlaced > 0) refillCreditNow(bot, f.placed)   // refill-01: a job's size banked is its end
     const n = nPlaced + f.cleared
     // yarduse-01: a stock visit that placed answers the well's deferral (yard.mjs yardDeferred); a draw that dug nothing rests the
     // DRAW only (the stock and the well's deferral are not this bot's draw's to hold)

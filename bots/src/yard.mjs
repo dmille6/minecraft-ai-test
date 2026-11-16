@@ -509,7 +509,7 @@ export const bambooBlocks = (held = {}) => Math.floor(Math.max(0, (Number(held?.
  *   town      the town index's stock { name: n } (null: unknown -- no clerk and no refill on a guess)
  *   states    bayStates;  clutter  the aisle cells to clear (yardClutter);  pick  the bag holds a usable pickaxe (a refill's tool)
  */
-export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true, bayClutter = [], deferred = false, lanes = LANES, keeps = null, others = {}, first = true } = {}) {
+export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, states = [], clutter = [], pick = true, bayClutter = [], deferred = false, lanes = LANES, keeps = null, others = {}, first = true, noRefill = false } = {}) {
   const sur = bagSurplus(held, { lanes, keeps })
   const place = {}
   let left = lanes?.on ? lanes.visitMax : YARD_VISIT_MAX
@@ -545,7 +545,8 @@ export function yardWork ({ held = {}, slots = 0, freeSlots = 36, town = null, s
     const inYard = yardHeld(states).cobblestone ?? 0
     const short = YARD_REFILL_BELOW - (Number(town.cobblestone) || 0)
     // a refill digs stone: without a pickaxe a dug cobblestone drops NOTHING (Codex r1 BLOCK: the stock would be destroyed)
-    if (short > 0 && inYard > 0 && freeSlots >= 1 && pick) {
+    // refill-01 (`noRefill`): the piles are not dug back to hold a chest target nobody draws against (owner 11-16: no stocking for stock)
+    if (!noRefill && short > 0 && inYard > 0 && freeSlots >= 1 && pick) {
       const dig = Math.min(short, inYard, YARD_REFILL_MAX, Math.max(0, Number(freeSlots) || 0) * 64)
       if (dig > 0) return { kind: 'refill', urgent: false, place: {}, draw: {}, dig: { cobblestone: dig }, why: `chests_short:${short}` }
     }

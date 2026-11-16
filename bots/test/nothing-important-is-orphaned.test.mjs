@@ -286,6 +286,8 @@ const REQUIRED = [
   'bots/src/useledger.mjs',  // useledger-01 (bagfix-02show, 11-16): the town's use ledger and the week's table
   'bots/test/useledger.test.mjs',
   'scripts/host/useledger.py',
+  'bots/src/refill.mjs',  // refill-01 (bagfix-02show, 11-16): no gathering for stock -- a refill is a job raised on evidence of use
+  'bots/test/refill.test.mjs',
   'bots/src/handcap.mjs',  // handcap-01 (11-06): a shaft cap the bare hand breaks is a climb, not a pickaxe ask
   'bots/test/handcap.test.mjs',
   // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
