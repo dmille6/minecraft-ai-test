@@ -55,8 +55,10 @@ const scenarioBudget = async M => {
 await t('BUDGET: holdsLease in a 35k-file directory stays under 3 ms a call (one listing per LIST_TTL_MS, not one per lookup)', () => scenarioBudget(P))
 await t('MUTANT KILLED: without the memo (a listing per lookup, the live 11-04 code) the budget is blown', async () => {
   let killed = false
-  await withMutant('  if (c && t0 >= c.at && t0 - c.at < LIST_TTL_MS) return c.names',
-    '  if (false) return c.names', async M => { try { await scenarioBudget(M) } catch { killed = true } })
+  // one trunk (11-16): the lookups' listing is the showcase's kept one (showdrop-01 listDir; gensOf reads listMatch), no longer
+  // leasegen-01's dirNames memo -- the mutant cuts the cache that serves them now (the old anchor still applies, and changes nothing)
+  await withMutant('  if (m && !m.racy && mt != null && m.mtime === mt && now - m.at < LIST_MAX_MS) { listStats.hits++; return m.names }',
+    '  if (false) { listStats.hits++; return m.names }', async M => { try { await scenarioBudget(M) } catch { killed = true } })
   assert.ok(killed, 'the listing mutant stayed inside the budget: the test measures nothing')
 })
 
