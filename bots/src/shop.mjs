@@ -1169,6 +1169,12 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
     try { ea = enchantAskOf({ now, health, freeSlots }) } catch { ea = null }
     if (ea?.order) return { order: ea.order, skip: null }
   }
+  // villageunlock-01 (the fleet's; the showcase line held it out): a penned jobless villager's pen is asked once the plan exists
+  if (unlockAskOf) {
+    let ul = null
+    try { ul = unlockAskOf({ now, health }) } catch { ul = null }
+    if (ul?.order) return { order: ul.order, skip: null }
+  }
   // picker-01: a SINK as the active project is no finite work -- the copper run (a waiting finite project's need) and the expedition
   // (one slot) are asked first, as for a bot the projects cannot use; the expedition's ask is told the projects are done
   let sinkNow = false
