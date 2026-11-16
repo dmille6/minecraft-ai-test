@@ -1585,7 +1585,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!V.accessAllowed(access.mem, akey, now())) return { result: 'spent' }
     if (deadline - now() < V.ACCESS_MIN_MS) return { result: 'late' }
     const plan = V.planVoidAccess({ read: rd, record, stuck, nodes, isDone: (c, r) => isDone(c, r), mayDig: access.mayDig ?? (() => true), blockOf: role => blockFor(palette, role, e.has), domain, home })
-    if (!plan.ok) { V.accessNote(access.mem, akey, now()); e.log('_build', { op: 'access_refused', seg, cell: cand[0].at, n: stuck.length, why: String(plan.why).slice(0, 140) }); return { result: 'refused' } }
+    if (!plan.ok) { V.accessNote(access.mem, akey, now()); e.log('_build', { op: 'access_refused', seg, cell: cand[0].at, n: stuck.length, why: String(plan.why).slice(0, 140) }); return { result: 'refused', noPlan: true, cells: stuck } }
     const climb = plan.steps.find(s => s.op === 'pillar')?.block ?? null
     const short = V.accessShort(plan.need, n => e.count?.(n) ?? 0, climb)
     if (Object.keys(short).length) { e.log('_build', { op: 'access_refused', seg, cell: plan.top, n: stuck.length, why: `no_material ${Object.entries(short).map(([k, v]) => `${k}:${v}`).join(',')}` }); return { result: 'refused' } }
@@ -1893,6 +1893,9 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
           if (access && !accessTried && cand.length && !open.some(c => !isClear(c.at))) {
             accessTried = true
             const a = await tryAccess(cand, nodes, seg, segGen)
+            // sealedcore-01: the visit's one access, as it ended (`noPlan`: no shaft exists for `cells`, the stuck cells it was asked
+            // for -- never a bag that was short): the caller's waiver reads it (sealedcore.mjs sealedCoreDue)
+            out.access = { result: a.result, seg, noPlan: a.noPlan === true, cells: a.cells ?? [] }
             if (a.segGen != null && a.segGen !== segGen) { segGen = a.segGen; segAt = now() }
             if (a.result === 'aborted') { out.stop = 'aborted'; return out }
             if (a.result === 'done') continue

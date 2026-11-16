@@ -267,6 +267,7 @@ const REQUIRED = [
   'bots/test/leaffell-res.test.mjs',  // leaffell-01show r2: the trunk guard's reservations are read strictly (absent is not unreadable)
   'bots/src/fellcanopy.mjs', 'bots/test/fellcanopy.test.mjs',  // fellcanopy-01 (11-08): a felling log no stand sees gets its natural canopy listed
   'bots/src/felldone.mjs', 'bots/test/felldone.test.mjs',  // felldone-01 (11-15): a felling stair whose tree is gone is done (FELLDONE=off|on)
+  'bots/src/sealedcore.mjs', 'bots/test/sealedcore.test.mjs',  // sealedcore-01 (11-15): a monument core cell sealed inside its own finished body is waived (SEALEDCORE=off|on)
   'bots/test/fellfirst.test.mjs',  // fellfirst-01 (11-06): a tree with no sapling of its kind anywhere is felled first  // gkmarker-01 (11-06): the groundskeeper never plans a cut on an expedition marker  // levelfall-01 + stationzone-01 (11-05): the workshop's floor fallback; no village station
   'bots/test/fixtures/levelfall-x1-1105.json',  // plotprep-03 (11-05): a plot's trees fall once their own saplings are settled
   'bots/test/stepwell03.test.mjs',  // stepwell-03 (11-05): the siting reaches its site (reservations first, the wall's gap)

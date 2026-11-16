@@ -219,6 +219,7 @@ import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CR
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
 import { fellDoneOn, fellAlsoDone, fellDone, fellDoneRow, fellPhase, fellStampStale } from './felldone.mjs'   // felldone-01: a felling stair whose tree is gone is done
+import { sealedCoreOn, sealedCoreWaived, zigAlsoDone, sealedCoreDue, withSealedCore, SEALED_WHY } from './sealedcore.mjs'   // sealedcore-01: a monument core cell sealed inside its own finished body is waived
 import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, clearsReachedBuiltSteps, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
 import { LEAFFELL_ON, rowDue as leafRowDue, leafBlockerText } from './leaffell.mjs'   // leaffell-01show: an unreached natural leaf asks for its trunk, not a stand
 import { replantFor as siteReplantFor, overlay as siteOverlay } from './buildsite.mjs'   // leaffell-01show: the saplings owed for a tree felled for its leaves
@@ -18533,6 +18534,9 @@ function projStuckLive (key, now = Date.now()) {
       // felldone-01: an OPEN stepwell's stamp that names only felling-stair cells whose trees are gone holds nothing (felldone.mjs
       // fellStampStale: the stair is obsolete; a stamp with no cells -- the tank's own back-off -- holds as before)
       if (rec?.blueprint === STEPWELL_BLUEPRINT && fellDoneOn() && fellStampStale(keys, rec, stairRead(b))) return true
+      // sealedcore-01: an OPEN monument's stamp whose cells all read done (waived since: the visit that waived them stamped the
+      // stall first) holds nothing, as a complete record's (the sinks' rule above)
+      if (isZigBlueprint(rec?.blueprint) && sealedCoreOn() && rec?.waived && stuckStale(keys, rec, c => recordCellDone(b, rec, c))) return true
       return (rec?.blueprint === WALL_BLUEPRINT || rec?.blueprint === WALLEXT_BLUEPRINT) && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
@@ -18575,6 +18579,7 @@ function recordCellDone (bot, r, c) {
     if (r.blueprint === PATHS_BLUEPRINT && pathWaived(r, c)) return true
     if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done (wallext-01: the extension's too)
     if (sinkWaived(r, c)) return true   // sinkwaive-01: a waived stone-sink cell is done
+    if (mon && sealedCoreWaived(r, c)) return true   // sealedcore-01: a waived sealed core cell of the monument is done
     const b = read(...c.at)
     if (!b) return false
     return buildCellDone(b, bp.palette, c.role, c.ws) || (mon && zigHidden(c, read)) || cottageCellWaits(bot, r, c)   // cottage2-01
@@ -18840,6 +18845,7 @@ function recordDamaged (bot, r, { tidy = true } = {}) {
       if (dressSignRole(c.role)) continue   // towndress-01: a sign is the label writer's upkeep (below), never damage
       if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) continue    // wallstuck-01: nor a waived wall cell (wallext-01: the extension's too)
       if (sinkWaived(r, c)) continue   // sinkwaive-01: nor a waived stone-sink cell
+      if (mon && sealedCoreWaived(r, c)) continue   // sealedcore-01: nor a waived sealed core cell of the monument
       const b = bot.blockAt?.(new Vec3(c.at[0], c.at[1], c.at[2]))
       // flowers-01: an upgraded border cell standing its fern while this bot holds no flower waits (decorator.mjs upgradeWaits): no damage
       if (b && r.plot === SINK_PLOTS.decor && upgradeWaits(c, b, heldMap(bot))) continue
@@ -24983,8 +24989,8 @@ async function deepMine (ctx, args, signal) {
 function zigProgressNow (bot, rec) {
   try {
     const read = (x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }
-    const pal = zigPaletteOf(rec)
-    const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, pal, c.role) || zigHidden(c, read)) })
+    const pal = zigPaletteOf(rec), also = zigAlsoDone(rec)   // sealedcore-01: a waived sealed core cell counts
+    const p = zigProgress(rec, c => { const b = read(...c.at); return !!b && (buildCellDone(b, pal, c.role) || also(c, read)) })
     return `${p.done}/${p.done + p.open}@${p.layer ?? 'top'}`
   } catch { return '-' }
 }
@@ -25118,6 +25124,8 @@ async function buildMonument (ctx, args, signal) {
   const rec = zigSplitFoundation(rh.head.rec)
   // the record's palette: a v2 record's own; a v1 record (the showcase's ziggurat@1) ZIG_PALETTE, unchanged
   const palette = zigPaletteOf(rec)
+  // sealedcore-01: the visit's `alsoDone` -- zigHidden, or a cell the record names waived (sealedcore.mjs; SEALEDCORE off: zigHidden itself)
+  const zAlso = zigAlsoDone(rec)
   if (rec.structure_complete && !shopDamaged(bot, rec)) {
     if (Object.keys(drawnRead(dir, key, me).drawn).length) drawnWrite(dir, key, me, {})
     return out('no_effect', 'complete', 'the ziggurat stands')
@@ -25180,7 +25188,7 @@ async function buildMonument (ctx, args, signal) {
     const PD = projectDraw(bot, R0, { forProject: true, base: shopAllow, then: (k, n) => { tookAll[k] = (tookAll[k] ?? 0) + n; persist() } })
     const segFree = sg => { const st = projLeaseState(dir, key, `seg-${sg}`); return !st || st.rec?.holder === me || Date.now() >= st.blocksUntil }
     // nothing is drawn by a builder that would only wait (every open segment held, or the next layer waiting on another's)
-    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree, zigHidden)) {
+    if (Object.keys(need).length && workableSeg(rec, read, palette, segFree, zAlso)) {
       const w = await matsWithdraw(ctx, need, signal, 30_000, R0, PD.allow, PD.onTook, PD.onUncertain); took = w.took ?? {}
     }
     check(signal)
@@ -25196,13 +25204,32 @@ async function buildMonument (ctx, args, signal) {
     // zigtidy-01: on a finished ziggurat (or one with 3 cells or fewer open), the pillars on its treads are dug after the clears
     let tidy = []
     try {
-      const isDone = c => { const b = read(...c.at); return !!b && (buildCellDone(b, palette, c.role) || zigHidden(c, read)) }
+      const isDone = c => { const b = read(...c.at); return !!b && (buildCellDone(b, palette, c.role) || zAlso(c, read)) }
       if (rec.structure_complete || zigProgress(rec, isDone).open <= 3) tidy = zigTidyNow(bot, rec, read)
     } catch { tidy = [] }
     const r = await runVisitCounted(bot, { dir, key, me, home, stood, record: rec, tidy, recordGen: rh.head.gen, palette, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.zigStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
-      domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: zigBambooOn() ? ZIG_FOREIGN_GROWN : ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zigHidden, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
+      domain: zigDomain(rec, home), walkR: zigWalkR(rec, home), foreign: zigBambooOn() ? ZIG_FOREIGN_GROWN : ZIG_FOREIGN, blockLayer: false, feetIn: zigFeetIn, alsoDone: zAlso, clearMax: ZIG_CLEAR_MAX, leaveIf: zigOnSite(rec), leaveTo: [home.x, home.y, home.z],
       ...tempStandOf(bot, c, MONUMENT_PLOT),   // tempstand-01
       access: zigAccessOf(bot, c), sealed: zigSealedOf(c, zigOtherCells()) }, effects, { deadline: t0 + budget - ZIG_VISIT_TAIL_MS, maxSteps: 400 })
+    // sealedcore-01: THE WAIVER (sealedcore.mjs sealedCoreDue; the wall's machinery: the record's `waived` map, an `op=waived` row) -- a
+    // FILL cell this visit deferred, counted SEALED_CORE.after deferring visits, for which this visit's void access found no plan, and
+    // that a fresh read proves enclosed by the monument's own finished cells and the ground under its base, is named on the record;
+    // every later test reads it done. A fill cell the rule refuses is named with its reason (`op=waive_held`), once a visit.
+    let waivedN = 0
+    if (sealedCoreOn() && (r.deferred ?? []).length) {
+      try {
+        const rdNow = planReader(bot)
+        const openK = new Set(rec.cells.filter(q => !sealedCoreWaived(rec, q)).map(q => q.at.join(',')))
+        // (a boundary cell is done by the order's own cell test: its palette, its state, zigHidden, the waived map -- read now)
+        const sc = sealedCoreDue(rec, r.deferred, { read: rdNow, palette, isDone: q => recordCellDone(bot, rec, q),
+          access: zigAccessOf(bot, c) ? r.access : null, counts: sinkDeferCounts(dir, key, me, r.deferred, k => openK.has(k)) })
+        if (sc.due.length) {
+          const pub = publishRecord(dir, key, cur => (cur && isZigBlueprint(cur.blueprint) && cur.cells.length === rh.head.rec.cells.length ? withSealedCore(cur, sc.due, { by: me }) : null), { by: me })
+          if (pub.result === 'accepted') { waivedN = sc.due.length; for (const d of sc.due) { try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'waived', cell: d.k.split(',').map(Number), gen: pub.gen, n: d.n, visits: d.visits, why: SEALED_WHY }) }) } catch { /* telemetry */ } } }
+          bot.shopDamage = null
+        } else if (sc.held.length) { const d = sc.held[0]; try { logEvent({ kind: 'build', status: 'success', snapshot: snapshot(bot), detail: buildRowDetail({ project: MONUMENT_PLOT, op: 'waive_held', cell: d.k.split(',').map(Number), n: sc.held.length, visits: d.visits, why: `${SEALED_WHY} ${d.why}` }) }) } catch { /* telemetry */ } }
+      } catch { /* counted again next visit */ }
+    }
     if (r.stop === 'complete') {
       const pub = publishRecord(dir, key, cur => (cur && !cur.structure_complete ? { ...cur, structure_complete: true, state: 'complete', completeAt: Date.now() } : null), { by: me })
       completed = true
@@ -25216,7 +25243,9 @@ async function buildMonument (ctx, args, signal) {
     const left = leftoverNames(took, held0, heldMap(bot))
     if (left.length && budget - (Date.now() - t0) >= SHOP_BANK_MIN_MS) { try { back = await matsBank(ctx, left, held0, signal, took, { onBanked: (n2, c2) => { backAll[n2] = (backAll[n2] ?? 0) + c2; persist() } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
     const status = r.placed > 0 || r.cleared > 0 ? 'success' : 'no_effect'
-    return out(status, r.stop, `${r.why ?? r.stop}; built ${zigProgressNow(bot, rec)}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
+    // sealedcore-01: a visit that waived ends cell_waived (tidy.mjs gkStopAfterWaive), never this bot's own 6-h stuck_on_cell back-off
+    const stopZ = gkStopAfterWaive(r.stop, waivedN)
+    return out(status, stopZ, `${r.why ?? r.stop}${waivedN ? `; waived ${waivedN} sealed core cell(s)` : ''}; built ${zigProgressNow(bot, rec)}`, { stop: stopZ, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-', back: Object.entries(back ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { out('aborted', 'aborted', 'interrupted'); throw e }
     return out('failed', 'error', String(e?.message ?? e).slice(0, 100), {}, 'other')
