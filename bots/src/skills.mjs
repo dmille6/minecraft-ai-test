@@ -28348,6 +28348,8 @@ function takeKeeper (bot, lease, now = Date.now()) {
   const renewal = lease?.rec?.holder === me && now < (lease.holdsUntil ?? 0)
   // gklease-01 (Codex r1 BLOCKER): the fitness gate at the ACQUISITION boundary -- every new take (the order's read and a visit's start)
   { const u = renewal ? null : gkUnfitNow(bot); if (u) return { ok: false, why: `unfit:${u}` } }
+  // gkstay-01 (Codex r1 BLOCKER): nor over an open idle batch that goes below -- every new take (the order's read and buildTidy's visit start)
+  if (!renewal && GKSTAY_ON && belowKind(idleKindNow())) return { ok: false, why: 'below_batch' }
   // gkhelpers-01: a helper becoming the keeper lets its helper lease go FIRST (never both at once: the read's crew overlap)
   if (!renewal) {
     const hl = dropHelperLeases(bot)
@@ -28676,7 +28678,14 @@ function keeperOrder (bot, states, list, now = Date.now()) {
   const unfitHeld = up.held ? unfit : null
   // (release fold, Codex BLOCKER) never while this holder is IN a grounds visit: the visit ends first, the next check decides
   const inGrounds = !!bot.shopVisitBusy && (bot.shopVisitPlot === TIDY_PLOT || bot.shopVisitPlot === FOREST_PLOT)
+  // gkstay-01, the fleet's half (idlework.mjs's idle batches; on this trunk both run): no take over an open idle batch that goes
+  // below (iron, coal), and a holder whose open batch goes below hands over -- under the release fold's rule too: never while
+  // this holder is in a grounds visit. `unfitNow` is the fleet's name for `unfit`
+  const unfitNow = unfit, below = GKSTAY_ON && !(d === 'mine' && inGrounds) && belowKind(idleKindNow())
+  if (GKSTAY_ON && d === 'mine' && below) { releaseKeeper(bot, k.lease, 'handoff', now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' }
   if (GKL_ON && (d === 'mine' || d === 'take') && !(d === 'mine' && inGrounds)) {
+    // this check's own `unfit` (it shadows the one above, on purpose: the taker's also says a below batch)
+    const unfit = d === 'mine' ? (up.held ? unfitNow : null) : (unfitNow ?? (below ? 'below_batch' : null))
     const c = groundsLeaseCheck({ d, unfit: d === 'mine' ? unfitHeld : unfit, idle: d === 'mine' && groundsIdle({ term0: Number(k.lease?.rec?.meta?.term0 ?? k.lease?.rec?.at), workAt: bot.gkWorkAt ?? null, spawnAt: bot.shopSpawnAt ?? null, now }) })
     if (c.release) { releaseKeeper(bot, k.lease, c.release, now); bot.gkRestUntil = now + GK_FIT.restMs; d = 'none' } else if (d === 'take' && !c.take) d = 'none'
   }
