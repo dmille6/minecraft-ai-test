@@ -100,9 +100,9 @@ await t('the row says why a visit banked nothing and where its chest was', () =>
   assert.doesNotMatch(BR.roomBankDetail({ plot: 'forest' }), /stop=|near=/, 'no stop given: the row as before')
 })
 await t('MUTANTS KILLED (A): the memory ignored; the lid ignored; the hall refused; the reach unbounded; the ask without a target', async () => {
-  const pick = M => { assert.equal(M.roomTarget([boxFull, boxLid, boxOk, hallOk], { reach: true }).at, 'box-ok'); assert.equal(M.roomTarget([hallOk], { reach: true }).at, 'hall-ok'); assert.equal(M.roomTarget([{ ...hallOk, d: 500 }], { reach: true }), null) }
+  const pick = M => { assert.equal(M.roomTarget([boxFull, boxLid, boxOk, hallOk], { reach: true })?.at, 'box-ok'); assert.equal(M.roomTarget([hallOk], { reach: true })?.at, 'hall-ok'); assert.equal(M.roomTarget([{ ...hallOk, d: 500 }], { reach: true }), null) }
   await killedBy(BAGFIX_PATH, BF, ' && !SKIPPED_STATUS.includes(c.status)', '', pick)
-  await killedBy(BAGFIX_PATH, BF, ' && !c.lid && c.d <= maxD', ' && c.d <= maxD', M => assert.equal(M.roomTarget([boxLid, boxOk], { reach: true }).at, 'box-ok'))
+  await killedBy(BAGFIX_PATH, BF, ' && !c.lid && c.d <= maxD', ' && c.d <= maxD', M => assert.equal(M.roomTarget([boxLid, boxOk], { reach: true })?.at, 'box-ok'))
   await killedBy(BAGFIX_PATH, BF, '!!inBox || (!!reach && !!extra)', '!!inBox', pick)
   await killedBy(BAGFIX_PATH, BF, ' && !c.lid && c.d <= maxD', ' && !c.lid', pick)
   await killedBy(BAGFIX_PATH, BF, '!reach || !!inReach || !!target', 'true', M => assert.equal(M.roomAskTarget({ reach: true }), false))
