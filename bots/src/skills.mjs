@@ -9351,11 +9351,26 @@ async function mergeInto (bot, win, need, deadline, signal, onMutate = null, hol
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, room = null } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, room = null, mergeHold = {} } = {}) {
   const bag = windowBag(bot, win)
   const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail, ...(room ?? {}) })
   // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
   const plan = accept ? { ...plan0, steps: plan0.steps.filter(st => accept(st.name)) } : plan0
+  // CHESTMERGE-01: the plan needs more empty slots than the container has -> partial stacks of one kind are merged INSIDE
+  // it first, one freed slot per merge, only as many as the plan lacks. A merge that did not go as planned ends this
+  // container's visit before any deposit click (independent review r1: the deposit must never click on a cursor the
+  // server may still hold); the caller settles the cursor with the server's word, as always.
+  let merge = null
+  const free0 = win.slots.slice(0, win.inventoryStart).filter(x => !x).length
+  if (CHESTMERGE.on && plan.steps.length > free0) {
+    const t0 = Date.now()
+    merge = { need: plan.steps.length - free0, free: free0, ...(await mergeInto(bot, win, plan.steps.length - free0, deadline, signal, onMutate, mergeHold)) }
+    merge.ms = Date.now() - t0
+    // ... and the container is classed as the base classes it (Codex r2): the plan did not fit (`full`), and with no empty
+    // slot left in the window as the server last showed it, `noRoom` -- so it is remembered full, the run looks past it, and
+    // a run that finds every chest so goes on into the deposit verb (fullplace-01). A merge that keeps failing is not a loop.
+    if (merge.err || win.selectedItem) return { done: [], full: true, noRoom: !win.slots.slice(0, win.inventoryStart).some(x => !x), err: merge.err ?? 'the cursor is loaded after a merge', capRefused: { at_cap: 0, unknown: 0, outside: 0 }, stock: { claims: 0, refused: 0, valve: 0 }, reserved, merge }
+  }
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   // towndeposit-02: NO EMPTY CONTAINER SLOT at the open (the only room a whole-stack move uses) -- the caller remembers it full
@@ -9419,7 +9434,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
   }
   // the claims are released by the CALLER, after the cursor is settled (Codex code r1 P1: a pending click or the cursor's
   // rescue may still move items) -- with the window's count, or a dirty mark when the window is held
-  return { done, full, noRoom, err, capRefused, stock, reserved }
+  return { done, full, noRoom, err, capRefused, stock, reserved, merge }
 }
 
 /**
@@ -9578,7 +9593,7 @@ async function townDeposit (ctx, _args, signal) {
       const reservedHere = []
       const mergeHold = { from: null }
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, mergeHold, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
       } finally {
