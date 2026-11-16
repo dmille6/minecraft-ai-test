@@ -6,6 +6,10 @@
 // never passed (scripts/test-result.mjs: `SKIP (<why>)` and exit 77). Its subject is not in the trunk: nothing calls unsitedBackoff or
 // unsitedWrite -- no stamp is ever written, and the order does not read one (its 6 passing checks are of those functions).
 // Take the two lines below out to run it again.
+// one trunk (DECISIONS row 2): piece B defaults by POOL (off in the showcase's) and the suite's default is off; this is the fleet
+// line's test of it, so it is on here (shop.mjs reads the switch at each call). Kept above the skip so the day the two lines
+// below come out, the file runs as the fleet's test of the switch; visitswitch.test.mjs asserts this line is here.
+process.env.UNSITEDWAIT = 'on'
 console.log("SKIP (replaced on the showcase line by sinkfix-03 (305057d03) and projturn-01show (24cc654f6); the fleet's own version is not in the trunk (trunk merge 2026-11-16, DECISIONS.md))")
 process.exit(77)
 import assert from 'node:assert/strict'
