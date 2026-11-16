@@ -19447,6 +19447,9 @@ function recordCellDone (bot, r, c) {
     if ((r.blueprint === WALL_BLUEPRINT || r.blueprint === WALLEXT_BLUEPRINT) && wallWaived(r, c)) return true   // wallstuck-01: a waived wall cell is done (wallext-01: the extension's too)
     if (sinkWaived(r, c)) return true   // sinkwaive-01: a waived stone-sink cell is done
     if (mon && sealedCoreWaived(r, c)) return true   // sealedcore-01: a waived sealed core cell of the monument is done
+    // gklease-02: a waived TIDY cell is done, so the 6-h stuck stamp a stalled visit wrote before its waiver goes stale (shop.mjs
+    // stuckStale) -- LIVE 11-06 22-23Z: hive-d, isolated-a, board-c, placebo-c, hive-b had 0 tidy visits by any bot for 6 h after one
+    if (GKL2_ON && r.blueprint === TIDY_BLUEPRINT && tidyWaived(r, c)) return true
     const b = read(...c.at)
     if (!b) return false
     return buildCellDone(b, bp.palette, c.role, c.ws) || (mon && zigHidden(c, read)) || cottageCellWaits(bot, r, c)   // cottage2-01
@@ -29226,7 +29229,7 @@ function gkwTownRead (bot, now = Date.now()) {
 }
 function gkFeet (bot) { try { const p = bot?.entity?.position; return p ? [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)] : null } catch { return null } }
 /** gklease-01: why this bot cannot work the grounds from where it is (groundskeeper.mjs groundsUnfit) -> why | null (switch off: null). */
-function gkUnfitNow (bot) { try { return GKL_ON ? groundsUnfit({ feet: gkFeet(bot), home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ } }) : null } catch { return null } }
+function gkUnfitNow (bot) { try { if (!GKL_ON) return null; const feet = gkFeet(bot); return groundsUnfit({ feet, home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, covered: GKL2_ON ? gkCovered(bot, feet) : null }) } catch { return null } }
 const GKL2_ON = !['0', 'off', 'false', 'no'].includes(String(process.env.GKLEASE2 ?? '1').trim().toLowerCase())
 function gkCovered (bot, feet) { try { return columnCovered((x, y, z) => { const q = bot.blockAt?.(new Vec3(x, y, z)); return q ? { name: q.name, boundingBox: q.boundingBox } : null }, feet) } catch { return null } }
 const sweepMapFile = holder => path.join(townDir(), `stations.sweep.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
