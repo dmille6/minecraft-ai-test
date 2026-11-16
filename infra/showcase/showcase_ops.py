@@ -862,6 +862,50 @@ READ_DECISIONS = ('KEEP', 'REVERT', 'INCONCLUSIVE')
 # The deploy switch (as REPLAY_GATE): present = an unread live release REFUSES the stage; absent = the gate still runs, is
 # recorded in the release (ok: false) and printed as a WARNING.
 SOAK_ENFORCE = f'{ROOT}/SOAK_GATE'
+# THE LENGTH IS THE OWNER'S (11-16: "yes 1 hour", while the clean-up backlog clears). The switch file may carry it:
+# {"soak_min": 60, "owner": "<whose word, when>"}. An EMPTY file, or one this cannot read, is the 3 h of 11-14: a setting
+# nobody can read never shortens the wait. Bounds 60..180 min: under an hour the +60 read has not been made, and the
+# hourly stopwatch (what else stopped working) has not run once.
+SOAK_MIN_FLOOR, SOAK_MIN_CEIL, SOAK_OWNER_MIN = 60, 180, 12
+
+
+def soak_of(text):
+    """PURE. The switch file's text -> (the soak, a note or None). None/empty text -> (SOAK, None). Anything else that is
+    not {"soak_min": an int in 60..180, "owner": 12+ characters} -> (SOAK, why it was not used)."""
+    if text is None or not str(text).strip():
+        return SOAK, None
+    try:
+        d = json.loads(text)
+    except (ValueError, RecursionError) as e:
+        return SOAK, f'SOAK_GATE is not JSON ({str(e)[:60]}): the {int(SOAK.total_seconds() // 3600)} h stand'
+    if not isinstance(d, dict):
+        return SOAK, f'SOAK_GATE must be a JSON object: the {int(SOAK.total_seconds() // 3600)} h stand'
+    m, owner = d.get('soak_min'), d.get('owner')
+    if isinstance(m, bool) or not isinstance(m, int) or not SOAK_MIN_FLOOR <= m <= SOAK_MIN_CEIL:
+        return SOAK, (f'SOAK_GATE soak_min must be a whole number of minutes {SOAK_MIN_FLOOR}..{SOAK_MIN_CEIL}, got {m!r}: '
+                      f'the {int(SOAK.total_seconds() // 3600)} h stand')
+    if not isinstance(owner, str) or len(owner.strip()) < SOAK_OWNER_MIN:
+        return SOAK, (f'SOAK_GATE must say whose word the shorter wait is and when (owner, {SOAK_OWNER_MIN}+ characters): '
+                      f'the {int(SOAK.total_seconds() // 3600)} h stand')
+    return dt.timedelta(minutes=m), None
+
+
+def soak_now(path=None):
+    """The soak in force -> (timedelta, note or None). Never raises: a file that cannot be read is the 3 h."""
+    try:
+        with open(path or SOAK_ENFORCE) as f:
+            text = f.read(4096)
+    except FileNotFoundError:
+        return SOAK, None
+    except (OSError, ValueError) as e:
+        return SOAK, f'SOAK_GATE cannot be read ({type(e).__name__}): the {int(SOAK.total_seconds() // 3600)} h stand'
+    return soak_of(text)
+
+
+def soak_words(soak):
+    """'3 h' / '1 h' / '90 min' for the gate's own sentences. Pure."""
+    m = int(soak.total_seconds() // 60)
+    return f'{m // 60} h' if m % 60 == 0 else f'{m} min'
 
 
 def soak_enforced():
@@ -957,8 +1001,8 @@ def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
     fix_way = f'--fix-of {rel[:8]} --fix-why "<what the live release shows>"'
     if clock['how'] == 'not_started':
         return (f'one change at a time: {rel} was activated {FR.iso(t_act)} with no bot running and no start-verified row follows '
-                f'it, so its {int(soak.total_seconds() // 3600)} h have not begun. Start the bots (start-bots.sh journals '
-                f'start-verified), read it {int(soak.total_seconds() // 3600)} h after that start and journal the decision, then '
+                f'it, so its {soak_words(soak)} have not begun. Start the bots (start-bots.sh journals '
+                f'start-verified), read it {soak_words(soak)} after that start and journal the decision, then '
                 f'stage; or, for a fix of what it broke: {fix_way}')
     if t0 is None and t_act is not None:
         return (f'one change at a time: cannot read when the bots were started on {rel} (its newest start-verified row has no '
@@ -978,11 +1022,11 @@ def soak_refusal(deploy_rows, now, fix_of=None, fix_why=None, soak=SOAK):
     since = (f'{rel} went live {FR.iso(t0)}' if clock['how'] == 'activation'
              else f'the bots were started on {rel} at {FR.iso(t0)} (it was activated {FR.iso(t_act)}; the soak counts from the start)')
     return (f'one change at a time: {since} and has no read row (KEEP / REVERT / INCONCLUSIVE) written '
-            f'{int(soak.total_seconds() // 3600)} h or more after that; {when}. Read it and journal the decision, then stage; '
+            f'{soak_words(soak)} or more after that; {when}. Read it and journal the decision, then stage; '
             f'or, for a fix of what it broke: {fix_way}')
 
 
-def activation_soak_refusal(deploy_rows, release, now):
+def activation_soak_refusal(deploy_rows, release, now, soak=SOAK):
     """PURE. THE SAME RULE AT THE SWITCH (Claude r1: asked only at stage, two releases staged while X was live and read both
     passed, and went live ten minutes apart -- the 11-13 two-session shape). -> why | None.
     A release that has been live before is a way BACK (a rollback, a return) and is never gated. A release going live for
@@ -992,7 +1036,7 @@ def activation_soak_refusal(deploy_rows, release, now):
         return None
     adm = [r for r in rows if r.get('event') == 'soak-admit' and str(r.get('release')) == str(release)]
     fix_of, fix_why = (adm[-1].get('fix_of'), adm[-1].get('fix_why')) if adm else (None, None)
-    why = soak_refusal(rows, now, fix_of or None, fix_why or None)
+    why = soak_refusal(rows, now, fix_of or None, fix_why or None, soak=soak)
     return why and (why + f' [activating {release}: a fix admission is recorded by staging it again with --fix-of / --fix-why]')
 
 
@@ -1028,13 +1072,16 @@ def cmd_read(a):
     append(DEPLOY, row)
     clock = soak_clock(rows)
     t0 = clock['since']
-    opens = t0 is not None and now >= t0 + SOAK
+    soak, note = soak_now()
+    opens = t0 is not None and now >= t0 + soak
     print(f"READ journalled for {row['release']}: {row['decision'][:80]}")
     print('  one change at a time: this read OPENS the gate' if opens else
           '  one change at a time: no bot has been started on this release (no start-verified row since its activation), so '
           'this read does NOT open the gate' if clock['how'] == 'not_started' else
-          f"  one change at a time: this read is before {FR.iso(t0 + SOAK) if t0 else '?'} and does NOT open the gate; write the "
-          f"{int(SOAK.total_seconds() // 3600)}-h read then{' (the soak counts from the bots start)' if clock['how'] == 'start' else ''}")
+          f"  one change at a time: this read is before {FR.iso(t0 + soak) if t0 else '?'} and does NOT open the gate; write the "
+          f"{soak_words(soak)} read then{' (the soak counts from the bots start)' if clock['how'] == 'start' else ''}")
+    if note:
+        print('  NOTE: ' + note)
     return 0
 
 
@@ -1047,8 +1094,11 @@ def journal_soak(release, sha, rec):
 def soak_admit(a, now=None):
     """-> (ok, record). The gate over the real journal; `record` goes into the release's gate."""
     fix_of, fix_why = getattr(a, 'fix_of', None), getattr(a, 'fix_why', None)
-    why = soak_refusal(FR.load_jsonl(DEPLOY), now or now_utc(), fix_of, fix_why)
-    rec = {'ok': why is None, 'enforced': soak_enforced()}
+    soak, note = soak_now()     # the owner's length (the switch file), else the 3 h
+    why = soak_refusal(FR.load_jsonl(DEPLOY), now or now_utc(), fix_of, fix_why, soak=soak)
+    rec = {'ok': why is None, 'enforced': soak_enforced(), 'soak_min': int(soak.total_seconds() // 60)}
+    if note:
+        rec['soak_note'] = note
     if why:
         rec['why'] = why        # whole: its last words are the remedy (Claude r1: a 300-character cut ended at `--fix-of`)
     if fix_of and why is None:
@@ -1368,7 +1418,7 @@ def cmd_activate(a):
         print(f'REFUSED: {bad}; nothing switched')
         return 1
     # ONE CHANGE AT A TIME at the switch too (owner 11-14): a release going live for the first time, against what is live now
-    swhy = activation_soak_refusal(FR.load_jsonl(DEPLOY), os.path.basename(os.path.abspath(a.release)), now_utc())
+    swhy = activation_soak_refusal(FR.load_jsonl(DEPLOY), os.path.basename(os.path.abspath(a.release)), now_utc(), soak_now()[0])
     if swhy and soak_enforced():
         print(f'REFUSED: {swhy}; nothing switched')
         append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'activate-refused', 'release': os.path.basename(os.path.abspath(a.release)), 'why': swhy[:300]})
