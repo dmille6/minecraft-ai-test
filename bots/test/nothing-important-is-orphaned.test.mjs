@@ -496,6 +496,7 @@ const REQUIRED = [
   'scripts/host/test_finishline.py',
   'docs/reports/finish-line-2026-11-09.md',
   'infra/dashboard/agent/mcai-dash-agent.py',
+  'infra/dashboard/test_dash_agent.py',
   'infra/dashboard/build_dashboards.py',
   'infra/dashboard/deploy.sh',
   'infra/dashboard/stack/nginx/default.conf',

@@ -24,6 +24,7 @@ and a pull over HTTP keeps it that way. Every collector is independent: one fail
 "zero", which is the failure this repo keeps repeating -- see CLAUDE.md).
 """
 import argparse
+import fnmatch
 import glob
 import json
 import math
@@ -282,7 +283,29 @@ ALARM_RE = re.compile(r'^(\S+)\s+(NEW|STILL|CLEARED|EVENT)\s+(\S+)\s+(.*?)\s+::\
 ALARM_LIVE_S = 7 * 3600   # alarm.py re-pushes STILL every 6 h: a NEW/STILL older than that has no living source
 
 
-def alarms(path, scope):
+def live_acks(path, now):
+    """alarm-acks.json (written by `pager.py ack`) -> its unexpired acks. A missing or unreadable file is NO acks: the
+    alarm stays critical (fail loud)."""
+    try:
+        rows = json.load(open(path)).get('acks') or []
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [a for a in rows if isinstance(a, dict) and (parse_ts(str(a.get('until') or '')) or 0) > now]
+
+
+def ack_for(acks, src, key):
+    """PURE. The ack covering this alarm, or None. The globs are alarm.py find_ack's: source defaults to '*', an ack with
+    no key covers nothing."""
+    for a in acks:
+        if fnmatch.fnmatchcase(str(src), str(a.get('source') or '*')) and fnmatch.fnmatchcase(str(key), str(a.get('key') or '')):
+            return a
+    return None
+
+
+def alarms(path, scope, acks_path=None):
+    """-> (active alarms, newest 200 events). An active alarm with a live acknowledgement (11-16: the owner acked the
+    blocked canary slot for a week and the 'Critical fleet alarm' rule, which reads only this log, kept firing) is listed
+    with severity 'acked' and the ack's reason, so the critical rule counts only what nobody has answered."""
     last = {}
     events = []
     for ln in tail_lines(path, 2_000_000):
@@ -295,6 +318,7 @@ def alarms(path, scope):
         if ev != 'EVENT':
             last[(src, key)] = row
     now = NOW()
+    acks = live_acks(acks_path or os.path.join(os.path.dirname(path), 'alarm-acks.json'), now)
     active = []
     for (src, key), r in last.items():
         t = parse_ts(r['ts']) or 0
@@ -307,8 +331,12 @@ def alarms(path, scope):
                         break
                     if e['event'] == 'NEW':
                         first = e['ts']
-            active.append(dict(r, since=first, severity=severity(src, r['text'])))
-    active.sort(key=lambda r: (r['severity'] != 'critical', r['since']))
+            ack = ack_for(acks, src, key)
+            row = dict(r, since=first, severity='acked' if ack else severity(src, r['text']))
+            if ack:
+                row['text'] = f"[acknowledged until {ack.get('until')} by {ack.get('by')}: {ack.get('why')}] {r['text']}"
+            active.append(row)
+    active.sort(key=lambda r: (('critical', 'warning', 'info', 'acked').index(r['severity']), r['since']))
     return active, list(reversed(events[-200:]))
 
 
