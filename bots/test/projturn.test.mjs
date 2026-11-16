@@ -927,6 +927,22 @@ await t('the turn files: one per holder, merged by the reader; a holder rewrites
   assert.ok(fs.readdirSync(d).every(n => !n.endsWith('.tmp')))
   assert.equal(PJ.turnWrite('/dev/null/nope', HOME, 'x', {}), false, 'an unwritable town answers false, never throws')
 })
+await t('REVIEW r2 -- a departed bot\'s file ages out: a holder\'s file not written for a day no longer counts (the asker\'s own is never aged out); MUTANT killed', async () => {
+  const scenario = P => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-projturn-stale-'))
+    assert.ok(P.turnWrite(d, HOME, 'showcase-Gone', { monument: { at: NOW - 30 * H, n: 9, noAt: NOW - 30 * H, okAt: null, gen: 7, stop: 'stuck_on_cell' } }, { now: NOW - P.TURN_STALE_MS }))
+    assert.ok(P.turnWrite(d, HOME, 'showcase-Gale', { monument: { at: NOW - H, n: 1, noAt: NOW - H, okAt: null, gen: 7, stop: 'stuck_on_cell' } }, { now: NOW - H }))
+    assert.equal(P.TURN_STALE_MS, 24 * H)
+    assert.deepEqual(P.turnRead(d, HOME, { now: NOW }).map(f => f.holder), ['showcase-Gale'], 'a day since its last write: the departed bot\'s file is not read')
+    assert.equal(PT.turnView(P.turnRead(d, HOME, { now: NOW }), { now: NOW, genOf: () => 7 }).get('monument').n, 1, 'its nine no longer add to the pool\'s count')
+    assert.deepEqual(P.turnRead(d, HOME, { now: NOW - 1 }).map(f => f.holder).sort(), ['showcase-Gale', 'showcase-Gone'], 'control: a millisecond younger, it counts')
+    assert.deepEqual(P.turnRead(d, HOME, { holder: 'showcase-Gone', now: NOW + 99 * H }).map(f => f.holder), ['showcase-Gone'], 'a holder\'s read of its own file is never aged out')
+  }
+  scenario(PJ)
+  let why = null
+  await withCopy('buildproj.mjs', [['.filter(f => f && now - f.at < TURN_STALE_MS)', '.filter(Boolean)']], P => { try { scenario(P) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError, `MUTANT (no age-out) survived or died for another reason: ${String(why?.stack ?? 'survived').split('\n')[0]}`)
+})
 
 // ================================================================================================================================
 // 4. THE GLUE, on real record, stuck and turn files (skills.mjs shopActive, the order's hooks)
@@ -1071,10 +1087,11 @@ await t('THE AGING (real files): another bot\'s visit to the ziggurat sends this
   })
   // the switch is wired at every call site (structure: behaviour above covers the pick; these are the reads and the writes)
   const src = strip(fs.readFileSync(SRC('skills.mjs'), 'utf8'))
-  for (const line of ['if (PROJTURN.on) marked.splice(0, marked.length, ...turnMarksNow(b, marked, now))', 'if (PROJTURN.on && b) b.shopTurnSvc = svc?.plot ?? null', 'if (PROJTURN.on && b && visit) b.shopTurnInfo = {', 'if (PROJTURN.on) for (let i = 0; !turnBegin(bot, proj.plot, Date.now(), i > 0); i++) {', 'if (PROJTURN.on) turnNote(ctx.bot, res, args)', 'if (PROJTURN.on) setTurnNow({'])
+  for (const line of ['if (PROJTURN.on) marked.splice(0, marked.length, ...turnMarksNow(b, marked, now))', 'if (PROJTURN.on && b) b.shopTurnSvc = svc?.plot ?? null', 'if (PROJTURN.on && b && visit) b.shopTurnInfo = {', 'if (PROJTURN.on && !turnBegin(bot, proj.plot, Date.now(), aside > 0)) return aside >= TURN.asideMax ? turnAside(bot, proj.plot, t0) : buildShopVisitRun(ctx, args, signal, aside + 1)', 'if (PROJTURN.on) turnNote(ctx.bot, res, args)', 'if (PROJTURN.on) setTurnNow({'])
     assert.equal(src.split(line).length, 2, `WIRING MISSING OR NOT UNIQUE: ${line}`)
   assert.equal(src.split('turnBegin(').length, 2, 'turnBegin: the visit\'s one call')
-  assert.equal(src.split('turnNote(').length, 2, 'turnNote: the one call every visit\'s result passes')
+  assert.equal(src.split('turnNote(').length, 3, 'turnNote: the call every visit\'s result passes (buildShop `note`) and the one for a visit that threw (buildShopVisit)')
+  assert.equal(src.split('const proj = shopActive(bot, Date.now(), { visit: true })').length, 2, 'the visit\'s pick: one line, as it was')
   assert.equal(strip(fs.readFileSync(SRC('shop.mjs'), 'utf8')).split('turn = PROJTURN.on } = {}) {').length, 2, 'the order\'s switch defaults to PROJTURN')
 })
 await t('THE BOT\'S OWN HOLD (a fresh skills.mjs, a bot the order has seen): stuck on the ziggurat, it is passed to the wall and ORDERED there; without the mark the bot-wide hold stands', async () => {
@@ -1160,7 +1177,8 @@ await t('REVIEW r1, BLOCKER 1 (real files, a fresh skills.mjs): the standing hou
   // the one reason recordDamaged gives that is no cell's is passed over when the cells alone are asked (structure: the paths' extension
   // needs a routed town to be due; its back-off is the pure test's and the simulation's)
   const src = strip(fs.readFileSync(SRC('skills.mjs'), 'utf8'))
-  assert.equal(src.split('if (!cells && r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true').length, 2)
+  const ic = src.indexOf('    if (cells) return false\n'), ip = src.indexOf('    if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true\n'), id = src.indexOf('function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {')
+  assert.ok(id > 0 && ic > id && ip > ic && ip - ic < 200 && src.split('    if (cells) return false\n').length === 2, 'the cells-only answer ends just before the paths\' extension line (which stands as it was)')
   assert.equal(src.split('recordDamaged(b, rec, { tidy: false, cells: true })').length, 2)
   world.clear()
 })
@@ -1245,6 +1263,85 @@ await t('REVIEW r1, BLOCKER 3 (real files, real leases, a fresh skills.mjs): two
     assert.ok(why instanceof assert.AssertionError, `MUTANT (${name}) survived or died for another reason: ${String(why?.stack ?? 'survived').split('\n')[0]}`)
   }
   freeSlots('monument'); freeSlots('wall')
+})
+
+await t('REVIEW r2, BLOCKER 1 (the real build_shop, real leases, a fresh skills.mjs): a visit that THROWS after it took the probe\'s claim gives the lease back at once, counts nothing, and the error still surfaces; a second bot can probe immediately; MUTANT (no finalizer on a throw) killed', async () => {
+  const Gm = PJ.recordGenNow(dir(), key('monument')), Gw = PJ.recordGenNow(dir(), key('wall'))
+  const scenario = async (M, tag) => {
+    cleanTurns(); freeSlots('monument'); freeSlots('wall'); world.clear()
+    const A = mkAt(`showcase-E${tag}`), B = mkAt(`showcase-F${tag}`), now = Date.now()
+    assert.ok(PJ.turnWrite(dir(), HOME, 'showcase-Gale', { monument: { at: now - 3 * H, n: 1, noAt: now - 3 * H, okAt: null, gen: Gm, stop: 'stuck_on_cell' }, wall: { at: now - H, n: 0, noAt: null, okAt: now - H, gen: Gw, stop: null } }, { now }))
+    M.shopActiveForget()
+    // the visit breaks at its first statement after the start (turnBegin): an error, no interruption
+    Object.defineProperty(A, 'sinkStreak', { configurable: true, get: () => 0, set: () => { throw new Error('boom: the visit broke') } })
+    rows.length = 0
+    let threw = null
+    try { await M.SKILLS.build_shop.run({ bot: A }, {}, new AbortController().signal) } catch (e) { threw = e }
+    assert.match(String(threw?.message), /^boom: the visit broke$/, 'the original error reaches the runner')
+    // positive control: the visit HAD begun on the backed-off ziggurat and taken the probe's lease
+    assert.deepEqual(turnRows('pick').map(x => x.split(' ').slice(0, 2).join(' ')), ['op=pick project=monument'])
+    const l = PJ.leaseState(dir(), key('monument'), 'slot1')
+    assert.equal(l?.rec?.holder, A.username, 'control: the claim was A\'s')
+    assert.equal(l.released, true, 'and it is given back at once, not left to the lease\'s TTL')
+    assert.deepEqual([A.shopTurnVisit, A.shopVisitBusy], [null, false], 'the turn is finalized')
+    // an error is no evidence: nothing counted, no back-off row, the pool's count as it was
+    const e = PJ.turnRead(dir(), HOME, { holder: A.username })[0].plots.monument
+    assert.deepEqual([e.n, e.rn, e.noAt, Number.isFinite(e.at), turnRows('backoff').length], [0, 0, null, true, 0])
+    assert.equal(M._projturn.turnViewNow(B, Date.now()).get('monument').n, 1)
+    // a second bot goes back to the ziggurat immediately
+    assert.equal(M._projturn.turnMarksNow(B, [st('monument')], Date.now())[0].backoff, undefined)
+    assert.equal(M._projturn.turnBegin(B, 'monument', Date.now()), true)
+  }
+  await withCopy('skills.mjs', [], M => scenario(M, 1))
+  let why = null
+  await withCopy('skills.mjs', [["catch (e) { if (PROJTURN.on && !(e?.aborted || signal?.aborted)) turnNote(ctx.bot, { status: 'failed', stop: 'error' }, args); throw e }", 'catch (e) { throw e }']], async M => { try { await scenario(M, 2) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /given back at once/.test(String(why.message)), `MUTANT (no finalizer on a throw) survived or died for another reason: ${String(why?.stack ?? 'survived').split('\n')[0]}`)
+  freeSlots('monument'); freeSlots('wall')
+})
+await t('REVIEW r2, BLOCKER 2 (real files, real leases): three bots that pick the broken house and LOSE the probe\'s claim spend no repair attempt; the winner\'s is counted and its repair proceeds; PROJTURN off counts where it always did; MUTANT (counted before admission) killed', async () => {
+  const G = PJ.recordGenNow(dir(), key('house1'))
+  const setup = M => {
+    cleanTurns(); freeSlots('house1'); freeSlots('monument'); world.clear(); world.set('5,70,5', block('air'))   // the house's cell is broken
+    const now = Date.now()
+    // ...and its repair has failed once, three hours ago: a count whose back-off is over -- going back to it is a probe
+    assert.ok(PJ.turnWrite(dir(), HOME, 'showcase-Gale', { house1: { at: now - 3 * H, n: 0, noAt: null, rn: 1, rnoAt: now - 3 * H, okAt: null, gen: G, stop: 'clears_wait' } }, { now }))
+    M.shopActiveForget()
+    return now
+  }
+  const scenario = async (M, tag) => {
+    const now = setup(M)
+    const W = mkAt(`showcase-W${tag}`), L = [1, 2, 3].map(i => mkAt(`showcase-L${i}${tag}`))
+    // all four visits pick the repair from the same reading
+    for (const b of [W, ...L]) { b.shopVisitBusy = true; assert.equal(M.shopActive(b, now, { visit: true }).plot, 'house1') }
+    assert.equal(M._projturn.turnBegin(W, 'house1', now), true)
+    assert.deepEqual([W.shopRepairs.get('house1')?.n, W.shopTurnVisit.repair, PJ.leaseState(dir(), key('house1'), 'slot1').rec.holder], [1, true, W.username], 'the winner: its attempt counted, its repair under way')
+    for (const b of L) {
+      assert.equal(M._projturn.turnBegin(b, 'house1', now + 1000), false, 'the claim is lost')
+      assert.equal(b.shopRepairs?.get('house1'), undefined, 'a pick stepped aside from spends no repair attempt')
+      assert.equal(S.repairBackoff([st('house1', { complete: true, damaged: true })], b.shopRepairs ?? null, now + 1000)[0].damaged, true)
+      // its next pick in the same visit is another project's, and counts nothing against the house either
+      const next = M.shopActive(b, now + 1000, { visit: true }).plot
+      assert.ok(['monument', 'wall'].includes(next), `the next pick is an open project, not the house under probe: ${next}`)
+      assert.equal(M._projturn.turnBegin(b, next, now + 1000, true), true)
+      assert.equal(b.shopRepairs?.get('house1'), undefined)
+      b.shopVisitBusy = false; M._projturn.turnNote(b, { status: 'aborted', stop: 'aborted' }, {}, now + 2000)
+    }
+  }
+  await withCopy('skills.mjs', [], M => scenario(M, 1))
+  let why = null
+  await withCopy('skills.mjs', [['    if (PROJTURN.on && visit && b) b.shopTurnRepair = { pick, states, now }\n    else if (visit) noteRepair(rmem, pick, states, now)\n', '    if (visit) noteRepair(rmem, pick, states, now)\n']], async M => { try { await scenario(M, 2) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /spends no repair attempt/.test(String(why.message)), `MUTANT (the attempt counted before admission) survived or died for another reason: ${String(why?.stack ?? 'survived').split('\n')[0]}`)
+  // PROJTURN off: the attempt is counted by the visit's pick itself, where it always was
+  await withCopy('skills.mjs', SKILLS_OFF, M => {
+    const now = setup(M), b = mkAt('showcase-Off')
+    assert.equal(M.shopActive(b, now, { visit: true }).plot, 'house1')
+    assert.equal(b.shopRepairs.get('house1')?.n, 1)
+    assert.equal(b.shopTurnRepair, undefined, 'nothing kept for a later start')
+  })
+  const src = strip(fs.readFileSync(SRC('skills.mjs'), 'utf8'))
+  assert.equal(src.split('    if (PROJTURN.on && visit && b) b.shopTurnRepair = { pick, states, now }\n    else if (visit) noteRepair(rmem, pick, states, now)\n').length, 2, 'the switch decides where: off, the old line')
+  assert.equal(src.split('noteRepair(').length, 3, 'two calls: the pick\'s (off) and the accepted start\'s (on)')
+  freeSlots('house1'); freeSlots('monument'); world.clear()
 })
 
 if (SIM) console.log(`\n        THE SIMULATION, 48 h, 14 bots (visits per simulated day; longest wait in hours)\n${table(SIM.on, SIM.off)}`)

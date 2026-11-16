@@ -18325,7 +18325,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // draw, the bag) names the tidy too -- the same mark and the same bound as the room fallback's (a crash-left mark outlives no visit)
     const g2Pick = roomFallbackPick(b?.groundsPick ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
     if (g2Pick) return g2Pick
-    if (visit) noteRepair(rmem, pick, states, now)
+    // projturn-01 (review r2, Codex BLOCKER 2): under PROJTURN the repair attempt is counted where the visit's start is stamped (turnBegin:
+    // only a pick the probe's claim ACCEPTED) -- a pick stepped aside from tried nothing and must not spend one. PROJTURN=off: here, as before
+    if (PROJTURN.on && visit && b) b.shopTurnRepair = { pick, states, now }
+    else if (visit) noteRepair(rmem, pick, states, now)
     if (visit && b) serviceBegin(b, svc, pick, now)
     return pick
   } catch { return projectsOn()[0] }
@@ -18820,8 +18823,9 @@ export function shopDamaged (bot, rec = null) {
   } catch { return false }
 }
 /** A complete record's loaded cells: any no longer done (its own blueprint's palette)? -> bool. Never throws.
- *  projturn-01 (review r1, Codex BLOCKER 1) `cells`: the damage that is a CELL's alone -- without the one reason below that is no
- *  cell and that no visit can mend while it stands (the paths' extension to a destination that cannot be routed). */
+ *  projturn-01 (review r1, Codex BLOCKER 1) `cells` (asked with `tidy: false`): the damage that is a CELL's alone -- the answer ends
+ *  before the one reason below that is no cell and that no visit can mend while it stands (the paths' extension to a destination
+ *  that cannot be routed). */
 function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
   try {
     // reroof-04: a re-roofed building whose temporary stair is due down or still standing wants its visit (it digs the stair)
@@ -18895,9 +18899,11 @@ function recordDamaged (bot, r, { tidy = true, cells = false } = {}) {
     if (tidy && r.blueprint === ENCHANT_BLUEPRINT && enchantUpkeepDue(bot, r)) return true
     // cottage2-01: a standing cottage owing a bed its wool cannot be found for, with a woolly sheep in this bot's sight: the shear errand
     if (tidy && isCottage2Blueprint(r.blueprint) && cottageShearDueFor(bot, r).due) return true
+    // projturn-01 (review r1): asked for the cells alone -- what follows is no cell's
+    if (cells) return false
     // paths-01 r2: a laid network with a destination it does not serve yet (a container's stand, a project completed since) wants
     // a visit: its extension (buildPaths), at most once per PATHS_EXTEND_MS per bot
-    if (!cells && r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
+    if (r.blueprint === PATHS_BLUEPRINT && pathsExtendDue(bot, r)) return true
     // fleetpaths-01: a no-site paths record is only DUE, after its retry (the shaft's rule)
     if (r.blueprint === PATHS_BLUEPRINT && pathsNoSiteRec(r)) return tidy && pathsDue(r)
     return false
@@ -23143,7 +23149,16 @@ function groundsFallNow (bot, g, r, t0, now = Date.now()) {
   const dry = groundsFall({ ...q, record: 'open', emptyUntil: bot.g2EmptyUntil ?? 0, feet: gkFeet(bot), home: g2Home(), now })
   return dry.fall ? groundsFall({ ...q, ...g3Links(bot, now) }) : dry
 }
+/**
+ * PROJTURN-01 (review r2, Codex BLOCKER 1): THE TURN IS FINALIZED ONCE ON EVERY EXIT. A result and an interruption are buildShop's
+ * (`note`); a visit that THREW (an error, no interruption) went past both, and the probe's claim turnBegin had taken stood until the
+ * lease's TTL. Here it is given back at once (turnNote with a failed result: a failed visit is no evidence -- nothing is counted, no
+ * back-off) and the error goes on to buildShop and the runner as before. PROJTURN=off: the visit itself, nothing else.
+ */
 async function buildShopVisit (ctx, args, signal) {
+  try { return await buildShopVisitRun(ctx, args, signal) } catch (e) { if (PROJTURN.on && !(e?.aborted || signal?.aborted)) turnNote(ctx.bot, { status: 'failed', stop: 'error' }, args); throw e }
+}
+async function buildShopVisitRun (ctx, args, signal, aside = 0) {
   const { bot } = ctx
   const t0 = Date.now()
   // GROUNDS-01 (grounds2.mjs): this bot's quota turn -- the visit is the grounds', whatever the order would pick (the sink and
@@ -23167,10 +23182,11 @@ async function buildShopVisit (ctx, args, signal) {
   // grounds-03: ...and one whose links broke between the ask and the visit (groundsOnly: a slot taken, the lease moved) ends at once
   if (g3Only(args)) { bot.shopVisitPlot = null; return groundsResult({ status: 'no_effect', detail: 'the grounds have no work for this bot now, and its order has nothing else', stop: 'grounds_none' }) }
   // house-01: the project this visit works on, fixed for the whole visit (shop.mjs activeProject)
-  let proj = shopActive(bot, Date.now(), { visit: true })
+  const proj = shopActive(bot, Date.now(), { visit: true })
   // projturn-01: the visit's start is stamped (the aging) and its pick logged; (review r1) a pick under another bot's probe is stepped
-  // aside from HERE -- nothing counted -- and the bot's next pick is worked in this same visit (turnBegin's claim)
-  if (PROJTURN.on) for (let i = 0; !turnBegin(bot, proj.plot, Date.now(), i > 0); i++) { if (i >= TURN.asideMax) return turnAside(bot, proj.plot, t0); proj = shopActive(bot, Date.now(), { visit: true }) }
+  // aside from HERE -- nothing counted -- and the bot's next pick is worked in this same visit (turnBegin's claim): the visit begins
+  // again from its pick, TURN.asideMax times at most
+  if (PROJTURN.on && !turnBegin(bot, proj.plot, Date.now(), aside > 0)) return aside >= TURN.asideMax ? turnAside(bot, proj.plot, t0) : buildShopVisitRun(ctx, args, signal, aside + 1)
   // picker-01: the sink visits in a row (after SINK_STREAK an upkeep goes first: shop.mjs activeProject `upkeepTurn`)
   bot.sinkStreak = isSinkPlot(proj.plot) ? (bot.sinkStreak ?? 0) + 1 : 0
   bot.finiteStreak = finiteStreakAfter(bot.finiteStreak, proj.plot)   // sinkturn-01: the finite visits in a row (the sink turn's count)
@@ -27415,7 +27431,7 @@ function turnViewNow (b, now = Date.now()) {
   const dir = townDir(), me = turnMe(b)
   if (turnMem.view && turnMem.dir === dir && turnMem.me === me && now >= turnMem.at && now - turnMem.at < TURN.readMs) return turnMem.view
   const own = turnOwnNow(dir, me)
-  const files = [...projTurnRead(dir, planHomeP()).filter(f => f.holder !== me), { holder: me, plots: own.plots }]
+  const files = [...projTurnRead(dir, planHomeP(), { now }).filter(f => f.holder !== me), { holder: me, plots: own.plots }]
   const view = turnView(files, { now, genOf: plot => recordGenNow(dir, projKeyOf(plot)) })
   turnMem = { at: now, dir, me, view }
   return view
@@ -27467,8 +27483,8 @@ function turnPut (dir, me, plot, entry, now = Date.now()) {
  *  visit's own takeSlot, released by the visit (or by turnNote when the visit never took it), lapsing after a kill. Never throws. */
 function turnBegin (bot, plot, now = Date.now(), again = false) {
   try {
-    const info = bot.shopTurnInfo ?? null
-    bot.shopTurnInfo = null; bot.shopTurnVisit = null
+    const info = bot.shopTurnInfo ?? null, rp = bot.shopTurnRepair ?? null
+    bot.shopTurnInfo = null; bot.shopTurnVisit = null; bot.shopTurnRepair = null
     if (plot == null) return true
     const counted = !(turnExempt(plot) || bot.serviceVisit?.plot === plot)
     const dir = townDir(), me = turnMe(bot)
@@ -27485,6 +27501,8 @@ function turnBegin (bot, plot, now = Date.now(), again = false) {
         claim = { gen: r.gen }
       }
     }
+    // ACCEPTED: the repair attempt of this pick is counted now (shop.mjs noteRepair: shopActive kept it for here)
+    if (rp && rp.pick?.plot === plot) noteRepair((bot.shopRepairs ??= new Map()), rp.pick, rp.states, rp.now)
     try { logEvent({ kind: 'shop_turn', status: 'success', snapshot: snapshot(bot), detail: turnPickDetail({ project: plot, why: turnExempt(plot) ? 'tier' : info?.why ?? 'tier', ageMin: Number.isFinite(info?.visitAt) ? Math.max(0, Math.round((now - info.visitAt) / 60_000)) : null, backedOff: info?.backedOff ?? 0, eligible: info?.eligible ?? 0 }) }) } catch { /* telemetry */ }
     if (!counted) return true
     const st = activeMem?.states?.find(s => s?.plot === plot) ?? null

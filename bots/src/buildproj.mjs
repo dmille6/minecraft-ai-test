@@ -654,13 +654,15 @@ const turnOf = j => {
   }
   return { holder: j.holder, at: Number(j.at) || 0, plots }
 }
-/** The town's turn files -> [{ holder, at, plots }] ([] when none or unreadable; a torn or foreign file is skipped). `holder`: that
- *  holder's own only. Never throws. */
-export function turnRead (dir, home, { holder = null } = {}) {
+/** How long a holder's turn file counts after its last write (review r2): a departed bot's count must not keep adding for good. */
+export const TURN_STALE_MS = 24 * 60 * 60_000
+/** The town's turn files -> [{ holder, at, plots }] ([] when none or unreadable; a torn or foreign file is skipped, and one not
+ *  written for TURN_STALE_MS). `holder`: that holder's own only (never aged out: it is the asker's). Never throws. */
+export function turnRead (dir, home, { holder = null, now = Date.now() } = {}) {
   if (holder != null) { const r = turnOf(readJ(turnFile(dir, home, holder))); return r ? [r] : [] }
   let names = []
   try { names = listMatch(dir, TURN_RE(home)) } catch { return [] }
-  return names.map(n => turnOf(readJ(path.join(dir, n)))).filter(Boolean)
+  return names.map(n => turnOf(readJ(path.join(dir, n)))).filter(f => f && now - f.at < TURN_STALE_MS)
 }
 /** Replace THIS HOLDER's turn file (temp + rename, fsynced) -> true | false (never throws: the caller keeps its own copy in memory). */
 export function turnWrite (dir, home, holder, plots, { now = Date.now() } = {}) {
