@@ -105,8 +105,13 @@ def camera_markers(cam):
 #   slot), and they are shot after every other camera (a scale change costs a fresh page).
 #   `follow`: the camera frames the ACTIVE PROJECT -- the boxed project record that placed a block most recently,
 #   kept while it is still active (no flip-flop between two busy sites), framed from its box (follow_camera).
+#   camdirector-01 (owner 11-16: "projects that are finished"): a target must have placed within follow_max_age_h
+#   (tl.conf, default 6 h; the camera's own `max_age_h` wins) -- with none, the camera takes NO frame that slot (it
+#   used to frame the last project for days). A COMPLETED record (structure_complete / state "complete") gets ONE
+#   final frame after its completion and is then dropped as a target (views.json <camera>.finals remembers which).
 #   Each published frame of a follow/labelled camera gets a <stamp>.json sidecar {label, project} for the video captions.
 DEFAULT_HEAVY_PER_SLOT = 1
+DEFAULT_FOLLOW_MAX_AGE_H = 6.0       # a follow camera's target must have placed within this (0 / null: no limit)
 QUALITY_KEYS = ('dpr', 'hires', 'lowres', 'sun', 'ambient')
 
 
@@ -121,19 +126,46 @@ def cam_quality(cfg, cam):
     return out
 
 
-def follow_target(cam, sites, progress, prev, now, hours):
+def final_key(site):
+    """What views.json records once a completed site has had its final frame: the record's completeAt (a rebuilt and
+    re-completed project gets a final frame again), else True. Pure (tested)."""
+    return (site or {}).get('complete_at') or True
+
+
+def follow_target(cam, sites, progress, prev, now, hours, max_age_h=DEFAULT_FOLLOW_MAX_AGE_H, finals=None):
     """The project a `follow` camera frames this slot. sites: {name: {'box': [x0, z0, x1, z1], ...}} (boxed project
-    records only); progress: {name: last placement datetime}. Keep `prev` while it placed within `hours`; otherwise the
-    boxed site with the most recent placement (names in cam['exclude'] never). None when no boxed site ever placed.
-    Pure (tested)."""
+    records only; a completed one carries 'complete': True); progress: {name: last placement datetime}. A candidate
+    placed within max_age_h (falsy: no limit) and is not in cam['exclude']. A COMPLETED candidate is a target for one
+    frame only: while finals (views.json <camera>.finals: {name: final_key}) does not name its completion it goes
+    FIRST (the final frame is owed), afterwards it is never a target. Otherwise: keep `prev` while it placed within
+    `hours`, else the candidate with the most recent placement. None when there is no candidate: the camera takes no
+    frame. Pure (tested)."""
     lim = now - dt.timedelta(hours=hours)
     excl = set((cam or {}).get('exclude') or ())
     cands = {n: progress[n] for n in sites if n not in excl and progress.get(n)}
+    if max_age_h:
+        oldest = now - dt.timedelta(hours=float(max_age_h))
+        cands = {n: t for n, t in cands.items() if t >= oldest}
+    done = {n for n in cands if (sites[n] or {}).get('complete')}
+    owed = {n: cands[n] for n in done if (finals or {}).get(n) != final_key(sites[n])}
+    if owed:
+        return max(sorted(owed), key=lambda n: owed[n])
+    cands = {n: t for n, t in cands.items() if n not in done}
     if prev in cands and cands[prev] >= lim:
         return prev
     if not cands:
         return None
     return max(sorted(cands), key=lambda n: cands[n])
+
+
+def note_final(vstate, target, site):
+    """The follow camera's state after a published frame of `target`: a completed site's final frame is recorded in
+    `finals` (so follow_target drops it); anything else is unchanged. Pure (tested)."""
+    if not target or not (site or {}).get('complete'):
+        return vstate
+    vs = dict(vstate or {})
+    vs['finals'] = dict(vs.get('finals') or {}, **{target: final_key(site)})
+    return vs
 
 
 def follow_camera(cam, name, site):
@@ -153,9 +185,20 @@ def follow_camera(cam, name, site):
     return c
 
 
+def record_completion(rec):
+    """{} for an open project record, {'complete': True, 'complete_at': ms or None} for a completed one: the record's
+    own `structure_complete` (true) or `state` ('complete'), and its `completeAt`. Pure (tested)."""
+    if not isinstance(rec, dict) or not (rec.get('structure_complete') is True or rec.get('state') == 'complete'):
+        return {}
+    at = rec.get('completeAt')
+    return {'complete': True, 'complete_at': at if isinstance(at, (int, float)) and not isinstance(at, bool) else None}
+
+
 def project_sites(cfg):
     """{name: {'box': [...], 'g': ground}} from the newest live (not .released) project-<town>.<name>.g<N>.json record
-    that carries a box (read-only). Unreadable or boxless records are absent."""
+    that carries a box (read-only). Unreadable or boxless records are absent. A COMPLETED record (bots/src/skills.mjs
+    publishes `structure_complete: true, state: 'complete', completeAt: <ms>`) also carries 'complete': True and
+    'complete_at' (the ms, or None)."""
     import glob, re
     d = cfg.get('project_dir', '/var/lib/mcai/_pool-showcase')
     best = {}
@@ -173,20 +216,23 @@ def project_sites(cfg):
         box = j.get('box') if isinstance(j, dict) else None
         if isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) for v in box):
             g = (j.get('site') or {}).get('g') if isinstance(j.get('site'), dict) else None
-            best[name] = (gen, {'box': box, 'g': g})
+            best[name] = (gen, dict({'box': box, 'g': g}, **record_completion(j)))
     return {n: v for n, (_, v) in best.items()}
 
 
 def resolve_cameras(cfg, state, now, progress, sites):
     """tl.conf's cameras with every `follow` camera made concrete for this slot (follow_target + follow_camera); a follow
-    camera with no target is `off` this slot. -> (cameras, {view: target}). Pure (tested)."""
+    camera with no target (nothing placed within follow_max_age_h, or only finished projects whose final frame is
+    taken) is `off` this slot. -> (cameras, {view: target}). Pure (tested)."""
     hours = float(cfg.get('active_hours') or DEFAULT_ACTIVE_HOURS)
     cams, targets = {}, {}
     for v, cam in (cfg.get('cameras') or {}).items():
         if not (cam or {}).get('follow'):
             cams[v] = cam
             continue
-        t = follow_target(cam, sites, progress, (state.get(v) or {}).get('target'), now, hours)
+        vs = state.get(v) or {}
+        age = cam.get('max_age_h', cfg.get('follow_max_age_h', DEFAULT_FOLLOW_MAX_AGE_H))
+        t = follow_target(cam, sites, progress, vs.get('target'), now, hours, max_age_h=age, finals=vs.get('finals'))
         if t is None:
             cams[v] = dict(cam, off=True)
             continue
@@ -613,13 +659,17 @@ def capture(cfg, stamp, views=None, deadline=None, est=None, pair=VIEWS):
     return rc, msg, got, round(time.time() - t0, 1), round(child_cpu_s() - c0, 1), extra, extra_err, raw_rc
 
 
-def frame_sidecar(cam, target):
+def frame_sidecar(cam, target, site=None):
     """The <stamp>.json written beside a published frame: the camera's caption label and the followed project, or None
-    for a camera with neither (no file: the video draws its old caption). Pure (tested)."""
+    for a camera with neither (no file: the video draws its old caption). `final`: True on the one frame a follow
+    camera takes of a COMPLETED project (site: its project_sites entry). Pure (tested)."""
     label = (cam or {}).get('label')
     if not label and not target:
         return None
-    return {'label': label or target, 'project': target}
+    side = {'label': label or target, 'project': target}
+    if target and (site or {}).get('complete'):
+        side['final'] = True
+    return side
 
 
 def job_timings(stdout):
@@ -707,7 +757,8 @@ def _capture_locked(cfg, a, t, stamp):
         return 0
     state = load_state(cfg)
     progress = project_progress(cfg)
-    cams, targets = resolve_cameras(cfg, state, t, progress, project_sites(cfg))
+    sites = project_sites(cfg)
+    cams, targets = resolve_cameras(cfg, state, t, progress, sites)
     rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot
     pair = slot_pair(cfg, t)
     views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start, pair=pair)
@@ -730,7 +781,9 @@ def _capture_locked(cfg, a, t, stamp):
             state[v]['target'] = targets[v]
             # the framing, for the nightly Chunky beauty render of the same project (chunky_beauty.project_view)
             state[v]['camera'] = {k: cams[v].get(k) for k in ('x', 'y', 'z', 'distance', 'rotation', 'angle', 'fov', 'label')}
-        side = dict(frame_sidecar(cams.get(v), targets.get(v)) or {}, changed=state[v].get('changed'))
+            state[v] = note_final(state[v], targets[v], sites.get(targets[v]))   # a finished project: this was its last
+        side = dict(frame_sidecar(cams.get(v), targets.get(v), sites.get(targets.get(v))) or {},
+                    changed=state[v].get('changed'))
         with open(p[:-4] + '.json', 'w') as f:
             json.dump(side, f)
         if gray:

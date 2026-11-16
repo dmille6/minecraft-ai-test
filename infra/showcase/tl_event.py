@@ -74,14 +74,16 @@ def secs_to_slot(now, capture_min=15):
 
 def camera_for(cfg, ec, project, sites):
     """(view, camera dict) for a project: its own fixed, non-heavy camera, else the event follow camera framed on its
-    box, else None (no camera, no box). Pure (tested)."""
+    box, else None (no camera, no box). Never a camera tl.conf marks `off` (camdirector-01: the finished projects'
+    cameras were switched off 11-14 and still got event frames). Pure (tested)."""
     for v, cam in sorted((cfg.get('cameras') or {}).items()):
         names = (cam or {}).get('project') or []
         names = [names] if isinstance(names, str) else names
-        if project in names and not cam.get('heavy') and not cam.get('follow') and v not in T.VIEWS:
+        if (project in names and not cam.get('heavy') and not cam.get('follow') and not cam.get('off')
+                and v not in T.VIEWS):
             return v, cam
     evc = (cfg.get('cameras') or {}).get(ec['event_camera'])
-    if evc and project in sites:
+    if evc and not evc.get('off') and project in sites:
         return ec['event_camera'], T.follow_camera(evc, project, sites[project])
     return None
 

@@ -36,6 +36,10 @@ REEL: `daily` also builds daily/<day>-reel.mp4, the angled overview plus the mos
 sped to fit REEL_SEG_S with a title. RETENTION: `tl_video.py thin [--apply]` keeps every frame of the last RETAIN_FULL_DAYS
 days and the first frame of each UTC hour (what weekly/history/monthly sample) before that; it acts only below
 THIN_BELOW_FREE_GB free, and the NAS keeps every frame (showcase-pull.sh, nightly).
+NO WASTED REBUILDS (camdirector-01, owner 11-16 "videos of projects that are finished"): history / weekly / monthly
+read tl.conf's cameras. A camera marked `off` gets no rebuild (its existing videos are left alone), and neither does a
+camera with no new frame since its last build of that video: the video's .json sidecar records `newest_frame`, the
+newest stored frame of the video's window when it was built (rebuild_skip). `daily` is unchanged.
 """
 import argparse, datetime as dt, fcntl, json, os, subprocess, sys, tempfile, time
 
@@ -73,6 +77,57 @@ def load_tl_conf(path=None):
         return json.load(open(path or TL_CONF))
     except (OSError, ValueError):
         return {}
+
+
+REBUILD_KINDS = ('history', 'weekly', 'monthly')     # the videos rebuilt from stored frames under one name
+
+
+def off_views(cfg):
+    """The cameras tl.conf marks `off` (a finished project's camera: owner 11-14). Pure (tested)."""
+    return {v for v, cam in ((cfg or {}).get('cameras') or {}).items() if isinstance(cam, dict) and cam.get('off')}
+
+
+def newest_stamp(stamps, lo=None, hi=None):
+    """The newest regular (non-event) frame stamp, inside [lo, hi) when given; None when there is none. Pure (tested)."""
+    best = None
+    for s in stamps:
+        t = parse_stamp(s)
+        if t is None or (lo is not None and t < lo) or (hi is not None and t >= hi):
+            continue
+        if best is None or s > best:
+            best = s
+    return best
+
+
+def rebuild_skip(kind, view, off, newest, candidates, prev_side, have_mp4):
+    """Should this history / weekly / monthly video NOT be encoded tonight? -> (skip, why, backfill).
+      * the camera is `off` in tl.conf: never rebuilt (whatever exists is left alone);
+      * the video exists and its sidecar's `newest_frame` equals the newest stored frame of the window: nothing new;
+      * the video exists and its sidecar predates `newest_frame`: skipped only when its `last` and `candidates` equal
+        tonight's sampled list, and then `backfill` is the value to record in the sidecar (no encode).
+    Any other kind (daily) is never skipped here. Pure (tested)."""
+    if kind not in REBUILD_KINDS:
+        return False, None, None
+    if view in off:
+        return True, 'camera is off in tl.conf: no rebuild (existing videos are left alone)', None
+    if not have_mp4 or not isinstance(prev_side, dict) or newest is None:
+        return False, None, None
+    if 'newest_frame' in prev_side:
+        if prev_side['newest_frame'] == newest:
+            return True, f'no new frame since the last build (newest {newest})', None
+        return False, None, None
+    if candidates and prev_side.get('last') == candidates[-1] and prev_side.get('candidates') == len(candidates):
+        return True, f'no new frame since the last build (newest {newest}; newest_frame recorded)', newest
+    return False, None, None
+
+
+def read_side(out_mp4):
+    """A video's .json sidecar, or None."""
+    try:
+        with open(out_mp4 + '.json') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 SMOOTH_DEADLINE_HM = (23, 45)        # UTC; the next daily job starts 00:20
 SMOOTH_S_PER_MPX = 0.9               # first guess, seconds per output megapixel-frame (measured .30, 4 threads: ~0.6)
 SMOOTH_MARGIN = 1.25                 # an estimate must fit the time left with this much slack
@@ -348,10 +403,11 @@ def small_gray(path):
     return p.stdout if p.returncode == 0 else b''
 
 
-def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS, smooth_job=None):
+def build(view, stamps, out_mp4, label, max_src_fps=MAX_SRC_FPS, smooth_job=None, extra=None):
     os.makedirs(os.path.dirname(out_mp4), exist_ok=True)
     side = {'view': view, 'label': label, 'candidates': len(stamps), 'fps': OUT_FPS, 'level': LEVEL,
             'min_changed_frac': MIN_CHANGED_FRAC}
+    side.update(extra or {})            # e.g. newest_frame (rebuild_skip reads it the next night)
     if not stamps:
         side.update(included=0, skipped_nochange=0, note='no frames in range')
         json.dump(side, open(out_mp4 + '.json', 'w'), indent=1)
@@ -646,7 +702,9 @@ def main():
         return 0
     # the deadline is fixed at the job's START, before waiting for the lock (Codex r1: a job that got the lock after
     # 23:45 would otherwise get tomorrow's deadline and run into its service timeout)
-    sj = SmoothJob(smooth_on(load_tl_conf(), a.kind), smooth_deadline(dt.datetime.now(dt.timezone.utc)))
+    conf = load_tl_conf()
+    off = off_views(conf)
+    sj = SmoothJob(smooth_on(conf, a.kind), smooth_deadline(dt.datetime.now(dt.timezone.utc)))
     # ONE video job at a time (daily 00:20 and history 01:00 would otherwise share the night's CPU and deadline)
     if a.kind in SMOOTH_KINDS:
         os.makedirs(os.path.join(ROOT, 'logs'), exist_ok=True)
@@ -654,12 +712,26 @@ def main():
         fcntl.flock(lockf, fcntl.LOCK_EX)
     rc, sides = 0, []
     for v in video_order(video_views()):
-        if not all_stamps(v):
+        stamps = all_stamps(v)
+        if not stamps:
             continue
-        st = sample(all_stamps(v), lo, hi, bucket)          # timelapse2-1110: topdown is hourly, so not the pair's stamps
+        st = sample(stamps, lo, hi, bucket)                 # timelapse2-1110: topdown is hourly, so not the pair's stamps
         out = os.path.join(ROOT, 'video', f'{name}-{v}.mp4')
+        extra = None
+        if a.kind in REBUILD_KINDS:          # an off camera, or no new frame since the last build: no encode
+            newest = newest_stamp(stamps, lo, hi)
+            skip, why, backfill = rebuild_skip(a.kind, v, off, newest, st, read_side(out), os.path.isfile(out))
+            if skip:
+                if backfill:
+                    side = dict(read_side(out), newest_frame=backfill)
+                    with open(out + '.json', 'w') as f:
+                        json.dump(side, f, indent=1)
+                print(json.dumps({'view': v, 'label': name, 'skipped': why}))
+                continue
+            extra = {'newest_frame': newest}
         try:
-            side = build(v, st, out, name, max_src_fps=MAX_SRC_FPS if bucket is None else FPS, smooth_job=sj)
+            side = build(v, st, out, name, max_src_fps=MAX_SRC_FPS if bucket is None else FPS, smooth_job=sj,
+                         **({'extra': extra} if extra else {}))
             print(json.dumps(side))
             sides.append(dict(side, out=out))
         except subprocess.CalledProcessError as e:

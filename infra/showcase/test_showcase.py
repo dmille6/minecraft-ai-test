@@ -2571,8 +2571,10 @@ class Timelapse(unittest.TestCase):
         self.assertEqual(TL.follow_target(cam, sites, prog, 'hall', now, 3), 'hall', 'prev still active: kept')
         self.assertEqual(TL.follow_target(cam, sites, prog, 'hall', now, 1), 'shaft', 'prev quiet: the newest')
         self.assertEqual(TL.follow_target(cam, sites, prog, None, now, 3), 'shaft', 'excluded and boxless never')
-        self.assertEqual(TL.follow_target(cam, sites, {'hall': h(50)}, None, now, 3), 'hall',
-                         'nothing active: the last one that placed (the camera keeps a subject)')
+        self.assertIsNone(TL.follow_target(cam, sites, {'hall': h(50)}, None, now, 3),
+                          'camdirector-01: nothing placed within follow_max_age_h (6 h): no subject, no frame')
+        self.assertEqual(TL.follow_target(cam, sites, {'hall': h(50)}, None, now, 3, max_age_h=None), 'hall',
+                         'no age limit: the last one that placed (the behaviour before 11-16)')
         self.assertIsNone(TL.follow_target(cam, sites, {}, 'hall', now, 3), 'no boxed site ever placed')
 
     def test_follow_camera_frames_the_box(self):
