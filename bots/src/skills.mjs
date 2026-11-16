@@ -33367,6 +33367,12 @@ export const SKILL_CONTRACTS = {
   make_material: { expects: ['mats_effect', 'count_effect'], maxMs: 180_000 },
   build_shop: { expects: ['world_change'], maxMs: 600_000 },
   village_unlock: { expects: ['position'], maxMs: 180_000 },   // villageunlock-01: its evidence is the `_village_unlock` row
+  market_run: { expects: ['inventory_loss', 'inventory_gain'], maxMs: 180_000 },   // market-01: goods go, emeralds come; the `_market_run` row
+  market_job: { expects: ['world_change'], maxMs: 240_000 },   // market-01: a job block placed in the market
+  market_trip: { expects: ['position', 'inventory_loss', 'inventory_gain'], maxMs: 180_000 },
+  village_feed: { expects: ['position', 'inventory_loss'], maxMs: 180_000 },   // villagefeed-01: bread to villagers, one call (FEED.callMs 165 s)   // market-02: a walk-in trip, one call (WALKIN.callMs 165 s < the runner's 180 s watchdog)
+  anvil_apply: { expects: ['inventory_loss'], maxMs: 120_000 },   // anvilapply-01: the book goes; its evidence is the `_anvil_apply` row
+  enchant_tool: { expects: ['inventory_loss'], maxMs: 120_000 },   // enchant-01: the lapis goes; its evidence is the `_enchant_tool` row
   deep_mine: { expects: ['position', 'inventory_gain'], maxMs: 180_000 },   // deepminer-01: one phase step of the trip
   mats_return: { expects: ['mats_effect', 'inventory_loss'], maxMs: 120_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
@@ -34904,6 +34910,12 @@ export const SKILLS = {
   make_material: { run: makeMaterial, usage: 'make_material item=<bricks|panes|cut_copper|copper_door|torch|count>', args: ['item'], chatOnly: true },
   build_shop: { run: buildShop, usage: 'build_shop', args: [], chatOnly: true },
   village_unlock: { run: villageUnlock, usage: 'village_unlock', args: [], chatOnly: true },   // villageunlock-01 (buildOrder issues it; never the model's)
+  market_run: { run: marketRun, usage: 'market_run', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)
+  market_job: { run: marketJob, usage: 'market_job', args: [], chatOnly: true },   // market-01 (buildOrder issues it; never the model's)
+  market_trip: { run: marketTrip, usage: 'market_trip', args: [], chatOnly: true },
+  village_feed: { run: villageFeed, usage: 'village_feed', args: [], chatOnly: true },   // villagefeed-01 (buildOrder issues it; never the model's)   // market-02 (buildOrder issues it; never the model's)
+  anvil_apply: { run: anvilApply, usage: 'anvil_apply', args: [], chatOnly: true },   // anvilapply-01 (buildOrder issues it; never the model's)
+  enchant_tool: { run: enchantTool, usage: 'enchant_tool', args: [], chatOnly: true },   // enchant-01 (buildOrder issues it; never the model's)
   deep_mine: { run: deepMine, usage: 'deep_mine', args: [], chatOnly: true },   // deepminer-01 (cognitive.mjs issues it; never the model's)
   mats_return: { run: matsReturn, usage: 'mats_return', args: [], chatOnly: true },
   toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
