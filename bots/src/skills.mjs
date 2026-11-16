@@ -218,6 +218,7 @@ import { zoneAt } from './landplan.mjs'   // cropfarm-01: the farm's zone
 import { CROPFARM_PLOT, CROPFARM_BLUEPRINT, CROP, CROP_PALETTE, CROP_FOREIGN, CROP_BLOCKS, SEED_GRASS, TILLABLE, siteCropFarm, cropCells, tillCells, cropState, cropCensus, harvestCells, cropStand, seedNeed, seedKeep, cropDue, cropAlsoDone, seedGrassTargets, harvestRow as cropHarvestRow, seedRow, cropCutsLeft, cutUnsafe } from './cropfarm.mjs'   // cropfarm-01
 import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: junkswap never drops a kept seed
 import { fellCanopyOn, fellCanopyDue, fellCanopy, withFellCanopy } from './fellcanopy.mjs'   // fellcanopy-01
+import { fellDoneOn, fellAlsoDone, fellDone, fellDoneRow, fellPhase, fellStampStale } from './felldone.mjs'   // felldone-01: a felling stair whose tree is gone is done
 import { sitecanopyOn, cellClearsHook, clearsReachedBuilt, clearsReachedBuiltSteps, sitePadOn, volumeOf } from './sitecanopy.mjs'   // sitecanopy-01, thprep-01
 import { LEAFFELL_ON, rowDue as leafRowDue, leafBlockerText } from './leaffell.mjs'   // leaffell-01show: an unreached natural leaf asks for its trunk, not a stand
 import { replantFor as siteReplantFor, overlay as siteOverlay } from './buildsite.mjs'   // leaffell-01show: the saplings owed for a tree felled for its leaves
@@ -18529,6 +18530,9 @@ function projStuckLive (key, now = Date.now()) {
       // sinkwaive-01: an OPEN stone sink's stamp whose cells all read done (waived since: the visit that waived them stamped the
       // stall first) holds nothing, as a complete record's
       if (isSinkBlueprint(rec?.blueprint) && SINK_WAIVE.on && rec?.waived && stuckStale(keys, rec, c => recordCellDone(b, rec, c))) return true
+      // felldone-01: an OPEN stepwell's stamp that names only felling-stair cells whose trees are gone holds nothing (felldone.mjs
+      // fellStampStale: the stair is obsolete; a stamp with no cells -- the tank's own back-off -- holds as before)
+      if (rec?.blueprint === STEPWELL_BLUEPRINT && fellDoneOn() && fellStampStale(keys, rec, stairRead(b))) return true
       return (rec?.blueprint === WALL_BLUEPRINT || rec?.blueprint === WALLEXT_BLUEPRINT) && wallStuckOn() && (stuckStale(keys, rec, c => recordCellDone(b, rec, c)) || stuckOtherWork(keys, rec, c => recordCellOpen(b, rec, c)))
     } : null
     return projStuckAt(dir, key, { before: now + 60_000, stale })
@@ -30989,6 +30993,17 @@ function swListCanopy (bot, { dir, key, me, rec, left }) {
     return pub.result === 'accepted' ? `listed ${entries.length}` : String(pub.result)
   } catch { return 'error' }
 }
+/** felldone-01: the `_stepwell op=fell_done` row -- the phase the world reads (`why`), the listed trees gone / standing / unread and
+ *  the stair cells obsolete (felldone.mjs fellDone) -- only once a listed tree is gone. Never throws. */
+function swFellDoneRow (bot, rec, gen) {
+  try {
+    const read = stairRead(bot)
+    const d = fellDone(rec, read)
+    if (!d.obsolete && !d.gone) return
+    const ph = fellPhase(rec, read)
+    stepwellRow(bot, 'fell_done', { why: `${ph.phase}:pending${ph.pending ?? '?'}/owed${ph.owed}`, n: fellDoneRow(d), ...(d.keys.length ? { at: d.keys[0].split(',').map(Number) } : {}), gen })
+  } catch { /* telemetry */ }
+}
 /** THE STEPWELL VISIT'S WORK on its record (the felling, then the tank and its descent): buildStepwell's second half. */
 async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, rh: rh0, rec: rec0 }, signal) {
   let rh = rh0, rec = rec0   // stepwell-05: the crew's generation is read back
@@ -31072,7 +31087,12 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
       bot.shopUnknown ??= new Set()
       const stood = stoodRead(dir, stoodKey(), home)
       const walkR = Math.max(96, Math.ceil(Math.hypot(rec.site.centre[0] - home.x, rec.site.centre[1] - home.z)) + SWELL.W + 8)
-      const r = await runVisit({ dir, key, me, home, stood, record: fellView(rec), recordGen: rh.head.gen, palette: FELL_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.stepwellStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy,
+      // felldone-01 (LIVE showcase 11-14 08:32Z: `stuck_on_cell segs=stand stalled=true` on five stair cells hanging over the dug pit,
+      // 0 of the 50 listed logs standing): a stair cell whose trees are all gone is DONE for this view (felldone.mjs fellAlsoDone: read
+      // at every test; an unread log is not gone) -- never placed, never deferred; one placed earlier is the tank's cut, as before
+      const fdAlso = fellDoneOn() ? fellAlsoDone(rec) : null
+      if (fdAlso) swFellDoneRow(bot, rec, rh.head.gen)
+      const r = await runVisit({ dir, key, me, home, stood, record: fellView(rec), recordGen: rh.head.gen, palette: FELL_PALETTE, res: null, resFailed: false, slot: slot.slot, slotGen: slot.gen, slotRef, stands: (bot.stepwellStands ??= { pending: null, bans: {} }), unknown: bot.shopUnknown, beat: true, placedBy, ...(fdAlso ? { alsoDone: fdAlso } : {}),
         // stepwell-04 (LIVE 11-05 20:58-22:02Z: sited, then 11 felling visits each ended `replanned` at one replant remedy, 0 of 50 logs
         // down): the groundskeeper's knobs -- a remedy does not end the visit, B4 per tree (buildrun.mjs plotprep-03)
         // fellfirst-01 (LIVE 11-06: 'felling complete, 17 logs left' every visit -- tree 5's spruce sapling in no bag, no chest): a kind
@@ -31088,6 +31108,8 @@ async function buildStepwellRun (ctx, { t0, budget, f, out, dir, key, me, home, 
       return out(status, r.stop, `felling: ${r.why ?? r.stop}; ${left ?? '?'} log(s) left${canopy ? `; canopy ${canopy}` : ''}`, { stop: r.stop, placed: r.placed, refused: r.refused, silent: r.silent, cleared: r.cleared, planted: r.planted, unknown: r.unknown, slot: slot.slot, gen: rh.head.gen, took: Object.entries(tookAll).map(([k, v]) => `${k}:${v}`).join(',') || '-' })
     }
     // 2. THE TANK: stone in the bag (the cobble the bags carry; the town's above its reserve), its posts crafted from cobble (6 -> 6)
+    // felldone-01: the stair's state named once a generation for this connection (the tank's visits are many)
+    if (fellDoneOn() && bot.swFellDoneGen !== rh.head.gen) { bot.swFellDoneGen = rh.head.gen; swFellDoneRow(bot, rec, rh.head.gen) }
     const plan = planOfRecord(rec)
     if (stairLiningCount(bot) < 48) await draw({ cobblestone: 64 })
     const postsLeft = plan.cells.filter(q => q.role === 'post' && !/_wall$/.test(read0(...q.at)?.name ?? '')).length
