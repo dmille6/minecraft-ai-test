@@ -1402,6 +1402,8 @@ await t('placeRefFor: the block under the cell -- unless a click opens it; then 
   assert.equal(opensOnClick({ name: 'lodestone' }), false); assert.equal(opensOnClick({ name: 'composter' }), false); assert.equal(opensOnClick({ name: 'iron_door' }), false)
   assert.equal(opensOnClick({ name: 'oak_door' }), true); assert.equal(opensOnClick({ name: 'chest' }), true); assert.equal(opensOnClick({ name: 'red_bed' }), true)
   assert.equal(refOf(placeRefFor(cellWorld({ '0,63,-1': 'lodestone' }), T)), 'lodestone@0,63,-1>0,64,-1', 'a lodestone below, air all round: still a candidate')
+  assert.equal(refOf(placeRefFor(cellWorld({ '0,63,-1': 'note_block' }), T)), 'note_block@0,63,-1>0,64,-1', 'a note block takes a mob head (review r2): still a candidate')
+  assert.equal(refOf(placeRefFor(cellWorld({ '0,63,-1': 'note_block', '0,64,-2': 'stone' }), T)), 'stone@0,64,-2>0,64,-1', 'but a plain side block is clicked first')
   assert.equal(refOf(placeRefFor(cellWorld({ '0,63,-1': 'lodestone', '-1,64,-1': 'stone' }), T)), 'stone@-1,64,-1>0,64,-1', 'a plain side block is the better click')
   // MUTANTS: each must change one of the answers above
   await withMutant('../src/placeref.mjs', 'return solid(under) && !opensOnClick(under) ? top() : null', 'return solid(under) ? top() : null', m =>

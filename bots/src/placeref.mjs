@@ -5,11 +5,12 @@ import { INTERACTABLE } from './buildbot.mjs'
 /**
  * A click on this block ALWAYS goes to the block, whatever is in the hand: it opens a window, toggles, or is used. A
  * placement against it never lands. (Not the conditional ones -- a lodestone wants a compass, a composter something
- * to compost, a jukebox a disc, an iron door a signal: a block in the hand places against those, as it always did.)
+ * to compost, a jukebox a disc, an iron door a signal, and a note block takes a mob head without sneaking (review r2):
+ * something in the hand places against those, as it always did. They are only never PREFERRED: mayActOnClick.)
  */
 const ALWAYS_TAKES_THE_CLICK = new RegExp('^(crafting_table|crafter|furnace|blast_furnace|smoker|chest|trapped_chest|ender_chest|barrel|hopper|' +
   'dropper|dispenser|brewing_stand|anvil|chipped_anvil|damaged_anvil|grindstone|stonecutter|loom|cartography_table|smithing_table|' +
-  'enchanting_table|beacon|note_block|repeater|comparator|daylight_detector|lever)$|shulker_box$|_bed$|_button$|_fence_gate$|_sign$|' +
+  'enchanting_table|beacon|repeater|comparator|daylight_detector|lever)$|shulker_box$|_bed$|_button$|_fence_gate$|_sign$|' +
   '(?<!iron)_trapdoor$|(?<!iron)_door$')
 export const opensOnClick = b => ALWAYS_TAKES_THE_CLICK.test(b?.name ?? '')
 /** A click on this block MAY act on it (buildbot.mjs INTERACTABLE, the builders' wider list): a better reference is preferred. */
