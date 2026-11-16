@@ -8,13 +8,15 @@
 //                                              BAGROOM_WELL, a separate switch
 //   CRAFTSPARE     craftroom.mjs craftSpareOn  a bag of last-swing pickaxes: any craft may wear one while another stays (escdead-01
 //                                              (b)), or only the rebuild of a pickaxe the bag holds (the showcase's rule)
+//   SNOWKEEP       buildrun.mjs snowKeepOn     snow on a build cell (DECISIONS row 7): kept, never dug (the fleet's rule), or dug as
+//                                              terrain (gkunblock-01, the showcase's)
 // This file is only the spawn's licence row, `_poolswitch_mode` (features.mjs): which way each is, and whether the env or the pool
 // said so -- a read of a bot's rows must be able to tell which line's behaviour it is looking at. PURE.
 
 const SAID = ['0', 'off', 'false', 'no', '1', 'on', 'true', 'yes']
 /** Where a pool-default switch's answer came from -> 'env' (its name is set to a value it reads) | 'pool'. Pure. */
 export const poolSwitchWhy = (name, env = process.env) => (SAID.includes(String(env?.[name] ?? '').trim().toLowerCase()) ? 'env' : 'pool')
-/** The row's detail -> 'unsitedwait=1 (pool) idlework_well=0 (env) craftspare=1 (pool) pool=hive-a'. Pure. */
-export const poolSwitchDetail = ({ unsited = false, band = false, spare = false, pool = '' } = {}, env = process.env) =>
+/** The row's detail -> 'unsitedwait=1 (pool) idlework_well=0 (env) craftspare=1 (pool) snowkeep=1 (pool) pool=hive-a'. Pure. */
+export const poolSwitchDetail = ({ unsited = false, band = false, spare = false, snow = false, pool = '' } = {}, env = process.env) =>
   `unsitedwait=${unsited ? 1 : 0} (${poolSwitchWhy('UNSITEDWAIT', env)}) idlework_well=${band ? 1 : 0} (${poolSwitchWhy('IDLEWORK_WELL', env)}) ` +
-  `craftspare=${spare ? 1 : 0} (${poolSwitchWhy('CRAFTSPARE', env)}) pool=${String(pool || '-')}`
+  `craftspare=${spare ? 1 : 0} (${poolSwitchWhy('CRAFTSPARE', env)}) snowkeep=${snow ? 1 : 0} (${poolSwitchWhy('SNOWKEEP', env)}) pool=${String(pool || '-')}`

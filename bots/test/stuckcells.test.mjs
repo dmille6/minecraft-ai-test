@@ -5,6 +5,9 @@
 // showcase's) and off in the suite's runner: both ON here
 process.env.VISIT_WAIVER = 'on'
 process.env.BUILDRETRY = 'on'
+// one trunk (DECISIONS row 7): the snow subtest below is the fleet's rule -- a snow layer on a build cell is kept, never dug -- which
+// defaults by pool the same way (buildrun.mjs snowKeepOn) and off in the suite's runner: ON here. visitswitch.test.mjs asserts this line
+process.env.SNOWKEEP = 'on'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'

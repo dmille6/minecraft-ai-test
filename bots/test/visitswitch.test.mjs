@@ -232,19 +232,78 @@ await t('wiring: the order\'s two rules are one if / else on the switch; the sui
   once(readFileSync(new URL('./shop.test.mjs', import.meta.url), 'utf8'), "\n  process.env.UNSITEDWAIT = 'on'\n", 'the one fleet test in the showcase line\'s file')
 })
 
-console.log('ROWS 2-4: the spawn says which way the three are (`_poolswitch_mode`, poolswitch.mjs)')
+console.log('ROW 7: snow on a build cell -- kept, never dug (SNOWKEEP, buildrun.mjs snowKeepOn) beside gkunblock-01\'s dig')
+const BF = await import('./helpers/buildfake.mjs')
+const R_PATH = new URL('../src/buildrun.mjs', import.meta.url)
+await t('snowKeepOn (SNOWKEEP): off by default in the showcase pool, on in every other; on|off overrides either way -- MUTANT (the default flipped) killed',
+  () => killedBy(R_PATH, R, DEFAULT_LINE, FLIPPED_LINE, M => table(M.snowKeepOn, 'SNOWKEEP')))
+await t('what it reaches (buildrun.mjs runVisit, one fill cell holding a snow layer read without its properties): the showcase pool digs the layer and places the cell -- the showcase line exactly -- a fleet pool never digs it (`blocked`, the snow still there); SNOWKEEP either way; dirt in a floor cell and a caller\'s own list are the same in both', async () => {
+  const names = ['MEMORY_POOL', 'SNOWKEEP', 'BUILDRETRY', 'VISIT_WAIVER']
+  const at = [10, BF.G + 1, 10]
+  /** One visit to a one-cell record whose cell holds `block` -> { stop, now: the cell's block after, dug: the names this bot dug }. */
+  const visit = async (block, extra = {}, role = 'fill') => {
+    const srv = BF.server()
+    srv.set(at, block)
+    const rec = { v: 1, plot: 'shop', cells: [{ at, role, seg: 'earth' }], clear: [], replant: [], segments: [{ seg: 'earth', deps: [] }] }
+    const pdir = fs.mkdtempSync(path.join(dir, 'snow-')), key = BF.PJ.projKey(BF.HOME, 'shop')
+    const pub = BF.PJ.publishRecord(pdir, key, () => ({ ...rec })), slot = BF.PJ.takeSlot(pdir, key, 'A', 3)
+    const e = BF.bot(srv, 'A', { inv: { cobblestone: 8, stone_bricks: 8 } })
+    const dug = [], dig0 = e.dig
+    e.dig = async (c, expect) => { dug.push(srv.read(...c)?.name ?? '?'); return dig0(c, expect) }
+    const p = { dir: pdir, key, me: 'A', home: BF.HOME, stood: [], record: rec, recordGen: pub.gen, palette: { fill: ['cobblestone'], base: ['stone_bricks'] }, slot: slot.slot, slotGen: slot.gen, stands: { pending: null, bans: {} }, blockLayer: false, domain: () => true, walkR: 40, ...extra }
+    const out = await R.runVisit(p, e, { maxSteps: 200 })
+    return { stop: out.stop, now: srv.read(...at).name, dug }
+  }
+  const showcase = async () => {
+    const r = await visit('snow')
+    assert.deepStrictEqual([r.stop, r.now, r.dug], ['complete', 'cobblestone', ['snow']], 'the layer is dug, the cell placed (gkunblock-01)')
+  }
+  const fleet = async () => {
+    const r = await visit('snow')
+    assert.deepStrictEqual([r.stop, r.now, r.dug], ['blocked', 'snow', []], 'the layer is never dug: the fleet\'s live stop (stuckcells.test.mjs\'s control)')
+  }
+  const off = { BUILDRETRY: 'off', VISIT_WAIVER: 'off' }
+  await withVars(names, { ...off, MEMORY_POOL: 'showcase' }, showcase)
+  await withVars(names, { ...off, MEMORY_POOL: 'hive-d' }, fleet)
+  await withVars(names, { ...off }, fleet)
+  await withVars(names, { ...off, MEMORY_POOL: 'showcase', SNOWKEEP: 'on' }, fleet)
+  await withVars(names, { ...off, MEMORY_POOL: 'hive-d', SNOWKEEP: 'off' }, showcase)
+  // POSITIVE CONTROLS on the same visit: dirt in a floor cell is dug and the cell placed in BOTH pools (the switch moves snow only; a
+  // fill cell takes any earth as done, so the control's cell is a `base`), and a caller's own list is the caller's in both
+  // (`p.foreign`: the switch is the DEFAULT's)
+  for (const pool of ['showcase', 'hive-d']) {
+    await withVars(names, { ...off, MEMORY_POOL: pool }, async () => {
+      const d = await visit('dirt', {}, 'base')
+      assert.deepStrictEqual([d.stop, d.now, d.dug], ['complete', 'stone_bricks', ['dirt']], `${pool}: dirt`)
+      assert.strictEqual((await visit('snow', { foreign: R.FOREIGN_CLEAR })).stop, 'complete', `${pool}: the caller's list with snow`)
+      assert.strictEqual((await visit('snow', { foreign: R.FOREIGN_KEEP_SNOW })).stop, 'blocked', `${pool}: the caller's list without`)
+    })
+  }
+})
+await t('wiring: the visit\'s default list is the one line on the switch; the fleet\'s list is FOREIGN_CLEAR less `snow` and nothing else; the suite\'s default is off and the fleet line\'s test sets it on', () => {
+  const run = strip(readFileSync(R_PATH, 'utf8'))
+  once(run, 'scaffoldRe = p.foreign ?? (snowKeepOn() ? FOREIGN_KEEP_SNOW : FOREIGN_CLEAR)\n', 'the visit\'s default list')
+  assert.strictEqual(run.split('FOREIGN_KEEP_SNOW').length, 3, 'the fleet\'s list is read in one place: its definition and the visit\'s default')
+  assert.strictEqual(R.FOREIGN_KEEP_SNOW.source, R.FOREIGN_CLEAR.source.replace('|snow)', ')'))
+  assert.ok(R.FOREIGN_CLEAR.test('snow') && !R.FOREIGN_KEEP_SNOW.test('snow') && R.FOREIGN_KEEP_SNOW.test('gravel'), 'the showcase line\'s list still has snow')
+  once(readFileSync(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8'), "SNOWKEEP: process.env.SNOWKEEP ?? 'off',", 'the suite\'s default')
+  once(readFileSync(new URL('./stuckcells.test.mjs', import.meta.url), 'utf8'), "\nprocess.env.SNOWKEEP = 'on'\n", 'the fleet line\'s test')
+})
+
+console.log('ROWS 2-4 AND 7: the spawn says which way the four are (`_poolswitch_mode`, poolswitch.mjs)')
 const PS = await import('../src/poolswitch.mjs')
 await t('the row: each switch on or off and where the answer came from (env | pool); written once per spawn from features.mjs, not index.mjs', () => {
   assert.strictEqual(PS.poolSwitchWhy('CRAFTSPARE', { MEMORY_POOL: 'showcase' }), 'pool'); assert.strictEqual(PS.poolSwitchWhy('CRAFTSPARE', { CRAFTSPARE: ' OFF ' }), 'env')
   assert.strictEqual(PS.poolSwitchWhy('UNSITEDWAIT', { UNSITEDWAIT: 'maybe' }), 'pool', 'a value the switch does not read is no answer')
-  const row = env => PS.poolSwitchDetail({ unsited: SH.unsitedWaitOn(env), band: WL.wellBandOn(env), spare: CR.craftSpareOn(env), pool: env.MEMORY_POOL }, env)
-  assert.strictEqual(row({ MEMORY_POOL: 'showcase' }), 'unsitedwait=0 (pool) idlework_well=0 (pool) craftspare=0 (pool) pool=showcase')
-  assert.strictEqual(row({ MEMORY_POOL: 'hive-a' }), 'unsitedwait=1 (pool) idlework_well=1 (pool) craftspare=1 (pool) pool=hive-a')
-  assert.strictEqual(row({ MEMORY_POOL: 'showcase', IDLEWORK_WELL: 'on' }), 'unsitedwait=0 (pool) idlework_well=1 (env) craftspare=0 (pool) pool=showcase')
-  assert.strictEqual(row({ UNSITEDWAIT: '0', CRAFTSPARE: 'no' }), 'unsitedwait=0 (env) idlework_well=1 (pool) craftspare=0 (env) pool=-')
+  const row = env => PS.poolSwitchDetail({ unsited: SH.unsitedWaitOn(env), band: WL.wellBandOn(env), spare: CR.craftSpareOn(env), snow: R.snowKeepOn(env), pool: env.MEMORY_POOL }, env)
+  assert.strictEqual(row({ MEMORY_POOL: 'showcase' }), 'unsitedwait=0 (pool) idlework_well=0 (pool) craftspare=0 (pool) snowkeep=0 (pool) pool=showcase')
+  assert.strictEqual(row({ MEMORY_POOL: 'hive-a' }), 'unsitedwait=1 (pool) idlework_well=1 (pool) craftspare=1 (pool) snowkeep=1 (pool) pool=hive-a')
+  assert.strictEqual(row({ MEMORY_POOL: 'showcase', IDLEWORK_WELL: 'on' }), 'unsitedwait=0 (pool) idlework_well=1 (env) craftspare=0 (pool) snowkeep=0 (pool) pool=showcase')
+  assert.strictEqual(row({ UNSITEDWAIT: '0', CRAFTSPARE: 'no' }), 'unsitedwait=0 (env) idlework_well=1 (pool) craftspare=0 (env) snowkeep=1 (pool) pool=-')
+  assert.strictEqual(row({ MEMORY_POOL: 'showcase', SNOWKEEP: 'on' }), 'unsitedwait=0 (pool) idlework_well=0 (pool) craftspare=0 (pool) snowkeep=1 (env) pool=showcase')
   const feat = strip(readFileSync(new URL('../src/features.mjs', import.meta.url), 'utf8'))
-  once(feat, "logEvent({ kind: 'poolswitch_mode', status: 'success', snapshot: snapshot(bot), detail: poolSwitchDetail({ unsited: unsitedWaitOn(), band: wellBandOn(), spare: craftSpareOn(), pool: process.env.MEMORY_POOL ?? '' }) })", 'the spawn row')
-  assert.ok(!/poolswitch|craftSpareOn|unsitedWaitOn|wellBandOn/.test(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')), 'nothing of it in index.mjs (protected)')
+  once(feat, "logEvent({ kind: 'poolswitch_mode', status: 'success', snapshot: snapshot(bot), detail: poolSwitchDetail({ unsited: unsitedWaitOn(), band: wellBandOn(), spare: craftSpareOn(), snow: snowKeepOn(), pool: process.env.MEMORY_POOL ?? '' }) })", 'the spawn row')
+  assert.ok(!/poolswitch|craftSpareOn|unsitedWaitOn|wellBandOn|snowKeepOn/.test(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')), 'nothing of it in index.mjs (protected)')
 })
 try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* the runner's TMPDIR goes with it */ }
 console.log(`\n${pass} passed, ${fail} failed`)

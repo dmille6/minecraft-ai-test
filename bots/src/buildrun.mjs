@@ -167,6 +167,23 @@ export const DUG = n => AIR(n) || n === 'water'
 // slope) read neither clear (the plan readers carry no `layers`, so replaceableCell never admits it) nor diggable: the segment
 // stopped `blocked` every visit for good, and with it every crew visit (78 helper_idle in the first hour). It is terrain: dug.
 export const FOREIGN_CLEAR = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel|snow)$/
+/**
+ * ONE TRUNK (trunk-merge DECISIONS row 7): SNOW ON A BUILD CELL IS BY POOL. The showcase line DIGS a snow layer in an open record
+ * cell (gkunblock-01 above: `snow` in FOREIGN_CLEAR); the fleet line keeps it -- placed into when its one layer is read
+ * (stuckcells-01's snow read), and otherwise a block the visit may not dig (`blocked`, or deferred by buildretry-01). Both stay:
+ * the fleet's rule is OFF by default in the showcase pool -- the visit's default list is then FOREIGN_CLEAR, the showcase line's
+ * exactly -- and ON in every other pool, as the fleet has it. SNOWKEEP=on|1|true|yes forces it on anywhere, =off|0|false|no off
+ * anywhere (well.mjs wellBandOn's convention). It decides the VISIT's default list only (visitInner `p.foreign ?? ...`): a caller's
+ * own `foreign`, the overburden's and the cover's defaults and the chests' litter rule read FOREIGN_CLEAR as before. Pure.
+ */
+export function snowKeepOn (env = process.env) {
+  const v = String(env?.SNOWKEEP ?? '').trim().toLowerCase()
+  if (['0', 'off', 'false', 'no'].includes(v)) return false
+  if (['1', 'on', 'true', 'yes'].includes(v)) return true
+  return String(env?.MEMORY_POOL ?? '').trim() !== 'showcase'
+}
+/** The visit's default foreign list where snow is kept: the fleet line's FOREIGN_CLEAR, which has no `snow`. */
+export const FOREIGN_KEEP_SNOW = /^(cobblestone|dirt|coarse_dirt|grass_block|stone|andesite|diorite|granite|netherrack|cobbled_deepslate|deepslate|gravel)$/
 // A TREE IN A RECORD CELL (fell-01, LIVE 10-27 showcase shop: a spruce grew into pad cell 25,72,28 after siting, trunk 72..76;
 // FOREIGN_CLEAR has no logs, so the pad read `blocked: 1 open, 0 placeable now` for good at 62/63). Any log species, or leaves.
 export const TREE_CLEAR = /_(log|leaves)$/
@@ -736,7 +753,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
     if (!g) return false
     slotGen = g; slotAt = now(); out.slotGen = g; slotRef.gen = g; return true
   }
-  const domain = p.domain ?? null, walkR = p.walkR ?? WALK_R, scaffoldRe = p.foreign ?? FOREIGN_CLEAR
+  const domain = p.domain ?? null, walkR = p.walkR ?? WALK_R, scaffoldRe = p.foreign ?? (snowKeepOn() ? FOREIGN_KEEP_SNOW : FOREIGN_CLEAR)
   // `alsoDone(cell, read)` (monument-01: ziggurat.mjs zigHidden, a core cell sealed on all six faces) counts a cell done that its
   // block alone does not; every completeness test of the visit goes through isDone
   const alsoDone = p.alsoDone ?? null
