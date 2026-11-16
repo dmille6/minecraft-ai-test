@@ -168,7 +168,7 @@ import { REROOF_FIX, reroofPlanStop, reroofPlanEnds, reroofClearsReached, reroof
 import { decorRetire, lawnZonesOf } from './decorator.mjs'   // reroof-02 (b): a retrofit takes its roof's cells back from the decorator
 import { woodOn, woodHold, woodHeldState, woodPressure, woodSpecies as woodSpeciesPick, woodSpeciesOf, woodOwed, woodKitNeed, woodKitStillMs, woodBagRole, woodRowDetail, ringTargets, WOOD_KIND } from './woodworks.mjs'   // fences-01: the woodworks sink
 import { rot as reroofRot } from './townplan.mjs'   // reroof-02 (d): an interior cell's world position
-import { setTownExtra, townExtraKeys, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
+import { setTownExtra, townExtraKeys, inTownExtra, inTownBox as inTownStoreBox } from './chestfull.mjs'   // storehub-01: the hall's chests as town containers
 import { INDEXSEARCH2, INDEX_RECHECK_VISITS, indexEvidence, indexJudges } from './indexsearch2.mjs'   // indexsearch-02 (storehub piece C)
 import { sortSwitches, sortHomes, sortsAnything, depositOrder, depositTier, acceptsFor, sortTries, sortDepositTarget, searchPrefer, withdrawPrefer, tidyMoves, signSpots, spotNeed, labelText, sortModeDetail, itemGroup, SORT_MOVE_STACKS, SORT_BAG_SPARE, SORT_VISIT_GAP_MS, SORT_MOVE_BACKOFF_MS, SIGN_TRIES } from './sortstore.mjs'   // sortstore-01
 import { SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_PALETTE, shopchestOn, shopchestSite, shopchestRecord, materialsChests, materialsWorthTry } from './shopchest.mjs'   // shopchest-01
@@ -284,6 +284,7 @@ import { setExpeditionAsk } from './shop.mjs'   // expedition-01: the order's as
 import { noteWait, waitBackoff, waitHeld, setWaitNow, setOverHead, overHead } from './shop.mjs'   // leaffell-01show r1: a visit that ended waiting (leaf_decay, zone_closed) holds its project for this bot
 import { setRoomAsk } from './shop.mjs'   // bagroom-01: the room refusal's ask
 import { setTidyWork, roomFallbackPick } from './shop.mjs'   // gkroom-01: the keeper's room fallback to the tidy
+import { BAGFIX, depositZone, roomTarget, roomAskTarget, roomStop, roomNear, bagfixModeDetail, ROOM_REACH_R, ROOM_REACH_WALK_MS, ROOM_BASE_WALK_MS, ROOM_SCAN_MS } from './bagfix.mjs'   // bagfix-01show
 import { BAGROOM, BUILD_ROOM_SLOTS, shareBankPlan, shareBankDetail, bagRoomModeDetail, roomBankAsk, roomBankDetail } from './bagroom.mjs'   // bagroom-01; bagfull-01
 import { setEnchantAsk } from './shop.mjs'   // anvilapply-01 + enchant-01: the order's ask
 import { setMarketAsk } from './shop.mjs'   // market-01: the order's ask
@@ -8735,7 +8736,7 @@ export function townContainers (bot, max = TD_MAX_CONTAINERS) {
     if (!me) return []
     const home = homeVec()
     const found = (bot.findBlocks?.({ matching: b => isTownContainer(bot, b), maxDistance: STORAGE_REACH, count: 32 }) ?? [])
-      .filter(p => inTownZone(p, home) && me.distanceTo(p) <= STORAGE_REACH)
+      .filter(p => depositZone({ inBox: inTownZone(p, home), extra: inTownExtra(home, p) }) && me.distanceTo(p) <= STORAGE_REACH)   // bagfix-01 A: the hall's registered chests too
       .sort((a, b) => me.distanceTo(a) - me.distanceTo(b) || a.x - b.x || a.y - b.y || a.z - b.z)
     // THE TOWN'S MEMORY (chestfull.mjs, rebase review P3): a container recently found full, unavailable or unusable is
     // skipped, exactly as the deposit's recovery skips it.
@@ -19188,6 +19189,7 @@ export function bagRoomInstall (bot) {
   sbBot = bot
   if (BAGROOM.share || BAGROOM.bank) setRoomAsk(roomAsk)
   try { logEvent({ kind: 'bagroom_mode', status: 'success', snapshot: snapshot(bot), detail: bagRoomModeDetail(BAGROOM) }) } catch { /* telemetry */ }
+  try { logEvent({ kind: 'bagfix', status: 'success', snapshot: snapshot(bot), detail: bagfixModeDetail(BAGFIX) }) } catch { /* telemetry */ }
 }
 /** THE SHARE-BANK VISIT (build_shop { shareBank }): each held share banked (materials chests first: matsBank's `prefer`), its drawn
  *  record reduced by what went, one `_share_bank` row. Never a build, never a draw. */
@@ -19247,20 +19249,38 @@ function roomAsk ({ now = Date.now(), freeSlots = 36, plot = null, need = BUILD_
     if (!roomBankAsk({ freeSlots, need, slots: 1, now, lastAt: bot.roomBankAt ?? null }).ok) return null
     const a = roomBankAsk({ freeSlots, need, slots: roomBankSlots(bot), now, lastAt: bot.roomBankAt ?? null })
     if (!a.ok) return null
+    // bagfix-01 A: no ask without a chest the deposit would accept (in reach, or one to walk to) -- the refusal goes on (shop.mjs roomFallback)
+    if (BAGFIX.reach && !roomAskTarget({ inReach: townContainers(bot, 1).length > 0, target: roomTargetNow(bot, now) })) return null
     bot.roomBankAt = now
     return { order: { skill: 'build_shop', args: { roomBank: true, plot: plot ?? null, need }, why: `the build needs ${need} free slots and ${a.slots} whole stack(s) in the bag are not the kit's: bank them in the town's chests, then build` } }
   } catch { return null }
 }
-/** The nearest town container within ROOM_WALK_R (the town's zone) -> Vec3 | null. Never throws. */
+/** The base's scan radius (bagfull-01). */
 const ROOM_WALK_R = 48
-function roomContainerNear (bot) {
+/** BAGFIX-01 A: THE ROOM BANK'S TARGET NOW (bagfix.mjs roomTarget) -> { at, d, inBox, extra, status, lid } | null. The box's containers
+ *  the bot can see and the town's registered ones (the hall's: seen or not), each with the town memory's word and its lid. A scan is
+ *  reused ROOM_SCAN_MS (the ask runs in the decision loop). Never throws. */
+function roomTargetNow (bot, now = Date.now(), { fresh = false } = {}) {
   try {
+    const memo = bot.roomTargetMemo
+    if (!fresh && memo && now - memo.at < ROOM_SCAN_MS && now >= memo.at) return memo.target
     const me = bot.entity?.position
     if (!me) return null
     const home = homeVec()
-    const found = (bot.findBlocks?.({ matching: b => isTownContainer(bot, b), maxDistance: ROOM_WALK_R, count: 64 }) ?? []).filter(p => inTownZone(p, home))
-    found.sort((a, b) => me.distanceTo(a) - me.distanceTo(b) || a.x - b.x || a.y - b.y || a.z - b.z)
-    return found[0] ?? null
+    const seen = (bot.findBlocks?.({ matching: b => isTownContainer(bot, b), maxDistance: BAGFIX.reach ? ROOM_REACH_R : ROOM_WALK_R, count: 64 }) ?? [])
+    const byKey = new Map(seen.map(p => [posKey(p), p]))
+    if (BAGFIX.reach) for (const k of townExtraKeys(home)) { if (!byKey.has(k)) { const [x, y, z] = k.split(',').map(Number); if ([x, y, z].every(Number.isInteger)) byKey.set(k, new Vec3(x, y, z)) } }
+    let mem = {}
+    try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+    const cands = [...byKey.entries()].map(([k, p]) => {
+      const b = bot.blockAt?.(p) ?? null
+      const chestLike = b ? blockNameOf(bot, b) !== 'barrel' : true
+      return { at: p, d: me.distanceTo(p), inBox: inTownZone(p, home), extra: inTownExtra(home, p), status: containerStatus(mem[k]),
+               lid: !!b && (!isTownContainer(bot, b) || (chestLike && chestLidBlocked(bot.blockAt(p.offset(0, 1, 0))))) }
+    }).sort((a, b) => a.d - b.d || a.at.x - b.at.x || a.at.y - b.at.y || a.at.z - b.at.z)
+    const target = roomTarget(cands)
+    bot.roomTargetMemo = { at: now, target }
+    return target
   } catch { return null }
 }
 /** BAGFULL-01: THE ROOM-BANK VISIT (build_shop { roomBank }). Walks into a town container's reach when none is in it, runs the town
@@ -19275,15 +19295,19 @@ async function roomBankVisit (ctx, args, signal) {
   const slotsBefore = used()
   const planned = roomBankSlots(bot)
   let r = { status: 'no_effect', detail: 'not run' }, then = 'stop'
+  let inReach = false, target = null, arrived = false   // bagfix-01 A: the row's stop= and near=
   const before = heldMap(bot)
   try {
-    if (!townContainers(bot, 1).length) {
-      const c = roomContainerNear(bot)
+    inReach = townContainers(bot, 1).length > 0
+    if (!inReach) {
+      target = roomTargetNow(bot, Date.now(), { fresh: true })
+      const c = target ? new Vec3(target.at.x, target.at.y, target.at.z) : null
       if (c) {
         try {
           const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
-          await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(c.x, c.y, c.z, 2)), 20_000, bot))
+          await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(c.x, c.y, c.z, 2)), BAGFIX.reach ? ROOM_REACH_WALK_MS : ROOM_BASE_WALK_MS, bot))
         } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        try { arrived = bot.entity.position.distanceTo(c) <= STORAGE_REACH } catch { arrived = false }
       }
       check(signal)
     }
@@ -19293,7 +19317,7 @@ async function roomBankVisit (ctx, args, signal) {
     const banked = {}
     for (const [n, c] of Object.entries(before)) if ((after[n] ?? 0) < c) banked[n] = c - (after[n] ?? 0)
     then = 36 - used() >= need && Date.now() - t0 <= ROOM_BUILD_AFTER_MS && !signal?.aborted ? 'build' : 'stop'
-    try { logEvent({ kind: 'room_bank', status: r?.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: roomBankDetail({ plot: args?.plot ?? '-', need, planned, slotsBefore, slotsAfter: used(), banked, status: r?.status ?? '-', then }) }) } catch { /* telemetry */ }
+    try { logEvent({ kind: 'room_bank', status: r?.status === 'success' ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: roomBankDetail({ plot: args?.plot ?? '-', need, planned, slotsBefore, slotsAfter: used(), banked, status: r?.status ?? '-', then, stop: roomStop({ status: r?.status, inReach, target, arrived, detail: r?.detail }), near: roomNear({ inReach, target }) }) }) } catch { /* telemetry */ }
   }
   if (then === 'build') return buildShop(ctx, {}, signal, t0)   // grounds-03: the SKILL's start goes with it (the clock a fall-through reads)
   return r?.status === 'success' ? { status: 'success', detail: `${r.detail}; the bag has ${36 - used()} free slot(s) of the build's ${need}` } : { status: 'no_effect', detail: `the room bank moved nothing (${String(r?.detail ?? '').slice(0, 120)})` }
@@ -27605,8 +27629,10 @@ setIdleNow(plot => {
 // gkroom-01: the keeper's tidy read for shop.mjs roomFallback -- the lease itself (never a helper) and a tidy record open or due
 setTidyWork(() => {
   const b = activeMem?.bot ?? null
-  if (!b || !keeperLeaseNow(b)) return { keeper: false, tidyWork: false }
-  try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; return { keeper: true, tidyWork: !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)) } } catch { return { keeper: true, tidyWork: false } }
+  const keeper = !!b && keeperLeaseNow(b)
+  if (!b || (!keeper && !BAGFIX.light)) return { keeper: false, tidyWork: false }
+  // bagfix-01 B: `tidyOpen` -- the tidy's record has work, read for any bot (shop.mjs roomFallback `light`); the keeper's read as before
+  try { const h = recordHead(townDir(), projKeyOf(TIDY_PLOT)); const r = h.ok ? h.head?.rec ?? null : null; const work = !!r && (!r.structure_complete || tidyDue(r) || gkStageDue(r)); return { keeper, tidyWork: keeper && work, tidyOpen: BAGFIX.light && work } } catch { return { keeper, tidyWork: false } }
 })
 function keeperLeaseNow (bot, now = Date.now()) {
   if (!GROUNDS.on || !bot) return false

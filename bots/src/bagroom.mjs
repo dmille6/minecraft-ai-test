@@ -157,7 +157,8 @@ export function roomBankAsk ({ on = BAGROOM.bank, freeSlots = 36, need = BUILD_R
 }
 
 /** `_room_bank` row detail. Pure. */
-export function roomBankDetail ({ plot = '-', need = BUILD_ROOM_SLOTS, planned = 0, slotsBefore = '-', slotsAfter = '-', banked = {}, status = '-', then = '-' } = {}) {
+export function roomBankDetail ({ plot = '-', need = BUILD_ROOM_SLOTS, planned = 0, slotsBefore = '-', slotsAfter = '-', banked = {}, status = '-', then = '-', stop = null, near = null } = {}) {
   const m = Object.entries(banked ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}:${v}`).join(',') || '-'
-  return `plot=${plot} need=${need} planned=${planned} slots=${slotsBefore}->${slotsAfter} deposit=${status} then=${then} banked=${m}`.slice(0, 300)
+  // bagfix-01 A: stop= and near= (before the names: the row is cut at 300)
+  return `plot=${plot} need=${need} planned=${planned} slots=${slotsBefore}->${slotsAfter} deposit=${status} then=${then}${stop ? ` stop=${stop}` : ''}${near ? ` near=${near}` : ''} banked=${m}`.slice(0, 300)
 }

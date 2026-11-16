@@ -35,6 +35,7 @@ import { shopchestOn, SHOPCHEST_PLOT, SHOPCHEST_BLUEPRINT, SHOPCHEST_BUILDERS } 
 import { gkOn, GK } from './groundskeeper.mjs'   // groundskeeper-01
 import { sinksOn, sinkKindsOn, SINK_KINDS, SINK_PLOTS, SINK_BLUEPRINTS, SINK_BUILDERS, SINK, SINK_STREAK, isSinkPlot, sinkKindOf, SINK_TURN } from './sinks.mjs'   // picker-01; sinkturn-01: SINK_TURN
 import { decorOn } from './decorator.mjs'   // decorator-01: the decorator's switch
+import { BAGFIX } from './bagfix.mjs'   // bagfix-01show B: the room refusal's light work
 import { projTurnOn, turnPick } from './projturn.mjs'   // projturn-01: the projects take turns
 
 /** SHOP=off is the rollback; anything else runs the job (the variant's code is the change). */
@@ -652,8 +653,12 @@ export function setRoomAsk (fn) { roomAskOf = typeof fn === 'function' ? fn : nu
 // GKROOM=0 is the rollback.
 export const gkroomOn = (env = process.env) => !['0', 'off', 'false', 'no'].includes(String(env?.GKROOM ?? '1').trim().toLowerCase())
 /** The room fallback -> TIDY_PLOT | null. Pure. */
-export function roomFallback ({ on = gkroomOn(), plot = null, freeSlots = 36, need = SHOP_BAG_SLOTS_MIN, keeper = false, tidyWork = false, tidyQuiet = false } = {}) {
-  if (!on || plot !== FOREST_PLOT || !keeper || !tidyWork || tidyQuiet) return null
+// BAGFIX-01 B (`light`: BAGFIX_LIGHT, the caller's): ANY bot refused for room on ANY heavy plot works the tidy while its record is open
+// (`tidyOpen`) and not quiet for it -- 14 bots stood refused 5-8 times an hour while the clean-up needed 2 slots. Off: the keeper's alone.
+export function roomFallback ({ on = gkroomOn(), plot = null, freeSlots = 36, need = SHOP_BAG_SLOTS_MIN, keeper = false, tidyWork = false, tidyQuiet = false, light = false, tidyOpen = false } = {}) {
+  const base = !!on && plot === FOREST_PLOT && !!keeper && !!tidyWork
+  const any = !!light && plot !== TIDY_PLOT && !!tidyOpen
+  if ((!base && !any) || tidyQuiet) return null
   if (!(freeSlots >= MONUMENT_BAG_SLOTS_MIN && freeSlots < need)) return null
   return TIDY_PLOT
 }
@@ -1103,7 +1108,7 @@ function buildOrderOwn ({ on = SHOP.on, shared = true, atTown = false, holds = f
     }
     // gkroom-01: the keeper whose forest is refused for room works the tidy (2 free slots) instead
     let fb = null
-    try { const tw = tidyWorkOf() ?? {}; fb = roomFallback({ plot, freeSlots, need, keeper: !!tw.keeper, tidyWork: !!tw.tidyWork, tidyQuiet: !!idleOf(TIDY_PLOT) }) } catch { fb = null }
+    try { const tw = tidyWorkOf() ?? {}; fb = roomFallback({ plot, freeSlots, need, keeper: !!tw.keeper, tidyWork: !!tw.tidyWork, tidyQuiet: !!idleOf(TIDY_PLOT), light: BAGFIX.light, tidyOpen: !!tw.tidyOpen }) } catch { fb = null }
     if (fb) return { order: { skill: 'build_shop', args: { plot: fb, why: 'room_fallback' } }, skip: null }
     return { order: null, skip: 'room' }
   }
