@@ -1,14 +1,15 @@
 // PLANAHEAD-01 (OWNER 11-09 "do 1,2,3": plan the town ahead): the plan-time reach check (planahead.mjs planReach: the town's own walk,
 // buildsite.mjs walkFrom / stepFor and buildrun.mjs digStand, worked to a fixed point in a pessimistic planned world), the record's tag,
 // the plan waiver (a tag AND a live miss), the helpers' supply, the building stand claims and the planned world a building is proven in.
-// FLEET piece (planahead-01 on the live fleet build): the tidy stage only -- the fleet has no styled-building sitings.
 // Design docs/reports/planahead-design-2026-11-09.md. Behaviour over fake reads; every refusal has its positive control; mutants anchored.
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 const PA = await import('../src/planahead.mjs')
+const B = await import('../src/buildsite.mjs')
 const PA_PATH = new URL('../src/planahead.mjs', import.meta.url)
+const BS_PATH = new URL('../src/buildsite.mjs', import.meta.url)
 const require_ = createRequire(import.meta.url)
 const mcData = require_('minecraft-data')('1.21.8')
 
@@ -213,27 +214,65 @@ await t('plannedWorld: other open hard records\' unfinished solid cells block an
   assert.deepStrictEqual([...w.noFloor], ['43,69,40'])
 })
 
+console.log('A BUILDING PROVEN IN THE PLANNED TOWN (buildsite.mjs proveSite / siteBlueprint)')
+const plan = () => ({ v: 1, template: 'ring@1', gen: 3, prev: 2, home: HOME, s: G, mode: 'retrofit', at: 1, world: 'w',
+  plots: [{ id: 'core', kind: 'plaza', box: [-6, -6, 6, 6], y: G, state: 'existing', keepout: false }, { id: 'pavilion', kind: 'pavilion', sector: 'E', state: 'planned' }],
+  paths: [], groups: {}, transitions: [] })
+const BP = B.loadBlueprint('workshop@1')
+const flat = (x, y, z) => (Math.abs(x) > 60 || Math.abs(z) > 60 || y < G - 20 || y > G + 30 ? null : y < G ? { name: 'stone', boundingBox: 'block' } : y === G ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+const FLAT = B.siteBlueprint(flat, plan(), BP, { tries: 3 })
+await t('positive control: the workshop sites on flat ground; a planned wall round the whole town walk fails its proof (no stand left)', async () => {
+  assert.ok(FLAT.ok, `the flat site: ${FLAT.why}`)
+  const site = { anchor: { x: FLAT.record.anchor[0], z: FLAT.record.anchor[1] }, orient: FLAT.record.orient, s: FLAT.record.s, fill: [], clear: [] }
+  assert.strictEqual(B.proveSite(flat, HOME, BP, site).ok, true)
+  // every walkable cell beyond the plaza is a planned obstacle: no stand reaches the pad
+  const block = new Set()
+  for (let x = -48; x <= 48; x++) for (let z = -48; z <= 48; z++) if (Math.max(Math.abs(x), Math.abs(z)) > 8) block.add(`${x},${G + 1},${z}`)
+  await killedBy(BS_PATH, B, '  const pBlock = planned?.block instanceof Set ? planned.block : null,', '  const pBlock = null,', M => {
+    assert.strictEqual(M.proveSite(flat, HOME, BP, site, { planned: { block, noFloor: new Set() } }).ok, false)
+  })
+})
+await t('siteBlueprint: a candidate the stand check refuses is not proven (stand_claimed) and the search moves on; none refused -> the same site', async () => {
+  const all = B.siteBlueprint(flat, plan(), BP, { tries: 3, standCheck: () => ({ plot: 'townhall', at: [0, 0, 0], kind: 'feet' }) })
+  assert.strictEqual(all.ok, false)
+  assert.ok(all.sectors.some(r => r.proofFails?.stand_claimed > 0), JSON.stringify(all.sectors.map(r => r.proofFails)))
+  const first = `${FLAT.record.anchor}|${FLAT.record.orient}`
+  const moved = B.siteBlueprint(flat, plan(), BP, { tries: 3, standCheck: site => (`${site.anchor.x},${site.anchor.z}|${site.orient}` === first ? { plot: 'townhall', at: [0, 0, 0], kind: 'feet' } : null) })
+  assert.ok(moved.ok, 'the next candidate is proven')
+  assert.notStrictEqual(`${moved.record.anchor}|${moved.record.orient}`, first)
+  assert.deepStrictEqual(B.siteBlueprint(flat, plan(), BP, { tries: 3, standCheck: () => null }).record.anchor, FLAT.record.anchor)
+})
+
 console.log('THE WIRING (skills.mjs; structural: a cut line fails)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const SK = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 const WIRES = [
-  'const body0 = PLANAHEAD_ON && GROUNDS\\.on && s\\.record \\? await tidyPlanAhead\\(bot, bodyP, home, stood, signal\\) : bodyP',
-  "puWaiveDue\\(rec, \\(r\\.deferred \\?\\? \\[\\]\\)\\.map\\(d => d\\?\\.k \\?\\? d\\), \\{ already: waive3, confirm: paConfirm\\(bot, rec, home, stood\\) \\}\\)",
-  "const waivedK = q => guard\\.has\\(q\\.at\\.join\\(','\\)\\) \\|\\| standFeetQ\\(q\\)",
-  'const cutsPa = paStands \\? cuts0\\.filter\\(q => !standFloorK\\(q\\.at\\.join',
-  'const nx = standRetire\\(body0, sc\\)',
-  'const nx = cur && !cur\\.structure_complete \\? standRetire\\(cur, paStands\\) : null',
-  "record: paStands \\? \\{ \\.\\.\\.rec, clear: \\(rec\\.clear \\?\\? \\[\\]\\)\\.filter\\(q => !\\(Array\\.isArray\\(q\\?\\.at\\) && standFloorK\\(q\\.at\\.join\\(','\\)\\)\\)\\) \\} : rec, tidy: cuts",
-  'const r = await planReachAsync\\(read, fills, cuts, ',
+  'body\\.reach = await tidyReachTag\\(bot, body, home, stood, signal\\)',
+  "puWaiveDue\\(rec, \\(r\\.deferred \\?\\? \\[\\]\\)\\.map\\(d => d\\?\\.k \\?\\? d\\), \\{ already: waive1, confirm: paConfirm\\(bot, rec, home, stood\\) \\}\\)",
+  "due\\.push\\(\\.\\.\\.puWaiveDue\\(rw, left, \\{ already: \\[\\.\\.\\.due\\], confirm: paConfirm\\(bot, rw, home, stood\\) \\}\\)\\)",
+  'const claimedQ = q => \\(claimsNow\\.length > 0 && claimEntry\\(q, claimsNow\\)\\) \\|\\| standQ\\(q\\)',
+  'const standQ = q => !!paStands && Array\\.isArray\\(q\\?\\.at\\) && \\(q\\.role != null \\? paStands\\.feet : paStands\\.floor\\)\\.has\\(q\\.at\\.join',
+  'else if \\(paStands\\) visitRec = \\{ \\.\\.\\.visitRec, clear: \\(visitRec\\.clear \\?\\? \\[\\]\\)\\.filter\\(q => !standQ\\(q\\)\\) \\}',
+  "if \\(PLANAHEAD_ON && GROUNDS\\.on && role === 'helper'\\) visitRec = puSupply\\(visitRec\\)",
+  'standRetire\\(cur, sc\\)',
+  'plot: TOWNHALL_PLOT, \\.\\.\\.paSiteCtx\\(prd, TOWNHALL_PLOT\\)',
+  'stood, sectors: sp\\.sectors, plot, \\.\\.\\.paSiteCtx\\(prd, plot\\)',   // cottage2-01 fold: every cottage's siting (the ranked looks loop)
+  'plot: ENCHANT_PLOT, \\.\\.\\.paSiteCtx\\(planReader\\(bot\\), ENCHANT_PLOT\\)',
 ]
 const wired = s => { for (const re of WIRES) { const m = s.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) } }
-await t('the stage is planned ahead (stands kept, reach tagged) before it publishes; the waiver takes the plan tag; a cut line fails', () => {
+await t('the stage publish tags reach, both waivers take the plan tag, helpers get the supply, the stands retire, three sitings plan ahead; a cut line fails', () => {
   wired(SK)
-  const cut = "const waive = PLANAHEAD_ON && GROUNDS.on ? [...waive3, ...puWaiveDue(rec, (r.deferred ?? []).map(d => d?.k ?? d), { already: waive3, confirm: paConfirm(bot, rec, home, stood) })] : waive3"
+  const cut = 'if (PLANAHEAD_ON && GROUNDS.on && role === \'helper\') visitRec = puSupply(visitRec)'
   assert.ok(SK.split(cut).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  assert.throws(() => wired(SK.replace(cut, 'const waive = waive3')), assert.AssertionError)
-  const tagAt = SK.search(/const body0 = PLANAHEAD_ON/), pubAt = SK.slice(tagAt).search(/const pub = publishRecord\(dir, key, cur => \(fresh\(cur\) \? body : null\)/)
-  assert.ok(tagAt > 0 && pubAt > 0 && pubAt < 3000, `planned ${tagAt}, then the stage publish ${pubAt} chars on`)
+  assert.throws(() => wired(SK.replace(cut, '')), assert.AssertionError)
+  // the tag is set BEFORE the record is published (the publish reads `body`)
+  const tagAt = SK.search(/body\.reach = await tidyReachTag/), pubAt = SK.slice(tagAt).search(/const pub = publishRecord\(dir, key, cur => \(fresh\(cur\)/)
+  assert.ok(tagAt > 0 && pubAt > 0 && pubAt < 4000, `tag ${tagAt}, then the stage publish ${pubAt} chars on`)
+  // Codex r1 BLOCKER 3: the stand retire runs LAST in the keeper's plan additions (after the felling stands' teardown adds its cuts)
+  const fn = SK.slice(SK.indexOf('function gkPlanAdditions ('))
+  const body = fn.slice(0, fn.search(/\n}\n/))
+  const tear = body.indexOf("op: 'stand_teardown'"), ret = body.indexOf("op: 'stand_retired'")
+  assert.ok(tear > 0 && ret > tear, `teardown ${tear}, then the stand retire ${ret}`)
 })
 
 console.log('THE SWITCH')

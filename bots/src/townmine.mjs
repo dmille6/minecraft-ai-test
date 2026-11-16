@@ -24,7 +24,7 @@
 import { planOf, isStairRecord, standOf, isOpen, isFull, isWet, isLava, STAIR_BOTTOM_FEET, MINE_BLUEPRINT, toWorld, goodSolid } from './shaftgeom.mjs'
 
 // ---- the switch -----------------------------------------------------------------------------------------------------------------
-export const TOWNMINE_DEFAULT_POOLS = '*'   // townmine-01 fleet port: every pool (the showcase piece shipped 'showcase' first); TOWNMINE=off rolls back
+export const TOWNMINE_DEFAULT_POOLS = 'showcase'   // the showcase first (owner 11-09); the fleet port flips this to '*'
 export function townMineOn (env = process.env, pool = '') {
   const v = String(env?.TOWNMINE ?? '').trim().toLowerCase()
   if (v === 'off' || v === '0' || v === 'false' || v === 'no') return false
@@ -104,6 +104,15 @@ export function mineStopped (rec, k, { now = 0, why = 'liquid' } = {}) {
   const Kb = k - 1
   // at or above the 16 landing nothing is left of the extension (planStair ignores an ext whose Kb is not below it)
   return withMine(rec, { ...rec.ext, Kb, stopK: k, stopWhy: why, stoppedAt: now, state: Kb <= rec.K ? 'stopped' : rec.ext.state })
+}
+
+/** EVERY CELL THE TOWN MINE OWNS OR WILL DIG (the extended stair's cells and both galleries) -> a keep(x, y, z) predicate | null. Pure. */
+export function mineKeep (rec) {
+  if (!hasMine(rec) || !mineState(rec).sited) return null
+  const plan = planOf(rec)
+  const keys = new Set(plan.cells.map(c => c.at.join(',')))
+  for (const lv of ['iron', 'diamond']) for (const s of galleryOf(plan, lv)?.slots ?? []) for (const c of s.cells) { keys.add(c.feet.join(',')); keys.add(c.head.join(',')) }
+  return (x, y, z) => keys.has(`${x},${y},${z}`)
 }
 
 // ---- the routes -----------------------------------------------------------------------------------------------------------------

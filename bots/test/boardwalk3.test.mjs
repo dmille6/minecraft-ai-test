@@ -59,7 +59,7 @@ function visitP (record, name = 'A', extra = {}) {
   const pub = PJ.publishRecord(dir, key, () => ({ ...record }))
   const slot = PJ.takeSlot(dir, key, name, 2)
   return { dir, key, me: name, home: HOME, stood: [], record, recordGen: pub.gen, palette: W.BW3_PALETTE, slot: slot.slot, slotGen: slot.gen,
-    domain: () => true, walkR: 40, blockLayer: false, tidyKeepOrder: true, stuckStalledOnly: true, wet: true, ...extra }
+    domain: () => true, walkR: 40, blockLayer: false, tidyKeepOrder: true, stuckStalledOnly: true, intoWater: true, ...extra }
 }
 const deckDone = (srv, rec) => rec.cells.every(c => R.cellDone(srv.read(...c.at), W.BW3_PALETTE, c.role))
 
@@ -93,7 +93,7 @@ await t('standingAs: the listed block, or the dirt family for a listed dirt (pla
 await t('EVERY SHIPPED FILE is self-consistent: its own pool and home pass, every cell a bot material within r of home, ids unique', async () => {
   const dirp = new URL('../src/waterstrays/', import.meta.url)
   const files = fs.readdirSync(dirp).filter(f => f.endsWith('.json'))
-  assert.ok(files.length >= 16, `${files.length} files (the 16 fleet pools)`)
+  assert.ok(files.length >= 1 && files.includes('showcase.json'), `${files.length} files (the showcase)`)
   let cells = 0
   for (const f of files) {
     const d = JSON.parse(fs.readFileSync(new URL(f, dirp), 'utf8'))
@@ -105,7 +105,7 @@ await t('EVERY SHIPPED FILE is self-consistent: its own pool and home pass, ever
     for (const l of ev.lines) for (const c of l.cells) { cells++; assert.ok(Math.max(Math.abs(c.at[0] - home.x), Math.abs(c.at[2] - home.z)) <= W.BW3.r, `${f} ${c.at}`) }
     assert.ok(d.controls && d.controls.far_ring_cols > 0 && d.controls.genesis_water_cols > 0, `${f}: the positive controls are recorded`)
   }
-  assert.ok(cells > 1000, `${cells} cells listed`)
+  assert.ok(cells > 100, `${cells} cells listed`)
 })
 
 console.log('THE WORK LIST')
@@ -181,15 +181,8 @@ const walkway = async (Rm = R) => {
 await t('A WALK LINE becomes planks IN PLACE, bank to bank: dig, plank into the same cell, next -- never two cells open', async () => {
   await walkway()
 })
-await t('MUTANT KILLED: without `p.wet` a dug deck cell (water) is never clear -> no plank is laid', async () => {
-  await withRunMutant("(!!p.wet && WET_CLEAR.test(nm(b)))", 'false', async M => {
-    let killed = false
-    try { await walkway(M) } catch { killed = true }
-    assert.ok(killed, 'the mutant survived')
-  })
-})
-await t('MUTANT KILLED: the click\'s own re-read refuses a water cell (no `p.wet` there) -> no plank is laid', async () => {
-  await withRunMutant(" && !(p.wet && WET_CLEAR.test(nm(rd(...cell))))) { cancel(); return 'refused' }", ") { cancel(); return 'refused' }", async M => {
+await t('MUTANT KILLED: without `p.intoWater` a dug deck cell (water) is never clear -> no plank is laid', async () => {
+  await withRunMutant("(!!p.intoWater && /^(water|bubble_column)$/.test(nm(b)))", 'false', async M => {
     let killed = false
     try { await walkway(M) } catch { killed = true }
     assert.ok(killed, 'the mutant survived')
@@ -294,16 +287,16 @@ await t('THE RECORD carries every listed cell with its block (the tripwire WW2 j
 })
 console.log('THE WIRING (structural: what behaviour cannot reach from here)')
 await t('buildTidy runs the water visit when due, BEFORE the stage siting; the visit passes wet, the evidence file and the guard', async () => {
-  const bt = SK.slice(SK.indexOf('async function buildTidy ('))
-  const hook = bt.indexOf('if (bw3Due(bot)) {'), site = bt.indexOf("if (!rh.head || tidyDue(rh.head.rec) || gkNext) {")
+  const bt = SK.slice(SK.indexOf('async function buildTidyVisit ('))
+  const hook = bt.indexOf("if (role === 'keeper' && bw3Due(procMem(bot))) {"), site = bt.indexOf("const gkNext = lane === 'inside' && GROUNDS.on && LANDP.on")   // country-01: the inside lane's siting
   assert.ok(hook > 0 && site > 0 && hook < site, 'the hook precedes the siting')
-  const v = SK.slice(SK.indexOf('async function waterWalkVisit ('), SK.indexOf('async function buildTidy ('))
-  assert.ok(/stuckStalledOnly: true, wet: true,/.test(v)); assert.ok(/bw3Evidence\(bw3Doc\(config\.memory\.pool\)/.test(v)); assert.ok(/guard: k => guard\.has\(k\)/.test(v))
+  const v = SK.slice(SK.indexOf('async function waterWalkVisit ('), SK.indexOf('async function buildTidyVisit ('))
+  assert.ok(/stuckStalledOnly: true, intoWater: true,/.test(v)); assert.ok(/bw3Evidence\(bw3Doc\(config\.memory\.pool\)/.test(v)); assert.ok(/guard: k => guard\.has\(k\)/.test(v))
   assert.ok(/recordGen: rh\.head\.gen/.test(v))
 })
 await t('the bot\'s dig confirms a block dug out of water (it reads WATER once the lake flows back): buildbot dig and the probe', async () => {
   const BB = strip(fs.readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8'))
-  assert.ok(BB.includes("blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS)"))
+  assert.ok(BB.includes("const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS)"))
   assert.strictEqual(R.DUG('water'), true); assert.strictEqual(R.DUG('air'), true); assert.strictEqual(R.DUG('dirt'), false)
 })
 await t('the switches: BOARDWALK3=off and WALKWAYS=off read off; unset reads on', async () => {
@@ -313,6 +306,22 @@ await t('the switches: BOARDWALK3=off and WALKWAYS=off read off; unset reads on'
 await t('the visit row keeps every key inside the logger\'s 300 characters', async () => {
   const d = W.bw3Detail({ stats: { lines: 977, walk: 117, standing: 2402, gone: 12, deck: 552, deckDone: 40 }, cuts: 2000, placed: 24, cleared: 24, planks: 64, stop: 'cell_deferred', why: 'x'.repeat(200) })
   assert.ok(d.length <= 300, d.length); assert.ok(/^op=visit lines=977 walk=117 standing=2402 .* stop=cell_deferred why=x+$/.test(d))
+})
+
+await t('fold (Codex BLOCKERS): the water visit guards bridges and the tidy, reads every record strictly, and re-reads its guard before each dig', () => {
+  const one = (needle, what) => assert.equal(SK.split(needle).length, 2, what)
+  one('    const plots = [...new Set([...projectsGuarded().map(p => p.plot), TIDY_PLOT, ...(COUNTRY_ON ? [COUNTRY_PLOT] : [])])]', 'the tidy\'s (and the country\'s) cells are guarded too')
+  one('      const h = recordHead(dir, projKeyOf(pl))\n      if (!h.ok || (h.rejected?.length ?? 0) > 0) return null', 'one unreadable record (or a rejected generation): no visit')
+  one('    for (const k of bridgeCellKeys(bs)) out.add(k)', 'every bridge site\'s planned cells')
+  one('    if (bs == null) return null', 'an unreadable bridges file: no visit')
+  one("  if (!guard) return no('record_unreadable')", 'the visit refuses on null')
+  one("      tidyOk: q => { const g = bw3GuardStrict(); return !!g && !g.has(q.at.join(',')) },", 'a cut reads the guard fresh before its dig')
+  one("      foreignOk: q => { const g = bw3GuardStrict(); return !!g && !g.has(q.at.join(',')) } },", 'a deck dig reads the guard fresh before its dig')
+  const BR = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
+  assert.equal(BR.split("const v = await digNamed(f.at, name, held, null, p.foreignOk ? () => p.foreignOk(f) : null)").length, 2, 'runVisit passes foreignOk to the foreign dig as its after-walk safety check')
+  one("alsoDone: q => { const g = guardNow(); return !g || g.has(q.at.join(',')) },", 'the deck digs read the live guard too (fail closed)')
+  const vb = SK.slice(SK.indexOf('async function waterWalkVisit ('), SK.indexOf('async function waterWalkVisit (') + 1500)
+  assert.ok(vb.length > 100 && !vb.includes('projectHeads()'), 'the swallowing reader is gone from the visit')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

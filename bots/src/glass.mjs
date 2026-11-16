@@ -23,6 +23,8 @@
 //
 // Rollback: GLASS=off -> no sand and no glaze order (the panes kind and every blueprint as before).
 
+import { COTTAGE_NAMES } from './homeplots.mjs'   // homes-01show: every cottage project's name (three without a layout)
+
 export const GLASS_V = 1
 export const glassMode = (env = {}) => ({ on: !['off', '0', 'false', 'no'].includes(String(env?.GLASS ?? '').trim().toLowerCase()) })
 export const GLASS = Object.freeze(glassMode(typeof process !== 'undefined' ? process.env : {}))
@@ -49,7 +51,7 @@ export const GLAZE_PER_ORDER = 8
 export const GLAZE_NONE_MS = 60 * 60 * 1000
 
 /** The building plots whose records may name window cells (fleet: shop, house1; the showcase's styled buildings too). */
-export const GLASS_PLOTS = Object.freeze(['shop', 'house1', 'house2', 'house3', 'cottage1', 'cottage2', 'cottage3', 'hall', 'townhall', 'storehub', 'enchantshop', 'storehouse'])
+export const GLASS_PLOTS = Object.freeze(['shop', 'house1', 'house2', 'house3', ...COTTAGE_NAMES, 'hall', 'townhall', 'storehub', 'enchantshop', 'storehouse'])
 
 /** THE WINDOW PALETTE (glass-01): glass when the town has it, else a wood TRAPDOOR of the building's species (crafted by the
  *  build visit, townstyle.mjs woodPartsPlan), else the wall itself -- a window never stalls a building. Blueprints share it. */
@@ -176,6 +178,9 @@ export function waterDepth (read, x, y, z, max = 6) {
  *   - no water SAND_DEEP deep within SAND_DEEP_R of it: shallows only, never deep water (the drowning rule)
  *   - inside the ring [rMin, rMax] of home, never `reserved(x, z, y)` (a record, a protect zone)
  */
+/** Is (x, z) inside a bridge site's footprint (bridge.mjs bridgeZones boxes, built or not: its banks and approaches)? Pure.
+ *  glass-01 fold (Codex BLOCKER): the sand dig never takes a bridge's bank -- the tidy's own guard is per cell, the dig's is the zone. */
+export const inBridgeZone = (zones = [], x, z) => (zones ?? []).some(q => Array.isArray(q?.box) && x >= q.box[0] && x <= q.box[3] && z >= q.box[2] && z <= q.box[5])
 export function sandCellOk (read, at, { home = null, rMin = SAND_R_MIN, rMax = SAND_R_MAX, reserved = () => false } = {}) {
   const [x, y, z] = at
   if (home) {

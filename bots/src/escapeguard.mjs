@@ -32,7 +32,7 @@
 //                   QUIET_MS without a refusal, ends the wait. So the guard can delay an escape by at most WAIT_MS, and it
 //                   never takes away the escape that existed before it.
 // ESCAPEGUARD=off is the kill switch: every answer here is "allow", exactly the base's behaviour.
-import { blocked } from './protectzone.mjs'
+import { blocked, structAt, DIG_MASK, ORDINARY_TERRAIN, DEEP_NATURAL_BLOCKS } from './protectzone.mjs'   // zoneguard-01show: structAt + the moved regexes
 import { digPurpose, currentDigScope } from './digtown.mjs'
 
 export const ESCAPE_GUARD_WAIT_MS = 10 * 60_000     // under the tripwire's Z1 (a bot still inside a zone 15 min trips it)
@@ -50,6 +50,10 @@ export const RECORD_RADIUS = 160                    // an unreadable record is u
 export const TREEFARM_BAND = [-4, 24]               // a tree-farm column is guarded from home.y - 4 to home.y + 24 (its trees)
 /** A row per (cell, why) at most this often per bot (the refusal rows; the counts ride in `_escape_guard` each minute). */
 export const ROW_EVERY_MS = 60_000
+
+/** The kill switch. ESCAPEGUARD=off (or 0/false) -> off. Default on. */
+export const zoneWalkOn = (env = typeof process !== 'undefined' ? process.env : {}) =>
+  !/^(off|0|false|no)$/i.test(String(env?.ZONEWALK ?? 'on').trim())
 
 /** The kill switch. ESCAPEGUARD=off (or 0/false) -> off. Default on. */
 export const escapeGuardOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.ESCAPEGUARD ?? 'on').trim())
@@ -88,6 +92,23 @@ export function guardOf ({ cell, name = null, zones = [], feet = null, recordAt 
   let z = null
   try { z = zones?.length ? blocked(zones, c.x, c.y, c.z, feet) : null } catch { z = null }
   if (z) return { kind: 'zone', zone: z.id ?? '?', ordinary: isOrdinary(name) }
+  return null
+}
+
+/**
+ * THE GUARD'S ONE DECISION -> { allow, why }. Pure.
+ *   why on allow:  off | not_survival | unguarded | ordinary | air | last_resort
+ *   why on refuse: record | unknown | zone
+ */
+export const DEEP_NATURAL = DEEP_NATURAL_BLOCKS   // zoneguard-01show: defined in protectzone.mjs
+export function zoneStructureAt (zones, c, name) {
+  if (typeof name !== 'string' || !name || /(^|_)air$/.test(name) || isOrdinary(name)) return null
+  for (const q of (Array.isArray(zones) ? zones : [])) {
+    if (c.x >= q.x0 && c.x <= q.x1 && c.y >= q.y0 && c.y <= q.y1 && c.z >= q.z0 && c.z <= q.z1) {
+      if (q.floorY != null && c.y < q.floorY && DEEP_NATURAL.test(name.replace(/^minecraft:/, ''))) continue
+      return q.floorY != null && c.y < q.floorY ? { kind: 'zone', zone: q.id ?? '?', ordinary: false, deep: true } : { kind: 'zone', zone: q.id ?? '?', ordinary: false }
+    }
+  }
   return null
 }
 

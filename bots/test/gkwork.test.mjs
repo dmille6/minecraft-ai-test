@@ -131,6 +131,15 @@ await t('a HARD hold (unread, prep, a stand up): the third visit releases the le
   assert.strictEqual(W.keeperAfterVisit({ keeper: false, empty: true, close: true }), 'keep', 'a helper holds no keeper lease')
   assert.strictEqual(W.keeperAfterVisit({ keeper: true, empty: false, close: true }), 'keep', 'a visit that found work keeps it')
 })
+await t('batch20 fold (Codex BLOCKER): a keeper whose forest is due keeps the lease after an empty closing tidy visit', async () => {
+  assert.strictEqual(W.keeperAfterVisit({ keeper: true, empty: true, close: true }), 'release', 'POSITIVE: no forest work -> no_work_now')
+  assert.strictEqual(W.keeperAfterVisit({ keeper: true, empty: true, close: true, forestDue: true }), 'keep', 'the forest due keeps it')
+  await killedBy(W_PATH, W, "  if (!keeper || completed || !empty || forestDue) return 'keep'", "  if (!keeper || completed || !empty) return 'keep'", M => {
+    assert.strictEqual(M.keeperAfterVisit({ keeper: true, empty: true, close: true, forestDue: true }), 'keep')
+  })
+  const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  assert.ok(/keeperAfterVisit\(\{ keeper: role === 'keeper', empty: gkw\.empty, completed, close: gkw\.close, forestDue: [^}]*forestDemandNow\(bot\)/.test(src), 'wired: the forest demand rides in')
+})
 await t('showcase: the keeper collecting strikes is not quieted (tidyQuiet closing); a helper or a bot past the window is', () => {
   if (!SHOWCASE) return
   assert.strictEqual(SHOP.tidyQuiet({ idle: true, keeper: true, closing: true }), false)
@@ -181,7 +190,7 @@ const wiring = src => {
   one(SHOWCASE ? ';\\(\\{ clearsOk, crewHolds \\} = softHoldsGive\\(\\{ clearsOk, crewHolds, close: gkw\\.close \\}\\)\\)' : ';\\(\\{ clearsOk \\} = softHoldsGive\\(\\{ clearsOk, close: gkw\\.close \\}\\)\\)')
   one("releaseKeeper\\(bot, k\\.lease, 'no_work_now'\\)")
   one("stallWaive\\(rec, (gkWaivable\\(rec, )?r\\.deferred \\?\\? \\[\\]\\)?, \\{ stalled: r\\.stop === 'stuck_on_cell'")
-  if (SHOWCASE) one('closing: GKW_ON && gkwClosing\\(b\\?\\.gkwPending \\?\\? null\\)')
+  if (SHOWCASE) one('closing: GKW_ON && \\(?gkwClosing\\(b\\?\\.gkwPending \\?\\? null\\)')   // gkclear-01: || the town's strikes
   // the strikes are read before the completion test that uses the soft holds
   const i = src.indexOf('gkw = gkwVisit('), j = src.indexOf(SHOWCASE ? 'if (caps.complete && !crewHolds && !platformUp(rw)' : 'if (!prog.cutLeft && !prog.fillLeft && !unread && clearsOk)')
   assert.ok(i > 0 && j > i, `gkwVisit ${i} before the completion test ${j}`)

@@ -5,7 +5,7 @@ import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-const { G, HOME, server, bot, PJ, R, noRetry } = await import('./helpers/buildfake.mjs')
+const { G, HOME, server, bot, PJ, R } = await import('./helpers/buildfake.mjs')
 const T = await import('../src/tidy.mjs')
 const LP = await import('../src/landplan.mjs')
 const GKM = await import('../src/groundskeeper.mjs')
@@ -114,14 +114,14 @@ await t('the ring closes and every spoke reaches workR on open flat ground; corr
 await t('the stages partition the roads: every road column is graded in exactly one stage, ring first', async () => {
   const land = await flatPlan()
   const st = LP.landStages(SMALL)
-  assert.strictEqual(st[0].id, 'town'); assert.strictEqual(st[1].id, 'roads')
+  assert.strictEqual(st[0].id, 'town'); assert.strictEqual(st[1].id, 'terrace'); assert.strictEqual(st[2].id, 'roads')   // townterrace-01: the terrace right after the plaza
   const seen = new Map()
   for (const s of st) for (const [x, z] of LP.stageRoadCols(land, s, { L: SMALL })) { const k = k2(x, z); seen.set(k, (seen.get(k) ?? 0) + 1) }
   const all = new Set(land.roads.flatMap(r => r.cols.map(([x, z]) => k2(x, z))))
   // a junction column is in two roads' lists: counted once per road, never in two stages of one road
   for (const k of all) assert.ok(seen.has(k), `road column ${k} is in no stage`)
   const ringCols = new Set(land.roads[0].cols.map(([x, z]) => k2(x, z)))
-  for (const [x, z] of LP.stageRoadCols(land, st[1], { L: SMALL })) if (!ringCols.has(k2(x, z))) assert.ok(Math.max(Math.abs(x), Math.abs(z)) <= st[1].upto)
+  for (const [x, z] of LP.stageRoadCols(land, st[2], { L: SMALL })) if (!ringCols.has(k2(x, z))) assert.ok(Math.max(Math.abs(x), Math.abs(z)) <= st[2].upto)
 })
 
 console.log('THE ROAD\'S EARTHWORK and the never-worse walk')
@@ -147,7 +147,7 @@ await t('Codex r1 BLOCKER 1: road work honours the guard AS IT IS NOW: a zone si
   const w = T.roadWork(srv.read, cols, { home: HOME, lim: T.gradeLim(srv.read, 6), avoid: () => 'zone' })
   assert.deepStrictEqual([w.cut.length, w.fill.length, w.clear.length, w.trees.length], [0, 0, 0, 0])
   assert.strictEqual(w.skipped.road_guarded, 2)
-  const s = T.siteStage(srv.read, { home: HOME, land: { home: HOME, roads: [{ id: 'ring', kind: 'ring', cols }], corridors: [], zones: {}, ringR: 20, workR: 44, inner: 6 }, stage: LP.stageOf(1, SMALL), avoid: (x, z) => (x === 33 ? 'zone' : null), L: SMALL })
+  const s = T.siteStage(srv.read, { home: HOME, land: { home: HOME, roads: [{ id: 'ring', kind: 'ring', cols }], corridors: [], zones: {}, ringR: 20, workR: 44, inner: 6 }, stage: LP.stageOf(2, SMALL), avoid: (x, z) => (x === 33 ? 'zone' : null), L: SMALL })
   assert.ok(!s.record.clear.some(c => c.at[0] === 33), 'siteStage passes its avoid to the road work')
 })
 await t('Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft); felled, none', async () => {
@@ -158,11 +158,12 @@ await t('Codex r1 BLOCKER 2: a clear still standing is work left (tidyClearsLeft
   col(srv, 33, 0, G + 1, G + 3, 'air')
   assert.strictEqual(T.tidyClearsLeft(rec, srv.read), 0)
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/if \(!prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk\) \{/.test(sk), 'the completion waits on the clears')
+  // siteprep-01 r2: and never over a prepping request's open work (`prepHold`)
+  assert.ok(/if \(caps\.complete && !crewHolds && !platformUp\(rw\) && !prog\.cutLeft && !prog\.fillLeft && !unread && clearsOk && !prepHold\) \{/.test(sk), 'the completion waits on the clears (gkhelpers-01: the keeper\'s, and never over a crew bot\'s plants; siteprep-01: nor over an open prep)')
 })
 await t('NEVER WORSE: a stage whose road work would wall the town in is dropped (named); control: a road over a dip is kept', async () => {
   const land = await flatPlan()
-  const st = LP.stageOf(1, SMALL)
+  const st = LP.stageOf(2, SMALL)
   // a hand-made road level 3 ABOVE the flat ground all round the plaza: a wall
   const wall = { ...land, roads: [{ id: 'ring', kind: 'ring', cols: [] }] }
   for (let x = -9; x <= 9; x++) for (const z of [-9, 9]) wall.roads[0].cols.push([x, z, G + 3])
@@ -194,7 +195,7 @@ await t('a later stage tidies only its band: a pillar inside the town square is 
   col(srv, 10, 0, G + 1, G + 3, 'dirt')    // inside rimR (20)
   col(srv, 26, 0, G + 1, G + 3, 'dirt')    // in band (20, 32]
   const land = { home: HOME, roads: [], corridors: [], zones: {}, ringR: 15, workR: SMALL.workR, inner: 6 }
-  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.stageOf(2, SMALL), L: SMALL })
+  const s = T.siteStage(srv.read, { home: HOME, land, stage: LP.landStages(SMALL).find(q => /^rim/.test(q.id)), L: SMALL })   // gkstage-01: the first band is after `inwall`
   assert.deepStrictEqual([...new Set(s.record.cut.map(c => c.at[0]))], [26])
 })
 
@@ -228,7 +229,7 @@ const visit = async (RM, srv, rec, extra) => {
   const e = bot(srv, 'A', { inv: { dirt: 64, cobblestone: 64 }, feet: [0, G + 1, 0], ack: tg => (tg[0] === 9 && tg[1] === G - 2 && tg[2] === 1 ? ACK : 'ok') })
   return RM.runVisit({ dir, key, me: 'A', home: HOME, stood: [], record: rec, tidy: [], recordGen: pub.gen, palette: T.TIDY_PALETTE, slot: slot.slot, slotGen: slot.gen, domain: () => true, walkR: T.tidyWalkR(rec), clearMax: T.TIDY_CLEAR_MAX, stuckStalledOnly: true, ...extra }, e, { maxSteps: 400 })
 }
-await t('deferSpent: a cell whose attempts are spent is deferred and the visit goes on to the next pit (control: without it the visit ends)', () => noRetry(async () => {
+await t('deferSpent: a cell whose attempts are spent is deferred and the visit goes on to the next pit (control: without it the visit ends)', async () => {
   const a = twoPits()
   assert.ok(a.rec.segments.some(s => s.seg === 'T-01-0'), 'two groups')
   const r0 = await visit(R, a.srv, a.rec, {})
@@ -240,30 +241,26 @@ await t('deferSpent: a cell whose attempts are spent is deferred and the visit g
   assert.notStrictEqual(r1.stop, 'attempts_spent')
   assert.notStrictEqual(b.srv.read(-12, G - 2, 0).name, 'air', 'the far pit\'s bottom is laid in the same visit')
   assert.ok((r1.deferred ?? []).some(d => d.k === `9,${G - 2},1` && d.why === 'attempts_spent'), JSON.stringify(r1.deferred))
-}))
-// REBASE ONTO STUCKPROJ-01 (tidydead-01): the town tidy asks for BOTH (hardDefers behind TIDYDEAD, deferSpent behind GROUNDS);
-// tidydead's per-cell deferral is asked first, so the spent cell is deferred by it and the visit still goes on
-await t('deferSpent + hardDefers (the live tidy\'s two knobs): the spent cell is deferred and the far pit laid in the same visit', async () => {
-  const b = twoPits()
-  const r = await visit(R, b.srv, b.rec, { deferSpent: true, hardDefers: true })
-  assert.notStrictEqual(r.stop, 'attempts_spent')
-  assert.notStrictEqual(b.srv.read(-12, G - 2, 0).name, 'air', 'the far pit\'s bottom is laid in the same visit')
-  assert.ok((r.deferred ?? []).some(d => d.k === `9,${G - 2},1`), JSON.stringify(r.deferred))
-  // either branch alone carries it: with deferSpent's branch removed, hardDefers still defers the cell
-  await withMutant(BUILDRUN_PATH, 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', 'if (false) {', async RM => {
-    const c = twoPits()
-    const r2 = await visit(RM, c.srv, c.rec, { deferSpent: true, hardDefers: true })
-    assert.notStrictEqual(r2.stop, 'attempts_spent')
-    assert.ok((r2.deferred ?? []).some(d => d.k === `9,${G - 2},1`), JSON.stringify(r2.deferred))
-  })
 })
-await t('MUTANT KILLED: with the deferSpent branch removed, the same visit ends attempts_spent again', () => noRetry(async () => {
+await t('MUTANT KILLED: with the deferSpent branches removed (gkunblock-01\'s wider one too), the same visit ends attempts_spent again', async () => {
+  // gkunblock-01: the wider deferral after it also defers a spent segment -- the old branch alone removed still defers
   await withMutant(BUILDRUN_PATH, 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', 'if (false) {', async RM => {
     const b = twoPits()
     const r = await visit(RM, b.srv, b.rec, { deferSpent: true })
-    assert.strictEqual(r.stop, 'attempts_spent')
+    assert.notStrictEqual(r.stop, 'attempts_spent')
+    assert.ok((r.deferred ?? []).some(d => d.k === `9,${G - 2},1` && d.why === 'attempts_spent'), JSON.stringify(r.deferred))
   })
-}))
+  const src = readFileSync(BUILDRUN_PATH, 'utf8')
+  const a1 = 'if (p.deferSpent && !cand.length && open.length && open.every(c => isClear(c.at))) {', a2 = '          if (p.deferSpent && open.length && !needSapling) {'
+  assert.strictEqual(src.split(a1).length, 2); assert.strictEqual(src.split(a2).length, 2)
+  const out = new URL(`./_mutant-${process.pid}-both.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(a1, 'if (false) {').replace(a2, '          if (false) {').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const RM = await import(out.href)
+    const b = twoPits()
+    assert.strictEqual((await visit(RM, b.srv, b.rec, { deferSpent: true })).stop, 'attempts_spent')
+  } finally { try { unlinkSync(out) } catch {} }
+})
 await t('tidyKeepOrder: runVisit digs the tidy cuts in the caller\'s order (control: without it, highest first)', async () => {
   const run = async (RM, keep) => {
     const srv = server()
@@ -299,27 +296,6 @@ await t('keeperDecision: free + work -> take; mine -> mine; mine with no work ->
   assert.strictEqual(GKM.keeperDecision({ lease: null, me: 'A', now, restUntil: now + 1 }), 'none', 'a rested holder waits its turn')
   assert.strictEqual(GKM.keeperDecision({ lease: { gen: null, rec: null, released: false, holdsUntil: 0, blocksUntil: Infinity }, me: 'A', now }), 'other', 'unreadable: never two keepers')
 })
-// REBASE ONTO STUCKPROJ-01 (starve-01): shopActive reads `keeper = order !== list` and does not starve-mark that bot's states.
-// The contract it rests on: keeperOrderPure returns the caller's `list` ITSELF unless the bot works the grounds first.
-await t('starve-01 x keeper: the order is a NEW array only for the keeper or a crew bot on a grounds lap; that bot is never starve-sent, every other bot is', async () => {
-  const SH = await import('../src/shop.mjs')
-  const list = SH.PROJECTS
-  const NOW = 2_000_000_000, OLD = NOW - SH.STARVE_MS - 60_000
-  const st = list.map(p => ({ plot: p.plot, exists: ['shop', 'shaft', 'house1', 'monument', 'paths', 'tidy'].includes(p.plot), complete: ['shop', 'shaft', 'house1'].includes(p.plot), damaged: false }))
-  const starved = SH.starveMark(st, { lastTakeOf: plot => (plot === 'paths' || plot === 'tidy' ? OLD : NOW), now: NOW })
-  assert.strictEqual(starved.find(x => x.plot === 'paths').starved, true, 'positive control: the paths are starved')
-  assert.strictEqual(starved.find(x => x.plot === 'tidy').starved, undefined, 'the tidy is never starve-marked')
-  for (const [o, isNew] of [[{ d: 'mine' }, true], [{ d: 'mine', crew: true }, true], [{ d: 'other', crew: true, grounds: true }, true], [{ d: 'none', crew: true, grounds: true }, true],
-    [{ d: 'other' }, false], [{ d: 'none' }, false], [{ d: 'other', crew: true }, false], [{ d: 'take', crew: true, grounds: false }, false]]) {
-    assert.strictEqual(GKM.keeperOrderPure(st, list, o).order !== list, isNew, JSON.stringify(o))
-  }
-  const k = GKM.keeperOrderPure(st, list, { d: 'mine' })
-  assert.strictEqual(SH.activeProject(SH.starveMark(k.states, { lastTakeOf: plot => (plot === 'paths' ? OLD : NOW), now: NOW }), k.order).plot, 'paths', 'control: marked, the keeper would leave the grounds')
-  assert.strictEqual(SH.activeProject(k.states, k.order).plot, 'tidy', 'the keeper (unmarked) works the grounds')
-  const o = GKM.keeperOrderPure(st, list, { d: 'other' })
-  assert.strictEqual(SH.activeProject(SH.starveMark(o.states, { lastTakeOf: plot => (plot === 'paths' ? OLD : NOW), now: NOW }), o.order).plot, 'paths', 'another bot is starve-sent (its plain order: the monument)')
-  assert.strictEqual(SH.activeProject(o.states, o.order).plot, 'monument', 'control: unmarked, the order')
-})
 await t('keeperOrderPure: the keeper works the grounds first, once the workshop stands; another bot sees them full (control: no workshop, no change)', async () => {
   const list = [{ plot: 'shop' }, { plot: 'house1' }, { plot: 'tidy' }]
   const st = (shop, tidy) => [{ plot: 'shop', exists: true, complete: shop }, { plot: 'house1', exists: false, complete: false }, { plot: 'tidy', exists: true, complete: tidy, due: tidy }]
@@ -340,12 +316,13 @@ await t('termStart: a renewal carries the term on; a new holder starts one now',
   assert.strictEqual(GKM.termStart(L0('A', now - 900), 'A', now), now - 900)
   assert.strictEqual(GKM.termStart(L0('B', now - 900), 'A', now), now)
 })
-await t('the switch: GROUNDSKEEPER=off is off; unset follows the tidy (the showcase off unless named)', async () => {
+await t('the switch: GROUNDSKEEPER=off is off; unset follows the tidy (the showcase on since its groundskeeper release)', async () => {
   assert.strictEqual(GKM.gkOn({ GROUNDSKEEPER: 'off' }, 'board-a'), false)
   assert.strictEqual(GKM.gkOn({}, 'board-a'), true)
   assert.strictEqual(GKM.gkOn({}, ''), false, 'an unnamed pool (a test bot) keeps tidy-01\'s order')
   assert.strictEqual(GKM.gkOn({ GROUNDSKEEPER: 'on' }, ''), true)
-  assert.strictEqual(GKM.gkOn({}, 'showcase'), false)
+  assert.strictEqual(GKM.gkOn({}, 'showcase'), true)
+  assert.strictEqual(GKM.gkOn({ TIDY: 'off' }, 'showcase'), false)
   assert.strictEqual(GKM.gkOn({ TIDY_POOLS: 'showcase' }, 'showcase'), true)
   assert.strictEqual(LP.landOn({ LANDPLAN: 'off' }), false)
 })
@@ -361,16 +338,14 @@ await t('the keeper\'s order comes back in GK.cooldownMs; anyone else\'s tidy or
 console.log('WIRING (structural)')
 await t('buildTidy passes the keeper knobs to runVisit and sites stages; shopActive orders by the keeper; projectHeads reserves the corridors', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true \} : \{\}\)/.test(s), 'runVisit knobs')
-  assert.ok(/s = siteStage\(read, \{ \.\.\.I, land, stage: k,/.test(s), 'stage siting')
-  assert.ok(/const order = b \? keeperOrder\(b, waitedN, list, now\) : list\n/.test(s), 'the keeper order (buildnext-01: after the bot\'s scoped holds)')
-  // rebase onto stuckproj-01 (starve-01): the keeper is never starve-sent; the pick reads the keeper's order
-  assert.ok(/const keeper = order !== list\n/.test(s) && /const starve = starveOn\(\) && b && !keeper\n/.test(s), 'the keeper is not starve-sent')
-  assert.ok(/let pick = activeProject\(marked, order\)/.test(s), 'the pick reads the order')
-  assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land\) \} \}\)/.test(s), 'the reservation')
-  assert.ok(/const recs = projectHeads\(\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')
+  assert.ok(/\.\.\.\(GROUNDS\.on \? \{ tidyKeepOrder: true, deferSpent: true, replantGoOn: true, replantPerTree: true \} : \{\}\)/.test(s), 'runVisit knobs')   // plotprep-03: + the replant knobs
+  assert.ok(/s = await siteStage\(read, \{ home: I\.home, avoid: I\.avoid, cells: I\.cells, pin: I\.pin, plan: I\.plan, land, stage: k,/.test(s), 'stage siting')
+  // decorator-01: the decorator's order follows the keeper's
+  assert.ok(/const order00 = b \? keeperOrder\(b, marked, list, now\) : list\n\s*const order0 = b \? decorOrder\(b, marked, order00, now\) : order00\n\s*const order = sinkListOrder\(order0, activeMem\.sinkOrder \?\? \[\]\)\n(?:\s*\/\/[^\n]*\n)*\s*const sinkTurn = [^\n]*\n\s*const pick = activeProject\(marked, order, /.test(s), 'the keeper order (picker-01: the sinks sorted after it)')
+  assert.ok(/if \(land\) out\.push\(\{ plot: LAND_PLOT, key: projKeyOf\(LAND_PLOT\), head: \{ rec: landReservation\(land, ext\) \} \}\)/.test(s), 'the reservation')
+  assert.ok(/const recs = projectHeads\(report\)\.filter\(x => x\.plot !== LAND_PLOT\)/.test(s), 'the tidy never refuses its own corridors')   // (fillcolumn-01 r5: the report handed down)
   const sh = strip(readFileSync(SHOP_PATH, 'utf8'))
-  assert.ok(/builders: GROUNDS\.on \? gkfBuilders\(gkfOn\('crew'\)\) : TIDY_BUILDERS/.test(sh), 'the keeper (gkforever-01: and its crew, GKF_CREW=0 the keeper alone)')
+  assert.ok(/builders: GROUNDS\.on \? 1 \+ Math\.max\(GK\.helpersMax, GK\.helpersBig \?\? 0\) : TIDY_BUILDERS/.test(sh), 'gkhelpers-01: the keeper and its helpers (gkcrew4-01: the big cap)')
   assert.ok(/< orderCooldown\(plot0\)\) return \{ order: null, skip: null \}/.test(sh), 'the order cooldown')
 })
 await t('the wall opens a gateway where a land road crosses (wall.mjs); landReservation\'s zones say land:road', async () => {
@@ -384,6 +359,66 @@ await t('the wall opens a gateway where a land road crosses (wall.mjs); landRese
 await t('the land plan is no-op for the paths default: routeLeg with no `from` and no `h` keeps its answer (paths\' own siting)', async () => {
   const src = strip(readFileSync(LAND_PATH, 'utf8'))
   assert.ok(src.includes('routeLeg(grid, src, tg, { maxPops: pops, from, h })'))
+})
+
+console.log('THE SHOWCASE: an unsited copper hall\'s pad is reserved (11-03 offline: the ring road crossed it)')
+const CH = await import('../src/copperhall.mjs')
+const hallPlan = () => ({ ...PLAN(), plots: [...PLAN().plots.filter(p => p.sector !== 'SW'), { id: 'hall', kind: 'hall', sector: 'SW' }] })
+const hallBp = { footprint: { u: 15, v: 13 } }
+await t('hallPadZone: the pad (hallAnchor + hallBox) + HALL_DOMAIN; no hall plot in SW -> null', async () => {
+  const z = CH.hallPadZone(hallPlan(), hallBp)
+  const r = CH.HALL_DOMAIN
+  assert.deepStrictEqual(z.box, [HOME.x - 21 - r, -64, HOME.z + 21 - r, HOME.x - 7 + r, 320, HOME.z + 33 + r])
+  assert.strictEqual(z.why, 'project:hall')
+  assert.strictEqual(CH.hallPadZone(PLAN(), hallBp), null)
+})
+await t('the land plan routes round the reserved pad (control: unreserved, the ring road crosses it)', async () => {
+  const z = CH.hallPadZone(hallPlan(), hallBp), b = z.box
+  const inPad = (x, zz) => x >= b[0] && x <= b[3] && zz >= b[2] && zz <= b[5]
+  const plan = async (guard) => { const srv = server(); return (await LP.planLand(srv.read, { home: HOME, plan: hallPlan(), seed: LP.landSeed('flat', HOME), limOf: n => T.gradeLim(srv.read, n), L: SMALL, ...(guard ? { avoid: (x, zz) => (inPad(x, zz) ? 'project:hall' : null), reserved: (x, zz) => (inPad(x, zz) ? 'project:hall' : null) } : {}) })).plan }
+  const open = await plan(false)
+  const crossed = open.roads.flatMap(r => r.cols).filter(([x, zz]) => inPad(x, zz)).length
+  assert.ok(crossed > 0, `the control: the unguarded plan must cross the pad (it crossed ${crossed} columns)`)
+  const kept = await plan(true)
+  const at = LP.corridorAt(kept)
+  assert.strictEqual(kept.roads.flatMap(r => r.cols).filter(([x, zz]) => inPad(x, zz)).length, 0, 'no road column on the pad')
+  let hit = 0
+  for (let x = b[0] + 1; x <= b[3] - 1; x++) for (let zz = b[2] + 1; zz <= b[5] - 1; zz++) if (at(x, zz)) hit++
+  assert.strictEqual(hit, 0, 'no corridor inside the pad (the hall\'s siting refuses a corridor zone)')
+})
+await t('wiring: the land plan and the tidy reserve the pad while the hall is on and unsited; a sited hall\'s record guards it', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/const hz = \[\.\.\.hallPadZones\(P\.plan\), [^\n]*\]\n\s*const rz = \[\.\.\.recordZones\(recs\), \.\.\.hz\]/.test(s), 'landInputs reserved')
+  assert.ok(/avoid: tidyAvoid\(avoid, hz\), reserved,/.test(s), 'landInputs avoid')
+  // siteprep-01: the keeper's own request's zone is dropped from its grading's avoid (the one `prepExcept`)
+  assert.ok(/records: recs, home, report \}\), \[\.\.\.recordZones\(recs, undefined, report\)\.filter\(z => !\(prepExcept && z\?\.id === prepExcept\)\), \.\.\.hallPadZones\(P\.plan, report\)[^\n]*\], report\)\n/.test(s), 'tidyInputs avoid')   // (fillcolumn-01 r5: the report handed down)
+  assert.ok(/if \(projectHeads\(\)\.some\(x => x\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'a sited hall: its record')
+  assert.ok(/if \(!projectsOn\(\)\.some\(p => p\.plot === HALL_PLOT\)\) return \[\]/.test(s), 'the hall off: nothing')
+})
+
+console.log('THE SHOWCASE: the expedition markers are reserved (Codex + Claude r1 BLOCKER: a marker is a pillar to the band survey)')
+const EX = await import('../src/expedition.mjs')
+await t('a marker (2 cobblestone + a torch) in a band is never cut when its zone is in the avoid (control: unguarded, the survey cuts it)', async () => {
+  const srv = server()
+  const m = { at: [HOME.x + 26, G + 1, HOME.z + 4] }
+  col(srv, m.at[0], m.at[2], G + 1, G + 2, 'cobblestone'); srv.set([m.at[0], G + 3, m.at[2]], 'torch')
+  const keys = new Set(EX.markerCellKeys([m]))
+  const open = T.surveyTidy(srv.read, { home: HOME, r: 32, rMin: 20 })
+  assert.ok(open.cut.some(c => keys.has(c.at.join(','))), `the control: unguarded, the marker is a pillar (${JSON.stringify(open.cut.map(c => c.at))})`)
+  const kept = T.surveyTidy(srv.read, { home: HOME, r: 32, rMin: 20, avoid: T.tidyAvoid(() => null, EX.markerZones([m])) })
+  assert.ok(!kept.cut.some(c => keys.has(c.at.join(','))), 'guarded: the marker stands')
+  assert.deepStrictEqual(EX.markerZones([m])[0].box, [m.at[0] - 1, -64, m.at[2] - 1, m.at[0] + 1, 320, m.at[2] + 1])
+  assert.deepStrictEqual([...keys], [0, 1, 2].map(dy => `${m.at[0]},${m.at[1] + dy},${m.at[2]}`))
+  assert.deepStrictEqual(EX.markerZones([{ at: null }, { at: [1, 2] }]), [], 'a malformed marker line is skipped')
+})
+await t('wiring: the tidy, the land plan and the tidy visit\'s dig guard read the town\'s markers', async () => {
+  const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.ok(/\.\.\.hallPadZones\(P\.plan, report\), \.\.\.townMarkerZones\(report\)\], report\)/.test(s), 'tidyInputs avoid (fillcolumn-01 r5: with the report handed down)')
+  assert.ok(/const hz = \[\.\.\.hallPadZones\(P\.plan\), \.\.\.townMarkerZones\(\)\]/.test(s), 'landInputs')
+  assert.ok(/for \(const k of markerCellKeys\(exMarkers\(\)\)\) guard\.add\(k\)/.test(s), 'the dig-time guard')
+  // bridgepost-01: the bridges' footprints join the markers, each read in its own try (never throws)
+  // (fillcolumn-01 r5: each try's catch now also says into the optional report that its zones were left out)
+  assert.ok(/function townMarkerZones \(report = null\) \{\s*let z = \[\]\s*try \{ z = markerZones\(exMarkers\(report\), 1, report\) \} catch \{ report\?\.push\(\{[^}]*\}\); z = \[\] \}\s*try \{ z = \[\.\.\.z, \.\.\.bridgeZones\(exBridgeSites\(report\), 1, report\)\] \} catch \{ report\?\.push\(\{[^}]*\}\) \}\s*return z\s*\}/.test(s), 'never throws')
 })
 
 // GKSTALL-01 (LIVE showcase 11-03: stage 0 held 1 h 40 min on one pit cell, waived on the 5th deferring visit, each visit ~30 min
@@ -409,12 +444,18 @@ await t('gkstall-01: a fill no stand reaches is waived on its 2nd deferring visi
   })
 })
 await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells, never below the wall cap); the stop after a waiver', async () => {
-  assert.strictEqual(T.gkWaiveOpts({ cells: new Array(75) }, 12).max, 12)
-  assert.strictEqual(T.gkWaiveOpts({ cells: new Array(900) }, 12).max, 90)
+  assert.strictEqual(T.gkWaiveOpts({ cells: Array.from({ length: 75 }, () => ({})) }, 12).max, 12)
+  assert.strictEqual(T.gkWaiveOpts({ cells: Array.from({ length: 900 }, () => ({})) }, 12).max, 90)
+  assert.strictEqual(T.gkWaiveOpts({ cells: [...Array.from({ length: 300 }, () => ({})), ...Array.from({ length: 3000 }, () => ({ prev: true }))] }, 12).max, 30, 'carried prev cells buy no room')
   const many = { cells: Array.from({ length: 300 }, (_, i) => ({ at: [i, 66, 0], role: 'earth', seg: 'R' })) }
   const d = many.cells.slice(0, 20).map(c => ({ k: c.at.join(','), why: 'no_stand', visits: 2 }))
   assert.strictEqual(W.wallWaiveDue(many, d, T.gkWaiveOpts(many, 12)).length, 20, 'a road stage waives 20 of 300 (cap 30)')
   assert.strictEqual(W.wallWaiveDue(many, d, { after: 2 }).length, 12, 'control: the wall cap alone stops at 12')
+  // Codex fold r1 BLOCKER: a cave seal (a cell with an opener) and a carried prev cell are never waived; a plain fill is
+  const sealRec = { cells: [{ at: [1, 60, 1], role: 'core', seg: 'S', opener: [1, 61, 1] }, { at: [2, 66, 2], role: 'earth', seg: 'T' }, { at: [3, 66, 3], role: 'earth', seg: 'P', prev: true }] }
+  const dd = ['1,60,1', '2,66,2', '3,66,3'].map(k => ({ k, why: 'no_stand', visits: 2 }))
+  assert.deepStrictEqual(W.wallWaiveDue(sealRec, T.gkWaivable(sealRec, dd), T.gkWaiveOpts(sealRec, 12)), [{ k: '2,66,2', why: 'no_stand' }])
+  assert.strictEqual(W.wallWaiveDue(sealRec, dd, T.gkWaiveOpts(sealRec, 12)).length, 3, 'control: unfiltered, the seal would be waived')
   assert.strictEqual(T.gkStopAfterWaive('stuck_on_cell', 1), 'cell_waived')
   assert.strictEqual(T.gkStopAfterWaive('cell_deferred', 2), 'cell_waived')
   assert.strictEqual(T.gkStopAfterWaive('stuck_on_cell', 0), 'stuck_on_cell', 'nothing waived: the back-off stands')
@@ -422,10 +463,10 @@ await t('gkstall-01: the waiver room scales with the stage (a tenth of its cells
 })
 await t('wiring (gkstall-01): the tidy visit waives with gkWaiveOpts, reports the mapped stop, and a stuck keeper lets the lease go', async () => {
   const s = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  assert.ok(/const waive0 = wallWaiveDue\(rec, r\.deferred \?\? \[\], GROUNDS\.on \? gkWaiveOpts\(rec, WALL_WAIVE_MAX\) : \{\}\)/.test(s), 'the tidy waiver options')
+  assert.ok(/const waive0 = !caps\.waive \? \[\] : GROUNDS\.on \? wallWaiveDue\(rec, gkWaivable\(rec, r\.deferred \?\? \[\]\), gkWaiveOpts\(rec, WALL_WAIVE_MAX\)\) : wallWaiveDue\(rec, r\.deferred \?\? \[\]\)/.test(s), 'the tidy waiver options')
   assert.ok(/const stop1 = GROUNDS\.on \? gkStopAfterWaive\(r\.stop, waivedN\) : r\.stop/.test(s), 'the mapped stop')
   assert.ok(/return out\(status, completed \? 'complete' : stop1,/.test(s), 'the visit reports it')
-  assert.ok(/if \(GROUNDS\.on && stop1 === 'stuck_on_cell'\) \{ try \{ const k = keeperState\(bot, true\); if \(k\.lease\?\.rec\?\.holder === me\) \{ releaseKeeper\(bot, k\.lease, 'stuck'\)/.test(s), 'the stuck keeper releases')
+  assert.ok(/if \(GROUNDS\.on && role === 'keeper' && stop1 === 'stuck_on_cell'\) \{ try \{ const k = keeperState\(bot, true\); if \(k\.lease\?\.rec\?\.holder === me\) \{ releaseKeeper\(bot, k\.lease, 'stuck'\)/.test(s), 'the stuck keeper releases')
 })
 
 // YARDZONE-01 (LIVE showcase 11-03: the yard sited before any land plan took W; the plan offline seeded W the tree farm zone)

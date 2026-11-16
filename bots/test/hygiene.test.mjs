@@ -223,7 +223,11 @@ await t('WIRING (source, comments stripped): the order precedes planting, is coo
   assert.match(cog.slice(order - 500, order), /WEAR_OUT_COOLDOWN_MS/)
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.match(sk, /e\.name === 'item' && !refused\.has\(e\.id\) && !neverPickUp\(e\)/)
-  assert.ok(!/\.tossStack\(|bot\.toss\(/.test(sk), 'no skill tosses items')
+  // villagefeed-01 (owner: bread for the villagers so they breed): the ONE toss is village_feed's loaf to a villager, credited by its
+  // pickup packet -- every other skill still tosses nothing
+  const tosses = sk.match(/\.tossStack\(|bot\.toss\(/g) ?? []
+  assert.strictEqual(tosses.length, 1, 'no skill tosses items but village_feed\'s one loaf')
+  assert.strictEqual(sk.split('await bot.toss(loaf.type, null, 1)').length, 2, 'the one toss is the loaf (one bread, to a villager)')
   assert.match(cog, /admitted\.skill === 'wear_out'\) this\.wearOutBackoffUntil = r\.status === 'failed'/, 'a failed wear-out backs off')
   assert.match(cog, /!isHousekeeping\(admitted\?\.skill\) && this\.milestones\.noteAttempt\(/, 'wear-out is not a milestone attempt')
   assert.match(cog, /if \(!isHousekeeping\(admitted\.skill\)\) this\.lessons\.recordSuccess\(/, 'wear-out never becomes a reliable choice')

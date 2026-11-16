@@ -382,7 +382,7 @@ await t('SPARE THE PLUGS (pure): bearings whose first step digs a placed plug ar
 const DIRT_BAG = () => [{ name: 'dirt', count: 32, type: reg.itemsByName.dirt.id }, COBBLE(64)]
 // `stuck: true`: a body that cannot swim up (rise 0), so the licensed surfacing fails and the plans read the submerged
 // exemption -- the case where sparing is what keeps the plug (Paper probe 3, before r5's surfacing)
-const sinker = ({ stuck = false } = {}) => botFor(ISOC, { items: DIRT_BAG(), ...(stuck ? { rise: 0 } : {}), onDig: (k, w, b) => { popSapling(k, w); if (k === '0,2,0') b.entity.position = new Vec3(0.5, -0.9, 0.5) } })
+const sinker = ({ stuck = false, items = DIRT_BAG() } = {}) => botFor(ISOC, { items, ...(stuck ? { rise: 0 } : {}), onDig: (k, w, b) => { popSapling(k, w); if (k === '0,2,0') b.entity.position = new Vec3(0.5, -0.9, 0.5) } })
 await t('SUBMERGED AFTER THE CUT (Paper probe 3): the ramp does not dig the ceiling\'s plug back out; it takes a bearing that spares it', async () => {
   const bot = sinker({ stuck: true })
   await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
@@ -914,8 +914,15 @@ await t('MUTANT KILLED: surfacing off -> the licensed sunk bot plans under the e
 })
 
 await t('MUTANT KILLED: no plug sparing -> the submerged bot digs the ceiling\'s plug out first (N, top down)', async () => {
+  // landprev-01show (owner 11-15, "cobblestone before dirt"): with 64 cobblestone held the plug is now cobblestone, and the
+  // unspared chooser no longer reaches it first; this case is the DIRT plug the test was written for, so the bag holds only
+  // the pickaxe's keep of cobblestone (SCAFFOLD_PICK_KEEP) and the escape places dirt, as it did with any bag before
+  const dirtPlugBag = () => [{ name: 'dirt', count: 32, type: reg.itemsByName.dirt.id }, COBBLE(3)]
+  const real = sinker({ stuck: true, items: dirtPlugBag() })
+  await ramp(real, { plug: true, budgetMs: PC.PLUG_BUDGET_MS })
+  assert.ok(!real.digs.some(d => d.cell === '0,2,-1') && real.places.some(p => p.ok && p.cell === '0,2,-1'), `POSITIVE CONTROL, real code with a dirt plug: placed and spared (${real.digs.map(d => d.cell)})`)
   await withMutant(REFLEX_PATH, '      if (!plug) return any()\n', '      return any()\n', async m => {
-    const bot = sinker({ stuck: true })
+    const bot = sinker({ stuck: true, items: dirtPlugBag() })
     await ramp(bot, { plug: true, budgetMs: PC.PLUG_BUDGET_MS }, m)
     assert.ok(bot.digs.some(d => d.cell === '0,2,-1'), `the mutant did not change behaviour: ${bot.digs.map(d => d.cell)}`)
   })

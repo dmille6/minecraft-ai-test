@@ -34,7 +34,8 @@ async function visits (pr, srv, { res = null, max = 8, steps = 2000 } = {}) {
 
 console.log('MUTANTS OF THE REPLANT CHAIN (anchored, unique; both ways)')
 await t('MUTANT the move dropped (the old stop): the visit stops no_step and nothing moves', () => both(
-  "if (!step || step.support[1] !== r.cell[1] - 1) return replantRemedy(r, nodes, 'no_step')",
+  // plotprep-03: the remedy goes through `remedy` (a groundskeeper visit goes on after it; every other build returns it)
+  "if (!step || step.support[1] !== r.cell[1] - 1) { const o = remedy(r, nodes, 'no_step'); if (o) return o; continue }",
   "if (!step || step.support[1] !== r.cell[1] - 1) { out.stop = 'no_step'; return out }", async M => {
     const f = floatingReplant(), srv = server({ [k3(f.at)]: 'oak_log' }), pr = project(f.record)
     const h = PJ.recordHead(pr.dir, pr.key)

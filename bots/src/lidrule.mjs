@@ -83,20 +83,9 @@ export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate|dirt|grass_block)$
  */
 export const LID_WOOD = /^(stripped_)?[a-z_]+_(log|wood|stem|hyphae)$|^[a-z_]+_planks$|^bamboo_(block|mosaic)$|^stripped_bamboo_block$/
 /**
- * LIDGROUND-01 (owner 11-14: bags near an all-time high): THE GROUND FAMILY, WHEN NO BUILD RECORD OWNS THE CELL. The
- * `_lid_clear` row named the next blocker again. Measured 11-14 (files, 6 h, 80 bots, 520,885 rows): `count_town` 1,137 runs,
- * 6 counted anything; 1,062 ended `lid_blocked`. `_lid_clear` 1,889 `outcome=refused ... is not a block a bot may break off
- * a lid` on 14 chests in 9 towns, lids tuff (5 chests), stone (3), granite (2), diorite, dripstone_block, gravel, sand (2),
- * and one ladder. Nine towns (board-c/d, hive-c/d, isolated-a/b, placebo-b/c/d) never finish a count, so cobblecap.mjs and
- * the stock targets call their stock UNKNOWN and the deposit banks nothing: of 379 `town_deposit` visits that banked nothing,
- * 248 left the bag for an unknown count (logs, planks, cobble), and 40 of 80 bots sat at 34+ slots.
- * The permission is lidplank-01's: the RECORD, not the material. Natural ground on a town chest (a chest set down in a
- * dug-out bank, a stray block from a tunnel) comes off when the caller has READ every build record and none holds the cell;
- * a record cell, or records that could not be read, keep the refusal as wood does. Only kinds the world generates as
- * terrain -- nothing a bot crafts to build with (no bricks, no polished or smooth kinds, no sandstone). The hazards of
- * lidClearRefusal are unchanged: water or lava beside, a falling block ABOVE the lid, the junk well's cells.
- * Not covered, named so the next read can see it: the ladder (hive-d 68,64,68; the server does not block on one, the bot's
- * own lid test does) and sand under sand. Switch: LIDGROUND=off.
+ * MAY THIS MATERIAL COME OFF A LID? -> null (yes) or the reason. Pure.
+ *   record  false: every build record was read and none holds the lid cell; a string: the record that holds it
+ *           ('townplan', 'workshop', 'treefarm'); anything else: unknown (not read) -- refused as before
  */
 export const LID_GROUND = /^(stone|granite|diorite|andesite|tuff|deepslate|calcite|dripstone_block|gravel|sand|red_sand)$/
 export const lidGroundOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.LIDGROUND ?? '').trim())
@@ -108,9 +97,9 @@ export const lidRecordGated = (name, { ground = lidGroundOn() } = {}) =>
  *   record  false: every build record was read and none holds the lid cell; a string: the record that holds it
  *           ('townplan', 'workshop', 'treefarm'); anything else: unknown (not read) -- refused as before
  */
-export function lidMaterialRefusal (name, { record, ground = lidGroundOn() } = {}) {
+export function lidMaterialRefusal (name, { record } = {}) {
   if (LID_BREAKABLE.test(name)) return null
-  if (!LID_WOOD.test(name) && !(ground && LID_GROUND.test(name))) return `${name} is not a block a bot may break off a lid`
+  if (!LID_WOOD.test(name)) return `${name} is not a block a bot may break off a lid`
   if (record === false) return null
   if (typeof record === 'string' && record) return `${name} is part of the ${record} record`
   return `${name} is not a block a bot may break off a lid (the build records were not read)`

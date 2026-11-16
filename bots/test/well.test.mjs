@@ -2630,7 +2630,8 @@ await t('MUTANT: a free step cost lets the planner stand on the cap', async () =
   })
 })
 await t('MUTANT: the trigger below 34 disposes from a roomy bag', async () => {
-  await withMutant(WP, '          slots >= TRIGGER_SLOTS && junkStacks > 0', '          slots >= 0 && junkStacks > 0', async m => {
+  // bagroom-01 re-anchored: the trigger is now `(slots >= TRIGGER_SLOTS || wellRoomDue(...)) && junkStacks > 0`
+  await withMutant(WP, '(slots >= TRIGGER_SLOTS || wellRoomDue', '(slots >= 0 || wellRoomDue', async m => {
     assert.equal(m.wellOrder({ now: NOW, distHome: 5, well: well0, slots: 10, freeSlots: 26, junkStacks: 1 }).order?.skill, 'dispose_well', 'mutant inert')
   })
 })
@@ -2660,7 +2661,8 @@ await t('MUTANT (skills): without the reserve re-check at the click, a reserve s
   })
 })
 await t('MUTANT: cobble below the bot\'s 64 at the cap (no reserve in cobbleWellStacks)', async () => {
-  await withMutant(WP, '    if (left - it.count < COBBLE_WELL_RESERVE) break\n', '', async m => {
+  // yarduse-01: the reserve is `keep` (never below COBBLE_WELL_RESERVE: the yard's share may raise it)
+  await withMutant(WP, '    if (left - it.count < keep) break\n', '', async m => {
     assert.equal(m.cobbleWellStacks([{ name: 'cobblestone', count: 64, slot: 9 }]).length, 1, 'mutant inert')
   })
 })

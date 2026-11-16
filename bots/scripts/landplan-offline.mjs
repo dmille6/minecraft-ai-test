@@ -19,7 +19,10 @@ import { recordHead } from '../src/buildproj.mjs'
 import * as P from '../src/paths.mjs'
 import * as T from '../src/tidy.mjs'
 import * as LP from '../src/landplan.mjs'
+import * as TR from '../src/terrace.mjs'
 import { recordZones } from '../src/shop.mjs'
+import { hallPadZone, HALL_BLUEPRINT, HALL_PLOT } from '../src/copperhall.mjs'
+import { markerZones } from '../src/expedition.mjs'
 
 const argv = process.argv.slice(2)
 const opt = (k, d = null) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d }
@@ -55,16 +58,21 @@ const composter = cs && [cs.x, cs.y, cs.z].every(Number.isFinite) ? [cs.x, cs.y,
 // cross a laid path (a junction), never another project
 const recs = all.filter(p => p.plot !== T.TIDY_PLOT).map(p => p.rec)
 const noPaths = recs.filter(r => r.blueprint !== P.PATHS_BLUEPRINT)
-const avoidT = T.tidyAvoid(P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: recs, home }), recordZones(recs))
+// an UNSITED copper hall's pad (skills.mjs hallPadZones; the showcase's hall waits for copper with no record) is reserved too
+const hz = all.some(p => p.plot === HALL_PLOT) || argv.includes('--no-hall') ? [] : [hallPadZone(plan, loadBlueprint(HALL_BLUEPRINT))].filter(Boolean)
+// ...and the town's expedition markers (skills.mjs townMarkerZones; --no-markers is the control)
+const mFile = path.join(poolDir, `expedition-${hk}.markers.jsonl`)
+if (!argv.includes('--no-markers') && fs.existsSync(mFile)) hz.push(...markerZones(fs.readFileSync(mFile, 'utf8').split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(m => m && !m.gone)))
+const avoidT = T.tidyAvoid(P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: recs, home }), [...recordZones(recs), ...hz])
 const cells = new Set(recs.flatMap(q => (q.cells ?? []).map(c => c.at.join(','))))
 const projects = all.filter(p => p.plot !== P.PATHS_PLOT && p.plot !== T.TIDY_PLOT)
 const pin = { plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, projects, place: placeBlueprint }
-const roadAvoid = P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: noPaths, home })
-const rz = recordZones(noPaths)
+const roadAvoid = T.tidyAvoid(P.pathAvoid({ plan, zones: R.zones, caps, plinth: R.wells, composter, farm: R.farm, records: noPaths, home }), hz)
+const rz = [...recordZones(noPaths), ...hz]
 const reserved = (x, z) => { for (const zb of rz) { const b = zb.box; if (x >= b[0] && x <= b[3] && z >= b[2] && z <= b[5]) return zb.why } return null }
 const seed = LP.landSeed(pool, home)
 let t0 = Date.now()
-const L = await LP.planLand(read0, { home, plan, seed, avoid: roadAvoid, reserved, limOf: n => T.gradeLim(read0, n), caps, composter, sited: LP.sitedSectors?.(home, noPaths) ?? [] })
+const L = await LP.planLand(read0, { home, plan, seed, avoid: roadAvoid, reserved, limOf: n => T.gradeLim(read0, n, T.tidyWater(), { waterOk: (() => { let f = null; return (x, z) => { if (roadAvoid(x, z) || reserved(x, z)) return false; f ??= TR.farmGuardOf(read0, [home.x - 82, home.z - 82, home.x + 82, home.z + 82], home); return !f(x, z) } })() }), caps, composter, sited: LP.sitedSectors?.(home, noPaths) ?? [] })
 const planMs = Date.now() - t0
 const land = L.plan
 // THE MEASURE: from the plaza's edge (the core box's outer ring), over home +- 80
@@ -94,10 +102,13 @@ const stages = []
 const lastK = LP.landStages().at(-1).k
 for (let k = 0; k <= Math.min(lastK, Number(opt('stages', lastK))); k++) {
   t0 = Date.now()
-  const s = T.siteStage(cur, { home, land, stage: k, avoid: avoidT, cells, plan, pin: k === 0 ? pin : null, lim: T.gradeLim(cur, 6), lights: 8, now: 0, walkFrom: argv.includes('--no-guard') ? null : T.townEdge(plan, home) })
+  // outbands-01: the stages after the terrace read the wall, the extension and the records (skills.mjs tidyInputs: the walls'
+  // insides, the yard's and the tree farm's no-litter boxes); the terrace stage itself is async and off here, as before
+  const terrace = LP.stageOf(k).id === TR.TERRACE_STAGE ? null : { records: recs, wall: recs.find(r => r.plot === 'wall') ?? null, wallext: recs.find(r => r.plot === 'wallext') ?? null }
+  const s = await T.siteStage(cur, { home, land, stage: k, avoid: avoidT, cells, plan, pin: k === 0 ? pin : null, lim: T.gradeLim(cur, 6), lights: 8, now: 0, walkFrom: argv.includes('--no-guard') ? null : T.townEdge(plan, home), terrace })
   const ms = Date.now() - t0
   const rec = s.record
-  stages.push({ k, id: LP.stageOf(k).id, ms, why: s.why, cut: rec?.cut.length ?? 0, fill: rec ? rec.cells.filter(c => c.role !== 'light').length : 0, clear: rec?.clear.length ?? 0, replant: rec?.replant?.length ?? 0, lights: rec ? rec.cells.filter(c => c.role === 'light').length : 0, road: rec?.road ?? null, pillars: rec?.pillars ?? 0, pits: rec?.pits ?? 0 })
+  stages.push({ k, id: LP.stageOf(k).id, ms, why: s.why, cut: rec?.cut.length ?? 0, fill: rec ? rec.cells.filter(c => c.role !== 'light').length : 0, clear: rec?.clear.length ?? 0, replant: rec?.replant?.length ?? 0, lights: rec ? rec.cells.filter(c => c.role === 'light').length : 0, road: rec?.road ?? null, pillars: rec?.pillars ?? 0, pits: rec?.pits ?? 0, band: rec?.band ?? null })
   if (rec) cur = T.tidyOverlay(cur, { ...rec, cells: rec.cells.filter(c => c.role !== 'light') })
   if (argv.includes('--per-stage')) stages.at(-1).after = (await measure(cur)).roadReached
 }

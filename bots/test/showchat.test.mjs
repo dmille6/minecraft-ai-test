@@ -292,5 +292,71 @@ await t('STRUCTURAL: installFeatures calls installShowchat on its executable pat
   assert.equal((src.match(/try \{ installShowchat\(bot\) \} catch/g) ?? []).length, 1)
 })
 
+// ---- chatfix-01 (11-03): the plural bug and the repeated stuck lines ------------------------------------------------------
+await t('CHATFIX PLURAL: an already-plural name is kept ("44 stone bricks", never "brickses"); es / ies / s otherwise', () => {
+  assert.equal(itemPhrase('stone_bricks', 44), '44 stone bricks')
+  assert.equal(itemPhrase('oak_planks', 32), '32 oak planks'); assert.equal(itemPhrase('iron_bars', 8), '8 iron bars')
+  assert.equal(itemPhrase('wheat_seeds', 5), '5 wheat seeds'); assert.equal(itemPhrase('spruce_leaves', 9), '9 spruce leaves')
+  assert.equal(itemPhrase('torch', 6), '6 torches'); assert.equal(itemPhrase('poppy', 3), '3 poppies'); assert.equal(itemPhrase('shulker_box', 2), '2 shulker boxes')
+  assert.equal(itemPhrase('spruce_log', 16), '16 spruce logs', 'POSITIVE: a plain noun still takes s')
+  assert.equal(itemPhrase('glass', 4), '4 glass')
+  // the real 11-03 18:09Z line
+  const r = rec('_town_deposit', 'slots 34->30 stacks 4/4 clicked 4 bagdelta 55 tools - logs banked 0 kept 31 keep 16 banked stone_bricks:44,raw_iron:11 stop done')
+  assert.equal(lineFor(r).text, 'Stored 44 stone bricks and 11 raw iron in the town chests.')
+})
+// the 16 `_needs_rescue` rows of 11-03 (showcase skill logs, all bots; time, bot, x, y, z, guard record)
+const STUCK_1103 = [
+  ['00:21:53', 'Gale', -48, 67, -31, 'monument'], ['00:39:52', 'Comet', -28, 67, -28, 'monument'], ['09:08:51', 'Comet', 28, 70, 30, 'workshop'],
+  ['11:48:11', 'Juno', 24, 35, -26, 'shaft'], ['16:09:46', 'Bravo', 26, 64, -26, 'shaft'], ['16:10:07', 'Delta', -37, 67, -8, 'house1'],
+  ['17:05:06', 'Iris', 26, 23, -25, 'shaft'], ['18:08:03', 'Haven', 24, 42, -27, 'shaft'], ['18:30:27', 'Iris', -36, 67, -2, 'house1'],
+  ['19:13:05', 'Gale', 26, 33, -26, 'shaft'], ['19:17:19', 'Gale', 25, 36, -25, 'shaft'], ['19:19:08', 'Alpha', 25, 37, -24, 'shaft'],
+  ['19:22:42', 'Juno', 25, 36, -25, 'shaft'], ['19:45:21', 'Iris', 26, 23, -25, 'shaft'], ['20:15:01', 'Echo', 26, 31, -25, 'shaft'],
+  ['20:40:15', 'Gale', 26, 32, -27, 'shaft'],
+]
+const stuckRec = ([hms, b, x, y, z, record]) => ({ '@timestamp': `2026-11-03T${hms}.000Z`, bot: { name: `showcase-${b}`, pos: { x, y, z } },
+  skill: { name: '_needs_rescue', status: 'failed', detail: `arm=escape_guard at=${x},${y},${z} block=${x},${y + 2},${z} guard=record record=${record} -- every escape dig here has crossed a guarded cell for 2 min` } })
+const replayStuck = (mod) => {
+  const dir = freshDir(), clock = { t: 0, later: [] }, sp = {}, said = []
+  for (const row of STUCK_1103) {
+    const name = `showcase-${row[1]}`
+    clock.t = Date.parse(`2026-11-03T${row[0]}.000Z`)
+    sp[name] ??= mkSpeaker(mod, name, dir, clock)
+    const n = sp[name].said.length
+    sp[name].sp.onRecord(stuckRec(row))
+    if (sp[name].said.length > n) said.push([row[0], sp[name].said.at(-1)])
+  }
+  return said
+}
+await t('CHATFIX STUCK: replaying 11-03\'s 16 stuck rows -- one line per stuck PLACE per 3 h town-wide (the shaft 3, not 11); every other place still spoken', () => {
+  const said = replayStuck(SC)
+  const shaft = said.filter(([, x]) => /in the mineshaft/.test(x))
+  assert.deepEqual(shaft.map(([h]) => h), ['11:48:11', '16:09:46', '19:13:05'], JSON.stringify(said))
+  // POSITIVE: the places that are NOT the shaft each spoke once (house1's two rows are 6 blocks and 2 h 20 apart: one place)
+  assert.deepEqual(said.filter(([, x]) => !/mineshaft/.test(x)).map(([h]) => h), ['00:21:53', '00:39:52', '09:08:51', '16:10:07'])
+  assert.equal(said[0][1], "I'm stuck in the ziggurat at -48, 67, -31. Working my way out.")
+  assert.equal(said[2][1], "I'm stuck in the workshop at 28, 70, 30. Working my way out.")
+  assert.equal(said.length, 7)
+})
+await t('CHATFIX STUCK: a stuck row with no project record reads as before; far apart places are separate; after 3 h again', () => {
+  assert.equal(lineFor(CASES[10][0]).text, "I'm stuck at -36, 70, -5. Working my way out.")
+  const now = 1e12, c = lineFor(stuckRec(['10:00:00', 'Alpha', 100, 60, 100, 'shaft']))
+  const prior = (p, ago = 3600_000, cat = 'stuck') => [{ t: now - ago, bot: 'showcase-Bravo', key: 'k', tier: 2, c: cat, p }]
+  assert.equal(decide(prior([112, 88]), c, 'showcase-Alpha', now).why, 'dedupe_near')
+  assert.equal(decide(prior([113, 100]), c, 'showcase-Alpha', now).ok, true, '13 blocks away is another place')
+  assert.equal(decide(prior([100, 100], 3 * 3600_000 + 1), c, 'showcase-Alpha', now).ok, true, 'after 3 h it may be said again')
+  assert.equal(decide(prior([100, 100], 3600_000, 'ore'), c, 'showcase-Alpha', now).ok, true, 'only stuck lines count')
+})
+await t('MUTANT KILLED: without the near-place rule the shaft is announced again and again (the 11-03 defect)', async () => {
+  await withMutant(SC_URL, [["Math.abs(r.p[0] - nr.x) <= nr.r && Math.abs(r.p[1] - nr.z) <= nr.r) return { ok: false, why: 'dedupe_near' }", "false) return { ok: false, why: 'dedupe_near' }"]], mod => {
+    const said = replayStuck(mod)
+    assert.ok(said.filter(([, x]) => /mineshaft/.test(x)).length >= 8, JSON.stringify(said))
+  })
+})
+await t('MUTANT KILLED: without the already-plural rule the deposit is misspelt again', async () => {
+  await withMutant(SC_URL, [["  if (/[^s]s$/.test(words)) return `${k} ${words}`\n", '']], mod => {
+    assert.notEqual(mod.itemPhrase('stone_bricks', 44), '44 stone bricks')
+  })
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

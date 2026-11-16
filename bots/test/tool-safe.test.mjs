@@ -2,8 +2,8 @@
 // mineflayer's unequip('hand') TOSSES the held stack on a full bag (proved on the sandbox 2026-09-30: at 36/36 a stone
 // pickaxe landed on the ground; with one free slot it was kept). ~45 good stone pickaxes/day were lost this way.
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { emptyHand, freeSlots, pickScaffold, scaffoldRank, travelTool, tossAverted } from '../src/toolfor.mjs'
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { emptyHand, freeSlots, pickScaffold, scaffoldRank, scaffoldRankFor, scaffoldPickOf, SCAFFOLD_PICK_KEEP, travelTool, tossAverted } from '../src/toolfor.mjs'
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -74,11 +74,54 @@ await t('SCAFFOLD cheapest first: cobblestone before the logs listed ahead of it
 await t('ranks: stone family < sand/gravel < planks < logs; biggest stack within a rank; wood when only wood; never a refusal', async () => {
   assert.equal(pickScaffold([stack('sand', 64), stack('dirt', 3)], PLACEABLE).name, 'dirt')
   assert.equal(pickScaffold([stack('oak_log', 5), stack('birch_planks', 2)], PLACEABLE).name, 'birch_planks')
-  assert.equal(pickScaffold([stack('dirt', 3), stack('cobblestone', 30)], PLACEABLE).name, 'dirt', 'cobblestone is the pickaxe material: spent after dirt')
-  assert.equal(pickScaffold([stack('cobblestone', 30), stack('oak_planks', 64)], PLACEABLE).name, 'cobblestone', 'but still before any wood')
+  // LANDPREV (owner 2026-11-15, "lets use cobblestone before dirt"): plentiful cobblestone now goes before dirt
+  assert.equal(pickScaffold([stack('dirt', 3), stack('cobblestone', 30)], PLACEABLE).name, 'cobblestone', 'cobblestone before dirt when more than the pickaxe keep is held')
+  assert.equal(pickScaffold([stack('cobblestone', 30), stack('oak_planks', 64)], PLACEABLE).name, 'cobblestone', 'and still before any wood')
   assert.equal(pickScaffold([stack('oak_log', 5)], PLACEABLE).name, 'oak_log', 'a bot holding only wood still climbs')
   assert.equal(pickScaffold([stack('apple', 5)], PLACEABLE), null)
-  assert.equal(scaffoldRank('oak_log') > scaffoldRank('oak_planks') && scaffoldRank('oak_planks') > scaffoldRank('cobblestone') && scaffoldRank('cobblestone') > scaffoldRank('gravel') && scaffoldRank('gravel') > scaffoldRank('dirt'), true)
+  assert.equal(scaffoldRank('oak_log') > scaffoldRank('oak_planks') && scaffoldRank('oak_planks') > scaffoldRank('gravel') && scaffoldRank('gravel') > scaffoldRank('dirt') && scaffoldRank('dirt') > scaffoldRank('cobblestone'), true)
+  assert.equal(scaffoldRank('cobblestone'), scaffoldRank('stone'), 'by name, cobblestone ranks with the stone kinds')
+})
+await t('COBBLESTONE BEFORE DIRT, THE PICKAXE\'S THREE KEPT: >3 held -> cobblestone; <=3 -> dirt (and sand) first, the cobblestone kept; only cobblestone -> cobblestone (never a refusal)', async () => {
+  assert.equal(SCAFFOLD_PICK_KEEP, 3)
+  assert.equal(pickScaffold([stack('dirt', 40), stack('cobblestone', 4)], PLACEABLE).name, 'cobblestone', '4 held: one may go')
+  assert.equal(pickScaffold([stack('dirt', 40), stack('cobblestone', 3)], PLACEABLE).name, 'dirt', '3 held: the keep, dirt goes instead')
+  assert.equal(pickScaffold([stack('dirt', 40), stack('cobblestone', 2), stack('cobbled_deepslate', 2)], PLACEABLE).name, 'cobblestone', 'the keep counts the two kinds together (4 held)')
+  assert.equal(pickScaffold([stack('dirt', 40), stack('cobblestone', 1), stack('cobbled_deepslate', 2)], PLACEABLE).name, 'dirt', '1 + 2 = 3: kept')
+  assert.equal(pickScaffold([stack('sand', 10), stack('cobblestone', 3)], PLACEABLE).name, 'sand', 'at the keep, cobblestone ranks after the falling blocks, as before')
+  assert.equal(pickScaffold([stack('oak_planks', 10), stack('cobblestone', 3)], PLACEABLE).name, 'cobblestone', 'but still before wood')
+  assert.equal(pickScaffold([stack('cobblestone', 1)], PLACEABLE).name, 'cobblestone', 'only cobblestone, even one: it climbs')
+  assert.equal(pickScaffold([stack('stone', 2), stack('dirt', 40), stack('cobblestone', 2)], PLACEABLE).name, 'stone', 'stone is never kept')
+  assert.equal(scaffoldRankFor('cobblestone', 3), 3); assert.equal(scaffoldRankFor('cobblestone', 4), 0); assert.equal(scaffoldRankFor('dirt', 0), 1); assert.equal(scaffoldRankFor('apple', 0), null)
+  assert.equal(pickScaffold([stack('cobblestone', 64), stack('dirt', 64)], PLACEABLE).name, 'cobblestone')
+  // a placeable filter that excludes cobblestone: it is neither picked nor does it change dirt's rank
+  assert.equal(pickScaffold([stack('cobblestone', 64), stack('dirt', 5)], /^dirt$/).name, 'dirt')
+})
+await t('_scaffold_pick (reflex.mjs scaffoldFor -> scaffoldPickOf): a pick made under the cobblestone keep is logged as a spare; the by-name rank missed it', async () => {
+  const keep = [stack('cobblestone', 3), stack('dirt', 40)]
+  const r = scaffoldPickOf(keep, PLACEABLE)
+  assert.equal(r.chosen.name, 'dirt'); assert.equal(r.old.name, 'cobblestone'); assert.equal(r.spared, true)
+  assert.equal(scaffoldRank('cobblestone') > scaffoldRank('dirt'), false, 'positive control: by name alone it is no spare (the old test)')
+  assert.equal(scaffoldPickOf([stack('dirt', 40), stack('cobblestone', 30)], PLACEABLE).spared, true, 'plentiful cobblestone over dirt first in the bag')
+  assert.equal(scaffoldPickOf([stack('cobblestone', 30), stack('dirt', 40)], PLACEABLE).spared, false, 'the same stack: nothing spared')
+  assert.equal(scaffoldPickOf([], PLACEABLE).spared, false)
+  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8').replace(/\/\/.*$/gm, '')
+  const WIRED = /const \{ chosen, old, spared \} = scaffoldPickOf\(items, PLACEABLE\)\n\s*if \(spared\) \{/
+  assert.ok(src.split('  if (spared) {\n').length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.match(src, WIRED, 'WIRED: scaffoldFor logs on scaffoldPickOf')
+  assert.doesNotMatch(src.replace('  if (spared) {\n', '  if (chosen) {\n'), WIRED, 'MUTANT: the row on any pick is caught')
+})
+await t('MUTANT KILLED: without the keep, the last three cobblestone are spent before dirt', async () => {
+  const src = readFileSync(new URL('../src/toolfor.mjs', import.meta.url), 'utf8')
+  const old = 'COBBLE.test(name) && cobbleHeld <= SCAFFOLD_PICK_KEEP ? 3 : scaffoldRank(name)'
+  assert.ok(src.split(old).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-toolfor-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, 'scaffoldRank(name)').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const M = await import(out.href)
+    assert.equal(pickScaffold([stack('dirt', 40), stack('cobblestone', 3)], PLACEABLE).name, 'dirt', 'positive control: the real module keeps them')
+    assert.equal(M.pickScaffold([stack('dirt', 40), stack('cobblestone', 3)], PLACEABLE).name, 'cobblestone', 'the mutant spends the keep')
+  } finally { try { unlinkSync(out) } catch {} }
 })
 
 const dirtBlock = { name: 'dirt', digTime: () => 750 }                                   // no harvestTools: the hand can break it

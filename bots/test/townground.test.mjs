@@ -8,6 +8,10 @@
 process.env.LOG_DIR ??= '/tmp'
 process.env.STATE_DIR ??= '/tmp'
 process.env.HOME_X = '200'; process.env.HOME_Y = '65'; process.env.HOME_Z = '200'
+// cleanzone-02 (11-13) keeps the ground from gather in a WIDER square (64 around home). This file tests the 16-block layer
+// on its own -- its fixtures put the free dirt 19-21 blocks from home -- so that rule is off here; gatherzone.test.mjs drives
+// the two together (its fixtures sit outside this box and inside that one).
+process.env.GATHERZONE = 'off'
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -63,7 +67,7 @@ async function withPlannerMutant (old, neu, fn) {
   writeFileSync(sk, skSrc.replace("from './minewell.mjs'", `from './_mutant-mw-${tag}.mjs'`).replace(/from '\.\/(?!_mutant-mw-)/g, "from '../src/"))
   try { return await fn(await import(sk.href)) } finally { for (const u of [mw, sk]) { try { unlinkSync(u) } catch {} } }
 }
-const ENUM = ["      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n"]
+const ENUM = ["    let positions = findGround(type.id)\n", "    let positions = bot.findBlocks({ matching: type.id, maxDistance, count: 32 })\n"]
 const SAFE = ["    const baseSafe = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&\n", "    const baseSafe = p => true &&\n"]   // CAVEFALL-01: safeTarget = !caveSkip && baseSafe
 const SWING = ["  if (!townOk.ok) {\n    noteTownGround(bot, 'gather_refused')", "  if (false) {\n    noteTownGround(bot, 'gather_refused')"]
 
@@ -216,7 +220,7 @@ test('CHAIN gather: only town dirt anywhere -> a refusal naming where to go (and
 })
 
 test('MUTANT KILLED: filtering after the search (no enumeration filter) starves gather -- the outside dirt is never found', async () => {
-  await withMutant(SKILLS_URL, "      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n", async mod => {
+  await withMutant(SKILLS_URL, "    let positions = findGround(type.id)\n", "    let positions = bot.findBlocks({ matching: type.id, maxDistance, count: 32 })\n", async mod => {
     const { bot, digs } = gatherWorld({ dirt: [...townDirt, ...outside] })
     await mod.SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(() => null)
     assert.ok(!digs.some(p => p.x >= 219), 'the mutant does not reach the outside dirt (the starvation Codex r1 P1 named)')
@@ -419,7 +423,8 @@ test('CHAIN mine: roofed ABOVE sea level -> the climb really rises through the r
   assert.ok(bot._digs.some(p => p.x > 216), `a stair was cut outside town after the climb (${r.status} ${String(r.detail).slice(0, 120)})`)
 })
 test('MUTANT KILLED: surface without the named top refuses at once above sea level ("already_surfaced") and the bot never rises', async () => {
-  await withMutant(SKILLS_URL, '  const TOP = Number.isFinite(args?._toY) ? Math.max(SEA_LEVEL, args._toY) : SEA_LEVEL\n', '  const TOP = SEA_LEVEL\n', async mod => {
+  // roofclimb-01 (11-14): the top is a `let` now (a ground roof above sea level names its own); the internal caller's top is still this line
+  await withMutant(SKILLS_URL, '  let TOP = Number.isFinite(args?._toY) ? Math.max(SEA_LEVEL, args._toY) : SEA_LEVEL\n', '  let TOP = SEA_LEVEL\n', async mod => {
     const bot = roofedWorld()
     const r = await runMine(mod, bot)
     assert.equal(bot.maxY, 65, 'no climb')

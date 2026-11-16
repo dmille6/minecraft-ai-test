@@ -147,7 +147,7 @@ await t('Claude r1 BLOCK: in the SHOWCASE switch set (tidy and stair off) a wait
 })
 
 await t('MUTANT KILLED: the old fallback makes the waiting hall the showcase\'s active project', async () => {
-  await withMutant(SHOP_PATH, '  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!(!s.exists && s.waiting === true)) return list[i] }\n', '', async M => {
+  await withMutant(SHOP_PATH, '  for (let i = list.length - 1; i >= 0; i--) { const s = st(list[i]); if (!list[i].sink && !(!s.exists && s.waiting === true)) return list[i] }\n', '', async M => {
     const SC = M.projectsOn(true, true, true, true, false, true, false, true, true, true)
     const doneSC = SC.filter(p => p.plot !== 'hall').map(p => ({ plot: p.plot, exists: true, complete: true, damaged: false }))
     assert.equal(M.activeProject([...doneSC, { plot: 'hall', exists: false, complete: false, damaged: false, waiting: true }], SC).plot, 'hall')
@@ -231,7 +231,7 @@ await t('wiring (structural): the order reads the gate, the visit sites the hall
   one(/const c = bot \? townCopperOf\(townIndexEntries\(bot\), e => indexStateOf\(e\)\) : \{ unknown: true \}/g, 'the gate counts the index')
   one(/if \(!o\.open\) return out\('no_effect', 'copper_wait'/g, 'the visit gate')
   one(/: rec\.blueprint === HALL_BLUEPRINT \? \{ domain: hallRecordDomain\(rec, projectHeads\(\)\.map\(x => x\.head\.rec\)\) \}/g, 'the stand domain')
-  one(/if \(plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT( && plot !== YARD_PLOT)?\) \{/g, 'the generic siting skips the hall (and yardsite-01: the yard, sited by yardSiteFor)')
+  one(/if \((!SITED_APART\.has\(plot\) && )?plot !== STORE_PLOT && plot !== SHOPCHEST_PLOT && plot !== HALL_PLOT( && plot !== YARD_PLOT)?( && plot !== HUB_PLOT)?( && plot !== ENCHANT_PLOT)?\) \{/g, 'the generic siting skips the hall (and yardsite-01: the yard, sited by yardSiteFor; storehub-01: the storage hall, by hubSiteFor; enchantshop-01: the workshop, by enchantSiteFor; townstyle-01/02: the cottage and the town hall, by their own siting)')
   for (const line of src.split('\n')) assert.ok(!(/_axe\b/.test(line) && /copper/.test(line)), `an axe near copper: ${line.trim().slice(0, 100)}`)
 })
 

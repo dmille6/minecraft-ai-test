@@ -37,6 +37,7 @@
 // swims back over the same water. Wider water still turns the trip, its width logged (`swim_wide:N`) for a boat or bridge piece.
 // Measured 11-03 on the showcase: from all four live water walls the planner reaches the 300 ring (crossings of 2-16 columns). EXPEDITION_SWIM=off: dry legs only.
 
+import { cellsSeenFrom, unseen as atlasUnseen } from './atlas.mjs'   // atlas-01: the trip's aim from the bots' shared map
 export const EXPEDITION_KEY = 'expedition'
 export const EXPEDITION_SLOTS = 2               // at most two bots out at once per town
 export const BEARINGS = 8
@@ -144,6 +145,10 @@ export function bearingVec (k, offsetDeg = 0) {
 export function ringOf (trips = [], now = 0) {
   let r = RING_MIN
   for (const t of trips) {
+    // bridgepost-01: a BRIDGE trip went to work at a site, not to its ring: it says nothing about the ring's reach
+    if (t?.bridge) continue
+    // atlas-01: a HARVEST trip's ring was its wood's distance, not the town's reach
+    if (t?.mode === 'harvest') continue
     // a MULTI-CALL trip (wholemap-s1 item 6) that reached its ring and came home over its own trail in a later call is a success
     const trail = t?.multi === true && /^home_/.test(String(t?.via ?? ''))
     if ((t?.returned || trail) && t?.reason === 'reached') r += RING_STEP
@@ -214,6 +219,97 @@ export function deadBearings (day = [], now = null) {
   }
   for (const [k, c] of n) if (c >= DEAD_TURNS) out.add(k)
   return out
+}
+
+// ---- atlas-01: the trip's aim from the bots' shared map (atlas.mjs) ------------------------------------------------------------
+//
+// LIVE before this (BlueMap, owner 11-04): every trip walked one of eight fixed spokes and came home on it, and every other trip
+// re-walked the last good spoke, so the map grew eight lines. The bearing (0..7) stays the unit of the day's bookkeeping -- dead
+// bearings, the reuse rule, the bridge sites, the per-bearing reads -- and the AIM is a fractional bearing inside its wedge
+// (bearingVec takes k + offset/45; legTarget, zoneDetour and beyondGain all go through it), so the spokes become a fan.
+
+export const AIM_OFFSETS = Object.freeze([-18, -9, 0, 9, 18])   // degrees inside the 45-degree wedge (its edges stay +-22.5)
+export const AIM_STEP = 16                                       // the swath is sampled every this many blocks along the aim
+export const HARVEST_MIN = 64                                    // wood nearer than this is the town's (the groundskeeper's)
+export const HARVEST_PAST = 8                                    // a harvest trip turns this far past the wood's find
+export const HARVEST_FRESH_MS = 2 * 24 * 60 * 60_000             // a wood find older than this is not walked to
+export const HARVEST_CLUSTER_R = 40
+
+const rad = deg => deg * Math.PI / 180
+/** The bearing index (0..7) whose wedge holds the angle from home to (x, z). Pure. */
+export const wedgeOf = (home, x, z) => ((Math.round(Math.atan2(z - home.z, x - home.x) / rad(360 / BEARINGS)) % BEARINGS) + BEARINGS) % BEARINGS
+/** The fractional bearing (k + offset/45) pointing from home at (x, z). Pure. */
+export const aimAt = (home, x, z) => { const a = Math.atan2(z - home.z, x - home.x) / rad(360 / BEARINGS); return ((a % BEARINGS) + BEARINGS) % BEARINGS }
+
+/**
+ * THE FRONTIER AIM -> { k, aim, unseen, cells } | null. Pure. For each open bearing (in `order`) and each offset, the swath a trip on
+ * that aim would notice (atlas cellsSeenFrom every AIM_STEP from TOWN_EXIT to `ring`) is counted for cells nobody has seen within
+ * FRESH_MS. The largest count wins; ties keep `order` (the least-travelled rotation), then the smaller offset. Every swath fully
+ * seen -> null (the caller keeps the old pick).
+ */
+export function frontierAim (view, { home, ring = RING_MIN, dead = new Set(), order = null, now = Date.now(), border = 5000 } = {}) {
+  if (!view?.cells || !home) return null
+  const ks = (order ?? Array.from({ length: BEARINGS }, (_, i) => i)).filter(k => !dead.has(k))
+  let best = null
+  for (const k of ks) {
+    for (const off of [...AIM_OFFSETS].sort((a, b) => Math.abs(a) - Math.abs(b))) {
+      const v = bearingVec(k, off)
+      const keys = new Set()
+      for (let d = TOWN_EXIT; d <= ring; d += AIM_STEP) {
+        const x = home.x + v.dx * d, z = home.z + v.dz * d
+        if (Math.abs(x) > border || Math.abs(z) > border) break
+        for (const key of cellsSeenFrom(x, z)) keys.add(key)
+      }
+      let n = 0
+      for (const key of keys) if (atlasUnseen(view.cells, key, now)) n++
+      if (!best || n > best.unseen) best = { k, aim: k + off / (360 / BEARINGS), unseen: n, cells: keys.size, off }
+    }
+  }
+  return best && best.unseen > 0 ? best : null
+}
+
+/**
+ * THE HARVEST AIM -> { k, aim, ring, find } | null. Pure. The wood find the map knows with the most wood around it (finds of the
+ * wood category within HARVEST_CLUSTER_R, each weighted by its sightings), HARVEST_MIN..maxRing from home, seen within
+ * HARVEST_FRESH_MS, outside every protected zone, on an open bearing. Ties: nearer. The trip's ring is the find's distance +
+ * HARVEST_PAST, so it turns -- and its turn gather (exGather) fells -- at the trees.
+ */
+export function harvestAim (view, { home, maxRing = RING_MAX, dead = new Set(), zones = [], now = Date.now() } = {}) {
+  if (!view?.finds || !home) return null
+  const wood = view.finds.filter(f => f.cat === 'wood' && now - (f.last ?? 0) <= HARVEST_FRESH_MS)
+  let best = null
+  for (const f of wood) {
+    const d = Math.hypot(f.x - home.x, f.z - home.z)
+    if (d < HARVEST_MIN || d + HARVEST_PAST > maxRing) continue
+    if (zoneHit(zones, f.x, f.z, ZONE_MARGIN, { surfaceY: f.y })) continue
+    const k = wedgeOf(home, f.x, f.z)
+    if (dead.has(k)) continue
+    const mass = wood.filter(q => Math.hypot(q.x - f.x, q.z - f.z) <= HARVEST_CLUSTER_R).reduce((a, q) => a + Math.min(Number(q.n) || 1, 10), 0)
+    if (!best || mass > best.mass || (mass === best.mass && d < best.d)) best = { k, aim: aimAt(home, f.x, f.z), ring: Math.ceil(d + HARVEST_PAST), mass, d, find: { kind: f.kind, x: f.x, y: f.y, z: f.z, n: f.n, by: f.by } }
+  }
+  return best
+}
+
+/**
+ * THE NEXT TRIP -> { bearing, aim, reuse, mode, ring?, unseen?, find? } | { bearing: null, why }. Pure. `tripBearing`'s answer
+ * is kept for every no-map case (`view` null: ATLAS off, the exact old planner). With the map: an odd trip of the day HARVESTS
+ * (the densest known wood; none: the old reuse), an even trip goes to the FRONTIER (the most unseen swath; all seen: the old
+ * least-travelled pick). Dead bearings are the old rule's, so a wedge that turned trips for water stays shut for the day.
+ */
+export function planTrip (trips = [], now = 0, { view = null, home = null, ring = RING_MIN, zones = [] } = {}) {
+  const base = tripBearing(trips, now)
+  if (base.bearing == null) return base
+  const plain = { ...base, aim: base.bearing, mode: base.reuse ? 'reuse' : 'least' }
+  if (!view || !home) return plain
+  const day = trips.filter(t => now - (Number(t?.t) || 0) < 24 * 60 * 60_000 && (Number(t?.v) || 0) >= PLANNER_V)
+  const dead = deadBearings(day, now)
+  if (day.length % 2 === 1) {
+    const h = harvestAim(view, { home, maxRing: RING_MAX, dead, zones, now })
+    return h ? { bearing: h.k, aim: h.aim, reuse: false, mode: 'harvest', ring: h.ring, find: h.find, mass: h.mass } : plain
+  }
+  const order = Array.from({ length: BEARINGS }, (_, i) => (base.bearing + i) % BEARINGS)
+  const f = frontierAim(view, { home, ring, dead, order, now })
+  return f ? { bearing: f.k, aim: f.aim, reuse: false, mode: 'frontier', unseen: f.unseen, cells: f.cells } : plain
 }
 
 // ---- the surface ----------------------------------------------------------------------------------------------------------
@@ -385,7 +481,7 @@ const TARGET_WINDOW = Object.freeze({ up: 20, down: 20 })
  * then bends of +-25 and +-50 degrees, the first whose line is clear and whose end is a dry standable cell. All refused: the
  * most telling refusal (water before zone before unread).
  */
-export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [], detour = null, swim = 0 } = {}) {
+export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers = [], zones = [], detour = null, swim = 0, bridges = [] } = {}) {
   const dHome = p => Math.hypot(p.x - home.x, p.z - home.z)
   const here = dHome(pos)
   // A DETOUR IN HAND (wholemap-s1 item 3) is walked first: its waypoints in order, then the spoke again
@@ -424,6 +520,11 @@ export function legTarget (read, { pos, home, bearing, step = LEG_STEP, markers 
     const s = surfaceAt(read, x, z, pos.y, TARGET_WINDOW)
     if (!s || s.water || s.none) { whys.push(s?.water ? 'water' : s?.none ? 'steep' : 'unread'); continue }
     return { ok: true, target: { x, y: s.y, z }, via: 'bearing', bend, detour: null }
+  }
+  // BRIDGEPOST-01: NO DRY BEND -- a finished bridge in reach is walked (dry, before any swim)
+  if (whys.includes('water') && bridges?.length) {
+    const bl = bridgeLeg(read, { pos, home, bridges, zones })
+    if (bl) return bl
   }
   // EXPWATER-01: NO DRY BEND -- the same bends again, swimming a narrow crossing (every dry way was tried first)
   if (swim > 0 && whys.includes('water')) {
@@ -666,6 +767,22 @@ export function torchSafe (read, at, r = ICE_TORCH_R) {
   return true
 }
 
+/**
+ * THE MARKERS AS A RESERVATION (groundskeeper-01 on the showcase, Codex + Claude r1 BLOCKER 11-03): a marker is two cobblestone
+ * and a torch, 48+ out -- exactly a bot pillar to the tidy's band survey (tidy.mjs surveyTidy), which would cut it. -> shop.mjs
+ * recordZones-shaped zones, one a marker, its column + `m` (the tidy and the land plan's road work keep off them). Pure.
+ */
+// fillcolumn-01 r5 (`report`, optional: an array): a marker dropped here for want of a place is named there. The zones are unchanged.
+export function markerZones (markers = [], m = 1, report = null) {
+  return (markers ?? []).filter(q => { const ok = Array.isArray(q?.at) && q.at.length === 3 && q.at.every(Number.isFinite); if (!ok) report?.push({ input: 'markers', why: 'a marker without a full place' }); return ok })
+    .map(q => ({ box: [q.at[0] - m, -64, q.at[2] - m, q.at[0] + m, 320, q.at[2] + m], why: 'expedition:marker' }))
+}
+/** The markers' own blocks ("x,y,z": the two cobblestone and the torch) -- the tidy visit's dig-time guard. Pure. */
+export function markerCellKeys (markers = []) {
+  return (markers ?? []).filter(q => Array.isArray(q?.at) && q.at.length === 3 && q.at.every(Number.isFinite))
+    .flatMap(q => [0, 1, 2].map(dy => `${q.at[0]},${q.at[1] + dy},${q.at[2]}`))
+}
+
 /** A standing marker at `at` (its base): two cobblestone (a torch or nothing on top). Pure. */
 export function pillarIs (read, at) {
   if (!Array.isArray(at)) return false
@@ -741,5 +858,62 @@ export function kitNeed (held = {}, kit = KIT, markers = true) {
 /** `_expedition_trip` row detail (under 300 characters). Pure. */
 export function tripDetail (t = {}) {
   const haul = Object.entries(t.haul ?? {}).map(([k, v]) => `${k}:${v}`).join(',') || '-'
-  return `trip=${t.id ?? '-'} bearing=${t.bearing ?? '-'} ring=${t.ring ?? '-'} dist=${Math.round(t.dist ?? 0)} reason=${t.reason ?? '-'} returned=${t.returned ? 1 : 0} via=${t.via ?? '-'} crumbs=${t.crumbs ?? 0} markers=${t.markers ?? 0} reused=${t.reused ?? 0} cross=${t.crossings ?? 0} deposited=${t.deposited ?? 0} ms=${t.ms ?? 0} haul=${haul}`.slice(0, 295)
+  return `trip=${t.id ?? '-'} bearing=${t.bearing ?? '-'}${t.mode ? ` aim=${Number(t.aim ?? t.bearing).toFixed(2)} mode=${t.mode}` : ''} ring=${t.ring ?? '-'} dist=${Math.round(t.dist ?? 0)} reason=${t.reason ?? '-'} returned=${t.returned ? 1 : 0} via=${t.via ?? '-'} crumbs=${t.crumbs ?? 0} markers=${t.markers ?? 0} reused=${t.reused ?? 0} cross=${t.crossings ?? 0}${t.bridge ? ` br=${t.bridgeStop ?? 'go'}:${t.bridgePlaced ?? 0}` : ''} deposited=${t.deposited ?? 0} ms=${t.ms ?? 0} haul=${haul}`.slice(0, 295)
+}
+
+// ---- BRIDGEPOST-01: bridges (bridge.mjs builds them; these let the planner site and use them) -------------------------------------
+
+/**
+ * HOW FAR THE TRIP'S OWN PLANNER GETS PAST A BRIDGE'S LANDING -> blocks of distance from home gained (0..). Pure. From `span.land`,
+ * up to `legs` legTarget legs on the bearing (swims allowed as the trip would): the distance of the furthest leg end from home less
+ * the landing's. bridge.mjs bridgeSite keeps only spans that open at least BEYOND_MIN.
+ */
+export function beyondGain (read, span, { home, bearing, zones = [], swim = 0, legs = 3 } = {}) {
+  let pos = { x: span.land[0] + 0.5, y: span.land[1], z: span.land[2] + 0.5 }
+  const d0 = Math.hypot(pos.x - home.x, pos.z - home.z)
+  let best = d0, detour = null
+  for (let i = 0; i < legs; i++) {
+    const lt = legTarget(read, { pos, home, bearing, zones, detour, swim })
+    if (!lt.ok) break
+    detour = lt.detour?.waypoints?.length ? lt.detour : null
+    pos = { x: lt.target.x + 0.5, y: lt.target.y, z: lt.target.z + 0.5 }
+    best = Math.max(best, Math.hypot(pos.x - home.x, pos.z - home.z))
+  }
+  return Math.round(best - d0)
+}
+
+/**
+ * A FINISHED BRIDGE AS THE NEXT LEG -> legTarget's answer (via 'bridge_in' | 'bridge') | null. Pure. A bridge whose near end lies
+ * within BRIDGE_USE_R of the bot and whose landing is further from home than the bot: standing at its near end (within 2), the leg is
+ * along the deck to the landing (`shore`: the near end, a crumb; the landing's crumb becomes a gate as a swim's far shore does);
+ * further off, a dry leg to the near end first. The nearest such bridge wins.
+ */
+export const BRIDGE_USE_R = 28
+export const BRIDGE_ON = 3.5                    // the bot is AT a bridge's near end within this (x/z, to its centre)
+export const BRIDGE_BACK = 24                   // a bridge's near end may lie this much nearer home than the bot
+export function bridgeLeg (read, { pos, home, bridges = [], zones = [] } = {}) {
+  const dHome = p => Math.hypot(p[0] - home.x, p[2] - home.z)
+  const here = Math.hypot(pos.x - home.x, pos.z - home.z)
+  // a bridge that goes OUT (its landing further from home than its near end), whose near end is in reach and not a long way back
+  // toward home (a site lies within bridge.mjs SITE_R of the turn, often across it: offline b3, the near end 19 east of the turn)
+  const c = (bridges ?? []).filter(b => Array.isArray(b?.near) && Array.isArray(b?.land) && dHome(b.land) > dHome(b.near) + 2 &&
+    dHome(b.near) >= here - BRIDGE_BACK && Math.hypot(b.near[0] + 0.5 - pos.x, b.near[2] + 0.5 - pos.z) <= BRIDGE_USE_R &&
+    // ...and the bot is on its NEAR side: nearer its near end than its landing (offline: a bot just over a bridge took it back)
+    Math.hypot(b.near[0] + 0.5 - pos.x, b.near[2] + 0.5 - pos.z) < Math.hypot(b.land[0] + 0.5 - pos.x, b.land[2] + 0.5 - pos.z))
+    .sort((a, b) => Math.hypot(a.near[0] - pos.x, a.near[2] - pos.z) - Math.hypot(b.near[0] - pos.x, b.near[2] - pos.z))
+  for (const b of c) {
+    const dn = Math.hypot(b.near[0] + 0.5 - pos.x, b.near[2] + 0.5 - pos.z)
+    // at the near end: within goto's own arrival (range 2 to the block, so up to ~2.4 from its centre; both reviews r1 BLOCKER: a bot
+    // stopped 2.1 out read `bridge_in` again, moved 0, and turned 'blocked' at the bridge)
+    if (dn <= BRIDGE_ON) {
+      // the deck must still be standable at both ends (a bridge the world no longer has is not walked)
+      if (!standableAt(read, b.far) || !standableAt(read, b.land)) continue
+      return { ok: true, target: { x: b.land[0], y: b.land[1], z: b.land[2] }, via: 'bridge', bend: 0, wet: 0, bridge: b.id ?? null, detour: null,
+        shore: [b.near[0], b.near[1], b.near[2]] }
+    }
+    if (!standableAt(read, b.near)) continue
+    if (!lineClear(read, pos, { x: b.near[0], y: b.near[1], z: b.near[2] }, { zones }).ok) continue
+    return { ok: true, target: { x: b.near[0], y: b.near[1], z: b.near[2] }, via: 'bridge_in', bend: 0, wet: 0, bridge: b.id ?? null, detour: null }
+  }
+  return null
 }

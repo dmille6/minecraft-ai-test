@@ -30,6 +30,9 @@ import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from '
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch the composter also takes the plants a
 // peaceful world has no use for. Passed as `plants`, beside `apples`, from the same decision.
 import { isPeacefulCompost, peacefulRank, peacefulSaplingReserve } from './peacefulkit.mjs'
+// decorator-01: the decorator's flowers are never composted while it is on in this pool (cropkeep.mjs decorKeeps)
+import { decorKeeps } from './cropkeep.mjs'
+const DECOR_KEEPS = decorKeeps(process.env, process.env.MEMORY_POOL ?? '')
 
 /**
  * VERIFIED COMPOSTING CHANCES, Java 1.21.x -- the probability that ONE inserted item raises the level by one.
@@ -106,9 +109,16 @@ export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
  * peaceful kit, the same switch) -- every one of the kit's plants (peacefulkit.mjs PEACEFUL_COMPOST: no reserve, a
  * peaceful world has no use for them). NEVER_COMPOST still wins over every list.
  */
-export function compostAllowance (items = [], { apples = false, plants = false, saplings = true, farmKeeps = FARM_KEEPS } = {}) {
+// FLOWERS-01 (owner 11-07): THE DECORATOR'S FEED -- a name the decorator keeps (decorKeeps) goes in ABOVE the keep its hook names
+// ({ fern: 8 }: decorator.mjs FLOWER.feedKeep -- the ferns past a fern cell's repair are the bone meal's feed, ~10 a meal). Set by
+// skills.mjs only where the decorator and FLOWERS are on; unset (the fleet, FLOWERS=off) -> null: every kept name stays out, as before.
+let decorFeedNow = () => null
+export const setDecorFeed = fn => { decorFeedNow = typeof fn === 'function' ? fn : () => null }
+export function compostAllowance (items = [], { apples = false, plants = false, saplings = true, farmKeeps = FARM_KEEPS, decorKeeps = DECOR_KEEPS, decorFeed = decorFeedNow() } = {}) {
   const totals = {}
+  const fed = n => !!decorFeed && Number.isFinite(decorFeed[n]) && !!decorKeeps?.has?.(n)
   for (const it of (Array.isArray(items) ? items : [])) {
+    if (decorKeeps?.has?.(it?.name) && !fed(it?.name)) continue   // decorator-01: the decorator's flowers (flowers-01: but its feed)
     // `saplings: false` (junkout-01's VISIT fill, Claude r1 P2-5): no sapling goes in -- planting needs > 8 of a species
     if (!it?.name || !(isCompostJunk(it.name) || (saplings && isSapling(it.name)) || (apples && it.name === 'apple') ||
                        (plants && isPeacefulCompost(it.name) && !NEVER_COMPOST.test(it.name)))) continue
@@ -120,7 +130,7 @@ export function compostAllowance (items = [], { apples = false, plants = false, 
     // treefarm-04: where the town tree farm is on, its species keep SAPLING_RESERVE too (the peaceful kit composted every spruce
     // sapling: the showcase's native species, the farm's planting stock)
     const keep = isSapling(name) ? (plants && !(farmKeeps && isFarmSapling(name)) ? peacefulSaplingReserve(name, SAPLING_RESERVE) : SAPLING_RESERVE) : 0
-    const a = isSapling(name) ? n - keep : name === 'apple' ? n - APPLE_RESERVE : n
+    const a = isSapling(name) ? n - keep : name === 'apple' ? n - APPLE_RESERVE : fed(name) ? n - decorFeed[name] : n
     if (a > 0) out[name] = a
   }
   return out
@@ -478,18 +488,21 @@ const validSite = r => !!r && [r.x, r.y, r.z].every(Number.isInteger)
 export const sameWorld = (a, b) => !a || !b || String(a) === String(b)
 
 /** The current record -> { gen, site, world, malformed }. gen 0 = no record at all. */
-export function readTownSite (dir, key) {
+// fillcolumn-01 r5 (`report`, optional: an array): wherever this reader answers "no site" for a record it could not read -- a directory
+// that exists and cannot be listed, a newest generation that does not parse or names no place -- it says so there ({ input, why });
+// a missing directory or no generation at all is no site, and says nothing. The answer itself is unchanged.
+export function readTownSite (dir, key, report = null) {
   let gen = 0
   try {
     const re = GEN(key)
     for (const f of fs.readdirSync(dir)) { const m = re.exec(f); if (m) gen = Math.max(gen, Number(m[1])) }
-  } catch { return { gen: 0, site: null, world: null, malformed: false } }
+  } catch (e) { if (report && e?.code !== 'ENOENT') report.push({ input: 'townsite', why: 'the directory cannot be listed' }); return { gen: 0, site: null, world: null, malformed: false } }
   if (!gen) return { gen: 0, site: null, world: null, malformed: false }
   try {
     const r = JSON.parse(fs.readFileSync(genFile(dir, key, gen), 'utf8'))
-    if (!validSite(r)) return { gen, site: null, world: null, malformed: true }
+    if (!validSite(r)) { report?.push({ input: 'townsite', why: `generation ${gen} names no place` }); return { gen, site: null, world: null, malformed: true } }
     return { gen, site: { x: r.x, y: r.y, z: r.z }, world: r.world ?? null, malformed: false }
-  } catch { return { gen, site: null, world: null, malformed: true } }
+  } catch { report?.push({ input: 'townsite', why: `generation ${gen} cannot be read` }); return { gen, site: null, world: null, malformed: true } }
 }
 
 /** Create generation `gen` -> true if THIS call created it; false if it exists or nothing could be written. */
@@ -616,6 +629,10 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * has a candidate (`pickMiss`: skills.mjs townSearchEmpty, misses live 60 min since townsearch-01), and room for one can be made here without banking
  * anything deposit would not (`pickRoom`, roomPlan). After compost -- which frees slots -- and before a build.
  */
+// decorator-02: THE COMPOST DRIVE's hook (skills.mjs sets it: decorator.mjs driveWants over the town's bone meal, the decorator on in
+// this pool) -> (junk) -> bool. Unset (the fleet, the tests): never -- townOrder exactly as before.
+let compostDriveNow = () => false
+export const setCompostDrive = fn => { compostDriveNow = typeof fn === 'function' ? fn : () => false }
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
                              composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {},
                              room = false, composterRipe = false, pickNeeded = false, pickMiss = false, pickRoom = false,
@@ -624,7 +641,10 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
   const cooled = now - (s.lastCompostAt ?? -Infinity) >= COMPOST_COOLDOWN_MS && now >= (s.compostBackoffUntil ?? 0)
-  const compostReady = cooled && slots >= TRIGGER_SLOTS && junk > 0
+  // decorator-02: the compost drive composts a bag's junk at ANY fullness while its hook asks (the town's bone meal short)
+  let drive = false
+  try { drive = junk > 0 && slots < TRIGGER_SLOTS && !!compostDriveNow(junk) } catch { drive = false }
+  const compostReady = cooled && (slots >= TRIGGER_SLOTS || drive) && junk > 0
   // ANY bot at town with room may empty a ripe composter -- a full one cannot, and it would wait for a 34-slot bot.
   const harvestReady = cooled && !!room
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
@@ -637,7 +657,7 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   if (composterHere) {
     if (compostReady) {
       s.lastCompostAt = now
-      return { order: { skill: 'compost', args: {}, why: `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
+      return { order: { skill: 'compost', args: drive ? { drive: true } : {}, why: drive ? `the compost drive: at town with ${junk} compostable item(s) and the town short of bone meal` : `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
     }
     if (harvestReady && lazy(composterRipe)) {
       s.lastCompostAt = now

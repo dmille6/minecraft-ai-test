@@ -410,7 +410,26 @@ export function ringCols (x0, z0, d) {
  *   composter  [x, y, z] its column; `farm` tree-farm columns + 2
  *   records    every other project's record: its cell columns
  */
-export function pathAvoid ({ plan = null, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], home = { y: 70 } } = {}) {
+// fillcolumn-01 r5 (`report`, optional: an array): this predicate compares numbers, so an entry without a full place never matches
+// and is silently no refusal at all -- each such entry is named there once, as the predicate is built ({ input, why }). Unchanged else.
+export function pathAvoid ({ plan = null, zones = [], caps = [], plinth = [], composter = null, farm = [], records = [], home = { y: 70 }, report = null } = {}) {
+  if (report) {
+    const xz = c => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[2])   // (the predicate below reads c[0] and c[2])
+    for (const zb of zones) { const b = zb?.box ?? zb; if (!(Array.isArray(b) && b.length === 6 && b.every(Number.isFinite))) report.push({ input: 'zones', why: 'a zone without a box' }) }
+    for (const c of caps) if (!xz(c)) report.push({ input: 'wells', why: 'a well cap without a place' })
+    for (const c of plinth) if (!xz(c)) report.push({ input: 'wells', why: 'a well cell without a place' })
+    for (const c of farm) if (!(Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]))) report.push({ input: 'treefarm', why: 'a farm column without a place' })
+    if (composter != null && !(Array.isArray(composter) && Number.isFinite(composter[0]) && Number.isFinite(composter[2]))) report.push({ input: 'townsite', why: 'the composter has no place' })
+    for (const r of records) { const cs = r?.cells ?? []; if (!Array.isArray(cs) || cs.some(c => !(Array.isArray(c?.at) && Number.isFinite(c.at[0]) && Number.isFinite(c.at[2])))) report.push({ input: `record:${r?.plot ?? '?'}`, why: 'a cell without a place' }) }
+    // r6 (Codex round 5): THE PLAN'S PLOTS. planstore.mjs planRefusal checks a plot's id and its cells, never its box or its keep-out:
+    // a keep-out that is no yes or no, a keep-out plot's box that is no box (it then matches nothing below and in townplan.mjs
+    // keepouts), a cell whose first sighting is no time (the plot then reads uncommitted: its box loses its ring of 1)
+    for (const p of plan?.plots ?? []) {
+      if (p && 'keepout' in p && typeof p.keepout !== 'boolean') report.push({ input: 'plan', why: 'a plot whose keep-out is no yes or no' })
+      if (p?.keepout && p.box != null && !(Array.isArray(p.box) && p.box.length === 4 && p.box.every(Number.isFinite))) report.push({ input: 'plan', why: 'a keep-out plot whose box is no box' })
+      for (const c of [...(p?.cells ?? []), ...(p?.stations ?? [])]) if (c && 'seenSince' in c && !Number.isFinite(c.seenSince)) report.push({ input: 'plan', why: 'a cell whose first sighting is no time' })
+    }
+  }
   const ko = plan ? keepouts(plan) : null
   const plots = (plan?.plots ?? []).filter(p => p.keepout && Array.isArray(p.box)).map(p => p.box)
   const cols = new Set()
@@ -560,6 +579,26 @@ export function pathDests ({ plan, zones = [], caps = [], plinth = [], composter
 }
 /** The destinations a laid record does not serve yet: no leg of the record goes `to` it and none of its columns is a path
  *  column. Pure. */
+/**
+ * PATHSMEM-01 (LIVE showcase 11-10, 24 h: 406 paths visits, 402 `complete` with nothing placed, ~30 a bot; each within 20 s - 4 min of a
+ * NEW CONNECTION (`_sink_mode` rows): the extension clock `pathsExtendAt` and the unrouted set `pathsUnrouted` lived on the bot object,
+ * which index.mjs makes anew after every disconnect -- so after each reconnect the laid network read DUE its extension again
+ * (recordDamaged -> pathsExtendDue: the enchantshop destination, which extendPaths answers `unrouted:enchantshop:unreachable`, offline
+ * on the 11-10 17:16Z copy), the order sent the bot there as a REPAIR, and the visit found the 610 cells laid). The two now live in the
+ * process memory (procmem.mjs, keeperstall-01) and an unrouted destination is asked again after PATHS_UNROUTED_MS, not never. Pure.
+ *   mem  procMem(bot): { pathsExtendAt?, pathsUnrouted?: Map to -> until }
+ */
+export const PATHS_UNROUTED_MS = 6 * 60 * 60_000
+/** Is a destination in the unrouted wait now? Pure. */
+export const pathsUnroutedNow = (mem, to, now = Date.now()) => Number(mem?.pathsUnrouted?.get?.(to)) > now
+/** Note an extension's outcome: the clock, and each destination no leg reached (never for a visit whose connection ended: its reads
+ *  are no evidence). Mutates `mem`. Pure but for that. */
+export function pathsExtendNote (mem, failed = [], { now = Date.now(), ended = false, waitMs = PATHS_UNROUTED_MS } = {}) {
+  if (!mem || ended) return mem
+  mem.pathsExtendAt = now
+  for (const t of failed ?? []) (mem.pathsUnrouted ??= new Map()).set(t, now + waitMs)
+  return mem
+}
 export function newDests (record, dests = []) {
   const lv = new Set((record?.cells ?? []).filter(c => c.role === 'path').map(c => `${c.at[0]},${c.at[2]}`))
   const tos = new Set((record?.legs ?? []).map(l => l.to))

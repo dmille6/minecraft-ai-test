@@ -14,53 +14,59 @@ import { elevation, descendOrder, descentDone, supportOf, respawnfallOn, SPAWN_W
 import { Vec3 } from 'vec3'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
+import {
+  SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss,
+  townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap,
+  townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, shopShareHeld,
+  projectPartReserve, drainPickNow, townWellStandY, matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree,
+  matsRecountKeys, matsTownHasRoom, shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt, townPlinthState, townCoalStock, shopActive, boardJobNow,
+  boardClaim, boardRelease, boardPin, boardLight, deepLeaseNow, deepStairNow, townPlanNow, townPlanHead, townPlanZones, foundTownContainer,
+  foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome,
+} from './skills.mjs'
+import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // cobbleroom-01: the well's two cobble exits (the proven cap, and no room to bank it)
 import { wellTakesCobble } from './cobblecap.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townIronMiss, shopShareHeld, projectPartReserve, drainPickNow } from './skills.mjs'
-import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem, wellVisitOrder } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
-import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
-import { townWellStandY } from './skills.mjs'
 const WELL_DEEP_ROW_MS = 5 * 60 * 1000
 // junkout-01's three visit orders' skills (well.mjs wellVisitOrder, composter.mjs compostVisitOrder, towndeposit.mjs tailOrder)
 const VISIT_SKILLS = ['dispose_well', 'compost', 'town_deposit']
 // plinth-01, the raised junk well (its own statements)
-import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
-import { townPlinthState } from './skills.mjs'
+import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
 // mats-01 (building tier section 3): the materials job and its recovery (mats.mjs decides; these supply readings)
-import { matsTownStock, matsBagSpare, readMatsNote, matsFurnaceCandidates, matsTableReady, matsLeaseFree, matsRecountKeys, matsTownHasRoom } from './skills.mjs'
 import { materialOrder, returnOrder, matsOutcome, matsEnabled, matsReserve, matsBuffers } from './mats.mjs'
-import { shopRecordHead, shopSlotsFree, shopDamaged, shopStuckAt, shopActive } from './skills.mjs'
-import { poolStateDir } from './worldfacts.mjs'
-import { boardJobNow, boardClaim, boardRelease, boardPin, boardLight } from './skills.mjs'   // workboard-01: the town work board
-import { workboardMode, boardEligible, boardStep, boardAfter, boardDetail, rowDue, WB } from './townwork.mjs'   // workboard-01
-import { groundsBatchOpen } from './idlework.mjs'   // workboard-01: phase A's population (a grounds lap)
 import { SHOP, buildOrder } from './shop.mjs'
-import { ROLES, readRoles, leaseFor, leasedFirst, leaseId, roleRowDetail, pruneReleased } from './roles.mjs'   // B5: the role leases
+import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 // coalfirst-01 (OWNER 10-29): the coal run (coalrun.mjs decides; this supplies readings and keeps the state)
 import { coalRunOrder, coalRunOutcome, coalRunDetail, COAL_KINDS, COAL_ORE_RADIUS } from './coalrun.mjs'
-import { townCoalStock } from './skills.mjs'
+import { poolStateDir } from './worldfacts.mjs'
+import { workboardMode, boardEligible, boardStep, boardAfter, boardDetail, rowDue, WB } from './townwork.mjs'   // workboard-01
+import { groundsBatchOpen } from './idlework.mjs'   // workboard-01: phase A's population (a grounds lap)
+import { ROLES, readRoles, leaseFor, leasedFirst, leaseId, roleRowDetail, pruneReleased } from './roles.mjs'   // B5: the role leases
 // deepminer-01 (OWNER 11-01 item 2): the town deep miner (deepmine.mjs decides; skills.mjs deepMine walks and digs)
 import { deepMineOrder, deepTripOrder, tripKit as deepTripKit, TRIP_NEXT_MS as DEEP_TRIP_NEXT_MS } from './deepmine.mjs'
-import { deepLeaseNow, deepStairNow } from './skills.mjs'
 import { nearStair as deepNearStair, SURFACE_SLACK as DEEP_SURFACE_SLACK } from './shaftgeom.mjs'
 import { hasTripPickaxe, nearHome } from './oretunnel.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
-import { depositOfferConfig, offeredSkills, tallyLine as depositOfferTallyLine, TALLY_MS as DEPOSIT_OFFER_TALLY_MS } from './depositoffer.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
-import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
+import {
+  orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine,
+  ROOM_WEAR_TRUST_MS,
+} from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk, compostVisitOrder, compostVisitStacks, RUNNER_DECLINED } from './composter.mjs'
+import {
+  compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk, compostVisitOrder,
+  compostVisitStacks, RUNNER_DECLINED,
+} from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
 // FOUNDING (found-01): the found slot's decision and readings
 import { FOUND, foundOrder, foundIssued, foundVisit, foundAssign, foundRetry } from './found.mjs'
-import { townPlanNow, townPlanHead, townPlanZones, foundTownContainer, foundCellReady, foundLeaseFree, foundBankGroups, foundCraftFits, foundAssignHome } from './skills.mjs'
 import { LOGBANK } from './woodkeep.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan, tailOrder, LOGS as TD_LOGS, townKeeps, inTownZone, TD_STAY_REARM_MS } from './towndeposit.mjs'
+import { depositOfferConfig, offeredSkills, tallyLine as depositOfferTallyLine, TALLY_MS as DEPOSIT_OFFER_TALLY_MS } from './depositoffer.mjs'
 // junkout-01 (its own statement): the visit latch, ticked on every decision (bagallowance.mjs, a leaf)
 import { visitLatchTick, visitLatchDeclined, VISIT_STAY_MS } from './bagallowance.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
@@ -84,9 +90,14 @@ import { escapedFrom } from './recovery.mjs'
 import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
-import { fewerDecConfig, pauseWaitDecision, decisionSig, vetoSkipDecision, continueAfterRun, continueOrder, continueSchedule, continueWait } from './fewerdec.mjs'
+import {
+  fewerDecConfig, pauseWaitDecision, decisionSig, vetoSkipDecision, continueAfterRun, continueOrder, continueSchedule, continueWait,
+} from './fewerdec.mjs'
 import { vetoRemedyConfig, vetoRemedy, takeRemedy } from './vetoremedy.mjs'
-import { pipelineConfig, prefetchAtStart, runningLine, armAfterRun, noWaitAllowed, prefetchUsable, noteRunP, pipelineDetail, tallyLine as pipeTallyLine, PIPELINE_TALLY_MS } from './pipeline.mjs'
+import {
+  pipelineConfig, prefetchAtStart, runningLine, armAfterRun, noWaitAllowed, prefetchUsable, noteRunP, pipelineDetail, tallyLine as pipeTallyLine,
+  PIPELINE_TALLY_MS,
+} from './pipeline.mjs'
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -1720,6 +1731,67 @@ export class CognitiveLoop {
     // at issue and refunded on a decline (refundDeclined).
     // (B5: the body is #shopOrder, so a BUILD role lease can ask it first; asked once per decision)
     if (!order && SHOP.on && !boardOwns && leasedTried !== 'build_shop') order = this.#shopOrder(snap, ready)
+    // THE COAL RUN (coalfirst-01; coalrun.mjs coalRunOrder decides, this supplies readings and keeps the state). After every
+    // town job, only with NOTHING chosen above (a ready milestone step, the deposit, every town order and the building jobs
+    // win): while the town index shows the town short of coal, gather the coal ore in reach -- gather's own guards decide every
+    // block. Anywhere, not only at town (the ore is rarely in town). Off where the town smelt job is off (isolated pools,
+    // SMELT_JOB=0) and by COALFIRST=off. At most one run per 10 min per bot; a run that brings no coal backs off 30 min.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const items = bot.inventory?.items?.() ?? []
+        const heldCoal = items.filter(it => it?.name === 'coal').reduce((n, it) => n + (it.count ?? 0), 0)
+        const free = 36 - items.length
+        const sw = smeltJobEnabled(process.env, config.memory.scope)
+        let town = null
+        const r = coalRunOrder({ now: Date.now(), shared: sw.on, holds: milestoneHolds({ order, ready }), heldCoal, freeSlots: free,
+          tripPick: hasTripPickaxe(items),
+          townCoal: () => (town = townCoalStock(bot)),
+          ore: () => {
+            const ids = COAL_KINDS.map(n => bot.registry?.blocksByName?.[n]?.id).filter(id => id != null)
+            const p = bot.entity?.position
+            if (!ids.length || !p) return null
+            const home = { x: config.world.homeX, z: config.world.homeZ }
+            const found = (bot.findBlocks?.({ matching: ids, maxDistance: COAL_ORE_RADIUS, count: 16 }) ?? []).filter(q => !nearHome(q, home))
+            if (!found.length) return null
+            const q = found.reduce((a, b) => (p.distanceTo(a) <= p.distanceTo(b) ? a : b))
+            return { block: bot.blockAt?.(q)?.name ?? null, dist: p.distanceTo(q) }
+          },
+          state: this.coalRunState ?? {} })
+        this.coalRunState = r.state
+        if (r.order) { order = r.order; this.coalRunState = { ...this.coalRunState, pending: true } }
+        // one row per issue, and per skip reason at most once per 30 min for the reasons that say something about the town
+        const why = r.order ? 'issued' : (['stocked', 'no_ore', 'index', 'index_empty', 'pickaxe', 'carrying'].includes(r.skip) ? r.skip : null)
+        this.coalRunSkipAt ??= {}
+        if (why && (why === 'issued' || Date.now() - (this.coalRunSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000)) {
+          this.coalRunSkipAt[why] = Date.now()
+          logEvent({ kind: 'coal_run', status: r.order ? 'success' : 'no_effect', snapshot: snap,
+                     detail: coalRunDetail({ skip: r.skip, issued: r.order?.args?.block ?? null, town, held: heldCoal, free }) })
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    }
+    // THE DEEP MINER STARTS A TRIP (deepminer-01; deepmine.mjs deepMineOrder decides, this supplies readings). After every
+    // town job and the coal run, only with NOTHING chosen above: on the town's surface by its finished stair, one miner per town
+    // (the lease), its own cooldown and the town's soft preference for its last miner.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const st = deepStairNow()
+        const rec = st.rec
+        const atStairTop = !!p && st.usable && deepNearStair(rec, p.x, p.z, 40) && p.y >= rec.site.g - DEEP_SURFACE_SLACK && p.y <= rec.site.g + 12
+        const r = deepMineOrder({ now: Date.now(), holds: milestoneHolds({ order, ready }), atStairTop, stair: st,
+          kit: deepTripKit(bot.inventory?.items?.() ?? []), health: bot.health ?? 20, me: bot.username ?? '',
+          state: { cooldownUntil: bot.deepMineCooldownUntil ?? 0 }, lease: () => deepLeaseNow() })
+        if (r.order) order = r.order
+        this.deepSkipAt ??= {}
+        const why = ['pickaxe', 'seal_blocks', 'room', 'lease_busy', 'preferred_other', 'stair_unfinished', 'no_bottom_landing'].includes(r.skip) ? r.skip : null
+        if (why && atStairTop !== false && Date.now() - (this.deepSkipAt[why] ?? -Infinity) >= 30 * 60 * 1000) {
+          this.deepSkipAt[why] = Date.now()
+          logEvent({ kind: 'deepmine_skip', status: 'no_effect', detail: `why=${why}`, snapshot: snap })
+        }
+      } catch { /* a world read must never break the decision loop */ }
+    }
     // THE COAL RUN (coalfirst-01; coalrun.mjs coalRunOrder decides, this supplies readings and keeps the state). After every
     // town job, only with NOTHING chosen above (a ready milestone step, the deposit, every town order and the building jobs
     // win): while the town index shows the town short of coal, gather the coal ore in reach -- gather's own guards decide every

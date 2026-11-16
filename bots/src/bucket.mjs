@@ -150,6 +150,14 @@ export const CONFIRM_MS = 300
  * On anything older this function cannot work, which would present as a
  * confident zero.
  */
+/**
+ * AN AIM AS A POINT bot.lookAt TAKES (bucketfix-01, Paper sandbox3 11-04, sandbox/enchant/obsidian-proof.cjs): mineflayer 4.37's
+ * lookAt calls point.minus(), and scoopAims / emptyAims return plain { x, y, z } objects -- so EVERY scoop and pour threw `point.minus
+ * is not a function` before a packet went out. The aim is rebuilt from `pos` (a Vec3 at every caller: blockAt positions and their
+ * offsets) by offset, which returns the caller's own Vec3 class. A `pos` with no offset (a test double) passes the plain aim through.
+ */
+export const aimPoint = (pos, a) => (typeof pos?.offset === 'function' ? pos.offset(a.x - pos.x, a.y - pos.y, a.z - pos.z) : a)
+
 export async function scoopLiquid (bot, pos, { sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
   const empty = bot.inventory?.items?.().find(i => i.name === 'bucket')
   const target = bot.blockAt?.(pos)
@@ -172,7 +180,7 @@ export async function scoopLiquid (bot, pos, { sleep = ms => new Promise(r => se
 
   for (const aim of scoopAims(pos)) {
     try {
-      await bot.lookAt(aim, true)
+      await bot.lookAt(aimPoint(pos, aim), true)
       await sleep(AIM_SETTLE_MS)
       bot.activateItem()
       await sleep(CONFIRM_MS)
@@ -243,10 +251,13 @@ export function emptyRefusal ({ hasWaterBucket = false, target = null,
   // owner's standing rule is that water is terrain and swimming is travel, but
   // that is about ENTERING water that exists, not about manufacturing it around
   // your own head.
-  if (standingIn && (standingIn.x === target.position?.x &&
-                     standingIn.y === target.position?.y &&
-                     standingIn.z === target.position?.z)) {
-    return 'that is the cell I am standing in'
+  // bucketfix-01 (Claude r1 BLOCKER): the target is compared as a BLOCK cell (a caller's position may be fractional: the dead guard
+  // let every pour aim into the bot), and the HEAD cell above the feet is the body too -- a source there is the drowning
+  const tp = target.position
+  const t = tp && [tp.x, tp.y, tp.z].every(Number.isFinite) ? { x: Math.floor(tp.x), y: Math.floor(tp.y), z: Math.floor(tp.z) } : null
+  if (standingIn && t && standingIn.x === t.x && standingIn.z === t.z) {
+    if (standingIn.y === t.y) return 'that is the cell I am standing in'
+    if (standingIn.y + 1 === t.y) return 'that is my head cell'
   }
   return null
 }
@@ -301,7 +312,7 @@ export async function pourLiquid (bot, pos, { sleep = ms => new Promise(r => set
       await bot.equip(item, 'hand')
       // force=true: the server ray-traces from the rotation we SEND, so a
       // smoothed or skipped look is the whole failure.
-      await bot.lookAt(aim, true)
+      await bot.lookAt(aimPoint(pos, aim), true)
       await sleep(AIM_SETTLE_MS)
       bot.activateItem()
       await sleep(CONFIRM_MS)
@@ -313,4 +324,134 @@ export async function pourLiquid (bot, pos, { sleep = ms => new Promise(r => set
     if (emptySucceeded({ blockNow, heldNow })) return { ok: true, why: null, aims }
   }
   return { ok: false, why: 'poured and the cell is still dry', aims }
+}
+
+// ---------------------------------------------------------------------------
+// OBSIDIAN-01 (owner 11-07 "Both at once"; deepmine.mjs's cast). THREE NEW USES, each for the deep miner's cast only -- the
+// model's `bucket` verb is unchanged (it still refuses lava and fills only where the scoop leaves air):
+//   fillWater   fill from an INFINITE source (two or more source neighbours): it refills in 5 ticks, so nothing is taken
+//   scoopLava   take one lava SOURCE (a lake's surface, two below the cave-edge stand): the lake refills it with flowing lava
+//   pourInto    empty a water or lava bucket into a cell and judge it with the caller's own read; it STOPS at the first use
+//               that empties the bucket, so a lava that landed somewhere else is never followed by a second aim
+// Every one is verified from the inventory (the item count), never from a blockUpdate.
+// ---------------------------------------------------------------------------
+const cellOf = tp => { if (!tp || ![tp.x, tp.y, tp.z].every(Number.isFinite)) return null; const [x, y, z] = [tp.x, tp.y, tp.z].map(Math.floor); return { x, y, z } }
+const countOf = (bot, n) => (bot.inventory?.items?.() ?? []).filter(i => i.name === n).reduce((s, i) => s + (i.count ?? 1), 0)
+
+/** Why this fill from an infinite water source cannot be attempted, or null. Pure. */
+export function fillRefusal ({ hasEmptyBucket = false, target = null, cardinals = [], distance = Infinity } = {}) {
+  if (!hasEmptyBucket) return 'no empty bucket'
+  if (!target) return 'nothing to fill from'
+  if (!isWaterSource(target)) return target.name === 'water' ? 'flowing water cannot fill a bucket' : `not water (${target.name})`
+  if ((cardinals ?? []).filter(isWaterSource).length < REFORM_SOURCES) return 'not an infinite source (the fill would take its water)'
+  if (!(distance <= REACH)) return `out of reach (${Number(distance).toFixed(1)} > ${REACH})`
+  return null
+}
+
+/** Why this lava scoop cannot be attempted, or null. Pure. A lava SOURCE only (flowing lava cannot fill a bucket). */
+export function lavaScoopRefusal ({ hasEmptyBucket = false, holdsLava = false, target = null, distance = Infinity } = {}) {
+  if (!hasEmptyBucket) return 'no empty bucket'
+  if (holdsLava) return 'already holding lava'
+  if (!target) return 'nothing to scoop'
+  if (target.name !== 'lava') return `not lava (${target.name})`
+  if (target.metadata !== 0) return 'flowing lava cannot fill a bucket'
+  if (!(distance <= REACH)) return `out of reach (${Number(distance).toFixed(1)} > ${REACH})`
+  return null
+}
+
+/** Did the use fill the bucket? Pure: one more of `full` and one fewer empty bucket. */
+export const fillCounted = ({ fullBefore = 0, fullNow = 0, emptyBefore = 0, emptyNow = 0 } = {}) => fullNow === fullBefore + 1 && emptyNow === emptyBefore - 1
+
+async function fillWith (bot, pos, full, refusal, { sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  if (refusal) return { ok: false, reason: refusal }
+  const empty = bot.inventory?.items?.().find(i => i.name === 'bucket')
+  try { bot.pathfinder?.setGoal?.(null) } catch { /* no pathfinder is fine */ }
+  try { await bot.equip(empty, 'hand') } catch (e) { return { ok: false, reason: `equip failed: ${e.message}` } }
+  const fullBefore = countOf(bot, full), emptyBefore = countOf(bot, 'bucket')
+  for (const aim of scoopAims(pos)) {
+    try {
+      const pt = aimPoint(pos, aim)
+      await bot.lookAt(pt, true)
+      await sleep(AIM_SETTLE_MS)
+      bot.activateItem()
+      await sleep(CONFIRM_MS)
+    } catch (e) { return { ok: false, reason: `use failed: ${e.message}` } }
+    if (fillCounted({ fullBefore, fullNow: countOf(bot, full), emptyBefore, emptyNow: countOf(bot, 'bucket') })) return { ok: true, reason: null }
+    // the empty bucket went somewhere else (a different fluid filled it): never a second aim with nothing in hand
+    if (countOf(bot, 'bucket') < emptyBefore) return { ok: false, reason: 'the bucket filled with something else' }
+  }
+  return { ok: false, reason: 'all aims fired and the bucket is still empty' }
+}
+
+/** Fill the empty bucket from an INFINITE water source at `pos` (a Vec3 cell). -> { ok, reason }. */
+export async function fillWater (bot, pos, opts = {}) {
+  const at = (dx, dy, dz) => bot.blockAt?.(pos.offset(dx, dy, dz))
+  return fillWith(bot, pos, 'water_bucket', fillRefusal({
+    hasEmptyBucket: !!bot.inventory?.items?.().find(i => i.name === 'bucket'), target: bot.blockAt?.(pos),
+    cardinals: [at(1, 0, 0), at(-1, 0, 0), at(0, 0, 1), at(0, 0, -1)], distance: bot.entity?.position?.offset?.(0, 1.62, 0)?.distanceTo?.(pos.offset(0.5, 0.5, 0.5)) ?? Infinity,
+  }), opts)
+}
+
+/** Take ONE lava source at `pos` (a Vec3 cell) into the empty bucket. -> { ok, reason }. The cast's own use only. */
+export async function scoopLava (bot, pos, opts = {}) {
+  return fillWith(bot, pos, 'lava_bucket', lavaScoopRefusal({
+    hasEmptyBucket: !!bot.inventory?.items?.().find(i => i.name === 'bucket'), holdsLava: countOf(bot, 'lava_bucket') > 0,
+    target: bot.blockAt?.(pos), distance: bot.entity?.position?.offset?.(0, 1.62, 0)?.distanceTo?.(pos.offset(0.5, 0.5, 0.5)) ?? Infinity,
+  }), opts)
+}
+
+/**
+ * Why this cast pour cannot be attempted, or null. Pure. Never the bot's own cells; LAVA only BELOW the feet's level and never the
+ * floor cell under the feet (the stand) -- a lava source beside the body's cells is a burn, below them it cannot rise.
+ */
+export function castPourRefusal ({ item = null, has = false, target = null, distance = Infinity, feet = null } = {}) {
+  if (item !== 'water_bucket' && item !== 'lava_bucket') return `not a pour item (${item})`
+  if (!has) return `no ${item}`
+  if (!target) return 'nowhere to pour'
+  if (!emptyTakes(target) && !(item === 'lava_bucket' && target.name === 'water')) return `cell is not free (${target.name})`
+  if (!(distance <= REACH)) return `out of reach (${Number(distance).toFixed(1)} > ${REACH})`
+  const tp = target.position
+  const t = cellOf(tp)
+  if (!t || !feet) return 'no cells to compare'
+  if (t.x === feet.x && t.z === feet.z && (t.y === feet.y || t.y === feet.y + 1)) return 'that is my own cell'
+  if (item === 'lava_bucket') {
+    if (t.y >= feet.y) return 'lava only below my feet'
+    if (t.x === feet.x && t.z === feet.z) return 'that is my floor'
+  }
+  return null
+}
+
+/**
+ * Empty a water or lava bucket into `pos` for the cast. -> { ok, why, aims, emptied }. `accept()` reads the world after each use
+ * (the caller's own check: a water SOURCE in the basin, obsidian where the lava went). The first use that EMPTIES the bucket ends
+ * the loop whether accepted or not (`emptied`): the caller then reads what happened and seals.
+ */
+export async function pourInto (bot, pos, item, accept, { sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const held = () => bot.inventory?.items?.().find(i => i.name === item) ?? null
+  const p = bot.entity?.position
+  const feet = p ? { x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) } : null
+  const why = castPourRefusal({ item, has: !!held(), target: bot.blockAt?.(pos), feet,
+    distance: p?.offset?.(0, 1.62, 0)?.distanceTo?.(pos.offset(0.5, 0.5, 0.5)) ?? Infinity })
+  if (why) return { ok: false, why, aims: 0, emptied: false }
+  try { bot.pathfinder?.setGoal?.(null) } catch { /* no pathfinder is fine */ }
+  const before = countOf(bot, item)
+  let aims = 0
+  for (const aim of emptyAims(pos)) {
+    aims++
+    const it = held()
+    if (!it) break
+    try {
+      await bot.equip(it, 'hand')
+      const pt = aimPoint(pos, aim)
+      await bot.lookAt(pt, true)
+      await sleep(AIM_SETTLE_MS)
+      bot.activateItem()
+      await sleep(CONFIRM_MS)
+    } catch (e) { return { ok: false, why: String(e?.message ?? e), aims, emptied: countOf(bot, item) < before } }
+    const emptied = countOf(bot, item) < before
+    let good = false
+    try { good = !!accept() } catch { good = false }
+    if (emptied) return { ok: good, why: good ? null : 'emptied and the read is not the cast', aims, emptied }
+  }
+  return { ok: false, why: 'every aim fired and the bucket is still full', aims, emptied: false }
 }

@@ -107,10 +107,12 @@ export const namesOf = g => STOCK_GROUPS[g]?.names ?? []
  * have NO stock target (no cap can refuse or prune them), and they are always bankable (bankable.mjs DEPOSIT_ALWAYS).
  * The list is the regex's whole match set in minecraft-data 1.21.8 (46 names; matset.test.mjs proves both directions).
  */
-export const PROJECT_PART_RE = /^(stone_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$/
+export const PROJECT_PART_RE = /^(stone_brick(s|_slab|_stairs|_wall)|polished_deepslate|deepslate_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$/
 const COPPER_STATES = ['', 'exposed_', 'weathered_', 'oxidized_']
 export const PROJECT_PARTS = Object.freeze([
   'stone_bricks', 'stone_brick_slab', 'stone_brick_stairs', 'stone_brick_wall', 'glass', 'glass_pane',
+  // stoneworks-02: the deepslate kind's part and intermediate and their trims (always banked, never disposed)
+  'polished_deepslate', 'deepslate_bricks', 'deepslate_brick_slab', 'deepslate_brick_stairs', 'deepslate_brick_wall',
   ...['', 'waxed_'].flatMap(w => COPPER_STATES.flatMap(o => [`${w}${o}cut_copper`, `${w}${o}cut_copper_slab`, `${w}${o}cut_copper_stairs`, `${w}${o}copper_door`])),
   'copper_block', 'waxed_copper_block', ...['', 'waxed_'].flatMap(w => ['exposed', 'weathered', 'oxidized'].map(o => `${w}${o}_copper`)),
 ])
@@ -128,7 +130,7 @@ export const BUILD_RESERVE = Object.freeze({ cobblestone: 256, logs: 512, planks
  * NEVER DISPOSED, whatever any table says (the owner's list: iron, ores, ingots, tools, saplings, the composter's inputs;
  * and everything else with a use the bulk table does not model). The well also refuses anything the composter takes.
  */
-export const PROTECTED = /(^(stone_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$|_ore$|^raw_|_ingot$|_nugget$|^(coal|charcoal|diamond|emerald|lapis_lazuli|redstone|quartz|amethyst_shard|netherite_scrap|ancient_debris)$|_(pickaxe|axe|shovel|hoe|sword)$|_(helmet|chestplate|leggings|boots)$|^(bow|crossbow|shield|shears|flint_and_steel|fishing_rod|bucket|water_bucket|lava_bucket|milk_bucket)$|_sapling$|_propagule$|^(torch|crafting_table|furnace|blast_furnace|smoker|chest|barrel|composter|bed|bone_meal|bamboo|wheat|wheat_seeds|apple|bread)$|_bed$)/
+export const PROTECTED = /(^(stone_brick(s|_slab|_stairs|_wall)|polished_deepslate|deepslate_brick(s|_slab|_stairs|_wall)|glass|glass_pane|(waxed_)?(exposed_|weathered_|oxidized_)?(cut_copper(_slab|_stairs)?|copper_door)|(waxed_)?copper_block|(waxed_)?(exposed|weathered|oxidized)_copper)$|_ore$|^raw_|_ingot$|_nugget$|^(coal|charcoal|diamond|emerald|lapis_lazuli|redstone|quartz|amethyst_shard|netherite_scrap|ancient_debris)$|_(pickaxe|axe|shovel|hoe|sword)$|_(helmet|chestplate|leggings|boots)$|^(bow|crossbow|shield|shears|flint_and_steel|fishing_rod|bucket|water_bucket|lava_bucket|milk_bucket)$|_sapling$|_propagule$|^(torch|crafting_table|furnace|blast_furnace|smoker|chest|barrel|composter|bed|bone_meal|bamboo|wheat|wheat_seeds|apple|bread)$|_bed$)/
 export const isProtected = name => typeof name === 'string' && PROTECTED.test(name)
 
 /** How many of a group a list of items ({ name, count }) holds. */

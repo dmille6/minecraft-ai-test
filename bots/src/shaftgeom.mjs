@@ -477,16 +477,9 @@ export function supportFor (read, plan, cell, feet = null) {
   return null
 }
 
-/**
- * A SUPPORT CHAIN (stuckcells-01, LIVE 11-01: hive-a's stair held 31 h at step 3 -- lining 374,68,129 over a quarried pocket, every
- * neighbour air; supportFor's one support beside it, and the visit ended `no_support` with nothing logged; placebo-a's landing-48
- * stub hangs in a cave) -> [[x, y, z], ...] the cells to place IN ORDER (the first against a block that stands, each next against the
- * one before, the last beside `cell`), or null. Pure. Breadth first from `cell`, at most `max` cells; a chain cell is never the
- * stair's air nor the bot's body, is read and empty (or replaceable, or a liquid: sealed by the placement); every click's face
- * (the block it is placed against, toward the cell placed) is within `reach` of the eye standing at `feet`; a ref is a full block
- * (`isRef`); `exclude` cells a placement was already refused at. The shortest chain wins. supportFor's single support is the
- * length-1 case.
- */
+// ---- siting -------------------------------------------------------------------------------------------------------------
+
+/** Candidate pillar columns at Chebyshev RING from home, in `sector` (townplan sectorOf) when given, nearest first. Pure. */
 export const CHAIN_MAX = 3
 export function supportChain (read, plan, cell, feet, { max = CHAIN_MAX, reach = 4.5, isRef = isFull, exclude = new Set() } = {}) {
   if (!feet) return null
@@ -832,16 +825,13 @@ export function egressDetail ({ ok = false, why = '-', from = '-', to = '-', hop
   return `ok=${ok ? 1 : 0} why=${why} from=${from} to=${to} hops=${hops} cleared=${cleared} ms=${ms}`
 }
 
-// ---- the reflexes' hand-over (shafttrap-02) ------------------------------------------------------------------------------
-//
-// WHY. LIVE fleet 11-02 00:00Z..11-03 22:00Z (46 h, 80 bots, 14 of 16 towns with a complete stair): 1,429 trap episodes on 68
-// bots (3,305 bot-minutes) began with the bot ON a town stair -- first row `_entombed` 995, `_marooned` 431 -- and 553 of them
-// pillared dirt into the stair's air cells (1,279 repair digs `why=air`), 749 met the escape guard (`record=shaft`), 163 ended
-// in `_needs_rescue`. The entries are mostly NOT stair visits (build_shop 443; gather 384, goto 154, explore 113, surface 67,
-// ...). The way out the guard names ("the walk out stays open") is runStairEgress, so the marooned and entombed arms and
-// surface's ascent run it FIRST when the feet are on the stair, and today's escape only when it could not get the bot out.
+// ---- protection ---------------------------------------------------------------------------------------------------------
 
-/** shafttrap-02's switch: SHAFTTRAP=0|off|false|no restores the base (no hand-over, surface plans as before). */
+/**
+ * THE STAIR AS ONE PART OF MINE'S COMPOSED KEEP-OUT (minewell.mjs composeKeepOut's shape) -> { forbid(cell) -> 'stair' | null,
+ * bottom }. Pure. A bounding-box early-out and numeric keys (Claude design r1: the part is asked for every simulated stair cell
+ * of every candidate start). No stair: { forbid: null, bottom: null }.
+ */
 export const stairTrapOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.SHAFTTRAP ?? '').trim().toLowerCase())
 /** A failed egress from step k is not tried again from the same step for this long (today's escape runs instead). */
 export const EGRESS_RETRY_MS = 5 * 60_000
@@ -1001,8 +991,6 @@ export function shaftRowDetail ({ op = '-', k = '-', at = null, why = '-', feet 
   return `op=${op} k=${k} at=${Array.isArray(at) ? at.join(',') : '-'} why=${why} feet=${feet} gen=${gen} n=${n} ms=${ms} built=${built}`.slice(0, 300)
 }
 /** The `_shaft_use` row's detail. Pure. */
-export function shaftUseDetail ({ dir = '-', ok = false, why = '-', landing = '-', from = '-', to = '-', ms = '-', goal = '-', entry = null, cleared = null } = {}) {
-  // stairuse-01: `entry` (stair | surface) and `cleared` (foreign blocks dug on the way) when the descent names them
-  const more = `${entry != null ? ` entry=${entry}` : ''}${cleared != null ? ` cleared=${cleared}` : ''}`
-  return `dir=${dir} ok=${ok ? 1 : 0} why=${why} landing=${landing} from=${from} to=${to} goal=${goal} ms=${ms}${more}`.slice(0, 300)
+export function shaftUseDetail ({ dir = '-', ok = false, why = '-', landing = '-', from = '-', to = '-', ms = '-', goal = '-' } = {}) {
+  return `dir=${dir} ok=${ok ? 1 : 0} why=${why} landing=${landing} from=${from} to=${to} goal=${goal} ms=${ms}`.slice(0, 300)
 }

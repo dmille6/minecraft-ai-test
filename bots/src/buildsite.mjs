@@ -33,6 +33,9 @@
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isSolid, isPassable, isLiquid, isTreeish, isFurniture, replaceableCell, sectorOf, keepouts, boxMeetsZones, cellInZones, rot } from './townplan.mjs'
+import { worldState, orientAim, slabMerges } from './townstyle.mjs'
+import { isCottage2Blueprint, cottage2Blueprint, lookOf } from './cottage2.mjs'   // cottage2-01: the generated cottage family
+import { isCivicBlueprint, civicBlueprint } from './civic.mjs'   // civic-01: the landmarks' generated blueprints
 
 const k3 = (x, y, z) => `${x},${y},${z}`
 const k2 = (x, z) => `${x},${z}`
@@ -58,7 +61,8 @@ const STEM = /(_stem|_hyphae|^mushroom_stem|_mushroom_block)$/
 // bot furniture and fittings that refuse a site when they stand in its span (fitc.py's STATION list, plus the plan's FURNITURE)
 const BUILT = /(chest|barrel|furnace|smoker|crafting_table|_bed$|lectern|composter|torch|lantern|ladder|_door$|_sign$|_hanging_sign$|rail$|_trapdoor$|_fence_gate$|hopper|anvil|bell|brewing_stand|_button$|lever|_pressure_plate$|campfire|_carpet$|_banner$|flower_pot)/
 // a block the click would USE (it opens or toggles): never a support -- builder.mjs refUsable at eb407fa0, verbatim
-const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$/
+// cottage2-01: a BED is used, never a support (Paper 11-08: a bed clicked beside a placed bed was a sleep, 8 of 8 clicks; nothing placed)
+const USES = /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|_bed$/
 // a 'block' bounding box that is NOT a full cube a bot stands on as one step: fences and walls are 1.5 high, slabs and stairs
 // are not one step, the rest are short or hollow (Codex siting r1 P2: a fence was walked as a floor)
 const PARTIAL = /(_fence$|_wall$|_fence_gate$|_slab$|_stairs$|_carpet$|_pane$|^iron_bars$|^chain$|_trapdoor$|_bed$|^chest$|^trapped_chest$|^ender_chest$|^lantern$|^soul_lantern$|^ladder$|^flower_pot$|^potted_|^cocoa$|^chorus_plant$|^end_portal_frame$|^pitcher_crop$|^dried_ghast$|_hanging_sign$|^repeater$|^comparator$|^turtle_egg$|^sniffer_egg$|sculk_sensor$|^sculk_shrieker$|^frogspawn$|^lightning_rod$|^heavy_core$|^bell$|_head$|_skull$|^cake$|candle|^lectern$|^enchanting_table$|^stonecutter$|^daylight_detector$|^hopper$|anvil$|^brewing_stand$|^composter$|cauldron$|^snow$|^scaffolding$|_door$|^conduit$|_rod$|^grindstone$|campfire$|^bamboo$|^cactus$|^honey_block$|^dragon_egg$|_pressure_plate$|_button$|^sea_pickle$|_coral$|_coral_fan$|_coral_wall_fan$|^lily_pad$|^pointed_dripstone$|azalea$|_bud$|^amethyst_cluster$|^big_dripleaf$|^decorated_pot$|^pitcher_plant$)/
@@ -70,8 +74,10 @@ const NEEDS_2X2 = new Set(['dark_oak', 'pale_oak'])
 const PLACED_MAT = /(_planks$|^cobblestone$|^mossy_cobblestone$|^stone_bricks$|^cobbled_deepslate$|glass|_wool$|_slab$|_stairs$|_wall$|_fence$|_concrete$|^bricks$|^smooth_stone$|copper|_bricks$|^stripped_)/
 const AIR = Object.freeze({ name: 'air', boundingBox: 'empty' })
 const SOLID = name => Object.freeze({ name, boundingBox: 'block' })
-const ROLE_BOX = { light: 'empty' }
+const ROLE_BOX = { light: 'empty', flower: 'empty' }   // cottage2-01: a window box's flower is walked through
 
+/** reroof-04: a slab whose TOP face is a full block's (type top or double: its props from the reader) -> bool. Unread props: false. Pure. */
+export const slabTopFloor = b => !!b && /_slab$/.test(nm(b)) && ['top', 'double', 'bottom'].includes(String(b.props?.type ?? ''))
 /** A full cube a bot stands on: a 'block' box that is not one of the PARTIAL shapes. Pure. */
 export const fullCube = b => isSolid(b) && !PARTIAL.test(nm(b))
 /** A NATURAL solid: a full cube that is not a tree, leaves, liquid, bot furniture or a placed material. Pure. */
@@ -99,13 +105,20 @@ export function groundOf (read, x, z, hy) {
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 /** A blueprint by id ('workshop@1') from bots/src/blueprints/. */
-export function loadBlueprint (id) { return JSON.parse(fs.readFileSync(`${here}blueprints/${id}.json`, 'utf8')) }
+// civic-01: a landmark's blueprint is GENERATED from its id (civic.mjs civicBlueprint: one per seeded look), never a file
+export function loadBlueprint (id) {
+  // cottage2-01: the cottage@2 family is GENERATED per look (cottage2.mjs), never a file
+  if (isCottage2Blueprint(id)) return cottage2Blueprint(lookOf(id))
+  if (isCivicBlueprint(id)) return civicBlueprint(id)
+  return JSON.parse(fs.readFileSync(`${here}blueprints/${id}.json`, 'utf8'))
+}
 
 /** The cardinal unit vector a local direction (du, dv) points to under an orientation. */
 const dirOf = (orient, du, dv) => { const { dx, dz } = rot(orient, du, dv); return [Math.sign(dx), Math.sign(dz)] }
 /** The world cells of a blueprint at (anchor x, z, pad level s, orientation). Pure. */
 export function placeBlueprint (bp, anchor, s, orient) {
-  return bp.cells.map(c => { const { dx, dz } = rot(orient, c.u, c.v); return { ...c, at: [anchor.x + dx, s + c.y, anchor.z + dz] } })
+  // townstyle-01: a cell with a LOCAL state (`st`) carries its WORLD state (`ws`) for this orientation (townstyle.mjs worldState)
+  return bp.cells.map(c => { const { dx, dz } = rot(orient, c.u, c.v); const ws = worldState(c.st, orient); return { ...c, at: [anchor.x + dx, s + c.y, anchor.z + dz], ...(ws ? { ws } : {}) } })
 }
 /** Local (u, v) -> world (x, z). */
 const at2 = (anchor, orient, u, v) => { const { dx, dz } = rot(orient, u, v); return [anchor.x + dx, anchor.z + dz] }
@@ -163,6 +176,32 @@ export function reservations (plan, ctx = {}) {
   return { column, zones: ctx.zones ?? [] }
 }
 
+/**
+ * leaffell-01show r1 (Codex r1 BLOCKER): IS A TRUNK'S LOG IN A RESERVATION? -> 'leaf_tree_reserved' | null. Pure. The screen's own tree
+ * rule (`tree_in_reservation`: a plan cell, box or path, a well, the tree farm's columns, the monument's apron -- reservations(); a
+ * protected zone or an avoid box -- its zones), asked of a tree that is felled only so the leaves it holds decay. ONE rule for the
+ * styled sitings (siteBlueprintSteps) and the retrofit (trunkGuard: skills.mjs reroofLeafCtx): the retrofit asked only the protected
+ * zones, so a tree of the separately recorded tree farm that held a roof leaf would have been felled and replanted elsewhere.
+ */
+export const trunkReserved = (res, [x, y, z]) => (res.column(x, z, y, y) || cellInZones(x, y, z, res.zones ?? []) ? 'leaf_tree_reserved' : null)
+/** THE TRUNK GUARD of a fell-first plan (leaffell.mjs leafFellPlan `closed`) -> (x, y, z) -> reason | null: `trunk_closed` in a protected
+ *  zone (`zoneClosed`), `leaf_tree_reserved` in a reservation (trunkReserved), `reservations_unread` when the town's reservations could
+ *  not be read (`res` null: nothing is felled on a guess). Pure. */
+export const trunkGuard = (res, zoneClosed = null, unread = 'reservations_unread') => (x, y, z) => (zoneClosed?.(x, y, z) ? 'trunk_closed' : !res ? String(unread || 'reservations_unread') : trunkReserved(res, [x, y, z]))
+/**
+ * leaffell-01show r2 (Codex r2 BLOCKER): THE RESERVATIONS A TRUNK GUARD MAY TRUST -> { res, why: null } | { res: null, why }. Pure.
+ * reservations() over inputs that each SAY whether they were read: the siting's own readers answer "none" for a record that is absent
+ * AND for one that exists and cannot be read (skills.mjs treeFarmCells: an unparseable farm record is an empty farm), so the guard
+ * built on them let a tree of an unreadable tree farm be felled. `inputs` = { zonesKnown, zones, farm: { ok, why, cells: [[x, z]] },
+ * wells: { ok, why, cells: [[x, y, z]] }, z0: { ok, why, z0 } }; an input that is not `ok` (or missing) names the refusal: nothing is
+ * felled on a guess. A record that is ABSENT is ok and empty.
+ */
+export function reservationsStrict (plan, { zonesKnown = false, zones = [], farm = null, wells = null, z0 = null } = {}) {
+  if (!plan) return { res: null, why: 'plan_unread' }
+  if (!zonesKnown) return { res: null, why: 'zones_unknown' }
+  for (const [name, inp] of [['treefarm', farm], ['wells', wells], ['monument', z0]]) if (!inp?.ok) return { res: null, why: String(inp?.why ?? `${name}_unread`) }
+  return { res: reservations(plan, { zones, wells: wells.cells ?? [], farm: farm.cells ?? [], z0: z0.z0 ?? null }), why: null }
+}
 /** The connected logs of a tree from one log (26-neighbour, bounded) -> [[x, y, z]]. Pure. */
 export function treeOf (read, start, max = TREE.maxLogs) {
   const seen = new Set([k3(...start)]), out = [start], q = [start]
@@ -227,10 +266,14 @@ export function columnAt (read, x, z, L, earth = EARTH) {
  * GROUND'S OWN LEVEL (the most common top floor of the pad's columns, ties lower); with no top floor at all, the level that got
  * furthest through the pad.
  */
-export function levelFor (read, home, pad, earth = EARTH) {
+/** levelfall-01: a screened site's other feasible floor levels (least earthwork first) -> [L]. Pure. */
+export const levelAltsOf = site => (Array.isArray(site?.alts) ? site.alts : [])
+export function levelFor (read, home, pad, earth = EARTH, only = null) {
   let best = null, why = null, mostCols = -1
   const at = new Map()
+  const feasible = []   // levelfall-01: every feasible level with its cost (the caller's fallback when a proof fails)
   for (let L = home.y - 12; L <= home.y + 12; L++) {
+    if (only != null && L !== only) continue
     const cols = []
     let bad = null
     for (const [x, z] of pad) { const c = columnAt(read, x, z, L, earth); if (!c.ok) { bad = c; break } cols.push(c) }
@@ -243,9 +286,11 @@ export function levelFor (read, home, pad, earth = EARTH) {
       continue
     }
     const cost = fill + cut + litter
+    feasible.push({ L, cost })
     if (!best || cost < best.cost || (cost === best.cost && Math.abs(L - home.y) < Math.abs(best.L - home.y))) best = { ok: true, L, cols, cost }
   }
-  if (best) return best
+  // levelfall-01: the OTHER feasible levels, least earthwork first (then nearest home's level, then the lower)
+  if (best) return { ...best, alts: feasible.filter(f => f.L !== best.L).sort((a, b) => a.cost - b.cost || Math.abs(a.L - home.y) - Math.abs(b.L - home.y) || a.L - b.L).map(f => f.L) }
   const g = topFloorLevel(read, home, pad)
   const w = (g != null && at.get(g)) || why
   return { ok: false, why: w?.why ?? 'no_level', detail: w?.detail }
@@ -268,7 +313,7 @@ export function topFloorLevel (read, home, pad) {
 /**
  * THE SCREEN of one candidate (sections 1-4 above) -> { ok, why, ...site }. Pure. `res` = reservations(plan, ctx).
  */
-export function screenSite (read, home, bp, anchor, orient, res, { sector = null, domain = null, earth = EARTH } = {}) {
+export function screenSite (read, home, bp, anchor, orient, res, { sector = null, domain = null, earth = EARTH, level = null } = {}) {
   const { pad, ring } = footprint(bp, anchor, orient)
   const all = [...pad, ...ring]
   // copperhall-01: a building on its own plan plot inside the town (the hall) names its domain; every other caller: the ring
@@ -281,7 +326,8 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
   if (boxMeetsZones([Math.min(...xs), home.y - 16, Math.min(...zs), Math.max(...xs), home.y + 20, Math.max(...zs)], res.zones)) return { ok: false, why: 'zone' }
   // ---- the floor level (B4, D2) ----
   // copperhall-01: a larger building on a sloping plan plot names its own earthwork limits (`earth`); every other caller: EARTH
-  const lv = levelFor(read, home, pad, earth)
+  // levelfall-01: `level` forces one floor level (the search's fallback after a failed proof); unset, the least earthwork's
+  const lv = levelFor(read, home, pad, earth, level)
   if (!lv.ok) return { ok: false, why: lv.why, detail: lv.detail }
   const { L, cols } = lv
   const s = L + 1, g0 = L
@@ -340,7 +386,7 @@ export function screenSite (read, home, bp, anchor, orient, res, { sector = null
     }
   }
   if (litter > LITTER_MAX) return { ok: false, why: 'litter_over_40' }
-  return { ok: true, why: 'ok', anchor, orient, s, g0, pad, ring, fill, cut, clear, litter, trees, felled: felled.size, sector }
+  return { ok: true, why: 'ok', anchor, orient, s, g0, pad, ring, fill, cut, clear, litter, trees, felled: felled.size, sector, alts: lv.alts ?? [] }
 }
 
 // ---- the walk and the proof ----------------------------------------------------------------------------------------------
@@ -356,13 +402,19 @@ export function overlay (read, over) { return (x, y, z) => over.get(k3(x, y, z))
  * THE SEEDS (D3, r4): cells a bot STOOD on -- home's own start cell (the nearest node within 2 of home), and every `stood` feet
  * cell inside the town circle that is a node here. Never "every plaza cell" (Codex r1 P2: a moat inside the plaza), never "beside
  * a chest" (Codex r2/r3 P2: a chest in a wall is opened from either side).
+ * standcache-01 (`graph`: an object the walk FILLS, for walkAgain): its seeds in order, every node's steps in order, the nodes' cells.
  */
-export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null } = {}) {
+export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null, avoid = null, graph = null, base = null } = {}) {
   const isNode = (x, y, z) => {
+    // reroof-04 r5 (`avoid`: feet keys never a node -- a ledge whose fall lands off the town walk, reroof.mjs reroofFallRisk)
+    if (avoid?.has(k3(x, y, z))) return false
     if (block.has(k3(x, y, z)) || block.has(k3(x, y + 1, z)) || block.has(k3(x, y - 1, z))) return false
     if (noFloor?.has(k3(x, y - 1, z))) return false             // monument-01: an open fill cell is never a floor
     const f = read(x, y - 1, z), a = read(x, y, z), h = read(x, y + 1, z)
-    return !!f && !!a && !!h && fullCube(f) && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
+    // reroof-04 (`floors`: a Set of a record's own cell keys): such a cell reading a TOP (or double) slab is a floor too -- its top face
+    // is a full block's (Paper sandbox reroof4: mineflayer-pathfinder walks and stands on them); never a bottom slab, never another cell
+    const floor = fullCube(f) || (!!floors && floors.has(k3(x, y - 1, z)) && slabTopFloor(f))
+    return !!f && !!a && !!h && floor && isPassable(a) && isPassable(h) && !isLiquid(a) && !isLiquid(h)
   }
   // the walk's steps from one node -> its neighbours (4-neighbour, dy -1 / 0 / +1 with head room)
   const next = ([x, y, z], r) => {
@@ -380,6 +432,22 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stoo
       }
     }
     return out
+  }
+  // homes-02show (`base` = { graph, dirty }: makeWalkCache's): THE SAME WALK FROM A KEPT ONE. `graph` is this walk made over the world
+  // WITHOUT the caller's local changes (same home, radius, stood, floors, avoid; the obstacles common to both); `dirty` the columns
+  // ("x,z") within 1 of any cell the caller changed or blocks, none of them within TOWN_R + 1 of home (so the seeds are the kept
+  // ones). A node's steps depend only on its own column and its four neighbours' (isNode, next): a kept node in a column not dirty
+  // steps exactly where it stepped, so its kept steps are taken unread; every other node is stepped from the world as it reads now.
+  // Same seeds in the same order, the same steps in the same order: walkFrom's own result, key for key and in its order.
+  if (!base) walkStats.walks++
+  if (base) {
+    const g = base.graph, seen = new Set(), q = []
+    for (const k of g.seeds) if (!seen.has(k)) { seen.add(k); q.push(g.at.get(k)) }
+    for (let i = 0; i < q.length; i++) {
+      const kept = base.dirty.has(k2(q[i][0], q[i][2])) ? undefined : g.adj.get(k3(...q[i]))
+      if (kept) { for (const m of kept) if (!seen.has(m)) { seen.add(m); q.push(g.at.get(m)) } } else for (const n of next(q[i], radius)) { const key = k3(...n); if (!seen.has(key)) { seen.add(key); q.push(n) } }
+    }
+    return seen
   }
   // THE SEEDS (D3 r4): cells a bot STOOD on -- home's own start cell, and every `stood` feet cell inside the town circle
   // (Chebyshev TOWN_R) that is a node in this world. Never a cell merely NEAR something a bot used: a chest is opened from
@@ -415,8 +483,187 @@ export function walkFrom (read, home, block = new Set(), radius = WALK_R, { stoo
   for (const [id, v] of votes) if (town < 0 || v > votes.get(town) || (v === votes.get(town) && size[id] > size[town])) town = id
   const seen = new Set(), q = []
   for (const [c] of tagged) { const key = k3(...c); if (comp.get(key) === town && !seen.has(key)) { seen.add(key); q.push(c) } }
+  if (graph) {
+    // standcache-01: the same walk, its steps kept ({ seeds: [key], adj: key -> [key], at: key -> [x, y, z], all: the Set returned })
+    graph.seeds = q.map(c => k3(...c)); graph.adj = new Map(); graph.at = new Map(q.map(c => [k3(...c), c])); graph.all = seen
+    for (let i = 0; i < q.length; i++) {
+      const to = []
+      for (const n of next(q[i], radius)) { const key = k3(...n); to.push(key); if (!seen.has(key)) { seen.add(key); q.push(n); graph.at.set(key, n) } }
+      graph.adj.set(k3(...q[i]), to)
+    }
+    return seen
+  }
   for (let i = 0; i < q.length; i++) for (const n of next(q[i], radius)) { const key = k3(...n); if (!seen.has(key)) { seen.add(key); q.push(n) } }
   return seen
+}
+
+/**
+ * standcache-01: THE SAME WALK OVER OTHER OBSTACLES, WITHOUT READING THE WORLD AGAIN -> Set of feet keys: walkFrom(read, home, block,
+ * radius, opts)'s own result, key for key and in the same order. `graph` is what a walk with NO obstacles kept (walkFrom's `graph`:
+ * the same read, home, radius, stood, floors and avoid, block and noFloor empty) over the world as it still is.
+ * (Measured 11-12, scripts/standbench.mjs: a 1,661-segment tidy record over a 100-block walled town through the bot's own block
+ * read -- runVisit walked once per pass, 329,113 block reads and 251 ms at walkR 72, 580,284 and 484 ms at 96, and every segment's
+ * obstacles are its own open cells, so no two passes ever asked for the same walk. From the kept steps: 0 block reads, 3 ms where
+ * the obstacles touch the walk, nothing where they do not; about 15,000 reads and 17 ms where the seeds are chosen again.)
+ * WHY IT IS THE SAME WALK. An obstacle only ever takes from the walk: `block` makes a cell, the cell over it and the cell under it no
+ * node, and closes the head room of a step up from (or down to) the node two under it; `noFloor` makes the cell over it no node
+ * (walkFrom's isNode and next). And a step never CHANGES where it lands: of a neighbour column's three heights at most one is a
+ * node by what the world reads (a node's floor is a solid box, its feet and head are empty ones), so the obstacle walk's steps are
+ * exactly the kept steps less the ones an obstacle closes -- a node reached only through a closed step drops out, because the walk
+ * is walked again from the seeds over the kept steps (never patched). The seeds: an obstacle outside the town circle is never asked
+ * about while they are chosen (every cell asked about there is in a column within TOWN_R of home), so they are the kept ones; with
+ * an obstacle inside it they are chosen again by walkFrom itself (radius 0: the seeds and the town's pieces only), and if one of
+ * them is no node of the kept walk the whole walk is made the old way.
+ */
+export function walkAgain (graph, read, home, block = new Set(), radius = WALK_R, { stood = [], noFloor = null, floors = null, avoid = null } = {}) {
+  const { adj, at } = graph
+  const dead = new Set(), low = new Set()
+  let inTown = false
+  const take = (k, floorOnly) => {
+    const [x, y, z] = k.split(',').map(Number)
+    if (Math.max(Math.abs(x - home.x), Math.abs(z - home.z)) <= TOWN_R) inTown = true
+    for (const n of floorOnly ? [k3(x, y + 1, z)] : [k, k3(x, y + 1, z), k3(x, y - 1, z)]) if (adj.has(n)) dead.add(n)
+    if (!floorOnly) { const u = k3(x, y - 2, z); if (adj.has(u)) low.add(u) }
+  }
+  for (const k of block) take(k, false)
+  for (const k of noFloor ?? []) take(k, true)
+  let seeds = graph.seeds
+  if (inTown) {
+    const g = {}
+    walkFrom(read, home, block, 0, { stood, noFloor, floors, avoid, graph: g })
+    if (!g.seeds.every(k => adj.has(k))) return walkFrom(read, home, block, radius, { stood, noFloor, floors, avoid })
+    seeds = g.seeds
+  } else if (!dead.size && !low.size) return graph.all            // no obstacle touches the kept walk: it IS the walk
+  const seen = new Set(), q = []
+  for (const k of seeds) if (!seen.has(k) && !dead.has(k)) { seen.add(k); q.push(k) }
+  for (let i = 0; i < q.length; i++) {
+    const y = at.get(q[i])[1], headShut = low.has(q[i])
+    for (const m of adj.get(q[i])) {
+      if (seen.has(m) || dead.has(m)) continue
+      const dy = at.get(m)[1] - y
+      if ((dy === 1 && headShut) || (dy === -1 && low.has(m))) continue
+      seen.add(m); q.push(m)
+    }
+  }
+  return seen
+}
+
+/**
+ * HOMES-02SHOW: ONE WALK OF THE TOWN A SEARCH, NOT ONE A QUESTION (LIVE showcase 11-13, the first hour of the layout's home plots:
+ * every cottage siting ended `search_time` at the 100-s box with nothing sited). A siting asks for the town's walk again and again --
+ * once a segment of every proof and once more at its end (proveSiteSteps), once for every leaf a candidate must clear (sitecanopy.mjs
+ * clearsReachedBuiltSteps: 26 leaves, 26 walks and more), once for its replants -- and each walk read the WHOLE town out to walkR
+ * (1.0 to 6.0 s on that host at walkR 48 to 136, siteproof-01), though the questions differ only in a handful of cells on the plot.
+ * makeWalkCache keeps the walk of the unchanged world once (walkFrom's `graph`) and answers each question from it (walkFrom's
+ * `base`): only the columns the question changed are read again.
+ *   bind(read, home, radius, { stood, floors, avoid }) -> { walk(readNow, block, dirtyKeys, { staticBlock, noFloor }) -> Set }
+ *     read       the world WITHOUT the question's changes (the search's own reader)
+ *     readNow    the same world with the changes over it (an overlay); block  the obstacles (walkFrom's)
+ *     dirtyKeys  iterables of "x,y,z" keys: every cell `readNow` answers differently from `read`
+ *     staticBlock / noFloor   the obstacles common to every question (the planned town: proveSiteSteps `planned`), part of the kept walk
+ * THE ANSWER IS walkFrom(readNow, home, block, radius, opts)'s OWN, key for key and in its order (the proof is not weakened: a stand
+ * is chosen by the order of a column's heights, stepFor) -- WHILE THE WORLD UNDER THE KEPT WALK HAS NOT MOVED. Where a change lies
+ * within TOWN_R + 1 of home the seeds could move, and the walk is made the old way (`fallback`). One kept walk a (radius, seeds,
+ * common obstacles): a search of one plot keeps at most three.
+ * WHEN THE WORLD MOVES (review r1, Codex: another bot cut a trench between the town and the plot after the walk was kept; the kept
+ * walk still crossed it and a site was proven that a fresh walk refused). The kept walk is DROPPED and made again, as standcache-01's
+ * is (buildrun.mjs nodesFor):
+ *   seqNow() / movedSince(seq, { x, z, r })   the connection's own witness (buildbot.mjs installServerBlockWitness: a block a walk
+ *              could read differently -- its STATE_ONLY rule -- a chunk loaded or gone), asked before EVERY question; the sequence is
+ *              taken BEFORE the walk is made. A witness that throws: moved. While nothing moved in the walk's square the kept walk is
+ *              exactly as fresh as a new one: both read this bot's own view.
+ *   keepMs     with NO witness (a bare bot, a test): the kept walk's age limit, WALK_KEEP_MS -- 10 s, about one look's search once
+ *              its walks are kept, and under the least time another bot needs to dig a trench across an approach.
+ * AND WHAT A KEPT WALK PROVED IS NEVER PUBLISHED ON ITS WORD ALONE: siteAgainFresh proves the accepted site again with no kept walk.
+ * A cache lives one siting of one plot (skills.mjs cottageSiteOn).
+ */
+/** Counters (tests, the walk bench): `walks` every walk that READ the town (walkFrom without a kept walk), `full` the kept walks a
+ *  cache made, `local` the questions answered from one, `fallback` the ones a change near the town sent the old way, `dropped` the
+ *  kept walks given up because the world moved under them (or they aged out). */
+export const walkStats = { walks: 0, full: 0, local: 0, fallback: 0, dropped: 0 }
+export const WALK_KEEP_MS = 10_000
+const colsNear = (keys, out) => { for (const k of keys) { const i = k.indexOf(','), j = k.lastIndexOf(','); const x = Number(k.slice(0, i)), z = Number(k.slice(j + 1)); for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) out.add(k2(x + dx, z + dz)) } }
+export function makeWalkCache ({ seqNow = null, movedSince = null, keepMs = WALK_KEEP_MS, now = () => Date.now() } = {}) {
+  const bases = new Map(), ids = new WeakMap()
+  let nextId = 1
+  const idOf = o => { if (!o) return 0; if (!ids.has(o)) ids.set(o, nextId++); return ids.get(o) }
+  const witnessed = typeof seqNow === 'function' && typeof movedSince === 'function'
+  const told = () => { try { const n = seqNow(); return Number.isFinite(n) ? n : null } catch { return null } }
+  // has the world moved under this kept walk? the witness's word on the walk's square; with no witness (or one that cannot say), its age
+  const stale = (b, home, radius) => {
+    if (witnessed && b.seq != null) { try { return !!movedSince(b.seq, { x: home.x, z: home.z, r: radius + 2 }) } catch { return true } }
+    return !(now() - b.at < keepMs)
+  }
+  return {
+    bases,
+    /** Every kept walk given up (the caller saw the world differ from what a kept walk proved: siteAgainFresh). */
+    drop () { if (bases.size) { walkStats.dropped += bases.size; bases.clear() } },
+    bind (read, home, radius = WALK_R, { stood = [], floors = null, avoid = null } = {}) {
+      const sk = `${home.x},${home.y},${home.z}|${radius}|${stood.map(c => (Array.isArray(c) ? c.join(',') : '')).join(';')}|${idOf(floors)}|${idOf(avoid)}`
+      return {
+        walk (readNow, block = new Set(), dirtyKeys = [], { staticBlock = null, noFloor = null } = {}) {
+          const opts = { stood, floors, avoid, ...(noFloor ? { noFloor } : {}) }
+          const dirty = new Set()
+          for (const it of dirtyKeys) if (it) colsNear(it, dirty)
+          if (staticBlock?.size) { const own = []; for (const k of block) if (!staticBlock.has(k)) own.push(k); colsNear(own, dirty) } else colsNear(block, dirty)
+          for (const c of dirty) { const i = c.indexOf(','); if (Math.max(Math.abs(Number(c.slice(0, i)) - home.x), Math.abs(Number(c.slice(i + 1)) - home.z)) <= TOWN_R + 1) { walkStats.fallback++; return walkFrom(readNow, home, block, radius, opts) } }
+          const key = `${sk}|${idOf(staticBlock)}|${idOf(noFloor)}`
+          let b = bases.get(key)
+          if (b && stale(b, home, radius)) { bases.delete(key); walkStats.dropped++; b = null }
+          if (!b) {
+            const seq = witnessed ? told() : null, at = now()   // taken BEFORE the walk: it reads nothing from the socket while it runs
+            const graph = {}
+            walkFrom(read, home, staticBlock ?? new Set(), radius, { ...opts, graph })
+            b = { graph, seq, at }; bases.set(key, b); walkStats.full++
+          }
+          walkStats.local++
+          return walkFrom(readNow, home, block, radius, { ...opts, base: { graph: b.graph, dirty } })
+        },
+      }
+    },
+  }
+}
+/**
+ * homes-02show review r1 (Codex 1b): THE SITE A KEPT WALK ACCEPTED, PROVEN AGAIN FROM NOTHING KEPT -> siteBlueprintAsync's answer for
+ * that ONE site (its anchor and orientation: `ctx.only`), screened, cleared, proven and replanted over `read` -- a reader made NOW --
+ * with plain walks of the town (`walkCache` taken out of the ctx whatever the caller left in it). The caller publishes THIS answer's
+ * record, never the kept walk's; an answer that is not ok says the world is no longer what the kept walk saw: nothing is published,
+ * the look is not refused (it was never refused on the world as it is) and the kept walks are dropped (makeWalkCache `drop`).
+ */
+export function siteAgainFresh (s, read, plan, bp, ctx = {}, opts = {}) {
+  const { walkCache, ...rest } = ctx
+  void walkCache
+  return siteBlueprintAsync(read, plan, bp, { ...rest, only: { x: s.record.anchor[0], z: s.record.anchor[1], orient: s.record.orient } }, opts)
+}
+/**
+ * homes-02show review r2 (Codex 1): ...AND THE FRESH PROOF ITSELF MUST HAVE STOOD ON A WORLD THAT HELD STILL. A reader keeps what it
+ * read (skills.mjs planReader), and the proof hands the event loop back between its walks: a trench that arrives after its first
+ * walk is told to the witness, but the later walks read the kept ground, and the proof answered ok.
+ *   readOf(o)   a NEW reader (`o.memo === false`: one that keeps nothing);   ctxOf(read)   the search's ctx for that reader
+ *   optsOf()    siteBlueprintAsync's options now (the time left of the box);  seqNow / movedSince / area   the connection's witness
+ *               (makeWalkCache's) and the walk's square { x, z, r }
+ * WITH THE WITNESS: its sequence is taken BEFORE the reader is made and asked again at the proof's END -- told of nothing in the
+ * area, the answer (ok or not) stands; told of a change, the proof is made ONCE more on a new reader, and if the world moved under
+ * that one too the answer is { ok: false, moved: true }: nothing is published, nothing is remembered, the plot is passed this visit.
+ * WITH NO WITNESS (a bare bot, a test) the reader keeps NOTHING: every walk of the proof reads the world as it is at that walk, and
+ * the proof's LAST walk is the finished building walked to from town -- a cut across the approach at any time before it refuses the
+ * site. (Not used where there is a witness: an unkept reader reads every block of every walk again.)
+ */
+export const STEADY_TRIES = 2
+export async function siteAgainSteady (s, plan, bp, { readOf, ctxOf, optsOf = () => ({}), seqNow = null, movedSince = null, area = null } = {}) {
+  const witnessed = typeof seqNow === 'function' && typeof movedSince === 'function' && !!area
+  for (let i = 0; i < STEADY_TRIES; i++) {
+    let mark = null
+    if (witnessed) { try { const n = seqNow(); mark = Number.isFinite(n) ? n : null } catch { mark = null } }
+    const read = readOf(witnessed && mark != null ? {} : { memo: false })
+    const s2 = await siteAgainFresh(s, read, plan, bp, ctxOf(read), optsOf())
+    if (siteLoopEnds(s2)) return s2
+    if (!witnessed || mark == null) return s2
+    let moved = true
+    try { moved = !!movedSince(mark, area) } catch { moved = true }
+    if (!moved) return s2
+  }
+  return { ok: false, why: 'no_proven_site', moved: true, record: null, sectors: [] }
 }
 
 /**
@@ -456,13 +703,28 @@ const SUPPORTS = [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
  * cell (feet or head) and is in the build domain -- `domain(x, z)` when given (monument-01: ziggurat.mjs zigDomain, its record's
  * box + 6), else the workshop's ring (inDomain). Nearest wins.
  */
-export function stepFor (read, home, cell, nodes, domain = null) {
+export function stepFor (read, home, cell, nodes, domain = null, want = null) {
   const [cx, cy, cz] = cell
   let best = null, bd = Infinity
-  for (const [fx, fy, fz] of SUPPORTS) {
+  // cottage2-01: a HANGING lantern is clicked on the underside of the block above it (Paper 11-08: under a bottom stair and a bottom slab;
+  // under a top slab vanilla stands it on the floor instead -- the state check then digs it): only such a cell takes the face above
+  const hanging = want?.ws?.hanging === true || want?.ws?.hanging === 'true'
+  for (const [fx, fy, fz] of hanging ? [...SUPPORTS, [0, 1, 0]] : SUPPORTS) {
     const sup = [cx + fx, cy + fy, cz + fz]
     if (!refUsable(read(...sup))) continue
     const normal = [0 - fx, 0 - fy, 0 - fz]   // never -0 (a record compares and serialises cleanly)
+    // zonesite-01show (`want.supportOk(support, face)`, Codex r1 blocker 2): never a support the protected-zone guard would refuse
+    // the click against -- a cell beside a zone takes its OTHER supports (the block below, a side outside the zone)
+    if (typeof want?.supportOk === 'function' && !want.supportOk(sup, normal)) continue
+    // townstyle-01: A STATE-BEARING CELL (`want` = { name, ws }) takes only a face whose click makes that state (townstyle.mjs
+    // orientAim: a top face never makes a top half, a log's axis is its face's); the step carries the click's `aim` (yaw, cursor)
+    const aim = want?.ws ? orientAim(want.name, want.ws, normal) : null
+    if (want?.ws && !aim) continue
+    // townstyle-02: never a click that would turn its SUPPORT into a double slab (townstyle.mjs slabMerges)
+    if (aim && slabMerges(want.name, read(...sup), normal, aim.cursor[1])) continue
+    // townstyle-01: A REACH-ONLY CELL (`want.blind`, a pitched roof's upper courses: Paper places on reach alone -- the blind scene of
+    // sandbox/townstyle/orient-proof.mjs): the face need not be on the eye's side nor in its sight; the reach rule stands
+    const blind = !!want?.blind
     const fc = [sup[0] + 0.5 + normal[0] * 0.5, sup[1] + 0.5 + normal[1] * 0.5, sup[2] + 0.5 + normal[2] * 0.5]
     for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
       const sx = cx + dx, sz = cz + dz
@@ -470,17 +732,77 @@ export function stepFor (read, home, cell, nodes, domain = null) {
       if (!ys || !(domain ? domain(sx, sz) : inDomain(home, sx, sz))) continue
       for (const sy of ys) {
         if (sx === cx && sz === cz && (sy === cy || sy + 1 === cy)) continue
+        // cottage2-01: never a stand in a cell the click also fills (a bed's head: `want.also`)
+        if (want?.also?.some(([ax, ay, az]) => sx === ax && sz === az && (sy === ay || sy + 1 === ay))) continue
         const eye = [sx + 0.5, sy + EYE, sz + 0.5]
         const v = [eye[0] - fc[0], eye[1] - fc[1], eye[2] - fc[2]]
         const d = Math.hypot(...v)
         if (d > REACH || d >= bd) continue
-        if (v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2] <= 0) continue
-        if (!sightClear(read, eye, fc, new Set([k3(cx, cy, cz)]))) continue
-        best = { stand: [sx, sy, sz], support: sup, face: normal }; bd = d
+        if (!blind && v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2] <= 0) continue
+        if (!blind && !sightClear(read, eye, fc, new Set([k3(cx, cy, cz)]))) continue
+        best = { stand: [sx, sy, sz], support: sup, face: normal, ...(aim ? { aim } : {}) }; bd = d
       }
     }
   }
   return best
+}
+/**
+ * STEPCLASS-01 (LIVE showcase 11-15: 2,118 `deferred` rows and 1,234 temporary-stand `no_step` refusals in three days, none saying
+ * why -- stepFor answers null for six causes alike). WHY A CELL HAS NO STEP -> null (stepFor finds one: asked first, so the two never
+ * disagree on WHETHER) | { class, n }. Pure; stepFor's own inputs, its own tests in its own order, nothing chosen. The class is the
+ * LAST test any stand got to:
+ *   no_support      no block to click below or beside the cell (unknown, air, liquid, a block with a use)
+ *   support_closed  there are such blocks, and every one is refused (`want.supportOk`, a face that cannot make the state, a slab merge)
+ *   no_node         no walkable stand within 5 columns          own_cell   the only stands are in the cell itself (or its `also`)
+ *   out_of_domain   stands within 5 columns, none in the build domain       out_of_reach  in the domain, none within REACH of a face
+ *   wrong_side      in reach, every one behind its face         no_sight   in reach and before a face, the sight line blocked
+ *   unclassified    a stand passes every test here though stepFor found none (the two have drifted apart: a bug, named)
+ * `n`: supports, closed, stands (not counting `own`), and each stand once under the last test it failed (all 0 with no open support).
+ */
+export const STEP_CLASSES = Object.freeze(['no_support', 'support_closed', 'no_node', 'own_cell', 'out_of_domain', 'out_of_reach', 'wrong_side', 'no_sight', 'unclassified'])
+export function stepRefusal (read, home, cell, nodes, domain = null, want = null) {
+  if (stepFor(read, home, cell, nodes, domain, want)) return null
+  const [cx, cy, cz] = cell
+  const n = { supports: 0, closed: 0, stands: 0, own: 0, out_of_domain: 0, out_of_reach: 0, wrong_side: 0, no_sight: 0 }
+  const hanging = want?.ws?.hanging === true || want?.ws?.hanging === 'true'
+  const faces = []
+  for (const [fx, fy, fz] of hanging ? [...SUPPORTS, [0, 1, 0]] : SUPPORTS) {
+    const sup = [cx + fx, cy + fy, cz + fz]
+    if (!refUsable(read(...sup))) continue
+    n.supports++
+    const normal = [0 - fx, 0 - fy, 0 - fz]
+    const aim = want?.ws ? orientAim(want.name, want.ws, normal) : null
+    if ((typeof want?.supportOk === 'function' && !want.supportOk(sup, normal)) || (want?.ws && !aim) || (aim && slabMerges(want.name, read(...sup), normal, aim.cursor[1]))) { n.closed++; continue }
+    faces.push({ normal, fc: [sup[0] + 0.5 + normal[0] * 0.5, sup[1] + 0.5 + normal[1] * 0.5, sup[2] + 0.5 + normal[2] * 0.5] })
+  }
+  const blind = !!want?.blind, through = new Set([k3(cx, cy, cz)])
+  let passed = 0
+  for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+    const sx = cx + dx, sz = cz + dz
+    const ys = nodes.get(k2(sx, sz))
+    if (!ys) continue
+    const inDom = !!(domain ? domain(sx, sz) : inDomain(home, sx, sz))
+    for (const sy of ys) {
+      if ((sx === cx && sz === cz && (sy === cy || sy + 1 === cy)) || want?.also?.some(([ax, ay, az]) => sx === ax && sz === az && (sy === ay || sy + 1 === ay))) { n.own++; continue }
+      n.stands++
+      if (!inDom) { n.out_of_domain++; continue }
+      if (!faces.length) continue
+      // the last test this stand gets to over the open faces: 0 reach, 1 the face's side, 2 the sight line, 3 none failed
+      let far = 0
+      const eye = [sx + 0.5, sy + EYE, sz + 0.5]
+      for (const { normal, fc } of faces) {
+        const v = [eye[0] - fc[0], eye[1] - fc[1], eye[2] - fc[2]]
+        if (Math.hypot(...v) > REACH) continue
+        if (!blind && v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2] <= 0) { far = Math.max(far, 1); continue }
+        if (!blind && !sightClear(read, eye, fc, through)) { far = Math.max(far, 2); continue }
+        far = 3; break
+      }
+      if (far === 3) passed++; else n[far === 2 ? 'no_sight' : far === 1 ? 'wrong_side' : 'out_of_reach']++
+    }
+  }
+  const cls = !n.supports ? 'no_support' : !faces.length ? 'support_closed' : !n.stands ? (n.own ? 'own_cell' : 'no_node')
+    : passed ? 'unclassified' : n.no_sight ? 'no_sight' : n.wrong_side ? 'wrong_side' : n.out_of_reach ? 'out_of_reach' : 'out_of_domain'
+  return { class: cls, n }
 }
 
 const byColumn = keys => {
@@ -495,7 +817,23 @@ const blockFor = (bp, role) => { if (role === 'fill') return 'cobblestone'; cons
  * The world is the read with the clears applied (air). The FILL is proven as its own first segment `earth` (cobblestone, from
  * the bottom up), then the blueprint's segments in order. `stood` = the walk's seeds, cells a bot stood on (D3).
  */
-export function proveSite (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R } = {}) {
+export function proveSite (read, home, bp, site, opts = {}) {
+  const g = proveSiteSteps(read, home, bp, site, opts)
+  for (;;) { const r = g.next(); if (r.done) return r.value }
+}
+/**
+ * SITEPROOF-01 (LIVE showcase 11-12: 39 `lost connection: Timed out` in 80 minutes, each a bot offline about 5 minutes; a stack
+ * taken from a bot at 100% CPU: walkFrom <- walkNow <- proveSite <- siteBlueprintSteps <- siteBlueprintAsync). THE PROOF AS A
+ * GENERATOR: proveSite's own steps, yielding after EVERY walk of the town. One walk is 1.0 to 6.0 s on that host (walkR 48 to
+ * 136, bots/scripts/standbench.mjs, measured there), a proof walks once a segment at least and once more at its end, and the
+ * search's cooperative runner (siteBlueprintAsync) could only take its turn BETWEEN proofs -- so one proof of a ten-segment
+ * blueprint held the event loop past the server's 30-s keep-alive whenever the host was busy. Yielding after EVERY walk (the
+ * finished building's too: the search walks again right after a proof) bounds the hold to ONE walk. The result is proveSite's, value for value: nothing is read or decided differently.
+ */
+export function * proveSiteSteps (read, home, bp, site, { stood = [], domain = null, walkR = WALK_R, floors = null, gone = null, interiorNow = null, avoid = null, planned = null, walker = null } = {}) {
+  // planahead-01 (`planned` = { block: Set, noFloor: Set }, planahead.mjs plannedWorld): the other open records' work still to place is an
+  // obstacle and never a floor, their open clears never a floor -- the proof is made in the PLANNED town, never only the town as it is
+  const pBlock = planned?.block instanceof Set ? planned.block : null, pNoFloor = planned?.noFloor instanceof Set && planned.noFloor.size ? planned.noFloor : null
   // storehouse-01: a building inside the town (its plan plot beside the plaza) names its stands' domain (stepFor's), as the visit does
   const over = new Map()
   for (const c of site.clear) over.set(k3(...c.at), AIR)
@@ -515,29 +853,44 @@ export function proveSite (read, home, bp, site, { stood = [], domain = null, wa
     // one's so far) is in the overlay: a wall, and a floor. The walk is recomputed only when no cell has a step and something
     // was placed since the last walk (a builder walks onto the pad it has laid); with nothing new, the cell is no_step.
     const mine = cells.filter(c => c.seg === sg.seg)
-    const left = mine.slice().sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
-    const walkNow = () => byColumn(walkFrom(R, home, new Set(left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))), walkR, { stood }))
+    // cottage2-01: a bed's HEAD is never clicked -- the foot's click puts it there (it rides with its foot, below)
+    const left = mine.filter(c => !c.byFoot).sort((a, b) => a.at[1] - b.at[1] || a.u - b.u || a.v - b.v)
+    const headOf = c => (c.role === 'bed' && c.bed ? mine.find(h => h.byFoot && h.bed === c.bed) ?? null : null)
+    // homes-02show (`walker`, makeWalkCache's): the same walk from the search's kept one (only the columns this proof changed are read)
+    const walkNow = () => { const blk = new Set([...(pBlock ?? []), ...left.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at))]); return byColumn(walker ? walker.walk(R, blk, [over.keys()], { staticBlock: pBlock, noFloor: pNoFloor }) : walkFrom(R, home, blk, walkR, { stood, floors, avoid, ...(pNoFloor ? { noFloor: pNoFloor } : {}) })) }
     let nodes = walkNow(), fresh = true, walks = 1
+    yield null
     while (left.length) {
       let pick = -1, step = null
       for (let i = 0; i < left.length; i++) {
-        step = stepFor(R, home, left[i].at, nodes, domain)
+        const hd = headOf(left[i])
+        step = stepFor(R, home, left[i].at, nodes, domain, left[i].ws || left[i].blind || hd ? { name: blockFor(bp, left[i].role), ws: left[i].ws ?? null, blind: !!left[i].blind, ...(hd ? { also: [hd.at] } : {}) } : null)
         if (step) { pick = i; break }
       }
-      if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; continue }
+      if (pick < 0 && !fresh) { nodes = walkNow(); fresh = true; walks++; yield null; continue }
       if (pick < 0) return { ok: false, why: 'no_step', detail: `${sg.seg} ${left.length} left, first ${left[0].role}@${left[0].at.join(',')}`, segments: segOut }
       fresh = false
       const c = left.splice(pick, 1)[0]
-      over.set(k3(...c.at), Object.freeze({ name: blockFor(bp, c.role), boundingBox: ROLE_BOX[c.role] ?? 'block' }))
-      out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++ })
+      over.set(k3(...c.at), Object.freeze({ name: blockFor(bp, c.role), boundingBox: ROLE_BOX[c.role] ?? 'block', ...(c.ws ? { props: c.ws } : {}) }))   // townstyle-02: a placed state cell's state (a slab's half)
+      out.push({ at: c.at, role: c.role, seg: c.seg, stand: step.stand, support: step.support, face: step.face, order: order++, ...(c.ws ? { ws: c.ws } : {}), ...(c.blind ? { blind: true } : {}), ...(c.bed ? { bed: c.bed } : {}) })
+      const hd = headOf(c)
+      if (hd) {
+        over.set(k3(...hd.at), Object.freeze({ name: blockFor(bp, hd.role), boundingBox: 'block', ...(hd.ws ? { props: hd.ws } : {}) }))
+        out.push({ at: hd.at, role: hd.role, seg: hd.seg, stand: step.stand, support: c.at, face: [0, 0, 0], order: order++, ...(hd.ws ? { ws: hd.ws } : {}), bed: hd.bed, byFoot: true })
+      }
     }
     segOut.push({ seg: sg.seg, layer: sg.layer, deps: sg.deps, cells: mine.length, walks, stands: new Set(out.filter(o => o.seg === sg.seg).map(o => k3(...o.stand))).size })
   }
   // the finished building: EVERY open interior floor cell is walked to from town through the open doorway
-  const final = walkFrom(R, home, new Set(), walkR, { stood })
+  // reroof-04 (`gone`: fill keys a temporary stand holds -- torn down once the roof stands): the finished building is walked WITHOUT them
+  const finalR = gone?.size ? overlay(R, new Map([...gone].map(k => [k, AIR]))) : R
+  const final = walker ? walker.walk(finalR, new Set(pBlock ?? []), [over.keys(), gone], { staticBlock: pBlock, noFloor: pNoFloor }) : walkFrom(finalR, home, new Set(pBlock ?? []), walkR, { stood, floors, avoid, ...(pNoFloor ? { noFloor: pNoFloor } : {}) })
+  yield null   // siteproof-01 (Claude r1 note): after the LAST walk too -- the search's next walk (the replant's, the next level's proof) follows at once
   const solidInside = new Set(cells.filter(c => (ROLE_BOX[c.role] ?? 'block') === 'block').map(c => k3(...c.at)))
   const interior = bp.interior.filter(([, , y]) => y === 1).map(([u, v]) => { const { dx, dz } = rot(site.orient, u, v); return k3(site.anchor.x + dx, site.s + 1, site.anchor.z + dz) })
-  const open = interior.filter(k => !solidInside.has(k))
+  // reroof-04 (`interiorNow(key)`, a retrofit: NEVER WORSE) only the interior cells the town walks to NOW must stay walked (LIVE 11-08: a
+  // missing floor block in the enchanting workshop -- its own repair's -- left one interior cell unwalked before any roof work)
+  const open = interior.filter(k => !solidInside.has(k) && (!interiorNow || interiorNow(k)))
   const inside = open.filter(k => final.has(k)).length
   if (!open.length || inside < open.length) return { ok: false, why: 'interior_unreachable', detail: `${inside}/${open.length}`, segments: segOut }
   return { ok: true, why: 'ok', cells: out, segments: segOut, interior: { cells: interior.length, open: open.length, reachable: inside } }
@@ -660,18 +1013,28 @@ export function projectSectors (plan, first = null) {
   return out
 }
 /** A plinth record's columns -> [[x, y, z]]: the plan's steps, cap and stair, and every prev[] column {x, y, z, stair} (plinth.mjs carryPrev). */
-export function plinthCells (rec) {
+// fillcolumn-01 r5 (`report`, optional: an array): every entry this reader skips, or hands on without a full place, is named there
+// ({ input: 'wells', why }); a record with no plan, no stair or no earlier column has none and says nothing. The cells are unchanged.
+export function plinthCells (rec, report = null) {
   const out = []
+  const fin3 = c => Array.isArray(c) && c.length === 3 && c.every(Number.isFinite)
+  const bad = why => { report?.push({ input: 'wells', why: `the plinth record: ${why}` }) }
+  if (report && (!rec || typeof rec !== 'object' || Array.isArray(rec))) bad('not a record')
   const pl = rec?.plan
+  if (report && pl != null && (typeof pl !== 'object' || Array.isArray(pl))) bad('its plan is no plan')
   if (pl && typeof pl === 'object') {
-    for (const st of pl.steps ?? []) if (Array.isArray(st?.c)) out.push(st.c)
-    if (pl.cap) out.push([pl.cap.x, pl.cap.y, pl.cap.z])
-    for (const c of pl.stair ?? []) if (Array.isArray(c) && c.length === 3) out.push(c)
+    if (report && pl.steps != null && !Array.isArray(pl.steps)) bad('its steps are no list')
+    for (const st of pl.steps ?? []) { if (Array.isArray(st?.c)) { if (report && !fin3(st.c)) bad('a step cell without a full place'); out.push(st.c) } else bad('a step without a cell') }
+    if (pl.cap) { if (report && ![pl.cap.x, pl.cap.y, pl.cap.z].every(Number.isFinite)) bad('a cap without a full place'); out.push([pl.cap.x, pl.cap.y, pl.cap.z]) } else if (report && pl.cap != null) bad('a cap that is no place')
+    if (report && pl.stair != null && !Array.isArray(pl.stair)) bad('its stair is no list')
+    for (const c of pl.stair ?? []) { if (Array.isArray(c) && c.length === 3) { if (report && !fin3(c)) bad('a stair cell without a full place'); out.push(c) } else bad('a stair cell that is no cell') }
   }
+  if (report && rec?.prev != null && !Array.isArray(rec.prev)) bad('its earlier columns are no list')
   for (const c of Array.isArray(rec?.prev) ? rec.prev : []) {
-    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) continue
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) { bad('an earlier column without a full place'); continue }
     out.push([c.x, c.y, c.z])
-    for (const s of Array.isArray(c.stair) ? c.stair : []) if (Array.isArray(s) && s.length === 3) out.push(s)
+    if (report && c.stair != null && !Array.isArray(c.stair)) bad('an earlier column\'s stair is no list')
+    for (const s of Array.isArray(c.stair) ? c.stair : []) { if (Array.isArray(s) && s.length === 3) { if (report && !fin3(s)) bad('an earlier stair cell without a full place'); out.push(s) } else bad('an earlier stair cell that is no cell') }
   }
   return out
 }
@@ -699,19 +1062,75 @@ export function siteBlueprint (read, plan, bp, ctx = {}) {
  * the event loop back every `sliceMs` (a wide search -- the yard's, out to 80 -- runs 10-60 s: a bot that never yields misses its
  * keep-alives); `aborted()` true ends it with { ok: false, why: 'aborted' }. Never changes the result.
  */
-export async function siteBlueprintAsync (read, plan, bp, ctx = {}, { sliceMs = 40, aborted = () => false } = {}) {
+export async function siteBlueprintAsync (read, plan, bp, ctx = {}, { sliceMs = 40, aborted = () => false, maxMs = siteBoxOn() ? SITE_SEARCH_MS : Infinity } = {}) {
   const g = siteBlueprintSteps(read, plan, bp, ctx)
-  let t = Date.now()
-  for (;;) {
-    const r = g.next()
-    if (r.done) return r.value
-    if (Date.now() - t >= sliceMs) {
-      await new Promise(resolve => setImmediate(resolve))
-      if (aborted()) return { ok: false, why: 'aborted', record: null, sectors: [] }
-      t = Date.now()
+  const t0 = Date.now()
+  let token = null
+  try { token = siteSearchHook ? siteSearchHook.begin({ maxMs }) : null } catch { token = null }
+  try {
+    let t = Date.now()
+    for (;;) {
+      const r = g.next()
+      if (r.done) return r.value
+      if (Date.now() - t >= sliceMs) {
+        await new Promise(resolve => setImmediate(resolve))
+        if (aborted()) return { ok: false, why: 'aborted', record: null, sectors: [] }
+        // sitebox-01: the search's own time box (see SITE_SEARCH_MS) -- an ordinary "no site", by name
+        if (Date.now() - t0 >= maxMs) return { ok: false, why: 'search_time', detail: `${Math.round((Date.now() - t0) / 1000)}s`, record: null, sectors: [] }
+        t = Date.now()
+      }
     }
-  }
+  } finally { try { if (siteSearchHook) siteSearchHook.end(token) } catch { /* the hook never costs the search */ } }
 }
+/**
+ * SITEBOX-01 (LIVE showcase 11-13 00:49-01:55Z, after siteproof-01/02 made the search hand the event loop back between walks: 33 of
+ * 80 build visits `aborted`, 24 by `interrupt:stuck` at about 33 s with not one row inside; 26 of the 33 by bots whose project had
+ * NO RECORD -- a siting). A cooperative search stands the bot still while it runs, the stuck reflex (reflex.mjs stuckDecision: no
+ * movement for 35 s) aborted the visit mid-search, the search never ended, `no_site` was never recorded (so no site retry hold and
+ * no idle mark), and the bot ran the same search again at its next build order. Before the search yielded it froze the bot instead,
+ * which hid this (and got bots kicked).
+ * TWO THINGS, together:
+ *   1. THE SEARCH DECLARES THE BOT STILL while it runs (`setSiteSearchHook`: skills.mjs installs siteStillBegin / siteStillEnd over
+ *      bot.stationaryUntil -- the declaration the composter and the wood kit already make, honoured by stuckDecision), given back
+ *      when the search ends however it ends.
+ *   2. THE SEARCH HAS A TIME BOX (`maxMs`, SITE_SEARCH_MS = 100 s: under a build visit's 180 s, over the 10-60 s a wide search
+ *      takes): past it the answer is `{ ok: false, why: 'search_time' }` -- to every caller an ordinary failed siting, so the visit
+ *      ends `no_site` and the order's existing site retry hold and idle mark apply. Never a new stop name.
+ * SITEBOX=off|0|false|no: no box and no declaration (the search as before).
+ */
+export const SITE_SEARCH_MS = 100_000
+export const siteBoxOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.SITEBOX ?? '').trim())
+let siteSearchHook = null
+/** sitebox-01: `{ begin({ maxMs }) -> token, end(token) }` called round every cooperative search (skills.mjs installs it); null clears. */
+export function setSiteSearchHook (h) { siteSearchHook = h && typeof h.begin === 'function' && typeof h.end === 'function' ? h : null }
+/** sitebox-01: THE DECLARATION -> token | null. The bot stands still by design until the search's box ends (+ `marginMs`: the last
+ *  step may be a walk of the town); a longer declaration already made is kept. No bot, or no box (maxMs not finite): nothing declared. */
+export function siteStillBegin (bot, maxMs, { now = Date.now(), marginMs = 15_000 } = {}) {
+  if (!bot || !(Number.isFinite(maxMs) && maxMs > 0)) return null
+  const until = now + maxMs + marginMs
+  bot.stationaryUntil = Math.max(Number(bot.stationaryUntil) || 0, until)
+  return { bot, until }
+}
+/**
+ * sitebox-01 (Claude r1 BLOCKER): DOES THIS ANSWER END THE WHOLE SITING? -> 'aborted' | 'search_time' | null. Pure. A siting that
+ * tries several blueprints, styles or bands in a loop (the cottage's styles, the yard's sizes, the hub's steps) ends at the FIRST
+ * search the box ended: ONE box a siting -- else every try gets its own 100 s, the visit runs to the runner's 180-s abort standing
+ * still, and nothing is recorded (worse than the reflex's 35 s). `aborted` ends it as before.
+ */
+export const siteLoopEnds = s => (s?.why === 'aborted' ? 'aborted' : s?.why === 'search_time' ? 'search_time' : null)
+/**
+ * sitebox-01 (review r2, Codex and Claude): ONE BOX A SITING -> { left(now?) -> ms }. A siting that searches more than once takes
+ * one box at its start and gives each search only what is LEFT of it (`maxMs: box.left()`): tries that each end "no site" inside
+ * their own 100 s must not add up past the visit (three cottage looks at 65 s each = 195 s standing still, the runner's abort at
+ * 180 s, nothing recorded). A spent box leaves 0: the next search ends `search_time` at its first turn, and siteLoopEnds ends the
+ * siting. SITEBOX off: Infinity (no box). Pure but for the clock it is given.
+ */
+export function siteBox (ms = siteBoxOn() ? SITE_SEARCH_MS : Infinity, now = Date.now()) {
+  const until = now + ms
+  return { left: (t = Date.now()) => (Number.isFinite(until) ? Math.max(0, until - t) : Infinity) }
+}
+/** sitebox-01: ...given back -- only this search's own declaration (a later, longer one of another's stands). */
+export function siteStillEnd (token) { if (token?.bot && token.bot.stationaryUntil === token.until) token.bot.stationaryUntil = 0 }
 /** THE SEARCH as a generator: yields between anchors and proofs (siteBlueprint runs it straight through). */
 export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
   const home = plan?.home
@@ -733,7 +1152,11 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
   // a caller may judge the sector by the footprint's CENTRE (`ctx.sectorBy: 'centre'`: the yard, a land-plan zone is a 45-degree
   // wedge and an 18 x 26 floor fits inside one only far out); unset, every footprint cell must lie in the sector, as before
   const byCentre = ctx.sectorBy === 'centre'
+  // leaffell-01show (`ctx.leafFell`, sitecanopy.mjs cellClearsHook): the hook's fell-first options for this search (null: none)
+  if (typeof ctx.cellClears === 'function' && ctx.leafFell !== undefined) ctx.cellClears.leafFell = ctx.leafFell
   const cu = Math.floor(bp.footprint.u / 2), cv = Math.floor(bp.footprint.v / 2)
+  // homes-02show (`ctx.walkCache`, makeWalkCache's): every walk of this search is answered from ONE kept walk of the town
+  const walker = ctx.walkCache && typeof ctx.walkCache.bind === 'function' ? ctx.walkCache.bind(read, home, walkR, { stood }) : null
   for (const { sector, source } of secs) {
     const rejects = {}, ok = []
     for (const orient of ORIENTS) {
@@ -743,6 +1166,8 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
           // the anchor is a pad cell (rot(orient, 0, 0) is 0, 0): with a named domain, an anchor outside it or its sector is the
           // screen's own `domain` / `sector` refusal, counted without the footprint walk (the wider scan stays cheap)
           if (domain && !domain(x, z)) { rejects.domain = (rejects.domain ?? 0) + 1; continue }
+          // homes-02show r1 (`ctx.only` = { x, z, orient }: siteAgainFresh): this ONE candidate and no other
+          if (ctx.only && (x !== ctx.only.x || z !== ctx.only.z || orient !== ctx.only.orient)) continue
           if (byCentre && sector) { const [qx, qz] = at2({ x, z }, orient, cu, cv); if (sectorOf(home, qx, qz) !== sector) { rejects.sector = (rejects.sector ?? 0) + 1; continue } } else if (domain && sector && sectorOf(home, x, z) !== sector) { rejects.sector = (rejects.sector ?? 0) + 1; continue }
           // stockyard-01: a caller may name its earthwork limits (`ctx.earth`: the yard's 17 x 15 floor); else screenSite's EARTH
           const r = screenSite(read, home, bp, { x, z }, orient, res, { sector: byCentre ? null : sector, ...(domain ? { domain } : {}), ...(ctx.earth ? { earth: ctx.earth } : {}) })
@@ -760,22 +1185,59 @@ export function * siteBlueprintSteps (read, plan, bp, ctx = {}) {
     out.push(row)
     for (let i = 0; i < tries; i++) {
       yield null
-      const site = ok[i]
+      let site = ok[i]
       row.tried = i + 1
-      const p = proveSite(read, home, bp, site, { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}) })
+      const proveOpts = { stood, walkR, ...(typeof ctx.standDomain === 'function' ? { domain: ctx.standDomain } : {}), ...(ctx.planned ? { planned: ctx.planned } : {}), ...(walker ? { walker } : {}) }
+      // sitecanopy-01 (`ctx.cellClears(site)` -> null | { clear } | { fail }): the caller may list more clears for this candidate (the
+      // natural leaves in a styled building's own cells, sitecanopy.mjs), or fail it by name (they would never be reached)
+      if (typeof ctx.cellClears === 'function') {
+        // siteproof-02: the hook's own steps when it has them (sitecanopy.mjs cellClearsHook `steps`: its reach test walks the town
+        // once a clear it digs) -- the search takes its turn after every one of those walks too
+        const xc = typeof ctx.cellClears.steps === 'function' ? yield * ctx.cellClears.steps(site) : ctx.cellClears(site)
+        if (xc?.fail) { proofFails[xc.fail] = (proofFails[xc.fail] ?? 0) + 1; if (xc.detail && (row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} ${xc.fail} ${xc.detail}`.slice(0, 120)); continue }
+        // leaffell-01show (sitecanopy.mjs cellClearsHook `leafFell`): a tree the hook lists so the leaves it holds decay is felled only
+        // where the screen fells its own -- never a log in a plan reservation or a zone (`leaf_tree_reserved`: the next candidate)
+        if (xc?.fellLogs?.some(at => trunkReserved(res, at))) { proofFails.leaf_tree_reserved = (proofFails.leaf_tree_reserved ?? 0) + 1; continue }
+        if (xc?.leaf) {
+          // ...the leaves that only wait for a trunk are marked on the site's own list too, and the trees' saplings join the site's
+          const dk = new Set((xc.decay ?? []).map(a => a.join(',')))
+          site = { ...site, clear: [...site.clear.map(c => (dk.has(c.at.join(',')) ? { ...c, decay: 1 } : c)), ...(xc.clear ?? [])], trees: [...site.trees, ...(xc.trees ?? [])], felled: site.felled + (xc.trees?.length ?? 0), leaf: xc.leaf }
+        } else if (xc?.clear?.length) site = { ...site, clear: [...site.clear, ...xc.clear] }
+      }
+      let p = yield * proveSiteSteps(read, home, bp, site, proveOpts)
+      // levelfall-01 (LIVE showcase 11-05, the workshop on X1: its one anchor's proof failed `no_step earth` -- a cave pocket y 65..68
+      // under the plot's grass at 69, the fill at 65 out of every stand's reach): a caller naming `ctx.levelAlts` has the SAME anchor
+      // and orientation screened and proven at its next feasible floor levels (a level whose floor is the pocket's lid fills none)
+      if (!p.ok && Number(ctx.levelAlts) > 0) {
+        for (const L2 of (levelAltsOf(site) ?? []).slice(0, Number(ctx.levelAlts))) {
+          const s2 = screenSite(read, home, bp, site.anchor, site.orient, res, { sector: byCentre ? null : sector, ...(domain ? { domain } : {}), ...(ctx.earth ? { earth: ctx.earth } : {}), level: L2 })
+          if (!s2.ok) continue
+          const p2 = yield * proveSiteSteps(read, home, bp, s2, proveOpts)
+          if (p2.ok) { site = s2; p = p2; row.levelFallback = `${site.anchor.x},${site.anchor.z}/${site.orient} L${L2}`; break }
+        }
+      }
       if (!p.ok) { proofFails[p.why] = (proofFails[p.why] ?? 0) + 1; if ((row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} ${p.why} ${p.detail ?? ''}`.slice(0, 120)); continue }
+      // planahead-01 (`ctx.standCheck(site, cells)` -> null | { plot, at, kind }, planahead.mjs standConflicts): a candidate that would fill
+      // another unfinished building's stand or dig its floor is not this town's site -- the search moves on (never a stand taken away)
+      if (typeof ctx.standCheck === 'function') { const hit = ctx.standCheck(site, p.cells); if (hit) { proofFails.stand_claimed = (proofFails.stand_claimed ?? 0) + 1; if ((row.proofEx ??= []).length < 3) row.proofEx.push(`${site.anchor.x},${site.anchor.z}/${site.orient} stand_claimed ${hit.plot}@${hit.at.join(',')}`.slice(0, 120)); continue } }
       const over = new Map()
       for (const c of site.clear) over.set(k3(...c.at), AIR)
       for (const c of site.fill) over.set(k3(...c), SOLID('cobblestone'))
-      const rp = replantFor(read, home, site, res, walkFrom(overlay(read, over), home, new Set(), walkR, { stood }), typeof ctx.standDomain === 'function' ? ctx.standDomain : null)
+      // leaffell-01show (`ctx.leafReplantDomain`): a site that fells a tree BESIDE its pad for its leaves plants the saplings from the town
+      // walk (the visit: buildrun.mjs `p.replantDomain`) -- the stands' own domain (the pad + 3) holds no cell of the replant band (8..24)
+      const rpDomain = site.leaf?.trees && typeof ctx.leafReplantDomain === 'function' ? ctx.leafReplantDomain : typeof ctx.standDomain === 'function' ? ctx.standDomain : null
+      const rp = replantFor(read, home, site, res, walker ? walker.walk(overlay(read, over), new Set(), [over.keys()]) : walkFrom(overlay(read, over), home, new Set(), walkR, { stood }), rpDomain)
       if (!rp.ok) { proofFails.no_replant_cell = (proofFails.no_replant_cell ?? 0) + 1; continue }
       const xs = site.pad.map(c => c[0]), zs = site.pad.map(c => c[1])
       const record = {
         v: 1, blueprint: bp.id, plot: ctx.plot ?? 'shop', home, sector, sector_source: source, orient: site.orient, anchor: [site.anchor.x, site.anchor.z],
         box: [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)], s: site.s, floor: site.g0,
         earthwork: { fill: site.fill.length, cut: site.cut.length, litter: site.litter },
-        fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name })),
-        trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), felled: site.felled, replant: rp.cells,
+        fill: site.fill, clear: site.clear.map(c => ({ at: c.at, kind: c.kind, name: c.name, ...(c.decay === 1 ? { decay: 1 } : {}), ...(Number.isFinite(c.tree) ? { tree: c.tree } : {}) })),
+        ...(site.leaf ? { leaffell: { ...site.leaf } } : {}),
+        trees: site.trees.map(t => ({ base: t.base, species: t.species, logs: t.logs })), felled: site.felled,
+        // leaffell-01show: a tree felled for its leaves carries a `tree` tag; its sapling carries the same (replantFor answers in the trees' order)
+        replant: rp.cells.map((c, i) => (Number.isFinite(site.trees[i]?.tree) ? { ...c, tree: site.trees[i].tree } : c)),
         cells: p.cells, segments: p.segments, interior: p.interior, bom: billOf(bp, p.cells), builders_max: 2,
         structure_complete: false, plan: { gen: plan.gen }, stood_seeds: stood.length,
         ...(walkR !== WALK_R ? { walkR } : {}),

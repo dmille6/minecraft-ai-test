@@ -80,7 +80,7 @@ export function summaryDetail (sum, windowS) {
  * Install the wrapper on one bot -> { final, stats } | null (already wrapped, or no placeBlock). Never throws into the caller.
  *   home  { x, y, z };  emitPlace({ detail, args }), emitSummary({ detail, args })
  */
-export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, timers = true, now = () => Date.now(), summaryMs = SUMMARY_MS } = {}) {
+export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, onPlaced = null, timers = true, now = () => Date.now(), summaryMs = SUMMARY_MS } = {}) {
   // once a BOT (never by the function on top: skills.mjs's bag tally wraps placeBlock for a visit and restores only when it is still on
   // top -- a second install at a respawn under it would double every row and strand its restore)
   if (!bot || typeof bot.placeBlock !== 'function' || bot.placeBlock.__placeaudit || bot.__placeAudit) return null
@@ -110,6 +110,8 @@ export function attachPlaceAudit (bot, { home, emitPlace, emitSummary, timers = 
       sum.all++
       const k = `${rec.zone ?? 'out'}.${rec.reason}.${rec.shape}.${outcome}`
       sum.by[k] = (sum.by[k] ?? 0) + 1
+      // takeback-01 (`onPlaced`): a placement that LANDED, in the town or anywhere else, is handed on (takeback.mjs's receipt)
+      if (!err && onPlaced) { try { onPlaced(rec) } catch { sum.ierr++ } }
       if (rec.zone) {
         const args = { x: rec.cell[0], y: rec.cell[1], z: rec.cell[2], block: rec.block, reason: rec.reason, by: rec.by, shape: rec.shape, zone: rec.zone, outcome, feet: rec.feet, profile: rec.profile, ms: now() - rec.t0 }
         try { emitPlace({ detail: `pos=${rec.cell.join(',')} block=${rec.block} reason=${rec.reason} by=${rec.by} shape=${rec.shape} zone=${rec.zone} outcome=${outcome} profile=${rec.profile}`, args }) } catch { sum.ierr++ }

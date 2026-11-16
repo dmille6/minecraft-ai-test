@@ -9,13 +9,12 @@
 // bounded by schema, so a four-hour soak cannot grow its own context until it
 // truncates.
 
-import { SKILLS } from './skills.mjs'
+import { SKILLS, isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { gatherMemOn, areaLine } from './gathermem.mjs'
 import { fuelTicks, smeltRecipeFor } from './smelting.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
 import { mineTargetHint } from './mining.mjs'
-import { isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
@@ -733,7 +732,10 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
-/** LOGCAP-02: the TOWN WOOD line (logcap.mjs logCapLine) for this bot -> a line or ''. Never throws. */
+/**
+ * ATLAS-01: the town's shared map (atlas.mjs mapLine through bot.atlas, installed only where ATLAS is on) -> the MAP line | ''.
+ * The finds that serve the task (the milestone's wants and the items cognitive derived from it) come first. Never throws.
+ */
 export function townWoodSituation (bot) {
   try {
     const items = bot?.inventory?.items?.() ?? []
@@ -749,6 +751,13 @@ export function gatherAreaLine (bot, now = Date.now()) {
     if (!gatherMemOn() || !Array.isArray(bot?.gatherAreas) || !bot.gatherAreas.length) return ''
     const p = bot.entity?.position
     return p ? areaLine(bot.gatherAreas, { pos: { x: p.x, y: p.y, z: p.z }, now }) : ''
+  } catch { return '' }
+}
+export function atlasLine (bot, milestone = null, wanted = null) {
+  try {
+    if (!bot?.atlas?.line) return ''
+    const w = [...[milestone?.wants ?? []].flat(), ...(wanted ? [...wanted] : [])].filter(x => typeof x === 'string')
+    return bot.atlas.line({ wants: w }) || ''
   } catch { return '' }
 }
 
@@ -779,6 +788,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     waterSituation(bot),
     bucketSituation(bot),
     yContext(p.y),
+    atlasLine(bot, milestone, wanted),
     Object.keys(memory.locations).length
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`
       : '',

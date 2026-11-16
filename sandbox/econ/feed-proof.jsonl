@@ -1,0 +1,22 @@
+{"run":"2026-11-09T12:46:50.108Z","step":"env","version":"§fThis server is running Paper version 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) (Implementing API version 1.21.8-R0","mobGriefing":"Gamerule mobGriefing is currently set to: true\n","doDaylightCycle":"Gamerule doDaylightCycle is currently set to: true\n"}
+{"run":"2026-11-09T12:46:50.108Z","step":"D distance 1.5","ok":false,"t":37.3,"villagerBread":0,"collectPackets":[],"itemsLeft":1}
+{"run":"2026-11-09T12:46:50.108Z","step":"D distance 3","ok":false,"t":70.6,"villagerBread":0,"collectPackets":[],"itemsLeft":1}
+{"run":"2026-11-09T12:46:50.108Z","step":"D distance 5","ok":false,"t":103.9,"villagerBread":0,"collectPackets":[],"itemsLeft":1}
+{"run":"2026-11-09T12:46:50.108Z","step":"D distance 7","ok":false,"t":137.1,"villagerBread":0,"collectPackets":[],"itemsLeft":1}
+{"run":"2026-11-09T12:46:50.108Z","step":"P penned (trapdoor ring, bot 3 b outside)","ok":false,"t":170.7,"villagerBread":0,"collectPackets":[]}
+{"run":"2026-11-09T12:51:23.900Z","step":"env","version":"§fThis server is running Paper version 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) (Implementing API version 1.21.8-R0","mobGriefing":"Gamerule mobGriefing is currently set to: true\n","doDaylightCycle":"Gamerule doDaylightCycle is currently set to: true\n"}
+{"run":"2026-11-09T12:51:23.900Z","step":"D distance 1.5","ok":true,"t":10.5,"villagerBread":1,"collectPackets":[{"byVillager":true,"collector":"villager"}],"itemsLeft":0}
+{"run":"2026-11-09T12:51:23.900Z","step":"D distance 3","ok":false,"t":43.9,"villagerBread":0,"collectPackets":[],"itemsLeft":1}
+{"run":"2026-11-09T12:51:23.900Z","step":"D distance 5","ok":true,"t":50.1,"villagerBread":1,"collectPackets":[{"byVillager":true,"collector":"villager"}],"itemsLeft":0}
+{"run":"2026-11-09T12:51:23.900Z","step":"D distance 7","ok":true,"t":61,"villagerBread":1,"collectPackets":[{"byVillager":true,"collector":"villager"}],"itemsLeft":0}
+{"run":"2026-11-09T12:51:23.900Z","step":"P penned (trapdoor ring, bot 3 b outside)","ok":true,"t":67.6,"villagerBread":1,"collectPackets":[{"byVillager":true}]}
+{"run":"2026-11-09T12:51:23.900Z","step":"B breed (3 free beds)","ok":false,"t":454.2,"fed":{"fb1":4,"fb2":1},"before":2,"after":2,"babies":0,"breadLeft":{"fb1":4,"fb2":1},"collects":5}
+{"run":"2026-11-09T12:51:23.900Z","step":"N control (NO beds)","ok":true,"t":840.9,"fed":{"fb1":6,"fb2":0},"before":2,"after":2,"babies":0,"breadLeft":{"fb1":6,"fb2":0},"collects":6}
+{"run":"2026-11-09T13:06:00.858Z","step":"env","version":"§f§oChecking version, please wait...\n\n","mobGriefing":"Gamerule mobGriefing is currently set to: true\n","doDaylightCycle":"Gamerule doDaylightCycle is currently set to: true\n"}
+{"run":"2026-11-09T13:06:00.858Z","step":"B breed (3 free beds)","ok":false,"t":411.9,"fed":{"fb1":10,"fb2":0},"before":2,"after":2,"babies":0,"breadLeft":{"fb1":10,"fb2":0},"collects":10}
+{"run":"2026-11-09T13:14:03.474Z","step":"env","version":"§fThis server is running Paper version 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) (Implementing API version 1.21.8-R0","mobGriefing":"Gamerule mobGriefing is currently set to: true\n","doDaylightCycle":"Gamerule doDaylightCycle is currently set to: true\n"}
+{"run":"2026-11-09T13:14:03.474Z","step":"B breed (3 free beds)","ok":false,"t":417.6,"fed":{"fb1":4,"fb2":3},"before":2,"after":2,"babies":0,"breadLeft":{"fb1":1,"fb2":2},"collects":10}
+{"run":"2026-11-09T13:21:22.226Z","step":"env","version":"§f§oChecking version, please wait...\n\n","mobGriefing":"Gamerule mobGriefing is currently set to: true\n","doDaylightCycle":"Gamerule doDaylightCycle is currently set to: true\n"}
+{"run":"2026-11-09T13:21:22.226Z","step":"B breed (3 free beds)","ok":false,"t":956.8,"fed":{"fb1":4,"fb2":4},"before":2,"after":2,"babies":0,"breadLeft":{"fb1":3,"fb2":1},"collects":9}
+{"run":"2026-11-09T13:41:43.924Z","step":"env","version":"§f§oChecking version, please wait...\n\n","mobGriefing":"Gamerule mobGriefing is currently set to: true\n","doDaylightCycle":"Gamerule doDaylightCycle is currently set to: true\n"}
+{"run":"2026-11-09T13:41:43.924Z","step":"B breed (3 free beds)","ok":true,"t":112.5,"fed":{"fb1":3,"fb2":3},"before":2,"after":3,"babies":0,"breadLeft":{"fb1":0,"fb2":0},"collects":6}

@@ -90,7 +90,7 @@ await t('the switch: GKLEASE=off is the rollback; on by default', () => {
 })
 await t('MUTANTS: the underground rule, the idle clock, the take gate, the repair downgrade -- each killed', async () => {
   const deep = M => assert.strictEqual(M.groundsUnfit({ feet: [26, 15, 6], home: HOME }), 'underground')
-  await killedBy(GK_PATH, GK, "  if (feet[1] < home.y - G.surfaceDy && (covered !== false || feet[1] < home.y - (G.deepDy ?? Infinity))) return 'underground'\n", '', deep)   // gklease-02: the open-sky clause
+  await killedBy(GK_PATH, GK, "  if (feet[1] < home.y - G.surfaceDy) return 'underground'\n", '', deep)
   const idle = M => assert.strictEqual(M.groundsIdle({ term0: NOW - 25 * MIN, now: NOW }), true)
   await killedBy(GK_PATH, GK, '  return now - t0 >= G.idleMs\n', '  return false\n', idle)
   const take = M => assert.strictEqual(M.groundsLeaseCheck({ d: 'take', unfit: 'underground' }).take, false)
@@ -103,12 +103,12 @@ console.log('WIRING (source, comments stripped)')
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
 const wiring = src => {
   const one = re => { const m = src.match(new RegExp(re, 'g')); assert.strictEqual(m?.length, 1, `${re}: ${m?.length ?? 0}`) }
-  one("const c = groundsLeaseCheck\\(\\{ d, unfit, idle: d === 'mine' && groundsIdle\\(\\{ term0: Number\\(k\\.lease\\?\\.rec\\?\\.meta\\?\\.term0 \\?\\? k\\.lease\\?\\.rec\\?\\.at\\), workAt: bot\\.gkWorkAt \\?\\? null, spawnAt: bot\\.shopSpawnAt \\?\\? null, now \\}\\) \\}\\)")
+  one("const c = groundsLeaseCheck\\(\\{ d, unfit: d === 'mine' \\? unfitHeld : unfit, idle: d === 'mine' && groundsIdle\\(\\{ term0: Number\\(k\\.lease\\?\\.rec\\?\\.meta\\?\\.term0 \\?\\? k\\.lease\\?\\.rec\\?\\.at\\), workAt: bot\\.gkWorkAt \\?\\? null, spawnAt: bot\\.shopSpawnAt \\?\\? null, now \\}\\) \\}\\)")
   one("if \\(c\\.release\\) \\{ releaseKeeper\\(bot, k\\.lease, c\\.release, now\\); bot\\.gkRestUntil = now \\+ GK_FIT\\.restMs; d = 'none' \\} else if \\(d === 'take' && !c\\.take\\) d = 'none'")
   one("const st1 = GKL_ON && d === 'mine' && work \\? keeperGroundsFirst\\(r\\.states, \\{ grounds: \\[TIDY_PLOT[^\\]]*\\] \\}\\) : r\\.states")
   one("for \\(let i = 0; i < states\\.length; i\\+\\+\\) states\\[i\\] = st1\\[i\\]")
   one("\\.gkWorkAt = Date\\.now\\(\\)")
-  one("groundsUnfit\\(\\{ feet, home: \\{ x: config\\.world\\.homeX, y: config\\.world\\.homeY, z: config\\.world\\.homeZ \\}, covered: GKL2_ON \\? gkCovered\\(bot, feet\\) : null \\}\\)")   // gklease-02
+  one("groundsUnfit\\(\\{ feet: gkFeet\\(bot\\), home: \\{ x: config\\.world\\.homeX, y: config\\.world\\.homeY, z: config\\.world\\.homeZ \\} \\}\\)")
   // Codex r1 BLOCKER: the gate at the ACQUISITION boundary -- takeKeeper (the order's read AND buildTidy's visit start) refuses a new
   // take by an unfit bot; on the showcase takeHelper too
   one("function takeKeeper \\(bot, lease, now = Date\\.now\\(\\)\\) \\{\\n\\s*const me = keeperMe\\(bot\\)\\n\\s*const renewal = [^\\n]*\\n\\s*\\{ const u = renewal \\? null : gkUnfitNow\\(bot\\); if \\(u\\) return \\{ ok: false, why: `unfit:\\$\\{u\\}` \\} \\}")
@@ -127,6 +127,19 @@ await t('keeperOrder checks the holder and the taker, rests a released holder, p
   const gate = '{ const u = renewal ? null : gkUnfitNow(bot); if (u) return { ok: false, why: `unfit:${u}` } }'
   assert.ok(src.includes(gate))
   assert.throws(() => wiring(src.replace(gate, '')), assert.AssertionError, 'without the acquisition gate the wiring check fails')
+})
+
+await t('release fold (Codex BLOCKER): the lease is never released under a RUNNING grounds visit -- the visit is marked busy, keeperOrder skips the keeper and helper release while it runs (structural, comments stripped; the guard cut fails it)', () => {
+  const strip = x => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/[ \t]\/\/ .*$/gm, '')
+  const raw = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const wired = src => /ctx\.bot\.shopVisitBusy = true\n\s*try \{ r = await buildShopVisit\(ctx, args, signal\) \}[^\n]*finally \{ ctx\.bot\.shopVisitBusy = false \}/.test(src) &&
+    /const inGrounds = !!bot\.shopVisitBusy && \(bot\.shopVisitPlot === TIDY_PLOT \|\| bot\.shopVisitPlot === FOREST_PLOT\)/.test(src) &&
+    /if \(GKL_ON && \(d === 'mine' \|\| d === 'take'\) && !\(d === 'mine' && inGrounds\)\) \{/.test(src) &&
+    /if \(GKL_ON && unfitHeld && h\.d === 'mine' && !inGrounds\) \{/.test(src)
+  assert.ok(wired(strip(raw)), 'the busy mark and both guards are wired')
+  const old = " && !(d === 'mine' && inGrounds)) {"
+  assert.strictEqual(raw.split(old).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  assert.ok(!wired(strip(raw.replace(old, ') {'))), 'MUTANT: the keeper guard cut is caught')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

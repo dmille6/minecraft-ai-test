@@ -197,6 +197,172 @@ await t('interior_unreachable: the doorway walled up LAST (in the fit-out, from 
   assert.strictEqual(B.proveSite(flat, HOME, sealed, site).why, 'interior_unreachable')
   assert.strictEqual(B.proveSite(flat, HOME, BP, site).why, 'ok')
 })
+// SITEPROOF-01 (LIVE showcase 11-12: bots dropped `Timed out` by the server; a stack from one at 100% CPU: walkFrom <- walkNow <-
+// proveSite <- siteBlueprintSteps): one proof walked the town once a segment and once more, straight through -- the cooperative
+// search could take its turn only BETWEEN proofs. The proof is now a generator that yields after every walk.
+const proofTrace = (M, site) => {
+  const ev = []
+  const stood = []; stood[Symbol.iterator] = function * () { ev.push('W') }   // walkFrom reads its seeds once a walk
+  const g = M.proveSiteSteps(flat, HOME, BP, site, { stood })
+  let r
+  for (;;) { r = g.next(); if (r.done) break; ev.push('Y') }
+  return { seq: ev.join(''), value: r.value }
+}
+await t('SITEPROOF-01: proveSiteSteps IS proveSite, value for value, and the loop gets a turn after every walk of the town (never two walks in a row); MUTANT (no yield after a segment\'s walk): two walks in a row', async () => {
+  const site = screen(flat)
+  const scenario = M => {
+    const tr = proofTrace(M, site)
+    assert.strictEqual(tr.value.why, 'ok')
+    assert.deepStrictEqual(tr.value, M.proveSite(flat, HOME, BP, site), 'the same proof')
+    assert.ok(tr.seq.split('W').length - 1 >= BP.segments.length + 1, `control: a walk a segment at least, and the finished building's (${tr.seq})`)
+    assert.ok(!tr.seq.includes('WW'), `NO-TWO-WALKS: ${tr.seq}`)
+    assert.ok(tr.seq.endsWith('WY'), `EVERY-WALK-YIELDS: the finished building's walk too (the search walks again right after a proof): ${tr.seq}`)
+    assert.strictEqual(tr.seq.split('W').length, tr.seq.split('Y').length, 'a turn for every walk')
+  }
+  scenario(B)
+  // a refused proof is the same refusal
+  const sealed = { ...BP, segments: [...BP.segments, { seg: 'seal', layer: 5, deps: ['fit-out'] }], cells: [...BP.cells, { u: 4, v: 1, y: 1, role: 'wall', seg: 'seal' }, { u: 4, v: 1, y: 2, role: 'wall', seg: 'seal' }] }
+  const g = B.proveSiteSteps(flat, HOME, sealed, site); let r; for (;;) { r = g.next(); if (r.done) break }
+  assert.deepStrictEqual(r.value, B.proveSite(flat, HOME, sealed, site)); assert.strictEqual(r.value.why, 'interior_unreachable')
+  const OLD = 'let nodes = walkNow(), fresh = true, walks = 1\n    yield null\n'
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  let why = null
+  await withMutant(BS_PATH, OLD, 'let nodes = walkNow(), fresh = true, walks = 1\n', async M => { try { scenario(M) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /NO-TWO-WALKS/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 80) ?? 'survived'}`)
+})
+await t('SITEPROOF-01: the SEARCH hands its turn back inside every proof (siteBlueprintSteps runs the proof\'s own steps), and finds the same site; MUTANT (the proof run straight through): a segment\'s worth fewer turns a proof', async () => {
+  const count = M => { const g = M.siteBlueprintSteps(flat, plan(), BP, { tries: 2 }); let n = 0, r; for (;;) { r = g.next(); if (r.done) break; n++ } return { n, r: r.value } }
+  const real = count(B)
+  assert.ok(real.r.ok, real.r.why)
+  assert.deepStrictEqual(real.r.record, B.siteBlueprint(flat, plan(), BP, { tries: 2 }).record, 'the synchronous search is the same search')
+  const OLD = 'let p = yield * proveSiteSteps(read, home, bp, site, proveOpts)'
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  await withMutant(BS_PATH, OLD, 'let p = proveSite(read, home, bp, site, proveOpts)', async M => {
+    const m = count(M)
+    assert.deepStrictEqual(m.r.record, real.r.record, 'the same site either way')
+    assert.ok(real.n >= m.n + BP.segments.length, `the search's turns: ${real.n} with the proof's steps, ${m.n} with the proof straight through`)
+  })
+})
+// SITEBOX-01 (LIVE showcase 11-13: 33 of 80 build visits aborted, 24 by the stuck reflex at ~33 s, 26 by bots siting a project): the
+// cooperative search declares the bot still while it runs and has a time box that ends as an ordinary failed siting.
+await t('SITEBOX-01: the search\'s time box ends it `search_time` (to a caller: a failed siting, never `aborted`); with no box it finds the site as before; MUTANT (the box never checked): the search runs on', async () => {
+  const scenario = async M => {
+    const free = await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: Infinity })
+    assert.ok(free.ok, 'control: without a box the site is found')
+    assert.deepStrictEqual(free.record, M.siteBlueprint(flat, plan(), BP, { tries: 2 }).record)
+    const boxed = await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 0 })
+    assert.deepStrictEqual([boxed.ok, boxed.why, boxed.record, boxed.sectors], [false, 'search_time', null, []], `SEARCH-BOXED: ${JSON.stringify([boxed.ok, boxed.why])}`)
+    assert.ok(/^\d+s$/.test(boxed.detail), boxed.detail)
+    // an abort still wins over the box (the skill is ending: nothing is booked as a failed siting)
+    const ab = await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 0, aborted: () => true })
+    assert.strictEqual(ab.why, 'aborted')
+  }
+  await scenario(B)
+  const OLD = "        if (Date.now() - t0 >= maxMs) return { ok: false, why: 'search_time',"
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  let why = null
+  await withMutant(BS_PATH, OLD, "        if (false) return { ok: false, why: 'search_time',", async M => { try { await scenario(M) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /SEARCH-BOXED/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 90) ?? 'survived'}`)
+})
+await t('SITEBOX-01: the switch and the default box -- SITEBOX unset is on (100 s), off|0|false|no is no box', () => {
+  assert.strictEqual(B.SITE_SEARCH_MS, 100_000)
+  assert.strictEqual(B.siteBoxOn({}), true)
+  for (const v of ['off', '0', 'false', 'no', ' OFF ']) assert.strictEqual(B.siteBoxOn({ SITEBOX: v }), false, v)
+  assert.strictEqual(B.siteBoxOn({ SITEBOX: 'on' }), true)
+})
+await t('SITEBOX-01: the declaration -- the bot is still until the box ends plus a margin; a longer one already made is kept; given back only if it is this search\'s; no bot or no box declares nothing', () => {
+  const bot = { stationaryUntil: 0 }
+  const tk = B.siteStillBegin(bot, 100_000, { now: 1_000_000 })
+  assert.deepStrictEqual([bot.stationaryUntil, tk.until], [1_115_000, 1_115_000], 'now + box + 15 s')
+  B.siteStillEnd(tk)
+  assert.strictEqual(bot.stationaryUntil, 0, 'given back')
+  // a longer declaration of another's (the wood kit, the composter) is kept, and is not taken away at the end
+  const b2 = { stationaryUntil: 9_000_000 }
+  const t2 = B.siteStillBegin(b2, 100_000, { now: 1_000_000 })
+  assert.strictEqual(b2.stationaryUntil, 9_000_000); B.siteStillEnd(t2); assert.strictEqual(b2.stationaryUntil, 9_000_000)
+  // another declaration made DURING the search stands at its end
+  const b3 = { stationaryUntil: 0 }
+  const t3 = B.siteStillBegin(b3, 100_000, { now: 1_000_000 }); b3.stationaryUntil = 2_000_000; B.siteStillEnd(t3)
+  assert.strictEqual(b3.stationaryUntil, 2_000_000)
+  assert.strictEqual(B.siteStillBegin(null, 100_000), null)
+  const b4 = { stationaryUntil: 0 }
+  assert.strictEqual(B.siteStillBegin(b4, Infinity), null); assert.strictEqual(b4.stationaryUntil, 0, 'no box: nothing declared')
+  B.siteStillEnd(null)
+})
+await t('SITEBOX-01: the hook is called once round every search, however it ends (found, boxed, aborted, a read that throws) and never costs the search; MUTANT (the end not in a finally): a thrown search leaves the bot declared still', async () => {
+  const scenario = async M => {
+    const calls = []
+    M.setSiteSearchHook({ begin: o => { calls.push(['begin', o.maxMs]); return calls.length }, end: tk => calls.push(['end', tk]) })
+    try {
+      await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 5000 })
+      await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 0 })
+      await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 5000, aborted: () => true })
+      let n = 0
+      const boom = (x, y, z) => { if (++n > 400) throw new Error('read gone'); return flat(x, y, z) }
+      await assert.rejects(() => M.siteBlueprintAsync(boom, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: 5000 }), /read gone/)
+      assert.deepStrictEqual(calls.map(c => c[0]), ['begin', 'end', 'begin', 'end', 'begin', 'end', 'begin', 'end'], `HOOK-PAIRS: ${calls.map(c => c[0]).join(',')}`)
+      assert.deepStrictEqual(calls.filter(c => c[0] === 'end').map(c => c[1]), [1, 3, 5, 7], 'each end gets its own begin\'s token')
+      // a hook that throws never costs the search
+      M.setSiteSearchHook({ begin: () => { throw new Error('x') }, end: () => { throw new Error('y') } })
+      assert.ok((await M.siteBlueprintAsync(flat, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: Infinity })).ok)
+    } finally { M.setSiteSearchHook(null) }
+  }
+  await scenario(B)
+  const OLD = "  } finally { try { if (siteSearchHook) siteSearchHook.end(token) } catch { /* the hook never costs the search */ } }\n"
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  let why = null
+  await withMutant(BS_PATH, OLD, "  } finally { /* never given back */ }\n", async M => { try { await scenario(M) } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /HOOK-PAIRS/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 90) ?? 'survived'}`)
+})
+await t('SITEBOX-01 (review r1, Claude): one box a SITING -- a caller that tries several blueprints in a loop ends at the first search the box ended (and at an abort, as before), never at another refusal; the three looping callers use it', () => {
+  assert.strictEqual(B.siteLoopEnds({ ok: false, why: 'search_time' }), 'search_time')
+  assert.strictEqual(B.siteLoopEnds({ ok: false, why: 'aborted' }), 'aborted')
+  for (const s of [{ ok: true, why: 'ok' }, { ok: false, why: 'no_proven_site' }, { ok: false, why: 'no_free_sector' }, null, undefined, {}]) assert.strictEqual(B.siteLoopEnds(s), null, JSON.stringify(s))
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  // every `for` loop that awaits the search ends through siteLoopEnds: three loops (yard, hub, cottage), no bare `aborted`-only exit left in one
+  assert.strictEqual(sk.split("{ const end = siteLoopEnds(s); if (end) return { ok: false, why: end, ...(s.detail ? { detail: s.detail } : {}), tried } }").length - 1, 3, 'the three looping sitings')
+  const calls = sk.split('await siteBlueprintAsync(').length - 1
+  assert.strictEqual(calls, 6, `control: six cooperative searches in skills.mjs (${calls})`)
+  assert.strictEqual(sk.split("if (s.why === 'aborted') return { ok: false, why: 'aborted'").length - 1, 3, 'the three single-search sitings (town hall, landmark, enchanting workshop) keep their own exit: their one failed search IS the siting\'s answer')
+})
+await t('SITEBOX-01 (review r2, Codex and Claude): the box is the SITING\'s -- each search of a loop gets what is left; tries that end "no site" inside the box still add up to it; a spent box ends the next search at its first turn; MUTANT (every search a fresh box): the second try runs on', async () => {
+  // the box's arithmetic on a given clock
+  const bx = B.siteBox(100_000, 1_000_000)
+  assert.deepStrictEqual([bx.left(1_000_000), bx.left(1_065_000), bx.left(1_100_000), bx.left(1_250_000)], [100_000, 35_000, 0, 0])
+  assert.strictEqual(B.siteBox(Infinity, 1_000_000).left(9e12), Infinity, 'no box')
+  // a siting of two tries as the three callers write it: one box before the loop, `maxMs: box.left()` per search, siteLoopEnds
+  const world0 = world(ring({}, 12, 12, G + 1, G + 1, 'oak_fence'))   // every candidate refused: the search ends no_proven_site by itself
+  const siting = async (M, boxOf) => {
+    const box = boxOf(); const whys = []
+    for (let i = 0; i < 2; i++) {
+      const s = await M.siteBlueprintAsync(world0, plan(), BP, { tries: 2 }, { sliceMs: 0, maxMs: box.left() })
+      whys.push(s.why)
+      if (M.siteLoopEnds(s)) return { why: M.siteLoopEnds(s), whys }
+    }
+    return { why: 'no_site', whys }
+  }
+  assert.deepStrictEqual(await siting(B, () => B.siteBox(60_000)), { why: 'no_site', whys: ['no_proven_site', 'no_proven_site'] }, 'control: with room both tries end by themselves')
+  // the first try used the box up (a box that is spent after the first search): the second ends at its first turn, the siting ends search_time
+  let n = 0
+  const spent = { left: () => (n++ === 0 ? 60_000 : 0) }
+  assert.deepStrictEqual(await siting(B, () => spent), { why: 'search_time', whys: ['no_proven_site', 'search_time'] }, 'SITING-BOX')
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  assert.strictEqual(sk.split('const box = siteBox()').length - 1, 3, 'the three looping sitings take one box')
+  assert.strictEqual(sk.split('{ aborted: () => !!signal?.aborted, maxMs: box.left() })').length - 1, 3, '...and give each search what is left')
+  const OLD = "{ sliceMs = 40, aborted = () => false, maxMs = siteBoxOn() ? SITE_SEARCH_MS : Infinity } = {}) {\n  const g = siteBlueprintSteps(read, plan, bp, ctx)\n"
+  assert.strictEqual(readFileSync(BS_PATH, 'utf8').split(OLD).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  let why = null
+  n = 0
+  await withMutant(BS_PATH, OLD, OLD + "  maxMs = 60_000\n", async M => { try { n = 0; assert.deepStrictEqual(await siting(M, () => spent), { why: 'search_time', whys: ['no_proven_site', 'search_time'] }, 'SITING-BOX') } catch (e) { why = e } })
+  assert.ok(why instanceof assert.AssertionError && /SITING-BOX/.test(why.message), `the mutant survived or died for another reason: ${why?.message?.slice(0, 90) ?? 'survived'}`)
+})
+await t('SITEBOX-01 wired (structural, comments stripped): skills.mjs installs the declaration over this process\'s bot under the switch; the stuck reflex reads stationaryUntil', () => {
+  const strip = f => readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const sk = strip('../src/skills.mjs')
+  assert.strictEqual(sk.split('if (siteBoxOn()) setSiteSearchHook({ begin: ({ maxMs }) => siteStillBegin(activeMem?.bot ?? null, maxMs), end: siteStillEnd })').length, 2)
+  const rf = strip('../src/reflex.mjs')
+  assert.ok(/const declared = Number\(stationaryUntil\) > now/.test(rf), 'the reflex honours the declaration')
+})
 await t('cell_not_free: a site whose clear list misses a block in the volume is refused by the proof', () => {
   const [x, , z] = cellOf(2, 2, 0)
   const read = world({ [`${x},${G + 1},${z}`]: 'dirt' })
@@ -624,7 +790,7 @@ await t('MUTANT the fill span\'s refusals ignored (a chest under the pad)', () =
   const [x, , z] = cellOf(4, 3, 0)
   assert.strictEqual(M.screenSite(world({ [`${x},${G},${z}`]: 'chest' }), HOME, BP, A, O, M.reservations(plan(), {}), { sector: 'E' }).why, 'built_in_volume')
 }))
-await t('MUTANT the walk\'s full-cube floor rule relaxed to any solid (a fence)', () => mutantKilled('return !!f && !!a && !!h && fullCube(f) && isPassable(a)', 'return !!f && !!a && !!h && isSolid(f) && isPassable(a)', M => {
+await t('MUTANT the walk\'s full-cube floor rule relaxed to any solid (a fence)', () => mutantKilled('const floor = fullCube(f) || (!!floors', 'const floor = isSolid(f) || (!!floors', M => {
   assert.ok(!M.walkFrom(world({ [`30,${G},0`]: 'oak_fence', [`30,${G - 1},0`]: 'stone' }), HOME).has(`30,${G + 1},0`))
 }))
 

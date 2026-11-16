@@ -261,7 +261,7 @@ const W = [
   ['index: the water clone drops the footprint', IX, /Object\.assign\(waterMoves, moves\)\n\s*withoutFootprint\(waterMoves\)/],
   ['skills: the presence heartbeat while the connection lives', SK, /beat = setInterval\(\(\) => mark\(false\), PRESENCE_BEAT_MS\)/],
   ['skills: the heartbeat started at once when installed after login', SK, /if \(bot\.entity\) start\(\)/],
-  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy, \.\.\.storeOpts(,\n {6}\.\.\.\(shopLikeBp\(rec\.blueprint\) \? stuckVisitOpts\(rec, 'shop'\) : \{\}\))? \}/],   // stuckcells-01: the remedies ride after it
+  ['skills: the visit fences itself on its own beat', SK, /unknown: bot\.shopUnknown, beat: true, placedBy, \.\.\.storeOpts \}/],
   ['index: the acknowledgement tracker installed once per connection, before login', IX, /if \(SHOP\.on\) \{ try \{ bot\.shopAcks = shopAckInstall\(bot\) \} catch \{\} \}/],
   ['skills: mine\'s keep-out carries the workshop\'s record cells', SK, /const farm = composeKeepOut\(\{ forbid: null, bottom: null \}, shopKeepOut\(\)\)/],
   ['skills: gather never targets a record cell', SK, /if \(shopCells && b\.position && shopCells\.has\(/],
@@ -309,16 +309,40 @@ assert.ok(WALL_FN.test(SK), 'buildWall is found (the cut is not a no-op)')
 const FARM_FN = /\nasync function buildTreeFarm \([\s\S]*?\n\}\n/
 assert.ok(FARM_FN.test(SK), 'buildTreeFarm is found (the cut is not a no-op)')
 // tidy-01: buildTidy (the town-ground tidy's visit) repeats the wall's draw, share and bag lines the same way (its wiring: tidy.test.mjs)
-const TIDY_FN = /\nasync function buildTidy \([\s\S]*?\n\}\n/
+// gksweep-01 (batch-14a fold): buildTidy is the sweep's wrapper; the visit is buildTidyVisit -- the cut takes the visit's body
+const TIDY_FN = /\nasync function buildTidyVisit \([\s\S]*?\n\}\n/
+assert.ok(TIDY_FN.test(SK), 'buildTidy is found (the cut is not a no-op)')
 // boardwalk-03: waterWalkVisit (the keeper's water visit) repeats the tidy's effects and presence lines (its wiring: boardwalk3.test.mjs)
 const WW_FN = /\nasync function waterWalkVisit \([\s\S]*?\n\}\n/
 assert.ok(WW_FN.test(SK), 'waterWalkVisit is found (the cut is not a no-op)')
-assert.ok(TIDY_FN.test(SK), 'buildTidy is found (the cut is not a no-op)')
 // stockyard-01: yardVisit (the yard's own visit) releases its slot the same way (its wiring: yard.test.mjs)
 const YARD_FN = /\nasync function yardVisit \([\s\S]*?\n\}\n/
+// picker-01: the town sinks' visit follows buildWall's, line for line
+const SINK_FN = /\nasync function buildSink \([\s\S]*?\n\}\n/
 assert.ok(YARD_FN.test(SK), 'yardVisit is found (the cut is not a no-op)')
+// cropfarm-01: buildCropFarm (the crop farm's visit) releases its slot and writes its bag row the tree farm's way (its wiring: cropfarm.test.mjs)
+const CROP_FN = /\nasync function buildCropFarm \([\s\S]*?\n\}\n/
+assert.ok(CROP_FN.test(SK), 'buildCropFarm is found (the cut is not a no-op)')
+// canefarm-01: buildCaneFarm (the cane bed's visit) follows buildCropFarm's slot release and bag row (its wiring: canefarm.test.mjs)
+const CANE_FN = /\nasync function buildCaneFarm \([\s\S]*?\n\}\n/
+assert.ok(CANE_FN.test(SK), 'buildCaneFarm is found (the cut is not a no-op)')
+// stepwell-01: buildStepwell (the stepwell's visit) follows buildCaneFarm's slot release and bag row (its wiring: stepwell.test.mjs)
+const SWELL_FN = /\nasync function buildStepwell \([\s\S]*?\n\}\n/
+assert.ok(SWELL_FN.test(SK), 'buildStepwell is found (the cut is not a no-op)')
+// stepwell-02: buildStepwellRun (the visit's second half: the felling, the tank, the descent) too
+const SWELL_RUN_FN = /\nasync function buildStepwellRun \([\s\S]*?\n\}\n/
+assert.ok(SWELL_RUN_FN.test(SK), 'buildStepwellRun is found (the cut is not a no-op)')
+// forest-01: buildForest (the managed forest's visit) follows the same slot release (its wiring: forest.test.mjs)
+const FOREST_FN = /\nasync function buildForest \([\s\S]*?\n\}\n/
+assert.ok(FOREST_FN.test(SK), 'buildForest is found (the cut is not a no-op)')
+// upkeep-01: buildUpkeep (the upkeep's visit) follows the same slot release and bag row (its wiring: upkeep.test.mjs)
+const UPKEEP_FN = /\nasync function buildUpkeep \([\s\S]*?\n\}\n/
+// pens-01: buildPens (the pens' visit) follows buildCaneFarm's slot release and bag row (its wiring: pens.test.mjs)
+const PENS_FN = /\nasync function buildPens \([\s\S]*?\n\}\n/
+assert.ok(PENS_FN.test(SK), 'buildPens is found (the cut is not a no-op)')
+assert.ok(UPKEEP_FN.test(SK), 'buildUpkeep is found (the cut is not a no-op)')
 for (const [name, src0, re] of W) {
-  const src = src0 === SK ? SK.replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(WW_FN, '\n') : src0
+  const src = src0 === SK ? SK.replace(UPKEEP_FN, '\n').replace(PENS_FN, '\n').replace(ZIG_FN, '\n').replace(PATHS_FN, '\n').replace(WALL_FN, '\n').replace(FARM_FN, '\n').replace(TIDY_FN, '\n').replace(YARD_FN, '\n').replace(SINK_FN, '\n').replace(CROP_FN, '\n').replace(CANE_FN, '\n').replace(SWELL_FN, '\n').replace(SWELL_RUN_FN, '\n').replace(FOREST_FN, '\n').replace(WW_FN, '\n') : src0
   await t(`${name} (and a mutant of it fails)`, () => {
     assert.ok(re.test(src), 'wired')
     const m = src.match(re)[0]
@@ -367,7 +391,7 @@ await t('planksFromLogs: spare planks of any species count; none short, no logs 
 })
 await t('WIRED: build_shop draws the logs under the project reserve and crafts the planks before the stations', () => {
   const body = SK.slice(SK.indexOf('async function buildShop'), SK.indexOf('async function foundStore'))
-  assert.ok(/billOf\(rec, bp\.palette, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
+  assert.ok(/billOf\(recB?, pal, read, \{ done: buildCellDone, inTown: billInTown\(town\), planks \}\)/.test(body), 'the bill reads planks as makeable')
   assert.ok(/const pf = planksFromLogs\(want, \{ spare: n => \(hn\[n\] \?\? 0\) - \(keep\[n\] \?\? 0\), town \}\)/.test(body), 'the shortfall is computed')
   assert.ok(/matsWithdraw\(ctx, \{ \[pf\.log\]: pf\.logs \}, signal, 30_000, R0, PD\.allow, PD\.onTook, PD\.onUncertain\)/.test(body), 'drawn under PD')
   assert.ok(/if \(plankCraft\) \{ try \{ await craft\(ctx, plankCraft, signal\) \}[\s\S]{0,120}for \(const item of \['furnace', 'crafting_table', 'chest'\]\)/.test(body), 'crafted, before the stations, inside the booked craft block')
@@ -393,7 +417,7 @@ await t('workableSeg: the visit\'s order -- deps open -> null; a held segment is
 })
 await t('WIRED: the logs are drawn only when workableSeg names a segment (its lease read from the project files)', () => {
   const body = SK.slice(SK.indexOf('async function buildShop'), SK.indexOf('async function foundStore'))
-  assert.ok(/if \(Object\.keys\(need\)\.length && workableSeg\(rec, read, bp\.palette, segFree\)\) \{\s*const hn = heldMap\(bot\)\s*const pf = planksFromLogs/.test(body), 'the gate sits on the logs draw')
+  assert.ok(/if \(Object\.keys\(need\)\.length && workableSeg\(rec, read, pal, segFree\)\) \{\s*const hn = heldMap\(bot\)\s*const pf = planksFromLogs/.test(body), 'the gate sits on the logs draw')
   assert.ok(/const segFree = sg => \{ const st = projLeaseState\(dir, key, `seg-\$\{sg\}`\); return !st \|\| st\.rec\?\.holder === me \|\| Date\.now\(\) >= st\.blocksUntil \}/.test(body), 'the lease reading')
 })
 

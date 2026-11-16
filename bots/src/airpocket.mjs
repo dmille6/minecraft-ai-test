@@ -39,7 +39,7 @@ export const AP_SEAL_MS = 1500                // admission's price of ONE seal (
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
 import { swimCentreOn, centreSteer } from './swimcentre.mjs'   // swimcentre-01: the rise is centred under the dug cell
-import { dropSink, dropTag, dropDigOn } from './dropdig.mjs'    // dropanddig-01: sink onto a floor, dig standing
+import { dropSink, dropTag, dropDigOn } from './dropdig.mjs'   // dropanddig-01: sink onto a floor, dig standing
 
 const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/

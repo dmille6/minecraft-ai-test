@@ -25,6 +25,7 @@
 //             spokes through it). Nature beyond the band being worked is never touched.
 
 import { pathColumn, pathGrid, routeLeg, pathZones, gridUnread, PATH_DY } from './paths.mjs'
+import { landmarkZones } from './landmark.mjs'   // roughground-3: the landmark mound, a reservation
 
 export const LAND_PLOT = 'land'
 export const LAND_BLUEPRINT = 'land@1'
@@ -401,17 +402,66 @@ export async function planLand (read, { home, plan, seed = 0, avoid = () => null
  * paths' corridors to the chests and the well graded); stage 1 the ring road and the spokes out to `upto`; then each outward band
  * (rMin, rMax]: its pillars and pits, and the spokes through it out to `upto`. The last band ends at workR.
  */
+/** gkstage-01: the inside-the-wall stage's id (tidy.mjs surveyInwall). */
+export const INWALL_STAGE = 'inwall'
 export function landStages (L = LAND) {
   const out = [{ k: 0, id: 'town', rMin: -1, rMax: L.rimR, roads: null, upto: -1 }]
-  out.push({ k: 1, id: 'roads', rMin: -1, rMax: -1, roads: 'ring+spokes', upto: L.rimR + L.rimStep })
-  let k = 2
+  // townterrace-01 (owner 11-03): the in-wall trees, the terraces and the park, right after the plaza (terrace.mjs)
+  out.push({ k: 1, id: 'terrace', rMin: -1, rMax: -1, roads: null, upto: -1 })
+  out.push({ k: 2, id: 'roads', rMin: -1, rMax: -1, roads: 'ring+spokes', upto: L.rimR + L.rimStep })
+  // gkstage-01 (owner 11-04: "inside the town walls first ... no holes gaps ... no dirt steps"): INSIDE THE WALL -- every 1-high
+  // stray block and pillar, the litter left ON the builds, every hole -- before the bands outside; and again in every cycle (the
+  // land plan wraps to it after its last band: groundskeeper.mjs gkNextStage)
+  out.push({ k: 3, id: INWALL_STAGE, rMin: -1, rMax: -1, roads: null, upto: -1 })
+  let k = 4
   for (let r = L.rimR; r < L.workR; r += L.rimStep, k++) out.push({ k, id: `rim${Math.min(L.workR, r + L.rimStep)}`, rMin: r, rMax: Math.min(L.workR, r + L.rimStep), roads: 'spokes', upto: Math.min(L.workR, r + 2 * L.rimStep) })
   return out
 }
 /** The stage after `k` -> its entry | null (after the last: the town is surveyed again after its re-survey wait). Pure. */
 export const nextStage = (k, L = LAND) => landStages(L).find(s => s.k === (Number.isFinite(k) ? k : 0) + 1) ?? null
+/**
+ * gkstage-01 (owner 11-04: "i want them to stay busy"): THE NEXT STAGE, WRAPPING -> entry | null. Pure. The ring order's next stage;
+ * after the LAST band, once the record has been complete `cycleMs`, the inside-the-wall stage again (and the bands after it, each
+ * re-surveyed: a band with nothing to do is passed by the siting). The land plan never runs out of work; a cycle that finds nothing
+ * anywhere publishes a complete `nothing` record and waits `cycleMs` again.
+ */
+export const LAND_CYCLE_MS = 30 * 60_000
+// country-01: `inner` (COUNTRY on: the bands outside the wall are the country chain's, country.mjs) -- the ring order ends at the
+// inside-the-wall stage, then wraps as after the last band
+export const lastInnerK = (L = LAND) => landStages(L).find(s => s.id === INWALL_STAGE)?.k ?? 3
+let innerDefault = false
+/** country-01: the bot's own default for `inner` (skills.mjs sets it once at load: COUNTRY on where the land plan is). */
+export function setLandInner (v) { innerDefault = !!v }
+export function nextStageCycle (rec, now = Date.now(), { cycleMs = LAND_CYCLE_MS, L = LAND, env = process.env, inner = innerDefault } = {}) {
+  const n = nextStage(recStageK(rec, L), L)
+  if (n && !(inner && n.k > lastInnerK(L))) return n
+  const at = Number(rec?.completeAt)
+  if (rec?.structure_complete && Number.isFinite(at) && now - at >= cycleMs) return landStages(L).find(s => s.id === cycleWrapId(env)) ?? null
+  return null
+}
+/**
+ * ROUGHGROUND-2 (owner 11-07: "slopes as 1-block terrace steps", the target pictures): the stage the cycle wraps to -> stage id. Pure.
+ * The TERRACE stage by default (graded again every cycle: the ground the bots roughed up since is re-terraced, then roads, then the
+ * inside, then the bands); TERRACE_CYCLE=off|0|false|no is the old wrap straight to the inside of the wall.
+ */
+export const cycleWrapId = (env = process.env) => (/^(off|0|false|no)$/i.test(String(env?.TERRACE_CYCLE ?? '').trim()) ? INWALL_STAGE : 'terrace')
 /** A stage by number -> its entry (stage 0 when unknown). Pure. */
 export const stageOf = (k, L = LAND) => landStages(L).find(s => s.k === k) ?? landStages(L)[0]
+/**
+ * A TIDY RECORD'S STAGE NUMBER in today's ring order -> int. Pure. By its `stageId` when it names one (townterrace-01 put the terrace
+ * stage at 1: a record a groundskeeper-01 build sited at stage 1 `roads` is stage 2 now); a record of stage 1 or later sited before
+ * the terrace stage existed (no `terraceV`) reads as stage 0, so the terrace stage comes next and the stages after it are asked
+ * again (each finds what is still to do); else its number (0 when it has none).
+ */
+export function recStageK (rec, L = LAND) {
+  const id = rec?.stageId
+  const st = id ? landStages(L).find(s => s.id === id) : null
+  // (gkstage-01, Codex r1: a record with terraceV and a number but no id is never written -- siteStage and tidyNothing set stageId
+  // with terraceV -- so the numeric fallback only serves the pre-terrace records, which read 0 below)
+  const k = st ? st.k : (Number.isFinite(Number(rec?.stage)) ? Number(rec.stage) : 0)
+  if (k >= 1 && id !== 'terrace' && !(Number(rec?.terraceV) >= 1)) return 0
+  return k
+}
 
 /**
  * A STAGE'S ROAD COLUMNS -> [[x, z, L]]: stage 1 the ring's columns and every spoke's within `upto`; a later stage every spoke's
@@ -454,7 +504,28 @@ export function zoneAt (land, x, z) {
   return land.zones?.[SECTORS[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]] ?? 'wild'
 }
 /** THE LAND RECORD AS A RESERVATION (the pseudo-record skills.mjs projectHeads appends): its corridors as zones, no cells. Pure. */
-export const landReservation = land => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: land.corridors ?? [], cells: [], structure_complete: true, state: 'plan' } : null)
+export const landReservation = (land, ext = null) => (land ? { plot: LAND_PLOT, blueprint: LAND_BLUEPRINT, zones: [...(land.corridors ?? []), ...parkZones(land), ...gardenZones(land), ...landmarkZones(land), ...landPlotZones(ext)], cells: [], structure_complete: true, state: 'plan' } : null)
+/**
+ * wallext-01 (owner 11-04: "extend the wall around the new building leaving room for additional buildings"): THE RESERVED PLOTS inside
+ * a wall extension (wall.mjs siteWallExt's record `plots`) as the land plan's zones [{ box, why: 'land:plot', id }]: every siting
+ * (the sinks, site prep, the dress, a house) keeps off them; the groundskeeper's own refusals never read the land plan's reservation
+ * (skills.mjs tidyInputs), so it still tidies them. A building that takes a plot later passes its id as its own exception. Pure.
+ */
+export function landPlotZones (ext) {
+  const ok = b => Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) && b[2] >= b[0] && b[3] >= b[1]
+  return (ext?.plots ?? []).filter(p => ok(p?.box)).map(p => ({ box: [p.box[0], -64, p.box[1], p.box[2], 320, p.box[3]], why: 'land:plot', id: String(p.id ?? '') }))
+}
+/** townterrace-01: the land plan's PARK as a reservation zone (other builds keep off it; the groundskeeper plants it). Pure. */
+/** FOREST-01: the town GARDEN on the retired in-wall tree farm's ground (forest.mjs gardenOf: `land.garden`) as a reservation, as the
+ *  park's: its box, every height. Pure. */
+export function gardenZones (land) {
+  const b = land?.garden?.box
+  return Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) ? [{ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'land:garden' }] : []
+}
+export function parkZones (land) {
+  const b = land?.park?.box
+  return Array.isArray(b) && b.length === 4 && b.every(Number.isFinite) ? [{ box: [b[0], -64, b[1], b[2], 320, b[3]], why: 'land:park' }] : []
+}
 
 /**
  * WALKING CONNECTIVITY (the offline proof's "easy to move through") -> { cols, reach, share, pts, reached }. Pure over `read`. A BFS

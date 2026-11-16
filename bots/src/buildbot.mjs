@@ -20,6 +20,7 @@
 //              Codex r1 P3, cooperation A2): the fill never spends the bot's own stockpile.
 
 import pkg from 'mineflayer-pathfinder'
+import { zoneDecision, zoneGuardOn } from './protectzone.mjs'   // leaffell-01show: the guard's own decision, asked before a clear's walk
 import { Vec3 } from 'vec3'
 import { installAckTracker } from './buildack.mjs'
 import { DIG_CONFIRM_MS } from './buildrun.mjs'
@@ -61,6 +62,35 @@ export function stillUntil ({ now = 0, ms = 0, lastProgress = 0, prev = 0, allow
   return Math.max(Number(prev) || 0, until)
 }
 const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3 : f[0] < 0 ? 4 : 5)
+/**
+ * ZONESITE-01SHOW: THE BUILDER'S CLICK, JUDGED BY THE ZONE GUARD'S OWN DECISION -> the zone's id | null. Pure. The visit places with
+ * its own block_place packet (above), which never reaches protectzone's chokepoint on bot._genericPlace (LIVE showcase 11-15: 27
+ * tower cells laid in village-taiga-6_1, `_protect_zone` counting nothing). The chokepoint's three cells with their roles: the
+ * reference, the destination (reference + face) and the cell above it; a build's click is never a survival placement.
+ */
+export function clickZone (zones, support, face, feet = null) {
+  if (!Array.isArray(zones) || !zones.length || !Array.isArray(support) || !Array.isArray(face)) return null
+  const ref = { x: support[0], y: support[1], z: support[2] }
+  const dest = { x: ref.x + face[0], y: ref.y + face[1], z: ref.z + face[2] }
+  for (const [cell, role] of [[ref, 'ref'], [dest, 'dest'], [{ x: dest.x, y: dest.y + 1, z: dest.z }, 'above']]) {
+    const d = zoneDecision({ zones, op: 'place', cell, purpose: 'target', feet, role, nameRule: zoneGuardOn() })
+    if (d) return String(d.zone?.id ?? 'zone')
+  }
+  return null
+}
+/** ...and one CELL a build would fill (the destination and the cell above it; the reference is judged at the click) -> id | null. */
+export function cellZone (zones, cell, feet = null) {
+  if (!Array.isArray(zones) || !zones.length || !Array.isArray(cell)) return null
+  for (const [c, role] of [[{ x: cell[0], y: cell[1], z: cell[2] }, 'dest'], [{ x: cell[0], y: cell[1] + 1, z: cell[2] }, 'above']]) {
+    const d = zoneDecision({ zones, op: 'place', cell: c, purpose: 'target', feet, role, nameRule: zoneGuardOn() })
+    if (d) return String(d.zone?.id ?? 'zone')
+  }
+  return null
+}
+/** townstyle-01: a notchian yaw (degrees; south 0, west 90) -> mineflayer's radians (conversions.js toNotchianYaw = deg(PI - yaw)). */
+export const yawRad = deg => Math.PI - (deg * Math.PI) / 180
+/** The pitch a look packet carries: the bot's own, notchian (conversions.js toNotchianPitch = deg(-pitch)). */
+const aimPitch = bot => Math.fround((-(Number(bot.entity?.pitch) || 0) * 180) / Math.PI)
 
 /**
  * THE CORNER CUT (shopwalls-02; LIVE showcase 10-28 14:44Z on: with the walls up, 8 of 10 builders stood wedged at
@@ -73,7 +103,7 @@ const FACE_DIR = f => (f[1] < 0 ? 0 : f[1] > 0 ? 1 : f[2] < 0 ? 2 : f[2] > 0 ? 3
  * clear side's standing cell (feet and head room over the step's heights, a full floor under it), or null. Pure. A step whose
  * clear side has no floor is left alone (a drop is not a safer step than a corner).
  */
-export function cornerCut (start, path, read) {
+export function cornerCut (start, path, read, { square = false } = {}) {
   const clear = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'empty' }
   const floor = (x, y, z) => { const b = read(x, y, z); return !!b && b.boundingBox === 'block' }
   // BLOCK cells (r1 reviews, both BLOCK: the pathfinder's post-processed nodes are block CENTRES, x.5 / z.5): floored here
@@ -90,6 +120,15 @@ export function cornerCut (start, path, read) {
       if (!(okX && okZ)) {
         const side = okX ? sx : okZ ? sz : null
         if (side && floor(side[0], a.y - 1, side[1])) return { i, via: [side[0], a.y, side[1]] }
+        // reroof-04 r5 (Paper sandbox4 11-08: a builder dropped into a cavity by the storage hub, 14,67,-47; the pathfinder's plan out was
+        // ONE diagonal jump-up to 15,68,-46 with BOTH side columns blocked -- the body never left the cell, every walk timed out; nudged
+        // onto 15,68,-47 by hand it walked out in 4.9 s): with neither side column clear, a side that is a STANDING cell at the step's
+        // other height (a full floor, feet and head open) is the via -- the step is taken square, up (or down) then across
+        // reroof-04 r6 (REROOF_CORNERCUT): only a visit that asks (`square`: a re-roofed record's own visit); every other walk as before
+        if (square && !side && b.y !== a.y) {
+          const stand = (x, y, z) => floor(x, y - 1, z) && clear(x, y, z) && clear(x, y + 1, z) && clear(a.x, Math.max(a.y, y) + 1, a.z)
+          for (const q of [sx, sz]) if (stand(q[0], b.y, q[1])) return { i, via: [q[0], b.y, q[1]] }
+        }
       }
     }
     a = b
@@ -145,19 +184,45 @@ export async function withStepFence (movements, avoid, fn) {
  * clear side (cornerCut), re-planned from each `via`, at most `max` detours. `plan(from)` -> path [{ x, y, z }] | null (the
  * pathfinder's A*); null or an unplannable leg: the remaining walk is the plain goal (the walk as before). Pure.
  */
-export function cornerWaypoints (from, goal, plan, read, max = 4) {
+export function cornerWaypoints (from, goal, plan, read, max = 4, { square = false } = {}) {
   const out = []
   let at = from
   for (let n = 0; n < max; n++) {
     const path = plan(at)
     if (!path) break
-    const cut = cornerCut({ x: at[0], y: at[1], z: at[2] }, path, read)
+    const cut = cornerCut({ x: at[0], y: at[1], z: at[2] }, path, read, { square })
     if (!cut) break
     if (cut.i > 0) { const p = path[cut.i - 1]; out.push([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]) }
     out.push(cut.via)
     at = cut.via
   }
   out.push(goal)
+  return out
+}
+
+/**
+ * reroof-04 r6: THE LEAVES A PLANNED JUMP-UP NEEDS DUG FIRST -> [{ i, lower: [x, y, z], at: [x, y, z], name }]. Pure. For every step of
+ * `path` (from `start`) that rises one block: the natural leaf at the lower cell's y + 2 (the jump's head room) and at the upper cell's
+ * y + 2 (its apex: a jump from feet y peaks near y + 1.25 + 1.8) -- LIVE Paper sandbox4 11-08: the workshop's builder in the pit at
+ * 32,68,-71 planned the jump to 31,69,-71 under the leaf 31,71,-71 and jumped in place for 25 s, every walk -- only a NATURAL leaf
+ * (persistent false) whose name is the one `listed(key)` names (the record's apex leaves: on the record for the tripwire), at most `max`.
+ */
+export function apexDigs (start, path, read, listed = () => false, max = 3) {
+  const cell = p => ({ x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) })
+  // Codex r6 BLOCKER: never a placed leaf (persistent true) or another kind than the record listed there
+  const leaf = at => { const b = read(...at); if (!b || !/_leaves$/.test(String(b.name ?? ''))) return null; const want = listed(at.join(',')); const p = b.props?.persistent; return want && want === b.name && (p === false || p === 'false') ? String(b.name) : null }
+  const out = [], seen = new Set()
+  let a = cell(start)
+  for (let i = 0; i < (path?.length ?? 0) && out.length < max; i++) {
+    const b = cell(path[i])
+    if (b.y === a.y + 1 && Math.abs(b.x - a.x) + Math.abs(b.z - a.z) >= 1) {
+      for (const at of [[a.x, a.y + 2, a.z], [b.x, b.y + 2, b.z]]) {
+        const k = at.join(','), n = leaf(at)
+        if (n && !seen.has(k) && out.length < max) { seen.add(k); out.push({ i, lower: [a.x, a.y, a.z], at, name: n }) }
+      }
+    }
+    a = b
+  }
   return out
 }
 
@@ -174,13 +239,57 @@ export function decodeMultiBlock (data) {
   return out
 }
 
-/** The SERVER'S word on a cell, from the raw packets -> { watch(cell), wait(cell, pred, ms) -> name | null, stop }. */
+/**
+ * standcache-01 r2 (Codex r2 BLOCKER): HAS THE WORLD THIS CONNECTION WAS TOLD OF MOVED NEAR `at` SINCE `since`? -> bool. Pure.
+ *   recent   the witness's last changes, oldest first: [seq, x0, z0, x1, z1] (a block: its own column; a chunk: its 16 x 16)
+ *   seq      the witness's count now          since   the count the asker kept
+ *   at       { x, z, r }: the square asked about (a town walk: home and its radius)
+ * True when a change after `since` touches the square -- and when the changes after `since` are no longer all in `recent` (more
+ * than it keeps: what was dropped cannot be read, so it moved). False only when every change since is known to lie outside.
+ */
+export const WITNESS_KEPT = 512
+export function movedNear (recent, seq, since, at) {
+  if (!(seq > since)) return false
+  if (!recent.length || recent[0][0] > since + 1) return true
+  const x0 = at.x - at.r, x1 = at.x + at.r, z0 = at.z - at.r, z1 = at.z + at.r
+  return recent.some(c => c[0] > since && c[1] <= x1 && c[3] >= x0 && c[2] <= z1 && c[4] >= z0)
+}
+/**
+ * standcache-01 r2: IS THIS WORD ON A CELL A CHANGE A WALK OF THE TOWN COULD READ? -> bool. Pure. `was` / `now`: { id, name } (the
+ * block's state id and name; `was` null: the witness's first word on the cell). The walk reads a block's name, its box, its
+ * shapes and its properties (buildsite.mjs walkFrom: fullCube, slabTopFloor, isPassable, isLiquid), so ANOTHER STATE UNDER THE SAME
+ * NAME counts too -- a slab made double, stairs turned, a trapdoor opened, snow a layer deeper -- except for the names whose every
+ * state stands the same (STATE_ONLY: a crop's age, a liquid's level, farmland's moisture, a furnace lit): those tick all day in a
+ * town and would drop every kept walk for nothing. NOT leaves (Codex r4): a re-roofed record's walk reads a leaf's `persistent`
+ * (reroof.mjs reroofNoLeafFloor: a natural leaf is no floor, a placed one is), so a leaf's state counts. An unread name or id: a change.
+ */
+export const STATE_ONLY = /^(wheat|carrots|potatoes|beetroots|nether_wart|sweet_berry_bush|melon_stem|pumpkin_stem|sugar_cane|cactus|water|lava|farmland|fire|grass_block|podzol|mycelium|redstone_wire|furnace|blast_furnace|smoker)$|_sapling$/
+export function wordMoves (was, now) {
+  if (!was || now?.name == null || was.name == null) return true
+  if (was.name !== now.name) return true
+  if (was.id === now.id) return false
+  return !STATE_ONLY.test(now.name)
+}
+/**
+ * The SERVER'S word on a cell, from the raw packets -> { watch(cell), wait(cell, pred, ms) -> name | null, stop, seq(), moved(since, at) }.
+ * standcache-01 r2: `seq()` counts what this connection has been TOLD has changed -- a block whose state a walk could read
+ * differently than the witness's last word on the cell (wordMoves: a first word counts; a crop's age or a water level does not), a
+ * chunk loaded or unloaded -- and `moved(since, at)` says whether any of it since `since` lies in a square (movedNear). A walk of
+ * the town kept by a build visit (buildrun.mjs nodesFor) is exactly as fresh as a new one while nothing moved: both read this
+ * bot's own view.
+ */
 export function installServerBlockWitness (bot) {
   const seen = new Map()
   const waiters = []
   const nameOf = id => bot.registry?.blocksByStateId?.[id]?.name ?? null
+  let seq = 0
+  const recent = [], last = new Map()   // last: a cell's last word { id, name } (never forgotten by `watch`: that is the waiters')
+  const moved = (x0, z0, x1, z1) => { recent.push([++seq, x0, z0, x1, z1]); if (recent.length > WITNESS_KEPT) recent.shift() }
   const note = (x, y, z, stateId) => {
     const k = `${x},${y},${z}`, n = nameOf(stateId)
+    const now = { id: stateId, name: n }
+    if (wordMoves(last.get(k) ?? null, now)) moved(x, z, x, z)
+    last.set(k, now)
     seen.set(k, n)
     for (const w of waiters.slice()) if (w.k === k && w.pred(n)) { clearTimeout(w.timer); waiters.splice(waiters.indexOf(w), 1); w.resolve(n) }
   }
@@ -188,6 +297,14 @@ export function installServerBlockWitness (bot) {
     try {
       if (meta?.name === 'block_change' && data?.location) note(data.location.x, data.location.y, data.location.z, data.type ?? data.stateId)
       else if (meta?.name === 'multi_block_change') for (const r of decodeMultiBlock(data)) note(r.x, r.y, r.z, r.stateId)
+      else if (meta?.name === 'map_chunk' || meta?.name === 'unload_chunk') {
+        // a chunk the bot can now read, or no longer can: its whole square (coordinates unread: everywhere). And every last word
+        // is forgotten (Codex r3): a chunk sent again may hold another block in a cell than the witness last heard, so a later
+        // word that only repeats the old one IS a change -- the next word on any cell counts as a first word
+        last.clear()
+        const cx = Number(data?.x ?? data?.chunkX), cz = Number(data?.z ?? data?.chunkZ)
+        if (Number.isFinite(cx) && Number.isFinite(cz)) moved(cx * 16, cz * 16, cx * 16 + 15, cz * 16 + 15); else moved(-Infinity, -Infinity, Infinity, Infinity)
+      }
     } catch { /* never break the packet path */ }
   }
   bot._client?.on?.('packet', onPacket)
@@ -199,21 +316,52 @@ export function installServerBlockWitness (bot) {
       return new Promise(resolve => { const w = { k, pred, resolve, timer: null }; w.timer = setTimeout(() => { waiters.splice(waiters.indexOf(w), 1); resolve(null) }, ms); waiters.push(w) })
     },
     stop: () => { try { (bot._client?.off ?? bot._client?.removeListener)?.call(bot._client, 'packet', onPacket) } catch { /* gone */ } },
+    seq: () => seq,
+    moved: (since, at) => movedNear(recent, seq, since, at),
   }
 }
 
+/**
+ * keeperstall-01: HAS THIS BOT'S CONNECTION ENDED? -> bool. THE ONE DEFINITION (skills.mjs `clientEnded` is this function). Pure.
+ * True on any of (minecraft-protocol 1.66.2 src/client.js, readable-stream 4.7; each seen on ci2 with the locked modules, 11-10):
+ *   `_client.ended === true`                  set by the socket's close / end / timeout / fatal error (false from setSocket on)
+ *   `_client.socket.destroyed === true`       the socket is gone
+ *   `_client.serializer.writableEnded === true`   r2: client.end() was CALLED (mineflayer's keepalive timeout, a kick, bot.quit):
+ *                                             end() ends the serializer SYNCHRONOUSLY and only destroys the socket on a 30 s close
+ *                                             timer; until the socket closes `ended` and `destroyed` are both still false, and every
+ *                                             write() is already a no-op (`serializer.writable` false)
+ *   `_client.socket.writableEnded === true`   the same a turn later (the chain has ended the socket), and end() with no serializer
+ * Never true on a healthy connected client: a state change (login -> configuration -> play, and play -> configuration -> play)
+ * REPLACES the serializer with a new one and ends none; compression and encryption re-pipe, they end nothing.
+ * NOT COVERED: a connection the SERVER has dropped whose close this process has not processed yet (the event loop busy, or a dead
+ * network with no FIN) -- nothing local says so until the socket event runs; and end() followed by a state change (the new
+ * serializer reads open until the socket closes). A bot with no client (a test's fake), or a client with none of these: NOT ended.
+ */
+export const connEnded = bot => {
+  const c = bot?._client
+  if (!c) return false
+  return c.ended === true || c.socket?.destroyed === true || c.serializer?.writableEnded === true || c.socket?.writableEnded === true
+}
+/** keeperstall-01 r2: IS THIS VISIT GONE? -> bool: the skill was aborted (`signal`), or its bot's connection has ended (connEnded).
+ *  What a gone visit saw says nothing about the world: nothing of it is written to the bot's process memory (procmem.mjs) or waived
+ *  on a record. Pure. */
+export const visitGone = (bot, signal) => !!signal?.aborted || connEnded(bot)
 /**
  * -> runVisit's effects for `bot`, plus close(). Options:
  *   acks           the connection's tracker (skills.mjs shopAckInstall, installed before login); none: one is installed for
  *                  this visit and removed at close (the Paper drivers' bare bots)
  *   keep           { name: n } the bag's keeps at the visit's start (`has` counts above them)
  *   withWalk(fn)   the caller's scoped walk profile (index.mjs); identity by default
- *   aborted()      the skill's signal
+ *   aborted()      the skill's signal; keeperstall-01: the effects' own `aborted()` is ALSO true once this bot's connection has
+ *                  ended (connEnded) -- index.mjs's `end` handler does not cancel the running skill, so a visit that yields
+ *                  (buildrun.mjs breathe) learns here that nobody is on the other end of its digs and clicks
  *   log(kind, d)   the row writer (the skill's logEvent)
  *   spawnedAt()    ms of the last spawn
  */
-export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn => fn(), aborted = () => false, log = () => {}, spawnedAt = () => 0, pathMs = PATH_MS } = {}) {
+export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn => fn(), aborted: skillAborted = () => false, log = () => {}, spawnedAt = () => 0, pathMs = PATH_MS, cornerSquare = false, apexDig = null } = {}) {
   const own = !acks
+  // keeperstall-01: ONE definition for every use below and for the visit (`e.aborted()`): the skill's signal, or the connection gone
+  const aborted = () => !!skillAborted() || connEnded(bot)
   const A = acks ?? installAckTracker(bot)
   const blocks = installServerBlockWitness(bot)
   const timers = new Set()
@@ -237,12 +385,25 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
   const spare = n => count(n) - (Number(keep?.[n]) || 0)
   const has = n => spare(n) > 0
   has.planks = () => [...new Set(items().map(i => i.name).filter(n => /_planks$/.test(n)))].find(n => spare(n) > 0) ?? null
-  // stuckcells-01: a snow layer's properties ride with its name (hive-d's earth read `0 placeable` for 98 h on single layers)
-  const read = (x, y, z) => readBlock(bot.blockAt(new Vec3(x, y, z)))
-  const write = (support, face, seq) => {
+  // townstyle-01: the block's PROPERTIES ride along, read only when asked (`props`: a stair's facing and half, a log's axis), so the
+  // thousands of reads a walk makes cost nothing more
+  const read = (x, y, z) => {
+    const b = bot.blockAt(new Vec3(x, y, z))
+    if (!b) return null
+    return { name: b.name, boundingBox: b.boundingBox, get props () { try { return b.getProperties?.() ?? null } catch { return null } } }
+  }
+  // townstyle-01: an AIMED click (townstyle.mjs orientAim): the yaw a stair's facing needs goes to the server as its OWN look packet
+  // immediately before the block_place, in the same synchronous write (mineflayer's lookAt(force) only queues its look for the next
+  // physics tick: a click in the same tick is judged with the old yaw), and the cursor sits where the state's half needs it
+  const write = (support, face, seq, aim = null) => {
+    const cur = Array.isArray(aim?.cursor) ? aim.cursor : [0.5 + face[0] * 0.5, 0.5 + face[1] * 0.5, 0.5 + face[2] * 0.5]
+    if (Number.isFinite(aim?.yaw)) {
+      const onGround = !!bot.entity?.onGround
+      bot._client.write('look', { yaw: aim.yaw, pitch: aimPitch(bot), onGround, flags: { onGround, hasHorizontalCollision: false } })
+    }
     bot._client.write('block_place', {
       location: new Vec3(support[0], support[1], support[2]), direction: FACE_DIR(face), hand: 0,
-      cursorX: 0.5 + face[0] * 0.5, cursorY: 0.5 + face[1] * 0.5, cursorZ: 0.5 + face[2] * 0.5,
+      cursorX: cur[0], cursorY: cur[1], cursorZ: cur[2],
       insideBlock: false, worldBorderHit: false, sequence: seq,
     })
     try { bot.swingArm?.('right') } catch { /* cosmetic */ }
@@ -274,8 +435,27 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
                 return path
               }
               const p = bot.entity.position
-              legs = cornerWaypoints([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], s, plan, read)
-            } catch { legs = [s] }
+              legs = cornerWaypoints([Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)], s, plan, read, 4, { square: cornerSquare })
+              // reroof-04 r6 (`apexDig(key)`, a re-roofed record's visit only): a listed leaf over a jump-up this walk plans is dug from the
+              // jump's lower cell first (walked to, then dug), so the jump is never taken under it
+              if (typeof apexDig === 'function') {
+                const f0 = [Math.floor(p.x), Math.floor(p.y + 1e-6), Math.floor(p.z)]
+                const path0 = plan(f0)
+                for (const d of apexDigs({ x: f0[0], y: f0[1], z: f0[2] }, path0, read, apexDig)) {
+                  if (aborted() || late) return
+                  const here = bot.entity.position
+                  if (Math.floor(here.x) !== d.lower[0] || Math.floor(here.y + 1e-6) !== d.lower[1] || Math.floor(here.z) !== d.lower[2]) await bot.pathfinder.goto(new goals.GoalBlock(d.lower[0], d.lower[1], d.lower[2]))
+                  const blk = bot.blockAt(new Vec3(d.at[0], d.at[1], d.at[2]))
+                  if (!blk || blk.name !== d.name) continue
+                  let pers = null
+                  try { pers = blk.getProperties?.()?.persistent } catch { pers = null }
+                  if (!(pers === false || pers === 'false')) continue   // re-read at the dig: a natural leaf only
+                  blocks.watch(d.at)
+                  try { await bot.dig(blk, true) } catch (e) { if (e?.aborted || aborted()) throw e; continue }
+                  if (await blocks.wait(d.at, x => x === 'air' || x === 'cave_air', DIG_CONFIRM_MS)) log('_build', { op: 'clear', cell: d.at, block: d.name, kind: 'leaves' })
+                }
+              }
+            } catch (e) { if (e?.aborted || aborted()) throw e; legs = [s] }
             // THROUGH THE SEGMENT'S OWN OPEN CELLS (pathCrosses): not walked -- the click's re-proof fails, the stand is banned
             // (standBans) and the cell's next-best stand is tried
             if (crosses) return
@@ -293,10 +473,44 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       return bot.heldItem?.name === n
     },
     has,
-    look: async (support, face) => { try { await bot.lookAt(new Vec3(support[0] + 0.5 + face[0] * 0.5, support[1] + 0.5 + face[1] * 0.5, support[2] + 0.5 + face[2] * 0.5), true) } catch { /* not fatal */ } },
+    // tempstand-01 (buildrun.mjs runVisit `p.tempStand`): a temporary stand may be made of the bag's KEPT blocks too (the scaffold
+    // reserve is kept to pillar with, and the stand's blocks are dug back in the same visit): the whole count, and a hold that does
+    // not ask the keeps
+    countAll: n => count(n),
+    // tempstand-01 r1: is a pickaxe in the bag (two uses left, `tool`'s own rule)? A stone stand is dug back only with one
+    pickaxe: () => items().some(i => /_pickaxe$/.test(i.name) && (Number(i.maxDurability) || 0) - (Number(i.durabilityUsed) || 0) >= 2),
+    holdKept: async n => {
+      const it = items().find(i => i.name === n)
+      if (!it) return false
+      if (bot.heldItem?.name !== n) { try { await bot.equip(it, 'hand') } catch (e) { if (e?.aborted) throw e } }
+      return bot.heldItem?.name === n
+    },
+    look: async (support, face, aim = null) => {
+      try {
+        await bot.lookAt(new Vec3(support[0] + 0.5 + face[0] * 0.5, support[1] + 0.5 + face[1] * 0.5, support[2] + 0.5 + face[2] * 0.5), true)
+        // townstyle-01: an aimed click keeps the face's pitch and turns to the state's yaw, so mineflayer's own next look agrees with
+        // the look packet the send writes
+        if (Number.isFinite(aim?.yaw)) await bot.look(yawRad(aim.yaw), bot.entity.pitch, true)
+      } catch { /* not fatal */ }
+    },
     nextSeq: () => A.tracker.next(),
-    send: write,
-    waitAck: (seq, ms) => within('ack', ms + 250, () => A.tracker.wait(seq, ms)),
+    // zonesite-01show: NOTHING IS SENT into a protected zone -> false (the caller books no click); an unreadable zone list refuses
+    send: (support, face, seq, aim = null) => {   // townstyle-01's aimed click when `aim` is given
+      let z = null
+      try { z = clickZone(bot.protectZones?.() ?? [], support, face, bot.entity?.position ?? null) } catch { z = 'zones_unread' }
+      if (z) { try { log('_build', { op: 'click_zoned', cell: [support[0] + face[0], support[1] + face[1], support[2] + face[2]], why: `closed by protected zone ${z}: nothing sent` }) } catch { /* telemetry */ } return false }
+      write(support, face, seq, aim)
+      return true
+    },
+    // ...and of one support + face, for the step's choice (buildsite.mjs stepFor `want.supportOk`) -> id | null
+    clickClosed: (support, face) => {
+      try { return clickZone(bot.protectZones?.() ?? [], support, face, bot.entity?.position ?? null) } catch { return 'zones_unread' }
+    },
+    // ...and asked BEFORE the walk (buildrun.mjs click): WOULD THE GUARD REFUSE A BUILD'S PLACEMENT AT THIS CELL? -> id | null
+    placeClosed: c => {
+      try { return cellZone(bot.protectZones?.() ?? [], c, bot.entity?.position ?? null) } catch { return 'zones_unread' }
+    },
+    waitAck: (seq, ms) => A.tracker.wait(seq, ms),
     track: (id, seq) => A.track(id, seq),
     untrack: id => A.untrack(id),
     conn: () => A.conn ?? null,
@@ -310,11 +524,19 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       blocks.watch(c)
       mark('dig', c)
       try { await bot.dig(b, true) } catch (e) { if (e?.aborted || aborted()) throw e; return 'refused' }
-      // boardwalk-03: a block dug out of water reads WATER once the lake flows back in (the air update may come first or be folded
-      // into the same tick's multi-block change): gone either way
-      const n = await within('confirm', DIG_CONFIRM_MS + 250, () => blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS))
-      if (n) progress()
+      // boardwalk-03: a block dug out of water reads WATER once the lake flows back in: gone either way
+      const n = await blocks.wait(c, x => x === 'air' || x === 'cave_air' || x === 'water', DIG_CONFIRM_MS)
       return n ? 'confirmed' : 'unconfirmed'
+    },
+    // leaffell-01show: WOULD THE PROTECTED-ZONE GUARD REFUSE A BUILD'S DIG OF THIS CELL? -> the zone's id | null. The guard's own
+    // decision (protectzone.mjs zoneDecision: a dig that is no survival dig, the feet the stand's -- the deep exemption reads them),
+    // asked BEFORE the walk: buildrun.mjs runVisit sets such a clear aside instead of walking to a dig the guard then refuses
+    zoneClosed: (c, name = null, feet = null) => {
+      const zones = bot.protectZones?.() ?? []
+      if (!zones.length) return null
+      const d = zoneDecision({ zones, op: 'dig', cell: { x: c[0], y: c[1], z: c[2] }, purpose: 'target', name, nameRule: zoneGuardOn(),
+        feet: Array.isArray(feet) ? { x: feet[0], y: feet[1], z: feet[2] } : (bot.entity?.position ?? null) })
+      return d ? String(d.zone?.id ?? 'zone') : null
     },
     probe: async c => {
       for (const d of [[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
@@ -340,16 +562,7 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     // jump released) and its landing (LAND: jump released, on the ground or LAND_MS); SETTLE after a dig underfoot (the drop);
     // TOOL: the pickaxe with the most uses left (at least 2) in hand for the access's digs, nothing changed without one
     count: n => Math.max(0, spare(n)),
-    rise: feetY => within('rise', RISE_MS + 200, () => riseInner(feetY)),
-    land: () => within('land', LAND_MS + 300, () => landInner()),
-    settle: () => within('settle', LAND_MS + 300, () => settleInner()),
-    // buildwait-01: buildrun.mjs declares its own bounded waits (barrier, body, spawn quiet) and its progress; the trace
-    still,
-    within,
-    progress,
-    mark,
-    current: () => ({ ...cur, ms: Date.now() - cur.at }),
-    __riseInner: async feetY => {
+    rise: async feetY => {
       bot.setControlState('jump', true)
       const t0 = Date.now()
       while (Date.now() - t0 < RISE_MS) {
@@ -360,14 +573,14 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
       bot.setControlState('jump', false)
       return false
     },
-    __landInner: async () => {
+    land: async () => {
       bot.setControlState('jump', false)
       const t0 = Date.now()
       await sleep(100)
       while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
       await sleep(50)
     },
-    __settleInner: async () => {
+    settle: async () => {
       const t0 = Date.now()
       await sleep(150)
       while (Date.now() - t0 < LAND_MS && !bot.entity.onGround) await sleep(25)
@@ -382,6 +595,9 @@ export function botBuildEffects (bot, { acks = null, keep = {}, withWalk = fn =>
     aborted,
     log,
     now: () => Date.now(),
+    // standcache-01 r2: what this connection has been told has changed (installServerBlockWitness seq / moved)
+    worldSeq: () => blocks.seq(),
+    worldMoved: (since, at) => blocks.moved(since, at),
     sleep,
     spawnedAt,
     close: () => { for (const t of timers) clearTimeout(t); timers.clear(); if (own) A.stop(); blocks.stop() },

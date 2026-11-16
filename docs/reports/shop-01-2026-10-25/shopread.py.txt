@@ -1295,6 +1295,18 @@ def tidy_guard(pr):
     return out
 
 
+def project_of(pr, plot):
+    """A town's entry for one project -> { record, records_files, leases }. A town read without `projects` (an older caller, the
+    fixtures) holds the workshop's only: another project there has no record (oracle_missing, never judged against the
+    workshop's)."""
+    plot = plot or SHOP
+    if isinstance((pr or {}).get('projects'), dict):
+        return pr['projects'].get(plot) or {'record': None, 'records_files': 0, 'leases': {}}
+    if plot == SHOP:
+        return {'record': (pr or {}).get('record'), 'records_files': (pr or {}).get('records_files', 0), 'leases': (pr or {}).get('leases') or {}}
+    return {'record': None, 'records_files': 0, 'leases': {}}
+
+
 def zones_valid(raw):
     """THE BOT'S OWN SCHEMA (protectzone.mjs parseZones; Codex read r2 P2-3): an object, version 1, a `zones` list of at most 64,
     every zone an id string and a 6-integer ordered box within the spans, floor_y (if any) an integer inside it. Anything less

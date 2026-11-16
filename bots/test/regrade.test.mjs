@@ -4,6 +4,7 @@ import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 const { G, HOME, server } = await import('./helpers/buildfake.mjs')
 const T = await import('../src/tidy.mjs')
+const LP = await import('../src/landplan.mjs')
 const RG = await import('../src/roughground.mjs')
 const RD = await import('../src/regrade.mjs')
 
@@ -149,23 +150,37 @@ await t('never a record cell, a build\'s ring, a zone: the regrade keeps to the 
   assert.strictEqual(off.census.regraded, 0)
   assert.strictEqual(RD.regradeOn({ REGRADE: 'off' }), false)
 })
-await t('fleet: through tidy-01\'s siting (surveyTidy -> siteTidy): the regrade is on the record, a re-survey of the laid ground has less to do', async () => {
+await t('through the inside-the-wall stage: the regrade is on the record (rg tiles), and a re-survey of the laid ground has less to do', async () => {
   const srv = server()
   roughPatch(srv)
-  const s = T.siteTidy(srv.read, { home: HOME, r: 30, rough: true })
-  assert.ok(s.record && s.record.rough.regraded > 0, JSON.stringify(s.record?.rough))
+  const INWALL = LP.landStages().find(q => q.id === 'inwall')
+  const s = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: INWALL, env: {}, terrace: { wall: { ring: [-30, -30, 30, 30] }, records: [] } })
+  assert.ok(s.record && s.record.inwall.rough.census.regraded > 0)
   const after = T.tidyOverlay(srv.read, s.record)
-  const s2 = T.siteTidy(after, { home: HOME, r: 30, rough: true })
+  const s2 = T.siteStage(after, { home: HOME, land: { seed: 1 }, stage: INWALL, env: {}, terrace: { wall: { ring: [-30, -30, 30, 30] }, records: [] } })
   const n1 = s.record.cut.length + s.record.cells.length, n2 = (s2.record?.cut.length ?? 0) + (s2.record?.cells.length ?? 0)
   assert.ok(n2 < n1 / 3, `${n1} -> ${n2}`)
 })
-await t('fleet: a wide SUNK patch is filled up: its regrade tops reach the record as `topsoil` (dirt only)', async () => {
+
+await t('a wide SUNK patch is filled up through the stage: its regrade tops reach the record as `topsoil` (dirt only), under them earth/core', async () => {
   const srv = server()
   for (let x = 4; x < 20; x++) for (let z = 4; z < 20; z++) { const h = (((x * 7 + z * 3) % 4) + 4) % 4; for (let y = G; y > G - h; y--) srv.set([x, y, z], 'air') }
-  const s = T.siteTidy(srv.read, { home: HOME, r: 30, rough: true })
-  assert.ok(s.record.rough.regraded > 0)
+  const INWALL = LP.landStages().find(q => q.id === 'inwall')
+  const s = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: INWALL, env: {}, terrace: { wall: { ring: [-30, -30, 30, 30] }, records: [] } })
+  assert.ok(s.record.inwall.rough.census.regraded > 0)
   const roles = s.record.cells.reduce((m, c) => ((m[c.role] = (m[c.role] ?? 0) + 1), m), {})
   assert.ok(roles.topsoil > 0, JSON.stringify(roles))
+  assert.deepStrictEqual(T.TIDY_PALETTE.topsoil, ['dirt', 'grass_block'])
+})
+await t('fold BLOCKER: REGRADE=off reaches the survey through siteStage (the rollback), and the survey itself', async () => {
+  const srv = server()
+  roughPatch(srv)
+  const INWALL = LP.landStages().find(q => q.id === 'inwall')
+  const on = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: INWALL, env: {}, terrace: { wall: { ring: [-30, -30, 30, 30] }, records: [] } })
+  assert.ok((on.record?.inwall?.rough?.census?.regraded ?? 0) > 0, 'POSITIVE: on by default the regrade takes part')
+  const off = T.siteStage(srv.read, { home: HOME, land: { seed: 1 }, stage: INWALL, env: { REGRADE: 'off' }, terrace: { wall: { ring: [-30, -30, 30, 30] }, records: [] } })
+  assert.strictEqual(off.record?.inwall?.rough?.census?.regraded ?? 0, 0, 'REGRADE=off: no regrade')
+  assert.strictEqual(rough(srv, { env: { REGRADE: 'off' } }).census.regraded, 0)
 })
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

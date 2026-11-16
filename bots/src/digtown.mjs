@@ -210,6 +210,9 @@ export function attachDigTown (bot, { home, context = () => ({}), emitDig, emitS
   wrapped.__digtown = true
   wrapped.__orig = orig
   bot.dig = wrapped
+  // takeback-01: who holds the body, as this instrument is told it (index.mjs's context: the active reflex, the arbiter's holder,
+  // the running skill) -- read by takeback.mjs so a take-back never runs while a reflex acts. Read-only; nothing here uses it.
+  bot.__digContext = context
 
   const flush = () => {
     try {

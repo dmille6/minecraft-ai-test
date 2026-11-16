@@ -11,13 +11,13 @@ import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { noteLavaFinding } from './lavatarget.mjs'   // lavatarget-01: the corridor guard's lava cells feed explore's heading
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
-import { escPocketOn, trapCellSet, trapStepCost, inTrap } from './escdead.mjs'   // escpocket-01: trap sites priced
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
-import { knownWellCells, installWellWatch } from './skills.mjs'
+import { knownWellCells, installWellWatch, townPlanTick, shopAckInstall, escapeRecordAt, scafTownRecords } from './skills.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
 import pathfinderPkg from 'mineflayer-pathfinder'
+import { escPocketOn, trapCellSet, trapStepCost, inTrap } from './escdead.mjs'   // escpocket-01: trap sites priced
 const { pathfinder, Movements } = pathfinderPkg
 import collectBlockPkg from 'mineflayer-collectblock'
 const collectBlock = collectBlockPkg.plugin ?? collectBlockPkg
@@ -28,11 +28,12 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
-import { attachDigTown } from './digtown.mjs'
-import { digPurpose, currentDigScope } from './digtown.mjs'   // keepout-01's dig guard reads the instrument's purpose
+import { attachDigTown, digPurpose, currentDigScope } from './digtown.mjs'
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs)
-import { keepoutOn, keepoutModeDetail, fireSites, columnAt, routeForbids, coversTown, disputeScan, siteKey, keepoutCounters, noteKeepout,
-         KEEPOUT_DISPUTE_MS, townYieldOn, scopeHolds, keepoutDigGuard, guardPurpose } from './keepout.mjs'
+import {
+  keepoutOn, keepoutModeDetail, fireSites, columnAt, routeForbids, coversTown, disputeScan, siteKey, keepoutCounters, noteKeepout, KEEPOUT_DISPUTE_MS,
+  townYieldOn, scopeHolds, keepoutDigGuard, guardPurpose,
+} from './keepout.mjs'
 import { townGroundCounters, configuredHome } from './townground.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
@@ -51,25 +52,31 @@ import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
 import { installCraftSync } from './craftsync.mjs'
 import { PLAN_TICK_MS, planBreakCost } from './townplan.mjs'   // townplan-01's tick, furniture
-import { townPlanTick } from './skills.mjs'
 import { installFeatures } from './features.mjs'   // building features' spawn work: install + licence rows
 import { installNoBridge } from './nobridge.mjs'   // nobridge-01: no path scaffold over water on a walk
 import { installCornerRule } from './cornermoves.mjs'   // cornerwalk-01: no diagonal across a block corner on a walk
-import { shopAckInstall } from './skills.mjs'   // shop-01: the click acknowledgements, installed per connection before login
 import { SHOP, footprintEntry, withoutFootprint } from './shop.mjs'   // shop-01: the switch and the footprint price
-import { makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidplaceRowDue, lidplaceRowDetail, lidplaceHitsDetail, LIDPLACE_HITS_MS } from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
+import {
+  makeLidPlacePrice, lidPlaceOn, installLidPrice, chosenLidPlaces, lidplaceRowDue, lidplaceRowDetail, lidplaceHitsDetail, LIDPLACE_HITS_MS,
+} from './lidplace.mjs'   // lidplace-01: no scaffold on a lid or a plan cell
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts, poolStateDir } from './worldfacts.mjs'
-import { zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, RELOAD_MS as ZONE_RELOAD_MS } from './protectzone.mjs'   // protectzone-01
+import {
+  zoneReader, zonesFileIn, zoneCost, attachProtectZone, protectZoneModeDetail, protectZoneCounters, baselinePathFor, RELOAD_MS as ZONE_RELOAD_MS,
+} from './protectzone.mjs'   // protectzone-01 (+ zoneguard-01show baselinePathFor)
 import { attachEscapeGuard, escapeGuardModeDetail } from './escapeguard.mjs'   // escapeguard-01
-import { escapeRecordAt } from './skills.mjs'   // escapeguard-01: the build records' answer for a cell
 import { performance } from 'node:perf_hooks'   // scaftown-01: the search clock
-import { scafTownRecords } from './skills.mjs'   // scaftown-01: the town's records, for the wall rings
-import { SCAF_TOWN, scafTownOn, scafAreaOf, wallRingsOf, makeScafTownPrice, installScafTownPrice, installScafTownSearch, chosenScafTown, scafTownHitsDetail, scafTownSnap, scafTownModeDetail } from './scaftown.mjs'   // scaftown-01: no dirt towers where the town has a way
+import {
+  SCAF_TOWN, scafTownOn, scafAreaOf, wallRingsOf, makeScafTownPrice, installScafTownPrice, installScafTownSearch, chosenScafTown, scafTownHitsDetail,
+  scafTownSnap, scafTownModeDetail,
+} from './scaftown.mjs'   // scaftown-01: no dirt towers where the town has a way
+import {
+  CLEAN_ZONE, cleanZoneOn, cleanZoneOf, makeCleanZone, installCleanZoneFilter, installCleanZoneSearch, cleanZoneHitsDetail, cleanZoneSnap,
+  cleanZoneModeDetail,
+} from './cleanzone.mjs'   // cleanzone-01: no route places a block in the town or its margin
 import { poolEscapeModeDetail } from './poolescape.mjs'   // poolescape-01
 import { lavastepModeDetail } from './lavastep.mjs'   // lavastep-01
-import { bambooWalkPlugin, bambooWalkModeDetail } from './bamboowalk.mjs'   // bamboowalk-01
 import { tombexitModeDetail } from './tombexit.mjs'   // tombexit-01
 import { attachLavastepGuard } from './lavastepmove.mjs'   // lavastep-01
 import { cavefallModeDetail } from './cavefall.mjs'   // cavefall-01
@@ -78,6 +85,7 @@ import { plugCutModeDetail } from './plugcut.mjs'   // plugcut-01
 import { respawnfallModeDetail, SAFE_DROP as SKY_SAFE_DROP } from './respawnfall.mjs'   // respawnfall-01
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
+import { bambooWalkPlugin, bambooWalkModeDetail } from './bamboowalk.mjs'   // bamboowalk-01
 const require_ = createRequire(import.meta.url)
 
 let reconnectDelay = config.reconnect.delayMs
@@ -343,7 +351,9 @@ function connect() {
     // every 30 s on a timer (never inside the A* step); no file -> no zone, and every guard below passes straight through.
     // Read here, before the movement profiles and the guard that use it. The licence row says what this spawn loaded
     // (`_protectzone_mode`), and again whenever that changes (an install, an edit, a removal, a broken file kept stale).
+    // zoneguard-01show: and the tripwire's baseline (the cells its S4 compares), beside the zones file or the showcase tripwire's
     const zoneRd = zoneReader({ file: () => zonesFileIn(poolStateDir(config.memory.pool)), worldId: () => bot.worldId ?? null,
+      baseline: () => baselinePathFor(poolStateDir(config.memory.pool)),
       onChange: st => { try { logEvent({ kind: 'protectzone_mode', status: 'success', snapshot: snapshot(bot), detail: protectZoneModeDetail(st, bot.worldId) }) } catch {} } })
     zoneRd.refresh()
     const zoneTimer = setInterval(() => zoneRd.refresh(), ZONE_RELOAD_MS); zoneTimer.unref?.()
@@ -1373,9 +1383,10 @@ function connect() {
         zones: bot.protectZones,
         context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
                           reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
-        onRefuse: ({ op, zone, at, purpose, by, remedy }) => {
+        onRefuse: ({ op, zone, at, purpose, by, remedy, struct }) => {
           if (rowsThisMin++ >= 30) return
-          try { logEvent({ kind: 'protect_zone_refused', status: 'refused', detail: `op=${op} zone=${zone} at=${at ? `${at.x},${at.y},${at.z}` : '-'} purpose=${purpose} by=${by} | ${remedy}`.slice(0, 300), args: { op, zone, at, purpose, by } }) } catch { /* telemetry */ }
+          // zoneguard-01show: struct=1 -- a cell the tripwire's baseline guards (or a deep structure by name), refused at any depth
+          try { logEvent({ kind: 'protect_zone_refused', status: 'refused', detail: `op=${op} zone=${zone} at=${at ? `${at.x},${at.y},${at.z}` : '-'} purpose=${purpose} by=${by} struct=${struct ? 1 : 0} | ${remedy}`.slice(0, 300), args: { op, zone, at, purpose, by, struct: !!struct } }) } catch { /* telemetry */ }
         },
       })
       bot.protectZone = protectZoneCounters()

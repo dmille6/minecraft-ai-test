@@ -123,7 +123,7 @@ const W1 = /\} else if \(plot === YARD_PLOT\) \{\s*const ss = await yardSiteFor\
 const W2 = /: isYardBlueprint\(rec\.blueprint\) \? yardVisitOpts\(rec, home\) : \{\}/
 const W3 = /beat: true, placedBy, \.\.\.yardVisitOpts\(rec, home\) \}/
 const W4 = /const s = await siteBlueprintAsync\(read, plan, blueprintOf\(step\.blueprint\), \{ zones, wells: c\.wells, farm: c\.farm, z0: c\.z0, stood, sectors, plot: YARD_PLOT,/
-const W5 = /const zones = \[\.\.\.c\.zones, \.\.\.recordZones\(others\)\]\s*const sectors = yardSectors\(yardLand\(\), /
+const W5 = /const zones = \[\.\.\.c\.zones, \.\.\.recordZones\(others\), \.\.\.hallPadZones\(plan\), \.\.\.townMarkerZones\(\)\]/
 await t('the yard sites through yardSiteFor (cooperative, every reservation), and both of its visits stand and walk out to its band', () => {
   for (const re of [W1, W2, W3, W4, W5]) assert.ok(re.test(SK), String(re))
 })

@@ -265,6 +265,66 @@ const REQUIRED = [
   'docs/reports/pipeline-design-2026-11-09.md',
   'bots/src/vetoremedy.mjs',
   'bots/test/vetoremedy.test.mjs',
+  // projturn-01 (11-15): the open projects take turns, a no-progress visit backs its project off for the pool, a stuck bot is held
+  // off that project only (PROJTURN=off|on)
+  'bots/src/projturn.mjs',
+  'bots/test/projturn.test.mjs',
+  // topdown-01 / landprev-01show (owner 11-15): gather takes ground only from the top; cobblestone before dirt in the escape
+  'bots/src/topdown.mjs',
+  'bots/test/topdown.test.mjs',
+  // cleanzone-01 (11-13): no route places a block in the town or its margin; the valve lets a trapped bot out and writes where
+  'bots/src/cleanzone.mjs',
+  'bots/test/cleanzone.test.mjs',
+  // cleanzone-02 (11-13): gather does not take the ground inside the clean zone; it walks out and searches again
+  'bots/test/gatherzone.test.mjs',
+  // wellstep-01 (11-13): the junk well's stand is reached again -- the failed walk is tried once more with a pass for that goal
+  'bots/test/wellstep.test.mjs',
+  // roofclimb-01 (11-14, owner "Yes, fix it"): surface climbs out from under a ground roof above sea level
+  'bots/test/roofclimb.test.mjs',
+  // zonesite-01show (11-15): a sink never stands in a protected zone -- the siting guard, the builder's click, the retirement
+  'bots/test/zonesite.test.mjs',
+  // shaft-02 (10-30): the town stair's converged design (both engines) and its Paper driver
+  'docs/reports/mineshaft-2026-10-30/design.md',
+  'sandbox/stair/stair-e2e.mjs',
+  // escapeguard-01 (10-31): a trapped bot's escape never digs a build record or a protected zone's structure
+  // serving D (owner 11-01): fewer LLM decisions -- pausewait, vetoskip, continue
+  'bots/src/zonewalk.mjs',  // escdead-01show (11-07): an escape under a protected zone walks out under its side
+  'bots/test/zonewalk.test.mjs',
+  'bots/test/zoneguard.test.mjs',  // zoneguard-01show (11-09): no bot dig or placement changes a cell the tripwire's S4 compares
+  'bots/src/fewerdec.mjs',
+  'bots/test/gkstay.test.mjs',   // gkstay-01 (11-07): the keeper lease stays with a holder on the surface (no churn)
+  'bots/test/gkleft.test.mjs',   // gkleft-01 (11-08): a cell nobody can work is waived by the town
+  'bots/test/gkcrewcut.test.mjs',   // gkcrewcut-01 (11-08): helpers dig the tidy's cuts too
+  'bots/test/fillshare.test.mjs',   // fillshare-01 (11-09): a helper fills first while the fills are behind the cuts
+  'bots/test/gkcrew4.test.mjs',   // gkcrew4-01 (11-08, owner: up to 4 helpers while > 500 open cells)
+  'bots/src/planahead.mjs',   // planahead-01 (11-09, owner: plan the town ahead -- plan-time reach, stand claims)
+  'bots/test/planahead.test.mjs',   // planahead-01
+  'bots/scripts/planahead-offline.mjs',   // planahead-01: the offline check on region copies
+  'bots/test/civicvisit.test.mjs',   // civicvisit-01show (11-15): a landmark's visit stands where its siting stood
+  'bots/test/steprefusal.test.mjs',   // stepclass-01 (11-15): why a cell has no step, on the deferral row
+  'bots/scripts/standreplay-offline.mjs',   // stepclass-01: the stand replay over a block dump (the acceptance check for stuck cells)
+  'bots/test/standreplay.test.mjs',   // stepclass-01
+  'scripts/host/standprep.py',   // stepclass-01: the replay's input from a pool's stuck files
+  'bots/test/gkclear.test.mjs',   // gkclear-01 (11-07): the town's strikes say a tidy stage is closing
+  'bots/test/gkroom.test.mjs',   // gkroom-01 (11-07): the keeper refused the forest for room works the tidy
+  'bots/src/gkwork.mjs',   // gkwork-01 (11-07): the groundskeeper always has work, or lets the lease go
+  'bots/test/gkwork.test.mjs',   // gkwork-01 (11-07)
+  'bots/src/roughground.mjs',   // roughground-01 (11-07): the ground the inside-the-wall rules miss + the bots' scaffold taken back
+  'bots/test/roughground.test.mjs',   // roughground-01 (11-07)
+  'bots/src/regrade.mjs',   // roughground-4 (11-07): the wide-area regrade
+  'bots/test/regrade.test.mjs',   // roughground-4 (11-07)
+  'sandbox/roughground/rough-proof.mjs',   // roughground-1b/1c/2 (11-07): the Paper proofs
+  'bots/src/landmark.mjs',   // roughground-3 (11-07): the town's landmark mound
+  'bots/test/landmark.test.mjs',   // roughground-3 (11-07)
+  'bots/test/gklease.test.mjs',   // gklease-01 (11-06): a grounds lease is held only by a bot that can work the grounds
+  'bots/test/fewerdec.test.mjs',
+  'bots/test/standcache.test.mjs',   // standcache-01 (11-12): the visit's kept walk (STANDCACHE=off|on), buildsite.mjs walkAgain
+  'bots/scripts/standbench.mjs',     // standcache-01: the measurement (one walk's cost through the bot's block read; walks a tidy visit)
+  'bots/src/pipeline.mjs',          // pipeline-01: pipelined decisions (PIPELINE=off|shadow|on)
+  'bots/test/pipeline.test.mjs',
+  'docs/reports/pipeline-design-2026-11-09.md',
+  'bots/src/tempstand.mjs', 'bots/test/tempstand.test.mjs',   // tempstand-01 (11-12): a cell no stand reaches is clicked from a temporary pillar, taken down in the same visit (TEMPSTAND=off|on)
+  'bots/test/mineorder.test.mjs',   // mineorder-01 (11-13): no build order to a bot deep in the mine (MINEORDER=off)
   'bots/src/escapeguard.mjs',
   'bots/test/escapeguard.test.mjs',
   // shaft-02 (10-30): the town stair -- its geometry/survey/record and its visit (the Paper driver runs the same code)
@@ -286,6 +346,7 @@ const REQUIRED = [
   'bots/test/stair-handoff.test.mjs',   // shafttrap-02: the reflexes hand a bot on the town stair to the egress first
   'sandbox/shafttrap/egress-e2e.mjs',  // shafttrap-01: its Paper driver
   'sandbox/shafttrap/handoff-e2e.mjs',  // shafttrap-02: the whole bot idle on the stair (Paper driver)
+  'sandbox/shafttrap/egress-e2e.mjs',  // shafttrap-01: its Paper driver
   // monument-01 (10-29): the ziggurat's site, offline, by the bots' own functions (the fleet canary's per-world siting), and the
   // shop read that judges every project's record (the showcase tripwire's S6)
   'bots/scripts/zigsite-offline.mjs',
@@ -301,6 +362,13 @@ const REQUIRED = [
   'bots/src/treefarm.mjs',
   'bots/scripts/treefarm-offline.mjs',
   'bots/test/treefarm.test.mjs',
+  // forest-01 (11-06): the managed forest outside the walls, its tests and its Paper proofs
+  'bots/src/forest.mjs',
+  'bots/test/forest.test.mjs',
+  'bots/scripts/forest-offline.mjs',   // forest-02: the forest's siting on copies of a world
+  'sandbox/forest/forest-proof.cjs',
+  'sandbox/forest/forest-proof2.cjs',
+  'sandbox/forest/forest-proof3.cjs',
   'bots/src/storehouse.mjs',
   'bots/test/storehouse.test.mjs',
   // showchat-01 (11-01): the showcase's templated chat announcements (comms stage 2) + the timelapse captions
@@ -308,6 +376,14 @@ const REQUIRED = [
   'bots/test/showchat.test.mjs',
   // sortstore-01 (11-01): the sorted storehouse, its labels' Paper proof and the showcase fixture its tests read
   'bots/src/sortstore.mjs',
+  // requests-01 (11-03): the town's requests board (comms stage 3 piece 1) + its 11-01..03 replay fixture
+  'bots/src/requests.mjs',
+  'bots/test/requests.test.mjs',
+  'bots/test/fixtures/requests-showcase-1101-1103.jsonl',
+  // sortstore-01 (11-01): the sorted storehouse, its labels' Paper proof and the showcase fixture its tests read
+  'bots/src/sortstore.mjs',
+  'bots/src/indexsearch2.mjs',        // indexsearch-02 = storehub piece C
+  'bots/test/indexsearch2.test.mjs',
   'bots/test/sortstore.test.mjs',
   'bots/test/fixtures/sortstore-showcase-1101.json',
   'sandbox/sortstore/sign-proof.cjs',
@@ -315,6 +391,18 @@ const REQUIRED = [
   'bots/test/shopchest.test.mjs',
   'bots/src/expedition.mjs',
   'bots/test/expedition.test.mjs',
+  // showcase batch 2 (11-04): the crop farm (cropfarm-01show) and the expedition bridges (bridgepost-01)
+  'bots/src/cropfarm.mjs',
+  'bots/src/cropkeep.mjs',
+  'bots/test/cropfarm.test.mjs',
+  'bots/src/bridge.mjs',
+  'bots/src/bridgeio.mjs',
+  'bots/test/bridgepost.test.mjs',
+  // bridges-01show (11-08): designed bridges (arch, covered, trestle, footbridge), the traffic sites, the Paper proof, the pictures
+  'bots/src/bridgedesign.mjs',
+  'bots/test/bridges-design.test.mjs',
+  'bots/scripts/bridges-render.mjs',
+  'sandbox/bridges/design-proof.cjs',
   'bots/test/expwater.test.mjs',
   'bots/scripts/expwater-offline.mjs',
   'sandbox/swim/swim.mjs',
@@ -341,6 +429,181 @@ const REQUIRED = [
   'docs/reports/storehub-ab-2026-11-04.md',
   'docs/reports/storehub-ab-2026-11-04/make_storehub.py',
   'docs/reports/storehub-design-2026-11-03/codex-design.md',
+  // storehub-01 pieces A + B (11-04): the sorted hall, its blueprint, its generator, its offline siting, its test, the build notes
+  'bots/src/storehub.mjs',
+  'bots/src/blueprints/storehub@1.json',
+  'docs/reports/storehub-ab-2026-11-04/make_storehub.py',
+  'bots/scripts/storehub-offline.mjs',
+  'bots/test/storehub.test.mjs',
+  // wallext-01 (11-04): the wall extension round the storage hall and its test (the design is main's: docs/reports/wallext-design-2026-11-04.md)
+  'bots/test/wallext.test.mjs',
+  // cottage2-01 (11-08, owner "charm and uniqueness ... chests and beds"): the generated cottage family, its tests, the Paper proofs and
+  // their records, the design note
+  'bots/src/cottage2.mjs',
+  'bots/test/cottage2.test.mjs',
+  'bots/test/cottagepost.test.mjs',
+  'bots/test/projfix.test.mjs',
+  'bots/src/takeback.mjs', 'bots/test/takeback.test.mjs',
+  // litter-01 (11-13): what a walk could not take back is handed to the cleanup crew -- the rules, the sink, and their test
+  'bots/src/litter.mjs', 'bots/test/litter.test.mjs',
+  // homes-01show (11-13, owner: the approved layout's eight homes as cottage projects): the layout's data, its rules, their test
+  'bots/src/townlayout.json', 'bots/src/homeplots.mjs', 'bots/test/homeplots.test.mjs',
+  // homes-02show (11-13): the search that resumes, the kept walk, unfinished roads yield -- its test
+  'bots/test/homesearch.test.mjs',
+  // grounds-01 (11-12, owner "is there a better approach to grounds keeping"): cleanup as ordinary, funded project work -- the pure rules and their test
+  'bots/src/grounds2.mjs', 'bots/test/grounds2.test.mjs',
+  'sandbox/cottage2/furnish-proof.mjs',
+  'sandbox/cottage2/furnish-proof.jsonl',
+  'sandbox/cottage2/shear-e2e.mjs',
+  'sandbox/cottage2/shear-e2e.jsonl',
+  'sandbox/cottage2/paper-cottage2.jsonl',
+  'docs/reports/cottage2-design-2026-11-08.md',
+  // townstyle-01 (11-04): the style library, the cottage and its blueprints + generator, the renderer, the Paper orientation proof and its
+  // record, the test (the design and the tripwire rule are main's)
+  'bots/src/townstyle.mjs',
+  'bots/src/cottage.mjs',
+  'bots/src/blueprints/cottage@1s.json',
+  'bots/src/blueprints/cottage@1f.json',
+  'bots/scripts/make-cottage.mjs',
+  'bots/scripts/render-townstyle.mjs',
+  'sandbox/townstyle/orient-proof.mjs',
+  'docs/reports/townstyle-2026-11-04/paper-orient.jsonl',
+  'bots/test/townstyle.test.mjs',
+  'bots/test/townstyle-build.test.mjs',
+  'bots/test/townstyle-slab.test.mjs',
+  'bots/test/helpers/townstylefake.mjs',
+  'sandbox/townstyle/cottage-e2e.mjs',
+  'sandbox/townstyle/cottage-skill-e2e.mjs',
+  // townstyle-02 (11-05): the re-roofed generations, the town hall, their generator, the Paper build records
+  'bots/src/townhall.mjs',
+  'bots/src/ordernowait.mjs',   // ordernowait-01 (11-06): the hall and the cottage stop waiting for the workshop
+  'bots/test/ordernowait.test.mjs',
+  'bots/src/reroof.mjs',
+  'bots/test/townstyle-reroof.test.mjs',
+  'bots/scripts/make-townstyle.mjs',
+  'bots/src/blueprints/workshop@2.json',
+  'bots/src/blueprints/hall@2.json',
+  'bots/src/blueprints/storehub@2.json',
+  'bots/src/blueprints/enchantshop@2.json',
+  'bots/src/blueprints/townhall@1.json',
+  'docs/reports/townstyle-2026-11-04/paper-townstyle02.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-reroof.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-cottage-skill.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-blind.jsonl',
+  'docs/reports/townstyle-2026-11-04/paper-cottage.jsonl',
+  // enchantshop-01 (11-04): the enchanting + anvil workshop, its blueprint and generator, its offline siting, its test (the design is main's)
+  'bots/src/enchantshop.mjs',
+  'bots/src/blueprints/enchantshop@1.json',
+  'docs/reports/enchantshop-2026-11-04/make_enchantshop.py',
+  'bots/scripts/enchantshop-offline.mjs',
+  'bots/test/enchantshop.test.mjs',
+  // canefarm-01 (11-04, owner E1): the sugar cane bed for the workshop's books
+  'bots/src/canefarm.mjs',
+  'bots/scripts/canefarm-offline.mjs',
+  'bots/test/canefarm.test.mjs',
+  // stepwell-01 (11-05, owner "Yes"): the town stepwell -- the landmark tank and the miners' shared descent (design on main)
+  'bots/src/stepwell.mjs',
+  'bots/src/stepwellvisit.mjs',
+  'bots/scripts/stepwell-offline.mjs',
+  'bots/scripts/stepwell-landmap.mjs',
+  'bots/test/stepwell.test.mjs',
+  // townmine-01 (11-09, owner "i want all of those things done"): the town mine -- the stair extended to -53, bays, hall, galleries
+  'bots/src/townmine.mjs',
+  'bots/test/townmine.test.mjs',
+  'bots/test/fixtures/townmine-showcase-1109.json',   // townmine-01: the showcase stair + stepwell records the no-overlap test reads
+  'bots/scripts/townmine-render.mjs',   // townmine-01: its pictures, drawn from the bots' own plan
+  'sandbox/stepwell/stepwell-e2e.mjs',  // stepwell-01: its Paper driver
+  'bots/test/plotprep03.test.mjs',
+  'bots/test/levelfall.test.mjs',
+  'bots/test/gkmarker.test.mjs',
+  'bots/test/claim.test.mjs',  // claim-01 (11-08): a sited town hall / cottage owns its volume; the tidy yields it
+  'bots/test/thprep.test.mjs',  // thprep-01 (11-08): the town hall's volume (leaves, slope within its cut) and the built reach
+  'bots/test/reroof4.test.mjs', 'bots/test/fixtures/reroof4-hall-1108.json', 'sandbox/townstyle/reroof4-e2e.mjs',  // reroof-04 (11-08): roof access -- slab floors, door-side eave notch, a temporary stair torn down
+  'bots/src/citywall.mjs', 'bots/test/citywall.test.mjs', 'bots/scripts/citywall-offline.mjs', 'sandbox/citywall/wall-e2e.mjs',  // citywall-01 (11-09): the wall upgrade -- courses swapped in place, towers, a gatehouse, lamps
+  'bots/src/civic.mjs', 'bots/test/civic.test.mjs', 'bots/scripts/civic-offline.mjs', 'bots/scripts/render-civic.mjs', 'bots/scripts/civic-render.mjs', 'sandbox/civic/civic-e2e.mjs',  // civic-01 (11-09): the landmarks catalogue
+  'docs/reports/citywall-design-2026-11-09.md',  // citywall-01 + civic-01 (11-09): the design, the pictures, the Paper proofs
+  'bots/test/reroof3.test.mjs',  // reroof-03 (11-08): roof trees and floating remains dug; digs reached from the new roof's own cells
+  'bots/src/sitecanopy.mjs', 'bots/test/sitecanopy.test.mjs',  // sitecanopy-01 (11-08): a styled building's site lists the natural leaves in its own cells
+  'bots/src/leaffell.mjs', 'bots/test/leaffell.test.mjs',  // leaffell-01show (11-12): an unreached natural leaf asks for its trunk, not a stand
+  'bots/test/leaffell-res.test.mjs',  // leaffell-01show r2: the trunk guard's reservations are read strictly (absent is not unreadable)
+  'bots/src/fellcanopy.mjs', 'bots/test/fellcanopy.test.mjs',  // fellcanopy-01 (11-08): a felling log no stand sees gets its natural canopy listed
+  'bots/src/felldone.mjs', 'bots/test/felldone.test.mjs',  // felldone-01 (11-15): a felling stair whose tree is gone is done (FELLDONE=off|on)
+  'bots/src/sealedcore.mjs', 'bots/test/sealedcore.test.mjs',  // sealedcore-01 (11-15): a monument core cell sealed inside its own finished body is waived (SEALEDCORE=off|on)
+  'bots/test/fellfirst.test.mjs',  // fellfirst-01 (11-06): a tree with no sapling of its kind anywhere is felled first  // gkmarker-01 (11-06): the groundskeeper never plans a cut on an expedition marker  // levelfall-01 + stationzone-01 (11-05): the workshop's floor fallback; no village station
+  'bots/test/fixtures/levelfall-x1-1105.json',  // plotprep-03 (11-05): a plot's trees fall once their own saplings are settled
+  'bots/test/stepwell03.test.mjs',  // stepwell-03 (11-05): the siting reaches its site (reservations first, the wall's gap)
+  'bots/src/bagroom.mjs',  // bagroom-01 (11-06): the build's room -- the well's band dispose, the share bank
+  'bots/test/bagroom.test.mjs',
+  'bots/src/handcap.mjs',  // handcap-01 (11-06): a shaft cap the bare hand breaks is a climb, not a pickaxe ask
+  'bots/test/handcap.test.mjs',
+  // picker-01 (11-03): the town sinks (roads, wall towers, ziggurat growth), their offline siting and their test
+  'bots/src/sinks.mjs',
+  'bots/scripts/sinks-offline.mjs',
+  'bots/test/sinks.test.mjs',
+  // sinkfix-01 (11-03): a project that changed nothing yields to a wanted sink (the live 0-sited reproduction)
+  'bots/test/sinkfix.test.mjs',
+  // sinkfix-02 (11-04): sinks that placed ~0 live (aborted road, a tower's spent proofs, dress held back) reproduced
+  'bots/test/sinkfix2.test.mjs',
+  // sinkfix-03 (11-04): one plot's failed siting no longer quiets every build order for a day
+  'bots/test/sinkfix3.test.mjs',
+  // sinkfix-04 (11-04): one town-wide no-site stamp a kind; a quiet grounds order after a no-effect grounds visit
+  'bots/test/sinkfix4.test.mjs',
+  'bots/test/sinkwaive.test.mjs',   // sinkwaive-01 (11-06): the stone sinks' stuck-cell waiver (the tower's crown 43,78,-11)
+  // sinkturn-01show (11-10): the sinks' own turn after 4 finite visits, a blocked sink yields, a torch no stand reaches is waived
+  'bots/test/sinkturn.test.mjs',
+  'docs/reports/sinkturn-2026-11-10.md',
+  // tidygrow-01show (11-10): one tidy refresh is one record generation (the claim retirement rides in it)
+  'bots/test/tidygrow.test.mjs',
+  // fillcolumn-01 (11-15): no tidy fill planned in mid-air -- the refresh extends a dug-out column or leaves it out (FILLCOLUMN=off|on)
+  'bots/src/fillcolumn.mjs', 'bots/test/fillcolumn.test.mjs',
+  'bots/src/waiveroom.mjs',   // fillcolumn-01 r2: the stuck waiver's room, counted apart from the column repair's omissions
+  'bots/test/fillcolumn-inputs.test.mjs',   // fillcolumn-01 r5: the keep-out's readers and zone builders name what they leave out (one path, one report)
+  // cwstall-01show (11-10): the citywall design visit breathes; the escape proof's walks are sliced
+  'bots/test/cwstall.test.mjs',
+  'bots/scripts/citywall-stall-offline.mjs',
+  // pathsmem-01show (11-10): the paths extension's clock and unrouted waits outlive a reconnect
+  'bots/test/pathsmem.test.mjs',
+  'docs/reports/stallfixes-2026-11-10.md',
+  'bots/src/prodserve.mjs',   // prodserve-01 (11-06): finished production projects served on their own schedule
+  'bots/test/prodserve.test.mjs',   // prodserve-01 (11-06): the service tier, the stamps, the dress host-gone waiver
+  'bots/test/stepwell05.test.mjs',   // stepwell-05 (11-06): the tank's crew (two builders by sector once the felling is done)
+  // yarduse-01 (11-04): the yard before the well, the bays' clutter, the sinks' and the tidy's bills drawn from the yard
+  'bots/test/yarduse.test.mjs',
+  'docs/reports/yarduse-design-2026-11-04.md',
+  // siteprep-01 (11-04): the groundskeeper prepares a plot when a sink finds no site
+  'bots/test/siteprep.test.mjs',
+  // siteprep-02 (11-04): the live SP1 stall reproduced on the showcase's own blocks
+  'bots/test/siteprep-sp1.test.mjs',
+  'bots/test/fixtures/siteprep-sp1-1104.json',
+  // siteprep-03 (11-04): the live SP1 overlap reproduced on the showcase's own blocks and records
+  'bots/test/siteprep-overlap.test.mjs',
+  'bots/test/fixtures/siteprep-sp1-overlap-1104.json',
+  'bots/test/siteprepcursor.test.mjs',   // the siteprep-02 fold: a cursor of an older screen restarts
+  'bots/test/plotledgerfold.test.mjs',   // the plotprep + access-02 fold: no ledger stair across a reserved plot
+  // atlas-01 (11-04): the bots' shared exploration map
+  'bots/src/atlas.mjs',
+  'bots/test/atlas.test.mjs',
+  'bots/test/decorholdfold.test.mjs',   // the atlas+decorator fold: the decorator keeps off the demolition's hold
+  'bots/test/cutterfold.test.mjs',   // the batch fold: the stonecutter keeps off the town's reservations
+  'bots/test/gkaccessfold.test.mjs',   // the gkaccess fold: no stair across the storage hall's way in
+  'bots/test/wallaccessfold.test.mjs',   // the wallext + access fold: ids namespaced, the extension no footprint
+  'bots/test/gkstagefold.test.mjs',   // the gkstage fold: inwall never cuts a site-prep reservation
+  'bots/test/siteprepfold.test.mjs',   // the fold's prepared-claim bypass (Codex fold BLOCKER)
+  'bots/src/siteprep.mjs',
+  'docs/reports/siteprep-design-2026-11-04.md',
+  // towndress-01 (11-03): the town's lights and signs (the `dress` sink), its offline siting and its test
+  'bots/src/towndress.mjs',
+  'bots/scripts/dress-offline.mjs',
+  'bots/test/towndress.test.mjs',
+  // decorator-01 (11-04): the decorator (the `decor` sink: flower borders, door pots, the bone-meal nursery), its offline siting and its test
+  'bots/src/decorator.mjs',
+  'bots/scripts/decor-offline.mjs',
+  'bots/test/decorator.test.mjs',
+  // flowers-01 (11-07): the flower supply + the border upgrade, its test and its Paper proofs
+  'bots/test/flowers.test.mjs',
+  'sandbox/flowers/flower-proof.cjs',
+  'sandbox/flowers/flower-proof2.cjs',
+  'sandbox/flowers/flower-proof3.cjs',   // flowers-02: the lawn density proof
   // yardsite-01 (11-03): the yard beyond the town ring, the 2x yard, its offline proof and its test
   'bots/src/blueprints/yard@2.json',
   'bots/scripts/yard-offline.mjs',
@@ -431,6 +694,9 @@ const REQUIRED = [
   'infra/showcase/fixtures/g3-storehouse-01-20261101.jsonl',
   'bots/test/townplan-storehouse-geometry.test.mjs',
   'bots/test/fixtures/storehouse-01-mirror-20261101.json',
+  // coverdig-01 (11-05): the copper hall's pad base sealed by a waiting segment's grass -- the cover dug, the segment read again
+  'bots/test/coverdig.test.mjs',
+  'bots/test/fixtures/coverdig-hall-1105.json',
   // fleetpaths-01 (11-01): a destination inside the plaza is served by it; a fleet town's unroutable paths write a no-site record
   'bots/test/fleetpaths.test.mjs',
   // zigbamboo (fleetbuild-01, 11-01): bamboo grown into open ziggurat foundation cells is dug
@@ -497,6 +763,33 @@ const REQUIRED = [
   'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // ci2 (11-03, owner "build the 2nd test suite on pve3"): the full-suite dispatcher over ci2 (10.0.0.34) and .30
   'scripts/host/suite-run.py',
+  'docs/reports/groundskeeper-2026-11-02.md',
+  'bots/scripts/tidy-offline.mjs',
+  // townterrace-01 (owner 11-03, townterrace-1103): the terrace stage, the park, its offline proof and its report
+  'bots/src/terrace.mjs',
+  'bots/src/park.mjs',
+  'bots/test/terrace.test.mjs',
+  'bots/test/gkhelpers.test.mjs',   // gkhelpers-01: the grounds crew, the storehouse floor, the park gather
+  'bots/test/plotprep.test.mjs',   // plotprep-01: the extension's plots readied (trees felled from a stand, replanted, levelled)
+  'bots/test/access.test.mjs',   // access-01: proper stairs where bots climbed (groundskeeper piece 3)
+  'bots/test/fixtures/gkstage-tidy-g20-20261104.json',   // gkstage-01: the LIVE tidy record the floor-only stall ran on
+  'bots/scripts/inwall-offline.mjs',   // gkstage-01: the inside-the-wall stage on region copies
+  // placeaudit-01 (owner 11-04 groundskeeper piece 2): who places blocks in town, why, where
+  'bots/src/placeaudit.mjs',
+  'bots/test/placeaudit.test.mjs',
+  'bots/test/gkunblock.test.mjs',   // gkunblock-01: a tidy segment held by snow (or any block it may not dig) never ends every crew visit
+  // gksweep-01 (owner 11-04 groundskeeper piece 6): the keeper picks up what lies inside the walls
+  'bots/src/gksweep.mjs',
+  'bots/test/gksweep.test.mjs',
+  'bots/test/outbands.test.mjs',   // outbands-01: the groundskeeper outside the walls, band by band (piece 5)
+  // anvilapply-01 + enchant-01 (owner 11-04): the anvil / enchanting-table skills, their test, the Paper e2e
+  'bots/src/enchant.mjs',
+  'bots/test/enchant.test.mjs',
+  'sandbox/trading/enchant-e2e.mjs',
+  'bots/scripts/terrace-offline.mjs',
+  'docs/reports/townterrace-2026-11-03.md',
+  'docs/reports/tidy-01-2026-11-01.md',
+  'docs/reports/shop-01-2026-10-25/shopread.py.txt',
   // the operator's state file -- the one the memory index says to read first
   'docs/reports/STATE.md',
   // STATE is generated (11-02, Codex ops audit HIGH 1): the generator, its tests and the Mac relay that commits it
@@ -557,6 +850,7 @@ const REQUIRED = [
   'scripts/host/install-sched-v41.sh',   // v41 bundles + fast read plan (11-03)
   'scripts/host/install-sched-v43.sh',   // v43 (11-12): path-list context, two more skippable blocks, the effectfix-01 hook
   'scripts/host/autorebase-relay.sh',
+  'scripts/host/test_modelcompare.py',
   'scripts/host/holdtoken.py',
   'scripts/host/qwen35load.mjs',
   // CLAUDE.md's and STATE.md's history, moved out when both were cut to the active rules (10-28)
@@ -807,6 +1101,20 @@ const REQUIRED = [
   'docs/reports/land-eval-2026-11-14/codex-eval.md',
   'infra/freshworld/worldrec.sh',   // owner 11-14: read-only copy of a world's region files every 15 minutes (rehearsal-0 recorder)
   'docs/reports/camera-design-2026-11-14.md',   // owner 11-14: cameras from a world's first moment, project cameras that stop, isometric + 4K (design, not built)
+  // bucketfix-01 (11-04): the bucket's aims as Vec3 (every pour and scoop threw point.minus on mineflayer 4.37)
+  'bots/test/bucket-aim.test.mjs',
+  // obsidian-01 (11-07): the deep miner's cast (a basin, one bucket in turn, the lake's lava, the diamond pickaxe)
+  'bots/test/obsidian.test.mjs',
+  // showdrop-01show (11-08): one listing a stretch, the order primer, the pool prune; the evictor's end stop
+  'bots/test/showdrop.test.mjs',
+  // keeperstall-01show (11-10): the visit breathes, an ended connection aborts it, the keeper's clocks and give-ups outlive a reconnect
+  'bots/src/procmem.mjs',
+  'bots/test/keeperstall.test.mjs',
+  'docs/reports/keeperstall-2026-11-10.md',
+  // reccache-01show (11-10): recordHead keeps per-file facts of the generations it has read; the walk is made again every call
+  'bots/test/reccache.test.mjs',
+  // spentpick-01show (11-16): a placement never clicks a block that opens (Frost's table); the rebuild rule is in craftroom.mjs
+  'bots/src/placeref.mjs',
 ]
 
 t('every load-bearing path exists in the working tree', () => {

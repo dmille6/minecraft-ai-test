@@ -21,13 +21,17 @@ import { spentStoneKept, TOOLKIT } from './toolkit.mjs'
 // junkout-01 (its own statement): the owner's "at most 2 spare stone pickaxes beyond the best working pickaxe" at the wear-out
 import { ALLOWANCE, BAG_ALLOWANCE } from './bagallowance.mjs'
 import { FLOOR, tier } from './toolfor.mjs'
+import { neverKeepFor } from './cropkeep.mjs'   // cropfarm-01: the farm's seeds are kept while it is on
 
 /** Worth nothing to this fleet in any quantity: never walked to by pickupNearbyItems. */
-export const NEVER_KEEP = new Set([
+export const NEVER_KEEP_BASE = Object.freeze([
   'leaf_litter', 'egg', 'brown_egg', 'blue_egg', 'wheat_seeds', 'beetroot_seeds', 'melon_seeds', 'pumpkin_seeds',
   'flint', 'ink_sac', 'glow_ink_sac', 'pointed_dripstone', 'dead_bush', 'short_grass', 'tall_grass', 'fern',
   'large_fern', 'poppy', 'dandelion', 'vine', 'seagrass', 'rail',
 ])
+// cropfarm-01 (cropkeep.mjs): while the crop farm is on in this pool its seeds are KEPT -- they leave this set, and with it the
+// composter's, the bank's and junkswap's junk (each keys on NEVER_KEEP). Read once at load, as the switch is.
+export const NEVER_KEEP = neverKeepFor(NEVER_KEEP_BASE, process.env, process.env.MEMORY_POOL ?? '')
 
 /** An item entity on the floor that pickupNearbyItems should never walk to (prismarine-entity getDroppedItem). */
 export function neverPickUp (entity) {

@@ -29,6 +29,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { performance } from 'node:perf_hooks'
 
 export const LEASE_TTL_MS = 4 * 60_000
 export const RECLAIM_MS = 60_000
@@ -43,6 +44,18 @@ export const OFFLINE_RETIRE_MS = 10_000
 // BEAT_STALE_MS means that connection's process is dead or stopped longer than the server's 30 s keepalive -- its socket is
 // closed by the server, so it can send nothing more even if it resumes
 export const PRESENCE_BEAT_MS = 10_000
+/**
+ * projfix-01 (LIVE showcase 11-12: the countryside laid 0 of 528 fills in 49 visits -- `outcome=fence:beat placed=0`): THE KEYS A
+ * CONNECTION'S HEARTBEAT COVERS -> [key]. Pure. Every listed project's key, AND THE KEY OF THE VISIT IN PROGRESS. The heartbeat
+ * beat only the listed projects; a visit that works under another key (the countryside's `country`, the water walk's) wrote its
+ * presence once at its start, and by its first fill that beat was older than OWN_BEAT_MAX_MS (15 s): fenceRefusal answered `beat`
+ * and every click was refused (its cuts, which pass no fence, landed -- so the visits looked alive). `busy`: a build visit runs now.
+ */
+export function beatKeys (projectKeys = [], visitKey = null, busy = false) {
+  const out = new Set((projectKeys ?? []).filter(k => typeof k === 'string' && k))
+  if (busy && typeof visitKey === 'string' && visitKey) out.add(visitKey)
+  return [...out]
+}
 // a sender's own beat must be younger than OWN_BEAT_MAX_MS at its fence (Codex r5 P1: a connection whose heartbeat is not
 // being published must not send); peers wait BEAT_STALE_MS >= OWN_BEAT_MAX_MS + the server's 30 s keepalive + margin, so a
 // sender suspended right after a passing fence is dropped by the server before any peer may retire it
@@ -78,9 +91,59 @@ function dirNames (dir, fresh = false) {
 }
 const touched = dir => { listings.delete(dir) }
 const renameInto = (tmp, f) => { touched(path.dirname(f)); fs.renameSync(tmp, f) }
-function gensOf (dir, re, fresh = false) {
+// ---- SHOWDROP-01: ONE DIRECTORY LISTING A SYNCHRONOUS STRETCH ---------------------------------------------------------------
+// LIVE showcase 11-08 (release 0d560d4b): 57 "Timed out" a day. A CPU profile of showcase-Delta / -Gale: 13-17 s busy runs, 55-87%
+// in the decision's shopActive, 38-40% of it readdirSync of the town directory (6,777 files): every recordHead / recordGenNow /
+// leaseState / stuckAt / openIntents listed the whole directory again, once per project per check. A listing is now kept for the
+// rest of the synchronous stretch: dropped at the next turn of the event loop (setImmediate), after LIST_MAX_MS, whenever the
+// directory's mtime moved (another process created or removed a file), and after every write this module makes (wfs). Every
+// exclusive create ('wx', the lease / barrier / record race) is still decided by the filesystem, never by a listing.
+// LISTCACHE=off is the rollback: a fresh readdirSync every call, as before.
+export const listCacheOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.LISTCACHE ?? '').trim().toLowerCase())
+export const LIST_MAX_MS = 1000
+// RACILY CLEAN (git's rule): a directory's mtime has coarse granularity (a jiffy), so a file created in the same tick as the listing
+// leaves the mtime unchanged. A listing taken within LIST_RACY_MS of the directory's own mtime is never served again: only a listing
+// of a directory that has been still for longer is (a later create then moves the mtime past the listing's).
+export const LIST_RACY_MS = 50
+const listMem = new Map()        // dir -> { names, at, mtime, matched: Map(re -> names) }
+let listDropQueued = false
+export const listStats = { reads: 0, hits: 0 }
+/** Forget every kept listing (a write, a turn of the event loop). */
+export function dropListings () { listMem.clear() }
+/** Is a listing of `dir` kept now (the tests' window on the cache)? */
+export const listKept = dir => listMem.has(dir)
+const dirMtime = dir => { try { return fs.statSync(dir, { bigint: true }).mtimeNs } catch { return null } }
+const racy = (mt, now) => mt == null || now - Number(mt / 1_000_000n) < LIST_RACY_MS
+/** The directory's names: fs.readdirSync's result (and its throw), kept for the synchronous stretch. Callers never mutate it. */
+export function listDir (dir) {
+  if (!listCacheOn()) { listStats.reads++; return fs.readdirSync(dir) }
+  const now = Date.now()
+  const mt = dirMtime(dir)
+  const m = listMem.get(dir)
+  if (m && !m.racy && mt != null && m.mtime === mt && now - m.at < LIST_MAX_MS) { listStats.hits++; return m.names }
+  listStats.reads++
+  const names = fs.readdirSync(dir)
+  listMem.set(dir, { names, at: now, mtime: mt, racy: racy(mt, now), matched: new Map() })
+  if (!listDropQueued) { listDropQueued = true; setImmediate(() => { listDropQueued = false; listMem.clear() }) }
+  return names
+}
+/** The names `re` matches (a regex without the g flag), from the kept listing; the filtered list is kept with it. */
+export function listMatch (dir, re) {
+  const names = listDir(dir)
+  const m = listCacheOn() ? listMem.get(dir) : null
+  if (!m || m.names !== names || m.racy) return names.filter(n => re.test(n))
+  const k = `${re.source}/${re.flags}`
+  let v = m.matched.get(k)
+  if (!v) { v = names.filter(n => re.test(n)); m.matched.set(k, v) }
+  return v
+}
+// every mutating fs call of this module drops the kept listings (its own write is seen by its next listing, at once)
+const WFS_MUTATORS = new Set(['writeFileSync', 'renameSync', 'unlinkSync', 'linkSync', 'appendFileSync', 'openSync', 'mkdirSync', 'rmSync'])
+const wfs = new Proxy(fs, { get: (t, k) => (WFS_MUTATORS.has(k) ? (...a) => { try { return t[k](...a) } finally { dropListings() } } : t[k]) })
+
+function gensOf (dir, re) {
   let names
-  try { names = dirNames(dir, fresh) } catch (e) { if (e?.code === 'ENOENT') return []; throw e }
+  try { names = listMatch(dir, re) } catch (e) { if (e?.code === 'ENOENT') return []; throw e }
   return names.map(n => re.exec(n)).filter(Boolean).map(m => Number(m[1])).sort((a, b) => a - b)
 }
 // RECORDS ARE NEVER DELETED (publishRecord links newest + 1, EEXIST on a race; nothing prunes them), so their generations ARE
@@ -104,29 +167,236 @@ function gensNow (dir, re, fileOf) {
 /** Test hook: forget every hint (a fresh process). */
 export function _resetGenHints () { listings.clear(); genLists.clear(); leaseSweptAt.clear() }
 function writeSynced (f, data, flag = 'wx') {
-  touched(path.dirname(f))   // leasegen-01: whatever happens next, this directory's memo is no longer what it holds
-  const fd = fs.openSync(f, flag)
+  const fd = wfs.openSync(f, flag)
   try { fs.writeSync(fd, data); fs.fsyncSync(fd) } finally { fs.closeSync(fd) }
 }
-function syncDir (dir) { try { const fd = fs.openSync(dir, 'r'); try { fs.fsyncSync(fd) } finally { fs.closeSync(fd) } } catch { /* best effort */ } }
+function syncDir (dir) { try { const fd = wfs.openSync(dir, 'r'); try { fs.fsyncSync(fd) } finally { fs.closeSync(fd) } } catch { /* best effort */ } }
 
 // ---- the record --------------------------------------------------------------------------------------------------------------
 
 const recFile = (dir, key, n) => path.join(dir, `${key}.g${n}.json`)
 const REC_RE = key => new RegExp(`^${esc(key)}\\.g(\\d+)\\.json$`)
 
+// ---- RECCACHE-01: THE VERIFIED-GENERATION CACHE ------------------------------------------------------------------------------
+// LIVE showcase 11-10 (docs/reports/keeperstall-2026-11-10.md, the keeper's CPU profile): recordHead was 35% of a bot's busy CPU and
+// one shopActive pass 7-10 s of synchronous record reading -- every call read, parsed and hashed EVERY generation of the record (435
+// files, 35 MB in the pool; tidy alone 119 generations, one more an hour). A generation is written once and never rewritten
+// (publishRecord: tmp + link), so what the walk needs from a file is kept PER FILE and the walk itself is made again on every call:
+//   - a FACT = what one successfully read and parsed generation file says: { recGen, prev, prevSha, sha } and the stat it was read
+//     under { dev, ino, size, mtimeNs, ctimeNs }. Keyed by the file's path. Never a verdict, never a head, never the chain's
+//     result, never a parsed object, never a failed read or an unparseable file (those are read again on every call).
+//   - every call lists the generations and stats EVERY one (no newest-only shortcut); a fact is served only when the stat succeeds
+//     and all five fields are the fact's (recFactFresh); anything else is read, parsed and hashed as before.
+//   - ONE DESCRIPTOR (r1, review BLOCKER B): the file is opened once and the stat before the read, the read and the stat after it
+//     all go through that descriptor (fstat, read, fstat), so a fact binds the bytes to the INODE they were read from. Three
+//     lookups by path could bind one inode's stat to another's bytes for good (a parent directory renamed away and back around
+//     the read moves no file's ctime). The next call's stat is by path: a path that names another inode is read again.
+//   - RACILY CLEAN (the listing's rule above, git's): a file whose mtime or ctime is within REC_RACY_MS of now is read and NOT kept
+//     -- an in-place rewrite inside the timestamp's granularity would leave the stat as it was. A fact is kept only when the stat
+//     before the read and the stat after it are identical. Once kept, any later change to the file moves its ctime past the fact's
+//     -- WHILE THE CLOCK RUNS FORWARD (r1, review BLOCKER A). So a fact is also not SERVED while its file reads racily clean
+//     (it is dropped and the file read afresh), and a wall clock that fell back against the monotonic one by more than
+//     REC_CLOCK_BACK_MS since its highest reading empties the cache before the walk (a stamp could repeat only after such a fall:
+//     a kept stamp is REC_RACY_MS behind the clock that kept it, and REC_CLOCK_BACK_MS is less).
+//   - the head's `rec` is PARSED AFRESH on every call (callers mutate it): from the head generation's raw bytes, kept one Buffer a
+//     record and bound to the fact they were read with; when those are not kept (the head moved back to an older generation, or
+//     the Buffer was dropped) the head file is read again and must hash to the fact's sha, else the fact is dropped and the walk
+//     made again.
+//   - VERIFIED AGAIN ON A CLOCK THAT CANNOT STEP (r2, both reviews): the clock check samples the clocks only inside a call, so a
+//     wall clock that fell back AND recovered between two calls is invisible, and a rewrite made meanwhile can repeat every stat
+//     field. No stat can see that, so it is BOUNDED: a fact carries the MONOTONIC time of the read it came from and is served only
+//     for REC_VERIFY_MS + its path's own jitter [0, REC_VERIFY_JITTER_MS) after it; then the file is read again through the
+//     descriptor (bytes, sha, prev, prevSha derived afresh) and kept with a new stamp. The jitter is a hash of the path, so a
+//     process's re-reads are spread instead of landing in one synchronous stretch a minute after its start.
+//   - NO DECISION ON A CLOCK OLDER THAN THE DECISION (r3, review BLOCKER): both clocks are sampled afresh at every fact's hit
+//     decision (after its stat), and once more after the head is materialised, immediately before the answer is returned: a walk
+//     that rests on a kept fact whose verify deadline has come by then -- whatever the walk made of that generation, a rejected
+//     one included -- is not returned; neither is a walk during which the clock check emptied the cache. The walk is made again
+//     (three at most, then the plain walk, which rests on nothing kept). `verifiedAt` is only ever set by a read.
+// THE CONTRACT: generation files are written once and never rewritten in place (publishRecord, frontierpublish.py: tmp + link).
+// A change that leaves dev / ino / size / mtime / ctime untouched is served stale for at most REC_VERIFY_MS + 30 s.
+// RECCACHE=off|0|false|no is the rollback: recordHeadPlain, the walk as it was. recordChain is untouched (it reads every file).
+export const recCacheOn = (env = process.env) => !['off', '0', 'false', 'no'].includes(String(env?.RECCACHE ?? '').trim().toLowerCase())
+export const REC_RACY_MS = 2000
+export const REC_CLOCK_BACK_MS = 1000
+export const REC_VERIFY_MS = 60_000
+export const REC_VERIFY_JITTER_MS = 30_000
+export const REC_FACTS_MAX = 8192
+export const REC_HEADS_MAX = 64
+export const REC_HEAD_BYTES_MAX = 32 * 1024 * 1024
+const REC_WALK_TRIES = 3
+/** reads: generation files read by recordHead (either walk); hits: generation files answered from a kept fact; drops: the cache
+ *  emptied because the wall clock fell back; walks: walks over kept facts (more than one a call = a walk was not returned). */
+export const recStats = { reads: 0, hits: 0, drops: 0, walks: 0 }
+// path -> { dev, ino, size, mtimeNs, ctimeNs, stampMs, verifiedAt, verifyFor, recGen, prev, prevSha, sha }, least recently used first
+const recFacts = new Map()
+// `${dir}\0${key}` -> { fact, buf }: the raw bytes `fact` was read with. Never asked WHICH generation is the head (the walk says):
+// only parsed, when the walk's head is this very fact, validated by its stat in this call
+const recHeads = new Map()       // least recently used first
+let recHeadBytes = 0
+let recOffsetMax = null          // the highest (wall clock - monotonic clock) any call has seen
+let recNow = 0, recMono = 0      // the two clocks as recClockTick last sampled them
+let recEpoch = 0                 // how many times the clock check has emptied the cache
+// THE TESTS' SEAM. Nothing in src/ calls the setter below (reccache.test.mjs holds that), so in a bot every field is null: the clocks
+// are Date.now() and performance.now(), `at` -- a call at each stage of a fresh read and before a walk's answer is returned, for
+// the tests to move a file or a clock between two steps of one synchronous function -- is never made, and `stat` -- the stat the cache is shown for a path, for the tests to
+// make every field repeat over other bytes (no real filesystem will on request) -- changes nothing. It cannot be reached through
+// recordHead's arguments.
+const recSeam = { now: null, mono: null, at: null, stat: null }
+/** TESTS ONLY: set the clocks (`now`, `mono`: functions), the stage hook `at(stage, path)` and the stat shown `stat(path, st)`;
+ *  null clears all four. */
+export function recTestSeam (patch) { Object.assign(recSeam, patch ?? { now: null, mono: null, at: null, stat: null }) }
+const recForget = () => { recFacts.clear(); recHeads.clear(); recHeadBytes = 0 }
+/** Forget every kept fact and head Buffer and the clock's highest reading, and zero the counters (the tests' reset). */
+export function recCacheReset () { recForget(); recOffsetMax = null; recStats.reads = 0; recStats.hits = 0; recStats.drops = 0; recStats.walks = 0 }
+/** What is kept now (the tests' window on the bounds). */
+export const recCacheSize = () => ({ facts: recFacts.size, heads: recHeads.size, headBytes: recHeadBytes })
+const recStat = p => { try { const st = fs.statSync(p, { bigint: true }); return recSeam.stat ? recSeam.stat(p, st) : st } catch { return null } }
+const recFstat = (fd, p) => { try { const st = fs.fstatSync(fd, { bigint: true }); return recSeam.stat ? recSeam.stat(p, st) : st } catch { return null } }
+/** May the kept fact `c` answer for a file whose stat is `st` now? Only the same device, inode, size, mtime and ctime. */
+export const recFactFresh = (c, st) => !!c && !!st && c.dev === st.dev && c.ino === st.ino && c.size === st.size && c.mtimeNs === st.mtimeNs && c.ctimeNs === st.ctimeNs
+const recStampMs = st => Number((st.mtimeNs > st.ctimeNs ? st.mtimeNs : st.ctimeNs) / 1_000_000n)
+const recRacyMs = (stampMs, now) => now - stampMs < REC_RACY_MS
+/** Racily clean: modified or changed within REC_RACY_MS of `now` (or stamped in the future) -- read, never kept, never served. */
+export const recRacy = (st, now) => recRacyMs(recStampMs(st), now)
+/** Did the wall clock fall back against the monotonic one (offset = wall - monotonic) by more than the tolerance since its highest
+ *  reading? A step back, however long ago it happened and however many small steps made it. */
+export const recClockBack = (offsetMax, offset) => offsetMax != null && offset < offsetMax - REC_CLOCK_BACK_MS
+/** A path's own share of the verify jitter, [0, REC_VERIFY_JITTER_MS): a hash of the path (FNV-1a), the same in every process. */
+export function recVerifyJitter (p) {
+  let h = 2166136261
+  for (let i = 0; i < p.length; i++) { h ^= p.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return (h >>> 0) % REC_VERIFY_JITTER_MS
+}
+/** Is the kept fact `c` inside its verify window at monotonic time `mono`? An age that is negative or not a finite number, or a
+ *  window that is not one, is NOT (a miss and a fresh read): only the seam can make one, and it must never read as a hit. */
+export const recVerifyOk = (c, mono) => { const age = mono - c.verifiedAt; return age >= 0 && age < c.verifyFor && Number.isFinite(c.verifyFor) }
+/** Sample both clocks NOW -> recNow (wall: the racy rule's), recMono (monotonic: the verify age's). A wall clock that fell back
+ *  empties the cache first (no kept stamp is trusted across it) and moves recEpoch on. */
+function recClockTick () {
+  recNow = recSeam.now ? recSeam.now() : Date.now()
+  recMono = recSeam.mono ? recSeam.mono() : performance.now()
+  const offset = recNow - recMono
+  if (recClockBack(recOffsetMax, offset)) { recForget(); recStats.drops++; recEpoch++; recOffsetMax = offset }
+  else if (recOffsetMax == null || offset > recOffsetMax) recOffsetMax = offset
+}
+// a value the walk compares with === against a number, a string or null: an object or an array can equal none of them
+const recPrim = v => (v !== null && typeof v === 'object' ? undefined : v)
+/** Keep `fact` for `p` when the file stood still around its read (f0, f1: the DESCRIPTOR's stat before the read and after it) and
+ *  is not racily clean. `mono`: the monotonic time of that read -- the fact is served for `verifyFor` ms after it and no longer. */
+function recKeep (p, f0, f1, fact, now, mono) {
+  if (!recFactFresh(f0, f1) || recRacy(f1, now)) return fact
+  const kept = {
+    dev: f1.dev, ino: f1.ino, size: f1.size, mtimeNs: f1.mtimeNs, ctimeNs: f1.ctimeNs, stampMs: recStampMs(f1),
+    verifiedAt: mono, verifyFor: REC_VERIFY_MS + recVerifyJitter(p),
+    recGen: fact.recGen, prev: fact.prev, prevSha: fact.prevSha, sha: fact.sha
+  }
+  recFacts.set(p, kept)
+  while (recFacts.size > REC_FACTS_MAX) recFacts.delete(recFacts.keys().next().value)
+  fact.kept = kept
+  return fact
+}
+/** One generation file for the walk -> { why } (unreadable | unparseable: never kept) | a kept fact | a fresh read
+ *  { recGen, prev, prevSha, sha, rec, buf, kept? } (`rec` parsed in THIS call, never held). */
+function recFactOf (p) {
+  const st0 = recStat(p)
+  recClockTick()
+  const now = recNow, mono = recMono                 // this decision's clocks: sampled after the stat, never the call's entry
+  const c = recFacts.get(p)
+  if (c && recFactFresh(c, st0) && !recRacyMs(c.stampMs, now) && recVerifyOk(c, mono)) { recStats.hits++; recFacts.delete(p); recFacts.set(p, c); return c }
+  if (c) recFacts.delete(p)
+  recStats.reads++
+  // one descriptor: what is stat'ed is what is read (an open or a read that fails is `unreadable`, as it always was)
+  let buf, f0 = null, f1 = null
+  try {
+    recSeam.at?.('open', p)
+    const fd = fs.openSync(p, 'r')
+    try {
+      recSeam.at?.('opened', p)
+      f0 = recFstat(fd, p)
+      recSeam.at?.('stat0', p)
+      buf = fs.readFileSync(fd)
+      recSeam.at?.('read', p)
+      f1 = recFstat(fd, p)
+    } finally { try { fs.closeSync(fd) } catch { /* the bytes are read */ } }
+  } catch { return { why: 'unreadable' } }
+  let rec
+  try { rec = JSON.parse(buf.toString('utf8')) } catch { return { why: 'unparseable' } }
+  return recKeep(p, f0, f1, { recGen: rec ? recPrim(rec.gen) : undefined, prev: rec ? recPrim(rec.prev) : undefined, prevSha: rec ? recPrim(rec.prevSha) : undefined, sha: sha(buf), rec, buf }, now, mono)
+}
+function recHeadKeep (hk, fact, buf) {
+  const old = recHeads.get(hk)
+  if (old) { recHeadBytes -= old.buf.length; recHeads.delete(hk) }
+  if (buf.length > REC_HEAD_BYTES_MAX) return
+  recHeads.set(hk, { fact, buf }); recHeadBytes += buf.length
+  while (recHeads.size > REC_HEADS_MAX || recHeadBytes > REC_HEAD_BYTES_MAX) { const [k, v] = recHeads.entries().next().value; recHeads.delete(k); recHeadBytes -= v.buf.length }
+}
+/** The head's record, parsed for THIS call -> rec | undefined (the head file is no longer the bytes its fact was read from). */
+function recHeadRec (dir, key, g, e) {
+  const hk = `${dir}\0${key}`
+  if (e.buf) { if (e.kept) recHeadKeep(hk, e.kept, e.buf); return e.rec }        // read in this call
+  const hb = recHeads.get(hk)
+  if (hb && hb.fact === e) { recHeads.delete(hk); recHeads.set(hk, hb); return JSON.parse(hb.buf.toString('utf8')) }
+  const p = recFile(dir, key, g)
+  recStats.reads++
+  let buf
+  try { recSeam.at?.('head', p); buf = fs.readFileSync(p) } catch { recFacts.delete(p); return undefined }
+  if (sha(buf) !== e.sha) { recFacts.delete(p); return undefined }
+  recHeadKeep(hk, e, buf)
+  return JSON.parse(buf.toString('utf8'))
+}
+/** recordHeadPlain's walk over the generations' facts: the same checks in the same order, the same rejections. -> the answer |
+ *  null (not to be returned: the head's bytes were not its fact's, a kept fact this walk rests on reached its verify deadline
+ *  before the answer was ready, or the clock check emptied the cache under it). */
+function recWalk (dir, key, gens) {
+  recStats.walks++
+  recClockTick()                                     // a clock that fell back since the last call empties the cache BEFORE the walk
+  const epoch = recEpoch
+  let head = null, reused = false, since = -Infinity, due = Infinity
+  const rejected = []
+  for (const g of gens) {
+    const e = recFactOf(recFile(dir, key, g))
+    // a kept fact this walk rests on, WHATEVER the walk makes of it (a stale fact can reject a generation that is the head now)
+    if (e.verifyFor !== undefined) { reused = true; since = Math.max(since, e.verifiedAt); due = Math.min(due, e.verifiedAt + e.verifyFor) }
+    if (e.why) { rejected.push({ gen: g, why: e.why }); continue }
+    if (e.recGen !== g) { rejected.push({ gen: g, why: 'gen' }); continue }
+    if (!head) { if (e.prev !== null) { rejected.push({ gen: g, why: 'no root' }); continue } head = { gen: g, e }; continue }
+    if (e.prev !== head.gen || e.prevSha !== head.e.sha) { rejected.push({ gen: g, why: 'chain' }); continue }
+    head = { gen: g, e }
+  }
+  let rec = null
+  if (head) { rec = recHeadRec(dir, key, head.gen, head.e); if (rec === undefined) return null }
+  // the answer is ready: is every kept fact it rests on still inside its verify window NOW?
+  recSeam.at?.('return', null)
+  recClockTick()
+  if (recEpoch !== epoch) return null
+  if (reused && !(recMono >= since && recMono < due)) return null
+  return { ok: true, head: head ? { gen: head.gen, sha: head.e.sha, rec } : null, gens, rejected }
+}
+
 /**
  * THE RECORD'S HEAD -> { ok, head: { gen, sha, rec } | null, gens, rejected }. A walk ascending: the root is the lowest file
  * with prev null that parses; each later file is the head only when its prev is the head and its prevSha the head's sha;
  * anything else is rejected (skipped, never deleted). An unreadable directory is ok: false (never "no record").
+ * reccache-01: the walk runs over per-file facts (above); `head.rec` is parsed for this call and is the caller's to mutate.
  */
 export function recordHead (dir, key) {
+  if (!recCacheOn()) return recordHeadPlain(dir, key)
   let gens
-  try { gens = gensNow(dir, REC_RE(key), n => recFile(dir, key, n)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
+  try { gens = gensOf(dir, REC_RE(key)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
+  // a walk that may not be returned (recWalk) is made again, each with its own clocks; after three the plain walk answers
+  for (let i = 0; i < REC_WALK_TRIES; i++) { const r = recWalk(dir, key, gens); if (r) return r }
+  return recordHeadPlain(dir, key)
+}
+/** The walk as it was before reccache-01 (RECCACHE=off, and the cached walk's last resort): every generation read, parsed, hashed. */
+function recordHeadPlain (dir, key) {
+  let gens
+  try { gens = gensOf(dir, REC_RE(key)) } catch { return { ok: false, head: null, gens: [], rejected: [] } }
   let head = null
   const rejected = []
   for (const g of gens) {
     let buf
+    recStats.reads++
     try { buf = fs.readFileSync(recFile(dir, key, g)) } catch { rejected.push({ gen: g, why: 'unreadable' }); continue }
     let rec
     try { rec = JSON.parse(buf.toString('utf8')) } catch { rejected.push({ gen: g, why: 'unparseable' }); continue }
@@ -136,6 +406,24 @@ export function recordHead (dir, key) {
     head = { gen: g, sha: sha(buf), rec }
   }
   return { ok: true, head, gens, rejected }
+}
+/** gkhelpers-01: THE RECORD'S CHAIN -> [rec] root first, the same walk as recordHead (a rejected file is no link). [] when the
+ *  directory cannot be read. Never throws. */
+export function recordChain (dir, key) {
+  let gens
+  try { gens = gensOf(dir, REC_RE(key)) } catch { return [] }
+  const out = []
+  let head = null
+  for (const g of gens) {
+    let buf, rec
+    try { buf = fs.readFileSync(recFile(dir, key, g)); rec = JSON.parse(buf.toString('utf8')) } catch { continue }
+    if (!rec || rec.gen !== g) continue
+    if (!head) { if (rec.prev !== null) continue; head = { gen: g, sha: sha(buf) }; out.push(rec); continue }
+    if (rec.prev !== head.gen || rec.prevSha !== head.sha) continue
+    head = { gen: g, sha: sha(buf) }
+    out.push(rec)
+  }
+  return out
 }
 /** The record's newest generation NUMBER (a directory listing only; the caller's cache key) -> n | null. Never throws. */
 export function recordGenNow (dir, key) { try { return gensNow(dir, REC_RE(key), n => recFile(dir, key, n)).at(-1) ?? null } catch { return null } }
@@ -154,11 +442,11 @@ export function publishRecord (dir, key, mutate, { now = Date.now(), by = null, 
     const buf = Buffer.from(JSON.stringify({ ...body, gen: n, prev: base ? base.gen : null, prevSha: base ? base.sha : null, at: now, by }))
     const f = recFile(dir, key, n), tmp = `${f}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
     try {
-      fs.mkdirSync(dir, { recursive: true })
+      wfs.mkdirSync(dir, { recursive: true })
       writeSynced(tmp, buf)
-      try { fs.linkSync(tmp, f) } catch (e) { if (e?.code === 'EEXIST') continue; return { result: 'error', gen: null, head: base } }
+      try { wfs.linkSync(tmp, f) } catch (e) { if (e?.code === 'EEXIST') continue; return { result: 'error', gen: null, head: base } }
       syncDir(dir)
-    } catch { return { result: 'error', gen: null, head: base } } finally { try { fs.unlinkSync(tmp) } catch { /* gone */ } }
+    } catch { return { result: 'error', gen: null, head: base } } finally { try { wfs.unlinkSync(tmp) } catch { /* gone */ } }
     const after = recordHead(dir, key)
     if (after.ok && after.head?.gen === n) return { result: 'accepted', gen: n, head: after.head }
   }
@@ -187,6 +475,28 @@ export function leaseState (dir, key, name, { ttl = LEASE_TTL_MS } = {}) {
     return { gen: g, rec, released, ...(released ? { releasedAt: releasedAtOf(`${f}.released`) } : {}), holdsUntil: released ? 0 : until, blocksUntil: released ? 0 : until + RECLAIM_MS }
   } catch { return { gen: null, rec: null, released: false, holdsUntil: 0, blocksUntil: Infinity } }
 }
+/**
+ * gkhelpers-01: EVERY LIVE LEASE whose name starts with `prefix` (`seg-`: the record's segment leases) in ONE directory listing ->
+ * { name: { holder, at, gen } } held now (unreleased, `until` ahead). The town directory holds thousands of lease generations; one
+ * leaseState per segment is one listing each. Never throws: an unreadable directory reads as null (the caller fails closed).
+ */
+export function liveLeases (dir, key, prefix, now = Date.now()) {
+  let names
+  try { names = listDir(dir) } catch (e) { return e?.code === 'ENOENT' ? {} : null }
+  const re = new RegExp(`^${esc(key)}\\.(${esc(prefix)}[^.]*)\\.lease\\.g(\\d+)\\.json$`)
+  const top = new Map()
+  for (const n of names) { const m = re.exec(n); if (m && Number(m[2]) > (top.get(m[1]) ?? -1)) top.set(m[1], Number(m[2])) }
+  const out = {}
+  for (const [name, g] of top) {
+    const f = leaseFile(dir, key, name, g)
+    if (fs.existsSync(`${f}.released`)) continue
+    const rec = readJ(f)
+    // a torn generation (unreadable) is held by someone unknown until its reclaim: read as live, holder '?'
+    if (!rec) { out[name] = { holder: '?', at: -Infinity, gen: g }; continue }
+    if (now < Number(rec.until ?? 0)) out[name] = { holder: rec.holder, at: Number(rec.at), gen: g }
+  }
+  return out
+}
 /** A `.released` marker's time: the ms it holds (releaseLease writes Date.now()), else its mtime; null when unreadable. */
 function releasedAtOf (f) {
   try { const v = Number(fs.readFileSync(f, 'utf8').trim()); if (Number.isFinite(v) && v > 0) return v } catch { /* the mtime */ }
@@ -204,7 +514,7 @@ export function takeLease (dir, key, name, holder, { now = Date.now(), ttl = LEA
   // new generation is stamped no earlier than the release it follows, and its `until` runs from that stamp.
   const at = Math.max(now, Number(cur?.releasedAt) || -Infinity)
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     writeSynced(leaseFile(dir, key, name, n), JSON.stringify({ holder, at, until: at + ttl, ...(meta ? { meta } : {}) }))
   } catch { return { ok: false, why: 'lost the race for the lease' } }
   if (gensOf(dir, LEASE_RE(key, name), true).at(-1) !== n) return { ok: false, why: 'a later lease generation exists' }
@@ -258,7 +568,7 @@ export function renewLease (dir, key, name, holder, gen, { now = Date.now(), ttl
 }
 /** Release (a marker; the generation is never deleted). Ours by name and generation, whatever the clock. Never throws. */
 export function releaseLease (dir, key, name, holder, gen) {
-  try { const cur = leaseState(dir, key, name); if (cur && cur.gen === gen && cur.rec?.holder === holder) fs.writeFileSync(`${leaseFile(dir, key, name, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
+  try { const cur = leaseState(dir, key, name); if (cur && cur.gen === gen && cur.rec?.holder === holder) wfs.writeFileSync(`${leaseFile(dir, key, name, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
 }
 /** AN ADMISSION SLOT (k = 1..max) -> { ok, slot, gen } | { ok: false, why }. Ours already: renewed in place. */
 export function takeSlot (dir, key, holder, max, opts = {}) {
@@ -308,11 +618,11 @@ export function mutexTake (dir, key, holder, { now = Date.now(), pid = process.p
   try { st = mutexState(dir, key, { now, alive, gone }) } catch { return { ok: false, why: 'busy (unreadable)' } }
   if (st.held) return { ok: false, why: `busy (${st.rec?.holder ?? 'torn'})` }
   const n = st.gen + 1, f = mutexFile(dir, key, n)
-  try { fs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, conn, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
+  try { wfs.mkdirSync(dir, { recursive: true }); writeSynced(f, JSON.stringify({ holder, pid, conn, at: now })) } catch { return { ok: false, why: 'busy (lost the race)' } }
   let gens = []
-  try { gens = gensOf(dir, MUTEX_RE(key), true) } catch { /* judged below */ }
-  if (gens.at(-1) !== n) { try { fs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
-  for (const g of gens) if (g <= n - MUTEX_KEEP) { for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { fs.unlinkSync(x) } catch { /* gone */ } } }
+  try { gens = gensOf(dir, MUTEX_RE(key)) } catch { /* judged below */ }
+  if (gens.at(-1) !== n) { try { wfs.writeFileSync(`${f}.released`, String(now)) } catch { /* not the newest: never decides */ } return { ok: false, why: 'busy (a newer generation)' } }
+  for (const g of gens) if (g <= n - MUTEX_KEEP) { for (const x of [mutexFile(dir, key, g), `${mutexFile(dir, key, g)}.released`]) { try { wfs.unlinkSync(x) } catch { /* gone */ } } }
   return { ok: true, gen: n, ...(['dead', 'superseded', 'torn', 'retired'].includes(st.why) ? { reclaimed: st.rec?.holder ?? 'torn' } : {}) }
 }
 /** Release the mutex: our own generation only (holder and pid; `gen` omitted: the newest). A marker, never a delete. Never throws. */
@@ -322,7 +632,7 @@ export function mutexRelease (dir, key, holder, { pid = process.pid, gen = null 
     if (g == null) return
     const f = mutexFile(dir, key, g)
     const rec = readJ(f)
-    if (rec && rec.holder === holder && rec.pid === pid) fs.writeFileSync(`${f}.released`, String(Date.now()))
+    if (rec && rec.holder === holder && rec.pid === pid) wfs.writeFileSync(`${f}.released`, String(Date.now()))
   } catch { /* lapses only with the process */ }
 }
 
@@ -332,11 +642,11 @@ const presenceFile = (dir, key, holder) => path.join(dir, `${key}.presence.${Str
 /** Write the holder's current connection (at every login): a temp file renamed into place. Never throws. */
 export function presenceWrite (dir, key, holder, { conn, pid = process.pid, now = Date.now(), beat = null, sync = true } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = presenceFile(dir, key, holder), tmp = `${f}.${pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
     const body = JSON.stringify({ holder, conn, pid, at: now, beat: beat ?? now })   // at: the connection's login; beat: now
-    if (sync) writeSynced(tmp, body); else fs.writeFileSync(tmp, body)
-    renameInto(tmp, f)
+    if (sync) writeSynced(tmp, body); else wfs.writeFileSync(tmp, body)
+    wfs.renameSync(tmp, f)
   } catch { /* the other retirement evidence still applies */ }
 }
 /** The holder's presence -> { holder, conn, pid, at } | null. */
@@ -348,7 +658,7 @@ export function presenceRead (dir, key, holder) { return readJ(presenceFile(dir,
 // writes only its own file, so no update is lost; a reader SUMS the holders' visits per cell.
 const stuckFile = (dir, key, holder) => path.join(dir, `${key}.stuck.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 const stuckNames = (dir, key) => {
-  try { const re = new RegExp(`^${esc(key)}\\.stuck\\..+\\.json$`); return dirNames(dir).filter(x => re.test(x)) } catch { return [] }
+  try { const re = new RegExp(`^${esc(key)}\\.stuck\\..+\\.json$`); return listMatch(dir, re) } catch { return [] }
 }
 const stuckCells = j => {
   const out = {}
@@ -393,12 +703,100 @@ export function stuckAt (dir, key, { holder = null, before = Infinity, stale = n
 /** Replace THIS HOLDER's stuck map (temp + rename, fsynced) -> true | false (never throws; the caller fails closed on false). */
 export function stuckWrite (dir, key, holder, cells, { now = Date.now(), stuckAt = null } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = stuckFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
     writeSynced(tmp, JSON.stringify({ v: 2, holder, at: now, stuckAt: Number.isFinite(stuckAt) ? stuckAt : null, cells: cells ?? {} }))
-    renameInto(tmp, f)
+    wfs.renameSync(tmp, f)
     return true
   } catch { return false }
+}
+
+// ---- projturn-01: the projects' turns (projturn.mjs; skills.mjs shopActive / buildShop) ---------------------------------------------
+// ONE FILE PER HOLDER for the whole town (the stuck map's rule, Codex r21 P2: a holder writes only its own file, so no update is
+// lost; a reader merges -- projturn.mjs turnView): `projturn-<home>.<holder>.json` = { v, holder, at, plots: { <plot>: { at, n, noAt,
+// rn, rnoAt, okAt, gen, stop } } } -- at: this holder's last visit START to the plot; n / noAt / stop: its no-progress visits in a
+// row and the last one; rn / rnoAt: the same for its visits that began as REPAIRS; okAt: its last visit that made progress; gen:
+// the record generation the counts were taken on. Never pruned (one small file a bot), never read by the record walk (its name
+// starts with no project key).
+const turnHome = home => `${home.x}_${home.y}_${home.z}`
+const turnFile = (dir, home, holder) => path.join(dir, `projturn-${turnHome(home)}.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const TURN_RE = home => new RegExp(`^projturn-${esc(turnHome(home))}\\.[A-Za-z0-9_-]+\\.json$`)
+const turnNum = v => (Number.isFinite(v) && v > 0 ? v : null)
+const turnOf = j => {
+  if (!j || typeof j.holder !== 'string' || !j.plots || typeof j.plots !== 'object') return null
+  const plots = {}
+  for (const [plot, e] of Object.entries(j.plots)) {
+    if (!e || typeof e !== 'object') continue
+    plots[plot] = { at: turnNum(e.at), n: Math.max(0, Math.floor(Number(e.n) || 0)), noAt: turnNum(e.noAt), rn: Math.max(0, Math.floor(Number(e.rn) || 0)), rnoAt: turnNum(e.rnoAt), okAt: turnNum(e.okAt), gen: Number.isInteger(e.gen) ? e.gen : null, stop: typeof e.stop === 'string' ? e.stop : null }
+  }
+  return { holder: j.holder, at: Number(j.at) || 0, plots }
+}
+/** How long a holder's turn file counts after its last write (review r2): a departed bot's count must not keep adding for good. */
+export const TURN_STALE_MS = 24 * 60 * 60_000
+/** The town's turn files -> [{ holder, at, plots }] ([] when none or unreadable; a torn or foreign file is skipped, and one not
+ *  written for TURN_STALE_MS). `holder`: that holder's own only (never aged out: it is the asker's). Never throws. */
+export function turnRead (dir, home, { holder = null, now = Date.now() } = {}) {
+  if (holder != null) { const r = turnOf(readJ(turnFile(dir, home, holder))); return r ? [r] : [] }
+  let names = []
+  try { names = listMatch(dir, TURN_RE(home)) } catch { return [] }
+  return names.map(n => turnOf(readJ(path.join(dir, n)))).filter(f => f && now - f.at < TURN_STALE_MS)
+}
+/** Replace THIS HOLDER's turn file (temp + rename, fsynced) -> true | false (never throws: the caller keeps its own copy in memory). */
+export function turnWrite (dir, home, holder, plots, { now = Date.now() } = {}) {
+  try {
+    wfs.mkdirSync(dir, { recursive: true })
+    const f = turnFile(dir, home, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, plots: plots ?? {} }))
+    wfs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+
+// ---- tempstand-01: the temporary stand's receipt (tempstand.mjs; buildrun.mjs runVisit `p.tempStand`) ------------------------------
+// ONE FILE PER HOLDER AND PROJECT, written (temp + rename, fsynced) BEFORE the first block of a stand is placed and removed only when
+// the world reads every one of its cells gone: a visit that is interrupted leaves it, and the next visit to the project takes the
+// stand down first. { v, holder, at, block, base, cells: [[x, y, z]] bottom-up, target, seg, tries, topY }.
+// (r3) `topY`: the y of the stand's ORIGINAL top cell. `cells` shrinks to what still stands as a take-down goes; topY never does
+// (never read lower than the highest cell; a receipt without one: its highest cell) -- tempstand.mjs standTop.
+const standFile = (dir, key, holder) => path.join(dir, `${key}.tempstand.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const STAND_RE = key => new RegExp(`^${esc(key)}\\.tempstand\\.[A-Za-z0-9_-]+\\.json$`)
+const STAND_ANY_RE = /^project-.+\.tempstand\.[A-Za-z0-9_-]+\.json$/
+const int3 = a => Array.isArray(a) && a.length === 3 && a.every(Number.isInteger)
+const standOf = j => {
+  if (!j || typeof j.holder !== 'string' || typeof j.block !== 'string' || !Array.isArray(j.cells)) return null
+  const cells = j.cells.filter(int3).map(c => c.slice())
+  if (!cells.length || cells.length > 8) return null
+  return { holder: j.holder, at: Number(j.at) || 0, block: j.block, base: int3(j.base) ? j.base.slice() : null, cells, target: int3(j.target) ? j.target.slice() : null, seg: j.seg ?? null, tries: Math.max(0, Math.floor(Number(j.tries) || 0)), topY: Math.max(Number.isInteger(j.topY) ? j.topY : -Infinity, ...cells.map(c => c[1])) }
+}
+/** The project's stand receipts -> [receipt] ([] when none or unreadable). `holder`: that holder's own only; `exclude`: every other's. */
+export function standRead (dir, key, { holder = null, exclude = null } = {}) {
+  if (holder != null) { const r = standOf(readJ(standFile(dir, key, holder))); return r ? [r] : [] }
+  let names = []
+  try { names = listMatch(dir, STAND_RE(key)) } catch { return [] }
+  const skip = exclude != null ? path.basename(standFile(dir, key, exclude)) : null
+  return names.filter(n => n !== skip).map(n => standOf(readJ(path.join(dir, n)))).filter(Boolean)
+}
+/** Replace THIS HOLDER's receipt (temp + rename, fsynced); `receipt` null removes it. -> true | false (never throws: the caller
+ *  places nothing on false). */
+export function standWrite (dir, key, holder, receipt, { now = Date.now() } = {}) {
+  try {
+    const f = standFile(dir, key, holder)
+    if (!receipt) { try { wfs.unlinkSync(f) } catch (e) { if (e?.code !== 'ENOENT') return false } syncDir(dir); return true }
+    wfs.mkdirSync(dir, { recursive: true })
+    const tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: Number.isFinite(receipt.at) ? receipt.at : now, block: receipt.block, base: receipt.base ?? null, cells: receipt.cells, target: receipt.target ?? null, seg: receipt.seg ?? null, tries: receipt.tries ?? 0, topY: Number.isInteger(receipt.topY) ? receipt.topY : null }))
+    wfs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** EVERY project's stand cells in `dir` whose receipt is younger than `ttl` -> Set of "x,y,z" (the tidy's survey never lists a stand
+ *  whose visit may still be running: skills.mjs tidyInputs). An older receipt's blocks are ordinary litter to it. Never throws. */
+export function standCells (dir, { now = Date.now(), ttl = 10 * 60_000 } = {}) {
+  const out = new Set()
+  let names = []
+  try { names = listMatch(dir, STAND_ANY_RE) } catch { return out }
+  for (const n of names) { const r = standOf(readJ(path.join(dir, n))); if (r && now - r.at < ttl) for (const c of r.cells) out.add(c.join(',')) }
+  return out
 }
 
 // ---- drawn (Paper 10-25 SHOP-KILL / CHAIN-1: the project's materials in the holder's bag) --------------------------------------
@@ -416,23 +814,165 @@ export function drawnRead (dir, key, holder) {
  *  throws; the caller counts a failure). */
 export function drawnWrite (dir, key, holder, drawn, { bag = {}, now = Date.now() } = {}) {
   try {
-    fs.mkdirSync(dir, { recursive: true })
+    wfs.mkdirSync(dir, { recursive: true })
     const f = drawnFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
     const d = counts(drawn)
     writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, drawn: d, bag: Object.fromEntries(Object.keys(d).map(n => [n, Math.max(0, Math.floor(Number(bag?.[n]) || 0))])) }))
-    renameInto(tmp, f)
+    wfs.renameSync(tmp, f)
     return true
   } catch { return false }
+}
+
+// ---- gkhelpers-01: the crew's pantry -------------------------------------------------------------------------------------------
+// What each grounds-crew bot carries for the park (its park plants), so the keeper's top-up knows what the crew can plant: banking
+// them is not open to it (towndeposit.mjs notForChest: saplings, bamboo, poppy, dandelion never go in a chest -- owner 10-04).
+const pantryFile = (dir, key, holder) => path.join(dir, `${key}.pantry.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const PANTRY_RE = key => new RegExp(`^${esc(key)}\\.pantry\\.[A-Za-z0-9_-]+\\.json$`)
+/** Replace the holder's pantry (a temp file renamed into place). -> true | false (never throws). */
+export function pantryWrite (dir, key, holder, items, { now = Date.now() } = {}) {
+  try {
+    wfs.mkdirSync(dir, { recursive: true })
+    const f = pantryFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    writeSynced(tmp, JSON.stringify({ v: 1, holder, at: now, items: counts(items) }))
+    wfs.renameSync(tmp, f)
+    return true
+  } catch { return false }
+}
+/** Every crew pantry -> { holder: { at, items } }. {} when none or unreadable (an unread pantry is nothing carried). */
+export function pantryRead (dir, key) {
+  const out = {}
+  let names = []
+  try { names = listMatch(dir, PANTRY_RE(key)) } catch { return out }
+  for (const n of names) { const r = readJ(path.join(dir, n)); if (r?.holder && r.items && typeof r.items === 'object') out[r.holder] = { at: Number(r.at) || 0, items: r.items } }
+  return out
+}
+
+// ---- access-02: the climbs ledger ----------------------------------------------------------------------------------------------
+const climbFile = (dir, holder) => path.join(dir, `climbs-${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
+const CLIMB_RE = /^climbs-[A-Za-z0-9_-]+\.jsonl$/
+/** Append one climb ({ x, y, z, shape, reason, t }) to this bot's ledger; past `maxLines` the file is rewritten with its newest
+ *  `keepLines`. -> true | false. Never throws. */
+export function climbAppend (dir, holder, c, { maxLines = 2000, keepLines = 1000 } = {}) {
+  try {
+    wfs.mkdirSync(dir, { recursive: true })
+    const f = climbFile(dir, holder)
+    wfs.appendFileSync(f, JSON.stringify({ x: c.x, y: c.y, z: c.z, shape: c.shape, reason: c.reason, t: c.t, by: holder }) + '\n')
+    let n = 0
+    try { n = fs.statSync(f).size } catch { n = 0 }
+    if (n > maxLines * 50) {   // a line is >= 60 bytes: past this the lines are counted, and trimmed past maxLines
+      const lines = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean)
+      if (lines.length > maxLines) { const tmp = `${f}.${process.pid}.tmp`; wfs.writeFileSync(tmp, lines.slice(-keepLines).join('\n') + '\n'); wfs.renameSync(tmp, f) }
+    }
+    return true
+  } catch { return false }
+}
+/**
+ * Codex r1 BLOCKER (access-02): the placement observer never waits on the disk -- climbEnqueue only queues (bounded: QMAX, a full queue
+ * drops the climb, counted) and an unref'd timer writes the batch with fs.promises off the placement's continuation. Never throws.
+ */
+const climbQ = []
+let climbTimer = null, climbBusy = false
+export const climbStats = { queued: 0, dropped: 0, written: 0, failed: 0 }
+const CLIMB_QMAX = 64
+export function climbEnqueue (dir, holder, c, opts = {}) {
+  try {
+    if (climbQ.length >= CLIMB_QMAX) { climbStats.dropped++; return false }
+    climbQ.push({ dir, holder, c, opts }); climbStats.queued++
+    if (!climbTimer) { climbTimer = setTimeout(() => { climbTimer = null; void climbFlush() }, 250); climbTimer.unref?.() }
+    return true
+  } catch { return false }
+}
+/** Write the queued climbs (async; one batch at a time). -> the count written. Never throws. */
+export async function climbFlush () {
+  if (climbBusy || !climbQ.length) return 0
+  climbBusy = true
+  let n = 0
+  try {
+    const batch = climbQ.splice(0, climbQ.length)
+    const byFile = new Map()
+    for (const q of batch) { const f = climbFile(q.dir, q.holder); const e = byFile.get(f) ?? { q, lines: [] }; e.lines.push(JSON.stringify({ x: q.c.x, y: q.c.y, z: q.c.z, shape: q.c.shape, reason: q.c.reason, t: q.c.t, by: q.holder })); byFile.set(f, e) }
+    for (const [f, e] of byFile) {
+      try {
+        await fs.promises.mkdir(e.q.dir, { recursive: true })
+        await fs.promises.appendFile(f, e.lines.join('\n') + '\n')
+        n += e.lines.length; climbStats.written += e.lines.length
+        const { maxLines = 2000, keepLines = 1000 } = e.q.opts ?? {}
+        const st = await fs.promises.stat(f)
+        if (st.size > maxLines * 50) {
+          const lines = (await fs.promises.readFile(f, 'utf8')).split('\n').filter(Boolean)
+          if (lines.length > maxLines) { const tmp = `${f}.${process.pid}.tmp`; await fs.promises.writeFile(tmp, lines.slice(-keepLines).join('\n') + '\n'); await fs.promises.rename(tmp, f) }
+        }
+      } catch { climbStats.failed += e.lines.length }
+    }
+  } finally { climbBusy = false }
+  if (climbQ.length && !climbTimer) { climbTimer = setTimeout(() => { climbTimer = null; void climbFlush() }, 250); climbTimer.unref?.() }
+  return n
+}
+/** Every bot's climbs since `since` -> [{ x, y, z, shape, reason, t, by }]. [] when none or unreadable (an unread ledger is no climb). */
+export function climbRead (dir, { since = -Infinity } = {}) {
+  const out = []
+  let names = []
+  try { names = listMatch(dir, CLIMB_RE) } catch { return out }
+  for (const n of names) {
+    let txt = ''
+    try { txt = fs.readFileSync(path.join(dir, n), 'utf8') } catch { continue }
+    for (const l of txt.split('\n')) { if (!l) continue; let r; try { r = JSON.parse(l) } catch { continue } if ([r?.x, r?.y, r?.z, r?.t].every(Number.isFinite) && r.t >= since) out.push(r) }
+  }
+  return out
+}
+
+// ---- litter-01: the walk's hand-off to the cleanup crew (litter.mjs) -----------------------------------------------------------
+// One file a bot (`litter-<bot>.json`), written whole by that bot alone (a temp file renamed into place: a reader sees the old file
+// or the new one, never a torn one) and only read by the keeper's survey. Async on the writer's side: a hand-off is made from a
+// placement's continuation, which never waits on the disk (the climbs ledger's rule).
+const litterFile = (dir, holder) => path.join(dir, `litter-${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+const LITTER_RE = /^litter-[A-Za-z0-9_-]+\.json$/
+const litterRow = e => !!e && Array.isArray(e.at) && e.at.length === 3 && e.at.every(Number.isInteger) && typeof e.block === 'string' && e.block !== '' && Number.isFinite(e.t)
+/** Replace the holder's litter file -> true | false. Never throws. */
+export async function litterWrite (dir, holder, entries, { now = Date.now() } = {}) {
+  let tmp = null
+  try {
+    await fs.promises.mkdir(dir, { recursive: true })
+    const f = litterFile(dir, holder)
+    tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+    await fs.promises.writeFile(tmp, JSON.stringify({ v: 1, holder, at: now, entries: (entries ?? []).filter(litterRow) }), { flag: 'wx' })
+    await fs.promises.rename(tmp, f)
+    dropListings()
+    return true
+  } catch {
+    if (tmp) { try { await fs.promises.unlink(tmp) } catch { /* never made, or renamed */ } }
+    return false
+  }
+}
+/** The holder's own entries (its file from before a restart) -> [{ at, block, t, shape }] | null (none, or unreadable). Never throws. */
+export async function litterReadOwn (dir, holder) {
+  try {
+    const r = JSON.parse(await fs.promises.readFile(litterFile(dir, holder), 'utf8'))
+    return Array.isArray(r?.entries) ? r.entries.filter(litterRow) : null
+  } catch { return null }
+}
+/** Every bot's handed blocks since `since` -> [{ at, block, t, shape, by }]. [] when none or unreadable (an unread file hands nothing). */
+export function litterRead (dir, { since = -Infinity } = {}) {
+  const out = []
+  let names = []
+  try { names = listMatch(dir, LITTER_RE) } catch { return out }
+  for (const n of names) {
+    const r = readJ(path.join(dir, n))
+    if (!Array.isArray(r?.entries)) continue
+    const by = String(r.holder ?? n.slice(7, -5))
+    for (const e of r.entries) if (litterRow(e) && e.t >= since) out.push({ at: e.at.slice(0, 3), block: e.block, t: e.t, shape: String(e.shape ?? '-'), by })
+  }
+  return out
 }
 
 // ---- intents ------------------------------------------------------------------------------------------------------------------
 
 const intentFile = (dir, key, holder) => path.join(dir, `${key}.intents.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.jsonl`)
-const appendSynced = (f, line) => { touched(path.dirname(f)); const fd = fs.openSync(f, 'a'); try { fs.writeSync(fd, line); fs.fsyncSync(fd) } finally { fs.closeSync(fd) } }
+const appendSynced = (f, line) => { const fd = wfs.openSync(f, 'a'); try { fs.writeSync(fd, line); fs.fsyncSync(fd) } finally { fs.closeSync(fd) } }
 /** APPEND AN OPEN INTENT and fsync it (step 1, before the mutex) -> its id. Throws on a write failure: no intent, no click. */
 export function intentOpen (dir, key, holder, { cell, block, lease, seq, conn = null, now = Date.now() }) {
   const id = `${now.toString(36)}-${crypto.randomBytes(3).toString('hex')}`
-  fs.mkdirSync(dir, { recursive: true })
+  wfs.mkdirSync(dir, { recursive: true })
   appendSynced(intentFile(dir, key, holder), JSON.stringify({ op: 'open', id, holder, cell, block, lease, seq, conn, at: now }) + '\n')
   return id
 }
@@ -444,9 +984,9 @@ export function intentClose (dir, key, holder, id, op, { state = null, now = Dat
 export function openIntents (dir, key) {
   const out = []
   let names = []
-  try { names = fs.readdirSync(dir) } catch { return out }   // FRESH (leasegen-01: the barrier's wait must see a new holder's log)
   const re = new RegExp(`^${esc(key)}\\.intents\\..+\\.jsonl$`)
-  for (const n of names.filter(x => re.test(x))) {
+  try { names = listMatch(dir, re) } catch { return out }
+  for (const n of names) {
     const open = new Map()
     let text = ''
     try { text = fs.readFileSync(path.join(dir, n), 'utf8') } catch { continue }
@@ -499,6 +1039,70 @@ export function holderGone (since, { conn = null, presence = null, online = true
   return !online && offlineSince != null && offlineSince > since && now - offlineSince >= OFFLINE_RETIRE_MS
 }
 
+// ---- SHOWDROP-01: PRUNING SUPERSEDED LEASE AND BARRIER GENERATIONS ---------------------------------------------------------------
+// The showcase's town directory held 6,777 files on 11-08, most of them lease and barrier generations no reader ever opens again:
+// leaseState, liveLeases, takeLease and barrierState read only a family's NEWEST generation (gensOf(...).at(-1)). A generation is
+// pruned (its file and its `.released` marker) only when ALL hold: it is a lease (`<key>.<name>.lease.g<N>.json`) or a barrier
+// (`<key>.barrier.g<N>.json`); a NEWER generation of the same family exists (the newest is never touched: the next take numbers
+// from it); it is released (a marker) or, a lease, expired (`until`); and its file and marker are older than PRUNE_AGE_MS by mtime.
+// NEVER a record generation (`<key>.g<N>.json`: recordHead walks every one from the root), a mutex (its own MUTEX_KEEP), an intent,
+// presence, stuck, drawn, pantry or climb file. POOLPRUNE=off: nothing; POOLPRUNE=dry: count only; on: the caller's first pass of a
+// process is a dry count (logged), later passes delete at most PRUNE_MAX files each.
+export const PRUNE_AGE_MS = 48 * 3600_000
+export const PRUNE_MAX = 500
+export const poolPruneMode = (env = process.env) => {
+  const v = String(env?.POOLPRUNE ?? '').trim().toLowerCase()
+  return ['off', '0', 'false', 'no'].includes(v) ? 'off' : v === 'dry' ? 'dry' : 'on'
+}
+const PRUNE_RE = /^(.+)\.(lease|barrier)\.g(\d+)\.json$/
+/** The pruneable generations -> [{ file, marker, fam, gen }] (oldest first). Pure over the listing and the stat/read callbacks. */
+export function pruneCandidates (names, { now = Date.now(), age = PRUNE_AGE_MS, mtime, read } = {}) {
+  const set = new Set(names)
+  const fams = new Map()
+  for (const n of names) {
+    const m = PRUNE_RE.exec(n)
+    if (!m) continue
+    // a barrier is `<key>.barrier.g<N>`; a lease is `<key>.<name>.lease.g<N>` -- the family is everything before `.g<N>.json`
+    const fam = `${m[1]}.${m[2]}`
+    if (!fams.has(fam)) fams.set(fam, [])
+    fams.get(fam).push({ gen: Number(m[3]), file: n, kind: m[2] })
+  }
+  const out = []
+  for (const [fam, gens] of fams) {
+    const top = Math.max(...gens.map(g => g.gen))
+    for (const g of gens) {
+      if (g.gen >= top) continue                                   // the newest generation: never
+      const marker = `${g.file}.released`
+      const released = set.has(marker)
+      const t1 = mtime(g.file), t2 = released ? mtime(marker) : null
+      if (t1 == null || now - t1 < age || (released && (t2 == null || now - t2 < age))) continue
+      if (!released) {
+        if (g.kind !== 'lease') continue                           // an unreleased barrier: kept
+        const rec = read(g.file)
+        if (!rec || !Number.isFinite(Number(rec.until)) || now - Number(rec.until) < age) continue   // unreadable or not long expired: kept
+      }
+      out.push({ file: g.file, marker: released ? marker : null, fam, gen: g.gen })
+    }
+  }
+  return out.sort((a, b) => a.gen - b.gen)
+}
+/** One pass over `dir` -> { mode, candidates, deleted, errors }. `dry` (or POOLPRUNE=dry) deletes nothing. Never throws. */
+export function prunePool (dir, { now = Date.now(), dry = false, max = PRUNE_MAX, env = process.env } = {}) {
+  const mode = poolPruneMode(env)
+  if (mode === 'off') return { mode, candidates: 0, deleted: 0, errors: 0 }
+  let names
+  try { names = fs.readdirSync(dir) } catch { return { mode, candidates: 0, deleted: 0, errors: 1 } }
+  const st = f => { try { return fs.statSync(path.join(dir, f)).mtimeMs } catch { return null } }
+  const cands = pruneCandidates(names, { now, mtime: st, read: f => readJ(path.join(dir, f)) })
+  if (dry || mode === 'dry') return { mode: 'dry', candidates: cands.length, deleted: 0, errors: 0 }
+  let deleted = 0, errors = 0
+  for (const c of cands.slice(0, max)) {
+    // the marker first: a generation whose file is gone but whose marker stays is still nothing any reader opens
+    for (const f of [c.marker, c.file]) { if (!f) continue; try { wfs.unlinkSync(path.join(dir, f)); deleted++ } catch (e) { if (e?.code !== 'ENOENT') errors++ } }
+  }
+  return { mode, candidates: cands.length, deleted, errors }
+}
+
 // ---- the barrier ------------------------------------------------------------------------------------------------------------
 
 const barFile = (dir, key, n) => path.join(dir, `${key}.barrier.g${n}.json`)
@@ -519,12 +1123,12 @@ export function barrierTake (dir, key, holder, { why = 'closer', cell = null, no
   if (cur?.active && cur.rec?.holder !== holder) return { ok: false, why: `barrier held by ${cur.rec?.holder ?? 'unreadable'}` }
   if (cur?.active && cur.rec?.holder === holder) return { ok: true, gen: cur.gen }
   const n = (cur?.gen ?? 0) + 1
-  try { fs.mkdirSync(dir, { recursive: true }); writeSynced(barFile(dir, key, n), JSON.stringify({ holder, why, cell, at: now })) } catch { return { ok: false, why: 'lost the race for the barrier' } }
-  return gensOf(dir, BAR_RE(key), true).at(-1) === n ? { ok: true, gen: n } : { ok: false, why: 'a later barrier exists' }
+  try { wfs.mkdirSync(dir, { recursive: true }); writeSynced(barFile(dir, key, n), JSON.stringify({ holder, why, cell, at: now })) } catch { return { ok: false, why: 'lost the race for the barrier' } }
+  return gensOf(dir, BAR_RE(key)).at(-1) === n ? { ok: true, gen: n } : { ok: false, why: 'a later barrier exists' }
 }
 /** Release our barrier. Never throws. */
 export function barrierRelease (dir, key, holder, gen) {
-  try { const cur = barrierState(dir, key); if (cur && cur.gen === gen && cur.rec?.holder === holder) fs.writeFileSync(`${barFile(dir, key, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
+  try { const cur = barrierState(dir, key); if (cur && cur.gen === gen && cur.rec?.holder === holder) wfs.writeFileSync(`${barFile(dir, key, gen)}.released`, String(Date.now())) } catch { /* lapses */ }
 }
 /**
  * MAY THE BARRIER'S HOLDER CLICK? -> { clear, waiting: [intent] }. Every OTHER holder's open intent must be settled or cancelled,

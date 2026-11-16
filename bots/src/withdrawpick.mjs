@@ -195,23 +195,28 @@ export function needCount (o, need) {
  *            (NEED_COUNT_COMPLETE: sticks) -- a count of 0 younger than missTtl with no deposit since: a look by whichever bot
  *            opened it last
  *   UNKNOWN  otherwise
- * Dropped when OUT for every need. Tier 0 = HAS for some need, tier 1 = the rest. Within a tier: most of the wanted
+ * Dropped when OUT for every need. Tier 0 = HAS for some need (or an index positive), tier 1 = the rest, tier 2 = the index's
+ * negatives allowed back as rechecks (`index`, indexsearch-02). Within a tier: most of the wanted
  * amount covered (cover, from the counts), then nearest, then key. Never the same container twice: one entry per key.
  */
 /** The miss TTL of one need: missTtl itself (a number), or its entry in a { need: ms } map, else SEARCH_MISS_TTL_MS. Pure. */
 export const missTtlOf = (missTtl, need) => (missTtl && typeof missTtl === 'object' ? (Number.isFinite(missTtl[need]) ? missTtl[need] : SEARCH_MISS_TTL_MS) : missTtl)
 export function townSearchOrder (containers = [], needs = [], { counts = {}, misses = {}, tookAt = {}, skip = [], want = {},
-                                                               now = Date.now(), missTtl = SEARCH_MISS_TTL_MS, countTtl = OBS_TTL_MS, prefer = null } = {}) {
+                                                               now = Date.now(), missTtl = SEARCH_MISS_TTL_MS, countTtl = OBS_TTL_MS, prefer = null, index = null } = {}) {
   const out = new Set(Array.isArray(skip) ? skip : [...(skip ?? [])])
   const seen = new Set()
   const res = []
+  // indexsearch-02 (storehub piece C, indexsearch2.mjs): `index` = { neg: Map<k, at>, pos: Map<k, at>, recheck } -- the town
+  // index's fresh, clean observations. A negative is held back (`ixneg`), and at most `recheck` of them, the oldest first,
+  // follow every other candidate; a positive is tier 0. A journal count of the need NEWER than the negative's observation wins.
+  const ixneg = []
   if (!Array.isArray(needs) || !needs.length) return res
   for (const c of (Array.isArray(containers) ? containers : [])) {
     const k = c?.k
     if (k == null || out.has(k) || seen.has(k)) continue
     seen.add(k)
     const took = Number.isFinite(tookAt?.[k]) ? tookAt[k] : -Infinity
-    let has = false, cover = 0, allOut = true
+    let has = false, cover = 0, allOut = true, hasAt = -Infinity
     for (const need of needs) {
       const m = misses?.[need]?.[k]
       const ttl = missTtlOf(missTtl, need)
@@ -221,7 +226,7 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
       const n = Number(ct?.n)
       // a count no newer than a miss is STALE, live miss or not (Claude r2 P3: a deposit ends the miss, not the stale count)
       if (cAt != null && now - cAt < countTtl && n > 0 && !(Number.isFinite(m) && m >= cAt)) {
-        has = true; allOut = false
+        has = true; allOut = false; hasAt = Math.max(hasAt, cAt)
         cover += Math.min(n, Math.max(1, Number(want?.[need]) || 1))
         continue
       }
@@ -230,10 +235,24 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
       allOut = false
     }
     if (allOut) continue
+    const negAt = index?.neg?.get?.(k)
+    if (Number.isFinite(negAt) && !(has && hasAt > negAt)) {
+      ixneg.push({ k, tier: 2, home: 1, cover: 0, d: Number.isFinite(c.d) ? c.d : Infinity, ixAt: negAt })
+      continue
+    }
+    if (index?.pos?.has?.(k)) has = true
     // sortstore-01: within a tier, the needs' category homes first (`prefer`, a Set of keys: sortstore.mjs searchPrefer)
     res.push({ k, tier: has ? 0 : 1, home: prefer?.has?.(k) ? 0 : 1, cover, d: Number.isFinite(c.d) ? c.d : Infinity })
   }
   res.sort((a, b) => a.tier - b.tier || a.home - b.home || b.cover - a.cover || a.d - b.d || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0))
+  if (ixneg.length) {
+    // the RECHECK: the oldest observations first (the likeliest to be wrong), then nearest
+    ixneg.sort((a, b) => (a.ixAt - b.ixAt) || (a.d - b.d) || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0))
+    const n = Math.max(0, Math.floor(Number(index?.recheck) || 0))
+    for (const e of ixneg.slice(0, n)) { const { ixAt, ...r } = e; res.push({ ...r, ixneg: true }) }
+  }
+  // how many the index held back, rechecks included (the rows' ixneg=): a property, not an entry, so no reader changes
+  Object.defineProperty(res, 'ixNeg', { value: ixneg.length, enumerable: false })
   return res
 }
 
@@ -418,7 +437,8 @@ export const HOLD_MS = 10 * 60 * 1000
 /** The withdraw row (`_withdraw_pick`, from the order AND the model's verb): key=value, outcome first, the containers
  *  last (logEvent cuts at 300 characters). The order's row also says, right after verification= (townsearch-01): how many town
  *  containers its search saw (town=), the candidates for the pickaxe and for the ingredients when each pass began
- *  (cand=pick,ing), and searchTally's visits= maxrep= vfail= over the WHOLE tried list. srv= is the server-recounted change of the bag; plan= the names planned to
+ *  (cand=pick,ing), and searchTally's visits= maxrep= vfail= over the WHOLE tried list, and (indexsearch-02) ix=<held back>/<rechecks> for the
+ *  pickaxe pass, then the ingredient pass. srv= is the server-recounted change of the bag; plan= the names planned to
  *  LEAVE it (room-making deposits and trades) -- a read can flag a server-counted fall of any name not in plan=. */
 export function withdrawRow ({ outcome, need, uses = null, verification = 'none', cursor = '-', err = null, chestRoom = null, srv = '-', plan = '-',
                                bagBefore = 0, bagAfter = 0, deposited = [], took = {}, verb = 'withdraw_pick', tried = [], search = null } = {}) {
@@ -428,7 +448,7 @@ export function withdrawRow ({ outcome, need, uses = null, verification = 'none'
   // the search's counters EARLY in the row (Codex r1 P2): tried= is cut at 300 characters, these never are
   // ...and the order's verb= with them (Codex r2: three ingredients and a deposit pushed a late verb= past the cut, and a
   // read keyed on it lost the order). A row without the search (the model's verb) keeps the old layout.
-  const sr = search ? `verb=${verb} line=${search.line ?? '-'} town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} visits=${search.visits ?? '-'} maxrep=${search.maxrep ?? '-'} vfail=${search.vfail ?? '-'} ` : ''
+  const sr = search ? `verb=${verb} line=${search.line ?? '-'} town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} visits=${search.visits ?? '-'} maxrep=${search.maxrep ?? '-'} vfail=${search.vfail ?? '-'} ix=${search.ix ?? '-'} ` : ''
   return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} ${sr}cursor=${clean(cursor)} err=${clean(err)} ` +
           `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} ${search ? '' : `verb=${verb} `}` +
           `tried=[${tried.join(';')}]`).slice(0, 300)

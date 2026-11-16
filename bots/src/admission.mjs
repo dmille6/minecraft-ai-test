@@ -15,7 +15,7 @@ import { SKILLS, actionKey, foodSkipNow, stockRefusedRow, craftableFromBag } fro
 import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
-import { horizontalDistanceFromSpawn } from './state.mjs'
+import { horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { depositVerdict, onDepositRung } from './depositoffer.mjs'
@@ -24,11 +24,12 @@ import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
 import { swingRewrite } from './pickswings.mjs'   // ironchain-02: an iron pickaxe asked for swings, with no iron, is a stone one
-import { repeatWorkConfig, repeatDecision, ledgerSet, PROGRESS_SKILLS, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS } from './repeatwork.mjs'
+import {
+  repeatWorkConfig, repeatDecision, ledgerSet, PROGRESS_SKILLS, tallyLine as repeatWorkTallyLine, TALLY_MS as REPEAT_WORK_TALLY_MS,
+} from './repeatwork.mjs'
 import { logEvent } from './logger.mjs'
 import { townLogCapState, townLogTop, logGateOn, isLogBlock, bagWoodUnits, logGatherGate, logGateDetail, LOGGATE_RUNG_LOGS } from './logcap.mjs'   // loggate-01
 import { WOOD_KEEP } from './woodkeep.mjs'
-import { snapshot } from './state.mjs'
 
 
 const REPEAT_WINDOW = 4

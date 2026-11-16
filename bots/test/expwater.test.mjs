@@ -271,7 +271,7 @@ await t('the switch and the licence row: EXPEDITION_SWIM=off is dry legs only; t
 await t('wiring (structural): the visit passes the swim width, keeps both shores, logs the crossing, sizes the gather by gatherSpare', async () => {
   const src = strip(readFileSync(SKILLS_PATH, 'utf8'))
   const one = (re, what) => assert.equal((src.match(re) ?? []).length, 1, what)
-  one(/detour: trip\.detour, swim: EXPEDITION\.swim \}\)/g, 'legTarget gets the swim width')
+  one(/detour: trip\.detour, swim: EXPEDITION\.swim,\s*bridges: /g, 'legTarget gets the swim width')
   one(/swim: exSwimWidth\(process\.env\)/g, 'the switch')
   one(/const gates = Array\.isArray\(trip\.gates\) \? trip\.gates : \[\]/g, 'the trip\'s gates')
   one(/nextCrumb\(crumbs, p, cursor, \{ loaded, skip, gates \}\)/g, 'the way home keeps the gates')

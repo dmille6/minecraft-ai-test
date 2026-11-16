@@ -33,6 +33,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { stuckWaivedN } from './waiveroom.mjs'   // fillcolumn-01 r2: the waivers' room counts stuck waivers only
 
 export const GKW = Object.freeze({
   emptyVisits: 3,               // strikes (empty visits, any bot, after the last visit that worked) that close a stage
@@ -75,6 +76,30 @@ export function strikesTotal (files = [], { sig, now = Date.now(), G = GKW } = {
   for (const f of mine) for (const t of f.strikes ?? []) if (Number.isFinite(t) && t > lastWork && t <= now && now - t < G.windowMs) n++
   return n
 }
+// GKCLEAR-01 (control session 11-07; the roughground 2-h read): THE TOWN'S STRIKES, NOT ONE BOT'S MEMORY, SAY A STAGE IS CLOSING. LIVE showcase
+// 19:43-21:53Z: one keeper tidy visit in 2 h (Lumen 21:07Z `stage_held clears:11` strike 1/3), then Lumen released `no_work_visit` and
+// the next keeper (Alpha 21:11Z) had no `gkwPending` -- its order led with the forest (keeperOrderPure: forest first while it wants
+// work) and never came back to the tidy. The 11 clears are trunk logs no stand reaches (buildrun.mjs clears: `digStand` false: skipped,
+// never counted), so only the town strikes close the stage -- and they need keeper tidy visits. While the town has 1..K-1 strikes against
+// the stage, the keeper's order leads with the TIDY and its tidy order is never quieted, whoever holds the lease.
+/** Is the stage collecting the town's strikes (some, not yet enough)? -> bool. Pure. */
+export const strikesClosing = (total, G = GKW) => Number(total) >= 1 && Number(total) < G.emptyVisits
+/** gkclear-01: the window the closing read counts strikes in (a stage that stopped collecting them -- an unread cell -- gives the forest
+ *  its turn back within the hour, never 6 h of empty tidy-first visits). */
+export const CLOSING_MS = 60 * 60_000
+// GKCLEAR-02 (control session 11-08; LIVE gkclear-01show 23:55-00:31Z: 0 tidy visits, no stage_close): THE STALE STRIKE. The only strike was
+// Lumen's 21:07Z, older than CLOSING_MS, so the closing read never fired, the keeper kept the forest first, and no tidy visit came to lay a
+// fresh strike -- chicken and egg. Now the closing read counts the strikes of the whole window (GKW.windowMs, 6 h), and the starvation
+// bound is per bot and per strike count instead: a keeper leads with the tidy at most once per RETRY_MS while the town's count for the
+// stage is unchanged (`tried`: stamped with the town's count at the START of each of its tidy visits). A visit that lays a strike changes the count -> the next order is the
+// tidy again (the close comes in minutes); one that cannot (an unread cell, an interrupt) costs the forest one turn per keeper per 30 min.
+export const RETRY_MS = 30 * 60_000
+/** May the keeper's order lead with the tidy now? -> bool. Pure. `tried` = { sig, total, at } | null: this bot's last tidy visit's stamp. */
+export function tidyFirstNow ({ total = 0, sig = null, tried = null, now = Date.now(), G = GKW, retryMs = RETRY_MS } = {}) {
+  if (!strikesClosing(total, G)) return false
+  if (tried && tried.sig === sig && tried.total === total && Number.isFinite(tried.at) && now >= tried.at && now - tried.at < retryMs) return false
+  return true
+}
 /** Do the town's strikes close the stage? -> bool. Pure. */
 export const strikesClose = (total, G = GKW) => Number(total) >= G.emptyVisits
 
@@ -87,8 +112,9 @@ export const softHoldsGive = ({ clearsOk = true, crewHolds = false, close = fals
  * in (a hard hold the keeper cannot work from here) lets the lease go now (`no_work_now`); a visit that worked, completed, or is still
  * collecting the town's strikes keeps it (its order comes back at the keeper's cooldown, not quieted: tidyQuiet `closing`).
  */
-export function keeperAfterVisit ({ keeper = false, empty = false, completed = false, close = false } = {}) {
-  if (!keeper || completed || !empty) return 'keep'
+export function keeperAfterVisit ({ keeper = false, empty = false, completed = false, close = false, forestDue = false } = {}) {
+  // the showcase batch20 fold (Codex BLOCKER): the keeper's OTHER grounds work -- the forest due -- keeps the lease (its order comes next)
+  if (!keeper || completed || !empty || forestDue) return 'keep'
   return close ? 'release' : 'keep'
 }
 /** Is this bot's grounds order collecting the town's strikes (not to be quieted)? -> bool. Pure. `pending` = { at } | null. */
@@ -101,9 +127,10 @@ export const gkwClosing = (pending, now = Date.now(), G = GKW) => !!pending && N
  */
 export function stallWaive (rec, deferred = [], { stalled = false, waivedNow = 0, G = GKW } = {}) {
   if (!stalled || Number(waivedNow) > 0) return []
-  const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light').map(c => c.at.join(',')))
+  // roughground-1b (Codex r1): a fill that names the cut opening it (`opener`: a hollow under a crust, a cave seal) is never waived
+  const cells = new Set((rec?.cells ?? []).filter(c => c.role !== 'light' && !c.opener).map(c => c.at.join(',')))
   const have = rec?.waived ?? {}
-  let room = Math.min(G.stallMax, Math.ceil(G.stallShare * cells.size) - Object.keys(have).length)
+  let room = Math.min(G.stallMax, Math.ceil(G.stallShare * cells.size) - stuckWaivedN(have))   // fillcolumn-01 r2 (waiveroom.mjs)
   const out = []
   for (const d of deferred ?? []) {
     if (room <= 0) break
@@ -125,6 +152,54 @@ export function heldWhy ({ clearsLeft = 0, clearsOk = true, crewHeld = 0, crewHo
   return w.join(',') || '-'
 }
 
+// GKLEFT-01 (control session 11-08; LIVE gkclear-02show 01:54-04:34Z): A CELL NOBODY CAN WORK IS WAIVED BY THE TOWN. The keeper's visits
+// worked (2 logs felled 03:50Z, 3 floor fills 04:05Z) -- each a visit that changed the ground, so it cleared the strikes -- then ended
+// `complete; fills left 1/1372` with the clears still standing: never EMPTY (a fill left), never a strike, the stage never closed. Per
+// cell instead: a visit that RAN OUT OF WORK (stop `complete`, any bot) counts every fill and clear it left open in its own file
+// (`<key>.gkleft.<holder>.json`); a cell left by GKW.leftVisits such visits town-wide (summed over holders, inside GKW.leftMs) is waived
+// by the next keeper visit that still reads it open -- at most GKW.leftMax a visit and GKW.stallShare of the stage -- so the stage
+// completes on its own, whatever order the visits come in.
+export const GKL = Object.freeze({ leftVisits: 3, leftMs: 24 * 60 * 60_000, leftMax: 12, keep: 2000 })
+/** This holder's left-cells file after a visit -> { v, sig, cells: { k: { ts: [ms] } } }. Pure. A new stage starts it again. */
+export function leftNext (prev, { sig, keys = [], now = Date.now(), G = GKL } = {}) {
+  // Codex r1 BLOCKER: each visit's own stamp is kept (at most G.leftVisits a cell), expired one by one -- never a refreshed old count
+  const live = t => Number.isFinite(t) && t <= now + 60_000 && now - t < G.leftMs
+  const cells = {}
+  if (prev && prev.sig === sig && prev.cells && typeof prev.cells === 'object') for (const [k, v] of Object.entries(prev.cells)) { const ts = (Array.isArray(v?.ts) ? v.ts : []).filter(live); if (ts.length) cells[k] = { ts } }
+  for (const k of new Set(keys)) cells[k] = { ts: [...(cells[k]?.ts ?? []), now].slice(-G.leftVisits) }
+  const fresh = Object.entries(cells).sort((a, b) => Math.max(...b[1].ts) - Math.max(...a[1].ts)).slice(0, G.keep)
+  return { v: 2, sig, cells: Object.fromEntries(fresh) }
+}
+/** The town's count of visits that left each cell -> Map k -> n. Pure over every holder's file. */
+export function leftTown (files = [], { sig, now = Date.now(), G = GKL } = {}) {
+  const out = new Map()
+  for (const f of files ?? []) {
+    if (!f || f.sig !== sig || !f.cells) continue
+    for (const [k, v] of Object.entries(f.cells)) { const n = (Array.isArray(v?.ts) ? v.ts : []).filter(t => Number.isFinite(t) && t <= now + 60_000 && now - t < G.leftMs).length; if (n) out.set(k, (out.get(k) ?? 0) + n) }
+  }
+  return out
+}
+/** The cells to waive now -> [{ k, why }]. Pure. Left by G.leftVisits+ visits town-wide, still open now (`openNow`), not yet waived, at most
+ *  G.leftMax, and the stage's waived total at most ceil(GKW.stallShare * (cells + clears)). */
+export function leftWaiveDue (rec, town, openNow = [], { G = GKL, share = GKW.stallShare } = {}) {
+  const have = rec?.waived ?? {}
+  const size = (rec?.cells ?? []).length + (rec?.clear ?? []).length
+  let room = Math.min(G.leftMax, Math.ceil(share * size) - stuckWaivedN(have))   // fillcolumn-01 r2 (waiveroom.mjs)
+  const out = []
+  // the release fold (Codex BLOCKER): a fill that names the cut opening it (roughground-1b `opener`: a hollow under a crust) is
+  // never waived here either -- as gkWaivable and stallWaive keep it -- or the crust could come off with the hollow left open
+  const sealed = new Set((rec?.cells ?? []).filter(c => c?.opener && Array.isArray(c.at)).map(c => c.at.join(',')))
+  for (const k of openNow ?? []) {
+    if (room <= 0) break
+    if (sealed.has(k)) continue
+    if (Object.prototype.hasOwnProperty.call(have, k) || out.some(o => o.k === k)) continue
+    const n = town?.get?.(k) ?? 0
+    if (n < G.leftVisits) continue
+    out.push({ k, why: `unreachable:${n}` }); room--
+  }
+  return out
+}
+
 // ---- the strike files (one per holder; a temp file renamed into place) ----------------------------------------------------------
 const strikeFile = (dir, key, holder) => path.join(dir, `${key}.gkwork.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
 /** Every holder's strike file for `key` -> [file]. Never throws (unreadable: skipped). */
@@ -137,6 +212,40 @@ export function strikeReadAll (dir, key) {
       try { const j = JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8')); if (j && typeof j === 'object') out.push(j) } catch { /* skipped */ }
     }
   } catch { /* none */ }
+  return out
+}
+const leftFile = (dir, key, holder) => path.join(dir, `${key}.gkleft.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+/** gkleft-01: count this visit's left cells in its holder's file, then read the town's -> Map k -> n. Never throws (empty on failure). */
+export function leftVisit (dir, key, holder, rec, keys, { now = Date.now(), count = true } = {}) {
+  const sig = gkwSig(rec)
+  try {
+    if (count && keys.length) {
+      let prev = null
+      try { prev = JSON.parse(fs.readFileSync(leftFile(dir, key, holder), 'utf8')) } catch { prev = null }
+      const next = leftNext(prev, { sig, keys, now })
+      fs.mkdirSync(dir, { recursive: true })
+      const f = leftFile(dir, key, holder), tmp = `${f}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify(next)); fs.renameSync(tmp, f)
+    }
+    const files = []
+    for (const n of fs.readdirSync(dir)) if (n.startsWith(`${key}.gkleft.`) && n.endsWith('.json')) { try { files.push(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))) } catch { /* skipped */ } }
+    return leftTown(files, { sig, now })
+  } catch { return new Map() }
+}
+// gkcrew4-01: the stage's open cells as the newest visit counted them (any holder) -> one file per holder, the newest read
+const openFile = (dir, key, holder) => path.join(dir, `${key}.gkopen.${String(holder).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+export function openWrite (dir, key, holder, rec, open, now = Date.now()) {
+  try { const f = openFile(dir, key, holder), tmp = `${f}.${process.pid}.tmp`; fs.writeFileSync(tmp, JSON.stringify({ v: 1, sig: gkwSig(rec), open: Number(open) || 0, at: now })); fs.renameSync(tmp, f); return true } catch { return false }
+}
+/** The newest count for stage `sig` inside `ms` -> int | null. Pure over the holders' files. */
+export function openNewest (files = [], sig, now = Date.now(), ms = 2 * 60 * 60_000) {
+  let best = null
+  for (const f of files ?? []) if (f && f.sig === sig && Number.isFinite(f.at) && f.at <= now + 60_000 && now - f.at < ms && (!best || f.at > best.at)) best = f
+  return best ? Number(best.open) : null
+}
+export function openReadAll (dir, key) {
+  const out = []
+  try { for (const n of fs.readdirSync(dir)) if (n.startsWith(`${key}.gkopen.`) && n.endsWith('.json')) { try { out.push(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))) } catch { /* skipped */ } } } catch { /* none */ }
   return out
 }
 export function strikeRead (dir, key, holder) { try { return JSON.parse(fs.readFileSync(strikeFile(dir, key, holder), 'utf8')) } catch { return null } }

@@ -346,8 +346,9 @@ export function kitSearchEnd ({ left = 0, noSticks = false, progressed = true, c
 
 /** THE `_kit_search` ROW's detail (one per kit run whose draw searched; its duration spans the search's walks) -> <= 300.
  *  outcome is the run's (crafted, no_iron, more, aborted, ...); the counters as in the `_toolkit` row; tried= last. Pure. */
-export const kitSearchRow = ({ outcome = '-', need = '-', town = '-', cand = '-', visits = 0, vfail = 0, maxrep = 0, left = '-', tried = [] } = {}) =>
-  `outcome=${outcome} need=${need} town=${town} cand=${cand} visits=${visits} vfail=${vfail} maxrep=${maxrep} left=${left} tried=[${(tried ?? []).join(';')}]`.slice(0, 300)
+// indexsearch-02: ix=<containers the town index held back at the search's start>/<rechecks it handed out> (indexsearch2.mjs)
+export const kitSearchRow = ({ outcome = '-', need = '-', town = '-', cand = '-', visits = 0, vfail = 0, maxrep = 0, left = '-', ix = '-', tried = [] } = {}) =>
+  `outcome=${outcome} need=${need} town=${town} cand=${cand} visits=${visits} vfail=${vfail} maxrep=${maxrep} left=${left} ix=${ix} tried=[${(tried ?? []).join(';')}]`.slice(0, 300)
 
 /** The `_toolkit_search_mode` licence row (once per spawn): a kind the baseline cannot write. */
 export const kitSearchModeDetail = () =>

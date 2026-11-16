@@ -59,7 +59,7 @@ await t('WIRED: the build walk plans with cornerWaypoints and walks every leg in
   const walk = src.slice(src.indexOf('walkTo: async (s, { avoid = null } = {}) =>'), src.indexOf('hold: async n =>'))
   assert.ok(/optimizePath: false/.test(walk), 'integer nodes asked for')
   assert.ok(/late = true/.test(walk) && /if \(aborted\(\) \|\| late\) return/.test(walk), 'no leg after the clock')
-  assert.ok(/legs = cornerWaypoints\(\[Math\.floor\(p\.x\), Math\.floor\(p\.y \+ 1e-6\), Math\.floor\(p\.z\)\], s, plan, read\)/.test(walk), 'planned from the feet')
+  assert.ok(/legs = cornerWaypoints\(\[Math\.floor\(p\.x\), Math\.floor\(p\.y \+ 1e-6\), Math\.floor\(p\.z\)\], s, plan, read, 4, \{ square: cornerSquare \}\)/.test(walk), 'planned from the feet')
   assert.ok(/for \(const w of legs\) \{ if \(aborted\(\) \|\| late\) return; await bot\.pathfinder\.goto\(new goals\.GoalBlock\(w\[0\], w\[1\], w\[2\]\)\) \}/.test(walk), 'each leg walked')
   assert.ok(walk.indexOf('Promise.race([') < walk.indexOf('for (const w of legs)') && walk.indexOf('for (const w of legs)') < walk.indexOf('timer = setTimeout'), 'inside the race with the clock')
 })
@@ -100,7 +100,8 @@ await t('WIRED: runVisit settles a pending walk at its start, marks it at the cl
   assert.ok(/const stands = p\.stands \?\? null\s*(?:const lastWalk = )?settlePendingStand\(stands, now\(\)\)/.test(visit))   // monustuck-01: the settled walk is logged
   assert.ok(/if \(stands\) stands\.pending = \{ cell: kOf\(cell\), stand: kOf\(step\.stand\), at: now\(\) \}\s*await e\.walkTo\(step\.stand, avoid \? \{ avoid \} : undefined\)\s*if \(e\.aborted\(\)\) return 'aborted'\s*if \(stands\) stands\.pending = null/.test(visit))
   assert.ok(/if \(!here\) \{ banStand\(stands, kOf\(cell\), kOf\(step\.stand\), now\(\)\); return 'stand' \}/.test(visit))
-  assert.ok(/const bans = standBans\(stands, kOf\(c\.at\), now\(\)\); const kept = bans\.size \? stepFor\(rd, home, c\.at, nodesWithout\(nodes, bans\), domain\) : null; step = kept \?\? stepFor\(rd, home, c\.at, nodes, domain\)/.test(visit), 'banned first, the unbanned pick as the fallback')
+  // (zonesite-01show: the visit's steps go through stepZ -- stepFor, never against a support the zone guard closes)
+  assert.ok(/const bans = standBans\(stands, kOf\(c\.at\), now\(\)\); const kept = bans\.size \? stepZ\(rd, home, c\.at, nodesWithout\(nodes, bans\), domain(, w)?\) : null; step = kept \?\? stepZ\(rd, home, c\.at, nodes, domain(, w)?\)/.test(visit), 'banned first, the unbanned pick as the fallback')
   const SK = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.ok(/stands: \(bot\.shopStands \?\?= \{ pending: null, bans: \{\} \}\)/.test(SK), 'build_shop keeps the memory on the bot')
 })
@@ -124,8 +125,45 @@ await t('WIRED: the build walk refuses a crossing plan before walking; the click
   assert.ok(walk.indexOf('if (crosses) return') > walk.indexOf('legs = cornerWaypoints(') && walk.indexOf('if (crosses) return') < walk.indexOf('for (const w of legs)'), 'refused before any leg')
   assert.ok(/export const PLAN_MS = 150\b/.test(bb))
   const br = strip(fs.readFileSync(new URL('../src/buildrun.mjs', import.meta.url), 'utf8'))
-  assert.ok(/await click\(picked\.at, block, step, seg, segGen, \{ closer: CLOSER_SEGS\.has\(seg\), want: b => cellDone\(b, palette, picked\.role\), avoid: fellBack \|\| feetIn \? null : blocking \}\)/.test(br), 'the click passes avoid, except on the all-banned fallback')
-  assert.ok(/step = kept \?\? stepFor\(rd, home, c\.at, nodes, domain\); if \(step\) \{ picked = c; fellBack = bans\.size > 0 && !kept; break \}/.test(br), 'fellBack marks the all-banned pick')
+  assert.ok(/await click\(picked\.at, block, step, seg, segGen, \{ closer: CLOSER_SEGS\.has\(seg\), want: b => cellDone\(b, palette, picked\.role(, picked\.ws)?\), avoid: fellBack \|\| feetIn \? null : blocking(, ws: picked\.ws \?\? null, blind: !!picked\.blind)?(, also: pickedHead \? \[pickedHead\] : null)? \}\)/.test(br), 'the click passes avoid, except on the all-banned fallback')
+  assert.ok(/step = kept \?\? stepZ\(rd, home, c\.at, nodes, domain(, w)?\); if \(step\) \{ picked = c; fellBack = bans\.size > 0 && !kept; break \}/.test(br), 'fellBack marks the all-banned pick')
+})
+
+// reroof-04 r5: THE LIVE CAVITY by the storage hub (Paper sandbox4 11-08, the region pasted): the pathfinder's plan out of 14,67,-47 is ONE
+// diagonal jump-up to 15,68,-46 with BOTH side columns blocked (grass at 15,67,-47 and 14,68,-46): the body never left the cell
+const cav = new Set(['15,67,-47', '14,68,-46', '15,67,-46', '14,66,-47', '15,66,-47', '14,66,-46', '15,66,-46', '16,67,-46', '16,67,-47'])
+const cread = (x, y, z) => (y <= 65 || cav.has(`${x},${y},${z}`) ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
+await t('r5 the live cavity: a diagonal jump-up with BOTH sides blocked is taken square -- up onto 15,68,-47, then across', () => {
+  assert.deepStrictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread, { square: true }), { i: 0, via: [15, 68, -47] })
+  // r6 (REROOF_CORNERCUT): every walk that does not ask -- every other build visit -- is unchanged: the diagonal is left alone, as before
+  assert.strictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread), null)
+  // positive control: the same step with a clear side is the old rule (round by the clear side at the start's height)
+  const open1 = (x, y, z) => (x === 15 && z === -47 && y >= 67 ? { name: 'air', boundingBox: 'empty' } : cread(x, y, z))
+  assert.deepStrictEqual(cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], open1), { i: 0, via: [15, 67, -47] })
+  // a level diagonal with both sides blocked: no square step to take (as before: left alone)
+  assert.strictEqual(cornerCut({ x: 14, y: 68, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], (x, y, z) => (y <= 67 || (x === 15 && z === -47) || (x === 14 && z === -46) ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })), null)
+})
+await t('r5 MUTANT: the square step off -- the cavity\'s diagonal is left alone again (killed for that reason)', async () => {
+  const src = fs.readFileSync(new URL('../src/buildbot.mjs', import.meta.url), 'utf8')
+  const old = '        if (square && !side && b.y !== a.y) {\n'
+  assert.ok(src.split(old).length === 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  const out = new URL(`./_mutant-${process.pid}-bb.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, '        if (false) {\n').replace(/from '\.\//g, "from '../src/"))
+  try { const M = await import(out.href); assert.strictEqual(M.cornerCut({ x: 14, y: 67, z: -47 }, [{ x: 15.5, y: 68, z: -45.5 }], cread, { square: true }), null) } finally { try { fs.unlinkSync(out) } catch {} }
+})
+await t('r6 WIRED (structural, comments stripped): only the shop visit asks for the square step, and only for a re-roofed record', () => {
+  const strip = f => fs.readFileSync(new URL(f, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const sk = strip('../src/skills.mjs')
+  assert.strictEqual(sk.split('cornerSquare:').length, 2, 'one caller')
+  assert.ok(/cornerSquare: !!\(REROOF_FIX\.cornerSquare && rec\?\.restyle\)/.test(sk))
+  const bb = strip('../src/buildbot.mjs')
+  assert.ok(/cornerWaypoints\(\[Math\.floor\(p\.x\), Math\.floor\(p\.y \+ 1e-6\), Math\.floor\(p\.z\)\], s, plan, read, 4, \{ square: cornerSquare \}\)/.test(bb))
+})
+await t('r6 the switch: REROOF_CORNERCUT=off (or REROOF_ACCESS=off) turns the square step off', async () => {
+  const { reroofFixes } = await import('../src/reroof.mjs')
+  assert.strictEqual(reroofFixes({}).cornerSquare, true)
+  assert.strictEqual(reroofFixes({ REROOF_CORNERCUT: 'off' }).cornerSquare, false)
+  assert.strictEqual(reroofFixes({ REROOF_ACCESS: 'off' }).cornerSquare, false)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

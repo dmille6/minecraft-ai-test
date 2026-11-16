@@ -1,0 +1,384 @@
+{
+ "v": 1,
+ "blueprint": "storehub@1",
+ "plot": "storehub",
+ "home": {
+  "x": 0,
+  "y": 70,
+  "z": 0
+ },
+ "orient": "W",
+ "anchor": [
+  28,
+  -49
+ ],
+ "box": [
+  10,
+  -59,
+  28,
+  -49
+ ],
+ "s": 70,
+ "band": "ring",
+ "walkR": 84,
+ "replant": [
+  {
+   "cell": [
+    0,
+    65,
+    -45
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "skipped",
+   "movedFrom": [
+    0,
+    71,
+    -47
+   ],
+   "tried": [
+    [
+     8,
+     71,
+     -41
+    ],
+    [
+     2,
+     66,
+     -45
+    ],
+    [
+     16,
+     70,
+     -41
+    ],
+    [
+     0,
+     71,
+     -47
+    ],
+    [
+     0,
+     65,
+     -45
+    ]
+   ],
+   "moves": 4,
+   "deferred": 2,
+   "deferredAt": 1793821799816,
+   "skippedAt": 1793821854230
+  },
+  {
+   "cell": [
+    -1,
+    65,
+    -43
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending",
+   "movedFrom": [
+    0,
+    65,
+    -45
+   ],
+   "tried": [
+    [
+     9,
+     71,
+     -41
+    ],
+    [
+     2,
+     66,
+     -45
+    ],
+    [
+     0,
+     71,
+     -47
+    ],
+    [
+     0,
+     65,
+     -45
+    ],
+    [
+     -1,
+     65,
+     -43
+    ]
+   ],
+   "moves": 4,
+   "deferred": 2,
+   "deferredAt": 1793826412604
+  },
+  {
+   "cell": [
+    -1,
+    65,
+    -43
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "skipped",
+   "movedFrom": [
+    -1,
+    65,
+    -47
+   ],
+   "tried": [
+    [
+     11,
+     71,
+     -41
+    ],
+    [
+     0,
+     71,
+     -47
+    ],
+    [
+     0,
+     65,
+     -45
+    ],
+    [
+     -1,
+     65,
+     -47
+    ],
+    [
+     -1,
+     65,
+     -43
+    ]
+   ],
+   "moves": 4,
+   "deferred": 2,
+   "deferredAt": 1793822937983,
+   "skippedAt": 1793823097664
+  },
+  {
+   "cell": [
+    -1,
+    65,
+    -47
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending",
+   "movedFrom": [
+    0,
+    65,
+    -45
+   ],
+   "tried": [
+    [
+     12,
+     71,
+     -41
+    ],
+    [
+     2,
+     66,
+     -45
+    ],
+    [
+     0,
+     71,
+     -47
+    ],
+    [
+     0,
+     65,
+     -45
+    ],
+    [
+     -1,
+     65,
+     -47
+    ]
+   ],
+   "moves": 4,
+   "deferred": 2,
+   "deferredAt": 1793824149254
+  },
+  {
+   "cell": [
+    19,
+    70,
+    -41
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending",
+   "movedFrom": [
+    2,
+    66,
+    -45
+   ],
+   "tried": [
+    [
+     15,
+     70,
+     -41
+    ],
+    [
+     2,
+     66,
+     -45
+    ]
+   ],
+   "moves": 2
+  },
+  {
+   "cell": [
+    1,
+    66,
+    -48
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending",
+   "movedFrom": [
+    15,
+    70,
+    -41
+   ],
+   "tried": [
+    [
+     16,
+     70,
+     -41
+    ],
+    [
+     2,
+     66,
+     -45
+    ],
+    [
+     15,
+     70,
+     -41
+    ]
+   ],
+   "moves": 3
+  },
+  {
+   "cell": [
+    17,
+    69,
+    -67
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending"
+  },
+  {
+   "cell": [
+    17,
+    70,
+    -41
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending"
+  },
+  {
+   "cell": [
+    18,
+    70,
+    -41
+   ],
+   "species": "spruce",
+   "sapling": "spruce_sapling",
+   "state": "pending"
+  }
+ ],
+ "trees": [
+  {
+   "base": [
+    25,
+    70,
+    -49
+   ],
+   "species": "spruce",
+   "logs": 6
+  },
+  {
+   "base": [
+    25,
+    70,
+    -52
+   ],
+   "species": "spruce",
+   "logs": 6
+  },
+  {
+   "base": [
+    25,
+    69,
+    -56
+   ],
+   "species": "spruce",
+   "logs": 7
+  },
+  {
+   "base": [
+    21,
+    70,
+    -55
+   ],
+   "species": "spruce",
+   "logs": 7
+  },
+  {
+   "base": [
+    19,
+    70,
+    -59
+   ],
+   "species": "spruce",
+   "logs": 7
+  },
+  {
+   "base": [
+    18,
+    72,
+    -52
+   ],
+   "species": "spruce",
+   "logs": 5
+  },
+  {
+   "base": [
+    18,
+    70,
+    -55
+   ],
+   "species": "spruce",
+   "logs": 7
+  },
+  {
+   "base": [
+    15,
+    70,
+    -59
+   ],
+   "species": "spruce",
+   "logs": 7
+  },
+  {
+   "base": [
+    14,
+    71,
+    -54
+   ],
+   "species": "spruce",
+   "logs": 6
+  }
+ ],
+ "gen": 32,
+ "note": "LIVE showcase hall record g32 (11-04 ~21Z), cells/clear/fill dropped: storehubstand-01 fixture"
+}

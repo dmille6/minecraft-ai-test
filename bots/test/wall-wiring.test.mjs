@@ -12,12 +12,19 @@ process.env.BOT_NAME = 'WallBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
+process.env.UPKEEP = 'off'   // upkeep-01's plot (on in every named pool) has its own order test: upkeep.test.mjs
 // treefarm-04: the tree farm (sixth, after the paths) has its own test (treefarm.test.mjs); off here, so this file's project lists stand
 process.env.TREEFARM = 'off'
 process.env.STOREHOUSE = 'off'; process.env.SHOPCHEST = 'off'   // storehouse-01 / shopchest-01: storehouse.test.mjs, shopchest.test.mjs
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-wall-pool-'))
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
+process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase pool since its groundskeeper release) have their own order tests
+// a FLEET-pool child keeps the tidy's own default (on, last); a showcase child keeps TIDY=off like this file
+const tidyEnv = env => { const e = { ...process.env, ...env }; if (env.MEMORY_POOL !== 'showcase' && !('TIDY' in env)) delete e.TIDY; return e }
+process.env.SINKS = 'off'   // picker-01's town sinks (on in the showcase pool) have their own order test: sinks.test.mjs
+process.env.STEPWELL = 'off'   // stepwell-01's stepwell (on in the showcase pool) has its own tests: stepwell.test.mjs
 process.env.YARD = 'off'   // stockyard-01's yard (on in the showcase pool) has its own order test: yard.test.mjs
+process.env.CITYWALL = 'off'; process.env.CIVIC = 'off'   // citywall-01 / civic-01 (on in the showcase pool) have their own tests: citywall.test.mjs, civic.test.mjs
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 delete process.env.WALL; delete process.env.WALL_POOLS
 const SK = await import('../src/skills.mjs')
@@ -47,7 +54,7 @@ await t('the showcase pool lists the wall fifth, after the paths; since zigfleet
   const w = S.PROJECTS.find(p => p.plot === 'wall')
   assert.ok(w.after === 'paths' && S.buildersOf(w) === W.WALL_BUILDERS && w.blueprint === W.WALL_BLUEPRINT)
   assert.ok(S.LIGHT_PLOTS.has('wall'), 'an unsited wall needs 2 free bag slots: it builds from the bags\' cobblestone')
-  const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: { ...process.env, ...env }, encoding: 'utf8' }).trim()
+  const run = env => execFileSync(process.execPath, ['--input-type=module', '-e', "const S = await import('./src/shop.mjs'); console.log(S.projectsOn().map(p => p.plot).join(','))"], { cwd: new URL('..', import.meta.url), env: tidyEnv(env), encoding: 'utf8' }).trim()
   assert.strictEqual(run({ MEMORY_POOL: 'hive-a' }), 'shop,house1,monument,paths,wall,tidy', 'zigfleet-02: a fleet pool has the paths and the wall (tidy-01: the tidy, last)')
   assert.strictEqual(run({ MEMORY_POOL: 'hive-a', PATHS_POOLS: 'showcase', WALL_POOLS: 'showcase' }), 'shop,house1,monument,tidy', 'the pool-list rollback')
   assert.strictEqual(run({ MEMORY_POOL: 'showcase', WALL: 'off' }), 'shop,house1,monument,paths')
@@ -114,11 +121,11 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/
 const SRC = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 for (const [name, re] of [
   ['build_shop dispatches the wall to its own visit', /if \(proj\.plot === WALL_PLOT\) return buildWall\(ctx, args, signal\)/],
-  ['the wall\'s visit runs with its own palette, foreign set, walk radius and clear bound', /walkR: wallWalkR\(rec, home\), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,\n\s*\.\.\.wallStuckOf\(c\), [^\n]*\}, effects/],
+  ['the wall\'s visit runs with its own palette, foreign set, walk radius and clear bound', /walkR: wallWalkR\(rec, home\), foreign: WALL_FOREIGN, blockLayer: false, clearMax: WALL_CLEAR_MAX,\n\s*\.\.\.wallStuckOf\(c, K\.plot\), [^\n]*\}, effects/],
   ['the wall bills its open cells from town above the floor a project draw meets (the bag\'s spare first)', /const bill = billOf\(rec, palette, read, \{ done: buildCellDone, inTown: zigBillInTown\(bot, town\) \}\)\n\s*const need = wallNeed\(bill, spare0, needFromTown, SHOP_BILL_CAP\)/],
   ['the visit works the record with its lights last (in memory)', /const rec = wallLightsLast\(rh\.head\.rec\)/],
-  ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: WALL_PLOT, op: 'sited'/],
-  ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \? wallSaplingCols\(r\)/],
+  ['the wall is sited ONCE (published only when there is no record)', /const pub = publishRecord\(dir, key, cur => \(cur \? null : \{ \.\.\.record, state: 'open' \}\), \{ by: me \}\)\n[^\n]*\n {4}if \(pub\.result === 'accepted'\) \{ try \{ logEvent\(\{ kind: 'build', status: 'success', snapshot: snapshot\(bot\), detail: buildRowDetail\(\{ project: K\.plot, op: 'sited'/],   // wallext-01: the wall visit serves both walls (K: WALL_KIND | WALLEXT_KIND)
+  ['the wall\'s sapling keep-out is its columns', /r\.blueprint === WALL_BLUEPRINT \|\| r\.blueprint === WALLEXT_BLUEPRINT \? wallSaplingCols\(r\)/],
   ['build_shop counts its pick as a repair visit (the back-off\'s count)', /const proj = shopActive\(bot, Date\.now\(\), \{ visit: true \}\)/],
   ['shopActive backs off a repair that does not take', /const states = repairBackoff\(activeMem\.states, rmem, now\)\.map/],
   // zigtidy-02: ...except within the tidy's repair window after a repair completion (shop.mjs tidyIsRepair; zigtidy2.test.mjs)

@@ -10,9 +10,13 @@ process.env.BOT_NAME = 'PathBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'showcase'
+process.env.UPKEEP = 'off'   // upkeep-01's plot (on in every named pool) has its own order test: upkeep.test.mjs
 process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-paths-pool-'))
 delete process.env.MONUMENT; delete process.env.MONUMENT_POOLS; delete process.env.HOUSE; delete process.env.PATHS; delete process.env.PATHS_POOLS
 process.env.SHAFT = 'off'   // shaft-02's town stair (the second project) has its own order test: town-stair.test.mjs
+process.env.TIDY = 'off'   // tidy-01 / groundskeeper-01 (on in the showcase pool since its groundskeeper release) have their own order tests
+process.env.SINKS = 'off'   // picker-01's town sinks (on in the showcase pool) have their own order test: sinks.test.mjs
+process.env.STEPWELL = 'off'   // stepwell-01's stepwell (on in the showcase pool) has its own tests: stepwell.test.mjs
 process.env.YARD = 'off'   // stockyard-01's yard (on in the showcase pool) has its own order test: yard.test.mjs
 // wall-01: the wall (fifth, after the paths) has its own wiring test (wall-wiring.test.mjs); off here, so the paths stay the last project
 process.env.WALL = 'off'

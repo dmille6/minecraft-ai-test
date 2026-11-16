@@ -31,6 +31,10 @@ export const BW3_PALETTE = Object.freeze({ deck: ['$planks'] })
 /** THE SWITCH: BOARDWALK3=off|0|false|no -> nothing is cut or laid; on by default. WALKWAYS=off -> walk lines are cut like the rest. */
 export const bw3On = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.BOARDWALK3 ?? '').trim())
 export const bw3WalkOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.WALKWAYS ?? '').trim())
+/** keeperstall-01 r1: THE CUTS A WATER VISIT COUNTS AGAINST ITSELF (tidy.mjs tidyNoteCuts' input; the counts are the bot's PROCESS memory)
+ *  -> [key]: the cuts it evaluated, and NONE when its connection had ended (`ended`): a cut still standing because nobody was on the
+ *  other end of the dig is not a strike. Pure. */
+export const bw3Strikes = (tidied, { ended = false } = {}) => (ended ? [] : [...(tidied ?? [])])
 
 // the materials a listed cell may hold (waterstrays.py BOT_MAT); dirt, coarse dirt, rooted dirt and grass are one family
 export const BOT_MAT = /^(dirt|coarse_dirt|rooted_dirt|grass_block|cobblestone|mossy_cobblestone|cobbled_deepslate|netherrack|stone|andesite|diorite|granite|deepslate|tuff|sandstone|red_sandstone|dripstone_block)$/
