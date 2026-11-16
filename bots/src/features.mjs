@@ -42,6 +42,8 @@ import { indexSearch2ModeDetail } from './indexsearch2.mjs'   // indexsearch-02'
 import { hubModeDetail } from './storehub.mjs'   // storehub-01's licence row (pieces A + B)
 import { enchantModeDetail } from './enchantshop.mjs'   // enchantshop-01's licence row
 import { homePlotsModeDetail } from './homeplots.mjs'   // homes-01show's licence row
+import { buildRetryOn, buildRetryWhy } from './buildretry.mjs'   // one trunk: `_visitswitch_mode` (BUILDRETRY, default by pool)
+import { visitWaiverOn, visitWaiverWhy, visitSwitchDetail } from './stuckcells.mjs'   // one trunk: `_visitswitch_mode` (VISIT_WAIVER, default by pool)
 import { noWaitModeDetail } from './ordernowait.mjs'
 import { caneModeDetail } from './canefarm.mjs'   // canefarm-01's licence row
 import { reroofModeDetail, REROOF_FIX } from './reroof.mjs'
@@ -309,6 +311,9 @@ export function installFeatures (bot) {
   // homes-01show: the layout's home plots' licence row (on=0 under HOMEPLOTS=off or in a town with no layout: the rollback is visible too).
   // Written AFTER the older rows: bots/test/cobble-rule.test.mjs looks for its own row within a fixed stretch of this function
   try { logEvent({ kind: 'homeplots_mode', status: 'success', snapshot: snapshot(bot), detail: homePlotsModeDetail() }) } catch { /* telemetry */ }
+  // one trunk (control session 11-16): the two visit behaviours that default by POOL -- `_visitswitch_mode`, once per spawn: buildretry-01's
+  // ledger and default deferral (BUILDRETRY) and the in-visit waiver (VISIT_WAIVER), each on or off and whether the env or the pool said so
+  try { logEvent({ kind: 'visitswitch_mode', status: 'success', snapshot: snapshot(bot), detail: visitSwitchDetail({ retry: buildRetryOn(), retryWhy: buildRetryWhy(), waiver: visitWaiverOn(), waiverWhy: visitWaiverWhy(), pool: process.env.MEMORY_POOL ?? '' }) }) } catch { /* telemetry */ }
   // shop-01: the licence row, once per spawn -- `_build_mode`, a kind the base cannot write (cooperation A7), naming the reserve in
   // force by a short hash; the spawn time (no dig in the first 3 s: the ghost-block rule); the walks' seeds and the footprint
   if (SHOP.on) {
