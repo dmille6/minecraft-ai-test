@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-16T07:20:01Z._
+_Generated 2026-11-16T08:20:02Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-16T07:20:01Z._
 | **Canary in slot** | **bamboowalk-01** deployed 11-16 05:34Z; reads +90 11-16 07:04Z, +180 11-16 08:34Z; KEEP auto-promotes ~10 min after the +180 KEEP |
 | **Queue (front)** | irongap-01 -> obsidian-01 -> kittrim-01 -> pathsfix-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> market-02 -> market-03. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | busy S1 canary declared: 80563d74119aa3bb5bc781a5eaf2ddc419daa080 on hive-c,placebo-d,hive-b,board-c / S6 open loop: canary 80563d7 is deployed on hive-c,placebo-d,hive-b,board-c with no KEEP/REVERT/INCONCLUSIVE recorded — read it before st |
-| **Showcase release** | `0fd594eb` (50,816 rows), `591d45cd` (10,904 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 0fd594eb's protected tree: restack by hand; row 11-16 06:25Z) |
+| **Showcase release** | `0fd594eb` (24,977 rows), `591d45cd` (24,935 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release 591d45cd's protected tree: restack by hand; row 11-16 07:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
 | **Projects (daily audit)** | project audit fleet (11-15T12:05Z, 7 d, 188 projects, 15,528,410 lines / 80 bots): 3 broken, 1 dormant, 4 underused, 89 effective, 52 unmeasured, 39 - -- placebo-a/house1 BROKEN; placebo-d/shop BROKEN; placebo-d/wall BROKEN; isolated-d/well DORMANT; showcase: project audit showcase (11-15T12:05Z, 7 d, 43 projects, 2,319,110 lines / 15 bots): 3 dormant, 13 effective, 15 unmeasured, 12 - -- showcase/canefarm DORMANT; showcase/enchantshop DORMANT; showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-16T06:35:03Z STALLED: 200. OPSAUDIT 2026-11-15 FLAGS: 9 (0 high). 75 active alarm(s): stuck goals 23 (board-a/tidy@355_73_147, board-a/waterwalk@355_73_147, board-b/tidy@-249_65_144, board-b/waterwalk@-249_65_144, board-c/shaft@355_73_147, board-d/waterwalk@355_73_147 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:fullplace-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gklease-02:h72 |
+| **Open alarms** | STALLCHECK 2026-11-16T07:35:02Z STALLED: 202. OPSAUDIT 2026-11-15 FLAGS: 9 (0 high). 75 active alarm(s): stuck goals 23 (board-a/tidy@355_73_147, board-a/waterwalk@355_73_147, board-b/tidy@-249_65_144, board-b/waterwalk@-249_65_144, board-c/shaft@355_73_147, board-d/waterwalk@355_73_147 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:fullplace-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gklease-02:h72 |
 <!-- GENERATED:END -->
 
 ## Notes
