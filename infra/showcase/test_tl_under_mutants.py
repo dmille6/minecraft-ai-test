@@ -13,7 +13,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
-FILES = ('tl_under.py', 'tl_region.py', 'test_tl_under.py', 'tl_showcase.py')
+FILES = ('tl_under.py', 'tl_region.py', 'test_tl_under.py', 'tl_showcase.py', 'install-bin.sh')
 
 MUTANTS = [
     # the scene finder
@@ -234,6 +234,8 @@ MUTANTS = [
      'test_a_bad_section_is_unknown_and_counted_never_padded', 'tl_region.py'),
     ("                        except BadChunk:\n                            bad_sections += 1  ", "                        except ZeroDivisionError:\n                            bad_sections += 1  ",
      'test_a_bad_section_is_unknown_and_counted_never_padded', 'tl_region.py'),
+    (" tl_director.py tl_under.py tl_region.py rcon.py ", " tl_director.py tl_under.py rcon.py ", 'test_the_installer_ships_both_modules', 'install-bin.sh'),
+    (" tl_director.py tl_under.py tl_region.py rcon.py ", " tl_director.py tl_region.py rcon.py ", 'test_the_installer_ships_both_modules', 'install-bin.sh'),
     # the third review's four blockers
     ("                if not isinstance(y, int) or isinstance(y, bool) or not -128 <= y <= 127 or y in levels:", "                if False:",
      'test_a_section_that_says_no_level_makes_the_chunk_missing_never_air', 'tl_region.py'),

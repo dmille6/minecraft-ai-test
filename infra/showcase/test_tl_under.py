@@ -1382,6 +1382,14 @@ class Slot(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertEqual(json.loads(r.stdout.strip().splitlines()[-1])['errors'], 1)
 
+    def test_the_installer_ships_both_modules(self):
+        """Structural: tl_under.py imports tl_region.py, so install-bin.sh must put BOTH in /srv/showcase/bin."""
+        with open(os.path.join(HERE, 'install-bin.sh')) as f:
+            code = ' '.join(line.split('#', 1)[0].rstrip('\\\n ') for line in f)
+        listed = code.split('for f in ', 1)[1].split('; do', 1)[0].split()
+        for name in ('tl_under.py', 'tl_region.py', 'tl_showcase.py'):
+            self.assertIn(name, listed, f'{name} is not in the list install-bin.sh installs')
+
     def test_two_scenes_fit_the_budget_many_times_over(self):
         """Measured 11-16 on the Mac mini, region files made from the real 23-million-cell dump: 0.26 s for two scenes
         (0.05 s of it reading 60 chunks). The bound is the whole default budget: 20 s."""
