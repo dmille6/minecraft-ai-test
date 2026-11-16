@@ -26,6 +26,12 @@ for d in /home/mike/estel/scripts/lib /home/mike/w5alarms/scripts/lib; do
   if ! grep -qx "$cur" <<< "$known"; then echo "REFUSED: $d/alarmhead.py is not a version from main (hand edit?) -- reconcile by hand"; exit 2; fi
   cp -p "$d/alarmhead.py" "$d/alarmhead.py.bak-flowledger-$(date -u +%Y%m%dT%H%MZ)"
   cp "$SRC/scripts/lib/alarmhead.py" "$d/alarmhead.py"
+  # the pair travels together into the fleetstatus copy, where only alarmhead.py reads alarm.py (monfix-01 11-16: main's
+  # alarmhead.py beside an alarm.py of 10-28 was nine days of `header failed`); the W5 copy's alarm.py is the watchers' own
+  if [ "$d" = /home/mike/estel/scripts/lib ]; then
+    [ ! -f "$d/alarm.py" ] || cp -p "$d/alarm.py" "$d/alarm.py.bak-flowledger-$(date -u +%Y%m%dT%H%MZ)"
+    cp "$SRC/scripts/lib/alarm.py" "$d/alarm.py"
+  fi
 done
 LINE='5 * * * * cd /home/mike/flowledger/app/scripts && /usr/bin/nice -n 19 /usr/bin/python3 -B host/flowledger.py run >> /home/mike/flowledger/out/cron.log 2>&1 # flowledger'
 crontab -l > "$H/crontab.bak-$(date -u +%Y%m%dT%H%MZ)"

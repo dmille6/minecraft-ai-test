@@ -420,6 +420,83 @@ def t_head(AH):
         check('head ES: stale goal row is an alarm', any(l.startswith('!! showcase goals: STALE') for l in es), es)
 
 
+def t_head_parts(AH):
+    """monfix-01 (11-16): ~/estel/scripts/lib held main's alarmhead.py beside an alarm.py of 10-28 (no outbox) from 11-07, and
+    the whole header was ONE line, `header failed (AttributeError ... outbox_status)`. The pair is checked and named; a part
+    that fails costs its own line and the rest of the header is still read."""
+    import types
+    with tempfile.TemporaryDirectory() as d:
+        now = T
+        json.dump({'generated_at': '2026-10-28T11:55:00Z', 'alarms': {}, 'summary': 'fleet goals OK: 0 open'},
+                  open(os.path.join(d, 'goalwatch-fleet.json'), 'w'))
+        kw = dict(state_dir=d, conf=os.path.join(d, 'none'), sched_log=os.path.join(d, 'none.log'), home=d)
+        check('parts: the repo pair belongs together (positive control)', AH.stale_alarm_lib() == [], AH.stale_alarm_lib())
+        good = AH.lines(now, None, **kw)
+        check('parts: a matching pair prints no pair line and no failed part',
+              not any('OLDER than' in l or ' failed (' in l for l in good) and 'fleet goals OK: 0 open' in good, good)
+        real = AH.AL
+        AH.AL = types.SimpleNamespace(**{k: v for k, v in vars(real).items() if k not in ('outbox_status', 'gaveup_recent')})
+        try:
+            check('parts: the 10-28 alarm.py is seen', AH.stale_alarm_lib() == ['outbox_status', 'gaveup_recent'], AH.stale_alarm_lib())
+            out = AH.lines(now, None, **kw)
+        finally:
+            AH.AL = real
+        txt = '\n'.join(out)
+        check('parts: an old alarm.py is NAMED with its remedy, first',
+              out[0].startswith('!! W5 alarms: ') and 'is OLDER than the alarmhead.py beside it' in out[0]
+              and 'outbox_status' in out[0] and 'copy scripts/lib/alarm.py from main' in out[0], out[0])
+        check('parts: only the outbox part fails under it', sum(' failed (' in l for l in out) == 1
+              and any(l.startswith('!! W5 alarms: the push outbox failed (AttributeError') for l in out), txt)
+        check('parts: the channel line is still read', any(l.startswith('!! alarm push: NO CHANNEL') for l in out), txt)
+        check('parts: the slot line is still read', any(l.startswith('!! canary slot: sched.log UNREADABLE') for l in out), txt)
+        check('parts: the state files are still read', 'fleet goals OK: 0 open' in out
+              and any(l.startswith('!! daily drift: NO STATE') for l in out), txt)
+        check('parts: the monitor logs are still read', any(l.startswith('!! iron funnel: NO OUTPUT') for l in out), txt)
+
+        def boom(*a, **k):
+            raise RuntimeError('sched.log exploded')
+        slot = AH.slot_lines
+        AH.slot_lines = boom
+        try:
+            out = AH.lines(now, None, **kw)
+        finally:
+            AH.slot_lines = slot
+        check('parts: a part that raises costs one line that names it',
+              sum(' failed (' in l for l in out) == 1 and any(l.startswith('!! W5 alarms: the canary slot failed (RuntimeError: sched.log exploded)')
+                                                              for l in out), out)
+        check('parts: ... and the parts after it are still read', 'fleet goals OK: 0 open' in out
+              and any(l.startswith('!! iron funnel: NO OUTPUT') for l in out), out)
+
+
+HEAD_CP = 'cp "$SRC/scripts/lib/alarmhead.py" "$d/alarmhead.py"'
+ALARM_CP = 'cp "$SRC/scripts/lib/alarm.py" "$d/alarm.py"'
+
+
+def unpaired_installers(texts):
+    """PURE. {installer: text} -> those that copy alarmhead.py into an installed lib dir and not alarm.py with it (comment
+    lines dropped: the comments here quote the code)."""
+    out = []
+    for name, text in sorted(texts.items()):
+        code = '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
+        if HEAD_CP in code and ALARM_CP not in code:
+            out.append(name)
+    return out
+
+
+def t_installer_pair():
+    """STRUCTURAL (no behaviour reaches a host installer): the four installers that refresh the fleetstatus copy's alarmhead.py
+    carry alarm.py with it. Stallcheck, promomerge, flowledger and effectwatch each copied half the pair."""
+    import glob
+    texts = {os.path.basename(p): open(p).read() for p in glob.glob(os.path.join(HERE, 'install-*.sh'))}
+    copying = sorted(n for n, t in texts.items() if HEAD_CP in t)
+    check('installers: the ones that copy alarmhead.py are found (positive control)', len(copying) >= 4, copying)
+    check('installers: each carries alarm.py with it', unpaired_installers(texts) == [], unpaired_installers(texts))
+    anchor = '    ' + ALARM_CP + '\n'
+    assert texts[copying[0]].count(anchor) == 1, 'ANCHOR MISSING OR NOT UNIQUE in ' + copying[0]
+    check('installers: one without the line is named (the check fails for its reason)',
+          unpaired_installers(dict(texts, **{copying[0]: texts[copying[0]].replace(anchor, '')})) == [copying[0]])
+
+
 # ------------------------------------------------------------------------------------------------ owner-direct lane
 def t_direct(RO):
     A, B = 'a' * 40, 'b' * 40
@@ -585,7 +662,14 @@ MUTANTS = [
      "    if age is None:\n        return [f'!! {label}: STALE", t_head),
     ('lib/alarmhead.py', "        elif not hits or (bad and re.search(bad, last)) or (ok and not re.search(ok, last)):", "        elif False:", t_monitor_logs),
     ('lib/alarmhead.py', "        if now - mt > stale:", "        if False:", t_monitor_logs),
-    ('lib/alarmhead.py', "        out += monitor_lines(now, home)\n", "\n", t_monitor_logs),
+    ('lib/alarmhead.py', "    _part(out, 'the monitor logs', lambda: monitor_lines(now, home))\n", "\n", t_monitor_logs),
+    # monfix-01: the header's parts
+    ('lib/alarmhead.py', "    missing = stale_alarm_lib()\n", "    missing = []\n", t_head_parts),
+    ('lib/alarmhead.py', "    return [n for n in AL_NEEDS if not hasattr(al, n)]", "    return [n for n in AL_NEEDS[:1] if not hasattr(al, n)]", t_head_parts),
+    ('lib/alarmhead.py', "    try:\n        out += fn()\n    except Exception as e:          # noqa: BLE001\n        out.append(f'!! W5 alarms: {what} failed",
+     "    try:\n        out += fn()\n    except OSError as e:          # noqa: BLE001\n        out.append(f'!! W5 alarms: {what} failed", t_head_parts),
+    ('lib/alarmhead.py', "    _part(out, 'the push channel', lambda: channel_lines(conf))\n    _part(out, 'the push outbox', lambda: outbox_lines(now, state_dir))\n",
+     "    _part(out, 'the push outbox', lambda: channel_lines(conf) + outbox_lines(now, state_dir))\n", t_head_parts),
     ('rollout.py', "    if pr == 'protected':", "    if False:", t_direct),
     ('rollout.py', "    elif pr != 'not protected':", "    elif False:", t_direct),
     ('rollout.py', "    if f.get('slot'):\n        out.append('the canary slot is not empty", "    if False:\n        out.append('the canary slot is not empty", t_direct),
@@ -601,7 +685,8 @@ MUTANTS = [
 def run_all(mods):
     t_alarm(mods['lib/alarm.py']); t_goal(mods['goalwatch.py']); t_halt(mods['haltwatch.py'])
     t_rollout(mods['rollout.py']); t_drift(mods['driftwatch.py']); t_head(mods['lib/alarmhead.py'])
-    t_monitor_logs(mods['lib/alarmhead.py']); t_direct(mods['rollout.py'])
+    t_monitor_logs(mods['lib/alarmhead.py']); t_direct(mods['rollout.py']); t_head_parts(mods['lib/alarmhead.py'])
+    t_installer_pair()
 
 
 def main():
