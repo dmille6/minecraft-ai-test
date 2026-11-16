@@ -18963,6 +18963,10 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // draw, the bag) names the tidy too -- the same mark and the same bound as the room fallback's (a crash-left mark outlives no visit)
     const g2Pick = roomFallbackPick(b?.groundsPick ?? null, now, !!b?.shopVisitBusy) ? list.find(p => p.plot === TIDY_PLOT) ?? null : null
     if (g2Pick) return g2Pick
+    // workboard-01 (one trunk): a board job's project is this bot's pick while its pin is fresh and the job still workable (boardPinned,
+    // the rule shopActiveAll applies): the bot claimed a slot of THAT project and walked to town for it
+    const wbPick = boardPinned(b, list, marked, now)
+    if (wbPick) return wbPick
     // projturn-01 (review r2, Codex BLOCKER 2): under PROJTURN the repair attempt is counted where the visit's start is stamped (turnBegin:
     // only a pick the probe's claim ACCEPTED) -- a pick stepped aside from tried nothing and must not spend one. PROJTURN=off: here, as before
     if (PROJTURN.on && visit && b) b.shopTurnRepair = { pick, states, now }
@@ -19047,11 +19051,7 @@ export function shopActiveAll (bot = null, now = Date.now(), { visit = false } =
     let pick = activeProject(marked, order)
     // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
     // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
-    const bp = b?.boardPick
-    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
-      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
-      if (sp && st && jobBlocked(st) == null) pick = sp
-    }
+    pick = boardPinned(b, list, marked, now) ?? pick
     if (starve && visit) {
       const st = marked.find(x => x?.plot === pick.plot)
       if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null
@@ -19092,6 +19092,19 @@ export function boardRelease (bot, plot, claim) {
 }
 /** WORKBOARD-01: pin the job's project for this bot's next visit (shopActiveAll honours it WB.claimTtlMs). */
 export function boardPin (bot, plot, now = Date.now()) { if (bot) bot.boardPick = plot ? { plot, at: now } : null }
+/** WORKBOARD-01: the project a FRESH pin of bot `b` names while its job is still workable (townwork.mjs jobBlocked) -> the project |
+ *  null. One rule for both pickers (shopActiveAll, and the trunk's shopActive). Never throws. */
+function boardPinned (b, list, marked, now) {
+  let pick = null
+  try {
+    const bp = b?.boardPick
+    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
+      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+      if (sp && st && jobBlocked(st) == null) pick = sp
+    }
+  } catch { pick = null }
+  return pick
+}
 /** WORKBOARD-01: the job's bag rule: a light plot needs 2 free slots, every other 8 (shop.mjs LIGHT_PLOTS). */
 export const boardLight = plot => LIGHT_PLOTS.has(plot)
 /** buildnext-01: is `plot` held for bot `b` now (its breaker, its own last stuck_on_cell)? -> reason | null. Never throws. */
