@@ -1250,8 +1250,35 @@ class Slot(unittest.TestCase):
     def test_the_budget_and_one_scene_that_fails(self):
         self.hand_off([self.scene_a(), self.scene_b()])
         code, out, err = self.run_slot('--budget-s', '0')
-        self.assertEqual((code, out['drawn'], out['skipped'], out['errors'], out['why']), (0, 0, 2, 0, {'budget': 2}))
+        self.assertEqual((code, out['drawn'], out['skipped'], out['errors'], out['why']), (0, 0, 2, 0, {'deadline': 2}),
+                         'no time at all: the clock runs from the reading of the hand-off file')
         self.assertEqual([p for p in tree(self.root) if p.startswith('frames/')], [])
+        ticks = [0]
+
+        def clock():                                   # a clock that moves a millisecond every time it is read
+            ticks[0] += 1
+            return ticks[0] * 0.001
+        U._mono = clock
+        try:
+            a = U.slot_args(['--root', self.root, '--region-dir', self.rd, '--stamp', self.stamp, '--budget-s', '1000000'])
+            self.hand_off([self.scene_a()])
+            self.assertEqual(U.run_slot(a)['drawn'], 1)
+            one = ticks[0]
+            import shutil
+            for d in ('frames', 'under-box', 'under-framing'):
+                shutil.rmtree(os.path.join(self.root, d))
+            self.hand_off([self.scene_a(), self.scene_b(), dict(self.scene_b(), id='e20261116T0430c', frames='frames/under-e20261116T0430c')])
+            ticks[0] = 0
+            a.budget_s = (one + 60) * 0.001               # time for the first scene and a little of a second
+            out = U.run_slot(a)
+        finally:
+            U._mono = time.monotonic
+        self.assertEqual((out['drawn'], out['skipped'], out['why']), (1, 2, {'budget': 2}),
+                         'a scene is not started when the time left is less than the slowest so far took')
+        import shutil
+        for d in ('frames', 'under-box', 'under-framing'):
+            shutil.rmtree(os.path.join(self.root, d), ignore_errors=True)
+        self.hand_off([self.scene_a(), self.scene_b()])
         real = U.render
 
         def flaky(world, pos, scene, *a, **k):
@@ -1507,9 +1534,11 @@ class Hardening(unittest.TestCase):
                 self.assertEqual(all_paths(self.root), full, f'step {n}: drawn means every file')
             else:
                 seen[out.get('max_step') or '?'] += 1
-                self.assertEqual((out['why'], out['skipped'], out['errors']), ({'deadline': 1}, 1, 0), (n, out, err.getvalue()))
+                self.assertIn(out['why'], ({'deadline': 1}, {'budget': 1}), (n, out, err.getvalue()))    # budget: not even started
+                self.assertEqual((out['skipped'], out['errors']), (1, 0), (n, out, err.getvalue()))
                 self.assertEqual(all_paths(self.root), before, f'step {n}: abandoned at {err.getvalue().strip()!r}: nothing is left')
-                self.assertIn('abandoned at the', err.getvalue())
+                self.assertTrue(out['why'] == {'budget': 1} or 'abandoned at the' in err.getvalue() or 'out of time' in err.getvalue(),
+                                err.getvalue())
                 self.assertLessEqual(out['overrun_s'], 0.006, f'step {n}: it stopped at the very next look at the clock')
                 places.add(err.getvalue().strip().rsplit('(', 1)[-1].rstrip(')'))
                 latest = max(latest, n)
@@ -1749,8 +1778,14 @@ class Hardening(unittest.TestCase):
             self.assertEqual(set(r['cells'][layer:2 * layer]), {0}, f'{name}: its 4096 cells are unknown, not padded into blocks')
             self.assertEqual(r['palette'][r['cells'][3]], 'coal_ore', f'{name}: the section under it still reads')
             self.assertEqual({r['palette'][v] for v in r['cells'][2 * layer:]}, {'dirt'}, f'{name}: and the one over it')
-        r = self.read_odd([self.section(0, names, good), self.section(1, ['dirt'], with_y=False)])
-        self.assertEqual((r['bad_sections'], set(r['cells'][layer:2 * layer])), (1, {0}), 'a section that does not say where it is')
+        zeros, ones = (0,) * 256, (-1,) * 256
+        for name, data, ok in (('no data, as the game writes it', None, True), ('256 words of zero', zeros, True),
+                               ('256 words of index 15', ones, False), ('ten words of zero', zeros[:10], False),
+                               ('257 words of zero', zeros + (0,), False), ('one stray index', zeros[:100] + (1 << 40,) + zeros[101:], False)):
+            r = self.read_odd([self.section(0, names, good), self.section(1, ['stone'], data), self.section(2, ['dirt'])])
+            got = {r['palette'][v] for v in r['cells'][layer:2 * layer]}
+            self.assertEqual((r['bad_sections'], got), (0, {'stone'}) if ok else (1, {'?'}), f'a palette of one with {name}')
+            self.assertEqual(r['missing'], [], name)
         for bs, why in (({'palette': [{'Name': 'a'}, {'Name': 'b'}], 'data': tuple(good[:255])}, 'needs 256 words'),
                         ({'palette': [{'Name': 'a'}, {'Name': 'b'}], 'data': list(good)}, 'needs 256 words'),
                         ({'palette': [{'Name': 'a'}, {'Name': 7}]}, 'without a Name'), ('stone', 'not a compound')):
@@ -1762,6 +1797,112 @@ class Hardening(unittest.TestCase):
         box = U.read_scene_box(self.region_with({(0, 0): b'\x02' + zlib.compress(R.chunk_nbt(0, 0, [self.section(0, names, good), cases['a data array 56 words short']]))}),
                                {'rect': [0, 0, 15, 15], 'y0': 0, 'top_min': None})
         self.assertEqual(box['bad_sections'], 1, 'and the count reaches the frame')
+
+    def test_a_section_that_says_no_level_makes_the_chunk_missing_never_air(self):
+        """Round 3: a section whose Y is missing or malformed was dropped, and its level then read as a section the
+        chunk does not carry: AIR, in a picture's box. The chunk cannot be trusted level by level: it is missing."""
+        names = ['stone', 'dirt', 'air', 'coal_ore', 'water']
+        good = R.pack_section(bytes([i % 5 for i in range(4096)]), 5)
+        states = R._tag(10, 'block_states', R._compound(
+            [R._tag(9, 'palette', bytes([10]) + struct.pack('>i', 1) + R._entry('stone'))]))
+        odd = {'Y is the string "0"': R._compound([R._tag(8, 'Y', R._s('0')), states]),
+               'no Y at all': R._compound([states]),
+               'Y is 1.0': R._compound([R._tag(5, 'Y', struct.pack('>f', 1.0)), states]),
+               'Y is 4000': R._compound([R._tag(3, 'Y', struct.pack('>i', 4000)), states]),
+               'a second section at Y 0': self.section(0, ['dirt'])}
+        for name, sec in odd.items():
+            doc = R.chunk_nbt(0, 0, [self.section(0, names, good), sec, self.section(2, ['dirt'])])
+            d = self.region_with({(0, 0): b'\x02' + zlib.compress(doc), (1, 0): b'\x02' + zlib.compress(self.good_chunk(1, 0))})
+            for absent in (None, 'air'):
+                try:
+                    r = R.read_box(d, 0, 0, 31, 15, 0, 47, absent=absent)
+                except Exception as e:
+                    self.fail(f'{name}: raised {type(e).__name__}: {e}')
+                self.assertEqual((r['missing'], r['chunks']), ([[0, 0]], 1), name)
+                self.assertTrue(any('no level of its own' in k for k in r['missing_why']), (name, r['missing_why']))
+                west = {r['palette'][r['cells'][(y * 16 + z) * 32 + x]] for y in range(48) for z in range(16) for x in range(16)}
+                self.assertEqual(west, {'?'}, f'{name}, absent={absent}: every cell of that chunk is unknown, none is air')
+        box = U.read_scene_box(self.region_with({(0, 0): b'\x02' + zlib.compress(R.chunk_nbt(0, 0, [self.section(0, names, good), odd['Y is the string "0"']]))}),
+                               {'rect': [0, 0, 15, 15], 'y0': 0, 'top_min': None})
+        self.assertEqual((len(box['missing']), set(box['cells'])), (1, {0}), 'and so it reaches the picture: unknown, counted')
+
+    # round 3 --------------------------------------------------------------- the hand-off file is input too
+    def test_a_hand_off_file_too_large_is_refused_before_it_is_decoded(self):
+        p = os.path.join(self.root, 'logs', 'scenes-slot.json')
+        self.assertEqual(U.read_handoff(p)['stamp'], self.stamp)
+        real = json.loads
+        decoded = []
+        json.loads = lambda *a, **k: (decoded.append(1), real(*a, **k))[1]
+        try:
+            with open(p, 'w') as f:
+                f.write('{"stamp": "%s", "scenes": [], "pad": "%s"}' % (self.stamp, 'x' * (U.MAX_HANDOFF_BYTES + 10)))
+            with self.assertRaises(ValueError) as c:
+                U.read_handoff(p)
+            self.assertIn('not decoded', str(c.exception))
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+                code = U.main(['slot', '--root', self.root, '--region-dir', self.rd, '--stamp', self.stamp])
+            self.assertEqual(decoded, [], 'not one byte of it went through the JSON decoder')
+            out = real(buf.getvalue())
+            self.assertEqual((code, out['drawn'], out['errors']), (0, 0, 1))
+            self.assertIn('not decoded', out['error'])
+            with open(p, 'w') as f:
+                f.write('{"stamp": "%s", "scenes": [], "pad": "%s"}' % (self.stamp, 'x' * 1000))
+            self.assertEqual(U.read_handoff(p, max_bytes=2000)['scenes'], [])
+            with self.assertRaises(ValueError):
+                U.read_handoff(p, max_bytes=500)
+        finally:
+            json.loads = real
+
+    def test_the_clock_runs_while_the_hand_off_file_is_read(self):
+        many = [dict(self.scene, id=f'd{i}', trail={'Alpha': self.scene['trail']['Alpha'][:20]}) for i in range(200)]
+        put(os.path.join(self.root, 'logs', 'scenes-slot.json'), {'stamp': self.stamp, 'scenes': many})
+        ticks = [0]
+
+        def clock():
+            ticks[0] += 1
+            return ticks[0] * 0.001
+        U._mono = clock
+        self.args.budget_s = 0.030                      # thirty looks at the clock: gone before the scenes are sorted out
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            out = U.run_slot(self.args)
+        self.assertEqual((out['drawn'], out['errors'], out['why'], out['skipped']), (0, 0, {'deadline': 200}, 200), err.getvalue())
+        self.assertIn('reading the hand-off file', err.getvalue())
+        self.assertLess(ticks[0], 60, 'it stopped there: it did not go on to parse 200 trails')
+        self.assertEqual(all_paths(self.root), ['logs/', 'logs/scenes-slot.json'])
+        U._mono = time.monotonic
+        scenes, why = U.slot_scenes({'scenes': many})
+        self.assertEqual((len(scenes), why), (U.MAX_SCENES, {'too_many': 200 - U.MAX_SCENES}), 'and never more than 64 scenes')
+
+    def test_a_trail_is_bounded_whatever_the_file_says(self):
+        row = lambda k: [iso_z(T0 + 10 * k), 1.0 + k, 20, 3.5, 'mine']
+        trail = {f'Bot{i:03d}': [row(i)] for i in range(100)}
+        pos, bad = U.trail_positions(trail)
+        self.assertEqual((len(pos), bad, sorted(pos)[-1]), (U.MAX_TRAIL_BOTS, 36, 'Bot063'), 'the first 64 bots')
+        pos, bad = U.trail_positions({'Alpha': [row(k) for k in range(5000)]})
+        self.assertEqual((len(pos['Alpha']), bad), (U.MAX_TRAIL_ROWS, 5000 - U.MAX_TRAIL_ROWS))
+        self.assertEqual((pos['Alpha'][0][0], pos['Alpha'][-1][0]), (T0 + 10 * 4400, T0 + 10 * 4999), 'the NEWEST 600 rows')
+        pos, bad = U.trail_positions({'A' * 41: [row(1)], '': [row(1)], 'Alpha': [
+            row(1), ['2026-11-16T04:00:00.' + '0' * 50 + 'Z', 1, 2, 3, 'mine'], [iso_z(T0), '1', 2, 3, 'mine'], [iso_z(T0), True, 2, 3, 'mine'],
+            [iso_z(T0), 10 ** 400, 2, 3, 'mine'], [iso_z(T0), 1, 2, 3, 'm' * 500], [iso_z(T0), 1, 2, 3, 'mine'] + [0] * 20, 'row']})
+        self.assertEqual((sorted(pos), bad), (['Alpha'], 2 + 6), 'a name, a time, a number must be what they say')
+        self.assertEqual([r[4] for r in pos['Alpha']], ['m' * 40, 'mine'], 'a skill of 500 letters is cut to 40')
+        ticks = [0]
+
+        def clock():
+            ticks[0] += 1
+            return float(ticks[0])
+        U._mono = clock
+        with U.deadline(1e12):
+            U.trail_positions({f'Bot{i}': [row(k) for k in range(600)] for i in range(10)})
+        self.assertGreaterEqual(ticks[0], 10 * 5, 'the clock is looked at every 128 rows')
+        with U.deadline(7.0):
+            with self.assertRaises(U.Deadline):
+                U.trail_positions({f'Bot{i}': [row(k) for k in range(600)] for i in range(10)})
+        U._mono = time.monotonic
+        sc, _ = U.slot_scenes({'scenes': [dict(self.scene, bots=['B%d' % i for i in range(500)] + ['x' * 900], caption='c' * 5000)]})
+        self.assertEqual((len(sc[0]['bots']), len(sc[0]['caption'])), (U.MAX_TRAIL_BOTS, 200))
 
     # 4 ------------------------------------------------------------------ a name ends where it ends
     def test_a_trailing_newline_is_not_part_of_a_name(self):

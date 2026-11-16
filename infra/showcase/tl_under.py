@@ -2403,27 +2403,58 @@ def parse_iso(s):
     return t
 
 
+MAX_HANDOFF_BYTES = 4 << 20      # the hand-off file is ~80 KB; one fifty times that is not a hand-off file
+MAX_SCENES = 64                  # scenes looked at in one hand-off (the director keeps at most a handful live)
+MAX_TRAIL_BOTS = 64              # bots drawn in one scene
+MAX_TRAIL_ROWS = 600             # samples per bot (the director writes at most 300): the NEWEST are kept
+MAX_WORD = 40                    # a bot name, a time, a skill: longer is not one
+
+
 def trail_positions(trail):
     """A scene's `trail` {bot: [[t_iso, x, y, z, skill], ...]} -> ({bot: [(epoch, x, y, z, skill), ...]} sorted, the
-    number of rows that could not be read). A missing trail, or a bot with [], is simply nobody to draw."""
+    number of rows that were not read). A missing trail, or a bot with [], is simply nobody to draw. Bounded whatever
+    the file says: MAX_TRAIL_BOTS bots, each one's newest MAX_TRAIL_ROWS rows (so no sort is of more), names and times
+    of at most MAX_WORD characters, coordinates that are numbers; what is over a limit is counted as not read. The
+    deadline is looked at for every bot and every 128 rows."""
     out, bad = {}, 0
     if not isinstance(trail, dict):
         return out, (0 if trail is None else 1)
-    for b, rows in trail.items():
+    for n, (b, rows) in enumerate(trail.items()):
+        tick('trail')
+        rows = rows if isinstance(rows, list) else []
+        if n >= MAX_TRAIL_BOTS or not isinstance(b, str) or not 0 < len(b) <= MAX_WORD:
+            bad += len(rows)
+            continue
+        bad += max(0, len(rows) - MAX_TRAIL_ROWS)
         got = []
-        for r in rows if isinstance(rows, list) else []:
+        for i, r in enumerate(rows[-MAX_TRAIL_ROWS:]):
+            if not i & 127:
+                tick('trail')
             try:
+                if not isinstance(r, list) or len(r) > 8 or not isinstance(r[0], str) or len(r[0]) > MAX_WORD \
+                        or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in r[1:4]):
+                    raise ValueError
                 t = parse_iso(r[0])
                 x, y, z = float(r[1]), float(r[2]), float(r[3])
                 if t is None or not all(math.isfinite(v) for v in (x, y, z)):
                     raise ValueError
-                got.append((t, x, y, z, str(r[4]) if len(r) > 4 and r[4] is not None else '?'))
-            except (TypeError, ValueError, IndexError):
+                got.append((t, x, y, z, str(r[4])[:MAX_WORD] if len(r) > 4 and isinstance(r[4], str) else '?'))
+            except (TypeError, ValueError, IndexError, OverflowError):
                 bad += 1
         got.sort()
         if got:
-            out[str(b)] = got
+            out[b] = got
     return out, bad
+
+
+def read_handoff(path, max_bytes=MAX_HANDOFF_BYTES):
+    """The hand-off file as an object. A file over max_bytes is refused BEFORE a byte of it is decoded, and no more
+    than max_bytes + 1 of it are ever read (so one that grows while it is read is refused too): ValueError."""
+    with open(path, 'rb') as f:
+        data = f.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f'the hand-off file is more than {max_bytes} bytes: not decoded')
+    return json.loads(data)
 
 
 def check_scene(s):
@@ -2453,7 +2484,11 @@ def slot_scenes(obj):
     why = collections.Counter()
     out = []
     scenes = obj.get('scenes') if isinstance(obj, dict) else obj
-    for s in scenes if isinstance(scenes, list) else []:
+    scenes = scenes if isinstance(scenes, list) else []
+    if len(scenes) > MAX_SCENES:
+        why['too_many'] = len(scenes) - MAX_SCENES
+    for s in scenes[:MAX_SCENES]:
+        tick('hand-off: scenes')
         layer = s.get('layer') if isinstance(s, dict) else None
         if layer == 'surface':
             why['surface'] += 1
@@ -2464,8 +2499,11 @@ def slot_scenes(obj):
         elif check_scene(s):
             why['invalid'] += 1
         else:
+            bots = s.get('bots')
             out.append(dict(s, box=[int(math.floor(v)) for v in s['box'][:2]] + [int(math.ceil(v)) for v in s['box'][2:]],
-                            y=[int(math.floor(s['y'][0])), int(math.ceil(s['y'][1]))]))
+                            y=[int(math.floor(s['y'][0])), int(math.ceil(s['y'][1]))],
+                            bots=[str(b)[:MAX_WORD] for b in bots[:MAX_TRAIL_BOTS]] if isinstance(bots, list) else None,
+                            caption=s['caption'][:200] if isinstance(s.get('caption'), str) else None))
     return out, dict(why)
 
 
@@ -3009,7 +3047,8 @@ def slot_scene(a, scene, stamp, t, size, style):
 
 def run_slot(a, now=None):
     """Every underground scene of the hand-off file, inside the budget. -> the summary. The budget is ONE deadline on
-    the monotonic clock for the whole call: a scene is not started once it has passed (or when the time left is less
+    the monotonic clock for the whole call, running from before the hand-off file is read (a file over
+    MAX_HANDOFF_BYTES is refused undecoded): a scene is not started once it has passed (or when the time left is less
     than the slowest scene so far took: why.budget), and a scene it passes during is abandoned at the next tick()
     with nothing written (why.deadline). One scene's failure is a line on stderr and a count. max_step_s is the
     longest the call went without looking at the clock: the most it can overrun."""
@@ -3021,8 +3060,19 @@ def run_slot(a, now=None):
     def done():
         out['seconds'] = round(time.time() - t0, 3)
         return out
-    obj = read_json(a.slot_file)
-    scenes, why = slot_scenes(obj)
+    at = m0 + a.budget_s
+    obj = None
+    try:
+        with deadline(at):                             # the clock runs from the first byte read, not from the first scene
+            obj = read_handoff(a.slot_file)
+            scenes, why = slot_scenes(obj)
+    except Deadline as e:
+        listed = obj.get('scenes') if isinstance(obj, dict) else obj
+        n = max(1, len(listed)) if isinstance(listed, list) else 1
+        out['why'], out['skipped'] = {'deadline': n}, n
+        out['overrun_s'] = round(max(0.0, _mono() - at), 4)
+        print(f'tl_under slot: out of time ({a.budget_s:g} s) reading the hand-off file ({e}): nothing drawn', file=sys.stderr)
+        return done()
     out['scenes'] = len(scenes)
     out['why'] = why
     out['skipped'] = sum(v for k, v in why.items() if k != 'surface')
@@ -3039,7 +3089,6 @@ def run_slot(a, now=None):
     size = parse_size(a.size)
     style = parse_styles(a.style, ('trails',))[0]
     slowest = 0.0
-    at = m0 + a.budget_s
     step, where = 0.0, None
     for i, sc in enumerate(scenes):
         spent = _mono() - m0

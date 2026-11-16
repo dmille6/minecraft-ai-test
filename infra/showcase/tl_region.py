@@ -237,6 +237,12 @@ class Regions:
                 raise BadChunk('the chunk stored here says it is %r, %r' % (d.get('xPos'), d.get('zPos')))
             if not isinstance(d.get('sections'), list):
                 raise BadChunk('no sections')
+            levels = set()
+            for s in d['sections']:                            # every section must say which level it is, once: one
+                y = s.get('Y') if isinstance(s, dict) else None  # that does not would otherwise be read as absent (air)
+                if not isinstance(y, int) or isinstance(y, bool) or not -128 <= y <= 127 or y in levels:
+                    raise BadChunk('a section with no level of its own (Y %r)' % (y,))
+                levels.add(y)
             return d
         except (BadChunk, OSError, zlib.error, struct.error, IndexError, ValueError, TypeError, UnicodeError, MemoryError,
                 RecursionError, OverflowError) as e:
@@ -278,7 +284,8 @@ def section_cells(bs):
     """One section's block_states -> (its palette entries, its 4096 palette indices: bytes, a list past 256 names, or
     None when one block fills it). BadChunk unless it is exactly what the format says: a palette of compounds each
     with a Name; with more than one entry, a long array of exactly ceil(4096 / (64 // bits)) words; and no index past
-    the palette. A wrong section must never be drawn as plausible blocks."""
+    the palette -- also when the palette has ONE entry and a data array is there all the same (the game writes none):
+    it must be the right length and all zero. A wrong section must never be drawn as plausible blocks."""
     if not isinstance(bs, dict):
         raise BadChunk('block_states is not a compound')
     pal, dat = bs.get('palette'), bs.get('data')
@@ -287,10 +294,14 @@ def section_cells(bs):
     for p in pal:
         if not isinstance(p, dict) or not isinstance(p.get('Name'), str) or not isinstance(p.get('Properties', {}), dict):
             raise BadChunk('a palette entry without a Name')
-    if len(pal) == 1:
-        return pal, None
     bits = max(4, (len(pal) - 1).bit_length())
     want = -(-4096 // (64 // bits))
+    if len(pal) == 1:
+        if dat is None:                                        # how the game writes a section of one block: no data
+            return pal, None
+        if not isinstance(dat, tuple) or len(dat) != want or any(dat):     # data all the same: every index must be 0
+            raise BadChunk('a palette of one with data that is not %d words of zero' % want)
+        return pal, None
     if not isinstance(dat, tuple) or len(dat) != want or not all(isinstance(v, int) for v in dat[:4]):
         raise BadChunk('a palette of %d needs %d words of data, not %s' % (len(pal), want, len(dat) if isinstance(dat, tuple) else type(dat).__name__))
     vals = section_bytes(bs)
@@ -304,7 +315,8 @@ def read_box(region_dir, x0, z0, x1, z1, y0, y1, fold=None, max_real=190, absent
     missing: [[cx, cz], ...], missing_why: {reason: n}, bad_sections, chunks, folded, bytes_read}; cells is one
     palette index per cell, x fastest, then z, then y, exactly as townplan_blockdump writes a dump. A chunk that is
     absent, not fully generated, stored at other coordinates or not well formed is listed in `missing` and its cells
-    are '?' (index 0); a section that is not well formed (section_cells) is '?' too and counted in `bad_sections`.
+    are '?' (index 0); so is a chunk with a section that does not say which level it is (it could not be told from an
+    absent one). A section that is not well formed (section_cells) is '?' too and counted in `bad_sections`.
     A section a full chunk does not carry is '?' as in townplan_blockdump (its planner must never take unknown for
     air), unless `absent` names the block to read there (tl_under passes 'air': to the game a section that is not
     stored IS air, and a picture's sky must not be unknown). tick(): called before every chunk and inside a large
@@ -353,12 +365,7 @@ def read_box(region_dir, x0, z0, x1, z1, y0, y1, fold=None, max_real=190, absent
                     continue
                 nchunks += 1
                 lz0, lz1 = max(z0, cz * 16) - cz * 16, min(z1, cz * 16 + 15) - cz * 16
-                secs = {}
-                for s in ch['sections']:                         # a section that is not a compound with a Y is no section
-                    if isinstance(s, dict) and isinstance(s.get('Y'), int) and not isinstance(s.get('Y'), bool):
-                        secs[s['Y']] = s.get('block_states')
-                    else:
-                        bad_sections += 1
+                secs = {s['Y']: s.get('block_states') for s in ch['sections']}      # (chunk_at checked every Y)
                 for sy in range(y0 >> 4, (y1 >> 4) + 1):
                     if sy not in secs:
                         if absent is None:
