@@ -1190,6 +1190,140 @@ def check_no_fixed_camera_starves_behind_the_scene_cameras(t, M):
     t.assertGreater(sum(1 for views in slow_day for v in views if v.startswith('scene-')), 60, 'and scenes are still filmed')
 
 
+def longest_gap_slots(day, hit):
+    """The longest run of slots between two slots where hit(views) holds (the day's start and end count as edges)."""
+    at = [k for k, views in enumerate(day) if hit(views)]
+    if not at:
+        return float('inf')
+    return max([at[0]] + [b - a for a, b in zip(at, at[1:])] + [len(day) - 1 - at[-1]])
+
+
+def check_owed_cameras_do_not_starve_the_scenes(t, M):
+    """Codex r2: three ~210-s cameras on 15-min intervals are owed in turn for ever. The scenes get a bounded wait."""
+    D, TL = M['D'], M['TL']
+    has_scene = lambda views: any(v.startswith('scene-') for v in views)
+    cam = lambda **kw: dict({'x': 0.5, 'y': 70, 'z': 0.5, 'distance': 95, 'rotation': 0.0, 'angle': 0.0, 'ortho': 1,
+                             'mode': 'flat', 'fov': None}, **kw)
+    dcA = D.dconf({})
+
+    def scenes(cams_, now):
+        st = D.continuity(None, [cl('surface', [(10 * k, 0)], 100 - k) for k in range(2)], [], now.timestamp(), dcA)
+        for x in st['scenes']:
+            x['id'] = 'sfixed' + x['id'][-1]
+        c, o = D.scene_cameras(st['scenes'], dcA, TL.follow_camera)
+        return D.apply_cameras(cams_, dcA, c), o, dcA['scene_budget_s'], dcA['slot_s']
+    for heavy in (False, True):
+        big = lambda: cam(est_s=210, interval_min=15, idle_min=15, **({'heavy': True} if heavy else {}))
+        cfg = {'cameras': {'topdown': cam(), 'angled': cam(), 'bigA': big(), 'bigB': big(), 'bigC': big()},
+               'pair_hourly': ['topdown'], 'capture_min': 15, 'budget_s': 690, 'interval_min': 15}
+        day = simulate_day(TL, cfg, scenes, spent=120, measured=True)
+        cost = lambda views: sum(210 if v.startswith('big') else 40 if v.startswith('scene-') else 30 for v in views)
+        n_scene = sum(1 for views in day for v in views if v.startswith('scene-'))
+        t.assertGreater(n_scene, 0, f'heavy={heavy}: scene frames are shot at all (none before the fix)')
+        runs, run = [], 0
+        for views in day:
+            run = 0 if has_scene(views) else run + 1
+            runs.append(run)
+        t.assertLessEqual(max(runs), 2, f'heavy={heavy}: never more than scene_wait_slots (2) slots in a row without a scene frame')
+        t.assertLessEqual(longest_gap_slots(day, has_scene) * 15, 45, 'so at most 45 min between scene frames')
+        t.assertEqual(max(runs), 2, 'positive control: the owed cameras do take two slots in a row')
+        for v in ('bigA', 'bigB', 'bigC'):
+            gap = longest_gap_slots(day, lambda views, v=v: v in views)
+            t.assertLessEqual(gap, 5, f'heavy={heavy}: {v} waits at most G + ceil(G / 2) = 5 slots (75 min), G = 3 cameras taking '
+                              f'turns; got {gap}')
+            t.assertGreaterEqual(sum(1 for views in day if v in views), 96 // 5, f'{v} is still filmed')
+        t.assertTrue(all('angled' in views for views in day), 'the pair is in every slot')
+        t.assertEqual(sum(1 for views in day if 'topdown' in views), 24)
+        t.assertTrue(all(cost(views) + 120 <= 690 for views in day), 'no slot above budget_s')
+        t.assertTrue(all(cost(views) + 120 <= 360 for views in day if has_scene(views)), 'a slot with a scene frame is inside slot_s')
+        t.assertTrue(any(cost(views) + 120 > 360 for views in day), 'positive control: slots WITHOUT a scene frame use budget_s')
+    # one slot, by hand: 360 - 120 - 30 = 210 s; bigA is owed and takes all of it
+    cfgu = {'cameras': {'topdown': cam(), 'angled': cam(), 'bigA': cam(est_s=210, interval_min=15, idle_min=15)}, 'interval_min': 15}
+    dc, (sc, order) = scene_cams(D, TL, 2)
+    rcfg = dict(cfgu, cameras=D.apply_cameras(cfgu['cameras'], dc, sc))
+    st = {'angled': {'frame_s': 30}, 'bigA': {'frame_s': 210, 'last': '2026-11-16T12:15:00Z'}}
+    plan = lambda wait, **kw: TL.plan_views(dict(rcfg, **kw), st, NOW, {}, 690, 120, pair=('angled',), first=order,
+                                            first_budget_s=90, slot_s=360, first_wait=wait)
+    t.assertEqual((plan(0)[0], plan(1)[0]), (['angled', 'bigA'], ['angled', 'bigA']), 'the owed camera first: no scene frame fits')
+    views, why, deferred = plan(2)
+    t.assertEqual((views, deferred), (['angled'] + order, ['bigA']),
+                  'two slots without a scene frame: ONE is set aside first; bigA no longer fits under slot_s and waits a slot; '
+                  'the second scene frame takes seconds nothing else can use')
+    t.assertIn('no scene frame for 2 slots', why[order[0]])
+    t.assertEqual(plan(1, director={'scene_wait_slots': 1})[0], ['angled'] + order, 'the knob')
+    t.assertEqual(plan(3, director={'scene_wait_slots': 5})[0], ['angled', 'bigA'])
+    # a slow render: the owed camera cannot fit under slot_s at all (the scene-less, budget_s slot) -- unless a scene is owed
+    slow = lambda wait: TL.plan_views(rcfg, st, NOW, {}, 690, 150, pair=('angled',), first=order, first_budget_s=90,
+                                      slot_s=360, first_wait=wait)[0]
+    t.assertEqual((slow(1), slow(2)), (['angled', 'bigA'], ['angled'] + order))
+    # the scene frame set aside is still one that fits: with 30 s left under slot_s there is none to set aside
+    t.assertEqual(TL.plan_views(rcfg, st, NOW, {}, 690, 300, pair=('angled',), first=order, first_budget_s=90, slot_s=360,
+                                first_wait=9)[0], ['angled', 'bigA'])
+    # the scene frame set aside counts against slot_s like any other: a 180-s camera does not slip in beside it
+    cfgm = {'cameras': {'topdown': cam(), 'angled': cam(), 'mid': cam(est_s=180, interval_min=15, idle_min=15)}, 'interval_min': 15}
+    stm = {'angled': {'frame_s': 30}, 'mid': {'frame_s': 180, 'last': '2026-11-16T12:29:00Z'}}
+    for wait in (0, 2):
+        vm = TL.plan_views(dict(cfgm, cameras=D.apply_cameras(cfgm['cameras'], dc, sc)), stm, NOW, {}, 690, 120, pair=('angled',),
+                           first=order, first_budget_s=40, slot_s=360, first_wait=wait)
+        t.assertEqual((vm[0], sorted(vm[2])), (['angled', order[0]], sorted(['mid', order[1]])), f'wait {wait}: 30 + 40 + 120 s; 170 left')
+    # without scene cameras the count is not even read
+    t.assertEqual(TL.plan_views(cfgu, st, NOW, {}, 690, 120, pair=('angled',), first_wait=9),
+                  TL.plan_views(cfgu, st, NOW, {}, 690, 120, pair=('angled',)))
+    # the director's count: one more for a slot that offered scene cameras and shot none; back to 0 otherwise
+    base = {'scenes': [{'id': 'sa', 'shots': 0}], 'scene_wait': 1}
+    t.assertEqual(D.note_shots(base, {}, TNOW, wanted=2)['scene_wait'], 2)
+    t.assertEqual(D.note_shots(base, {'sa': 30.0}, TNOW, wanted=2)['scene_wait'], 0, 'a scene frame was shot')
+    t.assertEqual(D.note_shots(base, {}, TNOW, wanted=0)['scene_wait'], 0, 'no scene camera was live: nothing is waiting')
+    t.assertEqual(D.note_shots({'scenes': []}, {}, TNOW, wanted=1)['scene_wait'], 1)
+    t.assertEqual((TL.scene_wait_of({'state': {'scene_wait': 2}}), TL.scene_wait_of(None), TL.scene_wait_of({'error': 'x'})), (2, 0, 0))
+    # ---- the live template (Codex r1's day: two scenes live, 120 s spent): the reservation does not move hero4k
+    dcT = D.dconf(CONF)
+
+    def scenesT(cams_, now):
+        stT = D.continuity(None, [cl('surface', [(10 * k, 0)], 100 - k) for k in range(2)], [], now.timestamp(), dcT)
+        for x in stT['scenes']:
+            x['id'] = 'sfixed' + x['id'][-1]
+        c, o = D.scene_cameras(stT['scenes'], dcT, TL.follow_camera)
+        return D.apply_cameras(cams_, dcT, c), o, dcT['scene_budget_s'], dcT['slot_s']
+    costT = lambda views: sum(150 if v.endswith('4k') else 40 if v.startswith('scene-') else 30 for v in views)
+    for spent in (120, 200):
+        dayT = simulate_day(TL, CONF, scenesT, spent=spent, measured=True)
+        t.assertLessEqual(longest_gap_slots(dayT, lambda views: 'hero4k' in views) * 15, 60, f'spent {spent}: hero4k within 60 min')
+        t.assertTrue(all(costT(views) + spent <= dcT['slot_s'] for views in dayT if has_scene(views)),
+                     f'spent {spent}: a slot with a scene frame never exceeds slot_s')
+        t.assertLessEqual(longest_gap_slots(dayT, has_scene), 3, 'and its scenes never wait more than 45 min either')
+
+
+def check_the_scene_wait_count_through_the_wiring(t, M):
+    """Three real slots: two owed 210-s cameras take the first two; the third shoots a scene frame first."""
+    root, cfg = slot_root({'slot_s': 275}, deaths=False)
+    try:
+        cam = cfg['cameras']['angled']
+        cfg['cameras'] = {'topdown': cam, 'angled': cam, 'bigA': dict(cam, est_s=210, interval_min=15, idle_min=15),
+                          'bigB': dict(cam, est_s=210, interval_min=15, idle_min=15)}
+        with open(os.path.join(root, 'logs', 'views.json'), 'w') as f:
+            json.dump({'topdown': {'frame_s': 30}, 'angled': {'frame_s': 30}}, f)        # the pair: 60 s; 215 s are left
+        waits, shots = [], []
+        for k in range(3):
+            now = NOW + dt.timedelta(minutes=15 * k)
+            shot, hb = run_slot(M, cfg, now, now.strftime('%Y%m%dT%H%MZ'))
+            st = jload(os.path.join(root, 'logs', 'views.json'))
+            for v in ('bigA', 'bigB'):                      # the fake browser reports 31 s a frame: keep the cameras at 210 s
+                if v in st:
+                    st[v]['frame_s'] = 210
+            for v in ('topdown', 'angled'):
+                st[v]['frame_s'] = 30
+            with open(os.path.join(root, 'logs', 'views.json'), 'w') as f:
+                json.dump(st, f)
+            shots.append([v.split('-')[0] for v in shot])
+            waits.append(jload(os.path.join(root, 'logs', 'scenes.json')).get('scene_wait'))
+        t.assertEqual(shots, [['topdown', 'angled', 'bigA'], ['topdown', 'angled', 'bigB'], ['topdown', 'angled', 'scene']],
+                      'bigA then bigB are owed and take the 215 s; in the third slot the scene goes first (bigA, owed again, waits)')
+        t.assertEqual(waits, [1, 2, 0], 'scenes.json counts the slots without a scene frame and starts again with one')
+    finally:
+        shutil.rmtree(root)
+
+
 def check_underground_scenes_carry_their_bots_trail(t, M):
     """logs/scenes-slot.json: every underground scene has `trail`, its bots' samples, from the rows already read."""
     D, TL = M['D'], M['TL']
@@ -1336,9 +1470,10 @@ def simulate_day(TL, cfg, scene_plan=None, slots=96, spent=None, measured=False)
     before the plan (default SPENT_S). measured: every camera already has its measured frame cost (30 s, a 4K one
     150 s), so the plan's estimates are the costs the tests add up. -> [views per slot]."""
     spent = SPENT_S if spent is None else spent
-    state, out = {}, []
+    state, out, wait = {}, [], 0
+    cost_of = lambda v, c: (c or {}).get('est_s') or (150 if (c or {}).get('heavy') else 40 if v.startswith('scene-') else 30)
     if measured:
-        state = {v: {'frame_s': 150 if (c or {}).get('heavy') else 30} for v, c in cfg['cameras'].items()}
+        state = {v: {'frame_s': cost_of(v, c)} for v, c in cfg['cameras'].items()}
     sites = {'cottage1': {'box': [30, 30, 40, 40], 'g': 66}}
     t0 = dt.datetime(2026, 11, 16, tzinfo=U)
     for k in range(slots):
@@ -1349,11 +1484,12 @@ def simulate_day(TL, cfg, scene_plan=None, slots=96, spent=None, measured=False)
         if scene_plan:
             cams, first, fb, slot_s = scene_plan(cams, now)
         views, _, _ = TL.plan_views(dict(cfg, cameras=cams), state, now, prog, float(cfg.get('budget_s') or 690), spent,
-                                    pair=TL.slot_pair(cfg, now), first=first, first_budget_s=fb, slot_s=slot_s)
+                                    pair=TL.slot_pair(cfg, now), first=first, first_budget_s=fb, slot_s=slot_s,
+                                    first_wait=wait)
+        # the director's count (tl_director.note_shots): slots in a row with scene cameras live and no scene frame
+        wait = wait + 1 if first and not any(v.startswith('scene-') for v in views) else 0
         for v in views:
-            heavy = (cams.get(v) or {}).get('heavy')
-            state[v] = dict(state.get(v) or {}, last=TL._iso(now), last_change=TL._iso(now),
-                            frame_s=150 if heavy else 40 if v.startswith('scene-') else 30)
+            state[v] = dict(state.get(v) or {}, last=TL._iso(now), last_change=TL._iso(now), frame_s=cost_of(v, cams.get(v)))
             if v in targets:
                 state[v]['target'] = targets[v]
         out.append(views)
@@ -1456,6 +1592,12 @@ class DirectorInTheSlot(unittest.TestCase):
 
     def test_no_fixed_camera_starves_behind_the_scene_cameras(self):
         check_no_fixed_camera_starves_behind_the_scene_cameras(self, REAL)
+
+    def test_owed_cameras_do_not_starve_the_scenes(self):
+        check_owed_cameras_do_not_starve_the_scenes(self, REAL)
+
+    def test_the_scene_wait_count_through_the_wiring(self):
+        check_the_scene_wait_count_through_the_wiring(self, REAL)
 
     def test_underground_scenes_carry_their_bots_trail(self):
         check_underground_scenes_carry_their_bots_trail(self, REAL)
@@ -2118,15 +2260,15 @@ MUTANTS = [
     ('tl_showcase.py', "    if res.get('error'):\n        return {'error': res['error']}", "    if res.get('error'):\n        return None",
      'check_a_failing_director_costs_the_slot_nothing'),
     ('tl_showcase.py', "                res['dc'].get('slot_s'), res)", "                None, res)", 'check_the_slot_ceiling_reaches_the_plan'),
-    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s)\n    est = {v:",
-     "                                      first=first, first_budget_s=first_budget)\n    est = {v:",
+    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
+     "                                      first=first, first_budget_s=first_budget,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
      'check_the_slot_ceiling_reaches_the_plan'),
     ('tl_showcase.py', "    if first:                       # the director's scene cameras", "    if True:                       # the director's scene cameras",
      'check_the_slot_ceiling_reaches_the_plan'),
     ('tl_showcase.py', "    return min(float(budget_s), float(slot_s)) if slot_s else budget_s", "    return budget_s",
      'check_the_template_day_costs_no_more'),
-    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s)\n    est = {v:",
-     "                                      first=(), first_budget_s=first_budget, slot_s=slot_s)\n    est = {v:",
+    ('tl_showcase.py', "                                      first=first, first_budget_s=first_budget, slot_s=slot_s,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
+     "                                      first=(), first_budget_s=first_budget, slot_s=slot_s,\n                                      first_wait=scene_wait_of(dres))\n    est = {v:",
      'check_a_whole_slot_with_the_director_on'),
     ('tl_showcase.py', "    for v in [k for k in state if k.startswith('scene-') and k not in cams]:", "    for v in []:",
      'check_a_whole_slot_with_the_director_on'),
@@ -2252,9 +2394,9 @@ MUTANTS = [
      'check_no_fixed_camera_starves_behind_the_scene_cameras'),
     ('tl_showcase.py', "    for _, _, v, w in [d for d in ordered if d[2] in held] + [d for d in ordered if d[2] not in held]:",
      "    for _, _, v, w in ordered:", 'check_no_fixed_camera_starves_behind_the_scene_cameras'),
-    ('tl_showcase.py', "        if any(capped < est(v) <= left for _, v in owed):", "        if False:",
+    ('tl_showcase.py', "        if not scene_owed and any(capped < est(v) <= left for _, v in owed):", "        if False:",
      'check_no_fixed_camera_starves_behind_the_scene_cameras'),
-    ('tl_showcase.py', "        if any(capped < est(v) <= left for _, v in owed):", "        if owed:",
+    ('tl_showcase.py', "        if not scene_owed and any(capped < est(v) <= left for _, v in owed):", "        if not scene_owed and owed:",
      'check_no_fixed_camera_starves_behind_the_scene_cameras'),
     ('tl_showcase.py', "            left = capped\n", "            pass\n", 'check_no_fixed_camera_starves_behind_the_scene_cameras'),
     ('tl_showcase.py', "            why[v] = w + ('; owed: its seconds were set aside before the scene cameras' if v in held else '')",
@@ -2284,6 +2426,40 @@ MUTANTS = [
      'check_underground_scenes_carry_their_bots_trail'),
     ('tl_director.py', "    slot = slot_file(state, stamp, dc, samples, now)", "    slot = slot_file(state, stamp, dc)",
      'check_underground_scenes_carry_their_bots_trail'),
+    # ---- Codex r2: the owed fixed cameras do not starve the scenes (plan_views first_wait, note_shots scene_wait)
+    ('tl_showcase.py', "        scene_owed = first_wait >= wait_n and est(first[0]) <= capped and est(first[0]) <= room",
+     "        scene_owed = False", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "        scene_owed = first_wait >= wait_n and est(first[0]) <= capped and est(first[0]) <= room",
+     "        scene_owed = first_wait > wait_n and est(first[0]) <= capped and est(first[0]) <= room",
+     'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "        scene_owed = first_wait >= wait_n and est(first[0]) <= capped and est(first[0]) <= room",
+     "        scene_owed = first_wait >= wait_n and est(first[0]) <= room", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "        scene_owed = first_wait >= wait_n and est(first[0]) <= capped and est(first[0]) <= room",
+     "        scene_owed = est(first[0]) <= capped and est(first[0]) <= room", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "        if not scene_owed and any(capped < est(v) <= left for _, v in owed):",
+     "        if any(capped < est(v) <= left for _, v in owed):", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "        wait_n = int((cfg.get('director') or {}).get('scene_wait_slots') or DEFAULT_SCENE_WAIT_SLOTS)",
+     "        wait_n = DEFAULT_SCENE_WAIT_SLOTS", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "DEFAULT_SCENE_WAIT_SLOTS = 2 ", "DEFAULT_SCENE_WAIT_SLOTS = 4 ", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "                keep, left, room = keep - est(first[0]), left - est(first[0]), room - est(first[0])",
+     "                keep, left, room = keep, left - est(first[0]), room - est(first[0])", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "                keep, left, room = keep - est(first[0]), left - est(first[0]), room - est(first[0])",
+     "                keep, left, room = keep - est(first[0]), left, room - est(first[0])", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "            for v in first[len(lead):]:", "            for v in first:", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_director.py', "        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if wanted and not shots else 0",
+     "        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if not shots else 0", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_director.py', "        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if wanted and not shots else 0",
+     "        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if wanted else 0", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_director.py', "        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if wanted and not shots else 0",
+     "        out['scene_wait'] = 1 if wanted and not shots else 0", 'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "        return int(((res or {}).get('state') or {}).get('scene_wait') or 0)", "        return 0",
+     'check_owed_cameras_do_not_starve_the_scenes'),
+    ('tl_showcase.py', "                                      first_wait=scene_wait_of(dres))\n    est = {v:", "                                      )\n    est = {v:",
+     'check_the_scene_wait_count_through_the_wiring'),
+    ('tl_director.py', "    state = note_shots(res['state'], shots, now, wanted=len(res['first']))", "    state = note_shots(res['state'], shots, now)",
+     'check_the_scene_wait_count_through_the_wiring'),
+    ('tl_director.py', "cam_s=prev.get('cam_s'), scene_wait=int(prev.get('scene_wait') or 0))", "cam_s=prev.get('cam_s'))",
+     'check_the_scene_wait_count_through_the_wiring'),
 ]
 KEY = {fn: k for k, fn in FILES.items()}
 

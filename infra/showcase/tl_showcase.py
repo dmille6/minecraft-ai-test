@@ -124,6 +124,7 @@ def camera_markers(cam):
 DEFAULT_HEAVY_PER_SLOT = 1
 DEFAULT_FOLLOW_MAX_AGE_H = 6.0       # a follow camera's target must have placed within this (0 / null: no limit)
 DEFAULT_OVERDUE_N = 2.0              # a fixed camera not shot for this many of its intervals goes before the scene cameras
+DEFAULT_SCENE_WAIT_SLOTS = 2         # after this many slots in a row with scenes live and no scene frame: one goes first
 QUALITY_KEYS = ('dpr', 'hires', 'lowres', 'sun', 'ambient')
 
 
@@ -294,7 +295,8 @@ def cam_active(cfg, cam, vstate, now, progress):
     return False, 'quiet'
 
 
-def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, first=(), first_budget_s=None, slot_s=None):
+def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, first=(), first_budget_s=None, slot_s=None,
+               first_wait=0):
     """The cameras this slot shoots, in order: the pair always first, then every DUE camera (its interval has passed
     since its last frame, 2 min of slack for timer jitter), active before idle, most overdue first, until the estimated
     cost reaches the budget. -> (views, why {view: reason}, deferred [views]). Pure (tested).
@@ -312,7 +314,23 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, fir
     (hero4k, every 30 min: 60 min), plus one slot for each camera owed ahead of it that the slot could not also hold.
     When an owed camera does not fit under slot_s even with no scene frame at all (a slow render), the slot shoots NO
     scene camera and is planned under budget_s alone, as a slot without a director is: slot_s is the ceiling of slots
-    that carry scene frames, never a reason to drop a fixed camera for good."""
+    that carry scene frames, never a reason to drop a fixed camera for good.
+
+    AND NO SCENE STARVES BEHIND THE OWED CAMERAS (Codex r2, 11-16: three 210-s cameras on 15-min intervals are owed in
+    turn for ever and took every slot's seconds; no scene frame was ever shot). first_wait: the slots in a row, up to
+    now, in which scene cameras were live and none got a frame (the director counts them: scenes.json scene_wait).
+    At scene_wait_slots (tl.conf director.scene_wait_slots, default 2) ONE scene frame -- the first in the director's
+    order -- is set aside FIRST, ahead of the owed fixed cameras, and the slot stays under slot_s; the owed cameras
+    get what is left, or the next slot.
+    THE BOUNDS, both sides, while the frame in question fits the slot at all (a scene frame under slot_s; a fixed
+    camera under budget_s):
+      scenes   never more than scene_wait_slots (2) slots in a row without a scene frame: with a scene live, at most
+               (2 + 1) x 15 = 45 min between scene frames;
+      fixed    a camera that would be shot within G slots with no scene frame set aside waits one more slot for each
+               one that is, and there is at most one of those in every scene_wait_slots + 1 slots: at most
+               G + ceil(G / scene_wait_slots) slots. Three 210-s cameras taking turns (G = 3): 5 slots, 75 min.
+               The template's hero4k (G = 4 slots, 60 min): its bound would be 6 slots, but there the reservation
+               never fires -- scene frames are shot in 3 slots of 4 -- and its longest gap stays 60 min (tested)."""
     cams = cfg.get('cameras') or {}
     est = lambda v: float((state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') or cfg.get('frame_s')
                           or DEFAULT_FRAME_S)
@@ -338,19 +356,26 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, fir
     lead, late, held = [], [], []
     if first:                       # the director's scene cameras: before every fixed camera, inside the slot's ceilings
         capped = plan_budget(budget_s, slot_s) - spent_s - sum(est(v) for v in pair)
-        if any(capped < est(v) <= left for _, v in owed):
+        room = float('inf') if first_budget_s is None else float(first_budget_s)
+        wait_n = int((cfg.get('director') or {}).get('scene_wait_slots') or DEFAULT_SCENE_WAIT_SLOTS)
+        scene_owed = first_wait >= wait_n and est(first[0]) <= capped and est(first[0]) <= room
+        if not scene_owed and any(capped < est(v) <= left for _, v in owed):
             late = list(first)      # an owed camera cannot fit under slot_s at all: no scene frame, budget_s alone
         else:
             left = capped
             keep, heavy_keep = left, heavy_left
+            if scene_owed:          # the scenes have waited scene_wait_slots slots: ONE scene frame before anything owed
+                lead.append(first[0])
+                why[first[0]] = (f'scene (no scene frame for {first_wait} slots: before the owed cameras): '
+                                 + str(((cams[first[0]] or {}).get('scene') or {}).get('caption') or ''))
+                keep, left, room = keep - est(first[0]), left - est(first[0]), room - est(first[0])
             for _, v in sorted(owed):               # set aside the owed cameras' seconds, most overdue first
                 is_heavy = bool((cams[v] or {}).get('heavy'))
                 if est(v) <= keep and (not is_heavy or heavy_keep > 0):
                     held.append(v)
                     keep -= est(v)
                     heavy_keep -= is_heavy
-            room = float('inf') if first_budget_s is None else float(first_budget_s)
-            for v in first:
+            for v in first[len(lead):]:
                 if est(v) <= keep and est(v) <= room:
                     lead.append(v)
                     why[v] = 'scene: ' + str(((cams[v] or {}).get('scene') or {}).get('caption') or 'ahead of the fixed cameras')
@@ -373,6 +398,15 @@ def plan_views(cfg, state, now, progress, budget_s, spent_s=0.0, pair=VIEWS, fir
         else:
             deferred.append(v)
     return out + heavy, why, deferred
+
+
+def scene_wait_of(res):
+    """The slots in a row, before this one, in which scene cameras were live and none got its frame: the director's
+    own count (scenes.json scene_wait; 0 while the director is off or failed). Pure (tested)."""
+    try:
+        return int(((res or {}).get('state') or {}).get('scene_wait') or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def plan_budget(budget_s, slot_s):
@@ -894,7 +928,8 @@ def _capture_locked(cfg, a, t, stamp):
     rcfg = dict(cfg, cameras=cams)           # follow cameras made concrete for this slot (+ the scene cameras)
     pair = slot_pair(cfg, t)
     views, why, deferred = plan_views(rcfg, state, t, progress, budget, time.time() - start, pair=pair,
-                                      first=first, first_budget_s=first_budget, slot_s=slot_s)
+                                      first=first, first_budget_s=first_budget, slot_s=slot_s,
+                                      first_wait=scene_wait_of(dres))
     est = {v: (state.get(v) or {}).get('frame_s') or (cams.get(v) or {}).get('est_s') for v in views}
     crc, msg, got, cs, ccpu, extra, extra_err, raw_rc = capture(rcfg, stamp, views, deadline=start + budget, est=est,
                                                                pair=pair)
@@ -1016,7 +1051,8 @@ def cmd_plan(cfg, a):
     cams, first, first_budget, slot_s, dres = director_slot(cfg, cams, t, sites, stamp_of(t), write=False)   # read-only
     views, why, deferred = plan_views(dict(cfg, cameras=cams), state, t, progress,
                                       float(cfg.get('budget_s') or DEFAULT_BUDGET_S), 75.0,
-                                      first=first, first_budget_s=first_budget, slot_s=slot_s)
+                                      first=first, first_budget_s=first_budget, slot_s=slot_s,
+                                      first_wait=scene_wait_of(dres))
     out = {'t': _iso(t), 'views': views, 'why': why, 'deferred': deferred, 'follow': targets}
     if dres is not None:
         if dres.get('error'):

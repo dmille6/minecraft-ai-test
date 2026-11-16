@@ -12,7 +12,8 @@ OPERATOR NOTE
               `skill.duration_ms`, `skill.detail`; `_build` rows (op=place|clear project=<p> cell=x,y,z), `_death` rows,
               `_structure_complete` rows. The project records' boxes (handed in by tl_showcase.project_sites). Its own
               state, logs/scenes.json.
-  Writes      logs/scenes.json            the live scenes (ids, boxes, captions, hold clocks), the still-bot tracker
+  Writes      logs/scenes.json            the live scenes (ids, boxes, captions, hold clocks), the still-bot tracker,
+                                          scene_wait (slots in a row without a scene frame)
               logs/scenes-slot.json       THE HAND-OFF: this slot's scene list (format below), for tl_under.py
               logs/scenes-<YYYYMMDD>.jsonl  the same object without the trails, one line per slot (tl_video ranks
                                           the day's scenes from it)
@@ -30,7 +31,9 @@ OPERATOR NOTE
               on 11-16, 6 of every 15 minutes) -- a fixed camera that no longer fits waits for the next slot. It
               never waits for good: one not shot for director.overdue_n (2) of its own intervals has its seconds set
               aside BEFORE the scene cameras get theirs (tl_showcase.plan_views), so hero4k (every 30 min) is never
-              more than 60 min without a frame whatever the scenes do.
+              more than 60 min without a frame whatever the scenes do. Nor do the owed cameras starve the scenes:
+              after director.scene_wait_slots (2) slots in a row with a scene live and no scene frame (scenes.json
+              scene_wait counts them), one scene frame is set aside first -- at most 45 min between scene frames.
   Off switch  tl.conf "director": {"on": false} (or no `director` key at all): tl_showcase never imports this file
               and plans exactly the cameras it planned before (tested: test_director.py DirectorOff). Its three files
               then simply stop changing; delete them or leave them.
@@ -124,6 +127,7 @@ DEFAULTS = {
     'scene_budget_s': 90,             # the scene cameras' own ceiling per slot (estimated capture seconds)
     'slot_s': 360,                    # a slot with a scene camera plans no more than this in all (measured 11-16)
     'overdue_n': 2,                   # a fixed camera unshot for this many of its intervals goes before the scenes
+    'scene_wait_slots': 2,            # ... and after this many slots in a row with no scene frame, one scene goes first
     'trail_min': 45, 'trail_max': 300,    # an underground scene's `trail` in the hand-off: minutes, samples per bot
     'scene_camera': {'ortho': 0, 'mode': 'perspective', 'width': 1440, 'height': 1440, 'markers': [], 'est_s': 40,
                      'y': 69, 'rotation': 0.7854, 'angle': 0.6, 'fov': 32, 'min_distance': 40, 'fit': 2.2},
@@ -741,11 +745,16 @@ def without_trails(slot):
     return dict(slot, scenes=[{k: v for k, v in s.items() if k != 'trail'} for s in slot['scenes']])
 
 
-def note_shots(state, shots, now, w=0.4):
+def note_shots(state, shots, now, w=0.4, wanted=None):
     """The state after the slot's frames are published. shots: {scene id: seconds the frame took, or None}. Each shot
     scene counts it (an event's priority is spent) and the scene cameras' shared cost estimate `cam_s` follows the
-    measured seconds (EWMA). -> a new state. Pure (tested)."""
+    measured seconds (EWMA). wanted: how many scene cameras this slot was offered -- `scene_wait` then counts the
+    slots IN A ROW in which scene cameras were live and none got a frame (one more now; back to 0 with a frame, or
+    with no scene camera live): tl_showcase.plan_views sets one scene frame aside first once it reaches
+    scene_wait_slots. -> a new state. Pure (tested)."""
     out = dict(state, scenes=[dict(s) for s in state.get('scenes') or []])
+    if wanted is not None:
+        out['scene_wait'] = int(out.get('scene_wait') or 0) + 1 if wanted and not shots else 0
     for s in out['scenes']:
         if s['id'] in shots:
             s['shots'] = int(s.get('shots') or 0) + 1
@@ -799,7 +808,7 @@ def run(cfg, now, sites, stamp=None, frame=None, write=True, rows=None):
     since = _ts(prev.get('t')) or now - dc['fresh_min'] * 60
     events, tracker, seen = find_events(by_bot, prev.get('bots'), prev.get('seen'), since, now, dc, sites)
     state = continuity(prev, clusters, events, now, dc)
-    state.update(bots=tracker, seen=seen, cam_s=prev.get('cam_s'))
+    state.update(bots=tracker, seen=seen, cam_s=prev.get('cam_s'), scene_wait=int(prev.get('scene_wait') or 0))
     cams, first = scene_cameras(state['scenes'], dc, frame, est_s=prev.get('cam_s')) if frame else ({}, [])
     slot = slot_file(state, stamp, dc, samples, now)        # + each underground scene's trail, from these samples
     stats = dict(stats, clusters=len(clusters), events=len(events), live=len(state['scenes']),
@@ -816,7 +825,7 @@ def run(cfg, now, sites, stamp=None, frame=None, write=True, rows=None):
 def finish(cfg, res, shots, now):
     """After the slot's capture: record which scene cameras got their frame (note_shots) and save the state."""
     now = now.timestamp() if hasattr(now, 'timestamp') else float(now)
-    state = note_shots(res['state'], shots, now)
+    state = note_shots(res['state'], shots, now, wanted=len(res['first']))
     save_state(cfg, state)
     return state
 
