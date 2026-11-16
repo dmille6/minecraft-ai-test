@@ -125,7 +125,8 @@ await t('a cell no stand was found for is not searched again while the world sta
     let n = 0, bodies = 1
     const read0 = srv.read
     srv.read = (x, y, z) => { if (`${x},${y},${z}` === sup) n++; return read0(x, y, z) }
-    const v = await visit(RM, srv, record([{ seg: 'S', cells: [A, Bc] }]), { standCache, hook, botOpts: { others: () => (bodies-- > 0 ? [Bc] : []), ...(feet ? { feet } : {}) } })
+    // stepclass-01: the deferral row's class reads A's support too (once a visit: steprefusal.test.mjs counts it); this test counts the SEARCH's
+    const v = await visit(RM, srv, record([{ seg: 'S', cells: [A, Bc] }]), { standCache, hook, opts: { stepClass: false }, botOpts: { others: () => (bodies-- > 0 ? [Bc] : []), ...(feet ? { feet } : {}) } })
     assert.strictEqual(v.r.placed, 1, 'B is laid on the second pass')
     assert.strictEqual(v.r.deferred?.[0]?.k, k3(A))
     return n

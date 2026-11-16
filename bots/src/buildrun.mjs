@@ -28,7 +28,7 @@
 //   a timer. After the wait the block is HELD again and the face looked at again.
 
 import { performance } from 'node:perf_hooks'
-import { walkFrom, walkAgain, stepFor, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative, refUsable } from './buildsite.mjs'
+import { walkFrom, walkAgain, stepFor, stepRefusal, sightClear, overlay, WALK_R, DIG_REACH, EYE, replantAlternative, refUsable } from './buildsite.mjs'
 import { LEAFFELL_ON, leafWait, segLeafWait, rowDue } from './leaffell.mjs'   // leaffell-01show: a cell under a decaying leaf waits; a zone-refused clear is set aside
 import { isSolid, replaceableCell, isLiquid } from './townplan.mjs'
 import * as PJ from './buildproj.mjs'
@@ -84,6 +84,10 @@ export const standCacheOn = (env = process.env) => !/^(off|0|false|no)$/i.test(S
 const STANDCACHE_ON = standCacheOn()
 // tempstand-01 (tempstand.mjs): TEMPSTAND=off|0|false|no -> no temporary stand, no receipt read: the visit as it was
 const TEMPSTAND_ON = TS.tempStandOn()
+// stepclass-01 (buildsite.mjs stepRefusal): a `deferred` row and a temporary stand's refusal say WHY their cell has no step (`class`).
+// STEPCLASS=off|0|false|no: the rows as before, nothing asked.
+export const stepClassOn = (env = process.env) => !/^(off|0|false|no)$/i.test(String(env?.STEPCLASS ?? '').trim())
+const STEPCLASS_ON = stepClassOn()
 /**
  * plotprep-03: THE ONE TREE'S REPLANTS SETTLED? -> bool. `c` a tree clear; its replants are those with the same `tree` index (and the
  * same `plot` when either names one). A clear with no tree index, or a record none of whose replants carries one, falls back to
@@ -555,7 +559,7 @@ export async function runVisit (p, e, opts = {}) {
 export const BODY_WAITS = 20
 /** leaffell-01show: the visit's memory when the caller names none (`p.leafMem`): a waiting leaf's first wait, a set-aside clear's row. */
 const LEAF_MEM = new Map()
-async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, standMs = STAND_MS, leafFell = LEAFFELL_ON, tempStand: tempStandOpt = TEMPSTAND_ON } = {}) {
+async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierWaitMs = BARRIER_WAIT_MS, breathe: breatheOpt = BREATHE_ON, breathMs = BREATH_MS, standCache = STANDCACHE_ON, standMs = STAND_MS, leafFell = LEAFFELL_ON, tempStand: tempStandOpt = TEMPSTAND_ON, stepClass: stepClassOpt = STEPCLASS_ON } = {}) {
   // placedBy: every acknowledged placement by the block name HELD (the bag's own unit: a torch that lands as a wall_torch is a torch);
   // the caller's own object when given, so an aborted visit still reports what it placed
   const out = { stop: null, why: null, placed: 0, refused: 0, silent: 0, cleared: 0, planted: 0, unknown: 0, segs: [], slotGen: p.slotGen, placedBy: p.placedBy ?? {} }
@@ -710,6 +714,20 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
   const supportOk = typeof e.clickClosed === 'function' ? (sup, face) => { try { return !e.clickClosed(sup, face) } catch { return true } } : null
   /** stepFor, never against a support the guard closes (the step's `want` carries the test) */
   const stepZ = (read, hm, cell, nodes, dom = null, want = null) => stepFor(read, hm, cell, nodes, dom, supportOk ? { ...(want ?? {}), supportOk } : want)
+  // stepclass-01: WHY record cell `c` has no step in `nodes` -> { class } for its row | {} (a step exists, the switch is off, the
+  // question threw). stepZ's own inputs; asked once a cell and node map (the stand's refusal and the deferral name the same cell)
+  const classMemo = new Map()
+  const classRow = (c, nodes) => {
+    if (!stepClassOpt) return {}
+    const w = wantOf(c), k = standKey(c, w)
+    let m = classMemo.get(k)
+    if (!m || m.nodes !== nodes) {
+      let cls = null
+      try { cls = stepRefusal(rd, home, c.at, nodes, domain, supportOk ? { ...(w ?? {}), supportOk } : w)?.class ?? null } catch { cls = null }
+      m = { nodes, cls }; classMemo.set(k, m)
+    }
+    return m.cls ? { class: m.cls } : {}
+  }
   const sayZoned = (seg, cell, block, z, n = 1) => {
     if (out.zonedSaid) return
     out.zonedSaid = true
@@ -1182,7 +1200,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
         pl = TS.planTempStand({ read: rd, home, cell: c.at, want: wantOf(c), nodes, domain, min: h, max: h, block: b, mayPlace, taken: at => standTaken.has(kOf(at)) })
       }
       if (pl.ok) { plan = pl; target = c; break }
-      tsRow({ seg, cell: c.at, result: 'refused', why: String(pl.why).slice(0, 80) })
+      tsRow({ seg, cell: c.at, result: 'refused', why: String(pl.why).slice(0, 80), ...classRow(c, nodes) })
       if (pl.why === 'no_material' || pl.why === 'no_pickaxe') break  // the bag is the same for the next cell; never counted against the cell
       V.accessNote(mem, memKey(c), now(), { window: T.retryMs })
     }
@@ -1947,7 +1965,7 @@ async function visitInner (p, e, { maxSteps = 300, deadline = Infinity, barrierW
             // no stand reaches any placeable cell of this segment: DEFER them and go on (F4)
             for (const c of cand) { deferredCells.push(kOf(c.at)); if (!deferWhy.has(kOf(c.at))) deferWhy.set(kOf(c.at), 'no_stand') }
             deferredSegs.add(seg)
-            e.log('_build', { op: 'deferred', seg, cell: cand[0].at, n: cand.length })
+            e.log('_build', { op: 'deferred', seg, cell: cand[0].at, n: cand.length, ...classRow(cand[0], nodes) })
             break
           }
           // wallstuck-01: every cell still holding a block is a SEALED foreign cell (its column could not be opened): those and the

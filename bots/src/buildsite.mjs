@@ -746,6 +746,64 @@ export function stepFor (read, home, cell, nodes, domain = null, want = null) {
   }
   return best
 }
+/**
+ * STEPCLASS-01 (LIVE showcase 11-15: 2,118 `deferred` rows and 1,234 temporary-stand `no_step` refusals in three days, none saying
+ * why -- stepFor answers null for six causes alike). WHY A CELL HAS NO STEP -> null (stepFor finds one: asked first, so the two never
+ * disagree on WHETHER) | { class, n }. Pure; stepFor's own inputs, its own tests in its own order, nothing chosen. The class is the
+ * LAST test any stand got to:
+ *   no_support      no block to click below or beside the cell (unknown, air, liquid, a block with a use)
+ *   support_closed  there are such blocks, and every one is refused (`want.supportOk`, a face that cannot make the state, a slab merge)
+ *   no_node         no walkable stand within 5 columns          own_cell   the only stands are in the cell itself (or its `also`)
+ *   out_of_domain   stands within 5 columns, none in the build domain       out_of_reach  in the domain, none within REACH of a face
+ *   wrong_side      in reach, every one behind its face         no_sight   in reach and before a face, the sight line blocked
+ *   unclassified    a stand passes every test here though stepFor found none (the two have drifted apart: a bug, named)
+ * `n`: supports, closed, stands (not counting `own`), and each stand once under the last test it failed (all 0 with no open support).
+ */
+export const STEP_CLASSES = Object.freeze(['no_support', 'support_closed', 'no_node', 'own_cell', 'out_of_domain', 'out_of_reach', 'wrong_side', 'no_sight', 'unclassified'])
+export function stepRefusal (read, home, cell, nodes, domain = null, want = null) {
+  if (stepFor(read, home, cell, nodes, domain, want)) return null
+  const [cx, cy, cz] = cell
+  const n = { supports: 0, closed: 0, stands: 0, own: 0, out_of_domain: 0, out_of_reach: 0, wrong_side: 0, no_sight: 0 }
+  const hanging = want?.ws?.hanging === true || want?.ws?.hanging === 'true'
+  const faces = []
+  for (const [fx, fy, fz] of hanging ? [...SUPPORTS, [0, 1, 0]] : SUPPORTS) {
+    const sup = [cx + fx, cy + fy, cz + fz]
+    if (!refUsable(read(...sup))) continue
+    n.supports++
+    const normal = [0 - fx, 0 - fy, 0 - fz]
+    const aim = want?.ws ? orientAim(want.name, want.ws, normal) : null
+    if ((typeof want?.supportOk === 'function' && !want.supportOk(sup, normal)) || (want?.ws && !aim) || (aim && slabMerges(want.name, read(...sup), normal, aim.cursor[1]))) { n.closed++; continue }
+    faces.push({ normal, fc: [sup[0] + 0.5 + normal[0] * 0.5, sup[1] + 0.5 + normal[1] * 0.5, sup[2] + 0.5 + normal[2] * 0.5] })
+  }
+  const blind = !!want?.blind, through = new Set([k3(cx, cy, cz)])
+  let passed = 0
+  for (let dx = -5; dx <= 5; dx++) for (let dz = -5; dz <= 5; dz++) {
+    const sx = cx + dx, sz = cz + dz
+    const ys = nodes.get(k2(sx, sz))
+    if (!ys) continue
+    const inDom = !!(domain ? domain(sx, sz) : inDomain(home, sx, sz))
+    for (const sy of ys) {
+      if ((sx === cx && sz === cz && (sy === cy || sy + 1 === cy)) || want?.also?.some(([ax, ay, az]) => sx === ax && sz === az && (sy === ay || sy + 1 === ay))) { n.own++; continue }
+      n.stands++
+      if (!inDom) { n.out_of_domain++; continue }
+      if (!faces.length) continue
+      // the last test this stand gets to over the open faces: 0 reach, 1 the face's side, 2 the sight line, 3 none failed
+      let far = 0
+      const eye = [sx + 0.5, sy + EYE, sz + 0.5]
+      for (const { normal, fc } of faces) {
+        const v = [eye[0] - fc[0], eye[1] - fc[1], eye[2] - fc[2]]
+        if (Math.hypot(...v) > REACH) continue
+        if (!blind && v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2] <= 0) { far = Math.max(far, 1); continue }
+        if (!blind && !sightClear(read, eye, fc, through)) { far = Math.max(far, 2); continue }
+        far = 3; break
+      }
+      if (far === 3) passed++; else n[far === 2 ? 'no_sight' : far === 1 ? 'wrong_side' : 'out_of_reach']++
+    }
+  }
+  const cls = !n.supports ? 'no_support' : !faces.length ? 'support_closed' : !n.stands ? (n.own ? 'own_cell' : 'no_node')
+    : passed ? 'unclassified' : n.no_sight ? 'no_sight' : n.wrong_side ? 'wrong_side' : n.out_of_reach ? 'out_of_reach' : 'out_of_domain'
+  return { class: cls, n }
+}
 
 const byColumn = keys => {
   const m = new Map()
