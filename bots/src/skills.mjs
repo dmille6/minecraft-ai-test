@@ -8808,7 +8808,7 @@ async function openTown (bot, block, ms) {
  * loop; the CALLER settles the cursor with withdraw's server-confirmed settleCursor (or holds the window open).
  * Nothing is credited here (verifyTown reads the server).
  */
-async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, room = null } = {}) {
+async function bankInto (bot, win, wanted, already, deadline, signal, { valve = false, reserved = [], onMutate = null, tail = null, accept = null, explicit = null, room = null, mergeNames = null } = {}) {
   const bag = windowBag(bot, win)
   const plan0 = explicit ? { steps: explicit(bag) } : townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active, valve, tail, ...(room ?? {}) })
   // sortstore-01: a sorted home takes only its own group (`accept`); the tidy's put banks exactly the stacks it moved (`explicit`)
@@ -8916,6 +8916,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal, { valve = 
         const now = it ? win.slots[it.wslot] : null
         if (!now || now.name !== step.name || now.count !== (step.half ? step.from : step.count) || win.selectedItem) continue   // the bag moved under the plan
         if (!(await admit(step))) continue
+        mergeNames?.add?.(step.name)   // the caller's: a merge click may land though this call throws (an interrupt in its probe)
         const m = await runMerge({ click: oneClick, confirm, slot: i => win.slots[i] ?? null, emptyDest, same: d => sameStack(d, win.selectedItem), stackOf: n => mergeStackOf(bot, n) }, step, it.wslot)
         for (const mv of m.moves) {
           if (mv.merged) for (const e of done) if (e.dest === mv.dest) e.grew = true
@@ -9113,10 +9114,12 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       const reservedHere = []
       // bagfix-01 M (Paper 11-16): the bag at this open, the tally before it, and -- read after the settle -- the bag at the end (below)
-      const bagOpen = held(windowBag(bot, win)), bankedAt = { ...banked }
+      const bagOpen = held(windowBag(bot, win)), bankedAt = { ...banked }, mergeNames = new Set()
       let bagEnd = null, returned = false
+      // ONLY the names a merge was clicked for (every other move keeps its rule: the re-open's exact slot, or nothing)
+      const mergedOpen = () => Object.fromEntries(Object.entries(bagOpen).filter(([n]) => mergeNames.has(n)))
       try {
-        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room })
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal, { valve, reserved: reservedHere, onMutate: () => { ixDirty = true; townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }, tail, accept, room, mergeNames })
         for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
         for (const k of ['claims', 'refused', 'valve']) stock[k] += r.stock?.[k] ?? 0
         returned = true
@@ -9131,7 +9134,7 @@ async function townDeposit (ctx, _args, signal) {
             if (ev?.answered && !ev.decodeFailed && ev.cursorEmpty) { bagEnd = held(windowBag(bot, win)); serverBag = bagEnd }
           }
         } catch { /* no evidence: the tally as it is */ }
-        if (!returned && bagEnd) Object.assign(banked, lossCredit({ banked, before: bankedAt, open: bagOpen, end: bagEnd }))
+        if (!returned && bagEnd && mergeNames.size) Object.assign(banked, lossCredit({ banked, before: bankedAt, open: mergedOpen(), end: bagEnd }))
         // THE RUN'S CLAIMS, released after the settle: the window's count, or (held) a dirty mark for the container
         try { if (reservedHere.length || r.done?.length) await cobbleObserve(bot, c.position, win, { releaseAll: reservedHere, dirtyIfLost: true, lost: settled.state === 'unresolved' }) } catch { /* the claims stay live: conservative */ }
         if (ixDirty) { if (settled.state === 'unresolved') indexHold(bot, win, c.position, 'town_deposit', ixOp); else townIndexDirty(bot, c.position, 'town_deposit', 'post', ixOp) }
@@ -9161,7 +9164,7 @@ async function townDeposit (ctx, _args, signal) {
         if (it.maxDurability) tools.push(`${step.name}@${it.maxDurability - (it.durabilityUsed ?? 0)}`)
       }
       // bagfix-01 M: a merge that landed and was not credited (its probe unanswered, a stop) is credited by the bag's own loss
-      if (bagEnd) Object.assign(banked, lossCredit({ banked, before: bankedAt, open: bagOpen, end: bagEnd }))
+      if (bagEnd && v.ok && mergeNames.size) Object.assign(banked, lossCredit({ banked, before: bankedAt, open: mergedOpen(), end: bagEnd }))
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       // towndeposit-02: NO EMPTY SLOT AT ALL is remembered `full` for the town (both halves), as the deposit's recovery does --
       // the next visit's townContainers and the recovery's sweep skip it until FULL_TTL_MS or a `took`
