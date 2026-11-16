@@ -28,7 +28,8 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
-import { attachDigTown, digPurpose, currentDigScope } from './digtown.mjs'
+import { attachDigTown } from './digtown.mjs'
+import { digPurpose, currentDigScope } from './digtown.mjs'   // keepout-01's dig guard reads the instrument's purpose
 // keepout-01: no dig in the column above a live fire death site (keepout.mjs)
 import {
   keepoutOn, keepoutModeDetail, fireSites, columnAt, routeForbids, coversTown, disputeScan, siteKey, keepoutCounters, noteKeepout, KEEPOUT_DISPUTE_MS,
