@@ -109,7 +109,8 @@ const rowsOf = (name, since = 0) => {
   }
   return out
 }
-const leasesOf = () => { try { return fs.readdirSync(path.join(DIR, 'pool')).filter(f => /lease|slot/.test(f) && !/released/.test(f)) } catch { return [] } }
+// the leases still HELD: a lease file with no `.released` beside it
+const leasesOf = () => { try { const fl = fs.readdirSync(path.join(DIR, 'pool')); return fl.filter(f => /\.lease\.g\d+\.json$/.test(f) && !fl.includes(f + '.released')).map(f => f.replace(/^project-[-\d_]+\./, '')) } catch { return [] } }
 
 async function join () {
   const bot = mineflayer.createBot({ host: '10.0.0.30', port: PORT, username: NAME, auth: 'offline', version: '1.21.8' })
@@ -175,7 +176,55 @@ H.step = async (R, label, bot, fn, names = [NAME]) => {
   return { before, after, res }
 }
 
+const kindNow = (bot, name) => { try { bot.yardsMemo = null; const k = E.yardKindNow(bot, name); return { room: k.room, over: !!k.over, lanes: k.lanes, cap: k.cap } } catch (e) { return 'threw ' + e.message } }
 const SCENARIOS = {
+  // 1, 2, 4 in order: one lane a kind (16 of each first), gravel to 52 and past it, sand on sand, a fourth kind, a fifth with no lane left
+  async lanes2 (bot, R) {
+    H.give(NAME, { cobblestone: 80 }); await sleep(2500)
+    await H.step(R, '1 cobblestone 80 (keep 64): 16 into the first lane', bot, async () => ({ A: await visit(bot) }))
+    H.give(NAME, { gravel: 52 }); await sleep(2500)
+    await H.step(R, '2 gravel 52: a second lane, layer on layer', bot, async () => ({ A: await visit(bot) }))
+    H.give(NAME, { gravel: 40 }); await sleep(2500)
+    P('gravel now', kindNow(bot, 'gravel'))
+    await H.step(R, '4 gravel 40 more: the lane grows', bot, async () => ({ A: await visit(bot) }))
+    await H.step(R, '4b gravel: what is left', bot, async () => ({ A: await visit(bot) }))
+    H.give(NAME, { sand: 72 }); await sleep(2500)
+    await H.step(R, '2 sand 72 (keep 8): a third lane', bot, async () => ({ A: await visit(bot) }))
+    H.give(NAME, { andesite: 64 }); await sleep(2500)
+    await H.step(R, '1 andesite 64: the fourth lane', bot, async () => ({ A: await visit(bot) }))
+    H.give(NAME, { diorite: 64 }); await sleep(2500)
+    P('diorite now (no lane left in this yard)', kindNow(bot, 'diorite'))
+    await H.step(R, '1 diorite 64: every lane taken', bot, async () => ({ A: await visit(bot) }))
+    R.kinds = Object.fromEntries(['cobblestone', 'gravel', 'sand', 'andesite', 'diorite'].map(k => [k, kindNow(bot, k)])); P('kinds', R.kinds)
+  },
+  // 3: two bots, two lanes at once; a third wanting the lane another holds; an abort releases its leases
+  async two (bot, R) {
+    await H.spawn('sbx-YardB'); await H.spawn('sbx-YardC')
+    const all = [NAME, 'sbx-YardB', 'sbx-YardC']
+    H.give(NAME, { cobblestone: 112 }); H.give('sbx-YardB', { gravel: 48 }); H.give('sbx-YardC', { cobblestone: 112 }); await sleep(3000)
+    await H.step(R, '3 A cobblestone 48, B gravel 48, C cobblestone 48, all at once', bot, async () => { const at = Date.now() + 1500; const b = H.tell('sbx-YardB', { do: 'visit', at }), c = H.tell('sbx-YardC', { do: 'visit', at }); await sleep(at - Date.now()); const [A, B, C] = await Promise.all([visit(bot), b(), c()]); return { A, B, C } }, all)
+    P('leases held after the three visits', leasesOf())
+    H.give(NAME, { cobblestone: 64 }); await sleep(2500)
+    await H.step(R, '3 A interrupted 6 s into a stock visit', bot, async () => ({ A: await visit(bot, { abortMs: 6000 }) }), all)
+    R.leasesAfterAbort = leasesOf(); P('leases held after the interrupt', R.leasesAfterAbort)
+    await H.step(R, '3 A again after the interrupt', bot, async () => ({ A: await visit(bot) }), all)
+    R.leasesEnd = leasesOf(); P('leases held at the end', R.leasesEnd)
+  },
+  // 5: a kind at its cap (YARD_LANE_CAPS=andesite:1, its one lane filled to the bay's 164 by RCON) banks nothing more; a kind with
+  // room is the yard's. The well itself is not built here: the hold's inputs and the over-cap row are read through the code's own calls.
+  async cap (bot, R) {
+    rcon(...BAYS[0].slots.map(c => `setblock ${c[0]} ${c[1]} ${c[2]} minecraft:andesite`))
+    H.give(NAME, { andesite: 96, gravel: 64 }); await sleep(3000)
+    R.before = { andesite: kindNow(bot, 'andesite'), gravel: kindNow(bot, 'gravel') }; P('5 kinds before', R.before)
+    await H.step(R, '5 andesite 96 with its one lane full (cap 1), gravel 64 with room', bot, async () => ({ A: await visit(bot) }))
+    R.after = { andesite: kindNow(bot, 'andesite'), gravel: kindNow(bot, 'gravel') }; P('5 kinds after', R.after)
+    R.hold = { andesite: Y.wellHold({ room: R.after.andesite.room, holdAt: null, stockAt: bot.yardStockAt ?? null }), gravel: Y.wellHold({ room: R.after.gravel.room, holdAt: null, stockAt: null }) }; P('5 wellHold from those rooms', R.hold)
+    // the over-cap row: a run that throws andesite out of the bag (the well's dispose would), wrapped as the well's run is
+    const t = Date.now()
+    await E.withOverCap({ bot }, async () => { const it = bot.inventory.items().find(i => i.name === 'andesite'); if (it) await bot.toss(it.type, null, 32) ; await sleep(800) })
+    R.overCapRows = rowsOf(NAME, t); P('5 rows after a wrapped throw of 32 andesite', R.overCapRows)
+    await sleep(1500); rcon(`kill @e[type=minecraft:item,x=${F.x0},y=${S - 4},z=${F.z0},dx=${F.x1 - F.x0},dy=30,dz=${F.z1 - F.z0}]`)
+  },
   // 1 (+2, +4): cobblestone into a lane; gravel opens a second and fills its 52 (layers on layers); the next visit reads 16 rows and
   // goes on; sand opens a third; a cobblestone draw from the top
   async lanes (bot, R) {
