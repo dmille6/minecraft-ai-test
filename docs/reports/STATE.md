@@ -4,7 +4,7 @@ _Built by `scripts/host/stategen.py` on the canary host from the journal, the qu
 Process: [`docs/PROCESS-fun-mode.md`](../PROCESS-fun-mode.md). History to 10-28: [`docs/archive/STATE-history-to-2026-10-28.md`](../archive/STATE-history-to-2026-10-28.md).
 
 <!-- GENERATED:BEGIN -->
-_Generated 2026-11-16T12:20:02Z._
+_Generated 2026-11-16T13:20:01Z._
 
 | | Now |
 |---|---|
@@ -12,11 +12,11 @@ _Generated 2026-11-16T12:20:02Z._
 | **Canary in slot** | EMPTY (last close bamboowalk-01 KEEP 11-16 08:32Z) |
 | **Queue (front)** | irongap-01 -> obsidian-01 -> kittrim-01 -> pathsfix-01 -> coalsale-01 -> coalsale-02 -> jobsite-01 -> market-01 -> market-02 -> market-03. Held: forest-01 (HELD: queue plan 11-07: held until the showcase shows it working (market 0 trades in 10.5 h; for...) |
 | **Scheduler** | block H2 coalsale-01: no variant for the fleet base 80563d7 (have: ef774d0): autorebase REFUSED at step worktree: the cherry-pick of ef774d02..2fa3626b onto 80563d74 does not apply cleanly: conflict in bots/src/features.mjs, bots/src/skills |
-| **Showcase release** | `f1190d01` (23,867 rows), `591d45cd` (21,820 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release f1190d01's protected tree: restack by hand; row 11-16 11:25Z) |
+| **Showcase release** | `f1190d01` (38,733 rows), `591d45cd` (6,125 rows); 14 bots in 3 h. Protected tree vs fleet KEEP: **no_base** (no kept fleet build has the live release f1190d01's protected tree: restack by hand; row 11-16 12:25Z) |
 | **Death breaker** | ARMED (`mcai-tripper.timer` active, 5 min, `--apply`); ntfy alerts |
 | **Pending owner decisions** | none recorded (ledger rows with `owner_pending`); technical holds are under Queue |
 | **Projects (daily audit)** | project audit fleet (11-16T12:05Z, 7 d, 188 projects, 15,873,368 lines / 80 bots): 3 broken, 1 dormant, 3 underused, 91 effective, 51 unmeasured, 39 - -- placebo-a/house1 BROKEN; placebo-d/shop BROKEN; placebo-d/wall BROKEN; isolated-d/well DORMANT; showcase: project audit showcase (11-16T12:05Z, 7 d, 43 projects, 2,336,825 lines / 15 bots): 3 dormant, 13 effective, 16 unmeasured, 11 - -- showcase/canefarm DORMANT; showcase/enchantshop DORMANT; showcase/treefarm DORMANT |
-| **Open alarms** | STALLCHECK 2026-11-16T11:35:01Z STALLED: 204. OPSAUDIT 2026-11-15 FLAGS: 9 (0 high). 67 active alarm(s): stuck goals 15 (board-c/shaft@355_73_147, hive-a/monument@355_73_147, hive-a/waterwalk@355_73_147, hive-b/tidy@355_73_147, hive-b/waterwalk@355_73_147, hive-c/waterwalk@-68_68_-68 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:fullplace-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gklease-02:h72 |
+| **Open alarms** | STALLCHECK 2026-11-16T12:35:02Z STALLED: 201. OPSAUDIT 2026-11-15 FLAGS: 9 (0 high). 73 active alarm(s): stuck goals 21 (board-a/waterwalk@355_73_147, board-b/tidy@-249_65_144, board-b/waterwalk@-249_65_144, board-c/shaft@355_73_147, hive-a/monument@355_73_147, hive-b/tidy@355_73_147 ...); effectwatch effect:cobbleroom-01:h24, effectwatch effect:escdead-01:h72, effectwatch effect:fullplace-01:h72, effectwatch effect:gathermem-01:h24, effectwatch effect:gklease-02:h72 |
 <!-- GENERATED:END -->
 
 ## Notes
