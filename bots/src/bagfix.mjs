@@ -100,6 +100,8 @@ export function sameStack (a, b) {
  *   stackOf  (name) -> its stack size;  same(slotItem, step) -> would they merge
  * Off: empty slots only -- towndeposit.mjs fitToContainer's answer exactly (every `merges` empty).
  */
+// THE CALLER GIVES THE REAL ITEMS' FACTS (Paper proof 11-16, cases 3b and 4c): `stackOf` from the registry (a snowball stacks to 16) and
+// `same` over the bag's own Item with its components (a named, enchanted or damaged stack is another item to the server).
 export function mergeFit (steps = [], slots = [], { merge = BAGFIX.merge, stackOf = () => 64, same = (slot, step) => slot?.name === step?.name } = {}) {
   const list = Array.isArray(slots) ? slots : []
   const cnt = list.map(x => (x ? Number(x.count) || 0 : 0))
@@ -109,7 +111,7 @@ export function mergeFit (steps = [], slots = [], { merge = BAGFIX.merge, stackO
   for (const step of (Array.isArray(steps) ? steps : [])) {
     let left = Number(step?.count) || 0
     const merges = []
-    const max = Number(stackOf(step?.name)) || 64
+    const max = Number(stackOf(step?.name)) || 1   // an unknown size never merges
     if (merge && max > 1) {
       for (let i = 0; i < list.length && left > 0 && merges.length < MERGE_MAX; i++) {
         if (!list[i] || cnt[i] >= max || !same(list[i], step)) continue
@@ -149,6 +151,7 @@ export function destHolds (d, x) {
  *   slot(i)              the window's slot i as last refreshed -> Item | null
  *   emptyDest()          an empty container slot not used this run -> i | null
  *   same(slotItem)       would the server merge the cursor's stack onto it (sameStack against the confirmed cursor)
+ *   stackOf(name)        the item's stack size (the registry's)
  * `step` { name, count, half, merges: [{ dest }], dest }; `from` the bag stack's window slot. `stop` (a word) means: click nothing
  * more -- settle the cursor and end the deposit. Never throws for a refused or surprising answer (a click's own throw is a stop).
  */
@@ -166,7 +169,8 @@ export async function runMerge (io, step, from) {
   let left = step.count
   for (const m of (step.merges ?? [])) {
     const d = io.slot(m.dest)
-    const max = d?.stackSize ?? 64
+    // the stack size is the caller's word (the registry's); none given: the slot item's own, else 1 -- never a guessed 64
+    const max = Number(typeof io.stackOf === 'function' ? io.stackOf(step.name) : d?.stackSize) || 1
     if (!d || d.count >= max || d.name !== step.name || (typeof io.same === 'function' && !io.same(d))) continue   // changed under the plan: not this one
     const base = d.count
     if (!(await click(m.dest, 0))) return out('click_failed')
