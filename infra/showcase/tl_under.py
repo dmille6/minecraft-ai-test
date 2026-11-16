@@ -56,10 +56,21 @@ skipped and counted. Per scene:
             that differ from it (~1-5 KB). `thin` deletes them after 14 days and keeps one an hour after 2.
   dug       the cells that were rock, ore or built in the scene's FIRST box of the day and are empty now, in the
             highlight colour, counted in the sidecar (dug.cells; dug.drawn of them lie in the cut).
-The whole call has a wall-clock budget (--budget-s, looked at before each scene; what does not fit is skipped and
-counted), one scene's failure is a line on stderr and a count, and the exit status is ALWAYS 0 with one JSON line
-{scenes, drawn, skipped, errors, seconds, bytes_written, why, stamp, rows} on stdout. A hand-off file more than 30
-minutes old is not drawn (--max-age-min).
+The whole call has ONE wall-clock deadline (--budget-s, default 20, on the monotonic clock). A scene is not started
+once it has passed, and the clock is looked at all through a scene (tick(): before every chunk read, every row drawn,
+every megabyte compressed, every write): a scene the deadline passes during is abandoned at the next look, counted as
+skipped (why.deadline), with NOTHING written -- its five files are staged under temporary names and moved into place
+together (Staged). Measured on the largest box a scene may ask for (6.9 million cells): the longest stretch without a
+look at the clock is 0.016 s, and that is the most a call overran its deadline (summary: max_step_s, overrun_s).
+One scene's failure is a line on stderr and a count, and the exit status is ALWAYS 0 with one JSON line {scenes,
+drawn, skipped, errors, seconds, bytes_written, why, stamp, rows, max_step_s, overrun_s} on stdout. A hand-off file
+more than 30 minutes old is not drawn (--max-age-min).
+What is read is treated as hostile: a chunk is read within its own sectors, inflated under a cap, its NBT lengths
+checked before anything is allocated, and it must say it is the chunk asked for (tl_region); a chunk or a section
+that is not well formed is drawn as unknown and counted (block_box.missing_chunks, bad_sections), never guessed at.
+A kept framing file is checked like any input (framing_sane). Every name pattern is applied with fullmatch().
+No temporary outlives its write: a failed or abandoned write removes its own, and `slot` (in the folders it writes)
+and `thin` (everywhere under under-box, under-framing and frames/under-*) delete any that are more than an hour old.
 INSTALL (flat, /srv/showcase/bin): tl_under.py and tl_region.py, beside tl_showcase.py and showcasestatus.py which are
 there already. tl2trails is not needed there (FB_COLORS below).
 
@@ -248,7 +259,7 @@ _THIN = {'short_grass', 'tall_grass', 'grass', 'fern', 'large_fern', 'dandelion'
          'blue_orchid', 'lily_of_the_valley', 'peony', 'rose_bush', 'lilac', 'sunflower'}
 _WOODS = ('oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'bamboo', 'crimson', 'warped',
           'pale_oak')
-_ORE = re.compile(r'^(deepslate_)?(coal|iron|copper|gold|redstone|lapis|diamond|emerald)_ore$')
+_ORE = re.compile(r'(deepslate_)?(coal|iron|copper|gold|redstone|lapis|diamond|emerald)_ore')
 
 
 def classify(name):
@@ -266,7 +277,7 @@ def classify(name):
         return _EXACT[n]
     if wl:
         return 'water'
-    m = _ORE.match(n)
+    m = _ORE.fullmatch(n)
     if m:
         return ('dore_' if m.group(1) else 'ore_') + m.group(2)
     if n.startswith('raw_') and n.endswith('_block'):
@@ -310,6 +321,130 @@ def fold_name(name):
 def read_json(path):
     with open(path) as f:
         return json.load(f)
+
+
+# ---------------------------------------------------------------- a deadline that reaches every loop
+class Deadline(Exception):
+    """The wall-clock budget ran out inside a scene. Not a ValueError or an OSError on purpose: nothing that forgives
+    a bad file may swallow it."""
+
+
+_DL = {'at': None, 'last': 0.0, 'gap': 0.0, 'where': None}
+_mono = time.monotonic
+
+
+def tick(where='?'):
+    """Called from every loop that can run long (per chunk read, per row drawn, per level, before each write). With no
+    deadline set it costs one dictionary lookup. With one: Deadline once it has passed, and the longest stretch
+    between two calls is remembered (_DL['gap'], _DL['where']): that stretch is the most a call can overrun."""
+    at = _DL['at']
+    if at is None:
+        return
+    now = _mono()
+    if now - _DL['last'] > _DL['gap']:
+        _DL['gap'], _DL['where'] = now - _DL['last'], where
+    _DL['last'] = now
+    if now > at:
+        raise Deadline(where)
+
+
+class deadline:
+    """with deadline(at): ... -- `at` on the time.monotonic() clock. Not re-entrant, not for threads."""
+    def __init__(self, at):
+        self.at = at
+
+    def __enter__(self):
+        _DL.update(at=self.at, last=_mono(), gap=0.0, where=None)
+        return _DL
+
+    def __exit__(self, *exc):
+        _DL['at'] = None
+
+
+def nonzero_runs(buf, pattern=rb'[^\x00]+', piece=1 << 20):
+    """(start, end) of every run of non-zero bytes in buf, scanned a megabyte at a time so a deadline is looked at
+    between pieces (a run that crosses a piece's edge comes back as two)."""
+    rx = re.compile(pattern)
+    for o in range(0, len(buf), piece):
+        tick('scan')
+        for m in rx.finditer(buf, o, min(len(buf), o + piece)):
+            yield m.start(), m.end()
+
+
+class Staged:
+    """Files written under temporary names beside their final ones and moved into place together, or not at all.
+    add() checks the path stays inside its base, then writes `<name>.tmp<pid>`; commit() renames them in order;
+    abort() (always call it, in a `finally`) removes whatever was not committed, and the folders add() had to make
+    if they are still empty: a write that fails or is abandoned leaves nothing behind."""
+    def __init__(self):
+        self.items, self.made = [], []
+
+    def add(self, path, data, base):
+        inside(base, path)
+        d = os.path.dirname(os.path.abspath(path))
+        new = []
+        while d and not os.path.isdir(d):
+            new.append(d)
+            d = os.path.dirname(d)
+        for d in reversed(new):
+            os.mkdir(d)
+            self.made.append(d)
+        tmp = path + f'.tmp{os.getpid()}'
+        self.items.append((tmp, path))                         # listed BEFORE it is written: a half-written one is ours
+        with open(tmp, 'wb') as f:
+            f.write(data)
+
+    def commit(self):
+        while self.items:
+            tmp, path = self.items[0]
+            os.replace(tmp, path)
+            self.items.pop(0)
+        self.made = []
+
+    def abort(self):
+        for tmp, _ in self.items:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        for d in reversed(self.made):
+            try:
+                os.rmdir(d)
+            except OSError:
+                pass
+        self.items, self.made = [], []
+
+
+def atomic_write(path, data, base):
+    """One file, whole or not at all, and never a temporary left behind."""
+    st = Staged()
+    try:
+        st.add(path, data, base)
+        st.commit()
+    finally:
+        st.abort()
+
+
+def sweep_tmp(folder, now=None, max_age_s=None):
+    """Delete the abandoned temporaries of ONE folder: files named <anything>.tmp<pid> or .part whose last change is
+    more than max_age_s (an hour) old; a younger one may be another process's write in progress. -> how many."""
+    now = time.time() if now is None else now
+    max_age_s = TMP_MAX_AGE_S if max_age_s is None else max_age_s
+    n = 0
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return 0
+    for name in names:
+        if _TMP_FILE.fullmatch(name):
+            p = os.path.join(folder, name)
+            try:
+                if os.path.isfile(p) and not os.path.islink(p) and now - os.path.getmtime(p) > max_age_s:
+                    os.remove(p)
+                    n += 1
+            except OSError:
+                pass
+    return n
 
 
 def _mask(pred):
@@ -369,6 +504,7 @@ class World:
         padl, padr = bytes([UNKNOWN]) * max(0, cx0 - x0), bytes([UNKNOWN]) * max(0, x1 - cx1)
         rows = []
         for y in range(y0, y1 + 1):
+            tick('blocks')
             yin = wy0 <= y <= wy1
             by = (y - wy0) * self.nz
             for z in range(z0, z1 + 1):
@@ -395,6 +531,8 @@ class World:
         layer = (x1 - x0 + 1) * (z1 - z0 + 1)
         top = -1
         for c in range(layer):
+            if not c & 1023:
+                tick('surface')
             top = max(top, B[c::layer].translate(M_GROUND).rfind(b'\x01'))
         return None if top < 0 else self.yr[0] + top
 
@@ -818,7 +956,9 @@ def _light(n_cols, n_rows, sources):
     """A light level 0-4 per cell from [(col, row, strength, radius)]: no shadows, the brightest source wins."""
     L = [0.0] * (n_cols * n_rows)
     kern = {}
-    for (c, r, s, R) in sources:
+    for n, (c, r, s, R) in enumerate(sources):
+        if not n & 63:
+            tick('light')
         if R not in kern:
             kern[R] = [(dx, dy, 1 - math.hypot(dx, dy) / R) for dy in range(-R, R + 1) for dx in range(-R, R + 1)
                        if math.hypot(dx, dy) < R]
@@ -861,6 +1001,7 @@ def side_grid(world, fr):
         B = world.block(da, ua, db, ub, ylo, yhi)
         planes = [bytearray(B[di::D]) for di in range(D)]
     for p in planes:                                          # air above the skyline becomes sky (leaves stay)
+        tick('side: skyline')
         for ui in range(U):
             top = p[ui::U].translate(M_GROUND).rfind(b'\x01')
             if top < NY - 1:
@@ -874,6 +1015,7 @@ def side_grid(world, fr):
     memo = {}
     cls, lvl = [0] * (U * NY), [0] * (U * NY)
     for yi in range(NY):
+        tick('side: slab')
         o = yi * U
         r = (NY - 1 - yi) * U
         for ui, tup in enumerate(zip(*[p[o:o + U] for p in slab])):
@@ -885,6 +1027,7 @@ def side_grid(world, fr):
     # a tunnel) are drawn as shade, not as a cave: the land above ground is full of both
     front = [i for i in range(U * NY) if cls[i] == SKY]
     for _ in range(8):
+        tick('side: daylight')
         nxt = []
         for i in front:
             for j in ((i - 1) if i % U else -1, (i + 1) if (i + 1) % U else -1, i - U):
@@ -897,6 +1040,7 @@ def side_grid(world, fr):
         rest = [p for i, p in enumerate(planes) if not s0 <= i <= s1][:250]
         acc = 0
         for p in rest:
+            tick('side: ghost')
             acc += int.from_bytes(p.translate(M_AIR), 'little')       # one byte per cell: a count, no carry below 256
         cnt = acc.to_bytes(U * NY, 'little')
         n = len(rest)
@@ -908,6 +1052,7 @@ def side_grid(world, fr):
                     f = c / n
                     gh[r + ui] = 3 if f >= 0.35 else 2 if f >= 0.15 else 1 if f >= 0.04 else 0
     light = _light(U, NY, _sources(cls, U, NY))
+    tick('side: floors')
     floor = [False] * (U * NY)
     for i in range(U, U * NY):
         if cls[i] != OPEN and cls[i] != SKY and KIND[cls[i]] not in 'ao' and cls[i - U] in (OPEN, SKY):
@@ -928,6 +1073,8 @@ def plan_grid(world, fr):
     src = []
     torch, ladder = bytes([TORCH]), bytes([LADDER])
     for c in range(layer):
+        if not c & 255:
+            tick('plan: columns')
         col = B[c::layer]
         m = col.translate(M_HOLLOW)
         t = m.rfind(b'\x01')
@@ -1127,6 +1274,7 @@ def side_rows(g, fr, tiles):
                 row.append(tiles.sky(min(6, r // 3)))
             else:
                 row.append(tiles.solid(c, _jit(ua + ui, y), light[o + ui], gh[o + ui], floor[o + ui]))
+        tick('side: pixels')
         for s in range(k):
             out.append(b''.join([t[s] for t in row]))
     return out
@@ -1149,6 +1297,7 @@ def plan_rows(g, fr, tiles):
                 north = kind[o + xi - X] if zi else 'h'
                 row.append(tiles.solid(cls[o + xi], 1, light[o + xi], 0, False,
                                        min(7, shade[o + xi] + (2 if north == 'h' else 0)), True))
+        tick('plan: pixels')
         for s in range(k):
             out.append(b''.join([t[s] for t in row]))
     return out
@@ -1325,12 +1474,14 @@ class Canvas:
 
 def png_encode(W, H, rgb, level=6):
     """RGB bytes -> a PNG file's bytes. A row equal to the one above is written as an 'up' filter of zeros (free to
-    detect, and block pictures repeat every row k times), every other row unfiltered."""
+    detect, and block pictures repeat every row k times), every other row unfiltered. Compressed 64 rows at a time,
+    so a deadline is looked at between pieces."""
     stride = W * 3
     assert len(rgb) == stride * H, 'rgb is not W x H x 3'
     mv = memoryview(rgb)
     same = b'\x02' + bytes(stride)
-    rows, prev = [], None
+    z = zlib.compressobj(level)
+    out, rows, prev = [], [], None
     for y in range(H):
         row = mv[y * stride:(y + 1) * stride]
         if prev is not None and row == prev:
@@ -1339,11 +1490,17 @@ def png_encode(W, H, rgb, level=6):
             rows.append(b'\x00')
             rows.append(row)
         prev = row
+        if y % 64 == 63:
+            tick('png')
+            out.append(z.compress(b''.join(rows)))
+            rows = []
+    out.append(z.compress(b''.join(rows)))
+    out.append(z.flush())
 
     def chunk(t, d):
         return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
     return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0))
-            + chunk(b'IDAT', zlib.compress(b''.join(rows), level)) + chunk(b'IEND', b''))
+            + chunk(b'IDAT', b''.join(out)) + chunk(b'IEND', b''))
 
 
 def png_decode(data):
@@ -1520,7 +1677,9 @@ def background(world, fr, cache=None):
     g = side_grid(world, fr) if side else plan_grid(world, fr)
     rows = side_rows(g, fr, tiles) if side else plan_rows(g, fr, tiles)
     px0, py0, px1, py1 = pic_rect(fr)
+    tick('picture')
     cv.blit(px0, py0, rows)
+    tick('picture')
     cv.rect(px0 - 2, py0 - 2, px1 + 2, py0, (70, 70, 78))
     cv.rect(px0 - 2, py1, px1 + 2, py1 + 2, (70, 70, 78))
     cv.rect(px0 - 2, py0, px0, py1, (70, 70, 78))
@@ -1572,12 +1731,9 @@ def background(world, fr, cache=None):
         info['roster'] = [ax0, ay0, ax0 + (ax1 - ax0) * 65 // 100, ay1]
     _bg_put(key, bytes(cv.b), info)
     if path:
-        os.makedirs(cache, exist_ok=True)
         head = json.dumps(info).encode()
-        tmp = path + f'.tmp{os.getpid()}'
-        with open(tmp, 'wb') as f:
-            f.write(struct.pack('>I', len(head)) + head + zlib.compress(bytes(cv.b), 1))
-        os.replace(tmp, path)
+        tick('cache')
+        atomic_write(path, struct.pack('>I', len(head)) + head + zlib.compress(bytes(cv.b), 1), cache)
         prune_cache(cache, keep=(os.path.basename(path),))
     return cv, dict(info, cache='built')
 
@@ -1587,7 +1743,7 @@ BG_MEM_MAX = 8                       # rendered backgrounds kept in memory (6 MB
 CACHE_MAX_FILES = 24                 # ... and on disk: a new one is written whenever a scene's blocks or framing change
 CACHE_MAX_BYTES = 48 * 1024 * 1024
 CACHE_MAX_AGE_S = 86400
-_BG_FILE = re.compile(r'^under-[0-9a-f]{20}\.bg(\.tmp\d+)?$')
+_BG_FILE = re.compile(r'under-[0-9a-f]{20}\.bg(\.tmp\d+)?')
 
 
 def _bg_put(key, buf, info):
@@ -1608,7 +1764,7 @@ def prune_cache(cache, max_files=None, max_bytes=None, max_age_s=None, now=None,
     max_age_s = CACHE_MAX_AGE_S if max_age_s is None else max_age_s
     now = time.time() if now is None else now
     try:
-        names = [n for n in os.listdir(cache) if _BG_FILE.match(n)]
+        names = [n for n in os.listdir(cache) if _BG_FILE.fullmatch(n)]
     except OSError:
         return []
     entries = []
@@ -1689,7 +1845,9 @@ def draw_fresh(cv, fr, cells):
     k = fr['ppb']
     x0, y0, x1, y1 = pic_rect(fr)
     seen = set()
-    for (x, y, z) in cells:
+    for n, (x, y, z) in enumerate(cells):
+        if not n & 511:
+            tick('dug: draw')
         px, py = to_px(fr, x, y + 1, z)
         px, py = int(px), int(py)
         if (px, py) in seen or not (x0 <= px < x1 and y0 <= py < y1):
@@ -1715,7 +1873,10 @@ def draw_trails(cv, pos, fr, t, trail_min):
         rows = window(pos[b], lo, t)
         col = COLORS.get(b, (255, 255, 255))
         acc, halo = {}, {}
+        tick('trails')
         for i in range(1, len(rows)):
+            if not i & 127:
+                tick('trails')
             p, q = rows[i - 1], rows[i]
             if not connected(p, q):
                 continue
@@ -1791,6 +1952,7 @@ def draw_bots(cv, fr, now):
         taken.append((px - r - 2, py - r - 2, px + r + 2, py + r + 2))
     spots = _place_labels(items, rect, taken)
     for (b, verb, px, py, inside), (lx, ly), (_, _, w, h, _) in zip(meta, spots, items):
+        tick('bots')
         cv.line(px, py, min(max(px, lx), lx + w), min(max(py, ly), ly + h), (235, 235, 235), 1, 170)
     for (b, verb, px, py, inside), (lx, ly), (_, _, w, h, _) in zip(meta, spots, items):
         col = COLORS.get(b, (255, 255, 255))
@@ -1952,9 +2114,12 @@ def render(world, pos, scene, style, t, size=(1920, 1080), framing=None, trail_m
     elif overlay:
         nfresh = draw_fresh(cv, fr, fresh_cells(world, pos, fr, t))
     counts = {CID[k]: v for k, v in info['counts'].items()}
+    tick('overlay')
     if overlay:
         ntr = draw_trails(cv, pos, fr, t, trail_min)
+        tick('overlay')
         draw_bots(cv, fr, now)
+        tick('overlay')
         draw_roster(cv, info['roster'], now, counted, u)
         _draw_legend(cv, info['legend'], fr, counts, True, u, dug_label)
     else:
@@ -1973,32 +2138,42 @@ def render(world, pos, scene, style, t, size=(1920, 1080), framing=None, trail_m
     return cv, side_car
 
 
-def write_frame(cv, side_car, png_path, base, level=6):
-    """The PNG and its sidecar. `base` is the folder the frame must stay inside (--out, or --root): checked here,
-    before a directory is made or a byte is written."""
+def encode_frame(cv, side_car, level=6):
+    """The frame's two files as bytes: (PNG, sidecar JSON). The sidecar gets the PNG's size and encode time."""
     t0 = time.time()
-    inside(base, png_path)
-    if not png_path.endswith('.png'):
-        raise ValueError(f'{png_path!r} is not a .png')
-    os.makedirs(os.path.dirname(os.path.abspath(png_path)), exist_ok=True)
     data = png_encode(cv.W, cv.H, cv.b, level)
-    tmp = png_path + f'.tmp{os.getpid()}'
-    with open(tmp, 'wb') as f:
-        f.write(data)
-    os.replace(tmp, png_path)
     side_car['render_s']['png'] = round(time.time() - t0, 3)
     side_car['bytes'] = len(data)
-    jp = png_path[:-4] + '.json'
-    with open(jp + f'.tmp{os.getpid()}', 'w') as f:
-        json.dump(side_car, f, indent=1)
-    os.replace(jp + f'.tmp{os.getpid()}', jp)
+    return data, json.dumps(side_car, indent=1).encode()
+
+
+def write_frame(cv, side_car, png_path, base, level=6):
+    """The PNG and its sidecar, both or neither. `base` is the folder the frame must stay inside (--out, or
+    --root): Staged.add checks it before a directory is made or a byte is written."""
+    if not png_path.endswith('.png'):
+        raise ValueError(f'{png_path!r} is not a .png')
+    data, side = encode_frame(cv, side_car, level)
+    st = Staged()
+    try:
+        st.add(png_path[:-4] + '.json', side, base)
+        st.add(png_path, data, base)
+        st.commit()
+    finally:
+        st.abort()
     return len(data)
 
 
 # ================================================================ CLI
 STYLES = ('side', 'plan', 'trails', 'plantrails')
-_TAG = re.compile(r'^[A-Za-z0-9_-]{0,40}$')
-_NAME = re.compile(r'^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}$')
+# EVERY pattern that guards a file name is used with fullmatch(): `$` (and match()) accept a trailing newline, and a
+# name like 'hostile\n' would then be written but never recognised again by the code that thins and sweeps.
+_TAG = re.compile(r'[A-Za-z0-9_-]{0,40}')
+_NAME = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,79}')
+_SIZE = re.compile(r'(\d{3,4})x(\d{3,4})')
+_DAY = re.compile(r'\d{8}')
+_STATE_FILE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,79}\.(json|gray)')
+_TMP_FILE = re.compile(r'.+\.(tmp\d+|part)')
+TMP_MAX_AGE_S = 3600             # a temporary older than this belongs to a writer that died
 
 
 def _fail(msg):
@@ -2021,7 +2196,7 @@ def inside(base, path):
 
 
 def parse_size(s):
-    m = re.match(r'^(\d{3,4})x(\d{3,4})$', s or '')
+    m = _SIZE.fullmatch(s or '')
     if not m or not (320 <= int(m.group(1)) <= 7680 and 320 <= int(m.group(2)) <= 4320):
         _fail(f'--size {s!r}: WIDTHxHEIGHT, 320x320 to 7680x4320')
     return int(m.group(1)), int(m.group(2))
@@ -2037,12 +2212,12 @@ def parse_styles(arg, default):
 
 def check_names(a):
     """Everything that becomes part of a file name, checked BEFORE anything is read or written."""
-    if not _TAG.match(a.tag or ''):
+    if not _TAG.fullmatch(a.tag or ''):
         _fail(f'--tag {a.tag!r}: letters, digits, _ and - only, at most 40')
 
 
 def _state_file(root, camera, ext):
-    if not _NAME.match(camera):
+    if not isinstance(camera, str) or not _NAME.fullmatch(camera):
         raise ValueError(f'camera name {camera!r}')
     return inside(root, os.path.join(root, 'under-framing', camera + ext))
 
@@ -2059,11 +2234,7 @@ def kept_framing(root, camera, scene, size, style):
 
 
 def keep_framing(root, camera, fr):
-    p = _state_file(root, camera, '.json')
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p + '.part', 'w') as f:
-        json.dump(dict(fr, version=VERSION), f, indent=1)
-    os.replace(p + '.part', p)
+    atomic_write(_state_file(root, camera, '.json'), json.dumps(dict(fr, version=VERSION), indent=1).encode(), root)
 
 
 def busiest_slot(pos, scene, trail_min, slot_min=15):
@@ -2208,16 +2379,18 @@ Y_TOP, Y_BOTTOM = 159, -64      # the highest level a box is read to; the world'
 SKY_ROWS = 12                   # levels kept above the highest block of a box
 MAX_BOX_CELLS = 8_000_000       # a box read for one scene (up to Y_TOP, before the sky is dropped): 8 MB in memory
 DEPTH_MAX = 64                  # a side cut's box reaches at most this far in front of and behind the cut
+UNION_MAX = 256                 # an outgrown framing is remade for the old box AND the new one only up to this width
 BOX_VERSION = 1
 BOX_MAGIC = b'UBOX'
-_SCENE_ID = re.compile(r'^[A-Za-z0-9_]{1,60}$')
-_STAMP = re.compile(r'^\d{8}T\d{4}Z$')
-_ISO = re.compile(r'^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?$')
+_SCENE_ID = re.compile(r'[A-Za-z0-9_]{1,60}')
+_STAMP = re.compile(r'\d{8}T\d{4}Z')
+_ISO = re.compile(r'(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)?')
+MAX_SPAN = 1024                 # no picture or box is wider than this, whatever a scene or a kept framing says
 
 
 def parse_iso(s):
     """'2026-11-16T12:44:50Z' (also with a fraction or an offset; none means UTC) -> epoch seconds, or None."""
-    m = _ISO.match(s) if isinstance(s, str) else None
+    m = _ISO.fullmatch(s) if isinstance(s, str) else None
     if not m:
         return None
     try:
@@ -2257,7 +2430,7 @@ def check_scene(s):
     """Why a hand-off scene cannot be drawn, or None. Nothing of it reaches a path or an array size unchecked."""
     if not isinstance(s, dict):
         return 'not an object'
-    if not isinstance(s.get('id'), str) or not _SCENE_ID.match(s['id']):
+    if not isinstance(s.get('id'), str) or not _SCENE_ID.fullmatch(s['id']):
         return 'id: letters, digits and _ only, at most 60'
     box, y = s.get('box'), s.get('y')
     if not (isinstance(box, list) and len(box) == 4 and all(isinstance(v, (int, float)) and math.isfinite(v) for v in box)):
@@ -2339,8 +2512,33 @@ def held_framing(fr, scene):
     return out
 
 
+def framing_sane(fr):
+    """Is a framing read back from a file something this program could have written? Whole numbers in order, nothing
+    wider than MAX_SPAN, a scale of 2 to 64 pixels. A file that fails is not used: the scene is framed anew. (A kept
+    framing decides how many blocks are read and how many rows are drawn: it is input, and it is checked as input.)"""
+    def pair(v, lo, hi, span):
+        return (isinstance(v, list) and len(v) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in v)
+                and lo <= v[0] <= v[1] <= hi and v[1] - v[0] < span)
+    try:
+        if fr.get('style') not in ('side', 'plan') or not pair(fr.get('y'), Y_BOTTOM, 320, 400):
+            return False
+        if not (isinstance(fr.get('ppb'), int) and 2 <= fr['ppb'] <= 64 and pair(fr.get('scene_y'), -2048, 2048, 4096)):
+            return False
+        if not (isinstance(fr.get('origin'), list) and len(fr['origin']) == 2 and all(isinstance(v, int) and 0 <= v < 8192 for v in fr['origin'])):
+            return False
+        if not (isinstance(fr.get('box'), list) and len(fr['box']) == 4 and pair(fr['box'][0::2], -3e7, 3e7, MAX_SPAN)
+                and pair(fr['box'][1::2], -3e7, 3e7, MAX_SPAN)):
+            return False
+        if fr['style'] == 'side':
+            return (fr.get('axis') in ('x', 'z') and fr.get('mode') in ('open', 'near') and pair(fr.get('u'), -3e7, 3e7, MAX_SPAN)
+                    and pair(fr.get('depth'), -3e7, 3e7, MAX_SPAN) and pair(fr.get('slab'), -3e7, 3e7, 64))
+        return pair(fr.get('x'), -3e7, 3e7, MAX_SPAN) and pair(fr.get('z'), -3e7, 3e7, MAX_SPAN) and pair(fr.get('band'), Y_BOTTOM, 320, 400)
+    except (TypeError, AttributeError, ValueError):
+        return False
+
+
 def load_framing(root, camera, size, style):
-    """The framing kept for a camera, if it is this version's, this size's and this kind of picture's."""
+    """The framing kept for a camera, if it is this version's, this size's, this kind of picture's, and sane."""
     try:
         fr = read_json(_state_file(root, camera, '.json'))
     except (OSError, ValueError):
@@ -2348,30 +2546,48 @@ def load_framing(root, camera, size, style):
     base = 'plan' if style in ('plan', 'plantrails') else 'side'
     if not isinstance(fr, dict) or fr.get('version') != VERSION or fr.get('size') != list(size) or fr.get('style') != base:
         return None
-    return {k: v for k, v in fr.items() if k != 'version'}
+    fr = {k: v for k, v in fr.items() if k != 'version'}
+    return fr if framing_sane(fr) else None
 
 
 def cap_rect(rect, ny, max_cells=MAX_BOX_CELLS, keep=None):
     """A read rectangle of at most max_cells over ny levels. What is cut first is the margin around `keep` (the
-    scene's own box), a block at a time from whichever side has the most left; only when no margin is left is the
-    scene itself cut, evenly from the two ends of its longer side (never under 16 blocks). With no `keep` (a kept
-    framing's box: the same cut every slot) it is cut around its own middle. -> (rect, cut?). Pure (tested)."""
-    x0, z0, x1, z1 = rect
-    kx0, kz0, kx1, kz1 = keep if keep is not None else ((x0 + x1) // 2, (z0 + z1) // 2, (x0 + x1) // 2, (z0 + z1) // 2)
-    cut = False
-    while (x1 - x0 + 1) * (z1 - z0 + 1) * ny > max_cells:
-        room = [(kx0 - x0, 0), (x1 - kx1, 1), (kz0 - z0, 2), (z1 - kz1, 3)]
-        most, side = max(room)
-        if most > 0:
-            x0, x1, z0, z1 = x0 + (side == 0), x1 - (side == 1), z0 + (side == 2), z1 - (side == 3)
-        elif x1 - x0 >= z1 - z0 and x1 - x0 > 15:
-            x0, x1 = x0 + 1, x1 - 1
-        elif z1 - z0 > 15:
-            z0, z1 = z0 + 1, z1 - 1
-        else:
-            break
-        cut = True
-    return [x0, z0, x1, z1], cut
+    scene's own box): every side keeps at most M blocks of margin, M the largest that fits (found by halving: at most
+    64 steps whatever the numbers, never a block at a time); only when the scene alone is too large is it cut,
+    evenly from the two ends of its longer side and then of the other (never under 16 blocks). With no `keep` (a
+    kept framing's box: the same cut every slot) it is cut around its own middle. -> (rect, cut?). Pure (tested)."""
+    x0, z0, x1, z1 = (int(v) for v in rect)
+    area = max(256, max_cells // max(1, ny))
+    if (x1 - x0 + 1) * (z1 - z0 + 1) <= area:
+        return [x0, z0, x1, z1], False
+    if keep is None:
+        mx, mz = (x0 + x1 + 1) // 2, (z0 + z1 + 1) // 2
+        kx0, kz0, kx1, kz1 = mx, mz, mx - 1, mz - 1                 # nothing to keep: an empty box at the middle
+    else:
+        kx0, kz0, kx1, kz1 = max(x0, min(x1, keep[0])), max(z0, min(z1, keep[1])), min(x1, max(x0, keep[2])), min(z1, max(z0, keep[3]))
+    kw, kd = kx1 - kx0 + 1, kz1 - kz0 + 1
+    a, b, c, d = kx0 - x0, x1 - kx1, kz0 - z0, z1 - kz1
+
+    def size(m):
+        return (kw + min(a, m) + min(b, m)) * (kd + min(c, m) + min(d, m))
+    if size(0) <= area:
+        lo, hi = 0, max(a, b, c, d)
+        while lo < hi:                                             # the largest margin that fits
+            mid = (lo + hi + 1) // 2
+            if size(mid) <= area:
+                lo = mid
+            else:
+                hi = mid - 1
+        return [kx0 - min(a, lo), kz0 - min(c, lo), kx1 + min(b, lo), kz1 + min(d, lo)], True
+    w, dd = kw, kd                                                 # the scene itself is too large
+    if w >= dd:
+        w = min(kw, max(16, area // max(1, dd)))
+        dd = min(kd, max(16, area // w))
+    else:
+        dd = min(kd, max(16, area // max(1, w)))
+        w = min(kw, max(16, area // dd))
+    nx0, nz0 = kx0 + (kw - w) // 2, kz0 + (kd - dd) // 2
+    return [nx0, nz0, nx0 + w - 1, nz0 + dd - 1], True
 
 
 def slot_region(scene, fr, size, pos, style, thick=SLAB):
@@ -2418,9 +2634,11 @@ def box_world(raw):
     """A box as tl_region.read_box (or a snapshot) gives it -> a World. Its token is the hash of what is DRAWN (the
     class of every cell, not the order its names happened to be met in): two slots with the same blocks share one
     rendered background."""
+    tick('box: hash')
     w = World(raw['box'], raw['y'], raw['palette'], raw['cells'], 8, 'box')
     h = hashlib.sha1(json.dumps([raw['box'], raw['y']]).encode())
     h.update(raw['cells'].translate(w.lut))
+    tick('box: hash')
     w.token = 'box-' + h.hexdigest()[:16]
     return w
 
@@ -2436,6 +2654,7 @@ def trim_top(raw, top_min=None):
     ny = y1 - y0 + 1
     top = 0
     for yi in range(ny - 1, -1, -1):
+        tick('box: sky')
         if b'\x01' in cells[yi * layer:(yi + 1) * layer].translate(solid):
             top = yi
             break
@@ -2448,7 +2667,8 @@ def trim_top(raw, top_min=None):
 def read_scene_box(region_dir, region):
     """Read a scene's box from the mirror's region files, up to Y_TOP, and drop the empty sky (trim_top)."""
     x0, z0, x1, z1 = region['rect']
-    raw = tl_region.read_box(region_dir, x0, z0, x1, z1, region['y0'], Y_TOP, fold=fold_name, absent='air')
+    raw = tl_region.read_box(region_dir, x0, z0, x1, z1, region['y0'], Y_TOP, fold=fold_name, absent='air',
+                             tick=lambda: tick('read: chunk'))
     return trim_top(raw, region.get('top_min'))
 
 
@@ -2465,14 +2685,16 @@ def crop_box(raw, rect, y0=None):
         return raw
     nx, nz = bx1 - bx0 + 1, bz1 - bz0 + 1
     cells, w = raw['cells'], x1 - x0 + 1
-    rows = [cells[((yi * nz) + z - bz0) * nx + x0 - bx0:((yi * nz) + z - bz0) * nx + x0 - bx0 + w]
-            for yi in range(y0 - raw['y'][0], raw['y'][1] - raw['y'][0] + 1) for z in range(z0, z1 + 1)]
+    rows = []
+    for yi in range(y0 - raw['y'][0], raw['y'][1] - raw['y'][0] + 1):
+        tick('box: crop')
+        rows += [cells[((yi * nz) + z - bz0) * nx + x0 - bx0:((yi * nz) + z - bz0) * nx + x0 - bx0 + w] for z in range(z0, z1 + 1)]
     return dict(raw, box=[x0, z0, x1, z1], y=[y0, raw['y'][1]], cells=b''.join(rows))
 
 
 # ---------------------------------------------------------------- the box snapshot: under-box/<id>/<day>/<stamp>.box.z
 def _box_path(root, sid, stamp):
-    if not _SCENE_ID.match(sid) or not _STAMP.match(stamp):
+    if not (isinstance(sid, str) and isinstance(stamp, str) and _SCENE_ID.fullmatch(sid) and _STAMP.fullmatch(stamp)):
         raise ValueError(f'box snapshot name {sid!r} {stamp!r}')
     return inside(root, os.path.join(root, 'under-box', sid, stamp[:8], stamp + '.box.z'))
 
@@ -2508,12 +2730,29 @@ def read_box_file(path):
     Every read ends with the sha1 check, so a damaged file or a base that is not the one written against is an
     error (ValueError), never a wrong picture."""
     hdr = box_header(path)
+    if not isinstance(hdr.get('cells'), int) or not 0 < hdr['cells'] <= 4 * MAX_BOX_CELLS:
+        raise ValueError(f'{path}: a box of {hdr.get("cells")!r} cells')
     with open(path, 'rb') as f:
         f.seek(hdr.pop('_at'))
-        try:
-            body = zlib.decompress(f.read())
-        except zlib.error as e:
-            raise ValueError(f'{path}: {e}')
+        data = f.read(hdr['cells'] + (1 << 20))               # a snapshot is never larger than its own cells
+    cap = 5 * hdr['cells'] + (1 << 20)                         # ... and never inflates past them (a delta: 5 bytes a cell)
+    z, parts, got = zlib.decompressobj(), [], 0
+    try:
+        while data and not z.eof:                              # a megabyte at a time: the deadline is looked at between
+            tick('box: read')
+            piece = z.decompress(data, 1 << 20)
+            got += len(piece)
+            if got > cap:
+                raise ValueError(f'{path}: inflates past its {hdr["cells"]} cells')
+            parts.append(piece)
+            data = z.unconsumed_tail
+            if not piece and not data:
+                break
+    except zlib.error as e:
+        raise ValueError(f'{path}: {e}')
+    if not z.eof:
+        raise ValueError(f'{path}: cut short')
+    body = b''.join(parts)
     cut = body.find(b'\n')
     try:
         palette = json.loads(body[:cut]) if cut >= 0 else None
@@ -2543,8 +2782,10 @@ def read_box_file(path):
         for i, v in zip(idx, vals):
             buf[i] = v
         cells = bytes(buf)
+    tick('box: check')
     if len(cells) != hdr.get('cells') or hashlib.sha1(cells).hexdigest() != hdr.get('sha1'):
         raise ValueError(f'{path}: the cells do not match the header (damaged, or a different base)')
+    tick('box: check')
     return {'box': hdr['box'], 'y': hdr['y'], 'palette': palette, 'cells': cells, 'bits': 8, 'header': hdr}
 
 
@@ -2552,7 +2793,7 @@ def _day_base(folder, stamp, box, y):
     """The full snapshot a new one of this box may be written against: the newest full one in the day's folder,
     older than `stamp`, of the same box. -> its stamp or None. Two header reads at most in the usual day."""
     try:
-        names = sorted((n[:-6] for n in os.listdir(folder) if n.endswith('.box.z') and _STAMP.match(n[:-6]) and n[:-6] < stamp),
+        names = sorted((n[:-6] for n in os.listdir(folder) if n.endswith('.box.z') and _STAMP.fullmatch(n[:-6]) and n[:-6] < stamp),
                        reverse=True)
     except OSError:
         return None
@@ -2561,7 +2802,7 @@ def _day_base(folder, stamp, box, y):
         try:
             h = box_header(os.path.join(folder, n + '.box.z'))
             b = n if h['kind'] == 'full' else h.get('base')
-            if b in seen or not isinstance(b, str) or not _STAMP.match(b):
+            if b in seen or not isinstance(b, str) or not _STAMP.fullmatch(b):
                 continue
             seen.add(b)
             if b != n:
@@ -2573,20 +2814,33 @@ def _day_base(folder, stamp, box, y):
     return None
 
 
-def write_box_file(root, sid, stamp, raw, extra=None, level=6):
-    """Write a scene's box for a slot. The day's first box of a given shape is written whole; the later ones as the
-    cells that differ from it (a slot of mining changes a few hundred of two million), whole again when the shape
-    changes, a quarter of the cells differ or the palette would pass 256 names. -> (path, bytes, header)."""
+def _deflate(body, level=6, piece=1 << 18):
+    """zlib, a quarter of a megabyte at a time: a deadline is looked at between pieces."""
+    z = zlib.compressobj(level)
+    out = []
+    for o in range(0, len(body), piece):
+        tick('box: compress')
+        out.append(z.compress(body[o:o + piece]))
+    out.append(z.flush())
+    return b''.join(out)
+
+
+def build_box_file(root, sid, stamp, raw, extra=None, level=6):
+    """A scene's box for a slot, as the bytes of its snapshot file. The day's first box of a given shape is whole; the
+    later ones are the cells that differ from it (a slot of mining changes a few hundred of two million), whole
+    again when the shape changes, a quarter of the cells differ or the palette would pass 256 names.
+    -> (path, data, header). Nothing is written."""
     path = _box_path(root, sid, stamp)
     folder = os.path.dirname(path)
     palette, cells = list(raw['palette']), raw['cells']
     hdr = dict(extra or {}, v=BOX_VERSION, id=sid, stamp=stamp, box=list(raw['box']), y=list(raw['y']), bits=8,
-               missing=raw.get('missing') or [], folded=raw.get('folded') or 0)
+               missing=raw.get('missing') or [], bad_sections=raw.get('bad_sections') or 0, folded=raw.get('folded') or 0)
     body = None
     base = _day_base(folder, stamp, raw['box'], raw['y'])
     if base:
         try:
             B = read_box_file(os.path.join(folder, base + '.box.z'))
+            tick('box: base read')
             ext = list(B['palette'])
             where = {n: i for i, n in enumerate(ext)}
             lut = bytearray(256)
@@ -2599,7 +2853,12 @@ def write_box_file(root, sid, stamp, raw, extra=None, level=6):
                 mine = cells.translate(bytes(lut))
                 n = len(mine)
                 diff = (int.from_bytes(mine, 'little') ^ int.from_bytes(B['cells'], 'little')).to_bytes(n, 'little')
-                idx = [i for m in re.finditer(rb'[^\x00]+', diff) for i in range(m.start(), m.end())]
+                tick('box: compare')
+                idx = []
+                for a0, a1 in nonzero_runs(diff):
+                    idx.extend(range(a0, a1))
+                    if len(idx) * 4 > n:
+                        break
                 if len(idx) * 4 <= n:
                     palette, cells = ext, mine
                     hdr.update(kind='delta', base=base, changed=len(idx))
@@ -2609,14 +2868,17 @@ def write_box_file(root, sid, stamp, raw, extra=None, level=6):
     if body is None:
         hdr.update(kind='full', base=None, changed=None)
         body = json.dumps(palette).encode() + b'\n' + cells
+    tick('box: hash')
     hdr.update(palette=len(palette), cells=len(cells), sha1=hashlib.sha1(cells).hexdigest())
+    tick('box: hash')
     head = json.dumps(hdr, sort_keys=True).encode()
-    data = BOX_MAGIC + bytes([BOX_VERSION]) + struct.pack('>I', len(head)) + head + zlib.compress(body, level)
-    os.makedirs(folder, exist_ok=True)
-    tmp = path + f'.tmp{os.getpid()}'
-    with open(tmp, 'wb') as f:
-        f.write(data)
-    os.replace(tmp, path)
+    return path, BOX_MAGIC + bytes([BOX_VERSION]) + struct.pack('>I', len(head)) + head + _deflate(body, level), hdr
+
+
+def write_box_file(root, sid, stamp, raw, extra=None, level=6):
+    """build_box_file, written (whole or not at all). -> (path, bytes, header)."""
+    path, data, hdr = build_box_file(root, sid, stamp, raw, extra, level)
+    atomic_write(path, data, root)
     return path, len(data), hdr
 
 
@@ -2624,7 +2886,7 @@ def first_box_of_day(root, sid, stamp):
     """The path of the scene's first snapshot of the stamp's day, or None."""
     folder = os.path.dirname(_box_path(root, sid, stamp))
     try:
-        names = sorted(n for n in os.listdir(folder) if n.endswith('.box.z') and _STAMP.match(n[:-6]))
+        names = sorted(n for n in os.listdir(folder) if n.endswith('.box.z') and _STAMP.fullmatch(n[:-6]))
     except OSError:
         return None
     return os.path.join(folder, names[0]) if names else None
@@ -2642,11 +2904,13 @@ def dug_cells(first, now):
     a = first.block(x0, z0, x1, z1, y0, y1).translate(M_SOLID)
     b = now.block(x0, z0, x1, z1, y0, y1).translate(M_AIR)
     n = len(a)
+    tick('dug: compare')
     both = (int.from_bytes(a, 'little') & int.from_bytes(b, 'little')).to_bytes(n, 'little')
+    tick('dug: compare')
     nx, nz = x1 - x0 + 1, z1 - z0 + 1
     out = []
-    for m in re.finditer(rb'\x01+', both):
-        for i in range(m.start(), m.end()):
+    for a0, a1 in nonzero_runs(both):
+        for i in range(a0, a1):
             yz, x = divmod(i, nx)
             y, z = divmod(yz, nz)
             out.append((x0 + x, y0 + y, z0 + z))
@@ -2665,14 +2929,19 @@ def thumb_gray(cv, w=320, h=180):
 
 
 def slot_scene(a, scene, stamp, t, size, style):
-    """One underground scene of one slot: read its box, write the snapshot, find what was dug since the day's first
-    box, draw the frame in the scene's kept framing. -> a row for the summary. Raises on anything it cannot do: the
-    caller counts it."""
+    """One underground scene of one slot: read its box, find what was dug since the day's first box, draw the frame
+    in the scene's kept framing; then its five files (box snapshot, framing, change thumbnail, sidecar, PNG) go into
+    place together or not at all (Staged). -> a row for the summary. Raises on anything it cannot do, Deadline
+    included (tick() is called all through): the caller counts it, and nothing of the scene is left on disk."""
     t0 = time.time()
     sid = scene['id']
     camera = 'under-' + sid
     root = a.root
     png = inside(root, frame_path(root, camera, stamp))
+    bfolder = os.path.dirname(_box_path(root, sid, stamp))
+    for folder in (os.path.join(root, 'under-framing'), os.path.dirname(png), bfolder):
+        sweep_tmp(folder)                              # this scene's own folders only: a dead writer's leftovers
+    tick('start')
     pos, bad = trail_positions(scene.get('trail'))
     kept = load_framing(root, camera, size, style)
     why = framing_holds(kept, scene) if kept else None
@@ -2680,7 +2949,9 @@ def slot_scene(a, scene, stamp, t, size, style):
     frame_for = pad_scene(scene)
     if kept and why:                                   # outgrown: frame anew for the old view AND the new scene
         o, n = kept['box'], frame_for['box']
-        frame_for = dict(frame_for, box=[min(o[0], n[0]), min(o[1], n[1]), max(o[2], n[2]), max(o[3], n[3])])
+        both = [min(o[0], n[0]), min(o[1], n[1]), max(o[2], n[2]), max(o[3], n[3])]
+        if both[2] - both[0] < UNION_MAX and both[3] - both[1] < UNION_MAX:      # a scene that has walked away is framed alone
+            frame_for = dict(frame_for, box=both)
         change = {'why': why, 'was': {k: kept[k] for k in ('axis', 'slab', 'u', 'x', 'z', 'y', 'ppb') if k in kept}}
         kept = None
     fr = held_framing(kept, scene) if kept else None
@@ -2693,15 +2964,15 @@ def slot_scene(a, scene, stamp, t, size, style):
         again = slot_region(scene, fr, size, pos, style, a.slab)
         raw = trim_top(crop_box(raw, again['rect'], again['y0']), again['top_min'])
         world = box_world(raw)
-    bpath, bbytes, bhdr = write_box_file(root, sid, stamp, raw, {'clipped': region['clipped'], 'layer': scene.get('layer')})
+    tick('box')
     first = first_box_of_day(root, sid, stamp)
     dug = {'cells': [], 'since': stamp}
     if first and os.path.basename(first) != stamp + '.box.z':
         F = read_box_file(first)
+        tick('dug: first box read')
         dug = {'cells': dug_cells(box_world(F), world), 'since': F['header']['stamp']}
+    bpath, bdata, bhdr = build_box_file(root, sid, stamp, raw, {'clipped': region['clipped'], 'layer': scene.get('layer')})
     t_box = time.time() - t0 - t_read
-    if fr != (kept or None):
-        keep_framing(root, camera, fr)
     cv, sd = render(world, pos, scene, style, t, size, fr, a.trail_min, a.cache, a.slab, dug=dug,
                     clock=parse_stamp(stamp).timestamp())
     gray = thumb_gray(cv)
@@ -2714,24 +2985,36 @@ def slot_scene(a, scene, stamp, t, size, style):
     sd.update(stamp=stamp, camera=camera, changed=round(changed_fraction(prev, gray), 5) if len(prev) == len(gray) else None,
               framing_kept=kept is not None, framing_change=change, box_clipped=region['clipped'],
               block_box={'rect': raw['box'], 'y': raw['y'], 'cells': len(raw['cells']), 'missing_chunks': len(raw['missing']),
-                         'chunks': raw['chunks'], 'snapshot': os.path.relpath(bpath, root), 'snapshot_bytes': bbytes,
+                         'missing_why': raw.get('missing_why') or {}, 'bad_sections': raw.get('bad_sections') or 0,
+                         'chunks': raw['chunks'], 'snapshot': os.path.relpath(bpath, root), 'snapshot_bytes': len(bdata),
                          'snapshot_kind': bhdr['kind'], 'folded_names': raw['folded']},
               trail_rows_unread=bad)
     sd['render_s'].update(read=round(t_read, 3), box=round(t_box, 3))
-    n = write_frame(cv, sd, png, root)
-    with open(gpath + '.part', 'wb') as f:
-        f.write(gray)
-    os.replace(gpath + '.part', gpath)
-    side_bytes = os.path.getsize(png[:-4] + '.json')
-    return {'id': sid, 'seconds': round(time.time() - t0, 3), 'bytes': n + side_bytes + bbytes, 'read_s': round(t_read, 3),
-            'dug': len(dug['cells']), 'snapshot': bhdr['kind'], 'missing_chunks': len(raw['missing'])}
+    data, side = encode_frame(cv, sd)
+    st = Staged()
+    try:
+        for path, blob in ((bpath, bdata),
+                           (_state_file(root, camera, '.json'), json.dumps(dict(fr, version=VERSION), indent=1).encode()),
+                           (gpath, gray), (png[:-4] + '.json', side), (png, data)):
+            tick('write')                              # the last look at the clock: after it, five renames
+            st.add(path, blob, root)
+        tick('commit')
+        st.commit()
+    finally:
+        st.abort()
+    return {'id': sid, 'seconds': round(time.time() - t0, 3), 'bytes': len(data) + len(side) + len(bdata), 'read_s': round(t_read, 3),
+            'dug': len(dug['cells']), 'snapshot': bhdr['kind'], 'missing_chunks': len(raw['missing']),
+            'bad_sections': raw.get('bad_sections') or 0}
 
 
 def run_slot(a, now=None):
-    """Every underground scene of the hand-off file, inside the budget. -> the summary. One scene's failure is a
-    line on stderr and a count; the budget is looked at before each scene (a scene is not started when the time left
-    is less than the slowest one so far took)."""
+    """Every underground scene of the hand-off file, inside the budget. -> the summary. The budget is ONE deadline on
+    the monotonic clock for the whole call: a scene is not started once it has passed (or when the time left is less
+    than the slowest scene so far took: why.budget), and a scene it passes during is abandoned at the next tick()
+    with nothing written (why.deadline). One scene's failure is a line on stderr and a count. max_step_s is the
+    longest the call went without looking at the clock: the most it can overrun."""
     t0 = time.time()
+    m0 = _mono()
     now = time.time() if now is None else now
     out = {'scenes': 0, 'drawn': 0, 'skipped': 0, 'errors': 0, 'seconds': 0.0, 'bytes_written': 0, 'why': {}, 'stamp': None}
 
@@ -2744,7 +3027,7 @@ def run_slot(a, now=None):
     out['why'] = why
     out['skipped'] = sum(v for k, v in why.items() if k != 'surface')
     stamp = a.stamp or (obj.get('stamp') if isinstance(obj, dict) else None)
-    if not isinstance(stamp, str) or not _STAMP.match(stamp) or parse_stamp(stamp) is None:
+    if not isinstance(stamp, str) or not _STAMP.fullmatch(stamp) or parse_stamp(stamp) is None:
         raise ValueError(f'no usable stamp ({stamp!r}): the hand-off file carries "stamp": "20261116T1245Z"')
     out['stamp'] = stamp
     slot_t = parse_stamp(stamp).timestamp()
@@ -2756,23 +3039,36 @@ def run_slot(a, now=None):
     size = parse_size(a.size)
     style = parse_styles(a.style, ('trails',))[0]
     slowest = 0.0
+    at = m0 + a.budget_s
+    step, where = 0.0, None
     for i, sc in enumerate(scenes):
-        spent = time.time() - t0
+        spent = _mono() - m0
         if spent >= a.budget_s or (i and spent + slowest > a.budget_s):
             out['why']['budget'] = len(scenes) - i
             out['skipped'] += len(scenes) - i
             break
-        s0 = time.time()
+        s0 = _mono()
         try:
-            last = max((rows[-1][0] for rows in trail_positions(sc.get('trail'))[0].values()), default=None)
-            row = slot_scene(a, sc, stamp, t if t is not None else (last if last is not None else slot_t), size, style)
+            with deadline(at) as dl:
+                try:
+                    last = max((rows[-1][0] for rows in trail_positions(sc.get('trail'))[0].values()), default=None)
+                    row = slot_scene(a, sc, stamp, t if t is not None else (last if last is not None else slot_t), size, style)
+                finally:
+                    if dl['gap'] > step:
+                        step, where = dl['gap'], dl['where']
             out['drawn'] += 1
             out['bytes_written'] += row['bytes']
             out.setdefault('rows', []).append(row)
+        except Deadline as e:                         # out of time inside the scene: nothing of it was written
+            out['why']['deadline'] = out['why'].get('deadline', 0) + 1
+            out['skipped'] += 1
+            print(f"tl_under slot: scene {sc.get('id')!r}: abandoned at the {a.budget_s:g} s deadline ({e})", file=sys.stderr)
         except Exception as e:                        # one scene never costs the others, or the capture service
             out['errors'] += 1
             print(f"tl_under slot: scene {sc.get('id')!r}: {type(e).__name__}: {e}", file=sys.stderr)
-        slowest = max(slowest, time.time() - s0)
+        slowest = max(slowest, _mono() - s0)
+    out['max_step_s'], out['max_step'] = round(step, 4), where
+    out['overrun_s'] = round(max(0.0, _mono() - at), 4)
     return done()
 
 
@@ -2843,19 +3139,20 @@ def thin_plan(entries, today, days=14, hourly_after=2):
 
 
 def cmd_thin(a):
-    """Delete old box snapshots under <root>/under-box (thin_plan), then the framing and change-score files of
-    scenes not drawn for `days` days. Frames are never touched: the nightly video job thins those."""
+    """Delete old box snapshots under <root>/under-box (thin_plan), the framing and change-score files of scenes not
+    drawn for `days` days, and every abandoned temporary (<name>.tmp<pid> or .part, more than an hour old) under
+    under-box, under-framing and frames/under-*. Frames are never touched: the nightly video job thins those."""
     base = os.path.join(a.root, 'under-box')
     entries, sizes = [], {}
     for sid in sorted(os.listdir(base)) if os.path.isdir(base) else []:
-        if not _SCENE_ID.match(sid):
+        if not _SCENE_ID.fullmatch(sid):
             continue
         for day in sorted(os.listdir(os.path.join(base, sid))):
             folder = os.path.join(base, sid, day)
-            if not re.match(r'^\d{8}$', day) or not os.path.isdir(folder) or os.path.islink(folder):
+            if not _DAY.fullmatch(day) or not os.path.isdir(folder) or os.path.islink(folder):
                 continue
             for n in sorted(os.listdir(folder)):
-                if not (n.endswith('.box.z') and _STAMP.match(n[:-6]) and n[:8] == day):
+                if not (n.endswith('.box.z') and _STAMP.fullmatch(n[:-6]) and n[:8] == day):
                     continue
                 try:
                     b = box_header(os.path.join(folder, n)).get('base')
@@ -2871,8 +3168,15 @@ def cmd_thin(a):
         freed += sizes[(sid, day, stamp)]
         if not a.dry_run:
             os.remove(p)
-    state = 0
+    state = tmp = 0
     if not a.dry_run:
+        for top in [os.path.join(a.root, 'under-framing'), base] + sorted(
+                os.path.join(a.root, 'frames', n) for n in (os.listdir(os.path.join(a.root, 'frames'))
+                                                            if os.path.isdir(os.path.join(a.root, 'frames')) else [])
+                if n.startswith('under-')):
+            for folder, dirs, _ in os.walk(top):          # abandoned temporaries, wherever a write of ours died
+                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(folder, d))]
+                tmp += sweep_tmp(folder)
         for (sid, day) in sorted({(g[0], g[1]) for g in gone}):
             for d in (os.path.join(base, sid, day), os.path.join(base, sid)):
                 try:
@@ -2883,11 +3187,11 @@ def cmd_thin(a):
         cut = time.time() - a.days * 86400
         for n in os.listdir(sdir) if os.path.isdir(sdir) else []:
             p = os.path.join(sdir, n)
-            if re.match(r'^[A-Za-z0-9_][A-Za-z0-9_-]{0,79}\.(json|gray)$', n) and os.path.isfile(p) and os.path.getmtime(p) < cut:
+            if _STATE_FILE.fullmatch(n) and os.path.isfile(p) and os.path.getmtime(p) < cut:
                 os.remove(p)
                 state += 1
     out = {'snapshots': len(entries), 'deleted': len(gone), 'bytes_freed': freed, 'kept_bytes': sum(sizes.values()) - freed,
-           'state_files_deleted': state, 'dry_run': bool(a.dry_run)}
+           'state_files_deleted': state, 'temporaries_deleted': tmp, 'dry_run': bool(a.dry_run)}
     print(json.dumps(out))
     return out
 
@@ -2898,7 +3202,7 @@ def cmd_redraw(a):
     check_names(a)
     size = parse_size(a.size)
     style = parse_styles(a.style, ('side',))[0]
-    if not _SCENE_ID.match(a.id) or not _STAMP.match(a.stamp):
+    if not _SCENE_ID.fullmatch(a.id) or not _STAMP.fullmatch(a.stamp):
         _fail('--id / --stamp: a scene id and a stamp like 20261116T1245Z')
     B = read_box_file(_box_path(a.root, a.id, a.stamp))
     world = box_world(B)

@@ -1,7 +1,7 @@
 """camunder-01: the underground pictures (tl_under.py). The scene finder, the choice of the cut, the block colours, the
 PNG writer, a framing that holds still between two slots, and the time a frame costs.
 Run: python3 -m unittest infra/showcase/test_tl_under.py (from the repo root). Mutants: test_tl_under_mutants.py."""
-import base64, contextlib, datetime as dt, io, json, os, struct, sys, tempfile, time, unittest
+import base64, collections, contextlib, datetime as dt, io, json, os, struct, sys, tempfile, time, unittest, zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import tl_under as U     # noqa: E402
@@ -709,7 +709,7 @@ class Region(unittest.TestCase):
         return U.box_world(raw).block(*raw['box'], *raw['y'])
 
     def test_the_reader_is_the_original_and_the_fallbacks_are_tl2trails(self):
-        """Structural: tl_region's three copied functions are scripts/host/townplan_blockdump.py's, text for text,
+        """Structural: tl_region's two copied functions are scripts/host/townplan_blockdump.py's, text for text,
         and tl_under's fallback colours and limits are tl2trails' (the showcase VM has neither file)."""
         src = os.path.join(HERE, '..', '..', 'scripts', 'host', 'townplan_blockdump.py')
         if not os.path.exists(src):
@@ -718,8 +718,20 @@ class Region(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('townplan_blockdump', src)
         orig = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(orig)
-        for fn in ('read_nbt', 'section_values', 'name_of'):
+        for fn in ('section_values', 'name_of'):
             self.assertEqual(inspect.getsource(getattr(R, fn)), inspect.getsource(getattr(orig, fn)), fn)
+        # the NBT reader is not a copy (it checks every length): on a well-formed chunk it must READ the same
+        w, _ = U.synthetic_world(48, 48, 40)
+        with tempfile.TemporaryDirectory() as d:
+            R.write_regions(d, w.box, w.yr, w.palette, w.cells)
+            data = raw(os.path.join(d, 'r.0.0.mca'))
+        for lx, lz in ((0, 0), (2, 1), (1, 2)):
+            i = 4 * (lx + lz * 32)
+            off = int.from_bytes(data[i:i + 3], 'big') * 4096
+            ln = int.from_bytes(data[off:off + 4], 'big')
+            nbt = zlib.decompress(data[off + 5:off + 4 + ln])
+            self.assertEqual(R.read_nbt_safe(nbt), orig.read_nbt(nbt), (lx, lz))
+            self.assertEqual(R.read_nbt_safe(nbt)['xPos'], lx)
         sys.path.insert(0, os.path.join(HERE, 'tl2'))
         import tl2trails
         self.assertEqual(U.FB_COLORS, tl2trails.COLORS)
@@ -870,6 +882,21 @@ class Snapshot(unittest.TestCase):
                 f.write(bad)
             with self.assertRaises(ValueError, msg=name):
                 U.read_box_file(q)
+        head_n = struct.unpack('>I', data[5:9])[0]
+        hdr = json.loads(data[9:9 + head_n])
+        bomb = data[:9 + head_n] + zlib.compress(json.dumps(self.raw['palette']).encode() + b'\n' + bytes(40 << 20), 9)
+        short = data[:9 + head_n] + zlib.compress(json.dumps(self.raw['palette']).encode() + b'\n' + self.raw['cells'])[:-9]
+        lying = json.dumps(dict(hdr, cells=10 ** 12)).encode()
+        for name, bad in (('a snapshot that inflates to forty megabytes for a 645 120-cell box', bomb), ('a stream cut short', short),
+                          ('a header that claims a million million cells', data[:5] + struct.pack('>I', len(lying)) + lying + data[9 + head_n:])):
+            q = os.path.join(self.root, 'bad.box.z')
+            with open(q, 'wb') as f:
+                f.write(bad)
+            try:
+                U.read_box_file(q)
+                self.fail(f'{name}: read')
+            except ValueError as e:
+                self.assertNotIn('do not match the header', str(e), f'{name}: refused before the whole of it was inflated')
         other = dict(self.raw, cells=bytes([self.raw['cells'][0] ^ 1]) + self.raw['cells'][1:])
         os.remove(p1)
         with self.assertRaises(ValueError, msg='a delta whose base is gone'):
@@ -1240,7 +1267,8 @@ class Slot(unittest.TestCase):
         self.assertIn("scene 'd20261116T0415a': RuntimeError: boom", err)
         self.assertEqual([p for p in tree(self.root) if p.startswith('frames/') and p.endswith('.png')],
                          [f'frames/under-e20261116T0430b/{self.stamp[:8]}/{self.stamp}.png'])
-        self.assertEqual(sorted(out), sorted(['scenes', 'drawn', 'skipped', 'errors', 'seconds', 'bytes_written', 'why', 'stamp', 'rows']))
+        self.assertEqual(sorted(out), sorted(['scenes', 'drawn', 'skipped', 'errors', 'seconds', 'bytes_written', 'why', 'stamp', 'rows',
+                                              'max_step_s', 'max_step', 'overrun_s']))
 
     def test_slot_never_fails_the_capture(self):
         for args in (['--root', self.root, '--region-dir', self.rd],                      # no hand-off file at all
@@ -1388,6 +1416,468 @@ class Thin(unittest.TestCase):
             for p in after:
                 if p.startswith('under-box/'):
                     U.read_box_file(os.path.join(root, p))            # what is left still reads (a kept delta has its base)
+
+
+def all_paths(root):
+    """Every file AND folder under root."""
+    out = []
+    for d, ds, fs in os.walk(root):
+        out += [os.path.relpath(os.path.join(d, n), root) + ('/' if n in ds else '') for n in ds + fs]
+    return sorted(out)
+
+
+def nbt_doc(*items):
+    """A root compound from ready-made tag bytes."""
+    return bytes([10]) + R._s('') + R._compound(list(items))
+
+
+def why_bad(doc, **kw):
+    """What read_nbt_safe does with a document: 'ok', or the NAME of what it raised (a test must see a wrong
+    exception type as a failure, not as an error)."""
+    try:
+        R.read_nbt_safe(doc, **kw)
+        return 'ok'
+    except Exception as e:
+        return type(e).__name__
+
+
+class Hardening(unittest.TestCase):
+    """The five blockers of the second review (of c2e6c3ff): `slot` runs unattended every 15 minutes."""
+    @classmethod
+    def setUpClass(cls):
+        cls.w, cls.f = U.synthetic_world()
+        cls.pos = U.synthetic_positions(cls.f)
+        cls.t = U.last_time(cls.pos)
+        cls.stamp = U.stamp_of(dt.datetime.fromtimestamp(cls.t, UTC))
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self.tmp.name, 'tl')
+        self.rd = os.path.join(self.tmp.name, 'mirror', 'region')
+        os.makedirs(os.path.join(self.root, 'logs'))
+        R.write_regions(self.rd, self.w.box, self.w.yr, self.w.palette, self.w.cells)
+        U._BG.clear()
+        bots = ['Alpha', 'Bravo', 'Comet', 'Echo']
+        self.scene = {'id': 'd20261116T0415a', 'layer': 'deep', 'kind': 'activity', 'box': [30, 44, 60, 52], 'y': [25, 26],
+                      'bots': bots, 'caption': '4 bots mining under the town, y 25-26', 'camera': None,
+                      'trail': {b: [[iso_z(r[0]), r[1], r[2], r[3], r[4]] for r in U.window(self.pos[b], self.t - 2700, self.t)]
+                                for b in bots}}
+        put(os.path.join(self.root, 'logs', 'scenes-slot.json'), {'v': 1, 't': iso_z(self.t), 'stamp': self.stamp, 'scenes': [self.scene]})
+        self.args = U.slot_args(['--root', self.root, '--region-dir', self.rd, '--stamp', self.stamp])
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        U._BG.clear()
+        U._mono = time.monotonic
+
+    # 1 ------------------------------------------------------------------ one deadline through the whole of a scene
+    def test_a_deadline_inside_a_scene_abandons_it_without_a_trace(self):
+        """A clock that moves one millisecond every time it is read: the deadline then falls at a chosen STEP of the
+        work, and every step is tried in turn across the run. Whatever step it falls at, the scene is either drawn
+        whole or skipped as `deadline` with not one file or folder more on disk than before."""
+        ticks = [0]
+
+        def clock():
+            ticks[0] += 1
+            return ticks[0] * 0.001
+        U._mono = clock
+        before = all_paths(self.root)
+        self.args.budget_s = 1e9
+        out = U.run_slot(self.args)
+        whole = ticks[0]
+        self.assertEqual((out['drawn'], out['why']), (1, {}))
+        self.assertGreater(whole, 300, 'the clock is looked at hundreds of times in one scene')
+        full = all_paths(self.root)
+        self.assertEqual(len([p for p in full if not p.endswith('/')]), 6)
+        steps = sorted(set([2, 5, 9] + [whole * k // 24 for k in range(1, 24)] + [whole - k for k in range(3, 14)]))
+        seen = collections.Counter()
+        places, latest = set(), 0
+        for n in steps:
+            import shutil
+            for d in ('frames', 'under-box', 'under-framing'):
+                shutil.rmtree(os.path.join(self.root, d), ignore_errors=True)
+            U._BG.clear()
+            ticks[0] = 0
+            self.args.budget_s = n * 0.001
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                out = U.run_slot(self.args)
+            if out['drawn']:
+                seen['drawn'] += 1
+                self.assertEqual(all_paths(self.root), full, f'step {n}: drawn means every file')
+            else:
+                seen[out.get('max_step') or '?'] += 1
+                self.assertEqual((out['why'], out['skipped'], out['errors']), ({'deadline': 1}, 1, 0), (n, out, err.getvalue()))
+                self.assertEqual(all_paths(self.root), before, f'step {n}: abandoned at {err.getvalue().strip()!r}: nothing is left')
+                self.assertIn('abandoned at the', err.getvalue())
+                self.assertLessEqual(out['overrun_s'], 0.006, f'step {n}: it stopped at the very next look at the clock')
+                places.add(err.getvalue().strip().rsplit('(', 1)[-1].rstrip(')'))
+                latest = max(latest, n)
+        self.assertGreaterEqual(len(steps) - seen['drawn'], 25, seen)
+        self.assertGreaterEqual(len(places), 8, places)
+        for must in ('read: chunk', 'side: pixels', 'png', 'write'):
+            self.assertIn(must, places, f'the deadline is looked at there too: {sorted(places)}')
+        self.assertGreaterEqual(latest, whole - 13, 'even with the files staged, a scene past the deadline is abandoned')
+
+    def test_the_deadline_reaches_the_region_read_and_the_nbt_reader(self):
+        calls = []
+        raw = R.read_box(self.rd, 0, 0, 95, 95, 0, 40, tick=lambda: calls.append(1))
+        self.assertEqual((raw['chunks'], len(calls)), (36, 36), 'the clock is looked at before every chunk')
+
+        class Stop(Exception):
+            pass
+
+        def third():
+            calls.append(1)
+            if len(calls) == 3:
+                raise Stop()
+        del calls[:]
+        with self.assertRaises(Stop):
+            R.read_box(self.rd, 0, 0, 95, 95, 0, 40, tick=third)
+        doc = nbt_doc(R._tag(12, 'big', struct.pack('>i', 9000) + bytes(9000 * 8)), R._tag(9, 'l', bytes([1]) + struct.pack('>i', 5000) + bytes(5000)))
+        del calls[:]
+        R.read_nbt_safe(doc, tick=lambda: calls.append(1))
+        self.assertGreaterEqual(len(calls), 4, 'and every 2048 values inside one chunk')
+        seen = {}
+        real = U.tl_region.read_box
+
+        def spy(*a, **k):
+            seen['tick'] = callable(k.get('tick'))
+            return real(*a, **k)
+        U.tl_region.read_box = spy
+        try:
+            U.read_scene_box(self.rd, {'rect': [0, 0, 31, 31], 'y0': 0, 'top_min': None})
+        finally:
+            U.tl_region.read_box = real
+        self.assertEqual(seen, {'tick': True}, 'tl_under hands its clock to the reader')
+
+    def test_rectangles_are_capped_by_arithmetic(self):
+        t0 = time.time()
+        for rect, keep in (([-10 ** 7, -10 ** 7, 10 ** 7, 10 ** 7], None), ([-10 ** 7, -10 ** 7, 10 ** 7, 10 ** 7], [5, 5, 60, 40]),
+                           ([0, 0, 10 ** 9, 3], [0, 0, 10 ** 9, 3]), ([-3 * 10 ** 7, 0, 3 * 10 ** 7, 10 ** 6], [100, 100, 700, 900])):
+            (x0, z0, x1, z1), cut = U.cap_rect(rect, 224, keep=keep)
+            self.assertTrue(cut)
+            self.assertLessEqual((x1 - x0 + 1) * (z1 - z0 + 1) * 224, U.MAX_BOX_CELLS, (rect, keep))
+            self.assertTrue(rect[0] <= x0 <= x1 <= rect[2] and rect[1] <= z0 <= z1 <= rect[3])
+        self.assertLess(time.time() - t0, 0.5, 'twenty million blocks of margin cost nothing to cut')
+        (x0, z0, x1, z1), _ = U.cap_rect([-10 ** 7, -10 ** 7, 10 ** 7, 10 ** 7], 224, keep=[5, 5, 60, 40])
+        self.assertTrue(x0 <= 5 and x1 >= 60 and z0 <= 5 and z1 >= 40, 'the scene itself is kept')
+        self.assertGreater((x1 - x0 + 1) * (z1 - z0 + 1) * 224, U.MAX_BOX_CELLS * 0.9, 'and as much margin as fits')
+
+    def test_a_kept_framing_is_input_and_checked_as_input(self):
+        fr = U.make_framing(self.w, self.pos, U.pad_scene(self.scene), 'trails', (1920, 1080))
+        fr = U.held_framing(fr, self.scene)
+        self.assertTrue(U.framing_sane(json.loads(json.dumps(fr))))
+        U.keep_framing(self.root, 'under-x', fr)
+        self.assertEqual(U.load_framing(self.root, 'under-x', (1920, 1080), 'trails'), fr)
+        for k, v in (('u', [-10 ** 9, 10 ** 9]), ('u', [5, 1]), ('u', [0, 2000]), ('depth', [0, 10 ** 6]), ('y', [-5000, 80]),
+                     ('ppb', 0), ('ppb', 10 ** 6), ('slab', [0, 500]), ('u', ['a', 'b']), ('u', None), ('origin', [-5, 10 ** 9]),
+                     ('axis', 'q'), ('box', [0, 0, 10 ** 8, 5]), ('u', [0.5, 80.5]), ('scene_y', 'deep')):
+            bad = dict(fr, **{k: v})
+            self.assertFalse(U.framing_sane(bad), (k, v))
+            U.keep_framing(self.root, 'under-x', bad)
+            self.assertIsNone(U.load_framing(self.root, 'under-x', (1920, 1080), 'trails'), (k, v))
+        U.keep_framing(self.root, 'under-d20261116T0415a', dict(fr, u=[-10 ** 9, 10 ** 9], depth=[-10 ** 9, 10 ** 9]))
+        out = U.run_slot(self.args)                    # a poisoned framing file: the scene is framed anew, in good time
+        self.assertEqual((out['drawn'], out['errors']), (1, 0))
+        self.assertLess(out['seconds'], 10)
+        self.assertFalse(get(os.path.join(self.root, 'frames', 'under-d20261116T0415a', self.stamp[:8], self.stamp + '.json'))['framing_kept'])
+
+    # 2 ------------------------------------------------------------------ a corrupt chunk cannot ask for the moon
+    def region_with(self, chunks, lengths=None, name='r.0.0.mca'):
+        d = os.path.join(self.tmp.name, 'odd')
+        os.makedirs(d, exist_ok=True)
+        R.write_region_file(os.path.join(d, name), chunks, lengths)
+        return d
+
+    def good_chunk(self, cx=0, cz=0, **kw):
+        pal = R._tag(9, 'palette', bytes([10]) + struct.pack('>i', 1) + R._entry('stone'))
+        sec = R._compound([R._tag(1, 'Y', struct.pack('>b', 0)), R._tag(10, 'block_states', R._compound([pal]))])
+        return R.chunk_nbt(cx, cz, [sec], **kw)
+
+    def test_a_chunk_is_read_within_its_own_sectors(self):
+        good = b'\x02' + zlib.compress(self.good_chunk(0, 0))
+        east = b'\x02' + zlib.compress(self.good_chunk(1, 0))
+        d = self.region_with({(0, 0): good})
+        self.assertEqual(R.read_box(d, 0, 0, 15, 15, 0, 15)['missing'], [])
+        for ln in (0xFFFFFFF0, 0x7FFFFFFF, 4096 * 300, 4093, 1, 0):          # 4093: one byte past its own sector
+            d = self.region_with({(0, 0): good, (1, 0): east}, {(0, 0): ln})
+            G = R.Regions(d)
+            try:
+                self.assertIsNone(G.chunk_at(0, 0), f'a length field of {ln}')
+                self.assertLessEqual(G.bytes_read, 4096 + 255 * 4096, 'never more than the format allows a chunk')
+                self.assertLessEqual(G.bytes_read, 3 * 4096, 'in fact: its own one sector')
+                self.assertIsNotNone(G.chunk_at(1, 0), 'the chunk beside it still reads')
+            finally:
+                G.close()
+        raw = R.read_box(self.region_with({(0, 0): good, (1, 0): east}, {(0, 0): 0xFFFFFFF0}), 0, 0, 31, 15, 0, 15)
+        self.assertEqual((raw['missing'], raw['chunks']), ([[0, 0]], 1))
+        self.assertTrue(any(k.startswith('corrupt: a chunk length') for k in raw['missing_why']), raw['missing_why'])
+        blob = struct.pack('>I', len(good)) + good                                        # a whole, valid chunk ...
+        head = bytearray(4096)
+        head[0:4] = (1).to_bytes(3, 'big') + bytes([1])                                  # ... at a location INSIDE the header
+        with open(os.path.join(d, 'r.0.0.mca'), 'wb') as f:
+            f.write(bytes(head) + blob + bytes(4096 - len(blob)) + bytes(4096))
+        r = R.read_box(d, 0, 0, 15, 15, 0, 15)
+        self.assertEqual(r['missing'], [[0, 0]], 'the second sector is the timestamp table, whatever its bytes look like')
+        self.assertTrue(any('inside the header' in k for k in r['missing_why']), r['missing_why'])
+        plain = self.good_chunk(0, 0)
+        self.assertEqual(R.read_box(self.region_with({(0, 0): b'\x03' + plain}), 0, 0, 15, 15, 0, 15)['missing'], [], 'type 3 is not compressed')
+        for comp in (4, 127, 0x82, 0):
+            d = self.region_with({(0, 0): bytes([comp]) + plain})
+            self.assertEqual(R.read_box(d, 0, 0, 15, 15, 0, 15)['missing'], [[0, 0]], f'compression type {comp}, even over readable bytes')
+
+    def test_a_chunk_cannot_inflate_without_limit(self):
+        self.assertEqual(R.inflate(zlib.compress(bytes(100)), 15, cap=100), bytes(100))
+        for data, cap in ((zlib.compress(bytes(101)), 100), (zlib.compress(bytes(1 << 22)), 1 << 20), (zlib.compress(bytes(500))[:-6], 1000)):
+            with self.assertRaises(R.BadChunk):
+                R.inflate(data, 15, cap=cap)
+        import tracemalloc
+        big = zlib.compress(bytes(64 << 20), 9)                                           # 64 MiB of zeros in 64 KB
+        tracemalloc.start()
+        try:
+            with self.assertRaises(R.BadChunk):
+                R.inflate(big, 15, cap=1 << 20)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertLess(peak, 8 << 20, f'refusing a 64 MiB chunk under a 1 MiB cap took {peak >> 20} MiB')
+        bomb = b'\x02' + zlib.compress(bytes(40 << 20), 9)                                # 40 MiB of zeros in 40 KB
+        self.assertLess(len(bomb), 64 << 10)
+        d = self.region_with({(0, 0): bomb, (1, 0): b'\x02' + zlib.compress(self.good_chunk(1, 0))})
+        t0 = time.time()
+        raw = R.read_box(d, 0, 0, 31, 15, 0, 15)
+        self.assertEqual((raw['missing'], raw['chunks']), ([[0, 0]], 1))
+        self.assertTrue(any('inflates past' in k for k in raw['missing_why']), raw['missing_why'])
+        self.assertLess(time.time() - t0, 5.0)
+
+    def test_nbt_lengths_are_checked_before_anything_is_allocated(self):
+        i4 = lambda n: struct.pack('>i', n)
+        ok = nbt_doc(R._tag(3, 'a', i4(7)), R._tag(9, 'l', bytes([3]) + i4(2) + i4(1) + i4(2)), R._tag(12, 'q', i4(1) + bytes(8)),
+                     R._tag(7, 'b', i4(3) + b'abc'), R._tag(8, 's', R._s('hi')), R._tag(9, 'e', bytes([0]) + i4(0)))
+        self.assertEqual(R.read_nbt_safe(ok), {'a': 7, 'l': [1, 2], 'q': (0,), 'b': b'abc', 's': 'hi', 'e': []})
+        bad = {
+            'a list of two thousand million longs': nbt_doc(R._tag(9, 'l', bytes([4]) + i4(0x7fffffff))),
+            'a list of minus one': nbt_doc(R._tag(9, 'l', bytes([3]) + i4(-1))),
+            'a list of minus one of nothing': nbt_doc(R._tag(9, 'l', bytes([0]) + i4(-1))),
+            'a long array longer than the chunk': nbt_doc(R._tag(12, 'q', i4(500000) + bytes(64))),
+            'an int array longer than the chunk': nbt_doc(R._tag(11, 'q', i4(500000) + bytes(64))),
+            'an array of minus five': nbt_doc(R._tag(12, 'q', i4(-5))),
+            'a byte array longer than the chunk': nbt_doc(R._tag(7, 'b', i4(1 << 30) + b'abc')),
+            'a string longer than the chunk': bytes([10]) + R._s('') + bytes([8]) + R._s('s') + struct.pack('>H', 60000) + b'x\x00',
+            'an unknown tag': nbt_doc(bytes([13]) + R._s('x') + bytes(8)),
+            'a list of an unknown tag': nbt_doc(R._tag(9, 'l', bytes([77]) + i4(3) + bytes(30))),
+            'a list of three ends': nbt_doc(R._tag(9, 'l', bytes([0]) + i4(3))),
+            'ten thousand lists inside each other': nbt_doc(R._tag(9, 'l', (bytes([9]) + i4(1)) * 10000 + bytes([1]) + i4(0))),
+            'a hundred compounds inside each other, well formed': nbt_doc((bytes([10]) + R._s('c')) * 100 + b'\x00' * 100),
+            'a root that is a list': bytes([9]) + R._s('') + bytes([1]) + i4(0),
+            'nothing': b'',
+        }
+        for name, doc in bad.items():
+            self.assertEqual(why_bad(doc), 'BadChunk', name)
+        self.assertEqual(why_bad(nbt_doc(R._tag(9, 'l', bytes([1]) + i4(2000) + bytes(2000))), max_items=1000), 'BadChunk', 'too many values')
+        self.assertEqual(why_bad(nbt_doc(R._tag(9, 'l', bytes([1]) + i4(2000) + bytes(2000))), max_items=3000), 'ok')
+        for cut in range(0, len(ok)):
+            self.assertEqual(why_bad(ok[:cut]), 'BadChunk', f'cut short after {cut} bytes')
+        t0 = time.time()
+        for doc in bad.values():
+            d = self.region_with({(0, 0): b'\x03' + doc, (1, 0): b'\x02' + zlib.compress(self.good_chunk(1, 0))})
+            self.assertEqual(R.read_box(d, 0, 0, 31, 15, 0, 15)['missing'], [[0, 0]])
+        self.assertLess(time.time() - t0, 5.0)
+
+    # 3 ------------------------------------------------------------------ a wrong chunk is missing, never a guess
+    def section(self, y, names, data=None, raw_states=None, with_y=True):
+        if raw_states is None:
+            items = [R._tag(9, 'palette', bytes([10]) + struct.pack('>i', len(names)) + b''.join(R._entry(n) for n in names))]
+            if data is not None:
+                items.append(R._tag(12, 'data', struct.pack('>i', len(data)) + struct.pack('>%dq' % len(data), *data)))
+            raw_states = R._tag(10, 'block_states', R._compound(items))
+        return R._compound(([R._tag(1, 'Y', struct.pack('>b', y))] if with_y else []) + [raw_states])
+
+    def read_odd(self, sections, **kw):
+        doc = R.chunk_nbt(kw.pop('says_x', 0), kw.pop('says_z', 0), sections, **kw)
+        d = self.region_with({(0, 0): b'\x02' + zlib.compress(doc)})
+        try:
+            return R.read_box(d, 0, 0, 15, 15, 0, 47)
+        except Exception as e:
+            self.fail(f'a malformed chunk raised {type(e).__name__}: {e}')
+
+    def test_a_chunk_must_say_it_is_the_chunk_asked_for(self):
+        names = ['stone', 'dirt', 'air', 'coal_ore', 'water']
+        good = R.pack_section(bytes([i % 5 for i in range(4096)]), 5)
+        ok = self.read_odd([self.section(0, names, good)])
+        self.assertEqual((ok['missing'], ok['bad_sections'], ok['palette'][ok['cells'][3]]), ([], 0, 'coal_ore'))
+        for kw in ({'says_x': 1}, {'says_z': -1}, {'says_x': 32}):
+            r = self.read_odd([self.section(0, names, good)], **kw)
+            self.assertEqual((r['missing'], set(r['cells'])), ([[0, 0]], {0}), f'{kw}: every cell unknown')
+            self.assertTrue(any('says it is' in k for k in r['missing_why']), r['missing_why'])
+        r = self.read_odd([self.section(0, names, good)], status='minecraft:features')
+        self.assertEqual((r['missing'], r['missing_why']), ([[0, 0]], {'not fully generated': 1}))
+        doc = nbt_doc(R._tag(3, 'xPos', struct.pack('>i', 0)), R._tag(3, 'zPos', struct.pack('>i', 0)), R._tag(8, 'Status', R._s('minecraft:full')))
+        d = self.region_with({(0, 0): b'\x02' + zlib.compress(doc)})
+        try:
+            self.assertEqual(R.read_box(d, 0, 0, 15, 15, 0, 15)['missing'], [[0, 0]], 'a chunk with no sections at all')
+        except KeyError as e:
+            self.fail(f'a chunk with no sections raised KeyError {e}')
+        doc = nbt_doc(R._tag(8, 'xPos', R._s('0')), R._tag(3, 'zPos', struct.pack('>i', 0)), R._tag(9, 'sections', bytes([10]) + struct.pack('>i', 0)))
+        d = self.region_with({(0, 0): b'\x02' + zlib.compress(doc)})
+        self.assertEqual(R.read_box(d, 0, 0, 15, 15, 0, 15)['missing'], [[0, 0]], 'coordinates that are not numbers')
+
+    def test_a_bad_section_is_unknown_and_counted_never_padded(self):
+        names = ['stone', 'dirt', 'air', 'coal_ore', 'water']
+        good = R.pack_section(bytes([i % 5 for i in range(4096)]), 5)                  # 256 words of 4-bit values
+        layer = 256 * 16
+        cases = {
+            'a data array 56 words short': self.section(1, names, good[:200]),
+            'a data array one word long': self.section(1, names, good[:1]),
+            'a data array 44 words too long': self.section(1, names, good + good[:44]),
+            'an index past the palette': self.section(1, names[:3], good),
+            'two names and no data': self.section(1, names[:2]),
+            'a palette of nothing': self.section(1, [], good),
+            'block_states that is a string': self.section(1, names, raw_states=R._tag(8, 'block_states', R._s('stone'))),
+            'no block_states': self.section(1, names, raw_states=b''),
+            'a palette entry with no Name': self.section(1, names, raw_states=R._tag(10, 'block_states', R._compound(
+                [R._tag(9, 'palette', bytes([10]) + struct.pack('>i', 1) + R._compound([R._tag(3, 'Nme', bytes(4))]))]))),
+            'a palette that is a number': self.section(1, names, raw_states=R._tag(10, 'block_states', R._compound([R._tag(3, 'palette', bytes(4))]))),
+            'data that is a list': self.section(1, names, raw_states=R._tag(10, 'block_states', R._compound(
+                [R._tag(9, 'palette', bytes([10]) + struct.pack('>i', 2) + R._entry('stone') + R._entry('dirt')),
+                 R._tag(9, 'data', bytes([4]) + struct.pack('>i', 256) + bytes(2048))]))),
+        }
+        for name, bad in cases.items():
+            r = self.read_odd([self.section(0, names, good), bad, self.section(2, ['dirt'])])
+            self.assertEqual((r['missing'], r['bad_sections']), ([], 1), name)
+            self.assertEqual(set(r['cells'][layer:2 * layer]), {0}, f'{name}: its 4096 cells are unknown, not padded into blocks')
+            self.assertEqual(r['palette'][r['cells'][3]], 'coal_ore', f'{name}: the section under it still reads')
+            self.assertEqual({r['palette'][v] for v in r['cells'][2 * layer:]}, {'dirt'}, f'{name}: and the one over it')
+        r = self.read_odd([self.section(0, names, good), self.section(1, ['dirt'], with_y=False)])
+        self.assertEqual((r['bad_sections'], set(r['cells'][layer:2 * layer])), (1, {0}), 'a section that does not say where it is')
+        for bs, why in (({'palette': [{'Name': 'a'}, {'Name': 'b'}], 'data': tuple(good[:255])}, 'needs 256 words'),
+                        ({'palette': [{'Name': 'a'}, {'Name': 'b'}], 'data': list(good)}, 'needs 256 words'),
+                        ({'palette': [{'Name': 'a'}, {'Name': 7}]}, 'without a Name'), ('stone', 'not a compound')):
+            with self.assertRaises(R.BadChunk) as c:
+                R.section_cells(bs)
+            self.assertIn(why, str(c.exception))
+        with self.assertRaises(R.BadChunk):
+            R.section_bytes({'palette': [{'Name': 'a'}, {'Name': 'b'}], 'data': tuple(good[:100])})
+        box = U.read_scene_box(self.region_with({(0, 0): b'\x02' + zlib.compress(R.chunk_nbt(0, 0, [self.section(0, names, good), cases['a data array 56 words short']]))}),
+                               {'rect': [0, 0, 15, 15], 'y0': 0, 'top_min': None})
+        self.assertEqual(box['bad_sections'], 1, 'and the count reaches the frame')
+
+    # 4 ------------------------------------------------------------------ a name ends where it ends
+    def test_a_trailing_newline_is_not_part_of_a_name(self):
+        ok = {'id': 'e1', 'layer': 'deep', 'box': [0, 0, 9, 9], 'y': [1, 2]}
+        self.assertIsNone(U.check_scene(ok))
+        for bad in ('hostile\n', 'e1\n', '\ne1', 'e1\r', 'e1 '):
+            self.assertIn('id', str(U.check_scene(dict(ok, id=bad))), repr(bad))
+        self.assertEqual(U.slot_scenes({'scenes': [dict(ok, id='hostile\n'), ok]})[1], {'invalid': 1})
+        raw_box = {'box': [0, 0, 1, 1], 'y': [0, 0], 'palette': ['?', 'air'], 'cells': bytes(4)}
+        for sid, stamp in (('d1\n', '20261116T0400Z'), ('d1', '20261116T0400Z\n'), ('d1', '20261116T0400Zx'), ('d1/', '20261116T0400Z')):
+            with self.assertRaises(ValueError, msg=repr((sid, stamp))):
+                U.write_box_file(self.root, sid, stamp, raw_box)
+        for cam in ('under-x\n', 'under-x\n.json', '-x', 'a/b', ''):
+            with self.assertRaises(ValueError, msg=repr(cam)):
+                U.keep_framing(self.root, cam, {'style': 'side'})
+        self.assertEqual(all_paths(self.root), ['logs/', 'logs/scenes-slot.json'], 'nothing was written under any of those names')
+        for flag, val in (('--tag', 'x\n'), ('--size', '1920x1080\n'), ('--style', 'side\n')):
+            try:
+                code, _ = run_cli(['frame', '--dump', 'nope', '--pos', 'nope', '--out', os.path.join(self.tmp.name, 'o'), flag, val] +
+                                  ([] if flag == '--style' else ['--style', 'side']))
+            except Exception as e:
+                self.fail(f'{flag} {val!r} was not refused up front: {type(e).__name__}')
+            self.assertTrue(str(code).startswith('tl_under: ' + flag), (flag, code))
+        self.assertIsNone(U.parse_iso('2026-11-16T04:00:00Z\n'))
+        self.assertEqual(U.classify('coal_ore\n'), 'other')
+        put(os.path.join(self.root, 'logs', 'scenes-slot.json'), {'stamp': self.stamp + '\n', 'scenes': [self.scene]})
+        with self.assertRaises(ValueError) as c:
+            U.run_slot(U.slot_args(['--root', self.root, '--region-dir', self.rd]), now=self.t)
+        self.assertIn('no usable stamp', str(c.exception))
+
+    def test_no_pattern_is_used_with_match_or_a_dollar(self):
+        """Structural (behaviour cannot reach a pattern nobody has written yet): in tl_under.py and tl_region.py no
+        regular expression is applied with .match(), and none is anchored with `$`."""
+        import tokenize
+        for name in ('tl_under.py', 'tl_region.py'):
+            with open(os.path.join(HERE, name), 'rb') as f:
+                toks = [t for t in tokenize.tokenize(f.readline) if t.type not in (tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE)]
+            for i, t in enumerate(toks):
+                if t.type == tokenize.NAME and t.string == 'match' and toks[i - 1].string == '.':
+                    self.fail(f'{name}:{t.start[0]}: .match() -- use fullmatch()')
+                if t.type == tokenize.STRING and t.string.lstrip('rbRBf')[:1] in '\'"' and 'r' in t.string[:3].lower() and '$' in t.string \
+                        and toks[i - 1].string == '(' and toks[i - 2].string in ('compile', 'fullmatch', 'search', 'sub', 'finditer'):
+                    self.fail(f'{name}:{t.start[0]}: a pattern with `$`: {t.string}')
+
+    # 5 ------------------------------------------------------------------ no temporary outlives its write
+    def test_a_write_that_fails_leaves_nothing(self):
+        out_dir = os.path.join(self.tmp.name, 'out')
+        cv, sd = U.render(self.w, self.pos, dict(self.scene, auto=True), 'side', self.t)
+        real = os.replace
+        calls = []
+
+        def second_fails(a, b):
+            calls.append(b)
+            if len(calls) == 2:
+                raise OSError(28, 'No space left on device')
+            return real(a, b)
+        os.replace = second_fails
+        try:
+            with self.assertRaises(OSError):
+                U.write_frame(cv, sd, os.path.join(out_dir, 'new', 'f.png'), out_dir)
+        finally:
+            os.replace = real
+        self.assertEqual([p for p in all_paths(self.tmp.name) if '.tmp' in p or p.endswith('.part')], [], 'no temporary')
+        os.replace = lambda a, b: (_ for _ in ()).throw(OSError(28, 'No space left on device'))
+        try:
+            for fn in (lambda: U.keep_framing(self.root, 'under-x', {'style': 'side'}),
+                       lambda: U.write_box_file(self.root, 'd1', '20261116T0400Z', {'box': [0, 0, 1, 1], 'y': [0, 0], 'palette': ['?', 'air'], 'cells': bytes(4)}),
+                       lambda: U.background(self.w, U.make_framing(self.w, self.pos, dict(self.scene, auto=True), 'plan', (1920, 1080)),
+                                            os.path.join(self.tmp.name, 'cache'))):
+                with self.assertRaises(OSError):
+                    fn()
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                out = U.run_slot(self.args)
+        finally:
+            os.replace = real
+        self.assertEqual((out['drawn'], out['errors']), (0, 1), err.getvalue())
+        self.assertEqual(all_paths(self.root), ['logs/', 'logs/scenes-slot.json'], 'not a temporary, not an empty folder')
+        self.assertEqual([p for p in all_paths(self.tmp.name) if '.tmp' in p or p.endswith('.part')], [])
+
+    def test_abandoned_temporaries_are_swept_after_an_hour(self):
+        now = time.time()
+
+        def plant(rel, age_s):
+            p = os.path.join(self.root, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, 'wb') as f:
+                f.write(b'x')
+            os.utime(p, (now - age_s, now - age_s))
+            return rel
+        day = self.stamp[:8]
+        sid = self.scene['id']
+        old = [plant(f'under-framing/under-{sid}.json.tmp4242', 3700), plant('under-framing/under-zz.gray.part', 7200),
+               plant(f'frames/under-{sid}/{day}/{self.stamp}.png.tmp99', 3601), plant(f'under-box/{sid}/{day}/{self.stamp}.box.z.tmp7', 90000)]
+        young = [plant(f'under-framing/under-{sid}.gray.tmp555', 60), plant(f'under-box/{sid}/{day}/20261116T0000Z.box.z.tmp8', 3500)]
+        far = [plant('under-box/dOther/20261101/20261101T0000Z.box.z.tmp1', 90000), plant('frames/under-dOther/20261101/20261101T0000Z.json.tmp1', 90000),
+               plant('frames/topdown/20261101/20261101T0000Z.png.tmp1', 90000)]
+        keep = [plant('under-framing/under-zz.json', 90000), plant('frames/topdown/20261101/20261101T0000Z.png', 90000),
+                plant(f'frames/under-dOther/20261101/20261101T0000Z.png', 90000)]
+        self.assertEqual(U.sweep_tmp(os.path.join(self.root, 'nowhere')), 0)
+        out = U.run_slot(self.args)
+        self.assertEqual((out['drawn'], out['errors']), (1, 0))
+        left = all_paths(self.root)
+        for p in old:
+            self.assertNotIn(p, left, 'older than an hour, in a folder this slot writes')
+        for p in young + far + keep:
+            self.assertIn(p, left, 'younger than an hour, or in a folder that is not this scene\'s')
+        res = io.StringIO()
+        with contextlib.redirect_stdout(res):
+            U.main(['thin', '--root', self.root, '--today', self.stamp[:8]])
+        self.assertEqual(json.loads(res.getvalue())['temporaries_deleted'], 2)
+        left = all_paths(self.root)
+        for p in far[:2]:
+            self.assertNotIn(p, left, 'thin sweeps every under-box and frames/under-* folder')
+        for p in young + far[2:] + keep:
+            self.assertIn(p, left, "thin leaves young temporaries, other cameras' folders and every real file")
 
 
 class Budget(unittest.TestCase):
