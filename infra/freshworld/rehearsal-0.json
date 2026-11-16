@@ -11,7 +11,7 @@
   "2026-11-14: \"Start now, we have the credits\" (the rehearsal setup; starting the 48-hour run itself is still the owner's word)",
   "2026-11-14: the model for the 12 bots: \"Local 3090\""
  ],
- "status": "RUNNING since 2026-11-14T14:46:09Z (48 hours): Paper and 12 bots on VM 118",
+ "status": "CLOSED 2026-11-16T19:37:16Z after 52.8 h (ran from 2026-11-14T14:46:09Z; Paper and the 12 bots stopped and disabled on VM 118; final card 1 pass, 7 fail, 1 unread): see docs/reports/rehearsal-0-close-2026-11-16.md",
  "ready_when": null,
  "host": {
   "vm": "vm-minecraft-ai-v2 (vmid 118, on the large node)",
