@@ -15,8 +15,14 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, 'scripts/host/fleetstatus.py')
 MUT = [
     # monfix-01 (e): the cooperation census is retired by a dated marker, and only by one
-    ('coop marker ignored', "    gone = retired_line('cooperation census (B1)', os.path.dirname(d.rstrip('/')), _newest(os.path.join(d, 'daily'), '.json'))",
+    ('coop marker ignored', "    gone = retired_line('cooperation census (B1)', os.path.dirname(d.rstrip('/')), max(wrote, key=os.path.getmtime) if wrote else None)",
      "    gone = None", 'coop_line_failing_control_is_an_alarm_until_retired'),
+    ('coop heartbeat not counted as a write', "os.path.join(d, 'heartbeat.jsonl')) if x and os.path.exists(x)]", "None) if x and os.path.exists(x)]",
+     'coop_retired_but_still_running_is_an_alarm'),
+    # monfix-01 (e2): the building COUNT retires by its own marker name; the hourly pull stays
+    ('structcount retirement ignored', "    gone = retired_line('structcount (B5 buildings, from the world)', home or STRUCTCOUNT_HOME, marker=STRUCTCOUNT_RETIRED)",
+     "    gone = None", 'structcount_line_is_an_alarm_until_the_count_is_retired'),
+    ('whole-job marker name retires the count', "marker=STRUCTCOUNT_RETIRED)", "marker='RETIRED')", 'structcount_line_is_an_alarm_until_the_count_is_retired'),
     ('retired without a marker', "        if not os.path.exists(p):\n            return None\n        why = (open(p, errors='replace')",
      "        if not os.path.exists(p):\n            return f'{label} RETIRED: no marker'\n        why = (open(p, errors='replace')",
      'coop_line_failing_control_is_an_alarm_until_retired'),
