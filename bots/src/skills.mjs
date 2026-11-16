@@ -18793,6 +18793,7 @@ const stoodKey = () => projKeyOf(SHOP_PLOT)
  * an unreadable state is the workshop (the job as before).
  */
 let activeMem = null
+let activeMarked = null   // the last shopActive call's marked states (shopActiveAll reads them)
 const activeSig = (dir, list) => `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}${COUNTRY_ON ? `|c:${recordGenNow(dir, projKeyOf(COUNTRY_PLOT))}` : ''}`
 /** country-01: what the country wants now (country.mjs countryDemand over its head) -> 'site' | 'open' | null; unreadable: null (the
  *  inside's state as before). Never throws. */
@@ -18962,7 +18963,15 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
     // a bot on the grounds crew's (keeperNow: the keeper or a helper lease -- the grounds are its work), and the decorator's own pick is
     // its decor (decorator.mjs decorOrderPure), already a sink
     const sinkTurn = !!b && sinkTurnDue(b.finiteStreak) && !keeperNow(b, now)
-    const pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
+    let pick = activeProject(marked, order, { upkeepTurn: (b?.sinkStreak ?? 0) >= SINK_STREAK, service: svc?.plot ?? null, sinkTurn })
+    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
+    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
+    const bp = b?.boardPick
+    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
+      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
+      if (sp && st && jobBlocked(st) == null) pick = sp
+    }
+    activeMarked = marked   // shopActiveAll's view
     if (PROJTURN.on && b && b.shopTurnPick?.plot !== pick.plot) b.shopTurnPick = { plot: pick.plot, at: now }
     if (PROJTURN.on && b && visit) b.shopTurnInfo = { ...turnPickInfo(marked, order, pick), backedOff: marked.filter(s => s?.backoff === true).length, st: marked.find(s => s?.plot === pick.plot) ?? null }
     // gkroom-01 (Codex r1 BLOCKER): while a room-fallback tidy visit runs, the visit's pick and every read of the active project (the
@@ -18987,90 +18996,12 @@ export function shopActive (bot = null, now = Date.now(), { visit = false, state
  * 30 min per bot with the counts. Never throws.
  */
 export function shopActiveAll (bot = null, now = Date.now(), { visit = false } = {}) {
+  // TRUNK (one picker): a view of shopActive -- its pick and the marked states it chose from (null when it never marked: a single
+  // project, a throw). The fleet line's own copy of the picker stood here; beside the showcase's it was a second picker on one memo.
   try {
-    const list = projectsOn()
-    if (list.length === 1) return { pick: list[0], states: null }
-    const dir = townDir()
-    if (bot) activeMem = { ...(activeMem ?? {}), bot }
-    const sig = `${dir}|${list.map(p => `${projKeyOf(p.plot)}:${recordGenNow(dir, projKeyOf(p.plot))}`).join('|')}`
-    const b = activeMem?.bot ?? null
-    if (!(activeMem?.states && activeMem.sig === sig && now - activeMem.at < 60_000)) {
-      const states = list.map(p => {
-        const h = recordHead(dir, projKeyOf(p.plot))
-        const rec0 = h.ok ? h.head?.rec ?? null : null
-        // fleetpaths-01: FLEETPATHS=off reads a no-site paths record as no record (the projects after the paths wait, as before)
-        const rec = !fleetPathsOn() && pathsNoSiteRec(rec0) ? null : rec0
-        const complete = !!rec?.structure_complete
-        // wall-01 (LIVE showcase 10-30 06:14Z on: after the wall was sited, every build_shop order went to the finished ziggurat
-        // -- `complete`, nothing done -- because its TIDY (climbing pillars, counted per connection and reset by every restart)
-        // read as damage, and repairs come first: the wall got 2 visits in 20 min). Damage to a built cell is a repair, first; a
-        // tidy that is only due waits behind every open project (shop.mjs activeProject `due`)
-        // zigtidy-02: ...except for TIDY_AFTER_REPAIR_MS after the record's last repair completion (shop.mjs tidyIsRepair): then the
-        // tidy is a repair too -- the pillars a repair's own climbs left are dug before the open projects (bounded per bot)
-        const tidyFirst = complete && p.plot === MONUMENT_PLOT && tidyIsRepair(zigRepairedAt(projKeyOf(p.plot), now), now)
-        // stockyard-01: a complete yard's work for THIS bot (yard.mjs yardWork): its bag's surplus under pressure goes first (as a
-        // repair: activeProject's first loop, bounded by repairBackoff), any other work (the clerk, a refill, the aisles) is `due`
-        const yw = complete && b && p.plot === YARD_PLOT ? yardWorkNow(b, rec) : null
-        const damaged = complete && b ? (recordDamaged(b, rec, { tidy: tidyFirst }) || !!yw?.urgent) : false
-        const due = complete && b && !damaged ? (recordDamaged(b, rec) || !!yw?.kind) : false
-        // copperhall-01: the unsited hall WAITS on its opening rule (copperhall.mjs hallOpening: the town's copper), so the order
-        // never offers it early and works the next project meanwhile
-        const waiting = p.plot === HALL_PLOT && !rec ? !hallOpenNow(b).open : false
-        // sortstore-01: the storehouse's upkeep goes ahead of the other upkeeps (shop.mjs activeProject `dueFirst`)
-        return { plot: p.plot, exists: !!rec, complete, damaged, due, dueFirst: !!due && p.plot === STORE_PLOT && storeUpkeepDue(b, rec), ...(waiting ? { waiting } : {}) }
-      })
-      activeMem = { ...(activeMem ?? {}), sig, at: now, states }
-    }
-    // monument-01: whether each open project has an admission slot for THIS bot, read fresh (leases move faster than records):
-    // a bot whose first open project is full works the next one (shop.mjs activeProject `free`)
-    const me = b?.username ?? config.bot?.name ?? null
-    // wall-01: a repair this bot has tried REPAIR_TRIES times that still reads damaged waits behind the open projects (shop.mjs
-    // repairBackoff); a VISIT's pick (build_shop) is counted (noteRepair)
-    const rmem = b ? (b.shopRepairs ??= new Map()) : null
-    const states = repairBackoff(activeMem.states, rmem, now).map(st => (st.exists && st.complete ? st : { ...st, free: slotFreeFor(list.find(p => p.plot === st.plot), me, now) }))
-    // stuckwait-01: a project inside its stuck back-off waits behind the others (shop.mjs stuckBackoff); the repair count reads
-    // the states before it
-    // zigtidy-02: a complete record's stamp whose cells all read done now is stale (projStuckLive)
-    const waited = stuckBackoff(states, plot => projStuckLive(projKeyOf(plot), now), now)
-    // idlework-01 B: an open project a visit could not site waits behind the others (shop.mjs unsitedBackoff)
-    const waitedU = unsitedWaitOn() ? unsitedBackoff(waited, unsitedOfPlot, now) : waited
-    // idlework-01 B x starve-01 (rebase onto stuckproj-01): the two marks never meet -- unsitedBackoff marks only a project with
-    // NO record (`exists` false), starveMark only one WITH an open record -- so an unsited project is never offered first as
-    // starved, a starved one is never held as unsited, and each keeps its own rollback (UNSITEDWAIT=0, STARVE=0)
-    // GROUNDSKEEPER-01: the town's keeper (groundskeeper.mjs) works the grounds FIRST; every other bot never does (the lease)
-    // buildnext-01: a project THIS bot is held on (its own stuck_on_cell, its empty-visit breaker) waits behind the others
-    // (shop.mjs nextBackoff): the next eligible one is this call's pick. BUILDNEXT=0: exactly as before
-    const waitedN = buildNextOn() && b ? nextBackoff(waitedU, plot => buildNextHeld(b, plot, now)) : waitedU
-    const order = b ? keeperOrder(b, waitedN, list, now) : list
-    // gkforever-01 x starve-01 (rebase onto stuckproj-01): a bot whose order leads with the grounds (keeperOrderPure returns a NEW
-    // order, the tidy first, only for the lease's holder or a CREW bot on a grounds lap) is never sent to a starved project -- that
-    // visit is the grounds'; every other bot still is (STARVE). The tidy itself is never starve-marked (starveMark skips it)
-    const keeper = order !== list
-    // starve-01: an open project no builder has taken in STARVE_MS is offered first (shop.mjs starveMark); a VISIT's starved pick
-    // is this bot's for STARVE_MS (`tried`) and stays its pick until the visit ends (`starvePick`: its own slot lease refreshes the
-    // stamp, and the reserve and bag reads mid-visit must name the project the visit is on)
-    const starve = starveOn() && b && !keeper
-    // the stamps are read at most every STARVE_READ_MS (a lease listing of a large town directory per open project per call)
-    const sc = starve ? (b.starveReads ??= new Map()) : null
-    const lastTake = plot => { const c0 = sc.get(plot); if (c0 && now - c0.at < STARVE_READ_MS && now >= c0.at) return c0.v; const v = projLastTake(dir, list.find(p => p.plot === plot), now); sc.set(plot, { at: now, v }); return v }
-    const marked = starve ? starveMark(waitedN, { lastTakeOf: lastTake, now, tried: (b.starveTried ??= new Map()) }) : waitedN
-    let pick = activeProject(marked, order)
-    // workboard-01: a board job's project is this bot's pick while its pin is fresh and the job is still workable (townwork.mjs
-    // jobBlocked): the bot claimed a slot of THAT project and walked to town for it, so the visit must not re-pick another
-    const bp = b?.boardPick
-    if (bp && Number.isFinite(bp.at) && now - bp.at >= 0 && now - bp.at < WORKBOARD_T.claimTtlMs) {
-      const sp = list.find(p => p.plot === bp.plot), st = marked.find(x => x?.plot === bp.plot)
-      if (sp && st && jobBlocked(st) == null) pick = sp
-    }
-    if (starve && visit) {
-      const st = marked.find(x => x?.plot === pick.plot)
-      if (st?.starved) { b.starveTried.set(pick.plot, now); b.starvePick = { plot: pick.plot, at: now } } else b.starvePick = null
-    } else if (starve && b.starvePick && now - b.starvePick.at < STARVE_PICK_MS) {
-      const sp = list.find(p => p.plot === b.starvePick.plot), st = marked.find(x => x?.plot === b.starvePick.plot)
-      if (sp && st && !st.complete) pick = sp
-    }
-    if (visit) noteRepair(rmem, pick, states, now)
-    return { pick, states: marked }
+    activeMarked = null
+    const pick = shopActive(bot, now, { visit })
+    return { pick, states: activeMarked }
   } catch { return { pick: projectsOn()[0], states: null } }
 }
 /**
