@@ -44,6 +44,9 @@ const CASES = {
   abort1:      { what: '7a interrupted after the pickup click', abortAfter: 1, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
   abort2:      { what: '7b interrupted after the first merge click', abortAfter: 2, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
   abort3:      { what: '7c interrupted after the second merge click', abortAfter: 3, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
+  abort4:      { what: '7d interrupted after the 4th click sent', abortAfter: 4, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
+  abort5:      { what: '7e interrupted after the 5th click sent', abortAfter: 5, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
+  abort6:      { what: '7f interrupted after the 6th click sent', abortAfter: 6, c1: { set: [[2, 'coal', 60], [9, 'coal', 60], [20, 'coal', 10]] }, bag: [['coal', 60]] },
   chests13:    { what: 'carried chests: 13 held, banked in halves, one stays', c1: { set: [], empty: [20, 21, 22, 23, 24, 25, 26] }, bag: [['chest', 13]] },
 }
 const argv = process.argv.slice(2)
@@ -117,10 +120,16 @@ async function join () {
     if (name === 'window_click') {
       const cur = bot.currentWindow?.selectedItem
       bot.clicks.push({ t: Date.now(), win: data.windowId, slot: data.slot, button: data.mouseButton, mode: data.mode, clientCursor: cur ? `${cur.name}x${cur.count}` : null })
-      bot.onClick?.(bot.clicks.length)
+      bot.sent = (bot.sent ?? 0) + 1; bot.onClick?.(bot.sent)
     }
     if (name === 'close_window') bot.clicks.push({ t: Date.now(), close: data.windowId })
     return write(name, data)
+  }
+  // WHAT THE SERVER SENDS BACK about slots and the cursor (r1's probe: does its answer refresh the window?)
+  const itemOf = it => (it && (it.itemCount ?? 0) > 0 ? `id${it.itemId}x${it.itemCount}` : 'empty')
+  for (const name of ['set_slot', 'window_items', 'set_cursor_item', 'set_player_inventory']) {
+    bot._client.on(name, d => bot.clicks.push({ t: Date.now(), srv: name === 'window_items' ? `window_items win ${d.windowId} state ${d.stateId} cursor ${itemOf(d.carriedItem)}`
+      : name === 'set_slot' ? `set_slot win ${d.windowId} state ${d.stateId} slot ${d.slot} ${itemOf(d.item)}` : name === 'set_cursor_item' ? `set_cursor_item ${itemOf(d.contents ?? d.item)}` : `set_player_inventory slot ${d.slotId} ${itemOf(d.contents)}` }))
   }
   return bot
 }
@@ -135,7 +144,8 @@ const rowsOf = name => {
 }
 async function deposit (bot, label) {
   const ac = new AbortController()
-  if (DEF.abortAfter) bot.onClick = n => { if (n === DEF.abortAfter) setTimeout(() => ac.abort(), 0) }
+  const sent0 = bot.sent ?? 0   // the Nth click THIS deposit sends (r1's cursor probes count: each is a click)
+  if (DEF.abortAfter) bot.onClick = n => { if (n - sent0 === DEF.abortAfter) setTimeout(() => ac.abort(), 0) }
   const plan = TD.townDepositPlan(bot.inventory.items(), { wanted: [], noSwords: true, ...(DEF.args?.room ? { room: true } : {}) }).steps.map(s => `${s.name}x${s.count}${s.half ? '(half)' : ''}@${s.slot}`)
   const c0 = bot.clicks.length, t = Date.now()
   let res
@@ -143,7 +153,7 @@ async function deposit (bot, label) {
   const ms = Date.now() - t
   const clicks = bot.clicks.slice(c0)
   const tc = clicks.filter(c => c.slot != null)
-  return { label, plan, ...res, ms, clickMs: tc.length ? tc[tc.length - 1].t - tc[0].t : 0, clicks: clicks.map(c => (c.close != null ? `close(win ${c.close})` : `+${c.t - t}ms slot ${c.slot} button ${c.button} mode ${c.mode} client_cursor_after ${c.clientCursor ?? 'empty'}`)),
+  return { label, plan, ...res, ms, clickMs: tc.length ? tc[tc.length - 1].t - tc[0].t : 0, clicks: clicks.map(c => (c.srv ? `+${c.t - t}ms   <- ${c.srv}` : c.close != null ? `close(win ${c.close})` : `+${c.t - t}ms slot ${c.slot} button ${c.button} mode ${c.mode} client_cursor_after ${c.clientCursor ?? 'empty'}`)),
            cursorAfter: bot.currentWindow?.selectedItem ? 'WINDOW OPEN, CURSOR HELD' : bot.inventory.selectedItem ? `${bot.inventory.selectedItem.name}x${bot.inventory.selectedItem.count}` : 'empty', windowOpen: !!bot.currentWindow }
 }
 
