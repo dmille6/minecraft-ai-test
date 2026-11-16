@@ -3,6 +3,12 @@
 //   2. a HELD monument cell is never a waiver candidate (isolated-d F-S: 6 held core cells, 0 of 12 waivers used, 7,271 waiting)
 //   3. an air cell capped by its upper layer's open cell holding dirt: no face seen (placebo-c 327,72,106, 3,277 waiting)
 // Pure on the live shapes, chained on the fake server, each wiring killed by a mutant whose anchor is asserted present and unique.
+// one trunk (11-16): this file's held-cell part (stuckfleet.mjs heldWaiveCand) rides on buildretry-01's ledger and the in-visit waiver, which
+// default by pool (off in the showcase's) and off in the suite's runner: both ON here. Its cap part (capDigs) and its road-light wiring are
+// NOT in the trunk -- the showcase digs a cover its own way (coverdig-01 005e29324: rows say kind=cover, and the cap's control completes) --
+// so four checks below fail there; see docs/reports/trunk-merge-2026-11-16/DECISIONS.md
+process.env.VISIT_WAIVER = 'on'
+process.env.BUILDRETRY = 'on'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
