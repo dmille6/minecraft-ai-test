@@ -193,6 +193,7 @@ import { PATHS_PLOT, PATHS_BLUEPRINT, PATH_PALETTE, PATH_FOREIGN, FLATTENABLE, s
 import { WALL_PLOT, WALL_BLUEPRINT, WALL_PALETTE, WALL_FOREIGN, WALL_CLEAR_MAX, siteWall, wallSaplingCols, wallWalkR, wallProgress, wallVisitRecord, blockedSeg, wallLightsLast, wallNeed, wallWaiveDue, wallWaived, WALL_WAIVE_MAX, WALLEXT_PLOT, WALLEXT_BLUEPRINT, siteWallExt, wallextOpening, extWithMonument, WALLDEMO_PLOT, WALLDEMO_BLUEPRINT, WALLDEMO_BUILDERS, demoCells, retireWall, demoRecord, demoLeft, walldemoOpening, demoMissing, demoDone, releaseHold, wallAsHeld, holdAt, WALLDEMO_HOLD } from './wall.mjs'   // wall-01; wallext-01; wallext-02; WALLDEMO_HOLD: the atlas+decorator fold
 import { isYardBlueprint, yardSectors, yardSitingPlan, yardVisitOpts, yardSize } from './yard.mjs'   // yardsite-01
 import { YARD_PLOT, YARD_BLUEPRINT, YARD_BUILDERS, YARD_EARTH, YARD_REST_MS, YARD_VISIT_MAX, YARD_CLEAR_MAX, pileSlots, bayStates, yardHeld, yardWork, pileCells, refillDigs, yardClutter, bambooBlocks, yardRowDetail, refillPick } from './yard.mjs'   // stockyard-01
+import { USELEDGER, STOCK_EVERY_MS, ledgerLine, ledgerFileName } from './useledger.mjs'   // useledger-01
 import { COMPACT, RECIPES, compactKeepOf, bagCompact, chestCompact, mergePick, compactAllow, compactDetail, compactModeDetail } from './compact.mjs'   // compact-01
 import { rowKindOf, rowKeepOf, rowCells, rowPlan, rowSteps, rowAssign, rowPrune } from './yard.mjs'   // yardrow-01
 import { LANES, LANE_KINDS, laneBays, lanesElsewhere, isYardPlot, yardPlots, nearYardRank, kindOverCap, laneCapOf, overCapDetail, lanesModeDetail, wellHold, wellHoldOn } from './yard.mjs'   // yardlanes-01
@@ -4461,6 +4462,8 @@ export function townIndexTransfers (bot, pos, moves = [], { op = null, pre = nul
     if (!townIndexed(pos) || !moves.length) return 0
     const k = containerKey(bot, pos), h = indexHalves(bot, pos), at = ixNow()
     let n = 0
+    // useledger-01: every deposit's records pass here -- one ledger line (a clerk's or the tidy's put is a MOVE, never an in)
+    { const names = {}; for (const m of moves) if (m?.name && Number(m.n) > 0) names[m.name] = (names[m.name] ?? 0) + Number(m.n); useNote(bot, by === 'sort_tidy' || by === 'compact' ? 'move' : 'in', names, by) }
     for (const m of moves) {
       if (!m?.name || !(Number(m.n) > 0)) continue
       if (appendIndex(townDir(), indexHk(), bot.worldId ?? null, { t: 'xfer', id: indexId(bot, 'x'), op, pre, ver, gen: null, bot: bot.username ?? null, by, at, k, h, slot: m.slot ?? null, name: m.name, n: Number(m.n), ok: ok ? 1 : 0 })) n++
@@ -12020,7 +12023,37 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
  *                                                       { deposit, swap, tool, takes }
  * `result` is null when the container had nothing to act on (`saw` is what it held). `diag` carries the row's fields.
  */
-async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline) {
+// ---- USELEDGER-01 (useledger.mjs): the town's use ledger -- what went into storage, what was drawn and for what ---------------------
+/** Append one ledger line (never throws; nothing with the switch off). `d` in | out | move | waste | stock. */
+function useNote (bot, d, names, why = '-') {
+  try {
+    if (!USELEDGER.on || !bot) return false
+    const line = ledgerLine({ d, names, why, bot: bot.username ?? null, world: bot.worldId ?? null })
+    if (!line) return false
+    fs.appendFileSync(path.join(townDir(), ledgerFileName(homeVec())), `\n${line}`)
+    return true
+  } catch { return false }
+}
+/** The standing stock, written at most every STOCK_EVERY_MS a bot: the town index's known containers + the yards' piles. Never throws. */
+function useStockNote (bot, now = Date.now()) {
+  try {
+    if (!USELEDGER.on || !bot || now - (bot.useStockAt ?? -Infinity) < STOCK_EVERY_MS) return
+    const st = matsTownStock(bot)
+    if (!st || !(st.known > 0)) return   // no index reading: never a stock line of zeros
+    bot.useStockAt = now
+    const n = { ...st.stock }
+    for (const y of yardsNow(bot, now)) for (const [name, c] of Object.entries(yardHeld(y.states))) n[name] = (n[name] ?? 0) + c
+    useNote(bot, 'stock', n, 'index+yard')
+  } catch { /* the ledger is advisory */ }
+}
+/** EVERY VERIFIED TAKE FROM A TOWN CONTAINER passes here: the visit, then its ledger line -- `why` the consumer (a build's bill, a
+ *  craft, a tool, a toolkit, a smelt; `move`: a clerk's take, storage to storage; `prune`: to the well). */
+async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline, why = 'other') {
+  const v = await withdrawVisit0(ctx, chestBlock, decide, signal, msLeft, deadline)
+  try { if (v?.verified && v.moved?.took) useNote(ctx.bot, why === 'move' ? 'move' : why === 'prune' ? 'waste' : 'out', v.moved.took, why) } catch { /* advisory */ }
+  return v
+}
+async function withdrawVisit0 (ctx, chestBlock, decide, signal, msLeft, deadline) {
   const { bot } = ctx
   const cp = chestBlock.position
   const diag = { verification: '-', cursor: '-', err: null, chestRoom: null, srv: '-' }
@@ -12314,7 +12347,7 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   let lastFailure = null, noRoom = 0
   for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
     check(signal)
-    const v = await withdrawVisit(ctx, chestBlock, decide, signal, msLeft, deadline - 2_000)
+    const v = await withdrawVisit(ctx, chestBlock, decide, signal, msLeft, deadline - 2_000, 'withdraw')
     sweep.mark(chestBlock.position, v.double)
     tried.push(`${posKey(chestBlock.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? (v.moved ? 'acted' : 'none')}`)
     diag = v.diag ?? diag
@@ -12478,7 +12511,7 @@ async function pruneTown (ctx, _args, signal) {
     const takes = ok.slice(0, Math.max(0, Math.min(PRUNE_MAX_STACKS, free() - PRUNE_FREE_AFTER, visitRoom)))
     return takes.length ? { prune: true, takes: takes.map(t => ({ name: t.name, count: t.count })) } : null
   }
-  const v = await withdrawVisit(ctx, block, decide, signal, msLeft, deadline - 2_000)
+  const v = await withdrawVisit(ctx, block, decide, signal, msLeft, deadline - 2_000, 'prune')
   const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
   const total = Object.values(took).reduce((t, n) => t + n, 0)
   if (!total) return row(v.result?.status === 'failed' ? 'failed' : 'no_effect', `took nothing at ${pick.k} well_keeps=${wellRefused}: ${v.result?.detail ?? 'no full stack to take'}${v.diag?.pruneRefused ? ` (refused ${v.diag.pruneRefused})` : ''}`)
@@ -12697,7 +12730,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   for (let n = 0; n < WITHDRAW_PICK_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
     check(signal)
     const cb = next.block
-    const v = await withdrawVisit(ctx, cb, pickDecision, signal, pc.msLeft, pc.deadline - 2_000)
+    const v = await withdrawVisit(ctx, cb, pickDecision, signal, pc.msLeft, pc.deadline - 2_000, 'tool')
     const keys = halvesOf(bot, cb.position, v.double)
     for (const k of keys) pickTried.add(k)
     record(v, cb)
@@ -12749,7 +12782,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     if (n === 0) { st.search.ing = nx.order.length; st.search.ix.ing = nx.order.ixNeg ?? 0; st.search.ix.ingTried = ingTried }
     const cb = nx.block
     if (!cb) break
-    const v = await withdrawVisit(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000)
+    const v = await withdrawVisit(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000, 'craft')
     const keys = halvesOf(bot, cb.position, v.double)
     for (const k of keys) ingTried.add(k)
     record(v, cb)
@@ -12907,7 +12940,7 @@ async function toolkit (ctx, args, signal) {
       for (let n = 0; n < KIT_SEARCH_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
         check(signal)
         const cb = next.block
-        const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+        const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000, 'toolkit')
         // ONE ENTRY PER CONTAINER, opened or not: a double chest's other half is the same container (the view keys it once,
         // and its partner comes from the block state -- the old sweep marked it only after a window opened, so a walled-in
         // or lidded double chest spent two of the three tries)
@@ -13939,7 +13972,7 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0, iron = 0, carried = 0, 
     for (let n = 0; n < visits && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
       check(signal)
       const cb = next.block
-      const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+      const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000, 'smelt')
       for (const k of halvesOf(bot, cb.position, true)) passTried.add(k)
       out.looked++
       out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
@@ -14588,7 +14621,7 @@ export function uncertainTakes ({ err = null, visit = null } = {}) {
   if (f?.name && Number(f.n) > 0) out[f.name] = (out[f.name] ?? 0) + Number(f.n)
   return out
 }
-async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null, { first = [] } = {}) {
+async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = takeAllowed, onTook = null, onUncertain = null, { first = [], why = 'build' } = {}) {
   const { bot } = ctx
   const { deadline } = withdrawClock(ctx)
   const left = { ...take }
@@ -14625,7 +14658,7 @@ async function matsWithdraw (ctx, take, signal, reserveMs, reserve, allow = take
     curFirst = next.first === true
     cur = containerKey(bot, cb.position)
     let v
-    try { v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000) } catch (e) {
+    try { v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000, why) } catch (e) {
       for (const [k, c] of Object.entries(uncertainTakes({ err: e }))) { try { onUncertain?.(k, c, 'aborted') } catch { /* telemetry */ } }
       throw e
     }
@@ -21390,7 +21423,7 @@ async function sortLabelOne (ctx, sp, signal, deadline, { kind = 'store_sign' } 
  *  bag stacks of each name, the biggest first, never taking the bag's total of a name below `floor` (its count BEFORE the take: the
  *  withdraw's shift-clicks MERGE a taken stack into the bag's own partial one -- Paper 11-01 -- so a stack is not the town's or the
  *  bot's; the floor keeps the bot's own stock whole, and at most one partial stack of the town's stays in the bag). */
-async function sortPut (bot, block, stacks, deadline, signal, floor = {}, stepsOf = null) {
+async function sortPut (bot, block, stacks, deadline, signal, floor = {}, stepsOf = null, by = 'sort_tidy') {
   const pos = block.position
   const win = await openTown(bot, block, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())))
   if (!win) return { put: {}, ok: false, why: 'unopenable' }
@@ -21422,7 +21455,7 @@ async function sortPut (bot, block, stacks, deadline, signal, floor = {}, stepsO
   }
   if (settled.state === 'unresolved') return { put: {}, ok: false, why: 'cursor' }
   const v = await verifyTown(bot, block, r.done, Math.max(1000, Math.min(TD_OPEN_MS, deadline - Date.now())), r.bagBefore ?? null)
-  townIndexTransfers(bot, pos, v.verified.map(({ step, dest }) => ({ slot: dest, name: step.name, n: step.count })), { op: ixOp, pre: ixPre, ver: v.ix, by: 'sort_tidy', ok: 1 })
+  townIndexTransfers(bot, pos, v.verified.map(({ step, dest }) => ({ slot: dest, name: step.name, n: step.count })), { op: ixOp, pre: ixPre, ver: v.ix, by, ok: 1 })
   if (v.verified.length) { rememberTown(bot, pos, 'took'); const q = chestPartner(bot, pos); if (q) rememberTown(bot, q, 'took') }
   const put = {}
   for (const { step } of v.verified) put[step.name] = (put[step.name] ?? 0) + step.count
@@ -21453,7 +21486,7 @@ async function sortTidyOne (ctx, homes, signal, deadline) {
   }
   const msLeft = cap => Math.max(0, Math.min(cap, deadline - Date.now()))
   const floor = heldMap(bot)   // the bag's own counts before the take (sortPut never puts below them)
-  const v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000)
+  const v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000, 'move')
   const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
   if (!Object.keys(took).length) { backoff(plan.moves.map(m => m.name)); row(false, `why=take:${v.result?.failClass ?? v.skip ?? 'none'}`); return { moved: 0, why: 'take' } }
   const done = {}, puts = []
@@ -21593,6 +21626,7 @@ async function withOverCap (ctx, run) {
         const n = (before?.[name] ?? 0) - (after[name] ?? 0)
         if (!(n > 0)) continue
         const k = yardKindNow(bot, name)
+        if (k.over) useNote(bot, 'waste', { [name]: n }, 'over_cap')
         if (k.over) logEvent({ kind: 'yard_over_cap', status: 'success', snapshot: snapshot(bot), detail: overCapDetail({ name, n, lanes: k.lanes, cap: k.cap }) })
       }
     } catch { /* telemetry */ }
@@ -21703,7 +21737,7 @@ async function yardRowStep (ctx, rec, bp, plot, signal, deadline) {
       if (lease.ok) { try { yardRowsWrite(bot, rowPrune(yardRowsNow(bot, Date.now(), { fresh: true }), new Set([b.at.join(',')]))) } finally { try { releaseLease(dir, key, 'row', me, lease.gen) } catch { /* TTL */ } } }
       continue
     }
-    const p = await sortPut(bot, block, b.names, deadline, signal, keeps, bag => rowSteps(bag, b.names, keeps, logHalfSteps))
+    const p = await sortPut(bot, block, b.names, deadline, signal, keeps, bag => rowSteps(bag, b.names, keeps, logHalfSteps), 'yard_row')
     const n = Object.values(p.put ?? {}).reduce((t, v) => t + v, 0)
     for (const [name, c] of Object.entries(p.put ?? {})) out.banked[name] = (out.banked[name] ?? 0) + c
     if (!n && p.ok) (bot.yardRowFull ??= new Map()).set(b.at.join(','), Date.now() + 30 * 60_000)   // it took nothing: full for this bot a while
@@ -21756,7 +21790,7 @@ async function yardClerkPass (ctx, pass, signal, deadline) {
   const keep = pass.op === 'compact' ? compactKeepOf(name) : 0
   let took = 0, made = 0, why = 'done'
   const put = {}
-  const wd = await matsWithdraw(ctx, { [name]: pass.take }, signal, 30_000, matsReserve().table, (n, want, o) => compactAllow(n, want, o, keep))
+  const wd = await matsWithdraw(ctx, { [name]: pass.take }, signal, 30_000, matsReserve().table, (n, want, o) => compactAllow(n, want, o, keep), null, null, { why: 'move' })
   took = Number(wd.took?.[name]) || 0
   const to = pass.op === 'compact' ? pass.to : null
   if (took > 0 && to) {
@@ -21780,7 +21814,7 @@ async function yardClerkPass (ctx, pass, signal, deadline) {
     if (bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) {
       try { await walk(() => withTimeout(bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2)), Math.max(1000, Math.min(15_000, deadline - Date.now())), bot)) } catch (e) { if (e?.aborted || signal?.aborted) throw e; continue }
     }
-    const p = await sortPut(bot, block, o, deadline, signal, bag0)
+    const p = await sortPut(bot, block, o, deadline, signal, bag0, null, 'compact')
     for (const [n, c] of Object.entries(p.put ?? {})) put[n] = (put[n] ?? 0) + c
   }
   const left = owed()
@@ -21811,6 +21845,7 @@ async function bagCompactNow (ctx, signal) {
 
 
 function yardWorkNow (bot, rec, now = Date.now(), plot = YARD_PLOT) {
+  if (plot === YARD_PLOT) useStockNote(bot, now)   // useledger-01: the standing stock, at most every 30 min a bot
   // a visit that did nothing rests the yard's work for this bot (YARD_REST_MS): a visit that cannot act is never re-sent at once
   if (Number(bot?.yardRestUntil) > now) return null
   try {
@@ -21999,7 +22034,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     let place = w.place
     // 2. THE CLERK: the chests' surplus into the bag first (the build reserve is the withdraw's own floor: mats.mjs takeAllowed)
     if (w.kind === 'clerk') {
-      const wd = await matsWithdraw(ctx, w.draw, signal, 30_000, matsReserve().table)
+      const wd = await matsWithdraw(ctx, w.draw, signal, 30_000, matsReserve().table, undefined, null, null, { why: 'move' })
       f.drew = { ...(wd.took ?? {}) }
       place = Object.fromEntries(Object.entries(f.drew).filter(([, v]) => v > 0))
       if (!Object.keys(place).length) { stop = 'nothing_drawn'; bot.yardRestUntil = Date.now() + YARD_REST_MS; return out('no_effect', 'nothing_drawn', `the clerk drew nothing from the town chests (${w.why})`) }
@@ -22064,6 +22099,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
         f.dug = got ? { cobblestone: got } : {}
         // the consumer's: counted from the BAG (never the digs), kept in it for the consumer's bill
         if (result) result.got = got
+        if (got > 0) useNote(bot, drawing ? 'out' : 'move', { cobblestone: got }, drawing ? 'yard_draw' : 'yard_refill')   // useledger-01
       }
       if (w.kind === 'upkeep' && w.first) bot.yardClearFail = f.cleared > 0 ? null : { n: (bot.yardClearFail?.n ?? 0) + 1, at: Date.now() }
       // yarduse-01: a bay just cleared of its clutter is stocked in the same visit (clear, then deposit -- Codex design)
@@ -22093,6 +22129,7 @@ async function yardVisit (ctx, rec, recordGen, signal, out, t0 = Date.now(), { d
     }
     stop = r?.stop ?? '-'
     const nPlaced = Object.values(f.placed).reduce((t, v) => t + v, 0)
+    if (nPlaced > 0) useNote(bot, w.kind === 'clerk' ? 'move' : 'in', f.placed, 'yard')   // useledger-01: the piles' intake
     const n = nPlaced + f.cleared
     // yarduse-01: a stock visit that placed answers the well's deferral (yard.mjs yardDeferred); a draw that dug nothing rests the
     // DRAW only (the stock and the well's deferral are not this bot's draw's to hold)
@@ -22341,7 +22378,7 @@ async function hubClerkOne (ctx, rec, signal, deadline) {
     }
     bot.hubCargoSrc = plan.from
     let v
-    try { v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000) } catch (e) { hubCargoWrite(bot, hubOwed(bot)); throw e }
+    try { v = await withdrawVisit(ctx, src, decide, signal, msLeft, deadline - 2_000, 'move') } catch (e) { hubCargoWrite(bot, hubOwed(bot)); throw e }
     // VERIFIED: the file is what the server confirms was taken. UNVERIFIED (a recount that did not answer, a later transfer that
     // failed, a cursor to recover: Codex code r1 BLOCKER 1): the intent stays, clamped to the bag -- the bag held none of these kinds
     // before the take (no merge), so what it holds of them now IS the cargo, protected and delivered like any

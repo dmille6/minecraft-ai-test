@@ -307,7 +307,7 @@ await t('WIRED (b): a row chest is a town container but never a general deposit\
   one(sk, '\\.\\.\\.cottageKeys\\(\\), \\.\\.\\.yardRowKeys\\(activeMem\\?\\.bot \\?\\? null\\)\\]\\)', 'registered with the town\'s containers')
   one(sk, "const lease = projTakeLease\\(dir, key, 'row', me\\)\\n    if \\(lease\\.ok\\) \\{\\n      try \\{", 'one placer at a time')
   one(sk, "if \\(stands\\) \\{ yardRowsWrite\\(bot, rowAssign\\(rows, at, plan\\.place\\.kind, \\{ plot, by: me \\}\\)\\); out\\.placed\\+\\+", 'the record follows the world')
-  one(sk, 'const p = await sortPut\\(bot, block, b\\.names, deadline, signal, keeps, bag => rowSteps\\(bag, b\\.names, keeps, logHalfSteps\\)\\)', 'the bank')
+  one(sk, "const p = await sortPut\\(bot, block, b\\.names, deadline, signal, keeps, bag => rowSteps\\(bag, b\\.names, keeps, logHalfSteps\\), 'yard_row'\\)", 'the bank')
   one(sk, "if \\(typeof stepsOf === 'function'\\) return stepsOf\\(bag\\)", 'sortPut takes the row\'s steps')
   one(sk, "if \\(rp\\.bank\\.length\\) return \\{ kind: 'row', urgent: true,", 'the order reads the row\'s work')
   one(sk, 'const k = rk \\? \\{ room: yardRowRoomNow\\(bot, rk, now\\) \\} : yardKindNow\\(bot, name, now\\)', 'WELL_HOLD covers a row kind with room')
