@@ -67,7 +67,10 @@ DEATH_CATS = (
     ('drowned', r'^drowned', 'drowning'),
     ('stalagmite', r'stalagmite', 'dripstone'),
     ('stalactite', r'stalactite', 'dripstone'),
-    ('fall', r'fell from a high place|hit the ground|fell off|doomed to fall', 'cave_fall'),
+    # 'fell while climbing' is the server's message for a fall off a climbable block it has no own word for (ladders, vines
+    # and scaffolding are 'fell off ...'). One row in the validated window, hive-d-Echo 2026-11-07T18:30:46Z at 292,-11,39
+    # after 36 blocks, stopped every refresh from 11-08 to 11-16: 1 of 1,115 validated death rows, nine days with no map.
+    ('fall', r'fell from a high place|hit the ground|fell off|fell while climbing|doomed to fall', 'cave_fall'),
     ('suffocated', r'suffocated', 'suffocation'),
     ('contact', r'pricked to death|poked to death', None),
 )
