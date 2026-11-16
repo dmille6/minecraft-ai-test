@@ -137,6 +137,11 @@ await t('wiring: the order reads the band through its own option beside bagroom\
   once(well, 'bagRoom = BAGROOM.well, bandOn = WELL_BAND.on } = {}) {', 'the two options')
   once(well, '(slots >= TRIGGER_SLOTS || wellBandDue({ on: bandOn, slots, junkStacks }))', 'the band\'s rule'); once(well, '(slots >= TRIGGER_SLOTS || wellRoomDue({ on: bagRoom, freeSlots, junkStacks }))', 'bagroom\'s rule')
   once(readFileSync(new URL('../scripts/run-tests.mjs', import.meta.url), 'utf8'), "IDLEWORK_WELL: process.env.IDLEWORK_WELL ?? 'off',", 'the suite\'s default')
+  // the VISIT's part (skills.mjs disposeWell; idlework2.test.mjs anchors the fleet's three lines): the same switch, never a hall
+  // clerk's throw, and the clerk's entry plan still reads its own keep -- with the band off both lines are the showcase's
+  const skills = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  once(skills, '  const band = visit && WELL_BAND.on && slotsBefore >= WELL_BAND_SLOTS && !clerk\n', 'the visit\'s band')
+  once(skills, '  const entry = only ? disposePlan(items(), { keep: keepOf(items()) }) : entryPlan\n', 'the clerk\'s entry plan')
 })
 
 console.log('ROW 4: escdead-01 (b)\'s craft-room relaxation (CRAFTSPARE, craftroom.mjs craftSpareOn) beside the showcase\'s rebuild rule')
