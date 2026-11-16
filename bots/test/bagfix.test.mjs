@@ -433,8 +433,9 @@ await t('lossCredit: never less than what left the bag, never a second time; no 
   await killedBy(BAGFIX_PATH, BF, "    if (lost > 0) out[name] = Math.max(Number(out[name]) || 0, (Number(before?.[name]) || 0) + lost)\n", '', sc)
   const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
   one(sk, 'if \\(ev\\?\\.answered && !ev\\.decodeFailed && ev\\.cursorEmpty\\) \\{ bagEnd = held\\(windowBag\\(bot, win\\)\\); serverBag = bagEnd \\}', 'the end bag is read after the settle, on the server\'s word, and is bagdelta\'s')
-  one(sk, 'if \\(!returned && bagEnd\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: bagOpen, end: bagEnd \\}\\)\\)', 'an abort or a throw is credited in the finally')
-  one(sk, 'if \\(bagEnd\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: bagOpen, end: bagEnd \\}\\)\\)', 'a stop is credited after the re-open')
+  one(sk, 'if \\(!returned && bagEnd && mergeNames\\.size\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: mergedOpen\\(\\), end: bagEnd \\}\\)\\)', 'an abort or a throw is credited in the finally')
+  one(sk, 'if \\(bagEnd && v\\.ok && mergeNames\\.size\\) Object\\.assign\\(banked, lossCredit\\(\\{ banked, before: bankedAt, open: mergedOpen\\(\\), end: bagEnd \\}\\)\\)', 'a stop is credited after the re-open')
+  one(sk, 'mergeNames\\?\\.add\\?\\.\\(step\\.name\\)', 'only the names a merge was clicked for (every other move keeps the re-open\'s exact rule)')
   assert.ok(sk.indexOf('settled = await settleCursor(bot, win)\n') < sk.indexOf('bagEnd = held(windowBag(bot, win))'), 'after the settle')
 })
 
