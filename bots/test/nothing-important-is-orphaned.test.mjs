@@ -45,6 +45,7 @@ const REQUIRED = [
   'docs/reports/voyager-01-design-2026-11-06.md',
   'docs/reports/effect-audit-2026-11-07.md',
   'docs/reports/queue-plan-2026-11-07.md',
+  'docs/reports/parked-work-2026-11-16.md',       // owner 11-16: the parked fleet queue and ledger rows, so nothing is lost
   'voyager/src/sandbox.mjs',
   'voyager/src/facade.mjs',
   'voyager/src/loop.mjs',
